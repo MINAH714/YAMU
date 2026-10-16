@@ -1,0 +1,21 @@
+.app {
+  width: min(100%, 480px);
+  padding: 48px 32px;
+  border-radius: 16px;
+  background: #fff;
+  box-shadow: 0 12px 32px rgb(20 45 70 / 8%);
+}
+
+.app h1 {
+  margin: 0 0 16px;
+  color: #16324f;
+}
+
+.app p {
+  color: #41566b;
+}
+
+.app .status {
+  margin-top: 32px;
+  color: #225c84;
+}
