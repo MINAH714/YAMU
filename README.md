@@ -4,6 +4,10 @@
 >
 > 카드 혜택과 소비 패턴을 분석해 최적의 결제 카드를 추천하고, 실적 달성의 유불리와 미래 잔액까지 관리하는 AI 기반 통합 금융 플랫폼
 
+## 개발 시작
+
+현재 저장소에는 사용자 모바일 앱, 모의 POS 웹, BE API, AI 서비스의 최소 실행 구조가 있습니다. 담당 영역별 설치·실행·검증 방법은 [FE](fe/README.md), [BE](be/README.md), [AI](ai/README.md) 문서를 참고하세요. 결제 승인과 계좌 잔액은 후속 기능에서 모의 데이터로 다룰 예정입니다.
+
 ---
 
 ## 목차
@@ -305,40 +309,41 @@ flowchart TD
 
 ## 9. 기술 스택
 
-> 아래 기술 스택은 프로젝트 구현을 위한 권장안이며, 팀의 숙련도와 개발 환경에 따라 조정할 수 있다.
+> 아래 기술 스택은 현재 아키텍처를 기준으로 하며, 일부 구성 요소는 후속 기능에서 연동한다.
 
 | 구분 | 기술 | 활용 목적 |
 |---|---|---|
-| Frontend | React, TypeScript | 사용자 인터페이스 및 컴포넌트 개발 |
-| Styling | Tailwind CSS | 반응형 UI 및 스타일 관리 |
-| Visualization | Chart.js | 소비 분석 및 잔액 예측 시각화 |
-| Backend | FastAPI, Python, Pydantic | API 및 서비스 로직 개발 |
-| Database | MySQL | 사용자·카드·혜택·거래 데이터 관리 |
-| AI | LLM API, Python 데이터 분석 | 설명 생성, 소비 패턴 해석, 대화형 가이드 |
-| Deployment | Docker | 컨테이너 기반 실행 환경 |
-| CI/CD | GitHub Actions | 자동 빌드·테스트·배포 |
-| Cloud | AWS 또는 팀 환경에 맞는 클라우드 | 서비스 배포 및 운영 |
+| 사용자 앱 | Expo, React Native, TypeScript | Android 사용자 인터페이스 |
+| 모의 POS 웹 | Vite, React, TypeScript | 가맹점 결제 시뮬레이터 |
+| Backend | Spring Boot 3, Java 17 | API 및 규칙 기반 계산 |
+| AI | FastAPI, Python | 소비 예측 서비스 |
+| 데이터 | MySQL 8, Redis 7 | 거래 데이터, 캐시·락 (후속 연동) |
+| 엣지 | Nginx | HTTPS 및 역방향 프록시 (후속 연동) |
+| 외부 서비스 | Claude, Firebase Cloud Messaging | 설명 생성 및 푸시 알림 (후속 연동) |
 
 ## 10. 시스템 아키텍처
 
 ```mermaid
 flowchart TD
-    U[사용자] --> FE[React Frontend]
-    FE --> API[FastAPI Backend]
+    U[사용자 앱: Expo] --> EDGE[Nginx]
+    POS[모의 POS 웹] --> EDGE
+    EDGE --> API[Spring Boot Backend]
 
     API --> AUTH[인증 및 사용자 관리]
     API --> CARD[카드 혜택 계산 엔진]
     API --> PERF[실적 달성 분석 엔진]
     API --> CASH[미래 잔액 계산 엔진]
     API --> REPORT[소비 분석 서비스]
-    API --> AI[AI 설명 및 대화 서비스]
+    API --> AI[FastAPI 예측 서비스]
 
     AUTH --> DB[(MySQL)]
     CARD --> DB
     PERF --> DB
     CASH --> DB
     REPORT --> DB
-    AI --> DATA[계산 결과 및 분석 데이터]
+    API --> CACHE[(Redis)]
+    API --> LLM[Claude]
+    API --> PUSH[FCM]
 ```
 
 ### 주요 컴포넌트
