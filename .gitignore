@@ -1,0 +1,32 @@
+# Local environment files
+.env
+.env.*
+!.env.example
+!.env.*.example
+
+# Frontend
+node_modules/
+.expo/
+dist/
+web-build/
+expo-env.d.ts
+*.tsbuildinfo
+/fe/mobile/android/
+/fe/mobile/ios/
+
+# Backend
+.gradle/
+build/
+
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Editor and OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+*.log
