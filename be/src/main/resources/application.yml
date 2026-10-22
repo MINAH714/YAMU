@@ -9,6 +9,23 @@ spring:
     # JSON 필드 이름은 Java 필드 이름 그대로(camelCase)다. 별도 naming 설정을 두지 않는다.
     # 날짜는 ISO-8601 문자열로 내려간다(Spring Boot 기본값). 시간은 UTC 기준이다.
     time-zone: UTC
+  jpa:
+    # 트랜잭션이 끝난 뒤(Controller·JSON 변환 중)에 지연 로딩 쿼리가 몰래 나가지 않게 끈다.
+    # 화면에 필요한 값은 Service의 트랜잭션 안에서 DTO로 옮겨 담아 반환한다.
+    open-in-view: false
+    hibernate:
+      # 테이블은 Flyway(db/migration)가 만든다. JPA는 엔티티와 테이블이 맞는지 검사만 하고,
+      # 다르면 서버가 뜨지 않는다. create·update는 운영 DB 구조를 멋대로 바꾸므로 쓰지 않는다.
+      ddl-auto: validate
+    properties:
+      hibernate:
+        # 연관 엔티티를 하나씩 N번 조회하지 않고 IN (...)으로 최대 100개씩 묶어 조회한다(N+1 안전망).
+        default_batch_fetch_size: 100
+        jdbc:
+          time_zone: UTC
+  flyway:
+    # 마이그레이션 SQL 위치(기본값). 파일 규칙은 docs/be/jpa-flyway.md
+    locations: classpath:db/migration
 server:
   port: ${SERVER_PORT:8080}
 
@@ -18,3 +35,19 @@ springdoc:
     tags-sorter: alpha
     operations-sorter: method
     display-request-duration: true
+
+---
+# local 프로필에만 적용되는 공통 개발 설정. 개인 값(DB 비밀번호 등)은 application-local.yml에 둔다.
+# 여기 두는 이유: 이미 application-local.yml을 복사해 둔 팀원도 견본을 다시 복사하지 않고 받게 하려고.
+spring:
+  config:
+    activate:
+      on-profile: local
+  jpa:
+    properties:
+      hibernate:
+        format_sql: true
+logging:
+  level:
+    # 실행되는 SQL을 콘솔에 찍는다. 반복문에서 같은 SELECT가 줄줄이 나오면 N+1이다.
+    org.hibernate.SQL: debug
