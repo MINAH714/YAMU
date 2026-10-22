@@ -1,0 +1,8 @@
+# 테스트 전용 설정. build.gradle의 test 태스크가 test 프로필로 실행한다.
+# DB·Redis가 떠 있지 않아도 테스트가 돌아가야 한다. 커넥션은 실제로 쿼리할 때 처음 열리므로
+# 주소만 있으면 스프링 컨텍스트는 뜬다. DB가 필요한 테스트가 생기면 그때 방식을 정한다.
+spring:
+  datasource:
+    url: jdbc:mysql://localhost:3306/yamu_test
+    username: test
+    password: test

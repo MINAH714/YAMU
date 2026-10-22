@@ -1,10 +1,14 @@
 spring:
   application:
     name: yamu-be
+  profiles:
+    # 프로필을 따로 지정하지 않으면 local로 실행한다(application-local.yml을 읽는다).
+    # 운영 서버는 SPRING_PROFILES_ACTIVE 환경변수로 따로 지정한다.
+    default: local
   jackson:
     # JSON 필드 이름은 Java 필드 이름 그대로(camelCase)다. 별도 naming 설정을 두지 않는다.
-    # 날짜는 ISO-8601 문자열("2026-10-20T10:00:00")로 내려간다(Spring Boot 기본값).
-    time-zone: Asia/Seoul
+    # 날짜는 ISO-8601 문자열로 내려간다(Spring Boot 기본값). 시간은 UTC 기준이다.
+    time-zone: UTC
 server:
   port: ${SERVER_PORT:8080}
 
