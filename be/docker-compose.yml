@@ -14,7 +14,7 @@ services:
       MYSQL_USER: ${DB_USERNAME:-yamu}
       MYSQL_PASSWORD: ${DB_PASSWORD:-yamu_local}
       MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-root_local}
-      TZ: Asia/Seoul
+    # 시간대는 따로 지정하지 않는다(UTC). 운영 Lightsail Managed MySQL 기본값과 같게 둔다.
     # 127.0.0.1에만 열어 같은 와이파이의 다른 기기에서 접속하지 못하게 한다.
     ports:
       - "127.0.0.1:${DB_PORT:-3306}:3306"

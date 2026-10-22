@@ -87,6 +87,21 @@ PC에 MySQL이 이미 깔려 있거나 다른 프로젝트 컨테이너가 3306�
 | `.env`에서 비밀번호를 바꿨는데 접속이 안 됨 | MySQL은 **처음 만들 때만** 계정을 만듭니다. `docker compose down -v`로 초기화한 뒤 다시 `up` 하세요(데이터 삭제됨). |
 | `failed to connect to the docker API` | Docker Desktop이 꺼져 있습니다. 실행하고 고래 아이콘이 멈출 때까지 기다리세요. |
 
+## 시간대: UTC로 통일
+
+로컬과 운영이 같은 기준으로 시간을 저장하도록 전부 UTC입니다. 운영 Lightsail Managed MySQL의 기본값이 UTC이기 때문입니다.
+
+| 위치 | 값 |
+|---|---|
+| Java 서버 기본 시간대 | UTC (`YamuBeApplication`) |
+| JSON 날짜 변환 | UTC (`application.yml`의 `spring.jackson.time-zone`) |
+| JDBC 접속 | `serverTimezone=UTC` (`application-local.yml`) |
+| 로컬 MySQL 컨테이너 | 지정 안 함 = UTC |
+
+- 개발 PC가 한국 시간이어도 서버 안에서 `LocalDateTime.now()`는 UTC입니다. DBeaver에서 `NOW()`를 봐도 한국보다 9시간 이릅니다.
+- **실적 월, 청구 마감일, 출금일, 영업일처럼 한국 날짜가 기준인 계산은 반드시 `ZoneId.of("Asia/Seoul")`을 명시합니다.** 예: 11월 1일 00:30(한국)은 UTC로 10월 31일 15:30이라, 그대로 월을 뽑으면 10월 실적으로 잘못 잡힙니다.
+- 응답 JSON의 시각 형식(UTC 표시 방식)은 FE와 맞춰서 규칙 문서에 정합니다.
+
 ## 테스트
 
 `.\gradlew.bat test`는 DB·Redis가 꺼져 있어도 통과합니다. 테스트는 `test` 프로필(`src/test/resources/application-test.yml`)로 돌아서 개인 `application-local.yml`을 읽지 않습니다.
