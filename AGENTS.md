@@ -120,18 +120,11 @@ docs/common/S15P31E103-100-agents-md
 - 본문: 작업 개요 / 할 일 / 완료 조건. 스토리 포인트는 1pt = 1시간, Task 하나는 최대 8pt.
 - 작업을 시작하면 진행 중, MR이 Merge되면 완료로 옮깁니다.
 
-## BE 규칙 (`be/`)
+## 파트별 규칙
 
-- **응답**: 모든 API는 `ApiResponse`로 감쌉니다. 성공 `ApiResponse.ok(data)`, 실패 `{ success, code, message, errors }`. `GET /api/health`만 예외입니다.
-- **실패 처리**: `ErrorCode`에 `도메인_상황` 이름(`CARD_NOT_FOUND`)으로 추가하고 Service에서 `throw new BusinessException(ErrorCode.X)`. try-catch로 실패 응답을 직접 만들지 않습니다. 배포된 코드 이름은 FE가 쓰므로 바꾸지 않습니다.
-- **입력값**: 요청 DTO는 record + `@NotBlank(message = "...")` 등, 컨트롤러에 `@Valid`. FE에 보일 문구는 `message`로 직접 적습니다.
-- **JSON**: camelCase. 날짜는 ISO-8601 문자열.
-- **시간**: 저장은 전부 UTC. 실적 월·청구 마감일·출금일·영업일처럼 한국 날짜가 기준인 계산은 `ZoneId.of("Asia/Seoul")`을 명시합니다.
-- **DB**: JPA + Flyway. 테이블 변경은 `src/main/resources/db/migration`에 새 SQL 파일(`V{날짜}_{순번}__설명.sql`)로 추가하고, **Merge된 SQL 파일은 고치지 않습니다**. `ddl-auto`는 `validate`입니다.
-- **엔티티**: Setter 없음, 연관관계 `LAZY`, enum은 `STRING`, 시간 컬럼은 `BaseTimeEntity`·`BaseCreatedTimeEntity` 상속, 동시 수정되는 값은 `@Version`. 컨트롤러는 엔티티를 그대로 반환하지 않고 Service 트랜잭션 안에서 DTO로 바꿉니다.
-- **테스트**: DB가 필요한 테스트는 `MySqlTestSupport`를 상속합니다(Testcontainers MySQL).
-- 자세한 내용: `docs/be/local-setup.md`, `docs/be/jpa-flyway.md`
+파트별 규칙은 그 폴더의 `AGENTS.md`에 둡니다. 그 폴더의 파일을 다룰 때는 이 파일과 함께 따릅니다.
 
-## FE · AI 규칙
-
-각 폴더의 `README.md`를 따릅니다. 파트별 규칙이 정해지면 이 아래에 추가합니다.
+| 파트 | 규칙 파일 |
+|---|---|
+| BE | `be/AGENTS.md` (응답·에러 코드·입력값·시간·JPA·Flyway·테스트) |
+| FE · AI | 아직 없음. 각 폴더의 `README.md`를 따르고, 규칙이 정해지면 `fe/AGENTS.md`·`ai/AGENTS.md`와 한 줄짜리 `CLAUDE.md`(`@AGENTS.md`)를 추가합니다. |
