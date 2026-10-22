@@ -104,10 +104,18 @@ PC에 MySQL이 이미 깔려 있거나 다른 프로젝트 컨테이너가 3306�
 
 ## 테스트
 
-`.\gradlew.bat test`는 DB·Redis가 꺼져 있어도 통과합니다. 테스트는 `test` 프로필(`src/test/resources/application-test.yml`)로 돌아서 개인 `application-local.yml`을 읽지 않습니다.
+`.\gradlew.bat test`는 `test` 프로필(`src/test/resources/application-test.yml`)로 돌아서 개인 `application-local.yml`을 읽지 않습니다.
+
+- 일반 테스트는 DB·Redis가 꺼져 있어도 통과합니다.
+- DB가 필요한 테스트(`MySqlTestSupport` 상속)는 Docker Desktop이 켜져 있으면 Testcontainers가 테스트용 MySQL을 따로 띄워서 돌립니다. 위의 `yamu-mysql` 컨테이너와는 별개라 내 로컬 데이터는 건드리지 않습니다.
+
+## DB 접근과 테이블 관리
+
+JPA + Flyway를 씁니다. 규칙은 [jpa-flyway.md](jpa-flyway.md)에 있습니다.
+
+- 서버를 켜면 Flyway가 `db/migration`의 SQL 중 아직 안 한 것만 내 DB에 적용합니다. 팀원이 테이블을 바꿔도 `git pull` 후 서버만 켜면 됩니다.
+- 로컬에서는 실행되는 SQL이 콘솔에 찍힙니다.
 
 ## 아직 정하지 않은 것
 
-- **MyBatis / JPA:** 팀 결정 후 추가합니다. 지금은 DB 접속 기본 통로(JDBC)와 MySQL 드라이버만 들어 있습니다.
-- **테이블 생성:** ERD 확정 후 스키마 관리 방식(SQL 파일 / Flyway / JPA 자동 생성)과 함께 정합니다.
 - **운영 설정(`application-prod.yml`):** INFRA 작업(Story 3.2·3.3)과 함께 진행합니다.
