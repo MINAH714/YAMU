@@ -102,5 +102,13 @@ MySQL 최초 초기화 이후 환경 파일의 비밀번호만 바꿔도 DB 계�
 2026-10-23 로컬 Docker Desktop에서 `docker build -f infra/docker/backend.Dockerfile -t yamu-backend:validation be` 성공.
 빌드 단계의 `clean test bootJar`가 `BUILD SUCCESSFUL`로 종료됐다. Docker 소켓을 전달하지 않았으므로 Testcontainers DB 테스트까지 성공했다는 의미는 아니다.
 
-이 파일은 실행 절차다. EC2에서 위 명령을 실행하기 전까지 실서버 배포·DB 연결·HTTPS API 응답·데이터 보존은 미검증이다.
+같은 날 별도 `yamu-validation` Compose 프로젝트에서 빌드한 이미지를 사용해 다음을 확인했다. 검증용 자격정보는 Git 제외 파일에만 저장했다.
+
+- MySQL·Redis·백엔드 모두 healthy.
+- `/api/health`: `{"status":"ok"}`, `/actuator/health`: `{"status":"UP"}`.
+- MySQL 별도 검증 테이블과 Redis 검증 키에 표식 값을 저장한 뒤 세 컨테이너를 재시작했다. 두 값이 유지되고 백엔드도 다시 healthy/UP으로 복귀했다.
+- Docker inspect에서 MySQL·Redis의 PortBindings는 비어 있고, 백엔드는 `127.0.0.1:8080`만 바인딩됨을 확인했다.
+- 이는 실제 로컬 컨테이너 연동 검증이며, Testcontainers 테스트를 별도로 실행했다는 의미는 아니다. 재시작 데이터 유지 검증은 컨테이너 재생성·호스트 재부팅·백업 복원 검증과 구분한다.
+
+EC2 배포·실서버 DB 연결·공개 HTTPS API 응답·실서버 데이터 보존은 여전히 미검증이다.
 POS·AI·Jenkins는 이번 구성에 포함하지 않았다. 기존 Nginx HTTPS 설정은 수정하지 않는다.
