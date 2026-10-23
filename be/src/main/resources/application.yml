@@ -8,6 +8,7 @@ spring:
   jackson:
     # JSON 필드 이름은 Java 필드 이름 그대로(camelCase)다. 별도 naming 설정을 두지 않는다.
     # 날짜는 ISO-8601 문자열로 내려간다(Spring Boot 기본값). 시간은 UTC 기준이다.
+    # LocalDateTime은 끝에 Z를 붙여 내보낸다(UtcLocalDateTimeSerializer).
     time-zone: UTC
   jpa:
     # 트랜잭션이 끝난 뒤(Controller·JSON 변환 중)에 지연 로딩 쿼리가 몰래 나가지 않게 끈다.

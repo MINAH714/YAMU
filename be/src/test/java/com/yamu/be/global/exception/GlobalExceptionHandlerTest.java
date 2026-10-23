@@ -43,7 +43,7 @@ class GlobalExceptionHandlerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.data.cardName").value("테스트 카드"))
-                .andExpect(jsonPath("$.data.createdAt").value("2026-10-20T10:00:00"))
+                .andExpect(jsonPath("$.data.createdAt").value("2026-10-20T10:00:00Z"))
                 .andExpect(jsonPath("$", hasKey("error")))
                 .andExpect(jsonPath("$.error").value(nullValue()));
     }
