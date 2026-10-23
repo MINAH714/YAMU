@@ -6,9 +6,9 @@
 
 - Nginx는 Ubuntu 호스트에서 실행한다.
 - 공개 도메인: `yamu.it.kr`. DNS A 레코드는 현재 서버 공인 IPv4를 가리켜야 한다.
-- `/`는 POS 배포 전 임시 텍스트 응답이다.
+- `/`는 `/var/www/yamu-pos`의 POS 정적 파일을 제공한다. 재현 절차는 [POS 배포](pos-deployment.md)를 참고한다.
 - `/api/`는 `127.0.0.1:8080`으로 전달한다. `proxy_pass`에 URI 부분이 없어 `/api/health` 경로가 그대로 전달된다.
-- 백엔드는 아직 실행되지 않아 API 정상 응답은 미검증이다. 이 상태의 `/api/`는 502가 예상된다.
+- 백엔드 Compose 배포 후 공개 HTTPS `/api/health`와 POS의 백엔드 연결 상태를 확인했다.
 - 백엔드 Docker 배포 시 호스트 포트를 `127.0.0.1:8080:8080`으로 제한한다. 공인 8080 포트를 열지 않는다.
 
 ## 새 서버의 HTTP 초기 구성
@@ -86,7 +86,15 @@ systemctl list-timers --all | grep certbot
 - HTTPS 요청: 인증서 검증을 생략하지 않고 200, `Web server is ready.`.
 - 갱신 모의 실행: `all simulated renewals succeeded`.
 - Certbot 출력상 갱신 스케줄 등록. 실제 타이머 상태는 위 명령으로 추가 확인한다.
-- 실백엔드 API 프록시, POS 정적 배포, 공인 백엔드 포트 제한은 미검증.
+- 위 결과는 POS 배포 전 초기 확인이다.
+
+추가 확인 결과 (2026-10-23, 사용자가 제공한 서버 출력·화면 기준):
+
+- MySQL·Redis·백엔드 컨테이너 모두 healthy, 백엔드 포트는 `127.0.0.1:8080`에 바인딩됨.
+- 공개 HTTPS `/api/health`에서 200과 `{"status":"ok"}` 응답 확인.
+- POS 정적 파일 배치 후 `nginx -t` 성공, reload 명령 오류 없음.
+- HTTPS 화면에서 `YAMU 모의 POS`, `BE 연결 상태: 연결됨` 확인.
+- 별도 PC에서 공인 8080·3306·6379 포트를 검사한 결과는 아직 없다.
 
 갱신 테스트 성공은 미래의 갱신을 보장하지 않는다. 서버 운영 중 타이머·로그·인증서 만료 상태를 확인한다.
 
@@ -100,7 +108,7 @@ sudo tail -n 50 /var/log/nginx/error.log
 - 502: 백엔드 실행 여부, 로컬 8080 응답, 포트 바인딩을 확인한다.
 - 연결 시간 초과: DNS, 80/443 리스닝, 호스트·상위 방화벽을 확인한다.
 - 설정 변경 시 백업 → 수정 → `nginx -t` → 성공 시 reload 순서를 따른다. 실패 시 reload하지 않고 마지막 정상 설정으로 복원 후 재검사한다.
-- POS 배포 시 임시 `return`을 제거하고 실제 `dist/`를 제공하도록 별도 변경·검증한다.
+- POS 운영 설정은 [POS 배포](pos-deployment.md)의 root/location 설정을 사용한다. 초기 HTTP 견본으로 기존 HTTPS 설정을 덮어쓰지 않는다.
 - HTTPS의 `X-Forwarded-Proto`를 백엔드가 해석하는 방법은 운영 프로필 구성 시 검토한다.
 
 팀 규칙상 테스트·리뷰·MR Merge 및 미완료 검증까지 마친 뒤 Jira Task를 완료 처리한다.

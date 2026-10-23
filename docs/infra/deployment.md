@@ -110,5 +110,9 @@ MySQL 최초 초기화 이후 환경 파일의 비밀번호만 바꿔도 DB 계�
 - Docker inspect에서 MySQL·Redis의 PortBindings는 비어 있고, 백엔드는 `127.0.0.1:8080`만 바인딩됨을 확인했다.
 - 이는 실제 로컬 컨테이너 연동 검증이며, Testcontainers 테스트를 별도로 실행했다는 의미는 아니다. 재시작 데이터 유지 검증은 컨테이너 재생성·호스트 재부팅·백업 복원 검증과 구분한다.
 
-EC2 배포·실서버 DB 연결·공개 HTTPS API 응답·실서버 데이터 보존은 여전히 미검증이다.
-POS·AI·Jenkins는 이번 구성에 포함하지 않았다. 기존 Nginx HTTPS 설정은 수정하지 않는다.
+같은 날 사용자가 제공한 EC2 출력에서 운영 MySQL·Redis·백엔드 모두 healthy이고 백엔드가 `127.0.0.1:8080`에 바인딩된 것을 확인했다.
+공개 HTTPS `/api/health`에서 200 및 `{"status":"ok"}` 응답을 확인했다.
+컨테이너 healthcheck 결과는 DB·Redis 연결을 포함한다. 실서버 데이터 보존·재부팅·백업 복원과 공인 내부 포트 차단의 별도 PC 검사는 아직 미검증이다.
+
+POS는 호스트 Nginx의 정적 파일로 별도 배포했다. [POS 배포 절차](pos-deployment.md)를 참고한다.
+AI·Jenkins는 이번 Compose 구성에 포함하지 않았다.
