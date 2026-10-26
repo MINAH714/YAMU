@@ -139,7 +139,7 @@ SCM polling은 Push 이벤트 즉시 실행이 아니며 최초 Job 실행 전�
 - 모바일 `npm ci` 및 TypeScript `--noEmit` 검사 성공.
 - EC2에서 기존 `yamu-ci_default` 네트워크와 Git·Declarative Pipeline·JUnit·Timestamper 플러그인 파일의 존재 확인. 서버 Docker 29.9.2. 플러그인 파일 존재만으로 Jenkins 기능 실행까지 검증한 것은 아니다.
 
-로컬 검증은 Jenkins Job에서 실행한 결과가 아니다. 노드 연결·SCM Credentials·Jenkinsfile 문법 검사·Job 최초 실행·폴링·연타·실패 경로의 실제 Jenkins 검증은 서버 적용 후 확인해야 한다.
+로컬 검증은 Jenkins Job 실행과 구분한다. 이후 실제 Jenkins 실행 결과는 아래에 기록했다. 연타·의도적인 실패 경로·호스트 재부팅 검증은 아직 별도 확인이 필요하다.
 
 같은 날 EC2에서 Rootless 구성을 적용했다.
 
@@ -155,7 +155,19 @@ SCM polling은 Push 이벤트 즉시 실행이 아니며 최초 Job 실행 전�
 - 사용자 승인 후 `yamu-ci` 노드를 등록하고 WebSocket으로 연결했다. 에이전트 로그의 Connected와 Jenkins Nodes의 online을 확인했다. 실행기 1개, 라벨 일치 작업만 허용한다.
 - 노드 인증키는 서버 CI 계정 소유의 600 권한 환경 파일에 저장했고 전송용 임시 파일은 삭제했다. 인증키는 저장소·채팅·명령 인자에 포함하지 않았다.
 - Built-In Node 실행기를 0으로 저장했다. `yamu/ci` Job의 GitLab URL·작업 브랜치·Jenkinsfile 경로와 동시 실행 제한을 설정했다.
-- Job은 비활성 상태로 보관했다. GitLab read_repository Credentials 등록, CI 코드 커밋·Push, Job Credentials 선택·활성화·첫 실행이 남아 있다.
+- 초기에는 Job을 비활성 상태로 보관했다. 이후 아래와 같이 Credentials 연결과 첫 빌드까지 완료했다.
+
+### Jenkins 첫 빌드
+
+2026-10-26 `yamu/ci` [빌드 #1](http://100.102.125.41:8081/job/yamu/job/ci/1/)이 SUCCESS로 완료됐다(3분 34초).
+
+- 소스: `chore/infra/S15P31E103-108-jenkins-ci`, 커밋 `fba783b`.
+- 사용자가 등록한 폴더 범위 `gitlab-yamu-read` Credentials로 Jenkinsfile과 저장소 체크아웃 성공.
+- Rootless 에이전트에서 환경 검사·결과 게이트 테스트·BE 테스트 22개(skip 0)·JAR 생성·POS lint/build·모바일 타입 검사 성공.
+- JUnit 결과와 JAR, POS index.html/assets, `ci-revision.txt` 보관 및 fingerprint 생성 확인.
+- 빌드 후 작업공간 정리까지 완료했다. Jenkinsfile이 실제 Declarative Pipeline으로 파싱·실행된 결과다.
+- `H/5 * * * *` SCM polling이 등록됐다. 검증 중에는 CI 작업 브랜치를 대상으로 하며, MR이 develop에 Merge된 뒤 운영자가 Branch Specifier를 `*/develop`으로 바꾼다.
+- MR 생성·리뷰·Merge는 별도다. CI 성공으로 Jira Task를 완료 처리하거나 자동 배포하지 않는다.
 
 ## 참고 자료
 
