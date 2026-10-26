@@ -8,7 +8,7 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 /**
- * 실제 MySQL이 필요한 테스트가 상속한다. Testcontainers가 테스트용 MySQL 8.0을 잠깐 띄우고,
+ * 실제 MySQL이 필요한 테스트가 상속한다. Testcontainers가 RDS와 같은 MySQL 8.4.11을 잠깐 띄우고,
  * 접속 정보(datasource)는 @ServiceConnection이 자동으로 바꿔 넣는다.
  *
  * <p>기본 test 프로필은 DB 없이 돌도록 Flyway·스키마 검사를 꺼 두었으므로 여기서 다시 켠다.
@@ -28,5 +28,5 @@ public abstract class MySqlTestSupport {
 
     @Container
     @ServiceConnection
-    static final MySQLContainer<?> MYSQL = new MySQLContainer<>("mysql:8.0");
+    static final MySQLContainer<?> MYSQL = new MySQLContainer<>("mysql:8.4.11");
 }
