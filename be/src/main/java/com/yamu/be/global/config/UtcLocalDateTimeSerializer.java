@@ -3,7 +3,6 @@ package com.yamu.be.global.config;
 import com.fasterxml.jackson.datatype.jsr310.ser.LocalDateTimeSerializer;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
-import java.time.format.DateTimeFormatterBuilder;
 import org.springframework.boot.jackson.JsonComponent;
 
 /**
@@ -15,14 +14,14 @@ import org.springframework.boot.jackson.JsonComponent;
  *
  * <p>그래서 LocalDateTime에는 UTC 시각만 담는다. 결제일·청구일처럼 한국 날짜가 기준인 값은 LocalDate로 내보낸다.
  * 요청 JSON의 {@code "...Z"}는 Jackson 기본 동작대로 'Z'를 떼고 LocalDateTime으로 읽는다.
+ *
+ * <p>초 단위까지만 내보낸다. DB(DATETIME(6))에서 읽은 값은 마이크로초가 붙어 있어 그대로 내보내면
+ * 값마다 소수점 자릿수가 달라지고, API 명세 예시({@code "...T05:30:00Z"})와도 어긋난다.
  */
 @JsonComponent
 public class UtcLocalDateTimeSerializer extends LocalDateTimeSerializer {
 
-    private static final DateTimeFormatter UTC_FORMAT = new DateTimeFormatterBuilder()
-            .append(DateTimeFormatter.ISO_LOCAL_DATE_TIME)
-            .appendLiteral('Z')
-            .toFormatter();
+    private static final DateTimeFormatter UTC_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss'Z'");
 
     public UtcLocalDateTimeSerializer() {
         super(UTC_FORMAT);
