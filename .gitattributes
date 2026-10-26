@@ -2,3 +2,4 @@ Jenkinsfile text eol=lf
 infra/ci/** text eol=lf
 infra/docker/ci-agent.Dockerfile text eol=lf
 infra/compose.ci-agent.yml text eol=lf
+infra/rds/** text eol=lf
