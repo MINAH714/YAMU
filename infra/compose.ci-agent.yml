@@ -1,0 +1,40 @@
+name: yamu-ci-agent
+
+services:
+  agent:
+    image: yamu-ci-agent:java17-node24
+    build:
+      context: ./docker
+      dockerfile: ci-agent.Dockerfile
+    restart: unless-stopped
+    init: true
+    # Container root maps to the unprivileged yamu-ci user in Rootless Docker.
+    user: '0:0'
+    environment:
+      JENKINS_URL: ${JENKINS_URL:?Set the controller Tailscale URL in the server env file}
+      JENKINS_AGENT_NAME: yamu-ci
+      JENKINS_SECRET: ${JENKINS_AGENT_SECRET:?Set the agent secret in the server env file}
+      JENKINS_WEB_SOCKET: 'true'
+      JENKINS_AGENT_WORKDIR: /home/jenkins/agent
+      JENKINS_JAVA_OPTS: -Xms64m -Xmx256m
+      GRADLE_USER_HOME: /home/jenkins/agent/.gradle
+      npm_config_cache: /home/jenkins/agent/.npm
+      DOCKER_HOST: unix:///var/run/docker.sock
+      TESTCONTAINERS_HOST_OVERRIDE: ${CI_HOST_IP:?Use the rootless-compose wrapper}
+      TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE: ${ROOTLESS_DOCKER_SOCKET:?Use the rootless-compose wrapper}
+      TZ: UTC
+    volumes:
+      - agent_work:/home/jenkins/agent
+      # Only the CI user's Rootless Docker socket is provided.
+      - ${ROOTLESS_DOCKER_SOCKET:?Use the rootless-compose wrapper}:/var/run/docker.sock
+    mem_limit: 4g
+    cpus: 2
+    stop_grace_period: 60s
+    logging:
+      driver: json-file
+      options:
+        max-size: '10m'
+        max-file: '3'
+
+volumes:
+  agent_work:
