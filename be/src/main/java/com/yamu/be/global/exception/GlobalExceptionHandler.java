@@ -40,7 +40,7 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     public ResponseEntity<ApiResponse<Void>> handleBusiness(BusinessException e) {
         ErrorCode ec = e.getErrorCode();
         log.warn("BusinessException {}: {}", ec.getCode(), e.getMessage());
-        return ResponseEntity.status(ec.getStatus()).body(ApiResponse.fail(ec, e.getMessage()));
+        return ResponseEntity.status(ec.getStatus()).body(ApiResponse.fail(ec, e.getMessage(), e.getDetails()));
     }
 
     /* @Valid @RequestBody 검사 실패 → 400, 필드별 사유 */
@@ -83,7 +83,7 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
                 })
                 .toList();
         log.warn("검증 실패: {}", errors);
-        ErrorCode ec = ErrorCode.COMMON_INVALID_PARAM;
+        ErrorCode ec = ErrorCode.INVALID_REQUEST;
         return ResponseEntity.status(ec.getStatus()).body(ApiResponse.fail(ec, errors));
     }
 
@@ -107,23 +107,24 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ApiResponse<Void>> handleUnexpected(Exception e) {
         log.error("Unexpected exception", e);
-        ErrorCode ec = ErrorCode.COMMON_SERVER_ERROR;
+        ErrorCode ec = ErrorCode.INTERNAL_ERROR;
         return ResponseEntity.status(ec.getStatus()).body(ApiResponse.fail(ec));
     }
 
     private ResponseEntity<Object> invalidParam(Exception ex, List<FieldErrorResponse> errors,
             HttpHeaders headers, HttpStatusCode status, WebRequest request) {
         log.warn("검증 실패: {}", errors);
-        ApiResponse<Void> body = ApiResponse.fail(ErrorCode.COMMON_INVALID_PARAM, errors);
+        ApiResponse<Void> body = ApiResponse.fail(ErrorCode.INVALID_REQUEST, errors);
         return super.handleExceptionInternal(ex, body, headers, status, request);
     }
 
     private static ErrorCode toErrorCode(HttpStatusCode status) {
         return switch (status.value()) {
-            case 404 -> ErrorCode.COMMON_NOT_FOUND;
-            case 405 -> ErrorCode.COMMON_METHOD_NOT_ALLOWED;
-            case 415 -> ErrorCode.COMMON_UNSUPPORTED_MEDIA_TYPE;
-            default -> status.is5xxServerError() ? ErrorCode.COMMON_SERVER_ERROR : ErrorCode.COMMON_INVALID_PARAM;
+            // MVC가 404를 내는 경우는 매핑된 API가 없을 때뿐이다. 데이터가 없는 404는 Service가 RESOURCE_NOT_FOUND로 던진다.
+            case 404 -> ErrorCode.API_NOT_FOUND;
+            case 405 -> ErrorCode.METHOD_NOT_ALLOWED;
+            case 415 -> ErrorCode.UNSUPPORTED_MEDIA_TYPE;
+            default -> status.is5xxServerError() ? ErrorCode.INTERNAL_ERROR : ErrorCode.INVALID_REQUEST;
         };
     }
 
