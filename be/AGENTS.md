@@ -6,6 +6,8 @@
 @../docs/be/local-setup.md
 @../docs/be/jpa-flyway.md
 
+DB 스키마·업무 엔티티를 다루는 작업은 `../docs/be/schema/implementation.md`를 먼저 읽고, 필요한 테이블의 정의를 `../docs/be/schema/dictionary.md`에서 확인합니다. 사람의 리뷰 진입점은 `../docs/be/schema/README.md`입니다. `schema/archive/`는 과거 기록이며 현행 구현 기준으로 사용하지 않습니다.
+
 ## 명령 (be 폴더에서)
 
 ```powershell
