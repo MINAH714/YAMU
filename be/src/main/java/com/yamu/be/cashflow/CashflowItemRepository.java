@@ -15,10 +15,12 @@ public interface CashflowItemRepository extends JpaRepository<CashflowItem, Long
                    or item.scheduledDate >= :from)
               and (item.recurrenceEndDate is null or item.recurrenceEndDate >= :from)
               and (:direction is null or item.direction = :direction)
+              and item.status = :status
             order by item.scheduledDate, item.id
             """)
     List<CashflowItem> findRulesForUser(@Param("userId") Long userId,
             @Param("from") LocalDate from, @Param("to") LocalDate to,
             @Param("none") CashflowItem.RecurrenceType none,
-            @Param("direction") CashflowItem.Direction direction);
+            @Param("direction") CashflowItem.Direction direction,
+            @Param("status") String status);
 }
