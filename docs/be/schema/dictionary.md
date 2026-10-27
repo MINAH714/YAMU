@@ -1,10 +1,10 @@
 # 초기 스키마 컬럼 사전
 
-사람과 AI가 함께 참조하는 23개 테이블의 저장 정의다. 개요·리뷰 순서는 [스키마 안내](README.md), 서비스 구현 책임과 미확인 사항은 [구현 지침](implementation.md)을 참고한다.
+사람과 AI가 함께 참조하는 25개 테이블의 저장 정의다. 개요·리뷰 순서는 [스키마 안내](README.md), 서비스 구현 책임과 미확인 사항은 [구현 지침](implementation.md)을 참고한다.
 
-SQL 원본: [V20261026_1__create_initial_schema.sql](../../../be/src/main/resources/db/migration/V20261026_1__create_initial_schema.sql). 작성일 2026-10-26, 문서 분리·컬럼명 정리 2026-10-27. 이슈 [S15P31E103-101](https://ssafy.atlassian.net/browse/S15P31E103-101).
+SQL 원본: [초기 생성](../../../be/src/main/resources/db/migration/V20261026_1__create_initial_schema.sql) → [결제별 한도 사용 테이블 이름 변경](../../../be/src/main/resources/db/migration/V20261027_1__rename_payment_limit_impact_to_usage.sql) → [금융망 사용자 ID 설명 수정](../../../be/src/main/resources/db/migration/V20261027_2__update_ssafy_member_id_comment.sql) → [모든 기기 서명 키 필수화](../../../be/src/main/resources/db/migration/V20261027_3__require_device_signing_keys.sql) → [현금흐름·구매 계획 보완](../../../be/src/main/resources/db/migration/V20261027_4__extend_cashflow_and_purchase_plans.sql) 순서로 적용한 최종 구조다. 초기 SQL은 이미 Merge되어 당시 이름과 설명을 보존한다. 작성일 2026-10-26, 문서 분리·컬럼명 정리 2026-10-27. 이슈 [S15P31E103-101](https://ssafy.atlassian.net/browse/S15P31E103-101).
 
-컬럼·타입·NULL·기본값·키·제약은 이 문서에서 한 번만 관리한다. 정책의 상세 규칙은 각 절에 연결된 Notion 원본을 따른다. 아래 컬럼 이름과 제약 정의는 SQL과 대조한다. 알림 JSON의 초기값·변경 규칙은 [구현 지침](implementation.md)의 해당 절을 참고한다.
+컬럼·타입·NULL·기본값·키·제약은 이 문서에서 한 번만 관리한다. 정책의 상세 규칙은 각 절에 연결된 Notion 원본을 따른다. 아래 컬럼 이름과 제약 정의는 모든 마이그레이션 적용 후의 SQL 구조와 대조한다. 알림 JSON의 초기값·변경 규칙은 [구현 지침](implementation.md)의 해당 절을 참고한다.
 
 ## 전체 컬럼과 제약
 
@@ -20,7 +20,7 @@ SQL 원본: [V20261026_1__create_initial_schema.sql](../../../be/src/main/resour
 | pin_hash | `VARCHAR(255) NULL` | 솔트 포함 PIN 비밀번호 해시; 원문 금지 |
 | pin_updated_at | `TIMESTAMP(6) NULL` | UTC 마지막 PIN 설정·변경 시각 |
 | identity_verified_at | `TIMESTAMP(6) NULL` | UTC 본인인증 완료 시각 |
-| ssafy_member_id | `VARCHAR(255) NULL` | 서버가 사용자별로 생성한 이메일 형식의 금융망 사용자 ID(yamu-{UUID}@yamu.com); 최초 생성 후 재사용, 실제 이메일 입력·메일 인증 없음 |
+| ssafy_member_id | `VARCHAR(255) NULL` | 서버 생성 금융망 userId; `y{랜덤 9자리}@yamu.app`(19자, SSAFY 40자 제한), 최초 생성 후 재사용, 실제 이메일 입력·메일 인증 없음. 중복 오류 E4002 시 다른 계정에 연결하지 않고 새 ID로 재생성 |
 | ssafy_user_key | `VARBINARY(2048) NULL` | 금융망 userKey 암호화 봉투; 평문 금지 |
 | status | `VARCHAR(16) NOT NULL DEFAULT 'PENDING'` | PENDING / ACTIVE / WITHDRAWN |
 | deleted_at | `TIMESTAMP(6) NULL` | UTC 탈퇴 시각; 실제 개인정보 파기와 별개 |
@@ -49,8 +49,8 @@ CONSTRAINT ck_app_user_version CHECK (version >= 0)
 | device_uuid | `CHAR(36) CHARACTER SET ascii COLLATE ascii_bin NOT NULL` | 기기 등록 UUID |
 | device_name | `VARCHAR(100) NULL` | 사용자에게 표시할 기기명 |
 | platform | `VARCHAR(20) NOT NULL` | 기기 운영체제. 현재 Android만 지원하므로 ANDROID를 저장 |
-| public_key | `TEXT NULL` | 현재 서명 검증용 공개키; PIN 전용 기기는 NULL 가능 |
-| key_algorithm | `VARCHAR(32) NULL` | 공개키 알고리즘; 공개키와 함께 설정 |
+| public_key | `TEXT NOT NULL` | 현재 서명 검증용 공개키; PIN 전용을 포함한 모든 기기 필수 |
+| key_algorithm | `VARCHAR(32) NOT NULL` | 서명 검증 알고리즘; 모든 기기 필수 |
 | biometric_enabled | `BOOLEAN NOT NULL DEFAULT FALSE` | 생체인증 사용 동의·설정 |
 | status | `VARCHAR(16) NOT NULL DEFAULT 'ACTIVE'` | ACTIVE / LOCKED / REVOKED |
 | failed_count | `INT NOT NULL DEFAULT 0` | 연속 인증 실패 횟수 |
@@ -67,8 +67,7 @@ UNIQUE KEY uk_device_owner (user_device_id, user_id);
 CONSTRAINT fk_device_user FOREIGN KEY (user_id) REFERENCES app_user (user_id);
 CONSTRAINT ck_device_status CHECK (status IN ('ACTIVE','LOCKED','REVOKED'));
 CONSTRAINT ck_device_failed CHECK (failed_count >= 0);
-CONSTRAINT ck_device_biometric CHECK (biometric_enabled IN (0,1) AND (biometric_enabled = 0 OR (public_key IS NOT NULL AND key_algorithm IS NOT NULL)));
-CONSTRAINT ck_device_key_pair CHECK ((public_key IS NULL AND key_algorithm IS NULL) OR (public_key IS NOT NULL AND key_algorithm IS NOT NULL));
+CONSTRAINT ck_device_biometric CHECK (biometric_enabled IN (0,1));
 CONSTRAINT ck_user_device_version CHECK (version >= 0)
 ```
 
@@ -277,7 +276,7 @@ CONSTRAINT ck_benefit_dates CHECK (valid_from IS NULL OR valid_until IS NULL OR 
 - startTime > endTime이면 자정을 넘는 구간이다. 요일은 구간이 시작한 날짜로 판단한다. 예: weekdays=[FRI], 22:00~02:00이면 금요일 22:00부터 토요일 02:00 직전까지 적용된다. 토요일 01:00은 금요일 구간에 포함된다.
 - 두 시간이 같은 입력은 24시간인지 빈 구간인지 모호하므로 거절한다. 하루 종일 적용하려면 시간 키를 모두 생략한다. 시간 키 하나만 존재하거나 null·잘못된 형식·빈 요일 배열·중복 요일·알 수 없는 키·잘못된 타입도 등록 시 거절한다.
 - 브랜드·업종·채널·입점 시설 조건은 BENEFIT_TARGET과 거래 조건을 사용하며 이 JSON에 중복 저장하지 않는다. 이 JSON은 이미 별도 컬럼에 둔 최소 결제액·실적·반올림 조건도 대신하지 않는다.
-- DB의 JSON 타입은 JSON 문법만 보장한다. 키 허용 목록·시간 경계·자정 넘김·요일 조합 검사는 서버 구현 책임이다. 조건은 당시 약관 버전에 보존하고, 계산 직전 남은 한도·횟수는 PAYMENT_LIMIT_IMPACT.remaining_before, 사용한 전월 실적은 PAYMENT_TRANSACTION.performance_basis_amount에 보존한다. 현재 단계는 명세이며 해당 서비스 검증·계산 코드는 아직 구현하지 않았다.
+- DB의 JSON 타입은 JSON 문법만 보장한다. 키 허용 목록·시간 경계·자정 넘김·요일 조합 검사는 서버 구현 책임이다. 조건은 당시 약관 버전에 보존하고, 계산 직전 남은 한도·횟수는 PAYMENT_LIMIT_USAGE.remaining_before, 사용한 전월 실적은 PAYMENT_TRANSACTION.performance_basis_amount에 보존한다. 현재 단계는 명세이며 해당 서비스 검증·계산 코드는 아직 구현하지 않았다.
 
 ```json
 {
@@ -433,6 +432,9 @@ fin_transaction_no는 상태 코드가 아니라 **이 결제로 발생한 계�
 | created_at | `TIMESTAMP(6) NOT NULL` | UTC 생성 시각 |
 | updated_at | `TIMESTAMP(6) NOT NULL` | UTC 수정 시각 |
 | version | `BIGINT NOT NULL DEFAULT 0` | JPA 낙관적 락 버전 |
+| spending_class | `VARCHAR(16) NULL` | LIVING / LARGE / EXCLUDED; 미분류 NULL, 실적 인정액과 별개 |
+| spending_class_source | `VARCHAR(16) NULL` | AUTO / USER; 미분류 NULL, 사용자 수정 USER는 자동 재분류로 덮어쓰지 않음 |
+| memo | `VARCHAR(100) NULL` | 사용자 결제 메모; API는 빈 문자열 요청을 삭제로 처리 |
 
 ```sql
 PRIMARY KEY (payment_transaction_id);
@@ -454,7 +456,10 @@ CONSTRAINT ck_payment_month CHECK (performance_month IS NULL OR DAYOFMONTH(perfo
 CONSTRAINT ck_payment_source CHECK (source IN ('YAMU','SEED'));
 CONSTRAINT ck_payment_approval CHECK (approved_at IS NULL OR (user_card_id IS NOT NULL AND approved_amount IS NOT NULL AND recognized_performance_amount IS NOT NULL AND performance_month IS NOT NULL AND installment_months IS NOT NULL));
 CONSTRAINT ck_payment_cancellation CHECK (canceled_at IS NULL OR approved_at IS NOT NULL);
-CONSTRAINT ck_payment_transaction_version CHECK (version >= 0)
+CONSTRAINT ck_payment_transaction_version CHECK (version >= 0);
+UNIQUE KEY uk_payment_owner (payment_transaction_id, user_id);
+CONSTRAINT ck_payment_spending_class CHECK (spending_class IS NULL OR spending_class IN ('LIVING','LARGE','EXCLUDED'));
+CONSTRAINT ck_payment_spending_pair CHECK ((spending_class IS NULL AND spending_class_source IS NULL) OR (spending_class IS NOT NULL AND spending_class_source IS NOT NULL AND spending_class_source IN ('AUTO','USER')));
 ```
 
 #### 금융망 요청 번호 채번 규칙
@@ -467,7 +472,7 @@ CONSTRAINT ck_payment_transaction_version CHECK (version >= 0)
 
 ### payment_benefit — 결제별 실제 적용 혜택 결과
 
-사용자가 실제로 받은 할인·캐시백·포인트 결과를 혜택별로 저장한다. 정책은 card_benefit_id로 연결된 당시 버전을 확인한다. 한도에서 차감한 금액·횟수는 PAYMENT_LIMIT_IMPACT에 저장한다.
+사용자가 실제로 받은 할인·캐시백·포인트 결과를 혜택별로 저장한다. 정책은 card_benefit_id로 연결된 당시 버전을 확인한다. 한도에서 차감한 금액·횟수는 PAYMENT_LIMIT_USAGE에 저장한다.
 
 | 컬럼 | SQL 정의 | 설명 |
 |---|---|---|
@@ -495,19 +500,21 @@ CONSTRAINT ck_applied_unit CHECK (value_unit IN ('KRW','POINT'))
 
 기준 문서: Notion → 요구사항 정의서 → V2 → 요구사항 정의서 V2 → [DEC-005](https://app.notion.com/p/d7531720f358838e99690172f32e130d) → 본문 「혜택 결과·한도 사용·당시 계산 근거」. calculation_snapshot JSON은 제거하고 아래 두 일반 컬럼으로 저장한다.
 
-- 계산 직전 남은 한도·횟수: PAYMENT_LIMIT_IMPACT.remaining_before.
+- 계산 직전 남은 한도·횟수: PAYMENT_LIMIT_USAGE.remaining_before.
 - 계산에 사용한 전월 실적 인정액: PAYMENT_TRANSACTION.performance_basis_amount. 실제 0원과 미확정·미사용 NULL을 구분하며, 필요한 실적이 미확인인 채로 확정 계산하지 않는다. 같은 결제의 여러 혜택에서 공통으로 참조한다.
 - 당시 값은 실제 승인에 반영한 계산에서 확보하고 이후 집계가 바뀌거나 취소돼도 덮어쓰지 않는다. 비율·반올림·적용 시점은 보존된 약관·한도 버전으로 확인한다.
 
-### payment_limit_impact — 결제별 한도 사용 내역과 취소 복구 기록
+### payment_limit_usage — 결제별 한도 사용 내역과 취소 복구 기록
+
+이전 이름 payment_limit_impact를 후속 마이그레이션으로 변경했다. PK도 payment_limit_usage_id로 변경하며 기존 행과 사용량·복구 시각은 보존한다.
 
 이 결제가 한도 그룹별로 얼마·몇 회를 차감했는지 저장한다. 취소하면 consumed_value만큼 한 번 복구하고 restored_at을 기록하며, remaining_before 전체를 복구하는 것이 아니다. 여러 혜택이 같은 한도를 공유하면 같은 결제·한도 그룹의 사용량을 한 행에 합산한다.
 
-예: 실제 할인 300원은 PAYMENT_BENEFIT에 한 번 기록한다. 금액 한도 300원과 횟수 한도 1회를 함께 사용했다면 PAYMENT_LIMIT_IMPACT에는 서로 다른 한도 그룹으로 두 행을 남긴다. 이 두 행을 합산해 실제 할인액으로 사용하지 않는다.
+예: 실제 할인 300원은 PAYMENT_BENEFIT에 한 번 기록한다. 금액 한도 300원과 횟수 한도 1회를 함께 사용했다면 PAYMENT_LIMIT_USAGE에는 서로 다른 한도 그룹으로 두 행을 남긴다. 이 두 행을 합산해 실제 할인액으로 사용하지 않는다.
 
 | 컬럼 | SQL 정의 | 설명 |
 |---|---|---|
-| payment_limit_impact_id | `BIGINT NOT NULL AUTO_INCREMENT` | 한도 사용 근거 번호 |
+| payment_limit_usage_id | `BIGINT NOT NULL AUTO_INCREMENT` | 한도 사용 근거 번호 |
 | payment_transaction_id | `BIGINT NOT NULL` | 결제 거래 |
 | card_product_id | `BIGINT NOT NULL` | 거래·한도 상품 일치 검증용 |
 | limit_group_id | `BIGINT NOT NULL` | 결제 당시 한도 그룹 버전 |
@@ -521,7 +528,7 @@ CONSTRAINT ck_applied_unit CHECK (value_unit IN ('KRW','POINT'))
 | version | `BIGINT NOT NULL DEFAULT 0` | JPA 낙관적 락 버전 |
 
 ```sql
-PRIMARY KEY (payment_limit_impact_id);
+PRIMARY KEY (payment_limit_usage_id);
 UNIQUE KEY uk_payment_limit (payment_transaction_id, limit_group_id);
 KEY ix_impact_daily (limit_group_id, usage_date, payment_transaction_id);
 KEY ix_impact_payment_product (payment_transaction_id, card_product_id);
@@ -530,7 +537,7 @@ CONSTRAINT fk_impact_payment_product FOREIGN KEY (payment_transaction_id, card_p
 CONSTRAINT fk_impact_limit_product FOREIGN KEY (limit_group_id, card_product_id) REFERENCES limit_group (limit_group_id, card_product_id);
 CONSTRAINT ck_impact_value CHECK (remaining_before >= 0 AND consumed_value >= 0 AND consumed_value <= remaining_before);
 CONSTRAINT ck_impact_month CHECK (DAYOFMONTH(usage_month) = 1 AND YEAR(usage_month) = YEAR(usage_date) AND MONTH(usage_month) = MONTH(usage_date));
-CONSTRAINT ck_payment_limit_impact_version CHECK (version >= 0)
+CONSTRAINT ck_payment_limit_usage_version CHECK (version >= 0)
 ```
 
 ### card_monthly_performance — 카드별 월간 실적
@@ -696,7 +703,7 @@ CONSTRAINT ck_refund_completed CHECK (completed_at IS NULL OR linked_account_id 
 CONSTRAINT ck_refund_version CHECK (version >= 0)
 ```
 
-### cashflow_item — 직접 입력한 예정 수입·지출
+### cashflow_item — 반복 규칙·일회성 예정 항목의 기본값
 
 | 컬럼 | SQL 정의 | 설명 |
 |---|---|---|
@@ -705,8 +712,8 @@ CONSTRAINT ck_refund_version CHECK (version >= 0)
 | linked_account_id | `BIGINT NULL` | 예정 계좌; 미지정 가능 |
 | title | `VARCHAR(150) NOT NULL` | 예정 내역 이름 |
 | direction | `VARCHAR(16) NOT NULL` | INCOME / EXPENSE |
-| amount | `BIGINT NOT NULL` | 예정 원화 금액; 양수 |
-| scheduled_date | `DATE NOT NULL` | 한국 기준 예정 날짜 |
+| amount | `BIGINT NULL` | 발생 건 생성 시 기본 예정 금액; NULL은 금액 미정이며 0원이 아님 |
+| scheduled_date | `DATE NOT NULL` | 한국 기준 첫 발생일; 등록 시각인 created_at과 구분 |
 | recurrence_type | `VARCHAR(16) NOT NULL` | NONE / DAILY / WEEKLY / MONTHLY / YEARLY |
 | recurrence_end_date | `DATE NULL` | 한국 기준 반복 종료일 |
 | status | `VARCHAR(24) NOT NULL` | 예정 내역 상태 코드 |
@@ -714,6 +721,13 @@ CONSTRAINT ck_refund_version CHECK (version >= 0)
 | created_at | `TIMESTAMP(6) NOT NULL` | UTC 생성 시각 |
 | updated_at | `TIMESTAMP(6) NOT NULL` | UTC 수정 시각 |
 | version | `BIGINT NOT NULL DEFAULT 0` | JPA 낙관적 락 버전 |
+| user_card_id | `BIGINT NULL` | 예정 결제 카드; 같은 사용자 소유 |
+| category_code | `VARCHAR(64) NULL` | 사용자가 지정한 업종 코드; 분류 정책은 POL-004 |
+| item_kind | `VARCHAR(16) NOT NULL DEFAULT 'SCHEDULED'` | SCHEDULED / PURCHASE_PLAN; 기존 행은 일반 예정 항목 |
+| payment_plan | `VARCHAR(16) NULL` | LUMP_SUM / INSTALLMENT; 카드 결제 방식 |
+| installment_months | `SMALLINT NULL` | 일시불 1, 할부 총 개월 수; 비카드 항목 NULL |
+| purchase_state | `VARCHAR(16) NULL` | 구매 계획만 ACTIVE / FULFILLED / CANCELED |
+| previous_cashflow_item_id | `BIGINT NULL` | 이후 일정 변경 시 이전 규칙; 기존 규칙과 이력은 보존 |
 
 ```sql
 PRIMARY KEY (cashflow_item_id);
@@ -722,11 +736,102 @@ KEY ix_cashflow_account_owner (linked_account_id, user_id);
 CONSTRAINT fk_cashflow_user FOREIGN KEY (user_id) REFERENCES app_user (user_id);
 CONSTRAINT fk_cashflow_account_owner FOREIGN KEY (linked_account_id, user_id) REFERENCES linked_account (linked_account_id, user_id);
 CONSTRAINT ck_cashflow_direction CHECK (direction IN ('INCOME','EXPENSE'));
-CONSTRAINT ck_cashflow_amount CHECK (amount > 0);
+CONSTRAINT ck_cashflow_amount CHECK (amount IS NULL OR amount > 0);
 CONSTRAINT ck_cashflow_recurrence CHECK (recurrence_type IN ('NONE','DAILY','WEEKLY','MONTHLY','YEARLY'));
 CONSTRAINT ck_cashflow_end CHECK (recurrence_end_date IS NULL OR recurrence_end_date >= scheduled_date);
-CONSTRAINT ck_cashflow_item_version CHECK (version >= 0)
+CONSTRAINT ck_cashflow_item_version CHECK (version >= 0);
+UNIQUE KEY uk_cashflow_owner (cashflow_item_id, user_id);
+KEY ix_cashflow_card_owner (user_card_id, user_id);
+KEY ix_cashflow_previous_owner (previous_cashflow_item_id, user_id);
+CONSTRAINT fk_cashflow_card_owner FOREIGN KEY (user_card_id, user_id) REFERENCES user_card (user_card_id, user_id);
+CONSTRAINT fk_cashflow_previous_owner FOREIGN KEY (previous_cashflow_item_id, user_id) REFERENCES cashflow_item (cashflow_item_id, user_id);
+CONSTRAINT ck_cashflow_kind CHECK (item_kind IN ('SCHEDULED','PURCHASE_PLAN'));
+CONSTRAINT ck_cashflow_card_direction CHECK (user_card_id IS NULL OR direction = 'EXPENSE');
+CONSTRAINT ck_cashflow_plan CHECK (
+        (payment_plan IS NULL AND installment_months IS NULL)
+        OR (user_card_id IS NOT NULL AND payment_plan IS NOT NULL AND installment_months IS NOT NULL
+            AND ((payment_plan = 'LUMP_SUM' AND installment_months = 1)
+                OR (payment_plan = 'INSTALLMENT' AND installment_months >= 2))));
+CONSTRAINT ck_cashflow_purchase CHECK (
+        (item_kind = 'SCHEDULED' AND purchase_state IS NULL)
+        OR (item_kind = 'PURCHASE_PLAN' AND direction = 'EXPENSE' AND user_card_id IS NOT NULL
+            AND amount IS NOT NULL AND payment_plan IS NOT NULL
+            AND purchase_state IS NOT NULL AND purchase_state IN ('ACTIVE','FULFILLED','CANCELED')));
 ```
+
+금액·카드 등은 발생 건 생성 시의 기본값이다. 예보는 회차별 cashflow_occurrence를 사용하며 이 테이블의 금액을 추가 차감하지 않는다. 이후 일정 변경은 기존 규칙의 종료일을 변경 시작일 전날로 닫고 새 규칙을 previous_cashflow_item_id로 연결한다. NULL 금액은 미정이며 입력을 안내한다.
+
+### cashflow_occurrence — 회차별 예정 수입·지출
+
+| 컬럼 | SQL 정의 | 설명 |
+|---|---|---|
+| cashflow_occurrence_id | `BIGINT NOT NULL AUTO_INCREMENT` | 예정 발생 건 번호; 실제 출금 기록 아님 |
+| cashflow_item_id | `BIGINT NOT NULL` | 반복 규칙 또는 일회성 항목 |
+| user_id | `BIGINT NOT NULL` | 규칙과 동일 사용자 |
+| occurrence_date | `DATE NOT NULL` | 한국 기준 원래 발생일; 이번 건 날짜를 바꿔도 식별용으로 보존 |
+| scheduled_date | `DATE NOT NULL` | 한국 기준 이번 건에 적용할 예정일 |
+| title | `VARCHAR(150) NOT NULL` | 이번 건 이름 |
+| direction | `VARCHAR(16) NOT NULL` | INCOME / EXPENSE |
+| amount | `BIGINT NULL` | 이번 건 예정 원화 금액; NULL이면 금액 입력 안내 후 예보 계산 제외 |
+| linked_account_id | `BIGINT NULL` | 이번 건 계좌 직접 입출금 계좌; 같은 사용자 소유 |
+| user_card_id | `BIGINT NULL` | 이번 건 예정 결제 카드; 같은 사용자 소유 |
+| category_code | `VARCHAR(64) NULL` | 이번 건 업종 코드 |
+| payment_plan | `VARCHAR(16) NULL` | LUMP_SUM / INSTALLMENT; 비카드 항목 NULL |
+| installment_months | `SMALLINT NULL` | 일시불 1, 할부 총 개월 수 |
+| status | `VARCHAR(24) NOT NULL` | CONFIRMED 예정 / EXCLUDED 이번 건 제외; 기존 상태는 변환 없이 보존 |
+| is_overridden | `BOOLEAN NOT NULL DEFAULT FALSE` | 이번 건만 수정했는지 여부; 이후 일괄 변경 시 판정 근거 |
+| memo | `VARCHAR(500) NULL` | 이번 건 메모; 민감정보 입력 주의 |
+| created_at | `TIMESTAMP(6) NOT NULL` | UTC 생성 시각 |
+| updated_at | `TIMESTAMP(6) NOT NULL` | UTC 수정 시각 |
+| version | `BIGINT NOT NULL DEFAULT 0` | JPA 낙관적 락 버전 |
+
+```sql
+PRIMARY KEY (cashflow_occurrence_id);
+UNIQUE KEY uk_occurrence_slot (cashflow_item_id, occurrence_date);
+UNIQUE KEY uk_occurrence_owner (cashflow_occurrence_id, user_id);
+KEY ix_occurrence_owner_date (user_id, scheduled_date);
+KEY ix_occurrence_rule_owner (cashflow_item_id, user_id);
+KEY ix_occurrence_account_owner (linked_account_id, user_id);
+KEY ix_occurrence_card_owner (user_card_id, user_id);
+CONSTRAINT fk_occurrence_rule_owner FOREIGN KEY (cashflow_item_id, user_id) REFERENCES cashflow_item (cashflow_item_id, user_id);
+CONSTRAINT fk_occurrence_account_owner FOREIGN KEY (linked_account_id, user_id) REFERENCES linked_account (linked_account_id, user_id);
+CONSTRAINT fk_occurrence_card_owner FOREIGN KEY (user_card_id, user_id) REFERENCES user_card (user_card_id, user_id);
+CONSTRAINT ck_occurrence_direction CHECK (direction IN ('INCOME','EXPENSE'));
+CONSTRAINT ck_occurrence_amount CHECK (amount IS NULL OR amount > 0);
+CONSTRAINT ck_occurrence_card_direction CHECK (user_card_id IS NULL OR direction = 'EXPENSE');
+CONSTRAINT ck_occurrence_plan CHECK (
+(payment_plan IS NULL AND installment_months IS NULL)
+OR (user_card_id IS NOT NULL AND payment_plan IS NOT NULL AND installment_months IS NOT NULL
+AND ((payment_plan = 'LUMP_SUM' AND installment_months = 1)
+OR (payment_plan = 'INSTALLMENT' AND installment_months >= 2))));
+CONSTRAINT ck_occurrence_override CHECK (is_overridden IN (0,1));
+CONSTRAINT ck_occurrence_version CHECK (version >= 0);
+```
+
+occurrence_date는 원래 회차를 식별하는 날짜이고 scheduled_date는 수정 후 예정일이다. 이번 건 날짜를 옮겨도 원래 회차를 다시 생성하지 않는다. amount=NULL이면 일정은 표시하고 입력을 안내하되 해당 금액은 예보 계산에서 제외한다. 미정 금액이 제외된 예보임을 알린다. 이 행은 실제 결제·출금 원장이 아니다.
+
+### cashflow_payment_match — 예정 발생 건·실제 결제 연결
+
+| 컬럼 | SQL 정의 | 설명 |
+|---|---|---|
+| cashflow_payment_match_id | `BIGINT NOT NULL AUTO_INCREMENT` | 예정 발생 건과 실제 결제 연결 번호 |
+| user_id | `BIGINT NOT NULL` | 예정 발생 건·결제와 동일 사용자 |
+| cashflow_occurrence_id | `BIGINT NOT NULL` | 사용자가 동일 지출로 확인한 예정 발생 건 |
+| payment_transaction_id | `BIGINT NOT NULL` | 실제 YAMU 결제; 가상 구매 계획으로 생성하지 않음 |
+| matched_at | `TIMESTAMP(6) NOT NULL` | UTC 사용자 연결 확인 시각 |
+| created_at | `TIMESTAMP(6) NOT NULL` | UTC 생성 시각 |
+
+```sql
+PRIMARY KEY (cashflow_payment_match_id);
+UNIQUE KEY uk_match_occurrence (cashflow_occurrence_id);
+UNIQUE KEY uk_match_payment (payment_transaction_id);
+KEY ix_match_occurrence_owner (cashflow_occurrence_id, user_id);
+KEY ix_match_payment_owner (payment_transaction_id, user_id);
+CONSTRAINT fk_match_occurrence_owner FOREIGN KEY (cashflow_occurrence_id, user_id) REFERENCES cashflow_occurrence (cashflow_occurrence_id, user_id);
+CONSTRAINT fk_match_payment_owner FOREIGN KEY (payment_transaction_id, user_id) REFERENCES payment_transaction (payment_transaction_id, user_id);
+```
+
+규칙+발생일 문자열 대신 cashflow_occurrence_id를 참조한다. 발생 건의 UNIQUE(규칙, 원래 발생일)와 연결 테이블의 발생 건·결제 UNIQUE를 함께 사용한다. 동일 지출인지 사용자가 확인한 뒤 연결하며 금액·날짜 유사성만으로 자동 확정하지 않는다. 금융망 외부 거래 중복까지 해결하는 구조는 아니다.
 
 ### notification — 사용자 알림
 
@@ -756,4 +861,4 @@ CONSTRAINT ck_notification_target CHECK ((target_type IS NULL AND target_id IS N
 
 - [스키마 안내·정책 원본 위치](README.md)
 - [서비스 구현 책임·검증 방법](implementation.md)
-- [Flyway SQL 원본](../../../be/src/main/resources/db/migration/V20261026_1__create_initial_schema.sql)
+- [Flyway SQL 전체 적용 순서](../../../be/src/main/resources/db/migration)

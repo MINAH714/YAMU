@@ -37,10 +37,10 @@ class InitialSchemaMigrationTest extends MySqlTestSupport {
     private static final List<String> TABLES = List.of(
             "app_user", "linked_account", "card_product", "user_card", "card_benefit",
             "benefit_target", "merchant", "limit_group", "benefit_limit_link", "tier_limit",
-            "payment_transaction", "payment_benefit", "payment_limit_impact",
+            "payment_transaction", "payment_benefit", "payment_limit_usage",
             "card_monthly_performance", "monthly_limit_usage", "card_bill", "bill_item",
             "refund", "cashflow_item", "notification", "user_device", "user_device_event",
-            "step_up_audit_log");
+            "step_up_audit_log", "cashflow_occurrence", "cashflow_payment_match");
 
     @Autowired JdbcTemplate jdbc;
     @Autowired Flyway flyway;
@@ -51,11 +51,24 @@ class InitialSchemaMigrationTest extends MySqlTestSupport {
                 "SELECT table_name FROM information_schema.tables WHERE table_schema = DATABASE()",
                 String.class);
         assertThat(actual).containsAll(TABLES);
-        assertThat(actual.stream().filter(TABLES::contains).count()).isEqualTo(23);
+        assertThat(actual).doesNotContain("payment_limit_impact");
+        assertThat(actual.stream().filter(TABLES::contains).count()).isEqualTo(25);
         assertThat(jdbc.queryForObject("""
                 SELECT COUNT(*) FROM flyway_schema_history
                 WHERE version = '20261026.1' AND success = 1
                 """, Integer.class)).isEqualTo(1);
+        assertThat(jdbc.queryForObject("""
+                SELECT COUNT(*) FROM flyway_schema_history
+                WHERE version = '20261027.1' AND success = 1
+                """, Integer.class)).isEqualTo(1);
+        assertThat(jdbc.queryForMap("""
+                SELECT column_type, is_nullable, column_comment FROM information_schema.columns
+                WHERE table_schema = DATABASE() AND table_name = 'app_user'
+                  AND column_name = 'ssafy_member_id'
+                """)).containsEntry("COLUMN_TYPE", "varchar(255)")
+                .containsEntry("IS_NULLABLE", "YES")
+                .containsEntry("COLUMN_COMMENT",
+                        "서버 생성 금융망 userId; y{랜덤 9자리}@yamu.app(19자, SSAFY 40자 제한), 최초 생성 후 재사용, 메일 인증 없음");
         assertThat(flyway.migrate().migrationsExecuted).isZero();
     }
 
@@ -298,7 +311,133 @@ class InitialSchemaMigrationTest extends MySqlTestSupport {
 
     private long device(long owner) {
         return insert("user_device", fields("user_id", owner, "device_uuid", UUID.randomUUID().toString(),
-                "platform", "ANDROID"), true);
+                "platform", "ANDROID", "public_key", "test-public-key", "key_algorithm", "TEST"), true);
+    }
+
+    @Test
+    void monthlyOccurrencesKeepUnknownAmountsAndIndependentDates() {
+        long owner = user();
+        long rule = cashflow(owner);
+        long november = occurrence(rule, owner, MONTH.plusMonths(1));
+        long december = occurrence(rule, owner, MONTH.plusMonths(2));
+        jdbc.update("UPDATE cashflow_occurrence SET amount = 43000, scheduled_date = ?, is_overridden = 1 WHERE cashflow_occurrence_id = ?",
+                MONTH.plusMonths(1).plusDays(2), november);
+        assertThat(jdbc.queryForObject("SELECT amount FROM cashflow_occurrence WHERE cashflow_occurrence_id = ?",
+                Long.class, november)).isEqualTo(43000L);
+        assertThat(jdbc.queryForObject("SELECT amount FROM cashflow_occurrence WHERE cashflow_occurrence_id = ?",
+                Long.class, december)).isNull();
+        assertThat(jdbc.queryForObject("SELECT amount FROM cashflow_item WHERE cashflow_item_id = ?", Long.class, rule)).isNull();
+        assertRejected(() -> occurrence(rule, owner, MONTH.plusMonths(1)));
+        assertRejected(() -> jdbc.update("UPDATE cashflow_occurrence SET amount = 0 WHERE cashflow_occurrence_id = ?", november));
+        assertRejected(() -> jdbc.update("UPDATE cashflow_item SET amount = -1 WHERE cashflow_item_id = ?", rule));
+        jdbc.update("UPDATE cashflow_occurrence SET status = 'EXCLUDED' WHERE cashflow_occurrence_id = ?", december);
+    }
+
+    @Test
+    void cashflowCardsAndOccurrencesRequireTheSameOwner() {
+        Fixture a = fixture();
+        long stranger = user();
+        long rule = cashflow(a.owner());
+        jdbc.update("UPDATE cashflow_item SET user_card_id = ?, category_code = 'UTILITIES' WHERE cashflow_item_id = ?", a.card(), rule);
+        long otherRule = cashflow(stranger);
+        assertRejected(() -> jdbc.update("UPDATE cashflow_item SET user_card_id = ? WHERE cashflow_item_id = ?", a.card(), otherRule));
+        assertRejected(() -> occurrence(rule, stranger, MONTH));
+        long otherOccurrence = occurrence(otherRule, stranger, MONTH);
+        assertRejected(() -> jdbc.update("UPDATE cashflow_occurrence SET user_card_id = ? WHERE cashflow_occurrence_id = ?", a.card(), otherOccurrence));
+    }
+
+    @Test
+    void confirmedPaymentMatchesAreUniqueAndCannotCrossOwners() {
+        Fixture a = fixture();
+        long rule = cashflow(a.owner());
+        long first = occurrence(rule, a.owner(), MONTH);
+        long second = occurrence(rule, a.owner(), MONTH.plusMonths(1));
+        match(a.owner(), first, a.payment());
+        assertRejected(() -> match(a.owner(), second, a.payment()));
+        long anotherPayment = payment(a.owner(), merchant(), UUID.randomUUID().toString(), 1000L);
+        assertRejected(() -> match(a.owner(), first, anotherPayment));
+        long stranger = user();
+        long foreignOccurrence = occurrence(cashflow(stranger), stranger, MONTH);
+        assertRejected(() -> match(a.owner(), foreignOccurrence, anotherPayment));
+        assertRejected(() -> match(stranger, foreignOccurrence, anotherPayment));
+        assertRejected(() -> jdbc.update("DELETE FROM cashflow_occurrence WHERE cashflow_occurrence_id = ?", first));
+    }
+
+    @Test
+    void purchasePlansStoreInstallmentsWithoutCreatingPaymentsOrBills() {
+        Fixture a = fixture();
+        long rule = cashflow(a.owner());
+        long payments = jdbc.queryForObject("SELECT COUNT(*) FROM payment_transaction", Long.class);
+        long bills = jdbc.queryForObject("SELECT COUNT(*) FROM card_bill", Long.class);
+        jdbc.update("""
+                UPDATE cashflow_item SET item_kind = 'PURCHASE_PLAN', user_card_id = ?, amount = 400000,
+                  payment_plan = 'INSTALLMENT', installment_months = 3, purchase_state = 'ACTIVE'
+                WHERE cashflow_item_id = ?
+                """, a.card(), rule);
+        assertRejected(() -> jdbc.update("UPDATE cashflow_item SET installment_months = 1 WHERE cashflow_item_id = ?", rule));
+        assertRejected(() -> jdbc.update("UPDATE cashflow_item SET purchase_state = NULL WHERE cashflow_item_id = ?", rule));
+        assertRejected(() -> jdbc.update("UPDATE cashflow_item SET direction = 'INCOME' WHERE cashflow_item_id = ?", rule));
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM payment_transaction", Long.class)).isEqualTo(payments);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM card_bill", Long.class)).isEqualTo(bills);
+    }
+
+    @Test
+    void spendingClassificationKeepsUserEditsSeparateFromPerformance() {
+        Fixture a = fixture();
+        assertThat(jdbc.queryForObject("SELECT spending_class FROM payment_transaction WHERE payment_transaction_id = ?",
+                String.class, a.payment())).isNull();
+        assertRejected(() -> jdbc.update("UPDATE payment_transaction SET spending_class = 'LIVING' WHERE payment_transaction_id = ?", a.payment()));
+        assertRejected(() -> jdbc.update("UPDATE payment_transaction SET spending_class = 'INVALID', spending_class_source = 'AUTO' WHERE payment_transaction_id = ?", a.payment()));
+        jdbc.update("UPDATE payment_transaction SET spending_class = 'LIVING', spending_class_source = 'USER', memo = 'test' WHERE payment_transaction_id = ?", a.payment());
+        assertThat(jdbc.queryForObject("SELECT recognized_performance_amount FROM payment_transaction WHERE payment_transaction_id = ?",
+                Long.class, a.payment())).isEqualTo(10000L);
+        assertThat(jdbc.queryForObject("SELECT spending_class_source FROM payment_transaction WHERE payment_transaction_id = ?",
+                String.class, a.payment())).isEqualTo("USER");
+    }
+
+    @Test
+    void futureRuleChangesCanKeepPastOccurrencesAndOwnerHistory() {
+        long owner = user();
+        long oldRule = cashflow(owner);
+        long past = occurrence(oldRule, owner, MONTH);
+        jdbc.update("UPDATE cashflow_occurrence SET amount = 500000 WHERE cashflow_occurrence_id = ?", past);
+        jdbc.update("UPDATE cashflow_item SET recurrence_end_date = ? WHERE cashflow_item_id = ?", MONTH.plusMonths(1).minusDays(1), oldRule);
+        long newRule = cashflow(owner);
+        jdbc.update("UPDATE cashflow_item SET previous_cashflow_item_id = ?, scheduled_date = ?, amount = 550000 WHERE cashflow_item_id = ?",
+                oldRule, MONTH.plusMonths(1), newRule);
+        assertThat(jdbc.queryForObject("SELECT amount FROM cashflow_occurrence WHERE cashflow_occurrence_id = ?", Long.class, past)).isEqualTo(500000L);
+        long otherRule = cashflow(user());
+        assertRejected(() -> jdbc.update("UPDATE cashflow_item SET previous_cashflow_item_id = ? WHERE cashflow_item_id = ?", oldRule, otherRule));
+    }
+
+    private long cashflow(long owner) {
+        return insert("cashflow_item", fields("user_id", owner, "title", "utilities", "direction", "EXPENSE",
+                "scheduled_date", MONTH, "recurrence_type", "MONTHLY", "status", "CONFIRMED"), true);
+    }
+
+    private long occurrence(long rule, long owner, LocalDate date) {
+        return insert("cashflow_occurrence", fields("cashflow_item_id", rule, "user_id", owner,
+                "occurrence_date", date, "scheduled_date", date, "title", "utilities", "direction", "EXPENSE",
+                "status", "CONFIRMED"), true);
+    }
+
+    private void match(long owner, long occurrence, long payment) {
+        insert("cashflow_payment_match", fields("user_id", owner, "cashflow_occurrence_id", occurrence,
+                "payment_transaction_id", payment, "matched_at", now()), false);
+    }
+
+    @Test
+    void pinOnlyDevicesRequireSigningKeysAndBiometricFlagRemainsBoolean() {
+        long owner = user();
+        long device = device(owner);
+        assertThat(jdbc.queryForObject("SELECT biometric_enabled FROM user_device WHERE user_device_id = ?",
+                Boolean.class, device)).isFalse();
+        assertRejected(() -> insert("user_device", fields("user_id", owner,
+                "device_uuid", UUID.randomUUID().toString(), "platform", "ANDROID"), true));
+        assertRejected(() -> jdbc.update("UPDATE user_device SET public_key = NULL WHERE user_device_id = ?", device));
+        assertRejected(() -> jdbc.update("UPDATE user_device SET key_algorithm = NULL WHERE user_device_id = ?", device));
+        assertRejected(() -> jdbc.update("UPDATE user_device SET biometric_enabled = 2 WHERE user_device_id = ?", device));
+        jdbc.update("UPDATE user_device SET biometric_enabled = 1 WHERE user_device_id = ?", device);
     }
 
     private long account(long owner) {
@@ -373,15 +512,15 @@ class InitialSchemaMigrationTest extends MySqlTestSupport {
         jdbc.update("UPDATE limit_group SET limit_unit = 'AMOUNT', base_limit_value = 10000 WHERE limit_group_id = ?", group);
         jdbc.update("UPDATE payment_transaction SET performance_basis_amount = 350000 WHERE payment_transaction_id = ?", a.payment());
         assertRejected(() -> jdbc.update("UPDATE payment_transaction SET performance_basis_amount = -1 WHERE payment_transaction_id = ?", a.payment()));
-        long impact = insert("payment_limit_impact", fields("payment_transaction_id", a.payment(),
+        long impact = insert("payment_limit_usage", fields("payment_transaction_id", a.payment(),
                 "card_product_id", a.product(), "limit_group_id", group, "remaining_before", 300L,
                 "consumed_value", 300L, "usage_date", MONTH, "usage_month", MONTH), true);
-        assertRejected(() -> jdbc.update("UPDATE payment_limit_impact SET remaining_before = NULL WHERE payment_limit_impact_id = ?", impact));
-        assertRejected(() -> jdbc.update("UPDATE payment_limit_impact SET remaining_before = -1 WHERE payment_limit_impact_id = ?", impact));
-        assertRejected(() -> jdbc.update("UPDATE payment_limit_impact SET consumed_value = 301 WHERE payment_limit_impact_id = ?", impact));
-        jdbc.update("UPDATE payment_limit_impact SET restored_at = ? WHERE payment_limit_impact_id = ?", now(), impact);
-        assertThat(jdbc.queryForObject("SELECT remaining_before FROM payment_limit_impact WHERE payment_limit_impact_id = ?", Long.class, impact)).isEqualTo(300L);
-        assertThat(jdbc.queryForObject("SELECT consumed_value FROM payment_limit_impact WHERE payment_limit_impact_id = ?", Long.class, impact)).isEqualTo(300L);
+        assertRejected(() -> jdbc.update("UPDATE payment_limit_usage SET remaining_before = NULL WHERE payment_limit_usage_id = ?", impact));
+        assertRejected(() -> jdbc.update("UPDATE payment_limit_usage SET remaining_before = -1 WHERE payment_limit_usage_id = ?", impact));
+        assertRejected(() -> jdbc.update("UPDATE payment_limit_usage SET consumed_value = 301 WHERE payment_limit_usage_id = ?", impact));
+        jdbc.update("UPDATE payment_limit_usage SET restored_at = ? WHERE payment_limit_usage_id = ?", now(), impact);
+        assertThat(jdbc.queryForObject("SELECT remaining_before FROM payment_limit_usage WHERE payment_limit_usage_id = ?", Long.class, impact)).isEqualTo(300L);
+        assertThat(jdbc.queryForObject("SELECT consumed_value FROM payment_limit_usage WHERE payment_limit_usage_id = ?", Long.class, impact)).isEqualTo(300L);
         assertThat(jdbc.queryForObject("SELECT performance_basis_amount FROM payment_transaction WHERE payment_transaction_id = ?", Long.class, a.payment())).isEqualTo(350000L);
         jdbc.update("UPDATE payment_transaction SET performance_basis_amount = 0 WHERE payment_transaction_id = ?", a.payment());
         assertThat(jdbc.queryForObject("SELECT performance_basis_amount FROM payment_transaction WHERE payment_transaction_id = ?", Long.class, a.payment())).isZero();
@@ -407,7 +546,7 @@ class InitialSchemaMigrationTest extends MySqlTestSupport {
     }
 
     private void impact(Fixture a, long group) {
-        insert("payment_limit_impact", fields("payment_transaction_id", a.payment(), "card_product_id", a.product(),
+        insert("payment_limit_usage", fields("payment_transaction_id", a.payment(), "card_product_id", a.product(),
                 "limit_group_id", group, "remaining_before", 1L, "consumed_value", 1L,
                 "usage_date", MONTH, "usage_month", MONTH), true);
     }
