@@ -61,7 +61,7 @@ class CashflowServiceTest {
 
     @Test
     void 카드_지출은_계좌_없이_사용자_소유_카드로_등록한다() {
-        when(ownership.hasActiveCard(7L, 12L)).thenReturn(true);
+        when(ownership.hasRegisteredCard(7L, 12L)).thenReturn(true);
         savedWithId(32L);
 
         CashflowService.Item result = service.create(7L, command(10000L, null, 12L));

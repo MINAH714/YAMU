@@ -42,7 +42,7 @@ public class CashflowService {
             throw new BusinessException(ErrorCode.RESOURCE_NOT_FOUND);
         }
         if (command.userCardId() != null
-                && !ownership.hasActiveCard(authenticatedUserId, command.userCardId())) {
+                && !ownership.hasRegisteredCard(authenticatedUserId, command.userCardId())) {
             throw new BusinessException(ErrorCode.RESOURCE_NOT_FOUND);
         }
 

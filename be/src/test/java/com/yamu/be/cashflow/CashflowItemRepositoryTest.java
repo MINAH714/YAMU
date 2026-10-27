@@ -125,6 +125,31 @@ class CashflowItemRepositoryTest extends MySqlTestSupport {
                 Integer.class, owner)).isZero();
     }
 
+    @Test
+    void 보유_카드_목록에_보이는_ACTIVE와_INACTIVE_카드만_결제_카드로_등록된다() {
+        long owner = user();
+        long account = account(owner);
+        long product = product();
+        LocalDate tomorrow = LocalDate.now(ZoneId.of("Asia/Seoul")).plusDays(1);
+
+        for (String status : List.of("ACTIVE", "INACTIVE")) {
+            long card = card(owner, product, account, status);
+            assertThat(service.create(owner, cardExpense(tomorrow, card)).userCardId()).isEqualTo(card);
+        }
+        for (String status : List.of("UNREGISTERED", "PENDING")) {
+            long card = card(owner, product, account, status);
+            assertThatThrownBy(() -> service.create(owner, cardExpense(tomorrow, card)))
+                    .isInstanceOf(BusinessException.class)
+                    .satisfies(error -> assertThat(((BusinessException) error).getErrorCode())
+                            .isEqualTo(ErrorCode.RESOURCE_NOT_FOUND));
+        }
+    }
+
+    private static CashflowService.CreateCommand cardExpense(LocalDate date, long card) {
+        return new CashflowService.CreateCommand("구독", CashflowItem.Direction.EXPENSE, 10000L, date,
+                CashflowItem.RecurrenceType.NONE, null, null, null, null, card, null, null);
+    }
+
     private static List<Long> idsOf(List<CashflowItem> rules) {
         return rules.stream().map(CashflowItem::getId).toList();
     }
@@ -154,10 +179,14 @@ class CashflowItemRepositoryTest extends MySqlTestSupport {
     }
 
     private long card(long owner, long product, long account) {
+        return card(owner, product, account, "ACTIVE");
+    }
+
+    private long card(long owner, long product, long account, String status) {
         return insert("user_card", fields("user_id", owner, "card_product_id", product,
                 "linked_account_id", account, "card_no_enc", new byte[]{1, 2},
                 "card_no_hash", hash(UUID.randomUUID().toString()), "card_last4", "1234",
-                "status", "ACTIVE", "registered_at", now()), true);
+                "status", status, "registered_at", now()), true);
     }
 
     private long insert(String table, Map<String, Object> values, boolean mutable) {

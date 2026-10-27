@@ -19,10 +19,11 @@ class CashflowOwnershipLookup {
         return count != null && count > 0;
     }
 
-    boolean hasActiveCard(Long userId, Long userCardId) {
+    /** API 명세 「보유 카드 목록 조회」의 내 카드(ACTIVE·INACTIVE)인지 확인한다. 등록 해제·미등록 카드는 제외한다. */
+    boolean hasRegisteredCard(Long userId, Long userCardId) {
         Long count = jdbc.queryForObject("""
                 select count(*) from user_card
-                where user_id = ? and user_card_id = ? and status = 'ACTIVE'
+                where user_id = ? and user_card_id = ? and status in ('ACTIVE', 'INACTIVE')
                 """, Long.class, userId, userCardId);
         return count != null && count > 0;
     }
