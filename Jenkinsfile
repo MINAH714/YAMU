@@ -34,6 +34,7 @@ pipeline {
             steps {
                 sh 'sh infra/ci/check-environment.sh'
                 sh 'python3 infra/ci/test_check_test_results.py'
+                sh 'python3 -m unittest discover -s infra/cd -p "test_*.py"'
             }
         }
         stage('BE tests') {
@@ -75,7 +76,8 @@ pipeline {
         }
         stage('Archive') {
             steps {
-                archiveArtifacts artifacts: 'ci-revision.txt,be/build/libs/*.jar,fe/pos/dist/**', fingerprint: true
+                sh 'python3 infra/cd/manifest.py'
+                archiveArtifacts artifacts: 'ci-revision.txt,ci-manifest.json,be/build/libs/*.jar,fe/pos/dist/**', fingerprint: true
             }
         }
     }

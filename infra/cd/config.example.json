@@ -1,0 +1,10 @@
+{
+  "jenkins_container": "yamu-ci-jenkins-1",
+  "repository": "/opt/yamu/cd/repository",
+  "staging": "/opt/yamu/cd/staging",
+  "prod_env": "/home/ubuntu/apps/S15P31E103/infra/.env.prod",
+  "rds_env": "/home/ubuntu/.config/yamu/rds/active.env",
+  "compose_prod": "/opt/yamu/cd/compose.prod.yml",
+  "compose_rds": "/opt/yamu/cd/compose.rds.yml",
+  "active_override": "/etc/yamu-cd/active-image.json"
+}
