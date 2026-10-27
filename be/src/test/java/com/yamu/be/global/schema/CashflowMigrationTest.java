@@ -14,7 +14,8 @@ import org.springframework.test.context.TestPropertySource;
 /** 기존 반복 규칙·금액·상태를 보존하고 첫 발생 건만 이관한다. */
 @TestPropertySource(properties = {
         "spring.application.name=yamu-cashflow-migration-test",
-        "spring.flyway.target=20261027.3"
+        "spring.flyway.target=20261027.3",
+        "spring.jpa.hibernate.ddl-auto=none"
 })
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 class CashflowMigrationTest extends MySqlTestSupport {
