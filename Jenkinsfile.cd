@@ -1,3 +1,42 @@
+def notifyMattermost(String event) {
+    if (env.NOTIFY_READY != 'true') {
+        echo 'WARNING: Notification checkout unavailable; build result unchanged.'
+        return false
+    }
+    def delivered = false
+    def attempted = false
+    try {
+        // retry distinguishes timeout from user abort inside Jenkins, without a
+        // script-security exception. The second pass only warns; it NEVER sends.
+        retry(2) {
+            if (attempted) {
+                echo 'WARNING: Notification time limit exceeded; build result unchanged.'
+            } else {
+                attempted = true
+                // Includes agent queue wait; approval must not wait indefinitely.
+                timeout(time: 1, unit: 'MINUTES') {
+                    node('yamu-ci') {
+                        dir('.notifications') {
+                            try {
+                                unstash 'mattermost-notifier'
+                                def notifier = load 'infra/ci/mattermost.groovy'
+                                delivered = notifier.send('CD', event)
+                            } finally {
+                                deleteDir()
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    } catch (org.jenkinsci.plugins.workflow.steps.FlowInterruptedException interrupted) {
+        throw interrupted
+    } catch (Exception ignored) {
+        echo 'WARNING: Mattermost notification unavailable; build result unchanged.'
+    }
+    return delivered
+}
+
 pipeline {
     agent none
     options {
@@ -7,7 +46,28 @@ pipeline {
         buildDiscarder(logRotator(numToKeepStr: '20'))
         timestamps()
     }
+    triggers {
+        pollSCM('H/5 * * * *')
+    }
     stages {
+        stage('Prepare notifications') {
+            agent { label 'yamu-ci' }
+            steps {
+                script {
+                    if (env.JOB_NAME != 'yamu/cd') {
+                        error('Production CD must run only as yamu/cd configured for master')
+                    }
+                }
+                deleteDir()
+                script {
+                    def revision = checkout scm
+                    env.GIT_COMMIT = revision.GIT_COMMIT
+                }
+                stash name: 'mattermost-notifier', includes: 'infra/ci/mattermost.groovy,infra/ci/notify_mattermost.py'
+                script { env.NOTIFY_READY = 'true' }
+                deleteDir()
+            }
+        }
         stage('Test master') {
             steps {
                 script {
@@ -19,9 +79,10 @@ pipeline {
         }
         stage('Approve production') {
             steps {
+                script { notifyMattermost('APPROVAL_PENDING') }
                 timeout(time: 30, unit: 'MINUTES') {
                     input message: "Deploy BE from ci-master #${env.TESTED_BUILD}? DB migration changes are rejected.",
-                          ok: 'Deploy', submitter: 'yamu-release-managers', submitterParameter: 'APPROVER'
+                          ok: 'Deploy', submitter: 'yamu', submitterParameter: 'APPROVER'
                 }
             }
         }
@@ -39,6 +100,11 @@ pipeline {
                     '''
                 }
             }
+        }
+    }
+    post {
+        always {
+            script { notifyMattermost(currentBuild.currentResult) }
         }
     }
 }

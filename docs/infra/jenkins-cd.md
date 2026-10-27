@@ -7,8 +7,8 @@
 
 1. 별도 `yamu/ci-master` Job이 `*/master`의 기존 `Jenkinsfile`로 전체 CI를 실행한다.
 2. CI 마지막 단계가 커밋·단일 boot JAR 경로·SHA-256을 기록한다. 실패·skip 게이트 뒤에만 산출물을 보관한다.
-3. `yamu/cd`는 `Jenkinsfile.cd`로 ci-master를 실행하고 성공한 빌드 번호를 고정한다.
-4. Jenkins `yamu-release-managers`에 속한 사람이 승인한다. 30분 내 승인하지 않으면 중단한다. 해당 이름은 실제 권한 영역에 등록해야 하며 Jenkins 관리자도 승인할 수 있다.
+3. `yamu/cd`는 master 변경을 5분 폴링으로 감지해 `Jenkinsfile.cd`로 ci-master를 실행하고 성공한 빌드 번호를 고정한다. ci-master는 독립 폴링을 하지 않는다.
+4. 사용자가 지정한 Jenkins `yamu` 계정이 승인한다. 30분 내 승인하지 않으면 중단한다. Jenkins 관리자도 승인할 수 있다. 다른 승인자를 추가하려면 코드 리뷰와 권한 검토가 필요하다.
 5. CI 에이전트는 제한된 SSH 키로 빌드 번호만 전달한다. 운영 Docker 소켓·환경 파일은 전달하지 않는다.
 6. 호스트의 root 소유 도구가 Jenkins 로컬 산출물과 SUCCESS, Git 원격의 현재 master, SHA-256을 검증한다. 준비 중 master가 바뀌어도 배포를 거부한다.
 7. 현재 앱과 후보 JAR의 모든 Flyway SQL 리소스 이름·내용 해시가 같아야 한다. 마이그레이션 추가·변경·삭제는 별도 DB 배포 검토가 필요하다.
@@ -38,9 +38,11 @@ CI 에이전트의 Jenkins 계정은 원래 신뢰된 팀 코드만 실행한다
 ## Jenkins Job
 
 - `yamu/ci-master`: Pipeline script from SCM, 기존 Git URL·읽기 credentials, Branch `*/master`, Script Path `Jenkinsfile`. trusted master만 실행한다.
-- `yamu/cd`: Pipeline script from SCM, Branch `*/master`, Script Path `Jenkinsfile.cd`. 자동 trigger는 없으며 Build Now로 시작한다.
+- `yamu/cd`: Pipeline script from SCM, Branch `*/master`, Script Path `Jenkinsfile.cd`. 활성화·최초 실행 후 `H/5 * * * *` SCM polling을 사용한다. 자동 시작 후에도 운영 배포는 승인 전 실행하지 않는다.
 - 기존 `yamu/ci`의 develop CI는 유지한다. CD Job은 동시에 한 번만 실행하고 호스트 파일 잠금으로 다른 Job·운영자 동시 배포도 거부한다.
 - master에 파일이 반영되기 전 Job을 활성화하지 않는다. CD 코드 변경도 운영 권한이므로 반드시 리뷰한다.
+- 최초 실행은 CI와 승인 대기까지 진행하므로 사람이 릴리스 커밋을 확인한 뒤 수행한다. master에 알림 도우미까지 포함돼 있어야 한다. 최초 실행 전에는 Jenkinsfile의 폴링이 자동 등록되지 않는다.
+- Mattermost 알림·비밀값 등록·검증은 [jenkins-notifications.md](jenkins-notifications.md)를 따른다.
 
 ## 재기동
 
