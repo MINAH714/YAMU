@@ -1,0 +1,19 @@
+# Docker Compose >= 2.24.4. Layer over compose.prod.yml.
+# Keep the legacy MySQL volume for rollback; never use down -v.
+services:
+  mysql:
+    profiles: [legacy-db]
+
+  backend:
+    environment:
+      SPRING_DATASOURCE_URL: "jdbc:mysql://${RDS_HOST:?Set RDS_HOST}:3306/${DB_NAME:-yamu}?serverTimezone=UTC&characterEncoding=UTF-8&sslMode=VERIFY_IDENTITY&trustCertificateKeyStoreUrl=file:/run/yamu/rds-truststore.p12&trustCertificateKeyStoreType=PKCS12&trustCertificateKeyStorePassword=changeit&fallbackToSystemTrustStore=false"
+    depends_on: !override
+      redis:
+        condition: service_healthy
+    volumes:
+      - type: bind
+        source: ${RDS_TRUSTSTORE_PATH:?Set RDS_TRUSTSTORE_PATH}
+        target: /run/yamu/rds-truststore.p12
+        read_only: true
+        bind:
+          create_host_path: false
