@@ -311,7 +311,21 @@ class InitialSchemaMigrationTest extends MySqlTestSupport {
 
     private long device(long owner) {
         return insert("user_device", fields("user_id", owner, "device_uuid", UUID.randomUUID().toString(),
-                "platform", "ANDROID"), true);
+                "platform", "ANDROID", "public_key", "test-public-key", "key_algorithm", "TEST"), true);
+    }
+
+    @Test
+    void pinOnlyDevicesRequireSigningKeysAndBiometricFlagRemainsBoolean() {
+        long owner = user();
+        long device = device(owner);
+        assertThat(jdbc.queryForObject("SELECT biometric_enabled FROM user_device WHERE user_device_id = ?",
+                Boolean.class, device)).isFalse();
+        assertRejected(() -> insert("user_device", fields("user_id", owner,
+                "device_uuid", UUID.randomUUID().toString(), "platform", "ANDROID"), true));
+        assertRejected(() -> jdbc.update("UPDATE user_device SET public_key = NULL WHERE user_device_id = ?", device));
+        assertRejected(() -> jdbc.update("UPDATE user_device SET key_algorithm = NULL WHERE user_device_id = ?", device));
+        assertRejected(() -> jdbc.update("UPDATE user_device SET biometric_enabled = 2 WHERE user_device_id = ?", device));
+        jdbc.update("UPDATE user_device SET biometric_enabled = 1 WHERE user_device_id = ?", device);
     }
 
     private long account(long owner) {

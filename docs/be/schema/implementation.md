@@ -14,6 +14,8 @@ DB 스키마·업무 엔티티·서비스를 구현하는 개발자와 AI를 위
 ## 적용 범위와 미확인 사항
 
 - 최신 인증 구조는 email/password_hash 없이 PIN·생체인증, 등록 기기 필수 인증 이력, 휴대폰 해시+생년월일 UNIQUE다.
+- DEC-001의 로그인은 기기 서명과 PIN/생체 확인을 함께 요구한다. PIN 전용 기기도 공개키·알고리즘을 필수 등록하며 device_uuid만으로 기기 소유를 인증하지 않는다. biometric_enabled는 생체인증 사용 여부이며 서명 키 등록 여부가 아니다. 공개키의 실제 형식·알고리즘·서명 유효성은 서비스가 검증한다. 생체 사용 전환 시 Android 클라이언트의 키 보호 설정·키 교체 흐름을 맞추고 변경 이력은 user_device_event에 남긴다.
+- V20261027_3는 모든 기기의 public_key·key_algorithm을 NOT NULL로 변경한다. 기존 NULL 기기가 있으면 사전 CHECK에서 적용을 중단하며 임의 키 입력·기기 삭제로 우회하지 않는다. 해당 기기의 키 등록을 완료한 후 실패한 Flyway 이력과 실제 제약 상태를 담당자가 확인해 복구한다. clean/repair는 자동 실행하지 않는다. 빈 문자열·잘못된 키의 거절과 기기 서명 확인은 NOT NULL만으로 보장되지 않는다.
 - 금융망 사용자 ID는 API 명세 V2의 2026-10-26 변경에 맞춰 `y{랜덤 9자리}@yamu.app`(19자)으로 서버에서 생성한다. SSAFY userId의 40자 제한을 지키며 ssafy_member_id에 저장해 금융망 요청의 userId로 전달한다. 최초 생성한 ID는 재시도·가입 이어하기에도 재사용하되, 중복 오류 E4002가 확인되면 해당 ID의 다른 계정에 연결하지 않고 새 ID를 생성해 다시 요청한다. 실제 사용자 이메일 입력·메일 발송·메일 인증·이메일 로그인은 없다. YAMU의 숫자 user_id 및 별도로 암호화 저장하는 금융망 userKey와 구분한다. V20261027_2는 컬럼 COMMENT만 수정하며 기존 ID를 변환하거나 VARCHAR(255)·NULL 허용·UNIQUE를 변경하지 않는다. ID 생성·중복 처리 구현은 서비스 책임이다.
 - ‘기존 알림·잔고 설정 3개’라는 불명확한 문구는 폐기했다. notification_settings·forecast_settings는 API에 맞춘 설정 저장 컬럼이다. 2026-10-26 확정: 앱 내 알림 설정은 실적·잔고 위험·거래 3개 묶음이며 모두 기본 켜짐이다. 별도 가입 선택 단계는 두지 않는다. 보안 알림은 항상 제공한다. 잔고예보의 안전잔액 등 다른 설정 기본값을 이 결정으로 확정하지 않는다. JSON 키·값·참조 소유권은 서비스에서 검증한다.
 - 암호화 값은 알고리즘에 종속되지 않는 봉투를 위한 VARBINARY(2048)로 설계했다. **기술 설계 가정:** 키 식별자·nonce·tag·암호문이 들어가는 봉투 크기를 암호화 구현과 대조해야 한다. 길이를 넘으면 자르지 않고 거절한다. 키는 DB에 저장하지 않는다. 휴대폰·계좌·카드 조회 해시는 정규화한 값의 keyed HMAC-SHA-256(32바이트)이다. PIN은 빠른 SHA 해시가 아닌 솔트 포함 비밀번호 해시를 사용한다.
@@ -81,7 +83,7 @@ DB 스키마·업무 엔티티·서비스를 구현하는 개발자와 AI를 위
 
 ## 검증 방법과 확인된 범위
 
-최근 확인: 2026-10-27 격리 MySQL 8.4.11에서 스키마 테스트 17개(InitialSchemaMigrationTest 16개·PaymentLimitUsageMigrationTest 1개)를 포함한 전체 39개 테스트가 통과했으며 실패·오류·생략은 0개다. 월간 실적·사용량의 명시적 0 저장, 필수값 누락·음수·중복 집계 거절 등을 확인했다. 새 이름 변경 마이그레이션을 적용해도 기존 사용량·복구 기록과 초기 마이그레이션 체크섬이 보존되며 재실행 시 추가 적용되지 않는 것을 확인했다. 현행 구조는 23개 테이블·286개 컬럼·FK 34개이며 account_last4로 문서 이름을 통일했다.
+최근 확인: 2026-10-27 격리 MySQL 8.4.11에서 스키마 테스트 19개(InitialSchemaMigrationTest 17개·PaymentLimitUsageMigrationTest 1개·DeviceSigningKeyMigrationTest 1개)를 포함한 전체 41개 테스트가 통과했으며 실패·오류·생략은 0개다. 월간 실적·사용량의 명시적 0 저장, 필수값 누락·음수·중복 집계 거절 등을 확인했다. 이름 변경 시 기존 사용량·복구 기록 보존, 금융망 ID COMMENT 수정, 기기 키 필수화 시 기존 PIN·생체 기기의 키·설정 보존과 NULL 키 거절을 확인했다. 기존 초기 마이그레이션 체크섬 보존과 재실행 시 추가 적용 없음도 검증했다. 현행 구조는 23개 테이블·286개 컬럼·FK 34개이며 account_last4로 문서 이름을 통일했다.
 
 BE 폴더에서 실행한다.
 
@@ -89,7 +91,7 @@ BE 폴더에서 실행한다.
 .\gradlew.bat test --tests "com.yamu.be.global.schema.*"
 ```
 
-- 테스트 원본: [InitialSchemaMigrationTest.java](../../../be/src/test/java/com/yamu/be/global/schema/InitialSchemaMigrationTest.java), [PaymentLimitUsageMigrationTest.java](../../../be/src/test/java/com/yamu/be/global/schema/PaymentLimitUsageMigrationTest.java). MySqlTestSupport의 격리 MySQL 8.4.11 컨테이너에 Flyway를 적용한다. 빈 DB에 최신 구조를 생성하는 경우와 기존 사용·복구 기록이 있는 초기 DB를 이름 변경 버전으로 올리는 경우를 각각 확인하며, 기존 버전 체크섬·데이터 보존과 재실행 시 추가 적용 없음도 검증한다.
+- 테스트 원본: [InitialSchemaMigrationTest.java](../../../be/src/test/java/com/yamu/be/global/schema/InitialSchemaMigrationTest.java), [PaymentLimitUsageMigrationTest.java](../../../be/src/test/java/com/yamu/be/global/schema/PaymentLimitUsageMigrationTest.java), [DeviceSigningKeyMigrationTest.java](../../../be/src/test/java/com/yamu/be/global/schema/DeviceSigningKeyMigrationTest.java). MySqlTestSupport의 격리 MySQL 8.4.11 컨테이너에 Flyway를 적용한다. 빈 DB에 최신 구조를 생성하는 경우, 기존 사용·복구 기록의 테이블 이름 변경, 기존 기기 키·설정을 보존한 NOT NULL 변경을 각각 확인하며, 기존 버전 체크섬 보존과 재실행 시 추가 적용 없음도 검증한다.
 - Docker가 없으면 DB 테스트가 생략될 수 있다. BUILD SUCCESSFUL만으로 통과를 판단하지 않고 `be/build/test-results/test/TEST-*.xml`에서 각 테스트의 tests·failures·errors·skipped를 확인한다.
 - 이 테스트는 JPA 업무 엔티티 전체 매핑, 실제 POS 인증·혜택 계산, 등록 초기화 롤백, 동시 결제·취소·재시도, 금융망 연동을 검증하지 않는다. 해당 서비스를 구현할 때 별도 검증한다.
 - 테스트 중 운영·개발자 로컬 DB를 초기화하지 않는다. MySQL DDL의 중간 실패는 전체 롤백이 보장되지 않으므로 데이터 삭제·Flyway clean/repair를 자동 실행하지 않는다.

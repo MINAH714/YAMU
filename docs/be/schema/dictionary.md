@@ -2,7 +2,7 @@
 
 사람과 AI가 함께 참조하는 23개 테이블의 저장 정의다. 개요·리뷰 순서는 [스키마 안내](README.md), 서비스 구현 책임과 미확인 사항은 [구현 지침](implementation.md)을 참고한다.
 
-SQL 원본: [초기 생성](../../../be/src/main/resources/db/migration/V20261026_1__create_initial_schema.sql) → [결제별 한도 사용 테이블 이름 변경](../../../be/src/main/resources/db/migration/V20261027_1__rename_payment_limit_impact_to_usage.sql) → [금융망 사용자 ID 설명 수정](../../../be/src/main/resources/db/migration/V20261027_2__update_ssafy_member_id_comment.sql) 순서로 적용한 최종 구조다. 초기 SQL은 이미 Merge되어 당시 이름과 설명을 보존한다. 작성일 2026-10-26, 문서 분리·컬럼명 정리 2026-10-27. 이슈 [S15P31E103-101](https://ssafy.atlassian.net/browse/S15P31E103-101).
+SQL 원본: [초기 생성](../../../be/src/main/resources/db/migration/V20261026_1__create_initial_schema.sql) → [결제별 한도 사용 테이블 이름 변경](../../../be/src/main/resources/db/migration/V20261027_1__rename_payment_limit_impact_to_usage.sql) → [금융망 사용자 ID 설명 수정](../../../be/src/main/resources/db/migration/V20261027_2__update_ssafy_member_id_comment.sql) → [모든 기기 서명 키 필수화](../../../be/src/main/resources/db/migration/V20261027_3__require_device_signing_keys.sql) 순서로 적용한 최종 구조다. 초기 SQL은 이미 Merge되어 당시 이름과 설명을 보존한다. 작성일 2026-10-26, 문서 분리·컬럼명 정리 2026-10-27. 이슈 [S15P31E103-101](https://ssafy.atlassian.net/browse/S15P31E103-101).
 
 컬럼·타입·NULL·기본값·키·제약은 이 문서에서 한 번만 관리한다. 정책의 상세 규칙은 각 절에 연결된 Notion 원본을 따른다. 아래 컬럼 이름과 제약 정의는 모든 마이그레이션 적용 후의 SQL 구조와 대조한다. 알림 JSON의 초기값·변경 규칙은 [구현 지침](implementation.md)의 해당 절을 참고한다.
 
@@ -49,8 +49,8 @@ CONSTRAINT ck_app_user_version CHECK (version >= 0)
 | device_uuid | `CHAR(36) CHARACTER SET ascii COLLATE ascii_bin NOT NULL` | 기기 등록 UUID |
 | device_name | `VARCHAR(100) NULL` | 사용자에게 표시할 기기명 |
 | platform | `VARCHAR(20) NOT NULL` | 기기 운영체제. 현재 Android만 지원하므로 ANDROID를 저장 |
-| public_key | `TEXT NULL` | 현재 서명 검증용 공개키; PIN 전용 기기는 NULL 가능 |
-| key_algorithm | `VARCHAR(32) NULL` | 공개키 알고리즘; 공개키와 함께 설정 |
+| public_key | `TEXT NOT NULL` | 현재 서명 검증용 공개키; PIN 전용을 포함한 모든 기기 필수 |
+| key_algorithm | `VARCHAR(32) NOT NULL` | 서명 검증 알고리즘; 모든 기기 필수 |
 | biometric_enabled | `BOOLEAN NOT NULL DEFAULT FALSE` | 생체인증 사용 동의·설정 |
 | status | `VARCHAR(16) NOT NULL DEFAULT 'ACTIVE'` | ACTIVE / LOCKED / REVOKED |
 | failed_count | `INT NOT NULL DEFAULT 0` | 연속 인증 실패 횟수 |
@@ -67,8 +67,7 @@ UNIQUE KEY uk_device_owner (user_device_id, user_id);
 CONSTRAINT fk_device_user FOREIGN KEY (user_id) REFERENCES app_user (user_id);
 CONSTRAINT ck_device_status CHECK (status IN ('ACTIVE','LOCKED','REVOKED'));
 CONSTRAINT ck_device_failed CHECK (failed_count >= 0);
-CONSTRAINT ck_device_biometric CHECK (biometric_enabled IN (0,1) AND (biometric_enabled = 0 OR (public_key IS NOT NULL AND key_algorithm IS NOT NULL)));
-CONSTRAINT ck_device_key_pair CHECK ((public_key IS NULL AND key_algorithm IS NULL) OR (public_key IS NOT NULL AND key_algorithm IS NOT NULL));
+CONSTRAINT ck_device_biometric CHECK (biometric_enabled IN (0,1));
 CONSTRAINT ck_user_device_version CHECK (version >= 0)
 ```
 
