@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 화면 색 · 글자는 Compose 테마(YamuTheme)가 정한다. 여기는 앱이 뜨기 전 창 바탕만 -->
+    <style name="Theme.YAMU" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">@android:color/white</item>
+    </style>
+</resources>
