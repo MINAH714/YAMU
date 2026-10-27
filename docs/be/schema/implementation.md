@@ -79,11 +79,24 @@ DB 스키마·업무 엔티티·서비스를 구현하는 개발자와 AI를 위
 - 인덱스: 소유자+발생 시각은 사용자 목록, 상태+예정일은 배치, 한도+사용일은 일별 검사, 각 UNIQUE는 중복 요청·회차·집계·알림 방지다. 복합 FK에는 필요한 접두 인덱스를 명시했다.
 - 상태·목적 전체 목록이 합의되지 않은 필드는 VARCHAR로 두고 임의 CHECK를 만들지 않았다. 인증 수단·사용자/기기 상태 등 합의된 코드만 CHECK로 제한한다.
 - 삭제는 RESTRICT. 탈퇴 시 상태만 바꾸는 것을 개인정보 파기로 간주하지 않는다. 보존·파기 정책 확정 후 식별정보 익명화·삭제를 서비스에서 구현한다.
-- JPA 후속 엔티티는 기존 LocalDateTime 공통 필드를 TIMESTAMP(6)에 맞게 명시 매핑해야 한다. 기존 감사 테스트 테이블은 변경하지 않는다. 업무 엔티티 전체가 없으므로 현 테스트의 Hibernate validate는 23개 업무 엔티티 매핑 검증을 뜻하지 않는다.
+- JPA 후속 엔티티는 기존 LocalDateTime 공통 필드를 TIMESTAMP(6)에 맞게 명시 매핑해야 한다. 기존 감사 테스트 테이블은 변경하지 않는다. 업무 엔티티 전체가 없으므로 현 테스트의 Hibernate validate는 업무 엔티티 전체 매핑 검증을 뜻하지 않는다.
+
+## Epic 7 현금흐름 보완 — 2026-10-27 승인
+
+- 승인 원본: 사용자가 첨부한 「Epic 7 잔고예보 및 소비 시뮬레이션 DB 구조 보완 요청」의 2~5번 및 후속 반복 규칙·발생 건 분리 결정. 첨부 원문의 새 Notion 페이지 ID는 현재 연결에서 조회되지 않아 새 페이지를 수정했다고 간주하지 않는다. 로컬 저장 정의는 이 문서와 컬럼 사전에 모으며 별도 문서 사본을 만들지 않는다.
+- `cashflow_item`은 반복 규칙·일회성 항목의 기본값, `cashflow_occurrence`는 날짜별 예정 건이다. 일회성도 발생 건 한 개를 생성한다. 규칙과 발생 건을 모두 차감하지 않는다. 새 등록·발생 건 생성은 서비스 트랜잭션에서 처리하며 DB가 미래 반복 건을 자동 생성하는 것은 아니다. 예보 조회 기간에 필요한 발생 건을 빠짐없이 생성하고 UNIQUE(규칙, 원래 발생일)로 재시도·동시 생성 중복을 막는다.
+- `occurrence_date`는 한국 날짜 기준 원래 회차 식별값이다. THIS_ONLY는 해당 행의 `scheduled_date`·금액·카드·계좌·업종·메모 등을 갱신하고 `is_overridden=true`로 표시한다. 이번 건 제외는 행을 지우지 않고 `status=EXCLUDED`로 보존한다. 실제 결제 연결이 있는 건은 단순 예정 지출 수정으로 실제 결제·청구를 변경하지 않는다.
+- THIS_AND_FUTURE는 적용일 전날로 기존 규칙을 닫고 새 규칙을 `previous_cashflow_item_id`로 연결한다. 과거 발생 건·사용자 확인 연결을 보존하고, 미리 생성한 미래 발생 건을 그대로 두어 이중 생성·차감하지 않도록 규칙 행 잠금 아래 정리한다. 이전 규칙 연결의 자기 참조·순환은 서비스가 거절한다. 이미 개별 수정한 미래 건의 유지·대체 우선순위와 실제 결제 취소 후 계획 재활성화 여부는 아직 미정이며 자동 정책으로 추정하지 않는다.
+- 사용자 확정: 금액 미정 지출은 `amount=NULL`로 저장하고 일정에는 표시한다. 금액 입력을 안내하며 해당 금액은 예보 차감에서 제외한다. 제외된 미정 지출이 존재한다는 사실을 응답·화면에 표시하고 예보를 완전한 확정 잔액처럼 안내하지 않는다. 실제 숫자 금액은 양수이고 0을 미정 대용으로 쓰지 않는다. 입력 후 해당 발생 건에 반영한다. 발생 건의 NULL은 그 건의 미정 값이며 규칙 기본 금액으로 무조건 대체하지 않는다.
+- 카드·업종: 규칙과 발생 건의 카드·계좌 소유권은 복합 FK로 강제한다. 카드와 계좌 동시 지정의 허용·거절 규칙은 API 담당 협의 사항으로 유지한다. 이 DDL은 둘의 배타성을 임의 강제하지 않는다. 신용카드 지출은 카드 청구 일정·출금 계좌, 체크카드는 실제 계좌 출금의 중복 방지 규칙을 따른다. 체크카드 할부 거절·지원 개월 수는 서비스가 카드 상품과 대조한다.
+- 구매 계획: `direction=EXPENSE`, `item_kind=PURCHASE_PLAN`이며 카드·금액·결제 방식·구매 상태를 저장한다. 일시불은 1개월, 할부는 2개월 이상이다. 시뮬레이션 결과 시계열은 영구 저장하지 않는다. 계획 저장만으로 PAYMENT_TRANSACTION·CARD_BILL·BILL_ITEM을 생성하지 않으며 예보에만 가상 청구를 계산한다. 구매 상태 변경과 발생 건·연결의 일관성은 서비스 트랜잭션 책임이다.
+- 실제 결제 연결: 원문 제안의 (cashflow_item_id, occurrence_date) 대신 분리된 `cashflow_occurrence_id`를 참조한다. 발생 건의 회차 UNIQUE와 match의 발생 건·결제 각각 UNIQUE로 일대일 연결을 보장하며 복합 FK로 소유권도 강제한다. 사용자 확인 전 날짜·금액 유사성만으로 자동 제외하지 않는다. 확인된 연결의 예정 건만 가상 차감에서 제외하고 실제 승인·청구 데이터를 사용한다. 연결 가능한 실제 결제 상태, plan 완료 상태 전환, 금융망 외부 거래 중복 범위는 서비스에서 확인한다. 신용카드 승인 총액과 회차별 청구액을 동시에 차감하지 않는다.
+- 소비 분류: `spending_class`는 LIVING/LARGE/EXCLUDED, `spending_class_source`는 AUTO/USER다. 기존 결제는 두 값 모두 NULL(미분류)로 보존하고 임의 자동 분류하지 않는다. USER 수정은 재분류 시 덮어쓰지 않으며 메모는 100자, 빈 문자열 삭제 요청은 NULL로 정규화한다. EXCLUDED는 읽기 전용이며 사용자 요청으로 변경하지 못하게 한다. 소비 분류 수정은 승인액·카드·실적 인정액을 바꾸지 않는다. 자동 분류 임계값은 기존 API의 가정이지 이번 승인으로 새로 확정한 계산 정책이 아니다.
+- 기존 데이터 이관: V20261027_4는 기존 규칙·금액·상태·감사 시각을 보존하고 기록된 첫 발생일 한 건만 복사한다. 이후 무한 반복 건이나 실제 결제 연결·소비 분류를 만들어내지 않는다. 기존 ACTIVE 등 상태는 원문 그대로 보존하며 서비스가 과거 상태와 현재 CONFIRMED/EXCLUDED의 해석을 대조한다. source=DETECTED·탐지 근거·무시 이력은 6-2 미확정으로 추가하지 않았다.
 
 ## 검증 방법과 확인된 범위
 
-최근 확인: 2026-10-27 격리 MySQL 8.4.11에서 스키마 테스트 19개(InitialSchemaMigrationTest 17개·PaymentLimitUsageMigrationTest 1개·DeviceSigningKeyMigrationTest 1개)를 포함한 전체 41개 테스트가 통과했으며 실패·오류·생략은 0개다. 월간 실적·사용량의 명시적 0 저장, 필수값 누락·음수·중복 집계 거절 등을 확인했다. 이름 변경 시 기존 사용량·복구 기록 보존, 금융망 ID COMMENT 수정, 기기 키 필수화 시 기존 PIN·생체 기기의 키·설정 보존과 NULL 키 거절을 확인했다. 기존 초기 마이그레이션 체크섬 보존과 재실행 시 추가 적용 없음도 검증했다. 현행 구조는 23개 테이블·286개 컬럼·FK 34개이며 account_last4로 문서 이름을 통일했다.
+최근 확인: 2026-10-27 격리 MySQL 8.4.11에서 스키마 테스트 26개(InitialSchemaMigrationTest 23개·PaymentLimitUsageMigrationTest 1개·DeviceSigningKeyMigrationTest 1개·CashflowMigrationTest 1개)를 포함한 전체 48개 테스트가 통과했으며 실패·오류·생략은 0개다. 이름 변경 시 기존 사용량·복구 기록 보존, 기기 키·설정 보존을 확인했다. 현금흐름의 기존 규칙·금액·상태·감사 시각을 보존한 첫 발생 건 이관, 금액 미정 허용, 0·음수 거절, 사용자 소유권, 중복 연결 거절, 할부 구매 계획과 소비 분류 저장을 검증했다. 기존 버전 체크섬 보존과 재실행 시 추가 적용 없음도 확인했다. 현행 구조는 25개 테이블·321개 컬럼·FK 41개이며 컬럼 사전과 SQL 정의를 대조했다.
 
 BE 폴더에서 실행한다.
 
@@ -91,7 +104,7 @@ BE 폴더에서 실행한다.
 .\gradlew.bat test --tests "com.yamu.be.global.schema.*"
 ```
 
-- 테스트 원본: [InitialSchemaMigrationTest.java](../../../be/src/test/java/com/yamu/be/global/schema/InitialSchemaMigrationTest.java), [PaymentLimitUsageMigrationTest.java](../../../be/src/test/java/com/yamu/be/global/schema/PaymentLimitUsageMigrationTest.java), [DeviceSigningKeyMigrationTest.java](../../../be/src/test/java/com/yamu/be/global/schema/DeviceSigningKeyMigrationTest.java). MySqlTestSupport의 격리 MySQL 8.4.11 컨테이너에 Flyway를 적용한다. 빈 DB에 최신 구조를 생성하는 경우, 기존 사용·복구 기록의 테이블 이름 변경, 기존 기기 키·설정을 보존한 NOT NULL 변경을 각각 확인하며, 기존 버전 체크섬 보존과 재실행 시 추가 적용 없음도 검증한다.
+- 테스트 원본: [InitialSchemaMigrationTest.java](../../../be/src/test/java/com/yamu/be/global/schema/InitialSchemaMigrationTest.java), [PaymentLimitUsageMigrationTest.java](../../../be/src/test/java/com/yamu/be/global/schema/PaymentLimitUsageMigrationTest.java), [DeviceSigningKeyMigrationTest.java](../../../be/src/test/java/com/yamu/be/global/schema/DeviceSigningKeyMigrationTest.java), [CashflowMigrationTest.java](../../../be/src/test/java/com/yamu/be/global/schema/CashflowMigrationTest.java). MySqlTestSupport의 격리 MySQL 8.4.11 컨테이너에 Flyway를 적용한다. 빈 DB에 최신 구조를 생성하는 경우와 기존 데이터를 이름 변경·기기 키 필수화·현금흐름 보완 버전으로 올리는 경우를 확인한다. 재현 명령은 `./gradlew.bat --no-daemon test --rerun-tasks`다. 실행 중 Windows 소켓 오류로 중단된 첫 전체 실행은 통과로 간주하지 않았으며 새 Gradle 프로세스로 전체를 다시 실행해 XML의 실제 결과를 확인했다.
 - Docker가 없으면 DB 테스트가 생략될 수 있다. BUILD SUCCESSFUL만으로 통과를 판단하지 않고 `be/build/test-results/test/TEST-*.xml`에서 각 테스트의 tests·failures·errors·skipped를 확인한다.
 - 이 테스트는 JPA 업무 엔티티 전체 매핑, 실제 POS 인증·혜택 계산, 등록 초기화 롤백, 동시 결제·취소·재시도, 금융망 연동을 검증하지 않는다. 해당 서비스를 구현할 때 별도 검증한다.
 - 테스트 중 운영·개발자 로컬 DB를 초기화하지 않는다. MySQL DDL의 중간 실패는 전체 롤백이 보장되지 않으므로 데이터 삭제·Flyway clean/repair를 자동 실행하지 않는다.
