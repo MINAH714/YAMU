@@ -64,7 +64,7 @@ class PaymentLimitUsageMigrationTest extends MySqlTestSupport {
         Flyway upgrade = Flyway.configure()
                 .dataSource(flyway.getConfiguration().getDataSource())
                 .locations(flyway.getConfiguration().getLocations())
-                .target(MigrationVersion.LATEST)
+                .target(MigrationVersion.fromVersion("20261027.1"))
                 .load();
         assertThat(upgrade.migrate().migrationsExecuted).isEqualTo(1);
         assertThat(jdbc.queryForMap("""

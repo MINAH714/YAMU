@@ -2,7 +2,7 @@
 
 사람과 AI가 함께 참조하는 23개 테이블의 저장 정의다. 개요·리뷰 순서는 [스키마 안내](README.md), 서비스 구현 책임과 미확인 사항은 [구현 지침](implementation.md)을 참고한다.
 
-SQL 원본: [초기 생성](../../../be/src/main/resources/db/migration/V20261026_1__create_initial_schema.sql) → [결제별 한도 사용 테이블 이름 변경](../../../be/src/main/resources/db/migration/V20261027_1__rename_payment_limit_impact_to_usage.sql) 순서로 적용한 최종 구조다. 초기 SQL은 이미 Merge되어 당시 이름을 보존한다. 작성일 2026-10-26, 문서 분리·컬럼명 정리 2026-10-27. 이슈 [S15P31E103-101](https://ssafy.atlassian.net/browse/S15P31E103-101).
+SQL 원본: [초기 생성](../../../be/src/main/resources/db/migration/V20261026_1__create_initial_schema.sql) → [결제별 한도 사용 테이블 이름 변경](../../../be/src/main/resources/db/migration/V20261027_1__rename_payment_limit_impact_to_usage.sql) → [금융망 사용자 ID 설명 수정](../../../be/src/main/resources/db/migration/V20261027_2__update_ssafy_member_id_comment.sql) 순서로 적용한 최종 구조다. 초기 SQL은 이미 Merge되어 당시 이름과 설명을 보존한다. 작성일 2026-10-26, 문서 분리·컬럼명 정리 2026-10-27. 이슈 [S15P31E103-101](https://ssafy.atlassian.net/browse/S15P31E103-101).
 
 컬럼·타입·NULL·기본값·키·제약은 이 문서에서 한 번만 관리한다. 정책의 상세 규칙은 각 절에 연결된 Notion 원본을 따른다. 아래 컬럼 이름과 제약 정의는 모든 마이그레이션 적용 후의 SQL 구조와 대조한다. 알림 JSON의 초기값·변경 규칙은 [구현 지침](implementation.md)의 해당 절을 참고한다.
 
@@ -20,7 +20,7 @@ SQL 원본: [초기 생성](../../../be/src/main/resources/db/migration/V2026102
 | pin_hash | `VARCHAR(255) NULL` | 솔트 포함 PIN 비밀번호 해시; 원문 금지 |
 | pin_updated_at | `TIMESTAMP(6) NULL` | UTC 마지막 PIN 설정·변경 시각 |
 | identity_verified_at | `TIMESTAMP(6) NULL` | UTC 본인인증 완료 시각 |
-| ssafy_member_id | `VARCHAR(255) NULL` | 서버가 사용자별로 생성한 이메일 형식의 금융망 사용자 ID(yamu-{UUID}@yamu.com); 최초 생성 후 재사용, 실제 이메일 입력·메일 인증 없음 |
+| ssafy_member_id | `VARCHAR(255) NULL` | 서버 생성 금융망 userId; `y{랜덤 9자리}@yamu.app`(19자, SSAFY 40자 제한), 최초 생성 후 재사용, 실제 이메일 입력·메일 인증 없음. 중복 오류 E4002 시 다른 계정에 연결하지 않고 새 ID로 재생성 |
 | ssafy_user_key | `VARBINARY(2048) NULL` | 금융망 userKey 암호화 봉투; 평문 금지 |
 | status | `VARCHAR(16) NOT NULL DEFAULT 'PENDING'` | PENDING / ACTIVE / WITHDRAWN |
 | deleted_at | `TIMESTAMP(6) NULL` | UTC 탈퇴 시각; 실제 개인정보 파기와 별개 |

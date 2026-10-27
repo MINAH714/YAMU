@@ -61,6 +61,14 @@ class InitialSchemaMigrationTest extends MySqlTestSupport {
                 SELECT COUNT(*) FROM flyway_schema_history
                 WHERE version = '20261027.1' AND success = 1
                 """, Integer.class)).isEqualTo(1);
+        assertThat(jdbc.queryForMap("""
+                SELECT column_type, is_nullable, column_comment FROM information_schema.columns
+                WHERE table_schema = DATABASE() AND table_name = 'app_user'
+                  AND column_name = 'ssafy_member_id'
+                """)).containsEntry("COLUMN_TYPE", "varchar(255)")
+                .containsEntry("IS_NULLABLE", "YES")
+                .containsEntry("COLUMN_COMMENT",
+                        "서버 생성 금융망 userId; y{랜덤 9자리}@yamu.app(19자, SSAFY 40자 제한), 최초 생성 후 재사용, 메일 인증 없음");
         assertThat(flyway.migrate().migrationsExecuted).isZero();
     }
 
