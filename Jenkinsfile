@@ -11,7 +11,8 @@ pipeline {
     }
 
     triggers {
-        pollSCM('H/5 * * * *')
+        // ci-master is called by CD; do not independently poll it as well.
+        pollSCM(env.JOB_NAME == 'yamu/ci' ? 'H/5 * * * *' : '')
     }
 
     environment {
@@ -26,7 +27,10 @@ pipeline {
             steps {
                 // Remove old results and generated files before checking out this revision.
                 deleteDir()
-                checkout scm
+                script {
+                    def revision = checkout scm
+                    env.GIT_COMMIT = revision.GIT_COMMIT
+                }
                 sh 'git rev-parse HEAD > ci-revision.txt'
             }
         }
@@ -34,6 +38,7 @@ pipeline {
             steps {
                 sh 'sh infra/ci/check-environment.sh'
                 sh 'python3 infra/ci/test_check_test_results.py'
+                sh 'python3 -m unittest discover -s infra/ci -p "test_notify_mattermost.py"'
                 sh 'python3 -m unittest discover -s infra/cd -p "test_*.py"'
             }
         }
@@ -83,6 +88,14 @@ pipeline {
     }
 
     post {
+        always {
+            script {
+                if (env.JOB_NAME == 'yamu/ci' && fileExists('infra/ci/mattermost.groovy')) {
+                    def notifier = load 'infra/ci/mattermost.groovy'
+                    notifier.send('CI', currentBuild.currentResult)
+                }
+            }
+        }
         cleanup {
             deleteDir()
         }
