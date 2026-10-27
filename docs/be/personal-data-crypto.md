@@ -66,7 +66,7 @@ openssl rand -base64 32   # 키 하나 만들기. 네 값 모두 서로 다른 �
 
 - **로컬**: `application-local.yml.example`의 `yamu.crypto` 부분을 내 `application-local.yml`에 복사하고, 빈 칸 네 개에 `openssl rand -base64 32` 결과를 하나씩 넣습니다. 키는 깃에 올리지 않습니다(AGENTS.md 규칙 4). 키를 바꾸면 로컬 DB의 암호문·해시가 맞지 않으니 `docker compose down -v`로 초기화합니다.
 - **테스트**: `src/test/resources/application-test.yml`의 테스트 전용 키를 씁니다. 실제 데이터에는 쓰지 않습니다.
-- **운영**: 위 환경변수 4개를 넣어야 서버가 뜹니다. 비어 있거나, 길이가 틀리거나, 서로 같은 값이면 시작할 때 실패합니다(`CryptoKeys`). 키가 없는 채로 master에 배포되면 백엔드가 뜨지 않으므로, `infra/compose.prod.yml`의 backend `environment`에 4개를 먼저 추가해야 합니다.
+- **운영**: 위 환경변수 중 키 3개(`DATA_KEY_1`, `HMAC_KEY`, `PIN_PEPPER`)를 넣어야 서버가 뜹니다. 키 번호는 기본 1입니다. 비어 있거나, 길이가 틀리거나, 서로 같은 값이면 시작할 때 실패합니다(`CryptoKeys`). 키가 없는 채로 master에 배포되면 백엔드가 뜨지 않으므로, `infra/compose.prod.yml`의 backend `environment`에 3개를 먼저 추가해야 합니다.
 - 키는 DB·깃(로컬 전용 제외)·로그에 넣지 않습니다. **운영 키를 잃으면 암호화된 값은 다시 열 수 없으니** 팀이 안전한 곳에 백업합니다.
 - `hmac-key`·`pin-pepper`를 바꾸면 기존 해시가 전부 맞지 않으므로 사실상 고정입니다.
 - 데이터 키를 바꿀 때는 새 번호로 추가하고 `data-key-id`만 올립니다. 옛 번호 키는 지우지 않습니다(옛 봉투를 열어야 하므로).
