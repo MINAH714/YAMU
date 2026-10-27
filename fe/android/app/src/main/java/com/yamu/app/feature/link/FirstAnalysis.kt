@@ -1,0 +1,196 @@
+package com.yamu.app.feature.link
+
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
+import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.consumeWindowInsets
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
+import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewModelScope
+import com.yamu.app.core.designsystem.component.AmountText
+import com.yamu.app.core.designsystem.component.BottomCta
+import com.yamu.app.core.designsystem.component.CharacterImage
+import com.yamu.app.core.designsystem.component.CharacterSize
+import com.yamu.app.core.designsystem.component.ErrorState
+import com.yamu.app.core.designsystem.component.EstimateTag
+import com.yamu.app.core.designsystem.component.PrimaryButton
+import com.yamu.app.core.designsystem.component.SkeletonBlock
+import com.yamu.app.core.designsystem.component.StatusTag
+import com.yamu.app.core.designsystem.component.TagTone
+import com.yamu.app.core.designsystem.component.TextButtonGrey
+import com.yamu.app.core.designsystem.component.YamuPose
+import com.yamu.app.core.designsystem.theme.YamuSpacing
+import com.yamu.app.core.designsystem.theme.YamuTheme
+import com.yamu.app.core.format.toMonthDay
+import com.yamu.app.core.network.ApiResult
+import com.yamu.app.feature.home.data.ForecastSummary
+import com.yamu.app.feature.home.data.HomeRepository
+import com.yamu.app.feature.home.data.HomeSummary
+import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
+import javax.inject.Inject
+
+data class FirstAnalysisState(val loading: Boolean = true, val summary: HomeSummary? = null, val failed: Boolean = false)
+
+/** B-07 첫 분석 — 홈과 같은 서버 값(#58): 월급 전 예상 잔액 · 할 일 · 오늘 쓸 카드. 앱은 계산하지 않음 */
+@HiltViewModel
+class FirstAnalysisViewModel @Inject constructor(private val home: HomeRepository) : ViewModel() {
+    private val _state = MutableStateFlow(FirstAnalysisState())
+    val state: StateFlow<FirstAnalysisState> = _state.asStateFlow()
+
+    init { load() }
+
+    fun load() {
+        viewModelScope.launch {
+            _state.update { it.copy(loading = true, failed = false) }
+            when (val r = home.loadHome()) {
+                is ApiResult.Success -> _state.update { it.copy(loading = false, summary = r.data) }
+                is ApiResult.Failure -> _state.update { it.copy(loading = false, failed = true) }
+            }
+        }
+    }
+}
+
+/**
+ * [알림 켜고 시작하기] → B-07b 시스템 권한 창(Android 13+) → 허용 여부와 관계없이 홈.
+ * [알림 없이 홈으로] · 시스템 뒤로 = 홈(스택 비움).
+ */
+@Composable
+fun FirstAnalysisRoute(onFinish: () -> Unit, viewModel: FirstAnalysisViewModel = hiltViewModel()) {
+    val s by viewModel.state.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+    val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { onFinish() }
+    val enableAndStart = {
+        val needsAsk = Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        if (needsAsk) permission.launch(Manifest.permission.POST_NOTIFICATIONS) else onFinish()
+    }
+    BackHandler(onBack = onFinish)
+    val c = YamuTheme.colors
+    Scaffold(
+        bottomBar = {
+            BottomCta(secondary = { TextButtonGrey("알림 없이 홈으로", onClick = onFinish, modifier = Modifier.fillMaxWidth()) }) {
+                PrimaryButton("알림 켜고 시작하기", onClick = enableAndStart)
+            }
+        },
+        containerColor = c.surface,
+    ) { inner ->
+        Column(
+            Modifier.padding(inner).consumeWindowInsets(inner).fillMaxSize().verticalScroll(rememberScrollState())
+                .padding(horizontal = YamuSpacing.screen),
+        ) {
+            // 위 32 · 캐릭터(96) 아래 12(프로토타입 B-07 .hd · .ch)
+            Spacer(Modifier.height(32.dp))
+            CharacterImage(YamuPose.Chart, size = CharacterSize.M, animate = true)
+            Spacer(Modifier.height(12.dp))
+            val summary = s.summary
+            Text(
+                if (s.loading) "야무가 계산 중이에요" else "첫 분석이 나왔어요",
+                style = YamuTheme.typography.headlineS,
+                color = c.text1,
+            )
+            Spacer(Modifier.height(24.dp))
+            when {
+                s.loading -> repeat(3) {
+                    SkeletonBlock(height = 56.dp)
+                    Spacer(Modifier.height(YamuSpacing.x3))
+                }
+                s.failed || summary == null -> ErrorState("첫 분석을 다시 시도할게요", onRetry = viewModel::load)
+                else -> AnalysisRows(summary)
+            }
+            Spacer(Modifier.height(YamuSpacing.x6))
+        }
+    }
+}
+
+@Composable
+private fun AnalysisRows(summary: HomeSummary) {
+    val c = YamuTheme.colors
+    Column(Modifier.fillMaxWidth()) {
+        summary.forecast?.let { f -> ForecastBlock(f) }
+        summary.todos.firstOrNull()?.let { todo ->
+            Spacer(Modifier.height(28.dp))   // 태그 아래 16 + 두 줄 목록 줄(64dp) 위 12
+            // 프로토타입 모양: 제목 + '잠정' 태그 / 아래 짧은 회색 줄. 서버 #58은 title · tag만 주므로 tag를 아래 줄로(14-6 ⑤)
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(todo.title, style = YamuTheme.typography.titleM, color = c.text1, modifier = Modifier.weight(1f, fill = false))
+                if (summary.forecast?.isProvisional == true) StatusTag("잠정")
+            }
+            todo.tag?.let {
+                Spacer(Modifier.height(2.dp))
+                Text(it, style = YamuTheme.typography.sub, color = c.text3)
+            }
+        }
+        summary.todayCard?.let { card ->
+            Divider()
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("오늘 쓸 카드", style = YamuTheme.typography.titleM, color = c.text1)
+                    card.benefit?.let { Text(it, style = YamuTheme.typography.sub, color = c.text3) }
+                }
+                Text(card.cardName, style = YamuTheme.typography.value, color = c.primary)
+            }
+        }
+    }
+}
+
+@Composable
+private fun ForecastBlock(f: ForecastSummary) {
+    val c = YamuTheme.colors
+    // 줄 높이 24 — 프로토타입은 이 줄에 › 아이콘(24)이 있어 높이가 24(앱은 ›를 뺐지만 자리는 같게)
+    Row(Modifier.heightIn(min = 24.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text(f.label, style = YamuTheme.typography.titleS, color = c.text2)
+        if (f.isEstimate) {
+            Spacer(Modifier.padding(start = 6.dp))
+            EstimateTag()
+        }
+    }
+    Spacer(Modifier.height(4.dp))
+    AmountText(f.amount, shortage = f.shortageFrom != null)
+    val sub = when {
+        f.shortageFrom != null -> "${f.shortageFrom.toMonthDay()}부터 부족해요"
+        f.incomeDate != null -> "월급날(${f.incomeDate.toMonthDay()})까지 부족 없음"
+        else -> null
+    }
+    sub?.let {
+        Spacer(Modifier.height(8.dp))
+        StatusTag(it, tone = if (f.shortageFrom != null) TagTone.Error else TagTone.Success)
+    }
+}
+
+@Composable
+private fun Divider() {
+    Spacer(Modifier.height(10.dp))
+    HorizontalDivider(color = YamuTheme.colors.outlineVariant)
+    // 위 10 · 아래 11 — 프로토타입 목록 줄 사이(12 + 12, 선 두께 없음)에서 '잠정' 태그 줄 높이(24)만큼 덜어 낸다
+    Spacer(Modifier.height(11.dp))
+}
