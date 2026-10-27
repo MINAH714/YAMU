@@ -37,7 +37,7 @@ class InitialSchemaMigrationTest extends MySqlTestSupport {
     private static final List<String> TABLES = List.of(
             "app_user", "linked_account", "card_product", "user_card", "card_benefit",
             "benefit_target", "merchant", "limit_group", "benefit_limit_link", "tier_limit",
-            "payment_transaction", "payment_benefit", "payment_limit_impact",
+            "payment_transaction", "payment_benefit", "payment_limit_usage",
             "card_monthly_performance", "monthly_limit_usage", "card_bill", "bill_item",
             "refund", "cashflow_item", "notification", "user_device", "user_device_event",
             "step_up_audit_log");
@@ -51,10 +51,15 @@ class InitialSchemaMigrationTest extends MySqlTestSupport {
                 "SELECT table_name FROM information_schema.tables WHERE table_schema = DATABASE()",
                 String.class);
         assertThat(actual).containsAll(TABLES);
+        assertThat(actual).doesNotContain("payment_limit_impact");
         assertThat(actual.stream().filter(TABLES::contains).count()).isEqualTo(23);
         assertThat(jdbc.queryForObject("""
                 SELECT COUNT(*) FROM flyway_schema_history
                 WHERE version = '20261026.1' AND success = 1
+                """, Integer.class)).isEqualTo(1);
+        assertThat(jdbc.queryForObject("""
+                SELECT COUNT(*) FROM flyway_schema_history
+                WHERE version = '20261027.1' AND success = 1
                 """, Integer.class)).isEqualTo(1);
         assertThat(flyway.migrate().migrationsExecuted).isZero();
     }
@@ -373,15 +378,15 @@ class InitialSchemaMigrationTest extends MySqlTestSupport {
         jdbc.update("UPDATE limit_group SET limit_unit = 'AMOUNT', base_limit_value = 10000 WHERE limit_group_id = ?", group);
         jdbc.update("UPDATE payment_transaction SET performance_basis_amount = 350000 WHERE payment_transaction_id = ?", a.payment());
         assertRejected(() -> jdbc.update("UPDATE payment_transaction SET performance_basis_amount = -1 WHERE payment_transaction_id = ?", a.payment()));
-        long impact = insert("payment_limit_impact", fields("payment_transaction_id", a.payment(),
+        long impact = insert("payment_limit_usage", fields("payment_transaction_id", a.payment(),
                 "card_product_id", a.product(), "limit_group_id", group, "remaining_before", 300L,
                 "consumed_value", 300L, "usage_date", MONTH, "usage_month", MONTH), true);
-        assertRejected(() -> jdbc.update("UPDATE payment_limit_impact SET remaining_before = NULL WHERE payment_limit_impact_id = ?", impact));
-        assertRejected(() -> jdbc.update("UPDATE payment_limit_impact SET remaining_before = -1 WHERE payment_limit_impact_id = ?", impact));
-        assertRejected(() -> jdbc.update("UPDATE payment_limit_impact SET consumed_value = 301 WHERE payment_limit_impact_id = ?", impact));
-        jdbc.update("UPDATE payment_limit_impact SET restored_at = ? WHERE payment_limit_impact_id = ?", now(), impact);
-        assertThat(jdbc.queryForObject("SELECT remaining_before FROM payment_limit_impact WHERE payment_limit_impact_id = ?", Long.class, impact)).isEqualTo(300L);
-        assertThat(jdbc.queryForObject("SELECT consumed_value FROM payment_limit_impact WHERE payment_limit_impact_id = ?", Long.class, impact)).isEqualTo(300L);
+        assertRejected(() -> jdbc.update("UPDATE payment_limit_usage SET remaining_before = NULL WHERE payment_limit_usage_id = ?", impact));
+        assertRejected(() -> jdbc.update("UPDATE payment_limit_usage SET remaining_before = -1 WHERE payment_limit_usage_id = ?", impact));
+        assertRejected(() -> jdbc.update("UPDATE payment_limit_usage SET consumed_value = 301 WHERE payment_limit_usage_id = ?", impact));
+        jdbc.update("UPDATE payment_limit_usage SET restored_at = ? WHERE payment_limit_usage_id = ?", now(), impact);
+        assertThat(jdbc.queryForObject("SELECT remaining_before FROM payment_limit_usage WHERE payment_limit_usage_id = ?", Long.class, impact)).isEqualTo(300L);
+        assertThat(jdbc.queryForObject("SELECT consumed_value FROM payment_limit_usage WHERE payment_limit_usage_id = ?", Long.class, impact)).isEqualTo(300L);
         assertThat(jdbc.queryForObject("SELECT performance_basis_amount FROM payment_transaction WHERE payment_transaction_id = ?", Long.class, a.payment())).isEqualTo(350000L);
         jdbc.update("UPDATE payment_transaction SET performance_basis_amount = 0 WHERE payment_transaction_id = ?", a.payment());
         assertThat(jdbc.queryForObject("SELECT performance_basis_amount FROM payment_transaction WHERE payment_transaction_id = ?", Long.class, a.payment())).isZero();
@@ -407,7 +412,7 @@ class InitialSchemaMigrationTest extends MySqlTestSupport {
     }
 
     private void impact(Fixture a, long group) {
-        insert("payment_limit_impact", fields("payment_transaction_id", a.payment(), "card_product_id", a.product(),
+        insert("payment_limit_usage", fields("payment_transaction_id", a.payment(), "card_product_id", a.product(),
                 "limit_group_id", group, "remaining_before", 1L, "consumed_value", 1L,
                 "usage_date", MONTH, "usage_month", MONTH), true);
     }

@@ -10,7 +10,7 @@
 | [구현 지침](implementation.md) | 구현하는 개발자·AI. 서비스 검증, 동시성·재시도, 미확인 사항과 검증 방법 |
 | [이전 검토 기록](archive/initial-review.md) | 과거 논의가 필요한 경우에만 조회. 현행 구현 기준으로 사용하지 않음 |
 
-DB에서 실행할 구조는 [Flyway SQL](../../../be/src/main/resources/db/migration/V20261026_1__create_initial_schema.sql)이 원본이다. 기능 정책은 Notion, 요청·응답 형식은 API 명세서에서 관리하며 이 폴더에서는 해당 위치를 연결한다. 미결정 정책을 문서 분리 과정에서 새로 확정하지 않는다.
+DB에서 실행할 구조는 [Flyway 마이그레이션 폴더](../../../be/src/main/resources/db/migration)의 SQL을 버전 순서대로 적용한 결과가 원본이다. 기능 정책은 Notion, 요청·응답 형식은 API 명세서에서 관리하며 이 폴더에서는 해당 위치를 연결한다. 미결정 정책을 문서 분리 과정에서 새로 확정하지 않는다.
 
 ## 리뷰할 때 볼 것
 
@@ -28,7 +28,7 @@ DB에서 실행할 구조는 [Flyway SQL](../../../be/src/main/resources/db/migr
 |---|---|---|
 | 사용자·계좌 | `app_user`, `linked_account` | 사용자와 연결 계좌. 계좌 잔액 원장은 금융망에서 관리 |
 | 카드·정책 | `card_product`, `user_card`, `merchant`, `card_benefit`, `benefit_target`, `limit_group`, `benefit_limit_link`, `tier_limit` | 카드 상품·보유 카드, 브랜드, 혜택 적용 대상과 한도 규칙 |
-| 결제·집계 | `payment_transaction`, `payment_benefit`, `payment_limit_impact`, `card_monthly_performance`, `monthly_limit_usage` | 결제 상태, 실제 혜택, 한도 사용 내역과 월간 합계 |
+| 결제·집계 | `payment_transaction`, `payment_benefit`, `payment_limit_usage`, `card_monthly_performance`, `monthly_limit_usage` | 결제 상태, 실제 혜택, 한도 사용 내역과 월간 합계 |
 | 청구·환급 | `card_bill`, `bill_item`, `refund` | 신용카드 청구서, 일시불·할부 회차, 취소 후 환급 |
 | 예정 내역·알림 | `cashflow_item`, `notification` | 예정 수입·지출과 앱 내 알림 |
 | 기기·인증 기록 | `user_device`, `user_device_event`, `step_up_audit_log` | 등록 기기, 기기 변경과 인증 결과 |
@@ -46,7 +46,7 @@ DB에서 실행할 구조는 [Flyway SQL](../../../be/src/main/resources/db/migr
 
 ## 확인된 범위
 
-2026-10-27 기준 23개 테이블·286개 컬럼·FK 34개의 MD/SQL 정의를 대조했고, 계좌번호 끝 네 자리의 문서 이름을 SQL과 같은 `account_last4`로 통일했다. 최근 격리 MySQL 스키마 테스트는 16개 통과, 실패·오류·생략 0개다. 서비스 전체 구현이나 운영 DB 적용을 완료했다는 의미는 아니다. 실행 명령과 검증 범위는 [구현 지침](implementation.md)을 참고한다.
+2026-10-27 기준 23개 테이블·286개 컬럼·FK 34개의 MD/SQL 정의를 대조했고, 계좌번호 끝 네 자리의 문서 이름을 SQL과 같은 `account_last4`로 통일했다. 격리 MySQL에서 스키마 테스트 17개를 포함한 전체 39개 테스트가 통과했으며 실패·오류·생략은 0개다. `payment_limit_usage`로 이름을 바꿔도 기존 사용량·복구 기록이 보존되는 것을 확인했다. 서비스 전체 구현이나 운영 DB 적용을 완료했다는 의미는 아니다. 실행 명령과 검증 범위는 [구현 지침](implementation.md)을 참고한다.
 
 ## 테이블을 모두 읽은 뒤 보는 보충 설명
 
@@ -73,11 +73,11 @@ DB에서 실행할 구조는 [Flyway SQL](../../../be/src/main/resources/db/migr
 | 기록 | 예시 |
 |---|---|
 | `payment_benefit` — 실제 받은 혜택 | 결제 A에서 300원 할인 |
-| `payment_limit_impact` — 결제별 한도 사용 | 결제 A가 금액 한도 300원과 횟수 한도 1회 차감. 서로 다른 한도 그룹이므로 두 행 |
+| `payment_limit_usage` — 결제별 한도 사용 | 결제 A가 금액 한도 300원과 횟수 한도 1회 차감. 서로 다른 한도 그룹이므로 두 행 |
 | `monthly_limit_usage` — 월간 한도 사용 합계 | 같은 카드 & 한도 그룹의 10월 사용량 총 800원 |
 | `card_monthly_performance` — 월간 실적 합계 | 같은 카드의 10월 실적 총 35만원 |
 
-취소하면 해당 결제의 한도 사용량만 한 번 복구하고 월간 실적 합계도 조정한다. 혜택 결과와 한도 사용량을 더해 같은 금액으로 계산하지 않는다.
+취소하면 해당 결제의 한도 사용량만 한 번 복구하고, 월간 한도 사용 합계와 월간 실적 합계를 모두 조정한다. 혜택 결과와 한도 사용량을 더해 같은 금액으로 계산하지 않는다.
 
 ### 결제와 계좌 출금의 관계
 

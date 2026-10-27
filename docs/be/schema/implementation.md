@@ -53,6 +53,8 @@ DB 스키마·업무 엔티티·서비스를 구현하는 개발자와 AI를 위
 
 ## 관계·인덱스와 서비스 책임
 
+- 명칭 변경: payment_limit_usage의 이전 이름은 payment_limit_impact다. V20261027_1 마이그레이션에서 테이블과 PK 이름을 바꾸며 기존 행·인덱스·FK·한도 사용량·복구 시각을 보존한다. 이미 Merge된 초기 SQL과 archive의 과거 이름은 수정하지 않는다.
+
 - 2026-10-27 공식 적용 기간: CARD_BENEFIT·LIMIT_GROUP의 valid_from은 공식 시작일을 모르면 NULL로 보관한다. created_at(등록 시각), 카드 출시일, 임의 과거 날짜를 실제 시작일 대신 넣지 않는다. valid_until은 공식 종료일이며 종료일 당일부터 사용하지 않는다. NULL은 종료일을 확인하지 못했거나 아직 정해지지 않았다는 뜻이지 현재 유효함을 보증하지 않는다. 두 날짜를 모두 아는 경우에만 종료일이 시작일보다 뒤인지 CHECK로 강제한다.
 - 현재 결제·추천에는 공식 자료로 현재 제공 여부를 확인한 현행 규칙 버전을 사용한다. 알려진 시작일이 미래이거나 종료일이 지났으면 제외한다. valid_from이 NULL인 여러 버전을 모두 적용하거나 가장 큰 버전 번호만으로 현행이라고 추정하지 않는다. 날짜 미확인 시 현행 버전을 선택하는 운영 절차는 별도 관리하고, 기존 POL-009의 다음 달 YAMU 정책 반영 일정과 공식 약관 날짜를 혼동하지 않는다. 과거 거래·취소는 당시 저장한 혜택 버전·계산 스냅샷을 사용하며, 시작일 미확인 규칙을 과거에 소급 적용하지 않는다.
 - 업종 카테고리 정책은 담당자 결정 대기다. [POL-004](https://app.notion.com/p/f5731720f3588254860601b04ec14dd7)에서 분류 단계·코드 목록·브랜드 업종 배정·혜택 상하위 매칭·변경 이력 보존을 정한다. API의 F/F01/F01-CAFE 및 3단계·접두어 매칭은 기존 초안이다. 현재 category_code는 유지하며, DB 테이블 또는 코드 파일로 관리할지는 정책 확정 후 BE와 결정한다. 이 보류로 브랜드와 업종을 구분하는 설계 자체를 폐기하지 않는다.
@@ -69,7 +71,7 @@ DB 스키마·업무 엔티티·서비스를 구현하는 개발자와 AI를 위
 - 멱등성: POS request_key UNIQUE와 불변 요청 fingerprint를 함께 사용한다. 중복 INSERT 충돌 시 기존 행과 내용을 비교하고 기존 처리 상태를 반환한다. UNIQUE만으로 재시도 응답·금융망 중복 출금이 해결되지는 않는다.
 - 정책: 상품+논리 코드+정책 버전 UNIQUE. policy_version은 SMALLINT와 양수 CHECK로 1~32767을 사용한다. 번호는 전체 카드의 통합 누계가 아니라 상품 내 각 혜택 코드·한도 그룹 코드별로 관리한다. 매일 한 버전씩 등록해도 약 89.7년 분량이므로 현재 범위에 충분하다고 판단했다. 상한 도달 시 순환·초기화하지 않고 타입 확장 마이그레이션을 한다. 적용 기간은 시작 포함·끝 미포함, 실적 구간도 하한 포함·상한 미포함이다. 기간 중첩·동시 정책 수정·다음 달 적용은 서비스에서 검증한다. 과거 정책과 계산 스냅샷을 덮어쓰지 않는다.
 - 카드 등록 초기화: 사전 준비한 seed로 전월·당월 실적과 당월 혜택 사용량을 확정한 뒤에만 등록 완료한다. 신규 카드·확인된 무거래는 0으로 명시 저장한다. 필수 seed 누락·검증 오류·집계 실패는 등록 실패로 처리하고 부분 반영을 롤백한다. 준비·확인 불가 상태 컬럼은 두지 않는다. USER_CARD.status의 PENDING은 사용자 등록 전 카드를 뜻하므로 그대로 유지한다. 기준: POL-008·FR-070.
-- 한도: 일별 합계 테이블을 추가하지 않는다(FR-060). 결제 당시 카드의 거래·혜택·한도 impact와 취소 이력으로 당일 사용량을 검사한다. 카드 또는 집계 행 잠금 아래 검사·승인·집계 수정·기록을 한 트랜잭션으로 수행한다. 정책 변경 전 거래 취소는 당시 그룹 버전으로 복구한다.
+- 한도: 일별 합계 테이블을 추가하지 않는다(FR-060). 결제 당시 카드의 거래·혜택·한도 사용 내역과 취소 이력으로 당일 사용량을 검사한다. 카드 또는 집계 행 잠금 아래 검사·승인·집계 수정·기록을 한 트랜잭션으로 수행한다. 취소 시 개별 사용량을 근거로 월간 한도 사용 합계와 월간 실적 합계를 모두 조정한다. 정책 변경 전 거래 취소는 당시 그룹 버전으로 복구한다.
 - 할부: 거래+회차 UNIQUE. 원금 나머지는 마지막 회차. 한 회차가 원거래의 회차 수를 넘지 않는지와 전체 원금 합계는 서비스에서 검사한다. fee_amount=NULL을 무이자로 간주하지 않는다. bill_item의 원금+수수료=청구액은 CHECK로 검사한다.
 - 취소: 출금 완료 원금은 환급, 미확정 원금은 제외, 확정 후 출금 대기분은 출금 성공 후 환급, 취소된 미납 원금은 납부 대상에서 제외하고 환급하지 않는다. 확정 청구 원본은 유지하며 canceled_unpaid_principal과 회차 제외 시각으로 조정 근거를 남긴다. 수수료 정산은 카드사 조건을 따른다. 환급 전 원거래 취소·실제 출금·환급액 상한·계좌 유효성을 서비스에서 검사한다.
 - 인덱스: 소유자+발생 시각은 사용자 목록, 상태+예정일은 배치, 한도+사용일은 일별 검사, 각 UNIQUE는 중복 요청·회차·집계·알림 방지다. 복합 FK에는 필요한 접두 인덱스를 명시했다.
@@ -79,16 +81,16 @@ DB 스키마·업무 엔티티·서비스를 구현하는 개발자와 AI를 위
 
 ## 검증 방법과 확인된 범위
 
-최근 확인: 2026-10-27 실제 MySQL에서 InitialSchemaMigrationTest 16개 통과, 실패·오류·생략 0개. 초기화 상태 컬럼 제거 후 월간 실적·사용량의 명시적 0 저장, 필수값 누락·음수·중복 집계 거절 등을 확인했다. 문서 분리 시 23개 테이블·286개 컬럼·FK 34개를 대조했고 account_last4로 문서 이름을 통일했다. 이 문서 정리에서 SQL 구조는 변경하지 않았다.
+최근 확인: 2026-10-27 격리 MySQL 8.4.11에서 스키마 테스트 17개(InitialSchemaMigrationTest 16개·PaymentLimitUsageMigrationTest 1개)를 포함한 전체 39개 테스트가 통과했으며 실패·오류·생략은 0개다. 월간 실적·사용량의 명시적 0 저장, 필수값 누락·음수·중복 집계 거절 등을 확인했다. 새 이름 변경 마이그레이션을 적용해도 기존 사용량·복구 기록과 초기 마이그레이션 체크섬이 보존되며 재실행 시 추가 적용되지 않는 것을 확인했다. 현행 구조는 23개 테이블·286개 컬럼·FK 34개이며 account_last4로 문서 이름을 통일했다.
 
 BE 폴더에서 실행한다.
 
 ```powershell
-.\gradlew.bat test --tests com.yamu.be.global.schema.InitialSchemaMigrationTest
+.\gradlew.bat test --tests "com.yamu.be.global.schema.*"
 ```
 
-- 테스트 원본: [InitialSchemaMigrationTest.java](../../../be/src/test/java/com/yamu/be/global/schema/InitialSchemaMigrationTest.java). MySqlTestSupport의 격리 MySQL 8.0 컨테이너에 Flyway를 적용하며 이미 적용한 버전의 재실행도 확인한다.
-- Docker가 없으면 DB 테스트가 생략될 수 있다. BUILD SUCCESSFUL만으로 통과를 판단하지 않고 `be/build/test-results/test/TEST-com.yamu.be.global.schema.InitialSchemaMigrationTest.xml`의 tests·failures·errors·skipped를 확인한다.
+- 테스트 원본: [InitialSchemaMigrationTest.java](../../../be/src/test/java/com/yamu/be/global/schema/InitialSchemaMigrationTest.java), [PaymentLimitUsageMigrationTest.java](../../../be/src/test/java/com/yamu/be/global/schema/PaymentLimitUsageMigrationTest.java). MySqlTestSupport의 격리 MySQL 8.4.11 컨테이너에 Flyway를 적용한다. 빈 DB에 최신 구조를 생성하는 경우와 기존 사용·복구 기록이 있는 초기 DB를 이름 변경 버전으로 올리는 경우를 각각 확인하며, 기존 버전 체크섬·데이터 보존과 재실행 시 추가 적용 없음도 검증한다.
+- Docker가 없으면 DB 테스트가 생략될 수 있다. BUILD SUCCESSFUL만으로 통과를 판단하지 않고 `be/build/test-results/test/TEST-*.xml`에서 각 테스트의 tests·failures·errors·skipped를 확인한다.
 - 이 테스트는 JPA 업무 엔티티 전체 매핑, 실제 POS 인증·혜택 계산, 등록 초기화 롤백, 동시 결제·취소·재시도, 금융망 연동을 검증하지 않는다. 해당 서비스를 구현할 때 별도 검증한다.
 - 테스트 중 운영·개발자 로컬 DB를 초기화하지 않는다. MySQL DDL의 중간 실패는 전체 롤백이 보장되지 않으므로 데이터 삭제·Flyway clean/repair를 자동 실행하지 않는다.
 - CHECK 위반 3819·필수값 누락 1364는 Spring에서 UncategorizedSQLException으로 전달될 수 있다. 기존 테스트는 실제 SQL 오류 코드로 제약 거절을 확인하며 연결·문법 오류를 통과시키지 않는다.

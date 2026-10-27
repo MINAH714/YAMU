@@ -2,9 +2,9 @@
 
 사람과 AI가 함께 참조하는 23개 테이블의 저장 정의다. 개요·리뷰 순서는 [스키마 안내](README.md), 서비스 구현 책임과 미확인 사항은 [구현 지침](implementation.md)을 참고한다.
 
-SQL 원본: [V20261026_1__create_initial_schema.sql](../../../be/src/main/resources/db/migration/V20261026_1__create_initial_schema.sql). 작성일 2026-10-26, 문서 분리·컬럼명 정리 2026-10-27. 이슈 [S15P31E103-101](https://ssafy.atlassian.net/browse/S15P31E103-101).
+SQL 원본: [초기 생성](../../../be/src/main/resources/db/migration/V20261026_1__create_initial_schema.sql) → [결제별 한도 사용 테이블 이름 변경](../../../be/src/main/resources/db/migration/V20261027_1__rename_payment_limit_impact_to_usage.sql) 순서로 적용한 최종 구조다. 초기 SQL은 이미 Merge되어 당시 이름을 보존한다. 작성일 2026-10-26, 문서 분리·컬럼명 정리 2026-10-27. 이슈 [S15P31E103-101](https://ssafy.atlassian.net/browse/S15P31E103-101).
 
-컬럼·타입·NULL·기본값·키·제약은 이 문서에서 한 번만 관리한다. 정책의 상세 규칙은 각 절에 연결된 Notion 원본을 따른다. 아래 컬럼 이름과 제약 정의는 SQL과 대조한다. 알림 JSON의 초기값·변경 규칙은 [구현 지침](implementation.md)의 해당 절을 참고한다.
+컬럼·타입·NULL·기본값·키·제약은 이 문서에서 한 번만 관리한다. 정책의 상세 규칙은 각 절에 연결된 Notion 원본을 따른다. 아래 컬럼 이름과 제약 정의는 모든 마이그레이션 적용 후의 SQL 구조와 대조한다. 알림 JSON의 초기값·변경 규칙은 [구현 지침](implementation.md)의 해당 절을 참고한다.
 
 ## 전체 컬럼과 제약
 
@@ -277,7 +277,7 @@ CONSTRAINT ck_benefit_dates CHECK (valid_from IS NULL OR valid_until IS NULL OR 
 - startTime > endTime이면 자정을 넘는 구간이다. 요일은 구간이 시작한 날짜로 판단한다. 예: weekdays=[FRI], 22:00~02:00이면 금요일 22:00부터 토요일 02:00 직전까지 적용된다. 토요일 01:00은 금요일 구간에 포함된다.
 - 두 시간이 같은 입력은 24시간인지 빈 구간인지 모호하므로 거절한다. 하루 종일 적용하려면 시간 키를 모두 생략한다. 시간 키 하나만 존재하거나 null·잘못된 형식·빈 요일 배열·중복 요일·알 수 없는 키·잘못된 타입도 등록 시 거절한다.
 - 브랜드·업종·채널·입점 시설 조건은 BENEFIT_TARGET과 거래 조건을 사용하며 이 JSON에 중복 저장하지 않는다. 이 JSON은 이미 별도 컬럼에 둔 최소 결제액·실적·반올림 조건도 대신하지 않는다.
-- DB의 JSON 타입은 JSON 문법만 보장한다. 키 허용 목록·시간 경계·자정 넘김·요일 조합 검사는 서버 구현 책임이다. 조건은 당시 약관 버전에 보존하고, 계산 직전 남은 한도·횟수는 PAYMENT_LIMIT_IMPACT.remaining_before, 사용한 전월 실적은 PAYMENT_TRANSACTION.performance_basis_amount에 보존한다. 현재 단계는 명세이며 해당 서비스 검증·계산 코드는 아직 구현하지 않았다.
+- DB의 JSON 타입은 JSON 문법만 보장한다. 키 허용 목록·시간 경계·자정 넘김·요일 조합 검사는 서버 구현 책임이다. 조건은 당시 약관 버전에 보존하고, 계산 직전 남은 한도·횟수는 PAYMENT_LIMIT_USAGE.remaining_before, 사용한 전월 실적은 PAYMENT_TRANSACTION.performance_basis_amount에 보존한다. 현재 단계는 명세이며 해당 서비스 검증·계산 코드는 아직 구현하지 않았다.
 
 ```json
 {
@@ -467,7 +467,7 @@ CONSTRAINT ck_payment_transaction_version CHECK (version >= 0)
 
 ### payment_benefit — 결제별 실제 적용 혜택 결과
 
-사용자가 실제로 받은 할인·캐시백·포인트 결과를 혜택별로 저장한다. 정책은 card_benefit_id로 연결된 당시 버전을 확인한다. 한도에서 차감한 금액·횟수는 PAYMENT_LIMIT_IMPACT에 저장한다.
+사용자가 실제로 받은 할인·캐시백·포인트 결과를 혜택별로 저장한다. 정책은 card_benefit_id로 연결된 당시 버전을 확인한다. 한도에서 차감한 금액·횟수는 PAYMENT_LIMIT_USAGE에 저장한다.
 
 | 컬럼 | SQL 정의 | 설명 |
 |---|---|---|
@@ -495,19 +495,21 @@ CONSTRAINT ck_applied_unit CHECK (value_unit IN ('KRW','POINT'))
 
 기준 문서: Notion → 요구사항 정의서 → V2 → 요구사항 정의서 V2 → [DEC-005](https://app.notion.com/p/d7531720f358838e99690172f32e130d) → 본문 「혜택 결과·한도 사용·당시 계산 근거」. calculation_snapshot JSON은 제거하고 아래 두 일반 컬럼으로 저장한다.
 
-- 계산 직전 남은 한도·횟수: PAYMENT_LIMIT_IMPACT.remaining_before.
+- 계산 직전 남은 한도·횟수: PAYMENT_LIMIT_USAGE.remaining_before.
 - 계산에 사용한 전월 실적 인정액: PAYMENT_TRANSACTION.performance_basis_amount. 실제 0원과 미확정·미사용 NULL을 구분하며, 필요한 실적이 미확인인 채로 확정 계산하지 않는다. 같은 결제의 여러 혜택에서 공통으로 참조한다.
 - 당시 값은 실제 승인에 반영한 계산에서 확보하고 이후 집계가 바뀌거나 취소돼도 덮어쓰지 않는다. 비율·반올림·적용 시점은 보존된 약관·한도 버전으로 확인한다.
 
-### payment_limit_impact — 결제별 한도 사용 내역과 취소 복구 기록
+### payment_limit_usage — 결제별 한도 사용 내역과 취소 복구 기록
+
+이전 이름 payment_limit_impact를 후속 마이그레이션으로 변경했다. PK도 payment_limit_usage_id로 변경하며 기존 행과 사용량·복구 시각은 보존한다.
 
 이 결제가 한도 그룹별로 얼마·몇 회를 차감했는지 저장한다. 취소하면 consumed_value만큼 한 번 복구하고 restored_at을 기록하며, remaining_before 전체를 복구하는 것이 아니다. 여러 혜택이 같은 한도를 공유하면 같은 결제·한도 그룹의 사용량을 한 행에 합산한다.
 
-예: 실제 할인 300원은 PAYMENT_BENEFIT에 한 번 기록한다. 금액 한도 300원과 횟수 한도 1회를 함께 사용했다면 PAYMENT_LIMIT_IMPACT에는 서로 다른 한도 그룹으로 두 행을 남긴다. 이 두 행을 합산해 실제 할인액으로 사용하지 않는다.
+예: 실제 할인 300원은 PAYMENT_BENEFIT에 한 번 기록한다. 금액 한도 300원과 횟수 한도 1회를 함께 사용했다면 PAYMENT_LIMIT_USAGE에는 서로 다른 한도 그룹으로 두 행을 남긴다. 이 두 행을 합산해 실제 할인액으로 사용하지 않는다.
 
 | 컬럼 | SQL 정의 | 설명 |
 |---|---|---|
-| payment_limit_impact_id | `BIGINT NOT NULL AUTO_INCREMENT` | 한도 사용 근거 번호 |
+| payment_limit_usage_id | `BIGINT NOT NULL AUTO_INCREMENT` | 한도 사용 근거 번호 |
 | payment_transaction_id | `BIGINT NOT NULL` | 결제 거래 |
 | card_product_id | `BIGINT NOT NULL` | 거래·한도 상품 일치 검증용 |
 | limit_group_id | `BIGINT NOT NULL` | 결제 당시 한도 그룹 버전 |
@@ -521,7 +523,7 @@ CONSTRAINT ck_applied_unit CHECK (value_unit IN ('KRW','POINT'))
 | version | `BIGINT NOT NULL DEFAULT 0` | JPA 낙관적 락 버전 |
 
 ```sql
-PRIMARY KEY (payment_limit_impact_id);
+PRIMARY KEY (payment_limit_usage_id);
 UNIQUE KEY uk_payment_limit (payment_transaction_id, limit_group_id);
 KEY ix_impact_daily (limit_group_id, usage_date, payment_transaction_id);
 KEY ix_impact_payment_product (payment_transaction_id, card_product_id);
@@ -530,7 +532,7 @@ CONSTRAINT fk_impact_payment_product FOREIGN KEY (payment_transaction_id, card_p
 CONSTRAINT fk_impact_limit_product FOREIGN KEY (limit_group_id, card_product_id) REFERENCES limit_group (limit_group_id, card_product_id);
 CONSTRAINT ck_impact_value CHECK (remaining_before >= 0 AND consumed_value >= 0 AND consumed_value <= remaining_before);
 CONSTRAINT ck_impact_month CHECK (DAYOFMONTH(usage_month) = 1 AND YEAR(usage_month) = YEAR(usage_date) AND MONTH(usage_month) = MONTH(usage_date));
-CONSTRAINT ck_payment_limit_impact_version CHECK (version >= 0)
+CONSTRAINT ck_payment_limit_usage_version CHECK (version >= 0)
 ```
 
 ### card_monthly_performance — 카드별 월간 실적
