@@ -2,7 +2,7 @@
 
 사람과 AI가 함께 참조하는 25개 테이블의 저장 정의다. 개요·리뷰 순서는 [스키마 안내](README.md), 서비스 구현 책임과 미확인 사항은 [구현 지침](implementation.md)을 참고한다.
 
-SQL 원본: [초기 생성](../../../be/src/main/resources/db/migration/V20261026_1__create_initial_schema.sql) → [결제별 한도 사용 테이블 이름 변경](../../../be/src/main/resources/db/migration/V20261027_1__rename_payment_limit_impact_to_usage.sql) → [금융망 사용자 ID 설명 수정](../../../be/src/main/resources/db/migration/V20261027_2__update_ssafy_member_id_comment.sql) → [모든 기기 서명 키 필수화](../../../be/src/main/resources/db/migration/V20261027_3__require_device_signing_keys.sql) → [현금흐름·구매 계획 보완](../../../be/src/main/resources/db/migration/V20261027_4__extend_cashflow_and_purchase_plans.sql) 순서로 적용한 최종 구조다. 초기 SQL은 이미 Merge되어 당시 이름과 설명을 보존한다. 작성일 2026-10-26, 문서 분리·컬럼명 정리 2026-10-27. 이슈 [S15P31E103-101](https://ssafy.atlassian.net/browse/S15P31E103-101).
+SQL 원본: [초기 생성](../../../be/src/main/resources/db/migration/V20261026_1__create_initial_schema.sql) → [결제별 한도 사용 테이블 이름 변경](../../../be/src/main/resources/db/migration/V20261027_1__rename_payment_limit_impact_to_usage.sql) → [금융망 사용자 ID 설명 수정](../../../be/src/main/resources/db/migration/V20261027_2__update_ssafy_member_id_comment.sql) → [모든 기기 서명 키 필수화](../../../be/src/main/resources/db/migration/V20261027_3__require_device_signing_keys.sql) → [현금흐름·구매 계획 보완](../../../be/src/main/resources/db/migration/V20261027_4__extend_cashflow_and_purchase_plans.sql) → [물품 코드·상품명·가맹점 업종 명칭 보완](../../../be/src/main/resources/db/migration/V20261027_5__separate_product_and_merchant_categories.sql) 순서로 적용한 최종 구조다. 초기 SQL은 이미 Merge되어 당시 이름과 설명을 보존한다. 작성일 2026-10-26, 문서 분리·컬럼명 정리 2026-10-27. 이슈 [S15P31E103-101](https://ssafy.atlassian.net/browse/S15P31E103-101), 후속 [S15P31E103-145](https://ssafy.atlassian.net/browse/S15P31E103-145).
 
 컬럼·타입·NULL·기본값·키·제약은 이 문서에서 한 번만 관리한다. 정책의 상세 규칙은 각 절에 연결된 Notion 원본을 따른다. 아래 컬럼 이름과 제약 정의는 모든 마이그레이션 적용 후의 SQL 구조와 대조한다. 알림 JSON의 초기값·변경 규칙은 [구현 지침](implementation.md)의 해당 절을 참고한다.
 
@@ -172,14 +172,14 @@ CONSTRAINT ck_product_cutoff CHECK (billing_cutoff_days IS NULL OR billing_cutof
 | merchant_id | `BIGINT NOT NULL AUTO_INCREMENT` | YAMU 서버 발급 브랜드 단위 가맹점 번호 |
 | merchant_name | `VARCHAR(150) NOT NULL` | 브랜드명; 예: 스타벅스 |
 | brand_code | `VARCHAR(64) NOT NULL` | YAMU 내부 고유 브랜드 코드 |
-| category_code | `VARCHAR(64) NOT NULL` | 업종 식별 코드 |
+| merchant_category_code | `VARCHAR(64) NOT NULL` | 가맹점 업종 코드; API merchantCategoryCode에 대응 |
 | created_at | `TIMESTAMP(6) NOT NULL` | UTC 생성 시각 |
 | updated_at | `TIMESTAMP(6) NOT NULL` | UTC 수정 시각 |
 
 ```sql
 PRIMARY KEY (merchant_id);
 UNIQUE KEY uk_merchant_brand (brand_code);
-KEY ix_merchant_category (category_code)
+KEY ix_merchant_category (merchant_category_code)
 ```
 
 ### user_card — 사용자 보유 카드
@@ -710,7 +710,7 @@ CONSTRAINT ck_refund_version CHECK (version >= 0)
 | cashflow_item_id | `BIGINT NOT NULL AUTO_INCREMENT` | 예정 내역 번호 |
 | user_id | `BIGINT NOT NULL` | 내역 소유 사용자 |
 | linked_account_id | `BIGINT NULL` | 예정 계좌; 미지정 가능 |
-| title | `VARCHAR(150) NOT NULL` | 예정 내역 이름 |
+| title | `VARCHAR(150) NOT NULL` | 일정 표시 이름; 구매할 상품명은 product_name |
 | direction | `VARCHAR(16) NOT NULL` | INCOME / EXPENSE |
 | amount | `BIGINT NULL` | 발생 건 생성 시 기본 예정 금액; NULL은 금액 미정이며 0원이 아님 |
 | scheduled_date | `DATE NOT NULL` | 한국 기준 첫 발생일; 등록 시각인 created_at과 구분 |
@@ -722,7 +722,9 @@ CONSTRAINT ck_refund_version CHECK (version >= 0)
 | updated_at | `TIMESTAMP(6) NOT NULL` | UTC 수정 시각 |
 | version | `BIGINT NOT NULL DEFAULT 0` | JPA 낙관적 락 버전 |
 | user_card_id | `BIGINT NULL` | 예정 결제 카드; 같은 사용자 소유 |
-| category_code | `VARCHAR(64) NULL` | 사용자가 지정한 업종 코드; 분류 정책은 POL-004 |
+| merchant_category_code | `VARCHAR(64) NULL` | 예정 결제의 가맹점 업종 코드; API merchantCategoryCode, POL-004 「가맹점 업종 정책」 |
+| product_category_code | `VARCHAR(64) NULL` | 구매할 물품 카테고리 코드; API productCategoryCode, 미지정 NULL |
+| product_name | `VARCHAR(150) NULL` | 구매할 상품명; API productName, 일정 표시 이름 title과 별도 |
 | item_kind | `VARCHAR(16) NOT NULL DEFAULT 'SCHEDULED'` | SCHEDULED / PURCHASE_PLAN; 기존 행은 일반 예정 항목 |
 | payment_plan | `VARCHAR(16) NULL` | LUMP_SUM / INSTALLMENT; 카드 결제 방식 |
 | installment_months | `SMALLINT NULL` | 일시불 1, 할부 총 개월 수; 비카드 항목 NULL |
@@ -770,12 +772,14 @@ CONSTRAINT ck_cashflow_purchase CHECK (
 | user_id | `BIGINT NOT NULL` | 규칙과 동일 사용자 |
 | occurrence_date | `DATE NOT NULL` | 한국 기준 원래 발생일; 이번 건 날짜를 바꿔도 식별용으로 보존 |
 | scheduled_date | `DATE NOT NULL` | 한국 기준 이번 건에 적용할 예정일 |
-| title | `VARCHAR(150) NOT NULL` | 이번 건 이름 |
+| title | `VARCHAR(150) NOT NULL` | 이번 건 일정 표시 이름; 구매할 상품명은 product_name |
 | direction | `VARCHAR(16) NOT NULL` | INCOME / EXPENSE |
 | amount | `BIGINT NULL` | 이번 건 예정 원화 금액; NULL이면 금액 입력 안내 후 예보 계산 제외 |
 | linked_account_id | `BIGINT NULL` | 이번 건 계좌 직접 입출금 계좌; 같은 사용자 소유 |
 | user_card_id | `BIGINT NULL` | 이번 건 예정 결제 카드; 같은 사용자 소유 |
-| category_code | `VARCHAR(64) NULL` | 이번 건 업종 코드 |
+| merchant_category_code | `VARCHAR(64) NULL` | 이번 건 가맹점 업종 코드; API merchantCategoryCode |
+| product_category_code | `VARCHAR(64) NULL` | 이번 건 물품 카테고리 코드; API productCategoryCode, 미지정 NULL |
+| product_name | `VARCHAR(150) NULL` | 이번 건 구매할 상품명; API productName, 일정 표시 이름 title과 별도 |
 | payment_plan | `VARCHAR(16) NULL` | LUMP_SUM / INSTALLMENT; 비카드 항목 NULL |
 | installment_months | `SMALLINT NULL` | 일시불 1, 할부 총 개월 수 |
 | status | `VARCHAR(24) NOT NULL` | CONFIRMED 예정 / EXCLUDED 이번 건 제외; 기존 상태는 변환 없이 보존 |

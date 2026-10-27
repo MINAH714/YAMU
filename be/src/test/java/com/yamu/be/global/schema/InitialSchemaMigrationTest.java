@@ -201,7 +201,7 @@ class InitialSchemaMigrationTest extends MySqlTestSupport {
         String brandCode = jdbc.queryForObject("SELECT brand_code FROM merchant WHERE merchant_id = ?",
                 String.class, merchant);
         assertRejected(() -> insert("merchant", fields("merchant_name", "another store",
-                "brand_code", brandCode, "category_code", "CAFE"), true));
+                "brand_code", brandCode, "merchant_category_code", "CAFE"), true));
         long owner = user();
         long general = payment(owner, merchant, UUID.randomUUID().toString(), 1000L);
         long department = payment(owner, merchant, UUID.randomUUID().toString(), 1000L);
@@ -213,7 +213,7 @@ class InitialSchemaMigrationTest extends MySqlTestSupport {
                 UPDATE payment_transaction SET payment_channel = 'OFFLINE', facility_type = 'DEPARTMENT_STORE'
                 WHERE payment_transaction_id = ?
                 """, department);
-        jdbc.update("UPDATE merchant SET merchant_name = 'renamed brand', category_code = 'NEW' WHERE merchant_id = ?",
+        jdbc.update("UPDATE merchant SET merchant_name = 'renamed brand', merchant_category_code = 'NEW' WHERE merchant_id = ?",
                 merchant);
         assertThat(jdbc.queryForList("""
                 SELECT facility_type FROM payment_transaction WHERE merchant_id = ?
@@ -338,7 +338,7 @@ class InitialSchemaMigrationTest extends MySqlTestSupport {
         Fixture a = fixture();
         long stranger = user();
         long rule = cashflow(a.owner());
-        jdbc.update("UPDATE cashflow_item SET user_card_id = ?, category_code = 'UTILITIES' WHERE cashflow_item_id = ?", a.card(), rule);
+        jdbc.update("UPDATE cashflow_item SET user_card_id = ?, merchant_category_code = 'UTILITIES' WHERE cashflow_item_id = ?", a.card(), rule);
         long otherRule = cashflow(stranger);
         assertRejected(() -> jdbc.update("UPDATE cashflow_item SET user_card_id = ? WHERE cashflow_item_id = ?", a.card(), otherRule));
         assertRejected(() -> occurrence(rule, stranger, MONTH));
@@ -415,6 +415,40 @@ class InitialSchemaMigrationTest extends MySqlTestSupport {
                 "scheduled_date", MONTH, "recurrence_type", "MONTHLY", "status", "CONFIRMED"), true);
     }
 
+    @Test
+    void productDetailsAndMerchantIndustryCanDifferPerOccurrenceWithoutChangingTheTitle() {
+        long owner = user();
+        long rule = cashflow(owner);
+        long first = occurrence(rule, owner, MONTH);
+        long second = occurrence(rule, owner, MONTH.plusMonths(1));
+        jdbc.update("""
+                UPDATE cashflow_item SET merchant_category_code = 'ELECTRONICS_STORE',
+                  product_category_code = 'NOTEBOOK', product_name = 'planned notebook'
+                WHERE cashflow_item_id = ?
+                """, rule);
+        jdbc.update("""
+                UPDATE cashflow_occurrence SET merchant_category_code = 'DEPARTMENT_STORE',
+                  product_category_code = 'TABLET', product_name = 'chosen tablet', is_overridden = 1
+                WHERE cashflow_occurrence_id = ?
+                """, first);
+        assertThat(jdbc.queryForMap("""
+                SELECT title, merchant_category_code, product_category_code, product_name
+                FROM cashflow_item WHERE cashflow_item_id = ?
+                """, rule)).containsEntry("title", "utilities")
+                .containsEntry("merchant_category_code", "ELECTRONICS_STORE")
+                .containsEntry("product_category_code", "NOTEBOOK")
+                .containsEntry("product_name", "planned notebook");
+        assertThat(jdbc.queryForMap("""
+                SELECT title, merchant_category_code, product_category_code, product_name
+                FROM cashflow_occurrence WHERE cashflow_occurrence_id = ?
+                """, first)).containsEntry("title", "utilities")
+                .containsEntry("merchant_category_code", "DEPARTMENT_STORE")
+                .containsEntry("product_category_code", "TABLET")
+                .containsEntry("product_name", "chosen tablet");
+        assertThat(jdbc.queryForObject("SELECT product_name FROM cashflow_occurrence WHERE cashflow_occurrence_id = ?",
+                String.class, second)).isNull();
+    }
+
     private long occurrence(long rule, long owner, LocalDate date) {
         return insert("cashflow_occurrence", fields("cashflow_item_id", rule, "user_id", owner,
                 "occurrence_date", date, "scheduled_date", date, "title", "utilities", "direction", "EXPENSE",
@@ -459,7 +493,7 @@ class InitialSchemaMigrationTest extends MySqlTestSupport {
     }
 
     private long merchant() {
-        return insert("merchant", fields("merchant_name", "schema-test", "category_code", "CAFE",
+        return insert("merchant", fields("merchant_name", "schema-test", "merchant_category_code", "CAFE",
                 "brand_code", UUID.randomUUID().toString()), true);
     }
 
