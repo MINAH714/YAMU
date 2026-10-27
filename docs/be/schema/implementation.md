@@ -59,10 +59,11 @@ DB 스키마·업무 엔티티·서비스를 구현하는 개발자와 AI를 위
 
 - 2026-10-27 공식 적용 기간: CARD_BENEFIT·LIMIT_GROUP의 valid_from은 공식 시작일을 모르면 NULL로 보관한다. created_at(등록 시각), 카드 출시일, 임의 과거 날짜를 실제 시작일 대신 넣지 않는다. valid_until은 공식 종료일이며 종료일 당일부터 사용하지 않는다. NULL은 종료일을 확인하지 못했거나 아직 정해지지 않았다는 뜻이지 현재 유효함을 보증하지 않는다. 두 날짜를 모두 아는 경우에만 종료일이 시작일보다 뒤인지 CHECK로 강제한다.
 - 현재 결제·추천에는 공식 자료로 현재 제공 여부를 확인한 현행 규칙 버전을 사용한다. 알려진 시작일이 미래이거나 종료일이 지났으면 제외한다. valid_from이 NULL인 여러 버전을 모두 적용하거나 가장 큰 버전 번호만으로 현행이라고 추정하지 않는다. 날짜 미확인 시 현행 버전을 선택하는 운영 절차는 별도 관리하고, 기존 POL-009의 다음 달 YAMU 정책 반영 일정과 공식 약관 날짜를 혼동하지 않는다. 과거 거래·취소는 당시 저장한 혜택 버전·계산 스냅샷을 사용하며, 시작일 미확인 규칙을 과거에 소급 적용하지 않는다.
-- 업종 카테고리 정책은 담당자 결정 대기다. [POL-004](https://app.notion.com/p/f5731720f3588254860601b04ec14dd7)에서 분류 단계·코드 목록·브랜드 업종 배정·혜택 상하위 매칭·변경 이력 보존을 정한다. API의 F/F01/F01-CAFE 및 3단계·접두어 매칭은 기존 초안이다. 현재 category_code는 유지하며, DB 테이블 또는 코드 파일로 관리할지는 정책 확정 후 BE와 결정한다. 이 보류로 브랜드와 업종을 구분하는 설계 자체를 폐기하지 않는다.
+- 분류 명칭은 2026-10-27 사용자 결정과 [POL-004](https://app.notion.com/p/f5731720f3588254860601b04ec14dd7)를 따른다. 「물품 카테고리 정책」은 구매 품목 선택과 productCategoryCode를, 「가맹점 업종 정책」은 영업 종류와 merchantCategoryCode를 관리한다. 물품의 계층형 분류 방향은 유지하며 단계 수·코드 목록은 미정이다. 가맹점 업종은 초기 카드 약관에 필요한 코드부터 정하고 필요 시 추가하되 기존 코드의 의미는 보존한다. 가맹점 업종의 단계 수·브랜드 업종 배정·혜택 상하위 매칭·이력 보존·DB/코드 파일 관리 방식도 후속 확정한다. 기존 F/F01/F01-CAFE·3단계·접두어 매칭은 초안이다.
+
 - 2026-10-26 브랜드 단위 설계: MERCHANT는 스타벅스 같은 브랜드마다 한 행이며 brand_code는 필수·고유하다. 개별 지점명·주소·좌표와 브랜드의 고정 channel은 저장하지 않는다. 지도 API가 찾은 매장은 외부 매장 ID·이름·주소와 내부 브랜드의 연결 정보로 다루며, 지도 공급자·매칭 방식·캐시 보관은 지도 기능 구현 시 확정한다. 이름이 비슷하다는 이유만으로 브랜드 매칭을 확정하지 않는다.
 - 혜택 대상은 BRAND / CATEGORY / ALL과 CONDITION으로 구분한다. BRAND는 target_value 문자열이 아니라 merchant_id FK로 MERCHANT를 참조한다. 이전 MERCHANT 대상 코드는 사용하지 않는다. 브랜드·업종·전체의 포함 대상 중 하나가 맞고, 추가 포함 CONDITION은 모두 확인·충족해야 한다. 제외 대상·조건 하나라도 맞으면 제외한다. 예: BRAND=스타벅스 포함 + CONDITION=FACILITY:DEPARTMENT_STORE 제외 + CONDITION=CHANNEL:ONLINE 제외. 이 조합·판정은 서비스 책임이며 FK/CHECK만으로 혜택 적용을 계산하지 않는다.
-- 거래 조건은 PAYMENT_TRANSACTION.payment_channel(ONLINE / OFFLINE / UNKNOWN), facility_type, merchant_context_snapshot에 최초 접수 당시 값을 저장한다. snapshot에는 당시 brandCode·categoryCode와 확인 근거가 된 POS 식별자·설정 버전 등을 기록한다. NULL 시설·UNKNOWN 채널은 미확인이고 일반 매장·오프라인을 뜻하지 않는다. 시설 코드는 [컬럼 사전](dictionary.md)의 payment_transaction 절에 있는 확정 목록을 사용하며, 조건 코드·판정 규칙의 기준은 [FR-014 혜택 적용 조건 검증](https://app.notion.com/p/e0431720f35882188d5101733ebd9269)에서 관리한다. 미지원 조건은 미확인으로 처리한다.
+- 거래 조건은 PAYMENT_TRANSACTION.payment_channel(ONLINE / OFFLINE / UNKNOWN), facility_type, merchant_context_snapshot에 최초 접수 당시 값을 저장한다. snapshot에는 당시 brandCode·merchantCategoryCode(과거 snapshot의 categoryCode)와 확인 근거가 된 POS 식별자·설정 버전 등을 기록한다. NULL 시설·UNKNOWN 채널은 미확인이고 일반 매장·오프라인을 뜻하지 않는다. 시설 코드는 [컬럼 사전](dictionary.md)의 payment_transaction 절에 있는 확정 목록을 사용하며, 조건 코드·판정 규칙의 기준은 [FR-014 혜택 적용 조건 검증](https://app.notion.com/p/e0431720f35882188d5101733ebd9269)에서 관리한다. 미지원 조건은 미확인으로 처리한다.
 - 신뢰·재시도: 인증된 POS의 서버 관리 설정에서 브랜드·채널·입점 시설을 확인한다. 사용자 앱이나 지도 결과가 보낸 값을 곧바로 결제 사실로 확정하지 않는다. request_fingerprint는 POS 식별자·브랜드·금액 등 불변 요청을 비교하며, 같은 키 재시도에는 최초 저장한 거래 조건을 재사용한다. POS 설정이 나중에 바뀌어도 과거 거래의 조건을 다시 덮어쓰지 않는다. 승인·취소·혜택 재현도 당시 snapshot과 정책 버전을 사용한다.
 - 조건 미확인: 혜택 판단에 필요한 채널·시설·업종이 없으면 혜택을 확정하지 않고 VALUE_UNVERIFIABLE 등 기존 데이터 부족 경로로 처리한다. 제외 조건이 미확인이라는 이유로 제외 대상이 아니라고 단정하지 않는다. 승인 전 조건과 snapshot의 일치·확인 완료 여부는 서비스에서 검사한다. 별도 POS·매장 테이블과 혜택 판정 서비스 구현을 이번 DDL에 추가한 것은 아니다.
 - 소유권: 계좌 연결 인증은 로그 사용자와 계좌 소유자가 같아야 한다. 카드·청구·예정 내역·환급 계좌는 복합 FK로 동일 사용자를 강제한다. 인증 로그도 등록 기기 소유자를 강제한다.
@@ -81,6 +82,17 @@ DB 스키마·업무 엔티티·서비스를 구현하는 개발자와 AI를 위
 - 삭제는 RESTRICT. 탈퇴 시 상태만 바꾸는 것을 개인정보 파기로 간주하지 않는다. 보존·파기 정책 확정 후 식별정보 익명화·삭제를 서비스에서 구현한다.
 - JPA 후속 엔티티는 기존 LocalDateTime 공통 필드를 TIMESTAMP(6)에 맞게 명시 매핑해야 한다. 기존 감사 테스트 테이블은 변경하지 않는다. 업무 엔티티 전체가 없으므로 현 테스트의 Hibernate validate는 업무 엔티티 전체 매핑 검증을 뜻하지 않는다.
 
+## 분류 필드 명칭과 저장 매핑
+
+| API 필드 | 문서 명칭·사용 위치 | 현재 DB 저장 |
+|---|---|---|
+| productCategoryCode | 물품 카테고리 코드. 소비 판단·가상 구매 시뮬레이션·구매 계획의 품목 선택 | cashflow_item.product_category_code, cashflow_occurrence.product_category_code |
+| merchantCategoryCode | 가맹점 업종 코드. 가맹점 업종별 혜택·소비 집계, 예정 결제 업종 | merchant.merchant_category_code, cashflow_item.merchant_category_code, cashflow_occurrence.merchant_category_code. 혜택 대상 CATEGORY는 target_value |
+| productName | 구매할 상품명. 예: 구매 예정 노트북 모델명 | cashflow_item.product_name, cashflow_occurrence.product_name. VARCHAR(150) NULL |
+| title | 일정 표시 이름. 예: 노트북 구매 예정 | cashflow_item.title, cashflow_occurrence.title. 기존 이름·필수 여부 유지 |
+| merchantId / brandCode | 가맹점 ID / 브랜드 코드 | merchant.merchant_id / merchant.brand_code 및 기존 거래 참조 |
+
+API 명세서 V2의 목록은 「물품 카테고리 목록」과 「가맹점 업종 목록」으로 관리한다. 이슈 S15P31E103-145의 V20261027_5는 merchant·cashflow_item·cashflow_occurrence의 category_code를 merchant_category_code로 변경하고 기존 업종 값·인덱스를 보존한다. 두 현금흐름 테이블에 product_category_code·product_name을 추가하며 기존 행은 NULL로 둔다. 일정 이름 title이나 기존 업종으로 상품 정보를 추정해 채우지 않는다. 신규 발생 건 생성 시 규칙의 상품 정보를 복사하고 THIS_ONLY 수정은 해당 발생 건의 상품 정보만 변경한다. 물품만 지정한 시뮬레이션은 금액·출금 일정 기준 잔고 비교에 사용하되 필요한 가맹점 업종·브랜드 근거 없이 혜택을 확정하지 않는다. 부족 정보의 응답 표현은 계산 API 구현 시 확정한다. 코드 목록의 DB 테이블/코드 파일 관리 방식은 이번 컬럼 추가로 확정하지 않는다.
 ## Epic 7 현금흐름 보완 — 2026-10-27 승인
 
 - 승인 원본: 사용자가 첨부한 「Epic 7 잔고예보 및 소비 시뮬레이션 DB 구조 보완 요청」의 2~5번 및 후속 반복 규칙·발생 건 분리 결정. 첨부 원문의 새 Notion 페이지 ID는 현재 연결에서 조회되지 않아 새 페이지를 수정했다고 간주하지 않는다. 로컬 저장 정의는 이 문서와 컬럼 사전에 모으며 별도 문서 사본을 만들지 않는다.
@@ -96,7 +108,7 @@ DB 스키마·업무 엔티티·서비스를 구현하는 개발자와 AI를 위
 
 ## 검증 방법과 확인된 범위
 
-최근 확인: 2026-10-27 격리 MySQL 8.4.11에서 스키마 테스트 26개(InitialSchemaMigrationTest 23개·PaymentLimitUsageMigrationTest 1개·DeviceSigningKeyMigrationTest 1개·CashflowMigrationTest 1개)를 포함한 전체 48개 테스트가 통과했으며 실패·오류·생략은 0개다. 이름 변경 시 기존 사용량·복구 기록 보존, 기기 키·설정 보존을 확인했다. 현금흐름의 기존 규칙·금액·상태·감사 시각을 보존한 첫 발생 건 이관, 금액 미정 허용, 0·음수 거절, 사용자 소유권, 중복 연결 거절, 할부 구매 계획과 소비 분류 저장을 검증했다. 기존 버전 체크섬 보존과 재실행 시 추가 적용 없음도 확인했다. 현행 구조는 25개 테이블·321개 컬럼·FK 41개이며 컬럼 사전과 SQL 정의를 대조했다.
+최근 확인: 2026-10-27 격리 MySQL 8.4.11에서 스키마 테스트 28개(InitialSchemaMigrationTest 24개·PaymentLimitUsageMigrationTest 1개·DeviceSigningKeyMigrationTest 1개·CashflowMigrationTest 1개·CategoryProductMigrationTest 1개)를 포함한 전체 50개 테스트가 통과했으며 실패·오류·생략은 0개다. 이름 변경 시 기존 사용량·복구 기록 보존, 기기 키·설정 보존을 확인했다. 현금흐름의 기존 규칙·금액·상태·감사 시각을 보존한 첫 발생 건 이관, 금액 미정 허용, 0·음수 거절, 사용자 소유권, 중복 연결 거절, 할부 구매 계획과 소비 분류 저장을 검증했다. S15P31E103-145의 업종 컬럼 이름 변경 시 기존 값·인덱스·일정 이름 보존과 새 상품 정보의 NULL 유지도 확인했다. 기존 버전 체크섬 보존과 재실행 시 추가 적용 없음도 확인했다. 현행 구조는 25개 테이블·325개 컬럼·FK 41개이며 컬럼 사전과 SQL 정의를 대조했다.
 
 BE 폴더에서 실행한다.
 
@@ -104,7 +116,7 @@ BE 폴더에서 실행한다.
 .\gradlew.bat test --tests "com.yamu.be.global.schema.*"
 ```
 
-- 테스트 원본: [InitialSchemaMigrationTest.java](../../../be/src/test/java/com/yamu/be/global/schema/InitialSchemaMigrationTest.java), [PaymentLimitUsageMigrationTest.java](../../../be/src/test/java/com/yamu/be/global/schema/PaymentLimitUsageMigrationTest.java), [DeviceSigningKeyMigrationTest.java](../../../be/src/test/java/com/yamu/be/global/schema/DeviceSigningKeyMigrationTest.java), [CashflowMigrationTest.java](../../../be/src/test/java/com/yamu/be/global/schema/CashflowMigrationTest.java). MySqlTestSupport의 격리 MySQL 8.4.11 컨테이너에 Flyway를 적용한다. 빈 DB에 최신 구조를 생성하는 경우와 기존 데이터를 이름 변경·기기 키 필수화·현금흐름 보완 버전으로 올리는 경우를 확인한다. 재현 명령은 `./gradlew.bat --no-daemon test --rerun-tasks`다. 실행 중 Windows 소켓 오류로 중단된 첫 전체 실행은 통과로 간주하지 않았으며 새 Gradle 프로세스로 전체를 다시 실행해 XML의 실제 결과를 확인했다.
+- 테스트 원본: [InitialSchemaMigrationTest.java](../../../be/src/test/java/com/yamu/be/global/schema/InitialSchemaMigrationTest.java), [PaymentLimitUsageMigrationTest.java](../../../be/src/test/java/com/yamu/be/global/schema/PaymentLimitUsageMigrationTest.java), [DeviceSigningKeyMigrationTest.java](../../../be/src/test/java/com/yamu/be/global/schema/DeviceSigningKeyMigrationTest.java), [CashflowMigrationTest.java](../../../be/src/test/java/com/yamu/be/global/schema/CashflowMigrationTest.java), [CategoryProductMigrationTest.java](../../../be/src/test/java/com/yamu/be/global/schema/CategoryProductMigrationTest.java). MySqlTestSupport의 격리 MySQL 8.4.11 컨테이너에 Flyway를 적용한다. 빈 DB에 최신 구조를 생성하는 경우와 기존 데이터를 이름 변경·기기 키 필수화·현금흐름 보완·물품 코드/상품명 추가 버전으로 올리는 경우를 확인한다. 재현 명령은 `./gradlew.bat --no-daemon test --rerun-tasks`다. 실행 중 Windows 소켓 오류로 중단된 첫 전체 실행은 통과로 간주하지 않았으며 새 Gradle 프로세스로 전체를 다시 실행해 XML의 실제 결과를 확인했다.
 - Docker가 없으면 DB 테스트가 생략될 수 있다. BUILD SUCCESSFUL만으로 통과를 판단하지 않고 `be/build/test-results/test/TEST-*.xml`에서 각 테스트의 tests·failures·errors·skipped를 확인한다.
 - 이 테스트는 JPA 업무 엔티티 전체 매핑, 실제 POS 인증·혜택 계산, 등록 초기화 롤백, 동시 결제·취소·재시도, 금융망 연동을 검증하지 않는다. 해당 서비스를 구현할 때 별도 검증한다.
 - 테스트 중 운영·개발자 로컬 DB를 초기화하지 않는다. MySQL DDL의 중간 실패는 전체 롤백이 보장되지 않으므로 데이터 삭제·Flyway clean/repair를 자동 실행하지 않는다.
