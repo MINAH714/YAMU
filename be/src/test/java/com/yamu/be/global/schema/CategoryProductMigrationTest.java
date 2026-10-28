@@ -14,7 +14,8 @@ import org.springframework.test.context.TestPropertySource;
 /** 업종 코드 이름 변경은 기존 값을 보존하고 미확보 물품 정보는 NULL로 둔다. */
 @TestPropertySource(properties = {
         "spring.application.name=yamu-category-product-migration-test",
-        "spring.flyway.target=20261027.4"
+        "spring.flyway.target=20261027.4",
+        "spring.jpa.hibernate.ddl-auto=none"
 })
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 class CategoryProductMigrationTest extends MySqlTestSupport {

@@ -14,7 +14,8 @@ import org.springframework.test.context.TestPropertySource;
 /** 기존 행이 있는 초기 스키마를 새 버전으로 올려도 한도 사용·복구 기록이 보존되는지 확인한다. */
 @TestPropertySource(properties = {
         "spring.application.name=yamu-usage-rename-test",
-        "spring.flyway.target=20261026.1"
+        "spring.flyway.target=20261026.1",
+        "spring.jpa.hibernate.ddl-auto=none"
 })
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 class PaymentLimitUsageMigrationTest extends MySqlTestSupport {

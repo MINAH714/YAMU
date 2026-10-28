@@ -17,3 +17,15 @@ management:
     health:
       # 로컬에서만 /actuator/health에 DB·Redis 연결 상태를 자세히 보여준다.
       show-details: always
+
+# 개인정보 암호화 키(로컬 전용). 비어 있으면 서버가 뜨지 않는다.
+# 각 값에 `openssl rand -base64 32` 결과를 하나씩 넣는다. 네 값은 모두 달라야 한다.
+# 키를 바꾸면 로컬 DB에 이미 넣은 암호문·해시가 맞지 않으니 `docker compose down -v`로 초기화한다.
+# 자세한 내용: docs/be/personal-data-crypto.md
+yamu:
+  crypto:
+    data-key-id: 1
+    data-keys:
+      "[1]":
+    hmac-key:
+    pin-pepper:
