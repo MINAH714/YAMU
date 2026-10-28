@@ -4,7 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.yamu.be.card.domain.CardIssuerStatus;
-import com.yamu.be.card.domain.UserCardStatus;
+import com.yamu.be.card.domain.CardRegistrationStatus;
 import com.yamu.be.global.exception.BusinessException;
 import com.yamu.be.global.exception.ErrorCode;
 import com.yamu.be.support.MySqlTestSupport;
@@ -48,7 +48,7 @@ class CardQueryServiceTest extends MySqlTestSupport {
         long inactive = fixtures.card(owner, product, null, "INACTIVE");
 
         assertThat(service.requireRegisteredCard(owner, active)).isEqualTo(new UserCardRef(active, product, account,
-                "1234", UserCardStatus.ACTIVE, CardIssuerStatus.NORMAL));
+                "1234", CardRegistrationStatus.ACTIVE, CardIssuerStatus.NORMAL));
         assertThat(service.requireRegisteredCard(owner, inactive).linkedAccountId()).isNull();
     }
 
@@ -97,6 +97,21 @@ class CardQueryServiceTest extends MySqlTestSupport {
                 .isEqualTo("NORMAL");
         assertRejectedBy(3819, () -> jdbc.update("UPDATE user_card SET issuer_status = 'LOST' WHERE user_card_id = ?", card));
         assertRejectedBy(1048, () -> jdbc.update("UPDATE user_card SET issuer_status = NULL WHERE user_card_id = ?", card));
+    }
+
+    @Test
+    void 두_상태_칼럼의_설명이_서로를_구분한다() {
+        String sql = """
+                SELECT column_comment FROM information_schema.columns
+                WHERE table_schema = DATABASE() AND table_name = 'user_card' AND column_name = ?
+                """;
+        assertThat(jdbc.queryForObject(sql, String.class, "status")).startsWith("YAMU 등록 상태").contains("issuer_status");
+        assertThat(jdbc.queryForObject(sql, String.class, "issuer_status")).startsWith("카드사(발급사)가 정한 상태").contains("status");
+        assertThat(jdbc.queryForMap("""
+                SELECT column_type, is_nullable, column_default FROM information_schema.columns
+                WHERE table_schema = DATABASE() AND table_name = 'user_card' AND column_name = 'status'
+                """)).containsEntry("COLUMN_TYPE", "varchar(20)").containsEntry("IS_NULLABLE", "NO")
+                .containsEntry("COLUMN_DEFAULT", null);
     }
 
     /** MySQL 오류 번호로 확인한다. CHECK 위반(3819)은 Spring이 분류하지 못해 예외 종류가 일정하지 않다. 1048은 NOT NULL 위반. */

@@ -26,9 +26,9 @@ public class CardQueryService {
             throw new BusinessException(ErrorCode.RESOURCE_NOT_FOUND);
         }
         UserCard card = cardRepository.findByIdAndUserId(userCardId, userId)
-                .filter(c -> c.getStatus().isRegistered())
+                .filter(c -> c.getRegistrationStatus().isRegistered())
                 .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND));
         return new UserCardRef(card.getId(), card.getCardProductId(), card.getLinkedAccountId(),
-                card.getCardLast4(), card.getStatus(), card.getIssuerStatus());
+                card.getCardLast4(), card.getRegistrationStatus(), card.getIssuerStatus());
     }
 }

@@ -43,9 +43,10 @@ public class UserCard extends BaseTimeEntity {
     @Column(nullable = false, columnDefinition = "char(4)")
     private String cardLast4;
 
+    /** DB 칼럼은 다른 테이블과 같은 규칙으로 {@code status}다. 카드사 상태와 헷갈리지 않게 코드에서는 등록 상태로 부른다. */
     @Enumerated(EnumType.STRING)
-    @Column(nullable = false, length = 20)
-    private UserCardStatus status;
+    @Column(name = "status", nullable = false, length = 20)
+    private CardRegistrationStatus registrationStatus;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
