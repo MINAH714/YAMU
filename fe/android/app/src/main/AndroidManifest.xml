@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <!-- 금융 앱: 자동 백업 끔 · 세로 고정. 화면(Activity)은 빌드마다 따로 —
+         고객 앱 src/customer, 모의 POS 단말 src/pos (10 문서 6-5) -->
+    <application
+        android:name=".YamuApplication"
+        android:allowBackup="false"
+        android:icon="@drawable/yamu_happy"
+        android:roundIcon="@drawable/yamu_happy"
+        android:label="@string/app_name"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.YAMU" />
+
+</manifest>

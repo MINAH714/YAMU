@@ -1,0 +1,81 @@
+package com.yamu.app.navigation
+
+import kotlinx.serialization.Serializable
+
+// 화면 경로 — 06 문서 2-2 표. 주석은 프로토타입 ID(android-proto/screens). 인자는 ID만 넘긴다.
+
+// ── 그래프 ──
+@Serializable data object AuthGraph
+@Serializable data object LinkGraph
+@Serializable data object MainGraph
+@Serializable data object HomeGraph
+@Serializable data object PayGraph
+@Serializable data object PerfGraph
+@Serializable data object ReportGraph
+@Serializable data object MyGraph
+
+// ── 시작 · 가입 (AuthGraph) ──
+@Serializable data object Splash
+@Serializable data object Welcome            // A-01
+@Serializable data object Login              // A-03
+@Serializable data object Unlock             // A-03b · A-03d(지문은 시스템 창)
+@Serializable data object Terms              // A-04
+@Serializable data object IdentityVerify     // A-05
+@Serializable data object PinSetup           // A-06
+@Serializable data object SignupDone         // A-07
+
+// ── 계좌 · 카드 연결 (LinkGraph) ──
+@Serializable data object InstitutionSelect  // C-01
+@Serializable data class LinkConsent(val linkSessionId: String)   // C-02 · C-02b · C-02c · C-02d
+@Serializable data class LinkSelect(val linkSessionId: String)    // C-03
+@Serializable data object LinkDone           // C-04
+@Serializable data object CashflowConfirm    // B-06
+@Serializable data object FirstAnalysis      // B-07 · B-07b(알림 권한은 시스템 창)
+
+// ── 홈 탭 (HomeGraph) ──
+@Serializable data object Home               // H-01 · H-01d · H-01c(상태)
+@Serializable data object Notifications      // H-02
+@Serializable data object MyCards            // H-03
+@Serializable data object Forecast           // F-01 · F-01d · F-01i(상태)
+@Serializable data object CashflowList       // F-02
+@Serializable data object BuyCheckInput      // I-01 (F-04 사기 전에 확인을 합침)
+/** I-02 · I-03(상태) · I-04(시트) — 결과는 저장된 게 아니라 이 입력으로 #33을 부른 값이라 입력을 넘긴다 */
+@Serializable data class BuyCheckResult(val amount: Long, val title: String? = null, val purchaseDate: String)
+@Serializable data class BuyCheckSaved(val planId: Long)            // I-05
+
+// ── 카드추천 탭 (PayGraph) ──
+@Serializable data object Recommend          // P-01
+
+// ── 결제(탭 밖 전체 화면) ──
+@Serializable data object PayCode            // P-06a(인증) · P-06 · P-06c(결제 요청 확인 — 같은 화면의 단계, 10 문서 6-7)
+@Serializable data class PayDone(val paymentId: Long)               // P-07
+@Serializable data class PaymentDetail(val paymentId: Long)         // P-08
+
+// ── 실적관리 탭 (PerfGraph) ──
+@Serializable data object PerfOverview       // R-01 · R-01d(상태)
+@Serializable data class CardPerformance(val userCardId: Long)      // R-02
+@Serializable data class PerfAnalysis(val userCardId: Long)         // R-03 · R-03b · R-03c(상태)
+@Serializable data object BenefitLimits      // R-06
+
+// ── 소비분석 탭 (ReportGraph) ──
+@Serializable data object Report             // S-01
+@Serializable data object BenefitReport      // S-04
+@Serializable data object Payments           // S-05
+
+// ── 마이 탭 (MyGraph) ──
+@Serializable data object My                 // M-01
+@Serializable data object CardManage         // M-02
+@Serializable data object AddCardInstitution // C-11
+@Serializable data class AddCardFound(val linkSessionId: String)  // C-12 · C-13b(지문은 시스템 창)
+@Serializable data class AddCardDone(val userCardId: Long)        // C-14
+@Serializable data object NotificationSettings // M-04
+@Serializable data object Profile            // M-06
+@Serializable data object Security           // M-08
+
+// ── 공통 ──
+@Serializable data object Relock             // 앱 자동 잠금 — A-03b 화면을 보던 화면 위에(13 문서 9·10-2)
+@Serializable data class PinPad(val purpose: String)   // 지문 대신 간편 비밀번호(A-06 키패드 디자인)
+
+// ── 디버그(debug 빌드만) ──
+@Serializable data object DebugMenu
+@Serializable data object ComponentGallery
