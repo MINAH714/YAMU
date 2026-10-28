@@ -60,6 +60,14 @@ yamu:
       window: 1m
       per-device: 10
       per-ip: 60
+  # SSAFY 금융망. api-key는 운영은 환경변수 SSAFY_API_KEY, 로컬은 application-local.yml에 넣는다(노션 API 명세 4장).
+  # 키·userKey·요청 본문은 로그에 남기지 않는다. 비어 있어도 서버는 뜨고, 금융망을 부르는 순간 실패한다.
+  fin-api:
+    base-url: https://finopenapi.ssafy.io/ssafy/api/v1
+    api-key: ${SSAFY_API_KEY:}
+    # 연결 3초를 넘으면 "요청 안 감", 응답 10초를 넘으면 "결과 불명"으로 본다(FinApiClient)
+    connect-timeout: 3s
+    read-timeout: 10s
 
 springdoc:
   swagger-ui:
