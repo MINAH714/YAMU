@@ -30,6 +30,18 @@ spring:
 server:
   port: ${SERVER_PORT:8080}
 
+yamu:
+  # 개인정보 암호화·조회 해시·PIN 해시 키(Base64). 운영은 환경변수로, 로컬은 application-local.yml에 넣는다.
+  # 비어 있거나 길이가 틀리거나 서로 같으면 서버가 뜨지 않는다(CryptoKeys).
+  # 키를 잃으면 암호화된 값을 열 수 없고, hmac-key·pin-pepper를 바꾸면 기존 해시가 전부 맞지 않는다.
+  # 사용법·키 만드는 법: docs/be/personal-data-crypto.md
+  crypto:
+    data-key-id: ${YAMU_CRYPTO_DATA_KEY_ID:1}
+    data-keys:
+      "[1]": ${YAMU_CRYPTO_DATA_KEY_1:}
+    hmac-key: ${YAMU_CRYPTO_HMAC_KEY:}
+    pin-pepper: ${YAMU_CRYPTO_PIN_PEPPER:}
+
 springdoc:
   swagger-ui:
     path: /swagger-ui.html

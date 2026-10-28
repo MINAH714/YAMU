@@ -18,3 +18,11 @@ spring:
         dialect: org.hibernate.dialect.MySQLDialect
         boot:
           allow_jdbc_metadata_access: false
+yamu:
+  # 테스트 전용 키. 실제 데이터에 쓰지 않는다.
+  crypto:
+    data-key-id: 1
+    data-keys:
+      "[1]": 0EnDNJY8EiCQDK78eTZI238tmQcubOUaUQovAddqKuU=
+    hmac-key: W6990e8xM9l51TNQdCULcgsTC3Z8cE1F9KAykAubMsY=
+    pin-pepper: 21zmotCRVO8RYY0N3gWiHctx+Sb9BSjCwaZZL+4K4Do=
