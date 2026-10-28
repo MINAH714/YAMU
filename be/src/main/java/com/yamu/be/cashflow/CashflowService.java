@@ -20,6 +20,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
@@ -55,17 +56,7 @@ public class CashflowService {
         }
         command = normalize(command);
         CashflowItem.RecurrenceType recurrence = validate(command, today());
-        // 남의 것·없는 것·연결 해제·등록 해제는 BE 1 조회가 404 RESOURCE_NOT_FOUND로 던진다.
-        if (command.accountId() != null) {
-            accounts.requireConnectedAccount(authenticatedUserId, command.accountId());
-        }
-        if (command.userCardId() != null) {
-            UserCardRef card = cards.requireRegisteredCard(authenticatedUserId, command.userCardId());
-            // 카드사 정지·만료 카드로는 결제가 일어날 수 없어 예보를 틀리게 하므로 받지 않는다(추천도 정지 카드를 제외한다).
-            if (card.issuerStatus() != CardIssuerStatus.NORMAL) {
-                throw invalid("userCardId", "정지되었거나 만료된 카드는 결제 카드로 지정할 수 없습니다.");
-            }
-        }
+        requireOwned(authenticatedUserId, command.accountId(), command.userCardId());
 
         CashflowItem item = items.save(new CashflowItem(authenticatedUserId,
                 command.accountId(), command.userCardId(), command.title(),
@@ -73,6 +64,155 @@ public class CashflowService {
                 command.recurrenceEndDate(), command.merchantCategoryCode(), command.memo()));
         occurrences.save(CashflowOccurrence.firstOf(item));
         return Item.from(item);
+    }
+
+    /**
+     * 예정 항목을 고치고 고친 회차나 규칙을 돌려준다. THIS_ONLY는 반복 항목의 한 회차만 고친다.
+     * 같은 시리즈의 수정·삭제는 첫 규칙 행을 잠가 차례로 처리한다. 잠금을 기다린 뒤 앞 요청이 커밋한 값을 읽도록 READ COMMITTED로 연다.
+     */
+    @Transactional(isolation = Isolation.READ_COMMITTED)
+    public Entry update(Long authenticatedUserId, Long itemId, UpdateCommand command) {
+        requireUser(authenticatedUserId);
+        if (command == null) {
+            throw new BusinessException(ErrorCode.INVALID_REQUEST);
+        }
+        if (command.type() != null) {
+            throw invalid("type", "수입·지출 유형은 바꿀 수 없습니다.");
+        }
+        LocalDate today = today();
+        CashflowItem rule = lockSeries(authenticatedUserId, itemId);
+        if (command.scope() == UpdateScope.THIS_ONLY && rule.getRecurrenceType() != CashflowItem.RecurrenceType.NONE) {
+            return updateOne(authenticatedUserId, rule, command, today);
+        }
+        throw invalid("scope", "이후 전부 수정은 아직 지원하지 않습니다.");
+    }
+
+    /** 반복 항목의 한 회차를 지운다. 행은 EXCLUDED로 남겨 규칙에서 다시 계산되지 않게 한다. 이미 지운 회차면 그대로 둔다. */
+    @Transactional(isolation = Isolation.READ_COMMITTED)
+    public void delete(Long authenticatedUserId, Long itemId, DeleteScope scope, LocalDate occurrenceDate) {
+        requireUser(authenticatedUserId);
+        LocalDate today = today();
+        CashflowItem rule = lockSeries(authenticatedUserId, itemId);
+        if (scope == DeleteScope.THIS_ONLY && rule.getRecurrenceType() != CashflowItem.RecurrenceType.NONE) {
+            CashflowOccurrence row = occurrenceOf(rule, occurrenceDate);
+            if (row != null && row.getStatus() == CashflowOccurrence.Status.EXCLUDED) {
+                return;
+            }
+            requireChangeable(row, occurrenceDate, today);
+            (row == null ? occurrences.save(CashflowOccurrence.of(rule, occurrenceDate)) : row).exclude();
+            return;
+        }
+        throw invalid("scope", "전체 삭제는 아직 지원하지 않습니다.");
+    }
+
+    /** 반복 항목의 한 회차만 고친다. 이미 고친 회차는 그 값 위에, 처음 고치는 회차는 규칙 값 위에 보낸 필드만 바꾼다. */
+    private Entry updateOne(Long userId, CashflowItem rule, UpdateCommand command, LocalDate today) {
+        if (command.recurrence() != null) {
+            throw invalid("recurrence", "이번 회차만 바꿀 때는 반복 규칙을 바꿀 수 없습니다.");
+        }
+        CashflowOccurrence row = occurrenceOf(rule, command.occurrenceDate());
+        if (row != null && row.getStatus() == CashflowOccurrence.Status.EXCLUDED) {
+            throw invalid("occurrenceDate", "삭제한 회차는 고칠 수 없습니다.");
+        }
+        requireChangeable(row, command.occurrenceDate(), today);
+        Values base = row != null && row.isOverridden() ? Values.of(row) : Values.of(rule, command.occurrenceDate());
+        Values changed = merge(base, command);
+        if (changed.date().isBefore(today)) {
+            throw invalid("date", "날짜는 오늘 이후여야 합니다.");
+        }
+        validate(new CreateCommand(changed.title(), rule.getDirection(), changed.amount(), changed.date(),
+                CashflowItem.RecurrenceType.NONE, null, null, null, changed.accountId(), changed.userCardId(),
+                changed.merchantCategoryCode(), changed.memo()), today);
+        requireOwned(userId, command.accountId(), command.userCardId());
+
+        if (row == null) {
+            row = occurrences.save(CashflowOccurrence.of(rule, command.occurrenceDate()));
+        }
+        row.override(changed.date(), changed.title(), changed.amount(), changed.accountId(), changed.userCardId(),
+                changed.merchantCategoryCode(), changed.memo());
+        return new Entry(Item.from(rule).with(row), row.getOccurrenceDate(), row.getScheduledDate());
+    }
+
+    /**
+     * 고른 규칙이 속한 시리즈의 첫 규칙을 잠근 뒤 고른 규칙을 잠가 읽는다. 없거나 다른 사용자의 것이면 404다.
+     * 같은 시리즈의 수정·삭제가 모두 첫 규칙부터 잠그므로 차례로 처리되고 서로 기다리다 멈추지 않는다.
+     */
+    private CashflowItem lockSeries(Long userId, Long itemId) {
+        Set<Long> seen = new HashSet<>();
+        Long headId = itemId;
+        while (true) {
+            CashflowItemRepository.Link link = items.findLink(headId, userId).orElseThrow(CashflowService::notFound);
+            if (!seen.add(link.getId())) {
+                throw new IllegalStateException("예정 항목 시리즈에 순환이 있다: " + itemId);
+            }
+            if (link.getPreviousCashflowItemId() == null) {
+                break;
+            }
+            headId = link.getPreviousCashflowItemId();
+        }
+        CashflowItem head = items.findForUpdate(headId, userId).orElseThrow(CashflowService::notFound);
+        return headId.equals(itemId) ? head : items.findForUpdate(itemId, userId).orElseThrow(CashflowService::notFound);
+    }
+
+    /** 규칙의 실제 회차 날짜인지 확인하고 저장된 회차 행을 돌려준다. 저장된 행이 없으면 null이다. */
+    private CashflowOccurrence occurrenceOf(CashflowItem rule, LocalDate occurrenceDate) {
+        if (occurrenceDate == null) {
+            throw invalid("occurrenceDate", "고를 회차의 날짜를 보내 주세요.");
+        }
+        requireStorable(occurrenceDate, "occurrenceDate");
+        if (occurrenceDates(Item.from(rule), occurrenceDate, occurrenceDate).isEmpty()) {
+            throw invalid("occurrenceDate", "이 일정의 회차 날짜가 아닙니다.");
+        }
+        return occurrences.findByCashflowItemIdAndOccurrenceDate(rule.getId(), occurrenceDate).orElse(null);
+    }
+
+    /** 지난 회차와 결제와 연결된 회차는 바꾸지 않는다. 날짜를 옮긴 회차는 옮긴 날짜로 지났는지 본다. */
+    private void requireChangeable(CashflowOccurrence row, LocalDate occurrenceDate, LocalDate today) {
+        LocalDate current = row != null && row.isOverridden() ? row.getScheduledDate() : occurrenceDate;
+        if (current.isBefore(today)) {
+            throw invalid("occurrenceDate", "지난 회차는 바꿀 수 없습니다.");
+        }
+        // 결제와 연결된 회차는 실제 결제 기록이 기준이라 예정 수정으로 바꾸지 않는다(409 코드가 정해지기 전 임시 400).
+        if (row != null && !occurrences.findMatchedIds(List.of(row.getId())).isEmpty()) {
+            throw invalid("occurrenceDate", "결제와 연결된 회차는 바꿀 수 없습니다.");
+        }
+    }
+
+    /** 보낸 필드만 바꾼다. 업종 코드·메모의 빈 문자열은 지우기다. 계좌나 카드를 보내면 다른 하나는 비운다. */
+    private static Values merge(Values base, UpdateCommand change) {
+        if (change.accountId() != null && change.userCardId() != null) {
+            throw invalid("userCardId", "계좌와 카드 중 하나만 선택해 주세요.");
+        }
+        Long accountId = base.accountId();
+        Long userCardId = base.userCardId();
+        if (change.accountId() != null) {
+            accountId = change.accountId();
+            userCardId = null;
+        } else if (change.userCardId() != null) {
+            accountId = null;
+            userCardId = change.userCardId();
+        }
+        return new Values(change.title() == null ? base.title() : change.title().strip(),
+                change.amount() == null ? base.amount() : change.amount(),
+                change.date() == null ? base.date() : change.date(),
+                accountId, userCardId,
+                change.merchantCategoryCode() == null
+                        ? base.merchantCategoryCode() : blankToNull(change.merchantCategoryCode()),
+                change.memo() == null ? base.memo() : blankToNull(change.memo()));
+    }
+
+    /** 남의 것·없는 것·연결 해제·등록 해제는 BE 1 조회가 404 RESOURCE_NOT_FOUND로 던진다. */
+    private void requireOwned(Long userId, Long accountId, Long userCardId) {
+        if (accountId != null) {
+            accounts.requireConnectedAccount(userId, accountId);
+        }
+        if (userCardId != null) {
+            UserCardRef card = cards.requireRegisteredCard(userId, userCardId);
+            // 카드사 정지·만료 카드로는 결제가 일어날 수 없어 예보를 틀리게 하므로 받지 않는다(추천도 정지 카드를 제외한다).
+            if (card.issuerStatus() != CardIssuerStatus.NORMAL) {
+                throw invalid("userCardId", "정지되었거나 만료된 카드는 결제 카드로 지정할 수 없습니다.");
+            }
+        }
     }
 
     /**
@@ -305,6 +445,10 @@ public class CashflowService {
                 Map.of("fieldErrors", List.of(new FieldErrorResponse(field, reason))));
     }
 
+    private static BusinessException notFound() {
+        return new BusinessException(ErrorCode.RESOURCE_NOT_FOUND);
+    }
+
     private static void requireUser(Long authenticatedUserId) {
         if (authenticatedUserId == null || authenticatedUserId <= 0) {
             throw new BusinessException(ErrorCode.UNAUTHORIZED);
@@ -315,6 +459,33 @@ public class CashflowService {
             LocalDate scheduledDate, CashflowItem.RecurrenceType recurrenceType,
             Integer dayOfMonth, DayOfWeek dayOfWeek, LocalDate recurrenceEndDate,
             Long accountId, Long userCardId, String merchantCategoryCode, String memo) {}
+
+    public enum UpdateScope { THIS_AND_FUTURE, THIS_ONLY }
+
+    public enum DeleteScope { ALL, THIS_ONLY }
+
+    /** 수정 요청. null인 필드는 그대로 둔다. type은 바꿀 수 없어 보내면 거절한다. */
+    public record UpdateCommand(CashflowItem.Direction type, String title, Long amount, LocalDate date,
+            RecurrenceChange recurrence, String merchantCategoryCode, Long accountId, Long userCardId,
+            String memo, UpdateScope scope, LocalDate occurrenceDate) {}
+
+    /** 반복 규칙을 통째로 바꿀 때의 새 규칙. endDate를 생략하면 종료일이 없다. */
+    public record RecurrenceChange(CashflowItem.RecurrenceType frequency, Integer dayOfMonth,
+            DayOfWeek dayOfWeek, LocalDate endDate) {}
+
+    /** 회차 하나를 정하는 값. 규칙 기본값이나 이번 회차만 고친 값이다. */
+    private record Values(String title, Long amount, LocalDate date, Long accountId, Long userCardId,
+            String merchantCategoryCode, String memo) {
+        static Values of(CashflowOccurrence row) {
+            return new Values(row.getTitle(), row.getAmount(), row.getScheduledDate(), row.getAccountId(),
+                    row.getUserCardId(), row.getMerchantCategoryCode(), row.getMemo());
+        }
+
+        static Values of(CashflowItem rule, LocalDate date) {
+            return new Values(rule.getTitle(), rule.getAmount(), date, rule.getAccountId(), rule.getUserCardId(),
+                    rule.getMerchantCategoryCode(), rule.getMemo());
+        }
+    }
 
     /**
      * 목록의 한 줄. occurrenceDate는 규칙이 정한 원래 회차(이번 회차 수정·삭제 때 식별값), date는 실제 예정일이다.

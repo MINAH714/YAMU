@@ -3,6 +3,7 @@ package com.yamu.be.cashflow;
 import java.time.LocalDate;
 import java.util.Collection;
 import java.util.List;
+import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -21,4 +22,6 @@ public interface CashflowOccurrenceRepository extends JpaRepository<CashflowOccu
     @Query(value = "select cashflow_occurrence_id from cashflow_payment_match where cashflow_occurrence_id in (:ids)",
             nativeQuery = true)
     List<Long> findMatchedIds(@Param("ids") Collection<Long> ids);
+
+    Optional<CashflowOccurrence> findByCashflowItemIdAndOccurrenceDate(Long cashflowItemId, LocalDate occurrenceDate);
 }

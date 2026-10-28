@@ -4,7 +4,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.hasItem;
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.nullValue;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -222,6 +224,95 @@ class CashflowControllerTest extends MySqlTestSupport {
     }
 
     @Test
+    void 이번_회차만_고치고_지우면_목록에_그_회차만_반영된다() throws Exception {
+        long rule = weekly();
+        LocalDate second = tomorrow.plusDays(7);
+
+        mockMvc.perform(patch("/api/cashflow-items/{id}", rule).with(AuthUsers.asUser(owner))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                { "scope": "THIS_ONLY", "occurrenceDate": "%s", "date": "%s" }
+                                """.formatted(second, tomorrow.plusDays(9))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.occurrenceDate").value(second.toString()))
+                .andExpect(jsonPath("$.data.date").value(tomorrow.plusDays(9).toString()));
+        // 옮긴 회차에 금액만 보내도 옮긴 날짜는 그대로다.
+        mockMvc.perform(patch("/api/cashflow-items/{id}", rule).with(AuthUsers.asUser(owner))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                { "scope": "THIS_ONLY", "occurrenceDate": "%s", "amount": 50000 }
+                                """.formatted(second)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.date").value(tomorrow.plusDays(9).toString()))
+                .andExpect(jsonPath("$.data.amount").value(50000));
+        for (int i = 0; i < 2; i++) {
+            mockMvc.perform(delete("/api/cashflow-items/{id}", rule).with(AuthUsers.asUser(owner))
+                            .param("scope", "THIS_ONLY").param("occurrenceDate", tomorrow.plusDays(14).toString()))
+                    .andExpect(status().isNoContent());
+        }
+        em.clear();
+
+        mockMvc.perform(get("/api/cashflow-items").with(AuthUsers.asUser(owner))
+                        .param("from", tomorrow.toString()).param("to", tomorrow.plusDays(21).toString()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.items", hasSize(3)))
+                .andExpect(jsonPath("$.data.items[0].date").value(tomorrow.toString()))
+                .andExpect(jsonPath("$.data.items[0].amount").value(89000))
+                .andExpect(jsonPath("$.data.items[1].occurrenceDate").value(second.toString()))
+                .andExpect(jsonPath("$.data.items[1].date").value(tomorrow.plusDays(9).toString()))
+                .andExpect(jsonPath("$.data.items[1].amount").value(50000))
+                .andExpect(jsonPath("$.data.items[2].date").value(tomorrow.plusDays(21).toString()));
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM cashflow_occurrence WHERE cashflow_item_id = ?",
+                Integer.class, rule)).isEqualTo(3);
+    }
+
+    @Test
+    void 남의_항목_수정_삭제는_404이고_토큰이_없으면_401이다() throws Exception {
+        long rule = weekly();
+        long stranger = fixtures.user();
+        String body = """
+                { "scope": "THIS_ONLY", "occurrenceDate": "%s", "amount": 1000 }
+                """.formatted(tomorrow);
+
+        mockMvc.perform(patch("/api/cashflow-items/{id}", rule).with(AuthUsers.asUser(stranger))
+                        .contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error.code").value("RESOURCE_NOT_FOUND"));
+        mockMvc.perform(delete("/api/cashflow-items/{id}", rule).with(AuthUsers.asUser(stranger))
+                        .param("scope", "THIS_ONLY").param("occurrenceDate", tomorrow.toString()))
+                .andExpect(status().isNotFound());
+        mockMvc.perform(patch("/api/cashflow-items/{id}", rule).contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isUnauthorized());
+        mockMvc.perform(delete("/api/cashflow-items/{id}", rule).param("scope", "WHATEVER").with(AuthUsers.asUser(owner)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("INVALID_REQUEST"));
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM cashflow_occurrence WHERE cashflow_item_id = ?",
+                Integer.class, rule)).isEqualTo(1);
+    }
+
+    @Test
+    void 회차의_계좌나_카드를_바꿀_때도_소유와_카드_상태를_확인한다() throws Exception {
+        long rule = weekly();
+        long strangerAccount = fixtures.account(fixtures.user());
+        long suspended = fixtures.card(owner, product, account, "ACTIVE");
+        jdbc.update("UPDATE user_card SET issuer_status = 'SUSPENDED' WHERE user_card_id = ?", suspended);
+
+        mockMvc.perform(patch("/api/cashflow-items/{id}", rule).with(AuthUsers.asUser(owner))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                { "scope": "THIS_ONLY", "occurrenceDate": "%s", "accountId": %d }
+                                """.formatted(tomorrow, strangerAccount)))
+                .andExpect(status().isNotFound());
+        mockMvc.perform(patch("/api/cashflow-items/{id}", rule).with(AuthUsers.asUser(owner))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                { "scope": "THIS_ONLY", "occurrenceDate": "%s", "userCardId": %d }
+                                """.formatted(tomorrow, suspended)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.details.fieldErrors[0].field").value("userCardId"));
+    }
+
+    @Test
     void 목록의_잘못된_조회_값은_400이다() throws Exception {
         mockMvc.perform(get("/api/cashflow-items").with(AuthUsers.asUser(owner)).param("status", "DELETED"))
                 .andExpect(status().isBadRequest())
@@ -247,6 +338,18 @@ class CashflowControllerTest extends MySqlTestSupport {
                                 """.formatted(account)))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.details.fieldErrors[0].field").value("date"));
+    }
+
+    /** 내일부터 매주 반복하는 계좌 지출을 등록하고 규칙 ID를 돌려준다. */
+    private long weekly() throws Exception {
+        mockMvc.perform(post("/api/cashflow-items").with(AuthUsers.asUser(owner))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                { "type": "EXPENSE", "title": "헬스장", "amount": 89000, "date": "%s",
+                                  "recurrence": { "frequency": "WEEKLY" }, "accountId": %d }
+                                """.formatted(tomorrow, account)))
+                .andExpect(status().isCreated());
+        return jdbc.queryForObject("SELECT MAX(cashflow_item_id) FROM cashflow_item WHERE user_id = ?", Long.class, owner);
     }
 
     /** 결제 기능이 아직 연결 행을 만들지 않아, 실제 결제와 연결 행을 SQL로 넣는다. */

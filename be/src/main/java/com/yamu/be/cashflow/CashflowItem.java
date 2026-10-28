@@ -74,6 +74,10 @@ public class CashflowItem extends BaseTimeEntity {
     @Column(name = "item_kind", nullable = false, length = 16)
     private ItemKind itemKind;
 
+    /** 이후 일정 변경으로 나뉜 경우 바로 앞 규칙. 시리즈의 첫 규칙은 NULL이다. */
+    @Column(name = "previous_cashflow_item_id")
+    private Long previousCashflowItemId;
+
     @Version
     @Column(nullable = false)
     private Long version;
