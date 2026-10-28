@@ -2,6 +2,7 @@ package com.yamu.be.cashflow;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.tuple;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -208,16 +209,75 @@ class CashflowServiceTest {
                         CashflowItem.Direction.EXPENSE, 10000L, tomorrow,
                         CashflowItem.RecurrenceType.NONE, null, null, null)));
 
-        List<CashflowService.Item> result = service.listRules(7L, tomorrow,
-                tomorrow.plusDays(30), CashflowItem.Direction.EXPENSE, null);
+        List<CashflowService.Entry> result = service.list(7L, tomorrow,
+                tomorrow.plusDays(30), CashflowItem.Direction.EXPENSE, null, true);
 
         assertThat(result).hasSize(1);
-        assertThat(result.get(0).title()).isEqualTo("월세");
+        assertThat(result.get(0).item().title()).isEqualTo("월세");
+    }
+
+    @Test
+    void 매주_반복은_기간_안의_같은_요일마다_펼친다() {
+        CashflowService.Item rule = rule(LocalDate.of(2026, 11, 2), CashflowItem.RecurrenceType.WEEKLY, null);
+
+        assertThat(CashflowService.occurrenceDates(rule, LocalDate.of(2026, 11, 10), LocalDate.of(2026, 11, 30)))
+                .containsExactly(LocalDate.of(2026, 11, 16), LocalDate.of(2026, 11, 23), LocalDate.of(2026, 11, 30));
+    }
+
+    @Test
+    void 매월_반복은_없는_날짜만_말일로_맞추고_다음_달은_원래_날짜로_돌아온다() {
+        CashflowService.Item rule = rule(LocalDate.of(2027, 1, 31), CashflowItem.RecurrenceType.MONTHLY, null);
+
+        assertThat(CashflowService.occurrenceDates(rule, LocalDate.of(2027, 1, 1), LocalDate.of(2027, 5, 31)))
+                .containsExactly(LocalDate.of(2027, 1, 31), LocalDate.of(2027, 2, 28), LocalDate.of(2027, 3, 31),
+                        LocalDate.of(2027, 4, 30), LocalDate.of(2027, 5, 31));
+        // 시작일이 기간보다 앞서도 말일 보정된 회차(2/28)를 빠뜨리지 않는다.
+        assertThat(CashflowService.occurrenceDates(rule, LocalDate.of(2027, 2, 28), LocalDate.of(2027, 3, 30)))
+                .containsExactly(LocalDate.of(2027, 2, 28));
+    }
+
+    @Test
+    void 반복_종료일은_그날까지_포함하고_기간_밖_회차와_일회성은_제외한다() {
+        CashflowService.Item ending = rule(LocalDate.of(2026, 11, 5), CashflowItem.RecurrenceType.MONTHLY,
+                LocalDate.of(2027, 1, 5));
+        assertThat(CashflowService.occurrenceDates(ending, LocalDate.of(2026, 11, 1), LocalDate.of(2027, 3, 31)))
+                .containsExactly(LocalDate.of(2026, 11, 5), LocalDate.of(2026, 12, 5), LocalDate.of(2027, 1, 5));
+        // 기간과는 겹치지만 기간 안에 발생일이 없는 규칙
+        assertThat(CashflowService.occurrenceDates(ending, LocalDate.of(2026, 11, 6), LocalDate.of(2026, 12, 4)))
+                .isEmpty();
+
+        CashflowService.Item once = rule(LocalDate.of(2026, 11, 5), CashflowItem.RecurrenceType.NONE, null);
+        assertThat(CashflowService.occurrenceDates(once, LocalDate.of(2026, 11, 5), LocalDate.of(2026, 11, 5)))
+                .containsExactly(LocalDate.of(2026, 11, 5));
+        assertThat(CashflowService.occurrenceDates(once, LocalDate.of(2026, 11, 6), LocalDate.of(2026, 11, 30)))
+                .isEmpty();
+    }
+
+    @Test
+    void 펼친_목록은_발생일_순이고_expand_false면_규칙을_첫_발생일로_한_번만_돌려준다() {
+        LocalDate from = today;
+        LocalDate to = today.plusDays(20);
+        CashflowItem weekly = new CashflowItem(7L, 11L, null, "헬스장", CashflowItem.Direction.EXPENSE, 10000L,
+                today, CashflowItem.RecurrenceType.WEEKLY, null, null, null);
+        CashflowItem once = new CashflowItem(7L, 11L, null, "병원", CashflowItem.Direction.EXPENSE, 30000L,
+                today.plusDays(8), CashflowItem.RecurrenceType.NONE, null, null, null);
+        ReflectionTestUtils.setField(weekly, "id", 41L);
+        ReflectionTestUtils.setField(once, "id", 42L);
+        when(items.findRulesForUser(7L, from, to, CashflowItem.ItemKind.SCHEDULED, CashflowItem.RecurrenceType.NONE,
+                null, CashflowItem.Status.CONFIRMED)).thenReturn(List.of(weekly, once));
+
+        assertThat(service.list(7L, from, to, null, null, true))
+                .extracting(entry -> entry.item().id(), CashflowService.Entry::occurrenceDate)
+                .containsExactly(tuple(41L, today), tuple(41L, today.plusDays(7)), tuple(42L, today.plusDays(8)),
+                        tuple(41L, today.plusDays(14)));
+        assertThat(service.list(7L, from, to, null, null, false))
+                .extracting(entry -> entry.item().id(), CashflowService.Entry::occurrenceDate)
+                .containsExactly(tuple(41L, today), tuple(42L, today.plusDays(8)));
     }
 
     @Test
     void 목록_기간을_생략하면_오늘부터_30일이다() {
-        service.listRules(7L, null, null, null, null);
+        service.list(7L, null, null, null, null, true);
 
         verify(items).findRulesForUser(7L, today, today.plusDays(29), CashflowItem.ItemKind.SCHEDULED,
                 CashflowItem.RecurrenceType.NONE, null, CashflowItem.Status.CONFIRMED);
@@ -225,7 +285,7 @@ class CashflowServiceTest {
 
     @Test
     void 목록의_종료일이_시작일보다_빠르면_거절한다() {
-        assertThatThrownBy(() -> service.listRules(7L, tomorrow, today, null, null))
+        assertThatThrownBy(() -> service.list(7L, tomorrow, today, null, null, true))
                 .isInstanceOf(BusinessException.class)
                 .satisfies(error -> assertThat(fieldOf((BusinessException) error)).isEqualTo("to"));
         verify(items, never()).findRulesForUser(any(), any(), any(), any(), any(), any(), any());
@@ -233,14 +293,14 @@ class CashflowServiceTest {
 
     @Test
     void 목록_기간은_시작일과_종료일을_포함해_최대_366일이다() {
-        service.listRules(7L, today, today.plusDays(365), null, null);
+        service.list(7L, today, today.plusDays(365), null, null, true);
         verify(items).findRulesForUser(7L, today, today.plusDays(365), CashflowItem.ItemKind.SCHEDULED,
                 CashflowItem.RecurrenceType.NONE, null, CashflowItem.Status.CONFIRMED);
 
-        assertThatThrownBy(() -> service.listRules(7L, today, today.plusDays(366), null, null))
+        assertThatThrownBy(() -> service.list(7L, today, today.plusDays(366), null, null, true))
                 .isInstanceOf(BusinessException.class)
                 .satisfies(error -> assertThat(fieldOf((BusinessException) error)).isEqualTo("to"));
-        assertThatThrownBy(() -> service.listRules(7L, today, LocalDate.of(9999, 12, 31), null, null))
+        assertThatThrownBy(() -> service.list(7L, today, LocalDate.of(9999, 12, 31), null, null, true))
                 .isInstanceOf(BusinessException.class)
                 .satisfies(error -> assertThat(fieldOf((BusinessException) error)).isEqualTo("to"));
     }
@@ -266,7 +326,7 @@ class CashflowServiceTest {
 
     @Test
     void 인증된_사용자_식별자가_없으면_조회하지_않는다() {
-        assertThatThrownBy(() -> service.listRules(null, tomorrow, tomorrow, null, null))
+        assertThatThrownBy(() -> service.list(null, tomorrow, tomorrow, null, null, true))
                 .isInstanceOf(BusinessException.class)
                 .satisfies(error -> assertThat(((BusinessException) error).getErrorCode())
                         .isEqualTo(ErrorCode.UNAUTHORIZED));
@@ -292,7 +352,7 @@ class CashflowServiceTest {
     }
 
     private void assertListInvalid(LocalDate from, LocalDate to, String field) {
-        assertThatThrownBy(() -> service.listRules(7L, from, to, null, null))
+        assertThatThrownBy(() -> service.list(7L, from, to, null, null, true))
                 .isInstanceOf(BusinessException.class)
                 .satisfies(error -> {
                     BusinessException business = (BusinessException) error;
@@ -312,6 +372,11 @@ class CashflowServiceTest {
 
     private static UserCardRef card(Long userCardId, CardIssuerStatus issuerStatus) {
         return new UserCardRef(userCardId, 1L, 11L, "5678", CardRegistrationStatus.ACTIVE, issuerStatus);
+    }
+
+    private static CashflowService.Item rule(LocalDate first, CashflowItem.RecurrenceType recurrence, LocalDate end) {
+        return new CashflowService.Item(1L, 11L, null, "규칙", CashflowItem.Direction.EXPENSE, 10000L,
+                first, recurrence, end, null, CashflowItem.Status.CONFIRMED, null);
     }
 
     private CashflowService.CreateCommand command(Long amount, Long accountId, Long cardId) {

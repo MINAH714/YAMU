@@ -11,6 +11,8 @@ import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import org.springframework.stereotype.Service;
@@ -19,7 +21,7 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class CashflowService {
     private static final ZoneId KOREA = ZoneId.of("Asia/Seoul");
-    /** 조회 기간 상한(시작일·종료일 포함). 반복 회차를 기간만큼 펼쳐 저장하므로 큰 기간을 막는다. */
+    /** 조회 기간 상한(시작일·종료일 포함). 반복 회차를 기간만큼 펼치므로 큰 기간을 막는다. */
     private static final long MAX_QUERY_DAYS = 366;
     /** MySQL DATE가 담을 수 있는 범위. 밖의 날짜는 DB 오류(500)로 번지기 전에 400으로 거절한다. */
     private static final LocalDate MIN_DATE = LocalDate.of(1000, 1, 1);
@@ -68,12 +70,13 @@ public class CashflowService {
     }
 
     /**
-     * 조회 기간과 겹치는 사용자의 예정 규칙을 돌려준다. 반복 회차를 날짜별로 펼치지 않는다.
+     * 조회 기간과 겹치는 사용자의 예정 항목을 발생일·항목 ID 순으로 돌려준다.
+     * expand면 반복 규칙을 기간 안의 발생일마다 한 건씩 펼치고, 아니면 규칙 1건을 첫 발생일로 돌려준다.
      * from을 생략하면 한국 날짜 오늘, to를 생략하면 from을 포함한 30일째 날이다. 기간은 최대 366일이다.
      */
     @Transactional(readOnly = true)
-    public List<Item> listRules(Long authenticatedUserId, LocalDate from, LocalDate to,
-            CashflowItem.Direction direction, CashflowItem.Status status) {
+    public List<Entry> list(Long authenticatedUserId, LocalDate from, LocalDate to,
+            CashflowItem.Direction direction, CashflowItem.Status status, boolean expand) {
         requireUser(authenticatedUserId);
         LocalDate start = from == null ? LocalDate.now(KOREA) : from;
         requireStorable(start, "from");
@@ -89,9 +92,55 @@ public class CashflowService {
         if (ChronoUnit.DAYS.between(start, end) + 1 > MAX_QUERY_DAYS) {
             throw invalid("to", "조회 기간은 최대 " + MAX_QUERY_DAYS + "일입니다.");
         }
-        return items.findRulesForUser(authenticatedUserId, start, end, CashflowItem.ItemKind.SCHEDULED,
+        List<Item> rules = items.findRulesForUser(authenticatedUserId, start, end, CashflowItem.ItemKind.SCHEDULED,
                 CashflowItem.RecurrenceType.NONE, direction,
                 status == null ? CashflowItem.Status.CONFIRMED : status).stream().map(Item::from).toList();
+        if (!expand) {
+            return rules.stream().map(rule -> new Entry(rule, rule.scheduledDate())).toList();
+        }
+        // 회차별 수정·제외(cashflow_occurrence)는 Task 7.1.3에서 생긴다. 그 전까지는 규칙만으로 펼친다.
+        List<Entry> entries = new ArrayList<>();
+        for (Item rule : rules) {
+            for (LocalDate date : occurrenceDates(rule, start, end)) {
+                entries.add(new Entry(rule, date));
+            }
+        }
+        entries.sort(Comparator.comparing(Entry::occurrenceDate).thenComparing(entry -> entry.item().id()));
+        return entries;
+    }
+
+    /**
+     * 규칙의 발생일 중 from~to(포함)와 반복 종료일 안에 드는 날짜를 차례로 돌려준다.
+     * n번째 회차는 첫 발생일에 반복 단위를 n번 더한 날이라, 매월 31일은 2/28 → 3/31처럼 없는 달만 말일로 맞춰진다.
+     */
+    static List<LocalDate> occurrenceDates(Item rule, LocalDate from, LocalDate to) {
+        LocalDate first = rule.scheduledDate();
+        LocalDate last = rule.recurrenceEndDate() != null && rule.recurrenceEndDate().isBefore(to)
+                ? rule.recurrenceEndDate() : to;
+        ChronoUnit unit = switch (rule.recurrenceType()) {
+            case NONE -> null;
+            case DAILY -> ChronoUnit.DAYS;
+            case WEEKLY -> ChronoUnit.WEEKS;
+            case MONTHLY -> ChronoUnit.MONTHS;
+            case YEARLY -> ChronoUnit.YEARS;
+        };
+        List<LocalDate> dates = new ArrayList<>();
+        if (unit == null) {
+            if (!first.isBefore(from) && !first.isAfter(last)) {
+                dates.add(first);
+            }
+            return dates;
+        }
+        // between은 first에 더해도 from을 넘지 않는 최대 회차 수라, 그 회차부터 보면 앞 회차를 건너뛴다.
+        for (long n = Math.max(0, unit.between(first, from)); ; n++) {
+            LocalDate date = first.plus(n, unit);
+            if (date.isAfter(last)) {
+                return dates;
+            }
+            if (!date.isBefore(from)) {
+                dates.add(date);
+            }
+        }
     }
 
     /** 이름·업종 코드·메모의 앞뒤 공백(유니코드 공백 포함)을 없애고, 빈 업종 코드·메모는 NULL로 바꾼다. */
@@ -200,6 +249,9 @@ public class CashflowService {
             LocalDate scheduledDate, CashflowItem.RecurrenceType recurrenceType,
             Integer dayOfMonth, DayOfWeek dayOfWeek, LocalDate recurrenceEndDate,
             Long accountId, Long userCardId, String merchantCategoryCode, String memo) {}
+
+    /** 목록의 한 줄. 펼친 반복 회차는 같은 규칙(item)에 발생일만 다르다. */
+    public record Entry(Item item, LocalDate occurrenceDate) {}
 
     public record Item(Long id, Long accountId, Long userCardId, String title,
             CashflowItem.Direction direction, Long amount, LocalDate scheduledDate,

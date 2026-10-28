@@ -34,14 +34,15 @@ class CashflowController {
         return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.ok(body));
     }
 
-    /** 기간과 겹치는 예정 규칙 목록을 돌려준다. expand는 Task 7.1.3 전까지 지원하지 않는다. */
+    /** 기간 안의 예정 항목을 돌려준다. expand(기본 true)면 반복 항목을 발생일마다 펼친다. */
     @GetMapping
     ApiResponse<CashflowItemResponse.ListResponse> list(@AuthenticationPrincipal AuthUser me,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
             @RequestParam(required = false) CashflowItem.Direction type,
-            @RequestParam(required = false) CashflowItem.Status status) {
-        var items = service.listRules(me.userId(), from, to, type, status).stream()
+            @RequestParam(required = false) CashflowItem.Status status,
+            @RequestParam(defaultValue = "true") boolean expand) {
+        var items = service.list(me.userId(), from, to, type, status, expand).stream()
                 .map(CashflowItemResponse::from).toList();
         return ApiResponse.ok(new CashflowItemResponse.ListResponse(items, 0));
     }

@@ -7,7 +7,7 @@ import java.util.List;
 /**
  * 가계부 항목 응답. 필드 이름은 API 명세서 「가계부 항목 등록」「가계부 항목 목록」을 따른다.
  *
- * <p>occurrenceDate는 규칙의 첫 발생일이다. 반복 회차를 날짜별로 펼치는 것은 Task 7.1.3에서 한다.
+ * <p>occurrenceDate는 등록 응답과 expand=false 목록에서는 규칙의 첫 발생일, 펼친 목록에서는 그 회차의 발생일이다.
  * productCategoryCode·productName은 구매 계획용 필드라 구매 계획 구현 전까지 null이다.
  */
 public record CashflowItemResponse(
@@ -35,8 +35,16 @@ public record CashflowItemResponse(
     }
 
     static CashflowItemResponse from(CashflowService.Item item) {
+        return from(item, item.scheduledDate());
+    }
+
+    static CashflowItemResponse from(CashflowService.Entry entry) {
+        return from(entry.item(), entry.occurrenceDate());
+    }
+
+    private static CashflowItemResponse from(CashflowService.Item item, LocalDate occurrenceDate) {
         return new CashflowItemResponse(item.id(), item.direction(), item.title(), item.amount(),
-                item.scheduledDate(), recurrenceOf(item), item.merchantCategoryCode(), null, null,
+                occurrenceDate, recurrenceOf(item), item.merchantCategoryCode(), null, null,
                 item.accountId(), item.userCardId(), "MANUAL", item.status(), item.memo());
     }
 

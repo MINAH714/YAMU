@@ -147,6 +147,32 @@ class CashflowControllerTest extends MySqlTestSupport {
     }
 
     @Test
+    void 목록은_기본으로_반복_항목을_발생일마다_펼치고_expand_false면_한_건이다() throws Exception {
+        mockMvc.perform(post("/api/cashflow-items").with(AuthUsers.asUser(owner))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                { "type": "EXPENSE", "title": "헬스장", "amount": 89000, "date": "%s",
+                                  "recurrence": { "frequency": "WEEKLY" }, "accountId": %d }
+                                """.formatted(tomorrow, account)))
+                .andExpect(status().isCreated());
+
+        mockMvc.perform(get("/api/cashflow-items").with(AuthUsers.asUser(owner))
+                        .param("from", tomorrow.toString()).param("to", tomorrow.plusDays(14).toString()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.items", hasSize(3)))
+                .andExpect(jsonPath("$.data.items[0].occurrenceDate").value(tomorrow.toString()))
+                .andExpect(jsonPath("$.data.items[1].occurrenceDate").value(tomorrow.plusDays(7).toString()))
+                .andExpect(jsonPath("$.data.items[2].occurrenceDate").value(tomorrow.plusDays(14).toString()))
+                .andExpect(jsonPath("$.data.items[2].recurrence.frequency").value("WEEKLY"));
+        mockMvc.perform(get("/api/cashflow-items").with(AuthUsers.asUser(owner))
+                        .param("from", tomorrow.toString()).param("to", tomorrow.plusDays(14).toString())
+                        .param("expand", "false"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.items", hasSize(1)))
+                .andExpect(jsonPath("$.data.items[0].occurrenceDate").value(tomorrow.toString()));
+    }
+
+    @Test
     void 목록의_잘못된_조회_값은_400이다() throws Exception {
         mockMvc.perform(get("/api/cashflow-items").with(AuthUsers.asUser(owner)).param("status", "DELETED"))
                 .andExpect(status().isBadRequest())
