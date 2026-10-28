@@ -39,6 +39,10 @@ public enum ErrorCode {
     BIOMETRIC_NOT_ENABLED(HttpStatus.BAD_REQUEST, "이 기기는 생체 인증을 사용하지 않습니다."),
     INVALID_REFRESH_TOKEN(HttpStatus.UNAUTHORIZED, "로그인이 만료되었습니다. 다시 로그인해 주세요."),
 
+    /* 인증 - 본인 인증(step-up) 준비·검증 (API 명세 각 페이지) */
+    INVALID_PURPOSE(HttpStatus.BAD_REQUEST, "본인 인증 용도가 올바르지 않습니다."),
+    STEP_UP_FAILED(HttpStatus.UNAUTHORIZED, "본인 인증에 실패했습니다."),
+
     /* 공통 - Spring MVC가 분류하는 요청 오류. 명세서 1장에 추가 필요 */
     API_NOT_FOUND(HttpStatus.NOT_FOUND, "요청한 API를 찾을 수 없습니다."),
     METHOD_NOT_ALLOWED(HttpStatus.METHOD_NOT_ALLOWED, "지원하지 않는 HTTP 메서드입니다."),
