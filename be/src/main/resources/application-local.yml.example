@@ -29,3 +29,6 @@ yamu:
       "[1]":
     hmac-key:
     pin-pepper:
+  # Access Token 서명 키(로컬 전용). `openssl rand -base64 32` 결과를 넣는다.
+  jwt:
+    secret:

@@ -43,7 +43,8 @@ public class PinHasher {
         return bcrypt.matches(peppered(pin), pinHash);
     }
 
-    private static boolean isPinFormat(String pin) {
+    /** 숫자 6자리인지. 로그인 요청의 입력값 검사도 같은 규칙을 쓴다. */
+    public static boolean isPinFormat(String pin) {
         return pin != null && PIN.matcher(pin).matches();
     }
 
