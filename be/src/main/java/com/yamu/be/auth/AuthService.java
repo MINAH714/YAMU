@@ -44,10 +44,15 @@ public class AuthService {
     private final RefreshTokenStore refreshTokenStore;
     private final AccessTokenIssuer accessTokenIssuer;
     private final OnboardingStatusReader onboardingStatusReader;
+    private final LoginRateLimiter rateLimiter;
     private final Clock clock;
 
-    /** 기기 상태만 보고 challenge를 준다. 기기 번호만 알아서는 서명을 만들 수 없으므로 이 단계에서 막을 것은 없다. */
-    public LoginChallengeResponse issueChallenge(Long userDeviceId) {
+    /**
+     * 기기 상태만 보고 challenge를 준다. 기기 번호만 알아서는 서명을 만들 수 없지만, 기기 번호를 하나씩 넣어 보며
+     * 기기 상태를 알아내는 것은 호출 횟수 제한으로 막는다.
+     */
+    public LoginChallengeResponse issueChallenge(Long userDeviceId, ClientInfo client) {
+        rateLimiter.check(userDeviceId, client.ipAddress());
         UserDevice device = usableDevice(userDeviceId);
         if (device.isLockedAt(LocalDateTime.now(clock))) {
             throw new BusinessException(ErrorCode.DEVICE_LOCKED, DeviceLockDetails.of(device));
@@ -58,6 +63,7 @@ public class AuthService {
     }
 
     public LoginResponse login(LoginCommand command, ClientInfo client) {
+        rateLimiter.check(command.userDeviceId(), client.ipAddress());
         if (command.method() == AuthMethod.PIN && !PinHasher.isPinFormat(command.pin())) {
             throw new BusinessException(ErrorCode.INVALID_REQUEST,
                     Map.of("fieldErrors", List.of(new FieldErrorResponse("pin", "PIN 방식은 간편 비밀번호 숫자 6자리가 필요합니다."))));

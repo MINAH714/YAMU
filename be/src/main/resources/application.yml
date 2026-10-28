@@ -55,6 +55,11 @@ yamu:
     refresh-reuse-grace: 10s
     max-failed-attempts: 5
     lock-duration: 30m
+    # 로그인 준비·로그인 호출 횟수 제한(두 API 합산). 넘으면 429 TOO_MANY_REQUESTS
+    rate-limit:
+      window: 1m
+      per-device: 10
+      per-ip: 60
 
 springdoc:
   swagger-ui:

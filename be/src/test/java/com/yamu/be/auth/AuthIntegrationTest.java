@@ -71,7 +71,10 @@ import org.testcontainers.utility.DockerImageName;
 @TestPropertySource(properties = {
         "spring.application.name=yamu-auth-integration-test",
         // 재사용 감지를 바로 확인하려고 동시 재발급 유예를 끈다.
-        "yamu.auth.refresh-reuse-grace=0s"
+        "yamu.auth.refresh-reuse-grace=0s",
+        // 잠금·동시성 테스트가 한 기기로 요청을 10번 넘게 보내므로 호출 횟수 제한을 넉넉히 둔다. 제한 자체는 LoginRateLimiterTest가 본다.
+        "yamu.auth.rate-limit.per-device=30",
+        "yamu.auth.rate-limit.per-ip=200"
 })
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 class AuthIntegrationTest extends MySqlTestSupport {
@@ -321,6 +324,30 @@ class AuthIntegrationTest extends MySqlTestSupport {
         assertThat(auditRepository.findByUserDeviceIdOrderByIdAsc(device.getId())).hasSize(attempts);
     }
 
+    // ───────── 호출 횟수 제한 ─────────
+
+    @Test
+    void 같은_기기로_로그인_준비를_너무_많이_부르면_429다() throws Exception {
+        UserDevice device = activeDevice(false);
+        for (int i = 0; i < 30; i++) {
+            challenge(device).andExpect(status().isOk());
+        }
+
+        challenge(device)
+                .andExpect(status().isTooManyRequests())
+                .andExpect(jsonPath("$.error.code").value("TOO_MANY_REQUESTS"))
+                .andExpect(jsonPath("$.error.details.retryAfterSeconds").isNumber());
+    }
+
+    @Test
+    void 없는_기기_번호도_횟수에_들어가_하나씩_넣어_보기가_막힌다() throws Exception {
+        for (long id = 1_000_000; id < 1_000_200; id++) {
+            challengeFor(id).andExpect(status().isUnauthorized());
+        }
+
+        challengeFor(2_000_000L).andExpect(status().isTooManyRequests());
+    }
+
     // ───────── 재발급·로그아웃 ─────────
 
     @Test
@@ -451,6 +478,12 @@ class AuthIntegrationTest extends MySqlTestSupport {
         return mockMvc.perform(post("/api/auth/login/challenge")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"userDeviceId\":" + device.getId() + "}"));
+    }
+
+    private ResultActions challengeFor(long userDeviceId) throws Exception {
+        return mockMvc.perform(post("/api/auth/login/challenge")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"userDeviceId\":" + userDeviceId + "}"));
     }
 
     private ResultActions login(UserDevice device, String method, DeviceKeys signer, String pin) throws Exception {

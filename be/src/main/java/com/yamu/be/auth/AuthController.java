@@ -27,8 +27,9 @@ public class AuthController {
     private final AuthService authService;
 
     @PostMapping("/login/challenge")
-    public ApiResponse<LoginChallengeResponse> challenge(@Valid @RequestBody LoginChallengeRequest request) {
-        return ApiResponse.ok(authService.issueChallenge(request.userDeviceId()));
+    public ApiResponse<LoginChallengeResponse> challenge(@Valid @RequestBody LoginChallengeRequest request,
+            HttpServletRequest http) {
+        return ApiResponse.ok(authService.issueChallenge(request.userDeviceId(), ClientInfo.from(http)));
     }
 
     @PostMapping("/login")

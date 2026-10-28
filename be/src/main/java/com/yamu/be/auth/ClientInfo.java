@@ -3,7 +3,10 @@ package com.yamu.be.auth;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.HttpHeaders;
 
-/** 인증 기록에 남기는 요청 정보. IP는 Nginx 뒤라면 프록시 주소일 수 있다(forward-headers 설정은 인프라와 맞춘다). */
+/**
+ * 인증 기록과 호출 횟수 제한에 쓰는 요청 정보.
+ * IP는 {@code server.forward-headers-strategy: native}로 Nginx가 넘긴 X-Forwarded-For의 실제 접속 주소다(내부망 프록시가 보낸 헤더만 믿는다).
+ */
 public record ClientInfo(String ipAddress, String userAgent) {
 
     public static ClientInfo from(HttpServletRequest request) {
