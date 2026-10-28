@@ -21,6 +21,9 @@ public class CashflowService {
     private static final ZoneId KOREA = ZoneId.of("Asia/Seoul");
     /** 조회 기간 상한(시작일·종료일 포함). 반복 회차를 기간만큼 펼쳐 저장하므로 큰 기간을 막는다. */
     private static final long MAX_QUERY_DAYS = 366;
+    /** MySQL DATE가 담을 수 있는 범위. 밖의 날짜는 DB 오류(500)로 번지기 전에 400으로 거절한다. */
+    private static final LocalDate MIN_DATE = LocalDate.of(1000, 1, 1);
+    private static final LocalDate MAX_DATE = LocalDate.of(9999, 12, 31);
 
     private final CashflowItemRepository items;
     private final CashflowOccurrenceRepository occurrences;
@@ -73,7 +76,13 @@ public class CashflowService {
             CashflowItem.Direction direction, CashflowItem.Status status) {
         requireUser(authenticatedUserId);
         LocalDate start = from == null ? LocalDate.now(KOREA) : from;
+        requireStorable(start, "from");
+        if (to != null) {
+            requireStorable(to, "to");
+        }
         LocalDate end = to == null ? start.plusDays(29) : to;
+        // to를 생략하면 from이 기본 종료일을 정하므로 from의 문제로 알린다.
+        requireStorable(end, to == null ? "from" : "to");
         if (start.isAfter(end)) {
             throw invalid("to", "조회 종료일은 시작일보다 빠를 수 없습니다.");
         }
@@ -118,6 +127,7 @@ public class CashflowService {
         if (command.scheduledDate().isBefore(LocalDate.now(KOREA))) {
             throw invalid("date", "첫 발생일은 오늘 이후여야 합니다.");
         }
+        requireStorable(command.scheduledDate(), "date");
 
         CashflowItem.RecurrenceType recurrence = command.recurrenceType() == null
                 ? CashflowItem.RecurrenceType.NONE : command.recurrenceType();
@@ -133,6 +143,7 @@ public class CashflowService {
             if (command.recurrenceEndDate().isBefore(command.scheduledDate())) {
                 throw invalid("recurrence.endDate", "반복 종료일은 첫 발생일보다 빠를 수 없습니다.");
             }
+            requireStorable(command.recurrenceEndDate(), "recurrence.endDate");
         }
         if (command.dayOfMonth() != null && (recurrence != CashflowItem.RecurrenceType.MONTHLY
                 || command.dayOfMonth() != command.scheduledDate().getDayOfMonth())) {
@@ -166,6 +177,12 @@ public class CashflowService {
             throw invalid("userCardId", "계좌와 카드 중 하나만 선택해 주세요.");
         }
         return recurrence;
+    }
+
+    private static void requireStorable(LocalDate date, String field) {
+        if (date.isBefore(MIN_DATE) || date.isAfter(MAX_DATE)) {
+            throw invalid(field, "날짜는 " + MIN_DATE + "부터 " + MAX_DATE + " 사이여야 합니다.");
+        }
     }
 
     private static BusinessException invalid(String field, String reason) {

@@ -157,6 +157,23 @@ class CashflowControllerTest extends MySqlTestSupport {
                 .andExpect(jsonPath("$.error.details.fieldErrors[0].field").value("to"));
     }
 
+    @Test
+    void DB가_담을_수_없는_날짜는_500이_아니라_400이다() throws Exception {
+        for (String from : new String[] {"9999-12-31", "+999999999-12-31"}) {
+            mockMvc.perform(get("/api/cashflow-items").with(AuthUsers.asUser(owner)).param("from", from))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.error.code").value("INVALID_REQUEST"))
+                    .andExpect(jsonPath("$.error.details.fieldErrors[0].field").value("from"));
+        }
+        mockMvc.perform(post("/api/cashflow-items").with(AuthUsers.asUser(owner))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                { "type": "EXPENSE", "title": "월세", "amount": 500000, "date": "+10000-01-01", "accountId": %d }
+                                """.formatted(account)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.details.fieldErrors[0].field").value("date"));
+    }
+
     private String accountExpense(long accountId) {
         return """
                 { "type": "EXPENSE", "title": "월세", "amount": 500000, "date": "%s", "accountId": %d }

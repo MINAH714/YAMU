@@ -246,6 +246,25 @@ class CashflowServiceTest {
     }
 
     @Test
+    void DB가_담을_수_없는_날짜는_400으로_거절한다() {
+        // 9999-12-31에 기본 기간 29일을 더하면 10000년이 되어 DB로 넘어간다.
+        assertListInvalid(LocalDate.of(9999, 12, 31), null, "from");
+        // 이 시작일에 29일을 더하면 LocalDate 범위를 넘어 DateTimeException(500)이 났다.
+        assertListInvalid(LocalDate.MAX, null, "from");
+        assertListInvalid(LocalDate.of(999, 12, 31), today, "from");
+        assertListInvalid(LocalDate.of(9999, 12, 31), LocalDate.of(10000, 1, 1), "to");
+        verify(items, never()).findRulesForUser(any(), any(), any(), any(), any(), any(), any());
+
+        assertInvalid(new CashflowService.CreateCommand("월세", CashflowItem.Direction.EXPENSE, 10000L,
+                LocalDate.of(10000, 1, 1), CashflowItem.RecurrenceType.NONE, null, null, null,
+                11L, null, null, null), "date");
+        assertInvalid(new CashflowService.CreateCommand("월세", CashflowItem.Direction.EXPENSE, 10000L,
+                tomorrow, CashflowItem.RecurrenceType.MONTHLY, null, null, LocalDate.of(10000, 1, 1),
+                11L, null, null, null), "recurrence.endDate");
+        verify(items, never()).save(any());
+    }
+
+    @Test
     void 인증된_사용자_식별자가_없으면_조회하지_않는다() {
         assertThatThrownBy(() -> service.listRules(null, tomorrow, tomorrow, null, null))
                 .isInstanceOf(BusinessException.class)
@@ -264,6 +283,16 @@ class CashflowServiceTest {
 
     private void assertInvalid(CashflowService.CreateCommand command, String field) {
         assertThatThrownBy(() -> service.create(7L, command))
+                .isInstanceOf(BusinessException.class)
+                .satisfies(error -> {
+                    BusinessException business = (BusinessException) error;
+                    assertThat(business.getErrorCode()).isEqualTo(ErrorCode.INVALID_REQUEST);
+                    assertThat(fieldOf(business)).isEqualTo(field);
+                });
+    }
+
+    private void assertListInvalid(LocalDate from, LocalDate to, String field) {
+        assertThatThrownBy(() -> service.listRules(7L, from, to, null, null))
                 .isInstanceOf(BusinessException.class)
                 .satisfies(error -> {
                     BusinessException business = (BusinessException) error;
