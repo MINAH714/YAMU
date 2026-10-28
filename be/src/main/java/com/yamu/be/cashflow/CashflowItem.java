@@ -22,6 +22,9 @@ import lombok.NoArgsConstructor;
 public class CashflowItem extends BaseTimeEntity {
     public enum Direction { INCOME, EXPENSE }
     public enum RecurrenceType { NONE, DAILY, WEEKLY, MONTHLY, YEARLY }
+    /** API 명세 「가계부 항목 목록」의 status. CANDIDATE·IGNORED는 반복 지출 탐지 후보용이다. */
+    public enum Status { CONFIRMED, CANDIDATE, IGNORED }
+    public enum ItemKind { SCHEDULED, PURCHASE_PLAN }
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -60,14 +63,16 @@ public class CashflowItem extends BaseTimeEntity {
     @Column(name = "merchant_category_code", length = 64)
     private String merchantCategoryCode;
 
+    @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 24)
-    private String status;
+    private Status status;
 
     @Column(length = 500)
     private String memo;
 
+    @Enumerated(EnumType.STRING)
     @Column(name = "item_kind", nullable = false, length = 16)
-    private String itemKind;
+    private ItemKind itemKind;
 
     @Version
     @Column(nullable = false)
@@ -86,8 +91,8 @@ public class CashflowItem extends BaseTimeEntity {
         this.recurrenceType = recurrenceType;
         this.recurrenceEndDate = recurrenceEndDate;
         this.merchantCategoryCode = merchantCategoryCode;
-        this.status = "CONFIRMED";
+        this.status = Status.CONFIRMED;
         this.memo = memo;
-        this.itemKind = "SCHEDULED";
+        this.itemKind = ItemKind.SCHEDULED;
     }
 }

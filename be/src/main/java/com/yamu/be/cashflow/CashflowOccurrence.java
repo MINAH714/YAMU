@@ -20,6 +20,9 @@ import lombok.NoArgsConstructor;
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class CashflowOccurrence extends BaseTimeEntity {
+    /** CONFIRMED 예정 / EXCLUDED 이번 건만 제외(행은 보존). */
+    public enum Status { CONFIRMED, EXCLUDED }
+
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     @Column(name = "cashflow_occurrence_id")
@@ -56,8 +59,9 @@ public class CashflowOccurrence extends BaseTimeEntity {
     @Column(name = "merchant_category_code", length = 64)
     private String merchantCategoryCode;
 
+    @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 24)
-    private String status;
+    private Status status;
 
     @Column(name = "is_overridden", nullable = false)
     private boolean overridden;
@@ -80,7 +84,7 @@ public class CashflowOccurrence extends BaseTimeEntity {
         this.accountId = item.getAccountId();
         this.userCardId = item.getUserCardId();
         this.merchantCategoryCode = item.getMerchantCategoryCode();
-        this.status = item.getStatus();
+        this.status = Status.CONFIRMED;
         this.memo = item.getMemo();
     }
 

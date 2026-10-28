@@ -8,14 +8,12 @@ import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class CashflowService {
     private static final ZoneId KOREA = ZoneId.of("Asia/Seoul");
-    private static final Set<String> LISTABLE_STATUSES = Set.of("CONFIRMED", "CANDIDATE", "IGNORED");
 
     private final CashflowItemRepository items;
     private final CashflowOccurrenceRepository occurrences;
@@ -60,19 +58,16 @@ public class CashflowService {
      */
     @Transactional(readOnly = true)
     public List<Item> listRules(Long authenticatedUserId, LocalDate from, LocalDate to,
-            CashflowItem.Direction direction, String status) {
+            CashflowItem.Direction direction, CashflowItem.Status status) {
         requireUser(authenticatedUserId);
         LocalDate start = from == null ? LocalDate.now(KOREA) : from;
         LocalDate end = to == null ? start.plusDays(29) : to;
         if (start.isAfter(end)) {
             throw invalid("to", "조회 종료일은 시작일보다 빠를 수 없습니다.");
         }
-        String listStatus = status == null ? "CONFIRMED" : status;
-        if (!LISTABLE_STATUSES.contains(listStatus)) {
-            throw invalid("status", "CONFIRMED, CANDIDATE, IGNORED 중 하나여야 합니다.");
-        }
-        return items.findRulesForUser(authenticatedUserId, start, end,
-                CashflowItem.RecurrenceType.NONE, direction, listStatus).stream().map(Item::from).toList();
+        return items.findRulesForUser(authenticatedUserId, start, end, CashflowItem.ItemKind.SCHEDULED,
+                CashflowItem.RecurrenceType.NONE, direction,
+                status == null ? CashflowItem.Status.CONFIRMED : status).stream().map(Item::from).toList();
     }
 
     private static CashflowItem.RecurrenceType validate(CreateCommand command, String title) {
@@ -163,7 +158,7 @@ public class CashflowService {
     public record Item(Long id, Long accountId, Long userCardId, String title,
             CashflowItem.Direction direction, Long amount, LocalDate scheduledDate,
             CashflowItem.RecurrenceType recurrenceType, LocalDate recurrenceEndDate,
-            String merchantCategoryCode, String status, String memo) {
+            String merchantCategoryCode, CashflowItem.Status status, String memo) {
         static Item from(CashflowItem item) {
             return new Item(item.getId(), item.getAccountId(), item.getUserCardId(),
                     item.getTitle(), item.getDirection(), item.getAmount(),

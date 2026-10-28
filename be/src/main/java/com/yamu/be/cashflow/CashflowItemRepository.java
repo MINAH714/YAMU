@@ -9,7 +9,7 @@ import org.springframework.data.repository.query.Param;
 public interface CashflowItemRepository extends JpaRepository<CashflowItem, Long> {
     @Query("""
             select item from CashflowItem item
-            where item.userId = :userId and item.itemKind = 'SCHEDULED'
+            where item.userId = :userId and item.itemKind = :kind
               and item.scheduledDate <= :to
               and (item.recurrenceType <> :none
                    or item.scheduledDate >= :from)
@@ -20,7 +20,8 @@ public interface CashflowItemRepository extends JpaRepository<CashflowItem, Long
             """)
     List<CashflowItem> findRulesForUser(@Param("userId") Long userId,
             @Param("from") LocalDate from, @Param("to") LocalDate to,
+            @Param("kind") CashflowItem.ItemKind kind,
             @Param("none") CashflowItem.RecurrenceType none,
             @Param("direction") CashflowItem.Direction direction,
-            @Param("status") String status);
+            @Param("status") CashflowItem.Status status);
 }

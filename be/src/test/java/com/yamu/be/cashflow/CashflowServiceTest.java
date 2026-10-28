@@ -49,7 +49,7 @@ class CashflowServiceTest {
         assertThat(result.id()).isEqualTo(31L);
         assertThat(result.accountId()).isEqualTo(11L);
         assertThat(result.merchantCategoryCode()).isEqualTo("UTILITIES");
-        assertThat(result.status()).isEqualTo("CONFIRMED");
+        assertThat(result.status()).isEqualTo(CashflowItem.Status.CONFIRMED);
         ArgumentCaptor<CashflowOccurrence> captured = ArgumentCaptor.forClass(CashflowOccurrence.class);
         verify(occurrences).save(captured.capture());
         assertThat(captured.getValue().getCashflowItemId()).isEqualTo(31L);
@@ -162,8 +162,8 @@ class CashflowServiceTest {
 
     @Test
     void 목록은_인증된_사용자와_조회_기간과_상태로_제한한다() {
-        when(items.findRulesForUser(7L, tomorrow, tomorrow.plusDays(30),
-                CashflowItem.RecurrenceType.NONE, CashflowItem.Direction.EXPENSE, "CONFIRMED"))
+        when(items.findRulesForUser(7L, tomorrow, tomorrow.plusDays(30), CashflowItem.ItemKind.SCHEDULED,
+                CashflowItem.RecurrenceType.NONE, CashflowItem.Direction.EXPENSE, CashflowItem.Status.CONFIRMED))
                 .thenReturn(List.of(new CashflowItem(7L, 11L, null, "월세",
                         CashflowItem.Direction.EXPENSE, 10000L, tomorrow,
                         CashflowItem.RecurrenceType.NONE, null, null, null)));
@@ -179,19 +179,16 @@ class CashflowServiceTest {
     void 목록_기간을_생략하면_오늘부터_30일이다() {
         service.listRules(7L, null, null, null, null);
 
-        verify(items).findRulesForUser(7L, today, today.plusDays(29),
-                CashflowItem.RecurrenceType.NONE, null, "CONFIRMED");
+        verify(items).findRulesForUser(7L, today, today.plusDays(29), CashflowItem.ItemKind.SCHEDULED,
+                CashflowItem.RecurrenceType.NONE, null, CashflowItem.Status.CONFIRMED);
     }
 
     @Test
-    void 목록의_잘못된_기간과_상태는_거절한다() {
+    void 목록의_종료일이_시작일보다_빠르면_거절한다() {
         assertThatThrownBy(() -> service.listRules(7L, tomorrow, today, null, null))
                 .isInstanceOf(BusinessException.class)
                 .satisfies(error -> assertThat(fieldOf((BusinessException) error)).isEqualTo("to"));
-        assertThatThrownBy(() -> service.listRules(7L, today, tomorrow, null, "DELETED"))
-                .isInstanceOf(BusinessException.class)
-                .satisfies(error -> assertThat(fieldOf((BusinessException) error)).isEqualTo("status"));
-        verify(items, never()).findRulesForUser(any(), any(), any(), any(), any(), any());
+        verify(items, never()).findRulesForUser(any(), any(), any(), any(), any(), any(), any());
     }
 
     @Test
@@ -200,7 +197,7 @@ class CashflowServiceTest {
                 .isInstanceOf(BusinessException.class)
                 .satisfies(error -> assertThat(((BusinessException) error).getErrorCode())
                         .isEqualTo(ErrorCode.UNAUTHORIZED));
-        verify(items, never()).findRulesForUser(any(), any(), any(), any(), any(), any());
+        verify(items, never()).findRulesForUser(any(), any(), any(), any(), any(), any(), any());
     }
 
     private void savedWithId(Long id) {

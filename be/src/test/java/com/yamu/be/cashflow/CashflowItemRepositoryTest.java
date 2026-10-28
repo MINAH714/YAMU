@@ -51,8 +51,8 @@ class CashflowItemRepositoryTest extends MySqlTestSupport {
         cashflow(owner, "EXPENSE", TO.plusDays(1), "WEEKLY", null, "CONFIRMED");
         cashflow(user(), "EXPENSE", FROM.plusDays(1), "NONE", null, "CONFIRMED");
 
-        assertThat(idsOf(items.findRulesForUser(owner, FROM, TO, CashflowItem.RecurrenceType.NONE,
-                null, "CONFIRMED"))).containsExactly(ongoing, endsOnFrom, inside);
+        assertThat(idsOf(items.findRulesForUser(owner, FROM, TO, CashflowItem.ItemKind.SCHEDULED, CashflowItem.RecurrenceType.NONE,
+                null, CashflowItem.Status.CONFIRMED))).containsExactly(ongoing, endsOnFrom, inside);
     }
 
     @Test
@@ -61,8 +61,8 @@ class CashflowItemRepositoryTest extends MySqlTestSupport {
         long first = cashflow(owner, "EXPENSE", FROM, "NONE", null, "CONFIRMED");
         long last = cashflow(owner, "EXPENSE", TO, "NONE", null, "CONFIRMED");
 
-        assertThat(idsOf(items.findRulesForUser(owner, FROM, TO, CashflowItem.RecurrenceType.NONE,
-                null, "CONFIRMED"))).containsExactly(first, last);
+        assertThat(idsOf(items.findRulesForUser(owner, FROM, TO, CashflowItem.ItemKind.SCHEDULED, CashflowItem.RecurrenceType.NONE,
+                null, CashflowItem.Status.CONFIRMED))).containsExactly(first, last);
     }
 
     @Test
@@ -72,12 +72,12 @@ class CashflowItemRepositoryTest extends MySqlTestSupport {
         long income = cashflow(owner, "INCOME", FROM.plusDays(2), "NONE", null, "CONFIRMED");
         long candidate = cashflow(owner, "EXPENSE", FROM.plusDays(3), "NONE", null, "CANDIDATE");
 
-        assertThat(idsOf(items.findRulesForUser(owner, FROM, TO, CashflowItem.RecurrenceType.NONE,
-                null, "CONFIRMED"))).containsExactly(expense, income);
-        assertThat(idsOf(items.findRulesForUser(owner, FROM, TO, CashflowItem.RecurrenceType.NONE,
-                CashflowItem.Direction.INCOME, "CONFIRMED"))).containsExactly(income);
-        assertThat(idsOf(items.findRulesForUser(owner, FROM, TO, CashflowItem.RecurrenceType.NONE,
-                null, "CANDIDATE"))).containsExactly(candidate);
+        assertThat(idsOf(items.findRulesForUser(owner, FROM, TO, CashflowItem.ItemKind.SCHEDULED, CashflowItem.RecurrenceType.NONE,
+                null, CashflowItem.Status.CONFIRMED))).containsExactly(expense, income);
+        assertThat(idsOf(items.findRulesForUser(owner, FROM, TO, CashflowItem.ItemKind.SCHEDULED, CashflowItem.RecurrenceType.NONE,
+                CashflowItem.Direction.INCOME, CashflowItem.Status.CONFIRMED))).containsExactly(income);
+        assertThat(idsOf(items.findRulesForUser(owner, FROM, TO, CashflowItem.ItemKind.SCHEDULED, CashflowItem.RecurrenceType.NONE,
+                null, CashflowItem.Status.CANDIDATE))).containsExactly(candidate);
     }
 
     @Test
