@@ -56,16 +56,3 @@ tasks.named('test') {
     // 테스트는 개인 로컬 설정(application-local.yml) 대신 src/test/resources/application-test.yml을 쓴다.
     systemProperty 'spring.profiles.active', 'test'
 }
-
-tasks.register('seedLocal', JavaExec) {
-    group = 'application'
-    description = 'Load the explicit local development seed.'
-    classpath = sourceSets.main.runtimeClasspath
-    mainClass = 'com.yamu.be.seed.LocalSeedLoader'
-    systemProperty 'file.encoding', 'UTF-8'
-    systemProperty 'stdout.encoding', 'UTF-8'
-    systemProperty 'stderr.encoding', 'UTF-8'
-    args file('seed').absolutePath
-    if (project.hasProperty('resetSeed')) { args '--reset' }
-    if (project.hasProperty('catalogOnlySeed')) { args '--catalog-only' }
-}
