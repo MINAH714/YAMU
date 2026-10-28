@@ -11,7 +11,7 @@ DB 스키마·업무 엔티티를 다루는 작업은 `../docs/be/schema/impleme
 ## 명령 (be 폴더에서)
 
 ```powershell
-docker compose up -d     # 로컬 MySQL 8.0 + Redis 7. 처음 한 번: application-local.yml.example → application-local.yml 복사
+docker compose up -d     # 로컬 MySQL 8.4.11 + Redis 7. 처음 한 번: application-local.yml.example → application-local.yml 복사
 .\gradlew.bat bootRun    # http://localhost:8080/swagger-ui.html, /actuator/health
 .\gradlew.bat test       # DB 없이 도는 테스트 + Docker가 있으면 Testcontainers DB 테스트
 ```

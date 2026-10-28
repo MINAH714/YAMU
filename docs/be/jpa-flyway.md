@@ -104,7 +104,7 @@ List<UserCard> findWithProductByUserId(Long userId);
 | 종류 | 방법 | DB |
 |---|---|---|
 | 일반 테스트 (컨트롤러, 서비스 로직) | 그냥 작성 (`test` 프로필) | 필요 없음. Flyway·스키마 검사 꺼짐 |
-| DB가 필요한 테스트 (Repository, 쿼리, Flyway) | `MySqlTestSupport`를 상속 | Testcontainers가 MySQL 8.0을 잠깐 띄움 (Docker 필요) |
+| DB가 필요한 테스트 (Repository, 쿼리, Flyway) | `MySqlTestSupport`를 상속 | Testcontainers가 MySQL 8.4.11을 잠깐 띄움 (Docker 필요) |
 
 ```java
 class UserCardRepositoryTest extends MySqlTestSupport {

@@ -5,7 +5,7 @@
 ## 구성
 
 - 호스트 Nginx → `127.0.0.1:8080` → 백엔드 컨테이너.
-- MySQL 8.0과 Redis 7은 포트를 호스트에 공개하지 않고 내부 `database` 네트워크에서만 통신한다.
+- 현재 운영 DB는 RDS MySQL 8.4.11이며 [RDS 배포 안내](rds.md)를 따른다. 아래 절차는 RDS 전환 전 MySQL 컨테이너 구성으로, 해당 컨테이너와 Redis 7은 포트를 호스트에 공개하지 않고 내부 `database` 네트워크에서만 통신한다.
 - 백엔드는 외부 API 호출을 위한 기본 네트워크와 DB 네트워크 양쪽에 연결한다.
 - 백엔드가 사용하는 DB 주소는 `mysql`, Redis 주소는 `redis`이다. 컨테이너 내부의 `localhost`로 다른 컨테이너에 접속하지 않는다.
 - MySQL·Redis가 healthy가 된 뒤 백엔드를 시작한다. 백엔드는 `/actuator/health`로 DB·Redis를 포함한 준비 상태를 검사한다.

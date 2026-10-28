@@ -304,7 +304,7 @@ CONSTRAINT ck_benefit_dates CHECK (valid_from IS NULL OR valid_until IS NULL OR 
 | policy_version | `SMALLINT NOT NULL` | 한도 정책 버전 |
 | group_name | `VARCHAR(150) NOT NULL` | 공유 한도 이름 |
 | period_type | `VARCHAR(16) NOT NULL` | PER_TRANSACTION / DAILY / MONTHLY |
-| limit_unit | `VARCHAR(16) NOT NULL` | AMOUNT / COUNT |
+| limit_unit | `VARCHAR(16) NOT NULL` | KRW(원) / POINT(포인트) / COUNT(횟수). 혜택 종류가 아닌 한도 측정 단위이며 연결된 한도값·사용량·잔여량도 이 단위를 따름 |
 | base_limit_value | `BIGINT NULL` | 기본 한도; 실적 구간별 값만 있으면 NULL |
 | valid_from | `DATE NULL` | 한도 규칙의 공식 적용 시작일; 한국 날짜, 시작일 포함. 미확인 시 NULL |
 | valid_until | `DATE NULL` | 한도 규칙의 공식 적용 종료일; 한국 날짜, 종료일 미포함. 종료일 미확인·미정은 NULL |
@@ -317,7 +317,7 @@ UNIQUE KEY uk_limit_product (limit_group_id, card_product_id);
 CONSTRAINT fk_limit_product FOREIGN KEY (card_product_id) REFERENCES card_product (card_product_id);
 CONSTRAINT ck_limit_version CHECK (policy_version > 0);
 CONSTRAINT ck_limit_period CHECK (period_type IN ('PER_TRANSACTION','DAILY','MONTHLY'));
-CONSTRAINT ck_limit_unit CHECK (limit_unit IN ('AMOUNT','COUNT'));
+CONSTRAINT ck_limit_unit CHECK (limit_unit IN ('KRW','POINT','COUNT'));
 CONSTRAINT ck_limit_value CHECK (base_limit_value IS NULL OR base_limit_value >= 0);
 CONSTRAINT ck_limit_dates CHECK (valid_from IS NULL OR valid_until IS NULL OR valid_until > valid_from)
 ```

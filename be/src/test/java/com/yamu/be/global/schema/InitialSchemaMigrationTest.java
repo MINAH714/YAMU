@@ -546,7 +546,7 @@ class InitialSchemaMigrationTest extends MySqlTestSupport {
     void limitConsumptionCannotExceedAvailableBalanceAndOriginalBasisSurvivesRestoration() {
         Fixture a = fixture();
         long group = limit(a.product());
-        jdbc.update("UPDATE limit_group SET limit_unit = 'AMOUNT', base_limit_value = 10000 WHERE limit_group_id = ?", group);
+        jdbc.update("UPDATE limit_group SET limit_unit = 'KRW', base_limit_value = 10000 WHERE limit_group_id = ?", group);
         jdbc.update("UPDATE payment_transaction SET performance_basis_amount = 350000 WHERE payment_transaction_id = ?", a.payment());
         assertRejected(() -> jdbc.update("UPDATE payment_transaction SET performance_basis_amount = -1 WHERE payment_transaction_id = ?", a.payment()));
         long impact = insert("payment_limit_usage", fields("payment_transaction_id", a.payment(),
