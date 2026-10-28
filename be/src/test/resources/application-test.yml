@@ -26,3 +26,5 @@ yamu:
       "[1]": 0EnDNJY8EiCQDK78eTZI238tmQcubOUaUQovAddqKuU=
     hmac-key: W6990e8xM9l51TNQdCULcgsTC3Z8cE1F9KAykAubMsY=
     pin-pepper: 21zmotCRVO8RYY0N3gWiHctx+Sb9BSjCwaZZL+4K4Do=
+  jwt:
+    secret: QtMBagkzR6RDQxrKVCjsIIbWYns3aRMksLkC+dwPfro=
