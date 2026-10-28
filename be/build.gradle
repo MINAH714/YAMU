@@ -34,10 +34,14 @@ dependencies {
     implementation 'org.springframework.boot:spring-boot-starter-actuator'
     // PIN 해시용 BCrypt. 버전은 Boot가 관리한다.
     implementation 'org.springframework.security:spring-security-crypto'
+    // 인증: Security + JWT 검증(Resource Server). 검증 필터는 Spring 것을 쓰고 토큰 → 사용자 변환과 에러 응답만 직접 둔다.
+    implementation 'org.springframework.boot:spring-boot-starter-security'
+    implementation 'org.springframework.boot:spring-boot-starter-oauth2-resource-server'
     runtimeOnly 'com.mysql:mysql-connector-j'
     compileOnly 'org.projectlombok:lombok'
     annotationProcessor 'org.projectlombok:lombok'
     testImplementation 'org.springframework.boot:spring-boot-starter-test'
+    testImplementation 'org.springframework.security:spring-security-test'
     // DB가 필요한 테스트는 Testcontainers로 MySQL을 잠깐 띄운다. Docker가 없으면 그 테스트만 건너뛴다.
     testImplementation 'org.springframework.boot:spring-boot-testcontainers'
     testImplementation 'org.testcontainers:junit-jupiter'

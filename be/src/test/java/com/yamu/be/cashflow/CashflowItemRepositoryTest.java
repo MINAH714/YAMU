@@ -1,0 +1,225 @@
+package com.yamu.be.cashflow;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+
+import com.yamu.be.global.exception.BusinessException;
+import com.yamu.be.global.exception.ErrorCode;
+import com.yamu.be.support.MySqlTestSupport;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.sql.Statement;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.ZoneOffset;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+import java.util.stream.Collectors;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.support.GeneratedKeyHolder;
+import org.springframework.test.annotation.DirtiesContext;
+import org.springframework.test.context.TestPropertySource;
+import org.springframework.transaction.annotation.Transactional;
+
+/** 실제 MySQL에서 예정 규칙 조회 쿼리와 등록 저장이 스키마 제약과 맞는지 확인한다. */
+@Transactional
+// The inherited container restarts between test classes. Do not reuse another class's DataSource.
+@TestPropertySource(properties = "spring.application.name=yamu-cashflow-repository-test")
+@DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
+class CashflowItemRepositoryTest extends MySqlTestSupport {
+    private static final LocalDate FROM = LocalDate.of(2026, 11, 1);
+    private static final LocalDate TO = LocalDate.of(2026, 11, 30);
+
+    @Autowired JdbcTemplate jdbc;
+    @Autowired CashflowItemRepository items;
+    @Autowired CashflowService service;
+
+    @Test
+    void 조회_기간과_겹치는_본인_규칙만_돌려준다() {
+        long owner = user();
+        long inside = cashflow(owner, "EXPENSE", FROM.plusDays(1), "NONE", null, "CONFIRMED");
+        cashflow(owner, "EXPENSE", FROM.minusDays(1), "NONE", null, "CONFIRMED");
+        cashflow(owner, "EXPENSE", TO.plusDays(1), "NONE", null, "CONFIRMED");
+        long ongoing = cashflow(owner, "EXPENSE", FROM.minusMonths(2), "MONTHLY", null, "CONFIRMED");
+        long endsOnFrom = cashflow(owner, "EXPENSE", FROM.minusMonths(2), "MONTHLY", FROM, "CONFIRMED");
+        cashflow(owner, "EXPENSE", FROM.minusMonths(2), "MONTHLY", FROM.minusDays(1), "CONFIRMED");
+        cashflow(owner, "EXPENSE", TO.plusDays(1), "WEEKLY", null, "CONFIRMED");
+        cashflow(user(), "EXPENSE", FROM.plusDays(1), "NONE", null, "CONFIRMED");
+
+        assertThat(idsOf(items.findRulesForUser(owner, FROM, TO, CashflowItem.ItemKind.SCHEDULED, CashflowItem.RecurrenceType.NONE,
+                null, CashflowItem.Status.CONFIRMED))).containsExactly(ongoing, endsOnFrom, inside);
+    }
+
+    @Test
+    void 기간_경계일의_1회_항목도_포함한다() {
+        long owner = user();
+        long first = cashflow(owner, "EXPENSE", FROM, "NONE", null, "CONFIRMED");
+        long last = cashflow(owner, "EXPENSE", TO, "NONE", null, "CONFIRMED");
+
+        assertThat(idsOf(items.findRulesForUser(owner, FROM, TO, CashflowItem.ItemKind.SCHEDULED, CashflowItem.RecurrenceType.NONE,
+                null, CashflowItem.Status.CONFIRMED))).containsExactly(first, last);
+    }
+
+    @Test
+    void 유형과_상태로_거른다() {
+        long owner = user();
+        long expense = cashflow(owner, "EXPENSE", FROM.plusDays(1), "NONE", null, "CONFIRMED");
+        long income = cashflow(owner, "INCOME", FROM.plusDays(2), "NONE", null, "CONFIRMED");
+        long candidate = cashflow(owner, "EXPENSE", FROM.plusDays(3), "NONE", null, "CANDIDATE");
+
+        assertThat(idsOf(items.findRulesForUser(owner, FROM, TO, CashflowItem.ItemKind.SCHEDULED, CashflowItem.RecurrenceType.NONE,
+                null, CashflowItem.Status.CONFIRMED))).containsExactly(expense, income);
+        assertThat(idsOf(items.findRulesForUser(owner, FROM, TO, CashflowItem.ItemKind.SCHEDULED, CashflowItem.RecurrenceType.NONE,
+                CashflowItem.Direction.INCOME, CashflowItem.Status.CONFIRMED))).containsExactly(income);
+        assertThat(idsOf(items.findRulesForUser(owner, FROM, TO, CashflowItem.ItemKind.SCHEDULED, CashflowItem.RecurrenceType.NONE,
+                null, CashflowItem.Status.CANDIDATE))).containsExactly(candidate);
+    }
+
+    @Test
+    void 등록하면_규칙과_첫_발생건이_스키마_제약을_통과해_저장된다() {
+        long owner = user();
+        long account = account(owner);
+        long card = card(owner, product(), account);
+        LocalDate tomorrow = LocalDate.now(ZoneId.of("Asia/Seoul")).plusDays(1);
+
+        CashflowService.Item byAccount = service.create(owner, new CashflowService.CreateCommand("월세",
+                CashflowItem.Direction.EXPENSE, 500000L, tomorrow, CashflowItem.RecurrenceType.MONTHLY,
+                null, null, tomorrow.plusMonths(6), account, null, "H01-RENT", null));
+        CashflowService.Item byCard = service.create(owner, new CashflowService.CreateCommand("헬스장",
+                CashflowItem.Direction.EXPENSE, 89000L, tomorrow, CashflowItem.RecurrenceType.NONE,
+                null, null, null, null, card, null, null));
+
+        assertThat(jdbc.queryForMap("""
+                SELECT linked_account_id, user_card_id, item_kind, status, version
+                FROM cashflow_item WHERE cashflow_item_id = ?
+                """, byAccount.id()))
+                .containsEntry("linked_account_id", account)
+                .containsEntry("item_kind", "SCHEDULED")
+                .containsEntry("status", "CONFIRMED")
+                .containsEntry("version", 0L);
+        assertThat(jdbc.queryForObject("SELECT user_card_id FROM cashflow_item WHERE cashflow_item_id = ?",
+                Long.class, byCard.id())).isEqualTo(card);
+        assertThat(jdbc.queryForList("""
+                SELECT occurrence_date FROM cashflow_occurrence WHERE cashflow_item_id IN (?, ?)
+                """, LocalDate.class, byAccount.id(), byCard.id())).containsOnly(tomorrow);
+    }
+
+    @Test
+    void 다른_사용자의_계좌로는_등록되지_않는다() {
+        long owner = user();
+        long strangerAccount = account(user());
+        LocalDate tomorrow = LocalDate.now(ZoneId.of("Asia/Seoul")).plusDays(1);
+
+        assertThatThrownBy(() -> service.create(owner, new CashflowService.CreateCommand("월세",
+                CashflowItem.Direction.EXPENSE, 500000L, tomorrow, CashflowItem.RecurrenceType.NONE,
+                null, null, null, strangerAccount, null, null, null)))
+                .isInstanceOf(BusinessException.class)
+                .satisfies(error -> assertThat(((BusinessException) error).getErrorCode())
+                        .isEqualTo(ErrorCode.RESOURCE_NOT_FOUND));
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM cashflow_item WHERE user_id = ?",
+                Integer.class, owner)).isZero();
+    }
+
+    @Test
+    void 보유_카드_목록에_보이는_ACTIVE와_INACTIVE_카드만_결제_카드로_등록된다() {
+        long owner = user();
+        long account = account(owner);
+        long product = product();
+        LocalDate tomorrow = LocalDate.now(ZoneId.of("Asia/Seoul")).plusDays(1);
+
+        for (String status : List.of("ACTIVE", "INACTIVE")) {
+            long card = card(owner, product, account, status);
+            assertThat(service.create(owner, cardExpense(tomorrow, card)).userCardId()).isEqualTo(card);
+        }
+        for (String status : List.of("UNREGISTERED", "PENDING")) {
+            long card = card(owner, product, account, status);
+            assertThatThrownBy(() -> service.create(owner, cardExpense(tomorrow, card)))
+                    .isInstanceOf(BusinessException.class)
+                    .satisfies(error -> assertThat(((BusinessException) error).getErrorCode())
+                            .isEqualTo(ErrorCode.RESOURCE_NOT_FOUND));
+        }
+    }
+
+    private static CashflowService.CreateCommand cardExpense(LocalDate date, long card) {
+        return new CashflowService.CreateCommand("구독", CashflowItem.Direction.EXPENSE, 10000L, date,
+                CashflowItem.RecurrenceType.NONE, null, null, null, null, card, null, null);
+    }
+
+    private static List<Long> idsOf(List<CashflowItem> rules) {
+        return rules.stream().map(CashflowItem::getId).toList();
+    }
+
+    private long cashflow(long owner, String direction, LocalDate date, String recurrence,
+            LocalDate endDate, String status) {
+        return insert("cashflow_item", fields("user_id", owner, "title", "test", "direction", direction,
+                "amount", 10000L, "scheduled_date", date, "recurrence_type", recurrence,
+                "recurrence_end_date", endDate, "status", status), true);
+    }
+
+    // 아래 데이터 생성 함수는 InitialSchemaMigrationTest의 private 함수를 복사했다. 공용화는 작성자와 협의 후 진행한다.
+    private long user() {
+        return insert("app_user", fields("name", "cashflow-test", "birth_date", LocalDate.of(2000, 1, 1),
+                "phone_hash", hash(UUID.randomUUID().toString())), true);
+    }
+
+    private long account(long owner) {
+        return insert("linked_account", fields("user_id", owner, "bank_code", "TEST",
+                "account_no_enc", new byte[]{1, 2}, "account_no_hash", hash(UUID.randomUUID().toString()),
+                "connected_at", now()), true);
+    }
+
+    private long product() {
+        return insert("card_product", fields("issuer_code", "TEST", "product_name", UUID.randomUUID().toString(),
+                "card_type", "CREDIT", "billing_cutoff_days", 14), true);
+    }
+
+    private long card(long owner, long product, long account) {
+        return card(owner, product, account, "ACTIVE");
+    }
+
+    private long card(long owner, long product, long account, String status) {
+        return insert("user_card", fields("user_id", owner, "card_product_id", product,
+                "linked_account_id", account, "card_no_enc", new byte[]{1, 2},
+                "card_no_hash", hash(UUID.randomUUID().toString()), "card_last4", "1234",
+                "status", status, "registered_at", now()), true);
+    }
+
+    private long insert(String table, Map<String, Object> values, boolean mutable) {
+        Map<String, Object> row = new LinkedHashMap<>(values);
+        row.put("created_at", now());
+        if (mutable) row.put("updated_at", now());
+        String sql = "INSERT INTO " + table + " (" + String.join(", ", row.keySet()) + ") VALUES ("
+                + row.keySet().stream().map(key -> "?").collect(Collectors.joining(", ")) + ")";
+        GeneratedKeyHolder keys = new GeneratedKeyHolder();
+        jdbc.update(connection -> {
+            var statement = connection.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS);
+            int index = 1;
+            for (Object value : row.values()) statement.setObject(index++, value);
+            return statement;
+        }, keys);
+        return keys.getKey().longValue();
+    }
+
+    private Map<String, Object> fields(Object... pairs) {
+        Map<String, Object> result = new LinkedHashMap<>();
+        for (int i = 0; i < pairs.length; i += 2) result.put((String) pairs[i], pairs[i + 1]);
+        return result;
+    }
+
+    private static byte[] hash(String value) {
+        try {
+            return MessageDigest.getInstance("SHA-256").digest(value.getBytes(StandardCharsets.UTF_8));
+        } catch (java.security.NoSuchAlgorithmException exception) {
+            throw new IllegalStateException(exception);
+        }
+    }
+
+    private static LocalDateTime now() {
+        return LocalDateTime.now(ZoneOffset.UTC);
+    }
+}

@@ -29,6 +29,8 @@ spring:
     locations: classpath:db/migration
 server:
   port: ${SERVER_PORT:8080}
+  # Nginx 뒤에서 X-Forwarded-For의 실제 접속 IP를 쓴다(인증 기록의 ip_address). Tomcat은 내부망(127.0.0.1 등)에서 온 헤더만 믿는다.
+  forward-headers-strategy: native
 
 yamu:
   # 개인정보 암호화·조회 해시·PIN 해시 키(Base64). 운영은 환경변수로, 로컬은 application-local.yml에 넣는다.
@@ -41,6 +43,23 @@ yamu:
       "[1]": ${YAMU_CRYPTO_DATA_KEY_1:}
     hmac-key: ${YAMU_CRYPTO_HMAC_KEY:}
     pin-pepper: ${YAMU_CRYPTO_PIN_PEPPER:}
+  # Access Token(JWT HS256). secret은 32바이트 이상 Base64. 운영은 환경변수, 로컬은 application-local.yml.
+  jwt:
+    secret: ${YAMU_JWT_SECRET:}
+    access-token-ttl: 30m
+  # 로그인 정책(노션 명세: challenge 60초, 5회 실패 30분 잠금, Refresh 14일)
+  auth:
+    challenge-ttl: 60s
+    refresh-token-ttl: 14d
+    # 재발급 직후 직전 토큰이 다시 와도 탈취로 보지 않는 시간(앱의 동시 재발급 대비)
+    refresh-reuse-grace: 10s
+    max-failed-attempts: 5
+    lock-duration: 30m
+    # 로그인 준비·로그인 호출 횟수 제한(두 API 합산). 넘으면 429 TOO_MANY_REQUESTS
+    rate-limit:
+      window: 1m
+      per-device: 10
+      per-ip: 60
 
 springdoc:
   swagger-ui:

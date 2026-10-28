@@ -17,7 +17,7 @@ import org.springframework.test.context.TestPropertySource;
 /** Unit migration preserves existing policies, usage, restoration and foreign keys. */
 @TestPropertySource(properties = {
         "spring.application.name=yamu-limit-unit-migration-test",
-        "spring.flyway.target=20261027.5"
+        "spring.flyway.target=20261028.2"
 })
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 class LimitUnitMigrationTest extends MySqlTestSupport {
@@ -78,13 +78,13 @@ class LimitUnitMigrationTest extends MySqlTestSupport {
 
         Flyway upgrade = Flyway.configure().dataSource(flyway.getConfiguration().getDataSource())
                 .locations(flyway.getConfiguration().getLocations())
-                .target(MigrationVersion.fromVersion("20261028.1")).load();
+                .target(MigrationVersion.fromVersion("20261028.3")).load();
         assertThat(upgrade.migrate().migrationsExecuted).isEqualTo(1);
         assertThat(jdbc.queryForList("SELECT * FROM limit_group ORDER BY limit_group_id")).isEqualTo(groups);
         assertThat(jdbc.queryForList("SELECT * FROM tier_limit")).isEqualTo(tiers);
         assertThat(jdbc.queryForList("SELECT * FROM monthly_limit_usage")).isEqualTo(monthly);
         assertThat(jdbc.queryForList("SELECT * FROM payment_limit_usage")).isEqualTo(payments);
-        assertThat(jdbc.queryForList("SELECT version, checksum FROM flyway_schema_history WHERE version <> '20261028.1' ORDER BY installed_rank"))
+        assertThat(jdbc.queryForList("SELECT version, checksum FROM flyway_schema_history WHERE version <> '20261028.3' ORDER BY installed_rank"))
                 .isEqualTo(checksums);
 
         for (String unit : new String[] {"KRW", "POINT", "COUNT"}) {

@@ -14,7 +14,8 @@ import org.springframework.test.context.TestPropertySource;
 /** 기기 키 필수화가 기존 PIN·생체 기기의 키와 설정을 보존하는지 확인한다. */
 @TestPropertySource(properties = {
         "spring.application.name=yamu-device-key-migration-test",
-        "spring.flyway.target=20261027.2"
+        "spring.flyway.target=20261027.2",
+        "spring.jpa.hibernate.ddl-auto=none"
 })
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 class DeviceSigningKeyMigrationTest extends MySqlTestSupport {
