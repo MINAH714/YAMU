@@ -8,6 +8,12 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.yamu.be.account.AccountQueryService;
+import com.yamu.be.account.LinkedAccountRef;
+import com.yamu.be.card.CardQueryService;
+import com.yamu.be.card.UserCardRef;
+import com.yamu.be.card.domain.CardIssuerStatus;
+import com.yamu.be.card.domain.CardRegistrationStatus;
 import com.yamu.be.global.common.ApiResponse.FieldErrorResponse;
 import com.yamu.be.global.exception.BusinessException;
 import com.yamu.be.global.exception.ErrorCode;
@@ -27,7 +33,8 @@ import org.springframework.test.util.ReflectionTestUtils;
 class CashflowServiceTest {
     @Mock CashflowItemRepository items;
     @Mock CashflowOccurrenceRepository occurrences;
-    @Mock CashflowOwnershipLookup ownership;
+    @Mock AccountQueryService accounts;
+    @Mock CardQueryService cards;
 
     CashflowService service;
     LocalDate today;
@@ -35,14 +42,14 @@ class CashflowServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new CashflowService(items, occurrences, ownership);
+        service = new CashflowService(items, occurrences, accounts, cards);
         today = LocalDate.now(ZoneId.of("Asia/Seoul"));
         tomorrow = today.plusDays(1);
     }
 
     @Test
     void 등록시_사용자_소유_계좌를_확인하고_첫_발생건을_함께_저장한다() {
-        when(ownership.hasConnectedAccount(7L, 11L)).thenReturn(true);
+        when(accounts.requireConnectedAccount(7L, 11L)).thenReturn(account(11L));
         savedWithId(31L);
 
         CashflowService.Item result = service.create(7L, command(10000L, 11L, null));
@@ -62,18 +69,21 @@ class CashflowServiceTest {
 
     @Test
     void 카드_지출은_계좌_없이_사용자_소유_카드로_등록한다() {
-        when(ownership.hasRegisteredCard(7L, 12L)).thenReturn(true);
+        when(cards.requireRegisteredCard(7L, 12L)).thenReturn(card(12L, CardIssuerStatus.NORMAL));
         savedWithId(32L);
 
         CashflowService.Item result = service.create(7L, command(10000L, null, 12L));
 
         assertThat(result.userCardId()).isEqualTo(12L);
         assertThat(result.accountId()).isNull();
-        verify(ownership, never()).hasConnectedAccount(any(), any());
+        verify(accounts, never()).requireConnectedAccount(any(), any());
     }
 
     @Test
     void 다른_사용자의_계좌나_카드로는_등록할_수_없다() {
+        // BE 1 조회가 남의 것·없는 것을 404로 던지면 그대로 전달하고 저장하지 않는다.
+        when(accounts.requireConnectedAccount(7L, 11L)).thenThrow(new BusinessException(ErrorCode.RESOURCE_NOT_FOUND));
+        when(cards.requireRegisteredCard(7L, 12L)).thenThrow(new BusinessException(ErrorCode.RESOURCE_NOT_FOUND));
         assertThatThrownBy(() -> service.create(7L, command(10000L, 11L, null)))
                 .isInstanceOf(BusinessException.class)
                 .satisfies(error -> assertThat(((BusinessException) error).getErrorCode())
@@ -96,7 +106,7 @@ class CashflowServiceTest {
 
     @Test
     void 오늘_날짜는_첫_발생일로_허용한다() {
-        when(ownership.hasConnectedAccount(7L, 11L)).thenReturn(true);
+        when(accounts.requireConnectedAccount(7L, 11L)).thenReturn(account(11L));
         savedWithId(33L);
 
         CashflowService.Item result = service.create(7L, new CashflowService.CreateCommand("월세",
@@ -141,13 +151,13 @@ class CashflowServiceTest {
     void 계좌와_카드는_정확히_하나만_지정한다() {
         assertInvalid(command(10000L, null, null), "accountId");
         assertInvalid(command(10000L, 11L, 12L), "userCardId");
-        verify(ownership, never()).hasConnectedAccount(any(), any());
+        verify(accounts, never()).requireConnectedAccount(any(), any());
         verify(items, never()).save(any());
     }
 
     @Test
     void 이름은_유니코드_공백까지_앞뒤를_뺀_길이로_검사하고_뺀_값으로_저장한다() {
-        when(ownership.hasConnectedAccount(7L, 11L)).thenReturn(true);
+        when(accounts.requireConnectedAccount(7L, 11L)).thenReturn(account(11L));
         savedWithId(34L);
         String thirtyChars = "가".repeat(30);
 
@@ -164,7 +174,7 @@ class CashflowServiceTest {
 
     @Test
     void 빈_업종_코드와_메모는_NULL로_저장하고_값은_앞뒤_공백을_뺀다() {
-        when(ownership.hasConnectedAccount(7L, 11L)).thenReturn(true);
+        when(accounts.requireConnectedAccount(7L, 11L)).thenReturn(account(11L));
         savedWithId(35L);
 
         service.create(7L, new CashflowService.CreateCommand("월세", CashflowItem.Direction.EXPENSE, 10000L,
@@ -255,6 +265,14 @@ class CashflowServiceTest {
     @SuppressWarnings("unchecked")
     private static String fieldOf(BusinessException error) {
         return ((List<FieldErrorResponse>) error.getDetails().get("fieldErrors")).get(0).field();
+    }
+
+    private static LinkedAccountRef account(Long accountId) {
+        return new LinkedAccountRef(accountId, "088", "1234");
+    }
+
+    private static UserCardRef card(Long userCardId, CardIssuerStatus issuerStatus) {
+        return new UserCardRef(userCardId, 1L, 11L, "5678", CardRegistrationStatus.ACTIVE, issuerStatus);
     }
 
     private CashflowService.CreateCommand command(Long amount, Long accountId, Long cardId) {

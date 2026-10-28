@@ -6,22 +6,19 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.yamu.be.global.exception.BusinessException;
 import com.yamu.be.global.exception.ErrorCode;
 import com.yamu.be.support.MySqlTestSupport;
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.sql.Statement;
+import com.yamu.be.support.OwnershipFixtures;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
-import java.util.LinkedHashMap;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.UUID;
-import java.util.stream.Collectors;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.jdbc.support.GeneratedKeyHolder;
+import org.springframework.jdbc.core.simple.SimpleJdbcInsert;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.transaction.annotation.Transactional;
@@ -39,9 +36,16 @@ class CashflowItemRepositoryTest extends MySqlTestSupport {
     @Autowired CashflowItemRepository items;
     @Autowired CashflowService service;
 
+    OwnershipFixtures fixtures;
+
+    @BeforeEach
+    void setUp() {
+        fixtures = new OwnershipFixtures(jdbc);
+    }
+
     @Test
     void 조회_기간과_겹치는_본인_규칙만_돌려준다() {
-        long owner = user();
+        long owner = fixtures.user();
         long inside = cashflow(owner, "EXPENSE", FROM.plusDays(1), "NONE", null, "CONFIRMED");
         cashflow(owner, "EXPENSE", FROM.minusDays(1), "NONE", null, "CONFIRMED");
         cashflow(owner, "EXPENSE", TO.plusDays(1), "NONE", null, "CONFIRMED");
@@ -49,7 +53,7 @@ class CashflowItemRepositoryTest extends MySqlTestSupport {
         long endsOnFrom = cashflow(owner, "EXPENSE", FROM.minusMonths(2), "MONTHLY", FROM, "CONFIRMED");
         cashflow(owner, "EXPENSE", FROM.minusMonths(2), "MONTHLY", FROM.minusDays(1), "CONFIRMED");
         cashflow(owner, "EXPENSE", TO.plusDays(1), "WEEKLY", null, "CONFIRMED");
-        cashflow(user(), "EXPENSE", FROM.plusDays(1), "NONE", null, "CONFIRMED");
+        cashflow(fixtures.user(), "EXPENSE", FROM.plusDays(1), "NONE", null, "CONFIRMED");
 
         assertThat(idsOf(items.findRulesForUser(owner, FROM, TO, CashflowItem.ItemKind.SCHEDULED, CashflowItem.RecurrenceType.NONE,
                 null, CashflowItem.Status.CONFIRMED))).containsExactly(ongoing, endsOnFrom, inside);
@@ -57,7 +61,7 @@ class CashflowItemRepositoryTest extends MySqlTestSupport {
 
     @Test
     void 기간_경계일의_1회_항목도_포함한다() {
-        long owner = user();
+        long owner = fixtures.user();
         long first = cashflow(owner, "EXPENSE", FROM, "NONE", null, "CONFIRMED");
         long last = cashflow(owner, "EXPENSE", TO, "NONE", null, "CONFIRMED");
 
@@ -67,7 +71,7 @@ class CashflowItemRepositoryTest extends MySqlTestSupport {
 
     @Test
     void 유형과_상태로_거른다() {
-        long owner = user();
+        long owner = fixtures.user();
         long expense = cashflow(owner, "EXPENSE", FROM.plusDays(1), "NONE", null, "CONFIRMED");
         long income = cashflow(owner, "INCOME", FROM.plusDays(2), "NONE", null, "CONFIRMED");
         long candidate = cashflow(owner, "EXPENSE", FROM.plusDays(3), "NONE", null, "CANDIDATE");
@@ -82,9 +86,9 @@ class CashflowItemRepositoryTest extends MySqlTestSupport {
 
     @Test
     void 등록하면_규칙과_첫_발생건이_스키마_제약을_통과해_저장된다() {
-        long owner = user();
-        long account = account(owner);
-        long card = card(owner, product(), account);
+        long owner = fixtures.user();
+        long account = fixtures.account(owner);
+        long card = fixtures.card(owner, fixtures.product(), account, "ACTIVE");
         LocalDate tomorrow = LocalDate.now(ZoneId.of("Asia/Seoul")).plusDays(1);
 
         CashflowService.Item byAccount = service.create(owner, new CashflowService.CreateCommand("월세",
@@ -111,8 +115,8 @@ class CashflowItemRepositoryTest extends MySqlTestSupport {
 
     @Test
     void 다른_사용자의_계좌로는_등록되지_않는다() {
-        long owner = user();
-        long strangerAccount = account(user());
+        long owner = fixtures.user();
+        long strangerAccount = fixtures.account(fixtures.user());
         LocalDate tomorrow = LocalDate.now(ZoneId.of("Asia/Seoul")).plusDays(1);
 
         assertThatThrownBy(() -> service.create(owner, new CashflowService.CreateCommand("월세",
@@ -127,17 +131,17 @@ class CashflowItemRepositoryTest extends MySqlTestSupport {
 
     @Test
     void 보유_카드_목록에_보이는_ACTIVE와_INACTIVE_카드만_결제_카드로_등록된다() {
-        long owner = user();
-        long account = account(owner);
-        long product = product();
+        long owner = fixtures.user();
+        long account = fixtures.account(owner);
+        long product = fixtures.product();
         LocalDate tomorrow = LocalDate.now(ZoneId.of("Asia/Seoul")).plusDays(1);
 
         for (String status : List.of("ACTIVE", "INACTIVE")) {
-            long card = card(owner, product, account, status);
+            long card = fixtures.card(owner, product, account, status);
             assertThat(service.create(owner, cardExpense(tomorrow, card)).userCardId()).isEqualTo(card);
         }
         for (String status : List.of("UNREGISTERED", "PENDING")) {
-            long card = card(owner, product, account, status);
+            long card = fixtures.card(owner, product, account, status);
             assertThatThrownBy(() -> service.create(owner, cardExpense(tomorrow, card)))
                     .isInstanceOf(BusinessException.class)
                     .satisfies(error -> assertThat(((BusinessException) error).getErrorCode())
@@ -156,70 +160,18 @@ class CashflowItemRepositoryTest extends MySqlTestSupport {
 
     private long cashflow(long owner, String direction, LocalDate date, String recurrence,
             LocalDate endDate, String status) {
-        return insert("cashflow_item", fields("user_id", owner, "title", "test", "direction", direction,
-                "amount", 10000L, "scheduled_date", date, "recurrence_type", recurrence,
-                "recurrence_end_date", endDate, "status", status), true);
-    }
-
-    // 아래 데이터 생성 함수는 InitialSchemaMigrationTest의 private 함수를 복사했다. 공용화는 작성자와 협의 후 진행한다.
-    private long user() {
-        return insert("app_user", fields("name", "cashflow-test", "birth_date", LocalDate.of(2000, 1, 1),
-                "phone_hash", hash(UUID.randomUUID().toString())), true);
-    }
-
-    private long account(long owner) {
-        return insert("linked_account", fields("user_id", owner, "bank_code", "TEST",
-                "account_no_enc", new byte[]{1, 2}, "account_no_hash", hash(UUID.randomUUID().toString()),
-                "connected_at", now()), true);
-    }
-
-    private long product() {
-        return insert("card_product", fields("issuer_code", "TEST", "product_name", UUID.randomUUID().toString(),
-                "card_type", "CREDIT", "billing_cutoff_days", 14), true);
-    }
-
-    private long card(long owner, long product, long account) {
-        return card(owner, product, account, "ACTIVE");
-    }
-
-    private long card(long owner, long product, long account, String status) {
-        return insert("user_card", fields("user_id", owner, "card_product_id", product,
-                "linked_account_id", account, "card_no_enc", new byte[]{1, 2},
-                "card_no_hash", hash(UUID.randomUUID().toString()), "card_last4", "1234",
-                "status", status, "registered_at", now()), true);
-    }
-
-    private long insert(String table, Map<String, Object> values, boolean mutable) {
-        Map<String, Object> row = new LinkedHashMap<>(values);
-        row.put("created_at", now());
-        if (mutable) row.put("updated_at", now());
-        String sql = "INSERT INTO " + table + " (" + String.join(", ", row.keySet()) + ") VALUES ("
-                + row.keySet().stream().map(key -> "?").collect(Collectors.joining(", ")) + ")";
-        GeneratedKeyHolder keys = new GeneratedKeyHolder();
-        jdbc.update(connection -> {
-            var statement = connection.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS);
-            int index = 1;
-            for (Object value : row.values()) statement.setObject(index++, value);
-            return statement;
-        }, keys);
-        return keys.getKey().longValue();
-    }
-
-    private Map<String, Object> fields(Object... pairs) {
-        Map<String, Object> result = new LinkedHashMap<>();
-        for (int i = 0; i < pairs.length; i += 2) result.put((String) pairs[i], pairs[i + 1]);
-        return result;
-    }
-
-    private static byte[] hash(String value) {
-        try {
-            return MessageDigest.getInstance("SHA-256").digest(value.getBytes(StandardCharsets.UTF_8));
-        } catch (java.security.NoSuchAlgorithmException exception) {
-            throw new IllegalStateException(exception);
-        }
-    }
-
-    private static LocalDateTime now() {
-        return LocalDateTime.now(ZoneOffset.UTC);
+        Map<String, Object> row = new HashMap<>();
+        row.put("user_id", owner);
+        row.put("title", "test");
+        row.put("direction", direction);
+        row.put("amount", 10000L);
+        row.put("scheduled_date", date);
+        row.put("recurrence_type", recurrence);
+        row.put("recurrence_end_date", endDate);
+        row.put("status", status);
+        row.put("created_at", LocalDateTime.now(ZoneOffset.UTC));
+        row.put("updated_at", LocalDateTime.now(ZoneOffset.UTC));
+        return new SimpleJdbcInsert(jdbc).withTableName("cashflow_item").usingGeneratedKeyColumns("cashflow_item_id")
+                .usingColumns(row.keySet().toArray(String[]::new)).executeAndReturnKey(row).longValue();
     }
 }

@@ -1,5 +1,7 @@
 package com.yamu.be.cashflow;
 
+import com.yamu.be.account.AccountQueryService;
+import com.yamu.be.card.CardQueryService;
 import com.yamu.be.global.common.ApiResponse.FieldErrorResponse;
 import com.yamu.be.global.exception.BusinessException;
 import com.yamu.be.global.exception.ErrorCode;
@@ -20,13 +22,15 @@ public class CashflowService {
 
     private final CashflowItemRepository items;
     private final CashflowOccurrenceRepository occurrences;
-    private final CashflowOwnershipLookup ownership;
+    private final AccountQueryService accounts;
+    private final CardQueryService cards;
 
     CashflowService(CashflowItemRepository items, CashflowOccurrenceRepository occurrences,
-            CashflowOwnershipLookup ownership) {
+            AccountQueryService accounts, CardQueryService cards) {
         this.items = items;
         this.occurrences = occurrences;
-        this.ownership = ownership;
+        this.accounts = accounts;
+        this.cards = cards;
     }
 
     /** 예정 수입·지출 규칙과 첫 발생 건을 저장하고 저장된 규칙을 돌려준다. */
@@ -38,13 +42,12 @@ public class CashflowService {
         }
         command = normalize(command);
         CashflowItem.RecurrenceType recurrence = validate(command);
-        if (command.accountId() != null
-                && !ownership.hasConnectedAccount(authenticatedUserId, command.accountId())) {
-            throw new BusinessException(ErrorCode.RESOURCE_NOT_FOUND);
+        // 남의 것·없는 것·연결 해제·등록 해제는 BE 1 조회가 404 RESOURCE_NOT_FOUND로 던진다.
+        if (command.accountId() != null) {
+            accounts.requireConnectedAccount(authenticatedUserId, command.accountId());
         }
-        if (command.userCardId() != null
-                && !ownership.hasRegisteredCard(authenticatedUserId, command.userCardId())) {
-            throw new BusinessException(ErrorCode.RESOURCE_NOT_FOUND);
+        if (command.userCardId() != null) {
+            cards.requireRegisteredCard(authenticatedUserId, command.userCardId());
         }
 
         CashflowItem item = items.save(new CashflowItem(authenticatedUserId,
