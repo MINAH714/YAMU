@@ -18,10 +18,12 @@ import com.yamu.be.card.domain.CardRegistrationStatus;
 import com.yamu.be.global.common.ApiResponse.FieldErrorResponse;
 import com.yamu.be.global.exception.BusinessException;
 import com.yamu.be.global.exception.ErrorCode;
+import java.time.Clock;
 import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.List;
+import java.util.Set;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -43,7 +45,7 @@ class CashflowServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new CashflowService(items, occurrences, accounts, cards);
+        service = new CashflowService(items, occurrences, accounts, cards, Clock.systemUTC());
         today = LocalDate.now(ZoneId.of("Asia/Seoul"));
         tomorrow = today.plusDays(1);
     }
@@ -276,6 +278,98 @@ class CashflowServiceTest {
     }
 
     @Test
+    void 이번_회차만_옮긴_회차는_옮긴_날짜로_기간_안팎을_가르고_원래_회차를_식별값으로_돌려준다() {
+        LocalDate from = LocalDate.of(2026, 11, 1);
+        CashflowItem weekly = saved(41L, new CashflowItem(7L, 11L, null, "헬스장", CashflowItem.Direction.EXPENSE,
+                10000L, LocalDate.of(2026, 11, 2), CashflowItem.RecurrenceType.WEEKLY, null, null, null));
+        CashflowOccurrence moved = occurrence(51L, weekly, LocalDate.of(2026, 11, 9));
+        moved.override(LocalDate.of(2026, 11, 11), "헬스장(옮김)", 5000L, 11L, null, null, null);
+        rulesBetween(from, LocalDate.of(2026, 11, 30), weekly);
+        when(occurrences.findForUserBetween(7L, from, LocalDate.of(2026, 11, 30))).thenReturn(List.of(moved));
+
+        assertThat(service.list(7L, from, LocalDate.of(2026, 11, 30), null, null, true))
+                .extracting(CashflowService.Entry::occurrenceDate, CashflowService.Entry::date,
+                        entry -> entry.item().amount())
+                .containsExactly(tuple(LocalDate.of(2026, 11, 2), LocalDate.of(2026, 11, 2), 10000L),
+                        tuple(LocalDate.of(2026, 11, 9), LocalDate.of(2026, 11, 11), 5000L),
+                        tuple(LocalDate.of(2026, 11, 16), LocalDate.of(2026, 11, 16), 10000L),
+                        tuple(LocalDate.of(2026, 11, 23), LocalDate.of(2026, 11, 23), 10000L),
+                        tuple(LocalDate.of(2026, 11, 30), LocalDate.of(2026, 11, 30), 10000L));
+
+        // 원래 회차(11/9)는 기간 안이지만 옮긴 날짜(11/11)가 기간 밖이면 보이지 않는다.
+        rulesBetween(from, LocalDate.of(2026, 11, 10), weekly);
+        when(occurrences.findForUserBetween(7L, from, LocalDate.of(2026, 11, 10))).thenReturn(List.of(moved));
+        assertThat(service.list(7L, from, LocalDate.of(2026, 11, 10), null, null, true))
+                .extracting(CashflowService.Entry::date).containsExactly(LocalDate.of(2026, 11, 2));
+
+        // 원래 회차는 기간 밖이지만 옮긴 날짜가 기간 안이면 보인다.
+        LocalDate later = LocalDate.of(2026, 11, 10);
+        rulesBetween(later, LocalDate.of(2026, 11, 12), weekly);
+        when(occurrences.findForUserBetween(7L, later, LocalDate.of(2026, 11, 12))).thenReturn(List.of(moved));
+        assertThat(service.list(7L, later, LocalDate.of(2026, 11, 12), null, null, true))
+                .extracting(CashflowService.Entry::occurrenceDate, CashflowService.Entry::date)
+                .containsExactly(tuple(LocalDate.of(2026, 11, 9), LocalDate.of(2026, 11, 11)));
+    }
+
+    @Test
+    void 제외한_회차는_빠지고_덮어쓰지_않은_회차_행은_규칙_값으로_한_번만_나온다() {
+        LocalDate from = LocalDate.of(2026, 11, 1);
+        LocalDate to = LocalDate.of(2026, 11, 30);
+        CashflowItem weekly = saved(41L, new CashflowItem(7L, 11L, null, "헬스장", CashflowItem.Direction.EXPENSE,
+                10000L, LocalDate.of(2026, 11, 2), CashflowItem.RecurrenceType.WEEKLY, null, null, null));
+        CashflowOccurrence first = occurrence(51L, weekly, LocalDate.of(2026, 11, 2));
+        CashflowOccurrence excluded = occurrence(52L, weekly, LocalDate.of(2026, 11, 16));
+        excluded.exclude();
+        rulesBetween(from, to, weekly);
+        when(occurrences.findForUserBetween(7L, from, to)).thenReturn(List.of(first, excluded));
+
+        assertThat(service.list(7L, from, to, null, null, true))
+                .extracting(CashflowService.Entry::occurrenceDate)
+                .containsExactly(LocalDate.of(2026, 11, 2), LocalDate.of(2026, 11, 9),
+                        LocalDate.of(2026, 11, 23), LocalDate.of(2026, 11, 30));
+    }
+
+    @Test
+    void 결제와_연결된_회차는_덮어쓰지_않았어도_그_행의_값을_쓴다() {
+        LocalDate from = LocalDate.of(2026, 11, 1);
+        LocalDate to = LocalDate.of(2026, 11, 30);
+        CashflowItem monthly = saved(41L, new CashflowItem(7L, 11L, null, "구독", CashflowItem.Direction.EXPENSE,
+                12000L, LocalDate.of(2026, 11, 5), CashflowItem.RecurrenceType.MONTHLY, null, null, null));
+        CashflowOccurrence paid = occurrence(51L, monthly, LocalDate.of(2026, 11, 5));
+        // 결제 연결 뒤 규칙 금액이 바뀐 상황: 행은 결제 당시 금액을 갖고 있다.
+        ReflectionTestUtils.setField(monthly, "amount", 15000L);
+        rulesBetween(from, to, monthly);
+        when(occurrences.findForUserBetween(7L, from, to)).thenReturn(List.of(paid));
+        when(occurrences.findMatchedIds(List.of(51L))).thenReturn(List.of(51L));
+
+        assertThat(service.list(7L, from, to, null, null, true))
+                .extracting(CashflowService.Entry::occurrenceDate, entry -> entry.item().amount())
+                .containsExactly(tuple(LocalDate.of(2026, 11, 5), 12000L));
+    }
+
+    @Test
+    void 기간_밖_규칙에서_옮겨_들어온_회차도_목록_조건을_걸어_보여_준다() {
+        LocalDate from = LocalDate.of(2026, 12, 1);
+        LocalDate to = LocalDate.of(2026, 12, 31);
+        CashflowItem ended = saved(41L, new CashflowItem(7L, 11L, null, "월세", CashflowItem.Direction.EXPENSE,
+                500000L, LocalDate.of(2026, 10, 25), CashflowItem.RecurrenceType.MONTHLY,
+                LocalDate.of(2026, 11, 30), null, null));
+        CashflowOccurrence moved = occurrence(51L, ended, LocalDate.of(2026, 11, 25));
+        moved.override(LocalDate.of(2026, 12, 2), "월세", 500000L, 11L, null, null, null);
+        rulesBetween(from, to);
+        when(occurrences.findForUserBetween(7L, from, to)).thenReturn(List.of(moved));
+        when(items.findAllById(Set.of(41L))).thenReturn(List.of(ended));
+
+        assertThat(service.list(7L, from, to, null, null, true))
+                .extracting(entry -> entry.item().id(), CashflowService.Entry::date)
+                .containsExactly(tuple(41L, LocalDate.of(2026, 12, 2)));
+        // 같은 회차도 유형 조건이 맞지 않으면 빠진다.
+        when(items.findRulesForUser(7L, from, to, CashflowItem.ItemKind.SCHEDULED, CashflowItem.RecurrenceType.NONE,
+                CashflowItem.Direction.INCOME, CashflowItem.Status.CONFIRMED)).thenReturn(List.of());
+        assertThat(service.list(7L, from, to, CashflowItem.Direction.INCOME, null, true)).isEmpty();
+    }
+
+    @Test
     void 목록_기간을_생략하면_오늘부터_30일이다() {
         service.list(7L, null, null, null, null, true);
 
@@ -331,6 +425,22 @@ class CashflowServiceTest {
                 .satisfies(error -> assertThat(((BusinessException) error).getErrorCode())
                         .isEqualTo(ErrorCode.UNAUTHORIZED));
         verify(items, never()).findRulesForUser(any(), any(), any(), any(), any(), any(), any());
+    }
+
+    private void rulesBetween(LocalDate from, LocalDate to, CashflowItem... rules) {
+        when(items.findRulesForUser(7L, from, to, CashflowItem.ItemKind.SCHEDULED, CashflowItem.RecurrenceType.NONE,
+                null, CashflowItem.Status.CONFIRMED)).thenReturn(List.of(rules));
+    }
+
+    private static CashflowItem saved(Long id, CashflowItem item) {
+        ReflectionTestUtils.setField(item, "id", id);
+        return item;
+    }
+
+    private static CashflowOccurrence occurrence(Long id, CashflowItem rule, LocalDate occurrenceDate) {
+        CashflowOccurrence occurrence = CashflowOccurrence.of(rule, occurrenceDate);
+        ReflectionTestUtils.setField(occurrence, "id", id);
+        return occurrence;
     }
 
     private void savedWithId(Long id) {

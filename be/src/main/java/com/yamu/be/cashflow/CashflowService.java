@@ -7,14 +7,18 @@ import com.yamu.be.card.domain.CardIssuerStatus;
 import com.yamu.be.global.common.ApiResponse.FieldErrorResponse;
 import com.yamu.be.global.exception.BusinessException;
 import com.yamu.be.global.exception.ErrorCode;
+import java.time.Clock;
 import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -31,13 +35,15 @@ public class CashflowService {
     private final CashflowOccurrenceRepository occurrences;
     private final AccountQueryService accounts;
     private final CardQueryService cards;
+    private final Clock clock;
 
     CashflowService(CashflowItemRepository items, CashflowOccurrenceRepository occurrences,
-            AccountQueryService accounts, CardQueryService cards) {
+            AccountQueryService accounts, CardQueryService cards, Clock clock) {
         this.items = items;
         this.occurrences = occurrences;
         this.accounts = accounts;
         this.cards = cards;
+        this.clock = clock;
     }
 
     /** 예정 수입·지출 규칙과 첫 발생 건을 저장하고 저장된 규칙을 돌려준다. */
@@ -48,7 +54,7 @@ public class CashflowService {
             throw new BusinessException(ErrorCode.INVALID_REQUEST);
         }
         command = normalize(command);
-        CashflowItem.RecurrenceType recurrence = validate(command);
+        CashflowItem.RecurrenceType recurrence = validate(command, today());
         // 남의 것·없는 것·연결 해제·등록 해제는 BE 1 조회가 404 RESOURCE_NOT_FOUND로 던진다.
         if (command.accountId() != null) {
             accounts.requireConnectedAccount(authenticatedUserId, command.accountId());
@@ -78,7 +84,7 @@ public class CashflowService {
     public List<Entry> list(Long authenticatedUserId, LocalDate from, LocalDate to,
             CashflowItem.Direction direction, CashflowItem.Status status, boolean expand) {
         requireUser(authenticatedUserId);
-        LocalDate start = from == null ? LocalDate.now(KOREA) : from;
+        LocalDate start = from == null ? today() : from;
         requireStorable(start, "from");
         if (to != null) {
             requireStorable(to, "to");
@@ -92,21 +98,81 @@ public class CashflowService {
         if (ChronoUnit.DAYS.between(start, end) + 1 > MAX_QUERY_DAYS) {
             throw invalid("to", "조회 기간은 최대 " + MAX_QUERY_DAYS + "일입니다.");
         }
+        CashflowItem.Status wanted = status == null ? CashflowItem.Status.CONFIRMED : status;
         List<Item> rules = items.findRulesForUser(authenticatedUserId, start, end, CashflowItem.ItemKind.SCHEDULED,
-                CashflowItem.RecurrenceType.NONE, direction,
-                status == null ? CashflowItem.Status.CONFIRMED : status).stream().map(Item::from).toList();
+                CashflowItem.RecurrenceType.NONE, direction, wanted).stream().map(Item::from).toList();
         if (!expand) {
-            return rules.stream().map(rule -> new Entry(rule, rule.scheduledDate())).toList();
+            return rules.stream().map(rule -> new Entry(rule, rule.scheduledDate(), rule.scheduledDate())).toList();
         }
-        // 회차별 수정·제외(cashflow_occurrence)는 Task 7.1.3에서 생긴다. 그 전까지는 규칙만으로 펼친다.
+        return expand(authenticatedUserId, rules, start, end, direction, wanted);
+    }
+
+    /**
+     * 규칙을 기간 안의 회차로 펼치고, 저장된 회차로 덮는다.
+     * 제외한 회차는 빼고, 이번 회차만 고친 회차와 실제 결제와 연결된 회차는 그 행의 값과 예정일로 보여 준다.
+     * 날짜를 옮긴 회차는 옮긴 예정일로 기간 안팎을 가른다. 규칙 자체가 기간 밖이어도 옮겨 들어온 회차는 보여 준다.
+     */
+    private List<Entry> expand(Long userId, List<Item> rules, LocalDate start, LocalDate end,
+            CashflowItem.Direction direction, CashflowItem.Status status) {
+        List<CashflowOccurrence> rows = occurrences.findForUserBetween(userId, start, end);
+        Set<Long> matched = rows.isEmpty() ? Set.of()
+                : new HashSet<>(occurrences.findMatchedIds(rows.stream().map(CashflowOccurrence::getId).toList()));
+        Map<Slot, CashflowOccurrence> rowBySlot = new HashMap<>();
+        for (CashflowOccurrence row : rows) {
+            rowBySlot.put(new Slot(row.getCashflowItemId(), row.getOccurrenceDate()), row);
+        }
+
         List<Entry> entries = new ArrayList<>();
         for (Item rule : rules) {
             for (LocalDate date : occurrenceDates(rule, start, end)) {
-                entries.add(new Entry(rule, date));
+                CashflowOccurrence row = rowBySlot.get(new Slot(rule.id(), date));
+                // 저장된 값을 쓰는 회차는 아래에서 옮긴 예정일 기준으로 따로 넣는다.
+                if (row == null || !(row.getStatus() == CashflowOccurrence.Status.EXCLUDED
+                        || usesRowValues(row, matched))) {
+                    entries.add(new Entry(rule, date, date));
+                }
             }
         }
-        entries.sort(Comparator.comparing(Entry::occurrenceDate).thenComparing(entry -> entry.item().id()));
+
+        Map<Long, Item> ruleById = new HashMap<>();
+        rules.forEach(rule -> ruleById.put(rule.id(), rule));
+        List<CashflowOccurrence> fixed = rows.stream()
+                .filter(row -> row.getStatus() == CashflowOccurrence.Status.CONFIRMED && usesRowValues(row, matched))
+                .filter(row -> !row.getScheduledDate().isBefore(start) && !row.getScheduledDate().isAfter(end))
+                .toList();
+        // 기간 밖 규칙에서 옮겨 들어온 회차는 규칙을 따로 읽고 목록 조건(종류·유형·상태)을 똑같이 건다.
+        Set<Long> missing = new HashSet<>();
+        fixed.forEach(row -> {
+            if (!ruleById.containsKey(row.getCashflowItemId())) {
+                missing.add(row.getCashflowItemId());
+            }
+        });
+        if (!missing.isEmpty()) {
+            items.findAllById(missing).stream()
+                    .filter(rule -> rule.getUserId().equals(userId)
+                            && rule.getItemKind() == CashflowItem.ItemKind.SCHEDULED
+                            && (direction == null || rule.getDirection() == direction)
+                            && rule.getStatus() == status)
+                    .forEach(rule -> ruleById.put(rule.getId(), Item.from(rule)));
+        }
+        for (CashflowOccurrence row : fixed) {
+            Item rule = ruleById.get(row.getCashflowItemId());
+            if (rule != null) {
+                entries.add(new Entry(rule.with(row), row.getOccurrenceDate(), row.getScheduledDate()));
+            }
+        }
+        entries.sort(Comparator.comparing(Entry::date).thenComparing(entry -> entry.item().id())
+                .thenComparing(Entry::occurrenceDate));
         return entries;
+    }
+
+    /** 이번 회차만 고쳤거나 실제 결제와 연결된 회차는 규칙 값이 바뀌어도 그 행의 값을 쓴다. */
+    private static boolean usesRowValues(CashflowOccurrence row, Set<Long> matched) {
+        return row.isOverridden() || matched.contains(row.getId());
+    }
+
+    private LocalDate today() {
+        return LocalDate.now(clock.withZone(KOREA));
     }
 
     /**
@@ -156,7 +222,7 @@ public class CashflowService {
         return value == null || value.isBlank() ? null : value.strip();
     }
 
-    private static CashflowItem.RecurrenceType validate(CreateCommand command) {
+    private static CashflowItem.RecurrenceType validate(CreateCommand command, LocalDate today) {
         String title = command.title();
         if (command.direction() == null) {
             throw invalid("type", "수입·지출 유형을 선택해 주세요.");
@@ -173,7 +239,7 @@ public class CashflowService {
         if (command.scheduledDate() == null) {
             throw invalid("date", "첫 발생일을 입력해 주세요.");
         }
-        if (command.scheduledDate().isBefore(LocalDate.now(KOREA))) {
+        if (command.scheduledDate().isBefore(today)) {
             throw invalid("date", "첫 발생일은 오늘 이후여야 합니다.");
         }
         requireStorable(command.scheduledDate(), "date");
@@ -250,8 +316,13 @@ public class CashflowService {
             Integer dayOfMonth, DayOfWeek dayOfWeek, LocalDate recurrenceEndDate,
             Long accountId, Long userCardId, String merchantCategoryCode, String memo) {}
 
-    /** 목록의 한 줄. 펼친 반복 회차는 같은 규칙(item)에 발생일만 다르다. */
-    public record Entry(Item item, LocalDate occurrenceDate) {}
+    /**
+     * 목록의 한 줄. occurrenceDate는 규칙이 정한 원래 회차(이번 회차 수정·삭제 때 식별값), date는 실제 예정일이다.
+     * 이번 회차만 날짜를 옮기지 않았으면 둘이 같다.
+     */
+    public record Entry(Item item, LocalDate occurrenceDate, LocalDate date) {}
+
+    private record Slot(Long cashflowItemId, LocalDate occurrenceDate) {}
 
     public record Item(Long id, Long accountId, Long userCardId, String title,
             CashflowItem.Direction direction, Long amount, LocalDate scheduledDate,
@@ -262,6 +333,13 @@ public class CashflowService {
                     item.getTitle(), item.getDirection(), item.getAmount(),
                     item.getScheduledDate(), item.getRecurrenceType(), item.getRecurrenceEndDate(),
                     item.getMerchantCategoryCode(), item.getStatus(), item.getMemo());
+        }
+
+        /** 규칙의 ID·반복·상태는 두고 회차에 저장된 값으로 바꾼다. */
+        Item with(CashflowOccurrence row) {
+            return new Item(id, row.getAccountId(), row.getUserCardId(), row.getTitle(), direction,
+                    row.getAmount(), scheduledDate, recurrenceType, recurrenceEndDate,
+                    row.getMerchantCategoryCode(), status, row.getMemo());
         }
     }
 }
