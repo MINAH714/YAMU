@@ -17,7 +17,8 @@ import org.springframework.test.context.TestPropertySource;
 /** Unit migration preserves existing policies, usage, restoration and foreign keys. */
 @TestPropertySource(properties = {
         "spring.application.name=yamu-limit-unit-migration-test",
-        "spring.flyway.target=20261028.2"
+        "spring.flyway.target=20261028.2",
+        "spring.jpa.hibernate.ddl-auto=none"
 })
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 class LimitUnitMigrationTest extends MySqlTestSupport {
