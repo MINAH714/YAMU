@@ -2,6 +2,8 @@ package com.yamu.be.cashflow;
 
 import com.yamu.be.account.AccountQueryService;
 import com.yamu.be.card.CardQueryService;
+import com.yamu.be.card.UserCardRef;
+import com.yamu.be.card.domain.CardIssuerStatus;
 import com.yamu.be.global.common.ApiResponse.FieldErrorResponse;
 import com.yamu.be.global.exception.BusinessException;
 import com.yamu.be.global.exception.ErrorCode;
@@ -47,7 +49,11 @@ public class CashflowService {
             accounts.requireConnectedAccount(authenticatedUserId, command.accountId());
         }
         if (command.userCardId() != null) {
-            cards.requireRegisteredCard(authenticatedUserId, command.userCardId());
+            UserCardRef card = cards.requireRegisteredCard(authenticatedUserId, command.userCardId());
+            // 카드사 정지·만료 카드로는 결제가 일어날 수 없어 예보를 틀리게 하므로 받지 않는다(추천도 정지 카드를 제외한다).
+            if (card.issuerStatus() != CardIssuerStatus.NORMAL) {
+                throw invalid("userCardId", "정지되었거나 만료된 카드는 결제 카드로 지정할 수 없습니다.");
+            }
         }
 
         CashflowItem item = items.save(new CashflowItem(authenticatedUserId,

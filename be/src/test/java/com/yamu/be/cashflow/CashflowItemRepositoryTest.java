@@ -149,6 +149,25 @@ class CashflowItemRepositoryTest extends MySqlTestSupport {
         }
     }
 
+    @Test
+    void 카드사_정지_만료_카드는_등록되지_않는다() {
+        long owner = fixtures.user();
+        long account = fixtures.account(owner);
+        long product = fixtures.product();
+        LocalDate tomorrow = LocalDate.now(ZoneId.of("Asia/Seoul")).plusDays(1);
+
+        for (String issuerStatus : List.of("SUSPENDED", "EXPIRED")) {
+            long card = fixtures.card(owner, product, account, "ACTIVE");
+            jdbc.update("UPDATE user_card SET issuer_status = ? WHERE user_card_id = ?", issuerStatus, card);
+            assertThatThrownBy(() -> service.create(owner, cardExpense(tomorrow, card)))
+                    .isInstanceOf(BusinessException.class)
+                    .satisfies(error -> assertThat(((BusinessException) error).getErrorCode())
+                            .isEqualTo(ErrorCode.INVALID_REQUEST));
+        }
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM cashflow_item WHERE user_id = ?",
+                Integer.class, owner)).isZero();
+    }
+
     private static CashflowService.CreateCommand cardExpense(LocalDate date, long card) {
         return new CashflowService.CreateCommand("구독", CashflowItem.Direction.EXPENSE, 10000L, date,
                 CashflowItem.RecurrenceType.NONE, null, null, null, null, card, null, null);

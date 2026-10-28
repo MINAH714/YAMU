@@ -96,6 +96,16 @@ class CashflowServiceTest {
     }
 
     @Test
+    void 카드사_정지_만료_카드는_결제_카드로_지정할_수_없다() {
+        when(cards.requireRegisteredCard(7L, 12L)).thenReturn(card(12L, CardIssuerStatus.SUSPENDED));
+        when(cards.requireRegisteredCard(7L, 13L)).thenReturn(card(13L, CardIssuerStatus.EXPIRED));
+
+        assertInvalid(command(10000L, null, 12L), "userCardId");
+        assertInvalid(command(10000L, null, 13L), "userCardId");
+        verify(items, never()).save(any());
+    }
+
+    @Test
     void 잘못된_금액과_지난_날짜는_저장하지_않는다() {
         assertInvalid(command(0L, 11L, null), "amount");
         assertInvalid(new CashflowService.CreateCommand("월세", CashflowItem.Direction.EXPENSE, 10000L,
