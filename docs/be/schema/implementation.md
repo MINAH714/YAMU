@@ -26,7 +26,7 @@ DB 스키마·업무 엔티티·서비스를 구현하는 개발자와 AI를 위
 ## 공통 규칙
 
 - 모든 PK/FK는 signed BIGINT. 원화는 BIGINT, 포인트는 DECIMAL(19,6), 비율은 DECIMAL(9,6)이다.
-- created_at은 모든 테이블, updated_at은 수정 가능한 테이블에 있다. JPA Auditing이 UTC로 채우며 SQL에서 현재 시각으로 자동 갱신하지 않는다. TIMESTAMP의 MySQL 8.0 범위는 2038년까지다.
+- created_at은 모든 테이블, updated_at은 수정 가능한 테이블에 있다. JPA Auditing이 UTC로 채우며 SQL에서 현재 시각으로 자동 갱신하지 않는다. TIMESTAMP의 MySQL 8.4.11 범위는 2038년까지다.
 - 한국 기준 일자는 DATE, 월은 해당 월 1일이다. 실적 월을 UTC 승인 시각에서 그대로 추출하지 않는다.
 - version은 동시 변경 대상에 두지만 JPA @Version 또는 WHERE version 조건을 사용해야 락 효과가 있다. 트랜잭션과 재시도는 서비스 구현 책임이다.
 - 이름은 utf8mb4_0900_bin으로 비교한다. UUID·요청 키는 ascii_bin으로 대소문자를 구분하며 앱은 표준 소문자 UUID로 정규화한다.

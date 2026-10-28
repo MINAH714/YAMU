@@ -1,6 +1,6 @@
 # BE 로컬 개발 환경 (MySQL·Redis)
 
-BE를 내 PC에서 개발할 때 필요한 MySQL 8과 Redis 7을 Docker로 띄우고, BE를 거기에 연결하는 방법입니다.
+BE를 내 PC에서 개발할 때 필요한 MySQL 8.4.11과 Redis 7을 Docker로 띄우고, BE를 거기에 연결하는 방법입니다. MySQL 버전은 운영 RDS·테스트 컨테이너와 맞춥니다.
 
 - **Docker로 띄우는 것:** MySQL, Redis (`be/docker-compose.yml`)
 - **그냥 실행하는 것:** BE(Spring Boot). 지금처럼 `bootRun`이나 IntelliJ로 실행합니다.

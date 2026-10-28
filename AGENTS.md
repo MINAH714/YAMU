@@ -27,7 +27,7 @@ Claude Code, Codex, Cursor 같은 AI 코딩 도구가 YAMU 저장소에서 작�
 
 ```powershell
 # BE (be 폴더). 처음 한 번: application-local.yml.example을 application-local.yml로 복사
-docker compose up -d          # 로컬 MySQL 8.0 + Redis 7
+docker compose up -d          # 로컬 MySQL 8.4.11 + Redis 7
 .\gradlew.bat bootRun         # http://localhost:8080/swagger-ui.html
 .\gradlew.bat test
 
