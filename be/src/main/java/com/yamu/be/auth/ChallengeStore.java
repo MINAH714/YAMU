@@ -1,5 +1,6 @@
 package com.yamu.be.auth;
 
+import com.yamu.be.auth.domain.StepUpPurpose;
 import java.security.SecureRandom;
 import java.util.Base64;
 import java.util.Optional;
@@ -8,30 +9,31 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
 
 /**
- * 로그인 challenge(서명할 일회용 문자열)를 Redis에 60초 보관한다.
+ * 로그인·본인 인증에 쓰는 1회용 challenge를 Redis에 60초 보관한다. 기기 키로 서명할 대상이다.
  *
  * <pre>
- * auth:login-challenge:{challengeId} → "{userDeviceId}:{challenge}"   TTL 60초
+ * auth:challenge:{challengeId} → "{userDeviceId}:{purpose}:{challenge}"   TTL 60초
  * </pre>
  *
- * 꺼낼 때 GETDEL로 읽기와 삭제를 한 명령에 한다. GET 다음 DEL로 나누면 같은 challenge로 동시에 온 두 요청이
- * 둘 다 값을 읽어 재사용 공격이 통과한다. 60초가 지나면 Redis가 지우므로 따로 지우는 작업이 없다.
+ * <p>용도(purpose)를 같이 저장해서 로그인용 challenge로 본인 인증을 하거나, 바코드용 challenge로 계좌 연결 토큰을 받는 것을 막는다.
+ * 꺼낼 때 GETDEL로 지워서 같은 challenge로 두 번 검증할 수 없다.
  */
 @Component
 @RequiredArgsConstructor
-public class LoginChallengeStore {
+public class ChallengeStore {
 
-    private static final String KEY_PREFIX = "auth:login-challenge:";
+    private static final String KEY_PREFIX = "auth:challenge:";
     private static final Base64.Encoder URL = Base64.getUrlEncoder().withoutPadding();
 
     private final StringRedisTemplate redis;
     private final AuthProperties properties;
     private final SecureRandom random = new SecureRandom();
 
-    public IssuedChallenge issue(Long userDeviceId) {
-        String challengeId = "lc_" + randomToken(16);
+    public IssuedChallenge issue(Long userDeviceId, StepUpPurpose purpose) {
+        String challengeId = "ch_" + randomToken(16);
         String challenge = randomToken(32);
-        redis.opsForValue().set(KEY_PREFIX + challengeId, userDeviceId + ":" + challenge, properties.challengeTtl());
+        redis.opsForValue().set(KEY_PREFIX + challengeId, userDeviceId + ":" + purpose.name() + ":" + challenge,
+                properties.challengeTtl());
         return new IssuedChallenge(challengeId, challenge, properties.challengeTtl().toSeconds());
     }
 
@@ -44,9 +46,9 @@ public class LoginChallengeStore {
         if (value == null) {
             return Optional.empty();
         }
-        int sep = value.indexOf(':');
+        String[] parts = value.split(":", 3);
         try {
-            return Optional.of(new StoredChallenge(Long.valueOf(value.substring(0, sep)), value.substring(sep + 1)));
+            return Optional.of(new StoredChallenge(Long.valueOf(parts[0]), StepUpPurpose.valueOf(parts[1]), parts[2]));
         } catch (RuntimeException e) {
             return Optional.empty();
         }
@@ -61,6 +63,11 @@ public class LoginChallengeStore {
     public record IssuedChallenge(String challengeId, String challenge, long expiresIn) {
     }
 
-    public record StoredChallenge(Long userDeviceId, String challenge) {
+    public record StoredChallenge(Long userDeviceId, StepUpPurpose purpose, String challenge) {
+
+        /** 이 기기에서 이 용도로 발급한 challenge인지. */
+        public boolean isFor(Long deviceId, StepUpPurpose expectedPurpose) {
+            return userDeviceId.equals(deviceId) && purpose == expectedPurpose;
+        }
     }
 }
