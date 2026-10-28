@@ -6,6 +6,7 @@ import com.yamu.be.global.exception.ErrorCode;
 import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.ZoneId;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Map;
 import org.springframework.stereotype.Service;
@@ -14,6 +15,8 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class CashflowService {
     private static final ZoneId KOREA = ZoneId.of("Asia/Seoul");
+    /** 조회 기간 상한(시작일·종료일 포함). 반복 회차를 기간만큼 펼쳐 저장하므로 큰 기간을 막는다. */
+    private static final long MAX_QUERY_DAYS = 366;
 
     private final CashflowItemRepository items;
     private final CashflowOccurrenceRepository occurrences;
@@ -33,8 +36,8 @@ public class CashflowService {
         if (command == null) {
             throw new BusinessException(ErrorCode.INVALID_REQUEST);
         }
-        String title = command.title() == null ? null : command.title().trim();
-        CashflowItem.RecurrenceType recurrence = validate(command, title);
+        command = normalize(command);
+        CashflowItem.RecurrenceType recurrence = validate(command);
         if (command.accountId() != null
                 && !ownership.hasConnectedAccount(authenticatedUserId, command.accountId())) {
             throw new BusinessException(ErrorCode.RESOURCE_NOT_FOUND);
@@ -45,7 +48,7 @@ public class CashflowService {
         }
 
         CashflowItem item = items.save(new CashflowItem(authenticatedUserId,
-                command.accountId(), command.userCardId(), title,
+                command.accountId(), command.userCardId(), command.title(),
                 command.direction(), command.amount(), command.scheduledDate(), recurrence,
                 command.recurrenceEndDate(), command.merchantCategoryCode(), command.memo()));
         occurrences.save(CashflowOccurrence.firstOf(item));
@@ -54,7 +57,7 @@ public class CashflowService {
 
     /**
      * 조회 기간과 겹치는 사용자의 예정 규칙을 돌려준다. 반복 회차를 날짜별로 펼치지 않는다.
-     * from을 생략하면 한국 날짜 오늘, to를 생략하면 from을 포함한 30일째 날이다.
+     * from을 생략하면 한국 날짜 오늘, to를 생략하면 from을 포함한 30일째 날이다. 기간은 최대 366일이다.
      */
     @Transactional(readOnly = true)
     public List<Item> listRules(Long authenticatedUserId, LocalDate from, LocalDate to,
@@ -65,16 +68,33 @@ public class CashflowService {
         if (start.isAfter(end)) {
             throw invalid("to", "조회 종료일은 시작일보다 빠를 수 없습니다.");
         }
+        if (ChronoUnit.DAYS.between(start, end) + 1 > MAX_QUERY_DAYS) {
+            throw invalid("to", "조회 기간은 최대 " + MAX_QUERY_DAYS + "일입니다.");
+        }
         return items.findRulesForUser(authenticatedUserId, start, end, CashflowItem.ItemKind.SCHEDULED,
                 CashflowItem.RecurrenceType.NONE, direction,
                 status == null ? CashflowItem.Status.CONFIRMED : status).stream().map(Item::from).toList();
     }
 
-    private static CashflowItem.RecurrenceType validate(CreateCommand command, String title) {
+    /** 이름·업종 코드·메모의 앞뒤 공백(유니코드 공백 포함)을 없애고, 빈 업종 코드·메모는 NULL로 바꾼다. */
+    private static CreateCommand normalize(CreateCommand command) {
+        return new CreateCommand(command.title() == null ? null : command.title().strip(),
+                command.direction(), command.amount(), command.scheduledDate(), command.recurrenceType(),
+                command.dayOfMonth(), command.dayOfWeek(), command.recurrenceEndDate(),
+                command.accountId(), command.userCardId(),
+                blankToNull(command.merchantCategoryCode()), blankToNull(command.memo()));
+    }
+
+    private static String blankToNull(String value) {
+        return value == null || value.isBlank() ? null : value.strip();
+    }
+
+    private static CashflowItem.RecurrenceType validate(CreateCommand command) {
+        String title = command.title();
         if (command.direction() == null) {
             throw invalid("type", "수입·지출 유형을 선택해 주세요.");
         }
-        if (title == null || title.isEmpty()) {
+        if (title == null || title.isBlank()) {
             throw invalid("title", "이름을 입력해 주세요.");
         }
         if (title.length() > 30) {

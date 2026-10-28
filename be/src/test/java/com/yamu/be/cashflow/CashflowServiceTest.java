@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -145,19 +146,38 @@ class CashflowServiceTest {
     }
 
     @Test
-    void 이름은_앞뒤_공백을_뺀_길이로_검사하고_뺀_값으로_저장한다() {
+    void 이름은_유니코드_공백까지_앞뒤를_뺀_길이로_검사하고_뺀_값으로_저장한다() {
         when(ownership.hasConnectedAccount(7L, 11L)).thenReturn(true);
         savedWithId(34L);
         String thirtyChars = "가".repeat(30);
 
+        // trim()은 U+3000(전각 공백)·U+2003(em 공백)을 지우지 못한다.
         CashflowService.Item result = service.create(7L, new CashflowService.CreateCommand(
-                "  " + thirtyChars + "  ", CashflowItem.Direction.EXPENSE, 10000L, tomorrow,
+                " 　" + thirtyChars + "  ", CashflowItem.Direction.EXPENSE, 10000L, tomorrow,
                 CashflowItem.RecurrenceType.NONE, null, null, null, 11L, null, null, null));
 
         assertThat(result.title()).isEqualTo(thirtyChars);
-        assertInvalid(new CashflowService.CreateCommand("   ", CashflowItem.Direction.EXPENSE, 10000L,
+        assertInvalid(new CashflowService.CreateCommand("　  ", CashflowItem.Direction.EXPENSE, 10000L,
                 tomorrow, CashflowItem.RecurrenceType.NONE, null, null, null,
                 11L, null, null, null), "title");
+    }
+
+    @Test
+    void 빈_업종_코드와_메모는_NULL로_저장하고_값은_앞뒤_공백을_뺀다() {
+        when(ownership.hasConnectedAccount(7L, 11L)).thenReturn(true);
+        savedWithId(35L);
+
+        service.create(7L, new CashflowService.CreateCommand("월세", CashflowItem.Direction.EXPENSE, 10000L,
+                tomorrow, CashflowItem.RecurrenceType.NONE, null, null, null, 11L, null, "  ", "　"));
+        service.create(7L, new CashflowService.CreateCommand("월세", CashflowItem.Direction.EXPENSE, 10000L,
+                tomorrow, CashflowItem.RecurrenceType.NONE, null, null, null, 11L, null, " CAFE ", " 메모 "));
+
+        ArgumentCaptor<CashflowItem> saved = ArgumentCaptor.forClass(CashflowItem.class);
+        verify(items, times(2)).save(saved.capture());
+        assertThat(saved.getAllValues().get(0).getMerchantCategoryCode()).isNull();
+        assertThat(saved.getAllValues().get(0).getMemo()).isNull();
+        assertThat(saved.getAllValues().get(1).getMerchantCategoryCode()).isEqualTo("CAFE");
+        assertThat(saved.getAllValues().get(1).getMemo()).isEqualTo("메모");
     }
 
     @Test
@@ -189,6 +209,20 @@ class CashflowServiceTest {
                 .isInstanceOf(BusinessException.class)
                 .satisfies(error -> assertThat(fieldOf((BusinessException) error)).isEqualTo("to"));
         verify(items, never()).findRulesForUser(any(), any(), any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void 목록_기간은_시작일과_종료일을_포함해_최대_366일이다() {
+        service.listRules(7L, today, today.plusDays(365), null, null);
+        verify(items).findRulesForUser(7L, today, today.plusDays(365), CashflowItem.ItemKind.SCHEDULED,
+                CashflowItem.RecurrenceType.NONE, null, CashflowItem.Status.CONFIRMED);
+
+        assertThatThrownBy(() -> service.listRules(7L, today, today.plusDays(366), null, null))
+                .isInstanceOf(BusinessException.class)
+                .satisfies(error -> assertThat(fieldOf((BusinessException) error)).isEqualTo("to"));
+        assertThatThrownBy(() -> service.listRules(7L, today, LocalDate.of(9999, 12, 31), null, null))
+                .isInstanceOf(BusinessException.class)
+                .satisfies(error -> assertThat(fieldOf((BusinessException) error)).isEqualTo("to"));
     }
 
     @Test
