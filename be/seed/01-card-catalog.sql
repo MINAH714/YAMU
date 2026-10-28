@@ -1,0 +1,327 @@
+-- S15P31E103-97 / LOCAL DEVELOPMENT ONLY / MySQL 8.0.16+.
+-- Products, benefit definitions, limits and verified target mappings.
+-- CONDITION values are seed data; application interpretation is a separate implementation.
+-- Transaction context must be verified by the server; missing facts are UNKNOWN.
+-- Read README.md before connecting application code to these rows.
+-- Execute as one batch, stop on the first error (never use mysql --force).
+SET NAMES utf8mb4;
+SET time_zone = '+00:00';
+
+CREATE TEMPORARY TABLE seed97_benefit (
+    product_id BIGINT NOT NULL,
+    code VARCHAR(64) NOT NULL,
+    name VARCHAR(150) NOT NULL,
+    rate DECIMAL(9,6) NOT NULL,
+    min_payment BIGINT NOT NULL,
+    min_performance BIGINT NOT NULL,
+    conditions JSON NULL,
+    daily_count BIGINT NULL,
+    monthly_count BIGINT NULL,
+    transaction_cap BIGINT NULL,
+    monthly_cap BIGINT NULL,
+    shared_group VARCHAR(64) NULL,
+    terms_url VARCHAR(1000) NOT NULL
+);
+CREATE TEMPORARY TABLE seed97_limit (
+    product_id BIGINT NOT NULL,
+    code VARCHAR(64) NOT NULL,
+    name VARCHAR(150) NOT NULL,
+    period_type VARCHAR(16) NOT NULL,
+    unit VARCHAR(16) NOT NULL,
+    limit_value BIGINT NULL
+);
+CREATE TEMPORARY TABLE seed97_tier (
+    product_id BIGINT NOT NULL,
+    group_code VARCHAR(64) NOT NULL,
+    lower_amount BIGINT NOT NULL,
+    upper_amount BIGINT NULL,
+    limit_value BIGINT NOT NULL
+);
+
+START TRANSACTION;
+SET @seed97_now = UTC_TIMESTAMP(6);
+SET @seed97_mr_url = 'https://www.shinhancard.com/pconts/html/card/apply/credit/1187937_2207.html';
+SET @seed97_daiso_url = 'https://www.shinhancard.com/pconts/html/card/apply/credit/1188413_2207.html';
+SET @seed97_zero_url = 'https://www.hyundaicard.com/cpc/cr/CPCCR0201_01.hc?cardWcd=ZROE3';
+
+-- Issuer codes are local catalog identifiers, NOT SSAFY bank/product codes.
+INSERT INTO card_product (issuer_code, product_name, card_type, terms_url, created_at, updated_at)
+SELECT s.issuer, s.name, 'CREDIT', s.url, @seed97_now, @seed97_now
+FROM (
+    SELECT 'SHINHAN' AS issuer, '신한카드 Mr.Life' AS name, @seed97_mr_url AS url
+    UNION ALL SELECT 'HYUNDAI', '현대카드 ZERO Edition3 (할인형)', @seed97_zero_url
+    UNION ALL SELECT 'SHINHAN', '다이소 신한카드', @seed97_daiso_url
+) s
+WHERE NOT EXISTS (
+    SELECT 1 FROM card_product p
+    WHERE p.issuer_code = s.issuer AND p.product_name = s.name AND p.card_type = 'CREDIT'
+);
+
+SET @seed97_mr = (SELECT card_product_id FROM card_product
+    WHERE issuer_code = 'SHINHAN' AND product_name = '신한카드 Mr.Life' AND card_type = 'CREDIT');
+SET @seed97_zero = (SELECT card_product_id FROM card_product
+    WHERE issuer_code = 'HYUNDAI' AND product_name = '현대카드 ZERO Edition3 (할인형)' AND card_type = 'CREDIT');
+SET @seed97_daiso = (SELECT card_product_id FROM card_product
+    WHERE issuer_code = 'SHINHAN' AND product_name = '다이소 신한카드' AND card_type = 'CREDIT');
+
+-- Shared groups belong to a benefit service, not to the whole Mr.Life card.
+-- Daiso's integrated group belongs to all five benefit services.
+INSERT INTO seed97_benefit VALUES
+(@seed97_zero, 'BASE_DISCOUNT', '기본 청구 할인', 0.008, 0, 0,
+ NULL, NULL, NULL, NULL, NULL, NULL, @seed97_zero_url),
+(@seed97_mr, 'UTILITY', '월납 공과금 할인', 0.10, 0, 300000,
+ NULL, 1, NULL, 5000, NULL, 'UTILITY_MONTHLY', @seed97_mr_url),
+(@seed97_mr, 'CONVENIENCE', '편의점 할인', 0.10, 0, 300000,
+ NULL, 1, 5, 1000, NULL, 'TIME_MONTHLY', @seed97_mr_url),
+(@seed97_mr, 'HOSPITAL_PHARMACY', '병원·약국 할인', 0.10, 0, 300000,
+ NULL, 1, 5, 1000, NULL, 'TIME_MONTHLY', @seed97_mr_url),
+(@seed97_mr, 'LAUNDRY', '세탁소 할인', 0.10, 0, 300000,
+ NULL, 1, 5, 1000, NULL, 'TIME_MONTHLY', @seed97_mr_url),
+(@seed97_mr, 'NIGHT_SHOPPING', '야간 온라인쇼핑 할인', 0.10, 0, 300000,
+ JSON_OBJECT('startTime', '21:00', 'endTime', '09:00'), 1, 10, 1000, NULL, 'TIME_MONTHLY', @seed97_mr_url),
+(@seed97_mr, 'NIGHT_TAXI', '야간 택시 할인', 0.10, 0, 300000,
+ JSON_OBJECT('startTime', '21:00', 'endTime', '09:00'), 1, 10, 1000, NULL, 'TIME_MONTHLY', @seed97_mr_url),
+(@seed97_mr, 'NIGHT_FOOD', '야간 식음료 할인', 0.10, 0, 300000,
+ JSON_OBJECT('startTime', '21:00', 'endTime', '09:00'), 1, 10, 1000, NULL, 'TIME_MONTHLY', @seed97_mr_url),
+(@seed97_mr, 'WEEKEND_MART', '주말 할인마트 할인', 0.10, 0, 300000,
+ JSON_OBJECT('weekdays', JSON_ARRAY('SAT', 'SUN')), 1, NULL, 5000, NULL, 'WEEKEND_MONTHLY', @seed97_mr_url),
+(@seed97_daiso, 'DAISO', '다이소 할인', 0.30, 5000, 300000,
+ NULL, 1, 3, NULL, 15000, 'INTEGRATED_MONTHLY', @seed97_daiso_url),
+(@seed97_daiso, 'CONVENIENCE', 'GS25·CU 할인', 0.10, 0, 300000,
+ NULL, 1, 5, NULL, 5000, 'INTEGRATED_MONTHLY', @seed97_daiso_url),
+(@seed97_daiso, 'COFFEE', '스타벅스·커피빈 할인', 0.10, 10000, 300000,
+ NULL, 1, 5, NULL, 7000, 'INTEGRATED_MONTHLY', @seed97_daiso_url),
+(@seed97_daiso, 'MOVIE', 'CGV·롯데시네마 할인', 0.20, 10000, 300000,
+ NULL, 1, 2, NULL, 7000, 'INTEGRATED_MONTHLY', @seed97_daiso_url),
+(@seed97_daiso, 'BAKERY', '파리바게뜨·뚜레쥬르 할인', 0.10, 10000, 300000,
+ NULL, 1, 5, NULL, 7000, 'INTEGRATED_MONTHLY', @seed97_daiso_url);
+
+-- Unknown rounding/date/cutoff fields deliberately stay NULL.
+-- Existing policy versions are never overwritten by rerunning this file.
+INSERT INTO card_benefit (card_product_id, benefit_code, policy_version, benefit_name,
+    benefit_type, calculation_type, rate, value_unit, application_timing,
+    min_payment_amount, min_performance_amount, conditions_json, terms_url, created_at)
+SELECT s.product_id, s.code, 1, s.name, 'DISCOUNT', 'RATE', s.rate, 'KRW', 'AT_BILLING',
+    s.min_payment, s.min_performance, s.conditions, s.terms_url, @seed97_now
+FROM seed97_benefit s
+WHERE NOT EXISTS (SELECT 1 FROM card_benefit b
+    WHERE b.card_product_id = s.product_id AND b.benefit_code = s.code AND b.policy_version = 1);
+
+INSERT INTO seed97_limit VALUES
+(@seed97_mr, 'UTILITY_MONTHLY', '월납 월 할인 한도', 'MONTHLY', 'KRW', NULL),
+(@seed97_mr, 'TIME_MONTHLY', 'TIME 서비스 공유 월 할인 한도', 'MONTHLY', 'KRW', NULL),
+(@seed97_mr, 'WEEKEND_MONTHLY', '주말 서비스 공유 월 할인 한도', 'MONTHLY', 'KRW', NULL),
+(@seed97_daiso, 'INTEGRATED_MONTHLY', '전체 서비스 통합 월 할인 한도', 'MONTHLY', 'KRW', NULL);
+
+INSERT INTO seed97_limit
+SELECT product_id, CONCAT(code, '_DAILY_COUNT'), CONCAT(name, ' 일 횟수'), 'DAILY', 'COUNT', daily_count
+FROM seed97_benefit WHERE daily_count IS NOT NULL;
+INSERT INTO seed97_limit
+SELECT product_id, CONCAT(code, '_MONTHLY_COUNT'), CONCAT(name, ' 월 횟수'), 'MONTHLY', 'COUNT', monthly_count
+FROM seed97_benefit WHERE monthly_count IS NOT NULL;
+INSERT INTO seed97_limit
+SELECT product_id, CONCAT(code, '_PER_TRANSACTION'), CONCAT(name, ' 건별 할인 한도'), 'PER_TRANSACTION', 'KRW', transaction_cap
+FROM seed97_benefit WHERE transaction_cap IS NOT NULL;
+INSERT INTO seed97_limit
+SELECT product_id, CONCAT(code, '_MONTHLY_AMOUNT'), CONCAT(name, ' 영역별 월 할인 한도'), 'MONTHLY', 'KRW', monthly_cap
+FROM seed97_benefit WHERE monthly_cap IS NOT NULL;
+
+INSERT INTO limit_group (card_product_id, group_code, policy_version, group_name,
+    period_type, limit_unit, base_limit_value, created_at)
+SELECT s.product_id, s.code, 1, s.name, s.period_type, s.unit, s.limit_value, @seed97_now
+FROM seed97_limit s
+WHERE NOT EXISTS (SELECT 1 FROM limit_group g
+    WHERE g.card_product_id = s.product_id AND g.group_code = s.code AND g.policy_version = 1);
+
+INSERT INTO benefit_limit_link (card_product_id, card_benefit_id, limit_group_id, created_at)
+SELECT s.product_id, b.card_benefit_id, g.limit_group_id, @seed97_now
+FROM seed97_benefit s
+JOIN card_benefit b ON b.card_product_id = s.product_id AND b.benefit_code = s.code AND b.policy_version = 1
+JOIN limit_group g ON g.card_product_id = s.product_id AND g.policy_version = 1
+    AND (g.group_code = s.shared_group
+        OR (s.daily_count IS NOT NULL AND g.group_code = CONCAT(s.code, '_DAILY_COUNT'))
+        OR (s.monthly_count IS NOT NULL AND g.group_code = CONCAT(s.code, '_MONTHLY_COUNT'))
+        OR (s.transaction_cap IS NOT NULL AND g.group_code = CONCAT(s.code, '_PER_TRANSACTION'))
+        OR (s.monthly_cap IS NOT NULL AND g.group_code = CONCAT(s.code, '_MONTHLY_AMOUNT')))
+WHERE NOT EXISTS (SELECT 1 FROM benefit_limit_link l
+    WHERE l.card_benefit_id = b.card_benefit_id AND l.limit_group_id = g.limit_group_id);
+
+INSERT INTO seed97_tier VALUES
+(@seed97_mr, 'UTILITY_MONTHLY', 300000, 500000, 3000),
+(@seed97_mr, 'UTILITY_MONTHLY', 500000, 1000000, 7000),
+(@seed97_mr, 'UTILITY_MONTHLY', 1000000, NULL, 10000),
+(@seed97_mr, 'TIME_MONTHLY', 300000, 500000, 10000),
+(@seed97_mr, 'TIME_MONTHLY', 500000, 1000000, 20000),
+(@seed97_mr, 'TIME_MONTHLY', 1000000, NULL, 30000),
+(@seed97_mr, 'WEEKEND_MONTHLY', 300000, 500000, 3000),
+(@seed97_mr, 'WEEKEND_MONTHLY', 500000, 1000000, 7000),
+(@seed97_mr, 'WEEKEND_MONTHLY', 1000000, NULL, 10000),
+(@seed97_daiso, 'INTEGRATED_MONTHLY', 300000, 700000, 10000),
+(@seed97_daiso, 'INTEGRATED_MONTHLY', 700000, 1500000, 20000),
+(@seed97_daiso, 'INTEGRATED_MONTHLY', 1500000, NULL, 40000);
+
+INSERT INTO tier_limit (limit_group_id, min_performance_amount, max_performance_amount, limit_value, created_at)
+SELECT g.limit_group_id, s.lower_amount, s.upper_amount, s.limit_value, @seed97_now
+FROM seed97_tier s
+JOIN limit_group g ON g.card_product_id = s.product_id AND g.group_code = s.group_code AND g.policy_version = 1
+WHERE NOT EXISTS (SELECT 1 FROM tier_limit t
+    WHERE t.limit_group_id = g.limit_group_id AND t.min_performance_amount = s.lower_amount);
+
+-- V2 industry names: merchant_category_code and CATEGORY.target_value use the
+-- same literal codes. No V1 hierarchy/prefix matching is assumed by this seed.
+CREATE TEMPORARY TABLE seed97_merchant (
+    brand_code VARCHAR(64) NOT NULL PRIMARY KEY,
+    name VARCHAR(150) NOT NULL,
+    category_code VARCHAR(64) NOT NULL
+);
+INSERT INTO seed97_merchant VALUES
+('DAISO', '다이소', 'HOUSEHOLD_GOODS_RETAIL'),
+('GS25', 'GS25', 'CONVENIENCE_STORE'),
+('CU', 'CU', 'CONVENIENCE_STORE'),
+('STARBUCKS', '스타벅스', 'COFFEE_SHOP'),
+('COFFEE_BEAN', '커피빈', 'COFFEE_SHOP'),
+('CGV', 'CGV', 'CINEMA'),
+('LOTTE_CINEMA', '롯데시네마', 'CINEMA'),
+('PARIS_BAGUETTE', '파리바게뜨', 'BAKERY'),
+('TOUS_LES_JOURS', '뚜레쥬르', 'BAKERY'),
+('AUCTION', '옥션', 'ONLINE_MARKETPLACE'),
+('GMARKET', 'G마켓', 'ONLINE_MARKETPLACE'),
+('AK_MALL', 'AK몰', 'ONLINE_MARKETPLACE'),
+('ELEVEN_STREET', '11번가', 'ONLINE_MARKETPLACE'),
+('TMON', '티켓몬스터', 'ONLINE_MARKETPLACE'),
+('LOTTE_HOME_SHOPPING', '롯데홈쇼핑', 'ONLINE_MARKETPLACE'),
+('COUPANG', '쿠팡', 'ONLINE_MARKETPLACE'),
+('EMART', '이마트', 'HYPERMARKET'),
+('LOTTE_MART', '롯데마트', 'HYPERMARKET'),
+('HOMEPLUS', '홈플러스', 'HYPERMARKET'),
+('SKT', 'SKT', 'TELECOMMUNICATION'),
+('KT', 'KT', 'TELECOMMUNICATION'),
+('LG_UPLUS', 'LG U+', 'TELECOMMUNICATION'),
+('YAMU_TEST_RESTAURANT', '야무 테스트 식당', 'GENERAL_RESTAURANT');
+
+-- Refuse an existing brand with a different industry instead of changing it.
+CREATE TEMPORARY TABLE seed97_guard (ok INT NOT NULL CHECK (ok = 1));
+INSERT INTO seed97_guard
+SELECT 0 FROM seed97_merchant s JOIN merchant m ON m.brand_code = s.brand_code
+WHERE m.merchant_category_code <> s.category_code;
+
+INSERT INTO merchant (merchant_name, brand_code, merchant_category_code, created_at, updated_at)
+SELECT s.name, s.brand_code, s.category_code, @seed97_now, @seed97_now
+FROM seed97_merchant s
+WHERE NOT EXISTS (SELECT 1 FROM merchant m WHERE m.brand_code = s.brand_code);
+
+CREATE TEMPORARY TABLE seed97_target (
+    product_id BIGINT NOT NULL,
+    benefit_code VARCHAR(64) NOT NULL,
+    target_type VARCHAR(16) NOT NULL,
+    target_value VARCHAR(128) NULL,
+    brand_code VARCHAR(64) NULL,
+    is_excluded BOOLEAN NOT NULL
+);
+
+-- Four medical categories share ONE HOSPITAL_PHARMACY benefit and its limits.
+INSERT INTO seed97_target VALUES
+(@seed97_mr, 'CONVENIENCE', 'CATEGORY', 'CONVENIENCE_STORE', NULL, FALSE),
+(@seed97_mr, 'HOSPITAL_PHARMACY', 'CATEGORY', 'HOSPITAL', NULL, FALSE),
+(@seed97_mr, 'HOSPITAL_PHARMACY', 'CATEGORY', 'DENTAL_CLINIC', NULL, FALSE),
+(@seed97_mr, 'HOSPITAL_PHARMACY', 'CATEGORY', 'KOREAN_MEDICINE_CLINIC', NULL, FALSE),
+(@seed97_mr, 'HOSPITAL_PHARMACY', 'CATEGORY', 'PHARMACY', NULL, FALSE),
+(@seed97_mr, 'HOSPITAL_PHARMACY', 'CATEGORY', 'VETERINARY_CLINIC', NULL, TRUE),
+(@seed97_mr, 'LAUNDRY', 'CATEGORY', 'LAUNDRY', NULL, FALSE),
+(@seed97_mr, 'NIGHT_TAXI', 'CATEGORY', 'TAXI', NULL, FALSE),
+(@seed97_mr, 'NIGHT_FOOD', 'CATEGORY', 'KOREAN_RESTAURANT', NULL, FALSE),
+(@seed97_mr, 'NIGHT_FOOD', 'CATEGORY', 'WESTERN_RESTAURANT', NULL, FALSE),
+(@seed97_mr, 'NIGHT_FOOD', 'CATEGORY', 'JAPANESE_RESTAURANT', NULL, FALSE),
+(@seed97_mr, 'NIGHT_FOOD', 'CATEGORY', 'CHINESE_RESTAURANT', NULL, FALSE),
+(@seed97_mr, 'NIGHT_FOOD', 'CATEGORY', 'BUFFET_RESTAURANT', NULL, FALSE),
+(@seed97_mr, 'NIGHT_FOOD', 'CATEGORY', 'GENERAL_RESTAURANT', NULL, FALSE),
+(@seed97_mr, 'NIGHT_FOOD', 'CATEGORY', 'FAST_FOOD', NULL, FALSE),
+(@seed97_mr, 'NIGHT_FOOD', 'CATEGORY', 'COFFEE_SHOP', NULL, FALSE),
+(@seed97_daiso, 'CONVENIENCE', 'BRAND', NULL, 'GS25', FALSE),
+(@seed97_daiso, 'CONVENIENCE', 'BRAND', NULL, 'CU', FALSE),
+(@seed97_daiso, 'BAKERY', 'BRAND', NULL, 'PARIS_BAGUETTE', FALSE),
+(@seed97_daiso, 'BAKERY', 'BRAND', NULL, 'TOUS_LES_JOURS', FALSE);
+
+-- Monthly bills: retailer identity alone must not also discount device purchases.
+INSERT INTO seed97_target VALUES
+(@seed97_mr, 'UTILITY', 'CATEGORY', 'ELECTRIC_UTILITY', NULL, FALSE),
+(@seed97_mr, 'UTILITY', 'CATEGORY', 'CITY_GAS_UTILITY', NULL, FALSE),
+(@seed97_mr, 'UTILITY', 'BRAND', NULL, 'SKT', FALSE),
+(@seed97_mr, 'UTILITY', 'BRAND', NULL, 'KT', FALSE),
+(@seed97_mr, 'UTILITY', 'BRAND', NULL, 'LG_UPLUS', FALSE),
+(@seed97_mr, 'UTILITY', 'CONDITION', 'RULE:UTILITY_PAYMENT', NULL, FALSE),
+(@seed97_mr, 'NIGHT_SHOPPING', 'BRAND', NULL, 'AUCTION', FALSE),
+(@seed97_mr, 'NIGHT_SHOPPING', 'BRAND', NULL, 'GMARKET', FALSE),
+(@seed97_mr, 'NIGHT_SHOPPING', 'BRAND', NULL, 'AK_MALL', FALSE),
+(@seed97_mr, 'NIGHT_SHOPPING', 'BRAND', NULL, 'ELEVEN_STREET', FALSE),
+(@seed97_mr, 'NIGHT_SHOPPING', 'BRAND', NULL, 'TMON', FALSE),
+(@seed97_mr, 'NIGHT_SHOPPING', 'BRAND', NULL, 'LOTTE_HOME_SHOPPING', FALSE),
+(@seed97_mr, 'NIGHT_SHOPPING', 'BRAND', NULL, 'COUPANG', FALSE),
+(@seed97_mr, 'NIGHT_SHOPPING', 'CONDITION', 'CHANNEL:ONLINE', NULL, FALSE),
+(@seed97_mr, 'NIGHT_SHOPPING', 'CONDITION', 'RULE:MR_LIFE_SHOPPING_ROUTE', NULL, FALSE),
+(@seed97_mr, 'WEEKEND_MART', 'BRAND', NULL, 'EMART', FALSE),
+(@seed97_mr, 'WEEKEND_MART', 'BRAND', NULL, 'LOTTE_MART', FALSE),
+(@seed97_mr, 'WEEKEND_MART', 'BRAND', NULL, 'HOMEPLUS', FALSE),
+(@seed97_mr, 'WEEKEND_MART', 'CATEGORY', 'SUPERMARKET', NULL, FALSE),
+(@seed97_mr, 'WEEKEND_MART', 'CONDITION', 'RULE:MR_LIFE_MART_FAMILY', NULL, FALSE),
+(@seed97_mr, 'WEEKEND_MART', 'CONDITION', 'TRANSACTION_KIND:GIFT_CERTIFICATE_PURCHASE', NULL, TRUE),
+(@seed97_daiso, 'DAISO', 'BRAND', NULL, 'DAISO', FALSE),
+(@seed97_daiso, 'DAISO', 'CONDITION', 'CHANNEL:OFFLINE', NULL, FALSE),
+(@seed97_daiso, 'DAISO', 'CONDITION', 'FACILITY:GENERAL', NULL, FALSE),
+(@seed97_daiso, 'DAISO', 'CONDITION', 'FACILITY:DISCOUNT_STORE', NULL, TRUE),
+(@seed97_daiso, 'DAISO', 'CONDITION', 'FACILITY:SUBWAY_STATION', NULL, TRUE),
+(@seed97_daiso, 'DAISO', 'CONDITION', 'FACILITY:REST_AREA', NULL, TRUE),
+(@seed97_daiso, 'COFFEE', 'BRAND', NULL, 'STARBUCKS', FALSE),
+(@seed97_daiso, 'COFFEE', 'BRAND', NULL, 'COFFEE_BEAN', FALSE),
+(@seed97_daiso, 'COFFEE', 'CONDITION', 'TRANSACTION_KIND:PREPAID_TOPUP', NULL, TRUE),
+(@seed97_daiso, 'COFFEE', 'CONDITION', 'TRANSACTION_KIND:GIFT_CERTIFICATE_PURCHASE', NULL, TRUE),
+(@seed97_daiso, 'MOVIE', 'BRAND', NULL, 'CGV', FALSE),
+(@seed97_daiso, 'MOVIE', 'BRAND', NULL, 'LOTTE_CINEMA', FALSE),
+(@seed97_daiso, 'MOVIE', 'CONDITION', 'RULE:OFFICIAL_PURCHASE_ROUTE', NULL, FALSE),
+(@seed97_zero, 'BASE_DISCOUNT', 'ALL', NULL, NULL, FALSE),
+(@seed97_zero, 'BASE_DISCOUNT', 'CONDITION', 'RULE:OVERSEAS_ELIGIBILITY', NULL, FALSE),
+(@seed97_zero, 'BASE_DISCOUNT', 'CONDITION', 'INSTALLMENT:INTEREST_FREE', NULL, TRUE),
+(@seed97_zero, 'BASE_DISCOUNT', 'CONDITION', 'ISSUER_DISCOUNT:APPLIED', NULL, TRUE);
+
+-- ZERO's payment exclusions are transaction facts, never whole-store exclusions.
+INSERT INTO seed97_target
+SELECT @seed97_zero, 'BASE_DISCOUNT', 'CONDITION', CONCAT('TRANSACTION_KIND:', s.kind), NULL, TRUE
+FROM (
+    SELECT 'LONG_TERM_CARD_LOAN' AS kind UNION ALL SELECT 'SHORT_TERM_CARD_LOAN'
+    UNION ALL SELECT 'ANNUAL_FEE' UNION ALL SELECT 'FEE' UNION ALL SELECT 'INTEREST'
+    UNION ALL SELECT 'OVERSEAS_FEE' UNION ALL SELECT 'TAX_OR_PUBLIC_CHARGE'
+    UNION ALL SELECT 'ELECTRICITY_BILL' UNION ALL SELECT 'CITY_GAS_BILL'
+    UNION ALL SELECT 'APARTMENT_MAINTENANCE' UNION ALL SELECT 'EDUCATION_PAYMENT'
+    UNION ALL SELECT 'SOCIAL_INSURANCE' UNION ALL SELECT 'GIFT_CERTIFICATE_PURCHASE'
+    UNION ALL SELECT 'PREPAID_PURCHASE' UNION ALL SELECT 'PREPAID_TOPUP'
+    UNION ALL SELECT 'HIGHWAY_TOLL' UNION ALL SELECT 'POSTPAID_HIPASS' UNION ALL SELECT 'EXPRESS_BUS'
+) s;
+
+-- Missing references are an error, not an invitation to silently omit a rule.
+INSERT INTO seed97_guard
+SELECT 0 FROM seed97_target s
+LEFT JOIN card_benefit b ON b.card_product_id = s.product_id
+    AND b.benefit_code = s.benefit_code AND b.policy_version = 1
+LEFT JOIN merchant m ON m.brand_code = s.brand_code
+WHERE b.card_benefit_id IS NULL OR (s.target_type = 'BRAND' AND m.merchant_id IS NULL);
+
+INSERT INTO benefit_target (card_benefit_id, target_type, merchant_id, target_value, is_excluded, created_at)
+SELECT b.card_benefit_id, s.target_type, m.merchant_id, s.target_value, s.is_excluded, @seed97_now
+FROM seed97_target s
+JOIN card_benefit b ON b.card_product_id = s.product_id
+    AND b.benefit_code = s.benefit_code AND b.policy_version = 1
+LEFT JOIN merchant m ON m.brand_code = s.brand_code
+WHERE NOT EXISTS (
+    SELECT 1 FROM benefit_target t
+    WHERE t.card_benefit_id = b.card_benefit_id AND t.target_type = s.target_type
+      AND t.is_excluded = s.is_excluded
+      AND t.merchant_id <=> m.merchant_id AND t.target_value <=> s.target_value
+);
+
+COMMIT;
+DROP TEMPORARY TABLE seed97_target;
+DROP TEMPORARY TABLE seed97_guard;
+DROP TEMPORARY TABLE seed97_merchant;
+DROP TEMPORARY TABLE seed97_tier;
+DROP TEMPORARY TABLE seed97_limit;
+DROP TEMPORARY TABLE seed97_benefit;
