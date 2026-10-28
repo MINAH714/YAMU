@@ -471,7 +471,10 @@ class InitialSchemaMigrationTest extends MySqlTestSupport {
         assertRejected(() -> jdbc.update("UPDATE user_device SET public_key = NULL WHERE user_device_id = ?", device));
         assertRejected(() -> jdbc.update("UPDATE user_device SET key_algorithm = NULL WHERE user_device_id = ?", device));
         assertRejected(() -> jdbc.update("UPDATE user_device SET biometric_enabled = 2 WHERE user_device_id = ?", device));
-        jdbc.update("UPDATE user_device SET biometric_enabled = 1 WHERE user_device_id = ?", device);
+        // 생체 로그인은 별도 생체 키로 검증하므로(V20261028_2) 생체 키 없이 켤 수 없고, 생체 키와 함께면 켤 수 있다.
+        assertRejected(() -> jdbc.update("UPDATE user_device SET biometric_enabled = 1 WHERE user_device_id = ?", device));
+        jdbc.update("UPDATE user_device SET biometric_public_key = 'test-biometric-public-key', biometric_enabled = 1 "
+                + "WHERE user_device_id = ?", device);
     }
 
     private long account(long owner) {
