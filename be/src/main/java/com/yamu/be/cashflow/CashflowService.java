@@ -80,19 +80,24 @@ public class CashflowService {
             throw invalid("type", "수입·지출 유형은 바꿀 수 없습니다.");
         }
         LocalDate today = today();
-        CashflowItem rule = lockSeries(authenticatedUserId, itemId);
+        Series series = lockSeries(authenticatedUserId, itemId);
+        CashflowItem rule = series.selected();
         if (command.scope() == UpdateScope.THIS_ONLY && rule.getRecurrenceType() != CashflowItem.RecurrenceType.NONE) {
             return updateOne(authenticatedUserId, rule, command, today);
         }
-        throw invalid("scope", "이후 전부 수정은 아직 지원하지 않습니다.");
+        return updateFromHere(authenticatedUserId, series, command, today);
     }
 
-    /** 반복 항목의 한 회차를 지운다. 행은 EXCLUDED로 남겨 규칙에서 다시 계산되지 않게 한다. 이미 지운 회차면 그대로 둔다. */
+    /**
+     * 예정 항목을 지운다. THIS_ONLY는 반복 항목의 한 회차를 EXCLUDED로 남기고(이미 지운 회차면 그대로 둔다),
+     * 그 외는 고른 규칙이 속한 시리즈 전체에서 오늘 이후를 없앤다.
+     */
     @Transactional(isolation = Isolation.READ_COMMITTED)
     public void delete(Long authenticatedUserId, Long itemId, DeleteScope scope, LocalDate occurrenceDate) {
         requireUser(authenticatedUserId);
         LocalDate today = today();
-        CashflowItem rule = lockSeries(authenticatedUserId, itemId);
+        Series series = lockSeries(authenticatedUserId, itemId);
+        CashflowItem rule = series.selected();
         if (scope == DeleteScope.THIS_ONLY && rule.getRecurrenceType() != CashflowItem.RecurrenceType.NONE) {
             CashflowOccurrence row = occurrenceOf(rule, occurrenceDate);
             if (row != null && row.getStatus() == CashflowOccurrence.Status.EXCLUDED) {
@@ -102,7 +107,134 @@ public class CashflowService {
             (row == null ? occurrences.save(CashflowOccurrence.of(rule, occurrenceDate)) : row).exclude();
             return;
         }
-        throw invalid("scope", "전체 삭제는 아직 지원하지 않습니다.");
+        deleteFromToday(series, today);
+    }
+
+    /**
+     * 고른 회차부터 시리즈의 이후를 새 값으로 덮는다. 고른 회차가 규칙의 첫 회차 이전이면 규칙을 제자리에서 바꾸고,
+     * 아니면 기존 규칙을 그 전날로 닫고 새 규칙을 잇는다. 뒤에 이어진 규칙과 이후에 따로 고친 회차는 지운다.
+     */
+    private Entry updateFromHere(Long userId, Series series, UpdateCommand command, LocalDate today) {
+        CashflowItem rule = series.selected();
+        LocalDate applyDate = applyDate(rule, command.occurrenceDate(), today);
+        LocalDate first = command.date() == null ? applyDate : command.date();
+        // 날짜를 앞당기면 앞당긴 날부터 바뀐다.
+        LocalDate cutoff = first.isBefore(applyDate) ? first : applyDate;
+        if (first.isBefore(today)) {
+            throw invalid("date", "날짜는 오늘 이후여야 합니다.");
+        }
+        CashflowItem previous = series.previous();
+        // 앞 규칙은 나눌 때 항상 닫히므로 종료일이 있다. 겹치면 같은 날 회차가 두 번 나온다.
+        if (previous != null && previous.getRecurrenceEndDate() != null
+                && !first.isAfter(previous.getRecurrenceEndDate())) {
+            throw invalid("date", "앞 일정이 끝나는 " + previous.getRecurrenceEndDate() + " 이후여야 합니다.");
+        }
+
+        Values changed = merge(Values.of(rule, first), command);
+        RecurrenceChange recurrence = command.recurrence() != null ? command.recurrence()
+                // 반복을 보내지 않으면 주기는 그대로 두고 시리즈 마지막 규칙의 종료일을 이어받는다.
+                : new RecurrenceChange(rule.getRecurrenceType(), null, null, series.last().getRecurrenceEndDate());
+        CreateCommand values = normalize(new CreateCommand(changed.title(), rule.getDirection(), changed.amount(),
+                first, recurrence.frequency(), recurrence.dayOfMonth(), recurrence.dayOfWeek(), recurrence.endDate(),
+                changed.accountId(), changed.userCardId(), changed.merchantCategoryCode(), changed.memo()));
+        CashflowItem.RecurrenceType recurrenceType = validate(values, today);
+        requireOwned(userId, command.accountId(), command.userCardId());
+        List<CashflowItem> affected = new ArrayList<>(series.following());
+        affected.add(rule);
+        requireNoMatchedFrom(affected, cutoff);
+
+        removeFollowing(series);
+        CashflowItem target;
+        if (!cutoff.isAfter(rule.getScheduledDate())) {
+            occurrences.deleteFrom(rule.getId(), MIN_DATE);
+            rule.change(values.title(), values.amount(), values.scheduledDate(), recurrenceType,
+                    values.recurrenceEndDate(), values.accountId(), values.userCardId(),
+                    values.merchantCategoryCode(), values.memo());
+            target = rule;
+        } else {
+            occurrences.deleteFrom(rule.getId(), cutoff);
+            rule.closeBefore(cutoff);
+            target = items.save(rule.successor(values.title(), values.amount(), values.scheduledDate(),
+                    recurrenceType, values.recurrenceEndDate(), values.accountId(), values.userCardId(),
+                    values.merchantCategoryCode(), values.memo()));
+        }
+        occurrences.save(CashflowOccurrence.firstOf(target));
+        return new Entry(Item.from(target), target.getScheduledDate(), target.getScheduledDate());
+    }
+
+    /**
+     * 이후 전부 수정이 시작되는 회차. 1회 항목은 그 날짜, 반복 항목은 보낸 회차(오늘 이후여야 한다)나
+     * 보내지 않았으면 오늘 이후 첫 회차다.
+     */
+    private static LocalDate applyDate(CashflowItem rule, LocalDate occurrenceDate, LocalDate today) {
+        LocalDate applyDate;
+        if (rule.getRecurrenceType() == CashflowItem.RecurrenceType.NONE) {
+            applyDate = rule.getScheduledDate();
+        } else if (occurrenceDate != null) {
+            requireStorable(occurrenceDate, "occurrenceDate");
+            if (occurrenceDates(Item.from(rule), occurrenceDate, occurrenceDate).isEmpty()) {
+                throw invalid("occurrenceDate", "이 일정의 회차 날짜가 아닙니다.");
+            }
+            applyDate = occurrenceDate;
+        } else {
+            // 등록할 수 있는 반복(매주·매월)은 1년 안에 반드시 회차가 있다.
+            applyDate = occurrenceDates(Item.from(rule), today, today.plusDays(MAX_QUERY_DAYS)).stream()
+                    .findFirst().orElse(null);
+        }
+        if (applyDate == null || applyDate.isBefore(today)) {
+            throw invalid("occurrenceDate", "지난 일정은 고칠 수 없습니다.");
+        }
+        return applyDate;
+    }
+
+    /**
+     * 시리즈 전체에서 오늘 이후를 없앤다. 아직 시작하지 않은 규칙(첫 발생일이 오늘 이후)은 행째 지우고,
+     * 시작한 반복 규칙은 어제로 닫는다. 지난 회차를 오늘 이후로 옮겨 둔 회차는 EXCLUDED로 바꾼다.
+     */
+    private void deleteFromToday(Series series, LocalDate today) {
+        requireNoMatchedFrom(series.segments(), today);
+        boolean changed = false;
+        // 뒤 규칙이 앞 규칙을 가리키므로(FK) 뒤에서부터 지운다.
+        for (int i = series.segments().size() - 1; i >= 0; i--) {
+            CashflowItem segment = series.segments().get(i);
+            if (!segment.getScheduledDate().isBefore(today)) {
+                occurrences.deleteFrom(segment.getId(), MIN_DATE);
+                items.delete(segment);
+                changed = true;
+                continue;
+            }
+            if (segment.getRecurrenceType() != CashflowItem.RecurrenceType.NONE
+                    && (segment.getRecurrenceEndDate() == null || !segment.getRecurrenceEndDate().isBefore(today))) {
+                occurrences.deleteFrom(segment.getId(), today);
+                segment.closeBefore(today);
+                changed = true;
+            }
+            for (CashflowOccurrence moved : occurrences.findMovedFromPast(segment.getId(), today)) {
+                moved.exclude();
+                changed = true;
+            }
+        }
+        if (!changed) {
+            throw invalid("cashflowItemId", "이미 지난 일정이라 지울 회차가 없습니다.");
+        }
+    }
+
+    /** 고른 규칙 뒤에 이어진 규칙과 그 회차를 지운다. 뒤 규칙은 모두 컷오프 이후에 시작해 지난 회차가 없다. */
+    private void removeFollowing(Series series) {
+        List<CashflowItem> following = series.following();
+        for (int i = following.size() - 1; i >= 0; i--) {
+            occurrences.deleteFrom(following.get(i).getId(), MIN_DATE);
+            items.delete(following.get(i));
+        }
+        // 지운 규칙의 DELETE가 새 규칙 INSERT보다 먼저 나가게 한다.
+        items.flush();
+    }
+
+    /** 바꿀 범위에 결제와 연결된 회차가 있으면 거절한다(409 코드가 정해지기 전 임시 400). */
+    private void requireNoMatchedFrom(List<CashflowItem> rules, LocalDate from) {
+        if (occurrences.countMatchedFrom(rules.stream().map(CashflowItem::getId).toList(), from) > 0) {
+            throw invalid("occurrenceDate", "결제와 연결된 회차가 있어 " + from + " 이후를 바꿀 수 없습니다.");
+        }
     }
 
     /** 반복 항목의 한 회차만 고친다. 이미 고친 회차는 그 값 위에, 처음 고치는 회차는 규칙 값 위에 보낸 필드만 바꾼다. */
@@ -134,10 +266,10 @@ public class CashflowService {
     }
 
     /**
-     * 고른 규칙이 속한 시리즈의 첫 규칙을 잠근 뒤 고른 규칙을 잠가 읽는다. 없거나 다른 사용자의 것이면 404다.
-     * 같은 시리즈의 수정·삭제가 모두 첫 규칙부터 잠그므로 차례로 처리되고 서로 기다리다 멈추지 않는다.
+     * 고른 규칙이 속한 시리즈의 첫 규칙을 잠그고 시리즈 전체를 읽는다. 없거나 다른 사용자의 것이면 404다.
+     * 같은 시리즈의 수정·삭제는 모두 첫 규칙을 잠그므로 차례로 처리된다. 잠금 뒤의 조회는 READ COMMITTED라 앞 요청의 결과를 본다.
      */
-    private CashflowItem lockSeries(Long userId, Long itemId) {
+    private Series lockSeries(Long userId, Long itemId) {
         Set<Long> seen = new HashSet<>();
         Long headId = itemId;
         while (true) {
@@ -151,7 +283,26 @@ public class CashflowService {
             headId = link.getPreviousCashflowItemId();
         }
         CashflowItem head = items.findForUpdate(headId, userId).orElseThrow(CashflowService::notFound);
-        return headId.equals(itemId) ? head : items.findForUpdate(itemId, userId).orElseThrow(CashflowService::notFound);
+        List<CashflowItem> segments = new ArrayList<>(List.of(head));
+        Set<Long> walked = new HashSet<>(Set.of(head.getId()));
+        while (true) {
+            List<CashflowItem> next = items.findByPreviousCashflowItemIdAndUserId(
+                    segments.get(segments.size() - 1).getId(), userId);
+            if (next.isEmpty()) {
+                break;
+            }
+            if (next.size() > 1 || !walked.add(next.get(0).getId())) {
+                throw new IllegalStateException("예정 항목 시리즈가 한 줄이 아니다: " + itemId);
+            }
+            segments.add(next.get(0));
+        }
+        for (int i = 0; i < segments.size(); i++) {
+            if (segments.get(i).getId().equals(itemId)) {
+                return new Series(List.copyOf(segments), i);
+            }
+        }
+        // 잠금을 기다리는 동안 앞 요청이 고른 규칙을 지웠다.
+        throw notFound();
     }
 
     /** 규칙의 실제 회차 날짜인지 확인하고 저장된 회차 행을 돌려준다. 저장된 행이 없으면 null이다. */
@@ -472,6 +623,25 @@ public class CashflowService {
     /** 반복 규칙을 통째로 바꿀 때의 새 규칙. endDate를 생략하면 종료일이 없다. */
     public record RecurrenceChange(CashflowItem.RecurrenceType frequency, Integer dayOfMonth,
             DayOfWeek dayOfWeek, LocalDate endDate) {}
+
+    /** previous_cashflow_item_id로 이어진 규칙들(첫 규칙부터 순서대로)과 그중 고른 규칙의 위치. */
+    private record Series(List<CashflowItem> segments, int selectedIndex) {
+        CashflowItem selected() {
+            return segments.get(selectedIndex);
+        }
+
+        CashflowItem previous() {
+            return selectedIndex == 0 ? null : segments.get(selectedIndex - 1);
+        }
+
+        List<CashflowItem> following() {
+            return segments.subList(selectedIndex + 1, segments.size());
+        }
+
+        CashflowItem last() {
+            return segments.get(segments.size() - 1);
+        }
+    }
 
     /** 회차 하나를 정하는 값. 규칙 기본값이나 이번 회차만 고친 값이다. */
     private record Values(String title, Long amount, LocalDate date, Long accountId, Long userCardId,

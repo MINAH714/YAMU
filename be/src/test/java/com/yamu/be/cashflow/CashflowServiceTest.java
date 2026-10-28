@@ -522,21 +522,22 @@ class CashflowServiceTest {
     }
 
     @Test
-    void 나뉜_규칙은_시리즈의_첫_규칙부터_잠근다() {
+    void 나뉜_규칙은_시리즈의_첫_규칙을_잠근_뒤_이어진_규칙을_읽는다() {
         CashflowService fixed = fixedService();
         CashflowItem head = saved(40L, weeklyFrom(LocalDate.of(2026, 10, 4)));
         CashflowItem selected = saved(41L, weeklyFrom(OCT_25));
         when(items.findLink(41L, 7L)).thenReturn(Optional.of(link(41L, 40L)));
         when(items.findLink(40L, 7L)).thenReturn(Optional.of(link(40L, null)));
         when(items.findForUpdate(40L, 7L)).thenReturn(Optional.of(head));
-        when(items.findForUpdate(41L, 7L)).thenReturn(Optional.of(selected));
+        when(items.findByPreviousCashflowItemIdAndUserId(40L, 7L)).thenReturn(List.of(selected));
         when(occurrences.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
 
         fixed.update(7L, 41L, thisOnly(NOV_8).amount(7000L).build());
 
         InOrder order = Mockito.inOrder(items);
         order.verify(items).findForUpdate(40L, 7L);
-        order.verify(items).findForUpdate(41L, 7L);
+        order.verify(items).findByPreviousCashflowItemIdAndUserId(40L, 7L);
+        verify(items, never()).findForUpdate(41L, 7L);
     }
 
     @Test

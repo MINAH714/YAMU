@@ -99,4 +99,32 @@ public class CashflowItem extends BaseTimeEntity {
         this.memo = memo;
         this.itemKind = ItemKind.SCHEDULED;
     }
+
+    /** 아직 시작하지 않은 규칙을 제자리에서 바꾼다. 유형(direction)은 바꾸지 않는다. */
+    void change(String title, Long amount, LocalDate scheduledDate, RecurrenceType recurrenceType,
+            LocalDate recurrenceEndDate, Long accountId, Long userCardId, String merchantCategoryCode, String memo) {
+        this.title = title;
+        this.amount = amount;
+        this.scheduledDate = scheduledDate;
+        this.recurrenceType = recurrenceType;
+        this.recurrenceEndDate = recurrenceEndDate;
+        this.accountId = accountId;
+        this.userCardId = userCardId;
+        this.merchantCategoryCode = merchantCategoryCode;
+        this.memo = memo;
+    }
+
+    /** cutoff 전날로 반복을 끝낸다. cutoff는 첫 발생일보다 늦어야 한다(종료일 ≥ 첫 발생일 제약). */
+    void closeBefore(LocalDate cutoff) {
+        this.recurrenceEndDate = cutoff.minusDays(1);
+    }
+
+    /** 이 규칙을 이어받는 새 규칙. 이 규칙은 closeBefore로 따로 닫는다. */
+    CashflowItem successor(String title, Long amount, LocalDate scheduledDate, RecurrenceType recurrenceType,
+            LocalDate recurrenceEndDate, Long accountId, Long userCardId, String merchantCategoryCode, String memo) {
+        CashflowItem next = new CashflowItem(userId, accountId, userCardId, title, direction, amount, scheduledDate,
+                recurrenceType, recurrenceEndDate, merchantCategoryCode, memo);
+        next.previousCashflowItemId = id;
+        return next;
+    }
 }

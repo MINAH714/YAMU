@@ -40,6 +40,9 @@ public interface CashflowItemRepository extends JpaRepository<CashflowItem, Long
     @Query("select item from CashflowItem item where item.id = :id and item.userId = :userId")
     Optional<CashflowItem> findForUpdate(@Param("id") Long id, @Param("userId") Long userId);
 
+    /** 바로 뒤 규칙. 시리즈는 한 줄로 이어지므로 정상이면 0건이나 1건이다. */
+    List<CashflowItem> findByPreviousCashflowItemIdAndUserId(Long previousCashflowItemId, Long userId);
+
     interface Link {
         Long getId();
 

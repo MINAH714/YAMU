@@ -16,19 +16,13 @@ import com.yamu.be.support.MySqlTestSupport;
 import com.yamu.be.support.OwnershipFixtures;
 import jakarta.persistence.EntityManager;
 import java.time.LocalDate;
-import java.time.LocalDateTime;
 import java.time.ZoneId;
-import java.time.ZoneOffset;
-import java.util.HashMap;
-import java.util.Map;
-import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.jdbc.core.simple.SimpleJdbcInsert;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
@@ -194,13 +188,11 @@ class CashflowControllerTest extends MySqlTestSupport {
         long rule = jdbc.queryForObject("SELECT cashflow_item_id FROM cashflow_item WHERE user_id = ?", Long.class, owner);
         long first = jdbc.queryForObject("SELECT cashflow_occurrence_id FROM cashflow_occurrence WHERE cashflow_item_id = ?",
                 Long.class, rule);
-        // 둘째 회차만 이틀 뒤로 옮기고 금액을 바꾼다.
-        insertRow("cashflow_occurrence", "cashflow_occurrence_id", Map.of("cashflow_item_id", rule, "user_id", owner,
-                "occurrence_date", tomorrow.plusDays(7), "scheduled_date", tomorrow.plusDays(9), "title", "헬스장",
-                "direction", "EXPENSE", "amount", 50000L, "linked_account_id", account, "status", "CONFIRMED",
-                "is_overridden", true));
+        // 둘째 회차만 이틀 뒤로 옮기고 금액을 5000으로 바꾼다.
+        CashflowFixtures cashflows = new CashflowFixtures(jdbc);
+        cashflows.occurrence(owner, account, rule, tomorrow.plusDays(7), tomorrow.plusDays(9), true);
         // 첫 회차는 결제와 연결한 뒤 규칙 금액이 바뀐다.
-        paymentMatch(owner, first);
+        cashflows.paymentMatch(owner, first);
         jdbc.update("UPDATE cashflow_item SET amount = 99000 WHERE cashflow_item_id = ?", rule);
         // 등록 요청이 같은 테스트 트랜잭션에 올려 둔 엔티티를 버려, SQL로 바꾼 값을 다시 읽게 한다.
         em.clear();
@@ -213,7 +205,7 @@ class CashflowControllerTest extends MySqlTestSupport {
                 .andExpect(jsonPath("$.data.items[0].amount").value(89000))
                 .andExpect(jsonPath("$.data.items[1].occurrenceDate").value(tomorrow.plusDays(7).toString()))
                 .andExpect(jsonPath("$.data.items[1].date").value(tomorrow.plusDays(9).toString()))
-                .andExpect(jsonPath("$.data.items[1].amount").value(50000))
+                .andExpect(jsonPath("$.data.items[1].amount").value(5000))
                 .andExpect(jsonPath("$.data.items[2].date").value(tomorrow.plusDays(14).toString()))
                 .andExpect(jsonPath("$.data.items[2].amount").value(99000));
         // 원래 회차만 기간 안이면 보이지 않는다.
@@ -264,6 +256,30 @@ class CashflowControllerTest extends MySqlTestSupport {
                 .andExpect(jsonPath("$.data.items[2].date").value(tomorrow.plusDays(21).toString()));
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM cashflow_occurrence WHERE cashflow_item_id = ?",
                 Integer.class, rule)).isEqualTo(3);
+    }
+
+    @Test
+    void scope를_생략하면_이후_전부_수정과_전체_삭제다() throws Exception {
+        long rule = weekly();
+
+        // 아직 시작하지 않은 규칙이라 제자리에서 바뀌고 ID가 그대로다.
+        mockMvc.perform(patch("/api/cashflow-items/{id}", rule).with(AuthUsers.asUser(owner))
+                        .contentType(MediaType.APPLICATION_JSON).content("{ \"amount\": 20000 }"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.cashflowItemId").value(rule))
+                .andExpect(jsonPath("$.data.amount").value(20000))
+                .andExpect(jsonPath("$.data.recurrence.frequency").value("WEEKLY"));
+        mockMvc.perform(delete("/api/cashflow-items/{id}", rule).with(AuthUsers.asUser(owner)))
+                .andExpect(status().isNoContent());
+        em.flush();
+        em.clear();
+
+        mockMvc.perform(get("/api/cashflow-items").with(AuthUsers.asUser(owner))
+                        .param("from", tomorrow.toString()).param("to", tomorrow.plusDays(14).toString()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.items", hasSize(0)));
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM cashflow_item WHERE cashflow_item_id = ?",
+                Integer.class, rule)).isZero();
     }
 
     @Test
@@ -350,29 +366,6 @@ class CashflowControllerTest extends MySqlTestSupport {
                                 """.formatted(tomorrow, account)))
                 .andExpect(status().isCreated());
         return jdbc.queryForObject("SELECT MAX(cashflow_item_id) FROM cashflow_item WHERE user_id = ?", Long.class, owner);
-    }
-
-    /** 결제 기능이 아직 연결 행을 만들지 않아, 실제 결제와 연결 행을 SQL로 넣는다. */
-    private void paymentMatch(long user, long occurrence) {
-        long merchant = insertRow("merchant", "merchant_id", Map.of("merchant_name", "테스트 헬스장",
-                "brand_code", UUID.randomUUID().toString(), "merchant_category_code", "SPORTS"));
-        long payment = insertRow("payment_transaction", "payment_transaction_id", Map.of("user_id", user,
-                "merchant_id", merchant, "request_key", UUID.randomUUID().toString(),
-                "request_fingerprint", new byte[32], "source", "YAMU", "status", "REQUESTED",
-                "requested_amount", 89000L, "requested_at", LocalDateTime.now(ZoneOffset.UTC)));
-        Map<String, Object> match = new HashMap<>(Map.of("user_id", user, "cashflow_occurrence_id", occurrence,
-                "payment_transaction_id", payment, "matched_at", LocalDateTime.now(ZoneOffset.UTC),
-                "created_at", LocalDateTime.now(ZoneOffset.UTC)));
-        new SimpleJdbcInsert(jdbc).withTableName("cashflow_payment_match").usingColumns(match.keySet().toArray(String[]::new))
-                .execute(match);
-    }
-
-    private long insertRow(String table, String idColumn, Map<String, Object> fields) {
-        Map<String, Object> row = new HashMap<>(fields);
-        row.put("created_at", LocalDateTime.now(ZoneOffset.UTC));
-        row.put("updated_at", LocalDateTime.now(ZoneOffset.UTC));
-        return new SimpleJdbcInsert(jdbc).withTableName(table).usingGeneratedKeyColumns(idColumn)
-                .usingColumns(row.keySet().toArray(String[]::new)).executeAndReturnKey(row).longValue();
     }
 
     private String accountExpense(long accountId) {
