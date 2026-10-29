@@ -61,12 +61,21 @@ class ForecastCalculatorTest {
                 .containsExactly(tuple(TODAY, 1_100_000L, 0),
                         tuple(TODAY.plusDays(2), 1_050_000L, 1),
                         tuple(nov5, 450_000L, 2));
+        // 입출금이 없는 날(10/28)에도 B는 직전 잔액으로 점이 있다.
         assertThat(result.byAccount().get(B))
-                .extracting(BalancePoint::date, BalancePoint::confirmed)
-                .containsExactly(tuple(TODAY, 300_000L), tuple(nov5, -100_000L));
-        // 상세의 계좌별 수치를 더하면 통합 수치와 같다.
-        assertThat(lastConfirmed(result.byAccount().get(A)) + lastConfirmed(result.byAccount().get(B)))
-                .isEqualTo(lastConfirmed(result.total()));
+                .extracting(BalancePoint::date, BalancePoint::confirmed, point -> point.events().size())
+                .containsExactly(tuple(TODAY, 300_000L, 0), tuple(TODAY.plusDays(2), 300_000L, 0),
+                        tuple(nov5, -100_000L, 1));
+        // 모든 날짜에서 같은 날짜의 계좌별 수치를 더하면 통합 수치와 같다.
+        for (int i = 0; i < result.total().size(); i++) {
+            BalancePoint total = result.total().get(i);
+            BalancePoint a = result.byAccount().get(A).get(i);
+            BalancePoint b = result.byAccount().get(B).get(i);
+            assertThat(a.date()).isEqualTo(total.date());
+            assertThat(b.date()).isEqualTo(total.date());
+            assertThat(a.confirmed() + b.confirmed()).isEqualTo(total.confirmed());
+            assertThat(a.expected() + b.expected()).isEqualTo(total.expected());
+        }
     }
 
     @Test
@@ -115,9 +124,5 @@ class ForecastCalculatorTest {
     private static FlowEvent event(Long accountId, LocalDate date, long amount, Confidence confidence) {
         Type type = amount > 0 ? Type.SCHEDULED_INCOME : Type.SCHEDULED_OUTFLOW;
         return new FlowEvent(accountId, date, amount, type, confidence, "항목", 1L);
-    }
-
-    private static long lastConfirmed(List<BalancePoint> points) {
-        return points.get(points.size() - 1).confirmed();
     }
 }

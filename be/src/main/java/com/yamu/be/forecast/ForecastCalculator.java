@@ -20,7 +20,8 @@ final class ForecastCalculator {
 
     /**
      * from~to(포함) 기간의 통합·계좌별 날짜 선을 돌려준다. 각 점은 그날 입출금을 모두 반영한 일말 잔액이다.
-     * 선에는 첫날(from)과 입출금이 있는 날만 둔다. 기간 밖 입출금은 무시한다.
+     * 선에는 첫날(from)과 어느 계좌든 입출금이 있는 날을 둔다. 계좌별 선도 같은 날짜를 모두 가지므로
+     * (그날 입출금이 없는 계좌는 직전 잔액) 같은 날짜의 계좌별 값을 더하면 통합 값과 같다. 기간 밖 입출금은 무시한다.
      *
      * @param startBalances 선택한 계좌별 현재 잔액(원). 순서대로 결과에 담는다
      * @param events        미래 입출금. 계좌는 startBalances에 있어야 한다
@@ -56,7 +57,7 @@ final class ForecastCalculator {
             long confirmed = startBalances.get(account.getKey());
             long expected = confirmed;
             List<BalancePoint> points = new ArrayList<>();
-            // 입출금이 없는 날도 통합 합계에는 그 계좌의 직전 잔액을 더해야 하므로 모든 날짜를 돈다.
+            // 입출금이 없는 날도 그 계좌의 직전 잔액으로 점을 둔다. 통합 합계도 이 값을 더한다.
             for (LocalDate date : dates) {
                 List<FlowEvent> dayEvents = account.getValue().getOrDefault(date, List.of());
                 for (FlowEvent event : dayEvents) {
@@ -66,9 +67,7 @@ final class ForecastCalculator {
                     }
                 }
                 totals.get(date).add(confirmed, expected, dayEvents);
-                if (date.equals(from) || !dayEvents.isEmpty()) {
-                    points.add(new BalancePoint(date, confirmed, expected, List.copyOf(dayEvents)));
-                }
+                points.add(new BalancePoint(date, confirmed, expected, List.copyOf(dayEvents)));
             }
             byAccount.put(account.getKey(), List.copyOf(points));
         }
