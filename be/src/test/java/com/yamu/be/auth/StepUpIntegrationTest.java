@@ -154,11 +154,11 @@ class StepUpIntegrationTest extends MySqlTestSupport {
         UserDevice device = saveDevice("01012345678", deviceKey, null);
 
         stepUp(device, "BARCODE", "PIN", deviceKey, WRONG_PIN)
-                .andExpect(status().isUnauthorized())
+                .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.error.code").value("STEP_UP_FAILED"))
                 .andExpect(jsonPath("$.error.details.remainingAttempts").value(4));
         stepUp(device, "BARCODE", "PIN", DeviceKeys.generate(), PIN)
-                .andExpect(status().isUnauthorized())
+                .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.error.code").value("STEP_UP_FAILED"))
                 .andExpect(jsonPath("$.error.details").doesNotExist());
 
