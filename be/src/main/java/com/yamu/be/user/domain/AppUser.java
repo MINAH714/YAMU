@@ -78,6 +78,12 @@ public class AppUser extends BaseTimeEntity {
         return new AppUser(name, birthDate, phoneEnc, phoneHash, identityVerifiedAt);
     }
 
+    /** SSAFY 금융망 계정을 연결한다. userKeyEnc는 global.crypto로 암호화한 봉투다. */
+    public void linkFinMember(String ssafyMemberId, byte[] ssafyUserKeyEnc) {
+        this.ssafyMemberId = ssafyMemberId;
+        this.ssafyUserKey = ssafyUserKeyEnc;
+    }
+
     public void changePin(String pinHash, LocalDateTime now) {
         this.pinHash = pinHash;
         this.pinUpdatedAt = now;
