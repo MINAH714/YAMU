@@ -8,4 +8,10 @@ public interface LinkedAccountRepository extends JpaRepository<LinkedAccount, Lo
     Optional<LinkedAccount> findByIdAndUserId(Long id, Long userId);
 
     boolean existsByUserIdAndStatus(Long userId, LinkedAccountStatus status);
+
+    /** 같은 사람의 같은 계좌(uk_account_identity). 끊은 계좌도 찾는다. */
+    Optional<LinkedAccount> findByUserIdAndBankCodeAndAccountNoHash(Long userId, String bankCode, byte[] accountNoHash);
+
+    /** 가장 먼저 연결한 계좌. 기준 계좌(isPrimary)를 따로 저장하기 전까지 이것을 기준 계좌로 본다. */
+    Optional<LinkedAccount> findFirstByUserIdAndStatusOrderByIdAsc(Long userId, LinkedAccountStatus status);
 }

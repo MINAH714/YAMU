@@ -1,0 +1,24 @@
+package com.yamu.be.account;
+
+import java.time.Duration;
+import org.springframework.boot.context.properties.ConfigurationProperties;
+
+/**
+ * 계좌 연결 정책({@code yamu.account-link.*}). 기본값은 노션 명세 「계좌 확인」「1원 인증 요청」「계좌 연결」 기준이다.
+ *
+ * @param verificationTtl  계좌 확인 결과(verificationToken) 유효 시간(10분). 1원 인증을 요청하면 다시 10분으로 늘린다
+ * @param authCodeValidity 1원 인증코드 유효 시간 안내(5분). SSAFY 문서에 없어 실측(5분 성공·10분 만료)으로 정했다. 최종 판단은 SSAFY A1087
+ * @param resendInterval   같은 계좌로 1원을 다시 보낼 수 있는 간격(1분)
+ * @param maxCodeAttempts  인증코드를 틀릴 수 있는 횟수(3회). SSAFY는 횟수를 제한하지 않아 YAMU가 센다. 넘으면 1원 인증부터 다시
+ * @param authText         1원 입금자명 앞글자(SSAFY authText). 통장에 "YAMU 1234"로 찍힌다
+ * @param idempotencyTtl   계좌 연결 Idempotency-Key 결과를 기억하는 시간
+ */
+@ConfigurationProperties(prefix = "yamu.account-link")
+public record AccountLinkProperties(
+        Duration verificationTtl,
+        Duration authCodeValidity,
+        Duration resendInterval,
+        int maxCodeAttempts,
+        String authText,
+        Duration idempotencyTtl) {
+}

@@ -40,6 +40,19 @@ public class SecurityConfig {
             "/api/auth/signup"
     };
 
+    /**
+     * Access Token과 가입 진행 토큰(signupToken)을 둘 다 받는 API. 가입 중에도 계좌를 연결해야 해서다.
+     * 인증 없이 열어 두고 컨트롤러가 확인한다. Access Token이 오면 아래 resolver가 넘겨 JWT 검사를 하고,
+     * 가입 진행 토큰("sgt_…")이 오면 JWT 검사를 건너뛴다(JWT가 아니라 그대로 두면 401이 난다).
+     */
+    static final String[] SIGNUP_TOKEN_POST = {
+            "/api/accounts/verify",
+            "/api/accounts/one-won-auth",
+            "/api/accounts"
+    };
+
+    private static final String SIGNUP_TOKEN_PREFIX = "sgt_";
+
     private static final String[] PUBLIC_GET = {
             "/api/health",
             "/actuator/health", "/actuator/health/**",
@@ -60,6 +73,7 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(HttpMethod.GET, PUBLIC_GET).permitAll()
                         .requestMatchers(HttpMethod.POST, PUBLIC_POST).permitAll()
+                        .requestMatchers(HttpMethod.POST, SIGNUP_TOKEN_POST).permitAll()
                         // 컨트롤러가 던진 예외를 Spring이 /error로 다시 보낼 때 401로 바뀌지 않게 연다.
                         .requestMatchers("/error").permitAll()
                         .anyRequest().authenticated())
@@ -83,6 +97,12 @@ public class SecurityConfig {
         RequestMatcher publicPaths = new OrRequestMatcher(Stream.concat(
                 Arrays.stream(PUBLIC_POST).map(path -> (RequestMatcher) paths.matcher(HttpMethod.POST, path)),
                 Arrays.stream(PUBLIC_GET).map(path -> (RequestMatcher) paths.matcher(HttpMethod.GET, path))).toList());
-        return (HttpServletRequest request) -> publicPaths.matches(request) ? null : delegate.resolve(request);
+        return (HttpServletRequest request) -> {
+            if (publicPaths.matches(request)) {
+                return null;
+            }
+            String token = delegate.resolve(request);
+            return token != null && token.startsWith(SIGNUP_TOKEN_PREFIX) ? null : token;
+        };
     }
 }
