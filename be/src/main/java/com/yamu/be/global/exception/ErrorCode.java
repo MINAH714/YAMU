@@ -79,6 +79,12 @@ public enum ErrorCode {
     ACCOUNT_REQUIRED(HttpStatus.BAD_REQUEST, "카드 대금을 출금할 계좌를 먼저 연결해 주세요."),
     INVALID_PAYMENT_DAY(HttpStatus.BAD_REQUEST, "결제일은 1일부터 27일 사이로 정해 주세요."),
 
+    /* 카드 - 카드 정보 수정·순서 저장·등록 해제 (API 명세 각 페이지). 결제일 범위 오류는 위 INVALID_PAYMENT_DAY */
+    PAYMENT_DAY_CHANGE_LOCKED(HttpStatus.CONFLICT, "결제일은 바꾼 뒤 3개월이 지나야 다시 바꿀 수 있습니다."),
+    CARD_UNREGISTERED(HttpStatus.CONFLICT, "등록 해제한 카드는 수정할 수 없습니다."),
+    ORDER_INCOMPLETE(HttpStatus.BAD_REQUEST, "보유 카드 전체를 빠짐없이 한 번씩 보내 주세요."),
+    CARD_HAS_OPEN_BILL(HttpStatus.CONFLICT, "출금되지 않은 청구서가 있어 카드를 해제할 수 없습니다."),
+
     /* 가계부 - 항목 수정 (API 명세 「가계부 항목 수정」). 탐지 후보는 CONFIRMED·IGNORED로만 바꿀 수 있다 */
     INVALID_STATUS_CHANGE(HttpStatus.CONFLICT, "바꿀 수 없는 상태입니다."),
 
