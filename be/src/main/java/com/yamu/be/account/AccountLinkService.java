@@ -23,6 +23,8 @@ import com.yamu.be.global.crypto.PersonalDataCipher;
 import com.yamu.be.global.exception.BusinessException;
 import com.yamu.be.global.exception.ErrorCode;
 import com.yamu.be.global.finapi.FinApiException;
+import com.yamu.be.global.finapi.FinApiOutcome;
+import com.yamu.be.global.redis.RedisLocks;
 import com.yamu.be.user.domain.AppUser;
 import com.yamu.be.user.domain.AppUserRepository;
 import com.yamu.be.user.domain.AppUserStatus;
@@ -61,6 +63,9 @@ public class AccountLinkService {
     private static final Pattern ACCOUNT_NO = Pattern.compile("\\d{16}");
     private static final int AUTH_CODE_LENGTH = 4;
     private static final String IDEMPOTENCY_PREFIX = "account:link:idem:";
+    private static final Pattern IDEMPOTENCY_KEY_FORMAT = Pattern.compile("[A-Za-z0-9_-]{8,64}");
+    /** 같은 사용자·은행·계좌번호 UNIQUE(V20261026_1). */
+    private static final String ACCOUNT_IDENTITY_KEY = "uk_account_identity";
 
     private final AccountVerificationStore verificationStore;
     private final OneWonAttempts attempts;
@@ -71,6 +76,7 @@ public class AccountLinkService {
     private final PersonalDataCipher cipher;
     private final LookupHasher lookupHasher;
     private final StringRedisTemplate redis;
+    private final RedisLocks redisLocks;
     private final ObjectMapper objectMapper;
     private final AccountLinkProperties properties;
     private final Clock clock;
@@ -105,25 +111,45 @@ public class AccountLinkService {
     }
 
     /**
-     * 2단계. 1원을 보낸다. 같은 계좌로 1분 안에 다시 부르면 429. 보내면 시도 횟수를 처음부터 세고 verificationToken을 10분으로 늘린다.
-     * 금융망 실패는 502·504 그대로이며, 그때는 1분을 기다리지 않고 바로 다시 요청할 수 있다.
+     * 2단계. 1원을 보낸다. 보내면 시도 횟수를 처음부터 세고 verificationToken을 10분으로 늘린다.
+     *
+     * <ul>
+     *   <li>오늘 이 계좌로 코드를 10번 틀렸으면 429 AUTH_CODE_LOCKED, 같은 계좌로 1분 안이면 429 AUTH_REQUEST_TOO_FREQUENT,
+     *       오늘 5번 보냈으면 429 ONE_WON_DAILY_LIMIT_EXCEEDED. 재요청 자리(SET NX)가 같은 계좌의 동시 발송도 하나로 막는다</li>
+     *   <li>금융망이 처리하지 않은 게 확실하면(요청 안 감·거절) 1분 자리와 하루 횟수를 돌려줘 바로 다시 요청할 수 있다</li>
+     *   <li>결과 불명(시간 초과 등)이면 1원이 실제로 나갔을 수 있다. 보낸 것으로 기록해(1분 자리·하루 횟수 유지, 보낸 시각 저장)
+     *       받은 코드로 바로 연결할 수 있게 하고, 504 등 오류는 그대로 알린다. 돌려주면 앱이 곧장 다시 보내 1원이 두 번 나간다</li>
+     * </ul>
      */
     public OneWonAuthResponse requestOneWon(AccountActor actor, String verificationToken) {
         VerifiedAccount account = requireVerified(actor.userId(), verificationToken);
         AppUser user = requireUser(actor);
-        attempts.claimResendSlot(account.accountKey());
+        String accountKey = account.accountKey();
+        attempts.requireNotLocked(accountKey);
+        attempts.claimResendSlot(accountKey);
         try {
-            ssafy.sendOneWon(userKeyOf(user), accountNoOf(account), properties.authText());
-        } catch (RuntimeException e) {
-            attempts.releaseResendSlot(account.accountKey());
+            attempts.claimDailySend(accountKey);
+        } catch (BusinessException e) {
+            attempts.releaseResendSlot(accountKey);
             throw e;
         }
-        LocalDateTime requestedAt = now();
-        if (!verificationStore.update(verificationToken,
-                account.withAuthRequested(requestedAt.toInstant(ZoneOffset.UTC).toEpochMilli()), true)) {
-            throw new BusinessException(ErrorCode.VERIFICATION_TOKEN_EXPIRED);
+        try {
+            ssafy.sendOneWon(userKeyOf(user), accountNoOf(account), properties.authText());
+        } catch (FinApiException e) {
+            if (e.getOutcome() == FinApiOutcome.UNKNOWN) {
+                log.warn("1원 송금 결과 불명({}) → 보낸 것으로 기록", e.getApiName());
+                markSent(verificationToken, account);
+                throw e;
+            }
+            giveBack(accountKey);
+            throw e;
+        } catch (RuntimeException e) {
+            // SSAFY가 거절(계좌 오류 등)했거나 보내기 전에 실패했다.
+            giveBack(accountKey);
+            throw e;
         }
-        attempts.resetTries(account.accountKey());
+        LocalDateTime requestedAt = markSent(verificationToken, account)
+                .orElseThrow(() -> new BusinessException(ErrorCode.VERIFICATION_TOKEN_EXPIRED));
         return new OneWonAuthResponse(verificationToken, requestedAt, requestedAt.plus(properties.authCodeValidity()),
                 properties.authText(), AUTH_CODE_LENGTH,
                 "계좌 거래내역에서 '" + properties.authText() + "' 뒤 숫자 " + AUTH_CODE_LENGTH + "자리를 확인하세요");
@@ -134,6 +160,8 @@ public class AccountLinkService {
      *
      * <ul>
      *   <li>Idempotency-Key가 같으면 다시 연결하지 않고 처음 결과를 돌려준다. 같은 키로 다른 계좌를 보내면 409 IDEMPOTENCY_KEY_REUSED</li>
+     *   <li>같은 키의 첫 요청이 아직 처리 중이면 409 IDEMPOTENCY_IN_PROGRESS. 끝난 뒤 다시 부르면 처음 결과를 받는다
+     *       (처리 중 표시가 없으면 두 요청이 모두 진행해, 늦은 쪽이 이미 쓴 본인 인증 토큰 때문에 403을 받았다)</li>
      *   <li>가입 후에는 X-Step-Up-Token(ACCOUNT_LINK)이 필요하다. 인증코드가 맞은 뒤에 쓴다(틀린 코드로 본인 인증을 버리지 않게)</li>
      *   <li>본인 인증 토큰이 없어 실패해도 맞힌 인증코드는 기억해 두어, 본인 인증만 하고 다시 부르면 된다</li>
      * </ul>
@@ -144,15 +172,31 @@ public class AccountLinkService {
             // 기기 재등록은 이미 연결된 계좌로만 오고, 인증코드는 기기 등록 API로 보낸다.
             throw new BusinessException(ErrorCode.ACCOUNT_ALREADY_LINKED);
         }
-        if (idempotencyKey == null || idempotencyKey.isBlank()) {
-            throw new BusinessException(ErrorCode.INVALID_REQUEST, Map.of("fieldErrors",
-                    List.of(new FieldErrorResponse("Idempotency-Key", "Idempotency-Key 헤더가 필요합니다."))));
-        }
+        requireIdempotencyKey(idempotencyKey);
         String tokenHash = AccountVerificationStore.hash(request.verificationToken());
         Optional<LinkResult> previous = findPrevious(actor.userId(), idempotencyKey);
         if (previous.isPresent()) {
             return replay(actor.userId(), previous.get(), tokenHash);
         }
+        Optional<RedisLocks.Lock> lock = redisLocks.tryLock(idempotencyKey(actor.userId(), idempotencyKey) + ":lock",
+                properties.idempotencyLockTtl());
+        if (lock.isEmpty()) {
+            // 앞 요청이 그 사이 끝났으면 그 결과를, 아직 처리 중이면 409.
+            return findPrevious(actor.userId(), idempotencyKey)
+                    .map(done -> replay(actor.userId(), done, tokenHash))
+                    .orElseThrow(() -> new BusinessException(ErrorCode.IDEMPOTENCY_IN_PROGRESS));
+        }
+        try (RedisLocks.Lock held = lock.get()) {
+            Optional<LinkResult> done = findPrevious(actor.userId(), idempotencyKey);
+            if (done.isPresent()) {
+                return replay(actor.userId(), done.get(), tokenHash);
+            }
+            return linkOnce(actor, request, idempotencyKey, stepUpToken, tokenHash);
+        }
+    }
+
+    private AccountLinkResponse linkOnce(AccountActor actor, AccountLinkRequest request, String idempotencyKey,
+            String stepUpToken, String tokenHash) {
         if (actor.me() != null && (stepUpToken == null || stepUpToken.isBlank())) {
             throw new BusinessException(ErrorCode.STEP_UP_REQUIRED);
         }
@@ -171,13 +215,14 @@ public class AccountLinkService {
         Long auditLogId = grant == null ? null : grant.auditLogId();
 
         LinkedAccount saved = save(existing, user.getId(), account, alias, auditLogId, linkedAt);
-        verificationStore.delete(request.verificationToken());
-        attempts.clear(account.accountKey());
+        // 결과를 먼저 기억하고 토큰을 지운다. 반대 순서면 기억이 실패했을 때 연결은 됐는데 재시도가 "토큰 만료"가 된다.
         remember(actor.userId(), idempotencyKey,
                 new LinkResult(tokenHash, saved.getId(), account.bankName(), grant == null ? null : grant.method()));
+        verificationStore.delete(request.verificationToken());
+        attempts.clear(account.accountKey());
 
         VerifiedBy verifiedBy = grant == null ? null : new VerifiedBy(grant.method(), grant.auditLogId(), linkedAt);
-        return response(saved, account.bankName(), userKeyOf(user), verifiedBy);
+        return response(saved, account.bankName(), userKeyOf(user), verifiedBy, true);
     }
 
     /**
@@ -198,15 +243,28 @@ public class AccountLinkService {
         if (account.authRequestedAt() == null) {
             throw new BusinessException(ErrorCode.AUTH_CODE_EXPIRED);
         }
+        attempts.requireNotLocked(account.accountKey());
         int remaining = attempts.consumeTry(account.accountKey());
         AppUser user = userRepository.findById(userId).orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND));
-        ssafy.checkCode(userKeyOf(user), accountNoOf(account), properties.authText(), authCode, remaining);
+        try {
+            ssafy.checkCode(userKeyOf(user), accountNoOf(account), properties.authText(), authCode, remaining);
+        } catch (BusinessException e) {
+            if (e.getErrorCode() == ErrorCode.AUTH_CODE_MISMATCH) {
+                // 하루 한도에 닿으면 여기서 429 AUTH_CODE_LOCKED로 바뀐다.
+                attempts.recordFailure(account.accountKey());
+            }
+            throw e;
+        }
         VerifiedAccount verified = account.withCodeVerified();
         verificationStore.update(verificationToken, verified, false);
         return verified;
     }
 
-    /** 처음 연결이면 새 행, 끊었던 계좌면 그 행을 다시 연결한다. 같은 계좌를 동시에 두 번 연결하면 늦은 쪽은 409. */
+    /**
+     * 처음 연결이면 새 행, 끊었던 계좌면 그 행을 다시 연결한다. 같은 계좌를 동시에 두 번 연결하면 늦은 쪽은 409.
+     * 409로 바꾸는 것은 같은 계좌 UNIQUE(uk_account_identity) 위반과 다시 연결 경합(@Version)뿐이다. 다른 DB 오류(FK 등)를
+     * "이미 연결"로 가리지 않게 그대로 던진다.
+     */
     private LinkedAccount save(Optional<LinkedAccount> existing, Long userId, VerifiedAccount account, String alias,
             Long auditLogId, LocalDateTime now) {
         try {
@@ -217,33 +275,50 @@ public class AccountLinkService {
             }
             return accountRepository.saveAndFlush(LinkedAccount.connect(userId, account.bankCode(),
                     account.accountNoEnc(), account.accountNoHash(), account.last4(), alias, auditLogId, now));
-        } catch (DataIntegrityViolationException | ObjectOptimisticLockingFailureException e) {
+        } catch (ObjectOptimisticLockingFailureException e) {
             throw new BusinessException(ErrorCode.ACCOUNT_ALREADY_LINKED);
+        } catch (DataIntegrityViolationException e) {
+            if (isSameAccountDuplicate(e)) {
+                throw new BusinessException(ErrorCode.ACCOUNT_ALREADY_LINKED);
+            }
+            throw e;
         }
     }
 
+    private static boolean isSameAccountDuplicate(DataIntegrityViolationException e) {
+        String message = e.getMostSpecificCause().getMessage();
+        return message != null && message.contains(ACCOUNT_IDENTITY_KEY);
+    }
+
+    /** 처음 연결의 결과를 다시 보여 준다. 금융망은 다시 부르지 않는다(잔액은 비움). 재시도마다 SSAFY를 부를 이유가 없다. */
     private AccountLinkResponse replay(Long userId, LinkResult previous, String tokenHash) {
         if (!previous.tokenHash().equals(tokenHash)) {
             throw new BusinessException(ErrorCode.IDEMPOTENCY_KEY_REUSED);
         }
         LinkedAccount account = accountRepository.findByIdAndUserId(previous.accountId(), userId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND));
-        AppUser user = userRepository.findById(userId).orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND));
         // 본인 인증 토큰은 처음 요청에서 이미 썼다. 같은 기록을 다시 보여 준다.
         VerifiedBy verifiedBy = account.getStepUpAuditLogId() == null ? null
                 : new VerifiedBy(previous.method(), account.getStepUpAuditLogId(), account.getConnectedAt());
-        return response(account, previous.bankName(), userKeyOf(user), verifiedBy);
+        return response(account, previous.bankName(), null, verifiedBy, false);
     }
 
-    /** 잔액은 응답에만 넣고 저장하지 않는다. 연결은 이미 끝났으니 잔액 조회가 실패해도 연결을 되돌리지 않고 null로 준다. */
-    private AccountLinkResponse response(LinkedAccount account, String bankName, String userKey, VerifiedBy verifiedBy) {
+    /**
+     * 잔액은 응답에만 넣고 저장하지 않는다. 연결은 이미 끝났으니 잔액 조회가 실패해도 연결을 되돌리지 않고 null로 준다.
+     *
+     * @param fetchBalance false면 금융망을 부르지 않고 잔액을 비운다(재응답)
+     */
+    private AccountLinkResponse response(LinkedAccount account, String bankName, String userKey, VerifiedBy verifiedBy,
+            boolean fetchBalance) {
         Long balance = null;
         LocalDateTime balanceAsOf = null;
-        try {
-            balance = ssafy.balance(userKey, cipher.decrypt(account.getAccountNoEnc(), CipherField.LINKED_ACCOUNT_NO));
-            balanceAsOf = now();
-        } catch (FinApiException e) {
-            log.warn("계좌 {} 연결 뒤 잔액 조회 실패({}) → 잔액 없이 응답", account.getId(), e.getOutcome());
+        if (fetchBalance) {
+            try {
+                balance = ssafy.balance(userKey, cipher.decrypt(account.getAccountNoEnc(), CipherField.LINKED_ACCOUNT_NO));
+                balanceAsOf = now();
+            } catch (FinApiException e) {
+                log.warn("계좌 {} 연결 뒤 잔액 조회 실패({}) → 잔액 없이 응답", account.getId(), e.getOutcome());
+            }
         }
         boolean primary = accountRepository.findFirstByUserIdAndStatusOrderByIdAsc(account.getUserId(),
                         LinkedAccountStatus.CONNECTED)
@@ -273,6 +348,33 @@ public class AccountLinkService {
         } catch (JsonProcessingException e) {
             throw new IllegalStateException(e);
         }
+    }
+
+    /** 영문·숫자·_·- 8~64자. 형식을 보지 않으면 아주 긴 값이나 ':' 같은 글자가 그대로 Redis 키에 들어간다. */
+    private static void requireIdempotencyKey(String idempotencyKey) {
+        String message = idempotencyKey == null || idempotencyKey.isBlank()
+                ? "Idempotency-Key 헤더가 필요합니다."
+                : IDEMPOTENCY_KEY_FORMAT.matcher(idempotencyKey).matches() ? null
+                : "Idempotency-Key는 영문·숫자·_·- 8~64자입니다.";
+        if (message != null) {
+            throw new BusinessException(ErrorCode.INVALID_REQUEST, Map.of("fieldErrors",
+                    List.of(new FieldErrorResponse("Idempotency-Key", message))));
+        }
+    }
+
+    /** 1원을 보낸 것으로 기록한다(보낸 시각, 시도 횟수 처음부터). 그 사이 토큰이 만료됐으면 empty. */
+    private Optional<LocalDateTime> markSent(String verificationToken, VerifiedAccount account) {
+        LocalDateTime requestedAt = now();
+        boolean updated = verificationStore.update(verificationToken,
+                account.withAuthRequested(requestedAt.toInstant(ZoneOffset.UTC).toEpochMilli()), true);
+        attempts.resetTries(account.accountKey());
+        return updated ? Optional.of(requestedAt) : Optional.empty();
+    }
+
+    /** 1원이 나가지 않은 게 확실할 때 1분 자리와 하루 횟수를 돌려준다. */
+    private void giveBack(String accountKey) {
+        attempts.releaseResendSlot(accountKey);
+        attempts.refundDailySend(accountKey);
     }
 
     /** 키에 사용자를 넣어 다른 사람이 같은 키를 써도 섞이지 않게 한다. */

@@ -83,6 +83,11 @@ yamu:
     max-code-attempts: 3
     auth-text: YAMU
     idempotency-ttl: 24h
+    # 같은 Idempotency-Key를 처리 중이라고 표시해 두는 시간. 금융망 두 번(코드 확인·잔액, 각 10초)보다 길게
+    idempotency-lock-ttl: 30s
+    # 1원 인증 남용 막기(한국 날짜 기준, 자정에 초기화). 계좌마다 하루 5번 발송, 10번 틀리면 그날은 잠금
+    daily-send-limit: 5
+    daily-fail-limit: 10
   # SSAFY 금융망. api-key는 운영은 환경변수 SSAFY_API_KEY, 로컬은 application-local.yml에 넣는다(노션 API 명세 4장).
   # 키·userKey·요청 본문은 로그에 남기지 않는다. 비어 있어도 서버는 뜨고, 금융망을 부르는 순간 실패한다.
   fin-api:
