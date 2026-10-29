@@ -70,6 +70,9 @@ public enum ErrorCode {
     AUTH_CODE_MISMATCH(HttpStatus.BAD_REQUEST, "인증코드가 일치하지 않습니다."),
     AUTH_CODE_EXPIRED(HttpStatus.BAD_REQUEST, "인증 시간이 지났습니다. 1원 인증을 다시 요청해 주세요."),
 
+    /* 계좌 - 계좌 정보 수정 (API 명세 「계좌 정보 수정 (기준 계좌 지정)」). 없는·남의 계좌는 공통 RESOURCE_NOT_FOUND */
+    PRIMARY_REQUIRED(HttpStatus.BAD_REQUEST, "기준 계좌는 하나 있어야 합니다. 다른 계좌를 기준 계좌로 정해 주세요."),
+
     /* 카드 - 카드 확인·카드 등록 (API 명세 각 페이지). 확인 토큰 만료는 위 VERIFICATION_TOKEN_EXPIRED */
     INVALID_CARD_NUMBER(HttpStatus.BAD_REQUEST, "카드번호는 숫자 16자리로 입력해 주세요."),
     ISSUER_NOT_SUPPORTED(HttpStatus.NOT_FOUND, "지원하지 않는 카드사·상품입니다."),

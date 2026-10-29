@@ -5,7 +5,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.yamu.be.account.AccountVerificationStore.VerifiedAccount;
 import com.yamu.be.account.domain.LinkedAccount;
 import com.yamu.be.account.domain.LinkedAccountRepository;
-import com.yamu.be.account.domain.LinkedAccountStatus;
 import com.yamu.be.account.dto.AccountLinkRequest;
 import com.yamu.be.account.dto.AccountLinkResponse;
 import com.yamu.be.account.dto.AccountLinkResponse.VerifiedBy;
@@ -22,7 +21,6 @@ import com.yamu.be.global.crypto.LookupHasher;
 import com.yamu.be.global.crypto.PersonalDataCipher;
 import com.yamu.be.global.exception.BusinessException;
 import com.yamu.be.global.exception.ErrorCode;
-import com.yamu.be.global.finapi.FinApiException;
 import com.yamu.be.user.domain.AppUser;
 import com.yamu.be.user.domain.AppUserRepository;
 import com.yamu.be.user.domain.AppUserStatus;
@@ -36,7 +34,6 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.regex.Pattern;
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
@@ -53,7 +50,6 @@ import org.springframework.stereotype.Service;
  *
  * 금융망 호출은 DB 트랜잭션 밖에서 한다. 응답을 기다리는 동안 DB 연결을 잡고 있지 않도록.
  */
-@Slf4j
 @Service
 @RequiredArgsConstructor
 public class AccountLinkService {
@@ -73,6 +69,8 @@ public class AccountLinkService {
     private final StringRedisTemplate redis;
     private final ObjectMapper objectMapper;
     private final AccountLinkProperties properties;
+    private final AccountManagementService managementService;
+    private final AccountBalanceService balanceService;
     private final Clock clock;
 
     /**
@@ -176,8 +174,10 @@ public class AccountLinkService {
         remember(actor.userId(), idempotencyKey,
                 new LinkResult(tokenHash, saved.getId(), account.bankName(), grant == null ? null : grant.method()));
 
+        // 처음 연결한 계좌는 자동으로 기준 계좌(FR-033). 연결과 따로 커밋해, 기준 계좌 정하기가 실패해도 연결은 남는다.
+        boolean primary = managementService.assignPrimaryIfNone(user.getId(), saved.getId());
         VerifiedBy verifiedBy = grant == null ? null : new VerifiedBy(grant.method(), grant.auditLogId(), linkedAt);
-        return response(saved, account.bankName(), userKeyOf(user), verifiedBy);
+        return response(saved, account.bankName(), primary, verifiedBy);
     }
 
     /**
@@ -234,29 +234,22 @@ public class AccountLinkService {
         }
         LinkedAccount account = accountRepository.findByIdAndUserId(previous.accountId(), userId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND));
-        AppUser user = userRepository.findById(userId).orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND));
         // 본인 인증 토큰은 처음 요청에서 이미 썼다. 같은 기록을 다시 보여 준다.
         VerifiedBy verifiedBy = account.getStepUpAuditLogId() == null ? null
                 : new VerifiedBy(previous.method(), account.getStepUpAuditLogId(), account.getConnectedAt());
-        return response(account, previous.bankName(), userKeyOf(user), verifiedBy);
+        return response(account, previous.bankName(), account.isPrimary(), verifiedBy);
     }
 
-    /** 잔액은 응답에만 넣고 저장하지 않는다. 연결은 이미 끝났으니 잔액 조회가 실패해도 연결을 되돌리지 않고 null로 준다. */
-    private AccountLinkResponse response(LinkedAccount account, String bankName, String userKey, VerifiedBy verifiedBy) {
-        Long balance = null;
-        LocalDateTime balanceAsOf = null;
-        try {
-            balance = ssafy.balance(userKey, cipher.decrypt(account.getAccountNoEnc(), CipherField.LINKED_ACCOUNT_NO));
-            balanceAsOf = now();
-        } catch (FinApiException e) {
-            log.warn("계좌 {} 연결 뒤 잔액 조회 실패({}) → 잔액 없이 응답", account.getId(), e.getOutcome());
-        }
-        boolean primary = accountRepository.findFirstByUserIdAndStatusOrderByIdAsc(account.getUserId(),
-                        LinkedAccountStatus.CONNECTED)
-                .map(first -> first.getId().equals(account.getId()))
-                .orElse(false);
+    /**
+     * 잔액은 새로 읽어 계좌 잔액 캐시({@link AccountBalanceService})에도 넣는다. 연결은 이미 끝났으니 잔액 조회가 실패해도
+     * 연결을 되돌리지 않고 null로 준다.
+     */
+    private AccountLinkResponse response(LinkedAccount account, String bankName, boolean primary, VerifiedBy verifiedBy) {
+        AccountBalance balance = balanceService.readAvailable(account.getUserId(), List.of(account), true)
+                .get(account.getId());
         return new AccountLinkResponse(account.getId(), bank(account.getBankCode(), bankName), account.getAccountAlias(),
-                mask(account.getAccountLast4()), balance, balanceAsOf, primary, verifiedBy,
+                mask(account.getAccountLast4()), balance == null ? null : balance.balance(),
+                balance == null ? null : balance.fetchedAt(), primary, verifiedBy,
                 account.getConnectedAt().truncatedTo(ChronoUnit.SECONDS));
     }
 
