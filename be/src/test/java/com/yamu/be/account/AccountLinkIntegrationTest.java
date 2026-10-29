@@ -30,14 +30,19 @@ import com.yamu.be.global.crypto.PersonalDataCipher;
 import com.yamu.be.global.finapi.FinApiClient;
 import com.yamu.be.global.finapi.FinApiFailures;
 import com.yamu.be.support.AuthUsers;
+import com.yamu.be.support.Concurrently;
 import com.yamu.be.support.MySqlTestSupport;
 import java.sql.Timestamp;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.time.ZoneOffset;
+import java.time.format.DateTimeFormatter;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -264,7 +269,72 @@ class AccountLinkIntegrationTest extends MySqlTestSupport {
 
         oneWon(bearer, token).andExpect(errorCode(502, "FIN_API_UNAVAILABLE"));
         oneWon(bearer, token).andExpect(status().isOk());
+        oneWon(bearer, token)
+                .andExpect(errorCode(429, "AUTH_REQUEST_TOO_FREQUENT"))
+                .andExpect(jsonPath("$.error.details.retryAfterSeconds").isNumber());
+        // 보내지 못한 1번은 하루 횟수에서 돌려받았다.
+        assertThat(redis.opsForValue().get(dailyKey("sent"))).isEqualTo("1");
+    }
+
+    @Test
+    void 결과_불명이면_1원이_나갔다고_보고_1분_자리를_지키며_받은_코드로_바로_연결할_수_있다() throws Exception {
+        String bearer = "Bearer " + signupToken(pendingUser(), SignupMode.SIGNUP);
+        String token = read(verifyAccount(bearer, ACCOUNT_NO).andReturn(), "$.data.verificationToken");
+        when(finApiClient.post(eq(SsafyAccountApi.OPEN_AUTH_PATH), eq(USER_KEY), any(), eq(Void.class)))
+                .thenThrow(FinApiFailures.timedOut("openAccountAuth"));
+
+        oneWon(bearer, token).andExpect(errorCode(504, "UPSTREAM_TIMEOUT"));
+        // 바로 다시 보내면 1원이 두 번 나갈 수 있어 1분 자리를 지킨다. 하루 횟수도 1번 쓴 것으로 센다.
         oneWon(bearer, token).andExpect(errorCode(429, "AUTH_REQUEST_TOO_FREQUENT"));
+        assertThat(redis.opsForValue().get(dailyKey("sent"))).isEqualTo("1");
+        // 실제로 1원이 나갔다면 사용자가 본 코드로 연결된다(보낸 시각이 기록돼 있어 AUTH_CODE_EXPIRED가 아니다).
+        link(bearer, token, CODE, null, UUID.randomUUID().toString(), null).andExpect(status().isCreated());
+    }
+
+    @Test
+    void 한_계좌로_하루_5번까지_보내고_6번째는_자정까지_429_ONE_WON_DAILY_LIMIT_EXCEEDED() throws Exception {
+        String bearer = "Bearer " + signupToken(pendingUser(), SignupMode.SIGNUP);
+        String token = read(verifyAccount(bearer, ACCOUNT_NO).andReturn(), "$.data.verificationToken");
+
+        for (int i = 0; i < 5; i++) {
+            redis.delete(redis.keys("onewon:resend:*"));
+            oneWon(bearer, token).andExpect(status().isOk());
+        }
+        redis.delete(redis.keys("onewon:resend:*"));
+        oneWon(bearer, token)
+                .andExpect(errorCode(429, "ONE_WON_DAILY_LIMIT_EXCEEDED"))
+                .andExpect(jsonPath("$.error.details.retryAfterSeconds").isNumber());
+        verify(finApiClient, times(5)).post(eq(SsafyAccountApi.OPEN_AUTH_PATH), eq(USER_KEY), any(), eq(Void.class));
+        // 하루 한도로 막혔으면 1분 자리는 잡지 않은 것으로 돌려 둔다.
+        assertThat(redis.keys("onewon:resend:*")).isEmpty();
+    }
+
+    @Test
+    void 하루에_10번_틀리면_다시_보내도_그날은_429_AUTH_CODE_LOCKED() throws Exception {
+        String bearer = "Bearer " + signupToken(pendingUser(), SignupMode.SIGNUP);
+        String token = read(verifyAccount(bearer, ACCOUNT_NO).andReturn(), "$.data.verificationToken");
+
+        // 다시 보낼 때마다 코드당 3번이 새로 생기지만, 하루 틀린 횟수는 이어서 센다.
+        for (int sent = 0; sent < 3; sent++) {
+            redis.delete(redis.keys("onewon:resend:*"));
+            oneWon(bearer, token).andExpect(status().isOk());
+            for (int i = 0; i < 3; i++) {
+                link(bearer, token, "000" + i, null, UUID.randomUUID().toString(), null)
+                        .andExpect(errorCode(400, "AUTH_CODE_MISMATCH"));
+            }
+        }
+        redis.delete(redis.keys("onewon:resend:*"));
+        oneWon(bearer, token).andExpect(status().isOk());
+        link(bearer, token, "0009", null, UUID.randomUUID().toString(), null)
+                .andExpect(errorCode(429, "AUTH_CODE_LOCKED"))
+                .andExpect(jsonPath("$.error.details.retryAfterSeconds").isNumber());
+
+        // 맞는 코드도, 새 1원도 그날은 받지 않는다. SSAFY도 부르지 않는다.
+        link(bearer, token, CODE, null, UUID.randomUUID().toString(), null).andExpect(errorCode(429, "AUTH_CODE_LOCKED"));
+        redis.delete(redis.keys("onewon:resend:*"));
+        oneWon(bearer, token).andExpect(errorCode(429, "AUTH_CODE_LOCKED"));
+        verify(finApiClient, times(10)).post(eq(SsafyAccountApi.CHECK_AUTH_PATH), eq(USER_KEY), any(), eq(CheckResult.class));
+        verify(finApiClient, times(4)).post(eq(SsafyAccountApi.OPEN_AUTH_PATH), eq(USER_KEY), any(), eq(Void.class));
     }
 
     @Test
@@ -301,6 +371,30 @@ class AccountLinkIntegrationTest extends MySqlTestSupport {
         redis.delete(redis.keys("onewon:resend:*"));
         oneWon(bearer, token).andExpect(status().isOk());
         link(bearer, token, CODE, null, UUID.randomUUID().toString(), null).andExpect(status().isCreated());
+    }
+
+    @Test
+    void 시도_횟수는_계좌_확인_결과와_같은_10분_동안_기억한다() throws Exception {
+        String bearer = "Bearer " + signupToken(pendingUser(), SignupMode.SIGNUP);
+        String token = verifiedAndSent(bearer, ACCOUNT_NO);
+
+        link(bearer, token, "0000", null, UUID.randomUUID().toString(), null)
+                .andExpect(errorCode(400, "AUTH_CODE_MISMATCH"));
+        // 5분(안내한 코드 유효시간)이면 SSAFY 코드가 살아 있는 동안 키가 먼저 사라져 3번을 더 넣을 수 있었다.
+        String tryKey = redis.keys("onewon:try:*").iterator().next();
+        assertThat(redis.getExpire(tryKey, TimeUnit.SECONDS)).isGreaterThan(9 * 60);
+    }
+
+    @Test
+    void 인증코드가_숫자_4자리가_아니면_400이고_SSAFY도_시도_횟수도_쓰지_않는다() throws Exception {
+        String bearer = "Bearer " + signupToken(pendingUser(), SignupMode.SIGNUP);
+        String token = verifiedAndSent(bearer, ACCOUNT_NO);
+
+        link(bearer, token, "12a4", null, UUID.randomUUID().toString(), null)
+                .andExpect(errorCode(400, "INVALID_REQUEST"))
+                .andExpect(jsonPath("$.error.details.fieldErrors[0].field").value("authCode"));
+        verify(finApiClient, never()).post(eq(SsafyAccountApi.CHECK_AUTH_PATH), anyString(), any(), eq(CheckResult.class));
+        assertThat(redis.keys("onewon:try:*")).isEmpty();
     }
 
     @Test
@@ -363,6 +457,55 @@ class AccountLinkIntegrationTest extends MySqlTestSupport {
     }
 
     @Test
+    void 같은_Idempotency_Key가_동시에_오면_하나만_연결하고_다른_하나는_409_끝난_뒤_다시_부르면_처음_결과() throws Exception {
+        String bearer = "Bearer " + signupToken(pendingUser(), SignupMode.SIGNUP);
+        String token = verifiedAndSent(bearer, ACCOUNT_NO);
+        slowCodeCheck();
+        String key = UUID.randomUUID().toString();
+
+        List<Integer> statuses = Concurrently.run(2,
+                () -> link(bearer, token, CODE, null, key, null).andReturn().getResponse().getStatus());
+
+        assertThat(statuses).containsExactlyInAnyOrder(201, 409);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM linked_account", Integer.class)).isEqualTo(1);
+        long accountId = jdbc.queryForObject("SELECT linked_account_id FROM linked_account", Long.class);
+        // 재응답은 금융망(잔액)을 다시 부르지 않는다.
+        link(bearer, token, CODE, null, key, null)
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.accountId").value(accountId))
+                .andExpect(jsonPath("$.data.balance").doesNotExist());
+        verify(finApiClient, times(1)).post(eq(SsafyAccountApi.BALANCE_PATH), eq(USER_KEY), any(), eq(Balance.class));
+    }
+
+    @Test
+    void 같은_계좌를_다른_확인_토큰으로_동시에_연결하면_하나만_201_나머지는_409_ACCOUNT_ALREADY_LINKED() throws Exception {
+        String bearer = "Bearer " + signupToken(pendingUser(), SignupMode.SIGNUP);
+        String first = verifiedAndSent(bearer, ACCOUNT_NO);
+        redis.delete(redis.keys("onewon:resend:*"));
+        String second = verifiedAndSent(bearer, ACCOUNT_NO);
+        slowCodeCheck();
+
+        List<Integer> statuses = Concurrently.run(List.of(
+                () -> link(bearer, first, CODE, null, UUID.randomUUID().toString(), null).andReturn().getResponse().getStatus(),
+                () -> link(bearer, second, CODE, null, UUID.randomUUID().toString(), null).andReturn().getResponse().getStatus()));
+
+        assertThat(statuses).containsExactlyInAnyOrder(201, 409);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM linked_account", Integer.class)).isEqualTo(1);
+    }
+
+    @Test
+    void Idempotency_Key_형식이_틀리면_400() throws Exception {
+        String bearer = "Bearer " + signupToken(pendingUser(), SignupMode.SIGNUP);
+        String token = verifiedAndSent(bearer, ACCOUNT_NO);
+
+        link(bearer, token, CODE, null, "short", null)
+                .andExpect(errorCode(400, "INVALID_REQUEST"))
+                .andExpect(jsonPath("$.error.details.fieldErrors[0].field").value("Idempotency-Key"));
+        link(bearer, token, CODE, null, "a:b:c:d:e:f", null).andExpect(errorCode(400, "INVALID_REQUEST"));
+        verify(finApiClient, never()).post(eq(SsafyAccountApi.CHECK_AUTH_PATH), anyString(), any(), eq(CheckResult.class));
+    }
+
+    @Test
     void Idempotency_Key가_없으면_400() throws Exception {
         String bearer = "Bearer " + signupToken(pendingUser(), SignupMode.SIGNUP);
         String token = verifiedAndSent(bearer, ACCOUNT_NO);
@@ -388,6 +531,19 @@ class AccountLinkIntegrationTest extends MySqlTestSupport {
     }
 
     @Test
+    void 가입_진행_토큰은_모드와_사용자_상태가_맞을_때만_받는다() throws Exception {
+        // 가입을 마친 사람의 남은 SIGNUP 토큰: 본인 인증 없이 계좌를 연결하는 길이 되므로 막는다.
+        long active = insertUser("01012345678", MEMBER_LOCAL, "ACTIVE");
+        verifyAccount("Bearer " + signupToken(active, SignupMode.SIGNUP), ACCOUNT_NO)
+                .andExpect(errorCode(401, "SIGNUP_TOKEN_INVALID"));
+        // 가입 중인 사람의 기기 재등록 토큰도 받지 않는다(재등록은 가입을 마친 사람만).
+        long pending = otherPendingUser();
+        verifyAccount("Bearer " + signupToken(pending, SignupMode.DEVICE_RECOVERY), ACCOUNT_NO)
+                .andExpect(errorCode(401, "SIGNUP_TOKEN_INVALID"));
+        verify(finApiClient, never()).post(eq(SsafyAccountApi.HOLDER_PATH), anyString(), any(), eq(Holder.class));
+    }
+
+    @Test
     void 토큰이_없으면_401_UNAUTHORIZED_가입_진행_토큰이_만료면_401_SIGNUP_TOKEN_INVALID() throws Exception {
         mockMvc.perform(post("/api/accounts/verify").contentType(MediaType.APPLICATION_JSON)
                         .content("{\"accountNo\":\"" + ACCOUNT_NO + "\"}"))
@@ -401,6 +557,7 @@ class AccountLinkIntegrationTest extends MySqlTestSupport {
         String signup = "Bearer " + signupToken(userId, SignupMode.SIGNUP);
         link(signup, verifiedAndSent(signup, ACCOUNT_NO), CODE, null, UUID.randomUUID().toString(), null)
                 .andExpect(status().isCreated());
+        activate(userId);
         String recovery = "Bearer " + signupToken(userId, SignupMode.DEVICE_RECOVERY);
 
         verifyAccount(recovery, OTHER_ACCOUNT_NO).andExpect(errorCode(400, "ACCOUNT_NOT_LINKED"));
@@ -449,6 +606,27 @@ class AccountLinkIntegrationTest extends MySqlTestSupport {
             values.put("pin_updated_at", now());
         }
         return insert("app_user", "user_id", values);
+    }
+
+    /** 가입 중이던 사용자를 가입 완료(ACTIVE)로 바꾼다. ACTIVE는 PIN이 있어야 한다(ck_user_active). */
+    private void activate(long userId) {
+        jdbc.update("UPDATE app_user SET status = 'ACTIVE', pin_hash = '$2a$10$test', pin_updated_at = ? WHERE user_id = ?",
+                now(), userId);
+    }
+
+    /** 인증코드 확인을 잠깐 늦춰 두 요청이 확실히 겹치게 한다. */
+    private void slowCodeCheck() {
+        when(finApiClient.post(eq(SsafyAccountApi.CHECK_AUTH_PATH), eq(USER_KEY), any(), eq(CheckResult.class)))
+                .thenAnswer(inv -> {
+                    Thread.sleep(300);
+                    return new CheckResult("SUCCESS");
+                });
+    }
+
+    /** 오늘(한국 날짜) 이 사용자·계좌의 하루 횟수 키. 테스트에는 사용자·계좌가 하나라 키도 하나다. */
+    private String dailyKey(String kind) {
+        return redis.keys("onewon:" + kind + ":*:" + LocalDate.now(ZoneId.of("Asia/Seoul")).format(DateTimeFormatter.BASIC_ISO_DATE))
+                .iterator().next();
     }
 
     /** 가입을 마친 사용자 + 기기 + ACCOUNT_LINK 본인 인증 토큰. */
