@@ -25,7 +25,8 @@ import org.springframework.stereotype.Component;
  *
  * <pre>
  * 토큰: "sgt_{32바이트 랜덤 Base64URL}"
- * signup:{sha256(토큰)} → Hash { mode, verifiedAt, name, birthDate, phoneEnc, phoneHash, userId(회원가입 뒤) }   TTL 30분
+ * signup:{sha256(토큰)} → Hash { mode, verifiedAt, name, birthDate, phoneEnc, phoneHash, userId(회원가입 뒤),
+ *                               pendingPinHash(기기 재등록 중 새 PIN) }   TTL 30분
  * </pre>
  *
  * <p>가입 단계 API(회원가입 → 계좌 연결 → PIN 설정 → 기기 등록)가 같은 토큰을 여러 번 쓰므로 꺼낼 때 지우지 않는다.
@@ -39,10 +40,12 @@ public class SignupTokenStore {
     private static final String TOKEN_PREFIX = "sgt_";
     private static final Base64.Encoder URL = Base64.getUrlEncoder().withoutPadding();
 
-    /** 아직 있는 토큰에만 userId를 붙인다. 만료된 키에 HSET하면 TTL 없는 키가 새로 생긴다. */
-    private static final RedisScript<Long> ATTACH_USER = new DefaultRedisScript<>("""
+    private static final String PENDING_PIN_HASH = "pendingPinHash";
+
+    /** 아직 있는 토큰에만 칸을 붙인다. 만료된 키에 HSET하면 TTL 없는 키가 새로 생긴다. */
+    private static final RedisScript<Long> ATTACH = new DefaultRedisScript<>("""
             if redis.call('EXISTS', KEYS[1]) == 0 then return 0 end
-            redis.call('HSET', KEYS[1], 'userId', ARGV[1])
+            redis.call('HSET', KEYS[1], ARGV[1], ARGV[2])
             return 1
             """, Long.class);
 
@@ -86,7 +89,30 @@ public class SignupTokenStore {
 
     /** 회원가입으로 만든 사용자를 토큰에 붙인다. 다음 단계(계좌 연결 등)가 이 번호로 사용자를 찾는다. */
     public void attachUser(String token, Long userId) {
-        redis.execute(ATTACH_USER, List.of(key(token)), String.valueOf(userId));
+        redis.execute(ATTACH, List.of(key(token)), "userId", String.valueOf(userId));
+    }
+
+    /**
+     * 기기 재등록 중 새로 정한 PIN 해시를 맡아 둔다. 1원 인증을 마친 기기 등록 때 사용자에 넣는다.
+     * 휴대폰 본인인증(연출)만으로 가입한 사람의 PIN을 바로 바꾸면, 번호·생년월일만 아는 사람이 남의 PIN을 바꿀 수 있다.
+     *
+     * @return 토큰이 이미 만료됐으면 false
+     */
+    public boolean stagePin(String token, String pinHash) {
+        return Long.valueOf(1).equals(redis.execute(ATTACH, List.of(key(token)), PENDING_PIN_HASH, pinHash));
+    }
+
+    /** {@link #stagePin}으로 맡긴 PIN 해시. 없으면 empty. */
+    public Optional<String> stagedPinHash(String token) {
+        if (token == null || !token.startsWith(TOKEN_PREFIX)) {
+            return Optional.empty();
+        }
+        return Optional.ofNullable((String) redis.opsForHash().get(key(token), PENDING_PIN_HASH));
+    }
+
+    /** 가입 완료·기기 재등록이 끝나면 지운다(명세: 기기 등록 성공 시 폐기). */
+    public void delete(String token) {
+        redis.delete(key(token));
     }
 
     private static String key(String token) {

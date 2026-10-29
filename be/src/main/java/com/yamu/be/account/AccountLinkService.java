@@ -206,6 +206,12 @@ public class AccountLinkService {
         return verified;
     }
 
+    /** 기기 재등록이 끝나면 부른다. 확인한 계좌 토큰과 1원 재요청 간격·시도 횟수를 지운다(계좌 연결 끝과 같은 정리). */
+    public void finishOneWon(String verificationToken, VerifiedAccount account) {
+        verificationStore.delete(verificationToken);
+        attempts.clear(account.accountKey());
+    }
+
     /** 처음 연결이면 새 행, 끊었던 계좌면 그 행을 다시 연결한다. 같은 계좌를 동시에 두 번 연결하면 늦은 쪽은 409. */
     private LinkedAccount save(Optional<LinkedAccount> existing, Long userId, VerifiedAccount account, String alias,
             Long auditLogId, LocalDateTime now) {
