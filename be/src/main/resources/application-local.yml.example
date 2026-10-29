@@ -32,3 +32,6 @@ yamu:
   # Access Token 서명 키(로컬 전용). `openssl rand -base64 32` 결과를 넣는다.
   jwt:
     secret:
+  # SSAFY 금융망 팀 공용 앱 키. 값은 노션 API 명세 4장에 있다. 금융망을 부르지 않는 작업이면 비워 둬도 된다.
+  fin-api:
+    api-key:
