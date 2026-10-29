@@ -70,6 +70,16 @@ public class UserCard extends BaseTimeEntity {
     /** 처음 등록한 시각(UTC). 등록 해제 후 다시 등록해도 바꾸지 않는다. 등록 전 PENDING은 null */
     private LocalDateTime registeredAt;
 
+    /** 사용자가 정한 목록 순서(작을수록 앞). 추천 동률의 마지막 기준(FIXED_ORDER). 저장 전에는 null(등록 순) */
+    private Integer displayOrder;
+
+    /** 기본 카드. 사용자당 1장(DB UNIQUE)이고 등록된 카드만 지정할 수 있다 */
+    @Column(name = "is_default", nullable = false)
+    private boolean defaultCard;
+
+    /** 마지막 결제일 변경 시각(UTC). 3개월 재변경 제한의 기준이다. 등록 때 정한 결제일은 변경이 아니라 null */
+    private LocalDateTime paymentDayChangedAt;
+
     @Version
     private Long version;
 
@@ -94,5 +104,44 @@ public class UserCard extends BaseTimeEntity {
         if (registeredAt == null) {
             registeredAt = now;
         }
+    }
+
+    /** 별칭을 바꾼다. null이면 지운다(화면은 상품명). */
+    public void rename(String alias) {
+        this.cardAlias = alias;
+    }
+
+    /** 추천 포함(ACTIVE)·제외(INACTIVE)를 바꾼다. 등록된 카드끼리만 오간다. */
+    public void changeRecommendation(CardRegistrationStatus status) {
+        if (!status.isRegistered() || !registrationStatus.isRegistered()) {
+            throw new IllegalStateException("등록된 카드의 추천 포함 여부만 바꿀 수 있습니다: " + registrationStatus + " → " + status);
+        }
+        this.registrationStatus = status;
+    }
+
+    public void markDefault(boolean defaultCard) {
+        this.defaultCard = defaultCard;
+    }
+
+    /** 신용카드 결제일을 바꾸고 변경 시각을 남긴다. 3개월 제한은 호출하는 쪽이 먼저 확인한다. */
+    public void changePaymentDay(int paymentDay, LocalDateTime now) {
+        this.paymentDay = paymentDay;
+        this.paymentDayChangedAt = now;
+    }
+
+    /** 출금 계좌(신용카드 결제계좌)를 바꾼다. 소유·연결 확인은 호출하는 쪽이 한다. */
+    public void changeLinkedAccount(Long linkedAccountId) {
+        this.linkedAccountId = linkedAccountId;
+    }
+
+    public void placeAt(int displayOrder) {
+        this.displayOrder = displayOrder;
+    }
+
+    /** 등록 해제. 행은 남겨 결제·실적·청구 이력의 참조를 보존하고, 기본 카드·순서 지정은 푼다. */
+    public void unregister() {
+        this.registrationStatus = CardRegistrationStatus.UNREGISTERED;
+        this.defaultCard = false;
+        this.displayOrder = null;
     }
 }
