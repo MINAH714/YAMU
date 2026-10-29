@@ -62,6 +62,9 @@ public enum ErrorCode {
     METHOD_NOT_ALLOWED(HttpStatus.METHOD_NOT_ALLOWED, "지원하지 않는 HTTP 메서드입니다."),
     UNSUPPORTED_MEDIA_TYPE(HttpStatus.UNSUPPORTED_MEDIA_TYPE, "지원하지 않는 Content-Type입니다."),
 
+    /* 공통 - 동시 수정(@Version) 충돌. 서비스가 더 알맞은 코드로 바꾸지 않았을 때의 기본값. 명세서 1장에 추가 필요 */
+    CONCURRENT_MODIFICATION(HttpStatus.CONFLICT, "다른 요청과 겹쳤습니다. 다시 시도해 주세요."),
+
     /* 공통 - 호출 횟수 제한. details.retryAfterSeconds. 명세서 1장에 추가 필요 */
     TOO_MANY_REQUESTS(HttpStatus.TOO_MANY_REQUESTS, "요청이 너무 많습니다. 잠시 후 다시 시도해 주세요.");
 

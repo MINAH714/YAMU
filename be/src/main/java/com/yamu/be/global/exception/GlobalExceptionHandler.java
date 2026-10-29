@@ -2,6 +2,7 @@ package com.yamu.be.global.exception;
 
 import com.yamu.be.global.common.ApiResponse;
 import com.yamu.be.global.common.ApiResponse.FieldErrorResponse;
+import jakarta.persistence.OptimisticLockException;
 import jakarta.validation.ConstraintViolationException;
 import java.util.ArrayList;
 import java.util.List;
@@ -12,6 +13,7 @@ import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.lang.Nullable;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.validation.FieldError;
 import org.springframework.validation.method.ParameterErrors;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -101,6 +103,17 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
             log.warn("{} {}: {}", statusCode.value(), ex.getClass().getSimpleName(), ex.getMessage());
         }
         return super.handleExceptionInternal(ex, ApiResponse.fail(ec, messageOf(ex, ec)), headers, statusCode, request);
+    }
+
+    /*
+     * 같은 행을 두 요청이 동시에 고쳐 @Version이 어긋났다 → 409 CONCURRENT_MODIFICATION(다시 시도하면 된다).
+     * 처리하지 않으면 500으로 나가 서버 장애처럼 보인다. 서비스가 상황에 맞는 코드(예: ACCOUNT_ALREADY_LINKED)로 바꿨으면 그쪽이 우선이다.
+     */
+    @ExceptionHandler({ObjectOptimisticLockingFailureException.class, OptimisticLockException.class})
+    public ResponseEntity<ApiResponse<Void>> handleOptimisticLock(Exception e) {
+        log.warn("동시 수정 충돌: {}", e.getClass().getSimpleName());
+        ErrorCode ec = ErrorCode.CONCURRENT_MODIFICATION;
+        return ResponseEntity.status(ec.getStatus()).body(ApiResponse.fail(ec));
     }
 
     /* 그 외 예상하지 못한 예외 → 500. 원인은 로그에만 남기고 응답에는 노출하지 않는다. */
