@@ -29,6 +29,11 @@ public class FinApiConfig {
         if (!properties.hasApiKey()) {
             log.warn("yamu.fin-api.api-key가 비어 있습니다. 금융망 호출은 실패합니다(SSAFY_API_KEY 환경변수 또는 application-local.yml).");
         }
+        // JDK의 응답 제한(request timeout)은 연결 시간까지 포함해서 잰다. 연결 제한이 같거나 길면 연결 실패가 응답 시간 초과로 먼저 끝나
+        // "요청 안 감"을 "결과 불명"으로 잘못 보게 되므로 서버를 띄우지 않는다.
+        if (properties.connectTimeout().compareTo(properties.readTimeout()) >= 0) {
+            throw new IllegalStateException("yamu.fin-api.connect-timeout은 read-timeout보다 짧아야 합니다.");
+        }
         HttpClient httpClient = HttpClient.newBuilder()
                 .connectTimeout(properties.connectTimeout())
                 .build();
