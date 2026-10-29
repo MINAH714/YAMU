@@ -27,11 +27,17 @@ import org.springframework.security.web.util.matcher.RequestMatcher;
 @RequiredArgsConstructor
 public class SecurityConfig {
 
-    /** 로그인 전에 부르는 API. 가입 API가 생기면 여기에 추가한다. */
+    /**
+     * 로그인 전에 부르는 API. 가입 API가 생기면 여기에 추가한다.
+     * 회원가입은 Bearer로 가입 진행 토큰(JWT 아님)을 받으므로 여기 두어 JWT 검사를 건너뛰고 컨트롤러가 직접 확인한다.
+     */
     static final String[] PUBLIC_POST = {
             "/api/auth/login/challenge",
             "/api/auth/login",
-            "/api/auth/refresh"
+            "/api/auth/refresh",
+            "/api/auth/phone-verifications",
+            "/api/auth/phone-verifications/{verificationId}/confirm",
+            "/api/auth/signup"
     };
 
     private static final String[] PUBLIC_GET = {
