@@ -2,6 +2,8 @@ package com.yamu.be.global.finapi;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.mock;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.content;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.jsonPath;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
@@ -13,6 +15,8 @@ import static org.springframework.test.web.client.response.MockRestResponseCreat
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.yamu.be.global.exception.ErrorCode;
+import jakarta.validation.Validation;
+import jakarta.validation.constraints.NotBlank;
 import java.net.ConnectException;
 import java.net.http.HttpConnectTimeoutException;
 import java.net.http.HttpTimeoutException;
@@ -21,7 +25,6 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.Map;
-import org.hamcrest.Matchers;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpMethod;
@@ -43,8 +46,11 @@ class FinApiClientTest {
     private static final String BALANCE = "/edu/demandDeposit/inquireDemandDepositAccountBalance";
     /** 2026-10-28 00:30:15 UTC = 한국 09:30:15 */
     private static final Clock CLOCK = Clock.fixed(Instant.parse("2026-10-28T00:30:15Z"), ZoneOffset.UTC);
+    /** 채번기가 한국 09:30:15의 첫 번호를 준다고 둔다. 채번 자체는 FinTransactionNoIssuerTest에서 본다. */
+    private static final String ISSUED_NO = "20261028093015000001";
 
     MockRestServiceServer server;
+    FinTransactionNoIssuer issuer;
     FinApiClient client;
 
     record BalanceRequest(String accountNo) {
@@ -53,7 +59,7 @@ class FinApiClientTest {
     record BalanceRec(String bankCode, String accountNo, Long accountBalance) {
     }
 
-    record Member(String userId, String userKey) {
+    record Member(String userId, @NotBlank String userKey) {
     }
 
     @BeforeEach
@@ -66,7 +72,10 @@ class FinApiClientTest {
         server = MockRestServiceServer.bindTo(builder).build();
         ObjectMapper objectMapper = Jackson2ObjectMapperBuilder.json().build();
         FinApiProperties properties = new FinApiProperties(BASE, apiKey, Duration.ofSeconds(3), Duration.ofSeconds(10));
-        return new FinApiClient(builder.build(), properties, objectMapper, CLOCK);
+        issuer = mock(FinTransactionNoIssuer.class);
+        given(issuer.issue()).willReturn(ISSUED_NO);
+        return new FinApiClient(builder.build(), properties, objectMapper, CLOCK, issuer,
+                Validation.buildDefaultValidatorFactory().getValidator());
     }
 
     // ───────── 요청 모양 ─────────
@@ -82,7 +91,7 @@ class FinApiClientTest {
                 .andExpect(jsonPath("$.Header.transmissionTime").value("093015"))
                 .andExpect(jsonPath("$.Header.institutionCode").value("00100"))
                 .andExpect(jsonPath("$.Header.fintechAppNo").value("001"))
-                .andExpect(jsonPath("$.Header.institutionTransactionUniqueNo").value(Matchers.matchesPattern("\\d{20}")))
+                .andExpect(jsonPath("$.Header.institutionTransactionUniqueNo").value(ISSUED_NO))
                 .andExpect(jsonPath("$.Header.apiKey").value(API_KEY))
                 .andExpect(jsonPath("$.Header.userKey").value(USER_KEY))
                 .andExpect(jsonPath("$.accountNo").value("0885170441365934"))
@@ -97,9 +106,11 @@ class FinApiClientTest {
     }
 
     @Test
-    void 호출하는_쪽이_준_기관거래고유번호를_그대로_쓴다() {
-        String transactionNo = FinApiClient.newTransactionNo();
+    void 호출하는_쪽이_준_기관거래고유번호를_그대로_쓰고_전송_일시를_번호에_맞춘다() {
+        String transactionNo = "20261028093014000042";
         server.expect(jsonPath("$.Header.institutionTransactionUniqueNo").value(transactionNo))
+                .andExpect(jsonPath("$.Header.transmissionDate").value("20261028"))
+                .andExpect(jsonPath("$.Header.transmissionTime").value("093014"))
                 .andRespond(withSuccess(success("{}"), MediaType.APPLICATION_JSON));
 
         client.post("/edu/demandDeposit/updateDemandDepositAccountWithdrawal", USER_KEY, transactionNo,
@@ -120,12 +131,21 @@ class FinApiClientTest {
     }
 
     @Test
-    void 기관거래고유번호는_20자리_숫자이고_매번_다르다() {
-        String a = FinApiClient.newTransactionNo();
-        String b = FinApiClient.newTransactionNo();
+    void 기관거래고유번호가_20자리_숫자가_아니면_보내기_전에_거절한다() {
+        assertThatThrownBy(() -> client.post(BALANCE, USER_KEY, "2026102809301500001", null, JsonNode.class))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> client.post(BALANCE, USER_KEY, "2026102809301500000a", null, JsonNode.class))
+                .isInstanceOf(IllegalArgumentException.class);
+        server.verify();
+    }
 
-        assertThat(a).matches("\\d{20}");
-        assertThat(a).isNotEqualTo(b);
+    @Test
+    void 채번에_실패하면_요청이_나가지_않고_NOT_SENT() {
+        given(issuer.issue()).willThrow(FinApiException.notSent(null));
+
+        assertFailure(() -> client.post(BALANCE, USER_KEY, null, JsonNode.class),
+                FinApiOutcome.NOT_SENT, ErrorCode.FIN_API_UNAVAILABLE);
+        server.verify();
     }
 
     // ───────── 금융망이 거절 ─────────
@@ -157,6 +177,45 @@ class FinApiClientTest {
                 .body("{\"responseCode\":\"H1007\",\"responseMessage\":\"기관거래고유번호가 중복된 값입니다.\"}"));
 
         assertRejected(() -> client.post(BALANCE, USER_KEY, null, JsonNode.class), "H1007");
+    }
+
+    @Test
+    void 서버_오류_5xx는_오류_코드가_있어도_결과_불명이고_코드는_예외에만_담는다() {
+        server.expect(requestTo(BASE + BALANCE)).andRespond(withStatus(HttpStatus.INTERNAL_SERVER_ERROR)
+                .contentType(MediaType.APPLICATION_JSON)
+                .body("{\"Header\":{\"responseCode\":\"A1014\",\"responseMessage\":\"오류\"}}"));
+
+        assertThatThrownBy(() -> client.post(BALANCE, USER_KEY, null, JsonNode.class))
+                .isInstanceOf(FinApiException.class)
+                .satisfies(e -> {
+                    FinApiException error = (FinApiException) e;
+                    assertThat(error.getOutcome()).isEqualTo(FinApiOutcome.UNKNOWN);
+                    assertThat(error.getErrorCode()).isEqualTo(ErrorCode.FIN_API_UNAVAILABLE);
+                    assertThat(error.getFinCode()).isEqualTo("A1014");
+                    assertThat(error.getDetails()).isNull();
+                });
+    }
+
+    // ───────── 성공 응답의 REC ─────────
+
+    @Test
+    void REC를_쓰지_않는_API는_Void로_부르면_REC가_없어도_성공() {
+        server.expect(requestTo(BASE + BALANCE)).andRespond(withSuccess("""
+                {"Header":{"responseCode":"H0000","responseMessage":"정상처리 되었습니다."}}
+                """, MediaType.APPLICATION_JSON));
+
+        assertThat(client.post(BALANCE, USER_KEY, null, Void.class)).isNull();
+        server.verify();
+    }
+
+    @Test
+    void REC가_필요한_타입인데_REC가_없으면_결과_불명() {
+        server.expect(requestTo(BASE + BALANCE)).andRespond(withSuccess("""
+                {"Header":{"responseCode":"H0000","responseMessage":"정상처리 되었습니다."}}
+                """, MediaType.APPLICATION_JSON));
+
+        assertFailure(() -> client.post(BALANCE, USER_KEY, null, BalanceRec.class),
+                FinApiOutcome.UNKNOWN, ErrorCode.FIN_API_UNAVAILABLE);
     }
 
     // ───────── 통신 실패 ─────────
@@ -223,6 +282,26 @@ class FinApiClientTest {
         assertRejected(() -> client.postWithApiKey("/member", Map.of("userId", "dup@yamu.app"), Member.class), "E4002");
     }
 
+    @Test
+    void 회원_API가_코드_없는_서버_오류를_주면_성공이_아니라_결과_불명() {
+        server.expect(requestTo(BASE + "/member")).andRespond(withStatus(HttpStatus.INTERNAL_SERVER_ERROR)
+                .contentType(MediaType.APPLICATION_JSON)
+                .body("{\"timestamp\":\"2026-10-28T09:30:15\",\"status\":500,\"error\":\"Internal Server Error\"}"));
+
+        assertFailure(() -> client.postWithApiKey("/member", Map.of("userId", "y@yamu.app"), Member.class),
+                FinApiOutcome.UNKNOWN, ErrorCode.FIN_API_UNAVAILABLE);
+    }
+
+    @Test
+    void 회원_API가_2xx인데_userKey가_없으면_결과_불명() {
+        server.expect(requestTo(BASE + "/member")).andRespond(withStatus(HttpStatus.CREATED)
+                .contentType(MediaType.APPLICATION_JSON)
+                .body("{\"userId\":\"y@yamu.app\"}"));
+
+        assertFailure(() -> client.postWithApiKey("/member", Map.of("userId", "y@yamu.app"), Member.class),
+                FinApiOutcome.UNKNOWN, ErrorCode.FIN_API_UNAVAILABLE);
+    }
+
     // ───────── 설정·입력 실수 ─────────
 
     @Test
@@ -268,7 +347,8 @@ class FinApiClientTest {
                     assertThat(error.getOutcome()).isEqualTo(FinApiOutcome.REJECTED);
                     assertThat(error.getErrorCode()).isEqualTo(ErrorCode.FIN_API_ERROR);
                     assertThat(error.getFinCode()).isEqualTo(finCode);
-                    assertThat(error.getDetails()).containsEntry("finCode", finCode);
+                    // 금융망 코드는 앱 응답(details)에 내보내지 않는다
+                    assertThat(error.getDetails()).isNull();
                 });
     }
 

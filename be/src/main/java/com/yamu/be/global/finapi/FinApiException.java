@@ -2,7 +2,6 @@ package com.yamu.be.global.finapi;
 
 import com.yamu.be.global.exception.BusinessException;
 import com.yamu.be.global.exception.ErrorCode;
-import java.util.Map;
 import lombok.Getter;
 
 /**
@@ -11,6 +10,7 @@ import lombok.Getter;
  * <p>개별 처리가 필요한 기능은 잡아서 {@link #getOutcome()}과 {@link #getFinCode()}를 본다.
  * 예: 체크카드 결제에서 {@code A1014}(잔액 부족)면 DECLINED, {@code UNKNOWN}이면 거래내역 조회.
  * 메시지에는 키·계좌번호 같은 값을 넣지 않는다(공통 핸들러가 메시지를 로그에 남김).
+ * 금융망 코드는 앱 응답(details)에 넣지 않고 {@link FinApiClient}가 로그에만 남긴다. 앱에 보일 코드는 잡은 쪽이 명세 코드로 바꾼다.
  */
 @Getter
 public class FinApiException extends BusinessException {
@@ -20,30 +20,34 @@ public class FinApiException extends BusinessException {
     /** 금융망 응답 코드(예: A1014). 응답 코드가 없는 실패면 null. */
     private final String finCode;
 
+    /** 호출한 API 이름. 기관거래고유번호 채번 실패처럼 API를 고르기 전에 실패하면 null. */
     private final String apiName;
 
-    private FinApiException(ErrorCode errorCode, FinApiOutcome outcome, String finCode, String apiName,
-            Map<String, Object> details) {
-        super(errorCode, errorCode.getMessage(), details);
+    private FinApiException(ErrorCode errorCode, FinApiOutcome outcome, String finCode, String apiName) {
+        super(errorCode);
         this.outcome = outcome;
         this.finCode = finCode;
         this.apiName = apiName;
     }
 
     static FinApiException notSent(String apiName) {
-        return new FinApiException(ErrorCode.FIN_API_UNAVAILABLE, FinApiOutcome.NOT_SENT, null, apiName, null);
+        return new FinApiException(ErrorCode.FIN_API_UNAVAILABLE, FinApiOutcome.NOT_SENT, null, apiName);
     }
 
     static FinApiException rejected(String apiName, String finCode) {
-        return new FinApiException(ErrorCode.FIN_API_ERROR, FinApiOutcome.REJECTED, finCode, apiName,
-                Map.of("finCode", finCode));
+        return new FinApiException(ErrorCode.FIN_API_ERROR, FinApiOutcome.REJECTED, finCode, apiName);
     }
 
     static FinApiException timedOut(String apiName) {
-        return new FinApiException(ErrorCode.UPSTREAM_TIMEOUT, FinApiOutcome.UNKNOWN, null, apiName, null);
+        return new FinApiException(ErrorCode.UPSTREAM_TIMEOUT, FinApiOutcome.UNKNOWN, null, apiName);
     }
 
     static FinApiException brokenResponse(String apiName) {
-        return new FinApiException(ErrorCode.FIN_API_UNAVAILABLE, FinApiOutcome.UNKNOWN, null, apiName, null);
+        return brokenResponse(apiName, null);
+    }
+
+    /** 결과 불명. 서버 오류(5xx)처럼 코드는 왔지만 처리 여부를 믿을 수 없을 때 그 코드를 같이 담는다. */
+    static FinApiException brokenResponse(String apiName, String finCode) {
+        return new FinApiException(ErrorCode.FIN_API_UNAVAILABLE, FinApiOutcome.UNKNOWN, finCode, apiName);
     }
 }

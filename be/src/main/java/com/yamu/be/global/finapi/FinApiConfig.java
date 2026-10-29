@@ -1,6 +1,7 @@
 package com.yamu.be.global.finapi;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import jakarta.validation.Validator;
 import java.net.http.HttpClient;
 import java.time.Clock;
 import lombok.extern.slf4j.Slf4j;
@@ -24,7 +25,7 @@ public class FinApiConfig {
 
     @Bean
     FinApiClient finApiClient(RestClient.Builder builder, FinApiProperties properties, ObjectMapper objectMapper,
-            Clock clock) {
+            Clock clock, FinTransactionNoIssuer transactionNoIssuer, Validator validator) {
         if (!properties.hasApiKey()) {
             log.warn("yamu.fin-api.api-key가 비어 있습니다. 금융망 호출은 실패합니다(SSAFY_API_KEY 환경변수 또는 application-local.yml).");
         }
@@ -37,6 +38,6 @@ public class FinApiConfig {
                 .baseUrl(properties.baseUrl())
                 .requestFactory(requestFactory)
                 .build();
-        return new FinApiClient(restClient, properties, objectMapper, clock);
+        return new FinApiClient(restClient, properties, objectMapper, clock, transactionNoIssuer, validator);
     }
 }
