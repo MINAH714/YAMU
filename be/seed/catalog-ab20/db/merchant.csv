@@ -1,0 +1,44 @@
+﻿brand_code,name,category_code,merchant_key,basis
+APP_STORE,앱스토어,OTHER,app_store,ref 업종 other
+BAEMIN,배달의민족,DELIVERY_APP,baemin,ref 업종 delivery_app
+BURGER_KING,버거킹,FAST_FOOD,burger_king,ref 업종 restaurant.fastfood
+CGV,CGV,MOVIE_THEATER,cgv,ref 업종 movie
+COFFEE_BEAN,커피빈,COFFEE_SHOP,coffee_bean,임시 브랜드 사전
+COUPANG,쿠팡,ONLINE_MARKETPLACE,coupang,97 시드 업종
+COUPANG_EATS,쿠팡이츠,DELIVERY_APP,coupang_eats,ref 업종 delivery_app
+COUPANG_WOW,쿠팡 와우 멤버십,STREAMING_SERVICE,coupang_wow,ref 업종 streaming
+CU,CU,CONVENIENCE_STORE,cu,97 시드 업종
+EVERLAND,에버랜드,OTHER,everland,ref 업종 other
+GOOGLE_PLAY,구글플레이,OTHER,google_play,ref 업종 other
+GS_CALTEX,GS칼텍스,GAS_STATION,gs_caltex,ref 업종 fuel
+GS25,GS25,CONVENIENCE_STORE,gs25,97 시드 업종
+HD_OILBANK,HD현대오일뱅크,GAS_STATION,hd_oilbank,ref 업종 fuel
+HOLLYS,할리스,COFFEE_SHOP,hollys,임시 브랜드 사전
+HOTTRACKS,핫트랙스,BOOKSTORE,hottracks,임시 브랜드 사전
+INTERPARK,인터파크,ONLINE_MARKETPLACE,interpark,ref 업종 online_shopping
+KT,KT,TELECOMMUNICATION,kt,97 시드 업종
+KURLY_MEMBERS,컬리멤버스,MEMBERSHIP_SUBSCRIPTION,kurly_members,임시 브랜드 사전
+KYOBO,교보문고,BOOKSTORE,kyobo,임시 브랜드 사전
+LG_UPLUS,LG U+,TELECOMMUNICATION,lg_uplus,97 시드 업종
+LOTTE_CINEMA,롯데시네마,MOVIE_THEATER,lotte_cinema,ref 업종 movie
+LOTTE_WORLD,롯데월드,OTHER,lotte_world,ref 업종 other
+LOTTERIA,롯데리아,FAST_FOOD,lotteria,ref 업종 restaurant.fastfood
+MCDONALDS,맥도날드,FAST_FOOD,mcdonalds,ref 업종 restaurant.fastfood
+MEGABOX,메가박스,MOVIE_THEATER,megabox,ref 업종 movie
+NAVER_PLUS_MEMBERSHIP,네이버플러스 멤버십,STREAMING_SERVICE,naver_plus_membership,ref 업종 streaming
+NETFLIX,넷플릭스,STREAMING_SERVICE,netflix,ref 업종 streaming
+OLIVE_YOUNG,올리브영,HEALTH_BEAUTY_STORE,olive_young,임시 브랜드 사전
+OUTBACK,아웃백,WESTERN_RESTAURANT,outback,임시 브랜드 사전
+PAUL_BASSETT,폴바셋,COFFEE_SHOP,paul_bassett,97 시드 업종
+S_OIL,S-OIL,GAS_STATION,s_oil,ref 업종 fuel
+SEVEN_ELEVEN,세븐일레븐,CONVENIENCE_STORE,seven_eleven,97 시드 업종
+SHAKE_SHACK,쉐이크쉑,FAST_FOOD,shake_shack,ref 업종 restaurant.fastfood
+SK_ENERGY,SK에너지,GAS_STATION,sk_energy,ref 업종 fuel
+SKT,SKT,TELECOMMUNICATION,skt,97 시드 업종
+SSG_COM,SSG.COM,ONLINE_MARKETPLACE,ssg_com,ref 업종 online_shopping
+STARBUCKS,스타벅스,COFFEE_SHOP,starbucks,97 시드 업종
+TMON,티켓몬스터,ONLINE_MARKETPLACE,tmon,97 시드 업종
+TWOSOME_PLACE,투썸플레이스,COFFEE_SHOP,twosome,97 시드 업종
+VIPS,VIPS,BUFFET_RESTAURANT,vips,임시 브랜드 사전
+YOGIYO,요기요,DELIVERY_APP,yogiyo,ref 업종 delivery_app
+YOUTUBE_PREMIUM,유튜브 프리미엄,STREAMING_SERVICE,youtube_premium,ref 업종 streaming

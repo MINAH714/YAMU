@@ -1,0 +1,46 @@
+﻿issuer_code,product_name,card_type,benefit_code,benefit_name,benefit_type,calculation_type,rate,fixed_value,value_unit,point_krw_rate,application_timing,rounding_mode,rounding_unit,rounding_stage,min_payment_amount,min_performance_amount,valid_from,valid_until,conditions_json,terms_url
+LOTTE,LOCA LIKIT 2.0,CREDIT,DOMESTIC_12,DOMESTIC 가맹점 할인,DISCOUNT,RATE,0.012000,,KRW,,AT_BILLING,,,,0,0,,,,https://www.lottecard.co.kr/app/LPCDADB_V100.lc?vtCdKndC=P15835-A15835
+LOTTE,LOCA LIKIT 2.0,CREDIT,OVERSEAS_20,OVERSEAS 가맹점 할인,DISCOUNT,RATE,0.020000,,KRW,,AT_BILLING,,,,0,0,,,,https://www.lottecard.co.kr/app/LPCDADB_V100.lc?vtCdKndC=P15835-A15835
+SAMSUNG,삼성 iD SIMPLE,CREDIT,MEMBERSHIP,온라인 멤버십 정기결제 50%,DISCOUNT,RATE,0.500000,,KRW,,AT_BILLING,,,,0,300000,,,,https://www.samsungcard.com/home/card/cardinfo/PGHPPCCCardCardinfoDetails001?code=AAP1767
+LOTTE,LOCA LIKIT Eat,CREDIT,FOOD,해당 영역 60% 할인,DISCOUNT,RATE,0.600000,,KRW,,AT_BILLING,,,,0,400000,,,,https://www.lottecard.co.kr/app/LPCDADB_V100.lc?vtCdKndC=P13943-A13943
+LOTTE,LOCA LIKIT Eat,CREDIT,DELIVERY,해당 영역 60% 할인,DISCOUNT,RATE,0.600000,,KRW,,AT_BILLING,,,,0,400000,,,,https://www.lottecard.co.kr/app/LPCDADB_V100.lc?vtCdKndC=P13943-A13943
+LOTTE,LOCA LIKIT Eat,CREDIT,COFFEE,해당 영역 60% 할인,DISCOUNT,RATE,0.600000,,KRW,,AT_BILLING,,,,0,400000,,,,https://www.lottecard.co.kr/app/LPCDADB_V100.lc?vtCdKndC=P13943-A13943
+LOTTE,LOCA LIKIT Eat,CREDIT,MEMBERSHIP,해당 영역 60% 할인,DISCOUNT,RATE,0.600000,,KRW,,AT_BILLING,,,,0,400000,,,,https://www.lottecard.co.kr/app/LPCDADB_V100.lc?vtCdKndC=P13943-A13943
+HYUNDAI,현대카드 M ME4,CREDIT,BASE_15,기본 1.5% M포인트,POINT,RATE,0.015000,,POINT,,POINT_ACCRUAL,HALF_UP,1,,0,500000,,,,https://www.hyundaicard.com/cpc/cr/CPCCR0201_01.hc?cardWcd=ME4
+HYUNDAI,현대카드 M ME4,CREDIT,FOOD_5,우대 5% M포인트,POINT,RATE,0.050000,,POINT,,POINT_ACCRUAL,HALF_UP,1,,0,1000000,,,,https://www.hyundaicard.com/cpc/cr/CPCCR0201_01.hc?cardWcd=ME4
+HYUNDAI,현대카드 M ME4,CREDIT,OVERSEAS_5,우대 5% M포인트,POINT,RATE,0.050000,,POINT,,POINT_ACCRUAL,HALF_UP,1,,0,1000000,,,,https://www.hyundaicard.com/cpc/cr/CPCCR0201_01.hc?cardWcd=ME4
+KB,KB국민 노리 체크,CHECK,DINING,아웃백|VIPS 환급할인,CASHBACK,RATE,0.200000,,KRW,,AFTER_BILLING,,,,30000,200000,,,,https://card.kbcard.com/CRD/DVIEW/HCAMCXPRICAC0076?mainCC=a&cooperationcode=01664
+KB,KB국민 노리 체크,CHECK,STARBUCKS,스타벅스 환급할인,CASHBACK,RATE,0.200000,,KRW,,AFTER_BILLING,,,,10000,200000,,,,https://card.kbcard.com/CRD/DVIEW/HCAMCXPRICAC0076?mainCC=a&cooperationcode=01664
+KB,KB국민 노리 체크,CHECK,THEMEPARK,에버랜드|롯데월드 현장 환급할인,CASHBACK,RATE,0.500000,,KRW,,AFTER_BILLING,,,,30000,200000,,,,https://card.kbcard.com/CRD/DVIEW/HCAMCXPRICAC0076?mainCC=a&cooperationcode=01664
+KB,KB국민 노리 체크,CHECK,GS25,GS25 환급할인,CASHBACK,RATE,0.050000,,KRW,,AFTER_BILLING,,,,10000,200000,,,,https://card.kbcard.com/CRD/DVIEW/HCAMCXPRICAC0076?mainCC=a&cooperationcode=01664
+KB,KB국민 노리 체크,CHECK,BOOK,교보문고 공식 경로; 핫트랙스 제외 환급할인,CASHBACK,RATE,0.050000,,KRW,,AFTER_BILLING,,,,20000,200000,,,,https://card.kbcard.com/CRD/DVIEW/HCAMCXPRICAC0076?mainCC=a&cooperationcode=01664
+KB,KB국민 노리 체크,CHECK,TELECOM,"통신 자동이체 2,500원",CASHBACK,FIXED,,2500.000000,KRW,,AFTER_BILLING,,,,50000,300000,,,,https://card.kbcard.com/CRD/DVIEW/HCAMCXPRICAC0076?mainCC=a&cooperationcode=01664
+SAMSUNG,삼성 taptap O,CREDIT,OVERSEAS_POINT,해외/직구 빅포인트 1.3%,POINT,RATE,0.013000,,POINT,,POINT_ACCRUAL,,,,0,0,2024-09-11,,,https://www.samsungcard.com/home/card/cardinfo/PGHPPCCCardCardinfoDetails001?code=AAP1483
+KAKAOBANK,카카오뱅크 프렌즈 체크,CHECK,BASE_WEEKDAY,국내외 기본 캐시백 0.2%(요일 무관),CASHBACK,RATE,0.002000,,KRW,,AFTER_BILLING,,,,0,0,,,,https://www.kakaobank.com/products/checkcard
+KAKAOBANK,카카오뱅크 프렌즈 체크,CHECK,PROMO_OIL,2026 추가 캐시백 GS칼텍스 LPG 포함,CASHBACK,FIXED,,3000.000000,KRW,,AFTER_BILLING,,,,50000,300000,2026-02-01,2027-02-01,,https://www.kakaobank.com/products/checkcard
+KAKAOBANK,카카오뱅크 프렌즈 체크,CHECK,PROMO_TELECOM,2026 추가 캐시백 SKT|KT|LG U+ 자동납부,CASHBACK,FIXED,,3000.000000,KRW,,AFTER_BILLING,,,,50000,300000,2026-02-01,2027-02-01,,https://www.kakaobank.com/products/checkcard
+KAKAOBANK,카카오뱅크 프렌즈 체크,CHECK,PROMO_ACADEMY,2026 추가 캐시백 KB 학원|자동차학원|독서실 업종,CASHBACK,FIXED,,10000.000000,KRW,,AFTER_BILLING,,,,200000,300000,2026-02-01,2027-02-01,,https://www.kakaobank.com/products/checkcard
+KAKAOBANK,카카오뱅크 프렌즈 체크,CHECK,PROMO_TAXI,2026 추가 캐시백 KB 택시 업종,CASHBACK,FIXED,,1000.000000,KRW,,AFTER_BILLING,,,,30000,300000,2026-02-01,2027-02-01,,https://www.kakaobank.com/products/checkcard
+HYUNDAI,현대카드ZERO Edition3(포인트형),CREDIT,M_POINT_EARN_1_2,국내외 가맹점 1.2% M포인트 적립,POINT,RATE,0.012000,,POINT,,POINT_ACCRUAL,HALF_UP,1,,0,0,2024-01-05,,,https://www.hyundaicard.com/upload/card/%EA%B0%80%EC%9D%B4%EB%93%9C%EB%B6%81_ZERO%20Ed3_%ED%8F%AC%EC%9D%B8%ED%8A%B8_260330.pdf
+SHINHAN,신한카드 Point Plan,CREDIT,DAILY_1M,국내 100만원 이상 3% 적립,POINT,RATE,0.030000,,POINT,,POINT_ACCRUAL,,,,1000000,400000,2024-01-29,,,https://www.shinhancard.com/pconts/html/card/apply/credit/1226113_2207.html
+SHINHAN,신한카드 Point Plan,CREDIT,WEEKEND_DINING,주말 음식점 2만원 이상 1천P 적립,POINT,FIXED,,1000.000000,POINT,,POINT_ACCRUAL,,,,20000,0,2024-01-29,,"{""weekdays"":[""SAT"",""SUN""]}",https://www.shinhancard.com/pconts/html/card/apply/credit/1226113_2207.html
+SAMSUNG,삼성 iD ON 카드,CREDIT,TRANSIT_TELECOM_STREAMING_10,교통(버스·지하철·택시) 10% 결제일할인,DISCOUNT,RATE,0.100000,,KRW,,AT_BILLING,,,,0,300000,2021-09-01,,,https://www.samsungcard.com/home/card/cardinfo/PGHPPCCCardCardinfoDetails001?code=AAP1731
+KB,KB국민 청춘대로 톡톡카드,CREDIT,STARBUCKS_50,스타벅스 50% 청구할인,DISCOUNT,RATE,0.500000,,KRW,,AT_BILLING,,,,0,300000,2017-01-26,,,https://card.kbcard.com/CRD/DVIEW/HCAMCXPRICAC0076?mainCC=a&cooperationcode=09174
+KB,KB국민 청춘대로 톡톡카드,CREDIT,BURGER_20,버거·패스트푸드 20% 청구할인,DISCOUNT,RATE,0.200000,,KRW,,AT_BILLING,,,,0,300000,2017-01-26,,,https://card.kbcard.com/CRD/DVIEW/HCAMCXPRICAC0076?mainCC=a&cooperationcode=09174
+KB,KB국민 노리2 체크카드(KB Pay),CHECK,COFFEE_10,스타벅스·커피빈 10% 할인,CASHBACK,RATE,0.100000,,KRW,,AFTER_BILLING,,,,0,0,2022-11-07,,,https://card.kbcard.com/CRD/DVIEW/HCAMCXPRICAC0076?mainCC=a&cooperationcode=07964
+KB,KB국민 노리2 체크카드(KB Pay),CHECK,MOBILE_10,구글플레이스토어·앱스토어 10% 할인,CASHBACK,RATE,0.100000,,KRW,,AFTER_BILLING,,,,0,200000,2022-11-07,,,https://card.kbcard.com/CRD/DVIEW/HCAMCXPRICAC0076?mainCC=a&cooperationcode=07964
+KB,KB국민 노리2 체크카드(KB Pay),CHECK,CULTURE_10,인터파크 티켓 10% 할인,CASHBACK,RATE,0.100000,,KRW,,AFTER_BILLING,,,,0,200000,2022-11-07,,,https://card.kbcard.com/CRD/DVIEW/HCAMCXPRICAC0076?mainCC=a&cooperationcode=07964
+KB,KB국민 노리2 체크카드(KB Pay),CHECK,BEAUTY_5,올리브영·미용실 업종 5% 할인,CASHBACK,RATE,0.050000,,KRW,,AFTER_BILLING,,,,0,200000,2022-11-07,,,https://card.kbcard.com/CRD/DVIEW/HCAMCXPRICAC0076?mainCC=a&cooperationcode=07964
+KB,KB국민 노리2 체크카드(KB Pay),CHECK,CONVENIENCE_5,GS25·CU 5% 할인,CASHBACK,RATE,0.050000,,KRW,,AFTER_BILLING,,,,0,200000,2022-11-07,,,https://card.kbcard.com/CRD/DVIEW/HCAMCXPRICAC0076?mainCC=a&cooperationcode=07964
+KB,KB국민 노리2 체크카드(KB Pay),CHECK,SUBSCRIPTION_1000,"넷플릭스·유튜브프리미엄 1만원 이상 1,000원 할인",CASHBACK,FIXED,,1000.000000,KRW,,AFTER_BILLING,,,,10000,200000,2022-11-07,,,https://card.kbcard.com/CRD/DVIEW/HCAMCXPRICAC0076?mainCC=a&cooperationcode=07964
+KB,KB국민 노리2 체크카드(KB Pay),CHECK,DELIVERY_1000,"배달의민족·요기요 1만원 이상 1,000원 할인",CASHBACK,FIXED,,1000.000000,KRW,,AFTER_BILLING,,,,10000,200000,2022-11-07,,,https://card.kbcard.com/CRD/DVIEW/HCAMCXPRICAC0076?mainCC=a&cooperationcode=07964
+KB,KB국민 노리2 체크카드(KB Pay),CHECK,MOVIE_4000,"CGV 1만원 이상 4,000원 할인",CASHBACK,FIXED,,4000.000000,KRW,,AFTER_BILLING,,,,10000,200000,2022-11-07,,,https://card.kbcard.com/CRD/DVIEW/HCAMCXPRICAC0076?mainCC=a&cooperationcode=07964
+KB,KB국민 노리2 체크카드(KB Pay),CHECK,AMUSEMENT_15000,"에버랜드·롯데월드 3만원 이상 15,000원 할인",CASHBACK,FIXED,,15000.000000,KRW,,AFTER_BILLING,,,,30000,200000,2022-11-07,,,https://card.kbcard.com/CRD/DVIEW/HCAMCXPRICAC0076?mainCC=a&cooperationcode=07964
+HANA,하나카드 트래블로그 체크카드,CHECK,DOMESTIC_0_3P,국내 가맹점 0.3% 하나머니 적립,POINT,RATE,0.003000,,POINT,,POINT_ACCRUAL,HALF_UP,1,,0,0,2022-07-18,,,https://www.hanacard.co.kr/OPI41000000D.web?CD_PD_SEQ=15414
+LOTTE,LOCA LIKIT Play,CREDIT,FUEL_60,SK에너지·S-OIL·GS칼텍스·현대오일뱅크 60% 결제일 할인,DISCOUNT,RATE,0.600000,,KRW,,AT_BILLING,,,,0,400000,,,,https://www.lottecard.co.kr/app/LPCDADB_V100.lc?vtCdKndC=P13949-A13949
+LOTTE,LOCA LIKIT Play,CREDIT,MOVIE_60,롯데시네마·CGV·메가박스 60% 결제일 할인,DISCOUNT,RATE,0.600000,,KRW,,AT_BILLING,,,,0,400000,,,,https://www.lottecard.co.kr/app/LPCDADB_V100.lc?vtCdKndC=P13949-A13949
+LOTTE,LOCA LIKIT Play,CREDIT,MEMBERSHIP_60,쿠팡 로켓와우·네이버플러스 멤버십 60% 결제일 할인,DISCOUNT,RATE,0.600000,,KRW,,AT_BILLING,,,,0,400000,,,,https://www.lottecard.co.kr/app/LPCDADB_V100.lc?vtCdKndC=P13949-A13949
+LOTTE,LOCA LIKIT Shop,CREDIT,ONLINE_SHOP_60,쿠팡·SSG.COM·티몬 60% 결제일 할인,DISCOUNT,RATE,0.600000,,KRW,,AT_BILLING,,,,0,400000,,,,https://www.lottecard.co.kr/app/LPCDADB_V100.lc?vtCdKndC=P13955-A13955
+LOTTE,LOCA LIKIT Shop,CREDIT,SALON_60,미용실 60% 결제일 할인,DISCOUNT,RATE,0.600000,,KRW,,AT_BILLING,,,,0,400000,2021-09-15,,,https://www.lottecard.co.kr/app/LPCDADB_V100.lc?vtCdKndC=P13955-A13955
+LOTTE,LOCA LIKIT Shop,CREDIT,CONVENIENCE_60,GS25·CU·세븐일레븐 60% 결제일 할인,DISCOUNT,RATE,0.600000,,KRW,,AT_BILLING,,,,0,400000,2021-09-15,,,https://www.lottecard.co.kr/app/LPCDADB_V100.lc?vtCdKndC=P13955-A13955
+LOTTE,LOCA LIKIT Shop,CREDIT,MEMBERSHIP_60,쿠팡 로켓와우·네이버플러스 멤버십 60% 결제일 할인,DISCOUNT,RATE,0.600000,,KRW,,AT_BILLING,,,,0,400000,2021-09-15,,,https://www.lottecard.co.kr/app/LPCDADB_V100.lc?vtCdKndC=P13955-A13955
