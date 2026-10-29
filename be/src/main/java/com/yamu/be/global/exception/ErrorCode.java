@@ -50,6 +50,12 @@ public enum ErrorCode {
     VERIFICATION_EXPIRED(HttpStatus.BAD_REQUEST, "인증 시간이 지났습니다. 인증번호를 다시 요청해 주세요."),
     SIGNUP_TOKEN_INVALID(HttpStatus.UNAUTHORIZED, "가입 진행 시간이 지났습니다. 본인인증부터 다시 진행해 주세요."),
     ALREADY_REGISTERED(HttpStatus.CONFLICT, "이미 가입된 사용자입니다. 기기 재등록으로 진행해 주세요."),
+    /* 인증 - 회원가입 리뷰 반영(S15P31E103-192). 명세서 「휴대폰 본인인증 확인」「회원가입」에 추가 필요 */
+    // 같은 번호·생년월일의 사용자가 있는데 이름이 다르다. 누구의 계정인지는 알려주지 않는다
+    IDENTITY_MISMATCH(HttpStatus.CONFLICT, "본인인증 정보가 기존 가입 정보와 다릅니다. 이름을 확인해 주세요."),
+    // 탈퇴한 사람의 재가입. 탈퇴(기기 관리·탈퇴 작업)에서 개인정보를 비우는 방식이 정해지면 새 가입으로 바뀐다
+    REJOIN_NOT_AVAILABLE(HttpStatus.CONFLICT, "탈퇴한 정보로는 아직 다시 가입할 수 없습니다."),
+    SIGNUP_IN_PROGRESS(HttpStatus.CONFLICT, "가입을 처리하고 있습니다. 잠시 후 다시 시도해 주세요."),
 
     /* 가계부 - 항목 수정 (API 명세 「가계부 항목 수정」). 탐지 후보는 CONFIRMED·IGNORED로만 바꿀 수 있다 */
     INVALID_STATUS_CHANGE(HttpStatus.CONFLICT, "바꿀 수 없는 상태입니다."),

@@ -6,6 +6,7 @@ import com.yamu.be.auth.dto.PhoneVerificationRequest;
 import com.yamu.be.auth.dto.PhoneVerificationResponse;
 import com.yamu.be.auth.dto.SignupResponse;
 import com.yamu.be.global.common.ApiResponse;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpHeaders;
@@ -35,22 +36,23 @@ public class SignupController {
 
     @PostMapping("/phone-verifications")
     public ApiResponse<PhoneVerificationResponse> requestVerification(
-            @Valid @RequestBody PhoneVerificationRequest request) {
-        return ApiResponse.ok(signupService.requestVerification(request));
+            @Valid @RequestBody PhoneVerificationRequest request, HttpServletRequest http) {
+        return ApiResponse.ok(signupService.requestVerification(request, ClientInfo.from(http)));
     }
 
     @PostMapping("/phone-verifications/{verificationId}/confirm")
     public ApiResponse<PhoneVerificationConfirmResponse> confirmVerification(@PathVariable String verificationId,
-            @Valid @RequestBody PhoneVerificationConfirmRequest request) {
-        return ApiResponse.ok(signupService.confirmVerification(verificationId, request.code()));
+            @Valid @RequestBody PhoneVerificationConfirmRequest request, HttpServletRequest http) {
+        return ApiResponse.ok(signupService.confirmVerification(verificationId, request.code(), ClientInfo.from(http)));
     }
 
     /** 201 Created(명세). 본문 없음. */
     @PostMapping("/signup")
     public ResponseEntity<ApiResponse<SignupResponse>> signup(
-            @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorization) {
+            @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorization,
+            HttpServletRequest http) {
         String token = authorization != null && authorization.startsWith(BEARER)
                 ? authorization.substring(BEARER.length()).strip() : null;
-        return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.ok(signupService.signup(token)));
+        return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.ok(signupService.signup(token, ClientInfo.from(http))));
     }
 }
