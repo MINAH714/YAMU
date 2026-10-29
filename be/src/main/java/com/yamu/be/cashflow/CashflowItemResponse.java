@@ -7,7 +7,8 @@ import java.util.List;
 /**
  * 가계부 항목 응답. 필드 이름은 API 명세서 「가계부 항목 등록」「가계부 항목 목록」을 따른다.
  *
- * <p>occurrenceDate는 등록 응답과 expand=false 목록에서는 규칙의 첫 발생일, 펼친 목록에서는 그 회차의 발생일이다.
+ * <p>occurrenceDate는 등록 응답과 expand=false 목록에서는 규칙의 첫 발생일, 펼친 목록에서는 규칙이 정한 원래 회차다.
+ * 이번 회차 수정·삭제 요청에 그대로 돌려보내는 식별값이다. date는 실제 예정일로, 이번 회차만 날짜를 옮겼을 때만 다르다.
  * productCategoryCode·productName은 구매 계획용 필드라 구매 계획 구현 전까지 null이다.
  */
 public record CashflowItemResponse(
@@ -16,6 +17,7 @@ public record CashflowItemResponse(
         String title,
         Long amount,
         LocalDate occurrenceDate,
+        LocalDate date,
         Recurrence recurrence,
         String merchantCategoryCode,
         String productCategoryCode,
@@ -35,16 +37,16 @@ public record CashflowItemResponse(
     }
 
     static CashflowItemResponse from(CashflowService.Item item) {
-        return from(item, item.scheduledDate());
+        return from(item, item.scheduledDate(), item.scheduledDate());
     }
 
     static CashflowItemResponse from(CashflowService.Entry entry) {
-        return from(entry.item(), entry.occurrenceDate());
+        return from(entry.item(), entry.occurrenceDate(), entry.date());
     }
 
-    private static CashflowItemResponse from(CashflowService.Item item, LocalDate occurrenceDate) {
+    private static CashflowItemResponse from(CashflowService.Item item, LocalDate occurrenceDate, LocalDate date) {
         return new CashflowItemResponse(item.id(), item.direction(), item.title(), item.amount(),
-                occurrenceDate, recurrenceOf(item), item.merchantCategoryCode(), null, null,
+                occurrenceDate, date, recurrenceOf(item), item.merchantCategoryCode(), null, null,
                 item.accountId(), item.userCardId(), "MANUAL", item.status(), item.memo());
     }
 

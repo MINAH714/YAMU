@@ -18,15 +18,22 @@ import com.yamu.be.card.domain.CardRegistrationStatus;
 import com.yamu.be.global.common.ApiResponse.FieldErrorResponse;
 import com.yamu.be.global.exception.BusinessException;
 import com.yamu.be.global.exception.ErrorCode;
+import java.time.Clock;
 import java.time.DayOfWeek;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
+import java.time.ZoneOffset;
 import java.util.List;
+import java.util.Optional;
+import java.util.Set;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
 import org.mockito.Mock;
+import org.mockito.Mockito;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
 
@@ -43,7 +50,7 @@ class CashflowServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new CashflowService(items, occurrences, accounts, cards);
+        service = new CashflowService(items, occurrences, accounts, cards, Clock.systemUTC());
         today = LocalDate.now(ZoneId.of("Asia/Seoul"));
         tomorrow = today.plusDays(1);
     }
@@ -276,6 +283,327 @@ class CashflowServiceTest {
     }
 
     @Test
+    void 이번_회차만_옮긴_회차는_옮긴_날짜로_기간_안팎을_가르고_원래_회차를_식별값으로_돌려준다() {
+        LocalDate from = LocalDate.of(2026, 11, 1);
+        CashflowItem weekly = saved(41L, new CashflowItem(7L, 11L, null, "헬스장", CashflowItem.Direction.EXPENSE,
+                10000L, LocalDate.of(2026, 11, 2), CashflowItem.RecurrenceType.WEEKLY, null, null, null));
+        CashflowOccurrence moved = occurrence(51L, weekly, LocalDate.of(2026, 11, 9));
+        moved.override(LocalDate.of(2026, 11, 11), "헬스장(옮김)", 5000L, 11L, null, null, null);
+        rulesBetween(from, LocalDate.of(2026, 11, 30), weekly);
+        when(occurrences.findForUserBetween(7L, from, LocalDate.of(2026, 11, 30))).thenReturn(List.of(moved));
+
+        assertThat(service.list(7L, from, LocalDate.of(2026, 11, 30), null, null, true))
+                .extracting(CashflowService.Entry::occurrenceDate, CashflowService.Entry::date,
+                        entry -> entry.item().amount())
+                .containsExactly(tuple(LocalDate.of(2026, 11, 2), LocalDate.of(2026, 11, 2), 10000L),
+                        tuple(LocalDate.of(2026, 11, 9), LocalDate.of(2026, 11, 11), 5000L),
+                        tuple(LocalDate.of(2026, 11, 16), LocalDate.of(2026, 11, 16), 10000L),
+                        tuple(LocalDate.of(2026, 11, 23), LocalDate.of(2026, 11, 23), 10000L),
+                        tuple(LocalDate.of(2026, 11, 30), LocalDate.of(2026, 11, 30), 10000L));
+
+        // 원래 회차(11/9)는 기간 안이지만 옮긴 날짜(11/11)가 기간 밖이면 보이지 않는다.
+        rulesBetween(from, LocalDate.of(2026, 11, 10), weekly);
+        when(occurrences.findForUserBetween(7L, from, LocalDate.of(2026, 11, 10))).thenReturn(List.of(moved));
+        assertThat(service.list(7L, from, LocalDate.of(2026, 11, 10), null, null, true))
+                .extracting(CashflowService.Entry::date).containsExactly(LocalDate.of(2026, 11, 2));
+
+        // 원래 회차는 기간 밖이지만 옮긴 날짜가 기간 안이면 보인다.
+        LocalDate later = LocalDate.of(2026, 11, 10);
+        rulesBetween(later, LocalDate.of(2026, 11, 12), weekly);
+        when(occurrences.findForUserBetween(7L, later, LocalDate.of(2026, 11, 12))).thenReturn(List.of(moved));
+        assertThat(service.list(7L, later, LocalDate.of(2026, 11, 12), null, null, true))
+                .extracting(CashflowService.Entry::occurrenceDate, CashflowService.Entry::date)
+                .containsExactly(tuple(LocalDate.of(2026, 11, 9), LocalDate.of(2026, 11, 11)));
+    }
+
+    @Test
+    void 제외한_회차는_빠지고_덮어쓰지_않은_회차_행은_규칙_값으로_한_번만_나온다() {
+        LocalDate from = LocalDate.of(2026, 11, 1);
+        LocalDate to = LocalDate.of(2026, 11, 30);
+        CashflowItem weekly = saved(41L, new CashflowItem(7L, 11L, null, "헬스장", CashflowItem.Direction.EXPENSE,
+                10000L, LocalDate.of(2026, 11, 2), CashflowItem.RecurrenceType.WEEKLY, null, null, null));
+        CashflowOccurrence first = occurrence(51L, weekly, LocalDate.of(2026, 11, 2));
+        CashflowOccurrence excluded = occurrence(52L, weekly, LocalDate.of(2026, 11, 16));
+        excluded.exclude();
+        rulesBetween(from, to, weekly);
+        when(occurrences.findForUserBetween(7L, from, to)).thenReturn(List.of(first, excluded));
+
+        assertThat(service.list(7L, from, to, null, null, true))
+                .extracting(CashflowService.Entry::occurrenceDate)
+                .containsExactly(LocalDate.of(2026, 11, 2), LocalDate.of(2026, 11, 9),
+                        LocalDate.of(2026, 11, 23), LocalDate.of(2026, 11, 30));
+    }
+
+    @Test
+    void 결제와_연결된_회차는_덮어쓰지_않았어도_그_행의_값을_쓴다() {
+        LocalDate from = LocalDate.of(2026, 11, 1);
+        LocalDate to = LocalDate.of(2026, 11, 30);
+        CashflowItem monthly = saved(41L, new CashflowItem(7L, 11L, null, "구독", CashflowItem.Direction.EXPENSE,
+                12000L, LocalDate.of(2026, 11, 5), CashflowItem.RecurrenceType.MONTHLY, null, null, null));
+        CashflowOccurrence paid = occurrence(51L, monthly, LocalDate.of(2026, 11, 5));
+        // 결제 연결 뒤 규칙 금액이 바뀐 상황: 행은 결제 당시 금액을 갖고 있다.
+        ReflectionTestUtils.setField(monthly, "amount", 15000L);
+        rulesBetween(from, to, monthly);
+        when(occurrences.findForUserBetween(7L, from, to)).thenReturn(List.of(paid));
+        when(occurrences.findMatchedIds(List.of(51L))).thenReturn(List.of(51L));
+
+        assertThat(service.list(7L, from, to, null, null, true))
+                .extracting(CashflowService.Entry::occurrenceDate, entry -> entry.item().amount())
+                .containsExactly(tuple(LocalDate.of(2026, 11, 5), 12000L));
+    }
+
+    @Test
+    void 기간_밖_규칙에서_옮겨_들어온_회차도_목록_조건을_걸어_보여_준다() {
+        LocalDate from = LocalDate.of(2026, 12, 1);
+        LocalDate to = LocalDate.of(2026, 12, 31);
+        CashflowItem ended = saved(41L, new CashflowItem(7L, 11L, null, "월세", CashflowItem.Direction.EXPENSE,
+                500000L, LocalDate.of(2026, 10, 25), CashflowItem.RecurrenceType.MONTHLY,
+                LocalDate.of(2026, 11, 30), null, null));
+        CashflowOccurrence moved = occurrence(51L, ended, LocalDate.of(2026, 11, 25));
+        moved.override(LocalDate.of(2026, 12, 2), "월세", 500000L, 11L, null, null, null);
+        rulesBetween(from, to);
+        when(occurrences.findForUserBetween(7L, from, to)).thenReturn(List.of(moved));
+        when(items.findAllById(Set.of(41L))).thenReturn(List.of(ended));
+
+        assertThat(service.list(7L, from, to, null, null, true))
+                .extracting(entry -> entry.item().id(), CashflowService.Entry::date)
+                .containsExactly(tuple(41L, LocalDate.of(2026, 12, 2)));
+        // 같은 회차도 유형 조건이 맞지 않으면 빠진다.
+        when(items.findRulesForUser(7L, from, to, CashflowItem.ItemKind.SCHEDULED, CashflowItem.RecurrenceType.NONE,
+                CashflowItem.Direction.INCOME, CashflowItem.Status.CONFIRMED)).thenReturn(List.of());
+        assertThat(service.list(7L, from, to, CashflowItem.Direction.INCOME, null, true)).isEmpty();
+    }
+
+    /** 한국 시각 2026-11-01 00:30. UTC로는 아직 10/31이라 오늘 계산이 한국 날짜를 쓰는지 드러난다. */
+    private static final Clock NOV_1_KST = Clock.fixed(Instant.parse("2026-10-31T15:30:00Z"), ZoneOffset.UTC);
+    private static final LocalDate OCT_25 = LocalDate.of(2026, 10, 25);
+    private static final LocalDate NOV_1 = LocalDate.of(2026, 11, 1);
+    private static final LocalDate NOV_8 = LocalDate.of(2026, 11, 8);
+
+    @Test
+    void 이미_옮긴_회차를_다시_고치면_옮긴_날짜와_고친_값_위에_보낸_필드만_바꾼다() {
+        CashflowService fixed = fixedService();
+        CashflowItem weekly = lockable(weeklyFrom(OCT_25));
+        CashflowOccurrence moved = occurrence(51L, weekly, NOV_8);
+        moved.override(LocalDate.of(2026, 11, 10), "헬스장(옮김)", 5000L, 11L, null, null, "옮겼음");
+        when(occurrences.findByCashflowItemIdAndOccurrenceDate(41L, NOV_8)).thenReturn(Optional.of(moved));
+
+        CashflowService.Entry result = fixed.update(7L, 41L, thisOnly(NOV_8).amount(7000L).build());
+
+        assertThat(moved.getScheduledDate()).isEqualTo(LocalDate.of(2026, 11, 10));
+        assertThat(moved.getAmount()).isEqualTo(7000L);
+        assertThat(moved.getTitle()).isEqualTo("헬스장(옮김)");
+        assertThat(moved.getMemo()).isEqualTo("옮겼음");
+        assertThat(result.occurrenceDate()).isEqualTo(NOV_8);
+        assertThat(result.date()).isEqualTo(LocalDate.of(2026, 11, 10));
+        verify(occurrences, never()).save(any());
+    }
+
+    @Test
+    void 처음_고치는_회차는_규칙_값_위에_바꾸고_회차_행을_새로_저장한다() {
+        CashflowService fixed = fixedService();
+        lockable(weeklyFrom(OCT_25));
+        when(occurrences.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+
+        CashflowService.Entry result = fixed.update(7L, 41L, thisOnly(NOV_8).date(LocalDate.of(2026, 11, 9)).build());
+
+        ArgumentCaptor<CashflowOccurrence> saved = ArgumentCaptor.forClass(CashflowOccurrence.class);
+        verify(occurrences).save(saved.capture());
+        assertThat(saved.getValue().getOccurrenceDate()).isEqualTo(NOV_8);
+        assertThat(saved.getValue().getScheduledDate()).isEqualTo(LocalDate.of(2026, 11, 9));
+        assertThat(saved.getValue().getAmount()).isEqualTo(10000L);
+        assertThat(saved.getValue().isOverridden()).isTrue();
+        assertThat(result.item().id()).isEqualTo(41L);
+    }
+
+    @Test
+    void 오늘은_한국_날짜로_계산해_오늘_회차는_고치고_지난_회차는_거절한다() {
+        CashflowService fixed = fixedService();
+        lockable(weeklyFrom(OCT_25));
+        when(occurrences.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+
+        fixed.update(7L, 41L, thisOnly(NOV_1).amount(7000L).build());
+        assertUpdateInvalid(fixed, thisOnly(OCT_25).amount(7000L).build(), "occurrenceDate");
+        // 회차를 지난 날짜로 옮길 수 없다.
+        assertUpdateInvalid(fixed, thisOnly(NOV_8).date(OCT_25).build(), "date");
+    }
+
+    @Test
+    void 이번_회차_수정은_실제_회차_날짜가_필요하고_반복과_유형은_바꿀_수_없다() {
+        CashflowService fixed = fixedService();
+        lockable(weeklyFrom(OCT_25));
+
+        assertUpdateInvalid(fixed, thisOnly(null).amount(7000L).build(), "occurrenceDate");
+        assertUpdateInvalid(fixed, thisOnly(LocalDate.of(2026, 11, 9)).amount(7000L).build(), "occurrenceDate");
+        assertUpdateInvalid(fixed, thisOnly(NOV_8).recurrence(new CashflowService.RecurrenceChange(
+                CashflowItem.RecurrenceType.MONTHLY, null, null, null)).build(), "recurrence");
+        assertUpdateInvalid(fixed, thisOnly(NOV_8).type(CashflowItem.Direction.INCOME).build(), "type");
+        verify(occurrences, never()).save(any());
+    }
+
+    @Test
+    void 빈_메모는_지우고_계좌나_카드를_보내면_다른_하나를_비운다() {
+        CashflowService fixed = fixedService();
+        lockable(weeklyFrom(OCT_25));
+        when(occurrences.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        when(cards.requireRegisteredCard(7L, 12L)).thenReturn(card(12L, CardIssuerStatus.NORMAL));
+
+        CashflowService.Entry result = fixed.update(7L, 41L, thisOnly(NOV_8).userCardId(12L).memo(" ").build());
+
+        assertThat(result.item().userCardId()).isEqualTo(12L);
+        assertThat(result.item().accountId()).isNull();
+        assertThat(result.item().memo()).isNull();
+        verify(accounts, never()).requireConnectedAccount(any(), any());
+        assertUpdateInvalid(fixed, thisOnly(NOV_8).accountId(11L).userCardId(12L).build(), "userCardId");
+        assertUpdateInvalid(fixed, thisOnly(NOV_8).title(" ").build(), "title");
+    }
+
+    @Test
+    void 수입_회차에는_카드를_지정할_수_없다() {
+        CashflowService fixed = fixedService();
+        lockable(new CashflowItem(7L, 11L, null, "월급", CashflowItem.Direction.INCOME,
+                3000000L, OCT_25, CashflowItem.RecurrenceType.WEEKLY, null, null, null));
+
+        assertUpdateInvalid(fixed, thisOnly(NOV_8).userCardId(12L).build(), "userCardId");
+        verify(cards, never()).requireRegisteredCard(any(), any());
+    }
+
+    @Test
+    void 지운_회차와_결제와_연결된_회차는_고칠_수_없다() {
+        CashflowService fixed = fixedService();
+        CashflowItem weekly = lockable(weeklyFrom(OCT_25));
+        CashflowOccurrence excluded = occurrence(51L, weekly, NOV_8);
+        excluded.exclude();
+        CashflowOccurrence paid = occurrence(52L, weekly, NOV_1);
+        when(occurrences.findByCashflowItemIdAndOccurrenceDate(41L, NOV_8)).thenReturn(Optional.of(excluded));
+        when(occurrences.findByCashflowItemIdAndOccurrenceDate(41L, NOV_1)).thenReturn(Optional.of(paid));
+        when(occurrences.findMatchedIds(List.of(52L))).thenReturn(List.of(52L));
+
+        assertUpdateInvalid(fixed, thisOnly(NOV_8).amount(7000L).build(), "occurrenceDate");
+        assertThatThrownBy(() -> fixed.update(7L, 41L, thisOnly(NOV_1).amount(7000L).build()))
+                .isInstanceOf(BusinessException.class)
+                .satisfies(error -> assertThat(((BusinessException) error).getErrorCode())
+                        .isEqualTo(ErrorCode.PAID_OCCURRENCE_LOCKED));
+        assertThatThrownBy(() -> fixed.delete(7L, 41L, CashflowService.DeleteScope.THIS_ONLY, NOV_1))
+                .isInstanceOf(BusinessException.class)
+                .satisfies(error -> assertThat(((BusinessException) error).getErrorCode())
+                        .isEqualTo(ErrorCode.PAID_OCCURRENCE_LOCKED));
+        assertThat(paid.getStatus()).isEqualTo(CashflowOccurrence.Status.CONFIRMED);
+        assertThat(paid.getAmount()).isEqualTo(10000L);
+    }
+
+    @Test
+    void 이번_회차_삭제는_회차_행을_EXCLUDED로_남기고_다시_지워도_그대로다() {
+        CashflowService fixed = fixedService();
+        lockable(weeklyFrom(OCT_25));
+        when(occurrences.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+
+        fixed.delete(7L, 41L, CashflowService.DeleteScope.THIS_ONLY, NOV_8);
+
+        ArgumentCaptor<CashflowOccurrence> saved = ArgumentCaptor.forClass(CashflowOccurrence.class);
+        verify(occurrences).save(saved.capture());
+        assertThat(saved.getValue().getStatus()).isEqualTo(CashflowOccurrence.Status.EXCLUDED);
+        assertThat(saved.getValue().getOccurrenceDate()).isEqualTo(NOV_8);
+
+        when(occurrences.findByCashflowItemIdAndOccurrenceDate(41L, NOV_8)).thenReturn(Optional.of(saved.getValue()));
+        fixed.delete(7L, 41L, CashflowService.DeleteScope.THIS_ONLY, NOV_8);
+        verify(occurrences, times(1)).save(any());
+    }
+
+    @Test
+    void 없거나_다른_사용자의_항목은_수정_삭제가_404다() {
+        CashflowService fixed = fixedService();
+        when(items.findLink(41L, 7L)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> fixed.update(7L, 41L, thisOnly(NOV_8).amount(7000L).build()))
+                .isInstanceOf(BusinessException.class)
+                .satisfies(error -> assertThat(((BusinessException) error).getErrorCode())
+                        .isEqualTo(ErrorCode.RESOURCE_NOT_FOUND));
+        assertThatThrownBy(() -> fixed.delete(7L, 41L, CashflowService.DeleteScope.THIS_ONLY, NOV_8))
+                .isInstanceOf(BusinessException.class)
+                .satisfies(error -> assertThat(((BusinessException) error).getErrorCode())
+                        .isEqualTo(ErrorCode.RESOURCE_NOT_FOUND));
+        verify(items, never()).findForUpdate(any(), any());
+    }
+
+    @Test
+    void 나뉜_규칙은_시리즈의_첫_규칙을_잠근_뒤_이어진_규칙을_읽는다() {
+        CashflowService fixed = fixedService();
+        CashflowItem head = saved(40L, weeklyFrom(LocalDate.of(2026, 10, 4)));
+        CashflowItem selected = saved(41L, weeklyFrom(OCT_25));
+        when(items.findLink(41L, 7L)).thenReturn(Optional.of(link(41L, 40L)));
+        when(items.findLink(40L, 7L)).thenReturn(Optional.of(link(40L, null)));
+        when(items.findForUpdate(40L, 7L)).thenReturn(Optional.of(head));
+        when(items.findByPreviousCashflowItemIdAndUserId(40L, 7L)).thenReturn(List.of(selected));
+        when(occurrences.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+
+        fixed.update(7L, 41L, thisOnly(NOV_8).amount(7000L).build());
+
+        InOrder order = Mockito.inOrder(items);
+        order.verify(items).findForUpdate(40L, 7L);
+        order.verify(items).findByPreviousCashflowItemIdAndUserId(40L, 7L);
+        verify(items, never()).findForUpdate(41L, 7L);
+    }
+
+    @Test
+    void 탐지_후보는_확인이나_무시로만_바꿀_수_있고_나머지_전환은_409다() {
+        CashflowService fixed = fixedService();
+        CashflowItem rule = lockable(weeklyFrom(OCT_25));
+
+        // 같은 상태를 보내면 그대로 받는다.
+        fixed.update(7L, 41L, new UpdateBuilder().status(CashflowItem.Status.CONFIRMED).build());
+        for (CashflowItem.Status to : List.of(CashflowItem.Status.IGNORED, CashflowItem.Status.CANDIDATE)) {
+            assertStatusChangeRejected(fixed, to);
+        }
+
+        ReflectionTestUtils.setField(rule, "status", CashflowItem.Status.CANDIDATE);
+        fixed.update(7L, 41L, new UpdateBuilder().status(CashflowItem.Status.CONFIRMED).build());
+        assertThat(rule.getStatus()).isEqualTo(CashflowItem.Status.CONFIRMED);
+
+        ReflectionTestUtils.setField(rule, "status", CashflowItem.Status.CANDIDATE);
+        fixed.update(7L, 41L, new UpdateBuilder().status(CashflowItem.Status.IGNORED).build());
+        assertThat(rule.getStatus()).isEqualTo(CashflowItem.Status.IGNORED);
+        assertStatusChangeRejected(fixed, CashflowItem.Status.CONFIRMED);
+
+        // 상태만 바꾸면 규칙을 나누거나 회차를 지우지 않는다.
+        verify(items, never()).save(any());
+        verify(occurrences, never()).deleteFrom(any(), any());
+    }
+
+    @Test
+    void 이번_회차만_바꿀_때는_상태를_보낼_수_없다() {
+        CashflowService fixed = fixedService();
+        lockable(weeklyFrom(OCT_25));
+
+        assertUpdateInvalid(fixed, thisOnly(NOV_8).status(CashflowItem.Status.IGNORED).build(), "status");
+    }
+
+    @Test
+    void 탐지_후보를_지우면_시리즈_전체를_무시로_바꾸고_행은_남긴다() {
+        CashflowService fixed = fixedService();
+        CashflowItem rule = lockable(weeklyFrom(OCT_25));
+        ReflectionTestUtils.setField(rule, "status", CashflowItem.Status.CANDIDATE);
+
+        fixed.delete(7L, 41L, CashflowService.DeleteScope.THIS_ONLY, NOV_8);
+
+        assertThat(rule.getStatus()).isEqualTo(CashflowItem.Status.IGNORED);
+        verify(items, never()).delete(any());
+        verify(occurrences, never()).save(any());
+    }
+
+    @Test
+    void 바꿀_값이_없는_수정_요청은_시작한_규칙도_나누지_않는다() {
+        CashflowService fixed = fixedService();
+        lockable(weeklyFrom(OCT_25));
+
+        CashflowService.Entry result = fixed.update(7L, 41L, new UpdateBuilder().build());
+
+        assertThat(result.item().id()).isEqualTo(41L);
+        verify(items, never()).save(any());
+        verify(occurrences, never()).deleteFrom(any(), any());
+    }
+
+    @Test
     void 목록_기간을_생략하면_오늘부터_30일이다() {
         service.list(7L, null, null, null, null, true);
 
@@ -331,6 +659,149 @@ class CashflowServiceTest {
                 .satisfies(error -> assertThat(((BusinessException) error).getErrorCode())
                         .isEqualTo(ErrorCode.UNAUTHORIZED));
         verify(items, never()).findRulesForUser(any(), any(), any(), any(), any(), any(), any());
+    }
+
+    private CashflowService fixedService() {
+        return new CashflowService(items, occurrences, accounts, cards, NOV_1_KST);
+    }
+
+    private static CashflowItem weeklyFrom(LocalDate first) {
+        return new CashflowItem(7L, 11L, null, "헬스장", CashflowItem.Direction.EXPENSE, 10000L,
+                first, CashflowItem.RecurrenceType.WEEKLY, null, null, null);
+    }
+
+    /** 규칙 하나뿐인 시리즈의 41번 규칙으로 잠글 수 있게 한다. */
+    private CashflowItem lockable(CashflowItem rule) {
+        saved(41L, rule);
+        when(items.findLink(41L, 7L)).thenReturn(Optional.of(link(41L, null)));
+        when(items.findForUpdate(41L, 7L)).thenReturn(Optional.of(rule));
+        return rule;
+    }
+
+    private static CashflowItemRepository.Link link(Long id, Long previousId) {
+        return new CashflowItemRepository.Link() {
+            @Override
+            public Long getId() {
+                return id;
+            }
+
+            @Override
+            public Long getPreviousCashflowItemId() {
+                return previousId;
+            }
+        };
+    }
+
+    private static UpdateBuilder thisOnly(LocalDate occurrenceDate) {
+        return new UpdateBuilder().scope(CashflowService.UpdateScope.THIS_ONLY).occurrenceDate(occurrenceDate);
+    }
+
+    private static void assertStatusChangeRejected(CashflowService target, CashflowItem.Status to) {
+        assertThatThrownBy(() -> target.update(7L, 41L, new UpdateBuilder().status(to).build()))
+                .isInstanceOf(BusinessException.class)
+                .satisfies(error -> assertThat(((BusinessException) error).getErrorCode())
+                        .isEqualTo(ErrorCode.INVALID_STATUS_CHANGE));
+    }
+
+    private void assertUpdateInvalid(CashflowService target, CashflowService.UpdateCommand command, String field) {
+        assertThatThrownBy(() -> target.update(7L, 41L, command))
+                .isInstanceOf(BusinessException.class)
+                .satisfies(error -> {
+                    BusinessException business = (BusinessException) error;
+                    assertThat(business.getErrorCode()).isEqualTo(ErrorCode.INVALID_REQUEST);
+                    assertThat(fieldOf(business)).isEqualTo(field);
+                });
+    }
+
+    /** 수정 요청을 필요한 필드만 채워 만든다. */
+    private static final class UpdateBuilder {
+        private CashflowItem.Direction type;
+        private String title;
+        private Long amount;
+        private LocalDate date;
+        private CashflowService.RecurrenceChange recurrence;
+        private Long accountId;
+        private Long userCardId;
+        private String memo;
+        private CashflowItem.Status status;
+        private CashflowService.UpdateScope scope = CashflowService.UpdateScope.THIS_AND_FUTURE;
+        private LocalDate occurrenceDate;
+
+        UpdateBuilder type(CashflowItem.Direction value) {
+            type = value;
+            return this;
+        }
+
+        UpdateBuilder title(String value) {
+            title = value;
+            return this;
+        }
+
+        UpdateBuilder amount(Long value) {
+            amount = value;
+            return this;
+        }
+
+        UpdateBuilder date(LocalDate value) {
+            date = value;
+            return this;
+        }
+
+        UpdateBuilder recurrence(CashflowService.RecurrenceChange value) {
+            recurrence = value;
+            return this;
+        }
+
+        UpdateBuilder accountId(Long value) {
+            accountId = value;
+            return this;
+        }
+
+        UpdateBuilder userCardId(Long value) {
+            userCardId = value;
+            return this;
+        }
+
+        UpdateBuilder memo(String value) {
+            memo = value;
+            return this;
+        }
+
+        UpdateBuilder status(CashflowItem.Status value) {
+            status = value;
+            return this;
+        }
+
+        UpdateBuilder scope(CashflowService.UpdateScope value) {
+            scope = value;
+            return this;
+        }
+
+        UpdateBuilder occurrenceDate(LocalDate value) {
+            occurrenceDate = value;
+            return this;
+        }
+
+        CashflowService.UpdateCommand build() {
+            return new CashflowService.UpdateCommand(type, title, amount, date, recurrence, null,
+                    accountId, userCardId, memo, status, scope, occurrenceDate);
+        }
+    }
+
+    private void rulesBetween(LocalDate from, LocalDate to, CashflowItem... rules) {
+        when(items.findRulesForUser(7L, from, to, CashflowItem.ItemKind.SCHEDULED, CashflowItem.RecurrenceType.NONE,
+                null, CashflowItem.Status.CONFIRMED)).thenReturn(List.of(rules));
+    }
+
+    private static CashflowItem saved(Long id, CashflowItem item) {
+        ReflectionTestUtils.setField(item, "id", id);
+        return item;
+    }
+
+    private static CashflowOccurrence occurrence(Long id, CashflowItem rule, LocalDate occurrenceDate) {
+        CashflowOccurrence occurrence = CashflowOccurrence.of(rule, occurrenceDate);
+        ReflectionTestUtils.setField(occurrence, "id", id);
+        return occurrence;
     }
 
     private void savedWithId(Long id) {
