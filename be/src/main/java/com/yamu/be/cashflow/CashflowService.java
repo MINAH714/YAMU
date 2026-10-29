@@ -93,7 +93,7 @@ public class CashflowService {
         }
         // 값을 하나도 보내지 않았으면(상태만 바꾸거나 빈 요청) 규칙을 나누지 않는다.
         if (!changesValues(command)) {
-            return new Entry(Item.from(rule), rule.getScheduledDate(), rule.getScheduledDate());
+            return new Entry(Item.from(rule), rule.getScheduledDate(), rule.getScheduledDate(), false);
         }
         return updateFromHere(authenticatedUserId, series, command, today);
     }
@@ -193,7 +193,7 @@ public class CashflowService {
                     values.merchantCategoryCode(), values.memo()));
         }
         occurrences.save(CashflowOccurrence.firstOf(target));
-        return new Entry(Item.from(target), target.getScheduledDate(), target.getScheduledDate());
+        return new Entry(Item.from(target), target.getScheduledDate(), target.getScheduledDate(), false);
     }
 
     /**
@@ -296,7 +296,7 @@ public class CashflowService {
         }
         row.override(changed.date(), changed.title(), changed.amount(), changed.accountId(), changed.userCardId(),
                 changed.merchantCategoryCode(), changed.memo());
-        return new Entry(Item.from(rule).with(row), row.getOccurrenceDate(), row.getScheduledDate());
+        return new Entry(Item.from(rule).with(row), row.getOccurrenceDate(), row.getScheduledDate(), false);
     }
 
     /**
@@ -427,7 +427,8 @@ public class CashflowService {
         List<Item> rules = items.findRulesForUser(authenticatedUserId, start, end, CashflowItem.ItemKind.SCHEDULED,
                 CashflowItem.RecurrenceType.NONE, direction, wanted).stream().map(Item::from).toList();
         if (!expand) {
-            return rules.stream().map(rule -> new Entry(rule, rule.scheduledDate(), rule.scheduledDate())).toList();
+            return rules.stream().map(rule -> new Entry(rule, rule.scheduledDate(), rule.scheduledDate(), false))
+                    .toList();
         }
         return expand(authenticatedUserId, rules, start, end, direction, wanted);
     }
@@ -454,7 +455,7 @@ public class CashflowService {
                 // 저장된 값을 쓰는 회차는 아래에서 옮긴 예정일 기준으로 따로 넣는다.
                 if (row == null || !(row.getStatus() == CashflowOccurrence.Status.EXCLUDED
                         || usesRowValues(row, matched))) {
-                    entries.add(new Entry(rule, date, date));
+                    entries.add(new Entry(rule, date, date, false));
                 }
             }
         }
@@ -483,7 +484,8 @@ public class CashflowService {
         for (CashflowOccurrence row : fixed) {
             Item rule = ruleById.get(row.getCashflowItemId());
             if (rule != null) {
-                entries.add(new Entry(rule.with(row), row.getOccurrenceDate(), row.getScheduledDate()));
+                entries.add(new Entry(rule.with(row), row.getOccurrenceDate(), row.getScheduledDate(),
+                        matched.contains(row.getId())));
             }
         }
         entries.sort(Comparator.comparing(Entry::date).thenComparing(entry -> entry.item().id())
@@ -693,9 +695,9 @@ public class CashflowService {
 
     /**
      * 목록의 한 줄. occurrenceDate는 규칙이 정한 원래 회차(이번 회차 수정·삭제 때 식별값), date는 실제 예정일이다.
-     * 이번 회차만 날짜를 옮기지 않았으면 둘이 같다.
+     * 이번 회차만 날짜를 옮기지 않았으면 둘이 같다. paid는 실제 결제와 연결된 회차라 잔고예보가 예정 차감에서 빼야 함을 뜻한다.
      */
-    public record Entry(Item item, LocalDate occurrenceDate, LocalDate date) {}
+    public record Entry(Item item, LocalDate occurrenceDate, LocalDate date, boolean paid) {}
 
     private record Slot(Long cashflowItemId, LocalDate occurrenceDate) {}
 

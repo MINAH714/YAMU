@@ -353,6 +353,27 @@ class CashflowServiceTest {
     }
 
     @Test
+    void 결제와_연결된_회차만_paid로_표시해_잔고예보가_예정_차감에서_뺄_수_있게_한다() {
+        LocalDate from = LocalDate.of(2026, 11, 1);
+        LocalDate to = LocalDate.of(2026, 11, 30);
+        CashflowItem weekly = saved(41L, new CashflowItem(7L, 11L, null, "헬스장", CashflowItem.Direction.EXPENSE,
+                10000L, LocalDate.of(2026, 11, 2), CashflowItem.RecurrenceType.WEEKLY, null, null, null));
+        CashflowOccurrence paid = occurrence(51L, weekly, LocalDate.of(2026, 11, 2));
+        CashflowOccurrence moved = occurrence(52L, weekly, LocalDate.of(2026, 11, 9));
+        moved.override(LocalDate.of(2026, 11, 10), "헬스장", 10000L, 11L, null, null, null);
+        rulesBetween(from, to, weekly);
+        when(occurrences.findForUserBetween(7L, from, to)).thenReturn(List.of(paid, moved));
+        when(occurrences.findMatchedIds(List.of(51L, 52L))).thenReturn(List.of(51L));
+
+        // 결제 연결 회차만 paid다. 이번 회차만 고친 회차와 규칙 값으로 계산한 회차는 아니다.
+        assertThat(service.list(7L, from, to, null, null, true))
+                .extracting(CashflowService.Entry::occurrenceDate, CashflowService.Entry::paid)
+                .containsExactly(tuple(LocalDate.of(2026, 11, 2), true), tuple(LocalDate.of(2026, 11, 9), false),
+                        tuple(LocalDate.of(2026, 11, 16), false), tuple(LocalDate.of(2026, 11, 23), false),
+                        tuple(LocalDate.of(2026, 11, 30), false));
+    }
+
+    @Test
     void 기간_밖_규칙에서_옮겨_들어온_회차도_목록_조건을_걸어_보여_준다() {
         LocalDate from = LocalDate.of(2026, 12, 1);
         LocalDate to = LocalDate.of(2026, 12, 31);
