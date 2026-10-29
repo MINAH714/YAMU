@@ -27,8 +27,8 @@ public record CardDetailResponse(Long userCardId, String nickname, Issuer issuer
      * 체크카드 연결 계좌.
      *
      * @param bankCode    은행 코드(예: 088). 은행 이름 표가 없어 코드로 준다
-     * @param balance     잔액. 계좌 잔액 조회(계획 10번)가 붙기 전이라 null
-     * @param balanceAsOf 잔액 조회 시각. 지금은 null
+     * @param balance     잔액. 계좌 잔액 캐시(10분)에 있을 때만 채운다. 없으면 null(계좌 목록·잔고예보를 보면 채워진다)
+     * @param balanceAsOf 잔액을 읽은 UTC 시각. 잔액이 null이면 null
      */
     public record LinkedAccount(Long accountId, String bankCode, String maskedAccountNo, Long balance,
             LocalDateTime balanceAsOf) {

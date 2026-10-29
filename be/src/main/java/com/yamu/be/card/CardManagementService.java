@@ -1,5 +1,7 @@
 package com.yamu.be.card;
 
+import com.yamu.be.account.AccountBalance;
+import com.yamu.be.account.AccountBalanceService;
 import com.yamu.be.account.AccountQueryService;
 import com.yamu.be.account.domain.LinkedAccountRepository;
 import com.yamu.be.auth.StepUpService;
@@ -65,6 +67,7 @@ public class CardManagementService {
     private final CardProductRepository productRepository;
     private final LinkedAccountRepository accountRepository;
     private final AccountQueryService accountQueryService;
+    private final AccountBalanceService balanceService;
     private final AppUserRepository userRepository;
     private final StepUpService stepUpService;
     private final CardActivityReader activityReader;
@@ -238,9 +241,13 @@ public class CardManagementService {
             billing = new CardDetailResponse.Billing(card.getPaymentDay(), paymentDayChangeableFrom(card),
                     card.getLinkedAccountId(), null, null, null, next, unpaid);
         } else if (card.getLinkedAccountId() != null) {
+            // 트랜잭션 안이라 금융망은 부르지 않고 계좌 잔액 캐시(10분)에 있으면 보여 준다.
+            AccountBalance balance = balanceService.findCachedBalance(card.getUserId(), card.getLinkedAccountId())
+                    .orElse(null);
             linkedAccount = accountRepository.findByIdAndUserId(card.getLinkedAccountId(), card.getUserId())
                     .map(a -> new CardDetailResponse.LinkedAccount(a.getId(), a.getBankCode(),
-                            a.getAccountLast4() == null ? null : "****-****-****-" + a.getAccountLast4(), null, null))
+                            a.getAccountLast4() == null ? null : "****-****-****-" + a.getAccountLast4(),
+                            balance == null ? null : balance.balance(), balance == null ? null : balance.fetchedAt()))
                     .orElse(null);
         }
         return new CardDetailResponse(card.getId(), nickname(card, product),
