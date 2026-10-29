@@ -97,12 +97,16 @@ public class SecurityConfig {
         RequestMatcher publicPaths = new OrRequestMatcher(Stream.concat(
                 Arrays.stream(PUBLIC_POST).map(path -> (RequestMatcher) paths.matcher(HttpMethod.POST, path)),
                 Arrays.stream(PUBLIC_GET).map(path -> (RequestMatcher) paths.matcher(HttpMethod.GET, path))).toList());
+        // 가입 진행 토큰을 JWT 검사에서 빼는 것은 그 토큰을 받는 API에서만. 다른 경로에서는 JWT로 검사해 401이 된다.
+        RequestMatcher signupTokenPaths = new OrRequestMatcher(Arrays.stream(SIGNUP_TOKEN_POST)
+                .map(path -> (RequestMatcher) paths.matcher(HttpMethod.POST, path)).toList());
         return (HttpServletRequest request) -> {
             if (publicPaths.matches(request)) {
                 return null;
             }
             String token = delegate.resolve(request);
-            return token != null && token.startsWith(SIGNUP_TOKEN_PREFIX) ? null : token;
+            boolean signupToken = token != null && token.startsWith(SIGNUP_TOKEN_PREFIX);
+            return signupToken && signupTokenPaths.matches(request) ? null : token;
         };
     }
 }
