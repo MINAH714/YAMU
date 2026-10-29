@@ -11,6 +11,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  * @param refreshReuseGrace  재발급 직후 직전 토큰이 다시 와도 탈취로 보지 않는 시간. 앱이 동시에 재발급을 두 번 부른 경우를 구분한다
  * @param maxFailedAttempts  연속 실패 한도(5회)
  * @param lockDuration       잠금 시간(30분)
+ * @param stepUpTokenTtl     본인 인증 토큰(stepUpToken) 유효 시간(5분). 한 번 쓰면 바로 지워진다
  */
 @ConfigurationProperties(prefix = "yamu.auth")
 public record AuthProperties(
@@ -18,5 +19,6 @@ public record AuthProperties(
         Duration refreshTokenTtl,
         Duration refreshReuseGrace,
         int maxFailedAttempts,
-        Duration lockDuration) {
+        Duration lockDuration,
+        Duration stepUpTokenTtl) {
 }

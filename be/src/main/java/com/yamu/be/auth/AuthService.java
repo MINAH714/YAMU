@@ -1,10 +1,11 @@
 package com.yamu.be.auth;
 
-import com.yamu.be.auth.LoginAttemptProcessor.LoginCommand;
-import com.yamu.be.auth.LoginAttemptProcessor.LoginOutcome;
-import com.yamu.be.auth.LoginChallengeStore.IssuedChallenge;
-import com.yamu.be.auth.LoginChallengeStore.StoredChallenge;
+import com.yamu.be.auth.ChallengeStore.IssuedChallenge;
+import com.yamu.be.auth.ChallengeStore.StoredChallenge;
+import com.yamu.be.auth.DeviceCredentialProcessor.CredentialCommand;
+import com.yamu.be.auth.DeviceCredentialProcessor.CredentialOutcome;
 import com.yamu.be.auth.domain.AuthMethod;
+import com.yamu.be.auth.domain.StepUpPurpose;
 import com.yamu.be.auth.domain.UserDevice;
 import com.yamu.be.auth.domain.UserDeviceRepository;
 import com.yamu.be.auth.dto.LoginChallengeResponse;
@@ -39,8 +40,8 @@ public class AuthService {
     private static final String TOKEN_TYPE = "Bearer";
 
     private final UserDeviceRepository deviceRepository;
-    private final LoginChallengeStore challengeStore;
-    private final LoginAttemptProcessor attemptProcessor;
+    private final ChallengeStore challengeStore;
+    private final DeviceCredentialProcessor credentialProcessor;
     private final RefreshTokenStore refreshTokenStore;
     private final AccessTokenIssuer accessTokenIssuer;
     private final OnboardingStatusReader onboardingStatusReader;
@@ -57,23 +58,23 @@ public class AuthService {
         if (device.isLockedAt(LocalDateTime.now(clock))) {
             throw new BusinessException(ErrorCode.DEVICE_LOCKED, DeviceLockDetails.of(device));
         }
-        IssuedChallenge challenge = challengeStore.issue(device.getId());
+        IssuedChallenge challenge = challengeStore.issue(device.getId(), StepUpPurpose.LOGIN);
         return new LoginChallengeResponse(challenge.challengeId(), challenge.challenge(), challenge.expiresIn(),
                 device.isBiometricEnabled());
     }
 
-    public LoginResponse login(LoginCommand command, ClientInfo client) {
+    public LoginResponse login(CredentialCommand command, ClientInfo client) {
         rateLimiter.check(command.userDeviceId(), client.ipAddress());
         if (command.method() == AuthMethod.PIN && !PinHasher.isPinFormat(command.pin())) {
             throw new BusinessException(ErrorCode.INVALID_REQUEST,
                     Map.of("fieldErrors", List.of(new FieldErrorResponse("pin", "PIN 방식은 간편 비밀번호 숫자 6자리가 필요합니다."))));
         }
-        // challenge는 한 번만 쓸 수 있다. 다른 기기용 challenge를 가져와 쓰는 것도 막는다.
+        // challenge는 한 번만 쓸 수 있다. 다른 기기용·본인 인증용 challenge를 가져와 쓰는 것도 막는다.
         StoredChallenge challenge = challengeStore.consume(command.challengeId())
-                .filter(c -> c.userDeviceId().equals(command.userDeviceId()))
+                .filter(c -> c.isFor(command.userDeviceId(), StepUpPurpose.LOGIN))
                 .orElseThrow(() -> new BusinessException(ErrorCode.CHALLENGE_EXPIRED));
 
-        LoginOutcome outcome = attemptProcessor.verify(command, challenge, client);
+        CredentialOutcome outcome = credentialProcessor.verify(command, challenge, null, client);
         if (outcome.failed()) {
             throw new BusinessException(outcome.error(), outcome.details());
         }

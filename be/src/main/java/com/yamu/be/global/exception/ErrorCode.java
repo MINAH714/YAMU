@@ -39,6 +39,11 @@ public enum ErrorCode {
     BIOMETRIC_NOT_ENABLED(HttpStatus.BAD_REQUEST, "이 기기는 생체 인증을 사용하지 않습니다."),
     INVALID_REFRESH_TOKEN(HttpStatus.UNAUTHORIZED, "로그인이 만료되었습니다. 다시 로그인해 주세요."),
 
+    /* 인증 - 본인 인증(step-up) 준비·검증 (API 명세 각 페이지) */
+    INVALID_PURPOSE(HttpStatus.BAD_REQUEST, "본인 인증 용도가 올바르지 않습니다."),
+    // 로그인은 된 상태라 401(토큰 만료·재발급)과 헷갈리지 않게 403
+    STEP_UP_FAILED(HttpStatus.FORBIDDEN, "본인 인증에 실패했습니다."),
+
     /* 가계부 - 항목 수정 (API 명세 「가계부 항목 수정」). 탐지 후보는 CONFIRMED·IGNORED로만 바꿀 수 있다 */
     INVALID_STATUS_CHANGE(HttpStatus.CONFLICT, "바꿀 수 없는 상태입니다."),
 

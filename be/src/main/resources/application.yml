@@ -55,6 +55,8 @@ yamu:
     refresh-reuse-grace: 10s
     max-failed-attempts: 5
     lock-duration: 30m
+    # 본인 인증(step-up) 토큰. 5분 안에 한 번만 쓸 수 있다(명세 5장)
+    step-up-token-ttl: 5m
     # 로그인 준비·로그인 호출 횟수 제한(두 API 합산). 넘으면 429 TOO_MANY_REQUESTS
     rate-limit:
       window: 1m

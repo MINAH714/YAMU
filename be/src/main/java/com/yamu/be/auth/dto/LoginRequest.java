@@ -1,6 +1,6 @@
 package com.yamu.be.auth.dto;
 
-import com.yamu.be.auth.LoginAttemptProcessor.LoginCommand;
+import com.yamu.be.auth.DeviceCredentialProcessor.CredentialCommand;
 import com.yamu.be.auth.domain.AuthMethod;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
@@ -22,7 +22,7 @@ public record LoginRequest(
         String signature,
         String pin) {
 
-    public LoginCommand toCommand() {
-        return new LoginCommand(userDeviceId, challengeId, method, signature, pin);
+    public CredentialCommand toCommand() {
+        return new CredentialCommand(userDeviceId, challengeId, method, signature, pin);
     }
 }

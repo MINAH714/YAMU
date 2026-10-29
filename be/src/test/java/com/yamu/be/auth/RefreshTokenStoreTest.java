@@ -39,7 +39,7 @@ class RefreshTokenStoreTest {
         redis.getRequiredConnectionFactory().getConnection().serverCommands().flushAll();
         clock = new MutableClock();
         AuthProperties properties = new AuthProperties(Duration.ofSeconds(60), Duration.ofDays(14),
-                Duration.ofSeconds(10), 5, Duration.ofMinutes(30));
+                Duration.ofSeconds(10), 5, Duration.ofMinutes(30), Duration.ofMinutes(5));
         store = new RefreshTokenStore(redis, properties, clock);
     }
 
