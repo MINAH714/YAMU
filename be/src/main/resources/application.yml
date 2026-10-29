@@ -79,6 +79,9 @@ yamu:
     max-code-attempts: 3
     auth-text: YAMU
     idempotency-ttl: 24h
+  # 카드 등록 정책(노션 명세 「카드 확인」「카드 등록」)
+  card-register:
+    verification-ttl: 5m
   # SSAFY 금융망. api-key는 운영은 환경변수 SSAFY_API_KEY, 로컬은 application-local.yml에 넣는다(노션 API 명세 4장).
   # 키·userKey·요청 본문은 로그에 남기지 않는다. 비어 있어도 서버는 뜨고, 금융망을 부르는 순간 실패한다.
   fin-api:

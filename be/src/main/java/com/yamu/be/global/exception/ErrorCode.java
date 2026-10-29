@@ -64,10 +64,20 @@ public enum ErrorCode {
     ACCOUNT_NOT_SUPPORTED(HttpStatus.BAD_REQUEST, "원화 입출금 계좌만 연결할 수 있습니다."),
     ACCOUNT_ALREADY_LINKED(HttpStatus.CONFLICT, "이미 연결한 계좌입니다."),
     ACCOUNT_NOT_LINKED(HttpStatus.BAD_REQUEST, "연결해 둔 계좌로만 인증할 수 있습니다."),
-    VERIFICATION_TOKEN_EXPIRED(HttpStatus.BAD_REQUEST, "계좌 확인 시간이 지났습니다. 계좌 확인부터 다시 진행해 주세요."),
+    // 계좌 연결과 카드 등록이 같이 쓴다(명세 코드가 같다)
+    VERIFICATION_TOKEN_EXPIRED(HttpStatus.BAD_REQUEST, "확인 시간이 지났습니다. 확인 단계부터 다시 진행해 주세요."),
     AUTH_REQUEST_TOO_FREQUENT(HttpStatus.TOO_MANY_REQUESTS, "1원 인증을 너무 자주 요청했습니다. 잠시 후 다시 시도해 주세요."),
     AUTH_CODE_MISMATCH(HttpStatus.BAD_REQUEST, "인증코드가 일치하지 않습니다."),
     AUTH_CODE_EXPIRED(HttpStatus.BAD_REQUEST, "인증 시간이 지났습니다. 1원 인증을 다시 요청해 주세요."),
+
+    /* 카드 - 카드 확인·카드 등록 (API 명세 각 페이지). 확인 토큰 만료는 위 VERIFICATION_TOKEN_EXPIRED */
+    INVALID_CARD_NUMBER(HttpStatus.BAD_REQUEST, "카드번호는 숫자 16자리로 입력해 주세요."),
+    ISSUER_NOT_SUPPORTED(HttpStatus.NOT_FOUND, "지원하지 않는 카드사·상품입니다."),
+    CARD_NOT_FOUND(HttpStatus.NOT_FOUND, "등록할 수 없는 카드예요. 본인 명의 카드인지 확인해 주세요."),
+    CARD_VERIFICATION_FAILED(HttpStatus.BAD_REQUEST, "유효기간을 확인해 주세요."),
+    CARD_ALREADY_REGISTERED(HttpStatus.CONFLICT, "이미 등록한 카드입니다."),
+    ACCOUNT_REQUIRED(HttpStatus.BAD_REQUEST, "카드 대금을 출금할 계좌를 먼저 연결해 주세요."),
+    INVALID_PAYMENT_DAY(HttpStatus.BAD_REQUEST, "결제일은 1일부터 27일 사이로 정해 주세요."),
 
     /* 가계부 - 항목 수정 (API 명세 「가계부 항목 수정」). 탐지 후보는 CONFIRMED·IGNORED로만 바꿀 수 있다 */
     INVALID_STATUS_CHANGE(HttpStatus.CONFLICT, "바꿀 수 없는 상태입니다."),
