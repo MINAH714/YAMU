@@ -242,12 +242,14 @@ class AccountLinkIntegrationTest extends MySqlTestSupport {
         String bearer = "Bearer " + signupToken(userId, SignupMode.SIGNUP);
         long first = Long.parseLong(read(link(bearer, verifiedAndSent(bearer, ACCOUNT_NO), CODE, null,
                 UUID.randomUUID().toString(), null).andReturn(), "$.data.accountId"));
-        jdbc.update("UPDATE linked_account SET status = 'DISCONNECTED', disconnected_at = ? WHERE linked_account_id = ?",
-                Timestamp.valueOf(LocalDateTime.now(ZoneOffset.UTC)), first);
+        // 연결 해제 API는 없다. 해제하면 기준 계좌도 같이 풀어야 한다(ck_account_primary_connected).
+        jdbc.update("UPDATE linked_account SET status = 'DISCONNECTED', is_primary = 0, disconnected_at = ? "
+                + "WHERE linked_account_id = ?", Timestamp.valueOf(LocalDateTime.now(ZoneOffset.UTC)), first);
 
         link(bearer, verifiedAndSent(bearer, ACCOUNT_NO), CODE, null, UUID.randomUUID().toString(), null)
                 .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.data.accountId").value(first));
+                .andExpect(jsonPath("$.data.accountId").value(first))
+                .andExpect(jsonPath("$.data.isPrimary").value(true));
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM linked_account", Integer.class)).isEqualTo(1);
         assertThat(jdbc.queryForObject("SELECT disconnected_at FROM linked_account", Timestamp.class)).isNull();
     }
