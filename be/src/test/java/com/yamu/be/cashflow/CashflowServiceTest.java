@@ -480,9 +480,14 @@ class CashflowServiceTest {
         when(occurrences.findMatchedIds(List.of(52L))).thenReturn(List.of(52L));
 
         assertUpdateInvalid(fixed, thisOnly(NOV_8).amount(7000L).build(), "occurrenceDate");
-        assertUpdateInvalid(fixed, thisOnly(NOV_1).amount(7000L).build(), "occurrenceDate");
+        assertThatThrownBy(() -> fixed.update(7L, 41L, thisOnly(NOV_1).amount(7000L).build()))
+                .isInstanceOf(BusinessException.class)
+                .satisfies(error -> assertThat(((BusinessException) error).getErrorCode())
+                        .isEqualTo(ErrorCode.PAID_OCCURRENCE_LOCKED));
         assertThatThrownBy(() -> fixed.delete(7L, 41L, CashflowService.DeleteScope.THIS_ONLY, NOV_1))
-                .isInstanceOf(BusinessException.class);
+                .isInstanceOf(BusinessException.class)
+                .satisfies(error -> assertThat(((BusinessException) error).getErrorCode())
+                        .isEqualTo(ErrorCode.PAID_OCCURRENCE_LOCKED));
         assertThat(paid.getStatus()).isEqualTo(CashflowOccurrence.Status.CONFIRMED);
         assertThat(paid.getAmount()).isEqualTo(10000L);
     }

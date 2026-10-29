@@ -230,10 +230,10 @@ public class CashflowService {
         items.flush();
     }
 
-    /** 바꿀 범위에 결제와 연결된 회차가 있으면 거절한다(409 코드가 정해지기 전 임시 400). */
+    /** 바꿀 범위에 결제와 연결된 회차가 있으면 409로 거절한다. */
     private void requireNoMatchedFrom(List<CashflowItem> rules, LocalDate from) {
         if (occurrences.countMatchedFrom(rules.stream().map(CashflowItem::getId).toList(), from) > 0) {
-            throw invalid("occurrenceDate", "결제와 연결된 회차가 있어 " + from + " 이후를 바꿀 수 없습니다.");
+            throw new BusinessException(ErrorCode.PAID_OCCURRENCE_LOCKED);
         }
     }
 
@@ -323,9 +323,9 @@ public class CashflowService {
         if (current.isBefore(today)) {
             throw invalid("occurrenceDate", "지난 회차는 바꿀 수 없습니다.");
         }
-        // 결제와 연결된 회차는 실제 결제 기록이 기준이라 예정 수정으로 바꾸지 않는다(409 코드가 정해지기 전 임시 400).
+        // 결제와 연결된 회차는 실제 결제 기록이 기준이라 예정 수정으로 바꾸지 않는다.
         if (row != null && !occurrences.findMatchedIds(List.of(row.getId())).isEmpty()) {
-            throw invalid("occurrenceDate", "결제와 연결된 회차는 바꿀 수 없습니다.");
+            throw new BusinessException(ErrorCode.PAID_OCCURRENCE_LOCKED);
         }
     }
 

@@ -213,6 +213,14 @@ class CashflowControllerTest extends MySqlTestSupport {
                         .param("from", tomorrow.plusDays(6).toString()).param("to", tomorrow.plusDays(8).toString()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.items", hasSize(0)));
+        // 결제와 연결된 회차는 고칠 수 없다.
+        mockMvc.perform(patch("/api/cashflow-items/{id}", rule).with(AuthUsers.asUser(owner))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                { "scope": "THIS_ONLY", "occurrenceDate": "%s", "amount": 1000 }
+                                """.formatted(tomorrow)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error.code").value("PAID_OCCURRENCE_LOCKED"));
     }
 
     @Test

@@ -117,8 +117,8 @@ class CashflowSeriesTest extends MySqlTestSupport {
         cashflows.paymentMatch(owner, past);
         cashflows.paymentMatch(owner, future);
 
-        assertInvalid(() -> service.update(owner, rule, fromHere(null).amount(20000L).build()), "occurrenceDate");
-        assertInvalid(() -> service.delete(owner, rule, CashflowService.DeleteScope.ALL, null), "occurrenceDate");
+        assertPaidLocked(() -> service.update(owner, rule, fromHere(null).amount(20000L).build()));
+        assertPaidLocked(() -> service.delete(owner, rule, CashflowService.DeleteScope.ALL, null));
         assertThat(endOf(rule)).isNull();
 
         // 미래 연결이 없으면 나뉘고, 지난 연결 회차는 기존 규칙에 그대로 남는다.
@@ -234,6 +234,12 @@ class CashflowSeriesTest extends MySqlTestSupport {
             assertThat(((List<FieldErrorResponse>) business.getDetails().get("fieldErrors")).get(0).field())
                     .isEqualTo(field);
         });
+    }
+
+    private static void assertPaidLocked(ThrowingCallable call) {
+        assertThatThrownBy(call).isInstanceOf(BusinessException.class)
+                .satisfies(error -> assertThat(((BusinessException) error).getErrorCode())
+                        .isEqualTo(ErrorCode.PAID_OCCURRENCE_LOCKED));
     }
 
     private static Update fromHere(LocalDate occurrenceDate) {
