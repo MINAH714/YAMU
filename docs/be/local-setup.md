@@ -93,11 +93,12 @@ PC에 MySQL이 이미 깔려 있거나 다른 프로젝트 컨테이너가 3306�
 
 | 위치 | 값 |
 |---|---|
-| Java 서버 기본 시간대 | UTC (`YamuBeApplication`) |
+| Java 서버 기본 시간대 | UTC (`UtcTimeZoneEnvironmentPostProcessor`). 빈·DB 연결을 만들기 전에 바꾼다 |
 | JSON 날짜 변환 | UTC (`application.yml`의 `spring.jackson.time-zone`). `LocalDateTime`은 끝에 `Z`를 붙임 (`UtcLocalDateTimeSerializer`) |
 | JDBC 접속 | `serverTimezone=UTC` (`application-local.yml`) |
 | 로컬 MySQL 컨테이너 | 지정 안 함 = UTC |
 
+- JVM 시간대는 DB 연결 풀이 열리기 전에 바꿔야 합니다. MySQL 드라이버가 연결을 만들 때의 시간대를 저장해 두고 DATE를 읽을 때 쓰기 때문에, 늦게 바꾸면 KST PC에서 날짜가 하루 이르게 읽힙니다(S15P31E103-179). `@PostConstruct` 같은 빈 단계에서 바꾸지 마세요.
 - 개발 PC가 한국 시간이어도 서버 안에서 `LocalDateTime.now()`는 UTC입니다. DBeaver에서 `NOW()`를 봐도 한국보다 9시간 이릅니다.
 - **실적 월, 청구 마감일, 출금일, 영업일처럼 한국 날짜가 기준인 계산은 반드시 `ZoneId.of("Asia/Seoul")`을 명시합니다.** 예: 11월 1일 00:30(한국)은 UTC로 10월 31일 15:30이라, 그대로 월을 뽑으면 10월 실적으로 잘못 잡힙니다.
 - 응답 JSON의 시각은 UTC에 `Z`를 붙여 `"2026-10-22T05:30:00Z"`로 내려갑니다. FE는 `new Date(...)`로 읽으면 기기 시각(한국)으로 바뀌어 표시됩니다. 요청에 보내는 시각도 같은 형식입니다.
