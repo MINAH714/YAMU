@@ -35,6 +35,9 @@ public record UpdateCashflowItemRequest(
 
         String memo,
 
+        // 탐지 후보(CANDIDATE)를 CONFIRMED(확인)나 IGNORED(무시)로 바꿀 때만 쓴다.
+        CashflowItem.Status status,
+
         CashflowService.UpdateScope scope,
 
         LocalDate occurrenceDate) {
@@ -43,7 +46,7 @@ public record UpdateCashflowItemRequest(
         return new CashflowService.UpdateCommand(type, title, amount, date,
                 recurrence == null ? null : new CashflowService.RecurrenceChange(recurrence.frequency(),
                         recurrence.dayOfMonth(), recurrence.dayOfWeek(), recurrence.endDate()),
-                merchantCategoryCode, accountId, userCardId, memo,
+                merchantCategoryCode, accountId, userCardId, memo, status,
                 scope == null ? CashflowService.UpdateScope.THIS_AND_FUTURE : scope, occurrenceDate);
     }
 }

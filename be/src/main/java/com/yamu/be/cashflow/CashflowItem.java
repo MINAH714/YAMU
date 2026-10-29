@@ -119,12 +119,18 @@ public class CashflowItem extends BaseTimeEntity {
         this.recurrenceEndDate = cutoff.minusDays(1);
     }
 
-    /** 이 규칙을 이어받는 새 규칙. 이 규칙은 closeBefore로 따로 닫는다. */
+    /** 탐지 후보를 확인(CONFIRMED)하거나 무시(IGNORED)한다. 바꿀 수 있는 전환인지는 서비스가 확인한다. */
+    void changeStatus(Status status) {
+        this.status = status;
+    }
+
+    /** 이 규칙을 이어받는 새 규칙. 상태는 이어받고, 이 규칙은 closeBefore로 따로 닫는다. */
     CashflowItem successor(String title, Long amount, LocalDate scheduledDate, RecurrenceType recurrenceType,
             LocalDate recurrenceEndDate, Long accountId, Long userCardId, String merchantCategoryCode, String memo) {
         CashflowItem next = new CashflowItem(userId, accountId, userCardId, title, direction, amount, scheduledDate,
                 recurrenceType, recurrenceEndDate, merchantCategoryCode, memo);
         next.previousCashflowItemId = id;
+        next.status = status;
         return next;
     }
 }

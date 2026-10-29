@@ -546,6 +546,64 @@ class CashflowServiceTest {
     }
 
     @Test
+    void 탐지_후보는_확인이나_무시로만_바꿀_수_있고_나머지_전환은_409다() {
+        CashflowService fixed = fixedService();
+        CashflowItem rule = lockable(weeklyFrom(OCT_25));
+
+        // 같은 상태를 보내면 그대로 받는다.
+        fixed.update(7L, 41L, new UpdateBuilder().status(CashflowItem.Status.CONFIRMED).build());
+        for (CashflowItem.Status to : List.of(CashflowItem.Status.IGNORED, CashflowItem.Status.CANDIDATE)) {
+            assertStatusChangeRejected(fixed, to);
+        }
+
+        ReflectionTestUtils.setField(rule, "status", CashflowItem.Status.CANDIDATE);
+        fixed.update(7L, 41L, new UpdateBuilder().status(CashflowItem.Status.CONFIRMED).build());
+        assertThat(rule.getStatus()).isEqualTo(CashflowItem.Status.CONFIRMED);
+
+        ReflectionTestUtils.setField(rule, "status", CashflowItem.Status.CANDIDATE);
+        fixed.update(7L, 41L, new UpdateBuilder().status(CashflowItem.Status.IGNORED).build());
+        assertThat(rule.getStatus()).isEqualTo(CashflowItem.Status.IGNORED);
+        assertStatusChangeRejected(fixed, CashflowItem.Status.CONFIRMED);
+
+        // 상태만 바꾸면 규칙을 나누거나 회차를 지우지 않는다.
+        verify(items, never()).save(any());
+        verify(occurrences, never()).deleteFrom(any(), any());
+    }
+
+    @Test
+    void 이번_회차만_바꿀_때는_상태를_보낼_수_없다() {
+        CashflowService fixed = fixedService();
+        lockable(weeklyFrom(OCT_25));
+
+        assertUpdateInvalid(fixed, thisOnly(NOV_8).status(CashflowItem.Status.IGNORED).build(), "status");
+    }
+
+    @Test
+    void 탐지_후보를_지우면_시리즈_전체를_무시로_바꾸고_행은_남긴다() {
+        CashflowService fixed = fixedService();
+        CashflowItem rule = lockable(weeklyFrom(OCT_25));
+        ReflectionTestUtils.setField(rule, "status", CashflowItem.Status.CANDIDATE);
+
+        fixed.delete(7L, 41L, CashflowService.DeleteScope.THIS_ONLY, NOV_8);
+
+        assertThat(rule.getStatus()).isEqualTo(CashflowItem.Status.IGNORED);
+        verify(items, never()).delete(any());
+        verify(occurrences, never()).save(any());
+    }
+
+    @Test
+    void 바꿀_값이_없는_수정_요청은_시작한_규칙도_나누지_않는다() {
+        CashflowService fixed = fixedService();
+        lockable(weeklyFrom(OCT_25));
+
+        CashflowService.Entry result = fixed.update(7L, 41L, new UpdateBuilder().build());
+
+        assertThat(result.item().id()).isEqualTo(41L);
+        verify(items, never()).save(any());
+        verify(occurrences, never()).deleteFrom(any(), any());
+    }
+
+    @Test
     void 목록_기간을_생략하면_오늘부터_30일이다() {
         service.list(7L, null, null, null, null, true);
 
@@ -638,6 +696,13 @@ class CashflowServiceTest {
         return new UpdateBuilder().scope(CashflowService.UpdateScope.THIS_ONLY).occurrenceDate(occurrenceDate);
     }
 
+    private static void assertStatusChangeRejected(CashflowService target, CashflowItem.Status to) {
+        assertThatThrownBy(() -> target.update(7L, 41L, new UpdateBuilder().status(to).build()))
+                .isInstanceOf(BusinessException.class)
+                .satisfies(error -> assertThat(((BusinessException) error).getErrorCode())
+                        .isEqualTo(ErrorCode.INVALID_STATUS_CHANGE));
+    }
+
     private void assertUpdateInvalid(CashflowService target, CashflowService.UpdateCommand command, String field) {
         assertThatThrownBy(() -> target.update(7L, 41L, command))
                 .isInstanceOf(BusinessException.class)
@@ -658,6 +723,7 @@ class CashflowServiceTest {
         private Long accountId;
         private Long userCardId;
         private String memo;
+        private CashflowItem.Status status;
         private CashflowService.UpdateScope scope = CashflowService.UpdateScope.THIS_AND_FUTURE;
         private LocalDate occurrenceDate;
 
@@ -701,6 +767,11 @@ class CashflowServiceTest {
             return this;
         }
 
+        UpdateBuilder status(CashflowItem.Status value) {
+            status = value;
+            return this;
+        }
+
         UpdateBuilder scope(CashflowService.UpdateScope value) {
             scope = value;
             return this;
@@ -713,7 +784,7 @@ class CashflowServiceTest {
 
         CashflowService.UpdateCommand build() {
             return new CashflowService.UpdateCommand(type, title, amount, date, recurrence, null,
-                    accountId, userCardId, memo, scope, occurrenceDate);
+                    accountId, userCardId, memo, status, scope, occurrenceDate);
         }
     }
 

@@ -83,13 +83,42 @@ public class CashflowService {
         Series series = lockSeries(authenticatedUserId, itemId);
         CashflowItem rule = series.selected();
         if (command.scope() == UpdateScope.THIS_ONLY && rule.getRecurrenceType() != CashflowItem.RecurrenceType.NONE) {
+            if (command.status() != null) {
+                throw invalid("status", "이번 회차만 바꿀 때는 상태를 바꿀 수 없습니다.");
+            }
             return updateOne(authenticatedUserId, rule, command, today);
+        }
+        if (command.status() != null) {
+            changeStatus(series, command.status());
+        }
+        // 값을 하나도 보내지 않았으면(상태만 바꾸거나 빈 요청) 규칙을 나누지 않는다.
+        if (!changesValues(command)) {
+            return new Entry(Item.from(rule), rule.getScheduledDate(), rule.getScheduledDate());
         }
         return updateFromHere(authenticatedUserId, series, command, today);
     }
 
+    /** 탐지 후보(CANDIDATE)만 확인(CONFIRMED)이나 무시(IGNORED)로 바꿀 수 있다. 상태는 시리즈 전체가 같이 바뀐다. */
+    private static void changeStatus(Series series, CashflowItem.Status to) {
+        CashflowItem.Status from = series.selected().getStatus();
+        if (from == to) {
+            return;
+        }
+        if (from != CashflowItem.Status.CANDIDATE || to == CashflowItem.Status.CANDIDATE) {
+            throw new BusinessException(ErrorCode.INVALID_STATUS_CHANGE);
+        }
+        series.segments().forEach(segment -> segment.changeStatus(to));
+    }
+
+    private static boolean changesValues(UpdateCommand command) {
+        return command.title() != null || command.amount() != null || command.date() != null
+                || command.recurrence() != null || command.merchantCategoryCode() != null
+                || command.accountId() != null || command.userCardId() != null || command.memo() != null;
+    }
+
     /**
-     * 예정 항목을 지운다. THIS_ONLY는 반복 항목의 한 회차를 EXCLUDED로 남기고(이미 지운 회차면 그대로 둔다),
+     * 예정 항목을 지운다. 탐지 후보는 지우지 않고 IGNORED로 바꾼다.
+     * THIS_ONLY는 반복 항목의 한 회차를 EXCLUDED로 남기고(이미 지운 회차면 그대로 둔다),
      * 그 외는 고른 규칙이 속한 시리즈 전체에서 오늘 이후를 없앤다.
      */
     @Transactional(isolation = Isolation.READ_COMMITTED)
@@ -98,6 +127,11 @@ public class CashflowService {
         LocalDate today = today();
         Series series = lockSeries(authenticatedUserId, itemId);
         CashflowItem rule = series.selected();
+        // 탐지 후보는 지우지 않고 무시로 남겨 같은 후보가 다시 탐지되지 않게 한다(명세).
+        if (rule.getStatus() == CashflowItem.Status.CANDIDATE) {
+            series.segments().forEach(segment -> segment.changeStatus(CashflowItem.Status.IGNORED));
+            return;
+        }
         if (scope == DeleteScope.THIS_ONLY && rule.getRecurrenceType() != CashflowItem.RecurrenceType.NONE) {
             CashflowOccurrence row = occurrenceOf(rule, occurrenceDate);
             if (row != null && row.getStatus() == CashflowOccurrence.Status.EXCLUDED) {
@@ -618,7 +652,7 @@ public class CashflowService {
     /** 수정 요청. null인 필드는 그대로 둔다. type은 바꿀 수 없어 보내면 거절한다. */
     public record UpdateCommand(CashflowItem.Direction type, String title, Long amount, LocalDate date,
             RecurrenceChange recurrence, String merchantCategoryCode, Long accountId, Long userCardId,
-            String memo, UpdateScope scope, LocalDate occurrenceDate) {}
+            String memo, CashflowItem.Status status, UpdateScope scope, LocalDate occurrenceDate) {}
 
     /** 반복 규칙을 통째로 바꿀 때의 새 규칙. endDate를 생략하면 종료일이 없다. */
     public record RecurrenceChange(CashflowItem.RecurrenceType frequency, Integer dayOfMonth,

@@ -39,6 +39,9 @@ public enum ErrorCode {
     BIOMETRIC_NOT_ENABLED(HttpStatus.BAD_REQUEST, "이 기기는 생체 인증을 사용하지 않습니다."),
     INVALID_REFRESH_TOKEN(HttpStatus.UNAUTHORIZED, "로그인이 만료되었습니다. 다시 로그인해 주세요."),
 
+    /* 가계부 - 항목 수정 (API 명세 「가계부 항목 수정」). 탐지 후보는 CONFIRMED·IGNORED로만 바꿀 수 있다 */
+    INVALID_STATUS_CHANGE(HttpStatus.CONFLICT, "바꿀 수 없는 상태입니다."),
+
     /* 가계부 - 항목 수정·삭제. 실제 결제와 연결된 회차는 예정 수정으로 바꾸지 않는다. 명세서 「가계부 항목 수정」「삭제」에 추가 필요 */
     PAID_OCCURRENCE_LOCKED(HttpStatus.CONFLICT, "실제 결제와 연결된 회차가 있어 바꿀 수 없습니다."),
 

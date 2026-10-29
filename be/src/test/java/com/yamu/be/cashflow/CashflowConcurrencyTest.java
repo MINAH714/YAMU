@@ -52,7 +52,7 @@ class CashflowConcurrencyTest extends MySqlTestSupport {
                 results.add(pool.submit(() -> {
                     start.await();
                     return service.update(owner, rule.id(), new CashflowService.UpdateCommand(null, null, amount,
-                            null, null, null, null, null, null, CashflowService.UpdateScope.THIS_ONLY, target));
+                            null, null, null, null, null, null, null, CashflowService.UpdateScope.THIS_ONLY, target));
                 }));
             }
             start.countDown();
@@ -77,7 +77,7 @@ class CashflowConcurrencyTest extends MySqlTestSupport {
         LocalDate today = LocalDate.now(ZoneId.of("Asia/Seoul"));
         long first = new CashflowFixtures(jdbc).rule(owner, account, today.minusDays(14), "WEEKLY", null);
         long second = service.update(owner, first, new CashflowService.UpdateCommand(null, null, 20000L, null, null,
-                null, null, null, null, CashflowService.UpdateScope.THIS_AND_FUTURE, today.plusDays(14))).item().id();
+                null, null, null, null, null, CashflowService.UpdateScope.THIS_AND_FUTURE, today.plusDays(14))).item().id();
 
         ExecutorService pool = Executors.newFixedThreadPool(2);
         CountDownLatch start = new CountDownLatch(1);
@@ -86,7 +86,7 @@ class CashflowConcurrencyTest extends MySqlTestSupport {
             results.add(pool.submit(() -> {
                 start.await();
                 return service.update(owner, first, new CashflowService.UpdateCommand(null, null, 30000L, null, null,
-                        null, null, null, null, CashflowService.UpdateScope.THIS_AND_FUTURE, today.plusDays(7)));
+                        null, null, null, null, null, CashflowService.UpdateScope.THIS_AND_FUTURE, today.plusDays(7)));
             }));
             results.add(pool.submit(() -> {
                 start.await();

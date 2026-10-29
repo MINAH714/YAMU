@@ -291,6 +291,36 @@ class CashflowControllerTest extends MySqlTestSupport {
     }
 
     @Test
+    void 탐지_후보는_확인할_수_있고_확정된_항목을_무시로_바꾸면_409다() throws Exception {
+        long rule = weekly();
+        jdbc.update("UPDATE cashflow_item SET status = 'CANDIDATE' WHERE cashflow_item_id = ?", rule);
+        em.clear();
+
+        mockMvc.perform(patch("/api/cashflow-items/{id}", rule).with(AuthUsers.asUser(owner))
+                        .contentType(MediaType.APPLICATION_JSON).content("{ \"status\": \"CONFIRMED\" }"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.status").value("CONFIRMED"));
+        mockMvc.perform(patch("/api/cashflow-items/{id}", rule).with(AuthUsers.asUser(owner))
+                        .contentType(MediaType.APPLICATION_JSON).content("{ \"status\": \"IGNORED\" }"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error.code").value("INVALID_STATUS_CHANGE"));
+    }
+
+    @Test
+    void 탐지_후보를_지우면_204이고_무시로_남는다() throws Exception {
+        long rule = weekly();
+        jdbc.update("UPDATE cashflow_item SET status = 'CANDIDATE' WHERE cashflow_item_id = ?", rule);
+        em.clear();
+
+        mockMvc.perform(delete("/api/cashflow-items/{id}", rule).with(AuthUsers.asUser(owner)))
+                .andExpect(status().isNoContent());
+        em.flush();
+
+        assertThat(jdbc.queryForObject("SELECT status FROM cashflow_item WHERE cashflow_item_id = ?",
+                String.class, rule)).isEqualTo("IGNORED");
+    }
+
+    @Test
     void 남의_항목_수정_삭제는_404이고_토큰이_없으면_401이다() throws Exception {
         long rule = weekly();
         long stranger = fixtures.user();

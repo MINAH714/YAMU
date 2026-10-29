@@ -150,6 +150,18 @@ class CashflowSeriesTest extends MySqlTestSupport {
     }
 
     @Test
+    void 탐지_후보를_나누면_새_규칙도_후보로_남는다() {
+        long rule = cashflows.rule(owner, account, start, "WEEKLY", null);
+        jdbc.update("UPDATE cashflow_item SET status = 'CANDIDATE' WHERE cashflow_item_id = ?", rule);
+
+        long next = service.update(owner, rule, fromHere(null).amount(20000L).build()).item().id();
+
+        em.flush();
+        assertThat(jdbc.queryForObject("SELECT status FROM cashflow_item WHERE cashflow_item_id = ?",
+                String.class, next)).isEqualTo("CANDIDATE");
+    }
+
+    @Test
     void 뒤_규칙의_첫_발생일을_앞_규칙_종료일_이전으로_당기면_400이다() {
         long first = cashflows.rule(owner, account, start, "WEEKLY", null);
         long second = service.update(owner, first, fromHere(today.plusDays(14)).amount(20000L).build()).item().id();
@@ -267,7 +279,7 @@ class CashflowSeriesTest extends MySqlTestSupport {
         }
 
         CashflowService.UpdateCommand build() {
-            return new CashflowService.UpdateCommand(null, null, amount, date, null, null, null, null, null,
+            return new CashflowService.UpdateCommand(null, null, amount, date, null, null, null, null, null, null,
                     CashflowService.UpdateScope.THIS_AND_FUTURE, occurrenceDate);
         }
     }
