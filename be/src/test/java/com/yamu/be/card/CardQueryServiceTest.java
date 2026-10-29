@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.yamu.be.card.domain.CardIssuerStatus;
 import com.yamu.be.card.domain.CardRegistrationStatus;
+import com.yamu.be.card.domain.CardType;
 import com.yamu.be.global.exception.BusinessException;
 import com.yamu.be.global.exception.ErrorCode;
 import com.yamu.be.support.MySqlTestSupport;
@@ -47,8 +48,10 @@ class CardQueryServiceTest extends MySqlTestSupport {
         long active = fixtures.card(owner, product, account, "ACTIVE");
         long inactive = fixtures.card(owner, product, null, "INACTIVE");
 
+        jdbc.update("UPDATE user_card SET payment_day = 25 WHERE user_card_id = ?", active);
+
         assertThat(service.requireRegisteredCard(owner, active)).isEqualTo(new UserCardRef(active, product, account,
-                "1234", CardRegistrationStatus.ACTIVE, CardIssuerStatus.NORMAL));
+                "1234", CardRegistrationStatus.ACTIVE, CardIssuerStatus.NORMAL, CardType.CREDIT, 25, 14));
         assertThat(service.requireRegisteredCard(owner, inactive).linkedAccountId()).isNull();
     }
 
@@ -74,6 +77,43 @@ class CardQueryServiceTest extends MySqlTestSupport {
         assertNotFound(() -> service.requireRegisteredCard(owner, Long.MAX_VALUE));
         assertNotFound(() -> service.requireRegisteredCard(owner, null));
         assertNotFound(() -> service.requireRegisteredCard(null, fixtures.card(owner, product, account, "ACTIVE")));
+    }
+
+    // ───────── 카드 종류·결제일 (잔고예보) ─────────
+
+    @Test
+    void 체크카드는_결제일과_마감_일수를_null로_준다() {
+        long checkProduct = jdbc.queryForObject("SELECT card_product_id FROM card_product WHERE card_product_id = ?",
+                Long.class, fixtures.product());
+        jdbc.update("UPDATE card_product SET card_type = 'CHECK', billing_cutoff_days = NULL WHERE card_product_id = ?",
+                checkProduct);
+        long check = fixtures.card(owner, checkProduct, account, "ACTIVE");
+        jdbc.update("UPDATE user_card SET payment_day = 10 WHERE user_card_id = ?", check);
+
+        UserCardRef ref = service.requireRegisteredCard(owner, check);
+
+        assertThat(ref.cardType()).isEqualTo(CardType.CHECK);
+        assertThat(ref.paymentDay()).isNull();
+        assertThat(ref.billingCutoffDays()).isNull();
+    }
+
+    // ───────── 404 대신 empty (잔고예보) ─────────
+
+    @Test
+    void findRegisteredCard는_쓸_수_있는_카드면_같은_값을_주고_아니면_예외_없이_empty다() {
+        long active = fixtures.card(owner, product, account, "ACTIVE");
+        long unregistered = fixtures.card(owner, product, account, "UNREGISTERED");
+        long pending = fixtures.card(owner, product, account, "PENDING");
+        long stranger = fixtures.user();
+        long strangerCard = fixtures.card(stranger, product, fixtures.account(stranger), "ACTIVE");
+
+        assertThat(service.findRegisteredCard(owner, active)).contains(service.requireRegisteredCard(owner, active));
+        assertThat(service.findRegisteredCard(owner, unregistered)).isEmpty();
+        assertThat(service.findRegisteredCard(owner, pending)).isEmpty();
+        assertThat(service.findRegisteredCard(owner, strangerCard)).isEmpty();
+        assertThat(service.findRegisteredCard(owner, Long.MAX_VALUE)).isEmpty();
+        assertThat(service.findRegisteredCard(owner, null)).isEmpty();
+        assertThat(service.findRegisteredCard(null, active)).isEmpty();
     }
 
     // ───────── 카드사 상태 ─────────
