@@ -29,6 +29,28 @@ public record VerifiedIdentity(String name, LocalDate birthDate, byte[] phoneEnc
         return fields;
     }
 
+    /** 기존 사용자와 같은 사람인지 볼 때 쓴다. 번호·생년월일이 같아도 이름이 다르면 다른 사람이다(명세: 이름·생년월일·번호). */
+    boolean sameNameAs(String otherName) {
+        return otherName != null && name.strip().equals(otherName.strip());
+    }
+
+    /** 로그·예외 메시지에 개인정보가 찍히지 않게 이름은 가운데를 가리고 생년월일·번호는 뺀다. */
+    @Override
+    public String toString() {
+        return "VerifiedIdentity[name=" + maskName(name) + ", birthDate=***, phone=***]";
+    }
+
+    private static String maskName(String name) {
+        if (name == null || name.isEmpty()) {
+            return "";
+        }
+        if (name.length() == 1) {
+            return "*";
+        }
+        return name.charAt(0) + "*".repeat(Math.max(1, name.length() - 2))
+                + (name.length() > 2 ? name.substring(name.length() - 1) : "");
+    }
+
     /** 필드가 빠졌거나 깨졌으면 IllegalArgumentException. 받는 쪽은 만료와 같이 처리한다. */
     static VerifiedIdentity fromFields(Map<?, ?> fields) {
         String name = (String) fields.get("name");

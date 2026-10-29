@@ -25,7 +25,8 @@ import org.springframework.stereotype.Component;
  *
  * <pre>
  * 토큰: "sgt_{32바이트 랜덤 Base64URL}"
- * signup:{sha256(토큰)} → Hash { mode, verifiedAt, name, birthDate, phoneEnc, phoneHash, userId(회원가입 뒤) }   TTL 30분
+ * signup:{sha256(토큰)} → Hash { mode, verifiedAt, name, birthDate, phoneEnc, phoneHash,
+ *                          userId(회원가입 뒤), pendingMemberId(SSAFY 계정 생성 결과 불명) }   TTL 30분
  * </pre>
  *
  * <p>가입 단계 API(회원가입 → 계좌 연결 → PIN 설정 → 기기 등록)가 같은 토큰을 여러 번 쓰므로 꺼낼 때 지우지 않는다.
@@ -39,10 +40,10 @@ public class SignupTokenStore {
     private static final String TOKEN_PREFIX = "sgt_";
     private static final Base64.Encoder URL = Base64.getUrlEncoder().withoutPadding();
 
-    /** 아직 있는 토큰에만 userId를 붙인다. 만료된 키에 HSET하면 TTL 없는 키가 새로 생긴다. */
-    private static final RedisScript<Long> ATTACH_USER = new DefaultRedisScript<>("""
+    /** 아직 있는 토큰에만 필드(userId·pendingMemberId)를 붙인다. 만료된 키에 HSET하면 TTL 없는 키가 새로 생긴다. */
+    private static final RedisScript<Long> ATTACH_FIELD = new DefaultRedisScript<>("""
             if redis.call('EXISTS', KEYS[1]) == 0 then return 0 end
-            redis.call('HSET', KEYS[1], 'userId', ARGV[1])
+            redis.call('HSET', KEYS[1], ARGV[1], ARGV[2])
             return 1
             """, Long.class);
 
@@ -78,7 +79,8 @@ public class SignupTokenStore {
             LocalDateTime verifiedAt = LocalDateTime.ofInstant(
                     Instant.ofEpochMilli(Long.parseLong((String) fields.get("verifiedAt"))), ZoneOffset.UTC);
             return Optional.of(new SignupSession(SignupMode.valueOf((String) fields.get("mode")),
-                    VerifiedIdentity.fromFields(fields), verifiedAt, userId == null ? null : Long.valueOf(userId)));
+                    VerifiedIdentity.fromFields(fields), verifiedAt, userId == null ? null : Long.valueOf(userId),
+                    (String) fields.get("pendingMemberId")));
         } catch (RuntimeException e) {
             return Optional.empty();
         }
@@ -86,7 +88,15 @@ public class SignupTokenStore {
 
     /** 회원가입으로 만든 사용자를 토큰에 붙인다. 다음 단계(계좌 연결 등)가 이 번호로 사용자를 찾는다. */
     public void attachUser(String token, Long userId) {
-        redis.execute(ATTACH_USER, List.of(key(token)), String.valueOf(userId));
+        redis.execute(ATTACH_FIELD, List.of(key(token)), "userId", String.valueOf(userId));
+    }
+
+    /**
+     * SSAFY에 보낼 계정 ID를 보내기 전에 적어 둔다. 응답 시간 초과(결과 불명)로 끝나면 계정이 생겼을 수 있어,
+     * 다음 회원가입 시도가 이 ID를 먼저 조회해 있으면 그 계정을 쓴다(새로 만들어 하나를 버리지 않게).
+     */
+    public void rememberPendingMember(String token, String memberId) {
+        redis.execute(ATTACH_FIELD, List.of(key(token)), "pendingMemberId", memberId);
     }
 
     private static String key(String token) {
@@ -100,9 +110,15 @@ public class SignupTokenStore {
 
     /**
      * @param verifiedAt 본인인증을 마친 시각(UTC). app_user.identity_verified_at에 넣는다
-     * @param userId     기존 사용자(가입 중·이미 가입)거나 회원가입을 마쳤으면 그 번호, 아니면 null
+     * @param userId          기존 사용자(가입 중·이미 가입)거나 회원가입을 마쳤으면 그 번호, 아니면 null
+     * @param pendingMemberId 결과를 모르는 채 끝난 SSAFY 계정 ID(서버가 만든 값, 개인정보 아님). 없으면 null
      */
-    public record SignupSession(SignupMode mode, VerifiedIdentity identity, LocalDateTime verifiedAt, Long userId) {
+    public record SignupSession(SignupMode mode, VerifiedIdentity identity, LocalDateTime verifiedAt, Long userId,
+            String pendingMemberId) {
+
+        public SignupSession(SignupMode mode, VerifiedIdentity identity, LocalDateTime verifiedAt, Long userId) {
+            this(mode, identity, verifiedAt, userId, null);
+        }
     }
 
     public record IssuedSignupToken(String token, long expiresIn) {

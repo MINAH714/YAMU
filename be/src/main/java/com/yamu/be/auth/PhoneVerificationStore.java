@@ -9,6 +9,7 @@ import java.util.HashMap;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Pattern;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
@@ -33,6 +34,7 @@ public class PhoneVerificationStore {
     private static final String KEY_PREFIX = "auth:phone-verify:";
     private static final String RECENT_PREFIX = "auth:phone-verify:recent:";
     private static final Base64.Encoder URL = Base64.getUrlEncoder().withoutPadding();
+    private static final Pattern VERIFICATION_ID = Pattern.compile("pv_[A-Za-z0-9_-]{22}");
 
     /**
      * {"OK", 필드1, 값1, ...} 성공(지움) / {"MISMATCH", 남은 횟수} 틀림 / {"EXPIRED"} 없음.
@@ -87,7 +89,9 @@ public class PhoneVerificationStore {
      * 없거나 만료면 400 VERIFICATION_EXPIRED, 틀리면 400 VERIFICATION_CODE_MISMATCH(details.remainingAttempts).
      */
     public VerifiedIdentity confirm(String verificationId, String code) {
-        if (verificationId == null || verificationId.isBlank()) {
+        // 발급한 모양("pv_" + 16바이트 Base64URL)이 아니면 Redis를 보지 않는다. 경로 값을 그대로 키에 붙이면
+        // "recent:..." 같은 값으로 다른 용도의 키(String)를 Hash 명령으로 건드려 500이 날 수 있다.
+        if (verificationId == null || !VERIFICATION_ID.matcher(verificationId).matches()) {
             throw new BusinessException(ErrorCode.VERIFICATION_EXPIRED);
         }
         List<?> result = redis.execute(CONFIRM, List.of(KEY_PREFIX + verificationId), code,

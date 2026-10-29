@@ -19,6 +19,7 @@ import com.yamu.be.global.crypto.PersonalDataCipher;
 import com.yamu.be.global.crypto.PinHasher;
 import com.yamu.be.global.finapi.FinApiClient;
 import com.yamu.be.global.finapi.FinApiFailures;
+import com.yamu.be.support.Concurrently;
 import com.yamu.be.support.MySqlTestSupport;
 import com.yamu.be.support.OwnershipFixtures;
 import com.yamu.be.user.domain.AppUser;
@@ -210,7 +211,7 @@ class SignupIntegrationTest extends MySqlTestSupport {
     void 같은_번호로_1분_안에_다시_요청하면_429_VERIFICATION_TOO_FREQUENT다() throws Exception {
         requestVerification("김야무", BIRTH, "SKT", PHONE).andExpect(status().isOk());
 
-        requestVerification("김야무", BIRTH, "SKT", "010-1234-5678".replace("-", ""))
+        requestVerification("김야무", BIRTH, "SKT", PHONE)
                 .andExpect(status().isTooManyRequests())
                 .andExpect(jsonPath("$.error.code").value("VERIFICATION_TOO_FREQUENT"))
                 .andExpect(jsonPath("$.error.details.retryAfterSeconds").isNumber());
@@ -281,7 +282,177 @@ class SignupIntegrationTest extends MySqlTestSupport {
         assertThat(userRepository.count()).isZero();
     }
 
+    // ───────── 리뷰 반영(S15P31E103-192) ─────────
+
+    @Test
+    void 번호와_생년월일이_같아도_이름이_다르면_409_IDENTITY_MISMATCH이고_그_계정_정보를_주지_않는다() throws Exception {
+        AppUser pending = savePending(PHONE);
+        MvcResult requested = requestVerification("홍길동", BIRTH, "SKT", PHONE).andReturn();
+
+        MvcResult mismatched = confirm(read(requested, "$.data.verificationId"), read(requested, "$.data.demoCode"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error.code").value("IDENTITY_MISMATCH"))
+                .andExpect(jsonPath("$.data").doesNotExist())
+                .andReturn();
+
+        String body = mismatched.getResponse().getContentAsString();
+        assertThat(body).doesNotContain("김야무").doesNotContain(String.valueOf(pending.getId())).doesNotContain("sgt_");
+        assertThat(redis.keys("signup:*")).isEmpty();
+    }
+
+    @Test
+    void 이어서_가입하면_응답_이름은_본인인증_때_받은_값이다() throws Exception {
+        savePending(PHONE);
+        MvcResult requested = requestVerification(" 김야무 ", BIRTH, "SKT", PHONE).andReturn();
+        String token = read(confirm(read(requested, "$.data.verificationId"), read(requested, "$.data.demoCode"))
+                .andExpect(status().isOk()).andReturn(), "$.data.signupToken");
+
+        signup(token).andExpect(status().isCreated()).andExpect(jsonPath("$.data.name").value("김야무"));
+    }
+
+    @Test
+    void 탈퇴한_사람은_본인인증_확인에서_409_REJOIN_NOT_AVAILABLE이다() throws Exception {
+        withdraw(savePending(PHONE));
+
+        confirmFor(PHONE).andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error.code").value("REJOIN_NOT_AVAILABLE"));
+        verify(finApiClient, never()).postWithApiKey(any(), any(), any());
+    }
+
+    @Test
+    void 토큰을_받은_뒤_탈퇴_행이_생겨도_SSAFY를_부르지_않고_409_REJOIN_NOT_AVAILABLE이다() throws Exception {
+        String token = verifiedToken(PHONE);
+        withdraw(savePending(PHONE));
+
+        signup(token).andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error.code").value("REJOIN_NOT_AVAILABLE"));
+        verify(finApiClient, never()).postWithApiKey(any(), any(), any());
+        assertThat(userRepository.count()).isEqualTo(1);
+    }
+
+    @Test
+    void SSAFY_응답이_시간_초과면_504이고_다음_시도는_보낸_ID를_먼저_조회해_그_계정을_쓴다() throws Exception {
+        when(finApiClient.postWithApiKey(eq("/member"), any(), eq(MemberResponse.class)))
+                .thenThrow(FinApiFailures.timedOut("member"));
+        String token = verifiedToken(PHONE);
+
+        signup(token).andExpect(status().isGatewayTimeout())
+                .andExpect(jsonPath("$.error.code").value("UPSTREAM_TIMEOUT"));
+        assertThat(userRepository.count()).isZero();
+        String pendingId = (String) redis.opsForHash().get("signup:" + sha256Hex(token), "pendingMemberId");
+        assertThat(pendingId).matches("y[a-z0-9]{9}@yamu\\.app");
+
+        when(finApiClient.postWithApiKey(eq("/member/search"), any(), eq(MemberResponse.class)))
+                .thenAnswer(inv -> new MemberResponse(memberIdOf(inv.getArgument(1)), USER_KEY));
+        signup(token).andExpect(status().isCreated());
+
+        verify(finApiClient, times(1)).postWithApiKey(eq("/member"), any(), eq(MemberResponse.class));
+        verify(finApiClient).postWithApiKey(eq("/member/search"), eq(Map.of("userId", pendingId)),
+                eq(MemberResponse.class));
+        assertThat(userRepository.findAll()).singleElement()
+                .satisfies(user -> assertThat(user.getSsafyMemberId()).isEqualTo(pendingId));
+    }
+
+    @Test
+    void 시간_초과로_보낸_ID가_SSAFY에_없으면_새_ID로_만든다() throws Exception {
+        when(finApiClient.postWithApiKey(eq("/member"), any(), eq(MemberResponse.class)))
+                .thenThrow(FinApiFailures.timedOut("member"))
+                .thenAnswer(inv -> new MemberResponse(memberIdOf(inv.getArgument(1)), USER_KEY));
+        when(finApiClient.postWithApiKey(eq("/member/search"), any(), eq(MemberResponse.class)))
+                .thenThrow(FinApiFailures.rejected("search", "E4003"));
+        String token = verifiedToken(PHONE);
+        signup(token).andExpect(status().isGatewayTimeout());
+        String pendingId = (String) redis.opsForHash().get("signup:" + sha256Hex(token), "pendingMemberId");
+
+        signup(token).andExpect(status().isCreated());
+
+        assertThat(userRepository.findAll()).singleElement()
+                .satisfies(user -> assertThat(user.getSsafyMemberId()).isNotEqualTo(pendingId));
+        verify(finApiClient, times(2)).postWithApiKey(eq("/member"), any(), eq(MemberResponse.class));
+    }
+
+    @Test
+    void SSAFY_계정_ID가_3번_모두_겹치면_502이고_사용자를_만들지_않는다() throws Exception {
+        when(finApiClient.postWithApiKey(eq("/member"), any(), eq(MemberResponse.class)))
+                .thenThrow(FinApiFailures.rejected("member", "E4002"));
+
+        signup(verifiedToken(PHONE)).andExpect(status().isBadGateway())
+                .andExpect(jsonPath("$.error.code").value("FIN_API_ERROR"));
+
+        verify(finApiClient, times(3)).postWithApiKey(eq("/member"), any(), eq(MemberResponse.class));
+        assertThat(userRepository.count()).isZero();
+    }
+
+    @Test
+    void 같은_사람의_회원가입이_동시에_오면_SSAFY_계정은_하나만_만들고_사용자도_하나다() throws Exception {
+        String token = verifiedToken(PHONE);
+        // SSAFY 응답을 잠깐 늦춰 두 요청이 반드시 겹치게 한다.
+        when(finApiClient.postWithApiKey(eq("/member"), any(), eq(MemberResponse.class))).thenAnswer(inv -> {
+            Thread.sleep(500);
+            return new MemberResponse(memberIdOf(inv.getArgument(1)), USER_KEY);
+        });
+
+        // 하나는 SSAFY 계정을 만들고(201), 겹친 요청은 잠금에 걸려 409 SIGNUP_IN_PROGRESS다.
+        List<MvcResult> results = Concurrently.run(2, () -> signup(token).andReturn());
+        assertThat(results).extracting(r -> r.getResponse().getStatus()).containsExactlyInAnyOrder(201, 409);
+        assertThat(results).filteredOn(r -> r.getResponse().getStatus() == 409).singleElement()
+                .satisfies(r -> assertThat(read(r, "$.error.code")).isEqualTo("SIGNUP_IN_PROGRESS"));
+
+        // 잠금이 풀린 뒤 다시 부르면 이어받는다.
+        signup(token).andExpect(status().isCreated());
+        verify(finApiClient, times(1)).postWithApiKey(eq("/member"), any(), eq(MemberResponse.class));
+        assertThat(userRepository.count()).isEqualTo(1);
+    }
+
+    @Test
+    void 가입_API는_IP별로_세어_한도를_넘으면_429_TOO_MANY_REQUESTS다() throws Exception {
+        // 세 API를 합쳐 1분에 30번까지(application.yml per-ip). 같은 번호 재요청은 429 VERIFICATION_TOO_FREQUENT로 세어진다.
+        for (int i = 0; i < 30; i++) {
+            requestVerification("김야무", BIRTH, "SKT", PHONE);
+        }
+
+        requestVerification("김야무", BIRTH, "SKT", "01099998888").andExpect(status().isTooManyRequests())
+                .andExpect(jsonPath("$.error.code").value("TOO_MANY_REQUESTS"))
+                .andExpect(jsonPath("$.error.details.retryAfterSeconds").isNumber());
+        confirm("pv_AAAAAAAAAAAAAAAAAAAAAA", "123456").andExpect(jsonPath("$.error.code").value("TOO_MANY_REQUESTS"));
+        signup("sgt_any").andExpect(jsonPath("$.error.code").value("TOO_MANY_REQUESTS"));
+    }
+
+    @Test
+    void 형식이_다른_인증_ID는_Redis를_보지_않고_VERIFICATION_EXPIRED다() throws Exception {
+        requestVerification("김야무", BIRTH, "SKT", PHONE).andExpect(status().isOk());
+
+        // 재요청 간격 키(String)를 Hash 명령으로 건드리면 500이 났다.
+        String recentKeySuffix = "recent:" + java.util.HexFormat.of().formatHex(lookupHasher.phone(PHONE));
+        confirm(recentKeySuffix, "123456").andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("VERIFICATION_EXPIRED"));
+        confirm("pv_short", "123456").andExpect(jsonPath("$.error.code").value("VERIFICATION_EXPIRED"));
+    }
+
+    @Test
+    void 공백을_뺀_이름이_한_글자거나_번호에_하이픈이_있으면_400이다() throws Exception {
+        requestVerification(" 김 ", BIRTH, "SKT", PHONE).andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("INVALID_REQUEST"));
+        // 명세: 숫자만 받는다. 정규화(+82 등)는 서비스가 하지만 하이픈·공백은 앞에서 거절한다.
+        requestVerification("김야무", BIRTH, "SKT", "010-1234-5678").andExpect(status().isBadRequest());
+        requestVerification("김야무", BIRTH, "SKT", "010 12345678").andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void 본인인증_정보의_toString에는_이름_가운데와_생년월일_번호가_없다() {
+        VerifiedIdentity identity = new VerifiedIdentity("김야무", LocalDate.parse(BIRTH), new byte[] {1},
+                lookupHasher.phone(PHONE));
+
+        assertThat(identity.toString()).contains("김*무").doesNotContain("야").doesNotContain(BIRTH)
+                .doesNotContain("1999");
+    }
+
     // ───────── 도우미 ─────────
+
+    private void withdraw(AppUser user) {
+        jdbc.update("UPDATE app_user SET status = 'WITHDRAWN', deleted_at = UTC_TIMESTAMP() WHERE user_id = ?",
+                user.getId());
+    }
 
     private ResultActions requestVerification(String name, String birthDate, String carrier, String phone)
             throws Exception {
