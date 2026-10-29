@@ -22,7 +22,7 @@ final class CashflowEvents {
     /**
      * 선택한 계좌에 귀속되고 from~to에 오가는 입출금과, 계산에서 뺀 항목을 돌려준다.
      * 계좌 지정 항목은 예정일에, 체크카드는 사용일에, 신용카드는 청구 출금일에 카드 출금 계좌에서 나간다.
-     * 선택하지 않은 계좌에 귀속되는 회차는 이 예보의 범위가 아니라 조용히 넘긴다.
+     * 선택하지 않은 계좌에 귀속되는 회차는 이 예보의 범위가 아니라 조용히 넘긴다. 오늘(from) 수입은 더하지 않고 알린다.
      *
      * @param entries          가계부 목록 회차(확정 항목)
      * @param selectedAccounts 예보에 선택한 계좌
@@ -75,6 +75,12 @@ final class CashflowEvents {
                 continue;
             }
             boolean income = item.direction() == CashflowItem.Direction.INCOME;
+            // from은 현재 잔액을 읽은 날(오늘)이다. 오늘 수입은 이미 잔액에 들어왔을 수 있어 더하면 잔액을 부풀려 부족 위험을 가린다.
+            // 오늘 지출은 이미 빠졌어도 잔액을 적게 볼 뿐이라 그대로 뺀다.
+            if (income && date.equals(from)) {
+                excluded.add(ExcludedItem.of(entry, ExcludedItem.Reason.TODAY_INCOME_UNVERIFIED));
+                continue;
+            }
             events.add(new FlowEvent(accountId, date, income ? item.amount() : -item.amount(),
                     income ? FlowEvent.Type.SCHEDULED_INCOME : FlowEvent.Type.SCHEDULED_OUTFLOW,
                     FlowEvent.Confidence.CONFIRMED, item.title(), item.id()));

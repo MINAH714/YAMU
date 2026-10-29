@@ -112,6 +112,22 @@ class ForecastServiceTest {
     }
 
     @Test
+    void 월급이_들어온_뒤_조회해도_오늘_월급을_두_번_더하지_않는다() {
+        balances = List.of(new AccountBalance(A, 1_000_000L, FETCHED_AT));
+        CashflowService.Item salary = new CashflowService.Item(9L, A, null, "월급", CashflowItem.Direction.INCOME,
+                1_000_000L, TODAY, CashflowItem.RecurrenceType.MONTHLY, null, null, CashflowItem.Status.CONFIRMED, null);
+        givenEntries(TODAY, TODAY.plusDays(7), new CashflowService.Entry(salary, TODAY, TODAY, false));
+
+        BalanceForecast result = service.forecast(USER, List.of(A), Until.DAYS, 7, false, false);
+
+        assertThat(result.series())
+                .extracting(BalanceForecast.SeriesPoint::date, BalanceForecast.SeriesPoint::confirmed)
+                .containsExactly(tuple(TODAY, 1_000_000L));
+        assertThat(result.excluded()).extracting(ExcludedItem::reason)
+                .containsExactly(ExcludedItem.Reason.TODAY_INCOME_UNVERIFIED);
+    }
+
+    @Test
     void 다른_계좌의_청구를_선택_계좌에_옮겨_담지_않는다() {
         givenEntries(TODAY, TODAY.plusDays(14));
         bills = List.of(new BillWithdrawal(88L, B, NOV_5, 400_000L, true));

@@ -20,7 +20,9 @@ public record ExcludedItem(Long cashflowItemId, LocalDate occurrenceDate, LocalD
         /** 계좌·카드 출금 계좌가 없어 어느 계좌에서 나갈지 모른다. */
         NO_WITHDRAWAL_ACCOUNT,
         /** 지정한 카드가 없거나 등록 해제됐다. */
-        CARD_UNAVAILABLE
+        CARD_UNAVAILABLE,
+        /** 오늘 예정 수입. 현재 잔액에 이미 들어왔는지 알 수 없어 두 번 더하지 않도록 뺐다. */
+        TODAY_INCOME_UNVERIFIED
     }
 
     static ExcludedItem of(CashflowService.Entry entry, Reason reason) {

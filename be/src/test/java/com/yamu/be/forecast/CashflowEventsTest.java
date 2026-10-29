@@ -55,6 +55,21 @@ class CashflowEventsTest {
     }
 
     @Test
+    void 오늘_수입은_이미_잔액에_들어왔을_수_있어_더하지_않고_알리고_오늘_지출은_뺀다() {
+        CashflowEvents.Converted result = convert(Set.of(A),
+                entry(1L, A, null, CashflowItem.Direction.INCOME, 1_000_000L, TODAY),
+                entry(2L, A, null, CashflowItem.Direction.EXPENSE, 500_000L, TODAY),
+                entry(3L, A, null, CashflowItem.Direction.INCOME, 1_000_000L, TODAY.plusDays(1)));
+
+        assertThat(result.events())
+                .extracting(FlowEvent::refId, FlowEvent::date, FlowEvent::amount)
+                .containsExactly(tuple(2L, TODAY, -500_000L), tuple(3L, TODAY.plusDays(1), 1_000_000L));
+        assertThat(result.excluded())
+                .extracting(ExcludedItem::cashflowItemId, ExcludedItem::reason)
+                .containsExactly(tuple(1L, ExcludedItem.Reason.TODAY_INCOME_UNVERIFIED));
+    }
+
+    @Test
     void 실제_결제와_연결된_회차는_결제_데이터가_대신하므로_빼서_두_번_차감하지_않는다() {
         CashflowService.Entry paid = new CashflowService.Entry(
                 item(1L, A, null, CashflowItem.Direction.EXPENSE, 500_000L), TODAY.plusDays(5), TODAY.plusDays(5), true);
