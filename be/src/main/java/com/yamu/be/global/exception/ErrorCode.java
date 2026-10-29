@@ -50,6 +50,9 @@ public enum ErrorCode {
     /* 가계부 - 항목 수정·삭제. 실제 결제와 연결된 회차는 예정 수정으로 바꾸지 않는다. 명세서 「가계부 항목 수정」「삭제」에 추가 필요 */
     PAID_OCCURRENCE_LOCKED(HttpStatus.CONFLICT, "실제 결제와 연결된 회차가 있어 바꿀 수 없습니다."),
 
+    /* 잔고예보 - 조회 (API 명세 「잔고예보 조회」). accountIds 누락 또는 빈 선택 */
+    ACCOUNT_SELECTION_REQUIRED(HttpStatus.BAD_REQUEST, "잔고예보에 사용할 계좌를 하나 이상 선택해 주세요."),
+
     /* 공통 - Spring MVC가 분류하는 요청 오류. 명세서 1장에 추가 필요 */
     API_NOT_FOUND(HttpStatus.NOT_FOUND, "요청한 API를 찾을 수 없습니다."),
     METHOD_NOT_ALLOWED(HttpStatus.METHOD_NOT_ALLOWED, "지원하지 않는 HTTP 메서드입니다."),
