@@ -147,6 +147,31 @@ class StepUpIntegrationTest extends MySqlTestSupport {
         assertStepUpRequired(() -> stepUpService.requireStepUp(me(mine), StepUpPurpose.BARCODE, "sut_forged"));
     }
 
+    @Test
+    void 토큰을_받은_뒤_기기가_해제되면_DEVICE_NOT_REGISTERED이고_토큰은_버려진다() throws Exception {
+        UserDevice device = saveDevice("01012345678", deviceKey, null);
+        String token = read(stepUp(device, "BARCODE", "PIN", deviceKey, PIN).andReturn(), "$.data.stepUpToken");
+        jdbc.update("UPDATE user_device SET status = 'REVOKED' WHERE user_device_id = ?", device.getId());
+
+        assertErrorCode(() -> stepUpService.requireStepUp(me(device), StepUpPurpose.BARCODE, token),
+                ErrorCode.DEVICE_NOT_REGISTERED);
+        assertThat(redis.hasKey("auth:step-up:" + sha256Hex(token))).isFalse();
+    }
+
+    @Test
+    void 토큰을_받은_뒤_기기가_잠기면_DEVICE_LOCKED와_잠금_해제_시각이다() throws Exception {
+        UserDevice device = saveDevice("01012345678", deviceKey, null);
+        String token = read(stepUp(device, "BARCODE", "PIN", deviceKey, PIN).andReturn(), "$.data.stepUpToken");
+        jdbc.update("UPDATE user_device SET status = 'LOCKED', locked_until = ? WHERE user_device_id = ?",
+                LocalDateTime.now(ZoneOffset.UTC).plusMinutes(30), device.getId());
+
+        assertThatThrownBy(() -> stepUpService.requireStepUp(me(device), StepUpPurpose.BARCODE, token))
+                .isInstanceOfSatisfying(BusinessException.class, e -> {
+                    assertThat(e.getErrorCode()).isEqualTo(ErrorCode.DEVICE_LOCKED);
+                    assertThat(e.getDetails()).containsKey("lockedUntil");
+                });
+    }
+
     // ───────── 실패 ─────────
 
     @Test
@@ -297,10 +322,14 @@ class StepUpIntegrationTest extends MySqlTestSupport {
     }
 
     private static void assertStepUpRequired(Runnable call) {
+        assertErrorCode(call, ErrorCode.STEP_UP_REQUIRED);
+    }
+
+    private static void assertErrorCode(Runnable call, ErrorCode expected) {
         assertThatThrownBy(call::run)
                 .isInstanceOf(BusinessException.class)
                 .extracting(e -> ((BusinessException) e).getErrorCode())
-                .isEqualTo(ErrorCode.STEP_UP_REQUIRED);
+                .isEqualTo(expected);
     }
 
     private static String sha256Hex(String token) throws Exception {

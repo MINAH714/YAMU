@@ -51,13 +51,8 @@ public class StepUpService {
 
     public StepUpChallengeResponse issueChallenge(AuthUser me, String purposeText) {
         StepUpPurpose purpose = parsePurpose(purposeText);
-        UserDevice device = deviceRepository.findWithUserById(me.userDeviceId())
-                .filter(d -> d.isUsable() && d.getUser().getId().equals(me.userId()))
-                .orElseThrow(() -> new BusinessException(ErrorCode.DEVICE_NOT_REGISTERED));
+        UserDevice device = requireActiveDevice(me);
         LocalDateTime now = LocalDateTime.now(clock);
-        if (device.isLockedAt(now)) {
-            throw new BusinessException(ErrorCode.DEVICE_LOCKED, DeviceLockDetails.of(device));
-        }
         IssuedChallenge challenge = challengeStore.issue(device.getId(), purpose);
         List<AuthMethod> allowed = device.isBiometricEnabled()
                 ? List.of(AuthMethod.BIOMETRIC, AuthMethod.PIN) : List.of(AuthMethod.PIN);
@@ -90,6 +85,10 @@ public class StepUpService {
     /**
      * 대상 API에서 부른다. 요청한 사용자·기기가 그 용도로 받은 토큰이면 한 번 통과시키고 토큰을 지운다.
      * 없거나 만료·이미 사용·다른 사용자·다른 기기·용도 불일치면 403 STEP_UP_REQUIRED.
+     * 토큰을 받은 뒤 기기가 해제됐으면 DEVICE_NOT_REGISTERED, 잠겼으면 DEVICE_LOCKED(토큰은 이미 지워짐).
+     *
+     * <p>입력 검증을 모두 마친 뒤, 실제 변경 직전에 부른다. 토큰을 먼저 지우고 확인하므로 이 뒤에 검증 실패·롤백이 나도
+     * 토큰은 돌아오지 않고(Redis는 DB 롤백과 같이 되돌아가지 않음) 사용자가 본인 인증을 다시 해야 한다.
      *
      * <pre>
      * StepUpGrant grant = stepUpService.requireStepUp(me, StepUpPurpose.BARCODE, request.getHeader(StepUpService.HEADER));
@@ -98,10 +97,24 @@ public class StepUpService {
      * @return 인증 기록 번호(auditLogId)와 인증 방식. 계좌 연결은 auditLogId를 연결 기록에 남긴다
      */
     public StepUpGrant requireStepUp(AuthUser me, StepUpPurpose purpose, String token) {
-        return tokenStore.consume(token)
+        StepUpGrant grant = tokenStore.consume(token)
                 .filter(g -> g.userId().equals(me.userId()) && g.userDeviceId().equals(me.userDeviceId())
                         && g.purpose() == purpose)
                 .orElseThrow(() -> new BusinessException(ErrorCode.STEP_UP_REQUIRED));
+        // 토큰은 5분까지 살아 있으므로 그사이 해제·잠긴 기기는 여기서 다시 막는다.
+        requireActiveDevice(me);
+        return grant;
+    }
+
+    /** 요청 기기가 이 사용자의 쓸 수 있는 기기이고 지금 잠겨 있지 않은지. */
+    private UserDevice requireActiveDevice(AuthUser me) {
+        UserDevice device = deviceRepository.findWithUserById(me.userDeviceId())
+                .filter(d -> d.isUsable() && d.getUser().getId().equals(me.userId()))
+                .orElseThrow(() -> new BusinessException(ErrorCode.DEVICE_NOT_REGISTERED));
+        if (device.isLockedAt(LocalDateTime.now(clock))) {
+            throw new BusinessException(ErrorCode.DEVICE_LOCKED, DeviceLockDetails.of(device));
+        }
+        return device;
     }
 
     /** 로그인 기준 실패 코드를 본인 인증 명세 코드로 바꾼다. 서명·PIN 실패는 STEP_UP_FAILED(PIN이면 남은 횟수 포함). */
