@@ -74,6 +74,10 @@ public class CashflowItem extends BaseTimeEntity {
     @Column(name = "item_kind", nullable = false, length = 16)
     private ItemKind itemKind;
 
+    /** 이후 일정 변경으로 나뉜 경우 바로 앞 규칙. 시리즈의 첫 규칙은 NULL이다. */
+    @Column(name = "previous_cashflow_item_id")
+    private Long previousCashflowItemId;
+
     @Version
     @Column(nullable = false)
     private Long version;
@@ -94,5 +98,39 @@ public class CashflowItem extends BaseTimeEntity {
         this.status = Status.CONFIRMED;
         this.memo = memo;
         this.itemKind = ItemKind.SCHEDULED;
+    }
+
+    /** 아직 시작하지 않은 규칙을 제자리에서 바꾼다. 유형(direction)은 바꾸지 않는다. */
+    void change(String title, Long amount, LocalDate scheduledDate, RecurrenceType recurrenceType,
+            LocalDate recurrenceEndDate, Long accountId, Long userCardId, String merchantCategoryCode, String memo) {
+        this.title = title;
+        this.amount = amount;
+        this.scheduledDate = scheduledDate;
+        this.recurrenceType = recurrenceType;
+        this.recurrenceEndDate = recurrenceEndDate;
+        this.accountId = accountId;
+        this.userCardId = userCardId;
+        this.merchantCategoryCode = merchantCategoryCode;
+        this.memo = memo;
+    }
+
+    /** cutoff 전날로 반복을 끝낸다. cutoff는 첫 발생일보다 늦어야 한다(종료일 ≥ 첫 발생일 제약). */
+    void closeBefore(LocalDate cutoff) {
+        this.recurrenceEndDate = cutoff.minusDays(1);
+    }
+
+    /** 탐지 후보를 확인(CONFIRMED)하거나 무시(IGNORED)한다. 바꿀 수 있는 전환인지는 서비스가 확인한다. */
+    void changeStatus(Status status) {
+        this.status = status;
+    }
+
+    /** 이 규칙을 이어받는 새 규칙. 상태는 이어받고, 이 규칙은 closeBefore로 따로 닫는다. */
+    CashflowItem successor(String title, Long amount, LocalDate scheduledDate, RecurrenceType recurrenceType,
+            LocalDate recurrenceEndDate, Long accountId, Long userCardId, String merchantCategoryCode, String memo) {
+        CashflowItem next = new CashflowItem(userId, accountId, userCardId, title, direction, amount, scheduledDate,
+                recurrenceType, recurrenceEndDate, merchantCategoryCode, memo);
+        next.previousCashflowItemId = id;
+        next.status = status;
+        return next;
     }
 }

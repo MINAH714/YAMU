@@ -73,11 +73,11 @@ public class CashflowOccurrence extends BaseTimeEntity {
     @Column(nullable = false)
     private Long version;
 
-    private CashflowOccurrence(CashflowItem item) {
+    private CashflowOccurrence(CashflowItem item, LocalDate occurrenceDate) {
         this.cashflowItemId = item.getId();
         this.userId = item.getUserId();
-        this.occurrenceDate = item.getScheduledDate();
-        this.scheduledDate = item.getScheduledDate();
+        this.occurrenceDate = occurrenceDate;
+        this.scheduledDate = occurrenceDate;
         this.title = item.getTitle();
         this.direction = item.getDirection();
         this.amount = item.getAmount();
@@ -89,6 +89,29 @@ public class CashflowOccurrence extends BaseTimeEntity {
     }
 
     static CashflowOccurrence firstOf(CashflowItem item) {
-        return new CashflowOccurrence(item);
+        return of(item, item.getScheduledDate());
+    }
+
+    /** 규칙의 occurrenceDate 회차를 규칙 값 그대로 만든다. 이번 회차만 고치거나 뺄 때 쓴다. */
+    static CashflowOccurrence of(CashflowItem item, LocalDate occurrenceDate) {
+        return new CashflowOccurrence(item, occurrenceDate);
+    }
+
+    /** 이번 회차만 바꾼다. 이후 규칙이 바뀌어도 목록은 이 값을 쓴다. */
+    void override(LocalDate scheduledDate, String title, Long amount, Long accountId, Long userCardId,
+            String merchantCategoryCode, String memo) {
+        this.scheduledDate = scheduledDate;
+        this.title = title;
+        this.amount = amount;
+        this.accountId = accountId;
+        this.userCardId = userCardId;
+        this.merchantCategoryCode = merchantCategoryCode;
+        this.memo = memo;
+        this.overridden = true;
+    }
+
+    /** 이번 회차만 뺀다. 행을 남겨 같은 회차가 규칙에서 다시 계산되지 않게 한다. */
+    void exclude() {
+        this.status = Status.EXCLUDED;
     }
 }
