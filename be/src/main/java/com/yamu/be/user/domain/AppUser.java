@@ -106,4 +106,31 @@ public class AppUser extends BaseTimeEntity {
     public boolean isActive() {
         return status == AppUserStatus.ACTIVE;
     }
+
+    public boolean isWithdrawn() {
+        return status == AppUserStatus.WITHDRAWN;
+    }
+
+    /**
+     * 탈퇴. 이름·휴대폰 암호문·PIN·본인인증 시각은 비우고, 재가입 열쇠(phone_hash·birth_date·SSAFY 회원 ID·userKey)만 남긴다.
+     * 재가입하면 열쇠는 새 사용자로 옮겨지고 이 행에서는 {@link #releaseRejoinKeys()}로 지워진다.
+     * 행 자체는 거래·청구·감사 로그가 가리키므로(FK RESTRICT) 지우지 않는다.
+     */
+    public void withdraw(LocalDateTime now) {
+        this.status = AppUserStatus.WITHDRAWN;
+        this.deletedAt = now;
+        this.name = null;
+        this.phoneEnc = null;
+        this.pinHash = null;
+        this.pinUpdatedAt = null;
+        this.identityVerifiedAt = null;
+    }
+
+    /** 재가입으로 열쇠를 새 사용자에게 넘긴 뒤 이 행에 남은 식별 값을 지운다. UNIQUE(phone_hash, birth_date)·(ssafy_member_id)를 비워 준다. */
+    public void releaseRejoinKeys() {
+        this.phoneHash = null;
+        this.birthDate = null;
+        this.ssafyMemberId = null;
+        this.ssafyUserKey = null;
+    }
 }
