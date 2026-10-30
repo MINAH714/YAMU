@@ -75,7 +75,8 @@ class ForecastServiceTest {
         BalanceForecast result = service.forecast(USER, List.of(A, B), Until.DAYS, 14, true, false);
 
         assertThat(result.currentTotalBalance()).isEqualTo(1_100_000L);
-        assertThat(result.series())
+        assertThat(result.series()).hasSize(15);
+        assertThat(List.of(day(result.series(), TODAY), day(result.series(), NOV_5)))
                 .extracting(BalanceForecast.SeriesPoint::date, BalanceForecast.SeriesPoint::confirmed,
                         point -> point.events().size())
                 .containsExactly(tuple(TODAY, 1_100_000L, 0), tuple(NOV_5, 500_000L, 2));
@@ -93,7 +94,8 @@ class ForecastServiceTest {
 
         BalanceForecast result = service.forecast(USER, List.of(A), Until.DAYS, 14, false, false);
 
-        assertThat(result.series())
+        assertThat(List.of(day(result.series(), TODAY), day(result.series(), NOV_5),
+                        day(result.series(), NOV_5.plusDays(2))))
                 .extracting(BalanceForecast.SeriesPoint::date, BalanceForecast.SeriesPoint::confirmed,
                         BalanceForecast.SeriesPoint::expected)
                 .containsExactly(tuple(TODAY, 800_000L, 800_000L), tuple(NOV_5, 400_000L, 400_000L),
@@ -120,9 +122,7 @@ class ForecastServiceTest {
 
         BalanceForecast result = service.forecast(USER, List.of(A), Until.DAYS, 7, false, false);
 
-        assertThat(result.series())
-                .extracting(BalanceForecast.SeriesPoint::date, BalanceForecast.SeriesPoint::confirmed)
-                .containsExactly(tuple(TODAY, 1_000_000L));
+        assertThat(result.series()).extracting(BalanceForecast.SeriesPoint::confirmed).containsOnly(1_000_000L);
         assertThat(result.excluded()).extracting(ExcludedItem::reason)
                 .containsExactly(ExcludedItem.Reason.TODAY_INCOME_UNVERIFIED);
     }
@@ -231,6 +231,10 @@ class ForecastServiceTest {
         CashflowService.Item item = new CashflowService.Item(id, accountId, null, "월세", CashflowItem.Direction.EXPENSE,
                 amount, date, CashflowItem.RecurrenceType.NONE, null, null, CashflowItem.Status.CONFIRMED, null);
         return new CashflowService.Entry(item, date, date, paid);
+    }
+
+    private static BalanceForecast.SeriesPoint day(List<BalanceForecast.SeriesPoint> series, LocalDate date) {
+        return series.stream().filter(point -> point.date().equals(date)).findFirst().orElseThrow();
     }
 
     private static long lastConfirmed(List<BalanceForecast.SeriesPoint> series) {

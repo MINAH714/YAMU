@@ -27,11 +27,24 @@ class ForecastCalculatorTest {
                 event(A, TODAY.plusDays(2), 1_000_000L, Confidence.CONFIRMED),
                 event(A, TODAY.plusDays(4), 100_000L, Confidence.CONFIRMED)), TODAY, TO);
 
-        assertThat(result.byAccount().get(A))
+        assertThat(withEvents(result.byAccount().get(A)))
                 .extracting(BalancePoint::date, BalancePoint::confirmed, point -> point.events().size())
-                .containsExactly(tuple(TODAY, 600_000L, 0),
-                        tuple(TODAY.plusDays(2), 1_600_000L, 1),
+                .containsExactly(tuple(TODAY.plusDays(2), 1_600_000L, 1),
                         tuple(TODAY.plusDays(4), 1_200_000L, 2));
+        // 입출금이 없는 날은 직전 잔액이다.
+        assertThat(at(result.byAccount().get(A), TODAY).confirmed()).isEqualTo(600_000L);
+        assertThat(at(result.byAccount().get(A), TODAY.plusDays(3)).confirmed()).isEqualTo(1_600_000L);
+    }
+
+    @Test
+    void 기간의_모든_날짜에_점이_있다() {
+        Projection result = ForecastCalculator.project(balances(A, 600_000L, B, 100_000L), List.of(
+                event(A, TODAY.plusDays(4), -500_000L, Confidence.CONFIRMED)), TODAY, TO);
+
+        List<LocalDate> everyDay = TODAY.datesUntil(TO.plusDays(1)).toList();
+        assertThat(result.total()).extracting(BalancePoint::date).containsExactlyElementsOf(everyDay);
+        assertThat(result.byAccount().get(A)).extracting(BalancePoint::date).containsExactlyElementsOf(everyDay);
+        assertThat(result.byAccount().get(B)).extracting(BalancePoint::date).containsExactlyElementsOf(everyDay);
     }
 
     @Test
@@ -40,7 +53,8 @@ class ForecastCalculatorTest {
                 event(A, TODAY.plusDays(1), -100_000L, Confidence.CONFIRMED),
                 event(A, TODAY.plusDays(3), -200_000L, Confidence.EXPECTED)), TODAY, TO);
 
-        assertThat(result.total())
+        assertThat(List.of(at(result.total(), TODAY), at(result.total(), TODAY.plusDays(1)),
+                        at(result.total(), TODAY.plusDays(3))))
                 .extracting(BalancePoint::date, BalancePoint::confirmed, BalancePoint::expected)
                 .containsExactly(tuple(TODAY, 500_000L, 500_000L),
                         tuple(TODAY.plusDays(1), 400_000L, 400_000L),
@@ -56,16 +70,14 @@ class ForecastCalculatorTest {
                 event(A, nov5, -200_000L, Confidence.CONFIRMED),
                 event(B, nov5, -400_000L, Confidence.CONFIRMED)), TODAY, TO);
 
-        assertThat(result.total())
+        assertThat(withEvents(result.total()))
                 .extracting(BalancePoint::date, BalancePoint::confirmed, point -> point.events().size())
-                .containsExactly(tuple(TODAY, 1_100_000L, 0),
-                        tuple(TODAY.plusDays(2), 1_050_000L, 1),
-                        tuple(nov5, 450_000L, 2));
+                .containsExactly(tuple(TODAY.plusDays(2), 1_050_000L, 1), tuple(nov5, 450_000L, 2));
+        assertThat(at(result.total(), TODAY).confirmed()).isEqualTo(1_100_000L);
         // 입출금이 없는 날(10/28)에도 B는 직전 잔액으로 점이 있다.
-        assertThat(result.byAccount().get(B))
+        assertThat(List.of(at(result.byAccount().get(B), TODAY.plusDays(2)), at(result.byAccount().get(B), nov5)))
                 .extracting(BalancePoint::date, BalancePoint::confirmed, point -> point.events().size())
-                .containsExactly(tuple(TODAY, 300_000L, 0), tuple(TODAY.plusDays(2), 300_000L, 0),
-                        tuple(nov5, -100_000L, 1));
+                .containsExactly(tuple(TODAY.plusDays(2), 300_000L, 0), tuple(nov5, -100_000L, 1));
         // 모든 날짜에서 같은 날짜의 계좌별 수치를 더하면 통합 수치와 같다.
         for (int i = 0; i < result.total().size(); i++) {
             BalancePoint total = result.total().get(i);
@@ -94,9 +106,10 @@ class ForecastCalculatorTest {
                 event(A, TO, -10_000L, Confidence.CONFIRMED),
                 event(A, TO.plusDays(1), -2_000L, Confidence.CONFIRMED)), TODAY, TO);
 
-        assertThat(result.total())
+        assertThat(withEvents(result.total()))
                 .extracting(BalancePoint::date, BalancePoint::confirmed)
                 .containsExactly(tuple(TODAY, 70_000L), tuple(TO, 60_000L));
+        assertThat(result.total()).hasSize(11);
     }
 
     @Test
@@ -119,6 +132,14 @@ class ForecastCalculatorTest {
             balances.put((Long) accountAndBalance[i], (Long) accountAndBalance[i + 1]);
         }
         return balances;
+    }
+
+    private static BalancePoint at(List<BalancePoint> points, LocalDate date) {
+        return points.stream().filter(point -> point.date().equals(date)).findFirst().orElseThrow();
+    }
+
+    private static List<BalancePoint> withEvents(List<BalancePoint> points) {
+        return points.stream().filter(point -> !point.events().isEmpty()).toList();
     }
 
     private static FlowEvent event(Long accountId, LocalDate date, long amount, Confidence confidence) {

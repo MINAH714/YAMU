@@ -6,7 +6,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
-import java.util.TreeSet;
 
 /**
  * 계좌별 시작 잔액에 미래 입출금을 날짜순으로 더해 날짜별 예상 잔액을 계산한다. DB·외부 호출 없이 입력만으로 계산한다.
@@ -20,8 +19,8 @@ final class ForecastCalculator {
 
     /**
      * from~to(포함) 기간의 통합·계좌별 날짜 선을 돌려준다. 각 점은 그날 입출금을 모두 반영한 일말 잔액이다.
-     * 선에는 첫날(from)과 어느 계좌든 입출금이 있는 날을 둔다. 계좌별 선도 같은 날짜를 모두 가지므로
-     * (그날 입출금이 없는 계좌는 직전 잔액) 같은 날짜의 계좌별 값을 더하면 통합 값과 같다. 기간 밖 입출금은 무시한다.
+     * 선에는 기간의 모든 날짜에 점을 둔다(입출금이 없는 날은 직전 잔액). 그래서 같은 날짜의 계좌별 값을 더하면
+     * 통합 값과 같고, 날마다 줄어드는 선(생활비)의 최저점도 놓치지 않는다. 기간 밖 입출금은 무시한다.
      *
      * @param startBalances 선택한 계좌별 현재 잔액(원). 순서대로 결과에 담는다
      * @param events        미래 입출금. 계좌는 startBalances에 있어야 한다
@@ -36,7 +35,7 @@ final class ForecastCalculator {
         }
         Map<Long, TreeMap<LocalDate, List<FlowEvent>>> eventsByAccount = new LinkedHashMap<>();
         startBalances.keySet().forEach(accountId -> eventsByAccount.put(accountId, new TreeMap<>()));
-        TreeSet<LocalDate> dates = new TreeSet<>(List.of(from));
+        List<LocalDate> dates = from.datesUntil(to.plusDays(1)).toList();
         for (FlowEvent event : events) {
             if (event.date().isBefore(from) || event.date().isAfter(to)) {
                 continue;
@@ -47,7 +46,6 @@ final class ForecastCalculator {
                 throw new IllegalArgumentException("선택하지 않은 계좌의 입출금이다: " + event.accountId());
             }
             byDate.computeIfAbsent(event.date(), date -> new ArrayList<>()).add(event);
-            dates.add(event.date());
         }
 
         Map<LocalDate, Totals> totals = new TreeMap<>();
@@ -57,7 +55,6 @@ final class ForecastCalculator {
             long confirmed = startBalances.get(account.getKey());
             long expected = confirmed;
             List<BalancePoint> points = new ArrayList<>();
-            // 입출금이 없는 날도 그 계좌의 직전 잔액으로 점을 둔다. 통합 합계도 이 값을 더한다.
             for (LocalDate date : dates) {
                 List<FlowEvent> dayEvents = account.getValue().getOrDefault(date, List.of());
                 for (FlowEvent event : dayEvents) {
