@@ -56,6 +56,22 @@ public enum ErrorCode {
     // 임시(10/30): 시연용 시드에 없는 사람. 회원가입 때 SSAFY 회원을 만들지 않으므로 시드 사용자만 가입할 수 있다
     DEMO_USER_NOT_FOUND(HttpStatus.NOT_FOUND, "시연용으로 등록된 사용자가 아닙니다."),
 
+    /* 계좌 - 계좌 목록·1원 인증 요청·계좌 연결 (API 명세 각 페이지. 10/30 목록 방식으로 바꿔 계좌번호 입력·예금주 코드는 뺐다) */
+    ACCOUNT_NOT_FOUND_AT_BANK(HttpStatus.NOT_FOUND, "은행에서 계좌를 찾을 수 없습니다. 계좌번호를 확인해 주세요."),
+    ACCOUNT_NOT_SUPPORTED(HttpStatus.BAD_REQUEST, "원화 입출금 계좌만 연결할 수 있습니다."),
+    ACCOUNT_ALREADY_LINKED(HttpStatus.CONFLICT, "이미 연결한 계좌입니다."),
+    // 임시(10/30): 계좌 목록의 candidateId가 없거나(10분 지남) 남의 것. 명세에 추가 필요
+    ACCOUNT_CANDIDATE_EXPIRED(HttpStatus.BAD_REQUEST, "계좌 목록이 만료됐습니다. 계좌 목록을 다시 불러와 주세요."),
+    VERIFICATION_TOKEN_EXPIRED(HttpStatus.BAD_REQUEST, "계좌 확인 시간이 지났습니다. 계좌 확인부터 다시 진행해 주세요."),
+    AUTH_REQUEST_TOO_FREQUENT(HttpStatus.TOO_MANY_REQUESTS, "1원 인증을 너무 자주 요청했습니다. 잠시 후 다시 시도해 주세요."),
+    AUTH_CODE_MISMATCH(HttpStatus.BAD_REQUEST, "인증코드가 일치하지 않습니다."),
+    AUTH_CODE_EXPIRED(HttpStatus.BAD_REQUEST, "인증 시간이 지났습니다. 1원 인증을 다시 요청해 주세요."),
+
+    /* 계좌 - 1원 인증 남용 막기·연결 재시도. 명세에 없어 임시로 추가(S15P31E103-183, 명세에 추가 필요). 429는 details.retryAfterSeconds */
+    ONE_WON_DAILY_LIMIT_EXCEEDED(HttpStatus.TOO_MANY_REQUESTS, "오늘은 이 계좌로 1원 인증을 더 요청할 수 없습니다. 내일 다시 시도해 주세요."),
+    AUTH_CODE_LOCKED(HttpStatus.TOO_MANY_REQUESTS, "인증코드를 여러 번 틀려 오늘은 이 계좌로 인증할 수 없습니다. 내일 다시 시도해 주세요."),
+    IDEMPOTENCY_IN_PROGRESS(HttpStatus.CONFLICT, "같은 요청을 처리하고 있습니다. 잠시 후 다시 시도해 주세요."),
+
     /* 가계부 - 항목 수정 (API 명세 「가계부 항목 수정」). 탐지 후보는 CONFIRMED·IGNORED로만 바꿀 수 있다 */
     INVALID_STATUS_CHANGE(HttpStatus.CONFLICT, "바꿀 수 없는 상태입니다."),
 
