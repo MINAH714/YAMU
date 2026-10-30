@@ -68,6 +68,13 @@ public class LoginRateLimiter {
         }
     }
 
+    /** 캐시를 건너뛰고 금융망 잔액을 새로 읽는 호출(refresh=true)을 사용자별로 센다. 새로 고침 연타로 금융망을 두드리지 않게. */
+    public void checkBalanceRefresh(Long userId, int limit) {
+        if (userId != null) {
+            hit("balance-refresh:" + userId, limit);
+        }
+    }
+
     private void hit(String key, int limit) {
         List<?> result = redis.execute(HIT, List.of(KEY_PREFIX + key), String.valueOf(properties.window().toMillis()));
         long count = ((Number) result.get(0)).longValue();
