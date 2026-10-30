@@ -20,6 +20,7 @@ import org.springframework.stereotype.Component;
  * auth:rate:device:{userDeviceId} → 요청 수   TTL = 구간(1분)
  * auth:rate:ip:{ip}               → 요청 수   TTL = 구간
  * auth:rate:signup-ip:{ip}        → 요청 수   TTL = 구간   본인인증 요청·확인·회원가입(인증 없이 열린 가입 API)
+ * auth:rate:card-lookup:{userId}  → 요청 수   TTL = 구간   카드 확인(카드번호 대입 막기)
  * </pre>
  *
  * 고정 구간 방식이라 구간 경계에서 잠깐 두 배까지 허용될 수 있다. 목적이 대량 시도 차단이라 정확한 초당 제어는 하지 않는다.
@@ -57,6 +58,13 @@ public class LoginRateLimiter {
     public void checkSignup(String ipAddress, int limit) {
         if (ipAddress != null) {
             hit("signup-ip:" + ipAddress, limit);
+        }
+    }
+
+    /** 로그인한 사용자의 카드 확인 호출을 센다. 카드번호·유효기간을 바꿔 가며 남의 카드를 찾아보는 것을 막는다. */
+    public void checkCardLookup(Long userId, int limit) {
+        if (userId != null) {
+            hit("card-lookup:" + userId, limit);
         }
     }
 
