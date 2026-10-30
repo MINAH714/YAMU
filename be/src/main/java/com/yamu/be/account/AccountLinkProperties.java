@@ -12,6 +12,9 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  * @param maxCodeAttempts  인증코드를 틀릴 수 있는 횟수(3회). SSAFY는 횟수를 제한하지 않아 YAMU가 센다. 넘으면 1원 인증부터 다시
  * @param authText         1원 입금자명 앞글자(SSAFY authText). 통장에 "YAMU 1234"로 찍힌다
  * @param idempotencyTtl   계좌 연결 Idempotency-Key 결과를 기억하는 시간
+ * @param idempotencyLockTtl 같은 Idempotency-Key 요청을 처리 중이라고 표시해 두는 시간. 금융망 두 번(코드 확인·잔액) 제한 시간보다 길게
+ * @param dailySendLimit   한 계좌로 한국 날짜 하루에 1원을 보낼 수 있는 횟수(5회). 재요청 간격만으로는 무한히 보낼 수 있어서 둔다
+ * @param dailyFailLimit   한 계좌로 하루에 인증코드를 틀릴 수 있는 횟수(10회). 넘으면 그날은 그 계좌로 인증할 수 없다
  */
 @ConfigurationProperties(prefix = "yamu.account-link")
 public record AccountLinkProperties(
@@ -20,5 +23,8 @@ public record AccountLinkProperties(
         Duration resendInterval,
         int maxCodeAttempts,
         String authText,
-        Duration idempotencyTtl) {
+        Duration idempotencyTtl,
+        Duration idempotencyLockTtl,
+        int dailySendLimit,
+        int dailyFailLimit) {
 }

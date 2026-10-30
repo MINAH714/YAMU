@@ -70,7 +70,8 @@ yamu:
       token-ttl: 30m
       # 문자를 보내지 않으므로 인증번호를 응답(demoCode)으로 내려준다. 문자 서비스를 붙이면 false
       expose-demo-code: true
-      member-id-attempts: 3
+      # 본인인증 요청·확인을 합쳐 같은 IP로 1분(rate-limit.window)에 30번까지. 시연장 와이파이를 생각해 넉넉히 둔다
+      per-ip: 30
   # 계좌 연결(노션 명세 「계좌 확인」「1원 인증 요청」「계좌 연결」). 1원 인증 유효시간은 SSAFY 문서에 없어 실측(5분 성공·10분 만료)으로 5분 안내
   account-link:
     verification-ttl: 10m
@@ -79,6 +80,11 @@ yamu:
     max-code-attempts: 3
     auth-text: YAMU
     idempotency-ttl: 24h
+    # 같은 Idempotency-Key를 처리 중이라고 표시해 두는 시간. 금융망 두 번(코드 확인·잔액, 각 10초)보다 길게
+    idempotency-lock-ttl: 30s
+    # 1원 인증 남용 막기(한국 날짜 기준, 자정에 초기화). 계좌마다 하루 5번 발송, 10번 틀리면 그날은 잠금
+    daily-send-limit: 5
+    daily-fail-limit: 10
   # SSAFY 금융망. api-key는 운영은 환경변수 SSAFY_API_KEY, 로컬은 application-local.yml에 넣는다(노션 API 명세 4장).
   # 키·userKey·요청 본문은 로그에 남기지 않는다. 비어 있어도 서버는 뜨고, 금융망을 부르는 순간 실패한다.
   fin-api:
