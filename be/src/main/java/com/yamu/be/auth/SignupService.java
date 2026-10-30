@@ -40,9 +40,13 @@ import org.springframework.transaction.support.TransactionTemplate;
  * <p>같은 사람은 이름 + 생년월일 + 휴대폰 번호로 본다(명세 「휴대폰 본인인증 확인」). 찾기는 UK(phone_hash, birth_date)로 하고,
  * 이름이 다르면 다른 사람으로 보고 그 계정을 이어받지 않는다. 실제 은행의 본인확인 고유값(CI)을 대신하는 연출이다.
  *
+ * <p>무엇이 드러나는가: 이름이 다르면 시드에 없는 사람과 똑같은 404 DEMO_USER_NOT_FOUND를 준다. 그래서 번호·생년월일만으로는
+ * 가입 여부·탈퇴 여부를 알 수 없다. 이름·생년월일·번호 세 값을 모두 아는 사람에게만 탈퇴 여부(409 REJOIN_NOT_AVAILABLE)와
+ * 가입 여부(모드 SIGNUP·DEVICE_RECOVERY)가 드러난다.
+ *
  * <p>임시 결정: 문자를 보내지 않아 인증번호를 응답(demoCode)으로 주는 동안은 휴대폰 소유를 증명하지 않는다.
- * 그래서 이름·생년월일·번호를 아는 사람은 가입 진행 토큰을 받을 수 있고, 모드(SIGNUP·DEVICE_RECOVERY)로 가입 여부도 알 수 있다.
- * 실제 확인은 뒤 단계의 1원 인증(본인 명의 계좌)이 맡는다. 무작위 대량 시도는 두 API를 합친 IP별 호출 제한으로 막는다.
+ * 그래서 세 값을 아는 사람은 가입 진행 토큰을 받을 수 있다. 실제 확인은 뒤 단계의 1원 인증(본인 명의 계좌)이 맡는다.
+ * 무작위 대량 시도는 두 API를 합친 IP별 호출 제한으로 막는다.
  */
 @Slf4j
 @Service
@@ -82,9 +86,8 @@ public class SignupService {
      * <ul>
      *   <li>가입 중(PENDING, SSAFY 회원 있음) → SIGNUP, 멈춘 단계부터. 본인인증 시각을 기록한다</li>
      *   <li>가입 완료(ACTIVE) → DEVICE_RECOVERY, 연결된 계좌로 1원 인증부터</li>
-     *   <li>없음, 또는 시드가 덜 들어감(SSAFY 회원 없음) → 404 DEMO_USER_NOT_FOUND</li>
-     *   <li>번호·생년월일은 같은데 이름이 다름 → 409 IDENTITY_MISMATCH(그 계정의 정보는 알려주지 않음)</li>
-     *   <li>탈퇴(WITHDRAWN) → 409 REJOIN_NOT_AVAILABLE</li>
+     *   <li>없음, 이름이 다름, 시드가 덜 들어감(SSAFY 회원 없음) → 모두 같은 404 DEMO_USER_NOT_FOUND</li>
+     *   <li>이름까지 같은데 탈퇴(WITHDRAWN) → 409 REJOIN_NOT_AVAILABLE</li>
      * </ul>
      * 같은 인증번호로 동시에 확인하면 Redis에서 꺼내면서 지우므로 하나만 성공한다.
      */
@@ -92,34 +95,23 @@ public class SignupService {
         rateLimiter.checkSignup(client.ipAddress(), properties.perIp());
         VerifiedIdentity identity = verificationStore.confirm(verificationId, code);
         LocalDateTime verifiedAt = LocalDateTime.now(clock);
-        AppUser user = findSeededUser(identity);
+        AppUser found = findSeededUser(identity);
+        Decision decision = decide(found.getId(), verifiedAt);
 
-        SignupMode mode;
-        SignupStep nextStep;
-        if (user.isActive()) {
-            mode = SignupMode.DEVICE_RECOVERY;
-            nextStep = SignupStep.ACCOUNT_LINK;
-        } else {
-            mode = SignupMode.SIGNUP;
-            nextStep = nextStepOf(user);
-            markIdentityVerified(user.getId(), verifiedAt);
-        }
-        IssuedSignupToken token = tokenStore.issue(new SignupSession(mode, identity, verifiedAt, user.getId()));
-        return new PhoneVerificationConfirmResponse(token.token(), token.expiresIn(), mode, nextStep);
+        IssuedSignupToken token = tokenStore.issue(new SignupSession(decision.mode(), identity, verifiedAt, found.getId()));
+        return new PhoneVerificationConfirmResponse(token.token(), token.expiresIn(), decision.mode(), decision.nextStep());
     }
 
     /**
      * 이름·생년월일·번호가 모두 같은 시드 사용자.
-     * 없거나 SSAFY 회원이 없으면 404 DEMO_USER_NOT_FOUND, 이름이 다르면 409 IDENTITY_MISMATCH, 탈퇴했으면 409 REJOIN_NOT_AVAILABLE.
+     * 이름을 탈퇴보다 먼저 본다. 이름이 다르면 없는 사람과 같은 응답이라 번호·생년월일만으로는 가입·탈퇴 여부가 드러나지 않는다.
      */
     private AppUser findSeededUser(VerifiedIdentity identity) {
         AppUser user = userRepository.findByPhoneHashAndBirthDate(identity.phoneHash(), identity.birthDate())
+                .filter(found -> identity.sameNameAs(found.getName()))
                 .orElseThrow(() -> new BusinessException(ErrorCode.DEMO_USER_NOT_FOUND));
         if (user.getStatus() == AppUserStatus.WITHDRAWN) {
             throw new BusinessException(ErrorCode.REJOIN_NOT_AVAILABLE);
-        }
-        if (!identity.sameNameAs(user.getName())) {
-            throw new BusinessException(ErrorCode.IDENTITY_MISMATCH);
         }
         if (user.getSsafyUserKey() == null) {
             // 시드가 SSAFY 회원·계좌를 만들기 전에 멈춘 행. 계좌를 연결할 수 없으니 가입을 시작시키지 않는다.
@@ -129,11 +121,26 @@ public class SignupService {
         return user;
     }
 
-    private void markIdentityVerified(Long userId, LocalDateTime verifiedAt) {
-        transaction.executeWithoutResult(status -> userRepository.findById(userId)
-                .orElseThrow(() -> new BusinessException(ErrorCode.DEMO_USER_NOT_FOUND))
-                .markIdentityVerified(verifiedAt));
+    /**
+     * 사용자 행을 잠근 채 지금 상태로 모드를 정한다. 찾은 뒤 그 사이에 가입을 마쳤으면(PENDING → ACTIVE) 기기 재등록으로 보내고,
+     * ACTIVE 사용자의 본인인증 시각을 덮어쓰지 않는다. 본인인증 시각은 가입 중(PENDING)일 때만 기록한다.
+     */
+    private Decision decide(Long userId, LocalDateTime verifiedAt) {
+        return transaction.execute(status -> {
+            AppUser user = userRepository.findByIdForUpdate(userId)
+                    .orElseThrow(() -> new BusinessException(ErrorCode.DEMO_USER_NOT_FOUND));
+            return switch (user.getStatus()) {
+                case ACTIVE -> new Decision(SignupMode.DEVICE_RECOVERY, SignupStep.ACCOUNT_LINK);
+                case WITHDRAWN -> throw new BusinessException(ErrorCode.REJOIN_NOT_AVAILABLE);
+                case PENDING -> {
+                    user.markIdentityVerified(verifiedAt);
+                    yield new Decision(SignupMode.SIGNUP, nextStepOf(user));
+                }
+            };
+        });
     }
+
+    private record Decision(SignupMode mode, SignupStep nextStep) {}
 
     /** 가입 중인 사용자가 멈춘 단계. 진행 상황을 따로 저장하지 않고 DB에 있는 것으로 판단한다. */
     private SignupStep nextStepOf(AppUser user) {
