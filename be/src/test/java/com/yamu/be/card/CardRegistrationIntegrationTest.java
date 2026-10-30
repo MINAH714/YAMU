@@ -14,6 +14,7 @@ import com.yamu.be.global.crypto.CipherField;
 import com.yamu.be.global.crypto.LookupHasher;
 import com.yamu.be.global.crypto.PersonalDataCipher;
 import com.yamu.be.support.AuthUsers;
+import com.yamu.be.support.Concurrently;
 import com.yamu.be.support.MySqlTestSupport;
 import java.sql.Date;
 import java.sql.Timestamp;
@@ -355,6 +356,147 @@ class CardRegistrationIntegrationTest extends MySqlTestSupport {
         }
         assertThat(jdbc.queryForObject("SELECT status FROM user_card WHERE user_card_id = ?", String.class, card))
                 .isEqualTo("ACTIVE");
+    }
+
+    // ───────── 리뷰 반영(10/30) ─────────
+
+    @Test
+    void 확인_토큰_두_개로_동시에_등록하면_하나는_201이고_늦은_쪽은_409_CARD_ALREADY_REGISTERED다() throws Exception {
+        Member member = member(StepUpPurpose.CARD_REGISTER);
+        long account = account(member.userId(), "5934");
+        long card = pendingCard(member.userId(), checkProduct, CHECK_NO, account);
+        String first = verified(member, CHECK_NO);
+        String second = verified(member, CHECK_NO);
+        List<String> stepUps = List.of(member.stepUpToken(), stepUp(member, StepUpPurpose.CARD_REGISTER));
+        List<String> tokens = List.of(first, second);
+
+        List<Callable<Integer>> calls = new ArrayList<>();
+        for (int i = 0; i < 2; i++) {
+            String body = "{\"verificationToken\":\"" + tokens.get(i) + "\",\"linkedAccountId\":" + account + "}";
+            String stepUp = stepUps.get(i);
+            calls.add(() -> register(member, stepUp, body).andReturn().getResponse().getStatus());
+        }
+        assertThat(Concurrently.run(calls)).containsExactlyInAnyOrder(201, 409);
+        assertThat(jdbc.queryForObject("SELECT status FROM user_card WHERE user_card_id = ?", String.class, card))
+                .isEqualTo("ACTIVE");
+    }
+
+    @Test
+    void 카드사가_정지하거나_만료한_카드는_확인도_등록도_CARD_VERIFICATION_FAILED다() throws Exception {
+        Member member = member(StepUpPurpose.CARD_REGISTER);
+        long account = account(member.userId(), "5934");
+        long card = pendingCard(member.userId(), checkProduct, CHECK_NO, account);
+
+        for (String status : List.of("SUSPENDED", "EXPIRED")) {
+            jdbc.update("UPDATE user_card SET issuer_status = ? WHERE user_card_id = ?", status, card);
+            lookup(member, CHECK_NO, "12", "29")
+                    .andExpect(errorCode(400, "CARD_VERIFICATION_FAILED"))
+                    .andExpect(jsonPath("$.error.details.reason").value("ISSUER_" + status));
+        }
+        // 확인한 뒤에 정지되면 등록 단계에서 다시 걸러지고, 토큰은 쓰지 않는다.
+        jdbc.update("UPDATE user_card SET issuer_status = 'NORMAL' WHERE user_card_id = ?", card);
+        String token = verified(member, CHECK_NO);
+        jdbc.update("UPDATE user_card SET issuer_status = 'SUSPENDED' WHERE user_card_id = ?", card);
+        String body = "{\"verificationToken\":\"" + token + "\",\"linkedAccountId\":" + account + "}";
+        register(member, member.stepUpToken(), body)
+                .andExpect(errorCode(400, "CARD_VERIFICATION_FAILED"))
+                .andExpect(jsonPath("$.error.details.reason").value("ISSUER_SUSPENDED"));
+        assertThat(redis.keys("card:verify:*")).hasSize(1);
+        assertThat(jdbc.queryForObject("SELECT status FROM user_card WHERE user_card_id = ?", String.class, card))
+                .isEqualTo("PENDING");
+    }
+
+    @Test
+    void 카드사_표에_없는_카드사의_상품이면_ISSUER_NOT_SUPPORTED다() throws Exception {
+        Member member = member(StepUpPurpose.CARD_REGISTER);
+        long unknown = insert("card_product", "card_product_id", new HashMap<>(Map.of("issuer_code", "NOWHERE",
+                "product_name", "모르는 카드", "card_type", "CHECK", "created_at", now(), "updated_at", now())));
+        pendingCard(member.userId(), unknown, CHECK_NO, null);
+
+        lookup(member, CHECK_NO, "12", "29").andExpect(errorCode(404, "ISSUER_NOT_SUPPORTED"));
+        assertThat(redis.keys("card:verify:*")).isEmpty();
+    }
+
+    @Test
+    void 카드_확인은_사용자별로_1분에_5번까지이고_넘으면_429와_다시_시도할_초를_준다() throws Exception {
+        Member member = member(StepUpPurpose.CARD_REGISTER);
+
+        for (int i = 0; i < 5; i++) {
+            lookup(member, UNKNOWN_NO, "12", "29").andExpect(errorCode(404, "CARD_NOT_FOUND"));
+        }
+        lookup(member, UNKNOWN_NO, "12", "29")
+                .andExpect(errorCode(429, "TOO_MANY_REQUESTS"))
+                .andExpect(jsonPath("$.error.details.retryAfterSeconds").isNumber());
+        // 다른 사용자는 따로 센다.
+        Member other = otherMember();
+        lookup(other, UNKNOWN_NO, "12", "29").andExpect(errorCode(404, "CARD_NOT_FOUND"));
+    }
+
+    @Test
+    void 체크카드에_정해_둔_출금_계좌가_있으면_그_계좌로_고정되고_다른_계좌는_400이다() throws Exception {
+        Member member = member(StepUpPurpose.CARD_REGISTER);
+        long preset = account(member.userId(), "5934");
+        long other = account(member.userId(), "7777");
+        long card = pendingCard(member.userId(), checkProduct, CHECK_NO, preset);
+        String token = verified(member, CHECK_NO);
+
+        register(member, member.stepUpToken(), "{\"verificationToken\":\"" + token + "\",\"linkedAccountId\":" + other + "}")
+                .andExpect(errorCode(400, "INVALID_REQUEST"))
+                .andExpect(jsonPath("$.error.details.fieldErrors[0].field").value("linkedAccountId"));
+        // 계좌를 보내지 않아도 정해 둔 계좌로 등록된다.
+        register(member, member.stepUpToken(), "{\"verificationToken\":\"" + token + "\"}")
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.linkedAccountId").value(preset));
+        assertThat(jdbc.queryForObject("SELECT linked_account_id FROM user_card WHERE user_card_id = ?", Long.class, card))
+                .isEqualTo(preset);
+    }
+
+    @Test
+    void 해제했던_신용카드를_다시_등록하면_새로_고른_결제일로_바뀐다() throws Exception {
+        Member member = member(StepUpPurpose.CARD_REGISTER);
+        long account = account(member.userId(), "1111");
+        long card = pendingCard(member.userId(), creditProduct, CREDIT_NO, null);
+        jdbc.update("UPDATE user_card SET status = 'UNREGISTERED', payment_day = 10, registered_at = ? WHERE user_card_id = ?",
+                now(), card);
+        String token = verified(member, CREDIT_NO);
+
+        register(member, member.stepUpToken(), "{\"verificationToken\":\"" + token + "\","
+                + "\"paymentDay\":25,\"settlementAccountId\":" + account + "}")
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.billing.paymentDay").value(25));
+        assertThat(jdbc.queryForObject("SELECT payment_day FROM user_card WHERE user_card_id = ?", Integer.class, card))
+                .isEqualTo(25);
+    }
+
+    @Test
+    void 별칭은_앞뒤_공백을_먼저_빼고_길이를_보며_공백뿐이면_별칭_없음이다() throws Exception {
+        Member member = member(StepUpPurpose.CARD_REGISTER);
+        long account = account(member.userId(), "5934");
+        long card = pendingCard(member.userId(), checkProduct, CHECK_NO, account);
+        String token = verified(member, CHECK_NO);
+        String twenty = "가".repeat(20);
+
+        register(member, member.stepUpToken(), "{\"verificationToken\":\"" + token + "\",\"nickname\":\"" + "가".repeat(21) + "\"}")
+                .andExpect(errorCode(400, "INVALID_REQUEST"));
+        register(member, member.stepUpToken(), "{\"verificationToken\":\"" + token + "\",\"nickname\":\"  " + twenty + "  \"}")
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.nickname").value(twenty));
+        assertThat(jdbc.queryForObject("SELECT card_alias FROM user_card WHERE user_card_id = ?", String.class, card))
+                .isEqualTo(twenty);
+    }
+
+    @Test
+    void 공백뿐인_별칭은_별칭_없음으로_보고_상품명을_보여_준다() throws Exception {
+        Member member = member(StepUpPurpose.CARD_REGISTER);
+        long account = account(member.userId(), "5934");
+        long card = pendingCard(member.userId(), checkProduct, CHECK_NO, account);
+        String token = verified(member, CHECK_NO);
+
+        register(member, member.stepUpToken(), "{\"verificationToken\":\"" + token + "\",\"nickname\":\"   \"}")
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.nickname").value("신한 카페 체크"));
+        assertThat(jdbc.queryForObject("SELECT card_alias FROM user_card WHERE user_card_id = ?", String.class, card))
+                .isNull();
     }
 
     // ───────── 준비 ─────────
