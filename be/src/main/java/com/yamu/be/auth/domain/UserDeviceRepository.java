@@ -1,6 +1,7 @@
 package com.yamu.be.auth.domain;
 
 import jakarta.persistence.LockModeType;
+import java.util.List;
 import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
@@ -21,4 +22,16 @@ public interface UserDeviceRepository extends JpaRepository<UserDevice, Long> {
 
     @Query("select d from UserDevice d join fetch d.user where d.id = :id")
     Optional<UserDevice> findWithUserById(@Param("id") Long id);
+
+    /** UK(user_id, device_uuid). 해제된 기기도 찾는다(같은 폰을 다시 등록하면 그 행을 다시 쓴다). */
+    @Query("select d from UserDevice d where d.user.id = :userId and d.deviceUuid = :deviceUuid")
+    Optional<UserDevice> findByUserIdAndDeviceUuid(@Param("userId") Long userId, @Param("deviceUuid") String deviceUuid);
+
+    /** 해제되지 않은(ACTIVE·LOCKED) 기기 수. 사용자당 3대까지(명세 「기기 등록」). */
+    @Query("select count(d) from UserDevice d where d.user.id = :userId and d.status <> :status")
+    long countByUserIdAndStatusNot(@Param("userId") Long userId, @Param("status") DeviceStatus status);
+
+    /** 로그인을 끊을 기기 번호들(PIN 변경·기기 재등록 뒤 다른 기기의 Refresh Token 폐기). */
+    @Query("select d.id from UserDevice d where d.user.id = :userId and d.status <> :status")
+    List<Long> findIdsByUserIdAndStatusNot(@Param("userId") Long userId, @Param("status") DeviceStatus status);
 }

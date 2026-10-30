@@ -142,4 +142,21 @@ public class UserDevice extends BaseTimeEntity {
     public void revoke() {
         this.status = DeviceStatus.REVOKED;
     }
+
+    /**
+     * 같은 폰(deviceUuid)을 다시 등록할 때 키를 바꾼다. 앱을 다시 깔지 않고 키만 새로 만든 경우·기기 재등록·생체 켜기·끄기.
+     * 본인 확인을 다시 마친 뒤에만 부르므로 해제·잠금도 풀고 실패 횟수를 0으로 되돌린다.
+     */
+    public void replaceKeys(String deviceName, DevicePlatform platform, String publicKey, String keyAlgorithm,
+            String biometricPublicKey) {
+        this.deviceName = deviceName;
+        this.platform = platform;
+        this.publicKey = publicKey;
+        this.keyAlgorithm = keyAlgorithm;
+        this.biometricPublicKey = biometricPublicKey;
+        this.biometricEnabled = biometricPublicKey != null;
+        this.status = DeviceStatus.ACTIVE;
+        this.failedCount = 0;
+        this.lockedUntil = null;
+    }
 }
