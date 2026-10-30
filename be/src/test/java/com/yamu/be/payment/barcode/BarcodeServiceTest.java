@@ -163,10 +163,14 @@ class BarcodeServiceTest {
     }
 
     @Test
-    void 없는_토큰은_찾을_수_없다() {
-        assertThatThrownBy(() -> service.get(7L, "0000000000000000"))
-                .isInstanceOf(BusinessException.class)
-                .extracting("errorCode").isEqualTo(ErrorCode.BARCODE_NOT_FOUND);
+    void 없는_토큰과_형식이_다른_토큰은_찾을_수_없다() {
+        // 형식은 맞지만 없는 코드, 15·17자리, 띄어쓴 번호, 예전 YAMU 형식, 그 밖의 값
+        for (String token : List.of("0000000000000000", "123456789012345", "12345678901234567",
+                "1234 5678 9012 3456", "YAMU8F2A9C1D7E0B4C11", "user:7", "")) {
+            assertThatThrownBy(() -> service.get(7L, token))
+                    .isInstanceOf(BusinessException.class)
+                    .extracting("errorCode").isEqualTo(ErrorCode.BARCODE_NOT_FOUND);
+        }
     }
 
     @Test
