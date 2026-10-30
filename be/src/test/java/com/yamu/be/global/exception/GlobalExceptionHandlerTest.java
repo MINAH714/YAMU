@@ -10,6 +10,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.yamu.be.global.common.ApiResponse;
+import jakarta.persistence.OptimisticLockException;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
@@ -22,6 +23,7 @@ import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMock
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -145,6 +147,17 @@ class GlobalExceptionHandlerTest {
     }
 
     @Test
+    void 동시_수정_충돌은_409_CONCURRENT_MODIFICATION이다() throws Exception {
+        mockMvc.perform(get("/test/optimistic-lock"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error.code").value("CONCURRENT_MODIFICATION"))
+                .andExpect(jsonPath("$.error.message").value(ErrorCode.CONCURRENT_MODIFICATION.getMessage()));
+        mockMvc.perform(get("/test/optimistic-lock-jpa"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error.code").value("CONCURRENT_MODIFICATION"));
+    }
+
+    @Test
     void 예상하지_못한_예외는_500이고_원인을_노출하지_않는다() throws Exception {
         mockMvc.perform(get("/test/unexpected"))
                 .andExpect(status().isInternalServerError())
@@ -195,6 +208,16 @@ class GlobalExceptionHandlerTest {
         @GetMapping("/cards/{cardId}")
         ApiResponse<Void> card(@PathVariable Long cardId) {
             return ApiResponse.ok();
+        }
+
+        @GetMapping("/optimistic-lock")
+        ApiResponse<Void> optimisticLock() {
+            throw new ObjectOptimisticLockingFailureException("AppUser", 1L);
+        }
+
+        @GetMapping("/optimistic-lock-jpa")
+        ApiResponse<Void> optimisticLockJpa() {
+            throw new OptimisticLockException("version mismatch");
         }
 
         @GetMapping("/unexpected")
