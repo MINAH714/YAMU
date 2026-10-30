@@ -42,6 +42,19 @@ public class UserCard extends BaseTimeEntity {
     @Column(name = "linked_account_id")
     private Long linkedAccountId;
 
+    /**
+     * 카드사(시드)가 정한 출금·결제 계좌. 시드 때는 linked_account 행이 없어 계좌 자체를 적어 두고,
+     * 등록 때 사용자가 연결한 계좌와 은행 코드·조회 해시로 대조해 linkedAccountId를 채운다. 세 칸은 함께 있거나 함께 없다.
+     */
+    @Column(length = 20)
+    private String issuerAccountBankCode;
+
+    @Column(columnDefinition = "binary(32)")
+    private byte[] issuerAccountHash;
+
+    @Column(columnDefinition = "char(4)")
+    private String issuerAccountLast4;
+
     @Column(nullable = false, length = 2048)
     private byte[] cardNoEnc;
 
@@ -54,7 +67,7 @@ public class UserCard extends BaseTimeEntity {
     @Column(length = 100)
     private String cardAlias;
 
-    /** 신용카드 결제일(1~27로 받는다. DB는 1~31 허용). 체크카드는 null */
+    /** 신용카드 결제일. 처음 값은 카드사(시드)가 정하고 등록 뒤 카드 관리에서 바꿀 수 있다(DB는 1~31 허용). 체크카드는 null */
     @Column(columnDefinition = "smallint")
     private Integer paymentDay;
 
@@ -89,18 +102,23 @@ public class UserCard extends BaseTimeEntity {
                 || registrationStatus == CardRegistrationStatus.UNREGISTERED;
     }
 
+    /** 카드사가 정한 계좌가 적혀 있는지. 없으면 등록할 계좌를 정할 수 없다. */
+    public boolean hasIssuerAccount() {
+        return issuerAccountBankCode != null && issuerAccountHash != null;
+    }
+
     /**
-     * 보유 카드로 등록한다(ACTIVE).
+     * 보유 카드로 등록한다(ACTIVE). 결제일은 카드사(시드)가 정한 값을 그대로 쓴다.
+     * 해제 후 다시 등록하면 새 등록이라 예전 결제일 변경 시각(3개월 제한)을 물려받지 않는다.
      *
-     * @param linkedAccountId 출금 계좌(신용카드 결제계좌 또는 체크카드 연결 계좌)
-     * @param paymentDay      신용카드 결제일. 체크카드는 null
+     * @param linkedAccountId 카드사가 정한 계좌와 같은, 사용자가 연결한 계좌(신용카드 결제계좌 또는 체크카드 연결 계좌)
      * @param alias           카드 별칭. 없으면 null(화면은 상품명)
      */
-    public void register(Long linkedAccountId, Integer paymentDay, String alias, LocalDateTime now) {
+    public void register(Long linkedAccountId, String alias, LocalDateTime now) {
         this.linkedAccountId = linkedAccountId;
-        this.paymentDay = paymentDay;
         this.cardAlias = alias;
         this.registrationStatus = CardRegistrationStatus.ACTIVE;
+        this.paymentDayChangedAt = null;
         if (registeredAt == null) {
             registeredAt = now;
         }

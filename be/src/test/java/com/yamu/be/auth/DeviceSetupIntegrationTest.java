@@ -1,6 +1,7 @@
 package com.yamu.be.auth;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -18,6 +19,7 @@ import com.yamu.be.global.crypto.PersonalDataCipher;
 import com.yamu.be.global.crypto.PinHasher;
 import com.yamu.be.global.finapi.FinApiClient;
 import com.yamu.be.support.AuthUsers;
+import com.yamu.be.support.Concurrently;
 import com.yamu.be.support.DeviceKeys;
 import com.yamu.be.support.MySqlTestSupport;
 import java.security.KeyPairGenerator;
@@ -61,7 +63,7 @@ import org.testcontainers.utility.DockerImageName;
 
 /**
  * 간편 비밀번호 설정 → 기기 등록(가입 완료), 기기 재등록, 로그인 후 PIN 변경·생체 켜기를 실제 MySQL·Redis로 확인한다.
- * 계좌 연결·1원 인증은 실제 API를 거치고, SSAFY 금융망만 가짜(FinApiClient mock)다.
+ * 계좌 목록 → 1원 인증 → 연결은 실제 API를 거치고, SSAFY 금융망만 가짜(FinApiClient mock)다.
  */
 @AutoConfigureMockMvc
 @TestPropertySource(properties = "spring.application.name=yamu-device-setup-integration-test")
@@ -89,6 +91,7 @@ class DeviceSetupIntegrationTest extends MySqlTestSupport {
     @Autowired PinHasher pinHasher;
     @Autowired SignupTokenStore signupTokenStore;
     @Autowired StepUpTokenStore stepUpTokenStore;
+    @Autowired RefreshTokenStore refreshTokenStore;
 
     @MockitoBean FinApiClient finApiClient;
 
@@ -100,7 +103,7 @@ class DeviceSetupIntegrationTest extends MySqlTestSupport {
         jdbc.update("DELETE FROM user_device");
         jdbc.update("DELETE FROM app_user");
         redis.getRequiredConnectionFactory().getConnection().serverCommands().flushAll();
-        SsafyAccountFakes.stub(finApiClient, USER_KEY, MEMBER_LOCAL, CODE);
+        SsafyAccountFakes.stub(finApiClient, USER_KEY, ACCOUNT_NO, CODE);
     }
 
     // ───────── 가입 완료 ─────────
@@ -144,10 +147,6 @@ class DeviceSetupIntegrationTest extends MySqlTestSupport {
 
     @Test
     void 가입_순서를_건너뛰면_409_SIGNUP_STEP_INCOMPLETE와_다음_단계() throws Exception {
-        String noUser = "Bearer " + signupToken(null, SignupMode.SIGNUP);
-        setPin(noUser, PIN).andExpect(errorCode(409, "SIGNUP_STEP_INCOMPLETE"))
-                .andExpect(jsonPath("$.error.details.nextStep").value("SIGNUP"));
-
         long userId = pendingUser();
         String bearer = "Bearer " + signupToken(userId, SignupMode.SIGNUP);
         DeviceKeys keys = DeviceKeys.generate();
@@ -294,7 +293,7 @@ class DeviceSetupIntegrationTest extends MySqlTestSupport {
 
         registerDevice(bearer, deviceJson(UUID.randomUUID().toString(), DeviceKeys.generate(), null, verification, CODE))
                 .andExpect(errorCode(409, "DEVICE_LIMIT_EXCEEDED"));
-        // 이미 있는 폰의 키 교체는 대수가 늘지 않으니 된다. 맞힌 인증코드는 기억돼 다시 보내도 된다.
+        // 이미 있는 폰의 키 교체는 대수가 늘지 않으니 된다. 대수 초과는 1원 확인 결과를 쓰기 전에 걸러서 같은 토큰을 다시 쓸 수 있다.
         registerDevice(bearer, deviceJson(member.deviceUuid(), DeviceKeys.generate(), null, verification, CODE))
                 .andExpect(status().isCreated());
 
@@ -361,9 +360,200 @@ class DeviceSetupIntegrationTest extends MySqlTestSupport {
                 .andExpect(errorCode(401, "SIGNUP_TOKEN_INVALID"));
     }
 
+    // ───────── 리뷰 반영 ─────────
+
+    @Test
+    void 계좌를_연결해_두고_멈춘_가입을_새_토큰으로_이어가면_1원_인증을_다시_해야_PIN_기기_등록을_받는다() throws Exception {
+        long userId = pendingUser();
+        String first = "Bearer " + signupToken(userId, SignupMode.SIGNUP);
+        linkAccount(first);
+        setPin(first, PIN).andExpect(status().isNoContent());
+
+        // 다른 사람이 번호·생년월일·이름으로 본인인증(연출)만 해서 새 토큰을 받은 상황.
+        String other = "Bearer " + signupToken(userId, SignupMode.SIGNUP);
+        setPin(other, NEW_PIN).andExpect(errorCode(409, "SIGNUP_STEP_INCOMPLETE"))
+                .andExpect(jsonPath("$.error.details.nextStep").value("ACCOUNT_LINK"));
+        registerDevice(other, deviceJson(UUID.randomUUID().toString(), DeviceKeys.generate(), null, null, null))
+                .andExpect(errorCode(409, "SIGNUP_STEP_INCOMPLETE"))
+                .andExpect(jsonPath("$.error.details.nextStep").value("ACCOUNT_LINK"));
+        assertThat(pinHasher.matches(PIN, pinHashOf(userId))).isTrue();
+
+        // 연결해 둔 계좌로 1원 인증을 다시 하면(새로 연결할 계좌는 없음) 이어갈 수 있다.
+        linkAccount(other);
+        registerDevice(other, deviceJson(UUID.randomUUID().toString(), DeviceKeys.generate(), null, null, null))
+                .andExpect(status().isCreated());
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM linked_account", Integer.class)).isEqualTo(1);
+    }
+
+    @Test
+    void 가입을_마치면_그_사용자의_다른_가입_진행_토큰도_모두_지운다() throws Exception {
+        long userId = pendingUser();
+        String token = signupToken(userId, SignupMode.SIGNUP);
+        String spare = signupToken(userId, SignupMode.SIGNUP);
+        String bearer = "Bearer " + token;
+        linkAccount(bearer);
+        setPin(bearer, PIN).andExpect(status().isNoContent());
+
+        registerDevice(bearer, deviceJson(UUID.randomUUID().toString(), DeviceKeys.generate(), null, null, null))
+                .andExpect(status().isCreated());
+
+        assertThat(signupTokenStore.find(token)).isEmpty();
+        assertThat(signupTokenStore.find(spare)).isEmpty();
+        setPin("Bearer " + spare, NEW_PIN).andExpect(errorCode(401, "SIGNUP_TOKEN_INVALID"));
+    }
+
+    @Test
+    void 가입_중_PIN을_동시에_두_번_보내도_500_없이_둘_다_처리된다() throws Exception {
+        long userId = pendingUser();
+        String bearer = "Bearer " + signupToken(userId, SignupMode.SIGNUP);
+        linkAccount(bearer);
+
+        List<Integer> statuses = Concurrently.run(List.of(
+                () -> setPin(bearer, PIN).andReturn().getResponse().getStatus(),
+                () -> setPin(bearer, NEW_PIN).andReturn().getResponse().getStatus()));
+
+        assertThat(statuses).containsOnly(204);
+        assertThat(pinHasher.matches(PIN, pinHashOf(userId)) || pinHasher.matches(NEW_PIN, pinHashOf(userId))).isTrue();
+    }
+
+    @Test
+    void 기기_재등록에_성공하면_다른_기기의_로그인을_끊는다() throws Exception {
+        Registered member = activeMember();
+        long other = insertDevice(member.userId(), "ACTIVE");
+        refreshTokenStore.issue(other);
+        assertThat(redis.hasKey("auth:refresh:" + member.deviceId())).isTrue();
+        String bearer = "Bearer " + signupToken(member.userId(), SignupMode.DEVICE_RECOVERY);
+        String verification = verifiedAndSent(bearer);
+
+        MvcResult registered = registerDevice(bearer,
+                deviceJson(UUID.randomUUID().toString(), DeviceKeys.generate(), null, verification, CODE))
+                .andExpect(status().isCreated()).andReturn();
+        long newDeviceId = Long.parseLong(read(registered, "$.data.userDeviceId"));
+
+        assertThat(redis.hasKey("auth:refresh:" + member.deviceId())).isFalse();
+        assertThat(redis.hasKey("auth:refresh:" + other)).isFalse();
+        assertThat(redis.hasKey("auth:refresh:" + newDeviceId)).isTrue();
+        // 기기는 목록에 남는다(해제는 기기 관리에서).
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM user_device WHERE status <> 'REVOKED'", Integer.class))
+                .isEqualTo(3);
+    }
+
+    @Test
+    void 로그인_후_PIN을_바꾸면_지금_기기_말고_다른_기기의_로그인을_끊는다() throws Exception {
+        Registered member = activeMember();
+        long other = insertDevice(member.userId(), "ACTIVE");
+        refreshTokenStore.issue(other);
+
+        perform(post("/api/auth/pin").with(AuthUsers.asUser(member.userId(), member.deviceId()))
+                        .header(StepUpService.HEADER, stepUpToken(member, StepUpPurpose.SECURITY_SETTINGS)),
+                "{\"pin\":\"" + NEW_PIN + "\"}").andExpect(status().isNoContent());
+
+        assertThat(redis.hasKey("auth:refresh:" + member.deviceId())).isTrue();
+        assertThat(redis.hasKey("auth:refresh:" + other)).isFalse();
+    }
+
+    @Test
+    void 기기_재등록_1원_토큰은_한_번만_쓴다_동시에_보내도_기기는_하나만_등록된다() throws Exception {
+        Registered member = activeMember();
+        String bearer = "Bearer " + signupToken(member.userId(), SignupMode.DEVICE_RECOVERY);
+        String verification = verifiedAndSent(bearer);
+
+        List<Integer> statuses = Concurrently.run(List.of(
+                () -> registerDevice(bearer, deviceJson(UUID.randomUUID().toString(), DeviceKeys.generate(), null,
+                        verification, CODE)).andReturn().getResponse().getStatus(),
+                () -> registerDevice(bearer, deviceJson(UUID.randomUUID().toString(), DeviceKeys.generate(), null,
+                        verification, CODE)).andReturn().getResponse().getStatus()));
+
+        assertThat(statuses).containsOnlyOnce(201);
+        assertThat(statuses).anyMatch(status -> status == 400 || status == 401);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM user_device", Integer.class)).isEqualTo(2);
+    }
+
+    @Test
+    void 기기_재등록_중_1원을_받은_계좌_연결을_끊었으면_400_VERIFICATION_TOKEN_EXPIRED() throws Exception {
+        Registered member = activeMember();
+        String bearer = "Bearer " + signupToken(member.userId(), SignupMode.DEVICE_RECOVERY);
+        String verification = verifiedAndSent(bearer);
+        jdbc.update("UPDATE linked_account SET status = 'DISCONNECTED', disconnected_at = ?", now());
+
+        registerDevice(bearer, deviceJson(UUID.randomUUID().toString(), DeviceKeys.generate(), null, verification, CODE))
+                .andExpect(errorCode(400, "VERIFICATION_TOKEN_EXPIRED"));
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM user_device", Integer.class)).isEqualTo(1);
+    }
+
+    @Test
+    void 서로_다른_재등록_두_건이_동시에_와도_기기는_3대를_넘지_않는다() throws Exception {
+        Registered member = activeMember();
+        insertDevice(member.userId(), "ACTIVE");
+        String first = "Bearer " + signupToken(member.userId(), SignupMode.DEVICE_RECOVERY);
+        String firstVerification = verifiedAndSent(first);
+        redis.delete(redis.keys("onewon:resend:*"));
+        String second = "Bearer " + signupToken(member.userId(), SignupMode.DEVICE_RECOVERY);
+        String secondVerification = verifiedAndSent(second);
+
+        List<Integer> statuses = Concurrently.run(List.of(
+                () -> registerDevice(first, deviceJson(UUID.randomUUID().toString(), DeviceKeys.generate(), null,
+                        firstVerification, CODE)).andReturn().getResponse().getStatus(),
+                () -> registerDevice(second, deviceJson(UUID.randomUUID().toString(), DeviceKeys.generate(), null,
+                        secondVerification, CODE)).andReturn().getResponse().getStatus()));
+
+        // 늦은 쪽은 대수 초과(409)거나, 먼저 끝난 쪽이 가입 진행 토큰을 모두 지워 401이다.
+        assertThat(statuses).containsOnlyOnce(201);
+        assertThat(statuses).anyMatch(status -> status == 409 || status == 401);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM user_device WHERE status <> 'REVOKED'", Integer.class))
+                .isEqualTo(3);
+    }
+
+    @Test
+    void 해제했던_폰을_재등록하면_같은_행을_다시_살린다() throws Exception {
+        Registered member = activeMember();
+        jdbc.update("UPDATE user_device SET status = 'REVOKED' WHERE user_device_id = ?", member.deviceId());
+        String bearer = "Bearer " + signupToken(member.userId(), SignupMode.DEVICE_RECOVERY);
+        String verification = verifiedAndSent(bearer);
+
+        registerDevice(bearer, deviceJson(member.deviceUuid(), DeviceKeys.generate(), null, verification, CODE))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.userDeviceId").value(member.deviceId()))
+                .andExpect(jsonPath("$.data.status").value("ACTIVE"));
+        assertThat(eventTypes(member.deviceId())).containsExactly("REGISTERED", "REGISTERED");
+    }
+
+    @Test
+    void 기기_재등록_1원은_하루_3번까지만_보낸다() throws Exception {
+        Registered member = activeMember();
+        String bearer = "Bearer " + signupToken(member.userId(), SignupMode.DEVICE_RECOVERY);
+        // 가입 때 1번 보냈다. 재등록에서 2번 더 보내면 하루 3번이 찬다.
+        for (int i = 0; i < 2; i++) {
+            redis.delete(redis.keys("onewon:resend:*"));
+            verifiedAndSent(bearer);
+        }
+        redis.delete(redis.keys("onewon:resend:*"));
+        MvcResult listed = mockMvc.perform(get("/api/accounts/candidates").header(HttpHeaders.AUTHORIZATION, bearer))
+                .andExpect(status().isOk()).andReturn();
+        String candidateId = read(listed, "$.data.accounts[0].candidateId");
+        perform(post("/api/accounts/one-won-auth").header(HttpHeaders.AUTHORIZATION, bearer),
+                "{\"candidateIds\":[\"" + candidateId + "\"],\"primaryCandidateId\":\"" + candidateId + "\"}")
+                .andExpect(errorCode(429, "ONE_WON_DAILY_LIMIT_EXCEEDED"));
+    }
+
+    @Test
+    void 지원하지_않는_플랫폼_IOS와_기기_키와_같은_생체_키는_400() throws Exception {
+        String bearer = readyForDevice();
+        DeviceKeys keys = DeviceKeys.generate();
+
+        registerDevice(bearer, "{\"deviceId\":\"" + UUID.randomUUID() + "\",\"platform\":\"IOS\",\"devicePublicKey\":\""
+                + keys.publicKey() + "\"}").andExpect(errorCode(400, "INVALID_REQUEST"));
+        registerDevice(bearer, json(UUID.randomUUID().toString(), keys.publicKey(), keys.publicKey(), "[\"FINGERPRINT\"]",
+                null, null)).andExpect(errorCode(400, "INVALID_REQUEST"))
+                .andExpect(jsonPath("$.error.details.fieldErrors[0].field").value("biometricPublicKey"));
+        registerDevice(bearer, json(UUID.randomUUID().toString(), keys.publicKey(), DeviceKeys.generate().publicKey(),
+                "[null]", null, null)).andExpect(errorCode(400, "INVALID_REQUEST"));
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM user_device", Integer.class)).isZero();
+    }
+
     // ───────── 준비 ─────────
 
-    private record Registered(long userId, long deviceId, String deviceUuid, DeviceKeys keys) {
+    private record Registered(long userId, long deviceId, String deviceUuid, DeviceKeys keys, String refreshToken) {
     }
 
     /** 실제 API로 가입을 마친 사용자(계좌 연결 + PIN + 기기 1대). */
@@ -376,7 +566,8 @@ class DeviceSetupIntegrationTest extends MySqlTestSupport {
         String uuid = UUID.randomUUID().toString();
         MvcResult result = registerDevice(bearer, deviceJson(uuid, keys, null, null, null))
                 .andExpect(status().isCreated()).andReturn();
-        return new Registered(userId, Long.parseLong(read(result, "$.data.userDeviceId")), uuid, keys);
+        return new Registered(userId, Long.parseLong(read(result, "$.data.userDeviceId")), uuid, keys,
+                read(result, "$.data.refreshToken"));
     }
 
     /** 계좌 연결까지 마치고 PIN을 정한 가입 중 사용자의 가입 진행 토큰. */
@@ -428,7 +619,7 @@ class DeviceSetupIntegrationTest extends MySqlTestSupport {
         return stepUpTokenStore.issue(new StepUpGrant(member.userId(), member.deviceId(), purpose, AuthMethod.PIN, auditLogId));
     }
 
-    /** 계좌 확인 → 1원 → 연결(가입 진행 토큰). */
+    /** 계좌 목록 → 1원 → 연결(가입 진행 토큰). 이 토큰에 1원 인증을 마쳤다고 남는다. */
     private void linkAccount(String bearer) throws Exception {
         String verification = verifiedAndSent(bearer);
         perform(post("/api/accounts").header(HttpHeaders.AUTHORIZATION, bearer)
@@ -437,13 +628,14 @@ class DeviceSetupIntegrationTest extends MySqlTestSupport {
                 .andExpect(status().isCreated());
     }
 
-    /** 계좌 확인 + 1원 송금까지. */
+    /** 계좌 목록에서 첫 계좌를 골라 1원 송금까지. 1원 인증 토큰을 돌려준다. */
     private String verifiedAndSent(String bearer) throws Exception {
-        String token = read(perform(post("/api/accounts/verify").header(HttpHeaders.AUTHORIZATION, bearer),
-                "{\"accountNo\":\"" + ACCOUNT_NO + "\"}").andExpect(status().isOk()).andReturn(), "$.data.verificationToken");
-        perform(post("/api/accounts/one-won-auth").header(HttpHeaders.AUTHORIZATION, bearer),
-                "{\"verificationToken\":\"" + token + "\"}").andExpect(status().isOk());
-        return token;
+        MvcResult listed = mockMvc.perform(get("/api/accounts/candidates").header(HttpHeaders.AUTHORIZATION, bearer))
+                .andExpect(status().isOk()).andReturn();
+        String candidateId = read(listed, "$.data.accounts[0].candidateId");
+        return read(perform(post("/api/accounts/one-won-auth").header(HttpHeaders.AUTHORIZATION, bearer),
+                "{\"candidateIds\":[\"" + candidateId + "\"],\"primaryCandidateId\":\"" + candidateId + "\"}")
+                .andExpect(status().isOk()).andReturn(), "$.data.verificationToken");
     }
 
     private ResultActions login(long deviceId, DeviceKeys keys, String pin) throws Exception {

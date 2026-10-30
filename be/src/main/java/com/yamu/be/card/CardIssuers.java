@@ -1,10 +1,14 @@
 package com.yamu.be.card;
 
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * 카드사 코드(card_product.issuer_code) → 앱에 보여 줄 이름·대표색. 카드사 테이블이 없어 코드로 둔다.
- * 대표색은 화면 표시용 임시값이다. 모르는 코드는 이름을 코드 그대로, 색은 null로 준다.
+ * 대표색은 화면 표시용 임시값이다.
+ *
+ * <p>카드 확인·등록은 {@link #find}로 모르는 카드사를 거절한다(ISSUER_NOT_SUPPORTED). 이미 등록된 카드를 보여 줄 때만
+ * {@link #of}로 이름을 코드 그대로, 색을 null로 채운다.
  */
 final class CardIssuers {
 
@@ -23,6 +27,10 @@ final class CardIssuers {
             "NH", new Issuer("NH", "NH농협카드", "#00A651"));
 
     private CardIssuers() {
+    }
+
+    static Optional<Issuer> find(String code) {
+        return Optional.ofNullable(code == null ? null : KNOWN.get(code));
     }
 
     static Issuer of(String code) {

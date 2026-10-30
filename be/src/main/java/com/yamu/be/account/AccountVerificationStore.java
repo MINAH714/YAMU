@@ -2,6 +2,7 @@ package com.yamu.be.account;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.yamu.be.account.AccountCandidateStore.AccountCandidate;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -17,15 +18,15 @@ import org.springframework.data.redis.core.script.RedisScript;
 import org.springframework.stereotype.Component;
 
 /**
- * 계좌 확인 결과(verificationToken)를 Redis에 10분 보관한다. 원문 대신 SHA-256 해시를 키로 쓴다.
+ * 1원 인증 진행 상태(verificationToken)를 Redis에 10분 보관한다. 원문 대신 SHA-256 해시를 키로 쓴다.
  *
  * <pre>
  * 토큰: "avt_{24바이트 랜덤 Base64URL}"
- * account:verify:{sha256(토큰)} → JSON { userId, bankCode, bankName, accountNoEnc, accountNoHash, last4, authRequestedAt, codeVerified }
+ * account:verify:{sha256(토큰)} → JSON { userId, 1원 받은 계좌(bankCode … last4), authRequestedAt, codeVerified, selected[] }
  * </pre>
  *
- * <p>계좌번호는 암호문으로만 둔다(Redis도 개인정보 저장소). 1원 인증 요청·계좌 연결이 같은 토큰을 쓰므로 꺼낼 때 지우지 않고,
- * 연결이 끝나면 {@link #delete}로 지운다.
+ * <p>1원 인증 요청 때 만들고, 코드 확인·계좌 연결(또는 기기 등록)이 같은 토큰을 쓰므로 꺼낼 때 지우지 않는다.
+ * 할 일을 마치면 {@link #delete}로 지운다. 계좌번호는 암호문으로만 둔다(Redis도 개인정보 저장소).
  */
 @Component
 @RequiredArgsConstructor
@@ -92,6 +93,25 @@ public class AccountVerificationStore {
         redis.delete(key(token));
     }
 
+    /**
+     * 꺼내면서 지운다(GETDEL). 기기 재등록처럼 한 번만 써야 하는 확인 결과에 쓴다. 같은 토큰으로 동시에 오면 하나만 받는다.
+     * 남의 토큰이면 지우지 않고 empty.
+     */
+    public Optional<VerifiedAccount> take(String token, Long userId) {
+        if (find(token, userId).isEmpty()) {
+            return Optional.empty();
+        }
+        String json = redis.opsForValue().getAndDelete(key(token));
+        if (json == null) {
+            return Optional.empty();
+        }
+        try {
+            return Optional.of(objectMapper.readValue(json, VerifiedAccount.class));
+        } catch (JsonProcessingException e) {
+            return Optional.empty();
+        }
+    }
+
     /** 같은 토큰인지 비교할 때 쓰는 해시(Idempotency-Key 재사용 확인). 원문을 Redis에 남기지 않으려고. */
     static String hash(String token) {
         try {
@@ -115,22 +135,32 @@ public class AccountVerificationStore {
     }
 
     /**
-     * 예금주까지 확인한 계좌.
+     * 1원을 받는 계좌(앞쪽 칸)와 함께 연결할 계좌들(selected).
      *
-     * @param accountNoEnc    계좌번호 암호문(CipherField.LINKED_ACCOUNT_NO). SSAFY에 다시 보낼 때 복호화한다
-     * @param accountNoHash   조회 해시(은행코드 + 계좌번호). 이미 연결했는지·시도 횟수 키에 쓴다
+     * @param accountNoEnc    1원 받는 계좌번호 암호문(CipherField.LINKED_ACCOUNT_NO). SSAFY에 다시 보낼 때 복호화한다
+     * @param accountNoHash   조회 해시(은행코드 + 계좌번호). 시도 횟수 키에 쓴다
      * @param authRequestedAt 1원을 보낸 시각(epoch ms, UTC). 아직 안 보냈으면 null
-     * @param codeVerified    SSAFY가 인증코드를 맞다고 했는지. 본인 인증 토큰이 없어 연결이 실패한 뒤 다시 부를 때 SSAFY를 다시 부르지 않으려고
+     * @param codeVerified    SSAFY가 인증코드를 맞다고 했는지. 연결이 다른 이유로 실패한 뒤 다시 부를 때 SSAFY를 다시 부르지 않으려고
+     * @param selected        가입 중 함께 연결할 계좌(1원 받는 계좌 포함, 고른 순서). 기기 재등록이면 그 계좌 하나
      */
     public record VerifiedAccount(Long userId, String bankCode, String bankName, byte[] accountNoEnc,
-            byte[] accountNoHash, String last4, Long authRequestedAt, boolean codeVerified) {
+            byte[] accountNoHash, String last4, Long authRequestedAt, boolean codeVerified,
+            List<AccountCandidate> selected) {
+
+        /** 1원을 받을 계좌(primary)와 함께 연결할 계좌들로 만든다. 1원은 아직 보내기 전이다. */
+        static VerifiedAccount of(AccountCandidate primary, List<AccountCandidate> selected) {
+            return new VerifiedAccount(primary.userId(), primary.bankCode(), primary.bankName(), primary.accountNoEnc(),
+                    primary.accountNoHash(), primary.last4(), null, false, List.copyOf(selected));
+        }
 
         VerifiedAccount withAuthRequested(long epochMillis) {
-            return new VerifiedAccount(userId, bankCode, bankName, accountNoEnc, accountNoHash, last4, epochMillis, false);
+            return new VerifiedAccount(userId, bankCode, bankName, accountNoEnc, accountNoHash, last4, epochMillis, false,
+                    selected);
         }
 
         VerifiedAccount withCodeVerified() {
-            return new VerifiedAccount(userId, bankCode, bankName, accountNoEnc, accountNoHash, last4, authRequestedAt, true);
+            return new VerifiedAccount(userId, bankCode, bankName, accountNoEnc, accountNoHash, last4, authRequestedAt, true,
+                    selected);
         }
 
         String accountKey() {

@@ -19,7 +19,6 @@ import java.util.Map;
 import java.util.Objects;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 
@@ -79,28 +78,6 @@ public class AccountManagementService {
             return accountRepository.saveAndFlush(account);
         });
         return responses(me.userId(), List.of(updated), false).get(0);
-    }
-
-    /**
-     * 기준 계좌가 없으면 이 계좌를 기준 계좌로 정한다. 계좌 연결이 끝난 뒤 부른다(처음 연결한 계좌가 자동으로 기준 계좌, FR-033).
-     * 사용자 행을 잠가, 두 계좌를 동시에 처음 연결해도 기준 계좌는 하나만 생긴다.
-     *
-     * @return 이 계좌가 지금 기준 계좌인지
-     */
-    @Transactional(propagation = Propagation.REQUIRES_NEW)
-    public boolean assignPrimaryIfNone(Long userId, Long accountId) {
-        userRepository.findByIdForUpdate(userId);
-        List<LinkedAccount> current = accountRepository.findByUserIdAndPrimaryTrue(userId);
-        if (!current.isEmpty()) {
-            return current.stream().anyMatch(a -> a.getId().equals(accountId));
-        }
-        return accountRepository.findByIdAndUserId(accountId, userId)
-                .filter(LinkedAccount::isConnected)
-                .map(account -> {
-                    account.markPrimary(true);
-                    return true;
-                })
-                .orElse(false);
     }
 
     /** 기존 기준 계좌를 먼저 풀고 flush한 뒤 정한다. 순서를 바꾸면 UNIQUE(primary_owner_id)에 걸린다. */
