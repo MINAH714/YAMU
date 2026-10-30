@@ -98,6 +98,20 @@ class CashflowSeriesTest extends MySqlTestSupport {
     }
 
     @Test
+    void 일년보다_뒤에_시작하는_반복도_회차를_고르지_않고_이후_전부_고칠_수_있다() {
+        LocalDate later = today.plusDays(400);
+        long rule = cashflows.rule(owner, account, later, "WEEKLY", null);
+
+        CashflowService.Entry result = service.update(owner, rule, fromHere(null).amount(20000L).build());
+
+        assertThat(result.item().id()).isEqualTo(rule);
+        assertThat(result.occurrenceDate()).isEqualTo(later);
+        assertThat(list(later, later.plusDays(7)))
+                .extracting(CashflowService.Entry::date, entry -> entry.item().amount())
+                .containsExactly(tuple(later, 20000L), tuple(later.plusDays(7), 20000L));
+    }
+
+    @Test
     void 이후_전부_수정은_따로_고쳐_둔_미래_회차를_새_규칙으로_덮는다() {
         long rule = cashflows.rule(owner, account, start, "WEEKLY", null);
         cashflows.occurrence(owner, account, rule, today.plusDays(7), today.plusDays(8), true);

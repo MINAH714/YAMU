@@ -217,8 +217,10 @@ public class CashflowService {
             }
             applyDate = occurrenceDate;
         } else {
-            // 등록할 수 있는 반복(매주·매월)은 1년 안에 반드시 회차가 있다.
-            applyDate = occurrenceDates(Item.from(rule), today, today.plusDays(MAX_QUERY_DAYS)).stream()
+            // 등록할 수 있는 반복(매주·매월)은 시작한 뒤 1년 안에 반드시 회차가 있다.
+            // 아직 시작하지 않은 규칙은 1년보다 뒤에 시작할 수 있어 첫 발생일부터 찾는다.
+            LocalDate from = rule.getScheduledDate().isAfter(today) ? rule.getScheduledDate() : today;
+            applyDate = occurrenceDates(Item.from(rule), from, from.plusDays(MAX_QUERY_DAYS)).stream()
                     .findFirst().orElse(null);
         }
         if (applyDate == null || applyDate.isBefore(today)) {
