@@ -5,13 +5,11 @@ import com.yamu.be.account.domain.LinkedAccountStatus;
 import com.yamu.be.auth.PhoneVerificationStore.IssuedVerification;
 import com.yamu.be.auth.SignupTokenStore.IssuedSignupToken;
 import com.yamu.be.auth.SignupTokenStore.SignupSession;
-import com.yamu.be.auth.SsafyMemberRegistrar.RegisteredMember;
 import com.yamu.be.auth.domain.SignupMode;
 import com.yamu.be.auth.domain.SignupStep;
 import com.yamu.be.auth.dto.PhoneVerificationConfirmResponse;
 import com.yamu.be.auth.dto.PhoneVerificationRequest;
 import com.yamu.be.auth.dto.PhoneVerificationResponse;
-import com.yamu.be.auth.dto.SignupResponse;
 import com.yamu.be.global.crypto.CipherField;
 import com.yamu.be.global.crypto.LookupHasher;
 import com.yamu.be.global.crypto.PersonalDataCipher;
@@ -24,20 +22,31 @@ import com.yamu.be.user.domain.AppUserStatus;
 import java.time.Clock;
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
-import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.support.TransactionTemplate;
 
 /**
- * 가입 앞 단계: 휴대폰 본인인증(연출) 요청 → 확인(가입 진행 토큰) → 회원가입(PENDING 사용자 + SSAFY 계정). DEC-001.
+ * 가입 앞 단계: 휴대폰 본인인증(연출) 요청 → 확인(가입 진행 토큰). DEC-001.
  *
  * <pre>
- * 본인인증 요청 → 본인인증 확인(signupToken) → 회원가입 → 계좌 연결(1원) → PIN 설정 → 기기 등록(ACTIVE)
+ * 본인인증 요청 → 본인인증 확인(signupToken) → 계좌 연결(1원) → PIN 설정 → 기기 등록(ACTIVE)
  * </pre>
  *
- * 같은 사람은 휴대폰 번호 + 생년월일(UK phone_hash, birth_date)로 찾는다. 실제 은행의 본인확인 고유값(CI)을 대신하는 연출이다.
+ * <p>시연 전용(10/30 결정): 시드가 미리 넣어 둔 사람(PENDING + SSAFY 회원·계좌)만 가입할 수 있다. 회원가입 때 SSAFY 회원을
+ * 새로 만들지 않는다. 새로 만든 SSAFY 회원에는 계좌가 없어 계좌 연결 단계를 넘을 수 없기 때문이다.
+ *
+ * <p>같은 사람은 이름 + 생년월일 + 휴대폰 번호로 본다(명세 「휴대폰 본인인증 확인」). 찾기는 UK(phone_hash, birth_date)로 하고,
+ * 이름이 다르면 다른 사람으로 보고 그 계정을 이어받지 않는다. 실제 은행의 본인확인 고유값(CI)을 대신하는 연출이다.
+ *
+ * <p>무엇이 드러나는가: 이름이 다르면 시드에 없는 사람과 똑같은 404 DEMO_USER_NOT_FOUND를 준다. 그래서 번호·생년월일만으로는
+ * 가입 여부·탈퇴 여부를 알 수 없다. 이름·생년월일·번호 세 값을 모두 아는 사람에게만 탈퇴 여부(409 REJOIN_NOT_AVAILABLE)와
+ * 가입 여부(모드 SIGNUP·DEVICE_RECOVERY)가 드러난다.
+ *
+ * <p>임시 결정: 문자를 보내지 않아 인증번호를 응답(demoCode)으로 주는 동안은 휴대폰 소유를 증명하지 않는다.
+ * 그래서 세 값을 아는 사람은 가입 진행 토큰을 받을 수 있다. 실제 확인은 뒤 단계의 1원 인증(본인 명의 계좌)이 맡는다.
+ * 무작위 대량 시도는 두 API를 합친 IP별 호출 제한으로 막는다.
  */
 @Slf4j
 @Service
@@ -46,20 +55,25 @@ public class SignupService {
 
     private final PhoneVerificationStore verificationStore;
     private final SignupTokenStore tokenStore;
-    private final SsafyMemberRegistrar memberRegistrar;
     private final AppUserRepository userRepository;
     private final LinkedAccountRepository accountRepository;
     private final PersonalDataCipher cipher;
     private final LookupHasher lookupHasher;
     private final SignupProperties properties;
+    private final LoginRateLimiter rateLimiter;
+    private final TransactionTemplate transaction;
     private final Clock clock;
 
-    /** 인증번호를 만든다(문자는 보내지 않음). 휴대폰 번호는 여기서 DB에 저장하지 않고 암호문으로 Redis에만 둔다. */
-    public PhoneVerificationResponse requestVerification(PhoneVerificationRequest request) {
+    /**
+     * 인증번호를 만든다(문자는 보내지 않음). 휴대폰 번호는 여기서 DB에 저장하지 않고 암호문으로 Redis에만 둔다.
+     * 시드에 있는 사람인지는 여기서 보지 않는다. 요청만으로 등록 여부를 알 수 없게, 인증번호를 확인한 뒤에 본다.
+     */
+    public PhoneVerificationResponse requestVerification(PhoneVerificationRequest request, ClientInfo client) {
+        rateLimiter.checkSignup(client.ipAddress(), properties.perIp());
         String phone = PersonalDataNormalizer.phone(request.phoneNumber());
         byte[] phoneHash = lookupHasher.phone(phone);
         verificationStore.claimResendSlot(phoneHash);
-        VerifiedIdentity identity = new VerifiedIdentity(request.name().strip(), request.birthDate(),
+        VerifiedIdentity identity = new VerifiedIdentity(request.name(), request.birthDate(),
                 cipher.encrypt(phone, CipherField.APP_USER_PHONE), phoneHash);
         IssuedVerification issued = verificationStore.issue(identity);
         LocalDateTime expiresAt = LocalDateTime.now(clock).plus(properties.verificationTtl()).truncatedTo(ChronoUnit.SECONDS);
@@ -68,83 +82,65 @@ public class SignupService {
     }
 
     /**
-     * 인증번호가 맞으면 가입 진행 토큰을 준다. 기존 사용자에 따라 모드와 다음 단계가 달라진다.
+     * 인증번호가 맞으면 시드 사용자를 찾아 가입 진행 토큰을 준다. 토큰은 그 사용자에 묶인다.
      * <ul>
-     *   <li>없음·탈퇴 → SIGNUP, 회원가입부터</li>
-     *   <li>가입 중(PENDING) → SIGNUP, 멈춘 단계부터(이어하기)</li>
+     *   <li>가입 중(PENDING, SSAFY 회원 있음) → SIGNUP, 멈춘 단계부터. 본인인증 시각을 기록한다</li>
      *   <li>가입 완료(ACTIVE) → DEVICE_RECOVERY, 연결된 계좌로 1원 인증부터</li>
+     *   <li>없음, 이름이 다름, 시드가 덜 들어감(SSAFY 회원 없음) → 모두 같은 404 DEMO_USER_NOT_FOUND</li>
+     *   <li>이름까지 같은데 탈퇴(WITHDRAWN) → 409 REJOIN_NOT_AVAILABLE</li>
      * </ul>
+     * 같은 인증번호로 동시에 확인하면 Redis에서 꺼내면서 지우므로 하나만 성공한다.
      */
-    public PhoneVerificationConfirmResponse confirmVerification(String verificationId, String code) {
+    public PhoneVerificationConfirmResponse confirmVerification(String verificationId, String code, ClientInfo client) {
+        rateLimiter.checkSignup(client.ipAddress(), properties.perIp());
         VerifiedIdentity identity = verificationStore.confirm(verificationId, code);
         LocalDateTime verifiedAt = LocalDateTime.now(clock);
-        Optional<AppUser> existing = findSamePerson(identity);
+        AppUser found = findSeededUser(identity);
+        Decision decision = decide(found.getId(), verifiedAt);
 
-        SignupMode mode = SignupMode.SIGNUP;
-        SignupStep nextStep = SignupStep.SIGNUP;
-        Long userId = null;
-        if (existing.isPresent()) {
-            AppUser user = existing.get();
-            userId = user.getId();
-            if (user.isActive()) {
-                mode = SignupMode.DEVICE_RECOVERY;
-                nextStep = SignupStep.ACCOUNT_LINK;
-            } else {
-                nextStep = nextStepOf(user);
-            }
-        }
-        IssuedSignupToken token = tokenStore.issue(new SignupSession(mode, identity, verifiedAt, userId));
-        return new PhoneVerificationConfirmResponse(token.token(), token.expiresIn(), mode, nextStep);
+        IssuedSignupToken token = tokenStore.issue(new SignupSession(decision.mode(), identity, verifiedAt, found.getId()));
+        return new PhoneVerificationConfirmResponse(token.token(), token.expiresIn(), decision.mode(), decision.nextStep());
     }
 
     /**
-     * PENDING 사용자를 만들고 SSAFY 계정을 연결한다. SSAFY 계정 생성이 실패하면 사용자도 만들지 않는다(502·504 그대로).
-     * 이미 가입 중인 사람이 다시 부르면 새로 만들지 않고 그 사용자를 돌려준다(앱 재시도·연타).
+     * 이름·생년월일·번호가 모두 같은 시드 사용자.
+     * 이름을 탈퇴보다 먼저 본다. 이름이 다르면 없는 사람과 같은 응답이라 번호·생년월일만으로는 가입·탈퇴 여부가 드러나지 않는다.
      */
-    public SignupResponse signup(String signupToken) {
-        SignupSession session = tokenStore.find(signupToken)
-                .orElseThrow(() -> new BusinessException(ErrorCode.SIGNUP_TOKEN_INVALID));
-        if (session.mode() == SignupMode.DEVICE_RECOVERY) {
-            throw new BusinessException(ErrorCode.ALREADY_REGISTERED);
+    private AppUser findSeededUser(VerifiedIdentity identity) {
+        AppUser user = userRepository.findByPhoneHashAndBirthDate(identity.phoneHash(), identity.birthDate())
+                .filter(found -> identity.sameNameAs(found.getName()))
+                .orElseThrow(() -> new BusinessException(ErrorCode.DEMO_USER_NOT_FOUND));
+        if (user.getStatus() == AppUserStatus.WITHDRAWN) {
+            throw new BusinessException(ErrorCode.REJOIN_NOT_AVAILABLE);
         }
-        Optional<AppUser> existing = findSamePerson(session.identity());
-        if (existing.isPresent()) {
-            return resume(signupToken, existing.get());
+        if (user.getSsafyUserKey() == null) {
+            // 시드가 SSAFY 회원·계좌를 만들기 전에 멈춘 행. 계좌를 연결할 수 없으니 가입을 시작시키지 않는다.
+            log.warn("SSAFY 회원이 없는 시드 사용자라 가입을 막음 (userId={})", user.getId());
+            throw new BusinessException(ErrorCode.DEMO_USER_NOT_FOUND);
         }
-
-        // 금융망 호출은 DB 트랜잭션 밖에서 한다. 응답을 기다리는 동안 DB 연결을 잡고 있지 않도록.
-        RegisteredMember member = memberRegistrar.register();
-        VerifiedIdentity identity = session.identity();
-        AppUser user = AppUser.pending(identity.name(), identity.birthDate(), identity.phoneEnc(), identity.phoneHash(),
-                session.verifiedAt());
-        user.linkFinMember(member.memberId(), cipher.encrypt(member.userKey(), CipherField.APP_USER_SSAFY_USER_KEY));
-        try {
-            user = userRepository.saveAndFlush(user);
-        } catch (DataIntegrityViolationException e) {
-            // 같은 사람의 가입 요청이 동시에 두 번 와서 다른 쪽이 먼저 저장했다. 방금 만든 SSAFY 계정은 쓰이지 않고 남는다.
-            AppUser winner = findSamePerson(identity).orElseThrow(() -> e);
-            log.warn("동시 가입 요청으로 SSAFY 계정 {}는 사용하지 않음 (userId={})", member.memberId(), winner.getId());
-            return resume(signupToken, winner);
-        }
-        tokenStore.attachUser(signupToken, user.getId());
-        return new SignupResponse(user.getId(), user.getName(), user.getStatus(), true,
-                SignupStep.ACCOUNT_LINK.andAfter(), user.getCreatedAt());
+        return user;
     }
 
-    private SignupResponse resume(String signupToken, AppUser user) {
-        if (user.getStatus() != AppUserStatus.PENDING) {
-            throw new BusinessException(ErrorCode.ALREADY_REGISTERED);
-        }
-        tokenStore.attachUser(signupToken, user.getId());
-        return new SignupResponse(user.getId(), user.getName(), user.getStatus(), user.getSsafyUserKey() != null,
-                nextStepOf(user).andAfter(), user.getCreatedAt());
+    /**
+     * 사용자 행을 잠근 채 지금 상태로 모드를 정한다. 찾은 뒤 그 사이에 가입을 마쳤으면(PENDING → ACTIVE) 기기 재등록으로 보내고,
+     * ACTIVE 사용자의 본인인증 시각을 덮어쓰지 않는다. 본인인증 시각은 가입 중(PENDING)일 때만 기록한다.
+     */
+    private Decision decide(Long userId, LocalDateTime verifiedAt) {
+        return transaction.execute(status -> {
+            AppUser user = userRepository.findByIdForUpdate(userId)
+                    .orElseThrow(() -> new BusinessException(ErrorCode.DEMO_USER_NOT_FOUND));
+            return switch (user.getStatus()) {
+                case ACTIVE -> new Decision(SignupMode.DEVICE_RECOVERY, SignupStep.ACCOUNT_LINK);
+                case WITHDRAWN -> throw new BusinessException(ErrorCode.REJOIN_NOT_AVAILABLE);
+                case PENDING -> {
+                    user.markIdentityVerified(verifiedAt);
+                    yield new Decision(SignupMode.SIGNUP, nextStepOf(user));
+                }
+            };
+        });
     }
 
-    /** 탈퇴한 사용자는 없는 것으로 본다(명세: WITHDRAWN은 새 가입). */
-    private Optional<AppUser> findSamePerson(VerifiedIdentity identity) {
-        return userRepository.findByPhoneHashAndBirthDate(identity.phoneHash(), identity.birthDate())
-                .filter(user -> user.getStatus() != AppUserStatus.WITHDRAWN);
-    }
+    private record Decision(SignupMode mode, SignupStep nextStep) {}
 
     /** 가입 중인 사용자가 멈춘 단계. 진행 상황을 따로 저장하지 않고 DB에 있는 것으로 판단한다. */
     private SignupStep nextStepOf(AppUser user) {
