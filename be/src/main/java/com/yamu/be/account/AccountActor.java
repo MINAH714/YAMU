@@ -8,15 +8,16 @@ import com.yamu.be.global.security.AuthUser;
  *
  * @param me   Access Token으로 왔으면 그 사용자·기기, 가입 진행 토큰이면 null
  * @param mode 가입 진행 토큰으로 왔을 때의 모드, Access Token이면 null
+ * @param signupToken 가입 진행 토큰 원문(가입 중 1원 인증을 마쳤다고 토큰에 적으려고 들고 있다). Access Token이면 null
  */
-public record AccountActor(Long userId, AuthUser me, SignupMode mode) {
+public record AccountActor(Long userId, AuthUser me, SignupMode mode, String signupToken) {
 
     public static AccountActor member(AuthUser me) {
-        return new AccountActor(me.userId(), me, null);
+        return new AccountActor(me.userId(), me, null, null);
     }
 
-    public static AccountActor onboarding(Long userId, SignupMode mode) {
-        return new AccountActor(userId, null, mode);
+    public static AccountActor onboarding(Long userId, SignupMode mode, String signupToken) {
+        return new AccountActor(userId, null, mode, signupToken);
     }
 
     public boolean isDeviceRecovery() {

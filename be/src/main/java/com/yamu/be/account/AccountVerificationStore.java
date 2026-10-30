@@ -93,6 +93,25 @@ public class AccountVerificationStore {
         redis.delete(key(token));
     }
 
+    /**
+     * 꺼내면서 지운다(GETDEL). 기기 재등록처럼 한 번만 써야 하는 확인 결과에 쓴다. 같은 토큰으로 동시에 오면 하나만 받는다.
+     * 남의 토큰이면 지우지 않고 empty.
+     */
+    public Optional<VerifiedAccount> take(String token, Long userId) {
+        if (find(token, userId).isEmpty()) {
+            return Optional.empty();
+        }
+        String json = redis.opsForValue().getAndDelete(key(token));
+        if (json == null) {
+            return Optional.empty();
+        }
+        try {
+            return Optional.of(objectMapper.readValue(json, VerifiedAccount.class));
+        } catch (JsonProcessingException e) {
+            return Optional.empty();
+        }
+    }
+
     /** 같은 토큰인지 비교할 때 쓰는 해시(Idempotency-Key 재사용 확인). 원문을 Redis에 남기지 않으려고. */
     static String hash(String token) {
         try {
