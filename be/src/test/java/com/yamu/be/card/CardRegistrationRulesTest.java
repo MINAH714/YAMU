@@ -36,8 +36,8 @@ class CardRegistrationRulesTest {
 
     @Test
     void 등록_요청의_별칭은_앞뒤_공백을_빼고_비면_null이다() {
-        assertThat(new CardRegisterRequest("cvt_x", "  생활비 카드 ", null, null, null).nickname()).isEqualTo("생활비 카드");
-        assertThat(new CardRegisterRequest("cvt_x", "   ", null, null, null).nickname()).isNull();
-        assertThat(new CardRegisterRequest("cvt_x", null, null, null, null).nickname()).isNull();
+        assertThat(new CardRegisterRequest("cvt_x", "  생활비 카드 ").nickname()).isEqualTo("생활비 카드");
+        assertThat(new CardRegisterRequest("cvt_x", "   ").nickname()).isNull();
+        assertThat(new CardRegisterRequest("cvt_x", null).nickname()).isNull();
     }
 }
