@@ -161,6 +161,7 @@ class CardManagementIntegrationTest extends MySqlTestSupport {
                 .andExpect(jsonPath("$.data.billing").doesNotExist())
                 .andExpect(jsonPath("$.data.linkedAccount.accountId").value(account))
                 .andExpect(jsonPath("$.data.linkedAccount.bankCode").value("088"))
+                .andExpect(jsonPath("$.data.linkedAccount.bankName").value("신한은행"))
                 .andExpect(jsonPath("$.data.linkedAccount.maskedAccountNo").value("****-****-****-5934"))
                 .andExpect(jsonPath("$.data.issuer.closingDayOffset").doesNotExist());
 

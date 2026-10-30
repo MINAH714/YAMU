@@ -54,6 +54,10 @@ public class LinkedAccount extends BaseTimeEntity {
     @Column(nullable = false, length = 20)
     private LinkedAccountStatus status;
 
+    /** 기준 계좌(홈 기본 계좌 미리보기). 사용자당 1개는 DB UNIQUE(primary_owner_id)가 지킨다. */
+    @Column(name = "is_primary", nullable = false)
+    private boolean primary;
+
     /** 연결할 때 쓴 본인 인증(PIN·생체) 기록. 가입 중에는 본인 인증이 없어 null(휴대폰 본인인증·1원 인증이 대신함). */
     private Long stepUpAuditLogId;
 
@@ -92,5 +96,15 @@ public class LinkedAccount extends BaseTimeEntity {
 
     public boolean isConnected() {
         return status == LinkedAccountStatus.CONNECTED;
+    }
+
+    /** 별칭을 바꾼다. null이면 지운다(화면은 은행 이름·끝 4자리). */
+    public void rename(String alias) {
+        this.accountAlias = alias;
+    }
+
+    /** 기준 계좌로 정하거나 푼다. 사용자당 1개라 다른 계좌를 먼저 풀고 flush한 뒤 정한다. */
+    public void markPrimary(boolean primary) {
+        this.primary = primary;
     }
 }

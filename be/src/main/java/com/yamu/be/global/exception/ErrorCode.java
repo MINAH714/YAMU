@@ -79,6 +79,9 @@ public enum ErrorCode {
     AUTH_CODE_LOCKED(HttpStatus.TOO_MANY_REQUESTS, "인증코드를 여러 번 틀려 오늘은 이 계좌로 인증할 수 없습니다. 내일 다시 시도해 주세요."),
     IDEMPOTENCY_IN_PROGRESS(HttpStatus.CONFLICT, "같은 요청을 처리하고 있습니다. 잠시 후 다시 시도해 주세요."),
 
+    /* 계좌 - 계좌 정보 수정 (API 명세 「계좌 정보 수정 (기준 계좌 지정)」). 없는·남의 계좌는 공통 RESOURCE_NOT_FOUND */
+    PRIMARY_REQUIRED(HttpStatus.BAD_REQUEST, "기준 계좌는 하나 있어야 합니다. 다른 계좌를 기준 계좌로 정해 주세요."),
+
     /* 카드 - 카드 확인·카드 등록 (API 명세 각 페이지). 확인 토큰 만료는 위 VERIFICATION_TOKEN_EXPIRED */
     INVALID_CARD_NUMBER(HttpStatus.BAD_REQUEST, "카드번호는 숫자 16자리로 입력해 주세요."),
     ISSUER_NOT_SUPPORTED(HttpStatus.NOT_FOUND, "지원하지 않는 카드사·상품입니다."),

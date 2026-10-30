@@ -300,6 +300,7 @@ public class AccountLinkService {
             userRepository.findByIdForUpdate(userId)
                     .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND));
             List<LinkedRow> rows = new ArrayList<>();
+            List<LinkedAccount> saved = new ArrayList<>();
             List<SkippedAccount> skipped = new ArrayList<>();
             for (AccountCandidate candidate : selected) {
                 Optional<LinkedAccount> existing = accountRepository.findByUserIdAndBankCodeAndAccountNoHash(userId,
@@ -309,11 +310,19 @@ public class AccountLinkService {
                             mask(candidate.last4()), ALREADY_LINKED));
                     continue;
                 }
-                LinkedAccount saved = save(existing, userId, candidate, auditLogId, linkedAt);
-                rows.add(new LinkedRow(saved.getId(), candidate.bankName()));
+                LinkedAccount account = save(existing, userId, candidate, auditLogId, linkedAt);
+                saved.add(account);
+                rows.add(new LinkedRow(account.getId(), candidate.bankName()));
             }
             if (rows.isEmpty() && !allowNone) {
                 throw new BusinessException(ErrorCode.ACCOUNT_ALREADY_LINKED);
+            }
+            // 기준 계좌가 없으면 이번에 새로 연결한 첫 계좌를 기준 계좌로 둔다(FR-033). 가입 중에는 1원을 받은 계좌가 맨 앞이다.
+            // 사용자 행을 잠근 채라 처음 연결이 동시에 와도 기준 계좌는 하나만 생긴다. 연결과 같은 트랜잭션이라
+            // 멱등 결과를 기억하기 전에 정해지고, 재응답(replay)도 같은 값을 읽는다.
+            if (!saved.isEmpty() && accountRepository.findByUserIdAndPrimaryTrue(userId).isEmpty()) {
+                saved.get(0).markPrimary(true);
+                accountRepository.saveAndFlush(saved.get(0));
             }
             return new Linked(rows, skipped, linkedAt);
         });
@@ -418,10 +427,8 @@ public class AccountLinkService {
         return response(userId, linked, verifiedBy);
     }
 
-    /** 연결한 계좌를 고른 순서대로 보여 준다. 기준 계좌는 지금은 가장 먼저 연결한 계좌다(기준 계좌 칸은 계좌 조회 작업에서 추가). */
+    /** 연결한 계좌를 고른 순서대로 보여 준다. 기준 계좌 여부는 저장된 칸(is_primary)을 읽는다. */
     private AccountLinkResponse response(Long userId, Linked linked, VerifiedBy verifiedBy) {
-        Long primaryId = accountRepository.findFirstByUserIdAndStatusOrderByIdAsc(userId, LinkedAccountStatus.CONNECTED)
-                .map(LinkedAccount::getId).orElse(null);
         Map<Long, LinkedAccount> byId = accountRepository.findAllById(
                 linked.accounts().stream().map(LinkedRow::accountId).toList()).stream()
                 .filter(account -> account.getUserId().equals(userId))
@@ -431,7 +438,7 @@ public class AccountLinkService {
             LinkedAccount account = byId.get(row.accountId());
             if (account != null) {
                 items.add(new LinkedAccountItem(account.getId(), bank(account.getBankCode(), row.bankName()),
-                        account.getAccountAlias(), mask(account.getAccountLast4()), account.getId().equals(primaryId),
+                        account.getAccountAlias(), mask(account.getAccountLast4()), account.isPrimary(),
                         account.getConnectedAt().truncatedTo(ChronoUnit.SECONDS)));
             }
         }

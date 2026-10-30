@@ -474,7 +474,7 @@ class DeviceSetupIntegrationTest extends MySqlTestSupport {
         Registered member = activeMember();
         String bearer = "Bearer " + signupToken(member.userId(), SignupMode.DEVICE_RECOVERY);
         String verification = verifiedAndSent(bearer);
-        jdbc.update("UPDATE linked_account SET status = 'DISCONNECTED', disconnected_at = ?", now());
+        jdbc.update("UPDATE linked_account SET status = 'DISCONNECTED', is_primary = 0, disconnected_at = ?", now());
 
         registerDevice(bearer, deviceJson(UUID.randomUUID().toString(), DeviceKeys.generate(), null, verification, CODE))
                 .andExpect(errorCode(400, "VERIFICATION_TOKEN_EXPIRED"));

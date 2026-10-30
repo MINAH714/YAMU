@@ -38,7 +38,11 @@ public class FinApiException extends BusinessException {
         return new FinApiException(ErrorCode.FIN_API_ERROR, FinApiOutcome.REJECTED, finCode, apiName);
     }
 
-    static FinApiException timedOut(String apiName) {
+    /**
+     * 결과 불명(504). 클라이언트가 응답 시간 초과로 던지고, 여러 금융망 호출을 묶어 전체 기한을 거는 쪽
+     * (예: 계좌 잔액 동시 조회)도 기한을 넘긴 호출을 같은 의미로 나타낼 때 쓴다.
+     */
+    public static FinApiException timedOut(String apiName) {
         return new FinApiException(ErrorCode.UPSTREAM_TIMEOUT, FinApiOutcome.UNKNOWN, null, apiName);
     }
 
