@@ -40,13 +40,15 @@ public class SecurityConfig {
     };
 
     /**
-     * Access Token과 가입 진행 토큰(signupToken)을 둘 다 받는 API. 가입 중에도 계좌를 연결해야 해서다.
+     * Access Token과 가입 진행 토큰(signupToken)을 둘 다 받는 API. 가입 중에도 계좌 연결·PIN 설정·기기 등록을 해야 해서다.
      * 인증 없이 열어 두고 컨트롤러가 확인한다. Access Token이 오면 아래 resolver가 넘겨 JWT 검사를 하고,
      * 가입 진행 토큰("sgt_…")이 오면 JWT 검사를 건너뛴다(JWT가 아니라 그대로 두면 401이 난다).
      */
     static final String[] SIGNUP_TOKEN_POST = {
             "/api/accounts/one-won-auth",
-            "/api/accounts"
+            "/api/accounts",
+            "/api/auth/pin",
+            "/api/auth/devices"
     };
 
     static final String[] SIGNUP_TOKEN_GET = {

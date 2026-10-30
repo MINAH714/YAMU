@@ -56,6 +56,12 @@ public enum ErrorCode {
     // 임시(10/30): 시연용 시드에 없는 사람. 회원가입 때 SSAFY 회원을 만들지 않으므로 시드 사용자만 가입할 수 있다
     DEMO_USER_NOT_FOUND(HttpStatus.NOT_FOUND, "시연용으로 등록된 사용자가 아닙니다."),
 
+    /* 인증 - 간편 비밀번호 설정·기기 등록 (API 명세 각 페이지). SIGNUP_STEP_INCOMPLETE는 details.nextStep */
+    INVALID_PIN_FORMAT(HttpStatus.BAD_REQUEST, "간편 비밀번호는 같은 숫자 반복·연속 숫자가 아닌 숫자 6자리로 정해 주세요."),
+    INVALID_PUBLIC_KEY(HttpStatus.BAD_REQUEST, "기기 키 형식이 올바르지 않습니다."),
+    SIGNUP_STEP_INCOMPLETE(HttpStatus.CONFLICT, "앞 단계 가입 절차를 먼저 마쳐 주세요."),
+    DEVICE_LIMIT_EXCEEDED(HttpStatus.CONFLICT, "등록할 수 있는 기기 수(3대)를 넘었습니다. 기존 기기를 해제한 뒤 등록해 주세요."),
+
     /* 계좌 - 계좌 목록·1원 인증 요청·계좌 연결 (API 명세 각 페이지. 10/30 목록 방식으로 바꿔 계좌번호 입력·예금주 코드는 뺐다) */
     ACCOUNT_NOT_FOUND_AT_BANK(HttpStatus.NOT_FOUND, "은행에서 계좌를 찾을 수 없습니다. 계좌번호를 확인해 주세요."),
     ACCOUNT_NOT_SUPPORTED(HttpStatus.BAD_REQUEST, "원화 입출금 계좌만 연결할 수 있습니다."),

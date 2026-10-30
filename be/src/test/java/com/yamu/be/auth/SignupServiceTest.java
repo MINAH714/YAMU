@@ -5,7 +5,6 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
-import com.yamu.be.account.domain.LinkedAccountRepository;
 import com.yamu.be.auth.SignupTokenStore.IssuedSignupToken;
 import com.yamu.be.auth.domain.SignupMode;
 import com.yamu.be.auth.domain.SignupStep;
@@ -41,7 +40,7 @@ class SignupServiceTest {
     private final TransactionTemplate transaction = mock(TransactionTemplate.class);
 
     private final SignupService service = new SignupService(verificationStore, tokenStore, userRepository,
-            mock(LinkedAccountRepository.class), mock(PersonalDataCipher.class), mock(LookupHasher.class),
+            mock(PersonalDataCipher.class), mock(LookupHasher.class),
             new SignupProperties(Duration.ofMinutes(3), Duration.ofMinutes(1), 5, Duration.ofMinutes(30), true, 30),
             mock(LoginRateLimiter.class), transaction,
             Clock.fixed(Instant.parse("2026-10-30T03:00:00Z"), ZoneOffset.UTC));

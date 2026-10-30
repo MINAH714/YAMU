@@ -1,7 +1,5 @@
 package com.yamu.be.auth;
 
-import com.yamu.be.account.domain.LinkedAccountRepository;
-import com.yamu.be.account.domain.LinkedAccountStatus;
 import com.yamu.be.auth.PhoneVerificationStore.IssuedVerification;
 import com.yamu.be.auth.SignupTokenStore.IssuedSignupToken;
 import com.yamu.be.auth.SignupTokenStore.SignupSession;
@@ -56,7 +54,6 @@ public class SignupService {
     private final PhoneVerificationStore verificationStore;
     private final SignupTokenStore tokenStore;
     private final AppUserRepository userRepository;
-    private final LinkedAccountRepository accountRepository;
     private final PersonalDataCipher cipher;
     private final LookupHasher lookupHasher;
     private final SignupProperties properties;
@@ -84,7 +81,9 @@ public class SignupService {
     /**
      * 인증번호가 맞으면 시드 사용자를 찾아 가입 진행 토큰을 준다. 토큰은 그 사용자에 묶인다.
      * <ul>
-     *   <li>가입 중(PENDING, SSAFY 회원 있음) → SIGNUP, 멈춘 단계부터. 본인인증 시각을 기록한다</li>
+     *   <li>가입 중(PENDING, SSAFY 회원 있음) → SIGNUP, 항상 계좌 연결(1원 인증)부터. 본인인증 시각을 기록한다.
+     *       전에 계좌를 연결해 두고 멈췄어도 새 토큰으로는 1원 인증을 다시 한다(본인인증이 연출이라, 남이 이어받아
+     *       PIN·기기를 등록하지 못하게. {@link SignupProgress})</li>
      *   <li>가입 완료(ACTIVE) → DEVICE_RECOVERY, 연결된 계좌로 1원 인증부터</li>
      *   <li>없음, 이름이 다름, 시드가 덜 들어감(SSAFY 회원 없음) → 모두 같은 404 DEMO_USER_NOT_FOUND</li>
      *   <li>이름까지 같은데 탈퇴(WITHDRAWN) → 409 REJOIN_NOT_AVAILABLE</li>
@@ -133,20 +132,13 @@ public class SignupService {
                 case ACTIVE -> new Decision(SignupMode.DEVICE_RECOVERY, SignupStep.ACCOUNT_LINK);
                 case WITHDRAWN -> throw new BusinessException(ErrorCode.REJOIN_NOT_AVAILABLE);
                 case PENDING -> {
+                    // 계좌를 연결해 두고 멈췄어도 새 토큰은 1원 인증부터(SignupProgress). 남이 이어받아 PIN·기기를 등록하지 못하게.
                     user.markIdentityVerified(verifiedAt);
-                    yield new Decision(SignupMode.SIGNUP, nextStepOf(user));
+                    yield new Decision(SignupMode.SIGNUP, SignupStep.ACCOUNT_LINK);
                 }
             };
         });
     }
 
     private record Decision(SignupMode mode, SignupStep nextStep) {}
-
-    /** 가입 중인 사용자가 멈춘 단계. 진행 상황을 따로 저장하지 않고 DB에 있는 것으로 판단한다. */
-    private SignupStep nextStepOf(AppUser user) {
-        if (!accountRepository.existsByUserIdAndStatus(user.getId(), LinkedAccountStatus.CONNECTED)) {
-            return SignupStep.ACCOUNT_LINK;
-        }
-        return user.getPinHash() == null ? SignupStep.PIN_SETUP : SignupStep.DEVICE_REGISTER;
-    }
 }

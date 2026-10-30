@@ -15,6 +15,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  * @param idempotencyLockTtl 같은 Idempotency-Key 요청을 처리 중이라고 표시해 두는 시간. 금융망 두 번(코드 확인·잔액) 제한 시간보다 길게
  * @param dailySendLimit   한 계좌로 한국 날짜 하루에 1원을 보낼 수 있는 횟수(5회). 재요청 간격만으로는 무한히 보낼 수 있어서 둔다
  * @param dailyFailLimit   한 계좌로 하루에 인증코드를 틀릴 수 있는 횟수(10회). 넘으면 그날은 그 계좌로 인증할 수 없다
+ * @param recoveryDailySendLimit 기기 재등록에서 한 계좌로 하루에 1원을 보낼 수 있는 횟수(3회). 일반보다 낮게 둔다
  */
 @ConfigurationProperties(prefix = "yamu.account-link")
 public record AccountLinkProperties(
@@ -26,5 +27,6 @@ public record AccountLinkProperties(
         Duration idempotencyTtl,
         Duration idempotencyLockTtl,
         int dailySendLimit,
-        int dailyFailLimit) {
+        int dailyFailLimit,
+        int recoveryDailySendLimit) {
 }

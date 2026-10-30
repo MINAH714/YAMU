@@ -17,6 +17,7 @@ import com.yamu.be.account.dto.AccountLinkResponse.VerifiedBy;
 import com.yamu.be.account.dto.BankResponse;
 import com.yamu.be.account.dto.OneWonAuthRequest;
 import com.yamu.be.account.dto.OneWonAuthResponse;
+import com.yamu.be.auth.SignupTokenStore;
 import com.yamu.be.auth.StepUpService;
 import com.yamu.be.auth.StepUpTokenStore.StepUpGrant;
 import com.yamu.be.auth.domain.AuthMethod;
@@ -90,6 +91,7 @@ public class AccountLinkService {
     private final LinkedAccountRepository accountRepository;
     private final AppUserRepository userRepository;
     private final StepUpService stepUpService;
+    private final SignupTokenStore signupTokenStore;
     private final PersonalDataCipher cipher;
     private final LookupHasher lookupHasher;
     private final StringRedisTemplate redis;
@@ -169,7 +171,8 @@ public class AccountLinkService {
         attempts.requireNotLocked(accountKey);
         attempts.claimResendSlot(accountKey);
         try {
-            attempts.claimDailySend(accountKey);
+            attempts.claimDailySend(accountKey, scope == CandidateScope.DEVICE_RECOVERY
+                    ? properties.recoveryDailySendLimit() : properties.dailySendLimit());
         } catch (BusinessException e) {
             attempts.releaseResendSlot(accountKey);
             throw e;
@@ -252,10 +255,13 @@ public class AccountLinkService {
         }
         requireUser(actor);
         VerifiedAccount verified = confirmOneWon(actor.userId(), request.verificationToken(), request.authCode());
-        Linked linked = linkAll(actor.userId(), verified.selected(), null);
+        // 고른 계좌가 모두 이미 연결돼 있어도 실패로 끝내지 않는다. 계좌를 연결해 두고 멈춘 가입을 새 토큰으로 이어갈 때
+        // 1원 인증을 다시 하는 경로라서(PIN·기기 등록은 이 세션의 1원 인증을 요구한다).
+        Linked linked = linkAll(actor.userId(), verified.selected(), null, true);
         // 결과를 먼저 기억하고 토큰을 지운다. 반대 순서면 기억이 실패했을 때 연결은 됐는데 재시도가 "토큰 만료"가 된다.
         remember(actor.userId(), idempotencyKey, LinkResult.of(fingerprint, linked, null));
         finishOneWon(request.verificationToken(), verified);
+        signupTokenStore.markOneWonVerified(actor.signupToken());
         return response(actor.userId(), linked, null);
     }
 
@@ -276,7 +282,7 @@ public class AccountLinkService {
             throw new BusinessException(ErrorCode.ACCOUNT_ALREADY_LINKED);
         }
         StepUpGrant grant = stepUpService.requireStepUp(actor.me(), StepUpPurpose.ACCOUNT_LINK, stepUpToken);
-        Linked linked = linkAll(actor.userId(), selected, grant.auditLogId());
+        Linked linked = linkAll(actor.userId(), selected, grant.auditLogId(), false);
         remember(actor.userId(), idempotencyKey, LinkResult.of(fingerprint, linked, grant));
         candidateStore.delete(ids);
         return response(actor.userId(), linked, new VerifiedBy(grant.method(), grant.auditLogId(), linked.linkedAt()));
@@ -284,9 +290,11 @@ public class AccountLinkService {
 
     /**
      * 고른 계좌를 한 트랜잭션에서 연결한다. 사용자 행을 잠가(FOR UPDATE) 같은 사용자의 연결 요청을 한 줄로 세운다.
-     * 그래서 같은 계좌를 동시에 연결해도 늦은 쪽은 "이미 연결"을 보고 건너뛴다. 하나도 새로 연결하지 못하면 409.
+     * 그래서 같은 계좌를 동시에 연결해도 늦은 쪽은 "이미 연결"을 보고 건너뛴다.
+     *
+     * @param allowNone 하나도 새로 연결하지 못해도 성공으로 볼지. 가입 중(1원 재인증)은 true, 가입 후 추가는 false(409)
      */
-    private Linked linkAll(Long userId, List<AccountCandidate> selected, Long auditLogId) {
+    private Linked linkAll(Long userId, List<AccountCandidate> selected, Long auditLogId, boolean allowNone) {
         LocalDateTime linkedAt = now();
         return transaction.execute(status -> {
             userRepository.findByIdForUpdate(userId)
@@ -304,7 +312,7 @@ public class AccountLinkService {
                 LinkedAccount saved = save(existing, userId, candidate, auditLogId, linkedAt);
                 rows.add(new LinkedRow(saved.getId(), candidate.bankName()));
             }
-            if (rows.isEmpty()) {
+            if (rows.isEmpty() && !allowNone) {
                 throw new BusinessException(ErrorCode.ACCOUNT_ALREADY_LINKED);
             }
             return new Linked(rows, skipped, linkedAt);
@@ -344,6 +352,19 @@ public class AccountLinkService {
         VerifiedAccount verified = account.withCodeVerified();
         verificationStore.update(verificationToken, verified, false);
         return verified;
+    }
+
+    /**
+     * 기기 재등록용. 1원 인증코드를 확인한 뒤 확인 결과를 꺼내면서 지운다(한 번만 쓴다). 같은 토큰으로 동시에 등록해도
+     * 하나만 통과하고 나머지는 400 VERIFICATION_TOKEN_EXPIRED. 그 계좌가 지금도 연결 상태인지는 호출한 쪽이 트랜잭션 안에서 다시 본다.
+     * 꺼낸 뒤 기기 등록이 실패하면 1원 인증부터 다시 해야 한다(토큰을 되살리면 동시 요청을 막을 수 없다).
+     */
+    public VerifiedAccount claimForRecovery(Long userId, String verificationToken, String authCode) {
+        VerifiedAccount confirmed = confirmOneWon(userId, verificationToken, authCode);
+        verificationStore.take(verificationToken, userId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.VERIFICATION_TOKEN_EXPIRED));
+        attempts.clear(confirmed.accountKey());
+        return confirmed;
     }
 
     /** 1원 인증으로 할 일(연결·기기 등록)을 마쳤으면 토큰과 재요청 간격·시도 횟수를 지운다. 하루 횟수는 남긴다. */

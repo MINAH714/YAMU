@@ -89,8 +89,16 @@ public class OneWonAttempts {
 
     /** 오늘 이 계좌로 보낸 횟수를 하나 올린다. 이미 하루 한도면 429 ONE_WON_DAILY_LIMIT_EXCEEDED(details.retryAfterSeconds: 자정까지). */
     public void claimDailySend(String accountKey) {
+        claimDailySend(accountKey, properties.dailySendLimit());
+    }
+
+    /**
+     * 한도를 정해 센다. 기기 재등록은 일반 한도보다 낮은 {@code recoveryDailySendLimit}(3회)을 쓴다.
+     * 재등록은 1원 인증이 계정을 넘겨주는 유일한 확인이라 찍어 맞힐 기회를 더 줄인다. 횟수는 같은 계좌 키로 함께 센다.
+     */
+    public void claimDailySend(String accountKey, int limit) {
         Long sent = redis.execute(CLAIM, List.of(dailyKey(SENT_PREFIX, accountKey)),
-                String.valueOf(properties.dailySendLimit()), String.valueOf(untilMidnight().toMillis()));
+                String.valueOf(limit), String.valueOf(untilMidnight().toMillis()));
         if (sent == null || sent < 0) {
             throw new BusinessException(ErrorCode.ONE_WON_DAILY_LIMIT_EXCEEDED,
                     Map.of("retryAfterSeconds", seconds(untilMidnight().toMillis())));
