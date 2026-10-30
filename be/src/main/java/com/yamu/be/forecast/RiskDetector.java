@@ -7,9 +7,10 @@ import java.util.List;
 /**
  * 날짜 선 하나(통합 또는 계좌)에서 안전 잔액 미달을 찾는다. DB·외부 호출 없이 계산한다.
  *
- * <p>날마다 위험 수준을 선 기준으로 정한다. 확정 선이 기준 미만이면 DANGER, 예상·보수적 선만 미만이면 WARNING,
- * 그 밖은 SAFE다. 기준과 같은 금액은 미달이 아니다(FR-043 "임계값 아래").
- * 같은 위험 수준이 이어지는 날짜를 한 구간으로 묶고, WARNING과 DANGER가 바뀌면 구간을 나눈다.
+ * <p>날마다 기준 미만인 가장 확실한 선(확정 > 예상 > 보수적)을 찾는다. 확정 선이면 DANGER, 예상·보수적 선이면 WARNING,
+ * 미만인 선이 없으면 SAFE다. 기준과 같은 금액은 미달이 아니다(FR-043 "임계값 아래").
+ * 그 선이 같은 날짜가 이어지면 한 구간으로 묶는다. 위험 수준이나 선이 바뀌면 구간을 나눠, 구간마다 부족액·최저일·원인이
+ * 한 선을 기준으로 맞게 한다.
  */
 final class RiskDetector {
 
@@ -31,15 +32,19 @@ final class RiskDetector {
         Level worst = Level.SAFE;
         List<RiskWindow> windows = new ArrayList<>();
         int start = -1;
+        Line startLine = null;
         for (int i = 0; i <= points.size(); i++) {
-            Level level = i < points.size() ? levelOf(points.get(i), threshold) : Level.SAFE;
-            if (start >= 0 && level != levelOf(points.get(start), threshold)) {
-                windows.add(window(points.subList(start, i), threshold));
+            // 마지막 다음 칸은 SAFE(null)로 보고 열린 구간을 닫는다.
+            Line line = i < points.size() ? lineBelow(points.get(i), threshold) : null;
+            if (start >= 0 && line != startLine) {
+                windows.add(window(points.subList(start, i), startLine, threshold));
                 start = -1;
             }
-            if (start < 0 && level != Level.SAFE) {
+            if (start < 0 && line != null) {
                 start = i;
+                startLine = line;
             }
+            Level level = levelOf(line);
             if (level.ordinal() > worst.ordinal()) {
                 worst = level;
             }
@@ -55,25 +60,32 @@ final class RiskDetector {
                 worstBalance(points.get(points.size() - 1)));
     }
 
-    private static Level levelOf(ForecastCalculator.BalancePoint point, long threshold) {
+    /** 그날 기준 미만인 가장 확실한 선. 없으면 null(SAFE)이다. */
+    private static Line lineBelow(ForecastCalculator.BalancePoint point, long threshold) {
         if (point.confirmed() < threshold) {
-            return Level.DANGER;
+            return Line.CONFIRMED;
         }
-        if (point.expected() < threshold || (point.conservative() != null && point.conservative() < threshold)) {
-            return Level.WARNING;
+        if (point.expected() < threshold) {
+            return Line.EXPECTED;
         }
-        return Level.SAFE;
+        if (point.conservative() != null && point.conservative() < threshold) {
+            return Line.CONSERVATIVE;
+        }
+        return null;
     }
 
-    /** 같은 위험 수준이 이어지는 날짜들을 구간 하나로 만든다. */
-    private static RiskWindow window(List<ForecastCalculator.BalancePoint> days, long threshold) {
-        Level level = levelOf(days.get(0), threshold);
-        Line line;
-        if (level == Level.DANGER) {
-            line = Line.CONFIRMED;
-        } else {
-            line = days.stream().anyMatch(day -> day.expected() < threshold) ? Line.EXPECTED : Line.CONSERVATIVE;
+    private static Level levelOf(Line line) {
+        if (line == null) {
+            return Level.SAFE;
         }
+        return line == Line.CONFIRMED ? Level.DANGER : Level.WARNING;
+    }
+
+    /**
+     * 같은 선이 기준 미만인 날짜들을 구간 하나로 만든다. 원인은 그 선에 반영된 출금만 넣는다.
+     * 확정 선은 확정 출금만, 예상·보수적 선은 확정·예상 출금을, 보수적 선은 추정 생활비도 더한다.
+     */
+    private static RiskWindow window(List<ForecastCalculator.BalancePoint> days, Line line, long threshold) {
         ForecastCalculator.BalancePoint lowest = days.get(0);
         for (ForecastCalculator.BalancePoint day : days) {
             if (balanceOn(day, line) < balanceOn(lowest, line)) {
@@ -85,21 +97,21 @@ final class RiskDetector {
         List<Cause> causes = new ArrayList<>();
         for (ForecastCalculator.BalancePoint day : days) {
             for (FlowEvent event : day.events()) {
-                if (event.amount() < 0) {
+                // 확정 선에는 예상(진행 중 청구 등) 출금이 반영되지 않으므로 원인에도 넣지 않는다.
+                boolean onLine = line != Line.CONFIRMED || event.confidence() == FlowEvent.Confidence.CONFIRMED;
+                if (event.amount() < 0 && onLine) {
                     causes.add(new Cause(CauseType.valueOf(event.type().name()), event.title(), event.amount(),
                             event.refId(), day.date()));
                 }
             }
         }
-        // 예상 선은 기준 이상인데 생활비 추정을 뺀 보수적 선만 미만인 날이 있으면, 추정 생활비도 원인으로 알린다.
-        boolean livingCostOnly = days.stream().anyMatch(day -> day.expected() >= threshold
-                && day.conservative() != null && day.conservative() < threshold);
-        if (livingCostOnly && lowest.conservative() != null) {
+        // 보수적 선 구간은 예상 선은 기준 이상인데 추정 생활비를 빼서 미만이 된 날들이라, 추정 생활비가 원인이다.
+        if (line == Line.CONSERVATIVE) {
             causes.add(new Cause(CauseType.LIVING_COST_ESTIMATE, "추정 생활비",
                     Math.subtractExact(lowest.conservative(), lowest.expected()), null, lowest.date()));
         }
-        return new RiskWindow(days.get(0).date(), days.get(days.size() - 1).date(), level, line, lowestBalance,
-                Math.subtractExact(threshold, lowestBalance), List.copyOf(causes));
+        return new RiskWindow(days.get(0).date(), days.get(days.size() - 1).date(), levelOf(line), line,
+                lowestBalance, Math.subtractExact(threshold, lowestBalance), List.copyOf(causes));
     }
 
     private static long balanceOn(ForecastCalculator.BalancePoint point, Line line) {
@@ -129,11 +141,12 @@ final class RiskDetector {
     record Cause(CauseType type, String title, long amount, Long refId, LocalDate date) {}
 
     /**
-     * 같은 위험 수준이 이어지는 날짜 구간.
+     * 같은 선이 기준 미만으로 이어지는 날짜 구간.
      *
-     * @param line          구간에서 기준 미만인 가장 확실한 선(DANGER는 확정, WARNING은 예상이 있으면 예상, 없으면 보수적)
+     * @param line          날마다 기준 미만인 가장 확실한 선. 구간 안에서 같다(확정이면 DANGER, 예상·보수적이면 WARNING)
      * @param lowestBalance 그 선의 구간 최저 잔액(원)
      * @param shortfall     안전 잔액까지 모자라는 금액(원)
+     * @param causes        그 선에 반영된 구간 안 출금. 보수적 선 구간은 최저일까지 누적한 추정 생활비를 더한다
      */
     record RiskWindow(LocalDate from, LocalDate to, Level level, Line line, long lowestBalance, long shortfall,
             List<Cause> causes) {}

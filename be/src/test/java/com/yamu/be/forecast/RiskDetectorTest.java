@@ -58,6 +58,48 @@ class RiskDetectorTest {
     }
 
     @Test
+    void DANGER_구간_원인에는_확정_선에_반영되지_않은_예상_출금을_넣지_않는다() {
+        FlowEvent bill = new FlowEvent(5L, TODAY.plusDays(1), -400_000L, FlowEvent.Type.CARD_BILLING,
+                FlowEvent.Confidence.CONFIRMED, "카드 청구 출금", 88L);
+        FlowEvent accumulating = new FlowEvent(5L, TODAY.plusDays(1), -50_000L, FlowEvent.Type.CARD_BILLING,
+                FlowEvent.Confidence.EXPECTED, "카드 청구 출금", 89L);
+        Assessment result = RiskDetector.assess(List.of(
+                point(0, 300_000, 300_000, 300_000),
+                point(1, -100_000, -150_000, -150_000, bill, accumulating)), THRESHOLD);
+
+        assertThat(result.windows()).singleElement().satisfies(window -> {
+            assertThat(window.line()).isEqualTo(Line.CONFIRMED);
+            assertThat(window.causes()).extracting(Cause::refId).containsExactly(88L);
+        });
+    }
+
+    @Test
+    void 예상_선_미달에서_생활비만_미달로_바뀌면_구간을_나누고_원인을_각_선에_맞춘다() {
+        FlowEvent rent = outflow(1, -250_000);
+        Assessment result = RiskDetector.assess(List.of(
+                point(0, 300_000, 300_000, 300_000),
+                // 1~2일: 예상 선이 미달(월세 때문)
+                point(1, 300_000, 50_000, 40_000, rent),
+                point(2, 300_000, 90_000, 70_000),
+                // 3~4일: 예상 선은 기준 이상인데 생활비를 빼면 미달
+                point(3, 300_000, 120_000, 90_000),
+                point(4, 300_000, 120_000, 80_000)), THRESHOLD);
+
+        assertThat(result.windows())
+                .extracting(RiskWindow::from, RiskWindow::to, RiskWindow::level, RiskWindow::line,
+                        RiskWindow::lowestBalance)
+                .containsExactly(
+                        tuple(TODAY.plusDays(1), TODAY.plusDays(2), Level.WARNING, Line.EXPECTED, 50_000L),
+                        tuple(TODAY.plusDays(3), TODAY.plusDays(4), Level.WARNING, Line.CONSERVATIVE, 80_000L));
+        // 예상 선 구간: 월세만. 생활비 원인 없음
+        assertThat(result.windows().get(0).causes()).extracting(Cause::type)
+                .containsExactly(CauseType.SCHEDULED_OUTFLOW);
+        // 보수적 선 구간: 그 구간 최저일(4일째)의 누적 추정 생활비 40,000원
+        assertThat(result.windows().get(1).causes()).extracting(Cause::type, Cause::amount, Cause::date)
+                .containsExactly(tuple(CauseType.LIVING_COST_ESTIMATE, -40_000L, TODAY.plusDays(4)));
+    }
+
+    @Test
     void 예상_선만_기준_미만이면_WARNING이고_예상_선으로_본다() {
         Assessment result = RiskDetector.assess(List.of(
                 point(0, 300_000, 300_000, 300_000),
