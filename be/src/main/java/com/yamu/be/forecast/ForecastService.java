@@ -92,7 +92,8 @@ public class ForecastService {
         CashflowEvents.Converted converted = CashflowEvents.convert(authenticatedUserId, entries, selectedSet, cards,
                 creditSchedule, horizon.from(), horizon.to());
         List<FlowEvent> events = new ArrayList<>(converted.events());
-        events.addAll(billEvents(authenticatedUserId, selected, selectedSet, horizon));
+        List<ExcludedItem> excluded = new ArrayList<>(converted.excluded());
+        events.addAll(billEvents(authenticatedUserId, selected, selectedSet, horizon, excluded));
 
         Map<Long, Long> startBalances = new LinkedHashMap<>();
         Map<Long, Long> dailyLiving = new HashMap<>();
@@ -130,7 +131,7 @@ public class ForecastService {
                 total.dailyAverage(), total.monthlyAverage(), LIVING_COST_METHOD, total.dataOrigin(), total.confidence());
         long currentTotal = startBalances.values().stream().reduce(0L, Math::addExact);
         return new BalanceForecast(selected, selected.size(), currentTotal, horizon, alertThreshold, summary,
-                series(projection.total()), aggregate.windows(), livingCost, accountForecasts, converted.excluded(),
+                series(projection.total()), aggregate.windows(), livingCost, accountForecasts, List.copyOf(excluded),
                 true, now());
     }
 
@@ -279,11 +280,15 @@ public class ForecastService {
         return byId;
     }
 
-    /** 청구 출금을 출금 계좌의 출금일에 뺀다. 확정 청구는 확정 선부터, 진행 중 청구는 예상 선부터 반영한다. */
+    /**
+     * 청구 출금을 출금 계좌의 출금일에 뺀다. 확정 청구는 확정 선부터, 진행 중 청구는 예상 선부터 반영한다.
+     * 출금일이 지났는데 아직 확정 상태인 청구는 출금 결과를 기다리는 중이라 오늘 뺀다.
+     * 미납 청구는 재출금 일정이 없어 빼지 않고 excluded로 알린다.
+     */
     private List<FlowEvent> billEvents(Long userId, List<Long> selected, Set<Long> selectedSet,
-            BalanceForecast.Horizon horizon) {
+            BalanceForecast.Horizon horizon, List<ExcludedItem> excluded) {
         List<FlowEvent> events = new ArrayList<>();
-        for (CardBillReader.BillWithdrawal bill : bills.upcoming(userId, selected, horizon.from(), horizon.to())) {
+        for (CardBillReader.OutstandingBill bill : bills.outstanding(userId, selected, horizon.to())) {
             if (bill.amount() < 0) {
                 throw new IllegalStateException("청구 출금액이 음수다: " + bill.cardBillId());
             }
@@ -291,12 +296,29 @@ public class ForecastService {
             if (!selectedSet.contains(bill.accountId())) {
                 continue;
             }
-            events.add(new FlowEvent(bill.accountId(), bill.withdrawalDate(), -bill.amount(),
-                    FlowEvent.Type.CARD_BILLING,
-                    bill.confirmed() ? FlowEvent.Confidence.CONFIRMED : FlowEvent.Confidence.EXPECTED,
-                    "카드 청구 출금", bill.cardBillId()));
+            switch (bill.status()) {
+                case UNPAID -> excluded.add(ExcludedItem.unpaid(bill));
+                case CONFIRMED -> {
+                    // 결과 불명이면 실제로는 이미 빠져 현재 잔액에 반영됐을 수 있다. 위험을 놓치지 않도록 그래도 뺀다.
+                    LocalDate date = bill.withdrawalDate().isBefore(horizon.from())
+                            ? horizon.from() : bill.withdrawalDate();
+                    events.add(billEvent(bill, date, FlowEvent.Confidence.CONFIRMED));
+                }
+                case ACCUMULATING -> {
+                    if (bill.withdrawalDate().isBefore(horizon.from())) {
+                        throw new IllegalStateException("이용기간이 진행 중인 청구의 출금일이 지났다: " + bill.cardBillId());
+                    }
+                    events.add(billEvent(bill, bill.withdrawalDate(), FlowEvent.Confidence.EXPECTED));
+                }
+            }
         }
         return events;
+    }
+
+    private static FlowEvent billEvent(CardBillReader.OutstandingBill bill, LocalDate date,
+            FlowEvent.Confidence confidence) {
+        return new FlowEvent(bill.accountId(), date, -bill.amount(), FlowEvent.Type.CARD_BILLING, confidence,
+                "카드 청구 출금", bill.cardBillId());
     }
 
     private static List<BalanceForecast.SeriesPoint> series(List<ForecastCalculator.BalancePoint> points) {

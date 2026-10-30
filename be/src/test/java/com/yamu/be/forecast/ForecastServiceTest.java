@@ -12,7 +12,8 @@ import com.yamu.be.cashflow.CashflowItem;
 import com.yamu.be.cashflow.CashflowService;
 import com.yamu.be.forecast.AccountBalanceReader.AccountBalance;
 import com.yamu.be.forecast.BalanceForecast.Until;
-import com.yamu.be.forecast.CardBillReader.BillWithdrawal;
+import com.yamu.be.forecast.CardBillReader.OutstandingBill;
+import com.yamu.be.forecast.CardBillReader.Status;
 import com.yamu.be.forecast.LivingCostReader.MonthlySpending;
 import com.yamu.be.forecast.LivingCostReader.Origin;
 import com.yamu.be.global.exception.BusinessException;
@@ -59,7 +60,8 @@ class ForecastServiceTest {
     private List<AccountBalance> balances = List.of(
             new AccountBalance(A, 800_000L, FETCHED_AT), new AccountBalance(B, 300_000L, FETCHED_AT));
     private RuntimeException balanceFailure;
-    private List<BillWithdrawal> bills = List.of();
+    private List<OutstandingBill> bills = List.of();
+    private final List<LocalDate> billRequestsTo = new ArrayList<>();
     private List<MonthlySpending> spending = List.of();
     private RuntimeException livingFailure;
     private ForecastService service;
@@ -78,7 +80,10 @@ class ForecastServiceTest {
             }
             return balances;
         };
-        CardBillReader billReader = (userId, accountIds, from, to) -> bills;
+        CardBillReader billReader = (userId, accountIds, to) -> {
+            billRequestsTo.add(to);
+            return bills;
+        };
         CardReader cardReader = (userId, cardId) -> Optional.empty();
         CreditWithdrawalSchedule creditSchedule = (card, spendDate) -> spendDate;
         LivingCostReader livingReader = (userId, accountIds, fromMonth, toMonth) -> {
@@ -96,7 +101,7 @@ class ForecastServiceTest {
     void 잔액에_예정_지출과_청구_출금을_계좌별로_더한_뒤_같은_날짜끼리_합친다() {
         // 명세 예시: A 800,000원에서 11/5 예정 출금 200,000원, B 300,000원에서 11/5 카드 청구 400,000원
         givenEntries(TODAY, TODAY.plusDays(14), entry(1L, A, 200_000L, NOV_5, false));
-        bills = List.of(new BillWithdrawal(88L, B, NOV_5, 400_000L, true));
+        bills = List.of(new OutstandingBill(88L, B, Status.CONFIRMED, NOV_5, 400_000L));
 
         BalanceForecast result = service.forecast(USER, List.of(A, B), Until.DAYS, 14, true, false);
 
@@ -116,8 +121,8 @@ class ForecastServiceTest {
     void 명세_예시대로_통합은_안전해도_B_계좌가_위험하면_최종_상태는_DANGER다() {
         // A 800,000원·하루 생활비 5,000원, 11/5 예정 출금 200,000원. B 300,000원·하루 2,000원, 11/5 카드 청구 400,000원
         givenEntries(TODAY, TODAY.plusDays(14), entry(1L, A, 200_000L, NOV_5, false));
-        bills = List.of(new BillWithdrawal(88L, B, NOV_5, 400_000L, true));
-        spending = List.of(real(A, JUL, 155_000), real(A, AUG, 155_000), real(A, SEP, 150_000),
+        bills = List.of(new OutstandingBill(88L, B, Status.CONFIRMED, NOV_5, 400_000L));
+        spending =List.of(real(A, JUL, 155_000), real(A, AUG, 155_000), real(A, SEP, 150_000),
                 real(B, JUL, 62_000), real(B, AUG, 62_000), real(B, SEP, 60_000));
 
         BalanceForecast result = service.forecast(USER, List.of(A, B), Until.DAYS, 14, true, false);
@@ -236,8 +241,8 @@ class ForecastServiceTest {
     @Test
     void 확정_청구는_확정_선부터_진행_중_청구는_예상_선부터_반영한다() {
         givenEntries(TODAY, TODAY.plusDays(14));
-        bills = List.of(new BillWithdrawal(88L, A, NOV_5, 400_000L, true),
-                new BillWithdrawal(89L, A, NOV_5.plusDays(2), 50_000L, false));
+        bills = List.of(new OutstandingBill(88L, A, Status.CONFIRMED, NOV_5, 400_000L),
+                new OutstandingBill(89L, A, Status.ACCUMULATING, NOV_5.plusDays(2), 50_000L));
 
         BalanceForecast result = service.forecast(USER, List.of(A), Until.DAYS, 14, false, false);
 
@@ -253,7 +258,7 @@ class ForecastServiceTest {
     @Test
     void 결제와_연결된_예정_지출은_빼고_청구로_한_번만_차감한다() {
         givenEntries(TODAY, TODAY.plusDays(14), entry(1L, A, 400_000L, NOV_5, true));
-        bills = List.of(new BillWithdrawal(88L, A, NOV_5, 400_000L, true));
+        bills = List.of(new OutstandingBill(88L, A, Status.CONFIRMED, NOV_5, 400_000L));
 
         BalanceForecast result = service.forecast(USER, List.of(A), Until.DAYS, 14, false, false);
 
@@ -277,11 +282,47 @@ class ForecastServiceTest {
     @Test
     void 다른_계좌의_청구를_선택_계좌에_옮겨_담지_않는다() {
         givenEntries(TODAY, TODAY.plusDays(14));
-        bills = List.of(new BillWithdrawal(88L, B, NOV_5, 400_000L, true));
+        bills = List.of(new OutstandingBill(88L, B, Status.CONFIRMED, NOV_5, 400_000L));
 
         BalanceForecast result = service.forecast(USER, List.of(A), Until.DAYS, 14, false, false);
 
         assertThat(lastConfirmed(result.series())).isEqualTo(800_000L);
+    }
+
+    @Test
+    void 출금일이_지났는데_아직_확정인_청구는_오늘_확정_선에서_뺀다() {
+        // 결제일 07:00 출금 요청 뒤 결과를 기다리는 청구. 예보 시작일 이전 날짜라도 버리지 않는다.
+        givenEntries(TODAY, TODAY.plusDays(14));
+        bills = List.of(new OutstandingBill(88L, A, Status.CONFIRMED, TODAY.minusDays(1), 300_000L));
+
+        BalanceForecast result = service.forecast(USER, List.of(A), Until.DAYS, 14, false, false);
+
+        assertThat(day(result.series(), TODAY).confirmed()).isEqualTo(500_000L);
+        assertThat(lastConfirmed(result.series())).isEqualTo(500_000L);
+        assertThat(billRequestsTo).containsExactly(TODAY.plusDays(14));
+    }
+
+    @Test
+    void 미납_청구는_빼지_않고_excluded로_알린다() {
+        givenEntries(TODAY, TODAY.plusDays(14));
+        bills = List.of(new OutstandingBill(88L, A, Status.UNPAID, TODAY.minusDays(10), 120_000L));
+
+        BalanceForecast result = service.forecast(USER, List.of(A), Until.DAYS, 14, false, false);
+
+        assertThat(lastConfirmed(result.series())).isEqualTo(800_000L);
+        assertThat(result.excluded())
+                .extracting(ExcludedItem::cardBillId, ExcludedItem::cashflowItemId, ExcludedItem::date,
+                        ExcludedItem::amount, ExcludedItem::reason)
+                .containsExactly(tuple(88L, null, TODAY.minusDays(10), 120_000L, ExcludedItem.Reason.UNPAID_BILL));
+    }
+
+    @Test
+    void 진행_중_청구의_출금일이_지났으면_계약_위반으로_실패한다() {
+        givenEntries(TODAY, TODAY.plusDays(14));
+        bills = List.of(new OutstandingBill(88L, A, Status.ACCUMULATING, TODAY.minusDays(1), 50_000L));
+
+        assertThatThrownBy(() -> service.forecast(USER, List.of(A), Until.DAYS, 14, false, false))
+                .isInstanceOf(IllegalStateException.class);
     }
 
     @Test
