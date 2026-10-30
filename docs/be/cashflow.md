@@ -6,7 +6,7 @@
 | Task | 내용 | MR | 상태 (2026-10-29) |
 |---|---|---|---|
 | 7.1.2 (S15P31E103-64) | 등록·목록 조회 | !38 | develop에 머지 |
-| 7.1.3 (S15P31E103-65) | 수정·삭제, 반복 회차 처리 | !40 | 리뷰 중 |
+| 7.1.3 (S15P31E103-65) | 수정·삭제, 반복 회차 처리 | !40 | develop에 머지 |
 
 - 명세: 팀 노션 API 명세서 V2 「가계부 항목 등록」「목록」「수정」「삭제」
 - 테이블 정의: [schema/implementation.md](schema/implementation.md) 「Epic 7 현금흐름 보완」, [schema/dictionary.md](schema/dictionary.md)
@@ -169,7 +169,7 @@ Java record와 Jackson은 "보내지 않음"과 `null`을 구분하지 못해 �
 
 ## 미완료·한계
 
-- **잔고예보 연동**: `forecastImpact`·`warnings`가 없습니다. 결제 연결 회차를 예보 차감에서 빼는 표시는 목록 병합에서 이미 계산하지만 `Entry`에 아직 담지 않았습니다(쓰는 곳이 생길 때 추가). 금액 미정(`amount=NULL`) 회차의 예보 제외·안내도 잔고예보에서 처리해야 합니다.
+- **잔고예보 연동**: `forecastImpact`·`warnings`가 없습니다. 결제 연결 회차는 목록의 `Entry.paid`로 표시하고(7.1.4), 잔고예보가 예정 차감에서 뺍니다. 금액 미정(`amount=NULL`) 회차의 예보 제외·안내는 잔고예보가 처리합니다([forecast.md](forecast.md)).
 - **반복 지출 탐지·구매 계획 전**: `candidateCount`는 0, `productCategoryCode`·`productName`은 null입니다. 탐지 후보(`CANDIDATE`) 상태 변경은 구현했지만 후보를 만드는 기능은 아직 없습니다.
 - **재시도 키 없음**: 등록 재시도 시 두 건이 생길 수 있습니다.
 - **목록 결과 수 상한 없음**: 매주 반복 1건이 366일 기간에서 최대 53줄입니다.
