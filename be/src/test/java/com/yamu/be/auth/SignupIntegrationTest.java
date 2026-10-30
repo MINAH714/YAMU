@@ -16,6 +16,7 @@ import com.yamu.be.support.Concurrently;
 import com.yamu.be.support.MySqlTestSupport;
 import com.yamu.be.support.OwnershipFixtures;
 import com.yamu.be.user.domain.AppUser;
+import com.yamu.be.user.domain.AppUserStatus;
 import com.yamu.be.user.domain.AppUserRepository;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -201,22 +202,17 @@ class SignupIntegrationTest extends MySqlTestSupport {
     }
 
     @Test
-    void 탈퇴한_사람은_본인인증_확인에서_409_REJOIN_NOT_AVAILABLE이다() throws Exception {
-        withdraw(seed(PHONE));
+    void 탈퇴한_사람은_본인인증_확인에서_새_사용자로_재가입한다() throws Exception {
+        AppUser old = seed(PHONE);
+        withdraw(old);
 
-        confirmFor(PHONE).andExpect(status().isConflict())
-                .andExpect(jsonPath("$.error.code").value("REJOIN_NOT_AVAILABLE"));
-        assertThat(redis.keys("signup:*")).isEmpty();
-    }
-
-    @Test
-    void 탈퇴자라도_이름이_다르면_탈퇴_여부를_알려주지_않고_404다() throws Exception {
-        withdraw(seed(PHONE));
-        MvcResult requested = requestVerification("홍길동", BIRTH, "SKT", PHONE).andReturn();
-
-        confirm(read(requested, "$.data.verificationId"), read(requested, "$.data.demoCode"))
-                .andExpect(status().isNotFound())
-                .andExpect(jsonPath("$.error.code").value("DEMO_USER_NOT_FOUND"));
+        confirmFor(PHONE).andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.mode").value("SIGNUP"))
+                .andExpect(jsonPath("$.data.nextStep").value("ACCOUNT_LINK"));
+        AppUser fresh = userRepository.findByPhoneHashAndBirthDate(lookupHasher.phone(PHONE), LocalDate.parse(BIRTH))
+                .orElseThrow();
+        assertThat(fresh.getId()).isNotEqualTo(old.getId());
+        assertThat(fresh.getStatus()).isEqualTo(AppUserStatus.PENDING);
     }
 
     // ───────── 인증번호 ─────────
