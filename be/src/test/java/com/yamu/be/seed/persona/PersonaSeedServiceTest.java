@@ -12,7 +12,11 @@ import static org.mockito.Mockito.when;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.yamu.be.account.domain.LinkedAccount;
+import com.yamu.be.account.domain.LinkedAccountRepository;
 import com.yamu.be.card.domain.CardIssuerStatus;
+import com.yamu.be.card.domain.UserCard;
+import com.yamu.be.card.domain.UserCardRepository;
 import com.yamu.be.global.crypto.CipherField;
 import com.yamu.be.global.crypto.LookupHasher;
 import com.yamu.be.global.crypto.PersonalDataCipher;
@@ -20,6 +24,7 @@ import com.yamu.be.global.finapi.FinApiClient;
 import com.yamu.be.global.exception.ErrorCode;
 import com.yamu.be.global.finapi.FinApiException;
 import com.yamu.be.global.finapi.FinApiOutcome;
+import com.yamu.be.seed.persona.PersonaSeedFile.Account;
 import com.yamu.be.seed.persona.PersonaSeedFile.Card;
 import com.yamu.be.seed.persona.PersonaSeedFile.Persona;
 import com.yamu.be.seed.persona.PersonaSeedService.Outcome;
@@ -58,7 +63,14 @@ class PersonaSeedServiceTest extends MySqlTestSupport {
     @Autowired PersonalDataCipher cipher;
     @Autowired LookupHasher lookup;
     @Autowired ObjectMapper objectMapper;
+    @Autowired LinkedAccountRepository linkedAccountRepository;
+    @Autowired UserCardRepository userCardRepository;
     @MockitoBean FinApiClient finApiClient;
+
+    /** SsafyAccountApi.LIST_PATH(패키지 전용)와 같은 경로. 계좌 목록을 가짜로 돌려줄 때 쓴다. */
+    private static final String LIST_PATH = "/edu/demandDeposit/inquireDemandDepositAccountList";
+    /** {@link #accounts}가 돌려주는 첫 계좌. 카드사가 정한 카드 계좌로 쓴다. */
+    private static final Account ACCOUNT = new Account("088", "088-000-000000000");
 
     private static final String CREDIT_PRODUCT = "페르소나 테스트 신용";
     private static final String CHECK_PRODUCT = "페르소나 테스트 체크";
@@ -105,6 +117,14 @@ class PersonaSeedServiceTest extends MySqlTestSupport {
         assertThat(cipher.decrypt((byte[]) cards.get(0).get("card_no_enc"), CipherField.USER_CARD_NO)).isEqualTo(cardNo);
         assertThat((byte[]) cards.get(0).get("card_no_hash")).isEqualTo(lookup.card(cardNo));
         assertThat(cards.get(0).get("card_last4")).isEqualTo(cardNo.substring(12));
+        // 카드사가 정한 계좌: 계좌 연결과 같은 해시, 끝 4자리. 신용카드만 결제일.
+        assertThat(cards).allSatisfy(c -> {
+            assertThat(c.get("issuer_account_bank_code")).isEqualTo("088");
+            assertThat((byte[]) c.get("issuer_account_hash")).isEqualTo(lookup.account("088", "088000000000000"));
+            assertThat(c.get("issuer_account_last4")).isEqualTo("0000");
+        });
+        assertThat(((Number) cards.get(0).get("payment_day")).intValue()).isEqualTo(14);
+        assertThat(cards.get(1).get("payment_day")).isNull();
     }
 
     @Test
@@ -167,13 +187,13 @@ class PersonaSeedServiceTest extends MySqlTestSupport {
         assertThat(exists(noProduct)).isFalse();
         assertThat(exists(ok)).isTrue();
         // 상품이 없으면 금융망도 부르지 않는다.
-        verify(finApiClient, never()).post(eq(PersonaAccountCheck.LIST_PATH), eq(noProduct.ssafyUserKey()), isNull(),
+        verify(finApiClient, never()).post(eq(LIST_PATH), eq(noProduct.ssafyUserKey()), isNull(),
                 eq(JsonNode.class));
     }
 
     @Test
     void 이름이_겹치는_상품은_카드사를_넣으면_찾는다() {
-        Persona persona = persona("카드사 지정", List.of(new Card("이름 겹침", "TESTB", null, cardNo(), null, null)));
+        Persona persona = persona("카드사 지정", List.of(new Card("이름 겹침", "TESTB", null, cardNo(), null, null, ACCOUNT, 14)));
         accounts(persona, 1);
 
         assertThat(seedService.seed(List.of(persona), false).outcomes().get(0).result()).isEqualTo(Result.CREATED);
@@ -185,7 +205,7 @@ class PersonaSeedServiceTest extends MySqlTestSupport {
         Persona brokenKey = persona("키 오류", List.of());
         accounts(noAccount, 0);
         FinApiException rejected = rejected();
-        when(finApiClient.post(eq(PersonaAccountCheck.LIST_PATH), eq(brokenKey.ssafyUserKey()), isNull(),
+        when(finApiClient.post(eq(LIST_PATH), eq(brokenKey.ssafyUserKey()), isNull(),
                 eq(JsonNode.class))).thenThrow(rejected);
 
         List<Outcome> outcomes = seedService.seed(List.of(noAccount, brokenKey), false).outcomes();
@@ -202,7 +222,7 @@ class PersonaSeedServiceTest extends MySqlTestSupport {
         Persona badPhone = new Persona("번호 오류", "김야무", LocalDate.of(1995, 1, 1), "02123456789",
                 memberId(), "key-" + cardNo(), List.of());
         Persona badCard = new Persona("카드 오류", "김야무", LocalDate.of(1995, 1, 1), phone(), memberId(),
-                "key-" + cardNo(), List.of(new Card(CREDIT_PRODUCT, null, null, "1234", null, null)));
+                "key-" + cardNo(), List.of(new Card(CREDIT_PRODUCT, null, null, "1234", null, null, ACCOUNT, 14)));
         Persona blankName = new Persona(null, "  ", LocalDate.of(1995, 1, 1), phone(), memberId(),
                 "key-" + cardNo(), List.of());
 
@@ -262,7 +282,8 @@ class PersonaSeedServiceTest extends MySqlTestSupport {
         Files.writeString(good, """
                 [{"label":"A","name":"김야무","birthDate":"1995-03-14","phone":"01000000011",
                   "ssafyMemberId":"a@yamu.app","ssafyUserKey":"k",
-                  "cards":[{"productName":"P","cardNo":"9410000000000011","expiry":"2029-08"}]}]
+                  "cards":[{"productName":"P","cardNo":"9410000000000011","expiry":"2029-08",
+                            "account":{"bankCode":"088","accountNo":"0880000000000"},"paymentDay":14}]}]
                 """);
         Path bad = dir.resolve("bad.json");
         Files.writeString(bad, "[{\"name\":\"김야무\", \"phone\": 01099998888}]");
@@ -271,10 +292,78 @@ class PersonaSeedServiceTest extends MySqlTestSupport {
         assertThat(personas).singleElement().satisfies(p -> {
             assertThat(p.cards().get(0).expiry()).isEqualTo(YearMonth.of(2029, 8));
             assertThat(p.cards().get(0).issuerStatus()).isEqualTo(CardIssuerStatus.NORMAL);
+            assertThat(p.cards().get(0).account()).isEqualTo(new Account("088", "0880000000000"));
+            assertThat(p.cards().get(0).paymentDay()).isEqualTo(14);
         });
         assertThatThrownBy(() -> runner.read(bad)).hasMessageContaining("JSON 형식 오류")
                 .hasMessageNotContaining("01099998888").hasMessageNotContaining("김야무");
         assertThatThrownBy(() -> runner.read(dir.resolve("none.json"))).hasMessageContaining("persona.example.json");
+    }
+
+    @Test
+    void 카드_종류와_결제일이_맞지_않으면_그_사람만_실패한다() {
+        Persona creditNoDay = persona("신용 결제일 없음", List.of(
+                new Card(CREDIT_PRODUCT, null, null, cardNo(), null, null, ACCOUNT, null)));
+        Persona checkWithDay = persona("체크 결제일 있음", List.of(
+                new Card(CHECK_PRODUCT, null, null, cardNo(), null, null, ACCOUNT, 10)));
+        Persona noAccount = persona("계좌 없음", List.of(
+                new Card(CREDIT_PRODUCT, null, null, cardNo(), null, null, null, 14)));
+        Persona dayOutOfRange = persona("결제일 범위", List.of(
+                new Card(CREDIT_PRODUCT, null, null, cardNo(), null, null, ACCOUNT, 28)));
+        List.of(creditNoDay, checkWithDay, noAccount, dayOutOfRange).forEach(p -> accounts(p, 1));
+
+        List<Outcome> outcomes = seedService.seed(List.of(creditNoDay, checkWithDay, noAccount, dayOutOfRange), false)
+                .outcomes();
+
+        assertThat(outcomes).extracting(Outcome::result).containsOnly(Result.FAILED);
+        assertThat(outcomes.get(0).message()).contains("신용카드").contains("paymentDay");
+        assertThat(outcomes.get(1).message()).contains("체크카드").contains("paymentDay");
+        assertThat(outcomes.get(2).message()).contains("account");
+        assertThat(outcomes.get(3).message()).contains("paymentDay");
+        assertThat(List.of(creditNoDay, checkWithDay, noAccount, dayOutOfRange)).noneMatch(this::exists);
+    }
+
+    @Test
+    void 카드_계좌가_그_회원의_SSAFY_계좌_목록에_없으면_넣지_않고_계좌번호를_남기지_않는다() {
+        Account elsewhere = new Account("004", "0049999999999912");
+        Persona persona = persona("남의 계좌", List.of(
+                new Card(CREDIT_PRODUCT, null, null, cardNo(), null, null, elsewhere, 14)));
+        accounts(persona, 2);
+
+        Outcome outcome = seedService.seed(List.of(persona), false).outcomes().get(0);
+
+        assertThat(outcome.result()).isEqualTo(Result.FAILED);
+        assertThat(outcome.message()).contains("계좌 목록에 없습니다").contains("004")
+                .doesNotContain("0049999999999912").doesNotContain("9912");
+        assertThat(exists(persona)).isFalse();
+    }
+
+    @Test
+    void 시드한_카드_계좌는_가입_중_연결한_계좌와_카드_등록의_대조_방식으로_맞춰진다() {
+        Persona persona = persona("대조", List.of(card(CREDIT_PRODUCT)));
+        accounts(persona, 2);
+        seedService.seed(List.of(persona), false);
+        long userId = userId(persona);
+        // 가입 중 계좌 연결이 저장하는 값과 같게 넣는다(AccountLinkService: lookupHasher.account(SSAFY 은행 코드, 계좌번호)).
+        String ssafyAccountNo = "088000000000000";
+        jdbc.update("""
+                INSERT INTO linked_account (user_id, bank_code, account_no_enc, account_no_hash, account_last4, status,
+                    connected_at, created_at, updated_at)
+                VALUES (?, '088', ?, ?, '0000', 'CONNECTED', UTC_TIMESTAMP(6), UTC_TIMESTAMP(6), UTC_TIMESTAMP(6))
+                """, userId, cipher.encrypt(ssafyAccountNo, CipherField.LINKED_ACCOUNT_NO),
+                lookup.account("088", ssafyAccountNo));
+
+        UserCard card = userCardRepository.findByUserIdAndCardNoHash(userId,
+                lookup.card(persona.cards().get(0).cardNo())).orElseThrow();
+        // 카드 확인·등록(CardRegistrationService.connectedIssuerAccount)과 같은 조회로 찾는다.
+        LinkedAccount matched = linkedAccountRepository.findByUserIdAndBankCodeAndAccountNoHash(userId,
+                card.getIssuerAccountBankCode(), card.getIssuerAccountHash()).orElseThrow();
+
+        assertThat(card.hasIssuerAccount()).isTrue();
+        assertThat(card.getIssuerAccountLast4()).isEqualTo("0000");
+        assertThat(card.getPaymentDay()).isEqualTo(14);
+        assertThat(matched.getUserId()).isEqualTo(userId);
+        assertThat(matched.isConnected()).isTrue();
     }
 
     private static FinApiException rejected() {
@@ -289,7 +378,9 @@ class PersonaSeedServiceTest extends MySqlTestSupport {
     }
 
     private Card card(String productName) {
-        return new Card(productName, null, null, cardNo(), YearMonth.of(2029, 8), null);
+        // 체크카드는 결제일이 없고, 신용카드(나머지 테스트 상품)는 14일.
+        return new Card(productName, null, null, cardNo(), YearMonth.of(2029, 8), null, ACCOUNT,
+                CHECK_PRODUCT.equals(productName) ? null : 14);
     }
 
     private void accounts(Persona persona, int count) {
@@ -297,7 +388,7 @@ class PersonaSeedServiceTest extends MySqlTestSupport {
         for (int i = 0; i < count; i++) {
             list.addObject().put("bankCode", "088").put("accountNo", "08800000000000" + i);
         }
-        when(finApiClient.post(eq(PersonaAccountCheck.LIST_PATH), eq(persona.ssafyUserKey()), isNull(),
+        when(finApiClient.post(eq(LIST_PATH), eq(persona.ssafyUserKey()), isNull(),
                 eq(JsonNode.class))).thenReturn(list);
     }
 
