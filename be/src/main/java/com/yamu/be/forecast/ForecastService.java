@@ -3,6 +3,7 @@ package com.yamu.be.forecast;
 import com.yamu.be.account.AccountBalance;
 import com.yamu.be.account.AccountBalanceService;
 import com.yamu.be.account.AccountQueryService;
+import com.yamu.be.card.CardQueryService;
 import com.yamu.be.cashflow.CashflowItem;
 import com.yamu.be.cashflow.CashflowService;
 import com.yamu.be.global.common.ApiResponse.FieldErrorResponse;
@@ -26,8 +27,9 @@ import java.util.Set;
  * 선택 계좌의 날짜별 잔고예보를 만든다. 계좌마다 현재 잔액에 예정 수입·지출과 카드 청구 출금을 더하고,
  * 최근 3개월 생활비로 보수적 선을 낸 뒤 같은 날짜끼리 합한다. 통합 선과 계좌별 선에서 안전 잔액 미달을 찾는다.
  *
- * <p>잔액(BE 1)·카드(BE 1)·청구(BE 2)·생활비(BE 1·BE 2) 원천 구현이 아직 없어 Spring 빈으로 등록하지 않는다
- * (등록하면 서버가 뜨지 않는다). 원천이 붙는 MR에서 {@code @Service}·설정값·컨트롤러를 더한다.
+ * <p>잔액·카드는 BE 1 서비스를 직접 쓴다. 청구(BE 2, {@link CardBillReader})·신용카드 출금일({@link CreditWithdrawalSchedule},
+ * 7.2.1)·생활비({@link LivingCostReader}) 원천 구현이 아직 없어 Spring 빈으로 등록하지 않는다(등록하면 서버가 뜨지 않는다).
+ * 원천이 붙는 MR에서 {@code @Service}·설정값·컨트롤러를 더한다.
  */
 public class ForecastService {
     private static final ZoneId KOREA = ZoneId.of("Asia/Seoul");
@@ -44,7 +46,7 @@ public class ForecastService {
     private final CashflowService cashflows;
     private final AccountBalanceService balances;
     private final CardBillReader bills;
-    private final CardReader cards;
+    private final CardQueryService cards;
     private final CreditWithdrawalSchedule creditSchedule;
     private final LivingCostReader livingCosts;
     private final AccountQueryService accounts;
@@ -53,7 +55,7 @@ public class ForecastService {
 
     /** @param alertThreshold 안전 잔액(원). 잔고예보 설정 API가 생기기 전까지 명세의 현행 가정값을 받는다 */
     ForecastService(CashflowService cashflows, AccountBalanceService balances, CardBillReader bills,
-            CardReader cards, CreditWithdrawalSchedule creditSchedule, LivingCostReader livingCosts,
+            CardQueryService cards, CreditWithdrawalSchedule creditSchedule, LivingCostReader livingCosts,
             AccountQueryService accounts, long alertThreshold, Clock clock) {
         this.cashflows = cashflows;
         this.balances = balances;

@@ -2,17 +2,27 @@ package com.yamu.be.forecast;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.tuple;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
+import com.yamu.be.card.CardQueryService;
+import com.yamu.be.card.UserCardRef;
+import com.yamu.be.card.domain.CardIssuerStatus;
+import com.yamu.be.card.domain.CardRegistrationStatus;
+import com.yamu.be.card.domain.CardType;
 import com.yamu.be.cashflow.CashflowItem;
 import com.yamu.be.cashflow.CashflowService;
-import com.yamu.be.forecast.CardReader.CardInfo;
-import com.yamu.be.forecast.CardReader.CardType;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 class CashflowEventsTest {
@@ -26,19 +36,38 @@ class CashflowEventsTest {
     private static final Long CARD_WITHOUT_ACCOUNT = 23L;
     private static final LocalDate CREDIT_WITHDRAWAL = LocalDate.of(2026, 11, 14);
 
+    private static final Long SUSPENDED_ON_A = 24L;
+    private static final Long EXPIRED_ON_A = 25L;
+    private static final Long INACTIVE_ON_A = 26L;
+
     private final List<LocalDate> creditSpendDates = new ArrayList<>();
-    private final Map<Long, CardInfo> cards = Map.of(
-            CHECK_ON_A, new CardInfo(CHECK_ON_A, A, CardType.CHECK, null, null),
-            CREDIT_ON_B, new CardInfo(CREDIT_ON_B, B, CardType.CREDIT, 14, 13),
-            CARD_WITHOUT_ACCOUNT, new CardInfo(CARD_WITHOUT_ACCOUNT, null, CardType.CHECK, null, null));
-    private final CardReader cardReader = (userId, cardId) -> Optional.ofNullable(cards.get(cardId));
+    private final Map<Long, UserCardRef> registered = Map.of(
+            CHECK_ON_A, card(CHECK_ON_A, A, CardType.CHECK, CardRegistrationStatus.ACTIVE, CardIssuerStatus.NORMAL),
+            CREDIT_ON_B, new UserCardRef(CREDIT_ON_B, 1L, B, "2222", CardRegistrationStatus.ACTIVE,
+                    CardIssuerStatus.NORMAL, CardType.CREDIT, 14, 13),
+            CARD_WITHOUT_ACCOUNT, card(CARD_WITHOUT_ACCOUNT, null, CardType.CHECK, CardRegistrationStatus.ACTIVE,
+                    CardIssuerStatus.NORMAL),
+            SUSPENDED_ON_A, card(SUSPENDED_ON_A, A, CardType.CHECK, CardRegistrationStatus.ACTIVE,
+                    CardIssuerStatus.SUSPENDED),
+            EXPIRED_ON_A, card(EXPIRED_ON_A, A, CardType.CHECK, CardRegistrationStatus.ACTIVE,
+                    CardIssuerStatus.EXPIRED),
+            INACTIVE_ON_A, card(INACTIVE_ON_A, A, CardType.CHECK, CardRegistrationStatus.INACTIVE,
+                    CardIssuerStatus.NORMAL));
+    // BE 1 조회처럼 없거나 해제된 카드는 empty다.
+    private final CardQueryService cards = mock(CardQueryService.class);
     private final CreditWithdrawalSchedule creditSchedule = (card, spendDate) -> {
         creditSpendDates.add(spendDate);
         return CREDIT_WITHDRAWAL;
     };
 
+    @BeforeEach
+    void setUp() {
+        when(cards.findRegisteredCard(eq(USER), anyLong()))
+                .thenAnswer(invocation -> Optional.ofNullable(registered.get(invocation.getArgument(1))));
+    }
+
     @Test
-    void 계좌_지정_항목은_예정일에_수입은_더하고_지출은_뺀다_오늘_회차도_넣는다() {
+    void 계좌_지정_항목은_예정일에_수입은_더하고_지출은_뺀다_오늘_지출도_뺀다() {
         CashflowEvents.Converted result = convert(Set.of(A),
                 entry(1L, A, null, CashflowItem.Direction.INCOME, 2_000_000L, TODAY.plusDays(2)),
                 entry(2L, A, null, CashflowItem.Direction.EXPENSE, 500_000L, TODAY));
@@ -106,7 +135,7 @@ class CashflowEventsTest {
     void 기간_밖으로_미뤄진_신용카드_출금은_이번_예보에_넣지_않는다() {
         CashflowEvents.Converted result = CashflowEvents.convert(USER, List.of(
                         entry(1L, null, CREDIT_ON_B, CashflowItem.Direction.EXPENSE, 17_000L, TODAY.plusDays(1))),
-                Set.of(B), cardReader, creditSchedule, TODAY, CREDIT_WITHDRAWAL.minusDays(1));
+                Set.of(B), cards, creditSchedule, TODAY, CREDIT_WITHDRAWAL.minusDays(1));
 
         assertThat(result.events()).isEmpty();
     }
@@ -131,22 +160,45 @@ class CashflowEventsTest {
     }
 
     @Test
-    void 같은_카드는_한_번만_읽는다() {
-        List<Long> reads = new ArrayList<>();
-        CardReader counting = (userId, cardId) -> {
-            reads.add(cardId);
-            return Optional.ofNullable(cards.get(cardId));
-        };
-        CashflowEvents.convert(USER, List.of(
-                        entry(1L, null, CHECK_ON_A, CashflowItem.Direction.EXPENSE, 1_000L, TODAY.plusDays(1)),
-                        entry(1L, null, CHECK_ON_A, CashflowItem.Direction.EXPENSE, 1_000L, TODAY.plusDays(8))),
-                Set.of(A), counting, creditSchedule, TODAY, TO);
+    void 카드사_정지_만료_카드의_예정_지출은_차감하지_않고_이유와_함께_알린다() {
+        CashflowEvents.Converted result = convert(Set.of(A),
+                entry(1L, null, SUSPENDED_ON_A, CashflowItem.Direction.EXPENSE, 9_000L, TODAY.plusDays(2)),
+                entry(2L, null, EXPIRED_ON_A, CashflowItem.Direction.EXPENSE, 9_000L, TODAY.plusDays(3)));
 
-        assertThat(reads).containsExactly(CHECK_ON_A);
+        assertThat(result.events()).isEmpty();
+        assertThat(result.excluded())
+                .extracting(ExcludedItem::cashflowItemId, ExcludedItem::reason)
+                .containsExactly(tuple(1L, ExcludedItem.Reason.CARD_SUSPENDED_OR_EXPIRED),
+                        tuple(2L, ExcludedItem.Reason.CARD_SUSPENDED_OR_EXPIRED));
+    }
+
+    @Test
+    void 추천에서만_뺀_INACTIVE_카드의_예정_지출은_그대로_뺀다() {
+        CashflowEvents.Converted result = convert(Set.of(A),
+                entry(1L, null, INACTIVE_ON_A, CashflowItem.Direction.EXPENSE, 9_000L, TODAY.plusDays(2)));
+
+        assertThat(result.events())
+                .extracting(FlowEvent::accountId, FlowEvent::date, FlowEvent::amount)
+                .containsExactly(tuple(A, TODAY.plusDays(2), -9_000L));
+        assertThat(result.excluded()).isEmpty();
+    }
+
+    @Test
+    void 같은_카드는_한_번만_읽는다() {
+        convert(Set.of(A),
+                entry(1L, null, CHECK_ON_A, CashflowItem.Direction.EXPENSE, 1_000L, TODAY.plusDays(1)),
+                entry(1L, null, CHECK_ON_A, CashflowItem.Direction.EXPENSE, 1_000L, TODAY.plusDays(8)));
+
+        verify(cards, times(1)).findRegisteredCard(USER, CHECK_ON_A);
     }
 
     private CashflowEvents.Converted convert(Set<Long> selected, CashflowService.Entry... entries) {
-        return CashflowEvents.convert(USER, List.of(entries), selected, cardReader, creditSchedule, TODAY, TO);
+        return CashflowEvents.convert(USER, List.of(entries), selected, cards, creditSchedule, TODAY, TO);
+    }
+
+    private static UserCardRef card(Long userCardId, Long accountId, CardType type,
+            CardRegistrationStatus registration, CardIssuerStatus issuer) {
+        return new UserCardRef(userCardId, 1L, accountId, "1111", registration, issuer, type, null, null);
     }
 
     private static CashflowService.Entry entry(Long id, Long accountId, Long userCardId,

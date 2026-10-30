@@ -16,6 +16,11 @@ import com.yamu.be.cashflow.CashflowItem;
 import com.yamu.be.cashflow.CashflowService;
 import com.yamu.be.account.AccountBalance;
 import com.yamu.be.account.AccountBalanceService;
+import com.yamu.be.card.CardQueryService;
+import com.yamu.be.card.UserCardRef;
+import com.yamu.be.card.domain.CardIssuerStatus;
+import com.yamu.be.card.domain.CardRegistrationStatus;
+import com.yamu.be.card.domain.CardType;
 import com.yamu.be.forecast.BalanceForecast.Until;
 import com.yamu.be.forecast.CardBillReader.OutstandingBill;
 import com.yamu.be.forecast.CardBillReader.Status;
@@ -59,6 +64,8 @@ class ForecastServiceTest {
     @Mock CashflowService cashflows;
     @Mock AccountQueryService accounts;
     @Mock AccountBalanceService balanceService;
+    // 따로 정하지 않은 카드는 BE 1 조회처럼 empty(Mockito 기본값)다.
+    @Mock CardQueryService cardService;
 
     private final List<List<Long>> balanceRequests = new ArrayList<>();
     private final List<Boolean> refreshRequests = new ArrayList<>();
@@ -91,7 +98,6 @@ class ForecastServiceTest {
             billRequestsTo.add(to);
             return bills;
         };
-        CardReader cardReader = (userId, cardId) -> Optional.empty();
         CreditWithdrawalSchedule creditSchedule = (card, spendDate) -> spendDate;
         LivingCostReader livingReader = (userId, accountIds, fromMonth, toMonth) -> {
             livingRequests.add(List.of(fromMonth, toMonth));
@@ -100,7 +106,7 @@ class ForecastServiceTest {
             }
             return new LivingCostReader.Spending(spending, LIVING_SYNCED_AT);
         };
-        return new ForecastService(cashflows, balanceService, billReader, cardReader, creditSchedule, livingReader,
+        return new ForecastService(cashflows, balanceService, billReader, cardService, creditSchedule, livingReader,
                 accounts, THRESHOLD, clock);
     }
 
@@ -295,6 +301,26 @@ class ForecastServiceTest {
         BalanceForecast result = service.forecast(USER, List.of(A), Until.DAYS, 14, false, false);
 
         assertThat(lastConfirmed(result.series())).isEqualTo(800_000L);
+    }
+
+    @Test
+    void 정지된_카드의_예정_지출은_빼지만_그_카드의_확정_청구는_그대로_뺀다() {
+        // 확정 청구는 카드가 정지돼도 출금된다. 정지·만료 판단은 앞으로의 예정 카드 지출에만 한다.
+        Long suspendedCard = 30L;
+        when(cardService.findRegisteredCard(USER, suspendedCard)).thenReturn(Optional.of(new UserCardRef(
+                suspendedCard, 1L, A, "3030", CardRegistrationStatus.ACTIVE, CardIssuerStatus.SUSPENDED,
+                CardType.CHECK, null, null)));
+        CashflowService.Item subscription = new CashflowService.Item(9L, null, suspendedCard, "구독",
+                CashflowItem.Direction.EXPENSE, 20_000L, NOV_5, CashflowItem.RecurrenceType.NONE, null, null, null,
+                CashflowItem.Status.CONFIRMED, null);
+        givenEntries(TODAY, TODAY.plusDays(14), new CashflowService.Entry(subscription, NOV_5, NOV_5, false));
+        bills = List.of(new OutstandingBill(88L, A, Status.CONFIRMED, NOV_5, 400_000L));
+
+        BalanceForecast result = service.forecast(USER, List.of(A), Until.DAYS, 14, false, false);
+
+        assertThat(day(result.series(), NOV_5).confirmed()).isEqualTo(400_000L);
+        assertThat(result.excluded()).extracting(ExcludedItem::cashflowItemId, ExcludedItem::reason)
+                .containsExactly(tuple(9L, ExcludedItem.Reason.CARD_SUSPENDED_OR_EXPIRED));
     }
 
     @Test
