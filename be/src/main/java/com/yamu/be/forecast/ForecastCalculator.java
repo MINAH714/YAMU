@@ -6,11 +6,11 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
-import java.util.TreeSet;
 
 /**
  * 계좌별 시작 잔액에 미래 입출금을 날짜순으로 더해 날짜별 예상 잔액을 계산한다. DB·외부 호출 없이 입력만으로 계산한다.
  * 확정 선은 CONFIRMED 입출금만, 예상 선은 CONFIRMED와 EXPECTED를 모두 더한다.
+ * 보수적 선은 예상 선에서 추정 하루 생활비를 내일부터 그날까지 날마다 뺀다(오늘 쓴 돈은 현재 잔액에 이미 반영됨).
  * 통합 선은 같은 날짜의 계좌별 잔액 합이라, 상세의 계좌별 수치를 더하면 항상 통합 수치와 같다(FR-039).
  */
 final class ForecastCalculator {
@@ -20,14 +20,16 @@ final class ForecastCalculator {
 
     /**
      * from~to(포함) 기간의 통합·계좌별 날짜 선을 돌려준다. 각 점은 그날 입출금을 모두 반영한 일말 잔액이다.
-     * 선에는 첫날(from)과 어느 계좌든 입출금이 있는 날을 둔다. 계좌별 선도 같은 날짜를 모두 가지므로
-     * (그날 입출금이 없는 계좌는 직전 잔액) 같은 날짜의 계좌별 값을 더하면 통합 값과 같다. 기간 밖 입출금은 무시한다.
+     * 선에는 기간의 모든 날짜에 점을 둔다(입출금이 없는 날은 직전 잔액). 그래서 같은 날짜의 계좌별 값을 더하면
+     * 통합 값과 같고, 날마다 줄어드는 선(생활비)의 최저점도 놓치지 않는다. 기간 밖 입출금은 무시한다.
      *
-     * @param startBalances 선택한 계좌별 현재 잔액(원). 순서대로 결과에 담는다
-     * @param events        미래 입출금. 계좌는 startBalances에 있어야 한다
+     * @param startBalances   선택한 계좌별 현재 잔액(원). 순서대로 결과에 담는다
+     * @param events          미래 입출금. 계좌는 startBalances에 있어야 한다
+     * @param dailyLivingCost 계좌별 추정 하루 생활비(원). 없는 계좌는 보수적 선을 null로 두고, 그러면 통합 보수적 선도 null이다
      * @return 통합 선과 계좌별 선
      */
-    static Projection project(Map<Long, Long> startBalances, List<FlowEvent> events, LocalDate from, LocalDate to) {
+    static Projection project(Map<Long, Long> startBalances, List<FlowEvent> events, LocalDate from, LocalDate to,
+            Map<Long, Long> dailyLivingCost) {
         if (startBalances.isEmpty()) {
             throw new IllegalArgumentException("예보할 계좌가 없다.");
         }
@@ -36,7 +38,7 @@ final class ForecastCalculator {
         }
         Map<Long, TreeMap<LocalDate, List<FlowEvent>>> eventsByAccount = new LinkedHashMap<>();
         startBalances.keySet().forEach(accountId -> eventsByAccount.put(accountId, new TreeMap<>()));
-        TreeSet<LocalDate> dates = new TreeSet<>(List.of(from));
+        List<LocalDate> dates = from.datesUntil(to.plusDays(1)).toList();
         for (FlowEvent event : events) {
             if (event.date().isBefore(from) || event.date().isAfter(to)) {
                 continue;
@@ -47,7 +49,6 @@ final class ForecastCalculator {
                 throw new IllegalArgumentException("선택하지 않은 계좌의 입출금이다: " + event.accountId());
             }
             byDate.computeIfAbsent(event.date(), date -> new ArrayList<>()).add(event);
-            dates.add(event.date());
         }
 
         Map<LocalDate, Totals> totals = new TreeMap<>();
@@ -56,9 +57,10 @@ final class ForecastCalculator {
         for (Map.Entry<Long, TreeMap<LocalDate, List<FlowEvent>>> account : eventsByAccount.entrySet()) {
             long confirmed = startBalances.get(account.getKey());
             long expected = confirmed;
+            Long living = dailyLivingCost.get(account.getKey());
             List<BalancePoint> points = new ArrayList<>();
-            // 입출금이 없는 날도 그 계좌의 직전 잔액으로 점을 둔다. 통합 합계도 이 값을 더한다.
-            for (LocalDate date : dates) {
+            for (int day = 0; day < dates.size(); day++) {
+                LocalDate date = dates.get(day);
                 List<FlowEvent> dayEvents = account.getValue().getOrDefault(date, List.of());
                 for (FlowEvent event : dayEvents) {
                     expected = Math.addExact(expected, event.amount());
@@ -66,14 +68,16 @@ final class ForecastCalculator {
                         confirmed = Math.addExact(confirmed, event.amount());
                     }
                 }
-                totals.get(date).add(confirmed, expected, dayEvents);
-                points.add(new BalancePoint(date, confirmed, expected, List.copyOf(dayEvents)));
+                Long conservative = living == null ? null
+                        : Math.subtractExact(expected, Math.multiplyExact(living.longValue(), day));
+                totals.get(date).add(confirmed, expected, conservative, dayEvents);
+                points.add(new BalancePoint(date, confirmed, expected, conservative, List.copyOf(dayEvents)));
             }
             byAccount.put(account.getKey(), List.copyOf(points));
         }
         List<BalancePoint> total = totals.entrySet().stream()
                 .map(entry -> new BalancePoint(entry.getKey(), entry.getValue().confirmed, entry.getValue().expected,
-                        List.copyOf(entry.getValue().events)))
+                        entry.getValue().conservative, List.copyOf(entry.getValue().events)))
                 .toList();
         return new Projection(total, byAccount);
     }
@@ -81,11 +85,12 @@ final class ForecastCalculator {
     /**
      * 그날 입출금을 모두 반영한 일말 잔액.
      *
-     * @param confirmed 확정 선 잔액(원)
-     * @param expected  예상 선 잔액(원)
-     * @param events    그날 반영한 입출금
+     * @param confirmed    확정 선 잔액(원)
+     * @param expected     예상 선 잔액(원)
+     * @param conservative 보수적 선 잔액(원). 생활비 추정이 없으면 null
+     * @param events       그날 반영한 입출금
      */
-    record BalancePoint(LocalDate date, long confirmed, long expected, List<FlowEvent> events) {}
+    record BalancePoint(LocalDate date, long confirmed, long expected, Long conservative, List<FlowEvent> events) {}
 
     /**
      * 통합 선과 계좌별 선.
@@ -99,11 +104,15 @@ final class ForecastCalculator {
     private static final class Totals {
         private long confirmed;
         private long expected;
+        /** 한 계좌라도 보수적 선이 없으면 null로 남겨 일부만 더한 값을 내지 않는다. */
+        private Long conservative = 0L;
         private final List<FlowEvent> events = new ArrayList<>();
 
-        void add(long accountConfirmed, long accountExpected, List<FlowEvent> dayEvents) {
+        void add(long accountConfirmed, long accountExpected, Long accountConservative, List<FlowEvent> dayEvents) {
             confirmed = Math.addExact(confirmed, accountConfirmed);
             expected = Math.addExact(expected, accountExpected);
+            conservative = conservative == null || accountConservative == null
+                    ? null : Math.addExact(conservative, accountConservative);
             events.addAll(dayEvents);
         }
     }

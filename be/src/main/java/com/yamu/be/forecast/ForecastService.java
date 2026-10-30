@@ -1,5 +1,6 @@
 package com.yamu.be.forecast;
 
+import com.yamu.be.account.AccountQueryService;
 import com.yamu.be.cashflow.CashflowItem;
 import com.yamu.be.cashflow.CashflowService;
 import com.yamu.be.global.common.ApiResponse.FieldErrorResponse;
@@ -8,6 +9,7 @@ import com.yamu.be.global.exception.ErrorCode;
 import java.time.Clock;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.YearMonth;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
@@ -19,37 +21,53 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * 선택 계좌의 날짜별 잔고예보를 만든다. 계좌마다 현재 잔액에 예정 수입·지출과 카드 청구 출금을 더한 뒤 같은 날짜끼리 합한다.
+ * 선택 계좌의 날짜별 잔고예보를 만든다. 계좌마다 현재 잔액에 예정 수입·지출과 카드 청구 출금을 더하고,
+ * 최근 3개월 생활비로 보수적 선을 낸 뒤 같은 날짜끼리 합한다. 통합 선과 계좌별 선에서 안전 잔액 미달을 찾는다.
  *
- * <p>잔액(BE 1)·카드(BE 1)·청구(BE 2) 원천 구현이 아직 없어 Spring 빈으로 등록하지 않는다(등록하면 서버가 뜨지 않는다).
- * 원천이 붙는 MR에서 {@code @Service}와 컨트롤러를 더한다.
+ * <p>잔액(BE 1)·카드(BE 1)·청구(BE 2)·생활비(BE 1·BE 2) 원천 구현이 아직 없어 Spring 빈으로 등록하지 않는다
+ * (등록하면 서버가 뜨지 않는다). 원천이 붙는 MR에서 {@code @Service}·설정값·컨트롤러를 더한다.
  */
 public class ForecastService {
     private static final ZoneId KOREA = ZoneId.of("Asia/Seoul");
     private static final Set<Integer> ALLOWED_DAYS = Set.of(7, 14, 30);
     /** 다음 수입일을 정할 잔고예보 설정이 아직 없어 명세의 대체 기간을 쓴다. */
     private static final int NEXT_INCOME_FALLBACK_DAYS = 30;
+    private static final String LIVING_COST_METHOD = "AVG_3M";
+    /** 명세 「생활비 예측 상세」의 제외 안내. 실제로 빼는 일은 생활비 원천({@link LivingCostReader})이 한다. */
+    private static final List<LivingCostForecast.Exclusion> LIVING_COST_EXCLUSIONS = List.of(
+            new LivingCostForecast.Exclusion("RECURRING", "월세·통신비·구독료는 예정 지출로 별도 반영"),
+            new LivingCostForecast.Exclusion("CREDIT_PAYMENT", "신용카드 청구는 출금일에 별도 반영"),
+            new LivingCostForecast.Exclusion("UNCLASSIFIED", "소비 목적을 확인할 수 없는 계좌 출금은 임의로 포함하지 않음"));
 
     private final CashflowService cashflows;
     private final AccountBalanceReader balances;
     private final CardBillReader bills;
     private final CardReader cards;
     private final CreditWithdrawalSchedule creditSchedule;
+    private final LivingCostReader livingCosts;
+    private final AccountQueryService accounts;
+    private final long alertThreshold;
     private final Clock clock;
 
+    /** @param alertThreshold 안전 잔액(원). 잔고예보 설정 API가 생기기 전까지 명세의 현행 가정값을 받는다 */
     ForecastService(CashflowService cashflows, AccountBalanceReader balances, CardBillReader bills,
-            CardReader cards, CreditWithdrawalSchedule creditSchedule, Clock clock) {
+            CardReader cards, CreditWithdrawalSchedule creditSchedule, LivingCostReader livingCosts,
+            AccountQueryService accounts, long alertThreshold, Clock clock) {
         this.cashflows = cashflows;
         this.balances = balances;
         this.bills = bills;
         this.cards = cards;
         this.creditSchedule = creditSchedule;
+        this.livingCosts = livingCosts;
+        this.accounts = accounts;
+        this.alertThreshold = alertThreshold;
         this.clock = clock;
     }
 
     /**
      * 선택 계좌의 통합 예보와, 자세히 보기면 계좌별 예보를 돌려준다.
-     * 잔액을 하나라도 못 읽으면 일부만 합친 예보를 주지 않고 실패한다(FR-033).
+     * 잔액을 하나라도 못 읽으면 일부만 합친 예보를 주지 않고 실패한다(FR-033). 생활비 자료가 없는 계좌가 있으면
+     * 보수적 선을 비우고 확정·예상 선으로만 위험을 판단한다.
      *
      * @param accountIds            예보에 쓸 연결 계좌. 중복은 한 번만 쓴다
      * @param until                 기간 기준. null이면 NEXT_INCOME
@@ -60,14 +78,14 @@ public class ForecastService {
      */
     public BalanceForecast forecast(Long authenticatedUserId, List<Long> accountIds, BalanceForecast.Until until,
             Integer days, boolean includeAccountDetails, boolean refresh) {
-        if (authenticatedUserId == null || authenticatedUserId <= 0) {
-            throw new BusinessException(ErrorCode.UNAUTHORIZED);
-        }
+        requireUser(authenticatedUserId);
         List<Long> selected = selectedAccounts(accountIds);
-        BalanceForecast.Horizon horizon = horizon(until, days, LocalDate.now(clock.withZone(KOREA)));
+        LocalDate today = today();
+        BalanceForecast.Horizon horizon = horizon(until, days, today);
 
-        // 잔액은 금융망을 부를 수 있어 DB를 읽기 전에 따로 읽는다. 남의·연결 해제 계좌는 BE 1이 404로 거절한다.
+        // 잔액·생활비는 금융망을 부를 수 있어 DB를 읽기 전에 따로 읽는다. 남의·연결 해제 계좌는 BE 1이 404로 거절한다.
         Map<Long, AccountBalanceReader.AccountBalance> balanceById = readBalances(authenticatedUserId, selected, refresh);
+        LivingCostEstimator.Estimate living = estimateLivingCost(authenticatedUserId, selected, today).estimate();
         List<CashflowService.Entry> entries = cashflows.list(authenticatedUserId, horizon.from(), horizon.to(),
                 null, CashflowItem.Status.CONFIRMED, true);
         Set<Long> selectedSet = Set.copyOf(selected);
@@ -78,21 +96,150 @@ public class ForecastService {
         events.addAll(billEvents(authenticatedUserId, selected, selectedSet, horizon, excluded));
 
         Map<Long, Long> startBalances = new LinkedHashMap<>();
-        selected.forEach(accountId -> startBalances.put(accountId, balanceById.get(accountId).balance()));
+        Map<Long, Long> dailyLiving = new HashMap<>();
+        for (Long accountId : selected) {
+            startBalances.put(accountId, balanceById.get(accountId).balance());
+            Long daily = living.byAccount().get(accountId).dailyAverage();
+            if (daily != null) {
+                dailyLiving.put(accountId, daily);
+            }
+        }
         ForecastCalculator.Projection projection = ForecastCalculator.project(startBalances, events,
-                horizon.from(), horizon.to());
+                horizon.from(), horizon.to(), dailyLiving);
+
+        RiskDetector.Assessment aggregate = RiskDetector.assess(projection.total(), alertThreshold);
+        Map<Long, RiskDetector.Assessment> byAccount = new LinkedHashMap<>();
+        selected.forEach(accountId ->
+                byAccount.put(accountId, RiskDetector.assess(projection.byAccount().get(accountId), alertThreshold)));
+        BalanceForecast.Summary summary = summary(aggregate, byAccount.values(), projection.total());
 
         List<BalanceForecast.AccountForecast> accountForecasts = null;
         if (includeAccountDetails) {
             accountForecasts = selected.stream()
-                    .map(accountId -> new BalanceForecast.AccountForecast(accountId,
-                            balanceById.get(accountId).balance(), balanceById.get(accountId).fetchedAt(),
-                            series(projection.byAccount().get(accountId))))
+                    .map(accountId -> {
+                        RiskDetector.Assessment assessment = byAccount.get(accountId);
+                        return new BalanceForecast.AccountForecast(accountId, balanceById.get(accountId).balance(),
+                                balanceById.get(accountId).fetchedAt(),
+                                new BalanceForecast.AccountSummary(assessment.status(), assessment.minBalance(),
+                                        assessment.minBalanceDate(), assessment.endBalance()),
+                                series(projection.byAccount().get(accountId)), assessment.windows());
+                    })
                     .toList();
         }
+        LivingCostEstimator.Total total = living.total();
+        BalanceForecast.LivingCost livingCost = new BalanceForecast.LivingCost(projected(total.dailyAverage(), horizon),
+                total.dailyAverage(), total.monthlyAverage(), LIVING_COST_METHOD, total.dataOrigin(), total.confidence());
         long currentTotal = startBalances.values().stream().reduce(0L, Math::addExact);
-        return new BalanceForecast(selected, selected.size(), currentTotal, horizon, series(projection.total()),
-                accountForecasts, List.copyOf(excluded), true, LocalDateTime.now(clock.withZone(ZoneOffset.UTC)));
+        return new BalanceForecast(selected, selected.size(), currentTotal, horizon, alertThreshold, summary,
+                series(projection.total()), aggregate.windows(), livingCost, accountForecasts, List.copyOf(excluded),
+                true, now());
+    }
+
+    /**
+     * 선택 계좌의 예상 생활비와 계산 근거(생활비 예측 상세)를 돌려준다. 기간은 잔고예보 기본 기간(30일)이다.
+     * 선택한 어느 계좌에도 생활비 자료가 없으면 0원으로 확정하지 않고 422 DATA_INSUFFICIENT다.
+     *
+     * @param accountIds            생활비를 볼 연결 계좌. 중복은 한 번만 쓴다
+     * @param includeAccountDetails 계좌별 생활비 포함 여부
+     * @return 생활비 예측 상세
+     */
+    public LivingCostForecast livingCost(Long authenticatedUserId, List<Long> accountIds,
+            boolean includeAccountDetails) {
+        requireUser(authenticatedUserId);
+        List<Long> selected = selectedAccounts(accountIds);
+        // 잔액을 읽지 않으므로 소유·연결 확인을 여기서 한다. 남의·연결 해제 계좌는 404다.
+        selected.forEach(accountId -> accounts.requireConnectedAccount(authenticatedUserId, accountId));
+        LocalDate today = today();
+        BalanceForecast.Horizon horizon = horizon(null, null, today);
+        LivingCostRead read = estimateLivingCost(authenticatedUserId, selected, today);
+        LivingCostEstimator.Estimate estimate = read.estimate();
+        boolean anyData = estimate.byAccount().values().stream()
+                .anyMatch(account -> account.dataOrigin() != LivingCostEstimator.DataOrigin.INSUFFICIENT);
+        if (!anyData) {
+            throw new BusinessException(ErrorCode.DATA_INSUFFICIENT);
+        }
+
+        LivingCostEstimator.Total total = estimate.total();
+        List<LivingCostForecast.AccountLivingCost> accountLivingCosts = null;
+        if (includeAccountDetails) {
+            accountLivingCosts = estimate.byAccount().values().stream()
+                    .map(account -> new LivingCostForecast.AccountLivingCost(account.accountId(),
+                            account.dailyAverage(), account.monthlyAverage(),
+                            projected(account.dailyAverage(), horizon), account.dataOrigin()))
+                    .toList();
+        }
+        LivingCostForecast.PaceCheck pace = total.pace() == null ? null
+                : new LivingCostForecast.PaceCheck(total.pace().thisMonthDaily(), total.pace().averageDaily(),
+                        total.pace().overRatio(), total.pace().flagged(), now());
+        return new LivingCostForecast(selected, projected(total.dailyAverage(), horizon), total.dailyAverage(),
+                total.monthlyAverage(), LIVING_COST_METHOD, total.dataOrigin(), total.confidence(),
+                new LivingCostForecast.Period(horizon.from(), horizon.to(), horizon.days(), horizon.type()),
+                total.sources().stream()
+                        .map(source -> new LivingCostForecast.Source(source.month(), source.amount())).toList(),
+                LIVING_COST_EXCLUSIONS, null, pace, read.syncedAt(), accountLivingCosts);
+    }
+
+    /** 이번 달을 포함해 지난 3개월치 생활 소비를 읽어 계좌별로 추정한다. 원천 실패는 그대로 던진다. */
+    private LivingCostRead estimateLivingCost(Long userId, List<Long> selected, LocalDate today) {
+        YearMonth thisMonth = YearMonth.from(today);
+        LivingCostReader.Spending spending = livingCosts.monthlySpending(userId, selected,
+                thisMonth.minusMonths(LivingCostEstimator.MONTHS), thisMonth);
+        return new LivingCostRead(LivingCostEstimator.estimate(selected, spending.months(), today),
+                spending.syncedAt());
+    }
+
+    /**
+     * 통합 수준과 계좌별 수준 중 가장 나쁜 것을 최종 수준으로 한다. 통합이 안전해도 위험한 계좌가 있으면 그 수준이 된다.
+     */
+    private static BalanceForecast.Summary summary(RiskDetector.Assessment aggregate,
+            Iterable<RiskDetector.Assessment> accountAssessments, List<ForecastCalculator.BalancePoint> total) {
+        RiskDetector.Level status = aggregate.status();
+        int atRisk = 0;
+        for (RiskDetector.Assessment account : accountAssessments) {
+            if (account.status() != RiskDetector.Level.SAFE) {
+                atRisk++;
+            }
+            if (account.status().ordinal() > status.ordinal()) {
+                status = account.status();
+            }
+        }
+        return new BalanceForecast.Summary(status, aggregate.status(), aggregate.minBalance(),
+                aggregate.minBalanceDate(), aggregate.endBalance(), atRisk > 0, atRisk, largestOutflow(total));
+    }
+
+    /** 통합 출금 합이 가장 큰 날. 같으면 이른 날이다. */
+    private static BalanceForecast.Outflow largestOutflow(List<ForecastCalculator.BalancePoint> total) {
+        BalanceForecast.Outflow largest = null;
+        for (ForecastCalculator.BalancePoint point : total) {
+            long outflow = 0;
+            for (FlowEvent event : point.events()) {
+                if (event.amount() < 0) {
+                    outflow = Math.addExact(outflow, event.amount());
+                }
+            }
+            if (outflow < 0 && (largest == null || outflow < largest.amount())) {
+                largest = new BalanceForecast.Outflow(point.date(), "예정 출금 합계", outflow);
+            }
+        }
+        return largest;
+    }
+
+    private static Long projected(Long dailyAverage, BalanceForecast.Horizon horizon) {
+        return dailyAverage == null ? null : Math.multiplyExact(dailyAverage.longValue(), horizon.days());
+    }
+
+    private LocalDate today() {
+        return LocalDate.now(clock.withZone(KOREA));
+    }
+
+    private LocalDateTime now() {
+        return LocalDateTime.now(clock.withZone(ZoneOffset.UTC));
+    }
+
+    private static void requireUser(Long authenticatedUserId) {
+        if (authenticatedUserId == null || authenticatedUserId <= 0) {
+            throw new BusinessException(ErrorCode.UNAUTHORIZED);
+        }
     }
 
     /** 중복을 뺀 선택 계좌. 비었으면 명세의 ACCOUNT_SELECTION_REQUIRED다. */
@@ -177,6 +324,7 @@ public class ForecastService {
     private static List<BalanceForecast.SeriesPoint> series(List<ForecastCalculator.BalancePoint> points) {
         return points.stream()
                 .map(point -> new BalanceForecast.SeriesPoint(point.date(), point.confirmed(), point.expected(),
+                        point.conservative(),
                         point.events().stream()
                                 .map(event -> new BalanceForecast.Event(event.type(), event.title(), event.amount(),
                                         event.confidence()))
@@ -188,4 +336,7 @@ public class ForecastService {
         return new BusinessException(ErrorCode.INVALID_REQUEST,
                 Map.of("fieldErrors", List.of(new FieldErrorResponse(field, reason))));
     }
+
+    /** 생활비 추정과 원천을 읽은 시각. */
+    private record LivingCostRead(LivingCostEstimator.Estimate estimate, LocalDateTime syncedAt) {}
 }

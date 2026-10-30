@@ -7,18 +7,22 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
+import com.yamu.be.account.AccountQueryService;
 import com.yamu.be.cashflow.CashflowItem;
 import com.yamu.be.cashflow.CashflowService;
 import com.yamu.be.forecast.AccountBalanceReader.AccountBalance;
 import com.yamu.be.forecast.BalanceForecast.Until;
 import com.yamu.be.forecast.CardBillReader.OutstandingBill;
 import com.yamu.be.forecast.CardBillReader.Status;
+import com.yamu.be.forecast.LivingCostReader.MonthlySpending;
+import com.yamu.be.forecast.LivingCostReader.Origin;
 import com.yamu.be.global.exception.BusinessException;
 import com.yamu.be.global.exception.ErrorCode;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.YearMonth;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -41,19 +45,33 @@ class ForecastServiceTest {
     private static final LocalDate NOV_5 = LocalDate.of(2026, 11, 5);
     private static final LocalDateTime FETCHED_AT = LocalDateTime.of(2026, 10, 25, 15, 29);
 
+    private static final long THRESHOLD = 100_000L;
+    private static final LocalDateTime LIVING_SYNCED_AT = LocalDateTime.of(2026, 10, 25, 15, 0);
+    private static final YearMonth JUL = YearMonth.of(2026, 7);
+    private static final YearMonth AUG = YearMonth.of(2026, 8);
+    private static final YearMonth SEP = YearMonth.of(2026, 9);
+
     @Mock CashflowService cashflows;
+    @Mock AccountQueryService accounts;
 
     private final List<List<Long>> balanceRequests = new ArrayList<>();
     private final List<Boolean> refreshRequests = new ArrayList<>();
+    private final List<List<YearMonth>> livingRequests = new ArrayList<>();
     private List<AccountBalance> balances = List.of(
             new AccountBalance(A, 800_000L, FETCHED_AT), new AccountBalance(B, 300_000L, FETCHED_AT));
     private RuntimeException balanceFailure;
     private List<OutstandingBill> bills = List.of();
     private final List<LocalDate> billRequestsTo = new ArrayList<>();
+    private List<MonthlySpending> spending = List.of();
+    private RuntimeException livingFailure;
     private ForecastService service;
 
     @BeforeEach
     void setUp() {
+        service = serviceAt(CLOCK);
+    }
+
+    private ForecastService serviceAt(Clock clock) {
         AccountBalanceReader balanceReader = (userId, accountIds, refresh) -> {
             balanceRequests.add(accountIds);
             refreshRequests.add(refresh);
@@ -68,7 +86,15 @@ class ForecastServiceTest {
         };
         CardReader cardReader = (userId, cardId) -> Optional.empty();
         CreditWithdrawalSchedule creditSchedule = (card, spendDate) -> spendDate;
-        service = new ForecastService(cashflows, balanceReader, billReader, cardReader, creditSchedule, CLOCK);
+        LivingCostReader livingReader = (userId, accountIds, fromMonth, toMonth) -> {
+            livingRequests.add(List.of(fromMonth, toMonth));
+            if (livingFailure != null) {
+                throw livingFailure;
+            }
+            return new LivingCostReader.Spending(spending, LIVING_SYNCED_AT);
+        };
+        return new ForecastService(cashflows, balanceReader, billReader, cardReader, creditSchedule, livingReader,
+                accounts, THRESHOLD, clock);
     }
 
     @Test
@@ -80,7 +106,8 @@ class ForecastServiceTest {
         BalanceForecast result = service.forecast(USER, List.of(A, B), Until.DAYS, 14, true, false);
 
         assertThat(result.currentTotalBalance()).isEqualTo(1_100_000L);
-        assertThat(result.series())
+        assertThat(result.series()).hasSize(15);
+        assertThat(List.of(day(result.series(), TODAY), day(result.series(), NOV_5)))
                 .extracting(BalanceForecast.SeriesPoint::date, BalanceForecast.SeriesPoint::confirmed,
                         point -> point.events().size())
                 .containsExactly(tuple(TODAY, 1_100_000L, 0), tuple(NOV_5, 500_000L, 2));
@@ -91,6 +118,127 @@ class ForecastServiceTest {
     }
 
     @Test
+    void 명세_예시대로_통합은_안전해도_B_계좌가_위험하면_최종_상태는_DANGER다() {
+        // A 800,000원·하루 생활비 5,000원, 11/5 예정 출금 200,000원. B 300,000원·하루 2,000원, 11/5 카드 청구 400,000원
+        givenEntries(TODAY, TODAY.plusDays(14), entry(1L, A, 200_000L, NOV_5, false));
+        bills = List.of(new OutstandingBill(88L, B, Status.CONFIRMED, NOV_5, 400_000L));
+        spending =List.of(real(A, JUL, 155_000), real(A, AUG, 155_000), real(A, SEP, 150_000),
+                real(B, JUL, 62_000), real(B, AUG, 62_000), real(B, SEP, 60_000));
+
+        BalanceForecast result = service.forecast(USER, List.of(A, B), Until.DAYS, 14, true, false);
+
+        // 11/5 통합: 확정 500,000원, 보수적 500,000 − (5,000+2,000)×10일 = 430,000원
+        assertThat(day(result.series(), NOV_5))
+                .extracting(BalanceForecast.SeriesPoint::confirmed, BalanceForecast.SeriesPoint::conservative)
+                .containsExactly(500_000L, 430_000L);
+        assertThat(result.alertThreshold()).isEqualTo(THRESHOLD);
+        assertThat(result.summary().aggregateStatus()).isEqualTo(RiskDetector.Level.SAFE);
+        assertThat(result.summary().status()).isEqualTo(RiskDetector.Level.DANGER);
+        assertThat(result.summary().hasAccountRisk()).isTrue();
+        assertThat(result.summary().atRiskAccountCount()).isEqualTo(1);
+        assertThat(result.summary().largestOutflow())
+                .isEqualTo(new BalanceForecast.Outflow(NOV_5, "예정 출금 합계", -600_000L));
+        assertThat(result.riskWindows()).isEmpty();
+        assertThat(result.livingCost())
+                .extracting(BalanceForecast.LivingCost::dailyAverage, BalanceForecast.LivingCost::projectedAmount,
+                        BalanceForecast.LivingCost::dataOrigin)
+                .containsExactly(7_000L, 98_000L, LivingCostEstimator.DataOrigin.REAL);
+
+        BalanceForecast.AccountForecast b = result.accountForecasts().get(1);
+        assertThat(b.summary().status()).isEqualTo(RiskDetector.Level.DANGER);
+        assertThat(day(b.series(), NOV_5).conservative()).isEqualTo(-120_000L);
+        assertThat(b.riskWindows()).singleElement().satisfies(window -> {
+            assertThat(window.from()).isEqualTo(NOV_5);
+            assertThat(window.line()).isEqualTo(RiskDetector.Line.CONFIRMED);
+            assertThat(window.lowestBalance()).isEqualTo(-100_000L);
+            assertThat(window.shortfall()).isEqualTo(200_000L);
+            assertThat(window.causes()).extracting(RiskDetector.Cause::type)
+                    .containsExactly(RiskDetector.CauseType.CARD_BILLING);
+        });
+        assertThat(result.accountForecasts().get(0).summary().status()).isEqualTo(RiskDetector.Level.SAFE);
+    }
+
+    @Test
+    void 생활비_자료가_없으면_보수적_선을_비우고_확정_예상_선으로만_판단한다() {
+        givenEntries(TODAY, TODAY.plusDays(7));
+
+        BalanceForecast result = service.forecast(USER, List.of(A), Until.DAYS, 7, false, false);
+
+        assertThat(result.series()).extracting(BalanceForecast.SeriesPoint::conservative).containsOnlyNulls();
+        assertThat(result.livingCost())
+                .extracting(BalanceForecast.LivingCost::projectedAmount, BalanceForecast.LivingCost::dataOrigin,
+                        BalanceForecast.LivingCost::confidence)
+                .containsExactly(null, LivingCostEstimator.DataOrigin.INSUFFICIENT,
+                        LivingCostEstimator.Confidence.INSUFFICIENT);
+        assertThat(result.summary().status()).isEqualTo(RiskDetector.Level.SAFE);
+        assertThat(result.summary().minBalance()).isEqualTo(800_000L);
+    }
+
+    @Test
+    void 생활비_원천_실패는_그대로_전파하고_예정_항목을_읽지_않는다() {
+        livingFailure = new BusinessException(ErrorCode.FIN_API_UNAVAILABLE);
+
+        assertError(() -> service.forecast(USER, List.of(A), Until.DAYS, 7, false, false),
+                ErrorCode.FIN_API_UNAVAILABLE);
+        verifyNoInteractions(cashflows);
+    }
+
+    @Test
+    void 생활비는_한국_날짜_기준_완료_3개월과_이번_달을_읽는다() {
+        // UTC 10/31 15:30 = 한국 11/1 00:30 → 8·9·10월이 완료 3개월, 11월이 이번 달
+        LocalDate nov1 = LocalDate.of(2026, 11, 1);
+        ForecastService monthStart = serviceAt(Clock.fixed(Instant.parse("2026-10-31T15:30:00Z"), ZoneOffset.UTC));
+        when(cashflows.list(USER, nov1, nov1.plusDays(7), null, CashflowItem.Status.CONFIRMED, true))
+                .thenReturn(List.of());
+
+        monthStart.forecast(USER, List.of(A), Until.DAYS, 7, false, false);
+
+        assertThat(livingRequests).containsExactly(List.of(YearMonth.of(2026, 8), YearMonth.of(2026, 11)));
+    }
+
+    @Test
+    void 생활비_상세는_소유를_확인하고_계산_근거와_계좌별_값을_돌려준다() {
+        spending = List.of(real(A, JUL, 155_000), real(A, AUG, 155_000), real(A, SEP, 150_000),
+                real(B, SEP, 60_000));
+
+        LivingCostForecast result = service.livingCost(USER, List.of(A, B, A), true);
+
+        verify(accounts).requireConnectedAccount(USER, A);
+        verify(accounts).requireConnectedAccount(USER, B);
+        assertThat(result.accountIds()).containsExactly(A, B);
+        assertThat(result.dailyAverage()).isEqualTo(7_000L);
+        assertThat(result.projectedAmount()).isEqualTo(210_000L);
+        assertThat(result.method()).isEqualTo("AVG_3M");
+        assertThat(result.confidence()).isEqualTo(LivingCostEstimator.Confidence.LOW);
+        assertThat(result.period()).isEqualTo(new LivingCostForecast.Period(TODAY, TODAY.plusDays(30), 30, Until.DAYS));
+        assertThat(result.sources()).extracting(LivingCostForecast.Source::amount)
+                .containsExactly(155_000L, 155_000L, 210_000L);
+        assertThat(result.excluded()).extracting(LivingCostForecast.Exclusion::type)
+                .containsExactly("RECURRING", "CREDIT_PAYMENT", "UNCLASSIFIED");
+        assertThat(result.dailyTarget()).isNull();
+        assertThat(result.dataSyncedAt()).isEqualTo(LIVING_SYNCED_AT);
+        assertThat(result.accountLivingCosts())
+                .extracting(LivingCostForecast.AccountLivingCost::accountId,
+                        LivingCostForecast.AccountLivingCost::dailyAverage,
+                        LivingCostForecast.AccountLivingCost::projectedAmount)
+                .containsExactly(tuple(A, 5_000L, 150_000L), tuple(B, 2_000L, 60_000L));
+    }
+
+    @Test
+    void 생활비_상세는_어느_계좌에도_자료가_없으면_0원으로_확정하지_않고_422다() {
+        assertError(() -> service.livingCost(USER, List.of(A), false), ErrorCode.DATA_INSUFFICIENT);
+    }
+
+    @Test
+    void 생활비_상세에서_남의_계좌는_404이고_원천을_읽지_않는다() {
+        when(accounts.requireConnectedAccount(USER, A)).thenReturn(null);
+        when(accounts.requireConnectedAccount(USER, B)).thenThrow(new BusinessException(ErrorCode.RESOURCE_NOT_FOUND));
+
+        assertError(() -> service.livingCost(USER, List.of(A, B), false), ErrorCode.RESOURCE_NOT_FOUND);
+        assertThat(livingRequests).isEmpty();
+    }
+
+    @Test
     void 확정_청구는_확정_선부터_진행_중_청구는_예상_선부터_반영한다() {
         givenEntries(TODAY, TODAY.plusDays(14));
         bills = List.of(new OutstandingBill(88L, A, Status.CONFIRMED, NOV_5, 400_000L),
@@ -98,7 +246,8 @@ class ForecastServiceTest {
 
         BalanceForecast result = service.forecast(USER, List.of(A), Until.DAYS, 14, false, false);
 
-        assertThat(result.series())
+        assertThat(List.of(day(result.series(), TODAY), day(result.series(), NOV_5),
+                        day(result.series(), NOV_5.plusDays(2))))
                 .extracting(BalanceForecast.SeriesPoint::date, BalanceForecast.SeriesPoint::confirmed,
                         BalanceForecast.SeriesPoint::expected)
                 .containsExactly(tuple(TODAY, 800_000L, 800_000L), tuple(NOV_5, 400_000L, 400_000L),
@@ -125,9 +274,7 @@ class ForecastServiceTest {
 
         BalanceForecast result = service.forecast(USER, List.of(A), Until.DAYS, 7, false, false);
 
-        assertThat(result.series())
-                .extracting(BalanceForecast.SeriesPoint::date, BalanceForecast.SeriesPoint::confirmed)
-                .containsExactly(tuple(TODAY, 1_000_000L));
+        assertThat(result.series()).extracting(BalanceForecast.SeriesPoint::confirmed).containsOnly(1_000_000L);
         assertThat(result.excluded()).extracting(ExcludedItem::reason)
                 .containsExactly(ExcludedItem.Reason.TODAY_INCOME_UNVERIFIED);
     }
@@ -150,9 +297,8 @@ class ForecastServiceTest {
 
         BalanceForecast result = service.forecast(USER, List.of(A), Until.DAYS, 14, false, false);
 
-        assertThat(result.series())
-                .extracting(BalanceForecast.SeriesPoint::date, BalanceForecast.SeriesPoint::confirmed)
-                .containsExactly(tuple(TODAY, 500_000L));
+        assertThat(day(result.series(), TODAY).confirmed()).isEqualTo(500_000L);
+        assertThat(lastConfirmed(result.series())).isEqualTo(500_000L);
         assertThat(billRequestsTo).containsExactly(TODAY.plusDays(14));
     }
 
@@ -273,6 +419,14 @@ class ForecastServiceTest {
         CashflowService.Item item = new CashflowService.Item(id, accountId, null, "월세", CashflowItem.Direction.EXPENSE,
                 amount, date, CashflowItem.RecurrenceType.NONE, null, null, CashflowItem.Status.CONFIRMED, null);
         return new CashflowService.Entry(item, date, date, paid);
+    }
+
+    private static MonthlySpending real(Long accountId, YearMonth month, long amount) {
+        return new MonthlySpending(accountId, month, amount, Origin.REAL, true);
+    }
+
+    private static BalanceForecast.SeriesPoint day(List<BalanceForecast.SeriesPoint> series, LocalDate date) {
+        return series.stream().filter(point -> point.date().equals(date)).findFirst().orElseThrow();
     }
 
     private static long lastConfirmed(List<BalanceForecast.SeriesPoint> series) {
