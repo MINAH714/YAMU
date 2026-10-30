@@ -19,7 +19,7 @@ import org.springframework.stereotype.Component;
  * <pre>
  * auth:rate:device:{userDeviceId} → 요청 수   TTL = 구간(1분)
  * auth:rate:ip:{ip}               → 요청 수   TTL = 구간
- * auth:rate:signup-ip:{ip}        → 요청 수   TTL = 구간   본인인증 요청·확인·회원가입(인증 없이 열린 가입 API)
+ * auth:rate:signup-ip:{ip}        → 요청 수   TTL = 구간   본인인증 요청·확인(인증 없이 열린 가입 API)
  * </pre>
  *
  * 고정 구간 방식이라 구간 경계에서 잠깐 두 배까지 허용될 수 있다. 목적이 대량 시도 차단이라 정확한 초당 제어는 하지 않는다.
