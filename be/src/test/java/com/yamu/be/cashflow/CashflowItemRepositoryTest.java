@@ -173,6 +173,29 @@ class CashflowItemRepositoryTest extends MySqlTestSupport {
                 CashflowItem.RecurrenceType.NONE, null, null, null, null, card, null, null);
     }
 
+    @Test
+    void 매월_기준일은_첫_발생일과_맞아야_하고_매월에만_둔다() {
+        long owner = fixtures.user();
+        // 31일 기준이면 11월은 말일 30일에 시작할 수 있다.
+        long monthEnd = cashflow(owner, "EXPENSE", LocalDate.of(2026, 11, 30), "MONTHLY", null, "CONFIRMED");
+        jdbc.update("UPDATE cashflow_item SET recurrence_day_of_month = 31 WHERE cashflow_item_id = ?", monthEnd);
+        assertThat(jdbc.queryForObject("SELECT recurrence_day_of_month FROM cashflow_item WHERE cashflow_item_id = ?",
+                Integer.class, monthEnd)).isEqualTo(31);
+
+        long midMonth = cashflow(owner, "EXPENSE", LocalDate.of(2026, 11, 15), "MONTHLY", null, "CONFIRMED");
+        long weekly = cashflow(owner, "EXPENSE", LocalDate.of(2026, 11, 15), "WEEKLY", null, "CONFIRMED");
+        for (Object[] invalid : List.of(new Object[] {31, midMonth}, new Object[] {32, monthEnd},
+                new Object[] {15, weekly})) {
+            // MySQL CHECK 위반(3819)은 Spring이 분류하지 않을 수 있어 오류 번호로 확인한다.
+            assertThatThrownBy(() -> jdbc.update(
+                    "UPDATE cashflow_item SET recurrence_day_of_month = ? WHERE cashflow_item_id = ?", invalid))
+                    .isInstanceOf(org.springframework.dao.DataAccessException.class)
+                    .satisfies(failure -> assertThat(((java.sql.SQLException)
+                            ((org.springframework.dao.DataAccessException) failure).getMostSpecificCause())
+                            .getErrorCode()).isEqualTo(3819));
+        }
+    }
+
     private static List<Long> idsOf(List<CashflowItem> rules) {
         return rules.stream().map(CashflowItem::getId).toList();
     }

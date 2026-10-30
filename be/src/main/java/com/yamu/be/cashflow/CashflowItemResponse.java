@@ -52,7 +52,7 @@ public record CashflowItemResponse(
 
     private static Recurrence recurrenceOf(CashflowService.Item item) {
         return switch (item.recurrenceType()) {
-            case MONTHLY -> new Recurrence(item.recurrenceType(), item.scheduledDate().getDayOfMonth(),
+            case MONTHLY -> new Recurrence(item.recurrenceType(), item.recurrenceDayOfMonth(),
                     null, item.recurrenceEndDate());
             case WEEKLY -> new Recurrence(item.recurrenceType(), null,
                     item.scheduledDate().getDayOfWeek(), item.recurrenceEndDate());

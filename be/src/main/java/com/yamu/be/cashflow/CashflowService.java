@@ -10,6 +10,7 @@ import com.yamu.be.global.exception.ErrorCode;
 import java.time.Clock;
 import java.time.DayOfWeek;
 import java.time.LocalDate;
+import java.time.YearMonth;
 import java.time.ZoneId;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
@@ -67,7 +68,9 @@ public class CashflowService {
         CashflowItem item = items.save(new CashflowItem(authenticatedUserId,
                 command.accountId(), command.userCardId(), command.title(),
                 command.direction(), command.amount(), command.scheduledDate(), recurrence,
-                command.recurrenceEndDate(), command.merchantCategoryCode(), command.memo()));
+                command.recurrenceEndDate(),
+                dayOfMonthOf(recurrence, command.scheduledDate(), command.dayOfMonth(), null),
+                command.merchantCategoryCode(), command.memo()));
         occurrences.save(CashflowOccurrence.firstOf(item));
         return Item.from(item);
     }
@@ -178,6 +181,9 @@ public class CashflowService {
                 first, recurrence.frequency(), recurrence.dayOfMonth(), recurrence.dayOfWeek(), recurrence.endDate(),
                 changed.accountId(), changed.userCardId(), changed.merchantCategoryCode(), changed.memo()));
         CashflowItem.RecurrenceType recurrenceType = validate(values, today);
+        // 날짜를 그대로 두면 매월 기준일도 이어받는다. 31일 반복을 말일로 당겨진 11/30에서 나눠도 12/31로 이어진다.
+        Integer dayOfMonth = dayOfMonthOf(recurrenceType, first, values.dayOfMonth(),
+                command.date() == null ? Item.from(rule).recurrenceDayOfMonth() : null);
         requireOwned(userId, command.accountId(), command.userCardId());
         List<CashflowItem> affected = new ArrayList<>(series.following());
         affected.add(rule);
@@ -188,18 +194,33 @@ public class CashflowService {
         if (!cutoff.isAfter(rule.getScheduledDate())) {
             occurrences.deleteFrom(rule.getId(), MIN_DATE);
             rule.change(values.title(), values.amount(), values.scheduledDate(), recurrenceType,
-                    values.recurrenceEndDate(), values.accountId(), values.userCardId(),
+                    values.recurrenceEndDate(), dayOfMonth, values.accountId(), values.userCardId(),
                     values.merchantCategoryCode(), values.memo());
             target = rule;
         } else {
             occurrences.deleteFrom(rule.getId(), cutoff);
             rule.closeBefore(cutoff);
             target = items.save(rule.successor(values.title(), values.amount(), values.scheduledDate(),
-                    recurrenceType, values.recurrenceEndDate(), values.accountId(), values.userCardId(),
+                    recurrenceType, values.recurrenceEndDate(), dayOfMonth, values.accountId(), values.userCardId(),
                     values.merchantCategoryCode(), values.memo()));
         }
         occurrences.save(CashflowOccurrence.firstOf(target));
         return new Entry(Item.from(target), target.getScheduledDate(), target.getScheduledDate(), false);
+    }
+
+    /**
+     * 저장할 매월 기준일. 매월이 아니면 NULL, 요청에 반복일이 있으면 그 값, 이어받을 기준일이 있으면 그 값,
+     * 아니면 첫 발생일의 날짜다.
+     */
+    private static Integer dayOfMonthOf(CashflowItem.RecurrenceType recurrence, LocalDate first, Integer requested,
+            Integer inherited) {
+        if (recurrence != CashflowItem.RecurrenceType.MONTHLY) {
+            return null;
+        }
+        if (requested != null) {
+            return requested;
+        }
+        return inherited != null ? inherited : first.getDayOfMonth();
     }
 
     /**
@@ -525,7 +546,8 @@ public class CashflowService {
 
     /**
      * 규칙의 발생일 중 from~to(포함)와 반복 종료일 안에 드는 날짜를 차례로 돌려준다.
-     * n번째 회차는 첫 발생일에 반복 단위를 n번 더한 날이라, 매월 31일은 2/28 → 3/31처럼 없는 달만 말일로 맞춰진다.
+     * n번째 회차는 첫 발생일에 반복 단위를 n번 더한 날이다. 매월은 n달 뒤 그달의 기준일이라,
+     * 31일은 2/28 → 3/31처럼 없는 달만 말일로 맞춰지고 11/30에서 시작한 기준일 31 규칙도 12/31로 이어진다.
      */
     static List<LocalDate> occurrenceDates(Item rule, LocalDate from, LocalDate to) {
         LocalDate first = rule.scheduledDate();
@@ -546,8 +568,10 @@ public class CashflowService {
             return dates;
         }
         // between은 first에 더해도 from을 넘지 않는 최대 회차 수라, 그 회차부터 보면 앞 회차를 건너뛴다.
+        // 매월 기준일 회차는 first.plusMonths(n) 이상이고 같은 달이라, 아래 시작점은 매월에도 그대로 맞다.
         for (long n = Math.max(0, unit.between(first, from)); ; n++) {
-            LocalDate date = first.plus(n, unit);
+            LocalDate date = unit == ChronoUnit.MONTHS ? nthMonth(first, n, rule.recurrenceDayOfMonth())
+                    : first.plus(n, unit);
             if (date.isAfter(last)) {
                 return dates;
             }
@@ -555,6 +579,12 @@ public class CashflowService {
                 dates.add(date);
             }
         }
+    }
+
+    /** 첫 발생일에서 n달 뒤 그달의 기준일. 그달에 없으면 말일이다. */
+    private static LocalDate nthMonth(LocalDate first, long n, int dayOfMonth) {
+        YearMonth month = YearMonth.from(first).plusMonths(n);
+        return month.atDay(Math.min(dayOfMonth, month.lengthOfMonth()));
     }
 
     /** 이름·업종 코드·메모의 앞뒤 공백(유니코드 공백 포함)을 없애고, 빈 업종 코드·메모는 NULL로 바꾼다. */
@@ -611,9 +641,11 @@ public class CashflowService {
             }
             requireStorable(command.recurrenceEndDate(), "recurrence.endDate");
         }
+        // 첫 발생일이 그달 말일이면 더 큰 반복일도 받는다(2/28 시작 31일 반복 → 3/31).
         if (command.dayOfMonth() != null && (recurrence != CashflowItem.RecurrenceType.MONTHLY
-                || command.dayOfMonth() != command.scheduledDate().getDayOfMonth())) {
-            throw invalid("recurrence.dayOfMonth", "매월 반복일은 첫 발생일의 날짜와 같아야 합니다.");
+                || command.dayOfMonth() < 1 || command.dayOfMonth() > 31
+                || !nthMonth(command.scheduledDate(), 0, command.dayOfMonth()).equals(command.scheduledDate()))) {
+            throw invalid("recurrence.dayOfMonth", "매월 반복일은 첫 발생일의 날짜와 같아야 합니다(말일 시작이면 더 큰 날도 됩니다).");
         }
         if (command.dayOfWeek() != null && (recurrence != CashflowItem.RecurrenceType.WEEKLY
                 || command.dayOfWeek() != command.scheduledDate().getDayOfWeek())) {
@@ -725,21 +757,28 @@ public class CashflowService {
 
     private record Slot(Long cashflowItemId, LocalDate occurrenceDate) {}
 
+    /**
+     * 예정 규칙. recurrenceDayOfMonth는 매월 반복의 기준일(그달에 없으면 말일)이고 매월이 아니면 null이다.
+     * DB에 기준일이 없는 매월 행(칸 추가 전)은 첫 발생일의 날짜로 채운다.
+     */
     public record Item(Long id, Long accountId, Long userCardId, String title,
             CashflowItem.Direction direction, Long amount, LocalDate scheduledDate,
-            CashflowItem.RecurrenceType recurrenceType, LocalDate recurrenceEndDate,
+            CashflowItem.RecurrenceType recurrenceType, LocalDate recurrenceEndDate, Integer recurrenceDayOfMonth,
             String merchantCategoryCode, CashflowItem.Status status, String memo) {
         static Item from(CashflowItem item) {
+            Integer dayOfMonth = item.getRecurrenceType() != CashflowItem.RecurrenceType.MONTHLY ? null
+                    : item.getRecurrenceDayOfMonth() != null ? item.getRecurrenceDayOfMonth()
+                    : Integer.valueOf(item.getScheduledDate().getDayOfMonth());
             return new Item(item.getId(), item.getAccountId(), item.getUserCardId(),
                     item.getTitle(), item.getDirection(), item.getAmount(),
-                    item.getScheduledDate(), item.getRecurrenceType(), item.getRecurrenceEndDate(),
+                    item.getScheduledDate(), item.getRecurrenceType(), item.getRecurrenceEndDate(), dayOfMonth,
                     item.getMerchantCategoryCode(), item.getStatus(), item.getMemo());
         }
 
         /** 규칙의 ID·반복·상태는 두고 회차에 저장된 값으로 바꾼다. */
         Item with(CashflowOccurrence row) {
             return new Item(id, row.getAccountId(), row.getUserCardId(), row.getTitle(), direction,
-                    row.getAmount(), scheduledDate, recurrenceType, recurrenceEndDate,
+                    row.getAmount(), scheduledDate, recurrenceType, recurrenceEndDate, recurrenceDayOfMonth,
                     row.getMerchantCategoryCode(), status, row.getMemo());
         }
     }

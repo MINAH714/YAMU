@@ -225,7 +225,7 @@ class CashflowServiceTest {
                 CashflowItem.RecurrenceType.NONE, CashflowItem.Direction.EXPENSE, CashflowItem.Status.CONFIRMED))
                 .thenReturn(List.of(new CashflowItem(7L, 11L, null, "월세",
                         CashflowItem.Direction.EXPENSE, 10000L, tomorrow,
-                        CashflowItem.RecurrenceType.NONE, null, null, null)));
+                        CashflowItem.RecurrenceType.NONE, null, null, null, null)));
 
         List<CashflowService.Entry> result = service.list(7L, tomorrow,
                 tomorrow.plusDays(30), CashflowItem.Direction.EXPENSE, null, true);
@@ -255,6 +255,42 @@ class CashflowServiceTest {
     }
 
     @Test
+    void 말일에_시작한_매월_반복은_기준일로_이어진다() {
+        // 31일 반복을 11/30에서 나눈 규칙. 첫 발생일만 보면 12/30·1/30이 되지만 기준일 31로 이어진다.
+        CashflowService.Item rule = new CashflowService.Item(1L, 11L, null, "월세", CashflowItem.Direction.EXPENSE,
+                10000L, LocalDate.of(2026, 11, 30), CashflowItem.RecurrenceType.MONTHLY, null, 31, null,
+                CashflowItem.Status.CONFIRMED, null);
+
+        assertThat(CashflowService.occurrenceDates(rule, LocalDate.of(2026, 11, 1), LocalDate.of(2027, 4, 30)))
+                .containsExactly(LocalDate.of(2026, 11, 30), LocalDate.of(2026, 12, 31), LocalDate.of(2027, 1, 31),
+                        LocalDate.of(2027, 2, 28), LocalDate.of(2027, 3, 31), LocalDate.of(2027, 4, 30));
+        assertThat(CashflowService.occurrenceDates(rule, LocalDate.of(2027, 1, 1), LocalDate.of(2027, 1, 31)))
+                .containsExactly(LocalDate.of(2027, 1, 31));
+    }
+
+    @Test
+    void 말일_시작이면_더_큰_반복일을_받아_기준일로_저장한다() {
+        when(accounts.requireConnectedAccount(7L, 11L)).thenReturn(account(11L));
+        savedWithId(36L);
+        // 내일 이후 첫 30일 이하인 달의 말일
+        java.time.YearMonth month = java.time.YearMonth.from(tomorrow);
+        while (month.lengthOfMonth() == 31 || !month.atEndOfMonth().isAfter(today)) {
+            month = month.plusMonths(1);
+        }
+        LocalDate shortMonthEnd = month.atEndOfMonth();
+
+        CashflowService.Item result = service.create(7L, new CashflowService.CreateCommand("월세",
+                CashflowItem.Direction.EXPENSE, 10000L, shortMonthEnd, CashflowItem.RecurrenceType.MONTHLY, 31, null,
+                null, 11L, null, null, null));
+
+        assertThat(result.recurrenceDayOfMonth()).isEqualTo(31);
+        assertThat(CashflowItemResponse.from(result).recurrence().dayOfMonth()).isEqualTo(31);
+        assertInvalid(new CashflowService.CreateCommand("월세", CashflowItem.Direction.EXPENSE, 10000L,
+                shortMonthEnd.minusDays(1), CashflowItem.RecurrenceType.MONTHLY, 31, null,
+                null, 11L, null, null, null), "recurrence.dayOfMonth");
+    }
+
+    @Test
     void 반복_종료일은_그날까지_포함하고_기간_밖_회차와_일회성은_제외한다() {
         CashflowService.Item ending = rule(LocalDate.of(2026, 11, 5), CashflowItem.RecurrenceType.MONTHLY,
                 LocalDate.of(2027, 1, 5));
@@ -276,9 +312,9 @@ class CashflowServiceTest {
         LocalDate from = today;
         LocalDate to = today.plusDays(20);
         CashflowItem weekly = new CashflowItem(7L, 11L, null, "헬스장", CashflowItem.Direction.EXPENSE, 10000L,
-                today, CashflowItem.RecurrenceType.WEEKLY, null, null, null);
+                today, CashflowItem.RecurrenceType.WEEKLY, null, null, null, null);
         CashflowItem once = new CashflowItem(7L, 11L, null, "병원", CashflowItem.Direction.EXPENSE, 30000L,
-                today.plusDays(8), CashflowItem.RecurrenceType.NONE, null, null, null);
+                today.plusDays(8), CashflowItem.RecurrenceType.NONE, null, null, null, null);
         ReflectionTestUtils.setField(weekly, "id", 41L);
         ReflectionTestUtils.setField(once, "id", 42L);
         when(items.findRulesForUser(7L, from, to, CashflowItem.ItemKind.SCHEDULED, CashflowItem.RecurrenceType.NONE,
@@ -297,7 +333,7 @@ class CashflowServiceTest {
     void 이번_회차만_옮긴_회차는_옮긴_날짜로_기간_안팎을_가르고_원래_회차를_식별값으로_돌려준다() {
         LocalDate from = LocalDate.of(2026, 11, 1);
         CashflowItem weekly = saved(41L, new CashflowItem(7L, 11L, null, "헬스장", CashflowItem.Direction.EXPENSE,
-                10000L, LocalDate.of(2026, 11, 2), CashflowItem.RecurrenceType.WEEKLY, null, null, null));
+                10000L, LocalDate.of(2026, 11, 2), CashflowItem.RecurrenceType.WEEKLY, null, null, null, null));
         CashflowOccurrence moved = occurrence(51L, weekly, LocalDate.of(2026, 11, 9));
         moved.override(LocalDate.of(2026, 11, 11), "헬스장(옮김)", 5000L, 11L, null, null, null);
         rulesBetween(from, LocalDate.of(2026, 11, 30), weekly);
@@ -332,7 +368,7 @@ class CashflowServiceTest {
         LocalDate from = LocalDate.of(2026, 11, 1);
         LocalDate to = LocalDate.of(2026, 11, 30);
         CashflowItem weekly = saved(41L, new CashflowItem(7L, 11L, null, "헬스장", CashflowItem.Direction.EXPENSE,
-                10000L, LocalDate.of(2026, 11, 2), CashflowItem.RecurrenceType.WEEKLY, null, null, null));
+                10000L, LocalDate.of(2026, 11, 2), CashflowItem.RecurrenceType.WEEKLY, null, null, null, null));
         CashflowOccurrence first = occurrence(51L, weekly, LocalDate.of(2026, 11, 2));
         CashflowOccurrence excluded = occurrence(52L, weekly, LocalDate.of(2026, 11, 16));
         excluded.exclude();
@@ -350,7 +386,7 @@ class CashflowServiceTest {
         LocalDate from = LocalDate.of(2026, 11, 1);
         LocalDate to = LocalDate.of(2026, 11, 30);
         CashflowItem monthly = saved(41L, new CashflowItem(7L, 11L, null, "구독", CashflowItem.Direction.EXPENSE,
-                12000L, LocalDate.of(2026, 11, 5), CashflowItem.RecurrenceType.MONTHLY, null, null, null));
+                12000L, LocalDate.of(2026, 11, 5), CashflowItem.RecurrenceType.MONTHLY, null, null, null, null));
         CashflowOccurrence paid = occurrence(51L, monthly, LocalDate.of(2026, 11, 5));
         // 결제 연결 뒤 규칙 금액이 바뀐 상황: 행은 결제 당시 금액을 갖고 있다.
         ReflectionTestUtils.setField(monthly, "amount", 15000L);
@@ -368,7 +404,7 @@ class CashflowServiceTest {
         LocalDate from = LocalDate.of(2026, 11, 1);
         LocalDate to = LocalDate.of(2026, 11, 30);
         CashflowItem weekly = saved(41L, new CashflowItem(7L, 11L, null, "헬스장", CashflowItem.Direction.EXPENSE,
-                10000L, LocalDate.of(2026, 11, 2), CashflowItem.RecurrenceType.WEEKLY, null, null, null));
+                10000L, LocalDate.of(2026, 11, 2), CashflowItem.RecurrenceType.WEEKLY, null, null, null, null));
         CashflowOccurrence paid = occurrence(51L, weekly, LocalDate.of(2026, 11, 2));
         CashflowOccurrence moved = occurrence(52L, weekly, LocalDate.of(2026, 11, 9));
         moved.override(LocalDate.of(2026, 11, 10), "헬스장", 10000L, 11L, null, null, null);
@@ -390,7 +426,7 @@ class CashflowServiceTest {
         LocalDate to = LocalDate.of(2026, 12, 31);
         CashflowItem ended = saved(41L, new CashflowItem(7L, 11L, null, "월세", CashflowItem.Direction.EXPENSE,
                 500000L, LocalDate.of(2026, 10, 25), CashflowItem.RecurrenceType.MONTHLY,
-                LocalDate.of(2026, 11, 30), null, null));
+                LocalDate.of(2026, 11, 30), null, null, null));
         CashflowOccurrence moved = occurrence(51L, ended, LocalDate.of(2026, 11, 25));
         moved.override(LocalDate.of(2026, 12, 2), "월세", 500000L, 11L, null, null, null);
         rulesBetween(from, to);
@@ -494,7 +530,7 @@ class CashflowServiceTest {
     void 수입_회차에는_카드를_지정할_수_없다() {
         CashflowService fixed = fixedService();
         lockable(new CashflowItem(7L, 11L, null, "월급", CashflowItem.Direction.INCOME,
-                3000000L, OCT_25, CashflowItem.RecurrenceType.WEEKLY, null, null, null));
+                3000000L, OCT_25, CashflowItem.RecurrenceType.WEEKLY, null, null, null, null));
 
         assertUpdateInvalid(fixed, thisOnly(NOV_8).userCardId(12L).build(), "userCardId");
         verify(cards, never()).requireRegisteredCard(any(), any());
@@ -699,7 +735,7 @@ class CashflowServiceTest {
 
     private static CashflowItem weeklyFrom(LocalDate first) {
         return new CashflowItem(7L, 11L, null, "헬스장", CashflowItem.Direction.EXPENSE, 10000L,
-                first, CashflowItem.RecurrenceType.WEEKLY, null, null, null);
+                first, CashflowItem.RecurrenceType.WEEKLY, null, null, null, null);
     }
 
     /** 규칙 하나뿐인 시리즈의 41번 규칙으로 잠글 수 있게 한다. */
@@ -879,7 +915,9 @@ class CashflowServiceTest {
 
     private static CashflowService.Item rule(LocalDate first, CashflowItem.RecurrenceType recurrence, LocalDate end) {
         return new CashflowService.Item(1L, 11L, null, "규칙", CashflowItem.Direction.EXPENSE, 10000L,
-                first, recurrence, end, null, CashflowItem.Status.CONFIRMED, null);
+                first, recurrence, end,
+                recurrence == CashflowItem.RecurrenceType.MONTHLY ? Integer.valueOf(first.getDayOfMonth()) : null,
+                null, CashflowItem.Status.CONFIRMED, null);
     }
 
     private CashflowService.CreateCommand command(Long amount, Long accountId, Long cardId) {

@@ -269,7 +269,8 @@ class ForecastServiceTest {
     void 월급이_들어온_뒤_조회해도_오늘_월급을_두_번_더하지_않는다() {
         balances = List.of(new AccountBalance(A, 1_000_000L, FETCHED_AT));
         CashflowService.Item salary = new CashflowService.Item(9L, A, null, "월급", CashflowItem.Direction.INCOME,
-                1_000_000L, TODAY, CashflowItem.RecurrenceType.MONTHLY, null, null, CashflowItem.Status.CONFIRMED, null);
+                1_000_000L, TODAY, CashflowItem.RecurrenceType.MONTHLY, null, TODAY.getDayOfMonth(), null,
+                CashflowItem.Status.CONFIRMED, null);
         givenEntries(TODAY, TODAY.plusDays(7), new CashflowService.Entry(salary, TODAY, TODAY, false));
 
         BalanceForecast result = service.forecast(USER, List.of(A), Until.DAYS, 7, false, false);
@@ -417,7 +418,7 @@ class ForecastServiceTest {
 
     private static CashflowService.Entry entry(Long id, Long accountId, Long amount, LocalDate date, boolean paid) {
         CashflowService.Item item = new CashflowService.Item(id, accountId, null, "월세", CashflowItem.Direction.EXPENSE,
-                amount, date, CashflowItem.RecurrenceType.NONE, null, null, CashflowItem.Status.CONFIRMED, null);
+                amount, date, CashflowItem.RecurrenceType.NONE, null, null, null, CashflowItem.Status.CONFIRMED, null);
         return new CashflowService.Entry(item, date, date, paid);
     }
 

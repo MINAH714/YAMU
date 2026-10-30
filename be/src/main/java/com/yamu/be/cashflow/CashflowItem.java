@@ -60,6 +60,10 @@ public class CashflowItem extends BaseTimeEntity {
     @Column(name = "recurrence_end_date")
     private LocalDate recurrenceEndDate;
 
+    /** 매월 반복의 기준일(1~31). 그달에 없으면 말일이다. 매월이 아니거나 이 칸 전에 만든 행은 NULL(첫 발생일의 날짜). */
+    @Column(name = "recurrence_day_of_month", columnDefinition = "smallint")
+    private Integer recurrenceDayOfMonth;
+
     @Column(name = "merchant_category_code", length = 64)
     private String merchantCategoryCode;
 
@@ -84,7 +88,7 @@ public class CashflowItem extends BaseTimeEntity {
 
     CashflowItem(Long userId, Long accountId, Long userCardId, String title, Direction direction,
             Long amount, LocalDate scheduledDate, RecurrenceType recurrenceType,
-            LocalDate recurrenceEndDate, String merchantCategoryCode, String memo) {
+            LocalDate recurrenceEndDate, Integer recurrenceDayOfMonth, String merchantCategoryCode, String memo) {
         this.userId = userId;
         this.accountId = accountId;
         this.userCardId = userCardId;
@@ -94,6 +98,7 @@ public class CashflowItem extends BaseTimeEntity {
         this.scheduledDate = scheduledDate;
         this.recurrenceType = recurrenceType;
         this.recurrenceEndDate = recurrenceEndDate;
+        this.recurrenceDayOfMonth = recurrenceDayOfMonth;
         this.merchantCategoryCode = merchantCategoryCode;
         this.status = Status.CONFIRMED;
         this.memo = memo;
@@ -102,12 +107,14 @@ public class CashflowItem extends BaseTimeEntity {
 
     /** 아직 시작하지 않은 규칙을 제자리에서 바꾼다. 유형(direction)은 바꾸지 않는다. */
     void change(String title, Long amount, LocalDate scheduledDate, RecurrenceType recurrenceType,
-            LocalDate recurrenceEndDate, Long accountId, Long userCardId, String merchantCategoryCode, String memo) {
+            LocalDate recurrenceEndDate, Integer recurrenceDayOfMonth, Long accountId, Long userCardId,
+            String merchantCategoryCode, String memo) {
         this.title = title;
         this.amount = amount;
         this.scheduledDate = scheduledDate;
         this.recurrenceType = recurrenceType;
         this.recurrenceEndDate = recurrenceEndDate;
+        this.recurrenceDayOfMonth = recurrenceDayOfMonth;
         this.accountId = accountId;
         this.userCardId = userCardId;
         this.merchantCategoryCode = merchantCategoryCode;
@@ -126,9 +133,10 @@ public class CashflowItem extends BaseTimeEntity {
 
     /** 이 규칙을 이어받는 새 규칙. 상태는 이어받고, 이 규칙은 closeBefore로 따로 닫는다. */
     CashflowItem successor(String title, Long amount, LocalDate scheduledDate, RecurrenceType recurrenceType,
-            LocalDate recurrenceEndDate, Long accountId, Long userCardId, String merchantCategoryCode, String memo) {
+            LocalDate recurrenceEndDate, Integer recurrenceDayOfMonth, Long accountId, Long userCardId,
+            String merchantCategoryCode, String memo) {
         CashflowItem next = new CashflowItem(userId, accountId, userCardId, title, direction, amount, scheduledDate,
-                recurrenceType, recurrenceEndDate, merchantCategoryCode, memo);
+                recurrenceType, recurrenceEndDate, recurrenceDayOfMonth, merchantCategoryCode, memo);
         next.previousCashflowItemId = id;
         next.status = status;
         return next;

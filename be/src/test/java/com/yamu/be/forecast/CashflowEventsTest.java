@@ -157,6 +157,6 @@ class CashflowEventsTest {
     private static CashflowService.Item item(Long id, Long accountId, Long userCardId,
             CashflowItem.Direction direction, Long amount) {
         return new CashflowService.Item(id, accountId, userCardId, "항목" + id, direction, amount, TODAY,
-                CashflowItem.RecurrenceType.NONE, null, null, CashflowItem.Status.CONFIRMED, null);
+                CashflowItem.RecurrenceType.NONE, null, null, null, CashflowItem.Status.CONFIRMED, null);
     }
 }
