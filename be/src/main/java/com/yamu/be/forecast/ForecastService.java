@@ -79,7 +79,7 @@ public class ForecastService {
         Map<Long, Long> startBalances = new LinkedHashMap<>();
         selected.forEach(accountId -> startBalances.put(accountId, balanceById.get(accountId).balance()));
         ForecastCalculator.Projection projection = ForecastCalculator.project(startBalances, events,
-                horizon.from(), horizon.to());
+                horizon.from(), horizon.to(), Map.of());
 
         List<BalanceForecast.AccountForecast> accountForecasts = null;
         if (includeAccountDetails) {
