@@ -31,7 +31,15 @@ public interface UserDeviceRepository extends JpaRepository<UserDevice, Long> {
     @Query("select count(d) from UserDevice d where d.user.id = :userId and d.status <> :status")
     long countByUserIdAndStatusNot(@Param("userId") Long userId, @Param("status") DeviceStatus status);
 
-    /** 로그인을 끊을 기기 번호들(PIN 변경·기기 재등록 뒤 다른 기기의 Refresh Token 폐기). */
+    /** 로그인을 끊을 기기 번호들(PIN 변경 뒤 다른 기기의 Refresh Token 폐기). */
     @Query("select d.id from UserDevice d where d.user.id = :userId and d.status <> :status")
     List<Long> findIdsByUserIdAndStatusNot(@Param("userId") Long userId, @Param("status") DeviceStatus status);
+
+    /** 해제되지 않은 기기들. 기기 재등록이 성공하면 이 폰 말고는 모두 해제한다. */
+    @Query("select d from UserDevice d where d.user.id = :userId and d.status <> :status")
+    List<UserDevice> findByUserIdAndStatusNot(@Param("userId") Long userId, @Param("status") DeviceStatus status);
+
+    /** 기기 목록(명세 「등록 기기 목록 조회」). 해제한 기기도 이력으로 보여 준다. */
+    @Query("select d from UserDevice d where d.user.id = :userId")
+    List<UserDevice> findAllByUserId(@Param("userId") Long userId);
 }
