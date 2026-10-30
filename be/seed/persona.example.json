@@ -1,0 +1,23 @@
+[
+  {
+    "label": "A 직장인",
+    "name": "김야무",
+    "birthDate": "1995-03-14",
+    "phone": "01000000011",
+    "ssafyMemberId": "persona-a@yamu.app",
+    "ssafyUserKey": "SSAFY에서 받은 userKey",
+    "cards": [
+      { "productName": "신한카드 Mr.Life", "cardNo": "9410000000000011", "expiry": "2029-08" },
+      { "productName": "현대카드 ZERO Edition3 (할인형)", "cardNo": "9410000000000012", "expiry": "2029-08", "issuerStatus": "SUSPENDED" }
+    ]
+  },
+  {
+    "label": "C 신규 가입자",
+    "name": "이야무",
+    "birthDate": "2001-07-02",
+    "phone": "01000000013",
+    "ssafyMemberId": "persona-c@yamu.app",
+    "ssafyUserKey": "SSAFY에서 받은 userKey",
+    "cards": []
+  }
+]

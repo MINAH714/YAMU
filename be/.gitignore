@@ -1,2 +1,4 @@
 # 개인 로컬 설정. 견본은 src/main/resources/application-local.yml.example
 src/main/resources/application-local.yml
+# 가입 시연용 페르소나 실제 값(이름·번호·SSAFY userKey). 견본은 seed/persona.example.json
+seed/persona.local.json
