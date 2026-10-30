@@ -128,7 +128,7 @@ class BarcodeIssueIntegrationTest extends MySqlTestSupport {
         assertThat(read(result, "$.data.qrValue")).isEqualTo("yamu://pay/" + code);
         LocalDateTime issuedAt = LocalDateTime.parse(read(result, "$.data.issuedAt").replace("Z", ""));
         LocalDateTime expiresAt = LocalDateTime.parse(read(result, "$.data.expiresAt").replace("Z", ""));
-        assertThat(Duration.between(issuedAt, expiresAt)).isEqualTo(Duration.ofSeconds(180));
+        assertThat(Duration.between(issuedAt, expiresAt)).isEqualTo(Duration.ofSeconds(60));
 
         // 토큰은 한 번 쓰이고 지워진다. Redis에는 바코드 두 키가 10분 보관으로 들어 있다
         assertThat(redis.hasKey("auth:step-up:" + sha256Hex(token))).isFalse();

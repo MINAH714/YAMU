@@ -53,7 +53,7 @@ class BarcodeServiceTest {
     }
 
     @Test
-    void 발급하면_숫자_16자리_코드와_180초_유효시간과_활성_카드_수를_돌려준다() {
+    void 발급하면_숫자_16자리_코드와_60초_유효시간과_활성_카드_수를_돌려준다() {
         when(cards.countActiveCards(7L)).thenReturn(3L);
 
         BarcodeService.Issued issued = service.issue(ME, "step-up");
@@ -63,7 +63,7 @@ class BarcodeServiceTest {
         assertThat(issued.qrValue()).isEqualTo("yamu://pay/" + issued.barcodeToken());
         assertThat(issued.status()).isEqualTo(BarcodeStatus.ISSUED);
         assertThat(issued.issuedAt()).isEqualTo(LocalDateTime.parse("2026-10-28T05:30:00"));
-        assertThat(issued.expiresAt()).isEqualTo(LocalDateTime.parse("2026-10-28T05:33:00"));
+        assertThat(issued.expiresAt()).isEqualTo(LocalDateTime.parse("2026-10-28T05:31:00"));
         assertThat(issued.activeCardCount()).isEqualTo(3L);
         verify(stepUp).requireStepUp(ME, StepUpPurpose.BARCODE, "step-up");
     }
@@ -115,13 +115,13 @@ class BarcodeServiceTest {
     }
 
     @Test
-    void 발급_시각_기준_180초가_만료_시각이고_만료_정각부터_EXPIRED다() {
+    void 발급_시각_기준_60초가_만료_시각이고_만료_정각부터_EXPIRED다() {
         when(cards.countActiveCards(7L)).thenReturn(1L);
 
         BarcodeService.Issued issued = service.issue(ME, "step-up");
 
-        assertThat(Duration.between(issued.issuedAt(), issued.expiresAt())).isEqualTo(Duration.ofSeconds(180));
-        clock.advance(Duration.ofSeconds(180));
+        assertThat(Duration.between(issued.issuedAt(), issued.expiresAt())).isEqualTo(Duration.ofSeconds(60));
+        clock.advance(Duration.ofSeconds(60));
         assertThat(service.get(7L, issued.barcodeToken()).status()).isEqualTo(BarcodeStatus.EXPIRED);
     }
 
@@ -138,17 +138,17 @@ class BarcodeServiceTest {
     }
 
     @Test
-    void 발급_후_179초까지는_ISSUED이고_180초부터_EXPIRED다() {
+    void 발급_후_59초까지는_ISSUED이고_60초부터_EXPIRED다() {
         when(cards.countActiveCards(7L)).thenReturn(1L);
         String token = service.issue(ME, "step-up").barcodeToken();
 
-        clock.advance(Duration.ofSeconds(179));
+        clock.advance(Duration.ofSeconds(59));
         assertThat(service.get(7L, token).status()).isEqualTo(BarcodeStatus.ISSUED);
 
         clock.advance(Duration.ofSeconds(1));
         BarcodeService.State expired = service.get(7L, token);
         assertThat(expired.status()).isEqualTo(BarcodeStatus.EXPIRED);
-        assertThat(expired.expiresAt()).isEqualTo(LocalDateTime.parse("2026-10-28T05:33:00"));
+        assertThat(expired.expiresAt()).isEqualTo(LocalDateTime.parse("2026-10-28T05:31:00"));
         assertThat(expired.payment()).isNull();
     }
 
@@ -173,7 +173,7 @@ class BarcodeServiceTest {
     void 토큰이_이미_있으면_새_토큰으로_다시_만든다() {
         String taken = "0000000000000001";
         String fresh = "0000000000000002";
-        store.issue(new Barcode(taken, 9L, BarcodeStatus.ISSUED, NOW, NOW.plusSeconds(180)), Duration.ofMinutes(10));
+        store.issue(new Barcode(taken, 9L, BarcodeStatus.ISSUED, NOW, NOW.plusSeconds(60)), Duration.ofMinutes(10));
         Deque<String> generated = new ArrayDeque<>(List.of(taken, fresh));
         BarcodeTokenGenerator tokens = new BarcodeTokenGenerator() {
             @Override

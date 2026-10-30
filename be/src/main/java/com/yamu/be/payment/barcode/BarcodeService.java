@@ -18,8 +18,8 @@ import org.springframework.stereotype.Service;
 @Service
 public class BarcodeService {
 
-    /** 바코드 유효 시간. API 명세 「결제 바코드 발급」의 가정값(DEC-003). */
-    static final Duration VALIDITY = Duration.ofSeconds(180);
+    /** 바코드 유효 시간. 가정값(DEC-003 미결정). API 초안은 180초였으나 BE 2가 60초로 낮춰 시험 중이다. */
+    static final Duration VALIDITY = Duration.ofSeconds(60);
     /** Redis 보관 시간. 만료된 뒤에도 잠시 남겨 두어 조회에 404 대신 EXPIRED로 답한다. */
     static final Duration RETENTION = Duration.ofMinutes(10);
     static final String QR_PREFIX = "yamu://pay/";

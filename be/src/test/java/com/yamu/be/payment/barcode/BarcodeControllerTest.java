@@ -42,7 +42,7 @@ class BarcodeControllerTest {
     void 발급하면_201과_공통_응답으로_감싼_바코드를_돌려준다() throws Exception {
         when(barcodes.issue(ME, "step-up")).thenReturn(new BarcodeService.Issued(
                 TOKEN, TOKEN, "yamu://pay/" + TOKEN, BarcodeStatus.ISSUED,
-                LocalDateTime.parse("2026-10-28T05:30:00"), LocalDateTime.parse("2026-10-28T05:33:00"), 3));
+                LocalDateTime.parse("2026-10-28T05:30:00"), LocalDateTime.parse("2026-10-28T05:31:00"), 3));
 
         mockMvc.perform(post("/api/payments/barcodes")
                         .with(loggedIn())
@@ -57,7 +57,7 @@ class BarcodeControllerTest {
                 .andExpect(jsonPath("$.data.qrValue").value("yamu://pay/" + TOKEN))
                 .andExpect(jsonPath("$.data.status").value("ISSUED"))
                 .andExpect(jsonPath("$.data.issuedAt").value("2026-10-28T05:30:00Z"))
-                .andExpect(jsonPath("$.data.expiresAt").value("2026-10-28T05:33:00Z"))
+                .andExpect(jsonPath("$.data.expiresAt").value("2026-10-28T05:31:00Z"))
                 .andExpect(jsonPath("$.data.activeCardCount").value(3))
                 .andExpect(jsonPath("$.error").value(nullValue()));
     }
@@ -121,12 +121,12 @@ class BarcodeControllerTest {
     @Test
     void 조회하면_상태와_비어_있는_payment를_돌려준다() throws Exception {
         when(barcodes.get(7L, TOKEN)).thenReturn(new BarcodeService.State(
-                BarcodeStatus.EXPIRED, LocalDateTime.parse("2026-10-28T05:33:00"), null));
+                BarcodeStatus.EXPIRED, LocalDateTime.parse("2026-10-28T05:31:00"), null));
 
         mockMvc.perform(get("/api/payments/barcodes/{token}", TOKEN).with(loggedIn()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.status").value("EXPIRED"))
-                .andExpect(jsonPath("$.data.expiresAt").value("2026-10-28T05:33:00Z"))
+                .andExpect(jsonPath("$.data.expiresAt").value("2026-10-28T05:31:00Z"))
                 .andExpect(jsonPath("$.data", hasKey("payment")))
                 .andExpect(jsonPath("$.data.payment").value(nullValue()));
     }
@@ -145,7 +145,7 @@ class BarcodeControllerTest {
     @Test
     void 조회는_로그인한_사용자_번호로_소유자를_확인한다() throws Exception {
         when(barcodes.get(7L, TOKEN)).thenReturn(new BarcodeService.State(
-                BarcodeStatus.ISSUED, LocalDateTime.parse("2026-10-28T05:33:00"), null));
+                BarcodeStatus.ISSUED, LocalDateTime.parse("2026-10-28T05:31:00"), null));
 
         mockMvc.perform(get("/api/payments/barcodes/{token}", TOKEN).with(AuthUsers.asUser(7L, 99L)))
                 .andExpect(status().isOk())

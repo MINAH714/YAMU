@@ -27,7 +27,7 @@ class BarcodeController {
         this.barcodes = barcodes;
     }
 
-    @Operation(summary = "결제 바코드 발급", description = "1회용 통합 바코드·QR 토큰을 발급한다. 180초 동안 유효하다.")
+    @Operation(summary = "결제 바코드 발급", description = "1회용 통합 바코드·QR 토큰을 발급한다. 60초 동안 유효하다(가정값, DEC-003).")
     @PostMapping
     ResponseEntity<ApiResponse<BarcodeService.Issued>> issue(
             @AuthenticationPrincipal AuthUser me,

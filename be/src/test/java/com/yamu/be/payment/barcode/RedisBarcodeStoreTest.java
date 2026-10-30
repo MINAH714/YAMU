@@ -57,15 +57,15 @@ class RedisBarcodeStoreTest extends RedisTestSupport {
         assertThat(fields).containsEntry("userId", "7")
                 .containsEntry("status", "ISSUED")
                 .containsEntry("issuedAt", Long.toString(ISSUED_AT.toEpochMilli()))
-                .containsEntry("expiresAt", Long.toString(ISSUED_AT.plusSeconds(180).toEpochMilli()));
+                .containsEntry("expiresAt", Long.toString(ISSUED_AT.plusSeconds(60).toEpochMilli()));
         assertThat(redis.opsForValue().get("barcode:user:7")).isEqualTo(barcode.token());
     }
 
     @Test
     void 사용_유효기간이_지나도_보관_중이면_읽히고_저장된_상태는_그대로_ISSUED다() {
-        // 논리적 만료(180초)는 서비스가 expiresAt으로 판단하고, 저장소는 보관 시간(10분)까지 지우지 않는다
+        // 논리적 만료(60초)는 서비스가 expiresAt으로 판단하고, 저장소는 보관 시간(10분)까지 지우지 않는다
         Instant longAgo = Instant.now().minus(Duration.ofMinutes(5));
-        Barcode stale = new Barcode(tokens.next(), 7L, BarcodeStatus.ISSUED, longAgo, longAgo.plusSeconds(180));
+        Barcode stale = new Barcode(tokens.next(), 7L, BarcodeStatus.ISSUED, longAgo, longAgo.plusSeconds(60));
         store.issue(stale, RETENTION);
 
         Barcode found = store.find(stale.token()).orElseThrow();
@@ -147,7 +147,7 @@ class RedisBarcodeStoreTest extends RedisTestSupport {
     void 같은_토큰이_이미_있으면_저장하지_않는다() {
         Barcode original = issued(7L);
         store.issue(original, RETENTION);
-        Barcode sameToken = new Barcode(original.token(), 8L, BarcodeStatus.ISSUED, ISSUED_AT, ISSUED_AT.plusSeconds(180));
+        Barcode sameToken = new Barcode(original.token(), 8L, BarcodeStatus.ISSUED, ISSUED_AT, ISSUED_AT.plusSeconds(60));
 
         assertThat(store.issue(sameToken, RETENTION)).isFalse();
         assertThat(store.find(original.token())).contains(original);
@@ -185,6 +185,6 @@ class RedisBarcodeStoreTest extends RedisTestSupport {
     }
 
     private Barcode issued(Long userId) {
-        return new Barcode(tokens.next(), userId, BarcodeStatus.ISSUED, ISSUED_AT, ISSUED_AT.plusSeconds(180));
+        return new Barcode(tokens.next(), userId, BarcodeStatus.ISSUED, ISSUED_AT, ISSUED_AT.plusSeconds(60));
     }
 }
