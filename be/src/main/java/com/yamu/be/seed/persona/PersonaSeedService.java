@@ -18,6 +18,7 @@ import java.util.Arrays;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -33,13 +34,15 @@ import org.springframework.transaction.support.TransactionTemplate;
  *
  * <pre>
  * app_user  PENDING, 이름·생년월일·휴대폰(암호문·조회 해시)·SSAFY 회원 ID·userKey(암호문). PIN·본인인증 시각은 비움
- * user_card PENDING, 출금 계좌 없음(카드 등록 때 사용자가 고른다)
+ * user_card PENDING, linked_account_id 없음. 카드사가 정한 계좌는 issuer_account_*(은행·조회 해시·끝 4자리)로,
+ *           신용카드 결제일은 payment_day로 적는다. 카드 등록 때 연결 계좌와 대조해 linked_account_id가 채워진다(!47)
  * 넣지 않음 linked_account(가입 중 계좌 목록에서 골라 연결), user_device(가입의 마지막 단계)
  * </pre>
  *
  * <ul>
  *   <li>암호화·해시는 앱과 같은 키(앱 설정)로 만든다. 그래서 SQL 파일이 아니라 서버 코드로 넣는다.</li>
- *   <li>넣기 전에 SSAFY 계좌 목록을 읽어 userKey가 맞고 계좌가 1개 이상인지 본다. 금융망 호출 중에는 DB 연결을 잡지 않는다.</li>
+ *   <li>넣기 전에 SSAFY 계좌 목록을 읽어 userKey가 맞고 계좌가 1개 이상인지, 카드 계좌가 그 목록에 있는지 본다.
+ *       금융망 호출 중에는 DB 연결을 잡지 않는다.</li>
  *   <li>페르소나마다 트랜잭션이 따로라 한 명이 실패해도 다른 사람은 들어간다.</li>
  *   <li>같은 사람(휴대폰·생년월일)이 있으면 건너뛴다. 초기화(reset)는 아직 PENDING인 사람만 지우고 다시 넣는다.
  *       시연 중 가입을 마친(ACTIVE) 사람은 건드리지 않는다.</li>
@@ -112,6 +115,7 @@ public class PersonaSeedService {
             throw new SeedFailure("같은 파일 안에 같은 ssafyMemberId가 또 있습니다.");
         }
         List<ResolvedCard> cards = resolveCards(persona.cards());
+        requireCardSettings(cards);
 
         Existing existing = findExisting(phoneHash, persona.birthDate());
         if (existing != null && !reset) {
@@ -121,7 +125,7 @@ public class PersonaSeedService {
             return new Outcome(tag, Result.SKIPPED_NOT_PENDING,
                     "가입을 마쳤거나 탈퇴한 사용자라 초기화하지 않음(status=" + existing.status() + ")");
         }
-        requireSsafyAccounts(persona.ssafyUserKey());
+        requireSsafyAccounts(persona.ssafyUserKey(), cards);
 
         try {
             transaction.executeWithoutResult(status -> {
@@ -161,7 +165,7 @@ public class PersonaSeedService {
     private List<ResolvedCard> resolveCards(List<Card> cards) {
         List<ResolvedCard> resolved = new ArrayList<>();
         for (Card card : cards) {
-            StringBuilder sql = new StringBuilder("SELECT card_product_id FROM card_product WHERE product_name = ?");
+            StringBuilder sql = new StringBuilder("SELECT card_product_id, card_type FROM card_product WHERE product_name = ?");
             List<Object> args = new ArrayList<>(List.of(card.productName()));
             if (card.issuerCode() != null && !card.issuerCode().isBlank()) {
                 sql.append(" AND issuer_code = ?");
@@ -171,7 +175,8 @@ public class PersonaSeedService {
                 sql.append(" AND card_type = ?");
                 args.add(card.cardType());
             }
-            List<Long> ids = jdbc.queryForList(sql.toString(), Long.class, args.toArray());
+            List<ResolvedCard> ids = jdbc.query(sql.toString(),
+                    (rs, n) -> new ResolvedCard(rs.getLong(1), rs.getString(2), card), args.toArray());
             if (ids.isEmpty()) {
                 throw new SeedFailure("카드 상품을 찾을 수 없습니다(" + card.productName()
                         + "). 카드 카탈로그 시드를 먼저 넣었는지 확인하세요.");
@@ -180,21 +185,50 @@ public class PersonaSeedService {
                 throw new SeedFailure("카드 상품 이름이 여러 개와 겹칩니다(" + card.productName()
                         + "). issuerCode·cardType을 같이 넣어 주세요.");
             }
-            resolved.add(new ResolvedCard(ids.get(0), card));
+            resolved.add(ids.get(0));
         }
         return resolved;
     }
 
-    private void requireSsafyAccounts(String userKey) {
-        int count;
+    /**
+     * 카드 종류에 맞는 설정인지 본다. 신용카드는 결제일이 있어야 하고(카드 등록이 이 값을 쓴다),
+     * 체크카드는 결제일이 없다(결제할 때마다 바로 출금).
+     */
+    private static void requireCardSettings(List<ResolvedCard> cards) {
+        for (int i = 0; i < cards.size(); i++) {
+            ResolvedCard card = cards.get(i);
+            boolean credit = "CREDIT".equals(card.cardType());
+            if (credit && card.card().paymentDay() == null) {
+                throw new SeedFailure("카드 " + (i + 1) + "번째는 신용카드라 paymentDay(1~27)가 필요합니다.");
+            }
+            if (!credit && card.card().paymentDay() != null) {
+                throw new SeedFailure("카드 " + (i + 1) + "번째는 체크카드라 paymentDay를 넣지 않습니다.");
+            }
+        }
+    }
+
+    /**
+     * 계좌가 1개 이상 있고, 카드마다 정한 계좌가 그 목록에 있는지 본다. 목록에 없는 계좌를 적으면 가입 중 연결할 수 없어
+     * 카드 등록이 항상 409(CARD_ACCOUNT_NOT_LINKED)가 된다. 메시지에는 카드 순번·은행 코드만 넣는다(계좌번호 없음).
+     */
+    private void requireSsafyAccounts(String userKey, List<ResolvedCard> cards) {
+        Set<String> accounts;
         try {
-            count = accountCheck.countAccounts(userKey);
+            accounts = accountCheck.accountKeys(userKey);
         } catch (FinApiException e) {
             throw new SeedFailure("SSAFY 계좌 목록 조회 실패(" + e.getErrorCode().name() + ", "
                     + e.getOutcome() + "). userKey와 SSAFY_API_KEY를 확인하세요.");
         }
-        if (count == 0) {
+        if (accounts.isEmpty()) {
             throw new SeedFailure("SSAFY 회원에 수시입출금 계좌가 없습니다. 계좌를 먼저 만들고 다시 실행하세요.");
+        }
+        for (int i = 0; i < cards.size(); i++) {
+            PersonaSeedFile.Account account = cards.get(i).card().account();
+            String key = PersonalDataNormalizer.accountLookupKey(account.bankCode(), account.accountNo());
+            if (!accounts.contains(key)) {
+                throw new SeedFailure(String.format(Locale.ROOT,
+                        "카드 %d번째의 account(은행 %s)가 이 SSAFY 회원의 계좌 목록에 없습니다.", i + 1, account.bankCode()));
+            }
         }
     }
 
@@ -235,14 +269,19 @@ public class PersonaSeedService {
         Long userId = jdbc.queryForObject("SELECT user_id FROM app_user WHERE phone_hash = ? AND birth_date = ?",
                 Long.class, phoneHash, persona.birthDate());
         for (ResolvedCard resolved : cards) {
-            String cardNo = PersonalDataNormalizer.cardNo(resolved.card().cardNo());
+            Card card = resolved.card();
+            String cardNo = PersonalDataNormalizer.cardNo(card.cardNo());
+            // 계좌 연결(AccountLinkService)과 같은 해시라 카드 등록 때 linked_account.account_no_hash와 그대로 대조된다.
+            String accountNo = PersonalDataNormalizer.accountNo(card.account().accountNo());
             jdbc.update("""
-                    INSERT INTO user_card (user_id, card_product_id, linked_account_id, card_no_enc, card_no_hash,
-                        card_last4, status, issuer_status, created_at, updated_at)
-                    VALUES (?, ?, NULL, ?, ?, ?, 'PENDING', ?, ?, ?)
-                    """, userId, resolved.productId(), cipher.encrypt(cardNo, CipherField.USER_CARD_NO),
-                    lookup.card(cardNo), cardNo.substring(cardNo.length() - 4), resolved.card().issuerStatus().name(),
-                    now, now);
+                    INSERT INTO user_card (user_id, card_product_id, linked_account_id, issuer_account_bank_code,
+                        issuer_account_hash, issuer_account_last4, card_no_enc, card_no_hash, card_last4, payment_day,
+                        status, issuer_status, created_at, updated_at)
+                    VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, 'PENDING', ?, ?, ?)
+                    """, userId, resolved.productId(), card.account().bankCode(),
+                    lookup.account(card.account().bankCode(), accountNo), accountNo.substring(accountNo.length() - 4),
+                    cipher.encrypt(cardNo, CipherField.USER_CARD_NO), lookup.card(cardNo),
+                    cardNo.substring(cardNo.length() - 4), card.paymentDay(), card.issuerStatus().name(), now, now);
         }
     }
 
@@ -258,7 +297,7 @@ public class PersonaSeedService {
     private record Existing(long userId, String status) {
     }
 
-    private record ResolvedCard(long productId, Card card) {
+    private record ResolvedCard(long productId, String cardType, Card card) {
     }
 
     /** 이 페르소나만 실패. 메시지는 그대로 사람에게 보이므로 개인정보를 넣지 않는다. */

@@ -2,6 +2,8 @@ package com.yamu.be.seed.persona;
 
 import com.yamu.be.card.domain.CardIssuerStatus;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Past;
@@ -14,7 +16,8 @@ import java.util.List;
 /**
  * 가입 시연용 페르소나 파일({@code be/seed/persona.local.json})의 모양. 배열 하나에 여러 명을 넣는다.
  *
- * <p>계좌는 넣지 않는다. 계좌는 SSAFY에만 두고, 가입 중에 계좌 목록에서 골라 연결한다.
+ * <p>연결 계좌(linked_account)는 넣지 않는다. 계좌는 SSAFY에만 두고, 가입 중에 계좌 목록에서 골라 연결한다.
+ * 카드에는 카드사가 정한 출금·결제 계좌({@code account})와 신용카드 결제일({@code paymentDay})을 적는다(10/30 결정).
  * 이름·번호·생년월일 규칙은 본인인증 요청과 같다(같은 값으로 가입을 시연하므로).
  */
 public final class PersonaSeedFile {
@@ -72,6 +75,8 @@ public final class PersonaSeedFile {
      * @param cardType    상품 이름이 신용·체크에 겹칠 때만 넣는다(CREDIT·CHECK)
      * @param expiry      유효기간(YYYY-MM). 저장할 칸이 없어 형식만 확인한다. 카드 확인 때 사용자가 다시 입력한다
      * @param issuerStatus 카드사 상태. 정지·만료 카드 시연용. 없으면 NORMAL
+     * @param account     카드사가 정한 이 카드의 출금(체크)·결제(신용) 계좌. 이 페르소나의 SSAFY 계좌 중 하나여야 한다
+     * @param paymentDay  신용카드 결제일(1~27, 카드 등록 API와 같은 범위). 신용카드는 필수, 체크카드는 넣지 않는다
      */
     public record Card(
             @NotBlank(message = "productName이 필요합니다.")
@@ -85,7 +90,13 @@ public final class PersonaSeedFile {
             @Pattern(regexp = "\\d{16}", message = "cardNo는 숫자 16자리입니다.")
             String cardNo,
             YearMonth expiry,
-            CardIssuerStatus issuerStatus) {
+            CardIssuerStatus issuerStatus,
+            @NotNull(message = "account가 필요합니다(카드사가 정한 출금·결제 계좌).")
+            @Valid
+            Account account,
+            @Min(value = 1, message = "paymentDay는 1~27입니다.")
+            @Max(value = 27, message = "paymentDay는 1~27입니다.")
+            Integer paymentDay) {
 
         public Card {
             issuerStatus = issuerStatus == null ? CardIssuerStatus.NORMAL : issuerStatus;
@@ -94,7 +105,28 @@ public final class PersonaSeedFile {
         @Override
         public String toString() {
             return "Card[productName=" + productName + ", last4=" + (cardNo == null || cardNo.length() < 4
-                    ? "?" : cardNo.substring(cardNo.length() - 4)) + "]";
+                    ? "?" : cardNo.substring(cardNo.length() - 4)) + ", account=" + account + ", paymentDay=" + paymentDay + "]";
+        }
+    }
+
+    /**
+     * 카드사가 정한 계좌. 원문은 저장하지 않고 은행 코드·조회 해시·끝 4자리만 user_card에 남긴다.
+     *
+     * @param bankCode  SSAFY 은행 코드(예: 088)
+     * @param accountNo SSAFY 계좌번호. 하이픈은 있어도 된다
+     */
+    public record Account(
+            @NotNull(message = "account.bankCode가 필요합니다.")
+            @Pattern(regexp = "\\d{3}", message = "account.bankCode는 숫자 3자리입니다.")
+            String bankCode,
+            @NotNull(message = "account.accountNo가 필요합니다.")
+            @Pattern(regexp = "[0-9-]{8,30}", message = "account.accountNo는 숫자(하이픈 허용) 8자리 이상입니다.")
+            String accountNo) {
+
+        @Override
+        public String toString() {
+            String digits = accountNo == null ? "" : accountNo.replaceAll("\\D", "");
+            return "Account[bankCode=" + bankCode + ", last4=" + (digits.length() < 4 ? "?" : digits.substring(digits.length() - 4)) + "]";
         }
     }
 }

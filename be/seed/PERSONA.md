@@ -9,10 +9,12 @@
 | 표 | 넣는 값 |
 |---|---|
 | `app_user` | `PENDING`, 이름·생년월일·휴대폰(암호문·조회 해시)·SSAFY 회원 ID·userKey(암호문). PIN·본인인증 시각은 비움 |
-| `user_card` | `PENDING`, 출금 계좌 없음. 카드 확인 → 등록을 시연할 카드 |
+| `user_card` | `PENDING`, `linked_account_id` 없음. 카드사가 정한 계좌(`issuer_account_*`: 은행 코드·조회 해시·끝 4자리)와 신용카드 결제일(`payment_day`)을 적음. 카드 확인 → 등록을 시연할 카드 |
 | 넣지 않음 | `linked_account`(가입 중 SSAFY 계좌 목록에서 골라 연결), `user_device`(가입의 마지막 단계) |
 
-계좌번호는 파일에 넣지 않습니다. 계좌는 SSAFY에만 두면 가입할 때 목록에 나옵니다.
+연결 계좌(`linked_account`)는 넣지 않습니다. 계좌는 SSAFY에만 두면 가입할 때 목록에 나옵니다.
+
+카드에는 **카드사가 정한 출금·결제 계좌**(`account`)와 **신용카드 결제일**(`paymentDay`)을 적습니다(10/30 결정, 실제 카드처럼 카드사가 정함). 계좌번호 원문은 저장하지 않고, 카드 등록 때 사용자가 가입 중 연결한 계좌와 해시로 대조해 자동으로 붙입니다. 그래서 카드 계좌는 **그 페르소나의 SSAFY 계좌 중 하나**여야 하고, 로더가 넣기 전에 확인합니다.
 
 ## 왜 SQL 파일이 아닌가
 
@@ -42,6 +44,9 @@
 | `cards[].cardNo` | ✅ | 숫자 16자리. 카드 확인 화면에 넣을 번호 |
 | `cards[].expiry` | | `YYYY-MM`. 저장할 칸이 없어 형식만 확인합니다 |
 | `cards[].issuerStatus` | | `NORMAL`(기본)·`SUSPENDED`·`EXPIRED`. 정지·만료 카드 시연용 |
+| `cards[].account.bankCode` | ✅ | 카드사가 정한 계좌의 SSAFY 은행 코드(숫자 3자리) |
+| `cards[].account.accountNo` | ✅ | 그 계좌번호(하이픈 허용). 이 페르소나 SSAFY 계좌 목록에 있어야 합니다 |
+| `cards[].paymentDay` | 신용카드 ✅ | 결제일 1~27. 체크카드는 넣지 않습니다 |
 
 ## 실행 (be 폴더에서)
 
@@ -66,6 +71,7 @@
 | 초기화 + 아직 PENDING | `RESET`. 가입 중 연결한 계좌·카드까지 지우고 다시 넣습니다(새 user_id) |
 | 초기화 + 가입을 마침(ACTIVE)·탈퇴 | `SKIPPED_NOT_PENDING`. 지우지 않습니다 |
 | SSAFY 계좌 0개, 키 오류, 금융망 실패 | `FAILED`. 그 페르소나만 넣지 않습니다 |
+| 카드 계좌가 그 회원의 SSAFY 계좌 목록에 없음, 신용카드 결제일 없음, 체크카드에 결제일 | `FAILED`. 메시지에 카드 순번·은행 코드만 나옵니다(계좌번호 없음) |
 | 카드 상품을 못 찾음·이름이 겹침 | `FAILED`. 카드 카탈로그 시드와 `issuerCode`·`cardType`을 확인합니다 |
 | 입력 형식 오류, 같은 파일에 같은 사람 두 번 | `FAILED` |
 | 두 실행이 동시에 같은 사람을 넣음 | 한쪽은 `CREATED`, 다른 쪽은 `SKIPPED_EXISTS` (DB UNIQUE가 막음) |
