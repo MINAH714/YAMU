@@ -351,6 +351,19 @@ class ForecastServiceTest {
     }
 
     @Test
+    void 출금_계좌_상태_출금일이_빈_청구는_계약_위반으로_실패한다() {
+        givenEntries(TODAY, TODAY.plusDays(14));
+        for (OutstandingBill broken : List.of(new OutstandingBill(88L, null, Status.CONFIRMED, NOV_5, 1_000L),
+                new OutstandingBill(89L, A, null, NOV_5, 1_000L),
+                new OutstandingBill(90L, A, Status.CONFIRMED, null, 1_000L))) {
+            bills = List.of(broken);
+
+            assertThatThrownBy(() -> service.forecast(USER, List.of(A), Until.DAYS, 14, false, false))
+                    .isInstanceOf(IllegalStateException.class);
+        }
+    }
+
+    @Test
     void 진행_중_청구의_출금일이_지났으면_계약_위반으로_실패한다() {
         givenEntries(TODAY, TODAY.plusDays(14));
         bills = List.of(new OutstandingBill(88L, A, Status.ACCUMULATING, TODAY.minusDays(1), 50_000L));

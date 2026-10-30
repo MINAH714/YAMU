@@ -297,6 +297,10 @@ public class ForecastService {
             BalanceForecast.Horizon horizon, List<ExcludedItem> excluded) {
         List<FlowEvent> events = new ArrayList<>();
         for (CardBillReader.OutstandingBill bill : bills.outstanding(userId, selected, horizon.to())) {
+            // BE 2 데이터 계약 위반이다. 출금 계좌를 임의로 정하거나 조용히 넘기지 않는다.
+            if (bill.accountId() == null || bill.status() == null || bill.withdrawalDate() == null) {
+                throw new IllegalStateException("청구의 출금 계좌·상태·출금일이 비었다: " + bill.cardBillId());
+            }
             if (bill.amount() < 0) {
                 throw new IllegalStateException("청구 출금액이 음수다: " + bill.cardBillId());
             }
