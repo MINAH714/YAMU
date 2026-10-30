@@ -172,6 +172,15 @@ class LivingCostEstimatorTest {
         assertThatThrownBy(() -> estimateA(real(SEP, 1), real(SEP, 2))).isInstanceOf(IllegalStateException.class);
     }
 
+    @Test
+    void 계약_위반_오류_메시지에는_계좌_월_소비액을_남기지_않는다() {
+        // 메시지는 전역 예외 로그에 그대로 남는다.
+        assertThatThrownBy(() -> estimateA(real(SEP, -123_456)))
+                .message().doesNotContain("123456").doesNotContain(SEP.toString()).doesNotContain(A.toString());
+        assertThatThrownBy(() -> estimateA(real(SEP, 777_777), real(SEP, 888_888)))
+                .message().doesNotContain("777777").doesNotContain("888888").doesNotContain(SEP.toString());
+    }
+
     private static AccountEstimate estimateA(MonthlySpending... months) {
         return LivingCostEstimator.estimate(List.of(A), List.of(months), TODAY).byAccount().get(A);
     }

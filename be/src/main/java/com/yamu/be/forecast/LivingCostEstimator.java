@@ -52,11 +52,12 @@ final class LivingCostEstimator {
             if (!selected.contains(row.accountId())) {
                 continue;
             }
+            // 예외 메시지는 전역 예외 로그에 남으므로 계좌·월·소비액을 넣지 않는다.
             if (row.amount() < 0) {
-                throw new IllegalStateException("생활 소비 합계가 음수다: " + row);
+                throw new IllegalStateException("생활비 원천이 음수 소비 합계를 줬다.");
             }
             if (!seen.add(row.accountId() + ":" + row.month() + ":" + row.origin())) {
-                throw new IllegalStateException("같은 계좌·월·출처의 행이 두 번 왔다: " + row);
+                throw new IllegalStateException("생활비 원천이 같은 계좌·월·출처의 행을 두 번 줬다.");
             }
             rowsByAccount.get(row.accountId()).add(row);
         }
