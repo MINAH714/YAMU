@@ -36,8 +36,7 @@ public class SecurityConfig {
             "/api/auth/login",
             "/api/auth/refresh",
             "/api/auth/phone-verifications",
-            "/api/auth/phone-verifications/{verificationId}/confirm",
-            "/api/auth/signup"
+            "/api/auth/phone-verifications/{verificationId}/confirm"
     };
 
     private static final String[] PUBLIC_GET = {

@@ -12,11 +12,11 @@ import org.springframework.data.redis.core.script.RedisScript;
 import org.springframework.stereotype.Component;
 
 /**
- * 짧게 잡는 Redis 잠금. 여러 서버·요청 중 하나만 외부 호출(SSAFY 계정 생성·1원 송금 등)을 하게 할 때 쓴다.
+ * 짧게 잡는 Redis 잠금. 여러 서버·요청 중 하나만 외부 호출(1원 송금 등)을 하게 할 때 쓴다.
  *
  * <pre>
- * try (RedisLocks.Lock lock = redisLocks.tryLock("signup:lock:" + key, Duration.ofSeconds(30))
- *         .orElseThrow(() -> new BusinessException(ErrorCode.SIGNUP_IN_PROGRESS))) {
+ * try (RedisLocks.Lock lock = redisLocks.tryLock("onewon:lock:" + key, Duration.ofSeconds(30))
+ *         .orElseThrow(() -> new BusinessException(ErrorCode.CONCURRENT_MODIFICATION))) {
  *     ... 한 번에 하나만 할 일 ...
  * }
  * </pre>

@@ -51,8 +51,8 @@ public class LoginRateLimiter {
     }
 
     /**
-     * 휴대폰 본인인증 요청·확인·회원가입을 합쳐 IP별로 센다. 로그인과 따로 세서 한쪽이 다른 쪽 한도를 깎지 않는다.
-     * 막지 않으면 무작위 번호로 반복해 SSAFY 계정(삭제 API 없음)과 PENDING 사용자를 계속 만들 수 있다.
+     * 휴대폰 본인인증 요청·확인을 합쳐 IP별로 센다. 로그인과 따로 세서 한쪽이 다른 쪽 한도를 깎지 않는다.
+     * 막지 않으면 인증번호(demoCode)로 시드 사용자의 이름·생년월일·번호 조합을 무작위로 맞춰 볼 수 있다.
      */
     public void checkSignup(String ipAddress, int limit) {
         if (ipAddress != null) {
