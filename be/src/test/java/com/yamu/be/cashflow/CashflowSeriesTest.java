@@ -164,6 +164,23 @@ class CashflowSeriesTest extends MySqlTestSupport {
     }
 
     @Test
+    void 일회_항목으로_끝난_시리즈를_반복_없이_고쳐도_그_날짜에서_끝난다() {
+        long first = cashflows.rule(owner, account, start, "WEEKLY", null);
+        // 2주 뒤부터 1회 항목으로 바꿔 시리즈를 그 날짜에서 끝낸다.
+        service.update(owner, first, fromHere(today.plusDays(14))
+                .recurrence(new CashflowService.RecurrenceChange(CashflowItem.RecurrenceType.NONE, null, null, null))
+                .build());
+
+        long third = service.update(owner, first, fromHere(today.plusDays(7)).amount(30000L).build()).item().id();
+
+        assertThat(endOf(third)).isEqualTo(today.plusDays(14));
+        assertThat(list(today, today.plusDays(35)))
+                .extracting(CashflowService.Entry::date, entry -> entry.item().amount())
+                .containsExactly(tuple(today, 10000L), tuple(today.plusDays(7), 30000L),
+                        tuple(today.plusDays(14), 30000L));
+    }
+
+    @Test
     void 탐지_후보를_나누면_새_규칙도_후보로_남는다() {
         long rule = cashflows.rule(owner, account, start, "WEEKLY", null);
         jdbc.update("UPDATE cashflow_item SET status = 'CANDIDATE' WHERE cashflow_item_id = ?", rule);
@@ -277,9 +294,15 @@ class CashflowSeriesTest extends MySqlTestSupport {
         private final LocalDate occurrenceDate;
         private Long amount;
         private LocalDate date;
+        private CashflowService.RecurrenceChange recurrence;
 
         Update(LocalDate occurrenceDate) {
             this.occurrenceDate = occurrenceDate;
+        }
+
+        Update recurrence(CashflowService.RecurrenceChange value) {
+            recurrence = value;
+            return this;
         }
 
         Update amount(Long value) {
@@ -293,7 +316,7 @@ class CashflowSeriesTest extends MySqlTestSupport {
         }
 
         CashflowService.UpdateCommand build() {
-            return new CashflowService.UpdateCommand(null, null, amount, date, null, null, null, null, null, null,
+            return new CashflowService.UpdateCommand(null, null, amount, date, recurrence, null, null, null, null, null,
                     CashflowService.UpdateScope.THIS_AND_FUTURE, occurrenceDate);
         }
     }

@@ -172,8 +172,8 @@ public class CashflowService {
 
         Values changed = merge(Values.of(rule, first), command);
         RecurrenceChange recurrence = command.recurrence() != null ? command.recurrence()
-                // 반복을 보내지 않으면 주기는 그대로 두고 시리즈 마지막 규칙의 종료일을 이어받는다.
-                : new RecurrenceChange(rule.getRecurrenceType(), null, null, series.last().getRecurrenceEndDate());
+                // 반복을 보내지 않으면 주기는 그대로 두고 시리즈의 끝을 이어받는다.
+                : new RecurrenceChange(rule.getRecurrenceType(), null, null, seriesEnd(series, rule));
         CreateCommand values = normalize(new CreateCommand(changed.title(), rule.getDirection(), changed.amount(),
                 first, recurrence.frequency(), recurrence.dayOfMonth(), recurrence.dayOfWeek(), recurrence.endDate(),
                 changed.accountId(), changed.userCardId(), changed.merchantCategoryCode(), changed.memo()));
@@ -200,6 +200,19 @@ public class CashflowService {
         }
         occurrences.save(CashflowOccurrence.firstOf(target));
         return new Entry(Item.from(target), target.getScheduledDate(), target.getScheduledDate(), false);
+    }
+
+    /**
+     * 반복을 보내지 않은 이후 전부 수정이 이어받을 종료일. 마지막 구간이 반복이면 그 종료일이고,
+     * 1회 항목이면 그 날짜에서 끝난 시리즈라 그 날짜다(종료일 없음으로 이어받으면 끝난 시리즈가 무기한 되살아난다).
+     */
+    private static LocalDate seriesEnd(Series series, CashflowItem rule) {
+        if (rule.getRecurrenceType() == CashflowItem.RecurrenceType.NONE) {
+            return null;
+        }
+        CashflowItem last = series.last();
+        return last.getRecurrenceType() == CashflowItem.RecurrenceType.NONE
+                ? last.getScheduledDate() : last.getRecurrenceEndDate();
     }
 
     /**
