@@ -85,6 +85,10 @@ public enum ErrorCode {
     CARD_NOT_FOUND(HttpStatus.NOT_FOUND, "등록할 수 없는 카드예요. 본인 명의 카드인지 확인해 주세요."),
     CARD_VERIFICATION_FAILED(HttpStatus.BAD_REQUEST, "유효기간을 확인해 주세요."),
     CARD_ALREADY_REGISTERED(HttpStatus.CONFLICT, "이미 등록한 카드입니다."),
+    // 임시(명세에 추가 필요): 카드사(시드)가 정한 출금 계좌·결제일로 등록한다(10/30 결정). details.missing에 빠진 값
+    CARD_ACCOUNT_NOT_SET(HttpStatus.CONFLICT, "카드사에 등록된 결제 정보가 없어 이 카드는 등록할 수 없습니다."),
+    // 임시(명세에 추가 필요): 카드사가 정한 계좌를 아직 YAMU에 연결하지 않음. details.bankCode·accountLast4로 어느 계좌인지 알려 준다
+    CARD_ACCOUNT_NOT_LINKED(HttpStatus.CONFLICT, "이 카드의 결제 계좌를 먼저 연결해 주세요."),
     ACCOUNT_REQUIRED(HttpStatus.BAD_REQUEST, "카드 대금을 출금할 계좌를 먼저 연결해 주세요."),
     INVALID_PAYMENT_DAY(HttpStatus.BAD_REQUEST, "결제일은 1일부터 27일 사이로 정해 주세요."),
 
