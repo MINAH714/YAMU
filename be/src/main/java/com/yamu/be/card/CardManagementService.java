@@ -1,6 +1,7 @@
 package com.yamu.be.card;
 
 import com.yamu.be.account.AccountQueryService;
+import com.yamu.be.account.domain.LinkedAccount;
 import com.yamu.be.account.domain.LinkedAccountRepository;
 import com.yamu.be.auth.StepUpService;
 import com.yamu.be.auth.domain.StepUpPurpose;
@@ -37,6 +38,7 @@ import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -50,6 +52,7 @@ import org.springframework.transaction.annotation.Transactional;
  * <p>기본 카드·순서처럼 한 사용자의 카드 여러 장을 같이 바꾸는 요청은 사용자 행을 잠가(SELECT … FOR UPDATE) 차례로 처리한다.
  * 실적·청구처럼 다른 파트가 아직 만들지 않은 값은 null로 두고 MR에 적었다.
  */
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class CardManagementService {
@@ -109,8 +112,12 @@ public class CardManagementService {
     }
 
     /**
-     * 보낸 필드만 바꾼다. 모든 확인(결제일 범위·3개월 제한·계좌 소유)을 마친 뒤에 바꾸므로 하나라도 거절되면 아무것도 바뀌지 않는다.
-     * 결제일을 바꾸면 다음 이용기간부터 적용된다(진행 중 이용기간·확정된 청구서는 청구 쪽이 그대로 둔다).
+     * 보낸 필드만 바꾼다. 모든 확인(결제일 범위·3개월 제한·계좌 소유·기본 카드 조건)을 마친 뒤에 바꾸므로
+     * 하나라도 거절되면 아무것도 바뀌지 않는다.
+     *
+     * <p>결제일은 바로 바뀐다. 진행 중 이용기간부터 새 결제일로 볼지(잔고예보가 {@code UserCardRef.paymentDay}로 출금일을 정함)
+     * 다음 이용기간부터 적용할지는 BE 2(청구)·BE 4(잔고예보)와 정할 일이라 MR 확인 필요에 남겼다.
+     * 추천에서 뺀(INACTIVE) 카드는 기본 카드가 될 수 없다. 기본 카드를 INACTIVE로 바꾸면 기본 지정도 풀린다.
      */
     @Transactional
     public CardDetailResponse update(AuthUser me, Long userCardId, CardUpdateRequest request) {
@@ -144,12 +151,19 @@ public class CardManagementService {
             // 남의 계좌·연결 해제한 계좌는 카드 등록과 같이 404(있는지 드러내지 않는다).
             accountQueryService.requireConnectedAccount(me.userId(), request.settlementAccountId());
         }
+        CardRegistrationStatus effectiveStatus = status == null ? card.getRegistrationStatus() : status;
+        if (Boolean.TRUE.equals(request.isDefault()) && effectiveStatus == CardRegistrationStatus.INACTIVE) {
+            throw invalid("isDefault", "추천에서 제외한 카드는 기본 카드로 지정할 수 없습니다.");
+        }
 
         if (request.nickname() != null) {
             card.rename(request.nickname().isBlank() ? null : request.nickname().strip());
         }
         if (status != null) {
             card.changeRecommendation(status);
+            if (status == CardRegistrationStatus.INACTIVE) {
+                card.markDefault(false);
+            }
         }
         if (changesPaymentDay) {
             card.changePaymentDay(request.paymentDay(), now);
@@ -187,7 +201,7 @@ public class CardManagementService {
 
     /**
      * 카드 등록을 해제한다(행은 남김). 카드·청구를 다 확인한 뒤 본인 인증 토큰(CARD_DELETE)을 쓴다.
-     * 확정됐지만 출금되지 않은 청구서가 있으면 409 CARD_HAS_OPEN_BILL(명세의 가정)이다.
+     * 끝나지 않은(PAID·CANCELED가 아닌) 청구서가 하나라도 있으면 409 CARD_HAS_OPEN_BILL이다.
      */
     @Transactional
     public void unregister(AuthUser me, Long userCardId, String stepUpToken) {
@@ -195,7 +209,7 @@ public class CardManagementService {
         UserCard card = cardRepository.findByIdAndUserId(userCardId, me.userId())
                 .filter(c -> c.getRegistrationStatus().isRegistered())
                 .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND));
-        List<Long> openBills = activityReader.openBillIds(card.getId());
+        List<Long> openBills = activityReader.unsettledBillIds(card.getId());
         if (!openBills.isEmpty()) {
             throw new BusinessException(ErrorCode.CARD_HAS_OPEN_BILL, Map.of("billIds", openBills));
         }
@@ -238,7 +252,9 @@ public class CardManagementService {
             billing = new CardDetailResponse.Billing(card.getPaymentDay(), paymentDayChangeableFrom(card),
                     card.getLinkedAccountId(), null, null, null, next, unpaid);
         } else if (card.getLinkedAccountId() != null) {
+            // 연결을 해제한 계좌는 출금 계좌로 보여 주지 않는다.
             linkedAccount = accountRepository.findByIdAndUserId(card.getLinkedAccountId(), card.getUserId())
+                    .filter(LinkedAccount::isConnected)
                     .map(a -> new CardDetailResponse.LinkedAccount(a.getId(), a.getBankCode(),
                             a.getAccountLast4() == null ? null : "****-****-****-" + a.getAccountLast4(), null, null))
                     .orElse(null);
@@ -251,12 +267,19 @@ public class CardManagementService {
                 card.getRegisteredAt() == null ? null : card.getRegisteredAt().truncatedTo(ChronoUnit.SECONDS), null);
     }
 
-    /** 직전 결제일 변경일(한국 날짜) + 3개월. 바꾼 적이 없으면 null. */
     private static LocalDate paymentDayChangeableFrom(UserCard card) {
-        if (card.getPaymentDayChangedAt() == null) {
+        return paymentDayChangeableFrom(card.getPaymentDayChangedAt());
+    }
+
+    /**
+     * 직전 결제일 변경일(한국 날짜) + 3개월. 바꾼 적이 없으면 null. 그 날 당일부터 다시 바꿀 수 있다.
+     * 말일에 바꾸면 3개월 뒤 같은 날이 없을 때 그달 말일이다(11/30 → 2/28).
+     */
+    static LocalDate paymentDayChangeableFrom(LocalDateTime changedAtUtc) {
+        if (changedAtUtc == null) {
             return null;
         }
-        return card.getPaymentDayChangedAt().atOffset(ZoneOffset.UTC).atZoneSameInstant(KST).toLocalDate()
+        return changedAtUtc.atOffset(ZoneOffset.UTC).atZoneSameInstant(KST).toLocalDate()
                 .plusMonths(PAYMENT_DAY_LOCK_MONTHS);
     }
 
@@ -276,10 +299,18 @@ public class CardManagementService {
                 .orElseThrow(() -> new IllegalStateException("카드 상품이 없습니다: " + card.getCardProductId()));
     }
 
-    /** 카드번호 암호문을 열어 앞 4자리·끝 4자리만 남긴다. 원문은 이 메서드 밖으로 나가지 않는다. */
+    /**
+     * 카드번호 암호문을 열어 앞 4자리·끝 4자리만 남긴다. 원문은 이 메서드 밖으로 나가지 않는다.
+     * 한 장이라도 복호화에 실패하면 목록 전체가 500이 되므로, 실패한 카드는 끝 4자리만 보여 주고 카드 번호만 로그에 남긴다.
+     */
     private String maskedNumber(UserCard card) {
-        String number = cipher.decrypt(card.getCardNoEnc(), CipherField.USER_CARD_NO);
-        return number.substring(0, 4) + "-****-****-" + card.getCardLast4();
+        try {
+            String number = cipher.decrypt(card.getCardNoEnc(), CipherField.USER_CARD_NO);
+            return number.substring(0, 4) + "-****-****-" + card.getCardLast4();
+        } catch (RuntimeException e) {
+            log.warn("카드번호를 복호화하지 못해 끝 4자리만 보여 줍니다. userCardId={}", card.getId());
+            return "****-****-****-" + card.getCardLast4();
+        }
     }
 
     private static String nickname(UserCard card, CardProduct product) {

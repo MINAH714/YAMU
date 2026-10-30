@@ -109,6 +109,7 @@ public class UserCard extends BaseTimeEntity {
 
     /**
      * 보유 카드로 등록한다(ACTIVE). 결제일은 카드사(시드)가 정한 값을 그대로 쓴다.
+     * 해제 후 다시 등록하면 새 등록이라 예전 결제일 변경 시각(3개월 제한)을 물려받지 않는다.
      *
      * @param linkedAccountId 카드사가 정한 계좌와 같은, 사용자가 연결한 계좌(신용카드 결제계좌 또는 체크카드 연결 계좌)
      * @param alias           카드 별칭. 없으면 null(화면은 상품명)
@@ -117,6 +118,7 @@ public class UserCard extends BaseTimeEntity {
         this.linkedAccountId = linkedAccountId;
         this.cardAlias = alias;
         this.registrationStatus = CardRegistrationStatus.ACTIVE;
+        this.paymentDayChangedAt = null;
         if (registeredAt == null) {
             registeredAt = now;
         }

@@ -19,14 +19,18 @@ import org.springframework.stereotype.Component;
  * 카드 관리 화면에 같이 보여 줄 청구·실적을 읽는다. 청구(card_bill)는 BE 2, 실적(card_monthly_performance)은
  * 실적 담당이 쓰는 테이블이라 BE 1은 SQL로 읽기만 한다.
  *
- * <p>청구 상태 값은 API 명세의 이름(CONFIRMED 확정·출금 전, UNPAID 미납)을 그대로 쓴다. 청구를 만드는 코드가 생기면 값을 맞춘다.
+ * <p>청구 상태 값은 API 명세의 이름(CONFIRMED 확정·출금 전, UNPAID 미납, PAID 출금 완료, CANCELED 취소)을 쓴다.
+ * card_bill.status에는 허용값 목록이 없어(DDL·사전 모두 "상태 코드") 청구를 만드는 BE 2 코드가 생기면 이름을 맞춘다.
  */
 @Component
 @RequiredArgsConstructor
 class CardActivityReader {
 
-    /** 확정됐지만 아직 출금되지 않은 청구. 이런 청구가 있으면 카드를 해제할 수 없다(명세 CARD_HAS_OPEN_BILL). */
-    private static final List<String> OPEN_BILL_STATUSES = List.of("CONFIRMED", "UNPAID");
+    /**
+     * 끝난 청구. 이 상태가 아닌 청구가 하나라도 있으면 카드를 해제할 수 없다(명세 CARD_HAS_OPEN_BILL).
+     * 막을 상태를 나열하지 않고 끝난 상태만 나열한다. 출금 진행 중·실패처럼 나중에 생길 상태도 기본으로 막기 위해서다.
+     */
+    private static final List<String> SETTLED_BILL_STATUSES = List.of("PAID", "CANCELED");
 
     private final NamedParameterJdbcTemplate jdbc;
 
@@ -59,12 +63,12 @@ class CardActivityReader {
         return cards;
     }
 
-    /** 확정됐지만 출금되지 않은 청구서 번호. */
-    List<Long> openBillIds(Long userCardId) {
+    /** 끝나지 않은 청구서 번호(확정·미납·출금 중·실패 등 PAID·CANCELED가 아닌 것). */
+    List<Long> unsettledBillIds(Long userCardId) {
         return jdbc.queryForList("""
                 SELECT card_bill_id FROM card_bill
-                WHERE user_card_id = :id AND status IN (:statuses) ORDER BY card_bill_id
-                """, new MapSqlParameterSource("id", userCardId).addValue("statuses", OPEN_BILL_STATUSES), Long.class);
+                WHERE user_card_id = :id AND status NOT IN (:statuses) ORDER BY card_bill_id
+                """, new MapSqlParameterSource("id", userCardId).addValue("statuses", SETTLED_BILL_STATUSES), Long.class);
     }
 
     /** 출금일이 가장 가까운 확정 청구서. 없으면 empty. */
