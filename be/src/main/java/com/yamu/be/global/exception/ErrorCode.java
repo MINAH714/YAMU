@@ -68,7 +68,8 @@ public enum ErrorCode {
     ACCOUNT_ALREADY_LINKED(HttpStatus.CONFLICT, "이미 연결한 계좌입니다."),
     // 임시(10/30): 계좌 목록의 candidateId가 없거나(10분 지남) 남의 것. 명세에 추가 필요
     ACCOUNT_CANDIDATE_EXPIRED(HttpStatus.BAD_REQUEST, "계좌 목록이 만료됐습니다. 계좌 목록을 다시 불러와 주세요."),
-    VERIFICATION_TOKEN_EXPIRED(HttpStatus.BAD_REQUEST, "계좌 확인 시간이 지났습니다. 계좌 확인부터 다시 진행해 주세요."),
+    // 계좌 연결과 카드 등록이 같이 쓴다(명세 코드가 같다)
+    VERIFICATION_TOKEN_EXPIRED(HttpStatus.BAD_REQUEST, "확인 시간이 지났습니다. 확인 단계부터 다시 진행해 주세요."),
     AUTH_REQUEST_TOO_FREQUENT(HttpStatus.TOO_MANY_REQUESTS, "1원 인증을 너무 자주 요청했습니다. 잠시 후 다시 시도해 주세요."),
     AUTH_CODE_MISMATCH(HttpStatus.BAD_REQUEST, "인증코드가 일치하지 않습니다."),
     AUTH_CODE_EXPIRED(HttpStatus.BAD_REQUEST, "인증 시간이 지났습니다. 1원 인증을 다시 요청해 주세요."),
@@ -77,6 +78,19 @@ public enum ErrorCode {
     ONE_WON_DAILY_LIMIT_EXCEEDED(HttpStatus.TOO_MANY_REQUESTS, "오늘은 이 계좌로 1원 인증을 더 요청할 수 없습니다. 내일 다시 시도해 주세요."),
     AUTH_CODE_LOCKED(HttpStatus.TOO_MANY_REQUESTS, "인증코드를 여러 번 틀려 오늘은 이 계좌로 인증할 수 없습니다. 내일 다시 시도해 주세요."),
     IDEMPOTENCY_IN_PROGRESS(HttpStatus.CONFLICT, "같은 요청을 처리하고 있습니다. 잠시 후 다시 시도해 주세요."),
+
+    /* 카드 - 카드 확인·카드 등록 (API 명세 각 페이지). 확인 토큰 만료는 위 VERIFICATION_TOKEN_EXPIRED */
+    INVALID_CARD_NUMBER(HttpStatus.BAD_REQUEST, "카드번호는 숫자 16자리로 입력해 주세요."),
+    ISSUER_NOT_SUPPORTED(HttpStatus.NOT_FOUND, "지원하지 않는 카드사·상품입니다."),
+    CARD_NOT_FOUND(HttpStatus.NOT_FOUND, "등록할 수 없는 카드예요. 본인 명의 카드인지 확인해 주세요."),
+    CARD_VERIFICATION_FAILED(HttpStatus.BAD_REQUEST, "유효기간을 확인해 주세요."),
+    CARD_ALREADY_REGISTERED(HttpStatus.CONFLICT, "이미 등록한 카드입니다."),
+    // 임시(명세에 추가 필요): 카드사(시드)가 정한 출금 계좌·결제일로 등록한다(10/30 결정). details.missing에 빠진 값
+    CARD_ACCOUNT_NOT_SET(HttpStatus.CONFLICT, "카드사에 등록된 결제 정보가 없어 이 카드는 등록할 수 없습니다."),
+    // 임시(명세에 추가 필요): 카드사가 정한 계좌를 아직 YAMU에 연결하지 않음. details.bankCode·accountLast4로 어느 계좌인지 알려 준다
+    CARD_ACCOUNT_NOT_LINKED(HttpStatus.CONFLICT, "이 카드의 결제 계좌를 먼저 연결해 주세요."),
+    ACCOUNT_REQUIRED(HttpStatus.BAD_REQUEST, "카드 대금을 출금할 계좌를 먼저 연결해 주세요."),
+    INVALID_PAYMENT_DAY(HttpStatus.BAD_REQUEST, "결제일은 1일부터 27일 사이로 정해 주세요."),
 
     /* 가계부 - 항목 수정 (API 명세 「가계부 항목 수정」). 탐지 후보는 CONFIRMED·IGNORED로만 바꿀 수 있다 */
     INVALID_STATUS_CHANGE(HttpStatus.CONFLICT, "바꿀 수 없는 상태입니다."),
