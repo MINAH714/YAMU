@@ -182,8 +182,10 @@ public class CashflowService {
                 changed.accountId(), changed.userCardId(), changed.merchantCategoryCode(), changed.memo()));
         CashflowItem.RecurrenceType recurrenceType = validate(values, today);
         // 날짜를 그대로 두면 매월 기준일도 이어받는다. 31일 반복을 말일로 당겨진 11/30에서 나눠도 12/31로 이어진다.
+        // 앱이 고른 회차 날짜를 그대로 다시 보내도 바꾸지 않은 것으로 본다. 기준일만 바꾸려면 recurrence.dayOfMonth를 보낸다.
+        boolean dateKept = command.date() == null || command.date().equals(applyDate);
         Integer dayOfMonth = dayOfMonthOf(recurrenceType, first, values.dayOfMonth(),
-                command.date() == null ? Item.from(rule).recurrenceDayOfMonth() : null);
+                dateKept ? Item.from(rule).recurrenceDayOfMonth() : null);
         requireOwned(userId, command.accountId(), command.userCardId());
         List<CashflowItem> affected = new ArrayList<>(series.following());
         affected.add(rule);

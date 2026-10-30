@@ -213,6 +213,23 @@ class CashflowSeriesTest extends MySqlTestSupport {
     }
 
     @Test
+    void 고른_회차와_같은_날짜를_다시_보내면_기준일을_이어받는다() {
+        // 앱이 수정 화면의 날짜(11/30)를 그대로 다시 보내는 경우
+        CashflowService atNov5 = serviceOn(LocalDate.of(2026, 11, 5));
+        long rule = cashflows.rule(owner, account, LocalDate.of(2026, 10, 31), "MONTHLY", null);
+
+        long next = atNov5.update(owner, rule,
+                fromHere(null).date(LocalDate.of(2026, 11, 30)).amount(20000L).build()).item().id();
+
+        assertThat(dayOfMonthOf(next)).isEqualTo(31);
+        em.flush();
+        em.clear();
+        assertThat(atNov5.list(owner, LocalDate.of(2026, 11, 1), LocalDate.of(2027, 1, 31), null, null, true))
+                .extracting(CashflowService.Entry::date)
+                .containsExactly(LocalDate.of(2026, 11, 30), LocalDate.of(2026, 12, 31), LocalDate.of(2027, 1, 31));
+    }
+
+    @Test
     void 날짜를_바꿔_나누면_그_날짜가_새_기준일이다() {
         CashflowService atNov5 = serviceOn(LocalDate.of(2026, 11, 5));
         long rule = cashflows.rule(owner, account, LocalDate.of(2026, 10, 31), "MONTHLY", null);
