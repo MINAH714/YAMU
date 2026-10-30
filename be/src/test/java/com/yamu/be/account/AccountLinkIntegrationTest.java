@@ -557,6 +557,31 @@ class AccountLinkIntegrationTest extends MySqlTestSupport {
     }
 
     @Test
+    void 처음_연결이_서로_다른_계좌로_동시에_와도_기준_계좌는_하나다() throws Exception {
+        String bearer = signupBearer(pendingUser(), SignupMode.SIGNUP);
+        MvcResult listed = candidates(bearer).andReturn();
+        String shinhan = candidateId(listed, "6547");
+        String kookmin = candidateId(listed, "8810");
+        String first = sentToken(bearer, List.of(shinhan), shinhan);
+        String second = sentToken(bearer, List.of(kookmin), kookmin);
+        slowCodeCheck();
+
+        List<MvcResult> results = Concurrently.run(List.of(
+                () -> link(bearer, first, CODE, key(), null).andReturn(),
+                () -> link(bearer, second, CODE, key(), null).andReturn()));
+
+        assertThat(results).allSatisfy(r -> assertThat(r.getResponse().getStatus()).isEqualTo(201));
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM linked_account", Integer.class)).isEqualTo(2);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM linked_account WHERE is_primary = 1", Integer.class))
+                .isEqualTo(1);
+        // 응답의 isPrimary도 DB와 같다: 두 응답 중 정확히 하나만 true
+        long primaryInResponses = results.stream()
+                .filter(r -> JsonPath.<Boolean>read(contentOf(r), "$.data.accounts[0].isPrimary"))
+                .count();
+        assertThat(primaryInResponses).isEqualTo(1);
+    }
+
+    @Test
     void 가입_후_같은_계좌를_다른_키로_동시에_연결해도_한_번만_연결된다() throws Exception {
         Member member = activeMember();
         String kookmin = candidateId(candidates(member.auth()).andReturn(), "8810");
@@ -815,5 +840,13 @@ class AccountLinkIntegrationTest extends MySqlTestSupport {
 
     private static String read(MvcResult result, String path) throws Exception {
         return JsonPath.read(result.getResponse().getContentAsString(), path).toString();
+    }
+
+    private static String contentOf(MvcResult result) {
+        try {
+            return result.getResponse().getContentAsString();
+        } catch (java.io.UnsupportedEncodingException e) {
+            throw new IllegalStateException(e);
+        }
     }
 }

@@ -345,6 +345,84 @@ class AccountViewIntegrationTest extends MySqlTestSupport {
         get("/api/accounts").andExpect(jsonPath("$.data.accounts[0].balance").value(7000));
     }
 
+    @Test
+    void 캐시에서_꺼낸_잔액은_처음_금융망에서_읽은_시각을_그대로_준다() {
+        LocalDateTime readAt = LocalDateTime.of(2026, 10, 30, 1, 0);
+        redis.opsForValue().set("account:balance:" + first, "5000|" + readAt.toEpochSecond(ZoneOffset.UTC),
+                java.time.Duration.ofMinutes(10));
+
+        assertThat(balanceService.getBalances(owner, List.of(first), false)).singleElement().satisfies(b -> {
+            assertThat(b.balance()).isEqualTo(5000L);
+            assertThat(b.fetchedAt()).isEqualTo(readAt);
+        });
+        verify(finApiClient, never()).post(eq(SsafyAccountApi.BALANCE_PATH), any(), any(), eq(Balance.class));
+    }
+
+    @Test
+    void 금융망에서_읽은_잔액은_10분_TTL로_캐시한다() {
+        balanceService.getBalances(owner, List.of(first), false);
+
+        assertThat(redis.getExpire("account:balance:" + first, TimeUnit.SECONDS)).isBetween(590L, 600L);
+    }
+
+    @Test
+    void SSAFY_계정이_없는_사용자는_getBalances가_400이다() {
+        long noMember = user("01077776666", false);
+        long account = account(noMember, "7777", "CONNECTED", true, null);
+
+        assertThatThrownBy(() -> balanceService.getBalances(noMember, List.of(account), false))
+                .isInstanceOfSatisfying(BusinessException.class,
+                        e -> assertThat(e.getErrorCode()).isEqualTo(ErrorCode.INVALID_REQUEST));
+    }
+
+    @Test
+    void refresh가_실패해도_이전_캐시는_남는다() {
+        balanceService.getBalances(owner, List.of(first), false);
+        FinApiException failure = FinApiFailures.timedOut("inquireDemandDepositAccountBalance");
+        balances.put("6547", failure);
+
+        assertThatThrownBy(() -> balanceService.getBalances(owner, List.of(first), true)).isSameAs(failure);
+        assertThat(balanceService.getBalances(owner, List.of(first), false))
+                .singleElement().extracting(AccountBalance::balance).isEqualTo(620000L);
+    }
+
+    @Test
+    void 더_나중에_읽은_캐시는_늦게_끝난_조회가_덮지_않는다() {
+        // 다른 refresh가 이미 "미래" 시각의 값을 써 둔 상태. 지금 읽은 값은 응답에는 쓰지만 캐시는 바꾸지 않는다.
+        long later = LocalDateTime.now(ZoneOffset.UTC).plusMinutes(1).toEpochSecond(ZoneOffset.UTC);
+        redis.opsForValue().set("account:balance:" + first, "9999|" + later, java.time.Duration.ofMinutes(10));
+
+        assertThat(balanceService.getBalances(owner, List.of(first), true))
+                .singleElement().extracting(AccountBalance::balance).isEqualTo(620000L);
+        assertThat(redis.opsForValue().get("account:balance:" + first)).startsWith("9999|");
+    }
+
+    @Test
+    void refresh는_사용자별_1분에_6번까지이고_넘으면_429다() {
+        for (int i = 0; i < 6; i++) {
+            balanceService.getBalances(owner, List.of(first), true);
+        }
+
+        assertThatThrownBy(() -> balanceService.getBalances(owner, List.of(first), true))
+                .isInstanceOfSatisfying(BusinessException.class, e -> {
+                    assertThat(e.getErrorCode()).isEqualTo(ErrorCode.TOO_MANY_REQUESTS);
+                    assertThat(e.getDetails()).containsKey("retryAfterSeconds");
+                });
+        // 캐시를 쓰는 조회는 한도와 상관없다.
+        assertThat(balanceService.getBalances(owner, List.of(first), false)).hasSize(1);
+    }
+
+    @Test
+    void evict하면_다음_조회는_금융망에서_다시_읽는다() {
+        balanceService.getBalances(owner, List.of(first), false);
+        balances.put("6547", 10L);
+
+        balanceService.evict(first);
+
+        assertThat(balanceService.getBalances(owner, List.of(first), false))
+                .singleElement().extracting(AccountBalance::balance).isEqualTo(10L);
+    }
+
     // ───────── 체크카드 상세의 연결 계좌 잔액 ─────────
 
     @Test
