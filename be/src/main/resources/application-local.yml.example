@@ -19,19 +19,20 @@ management:
       show-details: always
 
 # 개인정보 암호화 키(로컬 전용). 비어 있으면 서버가 뜨지 않는다.
-# 각 값에 `openssl rand -base64 32` 결과를 하나씩 넣는다. 네 값은 모두 달라야 한다.
+# Seed를 실행한 PowerShell에서 bootRun하면 아래 환경변수로 같은 키를 사용한다.
+# Seed 없이 실행하면 환경변수를 설정하거나 각 값을 직접 입력한다. 키는 서로 달라야 한다.
 # 키를 바꾸면 로컬 DB에 이미 넣은 암호문·해시가 맞지 않으니 `docker compose down -v`로 초기화한다.
 # 자세한 내용: docs/be/personal-data-crypto.md
 yamu:
   crypto:
-    data-key-id: 1
+    data-key-id: ${YAMU_CRYPTO_DATA_KEY_ID:1}
     data-keys:
-      "[1]":
-    hmac-key:
-    pin-pepper:
+      "[1]": ${YAMU_CRYPTO_DATA_KEY_1:}
+    hmac-key: ${YAMU_CRYPTO_HMAC_KEY:}
+    pin-pepper: ${YAMU_CRYPTO_PIN_PEPPER:}
   # Access Token 서명 키(로컬 전용). `openssl rand -base64 32` 결과를 넣는다.
   jwt:
-    secret:
+    secret: ${YAMU_JWT_SECRET:}
   # SSAFY 금융망 팀 공용 앱 키. 값은 노션 API 명세 4장에 있다. 금융망을 부르지 않는 작업이면 비워 둬도 된다.
   fin-api:
     api-key:

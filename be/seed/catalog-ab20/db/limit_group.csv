@@ -13,11 +13,6 @@ KAKAOBANK,카카오뱅크 프렌즈 체크,CHECK,PROMO_OIL_MONTH_COUNT,2026 추�
 KAKAOBANK,카카오뱅크 프렌즈 체크,CHECK,PROMO_TELECOM_MONTH_COUNT,2026 추가 캐시백 SKT|KT|LG U+ 자동납부 월 횟수 한도,MONTHLY,COUNT,
 KAKAOBANK,카카오뱅크 프렌즈 체크,CHECK,PROMO_ACADEMY_MONTH_COUNT,2026 추가 캐시백 KB 학원|자동차학원|독서실 업종 월 횟수 한도,MONTHLY,COUNT,
 KAKAOBANK,카카오뱅크 프렌즈 체크,CHECK,PROMO_TAXI_MONTH_COUNT,2026 추가 캐시백 KB 택시 업종 월 횟수 한도,MONTHLY,COUNT,
-SHINHAN,신한카드 Point Plan,CREDIT,INTEGRATED,공유 월 혜택 한도(integrated),MONTHLY,POINT,
-SHINHAN,신한카드 Point Plan,CREDIT,INTEGRATED_FAMILY_MONTH,공유 월 혜택 한도(integrated-family-month),MONTHLY,POINT,
-SHINHAN,신한카드 Point Plan,CREDIT,WEEKEND_DAY,공유 일 횟수 한도(weekend-day),DAILY,COUNT,1
-SHINHAN,신한카드 Point Plan,CREDIT,WEEKEND_MONTH_COUNT,공유 월 횟수 한도(weekend-month-count),MONTHLY,COUNT,
-SHINHAN,신한카드 Point Plan,CREDIT,WEEKEND_MONTH_AMOUNT,공유 월 혜택 한도(weekend-month-amount),MONTHLY,POINT,
 SAMSUNG,삼성 iD ON 카드,CREDIT,LIFE_10,공유 월 혜택 한도(life-10),MONTHLY,KRW,
 KB,KB국민 청춘대로 톡톡카드,CREDIT,STARBUCKS,스타벅스 50% 청구할인 월 혜택 한도,MONTHLY,KRW,
 KB,KB국민 청춘대로 톡톡카드,CREDIT,BURGER,버거·패스트푸드 20% 청구할인 월 혜택 한도,MONTHLY,KRW,

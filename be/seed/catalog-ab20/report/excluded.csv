@@ -2,6 +2,18 @@
 cards,hyundai-zero-edition3-discount,,97 시드에 이미 있음,경린 님 01-card-catalog.sql 그대로 둠
 cards,shinhan-mrlife,,97 시드에 이미 있음,경린 님 01-card-catalog.sql 그대로 둠
 cards,shinhan-cheoeum,,97 시드에 이미 있음,경린 님 01-card-catalog.sql 그대로 둠
+cards,shinhan-pointplan,,Point Plan 카드 전체 적재 보류,일반월과 5·12월 대체 한도를 선택하는 스키마·BE 계약 확정 후 재검토
+benefits,shinhan-pointplan,daily-under-30k,Point Plan 카드 전체 적재 보류,일반월과 5·12월 대체 한도를 선택하는 스키마·BE 계약 확정 후 재검토
+benefits,shinhan-pointplan,daily-30k,Point Plan 카드 전체 적재 보류,일반월과 5·12월 대체 한도를 선택하는 스키마·BE 계약 확정 후 재검토
+benefits,shinhan-pointplan,daily-100k,Point Plan 카드 전체 적재 보류,일반월과 5·12월 대체 한도를 선택하는 스키마·BE 계약 확정 후 재검토
+benefits,shinhan-pointplan,daily-300k,Point Plan 카드 전체 적재 보류,일반월과 5·12월 대체 한도를 선택하는 스키마·BE 계약 확정 후 재검토
+benefits,shinhan-pointplan,daily-1m,Point Plan 카드 전체 적재 보류,일반월과 5·12월 대체 한도를 선택하는 스키마·BE 계약 확정 후 재검토
+benefits,shinhan-pointplan,daily-solpay-extra,Point Plan 카드 전체 적재 보류,일반월과 5·12월 대체 한도를 선택하는 스키마·BE 계약 확정 후 재검토
+benefits,shinhan-pointplan,daily-overseas,Point Plan 카드 전체 적재 보류,일반월과 5·12월 대체 한도를 선택하는 스키마·BE 계약 확정 후 재검토
+benefits,shinhan-pointplan,weekend-dining,Point Plan 카드 전체 적재 보류,일반월과 5·12월 대체 한도를 선택하는 스키마·BE 계약 확정 후 재검토
+benefits,shinhan-pointplan,weekend-delivery,Point Plan 카드 전체 적재 보류,일반월과 5·12월 대체 한도를 선택하는 스키마·BE 계약 확정 후 재검토
+benefits,shinhan-pointplan,autopay-utility,Point Plan 카드 전체 적재 보류,일반월과 5·12월 대체 한도를 선택하는 스키마·BE 계약 확정 후 재검토
+benefits,shinhan-pointplan,autopay-telecom,Point Plan 카드 전체 적재 보류,일반월과 5·12월 대체 한도를 선택하는 스키마·BE 계약 확정 후 재검토
 benefits,lotte-p15835-a15835,installment-2-3,제공자 판정 yamu_support = NO,기존 A 공식 검증 요약 기반. 공식 원문 직접 인용 아님. BE 지원은 확인 전 ASK. 정률 할인과 합산 금지 | 이전 공식 검증 결과 요약. 원자 조건의 최종 매핑/BE 계산 가능 여부는 별도 검증.
 benefits,samsung-aap1767,base-under100k,OR · 조건부 논리(A-condition_logic)는 표현 못 함,
 benefits,samsung-aap1767,base-100k,OR · 조건부 논리(A-condition_logic)는 표현 못 함,
@@ -32,15 +44,6 @@ benefits,hyundai-mzroe3,artist-plate,제공자 판정 yamu_support = NO,Visa 기
 benefits,hyundai-mzroe3,brand-platinum,제공자 판정 yamu_support = NO,국제브랜드사가 주는 서비스. 국내외겸용 카드만
 benefits,hyundai-mzroe3,three-floor,공식 확인 전(UNVERIFIED · CONFLICT),UNVERIFIED
 benefits,hyundai-mzroe3,new-member-fee-cashback,공식 확인 전(UNVERIFIED · CONFLICT),UNVERIFIED
-benefits,shinhan-pointplan,daily-under-30k,결제액 상한 · 구간 조건은 들어갈 칸이 없음,AMOUNT REQUIRE LT 30000
-benefits,shinhan-pointplan,daily-30k,결제액 상한 · 구간 조건은 들어갈 칸이 없음,AMOUNT REQUIRE LT 100000
-benefits,shinhan-pointplan,daily-100k,결제액 상한 · 구간 조건은 들어갈 칸이 없음,AMOUNT REQUIRE LT 300000
-benefits,shinhan-pointplan,daily-300k,결제액 상한 · 구간 조건은 들어갈 칸이 없음,AMOUNT REQUIRE LT 1000000
-benefits,shinhan-pointplan,daily-solpay-extra,제공자 판정 yamu_support = NO,금액 구간 적립률에 더해 받는다(다른 묶음). 결제수단 조건이라 YAMU 미지원. 현행 문구는 2024-06-26 약관 개정부터
-benefits,shinhan-pointplan,daily-overseas,제공자 판정 yamu_support = NO,YAMU 모의 결제는 국내뿐이라 계산 대상이 아니다. 국내 금액 구간 적립과 같은 월 통합 한도를 쓴다
-benefits,shinhan-pointplan,weekend-delivery,제공자 판정 yamu_support = NO,SOL페이로 앱 내 결제한 건만이라 결제수단 조건 때문에 YAMU 미지원. 음식점과 일 1회·월 횟수를 같이 쓴다. 현행 문구는 2024-06-26 약관 개정부터
-benefits,shinhan-pointplan,autopay-utility,제공자 판정 yamu_support = NO,"단위 적립과 자동납부 조건이 YAMU 미지원. 2만원 미만 나머지는 버린다(예: 63,000원 → 3천P). 일상 생활비와 중복되지 않고 이 혜택만 준다"
-benefits,shinhan-pointplan,autopay-telecom,제공자 판정 yamu_support = NO,단위 적립과 자동납부 조건이 YAMU 미지원. 일상 생활비와 중복되지 않고 이 혜택만 준다
 benefits,samsung-id-on,top-area-30,제공자 판정 yamu_support = NO,"세 영역 중 그 달 이용금액이 가장 큰 영역 하나만 30%(자동 순위). 커피전문점 영역은 스타벅스와 합쳐 순위를 센다. 오프라인 결제만, 백화점·할인점·쇼핑몰 임대매장 제외, 가족카드 제외. 온라인 간편결제·해외 "
 benefits,samsung-id-on,top-area-30-starbucks,제공자 판정 yamu_support = NO,사이렌오더(앱 주문) 결제도 할인하므로 오프라인 조건이 없는 혜택으로 따로 둔다(원본과 같음). 커피전문점 영역과 같은 순위·한도를 쓴다
 benefits,samsung-id-on,top-area-30-delivery,제공자 판정 yamu_support = NO,배달의민족·요기요 공식 홈페이지·앱 결제만. 가맹점 직접 결제(만나서 결제 등) 제외

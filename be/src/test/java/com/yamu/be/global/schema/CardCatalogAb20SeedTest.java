@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.yamu.be.support.MySqlTestSupport;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.sql.Connection;
 import java.util.List;
@@ -13,6 +14,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.io.FileSystemResource;
+import org.springframework.core.io.support.EncodedResource;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.init.ScriptUtils;
 import org.springframework.test.annotation.DirtiesContext;
@@ -111,10 +113,10 @@ class CardCatalogAb20SeedTest extends MySqlTestSupport {
                 SELECT COUNT(*) FROM card_benefit b JOIN card_product p USING (card_product_id)
                 WHERE p.product_name = '카카오뱅크 프렌즈 체크' AND b.benefit_code LIKE 'PROMO\\_%' AND b.valid_until = '2027-02-01'
                 """, Integer.class)).isEqualTo(4);
+        // 가족행사월 대체 한도를 표현하기 전까지 카드 전체가 보류된다.
         assertThat(jdbc.queryForObject("""
-                SELECT JSON_EXTRACT(b.conditions_json, '$.weekdays') FROM card_benefit b JOIN card_product p USING (card_product_id)
-                WHERE p.product_name = '신한카드 Point Plan' AND b.benefit_code = 'WEEKEND_DINING'
-                """, String.class)).isEqualTo("[\"SAT\", \"SUN\"]");
+                SELECT COUNT(*) FROM card_product WHERE product_name = '신한카드 Point Plan'
+                """, Integer.class)).isZero();
         assertThat(jdbc.queryForObject("""
                 SELECT b.rate FROM card_benefit b JOIN card_product p USING (card_product_id)
                 WHERE p.product_name = 'LOCA LIKIT 2.0' AND b.benefit_code = 'DOMESTIC_12'
@@ -136,14 +138,14 @@ class CardCatalogAb20SeedTest extends MySqlTestSupport {
                 .isEqualTo("OTHER_INDUSTRY");
     }
 
-    /** 01(카드 3 · 혜택 13 · 대상 177 · 한도 31 · 구간 12 · 연결 42 · 브랜드 27) + 02(15 · 45 · 683 · 38 · 51 · 60 · 새 브랜드 32) */
+    /** 01(3 · 13 · 177 · 31 · 12 · 42 · 27) + 02(14 · 43 · 636 · 33 · 41 · 55 · 새 브랜드 32) */
     private void assertCatalogCounts() {
-        assertThat(count("card_product")).isEqualTo(18);
-        assertThat(count("card_benefit")).isEqualTo(58);
-        assertThat(count("benefit_target")).isEqualTo(860);
-        assertThat(count("limit_group")).isEqualTo(69);
-        assertThat(count("tier_limit")).isEqualTo(63);
-        assertThat(count("benefit_limit_link")).isEqualTo(102);
+        assertThat(count("card_product")).isEqualTo(17);
+        assertThat(count("card_benefit")).isEqualTo(56);
+        assertThat(count("benefit_target")).isEqualTo(813);
+        assertThat(count("limit_group")).isEqualTo(64);
+        assertThat(count("tier_limit")).isEqualTo(53);
+        assertThat(count("benefit_limit_link")).isEqualTo(97);
         assertThat(count("merchant")).isEqualTo(59);
     }
 
@@ -154,7 +156,8 @@ class CardCatalogAb20SeedTest extends MySqlTestSupport {
     private void apply(String file) throws Exception {
         try (Connection connection = dataSource.getConnection()) {
             try {
-                ScriptUtils.executeSqlScript(connection, new FileSystemResource(Path.of("seed", file)));
+                ScriptUtils.executeSqlScript(connection, new EncodedResource(
+                        new FileSystemResource(Path.of("seed", file)), StandardCharsets.UTF_8));
             } catch (Exception failure) {
                 // SQL 안에 START TRANSACTION이 있다 — 실패하면 일부만 남지 않게 되돌린다.
                 try (var statement = connection.createStatement()) {

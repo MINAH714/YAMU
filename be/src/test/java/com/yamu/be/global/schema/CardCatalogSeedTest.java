@@ -4,12 +4,14 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.yamu.be.support.MySqlTestSupport;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.sql.Connection;
 import javax.sql.DataSource;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.io.FileSystemResource;
+import org.springframework.core.io.support.EncodedResource;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.init.ScriptUtils;
 import org.springframework.test.annotation.DirtiesContext;
@@ -191,8 +193,8 @@ class CardCatalogSeedTest extends MySqlTestSupport {
     private void applySeed() throws Exception {
         try (Connection connection = dataSource.getConnection()) {
             try {
-                ScriptUtils.executeSqlScript(connection,
-                        new FileSystemResource(Path.of("seed", "01-card-catalog.sql")));
+                ScriptUtils.executeSqlScript(connection, new EncodedResource(
+                        new FileSystemResource(Path.of("seed", "01-card-catalog.sql")), StandardCharsets.UTF_8));
             } catch (Exception failure) {
                 // START TRANSACTION is in the SQL; do not commit partial data after failure.
                 try (var statement = connection.createStatement()) {

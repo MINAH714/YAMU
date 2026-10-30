@@ -46,13 +46,6 @@ kakaobank-friends-check,promo-taxi,rounding_mode · rounding_unit,NULL,원본 UN
 kakaobank-friends-check,promo-taxi,rounding_stage,NULL,거래별 · 합산 후 처리 단계 근거 없음
 hyundai-mzroe3,m-point-earn-1-2,rounding_stage,NULL,거래별 · 합산 후 처리 단계 근거 없음
 hyundai-mzroe3,m-point-earn-1-2,point_krw_rate,NULL,포인트 1P 가치는 팀 결정 전(DB 적재 전 보완 P0)
-shinhan-pointplan,daily-1m,rounding_mode · rounding_unit,NULL,원본 UNKNOWN
-shinhan-pointplan,daily-1m,rounding_stage,NULL,거래별 · 합산 후 처리 단계 근거 없음
-shinhan-pointplan,daily-1m,point_krw_rate,NULL,포인트 1P 가치는 팀 결정 전(DB 적재 전 보완 P0)
-shinhan-pointplan,weekend-dining,미확인 포함 대상 뺌,CATEGORY pub,공식 확인 전이라 혜택 범위를 넓히지 않음
-shinhan-pointplan,weekend-dining,rounding_mode · rounding_unit,NULL,원본 빈칸
-shinhan-pointplan,weekend-dining,rounding_stage,NULL,거래별 · 합산 후 처리 단계 근거 없음
-shinhan-pointplan,weekend-dining,point_krw_rate,NULL,포인트 1P 가치는 팀 결정 전(DB 적재 전 보완 P0)
 samsung-id-on,transit-telecom-streaming-10,rounding_mode · rounding_unit,NULL,원본 UNKNOWN
 samsung-id-on,transit-telecom-streaming-10,rounding_stage,NULL,거래별 · 합산 후 처리 단계 근거 없음
 shinhan-biabix,fuel-gs-10,미확인 조건 유지,PAYMENT_METHOD naver_pay|kakao_pay|payco|toss_pay,빼면 혜택이 넓어지므로 남겨 둠
@@ -104,4 +97,3 @@ lotte-p13955-a13955,convenience-60,rounding_stage,NULL,거래별 · 합산 후 �
 lotte-p13955-a13955,membership-60,rounding_mode · rounding_unit,NULL,원본 UNKNOWN
 lotte-p13955-a13955,membership-60,rounding_stage,NULL,거래별 · 합산 후 처리 단계 근거 없음
 kakaobank-friends-check,*,stack_group,base|promotion,같은 묶음 하나만 · 다른 묶음 합산 규칙은 BE 미정이라 DB에 남기지 않음
-shinhan-pointplan,*,stack_group,main|weekend,같은 묶음 하나만 · 다른 묶음 합산 규칙은 BE 미정이라 DB에 남기지 않음

@@ -10,6 +10,7 @@ import com.yamu.be.global.crypto.CipherField;
 import com.yamu.be.global.crypto.LookupHasher;
 import com.yamu.be.global.crypto.PinHasher;
 import com.yamu.be.support.MySqlTestSupport;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.security.SecureRandom;
 import java.sql.Connection;
@@ -23,6 +24,7 @@ import javax.sql.DataSource;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.io.FileSystemResource;
+import org.springframework.core.io.support.EncodedResource;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.init.ScriptUtils;
 import org.springframework.test.annotation.DirtiesContext;
@@ -46,7 +48,8 @@ class SeedUserDataTest extends MySqlTestSupport {
         // UTC October 31 is already November in Korea: previous performance month is October.
         Clock clock = Clock.fixed(Instant.parse("2026-10-31T15:30:00Z"), ZoneOffset.UTC);
         try (Connection connection = dataSource.getConnection()) {
-            ScriptUtils.executeSqlScript(connection, new FileSystemResource(Path.of("seed", "01-card-catalog.sql")));
+            ScriptUtils.executeSqlScript(connection, new EncodedResource(
+                    new FileSystemResource(Path.of("seed", "01-card-catalog.sql")), StandardCharsets.UTF_8));
             jdbc.update("INSERT INTO app_user (name,created_at,updated_at) VALUES ('other owner', UTC_TIMESTAMP(6), UTC_TIMESTAMP(6))");
             SeedUserData seed = new SeedUserData(connection, cipher, hashes, pins, clock);
             seed.load(member, financialKey, "088", accountNumber, "012345", false);

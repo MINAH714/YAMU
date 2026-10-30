@@ -72,6 +72,14 @@ const assume = (card, key, item, value, reason) => assumptions.push({ card_id: c
 const products = [];
 for (const c of cards) {
   if (SEED97_CARDS.has(c.card_id)) { exclude('cards', c.card_id, '', '97 시드에 이미 있음', '경린 님 01-card-catalog.sql 그대로 둠'); continue; }
+  // 임시: MR !41 리뷰 후 팀 승인. 월별 대체 한도 지원 전까지 카드 전체를 보류한다.
+  if (c.card_id === 'shinhan-pointplan') {
+    const reason = 'Point Plan 카드 전체 적재 보류';
+    const detail = '일반월과 5·12월 대체 한도를 선택하는 스키마·BE 계약 확정 후 재검토';
+    exclude('cards', c.card_id, '', reason, detail);
+    for (const b of benefits.filter(b => b.card_id === c.card_id)) exclude('benefits', c.card_id, b.benefit_key, reason, detail);
+    continue;
+  }
   const issuer = ISSUER[c.issuer];
   if (!issuer) throw new Error(`카드사 코드 없음: ${c.issuer}`);
   const page = sources.find(s => s.card_id === c.card_id && s.kind === 'PRODUCT_PAGE' && s.url);
