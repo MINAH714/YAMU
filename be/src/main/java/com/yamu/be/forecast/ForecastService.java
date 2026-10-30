@@ -1,5 +1,7 @@
 package com.yamu.be.forecast;
 
+import com.yamu.be.account.AccountBalance;
+import com.yamu.be.account.AccountBalanceService;
 import com.yamu.be.account.AccountQueryService;
 import com.yamu.be.cashflow.CashflowItem;
 import com.yamu.be.cashflow.CashflowService;
@@ -40,7 +42,7 @@ public class ForecastService {
             new LivingCostForecast.Exclusion("UNCLASSIFIED", "소비 목적을 확인할 수 없는 계좌 출금은 임의로 포함하지 않음"));
 
     private final CashflowService cashflows;
-    private final AccountBalanceReader balances;
+    private final AccountBalanceService balances;
     private final CardBillReader bills;
     private final CardReader cards;
     private final CreditWithdrawalSchedule creditSchedule;
@@ -50,7 +52,7 @@ public class ForecastService {
     private final Clock clock;
 
     /** @param alertThreshold 안전 잔액(원). 잔고예보 설정 API가 생기기 전까지 명세의 현행 가정값을 받는다 */
-    ForecastService(CashflowService cashflows, AccountBalanceReader balances, CardBillReader bills,
+    ForecastService(CashflowService cashflows, AccountBalanceService balances, CardBillReader bills,
             CardReader cards, CreditWithdrawalSchedule creditSchedule, LivingCostReader livingCosts,
             AccountQueryService accounts, long alertThreshold, Clock clock) {
         this.cashflows = cashflows;
@@ -84,7 +86,7 @@ public class ForecastService {
         BalanceForecast.Horizon horizon = horizon(until, days, today);
 
         // 잔액·생활비는 금융망을 부를 수 있어 DB를 읽기 전에 따로 읽는다. 남의·연결 해제 계좌는 BE 1이 404로 거절한다.
-        Map<Long, AccountBalanceReader.AccountBalance> balanceById = readBalances(authenticatedUserId, selected, refresh);
+        Map<Long, AccountBalance> balanceById = readBalances(authenticatedUserId, selected, refresh);
         LivingCostEstimator.Estimate living = estimateLivingCost(authenticatedUserId, selected, today).estimate();
         List<CashflowService.Entry> entries = cashflows.list(authenticatedUserId, horizon.from(), horizon.to(),
                 null, CashflowItem.Status.CONFIRMED, true);
@@ -266,13 +268,17 @@ public class ForecastService {
         return new BalanceForecast.Horizon(BalanceForecast.Until.DAYS, today, today.plusDays(days), days);
     }
 
-    private Map<Long, AccountBalanceReader.AccountBalance> readBalances(Long userId, List<Long> selected,
-            boolean refresh) {
-        Map<Long, AccountBalanceReader.AccountBalance> byId = new HashMap<>();
-        for (AccountBalanceReader.AccountBalance balance : balances.getBalances(userId, selected, refresh)) {
+    /**
+     * BE 1 잔액 조회. 남의·연결 해제 계좌 404, SSAFY 회원 아님 400, 새로고침 한도 429, 금융망 502·504는 그대로 전파한다.
+     * refresh=false면 BE 1의 10분 캐시를 쓰고, true일 때만 캐시를 건너뛰고 새로고침 한도를 센다.
+     */
+    private Map<Long, AccountBalance> readBalances(Long userId, List<Long> selected, boolean refresh) {
+        Map<Long, AccountBalance> byId = new HashMap<>();
+        for (AccountBalance balance : balances.getBalances(userId, selected, refresh)) {
             byId.put(balance.linkedAccountId(), balance);
         }
         for (Long accountId : selected) {
+            // BE 1은 전부 주거나 예외를 던져 보통 오지 않는 방어 분기다. 빠진 잔액을 0원으로 채우지 않는다.
             if (!byId.containsKey(accountId)) {
                 throw new BusinessException(ErrorCode.DATA_INSUFFICIENT);
             }

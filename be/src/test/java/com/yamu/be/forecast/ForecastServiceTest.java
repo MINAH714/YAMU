@@ -3,6 +3,10 @@ package com.yamu.be.forecast;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.tuple;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -10,7 +14,8 @@ import static org.mockito.Mockito.when;
 import com.yamu.be.account.AccountQueryService;
 import com.yamu.be.cashflow.CashflowItem;
 import com.yamu.be.cashflow.CashflowService;
-import com.yamu.be.forecast.AccountBalanceReader.AccountBalance;
+import com.yamu.be.account.AccountBalance;
+import com.yamu.be.account.AccountBalanceService;
 import com.yamu.be.forecast.BalanceForecast.Until;
 import com.yamu.be.forecast.CardBillReader.OutstandingBill;
 import com.yamu.be.forecast.CardBillReader.Status;
@@ -53,6 +58,7 @@ class ForecastServiceTest {
 
     @Mock CashflowService cashflows;
     @Mock AccountQueryService accounts;
+    @Mock AccountBalanceService balanceService;
 
     private final List<List<Long>> balanceRequests = new ArrayList<>();
     private final List<Boolean> refreshRequests = new ArrayList<>();
@@ -72,14 +78,15 @@ class ForecastServiceTest {
     }
 
     private ForecastService serviceAt(Clock clock) {
-        AccountBalanceReader balanceReader = (userId, accountIds, refresh) -> {
-            balanceRequests.add(accountIds);
-            refreshRequests.add(refresh);
+        // 생활비 상세처럼 잔액을 읽지 않는 테스트도 있어 lenient로 둔다.
+        lenient().when(balanceService.getBalances(any(), anyList(), anyBoolean())).thenAnswer(invocation -> {
+            balanceRequests.add(invocation.getArgument(1));
+            refreshRequests.add(invocation.getArgument(2));
             if (balanceFailure != null) {
                 throw balanceFailure;
             }
             return balances;
-        };
+        });
         CardBillReader billReader = (userId, accountIds, to) -> {
             billRequestsTo.add(to);
             return bills;
@@ -93,7 +100,7 @@ class ForecastServiceTest {
             }
             return new LivingCostReader.Spending(spending, LIVING_SYNCED_AT);
         };
-        return new ForecastService(cashflows, balanceReader, billReader, cardReader, creditSchedule, livingReader,
+        return new ForecastService(cashflows, balanceService, billReader, cardReader, creditSchedule, livingReader,
                 accounts, THRESHOLD, clock);
     }
 
@@ -386,10 +393,18 @@ class ForecastServiceTest {
     }
 
     @Test
-    void 남의_계좌_404와_금융망_실패는_그대로_전파하고_예정_항목을_읽지_않는다() {
+    void 잔액_조회_오류는_0원으로_채우지_않고_그대로_전파하며_예정_항목을_읽지_않는다() {
         balanceFailure = new BusinessException(ErrorCode.RESOURCE_NOT_FOUND);
         assertError(() -> service.forecast(USER, List.of(A), Until.DAYS, 7, false, false),
                 ErrorCode.RESOURCE_NOT_FOUND);
+
+        // SSAFY 회원 아님(400)과 새로고침 한도(429)도 BE 1이 던진 그대로다.
+        balanceFailure = new BusinessException(ErrorCode.INVALID_REQUEST);
+        assertError(() -> service.forecast(USER, List.of(A), Until.DAYS, 7, false, false),
+                ErrorCode.INVALID_REQUEST);
+        balanceFailure = new BusinessException(ErrorCode.TOO_MANY_REQUESTS);
+        assertError(() -> service.forecast(USER, List.of(A), Until.DAYS, 7, false, true),
+                ErrorCode.TOO_MANY_REQUESTS);
 
         balanceFailure = new BusinessException(ErrorCode.FIN_API_UNAVAILABLE);
         assertError(() -> service.forecast(USER, List.of(A), Until.DAYS, 7, false, false),
