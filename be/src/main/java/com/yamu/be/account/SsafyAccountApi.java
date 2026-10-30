@@ -5,8 +5,10 @@ import com.yamu.be.global.exception.ErrorCode;
 import com.yamu.be.global.finapi.FinApiClient;
 import com.yamu.be.global.finapi.FinApiException;
 import com.yamu.be.global.finapi.FinApiOutcome;
-import jakarta.validation.constraints.NotBlank;
+import com.fasterxml.jackson.databind.JsonNode;
 import jakarta.validation.constraints.NotNull;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import lombok.RequiredArgsConstructor;
@@ -14,6 +16,7 @@ import org.springframework.stereotype.Component;
 
 /**
  * 계좌 연결에 쓰는 SSAFY 금융망 API(노션 명세 「[SSAFY] 계좌 목록·잔액·예금주 조회」「[SSAFY] 1원 인증」).
+ * 예금주 조회는 쓰지 않는다. 연결 후보를 이 사용자 userKey의 계좌 목록에서만 고르게 해서(10/30 결정) 남의 계좌가 끼어들 수 없다.
  *
  * <p>SSAFY 응답 코드 중 사용자가 고칠 수 있는 것(계좌번호 오류, 인증코드 불일치·만료)만 YAMU 에러 코드로 바꾸고,
  * 나머지는 금융망 실패(502·504) 그대로 던진다.
@@ -22,7 +25,7 @@ import org.springframework.stereotype.Component;
 @RequiredArgsConstructor
 public class SsafyAccountApi {
 
-    static final String HOLDER_PATH = "/edu/demandDeposit/inquireDemandDepositAccountHolderName";
+    static final String LIST_PATH = "/edu/demandDeposit/inquireDemandDepositAccountList";
     static final String BALANCE_PATH = "/edu/demandDeposit/inquireDemandDepositAccountBalance";
     static final String OPEN_AUTH_PATH = "/edu/accountAuth/openAccountAuth";
     static final String CHECK_AUTH_PATH = "/edu/accountAuth/checkAuthCode";
@@ -38,13 +41,25 @@ public class SsafyAccountApi {
 
     private final FinApiClient finApiClient;
 
-    /** 예금주. SSAFY의 userName은 실제 이름이 아니라 SSAFY 계정 ID의 {@code @} 앞부분이다. */
-    public Holder holder(String userKey, String accountNo) {
-        try {
-            return finApiClient.post(HOLDER_PATH, userKey, Map.of("accountNo", accountNo), Holder.class);
-        } catch (FinApiException e) {
-            throw translateAccount(e);
+    /**
+     * 이 SSAFY 회원(userKey)의 수시입출금 계좌 전체. userKey 단위라 남의 계좌는 나오지 않는다(예금주 확인이 필요 없는 이유).
+     * 계좌번호·은행 코드가 비어 있는 행은 연결할 수 없어 뺀다.
+     */
+    public List<Account> accounts(String userKey) {
+        // REC가 배열이라 JsonNode로 받아 한 줄씩 꺼낸다(FinApiClient 규칙). 배열이 아니면 응답이 깨진 것으로 본다.
+        JsonNode rec = finApiClient.post(LIST_PATH, userKey, null, JsonNode.class);
+        if (!rec.isArray()) {
+            throw new BusinessException(ErrorCode.FIN_API_UNAVAILABLE);
         }
+        List<Account> accounts = new ArrayList<>();
+        for (JsonNode row : rec) {
+            String accountNo = text(row, "accountNo");
+            String bankCode = text(row, "bankCode");
+            if (accountNo != null && bankCode != null) {
+                accounts.add(new Account(bankCode, text(row, "bankName"), accountNo, text(row, "accountName")));
+            }
+        }
+        return accounts;
     }
 
     /** 1원을 보낸다. 통장 입금자명에 "{authText} {숫자 4자리}"가 찍힌다. */
@@ -86,6 +101,11 @@ public class SsafyAccountApi {
         return finApiClient.post(BALANCE_PATH, userKey, Map.of("accountNo", accountNo), Balance.class).accountBalance();
     }
 
+    private static String text(JsonNode row, String field) {
+        JsonNode value = row.get(field);
+        return value == null || !value.isTextual() || value.asText().isBlank() ? null : value.asText();
+    }
+
     private static BusinessException mismatch(int remainingAttempts) {
         return new BusinessException(ErrorCode.AUTH_CODE_MISMATCH, Map.of("remainingAttempts", remainingAttempts));
     }
@@ -105,7 +125,8 @@ public class SsafyAccountApi {
         return e.getOutcome() == FinApiOutcome.REJECTED && codes.contains(e.getFinCode());
     }
 
-    public record Holder(@NotBlank String bankCode, String bankName, @NotBlank String userName) {
+    /** SSAFY 계좌 목록 한 줄. 금액 등 다른 칸은 쓰지 않는다(잔액은 1원 인증 뒤 잔액 조회로). */
+    public record Account(String bankCode, String bankName, String accountNo, String accountName) {
     }
 
     record CheckResult(String status) {

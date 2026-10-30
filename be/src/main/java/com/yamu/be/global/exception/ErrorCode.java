@@ -58,13 +58,12 @@ public enum ErrorCode {
     // 임시(10/30): 시연용 시드에 없는 사람. 회원가입 때 SSAFY 회원을 만들지 않으므로 시드 사용자만 가입할 수 있다
     DEMO_USER_NOT_FOUND(HttpStatus.NOT_FOUND, "시연용으로 등록된 사용자가 아닙니다."),
 
-    /* 계좌 - 계좌 확인·1원 인증 요청·계좌 연결 (API 명세 각 페이지) */
-    INVALID_ACCOUNT_NUMBER(HttpStatus.BAD_REQUEST, "계좌번호는 숫자 16자리로 입력해 주세요."),
+    /* 계좌 - 계좌 목록·1원 인증 요청·계좌 연결 (API 명세 각 페이지. 10/30 목록 방식으로 바꿔 계좌번호 입력·예금주 코드는 뺐다) */
     ACCOUNT_NOT_FOUND_AT_BANK(HttpStatus.NOT_FOUND, "은행에서 계좌를 찾을 수 없습니다. 계좌번호를 확인해 주세요."),
-    HOLDER_MISMATCH(HttpStatus.BAD_REQUEST, "본인 명의 계좌가 아닙니다."),
     ACCOUNT_NOT_SUPPORTED(HttpStatus.BAD_REQUEST, "원화 입출금 계좌만 연결할 수 있습니다."),
     ACCOUNT_ALREADY_LINKED(HttpStatus.CONFLICT, "이미 연결한 계좌입니다."),
-    ACCOUNT_NOT_LINKED(HttpStatus.BAD_REQUEST, "연결해 둔 계좌로만 인증할 수 있습니다."),
+    // 임시(10/30): 계좌 목록의 candidateId가 없거나(10분 지남) 남의 것. 명세에 추가 필요
+    ACCOUNT_CANDIDATE_EXPIRED(HttpStatus.BAD_REQUEST, "계좌 목록이 만료됐습니다. 계좌 목록을 다시 불러와 주세요."),
     VERIFICATION_TOKEN_EXPIRED(HttpStatus.BAD_REQUEST, "계좌 확인 시간이 지났습니다. 계좌 확인부터 다시 진행해 주세요."),
     AUTH_REQUEST_TOO_FREQUENT(HttpStatus.TOO_MANY_REQUESTS, "1원 인증을 너무 자주 요청했습니다. 잠시 후 다시 시도해 주세요."),
     AUTH_CODE_MISMATCH(HttpStatus.BAD_REQUEST, "인증코드가 일치하지 않습니다."),

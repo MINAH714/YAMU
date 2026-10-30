@@ -45,9 +45,12 @@ public class SecurityConfig {
      * 가입 진행 토큰("sgt_…")이 오면 JWT 검사를 건너뛴다(JWT가 아니라 그대로 두면 401이 난다).
      */
     static final String[] SIGNUP_TOKEN_POST = {
-            "/api/accounts/verify",
             "/api/accounts/one-won-auth",
             "/api/accounts"
+    };
+
+    static final String[] SIGNUP_TOKEN_GET = {
+            "/api/accounts/candidates"
     };
 
     private static final String SIGNUP_TOKEN_PREFIX = "sgt_";
@@ -73,6 +76,7 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, PUBLIC_GET).permitAll()
                         .requestMatchers(HttpMethod.POST, PUBLIC_POST).permitAll()
                         .requestMatchers(HttpMethod.POST, SIGNUP_TOKEN_POST).permitAll()
+                        .requestMatchers(HttpMethod.GET, SIGNUP_TOKEN_GET).permitAll()
                         // 컨트롤러가 던진 예외를 Spring이 /error로 다시 보낼 때 401로 바뀌지 않게 연다.
                         .requestMatchers("/error").permitAll()
                         .anyRequest().authenticated())
@@ -97,8 +101,9 @@ public class SecurityConfig {
                 Arrays.stream(PUBLIC_POST).map(path -> (RequestMatcher) paths.matcher(HttpMethod.POST, path)),
                 Arrays.stream(PUBLIC_GET).map(path -> (RequestMatcher) paths.matcher(HttpMethod.GET, path))).toList());
         // 가입 진행 토큰을 JWT 검사에서 빼는 것은 그 토큰을 받는 API에서만. 다른 경로에서는 JWT로 검사해 401이 된다.
-        RequestMatcher signupTokenPaths = new OrRequestMatcher(Arrays.stream(SIGNUP_TOKEN_POST)
-                .map(path -> (RequestMatcher) paths.matcher(HttpMethod.POST, path)).toList());
+        RequestMatcher signupTokenPaths = new OrRequestMatcher(Stream.concat(
+                Arrays.stream(SIGNUP_TOKEN_POST).map(path -> (RequestMatcher) paths.matcher(HttpMethod.POST, path)),
+                Arrays.stream(SIGNUP_TOKEN_GET).map(path -> (RequestMatcher) paths.matcher(HttpMethod.GET, path))).toList());
         return (HttpServletRequest request) -> {
             if (publicPaths.matches(request)) {
                 return null;

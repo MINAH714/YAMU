@@ -48,7 +48,7 @@ public class AccountActorResolver {
         SignupSession session = signupTokenStore.find(token)
                 .orElseThrow(() -> new BusinessException(ErrorCode.SIGNUP_TOKEN_INVALID));
         if (session.userId() == null) {
-            // 본인인증만 하고 회원가입(SSAFY 계정 생성)을 하지 않았다. userKey가 없어 금융망을 부를 수 없다.
+            // 가입 진행 토큰은 시드 사용자에 묶여 발급된다. 사용자가 없는 토큰이면 금융망(userKey)을 부를 수 없다.
             throw new BusinessException(ErrorCode.INVALID_REQUEST);
         }
         AppUserStatus status = userRepository.findById(session.userId()).map(AppUser::getStatus).orElse(null);
