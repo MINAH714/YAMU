@@ -105,6 +105,22 @@ class CashflowControllerTest extends MySqlTestSupport {
     }
 
     @Test
+    void 금액이_1000억_원을_넘으면_등록과_수정_모두_400이다() throws Exception {
+        mockMvc.perform(post("/api/cashflow-items").with(AuthUsers.asUser(owner))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                { "type": "EXPENSE", "title": "월세", "amount": 100000000001, "date": "%s", "accountId": %d }
+                                """.formatted(tomorrow, account)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.details.fieldErrors[0].field").value("amount"));
+        long itemId = new CashflowFixtures(jdbc).rule(owner, account, tomorrow, "NONE", null);
+        mockMvc.perform(patch("/api/cashflow-items/{id}", itemId).with(AuthUsers.asUser(owner))
+                        .contentType(MediaType.APPLICATION_JSON).content("{ \"amount\": 100000000001 }"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.details.fieldErrors[0].field").value("amount"));
+    }
+
+    @Test
     void 남의_계좌로는_404이고_저장하지_않는다() throws Exception {
         long strangerAccount = fixtures.account(fixtures.user());
 

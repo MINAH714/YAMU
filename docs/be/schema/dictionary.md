@@ -716,6 +716,7 @@ CONSTRAINT ck_refund_version CHECK (version >= 0)
 | scheduled_date | `DATE NOT NULL` | 한국 기준 첫 발생일; 등록 시각인 created_at과 구분 |
 | recurrence_type | `VARCHAR(16) NOT NULL` | NONE / DAILY / WEEKLY / MONTHLY / YEARLY |
 | recurrence_end_date | `DATE NULL` | 한국 기준 반복 종료일 |
+| recurrence_day_of_month | `SMALLINT NULL` | 매월 반복 기준일(1~31), 그달에 없으면 말일(31은 매달 말일); MONTHLY만, NULL이면 첫 발생일의 날짜 |
 | status | `VARCHAR(24) NOT NULL` | 예정 내역 상태 코드 |
 | memo | `VARCHAR(500) NULL` | 사용자 메모; 민감정보 입력 주의 |
 | created_at | `TIMESTAMP(6) NOT NULL` | UTC 생성 시각 |
@@ -759,9 +760,14 @@ CONSTRAINT ck_cashflow_purchase CHECK (
         OR (item_kind = 'PURCHASE_PLAN' AND direction = 'EXPENSE' AND user_card_id IS NOT NULL
             AND amount IS NOT NULL AND payment_plan IS NOT NULL
             AND purchase_state IS NOT NULL AND purchase_state IN ('ACTIVE','FULFILLED','CANCELED')));
+CONSTRAINT ck_cashflow_recurrence_day CHECK (
+        recurrence_day_of_month IS NULL
+        OR (recurrence_type = 'MONTHLY'
+            AND recurrence_day_of_month BETWEEN 1 AND 31
+            AND DAY(scheduled_date) = LEAST(recurrence_day_of_month, DAY(LAST_DAY(scheduled_date)))));
 ```
 
-금액·카드 등은 발생 건 생성 시의 기본값이다. 예보는 회차별 cashflow_occurrence를 사용하며 이 테이블의 금액을 추가 차감하지 않는다. 이후 일정 변경은 기존 규칙의 종료일을 변경 시작일 전날로 닫고 새 규칙을 previous_cashflow_item_id로 연결한다. NULL 금액은 미정이며 입력을 안내한다.
+금액·카드 등은 발생 건 생성 시의 기본값이다. 매월 반복의 n번째 회차는 첫 발생일에서 n달 뒤 그달의 기준일(recurrence_day_of_month, 없으면 말일)이다. 이후 일정 변경으로 나뉜 새 규칙은 첫 발생일이 말일로 당겨진 날(예: 31일 반복의 11/30)이어도 기준일을 이어받는다. 예보는 회차별 cashflow_occurrence를 사용하며 이 테이블의 금액을 추가 차감하지 않는다. 이후 일정 변경은 기존 규칙의 종료일을 변경 시작일 전날로 닫고 새 규칙을 previous_cashflow_item_id로 연결한다. NULL 금액은 미정이며 입력을 안내한다.
 
 ### cashflow_occurrence — 회차별 예정 수입·지출
 

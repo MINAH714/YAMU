@@ -98,9 +98,11 @@ class CashflowConcurrencyTest extends MySqlTestSupport {
                 try {
                     result.get(30, TimeUnit.SECONDS);
                 } catch (ExecutionException e) {
-                    // 앞 요청이 고른 규칙을 이미 지웠으면 404만 허용한다. 교착·제약 위반(500)은 실패다.
+                    // 어느 쪽이 먼저 잠그느냐에 따라 뒤 요청은 거절된다. 수정이 먼저면 삭제할 규칙이 사라져 404,
+                    // 삭제가 먼저면 앞 규칙이 어제로 닫혀 고를 회차가 없어 400이다. 교착·제약 위반(500)은 실패다.
                     assertThat(e.getCause()).isInstanceOf(BusinessException.class);
-                    assertThat(((BusinessException) e.getCause()).getErrorCode()).isEqualTo(ErrorCode.RESOURCE_NOT_FOUND);
+                    assertThat(((BusinessException) e.getCause()).getErrorCode())
+                            .isIn(ErrorCode.RESOURCE_NOT_FOUND, ErrorCode.INVALID_REQUEST);
                 }
             }
         } finally {

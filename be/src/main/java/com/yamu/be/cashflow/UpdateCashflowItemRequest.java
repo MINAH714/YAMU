@@ -1,6 +1,7 @@
 package com.yamu.be.cashflow;
 
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Positive;
 import java.time.LocalDate;
 
@@ -18,6 +19,7 @@ public record UpdateCashflowItemRequest(
         String title,
 
         @Positive(message = "금액은 1원 이상이어야 합니다.")
+        @Max(value = CashflowService.MAX_AMOUNT, message = CashflowService.MAX_AMOUNT_MESSAGE)
         Long amount,
 
         LocalDate date,

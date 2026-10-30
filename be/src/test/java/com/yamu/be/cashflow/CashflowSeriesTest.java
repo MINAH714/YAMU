@@ -4,14 +4,18 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.tuple;
 
+import com.yamu.be.account.AccountQueryService;
+import com.yamu.be.card.CardQueryService;
 import com.yamu.be.global.common.ApiResponse.FieldErrorResponse;
 import com.yamu.be.global.exception.BusinessException;
 import com.yamu.be.global.exception.ErrorCode;
 import com.yamu.be.support.MySqlTestSupport;
 import com.yamu.be.support.OwnershipFixtures;
 import jakarta.persistence.EntityManager;
+import java.time.Clock;
 import java.time.LocalDate;
 import java.time.ZoneId;
+import java.time.ZoneOffset;
 import java.util.List;
 import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.BeforeEach;
@@ -34,6 +38,10 @@ class CashflowSeriesTest extends MySqlTestSupport {
     @Autowired JdbcTemplate jdbc;
     @Autowired EntityManager em;
     @Autowired CashflowService service;
+    @Autowired CashflowItemRepository items;
+    @Autowired CashflowOccurrenceRepository occurrences;
+    @Autowired AccountQueryService accounts;
+    @Autowired CardQueryService cards;
 
     CashflowFixtures cashflows;
     long owner;
@@ -98,6 +106,20 @@ class CashflowSeriesTest extends MySqlTestSupport {
     }
 
     @Test
+    void 일년보다_뒤에_시작하는_반복도_회차를_고르지_않고_이후_전부_고칠_수_있다() {
+        LocalDate later = today.plusDays(400);
+        long rule = cashflows.rule(owner, account, later, "WEEKLY", null);
+
+        CashflowService.Entry result = service.update(owner, rule, fromHere(null).amount(20000L).build());
+
+        assertThat(result.item().id()).isEqualTo(rule);
+        assertThat(result.occurrenceDate()).isEqualTo(later);
+        assertThat(list(later, later.plusDays(7)))
+                .extracting(CashflowService.Entry::date, entry -> entry.item().amount())
+                .containsExactly(tuple(later, 20000L), tuple(later.plusDays(7), 20000L));
+    }
+
+    @Test
     void 이후_전부_수정은_따로_고쳐_둔_미래_회차를_새_규칙으로_덮는다() {
         long rule = cashflows.rule(owner, account, start, "WEEKLY", null);
         cashflows.occurrence(owner, account, rule, today.plusDays(7), today.plusDays(8), true);
@@ -147,6 +169,79 @@ class CashflowSeriesTest extends MySqlTestSupport {
                 .containsExactly(tuple(today, 10000L), tuple(today.plusDays(7), 30000L),
                         tuple(today.plusDays(14), 30000L), tuple(today.plusDays(21), 30000L),
                         tuple(today.plusDays(28), 30000L));
+    }
+
+    @Test
+    void 일회_항목으로_끝난_시리즈를_반복_없이_고쳐도_그_날짜에서_끝난다() {
+        long first = cashflows.rule(owner, account, start, "WEEKLY", null);
+        // 2주 뒤부터 1회 항목으로 바꿔 시리즈를 그 날짜에서 끝낸다.
+        service.update(owner, first, fromHere(today.plusDays(14))
+                .recurrence(new CashflowService.RecurrenceChange(CashflowItem.RecurrenceType.NONE, null, null, null))
+                .build());
+
+        long third = service.update(owner, first, fromHere(today.plusDays(7)).amount(30000L).build()).item().id();
+
+        assertThat(endOf(third)).isEqualTo(today.plusDays(14));
+        assertThat(list(today, today.plusDays(35)))
+                .extracting(CashflowService.Entry::date, entry -> entry.item().amount())
+                .containsExactly(tuple(today, 10000L), tuple(today.plusDays(7), 30000L),
+                        tuple(today.plusDays(14), 30000L));
+    }
+
+    @Test
+    void 매월_31일_반복을_말일로_당겨진_회차에서_나눠도_기준일_31로_이어진다() {
+        // 한국 날짜 2026-11-05에 10/31 시작 매월 반복을 고친다. 다음 회차는 말일로 당겨진 11/30이다.
+        CashflowService atNov5 = serviceOn(LocalDate.of(2026, 11, 5));
+        long rule = cashflows.rule(owner, account, LocalDate.of(2026, 10, 31), "MONTHLY", null);
+
+        CashflowService.Entry fromNov30 = atNov5.update(owner, rule, fromHere(null).amount(20000L).build());
+        long next = fromNov30.item().id();
+        CashflowService.Entry fromFeb28 = atNov5.update(owner, next,
+                fromHere(LocalDate.of(2027, 2, 28)).amount(30000L).build());
+
+        assertThat(fromNov30.occurrenceDate()).isEqualTo(LocalDate.of(2026, 11, 30));
+        assertThat(CashflowItemResponse.from(fromNov30).recurrence().dayOfMonth()).isEqualTo(31);
+        assertThat(dayOfMonthOf(next)).isEqualTo(31);
+        assertThat(dayOfMonthOf(fromFeb28.item().id())).isEqualTo(31);
+        em.flush();
+        em.clear();
+        assertThat(atNov5.list(owner, LocalDate.of(2026, 11, 1), LocalDate.of(2027, 4, 30), null, null, true))
+                .extracting(CashflowService.Entry::date, entry -> entry.item().amount())
+                .containsExactly(tuple(LocalDate.of(2026, 11, 30), 20000L), tuple(LocalDate.of(2026, 12, 31), 20000L),
+                        tuple(LocalDate.of(2027, 1, 31), 20000L), tuple(LocalDate.of(2027, 2, 28), 30000L),
+                        tuple(LocalDate.of(2027, 3, 31), 30000L), tuple(LocalDate.of(2027, 4, 30), 30000L));
+    }
+
+    @Test
+    void 고른_회차와_같은_날짜를_다시_보내면_기준일을_이어받는다() {
+        // 앱이 수정 화면의 날짜(11/30)를 그대로 다시 보내는 경우
+        CashflowService atNov5 = serviceOn(LocalDate.of(2026, 11, 5));
+        long rule = cashflows.rule(owner, account, LocalDate.of(2026, 10, 31), "MONTHLY", null);
+
+        long next = atNov5.update(owner, rule,
+                fromHere(null).date(LocalDate.of(2026, 11, 30)).amount(20000L).build()).item().id();
+
+        assertThat(dayOfMonthOf(next)).isEqualTo(31);
+        em.flush();
+        em.clear();
+        assertThat(atNov5.list(owner, LocalDate.of(2026, 11, 1), LocalDate.of(2027, 1, 31), null, null, true))
+                .extracting(CashflowService.Entry::date)
+                .containsExactly(LocalDate.of(2026, 11, 30), LocalDate.of(2026, 12, 31), LocalDate.of(2027, 1, 31));
+    }
+
+    @Test
+    void 날짜를_바꿔_나누면_그_날짜가_새_기준일이다() {
+        CashflowService atNov5 = serviceOn(LocalDate.of(2026, 11, 5));
+        long rule = cashflows.rule(owner, account, LocalDate.of(2026, 10, 31), "MONTHLY", null);
+
+        long next = atNov5.update(owner, rule, fromHere(null).date(LocalDate.of(2026, 12, 15)).build()).item().id();
+
+        assertThat(dayOfMonthOf(next)).isEqualTo(15);
+        em.flush();
+        em.clear();
+        assertThat(atNov5.list(owner, LocalDate.of(2026, 11, 1), LocalDate.of(2027, 1, 31), null, null, true))
+                .extracting(CashflowService.Entry::date)
+                .containsExactly(LocalDate.of(2026, 12, 15), LocalDate.of(2027, 1, 15));
     }
 
     @Test
@@ -226,6 +321,21 @@ class CashflowSeriesTest extends MySqlTestSupport {
         return service.list(owner, from, to, null, null, true);
     }
 
+    /**
+     * 한국 날짜 today로 고정한 서비스. 월말 회차는 오늘 날짜에 따라 달라져 시계를 고정한다.
+     * 프록시가 아니라 @Transactional 격리 수준은 적용되지 않고, 테스트 트랜잭션 안에서 돈다.
+     */
+    private CashflowService serviceOn(LocalDate today) {
+        Clock clock = Clock.fixed(today.atStartOfDay(ZoneId.of("Asia/Seoul")).toInstant(), ZoneOffset.UTC);
+        return new CashflowService(items, occurrences, accounts, cards, clock);
+    }
+
+    private Integer dayOfMonthOf(long rule) {
+        em.flush();
+        return jdbc.queryForObject("SELECT recurrence_day_of_month FROM cashflow_item WHERE cashflow_item_id = ?",
+                Integer.class, rule);
+    }
+
     private LocalDate endOf(long rule) {
         em.flush();
         return jdbc.queryForObject("SELECT recurrence_end_date FROM cashflow_item WHERE cashflow_item_id = ?",
@@ -263,9 +373,15 @@ class CashflowSeriesTest extends MySqlTestSupport {
         private final LocalDate occurrenceDate;
         private Long amount;
         private LocalDate date;
+        private CashflowService.RecurrenceChange recurrence;
 
         Update(LocalDate occurrenceDate) {
             this.occurrenceDate = occurrenceDate;
+        }
+
+        Update recurrence(CashflowService.RecurrenceChange value) {
+            recurrence = value;
+            return this;
         }
 
         Update amount(Long value) {
@@ -279,7 +395,7 @@ class CashflowSeriesTest extends MySqlTestSupport {
         }
 
         CashflowService.UpdateCommand build() {
-            return new CashflowService.UpdateCommand(null, null, amount, date, null, null, null, null, null, null,
+            return new CashflowService.UpdateCommand(null, null, amount, date, recurrence, null, null, null, null, null,
                     CashflowService.UpdateScope.THIS_AND_FUTURE, occurrenceDate);
         }
     }
