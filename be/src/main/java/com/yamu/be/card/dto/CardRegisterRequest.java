@@ -18,4 +18,9 @@ public record CardRegisterRequest(
         Integer paymentDay,
         Long settlementAccountId,
         Long linkedAccountId) {
+
+    /** 별칭은 앞뒤 공백을 먼저 빼고 길이를 본다. 비면 별칭 없음(null). */
+    public CardRegisterRequest {
+        nickname = nickname == null || nickname.isBlank() ? null : nickname.strip();
+    }
 }
