@@ -21,7 +21,7 @@ record SetupActor(AuthUser me, String signupToken, SignupSession session) {
         return session != null && session.mode() == SignupMode.DEVICE_RECOVERY;
     }
 
-    /** 가입 진행 토큰인데 아직 회원가입(사용자 생성)을 하지 않았으면 null. */
+    /** 가입 진행 토큰은 시드 사용자에 묶여 발급되므로 항상 있다. */
     Long userId() {
         return me != null ? me.userId() : session.userId();
     }

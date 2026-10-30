@@ -10,6 +10,7 @@ import java.util.Base64;
 import java.util.HexFormat;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
 
@@ -24,6 +25,7 @@ import org.springframework.stereotype.Component;
  * <p>카드번호는 넣지 않는다. 마스킹한 번호(앞 4자리·끝 4자리)만 등록 응답에 쓰려고 둔다.
  * 등록은 입력·계좌·본인 인증을 확인하는 동안 {@link #find}로 보기만 하고, 바꾸기 직전에 {@link #consume}(GETDEL)으로 한 번만 꺼낸다.
  */
+@Slf4j
 @Component
 @RequiredArgsConstructor
 public class CardVerificationStore {
@@ -68,6 +70,8 @@ public class CardVerificationStore {
         try {
             return Optional.of(objectMapper.readValue(json, VerifiedCard.class));
         } catch (JsonProcessingException e) {
+            // 깨진 값은 만료와 같게 다룬다. 값에 사용자·카드 번호가 있어 내용은 남기지 않는다.
+            log.warn("카드 확인 토큰 값을 읽지 못해 만료로 처리합니다: {}", e.getClass().getSimpleName());
             return Optional.empty();
         }
     }

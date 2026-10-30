@@ -14,8 +14,10 @@ import java.util.List;
  * @param deviceId           앱이 만든 기기 식별자(UUID). 재설치하면 바뀐다
  * @param biometricPublicKey 생체 키 공개키. 없으면 생체 로그인 꺼짐
  * @param biometricTypes     biometricPublicKey가 있을 때 필수
- * @param verificationToken  기기 재등록(DEVICE_RECOVERY)일 때만. 연결된 계좌의 계좌 확인 응답값
+ * @param verificationToken  기기 재등록(DEVICE_RECOVERY)일 때만. 연결된 계좌로 받은 1원 인증 요청 응답값
  * @param authCode           기기 재등록일 때만. 1원 입금자명의 숫자 4자리
+ *
+ * 공개키는 EC P-256 SPKI Base64(약 124자)라 1024자면 넉넉하다. 길이 상한은 큰 값으로 서버를 괴롭히지 못하게 둔다.
  */
 public record DeviceRegisterRequest(
         @NotBlank(message = "deviceId가 필요합니다.")
@@ -27,9 +29,14 @@ public record DeviceRegisterRequest(
         @NotNull(message = "플랫폼이 필요합니다.")
         DevicePlatform platform,
         @NotBlank(message = "기기 공개키가 필요합니다.")
+        @Size(max = 1024, message = "기기 공개키가 너무 깁니다.")
         String devicePublicKey,
+        @Size(max = 1024, message = "생체 키가 너무 깁니다.")
         String biometricPublicKey,
-        List<BiometricType> biometricTypes,
+        @Size(max = 2, message = "생체 종류는 2개까지입니다.")
+        List<@NotNull(message = "생체 종류에 빈 값이 있습니다.") BiometricType> biometricTypes,
+        @Size(max = 128, message = "1원 인증 토큰 형식이 올바르지 않습니다.")
         String verificationToken,
+        @Pattern(regexp = "[0-9]{4}", message = "인증코드는 숫자 4자리입니다.")
         String authCode) {
 }

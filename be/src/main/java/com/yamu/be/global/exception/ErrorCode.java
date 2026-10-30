@@ -50,6 +50,11 @@ public enum ErrorCode {
     VERIFICATION_EXPIRED(HttpStatus.BAD_REQUEST, "인증 시간이 지났습니다. 인증번호를 다시 요청해 주세요."),
     SIGNUP_TOKEN_INVALID(HttpStatus.UNAUTHORIZED, "가입 진행 시간이 지났습니다. 본인인증부터 다시 진행해 주세요."),
     ALREADY_REGISTERED(HttpStatus.CONFLICT, "이미 가입된 사용자입니다. 기기 재등록으로 진행해 주세요."),
+    /* 인증 - 본인인증 확인 리뷰 반영·시드 사용자 전용(S15P31E103-192). 명세서 「휴대폰 본인인증 확인」에 추가 필요 */
+    // 탈퇴한 사람의 재가입. 탈퇴(기기 관리·탈퇴 작업)에서 개인정보를 비우는 방식이 정해지면 새 가입으로 바뀐다
+    REJOIN_NOT_AVAILABLE(HttpStatus.CONFLICT, "탈퇴한 정보로는 아직 다시 가입할 수 없습니다."),
+    // 임시(10/30): 시연용 시드에 없는 사람. 회원가입 때 SSAFY 회원을 만들지 않으므로 시드 사용자만 가입할 수 있다
+    DEMO_USER_NOT_FOUND(HttpStatus.NOT_FOUND, "시연용으로 등록된 사용자가 아닙니다."),
 
     /* 인증 - 간편 비밀번호 설정·기기 등록 (API 명세 각 페이지). SIGNUP_STEP_INCOMPLETE는 details.nextStep */
     INVALID_PIN_FORMAT(HttpStatus.BAD_REQUEST, "간편 비밀번호는 같은 숫자 반복·연속 숫자가 아닌 숫자 6자리로 정해 주세요."),
@@ -57,18 +62,22 @@ public enum ErrorCode {
     SIGNUP_STEP_INCOMPLETE(HttpStatus.CONFLICT, "앞 단계 가입 절차를 먼저 마쳐 주세요."),
     DEVICE_LIMIT_EXCEEDED(HttpStatus.CONFLICT, "등록할 수 있는 기기 수(3대)를 넘었습니다. 기존 기기를 해제한 뒤 등록해 주세요."),
 
-    /* 계좌 - 계좌 확인·1원 인증 요청·계좌 연결 (API 명세 각 페이지) */
-    INVALID_ACCOUNT_NUMBER(HttpStatus.BAD_REQUEST, "계좌번호는 숫자 16자리로 입력해 주세요."),
+    /* 계좌 - 계좌 목록·1원 인증 요청·계좌 연결 (API 명세 각 페이지. 10/30 목록 방식으로 바꿔 계좌번호 입력·예금주 코드는 뺐다) */
     ACCOUNT_NOT_FOUND_AT_BANK(HttpStatus.NOT_FOUND, "은행에서 계좌를 찾을 수 없습니다. 계좌번호를 확인해 주세요."),
-    HOLDER_MISMATCH(HttpStatus.BAD_REQUEST, "본인 명의 계좌가 아닙니다."),
     ACCOUNT_NOT_SUPPORTED(HttpStatus.BAD_REQUEST, "원화 입출금 계좌만 연결할 수 있습니다."),
     ACCOUNT_ALREADY_LINKED(HttpStatus.CONFLICT, "이미 연결한 계좌입니다."),
-    ACCOUNT_NOT_LINKED(HttpStatus.BAD_REQUEST, "연결해 둔 계좌로만 인증할 수 있습니다."),
+    // 임시(10/30): 계좌 목록의 candidateId가 없거나(10분 지남) 남의 것. 명세에 추가 필요
+    ACCOUNT_CANDIDATE_EXPIRED(HttpStatus.BAD_REQUEST, "계좌 목록이 만료됐습니다. 계좌 목록을 다시 불러와 주세요."),
     // 계좌 연결과 카드 등록이 같이 쓴다(명세 코드가 같다)
     VERIFICATION_TOKEN_EXPIRED(HttpStatus.BAD_REQUEST, "확인 시간이 지났습니다. 확인 단계부터 다시 진행해 주세요."),
     AUTH_REQUEST_TOO_FREQUENT(HttpStatus.TOO_MANY_REQUESTS, "1원 인증을 너무 자주 요청했습니다. 잠시 후 다시 시도해 주세요."),
     AUTH_CODE_MISMATCH(HttpStatus.BAD_REQUEST, "인증코드가 일치하지 않습니다."),
     AUTH_CODE_EXPIRED(HttpStatus.BAD_REQUEST, "인증 시간이 지났습니다. 1원 인증을 다시 요청해 주세요."),
+
+    /* 계좌 - 1원 인증 남용 막기·연결 재시도. 명세에 없어 임시로 추가(S15P31E103-183, 명세에 추가 필요). 429는 details.retryAfterSeconds */
+    ONE_WON_DAILY_LIMIT_EXCEEDED(HttpStatus.TOO_MANY_REQUESTS, "오늘은 이 계좌로 1원 인증을 더 요청할 수 없습니다. 내일 다시 시도해 주세요."),
+    AUTH_CODE_LOCKED(HttpStatus.TOO_MANY_REQUESTS, "인증코드를 여러 번 틀려 오늘은 이 계좌로 인증할 수 없습니다. 내일 다시 시도해 주세요."),
+    IDEMPOTENCY_IN_PROGRESS(HttpStatus.CONFLICT, "같은 요청을 처리하고 있습니다. 잠시 후 다시 시도해 주세요."),
 
     /* 카드 - 카드 확인·카드 등록 (API 명세 각 페이지). 확인 토큰 만료는 위 VERIFICATION_TOKEN_EXPIRED */
     INVALID_CARD_NUMBER(HttpStatus.BAD_REQUEST, "카드번호는 숫자 16자리로 입력해 주세요."),
@@ -76,6 +85,10 @@ public enum ErrorCode {
     CARD_NOT_FOUND(HttpStatus.NOT_FOUND, "등록할 수 없는 카드예요. 본인 명의 카드인지 확인해 주세요."),
     CARD_VERIFICATION_FAILED(HttpStatus.BAD_REQUEST, "유효기간을 확인해 주세요."),
     CARD_ALREADY_REGISTERED(HttpStatus.CONFLICT, "이미 등록한 카드입니다."),
+    // 임시(명세에 추가 필요): 카드사(시드)가 정한 출금 계좌·결제일로 등록한다(10/30 결정). details.missing에 빠진 값
+    CARD_ACCOUNT_NOT_SET(HttpStatus.CONFLICT, "카드사에 등록된 결제 정보가 없어 이 카드는 등록할 수 없습니다."),
+    // 임시(명세에 추가 필요): 카드사가 정한 계좌를 아직 YAMU에 연결하지 않음. details.bankCode·accountLast4로 어느 계좌인지 알려 준다
+    CARD_ACCOUNT_NOT_LINKED(HttpStatus.CONFLICT, "이 카드의 결제 계좌를 먼저 연결해 주세요."),
     ACCOUNT_REQUIRED(HttpStatus.BAD_REQUEST, "카드 대금을 출금할 계좌를 먼저 연결해 주세요."),
     INVALID_PAYMENT_DAY(HttpStatus.BAD_REQUEST, "결제일은 1일부터 27일 사이로 정해 주세요."),
 
@@ -95,6 +108,9 @@ public enum ErrorCode {
     API_NOT_FOUND(HttpStatus.NOT_FOUND, "요청한 API를 찾을 수 없습니다."),
     METHOD_NOT_ALLOWED(HttpStatus.METHOD_NOT_ALLOWED, "지원하지 않는 HTTP 메서드입니다."),
     UNSUPPORTED_MEDIA_TYPE(HttpStatus.UNSUPPORTED_MEDIA_TYPE, "지원하지 않는 Content-Type입니다."),
+
+    /* 공통 - 동시 수정(@Version) 충돌. 서비스가 더 알맞은 코드로 바꾸지 않았을 때의 기본값. 명세서 1장에 추가 필요 */
+    CONCURRENT_MODIFICATION(HttpStatus.CONFLICT, "다른 요청과 겹쳤습니다. 다시 시도해 주세요."),
 
     /* 공통 - 호출 횟수 제한. details.retryAfterSeconds. 명세서 1장에 추가 필요 */
     TOO_MANY_REQUESTS(HttpStatus.TOO_MANY_REQUESTS, "요청이 너무 많습니다. 잠시 후 다시 시도해 주세요.");

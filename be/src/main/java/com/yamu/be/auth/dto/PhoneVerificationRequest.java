@@ -25,4 +25,9 @@ public record PhoneVerificationRequest(
         @NotBlank(message = "휴대폰 번호가 필요합니다.")
         @Pattern(regexp = "\\d{10,11}", message = "휴대폰 번호는 숫자 10~11자리입니다.")
         String phoneNumber) {
+
+    /** 이름 앞뒤 공백은 검사 전에 뺀다. 뒤에서 빼면 " 김 "이 2자 검사를 통과한 뒤 한 글자 이름이 된다. */
+    public PhoneVerificationRequest {
+        name = name == null ? null : name.strip();
+    }
 }

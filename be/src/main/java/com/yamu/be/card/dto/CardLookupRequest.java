@@ -17,4 +17,12 @@ public record CardLookupRequest(
         @NotBlank(message = "유효기간 연도가 필요합니다.")
         @Pattern(regexp = "[0-9]{2}", message = "유효기간 연도는 숫자 2자리(YY)로 입력해 주세요.")
         String expiryYear) {
+
+    /** 카드번호 원문이 로그·예외 메시지에 찍히지 않게 끝 4자리만 남긴다. */
+    @Override
+    public String toString() {
+        String last4 = cardNumber == null || cardNumber.length() < 4 ? "****" : cardNumber.substring(cardNumber.length() - 4);
+        return "CardLookupRequest[cardNumber=************" + last4 + ", expiryMonth=" + expiryMonth
+                + ", expiryYear=" + expiryYear + "]";
+    }
 }

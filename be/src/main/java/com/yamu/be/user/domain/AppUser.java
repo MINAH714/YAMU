@@ -78,6 +78,11 @@ public class AppUser extends BaseTimeEntity {
         return new AppUser(name, birthDate, phoneEnc, phoneHash, identityVerifiedAt);
     }
 
+    /** 시드 사용자가 휴대폰 본인인증을 마쳤다. ACTIVE가 되려면 이 시각이 있어야 한다(ck_user_active). */
+    public void markIdentityVerified(LocalDateTime now) {
+        this.identityVerifiedAt = now;
+    }
+
     /** SSAFY 금융망 계정을 연결한다. userKeyEnc는 global.crypto로 암호화한 봉투다. */
     public void linkFinMember(String ssafyMemberId, byte[] ssafyUserKeyEnc) {
         this.ssafyMemberId = ssafyMemberId;
