@@ -15,7 +15,7 @@ import java.util.List;
 public record AccountLinkResponse(List<LinkedAccountItem> accounts, List<SkippedAccount> skipped,
         VerifiedBy verifiedBy) {
 
-    /** @param isPrimary 기준 계좌인지. 지금은 가장 먼저 연결한 계좌 */
+    /** @param isPrimary 기준 계좌인지(linked_account.is_primary). 기준 계좌가 없던 사용자는 이번에 새로 연결한 첫 계좌가 기준 계좌가 된다 */
     public record LinkedAccountItem(Long accountId, BankResponse bank, String accountName, String maskedAccountNo,
             @JsonProperty("isPrimary") boolean isPrimary, LocalDateTime linkedAt) {
     }

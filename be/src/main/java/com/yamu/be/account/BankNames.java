@@ -3,10 +3,10 @@ package com.yamu.be.account;
 import java.util.Map;
 
 /**
- * 금융망 은행 코드 → 화면용 은행 이름. 계좌 연결 때는 SSAFY 예금주 조회가 이름을 주지만 저장하지 않아서,
- * 목록·수정 응답은 이 표로 채운다. 표에 없는 코드는 코드를 그대로 이름으로 쓴다.
+ * 금융망 은행 코드 → 화면용 은행 이름. 계좌 연결 때는 SSAFY 계좌 목록이 이름을 주지만 저장하지 않아서,
+ * 계좌 목록·수정·체크카드 상세 응답은 이 표로 채운다. 표에 없는 코드는 코드를 그대로 이름으로 쓴다.
  */
-final class BankNames {
+public final class BankNames {
 
     private static final Map<String, String> NAMES = Map.ofEntries(
             Map.entry("001", "한국은행"),
@@ -31,7 +31,7 @@ final class BankNames {
     private BankNames() {
     }
 
-    static String of(String code) {
+    public static String of(String code) {
         return NAMES.getOrDefault(code, code);
     }
 }

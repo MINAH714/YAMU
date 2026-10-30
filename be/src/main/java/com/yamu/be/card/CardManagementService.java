@@ -3,6 +3,7 @@ package com.yamu.be.card;
 import com.yamu.be.account.AccountBalance;
 import com.yamu.be.account.AccountBalanceService;
 import com.yamu.be.account.AccountQueryService;
+import com.yamu.be.account.BankNames;
 import com.yamu.be.account.domain.LinkedAccount;
 import com.yamu.be.account.domain.LinkedAccountRepository;
 import com.yamu.be.auth.StepUpService;
@@ -263,6 +264,7 @@ public class CardManagementService {
                         AccountBalance balance = balanceService.findCachedBalance(card.getUserId(), a.getId())
                                 .orElse(null);
                         return new CardDetailResponse.LinkedAccount(a.getId(), a.getBankCode(),
+                                BankNames.of(a.getBankCode()),
                                 a.getAccountLast4() == null ? null : "****-****-****-" + a.getAccountLast4(),
                                 balance == null ? null : balance.balance(),
                                 balance == null ? null : balance.fetchedAt());
