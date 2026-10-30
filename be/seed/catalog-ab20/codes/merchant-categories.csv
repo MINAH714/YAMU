@@ -1,0 +1,51 @@
+cherry_code,kind,yamu_codes,label,source,note
+annual_fee,CONDITION,TRANSACTION_KIND:ANNUAL_FEE,연회비,97,가맹점 업종이 아니라 거래 종류. 97 ZERO와 같은 코드
+apartment_fee,CONDITION,TRANSACTION_KIND:APARTMENT_MAINTENANCE,아파트관리비,97,97 ZERO와 같은 코드
+bakery,CATEGORY,BAKERY,베이커리·제과점,new,
+beauty.salon,CATEGORY,HAIR_SALON,미용실,new,
+cafe,CATEGORY,COFFEE_SHOP,카페,97,
+car.car_repair,CATEGORY,CAR_REPAIR,자동차 정비,new,
+car.parking,CATEGORY,PARKING,주차장,new,
+car.toll,CONDITION,TRANSACTION_KIND:HIGHWAY_TOLL,통행료,97,97 ZERO와 같은 코드
+confectionery,CATEGORY,BAKERY,제과점,new,bakery와 같은 업종으로 묶음
+convenience,CATEGORY,CONVENIENCE_STORE,편의점,97,
+delivery_app,CATEGORY,DELIVERY_APP,배달앱,new,
+education.academy,CATEGORY,ACADEMY,학원,new,
+education.driving_school,CATEGORY,DRIVING_SCHOOL,자동차학원,new,
+education.kindergarten,CATEGORY,KINDERGARTEN,유치원,new,
+education.primary_secondary_fee,CATEGORY,PRIMARY_SECONDARY_SCHOOL,초중고 학교,new,
+education.reading_room,CATEGORY,READING_ROOM,독서실,new,
+education.school_fee,CATEGORY,KINDERGARTEN|PRIMARY_SECONDARY_SCHOOL,유치원·초중고 납입금,new,두 업종으로 펼침
+education.study_material,CATEGORY,STUDY_MATERIAL,학습지,new,
+education.tuition,CATEGORY,UNIVERSITY,대학·대학원,new,97 ZERO는 교육비 전체를 TRANSACTION_KIND:EDUCATION_PAYMENT로 씀
+entertainment.adult,CATEGORY,ADULT_ENTERTAINMENT,유흥업소,new,
+fuel,CATEGORY,GAS_STATION,주유소,new,
+gift_card,CONDITION,TRANSACTION_KIND:GIFT_CERTIFICATE_PURCHASE,상품권 구매,97,97 ZERO와 같은 코드
+insurance.social,CONDITION,TRANSACTION_KIND:SOCIAL_INSURANCE,4대보험,97,97 ZERO와 같은 코드
+movie,CATEGORY,MOVIE_THEATER,영화관,new,
+online_shopping,CATEGORY,ONLINE_MARKETPLACE,온라인 쇼핑,97,
+other,CATEGORY,OTHER,기타,new,업종을 정하지 못한 브랜드용
+pharmacy,CATEGORY,PHARMACY,약국,97,
+prepaid_charge,CONDITION,TRANSACTION_KIND:PREPAID_TOPUP,선불 충전,97,97 ZERO와 같은 코드
+pub,CATEGORY,PUB,주점,new,
+rent,CONDITION,TRANSACTION_KIND:RENT_PAYMENT,임대료,new,
+restaurant,CATEGORY,KOREAN_RESTAURANT|WESTERN_RESTAURANT|JAPANESE_RESTAURANT|CHINESE_RESTAURANT|BUFFET_RESTAURANT|GENERAL_RESTAURANT|FAST_FOOD,음식점 전체,97,97 처음 TODAY_FOOD와 같은 7개로 펼침
+restaurant.bakery,CATEGORY,BAKERY,베이커리,new,
+restaurant.fastfood,CATEGORY,FAST_FOOD,패스트푸드,97,
+restaurant.general,CATEGORY,GENERAL_RESTAURANT,일반음식점,97,
+streaming,CATEGORY,STREAMING_SERVICE,스트리밍,new,
+tax,CONDITION,TRANSACTION_KIND:TAX_OR_PUBLIC_CHARGE,세금·공과금,97,97 ZERO와 같은 코드
+tax.local,CONDITION,TRANSACTION_KIND:TAX_OR_PUBLIC_CHARGE,지방세,97,세금 하위 구분 없이 같은 코드
+tax.national,CONDITION,TRANSACTION_KIND:TAX_OR_PUBLIC_CHARGE,국세,97,세금 하위 구분 없이 같은 코드
+taxi,CATEGORY,TAXI,택시,97,
+telecom,CATEGORY,TELECOMMUNICATION,통신,97,
+telecom.internet_tv,CONDITION,TRANSACTION_KIND:INTERNET_TV_BILL,인터넷·IPTV 요금,new,같은 통신사 브랜드에서 휴대폰 요금과 구분하려고 거래 종류로 둠
+telecom.mobile,CATEGORY,TELECOMMUNICATION,이동통신,97,
+transit.bus_city,CATEGORY,CITY_BUS,시내버스,new,
+transit.bus_express,CATEGORY,EXPRESS_BUS,고속버스,new,97 ZERO는 같은 뜻을 TRANSACTION_KIND:EXPRESS_BUS로 씀(BE가 하나로 정해야 함)
+transit.bus_intercity,CATEGORY,INTERCITY_BUS,시외버스,new,
+transit.rail,CATEGORY,RAILWAY,철도,new,
+transit.subway,CATEGORY,SUBWAY,지하철,new,
+utility.electricity,CATEGORY,ELECTRIC_UTILITY,전기요금,97,
+utility.gas,CATEGORY,CITY_GAS_UTILITY,도시가스,97,
+utility.water,CATEGORY,WATER_UTILITY,수도요금,new,

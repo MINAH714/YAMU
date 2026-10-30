@@ -1,0 +1,99 @@
+﻿card_id,key,item,value,reason
+lotte-p15835-a15835,domestic-12,rounding_mode · rounding_unit,NULL,원본 UNKNOWN
+lotte-p15835-a15835,domestic-12,rounding_stage,NULL,거래별 · 합산 후 처리 단계 근거 없음
+lotte-p15835-a15835,overseas-20,rounding_mode · rounding_unit,NULL,원본 UNKNOWN
+lotte-p15835-a15835,overseas-20,rounding_stage,NULL,거래별 · 합산 후 처리 단계 근거 없음
+samsung-aap1767,membership,rounding_mode · rounding_unit,NULL,원본 UNKNOWN
+samsung-aap1767,membership,rounding_stage,NULL,거래별 · 합산 후 처리 단계 근거 없음
+lotte-p13943-a13943,food,rounding_mode · rounding_unit,NULL,원본 UNKNOWN
+lotte-p13943-a13943,food,rounding_stage,NULL,거래별 · 합산 후 처리 단계 근거 없음
+lotte-p13943-a13943,delivery,rounding_mode · rounding_unit,NULL,원본 UNKNOWN
+lotte-p13943-a13943,delivery,rounding_stage,NULL,거래별 · 합산 후 처리 단계 근거 없음
+lotte-p13943-a13943,coffee,rounding_mode · rounding_unit,NULL,원본 UNKNOWN
+lotte-p13943-a13943,coffee,rounding_stage,NULL,거래별 · 합산 후 처리 단계 근거 없음
+lotte-p13943-a13943,membership,rounding_mode · rounding_unit,NULL,원본 UNKNOWN
+lotte-p13943-a13943,membership,rounding_stage,NULL,거래별 · 합산 후 처리 단계 근거 없음
+hyundai-m,base-15,rounding_stage,NULL,거래별 · 합산 후 처리 단계 근거 없음
+hyundai-m,base-15,point_krw_rate,NULL,포인트 1P 가치는 팀 결정 전(DB 적재 전 보완 P0)
+hyundai-m,food-5,rounding_stage,NULL,거래별 · 합산 후 처리 단계 근거 없음
+hyundai-m,food-5,point_krw_rate,NULL,포인트 1P 가치는 팀 결정 전(DB 적재 전 보완 P0)
+hyundai-m,overseas-5,rounding_stage,NULL,거래별 · 합산 후 처리 단계 근거 없음
+hyundai-m,overseas-5,point_krw_rate,NULL,포인트 1P 가치는 팀 결정 전(DB 적재 전 보완 P0)
+kb-01664,dining,rounding_mode · rounding_unit,NULL,원본 UNKNOWN
+kb-01664,dining,rounding_stage,NULL,거래별 · 합산 후 처리 단계 근거 없음
+kb-01664,starbucks,rounding_mode · rounding_unit,NULL,원본 UNKNOWN
+kb-01664,starbucks,rounding_stage,NULL,거래별 · 합산 후 처리 단계 근거 없음
+kb-01664,themepark,rounding_mode · rounding_unit,NULL,원본 UNKNOWN
+kb-01664,themepark,rounding_stage,NULL,거래별 · 합산 후 처리 단계 근거 없음
+kb-01664,gs25,rounding_mode · rounding_unit,NULL,원본 UNKNOWN
+kb-01664,gs25,rounding_stage,NULL,거래별 · 합산 후 처리 단계 근거 없음
+kb-01664,book,rounding_mode · rounding_unit,NULL,원본 UNKNOWN
+kb-01664,book,rounding_stage,NULL,거래별 · 합산 후 처리 단계 근거 없음
+kb-01664,telecom,rounding_mode · rounding_unit,NULL,원본 UNKNOWN
+kb-01664,telecom,rounding_stage,NULL,거래별 · 합산 후 처리 단계 근거 없음
+samsung-taptap-o,overseas-point,rounding_mode · rounding_unit,NULL,원본 UNKNOWN
+samsung-taptap-o,overseas-point,rounding_stage,NULL,거래별 · 합산 후 처리 단계 근거 없음
+samsung-taptap-o,overseas-point,point_krw_rate,NULL,포인트 1P 가치는 팀 결정 전(DB 적재 전 보완 P0)
+kakaobank-friends-check,base-weekday,rounding_mode · rounding_unit,NULL,원본 UNKNOWN
+kakaobank-friends-check,base-weekday,rounding_stage,NULL,거래별 · 합산 후 처리 단계 근거 없음
+kakaobank-friends-check,promo-oil,rounding_mode · rounding_unit,NULL,원본 UNKNOWN
+kakaobank-friends-check,promo-oil,rounding_stage,NULL,거래별 · 합산 후 처리 단계 근거 없음
+kakaobank-friends-check,promo-telecom,rounding_mode · rounding_unit,NULL,원본 UNKNOWN
+kakaobank-friends-check,promo-telecom,rounding_stage,NULL,거래별 · 합산 후 처리 단계 근거 없음
+kakaobank-friends-check,promo-academy,rounding_mode · rounding_unit,NULL,원본 UNKNOWN
+kakaobank-friends-check,promo-academy,rounding_stage,NULL,거래별 · 합산 후 처리 단계 근거 없음
+kakaobank-friends-check,promo-taxi,rounding_mode · rounding_unit,NULL,원본 UNKNOWN
+kakaobank-friends-check,promo-taxi,rounding_stage,NULL,거래별 · 합산 후 처리 단계 근거 없음
+hyundai-mzroe3,m-point-earn-1-2,rounding_stage,NULL,거래별 · 합산 후 처리 단계 근거 없음
+hyundai-mzroe3,m-point-earn-1-2,point_krw_rate,NULL,포인트 1P 가치는 팀 결정 전(DB 적재 전 보완 P0)
+samsung-id-on,transit-telecom-streaming-10,rounding_mode · rounding_unit,NULL,원본 UNKNOWN
+samsung-id-on,transit-telecom-streaming-10,rounding_stage,NULL,거래별 · 합산 후 처리 단계 근거 없음
+shinhan-biabix,fuel-gs-10,미확인 조건 유지,PAYMENT_METHOD naver_pay|kakao_pay|payco|toss_pay,빼면 혜택이 넓어지므로 남겨 둠
+shinhan-biabix,car-10,미확인 조건 유지,PAYMENT_METHOD naver_pay|kakao_pay|payco|toss_pay,빼면 혜택이 넓어지므로 남겨 둠
+shinhan-biabix,car-10,rounding_mode · rounding_unit,NULL,원본 UNKNOWN
+shinhan-biabix,car-10,rounding_stage,NULL,거래별 · 합산 후 처리 단계 근거 없음
+shinhan-biabix,life-5,미확인 조건 유지,PAYMENT_METHOD naver_pay|kakao_pay|payco|toss_pay,빼면 혜택이 넓어지므로 남겨 둠
+shinhan-biabix,life-5,rounding_mode · rounding_unit,NULL,원본 UNKNOWN
+shinhan-biabix,life-5,rounding_stage,NULL,거래별 · 합산 후 처리 단계 근거 없음
+kb-toktok,starbucks-50,미확인 제외 대상 유지,CATEGORY tax.national,빼면 혜택이 넓어지므로 남겨 둠
+kb-toktok,starbucks-50,rounding_mode · rounding_unit,NULL,원본 UNKNOWN
+kb-toktok,starbucks-50,rounding_stage,NULL,거래별 · 합산 후 처리 단계 근거 없음
+kb-toktok,burger-20,미확인 제외 대상 유지,CATEGORY tax.national,빼면 혜택이 넓어지므로 남겨 둠
+kb-toktok,burger-20,rounding_mode · rounding_unit,NULL,원본 UNKNOWN
+kb-toktok,burger-20,rounding_stage,NULL,거래별 · 합산 후 처리 단계 근거 없음
+kb-07964,coffee-10,rounding_mode · rounding_unit,NULL,원본 UNKNOWN
+kb-07964,coffee-10,rounding_stage,NULL,거래별 · 합산 후 처리 단계 근거 없음
+kb-07964,mobile-10,rounding_mode · rounding_unit,NULL,원본 UNKNOWN
+kb-07964,mobile-10,rounding_stage,NULL,거래별 · 합산 후 처리 단계 근거 없음
+kb-07964,culture-10,rounding_mode · rounding_unit,NULL,원본 UNKNOWN
+kb-07964,culture-10,rounding_stage,NULL,거래별 · 합산 후 처리 단계 근거 없음
+kb-07964,beauty-5,rounding_mode · rounding_unit,NULL,원본 UNKNOWN
+kb-07964,beauty-5,rounding_stage,NULL,거래별 · 합산 후 처리 단계 근거 없음
+kb-07964,convenience-5,rounding_mode · rounding_unit,NULL,원본 UNKNOWN
+kb-07964,convenience-5,rounding_stage,NULL,거래별 · 합산 후 처리 단계 근거 없음
+kb-07964,subscription-1000,rounding_mode · rounding_unit,NULL,원본 빈칸
+kb-07964,subscription-1000,rounding_stage,NULL,거래별 · 합산 후 처리 단계 근거 없음
+kb-07964,delivery-1000,rounding_mode · rounding_unit,NULL,원본 빈칸
+kb-07964,delivery-1000,rounding_stage,NULL,거래별 · 합산 후 처리 단계 근거 없음
+kb-07964,movie-4000,rounding_mode · rounding_unit,NULL,원본 빈칸
+kb-07964,movie-4000,rounding_stage,NULL,거래별 · 합산 후 처리 단계 근거 없음
+kb-07964,amusement-15000,rounding_mode · rounding_unit,NULL,원본 빈칸
+kb-07964,amusement-15000,rounding_stage,NULL,거래별 · 합산 후 처리 단계 근거 없음
+hana-travelog-check,domestic-0-3p,미확인 제외 대상 유지,CATEGORY education.school_fee,빼면 혜택이 넓어지므로 남겨 둠
+hana-travelog-check,domestic-0-3p,rounding_stage,NULL,거래별 · 합산 후 처리 단계 근거 없음
+hana-travelog-check,domestic-0-3p,point_krw_rate,NULL,포인트 1P 가치는 팀 결정 전(DB 적재 전 보완 P0)
+lotte-p13949-a13949,fuel-60,rounding_mode · rounding_unit,NULL,원본 UNKNOWN
+lotte-p13949-a13949,fuel-60,rounding_stage,NULL,거래별 · 합산 후 처리 단계 근거 없음
+lotte-p13949-a13949,movie-60,rounding_mode · rounding_unit,NULL,원본 UNKNOWN
+lotte-p13949-a13949,movie-60,rounding_stage,NULL,거래별 · 합산 후 처리 단계 근거 없음
+lotte-p13949-a13949,membership-60,rounding_mode · rounding_unit,NULL,원본 UNKNOWN
+lotte-p13949-a13949,membership-60,rounding_stage,NULL,거래별 · 합산 후 처리 단계 근거 없음
+lotte-p13955-a13955,online-shop-60,rounding_mode · rounding_unit,NULL,원본 UNKNOWN
+lotte-p13955-a13955,online-shop-60,rounding_stage,NULL,거래별 · 합산 후 처리 단계 근거 없음
+lotte-p13955-a13955,salon-60,rounding_mode · rounding_unit,NULL,원본 UNKNOWN
+lotte-p13955-a13955,salon-60,rounding_stage,NULL,거래별 · 합산 후 처리 단계 근거 없음
+lotte-p13955-a13955,convenience-60,rounding_mode · rounding_unit,NULL,원본 UNKNOWN
+lotte-p13955-a13955,convenience-60,rounding_stage,NULL,거래별 · 합산 후 처리 단계 근거 없음
+lotte-p13955-a13955,membership-60,rounding_mode · rounding_unit,NULL,원본 UNKNOWN
+lotte-p13955-a13955,membership-60,rounding_stage,NULL,거래별 · 합산 후 처리 단계 근거 없음
+kakaobank-friends-check,*,stack_group,base|promotion,같은 묶음 하나만 · 다른 묶음 합산 규칙은 BE 미정이라 DB에 남기지 않음

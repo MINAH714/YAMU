@@ -1,0 +1,13 @@
+merchant_key,brand_code,category_code,note
+eleven_st,ELEVEN_STREET,,97 브랜드 코드와 맞춤
+twosome,TWOSOME_PLACE,,97 브랜드 코드와 맞춤
+coffeebean,COFFEE_BEAN,COFFEE_SHOP,coffee_bean과 같은 브랜드
+coffee_bean,COFFEE_BEAN,COFFEE_SHOP,coffeebean과 같은 브랜드
+oliveyoung,OLIVE_YOUNG,HEALTH_BEAUTY_STORE,olive_young과 같은 브랜드
+olive_young,OLIVE_YOUNG,HEALTH_BEAUTY_STORE,oliveyoung과 같은 브랜드
+hollys,HOLLYS,COFFEE_SHOP,ref 업종 빈칸 — 커피전문점
+outback,OUTBACK,WESTERN_RESTAURANT,ref 업종 빈칸 — 97 WESTERN_RESTAURANT 사용
+kyobo,KYOBO,BOOKSTORE,ref 업종 빈칸 — 서점
+kurly_members,KURLY_MEMBERS,MEMBERSHIP_SUBSCRIPTION,ref 업종 빈칸 — 유료 멤버십
+vips,VIPS,BUFFET_RESTAURANT,ref 업종 빈칸 — 97 BUFFET_RESTAURANT 사용
+hottracks,HOTTRACKS,BOOKSTORE,ref 업종 빈칸 — 서점·문구
