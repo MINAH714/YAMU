@@ -20,6 +20,7 @@ public record CreateCashflowItemRequest(
 
         @NotNull(message = "금액을 입력해 주세요.")
         @Positive(message = "금액은 1원 이상이어야 합니다.")
+        @Max(value = CashflowService.MAX_AMOUNT, message = CashflowService.MAX_AMOUNT_MESSAGE)
         Long amount,
 
         @NotNull(message = "첫 발생일을 입력해 주세요.")

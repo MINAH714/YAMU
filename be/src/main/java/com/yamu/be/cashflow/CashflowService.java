@@ -31,6 +31,12 @@ public class CashflowService {
     /** MySQL DATE가 담을 수 있는 범위. 밖의 날짜는 DB 오류(500)로 번지기 전에 400으로 거절한다. */
     private static final LocalDate MIN_DATE = LocalDate.of(1000, 1, 1);
     private static final LocalDate MAX_DATE = LocalDate.of(9999, 12, 31);
+    /**
+     * 금액 상한(원). 명세에는 없다. 잔고예보가 여러 항목을 더할 때 넘치지 않고(Math.addExact 500 방지)
+     * 앱(JS Number)에서도 정밀도를 잃지 않는 크기로 정했다.
+     */
+    static final long MAX_AMOUNT = 100_000_000_000L;
+    static final String MAX_AMOUNT_MESSAGE = "금액은 1,000억 원 이하여야 합니다.";
 
     private final CashflowItemRepository items;
     private final CashflowOccurrenceRepository occurrences;
@@ -562,6 +568,9 @@ public class CashflowService {
         }
         if (command.amount() == null || command.amount() <= 0) {
             throw invalid("amount", "금액은 1원 이상이어야 합니다.");
+        }
+        if (command.amount() > MAX_AMOUNT) {
+            throw invalid("amount", MAX_AMOUNT_MESSAGE);
         }
         if (command.scheduledDate() == null) {
             throw invalid("date", "첫 발생일을 입력해 주세요.");

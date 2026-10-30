@@ -123,6 +123,17 @@ class CashflowServiceTest {
     }
 
     @Test
+    void 금액은_1000억_원까지만_받는다() {
+        // 잔고예보가 여러 항목을 더할 때 넘쳐 500이 나지 않게 막는다.
+        when(accounts.requireConnectedAccount(7L, 11L)).thenReturn(account(11L));
+        savedWithId(34L);
+
+        assertThat(service.create(7L, command(CashflowService.MAX_AMOUNT, 11L, null)).amount())
+                .isEqualTo(100_000_000_000L);
+        assertInvalid(command(CashflowService.MAX_AMOUNT + 1, 11L, null), "amount");
+    }
+
+    @Test
     void 오늘_날짜는_첫_발생일로_허용한다() {
         when(accounts.requireConnectedAccount(7L, 11L)).thenReturn(account(11L));
         savedWithId(33L);
