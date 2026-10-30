@@ -13,6 +13,7 @@ import com.yamu.be.global.crypto.CipherField;
 import com.yamu.be.global.crypto.LookupHasher;
 import com.yamu.be.global.crypto.PersonalDataCipher;
 import com.yamu.be.support.AuthUsers;
+import com.yamu.be.support.Concurrently;
 import com.yamu.be.support.MySqlTestSupport;
 import java.sql.Date;
 import java.sql.Timestamp;
@@ -200,7 +201,7 @@ class CardManagementIntegrationTest extends MySqlTestSupport {
     @Test
     void 기본_카드는_사용자당_한_장이라_다른_카드를_지정하면_기존_지정이_풀린다() throws Exception {
         long first = card(member.userId(), checkProduct, "9410123456785678", "ACTIVE", null, account, 1);
-        long second = card(member.userId(), creditProduct, "4570000011111234", "INACTIVE", 14, account, 2);
+        long second = card(member.userId(), creditProduct, "4570000011111234", "ACTIVE", 14, account, 2);
 
         patch(member, first, "{\"isDefault\":true}").andExpect(jsonPath("$.data.isDefault").value(true));
         patch(member, second, "{\"isDefault\":true}").andExpect(jsonPath("$.data.isDefault").value(true));
@@ -318,6 +319,115 @@ class CardManagementIntegrationTest extends MySqlTestSupport {
         delete(member, card, token).andExpect(status().isNoContent());
     }
 
+    @Test
+    void 끝나지_않은_청구는_어떤_상태든_해제를_막고_PAID_CANCELED만_통과한다() throws Exception {
+        long card = card(member.userId(), creditProduct, "4570000011111234", "ACTIVE", 14, account, 1);
+        bill(card, "PAID", LocalDate.of(2026, 9, 14));
+        bill(card, "CANCELED", LocalDate.of(2026, 10, 14));
+        // 출금 실패처럼 명세에 아직 없는 상태도 끝난 상태가 아니면 막는다.
+        long failed = bill(card, "FAILED", LocalDate.of(2026, 11, 16));
+        String token = stepUp(member, StepUpPurpose.CARD_DELETE);
+
+        delete(member, card, token)
+                .andExpect(errorCode(409, "CARD_HAS_OPEN_BILL"))
+                .andExpect(jsonPath("$.error.details.billIds.length()").value(1))
+                .andExpect(jsonPath("$.error.details.billIds[0]").value(failed));
+
+        jdbc.update("UPDATE card_bill SET status = 'CANCELED' WHERE card_bill_id = ?", failed);
+        delete(member, card, token).andExpect(status().isNoContent());
+    }
+
+    // ───────── 기본 카드 조건 ─────────
+
+    @Test
+    void 추천에서_뺀_카드는_기본_카드가_될_수_없고_기본_카드를_빼면_지정이_풀린다() throws Exception {
+        long inactive = card(member.userId(), creditProduct, "4570000011111234", "INACTIVE", 14, account, 1);
+        long active = card(member.userId(), checkProduct, "9410123456785678", "ACTIVE", null, account, 2);
+
+        patch(member, inactive, "{\"isDefault\":true}").andExpect(errorCode(400, "INVALID_REQUEST"));
+        // 같은 요청에서 추천 제외와 기본 지정을 함께 보내도 거절하고 아무것도 바꾸지 않는다.
+        patch(member, active, "{\"status\":\"INACTIVE\",\"isDefault\":true}").andExpect(errorCode(400, "INVALID_REQUEST"));
+        assertThat(jdbc.queryForObject("SELECT status FROM user_card WHERE user_card_id = ?", String.class, active))
+                .isEqualTo("ACTIVE");
+
+        patch(member, active, "{\"isDefault\":true}").andExpect(status().isOk());
+        patch(member, active, "{\"status\":\"INACTIVE\"}")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.isDefault").value(false));
+        assertThat(defaults()).isEmpty();
+        // 추천에 다시 넣고 기본으로 지정하는 건 한 요청으로 된다.
+        patch(member, active, "{\"status\":\"ACTIVE\",\"isDefault\":true}")
+                .andExpect(jsonPath("$.data.isDefault").value(true));
+    }
+
+    // ───────── 결제일 경계 ─────────
+
+    @Test
+    void 결제일은_3개월_되는_날_당일부터_다시_바꿀_수_있다() throws Exception {
+        long credit = card(member.userId(), creditProduct, "4570000011111234", "ACTIVE", 14, account, 1);
+        LocalDate today = LocalDate.now(ZoneId.of("Asia/Seoul"));
+        // 한국 날짜로 하루만 덜 지났을 때: 내일부터 가능
+        jdbc.update("UPDATE user_card SET payment_day_changed_at = ? WHERE user_card_id = ?",
+                kstNoonUtc(today.minusMonths(3).plusDays(1)), credit);
+        patch(member, credit, "{\"paymentDay\":20}")
+                .andExpect(errorCode(409, "PAYMENT_DAY_CHANGE_LOCKED"))
+                .andExpect(jsonPath("$.error.details.changeableFrom").value(today.minusMonths(3).plusDays(1).plusMonths(3).toString()));
+
+        // 꼭 3개월 전에 바꿨으면 오늘 바꿀 수 있다.
+        jdbc.update("UPDATE user_card SET payment_day_changed_at = ? WHERE user_card_id = ?",
+                kstNoonUtc(today.minusMonths(3)), credit);
+        patch(member, credit, "{\"paymentDay\":20}").andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.billing.paymentDay").value(20));
+    }
+
+    // ───────── 상세 ─────────
+
+    @Test
+    void 체크카드_상세는_연결을_해제한_계좌를_출금_계좌로_보여_주지_않는다() throws Exception {
+        long check = card(member.userId(), checkProduct, "9410123456785678", "ACTIVE", null, account, 1);
+        get(member, "/api/cards/" + check).andExpect(jsonPath("$.data.linkedAccount.accountId").value(account));
+
+        jdbc.update("UPDATE linked_account SET status = 'DISCONNECTED', disconnected_at = ? WHERE linked_account_id = ?",
+                now(), account);
+        get(member, "/api/cards/" + check)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.linkedAccount").doesNotExist());
+    }
+
+    @Test
+    void 카드번호를_복호화하지_못한_카드가_있어도_목록은_나오고_그_카드만_끝_4자리로_보인다() throws Exception {
+        long good = card(member.userId(), checkProduct, "9410123456785678", "ACTIVE", null, account, 1);
+        long broken = card(member.userId(), creditProduct, "4570000011111234", "ACTIVE", 14, account, 2);
+        // 다른 칸 이름(AAD)으로 만든 봉투라 카드번호 칸으로는 열리지 않는다.
+        jdbc.update("UPDATE user_card SET card_no_enc = ? WHERE user_card_id = ?",
+                cipher.encrypt("4570000011111234", CipherField.APP_USER_PHONE), broken);
+
+        get(member, "/api/cards")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.cards[0].userCardId").value(good))
+                .andExpect(jsonPath("$.data.cards[0].maskedNumber").value("9410-****-****-5678"))
+                .andExpect(jsonPath("$.data.cards[1].maskedNumber").value("****-****-****-1234"));
+    }
+
+    // ───────── 순서와 새 카드 ─────────
+
+    @Test
+    void 순서를_저장한_뒤_새로_등록한_카드는_맨_뒤에_보이고_다음_순서_저장에_포함해야_한다() throws Exception {
+        long a = card(member.userId(), checkProduct, "9410123456785678", "ACTIVE", null, account, 1);
+        long b = card(member.userId(), creditProduct, "4570000011111234", "ACTIVE", 14, account, 2);
+        put(member, "[" + b + "," + a + "]").andExpect(status().isOk());
+
+        long c = card(member.userId(), checkProduct, "9410000022223333", "ACTIVE", null, account, 3);
+        get(member, "/api/cards")
+                .andExpect(jsonPath("$.data.cards[0].userCardId").value(b))
+                .andExpect(jsonPath("$.data.cards[1].userCardId").value(a))
+                .andExpect(jsonPath("$.data.cards[2].userCardId").value(c));
+
+        put(member, "[" + b + "," + a + "]").andExpect(errorCode(400, "ORDER_INCOMPLETE"));
+        put(member, "[" + c + "," + b + "," + a + "]").andExpect(status().isOk());
+        get(member, "/api/cards").andExpect(jsonPath("$.data.cards[0].userCardId").value(c));
+    }
+
     // ───────── 동시 요청 ─────────
 
     @Test
@@ -344,6 +454,27 @@ class CardManagementIntegrationTest extends MySqlTestSupport {
             pool.shutdownNow();
         }
         assertThat(defaults()).hasSize(1);
+    }
+
+    @Test
+    void 두_기기에서_동시에_순서를_저장해도_한쪽_순서만_온전히_남는다() throws Exception {
+        long a = card(member.userId(), checkProduct, "9410123456785678", "ACTIVE", null, account, 1);
+        long b = card(member.userId(), creditProduct, "4570000011111234", "ACTIVE", 14, account, 2);
+        long c = card(member.userId(), checkProduct, "9410000022223333", "ACTIVE", null, account, 3);
+        List<Long> first = List.of(c, b, a);
+        List<Long> second = List.of(b, a, c);
+
+        List<Integer> statuses = Concurrently.run(List.<Callable<Integer>>of(
+                () -> put(member, first.toString()).andReturn().getResponse().getStatus(),
+                () -> put(member, second.toString()).andReturn().getResponse().getStatus()));
+
+        assertThat(statuses).containsOnly(200);
+        List<Long> saved = jdbc.queryForList(
+                "SELECT user_card_id FROM user_card WHERE user_id = ? ORDER BY display_order", Long.class, member.userId());
+        // 두 순서가 섞이지 않고 어느 한쪽 순서 그대로다.
+        assertThat(saved).isIn(first, second);
+        assertThat(jdbc.queryForList("SELECT display_order FROM user_card WHERE user_id = ? ORDER BY display_order",
+                Integer.class, member.userId())).containsExactly(0, 1, 2);
     }
 
     // ───────── 준비 ─────────
@@ -481,5 +612,11 @@ class CardManagementIntegrationTest extends MySqlTestSupport {
 
     private static Timestamp now() {
         return Timestamp.valueOf(LocalDateTime.now(ZoneOffset.UTC));
+    }
+
+    /** 한국 날짜 정오를 UTC 시각으로. 결제일 변경 시각은 UTC로 저장하고 한국 날짜로 3개월을 센다. */
+    private static Timestamp kstNoonUtc(LocalDate kstDate) {
+        return Timestamp.valueOf(kstDate.atTime(12, 0).atZone(ZoneId.of("Asia/Seoul"))
+                .withZoneSameInstant(ZoneOffset.UTC).toLocalDateTime());
     }
 }

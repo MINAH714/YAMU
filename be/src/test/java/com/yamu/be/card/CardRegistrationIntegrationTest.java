@@ -217,9 +217,9 @@ class CardRegistrationIntegrationTest extends MySqlTestSupport {
         account(member.userId(), "1111");
         long card = pendingCard(member.userId(), creditProduct, CREDIT_NO, "1111", 25);
         Timestamp first = Timestamp.valueOf(LocalDateTime.of(2026, 9, 1, 3, 0));
-        // 해제 전에 카드 관리에서 결제일을 10일로 바꿔 둔 카드
-        jdbc.update("UPDATE user_card SET status = 'UNREGISTERED', payment_day = 10, registered_at = ? WHERE user_card_id = ?",
-                first, card);
+        // 해제 전에 카드 관리에서 결제일을 10일로 바꿔 둔 카드(3개월 제한 시계가 돌고 있음)
+        jdbc.update("UPDATE user_card SET status = 'UNREGISTERED', payment_day = 10, registered_at = ?,"
+                + " payment_day_changed_at = ? WHERE user_card_id = ?", first, Timestamp.valueOf(LocalDateTime.now()), card);
 
         String token = verified(member, CREDIT_NO);
         register(member, member.stepUpToken(), "{\"verificationToken\":\"" + token + "\"}")
@@ -230,6 +230,9 @@ class CardRegistrationIntegrationTest extends MySqlTestSupport {
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM user_card", Integer.class)).isEqualTo(1);
         assertThat(jdbc.queryForObject("SELECT registered_at FROM user_card WHERE user_card_id = ?", Timestamp.class, card))
                 .isEqualTo(first);
+        // 다시 등록한 카드는 새 등록이라 예전 결제일 변경 제한을 물려받지 않는다.
+        assertThat(jdbc.queryForObject("SELECT payment_day_changed_at FROM user_card WHERE user_card_id = ?",
+                Timestamp.class, card)).isNull();
     }
 
     // ───────── 카드 확인 실패 ─────────
