@@ -62,7 +62,7 @@ yamu:
       window: 1m
       per-device: 10
       per-ip: 60
-    # 휴대폰 본인인증(연출)과 가입 진행 토큰(노션 명세 「휴대폰 본인인증 요청·확인」「회원가입」)
+    # 휴대폰 본인인증(연출)과 가입 진행 토큰(노션 명세 「휴대폰 본인인증 요청·확인」). 회원가입 API는 없음(시드 사용자만 가입)
     signup:
       verification-ttl: 3m
       resend-interval: 1m

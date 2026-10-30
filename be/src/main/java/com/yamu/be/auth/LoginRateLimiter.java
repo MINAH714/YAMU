@@ -19,7 +19,7 @@ import org.springframework.stereotype.Component;
  * <pre>
  * auth:rate:device:{userDeviceId} → 요청 수   TTL = 구간(1분)
  * auth:rate:ip:{ip}               → 요청 수   TTL = 구간
- * auth:rate:signup-ip:{ip}        → 요청 수   TTL = 구간   본인인증 요청·확인·회원가입(인증 없이 열린 가입 API)
+ * auth:rate:signup-ip:{ip}        → 요청 수   TTL = 구간   본인인증 요청·확인(인증 없이 열린 가입 API)
  * auth:rate:card-lookup:{userId}  → 요청 수   TTL = 구간   카드 확인(카드번호 대입 막기)
  * </pre>
  *
