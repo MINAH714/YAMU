@@ -205,15 +205,20 @@ class AccountLinkIntegrationTest extends MySqlTestSupport {
     }
 
     @Test
-    void 고른_계좌가_전부_이미_연결돼_있으면_409_ACCOUNT_ALREADY_LINKED() throws Exception {
+    void 가입_중_고른_계좌가_전부_이미_연결돼_있으면_새로_연결하지_않고_이_세션의_1원_인증만_기록한다() throws Exception {
+        // 계좌를 연결해 두고 멈춘 가입을 새 토큰으로 이어갈 때 1원 인증을 다시 하는 경로(PIN·기기 등록은 이 세션의 1원 인증을 요구).
         long userId = pendingUser();
         insertLinked(userId, "088", ACCOUNT_NO);
         String bearer = signupBearer(userId, SignupMode.SIGNUP);
         String shinhan = candidateId(candidates(bearer).andReturn(), "6547");
+        assertThat(signupTokenStore.find(bearer.substring("Bearer ".length())).orElseThrow().oneWonVerified()).isFalse();
 
         link(bearer, sentToken(bearer, List.of(shinhan), shinhan), CODE, key(), null)
-                .andExpect(errorCode(409, "ACCOUNT_ALREADY_LINKED"));
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.accounts.length()").value(0))
+                .andExpect(jsonPath("$.data.skipped.length()").value(1));
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM linked_account", Integer.class)).isEqualTo(1);
+        assertThat(signupTokenStore.find(bearer.substring("Bearer ".length())).orElseThrow().oneWonVerified()).isTrue();
     }
 
     @Test
@@ -527,7 +532,7 @@ class AccountLinkIntegrationTest extends MySqlTestSupport {
     }
 
     @Test
-    void 같은_계좌를_다른_1원_토큰으로_동시에_연결하면_하나만_201이고_계좌는_한_번만_연결된다() throws Exception {
+    void 같은_계좌를_다른_1원_토큰으로_동시에_연결해도_계좌는_한_번만_연결되고_늦은_쪽은_skipped() throws Exception {
         String bearer = signupBearer(pendingUser(), SignupMode.SIGNUP);
         String shinhan = candidateId(candidates(bearer).andReturn(), "6547");
         String first = sentToken(bearer, List.of(shinhan), shinhan);
@@ -535,11 +540,17 @@ class AccountLinkIntegrationTest extends MySqlTestSupport {
         String second = sentToken(bearer, List.of(shinhan), shinhan);
         slowCodeCheck();
 
-        List<Integer> statuses = Concurrently.run(List.of(
-                () -> link(bearer, first, CODE, key(), null).andReturn().getResponse().getStatus(),
-                () -> link(bearer, second, CODE, key(), null).andReturn().getResponse().getStatus()));
+        List<MvcResult> results = Concurrently.run(List.of(
+                () -> link(bearer, first, CODE, key(), null).andReturn(),
+                () -> link(bearer, second, CODE, key(), null).andReturn()));
 
-        assertThat(statuses).containsExactlyInAnyOrder(201, 409);
+        // 가입 중에는 이미 연결된 계좌를 실패로 보지 않는다(1원 재인증 경로). 둘 다 201이고 새로 연결한 쪽은 하나뿐이다.
+        assertThat(results).allSatisfy(r -> assertThat(r.getResponse().getStatus()).isEqualTo(201));
+        int linkedTotal = 0;
+        for (MvcResult r : results) {
+            linkedTotal += JsonPath.<Integer>read(r.getResponse().getContentAsString(), "$.data.accounts.length()");
+        }
+        assertThat(linkedTotal).isEqualTo(1);
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM linked_account", Integer.class)).isEqualTo(1);
     }
 

@@ -113,13 +113,14 @@ class SignupIntegrationTest extends MySqlTestSupport {
     }
 
     @Test
-    void 계좌를_연결해_둔_시드_사용자는_멈춘_단계부터_이어한다() throws Exception {
+    void 계좌를_연결해_두고_멈춘_시드_사용자도_새_토큰으로는_1원_인증부터_다시_한다() throws Exception {
+        // 본인인증이 연출이라, 남이 이어받아 PIN·기기를 등록하지 못하게 이 토큰으로 1원 인증을 다시 받는다(SignupProgress).
         AppUser seeded = seed(PHONE);
         new OwnershipFixtures(jdbc).account(seeded.getId());
 
         confirmFor(PHONE).andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.mode").value("SIGNUP"))
-                .andExpect(jsonPath("$.data.nextStep").value("PIN_SETUP"));
+                .andExpect(jsonPath("$.data.nextStep").value("ACCOUNT_LINK"));
     }
 
     @Test
@@ -251,7 +252,8 @@ class SignupIntegrationTest extends MySqlTestSupport {
                 .containsOnly(200, 400).filteredOn(s -> s == 200).hasSize(1);
         assertThat(results).filteredOn(r -> r.getResponse().getStatus() == 400)
                 .allSatisfy(r -> assertThat(read(r, "$.error.code")).isEqualTo("VERIFICATION_EXPIRED"));
-        assertThat(redis.keys("signup:*")).hasSize(1);
+        // 토큰 하나와 사용자별 토큰 목록(signup:user:{id}) 하나.
+        assertThat(redis.keys("signup:*").stream().filter(key -> !key.startsWith("signup:user:"))).hasSize(1);
     }
 
     @Test
