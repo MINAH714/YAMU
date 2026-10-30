@@ -1,0 +1,14 @@
+# 가입 시연용 페르소나 시드(be/seed/PERSONA.md). local과 같이 켠다: --spring.profiles.active=local,persona-seed
+# 앱 설정(DB·암호화 키·SSAFY_API_KEY)을 그대로 쓰고, 다 넣으면 바로 종료한다.
+spring:
+  main:
+    # 웹 서버를 띄우지 않는다. 실행 중인 서버와 포트가 겹치지 않는다.
+    web-application-type: none
+    banner-mode: off
+
+yamu:
+  persona-seed:
+    # be 폴더 기준 경로. 실제 값이 든 파일이라 깃에 올리지 않는다(be/.gitignore).
+    file: seed/persona.local.json
+    # true면 아직 PENDING인 페르소나만 지우고 다시 넣는다. 실행 인자 --reset과 같다.
+    reset: false
