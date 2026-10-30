@@ -111,7 +111,12 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
      */
     @ExceptionHandler({ObjectOptimisticLockingFailureException.class, OptimisticLockException.class})
     public ResponseEntity<ApiResponse<Void>> handleOptimisticLock(Exception e) {
-        log.warn("동시 수정 충돌: {}", e.getClass().getSimpleName());
+        // 어떤 행이 겹쳤는지 남긴다(엔티티 이름·ID만, 개인정보 없음). 지워진 행을 고치는 진짜 버그도 409로 보일 수 있어서다.
+        if (e instanceof ObjectOptimisticLockingFailureException ex) {
+            log.warn("동시 수정 충돌: entity={}, id={}", ex.getPersistentClassName(), ex.getIdentifier());
+        } else {
+            log.warn("동시 수정 충돌: {}", e.getClass().getSimpleName());
+        }
         ErrorCode ec = ErrorCode.CONCURRENT_MODIFICATION;
         return ResponseEntity.status(ec.getStatus()).body(ApiResponse.fail(ec));
     }

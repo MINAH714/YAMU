@@ -174,17 +174,18 @@ class SignupIntegrationTest extends MySqlTestSupport {
     // ───────── 본인 확인 ─────────
 
     @Test
-    void 번호와_생년월일이_같아도_이름이_다르면_409_IDENTITY_MISMATCH이고_그_계정_정보를_주지_않는다() throws Exception {
+    void 번호와_생년월일이_같아도_이름이_다르면_시드에_없는_사람과_똑같은_404다() throws Exception {
         AppUser seeded = seed(PHONE);
         MvcResult requested = requestVerification("홍길동", BIRTH, "SKT", PHONE).andReturn();
-
         MvcResult mismatched = confirm(read(requested, "$.data.verificationId"), read(requested, "$.data.demoCode"))
-                .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.error.code").value("IDENTITY_MISMATCH"))
-                .andExpect(jsonPath("$.data").doesNotExist())
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error.code").value("DEMO_USER_NOT_FOUND"))
                 .andReturn();
+        MvcResult notSeeded = confirmFor("01099998888").andExpect(status().isNotFound()).andReturn();
 
+        // 응답 본문이 글자 하나까지 같아야 번호·생년월일만으로 가입 여부를 알 수 없다.
         String body = mismatched.getResponse().getContentAsString();
+        assertThat(body).isEqualTo(notSeeded.getResponse().getContentAsString());
         assertThat(body).doesNotContain("김야무").doesNotContain(String.valueOf(seeded.getId())).doesNotContain("sgt_");
         assertThat(redis.keys("signup:*")).isEmpty();
         assertThat(userRepository.findById(seeded.getId()).orElseThrow().getIdentityVerifiedAt()).isNull();
@@ -206,6 +207,16 @@ class SignupIntegrationTest extends MySqlTestSupport {
         confirmFor(PHONE).andExpect(status().isConflict())
                 .andExpect(jsonPath("$.error.code").value("REJOIN_NOT_AVAILABLE"));
         assertThat(redis.keys("signup:*")).isEmpty();
+    }
+
+    @Test
+    void 탈퇴자라도_이름이_다르면_탈퇴_여부를_알려주지_않고_404다() throws Exception {
+        withdraw(seed(PHONE));
+        MvcResult requested = requestVerification("홍길동", BIRTH, "SKT", PHONE).andReturn();
+
+        confirm(read(requested, "$.data.verificationId"), read(requested, "$.data.demoCode"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error.code").value("DEMO_USER_NOT_FOUND"));
     }
 
     // ───────── 인증번호 ─────────
