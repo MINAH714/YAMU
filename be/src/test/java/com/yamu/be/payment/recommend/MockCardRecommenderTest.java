@@ -24,6 +24,7 @@ import org.junit.jupiter.api.Test;
 
 class MockCardRecommenderTest {
 
+    static final long PAYMENT = 1024L;
     static final long USER = 7L;
     static final Instant NOW = Instant.parse("2026-10-31T15:30:00Z");
     static final MerchantContext CAFE = new MerchantContext(301L, "F01-CAFE", "OFFLINE", "GENERAL");
@@ -105,38 +106,18 @@ class MockCardRecommenderTest {
         assertThat(lumpSum.excludedCards()).isEmpty();
     }
 
-    @Test
-    void 혜택_자료가_없는_상품은_뺀다() {
-        given(card(1, CardType.CREDIT), card(2, CardType.CREDIT).benefitCount(0));
-
-        RecommendationResult result = recommender.recommend(lumpSum(15_000));
-
-        assertThat(result.candidates()).extracting(c -> c.card().userCardId()).containsExactly(1L);
-        assertThat(result.excluded(2L).orElseThrow().reason()).isEqualTo(ExclusionReason.BENEFIT_DATA_MISSING);
-    }
-
     // ───────── 후보 없음 ─────────
 
     @Test
-    void 혜택_자료가_없어서_후보가_없으면_DATA_INSUFFICIENT() {
-        given(card(1, CardType.CREDIT).benefitCount(0),
-                card(2, CardType.CREDIT).issuer(CardIssuerStatus.SUSPENDED));
-
-        RecommendationResult result = recommender.recommend(lumpSum(15_000));
-
-        assertThat(result.isAvailable()).isFalse();
-        assertThat(result.unavailableReason()).isEqualTo(UnavailableReason.DATA_INSUFFICIENT);
-        assertThat(result.topCandidate()).isEmpty();
-        assertThat(result.excludedCards()).hasSize(2);
-    }
-
-    @Test
-    void 결제_불가_사유로만_후보가_없으면_NO_ELIGIBLE_CARD() {
+    void 결제_불가_사유로_후보가_없으면_NO_ELIGIBLE_CARD() {
         given(card(1, CardType.CHECK), card(2, CardType.CREDIT).issuer(CardIssuerStatus.SUSPENDED));
 
         RecommendationResult result = recommender.recommend(request(PaymentTerms.installment(100_000, 3)));
 
+        assertThat(result.isAvailable()).isFalse();
         assertThat(result.unavailableReason()).isEqualTo(UnavailableReason.NO_ELIGIBLE_CARD);
+        assertThat(result.topCandidate()).isEmpty();
+        assertThat(result.excludedCards()).hasSize(2);
     }
 
     @Test
@@ -193,7 +174,7 @@ class MockCardRecommenderTest {
     }
 
     static RecommendationRequest request(PaymentTerms terms) {
-        return new RecommendationRequest(USER, terms, CAFE, LocalDateTime.ofInstant(NOW, ZoneOffset.UTC));
+        return new RecommendationRequest(PAYMENT, USER, terms, CAFE, LocalDateTime.ofInstant(NOW, ZoneOffset.UTC));
     }
 
     static CardBuilder card(long userCardId, CardType type) {
@@ -206,7 +187,6 @@ class MockCardRecommenderTest {
         CardIssuerStatus issuer = CardIssuerStatus.NORMAL;
         boolean defaultCard;
         Integer displayOrder;
-        long benefitCount = 1;
 
         CardBuilder(long userCardId, CardType type) {
             this.userCardId = userCardId;
@@ -228,15 +208,10 @@ class MockCardRecommenderTest {
             return this;
         }
 
-        CardBuilder benefitCount(long count) {
-            this.benefitCount = count;
-            return this;
-        }
-
         ActiveCard build() {
             long product = 100 + userCardId - 1;
             return new ActiveCard(userCardId, product, type, issuer, defaultCard, displayOrder, "카드" + userCardId,
-                    String.format("%04d", userCardId), "TEST", "상품 " + product, benefitCount);
+                    String.format("%04d", userCardId), "TEST", "상품 " + product);
         }
     }
 }

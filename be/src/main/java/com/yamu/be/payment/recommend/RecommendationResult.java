@@ -82,7 +82,10 @@ public record RecommendationResult(String recommendationId, LocalDateTime calcul
     /** 혜택 계산에 쓴 상품 규칙 버전. 승인 때 같은 버전으로 다시 계산한다. */
     public record RuleVersion(Long cardProductId, int version) {}
 
-    /** 결제 불가 사유. 승인 거절의 failure.code와 이름을 맞췄다(API 명세 「결제 승인 요청」). */
+    /**
+     * 결제 불가 사유. 승인 거절의 failure.code와 이름을 맞췄다(API 명세 「결제 승인 요청」).
+     * 혜택 자료가 없는 것은 결제 불가가 아니다. 그런 후보가 있으면 순위를 내지 않고 {@link UnavailableReason#DATA_INSUFFICIENT}다.
+     */
     public enum ExclusionReason {
         CARD_SUSPENDED,
         CARD_EXPIRED,
@@ -90,28 +93,27 @@ public record RecommendationResult(String recommendationId, LocalDateTime calcul
         CREDIT_LIMIT_EXCEEDED,
         INSUFFICIENT_BALANCE,
         /** 할부 결제에 체크카드. 체크카드는 일시불만이다(POL-013) */
-        INSTALLMENT_NOT_SUPPORTED,
-        /** 상품에 혜택 규칙 자료가 없어 평가할 수 없음 */
-        BENEFIT_DATA_MISSING
+        INSTALLMENT_NOT_SUPPORTED
     }
 
     /** 후보가 하나도 없는 이유(FR-018, NFR-006). */
     public enum UnavailableReason {
         /** 결제할 수 있는 카드가 없음 */
         NO_ELIGIBLE_CARD,
-        /** 비교에 필요한 핵심 자료(한도·혜택)가 없음 */
+        /** 결제 가능한 후보의 순혜택·한도를 확정할 수 없음. 확정 선택·순위를 내지 않는다 */
         DATA_INSUFFICIENT
     }
 
-    /** 순혜택이 같을 때 순위를 정한 규칙(카드 추천 정책 DEC-004). 동률이 아니었으면 null. */
+    /**
+     * 최대 순혜택이 정확히 같을 때 순위를 정한 규칙(카드 추천 정책 POL-011). 동률이 아니었으면 null.
+     * 혜택 실현 편의성은 동률 기준에서 뺐다(2026-10-31).
+     */
     public enum TieBreak {
         /** 설정한 기본 카드 */
         DEFAULT_CARD,
-        /** 혜택 실현 편의성(즉시할인 우선) */
-        REALIZATION_CONVENIENCE,
-        /** 이번 결제로 전월 실적 기준 충족 */
+        /** 이번 결제로 최소 혜택 실적 기준을 새로 충족(결제 전 인정 실적 < 기준 ≤ 결제 전 인정 실적 + 이번 거래 인정 실적) */
         MEETS_THRESHOLD,
-        /** 보유 카드 목록의 고정 정렬 순서 */
+        /** 고정 정렬 순서 */
         FIXED_ORDER
     }
 }

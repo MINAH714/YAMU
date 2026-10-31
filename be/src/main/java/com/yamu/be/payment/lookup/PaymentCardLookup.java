@@ -37,8 +37,7 @@ public class PaymentCardLookup {
     public List<ActiveCard> findActiveCards(Long userId) {
         return jdbc.query("""
                 select c.user_card_id, c.card_product_id, p.card_type, c.issuer_status, c.is_default, c.display_order,
-                       c.card_alias, c.card_last4, p.issuer_code, p.product_name,
-                       (select count(*) from card_benefit b where b.card_product_id = p.card_product_id) as benefit_count
+                       c.card_alias, c.card_last4, p.issuer_code, p.product_name
                 from user_card c
                 join card_product p on p.card_product_id = c.card_product_id
                 where c.user_id = ? and c.status = 'ACTIVE'
@@ -53,8 +52,7 @@ public class PaymentCardLookup {
                 rs.getString("card_alias"),
                 rs.getString("card_last4"),
                 rs.getString("issuer_code"),
-                rs.getString("product_name"),
-                rs.getLong("benefit_count")), userId);
+                rs.getString("product_name")), userId);
     }
 
     /**
@@ -63,9 +61,8 @@ public class PaymentCardLookup {
      * @param defaultCard  사용자가 정한 기본 카드인지(사용자당 최대 1장)
      * @param displayOrder 보유 카드 목록 표시 순서. 저장 전이면 null
      * @param alias        사용자가 정한 별칭. 없으면 null
-     * @param benefitCount 상품에 등록된 혜택 규칙 행 수. 0이면 혜택 자료가 없는 상품
      */
     public record ActiveCard(Long userCardId, Long cardProductId, CardType cardType, CardIssuerStatus issuerStatus,
             boolean defaultCard, Integer displayOrder, String alias, String last4, String issuerCode,
-            String productName, long benefitCount) {}
+            String productName) {}
 }

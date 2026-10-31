@@ -7,9 +7,6 @@ import com.yamu.be.card.domain.CardType;
 import com.yamu.be.payment.lookup.PaymentCardLookup.ActiveCard;
 import com.yamu.be.support.MySqlTestSupport;
 import com.yamu.be.support.OwnershipFixtures;
-import java.sql.Timestamp;
-import java.time.LocalDateTime;
-import java.time.ZoneOffset;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -34,7 +31,6 @@ class PaymentCardLookupTest extends MySqlTestSupport {
     long account;
     long creditProduct;
     long checkProduct;
-    long productWithoutBenefit;
 
     @BeforeEach
     void setUp() {
@@ -43,11 +39,8 @@ class PaymentCardLookupTest extends MySqlTestSupport {
         other = fixtures.user();
         account = fixtures.account(owner);
         creditProduct = fixtures.product();
-        benefit(creditProduct);
         checkProduct = fixtures.product();
         jdbc.update("update card_product set card_type = 'CHECK' where card_product_id = ?", checkProduct);
-        benefit(checkProduct);
-        productWithoutBenefit = fixtures.product();
     }
 
     @Test
@@ -84,10 +77,9 @@ class PaymentCardLookupTest extends MySqlTestSupport {
     }
 
     @Test
-    void 카드_종류_카드사_상태_별칭_끝자리_상품_정보_혜택_자료_수를_같이_돌려준다() {
+    void 카드_종류_카드사_상태_별칭_끝자리_상품_정보를_같이_돌려준다() {
         long credit = fixtures.card(owner, creditProduct, account, "ACTIVE");
         long check = fixtures.card(owner, checkProduct, account, "ACTIVE");
-        long noBenefit = fixtures.card(owner, productWithoutBenefit, account, "ACTIVE");
         jdbc.update("update user_card set card_alias = '메인', issuer_status = 'SUSPENDED' where user_card_id = ?",
                 credit);
 
@@ -100,26 +92,14 @@ class PaymentCardLookupTest extends MySqlTestSupport {
         assertThat(creditCard.last4()).isEqualTo("1234");
         assertThat(creditCard.issuerCode()).isEqualTo("TEST");
         assertThat(creditCard.productName()).isNotBlank();
-        assertThat(creditCard.benefitCount()).isEqualTo(1);
 
         ActiveCard checkCard = find(cards, check);
         assertThat(checkCard.cardType()).isEqualTo(CardType.CHECK);
         assertThat(checkCard.issuerStatus()).isEqualTo(CardIssuerStatus.NORMAL);
         assertThat(checkCard.alias()).isNull();
-
-        assertThat(find(cards, noBenefit).benefitCount()).isZero();
     }
 
     private static ActiveCard find(List<ActiveCard> cards, long userCardId) {
         return cards.stream().filter(c -> c.userCardId() == userCardId).findFirst().orElseThrow();
-    }
-
-    /** 상품에 혜택 규칙 행 하나. 값은 조회 대상이 아니라 형식만 맞춘다. */
-    private void benefit(long product) {
-        jdbc.update("""
-                insert into card_benefit (card_product_id, benefit_code, policy_version, benefit_name, benefit_type,
-                    calculation_type, fixed_value, value_unit, created_at)
-                values (?, 'TEST', 1, '테스트 혜택', 'DISCOUNT', 'FIXED', 1000, 'KRW', ?)
-                """, product, Timestamp.valueOf(LocalDateTime.now(ZoneOffset.UTC)));
     }
 }
