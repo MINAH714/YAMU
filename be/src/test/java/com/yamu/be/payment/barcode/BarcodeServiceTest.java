@@ -163,14 +163,23 @@ class BarcodeServiceTest {
     }
 
     @Test
-    void 없는_토큰과_형식이_다른_토큰은_찾을_수_없다() {
-        // 형식은 맞지만 없는 코드, 15·17자리, 띄어쓴 번호, 예전 YAMU 형식, 그 밖의 값
-        for (String token : List.of("0000000000000000", "123456789012345", "12345678901234567",
-                "1234 5678 9012 3456", "YAMU8F2A9C1D7E0B4C11", "user:7", "")) {
+    void 형식이_다른_토큰은_저장소를_조회하지_않고_찾을_수_없다() {
+        // 15·17자리, 띄어쓴 번호, 하이픈, 전각 숫자, 예전 YAMU 형식, 사용자 키 모양, 빈 값
+        for (String token : List.of("123456789012345", "12345678901234567", "1234 5678 9012 3456",
+                "1234-5678-9012-3456", "１２３４５６７８９０１２３４５６", "YAMU8F2A9C1D7E0B4C11", "user:7", "")) {
             assertThatThrownBy(() -> service.get(7L, token))
                     .isInstanceOf(BusinessException.class)
                     .extracting("errorCode").isEqualTo(ErrorCode.BARCODE_NOT_FOUND);
         }
+        assertThat(store.findCount()).isZero();
+    }
+
+    @Test
+    void 형식은_맞지만_없는_토큰은_저장소를_확인한_뒤_찾을_수_없다() {
+        assertThatThrownBy(() -> service.get(7L, "0000000000000000"))
+                .isInstanceOf(BusinessException.class)
+                .extracting("errorCode").isEqualTo(ErrorCode.BARCODE_NOT_FOUND);
+        assertThat(store.findCount()).isEqualTo(1);
     }
 
     @Test
@@ -197,6 +206,7 @@ class BarcodeServiceTest {
 
         private final Map<String, Barcode> barcodes = new HashMap<>();
         private final Map<Long, String> currentTokens = new HashMap<>();
+        private int findCount;
 
         @Override
         public synchronized boolean issue(Barcode barcode, Duration retention) {
@@ -216,11 +226,17 @@ class BarcodeServiceTest {
 
         @Override
         public synchronized Optional<Barcode> find(String token) {
+            findCount++;
             return Optional.ofNullable(barcodes.get(token));
         }
 
         int size() {
             return barcodes.size();
+        }
+
+        /** find가 불린 횟수. Redis라면 조회 명령이 나간 횟수다. */
+        synchronized int findCount() {
+            return findCount;
         }
 
         synchronized void remove(String token) {
