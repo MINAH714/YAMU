@@ -71,3 +71,4 @@ app/src/debug · posDebug   가짜 데이터(release에는 안 들어감)
 - Pretendard 1.3.9 (SIL OFL) — Regular · Medium · SemiBold · Bold · ExtraBold, `app/src/main/res/font`, 라이선스 `third_party/Pretendard-LICENSE.txt`
 - Material Symbols Rounded (Apache 2.0, Google) — 공식 SVG 경로를 `core/designsystem/icon/YamuIcons.kt`에 옮김, 라이선스 `third_party/MaterialSymbols-LICENSE.txt`
 - 야무 캐릭터 8컷(임시 그림) — `app/src/main/res/drawable-nodpi/yamu_*.webp`, 원본은 저장소 밖 프로토타입 자료
+- 카드 앞면 10장 — `app/src/main/res/drawable-nodpi/card_*.webp`, 카드사 공식 사이트(신한 · KB국민 · 하나 · 현대 · 삼성 · 롯데)의 상품 그림을 WebP로 바꾼 것(비상업 프로젝트 시연용). 원본 주소 · sha256은 저장소 밖 카드 분석 자료(`card-analysis/data/cards.csv` · `sources.csv`, 리소스 이름 = `card_` + card_id), 상품명 연결은 `core/designsystem/card/CardImages.kt`
