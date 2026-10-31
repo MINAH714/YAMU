@@ -49,18 +49,18 @@ class FakeBank @Inject constructor(private val sessionStore: SessionStore) {
 
     private val institutions = listOf(
         Inst("BANK_KB", "KB국민은행", InstitutionType.BANK, "#FFBC00", true),
-        Inst("CARD_SHINHAN", "신한카드", InstitutionType.CARD, "#0046FF", true),
         Inst("CARD_KB", "KB국민카드", InstitutionType.CARD, "#FFBC00", true),
-        Inst("CARD_WOORI", "우리카드", InstitutionType.CARD, "#0083CA", true),
-        Inst("CARD_NH", "NH농협카드", InstitutionType.CARD, "#00A651", true),
-        Inst("CARD_HANA", "하나카드", InstitutionType.CARD, "#008C8C", true),
+        Inst("CARD_HYUNDAI", "현대카드", InstitutionType.CARD, "#1A1A1A", true),
+        Inst("CARD_LOTTE", "롯데카드", InstitutionType.CARD, "#E60012", true),
+        Inst("CARD_SAMSUNG", "삼성카드", InstitutionType.CARD, "#1428A0", true),
+        Inst("CARD_SHINHAN", "신한카드", InstitutionType.CARD, "#0046FF", true),
+        Inst("CARD_HANA", "하나카드", InstitutionType.CARD, "#008C8C", true),   // 가입 뒤 새로 나온 트래블로그만(C-12)
         Inst("BANK_SHINHAN", "신한은행", InstitutionType.BANK, null, false),
         Inst("BANK_HANA", "하나은행", InstitutionType.BANK, null, false),
         Inst("BANK_WOORI", "우리은행", InstitutionType.BANK, null, false),
         Inst("BANK_NH", "NH농협은행", InstitutionType.BANK, null, false),
-        Inst("CARD_SAMSUNG", "삼성카드", InstitutionType.CARD, null, false),
-        Inst("CARD_HYUNDAI", "현대카드", InstitutionType.CARD, null, false),
-        Inst("CARD_LOTTE", "롯데카드", InstitutionType.CARD, null, false),
+        Inst("CARD_WOORI", "우리카드", InstitutionType.CARD, null, false),
+        Inst("CARD_NH", "NH농협카드", InstitutionType.CARD, null, false),
         Inst("CARD_BC", "BC카드", InstitutionType.CARD, null, false),
     )
 
@@ -80,14 +80,15 @@ class FakeBank @Inject constructor(private val sessionStore: SessionStore) {
 
     private val accounts = listOf(Account("A1", "BANK_KB", "입출금", "1234", 950_000))
 
+    // BE 카드 시드(be/seed 01 · 02)에 있는 상품만 — 상품 그림(CardImages)이 있는 것 위주
     private val cards = listOf(
-        Card("C1", "CARD_SHINHAN", "신한 생활 신용카드", "1021", 14, recognized = 120_000),
-        Card("C2", "CARD_KB", "KB국민 적립 신용카드", "3310", 14, recognized = 210_000),
-        Card("C3", "CARD_WOORI", "우리 통신·렌탈 신용카드", "7782", 14, recognized = 320_000),
-        Card("C4", "CARD_NH", "NH농협 교통·쇼핑 신용카드", "4410", 15, recognized = 80_000),
-        Card("C5", "CARD_HANA", "하나 마트·주유 신용카드", "5096", 20, recognized = 150_000),
-        Card("C6", "CARD_KB", "KB국민 체크카드", "8823", null, check = true, recognized = 60_000, color = "#60584C"),
-        Card("C7", "CARD_SHINHAN", "트래블 마일 신용카드", "5527", 14, newlyIssued = true),
+        Card("C1", "CARD_KB", "KB국민 청춘대로 톡톡카드", "1021", 14, recognized = 120_000),
+        Card("C2", "CARD_HYUNDAI", "현대카드ZERO Edition3(포인트형)", "3310", 14, recognized = 210_000),
+        Card("C3", "CARD_LOTTE", "LOCA LIKIT Shop", "7782", 14, recognized = 320_000),
+        Card("C4", "CARD_SAMSUNG", "삼성 iD ON 카드", "4410", 15, recognized = 80_000),
+        Card("C5", "CARD_SHINHAN", "신한카드 Mr.Life", "5096", 20, recognized = 150_000),
+        Card("C6", "CARD_KB", "KB국민 노리2 체크카드(KB Pay)", "8823", null, check = true, recognized = 60_000, color = "#60584C"),
+        Card("C7", "CARD_HANA", "하나카드 트래블로그 체크카드", "5527", null, check = true, newlyIssued = true),
     )
 
     private class Session(val id: String, val purpose: String, val institutionIds: List<String>, var verified: Boolean = false)
@@ -271,7 +272,7 @@ class FakeLinkRepository @Inject constructor(private val bank: FakeBank) : LinkR
     override suspend fun linkedOverview(refresh: Boolean) = withFault(empty = { ApiResult.Success(LinkedOverview(emptyList(), emptyList(), null)) }) { bank.overview() }
 }
 
-/** debug 전용 가짜 월급 · 고정 지출 — 프로토타입 B-06 숫자(월급 10일 2,800,000 · 월세 · 통신비 · 구독료 + 하나카드 대금) */
+/** debug 전용 가짜 월급 · 고정 지출 — 프로토타입 B-06 숫자(월급 10일 2,800,000 · 월세 · 통신비 · 구독료 + 신한카드 대금) */
 @Singleton
 class FakeCashflowRepository @Inject constructor() : CashflowRepository {
     var lastPlan: CashflowPlan? = null
@@ -287,7 +288,7 @@ class FakeCashflowRepository @Inject constructor() : CashflowRepository {
                     CashflowCandidate(303, false, "통신비", 35_000, 27),
                     CashflowCandidate(304, false, "구독료", 15_000, 1),
                 ),
-                bills = listOf(BillLine("하나카드 대금", 150_000, 20)),
+                bills = listOf(BillLine("신한카드 대금", 150_000, 20)),
                 dailyLivingCost = 6_000,
             ),
         )
