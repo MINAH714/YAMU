@@ -132,7 +132,7 @@ class BarcodeIssueIntegrationTest extends MySqlTestSupport {
 
         // 토큰은 한 번 쓰이고 지워진다. Redis에는 바코드 두 키가 10분 보관으로 들어 있다
         assertThat(redis.hasKey("auth:step-up:" + sha256Hex(token))).isFalse();
-        assertThat(redis.getExpire("barcode:" + code, TimeUnit.SECONDS)).isBetween(590L, 600L);
+        assertThat(redis.getExpire("barcode:code:" + code, TimeUnit.SECONDS)).isBetween(590L, 600L);
         assertThat(redis.opsForValue().get("barcode:user:" + userId)).isEqualTo(code);
 
         fetch(device,code)
@@ -255,9 +255,21 @@ class BarcodeIssueIntegrationTest extends MySqlTestSupport {
         long userId = userId(device);
         fixtures.card(userId, product, null, "ACTIVE");
         String code = read(issue(device, barcodeToken(device)).andReturn(), "$.data.barcodeToken");
-        redis.delete("barcode:" + code); // 10분이 지나 Redis가 지운 상태를 흉내 낸다(실제 TTL은 RedisBarcodeStoreTest)
+        redis.delete("barcode:code:" + code); // 10분이 지나 Redis가 지운 상태를 흉내 낸다(실제 TTL은 RedisBarcodeStoreTest)
 
         fetch(device,code).andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error.code").value("BARCODE_NOT_FOUND"));
+    }
+
+    @Test
+    void 사용자_키_이름을_코드_자리에_넣어_조회해도_500이_아니라_404다() throws Exception {
+        // 바코드 키와 사용자 키(barcode:user:{id}, 문자열)의 접두어가 같으면 HGETALL이 WRONGTYPE으로 500이 나고,
+        // 404와의 차이로 다른 사용자가 바코드를 발급했는지 드러난다(!57 리뷰)
+        long userId = userId(device);
+        fixtures.card(userId, product, null, "ACTIVE");
+        issue(device, barcodeToken(device)).andExpect(status().isCreated());
+
+        fetch(device, "user:" + userId).andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.error.code").value("BARCODE_NOT_FOUND"));
     }
 
