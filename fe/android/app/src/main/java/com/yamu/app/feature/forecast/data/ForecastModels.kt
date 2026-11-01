@@ -146,6 +146,7 @@ data class ForecastEvent(
     val isPlan: Boolean,
     val planId: Long?,
     val afterIncome: Boolean,
+    val isCardBill: Boolean = false,            // 카드대금 — 가계부 항목이 아니라 F-02에서 고칠 수 없다
 )
 
 data class ForecastAccount(val name: String, val category: String?, val last4: String, val balance: Long?, val minBalance: Long?, val shortfallFrom: LocalDate?)
@@ -256,6 +257,7 @@ fun ForecastDto.toForecast(): Forecast {
         isPlan = type.uppercase() in PLAN_TYPES,
         planId = refId.takeIf { type.uppercase() in PLAN_TYPES },
         afterIncome = after,
+        isCardBill = type.uppercase() == "CARD_BILLING",
     )
     val inHorizon = series.flatMap { p -> p.events.map { it.toEvent(parseDate(p.date), after = false) } }
     val beyond = beyondHorizon.map { it.toEvent(null, after = true) }

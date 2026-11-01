@@ -7,8 +7,11 @@ import com.yamu.app.feature.forecast.data.BuyCheck
 import com.yamu.app.feature.forecast.data.BuyMethod
 import com.yamu.app.feature.forecast.data.BuyOption
 import com.yamu.app.feature.forecast.data.BuyVerdict
+import com.yamu.app.feature.forecast.data.CashflowDeleteScope
+import com.yamu.app.feature.forecast.data.CashflowEntry
 import com.yamu.app.feature.forecast.data.CashflowForm
 import com.yamu.app.feature.forecast.data.CashflowRepeat
+import com.yamu.app.feature.forecast.data.CashflowUpdateRequest
 import com.yamu.app.feature.forecast.data.Forecast
 import com.yamu.app.feature.forecast.data.ForecastAccount
 import com.yamu.app.feature.forecast.data.ForecastEvent
@@ -36,11 +39,17 @@ class FakeForecastRepository @Inject constructor() : ForecastRepository {
 
     private class Plan(val id: Long, val title: String, val amount: Long, val payDate: LocalDate)
 
-    /** F-02a로 등록한 예정 수입 · 지출 — [amount]는 수입 +, 지출 − */
-    private class Item(val title: String, val amount: Long, val date: LocalDate, val repeat: CashflowRepeat, val dayOfMonth: Int?)
+    /** 가계부 규칙(가짜 서버) — 처음 3개는 프로토타입 고정 지출, F-02a로 등록하면 더한다. 수정 · 삭제는 서버 규칙(docs/be/cashflow.md)을 흉내 */
+    private data class Item(
+        val id: Long, val isIncome: Boolean, val title: String, val amount: Long,
+        val date: LocalDate, val repeat: CashflowRepeat, val dayOfMonth: Int?, val endDate: LocalDate?,
+        val accountId: Long?, val userCardId: Long?,
+    )
+
+    /** 이번 회차만 고친 값 — (규칙, 원래 회차)마다 */
+    private data class Override(val title: String?, val amount: Long?, val date: LocalDate?)
 
     private val plans = mutableListOf<Plan>()
-    private val items = mutableListOf<Item>()
     private val saved = mutableMapOf<Long, SavedPlan>()
     private var nextId = 901L
     private var last: Forecast? = null
@@ -52,15 +61,26 @@ class FakeForecastRepository @Inject constructor() : ForecastRepository {
     private val income get() = today.plusDays(25)
     private val horizonTo get() = income.minusDays(1)
 
-    private fun scheduled() = listOf(
-        Triple(today.plusDays(4), "하나카드 대금", -150_000L),
-        Triple(today.plusDays(9), "월세", -250_000L),
-        Triple(today.plusDays(11), "통신비", -35_000L),
-        Triple(today.plusDays(16), "구독료 (OTT·음악)", -15_000L),
-    ) + items.flatMap { item -> occurrences(item).map { Triple(it, item.title, item.amount) } }
+    private fun monthly(id: Long, title: String, amount: Long, date: LocalDate) =
+        Item(id, isIncome = false, title, amount, date, CashflowRepeat.MONTHLY, date.dayOfMonth, null, accountId = 1, userCardId = null)
 
-    /** 등록한 항목의 예보 기간 안 회차 — 가짜 서버가 계산한다(앱은 계산하지 않는다). 매월은 그달에 기준일이 없으면 말일 */
-    private fun occurrences(item: Item): List<LocalDate> {
+    private val items = mutableListOf(
+        monthly(7001, "월세", 250_000, today.plusDays(9)),
+        monthly(7002, "통신비", 35_000, today.plusDays(11)),
+        monthly(7003, "구독료 (OTT·음악)", 15_000, today.plusDays(16)),
+    )
+    private val overrides = mutableMapOf<Pair<Long, LocalDate>, Override>()
+    private val excluded = mutableSetOf<Pair<Long, LocalDate>>()
+
+    /** 카드대금 — 가계부 항목이 아니라 예보에만(F-02에서 읽기 전용) */
+    private val cardBill get() = ForecastEvent(today.plusDays(4), "하나카드 대금", -150_000, isPlan = false, planId = null, afterIncome = false, isCardBill = true)
+
+    private fun scheduled(): List<Triple<LocalDate, String, Long>> =
+        listOf(Triple(cardBill.date!!, cardBill.title, cardBill.amount)) + entriesBetween(today, horizonTo).map { Triple(it.date, it.title, it.signedAmount) }
+
+    /** 규칙의 원래 회차 — 가짜 서버가 계산한다(앱은 계산하지 않는다). 매월은 그달에 기준일이 없으면 말일, 종료일 포함 */
+    private fun occurrences(item: Item, until: LocalDate): List<LocalDate> {
+        val limit = listOfNotNull(until, item.endDate).min()
         val dates = mutableListOf<LocalDate>()
         var n = 0L
         while (true) {
@@ -69,12 +89,26 @@ class FakeForecastRepository @Inject constructor() : ForecastRepository {
                 CashflowRepeat.WEEKLY -> item.date.plusWeeks(n)
                 CashflowRepeat.MONTHLY -> YearMonth.from(item.date).plusMonths(n).let { ym -> ym.atDay(minOf(item.dayOfMonth ?: item.date.dayOfMonth, ym.lengthOfMonth())) }
             }
-            if (d.isAfter(horizonTo)) break
+            if (d.isAfter(limit)) break
             dates += d
             n++
         }
         return dates
     }
+
+    /** 목록 — 계산한 회차에 이번 회차 수정 · 삭제를 덮는다(옮긴 회차는 옮긴 날짜로 기간을 가린다) */
+    private fun entriesBetween(from: LocalDate, to: LocalDate): List<CashflowEntry> = items.flatMap { item ->
+        occurrences(item, to.plusMonths(1)).mapNotNull { occurrence ->
+            if ((item.id to occurrence) in excluded) return@mapNotNull null
+            val o = overrides[item.id to occurrence]
+            val date = o?.date ?: occurrence
+            if (date.isBefore(from) || date.isAfter(to)) return@mapNotNull null
+            CashflowEntry(
+                item.id, item.isIncome, o?.title ?: item.title, o?.amount ?: item.amount, occurrence, date, item.repeat,
+                item.dayOfMonth.takeIf { item.repeat == CashflowRepeat.MONTHLY }, item.endDate, item.accountId, item.userCardId,
+            )
+        }
+    }.sortedWith(compareBy({ it.date }, { it.itemId }))
 
     /** 날마다 예상 잔액 — extra(날짜, 금액)는 아직 저장 안 한 '사 보면' 출금 */
     private fun simulate(extra: List<Pair<LocalDate, Long>> = emptyList()): List<Pair<LocalDate, Long>> {
@@ -103,7 +137,7 @@ class FakeForecastRepository @Inject constructor() : ForecastRepository {
     private suspend fun forecastNow(): ApiResult<Forecast> {
         delay(500)
         val points = simulate()
-        val upcoming = scheduled().map { ForecastEvent(it.first, it.second, it.third, isPlan = false, planId = null, afterIncome = false) }
+        val upcoming = listOf(cardBill) + entriesBetween(today, horizonTo).map { ForecastEvent(it.date, it.title, it.signedAmount, isPlan = false, planId = null, afterIncome = false) }
         val planEvents = plans.map { ForecastEvent(it.payDate, it.title, -it.amount, isPlan = true, planId = it.id, afterIncome = it.payDate.isAfter(horizonTo)) }
         val f = Forecast(
             currentBalance = balance,
@@ -211,16 +245,97 @@ class FakeForecastRepository @Inject constructor() : ForecastRepository {
     override suspend fun createItem(form: CashflowForm): ApiResult<Long> {
         delay(700)
         val body = form.toRequest()
-        fun invalid(field: String, reason: String) = ApiResult.Failure(
-            ApiError.InvalidRequest("INVALID_REQUEST", buildJsonObject { putJsonArray("fieldErrors") { addJsonObject { put("field", field); put("reason", reason) } } }),
-        )
         if (body.title == "INVALID") return invalid("title", "서버가 거절한 이름이에요(시험값)")
         val day = body.recurrence?.dayOfMonth
         if (day != null && day != form.date.dayOfMonth && form.date != YearMonth.from(form.date).atEndOfMonth()) {
             return invalid("recurrence.dayOfMonth", "매월 반복일은 첫 발생일의 날짜와 같아야 합니다(말일 시작이면 더 큰 날도 됩니다).")
         }
-        items += Item(body.title, if (form.isIncome) body.amount else -body.amount, form.date, form.repeat, day)
+        val id = nextId++
+        items += Item(id, form.isIncome, body.title, body.amount, form.date, form.repeat, day, form.effectiveEndDate, body.accountId, body.userCardId)
         if (body.title == "TIMEOUT") return ApiResult.Failure(ApiError.Network)
-        return ApiResult.Success(nextId++)
+        return ApiResult.Success(id)
+    }
+
+    private fun invalid(field: String, reason: String) = ApiResult.Failure(
+        ApiError.InvalidRequest("INVALID_REQUEST", buildJsonObject { putJsonArray("fieldErrors") { addJsonObject { put("field", field); put("reason", reason) } } }),
+    )
+
+    private var lastEntries: List<CashflowEntry> = emptyList()
+
+    override suspend fun cashflowEntries(from: LocalDate, to: LocalDate): ApiResult<List<CashflowEntry>> = withFault {
+        delay(400)
+        ApiResult.Success(entriesBetween(from, to).also { lastEntries = it })
+    }
+
+    override fun cachedEntry(itemId: Long, occurrenceDate: LocalDate): CashflowEntry? =
+        lastEntries.firstOrNull { it.itemId == itemId && it.occurrenceDate == occurrenceDate }
+
+    /**
+     * 수정 — 이번 회차만은 그 회차만 덮고, 이후 전부는 적용일부터 새 규칙(첫 회차면 제자리, 아니면 앞 규칙을 전날로 닫는다).
+     * 반복을 안 보내면 주기 · 종료일을 이어받고, 날짜만 옮긴 매월은 새 날짜가 기준일. 시험값: 이름 PAID는 결제된 회차(409)
+     */
+    override suspend fun updateItem(itemId: Long, body: CashflowUpdateRequest): ApiResult<Unit> {
+        delay(600)
+        val index = items.indexOfFirst { it.id == itemId }
+        if (index < 0) return ApiResult.Failure(ApiError.NotFound("RESOURCE_NOT_FOUND"))
+        val item = items[index]
+        if (body.title == "PAID") return ApiResult.Failure(ApiError.Conflict("PAID_OCCURRENCE_LOCKED"))
+        val occurrence = body.occurrenceDate?.let(LocalDate::parse)
+        val newDate = body.date?.let(LocalDate::parse)
+        if (newDate != null && newDate.isBefore(today)) return invalid("date", "오늘 이후 날짜만 고를 수 있어요")
+        if (body.scope == "THIS_ONLY" && item.repeat != CashflowRepeat.NONE) {
+            if (body.recurrence != null) return invalid("recurrence", "이번 회차만 고칠 때는 반복을 바꿀 수 없어요")
+            val key = itemId to (occurrence ?: return invalid("occurrenceDate", "고칠 회차가 필요해요"))
+            val prev = overrides[key]
+            overrides[key] = Override(body.title ?: prev?.title, body.amount ?: prev?.amount, newDate ?: prev?.date)
+            return ApiResult.Success(Unit)
+        }
+        val applied = occurrence ?: item.date
+        val start = newDate ?: applied
+        val r = body.recurrence
+        val repeat = when (r?.frequency) {
+            null -> item.repeat
+            "WEEKLY" -> CashflowRepeat.WEEKLY
+            "MONTHLY" -> CashflowRepeat.MONTHLY
+            else -> CashflowRepeat.NONE
+        }
+        val next = item.copy(
+            title = body.title ?: item.title,
+            amount = body.amount ?: item.amount,
+            date = start,
+            repeat = repeat,
+            dayOfMonth = when {
+                r != null -> r.dayOfMonth
+                newDate != null && repeat == CashflowRepeat.MONTHLY -> newDate.dayOfMonth
+                else -> item.dayOfMonth
+            },
+            endDate = if (r != null) r.endDate?.let(LocalDate::parse) else item.endDate,
+            accountId = body.accountId ?: if (body.userCardId != null) null else item.accountId,
+            userCardId = body.userCardId ?: if (body.accountId != null) null else item.userCardId,
+        )
+        val cutoff = minOf(applied, start)
+        overrides.keys.removeAll { it.first == itemId && !it.second.isBefore(cutoff) }   // 따로 고친 미래 회차는 새 규칙이 덮는다
+        excluded.removeAll { it.first == itemId && !it.second.isBefore(cutoff) }
+        if (!cutoff.isAfter(item.date)) {
+            items[index] = next                                                           // 제자리 수정
+        } else {
+            items[index] = item.copy(endDate = cutoff.minusDays(1))                       // 앞 규칙은 전날로 닫고
+            items += next.copy(id = nextId++)                                             // 새 규칙(응답 ID가 바뀜)
+        }
+        return ApiResult.Success(Unit)
+    }
+
+    /** 삭제 — 이번 회차만은 그 회차를 빼고, 전체는 오늘 이후를 없앤다(오늘 이후 시작이면 행째, 시작했으면 어제로 닫음) */
+    override suspend fun deleteItem(itemId: Long, scope: CashflowDeleteScope, occurrenceDate: LocalDate?): ApiResult<Unit> {
+        delay(500)
+        val index = items.indexOfFirst { it.id == itemId }
+        if (index < 0) return ApiResult.Failure(ApiError.NotFound("RESOURCE_NOT_FOUND"))
+        val item = items[index]
+        if (scope == CashflowDeleteScope.THIS_ONLY && item.repeat != CashflowRepeat.NONE) {
+            excluded += itemId to (occurrenceDate ?: return invalid("occurrenceDate", "지울 회차가 필요해요"))
+            return ApiResult.Success(Unit)
+        }
+        if (!item.date.isBefore(today)) items.removeAt(index) else items[index] = item.copy(endDate = today.minusDays(1))
+        return ApiResult.Success(Unit)
     }
 }
