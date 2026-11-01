@@ -193,16 +193,13 @@ public class ForecastService {
      */
     private static BalanceForecast.Summary summary(RiskDetector.Assessment aggregate,
             Iterable<RiskDetector.Assessment> accountAssessments, List<ForecastCalculator.BalancePoint> total) {
-        RiskDetector.Level status = aggregate.status();
         int atRisk = 0;
         for (RiskDetector.Assessment account : accountAssessments) {
             if (account.status() != RiskDetector.Level.SAFE) {
                 atRisk++;
             }
-            if (account.status().ordinal() > status.ordinal()) {
-                status = account.status();
-            }
         }
+        RiskDetector.Level status = RiskDetector.overall(aggregate, accountAssessments);
         return new BalanceForecast.Summary(status, aggregate.status(), aggregate.minBalance(),
                 aggregate.minBalanceDate(), aggregate.endBalance(), atRisk > 0, atRisk, largestOutflow(total));
     }
