@@ -260,6 +260,27 @@ class BarcodeServiceTest {
             return true;
         }
 
+        @Override
+        public synchronized boolean markUsed(Long paymentId) {
+            return settle(paymentId, BarcodeStatus.USED);
+        }
+
+        @Override
+        public synchronized boolean expireByPayment(Long paymentId) {
+            return settle(paymentId, BarcodeStatus.EXPIRED);
+        }
+
+        private boolean settle(Long paymentId, BarcodeStatus status) {
+            for (Barcode barcode : barcodes.values()) {
+                if (barcode.status() == BarcodeStatus.SCANNED && paymentId.equals(barcode.paymentId())) {
+                    barcodes.put(barcode.token(), new Barcode(barcode.token(), barcode.userId(), status,
+                            barcode.issuedAt(), barcode.expiresAt(), paymentId));
+                    return true;
+                }
+            }
+            return false;
+        }
+
         int size() {
             return barcodes.size();
         }

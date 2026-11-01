@@ -31,6 +31,17 @@ public interface BarcodeStore {
      */
     boolean revertScan(String token, Long paymentId);
 
+    /**
+     * 결제가 승인됐다. 그 결제 번호로 SCANNED인 바코드만 USED로 바꾼다(명세 「결제 상태·예외 처리」 4-1).
+     * 토큰은 스캔 때 남긴 결제 번호 역색인으로 찾는다.
+     *
+     * @return 바꿨으면 true. 보관이 끝나 없거나 다른 상태·다른 결제면 false
+     */
+    boolean markUsed(Long paymentId);
+
+    /** 결제가 확정 시간 안에 승인되지 않아 EXPIRED가 됐다. 그 결제 번호로 SCANNED인 바코드만 EXPIRED로 바꾼다. */
+    boolean expireByPayment(Long paymentId);
+
     enum ScanResult {
         SCANNED,
         /** 없는 토큰(보관 종료 포함) */
