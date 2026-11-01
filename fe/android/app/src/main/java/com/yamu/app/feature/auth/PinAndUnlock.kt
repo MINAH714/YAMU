@@ -56,6 +56,9 @@ import com.yamu.app.feature.auth.data.AuthRepository
 import com.yamu.app.feature.auth.data.AuthValidation
 import com.yamu.app.feature.auth.data.StepUpChallenge
 import com.yamu.app.feature.auth.data.DEVICE_NOT_REGISTERED
+import com.yamu.app.feature.auth.data.SIGNUP_TOKEN_INVALID
+import com.yamu.app.feature.auth.data.SignupMode
+import com.yamu.app.feature.auth.data.SignupRepository
 import com.yamu.app.feature.auth.data.authErrorMessage
 import com.yamu.app.feature.auth.data.lockedUntilClock
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -88,11 +91,18 @@ data class PinSetupState(
     val error: String? = null,
     val busy: Boolean = false,
     val shuffleKey: Int = 0,
+    /** 기기 재등록 중 새 비밀번호 — 서버가 맡아 뒀다가 1원 숫자로 이 폰을 등록할 때 바꾼다 */
+    val recovery: Boolean = false,
+    val restart: Boolean = false,               // 가입 진행 토큰 만료 → 본인인증부터
 )
 
+/** 가입(가입 진행 토큰): 비밀번호 저장 → 지문 묻기 → 기기 등록(토큰 발급). 재등록: 새 비밀번호를 맡겨 두고 계좌 고르기로 */
 @HiltViewModel
-class PinSetupViewModel @Inject constructor(private val auth: AuthRepository) : ViewModel() {
-    private val _state = MutableStateFlow(PinSetupState())
+class PinSetupViewModel @Inject constructor(
+    private val auth: AuthRepository,
+    private val signup: SignupRepository,
+) : ViewModel() {
+    private val _state = MutableStateFlow(PinSetupState(recovery = signup.mode == SignupMode.DEVICE_RECOVERY))
     val state: StateFlow<PinSetupState> = _state.asStateFlow()
     private var first: String = ""
 
@@ -116,14 +126,18 @@ class PinSetupViewModel @Inject constructor(private val auth: AuthRepository) : 
                 if (pin != first) return reset("처음 입력과 달라요. 처음부터 다시 만들어 주세요", PinSetupStep.First)
                 viewModelScope.launch {
                     _state.update { it.copy(busy = true) }
-                    when (val r = auth.setPin(pin)) {
-                        is ApiResult.Success -> if (auth.canUseBiometric()) {
-                            _state.update { it.copy(busy = false, input = "", step = PinSetupStep.Biometric) }
-                        } else {
-                            _state.update { it.copy(busy = false, input = "", step = PinSetupStep.Device) }
-                            register(biometric = false)
+                    when (val r = signup.setPin(pin)) {
+                        is ApiResult.Success -> when {
+                            _state.value.recovery -> _state.update { it.copy(busy = false, input = "", step = PinSetupStep.Done) }
+                            auth.canUseBiometric() -> _state.update { it.copy(busy = false, input = "", step = PinSetupStep.Biometric) }
+                            else -> {
+                                _state.update { it.copy(busy = false, input = "", step = PinSetupStep.Device) }
+                                register(biometric = false)
+                            }
                         }
-                        is ApiResult.Failure -> reset(r.error.authMessage(), PinSetupStep.First)
+                        is ApiResult.Failure ->
+                            if (r.error.code == SIGNUP_TOKEN_INVALID) _state.update { it.copy(busy = false, restart = true) }
+                            else reset(r.error.signupMessage(), PinSetupStep.First)
                     }
                 }
             }
@@ -133,7 +147,7 @@ class PinSetupViewModel @Inject constructor(private val auth: AuthRepository) : 
 
     private fun reset(message: String, step: PinSetupStep) {
         first = ""
-        _state.update { PinSetupState(step = step, error = message, shuffleKey = it.shuffleKey + 1) }
+        _state.update { PinSetupState(step = step, error = message, shuffleKey = it.shuffleKey + 1, recovery = it.recovery) }
     }
 
     fun enableBiometric() = register(biometric = true)
@@ -143,23 +157,43 @@ class PinSetupViewModel @Inject constructor(private val auth: AuthRepository) : 
 
     fun retryDevice() = register(biometric = false)
 
-    /** 가입 마지막 단계 — 성공해야 끝. 실패하면 이 단계에 남아 다시 시도(PIN은 이미 저장됨) */
+    /**
+     * 가입 마지막 단계 — 성공해야 끝(토큰 발급). 실패하면 이 단계에 남아 다시 시도(PIN은 이미 저장됨).
+     * 응답을 못 받았는데 서버에서는 등록됐다면 다시 눌렀을 때 토큰 만료(SIGNUP_TOKEN_INVALID) → 본인인증부터 다시 하면 재등록으로 이어진다
+     */
     private fun register(biometric: Boolean) {
         if (_state.value.busy) return   // 연타
         viewModelScope.launch {
             _state.update { it.copy(busy = true, error = null) }
-            when (val r = auth.registerDevice(biometric)) {
+            when (val r = signup.registerDevice(biometric)) {
                 is ApiResult.Success -> _state.update { it.copy(busy = false, step = PinSetupStep.Done) }
-                is ApiResult.Failure -> _state.update { it.copy(busy = false, error = r.error.authMessage()) }
+                is ApiResult.Failure ->
+                    if (r.error.code == SIGNUP_TOKEN_INVALID) _state.update { it.copy(busy = false, restart = true) }
+                    else _state.update { it.copy(busy = false, error = r.error.signupMessage()) }
             }
         }
     }
+
+    fun restarted() = _state.update { it.copy(restart = false) }
 }
 
+/** [onFinished] 가입 끝(토큰 받음) · [onRecoveryPinSet] 재등록 새 비밀번호를 맡겨 둠 → 계좌 고르기 · [onRestart] 본인인증부터 */
 @Composable
-fun PinSetupRoute(onBack: () -> Unit, onFinished: () -> Unit, viewModel: PinSetupViewModel = hiltViewModel()) {
+fun PinSetupRoute(
+    onBack: () -> Unit,
+    onFinished: () -> Unit,
+    onRecoveryPinSet: () -> Unit,
+    onRestart: () -> Unit,
+    viewModel: PinSetupViewModel = hiltViewModel(),
+) {
     val s by viewModel.state.collectAsStateWithLifecycle()
-    LaunchedEffect(s.step) { if (s.step == PinSetupStep.Done) onFinished() }
+    LaunchedEffect(s.step) { if (s.step == PinSetupStep.Done) if (s.recovery) onRecoveryPinSet() else onFinished() }
+    LaunchedEffect(s.restart) {
+        if (s.restart) {
+            onRestart()
+            viewModel.restarted()
+        }
+    }
     SecureScreen()
     val c = YamuTheme.colors
     if (s.step == PinSetupStep.Biometric) {
@@ -191,8 +225,8 @@ fun PinSetupRoute(onBack: () -> Unit, onFinished: () -> Unit, viewModel: PinSetu
     Scaffold(
         topBar = {
             Column(Modifier.background(c.surface)) {
-                YamuTopBar("회원가입", onBack = onBack)
-                StartStepper(step = 3, total = 3, label = "간편 비밀번호")
+                YamuTopBar(if (s.recovery) "이 폰 등록" else "회원가입", onBack = onBack)
+                if (!s.recovery) StartStepper(step = 3, total = 3, label = "간편 비밀번호")
             }
         },
         bottomBar = { NumberKeypad(KeypadMode.Pin, onKey = viewModel::onKey, shuffleKey = s.shuffleKey, background = c.background, topDivider = true) },
@@ -200,8 +234,12 @@ fun PinSetupRoute(onBack: () -> Unit, onFinished: () -> Unit, viewModel: PinSetu
     ) { inner ->
         PinBody(
             inner = inner,
-            title = if (s.step == PinSetupStep.First) "간편 비밀번호 6자리를\n만들어 주세요" else "한 번 더 입력해 주세요",
-            sub = "앱을 열 때 써요",
+            title = when {
+                s.step != PinSetupStep.First -> "한 번 더 입력해 주세요"
+                s.recovery -> "새 간편 비밀번호 6자리를\n만들어 주세요"
+                else -> "간편 비밀번호 6자리를\n만들어 주세요"
+            },
+            sub = if (s.recovery) "이 폰을 등록하면 새 비밀번호로 바뀌어요" else "앱을 열 때 써요",
             filled = s.input.length,
             error = s.error,
             alignStart = true,

@@ -19,7 +19,10 @@ import kotlinx.serialization.Serializable
 @Serializable data object Welcome            // A-01
 @Serializable data object Login              // A-03 · A-03b PIN · 지문 로그인(앱을 열 때)
 @Serializable data object Terms              // A-04
-@Serializable data object IdentityVerify     // A-05
+@Serializable data object IdentityVerify     // A-05 휴대폰 본인인증(가입 · 첫 화면 로그인 둘 다)
+@Serializable data object SignupAccounts     // A-05b 계좌 고르기(재등록은 연결된 계좌 하나)
+@Serializable data object SignupOneWon       // A-05c 1원 인증
+@Serializable data object RecoveryIntro      // A-08 이 폰 등록(이미 가입한 사람)
 @Serializable data object PinSetup           // A-06
 @Serializable data object SignupDone         // A-07
 

@@ -3,6 +3,8 @@ package com.yamu.app.data
 import com.yamu.app.core.network.ApiFeature
 import com.yamu.app.feature.auth.data.AuthRepository
 import com.yamu.app.feature.auth.data.AuthRepositoryImpl
+import com.yamu.app.feature.auth.data.SignupRepository
+import com.yamu.app.feature.auth.data.SignupRepositoryImpl
 import com.yamu.app.feature.forecast.data.ForecastRepository
 import com.yamu.app.feature.forecast.data.ForecastRepositoryImpl
 import com.yamu.app.feature.home.data.HomeRepository
@@ -41,6 +43,11 @@ object DataModule {
     @Provides
     @Singleton
     fun authRepository(real: Provider<AuthRepositoryImpl>, fake: Provider<FakeAuthRepository>): AuthRepository =
+        if (ApiFeature.AUTH.isReal) real.get() else fake.get()
+
+    @Provides
+    @Singleton
+    fun signupRepository(real: Provider<SignupRepositoryImpl>, fake: Provider<FakeSignupRepository>): SignupRepository =
         if (ApiFeature.AUTH.isReal) real.get() else fake.get()
 
     @Provides

@@ -4,16 +4,6 @@ import kotlinx.serialization.Serializable
 
 // ── 서버 요청 · 응답(API 명세 V2 「인증」 — BE auth/dto와 같은 이름) ──
 
-/** 이메일 가입 — 가짜 가입 화면에서만. Task 8.2.9에서 휴대폰 본인인증으로 바뀐다 */
-@Serializable data class SignupRequest(val email: String, val password: String, val name: String)
-
-@Serializable data class SignupResponse(
-    val userId: Long? = null,
-    val email: String? = null,
-    val name: String? = null,
-    val nextSteps: List<String> = emptyList(),
-)
-
 /** 로그인 준비 — 기기 번호로 60초짜리 일회용 challenge를 받는다 */
 @Serializable data class LoginChallengeRequest(val userDeviceId: Long)
 
@@ -49,7 +39,8 @@ import kotlinx.serialization.Serializable
 
 /**
  * 기기 등록. 공개키는 EC P-256 X.509 DER의 표준 Base64. 지문 키를 빼고 보내면 지문은 꺼진다.
- * platform은 기본값을 두지 않는다 — YamuJson은 기본값을 보내지 않아서(encodeDefaults=false) 빠지면 400
+ * platform은 기본값을 두지 않는다 — YamuJson은 기본값을 보내지 않아서(encodeDefaults=false) 빠지면 400.
+ * verificationToken · authCode는 기기 재등록(DEVICE_RECOVERY)만 — 1원 인증 결과
  */
 @Serializable data class DeviceRequest(
     val deviceId: String,
@@ -58,6 +49,8 @@ import kotlinx.serialization.Serializable
     val devicePublicKey: String,
     val biometricPublicKey: String? = null,
     val biometricTypes: List<String>? = null,
+    val verificationToken: String? = null,
+    val authCode: String? = null,
 )
 
 /** 토큰은 가입 · 기기 재등록 중(가입 진행 토큰)에 불렀을 때만 온다 */
