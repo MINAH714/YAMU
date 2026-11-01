@@ -40,7 +40,7 @@
 ### 기간
 - 시작은 한국 날짜 오늘(주입한 `Clock` + `Asia/Seoul`), 끝은 시작 + 일수(끝 날 포함)입니다.
 - `until=DAYS`면 `days`는 7·14·30입니다.
-- `until=NEXT_INCOME`(기본)은 다음 수입일을 정할 잔고예보 설정 API가 아직 없어, 명세의 대체 규칙대로 30일로 계산합니다. 응답의 `horizon.type`은 실제로 계산한 `DAYS`입니다.
+- `until=NEXT_INCOME`(기본)은 월급 항목을 잔고예보 설정(아래 「잔고예보 설정」)에 저장할 수 있지만 아직 예보 계산에 연결하지 않아, 명세의 대체 규칙대로 30일로 계산합니다. 응답의 `horizon.type`은 실제로 계산한 `DAYS`입니다.
 
 ### 선
 - `confirmed`(확정 선): 확정 입출금만 더합니다.
@@ -123,7 +123,7 @@ BE 2가 확인한 상태별 규칙입니다(2026-10-30, !45 리뷰). 금액은 �
 
 ## 위험 판단 (7.1.5)
 
-- **안전 잔액**(`alertThreshold`): 명세의 현행 가정 100,000원을 생성자 인자로 받습니다(설정값·잔고예보 설정 API는 후속).
+- **안전 잔액**(`alertThreshold`): 명세의 현행 가정 100,000원을 생성자 인자로 받습니다. 사용자가 바꾼 값은 잔고예보 설정에 저장되지만, 예보 계산에서 읽는 것은 잔고예보 API(컨트롤러) MR에서 연결합니다.
 - **날마다 위험 수준**(선 기준): 그날 안전 잔액 **미만**인 가장 확실한 선(확정 > 예상 > 보수적)을 찾습니다. 확정 선이면 DANGER, 예상·보수적 선이면 WARNING, 미만인 선이 없으면 SAFE. 안전 잔액과 같은 금액은 SAFE입니다(FR-043 "임계값 아래").
 - **위험 구간**(`riskWindows`): 그 선이 같은 날짜가 이어지면 한 구간입니다. 위험 수준이나 **선이 바뀌면** 구간을 나눕니다. 그래서 예상 선 미달이 이어지다 생활비 때문에만 미달인 날로 넘어가면, 같은 WARNING이라도 구간이 둘로 나뉩니다. 구간마다 부족액·최저일·원인이 한 선 기준으로 맞습니다.
   - `line`: 구간의 선(확정·예상·보수적).
@@ -159,8 +159,44 @@ BE 2가 확인한 상태별 규칙입니다(2026-10-30, !45 리뷰). 금액은 �
 
 - 잔액을 읽지 않으므로 계좌마다 `AccountQueryService.requireConnectedAccount`로 소유·연결을 확인합니다(남의·해제 계좌 404, 원천을 읽기 전).
 - 기간(`period`)은 잔고예보 기본 기간(30일, `basis=DAYS`)입니다.
-- `sources`는 평균에 쓴 달별 합계(계좌 합), `excluded`는 생활비에서 빼는 소비 종류 안내 3종(RECURRING·CREDIT_PAYMENT·UNCLASSIFIED), `dailyTarget`은 잔고예보 설정 API가 없어 null입니다.
+- `sources`는 평균에 쓴 달별 합계(계좌 합), `excluded`는 생활비에서 빼는 소비 종류 안내 3종(RECURRING·CREDIT_PAYMENT·UNCLASSIFIED), `dailyTarget`은 잔고예보 설정의 하루 목표를 아직 연결하지 않아 null입니다.
 - 선택한 **어느 계좌에도** 생활비 자료가 없으면 0원으로 확정하지 않고 422 `DATA_INSUFFICIENT`입니다. 일부 계좌만 없으면 200이고, 통합 평균은 null(INSUFFICIENT), 계좌별 값은 `accountLivingCosts`(자세히 보기)에서 보입니다.
+
+## 잔고예보 설정 (`ForecastSettingsService`, 7.1.7)
+
+`GET`·`PATCH /api/forecasts/settings`(명세 「잔고예보 설정 조회」「수정」, FR-041). 수정 응답은 조회와 같은 모양입니다.
+
+**저장**
+- `app_user.forecast_settings` JSON 칸만 잔고예보 패키지에서 SQL로 읽고 씁니다(`ForecastSettingsStore`). 이 칸은 잔고예보만 써서 `AppUser` 엔티티에 매핑하지 않았고, JPA는 매핑된 칸만 UPDATE하므로 다른 기능이 사용자 행을 저장해도 덮이지 않습니다.
+- 키: `horizon`·`defaultDays`·`alertThreshold`·`incomeCashflowItemId`·`dailyLivingCostTarget`·`includeCandidates`·`conservativeLine`·`updatedAt`. **기준 계좌는 저장하지 않습니다**(아래).
+- 칸이 NULL이거나 키가 없으면 명세 기본값입니다: NEXT_INCOME, 30일, 안전 잔액 100,000원, 월급·하루 목표 없음, 두 표시 옵션 true, `updatedAt` null.
+- DB 값도 믿지 않습니다. 읽을 수 없거나 범위 밖인 값은 기본값으로 덮지 않고 500입니다. 메시지에는 사용자 번호만 넣고 저장값은 넣지 않습니다.
+
+**기준 계좌 (`baseAccountId`·`baseAccount`)**
+- `linked_account.is_primary`(BE 1) 하나만 원본입니다. 설정은 그 값을 읽어 보여 주기만 하고(연결된 계좌만), 바꾸는 것은 계좌 정보 수정 API(`PATCH /api/accounts/{id}`의 `isPrimary`)입니다. 두 곳에 저장하면 서로 어긋날 수 있어서입니다.
+- PATCH에 `baseAccountId`를 보내면 400 필드 오류입니다.
+
+**월급 (`income`)**
+- 저장한 항목에서 "이후 전부" 수정으로 이어진(`previous_cashflow_item_id`) 가장 최근 규칙까지 따라가 보여 줍니다. 월급을 고쳐도 다시 지정할 필요가 없습니다.
+- 월급으로 쓸 수 있는 항목: 내 항목, INCOME, 매월 반복, CONFIRMED, 일반 예정 항목(SCHEDULED), **종료일이 없거나 한국 날짜 오늘 이후**.
+  - 가계부 전체 삭제는 시작한 규칙을 지우지 않고 어제로 닫으므로, 종료일이 지난 규칙은 앞으로 받을 월급이 없는 것으로 봅니다.
+  - 조회 때 조건을 벗어나면(삭제·종료 포함) `income`은 null이고 저장한 ID는 그대로 둡니다. 예보는 그때 30일로 대체합니다.
+- `dayOfMonth`는 매월 기준일(`recurrence_day_of_month`), 없으면 첫 발생일의 날짜입니다. `holidayRule`은 가계부에 휴일 규칙이 없어 응답에 없습니다.
+
+**수정 (보낸 필드만 바꿈)**
+| 필드 | 규칙 |
+|---|---|
+| `horizon` | `NEXT_INCOME`·`DAYS` |
+| `defaultDays` | 7·14·30 |
+| `alertThreshold` | 0 이상 2,147,483,647 이하 정수(명세 타입 int). null 거절 |
+| `incomeCashflowItemId` | null이면 해제. 월급으로 쓸 수 없는 항목은 400, 없거나 남의 항목은 404 |
+| `dailyLivingCostTarget` | null이면 해제. 1 이상 2,147,483,647 이하 정수 |
+| `includeCandidates`·`conservativeLine` | true·false. null 거절 |
+| `baseAccountId`, 모르는 필드, 빈 본문, 소수·문자열 숫자 | 400 `INVALID_REQUEST` + `fieldErrors`(틀린 필드를 한 번에) |
+
+- 보내지 않은 필드와 null을 구분하려고 본문을 JSON 트리(`JsonNode`)로 받습니다.
+- 같은 사용자의 수정은 한 트랜잭션에서 사용자 행을 `FOR UPDATE`로 잠그고 읽기 → 합치기 → 쓰기를 하므로, 다른 필드를 동시에 고쳐도 둘 다 남습니다. 저장할 때마다 `updatedAt`(UTC)을 바꿉니다.
+- **아직 예보·생활비 계산은 이 설정을 읽지 않습니다.** 안전 잔액, NEXT_INCOME의 다음 월급일, 기본 일수, 하루 목표의 연결은 잔고예보 API(컨트롤러) MR의 필수 범위이고, 그 전에는 Task 7.1.7을 완료하지 않습니다. `includeCandidates`(반복 지출 후보 기능 없음)·`conservativeLine`은 저장만 합니다.
 
 ## 에러
 
@@ -215,7 +251,7 @@ BE 2가 확인한 상태별 규칙입니다(2026-10-30, !45 리뷰). 금액은 �
 |---|---|
 | `beyondHorizon`(기간 밖 청구 미리보기) | 없음 |
 | `series`는 입출금이 있는 날 | 기간의 모든 날짜 |
-| `until=NEXT_INCOME`: 다음 지정 수입일 전날까지 | 설정 API가 없어 30일, `horizon.type=DAYS` |
+| `until=NEXT_INCOME`: 다음 지정 수입일 전날까지 | 설정의 월급을 아직 연결하지 않아 30일, `horizon.type=DAYS` |
 | 계좌 정보 `bankName`·`maskedAccountNo` | 없음(`accountId`·`balance`·`syncedAt`만) |
 | 계좌별 `series`에 입출금 목록 없음 | 통합 선과 같은 모양이라 `events` 포함 |
 | 위험 원인에 추정 생활비 없음 | `LIVING_COST_ESTIMATE` 원인 추가 |
@@ -226,12 +262,23 @@ BE 2가 확인한 상태별 규칙입니다(2026-10-30, !45 리뷰). 금액은 �
 | 명세 V2 「생활비 예측 상세」 | 구현 |
 |---|---|
 | `dataOrigin` 자료 부족 시 INSUFFICIENT "제안" | INSUFFICIENT로 확정 |
-| `dailyTarget`(설정의 하루 목표) | null(잔고예보 설정 API 없음) |
+| `dailyTarget`(설정의 하루 목표) | null(설정을 아직 연결하지 않음) |
 | 요청에 기간 없음, 응답에 `period` | 잔고예보 기본 기간(30일, `basis=DAYS`) |
+
+「잔고예보 설정 조회」「수정」은 아래 차이를 노션 명세에 반영합니다(2026-11-01 결정). 새 오류 코드는 공통 응답 담당과 합의 중입니다.
+
+| 명세 V2 (수정 전) | 구현 |
+|---|---|
+| PATCH `baseAccountId`로 기준 계좌 변경 | 조회 전용. 보내면 400. 변경은 계좌 정보 수정 API |
+| 400 `VALIDATION_ERROR`, `ACCOUNT_NOT_LINKED`, `INVALID_INCOME_ITEM` | 400 `INVALID_REQUEST` + `fieldErrors`, 없거나 남의 월급 항목은 404 `RESOURCE_NOT_FOUND` |
+| `income.holidayRule` | 없음(가계부에 휴일 규칙 없음) |
+| 금액 범위 미정 | int 범위, 안전 잔액 0 이상·하루 목표 1 이상 |
+| 저장 키에 `baseAccountId`([schema/implementation.md](schema/implementation.md) 37행) | 저장하지 않음(`is_primary`만 원본). 스키마 문서는 담당자 확인 후 고침 |
 
 ## 미완료·한계
 
 - **API 없음**: 원천 구현 전이라 컨트롤러가 없고 `ForecastService`는 빈이 아닙니다. 앱에서 호출해 확인하지 못했습니다. 안전 잔액도 설정값이 아니라 생성자 인자입니다.
+- **설정 미연결 (7.1.7)**: 잔고예보 설정 API는 있지만 예보·생활비 계산이 아직 읽지 않습니다. 잔고예보 컨트롤러 MR에서 안전 잔액·다음 월급일·기본 일수·하루 목표를 연결합니다.
 - **생활비 원천 미구현 (7.1.5 후속)**: `LivingCostReader` 구현, 체크카드 결제와 계좌 출금의 중복 제거, 소비 분류(LIVING) 판정, 데이터 완전성(`complete`) 판정이 모두 없습니다. BE 1(계좌 거래내역)·BE 2(결제) 원천과 함께 후속 MR에서 만듭니다. 그때까지 7.1.5는 완료가 아닙니다.
 - **생활비 예측 상세 API·잔고예보 조회 API**: 컨트롤러는 원천 연결과 함께 후속 MR입니다.
 - **잔액 부족 알림(FR-043)**: 위험을 판단만 하고 알림은 만들지 않습니다.
@@ -255,6 +302,8 @@ BE 2가 확인한 상태별 규칙입니다(2026-10-30, !45 리뷰). 금액은 �
 | `RiskDetectorTest` | 9 | SAFE(기준과 같은 금액 포함), DANGER(확정 선·부족액·원인, 예상 출금은 원인에서 뺌), WARNING(예상 선, 생활비 원인 없음), 생활비 때문에만 위험(보수적 선·`LIVING_COST_ESTIMATE`), WARNING→DANGER→WARNING 구간 분리, 예상 선 → 보수적 선 구간 분리와 원인 맞춤, 보수적 선 없을 때, 최저 날 동점 |
 | `ForecastServiceTest` | 23 | 위의 7.1.4 경우들(출금일 지난 확정 청구는 오늘, 미납은 `excluded`, 지난 진행 중 청구 거절 포함), 명세 예시(통합 SAFE·B DANGER·최종 DANGER·위험 계좌 1·통합 보수적 430,000원·B −120,000원), 생활비 자료 없음, 생활비 원천 실패 전파, 한국 날짜 월 경계(UTC 10/31 15:30 → 8~11월), 생활비 상세(소유 확인·근거·계좌별, 422, 404) |
 | `CashflowServiceTest` | +1 | 결제 연결 회차만 `paid` |
+| `ForecastSettingsServiceTest` | 9 | 실제 MySQL. 기본값·기준 계좌 표시(없으면 null), 보낸 필드만 수정·null 해제·기준 계좌 미저장, 이후 전부 수정 뒤 최신 월급 규칙, 시작 전 규칙 삭제·시작한 규칙 전체 삭제(어제로 닫힘) 뒤 월급 null과 재지정 400, 지출·1회 400, 남의·없는 항목 404, 동시 수정 두 필드 모두 유지, 잘못된 저장값 500(값 미노출) |
+| `ForecastSettingsControllerTest` | 5 | 401, 명세 이름의 기본값 응답·수정 뒤 `updatedAt` Z, 틀린 필드 한 번에 400(`baseAccountId`·모르는 필드 포함), 문자열 숫자·int 초과·null 안전 잔액·0원 목표 400과 int 최댓값 허용, 빈 본문·배열·깨진 JSON 400 |
 
 - 원천은 모두 가짜 구현(람다)과 Mockito로 대신했습니다. 실제 MySQL·금융망 테스트는 없습니다.
-- `.\gradlew.bat cleanTest test` 전체 345개 통과(실패 0, 건너뜀 0). develop에 시간대 수정(S15P31E103-179)이 머지돼 KST PC 기본 설정으로 돌렸습니다.
+- `.\gradlew.bat cleanTest test` 전체 544개 통과(실패 0, 건너뜀 0, 2026-11-01 잔고예보 설정 브랜치).
