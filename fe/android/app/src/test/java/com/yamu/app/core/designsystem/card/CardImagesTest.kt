@@ -8,22 +8,26 @@ import org.junit.Test
 class CardImagesTest {
 
     @Test
-    fun `공식 상품명 10개가 각자 그림을 찾는다`() {
+    fun `공식 상품명 7개가 각자 그림을 찾는다`() {
         val expected = mapOf(
             "현대카드ZERO Edition3(포인트형)" to R.drawable.card_hyundai_mzroe3,
-            "신한카드 Point Plan" to R.drawable.card_shinhan_pointplan,
             "삼성 iD ON 카드" to R.drawable.card_samsung_id_on,
-            "신한카드 Deep Oil" to R.drawable.card_shinhan_biabix,
             "KB국민 청춘대로 톡톡카드" to R.drawable.card_kb_toktok,
             "KB국민 노리2 체크카드(KB Pay)" to R.drawable.card_kb_07964,
-            "하나카드 원더카드 2.0 DAILY" to R.drawable.card_hana_wonder2_daily,
             "하나카드 트래블로그 체크카드" to R.drawable.card_hana_travelog_check,
             "LOCA LIKIT Play" to R.drawable.card_lotte_p13949_a13949,
             "LOCA LIKIT Shop" to R.drawable.card_lotte_p13955_a13955,
         )
         expected.forEach { (name, res) -> assertEquals(name, res, CardImages.forProduct(name)) }
-        assertEquals(10, CardImages.all.size)
+        assertEquals(7, CardImages.all.size)
         assertEquals(expected.values.toSet(), CardImages.all.toSet())
+    }
+
+    @Test
+    fun `시드 적재가 보류된 상품은 그림이 없다`() {
+        assertNull(CardImages.forProduct("신한카드 Point Plan"))
+        assertNull(CardImages.forProduct("신한카드 Deep Oil"))
+        assertNull(CardImages.forProduct("하나카드 원더카드 2.0 DAILY"))
     }
 
     @Test
@@ -33,9 +37,7 @@ class CardImagesTest {
         assertEquals(R.drawable.card_hyundai_mzroe3, CardImages.forProduct("현대카드 ZERO Edition3 포인트형"))
         assertEquals(R.drawable.card_samsung_id_on, CardImages.forProduct("삼성카드 iD ON"))
         assertEquals(R.drawable.card_samsung_id_on, CardImages.forProduct("iD ON"))
-        assertEquals(R.drawable.card_shinhan_pointplan, CardImages.forProduct("Point Plan"))
-        assertEquals(R.drawable.card_shinhan_biabix, CardImages.forProduct("  신한카드  deep oil "))
-        assertEquals(R.drawable.card_hana_wonder2_daily, CardImages.forProduct("원더카드 2.0 DAILY"))
+        assertEquals(R.drawable.card_kb_toktok, CardImages.forProduct("  KB국민카드  청춘대로 톡톡 "))
         assertEquals(R.drawable.card_hana_travelog_check, CardImages.forProduct("하나 트래블로그 체크카드"))
         assertEquals(R.drawable.card_kb_toktok, CardImages.forProduct("청춘대로 톡톡"))
         assertEquals(R.drawable.card_lotte_p13955_a13955, CardImages.forProduct("롯데카드 LOCA LIKIT Shop"))

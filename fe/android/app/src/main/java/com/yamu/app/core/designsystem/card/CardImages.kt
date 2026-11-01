@@ -10,15 +10,15 @@ import com.yamu.app.R
  * 리소스 줄이기(release) 때문에 R.drawable을 여기에 직접 적는다 — getIdentifier로 이름을 조합하면 그림이 빠진다.
  */
 object CardImages {
-    /** 상품명 → 그림. 이름은 카드사 공식 이름(cards.csv product_name) — 시드 이름이 다르게 정해지면 줄을 더한다(별칭) */
+    /**
+     * 상품명 → 그림. 이름은 카드사 공식 이름(cards.csv product_name) — 시드 이름이 다르게 정해지면 줄을 더한다(별칭).
+     * BE 카드 시드에 있는 상품만 둔다 — 적재가 보류된 Point Plan · Deep Oil · 원더카드 2.0 DAILY는 그림도 뺐다
+     */
     private val products: List<Pair<String, Int>> = listOf(
         "현대카드ZERO Edition3(포인트형)" to R.drawable.card_hyundai_mzroe3,
-        "신한카드 Point Plan" to R.drawable.card_shinhan_pointplan,
         "삼성 iD ON 카드" to R.drawable.card_samsung_id_on,
-        "신한카드 Deep Oil" to R.drawable.card_shinhan_biabix,
         "KB국민 청춘대로 톡톡카드" to R.drawable.card_kb_toktok,
         "KB국민 노리2 체크카드(KB Pay)" to R.drawable.card_kb_07964,
-        "하나카드 원더카드 2.0 DAILY" to R.drawable.card_hana_wonder2_daily,
         "하나카드 트래블로그 체크카드" to R.drawable.card_hana_travelog_check,
         "LOCA LIKIT Play" to R.drawable.card_lotte_p13949_a13949,
         "LOCA LIKIT Shop" to R.drawable.card_lotte_p13955_a13955,

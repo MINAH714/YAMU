@@ -193,10 +193,10 @@ private fun GallerySections() {
         // 카드 모양 — 그림 없음(카드사 색) · 상품 그림 있음
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             CardArt(Issuer.SHINHAN, "신한 생활 신용카드", "1021", Modifier.weight(1f))
-            CardArt(Issuer.SHINHAN, "신한카드 Point Plan", "1021", Modifier.weight(1f), image = CardImages.forProduct("신한카드 Point Plan"))
+            CardArt(Issuer.KB, "KB국민 청춘대로 톡톡카드", "1021", Modifier.weight(1f), image = CardImages.forProduct("KB국민 청춘대로 톡톡카드"))
         }
         Spacer(Modifier.height(8.dp))
-        // 작은 카드 그림 — 그림 10장 + 그림이 없을 때(카드사 칩)
+        // 작은 카드 그림 — 그림 7장 + 그림이 없을 때(카드사 칩)
         (CardImages.all + null).chunked(4).forEach { row ->
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 row.forEach { image -> CardThumb(image) { IssuerChip(Issuer.WOORI, large = true) } }
