@@ -173,6 +173,16 @@ class CashflowEventsTest {
     }
 
     @Test
+    void 선택하지_않은_계좌의_정지_카드_항목은_알리지_않는다() {
+        // B만 예보할 때 A 계좌에 연결된 정지 카드의 예정 지출은 이 예보와 관계없다.
+        CashflowEvents.Converted result = convert(Set.of(B),
+                entry(1L, null, SUSPENDED_ON_A, CashflowItem.Direction.EXPENSE, 9_000L, TODAY.plusDays(2)));
+
+        assertThat(result.events()).isEmpty();
+        assertThat(result.excluded()).isEmpty();
+    }
+
+    @Test
     void 추천에서만_뺀_INACTIVE_카드의_예정_지출은_그대로_뺀다() {
         CashflowEvents.Converted result = convert(Set.of(A),
                 entry(1L, null, INACTIVE_ON_A, CashflowItem.Direction.EXPENSE, 9_000L, TODAY.plusDays(2)));

@@ -57,16 +57,20 @@ final class CashflowEvents {
                     excluded.add(ExcludedItem.of(entry, ExcludedItem.Reason.CARD_UNAVAILABLE));
                     continue;
                 }
-                // 정상(NORMAL)이 아닌 상태는 모르는 값이어도 쓸 수 있는 카드로 보지 않는다.
-                if (card.get().issuerStatus() != CardIssuerStatus.NORMAL) {
-                    excluded.add(ExcludedItem.of(entry, ExcludedItem.Reason.CARD_SUSPENDED_OR_EXPIRED));
-                    continue;
-                }
                 if (card.get().linkedAccountId() == null) {
                     excluded.add(ExcludedItem.of(entry, ExcludedItem.Reason.NO_WITHDRAWAL_ACCOUNT));
                     continue;
                 }
                 accountId = card.get().linkedAccountId();
+                // 선택하지 않은 계좌의 카드는 정지 여부와 상관없이 이 예보의 범위가 아니라 알리지 않는다.
+                if (!selectedAccounts.contains(accountId)) {
+                    continue;
+                }
+                // 정상(NORMAL)이 아닌 상태는 모르는 값이어도 쓸 수 있는 카드로 보지 않는다.
+                if (card.get().issuerStatus() != CardIssuerStatus.NORMAL) {
+                    excluded.add(ExcludedItem.of(entry, ExcludedItem.Reason.CARD_SUSPENDED_OR_EXPIRED));
+                    continue;
+                }
                 date = card.get().cardType() == CardType.CREDIT
                         ? creditSchedule.withdrawalDate(card.get(), entry.date()) : entry.date();
             } else {
