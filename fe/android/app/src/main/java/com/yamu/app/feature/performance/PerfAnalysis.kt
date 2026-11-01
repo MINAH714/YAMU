@@ -185,6 +185,8 @@ fun PerfAnalysisRoute(onBack: () -> Unit, onCardDetail: (userCardId: Long) -> Un
             }
             Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
                 val a = s.analysis
+                // 어떤 카드의 분석인지 — 카드 그림을 판정 위에(탭을 바꾸면 같이 바뀐다)
+                s.selected?.let { PerfCardArt(it, Modifier.padding(start = YamuSpacing.screen, end = YamuSpacing.screen, top = YamuSpacing.x6)) }
                 when {
                     s.loading -> SectionBlock(divider = false) {
                         repeat(4) {

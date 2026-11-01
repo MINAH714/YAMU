@@ -4,15 +4,18 @@ import com.yamu.app.core.designsystem.component.TagTone
 import com.yamu.app.core.designsystem.component.StatusTag
 import com.yamu.app.core.designsystem.component.KeyValueRow
 import com.yamu.app.core.designsystem.component.SectionBlock
-import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.animation.Crossfade
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.HorizontalDivider
@@ -42,7 +45,7 @@ import com.yamu.app.core.format.toManWon
 import com.yamu.app.core.format.toWon
 import com.yamu.app.core.network.ApiResult
 import com.yamu.app.core.ui.userMessage
-import com.yamu.app.feature.link.BrandMark
+import com.yamu.app.feature.link.BrandCardArt
 import com.yamu.app.feature.performance.data.CardPerf
 import com.yamu.app.feature.performance.data.PerfDetail
 import com.yamu.app.feature.performance.data.PerfGuide
@@ -99,6 +102,10 @@ fun CardPerformanceRoute(onBack: () -> Unit, onAnalysis: (userCardId: Long) -> U
         Column(Modifier.padding(inner).consumeWindowInsets(inner).fillMaxSize().verticalScroll(rememberScrollState())) {
           Column(Modifier.padding(horizontal = YamuSpacing.screen)) {
             Spacer(Modifier.height(YamuSpacing.x6))
+            card?.let {
+                PerfCardArt(it)
+                Spacer(Modifier.height(YamuSpacing.x6))
+            }
             when {
                 s.loading -> repeat(3) {
                     SkeletonBlock(height = 48.dp)
@@ -107,10 +114,7 @@ fun CardPerformanceRoute(onBack: () -> Unit, onAnalysis: (userCardId: Long) -> U
                 d == null -> ErrorState(s.error ?: "실적을 불러오지 못했어요", onRetry = viewModel::load)
                 d.noTarget -> Text("이 카드는 실적 조건이 없어요 · 쓴 만큼 혜택을 받아요", style = YamuTheme.typography.bodyL, color = c.text2)
                 else -> {
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(YamuSpacing.x2)) {
-                        card?.let { BrandMark(it.brand) }
-                        Text(d.month?.let { "${it}월 인정 실적" } ?: "이번 달 인정 실적", style = YamuTheme.typography.bodyM, color = c.text3)
-                    }
+                    Text(d.month?.let { "${it}월 인정 실적" } ?: "이번 달 인정 실적", style = YamuTheme.typography.bodyM, color = c.text3)
                     Spacer(Modifier.height(YamuSpacing.x2))
                     // 큰 숫자와 '/ 400,000원'은 글자 바닥을 맞춘다(프로토타입 R-02 .big baseline)
                     Row {
@@ -147,6 +151,19 @@ fun CardPerformanceRoute(onBack: () -> Unit, onAnalysis: (userCardId: Long) -> U
                 }
             }
             Spacer(Modifier.height(YamuSpacing.x6))
+        }
+    }
+}
+
+/**
+ * 실적 화면 머리의 카드 그림 — 어떤 카드인지 실물 카드로(R-02 · R-03). 폭은 최대 280dp, 탭을 바꾸면 같이 바뀐다.
+ * name은 카드사 이름이라 그림은 상품명(nickname)으로 찾는다. 끝자리는 실적 응답에 없어 빼고 보인다
+ */
+@Composable
+internal fun PerfCardArt(card: CardPerf, modifier: Modifier = Modifier) {
+    Box(modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+        Crossfade(card, label = "perfCard") { c ->
+            BrandCardArt(c.brand, c.nickname ?: c.name, last4 = null, modifier = Modifier.widthIn(max = 280.dp))
         }
     }
 }
