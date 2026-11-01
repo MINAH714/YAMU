@@ -5,6 +5,7 @@ import com.yamu.be.auth.domain.StepUpPurpose;
 import com.yamu.be.global.exception.BusinessException;
 import com.yamu.be.global.exception.ErrorCode;
 import com.yamu.be.global.security.AuthUser;
+import com.yamu.be.payment.domain.PaymentStatus;
 import com.yamu.be.payment.lookup.PaymentCardLookup;
 import com.yamu.be.payment.pos.PaymentRequestView;
 import com.yamu.be.payment.pos.PaymentRequestViewReader;
@@ -81,6 +82,10 @@ public class BarcodeService {
                 .orElseThrow(() -> new BusinessException(ErrorCode.BARCODE_NOT_FOUND));
         PaymentRequestView payment = barcode.paymentId() == null ? null
                 : paymentViews.find(barcode.paymentId(), userId).orElse(null);
+        if (payment != null && payment.status() == PaymentStatus.EXPIRED && barcode.status() == BarcodeStatus.SCANNED) {
+            // 결제가 조회하는 자리에서 막 만료됐으면 바코드도 EXPIRED로 바뀌어 있다(PaymentExpiry). 바뀐 값을 다시 읽는다
+            barcode = store.find(barcodeToken).orElse(barcode);
+        }
         return State.of(barcode, clock.instant(), payment);
     }
 

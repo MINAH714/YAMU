@@ -2,6 +2,7 @@ package com.yamu.be.payment.pos;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.yamu.be.payment.PaymentExpiry;
 import com.yamu.be.payment.PaymentPlan;
 import com.yamu.be.payment.domain.PaymentTransaction;
 import com.yamu.be.payment.domain.PaymentTransactionRepository;
@@ -11,7 +12,6 @@ import com.yamu.be.payment.recommend.RecommendationSnapshotStore;
 import java.util.List;
 import java.util.Optional;
 import org.springframework.stereotype.Component;
-import org.springframework.transaction.annotation.Transactional;
 
 /** 바코드 조회에 넣을 결제 요청 화면 값을 만든다. 결제 조건은 저장된 스냅샷(merchant_context_snapshot)에서 읽는다. */
 @Component
@@ -21,21 +21,30 @@ public class PaymentRequestViewReader {
 
     private final PaymentTransactionRepository payments;
     private final RecommendationSnapshotStore snapshots;
+    private final PaymentExpiry expiry;
     private final ObjectMapper objectMapper;
     private final PosProperties properties;
 
     public PaymentRequestViewReader(PaymentTransactionRepository payments, RecommendationSnapshotStore snapshots,
-            ObjectMapper objectMapper, PosProperties properties) {
+            PaymentExpiry expiry, ObjectMapper objectMapper, PosProperties properties) {
         this.payments = payments;
         this.snapshots = snapshots;
+        this.expiry = expiry;
         this.objectMapper = objectMapper;
         this.properties = properties;
     }
 
-    /** 이 사용자의 결제만 돌려준다. 남의 결제는 empty다. */
-    @Transactional(readOnly = true)
+    /**
+     * 이 사용자의 결제만 돌려준다. 남의 결제는 empty다.
+     * 마감(60초)이 지난 REQUESTED·DECLINED는 조회하는 자리에서 EXPIRED로 바꿔 보여 준다(임시: 명세 「결제 상태·예외 처리」 Q4 제안).
+     */
     public Optional<PaymentRequestView> find(Long paymentId, Long userId) {
-        return payments.findByIdAndUserId(paymentId, userId).map(this::view);
+        Optional<PaymentTransaction> found = payments.findByIdAndUserId(paymentId, userId);
+        if (found.isPresent() && expiry.isDue(found.get())) {
+            expiry.expire(paymentId);
+            found = payments.findByIdAndUserId(paymentId, userId);
+        }
+        return found.map(this::view);
     }
 
     private PaymentRequestView view(PaymentTransaction payment) {

@@ -114,6 +114,15 @@ public enum ErrorCode {
     INVALID_AMOUNT(HttpStatus.BAD_REQUEST, "결제 금액은 1원 이상 정수로 보내 주세요."),
     INVALID_INSTALLMENT(HttpStatus.BAD_REQUEST, "할부는 신용카드로 50,000원 이상, 2~12개월만 가능합니다."),
 
+    /* 결제 - 결제 승인 요청 (API 명세 「결제 승인 요청 (카드 확정)」). 없는·남의 결제·카드는 공통 RESOURCE_NOT_FOUND */
+    CARD_NOT_ELIGIBLE(HttpStatus.BAD_REQUEST, "이 카드로는 결제할 수 없습니다. 다른 카드를 골라 주세요."),
+    PAYMENT_EXPIRED(HttpStatus.GONE, "결제 확정 시간이 지났습니다. 바코드를 다시 발급해 주세요."),
+    PAYMENT_ALREADY_PROCESSED(HttpStatus.CONFLICT, "이미 처리된 결제입니다."),
+    // 임시(명세 「결제 상태·예외 처리」 8장 Q6 제안값, 승인 API 에러 표에 추가 필요): 같은 결제를 처리하는 중(같은 키 재전송·다른 키 동시 승인)
+    PAYMENT_IN_PROGRESS(HttpStatus.CONFLICT, "결제를 처리하고 있습니다. 잠시 후 결과를 확인해 주세요."),
+    // 임시(명세 v0.3.1 보완: 재승인 최대 3회 가정, 승인 API 에러 표에 추가 필요)
+    RETRY_LIMIT_EXCEEDED(HttpStatus.CONFLICT, "다른 카드로 다시 시도할 수 있는 횟수를 넘었습니다."),
+
     /* 공통 - Spring MVC가 분류하는 요청 오류. 명세서 1장에 추가 필요 */
     API_NOT_FOUND(HttpStatus.NOT_FOUND, "요청한 API를 찾을 수 없습니다."),
     METHOD_NOT_ALLOWED(HttpStatus.METHOD_NOT_ALLOWED, "지원하지 않는 HTTP 메서드입니다."),

@@ -10,8 +10,11 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import jakarta.persistence.Version;
+import java.time.Duration;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -154,5 +157,72 @@ public class PaymentTransaction extends BaseTimeEntity {
 
     public boolean isInstallment() {
         return installmentMonths != null && installmentMonths > 1;
+    }
+
+    /** 결제 확정 마감(DEC-003). POS 요청 시각에서 확정 시간(60초)이 지나면 승인할 수 없다. */
+    public LocalDateTime confirmDeadline(Duration window) {
+        return requestedAt.plus(window);
+    }
+
+    /** 마감 시각 정각부터 만료로 본다. */
+    public boolean isPastDeadline(Duration window, Instant now) {
+        return !now.isBefore(confirmDeadline(window).toInstant(ZoneOffset.UTC));
+    }
+
+    /** 앱 승인 요청을 받을 수 있는 상태인지. REQUESTED이거나, 거절 뒤 다른 카드로 재승인하는 DECLINED다. */
+    public boolean isConfirmable() {
+        return status == PaymentStatus.REQUESTED || status == PaymentStatus.DECLINED;
+    }
+
+    /**
+     * 앱 승인 요청이 이 결제를 선점했다(명세 「결제 상태·예외 처리」 4-2). REQUESTED·DECLINED(재승인)에서만 PROCESSING이 된다.
+     * 같은 행을 두 요청이 동시에 바꾸면 {@code version}이 어긋나 한 건만 저장된다. 재승인은 앞 시도의 카드·거절 사유를 덮어쓴다.
+     */
+    public void startApproval(Long userCardId, Long cardProductId) {
+        requireStatus("승인 시작", PaymentStatus.REQUESTED, PaymentStatus.DECLINED);
+        this.userCardId = userCardId;
+        this.cardProductId = cardProductId;
+        this.failureCode = null;
+        this.status = PaymentStatus.PROCESSING;
+    }
+
+    /**
+     * 모의 승인 확정. DB CHECK {@code ck_payment_approval}이 승인 시각과 함께 카드·승인액·실적 인정액·실적 월·개월 수를 요구한다.
+     *
+     * @param performanceMonth  실적을 합산할 월(한국 날짜, 1일로 저장)
+     * @param finTransactionNo  체크카드 출금의 금융망 거래 번호. 신용카드·0원 승인은 null
+     */
+    public void approve(long approvedAmount, long recognizedPerformanceAmount, LocalDate performanceMonth,
+            LocalDateTime approvedAt, String finTransactionNo) {
+        requireStatus("승인", PaymentStatus.PROCESSING);
+        this.approvedAmount = approvedAmount;
+        this.recognizedPerformanceAmount = recognizedPerformanceAmount;
+        this.performanceMonth = performanceMonth;
+        this.approvedAt = approvedAt;
+        this.finTransactionNo = finTransactionNo;
+        this.failureCode = null;
+        this.status = PaymentStatus.APPROVED;
+    }
+
+    /** 확정 거절. 사유는 명세 failure.code와 같은 값이다. 어떤 카드로 거절됐는지 보이도록 카드는 남긴다. */
+    public void decline(String failureCode) {
+        requireStatus("거절", PaymentStatus.PROCESSING);
+        this.failureCode = failureCode;
+        this.status = PaymentStatus.DECLINED;
+    }
+
+    /** 확정 시간 안에 승인되지 않음. 출금이 걸려 있을 수 있는 PROCESSING은 만료시키지 않는다(복구는 Task 5.2.3). */
+    public void expire() {
+        requireStatus("만료", PaymentStatus.REQUESTED, PaymentStatus.DECLINED);
+        this.status = PaymentStatus.EXPIRED;
+    }
+
+    private void requireStatus(String action, PaymentStatus... allowed) {
+        for (PaymentStatus candidate : allowed) {
+            if (status == candidate) {
+                return;
+            }
+        }
+        throw new IllegalStateException(action + "할 수 없는 상태입니다: " + status + " (결제 " + id + ")");
     }
 }
