@@ -105,6 +105,12 @@ class ForecastSettingsControllerTest extends MySqlTestSupport {
         mockMvc.perform(patchAs(owner, "{}"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.details.fieldErrors[*].field", hasItem("body")));
+        // 본문이 아예 없어도 같은 필드 오류다.
+        mockMvc.perform(patch("/api/forecasts/settings").with(AuthUsers.asUser(owner))
+                        .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("INVALID_REQUEST"))
+                .andExpect(jsonPath("$.error.details.fieldErrors[*].field", hasItem("body")));
         mockMvc.perform(patchAs(owner, "[1, 2]"))
                 .andExpect(status().isBadRequest());
         mockMvc.perform(patchAs(owner, "{ not json"))

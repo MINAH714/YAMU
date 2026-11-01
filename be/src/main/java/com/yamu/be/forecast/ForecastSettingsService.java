@@ -6,6 +6,7 @@ import com.yamu.be.account.domain.LinkedAccount;
 import com.yamu.be.account.domain.LinkedAccountRepository;
 import com.yamu.be.cashflow.CashflowItem;
 import com.yamu.be.cashflow.CashflowItemRepository;
+import com.yamu.be.cashflow.CashflowService;
 import com.yamu.be.global.common.ApiResponse.FieldErrorResponse;
 import com.yamu.be.global.exception.BusinessException;
 import com.yamu.be.global.exception.ErrorCode;
@@ -29,7 +30,8 @@ import org.springframework.transaction.annotation.Transactional;
  *
  * <ul>
  *   <li>기준 계좌는 {@code linked_account.is_primary}를 읽어 보여 주기만 한다. 바꾸는 것은 계좌 수정 API(BE 1)다</li>
- *   <li>월급 항목은 "이후 전부" 수정으로 이어진 가장 최근 규칙을 따라간다. 삭제·종료돼 더 받을 월급이 없으면 null이다</li>
+ *   <li>월급 항목은 시리즈의 첫 규칙 ID로 저장하고, 읽을 때 "이후 전부" 수정으로 이어진 가장 최근 규칙까지 따라간다.
+ *       뒤 규칙은 다시 수정할 때 지워지고 새로 만들어지지만 첫 규칙은 남기 때문이다. 앞으로 남은 회차가 없으면 null이다</li>
  *   <li>수정은 보낸 필드만 바꾸고, 같은 사용자의 수정은 사용자 행 잠금으로 차례로 처리한다</li>
  * </ul>
  * 아직 잔고예보·생활비 계산은 이 설정을 읽지 않는다. 잔고예보 API(컨트롤러)를 붙이는 MR에서 연결한다.
@@ -40,15 +42,20 @@ public class ForecastSettingsService {
     private static final Set<String> FIELDS = Set.of("horizon", "defaultDays", "alertThreshold",
             "incomeCashflowItemId", "dailyLivingCostTarget", "includeCandidates", "conservativeLine");
 
+    /** 남은 회차를 찾는 기간. 매월 반복이라 두 달이면 "이번만 삭제"한 회차가 하나 있어도 다음 회차가 보인다. */
+    private static final int UPCOMING_DAYS = 62;
+
     private final ForecastSettingsStore store;
     private final CashflowItemRepository cashflowItems;
+    private final CashflowService cashflows;
     private final LinkedAccountRepository accounts;
     private final Clock clock;
 
     ForecastSettingsService(ForecastSettingsStore store, CashflowItemRepository cashflowItems,
-            LinkedAccountRepository accounts, Clock clock) {
+            CashflowService cashflows, LinkedAccountRepository accounts, Clock clock) {
         this.store = store;
         this.cashflowItems = cashflowItems;
+        this.cashflows = cashflows;
         this.accounts = accounts;
         this.clock = clock;
     }
@@ -71,7 +78,7 @@ public class ForecastSettingsService {
         ForecastSettings current = store.readForUpdate(userId);
         Long income = current.incomeCashflowItemId();
         if (patch.incomeSent()) {
-            income = patch.income() == null ? null : requireIncome(userId, patch.income()).getId();
+            income = patch.income() == null ? null : first(userId, requireIncome(userId, patch.income())).getId();
         }
         ForecastSettings updated = new ForecastSettings(
                 patch.horizon() != null ? patch.horizon() : current.horizon(),
@@ -95,7 +102,7 @@ public class ForecastSettingsService {
                 .orElse(null);
         ForecastSettingsResponse.Income income = settings.incomeCashflowItemId() == null ? null
                 : latest(userId, settings.incomeCashflowItemId())
-                        .filter(this::isUsableIncome)
+                        .filter(item -> isUsableIncome(userId, item))
                         .map(item -> new ForecastSettingsResponse.Income(item.getId(), item.getTitle(), item.getAmount(),
                                 item.getRecurrenceDayOfMonth() != null ? item.getRecurrenceDayOfMonth()
                                         : item.getScheduledDate().getDayOfMonth(),
@@ -110,10 +117,26 @@ public class ForecastSettingsService {
     private CashflowItem requireIncome(long userId, long cashflowItemId) {
         CashflowItem item = latest(userId, cashflowItemId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND));
-        if (!isUsableIncome(item)) {
+        if (!isUsableIncome(userId, item)) {
             throw invalid("incomeCashflowItemId", "앞으로 매월 들어오는 확정 수입 항목만 월급으로 고를 수 있습니다.");
         }
         return item;
+    }
+
+    /** 시리즈의 첫 규칙. 앞 규칙({@code previous_cashflow_item_id})을 끝까지 거슬러 올라간다. */
+    private CashflowItem first(long userId, CashflowItem item) {
+        CashflowItem current = item;
+        Set<Long> visited = new HashSet<>();
+        while (current.getPreviousCashflowItemId() != null) {
+            if (!visited.add(current.getId())) {
+                throw new IllegalStateException("가계부 시리즈가 순환한다 (cashflowItemId=" + current.getId() + ")");
+            }
+            current = cashflowItems.findById(current.getPreviousCashflowItemId())
+                    .filter(previous -> previous.getUserId().equals(userId))
+                    .orElseThrow(() -> new IllegalStateException("가계부 시리즈의 앞 규칙이 없다 (cashflowItemId="
+                            + item.getId() + ")"));
+        }
+        return current;
     }
 
     /**
@@ -142,16 +165,29 @@ public class ForecastSettingsService {
     }
 
     /**
-     * 앞으로 월급을 받을 수 있는 항목인지. 매월 반복하는 확정 수입이고, 종료일이 없거나 한국 날짜 오늘 이후여야 한다.
-     * 시작한 규칙을 전체 삭제하면 행이 남은 채 어제로 닫히므로(가계부 삭제 규칙) 종료일로 걸러야 한다.
+     * 앞으로 월급을 받을 수 있는 항목인지. 매월 반복하는 확정 수입이고, 한국 날짜 오늘(또는 첫 발생일)부터 두 달 안에
+     * 실제 회차가 남아 있어야 한다. 종료일만 보면 "종료일은 오늘인데 이번 달 입금일은 지났다"를 놓친다.
+     * 시작한 규칙을 전체 삭제하면 행이 남은 채 어제로 닫히는 것(가계부 삭제 규칙)도 여기서 걸린다.
+     * 회차는 가계부 목록과 같은 계산(말일 보정, 이번만 삭제·옮김 반영)으로 찾는다.
      */
-    private boolean isUsableIncome(CashflowItem item) {
+    private boolean isUsableIncome(long userId, CashflowItem item) {
+        if (item.getDirection() != CashflowItem.Direction.INCOME
+                || item.getRecurrenceType() != CashflowItem.RecurrenceType.MONTHLY
+                || item.getStatus() != CashflowItem.Status.CONFIRMED
+                || item.getItemKind() != CashflowItem.ItemKind.SCHEDULED) {
+            return false;
+        }
         LocalDate today = LocalDate.ofInstant(clock.instant(), KOREA);
-        return item.getDirection() == CashflowItem.Direction.INCOME
-                && item.getRecurrenceType() == CashflowItem.RecurrenceType.MONTHLY
-                && item.getStatus() == CashflowItem.Status.CONFIRMED
-                && item.getItemKind() == CashflowItem.ItemKind.SCHEDULED
-                && (item.getRecurrenceEndDate() == null || !item.getRecurrenceEndDate().isBefore(today));
+        LocalDate from = item.getScheduledDate().isAfter(today) ? item.getScheduledDate() : today;
+        LocalDate to = from.plusDays(UPCOMING_DAYS - 1);
+        if (item.getRecurrenceEndDate() != null) {
+            if (item.getRecurrenceEndDate().isBefore(from)) {
+                return false;
+            }
+            to = item.getRecurrenceEndDate().isBefore(to) ? item.getRecurrenceEndDate() : to;
+        }
+        return cashflows.list(userId, from, to, CashflowItem.Direction.INCOME, CashflowItem.Status.CONFIRMED, true)
+                .stream().anyMatch(entry -> entry.item().id().equals(item.getId()));
     }
 
     private static String mask(String last4) {

@@ -111,6 +111,43 @@ class ForecastSettingsServiceTest extends MySqlTestSupport {
     }
 
     @Test
+    void 뒤_규칙을_지정해도_첫_규칙으로_저장해서_앞_회차를_다시_고쳐도_월급이_끊기지_않는다() {
+        LocalDate first = today.plusDays(1);
+        long salary = monthlyIncome(first);
+        long second = cashflows.update(owner, salary, new CashflowService.UpdateCommand(null, null, 3_000_000L, null,
+                null, null, null, null, null, null, CashflowService.UpdateScope.THIS_AND_FUTURE,
+                first.plusMonths(2))).item().id();
+        service.update(owner, json("{ \"incomeCashflowItemId\": %d }".formatted(second)));
+        assertThat(jdbc.queryForObject("SELECT JSON_EXTRACT(forecast_settings, '$.incomeCashflowItemId') FROM app_user "
+                + "WHERE user_id = ?", Long.class, owner)).isEqualTo(salary);
+
+        // 앞 회차부터 다시 고치면 뒤 규칙(second)은 지워지고 새 규칙이 생긴다.
+        long third = cashflows.update(owner, salary, new CashflowService.UpdateCommand(null, "월급(재수정)", 3_200_000L,
+                null, null, null, null, null, null, null, CashflowService.UpdateScope.THIS_AND_FUTURE,
+                first.plusMonths(1))).item().id();
+
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM cashflow_item WHERE cashflow_item_id = ?", Integer.class,
+                second)).isZero();
+        assertThat(service.get(owner).income()).isEqualTo(new ForecastSettingsResponse.Income(third, "월급(재수정)",
+                3_200_000L, first.getDayOfMonth(), account));
+    }
+
+    @Test
+    void 종료일이_오늘이어도_이번_달_입금일이_지났으면_남은_월급이_없다() {
+        // 어제가 입금일이고 오늘 끝나는 규칙: 종료일(오늘)은 지나지 않았지만 앞으로 올 회차가 없다.
+        LocalDate yesterday = today.minusDays(1);
+        long salary = startedMonthlyIncome(yesterday.minusMonths(2), yesterday.getDayOfMonth(), today);
+
+        assertInvalid(() -> service.update(owner, json("{ \"incomeCashflowItemId\": %d }".formatted(salary))),
+                "incomeCashflowItemId");
+
+        // 저장돼 있던 값이라도 조회하면 월급 없음이다.
+        jdbc.update("UPDATE app_user SET forecast_settings = JSON_OBJECT('incomeCashflowItemId', ?) WHERE user_id = ?",
+                salary, owner);
+        assertThat(service.get(owner).income()).isNull();
+    }
+
+    @Test
     void 시작하지_않은_월급_규칙을_지우면_월급이_없다() {
         long salary = monthlyIncome(today.plusDays(1));
         service.update(owner, json("{ \"incomeCashflowItemId\": %d }".formatted(salary)));
@@ -122,7 +159,7 @@ class ForecastSettingsServiceTest extends MySqlTestSupport {
 
     @Test
     void 시작한_월급_규칙을_전체_삭제하면_어제로_닫혀_월급이_없고_다시_지정할_수도_없다() {
-        long salary = startedMonthlyIncome(today.minusMonths(2));
+        long salary = startedMonthlyIncome(today.minusMonths(2), null, null);
         service.update(owner, json("{ \"incomeCashflowItemId\": %d }".formatted(salary)));
         assertThat(service.get(owner).income()).isNotNull();
 
@@ -203,12 +240,18 @@ class ForecastSettingsServiceTest extends MySqlTestSupport {
                 null)).id();
     }
 
-    /** 이미 시작한 매월 수입. 등록 API는 과거 날짜를 받지 않아 행을 직접 넣는다. */
-    private long startedMonthlyIncome(LocalDate first) {
+    /** 이미 시작한 매월 수입. 등록 API는 과거 날짜를 받지 않아 행을 직접 넣는다. 기준일·종료일은 null이면 넣지 않는다. */
+    private long startedMonthlyIncome(LocalDate first, Integer dayOfMonth, LocalDate end) {
         Timestamp now = Timestamp.from(Instant.now());
         Map<String, Object> row = new HashMap<>(Map.of("user_id", owner, "linked_account_id", account,
                 "title", "월급", "direction", "INCOME", "amount", 2_800_000L, "scheduled_date", first,
                 "recurrence_type", "MONTHLY", "status", "CONFIRMED", "created_at", now, "updated_at", now));
+        if (dayOfMonth != null) {
+            row.put("recurrence_day_of_month", dayOfMonth);
+        }
+        if (end != null) {
+            row.put("recurrence_end_date", end);
+        }
         return new SimpleJdbcInsert(jdbc).withTableName("cashflow_item").usingGeneratedKeyColumns("cashflow_item_id")
                 .usingColumns(row.keySet().toArray(String[]::new)).executeAndReturnKey(row).longValue();
     }

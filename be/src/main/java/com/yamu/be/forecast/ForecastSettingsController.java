@@ -27,9 +27,13 @@ class ForecastSettingsController {
         return ApiResponse.ok(service.get(me.userId()));
     }
 
-    /** 보낸 필드만 바꾸고 바뀐 설정 전체를 돌려준다. 보내지 않은 필드와 null을 구분하려고 본문을 JSON 트리로 받는다. */
+    /**
+     * 보낸 필드만 바꾸고 바뀐 설정 전체를 돌려준다. 보내지 않은 필드와 null을 구분하려고 본문을 JSON 트리로 받는다.
+     * 본문이 아예 없어도 서비스가 필드 오류(body)로 거절하도록 required=false로 받는다.
+     */
     @PatchMapping
-    ApiResponse<ForecastSettingsResponse> update(@AuthenticationPrincipal AuthUser me, @RequestBody JsonNode body) {
+    ApiResponse<ForecastSettingsResponse> update(@AuthenticationPrincipal AuthUser me,
+            @RequestBody(required = false) JsonNode body) {
         return ApiResponse.ok(service.update(me.userId(), body));
     }
 }
