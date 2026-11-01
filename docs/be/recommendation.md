@@ -70,7 +70,7 @@ RecommendationSelector.Result result = new RecommendationSelector().select(input
 
 ## 검증과 한계
 
-MR 준비 시 다음 명령을 실행했다.
+2026-11-02 MR 준비 시 다음 명령을 실행했고 결과 XML의 통과·생략 수를 확인했다.
 
 ```powershell
 # be 폴더
