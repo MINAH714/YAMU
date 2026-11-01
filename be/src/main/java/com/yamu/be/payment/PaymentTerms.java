@@ -3,6 +3,8 @@ package com.yamu.be.payment;
 import com.yamu.be.card.domain.CardType;
 import com.yamu.be.global.exception.BusinessException;
 import com.yamu.be.global.exception.ErrorCode;
+import java.util.List;
+import java.util.Map;
 
 /**
  * POS가 정한 결제 조건(금액·결제 방식·할부 개월 수). 서버가 검증해 보존하고, 추천·승인·재승인은 모두 이 값을 쓴다.
@@ -24,29 +26,35 @@ public record PaymentTerms(long amount, PaymentPlan plan, Integer installmentMon
 
     public PaymentTerms {
         if (amount <= 0) {
-            throw new BusinessException(ErrorCode.INVALID_AMOUNT);
+            throw invalid(ErrorCode.INVALID_AMOUNT, "amount", "결제 금액은 1원 이상이어야 합니다.");
         }
         if (plan == null) {
-            throw new BusinessException(ErrorCode.INVALID_INSTALLMENT, "결제 방식을 확인할 수 없습니다.");
+            throw invalid(ErrorCode.INVALID_INSTALLMENT, "plan", "결제 방식을 확인할 수 없습니다.");
         }
         switch (plan) {
             case LUMP_SUM -> {
                 if (installmentMonths != null) {
-                    throw new BusinessException(ErrorCode.INVALID_INSTALLMENT, "일시불에는 할부 개월 수를 보낼 수 없습니다.");
+                    throw invalid(ErrorCode.INVALID_INSTALLMENT, "installmentMonths", "일시불에는 할부 개월 수를 보낼 수 없습니다.");
                 }
             }
             case INSTALLMENT -> {
                 if (installmentMonths == null) {
-                    throw new BusinessException(ErrorCode.INVALID_INSTALLMENT, "할부 개월 수를 입력해 주세요.");
+                    throw invalid(ErrorCode.INVALID_INSTALLMENT, "installmentMonths", "할부 개월 수를 입력해 주세요.");
                 }
                 if (installmentMonths < MIN_INSTALLMENT_MONTHS || installmentMonths > MAX_INSTALLMENT_MONTHS) {
-                    throw new BusinessException(ErrorCode.INVALID_INSTALLMENT, "할부는 2개월부터 12개월까지만 가능합니다.");
+                    throw invalid(ErrorCode.INVALID_INSTALLMENT, "installmentMonths", "할부는 2개월부터 12개월까지만 가능합니다.");
                 }
                 if (amount < MIN_INSTALLMENT_AMOUNT) {
-                    throw new BusinessException(ErrorCode.INVALID_INSTALLMENT, "할부는 50,000원 이상부터 가능합니다.");
+                    throw invalid(ErrorCode.INVALID_INSTALLMENT, "amount", "할부는 50,000원 이상부터 가능합니다.");
                 }
             }
         }
+    }
+
+    /** 어느 칸이 틀렸는지 {@code details.fieldErrors}로 알린다(API 명세 1장 공통 형식). */
+    public static BusinessException invalid(ErrorCode code, String field, String reason) {
+        return new BusinessException(code, reason,
+                Map.of("fieldErrors", List.of(Map.of("field", field, "reason", reason))));
     }
 
     public static PaymentTerms lumpSum(long amount) {

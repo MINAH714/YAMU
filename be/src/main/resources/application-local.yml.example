@@ -36,3 +36,6 @@ yamu:
   # SSAFY 금융망 팀 공용 앱 키. 값은 노션 API 명세 4장에 있다. 금융망을 부르지 않는 작업이면 비워 둬도 된다.
   fin-api:
     api-key:
+  # 모의 POS 웹(fe/pos)이 보내는 X-POS-Key. 로컬 전용 값이며 fe/pos의 .env에도 같은 값을 넣는다. 비워 두면 POS 결제 요청이 401이다.
+  pos:
+    key: ${YAMU_POS_KEY:local-pos-key}

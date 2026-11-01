@@ -13,7 +13,7 @@ import org.springframework.stereotype.Component;
  * 바코드를 Redis에 보관한다.
  *
  * <pre>
- * barcode:{토큰}       → 해시 { userId, status, issuedAt, expiresAt }   시각은 epoch 밀리초
+ * barcode:{토큰}       → 해시 { userId, status, issuedAt, expiresAt, paymentId? }   시각은 epoch 밀리초
  * barcode:user:{userId} → 그 사용자의 현재 바코드 토큰
  * </pre>
  *
@@ -48,6 +48,49 @@ class RedisBarcodeStore implements BarcodeStore {
             return 1
             """, Long.class);
 
+    /*
+     * ISSUED이고 만료 전인 바코드만 SCANNED로 바꾼다. 상태 확인과 변경이 한 스크립트라 동시 스캔은 한 건만 성공한다.
+     * KEYS[1] 바코드 키, KEYS[2] 사용자의 현재 바코드 키
+     * ARGV[1] paymentId, ARGV[2] 지금(밀리초), ARGV[3] 새 보관 시간(밀리초), ARGV[4] 토큰
+     * 반환: 1 SCANNED, 0 이미 사용, -1 없음, -2 만료
+     */
+    private static final RedisScript<Long> SCAN_SCRIPT = RedisScript.of("""
+            local status = redis.call('HGET', KEYS[1], 'status')
+            if not status then
+              return -1
+            end
+            if status == 'EXPIRED' then
+              return -2
+            end
+            if status ~= 'ISSUED' then
+              return 0
+            end
+            local expiresAt = tonumber(redis.call('HGET', KEYS[1], 'expiresAt'))
+            if expiresAt <= tonumber(ARGV[2]) then
+              redis.call('HSET', KEYS[1], 'status', 'EXPIRED')
+              return -2
+            end
+            redis.call('HSET', KEYS[1], 'status', 'SCANNED', 'paymentId', ARGV[1])
+            redis.call('PEXPIRE', KEYS[1], ARGV[3])
+            if redis.call('GET', KEYS[2]) == ARGV[4] then
+              redis.call('PEXPIRE', KEYS[2], ARGV[3])
+            end
+            return 1
+            """, Long.class);
+
+    /* 그 결제 번호로 SCANNED일 때만 ISSUED로 되돌린다. KEYS[1] 바코드 키, ARGV[1] paymentId */
+    private static final RedisScript<Long> REVERT_SCAN_SCRIPT = RedisScript.of("""
+            if redis.call('HGET', KEYS[1], 'status') ~= 'SCANNED' then
+              return 0
+            end
+            if redis.call('HGET', KEYS[1], 'paymentId') ~= ARGV[1] then
+              return 0
+            end
+            redis.call('HSET', KEYS[1], 'status', 'ISSUED')
+            redis.call('HDEL', KEYS[1], 'paymentId')
+            return 1
+            """, Long.class);
+
     private final StringRedisTemplate redis;
 
     RedisBarcodeStore(StringRedisTemplate redis) {
@@ -69,15 +112,55 @@ class RedisBarcodeStore implements BarcodeStore {
 
     @Override
     public Optional<Barcode> find(String token) {
+        if (!BarcodeTokenGenerator.isWellFormed(token)) {
+            return Optional.empty();
+        }
         Map<Object, Object> fields = redis.opsForHash().entries(KEY_PREFIX + token);
         if (fields.isEmpty()) {
             return Optional.empty();
         }
+        String paymentId = (String) fields.get("paymentId");
         return Optional.of(new Barcode(
                 token,
                 Long.valueOf((String) fields.get("userId")),
                 BarcodeStatus.valueOf((String) fields.get("status")),
                 Instant.ofEpochMilli(Long.parseLong((String) fields.get("issuedAt"))),
-                Instant.ofEpochMilli(Long.parseLong((String) fields.get("expiresAt")))));
+                Instant.ofEpochMilli(Long.parseLong((String) fields.get("expiresAt"))),
+                paymentId == null ? null : Long.valueOf(paymentId)));
+    }
+
+    @Override
+    public ScanResult scan(String token, Long paymentId, Duration retention) {
+        if (!BarcodeTokenGenerator.isWellFormed(token)) {
+            return ScanResult.NOT_FOUND;
+        }
+        Barcode owner = find(token).orElse(null);
+        if (owner == null) {
+            return ScanResult.NOT_FOUND;
+        }
+        Long result = redis.execute(SCAN_SCRIPT,
+                List.of(KEY_PREFIX + token, USER_KEY_PREFIX + owner.userId()),
+                paymentId.toString(),
+                Long.toString(Instant.now().toEpochMilli()),
+                Long.toString(retention.toMillis()),
+                token);
+        if (result == null) {
+            return ScanResult.NOT_FOUND;
+        }
+        return switch (result.intValue()) {
+            case 1 -> ScanResult.SCANNED;
+            case 0 -> ScanResult.ALREADY_USED;
+            case -2 -> ScanResult.EXPIRED;
+            default -> ScanResult.NOT_FOUND;
+        };
+    }
+
+    @Override
+    public boolean revertScan(String token, Long paymentId) {
+        if (!BarcodeTokenGenerator.isWellFormed(token)) {
+            return false;
+        }
+        Long result = redis.execute(REVERT_SCAN_SCRIPT, List.of(KEY_PREFIX + token), paymentId.toString());
+        return result != null && result == 1L;
     }
 }
