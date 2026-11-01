@@ -43,7 +43,7 @@ public final class BillingSchedule {
      * @param paymentDay        신용카드 결제일(1~27). 체크카드는 쓰지 않는다
      * @param billingCutoffDays 신용카드 이용기간 마감 일수 N(1~31). null이면 14일
      * @param purchaseDate      한국 날짜 기준 구매일
-     * @param amount            승인 금액(원, 1 이상)
+     * @param amount            승인 금액(원). 회차마다 1원 이상이 되도록 할부 개월 수 이상
      * @param installmentMonths 일시불 1, 할부 2~12. 체크카드는 1만
      * @return 회차 순서대로의 출금 일정
      * @throws IllegalArgumentException 계산이 성립하지 않는 값
@@ -58,6 +58,10 @@ public final class BillingSchedule {
         }
         if (installmentMonths < 1 || installmentMonths > MAX_INSTALLMENT_MONTHS) {
             throw new IllegalArgumentException("할부 개월 수는 1(일시불)~12다: " + installmentMonths);
+        }
+        // 회차마다 1원 이상 빠져야 한다. 0원 출금 회차는 시뮬레이션·예보에 보일 의미가 없다.
+        if (amount < installmentMonths) {
+            throw new IllegalArgumentException("할부 회차마다 1원 이상이어야 한다.");
         }
         if (cardType == CardType.CHECK) {
             if (installmentMonths != 1) {

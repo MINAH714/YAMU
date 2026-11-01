@@ -110,6 +110,8 @@ class BillingScheduleTest {
         LocalDate purchase = LocalDate.of(2026, 10, 24);
         List<Runnable> invalid = List.of(
                 () -> schedule.schedule(CardType.CREDIT, 14, 14, purchase, 0L, 1),
+                // 0원 회차가 생기는 금액(2원 3개월 → 0 / 0 / 2)
+                () -> schedule.schedule(CardType.CREDIT, 14, 14, purchase, 2L, 3),
                 () -> schedule.schedule(CardType.CREDIT, 14, 14, purchase, 10_000L, 0),
                 () -> schedule.schedule(CardType.CREDIT, 14, 14, purchase, 100_000L, 13),
                 () -> schedule.schedule(CardType.CHECK, null, null, purchase, 100_000L, 3),
@@ -123,9 +125,11 @@ class BillingScheduleTest {
         for (Runnable call : invalid) {
             assertThatThrownBy(call::run).isInstanceOf(IllegalArgumentException.class);
         }
-        // 경계 값은 된다: 할부 2·12개월, 결제일 1·27, 마감 일수 1·31
+        // 경계 값은 된다: 할부 2·12개월, 결제일 1·27, 마감 일수 1·31, 회차마다 1원(3원 3개월)
         assertThat(schedule.schedule(CardType.CREDIT, 1, 1, purchase, 100_000L, 2)).hasSize(2);
         assertThat(schedule.schedule(CardType.CREDIT, 27, 31, purchase, 100_000L, 12)).hasSize(12);
+        assertThat(schedule.schedule(CardType.CREDIT, 14, 14, purchase, 3L, 3))
+                .extracting(Withdrawal::amount).containsExactly(1L, 1L, 1L);
     }
 
     @Test
