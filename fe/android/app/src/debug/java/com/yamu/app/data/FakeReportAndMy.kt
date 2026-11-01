@@ -40,18 +40,19 @@ private fun at(daysAgo: Long, hhmm: String): String =
 
 /** 가짜 결제 내역(S-05) — 프로토타입 줄 + 그 전 날짜는 비슷한 줄로 채워 67건. 거래 상세(P-08)도 이 값으로 */
 object FakePaymentHistory {
-    private class CardInfo(val id: Long, val issuer: String, val short: String, val color: String, val name: String, val last4: String, val check: Boolean = false) {
+    /** [benefit] = 내역에 혜택이 붙는 줄의 혜택 이름(시드 benefit_name) */
+    private class CardInfo(val id: Long, val issuer: String, val short: String, val color: String, val name: String, val last4: String, val benefit: String?, val check: Boolean = false) {
         val brand get() = brandOf(issuer, shortName = short, color = color)
     }
 
     // 가짜 은행(FakeBank) 카드 6장과 같은 userCardId — KB국민이 두 장(톡톡 · 노리2)이라 카드사가 아니라 번호로 찾는다
     private val CARDS = listOf(
-        CardInfo(11, "KB국민카드", "KB국민", "#FFBC00", "KB국민 청춘대로 톡톡카드", "1021"),
-        CardInfo(12, "현대카드", "현대", "#1A1A1A", "현대카드ZERO Edition3(포인트형)", "3310"),
-        CardInfo(13, "롯데카드", "롯데", "#E60012", "LOCA LIKIT Shop", "7782"),
-        CardInfo(14, "삼성카드", "삼성", "#1428A0", "삼성 iD ON 카드", "4410"),
-        CardInfo(15, "신한카드", "신한", "#0046FF", "신한카드 Mr.Life", "5096"),
-        CardInfo(16, "KB국민카드", "KB국민", "#60584C", "KB국민 노리2 체크카드(KB Pay)", "8823", check = true),
+        CardInfo(11, "KB국민카드", "KB국민", "#FFBC00", "KB국민 청춘대로 톡톡카드", "1021", "스타벅스 50% 청구할인"),
+        CardInfo(12, "현대카드", "현대", "#1A1A1A", "현대카드ZERO Edition3(포인트형)", "3310", "1.2% M포인트 적립"),
+        CardInfo(13, "롯데카드", "롯데", "#E60012", "LOCA LIKIT Shop", "7782", "쿠팡·편의점 60% 할인"),
+        CardInfo(14, "삼성카드", "삼성", "#1428A0", "삼성 iD ON 카드", "4410", "교통 10% 결제일할인"),
+        CardInfo(15, "신한카드", "신한", "#0046FF", "신한카드 Mr.Life", "5096", "주말 마트 10% 할인"),
+        CardInfo(16, "KB국민카드", "KB국민", "#60584C", "KB국민 노리2 체크카드(KB Pay)", "8823", "GS25·CU 5% 할인", check = true),
     ).associateBy { it.id }
 
     /** 결제 번호 → 카드 번호(거래 상세가 같은 카드를 보이게) */
@@ -113,7 +114,7 @@ object FakePaymentHistory {
             cardId = card.id, cardBrand = p.brand, cardName = card.name, cardLast4 = card.last4, isCheck = card.check,
             approvalNo = "Y" + day.toString().replace("-", "") + time.replace(":", "") + "00" + p.paymentId,
             installmentMonths = null,
-            benefits = if (benefit > 0) listOf(ReceiptBenefit(categoryOf(p.merchant) + " " + p.benefitLabel, benefit)) else emptyList(),
+            benefits = if (benefit > 0) listOf(ReceiptBenefit(card.benefit ?: (categoryOf(p.merchant) + " " + p.benefitLabel), benefit)) else emptyList(),
             chargedAmount = p.amount, balanceAfter = null,
             billDateIso = if (card.check) null else YearMonth.now(KST).plusMonths(1).atDay(14).toString(),   // 체크카드는 바로 출금 — 청구 없음
             billAmount = if (card.check) null else if (p.benefitLabel == "할인") p.amount - benefit else p.amount,
