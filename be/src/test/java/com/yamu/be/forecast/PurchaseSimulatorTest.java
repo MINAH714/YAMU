@@ -175,20 +175,27 @@ class PurchaseSimulatorTest {
     }
 
     @Test
-    void 생활비가_일부_계좌에만_있으면_통합과_계좌별을_모두_예상_선으로_비교한다() {
+    void 생활비가_일부_계좌에만_있어도_그_계좌의_생활비_위험을_숨기지_않는다() {
         LocalDate today = LocalDate.of(2026, 11, 1);
         Map<Long, Long> balances = new LinkedHashMap<>();
-        balances.put(A, 500_000L);
-        balances.put(B, 300_000L);
+        balances.put(A, 150_000L);
+        balances.put(B, 500_000L);
 
         PurchaseSimulation result = PurchaseSimulator.simulate(input(balances, List.of(), today, today.plusDays(10),
-                Map.of(A, 1_000L), today, A, List.of(check(today, 50_000))));
+                Map.of(A, 10_000L), today, B, List.of(check(today, 10_000))));
 
-        // A에 생활비가 있어도 B에 없으니 A도 예상 선(생활비 미차감)으로 비교한다.
-        assertThat(result.accountComparisons().get(0).after().endBalance()).isEqualTo(450_000L);
-        assertThat(result.comparison().after().endBalance()).isEqualTo(750_000L);
-        assertThat(result.series()).allMatch(point -> point.before() == 800_000L && point.after() == 750_000L);
-        assertEndBalancesAddUp(result);
+        // A는 보수적 선이 6일째 90,000원으로 안전 잔액 미만이라 WARNING. B에 생활비 자료가 없어도 숨기지 않는다(잔고예보와 같다).
+        AccountComparison a = result.accountComparisons().get(0);
+        assertThat(a.before()).isEqualTo(new Snapshot(50_000L, today.plusDays(10), 50_000L, Level.WARNING));
+        assertThat(a.after()).isEqualTo(a.before());
+        assertThat(result.accountComparisons().get(1).after().endBalance()).isEqualTo(490_000L);
+        // 통합은 B 자료가 없어 예상 선이지만, 최종 수준은 계좌 위험을 반영한다.
+        assertThat(result.comparison().before()).isEqualTo(new Snapshot(650_000L, today, 650_000L, Level.WARNING));
+        assertThat(result.comparison().after()).isEqualTo(new Snapshot(640_000L, today, 640_000L, Level.WARNING));
+        assertThat(result.series()).allMatch(point -> point.before() == 650_000L && point.after() == 640_000L);
+        // 한계: 통합은 예상 선, A는 보수적 선이라 계좌별 종료 잔액의 합(550,000원)이 통합(650,000원)과 다르다.
+        assertThat(a.before().endBalance() + result.accountComparisons().get(1).before().endBalance())
+                .isEqualTo(550_000L);
     }
 
     @Test

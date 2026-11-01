@@ -11,8 +11,9 @@ import java.util.Map;
  *
  * <p>구매 출금은 산다고 가정한 돈이라 확정 선부터 반영한다. 그래서 구매만으로 확정 선이 안전 잔액 아래로 내려가면 DANGER다.
  * 출금은 카드의 실제 출금 계좌에만 넣고, 그 계좌가 선택 밖이면 통합 비교에 넣지 않고 따로 알린다.
- * 생활비 추정이 없는 계좌가 하나라도 있으면 통합 보수적 선이 없으므로, 계좌별 비교도 예상 선으로 맞춰
- * 계좌별 값의 합이 통합과 같게 한다.
+ * 생활비는 잔고예보와 똑같이 계좌마다 있는 대로 쓴다. 그래서 구매 전 결과가 잔고예보와 같고, 한 계좌의 생활비 위험을
+ * 다른 계좌의 자료 부족 때문에 숨기지 않는다. 대신 생활비가 일부 계좌에만 있으면 통합은 예상 선, 그 계좌는 보수적 선이라
+ * 계좌별 금액의 합이 통합과 다를 수 있다(잔고예보 계좌 상세와 같은 한계).
  */
 final class PurchaseSimulator {
 
@@ -31,9 +32,6 @@ final class PurchaseSimulator {
     static PurchaseSimulation simulate(Input input) {
         validate(input);
         boolean selected = input.startBalances().containsKey(input.withdrawalAccountId());
-        boolean allHaveLivingCost = input.startBalances().keySet().stream()
-                .allMatch(accountId -> input.dailyLivingCost().get(accountId) != null);
-        Map<Long, Long> living = allHaveLivingCost ? input.dailyLivingCost() : Map.of();
 
         List<PurchaseSimulation.ScheduledWithdrawal> schedule = new ArrayList<>();
         List<FlowEvent> afterEvents = new ArrayList<>(input.beforeEvents());
@@ -61,9 +59,9 @@ final class PurchaseSimulator {
         }
 
         ForecastCalculator.Projection before = ForecastCalculator.project(input.startBalances(), input.beforeEvents(),
-                input.from(), input.to(), living);
+                input.from(), input.to(), input.dailyLivingCost());
         ForecastCalculator.Projection after = ForecastCalculator.project(input.startBalances(), afterEvents,
-                input.from(), input.to(), living);
+                input.from(), input.to(), input.dailyLivingCost());
         Side beforeSide = assess(before, input.alertThreshold());
         Side afterSide = assess(after, input.alertThreshold());
 
@@ -141,7 +139,7 @@ final class PurchaseSimulator {
      * @param beforeEvents        구매 전 예보의 미래 입출금. <b>이번 가상 구매가 들어 있으면 안 된다</b>(두 번 빠진다)
      * @param from                한국 날짜 오늘. 예보 시작일이자 과거 구매일을 가르는 기준이다
      * @param to                  비교 기간 마지막 날(포함)
-     * @param dailyLivingCost     계좌별 추정 하루 생활비(원). 한 계좌라도 없으면 모든 계좌를 예상 선으로 비교한다
+     * @param dailyLivingCost     계좌별 추정 하루 생활비(원). 없는 계좌는 예상 선, 한 계좌라도 없으면 통합도 예상 선이다
      * @param alertThreshold      안전 잔액(원)
      * @param purchaseDate        가상 구매일(한국 날짜). from 이상이어야 한다
      * @param withdrawalAccountId 카드의 실제 출금 계좌. 선택 밖이어도 된다
