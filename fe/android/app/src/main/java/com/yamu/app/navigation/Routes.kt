@@ -17,8 +17,7 @@ import kotlinx.serialization.Serializable
 // ── 시작 · 가입 (AuthGraph) ──
 @Serializable data object Splash
 @Serializable data object Welcome            // A-01
-@Serializable data object Login              // A-03
-@Serializable data object Unlock             // A-03b · A-03d(지문은 시스템 창)
+@Serializable data object Login              // A-03 · A-03b PIN · 지문 로그인(앱을 열 때)
 @Serializable data object Terms              // A-04
 @Serializable data object IdentityVerify     // A-05
 @Serializable data object PinSetup           // A-06

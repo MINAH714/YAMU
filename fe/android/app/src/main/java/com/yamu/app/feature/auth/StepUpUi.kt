@@ -99,8 +99,8 @@ class PinPadViewModel @Inject constructor(
             _state.update { it.copy(busy = true) }
             val challenge = auth.challenge(purpose)
             if (challenge is ApiResult.Failure) return@launch fail(challenge.error)
-            val id = (challenge as ApiResult.Success).data.challengeId
-            when (val v = auth.verifyPin(id, pin)) {
+            val issued = (challenge as ApiResult.Success).data   // PIN도 기기 키로 이 challenge에 서명해 보낸다
+            when (val v = auth.verifyPin(issued, pin)) {
                 is ApiResult.Success -> {
                     results.deliver(PinPadResult.Verified(purpose, v.data))
                     _state.update { it.copy(busy = false, done = true) }

@@ -223,7 +223,7 @@ class FakeMyRepository @Inject constructor(
             MyInfo(
                 name = s.name ?: "김야무", email = s.email ?: "yamu.kim@example.com",
                 autoLockSeconds = session.autoLockSeconds.first(), pinOnlyForCode = FakeSecurity.pinOnlyForCode,
-                biometricEnabled = s.deviceRegistered, currentDeviceId = 7, autoSelect = autoSelect,
+                biometricEnabled = s.biometricEnabled, currentDeviceId = s.userDeviceId, autoSelect = autoSelect,
             ),
         )
     }
