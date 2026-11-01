@@ -38,6 +38,7 @@ import kotlinx.serialization.Serializable
 @Serializable data object MyCards            // H-03
 @Serializable data object Forecast           // F-01 · F-01d · F-01i(상태)
 @Serializable data object CashflowList       // F-02
+@Serializable data object CashflowCreate     // F-02a 예정 수입·지출 추가(F-02의 +)
 @Serializable data object BuyCheckInput      // I-01 (F-04 사기 전에 확인을 합침)
 /** I-02 · I-03(상태) · I-04(시트) — 결과는 저장된 게 아니라 이 입력으로 #33을 부른 값이라 입력을 넘긴다 */
 @Serializable data class BuyCheckResult(val amount: Long, val title: String? = null, val purchaseDate: String)

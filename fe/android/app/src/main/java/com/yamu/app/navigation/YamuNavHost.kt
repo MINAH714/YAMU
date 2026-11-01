@@ -34,6 +34,7 @@ import com.yamu.app.feature.payment.RecommendRoute
 import com.yamu.app.feature.forecast.BuyCheckInputRoute
 import com.yamu.app.feature.forecast.BuyCheckResultRoute
 import com.yamu.app.feature.forecast.BuyCheckSavedRoute
+import com.yamu.app.feature.forecast.CashflowCreateRoute
 import com.yamu.app.feature.forecast.CashflowListRoute
 import com.yamu.app.feature.forecast.ForecastRoute
 import com.yamu.app.feature.performance.BenefitLimitsRoute
@@ -219,7 +220,8 @@ fun YamuNavHost(navController: NavHostController, modifier: Modifier = Modifier)
                         onAlertSettings = { navController.navigate(NotificationSettings) },
                     )
                 }
-                composable<CashflowList> { CashflowListRoute(onBack = back, onLink = { navController.navigate(LinkGraph) }) }
+                composable<CashflowList> { CashflowListRoute(onBack = back, onLink = { navController.navigate(LinkGraph) }, onAdd = { navController.navigate(CashflowCreate) }) }
+                composable<CashflowCreate> { CashflowCreateRoute(onBack = back, onDone = back) }
                 composable<BuyCheckInput> {
                     BuyCheckInputRoute(
                         onBack = back,

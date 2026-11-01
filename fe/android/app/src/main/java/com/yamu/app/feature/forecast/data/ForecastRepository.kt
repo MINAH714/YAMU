@@ -35,6 +35,9 @@ interface ForecastApi {
     @POST("cashflow-items")
     suspend fun savePlan(@Body body: PurchasePlanRequest): Response<ApiEnvelope<CashflowCreatedDto>>
 
+    @POST("cashflow-items")
+    suspend fun createItem(@Body body: CashflowCreateRequest): Response<ApiEnvelope<CashflowCreatedDto>>
+
     @DELETE("cashflow-items/{id}")
     suspend fun deletePlan(@Path("id") cashflowItemId: Long): Response<ApiEnvelope<JsonElement>>
 }
@@ -55,6 +58,9 @@ interface ForecastRepository {
     fun savedPlan(planId: Long): SavedPlan?
 
     suspend fun deletePlan(planId: Long): ApiResult<Unit>
+
+    /** F-02a — #20 예정 수입·지출 등록(새 항목 ID). 서버에 재시도 키가 없어 실패해도 다시 보내지 않는다 */
+    suspend fun createItem(form: CashflowForm): ApiResult<Long>
 }
 
 @Singleton
@@ -91,6 +97,9 @@ class ForecastRepositoryImpl @Inject constructor(private val api: ForecastApi) :
 
     override suspend fun deletePlan(planId: Long): ApiResult<Unit> =
         apiCallNoData { api.deletePlan(planId) }.also { if (it is ApiResult.Success) plans.remove(planId) }
+
+    override suspend fun createItem(form: CashflowForm): ApiResult<Long> =
+        apiCall { api.createItem(form.toRequest()) }.map { it.cashflowItemId }
 }
 
 @Module
