@@ -13,7 +13,6 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 /** 결제 화면에 띄울 1회용 통합 바코드를 발급하고 상태를 알려준다. (FR-007, FR-010, DEC-003) */
@@ -34,12 +33,7 @@ public class BarcodeService {
     private final BarcodeTokenGenerator tokens;
     private final Clock clock;
 
-    @Autowired
-    BarcodeService(BarcodeStore store, PaymentCardLookup cards, StepUpService stepUp,
-            PaymentRequestViewReader paymentViews) {
-        this(store, cards, stepUp, paymentViews, new BarcodeTokenGenerator(), Clock.systemUTC());
-    }
-
+    /** clock은 {@code ClockConfig}의 빈이다. 테스트가 시계를 옮겨 만료를 확인할 수 있게 직접 만들지 않는다. */
     BarcodeService(BarcodeStore store, PaymentCardLookup cards, StepUpService stepUp,
             PaymentRequestViewReader paymentViews, BarcodeTokenGenerator tokens, Clock clock) {
         this.store = store;
@@ -70,7 +64,7 @@ public class BarcodeService {
                 return Issued.of(barcode, activeCardCount);
             }
         }
-        // 64비트 난수가 세 번 연속 겹치는 일은 사실상 없다. 생기면 난수 생성에 문제가 있는 것이므로 서버 오류로 둔다.
+        // 10^16가지(약 53비트) 난수가 세 번 연속 겹치는 일은 사실상 없다. 생기면 난수 생성에 문제가 있는 것이므로 서버 오류로 둔다.
         throw new IllegalStateException("바코드 토큰을 만들지 못했습니다.");
     }
 

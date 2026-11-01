@@ -48,11 +48,11 @@ class RedisBarcodeStoreTest extends RedisTestSupport {
     }
 
     @Test
-    void 키_구조는_barcode_토큰_해시와_barcode_user_사용자_문자열이다() {
+    void 키_구조는_barcode_code_토큰_해시와_barcode_user_사용자_문자열이다() {
         Barcode barcode = issued(7L);
         store.issue(barcode, RETENTION);
 
-        Map<Object, Object> fields = redis.opsForHash().entries("barcode:" + barcode.token());
+        Map<Object, Object> fields = redis.opsForHash().entries("barcode:code:" + barcode.token());
         assertThat(fields).containsOnlyKeys("userId", "status", "issuedAt", "expiresAt");
         assertThat(fields).containsEntry("userId", "7")
                 .containsEntry("status", "ISSUED")
@@ -86,7 +86,7 @@ class RedisBarcodeStoreTest extends RedisTestSupport {
         }
 
         assertThat(store.find(barcode.token())).isEmpty();
-        assertThat(redis.hasKey("barcode:" + barcode.token())).isFalse();
+        assertThat(redis.hasKey("barcode:code:" + barcode.token())).isFalse();
         assertThat(redis.hasKey("barcode:user:7")).isFalse();
     }
 
@@ -98,7 +98,7 @@ class RedisBarcodeStoreTest extends RedisTestSupport {
 
         store.issue(issued(7L), RETENTION);
 
-        Long firstTtl = redis.getExpire("barcode:" + first.token(), TimeUnit.MILLISECONDS);
+        Long firstTtl = redis.getExpire("barcode:code:" + first.token(), TimeUnit.MILLISECONDS);
         Long userTtl = redis.getExpire("barcode:user:7", TimeUnit.MILLISECONDS);
         // 이전 바코드는 처음 받은 2분에서 흐른 만큼 남아 있고(연장·삭제 없음), 사용자 키는 새 보관 시간 10분으로 다시 잡힌다
         assertThat(firstTtl).isBetween(Duration.ofSeconds(100).toMillis(), Duration.ofSeconds(119).toMillis());
@@ -196,7 +196,7 @@ class RedisBarcodeStoreTest extends RedisTestSupport {
         Barcode scanned = store.find(barcode.token()).orElseThrow();
         assertThat(scanned.status()).isEqualTo(BarcodeStatus.SCANNED);
         assertThat(scanned.paymentId()).isEqualTo(1024L);
-        assertThat(redis.getExpire("barcode:" + barcode.token(), TimeUnit.SECONDS)).isBetween(590L, 600L);
+        assertThat(redis.getExpire("barcode:code:" + barcode.token(), TimeUnit.SECONDS)).isBetween(590L, 600L);
         assertThat(redis.getExpire("barcode:user:7", TimeUnit.SECONDS)).isBetween(590L, 600L);
     }
 
