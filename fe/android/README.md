@@ -9,7 +9,7 @@
 3. 위쪽 기기 목록에서 에뮬레이터(Medium Phone API 37) 또는 연결한 폰을 고르고 ▶ Run.
 4. 명령으로 빌드: `gradlew.bat assembleCustomerDebug assemblePosDebug` · 테스트: `gradlew.bat testCustomerDebugUnitTest` (JDK는 Android Studio 내장 `jbr`).
 5. 모의 POS 단말 키: `local.properties`에 `yamu.posKey=백엔드가 발급한 키` 한 줄(가짜 데이터일 땐 없어도 됨).
-6. 가짜 데이터: debug 빌드는 `USE_FAKE_API=true`(app/build.gradle.kts) — 백엔드가 준비되면 false로. release에는 가짜 코드가 들어가지 않는다(`src/debug`).
+6. 가짜 데이터: debug 빌드는 기본으로 전부 가짜이고, `local.properties`의 `yamu.realApi`에 적은 기능만 진짜 서버를 쓴다(아래 '실서버 연결'). release에는 가짜 코드가 들어가지 않는다(`src/debug`).
 7. release(R8로 줄인 것)를 기기에서 시험: `gradlew.bat assembleCustomerRelease assemblePosRelease -Pyamu.devSign` → debug 앱을 지우고 설치(패키지가 같음). 버전 끝에 `-devsign`이 붙은 시험본이라 밖에 나눠 주지 않는다. 진짜 서명 · 확인 순서는 설계 문서 17(release 정리).
 
 ## 지금 상태 (2026-10-27)
@@ -44,6 +44,30 @@
 - **모의 POS 가짜 시험값**([번호로 넣기]): EXPIRED가 들어가면 만료 · USED는 이미 쓴 코드 · DECLINE은 거절 · REJECT는 고객 거절, 그 밖은 5초 뒤 승인
 - **가짜 연결 시험값**: 1원 숫자 1004 · 0000은 시간 지남 · 그 밖은 틀림. 에뮬레이터 문자 자동 입력: `adb emu sms send 15880000 "[KB국민은행] *1234 입금 1원 YAMU 1004"`(Google Play 이미지에서만)
 - **화면 바로 열기**, **컴포넌트 갤러리**(다크 모드 · 글자 1.3배 · 청록 미리보기)
+- **서버 연결**: 지금 주소와 진짜로 쓰는 기능을 보여 주고, '서버 연결 확인'으로 `GET /api/health`를 불러 본다
+
+## 실서버 연결 (debug)
+`local.properties`에 아래처럼 적고 다시 빌드한다. 비워 두면 로컬 BE 주소에 전부 가짜라서 지금까지와 같다.
+
+```properties
+yamu.baseUrl=http://localhost:8080/api/
+yamu.realApi=cashflow,link
+```
+
+- `yamu.baseUrl`은 `/`로 끝나야 한다. 로컬 BE는 `adb reverse tcp:8080 tcp:8080` 뒤 `localhost`, 에뮬레이터는 `http://10.0.2.2:8080/api/`도 된다.
+- `yamu.realApi`는 Repository 단위다. 쓸 수 있는 이름은 `auth` · `link` · `cashflow` · `home` · `payment` · `performance` · `forecast` · `report` · `my` · `pos`이고 `all`이면 전부, 모르는 이름이면 빌드가 멈춘다.
+- 진짜 API는 로그인 토큰이 필요하다. `auth`를 가짜로 두고 다른 기능만 켜면 가짜 토큰이 실려 401이 나므로, 가입 · 로그인을 BE 방식으로 바꾸기 전까지는 '서버 연결 확인'까지만 볼 수 있다.
+
+BE(develop, 2026-11-01)와 맞춰 본 결과는 이렇다.
+
+| 이름 | 앱이 부르는 API | BE |
+|---|---|---|
+| `auth` | 가입 · 로그인 · PIN · 기기 등록 · 본인 인증 · 재발급 · 로그아웃 | 재발급 · 로그아웃 · 본인 인증은 있음. 가입 · 로그인은 방식이 다름(아래) |
+| `link` | 기관 목록 · 연결 세션 · 계좌 · 카드 목록 | 계좌 · 카드 목록만 맞음. 연결은 `accounts/candidates` · `accounts/one-won-auth` · `cards/lookup`으로 바뀜 |
+| `cashflow` | `cashflow-items` 조회 · 수정, `forecasts/settings` · `forecasts/balance` | `cashflow-items`만 있음 |
+| `home` · `payment` · `performance` · `forecast` · `report` · `my` · `pos` | 홈 · 결제 · 추천 · 실적 · 혜택 한도 · 예보 · 소비 판단 · 리포트 · 알림 · 마이 · 모의 POS | 아직 없음 |
+
+BE에는 비밀번호가 없다. 가입은 휴대폰 본인인증(이름 · 생년월일 · 통신사 · 번호 → 6자리)으로 가입 진행 토큰을 받고, 그 토큰으로 계좌 목록에서 골라 1원 인증 → PIN → 기기 등록 순서로 가며 기기 등록 응답에 토큰이 온다. 로그인은 기기 번호로 challenge를 받아 기기 키로 서명하고 PIN이나 지문을 같이 보낸다. 가입은 BE 시드(`be/seed/PERSONA.md`)에 있는 사람만 할 수 있다. 앱을 이 방식으로 바꾸는 일은 따로 Task로 나눈다.
 
 ## 폴더
 ```
@@ -64,8 +88,8 @@ app/src/debug · posDebug   가짜 데이터(release에는 안 들어감)
 - 화면 코드에 색 · 크기 숫자를 직접 쓰지 않는다 — `YamuTheme.colors.*` · `YamuTheme.typography.*` · `YamuSpacing` · `YamuRadius`.
 - **메인 색 교체는 `core/designsystem/theme/BrandColor.kt` 한 곳**(10/23 회의 — 토스 파랑에서 바꾸기, 후보 청록 `#0B8576`).
 - 앱은 YAMU 백엔드 API만 부르고, 판정 · 추천 · 예측은 계산하지 않는다(서버 값 그대로).
-- 서버 주소: debug `http://localhost:8000/api/v1/`(폰은 `adb reverse tcp:8000 tcp:8000`), release는 `app/build.gradle.kts`의 TODO.
-- `local.properties`(SDK 경로 · POS 키 `yamu.posKey`)는 Git에 올리지 않는다.
+- 서버 주소: debug 기본 `http://localhost:8080/api/`(로컬 BE, `adb reverse tcp:8080 tcp:8080`), `yamu.baseUrl`로 바꿀 수 있다. release는 `app/build.gradle.kts`의 TODO.
+- `local.properties`(SDK 경로 · POS 키 `yamu.posKey` · 실서버 시험 `yamu.baseUrl` · `yamu.realApi`)는 Git에 올리지 않는다.
 
 ## 사용한 외부 자료
 - Pretendard 1.3.9 (SIL OFL) — Regular · Medium · SemiBold · Bold · ExtraBold, `app/src/main/res/font`, 라이선스 `third_party/Pretendard-LICENSE.txt`

@@ -22,7 +22,7 @@ class MainActivity : FragmentActivity() {   // 지문 창(BiometricPrompt)이 Fr
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()   // 상태 · 내비 바 뒤까지 그리기 — 여백은 화면마다 처리
         if (BuildConfig.DEBUG) {
-            Log.d("YAMU", "BASE_URL=${BuildConfig.BASE_URL} fake=${BuildConfig.USE_FAKE_API}")
+            Log.d("YAMU", "BASE_URL=${BuildConfig.BASE_URL} real=${BuildConfig.REAL_API}")
         }
         setContent {
             YamuTheme {
