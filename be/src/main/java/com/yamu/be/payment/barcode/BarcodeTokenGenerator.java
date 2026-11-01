@@ -2,6 +2,7 @@ package com.yamu.be.payment.barcode;
 
 import java.security.SecureRandom;
 import java.util.Locale;
+import java.util.regex.Pattern;
 import org.springframework.stereotype.Component;
 
 /**
@@ -13,11 +14,17 @@ import org.springframework.stereotype.Component;
 class BarcodeTokenGenerator {
 
     private static final long BOUND = 10_000_000_000_000_000L;
+    private static final Pattern FORMAT = Pattern.compile("[0-9]{16}");
 
     private final SecureRandom random = new SecureRandom();
 
     String next() {
         // 기본 Locale에 따라 다른 숫자 문자가 나오지 않도록 ROOT로 고정한다.
         return String.format(Locale.ROOT, "%016d", random.nextLong(BOUND));
+    }
+
+    /** 이 형식이 아닌 값으로 Redis를 조회하지 않도록 먼저 거른다. */
+    static boolean isWellFormed(String token) {
+        return token != null && FORMAT.matcher(token).matches();
     }
 }

@@ -51,6 +51,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
+import org.springframework.data.redis.connection.DataType;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.annotation.DirtiesContext;
@@ -261,10 +262,44 @@ class BarcodeIssueIntegrationTest extends MySqlTestSupport {
                 .andExpect(jsonPath("$.error.code").value("BARCODE_NOT_FOUND"));
     }
 
+    // ───────── 코드 형식·존재 숨김 ─────────
+
+    @Test
+    void 형식이_다른_코드는_Redis_키를_건드리지_않고_404다() throws Exception {
+        long userId = userId(device);
+        fixtures.card(userId, product, null, "ACTIVE");
+        issue(device, barcodeToken(device)).andExpect(status().isCreated());
+        // barcode:user:{id}는 해시가 아니라 문자열 키다. 형식 검사 없이 "user:{id}"를 해시로 읽으면 WRONGTYPE으로 500이 난다
+        assertThat(redis.type("barcode:user:" + userId)).isEqualTo(DataType.STRING);
+
+        for (String code : List.of("user:" + userId, "1234-5678-9012-3456", "１２３４５６７８９０１２３４５６",
+                "123456789012345", "12345678901234567")) {
+            fetch(device, code)
+                    .andExpect(status().isNotFound())
+                    .andExpect(jsonPath("$.error.code").value("BARCODE_NOT_FOUND"));
+        }
+    }
+
+    @Test
+    void 형식_오류와_없는_코드와_다른_사용자_코드는_똑같은_404_응답이다() throws Exception {
+        UserDevice other = saveDevice("01099998888");
+        fixtures.card(userId(other), product, null, "ACTIVE");
+        String othersCode = read(issue(other, barcodeToken(other)).andReturn(), "$.data.barcodeToken");
+
+        String malformed = notFoundBody(fetch(device, "user:" + userId(other)));
+        String missing = notFoundBody(fetch(device, "0000000000000000"));
+        String othersBody = notFoundBody(fetch(device, othersCode));
+
+        // 응답이 조금이라도 다르면 그 차이로 남의 코드가 있는지 짐작할 수 있다
+        assertThat(missing).isEqualTo(malformed);
+        assertThat(othersBody).isEqualTo(malformed);
+        assertThat(JsonPath.<String>read(malformed, "$.error.code")).isEqualTo("BARCODE_NOT_FOUND");
+    }
+
     @Test
     void 사용자_키_이름을_코드_자리에_넣어_조회해도_500이_아니라_404다() throws Exception {
         // 바코드 키와 사용자 키(barcode:user:{id}, 문자열)의 접두어가 같으면 HGETALL이 WRONGTYPE으로 500이 나고,
-        // 404와의 차이로 다른 사용자가 바코드를 발급했는지 드러난다(!57 리뷰)
+        // 404와의 차이로 다른 사용자가 바코드를 발급했는지 드러난다(!57 리뷰). 5.1.2의 형식 검사와 134의 접두어 분리가 둘 다 막는다
         long userId = userId(device);
         fixtures.card(userId, product, null, "ACTIVE");
         issue(device, barcodeToken(device)).andExpect(status().isCreated());
@@ -351,6 +386,11 @@ class BarcodeIssueIntegrationTest extends MySqlTestSupport {
     private static String sha256Hex(String token) throws Exception {
         return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
                 .digest(token.getBytes(StandardCharsets.UTF_8)));
+    }
+
+    private static String notFoundBody(ResultActions fetched) throws Exception {
+        return fetched.andExpect(status().isNotFound()).andReturn()
+                .getResponse().getContentAsString(StandardCharsets.UTF_8);
     }
 
     private static String read(MvcResult result, String path) throws Exception {

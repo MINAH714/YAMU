@@ -64,8 +64,11 @@ public class BarcodeService {
         throw new IllegalStateException("바코드 토큰을 만들지 못했습니다.");
     }
 
-    /** 내 바코드의 지금 상태. 없거나 다른 사용자의 바코드면 404 BARCODE_NOT_FOUND다. */
+    /** 내 바코드의 지금 상태. 형식이 다르거나, 없거나, 다른 사용자의 바코드면 404 BARCODE_NOT_FOUND다. */
     public State get(Long userId, String barcodeToken) {
+        if (!BarcodeTokenGenerator.isWellFormed(barcodeToken)) {
+            throw new BusinessException(ErrorCode.BARCODE_NOT_FOUND);
+        }
         Barcode barcode = store.find(barcodeToken)
                 .filter(found -> found.userId().equals(userId))
                 .orElseThrow(() -> new BusinessException(ErrorCode.BARCODE_NOT_FOUND));
