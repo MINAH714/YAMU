@@ -24,6 +24,15 @@ class CashflowMapperTest {
         assertEquals(6_000L, draft.dailyLivingCost)
     }
 
+    @Test fun `매월 말일 반복(31)은 기준일 31 그대로 오고 '말일'로 보인다`() {
+        val draft = listOf(item(306, "EXPENSE", "월세", 500_000, 31), item(304, "EXPENSE", "구독료", 15_000, 1)).toDraft(null)
+        assertEquals(listOf("구독료", "월세"), draft.expenses.map { it.title })   // 31은 날짜순 맨 뒤
+        assertEquals(31, draft.expenses.last().dayOfMonth)
+        assertEquals("말일", monthlyDayLabel(31))
+        assertEquals("30일", monthlyDayLabel(30))   // 30일 반복은 2월만 서버가 말일로 맞추고 표시는 그대로
+        assertEquals("1일", monthlyDayLabel(1))
+    }
+
     @Test fun `날짜가 반복이 아니면 발생일에서 일자`() {
         val draft = listOf(CashflowItemDto(1, "EXPENSE", "보험", 40_000, occurrenceDate = "2026-11-05")).toDraft(null)
         assertEquals(5, draft.expenses.single().dayOfMonth)
