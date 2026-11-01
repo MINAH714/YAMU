@@ -139,7 +139,8 @@ final class RiskDetector {
         };
     }
 
-    private static long worstBalance(ForecastCalculator.BalancePoint point) {
+    /** 가장 나쁜 선(보수적, 없으면 예상)의 잔액. 최저·마지막 잔액과 가상 구매 비교 선에 쓴다. */
+    static long worstBalance(ForecastCalculator.BalancePoint point) {
         return point.conservative() != null ? point.conservative() : point.expected();
     }
 
@@ -147,8 +148,8 @@ final class RiskDetector {
 
     enum Line { CONFIRMED, EXPECTED, CONSERVATIVE }
 
-    /** 잔액을 떨어뜨린 원인. 입출금 종류에 추정 생활비를 더했다. */
-    enum CauseType { SCHEDULED_INCOME, SCHEDULED_OUTFLOW, CARD_BILLING, LIVING_COST_ESTIMATE }
+    /** 잔액을 떨어뜨린 원인. 입출금 종류({@link FlowEvent.Type})에 추정 생활비를 더했다. 이름이 같아야 한다. */
+    enum CauseType { SCHEDULED_INCOME, SCHEDULED_OUTFLOW, CARD_BILLING, SIMULATED_PURCHASE, LIVING_COST_ESTIMATE }
 
     /**
      * @param amount 출금(음수, 원). 추정 생활비는 구간 최저 날까지 누적한 금액
