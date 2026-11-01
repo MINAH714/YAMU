@@ -54,3 +54,8 @@ yamu:
       idempotency-lock-ttl: 30s
       max-attempts: 3
       attempt-ttl: 24h
+      settle-lock-ttl: 60s
+      recovery-grace: 30s
+      recovery-interval: 60s
+      # 주기 작업은 테스트가 직접 부른다
+      recovery-enabled: false

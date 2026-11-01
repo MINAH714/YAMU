@@ -6,8 +6,10 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.startsWith;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -52,6 +54,7 @@ import java.util.Set;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
@@ -90,6 +93,7 @@ class PaymentApprovalServiceTest {
     @Mock ApprovalIdempotencyStore idempotency;
     @Mock ApprovalAttemptStore attempts;
     @Mock PaymentExpiry expiry;
+    @Mock WithdrawalRecovery recovery;
     @Mock BarcodeStore barcodes;
     @Mock RedisLocks locks;
     @Mock RedisLocks.Lock lock;
@@ -98,7 +102,8 @@ class PaymentApprovalServiceTest {
     final PosProperties posProperties = new PosProperties(null, Duration.ofSeconds(60), Duration.ofMinutes(10),
             Duration.ofMinutes(10), Duration.ofHours(24), Duration.ofSeconds(15), List.of());
     final PaymentApprovalProperties properties = new PaymentApprovalProperties(Duration.ofHours(24),
-            Duration.ofSeconds(30), 3, Duration.ofHours(24));
+            Duration.ofSeconds(30), 3, Duration.ofHours(24), Duration.ofSeconds(60), Duration.ofSeconds(30),
+            Duration.ofSeconds(60), false);
     final Clock clock = Clock.fixed(NOW, ZoneOffset.UTC);
 
     PaymentApprovalService service;
@@ -108,8 +113,8 @@ class PaymentApprovalServiceTest {
     @BeforeEach
     void setUp() {
         service = new PaymentApprovalService(payments, cardQuery, cards, snapshots, recommender, approver, ledger,
-                idempotency, attempts, expiry, barcodes, locks, transaction, new ObjectMapper(), posProperties,
-                properties, clock);
+                idempotency, attempts, expiry, recovery, barcodes, locks, transaction, new ObjectMapper(),
+                posProperties, properties, clock);
         payment = requested(15_000, 1);
         recommendation = recommendation(List.of(candidate(1, CREDIT), candidate(2, CHECK)));
 
@@ -123,12 +128,14 @@ class PaymentApprovalServiceTest {
                 .doInTransaction(mock(TransactionStatus.class)));
         when(attempts.count(PAYMENT_ID)).thenReturn(0);
         when(attempts.start(eq(PAYMENT_ID), anyLong(), anyString(), any()))
-                .thenAnswer(inv -> new Attempt(1, inv.getArgument(1), KEY, inv.getArgument(3), "PROCESSING", null));
+                .thenAnswer(inv -> new Attempt(1, inv.getArgument(1), KEY, inv.getArgument(3), "PROCESSING", null,
+                        null));
         when(attempts.triedCardIds(PAYMENT_ID)).thenReturn(Set.of());
         when(expiry.isPastDeadline(any())).thenReturn(false);
+        when(recovery.recover(PAYMENT_ID)).thenReturn(PaymentStatus.PROCESSING);
         when(snapshots.find(PAYMENT_ID)).thenAnswer(inv -> Optional.of(recommendation));
         when(cards.findActiveCards(7L)).thenReturn(List.of(CREDIT, CHECK, SUSPENDED));
-        when(approver.approve(any())).thenAnswer(inv -> new TemporaryPaymentApprover().approve(inv.getArgument(0)));
+        when(approver.approve(any())).thenAnswer(inv -> new TemporaryCreditCardApprover().approve(inv.getArgument(0)));
     }
 
     // ───────── 승인 ─────────
@@ -315,13 +322,102 @@ class PaymentApprovalServiceTest {
         doReturn(ApprovalOutcome.Declined.of(FailureCode.CREDIT_LIMIT_EXCEEDED)).when(approver).approve(any());
         when(attempts.count(PAYMENT_ID)).thenReturn(2);
         when(attempts.start(eq(PAYMENT_ID), anyLong(), anyString(), any()))
-                .thenAnswer(inv -> new Attempt(3, inv.getArgument(1), KEY, inv.getArgument(3), "PROCESSING", null));
+                .thenAnswer(inv -> new Attempt(3, inv.getArgument(1), KEY, inv.getArgument(3), "PROCESSING", null,
+                        null));
 
         PaymentApprovalResponse response = service.approve(ME, PAYMENT_ID, request(null), KEY);
 
         assertThat(response.retryable()).isFalse();
         assertThat(response.remainingAttempts()).isZero();
         assertThat(response.suggestedCards()).isEmpty();
+    }
+
+    // ───────── 결과 불명 복구·되돌리기(5.2.3) ─────────
+
+    @Test
+    void 금융망에_보내지_못했으면_결제를_REQUESTED로_되돌리고_502이며_결과를_기억하지_않는다() {
+        doThrow(new ApprovalNotSentException("연결 실패", null)).when(approver).approve(any());
+
+        assertThatThrownBy(() -> service.approve(ME, PAYMENT_ID, request(16L), KEY))
+                .extracting(e -> ((BusinessException) e).getErrorCode()).isEqualTo(ErrorCode.FIN_API_UNAVAILABLE);
+
+        assertThat(payment.getStatus()).isEqualTo(PaymentStatus.REQUESTED);
+        assertThat(payment.getUserCardId()).isEqualTo(16L);
+        verify(attempts).finish(any(), eq(ApprovalAttemptStore.NOT_SENT), eq(null), eq(PAYMENT_ID));
+        verify(idempotency, never()).remember(anyLong(), anyString(), any());
+        verify(barcodes, never()).markUsed(anyLong());
+    }
+
+    @Test
+    void PROCESSING_결제는_횟수_카드_검사보다_먼저_복구를_거치고_풀렸으면_이어서_승인한다() {
+        payment.startApproval(15L, 3L);
+        when(recovery.recover(PAYMENT_ID)).thenAnswer(inv -> {
+            payment.releaseApproval();
+            return PaymentStatus.REQUESTED;
+        });
+
+        PaymentApprovalResponse response = service.approve(ME, PAYMENT_ID, request(16L), KEY);
+
+        assertThat(response.status()).isEqualTo(PaymentStatus.APPROVED);
+        assertThat(response.selectedCard().userCardId()).isEqualTo(16L);
+        InOrder order = inOrder(recovery, attempts);
+        order.verify(recovery).recover(PAYMENT_ID);
+        order.verify(attempts).count(PAYMENT_ID);
+    }
+
+    @Test
+    void 복구가_승인으로_확정하면_행에서_만든_승인_응답을_돌려주고_새_시도를_만들지_않는다() {
+        payment.startApproval(15L, 3L);
+        payment.assignFinRequestNo("20261022143005000001");
+        when(recovery.recover(PAYMENT_ID)).thenAnswer(inv -> {
+            payment.approve(15_000, 0, LocalDate.of(2026, 10, 1), REQUESTED_AT.plusSeconds(20), "1101");
+            return PaymentStatus.APPROVED;
+        });
+
+        PaymentApprovalResponse response = service.approve(ME, PAYMENT_ID, request(16L), KEY);
+
+        assertThat(response.status()).isEqualTo(PaymentStatus.APPROVED);
+        assertThat(response.approvalNo()).isEqualTo("Y202610220000001024");
+        assertThat(response.selectedCard().userCardId()).isEqualTo(15L);
+        assertThat(response.selectedCard().recommendedRank()).isEqualTo(1);
+        assertThat(response.selectedCard().userSelected()).isFalse();
+        assertThat(response.chargedAmount()).isEqualTo(15_000);
+        verify(approver, never()).approve(any());
+        verify(attempts, never()).start(anyLong(), anyLong(), anyString(), any());
+        verify(idempotency).remember(eq(7L), eq(KEY), any());
+    }
+
+    @Test
+    void 복구_뒤에도_PROCESSING이면_PAYMENT_IN_PROGRESS다() {
+        payment.startApproval(15L, 3L);
+        when(recovery.recover(PAYMENT_ID)).thenReturn(PaymentStatus.PROCESSING);
+
+        assertThatThrownBy(() -> service.approve(ME, PAYMENT_ID, request(null), KEY))
+                .extracting(e -> ((BusinessException) e).getErrorCode()).isEqualTo(ErrorCode.PAYMENT_IN_PROGRESS);
+        verify(approver, never()).approve(any());
+    }
+
+    @Test
+    void 승인_결과의_출금_요청_번호가_행과_다르면_저장하지_않는다() {
+        doReturn(new ApprovalOutcome.Approved(15_000, 15_000, 0, LocalDate.of(2026, 10, 1), List.of(),
+                "20261022143005000009", "1101")).when(approver).approve(any());
+
+        assertThatThrownBy(() -> service.approve(ME, PAYMENT_ID, request(16L), KEY))
+                .isInstanceOf(IllegalStateException.class);
+
+        assertThat(payment.getStatus()).isEqualTo(PaymentStatus.PROCESSING);
+        verify(ledger, never()).recordApproval(any(), any());
+        verify(barcodes, never()).markUsed(anyLong());
+    }
+
+    @Test
+    void 결제별_정산_잠금을_못_잡으면_선점하지_않고_PAYMENT_IN_PROGRESS다() {
+        when(locks.tryLock(startsWith(WithdrawalRecovery.SETTLE_LOCK_PREFIX), any())).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.approve(ME, PAYMENT_ID, request(null), KEY))
+                .extracting(e -> ((BusinessException) e).getErrorCode()).isEqualTo(ErrorCode.PAYMENT_IN_PROGRESS);
+        assertThat(payment.getStatus()).isEqualTo(PaymentStatus.REQUESTED);
+        verify(approver, never()).approve(any());
     }
 
     // ───────── 멱등 ─────────

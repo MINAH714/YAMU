@@ -55,16 +55,17 @@ import org.springframework.transaction.support.TransactionTemplate;
  * <pre>
  * ① Idempotency-Key(UUID)·본문 계약(plan·installmentMonths 금지) → 요청 지문
  * ② 멱등: 같은 키 재전송은 처음 응답, 다른 내용은 409, 처리 중이면 409
- * ③ 결제 소유 확인(남의 결제 404) → 상태·마감 선검사(만료면 EXPIRED 저장 후 410)
+ * ③ 결제 소유 확인(남의 결제 404) → PROCESSING이면 결과 불명 복구(WithdrawalRecovery) → 상태·마감 선검사(만료면 EXPIRED 저장 후 410)
  * ④ 재승인 횟수(최대 3회, 임시) → 카드 결정(직접 고름: 소유 404·적격 400, 생략: 1순위 추천)
- * ⑤ tx1: REQUESTED·DECLINED → PROCESSING 선점(@Version으로 동시 요청 1건만)
- * ⑥ 승인 실행(PaymentApprover, DB 트랜잭션 밖. 체크카드 출금은 Task 5.2.3)
+ * ⑤ 결제별 정산 잠금 → tx1: REQUESTED·DECLINED → PROCESSING 선점(@Version으로 동시 요청 1건만)
+ * ⑥ 승인 실행(PaymentApprover, DB 트랜잭션 밖. 체크카드는 금융망 출금)
  * ⑦ tx2: APPROVED(원장 반영 포트) 또는 DECLINED 저장 → 바코드 USED → 응답·멱등 기억
  * </pre>
  *
  * <p>깨질 수 있는 곳: 연타·두 기기(다른 키)는 ⑤의 version 충돌로 한 건만 PROCESSING이 되고 나머지는 409 PAYMENT_IN_PROGRESS.
- * 같은 키 재전송은 ②의 Redis 응답과 잠금. 승인 실행 중 예외(금융망 무응답)는 PROCESSING에 둔 채 502이고, 복구는 Task 5.2.3.
- * 후보 없음은 거절로 저장하지 않는다(failure_code 허용값에 없고 시도 횟수만 소모). 마감은 ③과 ⑤에서 두 번 본다.
+ * 같은 키 재전송은 ②의 Redis 응답과 잠금. 승인 실행 중 결과 불명(금융망 무응답)은 PROCESSING에 둔 채 502이고,
+ * 다음 요청·주기 작업이 거래내역으로 확정한다(③). 금융망에 보내지도 못했으면 REQUESTED로 되돌린다.
+ * 늦게 온 옛 시도의 결과는 tx2에서 요청 번호를 대조해 막는다. 후보 없음은 거절로 저장하지 않는다. 마감은 ③과 ⑤에서 두 번 본다.
  */
 @Slf4j
 @Service
@@ -82,6 +83,7 @@ public class PaymentApprovalService {
     private final ApprovalIdempotencyStore idempotency;
     private final ApprovalAttemptStore attempts;
     private final PaymentExpiry expiry;
+    private final WithdrawalRecovery recovery;
     private final BarcodeStore barcodes;
     private final RedisLocks locks;
     private final TransactionTemplate transaction;
@@ -93,9 +95,9 @@ public class PaymentApprovalService {
     public PaymentApprovalService(PaymentTransactionRepository payments, CardQueryService cardQuery,
             PaymentCardLookup cards, RecommendationSnapshotStore snapshots, CardRecommender recommender,
             PaymentApprover approver, ApprovalLedger ledger, ApprovalIdempotencyStore idempotency,
-            ApprovalAttemptStore attempts, PaymentExpiry expiry, BarcodeStore barcodes, RedisLocks locks,
-            TransactionTemplate transaction, ObjectMapper objectMapper, PosProperties posProperties,
-            PaymentApprovalProperties properties, Clock clock) {
+            ApprovalAttemptStore attempts, PaymentExpiry expiry, WithdrawalRecovery recovery, BarcodeStore barcodes,
+            RedisLocks locks, TransactionTemplate transaction, ObjectMapper objectMapper,
+            PosProperties posProperties, PaymentApprovalProperties properties, Clock clock) {
         this.payments = payments;
         this.cardQuery = cardQuery;
         this.cards = cards;
@@ -106,6 +108,7 @@ public class PaymentApprovalService {
         this.idempotency = idempotency;
         this.attempts = attempts;
         this.expiry = expiry;
+        this.recovery = recovery;
         this.barcodes = barcodes;
         this.locks = locks;
         this.transaction = transaction;
@@ -146,6 +149,18 @@ public class PaymentApprovalService {
     private PaymentApprovalResponse process(Long userId, Long paymentId, PaymentApprovalRequest request, String key) {
         PaymentTransaction payment = payments.findByIdAndUserId(paymentId, userId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND));
+        if (payment.getStatus() == PaymentStatus.PROCESSING) {
+            // 앞 요청이 결과를 모른 채 끝났을 수 있다. 거래내역으로 확정한 뒤 그 결과대로 답한다(Task 5.2.3)
+            PaymentStatus recovered = recovery.recover(paymentId);
+            if (recovered == PaymentStatus.APPROVED) {
+                return recoveredResponse(userId, paymentId, request);
+            }
+            if (recovered != PaymentStatus.REQUESTED && recovered != PaymentStatus.DECLINED) {
+                throw byStatus(recovered == null ? PaymentStatus.PROCESSING : recovered);
+            }
+            payment = payments.findByIdAndUserId(paymentId, userId)
+                    .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND));
+        }
         requireConfirmable(payment);
         if (attempts.count(paymentId) >= properties.maxAttempts()) {
             throw new BusinessException(ErrorCode.RETRY_LIMIT_EXCEEDED,
@@ -155,6 +170,19 @@ public class PaymentApprovalService {
         RecommendationResult recommendation = recommendationOf(payment, terms);
         Selection selection = select(userId, request, terms, recommendation);
 
+        // 출금 실행·결과 저장과 복구가 같은 결제에 겹치지 않게 결제별로 잠근다
+        Optional<RedisLocks.Lock> settle = locks.tryLock(WithdrawalRecovery.settleLockKey(paymentId),
+                properties.settleLockTtl());
+        if (settle.isEmpty()) {
+            throw new BusinessException(ErrorCode.PAYMENT_IN_PROGRESS);
+        }
+        try (RedisLocks.Lock ignored = settle.get()) {
+            return execute(userId, paymentId, key, payment, terms, recommendation, selection);
+        }
+    }
+
+    private PaymentApprovalResponse execute(Long userId, Long paymentId, String key, PaymentTransaction payment,
+            PaymentTerms terms, RecommendationResult recommendation, Selection selection) {
         Instant now = clock.instant();
         LocalDateTime nowUtc = LocalDateTime.ofInstant(now, ZoneOffset.UTC).truncatedTo(ChronoUnit.MICROS);
         takeProcessing(paymentId, selection);
@@ -165,21 +193,29 @@ public class PaymentApprovalService {
         try {
             outcome = approver.approve(new ApprovalCommand(paymentId, userId, terms, selection.card(),
                     selection.candidate(), payment.getRequestedAt(), nowUtc, attempt.no()));
+        } catch (ApprovalNotSentException e) {
+            // 금융망에 간 적이 없다. 결제를 승인 전으로 되돌려 다시 시도할 수 있게 한다(시도 횟수에 세지 않음)
+            release(paymentId);
+            attempts.finish(attempt, ApprovalAttemptStore.NOT_SENT, null, paymentId);
+            log.warn("결제 승인 실행을 보내지 못해 되돌림 paymentId={} attempt={}: {}", paymentId, attempt.no(), e.getMessage());
+            throw new BusinessException(ErrorCode.FIN_API_UNAVAILABLE);
         } catch (RuntimeException e) {
-            // 결과 불명. 돈이 빠졌을 수 있으므로 PROCESSING에 둔다. 거래내역으로 확정하는 복구는 Task 5.2.3
+            // 결과 불명. 돈이 빠졌을 수 있으므로 PROCESSING에 둔다. 다음 요청·주기 작업이 거래내역으로 확정한다
             log.warn("결제 승인 실행 실패, PROCESSING 유지 paymentId={} attempt={}", paymentId, attempt.no(), e);
             throw e;
         }
         PaymentTransaction settled = settle(paymentId, outcome, nowUtc);
-        if (outcome instanceof ApprovalOutcome.Approved) {
+        if (outcome instanceof ApprovalOutcome.Approved approved) {
             markBarcodeUsed(paymentId);
-            attempts.finish(attempt, PaymentStatus.APPROVED.name(), null, paymentId);
-        } else if (outcome instanceof ApprovalOutcome.Declined declined) {
-            attempts.finish(attempt, PaymentStatus.DECLINED.name(), declined.code().name(), paymentId);
+            attempts.finish(attempt, ApprovalAttemptStore.APPROVED, null, paymentId);
+            log.info("결제 승인 결과 paymentId={} attempt={} status=APPROVED", paymentId, attempt.no());
+            return approvedResponse(settled, selection, approved.chargedAmount(), approved.benefits());
         }
-        log.info("결제 승인 결과 paymentId={} attempt={} status={} failure={}", paymentId, attempt.no(),
-                settled.getStatus(), settled.getFailureCode());
-        return response(settled, selection, recommendation, outcome, attempt.no());
+        ApprovalOutcome.Declined declined = (ApprovalOutcome.Declined) outcome;
+        attempts.finish(attempt, ApprovalAttemptStore.DECLINED, declined.code().name(), paymentId);
+        log.info("결제 승인 결과 paymentId={} attempt={} status=DECLINED failure={}", paymentId, attempt.no(),
+                declined.code());
+        return declinedResponse(settled, selection, recommendation, declined, attempt.no());
     }
 
     /** 쓰기 전에 거르는 상태 검사. 마감이 지난 REQUESTED·DECLINED는 여기서 EXPIRED로 저장한다(Q4, 임시). */
@@ -308,12 +344,20 @@ public class PaymentApprovalService {
         }
     }
 
-    /** tx2: 승인 결과 저장. 승인이면 원장 반영 포트까지 같은 트랜잭션이다. */
+    /**
+     * tx2: 승인 결과 저장. 승인이면 원장 반영 포트까지 같은 트랜잭션이다.
+     * 출금에 쓴 요청 번호가 행의 번호와 다르면 옛 시도의 결과가 늦게 온 것이므로 저장하지 않는다(운영 확인).
+     */
     private PaymentTransaction settle(Long paymentId, ApprovalOutcome outcome, LocalDateTime now) {
         return transaction.execute(status -> {
             PaymentTransaction payment = payments.findById(paymentId)
                     .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND));
             if (outcome instanceof ApprovalOutcome.Approved approved) {
+                if (approved.finRequestNo() != null && !approved.finRequestNo().equals(payment.getFinRequestNo())) {
+                    log.error("승인 결과의 출금 요청 번호가 결제 행과 다름, 저장하지 않음 paymentId={} outcome={} row={}",
+                            paymentId, approved.finRequestNo(), payment.getFinRequestNo());
+                    throw new IllegalStateException("출금 요청 번호가 결제 행과 다릅니다 (결제 " + paymentId + ")");
+                }
                 payment.approve(approved.approvedAmount(), approved.recognizedPerformanceAmount(),
                         approved.performanceMonth(), now, approved.finTransactionNo());
                 payments.saveAndFlush(payment);
@@ -324,6 +368,23 @@ public class PaymentApprovalService {
             }
             return payment;
         });
+    }
+
+    /** 금융망에 보내지 못한 시도를 없던 일로. PROCESSING이 아니면(다른 처리가 바꿈) 그대로 둔다. */
+    private void release(Long paymentId) {
+        try {
+            transaction.execute(status -> {
+                PaymentTransaction payment = payments.findById(paymentId)
+                        .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND));
+                if (payment.getStatus() == PaymentStatus.PROCESSING) {
+                    payment.releaseApproval();
+                    payments.saveAndFlush(payment);
+                }
+                return null;
+            });
+        } catch (OptimisticLockingFailureException | OptimisticLockException e) {
+            log.warn("승인 되돌리기 중 결제 행이 바뀜 paymentId={}", paymentId);
+        }
     }
 
     /** 승인 뒤 바코드를 USED로. 바코드가 보관 종료로 없어도 승인은 유효하다. */
@@ -337,34 +398,62 @@ public class PaymentApprovalService {
         }
     }
 
-    private PaymentApprovalResponse response(PaymentTransaction payment, Selection selection,
-            RecommendationResult recommendation, ApprovalOutcome outcome, int attemptNo) {
-        CardSummary card = selection.card();
-        SelectedCard selected = new SelectedCard(card.userCardId(), nickname(card), masked(card.last4()),
-                card.cardType(), selection.recommendedRank(), selection.userSelected());
-        PaymentPlan plan = payment.isInstallment() ? PaymentPlan.INSTALLMENT : PaymentPlan.LUMP_SUM;
-        Integer months = payment.isInstallment() ? payment.getInstallmentMonths() : null;
+    /**
+     * 복구가 승인으로 확정한 결제의 응답을 행에서 만든다. 승인된 카드는 행의 카드이고, 요청이 다른 카드를 지정했어도 그 결과를 돌려준다
+     * (멱등 지문은 요청 기준 그대로). 앱은 selectedCard를 응답에서 읽어야 한다.
+     */
+    private PaymentApprovalResponse recoveredResponse(Long userId, Long paymentId, PaymentApprovalRequest request) {
+        PaymentTransaction payment = payments.findByIdAndUserId(paymentId, userId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND));
+        Long cardId = payment.getUserCardId();
+        CardSummary card = activeCard(userId, cardId).map(PaymentApprovalService::summary)
+                .or(() -> cardQuery.findRegisteredCard(userId, cardId)
+                        .map(ref -> new CardSummary(ref.userCardId(), ref.cardProductId(), ref.cardType(), false,
+                                null, ref.cardLast4(), null, null)))
+                .orElseThrow(() -> new IllegalStateException("승인된 결제의 카드를 찾을 수 없습니다 (결제 " + paymentId + ")"));
+        Integer rank = snapshots.find(paymentId).flatMap(r -> r.candidate(cardId)).map(Candidate::rank).orElse(null);
+        boolean userSelected = request.userSelected() && request.userCardId().equals(cardId);
+        log.info("결제 승인 요청이 복구된 승인 결과를 돌려줌 paymentId={}", paymentId);
+        return approvedResponse(payment, new Selection(card, null, rank, userSelected),
+                payment.getApprovedAmount(), List.of());
+    }
 
-        if (outcome instanceof ApprovalOutcome.Approved approved) {
-            List<Benefit> benefits = approved.benefits().stream()
-                    .map(b -> new Benefit(null, b.benefitId(), b.name(), b.type(), b.amount(), b.realization(),
-                            false))
-                    .toList();
-            return new PaymentApprovalResponse(payment.getId(), payment.getStatus(),
-                    ApprovalNumbers.of(payment.getApprovedAt(), payment.getId()), payment.getApprovedAt(), selected,
-                    payment.getRequestedAmount(), plan, months, benefits, approved.chargedAmount(), null, List.of(),
-                    null, List.of(), null, null, null, List.of());
-        }
-        ApprovalOutcome.Declined declined = (ApprovalOutcome.Declined) outcome;
+    private PaymentApprovalResponse approvedResponse(PaymentTransaction payment, Selection selection,
+            Long chargedAmount, List<RecommendationResult.BenefitLine> benefitLines) {
+        List<Benefit> benefits = benefitLines.stream()
+                .map(b -> new Benefit(null, b.benefitId(), b.name(), b.type(), b.amount(), b.realization(), false))
+                .toList();
+        return new PaymentApprovalResponse(payment.getId(), payment.getStatus(),
+                ApprovalNumbers.of(payment.getApprovedAt(), payment.getId()), payment.getApprovedAt(),
+                selected(selection), payment.getRequestedAmount(), planOf(payment), monthsOf(payment), benefits,
+                chargedAmount, null, List.of(), null, List.of(), null, null, null, List.of());
+    }
+
+    private PaymentApprovalResponse declinedResponse(PaymentTransaction payment, Selection selection,
+            RecommendationResult recommendation, ApprovalOutcome.Declined declined, int attemptNo) {
         int remaining = Math.max(0, properties.maxAttempts() - attemptNo);
         boolean retryable = remaining > 0 && !expiry.isPastDeadline(payment);
         List<SuggestedCard> suggested = retryable
                 ? suggestions(recommendation, attempts.triedCardIds(payment.getId()))
                 : List.of();
-        return new PaymentApprovalResponse(payment.getId(), payment.getStatus(), null, null, selected,
-                payment.getRequestedAmount(), plan, months, List.of(), null, null, List.of(), null, List.of(),
-                new Failure(declined.code().name(), declined.message(), declined.details()), retryable, remaining,
-                suggested);
+        return new PaymentApprovalResponse(payment.getId(), payment.getStatus(), null, null, selected(selection),
+                payment.getRequestedAmount(), planOf(payment), monthsOf(payment), List.of(), null, null, List.of(),
+                null, List.of(), new Failure(declined.code().name(), declined.message(), declined.details()),
+                retryable, remaining, suggested);
+    }
+
+    private static SelectedCard selected(Selection selection) {
+        CardSummary card = selection.card();
+        return new SelectedCard(card.userCardId(), nickname(card), masked(card.last4()), card.cardType(),
+                selection.recommendedRank(), selection.userSelected());
+    }
+
+    private static PaymentPlan planOf(PaymentTransaction payment) {
+        return payment.isInstallment() ? PaymentPlan.INSTALLMENT : PaymentPlan.LUMP_SUM;
+    }
+
+    private static Integer monthsOf(PaymentTransaction payment) {
+        return payment.isInstallment() ? payment.getInstallmentMonths() : null;
     }
 
     /** 거절 응답의 "B카드로 다시 결제" 후보: 추천 순서대로, 이미 시도한 카드는 빼고 최대 2장(프로토타입 P-06b). */

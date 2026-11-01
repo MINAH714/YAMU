@@ -80,7 +80,7 @@ class PaymentApprovalIntegrationTest extends MySqlTestSupport {
 
     static final String POS_KEY = "test-pos-key";
     static final Duration RETENTION = Duration.ofMinutes(10);
-    static final TemporaryPaymentApprover TEMPORARY = new TemporaryPaymentApprover();
+    static final TemporaryCreditCardApprover TEMPORARY = new TemporaryCreditCardApprover();
 
     @Container
     @ServiceConnection(name = "redis")
@@ -435,7 +435,8 @@ class PaymentApprovalIntegrationTest extends MySqlTestSupport {
     // ───────── 실행 실패(결과 불명) ─────────
 
     @Test
-    void 승인_실행이_실패하면_PROCESSING에_남고_이후_요청은_마감이_지나도_409_PAYMENT_IN_PROGRESS다() throws Exception {
+    void 승인_실행이_실패하면_PROCESSING에_남고_유예_안_요청은_409이며_출금_번호_없이_유예와_마감이_지나면_풀려_만료된다()
+            throws Exception {
         Requested requested = requested(15_000, null, null);
         doThrow(new BusinessException(ErrorCode.FIN_API_UNAVAILABLE)).when(approver).approve(any());
         String key = UUID.randomUUID().toString();
@@ -456,11 +457,12 @@ class PaymentApprovalIntegrationTest extends MySqlTestSupport {
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.error.code").value("PAYMENT_IN_PROGRESS"));
 
+        // 출금 요청 번호가 없는 PROCESSING은 금융망에 간 적이 없다. 유예가 지나면 복구가 되돌리고, 마감도 지났으니 만료된다(Task 5.2.3)
         clock.advance(Duration.ofSeconds(120));
         approve(user, requested.paymentId(), UUID.randomUUID().toString(), body(creditCard))
-                .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.error.code").value("PAYMENT_IN_PROGRESS"));
-        assertThat(payments.findById(requested.paymentId()).orElseThrow().getStatus()).isEqualTo(PaymentStatus.PROCESSING);
+                .andExpect(status().isGone())
+                .andExpect(jsonPath("$.error.code").value("PAYMENT_EXPIRED"));
+        assertThat(payments.findById(requested.paymentId()).orElseThrow().getStatus()).isEqualTo(PaymentStatus.EXPIRED);
     }
 
     // ───────── 소유·적격·본문 ─────────

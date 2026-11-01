@@ -19,10 +19,12 @@ public sealed interface ApprovalOutcome permits ApprovalOutcome.Approved, Approv
      * @param recognizedPerformanceAmount 승인 시점에 확정한 실적 인정액. 실적 제외 거래면 0
      * @param performanceMonth            실적을 합산할 월(한국 날짜, 1일)
      * @param benefits                    적용한 혜택. 없으면 빈 목록
+     * @param finRequestNo                체크카드 출금에 쓴 기관거래고유번호. 결과를 저장할 때 행의 번호와 같아야 한다(늦게 온 옛 시도의 결과 차단).
+     *                                    신용카드·0원 승인은 null
      * @param finTransactionNo            체크카드 출금의 금융망 거래 번호. 신용카드·0원 승인은 null
      */
     record Approved(long approvedAmount, long chargedAmount, long recognizedPerformanceAmount,
-            LocalDate performanceMonth, List<BenefitLine> benefits, String finTransactionNo)
+            LocalDate performanceMonth, List<BenefitLine> benefits, String finRequestNo, String finTransactionNo)
             implements ApprovalOutcome {
         public Approved {
             Objects.requireNonNull(performanceMonth, "performanceMonth");

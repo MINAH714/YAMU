@@ -135,6 +135,13 @@ yamu:
       # 거절 뒤 다른 카드로 다시 승인할 수 있는 횟수(임시: 명세 v0.3.1 가정 3회)와 시도 기록 보관 시간
       max-attempts: 3
       attempt-ttl: 24h
+      # 결제 하나의 출금 실행·결과 저장·복구가 겹치지 않게 잡는 잠금. 금융망 응답 제한(10초)보다 넉넉히
+      settle-lock-ttl: 60s
+      # 결과를 모르는 출금(타임아웃 등)을 거래내역에 없다고 결론내기 전 유예(임시: 응답 제한의 3배). 그 뒤에도 금융망이 늦게 처리하면 운영이 태그로 대조한다
+      recovery-grace: 30s
+      # 결과 불명 PROCESSING 결제를 훑는 주기 작업(명세 「결제 상태·예외 처리」 Q5 제안, 임시)
+      recovery-interval: 60s
+      recovery-enabled: true
   # SSAFY 금융망. api-key는 운영은 환경변수 SSAFY_API_KEY, 로컬은 application-local.yml에 넣는다(노션 API 명세 4장).
   # 키·userKey·요청 본문은 로그에 남기지 않는다. 비어 있어도 서버는 뜨고, 금융망을 부르는 순간 실패한다.
   fin-api:
