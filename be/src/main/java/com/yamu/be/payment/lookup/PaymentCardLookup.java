@@ -9,7 +9,7 @@ import org.springframework.stereotype.Component;
 /**
  * 결제에 필요한 보유 카드 정보를 user_card에서 직접 읽는다.
  *
- * <p>카드 엔티티는 BE1 담당이라, 예정 내역(cashflow)처럼 다른 도메인 테이블은 ID와 SQL로만 조회한다.
+ * <p>카드 엔티티는 BE1 담당이라 엔티티를 공유하지 않고 ID와 SQL로만 조회한다.
  * 카드 한 장을 골라 소유를 확인하는 것(없는·남의 카드는 404)은 BE1의 {@code CardQueryService.requireRegisteredCard}를 쓴다.
  */
 @Component
