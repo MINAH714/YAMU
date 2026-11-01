@@ -6,6 +6,8 @@ import com.yamu.be.global.exception.BusinessException;
 import com.yamu.be.global.exception.ErrorCode;
 import com.yamu.be.global.security.AuthUser;
 import com.yamu.be.payment.lookup.PaymentCardLookup;
+import com.yamu.be.payment.pos.PaymentRequestView;
+import com.yamu.be.payment.pos.PaymentRequestViewReader;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -28,19 +30,22 @@ public class BarcodeService {
     private final BarcodeStore store;
     private final PaymentCardLookup cards;
     private final StepUpService stepUp;
+    private final PaymentRequestViewReader paymentViews;
     private final BarcodeTokenGenerator tokens;
     private final Clock clock;
 
     @Autowired
-    BarcodeService(BarcodeStore store, PaymentCardLookup cards, StepUpService stepUp) {
-        this(store, cards, stepUp, new BarcodeTokenGenerator(), Clock.systemUTC());
+    BarcodeService(BarcodeStore store, PaymentCardLookup cards, StepUpService stepUp,
+            PaymentRequestViewReader paymentViews) {
+        this(store, cards, stepUp, paymentViews, new BarcodeTokenGenerator(), Clock.systemUTC());
     }
 
     BarcodeService(BarcodeStore store, PaymentCardLookup cards, StepUpService stepUp,
-            BarcodeTokenGenerator tokens, Clock clock) {
+            PaymentRequestViewReader paymentViews, BarcodeTokenGenerator tokens, Clock clock) {
         this.store = store;
         this.cards = cards;
         this.stepUp = stepUp;
+        this.paymentViews = paymentViews;
         this.tokens = tokens;
         this.clock = clock;
     }
@@ -69,7 +74,10 @@ public class BarcodeService {
         throw new IllegalStateException("바코드 토큰을 만들지 못했습니다.");
     }
 
-    /** 내 바코드의 지금 상태. 형식이 다르거나, 없거나, 다른 사용자의 바코드면 404 BARCODE_NOT_FOUND다. */
+    /**
+     * 내 바코드의 지금 상태. 형식이 다르거나, 없거나, 다른 사용자의 바코드면 404 BARCODE_NOT_FOUND다.
+     * POS가 스캔했으면 결제 요청(POS 조건·추천 상위 2장)을 같이 돌려준다.
+     */
     public State get(Long userId, String barcodeToken) {
         if (!BarcodeTokenGenerator.isWellFormed(barcodeToken)) {
             throw new BusinessException(ErrorCode.BARCODE_NOT_FOUND);
@@ -77,7 +85,9 @@ public class BarcodeService {
         Barcode barcode = store.find(barcodeToken)
                 .filter(found -> found.userId().equals(userId))
                 .orElseThrow(() -> new BusinessException(ErrorCode.BARCODE_NOT_FOUND));
-        return State.of(barcode, clock.instant());
+        PaymentRequestView payment = barcode.paymentId() == null ? null
+                : paymentViews.find(barcode.paymentId(), userId).orElse(null);
+        return State.of(barcode, clock.instant(), payment);
     }
 
     private static LocalDateTime utc(Instant instant) {
@@ -102,12 +112,13 @@ public class BarcodeService {
 
     /**
      * 조회 응답. API 명세 「바코드 상태·결제 요청 조회」 Response.
-     * payment는 POS가 바코드를 스캔해 결제 요청이 생긴 뒤 채운다(Task 5.1.3). 지금은 항상 null이다.
+     *
+     * @param payment POS가 스캔해 결제 요청이 생긴 뒤 채운다. 스캔 전이면 null
      */
-    public record State(BarcodeStatus status, LocalDateTime expiresAt, Object payment) {
+    public record State(BarcodeStatus status, LocalDateTime expiresAt, PaymentRequestView payment) {
 
-        static State of(Barcode barcode, Instant now) {
-            return new State(barcode.statusAt(now), utc(barcode.expiresAt()), null);
+        static State of(Barcode barcode, Instant now, PaymentRequestView payment) {
+            return new State(barcode.statusAt(now), utc(barcode.expiresAt()), payment);
         }
     }
 }

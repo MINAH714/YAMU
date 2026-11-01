@@ -14,6 +14,7 @@ import com.yamu.be.global.exception.BusinessException;
 import com.yamu.be.global.exception.ErrorCode;
 import com.yamu.be.global.security.AuthUser;
 import com.yamu.be.payment.lookup.PaymentCardLookup;
+import com.yamu.be.payment.pos.PaymentRequestViewReader;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -40,6 +41,7 @@ class BarcodeServiceTest {
 
     @Mock PaymentCardLookup cards;
     @Mock StepUpService stepUp;
+    @Mock PaymentRequestViewReader paymentViews;
 
     InMemoryBarcodeStore store;
     MutableClock clock;
@@ -49,7 +51,7 @@ class BarcodeServiceTest {
     void setUp() {
         store = new InMemoryBarcodeStore();
         clock = new MutableClock(NOW);
-        service = new BarcodeService(store, cards, stepUp, new BarcodeTokenGenerator(), clock);
+        service = new BarcodeService(store, cards, stepUp, paymentViews, new BarcodeTokenGenerator(), clock);
     }
 
     @Test
@@ -194,7 +196,7 @@ class BarcodeServiceTest {
                 return generated.removeFirst();
             }
         };
-        service = new BarcodeService(store, cards, stepUp, tokens, clock);
+        service = new BarcodeService(store, cards, stepUp, paymentViews, tokens, clock);
         when(cards.countActiveCards(7L)).thenReturn(1L);
 
         assertThat(service.issue(ME, "step-up").barcodeToken()).isEqualTo(fresh);
@@ -228,6 +230,34 @@ class BarcodeServiceTest {
         public synchronized Optional<Barcode> find(String token) {
             findCount++;
             return Optional.ofNullable(barcodes.get(token));
+        }
+
+        @Override
+        public synchronized ScanResult scan(String token, Long paymentId, Duration retention) {
+            Barcode barcode = barcodes.get(token);
+            if (barcode == null) {
+                return ScanResult.NOT_FOUND;
+            }
+            if (barcode.status() == BarcodeStatus.EXPIRED) {
+                return ScanResult.EXPIRED;
+            }
+            if (barcode.status() != BarcodeStatus.ISSUED) {
+                return ScanResult.ALREADY_USED;
+            }
+            barcodes.put(token, new Barcode(token, barcode.userId(), BarcodeStatus.SCANNED, barcode.issuedAt(),
+                    barcode.expiresAt(), paymentId));
+            return ScanResult.SCANNED;
+        }
+
+        @Override
+        public synchronized boolean revertScan(String token, Long paymentId) {
+            Barcode barcode = barcodes.get(token);
+            if (barcode == null || barcode.status() != BarcodeStatus.SCANNED || !paymentId.equals(barcode.paymentId())) {
+                return false;
+            }
+            barcodes.put(token, new Barcode(token, barcode.userId(), BarcodeStatus.ISSUED, barcode.issuedAt(),
+                    barcode.expiresAt()));
+            return true;
         }
 
         int size() {
