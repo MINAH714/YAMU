@@ -1,0 +1,102 @@
+# Standalone shared-development configuration. Never overlay compose.prod.yml.
+name: yamu-dev
+
+services:
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: [redis-server, --appendonly, "yes", --appendfsync, everysec]
+    volumes:
+      - redis_data:/data
+    networks: [data]
+    healthcheck:
+      test: [CMD, redis-cli, ping]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+    mem_limit: 256m
+    logging: &logging
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  backend:
+    image: ${YAMU_DEV_BACKEND_IMAGE:?Set a reviewed development backend image}
+    user: "10001:10001"
+    restart: unless-stopped
+    init: true
+    environment:
+      SPRING_PROFILES_ACTIVE: dev
+      SPRING_CONFIG_IMPORT: configtree:/run/secrets/
+      SPRING_DATASOURCE_URL: "jdbc:mysql://${YAMU_DEV_RDS_HOST:?Set YAMU_DEV_RDS_HOST}:3306/yamu_dev?serverTimezone=UTC&characterEncoding=UTF-8&sslMode=VERIFY_IDENTITY&trustCertificateKeyStoreUrl=file:/run/yamu/rds-truststore.p12&trustCertificateKeyStoreType=PKCS12&trustCertificateKeyStorePassword=changeit&fallbackToSystemTrustStore=false"
+      SPRING_DATASOURCE_USERNAME: yamu_dev
+      # Schema upgrades are a separate, explicitly approved operation.
+      SPRING_FLYWAY_ENABLED: "false"
+      SPRING_JPA_HIBERNATE_DDL_AUTO: validate
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_DATA_REDIS_PORT: "6379"
+      SPRING_DATA_REDIS_DATABASE: "0"
+      SERVER_PORT: "8080"
+      MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE: health
+      MANAGEMENT_ENDPOINT_HEALTH_SHOWDETAILS: never
+      SPRINGDOC_APIDOCS_ENABLED: "false"
+      SPRINGDOC_SWAGGERUI_ENABLED: "false"
+      JAVA_TOOL_OPTIONS: -XX:MaxRAMPercentage=70.0 -Duser.timezone=UTC
+    ports:
+      - "127.0.0.1:${YAMU_DEV_HTTP_PORT:-18080}:8080"
+    networks: [app, data]
+    depends_on:
+      redis:
+        condition: service_healthy
+    volumes:
+      - type: bind
+        source: ${YAMU_DEV_RDS_TRUSTSTORE_PATH:?Set the public RDS truststore path}
+        target: /run/yamu/rds-truststore.p12
+        read_only: true
+        bind:
+          create_host_path: false
+    secrets:
+      - source: dev_db_password
+        target: spring.datasource.password
+      - source: dev_key_id
+        target: yamu.crypto.data-key-id
+      - source: dev_data_key
+        target: "yamu.crypto.data-keys[1]"
+      - source: dev_hmac_key
+        target: yamu.crypto.hmac-key
+      - source: dev_pin_pepper
+        target: yamu.crypto.pin-pepper
+      - source: dev_jwt_secret
+        target: yamu.jwt.secret
+    healthcheck:
+      test: [CMD, curl, --fail, --silent, --max-time, "5", "http://127.0.0.1:8080/actuator/health"]
+      interval: 15s
+      timeout: 6s
+      retries: 10
+      start_period: 90s
+    mem_limit: 2g
+    stop_grace_period: 30s
+    logging: *logging
+
+networks:
+  app: {}
+  data:
+    internal: true
+
+volumes:
+  redis_data: {}
+
+secrets:
+  dev_db_password:
+    file: ${YAMU_DEV_SECRETS_DIR:?Set YAMU_DEV_SECRETS_DIR}/spring.datasource.password
+  dev_key_id:
+    file: ${YAMU_DEV_SECRETS_DIR}/yamu.crypto.data-key-id
+  dev_data_key:
+    file: "${YAMU_DEV_SECRETS_DIR}/yamu.crypto.data-keys[1]"
+  dev_hmac_key:
+    file: ${YAMU_DEV_SECRETS_DIR}/yamu.crypto.hmac-key
+  dev_pin_pepper:
+    file: ${YAMU_DEV_SECRETS_DIR}/yamu.crypto.pin-pepper
+  dev_jwt_secret:
+    file: ${YAMU_DEV_SECRETS_DIR}/yamu.jwt.secret
