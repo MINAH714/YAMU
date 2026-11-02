@@ -53,7 +53,7 @@ fun authErrorMessage(code: String, remainingAttempts: Int? = null, unlockAt: Str
     "DEVICE_NOT_REGISTERED" -> "이 폰은 등록돼 있지 않아요 · 처음부터 다시 시작해 주세요"
     "INVALID_PUBLIC_KEY", "KEY_CREATE_FAILED" -> "이 폰의 보안 키를 만들지 못했어요. 다시 시도해 주세요"
     "TOO_MANY_REQUESTS" -> "요청이 너무 잦아요 · 잠시 뒤 다시 시도해 주세요"
-    "DEVICE_LIMIT_EXCEEDED" -> "기기는 3대까지예요 · 마이에서 예전 기기를 해제해 주세요"
+    "DEVICE_LIMIT_EXCEEDED" -> "기기는 1대만 쓸 수 있어요 · 마이에서 예전 기기를 해제해 주세요"
     "FIN_API_UNAVAILABLE" -> "은행 연결이 늦어요 · 잠시 뒤 다시 시도해 주세요"
     else -> null
 }
