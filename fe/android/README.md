@@ -45,28 +45,32 @@
 - **모의 POS 가짜 시험값**([번호로 넣기]): EXPIRED가 들어가면 만료 · USED는 이미 쓴 코드 · DECLINE은 거절 · REJECT는 고객 거절, 그 밖은 5초 뒤 승인
 - **가짜 연결 시험값**: 1원 숫자 1004 · 0000은 시간 지남 · 그 밖은 틀림. 에뮬레이터 문자 자동 입력: `adb emu sms send 15880000 "[KB국민은행] *1234 입금 1원 YAMU 1004"`(Google Play 이미지에서만)
 - **화면 바로 열기**, **컴포넌트 갤러리**(다크 모드 · 글자 1.3배 · 청록 미리보기)
-- **서버 연결**: 지금 주소와 진짜로 쓰는 기능을 보여 주고, '서버 연결 확인'으로 `GET /api/health`를 불러 본다
+- **서버 연결**: 지금 주소와 진짜로 쓰는 기능을 보여 주고, '서버 연결 확인'으로 `GET /api/health`를 불러 본다(10초 안에 응답이 없으면 실패)
 
 ## 실서버 연결 (debug)
-`local.properties`에 아래처럼 적고 다시 빌드한다. 비워 두면 로컬 BE 주소에 전부 가짜라서 지금까지와 같다.
+`local.properties`에 주소를 적고 다시 빌드한 뒤 디버그 메뉴의 '서버 연결 확인'까지 본다. 비워 두면 로컬 BE 주소에 전부 가짜라서 지금까지와 같다.
 
 ```properties
 yamu.baseUrl=http://localhost:8080/api/
-yamu.realApi=cashflow,link
 ```
 
-- `yamu.baseUrl`은 `/`로 끝나야 한다. 로컬 BE는 `adb reverse tcp:8080 tcp:8080` 뒤 `localhost`, 에뮬레이터는 `http://10.0.2.2:8080/api/`도 된다.
-- `yamu.realApi`는 Repository 단위다. 쓸 수 있는 이름은 `auth` · `link` · `cashflow` · `home` · `payment` · `performance` · `forecast` · `report` · `my` · `pos`이고 `all`이면 전부, 모르는 이름이면 빌드가 멈춘다.
+- `yamu.baseUrl`은 `http://`나 `https://`로 시작하고 `/`로 끝나야 한다(아니면 빌드가 멈춘다). 로컬 BE는 `adb reverse tcp:8080 tcp:8080` 뒤 `localhost`, 에뮬레이터는 `http://10.0.2.2:8080/api/`도 된다.
+- http는 `network_security_config`가 `localhost`와 `10.0.2.2`만 허용한다. LAN IP(`http://192.168.…`)는 막히므로 실기기는 `adb reverse`로 `localhost`를 쓴다.
+- 기능을 진짜로 켤 때는 `yamu.realApi`에 이름을 쉼표로 적는다. 쓸 수 있는 이름은 `auth` · `link` · `cashflow` · `home` · `payment` · `performance` · `forecast` · `report` · `my` · `pos`이고 `all`이면 전부, 모르는 이름이면 빌드가 멈춘다.
+- 이름 하나가 Repository 하나라서 그 안의 API를 전부 진짜로 부른다. 예를 들어 `cashflow`를 켜면 BE에 아직 없는 `forecasts/balance`까지 불러 404가 난다.
 - 진짜 API는 로그인 토큰이 필요하다. `auth`를 가짜로 두고 다른 기능만 켜면 가짜 토큰이 실려 401이 나므로, 가입 · 로그인을 BE 방식으로 바꾸기 전까지는 '서버 연결 확인'까지만 볼 수 있다.
 
-BE(develop, 2026-11-01)와 맞춰 본 결과는 이렇다.
+BE(develop, 2026-11-02)와 맞춰 본 결과는 이렇다.
 
 | 이름 | 앱이 부르는 API | BE |
 |---|---|---|
 | `auth` | 가입 · 로그인 · PIN · 기기 등록 · 본인 인증 · 재발급 · 로그아웃 | 재발급 · 로그아웃 · 본인 인증은 있음. 가입 · 로그인은 방식이 다름(아래) |
 | `link` | 기관 목록 · 연결 세션 · 계좌 · 카드 목록 | 계좌 · 카드 목록만 맞음. 연결은 `accounts/candidates` · `accounts/one-won-auth` · `cards/lookup`으로 바뀜 |
-| `cashflow` | `cashflow-items` 조회 · 수정, `forecasts/settings` · `forecasts/balance` | `cashflow-items`만 있음 |
-| `home` · `payment` · `performance` · `forecast` · `report` · `my` · `pos` | 홈 · 결제 · 추천 · 실적 · 혜택 한도 · 예보 · 소비 판단 · 리포트 · 알림 · 마이 · 모의 POS | 아직 없음 |
+| `cashflow` | `cashflow-items` 조회 · 수정, `forecasts/settings` 수정, `forecasts/balance` | `cashflow-items` · `forecasts/settings`는 있음. `forecasts/balance`는 아직 없음 |
+| `forecast` | `forecasts/balance`, 소비 판단, `cashflow-items` 등록 · 삭제 | `cashflow-items` 등록 · 삭제만 있음 |
+| `payment` | 가맹점 · 추천 · 바코드 · 승인 · 거절 · 상세 | `payments/barcodes` 발급 · 조회만 있음 |
+| `my` | 회원 정보 · 결제 · 보안 설정 · 기기 목록 · 해제 · 알림 | `auth/devices` 조회 · 해제만 있음 |
+| `home` · `performance` · `report` · `pos` | 홈 · 실적 · 혜택 한도 · 리포트 · 모의 POS | 아직 없음 |
 
 BE에는 비밀번호가 없다. 가입은 휴대폰 본인인증(이름 · 생년월일 · 통신사 · 번호 → 6자리)으로 가입 진행 토큰을 받고, 그 토큰으로 계좌 목록에서 골라 1원 인증 → PIN → 기기 등록 순서로 가며 기기 등록 응답에 토큰이 온다. 로그인은 기기 번호로 challenge를 받아 기기 키로 서명하고 PIN이나 지문을 같이 보낸다. 가입은 BE 시드(`be/seed/PERSONA.md`)에 있는 사람만 할 수 있다. 앱을 이 방식으로 바꾸는 일은 따로 Task로 나눈다.
 
