@@ -87,6 +87,9 @@ interface AuthRepository {
 /** 서버에서 이 기기가 없어졌다(해제 · 사용자 상태 변경) — 첫 화면에서 다시 시작 */
 const val DEVICE_NOT_REGISTERED = "DEVICE_NOT_REGISTERED"
 
+/** 기기 등록이 서버에서 거절됐다고 확정할 수 있나. 시간 초과 · 연결 끊김은 서버가 끝냈을 수 있어 아니다(다음 로그인 응답으로 맞춘다) */
+internal fun ApiError.keyNotOnServer(): Boolean = this !is ApiError.Network
+
 @Singleton
 class AuthRepositoryImpl @Inject constructor(
     private val loginApi: LoginApi,
@@ -115,7 +118,14 @@ class AuthRepositoryImpl @Inject constructor(
         val userDeviceId = sessionStore.read().userDeviceId
             ?: return ApiResult.Failure(ApiError.Unauthorized(DEVICE_NOT_REGISTERED))
         val r = apiCall { loginApi.challenge(LoginChallengeRequest(userDeviceId)) }
-        if (r is ApiResult.Failure && r.error.code == DEVICE_NOT_REGISTERED) forgetDevice()
+        when {
+            r is ApiResult.Failure && r.error.code == DEVICE_NOT_REGISTERED -> forgetDevice()
+            r is ApiResult.Success -> {   // 기기 등록 응답을 못 받았을 수 있어 지문 상태는 서버 값으로 맞춘다
+                sessionStore.saveDevice(userDeviceId, r.data.biometricEnabled)
+                if (!r.data.biometricEnabled) deviceKeys.deleteBiometricKey()
+            }
+            else -> Unit
+        }
         val ready = biometricReady()
         return r.map { StepUpChallenge(it.challengeId, it.challenge, allowsBiometric = it.biometricEnabled && ready) }
     }
@@ -182,7 +192,7 @@ class AuthRepositoryImpl @Inject constructor(
                 val refresh = r.data.refreshToken
                 if (access != null && refresh != null) tokenStore.save(AuthTokens(access, refresh))
             }
-            is ApiResult.Failure -> if (biometric) deviceKeys.deleteBiometricKey()   // 서버에 안 올라간 지문 키는 버린다
+            is ApiResult.Failure -> if (biometric && r.error.keyNotOnServer()) deviceKeys.deleteBiometricKey()   // 서버에 안 올라간 지문 키는 버린다
         }
         return r.map { }
     }
