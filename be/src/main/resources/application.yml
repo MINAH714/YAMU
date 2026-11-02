@@ -129,6 +129,17 @@ yamu:
         brand-code: YAMU_TEST_CAFE
         channel: OFFLINE
         facility-type: GENERAL
+  # 결제 승인(노션 명세 「결제 승인 요청 (카드 확정)」). 확정 마감 60초는 pos.confirm-window를 같이 쓴다
+  payment:
+    approve:
+      idempotency-ttl: 24h
+      # 같은 Idempotency-Key를 처리 중이라고 표시해 두는 시간. 체크카드 출금(금융망 호출 10초)보다 길게
+      idempotency-lock-ttl: 30s
+      # 같은 결제에 다른 키 요청이 겹칠 때 시도 예약~PROCESSING 선점을 한 줄로 세우는 잠금. DB 트랜잭션 하나보다 길게
+      start-lock-ttl: 5s
+      # 거절 뒤 다른 카드로 다시 승인할 수 있는 횟수(임시: 명세 v0.3.1 가정 3회)와 시도 기록 보관 시간
+      max-attempts: 3
+      attempt-ttl: 24h
   # SSAFY 금융망. api-key는 운영은 환경변수 SSAFY_API_KEY, 로컬은 application-local.yml에 넣는다(노션 API 명세 4장).
   # 키·userKey·요청 본문은 로그에 남기지 않는다. 비어 있어도 서버는 뜨고, 금융망을 부르는 순간 실패한다.
   fin-api:

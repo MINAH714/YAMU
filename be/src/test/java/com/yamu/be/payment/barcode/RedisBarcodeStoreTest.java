@@ -270,6 +270,62 @@ class RedisBarcodeStoreTest extends RedisTestSupport {
         assertThat(store.revertScan(barcode.token(), 1024L)).isFalse();
     }
 
+    // ───────── 승인·만료 반영(5.2.2) ─────────
+
+    @Test
+    void 스캔하면_결제_번호로_토큰을_찾는_역색인이_같은_보관_시간으로_생기고_되돌리면_지워진다() {
+        Barcode barcode = live(7L);
+        store.issue(barcode, RETENTION);
+
+        store.scan(barcode.token(), barcode.userId(), 1024L, Instant.now(), RETENTION);
+
+        assertThat(redis.opsForValue().get("barcode:payment:1024")).isEqualTo(barcode.token());
+        assertThat(redis.getExpire("barcode:payment:1024", TimeUnit.SECONDS)).isBetween(590L, 600L);
+
+        store.revertScan(barcode.token(), 1024L);
+        assertThat(redis.hasKey("barcode:payment:1024")).isFalse();
+    }
+
+    @Test
+    void 결제가_승인되면_그_결제의_바코드만_USED가_된다() {
+        Barcode barcode = live(7L);
+        store.issue(barcode, RETENTION);
+        store.scan(barcode.token(), barcode.userId(), 1024L, Instant.now(), RETENTION);
+
+        assertThat(store.markUsed(2048L)).isFalse();
+        assertThat(store.markUsed(1024L)).isTrue();
+
+        Barcode used = store.find(barcode.token()).orElseThrow();
+        assertThat(used.status()).isEqualTo(BarcodeStatus.USED);
+        assertThat(used.paymentId()).isEqualTo(1024L);
+        // 한 번 USED가 되면 다시 바꾸거나 되돌릴 수 없다
+        assertThat(store.markUsed(1024L)).isFalse();
+        assertThat(store.expireByPayment(1024L)).isFalse();
+        assertThat(store.revertScan(barcode.token(), 1024L)).isFalse();
+    }
+
+    @Test
+    void 결제가_만료되면_SCANNED_바코드가_EXPIRED가_된다() {
+        Barcode barcode = live(7L);
+        store.issue(barcode, RETENTION);
+        store.scan(barcode.token(), barcode.userId(), 1024L, Instant.now(), RETENTION);
+
+        assertThat(store.expireByPayment(1024L)).isTrue();
+
+        assertThat(store.find(barcode.token()).orElseThrow().status()).isEqualTo(BarcodeStatus.EXPIRED);
+        assertThat(store.markUsed(1024L)).isFalse();
+    }
+
+    @Test
+    void 스캔되지_않은_바코드는_승인_만료_반영_대상이_아니다() {
+        Barcode barcode = live(7L);
+        store.issue(barcode, RETENTION);
+
+        assertThat(store.markUsed(1024L)).isFalse();
+        assertThat(store.expireByPayment(1024L)).isFalse();
+        assertThat(store.find(barcode.token()).orElseThrow().status()).isEqualTo(BarcodeStatus.ISSUED);
+    }
+
     private Barcode issued(Long userId) {
         return new Barcode(tokens.next(), userId, BarcodeStatus.ISSUED, ISSUED_AT, ISSUED_AT.plusSeconds(60));
     }

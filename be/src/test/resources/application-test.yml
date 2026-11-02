@@ -48,3 +48,10 @@ yamu:
       - pos-code: POS-TEST-SHOP
         brand-code: TEST_SHOP
         channel: ONLINE
+  payment:
+    approve:
+      idempotency-ttl: 24h
+      idempotency-lock-ttl: 30s
+      start-lock-ttl: 5s
+      max-attempts: 3
+      attempt-ttl: 24h
