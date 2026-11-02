@@ -361,7 +361,7 @@ private fun ResultBody(check: BuyCheck, what: String, onCompare: () -> Unit) {
                     Text(it, style = YamuTheme.typography.headlineS, color = c.text1)
                 }
             }
-            CharacterImage(if (check.verdict == BuyVerdict.OK) YamuPose.Happy else YamuPose.Alert, size = CharacterSize.S, modifier = Modifier.align(Alignment.TopEnd))
+            CharacterImage(if (check.verdict == BuyVerdict.OK) YamuPose.ThumbsUp else YamuPose.Alert, size = CharacterSize.S, modifier = Modifier.align(Alignment.TopEnd))
         }
     }
     // ② 숫자 하나 — 평소 한 달보다
