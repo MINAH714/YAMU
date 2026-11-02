@@ -10,7 +10,7 @@ import com.yamu.be.payment.recommend.RecommendationResult.ExcludedCard;
 import com.yamu.be.payment.recommend.RecommendationResult.ExclusionReason;
 import com.yamu.be.payment.recommend.RecommendationResult.RuleVersion;
 import com.yamu.be.payment.recommend.RecommendationResult.TieBreak;
-import com.yamu.be.payment.recommend.RecommendationResult.UnavailableReason;
+import com.yamu.be.payment.recommend.RecommendationResult.UncomparedReason;
 import java.time.Clock;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
@@ -26,7 +26,11 @@ import java.util.UUID;
  * 전부 동률이라 순위는 동률 규칙 중 기본 카드 → 고정 정렬(표시 순서, 없으면 뒤 → 카드 번호)만 쓴다.
  *
  * <p>하지 않는 것(BE3 구현이 맡는다): 혜택·한도·실적 계산, 혜택 자료 유무 판정, 미납 청구·신용 가용 한도·체크카드 잔액 확인.
- * 혜택을 계산하지 않으므로 {@link UnavailableReason#DATA_INSUFFICIENT}도 내지 않는다. 모의 신용한도는 초기값이 미정(POL-013)이라 보지 않는다.
+ * 그래서 미비교 카드({@link UncomparedReason})를 내지 않고 결과는 READY 또는 NO_ELIGIBLE_CARD뿐이다. 모의 신용한도는 초기값이 미정(POL-013)이라 보지 않는다.
+ *
+ * <p>주의(임시): 혜택을 계산하지 않은 카드를 0원 후보로 순위에 넣는 것은 2026-11-02 정책 변경("혜택 미확인 카드를 0원 후보로 계산하지 않음")과 다르다.
+ * 결제 흐름을 개발·시연할 수 있게 둔 모의 동작이고(후보 사유 {@link #REASON_PLACEHOLDER}, 규칙 버전 {@link #MOCK_RULE_VERSION}으로 표시),
+ * BE3 엔진이 연결되면 빠진다. 그 전에 모두 미비교(혜택 미확인)로 바꿀지는 담당자와 정한다.
  */
 public class MockCardRecommender implements CardRecommender {
 
@@ -74,9 +78,8 @@ public class MockCardRecommender implements CardRecommender {
             candidates.set(0, new Candidate(top.rank(), top.card(), top.netBenefit(), top.benefits(),
                     top.chargedAmount(), top.reason(), tieBreak, top.ruleVersion()));
         }
-        UnavailableReason unavailable = candidates.isEmpty() ? UnavailableReason.NO_ELIGIBLE_CARD : null;
         return new RecommendationResult(newId(), LocalDateTime.ofInstant(clock.instant(), ZoneOffset.UTC), false,
-                candidates, excluded, unavailable);
+                candidates, excluded, List.of());
     }
 
     private static ExclusionReason exclusionReason(ActiveCard card, PaymentTerms terms) {

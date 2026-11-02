@@ -12,6 +12,7 @@ import com.yamu.be.payment.lookup.PaymentCardLookup.ActiveCard;
 import com.yamu.be.payment.recommend.RecommendationRequest.MerchantContext;
 import com.yamu.be.payment.recommend.RecommendationResult.Candidate;
 import com.yamu.be.payment.recommend.RecommendationResult.ExclusionReason;
+import com.yamu.be.payment.recommend.RecommendationResult.Status;
 import com.yamu.be.payment.recommend.RecommendationResult.TieBreak;
 import com.yamu.be.payment.recommend.RecommendationResult.UnavailableReason;
 import java.time.Clock;
@@ -90,6 +91,9 @@ class MockCardRecommenderTest {
         assertThat(result.excluded(2L).orElseThrow().reason()).isEqualTo(ExclusionReason.CARD_SUSPENDED);
         assertThat(result.excluded(3L).orElseThrow().reason()).isEqualTo(ExclusionReason.CARD_EXPIRED);
         assertThat(result.candidate(2L)).isEmpty();
+        // 모의 추천은 혜택·결제 가능 여부를 판정하지 않아 미비교 카드를 내지 않는다
+        assertThat(result.uncomparedCards()).isEmpty();
+        assertThat(result.status()).isEqualTo(Status.READY);
     }
 
     @Test
@@ -115,6 +119,7 @@ class MockCardRecommenderTest {
         RecommendationResult result = recommender.recommend(request(PaymentTerms.installment(100_000, 3)));
 
         assertThat(result.isAvailable()).isFalse();
+        assertThat(result.status()).isEqualTo(Status.NO_ELIGIBLE_CARD);
         assertThat(result.unavailableReason()).isEqualTo(UnavailableReason.NO_ELIGIBLE_CARD);
         assertThat(result.topCandidate()).isEmpty();
         assertThat(result.excludedCards()).hasSize(2);
@@ -126,6 +131,7 @@ class MockCardRecommenderTest {
 
         RecommendationResult result = recommender.recommend(lumpSum(15_000));
 
+        assertThat(result.status()).isEqualTo(Status.NO_ELIGIBLE_CARD);
         assertThat(result.unavailableReason()).isEqualTo(UnavailableReason.NO_ELIGIBLE_CARD);
         assertThat(result.excludedCards()).isEmpty();
     }
