@@ -33,15 +33,18 @@ val devSign = providers.gradleProperty("yamu.devSign").map { it != "false" }.get
 // 실서버 연결 시험(debug만) — local.properties의 yamu.baseUrl · yamu.realApi.
 // 비우면 로컬 BE(8080) 주소에 전부 가짜. yamu.realApi=cashflow,link처럼 적은 기능만 진짜 Repository, all이면 전부
 val debugBaseUrl = localProps.getProperty("yamu.baseUrl").orEmpty().trim().ifEmpty { "http://localhost:8080/api/" }
-    .also { check(it.endsWith("/")) { "yamu.baseUrl은 /로 끝나야 해요: $it" } }
+    .also {
+        check(it.startsWith("http://") || it.startsWith("https://")) { "yamu.baseUrl은 http:// 또는 https://로 시작해야 해요: $it" }
+        check(it.endsWith("/")) { "yamu.baseUrl은 /로 끝나야 해요: $it" }
+    }
 val apiFeatures = listOf("auth", "link", "cashflow", "home", "payment", "performance", "forecast", "report", "my", "pos")   // ApiFeature와 같은 이름
 val debugRealApi = localProps.getProperty("yamu.realApi").orEmpty()
     .split(',').map { it.trim() }.filter { it.isNotEmpty() }
-    .let { names -> if ("all" in names) apiFeatures else names }
-    .also { names ->
-        val unknown = names - apiFeatures.toSet()
+    .also { names ->   // all을 펼치기 전에 봐야 all,cashflw 같은 오타도 걸린다
+        val unknown = names.filterNot { it == "all" || it in apiFeatures }
         check(unknown.isEmpty()) { "yamu.realApi에 모르는 이름: ${unknown.joinToString()} (쓸 수 있는 이름: all, ${apiFeatures.joinToString()})" }
     }
+    .let { names -> if ("all" in names) apiFeatures else names }
 
 android {
     namespace = "com.yamu.app"
