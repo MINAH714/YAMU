@@ -39,7 +39,7 @@ class StepUpResults @Inject constructor() {
     }
 }
 
-/** 지문 창에 띄울 글자 — C-02d '지문으로 서명해 주세요' · C-13b '지문으로 카드를 연결해요' */
+/** 지문 창에 띄울 글자 — '지문으로 카드를 등록해요' · '지문으로 계좌를 연결해요' */
 data class StepUpPrompt(val title: String, val subtitle: String?)
 
 sealed interface StepUpUi {
@@ -56,7 +56,7 @@ sealed interface StepUpUi {
 /**
  * ViewModel 안에서 쓰는 본인 인증 한 번. 화면은 [StepUpEffect]로 지문 창 · 간편 비밀번호 화면만 붙인다.
  * ```
- * stepUp.start(StepUpPurpose.ACCOUNT_LINK, prompt, onError = { … }) { token -> repo.verify(…, token.token) }
+ * stepUp.start(StepUpPurpose.ACCOUNT_LINK, prompt, onError = { … }) { token -> repo.linkAccounts(…, token.token) }
  * ```
  */
 class StepUpController(

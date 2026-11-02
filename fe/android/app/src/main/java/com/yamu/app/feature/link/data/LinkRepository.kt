@@ -5,6 +5,9 @@ import com.yamu.app.core.network.ApiResult
 import com.yamu.app.core.network.YamuHeaders
 import com.yamu.app.core.network.apiCall
 import com.yamu.app.core.network.map
+import com.yamu.app.feature.auth.data.AccountCandidate
+import com.yamu.app.feature.auth.data.AccountCandidatesResponse
+import com.yamu.app.feature.auth.data.toCandidate
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -17,42 +20,30 @@ import retrofit2.http.Body
 import retrofit2.http.GET
 import retrofit2.http.Header
 import retrofit2.http.POST
-import retrofit2.http.Path
 import retrofit2.http.Query
 import javax.inject.Inject
 import javax.inject.Singleton
 
-/** 계좌 · 카드 연결 — 보완안 추가 1~5 + #31(세션으로 옮김) · #83 · #7. 09 문서 5-2 */
+/** 카드 확인 · 등록(BE CardController) · 로그인 후 계좌 추가(BE AccountLinkController) · 연결된 계좌 · 카드 목록 */
 interface LinkApi {
-    @GET("institutions")
-    suspend fun institutions(@Query("type") type: String?): Response<ApiEnvelope<InstitutionsResponse>>
+    @POST("cards/lookup")
+    suspend fun lookupCard(@Body body: CardLookupRequest): Response<ApiEnvelope<CardLookupResponse>>
 
-    @POST("link-sessions")
-    suspend fun createSession(@Body body: CreateLinkSessionRequest): Response<ApiEnvelope<LinkSessionDto>>
+    @POST("cards")
+    suspend fun registerCard(
+        @Header(YamuHeaders.STEP_UP_TOKEN) stepUpToken: String,   // CARD_REGISTER
+        @Body body: CardRegisterRequest,
+    ): Response<ApiEnvelope<CardRegisterResponse>>
 
-    @GET("link-sessions/{id}")
-    suspend fun session(@Path("id") id: String): Response<ApiEnvelope<LinkSessionDto>>
+    @GET("accounts/candidates")
+    suspend fun accountCandidates(): Response<ApiEnvelope<AccountCandidatesResponse>>
 
-    @POST("link-sessions/{id}/one-won-auth")
-    suspend fun sendOneWon(@Path("id") id: String): Response<ApiEnvelope<OneWonResponse>>
-
-    @POST("link-sessions/{id}/verify")
-    suspend fun verify(
-        @Path("id") id: String,
-        @Header(YamuHeaders.STEP_UP_TOKEN) stepUpToken: String,
-        @Body body: LinkVerifyRequest,
-    ): Response<ApiEnvelope<LinkVerifyResponse>>
-
-    @GET("link-sessions/{id}/assets")
-    suspend fun assets(@Path("id") id: String): Response<ApiEnvelope<LinkAssetsResponse>>
-
-    @POST("link-sessions/{id}/complete")
-    suspend fun complete(
-        @Path("id") id: String,
+    @POST("accounts")
+    suspend fun linkAccounts(
         @Header(YamuHeaders.IDEMPOTENCY_KEY) idempotencyKey: String,
-        @Header(YamuHeaders.STEP_UP_TOKEN) stepUpToken: String?,     // 카드 추가(CARD_REGISTER)만
-        @Body body: LinkCompleteRequest,
-    ): Response<ApiEnvelope<LinkCompleteResponse>>
+        @Header(YamuHeaders.STEP_UP_TOKEN) stepUpToken: String,   // ACCOUNT_LINK
+        @Body body: MemberAccountLinkRequest,
+    ): Response<ApiEnvelope<AccountLinkResponse>>
 
     /** #83 — refresh=true면 금융망 잔액을 다시 읽음 */
     @GET("accounts")
@@ -64,27 +55,17 @@ interface LinkApi {
 }
 
 interface LinkRepository {
-    suspend fun institutions(type: InstitutionType? = null): ApiResult<List<Institution>>
-    suspend fun startSession(institutionIds: List<String>, purpose: String): ApiResult<LinkSession>
-    suspend fun session(id: String): ApiResult<LinkSession>
+    /** 카드번호 · 유효기간으로 내 명의 카드를 찾는다(1분 5번). [expiryMonth] MM · [expiryYear] YY. 번호는 넘기기만 하고 어디에도 남기지 않는다 */
+    suspend fun lookupCard(cardNumber: String, expiryMonth: String, expiryYear: String): ApiResult<CardLookup>
 
-    /** 내 명의 계좌로 1원 보내기 — 받는 쪽 숫자 자리수 · 앞 글자('YAMU') */
-    suspend fun sendOneWon(id: String): ApiResult<OneWonSent>
+    /** 확인한 카드 등록. [nickname]이 null이면 별칭 없음 · 본인 인증 토큰(CARD_REGISTER) 필요 */
+    suspend fun registerCard(verificationToken: String, nickname: String?, stepUpToken: String): ApiResult<RegisteredCard>
 
-    /** 1원 숫자 확인 + 약관 서명(지문 한 번) — 본인 인증 토큰(ACCOUNT_LINK) 필요 */
-    suspend fun verify(id: String, stepUpToken: String, authCode: String?, agreements: List<Terms>): ApiResult<Unit>
+    /** 아직 연결하지 않은 내 명의 계좌 */
+    suspend fun accountCandidates(): ApiResult<List<AccountCandidate>>
 
-    suspend fun assets(id: String): ApiResult<LinkAssets>
-
-    /** 연결 확정(일괄). [idempotencyKey]는 다시 시도할 때도 같은 값 */
-    suspend fun complete(
-        id: String,
-        accountAssetIds: List<String>,
-        cardAssetIds: List<String>,
-        primaryAccountAssetId: String?,
-        idempotencyKey: String,
-        stepUpToken: String? = null,
-    ): ApiResult<LinkCompletion>
+    /** 고른 계좌 연결. [idempotencyKey]는 다시 시도할 때도 같은 값 · 본인 인증 토큰(ACCOUNT_LINK) 필요 */
+    suspend fun linkAccounts(candidateIds: List<String>, idempotencyKey: String, stepUpToken: String): ApiResult<AccountLinkResult>
 
     /** 연결된 계좌(잔액 — 금융망) · 카드 */
     suspend fun linkedOverview(refresh: Boolean = false): ApiResult<LinkedOverview>
@@ -93,35 +74,17 @@ interface LinkRepository {
 @Singleton
 class LinkRepositoryImpl @Inject constructor(private val api: LinkApi) : LinkRepository {
 
-    override suspend fun institutions(type: InstitutionType?): ApiResult<List<Institution>> =
-        apiCall { api.institutions(type?.name) }.map { r -> r.institutions.map { it.toInstitution() } }
+    override suspend fun lookupCard(cardNumber: String, expiryMonth: String, expiryYear: String): ApiResult<CardLookup> =
+        apiCall { api.lookupCard(CardLookupRequest(cardNumber, expiryMonth, expiryYear)) }.map { it.toLookup() }
 
-    override suspend fun startSession(institutionIds: List<String>, purpose: String): ApiResult<LinkSession> =
-        apiCall { api.createSession(CreateLinkSessionRequest(institutionIds, purpose)) }.map { it.toSession() }
+    override suspend fun registerCard(verificationToken: String, nickname: String?, stepUpToken: String): ApiResult<RegisteredCard> =
+        apiCall { api.registerCard(stepUpToken, CardRegisterRequest(verificationToken, nickname)) }.map { it.toRegistered() }
 
-    override suspend fun session(id: String): ApiResult<LinkSession> = apiCall { api.session(id) }.map { it.toSession() }
+    override suspend fun accountCandidates(): ApiResult<List<AccountCandidate>> =
+        apiCall { api.accountCandidates() }.map { r -> r.accounts.map { it.toCandidate() } }
 
-    override suspend fun sendOneWon(id: String): ApiResult<OneWonSent> =
-        apiCall { api.sendOneWon(id) }.map { OneWonSent(it.depositorNamePrefix, it.codeLength, it.authExpiresAt) }
-
-    override suspend fun verify(id: String, stepUpToken: String, authCode: String?, agreements: List<Terms>): ApiResult<Unit> =
-        apiCall {
-            api.verify(id, stepUpToken, LinkVerifyRequest(authCode, agreements.map { AgreementDto(it.code, it.version) }))
-        }.map { }
-
-    override suspend fun assets(id: String): ApiResult<LinkAssets> = apiCall { api.assets(id) }.map { it.toAssets() }
-
-    override suspend fun complete(
-        id: String,
-        accountAssetIds: List<String>,
-        cardAssetIds: List<String>,
-        primaryAccountAssetId: String?,
-        idempotencyKey: String,
-        stepUpToken: String?,
-    ): ApiResult<LinkCompletion> =
-        apiCall {
-            api.complete(id, idempotencyKey, stepUpToken, LinkCompleteRequest(accountAssetIds, cardAssetIds, primaryAccountAssetId))
-        }.map { r -> LinkCompletion(r.accounts.map { it.accountId }, r.cards.map { it.userCardId }) }
+    override suspend fun linkAccounts(candidateIds: List<String>, idempotencyKey: String, stepUpToken: String): ApiResult<AccountLinkResult> =
+        apiCall { api.linkAccounts(idempotencyKey, stepUpToken, MemberAccountLinkRequest(candidateIds)) }.map { it.toResult() }
 
     override suspend fun linkedOverview(refresh: Boolean): ApiResult<LinkedOverview> = coroutineScope {
         val accounts = async { apiCall { api.accounts(refresh.takeIf { it }) } }
