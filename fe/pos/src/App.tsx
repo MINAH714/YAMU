@@ -3,13 +3,14 @@ import './App.css'
 import { newIdempotencyKey } from './api/client'
 import { createPaymentRequest, type PaymentRequestBody, type PaymentResult } from './api/pos'
 import { PaymentForm } from './components/PaymentForm'
-import { Receipt } from './components/Receipt'
+import { PAYMENT_METHOD, Receipt } from './components/Receipt'
 import { ScanStep } from './components/ScanStep'
+import { StatusScreen } from './components/StatusScreen'
 import { WaitingStep } from './components/WaitingStep'
 import { config, missingConfig } from './config'
 import { formatToken } from './payment/barcode'
 import { classifyCreateError } from './payment/errors'
-import { validateTerms, type Terms, type TermsErrors, type TermsInput } from './payment/terms'
+import { formatWon, validateTerms, type Terms, type TermsErrors, type TermsInput } from './payment/terms'
 
 /**
  * 결제 한 건의 요청. 멱등 키는 이 본문과 한 묶음이다.
@@ -24,7 +25,7 @@ type Phase =
   | { step: 'sending'; attempt: Attempt }
   | { step: 'unknown'; attempt: Attempt; message: string }
   | { step: 'waiting'; attempt: Attempt; paymentId: number; orderNo: string | null; deadlineAt: number }
-  | { step: 'receipt'; result: PaymentResult }
+  | { step: 'receipt'; result: PaymentResult; terms: Terms }
   | { step: 'fatal'; message: string; config: boolean }
 
 const EMPTY_INPUT: TermsInput = { amount: '', plan: 'LUMP_SUM', installmentMonths: '' }
@@ -111,89 +112,104 @@ function App() {
   }
 
   return (
-    <main className="app">
+    <div className="app">
       <header className="app-header">
-        <h1>YAMU 모의 POS</h1>
+        <h1>
+          YAMU <span>POS</span>
+        </h1>
         <p>
           {config.posCode || 'posCode 없음'}
           {config.mockResult && <span className="badge">결과 Mock</span>}
         </p>
       </header>
 
-      {phase.step === 'form' && (
-        <PaymentForm
-          input={input}
-          errors={phase.errors}
-          notice={phase.notice}
-          onChange={setInput}
-          onSubmit={toScan}
-        />
-      )}
+      <main className="app-main">
+        {phase.step === 'form' && (
+          <PaymentForm
+            input={input}
+            errors={phase.errors}
+            notice={phase.notice}
+            onChange={setInput}
+            onSubmit={toScan}
+          />
+        )}
 
-      {phase.step === 'scan' && (
-        <ScanStep
-          terms={phase.terms}
-          notice={phase.notice}
-          rejectedToken={phase.rejectedToken}
-          onToken={(token) => startAttempt(phase.terms, token)}
-          onBack={() => setPhase({ step: 'form', errors: {}, notice: null })}
-        />
-      )}
+        {phase.step === 'scan' && (
+          <ScanStep
+            terms={phase.terms}
+            notice={phase.notice}
+            rejectedToken={phase.rejectedToken}
+            onToken={(token) => startAttempt(phase.terms, token)}
+            onBack={() => setPhase({ step: 'form', errors: {}, notice: null })}
+          />
+        )}
 
-      {phase.step === 'sending' && (
-        <section className="panel">
-          <h2>결제 요청 보내는 중…</h2>
-          <p>바코드 {formatToken(phase.attempt.body.barcodeToken)}</p>
-        </section>
-      )}
+        {phase.step === 'sending' && (
+          <StatusScreen
+            tone="checking"
+            title="결제를 요청하고 있어요."
+            description={`바코드 ${formatToken(phase.attempt.body.barcodeToken)}`}
+            rows={[
+              { label: '주문 금액', value: formatWon(phase.attempt.terms.amount) },
+              { label: '결제 수단', value: PAYMENT_METHOD },
+            ]}
+          />
+        )}
 
-      {phase.step === 'unknown' && (
-        <section className="panel">
-          <h2>결과를 확인하지 못했어요</h2>
-          <p className="alert alert-error">{phase.message}</p>
-          <p>같은 요청으로 다시 보내면 이미 접수된 결제는 새로 만들어지지 않고 처음 결과를 돌려받아요.</p>
-          <button type="button" className="primary" onClick={() => send(phase.attempt)}>
-            같은 요청 다시 보내기
-          </button>
-          <button
-            type="button"
-            className="link"
-            onClick={() => {
-              if (window.confirm('처음부터 다시 할까요? 이 바코드는 이미 접수됐을 수 있어 새 바코드가 필요할 수 있어요.')) reset()
-            }}
-          >
-            처음부터 다시
-          </button>
-        </section>
-      )}
-
-      {phase.step === 'waiting' && (
-        <WaitingStep
-          key={phase.paymentId}
-          paymentId={phase.paymentId}
-          orderNo={phase.orderNo}
-          terms={phase.attempt.terms}
-          deadlineAt={phase.deadlineAt}
-          onFinal={(result) => setPhase({ step: 'receipt', result })}
-          onFatal={(message, isConfig) => setPhase({ step: 'fatal', message, config: isConfig })}
-          onAbandon={reset}
-        />
-      )}
-
-      {phase.step === 'receipt' && <Receipt result={phase.result} onNew={reset} />}
-
-      {phase.step === 'fatal' && (
-        <section className="panel">
-          <h2>{phase.config ? 'POS 설정 오류' : '결제를 이어갈 수 없어요'}</h2>
-          <p className="alert alert-error">{phase.message}</p>
-          {!phase.config && (
-            <button type="button" className="primary" onClick={reset}>
-              새 결제
+        {phase.step === 'unknown' && (
+          <section className="panel">
+            <h2>결과를 확인하지 못했어요</h2>
+            <p className="alert alert-error">{phase.message}</p>
+            <p>같은 요청으로 다시 보내면 이미 접수된 결제는 새로 만들어지지 않고 처음 결과를 돌려받아요.</p>
+            <button type="button" className="primary" onClick={() => send(phase.attempt)}>
+              같은 요청 다시 보내기
             </button>
-          )}
-        </section>
-      )}
-    </main>
+            <button
+              type="button"
+              className="link"
+              onClick={() => {
+                if (window.confirm('처음부터 다시 할까요? 이 바코드는 이미 접수됐을 수 있어 새 바코드가 필요할 수 있어요.')) reset()
+              }}
+            >
+              처음부터 다시
+            </button>
+          </section>
+        )}
+
+        {phase.step === 'waiting' && (
+          <WaitingStep
+            key={phase.paymentId}
+            paymentId={phase.paymentId}
+            orderNo={phase.orderNo}
+            terms={phase.attempt.terms}
+            deadlineAt={phase.deadlineAt}
+            onFinal={(result) => setPhase({ step: 'receipt', result, terms: phase.attempt.terms })}
+            onFatal={(message, isConfig) => setPhase({ step: 'fatal', message, config: isConfig })}
+            onAbandon={reset}
+          />
+        )}
+
+        {phase.step === 'receipt' && (
+          <Receipt
+            result={phase.result}
+            onNext={reset}
+            onRetry={() => setPhase({ step: 'scan', terms: phase.terms, notice: null, rejectedToken: null })}
+          />
+        )}
+
+        {phase.step === 'fatal' && (
+          <section className="panel">
+            <h2>{phase.config ? 'POS 설정 오류' : '결제를 이어갈 수 없어요'}</h2>
+            <p className="alert alert-error">{phase.message}</p>
+            {!phase.config && (
+              <button type="button" className="primary" onClick={reset}>
+                새 결제
+              </button>
+            )}
+          </section>
+        )}
+      </main>
+    </div>
   )
 }
 

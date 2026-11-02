@@ -4,6 +4,8 @@ import { applyMockAction, type MockAction } from '../api/mockResult'
 import { getPaymentResult, type PaymentResult } from '../api/pos'
 import { config } from '../config'
 import { formatWon, planLabel, type Terms } from '../payment/terms'
+import { PAYMENT_METHOD } from './Receipt'
+import { StatusScreen, type StatusRow } from './StatusScreen'
 
 type Props = {
   paymentId: number
@@ -101,69 +103,60 @@ export function WaitingStep({ paymentId, orderNo, terms, deadlineAt, onFinal, on
     }
   }, [paymentId, deadlineAt, generation])
 
-  const remaining = Math.max(0, Math.ceil((deadlineAt - now) / 1000))
+  const pastDeadline = now > deadlineAt
+  const rows: StatusRow[] = [
+    { label: '주문 금액', value: formatWon(terms.amount) },
+    { label: '결제 수단', value: PAYMENT_METHOD },
+  ]
+  if (terms.plan === 'INSTALLMENT') rows.push({ label: '결제 방식', value: planLabel(terms.plan, terms.installmentMonths) })
+
+  // 승인 처리 중(카드사 결과 대기)·연결 오류·마감 뒤 결과 대기는 "확인 중"으로 보인다
+  const checking = stopped || last?.status === 'PROCESSING' || connectionError !== null || pastDeadline
   const declined = last?.status === 'DECLINED'
 
   return (
-    <section className="panel waiting">
-      <h2>앱에서 승인을 기다리는 중</h2>
-      <p className="countdown" aria-live="polite">
-        {remaining > 0 ? `${remaining}초` : '마감'}
-      </p>
-      <progress max={60} value={remaining} />
-
-      <dl className="summary">
-        <dt>결제 번호</dt>
-        <dd>{paymentId}</dd>
-        {orderNo && (
-          <>
-            <dt>주문 번호</dt>
-            <dd>{orderNo}</dd>
-          </>
-        )}
-        <dt>결제 금액</dt>
-        <dd>{formatWon(terms.amount)}</dd>
-        <dt>결제 방식</dt>
-        <dd>{planLabel(terms.plan, terms.installmentMonths)}</dd>
-      </dl>
-
-      {last?.status === 'PROCESSING' && <p className="alert alert-info">사용자가 승인했어요. 카드사 결과를 기다리는 중…</p>}
-      {declined && (
-        <p className="alert alert-error">
-          거절됐어요({last.failure?.message ?? '사유 없음'}). 사용자가 앱에서 다른 카드로 다시 시도할 수 있어요.
-        </p>
-      )}
-      {connectionError && !stopped && <p className="alert alert-info">{connectionError} 다시 확인하는 중…</p>}
-
+    <StatusScreen
+      tone={checking ? 'checking' : 'waiting'}
+      title={checking ? '결제 결과를 확인 중입니다.' : '고객 승인을 기다리고 있어요.'}
+      description={
+        stopped
+          ? `결과를 확인하지 못했어요. ${connectionError ?? ''}`
+          : checking
+            ? '결과가 확인될 때까지 잠시 기다려 주세요.'
+            : declined
+              ? '카드가 거절됐어요. 고객이 앱에서 다른 카드로 다시 결제할 수 있어요.'
+              : '고객의 YAMU 앱에서 결제를 승인해 주세요.'
+      }
+      rows={rows}
+    >
       {stopped && (
-        <div className="alert alert-error">
-          <p>마감이 지났지만 결과를 확인하지 못했어요. {connectionError}</p>
-          <button
-            type="button"
-            onClick={() => {
-              setStopped(false)
-              setGeneration((g) => g + 1)
-            }}
-          >
-            결과 다시 확인
-          </button>
-        </div>
+        <button
+          type="button"
+          className="primary"
+          onClick={() => {
+            setStopped(false)
+            setGeneration((g) => g + 1)
+          }}
+        >
+          결과 다시 확인
+        </button>
       )}
 
       {config.mockResult && <MockPanel paymentId={paymentId} />}
 
       <button
         type="button"
-        className="link"
+        className="link status-link"
+        title={orderNo ? `결제 번호 ${paymentId} · 주문 번호 ${orderNo}` : `결제 번호 ${paymentId}`}
         onClick={() => {
-          if (window.confirm('결과를 기다리지 않고 새 결제를 시작할까요? 이 결제는 사용자가 승인하면 그대로 진행돼요.')) {
+          if (window.confirm('결과를 기다리지 않고 새 결제를 시작할까요? 이 결제는 고객이 승인하면 그대로 진행돼요.')) {
             onAbandon()
           }
         }}
       >
         기다리지 않고 새 결제
       </button>
-    </section>
+    </StatusScreen>
   )
 }
 

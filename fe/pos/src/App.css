@@ -1,26 +1,165 @@
 .app {
-  width: min(100%, 480px);
-  padding: 24px 16px 48px;
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
 }
 
 .app-header {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   justify-content: space-between;
   gap: 12px;
-  margin-bottom: 16px;
+  padding: 16px 28px;
+  border-bottom: 1px solid #e8eaee;
+  background: #fff;
 }
 
 .app-header h1 {
   margin: 0;
-  font-size: 1.4rem;
-  color: #16324f;
+  font-size: 1.35rem;
+  font-weight: 800;
+  color: #1f2328;
+}
+
+.app-header h1 span {
+  color: #5b84f0;
 }
 
 .app-header p {
   margin: 0;
-  font-size: 0.85rem;
-  color: #41566b;
+  font-size: 0.8rem;
+  color: #8a919c;
+}
+
+.app-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 24px 16px 0;
+}
+
+.app-main > .panel {
+  width: min(100%, 480px);
+}
+
+/* 결제 진행·결과 화면(StatusScreen) */
+
+.status {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+}
+
+.status-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 48px 0;
+  text-align: center;
+}
+
+.status-icon {
+  display: grid;
+  place-items: center;
+  width: 80px;
+  height: 80px;
+  margin-bottom: 12px;
+  border-radius: 50%;
+  color: #fff;
+  background: #5b84f0;
+}
+
+.status-checking .status-icon {
+  background: #4f5664;
+}
+
+.status-failed .status-icon {
+  background: #b3343a;
+}
+
+.status-expired .status-icon {
+  background: #c8690a;
+}
+
+.status-title {
+  margin: 0;
+  font-size: 2rem;
+  font-weight: 800;
+  color: #1f2328;
+}
+
+.status-approved .status-title {
+  font-size: 3.2rem;
+}
+
+.status-lead,
+.status-description {
+  margin: 0;
+  font-size: 1.15rem;
+  color: #5c6370;
+}
+
+.status-card {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  width: min(100%, 510px);
+  margin: 16px 0 0;
+  padding: 22px 24px;
+  border-radius: 16px;
+  background: #f5f6f8;
+  box-sizing: border-box;
+}
+
+.status-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  font-size: 1.15rem;
+}
+
+.status-row dt {
+  color: #6b7280;
+}
+
+.status-row dd {
+  margin: 0;
+  font-weight: 700;
+  color: #1f2328;
+}
+
+.status-footer {
+  display: flex;
+  justify-content: flex-end;
+  margin: 0 -16px;
+  padding: 20px 28px;
+  border-top: 1px solid #e8eaee;
+}
+
+.status-footer button.primary {
+  min-width: 164px;
+  padding: 14px 28px;
+  border: 0;
+  border-radius: 10px;
+  background: #5b84f0;
+  font-size: 1.2rem;
+  font-weight: 700;
+}
+
+.status .status-link {
+  color: #8a919c;
+  font-size: 0.9rem;
+}
+
+.status .mock {
+  width: min(100%, 510px);
+  box-sizing: border-box;
+  text-align: left;
 }
 
 .badge {

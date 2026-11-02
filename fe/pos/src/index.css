@@ -1,13 +1,12 @@
 :root {
   font-family: system-ui, sans-serif;
-  background: #f7f9fc;
+  background: #fff;
+  color: #1f2328;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
 }
 
 body {
-  display: grid;
-  justify-items: center;
   min-width: 320px;
   min-height: 100vh;
   margin: 0;
