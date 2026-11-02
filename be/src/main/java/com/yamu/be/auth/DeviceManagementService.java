@@ -20,6 +20,7 @@ import java.util.Comparator;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
@@ -49,6 +50,7 @@ public class DeviceManagementService {
     private final TransactionTemplate transaction;
     private final Clock clock;
 
+    @Transactional(readOnly = true)
     public DeviceListResponse list(AuthUser me) {
         LocalDateTime now = LocalDateTime.now(clock);
         List<DeviceListResponse.Item> items = deviceRepository.findAllByUserId(me.userId()).stream()

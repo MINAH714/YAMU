@@ -40,6 +40,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -58,6 +59,7 @@ import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.ResultMatcher;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.utility.DockerImageName;
@@ -93,6 +95,7 @@ class DeviceSetupIntegrationTest extends MySqlTestSupport {
     @Autowired SignupTokenStore signupTokenStore;
     @Autowired StepUpTokenStore stepUpTokenStore;
     @Autowired RefreshTokenStore refreshTokenStore;
+    @Autowired TransactionTemplate transaction;
 
     @MockitoBean FinApiClient finApiClient;
 
@@ -284,7 +287,7 @@ class DeviceSetupIntegrationTest extends MySqlTestSupport {
     }
 
     @Test
-    void 기기가_3대_다_찬_상태에서_폰을_잃어도_기기_재등록은_되고_나머지_기기는_해제된다() throws Exception {
+    void 해제되지_않은_기기가_여러_대_남아_있어도_기기_재등록은_되고_나머지_기기는_해제된다() throws Exception {
         Registered member = activeMember();
         long second = insertDevice(member.userId(), "ACTIVE");
         long third = insertDevice(member.userId(), "LOCKED");
@@ -575,7 +578,7 @@ class DeviceSetupIntegrationTest extends MySqlTestSupport {
 
         mockMvc.perform(get("/api/auth/devices").with(AuthUsers.asUser(member.userId(), member.deviceId())))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.maxDevices").value(3))
+                .andExpect(jsonPath("$.data.maxDevices").value(1))
                 .andExpect(jsonPath("$.data.items.length()").value(4))
                 .andExpect(jsonPath("$.data.items[0].userDeviceId").value(member.deviceId()))
                 .andExpect(jsonPath("$.data.items[0].isCurrent").value(true))
@@ -700,6 +703,58 @@ class DeviceSetupIntegrationTest extends MySqlTestSupport {
         assertThat(jdbc.queryForList("SELECT device_uuid FROM user_device WHERE status <> 'REVOKED'", String.class))
                 .containsExactly(newUuid);
         assertThat(eventTypes(other)).containsExactly("REVOKED");
+    }
+
+    @Test
+    void 기기_재등록_중_옛_기기_로그인이_먼저_커밋해도_409_없이_재등록된다() throws Exception {
+        Registered member = activeMember();
+        String bearer = "Bearer " + signupToken(member.userId(), SignupMode.DEVICE_RECOVERY);
+        String verification = verifiedAndSent(bearer);
+        CountDownLatch loginLocked = new CountDownLatch(1);
+        CountDownLatch finishLogin = new CountDownLatch(1);
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        try {
+            // 옛 폰 로그인 성공처럼 기기 행을 잠그고 버전을 올린 채 멈춰 둔다.
+            Future<?> login = pool.submit(() -> transaction.executeWithoutResult(status -> {
+                jdbc.queryForObject("SELECT version FROM user_device WHERE user_device_id = ? FOR UPDATE",
+                        Long.class, member.deviceId());
+                jdbc.update("UPDATE user_device SET version = version + 1, last_verified_at = ? WHERE user_device_id = ?",
+                        now(), member.deviceId());
+                loginLocked.countDown();
+                try {
+                    finishLogin.await(30, TimeUnit.SECONDS);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+            }));
+            assertThat(loginLocked.await(30, TimeUnit.SECONDS)).isTrue();
+            Future<Integer> recovery = pool.submit(() -> registerDevice(bearer,
+                    deviceJson(UUID.randomUUID().toString(), DeviceKeys.generate(), null, verification, CODE))
+                    .andReturn().getResponse().getStatus());
+            // 재등록이 옛 기기를 읽는 지점까지 가게 둔 뒤 로그인을 커밋한다. 잠그지 않고 읽었다면 버전이 어긋나 409가 난다.
+            Thread.sleep(500);
+            finishLogin.countDown();
+            login.get(30, TimeUnit.SECONDS);
+
+            assertThat(recovery.get(30, TimeUnit.SECONDS)).isEqualTo(201);
+        } finally {
+            finishLogin.countDown();
+            pool.shutdownNow();
+        }
+        assertThat(eventTypes(member.deviceId())).last().isEqualTo("REVOKED");
+    }
+
+    @Test
+    void 가입_중인데_해제되지_않은_기기가_이미_있으면_409_DEVICE_LIMIT_EXCEEDED() throws Exception {
+        // 정상 흐름에서는 생기지 않는 데이터다. 버그로 기기가 두 대가 되지 않게 막는 안전장치를 확인한다.
+        long userId = pendingUser();
+        insertDevice(userId, "ACTIVE");
+        String bearer = "Bearer " + signupToken(userId, SignupMode.SIGNUP);
+        linkAccount(bearer);
+        setPin(bearer, PIN).andExpect(status().isNoContent());
+
+        registerDevice(bearer, deviceJson(UUID.randomUUID().toString(), DeviceKeys.generate(), null, null, null))
+                .andExpect(errorCode(409, "DEVICE_LIMIT_EXCEEDED"));
     }
 
     private int revokeStatus(Registered member, long deviceId, String stepUp) throws Exception {
