@@ -37,7 +37,6 @@ interface LoginApi {
 /** 로그인한 뒤 쓰는 인증 API — 로그아웃 · PIN · 기기 등록 · 본인 확인. 재발급은 core/network의 AuthApi */
 interface AccountApi {
     @POST("auth/logout") suspend fun logout(@Body body: LogoutRequest): Response<ApiEnvelope<JsonElement>>
-    @POST("auth/pin") suspend fun setPin(@Body body: PinRequest): Response<ApiEnvelope<JsonElement>>
     @POST("auth/devices") suspend fun registerDevice(
         @Header(YamuHeaders.STEP_UP_TOKEN) stepUpToken: String?,
         @Body body: DeviceRequest,
@@ -59,8 +58,6 @@ interface AuthRepository {
 
     /** 토큰만 지운다 — 기기 번호 · 키는 남아 같은 폰이면 PIN으로 다시 로그인 */
     suspend fun logout()
-
-    suspend fun setPin(pin: String): ApiResult<Unit>
 
     /** 지문을 쓸 수 있는 기기인가(지문 등록 + 강한 생체) */
     fun canUseBiometric(): Boolean
@@ -156,8 +153,6 @@ class AuthRepositoryImpl @Inject constructor(
         tokenStore.refreshTokenBlocking()?.let { refresh -> apiCallNoData { api.logout(LogoutRequest(refresh)) } }
         tokenStore.clear()
     }
-
-    override suspend fun setPin(pin: String): ApiResult<Unit> = apiCallNoData { api.setPin(PinRequest(pin)) }
 
     override fun canUseBiometric(): Boolean = deviceKeys.canUseBiometric()
 

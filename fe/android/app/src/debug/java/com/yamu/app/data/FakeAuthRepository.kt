@@ -115,13 +115,6 @@ class FakeAuthRepository @Inject constructor(
         tokenStore.clear()
     }
 
-    override suspend fun setPin(pin: String): ApiResult<Unit> {
-        delay(300)
-        FakePin.value = pin
-        failures = 0
-        return ApiResult.Success(Unit)
-    }
-
     override fun canUseBiometric(): Boolean = deviceKeys.canUseBiometric()
 
     override suspend fun setBiometric(enabled: Boolean, stepUpToken: String): ApiResult<Unit> {

@@ -33,7 +33,6 @@ fun signupErrorMessage(code: String, remainingAttempts: Int? = null, retryAfterS
     val wait = retryAfterSeconds?.let { "${it}초 뒤" } ?: "잠시 뒤"
     return when (code) {
         "DEMO_USER_NOT_FOUND" -> "시연에 등록된 사용자가 아니에요 · 이름 · 생년월일 · 번호를 확인해 주세요"
-        "REJOIN_NOT_AVAILABLE" -> "탈퇴한 사용자는 다시 가입할 수 없어요"
         "VERIFICATION_TOO_FREQUENT", "AUTH_REQUEST_TOO_FREQUENT" -> "방금 보냈어요 · $wait 다시 받아 주세요"
         "VERIFICATION_CODE_MISMATCH" -> "인증번호가 맞지 않아요$left"
         "VERIFICATION_EXPIRED" -> "인증번호 시간이 지났어요 · 다시 받아 주세요"
