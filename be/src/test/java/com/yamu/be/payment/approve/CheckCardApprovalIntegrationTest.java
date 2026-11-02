@@ -6,6 +6,7 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -17,6 +18,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jayway.jsonpath.JsonPath;
 import com.yamu.be.global.crypto.CipherField;
 import com.yamu.be.global.crypto.PersonalDataCipher;
+import com.yamu.be.global.exception.BusinessException;
+import com.yamu.be.global.exception.ErrorCode;
 import com.yamu.be.payment.bank.BankDirection;
 import com.yamu.be.payment.bank.BankTransaction;
 import com.yamu.be.payment.bank.SsafyTransferApi;
@@ -307,19 +310,35 @@ class CheckCardApprovalIntegrationTest extends MySqlTestSupport {
     }
 
     @Test
-    void 결과_불명_뒤_유예가_지나도_거래내역에_없으면_거절로_풀려_다른_카드로_재승인된다() throws Exception {
+    void 결과_불명_뒤_유예가_지나도_거래내역에_없으면_그_요청은_거절로_끝나고_다시_누르면_앞_출금을_재조회한_뒤_재승인된다()
+            throws Exception {
         Requested requested = requested(15_000);
         doReturn(new TransferResult(Status.UNKNOWN, null, null, null, "H1007"))
                 .when(transfer).withdraw(anyString(), anyString(), anyLong(), any(), anyString());
-        approve(requested.paymentId(), UUID.randomUUID().toString(), body(checkCard))
+        String key = UUID.randomUUID().toString();
+        approve(requested.paymentId(), key, body(checkCard))
                 .andExpect(status().isBadGateway());
+        String finRequestNo = payments.findById(requested.paymentId()).orElseThrow().getFinRequestNo();
 
         clock.advance(properties.recoveryGrace());
 
+        // 502를 받은 앱이 같은 키로 다시 보내도, 복구가 거절로 판정한 요청은 거기서 끝난다(같은 요청 안에서 다시 출금하지 않음)
+        approve(requested.paymentId(), key, body(checkCard))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.status").value("DECLINED"))
+                .andExpect(jsonPath("$.data.failure.code").value("WITHDRAWAL_NOT_CONFIRMED"))
+                .andExpect(jsonPath("$.data.retryable").value(true))
+                .andExpect(jsonPath("$.data.selectedCard.userCardId").value(checkCard));
+        verify(transfer, times(1)).withdraw(anyString(), anyString(), anyLong(), any(), anyString());
+        assertThat(payments.findById(requested.paymentId()).orElseThrow().getStatus()).isEqualTo(PaymentStatus.DECLINED);
+
+        // 사용자가 다시 누르면(새 키) 앞 요청 번호의 출금을 한 번 더 확인한 뒤에 재승인한다
         approve(requested.paymentId(), UUID.randomUUID().toString(), body(creditCard))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.status").value("APPROVED"))
                 .andExpect(jsonPath("$.data.selectedCard.userCardId").value(creditCard));
+        verify(transfer, times(2)).findByTag("user-key-" + user, ACCOUNT_NO, TransferTag.payment(requested.paymentId()),
+                15_000, finRequestNo);
 
         PaymentTransaction approved = payments.findById(requested.paymentId()).orElseThrow();
         assertThat(approved.getStatus()).isEqualTo(PaymentStatus.APPROVED);
@@ -404,11 +423,12 @@ class CheckCardApprovalIntegrationTest extends MySqlTestSupport {
     }
 
     @Test
-    void 결과_불명_결제에_재요청이_동시에_5건_와도_승인_확정은_한_번이다() throws Exception {
+    void 결과_불명_결제에_같은_키_재요청이_동시에_5건_와도_승인_확정은_한_번이고_다른_키는_409다() throws Exception {
         Requested requested = requested(15_000);
         doReturn(new TransferResult(Status.UNKNOWN, null, null, null, null))
                 .when(transfer).withdraw(anyString(), anyString(), anyLong(), any(), anyString());
-        approve(requested.paymentId(), UUID.randomUUID().toString(), body(checkCard))
+        String key = UUID.randomUUID().toString();
+        approve(requested.paymentId(), key, body(checkCard))
                 .andExpect(status().isBadGateway());
         doReturn(new TagLookup(TagLookup.Result.FOUND, List.of(withdrawal(requested.paymentId(), 15_000, "1105"))))
                 .when(transfer).findByTag(anyString(), anyString(), any(), anyLong(), anyString());
@@ -423,7 +443,7 @@ class CheckCardApprovalIntegrationTest extends MySqlTestSupport {
                 Callable<Integer> call = () -> {
                     ready.countDown();
                     go.await();
-                    return approve(requested.paymentId(), UUID.randomUUID().toString(), body(checkCard))
+                    return approve(requested.paymentId(), key, body(checkCard))
                             .andReturn().getResponse().getStatus();
                 };
                 results.add(pool.submit(call));
@@ -444,6 +464,129 @@ class CheckCardApprovalIntegrationTest extends MySqlTestSupport {
         assertThat(approved.getFinTransactionNo()).isEqualTo("1105");
         verify(transfer, times(1)).withdraw(anyString(), anyString(), anyLong(), any(), anyString());
         assertThat(attempts.list(requested.paymentId())).hasSize(1);
+
+        approve(requested.paymentId(), UUID.randomUUID().toString(), body(checkCard))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error.code").value("PAYMENT_ALREADY_PROCESSED"));
+    }
+
+    // ───────── 늦은 출금·응답 일관성(!69 리뷰) ─────────
+
+    @Test
+    void 출금_미확인으로_거절된_뒤_다시_누를_때_앞_출금이_늦게_처리돼_있으면_승인으로_바로잡고_다시_출금하지_않는다()
+            throws Exception {
+        Requested requested = requested(15_000);
+        doReturn(new TransferResult(Status.UNKNOWN, null, null, null, null))
+                .when(transfer).withdraw(anyString(), anyString(), anyLong(), any(), anyString());
+        String key = UUID.randomUUID().toString();
+        approve(requested.paymentId(), key, body(checkCard)).andExpect(status().isBadGateway());
+        clock.advance(properties.recoveryGrace());
+        approve(requested.paymentId(), key, body(checkCard))
+                .andExpect(jsonPath("$.data.status").value("DECLINED"));
+
+        // 은행이 첫 출금을 유예 뒤에 처리했다
+        doReturn(new TagLookup(TagLookup.Result.FOUND, List.of(withdrawal(requested.paymentId(), 15_000, "1106"))))
+                .when(transfer).findByTag(anyString(), anyString(), any(), anyLong(), anyString());
+        approve(requested.paymentId(), UUID.randomUUID().toString(), body(creditCard))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error.code").value("PAYMENT_ALREADY_PROCESSED"));
+
+        PaymentTransaction approved = payments.findById(requested.paymentId()).orElseThrow();
+        assertThat(approved.getStatus()).isEqualTo(PaymentStatus.APPROVED);
+        assertThat(approved.getUserCardId()).isEqualTo(checkCard);
+        assertThat(approved.getFinTransactionNo()).isEqualTo("1106");
+        assertThat(approved.getFailureCode()).isNull();
+        verify(transfer, times(1)).withdraw(anyString(), anyString(), anyLong(), any(), anyString());
+        assertThat(attempts.list(requested.paymentId())).hasSize(1);
+        assertThat(attempts.list(requested.paymentId()).get(0).outcome()).isEqualTo("APPROVED");
+    }
+
+    @Test
+    void 앞_출금을_다시_확인하지_못하면_재승인하지_않고_502다() throws Exception {
+        Requested requested = requested(15_000);
+        doReturn(new TransferResult(Status.UNKNOWN, null, null, null, null))
+                .when(transfer).withdraw(anyString(), anyString(), anyLong(), any(), anyString());
+        String key = UUID.randomUUID().toString();
+        approve(requested.paymentId(), key, body(checkCard)).andExpect(status().isBadGateway());
+        clock.advance(properties.recoveryGrace());
+        approve(requested.paymentId(), key, body(checkCard)).andExpect(jsonPath("$.data.status").value("DECLINED"));
+
+        doThrow(new BusinessException(ErrorCode.FIN_API_UNAVAILABLE))
+                .when(transfer).findByTag(anyString(), anyString(), any(), anyLong(), anyString());
+        approve(requested.paymentId(), UUID.randomUUID().toString(), body(creditCard))
+                .andExpect(status().isBadGateway())
+                .andExpect(jsonPath("$.error.code").value("FIN_API_UNAVAILABLE"));
+
+        PaymentTransaction declined = payments.findById(requested.paymentId()).orElseThrow();
+        assertThat(declined.getStatus()).isEqualTo(PaymentStatus.DECLINED);
+        assertThat(declined.getFailureCode()).isEqualTo("WITHDRAWAL_NOT_CONFIRMED");
+        assertThat(attempts.count(requested.paymentId())).isEqualTo(1);
+    }
+
+    @Test
+    void 주기_작업은_출금_미확인으로_거절_만료한_결제를_대조_기간_동안_다시_보고_늦은_출금이면_승인으로_바로잡는다() throws Exception {
+        Requested requested = requested(15_000);
+        doReturn(new TransferResult(Status.UNKNOWN, null, null, null, null))
+                .when(transfer).withdraw(anyString(), anyString(), anyLong(), any(), anyString());
+        approve(requested.paymentId(), UUID.randomUUID().toString(), body(checkCard)).andExpect(status().isBadGateway());
+        WithdrawalRecoveryJob job = new WithdrawalRecoveryJob(payments, recovery, properties, clock);
+        jdbc.update("UPDATE payment_transaction SET updated_at = DATE_SUB(updated_at, INTERVAL 2 MINUTE) "
+                + "WHERE payment_transaction_id = ?", requested.paymentId());
+        // 마감(60초)까지 지나 거절 뒤 만료된다
+        clock.advance(Duration.ofSeconds(61));
+        job.run();
+        assertThat(payments.findById(requested.paymentId()).orElseThrow().getStatus()).isEqualTo(PaymentStatus.EXPIRED);
+
+        doReturn(new TagLookup(TagLookup.Result.FOUND, List.of(withdrawal(requested.paymentId(), 15_000, "1107"))))
+                .when(transfer).findByTag(anyString(), anyString(), any(), anyLong(), anyString());
+        job.run();
+
+        PaymentTransaction approved = payments.findById(requested.paymentId()).orElseThrow();
+        assertThat(approved.getStatus()).isEqualTo(PaymentStatus.APPROVED);
+        assertThat(approved.getFinTransactionNo()).isEqualTo("1107");
+        verify(transfer, times(1)).withdraw(anyString(), anyString(), anyLong(), any(), anyString());
+    }
+
+    @Test
+    void 대조_기간이_지난_출금_미확인_결제는_주기_작업이_다시_보지_않는다() throws Exception {
+        Requested requested = requested(15_000);
+        doReturn(new TransferResult(Status.UNKNOWN, null, null, null, null))
+                .when(transfer).withdraw(anyString(), anyString(), anyLong(), any(), anyString());
+        approve(requested.paymentId(), UUID.randomUUID().toString(), body(checkCard)).andExpect(status().isBadGateway());
+        WithdrawalRecoveryJob job = new WithdrawalRecoveryJob(payments, recovery, properties, clock);
+        jdbc.update("UPDATE payment_transaction SET updated_at = DATE_SUB(updated_at, INTERVAL 2 MINUTE) "
+                + "WHERE payment_transaction_id = ?", requested.paymentId());
+        clock.advance(Duration.ofSeconds(61));
+        job.run();
+
+        doReturn(new TagLookup(TagLookup.Result.FOUND, List.of(withdrawal(requested.paymentId(), 15_000, "1108"))))
+                .when(transfer).findByTag(anyString(), anyString(), any(), anyLong(), anyString());
+        clock.advance(properties.lateWithdrawalWindow());
+        job.run();
+
+        assertThat(payments.findById(requested.paymentId()).orElseThrow().getStatus()).isEqualTo(PaymentStatus.EXPIRED);
+    }
+
+    @Test
+    void 주기_작업이_먼저_승인으로_확정해도_같은_키_재요청은_요청_경로_복구와_같은_200_승인_응답이다() throws Exception {
+        Requested requested = requested(15_000);
+        doReturn(new TransferResult(Status.UNKNOWN, null, null, null, null))
+                .when(transfer).withdraw(anyString(), anyString(), anyLong(), any(), anyString());
+        String key = UUID.randomUUID().toString();
+        approve(requested.paymentId(), key, body(checkCard)).andExpect(status().isBadGateway());
+        doReturn(new TagLookup(TagLookup.Result.FOUND, List.of(withdrawal(requested.paymentId(), 15_000, "1109"))))
+                .when(transfer).findByTag(anyString(), anyString(), any(), anyLong(), anyString());
+        jdbc.update("UPDATE payment_transaction SET updated_at = DATE_SUB(updated_at, INTERVAL 2 MINUTE) "
+                + "WHERE payment_transaction_id = ?", requested.paymentId());
+        clock.advance(properties.recoveryGrace().plusSeconds(1));
+        new WithdrawalRecoveryJob(payments, recovery, properties, clock).run();
+        assertThat(payments.findById(requested.paymentId()).orElseThrow().getStatus()).isEqualTo(PaymentStatus.APPROVED);
+
+        approve(requested.paymentId(), key, body(checkCard))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.status").value("APPROVED"))
+                .andExpect(jsonPath("$.data.selectedCard.userCardId").value(checkCard))
+                .andExpect(jsonPath("$.data.selectedCard.userSelected").value(true));
     }
 
     // ───────── 도우미 ─────────

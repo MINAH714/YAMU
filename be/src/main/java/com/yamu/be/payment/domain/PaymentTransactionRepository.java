@@ -1,6 +1,7 @@
 package com.yamu.be.payment.domain;
 
 import java.time.LocalDateTime;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -12,7 +13,14 @@ public interface PaymentTransactionRepository extends JpaRepository<PaymentTrans
 
     Optional<PaymentTransaction> findByRequestKey(String requestKey);
 
-    /** 결과 불명 복구 대상: 한동안 바뀌지 않은 PROCESSING 결제. 오래된 것부터 최대 50건(주기 작업 한 번 분량). */
-    List<PaymentTransaction> findTop50ByStatusAndUpdatedAtBeforeOrderByUpdatedAtAsc(PaymentStatus status,
-            LocalDateTime updatedBefore);
+    /**
+     * 결과 불명 복구 대상: 한동안 바뀌지 않은 PROCESSING 결제를 결제 번호 순으로 50건씩. afterId보다 큰 번호부터 읽어
+     * 판정하지 못한 행이 앞에 쌓여도 뒤의 결제까지 본다.
+     */
+    List<PaymentTransaction> findTop50ByStatusAndUpdatedAtBeforeAndIdGreaterThanOrderByIdAsc(PaymentStatus status,
+            LocalDateTime updatedBefore, Long afterId);
+
+    /** 늦은 출금 대조 대상: 그 사유로 거절·만료한 뒤 얼마 안 된 결제를 결제 번호 순으로 50건씩. */
+    List<PaymentTransaction> findTop50ByStatusInAndFailureCodeAndUpdatedAtAfterAndIdGreaterThanOrderByIdAsc(
+            Collection<PaymentStatus> statuses, String failureCode, LocalDateTime updatedAfter, Long afterId);
 }

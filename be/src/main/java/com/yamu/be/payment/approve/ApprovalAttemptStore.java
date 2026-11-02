@@ -138,7 +138,12 @@ public class ApprovalAttemptStore {
                 current -> current.withFinRequestNo(finRequestNo));
     }
 
-    /** 아직 결과가 적히지 않은 마지막 시도. 복구가 결과를 확정할 때 닫는다. */
+    /** 그 출금 요청 번호로 출금한 시도. 복구가 결과를 확정할 때 닫는다. */
+    public Optional<Attempt> findByFinRequestNo(Long paymentId, String finRequestNo) {
+        return list(paymentId).stream().filter(a -> finRequestNo.equals(a.finRequestNo())).findFirst();
+    }
+
+    /** 아직 결과가 적히지 않은 마지막 시도. 요청 번호 없이 되돌린 결제의 시도를 지울 때 쓴다. */
     public Optional<Attempt> lastProcessing(Long paymentId) {
         List<Attempt> all = list(paymentId);
         for (int i = all.size() - 1; i >= 0; i--) {

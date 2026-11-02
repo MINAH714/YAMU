@@ -10,6 +10,11 @@ spring:
     # 날짜는 ISO-8601 문자열로 내려간다(Spring Boot 기본값). 시간은 UTC 기준이다.
     # LocalDateTime은 끝에 Z를 붙여 내보낸다(UtcLocalDateTimeSerializer).
     time-zone: UTC
+  task:
+    scheduling:
+      pool:
+        # 정기 작업 스레드. 기본 1개면 결과 불명 결제 복구(금융망 조회)가 도는 동안 다른 정기 작업이 기다린다
+        size: 2
   jpa:
     # 트랜잭션이 끝난 뒤(Controller·JSON 변환 중)에 지연 로딩 쿼리가 몰래 나가지 않게 끈다.
     # 화면에 필요한 값은 Service의 트랜잭션 안에서 DTO로 옮겨 담아 반환한다.
@@ -146,7 +151,12 @@ yamu:
       recovery-grace: 30s
       # 결과 불명 PROCESSING 결제를 훑는 주기 작업(명세 「결제 상태·예외 처리」 Q5 제안, 임시)
       recovery-interval: 60s
-      recovery-enabled: true
+      # 주기 작업이 판정하지 못한 결제(금액 불일치·조회 실패 등)를 다시 보기까지 건너뛰는 시간
+      recovery-hold: 5m
+      # 출금 미확인으로 거절·만료한 결제를 다시 대조하는 기간(임시: 은행의 늦은 처리 대비, 요청 번호 시각 기준)
+      late-withdrawal-window: 10m
+      # 기본은 끔. 운영은 PAYMENT_RECOVERY_ENABLED=true로 켠다(로컬에서 돌지 않게)
+      recovery-enabled: ${PAYMENT_RECOVERY_ENABLED:false}
   # SSAFY 금융망. api-key는 운영은 환경변수 SSAFY_API_KEY, 로컬은 application-local.yml에 넣는다(노션 API 명세 4장).
   # 키·userKey·요청 본문은 로그에 남기지 않는다. 비어 있어도 서버는 뜨고, 금융망을 부르는 순간 실패한다.
   fin-api:

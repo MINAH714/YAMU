@@ -33,6 +33,9 @@ import org.hibernate.type.SqlTypes;
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class PaymentTransaction extends BaseTimeEntity {
 
+    /** 출금 결과를 모른 채 거래내역에도 없어 거절한 사유(approve.FailureCode와 같은 값). 늦은 출금 확인의 대상이다 */
+    public static final String WITHDRAWAL_NOT_CONFIRMED = "WITHDRAWAL_NOT_CONFIRMED";
+
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     @Column(name = "payment_transaction_id")
@@ -221,6 +224,34 @@ public class PaymentTransaction extends BaseTimeEntity {
     public void approve(long approvedAmount, long recognizedPerformanceAmount, LocalDate performanceMonth,
             LocalDateTime approvedAt, String finTransactionNo) {
         requireStatus("승인", PaymentStatus.PROCESSING);
+        this.approvedAmount = approvedAmount;
+        this.recognizedPerformanceAmount = recognizedPerformanceAmount;
+        this.performanceMonth = performanceMonth;
+        this.approvedAt = approvedAt;
+        this.finTransactionNo = finTransactionNo;
+        this.failureCode = null;
+        this.status = PaymentStatus.APPROVED;
+    }
+
+    /**
+     * 거래내역에 없어 "출금 미확인"으로 거절·만료한 결제인데, 같은 요청 번호의 출금이 뒤늦게 확인됐는지 볼 수 있는 상태인지.
+     * 다음 재승인이 시작되면(startApproval) 요청 번호가 지워지므로 그 뒤에는 거짓이다.
+     */
+    public boolean isLateConfirmable(String finRequestNo) {
+        return (status == PaymentStatus.DECLINED || status == PaymentStatus.EXPIRED)
+                && WITHDRAWAL_NOT_CONFIRMED.equals(failureCode)
+                && finRequestNo != null && finRequestNo.equals(this.finRequestNo);
+    }
+
+    /**
+     * 출금 미확인으로 거절·만료한 뒤 같은 요청 번호의 출금이 확인됐다(은행의 늦은 처리). 돈이 나갔으므로 승인으로 바로잡는다.
+     * 임시(명세 4-2에 없는 DECLINED·EXPIRED → APPROVED 전이, Task 5.2.3 리뷰): 요청 번호가 같을 때만 허용한다.
+     */
+    public void confirmLateWithdrawal(String finRequestNo, long approvedAmount, long recognizedPerformanceAmount,
+            LocalDate performanceMonth, LocalDateTime approvedAt, String finTransactionNo) {
+        if (!isLateConfirmable(finRequestNo)) {
+            throw new IllegalStateException("늦은 출금 확인으로 승인할 수 없는 결제입니다 (결제 " + id + ", 상태 " + status + ")");
+        }
         this.approvedAmount = approvedAmount;
         this.recognizedPerformanceAmount = recognizedPerformanceAmount;
         this.performanceMonth = performanceMonth;
