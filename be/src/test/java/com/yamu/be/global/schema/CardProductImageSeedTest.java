@@ -22,7 +22,7 @@ import org.springframework.jdbc.datasource.init.ScriptUtils;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.TestPropertySource;
 
-/** Image data contract tests, independently runnable while MR !75 awaits review. */
+/** Image data contract tests against the real Flyway schema, including MR !75's image column. */
 @TestPropertySource(properties = "spring.application.name=yamu-card-product-image-seed-test")
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 class CardProductImageSeedTest extends MySqlTestSupport {
@@ -34,14 +34,10 @@ class CardProductImageSeedTest extends MySqlTestSupport {
 
     @BeforeEach
     void prepareIsolatedCatalog() throws Exception {
-        // Test-only fixture for the pending image-column contract. Never used by the Seed CLI or production.
-        // Once MR !75 is merged, Flyway provides this column and this block does nothing.
-        if (jdbc.queryForObject("""
+        assertThat(jdbc.queryForObject("""
                 SELECT COUNT(*) FROM information_schema.columns
                 WHERE table_schema=DATABASE() AND table_name='card_product' AND column_name='image_key'
-                """, Integer.class) == 0) {
-            jdbc.execute("ALTER TABLE card_product ADD COLUMN image_key VARCHAR(1024) NULL");
-        }
+                """, Integer.class)).isEqualTo(1);
         jdbc.update("DELETE FROM card_product");
         cards = new ArrayList<>();
         new ObjectMapper().readTree(Path.of("seed/card-images/card-images.json").toFile())
