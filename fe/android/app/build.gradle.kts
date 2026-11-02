@@ -57,6 +57,7 @@ android {
         versionCode = 1
         versionName = "0.1.0"
         buildConfigField("String", "POS_KEY", "\"\"")
+        buildConfigField("String", "API_FEATURES", "\"${apiFeatures.joinToString(",")}\"")   // ApiFeatureTest가 ApiFeature와 같은지 본다
     }
 
     // 같은 프로젝트에서 앱 두 개 — 고객 앱(customer)과 모의 POS 단말(pos, 가맹점 쪽 · 따로 설치). 10 문서 6-5
