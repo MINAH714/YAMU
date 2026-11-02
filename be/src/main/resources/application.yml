@@ -103,6 +103,32 @@ yamu:
     verification-ttl: 5m
     # 사용자별 카드 확인 호출 한도(1분). 넘으면 429 TOO_MANY_REQUESTS
     lookup-per-minute: 5
+  # 모의 POS(노션 명세 「POS 결제 요청 생성」). POS 설정은 서버가 관리하고 새 테이블은 두지 않는다(10/26 결정, 임시: yml).
+  # key는 POS 웹이 보내는 X-POS-Key. 운영은 환경변수 YAMU_POS_KEY, 로컬은 application-local.yml. 비어 있으면 POS를 쓸 수 없다
+  pos:
+    key: ${YAMU_POS_KEY:}
+    # 사용자가 승인해야 하는 시간(DEC-003). 바코드 유효 60초와 별개로 POS 요청 뒤 60초
+    confirm-window: 60s
+    # 스캔된 바코드·추천 스냅샷을 Redis에 두는 시간. 마감 뒤에도 앱이 상태를 볼 수 있게 마감보다 길게(스냅샷 위치는 Q20)
+    scanned-retention: 10m
+    snapshot-ttl: 10m
+    idempotency-ttl: 24h
+    # 같은 Idempotency-Key를 처리 중이라고 표시해 두는 시간. 추천 계산(10초 목표)보다 길게
+    idempotency-lock-ttl: 15s
+    # posCode별 시나리오. brand-code는 merchant.brand_code(시드), facility-type은 입점 시설 10종. 모르면 facility-type을 비운다
+    terminals:
+      - pos-code: POS-STARBUCKS-GENERAL
+        brand-code: STARBUCKS
+        channel: OFFLINE
+        facility-type: GENERAL
+      - pos-code: POS-STARBUCKS-DEPARTMENT_STORE
+        brand-code: STARBUCKS
+        channel: OFFLINE
+        facility-type: DEPARTMENT_STORE
+      - pos-code: POS-YAMU-CAFE
+        brand-code: YAMU_TEST_CAFE
+        channel: OFFLINE
+        facility-type: GENERAL
   # SSAFY 금융망. api-key는 운영은 환경변수 SSAFY_API_KEY, 로컬은 application-local.yml에 넣는다(노션 API 명세 4장).
   # 키·userKey·요청 본문은 로그에 남기지 않는다. 비어 있어도 서버는 뜨고, 금융망을 부르는 순간 실패한다.
   fin-api:

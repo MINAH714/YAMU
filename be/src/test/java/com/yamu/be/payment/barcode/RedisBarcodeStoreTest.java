@@ -184,7 +184,99 @@ class RedisBarcodeStoreTest extends RedisTestSupport {
         }
     }
 
+    // ───────── 스캔(5.1.3) ─────────
+
+    @Test
+    void ISSUED_바코드를_스캔하면_SCANNED와_결제_번호가_기록되고_보관_시간이_늘어난다() {
+        Barcode barcode = live(7L);
+        store.issue(barcode, Duration.ofMinutes(1));
+
+        assertThat(store.scan(barcode.token(), barcode.userId(), 1024L, Instant.now(), RETENTION)).isEqualTo(BarcodeStore.ScanResult.SCANNED);
+
+        Barcode scanned = store.find(barcode.token()).orElseThrow();
+        assertThat(scanned.status()).isEqualTo(BarcodeStatus.SCANNED);
+        assertThat(scanned.paymentId()).isEqualTo(1024L);
+        assertThat(redis.getExpire("barcode:code:" + barcode.token(), TimeUnit.SECONDS)).isBetween(590L, 600L);
+        assertThat(redis.getExpire("barcode:user:7", TimeUnit.SECONDS)).isBetween(590L, 600L);
+    }
+
+    @Test
+    void 이미_스캔된_바코드는_다시_스캔할_수_없고_결제_번호도_바뀌지_않는다() {
+        Barcode barcode = live(7L);
+        store.issue(barcode, RETENTION);
+        store.scan(barcode.token(), barcode.userId(), 1024L, Instant.now(), RETENTION);
+
+        assertThat(store.scan(barcode.token(), barcode.userId(), 2048L, Instant.now(), RETENTION)).isEqualTo(BarcodeStore.ScanResult.ALREADY_USED);
+        assertThat(store.find(barcode.token()).orElseThrow().paymentId()).isEqualTo(1024L);
+    }
+
+    @Test
+    void 유효_시간이_지난_바코드는_EXPIRED로_바뀌고_스캔되지_않는다() {
+        Barcode barcode = issued(7L); // 2026-10-28 발급, 이미 지남
+        store.issue(barcode, RETENTION);
+
+        assertThat(store.scan(barcode.token(), barcode.userId(), 1024L, Instant.now(), RETENTION)).isEqualTo(BarcodeStore.ScanResult.EXPIRED);
+        assertThat(store.find(barcode.token()).orElseThrow().status()).isEqualTo(BarcodeStatus.EXPIRED);
+        assertThat(store.scan(barcode.token(), barcode.userId(), 1024L, Instant.now(), RETENTION)).isEqualTo(BarcodeStore.ScanResult.EXPIRED);
+    }
+
+    @Test
+    void 없는_토큰이나_형식이_다른_토큰은_NOT_FOUND() {
+        assertThat(store.scan("0000000000000000", 7L, 1L, Instant.now(), RETENTION)).isEqualTo(BarcodeStore.ScanResult.NOT_FOUND);
+        assertThat(store.scan("user:7", 7L, 1L, Instant.now(), RETENTION)).isEqualTo(BarcodeStore.ScanResult.NOT_FOUND);
+    }
+
+    @Test
+    void 같은_바코드를_동시에_스캔하면_한_건만_SCANNED다() throws Exception {
+        Barcode barcode = live(7L);
+        store.issue(barcode, RETENTION);
+        int requests = 10;
+        ExecutorService executor = Executors.newFixedThreadPool(requests);
+        CountDownLatch start = new CountDownLatch(1);
+        List<Future<BarcodeStore.ScanResult>> results = new ArrayList<>();
+        try {
+            for (int i = 0; i < requests; i++) {
+                long paymentId = 100 + i;
+                Callable<BarcodeStore.ScanResult> scan = () -> {
+                    start.await();
+                    return store.scan(barcode.token(), barcode.userId(), paymentId, Instant.now(), RETENTION);
+                };
+                results.add(executor.submit(scan));
+            }
+            start.countDown();
+            long scannedCount = 0;
+            for (Future<BarcodeStore.ScanResult> result : results) {
+                if (result.get(10, TimeUnit.SECONDS) == BarcodeStore.ScanResult.SCANNED) {
+                    scannedCount++;
+                }
+            }
+            assertThat(scannedCount).isEqualTo(1);
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    void 되돌리기는_그_결제_번호로_SCANNED일_때만_ISSUED로_돌린다() {
+        Barcode barcode = live(7L);
+        store.issue(barcode, RETENTION);
+        store.scan(barcode.token(), barcode.userId(), 1024L, Instant.now(), RETENTION);
+
+        assertThat(store.revertScan(barcode.token(), 2048L)).isFalse();
+        assertThat(store.revertScan(barcode.token(), 1024L)).isTrue();
+        Barcode reverted = store.find(barcode.token()).orElseThrow();
+        assertThat(reverted.status()).isEqualTo(BarcodeStatus.ISSUED);
+        assertThat(reverted.paymentId()).isNull();
+        assertThat(store.revertScan(barcode.token(), 1024L)).isFalse();
+    }
+
     private Barcode issued(Long userId) {
         return new Barcode(tokens.next(), userId, BarcodeStatus.ISSUED, ISSUED_AT, ISSUED_AT.plusSeconds(60));
+    }
+
+    /** 지금 발급돼 아직 유효한 바코드. 스캔은 실제 시각으로 만료를 보므로 ISSUED_AT(과거)을 쓰면 안 된다. */
+    private Barcode live(Long userId) {
+        Instant now = Instant.now();
+        return new Barcode(tokens.next(), userId, BarcodeStatus.ISSUED, now, now.plusSeconds(60));
     }
 }

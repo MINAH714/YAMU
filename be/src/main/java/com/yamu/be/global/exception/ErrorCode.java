@@ -127,9 +127,16 @@ public enum ErrorCode {
     /* 공통 - 호출 횟수 제한. details.retryAfterSeconds. 명세서 1장에 추가 필요 */
     TOO_MANY_REQUESTS(HttpStatus.TOO_MANY_REQUESTS, "요청이 너무 많습니다. 잠시 후 다시 시도해 주세요."),
 
-    /* 결제 바코드 (API 명세 「결제 바코드 발급」「바코드 상태·결제 요청 조회」) */
+    /* 결제 바코드 (API 명세 「결제 바코드 발급」「바코드 상태·결제 요청 조회」「POS 결제 요청 생성」) */
     NO_ACTIVE_CARD(HttpStatus.CONFLICT, "결제에 사용할 수 있는 카드가 없습니다. 카드를 먼저 등록해 주세요."),
-    BARCODE_NOT_FOUND(HttpStatus.NOT_FOUND, "바코드를 찾을 수 없습니다.");
+    BARCODE_NOT_FOUND(HttpStatus.NOT_FOUND, "바코드를 찾을 수 없습니다."),
+    BARCODE_EXPIRED(HttpStatus.GONE, "만료된 바코드입니다. 앱에서 바코드를 다시 발급해 주세요."),
+    BARCODE_ALREADY_USED(HttpStatus.CONFLICT, "이미 결제에 사용한 바코드입니다."),
+
+    /* 모의 POS - 결제 요청 생성 (API 명세 「POS 결제 요청 생성」). 금액·할부 오류는 위 INVALID_AMOUNT·INVALID_INSTALLMENT */
+    INVALID_POS_KEY(HttpStatus.UNAUTHORIZED, "POS 키가 없거나 올바르지 않습니다."),
+    MERCHANT_NOT_FOUND(HttpStatus.NOT_FOUND, "가맹점을 찾을 수 없습니다."),
+    IDEMPOTENCY_KEY_REQUIRED(HttpStatus.BAD_REQUEST, "Idempotency-Key 헤더(UUID)가 필요합니다.");
 
     private final HttpStatus status;
     private final String message;
