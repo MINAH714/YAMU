@@ -60,6 +60,17 @@ class BillingScheduleTest {
     }
 
     @Test
+    void 결제일_27일_N_31은_하루_차이로_청구_월과_출금일이_한_달_밀린다() {
+        // 2027-03-27 청구의 마감일은 3/27 − 31일 = 2/24. 3/27(토) → 3/29(월), 4/27(화)은 영업일이다.
+        assertThat(schedule.schedule(CardType.CREDIT, 27, 31, LocalDate.of(2027, 2, 24), 10_000L, 1))
+                .extracting(Withdrawal::billingMonth, Withdrawal::paymentDate, Withdrawal::withdrawalDate)
+                .containsExactly(tuple(YearMonth.of(2027, 3), LocalDate.of(2027, 3, 27), LocalDate.of(2027, 3, 29)));
+        assertThat(schedule.schedule(CardType.CREDIT, 27, 31, LocalDate.of(2027, 2, 25), 10_000L, 1))
+                .extracting(Withdrawal::billingMonth, Withdrawal::paymentDate, Withdrawal::withdrawalDate)
+                .containsExactly(tuple(YearMonth.of(2027, 4), LocalDate.of(2027, 4, 27), LocalDate.of(2027, 4, 27)));
+    }
+
+    @Test
     void 마감_일수가_없으면_14일로_계산한다() {
         LocalDate purchase = LocalDate.of(2027, 3, 1);
 
