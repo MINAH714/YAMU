@@ -4,7 +4,7 @@ import java.nio.charset.StandardCharsets;
 import javax.crypto.spec.SecretKeySpec;
 
 /**
- * 휴대폰·계좌·카드번호의 조회 해시(HMAC-SHA256, 32바이트)를 만든다. {@code *_hash} 컬럼(BINARY(32))에 넣는다.
+ * 휴대폰·계좌·카드번호·탈퇴자 이름의 조회 해시(HMAC-SHA256, 32바이트)를 만든다. {@code *_hash} 컬럼(BINARY(32))에 넣는다.
  *
  * <p>같은 값이면 항상 같은 해시가 나와 {@code WHERE phone_hash = ?}로 찾고 UNIQUE로 중복을 막을 수 있다.
  * 키 없는 SHA-256은 휴대폰 번호(약 1억 개)를 전부 미리 계산해 역추적할 수 있으므로, 서버만 아는 키를 섞는다.
@@ -28,6 +28,11 @@ public class LookupHasher {
 
     public byte[] card(String raw) {
         return hmac(PersonalDataNormalizer.cardNo(raw));
+    }
+
+    /** 탈퇴 때 남기는 이름 해시(app_user.withdrawn_name_hash). 재가입 때 본인인증 이름과 비교한다. */
+    public byte[] name(String raw) {
+        return hmac(PersonalDataNormalizer.name(raw));
     }
 
     private byte[] hmac(String normalized) {

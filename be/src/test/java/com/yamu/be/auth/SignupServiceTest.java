@@ -11,6 +11,7 @@ import com.yamu.be.auth.domain.SignupStep;
 import com.yamu.be.auth.dto.PhoneVerificationConfirmResponse;
 import com.yamu.be.global.crypto.LookupHasher;
 import com.yamu.be.global.crypto.PersonalDataCipher;
+import com.yamu.be.user.RejoinService;
 import com.yamu.be.user.domain.AppUser;
 import com.yamu.be.user.domain.AppUserRepository;
 import java.time.Clock;
@@ -40,7 +41,7 @@ class SignupServiceTest {
     private final TransactionTemplate transaction = mock(TransactionTemplate.class);
 
     private final SignupService service = new SignupService(verificationStore, tokenStore, userRepository,
-            mock(PersonalDataCipher.class), mock(LookupHasher.class),
+            mock(RejoinService.class), mock(PersonalDataCipher.class), mock(LookupHasher.class),
             new SignupProperties(Duration.ofMinutes(3), Duration.ofMinutes(1), 5, Duration.ofMinutes(30), true, 30),
             mock(LoginRateLimiter.class), transaction,
             Clock.fixed(Instant.parse("2026-10-30T03:00:00Z"), ZoneOffset.UTC));

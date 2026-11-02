@@ -144,6 +144,20 @@ public class UserDevice extends BaseTimeEntity {
     }
 
     /**
+     * 탈퇴. 해제하고 공개키를 아무 의미 없는 값으로 덮는다(public_key는 NOT NULL). 생체 키는 지운다.
+     * 해제된 기기는 로그인·재발급·본인 인증에 쓰이지 않으므로 이 값으로 서명이 검증될 일은 없다.
+     */
+    public void wipeForWithdrawal(String placeholderKey) {
+        this.status = DeviceStatus.REVOKED;
+        this.deviceName = null;
+        this.publicKey = placeholderKey;
+        this.biometricPublicKey = null;
+        this.biometricEnabled = false;
+        this.failedCount = 0;
+        this.lockedUntil = null;
+    }
+
+    /**
      * 같은 폰(deviceUuid)을 다시 등록할 때 키를 바꾼다. 앱을 다시 깔지 않고 키만 새로 만든 경우·기기 재등록·생체 켜기·끄기.
      * 본인 확인을 다시 마친 뒤에만 부르므로 해제·잠금도 풀고 실패 횟수를 0으로 되돌린다.
      */
