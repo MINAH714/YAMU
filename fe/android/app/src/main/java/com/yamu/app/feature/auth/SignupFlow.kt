@@ -503,7 +503,7 @@ class SignupAccountsViewModel @Inject constructor(private val signup: SignupRepo
         val s = _state.value
         if (s.sending) return
         if (s.recovery) return _state.update { it.copy(selected = listOf(candidate.id), primary = candidate.id, error = null) }
-        if (candidate.alreadyLinked) return
+        // 이미 연결된 계좌도 고른다 — 연결해 두고 멈춘 가입은 그 계좌로 1원 인증을 다시 해야 이어진다(BE AccountLinkService)
         val selected = if (candidate.id in s.selected) s.selected - candidate.id else s.selected + candidate.id
         val primary = s.primary?.takeIf { it in selected } ?: selected.firstOrNull()
         _state.update { it.copy(selected = selected, primary = primary, error = null) }
