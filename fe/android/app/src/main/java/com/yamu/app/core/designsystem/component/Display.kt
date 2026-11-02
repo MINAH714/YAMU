@@ -1,6 +1,9 @@
 package com.yamu.app.core.designsystem.component
 
+import androidx.annotation.DrawableRes
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -19,10 +22,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.yamu.app.core.designsystem.theme.Issuer
@@ -161,9 +167,10 @@ fun IssuerChip(issuer: Issuer, modifier: Modifier = Modifier, large: Boolean = f
     }
 }
 
-/** 카드 모양 — 카드 추가 · 내 카드 */
+/** 카드 모양 — 카드 추가 · 내 카드. 상품 그림(CardImages)이 있으면 그림을, 없으면 카드사 색 카드를 보여 준다 */
 @Composable
-fun CardArt(issuer: Issuer, name: String, last4: String, modifier: Modifier = Modifier) {
+fun CardArt(issuer: Issuer, name: String, last4: String, modifier: Modifier = Modifier, @DrawableRes image: Int? = null) {
+    if (image != null) return CardArt(image, name, modifier)
     Column(
         modifier
             .fillMaxWidth()
@@ -176,6 +183,45 @@ fun CardArt(issuer: Issuer, name: String, last4: String, modifier: Modifier = Mo
         Spacer(Modifier.weight(1f))
         Text("•••• $last4", style = YamuTheme.typography.labelM, color = issuer.content)
     }
+}
+
+/**
+ * 카드 상품 그림만 — 카드사 enum 없이 서버 Brand만 있는 화면(C-12)에서. 그림 모서리는 크기마다 달라 같은 모양으로 자른다.
+ * 흰 카드가 흰 바탕에 묻히지 않게 1dp 테두리(테마 색). 그림은 테마와 무관하다
+ */
+@Composable
+fun CardArt(@DrawableRes image: Int, name: String, modifier: Modifier = Modifier) {
+    val shape = RoundedCornerShape(YamuRadius.input)
+    Image(
+        painterResource(image),
+        contentDescription = name,
+        modifier = modifier
+            .fillMaxWidth()
+            .aspectRatio(1.586f)
+            .clip(shape)
+            .border(1.dp, YamuTheme.colors.outlineVariant, shape),
+        contentScale = ContentScale.Crop,     // 그림 비율 1.583~1.590 — 잘리는 건 1px 안팎
+    )
+}
+
+/**
+ * 작은 카드 그림 — 목록 줄 앞자리. 기본 폭 44dp는 카드사 칩(large 44 × 28dp)과 같아 줄 높이가 그대로고, 카드 목록(M-02 · H-03)은 88dp.
+ * 그림이 없으면 [fallback](카드사 칩). 줄 제목이 상품명을 읽으므로 그림은 꾸밈(설명 없음)
+ */
+@Composable
+fun CardThumb(@DrawableRes image: Int?, modifier: Modifier = Modifier, width: Dp = 44.dp, fallback: @Composable () -> Unit) {
+    if (image == null) return fallback()
+    val shape = RoundedCornerShape(width / 11)     // 44 → 4dp · 88 → 8dp
+    Image(
+        painterResource(image),
+        contentDescription = null,
+        modifier = modifier
+            .width(width)
+            .aspectRatio(1.586f)
+            .clip(shape)
+            .border(1.dp, YamuTheme.colors.outlineVariant, shape),
+        contentScale = ContentScale.Crop,
+    )
 }
 
 @YamuPreviews

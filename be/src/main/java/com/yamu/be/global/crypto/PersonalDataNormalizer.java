@@ -63,6 +63,14 @@ public final class PersonalDataNormalizer {
         return digits;
     }
 
+    /** 이름의 앞뒤 공백만 뺀다. 본인인증 이름 비교({@code VerifiedIdentity.sameNameAs})와 같은 규칙이다. 예: " 김야무 " → "김야무" */
+    public static String name(String raw) {
+        if (raw == null || raw.isBlank()) {
+            throw invalid("이름이 없습니다.");
+        }
+        return raw.strip();
+    }
+
     private static String digits(String raw) {
         if (raw == null) {
             throw invalid("값이 없습니다.");

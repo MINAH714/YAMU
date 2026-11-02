@@ -29,7 +29,7 @@ import javax.inject.Singleton
 /**
  * debug 전용 가짜 실적 장부 — 카드 6장(가짜 은행 FakeBank와 같은 userCardId 11~16).
  * 가짜 결제(FakePaymentRepository)가 승인되면 여기에 더한다 → 실적관리로 돌아오면 값 · 판정이 바뀐다(11 문서 7-5).
- * 숫자는 프로토타입 R-01 · R-03 그대로.
+ * 실적 숫자는 프로토타입 R-01 · R-03 그대로, 카드 · 실적 기준 · 혜택 · 한도는 BE 카드 시드 상품으로.
  */
 @Singleton
 class FakePerformanceStore @Inject constructor() {
@@ -45,13 +45,14 @@ class FakePerformanceStore @Inject constructor() {
         var moved = false
     }
 
+    // 실적 기준 · 혜택은 BE 카드 시드 값(LIKIT Shop 40만 · 톡톡 · iD ON · Mr.Life 30만 · 노리2 20만 · ZERO 실적 조건 없음)
     val cards = listOf(
-        Card(13, "우리카드", "#0083CA", "우리 통신·렌탈 신용카드", 400_000, 320_000, PerfGuide.ACHIEVE_RECOMMENDED, "통신비 할인"),
-        Card(11, "신한카드", "#0046FF", "신한 생활 신용카드", 300_000, 270_000, PerfGuide.KEEP_NATURAL, "카페·편의점 10%"),
-        Card(14, "NH농협카드", "#00A651", "NH농협 교통·쇼핑 신용카드", 300_000, 180_000, PerfGuide.EXTRA_SPENDING_NOT_RECOMMENDED, "교통 10%"),
-        Card(15, "하나카드", "#008C8C", "하나 마트·주유 신용카드", 300_000, 320_000, null, "마트 5%"),
-        Card(16, "KB국민카드", "#60584C", "KB국민 체크카드", 200_000, 210_000, null, "편의점 5%"),
-        Card(12, "KB국민카드", "#FFBC00", "KB국민 적립 신용카드", null, 150_000, null, null),
+        Card(13, "롯데카드", "#E60012", "LOCA LIKIT Shop", 400_000, 320_000, PerfGuide.ACHIEVE_RECOMMENDED, "쿠팡·편의점 60%"),
+        Card(11, "KB국민카드", "#FFBC00", "KB국민 청춘대로 톡톡카드", 300_000, 270_000, PerfGuide.KEEP_NATURAL, "스타벅스 50%"),
+        Card(14, "삼성카드", "#1428A0", "삼성 iD ON 카드", 300_000, 180_000, PerfGuide.EXTRA_SPENDING_NOT_RECOMMENDED, "교통 10%"),
+        Card(15, "신한카드", "#0046FF", "신한카드 Mr.Life", 300_000, 320_000, null, "편의점·마트 10%"),
+        Card(16, "KB국민카드", "#60584C", "KB국민 노리2 체크카드(KB Pay)", 200_000, 210_000, null, "GS25·CU 5%"),
+        Card(12, "현대카드", "#1A1A1A", "현대카드ZERO Edition3(포인트형)", null, 150_000, null, null),
     )
 
     fun card(id: Long) = cards.firstOrNull { it.id == id }
@@ -105,7 +106,7 @@ class FakePerformanceRepository @Inject constructor(private val store: FakePerfo
         delay(400)
         val c = store.card(userCardId) ?: return ApiResult.Failure(ApiError.NotFound("RESOURCE_NOT_FOUND"))
         val tiers = when (c.id) {
-            13L -> listOf(PerfTier("30만 원 이상", "정수기 할인", 10_000, c.recognized >= 300_000), PerfTier("40만 원 이상", "통신비 할인", 5_000, c.recognized >= 400_000))
+            13L -> listOf(PerfTier("40만 원 이상", "쿠팡·편의점·미용실 60% 할인", 13_000, c.recognized >= 400_000))   // LIKIT Shop 공유 월 한도 13,000
             else -> c.target?.let { listOf(PerfTier("${it / 10_000}만 원 이상", c.nextMonthBenefit, null, c.recognized >= it)) }.orEmpty()
         }
         val achieved = store.achieved(c)
@@ -148,14 +149,14 @@ class FakePerformanceRepository @Inject constructor(private val store: FakePerfo
             PerfGuide.ACHIEVE_RECOMMENDED -> {
                 val deadline = LocalDate.now(KST).plusDays(2)
                 PerfAnalysis(
-                    c.id, month.monthValue, c.kind, if (c.moved) "통신비를 옮겨 두면 월말에 기준을 넘어요" else "통신비만 옮기면 더 쓰지 않고 채워요", target, projected, shortfall, 5_000,
-                    listOf("통신비 할인 5,000원"),
+                    c.id, month.monthValue, c.kind, if (c.moved) "통신비를 옮겨 두면 월말에 기준을 넘어요" else "통신비만 옮기면 더 쓰지 않고 채워요", target, projected, shortfall, 13_000,
+                    listOf("쿠팡·편의점 60% 할인 최대 13,000원"),
                     listOf(
                         PerfStep("남은 실적", target - c.recognized, "기준 ${"%,d".format(target)} − 인정 ${"%,d".format(c.recognized)}"),
                         PerfStep("월말까지 자연 소비 예측", natural, "최근 3개월 같은 기간 평균"),
                         PerfStep("예정 지출로 채울 수 있는 돈", 35_000, "잔고예보 예정 지출 4건 중 통신비 1건"),
                         PerfStep("그래도 모자라는 돈", (shortfall - 35_000).coerceAtLeast(0), null),
-                        PerfStep("달성하면 더 받는 혜택", 5_000, "${next}월 통신비 할인"),
+                        PerfStep("달성하면 더 받는 혜택", 13_000, "${next}월 쿠팡·편의점 60% 할인 한도"),
                         PerfStep("판단", null, "추가 지출 0원으로 달성 → 실적 달성 추천"),
                     ),
                     if (c.moved) null else MovableItem(318, "통신비", 35_000, deadline.toString(), "통신사 반영 1~2영업일"),
@@ -212,12 +213,12 @@ class FakePerformanceRepository @Inject constructor(private val store: FakePerfo
             BenefitLimits(
                 month.monthValue, remaining = 16_200, received = 30_900,
                 cards = listOf(
-                    c(16, "KB국민카드", "#60584C", "KB국민 체크", 1_100, LimitTag.NEAR_END),
-                    c(15, "하나카드", "#008C8C", "하나 마트·주유", 6_700, null),
-                    c(11, "신한카드", "#0046FF", "신한 생활", 5_800, null),
-                    c(14, "NH농협카드", "#00A651", "NH농협 교통·쇼핑", 2_600, null),
-                    c(13, "우리카드", "#0083CA", "우리 통신·렌탈", 0, LimitTag.EXHAUSTED),
-                    c(12, "KB국민카드", "#FFBC00", "KB국민 적립", null, LimitTag.UNLIMITED),
+                    c(16, "KB국민카드", "#60584C", "KB 노리2 KB Pay", 1_100, LimitTag.NEAR_END),   // GS25·CU 월 2,000
+                    c(15, "신한카드", "#0046FF", "신한 Mr.Life", 6_700, null),                     // TIME 서비스 월 10,000
+                    c(11, "KB국민카드", "#FFBC00", "KB 톡톡", 5_800, null),                        // 스타벅스 월 10,000
+                    c(14, "삼성카드", "#1428A0", "삼성 iD ON", 2_600, null),                       // 생활 공유 월 10,000
+                    c(13, "롯데카드", "#E60012", "LOCA LIKIT Shop", 0, LimitTag.EXHAUSTED),        // 공유 월 13,000
+                    c(12, "현대카드", "#1A1A1A", "현대 ZERO 포인트형", null, LimitTag.UNLIMITED),
                 ),
             ),
         )

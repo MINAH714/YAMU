@@ -152,6 +152,7 @@ CONSTRAINT ck_linked_account_version CHECK (version >= 0)
 | card_product_id | `BIGINT NOT NULL AUTO_INCREMENT` | YAMU 내부 상품 번호; 외부 상품 코드 아님 |
 | issuer_code | `VARCHAR(32) NOT NULL` | YAMU 카드사 코드 |
 | product_name | `VARCHAR(150) NOT NULL` | 세대·에디션을 포함해 구분한 상품명 |
+| image_key | `VARCHAR(1024) NULL` | 카드 앞면 이미지 S3 객체 키. 미수집은 NULL. CDN URL은 API에서 조합 |
 | card_type | `VARCHAR(16) NOT NULL` | CREDIT / CHECK |
 | billing_cutoff_days | `SMALLINT NULL` | 결제일에서 뺄 일수; 신용카드 정책 자료로 설정 |
 | terms_url | `VARCHAR(1000) NULL` | 원본 상품 약관 위치 |
