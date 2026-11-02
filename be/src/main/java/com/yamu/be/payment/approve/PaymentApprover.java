@@ -1,5 +1,8 @@
 package com.yamu.be.payment.approve;
 
+import com.yamu.be.payment.PaymentTerms;
+import com.yamu.be.payment.recommend.RecommendationResult.CardSummary;
+
 /**
  * 승인 실행 포트. 결제 행이 PROCESSING으로 저장된 뒤, DB 트랜잭션 밖에서 불린다.
  *
@@ -11,6 +14,12 @@ package com.yamu.be.payment.approve;
  * <p>기본 구현은 카드 종류로 나누는 {@link CardTypeRoutingApprover}다({@link CheckCardApprover}·{@link CreditCardApprover}).
  */
 public interface PaymentApprover {
+
+    /**
+     * 승인 전 사전 검사(카드 결정 뒤, PROCESSING 선점 전). 승인할 수 없음이 자료만으로 분명하면 여기서 예외를 던진다
+     * (예: 신용카드 결제일 없음·한도 자료 없음 → 422 DATA_INSUFFICIENT). 선점·시도 횟수를 쓰지 않는다.
+     */
+    default void precheck(Long userId, CardSummary card, PaymentTerms terms) {}
 
     ApprovalOutcome approve(ApprovalCommand command);
 }

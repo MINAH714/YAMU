@@ -1,0 +1,98 @@
+package com.yamu.be.payment.billing;
+
+import com.yamu.be.payment.domain.PaymentTransaction;
+import java.time.YearMonth;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.stereotype.Component;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.support.TransactionTemplate;
+
+/**
+ * 신용카드 승인의 청구 회차 저장(명세 「결제 승인 요청」 처리 순서 5). 회차가 걸리는 달마다 청구서(card_bill)를 확보하고,
+ * 승인이 저장된 트랜잭션 안에서 회차(bill_item)를 붙인다.
+ *
+ * <p>청구서 확보는 승인 트랜잭션 밖의 짧은 트랜잭션(REQUIRES_NEW)이다. 같은 카드·같은 달 청구서는 UNIQUE라 두 결제가 동시에
+ * 만들면 한쪽이 충돌하는데, 그때는 다시 읽어 같은 청구서를 쓴다. 승인 저장이 실패해 빈 ACCUMULATING 청구서만 남아도 다음 승인이 재사용한다.
+ */
+@Slf4j
+@Component
+public class CreditBillingWriter {
+
+    private final CardBillRepository bills;
+    private final BillItemRepository items;
+    private final TransactionTemplate newTransaction;
+
+    public CreditBillingWriter(CardBillRepository bills, BillItemRepository items,
+            PlatformTransactionManager transactionManager) {
+        this.bills = bills;
+        this.items = items;
+        this.newTransaction = new TransactionTemplate(transactionManager);
+        this.newTransaction.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+    }
+
+    /** 계획의 회차가 들어갈 달마다 청구서를 찾거나 만든다. 승인 트랜잭션 전에 부른다. */
+    public Map<YearMonth, CardBill> ensureBills(Long userId, Long userCardId, InstallmentPlan plan) {
+        Map<YearMonth, CardBill> result = new LinkedHashMap<>();
+        for (InstallmentPlan.Installment installment : plan.installments()) {
+            result.computeIfAbsent(installment.billingMonth(), month -> ensureBill(userId, userCardId, installment));
+        }
+        return result;
+    }
+
+    private CardBill ensureBill(Long userId, Long userCardId, InstallmentPlan.Installment installment) {
+        return bills.findByUserCardIdAndBillingMonth(userCardId, installment.billingMonth().atDay(1))
+                .orElseGet(() -> create(userId, userCardId, installment));
+    }
+
+    private CardBill create(Long userId, Long userCardId, InstallmentPlan.Installment installment) {
+        try {
+            return newTransaction.execute(status -> bills.saveAndFlush(
+                    CardBill.accumulating(userId, userCardId, installment.cycle(), installment.withdrawalDate())));
+        } catch (DataIntegrityViolationException e) {
+            // 같은 달 청구서를 다른 결제가 방금 만들었다
+            log.info("청구서 동시 생성 충돌, 다시 읽음 userCardId={} month={}", userCardId, installment.billingMonth());
+            return bills.findByUserCardIdAndBillingMonth(userCardId, installment.billingMonth().atDay(1))
+                    .orElseThrow(() -> new IllegalStateException("청구서를 만들지도 찾지도 못했습니다", e));
+        }
+    }
+
+    /**
+     * 승인된 결제의 회차를 적는다. 호출하는 쪽의 트랜잭션(승인 저장) 안에서 부른다.
+     * 회차의 사용자·카드는 결제 행의 값이어야 FK({@code fk_item_payment_owner})가 맞는다.
+     */
+    public List<BillItem> writeItems(PaymentTransaction payment, InstallmentPlan plan, Map<YearMonth, CardBill> bills) {
+        List<BillItem> created = new ArrayList<>(plan.installments().size());
+        for (InstallmentPlan.Installment installment : plan.installments()) {
+            CardBill bill = bills.get(installment.billingMonth());
+            if (bill == null || !bill.getUserCardId().equals(payment.getUserCardId())) {
+                throw new IllegalStateException("회차의 청구서가 없거나 카드가 다릅니다 (결제 " + payment.getId() + ")");
+            }
+            created.add(BillItem.pending(payment.getId(), payment.getUserId(), payment.getUserCardId(), bill.getId(),
+                    installment.no(), installment.billingMonth().atDay(1), installment.principal()));
+        }
+        List<BillItem> saved = items.saveAll(created);
+        items.flush();
+        return saved;
+    }
+
+    /** 결제의 회차(회차 순). 승인 응답을 다시 만들 때 쓴다. */
+    public List<BillItem> itemsOf(Long paymentId) {
+        return items.findByPaymentTransactionIdOrderByInstallmentNoAsc(paymentId);
+    }
+
+    /** 회차들이 배정된 청구서. 응답의 출금 예정일을 채운다. */
+    public Map<Long, CardBill> billsOf(List<BillItem> billItems) {
+        Map<Long, CardBill> result = new LinkedHashMap<>();
+        for (CardBill bill : bills.findAllById(billItems.stream().map(BillItem::getCardBillId).filter(id -> id != null)
+                .distinct().toList())) {
+            result.put(bill.getId(), bill);
+        }
+        return result;
+    }
+}

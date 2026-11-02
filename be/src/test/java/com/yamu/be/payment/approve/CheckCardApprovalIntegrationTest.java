@@ -133,6 +133,8 @@ class CheckCardApprovalIntegrationTest extends MySqlTestSupport {
 
     @BeforeEach
     void setUp() {
+        jdbc.update("DELETE FROM bill_item");
+        jdbc.update("DELETE FROM card_bill");
         jdbc.update("DELETE FROM payment_transaction");
         jdbc.update("DELETE FROM user_card");
         jdbc.update("DELETE FROM linked_account");
@@ -155,6 +157,7 @@ class CheckCardApprovalIntegrationTest extends MySqlTestSupport {
         checkCard = fixtures.card(user, checkProduct, account, "ACTIVE");
         jdbc.update("UPDATE user_card SET is_default = TRUE WHERE user_card_id = ?", checkCard);
         creditCard = fixtures.card(user, creditProduct, account, "ACTIVE");
+        jdbc.update("UPDATE user_card SET payment_day = 15 WHERE user_card_id = ?", creditCard);
         cafe = merchant("테스트 카페", "TEST_CAFE", "COFFEE_SHOP");
 
         doAnswer(inv -> nextTransactionNo()).when(transfer).newTransactionNo();
@@ -214,6 +217,9 @@ class CheckCardApprovalIntegrationTest extends MySqlTestSupport {
         assertThat(payment.getFinTransactionNo()).isNull();
         verify(transfer, never()).newTransactionNo();
         verify(transfer, never()).withdraw(anyString(), anyString(), anyLong(), any(), anyString());
+        // 신용카드는 청구 회차를 만든다(Task 5.2.4). 자세한 확인은 CreditApprovalIntegrationTest
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM bill_item WHERE payment_transaction_id = ?", Long.class,
+                requested.paymentId())).isEqualTo(1L);
     }
 
     @Test
@@ -444,6 +450,9 @@ class CheckCardApprovalIntegrationTest extends MySqlTestSupport {
         assertThat(approved.getFinTransactionNo()).isEqualTo("1105");
         verify(transfer, times(1)).withdraw(anyString(), anyString(), anyLong(), any(), anyString());
         assertThat(attempts.list(requested.paymentId())).hasSize(1);
+        // 체크카드 승인은 청구서·회차를 만들지 않는다
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM bill_item", Long.class)).isZero();
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM card_bill", Long.class)).isZero();
     }
 
     // ───────── 도우미 ─────────

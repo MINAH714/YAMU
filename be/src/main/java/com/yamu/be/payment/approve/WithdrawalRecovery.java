@@ -163,7 +163,7 @@ public class WithdrawalRecovery {
         LocalDateTime now = LocalDateTime.ofInstant(clock.instant(), ZoneOffset.UTC).truncatedTo(ChronoUnit.MICROS);
         LocalDate performanceMonth = now.atOffset(ZoneOffset.UTC).atZoneSameInstant(KST).toLocalDate().withDayOfMonth(1);
         ApprovalOutcome.Approved approved = new ApprovalOutcome.Approved(amount, amount, 0, performanceMonth,
-                List.of(), finRequestNo, found.bankTransactionNo());
+                List.of(), finRequestNo, found.bankTransactionNo(), null);
         PaymentStatus after = settle(paymentId, finRequestNo, payment -> {
             payment.approve(approved.approvedAmount(), approved.recognizedPerformanceAmount(),
                     approved.performanceMonth(), now, approved.finTransactionNo());
