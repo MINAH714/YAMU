@@ -97,6 +97,42 @@ class CashflowEditTest {
         assertEquals("매월 말일", rows[1].repeatLabel)
     }
 
+    @Test fun `옮겨 둔 회차의 규칙을 바꿔도 첫날과 반복일이 어긋나지 않는다`() {
+        val moved = rent.copy(dayOfMonth = 25, endDate = null, occurrenceDate = LocalDate.of(2026, 11, 25), date = LocalDate.of(2026, 11, 27))
+        val body = moved.toPatch(moved.toForm().withEndDate(LocalDate.of(2027, 6, 30)), CashflowScope.THIS_AND_FUTURE)
+        assertNull(body.date)   // 서버는 원래 회차(25일)를 첫날로 본다
+        assertEquals(25, body.recurrence?.dayOfMonth)
+    }
+
+    @Test fun `옮겨 둔 매주 회차도 원래 요일을 보낸다`() {
+        val tue = LocalDate.of(2026, 11, 24)
+        val weekly = rent.copy(repeat = CashflowRepeat.WEEKLY, dayOfMonth = null, endDate = null, occurrenceDate = tue, date = tue.plusDays(1))
+        val body = weekly.toPatch(weekly.toForm().withEndDate(LocalDate.of(2027, 6, 30)), CashflowScope.THIS_AND_FUTURE)
+        assertEquals("TUESDAY", body.recurrence?.dayOfWeek)
+    }
+
+    @Test fun `짧은 달 회차에서 규칙을 바꿔도 매월 기준일이 밀리지 않는다`() {
+        val feb = LocalDate.of(2027, 2, 28)
+        val day30 = rent.copy(dayOfMonth = 30, endDate = null, occurrenceDate = feb, date = feb)
+        val body = day30.toPatch(day30.toForm().withEndDate(LocalDate.of(2027, 6, 30)), CashflowScope.THIS_AND_FUTURE)
+        assertNull(body.date)
+        assertEquals(30, body.recurrence?.dayOfMonth)
+        assertEquals("매월 30일", day30.repeatLabel())
+    }
+
+    @Test fun `이후 전부에서 날짜를 옮기면 새 날짜가 기준일이다`() {
+        val feb = LocalDate.of(2027, 2, 28)
+        val day30 = rent.copy(dayOfMonth = 30, endDate = null, occurrenceDate = feb, date = feb)
+        val body = day30.toPatch(day30.toForm().copy(date = LocalDate.of(2027, 2, 20)), CashflowScope.THIS_AND_FUTURE)
+        assertEquals(20, body.recurrence?.dayOfMonth)
+    }
+
+    @Test fun `예보가 없어도 F-02 줄은 가계부 회차로 만든다`() {
+        val rows = cashflowRows(listOf(rent), null)
+        assertEquals(listOf("월세"), rows.map { it.title })
+        assertEquals(listOf(true), rows.map { it.entry != null })
+    }
+
     @Test fun `F-02 줄 — 월급이 가계부에 있으면 예보 월급을 또 붙이지 않는다`() {
         val salary = rent.copy(itemId = 7, isIncome = true, title = "월급", amount = 2_800_000, date = LocalDate.of(2026, 11, 26), occurrenceDate = LocalDate.of(2026, 11, 26))
         val rows = cashflowRows(listOf(salary), forecast(upcoming = emptyList(), incomeDate = LocalDate.of(2026, 11, 26)))
