@@ -7,6 +7,7 @@ import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.json.JsonMapper;
 import com.yamu.be.card.domain.CardType;
+import com.yamu.be.payment.recommend.RecommendationResult.BenefitLine;
 import com.yamu.be.payment.recommend.RecommendationResult.Candidate;
 import com.yamu.be.payment.recommend.RecommendationResult.CardStatus;
 import com.yamu.be.payment.recommend.RecommendationResult.CardSummary;
@@ -178,7 +179,7 @@ class RecommendationResultTest {
     // ───────── 스냅샷(JSON) ─────────
 
     @Test
-    void 미비교_칸이_없던_옛_스냅샷도_읽고_미비교는_빈_목록이다() throws Exception {
+    void 미비교_칸이_없고_chargedAmount가_있던_옛_스냅샷도_읽는다() throws Exception {
         String old = """
                 {"recommendationId":"rec_000000000001","calculatedAt":"2026-10-31T15:30:00","estimate":false,
                  "candidates":[{"rank":1,"card":{"userCardId":1,"cardProductId":101,"cardType":"CREDIT",
@@ -192,6 +193,20 @@ class RecommendationResultTest {
 
         assertThat(result.uncomparedCards()).isEmpty();
         assertThat(result.status()).isEqualTo(Status.READY);
+        assertThat(result.topCandidate().orElseThrow().netBenefit()).isZero();
+    }
+
+    // ───────── 즉시할인 ─────────
+
+    @Test
+    void 즉시할인은_AT_APPROVAL_혜택만_더한다() {
+        Candidate candidate = new Candidate(1, CARD_1, 2_500,
+                List.of(new BenefitLine(1L, "즉시할인", "INSTANT_DISCOUNT", 750, 750, BenefitLine.AT_APPROVAL),
+                        new BenefitLine(2L, "즉시할인2", "INSTANT_DISCOUNT", 250, 250, BenefitLine.AT_APPROVAL),
+                        new BenefitLine(3L, "청구할인", "BILLING_DISCOUNT", 1_500, 1_500, "AT_BILLING")),
+                "", null, new RuleVersion(101L, 1));
+
+        assertThat(candidate.instantDiscount()).isEqualTo(1_000);
     }
 
     @Test
@@ -214,7 +229,7 @@ class RecommendationResultTest {
     }
 
     private static Candidate candidate(int rank, CardSummary card, long netBenefit) {
-        return new Candidate(rank, card, netBenefit, List.of(), 15_000 - netBenefit, "", null,
+        return new Candidate(rank, card, netBenefit, List.of(), "", null,
                 new RuleVersion(card.cardProductId(), 1));
     }
 

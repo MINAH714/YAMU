@@ -117,19 +117,30 @@ public record RecommendationResult(String recommendationId, LocalDateTime calcul
         return uncompared(userCardId).map(u -> CardStatus.NOT_COMPARED);
     }
 
-    /** 후보 카드 한 장. 금액은 모두 원이다. 결제 가능과 혜택이 확인된 카드이고, 순혜택 0원도 확인된 값이다. */
+    /**
+     * 후보 카드 한 장. 금액은 모두 원이다. 결제 가능과 혜택이 확인된 카드이고, 순혜택 0원도 확인된 값이다.
+     * 결제할 금액(chargedAmount)은 담지 않는다. 결제 쪽이 {@code PaymentTerms.chargedAmount(instantDiscount())}로 계산한다.
+     *
+     * @param card        결제 쪽이 조회한 카드 표시 정보를 그대로 담는다
+     * @param ruleVersion 결제 쪽이 조회한 상품 규칙 버전을 그대로 담는다
+     */
     public record Candidate(int rank, CardSummary card, long netBenefit, List<BenefitLine> benefits,
-            long chargedAmount, String reason, TieBreak tieBreak, RuleVersion ruleVersion) {
+            String reason, TieBreak tieBreak, RuleVersion ruleVersion) {
 
         public Candidate {
             Objects.requireNonNull(card, "card");
             benefits = List.copyOf(benefits);
             Objects.requireNonNull(ruleVersion, "ruleVersion");
         }
+
+        /** 승인 때 바로 반영되는 즉시할인({@link BenefitLine#AT_APPROVAL}) 합계. 청구할인·캐시백·적립은 넣지 않는다. */
+        public long instantDiscount() {
+            return benefits.stream().filter(BenefitLine::isInstant).mapToLong(BenefitLine::amount).sum();
+        }
     }
 
     /**
-     * 화면에 보일 카드 정보. 추천이 카드 저장소를 다시 읽지 않도록 결과에 같이 담는다.
+     * 화면에 보일 카드 정보. 결제 쪽이 보유 카드를 조회한 값({@code PaymentCardLookup})을 그대로 담고, 추천 엔진이 카드를 다시 조회하지 않는다.
      *
      * @param alias       사용자가 정한 별칭. 없으면 null
      * @param last4       카드번호 끝 4자리
@@ -147,7 +158,15 @@ public record RecommendationResult(String recommendationId, LocalDateTime calcul
      * @param realization AT_APPROVAL(즉시) / AT_BILLING(청구) / AFTER_BILLING(캐시백) / POINT_ACCRUAL(적립)
      */
     public record BenefitLine(Long benefitId, String name, String type, long rawAmount, long amount,
-            String realization) {}
+            String realization) {
+
+        /** 승인 때 바로 반영되는 즉시할인의 realization 값 */
+        public static final String AT_APPROVAL = "AT_APPROVAL";
+
+        public boolean isInstant() {
+            return AT_APPROVAL.equals(realization);
+        }
+    }
 
     public record ExcludedCard(CardSummary card, ExclusionReason reason, String message) {}
 
@@ -173,7 +192,7 @@ public record RecommendationResult(String recommendationId, LocalDateTime calcul
         }
     }
 
-    /** 혜택 계산에 쓴 상품 규칙 버전. 승인 때 같은 버전으로 다시 계산한다. */
+    /** 혜택 계산에 쓴 상품 규칙 버전. 결제 쪽이 조회한 버전을 재사용하고, 승인 때 같은 버전으로 다시 계산한다. */
     public record RuleVersion(Long cardProductId, int version) {}
 
     /** 추천 상태. 이름과 판정은 BE3 엔진(!63)의 {@code Status}와 같다. */

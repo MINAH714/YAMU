@@ -68,15 +68,15 @@ public class MockCardRecommender implements CardRecommender {
                 excluded.add(new ExcludedCard(summary(card), reason, message(reason)));
                 continue;
             }
-            candidates.add(new Candidate(candidates.size() + 1, summary(card), 0, List.of(), terms.amount(),
-                    REASON_PLACEHOLDER, null, new RuleVersion(card.cardProductId(), MOCK_RULE_VERSION)));
+            candidates.add(new Candidate(candidates.size() + 1, summary(card), 0, List.of(), REASON_PLACEHOLDER,
+                    null, new RuleVersion(card.cardProductId(), MOCK_RULE_VERSION)));
         }
         // 전부 혜택 0원이라 후보가 둘 이상이면 1순위는 동률 규칙으로 정해진 것이다.
         if (candidates.size() > 1) {
             Candidate top = candidates.get(0);
             TieBreak tieBreak = top.card().defaultCard() ? TieBreak.DEFAULT_CARD : TieBreak.FIXED_ORDER;
-            candidates.set(0, new Candidate(top.rank(), top.card(), top.netBenefit(), top.benefits(),
-                    top.chargedAmount(), top.reason(), tieBreak, top.ruleVersion()));
+            candidates.set(0, new Candidate(top.rank(), top.card(), top.netBenefit(), top.benefits(), top.reason(),
+                    tieBreak, top.ruleVersion()));
         }
         return new RecommendationResult(newId(), LocalDateTime.ofInstant(clock.instant(), ZoneOffset.UTC), false,
                 candidates, excluded, List.of());

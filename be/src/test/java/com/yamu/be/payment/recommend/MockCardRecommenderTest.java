@@ -139,14 +139,15 @@ class MockCardRecommenderTest {
     // ───────── 값 ─────────
 
     @Test
-    void 후보는_혜택_0원_청구액은_결제액_규칙_버전은_0이고_카드_정보를_같이_담는다() {
+    void 후보는_혜택_0원_즉시할인_0원_규칙_버전은_0이고_조회한_카드_정보를_그대로_담는다() {
         given(card(1, CardType.CREDIT).defaultCard());
 
         Candidate top = recommender.recommend(lumpSum(15_000)).topCandidate().orElseThrow();
 
         assertThat(top.netBenefit()).isZero();
         assertThat(top.benefits()).isEmpty();
-        assertThat(top.chargedAmount()).isEqualTo(15_000);
+        // 결제할 금액은 결제 쪽이 PaymentTerms.chargedAmount로 계산한다
+        assertThat(top.instantDiscount()).isZero();
         assertThat(top.reason()).isEqualTo(MockCardRecommender.REASON_PLACEHOLDER);
         assertThat(top.ruleVersion().cardProductId()).isEqualTo(100L);
         assertThat(top.ruleVersion().version()).isEqualTo(MockCardRecommender.MOCK_RULE_VERSION);
