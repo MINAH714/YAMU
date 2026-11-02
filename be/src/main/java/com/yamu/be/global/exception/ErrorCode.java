@@ -51,8 +51,6 @@ public enum ErrorCode {
     SIGNUP_TOKEN_INVALID(HttpStatus.UNAUTHORIZED, "가입 진행 시간이 지났습니다. 본인인증부터 다시 진행해 주세요."),
     ALREADY_REGISTERED(HttpStatus.CONFLICT, "이미 가입된 사용자입니다. 기기 재등록으로 진행해 주세요."),
     /* 인증 - 본인인증 확인 리뷰 반영·시드 사용자 전용(S15P31E103-192). 명세서 「휴대폰 본인인증 확인」에 추가 필요 */
-    // 탈퇴한 사람의 재가입. 탈퇴(기기 관리·탈퇴 작업)에서 개인정보를 비우는 방식이 정해지면 새 가입으로 바뀐다
-    REJOIN_NOT_AVAILABLE(HttpStatus.CONFLICT, "탈퇴한 정보로는 아직 다시 가입할 수 없습니다."),
     // 임시(10/30): 시연용 시드에 없는 사람. 회원가입 때 SSAFY 회원을 만들지 않으므로 시드 사용자만 가입할 수 있다
     DEMO_USER_NOT_FOUND(HttpStatus.NOT_FOUND, "시연용으로 등록된 사용자가 아닙니다."),
 
@@ -100,6 +98,10 @@ public enum ErrorCode {
     CARD_UNREGISTERED(HttpStatus.CONFLICT, "등록 해제한 카드는 수정할 수 없습니다."),
     ORDER_INCOMPLETE(HttpStatus.BAD_REQUEST, "보유 카드 전체를 빠짐없이 한 번씩 보내 주세요."),
     CARD_HAS_OPEN_BILL(HttpStatus.CONFLICT, "출금되지 않은 청구서가 있어 카드를 해제할 수 없습니다."),
+
+    /* 사용자 - 회원 탈퇴 (API 명세 「회원 탈퇴」). details.billIds·refundIds */
+    BILL_OUTSTANDING(HttpStatus.CONFLICT, "출금되지 않은 청구서가 있어 탈퇴할 수 없습니다."),
+    REFUND_PENDING(HttpStatus.CONFLICT, "아직 입금되지 않은 환급이 있어 탈퇴할 수 없습니다."),
 
     /* 가계부 - 항목 수정 (API 명세 「가계부 항목 수정」). 탐지 후보는 CONFIRMED·IGNORED로만 바꿀 수 있다 */
     INVALID_STATUS_CHANGE(HttpStatus.CONFLICT, "바꿀 수 없는 상태입니다."),

@@ -12,6 +12,7 @@ import com.yamu.be.auth.dto.DeviceListResponse;
 import com.yamu.be.global.exception.BusinessException;
 import com.yamu.be.global.exception.ErrorCode;
 import com.yamu.be.global.security.AuthUser;
+import com.yamu.be.user.domain.AppUser;
 import com.yamu.be.user.domain.AppUserRepository;
 import java.time.Clock;
 import java.time.LocalDateTime;
@@ -74,8 +75,12 @@ public class DeviceManagementService {
         }
         stepUpService.requireStepUp(me, StepUpPurpose.APP_UNLOCK, stepUpToken);
         boolean revoked = Boolean.TRUE.equals(transaction.execute(status -> {
-            userRepository.findByIdForUpdate(me.userId())
+            AppUser user = userRepository.findByIdForUpdate(me.userId())
                     .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND));
+            // 요청 시작 때 토큰 검사를 통과했어도 잠금을 기다리는 사이 탈퇴했을 수 있다. 탈퇴한 사용자에게 데이터를 다시 남기지 않는다.
+            if (user.isWithdrawn()) {
+                throw new BusinessException(ErrorCode.UNAUTHORIZED);
+            }
             UserDevice device = deviceRepository.findByIdForUpdate(userDeviceId)
                     .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND));
             if (device.isRevoked()) {

@@ -103,6 +103,20 @@ public class LinkedAccount extends BaseTimeEntity {
         this.accountAlias = alias;
     }
 
+    /**
+     * 탈퇴. 기준 계좌를 풀고 연결을 끊고, 계좌번호 암호문·조회 해시를 아무 의미 없는 값으로 덮는다(두 칸 모두 NOT NULL).
+     * 재가입하면 계좌는 SSAFY 목록에서 새로 골라 연결하므로 옛 행의 계좌번호는 필요 없다.
+     * 한 UPDATE로 is_primary와 status가 함께 바뀌어 ck_account_primary_connected에 걸리지 않는다.
+     */
+    public void wipeForWithdrawal(byte[] dummyEnc, byte[] dummyHash, LocalDateTime now) {
+        this.primary = false;
+        this.status = LinkedAccountStatus.DISCONNECTED;
+        this.disconnectedAt = now;
+        this.accountNoEnc = dummyEnc;
+        this.accountNoHash = dummyHash;
+        this.accountAlias = null;
+    }
+
     /** 기준 계좌로 정하거나 푼다. 사용자당 1개라 다른 계좌를 먼저 풀고 flush한 뒤 정한다. */
     public void markPrimary(boolean primary) {
         this.primary = primary;

@@ -142,6 +142,10 @@ public class DeviceRegistrationService {
         UserDevice device = transaction.execute(status -> {
             AppUser user = userRepository.findByIdForUpdate(me.userId())
                     .orElseThrow(() -> new BusinessException(ErrorCode.DEVICE_NOT_REGISTERED));
+            // 요청 시작 때 토큰 검사를 통과했어도 잠금을 기다리는 사이 탈퇴했을 수 있다. 탈퇴한 사용자에게 데이터를 다시 남기지 않는다.
+            if (user.isWithdrawn()) {
+                throw new BusinessException(ErrorCode.UNAUTHORIZED);
+            }
             return save(user, keys);
         });
         return new DeviceRegisterResponse(device.getId(), device.getDeviceName(), device.isBiometricEnabled(),
