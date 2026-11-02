@@ -24,7 +24,7 @@ import com.yamu.be.card.domain.CardType;
 import com.yamu.be.forecast.BalanceForecast.Until;
 import com.yamu.be.forecast.CardBillReader.OutstandingBill;
 import com.yamu.be.forecast.CardBillReader.Status;
-import com.yamu.be.forecast.LivingCostReader.MonthlySpending;
+import com.yamu.be.forecast.LivingCostReader.DailySpending;
 import com.yamu.be.forecast.LivingCostReader.Origin;
 import com.yamu.be.global.exception.BusinessException;
 import com.yamu.be.global.exception.ErrorCode;
@@ -69,13 +69,13 @@ class ForecastServiceTest {
 
     private final List<List<Long>> balanceRequests = new ArrayList<>();
     private final List<Boolean> refreshRequests = new ArrayList<>();
-    private final List<List<YearMonth>> livingRequests = new ArrayList<>();
+    private final List<List<LocalDate>> livingRequests = new ArrayList<>();
     private List<AccountBalance> balances = List.of(
             new AccountBalance(A, 800_000L, FETCHED_AT), new AccountBalance(B, 300_000L, FETCHED_AT));
     private RuntimeException balanceFailure;
     private List<OutstandingBill> bills = List.of();
     private final List<LocalDate> billRequestsTo = new ArrayList<>();
-    private List<MonthlySpending> spending = List.of();
+    private List<DailySpending> spending = List.of();
     private RuntimeException livingFailure;
     private ForecastService service;
 
@@ -99,8 +99,8 @@ class ForecastServiceTest {
             return bills;
         };
         CreditWithdrawalSchedule creditSchedule = (card, spendDate) -> spendDate;
-        LivingCostReader livingReader = (userId, accountIds, fromMonth, toMonth) -> {
-            livingRequests.add(List.of(fromMonth, toMonth));
+        LivingCostReader livingReader = (userId, accountIds, fromDate, toDate) -> {
+            livingRequests.add(List.of(fromDate, toDate));
             if (livingFailure != null) {
                 throw livingFailure;
             }
@@ -135,7 +135,7 @@ class ForecastServiceTest {
         // A 800,000원·하루 생활비 5,000원, 11/5 예정 출금 200,000원. B 300,000원·하루 2,000원, 11/5 카드 청구 400,000원
         givenEntries(TODAY, TODAY.plusDays(14), entry(1L, A, 200_000L, NOV_5, false));
         bills = List.of(new OutstandingBill(88L, B, Status.CONFIRMED, NOV_5, 400_000L));
-        spending =List.of(real(A, JUL, 155_000), real(A, AUG, 155_000), real(A, SEP, 150_000),
+        spending = days(real(A, JUL, 155_000), real(A, AUG, 155_000), real(A, SEP, 150_000),
                 real(B, JUL, 62_000), real(B, AUG, 62_000), real(B, SEP, 60_000));
 
         BalanceForecast result = service.forecast(USER, List.of(A, B), Until.DAYS, 14, true, false);
@@ -198,7 +198,7 @@ class ForecastServiceTest {
 
     @Test
     void 생활비는_한국_날짜_기준_완료_3개월과_이번_달을_읽는다() {
-        // UTC 10/31 15:30 = 한국 11/1 00:30 → 8·9·10월이 완료 3개월, 11월이 이번 달
+        // UTC 10/31 15:30 = 한국 11/1 00:30 → 8·9·10월이 완료 3개월, 11월이 이번 달. 8/1~11/1 일별로 읽는다.
         LocalDate nov1 = LocalDate.of(2026, 11, 1);
         ForecastService monthStart = serviceAt(Clock.fixed(Instant.parse("2026-10-31T15:30:00Z"), ZoneOffset.UTC));
         when(cashflows.list(USER, nov1, nov1.plusDays(7), null, CashflowItem.Status.CONFIRMED, true))
@@ -206,12 +206,12 @@ class ForecastServiceTest {
 
         monthStart.forecast(USER, List.of(A), Until.DAYS, 7, false, false);
 
-        assertThat(livingRequests).containsExactly(List.of(YearMonth.of(2026, 8), YearMonth.of(2026, 11)));
+        assertThat(livingRequests).containsExactly(List.of(LocalDate.of(2026, 8, 1), nov1));
     }
 
     @Test
     void 생활비_상세는_소유를_확인하고_계산_근거와_계좌별_값을_돌려준다() {
-        spending = List.of(real(A, JUL, 155_000), real(A, AUG, 155_000), real(A, SEP, 150_000),
+        spending = days(real(A, JUL, 155_000), real(A, AUG, 155_000), real(A, SEP, 150_000),
                 real(B, SEP, 60_000));
 
         LivingCostForecast result = service.livingCost(USER, List.of(A, B, A), true);
@@ -476,8 +476,18 @@ class ForecastServiceTest {
         return new CashflowService.Entry(item, date, date, paid);
     }
 
-    private static MonthlySpending real(Long accountId, YearMonth month, long amount) {
-        return new MonthlySpending(accountId, month, amount, Origin.REAL, true);
+    @SafeVarargs
+    private static List<DailySpending> days(List<DailySpending>... months) {
+        return Arrays.stream(months).flatMap(List::stream).toList();
+    }
+
+    /** 다 확인한 지난달의 모든 날 줄. 금액은 첫날에 몰고 나머지 날은 0원이다. */
+    private static List<DailySpending> real(Long accountId, YearMonth month, long amount) {
+        List<DailySpending> rows = new ArrayList<>();
+        for (int day = 1; day <= month.lengthOfMonth(); day++) {
+            rows.add(new DailySpending(accountId, month.atDay(day), day == 1 ? amount : 0, Origin.REAL, true));
+        }
+        return rows;
     }
 
     private static BalanceForecast.SeriesPoint day(List<BalanceForecast.SeriesPoint> series, LocalDate date) {
