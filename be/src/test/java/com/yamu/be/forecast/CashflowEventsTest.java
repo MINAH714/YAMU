@@ -39,6 +39,7 @@ class CashflowEventsTest {
     private static final Long SUSPENDED_ON_A = 24L;
     private static final Long EXPIRED_ON_A = 25L;
     private static final Long INACTIVE_ON_A = 26L;
+    private static final Long SUSPENDED_CREDIT_ON_A = 27L;
 
     private final List<LocalDate> creditSpendDates = new ArrayList<>();
     private final Map<Long, UserCardRef> registered = Map.of(
@@ -52,7 +53,9 @@ class CashflowEventsTest {
             EXPIRED_ON_A, card(EXPIRED_ON_A, A, CardType.CHECK, CardRegistrationStatus.ACTIVE,
                     CardIssuerStatus.EXPIRED),
             INACTIVE_ON_A, card(INACTIVE_ON_A, A, CardType.CHECK, CardRegistrationStatus.INACTIVE,
-                    CardIssuerStatus.NORMAL));
+                    CardIssuerStatus.NORMAL),
+            SUSPENDED_CREDIT_ON_A, card(SUSPENDED_CREDIT_ON_A, A, CardType.CREDIT, CardRegistrationStatus.ACTIVE,
+                    CardIssuerStatus.SUSPENDED));
     // BE 1 조회처럼 없거나 해제된 카드는 empty다.
     private final CardQueryService cards = mock(CardQueryService.class);
     private final CreditWithdrawalSchedule creditSchedule = (card, spendDate) -> {
@@ -180,6 +183,24 @@ class CashflowEventsTest {
 
         assertThat(result.events()).isEmpty();
         assertThat(result.excluded()).isEmpty();
+    }
+
+    @Test
+    void 정지_신용카드는_기간_안에_출금될_회차만_알리고_기간_밖_회차는_정상_카드처럼_넘긴다() {
+        CashflowService.Entry spend = entry(1L, null, SUSPENDED_CREDIT_ON_A, CashflowItem.Direction.EXPENSE,
+                9_000L, TODAY.plusDays(1));
+
+        CashflowEvents.Converted inside = CashflowEvents.convert(USER, List.of(spend), Set.of(A), cards,
+                creditSchedule, TODAY, CREDIT_WITHDRAWAL);
+        CashflowEvents.Converted outside = CashflowEvents.convert(USER, List.of(spend), Set.of(A), cards,
+                creditSchedule, TODAY, CREDIT_WITHDRAWAL.minusDays(1));
+
+        assertThat(inside.events()).isEmpty();
+        assertThat(inside.excluded())
+                .extracting(ExcludedItem::cashflowItemId, ExcludedItem::reason)
+                .containsExactly(tuple(1L, ExcludedItem.Reason.CARD_SUSPENDED_OR_EXPIRED));
+        assertThat(outside.events()).isEmpty();
+        assertThat(outside.excluded()).isEmpty();
     }
 
     @Test
