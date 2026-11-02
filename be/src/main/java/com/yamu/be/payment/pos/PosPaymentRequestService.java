@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.yamu.be.global.exception.BusinessException;
 import com.yamu.be.global.exception.ErrorCode;
 import com.yamu.be.global.redis.RedisLocks;
+import com.yamu.be.payment.IdempotencyKeys;
 import com.yamu.be.payment.PaymentTerms;
 import com.yamu.be.payment.barcode.Barcode;
 import com.yamu.be.payment.barcode.BarcodeStatus;
@@ -29,7 +30,6 @@ import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
 import java.util.HexFormat;
 import java.util.Optional;
-import java.util.UUID;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
@@ -94,7 +94,7 @@ public class PosPaymentRequestService {
 
     public PosPaymentRequestResponse create(String posKey, PosPaymentRequest request, String idempotencyKey) {
         PosProperties.Terminal terminal = terminals.resolve(posKey, request.getPosCode());
-        String key = requireIdempotencyKey(idempotencyKey);
+        String key = IdempotencyKeys.require(idempotencyKey);
         PaymentTerms terms = request.toTerms();
         Merchant merchant = merchants.findByBrandCode(terminal.brandCode())
                 .orElseThrow(() -> new BusinessException(ErrorCode.MERCHANT_NOT_FOUND));
@@ -294,22 +294,6 @@ public class PosPaymentRequestService {
     private PosPaymentRequestResponse response(PaymentTransaction payment, String orderNo) {
         return new PosPaymentRequestResponse(payment.getId(), orderNo, payment.getStatus(),
                 payment.getRequestedAt().plus(properties.confirmWindow()));
-    }
-
-    /** 명세 1장: 결제 요청에 Idempotency-Key(UUID v4)가 필수다. 소문자로 맞춰 request_key(ascii_bin)에 저장한다. */
-    private static String requireIdempotencyKey(String idempotencyKey) {
-        if (idempotencyKey == null || idempotencyKey.isBlank()) {
-            throw new BusinessException(ErrorCode.IDEMPOTENCY_KEY_REQUIRED);
-        }
-        String key = idempotencyKey.trim().toLowerCase();
-        try {
-            if (key.length() != 36 || !UUID.fromString(key).toString().equals(key)) {
-                throw new BusinessException(ErrorCode.IDEMPOTENCY_KEY_REQUIRED, "Idempotency-Key는 UUID 형식이어야 합니다.");
-            }
-        } catch (IllegalArgumentException e) {
-            throw new BusinessException(ErrorCode.IDEMPOTENCY_KEY_REQUIRED, "Idempotency-Key는 UUID 형식이어야 합니다.");
-        }
-        return key;
     }
 
     /** 최초 요청의 불변 내용. 같은 키로 다른 내용이 오면 409 IDEMPOTENCY_KEY_REUSED. posCode가 들어 있어 다른 POS가 같은 키를 쓰면 다른 내용이다. */

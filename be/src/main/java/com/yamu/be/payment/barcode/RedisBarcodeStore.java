@@ -13,11 +13,12 @@ import org.springframework.stereotype.Component;
  * 바코드를 Redis에 보관한다.
  *
  * <pre>
- * barcode:code:{토큰}   → 해시 { userId, status, issuedAt, expiresAt, paymentId? }   시각은 epoch 밀리초
- * barcode:user:{userId} → 그 사용자의 현재 바코드 토큰
+ * barcode:code:{토큰}         → 해시 { userId, status, issuedAt, expiresAt, paymentId? }   시각은 epoch 밀리초
+ * barcode:user:{userId}       → 그 사용자의 현재 바코드 토큰
+ * barcode:payment:{paymentId} → 그 결제 요청이 스캔한 바코드 토큰(스캔 때 생김). 승인·만료가 토큰 없이 바코드를 찾는 역색인
  * </pre>
  *
- * 두 키 모두 보관 시간이 지나면 Redis가 지운다.
+ * 세 키 모두 보관 시간이 지나면 Redis가 지운다.
  * 바코드 키와 사용자 키는 접두어를 나눈다. 같은 접두어면 토큰 자리에 "user:5" 같은 값이 왔을 때 사용자 키(문자열)를
  * 해시로 읽어 WRONGTYPE 오류(500)가 나고, 그 사용자가 바코드를 발급했는지가 404와의 차이로 드러난다.
  */
@@ -26,6 +27,7 @@ class RedisBarcodeStore implements BarcodeStore {
 
     static final String KEY_PREFIX = "barcode:code:";
     static final String USER_KEY_PREFIX = "barcode:user:";
+    static final String PAYMENT_KEY_PREFIX = "barcode:payment:";
 
     /*
      * 새 바코드 저장과 이전 바코드 만료를 Redis 안에서 끊기지 않게 한 번에 실행한다.
@@ -52,7 +54,7 @@ class RedisBarcodeStore implements BarcodeStore {
 
     /*
      * ISSUED이고 만료 전인 바코드만 SCANNED로 바꾼다. 상태 확인과 변경이 한 스크립트라 동시 스캔은 한 건만 성공한다.
-     * KEYS[1] 바코드 키, KEYS[2] 사용자의 현재 바코드 키
+     * KEYS[1] 바코드 키, KEYS[2] 사용자의 현재 바코드 키, KEYS[3] 결제 번호 역색인 키
      * ARGV[1] paymentId, ARGV[2] 지금(밀리초), ARGV[3] 새 보관 시간(밀리초), ARGV[4] 토큰
      * 반환: 1 SCANNED, 0 이미 사용, -1 없음, -2 만료
      */
@@ -77,10 +79,11 @@ class RedisBarcodeStore implements BarcodeStore {
             if redis.call('GET', KEYS[2]) == ARGV[4] then
               redis.call('PEXPIRE', KEYS[2], ARGV[3])
             end
+            redis.call('SET', KEYS[3], ARGV[4], 'PX', ARGV[3])
             return 1
             """, Long.class);
 
-    /* 그 결제 번호로 SCANNED일 때만 ISSUED로 되돌린다. KEYS[1] 바코드 키, ARGV[1] paymentId */
+    /* 그 결제 번호로 SCANNED일 때만 ISSUED로 되돌린다. KEYS[1] 바코드 키, KEYS[2] 결제 번호 역색인 키, ARGV[1] paymentId */
     private static final RedisScript<Long> REVERT_SCAN_SCRIPT = RedisScript.of("""
             if redis.call('HGET', KEYS[1], 'status') ~= 'SCANNED' then
               return 0
@@ -90,6 +93,28 @@ class RedisBarcodeStore implements BarcodeStore {
             end
             redis.call('HSET', KEYS[1], 'status', 'ISSUED')
             redis.call('HDEL', KEYS[1], 'paymentId')
+            redis.call('DEL', KEYS[2])
+            return 1
+            """, Long.class);
+
+    /*
+     * 결제 결과를 바코드에 반영한다(USED·EXPIRED). 역색인으로 토큰을 찾고, 그 결제 번호로 SCANNED일 때만 바꾼다.
+     * KEYS[1] 결제 번호 역색인 키, ARGV[1] paymentId, ARGV[2] 새 상태, ARGV[3] 바코드 키 접두어
+     * 반환: 1 바꿈, 0 다른 상태·다른 결제, -1 역색인 없음(보관 종료)
+     */
+    private static final RedisScript<Long> SETTLE_SCRIPT = RedisScript.of("""
+            local token = redis.call('GET', KEYS[1])
+            if not token then
+              return -1
+            end
+            local key = ARGV[3] .. token
+            if redis.call('HGET', key, 'status') ~= 'SCANNED' then
+              return 0
+            end
+            if redis.call('HGET', key, 'paymentId') ~= ARGV[1] then
+              return 0
+            end
+            redis.call('HSET', key, 'status', ARGV[2])
             return 1
             """, Long.class);
 
@@ -137,7 +162,7 @@ class RedisBarcodeStore implements BarcodeStore {
             return ScanResult.NOT_FOUND;
         }
         Long result = redis.execute(SCAN_SCRIPT,
-                List.of(KEY_PREFIX + token, USER_KEY_PREFIX + userId),
+                List.of(KEY_PREFIX + token, USER_KEY_PREFIX + userId, PAYMENT_KEY_PREFIX + paymentId),
                 paymentId.toString(),
                 Long.toString(now.toEpochMilli()),
                 Long.toString(retention.toMillis()),
@@ -158,7 +183,24 @@ class RedisBarcodeStore implements BarcodeStore {
         if (!BarcodeTokenGenerator.isWellFormed(token)) {
             return false;
         }
-        Long result = redis.execute(REVERT_SCAN_SCRIPT, List.of(KEY_PREFIX + token), paymentId.toString());
+        Long result = redis.execute(REVERT_SCAN_SCRIPT, List.of(KEY_PREFIX + token, PAYMENT_KEY_PREFIX + paymentId),
+                paymentId.toString());
+        return result != null && result == 1L;
+    }
+
+    @Override
+    public boolean markUsed(Long paymentId) {
+        return settle(paymentId, BarcodeStatus.USED);
+    }
+
+    @Override
+    public boolean expireByPayment(Long paymentId) {
+        return settle(paymentId, BarcodeStatus.EXPIRED);
+    }
+
+    private boolean settle(Long paymentId, BarcodeStatus status) {
+        Long result = redis.execute(SETTLE_SCRIPT, List.of(PAYMENT_KEY_PREFIX + paymentId), paymentId.toString(),
+                status.name(), KEY_PREFIX);
         return result != null && result == 1L;
     }
 }
