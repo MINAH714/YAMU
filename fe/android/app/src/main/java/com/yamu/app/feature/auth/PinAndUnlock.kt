@@ -386,7 +386,7 @@ fun SignupDoneRoute(onLinkNow: () -> Unit, onLater: () -> Unit, viewModel: Signu
         containerColor = YamuTheme.colors.surface,
         contentWindowInsets = WindowInsets.statusBars,
     ) { inner ->
-        CenteredMessage(inner, YamuPose.Wave, "${name ?: "야무"}님, 가입을 축하해요!", "계좌 · 카드 연결은 약 1분이면 끝나요", animate = true)
+        CenteredMessage(inner, YamuPose.Joy, "${name ?: "야무"}님, 가입을 축하해요!", "계좌 · 카드 연결은 약 1분이면 끝나요", animate = true)
     }
 }
 

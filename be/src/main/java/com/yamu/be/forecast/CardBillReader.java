@@ -16,6 +16,7 @@ import java.util.List;
  *   <li>PAID(출금 완료)는 넣지 않는다(이미 현재 잔액에 반영됨).</li>
  * </ul>
  * 출금일은 결제일이 비영업일이면 이미 다음 영업일로 옮긴 값이다. accountIds에 없는 계좌의 청구는 넣지 않는다.
+ * 출금 계좌·상태·출금일은 비지 않는다(비면 잔고예보는 계약 위반으로 실패한다).
  */
 public interface CardBillReader {
 

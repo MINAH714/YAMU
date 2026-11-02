@@ -92,7 +92,8 @@ fun DebugMenuScreen(navController: NavController, viewModel: DebugMenuViewModel 
                 )
                 Spacer(Modifier.height(8.dp))
                 Text(
-                    "가짜 인증 시험값: 가입 dup@ssafy.com(이미 가입) · fin@ssafy.com(금융망 이메일) · 간편 비밀번호 기본 135790(5번 틀리면 30분 잠김) · 로그인 때 000000은 서버에서 기기가 없어진 경우. 로그인 · 연결 전 · 끝은 이 폰을 기기 7번으로 등록해 둔 상태",
+                    if (ApiFeature.AUTH.isReal) "가입 · 로그인이 진짜 서버를 써서 시작 상태와 가짜 인증 시험값은 쓰이지 않아요(yamu.realApi)"
+                    else "가짜 인증 시험값: 가입 dup@ssafy.com(이미 가입) · fin@ssafy.com(금융망 이메일) · 간편 비밀번호 기본 135790(5번 틀리면 30분 잠김) · 로그인 때 000000은 서버에서 기기가 없어진 경우. 로그인 · 연결 전 · 끝은 이 폰을 기기 7번으로 등록해 둔 상태",
                     style = YamuTheme.typography.bodyS,
                     color = c.text3,
                 )
@@ -101,7 +102,8 @@ fun DebugMenuScreen(navController: NavController, viewModel: DebugMenuViewModel 
             YamuCard {
                 Text("모든 기능 상태 (가짜 데이터)", style = YamuTheme.typography.titleM, color = c.text1)
                 Text(
-                    "화면이 처음 불러오는 값에 걸려요(04 문서 데이터 상태 확인표). 고른 뒤 화면을 다시 열거나 당겨서 새로고침. 정상으로 두면 아래 기능별 상태대로",
+                    "화면이 처음 불러오는 값에 걸려요(04 문서 데이터 상태 확인표). 고른 뒤 화면을 다시 열거나 당겨서 새로고침. 정상으로 두면 아래 기능별 상태대로" +
+                        if (ApiFeature.real.isEmpty()) "" else ". 진짜 서버를 쓰는 기능에는 걸리지 않아요",
                     style = YamuTheme.typography.bodyS,
                     color = c.text3,
                 )
@@ -131,7 +133,8 @@ fun DebugMenuScreen(navController: NavController, viewModel: DebugMenuViewModel 
             YamuCard {
                 Text("연결 상태 (가짜 데이터)", style = YamuTheme.typography.titleM, color = c.text1)
                 Text(
-                    "1원 숫자 1004 · 0000은 시간 지남 · 그 밖은 틀림. 문자 시험: adb emu sms send 15880000 '[KB국민은행] *1234 입금 1원 YAMU 1004'",
+                    if (ApiFeature.LINK.isReal) "연결이 진짜 서버를 써서 여기서 바꿀 수 없어요(yamu.realApi)"
+                    else "1원 숫자 1004 · 0000은 시간 지남 · 그 밖은 틀림. 문자 시험: adb emu sms send 15880000 '[KB국민은행] *1234 입금 1원 YAMU 1004'",
                     style = YamuTheme.typography.bodyS,
                     color = c.text3,
                 )
@@ -146,7 +149,8 @@ fun DebugMenuScreen(navController: NavController, viewModel: DebugMenuViewModel 
             YamuCard {
                 Text("결제 상태 (가짜 데이터)", style = YamuTheme.typography.titleM, color = c.text1)
                 Text(
-                    "고객 앱 혼자 돌 때 가짜 가맹점이 코드를 찍어요. 모의 POS 앱과 이어서 결제하는 건 실제 서버로만 돼요",
+                    if (ApiFeature.PAYMENT.isReal) "결제가 진짜 서버를 써서 여기서 바꿀 수 없어요(yamu.realApi)"
+                    else "고객 앱 혼자 돌 때 가짜 가맹점이 코드를 찍어요. 모의 POS 앱과 이어서 결제하는 건 실제 서버로만 돼요",
                     style = YamuTheme.typography.bodyS,
                     color = c.text3,
                 )

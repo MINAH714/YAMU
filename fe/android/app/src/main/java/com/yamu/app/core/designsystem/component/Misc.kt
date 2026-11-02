@@ -186,18 +186,22 @@ fun PerformanceGauge(
 }
 
 /**
- * 야무(수달) 8컷 — 임시로 캐릭터 시트에서 잘라 낸 전신 컷(투명 배경, 모션 제작 전 느낌 보기용).
- * 원형일 때는 채우기보다 [circleZoom]배 키우고 [circleBiasY](−1 위 · 0 가운데)에 맞춰 얼굴 쪽을 보인다
+ * 야무(수달) 11컷 — 업스케일한 캐릭터 시트에서 잘라 낸 컷(투명 배경, 무손실 WebP, 원본 크기). 시트 40컷 전체는 저장소 밖에 둔다.
+ * 원형일 때는 채우기보다 [circleZoom]배 키우고 [circleBiasX] · [circleBiasY]로 옮겨 얼굴이 원 가운데 오게 한다.
+ * 값은 컷마다 머리 위치를 재서 맞췄다(머리가 원 지름의 약 55%) — 꼬리 · 반짝이 때문에 머리가 그림 가운데에 있지 않다
  */
-enum class YamuPose(@DrawableRes val res: Int, val circleZoom: Float = 1.3f, val circleBiasY: Float = -1.1f) {
-    Happy(R.drawable.yamu_full_happy),               // 주요 포즈 '시작/환영'
-    Wave(R.drawable.yamu_full_wave, 1.2f),           // 인사 모션 '③ 인사'
-    Card(R.drawable.yamu_full_card),                 // 기본 설정(카드 든 전신)
-    Coins(R.drawable.yamu_full_coins),               // 주요 포즈 '계좌/입금'
-    Alert(R.drawable.yamu_full_alert, 1f, 0f),       // 표정 '단호/주의' — 가슴까지만 있는 컷이라 원형 전용
-    Done(R.drawable.yamu_full_done, 1.15f),          // 주요 포즈 '성과/달성'
-    Chart(R.drawable.yamu_full_chart, 1.25f),        // 주요 포즈 '리포트/분석'
-    Safe(R.drawable.yamu_full_safe, 1.25f),          // 주요 포즈 '보안/안전'
+enum class YamuPose(@DrawableRes val res: Int, val circleZoom: Float, val circleBiasY: Float, val circleBiasX: Float = 0f) {
+    Happy(R.drawable.yamu_full_happy, 1.21f, -1.61f, 0.22f),      // '시작/환영'
+    Wave(R.drawable.yamu_full_wave, 1.08f, -1.47f, 0.61f),        // '인사 모션 3'
+    Card(R.drawable.yamu_full_card, 1.23f, -1.69f, 0.65f),        // '메인 포즈(카드)'
+    Coins(R.drawable.yamu_full_coins, 1.19f, -1.68f),             // '계좌/입금'
+    Alert(R.drawable.yamu_full_alert, 1f, 0f),                    // '단호/주의' — 가슴까지만 있는 컷이라 원형 전용
+    Done(R.drawable.yamu_full_done, 1.26f, -1.52f),               // '성과/달성'
+    Chart(R.drawable.yamu_full_chart, 1.29f, -1.67f, -0.26f),     // '리포트/분석'
+    Safe(R.drawable.yamu_full_safe, 1.22f, -1.68f, -0.17f),       // '보안/안전'
+    Joy(R.drawable.yamu_full_joy_3, 1.17f, -1.5f, 0.11f),         // '기쁨 모션 3' — 가입 축하
+    Pay(R.drawable.yamu_full_pay, 1.36f, -1.66f, -0.68f),         // '결제/사용' — 결제 완료
+    ThumbsUp(R.drawable.yamu_full_thumbsup, 1.32f, -1.54f),       // '확신/좋아요' — 사도 괜찮아요
 }
 
 enum class CharacterSize(val size: Dp) { S(64.dp), M(96.dp), L(128.dp) }
@@ -230,7 +234,7 @@ fun CharacterImage(
             painter = painterResource(pose.res),
             contentDescription = null,
             contentScale = remember(pose) { ZoomCrop(pose.circleZoom) },
-            alignment = BiasAlignment(0f, pose.circleBiasY),
+            alignment = BiasAlignment(pose.circleBiasX, pose.circleBiasY),
             modifier = box.clip(CircleShape).background(YamuTheme.colors.primaryContainer),
         )
     } else {

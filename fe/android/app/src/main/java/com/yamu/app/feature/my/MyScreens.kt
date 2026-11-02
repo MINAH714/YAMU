@@ -92,7 +92,7 @@ import com.yamu.app.feature.auth.StepUpFactory
 import com.yamu.app.feature.auth.StepUpPrompt
 import com.yamu.app.feature.auth.data.AuthRepository
 import com.yamu.app.feature.auth.data.StepUpPurpose
-import com.yamu.app.feature.link.BrandMark
+import com.yamu.app.feature.link.CardListThumb
 import com.yamu.app.feature.link.data.LinkRepository
 import com.yamu.app.feature.link.data.LinkedCard
 import com.yamu.app.feature.my.data.AUTO_LOCK_CHOICES
@@ -404,9 +404,9 @@ fun CardManageRoute(onBack: () -> Unit, onAddCard: () -> Unit, viewModel: CardMa
                     s.cards.forEach { card ->
                         ListRow(
                             title = card.productName,
-                            lead = { BrandMark(card.brand, large = true) },
+                            lead = { CardListThumb(card.brand, card.productName) },
                             titleTag = if (card.isDefault) ({ StatusTag("기본") }) else null,
-                            minHeight = 64.dp,
+                            minHeight = 72.dp,
                         )
                     }
                 }

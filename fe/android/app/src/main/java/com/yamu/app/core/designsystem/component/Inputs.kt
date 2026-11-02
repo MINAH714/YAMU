@@ -2,16 +2,21 @@ package com.yamu.app.core.designsystem.component
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.selection.selectable
@@ -26,6 +31,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
@@ -34,8 +40,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.yamu.app.core.designsystem.icon.YamuIcons
@@ -137,7 +146,11 @@ fun Segmented(
     }
 }
 
-/** 화면 안 탭 — 선택 = 1단계 글자 Bold + 2dp 밑줄 */
+/**
+ * 화면 안 탭 — 선택 = 1단계 글자 Bold + 2dp 밑줄.
+ * 이름이 다 들어가면 같은 폭으로 나누고, 하나라도 넘치면 탭마다 이름 폭으로 놓고 옆으로 밀어 본다(고른 탭은 가운데로 미끄러진다).
+ * 같은 폭에 우겨 넣으면 긴 이름(카드 상품명)이 칸 왼쪽부터 그려져 잘리고 가운데에서 벗어난다
+ */
 @Composable
 fun YamuTabs(
     tabs: List<String>,
@@ -146,30 +159,61 @@ fun YamuTabs(
     modifier: Modifier = Modifier,
 ) {
     val c = YamuTheme.colors
+    val style = YamuTheme.typography.titleS.copy(fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+    val measurer = rememberTextMeasurer()
+    val density = LocalDensity.current
+    // 탭 하나의 폭 = 글자 폭 + 좌우 16(밑줄 여백) — 반올림으로 글자가 잘리지 않게 1dp 더
+    val widths = remember(tabs, style, density) {
+        tabs.map { with(density) { measurer.measure(it, style).size.width.toDp() } + TabSidePadding * 2 + 1.dp }
+    }
     Column(modifier.fillMaxWidth().background(c.surface)) {
-        Row(Modifier.fillMaxWidth().height(YamuSize.tabs)) {
-            tabs.forEachIndexed { index, label ->
-                val selected = index == selectedIndex
-                Column(
-                    Modifier
-                        .weight(1f)
-                        .fillMaxHeight()
-                        .selectable(selected = selected, role = Role.Tab, onClick = { onSelect(index) }),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Bottom,
-                ) {
-                    Text(
-                        label,
-                        style = YamuTheme.typography.titleS.copy(fontSize = 15.sp, fontWeight = FontWeight.SemiBold),
-                        color = if (selected) c.text1 else c.text3,
-                        modifier = Modifier.padding(bottom = 12.dp),
-                        maxLines = 1,
-                    )
-                    Box(Modifier.fillMaxWidth().padding(horizontal = 16.dp).height(2.dp).background(if (selected) c.text1 else Color.Transparent))
+        BoxWithConstraints(Modifier.fillMaxWidth().height(YamuSize.tabs)) {
+            val fits = (widths.maxOrNull() ?: 0.dp) * tabs.size <= maxWidth
+            if (fits) {
+                Row(Modifier.fillMaxSize()) {
+                    tabs.forEachIndexed { index, label ->
+                        TabCell(label, index == selectedIndex, style, onClick = { onSelect(index) }, modifier = Modifier.weight(1f))
+                    }
+                }
+            } else {
+                val scroll = rememberScrollState()
+                // 고른 탭을 가운데로 — 카드를 밀어 넘겨도 탭 줄이 따라 미끄러진다
+                LaunchedEffect(selectedIndex, widths) {
+                    val start = widths.take(selectedIndex).fold(0.dp) { a, b -> a + b }
+                    val center = start + (widths.getOrNull(selectedIndex) ?: 0.dp) / 2 - maxWidth / 2
+                    scroll.animateScrollTo(with(density) { center.roundToPx() }.coerceIn(0, scroll.maxValue))
+                }
+                Row(Modifier.fillMaxSize().horizontalScroll(scroll)) {
+                    tabs.forEachIndexed { index, label ->
+                        TabCell(label, index == selectedIndex, style, onClick = { onSelect(index) }, modifier = Modifier.width(widths[index]))
+                    }
                 }
             }
         }
         HorizontalDivider(thickness = 1.dp, color = c.outlineVariant)
+    }
+}
+
+private val TabSidePadding = 16.dp
+
+@Composable
+private fun TabCell(label: String, selected: Boolean, style: TextStyle, onClick: () -> Unit, modifier: Modifier) {
+    val c = YamuTheme.colors
+    Column(
+        modifier
+            .fillMaxHeight()
+            .selectable(selected = selected, role = Role.Tab, onClick = onClick),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Bottom,
+    ) {
+        Text(
+            label,
+            style = style,
+            color = if (selected) c.text1 else c.text3,
+            modifier = Modifier.padding(bottom = 12.dp),
+            maxLines = 1,
+        )
+        Box(Modifier.fillMaxWidth().padding(horizontal = TabSidePadding).height(2.dp).background(if (selected) c.text1 else Color.Transparent))
     }
 }
 

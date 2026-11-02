@@ -33,15 +33,18 @@ val devSign = providers.gradleProperty("yamu.devSign").map { it != "false" }.get
 // 실서버 연결 시험(debug만) — local.properties의 yamu.baseUrl · yamu.realApi.
 // 비우면 로컬 BE(8080) 주소에 전부 가짜. yamu.realApi=cashflow,link처럼 적은 기능만 진짜 Repository, all이면 전부
 val debugBaseUrl = localProps.getProperty("yamu.baseUrl").orEmpty().trim().ifEmpty { "http://localhost:8080/api/" }
-    .also { check(it.endsWith("/")) { "yamu.baseUrl은 /로 끝나야 해요: $it" } }
+    .also {
+        check(it.startsWith("http://") || it.startsWith("https://")) { "yamu.baseUrl은 http:// 또는 https://로 시작해야 해요: $it" }
+        check(it.endsWith("/")) { "yamu.baseUrl은 /로 끝나야 해요: $it" }
+    }
 val apiFeatures = listOf("auth", "link", "cashflow", "home", "payment", "performance", "forecast", "report", "my", "pos")   // ApiFeature와 같은 이름
 val debugRealApi = localProps.getProperty("yamu.realApi").orEmpty()
     .split(',').map { it.trim() }.filter { it.isNotEmpty() }
-    .let { names -> if ("all" in names) apiFeatures else names }
-    .also { names ->
-        val unknown = names - apiFeatures.toSet()
+    .also { names ->   // all을 펼치기 전에 봐야 all,cashflw 같은 오타도 걸린다
+        val unknown = names.filterNot { it == "all" || it in apiFeatures }
         check(unknown.isEmpty()) { "yamu.realApi에 모르는 이름: ${unknown.joinToString()} (쓸 수 있는 이름: all, ${apiFeatures.joinToString()})" }
     }
+    .let { names -> if ("all" in names) apiFeatures else names }
 
 android {
     namespace = "com.yamu.app"
@@ -54,6 +57,7 @@ android {
         versionCode = 1
         versionName = "0.1.0"
         buildConfigField("String", "POS_KEY", "\"\"")
+        buildConfigField("String", "API_FEATURES", "\"${apiFeatures.joinToString(",")}\"")   // ApiFeatureTest가 ApiFeature와 같은지 본다
     }
 
     // 같은 프로젝트에서 앱 두 개 — 고객 앱(customer)과 모의 POS 단말(pos, 가맹점 쪽 · 따로 설치). 10 문서 6-5
@@ -98,7 +102,7 @@ android {
         }
         release {
             // TODO 배포 서버 주소(HTTPS) 확정 후 바꾸기
-            buildConfigField("String", "BASE_URL", "\"https://example.invalid/api/v1/\"")
+            buildConfigField("String", "BASE_URL", "\"https://example.invalid/api/\"")   // 경로는 BE와 같은 /api/ — 호스트만 바꾸면 된다
             buildConfigField("String", "REAL_API", "\"${apiFeatures.joinToString(",")}\"")
             // R8: 코드 줄이기 · 이름 바꾸기 + 안 쓰는 리소스 빼기. 앱 규칙은 proguard-rules.pro
             isMinifyEnabled = true

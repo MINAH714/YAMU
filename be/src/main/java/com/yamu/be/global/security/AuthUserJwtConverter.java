@@ -1,6 +1,7 @@
 package com.yamu.be.global.security;
 
 import java.util.List;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.core.convert.converter.Converter;
 import org.springframework.security.authentication.AbstractAuthenticationToken;
 import org.springframework.security.authentication.BadCredentialsException;
@@ -11,9 +12,18 @@ import org.springframework.stereotype.Component;
 /**
  * 검증을 통과한 JWT를 {@link AuthUser} principal로 바꾼다. 컨트롤러는 {@code @AuthenticationPrincipal AuthUser}로 받는다.
  * 지금은 역할(ROLE)이 없어 권한 목록은 비어 있다.
+ *
+ * <p>토큰의 기기가 해제됐거나 사용자가 탈퇴했으면 401로 막는다({@link ActiveSessionChecker}). 검사기는 DB가 없는
+ * 웹 계층 테스트(@WebMvcTest)에서도 이 변환기가 뜨도록 있을 때만 쓴다.
  */
 @Component
 public class AuthUserJwtConverter implements Converter<Jwt, AbstractAuthenticationToken> {
+
+    private final ObjectProvider<ActiveSessionChecker> sessionChecker;
+
+    public AuthUserJwtConverter(ObjectProvider<ActiveSessionChecker> sessionChecker) {
+        this.sessionChecker = sessionChecker;
+    }
 
     @Override
     public AbstractAuthenticationToken convert(Jwt jwt) {
@@ -22,6 +32,10 @@ public class AuthUserJwtConverter implements Converter<Jwt, AbstractAuthenticati
             Number deviceId = jwt.getClaim(AccessTokenIssuer.DEVICE_CLAIM);
             if (deviceId == null) {
                 throw new BadCredentialsException("기기 정보가 없는 토큰입니다.");
+            }
+            ActiveSessionChecker checker = sessionChecker.getIfAvailable();
+            if (checker != null && !checker.isActive(userId, deviceId.longValue())) {
+                throw new BadCredentialsException("해제된 기기이거나 탈퇴한 사용자의 토큰입니다.");
             }
             return new UsernamePasswordAuthenticationToken(new AuthUser(userId, deviceId.longValue()), jwt, List.of());
         } catch (NumberFormatException | ClassCastException e) {

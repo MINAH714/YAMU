@@ -4,6 +4,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.em
 import com.yamu.app.core.designsystem.component.CompactButton
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.Crossfade
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -18,6 +19,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.CircleShape
@@ -45,8 +47,10 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
+import com.yamu.app.core.designsystem.card.CardImages
 import com.yamu.app.core.designsystem.component.AmountText
 import com.yamu.app.core.designsystem.component.BottomCta
+import com.yamu.app.core.designsystem.component.CardThumb
 import com.yamu.app.core.designsystem.component.EmptyState
 import com.yamu.app.core.designsystem.component.FlowScreen
 import com.yamu.app.core.designsystem.component.LinkButton
@@ -74,6 +78,7 @@ import com.yamu.app.feature.auth.StepUpUi
 import com.yamu.app.feature.auth.authMessage
 import com.yamu.app.feature.auth.data.AuthRepository
 import com.yamu.app.feature.auth.data.StepUpPurpose
+import com.yamu.app.feature.link.BrandCardArt
 import com.yamu.app.feature.link.BrandMark
 import com.yamu.app.feature.payment.data.ApproveOutcome
 import com.yamu.app.feature.payment.data.CodeState
@@ -480,6 +485,15 @@ private fun RequestBody(request: PaymentRequest, s: PayCodeState, onSelectCard: 
             }
         }
         Spacer(Modifier.height(24.dp))
+        // 고른 카드를 실물 카드 크기로 — 아래 목록에서 바꾸면 같이 바뀐다
+        s.selectedCard?.let { selected ->
+            Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                Crossfade(selected, label = "selectedCard") { card ->
+                    BrandCardArt(card.brand, card.name, card.last4, Modifier.widthIn(max = 320.dp))
+                }
+            }
+            Spacer(Modifier.height(YamuSpacing.x5))
+        }
         Text("결제 카드", style = YamuTheme.typography.sub, color = c.text3)
         if (request.cards.isEmpty()) SkeletonBlock(height = 56.dp)
         request.cards.forEach { card ->
@@ -514,7 +528,7 @@ private fun PayCardRow(card: PayCard, selected: Boolean, enabled: Boolean, onCli
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(YamuSpacing.x3),
     ) {
-        BrandMark(card.brand, large = true)
+        CardThumb(CardImages.forProduct(card.name)) { BrandMark(card.brand, large = true) }
         Column(Modifier.weight(1f)) {
             Text(card.name, style = YamuTheme.typography.titleM, color = c.text1, maxLines = 1, overflow = TextOverflow.Ellipsis)
             val sub = if (card.isCheck && card.chargedAmount != null) "${card.benefitName ?: "체크카드"} · ${card.chargedAmount.toWon()}원 출금" else card.benefitName ?: card.reason
