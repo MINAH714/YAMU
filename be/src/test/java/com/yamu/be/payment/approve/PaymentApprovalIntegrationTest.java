@@ -5,6 +5,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -248,12 +249,32 @@ class PaymentApprovalIntegrationTest extends MySqlTestSupport {
     }
 
     @Test
-    void 멱등_응답이_사라진_뒤_같은_키로_다시_오면_상태_검사가_답한다() throws Exception {
+    void 기억된_응답이_없어도_같은_키는_시도_기록의_처음_응답을_돌려주고_다시_처리하지_않는다() throws Exception {
+        Requested requested = requested(15_000, null, null);
+        String key = UUID.randomUUID().toString();
+        String first = approve(user, requested.paymentId(), key, body(creditCard)).andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+
+        // 승인 뒤 응답 기억이 실패한 것과 같다
+        redis.delete(ApprovalIdempotencyStore.KEY_PREFIX + user + ":" + key);
+
+        String second = approve(user, requested.paymentId(), key, body(creditCard)).andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        assertThat(json.readTree(second)).isEqualTo(json.readTree(first));
+        approve(user, requested.paymentId(), key, "{}")
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error.code").value("IDEMPOTENCY_KEY_REUSED"));
+        verify(approver, times(1)).approve(any());
+    }
+
+    @Test
+    void 응답과_시도_기록이_모두_사라진_뒤_같은_키로_다시_오면_상태_검사가_답한다() throws Exception {
         Requested requested = requested(15_000, null, null);
         String key = UUID.randomUUID().toString();
         approve(user, requested.paymentId(), key, body(creditCard)).andExpect(status().isOk());
 
         redis.delete(ApprovalIdempotencyStore.KEY_PREFIX + user + ":" + key);
+        redis.delete(ApprovalAttemptStore.KEY_PREFIX + requested.paymentId());
 
         approve(user, requested.paymentId(), key, body(creditCard))
                 .andExpect(status().isConflict())
@@ -263,7 +284,7 @@ class PaymentApprovalIntegrationTest extends MySqlTestSupport {
     // ───────── 동시 승인·상태 ─────────
 
     @Test
-    void 다른_키로_동시에_5건_승인하면_한_건만_승인되고_나머지는_409_PAYMENT_IN_PROGRESS다() throws Exception {
+    void 다른_키로_동시에_5건_승인하면_한_건만_승인되고_나머지는_409_IDEMPOTENCY_IN_PROGRESS다() throws Exception {
         Requested requested = requested(15_000, null, null);
         CountDownLatch release = new CountDownLatch(1);
         doAnswer(inv -> {
@@ -305,7 +326,7 @@ class PaymentApprovalIntegrationTest extends MySqlTestSupport {
             }
             assertThat(statuses).containsOnlyOnce(200);
             assertThat(statuses.stream().filter(s -> s == 409).count()).isEqualTo(requests - 1);
-            assertThat(codes).containsOnly("PAYMENT_IN_PROGRESS");
+            assertThat(codes).containsOnly("IDEMPOTENCY_IN_PROGRESS");
         } finally {
             pool.shutdownNow();
         }
@@ -314,6 +335,22 @@ class PaymentApprovalIntegrationTest extends MySqlTestSupport {
         assertThat(attempts.count(requested.paymentId())).isEqualTo(1);
         assertThat(barcodes.find(requested.token()).orElseThrow().status()).isEqualTo(BarcodeStatus.USED);
         verify(approver, times(1)).approve(any());
+    }
+
+    @Test
+    void 같은_결제의_시작_잠금이_잡혀_있으면_409이고_행과_시도_기록은_그대로다() throws Exception {
+        Requested requested = requested(15_000, null, null);
+        // 다른 키 요청이 시도 예약 ~ PROCESSING 선점 사이에 있는 것과 같다
+        redis.opsForValue().set(ApprovalAttemptStore.START_LOCK_PREFIX + requested.paymentId(), "other");
+
+        approve(user, requested.paymentId(), UUID.randomUUID().toString(), "{}")
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error.code").value("IDEMPOTENCY_IN_PROGRESS"));
+
+        assertThat(payments.findById(requested.paymentId()).orElseThrow().getStatus())
+                .isEqualTo(PaymentStatus.REQUESTED);
+        assertThat(attempts.count(requested.paymentId())).isZero();
+        verify(approver, never()).approve(any());
     }
 
     @Test
@@ -410,6 +447,7 @@ class PaymentApprovalIntegrationTest extends MySqlTestSupport {
     @Test
     void 세_번_거절되면_더_시도할_수_없고_네_번째는_409_RETRY_LIMIT_EXCEEDED() throws Exception {
         Requested requested = requested(15_000, null, null);
+        long thirdCard = fixtures.card(user, creditProduct, fixtures.account(user), "ACTIVE");
         doReturn(ApprovalOutcome.Declined.of(FailureCode.ISSUER_DECLINED)).when(approver).approve(any());
 
         approve(user, requested.paymentId(), UUID.randomUUID().toString(), body(creditCard))
@@ -419,7 +457,7 @@ class PaymentApprovalIntegrationTest extends MySqlTestSupport {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.remainingAttempts").value(1))
                 .andExpect(jsonPath("$.data.suggestedCards.length()").value(0));
-        approve(user, requested.paymentId(), UUID.randomUUID().toString(), body(creditCard))
+        approve(user, requested.paymentId(), UUID.randomUUID().toString(), body(thirdCard))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.status").value("DECLINED"))
                 .andExpect(jsonPath("$.data.retryable").value(false))
@@ -432,10 +470,34 @@ class PaymentApprovalIntegrationTest extends MySqlTestSupport {
         assertThat(attempts.count(requested.paymentId())).isEqualTo(3);
     }
 
+    @Test
+    void 이_결제에서_거절된_카드를_다시_고르면_400이고_시도를_세지_않으며_생략하면_다음_후보로_승인한다() throws Exception {
+        Requested requested = requested(15_000, null, null);
+        doReturn(ApprovalOutcome.Declined.of(FailureCode.ISSUER_DECLINED))
+                .doAnswer(inv -> TEMPORARY.approve(inv.getArgument(0)))
+                .when(approver).approve(any());
+        approve(user, requested.paymentId(), UUID.randomUUID().toString(), "{}")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.status").value("DECLINED"))
+                .andExpect(jsonPath("$.data.selectedCard.userCardId").value(creditCard));
+
+        approve(user, requested.paymentId(), UUID.randomUUID().toString(), body(creditCard))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("CARD_NOT_ELIGIBLE"))
+                .andExpect(jsonPath("$.error.details.reason").value("ALREADY_DECLINED"));
+        assertThat(attempts.count(requested.paymentId())).isEqualTo(1);
+
+        approve(user, requested.paymentId(), UUID.randomUUID().toString(), "{}")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.status").value("APPROVED"))
+                .andExpect(jsonPath("$.data.selectedCard.userCardId").value(checkCard))
+                .andExpect(jsonPath("$.data.selectedCard.recommendedRank").value(2));
+    }
+
     // ───────── 실행 실패(결과 불명) ─────────
 
     @Test
-    void 승인_실행이_실패하면_PROCESSING에_남고_이후_요청은_마감이_지나도_409_PAYMENT_IN_PROGRESS다() throws Exception {
+    void 승인_실행이_실패하면_PROCESSING에_남고_이후_요청은_마감이_지나도_409_IDEMPOTENCY_IN_PROGRESS다() throws Exception {
         Requested requested = requested(15_000, null, null);
         doThrow(new BusinessException(ErrorCode.FIN_API_UNAVAILABLE)).when(approver).approve(any());
         String key = UUID.randomUUID().toString();
@@ -451,15 +513,15 @@ class PaymentApprovalIntegrationTest extends MySqlTestSupport {
 
         approve(user, requested.paymentId(), UUID.randomUUID().toString(), body(creditCard))
                 .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.error.code").value("PAYMENT_IN_PROGRESS"));
+                .andExpect(jsonPath("$.error.code").value("IDEMPOTENCY_IN_PROGRESS"));
         approve(user, requested.paymentId(), key, body(creditCard))
                 .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.error.code").value("PAYMENT_IN_PROGRESS"));
+                .andExpect(jsonPath("$.error.code").value("IDEMPOTENCY_IN_PROGRESS"));
 
         clock.advance(Duration.ofSeconds(120));
         approve(user, requested.paymentId(), UUID.randomUUID().toString(), body(creditCard))
                 .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.error.code").value("PAYMENT_IN_PROGRESS"));
+                .andExpect(jsonPath("$.error.code").value("IDEMPOTENCY_IN_PROGRESS"));
         assertThat(payments.findById(requested.paymentId()).orElseThrow().getStatus()).isEqualTo(PaymentStatus.PROCESSING);
     }
 

@@ -15,7 +15,8 @@ import org.springframework.stereotype.Component;
  * </pre>
  *
  * 키는 사용자별로 센다. 같은 키를 다른 결제에 다시 쓰면 지문이 달라 409가 된다.
- * 임시: 보관 시간이 지나 사라진 뒤 같은 키가 다시 오면 새 요청으로 보고, 결제 상태 검사가 409·410으로 답한다(명세 "DB 상태로 다시 만듦"의 최소 해석).
+ * 여기에 응답이 없으면(기억 실패·잠금이 실행보다 먼저 풀림) 결제별 시도 기록({@link ApprovalAttemptStore})에서 이 키가 만든 시도를 찾아 답한다.
+ * 임시: 둘 다 보관 시간이 지나 사라진 뒤 같은 키가 다시 오면 새 요청으로 보고, 결제 상태 검사가 409·410으로 답한다(명세 "DB 상태로 다시 만듦"의 최소 해석).
  */
 @Component
 public class ApprovalIdempotencyStore {

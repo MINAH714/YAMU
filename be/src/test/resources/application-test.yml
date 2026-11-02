@@ -52,5 +52,6 @@ yamu:
     approve:
       idempotency-ttl: 24h
       idempotency-lock-ttl: 30s
+      start-lock-ttl: 5s
       max-attempts: 3
       attempt-ttl: 24h
