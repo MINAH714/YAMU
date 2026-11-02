@@ -46,6 +46,7 @@ import androidx.compose.material3.TimePicker
 import androidx.compose.material3.TimePickerDefaults
 import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -86,7 +87,11 @@ import com.yamu.app.core.network.ApiError
 import com.yamu.app.core.network.ApiResult
 import com.yamu.app.core.ui.LocalSnackbar
 import com.yamu.app.core.ui.userMessage
+import com.yamu.app.feature.auth.StepUpEffect
+import com.yamu.app.feature.auth.StepUpFactory
+import com.yamu.app.feature.auth.StepUpPrompt
 import com.yamu.app.feature.auth.data.AuthRepository
+import com.yamu.app.feature.auth.data.StepUpPurpose
 import com.yamu.app.feature.link.CardListThumb
 import com.yamu.app.feature.link.data.LinkRepository
 import com.yamu.app.feature.link.data.LinkedCard
@@ -649,15 +654,20 @@ data class SecurityState(
     val loading: Boolean = true,
     val info: MyInfo? = null,
     val biometricAvailable: Boolean = false,   // 이 휴대폰에 지문이 등록돼 있나
-    val biometricOn: Boolean = false,          // 이 기기 키가 등록돼 있나
+    val biometricOn: Boolean = false,          // 이 기기에 지문 키가 등록돼 있나
     val busy: Boolean = false,
     val error: String? = null,
 )
 
 @HiltViewModel
-class SecurityViewModel @Inject constructor(private val my: MyRepository, private val auth: AuthRepository) : ViewModel() {
+class SecurityViewModel @Inject constructor(
+    private val my: MyRepository,
+    private val auth: AuthRepository,
+    stepUpFactory: StepUpFactory,
+) : ViewModel() {
     private val _state = MutableStateFlow(SecurityState())
     val state: StateFlow<SecurityState> = _state.asStateFlow()
+    val stepUp = stepUpFactory.create(viewModelScope)
 
     fun load() {
         viewModelScope.launch {
@@ -671,15 +681,30 @@ class SecurityViewModel @Inject constructor(private val my: MyRepository, privat
         }
     }
 
-    /** 지문 켜기 = 기기 키 만들고 등록(#15) · 끄기 = 이 기기 등록 해제(#16) + 키 삭제 */
+    /**
+     * 지문 켜기 · 끄기 — SECURITY_SETTINGS 본인 확인 뒤 이 기기를 다시 등록(POST /auth/devices).
+     * 켤 때는 지문 키를 새로 만들어 같이 보내고, 끌 때는 빼고 보낸다. 기기 해제 API는 없다
+     */
     fun setBiometric(on: Boolean, onFail: (String) -> Unit) {
-        if (_state.value.busy) return
-        _state.update { it.copy(busy = true, biometricOn = on) }
-        viewModelScope.launch {
-            val r = if (on) auth.registerDevice() else auth.disableBiometric(_state.value.info?.currentDeviceId)
-            _state.update { it.copy(busy = false, biometricOn = if (r is ApiResult.Success) on else !on) }
+        if (_state.value.busy || stepUp.busy) return
+        _state.update { it.copy(busy = true) }
+        stepUp.start(
+            purpose = StepUpPurpose.SECURITY_SETTINGS,
+            prompt = StepUpPrompt(if (on) "지문 인증을 켜요" else "지문 인증을 꺼요", null),
+            onError = { e ->
+                _state.update { it.copy(busy = false) }
+                onFail(e.settingMessage())
+            },
+        ) { token ->
+            val r = auth.setBiometric(on, token.token)
+            _state.update { it.copy(busy = false, biometricOn = if (r is ApiResult.Success) on else it.biometricOn) }
             if (r is ApiResult.Failure) onFail(r.error.settingMessage())
         }
+    }
+
+    /** 본인 확인을 취소하고 닫았을 때 */
+    fun onStepUpIdle() {
+        if (_state.value.busy && !stepUp.busy) _state.update { it.copy(busy = false) }
     }
 
     fun setAutoLock(seconds: Int, onFail: (String) -> Unit) {
@@ -718,8 +743,11 @@ private fun Context.openBiometricEnroll() {
 }
 
 @Composable
-fun SecurityRoute(onBack: () -> Unit, viewModel: SecurityViewModel = hiltViewModel()) {
+fun SecurityRoute(onBack: () -> Unit, onOpenPinPad: (purpose: String) -> Unit, viewModel: SecurityViewModel = hiltViewModel()) {
     val s by viewModel.state.collectAsStateWithLifecycle()
+    val stepUpUi by viewModel.stepUp.ui.collectAsStateWithLifecycle()
+    StepUpEffect(viewModel.stepUp, onOpenPinPad)
+    LaunchedEffect(stepUpUi) { viewModel.onStepUpIdle() }
     LifecycleResumeEffect(Unit) {
         viewModel.load()   // 시스템 설정에서 지문을 등록하고 돌아오면 스위치를 쓸 수 있게
         onPauseOrDispose { }

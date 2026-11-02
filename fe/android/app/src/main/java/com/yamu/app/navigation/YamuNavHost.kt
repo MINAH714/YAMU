@@ -14,14 +14,13 @@ import com.yamu.app.core.ui.LocalSnackbar
 import com.yamu.app.core.ui.findActivity
 import androidx.activity.compose.BackHandler
 import androidx.compose.ui.platform.LocalContext
-import com.yamu.app.feature.auth.LoginRoute
+import com.yamu.app.feature.auth.PinLoginRoute
 import com.yamu.app.feature.auth.PinPadRoute
 import com.yamu.app.feature.auth.PinSetupRoute
 import com.yamu.app.feature.auth.SignupDoneRoute
 import com.yamu.app.feature.auth.SignupInfoRoute
 import com.yamu.app.feature.auth.SplashRoute
 import com.yamu.app.feature.auth.TermsScreen
-import com.yamu.app.feature.auth.UnlockRoute
 import com.yamu.app.feature.auth.WelcomeScreen
 import com.yamu.app.feature.auth.data.SessionStart
 import kotlinx.coroutines.launch
@@ -81,7 +80,6 @@ fun YamuNavHost(navController: NavHostController, modifier: Modifier = Modifier)
                 onDecided = { start ->
                     val target: Any = when (start) {
                         SessionStart.Welcome -> AuthGraph
-                        SessionStart.Unlock -> Unlock
                         SessionStart.Login -> Login
                     }
                     navController.navigate(target) { popUpTo<Splash> { inclusive = true } }
@@ -94,22 +92,14 @@ fun YamuNavHost(navController: NavHostController, modifier: Modifier = Modifier)
             composable<Welcome> {
                 WelcomeScreen(
                     onStart = { navController.navigate(Terms) },
-                    onLogin = { navController.navigate(Login) },
+                    onLogin = null,   // 이 폰에 기기가 없을 때의 로그인 = 본인인증 → 기기 재등록(Task 8.2.9)
                     onDebugMenu = debugMenu,
                 )
             }
             composable<Login> {
-                LoginRoute(
-                    onBack = if (navController.previousBackStackEntry != null) back else null,
+                PinLoginRoute(
                     onLoggedIn = { done -> navController.finishAuth(done) },
-                    onSignup = { navController.navigate(Terms) },
-                    onFindPassword = { showMessage("비밀번호 찾기는 준비 중이에요") },
-                )
-            }
-            composable<Unlock> {
-                UnlockRoute(
-                    onUnlocked = { done -> navController.finishAuth(done) },
-                    onEmailLogin = { navController.navigate(Login) },
+                    onNoDevice = { navController.toWelcome() },
                     onDebugMenu = debugMenu,
                 )
             }
@@ -325,7 +315,7 @@ fun YamuNavHost(navController: NavHostController, modifier: Modifier = Modifier)
                 }
                 composable<NotificationSettings> { NotificationSettingsRoute(onBack = back) }
                 composable<Profile> { ProfileRoute(onBack = back) }
-                composable<Security> { SecurityRoute(onBack = back) }
+                composable<Security> { SecurityRoute(onBack = back, onOpenPinPad = openPinPad) }
             }
 
             // 결제 — 탭 밖 전체 화면. 어느 탭에서 열든 그 탭 위에 쌓인다
@@ -361,9 +351,9 @@ fun YamuNavHost(navController: NavHostController, modifier: Modifier = Modifier)
         composable<Relock> {
             val activity = LocalContext.current.findActivity()
             BackHandler { activity?.moveTaskToBack(true) }
-            UnlockRoute(
-                onUnlocked = { back() },
-                onEmailLogin = { navController.navigate(Login) { popUpTo(navController.graph.id) { inclusive = true } } },
+            PinLoginRoute(
+                onLoggedIn = { back() },
+                onNoDevice = { navController.toWelcome() },
                 onDebugMenu = null,
             )
         }

@@ -50,4 +50,28 @@ class AuthValidationTest {
         assertEquals("이미 가입된 이메일이에요", authErrorMessage("DUPLICATE_EMAIL"))
         assertNull(authErrorMessage("SOMETHING_ELSE"))
     }
+
+    @Test
+    fun `로그인 PIN 틀림은 남은 횟수 · 남은 횟수가 없으면 서명 실패 문장`() {
+        assertEquals("간편 비밀번호가 맞지 않아요 · 2번 남았어요", authErrorMessage("PIN_MISMATCH", remainingAttempts = 2))
+        assertEquals("본인 확인에 실패했어요. 다시 시도해 주세요", authErrorMessage("STEP_UP_FAILED"))
+        assertEquals("5번 틀려서 잠겼어요 · 30분 뒤에 다시 시도해 주세요", authErrorMessage("DEVICE_LOCKED"))
+    }
+
+    @Test
+    fun `잠금 풀리는 시각은 서버 UTC를 이 폰 시각으로`() {
+        assertEquals("21:30", lockedUntilClock("2026-11-01T12:30:00Z", java.time.ZoneId.of("Asia/Seoul")))
+        assertNull(lockedUntilClock("2026-11-01 12:30", java.time.ZoneId.of("Asia/Seoul")))
+        assertNull(lockedUntilClock(null))
+    }
+
+    @Test
+    fun `잠금 남은 시간은 풀리는 시각까지 · 지났거나 못 읽으면 null`() {
+        val now = java.time.Instant.parse("2026-11-01T12:00:00Z")
+        assertEquals(90_000L, lockRemainingMillis("2026-11-01T12:01:30Z", now))
+        assertNull(lockRemainingMillis("2026-11-01T11:59:59Z", now))
+        assertNull(lockRemainingMillis("2026-11-01T12:00:00Z", now))
+        assertNull(lockRemainingMillis("2026-11-01 12:30", now))
+        assertNull(lockRemainingMillis(null, now))
+    }
 }
