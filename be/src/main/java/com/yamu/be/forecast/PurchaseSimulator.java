@@ -76,7 +76,7 @@ final class PurchaseSimulator {
                         snapshot(afterSide.byAccount().get(accountId), afterSide.byAccount().get(accountId).status())))
                 .toList();
         PurchaseSimulation.OutsideSelectionImpact outside = selected ? null
-                : new PurchaseSimulation.OutsideSelectionImpact(input.withdrawalAccountId(), total,
+                : new PurchaseSimulation.OutsideSelectionImpact(input.withdrawalAccountId(), -total,
                         OUTSIDE_SELECTION_NOTE);
 
         return new PurchaseSimulation(List.copyOf(schedule),

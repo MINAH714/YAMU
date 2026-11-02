@@ -52,7 +52,7 @@ public record PurchaseSimulation(List<ScheduledWithdrawal> schedule, Comparison 
     /**
      * 선택하지 않은 계좌에서 빠지는 가상 구매. 통합 비교에는 넣지 않는다.
      *
-     * @param amount 그 계좌에서 빠지는 전체 금액(원, <b>양수</b>). 다른 영향액(음수)과 부호가 다르다
+     * @param amount 그 계좌에서 빠지는 전체 금액(원, 음수). 다른 영향액과 같이 출금은 음수다
      */
     public record OutsideSelectionImpact(Long accountId, long amount, String note) {}
 

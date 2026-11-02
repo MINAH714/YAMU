@@ -127,7 +127,7 @@ class PurchaseSimulatorTest {
     }
 
     @Test
-    void 카드_출금_계좌가_선택_밖이면_비교에_넣지_않고_전체_금액을_양수로_알린다() {
+    void 카드_출금_계좌가_선택_밖이면_비교에_넣지_않고_전체_금액을_다른_영향액처럼_음수로_알린다() {
         LocalDate today = LocalDate.of(2026, 11, 1);
         Long unselected = 9L;
         List<Withdrawal> withdrawals = List.of(
@@ -142,7 +142,7 @@ class PurchaseSimulatorTest {
         assertThat(result.comparison().after()).isEqualTo(result.comparison().before());
         assertThat(result.series()).allMatch(point -> point.before() == point.after());
         assertThat(result.outsideSelectionImpact().accountId()).isEqualTo(unselected);
-        assertThat(result.outsideSelectionImpact().amount()).isEqualTo(600_001L);
+        assertThat(result.outsideSelectionImpact().amount()).isEqualTo(-600_001L);
         assertThat(result.schedule()).allMatch(withdrawal -> !withdrawal.withinPeriod()
                 && withdrawal.accountId().equals(unselected) && withdrawal.amount() < 0);
     }
