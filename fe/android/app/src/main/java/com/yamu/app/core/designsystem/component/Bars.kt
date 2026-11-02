@@ -1,8 +1,8 @@
 package com.yamu.app.core.designsystem.component
 
-import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -31,6 +31,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
@@ -38,6 +39,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.yamu.app.R
 import com.yamu.app.core.designsystem.icon.YamuIcons
 import com.yamu.app.core.designsystem.theme.YamuSize
 import com.yamu.app.core.designsystem.theme.YamuSpacing
@@ -60,7 +62,7 @@ fun YamuTopBar(
             modifier.fillMaxWidth().background(containerColor).windowInsetsPadding(WindowInsets.statusBars).height(YamuSize.appBar),
             contentAlignment = Alignment.Center,
         ) {
-            Text("YAMU", style = YamuTheme.typography.logo.copy(fontSize = 18.sp, lineHeight = 18.sp), color = c.primary, modifier = Modifier.semantics { heading() })
+            Image(painterResource(R.drawable.yamu_logo), contentDescription = "YAMU", modifier = Modifier.height(16.dp).semantics { heading() })
         }
         return
     }
@@ -82,7 +84,8 @@ fun YamuTopBar(
             Spacer(Modifier.width(8.dp))   // 제목이 카드 끝(16dp)과 맞게
         }
         if (logo == TopBarLogo.Start) {
-            Text("YAMU", style = YamuTheme.typography.logo, color = c.primary, modifier = Modifier.weight(1f).padding(start = 4.dp).semantics { contentDescription = title })
+            Image(painterResource(R.drawable.yamu_logo), contentDescription = title, modifier = Modifier.padding(start = 4.dp).height(20.dp))
+            Spacer(Modifier.weight(1f))
         } else {
             Text(
                 title,
@@ -97,7 +100,7 @@ fun YamuTopBar(
     }
 }
 
-/** 앱바 로고 자리 — 왼쪽(22sp, 홈 · 시작) · 가운데(18sp, 잠금 해제) */
+/** 앱바 로고 자리 — 왼쪽(높이 20dp, 홈 · 시작) · 가운데(높이 16dp, 잠금 해제) */
 enum class TopBarLogo { Start, Center }
 
 /** 큰 제목 앱바 — 112dp: 위 56dp에 오른쪽 아이콘, 아래에 24sp 제목(탭 첫 화면 · 프로토타입 .appbar.medium) */
