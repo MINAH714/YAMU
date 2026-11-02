@@ -16,7 +16,7 @@ import javax.inject.Inject
 
 /** 진짜: 결제 코드 발급 · 상태 · 승인. 가짜: 가맹점 목록 · 결제 전 추천 · 거절 · 결제 상세 */
 class RealPaymentWithFakes @Inject constructor(
-    real: PaymentRepositoryImpl,
+    private val real: PaymentRepositoryImpl,
     private val fake: FakePaymentRepository,
 ) : PaymentRepository by real {
     override suspend fun merchants(): ApiResult<List<Merchant>> = fake.merchants()
@@ -24,7 +24,9 @@ class RealPaymentWithFakes @Inject constructor(
 
     /** 서버에 알리지 못해 결제는 확정 마감까지 요청 상태로 남는다 */
     override suspend fun reject(paymentId: Long, idempotencyKey: String): ApiResult<Unit> = ApiResult.Success(Unit)
-    override suspend fun detail(paymentId: Long): ApiResult<PaymentReceipt> = fake.detail(paymentId)
+    /** 방금 승인한 결제는 진짜 영수증 — 가짜 내역과 번호가 겹쳐도 남의 결제가 나오지 않게 먼저 본다 */
+    override suspend fun detail(paymentId: Long): ApiResult<PaymentReceipt> =
+        real.recentReceipt(paymentId)?.let { ApiResult.Success(it) } ?: fake.detail(paymentId)
 }
 
 /** 진짜: 기기 목록 · 해제. 가짜: 회원 정보 · 설정 · 알림 */
