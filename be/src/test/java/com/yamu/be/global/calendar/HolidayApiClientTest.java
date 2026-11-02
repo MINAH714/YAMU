@@ -51,13 +51,14 @@ class HolidayApiClientTest {
     }
 
     @Test
-    void 서비스_키는_한_번만_인코딩하고_월은_두_자리로_보낸다() {
+    void 서비스_키는_한_번만_인코딩하고_월은_두_자리로_명세의_필수_항목과_함께_보낸다() {
         HolidayApiClient client = client(KEY);
         server.expect(requestTo(containsString("/SpcdeInfoService/getRestDeInfo?")))
                 .andExpect(requestTo(containsString("ServiceKey=test%2Bkey%2Fabc%3D%3D")))
                 .andExpect(requestTo(containsString("solYear=2026")))
                 .andExpect(requestTo(containsString("solMonth=05")))
                 .andExpect(requestTo(containsString("numOfRows=100")))
+                .andExpect(requestTo(containsString("pageNo=1")))
                 .andExpect(method(HttpMethod.GET))
                 .andRespond(xml(ok()));
 

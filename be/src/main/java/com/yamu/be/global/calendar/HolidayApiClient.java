@@ -30,7 +30,7 @@ import org.xml.sax.helpers.DefaultHandler;
  * 공공데이터포털 「한국천문연구원_특일 정보」의 공휴일 조회({@code getRestDeInfo})를 부른다.
  *
  * <pre>
- * 요청: GET {baseUrl}/getRestDeInfo?ServiceKey=..&solYear=2026&solMonth=05&numOfRows=100
+ * 요청: GET {baseUrl}/getRestDeInfo?ServiceKey=..&solYear=2026&solMonth=05&numOfRows=100&pageNo=1
  * 성공: &lt;response&gt;&lt;header&gt;&lt;resultCode&gt;00&lt;/resultCode&gt;..&lt;/header&gt;
  *       &lt;body&gt;&lt;items&gt;&lt;item&gt;&lt;dateName&gt;어린이날&lt;/dateName&gt;&lt;isHoliday&gt;Y&lt;/isHoliday&gt;&lt;locdate&gt;20260505&lt;/locdate&gt;..
  *       &lt;/item&gt;&lt;/items&gt;&lt;totalCount&gt;2&lt;/totalCount&gt;&lt;/body&gt;&lt;/response&gt;
@@ -114,6 +114,8 @@ public class HolidayApiClient {
                 .queryParam("solYear", year)
                 .queryParam("solMonth", "%02d".formatted(month))
                 .queryParam("numOfRows", ROWS)
+                // 명세상 필수. 없어도 1로 처리되지만 명세대로 보낸다. 한 쪽으로 다 받으므로 늘 1이다
+                .queryParam("pageNo", 1)
                 .encode()
                 .buildAndExpand(Map.of("key", key))
                 .toUri();
