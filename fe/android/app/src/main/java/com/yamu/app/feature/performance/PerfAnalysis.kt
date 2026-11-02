@@ -13,6 +13,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.HorizontalDivider
@@ -20,6 +22,9 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -164,7 +169,6 @@ fun PerfAnalysisRoute(onBack: () -> Unit, onCardDetail: (userCardId: Long) -> Un
         s.message?.let { snackbar.showSnackbar(it) }
         viewModel.messageShown()
     }
-    val c = YamuTheme.colors
     val cardName = s.selected?.name ?: "카드"
     FlowScreen(
         title = "실적 분석",
@@ -176,34 +180,59 @@ fun PerfAnalysisRoute(onBack: () -> Unit, onCardDetail: (userCardId: Long) -> Un
         },
     ) { inner ->
         Column(Modifier.padding(inner).consumeWindowInsets(inner).fillMaxSize()) {
-            if (s.tabs.size > 1) {
-                YamuTabs(
-                    tabs = s.tabs.map { it.name },
-                    selectedIndex = s.tabs.indexOfFirst { it.userCardId == s.selectedId }.coerceAtLeast(0),
-                    onSelect = { i -> viewModel.select(s.tabs[i].userCardId) },
-                )
-            }
-            Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
-                val a = s.analysis
-                when {
-                    s.loading -> SectionBlock(divider = false) {
-                        repeat(4) {
-                            SkeletonBlock(height = 40.dp)
-                            Spacer(Modifier.height(YamuSpacing.x3))
-                        }
-                    }
-                    s.noData -> SectionBlock(divider = false) {
-                        StatusTag(PerfGuide.INSUFFICIENT_DATA.label, tone = PerfGuide.INSUFFICIENT_DATA.tone())
-                        Spacer(Modifier.height(YamuSpacing.x2))
-                        Text("데이터가 더 모이면 판단해 드려요", style = YamuTheme.typography.titleL, color = c.text1)
-                        Text("거래가 한 달쯤 쌓이면 이 카드의 유불리를 알려 드려요", style = YamuTheme.typography.bodyM, color = c.text3)
-                    }
-                    a == null -> SectionBlock(divider = false) { ErrorState(s.error ?: "분석을 불러오지 못했어요", onRetry = viewModel::load) }
-                    else -> AnalysisBody(a, cardName, onDetail = { onCardDetail(a.userCardId) })
+            if (s.tabs.isEmpty()) {
+                // 실적관리 목록을 아직 · 못 받았을 때 — 탭 · 카드 그림 없이 분석만
+                AnalysisPage(card = null, current = s, cardName, onRetry = viewModel::load, onCardDetail = onCardDetail)
+            } else {
+                // 카드를 옆으로 밀어 넘기면 탭이 따라가고, 탭을 누르면 카드가 미끄러진다.
+                // 분석은 멈춘 쪽(settledPage) 카드만 불러온다 — 넘기는 중인 옆 카드는 그림 + 뼈대만
+                val pager = rememberPagerState(initialPage = s.tabs.indexOfFirst { it.userCardId == s.selectedId }.coerceAtLeast(0)) { s.tabs.size }
+                val scope = rememberCoroutineScope()
+                val tabs by rememberUpdatedState(s.tabs)
+                LaunchedEffect(pager) {
+                    snapshotFlow { pager.settledPage }.collect { page -> tabs.getOrNull(page)?.let { viewModel.select(it.userCardId) } }
                 }
-                Spacer(Modifier.height(YamuSpacing.x6))
+                if (s.tabs.size > 1) {
+                    YamuTabs(
+                        tabs = s.tabs.map { it.name },
+                        selectedIndex = pager.currentPage,
+                        onSelect = { i -> scope.launch { pager.animateScrollToPage(i) } },
+                    )
+                }
+                HorizontalPager(pager, Modifier.fillMaxSize(), verticalAlignment = Alignment.Top) { page ->
+                    val card = s.tabs[page]
+                    AnalysisPage(card, current = s.takeIf { card.userCardId == it.selectedId }, cardName, onRetry = viewModel::load, onCardDetail = onCardDetail)
+                }
             }
         }
+    }
+}
+
+/** 카드 한 장의 분석 쪽 — 카드 그림 + 판정. [current]가 null이면(넘기는 중인 옆 카드) 뼈대만 */
+@Composable
+private fun AnalysisPage(card: CardPerf?, current: PerfAnalysisState?, cardName: String, onRetry: () -> Unit, onCardDetail: (Long) -> Unit) {
+    val c = YamuTheme.colors
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+        // 어떤 카드의 분석인지 — 카드 그림을 판정 위에
+        card?.let { PerfCardArt(it, Modifier.padding(start = YamuSpacing.screen, end = YamuSpacing.screen, top = YamuSpacing.x6)) }
+        val a = current?.analysis
+        when {
+            current == null || current.loading -> SectionBlock(divider = false) {
+                repeat(4) {
+                    SkeletonBlock(height = 40.dp)
+                    Spacer(Modifier.height(YamuSpacing.x3))
+                }
+            }
+            current.noData -> SectionBlock(divider = false) {
+                StatusTag(PerfGuide.INSUFFICIENT_DATA.label, tone = PerfGuide.INSUFFICIENT_DATA.tone())
+                Spacer(Modifier.height(YamuSpacing.x2))
+                Text("데이터가 더 모이면 판단해 드려요", style = YamuTheme.typography.titleL, color = c.text1)
+                Text("거래가 한 달쯤 쌓이면 이 카드의 유불리를 알려 드려요", style = YamuTheme.typography.bodyM, color = c.text3)
+            }
+            a == null -> SectionBlock(divider = false) { ErrorState(current.error ?: "분석을 불러오지 못했어요", onRetry = onRetry) }
+            else -> AnalysisBody(a, cardName, onDetail = { onCardDetail(a.userCardId) })
+        }
+        Spacer(Modifier.height(YamuSpacing.x6))
     }
 }
 
