@@ -1,5 +1,6 @@
 package com.yamu.app.pos
 
+import com.yamu.app.BuildConfig
 import com.yamu.app.core.network.ApiError
 import com.yamu.app.core.network.ApiFeature
 import com.yamu.app.core.network.ApiResult
@@ -34,7 +35,7 @@ class FakePosRepository @Inject constructor() : PosRepository {
         return ApiResult.Success(FakeMerchants.all.filter { !it.isOnline })
     }
 
-    override suspend fun request(barcodeToken: String, merchantId: Long, amount: Long, orderNo: String, idempotencyKey: String): ApiResult<Long> {
+    override suspend fun request(barcodeToken: String, merchant: Merchant, amount: Long, orderNo: String, idempotencyKey: String): ApiResult<Long> {
         delay(600)
         return when {
             "EXPIRED" in barcodeToken -> ApiResult.Failure(ApiError.Unknown("BARCODE_EXPIRED", 410))
@@ -71,12 +72,26 @@ class FakePosRepository @Inject constructor() : PosRepository {
     }
 }
 
+/**
+ * BE에 가맹점 목록과 결과 조회가 아직 없다(debug만 메우고 release는 진짜 호출).
+ * 가맹점은 local.properties의 단말 하나(yamu.posMerchantId · yamu.posCode), 결과는 앱에서 확인하라고 알린다.
+ */
+class RealPosWithFakes @Inject constructor(private val real: PosRepositoryImpl) : PosRepository by real {
+    override suspend fun merchants(): ApiResult<List<Merchant>> =
+        if (BuildConfig.POS_MERCHANT_ID <= 0) ApiResult.Failure(ApiError.NotFound("MERCHANT_NOT_FOUND"))
+        else ApiResult.Success(listOf(Merchant(BuildConfig.POS_MERCHANT_ID, "야무 테스트 카페", "카페", isOnline = false, posCode = BuildConfig.POS_CODE)))
+
+    override suspend fun result(paymentId: Long): ApiResult<PosResult> = ApiResult.Success(
+        PosResult(PosStatus.SENT, approvalNo = null, amount = 0, chargedAmount = null, instantDiscount = null, cardIssuer = null, cardLast4 = null, installmentMonths = null, failureMessage = null),
+    )
+}
+
 /** 모의 POS debug: yamu.realApi에 pos가 있으면 진짜, 아니면 가짜(release는 src/posRelease) */
 @Module
 @InstallIn(SingletonComponent::class)
 object PosDataModule {
     @Provides
     @Singleton
-    fun posRepository(real: Provider<PosRepositoryImpl>, fake: Provider<FakePosRepository>): PosRepository =
+    fun posRepository(real: Provider<RealPosWithFakes>, fake: Provider<FakePosRepository>): PosRepository =
         if (ApiFeature.POS.isReal) real.get() else fake.get()
 }

@@ -568,9 +568,10 @@ fun NotificationSettingsRoute(onBack: () -> Unit, viewModel: NotificationSetting
 data class ProfileState(val loading: Boolean = true, val info: MyInfo? = null, val devices: List<Device> = emptyList(), val error: String? = null)
 
 @HiltViewModel
-class ProfileViewModel @Inject constructor(private val my: MyRepository) : ViewModel() {
+class ProfileViewModel @Inject constructor(private val my: MyRepository, stepUpFactory: StepUpFactory) : ViewModel() {
     private val _state = MutableStateFlow(ProfileState())
     val state: StateFlow<ProfileState> = _state.asStateFlow()
+    val stepUp = stepUpFactory.create(viewModelScope)
 
     init { load() }
 
@@ -589,8 +590,12 @@ class ProfileViewModel @Inject constructor(private val my: MyRepository) : ViewM
 
     /** 다른 기기 로그아웃(#16) — 그 기기의 세션을 서버가 끊는다 */
     fun revoke(device: Device, onDone: (String) -> Unit) {
-        viewModelScope.launch {
-            when (val r = my.revokeDevice(device.id)) {
+        stepUp.start(
+            purpose = StepUpPurpose.APP_UNLOCK,
+            prompt = StepUpPrompt("${device.name}에서 로그아웃해요", null),
+            onError = { e -> onDone("로그아웃하지 못했어요 · ${e.userMessage()}") },
+        ) { token ->
+            when (val r = my.revokeDevice(device.id, token.token)) {
                 is ApiResult.Success -> {
                     _state.update { s -> s.copy(devices = s.devices.filter { it.id != device.id }) }
                     onDone("${device.name}에서 로그아웃했어요")
@@ -602,8 +607,9 @@ class ProfileViewModel @Inject constructor(private val my: MyRepository) : ViewM
 }
 
 @Composable
-fun ProfileRoute(onBack: () -> Unit, viewModel: ProfileViewModel = hiltViewModel()) {
+fun ProfileRoute(onBack: () -> Unit, onOpenPinPad: (purpose: String) -> Unit, viewModel: ProfileViewModel = hiltViewModel()) {
     val s by viewModel.state.collectAsStateWithLifecycle()
+    StepUpEffect(viewModel.stepUp, onOpenPinPad)
     val c = YamuTheme.colors
     val snackbar = LocalSnackbar.current
     val scope = rememberCoroutineScope()

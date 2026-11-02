@@ -2,6 +2,7 @@ package com.yamu.app.feature.my.data
 
 import com.yamu.app.core.network.ApiEnvelope
 import com.yamu.app.core.network.ApiResult
+import com.yamu.app.core.network.YamuHeaders
 import com.yamu.app.core.network.apiCall
 import com.yamu.app.core.network.apiCallNoData
 import com.yamu.app.core.network.map
@@ -17,6 +18,7 @@ import retrofit2.Retrofit
 import retrofit2.http.Body
 import retrofit2.http.DELETE
 import retrofit2.http.GET
+import retrofit2.http.Header
 import retrofit2.http.PATCH
 import retrofit2.http.Path
 import retrofit2.http.Query
@@ -44,7 +46,7 @@ interface MyApi {
     suspend fun devices(): Response<ApiEnvelope<DevicesDto>>
 
     @DELETE("auth/devices/{id}")
-    suspend fun revokeDevice(@Path("id") userDeviceId: Long): Response<ApiEnvelope<JsonElement>>
+    suspend fun revokeDevice(@Header(YamuHeaders.STEP_UP_TOKEN) stepUpToken: String, @Path("id") userDeviceId: Long): Response<ApiEnvelope<JsonElement>>
 
     @GET("notifications")
     suspend fun notifications(@Query("page") page: Int, @Query("size") size: Int = 20): Response<ApiEnvelope<NotificationsDto>>
@@ -66,7 +68,8 @@ interface MyRepository {
     suspend fun setNotification(kind: NotiKind, enabled: Boolean): ApiResult<Unit>
     suspend fun setNotificationTime(hhmm: String): ApiResult<Unit>
     suspend fun devices(): ApiResult<List<Device>>
-    suspend fun revokeDevice(id: Long): ApiResult<Unit>
+    /** 다른 기기 로그아웃 — 본인 인증 토큰(APP_UNLOCK) 필요 */
+    suspend fun revokeDevice(id: Long, stepUpToken: String): ApiResult<Unit>
     suspend fun notifications(page: Int): ApiResult<NotificationsPage>
     suspend fun markRead(id: Long): ApiResult<Unit>
     suspend fun markAllRead(): ApiResult<Unit>
@@ -106,7 +109,7 @@ class MyRepositoryImpl @Inject constructor(private val api: MyApi, private val s
             .sortedByDescending { it.current }
     }
 
-    override suspend fun revokeDevice(id: Long): ApiResult<Unit> = apiCallNoData { api.revokeDevice(id) }
+    override suspend fun revokeDevice(id: Long, stepUpToken: String): ApiResult<Unit> = apiCallNoData { api.revokeDevice(stepUpToken, id) }
 
     override suspend fun notifications(page: Int): ApiResult<NotificationsPage> =
         apiCall { api.notifications(page) }.map { r -> NotificationsPage(r.unreadCount, r.items.map { it.toNotification() }, r.hasNext) }
