@@ -24,7 +24,9 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import androidx.navigation.toRoute
+import com.yamu.app.core.designsystem.card.CardImages
 import com.yamu.app.core.designsystem.component.BottomCta
+import com.yamu.app.core.designsystem.component.CardArt
 import com.yamu.app.core.designsystem.component.CharacterImage
 import com.yamu.app.core.designsystem.component.CharacterSize
 import com.yamu.app.core.designsystem.component.EmptyState
@@ -209,6 +211,12 @@ fun AddCardFoundRoute(
                     Spacer(Modifier.height(6.dp))
                     Text("연결할 카드를 확인해 주세요", style = YamuTheme.typography.bodyM, color = c.text2)
                     Spacer(Modifier.height(12.dp))   // 머리 아래 12(프로토타입 C-12 .hd)
+                    // 한 장이고 상품 그림이 있으면 큰 카드 그림(09 문서 C-12 '카드 그림') — 없으면 지금처럼 줄만
+                    s.cards.singleOrNull()?.let { one ->
+                        CardImages.forProduct(one.productName)?.let { image ->
+                            CardArt(image, one.productName, Modifier.padding(vertical = YamuSpacing.x2))
+                        }
+                    }
                     s.cards.forEach { card ->
                         SelectRow(
                             brand = card.brand,
@@ -218,6 +226,7 @@ fun AddCardFoundRoute(
                             checked = card.assetId !in s.excluded,
                             onToggle = { viewModel.toggle(card.assetId) },
                             chipSlot = 44.dp,
+                            cardImage = CardImages.forProduct(card.productName),
                         )
                     }
                 }

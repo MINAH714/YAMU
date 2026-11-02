@@ -1,0 +1,2 @@
+# Only backup/restore operations need this optional operator dependency.
+boto3==1.43.123

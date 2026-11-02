@@ -97,7 +97,7 @@ class StepUpController(
             when (val r = auth.challenge(purpose)) {
                 is ApiResult.Failure -> fail(r.error)
                 is ApiResult.Success -> {
-                    val signature = deviceKeys.signatureForPrompt()
+                    val signature = deviceKeys.biometricSignatureForPrompt()
                     if (!r.data.allowsBiometric || signature == null) openPin()
                     else _ui.value = StepUpUi.Biometric(BiometricRequest(r.data, signature), prompt)
                 }

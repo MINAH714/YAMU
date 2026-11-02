@@ -1,6 +1,12 @@
 package com.yamu.app.feature.link
 
+import androidx.annotation.DrawableRes
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxSize
+import com.yamu.app.core.designsystem.card.CardImages
+import com.yamu.app.core.designsystem.component.CardArt
+import com.yamu.app.core.designsystem.component.CardThumb
 import com.yamu.app.core.designsystem.icon.YamuIcons
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.unit.em
@@ -69,16 +75,23 @@ fun BankMark(brand: Brand, modifier: Modifier = Modifier, size: androidx.compose
 /** 은행인지 — 이름이 '은행'으로 끝나면(서버 기관 종류가 오면 그걸로 바꾼다) */
 fun Brand.isBank(): Boolean = name.endsWith("은행")
 
-/** 은행 · 카드사 표시 — 짧은 이름 + 대표 색(서버 색, 없으면 회색). 카드 견본(C-03)과 같은 색 */
+/** 카드사 대표 색(바탕 · 글자) — 서버 색, 없으면 회색 */
 @Composable
-fun BrandMark(brand: Brand, modifier: Modifier = Modifier, large: Boolean = false) {
+private fun Brand.colors(): Pair<Color, Color> {
     val c = YamuTheme.colors
-    val bg = brand.colorArgb?.let { Color(it) } ?: c.surfaceHigh
+    val bg = colorArgb?.let { Color(it) } ?: c.surfaceHigh
     val fg = when {
-        brand.colorArgb == null -> c.text2
+        colorArgb == null -> c.text2
         bg.luminance() > 0.5f -> Color(0xFF2B2B2B)     // KB 노랑 위는 진한 글자
         else -> Color.White
     }
+    return bg to fg
+}
+
+/** 은행 · 카드사 표시 — 짧은 이름 + 대표 색(서버 색, 없으면 회색). 카드 견본(C-03)과 같은 색 */
+@Composable
+fun BrandMark(brand: Brand, modifier: Modifier = Modifier, large: Boolean = false) {
+    val (bg, fg) = brand.colors()
     Box(
         modifier
             .heightIn(min = if (large) 28.dp else 20.dp)
@@ -94,6 +107,41 @@ fun BrandMark(brand: Brand, modifier: Modifier = Modifier, large: Boolean = fals
             color = fg,
             maxLines = 1,
         )
+    }
+}
+
+/**
+ * 큰 카드 — 실물 카드를 손에 든 크기(결제 요청 확인 P-06c · 카드추천 P-01). 폭은 부르는 쪽에서 widthIn(max = 320dp)으로 막는다.
+ * 상품 그림(CardImages)이 있으면 그림, 없으면 카드사 색 카드에 짧은 이름 · 상품명 · 끝자리
+ */
+@Composable
+fun BrandCardArt(brand: Brand, name: String, last4: String?, modifier: Modifier = Modifier) {
+    val image = CardImages.forProduct(name)
+    if (image != null) return CardArt(image, name, modifier)
+    val (bg, fg) = brand.colors()
+    Column(
+        modifier
+            .fillMaxWidth()
+            .aspectRatio(1.586f)
+            .clip(RoundedCornerShape(YamuRadius.input))
+            .background(bg)
+            .padding(YamuSpacing.x5)
+            .semantics(mergeDescendants = true) { },
+    ) {
+        Text(brand.shortName, style = YamuTheme.typography.labelL.copy(fontWeight = FontWeight.Bold), color = fg, maxLines = 1)
+        Spacer(Modifier.weight(1f))
+        Text(name, style = YamuTheme.typography.titleS, color = fg, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        last4?.let { Text("•••• $it", style = YamuTheme.typography.labelM, color = fg) }
+    }
+}
+
+/** 카드 목록 줄 앞자리(M-02 · H-03) — 88dp 상품 그림, 없으면 같은 크기의 카드사 색 카드 */
+@Composable
+fun CardListThumb(brand: Brand, productName: String) {
+    CardThumb(CardImages.forProduct(productName), width = 88.dp) {
+        Box(Modifier.width(88.dp).aspectRatio(1.586f).clip(RoundedCornerShape(8.dp))) {
+            BrandMark(brand, Modifier.fillMaxSize(), large = true)
+        }
     }
 }
 
@@ -189,6 +237,7 @@ fun SelectRow(
     sub: String? = null,
     suffix: String? = null,              // 끝자리 '·1021' — 이름보다 작고 회색
     chipSlot: Dp = 56.dp,                // 칩 칸 폭 — 목록 고르기(C-03) 56, 새 카드 확인(C-12) 44
+    @DrawableRes cardImage: Int? = null, // 카드 상품 그림(CardImages) — 있으면 칩 자리에 작은 카드 그림(C-12)
 ) {
     val c = YamuTheme.colors
     Row(
@@ -203,7 +252,7 @@ fun SelectRow(
     ) {
         // 고르는 목록의 칩은 56dp 칸(프로토타입 .pk > .cw) — 은행 원도 같은 칸 가운데에 두어 이름 시작을 맞춘다
         Box(Modifier.width(chipSlot), contentAlignment = Alignment.Center) {
-            if (brand.isBank()) BankMark(brand) else BrandMark(brand, Modifier.fillMaxWidth(), large = true)
+            if (brand.isBank()) BankMark(brand) else CardThumb(cardImage) { BrandMark(brand, Modifier.fillMaxWidth(), large = true) }
         }
         Column(Modifier.weight(1f)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {

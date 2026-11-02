@@ -58,7 +58,8 @@ import org.testcontainers.utility.DockerImageName;
  * 등록된 카드는 카드 등록을 마친 상태처럼 user_card ACTIVE 행으로 바로 넣는다.
  */
 @AutoConfigureMockMvc
-@TestPropertySource(properties = "spring.application.name=yamu-card-manage-integration-test")
+@TestPropertySource(properties = {"spring.application.name=yamu-card-manage-integration-test",
+        "yamu.card-image.base-url=https://images.example.com/"})
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 class CardManagementIntegrationTest extends MySqlTestSupport {
 
@@ -98,6 +99,30 @@ class CardManagementIntegrationTest extends MySqlTestSupport {
     }
 
     // ───────── 목록 ─────────
+
+    @Test
+    void 상품_이미지는_목록_상세_수정에_같은_URL로_나오고_이미지_없는_카드는_null이다() throws Exception {
+        String key = "cards/shinhan/static-front/test.png";
+        String url = "https://images.example.com/" + key;
+        jdbc.update("UPDATE card_product SET image_key=? WHERE card_product_id=?", key, checkProduct);
+        long check = card(member.userId(), checkProduct, "9410123456785678", "ACTIVE", null, account, 1);
+        long credit = card(member.userId(), creditProduct, "4570000011111234", "ACTIVE", 14, account, 2);
+
+        get(member, "/api/cards")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.cards[0].imageUrl").value(url))
+                .andExpect(jsonPath("$.data.cards[1].imageUrl").hasJsonPath())
+                .andExpect(jsonPath("$.data.cards[1].imageUrl").value(org.hamcrest.Matchers.nullValue()));
+        get(member, "/api/cards/" + check).andExpect(jsonPath("$.data.imageUrl").value(url));
+        patch(member, check, "{\"nickname\":\"새 별칭\"}")
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.imageUrl").value(url));
+        get(member, "/api/cards/" + credit)
+                .andExpect(jsonPath("$.data.imageUrl").hasJsonPath())
+                .andExpect(jsonPath("$.data.imageUrl").value(org.hamcrest.Matchers.nullValue()));
+        jdbc.update("UPDATE card_product SET image_key='cards/../invalid.png' WHERE card_product_id=?", checkProduct);
+        get(member, "/api/cards/" + check).andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.imageUrl").value(org.hamcrest.Matchers.nullValue()));
+    }
 
     @Test
     void 목록은_등록된_카드만_등록_순으로_보이고_신용카드에만_청구_요약이_붙는다() throws Exception {

@@ -21,6 +21,7 @@ import com.yamu.be.global.crypto.LookupHasher;
 import com.yamu.be.global.exception.BusinessException;
 import com.yamu.be.global.exception.ErrorCode;
 import com.yamu.be.global.security.AuthUser;
+import com.yamu.be.user.domain.AppUser;
 import com.yamu.be.user.domain.AppUserRepository;
 import java.time.Clock;
 import java.time.LocalDate;
@@ -76,6 +77,7 @@ public class CardRegistrationService {
     private final LookupHasher lookupHasher;
     private final LoginRateLimiter rateLimiter;
     private final Clock clock;
+    private final CardImageUrlResolver imageUrlResolver;
 
     @Transactional(readOnly = true)
     public CardLookupResponse lookup(AuthUser me, CardLookupRequest request) {
@@ -112,7 +114,8 @@ public class CardRegistrationService {
         return new CardLookupResponse(token, expiresAt,
                 new CardLookupResponse.IssuerResponse(issuer.code(), issuer.name(), issuer.color(),
                         credit ? product.getBillingCutoffDays() : null),
-                new CardLookupResponse.Product(product.getId(), product.getProductName(), product.getCardType()),
+                new CardLookupResponse.Product(product.getId(), product.getProductName(), product.getCardType(),
+                        imageUrlResolver.resolve(product.getImageKey())),
                 masked, true, historyReader.hasPriorHistory(card.getId()),
                 new CardLookupResponse.IssuerAccount(card.getIssuerAccountBankCode(),
                         maskAccount(card.getIssuerAccountLast4()), linked.map(LinkedAccount::getId).orElse(null),
@@ -129,8 +132,12 @@ public class CardRegistrationService {
      */
     @Transactional
     public CardRegisterResponse register(AuthUser me, CardRegisterRequest request, String stepUpToken) {
-        userRepository.findByIdForUpdate(me.userId())
+        AppUser user = userRepository.findByIdForUpdate(me.userId())
                 .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND));
+        // 요청 시작 때 토큰 검사를 통과했어도 잠금을 기다리는 사이 탈퇴했을 수 있다. 탈퇴한 사용자에게 데이터를 다시 남기지 않는다.
+        if (user.isWithdrawn()) {
+            throw new BusinessException(ErrorCode.UNAUTHORIZED);
+        }
         VerifiedCard verified = verificationStore.find(request.verificationToken(), me.userId())
                 .orElseThrow(() -> new BusinessException(ErrorCode.VERIFICATION_TOKEN_EXPIRED));
         UserCard card = cardRepository.findByIdAndUserId(verified.userCardId(), me.userId())
@@ -173,7 +180,7 @@ public class CardRegistrationService {
                 new CardRegisterResponse.Issuer(issuer.code(), issuer.name(), issuer.color()),
                 product.getProductName(), product.getCardType(), verified.maskedNumber(),
                 card.getRegistrationStatus(), false, accountId, billing, performance,
-                card.getRegisteredAt().truncatedTo(ChronoUnit.SECONDS));
+                card.getRegisteredAt().truncatedTo(ChronoUnit.SECONDS), imageUrlResolver.resolve(product.getImageKey()));
     }
 
     /** 유효기간은 그 달 말일까지 유효하다. 한국 날짜 기준으로 이번 달보다 앞이면 지난 것이다. */

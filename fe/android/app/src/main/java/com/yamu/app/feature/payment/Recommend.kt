@@ -2,7 +2,7 @@ package com.yamu.app.feature.payment
 
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
@@ -54,7 +55,7 @@ import com.yamu.app.core.format.directionParticle
 import com.yamu.app.core.format.toWon
 import com.yamu.app.core.network.ApiResult
 import com.yamu.app.core.ui.userMessage
-import com.yamu.app.feature.link.BrandMark
+import com.yamu.app.feature.link.BrandCardArt
 import com.yamu.app.feature.my.data.MyRepository
 import com.yamu.app.feature.payment.data.Merchant
 import com.yamu.app.feature.payment.data.PaymentRepository
@@ -237,13 +238,13 @@ private fun RecommendResult(result: Recommendation) {
         EstimateTag(text = "예상", modifier = Modifier.padding(top = 12.dp))   // 프로토타입은 글자 바닥에서 6 위(vertical-align 6px)
     }
     Spacer(Modifier.height(20.dp))
-    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(YamuSpacing.x3)) {
-        BrandMark(best.brand, large = true)
-        Column(Modifier.weight(1f)) {
-            Text(best.name, style = YamuTheme.typography.titleM, color = c.text1)
-            (best.reason ?: best.benefitName)?.let { Text(it, style = YamuTheme.typography.sub, color = c.text3) }
-        }
+    // 추천 카드를 실물 카드 크기로 — 이름 · 이유는 그 아래
+    Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+        BrandCardArt(best.brand, best.name, best.last4, Modifier.widthIn(max = 320.dp))
     }
+    Spacer(Modifier.height(YamuSpacing.x3))
+    Text(best.name, style = YamuTheme.typography.titleM, color = c.text1)
+    (best.reason ?: best.benefitName)?.let { Text(it, style = YamuTheme.typography.sub, color = c.text3) }
 }
 
 /** 가맹점 · 금액 고르기 시트 */

@@ -73,7 +73,7 @@ class FakeForecastRepository @Inject constructor() : ForecastRepository {
     private val excluded = mutableSetOf<Pair<Long, LocalDate>>()
 
     /** 카드대금 — 가계부 항목이 아니라 예보에만(F-02에서 읽기 전용) */
-    private val cardBill get() = ForecastEvent(today.plusDays(4), "하나카드 대금", -150_000, isPlan = false, planId = null, afterIncome = false, isCardBill = true)
+    private val cardBill get() = ForecastEvent(today.plusDays(4), "신한카드 대금", -150_000, isPlan = false, planId = null, afterIncome = false, isCardBill = true)
 
     private fun scheduled(): List<Triple<LocalDate, String, Long>> =
         listOf(Triple(cardBill.date!!, cardBill.title, cardBill.amount)) + entriesBetween(today, horizonTo).map { Triple(it.date, it.title, it.signedAmount) }
@@ -193,10 +193,10 @@ class FakeForecastRepository @Inject constructor() : ForecastRepository {
         fun option(method: BuyMethod, date: LocalDate, card: Long, name: String, months: Int?, minBalance: Long, monthlyAmount: Long?, points: List<Pair<LocalDate, Long>>) =
             BuyOption(method, date, card, name, months, minBalance, monthlyAmount, shortfall(points), recommended = false)
         val options = listOf(
-            option(BuyMethod.CHECK_LUMP_SUM, purchaseDate, 16, "KB국민 체크카드", null, minCheck, null, withCheck),
-            option(BuyMethod.CREDIT_LUMP_SUM, purchaseDate, 11, "신한 생활 신용카드", null, min(withCredit), null, withCredit),
-            option(BuyMethod.CREDIT_INSTALLMENT, purchaseDate, 11, "신한 생활 신용카드", 3, min(withInstallment), monthly, withInstallment),
-        ) + if (verdict == BuyVerdict.OK) emptyList() else listOf(BuyOption(BuyMethod.DELAY, income, 16, "KB국민 체크카드", null, min(base), null, null, recommended = true))
+            option(BuyMethod.CHECK_LUMP_SUM, purchaseDate, 16, "KB국민 노리2 체크카드(KB Pay)", null, minCheck, null, withCheck),
+            option(BuyMethod.CREDIT_LUMP_SUM, purchaseDate, 11, "KB국민 청춘대로 톡톡카드", null, min(withCredit), null, withCredit),
+            option(BuyMethod.CREDIT_INSTALLMENT, purchaseDate, 11, "KB국민 청춘대로 톡톡카드", 3, min(withInstallment), monthly, withInstallment),
+        ) + if (verdict == BuyVerdict.OK) emptyList() else listOf(BuyOption(BuyMethod.DELAY, income, 16, "KB국민 노리2 체크카드(KB Pay)", null, min(base), null, null, recommended = true))
         val headline = when (verdict) {
             BuyVerdict.OK -> "지금 사도 월급 전에 ${minCheck / 10_000}만 원 남아요"
             else -> "지금 사면 월급 전에 ${(-minCheck + 9_999) / 10_000}만 원 모자라요"
