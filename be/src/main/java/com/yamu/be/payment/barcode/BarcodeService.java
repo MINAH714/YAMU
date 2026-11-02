@@ -5,18 +5,21 @@ import com.yamu.be.auth.domain.StepUpPurpose;
 import com.yamu.be.global.exception.BusinessException;
 import com.yamu.be.global.exception.ErrorCode;
 import com.yamu.be.global.security.AuthUser;
+import com.yamu.be.payment.PaymentExpiry;
 import com.yamu.be.payment.domain.PaymentStatus;
 import com.yamu.be.payment.lookup.PaymentCardLookup;
-import com.yamu.be.payment.pos.PaymentRequestView;
-import com.yamu.be.payment.pos.PaymentRequestViewReader;
+import com.yamu.be.payment.request.PaymentRequestView;
+import com.yamu.be.payment.request.PaymentRequestViewReader;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 /** 결제 화면에 띄울 1회용 통합 바코드를 발급하고 상태를 알려준다. (FR-007, FR-010, DEC-003) */
+@Slf4j
 @Service
 public class BarcodeService {
 
@@ -31,16 +34,18 @@ public class BarcodeService {
     private final PaymentCardLookup cards;
     private final StepUpService stepUp;
     private final PaymentRequestViewReader paymentViews;
+    private final PaymentExpiry expiry;
     private final BarcodeTokenGenerator tokens;
     private final Clock clock;
 
     /** clock은 {@code ClockConfig}의 빈이다. 테스트가 시계를 옮겨 만료를 확인할 수 있게 직접 만들지 않는다. */
     BarcodeService(BarcodeStore store, PaymentCardLookup cards, StepUpService stepUp,
-            PaymentRequestViewReader paymentViews, BarcodeTokenGenerator tokens, Clock clock) {
+            PaymentRequestViewReader paymentViews, PaymentExpiry expiry, BarcodeTokenGenerator tokens, Clock clock) {
         this.store = store;
         this.cards = cards;
         this.stepUp = stepUp;
         this.paymentViews = paymentViews;
+        this.expiry = expiry;
         this.tokens = tokens;
         this.clock = clock;
     }
@@ -82,11 +87,31 @@ public class BarcodeService {
                 .orElseThrow(() -> new BusinessException(ErrorCode.BARCODE_NOT_FOUND));
         PaymentRequestView payment = barcode.paymentId() == null ? null
                 : paymentViews.find(barcode.paymentId(), userId).orElse(null);
-        if (payment != null && payment.status() == PaymentStatus.EXPIRED && barcode.status() == BarcodeStatus.SCANNED) {
-            // 결제가 조회하는 자리에서 막 만료됐으면 바코드도 EXPIRED로 바뀌어 있다(PaymentExpiry). 바뀐 값을 다시 읽는다
+        if (payment != null && isDue(payment) && expire(payment.paymentId())) {
+            // 결제가 조회하는 자리에서 막 만료됐다. 바뀐 결제·바코드를 다시 읽는다
+            payment = paymentViews.find(barcode.paymentId(), userId).orElse(payment);
             barcode = store.find(barcodeToken).orElse(barcode);
         }
         return State.of(barcode, clock.instant(), payment);
+    }
+
+    /** 아직 승인할 수 있는 결제(REQUESTED·DECLINED)인데 확정 마감이 지났는지. 판정 기준은 {@link PaymentExpiry}와 같다. */
+    private boolean isDue(PaymentRequestView payment) {
+        boolean confirmable = payment.status() == PaymentStatus.REQUESTED || payment.status() == PaymentStatus.DECLINED;
+        return confirmable && !clock.instant().isBefore(payment.confirmDeadline().toInstant(ZoneOffset.UTC));
+    }
+
+    /** 마감이 지난 결제를 EXPIRED로 저장하고 바코드도 EXPIRED로 둔다(임시: 명세 Q4 제안). 바코드 반영 실패는 로그만 남긴다. */
+    private boolean expire(Long paymentId) {
+        if (expiry.expire(paymentId) != PaymentStatus.EXPIRED) {
+            return false;
+        }
+        try {
+            store.expireByPayment(paymentId);
+        } catch (RuntimeException e) {
+            log.warn("결제 만료 뒤 바코드 만료 반영 실패 paymentId={}", paymentId, e);
+        }
+        return true;
     }
 
     private static LocalDateTime utc(Instant instant) {

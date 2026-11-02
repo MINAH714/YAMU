@@ -95,6 +95,9 @@ yamu:
     overall-timeout: 10s
     # 사용자별 refresh=true(캐시 건너뛰기) 1분 한도. 넘으면 429
     refresh-per-minute: 6
+  # 카드 이미지 공개 CDN. DB에는 전체 URL 대신 객체 키만 저장한다.
+  card-image:
+    base-url: ${YAMU_CARD_IMAGE_BASE_URL:https://d2yc4hwyx55emn.cloudfront.net}
   # 카드 등록 정책(노션 명세 「카드 확인」「카드 등록」)
   card-register:
     verification-ttl: 5m

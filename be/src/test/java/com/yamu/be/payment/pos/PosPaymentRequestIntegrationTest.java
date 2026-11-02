@@ -1,7 +1,12 @@
 package com.yamu.be.payment.pos;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.hamcrest.Matchers.nullValue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.reset;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -14,7 +19,13 @@ import com.yamu.be.payment.barcode.BarcodeStore;
 import com.yamu.be.payment.domain.PaymentStatus;
 import com.yamu.be.payment.domain.PaymentTransaction;
 import com.yamu.be.payment.domain.PaymentTransactionRepository;
+import com.yamu.be.global.exception.BusinessException;
+import com.yamu.be.global.exception.ErrorCode;
+import com.yamu.be.global.redis.RedisLocks;
+import com.yamu.be.payment.recommend.CardRecommender;
+import com.yamu.be.payment.recommend.RecommendationResult;
 import com.yamu.be.payment.recommend.RecommendationSnapshotStore;
+import com.yamu.be.payment.request.PaymentRequestView;
 import com.yamu.be.support.MySqlTestSupport;
 import com.yamu.be.support.OwnershipFixtures;
 import java.time.Duration;
@@ -41,6 +52,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.simple.SimpleJdbcInsert;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.TestPropertySource;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.ResultActions;
@@ -71,7 +83,10 @@ class PosPaymentRequestIntegrationTest extends MySqlTestSupport {
     @Autowired BarcodeStore barcodes;
     @Autowired BarcodeService barcodeService;
     @Autowired PaymentTransactionRepository payments;
-    @Autowired RecommendationSnapshotStore snapshots;
+    @Autowired RedisLocks locks;
+    @MockitoSpyBean RecommendationSnapshotStore snapshots;
+    @MockitoSpyBean CardRecommender recommender;
+    @MockitoSpyBean PosIdempotencyStore idempotency;
 
     OwnershipFixtures fixtures;
     long user;
@@ -88,6 +103,7 @@ class PosPaymentRequestIntegrationTest extends MySqlTestSupport {
         jdbc.update("DELETE FROM merchant");
         jdbc.update("DELETE FROM app_user");
         redis.getRequiredConnectionFactory().getConnection().serverCommands().flushAll();
+        reset(snapshots, recommender, idempotency);
         fixtures = new OwnershipFixtures(jdbc);
         user = fixtures.user();
         other = fixtures.user();
@@ -157,9 +173,14 @@ class PosPaymentRequestIntegrationTest extends MySqlTestSupport {
         assertThat(payment.merchant().name()).isEqualTo("테스트 카페");
         assertThat(payment.merchant().categoryCode()).isEqualTo("COFFEE_SHOP");
         assertThat(payment.recommendation()).isNotNull();
+        assertThat(payment.recommendation().status()).isEqualTo(RecommendationResult.Status.READY);
+        assertThat(payment.recommendation().uncomparedCards()).isEmpty();
+        assertThat(payment.recommendation().noBenefitNotice()).isNull();
         assertThat(payment.recommendation().candidates()).hasSize(1);
         assertThat(payment.recommendation().candidates().get(0).rank()).isEqualTo(1);
         assertThat(payment.recommendation().candidates().get(0).maskedNumber()).isEqualTo("****-****-****-1234");
+        // 결제할 금액은 결제 조건으로 서버가 계산한다(Mock은 즉시할인 0원)
+        assertThat(payment.recommendation().candidates().get(0).chargedAmount()).isEqualTo(100_000);
     }
 
     @Test
@@ -168,8 +189,42 @@ class PosPaymentRequestIntegrationTest extends MySqlTestSupport {
         request(POS_KEY, UUID.randomUUID().toString(), body(token, cafe, "POS-TEST-CAFE", 15000, null, null, null))
                 .andExpect(status().isCreated());
 
-        org.assertj.core.api.Assertions.assertThatThrownBy(() -> barcodeService.get(other, token))
-                .hasMessageContaining("바코드");
+        assertThatThrownBy(() -> barcodeService.get(other, token))
+                .isInstanceOfSatisfying(BusinessException.class,
+                        e -> assertThat(e.getErrorCode()).isEqualTo(ErrorCode.BARCODE_NOT_FOUND));
+    }
+
+    @Test
+    void 할부인데_체크카드만_가진_사용자는_201이고_화면_후보는_0장_NO_ELIGIBLE_CARD다() throws Exception {
+        long checkOnly = fixtures.user();
+        long checkProduct = fixtures.product();
+        jdbc.update("UPDATE card_product SET card_type = 'CHECK', billing_cutoff_days = NULL WHERE card_product_id = ?",
+                checkProduct);
+        fixtures.card(checkOnly, checkProduct, fixtures.account(checkOnly), "ACTIVE");
+        String token = issued(checkOnly);
+
+        request(POS_KEY, UUID.randomUUID().toString(), body(token, cafe, "POS-TEST-CAFE", 100000, "INSTALLMENT", 3, null))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.status").value("REQUESTED"));
+
+        PaymentRequestView.Recommendation recommendation = barcodeService.get(checkOnly, token).payment()
+                .recommendation();
+        assertThat(recommendation.status()).isEqualTo(RecommendationResult.Status.NO_ELIGIBLE_CARD);
+        assertThat(recommendation.candidates()).isEmpty();
+        assertThat(recommendation.excludedCount()).isEqualTo(1);
+    }
+
+    @Test
+    void 추천_스냅샷이_만료되면_화면의_recommendation은_null이다() throws Exception {
+        String token = issued(user);
+        long paymentId = paymentId(request(POS_KEY, UUID.randomUUID().toString(),
+                body(token, cafe, "POS-TEST-CAFE", 15000, null, null, null)).andExpect(status().isCreated()));
+
+        snapshots.delete(paymentId);
+
+        PaymentRequestView payment = barcodeService.get(user, token).payment();
+        assertThat(payment).isNotNull();
+        assertThat(payment.recommendation()).isNull();
     }
 
     // ───────── 멱등 ─────────
@@ -202,6 +257,64 @@ class PosPaymentRequestIntegrationTest extends MySqlTestSupport {
     }
 
     @Test
+    void 결과_기억이_실패해도_201이고_같은_키_재전송은_DB_기록으로_같은_결과다() throws Exception {
+        String token = issued(user);
+        String key = UUID.randomUUID().toString();
+        Map<String, Object> body = body(token, cafe, "POS-TEST-CAFE", 15000, null, null, "POS-0003");
+        doThrow(new IllegalStateException("redis down")).when(idempotency).remember(any(), any(), any());
+
+        long first = paymentId(request(POS_KEY, key, body).andExpect(status().isCreated()));
+        reset(idempotency);
+
+        // Redis에는 기록이 없고 바코드는 이미 SCANNED지만, 같은 키·같은 본문이라 409가 아니라 처음 결과다
+        request(POS_KEY, key, body)
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.paymentId").value(first))
+                .andExpect(jsonPath("$.data.orderNo").value("POS-0003"));
+        assertThat(payments.count()).isEqualTo(1);
+    }
+
+    @Test
+    void Redis_기록이_없을_때_같은_키에_다른_본문이면_DB_대조로_409_IDEMPOTENCY_KEY_REUSED() throws Exception {
+        String token = issued(user);
+        String key = UUID.randomUUID().toString();
+        request(POS_KEY, key, body(token, cafe, "POS-TEST-CAFE", 15000, null, null, null)).andExpect(status().isCreated());
+        redis.delete(redis.keys("pos:payreq:idem:*"));
+
+        request(POS_KEY, key, body(token, cafe, "POS-TEST-CAFE", 16000, null, null, null))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error.code").value("IDEMPOTENCY_KEY_REUSED"));
+        assertThat(payments.count()).isEqualTo(1);
+    }
+
+    @Test
+    void 다른_POS가_같은_키를_쓰면_409_IDEMPOTENCY_KEY_REUSED() throws Exception {
+        String key = UUID.randomUUID().toString();
+        request(POS_KEY, key, body(issued(user), cafe, "POS-TEST-CAFE", 15000, null, null, null))
+                .andExpect(status().isCreated());
+
+        // POS별 Redis 기록·잠금은 따로지만 request_key는 전체에서 하나라 DB에서 걸린다
+        request(POS_KEY, key, body(issued(user), cafe, "POS-TEST-CAFE-DEPT", 15000, null, null, null))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error.code").value("IDEMPOTENCY_KEY_REUSED"));
+        assertThat(payments.count()).isEqualTo(1);
+    }
+
+    @Test
+    void 같은_키를_처리_중이면_409_IDEMPOTENCY_IN_PROGRESS() throws Exception {
+        String token = issued(user);
+        String key = UUID.randomUUID().toString();
+        try (RedisLocks.Lock held = locks.tryLock(idempotency.lockKey("POS-TEST-CAFE", key), Duration.ofSeconds(15))
+                .orElseThrow()) {
+            request(POS_KEY, key, body(token, cafe, "POS-TEST-CAFE", 15000, null, null, null))
+                    .andExpect(status().isConflict())
+                    .andExpect(jsonPath("$.error.code").value("IDEMPOTENCY_IN_PROGRESS"));
+        }
+        assertThat(payments.count()).isZero();
+        assertThat(barcodes.find(token).orElseThrow().status()).isEqualTo(BarcodeStatus.ISSUED);
+    }
+
+    @Test
     void Idempotency_Key가_없거나_UUID가_아니면_400() throws Exception {
         String token = issued(user);
 
@@ -223,25 +336,29 @@ class PosPaymentRequestIntegrationTest extends MySqlTestSupport {
         CountDownLatch ready = new CountDownLatch(attempts);
         CountDownLatch go = new CountDownLatch(1);
         try {
-            List<Future<Integer>> results = new java.util.ArrayList<>();
+            List<Future<MvcResult>> results = new java.util.ArrayList<>();
             for (int i = 0; i < attempts; i++) {
-                Callable<Integer> call = () -> {
+                Callable<MvcResult> call = () -> {
                     ready.countDown();
                     go.await();
                     return request(POS_KEY, UUID.randomUUID().toString(),
-                            body(token, cafe, "POS-TEST-CAFE", 15000, null, null, null))
-                            .andReturn().getResponse().getStatus();
+                            body(token, cafe, "POS-TEST-CAFE", 15000, null, null, null)).andReturn();
                 };
                 results.add(pool.submit(call));
             }
             ready.await();
             go.countDown();
             List<Integer> statuses = new java.util.ArrayList<>();
-            for (Future<Integer> f : results) {
-                statuses.add(f.get());
+            List<String> conflictCodes = new java.util.ArrayList<>();
+            for (Future<MvcResult> f : results) {
+                MvcResult result = f.get();
+                statuses.add(result.getResponse().getStatus());
+                if (result.getResponse().getStatus() == 409) {
+                    conflictCodes.add(JsonPath.read(result.getResponse().getContentAsString(), "$.error.code"));
+                }
             }
             assertThat(statuses).containsOnlyOnce(201);
-            assertThat(statuses.stream().filter(s -> s == 409).count()).isEqualTo(attempts - 1);
+            assertThat(conflictCodes).hasSize(attempts - 1).containsOnly("BARCODE_ALREADY_USED");
         } finally {
             pool.shutdownNow();
         }
@@ -279,7 +396,51 @@ class PosPaymentRequestIntegrationTest extends MySqlTestSupport {
         assertThat(payments.count()).isZero();
     }
 
+    // ───────── 실패 뒤 되돌리기 ─────────
+
+    @Test
+    void 추천_계산이_예외로_끝나면_결제는_롤백되고_바코드는_ISSUED로_돌아온다() throws Exception {
+        String token = issued(user);
+        doThrow(new IllegalStateException("추천 엔진 오류")).when(recommender).recommend(any());
+
+        request(POS_KEY, UUID.randomUUID().toString(), body(token, cafe, "POS-TEST-CAFE", 15000, null, null, null))
+                .andExpect(status().isInternalServerError());
+
+        assertThat(payments.count()).isZero();
+        Barcode barcode = barcodes.find(token).orElseThrow();
+        assertThat(barcode.status()).isEqualTo(BarcodeStatus.ISSUED);
+        assertThat(barcode.paymentId()).isNull();
+    }
+
+    @Test
+    void 추천_스냅샷_저장이_실패하면_결제는_롤백되고_바코드는_ISSUED로_돌아온다() throws Exception {
+        String token = issued(user);
+        doThrow(new IllegalStateException("redis down")).when(snapshots).save(anyLong(), any(), any());
+
+        request(POS_KEY, UUID.randomUUID().toString(), body(token, cafe, "POS-TEST-CAFE", 15000, null, null, null))
+                .andExpect(status().isInternalServerError());
+
+        assertThat(payments.count()).isZero();
+        assertThat(barcodes.find(token).orElseThrow().status()).isEqualTo(BarcodeStatus.ISSUED);
+
+        // 되돌린 바코드로 다시 요청하면 정상 처리된다
+        reset(snapshots);
+        request(POS_KEY, UUID.randomUUID().toString(), body(token, cafe, "POS-TEST-CAFE", 15000, null, null, null))
+                .andExpect(status().isCreated());
+        assertThat(payments.count()).isEqualTo(1);
+    }
+
     // ───────── POS 인증·가맹점 ─────────
+
+    @Test
+    void POS_키가_없으면_본문_검증보다_먼저_401이다() throws Exception {
+        Map<String, Object> missing = new HashMap<>();
+        missing.put("posCode", "POS-TEST-CAFE");
+
+        request(null, UUID.randomUUID().toString(), missing)
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.error.code").value("INVALID_POS_KEY"));
+    }
 
     @Test
     void POS_키가_없거나_다르면_401이고_결제가_생기지_않는다() throws Exception {
@@ -338,6 +499,11 @@ class PosPaymentRequestIntegrationTest extends MySqlTestSupport {
     }
 
     // ───────── 도우미 ─────────
+
+    private static long paymentId(ResultActions result) throws Exception {
+        return ((Number) JsonPath.read(result.andReturn().getResponse().getContentAsString(), "$.data.paymentId"))
+                .longValue();
+    }
 
     private ResultActions request(String posKey, String idempotencyKey, Map<String, Object> body) throws Exception {
         var builder = post("/api/pos/payment-requests")

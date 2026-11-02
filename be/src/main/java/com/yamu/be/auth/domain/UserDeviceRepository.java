@@ -27,11 +27,24 @@ public interface UserDeviceRepository extends JpaRepository<UserDevice, Long> {
     @Query("select d from UserDevice d where d.user.id = :userId and d.deviceUuid = :deviceUuid")
     Optional<UserDevice> findByUserIdAndDeviceUuid(@Param("userId") Long userId, @Param("deviceUuid") String deviceUuid);
 
-    /** 해제되지 않은(ACTIVE·LOCKED) 기기 수. 사용자당 3대까지(명세 「기기 등록」). */
+    /** 해제되지 않은(ACTIVE·LOCKED) 기기 수. 사용자당 1대(2026-11-02 결정). */
     @Query("select count(d) from UserDevice d where d.user.id = :userId and d.status <> :status")
     long countByUserIdAndStatusNot(@Param("userId") Long userId, @Param("status") DeviceStatus status);
 
-    /** 로그인을 끊을 기기 번호들(PIN 변경·기기 재등록 뒤 다른 기기의 Refresh Token 폐기). */
+    /** 로그인을 끊을 기기 번호들(PIN 변경 뒤 다른 기기의 Refresh Token 폐기). */
     @Query("select d.id from UserDevice d where d.user.id = :userId and d.status <> :status")
     List<Long> findIdsByUserIdAndStatusNot(@Param("userId") Long userId, @Param("status") DeviceStatus status);
+
+    /**
+     * 해제되지 않은 기기들을 잠근다(SELECT … FOR UPDATE). 기기 재등록이 성공하면 이 폰 말고는 모두 해제한다.
+     * 로그인은 기기 행만 잠그므로, 기기 행까지 잠가야 그 기기의 로그인과 줄을 서서 낙관적 잠금(@Version) 충돌이 나지 않는다.
+     */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select d from UserDevice d where d.user.id = :userId and d.status <> :status")
+    List<UserDevice> findByUserIdAndStatusNotForUpdate(@Param("userId") Long userId,
+            @Param("status") DeviceStatus status);
+
+    /** 기기 목록(명세 「등록 기기 목록 조회」). 해제한 기기도 이력으로 보여 준다. */
+    @Query("select d from UserDevice d where d.user.id = :userId")
+    List<UserDevice> findAllByUserId(@Param("userId") Long userId);
 }

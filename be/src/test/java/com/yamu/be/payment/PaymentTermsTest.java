@@ -113,4 +113,14 @@ class PaymentTermsTest {
         assertThat(PaymentTerms.lumpSum(15_000).installmentMonthsOrOne()).isEqualTo(1);
         assertThat(PaymentTerms.installment(100_000, 3).installmentMonthsOrOne()).isEqualTo(3);
     }
+
+    @Test
+    void 결제할_금액은_결제_금액에서_즉시할인을_뺀_값이고_0원_아래로_내려가지_않는다() {
+        assertThat(PaymentTerms.lumpSum(15_000).chargedAmount(0)).isEqualTo(15_000);
+        assertThat(PaymentTerms.lumpSum(15_000).chargedAmount(750)).isEqualTo(14_250);
+        assertThat(PaymentTerms.lumpSum(15_000).chargedAmount(15_000)).isZero();
+        assertThat(PaymentTerms.lumpSum(15_000).chargedAmount(20_000)).isZero();
+        assertThatThrownBy(() -> PaymentTerms.lumpSum(15_000).chargedAmount(-1))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
 }

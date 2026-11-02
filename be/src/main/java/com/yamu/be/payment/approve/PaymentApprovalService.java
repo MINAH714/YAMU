@@ -24,7 +24,6 @@ import com.yamu.be.payment.domain.PaymentTransaction;
 import com.yamu.be.payment.domain.PaymentTransactionRepository;
 import com.yamu.be.payment.lookup.PaymentCardLookup;
 import com.yamu.be.payment.lookup.PaymentCardLookup.ActiveCard;
-import com.yamu.be.payment.pos.MerchantContextSnapshot;
 import com.yamu.be.payment.pos.PosProperties;
 import com.yamu.be.payment.recommend.CardRecommender;
 import com.yamu.be.payment.recommend.RecommendationRequest;
@@ -34,6 +33,7 @@ import com.yamu.be.payment.recommend.RecommendationResult.Candidate;
 import com.yamu.be.payment.recommend.RecommendationResult.CardSummary;
 import com.yamu.be.payment.recommend.RecommendationResult.UnavailableReason;
 import com.yamu.be.payment.recommend.RecommendationSnapshotStore;
+import com.yamu.be.payment.request.MerchantContextSnapshot;
 import jakarta.persistence.OptimisticLockException;
 import java.time.Clock;
 import java.time.Instant;
@@ -188,7 +188,7 @@ public class PaymentApprovalService {
             throw byStatus(payment.getStatus());
         }
         if (expiry.isPastDeadline(payment)) {
-            throw byStatus(expiry.expire(payment.getId()));
+            throw byStatus(expire(payment.getId()));
         }
     }
 
@@ -299,7 +299,7 @@ public class PaymentApprovalService {
                 return payment;
             });
         } catch (DeadlinePassed e) {
-            throw byStatus(expiry.expire(paymentId));
+            throw byStatus(expire(paymentId));
         } catch (OptimisticLockingFailureException | OptimisticLockException e) {
             PaymentStatus current = payments.findById(paymentId).map(PaymentTransaction::getStatus)
                     .orElse(PaymentStatus.PROCESSING);
@@ -324,6 +324,19 @@ public class PaymentApprovalService {
             }
             return payment;
         });
+    }
+
+    /** 마감이 지난 결제를 EXPIRED로 저장하고 바코드도 EXPIRED로 둔다. 바코드 반영 실패는 로그만 남긴다. */
+    private PaymentStatus expire(Long paymentId) {
+        PaymentStatus after = expiry.expire(paymentId);
+        if (after == PaymentStatus.EXPIRED) {
+            try {
+                barcodes.expireByPayment(paymentId);
+            } catch (RuntimeException e) {
+                log.warn("결제 만료 뒤 바코드 만료 반영 실패 paymentId={}", paymentId, e);
+            }
+        }
+        return after;
     }
 
     /** 승인 뒤 바코드를 USED로. 바코드가 보관 종료로 없어도 승인은 유효하다. */

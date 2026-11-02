@@ -191,7 +191,7 @@ class RedisBarcodeStoreTest extends RedisTestSupport {
         Barcode barcode = live(7L);
         store.issue(barcode, Duration.ofMinutes(1));
 
-        assertThat(store.scan(barcode.token(), 1024L, RETENTION)).isEqualTo(BarcodeStore.ScanResult.SCANNED);
+        assertThat(store.scan(barcode.token(), barcode.userId(), 1024L, Instant.now(), RETENTION)).isEqualTo(BarcodeStore.ScanResult.SCANNED);
 
         Barcode scanned = store.find(barcode.token()).orElseThrow();
         assertThat(scanned.status()).isEqualTo(BarcodeStatus.SCANNED);
@@ -204,9 +204,9 @@ class RedisBarcodeStoreTest extends RedisTestSupport {
     void 이미_스캔된_바코드는_다시_스캔할_수_없고_결제_번호도_바뀌지_않는다() {
         Barcode barcode = live(7L);
         store.issue(barcode, RETENTION);
-        store.scan(barcode.token(), 1024L, RETENTION);
+        store.scan(barcode.token(), barcode.userId(), 1024L, Instant.now(), RETENTION);
 
-        assertThat(store.scan(barcode.token(), 2048L, RETENTION)).isEqualTo(BarcodeStore.ScanResult.ALREADY_USED);
+        assertThat(store.scan(barcode.token(), barcode.userId(), 2048L, Instant.now(), RETENTION)).isEqualTo(BarcodeStore.ScanResult.ALREADY_USED);
         assertThat(store.find(barcode.token()).orElseThrow().paymentId()).isEqualTo(1024L);
     }
 
@@ -215,15 +215,15 @@ class RedisBarcodeStoreTest extends RedisTestSupport {
         Barcode barcode = issued(7L); // 2026-10-28 발급, 이미 지남
         store.issue(barcode, RETENTION);
 
-        assertThat(store.scan(barcode.token(), 1024L, RETENTION)).isEqualTo(BarcodeStore.ScanResult.EXPIRED);
+        assertThat(store.scan(barcode.token(), barcode.userId(), 1024L, Instant.now(), RETENTION)).isEqualTo(BarcodeStore.ScanResult.EXPIRED);
         assertThat(store.find(barcode.token()).orElseThrow().status()).isEqualTo(BarcodeStatus.EXPIRED);
-        assertThat(store.scan(barcode.token(), 1024L, RETENTION)).isEqualTo(BarcodeStore.ScanResult.EXPIRED);
+        assertThat(store.scan(barcode.token(), barcode.userId(), 1024L, Instant.now(), RETENTION)).isEqualTo(BarcodeStore.ScanResult.EXPIRED);
     }
 
     @Test
     void 없는_토큰이나_형식이_다른_토큰은_NOT_FOUND() {
-        assertThat(store.scan("0000000000000000", 1L, RETENTION)).isEqualTo(BarcodeStore.ScanResult.NOT_FOUND);
-        assertThat(store.scan("user:7", 1L, RETENTION)).isEqualTo(BarcodeStore.ScanResult.NOT_FOUND);
+        assertThat(store.scan("0000000000000000", 7L, 1L, Instant.now(), RETENTION)).isEqualTo(BarcodeStore.ScanResult.NOT_FOUND);
+        assertThat(store.scan("user:7", 7L, 1L, Instant.now(), RETENTION)).isEqualTo(BarcodeStore.ScanResult.NOT_FOUND);
     }
 
     @Test
@@ -239,7 +239,7 @@ class RedisBarcodeStoreTest extends RedisTestSupport {
                 long paymentId = 100 + i;
                 Callable<BarcodeStore.ScanResult> scan = () -> {
                     start.await();
-                    return store.scan(barcode.token(), paymentId, RETENTION);
+                    return store.scan(barcode.token(), barcode.userId(), paymentId, Instant.now(), RETENTION);
                 };
                 results.add(executor.submit(scan));
             }
@@ -260,7 +260,7 @@ class RedisBarcodeStoreTest extends RedisTestSupport {
     void 되돌리기는_그_결제_번호로_SCANNED일_때만_ISSUED로_돌린다() {
         Barcode barcode = live(7L);
         store.issue(barcode, RETENTION);
-        store.scan(barcode.token(), 1024L, RETENTION);
+        store.scan(barcode.token(), barcode.userId(), 1024L, Instant.now(), RETENTION);
 
         assertThat(store.revertScan(barcode.token(), 2048L)).isFalse();
         assertThat(store.revertScan(barcode.token(), 1024L)).isTrue();
@@ -277,7 +277,7 @@ class RedisBarcodeStoreTest extends RedisTestSupport {
         Barcode barcode = live(7L);
         store.issue(barcode, RETENTION);
 
-        store.scan(barcode.token(), 1024L, RETENTION);
+        store.scan(barcode.token(), barcode.userId(), 1024L, Instant.now(), RETENTION);
 
         assertThat(redis.opsForValue().get("barcode:payment:1024")).isEqualTo(barcode.token());
         assertThat(redis.getExpire("barcode:payment:1024", TimeUnit.SECONDS)).isBetween(590L, 600L);
@@ -290,7 +290,7 @@ class RedisBarcodeStoreTest extends RedisTestSupport {
     void 결제가_승인되면_그_결제의_바코드만_USED가_된다() {
         Barcode barcode = live(7L);
         store.issue(barcode, RETENTION);
-        store.scan(barcode.token(), 1024L, RETENTION);
+        store.scan(barcode.token(), barcode.userId(), 1024L, Instant.now(), RETENTION);
 
         assertThat(store.markUsed(2048L)).isFalse();
         assertThat(store.markUsed(1024L)).isTrue();
@@ -308,7 +308,7 @@ class RedisBarcodeStoreTest extends RedisTestSupport {
     void 결제가_만료되면_SCANNED_바코드가_EXPIRED가_된다() {
         Barcode barcode = live(7L);
         store.issue(barcode, RETENTION);
-        store.scan(barcode.token(), 1024L, RETENTION);
+        store.scan(barcode.token(), barcode.userId(), 1024L, Instant.now(), RETENTION);
 
         assertThat(store.expireByPayment(1024L)).isTrue();
 

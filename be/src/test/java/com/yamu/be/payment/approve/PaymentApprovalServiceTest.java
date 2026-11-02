@@ -38,7 +38,7 @@ import com.yamu.be.payment.recommend.RecommendationResult;
 import com.yamu.be.payment.recommend.RecommendationResult.Candidate;
 import com.yamu.be.payment.recommend.RecommendationResult.CardSummary;
 import com.yamu.be.payment.recommend.RecommendationResult.RuleVersion;
-import com.yamu.be.payment.recommend.RecommendationResult.TieBreak;
+import com.yamu.be.payment.recommend.RecommendationResult.SelectionReason;
 import com.yamu.be.payment.recommend.RecommendationSnapshotStore;
 import java.time.Clock;
 import java.time.Duration;
@@ -216,8 +216,7 @@ class PaymentApprovalServiceTest {
 
     @Test
     void 생략했는데_결제할_카드가_없으면_CARD_NOT_ELIGIBLE이고_시도를_세지_않는다() {
-        recommendation = new RecommendationResult("rec_none", REQUESTED_AT, false, List.of(), List.of(),
-                RecommendationResult.UnavailableReason.NO_ELIGIBLE_CARD);
+        recommendation = recommendation(List.of());
 
         assertThatThrownBy(() -> service.approve(ME, PAYMENT_ID, request(null), KEY))
                 .extracting(e -> ((BusinessException) e).getErrorCode()).isEqualTo(ErrorCode.CARD_NOT_ELIGIBLE);
@@ -373,13 +372,13 @@ class PaymentApprovalServiceTest {
     }
 
     private static RecommendationResult recommendation(List<Candidate> candidates) {
-        return new RecommendationResult("rec_test", REQUESTED_AT, false, candidates, List.of(), null);
+        return new RecommendationResult("rec_test", REQUESTED_AT, false, candidates, List.of(), List.of());
     }
 
     private static Candidate candidate(int rank, ActiveCard card) {
         CardSummary summary = new CardSummary(card.userCardId(), card.cardProductId(), card.cardType(),
                 card.defaultCard(), card.alias(), card.last4(), card.issuerCode(), card.productName());
-        return new Candidate(rank, summary, 0, List.of(), 15_000, "mock", rank == 1 ? TieBreak.DEFAULT_CARD : null,
+        return new Candidate(rank, summary, 0, List.of(), "mock", rank == 1 ? SelectionReason.DEFAULT_CARD : null,
                 new RuleVersion(card.cardProductId(), 0));
     }
 }

@@ -13,8 +13,12 @@ import com.yamu.be.auth.domain.StepUpPurpose;
 import com.yamu.be.global.exception.BusinessException;
 import com.yamu.be.global.exception.ErrorCode;
 import com.yamu.be.global.security.AuthUser;
+import com.yamu.be.payment.PaymentExpiry;
+import com.yamu.be.payment.PaymentPlan;
+import com.yamu.be.payment.domain.PaymentStatus;
 import com.yamu.be.payment.lookup.PaymentCardLookup;
-import com.yamu.be.payment.pos.PaymentRequestViewReader;
+import com.yamu.be.payment.request.PaymentRequestView;
+import com.yamu.be.payment.request.PaymentRequestViewReader;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -42,6 +46,7 @@ class BarcodeServiceTest {
     @Mock PaymentCardLookup cards;
     @Mock StepUpService stepUp;
     @Mock PaymentRequestViewReader paymentViews;
+    @Mock PaymentExpiry expiry;
 
     InMemoryBarcodeStore store;
     MutableClock clock;
@@ -51,7 +56,7 @@ class BarcodeServiceTest {
     void setUp() {
         store = new InMemoryBarcodeStore();
         clock = new MutableClock(NOW);
-        service = new BarcodeService(store, cards, stepUp, paymentViews, new BarcodeTokenGenerator(), clock);
+        service = new BarcodeService(store, cards, stepUp, paymentViews, expiry, new BarcodeTokenGenerator(), clock);
     }
 
     @Test
@@ -196,11 +201,54 @@ class BarcodeServiceTest {
                 return generated.removeFirst();
             }
         };
-        service = new BarcodeService(store, cards, stepUp, paymentViews, tokens, clock);
+        service = new BarcodeService(store, cards, stepUp, paymentViews, expiry, tokens, clock);
         when(cards.countActiveCards(7L)).thenReturn(1L);
 
         assertThat(service.issue(ME, "step-up").barcodeToken()).isEqualTo(fresh);
         assertThat(store.find(taken)).get().extracting(Barcode::userId).isEqualTo(9L);
+    }
+
+    @Test
+    void 조회할_때_확정_마감이_지난_결제는_EXPIRED로_바꾸고_바코드도_EXPIRED로_보여_준다() {
+        when(cards.countActiveCards(7L)).thenReturn(1L);
+        String token = service.issue(ME, "step-up").barcodeToken();
+        store.scan(token, 7L, 1024L, NOW, Duration.ofMinutes(10));
+        LocalDateTime deadline = LocalDateTime.parse("2026-10-28T05:31:00");
+        when(expiry.expire(1024L)).thenReturn(PaymentStatus.EXPIRED);
+
+        clock.advance(Duration.ofSeconds(59));
+        when(paymentViews.find(1024L, 7L)).thenReturn(Optional.of(view(PaymentStatus.REQUESTED, deadline)));
+        assertThat(service.get(7L, token).payment().status()).isEqualTo(PaymentStatus.REQUESTED);
+        verify(expiry, never()).expire(any());
+
+        clock.advance(Duration.ofSeconds(1));
+        when(paymentViews.find(1024L, 7L)).thenReturn(Optional.of(view(PaymentStatus.REQUESTED, deadline)),
+                Optional.of(view(PaymentStatus.EXPIRED, deadline)));
+        BarcodeService.State state = service.get(7L, token);
+
+        assertThat(state.payment().status()).isEqualTo(PaymentStatus.EXPIRED);
+        assertThat(state.status()).isEqualTo(BarcodeStatus.EXPIRED);
+        assertThat(store.find(token).orElseThrow().status()).isEqualTo(BarcodeStatus.EXPIRED);
+    }
+
+    @Test
+    void 조회할_때_다른_요청이_먼저_승인했으면_만료하지_않고_그_상태를_보여_준다() {
+        when(cards.countActiveCards(7L)).thenReturn(1L);
+        String token = service.issue(ME, "step-up").barcodeToken();
+        store.scan(token, 7L, 1024L, NOW, Duration.ofMinutes(10));
+        clock.advance(Duration.ofSeconds(60));
+        when(paymentViews.find(1024L, 7L))
+                .thenReturn(Optional.of(view(PaymentStatus.REQUESTED, LocalDateTime.parse("2026-10-28T05:31:00"))));
+        when(expiry.expire(1024L)).thenReturn(PaymentStatus.PROCESSING);
+
+        BarcodeService.State state = service.get(7L, token);
+
+        assertThat(state.payment().status()).isEqualTo(PaymentStatus.REQUESTED);
+        assertThat(store.find(token).orElseThrow().status()).isEqualTo(BarcodeStatus.SCANNED);
+    }
+
+    private static PaymentRequestView view(PaymentStatus status, LocalDateTime confirmDeadline) {
+        return new PaymentRequestView(1024L, status, null, 15_000, PaymentPlan.LUMP_SUM, null, confirmDeadline, null);
     }
 
     /** {@link RedisBarcodeStore}와 같은 규칙을 메모리에서 흉내 낸다. Redis 동작 자체는 RedisBarcodeStoreTest가 확인한다. */
@@ -233,7 +281,8 @@ class BarcodeServiceTest {
         }
 
         @Override
-        public synchronized ScanResult scan(String token, Long paymentId, Duration retention) {
+        public synchronized ScanResult scan(String token, Long userId, Long paymentId, Instant now,
+                Duration retention) {
             Barcode barcode = barcodes.get(token);
             if (barcode == null) {
                 return ScanResult.NOT_FOUND;

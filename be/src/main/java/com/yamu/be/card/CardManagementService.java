@@ -25,6 +25,7 @@ import com.yamu.be.global.crypto.PersonalDataCipher;
 import com.yamu.be.global.exception.BusinessException;
 import com.yamu.be.global.exception.ErrorCode;
 import com.yamu.be.global.security.AuthUser;
+import com.yamu.be.user.domain.AppUser;
 import com.yamu.be.user.domain.AppUserRepository;
 import java.time.Clock;
 import java.time.LocalDate;
@@ -77,6 +78,7 @@ public class CardManagementService {
     private final CardActivityReader activityReader;
     private final PersonalDataCipher cipher;
     private final Clock clock;
+    private final CardImageUrlResolver imageUrlResolver;
 
     /** @param status ACTIVE·INACTIVE 중 하나만 볼 때. null이면 둘 다 */
     @Transactional(readOnly = true)
@@ -102,7 +104,7 @@ public class CardManagementService {
                     new CardListResponse.Issuer(issuer.code(), issuer.name(), issuer.color()),
                     product.getProductName(), product.getCardType(), maskedNumber(card),
                     card.getRegistrationStatus(), card.getIssuerStatus(), card.isDefaultCard(), List.of(),
-                    performance, billing);
+                    performance, billing, imageUrlResolver.resolve(product.getImageKey()));
         }).toList();
         return new CardListResponse(summaries, null);
     }
@@ -276,7 +278,8 @@ public class CardManagementService {
                         credit ? product.getBillingCutoffDays() : null),
                 product.getProductName(), product.getCardType(), maskedNumber(card), null,
                 card.getRegistrationStatus(), card.getIssuerStatus(), card.isDefaultCard(), linkedAccount, billing,
-                card.getRegisteredAt() == null ? null : card.getRegisteredAt().truncatedTo(ChronoUnit.SECONDS), null);
+                card.getRegisteredAt() == null ? null : card.getRegisteredAt().truncatedTo(ChronoUnit.SECONDS), null,
+                imageUrlResolver.resolve(product.getImageKey()));
     }
 
     private static LocalDate paymentDayChangeableFrom(UserCard card) {
@@ -296,8 +299,12 @@ public class CardManagementService {
     }
 
     private void lockUser(AuthUser me) {
-        userRepository.findByIdForUpdate(me.userId())
+        AppUser user = userRepository.findByIdForUpdate(me.userId())
                 .orElseThrow(() -> new BusinessException(ErrorCode.UNAUTHORIZED));
+        // 요청 시작 때 토큰 검사를 통과했어도 잠금을 기다리는 사이 탈퇴했을 수 있다. 탈퇴한 사용자에게 데이터를 다시 남기지 않는다.
+        if (user.isWithdrawn()) {
+            throw new BusinessException(ErrorCode.UNAUTHORIZED);
+        }
     }
 
     private Map<Long, CardProduct> products(List<UserCard> cards) {

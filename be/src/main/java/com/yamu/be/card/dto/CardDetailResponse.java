@@ -13,11 +13,12 @@ import java.time.LocalDateTime;
  *
  * @param expiryDate   유효기간. 저장 칸이 없어 null
  * @param dataSyncedAt 시드 거래 동기화 시각. 동기화 기록이 아직 없어 null
+ * @param imageUrl     카드 앞면 CDN URL. 이미지 미수집·잘못된 키는 null
  */
 public record CardDetailResponse(Long userCardId, String nickname, Issuer issuer, String productName,
         CardType cardType, String maskedNumber, LocalDate expiryDate, CardRegistrationStatus status,
         CardIssuerStatus issuerStatus, @JsonProperty("isDefault") boolean isDefault, LinkedAccount linkedAccount,
-        Billing billing, LocalDateTime registeredAt, LocalDateTime dataSyncedAt) {
+        Billing billing, LocalDateTime registeredAt, LocalDateTime dataSyncedAt, String imageUrl) {
 
     /** @param closingDayOffset 이용기간 마감일 = 결제일 − N일의 N. 신용카드만 */
     public record Issuer(String code, String name, String color, Integer closingDayOffset) {

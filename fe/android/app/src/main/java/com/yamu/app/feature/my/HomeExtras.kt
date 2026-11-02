@@ -68,7 +68,7 @@ import com.yamu.app.core.network.ApiResult
 import com.yamu.app.core.ui.staleLine
 import com.yamu.app.core.ui.LocalSnackbar
 import com.yamu.app.core.ui.userMessage
-import com.yamu.app.feature.link.BrandMark
+import com.yamu.app.feature.link.CardListThumb
 import com.yamu.app.feature.my.data.AppNotification
 import com.yamu.app.feature.my.data.MyRepository
 import com.yamu.app.feature.my.data.NotiTarget
@@ -330,7 +330,7 @@ fun MyCardsRoute(
     }
 }
 
-/** 카드 1장 = 1줄(카드사 · 이름 · 상태 태그 · ›). 분석 화면이 없는 줄(실적 조건 없음)은 누를 수 없다 */
+/** 카드 1장 = 1줄(카드 그림 · 이름 · 상태 태그 · ›). 분석 화면이 없는 줄(실적 조건 없음)은 누를 수 없다 */
 @Composable
 private fun CardLine(card: CardPerf, onClick: (() -> Unit)?) {
     val c = YamuTheme.colors
@@ -349,7 +349,7 @@ private fun CardLine(card: CardPerf, onClick: (() -> Unit)?) {
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(YamuSpacing.x3),
     ) {
-        BrandMark(card.brand, large = true)
+        CardListThumb(card.brand, card.nickname ?: card.name)   // name은 카드사 이름 — 그림은 상품명(nickname)으로 찾는다
         Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(YamuSpacing.x2)) {
             Text(card.name, style = YamuTheme.typography.titleS, color = c.text1, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
             tag?.let { (label, tone) -> StatusTag(label, tone = tone, guide = true) }

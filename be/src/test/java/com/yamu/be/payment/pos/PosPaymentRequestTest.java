@@ -88,6 +88,42 @@ class PosPaymentRequestTest {
         assertInvalid(request, ErrorCode.INVALID_AMOUNT, "amount");
     }
 
+    @Test
+    void 금액이_0원이면_잘못된_plan보다_INVALID_AMOUNT가_먼저다() throws Exception {
+        PosPaymentRequest request = parse("""
+                {"barcodeToken":"1234567890123456","merchantId":301,"posCode":"POS-TEST-CAFE","amount":0,"plan":"CASH"}
+                """);
+
+        assertInvalid(request, ErrorCode.INVALID_AMOUNT, "amount");
+    }
+
+    @Test
+    void 금액이_음수면_일시불에_개월_수를_보낸_오류보다_INVALID_AMOUNT가_먼저다() throws Exception {
+        PosPaymentRequest request = parse("""
+                {"barcodeToken":"1234567890123456","merchantId":301,"posCode":"POS-TEST-CAFE","amount":-100,"installmentMonths":3}
+                """);
+
+        assertInvalid(request, ErrorCode.INVALID_AMOUNT, "amount");
+    }
+
+    @Test
+    void 할부_개월_수가_소수면_잘라_쓰지_않고_INVALID_INSTALLMENT() throws Exception {
+        PosPaymentRequest request = parse("""
+                {"barcodeToken":"1234567890123456","merchantId":301,"posCode":"POS-TEST-CAFE","amount":100000,"plan":"INSTALLMENT","installmentMonths":2.9}
+                """);
+
+        assertInvalid(request, ErrorCode.INVALID_INSTALLMENT, "installmentMonths");
+    }
+
+    @Test
+    void 할부_개월_수가_정수로_표현된_소수면_받는다() throws Exception {
+        PosPaymentRequest request = parse("""
+                {"barcodeToken":"1234567890123456","merchantId":301,"posCode":"POS-TEST-CAFE","amount":100000,"plan":"INSTALLMENT","installmentMonths":3.0}
+                """);
+
+        assertThat(request.toTerms().installmentMonths()).isEqualTo(3);
+    }
+
     private PosPaymentRequest parse(String body) throws Exception {
         return json.readValue(body, PosPaymentRequest.class);
     }

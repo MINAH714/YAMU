@@ -1,7 +1,7 @@
 package com.yamu.app.pos
 
-import com.yamu.app.BuildConfig
 import com.yamu.app.core.network.ApiError
+import com.yamu.app.core.network.ApiFeature
 import com.yamu.app.core.network.ApiResult
 import com.yamu.app.data.FakeMerchants
 import com.yamu.app.feature.payment.data.Merchant
@@ -71,12 +71,12 @@ class FakePosRepository @Inject constructor() : PosRepository {
     }
 }
 
-/** 모의 POS debug: USE_FAKE_API면 가짜, 아니면 진짜(release는 src/posRelease) */
+/** 모의 POS debug: yamu.realApi에 pos가 있으면 진짜, 아니면 가짜(release는 src/posRelease) */
 @Module
 @InstallIn(SingletonComponent::class)
 object PosDataModule {
     @Provides
     @Singleton
     fun posRepository(real: Provider<PosRepositoryImpl>, fake: Provider<FakePosRepository>): PosRepository =
-        if (BuildConfig.USE_FAKE_API) fake.get() else real.get()
+        if (ApiFeature.POS.isReal) real.get() else fake.get()
 }
