@@ -1,6 +1,7 @@
 package com.yamu.be.auth;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -39,6 +40,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -57,6 +59,7 @@ import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.ResultMatcher;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.utility.DockerImageName;
@@ -92,6 +95,7 @@ class DeviceSetupIntegrationTest extends MySqlTestSupport {
     @Autowired SignupTokenStore signupTokenStore;
     @Autowired StepUpTokenStore stepUpTokenStore;
     @Autowired RefreshTokenStore refreshTokenStore;
+    @Autowired TransactionTemplate transaction;
 
     @MockitoBean FinApiClient finApiClient;
 
@@ -283,25 +287,26 @@ class DeviceSetupIntegrationTest extends MySqlTestSupport {
     }
 
     @Test
-    void 해제되지_않은_기기가_3대면_새_폰은_409_DEVICE_LIMIT_EXCEEDED_해제한_기기는_세지_않는다() throws Exception {
+    void 해제되지_않은_기기가_여러_대_남아_있어도_기기_재등록은_되고_나머지_기기는_해제된다() throws Exception {
         Registered member = activeMember();
-        insertDevice(member.userId(), "ACTIVE");
+        long second = insertDevice(member.userId(), "ACTIVE");
         long third = insertDevice(member.userId(), "LOCKED");
-        insertDevice(member.userId(), "REVOKED");
+        long revokedBefore = insertDevice(member.userId(), "REVOKED");
         String bearer = "Bearer " + signupToken(member.userId(), SignupMode.DEVICE_RECOVERY);
         String verification = verifiedAndSent(bearer);
 
-        registerDevice(bearer, deviceJson(UUID.randomUUID().toString(), DeviceKeys.generate(), null, verification, CODE))
-                .andExpect(errorCode(409, "DEVICE_LIMIT_EXCEEDED"));
-        // 이미 있는 폰의 키 교체는 대수가 늘지 않으니 된다. 대수 초과는 1원 확인 결과를 쓰기 전에 걸러서 같은 토큰을 다시 쓸 수 있다.
-        registerDevice(bearer, deviceJson(member.deviceUuid(), DeviceKeys.generate(), null, verification, CODE))
-                .andExpect(status().isCreated());
+        MvcResult registered = registerDevice(bearer,
+                deviceJson(UUID.randomUUID().toString(), DeviceKeys.generate(), null, verification, CODE))
+                .andExpect(status().isCreated()).andReturn();
+        long newDeviceId = Long.parseLong(read(registered, "$.data.userDeviceId"));
 
-        jdbc.update("UPDATE user_device SET status = 'REVOKED' WHERE user_device_id = ?", third);
-        String again = "Bearer " + signupToken(member.userId(), SignupMode.DEVICE_RECOVERY);
-        String verification2 = verifiedAndSent(again);
-        registerDevice(again, deviceJson(UUID.randomUUID().toString(), DeviceKeys.generate(), null, verification2, CODE))
-                .andExpect(status().isCreated());
+        assertThat(jdbc.queryForList("SELECT user_device_id FROM user_device WHERE status <> 'REVOKED'", Long.class))
+                .containsExactly(newDeviceId);
+        for (long revoked : List.of(member.deviceId(), second, third)) {
+            assertThat(eventTypes(revoked)).last().isEqualTo("REVOKED");
+        }
+        // 이미 해제돼 있던 기기에는 이력을 더 남기지 않는다.
+        assertThat(eventTypes(revokedBefore)).isEmpty();
     }
 
     // ───────── 가입 후 ─────────
@@ -417,7 +422,7 @@ class DeviceSetupIntegrationTest extends MySqlTestSupport {
     }
 
     @Test
-    void 기기_재등록에_성공하면_다른_기기의_로그인을_끊는다() throws Exception {
+    void 기기_재등록에_성공하면_다른_기기를_해제하고_로그인을_끊는다() throws Exception {
         Registered member = activeMember();
         long other = insertDevice(member.userId(), "ACTIVE");
         refreshTokenStore.issue(other);
@@ -433,9 +438,11 @@ class DeviceSetupIntegrationTest extends MySqlTestSupport {
         assertThat(redis.hasKey("auth:refresh:" + member.deviceId())).isFalse();
         assertThat(redis.hasKey("auth:refresh:" + other)).isFalse();
         assertThat(redis.hasKey("auth:refresh:" + newDeviceId)).isTrue();
-        // 기기는 목록에 남는다(해제는 기기 관리에서).
-        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM user_device WHERE status <> 'REVOKED'", Integer.class))
-                .isEqualTo(3);
+        // 은행 앱의 기기 변경처럼 이 폰만 남는다. 해제한 기기는 목록에 이력으로 남는다.
+        assertThat(jdbc.queryForList("SELECT user_device_id FROM user_device WHERE status <> 'REVOKED'", Long.class))
+                .containsExactly(newDeviceId);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM user_device", Integer.class)).isEqualTo(3);
+        loginChallenge(member.deviceId()).andExpect(errorCode(401, "DEVICE_NOT_REGISTERED"));
     }
 
     @Test
@@ -482,7 +489,7 @@ class DeviceSetupIntegrationTest extends MySqlTestSupport {
     }
 
     @Test
-    void 서로_다른_재등록_두_건이_동시에_와도_기기는_3대를_넘지_않는다() throws Exception {
+    void 서로_다른_재등록_두_건이_동시에_와도_차례로_처리되고_쓸_수_있는_기기는_하나만_남는다() throws Exception {
         Registered member = activeMember();
         insertDevice(member.userId(), "ACTIVE");
         String first = "Bearer " + signupToken(member.userId(), SignupMode.DEVICE_RECOVERY);
@@ -497,11 +504,12 @@ class DeviceSetupIntegrationTest extends MySqlTestSupport {
                 () -> registerDevice(second, deviceJson(UUID.randomUUID().toString(), DeviceKeys.generate(), null,
                         secondVerification, CODE)).andReturn().getResponse().getStatus()));
 
-        // 늦은 쪽은 대수 초과(409)거나, 먼저 끝난 쪽이 가입 진행 토큰을 모두 지워 401이다.
-        assertThat(statuses).containsOnlyOnce(201);
-        assertThat(statuses).anyMatch(status -> status == 409 || status == 401);
+        // 사용자 행 잠금으로 차례로 처리된다. 늦은 쪽은 먼저 끝난 쪽이 가입 진행 토큰을 지워 401이거나,
+        // 이미 토큰 확인을 지났으면 201로 먼저 등록된 폰까지 해제한다. 어느 쪽이든 쓸 수 있는 기기는 하나다.
+        assertThat(statuses).contains(201);
+        assertThat(statuses).allMatch(status -> status == 201 || status == 401);
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM user_device WHERE status <> 'REVOKED'", Integer.class))
-                .isEqualTo(3);
+                .isEqualTo(1);
     }
 
     @Test
@@ -552,6 +560,213 @@ class DeviceSetupIntegrationTest extends MySqlTestSupport {
     }
 
     // ───────── 준비 ─────────
+
+    // ───────── 기기 관리(목록·해제) ─────────
+
+    @Test
+    void 기기_목록은_내_기기만_지금_기기를_먼저_보여_주고_잠금_시각이_지난_기기는_ACTIVE다() throws Exception {
+        Registered member = activeMember();
+        long locked = insertDevice(member.userId(), "LOCKED");
+        jdbc.update("UPDATE user_device SET locked_until = ? WHERE user_device_id = ?",
+                Timestamp.valueOf(LocalDateTime.now(ZoneOffset.UTC).plusMinutes(10)), locked);
+        long expiredLock = insertDevice(member.userId(), "LOCKED");
+        jdbc.update("UPDATE user_device SET locked_until = ? WHERE user_device_id = ?",
+                Timestamp.valueOf(LocalDateTime.now(ZoneOffset.UTC).minusMinutes(1)), expiredLock);
+        long revoked = insertDevice(member.userId(), "REVOKED");
+        long stranger = insert("app_user", "user_id", Map.of("status", "PENDING", "created_at", now(), "updated_at", now()));
+        insertDevice(stranger, "ACTIVE");
+
+        mockMvc.perform(get("/api/auth/devices").with(AuthUsers.asUser(member.userId(), member.deviceId())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.maxDevices").value(1))
+                .andExpect(jsonPath("$.data.items.length()").value(4))
+                .andExpect(jsonPath("$.data.items[0].userDeviceId").value(member.deviceId()))
+                .andExpect(jsonPath("$.data.items[0].isCurrent").value(true))
+                .andExpect(jsonPath("$.data.items[0].deviceName").value("Galaxy S24"))
+                .andExpect(jsonPath("$.data.items[0].methods[0]").value("PIN"))
+                .andExpect(jsonPath("$.data.items[0].biometricTypes").doesNotExist())
+                .andExpect(jsonPath("$.data.items[?(@.userDeviceId == " + locked + ")].status").value("LOCKED"))
+                .andExpect(jsonPath("$.data.items[?(@.userDeviceId == " + locked + ")].lockedUntil").exists())
+                .andExpect(jsonPath("$.data.items[?(@.userDeviceId == " + expiredLock + ")].status").value("ACTIVE"))
+                .andExpect(jsonPath("$.data.items[3].userDeviceId").value(revoked))
+                .andExpect(jsonPath("$.data.items[3].status").value("REVOKED"))
+                .andExpect(jsonPath("$.data.items[3].methods.length()").value(0));
+    }
+
+    @Test
+    void 다른_기기를_해제하면_REVOKED와_이력이_남고_그_기기는_재발급할_수_없다() throws Exception {
+        Registered member = activeMember();
+        long other = insertDevice(member.userId(), "ACTIVE");
+        String otherRefresh = refreshTokenStore.issue(other);
+
+        mockMvc.perform(delete("/api/auth/devices/" + other).with(AuthUsers.asUser(member.userId(), member.deviceId()))
+                        .header(StepUpService.HEADER, stepUpToken(member, StepUpPurpose.APP_UNLOCK)))
+                .andExpect(status().isNoContent());
+
+        assertThat(jdbc.queryForObject("SELECT status FROM user_device WHERE user_device_id = ?", String.class, other))
+                .isEqualTo("REVOKED");
+        assertThat(eventTypes(other)).containsExactly("REVOKED");
+        perform(post("/api/auth/refresh"), "{\"refreshToken\":\"" + otherRefresh + "\"}")
+                .andExpect(errorCode(401, "INVALID_REFRESH_TOKEN"));
+        loginChallenge(other).andExpect(errorCode(401, "DEVICE_NOT_REGISTERED"));
+        // 지금 기기는 그대로 쓴다.
+        perform(post("/api/auth/refresh"), "{\"refreshToken\":\"" + member.refreshToken() + "\"}")
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    void 지금_기기도_해제할_수_있고_그_폰은_기기_재등록_전까지_로그인할_수_없다() throws Exception {
+        Registered member = activeMember();
+
+        mockMvc.perform(delete("/api/auth/devices/" + member.deviceId())
+                        .with(AuthUsers.asUser(member.userId(), member.deviceId()))
+                        .header(StepUpService.HEADER, stepUpToken(member, StepUpPurpose.APP_UNLOCK)))
+                .andExpect(status().isNoContent());
+
+        loginChallenge(member.deviceId()).andExpect(errorCode(401, "DEVICE_NOT_REGISTERED"));
+        perform(post("/api/auth/refresh"), "{\"refreshToken\":\"" + member.refreshToken() + "\"}")
+                .andExpect(errorCode(401, "INVALID_REFRESH_TOKEN"));
+    }
+
+    @Test
+    void 남의_기기와_없는_기기는_404이고_본인_인증_토큰을_쓰지_않으며_토큰이_없으면_403() throws Exception {
+        Registered member = activeMember();
+        var me = AuthUsers.asUser(member.userId(), member.deviceId());
+        long stranger = insert("app_user", "user_id", Map.of("status", "PENDING", "created_at", now(), "updated_at", now()));
+        long strangerDevice = insertDevice(stranger, "ACTIVE");
+        long mine = insertDevice(member.userId(), "ACTIVE");
+        String stepUp = stepUpToken(member, StepUpPurpose.APP_UNLOCK);
+
+        mockMvc.perform(delete("/api/auth/devices/" + strangerDevice).with(me).header(StepUpService.HEADER, stepUp))
+                .andExpect(errorCode(404, "RESOURCE_NOT_FOUND"));
+        mockMvc.perform(delete("/api/auth/devices/999999").with(me).header(StepUpService.HEADER, stepUp))
+                .andExpect(errorCode(404, "RESOURCE_NOT_FOUND"));
+        mockMvc.perform(delete("/api/auth/devices/" + mine).with(me))
+                .andExpect(errorCode(403, "STEP_UP_REQUIRED"));
+        mockMvc.perform(delete("/api/auth/devices/" + mine).with(me)
+                        .header(StepUpService.HEADER, stepUpToken(member, StepUpPurpose.SECURITY_SETTINGS)))
+                .andExpect(errorCode(403, "STEP_UP_REQUIRED"));
+        // 404에서는 토큰을 쓰지 않았으니 그대로 쓸 수 있다.
+        mockMvc.perform(delete("/api/auth/devices/" + mine).with(me).header(StepUpService.HEADER, stepUp))
+                .andExpect(status().isNoContent());
+        assertThat(jdbc.queryForObject("SELECT status FROM user_device WHERE user_device_id = ?", String.class,
+                strangerDevice)).isEqualTo("ACTIVE");
+    }
+
+    @Test
+    void 이미_해제한_기기를_다시_해제하면_204이고_본인_인증_토큰을_쓰지_않는다() throws Exception {
+        Registered member = activeMember();
+        var me = AuthUsers.asUser(member.userId(), member.deviceId());
+        long revoked = insertDevice(member.userId(), "REVOKED");
+        long active = insertDevice(member.userId(), "ACTIVE");
+        String stepUp = stepUpToken(member, StepUpPurpose.APP_UNLOCK);
+
+        mockMvc.perform(delete("/api/auth/devices/" + revoked).with(me).header(StepUpService.HEADER, stepUp))
+                .andExpect(status().isNoContent());
+        assertThat(eventTypes(revoked)).isEmpty();
+        mockMvc.perform(delete("/api/auth/devices/" + active).with(me).header(StepUpService.HEADER, stepUp))
+                .andExpect(status().isNoContent());
+    }
+
+    @Test
+    void 같은_기기를_동시에_두_번_해제해도_500_없이_이력은_하나다() throws Exception {
+        Registered member = activeMember();
+        long other = insertDevice(member.userId(), "ACTIVE");
+        String first = stepUpToken(member, StepUpPurpose.APP_UNLOCK);
+        String second = stepUpToken(member, StepUpPurpose.APP_UNLOCK);
+
+        List<Integer> statuses = Concurrently.run(List.of(
+                () -> revokeStatus(member, other, first),
+                () -> revokeStatus(member, other, second)));
+
+        assertThat(statuses).containsOnly(204);
+        assertThat(eventTypes(other)).containsExactly("REVOKED");
+    }
+
+    @Test
+    void 기기_해제와_기기_재등록이_동시에_와도_500_없이_쓸_수_있는_기기는_새_폰_하나다() throws Exception {
+        Registered member = activeMember();
+        long other = insertDevice(member.userId(), "ACTIVE");
+        String stepUp = stepUpToken(member, StepUpPurpose.APP_UNLOCK);
+        String bearer = "Bearer " + signupToken(member.userId(), SignupMode.DEVICE_RECOVERY);
+        String verification = verifiedAndSent(bearer);
+        String newUuid = UUID.randomUUID().toString();
+
+        List<Integer> statuses = Concurrently.run(List.of(
+                () -> revokeStatus(member, other, stepUp),
+                () -> registerDevice(bearer, deviceJson(newUuid, DeviceKeys.generate(), null, verification, CODE))
+                        .andReturn().getResponse().getStatus()));
+
+        // 재등록이 먼저 끝나면 해제를 보낸 기기(member)도 해제돼 401이다. 해제가 먼저면 204.
+        assertThat(statuses.get(0)).isIn(204, 401);
+        assertThat(statuses.get(1)).isEqualTo(201);
+        assertThat(jdbc.queryForList("SELECT device_uuid FROM user_device WHERE status <> 'REVOKED'", String.class))
+                .containsExactly(newUuid);
+        assertThat(eventTypes(other)).containsExactly("REVOKED");
+    }
+
+    @Test
+    void 기기_재등록_중_옛_기기_로그인이_먼저_커밋해도_409_없이_재등록된다() throws Exception {
+        Registered member = activeMember();
+        String bearer = "Bearer " + signupToken(member.userId(), SignupMode.DEVICE_RECOVERY);
+        String verification = verifiedAndSent(bearer);
+        CountDownLatch loginLocked = new CountDownLatch(1);
+        CountDownLatch finishLogin = new CountDownLatch(1);
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        try {
+            // 옛 폰 로그인 성공처럼 기기 행을 잠그고 버전을 올린 채 멈춰 둔다.
+            Future<?> login = pool.submit(() -> transaction.executeWithoutResult(status -> {
+                jdbc.queryForObject("SELECT version FROM user_device WHERE user_device_id = ? FOR UPDATE",
+                        Long.class, member.deviceId());
+                jdbc.update("UPDATE user_device SET version = version + 1, last_verified_at = ? WHERE user_device_id = ?",
+                        now(), member.deviceId());
+                loginLocked.countDown();
+                try {
+                    finishLogin.await(30, TimeUnit.SECONDS);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+            }));
+            assertThat(loginLocked.await(30, TimeUnit.SECONDS)).isTrue();
+            Future<Integer> recovery = pool.submit(() -> registerDevice(bearer,
+                    deviceJson(UUID.randomUUID().toString(), DeviceKeys.generate(), null, verification, CODE))
+                    .andReturn().getResponse().getStatus());
+            // 재등록이 옛 기기를 읽는 지점까지 가게 둔 뒤 로그인을 커밋한다. 잠그지 않고 읽었다면 버전이 어긋나 409가 난다.
+            Thread.sleep(500);
+            finishLogin.countDown();
+            login.get(30, TimeUnit.SECONDS);
+
+            assertThat(recovery.get(30, TimeUnit.SECONDS)).isEqualTo(201);
+        } finally {
+            finishLogin.countDown();
+            pool.shutdownNow();
+        }
+        assertThat(eventTypes(member.deviceId())).last().isEqualTo("REVOKED");
+    }
+
+    @Test
+    void 가입_중인데_해제되지_않은_기기가_이미_있으면_409_DEVICE_LIMIT_EXCEEDED() throws Exception {
+        // 정상 흐름에서는 생기지 않는 데이터다. 버그로 기기가 두 대가 되지 않게 막는 안전장치를 확인한다.
+        long userId = pendingUser();
+        insertDevice(userId, "ACTIVE");
+        String bearer = "Bearer " + signupToken(userId, SignupMode.SIGNUP);
+        linkAccount(bearer);
+        setPin(bearer, PIN).andExpect(status().isNoContent());
+
+        registerDevice(bearer, deviceJson(UUID.randomUUID().toString(), DeviceKeys.generate(), null, null, null))
+                .andExpect(errorCode(409, "DEVICE_LIMIT_EXCEEDED"));
+    }
+
+    private int revokeStatus(Registered member, long deviceId, String stepUp) throws Exception {
+        return mockMvc.perform(delete("/api/auth/devices/" + deviceId)
+                        .with(AuthUsers.asUser(member.userId(), member.deviceId()))
+                        .header(StepUpService.HEADER, stepUp))
+                .andReturn().getResponse().getStatus();
+    }
+
+    private ResultActions loginChallenge(long deviceId) throws Exception {
+        return perform(post("/api/auth/login/challenge"), "{\"userDeviceId\":" + deviceId + "}");
+    }
 
     private record Registered(long userId, long deviceId, String deviceUuid, DeviceKeys keys, String refreshToken) {
     }

@@ -2,6 +2,7 @@ package com.yamu.be.payment.approve;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
@@ -63,7 +64,8 @@ class WithdrawalRecoveryTest {
     static final Instant REQUEST_TIME = Instant.parse("2026-10-22T05:30:05Z");
     static final LocalDateTime REQUESTED_AT = LocalDateTime.of(2026, 10, 22, 5, 30);
     static final BankAccess ACCESS = new BankAccess("user-key", "0012345678901234", CardType.CHECK, 9L);
-    static final Attempt ATTEMPT = new Attempt(1, 16L, "key", REQUESTED_AT, "PROCESSING", null, TX_NO);
+    static final Attempt ATTEMPT = Attempt.start("key", "1024:16", null, null, true, REQUESTED_AT).withNo(1)
+            .withFinRequestNo(TX_NO);
 
     @Mock PaymentTransactionRepository payments;
     @Mock PaymentAccountReader accounts;
@@ -77,7 +79,7 @@ class WithdrawalRecoveryTest {
     @Mock TransactionTemplate transaction;
 
     final PaymentApprovalProperties properties = new PaymentApprovalProperties(Duration.ofHours(24),
-            Duration.ofSeconds(30), 3, Duration.ofHours(24), Duration.ofSeconds(60), Duration.ofSeconds(30),
+            Duration.ofSeconds(30), Duration.ofSeconds(5), 3, Duration.ofHours(24), Duration.ofSeconds(60), Duration.ofSeconds(30),
             Duration.ofSeconds(60), false);
 
     Clock clock;
@@ -129,7 +131,7 @@ class WithdrawalRecoveryTest {
                 ZoneOffset.UTC));
         assertThat(recovery.recover(PAYMENT_ID)).isEqualTo(PaymentStatus.REQUESTED);
         assertThat(payment.getStatus()).isEqualTo(PaymentStatus.REQUESTED);
-        verify(attempts).finish(eq(ATTEMPT), eq(ApprovalAttemptStore.NOT_SENT), eq(null), eq(PAYMENT_ID));
+        verify(attempts).release(PAYMENT_ID, ATTEMPT);
         verify(transfer, never()).findByTag(anyString(), anyString(), any(), anyLong(), anyString());
     }
 
@@ -146,7 +148,7 @@ class WithdrawalRecoveryTest {
         assertThat(payment.getPerformanceMonth()).isEqualTo(LocalDate.of(2026, 10, 1));
         verify(ledger).recordApproval(eq(payment), any());
         verify(barcodes).markUsed(PAYMENT_ID);
-        verify(attempts).finish(eq(ATTEMPT), eq(ApprovalAttemptStore.APPROVED), eq(null), eq(PAYMENT_ID));
+        verify(attempts).recordResult(eq(PAYMENT_ID), eq(ATTEMPT), argThat(a -> Attempt.APPROVED.equals(a.outcome())));
     }
 
     @Test
@@ -166,8 +168,8 @@ class WithdrawalRecoveryTest {
         assertThat(recovery.recover(PAYMENT_ID)).isEqualTo(PaymentStatus.DECLINED);
         assertThat(payment.getStatus()).isEqualTo(PaymentStatus.DECLINED);
         assertThat(payment.getFailureCode()).isEqualTo("WITHDRAWAL_NOT_CONFIRMED");
-        verify(attempts).finish(eq(ATTEMPT), eq(ApprovalAttemptStore.DECLINED), eq("WITHDRAWAL_NOT_CONFIRMED"),
-                eq(PAYMENT_ID));
+        verify(attempts).recordResult(eq(PAYMENT_ID), eq(ATTEMPT), argThat(a -> Attempt.DECLINED.equals(a.outcome())
+                && "WITHDRAWAL_NOT_CONFIRMED".equals(a.failureCode())));
         verify(ledger, never()).recordApproval(any(), any());
     }
 
@@ -209,7 +211,7 @@ class WithdrawalRecoveryTest {
 
         assertThat(recovery.recover(PAYMENT_ID)).isEqualTo(PaymentStatus.PROCESSING);
         verify(barcodes, never()).markUsed(anyLong());
-        verify(attempts, never()).finish(any(), anyString(), any(), anyLong());
+        verify(attempts, never()).recordResult(anyLong(), any(), any());
     }
 
     @Test

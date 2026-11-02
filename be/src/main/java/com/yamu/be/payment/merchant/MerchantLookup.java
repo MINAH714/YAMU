@@ -28,10 +28,6 @@ public class MerchantLookup {
         return queryOne(SELECT + "where brand_code = ?", brandCode);
     }
 
-    public Optional<Merchant> findById(Long merchantId) {
-        return queryOne(SELECT + "where merchant_id = ?", merchantId);
-    }
-
     private Optional<Merchant> queryOne(String sql, Object arg) {
         try {
             return Optional.ofNullable(jdbc.queryForObject(sql, (rs, i) -> new Merchant(

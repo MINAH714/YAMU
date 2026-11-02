@@ -95,6 +95,9 @@ yamu:
     overall-timeout: 10s
     # 사용자별 refresh=true(캐시 건너뛰기) 1분 한도. 넘으면 429
     refresh-per-minute: 6
+  # 카드 이미지 공개 CDN. DB에는 전체 URL 대신 객체 키만 저장한다.
+  card-image:
+    base-url: ${YAMU_CARD_IMAGE_BASE_URL:https://d2yc4hwyx55emn.cloudfront.net}
   # 카드 등록 정책(노션 명세 「카드 확인」「카드 등록」)
   card-register:
     verification-ttl: 5m
@@ -132,6 +135,8 @@ yamu:
       idempotency-ttl: 24h
       # 같은 Idempotency-Key를 처리 중이라고 표시해 두는 시간. 체크카드 출금(금융망 호출 10초)보다 길게
       idempotency-lock-ttl: 30s
+      # 같은 결제에 다른 키 요청이 겹칠 때 시도 예약~PROCESSING 선점을 한 줄로 세우는 잠금. DB 트랜잭션 하나보다 길게
+      start-lock-ttl: 5s
       # 거절 뒤 다른 카드로 다시 승인할 수 있는 횟수(임시: 명세 v0.3.1 가정 3회)와 시도 기록 보관 시간
       max-attempts: 3
       attempt-ttl: 24h

@@ -177,7 +177,7 @@ public class WithdrawalRecovery {
             } catch (RuntimeException e) {
                 log.warn("복구 승인 뒤 바코드 USED 반영 실패 paymentId={}", paymentId, e);
             }
-            closeAttempt(paymentId, ApprovalAttemptStore.APPROVED, null);
+            closeAttempt(paymentId, Attempt.APPROVED, null);
             log.info("출금 결과 복구: 거래내역에서 찾아 승인 확정 paymentId={} finRequestNo={}", paymentId, finRequestNo);
         }
         return after;
@@ -191,11 +191,23 @@ public class WithdrawalRecovery {
             return PaymentStatus.DECLINED;
         });
         if (after == PaymentStatus.DECLINED) {
-            closeAttempt(paymentId, ApprovalAttemptStore.DECLINED, FailureCode.WITHDRAWAL_NOT_CONFIRMED.name());
+            closeAttempt(paymentId, Attempt.DECLINED, FailureCode.WITHDRAWAL_NOT_CONFIRMED.name());
             log.warn("출금 결과 복구: 거래내역에 없어 거절 처리(재출금 없음) paymentId={} finRequestNo={}", paymentId, finRequestNo);
             after = expiry.expire(paymentId);
+            if (after == PaymentStatus.EXPIRED) {
+                expireBarcode(paymentId);
+            }
         }
         return after;
+    }
+
+    /** PaymentExpiry는 바코드를 건드리지 않으므로 만료한 쪽이 바코드도 EXPIRED로 둔다. 실패는 로그만 남긴다. */
+    private void expireBarcode(Long paymentId) {
+        try {
+            barcodes.expireByPayment(paymentId);
+        } catch (RuntimeException e) {
+            log.warn("복구 만료 뒤 바코드 만료 반영 실패 paymentId={}", paymentId, e);
+        }
     }
 
     /** PROCESSING → REQUESTED. 금융망에 간 적이 없는 시도를 없던 일로 한다. */
@@ -206,7 +218,8 @@ public class WithdrawalRecovery {
             return PaymentStatus.REQUESTED;
         });
         if (after == PaymentStatus.REQUESTED) {
-            closeAttempt(paymentId, ApprovalAttemptStore.NOT_SENT, null);
+            // 금융망에 간 적이 없는 시도는 횟수에 세지 않는다
+            attempts.lastProcessing(paymentId).ifPresent(attempt -> attempts.release(paymentId, attempt));
         }
         return after;
     }
@@ -234,7 +247,8 @@ public class WithdrawalRecovery {
 
     private void closeAttempt(Long paymentId, String outcome, String failureCode) {
         Optional<Attempt> last = attempts.lastProcessing(paymentId);
-        last.ifPresent(attempt -> attempts.finish(attempt, outcome, failureCode, paymentId));
+        last.ifPresent(attempt -> attempts.recordResult(paymentId, attempt,
+                attempt.withResult(outcome, failureCode, attempt.finTransactionNo(), attempt.chargedAmount(), null)));
     }
 
     private boolean pastGrace(Instant since) {

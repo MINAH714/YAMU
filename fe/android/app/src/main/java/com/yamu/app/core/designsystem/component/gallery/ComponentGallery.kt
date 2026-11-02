@@ -33,7 +33,9 @@ import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import com.yamu.app.core.designsystem.component.AmountSize
 import com.yamu.app.core.designsystem.component.AmountText
+import com.yamu.app.core.designsystem.card.CardImages
 import com.yamu.app.core.designsystem.component.CardArt
+import com.yamu.app.core.designsystem.component.CardThumb
 import com.yamu.app.core.designsystem.component.CharacterImage
 import com.yamu.app.core.designsystem.component.CharacterSize
 import com.yamu.app.core.designsystem.component.EmptyState
@@ -188,7 +190,19 @@ private fun GallerySections() {
             GreyChip("선택됨", selected = true, onClick = {})
         }
         Spacer(Modifier.height(12.dp))
-        CardArt(Issuer.SHINHAN, "신한 생활 신용카드", "1021", Modifier.width(220.dp))
+        // 카드 모양 — 그림 없음(카드사 색) · 상품 그림 있음
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            CardArt(Issuer.SHINHAN, "신한 생활 신용카드", "1021", Modifier.weight(1f))
+            CardArt(Issuer.KB, "KB국민 청춘대로 톡톡카드", "1021", Modifier.weight(1f), image = CardImages.forProduct("KB국민 청춘대로 톡톡카드"))
+        }
+        Spacer(Modifier.height(8.dp))
+        // 작은 카드 그림 — 그림 7장 + 그림이 없을 때(카드사 칩)
+        (CardImages.all + null).chunked(4).forEach { row ->
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                row.forEach { image -> CardThumb(image) { IssuerChip(Issuer.WOORI, large = true) } }
+            }
+            Spacer(Modifier.height(6.dp))
+        }
     }
 
     SectionTitle("F. 입력")

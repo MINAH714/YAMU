@@ -23,13 +23,19 @@ public class PosTerminalResolver {
         this.properties = properties;
     }
 
-    public PosProperties.Terminal resolve(String posKey, String posCode) {
+    /** 키만 확인한다. {@code /api/pos/**} 전체에 {@link PosKeyInterceptor}가 요청 본문을 읽기 전에 부른다. */
+    public void authenticate(String posKey) {
         String expected = properties.key();
         if (expected == null || expected.isBlank() || posKey == null
                 || !MessageDigest.isEqual(expected.getBytes(StandardCharsets.UTF_8),
                         posKey.getBytes(StandardCharsets.UTF_8))) {
             throw new BusinessException(ErrorCode.INVALID_POS_KEY);
         }
+    }
+
+    /** 키를 다시 확인하고(인터셉터를 거치지 않는 호출 대비) posCode로 시나리오를 찾는다. */
+    public PosProperties.Terminal resolve(String posKey, String posCode) {
+        authenticate(posKey);
         return properties.terminal(posCode)
                 .orElseThrow(() -> new BusinessException(ErrorCode.MERCHANT_NOT_FOUND,
                         "이 POS에서 쓸 수 없는 결제 시나리오(posCode)입니다."));

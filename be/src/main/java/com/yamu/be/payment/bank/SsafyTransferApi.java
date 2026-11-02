@@ -94,7 +94,11 @@ public class SsafyTransferApi {
 
     /**
      * 계좌 거래내역을 오래된 순으로 읽는다. 날짜는 한국 날짜이고 SSAFY 서버가 찍은 날짜 기준이다.
-     * 실패하면 금융망 예외를 그대로 던진다(조회라서 결과 불명이어도 돈이 움직이지 않는다).
+     * totalCount보다 적게 와도 받은 만큼 돌려준다(빠진 거래가 있는지 따져야 하면 {@link #findByTag}를 쓴다).
+     *
+     * <p>실패하면 {@link BusinessException}(FIN_API_UNAVAILABLE·UPSTREAM_TIMEOUT 등)을 던진다. 금융망 호출 실패는 그 하위인
+     * {@link FinApiException}이고, 응답을 읽을 수 없을 때는 BusinessException 그대로다. 잡을 때는 BusinessException으로 잡는다.
+     * 조회라서 실패해도 돈은 움직이지 않는다.
      *
      * @param direction 출금이나 입금만 보려면 지정한다. null이면 전체
      */
@@ -105,10 +109,19 @@ public class SsafyTransferApi {
 
     /**
      * 결과를 모르는 출금·입금이 처리됐는지 거래내역에서 태그로 찾는다.
-     * 요청한 날(번호 앞 8자리, 한국 날짜)의 전날부터 오늘까지 본다. 자정 직전 요청이 SSAFY에서 다음 날로 찍히거나
-     * SSAFY 시계가 조금 늦어도 놓치지 않기 위해서다. 요청 직후에는 SSAFY가 아직 처리 중일 수 있으니 조금 뒤에 부른다.
      *
-     * <p>조회 자체가 실패하면 금융망 예외를 던진다. 그때는 아무것도 확정하지 말고 다음에 다시 확인한다.
+     * <p>조회 기간은 요청한 날(번호 앞 8자리, 한국 날짜)의 전날부터 다음 날까지, 최대 3일로 고정한다.
+     * 전날은 SSAFY 시계가 늦은 경우, 다음 날은 자정 직전 요청이 SSAFY에서 다음 날로 찍히는 경우를 위해서다.
+     * 확인이 늦어져도 기간이 늘지 않아 거래가 많은 계좌에서도 목록이 잘릴 일이 적다.
+     * 다만 끝 날짜는 오늘을 넘기지 않는다. SSAFY가 미래 끝 날짜를 받는지 확인하지 못했기 때문이다.
+     * 그래서 요청한 날 바로 부르면 SSAFY가 다음 날로 찍은 거래는 아직 보이지 않는다. 호출하는 쪽은 NOT_FOUND를
+     * 유예 시간이 지난 뒤에만 확정한다. 요청 직후에는 SSAFY가 아직 처리 중일 수 있으니 조금 뒤에 부른다.
+     *
+     * <p>목록이 totalCount보다 적게 오거나 totalCount를 읽을 수 없으면, 찾은 거래가 있어도 결과를 정하지 않고 예외를 던진다.
+     * 빠진 줄에 같은 태그가 더 있으면 FOUND가 DUPLICATED로, NOT_FOUND가 FOUND로 바뀔 수 있기 때문이다.
+     *
+     * <p>조회가 실패하거나 결과를 정할 수 없으면 {@link BusinessException}을 던진다({@link #history}와 같다).
+     * 그때는 아무것도 확정하지 말고 다음에 다시 확인한다.
      *
      * @param amount        보냈던 금액. 태그가 같은데 금액이 다르면 {@link TagLookup.Result#AMOUNT_MISMATCH}
      * @param transactionNo 그 출금·입금에 썼던 기관거래고유번호
@@ -117,9 +130,12 @@ public class SsafyTransferApi {
         requireTag(tag);
         requirePositive(amount);
         LocalDate requestedOn = requestDateOf(transactionNo);
-        LocalDate today = LocalDate.ofInstant(clock.instant(), KOREA);
-        LocalDate to = today.isBefore(requestedOn) ? requestedOn : today;
-        History history = fetch(userKey, accountNo, requestedOn.minusDays(1), to, tag.direction());
+        History history = fetch(userKey, accountNo, requestedOn.minusDays(1), lookupEnd(requestedOn), tag.direction());
+        if (!history.complete()) {
+            // 빠진 줄에 같은 태그가 있을 수 있다. "없다"로 보면 실제로 나간 돈을 놓치고, "한 건"으로 보면 중복 처리를 놓친다.
+            log.warn("금융망 거래내역 tag={} 목록이 다 오지 않아 판단하지 않음", tag);
+            throw new BusinessException(ErrorCode.FIN_API_UNAVAILABLE);
+        }
 
         String value = tag.value();
         List<BankTransaction> matches = history.transactions().stream()
@@ -127,11 +143,6 @@ public class SsafyTransferApi {
                 .toList();
         TagLookup lookup;
         if (matches.isEmpty()) {
-            if (!history.complete()) {
-                // 목록이 잘려 왔으면 "없다"고 단정할 수 없다. 없다고 보면 실제로 나간 돈을 놓친다.
-                log.warn("금융망 거래내역 tag={} 목록이 잘려 와서 없다고 판단하지 않음", tag);
-                throw new BusinessException(ErrorCode.FIN_API_UNAVAILABLE);
-            }
             lookup = new TagLookup(TagLookup.Result.NOT_FOUND, matches);
         } else if (matches.size() > 1) {
             lookup = new TagLookup(TagLookup.Result.DUPLICATED, matches);
@@ -148,6 +159,16 @@ public class SsafyTransferApi {
         return lookup;
     }
 
+    /** 요청한 날 다음 날. 단 오늘을 넘기지 않고, YAMU 시계가 늦어 오늘이 요청한 날보다 앞이면 요청한 날이다. */
+    private LocalDate lookupEnd(LocalDate requestedOn) {
+        LocalDate today = LocalDate.ofInstant(clock.instant(), KOREA);
+        LocalDate latest = requestedOn.plusDays(1);
+        if (today.isBefore(requestedOn)) {
+            return requestedOn;
+        }
+        return today.isAfter(latest) ? latest : today;
+    }
+
     private TransferResult transfer(String path, BankDirection direction, String userKey, String accountNo,
             long amount, TransferTag tag, String transactionNo) {
         requireText(userKey, "userKey");
@@ -160,6 +181,10 @@ public class SsafyTransferApi {
         TransferResult result = send(path, userKey, accountNo, amount, tag, transactionNo);
         if (result.isSuccess()) {
             log.info("금융망 {} tag={} amount={} → SUCCESS", direction, tag, amount);
+        } else if (result.status() == TransferResult.Status.UNKNOWN) {
+            // 서버 오류와 함께 온 코드(예: 5xx + A1014)는 처리 여부를 뜻하지 않는다. 거절 코드로 읽히지 않게 이름을 달리 둔다
+            log.warn("금융망 {} tag={} amount={} → UNKNOWN 응답코드(처리 여부 아님)={}", direction, tag, amount,
+                    result.finCode());
         } else {
             log.warn("금융망 {} tag={} amount={} → {} reason={} code={}", direction, tag, amount, result.status(),
                     result.rejectReason(), result.finCode());
@@ -215,14 +240,24 @@ public class SsafyTransferApi {
         HistoryRec rec = finApiClient.post(HISTORY_PATH, userKey,
                 new HistoryRequest(accountNo, from.format(DATE), to.format(DATE), type, "ASC"), HistoryRec.class);
 
-        List<BankTransaction> transactions = new ArrayList<>(rec.list().size());
-        for (HistoryRow row : rec.list()) {
+        Long totalCount = parseCount(rec.totalCount());
+        List<HistoryRow> rows = rec.list();
+        if (rows == null) {
+            // 거래가 없을 때 list를 null로 줄 수 있다. totalCount가 0이라고 할 때만 빈 목록으로 믿는다
+            if (totalCount == null || totalCount != 0) {
+                log.warn("금융망 거래내역 list 없음, totalCount={} → 결과 불명", totalCount);
+                throw new BusinessException(ErrorCode.FIN_API_UNAVAILABLE);
+            }
+            rows = List.of();
+        }
+        List<BankTransaction> transactions = new ArrayList<>(rows.size());
+        for (HistoryRow row : rows) {
             transactions.add(toTransaction(row));
         }
-        Long totalCount = parseCount(rec.totalCount());
-        boolean complete = totalCount == null || totalCount <= transactions.size();
+        // totalCount가 없거나 숫자가 아니면 다 왔는지 알 수 없으므로 잘린 목록과 같이 본다
+        boolean complete = totalCount != null && totalCount <= transactions.size();
         if (!complete) {
-            log.warn("금융망 거래내역 totalCount={}인데 {}건만 옴", totalCount, transactions.size());
+            log.warn("금융망 거래내역 totalCount={}인데 {}건 옴", totalCount, transactions.size());
         }
         return new History(transactions, complete);
     }
@@ -294,7 +329,14 @@ public class SsafyTransferApi {
         }
     }
 
+    /** 기본 toString은 계좌번호를 그대로 담으므로, 나중에 로그에 넣어도 새지 않게 끝 4자리만 보인다. */
     record TransferRequest(String accountNo, String transactionBalance, String transactionSummary) {
+
+        @Override
+        public String toString() {
+            return "TransferRequest[accountNo=" + maskAccount(accountNo) + ", transactionBalance=" + transactionBalance
+                    + ", transactionSummary=" + transactionSummary + "]";
+        }
     }
 
     /** 거래 번호나 거래일이 빠진 성공 응답은 공통 클라이언트가 결과 불명으로 바꾼다. */
@@ -303,10 +345,19 @@ public class SsafyTransferApi {
 
     record HistoryRequest(String accountNo, String startDate, String endDate, String transactionType,
             String orderByType) {
+
+        @Override
+        public String toString() {
+            return "HistoryRequest[accountNo=" + maskAccount(accountNo) + ", startDate=" + startDate + ", endDate="
+                    + endDate + ", transactionType=" + transactionType + ", orderByType=" + orderByType + "]";
+        }
     }
 
-    /** 목록이 없거나 한 줄이라도 모양이 틀리면 공통 클라이언트가 결과 불명으로 바꾼다. 한 줄을 빼고 읽으면 그 줄의 태그를 놓친다. */
-    record HistoryRec(String totalCount, @NotNull List<@NotNull @Valid HistoryRow> list) {
+    /**
+     * 한 줄이라도 모양이 틀리면 공통 클라이언트가 결과 불명으로 바꾼다. 한 줄을 빼고 읽으면 그 줄의 태그를 놓친다.
+     * list가 없으면 {@link #fetch}가 totalCount 0일 때만 빈 목록으로 받는다.
+     */
+    record HistoryRec(String totalCount, List<@NotNull @Valid HistoryRow> list) {
     }
 
     record HistoryRow(
@@ -317,6 +368,23 @@ public class SsafyTransferApi {
             @NotNull @Pattern(regexp = "\\d{1,18}") String transactionBalance,
             @NotNull @Pattern(regexp = "\\d{1,18}") String transactionAfterBalance,
             String transactionSummary) {
+
+        /** 거래 후 잔액은 빼고 보인다. */
+        @Override
+        public String toString() {
+            return "HistoryRow[transactionUniqueNo=" + transactionUniqueNo + ", transactionDate=" + transactionDate
+                    + ", transactionTime=" + transactionTime + ", transactionType=" + transactionType
+                    + ", transactionBalance=" + transactionBalance + ", transactionAfterBalance=***"
+                    + ", transactionSummary=" + transactionSummary + "]";
+        }
+    }
+
+    /** 계좌번호 끝 4자리만 남긴다. 4자리 이하면 전부 가린다. */
+    static String maskAccount(String accountNo) {
+        if (accountNo == null) {
+            return null;
+        }
+        return accountNo.length() <= 4 ? "****" : "****" + accountNo.substring(accountNo.length() - 4);
     }
 
     /** @param complete totalCount보다 적게 왔으면 false */

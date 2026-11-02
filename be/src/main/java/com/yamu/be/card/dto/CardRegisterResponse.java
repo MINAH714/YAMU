@@ -13,11 +13,12 @@ import java.time.LocalDateTime;
  * @param linkedAccountId    출금 계좌(신용카드는 결제계좌, 체크카드는 연결 계좌)
  * @param billing            신용카드 청구 정보. 체크카드는 null
  * @param initialPerformance 등록 이전 실적. 집계된 값이 없으면 source NONE
+ * @param imageUrl           카드 앞면 CDN URL. 이미지 미수집·잘못된 키는 null
  */
 public record CardRegisterResponse(Long userCardId, String nickname, Issuer issuer, String productName,
         CardType cardType, String maskedNumber, CardRegistrationStatus status,
         @JsonProperty("isDefault") boolean isDefault, Long linkedAccountId, Billing billing,
-        InitialPerformance initialPerformance, LocalDateTime registeredAt) {
+        InitialPerformance initialPerformance, LocalDateTime registeredAt, String imageUrl) {
 
     public record Issuer(String code, String name, String color) {
     }

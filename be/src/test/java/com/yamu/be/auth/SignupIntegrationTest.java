@@ -16,6 +16,7 @@ import com.yamu.be.support.Concurrently;
 import com.yamu.be.support.MySqlTestSupport;
 import com.yamu.be.support.OwnershipFixtures;
 import com.yamu.be.user.domain.AppUser;
+import com.yamu.be.user.domain.AppUserStatus;
 import com.yamu.be.user.domain.AppUserRepository;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -201,12 +202,17 @@ class SignupIntegrationTest extends MySqlTestSupport {
     }
 
     @Test
-    void 탈퇴한_사람은_본인인증_확인에서_409_REJOIN_NOT_AVAILABLE이다() throws Exception {
-        withdraw(seed(PHONE));
+    void 탈퇴한_사람은_본인인증_확인에서_새_사용자로_재가입한다() throws Exception {
+        AppUser old = seed(PHONE);
+        withdraw(old);
 
-        confirmFor(PHONE).andExpect(status().isConflict())
-                .andExpect(jsonPath("$.error.code").value("REJOIN_NOT_AVAILABLE"));
-        assertThat(redis.keys("signup:*")).isEmpty();
+        confirmFor(PHONE).andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.mode").value("SIGNUP"))
+                .andExpect(jsonPath("$.data.nextStep").value("ACCOUNT_LINK"));
+        AppUser fresh = userRepository.findByPhoneHashAndBirthDate(lookupHasher.phone(PHONE), LocalDate.parse(BIRTH))
+                .orElseThrow();
+        assertThat(fresh.getId()).isNotEqualTo(old.getId());
+        assertThat(fresh.getStatus()).isEqualTo(AppUserStatus.PENDING);
     }
 
     @Test
@@ -217,6 +223,7 @@ class SignupIntegrationTest extends MySqlTestSupport {
         confirm(read(requested, "$.data.verificationId"), read(requested, "$.data.demoCode"))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.error.code").value("DEMO_USER_NOT_FOUND"));
+        assertThat(redis.keys("signup:*")).isEmpty();
     }
 
     // ───────── 인증번호 ─────────
@@ -341,9 +348,10 @@ class SignupIntegrationTest extends MySqlTestSupport {
         return userRepository.save(user);
     }
 
+    /** 탈퇴 API처럼 이름은 지우고 이름 해시만 남긴다. */
     private void withdraw(AppUser user) {
-        jdbc.update("UPDATE app_user SET status = 'WITHDRAWN', deleted_at = UTC_TIMESTAMP() WHERE user_id = ?",
-                user.getId());
+        jdbc.update("UPDATE app_user SET status = 'WITHDRAWN', deleted_at = UTC_TIMESTAMP(), name = NULL, "
+                + "withdrawn_name_hash = ? WHERE user_id = ?", lookupHasher.name(user.getName()), user.getId());
     }
 
     private ResultActions requestVerification(String name, String birthDate, String carrier, String phone)

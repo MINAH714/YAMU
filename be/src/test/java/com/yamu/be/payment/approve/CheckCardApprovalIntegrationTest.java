@@ -277,7 +277,7 @@ class CheckCardApprovalIntegrationTest extends MySqlTestSupport {
         // 유예 전이고 거래내역에 아직 없음 → 처리 중
         approve(requested.paymentId(), key, body(checkCard))
                 .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.error.code").value("PAYMENT_IN_PROGRESS"));
+                .andExpect(jsonPath("$.error.code").value("IDEMPOTENCY_IN_PROGRESS"));
 
         doReturn(new TagLookup(TagLookup.Result.FOUND, List.of(withdrawal(requested.paymentId(), 15_000, "1102"))))
                 .when(transfer).findByTag(anyString(), anyString(), any(), anyLong(), anyString());

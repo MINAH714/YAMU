@@ -20,11 +20,12 @@ public record CardListResponse(List<CardSummary> cards, LocalDateTime dataSynced
      * @param mainBenefits   주요 혜택 문구. 혜택 규칙(BE 3)에서 문구를 만들 곳이 아직 없어 빈 목록
      * @param performance    당월(한국 기준) 실적. 집계된 값이 없으면 null
      * @param billingSummary 신용카드만. 체크카드는 null
+     * @param imageUrl       카드 앞면 CDN URL. 이미지 미수집·잘못된 키는 null
      */
     public record CardSummary(Long userCardId, String nickname, Issuer issuer, String productName,
             CardType cardType, String maskedNumber, CardRegistrationStatus status, CardIssuerStatus issuerStatus,
             @JsonProperty("isDefault") boolean isDefault, List<String> mainBenefits, Performance performance,
-            BillingSummary billingSummary) {
+            BillingSummary billingSummary, String imageUrl) {
     }
 
     public record Issuer(String code, String name, String color) {

@@ -9,7 +9,8 @@ import java.time.LocalDate;
  * @param bankTransactionNo SSAFY 거래 번호(REC.transactionUniqueNo). 성공일 때만 있다
  * @param transactionDate   SSAFY 서버가 찍은 거래일(한국 날짜). 성공일 때만 있다
  * @param rejectReason      거절 사유. 거절일 때만 있다
- * @param finCode           금융망 응답 코드(예: A1014, H1007). 운영 기록용이며 앱 응답에 내보내지 않는다. 코드가 없으면 null
+ * @param finCode           금융망 응답 코드(예: A1014, H1007). 운영 기록용이며 앱 응답에 내보내지 않는다. 코드가 없으면 null.
+ *                          결과 불명이면 서버 오류와 함께 온 코드일 수 있어 처리 여부를 뜻하지 않는다(5xx + A1014는 잔액 부족이 아니다)
  */
 public record TransferResult(Status status, String bankTransactionNo, LocalDate transactionDate,
         RejectReason rejectReason, String finCode) {
@@ -28,7 +29,10 @@ public record TransferResult(Status status, String bankTransactionNo, LocalDate 
          */
         UNKNOWN,
 
-        /** 요청이 금융망에 가지 않았다(연결 실패). 돈은 움직이지 않았고 같은 번호로 다시 보내도 된다. */
+        /**
+         * 요청이 금융망에 가지 않았다(연결 실패). 돈은 움직이지 않았다.
+         * 다시 보낼 때는 새 번호를 받는다. 금융망 API를 새로 호출할 때마다 새 번호를 쓰고(노션 채번 규칙), Header의 전송 일시도 번호에서 나온다.
+         */
         NOT_SENT
     }
 

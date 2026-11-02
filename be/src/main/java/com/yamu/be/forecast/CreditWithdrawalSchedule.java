@@ -1,5 +1,6 @@
 package com.yamu.be.forecast;
 
+import com.yamu.be.card.UserCardRef;
 import java.time.LocalDate;
 
 /**
@@ -13,7 +14,8 @@ interface CreditWithdrawalSchedule {
     /**
      * 신용카드로 spendDate에 쓴 금액이 계좌에서 빠지는 날을 돌려준다.
      *
+     * @param card BE 1 카드 정보. 결제일·이용기간 마감 일수(paymentDay·billingCutoffDays)를 쓴다
      * @return 한국 날짜 기준 출금 예정일
      */
-    LocalDate withdrawalDate(CardReader.CardInfo card, LocalDate spendDate);
+    LocalDate withdrawalDate(UserCardRef card, LocalDate spendDate);
 }

@@ -11,10 +11,14 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavController
 import com.yamu.app.BuildConfig
+import com.yamu.app.core.network.ApiFeature
 import com.yamu.app.core.designsystem.component.ListRow
 import com.yamu.app.core.designsystem.component.PrimaryButton
 import com.yamu.app.core.designsystem.component.Segmented
@@ -55,9 +59,10 @@ import com.yamu.app.navigation.restartFromSplash
 
 /** 디버그 메뉴(debug 빌드만) — 시작 상태 바꾸기 · 화면 바로 열기 · 컴포넌트 갤러리. 프로토타입 index.html 화면 목록과 같은 역할 */
 @Composable
-fun DebugMenuScreen(navController: NavController) {
+fun DebugMenuScreen(navController: NavController, viewModel: DebugMenuViewModel = hiltViewModel()) {
     val c = YamuTheme.colors
     val states = StartState.entries
+    val check by viewModel.check.collectAsStateWithLifecycle()
     Scaffold(
         topBar = { YamuTopBar("디버그 메뉴", onBack = { navController.popBackStack() }) },
         containerColor = c.background,
@@ -87,21 +92,18 @@ fun DebugMenuScreen(navController: NavController) {
                 )
                 Spacer(Modifier.height(8.dp))
                 Text(
-                    "가짜 인증 시험값: 가입 dup@ssafy.com(이미 가입) · fin@ssafy.com(금융망 이메일) · 로그인 비밀번호 Wrong1234!(불일치) · done…으로 시작하는 이메일(설정 끝난 사용자) · 간편 비밀번호 기본 135790",
-                    style = YamuTheme.typography.bodyS,
-                    color = c.text3,
-                )
-                Spacer(Modifier.height(8.dp))
-                Text(
-                    "가짜 API: ${BuildConfig.USE_FAKE_API} · 서버: ${BuildConfig.BASE_URL}",
+                    if (ApiFeature.AUTH.isReal) "가입 · 로그인이 진짜 서버를 써서 시작 상태와 가짜 인증 시험값은 쓰이지 않아요(yamu.realApi)"
+                    else "가짜 인증 시험값: 가입 dup@ssafy.com(이미 가입) · fin@ssafy.com(금융망 이메일) · 로그인 비밀번호 Wrong1234!(불일치) · done…으로 시작하는 이메일(설정 끝난 사용자) · 간편 비밀번호 기본 135790",
                     style = YamuTheme.typography.bodyS,
                     color = c.text3,
                 )
             }
+            ServerCard(check, onCheck = viewModel::checkServer)
             YamuCard {
                 Text("모든 기능 상태 (가짜 데이터)", style = YamuTheme.typography.titleM, color = c.text1)
                 Text(
-                    "화면이 처음 불러오는 값에 걸려요(04 문서 데이터 상태 확인표). 고른 뒤 화면을 다시 열거나 당겨서 새로고침. 정상으로 두면 아래 기능별 상태대로",
+                    "화면이 처음 불러오는 값에 걸려요(04 문서 데이터 상태 확인표). 고른 뒤 화면을 다시 열거나 당겨서 새로고침. 정상으로 두면 아래 기능별 상태대로" +
+                        if (ApiFeature.real.isEmpty()) "" else ". 진짜 서버를 쓰는 기능에는 걸리지 않아요",
                     style = YamuTheme.typography.bodyS,
                     color = c.text3,
                 )
@@ -116,7 +118,7 @@ fun DebugMenuScreen(navController: NavController) {
             YamuCard {
                 Text("홈 상태 (가짜 데이터)", style = YamuTheme.typography.titleM, color = c.text1)
                 Text(
-                    if (BuildConfig.USE_FAKE_API) "고른 뒤 홈으로 돌아가면 바로 바뀌어요" else "가짜 API가 꺼져 있어요(USE_FAKE_API=false)",
+                    if (ApiFeature.HOME.isReal) "홈이 진짜 서버를 써서 여기서 바꿀 수 없어요(yamu.realApi)" else "고른 뒤 홈으로 돌아가면 바로 바뀌어요",
                     style = YamuTheme.typography.bodyS,
                     color = c.text3,
                 )
@@ -131,7 +133,8 @@ fun DebugMenuScreen(navController: NavController) {
             YamuCard {
                 Text("연결 상태 (가짜 데이터)", style = YamuTheme.typography.titleM, color = c.text1)
                 Text(
-                    "1원 숫자 1004 · 0000은 시간 지남 · 그 밖은 틀림. 문자 시험: adb emu sms send 15880000 '[KB국민은행] *1234 입금 1원 YAMU 1004'",
+                    if (ApiFeature.LINK.isReal) "연결이 진짜 서버를 써서 여기서 바꿀 수 없어요(yamu.realApi)"
+                    else "1원 숫자 1004 · 0000은 시간 지남 · 그 밖은 틀림. 문자 시험: adb emu sms send 15880000 '[KB국민은행] *1234 입금 1원 YAMU 1004'",
                     style = YamuTheme.typography.bodyS,
                     color = c.text3,
                 )
@@ -146,7 +149,8 @@ fun DebugMenuScreen(navController: NavController) {
             YamuCard {
                 Text("결제 상태 (가짜 데이터)", style = YamuTheme.typography.titleM, color = c.text1)
                 Text(
-                    "고객 앱 혼자 돌 때 가짜 가맹점이 코드를 찍어요. 모의 POS 앱과 이어서 결제하는 건 실제 서버로만 돼요",
+                    if (ApiFeature.PAYMENT.isReal) "결제가 진짜 서버를 써서 여기서 바꿀 수 없어요(yamu.realApi)"
+                    else "고객 앱 혼자 돌 때 가짜 가맹점이 코드를 찍어요. 모의 POS 앱과 이어서 결제하는 건 실제 서버로만 돼요",
                     style = YamuTheme.typography.bodyS,
                     color = c.text3,
                 )
@@ -193,5 +197,40 @@ fun DebugMenuScreen(navController: NavController) {
             }
             Spacer(Modifier.height(56.dp))
         }
+    }
+}
+
+/** 서버 주소 · 진짜로 쓰는 기능 · 연결 확인(GET /api/health). 주소와 기능은 local.properties로 바꾸고 다시 빌드 */
+@Composable
+private fun ServerCard(check: ServerCheck, onCheck: () -> Unit) {
+    val c = YamuTheme.colors
+    val real = ApiFeature.real
+    YamuCard {
+        Text("서버 연결", style = YamuTheme.typography.titleM, color = c.text1)
+        Spacer(Modifier.height(4.dp))
+        Text("서버: ${BuildConfig.BASE_URL}", style = YamuTheme.typography.bodyS, color = c.text2)
+        Text(
+            if (real.isEmpty()) "진짜 서버를 쓰는 기능: 없음(전부 가짜)"
+            else "진짜 서버를 쓰는 기능: ${real.joinToString(" · ") { it.label }}",
+            style = YamuTheme.typography.bodyS,
+            color = c.text2,
+        )
+        Spacer(Modifier.height(12.dp))
+        PrimaryButton("서버 연결 확인", onClick = onCheck, loading = check == ServerCheck.Checking)
+        val result = when (check) {
+            ServerCheck.Idle, ServerCheck.Checking -> null
+            is ServerCheck.Ok -> "연결됨 · ${check.status} · ${check.millis}ms" to c.success
+            is ServerCheck.Fail -> "연결 안 됨 · ${check.reason}" to c.error
+        }
+        if (result != null) {
+            Spacer(Modifier.height(8.dp))
+            Text(result.first, style = YamuTheme.typography.bodyS, color = result.second)
+        }
+        Spacer(Modifier.height(8.dp))
+        Text(
+            "local.properties의 yamu.baseUrl(주소) · yamu.realApi(진짜로 쓸 기능, 쉼표로)를 바꾸고 다시 빌드해요. 로컬 BE는 adb reverse tcp:8080 tcp:8080 뒤 localhost",
+            style = YamuTheme.typography.bodyS,
+            color = c.text3,
+        )
     }
 }
