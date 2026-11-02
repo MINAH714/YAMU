@@ -126,6 +126,11 @@ public enum ErrorCode {
     // 임시(명세 v0.3.1 보완: 재승인 최대 3회 가정, 승인 API 에러 표에 추가 필요)
     RETRY_LIMIT_EXCEEDED(HttpStatus.CONFLICT, "다른 카드로 다시 시도할 수 있는 횟수를 넘었습니다."),
 
+    /* 결제 - 결제 취소 (API 명세 「결제 취소」). 없는·남의 결제는 공통 RESOURCE_NOT_FOUND */
+    PARTIAL_CANCEL_NOT_SUPPORTED(HttpStatus.BAD_REQUEST, "부분 취소는 지원하지 않습니다. 결제 전체를 취소해 주세요."),
+    PAYMENT_NOT_CANCELABLE(HttpStatus.CONFLICT, "취소할 수 없는 결제입니다."),
+    ALREADY_CANCELED(HttpStatus.CONFLICT, "이미 취소된 결제입니다."),
+
     /* 공통 - Spring MVC가 분류하는 요청 오류. 명세서 1장에 추가 필요 */
     API_NOT_FOUND(HttpStatus.NOT_FOUND, "요청한 API를 찾을 수 없습니다."),
     METHOD_NOT_ALLOWED(HttpStatus.METHOD_NOT_ALLOWED, "지원하지 않는 HTTP 메서드입니다."),
