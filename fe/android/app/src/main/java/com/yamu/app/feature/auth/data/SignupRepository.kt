@@ -260,7 +260,7 @@ class SignupRepositoryImpl @Inject constructor(
                     sessionStore.saveUser(null, name, null, onboardingCompleted = false)   // 재등록은 다음 로그인 응답이 바로잡는다
                     clear()
                 }
-                is ApiResult.Failure -> devices.failed(biometric)
+                is ApiResult.Failure -> devices.failed(biometric, r.error)
             }
             r.map { }
         }

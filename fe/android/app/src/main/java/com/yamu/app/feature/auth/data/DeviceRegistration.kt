@@ -1,9 +1,12 @@
 package com.yamu.app.feature.auth.data
 
+import com.yamu.app.core.network.ApiError
 import com.yamu.app.core.security.AuthTokens
 import com.yamu.app.core.security.DeviceKeyManager
 import com.yamu.app.core.security.SessionStore
 import com.yamu.app.core.security.TokenStore
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -18,18 +21,23 @@ class DeviceRegistration @Inject constructor(
     private val tokenStore: TokenStore,
 ) {
     /** 키를 못 만들면 null. 재등록이면 1원 결과([verificationToken] · [authCode])를 같이 보낸다 */
-    suspend fun request(biometric: Boolean, verificationToken: String? = null, authCode: String? = null): DeviceRequest? = runCatching {
-        DeviceRequest(
-            deviceId = sessionStore.deviceId(),
-            deviceName = deviceKeys.deviceName(),
-            platform = "ANDROID",
-            devicePublicKey = deviceKeys.devicePublicKey(),
-            biometricPublicKey = if (biometric) deviceKeys.createBiometricKey() else null,
-            biometricTypes = if (biometric) deviceKeys.biometricTypes() else null,
-            verificationToken = verificationToken,
-            authCode = authCode,
-        )
-    }.getOrNull()
+    suspend fun request(biometric: Boolean, verificationToken: String? = null, authCode: String? = null): DeviceRequest? {
+        val deviceId = sessionStore.deviceId()
+        return withContext(Dispatchers.Default) {   // 키 생성은 화면이 멈출 만큼 걸릴 수 있다
+            runCatching {
+                DeviceRequest(
+                    deviceId = deviceId,
+                    deviceName = deviceKeys.deviceName(),
+                    platform = "ANDROID",
+                    devicePublicKey = deviceKeys.devicePublicKey(),
+                    biometricPublicKey = if (biometric) deviceKeys.createBiometricKey() else null,
+                    biometricTypes = if (biometric) deviceKeys.biometricTypes() else null,
+                    verificationToken = verificationToken,
+                    authCode = authCode,
+                )
+            }.getOrNull()
+        }
+    }
 
     /** 기기 번호 · 지문 여부를 저장하고, 토큰이 왔으면(가입 · 재등록) 토큰도 */
     suspend fun saved(response: DeviceResponse) {
@@ -40,8 +48,8 @@ class DeviceRegistration @Inject constructor(
         if (access != null && refresh != null) tokenStore.save(AuthTokens(access, refresh))
     }
 
-    /** 서버에 안 올라간 지문 키는 버린다 */
-    fun failed(biometric: Boolean) {
-        if (biometric) deviceKeys.deleteBiometricKey()
+    /** 서버에 안 올라간 지문 키는 버린다. 결과를 모를 때는 남기고 다음 로그인 응답으로 맞춘다 */
+    fun failed(biometric: Boolean, error: ApiError) {
+        if (biometric && error.keyNotOnServer()) deviceKeys.deleteBiometricKey()
     }
 }

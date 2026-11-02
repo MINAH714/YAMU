@@ -39,4 +39,14 @@ class AuthValidationTest {
         assertNull(lockedUntilClock("2026-11-01 12:30", java.time.ZoneId.of("Asia/Seoul")))
         assertNull(lockedUntilClock(null))
     }
+
+    @Test
+    fun `잠금 남은 시간은 풀리는 시각까지 · 지났거나 못 읽으면 null`() {
+        val now = java.time.Instant.parse("2026-11-01T12:00:00Z")
+        assertEquals(90_000L, lockRemainingMillis("2026-11-01T12:01:30Z", now))
+        assertNull(lockRemainingMillis("2026-11-01T11:59:59Z", now))
+        assertNull(lockRemainingMillis("2026-11-01T12:00:00Z", now))
+        assertNull(lockRemainingMillis("2026-11-01 12:30", now))
+        assertNull(lockRemainingMillis(null, now))
+    }
 }

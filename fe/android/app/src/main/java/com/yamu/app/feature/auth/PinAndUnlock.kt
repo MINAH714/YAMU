@@ -60,8 +60,10 @@ import com.yamu.app.feature.auth.data.SIGNUP_TOKEN_INVALID
 import com.yamu.app.feature.auth.data.SignupMode
 import com.yamu.app.feature.auth.data.SignupRepository
 import com.yamu.app.feature.auth.data.authErrorMessage
+import com.yamu.app.feature.auth.data.lockRemainingMillis
 import com.yamu.app.feature.auth.data.lockedUntilClock
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -72,6 +74,9 @@ import javax.inject.Inject
 
 internal fun ApiError.authMessage(): String =
     authErrorMessage(code, detailInt("remainingAttempts"), lockedUntilClock(detailString("lockedUntil"))) ?: userMessage()
+
+/** DEVICE_LOCKED일 때 풀릴 때까지 남은 시간(ms) — 시각을 모르면 null이라 입력을 막지 않는다 */
+internal fun ApiError.lockMillis(): Long? = if (code == "DEVICE_LOCKED") lockRemainingMillis(detailString("lockedUntil")) else null
 
 /** 숫자 키 → 6자리 문자열 */
 internal fun String.applyKey(key: KeypadKey): String = when (key) {
@@ -344,14 +349,19 @@ class PinLoginViewModel @Inject constructor(
 
     private fun fail(error: ApiError) {
         if (error.code == DEVICE_NOT_REGISTERED) return _state.update { it.copy(busy = false, noDevice = true) }
+        val lockMillis = error.lockMillis()
         _state.update {
             it.copy(
                 busy = false,
                 input = "",
                 error = error.authMessage(),
-                locked = error.code == "DEVICE_LOCKED",
+                locked = lockMillis != null,
                 shuffleKey = it.shuffleKey + 1,
             )
+        }
+        if (lockMillis != null) viewModelScope.launch {
+            delay(lockMillis)
+            _state.update { it.copy(locked = false, error = null) }
         }
     }
 }
