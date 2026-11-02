@@ -1,6 +1,10 @@
 package com.yamu.app.feature.link.data
 
+import com.yamu.app.core.network.YamuJson
+import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.json.JsonNull
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Test
 
@@ -59,5 +63,27 @@ class CashflowMapperTest {
         val (_, settings) = CashflowPlan(listOf(CashflowDecision(301, include = false, amount = null)), incomeId = 301, dailyLivingCost = null).toPatches()
         assertEquals("DAYS", settings.horizon)
         assertNull(settings.incomeCashflowItemId)
+    }
+
+    @Test fun `월급을 빼면 본문에 null을 명시해 서버가 지운다 · 생활비 목표는 없으면 안 보낸다`() {
+        val cleared = ForecastSettingsPatch("DAYS", null, null).toBody()
+        assertEquals(JsonNull, cleared["incomeCashflowItemId"])
+        assertFalse("dailyLivingCostTarget" in cleared)
+        val set = ForecastSettingsPatch("NEXT_INCOME", 301, 6_000).toBody()
+        assertEquals("301", set["incomeCashflowItemId"].toString())
+        assertEquals("6000", set["dailyLivingCostTarget"].toString())
+    }
+
+    @Test fun `매월 반복이 아닌 수입은 월급 후보에서 뺀다 · 서버가 400을 준다`() {
+        val draft = listOf(
+            CashflowItemDto(1, "INCOME", "보너스", 5_000_000, occurrenceDate = "2026-11-05"),
+            item(301, "INCOME", "월급", 2_800_000, 25),
+        ).toDraft(null)
+        assertEquals(301L, draft.income?.id)
+    }
+
+    @Test fun `금액이 null인 항목이 있어도 목록 전체가 실패하지 않는다`() {
+        val dto = YamuJson.decodeFromString<CashflowItemDto>("""{"cashflowItemId":1,"type":"EXPENSE","title":"미정","amount":null}""")
+        assertEquals(0L, dto.amount)
     }
 }
