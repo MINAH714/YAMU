@@ -16,6 +16,7 @@ import com.yamu.be.card.domain.CardRegistrationStatus;
 import com.yamu.be.card.domain.UserCard;
 import com.yamu.be.card.domain.UserCardRepository;
 import com.yamu.be.global.crypto.CipherField;
+import com.yamu.be.global.crypto.LookupHasher;
 import com.yamu.be.global.crypto.PersonalDataCipher;
 import com.yamu.be.global.exception.BusinessException;
 import com.yamu.be.global.exception.ErrorCode;
@@ -43,7 +44,8 @@ import org.springframework.transaction.support.TransactionTemplate;
  * </pre>
  *
  * <ul>
- *   <li>남기는 것(재가입 열쇠): phone_hash·birth_date·SSAFY 회원 ID·userKey, 카드 행의 카드번호·카드사 계좌·결제일.
+ *   <li>남기는 것(재가입 열쇠): phone_hash·birth_date·이름 해시(withdrawn_name_hash, 임시)·SSAFY 회원 ID·userKey,
+ *       카드 행의 카드번호·카드사 계좌·결제일. 이름 해시는 재가입 때 이름까지 맞는지 보려고 남긴다(이름 원문은 지움).
  *       재가입하면 새 사용자로 옮겨지고 이 행에서는 지워진다({@link RejoinService}). SSAFY 계정은 지우는 API가 없어 그대로다</li>
  *   <li>지우는 것: 이름·휴대폰 암호문·PIN·본인인증 시각(NULL), 계좌번호(무작위 값으로 덮음, NOT NULL), 기기 공개키(무작위, NOT NULL),
  *       본인 인증 기록의 IP·User-Agent(NULL), Redis의 Refresh Token·가입 토큰·잔액 캐시</li>
@@ -72,6 +74,7 @@ public class WithdrawalService {
     private final SignupTokenStore signupTokenStore;
     private final AccountBalanceService balanceService;
     private final PersonalDataCipher cipher;
+    private final LookupHasher lookupHasher;
     private final NamedParameterJdbcTemplate jdbc;
     private final TransactionTemplate transaction;
     private final Clock clock;
@@ -140,7 +143,7 @@ public class WithdrawalService {
             }
         }
 
-        user.withdraw(now);
+        user.withdraw(now, user.getName() == null ? null : lookupHasher.name(user.getName()));
         userRepository.flush();
         jdbc.update("UPDATE step_up_audit_log SET ip_address = NULL, user_agent = NULL WHERE user_id = :userId",
                 new MapSqlParameterSource("userId", userId));

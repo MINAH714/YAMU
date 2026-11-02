@@ -40,11 +40,11 @@ import org.springframework.transaction.support.TransactionTemplate;
  * 이름이 다르면 다른 사람으로 보고 그 계정을 이어받지 않는다. 실제 은행의 본인확인 고유값(CI)을 대신하는 연출이다.
  *
  * <p>무엇이 드러나는가: 이름이 다르면 시드에 없는 사람과 똑같은 404 DEMO_USER_NOT_FOUND를 준다. 그래서 번호·생년월일만으로는
- * 가입 여부를 알 수 없다. 이름·생년월일·번호 세 값을 모두 아는 사람에게만 가입 여부(모드 SIGNUP·DEVICE_RECOVERY)가 드러난다.
+ * 가입·탈퇴 여부를 알 수 없다. 이름·생년월일·번호 세 값을 모두 아는 사람에게만 가입 여부(모드 SIGNUP·DEVICE_RECOVERY)가 드러난다.
  *
- * <p>탈퇴한 사람(11번, 10/30 결정 (B)): 탈퇴 때 이름을 지워 이름을 비교할 수 없다. 번호·생년월일이 같은 탈퇴 행이 있으면
- * 새 PENDING 사용자를 만들어 다시 가입시킨다({@link RejoinService}). 예전 이력은 옛 계정에 남는다. 번호·생년월일만 알면
- * "탈퇴한 적이 있다"는 사실은 알 수 없지만(시드 사용자와 같은 응답) 가입은 시작할 수 있고, 실제 확인은 1원 인증이 맡는다.
+ * <p>탈퇴한 사람(11번, 10/30 결정 (B)): 탈퇴 때 이름 원문은 지우고 이름 해시만 남긴다(임시, !55 리뷰 반영). 번호·생년월일·이름이
+ * 모두 맞는 탈퇴 행이면 새 PENDING 사용자를 만들어 다시 가입시킨다({@link RejoinService}). 예전 이력은 옛 계정에 남는다.
+ * 이름을 보지 않으면 번호·생년월일만 아는 남이 재가입을 먼저 확정해(되돌릴 수 없음) 본인이 영구히 막히기 때문이다.
  *
  * <p>임시 결정: 문자를 보내지 않아 인증번호를 응답(demoCode)으로 주는 동안은 휴대폰 소유를 증명하지 않는다.
  * 그래서 세 값을 아는 사람은 가입 진행 토큰을 받을 수 있다. 실제 확인은 뒤 단계의 1원 인증(본인 명의 계좌)이 맡는다.
@@ -107,14 +107,16 @@ public class SignupService {
     }
 
     /**
-     * 이름·생년월일·번호가 모두 같은 시드 사용자. 번호·생년월일이 같은 탈퇴 행이면 새 사용자로 재가입시킨다.
-     * 같은 탈퇴자를 다른 요청이 먼저 옮겼으면(동시 재가입) 다시 찾아 그 새 사용자로 이어 간다.
+     * 이름·생년월일·번호가 모두 같은 시드 사용자. 세 값이 모두 맞는 탈퇴 행(이름은 남긴 해시로 비교)이면 새 사용자로 재가입시킨다.
+     * 이름이 다른 탈퇴 행은 없는 사람과 같은 404다. 같은 탈퇴자를 다른 요청이 먼저 옮겼으면(동시 재가입) 다시 찾아 그 새 사용자로
+     * 이어 간다(그 사용자도 같은 이름이라 아래 이름 비교를 통과한다).
      */
     private AppUser findSeededUser(VerifiedIdentity identity, LocalDateTime verifiedAt) {
         Optional<AppUser> match = userRepository.findByPhoneHashAndBirthDate(identity.phoneHash(), identity.birthDate());
-        if (match.isPresent() && match.get().isWithdrawn()) {
-            Optional<Long> rejoined = rejoinService.rejoin(match.get().getId(), identity.name(), identity.birthDate(),
-                    identity.phoneEnc(), identity.phoneHash(), verifiedAt);
+        byte[] nameHash = lookupHasher.name(identity.name());
+        if (match.isPresent() && match.get().isWithdrawnWithName(nameHash)) {
+            Optional<Long> rejoined = rejoinService.rejoin(match.get().getId(), identity.name(), nameHash,
+                    identity.birthDate(), identity.phoneEnc(), identity.phoneHash(), verifiedAt);
             if (rejoined.isPresent()) {
                 return userRepository.findById(rejoined.get())
                         .orElseThrow(() -> new BusinessException(ErrorCode.DEMO_USER_NOT_FOUND));

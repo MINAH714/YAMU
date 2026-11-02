@@ -25,14 +25,14 @@ import org.springframework.transaction.support.TransactionTemplate;
  * 탈퇴한 사람의 재가입(11번 계획 (B), 10/30 승인). 같은 행을 되살리지 않고 새 사용자를 만든다.
  *
  * <pre>
- * 옛 행(WITHDRAWN) 잠금 → 열쇠(SSAFY 회원 ID·userKey)를 꺼내 옛 행의 phone_hash·birth_date·열쇠를 비움
+ * 옛 행(WITHDRAWN) 잠금 → 열쇠(SSAFY 회원 ID·userKey)를 꺼내 옛 행의 phone_hash·birth_date·이름 해시·열쇠를 비움
  *   → 새 PENDING 사용자(이번 본인인증의 이름·번호 + 옮긴 열쇠) → 옛 카드 행을 새 PENDING 카드로 복사 → 옛 카드 번호 덮어쓰기
  * </pre>
  *
  * <ul>
  *   <li>예전 거래·청구 이력은 옛 user_id에 남아 새 계정에 보이지 않는다(실제 서비스처럼 재가입은 새 계정)</li>
- *   <li>탈퇴 때 이름을 지워 이름으로는 같은 사람인지 볼 수 없다. 휴대폰 번호·생년월일로 찾고, 실제 본인 확인은 다음 단계인
- *       1원 인증(그 SSAFY 회원의 계좌)이 맡는다</li>
+ *   <li>탈퇴 때 이름 원문은 지우고 이름 해시만 남긴다. 휴대폰 번호·생년월일로 찾고 이름 해시까지 같아야 옮긴다(시드 사용자의
+ *       이름 비교와 같은 수준). 실제 본인 확인은 다음 단계인 1원 인증(그 SSAFY 회원의 계좌)이 맡는다</li>
  *   <li>옛 행의 열쇠를 먼저 비우고 flush한 뒤 새 행을 넣는다. UNIQUE(phone_hash, birth_date)·(ssafy_member_id)가 겹치지 않게</li>
  *   <li>같은 사람이 동시에 두 번 오면 옛 행 잠금으로 줄을 선다. 늦은 쪽은 열쇠가 이미 옮겨진 것을 보고 empty를 돌려받아
  *       새 사용자를 다시 찾는다(새 사용자는 하나만 생김)</li>
@@ -52,14 +52,15 @@ public class RejoinService {
     /**
      * 탈퇴한 사용자 행으로 새 가입 사용자를 만든다.
      *
-     * @return 새 사용자 번호. 그 사이 다른 요청이 이미 옮겼으면 empty(호출하는 쪽이 다시 찾는다)
+     * @param nameHash 이번 본인인증 이름의 조회 해시. 탈퇴 때 남긴 해시와 같아야 옮긴다
+     * @return 새 사용자 번호. 그 사이 다른 요청이 이미 옮겼거나 이름이 다르면 empty(호출하는 쪽이 다시 찾는다)
      * @throws BusinessException 탈퇴 행에 SSAFY 회원이 없으면 DEMO_USER_NOT_FOUND(계좌를 연결할 수 없어 가입을 시작시키지 않음)
      */
-    public Optional<Long> rejoin(Long withdrawnUserId, String name, LocalDate birthDate, byte[] phoneEnc, byte[] phoneHash,
-            LocalDateTime verifiedAt) {
+    public Optional<Long> rejoin(Long withdrawnUserId, String name, byte[] nameHash, LocalDate birthDate, byte[] phoneEnc,
+            byte[] phoneHash, LocalDateTime verifiedAt) {
         return transaction.execute(status -> {
             AppUser old = userRepository.findByIdForUpdate(withdrawnUserId).orElse(null);
-            if (old == null || !old.isWithdrawn() || old.getPhoneHash() == null
+            if (old == null || !old.isWithdrawnWithName(nameHash) || old.getPhoneHash() == null
                     || !Arrays.equals(old.getPhoneHash(), phoneHash) || !birthDate.equals(old.getBirthDate())) {
                 return Optional.<Long>empty();
             }

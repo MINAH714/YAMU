@@ -128,6 +128,8 @@ class WithdrawalIntegrationTest extends MySqlTestSupport {
         assertThat(user.get("birth_date")).isNotNull();
         assertThat(user.get("ssafy_member_id")).isEqualTo(MEMBER_ID);
         assertThat(user.get("ssafy_user_key")).isNotNull();
+        // 이름 원문은 지우고 재가입 본인 확인용 해시만 남는다.
+        assertThat((byte[]) user.get("withdrawn_name_hash")).isEqualTo(lookupHasher.name("김야무"));
 
         Map<String, Object> account = jdbc.queryForMap("SELECT * FROM linked_account WHERE user_id = ?", member.userId());
         assertThat(account.get("status")).isEqualTo("DISCONNECTED");
@@ -218,6 +220,27 @@ class WithdrawalIntegrationTest extends MySqlTestSupport {
     // ───────── 재가입 ─────────
 
     @Test
+    void 이름이_다른_사람이_먼저_재가입을_시도해도_404이고_아무것도_바뀌지_않아_본인은_재가입한다() throws Exception {
+        Member member = activeMember();
+        withdraw(member, stepUpToken(member, StepUpPurpose.WITHDRAW_MEMBER)).andExpect(status().isNoContent());
+
+        // 번호·생년월일만 아는 사람. 시드에 없는 사람과 같은 응답이라 탈퇴 여부도 알 수 없다.
+        confirm(verificationStore.issue(identity("홍길동")))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error.code").value("DEMO_USER_NOT_FOUND"));
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM app_user WHERE status = 'PENDING'", Integer.class))
+                .isZero();
+        assertThat(jdbc.queryForObject("SELECT ssafy_member_id FROM app_user WHERE user_id = ?", String.class,
+                member.userId())).isEqualTo(MEMBER_ID);
+
+        confirm(verificationStore.issue(identity("김야무")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.mode").value("SIGNUP"));
+        assertThat(jdbc.queryForObject("SELECT name FROM app_user WHERE status = 'PENDING'", String.class))
+                .isEqualTo("김야무");
+    }
+
+    @Test
     void 탈퇴한_사람이_본인인증을_하면_새_사용자를_만들고_열쇠와_카드를_옮긴다() throws Exception {
         Member member = activeMember();
         long oldCard = card(member.userId(), "ACTIVE");
@@ -246,6 +269,7 @@ class WithdrawalIntegrationTest extends MySqlTestSupport {
         assertThat(oldUser.get("birth_date")).isNull();
         assertThat(oldUser.get("ssafy_member_id")).isNull();
         assertThat(oldUser.get("ssafy_user_key")).isNull();
+        assertThat(oldUser.get("withdrawn_name_hash")).isNull();
 
         Map<String, Object> newCard = jdbc.queryForMap("SELECT * FROM user_card WHERE user_id = ?", fresh);
         assertThat(newCard.get("status")).isEqualTo("PENDING");

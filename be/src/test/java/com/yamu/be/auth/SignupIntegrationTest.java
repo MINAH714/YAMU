@@ -215,6 +215,17 @@ class SignupIntegrationTest extends MySqlTestSupport {
         assertThat(fresh.getStatus()).isEqualTo(AppUserStatus.PENDING);
     }
 
+    @Test
+    void 탈퇴자라도_이름이_다르면_탈퇴_여부를_알려주지_않고_404다() throws Exception {
+        withdraw(seed(PHONE));
+        MvcResult requested = requestVerification("홍길동", BIRTH, "SKT", PHONE).andReturn();
+
+        confirm(read(requested, "$.data.verificationId"), read(requested, "$.data.demoCode"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error.code").value("DEMO_USER_NOT_FOUND"));
+        assertThat(redis.keys("signup:*")).isEmpty();
+    }
+
     // ───────── 인증번호 ─────────
 
     @Test
@@ -337,9 +348,10 @@ class SignupIntegrationTest extends MySqlTestSupport {
         return userRepository.save(user);
     }
 
+    /** 탈퇴 API처럼 이름은 지우고 이름 해시만 남긴다. */
     private void withdraw(AppUser user) {
-        jdbc.update("UPDATE app_user SET status = 'WITHDRAWN', deleted_at = UTC_TIMESTAMP() WHERE user_id = ?",
-                user.getId());
+        jdbc.update("UPDATE app_user SET status = 'WITHDRAWN', deleted_at = UTC_TIMESTAMP(), name = NULL, "
+                + "withdrawn_name_hash = ? WHERE user_id = ?", lookupHasher.name(user.getName()), user.getId());
     }
 
     private ResultActions requestVerification(String name, String birthDate, String carrier, String phone)
