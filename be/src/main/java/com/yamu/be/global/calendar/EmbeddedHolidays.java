@@ -18,9 +18,10 @@ import org.springframework.core.io.Resource;
 /**
  * 저장소에 넣어 둔 연도별 공휴일 파일({@code resources/holidays/{연도}.json})을 읽는다.
  *
- * <p>파일이 깨졌거나(형식 오류, 다른 해 날짜, 같은 날 두 번) 이름이 규칙과 다르면 서버가 뜨지 않는다.
+ * <p>파일이 하나도 없거나, 깨졌거나(형식 오류, 다른 해 날짜, 같은 날 두 번) 이름이 규칙과 다르면 서버가 뜨지 않는다.
  * 우리가 넣는 파일이라 잘못되면 테스트에서 바로 드러나고, 조용히 넘어가면 출금일이 틀린 채로 계산되기 때문이다.
- * 파일이 없는 해는 오류가 아니다. 그 해는 주말만 쉬는 날로 계산된다({@link KoreanBusinessDayCalendar}).
+ * 파일이 없는 해는 오류가 아니다. 공휴일은 전년도 6월쯤(월력요항) 발표되므로 12개월 할부의 마지막 회차처럼
+ * 아직 발표 전인 해를 묻는 일은 정상적으로 생긴다. 그 해는 주말만 쉬는 날로 계산된다({@link KoreanBusinessDayCalendar}).
  */
 public final class EmbeddedHolidays implements HolidaySource {
 
@@ -35,6 +36,9 @@ public final class EmbeddedHolidays implements HolidaySource {
 
     /** 파일들을 읽어 검사한다. 하나라도 잘못되면 {@link IllegalStateException}. */
     static EmbeddedHolidays load(ObjectMapper objectMapper, Resource... files) {
+        if (files.length == 0) {
+            throw new IllegalStateException("공휴일 파일이 없습니다: " + LOCATION);
+        }
         Map<Integer, Set<LocalDate>> byYear = new TreeMap<>();
         for (Resource file : files) {
             String name = file.getFilename();

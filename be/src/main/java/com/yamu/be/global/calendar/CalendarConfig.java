@@ -20,8 +20,9 @@ class CalendarConfig {
         return holidays;
     }
 
+    /** 내장 파일을 직접 받는다. API 동기화(S15P31E103-211)로 HolidaySource가 늘면 여기서 둘을 묶은 소스로 바꾼다. */
     @Bean
-    BusinessDayCalendar businessDayCalendar(HolidaySource holidaySource) {
-        return new KoreanBusinessDayCalendar(holidaySource);
+    BusinessDayCalendar businessDayCalendar(EmbeddedHolidays embeddedHolidays) {
+        return new KoreanBusinessDayCalendar(embeddedHolidays);
     }
 }
