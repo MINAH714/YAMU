@@ -32,9 +32,9 @@ import kotlin.random.Random
  * 기기 키 서명도 진짜 Keystore로 해 본다(서명 검증은 서버 몫이라 여기선 하지 않음).
  *
  * 시험용 값:
- * - 가입 이메일 dup@ssafy.com → 이미 가입됨 · fin@ssafy.com → 금융망에서 쓰는 이메일
- * - 간편 비밀번호: 가입 때 만든 것(없으면 135790) · 5번 틀리면 30분 잠김
+ * - 간편 비밀번호: 가입 · 재등록 때 만든 것(없으면 135790, [FakePin]) · 5번 틀리면 30분 잠김
  * - 로그인 간편 비밀번호 000000 → 서버에서 이 기기가 없어짐(DEVICE_NOT_REGISTERED) → 첫 화면
+ * 가입 · 기기 재등록은 [FakeSignupRepository]
  */
 @Singleton
 class FakeAuthRepository @Inject constructor(
@@ -43,7 +43,6 @@ class FakeAuthRepository @Inject constructor(
     private val deviceKeys: DeviceKeyManager,
     private val bank: FakeBank,
 ) : AuthRepository {
-    private var pin = "135790"
     private var failures = 0
     private var lastPurpose = "APP_UNLOCK"
 
@@ -78,18 +77,6 @@ class FakeAuthRepository @Inject constructor(
 
     override suspend fun session(): SessionInfo = sessionStore.read()
 
-    override suspend fun signup(name: String, email: String, password: String): ApiResult<LoginResult> {
-        delay(600)
-        when (email.trim()) {
-            "dup@ssafy.com" -> return ApiResult.Failure(ApiError.Conflict("DUPLICATE_EMAIL"))
-            "fin@ssafy.com" -> return ApiResult.Failure(ApiError.Conflict("FIN_ACCOUNT_EMAIL_TAKEN"))
-        }
-        sessionStore.saveUser(1, name.trim(), email.trim(), onboardingCompleted = false)
-        bank.reset()
-        failures = 0
-        return ApiResult.Success(LoginResult(onboardingCompleted = false))
-    }
-
     override suspend fun loginChallenge(): ApiResult<StepUpChallenge> {
         delay(200)
         if (sessionStore.read().userDeviceId == null) return ApiResult.Failure(ApiError.Unauthorized(DEVICE_NOT_REGISTERED))
@@ -104,7 +91,7 @@ class FakeAuthRepository @Inject constructor(
             return ApiResult.Failure(ApiError.Unauthorized(DEVICE_NOT_REGISTERED))
         }
         if (failures >= 5) return locked()
-        if (pin != this.pin) {
+        if (pin != FakePin.value) {
             failures++
             if (failures >= 5) return locked()
             return ApiResult.Failure(ApiError.Unauthorized("PIN_MISMATCH", buildJsonObject { put("remainingAttempts", 5 - failures) }))
@@ -128,26 +115,7 @@ class FakeAuthRepository @Inject constructor(
         tokenStore.clear()
     }
 
-    override suspend fun setPin(pin: String): ApiResult<Unit> {
-        delay(300)
-        this.pin = pin
-        failures = 0
-        return ApiResult.Success(Unit)
-    }
-
     override fun canUseBiometric(): Boolean = deviceKeys.canUseBiometric()
-
-    /** 가입 마지막 단계 — 서버처럼 기기 번호와 토큰을 준다 */
-    override suspend fun registerDevice(biometric: Boolean): ApiResult<Unit> {
-        delay(400)
-        runCatching {
-            deviceKeys.devicePublicKey()
-            if (biometric) deviceKeys.createBiometricKey() else deviceKeys.deleteBiometricKey()
-        }.getOrElse { return ApiResult.Failure(ApiError.Unknown("KEY_CREATE_FAILED")) }
-        sessionStore.saveDevice(FAKE_DEVICE_ID, biometricEnabled = biometric)
-        tokenStore.save(fakeTokens())
-        return ApiResult.Success(Unit)
-    }
 
     override suspend fun setBiometric(enabled: Boolean, stepUpToken: String): ApiResult<Unit> {
         delay(300)
@@ -177,7 +145,7 @@ class FakeAuthRepository @Inject constructor(
         delay(300)
         if (deviceKeys.signWithDeviceKey(challenge.challenge) == null) return ApiResult.Failure(ApiError.Unauthorized(DEVICE_NOT_REGISTERED))
         if (failures >= 5) return locked()
-        if (pin == this.pin) {
+        if (pin == FakePin.value) {
             failures = 0
             return ApiResult.Success(StepUpToken("sut_fake", lastPurpose))
         }
@@ -207,7 +175,13 @@ class FakeAuthRepository @Inject constructor(
 
     private fun fakeTokens() = AuthTokens("fake-access-${Random.nextInt()}", "fake-refresh-${Random.nextInt()}")
 
-    private companion object {
+    companion object {
+        /** 가짜 서버가 이 폰에 주는 기기 번호 */
         const val FAKE_DEVICE_ID = 7L
     }
+}
+
+/** 가짜 서버의 간편 비밀번호(로그인 · 본인 확인 · 가입 · 재등록이 같이 쓴다). 앱을 다시 켜면 135790 */
+object FakePin {
+    var value = "135790"
 }

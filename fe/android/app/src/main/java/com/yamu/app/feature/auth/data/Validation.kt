@@ -4,24 +4,8 @@ import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
-/** 서버와 같은 입력 규칙을 앱에서 먼저(08 문서 4-2). 틀리면 안내 문장, 맞으면 null */
+/** 서버와 같은 입력 규칙을 앱에서 먼저(08 문서 4-2). 틀리면 안내 문장, 맞으면 null. 본인인증 칸은 SignupValidation */
 object AuthValidation {
-
-    private val EMAIL = Regex("^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}$")
-
-    fun name(value: String): String? =
-        if (value.trim().length in 2..20) null else "이름은 2~20자로 넣어 주세요"
-
-    fun email(value: String): String? =
-        if (EMAIL.matches(value.trim())) null else "이메일 형식을 확인해 주세요"
-
-    fun password(value: String): String? {
-        val ok = value.length >= 8 &&
-            value.any { it.isLetter() } &&
-            value.any { it.isDigit() } &&
-            value.any { !it.isLetterOrDigit() && !it.isWhitespace() }
-        return if (ok) null else "영문 · 숫자 · 특수문자를 섞어 8자 이상으로 만들어 주세요"
-    }
 
     /** 숫자 6자리 · 같은 숫자 반복 · 연속 숫자(오름 · 내림) 금지 — API #14 */
     fun pin(value: String): String? {
@@ -39,9 +23,6 @@ object AuthValidation {
  * [unlockAt]은 잠금이 풀리는 시각(HH:mm, [lockedUntilClock]으로 바꾼 값)
  */
 fun authErrorMessage(code: String, remainingAttempts: Int? = null, unlockAt: String? = null): String? = when (code) {
-    "DUPLICATE_EMAIL" -> "이미 가입된 이메일이에요"
-    "FIN_ACCOUNT_EMAIL_TAKEN" -> "금융망에서 이미 쓰는 이메일이에요. 다른 이메일을 써 주세요"
-    "INVALID_PASSWORD_FORMAT" -> "영문 · 숫자 · 특수문자를 섞어 8자 이상으로 만들어 주세요"
     "INVALID_PIN_FORMAT" -> "쉬운 번호는 쓸 수 없어요"
     // 로그인은 PIN_MISMATCH, 본인 확인은 STEP_UP_FAILED. 남은 횟수가 없으면 서명 실패(지문 등)
     "PIN_MISMATCH", "STEP_UP_FAILED" ->

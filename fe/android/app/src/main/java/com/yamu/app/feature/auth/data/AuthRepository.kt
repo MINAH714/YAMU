@@ -36,9 +36,7 @@ interface LoginApi {
 
 /** 로그인한 뒤 쓰는 인증 API — 로그아웃 · PIN · 기기 등록 · 본인 확인. 재발급은 core/network의 AuthApi */
 interface AccountApi {
-    @POST("auth/signup") suspend fun signup(@Body body: SignupRequest): Response<ApiEnvelope<SignupResponse>>
     @POST("auth/logout") suspend fun logout(@Body body: LogoutRequest): Response<ApiEnvelope<JsonElement>>
-    @POST("auth/pin") suspend fun setPin(@Body body: PinRequest): Response<ApiEnvelope<JsonElement>>
     @POST("auth/devices") suspend fun registerDevice(
         @Header(YamuHeaders.STEP_UP_TOKEN) stepUpToken: String?,
         @Body body: DeviceRequest,
@@ -53,9 +51,6 @@ interface AuthRepository {
 
     suspend fun session(): SessionInfo
 
-    /** 이메일 가입(가짜 가입 화면) — Task 8.2.9에서 휴대폰 본인인증으로 바뀐다 */
-    suspend fun signup(name: String, email: String, password: String): ApiResult<LoginResult>
-
     /** 로그인 challenge(60초 · 한 번만) — 시도할 때마다 새로 받는다 */
     suspend fun loginChallenge(): ApiResult<StepUpChallenge>
     suspend fun loginWithPin(challenge: StepUpChallenge, pin: String): ApiResult<LoginResult>
@@ -64,13 +59,8 @@ interface AuthRepository {
     /** 토큰만 지운다 — 기기 번호 · 키는 남아 같은 폰이면 PIN으로 다시 로그인 */
     suspend fun logout()
 
-    suspend fun setPin(pin: String): ApiResult<Unit>
-
     /** 지문을 쓸 수 있는 기기인가(지문 등록 + 강한 생체) */
     fun canUseBiometric(): Boolean
-
-    /** 기기 등록(가입 마지막 단계) — 기기 키는 늘, 지문 키는 [biometric]일 때만 보낸다 */
-    suspend fun registerDevice(biometric: Boolean): ApiResult<Unit>
 
     /** 지문 켜기 · 끄기(M-08) — SECURITY_SETTINGS 본인 확인 뒤 이 기기를 다시 등록(끌 때는 지문 키를 빼고) */
     suspend fun setBiometric(enabled: Boolean, stepUpToken: String): ApiResult<Unit>
@@ -101,6 +91,7 @@ class AuthRepositoryImpl @Inject constructor(
     private val tokenStore: TokenStore,
     private val sessionStore: SessionStore,
     private val deviceKeys: DeviceKeyManager,
+    private val devices: DeviceRegistration,
 ) : AuthRepository {
 
     override suspend fun sessionStart(): SessionStart {
@@ -111,12 +102,6 @@ class AuthRepositoryImpl @Inject constructor(
     }
 
     override suspend fun session(): SessionInfo = sessionStore.read()
-
-    override suspend fun signup(name: String, email: String, password: String): ApiResult<LoginResult> =
-        apiCall { api.signup(SignupRequest(email.trim(), password, name.trim())) }.map {
-            sessionStore.saveUser(it.userId, name.trim(), email.trim(), onboardingCompleted = false)
-            LoginResult(onboardingCompleted = false)
-        }
 
     override suspend fun loginChallenge(): ApiResult<StepUpChallenge> {
         val userDeviceId = sessionStore.read().userDeviceId
@@ -169,39 +154,15 @@ class AuthRepositoryImpl @Inject constructor(
         tokenStore.clear()
     }
 
-    override suspend fun setPin(pin: String): ApiResult<Unit> = apiCallNoData { api.setPin(PinRequest(pin)) }
-
     override fun canUseBiometric(): Boolean = deviceKeys.canUseBiometric()
 
-    override suspend fun registerDevice(biometric: Boolean): ApiResult<Unit> =
-        sendDevice(biometric, stepUpToken = null)
-
-    override suspend fun setBiometric(enabled: Boolean, stepUpToken: String): ApiResult<Unit> =
-        sendDevice(enabled, stepUpToken)
-
-    /** 기기 키는 있으면 그대로(없으면 만든다), 지문 키는 켤 때마다 새로 만든다 */
-    private suspend fun sendDevice(biometric: Boolean, stepUpToken: String?): ApiResult<Unit> {
-        val keys = withContext(Dispatchers.Default) {   // 키 생성은 화면이 멈출 만큼 걸릴 수 있다
-            runCatching { deviceKeys.devicePublicKey() to (if (biometric) deviceKeys.createBiometricKey() else null) }
-        }.getOrElse { return ApiResult.Failure(ApiError.Unknown("KEY_CREATE_FAILED")) }
-        val body = DeviceRequest(
-            deviceId = sessionStore.deviceId(),
-            deviceName = deviceKeys.deviceName(),
-            platform = "ANDROID",
-            devicePublicKey = keys.first,
-            biometricPublicKey = keys.second,
-            biometricTypes = if (biometric) deviceKeys.biometricTypes() else null,
-        )
+    /** 로그인한 회원이 이 기기를 다시 등록 — 기기 키는 그대로, 지문 키는 켤 때 새로 */
+    override suspend fun setBiometric(enabled: Boolean, stepUpToken: String): ApiResult<Unit> {
+        val body = devices.request(enabled) ?: return ApiResult.Failure(ApiError.Unknown("KEY_CREATE_FAILED"))
         val r = apiCall { api.registerDevice(stepUpToken, body) }
         when (r) {
-            is ApiResult.Success -> {
-                sessionStore.saveDevice(r.data.userDeviceId, r.data.biometricEnabled)
-                if (!r.data.biometricEnabled) deviceKeys.deleteBiometricKey()
-                val access = r.data.accessToken
-                val refresh = r.data.refreshToken
-                if (access != null && refresh != null) tokenStore.save(AuthTokens(access, refresh))
-            }
-            is ApiResult.Failure -> if (biometric && r.error.keyNotOnServer()) deviceKeys.deleteBiometricKey()   // 서버에 안 올라간 지문 키는 버린다
+            is ApiResult.Success -> devices.saved(r.data)
+            is ApiResult.Failure -> devices.failed(enabled, r.error)
         }
         return r.map { }
     }
@@ -258,4 +219,9 @@ object AccountApiModule {
     @Provides
     @Singleton
     fun loginApi(@Named("auth") retrofit: Retrofit): LoginApi = retrofit.create(LoginApi::class.java)
+
+    /** 가입 진행 토큰을 직접 붙인다 — Access 토큰이 자동으로 붙는 클라이언트를 쓰면 안 된다 */
+    @Provides
+    @Singleton
+    fun signupApi(@Named("auth") retrofit: Retrofit): SignupApi = retrofit.create(SignupApi::class.java)
 }
