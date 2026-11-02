@@ -90,12 +90,12 @@ class RecommendationResultTest {
     @Test
     void NO_ELIGIBLE_CARD는_확인된_사유로_결제할_수_있는_카드가_없을_때다() {
         RecommendationResult onlyExcluded = result(List.of(),
-                List.of(new ExcludedCard(CARD_2, ExclusionReason.INSTALLMENT_NOT_SUPPORTED, "할부 불가")), List.of());
+                List.of(new ExcludedCard(CARD_2, ExclusionReason.CHECK_CARD_INSTALLMENT_NOT_SUPPORTED, "할부 불가")), List.of());
         RecommendationResult noCards = result(List.of(), List.of(), List.of());
 
         assertThat(onlyExcluded.status()).isEqualTo(Status.NO_ELIGIBLE_CARD);
         assertThat(onlyExcluded.unavailableReason()).isEqualTo(UnavailableReason.NO_ELIGIBLE_CARD);
-        assertThat(onlyExcluded.excluded(2L).orElseThrow().reason()).isEqualTo(ExclusionReason.INSTALLMENT_NOT_SUPPORTED);
+        assertThat(onlyExcluded.excluded(2L).orElseThrow().reason()).isEqualTo(ExclusionReason.CHECK_CARD_INSTALLMENT_NOT_SUPPORTED);
         assertThat(noCards.status()).isEqualTo(Status.NO_ELIGIBLE_CARD);
         assertThat(noCards.isAvailable()).isFalse();
     }

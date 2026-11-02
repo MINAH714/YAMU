@@ -121,11 +121,12 @@ public record RecommendationResult(String recommendationId, LocalDateTime calcul
      * 후보 카드 한 장. 금액은 모두 원이다. 결제 가능과 혜택이 확인된 카드이고, 순혜택 0원도 확인된 값이다.
      * 결제할 금액(chargedAmount)은 담지 않는다. 결제 쪽이 {@code PaymentTerms.chargedAmount(instantDiscount())}로 계산한다.
      *
-     * @param card        결제 쪽이 조회한 카드 표시 정보를 그대로 담는다
-     * @param ruleVersion 결제 쪽이 조회한 상품 규칙 버전을 그대로 담는다
+     * @param card            결제 쪽이 조회한 카드 표시 정보를 그대로 담는다
+     * @param selectionReason 1순위를 고른 기준(!63의 selectionReason). 1순위에만 있고 나머지는 null
+     * @param ruleVersion     결제 쪽이 조회한 상품 규칙 버전을 그대로 담는다
      */
     public record Candidate(int rank, CardSummary card, long netBenefit, List<BenefitLine> benefits,
-            String reason, TieBreak tieBreak, RuleVersion ruleVersion) {
+            String reason, SelectionReason selectionReason, RuleVersion ruleVersion) {
 
         public Candidate {
             Objects.requireNonNull(card, "card");
@@ -215,17 +216,19 @@ public record RecommendationResult(String recommendationId, LocalDateTime calcul
     }
 
     /**
-     * 결제 불가 사유. 승인 거절의 failure.code와 이름을 맞췄다(API 명세 「결제 승인 요청」).
+     * 결제 불가 사유. 카드 상태·할부 사유는 BE3 엔진(!63)의 제외 코드와, 결제 가능 사유는 승인 거절의 failure.code와 이름이 같다.
      * 혜택 자료가 없는 것은 결제 불가가 아니다. 그런 카드는 {@link UncomparedReason#BENEFIT_DATA_INSUFFICIENT}로 미비교 목록에 둔다.
      */
     public enum ExclusionReason {
+        /** YAMU 등록 상태가 ACTIVE가 아님 */
+        CARD_NOT_ACTIVE,
         CARD_SUSPENDED,
         CARD_EXPIRED,
+        /** 할부 결제에 체크카드. 체크카드는 일시불만이다(POL-013) */
+        CHECK_CARD_INSTALLMENT_NOT_SUPPORTED,
         UNPAID_BILL,
         CREDIT_LIMIT_EXCEEDED,
-        INSUFFICIENT_BALANCE,
-        /** 할부 결제에 체크카드. 체크카드는 일시불만이다(POL-013) */
-        INSTALLMENT_NOT_SUPPORTED
+        INSUFFICIENT_BALANCE
     }
 
     /** 비교하지 못한 사유. 혜택만 미확인인지, 결제 가능 여부가 미확인인지 나눈다(2026-11-02 정책 변경). 문구는 !63과 같다. */
@@ -258,15 +261,17 @@ public record RecommendationResult(String recommendationId, LocalDateTime calcul
     }
 
     /**
-     * 최대 순혜택이 정확히 같을 때 순위를 정한 규칙(카드 추천 정책 POL-011). 동률이 아니었으면 null.
-     * 혜택 실현 편의성은 동률 기준에서 뺐다(2026-10-31).
+     * 1순위를 고른 기준(카드 추천 정책 POL-011). 이름은 BE3 엔진(!63)의 {@code SelectionReason}과 같다.
+     * 순혜택 최대가 한 장이면 MAXIMUM_NET_BENEFIT, 정확히 같은 최대가 여럿이면 기본 카드 → 최소 혜택 실적 기준 신규 충족 → 고정 정렬(카드 번호 오름차순).
      */
-    public enum TieBreak {
-        /** 설정한 기본 카드 */
+    public enum SelectionReason {
+        /** 순혜택이 가장 큰 카드가 한 장 */
+        MAXIMUM_NET_BENEFIT,
+        /** 동률 중 설정한 기본 카드 */
         DEFAULT_CARD,
-        /** 이번 결제로 최소 혜택 실적 기준을 새로 충족(결제 전 인정 실적 < 기준 ≤ 결제 전 인정 실적 + 이번 거래 인정 실적) */
-        MEETS_THRESHOLD,
-        /** 고정 정렬 순서 */
+        /** 동률 중 이번 결제로 최소 혜택 실적 기준을 새로 충족(결제 전 누적액 < 기준 ≤ 누적액 + 이번 인정액) */
+        NEW_MINIMUM_PERFORMANCE,
+        /** 동률 중 고정 정렬(보유 카드 번호 오름차순) */
         FIXED_ORDER
     }
 }
