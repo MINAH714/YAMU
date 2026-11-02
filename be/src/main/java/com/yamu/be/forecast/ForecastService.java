@@ -1,6 +1,9 @@
 package com.yamu.be.forecast;
 
+import com.yamu.be.account.AccountBalance;
+import com.yamu.be.account.AccountBalanceService;
 import com.yamu.be.account.AccountQueryService;
+import com.yamu.be.card.CardQueryService;
 import com.yamu.be.cashflow.CashflowItem;
 import com.yamu.be.cashflow.CashflowService;
 import com.yamu.be.global.common.ApiResponse.FieldErrorResponse;
@@ -24,8 +27,9 @@ import java.util.Set;
  * 선택 계좌의 날짜별 잔고예보를 만든다. 계좌마다 현재 잔액에 예정 수입·지출과 카드 청구 출금을 더하고,
  * 최근 3개월 생활비로 보수적 선을 낸 뒤 같은 날짜끼리 합한다. 통합 선과 계좌별 선에서 안전 잔액 미달을 찾는다.
  *
- * <p>잔액(BE 1)·카드(BE 1)·청구(BE 2)·생활비(BE 1·BE 2) 원천 구현이 아직 없어 Spring 빈으로 등록하지 않는다
- * (등록하면 서버가 뜨지 않는다). 원천이 붙는 MR에서 {@code @Service}·설정값·컨트롤러를 더한다.
+ * <p>잔액·카드는 BE 1 서비스를 직접 쓴다. 청구(BE 2, {@link CardBillReader})·신용카드 출금일({@link CreditWithdrawalSchedule},
+ * 7.2.1)·생활비({@link LivingCostReader}) 원천 구현이 아직 없어 Spring 빈으로 등록하지 않는다(등록하면 서버가 뜨지 않는다).
+ * 원천이 붙는 MR에서 {@code @Service}·설정값·컨트롤러를 더한다.
  */
 public class ForecastService {
     private static final ZoneId KOREA = ZoneId.of("Asia/Seoul");
@@ -40,9 +44,9 @@ public class ForecastService {
             new LivingCostForecast.Exclusion("UNCLASSIFIED", "소비 목적을 확인할 수 없는 계좌 출금은 임의로 포함하지 않음"));
 
     private final CashflowService cashflows;
-    private final AccountBalanceReader balances;
+    private final AccountBalanceService balances;
     private final CardBillReader bills;
-    private final CardReader cards;
+    private final CardQueryService cards;
     private final CreditWithdrawalSchedule creditSchedule;
     private final LivingCostReader livingCosts;
     private final AccountQueryService accounts;
@@ -50,8 +54,8 @@ public class ForecastService {
     private final Clock clock;
 
     /** @param alertThreshold 안전 잔액(원). 잔고예보 설정 API가 생기기 전까지 명세의 현행 가정값을 받는다 */
-    ForecastService(CashflowService cashflows, AccountBalanceReader balances, CardBillReader bills,
-            CardReader cards, CreditWithdrawalSchedule creditSchedule, LivingCostReader livingCosts,
+    ForecastService(CashflowService cashflows, AccountBalanceService balances, CardBillReader bills,
+            CardQueryService cards, CreditWithdrawalSchedule creditSchedule, LivingCostReader livingCosts,
             AccountQueryService accounts, long alertThreshold, Clock clock) {
         this.cashflows = cashflows;
         this.balances = balances;
@@ -84,7 +88,7 @@ public class ForecastService {
         BalanceForecast.Horizon horizon = horizon(until, days, today);
 
         // 잔액·생활비는 금융망을 부를 수 있어 DB를 읽기 전에 따로 읽는다. 남의·연결 해제 계좌는 BE 1이 404로 거절한다.
-        Map<Long, AccountBalanceReader.AccountBalance> balanceById = readBalances(authenticatedUserId, selected, refresh);
+        Map<Long, AccountBalance> balanceById = readBalances(authenticatedUserId, selected, refresh);
         LivingCostEstimator.Estimate living = estimateLivingCost(authenticatedUserId, selected, today).estimate();
         List<CashflowService.Entry> entries = cashflows.list(authenticatedUserId, horizon.from(), horizon.to(),
                 null, CashflowItem.Status.CONFIRMED, true);
@@ -266,13 +270,17 @@ public class ForecastService {
         return new BalanceForecast.Horizon(BalanceForecast.Until.DAYS, today, today.plusDays(days), days);
     }
 
-    private Map<Long, AccountBalanceReader.AccountBalance> readBalances(Long userId, List<Long> selected,
-            boolean refresh) {
-        Map<Long, AccountBalanceReader.AccountBalance> byId = new HashMap<>();
-        for (AccountBalanceReader.AccountBalance balance : balances.getBalances(userId, selected, refresh)) {
+    /**
+     * BE 1 잔액 조회. 남의·연결 해제 계좌 404, SSAFY 회원 아님 400, 새로고침 한도 429, 금융망 502·504는 그대로 전파한다.
+     * refresh=false면 BE 1의 10분 캐시를 쓰고, true일 때만 캐시를 건너뛰고 새로고침 한도를 센다.
+     */
+    private Map<Long, AccountBalance> readBalances(Long userId, List<Long> selected, boolean refresh) {
+        Map<Long, AccountBalance> byId = new HashMap<>();
+        for (AccountBalance balance : balances.getBalances(userId, selected, refresh)) {
             byId.put(balance.linkedAccountId(), balance);
         }
         for (Long accountId : selected) {
+            // BE 1은 전부 주거나 예외를 던져 보통 오지 않는 방어 분기다. 빠진 잔액을 0원으로 채우지 않는다.
             if (!byId.containsKey(accountId)) {
                 throw new BusinessException(ErrorCode.DATA_INSUFFICIENT);
             }
@@ -289,6 +297,10 @@ public class ForecastService {
             BalanceForecast.Horizon horizon, List<ExcludedItem> excluded) {
         List<FlowEvent> events = new ArrayList<>();
         for (CardBillReader.OutstandingBill bill : bills.outstanding(userId, selected, horizon.to())) {
+            // BE 2 데이터 계약 위반이다. 출금 계좌를 임의로 정하거나 조용히 넘기지 않는다.
+            if (bill.accountId() == null || bill.status() == null || bill.withdrawalDate() == null) {
+                throw new IllegalStateException("청구의 출금 계좌·상태·출금일이 비었다: " + bill.cardBillId());
+            }
             if (bill.amount() < 0) {
                 throw new IllegalStateException("청구 출금액이 음수다: " + bill.cardBillId());
             }
