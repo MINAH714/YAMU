@@ -60,6 +60,23 @@ final class RiskDetector {
                 worstBalance(points.get(points.size() - 1)));
     }
 
+    /**
+     * 화면에 표시할 최종 수준. 통합 수준과 계좌별 수준 중 가장 나쁜 것이라, 통합이 안전해도 위험한 계좌가 있으면 그 수준이다.
+     *
+     * @param aggregate 통합 선 판단
+     * @param accounts  선택 계좌별 판단
+     * @return 최종 위험 수준
+     */
+    static Level overall(Assessment aggregate, Iterable<Assessment> accounts) {
+        Level status = aggregate.status();
+        for (Assessment account : accounts) {
+            if (account.status().ordinal() > status.ordinal()) {
+                status = account.status();
+            }
+        }
+        return status;
+    }
+
     /** 그날 기준 미만인 가장 확실한 선. 없으면 null(SAFE)이다. */
     private static Line lineBelow(ForecastCalculator.BalancePoint point, long threshold) {
         if (point.confirmed() < threshold) {
@@ -122,7 +139,8 @@ final class RiskDetector {
         };
     }
 
-    private static long worstBalance(ForecastCalculator.BalancePoint point) {
+    /** 가장 나쁜 선(보수적, 없으면 예상)의 잔액. 최저·마지막 잔액과 가상 구매 비교 선에 쓴다. */
+    static long worstBalance(ForecastCalculator.BalancePoint point) {
         return point.conservative() != null ? point.conservative() : point.expected();
     }
 
@@ -130,8 +148,8 @@ final class RiskDetector {
 
     enum Line { CONFIRMED, EXPECTED, CONSERVATIVE }
 
-    /** 잔액을 떨어뜨린 원인. 입출금 종류에 추정 생활비를 더했다. */
-    enum CauseType { SCHEDULED_INCOME, SCHEDULED_OUTFLOW, CARD_BILLING, LIVING_COST_ESTIMATE }
+    /** 잔액을 떨어뜨린 원인. 입출금 종류({@link FlowEvent.Type})에 추정 생활비를 더했다. 이름이 같아야 한다. */
+    enum CauseType { SCHEDULED_INCOME, SCHEDULED_OUTFLOW, CARD_BILLING, SIMULATED_PURCHASE, LIVING_COST_ESTIMATE }
 
     /**
      * @param amount 출금(음수, 원). 추정 생활비는 구간 최저 날까지 누적한 금액

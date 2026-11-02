@@ -172,6 +172,32 @@ class RiskDetectorTest {
         assertThat(result.minBalanceDate()).isEqualTo(TODAY.plusDays(1));
     }
 
+    @Test
+    void 가상_구매_출금도_위험_구간_원인에_가상_구매로_들어간다() {
+        FlowEvent purchase = new FlowEvent(5L, TODAY.plusDays(1), -400_000L, FlowEvent.Type.SIMULATED_PURCHASE,
+                FlowEvent.Confidence.CONFIRMED, "1/3회차 (11월 청구)", null);
+        Assessment result = RiskDetector.assess(List.of(
+                point(0, 300_000, 300_000, null),
+                point(1, -100_000, -100_000, null, purchase)), THRESHOLD);
+
+        assertThat(result.windows()).singleElement().satisfies(window ->
+                assertThat(window.causes()).extracting(Cause::type, Cause::title, Cause::amount)
+                        .containsExactly(tuple(CauseType.SIMULATED_PURCHASE, "1/3회차 (11월 청구)", -400_000L)));
+    }
+
+    @Test
+    void 최종_수준은_통합과_계좌별_중_가장_나쁜_수준이다() {
+        Assessment safe = RiskDetector.assess(List.of(point(0, 300_000, 300_000, 300_000)), THRESHOLD);
+        Assessment warning = RiskDetector.assess(List.of(point(0, 300_000, 50_000, 50_000)), THRESHOLD);
+        Assessment danger = RiskDetector.assess(List.of(point(0, 50_000, 50_000, 50_000)), THRESHOLD);
+
+        assertThat(RiskDetector.overall(safe, List.of(safe, safe))).isEqualTo(Level.SAFE);
+        // 통합이 안전해도 위험한 계좌가 있으면 그 계좌의 수준이다.
+        assertThat(RiskDetector.overall(safe, List.of(safe, warning))).isEqualTo(Level.WARNING);
+        assertThat(RiskDetector.overall(warning, List.of(danger, safe))).isEqualTo(Level.DANGER);
+        assertThat(RiskDetector.overall(danger, List.of(safe, warning))).isEqualTo(Level.DANGER);
+    }
+
     private static FlowEvent outflow(int day, long amount) {
         return new FlowEvent(3L, TODAY.plusDays(day), amount, FlowEvent.Type.SCHEDULED_OUTFLOW,
                 FlowEvent.Confidence.EXPECTED, "월세", 1L);

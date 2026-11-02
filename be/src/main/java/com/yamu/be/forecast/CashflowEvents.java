@@ -1,5 +1,9 @@
 package com.yamu.be.forecast;
 
+import com.yamu.be.card.CardQueryService;
+import com.yamu.be.card.UserCardRef;
+import com.yamu.be.card.domain.CardIssuerStatus;
+import com.yamu.be.card.domain.CardType;
 import com.yamu.be.cashflow.CashflowItem;
 import com.yamu.be.cashflow.CashflowService;
 import java.time.LocalDate;
@@ -23,16 +27,20 @@ final class CashflowEvents {
      * 선택한 계좌에 귀속되고 from~to에 오가는 입출금과, 계산에서 뺀 항목을 돌려준다.
      * 계좌 지정 항목은 예정일에, 체크카드는 사용일에, 신용카드는 청구 출금일에 카드 출금 계좌에서 나간다.
      * 선택하지 않은 계좌에 귀속되는 회차는 이 예보의 범위가 아니라 조용히 넘긴다. 오늘(from) 수입은 더하지 않고 알린다.
+     * 카드사 정지·만료 카드로는 결제가 일어날 수 없어 그 카드의 예정 지출은 빼고 알린다. 정상 카드였어도 기간 밖으로 출금됐을 회차는
+     * 알리지 않는다. 추천에서만 뺀 INACTIVE 카드는 그대로 뺀다.
+     * 이미 확정된 카드 청구는 카드가 정지돼도 출금되므로 이 판단과 상관없다(청구는 {@link CardBillReader}).
      *
      * @param entries          가계부 목록 회차(확정 항목)
      * @param selectedAccounts 예보에 선택한 계좌
+     * @param cards            BE 1 카드 조회. 없거나 해제된 카드는 empty다
      * @return 입출금과 뺀 항목
      */
     static Converted convert(Long userId, List<CashflowService.Entry> entries, Set<Long> selectedAccounts,
-            CardReader cards, CreditWithdrawalSchedule creditSchedule, LocalDate from, LocalDate to) {
+            CardQueryService cards, CreditWithdrawalSchedule creditSchedule, LocalDate from, LocalDate to) {
         List<FlowEvent> events = new ArrayList<>();
         List<ExcludedItem> excluded = new ArrayList<>();
-        Map<Long, Optional<CardReader.CardInfo>> cardCache = new HashMap<>();
+        Map<Long, Optional<UserCardRef>> cardCache = new HashMap<>();
         for (CashflowService.Entry entry : entries) {
             if (entry.paid()) {
                 continue;
@@ -40,11 +48,12 @@ final class CashflowEvents {
             CashflowService.Item item = entry.item();
             Long accountId;
             LocalDate date;
+            boolean cardUnusable = false;
             if (item.accountId() != null) {
                 accountId = item.accountId();
                 date = entry.date();
             } else if (item.userCardId() != null) {
-                Optional<CardReader.CardInfo> card = cardCache.computeIfAbsent(item.userCardId(),
+                Optional<UserCardRef> card = cardCache.computeIfAbsent(item.userCardId(),
                         cardId -> cards.findRegisteredCard(userId, cardId));
                 if (card.isEmpty()) {
                     excluded.add(ExcludedItem.of(entry, ExcludedItem.Reason.CARD_UNAVAILABLE));
@@ -55,7 +64,9 @@ final class CashflowEvents {
                     continue;
                 }
                 accountId = card.get().linkedAccountId();
-                date = card.get().cardType() == CardReader.CardType.CREDIT
+                // 정상(NORMAL)이 아닌 상태는 모르는 값이어도 쓸 수 있는 카드로 보지 않는다.
+                cardUnusable = card.get().issuerStatus() != CardIssuerStatus.NORMAL;
+                date = card.get().cardType() == CardType.CREDIT
                         ? creditSchedule.withdrawalDate(card.get(), entry.date()) : entry.date();
             } else {
                 // 등록 API는 계좌·카드 중 하나를 받지만, 다른 경로로 들어온 행이 있으면 어느 계좌에도 임의로 배분하지 않는다.
@@ -67,6 +78,11 @@ final class CashflowEvents {
             }
             // 기간 밖으로 미뤄진 신용카드 출금은 이번 예보에 들어오지 않는다.
             if (date.isBefore(from) || date.isAfter(to)) {
+                continue;
+            }
+            // 정지 카드도 선택한 계좌·기간 안의 회차만 알린다. 범위 밖 회차는 정상 카드처럼 이 예보와 관계없다.
+            if (cardUnusable) {
+                excluded.add(ExcludedItem.of(entry, ExcludedItem.Reason.CARD_SUSPENDED_OR_EXPIRED));
                 continue;
             }
             // 금액 미정은 0원 지출이 아니므로 차감하지 않고 알린다.

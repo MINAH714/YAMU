@@ -10,6 +10,7 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import jakarta.persistence.Version;
+import java.security.MessageDigest;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import lombok.AccessLevel;
@@ -60,6 +61,10 @@ public class AppUser extends BaseTimeEntity {
 
     private LocalDateTime deletedAt;
 
+    /** 탈퇴 때 남긴 이름 조회 해시. 탈퇴 행에만 있고 재가입으로 열쇠를 넘기면 비운다. */
+    @Column(columnDefinition = "binary(32)")
+    private byte[] withdrawnNameHash;
+
     @Version
     private Long version;
 
@@ -105,5 +110,42 @@ public class AppUser extends BaseTimeEntity {
 
     public boolean isActive() {
         return status == AppUserStatus.ACTIVE;
+    }
+
+    public boolean isWithdrawn() {
+        return status == AppUserStatus.WITHDRAWN;
+    }
+
+    /** 탈퇴한 행이고 남긴 이름 해시가 같은지. 시드 사용자의 이름 비교와 같은 역할이다. */
+    public boolean isWithdrawnWithName(byte[] nameHash) {
+        return isWithdrawn() && withdrawnNameHash != null && nameHash != null
+                && MessageDigest.isEqual(withdrawnNameHash, nameHash);
+    }
+
+    /**
+     * 탈퇴. 이름·휴대폰 암호문·PIN·본인인증 시각은 비우고, 재가입 열쇠(phone_hash·birth_date·이름 해시·SSAFY 회원 ID·userKey)만
+     * 남긴다. 재가입하면 열쇠는 새 사용자로 옮겨지고 이 행에서는 {@link #releaseRejoinKeys()}로 지워진다.
+     * 행 자체는 거래·청구·감사 로그가 가리키므로(FK RESTRICT) 지우지 않는다.
+     *
+     * @param nameHash 지우기 전 이름의 조회 해시(LookupHasher.name). 재가입 때 이름까지 맞아야 이어받게 한다
+     */
+    public void withdraw(LocalDateTime now, byte[] nameHash) {
+        this.status = AppUserStatus.WITHDRAWN;
+        this.deletedAt = now;
+        this.withdrawnNameHash = nameHash;
+        this.name = null;
+        this.phoneEnc = null;
+        this.pinHash = null;
+        this.pinUpdatedAt = null;
+        this.identityVerifiedAt = null;
+    }
+
+    /** 재가입으로 열쇠를 새 사용자에게 넘긴 뒤 이 행에 남은 식별 값을 지운다. UNIQUE(phone_hash, birth_date)·(ssafy_member_id)를 비워 준다. */
+    public void releaseRejoinKeys() {
+        this.phoneHash = null;
+        this.birthDate = null;
+        this.withdrawnNameHash = null;
+        this.ssafyMemberId = null;
+        this.ssafyUserKey = null;
     }
 }
