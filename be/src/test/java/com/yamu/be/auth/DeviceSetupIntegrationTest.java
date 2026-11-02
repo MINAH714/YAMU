@@ -40,6 +40,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -58,6 +59,7 @@ import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.ResultMatcher;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.utility.DockerImageName;
@@ -93,6 +95,7 @@ class DeviceSetupIntegrationTest extends MySqlTestSupport {
     @Autowired SignupTokenStore signupTokenStore;
     @Autowired StepUpTokenStore stepUpTokenStore;
     @Autowired RefreshTokenStore refreshTokenStore;
+    @Autowired TransactionTemplate transaction;
 
     @MockitoBean FinApiClient finApiClient;
 
@@ -700,6 +703,45 @@ class DeviceSetupIntegrationTest extends MySqlTestSupport {
         assertThat(jdbc.queryForList("SELECT device_uuid FROM user_device WHERE status <> 'REVOKED'", String.class))
                 .containsExactly(newUuid);
         assertThat(eventTypes(other)).containsExactly("REVOKED");
+    }
+
+    @Test
+    void 기기_재등록_중_옛_기기_로그인이_먼저_커밋해도_409_없이_재등록된다() throws Exception {
+        Registered member = activeMember();
+        String bearer = "Bearer " + signupToken(member.userId(), SignupMode.DEVICE_RECOVERY);
+        String verification = verifiedAndSent(bearer);
+        CountDownLatch loginLocked = new CountDownLatch(1);
+        CountDownLatch finishLogin = new CountDownLatch(1);
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        try {
+            // 옛 폰 로그인 성공처럼 기기 행을 잠그고 버전을 올린 채 멈춰 둔다.
+            Future<?> login = pool.submit(() -> transaction.executeWithoutResult(status -> {
+                jdbc.queryForObject("SELECT version FROM user_device WHERE user_device_id = ? FOR UPDATE",
+                        Long.class, member.deviceId());
+                jdbc.update("UPDATE user_device SET version = version + 1, last_verified_at = ? WHERE user_device_id = ?",
+                        now(), member.deviceId());
+                loginLocked.countDown();
+                try {
+                    finishLogin.await(30, TimeUnit.SECONDS);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+            }));
+            assertThat(loginLocked.await(30, TimeUnit.SECONDS)).isTrue();
+            Future<Integer> recovery = pool.submit(() -> registerDevice(bearer,
+                    deviceJson(UUID.randomUUID().toString(), DeviceKeys.generate(), null, verification, CODE))
+                    .andReturn().getResponse().getStatus());
+            // 재등록이 옛 기기를 읽는 지점까지 가게 둔 뒤 로그인을 커밋한다. 잠그지 않고 읽었다면 버전이 어긋나 409가 난다.
+            Thread.sleep(500);
+            finishLogin.countDown();
+            login.get(30, TimeUnit.SECONDS);
+
+            assertThat(recovery.get(30, TimeUnit.SECONDS)).isEqualTo(201);
+        } finally {
+            finishLogin.countDown();
+            pool.shutdownNow();
+        }
+        assertThat(eventTypes(member.deviceId())).last().isEqualTo("REVOKED");
     }
 
     private int revokeStatus(Registered member, long deviceId, String stepUp) throws Exception {

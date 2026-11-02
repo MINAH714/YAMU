@@ -49,7 +49,8 @@ import org.springframework.transaction.support.TransactionTemplate;
  *   <li>같은 deviceId(같은 폰)를 다시 등록하면 새 행을 만들지 않고 키를 바꾼다(KEY_ROTATED). 해제했던 폰이면 다시 살린다(REGISTERED)</li>
  *   <li>해제되지 않은 기기는 사용자당 3대까지. 넘으면 409 DEVICE_LIMIT_EXCEEDED. 사용자 행을 잠근 채 세서 동시 등록에도 넘지 않는다</li>
  *   <li>기기 재등록은 은행 앱의 "기기 변경"처럼 다른 기기를 모두 해제한다. 잃어버렸거나 남이 쓰고 있을 수 있는 기기를 끊고,
- *       3대가 다 찬 상태에서 폰을 잃어도 다시 들어올 수 있게 하려는 것이다(10/30 결정 7 변경). 대수는 해제한 뒤에 센다</li>
+ *       3대가 다 찬 상태에서 폰을 잃어도 다시 들어올 수 있게 하려는 것이다(10/30 결정 7 변경). 해제할 기기 행도 잠가 그 기기의
+ *       로그인과 줄을 세운다. 대수는 해제한 뒤에 센다</li>
  *   <li>1원 인증코드 확인(금융망 호출)은 DB 트랜잭션 밖에서 한다. 재등록의 확인 결과는 한 번만 쓴다(같은 토큰 동시 요청은 하나만 통과)</li>
  *   <li>재등록에 기존 PIN 확인은 받지 않는다. 폰을 잃고 PIN도 잊은 사람이 다시 들어오는 경로이고, 공격자는 새 PIN을 맡기면 되므로
  *       막는 효과도 없다. 대신 1원 하루 3회·하루 10번 실패 잠금으로 찍어 맞히기를 막는다</li>
@@ -160,12 +161,14 @@ public class DeviceRegistrationService {
 
     /**
      * 기기 재등록에서 이 폰(deviceUuid) 말고 해제되지 않은 기기를 모두 해제한다. 사용자 행을 잠근 트랜잭션 안에서 부른다.
+     * 기기 행도 잠근다. 잠그지 않으면 그 사이 옛 기기 로그인이 커밋해 버전이 바뀌어 409가 나고, 이미 써 버린 1원 인증부터
+     * 다시 해야 한다(잠금 순서는 다른 곳과 같은 사용자 → 기기).
      *
      * @return 해제한 기기 번호들. 커밋 뒤 Refresh Token을 지울 때 쓴다
      */
     private List<Long> revokeOtherDevices(Long userId, String deviceUuid) {
         List<Long> revoked = new ArrayList<>();
-        for (UserDevice other : deviceRepository.findByUserIdAndStatusNot(userId, DeviceStatus.REVOKED)) {
+        for (UserDevice other : deviceRepository.findByUserIdAndStatusNotForUpdate(userId, DeviceStatus.REVOKED)) {
             if (other.getDeviceUuid().equals(deviceUuid)) {
                 continue;
             }

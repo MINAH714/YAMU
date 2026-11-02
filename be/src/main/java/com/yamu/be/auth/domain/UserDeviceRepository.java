@@ -35,9 +35,14 @@ public interface UserDeviceRepository extends JpaRepository<UserDevice, Long> {
     @Query("select d.id from UserDevice d where d.user.id = :userId and d.status <> :status")
     List<Long> findIdsByUserIdAndStatusNot(@Param("userId") Long userId, @Param("status") DeviceStatus status);
 
-    /** 해제되지 않은 기기들. 기기 재등록이 성공하면 이 폰 말고는 모두 해제한다. */
+    /**
+     * 해제되지 않은 기기들을 잠근다(SELECT … FOR UPDATE). 기기 재등록이 성공하면 이 폰 말고는 모두 해제한다.
+     * 로그인은 기기 행만 잠그므로, 기기 행까지 잠가야 그 기기의 로그인과 줄을 서서 낙관적 잠금(@Version) 충돌이 나지 않는다.
+     */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select d from UserDevice d where d.user.id = :userId and d.status <> :status")
-    List<UserDevice> findByUserIdAndStatusNot(@Param("userId") Long userId, @Param("status") DeviceStatus status);
+    List<UserDevice> findByUserIdAndStatusNotForUpdate(@Param("userId") Long userId,
+            @Param("status") DeviceStatus status);
 
     /** 기기 목록(명세 「등록 기기 목록 조회」). 해제한 기기도 이력으로 보여 준다. */
     @Query("select d from UserDevice d where d.user.id = :userId")
