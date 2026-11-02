@@ -37,6 +37,7 @@ import com.yamu.app.feature.payment.RecommendRoute
 import com.yamu.app.feature.forecast.BuyCheckInputRoute
 import com.yamu.app.feature.forecast.BuyCheckResultRoute
 import com.yamu.app.feature.forecast.BuyCheckSavedRoute
+import com.yamu.app.feature.forecast.CashflowCreateRoute
 import com.yamu.app.feature.forecast.CashflowListRoute
 import com.yamu.app.feature.forecast.ForecastRoute
 import com.yamu.app.feature.performance.BenefitLimitsRoute
@@ -239,7 +240,16 @@ fun YamuNavHost(navController: NavHostController, modifier: Modifier = Modifier)
                         onAlertSettings = { navController.navigate(NotificationSettings) },
                     )
                 }
-                composable<CashflowList> { CashflowListRoute(onBack = back, onLink = { navController.navigate(LinkGraph) }) }
+                composable<CashflowList> {
+                    CashflowListRoute(
+                        onBack = back,
+                        onLink = { navController.navigate(LinkGraph) },
+                        onAdd = { navController.navigate(CashflowCreate) },
+                        onEdit = { id, occurrence -> navController.navigate(CashflowEdit(id, occurrence.toString())) },
+                    )
+                }
+                composable<CashflowCreate> { CashflowCreateRoute(onBack = back, onDone = back) }
+                composable<CashflowEdit> { CashflowCreateRoute(onBack = back, onDone = back) }   // 같은 화면 · 수정 모드(경로 값으로 구분)
                 composable<BuyCheckInput> {
                     BuyCheckInputRoute(
                         onBack = back,

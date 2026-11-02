@@ -1,6 +1,7 @@
 package com.yamu.app.core.network
 
 import kotlinx.serialization.SerializationException
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.contentOrNull
@@ -50,6 +51,14 @@ sealed interface ApiError {
 
     /** details 안의 글자(예: unlockAt) */
     fun detailString(key: String): String? = details?.get(key)?.jsonPrimitive?.contentOrNull
+
+    /** 입력 검사 실패의 칸별 사유 — details.fieldErrors [{field, reason}] → 칸 이름 · 사유(API 명세서 1장) */
+    fun fieldErrors(): Map<String, String> =
+        (details?.get("fieldErrors") as? JsonArray).orEmpty().mapNotNull { e ->
+            val o = e as? JsonObject ?: return@mapNotNull null
+            val field = o["field"]?.jsonPrimitive?.contentOrNull ?: return@mapNotNull null
+            field to o["reason"]?.jsonPrimitive?.contentOrNull.orEmpty()
+        }.toMap()
 
     companion object {
         fun from(httpStatus: Int, code: String?, details: JsonObject? = null): ApiError {

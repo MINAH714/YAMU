@@ -1,5 +1,7 @@
 package com.yamu.app.feature.forecast
 
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Icon
 import androidx.compose.foundation.layout.size
@@ -62,9 +64,12 @@ import com.yamu.app.core.format.toWon
 import com.yamu.app.core.network.ApiResult
 import com.yamu.app.core.ui.staleLine
 import com.yamu.app.core.ui.userMessage
+import com.yamu.app.feature.forecast.data.CashflowEntry
+import com.yamu.app.feature.forecast.data.CashflowRow
 import com.yamu.app.feature.forecast.data.Forecast
 import com.yamu.app.feature.forecast.data.ForecastEvent
 import com.yamu.app.feature.forecast.data.ForecastRepository
+import com.yamu.app.feature.forecast.data.cashflowRows
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -75,23 +80,46 @@ import java.time.LocalDate
 import java.time.temporal.ChronoUnit
 import javax.inject.Inject
 
-data class ForecastState(val loading: Boolean = true, val forecast: Forecast? = null, val error: String? = null, val noAccount: Boolean = false)
+data class ForecastState(
+    val loading: Boolean = true,
+    val forecast: Forecast? = null,
+    val error: String? = null,
+    val noAccount: Boolean = false,
+    val entries: List<CashflowEntry>? = null,     // F-02 가계부 회차(고칠 수 있는 줄) — 못 받으면 예보 줄만(읽기 전용)
+    val entriesError: String? = null,
+)
 
-/** F-01 · F-02 — 돌아올 때마다 새로(결제 · 계획 저장 · 지우기 뒤 바뀌므로) */
+/** F-01 · F-02 — 돌아올 때마다 새로(결제 · 계획 저장 · 지우기 · 추가 · 수정 뒤 바뀌므로) */
 @HiltViewModel
 class ForecastViewModel @Inject constructor(private val repo: ForecastRepository) : ViewModel() {
     private val _state = MutableStateFlow(ForecastState(forecast = repo.cached(), loading = repo.cached() == null))
     val state: StateFlow<ForecastState> = _state.asStateFlow()
 
     fun refresh() {
+        viewModelScope.launch { refreshForecast() }
+    }
+
+    /** F-02 — 예보(합계 · 카드대금)를 받은 뒤 같은 기간(오늘 ~ 다음 월급날)의 가계부 회차 */
+    fun refreshWithEntries() {
         viewModelScope.launch {
-            _state.update { it.copy(loading = it.forecast == null, error = null) }
-            when (val r = repo.forecast()) {
-                is ApiResult.Success -> _state.update { ForecastState(loading = false, forecast = r.data) }
-                is ApiResult.Failure -> _state.update {
-                    if (r.error.code == "BASE_ACCOUNT_NOT_SET") ForecastState(loading = false, noAccount = true)
-                    else it.copy(loading = false, error = r.error.userMessage())
-                }
+            refreshForecast()
+            val f = _state.value.forecast ?: return@launch
+            val from = f.from ?: LocalDate.now(KST)
+            val to = f.incomeDate ?: f.to ?: from.plusDays(30)
+            when (val r = repo.cashflowEntries(from, to)) {
+                is ApiResult.Success -> _state.update { it.copy(entries = r.data, entriesError = null) }
+                is ApiResult.Failure -> _state.update { it.copy(entriesError = r.error.userMessage()) }
+            }
+        }
+    }
+
+    private suspend fun refreshForecast() {
+        _state.update { it.copy(loading = it.forecast == null, error = null) }
+        when (val r = repo.forecast()) {
+            is ApiResult.Success -> _state.update { it.copy(loading = false, forecast = r.data, noAccount = false) }
+            is ApiResult.Failure -> _state.update {
+                if (r.error.code == "BASE_ACCOUNT_NOT_SET") ForecastState(loading = false, noAccount = true)
+                else it.copy(loading = false, error = r.error.userMessage())
             }
         }
     }
@@ -291,16 +319,43 @@ private fun EventRow(e: ForecastEvent) {
 
 // ───────────────────────── F-02 예정 수입 · 지출 ─────────────────────────
 
+/** F-02 한 줄 — 가계부 항목이면 눌러서 고치고(F-02b), 카드대금 · 월급 미리보기는 읽기 전용. 반복이면 날짜 옆에 '매월 말일'처럼 */
 @Composable
-fun CashflowListRoute(onBack: () -> Unit, onLink: () -> Unit = {}, viewModel: ForecastViewModel = hiltViewModel()) {
+private fun CashflowRowLine(row: CashflowRow, onClick: (() -> Unit)?) {
+    val c = YamuTheme.colors
+    ListRow(
+        title = row.title,
+        sub = listOfNotNull(row.date?.toMonthDayWeek(), row.repeatLabel).joinToString(" · "),
+        value = "${row.amount.toWon(withPlusSign = true)}원",
+        valueColor = if (row.amount > 0) c.primary else c.text1,
+        dense = true,
+        onClick = onClick,
+    )
+}
+
+@Composable
+fun CashflowListRoute(
+    onBack: () -> Unit,
+    onLink: () -> Unit = {},
+    onAdd: () -> Unit = {},
+    onEdit: (itemId: Long, occurrenceDate: LocalDate) -> Unit = { _, _ -> },
+    viewModel: ForecastViewModel = hiltViewModel(),
+) {
     val s by viewModel.state.collectAsStateWithLifecycle()
     LifecycleResumeEffect(Unit) {
-        viewModel.refresh()
+        viewModel.refreshWithEntries()   // 추가(F-02a) · 수정(F-02b)하고 돌아오면 새로
         onPauseOrDispose { }
     }
     val c = YamuTheme.colors
-    // 회색 바탕 + 카드: 요약 · 달마다 하나(프로토타입 F-02)
-    FlowScreen(title = "예정 수입·지출", onBack = onBack, cards = true) { inner ->
+    // 회색 바탕 + 카드: 요약 · 달마다 하나(프로토타입 F-02). 계좌를 이었을 때만 + (추가는 계좌 · 카드가 있어야 한다)
+    FlowScreen(
+        title = "예정 수입·지출",
+        onBack = onBack,
+        cards = true,
+        actions = {
+            if (!s.noAccount) IconButton(onClick = onAdd) { Icon(Icons.Rounded.Add, contentDescription = "예정 수입·지출 추가", tint = c.text1) }
+        },
+    ) { inner ->
         Column(Modifier.padding(inner).consumeWindowInsets(inner).fillMaxSize().verticalScroll(rememberScrollState())) {
             val f = s.forecast
             when {
@@ -312,14 +367,20 @@ fun CashflowListRoute(onBack: () -> Unit, onLink: () -> Unit = {}, viewModel: Fo
                 }
                 // 계좌를 아직 안 이었으면 오류가 아니라 빈 상태(F-01과 같은 문장 · 행동)
                 s.noAccount -> YamuCard { EmptyState("계좌를 연결하면 예정된 돈을 보여 드려요", actionText = "계좌 연결", onAction = onLink) }
-                f == null -> YamuCard { ErrorState(s.error ?: "예정된 돈을 불러오지 못했어요", onRetry = viewModel::refresh) }
+                f == null -> YamuCard { ErrorState(s.error ?: "예정된 돈을 불러오지 못했어요", onRetry = viewModel::refreshWithEntries) }
                 else -> {
+                    // 가계부 회차를 받았으면 그 줄(고칠 수 있음) + 카드대금, 못 받았으면 예보 줄만(읽기 전용)
+                    val entries = s.entries
+                    val rows = if (entries != null) cashflowRows(entries, f) else {
+                        val income = f.incomeDate?.takeIf { (f.incomeAmount ?: 0) > 0 }?.let { CashflowRow(it, f.incomeTitle, f.incomeAmount ?: 0, null, null) }
+                        (f.upcoming.map { CashflowRow(it.date, it.title, it.amount, null, null) } + listOfNotNull(income)).sortedBy { it.date }
+                    }
                     YamuCard {
                         Text("월급 전까지 나갈 돈", style = YamuTheme.typography.titleS, color = c.text2)
                         Spacer(Modifier.height(4.dp))
                         AmountText(f.scheduledOutflow)
                         Spacer(Modifier.height(4.dp))
-                        val outCount = f.upcoming.count { it.amount < 0 }
+                        val outCount = rows.count { it.amount < 0 }
                         Text(
                             listOfNotNull(
                                 if (f.from != null && f.to != null) "${f.from.toMonthDay()} ~ ${f.to.toMonthDay()}" else null,
@@ -329,16 +390,15 @@ fun CashflowListRoute(onBack: () -> Unit, onLink: () -> Unit = {}, viewModel: Fo
                             color = c.text2,
                         )
                     }
-                    // 월급(다음 수입)은 맨 끝에 — 예보 기간 다음 날
-                    val income = f.incomeDate?.let { ForecastEvent(it, f.incomeTitle, f.incomeAmount ?: 0, isPlan = false, planId = null, afterIncome = true) }
-                    val rows = (f.upcoming + listOfNotNull(income?.takeIf { (f.incomeAmount ?: 0) > 0 })).sortedBy { it.date }
-                    if (rows.isEmpty()) YamuCard { EmptyState("월급 전까지 예정된 돈이 없어요") }
-                    rows.groupBy { it.date?.monthValue }.forEach { (month, events) ->
+                    s.entriesError?.let { YamuCard { ErrorState("고칠 수 있는 목록을 불러오지 못했어요 · $it", onRetry = viewModel::refreshWithEntries) } }
+                    if (rows.isEmpty()) YamuCard { EmptyState("월급 전까지 예정된 돈이 없어요", actionText = "추가", onAction = onAdd) }
+                    rows.groupBy { it.date?.monthValue }.forEach { (month, monthRows) ->
                         YamuCard(contentPadding = PaddingValues(YamuSpacing.x4)) {
                             month?.let { Text("${it}월", style = YamuTheme.typography.cardTitle, color = c.text1) }
-                            events.forEachIndexed { i, e ->
+                            monthRows.forEachIndexed { i, row ->
                                 if (i > 0) HorizontalDivider(color = c.outlineVariant)
-                                EventRow(e)
+                                val entry = row.entry
+                                CashflowRowLine(row, onClick = entry?.let { { onEdit(it.itemId, it.occurrenceDate) } })
                             }
                         }
                     }
