@@ -297,8 +297,12 @@ public class AccountLinkService {
     private Linked linkAll(Long userId, List<AccountCandidate> selected, Long auditLogId, boolean allowNone) {
         LocalDateTime linkedAt = now();
         return transaction.execute(status -> {
-            userRepository.findByIdForUpdate(userId)
+            AppUser user = userRepository.findByIdForUpdate(userId)
                     .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND));
+            // 요청 시작 때 토큰 검사를 통과했어도 잠금을 기다리는 사이 탈퇴했을 수 있다. 탈퇴한 사용자에게 데이터를 다시 남기지 않는다.
+            if (user.isWithdrawn()) {
+                throw new BusinessException(ErrorCode.UNAUTHORIZED);
+            }
             List<LinkedRow> rows = new ArrayList<>();
             List<LinkedAccount> saved = new ArrayList<>();
             List<SkippedAccount> skipped = new ArrayList<>();

@@ -23,6 +23,9 @@ public interface LinkedAccountRepository extends JpaRepository<LinkedAccount, Lo
     /** 잔액 조회 대상 확인. 남의 계좌·해제한 계좌는 빠진다. */
     List<LinkedAccount> findByIdInAndUserIdAndStatus(Collection<Long> ids, Long userId, LinkedAccountStatus status);
 
+    /** 사용자의 계좌 전부(끊은 계좌 포함). 탈퇴 때 쓴다. */
+    List<LinkedAccount> findByUserId(Long userId);
+
     /** 지금 기준 계좌. 사용자당 최대 1개(uk_account_primary_owner). */
     List<LinkedAccount> findByUserIdAndPrimaryTrue(Long userId);
 }

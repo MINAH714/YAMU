@@ -51,6 +51,7 @@ import com.yamu.app.feature.link.data.CashflowDecision
 import com.yamu.app.feature.link.data.CashflowDraft
 import com.yamu.app.feature.link.data.CashflowPlan
 import com.yamu.app.feature.link.data.CashflowRepository
+import com.yamu.app.feature.link.data.monthlyDayLabel
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -218,7 +219,7 @@ fun CashflowConfirmRoute(onBack: () -> Unit, onSaved: () -> Unit, viewModel: Cas
                                 is FixedLine.Candidate -> CandidateRow(line.candidate, s, onClick = { viewModel.edit(CashflowEdit.Item(line.candidate)) })
                                 // 카드대금은 청구서에서 오는 값이라 고치지 않는다(설명은 읽어 주기에만)
                                 is FixedLine.Bill -> ListRow(
-                                    title = line.bill.title + (line.bill.dayOfMonth?.let { " · ${it}일" } ?: ""),
+                                    title = line.bill.title + (line.bill.dayOfMonth?.let { " · ${monthlyDayLabel(it)}" } ?: ""),
                                     value = (-line.bill.amount).toWon(),
                                     modifier = Modifier.semantics { contentDescription = "${line.bill.title}, 카드사 청구서에서 자동으로 넣어요" },
                                 )
@@ -261,7 +262,7 @@ private fun CandidateRow(candidate: CashflowCandidate, s: CashflowConfirmState, 
     val excluded = candidate.id in s.excluded
     val amount = s.amountOf(candidate)
     ListRow(
-        title = candidate.title + (candidate.dayOfMonth?.let { " · ${it}일" } ?: ""),
+        title = candidate.title + (candidate.dayOfMonth?.let { " · ${monthlyDayLabel(it)}" } ?: ""),
         sub = if (excluded) "빼 둠 · 눌러서 다시 넣기" else null,
         value = if (candidate.isIncome) amount.toWon(withPlusSign = true) else (-amount).toWon(),
         valueColor = when {
