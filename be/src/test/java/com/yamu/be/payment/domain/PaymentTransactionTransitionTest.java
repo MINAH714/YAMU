@@ -115,6 +115,44 @@ class PaymentTransactionTransitionTest {
         assertThatThrownBy(() -> fresh.decline("UNPAID_BILL")).isInstanceOf(IllegalStateException.class);
     }
 
+    // ───────── 출금 요청 번호·되돌리기(5.2.3) ─────────
+
+    @Test
+    void 출금_요청_번호는_PROCESSING에서_한_번만_받고_다음_시도가_시작되면_지워진다() {
+        PaymentTransaction payment = requested();
+        assertThatThrownBy(() -> payment.assignFinRequestNo("20261022143005000001"))
+                .isInstanceOf(IllegalStateException.class);
+
+        payment.startApproval(15L, 3L);
+        payment.assignFinRequestNo("20261022143005000001");
+        assertThat(payment.getFinRequestNo()).isEqualTo("20261022143005000001");
+        assertThatThrownBy(() -> payment.assignFinRequestNo("20261022143005000002"))
+                .isInstanceOf(IllegalStateException.class);
+
+        payment.decline("WITHDRAWAL_NOT_CONFIRMED");
+        payment.startApproval(16L, 4L);
+        assertThat(payment.getFinRequestNo()).isNull();
+        assertThat(payment.getFinTransactionNo()).isNull();
+    }
+
+    @Test
+    void 되돌리기는_PROCESSING을_REQUESTED로_바꾸고_번호와_사유를_지우되_카드는_남긴다() {
+        PaymentTransaction payment = requested();
+        payment.startApproval(15L, 3L);
+        payment.assignFinRequestNo("20261022143005000001");
+
+        payment.releaseApproval();
+
+        assertThat(payment.getStatus()).isEqualTo(PaymentStatus.REQUESTED);
+        assertThat(payment.getFinRequestNo()).isNull();
+        assertThat(payment.getFailureCode()).isNull();
+        assertThat(payment.getUserCardId()).isEqualTo(15L);
+        assertThat(payment.isConfirmable()).isTrue();
+
+        PaymentTransaction fresh = requested();
+        assertThatThrownBy(fresh::releaseApproval).isInstanceOf(IllegalStateException.class);
+    }
+
     private static PaymentTransaction requested() {
         return PaymentTransaction.request(7L, 1L, PaymentChannel.OFFLINE, FacilityType.GENERAL, null,
                 "4b4a1f4e-0d1e-4a1e-9b4e-5f7d2c1a0001", new byte[32], 15_000, 1, REQUESTED_AT);
