@@ -97,14 +97,11 @@ class ForecastMapperTest {
     @Test fun `계획 저장 본문 — 할부 · 미루기 · 이름 없음`() {
         val c = decision.toBuyCheck(null, 400_000, LocalDate.parse("2026-10-18"))
         val installment = c.options.first { it.method == BuyMethod.CREDIT_INSTALLMENT }.toPlanRequest("태블릿", 400_000)
-        assertEquals("INSTALLMENT", installment.plan)
-        assertEquals(3, installment.installmentMonths)
-        assertEquals("PURCHASE_PLAN", installment.kind)
+        assertEquals("EXPENSE", installment.type)
+        assertEquals(installment.userCardId != null, installment.accountId == null)
         val delay = c.delay!!.toPlanRequest(null, 400_000)
         assertEquals("구매 계획", delay.title)
         assertEquals("2026-11-10", delay.date)
-        assertEquals("LUMP_SUM", delay.plan)
-        assertNull(delay.installmentMonths)
     }
 
     @Test fun `날짜 표기`() {

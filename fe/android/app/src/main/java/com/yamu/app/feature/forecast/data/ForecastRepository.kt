@@ -2,6 +2,7 @@ package com.yamu.app.feature.forecast.data
 
 import com.yamu.app.core.format.parseDate
 import com.yamu.app.core.network.ApiEnvelope
+import com.yamu.app.core.network.ApiError
 import com.yamu.app.core.network.ApiResult
 import com.yamu.app.core.network.apiCall
 import com.yamu.app.core.network.apiCallNoData
@@ -11,6 +12,7 @@ import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
 import kotlinx.serialization.json.JsonElement
+import com.yamu.app.feature.link.data.LinkApi
 import retrofit2.Response
 import retrofit2.Retrofit
 import retrofit2.http.Body
@@ -58,7 +60,7 @@ interface ForecastRepository {
 }
 
 @Singleton
-class ForecastRepositoryImpl @Inject constructor(private val api: ForecastApi) : ForecastRepository {
+class ForecastRepositoryImpl @Inject constructor(private val api: ForecastApi, private val linkApi: LinkApi) : ForecastRepository {
 
     @Volatile private var last: Forecast? = null
     private val plans = ConcurrentHashMap<Long, SavedPlan>()
@@ -73,7 +75,12 @@ class ForecastRepositoryImpl @Inject constructor(private val api: ForecastApi) :
             .map { it.toBuyCheck(title, amount, purchaseDate) }
 
     override suspend fun savePlan(option: BuyOption, title: String?, amount: Long): ApiResult<SavedPlan> {
-        val body = option.toPlanRequest(title, amount)
+        val accountId = if (option.userCardId != null) null else when (val a = apiCall { linkApi.accounts(null) }) {
+            is ApiResult.Failure -> return a
+            is ApiResult.Success -> a.data.accounts.firstOrNull { it.isPrimary }?.accountId
+                ?: return ApiResult.Failure(ApiError.InvalidRequest("ACCOUNT_NOT_LINKED"))
+        }
+        val body = option.toPlanRequest(title, amount, accountId)
         return apiCall { api.savePlan(body) }.map { r ->
             SavedPlan(
                 id = r.cashflowItemId,

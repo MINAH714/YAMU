@@ -113,16 +113,17 @@ import kotlin.math.roundToInt
 
 @Serializable data class BaselineDto(val averageMonthly: Long? = null, val overRatio: Double? = null, val periodLabel: String? = null)
 
-/** #20 구매 계획 — kind PURCHASE_PLAN */
+/**
+ * #20 구매 계획 = POST /cashflow-items(BE CreateCashflowItemRequest). type · date는 필수, 계좌와 카드 중 하나만 보낸다.
+ * BE에 PURCHASE_PLAN · 할부 칸이 없어 일반 예정 지출로 저장된다
+ */
 @Serializable data class PurchasePlanRequest(
-    val kind: String = "PURCHASE_PLAN",
-    val type: String = "EXPENSE",
+    val type: String,
     val title: String,
     val amount: Long,
     val date: String,
+    val accountId: Long? = null,
     val userCardId: Long? = null,
-    val plan: String = "LUMP_SUM",
-    val installmentMonths: Int? = null,
 )
 
 @Serializable data class CashflowCreatedDto(
@@ -332,12 +333,12 @@ fun SpendingDecisionDto.toBuyCheck(title: String?, amount: Long, purchaseDate: L
     )
 }
 
-/** I-04 · I-02 [계획 저장] → #20 본문 */
-fun BuyOption.toPlanRequest(title: String?, amount: Long) = PurchasePlanRequest(
+/** I-04 · I-02 [계획 저장] → #20 본문. 카드가 없는 선택지(현금 · 계좌)는 [accountId]로 나간다 */
+fun BuyOption.toPlanRequest(title: String?, amount: Long, accountId: Long? = null) = PurchasePlanRequest(
+    type = "EXPENSE",
     title = title?.takeIf { it.isNotBlank() }?.take(30) ?: "구매 계획",
     amount = amount,
     date = date.toString(),
+    accountId = accountId.takeIf { userCardId == null },
     userCardId = userCardId,
-    plan = if (method == BuyMethod.CREDIT_INSTALLMENT) "INSTALLMENT" else "LUMP_SUM",
-    installmentMonths = months.takeIf { method == BuyMethod.CREDIT_INSTALLMENT },
 )
