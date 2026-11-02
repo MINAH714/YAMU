@@ -55,6 +55,8 @@ class FakeSignupRepository @Inject constructor(
         private set
     override var termsAgreed = false
     override var recoveryBiometric = false
+    override var pinStaged = false
+        private set
 
     override suspend fun requestCode(name: String, birthDate: LocalDate, carrier: Carrier, phoneNumber: String): ApiResult<CodeSent> {
         delay(500)
@@ -83,6 +85,7 @@ class FakeSignupRepository @Inject constructor(
         sentCode = null
         val m = pendingMode ?: return ApiResult.Failure(ApiError.NotFound("DEMO_USER_NOT_FOUND"))
         token = "sgt_fake_${Random.nextInt()}"
+        pinStaged = false
         mode = m
         name = pendingName
         oneWonSent = false
@@ -156,6 +159,7 @@ class FakeSignupRepository @Inject constructor(
             return ApiResult.Failure(ApiError.Conflict("SIGNUP_STEP_INCOMPLETE", buildJsonObject { put("nextStep", "ACCOUNT_LINK") }))
         }
         FakePin.value = pin
+        if (mode == SignupMode.DEVICE_RECOVERY) pinStaged = true
         return ApiResult.Success(Unit)
     }
 
@@ -177,6 +181,7 @@ class FakeSignupRepository @Inject constructor(
 
     override fun clear() {
         token = null
+        pinStaged = false
         mode = null
         name = null
         pendingName = null

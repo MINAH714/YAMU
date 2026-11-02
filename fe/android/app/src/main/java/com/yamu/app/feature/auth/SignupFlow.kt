@@ -399,6 +399,9 @@ fun PhoneVerifyRoute(onBack: () -> Unit, onNext: (SignupNext) -> Unit, viewModel
 class RecoveryIntroViewModel @Inject constructor(private val signup: SignupRepository, auth: AuthRepository) : ViewModel() {
     val name: String? = signup.name
     val canUseBiometric: Boolean = auth.canUseBiometric()
+
+    /** 새 PIN을 이미 맡겼나 — 서버에 취소 방법이 없어 '쓰던 비밀번호'를 고를 수 없다. 뒤로 돌아올 때 다시 읽는다 */
+    val pinStaged: Boolean get() = signup.pinStaged
     private val _biometric = MutableStateFlow(canUseBiometric)
     val biometric: StateFlow<Boolean> = _biometric.asStateFlow()
 
@@ -421,13 +424,13 @@ fun RecoveryIntroRoute(onBack: () -> Unit, onKeepPin: () -> Unit, onNewPin: () -
         bottomBar = {
             BottomCta(
                 secondary = {
-                    NeutralButton("간편 비밀번호 새로 만들기", onClick = {
+                    NeutralButton(if (viewModel.pinStaged) "간편 비밀번호 다시 만들기" else "간편 비밀번호 새로 만들기", onClick = {
                         viewModel.commit()
                         onNewPin()
                     })
                 },
             ) {
-                PrimaryButton("쓰던 간편 비밀번호로 계속", onClick = {
+                PrimaryButton(if (viewModel.pinStaged) "새로 만든 간편 비밀번호로 계속" else "쓰던 간편 비밀번호로 계속", onClick = {
                     viewModel.commit()
                     onKeepPin()
                 })

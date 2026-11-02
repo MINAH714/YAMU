@@ -146,6 +146,9 @@ interface SignupRepository {
     /** 재등록 때 지문 키를 같이 등록할지(A-08에서 고름) */
     var recoveryBiometric: Boolean
 
+    /** 재등록에서 새 PIN을 서버에 맡겼나 — 이 본인인증 동안은 기기 등록 때 그 PIN이 적용된다 */
+    val pinStaged: Boolean
+
     suspend fun requestCode(name: String, birthDate: LocalDate, carrier: Carrier, phoneNumber: String): ApiResult<CodeSent>
     suspend fun confirmCode(verificationId: String, code: String): ApiResult<SignupMode>
     suspend fun candidates(): ApiResult<List<AccountCandidate>>
@@ -189,6 +192,8 @@ class SignupRepositoryImpl @Inject constructor(
         private set
     override var termsAgreed: Boolean = false
     override var recoveryBiometric: Boolean = false
+    override var pinStaged: Boolean = false
+        private set
 
     override suspend fun requestCode(name: String, birthDate: LocalDate, carrier: Carrier, phoneNumber: String): ApiResult<CodeSent> {
         pendingName = name.trim()
@@ -205,6 +210,7 @@ class SignupRepositoryImpl @Inject constructor(
             linkKey = null
             lastRequest = null
             oneWon = null
+            pinStaged = false
             mode!!
         }
 
@@ -245,7 +251,9 @@ class SignupRepositoryImpl @Inject constructor(
     }
 
     override suspend fun setPin(pin: String): ApiResult<Unit> =
-        withToken { bearer -> apiCallNoData { api.setPin(bearer, PinRequest(pin)) } }
+        withToken { bearer -> apiCallNoData { api.setPin(bearer, PinRequest(pin)) } }.also {
+            if (it is ApiResult.Success && mode == SignupMode.DEVICE_RECOVERY) pinStaged = true
+        }
 
     override suspend fun registerDevice(biometric: Boolean): ApiResult<Unit> = register(biometric, null, null)
 
@@ -276,6 +284,7 @@ class SignupRepositoryImpl @Inject constructor(
         oneWon = null
         termsAgreed = false
         recoveryBiometric = false
+        pinStaged = false
     }
 
     /** 가입 진행 토큰을 붙여 부른다. 토큰이 없거나 서버가 거절하면 진행 상태를 지운다 */
