@@ -80,6 +80,12 @@ data class CashflowCandidate(
 /** 카드대금 — 카드사 청구서에서 자동 반영이라 고치지 않는 줄 */
 data class BillLine(val title: String, val amount: Long, val dayOfMonth: Int?)
 
+/**
+ * 매월 반복일 표시 — 'N일', 31은 '말일'. 서버 규칙(7.1.6)에서 31은 '31일이 없는 달은 말일'이라 매월 말일 반복이다.
+ * 실제 회차 날짜는 서버가 계산한 값을 쓰고, 여기서는 반복 기준일만 글자로 바꾼다
+ */
+fun monthlyDayLabel(dayOfMonth: Int): String = if (dayOfMonth >= 31) "말일" else "${dayOfMonth}일"
+
 data class CashflowDraft(
     val income: CashflowCandidate?,
     val expenses: List<CashflowCandidate>,

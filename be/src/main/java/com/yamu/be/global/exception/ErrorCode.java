@@ -112,6 +112,10 @@ public enum ErrorCode {
     /* 잔고예보 - 조회 (API 명세 「잔고예보 조회」). accountIds 누락 또는 빈 선택 */
     ACCOUNT_SELECTION_REQUIRED(HttpStatus.BAD_REQUEST, "잔고예보에 사용할 계좌를 하나 이상 선택해 주세요."),
 
+    /* 결제 - POS 결제 요청 생성·결제 승인 요청 (API 명세 각 페이지). 금액·할부 규칙은 POL-013 */
+    INVALID_AMOUNT(HttpStatus.BAD_REQUEST, "결제 금액은 1원 이상 정수로 보내 주세요."),
+    INVALID_INSTALLMENT(HttpStatus.BAD_REQUEST, "할부는 신용카드로 50,000원 이상, 2~12개월만 가능합니다."),
+
     /* 공통 - Spring MVC가 분류하는 요청 오류. 명세서 1장에 추가 필요 */
     API_NOT_FOUND(HttpStatus.NOT_FOUND, "요청한 API를 찾을 수 없습니다."),
     METHOD_NOT_ALLOWED(HttpStatus.METHOD_NOT_ALLOWED, "지원하지 않는 HTTP 메서드입니다."),

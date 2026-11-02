@@ -60,7 +60,8 @@ import org.testcontainers.utility.DockerImageName;
  * 사용자 명의 카드는 시드처럼 user_card PENDING 행(카드번호 암호문·조회 해시)과 카드사가 정한 계좌·결제일로 미리 넣는다.
  */
 @AutoConfigureMockMvc
-@TestPropertySource(properties = "spring.application.name=yamu-card-register-integration-test")
+@TestPropertySource(properties = {"spring.application.name=yamu-card-register-integration-test",
+        "yamu.card-image.base-url=https://images.example.com/"})
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 class CardRegistrationIntegrationTest extends MySqlTestSupport {
 
@@ -102,6 +103,8 @@ class CardRegistrationIntegrationTest extends MySqlTestSupport {
 
     @Test
     void 체크카드를_확인하면_카드사가_정한_계좌를_보여_주고_등록하면_그_계좌로_연결된다() throws Exception {
+        jdbc.update("UPDATE card_product SET image_key='cards/shinhan/static-front/check.png' WHERE card_product_id=?",
+                checkProduct);
         Member member = member(StepUpPurpose.CARD_REGISTER);
         long account = account(member.userId(), "5934");
         long card = pendingCard(member.userId(), checkProduct, CHECK_NO, "5934", null);
@@ -113,6 +116,8 @@ class CardRegistrationIntegrationTest extends MySqlTestSupport {
                 .andExpect(jsonPath("$.data.issuer.closingDayOffset").doesNotExist())
                 .andExpect(jsonPath("$.data.product.cardProductId").value(checkProduct))
                 .andExpect(jsonPath("$.data.product.cardType").value("CHECK"))
+                .andExpect(jsonPath("$.data.product.imageUrl")
+                        .value("https://images.example.com/cards/shinhan/static-front/check.png"))
                 .andExpect(jsonPath("$.data.maskedNumber").value("9410-****-****-5678"))
                 .andExpect(jsonPath("$.data.holderMatched").value(true))
                 .andExpect(jsonPath("$.data.hasPriorHistory").value(false))
@@ -133,6 +138,8 @@ class CardRegistrationIntegrationTest extends MySqlTestSupport {
                 .andExpect(jsonPath("$.data.userCardId").value(card))
                 .andExpect(jsonPath("$.data.nickname").value("신한 카페 체크"))
                 .andExpect(jsonPath("$.data.productName").value("신한 카페 체크"))
+                .andExpect(jsonPath("$.data.imageUrl")
+                        .value("https://images.example.com/cards/shinhan/static-front/check.png"))
                 .andExpect(jsonPath("$.data.cardType").value("CHECK"))
                 .andExpect(jsonPath("$.data.maskedNumber").value("9410-****-****-5678"))
                 .andExpect(jsonPath("$.data.status").value("ACTIVE"))
@@ -169,6 +176,8 @@ class CardRegistrationIntegrationTest extends MySqlTestSupport {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.issuer.closingDayOffset").value(14))
                 .andExpect(jsonPath("$.data.product.cardType").value("CREDIT"))
+                .andExpect(jsonPath("$.data.product.imageUrl").hasJsonPath())
+                .andExpect(jsonPath("$.data.product.imageUrl").value(org.hamcrest.Matchers.nullValue()))
                 .andExpect(jsonPath("$.data.issuerAccount.maskedAccountNo").value("****-****-****-1111"))
                 .andExpect(jsonPath("$.data.issuerAccount.linkedAccountId").value(settlement))
                 .andExpect(jsonPath("$.data.paymentDay").value(25))
@@ -177,6 +186,8 @@ class CardRegistrationIntegrationTest extends MySqlTestSupport {
         register(member, member.stepUpToken(), "{\"verificationToken\":\"" + token + "\",\"nickname\":\" 생활비 카드 \"}")
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.data.nickname").value("생활비 카드"))
+                .andExpect(jsonPath("$.data.imageUrl").hasJsonPath())
+                .andExpect(jsonPath("$.data.imageUrl").value(org.hamcrest.Matchers.nullValue()))
                 .andExpect(jsonPath("$.data.cardType").value("CREDIT"))
                 .andExpect(jsonPath("$.data.linkedAccountId").value(settlement))
                 .andExpect(jsonPath("$.data.billing.paymentDay").value(25))
