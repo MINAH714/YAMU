@@ -27,6 +27,7 @@ import com.yamu.app.feature.auth.data.AuthRepository
 import com.yamu.app.feature.auth.data.StepUpPurpose
 import com.yamu.app.navigation.PinPad
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -115,14 +116,19 @@ class PinPadViewModel @Inject constructor(
     }
 
     private fun fail(error: ApiError) {
+        val lockMillis = error.lockMillis()
         _state.update {
             it.copy(
                 busy = false,
                 input = "",
                 error = error.authMessage(),
-                locked = error.code == "DEVICE_LOCKED",
+                locked = lockMillis != null,
                 shuffleKey = it.shuffleKey + 1,
             )
+        }
+        if (lockMillis != null) viewModelScope.launch {
+            delay(lockMillis)
+            _state.update { it.copy(locked = false, error = null) }
         }
     }
 }
