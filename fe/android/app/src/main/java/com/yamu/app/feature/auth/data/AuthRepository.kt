@@ -16,6 +16,8 @@ import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonElement
 import retrofit2.Response
 import retrofit2.Retrofit
@@ -87,6 +89,8 @@ interface AuthRepository {
 /** 서버에서 이 기기가 없어졌다(해제 · 사용자 상태 변경) — 첫 화면에서 다시 시작 */
 const val DEVICE_NOT_REGISTERED = "DEVICE_NOT_REGISTERED"
 
+private const val KEY_SIGN_FAILED = "KEY_SIGN_FAILED"
+
 /** 기기 등록이 서버에서 거절됐다고 확정할 수 있나. 시간 초과 · 연결 끊김은 서버가 끝냈을 수 있어 아니다(다음 로그인 응답으로 맞춘다) */
 internal fun ApiError.keyNotOnServer(): Boolean = this !is ApiError.Network
 
@@ -131,13 +135,18 @@ class AuthRepositoryImpl @Inject constructor(
     }
 
     override suspend fun loginWithPin(challenge: StepUpChallenge, pin: String): ApiResult<LoginResult> {
-        val signature = deviceKeys.signWithDeviceKey(challenge.challenge)
+        val signature = signWithDeviceKey(challenge.challenge)
+            .getOrElse { return ApiResult.Failure(ApiError.Unknown(KEY_SIGN_FAILED)) }
         if (signature == null) {
             forgetDevice()
             return ApiResult.Failure(ApiError.Unauthorized(DEVICE_NOT_REGISTERED))
         }
         return login(challenge, AuthMethod.PIN, signature, pin)
     }
+
+    /** Keystore 서명은 메인 스레드 밖에서. 잠깐의 Keystore 오류로 기기 등록을 지우지 않게 '키 없음(null)'과 구분한다 */
+    private suspend fun signWithDeviceKey(challenge: String): Result<String?> =
+        withContext(Dispatchers.Default) { runCatching { deviceKeys.signWithDeviceKey(challenge) } }
 
     override suspend fun loginWithBiometric(challenge: StepUpChallenge, signatureBase64: String): ApiResult<LoginResult> =
         login(challenge, AuthMethod.BIOMETRIC, signatureBase64, pin = null)
@@ -172,8 +181,8 @@ class AuthRepositoryImpl @Inject constructor(
 
     /** 기기 키는 있으면 그대로(없으면 만든다), 지문 키는 켤 때마다 새로 만든다 */
     private suspend fun sendDevice(biometric: Boolean, stepUpToken: String?): ApiResult<Unit> {
-        val keys = runCatching {
-            deviceKeys.devicePublicKey() to (if (biometric) deviceKeys.createBiometricKey() else null)
+        val keys = withContext(Dispatchers.Default) {   // 키 생성은 화면이 멈출 만큼 걸릴 수 있다
+            runCatching { deviceKeys.devicePublicKey() to (if (biometric) deviceKeys.createBiometricKey() else null) }
         }.getOrElse { return ApiResult.Failure(ApiError.Unknown("KEY_CREATE_FAILED")) }
         val body = DeviceRequest(
             deviceId = sessionStore.deviceId(),
@@ -212,10 +221,15 @@ class AuthRepositoryImpl @Inject constructor(
             .map { StepUpToken(it.stepUpToken, it.purpose) }
 
     override suspend fun verifyPin(challenge: StepUpChallenge, pin: String): ApiResult<StepUpToken> {
-        val signature = deviceKeys.signWithDeviceKey(challenge.challenge)
-            ?: return ApiResult.Failure(ApiError.Unauthorized(DEVICE_NOT_REGISTERED))
-        return apiCall { api.verify(VerifyRequest(challenge.challengeId, AuthMethod.PIN, signature, pin)) }
-            .map { StepUpToken(it.stepUpToken, it.purpose) }
+        val signature = signWithDeviceKey(challenge.challenge)
+            .getOrElse { return ApiResult.Failure(ApiError.Unknown(KEY_SIGN_FAILED)) }
+        if (signature == null) {
+            forgetDeviceInSession()
+            return ApiResult.Failure(ApiError.Unauthorized(DEVICE_NOT_REGISTERED))
+        }
+        val r = apiCall { api.verify(VerifyRequest(challenge.challengeId, AuthMethod.PIN, signature, pin)) }
+        if (r is ApiResult.Failure && r.error.code == DEVICE_NOT_REGISTERED) forgetDeviceInSession()
+        return r.map { StepUpToken(it.stepUpToken, it.purpose) }
     }
 
     override suspend fun completeOnboarding() = sessionStore.setOnboardingCompleted(true)
@@ -225,6 +239,12 @@ class AuthRepositoryImpl @Inject constructor(
         tokenStore.clear()
         sessionStore.clear()
         deviceKeys.deleteAll()
+    }
+
+    /** 로그인한 채로 기기가 없어졌을 때 — 지운 뒤 로그인 화면을 거쳐 첫 화면으로 */
+    private suspend fun forgetDeviceInSession() {
+        forgetDevice()
+        tokenStore.notifySessionExpired()
     }
 }
 
