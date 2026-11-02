@@ -39,7 +39,8 @@ final class LivingCostEstimator {
      * 선택 계좌마다 생활비를 추정하고 통합 값을 더한다.
      *
      * @param accountIds 선택 계좌(결과 순서)
-     * @param days       일별 생활 소비 합계. 선택하지 않은 계좌의 줄과 완료 3개월보다 앞선 날의 줄은 무시한다
+     * @param days       일별 생활 소비 합계. 선택하지 않은 계좌의 줄은 무시하고, 완료 3개월보다 앞선 날의 줄은
+     *                   계약 위반(음수·중복 등)만 검사한 뒤 계산에 쓰지 않는다. 체크카드 몫은 검사만 하고 AVG_3M에는 쓰지 않는다
      * @param today      한국 날짜 오늘. 완료 3개월과 이번 달을 정한다
      * @return 계좌별·통합 추정
      */
@@ -57,6 +58,9 @@ final class LivingCostEstimator {
             // 예외 메시지는 전역 예외 로그에 남으므로 계좌·날짜·소비액을 넣지 않는다.
             if (row.amount() < 0) {
                 throw new IllegalStateException("생활비 원천이 음수 소비 합계를 줬다.");
+            }
+            if (row.checkCardAmount() < 0 || row.checkCardAmount() > row.amount()) {
+                throw new IllegalStateException("생활비 원천의 체크카드 몫이 0원보다 작거나 그날 합계보다 크다.");
             }
             if (row.date().isAfter(today)) {
                 throw new IllegalStateException("생활비 원천이 오늘보다 뒤 날짜의 줄을 줬다.");

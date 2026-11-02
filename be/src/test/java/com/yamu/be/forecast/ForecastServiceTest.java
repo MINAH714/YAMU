@@ -485,7 +485,8 @@ class ForecastServiceTest {
     private static List<DailySpending> real(Long accountId, YearMonth month, long amount) {
         List<DailySpending> rows = new ArrayList<>();
         for (int day = 1; day <= month.lengthOfMonth(); day++) {
-            rows.add(new DailySpending(accountId, month.atDay(day), day == 1 ? amount : 0, Origin.REAL, true));
+            long dayAmount = day == 1 ? amount : 0;
+            rows.add(new DailySpending(accountId, month.atDay(day), dayAmount, dayAmount, Origin.REAL, true));
         }
         return rows;
     }
