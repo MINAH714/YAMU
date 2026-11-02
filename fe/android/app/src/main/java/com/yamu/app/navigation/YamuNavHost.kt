@@ -159,7 +159,8 @@ fun YamuNavHost(navController: NavHostController, modifier: Modifier = Modifier)
                 PinSetupRoute(
                     onBack = back,
                     onFinished = { navController.navigate(SignupDone) { popUpTo<AuthGraph> { inclusive = false } } },
-                    onRecoveryPinSet = { navController.navigate(SignupAccounts) },
+                    // PIN 화면을 스택에서 빼서 뒤로 가면 A-08로 돌아간다(남겨 두면 완료 상태가 다시 계좌 화면으로 보낸다)
+                    onRecoveryPinSet = { navController.navigate(SignupAccounts) { popUpTo<RecoveryIntro> { inclusive = false } } },
                     onRestart = restartSignup,
                 )
             }
