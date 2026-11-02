@@ -283,7 +283,7 @@ class FakeCashflowRepository @Inject constructor() : CashflowRepository {
             CashflowDraft(
                 income = CashflowCandidate(301, isIncome = true, title = "월급", amount = 2_800_000, dayOfMonth = 10),
                 expenses = listOf(
-                    CashflowCandidate(302, false, "월세", 250_000, 25),
+                    CashflowCandidate(302, false, "월세", 250_000, 31),   // 매월 말일(서버 기준일 31) — B-06 '월세 · 말일'
                     CashflowCandidate(303, false, "통신비", 35_000, 27),
                     CashflowCandidate(304, false, "구독료", 15_000, 1),
                 ),
