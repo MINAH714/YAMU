@@ -26,6 +26,9 @@ class EmbeddedHolidaysTest {
 
     // ───────── 저장소에 넣은 파일 ─────────
 
+    // 실제 파일을 load로 읽으므로, 파일이 깨졌거나 빠지면 빌드 테스트에서 실패해 배포 전에 잡힌다.
+    // (실행 중에는 읽지 못해도 서버가 뜬다. CalendarConfigTest)
+
     // 새 해의 파일을 넣으면 그 해의 날짜 목록·합계 테스트를 아래에 추가한다(docs/be/holiday.md). 있는 해의 테스트는 그대로 통과한다.
 
     @Test
@@ -99,7 +102,7 @@ class EmbeddedHolidaysTest {
         assertThat(only2026.holidaysOf(2027)).isEmpty();
     }
 
-    // ───────── 잘못된 파일은 서버가 뜨지 않게 한다 ─────────
+    // ───────── 잘못된 파일은 읽기가 실패한다 ─────────
 
     @Test
     void 파일이_하나도_없으면_실패한다() {

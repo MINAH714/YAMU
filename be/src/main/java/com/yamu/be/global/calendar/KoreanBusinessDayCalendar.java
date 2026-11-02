@@ -16,6 +16,9 @@ import lombok.extern.slf4j.Slf4j;
  *
  * <p>공휴일 데이터가 없는 해(아직 발표 전)는 주말만 쉬는 날로 보고 해마다 한 번 경고를 남긴다. 그래서 그 해의 날짜로
  * 미리 계산해 저장한 값은 예정일로 보고, 확정하는 시점에 다시 계산한다(docs/be/holiday.md).
+ *
+ * <p>공휴일 파일을 읽지 못했으면 평일을 물을 때 {@link HolidayDataUnavailableException}이 그대로 올라간다.
+ * 토·일은 데이터 없이도 쉬는 날이 확실하므로 그대로 false다.
  */
 @Slf4j
 public class KoreanBusinessDayCalendar implements BusinessDayCalendar {
