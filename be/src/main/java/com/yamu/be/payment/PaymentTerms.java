@@ -78,4 +78,17 @@ public record PaymentTerms(long amount, PaymentPlan plan, Integer installmentMon
     public boolean allows(CardType cardType) {
         return !isInstallment() || cardType == CardType.CREDIT;
     }
+
+    /**
+     * 지금 빠지거나 청구에 올라갈 금액(명세의 chargedAmount): 결제 금액 − 승인 때 바로 반영되는 즉시할인. 0원 아래로 내려가지 않는다.
+     * 추천 결과가 아니라 결제 쪽이 이 조건으로 계산한다. 청구할인·캐시백·적립은 빼지 않는다.
+     *
+     * @param instantDiscount 즉시할인 합계(원, 0 이상). 혜택을 적용하지 않는 결제(혜택 미확인 카드를 직접 고른 경우 등)는 0
+     */
+    public long chargedAmount(long instantDiscount) {
+        if (instantDiscount < 0) {
+            throw new IllegalArgumentException("즉시할인은 0원 이상이어야 한다: " + instantDiscount);
+        }
+        return Math.max(0, amount - instantDiscount);
+    }
 }
