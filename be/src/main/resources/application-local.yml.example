@@ -37,5 +37,6 @@ yamu:
   fin-api:
     api-key:
   # 모의 POS 웹(fe/pos)이 보내는 X-POS-Key. 로컬 전용 값이며 fe/pos의 .env에도 같은 값을 넣는다. 비워 두면 POS 결제 요청이 401이다.
+  # 데모용 인증: fe/pos는 브라우저 앱이라 이 키가 빌드된 JS에 그대로 들어간다. 키는 하나이고 posCode와 묶이지 않으며 호출 횟수 제한도 없다.
   pos:
     key: ${YAMU_POS_KEY:local-pos-key}

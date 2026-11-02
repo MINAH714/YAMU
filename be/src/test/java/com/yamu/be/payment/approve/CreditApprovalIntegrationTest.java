@@ -246,6 +246,25 @@ class CreditApprovalIntegrationTest extends MySqlTestSupport {
     }
 
     @Test
+    void 기억된_응답이_없어도_같은_키_재전송은_시도_기록에서_청구_회차까지_같은_응답이다() throws Exception {
+        Requested requested = requested(100_000, 3);
+        String key = UUID.randomUUID().toString();
+        String first = approve(requested.paymentId(), key, body(creditCard))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.billItems.length()").value(3))
+                .andReturn().getResponse().getContentAsString();
+        // 응답 기억이 사라졌다(Redis 쓰기 실패·보관 종료). 시도 기록이 tx2 뒤 회차를 채운 응답을 갖고 있어야 한다
+        redis.delete(ApprovalIdempotencyStore.KEY_PREFIX + user + ":" + key);
+
+        String replayed = approve(requested.paymentId(), key, body(creditCard))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+
+        assertThat(json.readTree(replayed).get("data")).isEqualTo(json.readTree(first).get("data"));
+        assertThat(items.findByPaymentTransactionIdOrderByInstallmentNoAsc(requested.paymentId())).hasSize(3);
+    }
+
+    @Test
     void 같은_카드로_같은_달에_두_번_결제하면_청구서_하나에_회차가_붙는다() throws Exception {
         Requested first = requested(15_000, null);
         Requested second = requested(20_000, null);

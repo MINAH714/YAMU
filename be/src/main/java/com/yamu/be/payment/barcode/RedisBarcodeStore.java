@@ -157,18 +157,14 @@ class RedisBarcodeStore implements BarcodeStore {
     }
 
     @Override
-    public ScanResult scan(String token, Long paymentId, Duration retention) {
+    public ScanResult scan(String token, Long userId, Long paymentId, Instant now, Duration retention) {
         if (!BarcodeTokenGenerator.isWellFormed(token)) {
             return ScanResult.NOT_FOUND;
         }
-        Barcode owner = find(token).orElse(null);
-        if (owner == null) {
-            return ScanResult.NOT_FOUND;
-        }
         Long result = redis.execute(SCAN_SCRIPT,
-                List.of(KEY_PREFIX + token, USER_KEY_PREFIX + owner.userId(), PAYMENT_KEY_PREFIX + paymentId),
+                List.of(KEY_PREFIX + token, USER_KEY_PREFIX + userId, PAYMENT_KEY_PREFIX + paymentId),
                 paymentId.toString(),
-                Long.toString(Instant.now().toEpochMilli()),
+                Long.toString(now.toEpochMilli()),
                 Long.toString(retention.toMillis()),
                 token);
         if (result == null) {

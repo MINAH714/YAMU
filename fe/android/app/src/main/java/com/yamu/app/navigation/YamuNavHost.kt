@@ -14,15 +14,18 @@ import com.yamu.app.core.ui.LocalSnackbar
 import com.yamu.app.core.ui.findActivity
 import androidx.activity.compose.BackHandler
 import androidx.compose.ui.platform.LocalContext
-import com.yamu.app.feature.auth.LoginRoute
+import com.yamu.app.feature.auth.PinLoginRoute
 import com.yamu.app.feature.auth.PinPadRoute
 import com.yamu.app.feature.auth.PinSetupRoute
 import com.yamu.app.feature.auth.SignupDoneRoute
-import com.yamu.app.feature.auth.SignupInfoRoute
+import com.yamu.app.feature.auth.PhoneVerifyRoute
+import com.yamu.app.feature.auth.RecoveryIntroRoute
+import com.yamu.app.feature.auth.SignupAccountsRoute
+import com.yamu.app.feature.auth.SignupNext
+import com.yamu.app.feature.auth.SignupOneWonRoute
+import com.yamu.app.feature.auth.TermsRoute
+import com.yamu.app.feature.auth.WelcomeRoute
 import com.yamu.app.feature.auth.SplashRoute
-import com.yamu.app.feature.auth.TermsScreen
-import com.yamu.app.feature.auth.UnlockRoute
-import com.yamu.app.feature.auth.WelcomeScreen
 import com.yamu.app.feature.auth.data.SessionStart
 import kotlinx.coroutines.launch
 import com.yamu.app.feature.debug.DebugMenuScreen
@@ -81,7 +84,6 @@ fun YamuNavHost(navController: NavHostController, modifier: Modifier = Modifier)
                 onDecided = { start ->
                     val target: Any = when (start) {
                         SessionStart.Welcome -> AuthGraph
-                        SessionStart.Unlock -> Unlock
                         SessionStart.Login -> Login
                     }
                     navController.navigate(target) { popUpTo<Splash> { inclusive = true } }
@@ -92,40 +94,74 @@ fun YamuNavHost(navController: NavHostController, modifier: Modifier = Modifier)
         // ── 시작 · 가입 · 로그인 (4단계: 실제 화면 — 08 문서) ──
         navigation<AuthGraph>(startDestination = Welcome) {
             composable<Welcome> {
-                WelcomeScreen(
+                WelcomeRoute(
                     onStart = { navController.navigate(Terms) },
-                    onLogin = { navController.navigate(Login) },
+                    onLogin = { navController.navigate(IdentityVerify) },   // 이 폰에 기기가 없을 때 = 본인인증 → 기기 재등록
                     onDebugMenu = debugMenu,
                 )
             }
             composable<Login> {
-                LoginRoute(
-                    onBack = if (navController.previousBackStackEntry != null) back else null,
+                PinLoginRoute(
                     onLoggedIn = { done -> navController.finishAuth(done) },
-                    onSignup = { navController.navigate(Terms) },
-                    onFindPassword = { showMessage("비밀번호 찾기는 준비 중이에요") },
-                )
-            }
-            composable<Unlock> {
-                UnlockRoute(
-                    onUnlocked = { done -> navController.finishAuth(done) },
-                    onEmailLogin = { navController.navigate(Login) },
+                    onNoDevice = { navController.toWelcome() },
                     onDebugMenu = debugMenu,
                 )
             }
             composable<Terms> {
-                TermsScreen(onBack = back, onAgree = { navController.navigate(IdentityVerify) }, onOpenTerm = { showMessage("약관 전문은 준비 중이에요") })
+                TermsRoute(
+                    onBack = back,
+                    onVerify = { navController.navigate(IdentityVerify) },
+                    onAccounts = { navController.navigate(SignupAccounts) },   // 로그인으로 들어와 본인인증을 이미 마친 가입
+                    onOpenTerm = { showMessage("약관 전문은 준비 중이에요") },
+                )
+            }
+            // 가입 진행 토큰 만료 · 앱이 다시 켜져 진행 상태가 없음 → 본인인증부터
+            val restartSignup: () -> Unit = {
+                navController.navigate(IdentityVerify) { popUpTo<Welcome> { inclusive = false } }
+                showMessage("시간이 지났어요 · 본인인증부터 다시 해 주세요")
             }
             composable<IdentityVerify> {
-                SignupInfoRoute(
+                PhoneVerifyRoute(
                     onBack = back,
-                    onSignedUp = { navController.navigate(PinSetup) { popUpTo<Welcome> { inclusive = false } } },
+                    onNext = { next ->
+                        val target: Any = when (next) {
+                            SignupNext.TERMS -> Terms
+                            SignupNext.ACCOUNTS -> SignupAccounts
+                            SignupNext.RECOVERY -> RecoveryIntro
+                        }
+                        navController.navigate(target)
+                    },
+                )
+            }
+            composable<RecoveryIntro> {
+                RecoveryIntroRoute(
+                    onBack = back,
+                    onKeepPin = { navController.navigate(SignupAccounts) },
+                    onNewPin = { navController.navigate(PinSetup) },
+                )
+            }
+            composable<SignupAccounts> {
+                SignupAccountsRoute(onBack = back, onSent = { navController.navigate(SignupOneWon) }, onRestart = restartSignup)
+            }
+            composable<SignupOneWon> {
+                SignupOneWonRoute(
+                    onBack = back,
+                    // 계좌 연결이 끝나면 1원 · 계좌 화면으로 돌아가지 않게
+                    onLinked = { navController.navigate(PinSetup) { popUpTo<IdentityVerify> { inclusive = false } } },
+                    onRecovered = {
+                        navController.navigate(Login) { popUpTo(navController.graph.id) { inclusive = true } }
+                        showMessage("이 폰을 등록했어요 · 간편 비밀번호로 로그인해 주세요")
+                    },
+                    onRestart = restartSignup,
                 )
             }
             composable<PinSetup> {
                 PinSetupRoute(
                     onBack = back,
                     onFinished = { navController.navigate(SignupDone) { popUpTo<AuthGraph> { inclusive = false } } },
+                    // PIN 화면을 스택에서 빼서 뒤로 가면 A-08로 돌아간다(남겨 두면 완료 상태가 다시 계좌 화면으로 보낸다)
+                    onRecoveryPinSet = { navController.navigate(SignupAccounts) { popUpTo<RecoveryIntro> { inclusive = false } } },
+                    onRestart = restartSignup,
                 )
             }
             composable<SignupDone> {
@@ -325,7 +361,7 @@ fun YamuNavHost(navController: NavHostController, modifier: Modifier = Modifier)
                 }
                 composable<NotificationSettings> { NotificationSettingsRoute(onBack = back) }
                 composable<Profile> { ProfileRoute(onBack = back) }
-                composable<Security> { SecurityRoute(onBack = back) }
+                composable<Security> { SecurityRoute(onBack = back, onOpenPinPad = openPinPad) }
             }
 
             // 결제 — 탭 밖 전체 화면. 어느 탭에서 열든 그 탭 위에 쌓인다
@@ -361,9 +397,9 @@ fun YamuNavHost(navController: NavHostController, modifier: Modifier = Modifier)
         composable<Relock> {
             val activity = LocalContext.current.findActivity()
             BackHandler { activity?.moveTaskToBack(true) }
-            UnlockRoute(
-                onUnlocked = { back() },
-                onEmailLogin = { navController.navigate(Login) { popUpTo(navController.graph.id) { inclusive = true } } },
+            PinLoginRoute(
+                onLoggedIn = { back() },
+                onNoDevice = { navController.toWelcome() },
                 onDebugMenu = null,
             )
         }

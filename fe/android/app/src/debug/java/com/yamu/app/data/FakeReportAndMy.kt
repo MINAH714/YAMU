@@ -34,56 +34,63 @@ import java.time.ZoneOffset
 import javax.inject.Inject
 import javax.inject.Singleton
 
-private val ISSUERS = mapOf(
-    "신한" to ("신한카드" to "#0046FF"), "KB국민" to ("KB국민카드" to "#FFBC00"), "우리" to ("우리카드" to "#0083CA"),
-    "NH농협" to ("NH농협카드" to "#00A651"), "하나" to ("하나카드" to "#008C8C"),
-)
-
-private fun brand(short: String) = ISSUERS[short]?.let { (name, color) -> brandOf(name, shortName = short, color = color) }
-
 /** 오늘 기준 날짜 + 시각 → ISO(KST) */
 private fun at(daysAgo: Long, hhmm: String): String =
     LocalDate.now(KST).minusDays(daysAgo).atTime(LocalTime.parse(hhmm)).atOffset(ZoneOffset.ofHours(9)).toString()
 
 /** 가짜 결제 내역(S-05) — 프로토타입 줄 + 그 전 날짜는 비슷한 줄로 채워 67건. 거래 상세(P-08)도 이 값으로 */
 object FakePaymentHistory {
-    private class CardInfo(val id: Long, val name: String, val last4: String)
+    /** [benefit] = 내역에 혜택이 붙는 줄의 혜택 이름(시드 benefit_name) */
+    private class CardInfo(val id: Long, val issuer: String, val short: String, val color: String, val name: String, val last4: String, val benefit: String?, val check: Boolean = false) {
+        val brand get() = brandOf(issuer, shortName = short, color = color)
+    }
 
-    private val CARDS = mapOf(
-        "신한" to CardInfo(11, "신한 생활 신용카드", "1021"), "KB국민" to CardInfo(12, "KB국민 적립 신용카드", "3310"),
-        "우리" to CardInfo(13, "우리 통신·렌탈 신용카드", "7782"), "NH농협" to CardInfo(14, "NH농협 교통·쇼핑 신용카드", "4410"),
-        "하나" to CardInfo(15, "하나 마트·주유 신용카드", "5096"),
-    )
+    // 가짜 은행(FakeBank) 카드 6장과 같은 userCardId — KB국민이 두 장(톡톡 · 노리2)이라 카드사가 아니라 번호로 찾는다
+    private val CARDS = listOf(
+        CardInfo(11, "KB국민카드", "KB국민", "#FFBC00", "KB국민 청춘대로 톡톡카드", "1021", "스타벅스 50% 청구할인"),
+        CardInfo(12, "현대카드", "현대", "#1A1A1A", "현대카드ZERO Edition3(포인트형)", "3310", "1.2% M포인트 적립"),
+        CardInfo(13, "롯데카드", "롯데", "#E60012", "LOCA LIKIT Shop", "7782", "쿠팡·편의점 60% 할인"),
+        CardInfo(14, "삼성카드", "삼성", "#1428A0", "삼성 iD ON 카드", "4410", "교통 10% 결제일할인"),
+        CardInfo(15, "신한카드", "신한", "#0046FF", "신한카드 Mr.Life", "5096", "주말 마트 10% 할인"),
+        CardInfo(16, "KB국민카드", "KB국민", "#60584C", "KB국민 노리2 체크카드(KB Pay)", "8823", "GS25·CU 5% 할인", check = true),
+    ).associateBy { it.id }
+
+    /** 결제 번호 → 카드 번호(거래 상세가 같은 카드를 보이게) */
+    private val cardOf = mutableMapOf<Long, Long>()
 
     /** 오늘 줄(09:38)이 아직 오지 않은 시각이면 전부 하루 앞으로 — 방금 한 가짜 결제보다 뒤에 놓이지 않게 */
     private val dayShift: Long = if (LocalTime.now(KST).isBefore(LocalTime.of(10, 8))) 1 else 0
 
-    private fun item(id: Long, daysAgo: Long, hhmm: String, merchant: String, issuer: String, amount: Long, benefit: Long? = null, label: String = "할인", excluded: Boolean = false) =
-        PaymentItem(id, LocalDate.now(KST).minusDays(daysAgo + dayShift), hhmm, merchant, brand(issuer), amount, benefit, label, excluded, canceled = false)
+    private fun item(id: Long, daysAgo: Long, hhmm: String, merchant: String, cardId: Long, amount: Long, benefit: Long? = null, label: String = "할인", excluded: Boolean = false): PaymentItem {
+        cardOf[id] = cardId
+        return PaymentItem(id, LocalDate.now(KST).minusDays(daysAgo + dayShift), hhmm, merchant, CARDS.getValue(cardId).brand, amount, benefit, label, excluded, canceled = false)
+    }
 
+    // 혜택은 카드 시드 비율 — 톡톡 스타벅스 50% · iD ON 교통 10% · ZERO 1.2% 적립 · Mr.Life 주말 마트 10%(월 한도 3,000)
     val seed: List<PaymentItem> by lazy {
         val first = listOf(
-            item(938, 0, "09:38", "야무카페 역삼점", "신한", 15_000, 1_500),
-            item(937, 0, "08:12", "지하철 (대중교통)", "NH농협", 1_450, 145),
-            item(936, 1, "19:42", "야무치킨 역삼점", "우리", 22_000),
-            item(935, 1, "18:50", "역삼 생활용품점", "KB국민", 39_000, 390, "적립"),
-            item(934, 1, "12:30", "카페 모닝 테헤란점", "신한", 4_500, 450),
-            item(933, 1, "12:05", "역삼 백반집", "KB국민", 24_000, 240, "적립"),
-            item(932, 2, "20:15", "동네마트 역삼점", "하나", 32_000, 1_600),
-            item(931, 2, "12:40", "역삼 국수집", "KB국민", 9_000),
-            item(930, 2, "12:10", "모바일 문화상품권", "우리", 50_000, excluded = true),
-            item(929, 2, "08:05", "역삼 베이커리", "KB국민", 5_500, 110, "적립"),
+            item(938, 0, "09:38", "스타벅스 역삼점", 11, 15_000, 7_500),
+            item(937, 0, "08:12", "지하철 (대중교통)", 14, 1_450, 145),
+            item(936, 1, "19:42", "야무치킨 역삼점", 13, 22_000),
+            item(935, 1, "18:50", "역삼 생활용품점", 12, 39_000, 468, "적립"),
+            item(934, 1, "12:30", "스타벅스 테헤란점", 11, 4_500, 2_250),
+            item(933, 1, "12:05", "역삼 백반집", 12, 24_000, 288, "적립"),
+            item(932, 2, "20:15", "동네마트 역삼점", 15, 32_000, 3_000),
+            item(931, 2, "12:40", "역삼 국수집", 12, 9_000),
+            item(930, 2, "12:10", "모바일 문화상품권", 13, 50_000, excluded = true),
+            item(929, 2, "08:05", "역삼 베이커리", 12, 5_500, 66, "적립"),
         )
-        val names = listOf("야무편의점 역삼역점" to "KB국민", "야무주유소 선릉점" to "하나", "역삼 분식" to "신한", "온라인 야무몰" to "우리", "버스 (대중교통)" to "NH농협")
+        val names = listOf("GS25 역삼역점" to 16L, "야무주유소 선릉점" to 15L, "역삼 분식" to 11L, "온라인 야무몰" to 13L, "버스 (대중교통)" to 14L)
         val more = (0 until 57).map { i ->
-            val (name, issuer) = names[i % names.size]
-            item(928L - i, 3L + i / 4, listOf("08:40", "12:20", "18:30", "21:10")[i % 4], name, issuer, listOf(6_800L, 41_000L, 8_500L, 23_900L, 1_450L)[i % 5])
+            val (name, cardId) = names[i % names.size]
+            item(928L - i, 3L + i / 4, listOf("08:40", "12:20", "18:30", "21:10")[i % 4], name, cardId, listOf(6_800L, 41_000L, 8_500L, 23_900L, 1_450L)[i % 5])
         }
         first + more
     }
 
     private fun categoryOf(merchant: String) = when {
-        "카페" in merchant || "베이커리" in merchant -> "카페"
+        "카페" in merchant || "베이커리" in merchant || "스타벅스" in merchant -> "카페"
+        "GS25" in merchant -> "편의점"
         "대중교통" in merchant -> "대중교통"
         "마트" in merchant -> "마트"
         "편의점" in merchant -> "편의점"
@@ -97,20 +104,20 @@ object FakePaymentHistory {
     /** 내역 줄과 같은 거래 상세 — 없는 번호면 null */
     fun receipt(paymentId: Long): PaymentReceipt? {
         val p = seed.firstOrNull { it.paymentId == paymentId } ?: return null
-        val card = CARDS[p.brand?.shortName] ?: CARDS.getValue("신한")
+        val card = CARDS.getValue(cardOf[paymentId] ?: 11)
         val day = p.date ?: LocalDate.now(KST)
         val time = p.time ?: "12:00"
         val benefit = p.benefit ?: 0
         return PaymentReceipt(
             paymentId = p.paymentId, merchantName = p.merchant, categoryName = categoryOf(p.merchant), amount = p.amount,
             paidAtIso = day.atTime(LocalTime.parse(time)).atOffset(ZoneOffset.ofHours(9)).toString(),
-            cardId = card.id, cardBrand = p.brand, cardName = card.name, cardLast4 = card.last4, isCheck = false,
+            cardId = card.id, cardBrand = p.brand, cardName = card.name, cardLast4 = card.last4, isCheck = card.check,
             approvalNo = "Y" + day.toString().replace("-", "") + time.replace(":", "") + "00" + p.paymentId,
             installmentMonths = null,
-            benefits = if (benefit > 0) listOf(ReceiptBenefit(categoryOf(p.merchant) + " " + p.benefitLabel, benefit)) else emptyList(),
+            benefits = if (benefit > 0) listOf(ReceiptBenefit(card.benefit ?: (categoryOf(p.merchant) + " " + p.benefitLabel), benefit)) else emptyList(),
             chargedAmount = p.amount, balanceAfter = null,
-            billDateIso = YearMonth.now(KST).plusMonths(1).atDay(14).toString(),
-            billAmount = if (p.benefitLabel == "할인") p.amount - benefit else p.amount,
+            billDateIso = if (card.check) null else YearMonth.now(KST).plusMonths(1).atDay(14).toString(),   // 체크카드는 바로 출금 — 청구 없음
+            billAmount = if (card.check) null else if (p.benefitLabel == "할인") p.amount - benefit else p.amount,
             perfMonth = day.monthValue, perfRecognized = if (p.excluded) 0 else p.amount, perfCounted = !p.excluded,
             perfTotalAfter = if (p.paymentId == 938L) 285_000 else null, perfTarget = if (p.paymentId == 938L) 300_000 else null,   // 938 = 홈 최근 결제(P-07 숫자)
         )
@@ -207,9 +214,9 @@ class FakeMyRepository @Inject constructor(
     )
     private val readIds = mutableSetOf<Long>()
     private val seedNotifications = listOf(
-        AppNotification(9005, "우리카드, 추가 지출 없이 채울 수 있어요", "통신비만 우리카드로 옮기면 40만 원 실적을 채워요", false, at(0, "08:30"), NotiTarget.Card(13)),
-        AppNotification(9004, "신한카드 카페 할인 한도가 5,800원 남았어요", null, false, at(1, "12:30"), NotiTarget.Limits),
-        AppNotification(9003, "NH농협카드는 실적을 채우지 않는 게 유리해요", null, false, at(1, "08:30"), NotiTarget.Card(14)),
+        AppNotification(9005, "롯데카드, 추가 지출 없이 채울 수 있어요", "통신비만 롯데카드로 옮기면 40만 원 실적을 채워요", false, at(0, "08:30"), NotiTarget.Card(13)),
+        AppNotification(9004, "KB국민카드 스타벅스 할인 한도가 5,800원 남았어요", null, false, at(1, "12:30"), NotiTarget.Limits),
+        AppNotification(9003, "삼성카드는 실적을 채우지 않는 게 유리해요", null, false, at(1, "08:30"), NotiTarget.Card(14)),
         AppNotification(9002, "월세 250,000원 출금 예정이에요", "잔고예보에서 월급 전 잔액을 확인해 보세요", true, at(2, "08:30"), NotiTarget.Forecast),
         AppNotification(9001, "새 기기에서 로그인했어요", "Chrome · Windows", true, at(14, "21:14"), NotiTarget.None),
     )
@@ -223,7 +230,7 @@ class FakeMyRepository @Inject constructor(
             MyInfo(
                 name = s.name ?: "김야무", email = s.email ?: "yamu.kim@example.com",
                 autoLockSeconds = session.autoLockSeconds.first(), pinOnlyForCode = FakeSecurity.pinOnlyForCode,
-                biometricEnabled = s.deviceRegistered, currentDeviceId = 7, autoSelect = autoSelect,
+                biometricEnabled = s.biometricEnabled, currentDeviceId = s.userDeviceId, autoSelect = autoSelect,
             ),
         )
     }

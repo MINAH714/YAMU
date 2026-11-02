@@ -73,7 +73,7 @@ public class CheckCardApprover {
             throw new ApprovalNotSentException("기관거래고유번호를 받지 못해 출금을 보내지 않았습니다.", e);
         }
         assignFinRequestNo(paymentId, finRequestNo);
-        attempts.attachFinRequestNo(paymentId, command.attemptNo(), finRequestNo);
+        attachFinRequestNo(paymentId, command.attemptNo(), finRequestNo);
 
         TransferTag tag = TransferTag.payment(paymentId);
         TransferResult result = transfer.withdraw(access.get().userKey(), access.get().accountNo(), charged, tag,
@@ -90,9 +90,19 @@ public class CheckCardApprover {
         };
     }
 
-    /** 출금액: 추천 후보의 즉시할인 뒤 금액. 후보가 아니거나 혜택 계산 전이면 요청액. */
+    /** 출금액: 결제 금액 − 추천 후보의 즉시할인(PaymentTerms.chargedAmount). 후보가 아니면 즉시할인 0원이라 결제 금액. */
     static long chargedAmount(ApprovalCommand command) {
-        return command.candidate() != null ? command.candidate().chargedAmount() : command.terms().amount();
+        long instantDiscount = command.candidate() != null ? command.candidate().instantDiscount() : 0;
+        return command.terms().chargedAmount(instantDiscount);
+    }
+
+    /** 시도 기록에도 요청 번호를 남긴다. 행에는 이미 커밋됐으므로 Redis가 실패해도 출금은 진행한다. */
+    private void attachFinRequestNo(Long paymentId, int attemptNo, String finRequestNo) {
+        try {
+            attempts.attachFinRequestNo(paymentId, attemptNo, finRequestNo);
+        } catch (RuntimeException e) {
+            log.warn("시도 기록에 출금 요청 번호를 남기지 못함(결제 행에는 있음) paymentId={} attempt={}", paymentId, attemptNo, e);
+        }
     }
 
     /**
@@ -105,7 +115,7 @@ public class CheckCardApprover {
                 PaymentTransaction payment = payments.findById(paymentId)
                         .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND));
                 if (payment.getStatus() != PaymentStatus.PROCESSING) {
-                    throw new BusinessException(ErrorCode.PAYMENT_IN_PROGRESS);
+                    throw new BusinessException(ErrorCode.IDEMPOTENCY_IN_PROGRESS);
                 }
                 payment.assignFinRequestNo(finRequestNo);
                 payments.saveAndFlush(payment);
@@ -113,7 +123,7 @@ public class CheckCardApprover {
             });
         } catch (OptimisticLockingFailureException | OptimisticLockException e) {
             log.warn("출금 요청 번호 저장 중 결제 행이 바뀜, 출금하지 않음 paymentId={}", paymentId);
-            throw new BusinessException(ErrorCode.PAYMENT_IN_PROGRESS);
+            throw new BusinessException(ErrorCode.IDEMPOTENCY_IN_PROGRESS);
         }
     }
 

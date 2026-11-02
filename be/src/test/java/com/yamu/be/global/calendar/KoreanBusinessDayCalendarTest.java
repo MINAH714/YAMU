@@ -120,12 +120,16 @@ class KoreanBusinessDayCalendarTest {
 
     @Test
     void 공휴일_데이터가_없는_해는_주말만_쉬고_경고는_해마다_한_번이다(CapturedOutput output) {
-        // 2028-03-01(수) 3·1절이지만 2028년 파일이 없어 영업일로 계산된다
-        assertThat(calendar.isBusinessDay(LocalDate.of(2028, 3, 1))).isTrue();
-        assertThat(calendar.isBusinessDay(LocalDate.of(2028, 3, 4))).isFalse(); // 토
-        assertThat(calendar.plusBusinessDays(LocalDate.of(2028, 3, 3), 1)).isEqualTo(LocalDate.of(2028, 3, 6));
+        // 내장 파일에 새 해가 늘어도 깨지지 않게, 2026년만 아는 소스로 아직 발표 전인 해를 흉내 낸다
+        HolidaySource only2026 = year -> year == 2026 ? Optional.of(Set.of(LocalDate.of(2026, 1, 1))) : Optional.empty();
+        BusinessDayCalendar calendar = new KoreanBusinessDayCalendar(only2026);
 
-        String warning = "2028년 공휴일 데이터가 없어";
+        // 2027-03-01(월) 3·1절이지만 2027년 데이터가 없어 영업일로 계산된다
+        assertThat(calendar.isBusinessDay(LocalDate.of(2027, 3, 1))).isTrue();
+        assertThat(calendar.isBusinessDay(LocalDate.of(2027, 3, 6))).isFalse(); // 토
+        assertThat(calendar.plusBusinessDays(LocalDate.of(2027, 3, 5), 1)).isEqualTo(LocalDate.of(2027, 3, 8));
+
+        String warning = "2027년 공휴일 데이터가 없어";
         assertThat(output.getAll()).contains(warning);
         assertThat(output.getAll().split(warning, -1)).hasSize(2);
     }

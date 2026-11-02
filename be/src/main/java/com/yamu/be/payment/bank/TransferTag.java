@@ -48,7 +48,11 @@ public record TransferTag(Kind kind, long id) {
         return new TransferTag(Kind.CHECK_REFUND, paymentId);
     }
 
-    /** 요약 글자가 YAMU 태그 형식과 정확히 같을 때만 읽는다. "초기 입금" 같은 다른 요약은 비어 있다. */
+    /**
+     * 요약 글자가 YAMU 태그 형식과 정확히 같을 때만 읽는다. "초기 입금" 같은 다른 요약은 비어 있다.
+     * 결과 확정({@link SsafyTransferApi#findByTag})은 이 메서드 없이 {@link #value()}를 글자 그대로 비교한다.
+     * 이 메서드는 앱의 계좌 거래내역 조회({@link BankTransaction#tag()})용이다.
+     */
     public static Optional<TransferTag> parse(String summary) {
         if (summary == null) {
             return Optional.empty();

@@ -116,13 +116,13 @@ fun PayDoneRoute(
         bottomBar = { BottomCta { PrimaryButton("홈으로", onClick = onHome) } },
     ) { inner ->
         Column(Modifier.padding(inner).consumeWindowInsets(inner).fillMaxSize().verticalScroll(rememberScrollState())) {
-            // 결과 — 가운데 묶음(캐릭터 coins · 머리 · 금액 · 가맹점)
+            // 결과 — 가운데 묶음(캐릭터 pay · 머리 · 금액 · 가맹점)
             Column(
                 Modifier.fillMaxWidth().padding(start = YamuSpacing.screen, end = YamuSpacing.screen, top = 16.dp, bottom = 24.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
-                CharacterImage(YamuPose.Coins, size = CharacterSize.M, animate = true)
+                CharacterImage(YamuPose.Pay, size = CharacterSize.M, animate = true)
                 Spacer(Modifier.height(6.dp))
                 Text("결제를 마쳤어요", style = YamuTheme.typography.headlineS, color = c.text1)
                 if (r != null) {

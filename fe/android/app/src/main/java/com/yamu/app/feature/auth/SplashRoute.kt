@@ -16,12 +16,12 @@ import javax.inject.Inject
 
 @HiltViewModel
 class SplashViewModel @Inject constructor(private val auth: AuthRepository) : ViewModel() {
-    suspend fun decide(): SessionStart = auth.restoreSession()
+    suspend fun decide(): SessionStart = auth.sessionStart()
 }
 
 /**
  * 시작할 때 갈 곳 정하기(08 문서 4-1). 화면은 Android 12+ 시스템 스플래시(앱 아이콘)를 그대로 쓴다.
- * 저장된 Refresh 토큰 → #21로 세션 복구 → 잠금 해제 / 거절 → 로그인 / 없음 → 첫 화면.
+ * 이 폰에 등록된 기기(기기 번호 · 기기 키)가 있으면 PIN · 지문 로그인, 없으면 첫 화면. 토큰은 로그인할 때마다 새로 받는다.
  */
 @Composable
 fun SplashRoute(onDecided: (SessionStart) -> Unit, viewModel: SplashViewModel = hiltViewModel()) {

@@ -26,36 +26,67 @@ class EmbeddedHolidaysTest {
 
     // ───────── 저장소에 넣은 파일 ─────────
 
+    // 실제 파일을 load로 읽으므로, 파일이 깨졌거나 빠지면 빌드 테스트에서 실패해 배포 전에 잡힌다.
+    // (실행 중에는 읽지 못해도 서버가 뜬다. CalendarConfigTest)
+
+    // 새 해의 파일을 넣으면 그 해의 날짜 목록·합계 테스트를 아래에 추가한다(docs/be/holiday.md). 있는 해의 테스트는 그대로 통과한다.
+
     @Test
-    void 내장_파일은_2026년과_2027년이다() throws IOException {
-        assertThat(bundled().years()).containsExactly(2026, 2027);
+    void 내장_파일에_2026년과_2027년이_있다() throws IOException {
+        assertThat(bundled().years()).contains(2026, 2027);
     }
 
     @Test
-    void 일요일이_아닌_공휴일이_해마다_20일이라_공식_발표의_72일과_맞는다() throws IOException {
-        // 우주항공청 「2027년 월력요항」: 2026년·2027년 모두 실질 공휴일 72일 = 일요일 52일 + 20일
+    void 공휴일_2026년은_월력요항과_개정_규정의_날짜와_같다() throws IOException {
+        assertThat(bundled().holidaysOf(2026).orElseThrow()).containsExactlyInAnyOrder(
+                LocalDate.of(2026, 1, 1),
+                LocalDate.of(2026, 2, 16), LocalDate.of(2026, 2, 17), LocalDate.of(2026, 2, 18), // 설
+                LocalDate.of(2026, 3, 1), LocalDate.of(2026, 3, 2),    // 3·1절(일) + 대체
+                LocalDate.of(2026, 5, 1),                              // 노동절(2026-05-01 시행)
+                LocalDate.of(2026, 5, 5),
+                LocalDate.of(2026, 5, 24), LocalDate.of(2026, 5, 25),  // 부처님오신날(일) + 대체
+                LocalDate.of(2026, 6, 3),                              // 전국동시지방선거
+                LocalDate.of(2026, 6, 6),
+                LocalDate.of(2026, 7, 17),                             // 제헌절
+                LocalDate.of(2026, 8, 15), LocalDate.of(2026, 8, 17),  // 광복절(토) + 대체
+                LocalDate.of(2026, 9, 24), LocalDate.of(2026, 9, 25), LocalDate.of(2026, 9, 26), // 추석
+                LocalDate.of(2026, 10, 3), LocalDate.of(2026, 10, 5),  // 개천절(토) + 대체
+                LocalDate.of(2026, 10, 9),
+                LocalDate.of(2026, 12, 25));
+    }
+
+    @Test
+    void 공휴일_2027년은_월력요항의_날짜와_같다() throws IOException {
+        assertThat(bundled().holidaysOf(2027).orElseThrow()).containsExactlyInAnyOrder(
+                LocalDate.of(2027, 1, 1),
+                LocalDate.of(2027, 2, 6), LocalDate.of(2027, 2, 7), LocalDate.of(2027, 2, 8), // 설
+                LocalDate.of(2027, 2, 9),                              // 설날(일) 대체
+                LocalDate.of(2027, 3, 1),
+                LocalDate.of(2027, 5, 1), LocalDate.of(2027, 5, 3),    // 노동절(토) + 대체
+                LocalDate.of(2027, 5, 5),
+                LocalDate.of(2027, 5, 13),                             // 부처님오신날
+                LocalDate.of(2027, 6, 6),
+                LocalDate.of(2027, 7, 17), LocalDate.of(2027, 7, 19),  // 제헌절(토) + 대체
+                LocalDate.of(2027, 8, 15), LocalDate.of(2027, 8, 16),  // 광복절(일) + 대체
+                LocalDate.of(2027, 9, 14), LocalDate.of(2027, 9, 15), LocalDate.of(2027, 9, 16), // 추석
+                LocalDate.of(2027, 10, 3), LocalDate.of(2027, 10, 4),  // 개천절(일) + 대체
+                LocalDate.of(2027, 10, 9), LocalDate.of(2027, 10, 11), // 한글날(토) + 대체
+                LocalDate.of(2027, 12, 25), LocalDate.of(2027, 12, 27)); // 기독탄신일(토) + 대체
+    }
+
+    @Test
+    void 실질_공휴일이_해마다_72일이라_공식_발표와_맞는다() throws IOException {
+        // 우주항공청 「2027년 월력요항」: 2026년·2027년 모두 실질 공휴일 72일 = 일요일 + 일요일이 아닌 공휴일
         EmbeddedHolidays holidays = bundled();
         for (int year : new int[] {2026, 2027}) {
+            long sundays = LocalDate.of(year, 1, 1).datesUntil(LocalDate.of(year + 1, 1, 1))
+                    .filter(d -> d.getDayOfWeek() == DayOfWeek.SUNDAY).count();
             Set<LocalDate> days = holidays.holidaysOf(year).orElseThrow();
             long notSunday = days.stream().filter(d -> d.getDayOfWeek() != DayOfWeek.SUNDAY).count();
-            assertThat(notSunday).as("%d년", year).isEqualTo(20);
+            assertThat(sundays).as("%d년 일요일", year).isEqualTo(52);
+            assertThat(notSunday).as("%d년 일요일이 아닌 공휴일", year).isEqualTo(20);
+            assertThat(sundays + notSunday).as("%d년 실질 공휴일", year).isEqualTo(72);
         }
-    }
-
-    @Test
-    void 올해_새로_생긴_공휴일과_선거일과_대체공휴일이_들어_있다() throws IOException {
-        EmbeddedHolidays holidays = bundled();
-        assertThat(holidays.holidaysOf(2026).orElseThrow()).contains(
-                LocalDate.of(2026, 5, 1),   // 노동절(2026-05-01 시행)
-                LocalDate.of(2026, 7, 17),  // 제헌절(2026-05-11 시행)
-                LocalDate.of(2026, 6, 3),   // 전국동시지방선거
-                LocalDate.of(2026, 3, 2),   // 3·1절 대체
-                LocalDate.of(2026, 10, 5)); // 개천절 대체
-        assertThat(holidays.holidaysOf(2027).orElseThrow()).contains(
-                LocalDate.of(2027, 2, 9),   // 설날 대체
-                LocalDate.of(2027, 5, 3),   // 노동절 대체
-                LocalDate.of(2027, 5, 13),  // 부처님오신날
-                LocalDate.of(2027, 12, 27)); // 기독탄신일 대체
     }
 
     @Test
@@ -65,11 +96,18 @@ class EmbeddedHolidaysTest {
     }
 
     @Test
-    void 파일이_없는_해는_비어_있다() throws IOException {
-        assertThat(bundled().holidaysOf(2028)).isEmpty();
+    void 파일이_없는_해는_비어_있다() {
+        EmbeddedHolidays only2026 = EmbeddedHolidays.load(objectMapper, file("2026.json", valid(2026)));
+        assertThat(only2026.holidaysOf(2026)).isPresent();
+        assertThat(only2026.holidaysOf(2027)).isEmpty();
     }
 
-    // ───────── 잘못된 파일은 서버가 뜨지 않게 한다 ─────────
+    // ───────── 잘못된 파일은 읽기가 실패한다 ─────────
+
+    @Test
+    void 파일이_하나도_없으면_실패한다() {
+        assertThatThrownBy(() -> EmbeddedHolidays.load(objectMapper)).isInstanceOf(IllegalStateException.class);
+    }
 
     @Test
     void 파일_이름이_연도가_아니면_실패한다() {

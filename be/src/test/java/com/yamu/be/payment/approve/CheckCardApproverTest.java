@@ -29,6 +29,7 @@ import com.yamu.be.payment.domain.PaymentChannel;
 import com.yamu.be.payment.domain.PaymentStatus;
 import com.yamu.be.payment.domain.PaymentTransaction;
 import com.yamu.be.payment.domain.PaymentTransactionRepository;
+import com.yamu.be.payment.recommend.RecommendationResult.BenefitLine;
 import com.yamu.be.payment.recommend.RecommendationResult.Candidate;
 import com.yamu.be.payment.recommend.RecommendationResult.CardSummary;
 import com.yamu.be.payment.recommend.RecommendationResult.RuleVersion;
@@ -183,15 +184,15 @@ class CheckCardApproverTest {
     }
 
     @Test
-    void 결제_행이_PROCESSING이_아니거나_동시_수정이면_출금하지_않고_PAYMENT_IN_PROGRESS다() {
+    void 결제_행이_PROCESSING이_아니거나_동시_수정이면_출금하지_않고_IDEMPOTENCY_IN_PROGRESS다() {
         payment = requested();
         assertThatThrownBy(() -> approver.approve(command(null)))
-                .extracting(e -> ((BusinessException) e).getErrorCode()).isEqualTo(ErrorCode.PAYMENT_IN_PROGRESS);
+                .extracting(e -> ((BusinessException) e).getErrorCode()).isEqualTo(ErrorCode.IDEMPOTENCY_IN_PROGRESS);
 
         payment = processing();
         doThrow(new ObjectOptimisticLockingFailureException("payment", null)).when(transaction).execute(any());
         assertThatThrownBy(() -> approver.approve(command(null)))
-                .extracting(e -> ((BusinessException) e).getErrorCode()).isEqualTo(ErrorCode.PAYMENT_IN_PROGRESS);
+                .extracting(e -> ((BusinessException) e).getErrorCode()).isEqualTo(ErrorCode.IDEMPOTENCY_IN_PROGRESS);
         verify(transfer, never()).withdraw(anyString(), anyString(), anyLong(), any(), anyString());
     }
 
@@ -201,8 +202,13 @@ class CheckCardApproverTest {
         return new ApprovalCommand(PAYMENT_ID, 7L, PaymentTerms.lumpSum(15_000), CHECK, candidate, REQUESTED_AT, NOW, 1);
     }
 
+    /** 출금액이 chargedAmount가 되도록 결제 금액(15,000원)과의 차이를 즉시할인으로 둔 후보. */
     private static Candidate candidate(long chargedAmount) {
-        return new Candidate(1, CHECK, 0, List.of(), chargedAmount, "mock", null, new RuleVersion(4L, 0));
+        long instantDiscount = 15_000 - chargedAmount;
+        List<BenefitLine> benefits = instantDiscount == 0 ? List.of()
+                : List.of(new BenefitLine(1L, "즉시할인", "DISCOUNT", instantDiscount, instantDiscount,
+                        BenefitLine.AT_APPROVAL));
+        return new Candidate(1, CHECK, instantDiscount, benefits, "mock", null, new RuleVersion(4L, 0));
     }
 
     private static PaymentTransaction requested() {
