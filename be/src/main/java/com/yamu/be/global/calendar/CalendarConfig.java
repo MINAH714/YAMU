@@ -18,7 +18,7 @@ class CalendarConfig {
         return loadHolidays(objectMapper, new PathMatchingResourcePatternResolver());
     }
 
-    /** 내장 파일 ∪ 공휴일 API 목록. API 목록은 동기화(HolidaySyncJob)가 채운다. */
+    /** 그 해 공휴일 API 목록이 있으면 그것, 없으면 내장 파일. API 목록은 동기화(HolidaySyncJob)가 채운다. */
     @Bean
     MergedHolidays mergedHolidays(EmbeddedHolidays embeddedHolidays) {
         return new MergedHolidays(embeddedHolidays);

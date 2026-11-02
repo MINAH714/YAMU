@@ -15,7 +15,7 @@ import org.springframework.core.io.ByteArrayResource;
 import org.springframework.core.io.Resource;
 import org.springframework.http.converter.json.Jackson2ObjectMapperBuilder;
 
-/** 내장 파일 ∪ API 목록. 날짜 옆 주석은 요일이다. */
+/** 그 해 API 목록이 있으면 그것, 없으면 내장 파일. 날짜 옆 주석은 요일이다. */
 @ExtendWith(OutputCaptureExtension.class)
 class MergedHolidaysTest {
 
@@ -37,13 +37,13 @@ class MergedHolidaysTest {
     }
 
     @Test
-    void 내장_파일과_API_목록을_합친다() {
+    void API_목록이_있는_해는_내장_파일과_섞지_않고_API_목록만_쓴다() {
         MergedHolidays holidays = new MergedHolidays(embedded);
 
         // API에 노동절이 빠지고 임시공휴일이 더해졌다고 둔다
         holidays.update(2026, Set.of(CHILDREN_DAY, TEMPORARY));
 
-        assertThat(holidays.holidaysOf(2026)).contains(Set.of(LABOR_DAY, CHILDREN_DAY, TEMPORARY));
+        assertThat(holidays.holidaysOf(2026)).contains(Set.of(CHILDREN_DAY, TEMPORARY));
     }
 
     @Test
@@ -64,7 +64,7 @@ class MergedHolidaysTest {
 
         holidays.update(2026, Set.of(CHILDREN_DAY));
 
-        assertThat(holidays.holidaysOf(2026)).contains(Set.of(LABOR_DAY, CHILDREN_DAY));
+        assertThat(holidays.holidaysOf(2026)).contains(Set.of(CHILDREN_DAY));
     }
 
     @Test
@@ -83,20 +83,29 @@ class MergedHolidaysTest {
         holidays.update(2026, Set.of(CHILDREN_DAY, TEMPORARY));
 
         assertThat(output.getAll())
-                .contains("2026년 공휴일 API에만 있는 날을 쉬는 날로 더합니다: [2026-10-02]")
-                .contains("2026년 내장 파일에만 있는 공휴일이 있습니다").contains("[2026-05-01]");
+                .contains("2026년 공휴일을 API 목록으로 셉니다. 내장 파일과 다른 날: API에만 [2026-10-02], 내장 파일에만 [2026-05-01]");
     }
 
     @Test
-    void 영업일_계산기는_API에만_있는_임시공휴일도_쉬는_날로_센다() {
+    void 내장_파일과_같으면_로그를_남기지_않는다(CapturedOutput output) {
+        MergedHolidays holidays = new MergedHolidays(embedded);
+
+        holidays.update(2026, Set.of(LABOR_DAY, CHILDREN_DAY));
+
+        assertThat(output.getAll()).doesNotContain("API 목록으로 셉니다");
+    }
+
+    @Test
+    void 영업일_계산기는_동기화된_해를_API_목록으로_센다() {
         MergedHolidays holidays = new MergedHolidays(embedded);
         BusinessDayCalendar calendar = new KoreanBusinessDayCalendar(holidays);
         assertThat(calendar.isBusinessDay(TEMPORARY)).isTrue();
+        assertThat(calendar.isBusinessDay(LABOR_DAY)).isFalse(); // 동기화 전에는 내장 파일
 
         holidays.update(2026, Set.of(TEMPORARY));
 
         assertThat(calendar.isBusinessDay(TEMPORARY)).isFalse();
-        assertThat(calendar.isBusinessDay(LABOR_DAY)).isFalse(); // API에 없어도 내장 파일에 있으니 쉬는 날
+        assertThat(calendar.isBusinessDay(LABOR_DAY)).isTrue(); // API에 없으면 영업일
         assertThat(calendar.businessDayOnOrAfter(TEMPORARY)).isEqualTo(LocalDate.of(2026, 10, 5)); // 월
     }
 
