@@ -16,6 +16,11 @@ import java.util.stream.Collectors;
 /** POL-011. 호출 간 공유 상태가 없고 DB·승인·조회·저장에 의존하지 않는 내부 계산 진입점. */
 public final class RecommendationSelector {
     private final CardBenefitCalculator calculator = new CardBenefitCalculator();
+    // UserCardRepository.findOrdered와 동일. MySQL ASC의 NULL 등록 시각은 앞에 온다.
+    private static final Comparator<CardCandidate> FIXED_ORDER = Comparator
+            .comparing(CardCandidate::displayOrder, Comparator.nullsLast(Comparator.naturalOrder()))
+            .thenComparing(CardCandidate::registeredAt, Comparator.nullsFirst(Comparator.naturalOrder()))
+            .thenComparingLong(CardCandidate::userCardId);
 
     public enum Status { READY, PARTIAL_READY, NO_ELIGIBLE_CARD, DATA_INSUFFICIENT }
     public enum CardStatus { CALCULATED, EXCLUDED, NOT_COMPARED }
@@ -66,10 +71,11 @@ public final class RecommendationSelector {
 
         BigDecimal maximum = calculated.stream().map(card -> card.calculation().netBenefit())
                 .max(BigDecimal::compareTo).orElseThrow();
-        List<CardEvaluation> tied = calculated.stream()
-                .filter(card -> card.calculation().netBenefit().compareTo(maximum) == 0).toList();
         Map<Long, CardCandidate> cards = input.cards().stream()
                 .collect(Collectors.toMap(CardCandidate::userCardId, Function.identity()));
+        List<CardEvaluation> tied = calculated.stream()
+                .filter(card -> card.calculation().netBenefit().compareTo(maximum) == 0)
+                .sorted(Comparator.comparing(card -> cards.get(card.userCardId()), FIXED_ORDER)).toList();
         CardEvaluation selected;
         SelectionReason reason;
         boolean skipped = false;
@@ -124,8 +130,10 @@ public final class RecommendationSelector {
                     card.availabilityReason(), null);
         }
         Calculation calculation = calculator.calculate(input.transaction(), card.policy());
+        String problem = calculation.problems().stream().anyMatch(item -> item.code().equals("BASE_AMOUNT_INVALID"))
+                ? "BASE_AMOUNT_INVALID" : "BENEFIT_DATA_INSUFFICIENT";
         return new CardEvaluation(card.userCardId(), calculation.complete() ? CardStatus.CALCULATED
-                : CardStatus.NOT_COMPARED, calculation.complete() ? null : "BENEFIT_DATA_INSUFFICIENT", calculation);
+                : CardStatus.NOT_COMPARED, calculation.complete() ? null : problem, calculation);
     }
 
     private String exclusion(RecommendationInput input, CardCandidate card) {

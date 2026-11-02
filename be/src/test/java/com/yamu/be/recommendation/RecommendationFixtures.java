@@ -7,6 +7,7 @@ import com.yamu.be.recommendation.RecommendationInput.*;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.YearMonth;
 import java.util.List;
 import java.util.Map;
@@ -14,6 +15,7 @@ import java.util.Set;
 
 /** 상품 Seed를 대체하지 않는, 정책 경계 검증용 명시적 입력. */
 final class RecommendationFixtures {
+    static final LocalDate POLICY_START = LocalDate.of(2020, 1, 1);
     private RecommendationFixtures() { }
 
     static BigDecimal decimal(String value) { return new BigDecimal(value); }
@@ -24,7 +26,7 @@ final class RecommendationFixtures {
     }
 
     static Conditions conditions() {
-        return new Conditions(true, true, null, null,
+        return new Conditions(true, true, POLICY_START, BenefitPolicy.NO_END_DATE,
                 List.of(new Target(TargetType.ALL, null, null, false)), Set.of(), Set.of(), Schedule.unrestricted());
     }
 
@@ -55,7 +57,7 @@ final class RecommendationFixtures {
 
     static CardCandidate card(long id, String value, PerformanceProgress progress) {
         return new CardCandidate(id, 1, CardType.CREDIT, CardRegistrationStatus.ACTIVE,
-                CardIssuerStatus.NORMAL, Availability.AVAILABLE, null, fixedPolicy(value), progress);
+                CardIssuerStatus.NORMAL, Availability.AVAILABLE, null, fixedPolicy(value), progress, null, null);
     }
 
     static PerformanceProgress progress(long before, long minimum, long contribution) {

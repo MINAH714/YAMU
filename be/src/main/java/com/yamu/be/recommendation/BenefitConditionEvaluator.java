@@ -14,12 +14,14 @@ public final class BenefitConditionEvaluator {
     public enum Match { MATCHED, NOT_MATCHED, UNKNOWN }
 
     public Match evaluate(Conditions conditions, Transaction transaction) {
-        if (conditions == null || !conditions.verified() || !conditions.currentVersionVerified()) {
+        if (conditions == null || !conditions.verified() || !conditions.currentVersionVerified()
+                || conditions.validFrom() == null || conditions.validUntil() == null) {
             return Match.UNKNOWN;
         }
         LocalDateTime local = LocalDateTime.ofInstant(transaction.occurredAt(), SEOUL);
-        if ((conditions.validFrom() != null && local.toLocalDate().isBefore(conditions.validFrom()))
-                || (conditions.validUntil() != null && !local.toLocalDate().isBefore(conditions.validUntil()))) {
+        if (local.toLocalDate().isBefore(conditions.validFrom())
+                || (!conditions.validUntil().equals(BenefitPolicy.NO_END_DATE)
+                && !local.toLocalDate().isBefore(conditions.validUntil()))) {
             return Match.NOT_MATCHED;
         }
 

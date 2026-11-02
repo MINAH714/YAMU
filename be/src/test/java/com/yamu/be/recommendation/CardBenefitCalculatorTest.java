@@ -131,7 +131,7 @@ class CardBenefitCalculatorTest {
 
     @Test
     void confirmedConditionExclusionIsZeroEvenWhenUnusedCalculationFieldsAreMissing() {
-        var conditions = new Conditions(true, true, null, null,
+        var conditions = new Conditions(true, true, POLICY_START, BenefitPolicy.NO_END_DATE,
                 List.of(new Target(TargetType.BRAND, 999L, null, false)), Set.of(), Set.of(), Schedule.unrestricted());
         var benefit = change(benefit(1, "500"), conditions, null, null, List.of());
         assertThat(calculate(benefit).netBenefit()).isEqualByComparingTo("0");
@@ -218,7 +218,7 @@ class CardBenefitCalculatorTest {
 
     @Test
     void confirmedMinimumFailureDoesNotRequireUnrelatedConditionsRoundingOrLimits() {
-        var partlyKnownConditions = new Conditions(false, true, null, null,
+        var partlyKnownConditions = new Conditions(false, true, POLICY_START, BenefitPolicy.NO_END_DATE,
                 List.of(new Target(TargetType.ALL, null, null, false)), Set.of("RULE:UNVERIFIED_ROUTE"),
                 Set.of(), null);
         var irrelevant = new Benefit(2, 1, "최소 금액 미달 혜택", BenefitType.DISCOUNT, CalculationType.FIXED,
@@ -232,7 +232,7 @@ class CardBenefitCalculatorTest {
 
     @Test
     void verifiedTargetMismatchDoesNotRequireUnusedBenefitCalculationOrUsage() {
-        var nonMatching = new Conditions(true, true, null, null,
+        var nonMatching = new Conditions(true, true, POLICY_START, BenefitPolicy.NO_END_DATE,
                 List.of(new Target(TargetType.BRAND, 999L, null, false)), Set.of(), Set.of(), Schedule.unrestricted());
         var irrelevant = change(benefit(2, "1000"), nonMatching, null, null, List.of(999L));
         var result = calculator.calculate(transaction(), policy(List.of(benefit(1, "800"), irrelevant),

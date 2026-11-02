@@ -3,6 +3,7 @@ package com.yamu.be.recommendation;
 import com.yamu.be.card.domain.CardIssuerStatus;
 import com.yamu.be.card.domain.CardRegistrationStatus;
 import java.time.Instant;
+import java.time.LocalDateTime;
 import java.time.YearMonth;
 import java.util.List;
 import java.util.Map;
@@ -52,11 +53,16 @@ public record RecommendationInput(
         }
     }
 
-    /** 잔액·가용 한도·미납의 판정은 담당 기능이 공급한다. 여기서는 예약·차감하지 않는다. */
+    /**
+     * 잔액·가용 한도·미납의 판정은 담당 기능이 공급한다. 여기서는 예약·차감하지 않는다.
+     * displayOrder는 저장 순서(미지정 null), registeredAt은 UTC 등록 시각이다.
+     * 고정 정렬은 카드 관리 목록과 같은 지정 순서 우선 → 등록 시각 → ID다.
+     */
     public record CardCandidate(long userCardId, long userId, CardType cardType,
                                 CardRegistrationStatus registrationStatus, CardIssuerStatus issuerStatus,
                                 Availability availability, String availabilityReason,
-                                BenefitPolicy policy, PerformanceProgress performance) {
+                                BenefitPolicy policy, PerformanceProgress performance,
+                                Integer displayOrder, LocalDateTime registeredAt) {
         public CardCandidate {
             if (userCardId <= 0 || userId <= 0) {
                 throw new IllegalArgumentException("카드·사용자 ID는 양수여야 합니다.");
@@ -65,6 +71,9 @@ public record RecommendationInput(
             Objects.requireNonNull(registrationStatus);
             Objects.requireNonNull(issuerStatus);
             Objects.requireNonNull(availability);
+            if (displayOrder != null && displayOrder < 0) {
+                throw new IllegalArgumentException("카드 저장 순서는 음수일 수 없습니다.");
+            }
             if (availability != Availability.AVAILABLE
                     && (availabilityReason == null || availabilityReason.isBlank())) {
                 throw new IllegalArgumentException("결제 불가·미확인 사유가 필요합니다.");

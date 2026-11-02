@@ -16,6 +16,8 @@ import java.util.Set;
 public record BenefitPolicy(boolean complete, Long previousMonthPerformance,
                             BigDecimal additionalCost, List<Benefit> benefits,
                             List<Limit> limits, List<List<Long>> allowedCombinations) {
+    /** 종료 제한이 없음을 확인한 경우에만 공급하는 값. NULL 날짜의 기본값으로 사용하지 않는다. */
+    public static final LocalDate NO_END_DATE = LocalDate.of(9999, 12, 31);
     public BenefitPolicy {
         if (previousMonthPerformance != null && previousMonthPerformance < 0) {
             throw new IllegalArgumentException("전월 실적은 음수일 수 없습니다.");
@@ -115,7 +117,11 @@ public record BenefitPolicy(boolean complete, Long previousMonthPerformance,
         }
     }
 
-    /** 포함 대상 OR, requiredFacts AND, 제외 대상·excludedFacts OR. facts 키 부재는 미확인이다. */
+    /**
+     * 포함 대상 OR, requiredFacts AND, 제외 대상·excludedFacts OR. facts 키 부재는 미확인이다.
+     * 시작일·종료일 NULL은 미확인이다. 종료 제한이 없음이 확인된 경우만 NO_END_DATE를 전달한다.
+     * 일반 종료일은 미포함이며 verified/currentVersionVerified로 누락 날짜를 대신하지 않는다.
+     */
     public record Conditions(boolean verified, boolean currentVersionVerified,
                              LocalDate validFrom, LocalDate validUntil,
                              List<Target> targets, Set<String> requiredFacts,

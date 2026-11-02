@@ -49,14 +49,34 @@ class BenefitConditionEvaluatorTest {
                 source.targets(), Set.of(), Set.of(), source.schedule());
         assertThat(evaluator.evaluate(known, at("2026-10-31T14:59:59Z", Map.of()))).isEqualTo(Match.NOT_MATCHED);
         assertThat(evaluator.evaluate(known, at("2026-10-31T15:00:00Z", Map.of()))).isEqualTo(Match.MATCHED);
+        assertThat(evaluator.evaluate(known, at("2026-11-30T14:59:59Z", Map.of()))).isEqualTo(Match.MATCHED);
         assertThat(evaluator.evaluate(known, at("2026-11-30T15:00:00Z", Map.of()))).isEqualTo(Match.NOT_MATCHED);
         var unverified = new Conditions(true, false, null, null, source.targets(), Set.of(), Set.of(), source.schedule());
         assertThat(evaluator.evaluate(unverified, transaction())).isEqualTo(Match.UNKNOWN);
     }
 
     @Test
+    void missingStartOrEndRemainsUnknownEvenWithVerifiedFlags() {
+        var source = conditions();
+        var missingEnd = new Conditions(true, true, POLICY_START, null,
+                source.targets(), Set.of(), Set.of(), source.schedule());
+        var missingStart = new Conditions(true, true, null, BenefitPolicy.NO_END_DATE,
+                source.targets(), Set.of(), Set.of(), source.schedule());
+        assertThat(evaluator.evaluate(missingEnd, transaction())).isEqualTo(Match.UNKNOWN);
+        assertThat(evaluator.evaluate(missingStart, transaction())).isEqualTo(Match.UNKNOWN);
+    }
+
+    @Test
+    void confirmedNoEndDateIsUnboundedRatherThanAnExclusiveOrdinaryEndDate() {
+        var unlimited = conditions();
+        assertThat(unlimited.validUntil()).isEqualTo(LocalDate.of(9999, 12, 31));
+        assertThat(evaluator.evaluate(unlimited, transaction())).isEqualTo(Match.MATCHED);
+        assertThat(evaluator.evaluate(unlimited, at("9999-12-31T12:00:00Z", Map.of()))).isEqualTo(Match.MATCHED);
+    }
+
+    @Test
     void includedTargetsAreOrButAdditionalFactsAreAndAndExclusionsOverride() {
-        var conditions = new Conditions(true, true, null, null,
+        var conditions = new Conditions(true, true, POLICY_START, BenefitPolicy.NO_END_DATE,
                 List.of(new Target(TargetType.BRAND, 10L, null, false),
                         new Target(TargetType.CATEGORY, null, "OTHER", false)),
                 Set.of("CHANNEL:OFFLINE", "RULE:OFFICIAL_PURCHASE_ROUTE"),
@@ -72,21 +92,21 @@ class BenefitConditionEvaluatorTest {
 
     @Test
     void missingExclusionFactIsNotFalseOrGeneralFacility() {
-        var conditions = new Conditions(true, true, null, null, conditions().targets(), Set.of(),
+        var conditions = new Conditions(true, true, POLICY_START, BenefitPolicy.NO_END_DATE, conditions().targets(), Set.of(),
                 Set.of("FACILITY:DEPARTMENT_STORE"), Schedule.unrestricted());
         assertThat(evaluator.evaluate(conditions, transaction())).isEqualTo(Match.UNKNOWN);
     }
 
     @Test
     void missingPurchaseRouteIsNotAutomaticallySupported() {
-        var conditions = new Conditions(true, true, null, null, conditions().targets(),
+        var conditions = new Conditions(true, true, POLICY_START, BenefitPolicy.NO_END_DATE, conditions().targets(),
                 Set.of("RULE:CHEOEUM_CAFE_ROUTE"), Set.of(), Schedule.unrestricted());
         assertThat(evaluator.evaluate(conditions, transaction())).isEqualTo(Match.UNKNOWN);
     }
 
     @Test
     void interestFreeExclusionUsesPreservedPlanAndCannotBeOverriddenByFacts() {
-        var conditions = new Conditions(true, true, null, null, conditions().targets(), Set.of(),
+        var conditions = new Conditions(true, true, POLICY_START, BenefitPolicy.NO_END_DATE, conditions().targets(), Set.of(),
                 Set.of("INSTALLMENT:INTEREST_FREE"), Schedule.unrestricted());
         var installment = new Transaction(50_000, Plan.INSTALLMENT, 12, transaction().occurredAt(), 10L,
                 "COFFEE_SHOP", Map.of("INSTALLMENT:INTEREST_FREE", false));
@@ -97,22 +117,22 @@ class BenefitConditionEvaluatorTest {
     @Test
     void absentTargetsOrScheduleAreUnknownRatherThanNoRestriction() {
         assertThat(evaluator.evaluate(null, transaction())).isEqualTo(Match.UNKNOWN);
-        assertThat(evaluator.evaluate(new Conditions(true, true, null, null, List.of(), Set.of(), Set.of(),
+        assertThat(evaluator.evaluate(new Conditions(true, true, POLICY_START, BenefitPolicy.NO_END_DATE, List.of(), Set.of(), Set.of(),
                 Schedule.unrestricted()), transaction())).isEqualTo(Match.UNKNOWN);
-        assertThat(evaluator.evaluate(new Conditions(true, true, null, null, conditions().targets(), Set.of(), Set.of(),
+        assertThat(evaluator.evaluate(new Conditions(true, true, POLICY_START, BenefitPolicy.NO_END_DATE, conditions().targets(), Set.of(), Set.of(),
                 null), transaction())).isEqualTo(Match.UNKNOWN);
     }
 
     @Test
     void incompleteConditionInvestigationDoesNotEstablishTargetMismatch() {
-        var incomplete = new Conditions(false, true, null, null,
+        var incomplete = new Conditions(false, true, POLICY_START, BenefitPolicy.NO_END_DATE,
                 List.of(new Target(TargetType.BRAND, 999L, null, false)), Set.of(), Set.of(), Schedule.unrestricted());
         assertThat(evaluator.evaluate(incomplete, transaction())).isEqualTo(Match.UNKNOWN);
     }
 
     @Test
     void categoryMatchingDoesNotInventHierarchy() {
-        var conditions = new Conditions(true, true, null, null,
+        var conditions = new Conditions(true, true, POLICY_START, BenefitPolicy.NO_END_DATE,
                 List.of(new Target(TargetType.CATEGORY, null, "COFFEE", false)), Set.of(), Set.of(), Schedule.unrestricted());
         assertThat(evaluator.evaluate(conditions, transaction())).isEqualTo(Match.NOT_MATCHED);
     }
@@ -120,7 +140,7 @@ class BenefitConditionEvaluatorTest {
     @Test
     void unknownMerchantOrCategoryDoNotBecomeKnownMismatches() {
         var missing = new Transaction(100_000, Plan.LUMP_SUM, 1, transaction().occurredAt(), null, null, Map.of());
-        var conditions = new Conditions(true, true, null, null,
+        var conditions = new Conditions(true, true, POLICY_START, BenefitPolicy.NO_END_DATE,
                 List.of(new Target(TargetType.CATEGORY, null, "COFFEE_SHOP", false)), Set.of(), Set.of(), Schedule.unrestricted());
         assertThat(evaluator.evaluate(conditions, missing)).isEqualTo(Match.UNKNOWN);
     }
@@ -149,7 +169,7 @@ class BenefitConditionEvaluatorTest {
     }
 
     private Conditions withSchedule(Schedule schedule) {
-        return new Conditions(true, true, null, null, conditions().targets(), Set.of(), Set.of(), schedule);
+        return new Conditions(true, true, POLICY_START, BenefitPolicy.NO_END_DATE, conditions().targets(), Set.of(), Set.of(), schedule);
     }
 
     private Transaction at(String instant, Map<String, Boolean> facts) {

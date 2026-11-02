@@ -88,7 +88,8 @@ public final class CardBenefitCalculator {
         BigDecimal total = BigDecimal.ZERO;
         for (long benefitId : combination) {
             Benefit benefit = benefits.get(benefitId);
-            if (benefit.conditions() == null || !benefit.conditions().currentVersionVerified()) {
+            if (benefit.conditions() == null || !benefit.conditions().currentVersionVerified()
+                    || benefit.conditions().validFrom() == null || benefit.conditions().validUntil() == null) {
                 return insufficient(benefitId, "CONDITION_UNKNOWN");
             }
             // 확인된 현행 약관의 최소 금액·실적에 미달하면 다른 조건·계산 자료는 이번 거래에 사용하지 않는다.
@@ -116,7 +117,7 @@ public final class CardBenefitCalculator {
                 return insufficient(benefitId, "CALCULATION_POLICY_UNKNOWN");
             }
             if (benefit.baseAmount() != null && benefit.baseAmount() > transaction.amount()) {
-                throw new IllegalArgumentException("혜택 계산 대상액이 원 결제 금액보다 큽니다.");
+                return insufficient(benefitId, "BASE_AMOUNT_INVALID");
             }
             List<Limit> linked = new ArrayList<>();
             BigDecimal cap = null;
