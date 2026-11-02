@@ -69,7 +69,7 @@ import org.springframework.transaction.support.TransactionTemplate;
  *    (찾으면 승인으로 바로잡고 409, 조회 실패면 502), 시작 잠금 안에서: 시도 예약(최대 3회, 임시. 횟수 검사와 붙이기가 원자적) → tx1: REQUESTED·DECLINED → PROCESSING 선점.
  *    선점하지 못하면 예약을 지운다
  * ⑥ 승인 실행(PaymentApprover, DB 트랜잭션 밖. 체크카드는 금융망 출금, 신용카드는 한도 확인·청구 계획). 결과 불명은 PROCESSING에 둔 채 502,
- *    금융망에 보내지도 못했으면 REQUESTED로 되돌리고 시도를 지운다
+ *    금융망에 보내지도 못했으면 REQUESTED로 되돌리고 시도를 지운다(신용카드 실행 실패도 외부로 보낸 것이 없으므로 같고, 응답은 그 오류)
  * ⑦ 실행 결과(거래 번호·출금액·응답)를 로그와 시도 기록에 먼저 남긴다
  * ⑧ 신용카드면 회차가 걸리는 달의 청구서 확보(별도 트랜잭션) → tx2: APPROVED(원장 반영 포트·청구 회차 저장) 또는 DECLINED 저장
  *    → 바코드 USED → 청구 회차가 생겼으면 회차를 채운 응답으로 시도 기록을 다시 적는다 → 응답 기억(실패해도 ⑦이 있으므로 응답은 그대로)
@@ -473,7 +473,8 @@ public class PaymentApprovalService {
             release(command.paymentId(), attempt);
             log.warn("결제 승인 실행을 보내지 못해 되돌림 paymentId={} attempt={}: {}", command.paymentId(), attempt.no(),
                     e.getMessage());
-            throw new BusinessException(ErrorCode.FIN_API_UNAVAILABLE);
+            // 신용카드 실행 실패는 그 오류로(예: 카드 해지 404), 체크카드 미전송은 502로 답한다
+            throw e.reply().orElseGet(() -> new BusinessException(ErrorCode.FIN_API_UNAVAILABLE));
         } catch (BusinessException e) {
             log.warn("결제 승인 실행 실패, PROCESSING 유지 paymentId={} attempt={} code={}", command.paymentId(),
                     attempt.no(), e.getErrorCode(), e);

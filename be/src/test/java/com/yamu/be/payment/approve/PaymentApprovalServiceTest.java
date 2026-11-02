@@ -531,6 +531,19 @@ class PaymentApprovalServiceTest {
     }
 
     @Test
+    void 보내지_않은_실행이_돌려줄_오류를_실었으면_되돌린_뒤_그_오류로_답한다() {
+        BusinessException notFound = new BusinessException(ErrorCode.RESOURCE_NOT_FOUND);
+        doThrow(new ApprovalNotSentException("신용 승인 실행 실패", notFound, notFound)).when(approver).approve(any());
+
+        assertThatThrownBy(() -> service.approve(ME, PAYMENT_ID, request(16L), KEY)).isSameAs(notFound);
+
+        assertThat(payment.getStatus()).isEqualTo(PaymentStatus.REQUESTED);
+        verify(attempts).release(eq(PAYMENT_ID), any());
+        verify(attempts, never()).recordResult(anyLong(), any(), any());
+        verify(idempotency, never()).remember(anyLong(), anyString(), any());
+    }
+
+    @Test
     void PROCESSING_결제는_횟수_카드_검사보다_먼저_복구를_거치고_풀렸으면_이어서_승인한다() {
         payment.startApproval(15L, 3L);
         when(recovery.recover(PAYMENT_ID)).thenAnswer(inv -> {

@@ -2,6 +2,7 @@ package com.yamu.be.payment.approve;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -369,6 +370,49 @@ class CreditApprovalIntegrationTest extends MySqlTestSupport {
                 .andExpect(status().isUnprocessableEntity())
                 .andExpect(jsonPath("$.error.code").value("DATA_INSUFFICIENT"))
                 .andExpect(jsonPath("$.error.details.reason").value("CREDIT_LIMIT_UNKNOWN"));
+
+        assertThat(payments.findById(requested.paymentId()).orElseThrow().getStatus()).isEqualTo(PaymentStatus.REQUESTED);
+        assertThat(attempts.count(requested.paymentId())).isZero();
+    }
+
+    @Test
+    void 사전_검사_뒤_승인_실행_전에_카드를_해제하면_404이고_결제는_REQUESTED로_되돌아가_바로_다른_카드로_승인된다()
+            throws Exception {
+        Requested requested = requested(15_000, null);
+        // 사전 검사의 한도 확인이 끝난 직후 사용자가 카드 등록을 해제했다
+        doAnswer(inv -> {
+            jdbc.update("UPDATE user_card SET status = 'UNREGISTERED', is_default = FALSE WHERE user_card_id = ?",
+                    creditCard);
+            return LimitCheck.skipped();
+        }).doReturn(LimitCheck.skipped()).when(limits).check(anyLong(), anyLong(), anyLong());
+
+        approve(requested.paymentId(), UUID.randomUUID().toString(), body(creditCard))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error.code").value("RESOURCE_NOT_FOUND"));
+
+        PaymentTransaction payment = payments.findById(requested.paymentId()).orElseThrow();
+        assertThat(payment.getStatus()).isEqualTo(PaymentStatus.REQUESTED);
+        assertThat(attempts.count(requested.paymentId())).isZero();
+        assertThat(billCount(creditCard)).isZero();
+
+        // PROCESSING에 남지 않았으므로 복구 유예를 기다리지 않고 바로 다른 카드로 승인된다
+        approve(requested.paymentId(), UUID.randomUUID().toString(), body(secondCard))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.status").value("APPROVED"))
+                .andExpect(jsonPath("$.data.selectedCard.userCardId").value(secondCard));
+        assertThat(attempts.count(requested.paymentId())).isEqualTo(1);
+    }
+
+    @Test
+    void 승인_실행에서_한도를_모르게_되면_422이고_결제는_REQUESTED로_되돌아간다() throws Exception {
+        Requested requested = requested(15_000, null);
+        // 사전 검사 때는 한도를 알았는데 승인 실행 때 자료가 사라졌다
+        doReturn(LimitCheck.skipped()).doReturn(LimitCheck.unknown())
+                .when(limits).check(anyLong(), anyLong(), anyLong());
+
+        approve(requested.paymentId(), UUID.randomUUID().toString(), body(creditCard))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.error.code").value("DATA_INSUFFICIENT"));
 
         assertThat(payments.findById(requested.paymentId()).orElseThrow().getStatus()).isEqualTo(PaymentStatus.REQUESTED);
         assertThat(attempts.count(requested.paymentId())).isZero();
