@@ -52,6 +52,8 @@ import org.springframework.transaction.support.TransactionTemplate;
  *   <li>행은 지우지 않는다. 거래·청구·감사 로그가 FK(RESTRICT)로 가리키기 때문이다. 이력은 옛 user_id에 남고 재가입한 새 계정에는 보이지 않는다</li>
  *   <li>하지 않는 것(확인 필요): 30일 뒤 이력 삭제, 탈퇴 철회 기간, 쌓이는 중(ACCUMULATING) 청구 회차 정리(BE 2),
  *       예정 수입·지출(BE 4). 쌓이는 중 청구도 "끝나지 않은 청구"라 탈퇴를 막는다</li>
+ *   <li>끝나지 않은 청구·환급은 본인 인증 전에 한 번(토큰을 버리지 않게), 사용자 행을 잠근 뒤 한 번 더 본다. 청구를 만드는 쪽(BE 2)이
+ *       사용자 행을 잠그지 않으면 두 번째 확인 뒤 커밋 전에 생긴 청구는 막지 못한다(한계)</li>
  * </ul>
  */
 @Slf4j
@@ -122,6 +124,8 @@ public class WithdrawalService {
         if (user.isWithdrawn()) {
             return null;
         }
+        // 처음 확인과 잠금 사이에 생긴 청구·환급. 본인 인증 토큰은 이미 썼지만 아무것도 바꾸지 않고 409로 돌려준다.
+        requireSettled(userId);
         LocalDateTime now = LocalDateTime.now(clock);
 
         List<UserCard> cards = cardRepository.findByUserId(userId);

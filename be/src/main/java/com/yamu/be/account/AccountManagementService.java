@@ -10,6 +10,7 @@ import com.yamu.be.account.dto.BankResponse;
 import com.yamu.be.global.exception.BusinessException;
 import com.yamu.be.global.exception.ErrorCode;
 import com.yamu.be.global.security.AuthUser;
+import com.yamu.be.user.domain.AppUser;
 import com.yamu.be.user.domain.AppUserRepository;
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
@@ -61,8 +62,12 @@ public class AccountManagementService {
      */
     public AccountResponse update(AuthUser me, Long accountId, AccountUpdateRequest request) {
         LinkedAccount updated = transaction.execute(status -> {
-            userRepository.findByIdForUpdate(me.userId())
+            AppUser user = userRepository.findByIdForUpdate(me.userId())
                     .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND));
+            // 요청 시작 때 토큰 검사를 통과했어도 잠금을 기다리는 사이 탈퇴했을 수 있다. 탈퇴한 사용자에게 데이터를 다시 남기지 않는다.
+            if (user.isWithdrawn()) {
+                throw new BusinessException(ErrorCode.UNAUTHORIZED);
+            }
             LinkedAccount account = accountRepository.findByIdAndUserId(accountId, me.userId())
                     .filter(LinkedAccount::isConnected)
                     .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND));

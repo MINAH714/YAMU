@@ -3,6 +3,7 @@ package com.yamu.be.user;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -35,6 +36,12 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.Callable;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -52,6 +59,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.utility.DockerImageName;
@@ -87,6 +95,7 @@ class WithdrawalIntegrationTest extends MySqlTestSupport {
     @Autowired SignupTokenStore signupTokenStore;
     @Autowired StepUpTokenStore stepUpTokenStore;
     @Autowired PhoneVerificationStore verificationStore;
+    @Autowired TransactionTemplate transaction;
 
     @MockitoBean FinApiClient finApiClient;
 
@@ -217,6 +226,42 @@ class WithdrawalIntegrationTest extends MySqlTestSupport {
                 + "AND event_type = 'REVOKED'", Integer.class, member.deviceId())).isEqualTo(1);
     }
 
+    @Test
+    void 탈퇴가_사용자_행을_잡은_사이_들어온_계좌_수정은_잠금을_얻은_뒤_401이고_아무것도_바꾸지_않는다() throws Exception {
+        Member member = activeMember();
+        long account = jdbc.queryForObject("SELECT linked_account_id FROM linked_account WHERE user_id = ?", Long.class,
+                member.userId());
+
+        // 토큰 검사는 아직 ACTIVE로 보고 통과하지만, 서비스는 탈퇴 트랜잭션이 끝날 때까지 사용자 행 잠금을 기다린다.
+        int status = whileUserLocked(member.userId(),
+                () -> jdbc.update("UPDATE app_user SET status = 'WITHDRAWN', deleted_at = UTC_TIMESTAMP(6) WHERE user_id = ?",
+                        member.userId()),
+                () -> perform(patch("/api/accounts/" + account)
+                                .header(HttpHeaders.AUTHORIZATION, "Bearer " + member.accessToken()),
+                        "{\"accountName\":\"생활비\"}").andReturn().getResponse().getStatus());
+
+        assertThat(status).isEqualTo(401);
+        assertThat(jdbc.queryForObject("SELECT account_name FROM linked_account WHERE linked_account_id = ?",
+                String.class, account)).isNotEqualTo("생활비");
+    }
+
+    @Test
+    void 처음_확인_뒤_잠금_전에_생긴_청구는_잠근_뒤_다시_보고_409로_막는다() throws Exception {
+        Member member = activeMember();
+        long card = card(member.userId(), "ACTIVE");
+        String stepUp = stepUpToken(member, StepUpPurpose.WITHDRAW_MEMBER);
+
+        // 처음 확인(잠금 밖)은 아직 커밋되지 않은 청구를 보지 못하고, 잠근 뒤의 확인은 커밋된 청구를 본다.
+        int status = whileUserLocked(member.userId(), () -> bill(member.userId(), card, "CONFIRMED"),
+                () -> withdraw(member, stepUp).andReturn().getResponse().getStatus());
+
+        assertThat(status).isEqualTo(409);
+        assertThat(jdbc.queryForObject("SELECT status FROM app_user WHERE user_id = ?", String.class, member.userId()))
+                .isEqualTo("ACTIVE");
+        assertThat(jdbc.queryForObject("SELECT status FROM user_device WHERE user_device_id = ?", String.class,
+                member.deviceId())).isEqualTo("ACTIVE");
+    }
+
     // ───────── 재가입 ─────────
 
     @Test
@@ -332,6 +377,40 @@ class WithdrawalIntegrationTest extends MySqlTestSupport {
                 .andExpect(status().isCreated()).andReturn();
         return new Member(userId, Long.parseLong(read(registered, "$.data.userDeviceId")),
                 read(registered, "$.data.accessToken"), read(registered, "$.data.refreshToken"));
+    }
+
+    /**
+     * 다른 트랜잭션이 사용자 행을 잠근 채 holder를 실행해 둔 동안 request를 보내고, request가 잠금을 기다릴 시간을 준 뒤 커밋한다.
+     *
+     * @return request 결과
+     */
+    private <T> T whileUserLocked(long userId, Runnable holder, Callable<T> request) throws Exception {
+        CountDownLatch locked = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        try {
+            Future<?> holding = pool.submit(() -> transaction.executeWithoutResult(status -> {
+                jdbc.queryForObject("SELECT user_id FROM app_user WHERE user_id = ? FOR UPDATE", Long.class, userId);
+                holder.run();
+                locked.countDown();
+                try {
+                    release.await(30, TimeUnit.SECONDS);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+            }));
+            if (!locked.await(30, TimeUnit.SECONDS)) {
+                holding.get(1, TimeUnit.SECONDS); // holder가 실패했으면 그 예외를 보여 준다
+            }
+            Future<T> result = pool.submit(request);
+            Thread.sleep(500);
+            release.countDown();
+            holding.get(30, TimeUnit.SECONDS);
+            return result.get(30, TimeUnit.SECONDS);
+        } finally {
+            release.countDown();
+            pool.shutdownNow();
+        }
     }
 
     private VerifiedIdentity identity(String name) {
