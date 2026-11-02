@@ -195,6 +195,7 @@ data class LinkedCard(
     val yearMonth: String?,
     val isDefault: Boolean = false,
     val stateLabel: String? = null,         // 정지 · 만료 · 추천 제외일 때만
+    val issuerBlocked: Boolean = false,     // 카드사 정지 · 만료 — 예정 지출의 결제 수단으로 고를 수 없다
 )
 
 data class LinkedOverview(val accounts: List<LinkedAccount>, val cards: List<LinkedCard>, val syncedAtIso: String?) {
@@ -362,4 +363,5 @@ fun CardDto.toLinked() = LinkedCard(
     yearMonth = performance?.yearMonth,
     isDefault = isDefault,
     stateLabel = cardStateLabel(status, issuerStatus),
+    issuerBlocked = issuerStatus == "SUSPENDED" || issuerStatus == "EXPIRED",
 )
