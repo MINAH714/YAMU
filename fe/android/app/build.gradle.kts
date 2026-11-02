@@ -98,7 +98,7 @@ android {
         }
         release {
             // TODO 배포 서버 주소(HTTPS) 확정 후 바꾸기
-            buildConfigField("String", "BASE_URL", "\"https://example.invalid/api/v1/\"")
+            buildConfigField("String", "BASE_URL", "\"https://example.invalid/api/\"")   // 경로는 BE와 같은 /api/ — 호스트만 바꾸면 된다
             buildConfigField("String", "REAL_API", "\"${apiFeatures.joinToString(",")}\"")
             // R8: 코드 줄이기 · 이름 바꾸기 + 안 쓰는 리소스 빼기. 앱 규칙은 proguard-rules.pro
             isMinifyEnabled = true
