@@ -56,7 +56,7 @@ enum class FaultScenario(val label: String) {
 /**
  * 개발용 상태 — 디버그 메뉴에서 바꾼다.
  * startState + applyOnNextStart: 디버그 메뉴 '이 상태로 처음부터' → 가짜 인증(FakeAuthRepository)이 다음 시작 때 저장소에 반영.
- * homeScenario · linkScenario: debug 빌드 가짜 홈 · 연결 데이터. 진짜 API(USE_FAKE_API=false)에서는 쓰이지 않는다.
+ * homeScenario · linkScenario: debug 빌드 가짜 홈 · 연결 데이터. 그 기능이 진짜 서버(yamu.realApi)면 쓰이지 않는다.
  */
 object DevSession {
     var startState by mutableStateOf(StartState.NEED_SIGNUP)
