@@ -149,6 +149,7 @@ public class UserDevice extends BaseTimeEntity {
      */
     public void wipeForWithdrawal(String placeholderKey) {
         this.status = DeviceStatus.REVOKED;
+        this.deviceName = null;
         this.publicKey = placeholderKey;
         this.biometricPublicKey = null;
         this.biometricEnabled = false;

@@ -48,12 +48,15 @@ import org.springframework.transaction.support.TransactionTemplate;
  *       카드 행의 카드번호·카드사 계좌·결제일. 이름 해시는 재가입 때 이름까지 맞는지 보려고 남긴다(이름 원문은 지움).
  *       재가입하면 새 사용자로 옮겨지고 이 행에서는 지워진다({@link RejoinService}). SSAFY 계정은 지우는 API가 없어 그대로다</li>
  *   <li>지우는 것: 이름·휴대폰 암호문·PIN·본인인증 시각(NULL), 계좌번호(무작위 값으로 덮음, NOT NULL), 기기 공개키(무작위, NOT NULL),
+ *       기기 이름(NULL, "OO의 갤럭시"처럼 이름이 들어갈 수 있음),
  *       본인 인증 기록의 IP·User-Agent(NULL), Redis의 Refresh Token·가입 토큰·잔액 캐시</li>
  *   <li>행은 지우지 않는다. 거래·청구·감사 로그가 FK(RESTRICT)로 가리키기 때문이다. 이력은 옛 user_id에 남고 재가입한 새 계정에는 보이지 않는다</li>
  *   <li>하지 않는 것(확인 필요): 30일 뒤 이력 삭제, 탈퇴 철회 기간, 쌓이는 중(ACCUMULATING) 청구 회차 정리(BE 2),
- *       예정 수입·지출(BE 4). 쌓이는 중 청구도 "끝나지 않은 청구"라 탈퇴를 막는다</li>
+ *       예정 수입·지출(BE 4, cashflow_item의 제목·메모 포함). 쌓이는 중 청구도 "끝나지 않은 청구"라 탈퇴를 막는다</li>
  *   <li>끝나지 않은 청구·환급은 본인 인증 전에 한 번(토큰을 버리지 않게), 사용자 행을 잠근 뒤 한 번 더 본다. 청구를 만드는 쪽(BE 2)이
  *       사용자 행을 잠그지 않으면 두 번째 확인 뒤 커밋 전에 생긴 청구는 막지 못한다(한계)</li>
+ *   <li>커밋 뒤 Redis 정리가 실패해도 탈퇴는 끝났으므로 경고만 남기고 성공으로 응답한다. 남은 Refresh Token은 재발급 때
+ *       DB의 기기·사용자 상태를 먼저 봐서 쓰이지 않고, 가입 토큰·잔액 캐시는 TTL로 사라진다</li>
  * </ul>
  */
 @Slf4j
@@ -95,11 +98,20 @@ public class WithdrawalService {
         if (cleanup == null) {
             return;
         }
-        cleanup.deviceIds().forEach(refreshTokenStore::revoke);
-        signupTokenStore.deleteAllForUser(me.userId());
+        afterCommit("Refresh Token 폐기", me.userId(), () -> cleanup.deviceIds().forEach(refreshTokenStore::revoke));
+        afterCommit("가입 토큰 삭제", me.userId(), () -> signupTokenStore.deleteAllForUser(me.userId()));
         cleanup.accountIds().forEach(balanceService::evict);
         log.info("회원 탈퇴 처리 (userId={}, 기기 {}대, 계좌 {}개, 카드 {}장)", me.userId(), cleanup.deviceIds().size(),
                 cleanup.accountIds().size(), cleanup.cardCount());
+    }
+
+    /** 커밋 뒤 Redis 정리. 실패해도 탈퇴는 이미 끝났으므로 경고만 남긴다(잔액 캐시 삭제는 evict가 스스로 삼킨다). */
+    private void afterCommit(String step, Long userId, Runnable cleanup) {
+        try {
+            cleanup.run();
+        } catch (RuntimeException e) {
+            log.warn("탈퇴 뒤 {} 실패({}) → 탈퇴는 완료 (userId={})", step, e.getClass().getSimpleName(), userId);
+        }
     }
 
     private void requireSettled(Long userId) {

@@ -150,6 +150,7 @@ class WithdrawalIntegrationTest extends MySqlTestSupport {
         Map<String, Object> device = jdbc.queryForMap("SELECT * FROM user_device WHERE user_id = ?", member.userId());
         assertThat(device.get("status")).isEqualTo("REVOKED");
         assertThat((String) device.get("public_key")).startsWith("withdrawn:");
+        assertThat(device.get("device_name")).isNull();
         assertThat(jdbc.queryForList("SELECT event_type FROM user_device_event WHERE user_device_id = ?", String.class,
                 member.deviceId())).contains("REVOKED");
 
@@ -224,6 +225,19 @@ class WithdrawalIntegrationTest extends MySqlTestSupport {
         assertThat(statuses).contains(204).allMatch(code -> code == 204 || code == 401 || code == 403);
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM user_device_event WHERE user_device_id = ? "
                 + "AND event_type = 'REVOKED'", Integer.class, member.deviceId())).isEqualTo(1);
+    }
+
+    @Test
+    void 기기를_해제하면_그_기기의_남은_Access_Token은_401이다() throws Exception {
+        Member member = activeMember();
+
+        mockMvc.perform(delete("/api/auth/devices/" + member.deviceId())
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + member.accessToken())
+                        .header(StepUpService.HEADER, stepUpToken(member, StepUpPurpose.APP_UNLOCK)))
+                .andExpect(status().isNoContent());
+
+        mockMvc.perform(get("/api/auth/devices").header(HttpHeaders.AUTHORIZATION, "Bearer " + member.accessToken()))
+                .andExpect(status().isUnauthorized());
     }
 
     @Test
