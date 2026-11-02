@@ -65,7 +65,9 @@ export async function createPaymentRequest(
 
 export function getPaymentResult(paymentId: number): Promise<PaymentResult> {
   if (config.mockResult) return mockPaymentResult(paymentId)
-  return request<PaymentResult>(`/pos/payment-requests/${paymentId}`, { timeoutMs: RESULT_TIMEOUT_MS }).then(
+  // 결제 요청을 만든 POS(posCode)만 결과를 볼 수 있다. 다르면 404
+  const path = `/pos/payment-requests/${paymentId}?posCode=${encodeURIComponent(config.posCode)}`
+  return request<PaymentResult>(path, { timeoutMs: RESULT_TIMEOUT_MS }).then(
     (result) => result.data,
   )
 }
