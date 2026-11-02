@@ -3,6 +3,10 @@ package com.yamu.be.forecast;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.tuple;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -10,7 +14,13 @@ import static org.mockito.Mockito.when;
 import com.yamu.be.account.AccountQueryService;
 import com.yamu.be.cashflow.CashflowItem;
 import com.yamu.be.cashflow.CashflowService;
-import com.yamu.be.forecast.AccountBalanceReader.AccountBalance;
+import com.yamu.be.account.AccountBalance;
+import com.yamu.be.account.AccountBalanceService;
+import com.yamu.be.card.CardQueryService;
+import com.yamu.be.card.UserCardRef;
+import com.yamu.be.card.domain.CardIssuerStatus;
+import com.yamu.be.card.domain.CardRegistrationStatus;
+import com.yamu.be.card.domain.CardType;
 import com.yamu.be.forecast.BalanceForecast.Until;
 import com.yamu.be.forecast.CardBillReader.OutstandingBill;
 import com.yamu.be.forecast.CardBillReader.Status;
@@ -53,6 +63,9 @@ class ForecastServiceTest {
 
     @Mock CashflowService cashflows;
     @Mock AccountQueryService accounts;
+    @Mock AccountBalanceService balanceService;
+    // 따로 정하지 않은 카드는 BE 1 조회처럼 empty(Mockito 기본값)다.
+    @Mock CardQueryService cardService;
 
     private final List<List<Long>> balanceRequests = new ArrayList<>();
     private final List<Boolean> refreshRequests = new ArrayList<>();
@@ -72,19 +85,19 @@ class ForecastServiceTest {
     }
 
     private ForecastService serviceAt(Clock clock) {
-        AccountBalanceReader balanceReader = (userId, accountIds, refresh) -> {
-            balanceRequests.add(accountIds);
-            refreshRequests.add(refresh);
+        // 생활비 상세처럼 잔액을 읽지 않는 테스트도 있어 lenient로 둔다.
+        lenient().when(balanceService.getBalances(any(), anyList(), anyBoolean())).thenAnswer(invocation -> {
+            balanceRequests.add(invocation.getArgument(1));
+            refreshRequests.add(invocation.getArgument(2));
             if (balanceFailure != null) {
                 throw balanceFailure;
             }
             return balances;
-        };
+        });
         CardBillReader billReader = (userId, accountIds, to) -> {
             billRequestsTo.add(to);
             return bills;
         };
-        CardReader cardReader = (userId, cardId) -> Optional.empty();
         CreditWithdrawalSchedule creditSchedule = (card, spendDate) -> spendDate;
         LivingCostReader livingReader = (userId, accountIds, fromMonth, toMonth) -> {
             livingRequests.add(List.of(fromMonth, toMonth));
@@ -93,7 +106,7 @@ class ForecastServiceTest {
             }
             return new LivingCostReader.Spending(spending, LIVING_SYNCED_AT);
         };
-        return new ForecastService(cashflows, balanceReader, billReader, cardReader, creditSchedule, livingReader,
+        return new ForecastService(cashflows, balanceService, billReader, cardService, creditSchedule, livingReader,
                 accounts, THRESHOLD, clock);
     }
 
@@ -291,6 +304,26 @@ class ForecastServiceTest {
     }
 
     @Test
+    void 정지된_카드의_예정_지출은_빼지만_그_카드의_확정_청구는_그대로_뺀다() {
+        // 확정 청구는 카드가 정지돼도 출금된다. 정지·만료 판단은 앞으로의 예정 카드 지출에만 한다.
+        Long suspendedCard = 30L;
+        when(cardService.findRegisteredCard(USER, suspendedCard)).thenReturn(Optional.of(new UserCardRef(
+                suspendedCard, 1L, A, "3030", CardRegistrationStatus.ACTIVE, CardIssuerStatus.SUSPENDED,
+                CardType.CHECK, null, null)));
+        CashflowService.Item subscription = new CashflowService.Item(9L, null, suspendedCard, "구독",
+                CashflowItem.Direction.EXPENSE, 20_000L, NOV_5, CashflowItem.RecurrenceType.NONE, null, null, null,
+                CashflowItem.Status.CONFIRMED, null);
+        givenEntries(TODAY, TODAY.plusDays(14), new CashflowService.Entry(subscription, NOV_5, NOV_5, false));
+        bills = List.of(new OutstandingBill(88L, A, Status.CONFIRMED, NOV_5, 400_000L));
+
+        BalanceForecast result = service.forecast(USER, List.of(A), Until.DAYS, 14, false, false);
+
+        assertThat(day(result.series(), NOV_5).confirmed()).isEqualTo(400_000L);
+        assertThat(result.excluded()).extracting(ExcludedItem::cashflowItemId, ExcludedItem::reason)
+                .containsExactly(tuple(9L, ExcludedItem.Reason.CARD_SUSPENDED_OR_EXPIRED));
+    }
+
+    @Test
     void 출금일이_지났는데_아직_확정인_청구는_오늘_확정_선에서_뺀다() {
         // 결제일 07:00 출금 요청 뒤 결과를 기다리는 청구. 예보 시작일 이전 날짜라도 버리지 않는다.
         givenEntries(TODAY, TODAY.plusDays(14));
@@ -315,6 +348,19 @@ class ForecastServiceTest {
                 .extracting(ExcludedItem::cardBillId, ExcludedItem::cashflowItemId, ExcludedItem::date,
                         ExcludedItem::amount, ExcludedItem::reason)
                 .containsExactly(tuple(88L, null, TODAY.minusDays(10), 120_000L, ExcludedItem.Reason.UNPAID_BILL));
+    }
+
+    @Test
+    void 출금_계좌_상태_출금일이_빈_청구는_계약_위반으로_실패한다() {
+        givenEntries(TODAY, TODAY.plusDays(14));
+        for (OutstandingBill broken : List.of(new OutstandingBill(88L, null, Status.CONFIRMED, NOV_5, 1_000L),
+                new OutstandingBill(89L, A, null, NOV_5, 1_000L),
+                new OutstandingBill(90L, A, Status.CONFIRMED, null, 1_000L))) {
+            bills = List.of(broken);
+
+            assertThatThrownBy(() -> service.forecast(USER, List.of(A), Until.DAYS, 14, false, false))
+                    .isInstanceOf(IllegalStateException.class);
+        }
     }
 
     @Test
@@ -386,10 +432,18 @@ class ForecastServiceTest {
     }
 
     @Test
-    void 남의_계좌_404와_금융망_실패는_그대로_전파하고_예정_항목을_읽지_않는다() {
+    void 잔액_조회_오류는_0원으로_채우지_않고_그대로_전파하며_예정_항목을_읽지_않는다() {
         balanceFailure = new BusinessException(ErrorCode.RESOURCE_NOT_FOUND);
         assertError(() -> service.forecast(USER, List.of(A), Until.DAYS, 7, false, false),
                 ErrorCode.RESOURCE_NOT_FOUND);
+
+        // SSAFY 회원 아님(400)과 새로고침 한도(429)도 BE 1이 던진 그대로다.
+        balanceFailure = new BusinessException(ErrorCode.INVALID_REQUEST);
+        assertError(() -> service.forecast(USER, List.of(A), Until.DAYS, 7, false, false),
+                ErrorCode.INVALID_REQUEST);
+        balanceFailure = new BusinessException(ErrorCode.TOO_MANY_REQUESTS);
+        assertError(() -> service.forecast(USER, List.of(A), Until.DAYS, 7, false, true),
+                ErrorCode.TOO_MANY_REQUESTS);
 
         balanceFailure = new BusinessException(ErrorCode.FIN_API_UNAVAILABLE);
         assertError(() -> service.forecast(USER, List.of(A), Until.DAYS, 7, false, false),

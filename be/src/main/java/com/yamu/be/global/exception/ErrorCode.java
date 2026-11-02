@@ -51,8 +51,6 @@ public enum ErrorCode {
     SIGNUP_TOKEN_INVALID(HttpStatus.UNAUTHORIZED, "가입 진행 시간이 지났습니다. 본인인증부터 다시 진행해 주세요."),
     ALREADY_REGISTERED(HttpStatus.CONFLICT, "이미 가입된 사용자입니다. 기기 재등록으로 진행해 주세요."),
     /* 인증 - 본인인증 확인 리뷰 반영·시드 사용자 전용(S15P31E103-192). 명세서 「휴대폰 본인인증 확인」에 추가 필요 */
-    // 탈퇴한 사람의 재가입. 탈퇴(기기 관리·탈퇴 작업)에서 개인정보를 비우는 방식이 정해지면 새 가입으로 바뀐다
-    REJOIN_NOT_AVAILABLE(HttpStatus.CONFLICT, "탈퇴한 정보로는 아직 다시 가입할 수 없습니다."),
     // 임시(10/30): 시연용 시드에 없는 사람. 회원가입 때 SSAFY 회원을 만들지 않으므로 시드 사용자만 가입할 수 있다
     DEMO_USER_NOT_FOUND(HttpStatus.NOT_FOUND, "시연용으로 등록된 사용자가 아닙니다."),
 
@@ -60,7 +58,7 @@ public enum ErrorCode {
     INVALID_PIN_FORMAT(HttpStatus.BAD_REQUEST, "간편 비밀번호는 같은 숫자 반복·연속 숫자가 아닌 숫자 6자리로 정해 주세요."),
     INVALID_PUBLIC_KEY(HttpStatus.BAD_REQUEST, "기기 키 형식이 올바르지 않습니다."),
     SIGNUP_STEP_INCOMPLETE(HttpStatus.CONFLICT, "앞 단계 가입 절차를 먼저 마쳐 주세요."),
-    DEVICE_LIMIT_EXCEEDED(HttpStatus.CONFLICT, "등록할 수 있는 기기 수(3대)를 넘었습니다. 기존 기기를 해제한 뒤 등록해 주세요."),
+    DEVICE_LIMIT_EXCEEDED(HttpStatus.CONFLICT, "기기는 한 대만 등록할 수 있습니다. 기존 기기를 해제한 뒤 등록해 주세요."),
 
     /* 계좌 - 계좌 목록·1원 인증 요청·계좌 연결 (API 명세 각 페이지. 10/30 목록 방식으로 바꿔 계좌번호 입력·예금주 코드는 뺐다) */
     ACCOUNT_NOT_FOUND_AT_BANK(HttpStatus.NOT_FOUND, "은행에서 계좌를 찾을 수 없습니다. 계좌번호를 확인해 주세요."),
@@ -101,6 +99,10 @@ public enum ErrorCode {
     ORDER_INCOMPLETE(HttpStatus.BAD_REQUEST, "보유 카드 전체를 빠짐없이 한 번씩 보내 주세요."),
     CARD_HAS_OPEN_BILL(HttpStatus.CONFLICT, "출금되지 않은 청구서가 있어 카드를 해제할 수 없습니다."),
 
+    /* 사용자 - 회원 탈퇴 (API 명세 「회원 탈퇴」). details.billIds·refundIds */
+    BILL_OUTSTANDING(HttpStatus.CONFLICT, "출금되지 않은 청구서가 있어 탈퇴할 수 없습니다."),
+    REFUND_PENDING(HttpStatus.CONFLICT, "아직 입금되지 않은 환급이 있어 탈퇴할 수 없습니다."),
+
     /* 가계부 - 항목 수정 (API 명세 「가계부 항목 수정」). 탐지 후보는 CONFIRMED·IGNORED로만 바꿀 수 있다 */
     INVALID_STATUS_CHANGE(HttpStatus.CONFLICT, "바꿀 수 없는 상태입니다."),
 
@@ -119,7 +121,11 @@ public enum ErrorCode {
     CONCURRENT_MODIFICATION(HttpStatus.CONFLICT, "다른 요청과 겹쳤습니다. 다시 시도해 주세요."),
 
     /* 공통 - 호출 횟수 제한. details.retryAfterSeconds. 명세서 1장에 추가 필요 */
-    TOO_MANY_REQUESTS(HttpStatus.TOO_MANY_REQUESTS, "요청이 너무 많습니다. 잠시 후 다시 시도해 주세요.");
+    TOO_MANY_REQUESTS(HttpStatus.TOO_MANY_REQUESTS, "요청이 너무 많습니다. 잠시 후 다시 시도해 주세요."),
+
+    /* 결제 바코드 (API 명세 「결제 바코드 발급」「바코드 상태·결제 요청 조회」) */
+    NO_ACTIVE_CARD(HttpStatus.CONFLICT, "결제에 사용할 수 있는 카드가 없습니다. 카드를 먼저 등록해 주세요."),
+    BARCODE_NOT_FOUND(HttpStatus.NOT_FOUND, "바코드를 찾을 수 없습니다.");
 
     private final HttpStatus status;
     private final String message;
