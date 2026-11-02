@@ -287,7 +287,7 @@ class DeviceSetupIntegrationTest extends MySqlTestSupport {
     }
 
     @Test
-    void 기기가_3대_다_찬_상태에서_폰을_잃어도_기기_재등록은_되고_나머지_기기는_해제된다() throws Exception {
+    void 해제되지_않은_기기가_여러_대_남아_있어도_기기_재등록은_되고_나머지_기기는_해제된다() throws Exception {
         Registered member = activeMember();
         long second = insertDevice(member.userId(), "ACTIVE");
         long third = insertDevice(member.userId(), "LOCKED");
@@ -578,7 +578,7 @@ class DeviceSetupIntegrationTest extends MySqlTestSupport {
 
         mockMvc.perform(get("/api/auth/devices").with(AuthUsers.asUser(member.userId(), member.deviceId())))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.maxDevices").value(3))
+                .andExpect(jsonPath("$.data.maxDevices").value(1))
                 .andExpect(jsonPath("$.data.items.length()").value(4))
                 .andExpect(jsonPath("$.data.items[0].userDeviceId").value(member.deviceId()))
                 .andExpect(jsonPath("$.data.items[0].isCurrent").value(true))
@@ -742,6 +742,19 @@ class DeviceSetupIntegrationTest extends MySqlTestSupport {
             pool.shutdownNow();
         }
         assertThat(eventTypes(member.deviceId())).last().isEqualTo("REVOKED");
+    }
+
+    @Test
+    void 가입_중인데_해제되지_않은_기기가_이미_있으면_409_DEVICE_LIMIT_EXCEEDED() throws Exception {
+        // 정상 흐름에서는 생기지 않는 데이터다. 버그로 기기가 두 대가 되지 않게 막는 안전장치를 확인한다.
+        long userId = pendingUser();
+        insertDevice(userId, "ACTIVE");
+        String bearer = "Bearer " + signupToken(userId, SignupMode.SIGNUP);
+        linkAccount(bearer);
+        setPin(bearer, PIN).andExpect(status().isNoContent());
+
+        registerDevice(bearer, deviceJson(UUID.randomUUID().toString(), DeviceKeys.generate(), null, null, null))
+                .andExpect(errorCode(409, "DEVICE_LIMIT_EXCEEDED"));
     }
 
     private int revokeStatus(Registered member, long deviceId, String stepUp) throws Exception {

@@ -27,7 +27,7 @@ public interface UserDeviceRepository extends JpaRepository<UserDevice, Long> {
     @Query("select d from UserDevice d where d.user.id = :userId and d.deviceUuid = :deviceUuid")
     Optional<UserDevice> findByUserIdAndDeviceUuid(@Param("userId") Long userId, @Param("deviceUuid") String deviceUuid);
 
-    /** 해제되지 않은(ACTIVE·LOCKED) 기기 수. 사용자당 3대까지(명세 「기기 등록」). */
+    /** 해제되지 않은(ACTIVE·LOCKED) 기기 수. 사용자당 1대(2026-11-02 결정). */
     @Query("select count(d) from UserDevice d where d.user.id = :userId and d.status <> :status")
     long countByUserIdAndStatusNot(@Param("userId") Long userId, @Param("status") DeviceStatus status);
 
