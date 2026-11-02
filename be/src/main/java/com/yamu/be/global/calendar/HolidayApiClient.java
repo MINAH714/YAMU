@@ -3,6 +3,7 @@ package com.yamu.be.global.calendar;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.net.URI;
+import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
@@ -12,11 +13,13 @@ import javax.xml.XMLConstants;
 import javax.xml.parsers.DocumentBuilder;
 import javax.xml.parsers.DocumentBuilderFactory;
 import javax.xml.parsers.ParserConfigurationException;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestClientResponseException;
 import org.springframework.web.util.UriComponentsBuilder;
+import org.springframework.web.util.UriUtils;
 import org.w3c.dom.Document;
 import org.w3c.dom.Element;
 import org.w3c.dom.NodeList;
@@ -41,6 +44,7 @@ import org.xml.sax.helpers.DefaultHandler;
  * <p>서비스 키는 요청 주소에 들어간다. 그래서 RestClient 예외(메시지에 주소가 들어 있다)를 그대로 올리거나 원인으로 붙이지 않고,
  * 연도·월·결과 코드·예외 종류만 담은 {@link HolidayApiException}으로 바꾼다. 응답 본문도 로그에 남기지 않는다.
  */
+@Slf4j
 public class HolidayApiClient {
 
     private static final String SUCCESS = "00";
@@ -55,6 +59,9 @@ public class HolidayApiClient {
     public HolidayApiClient(RestClient restClient, HolidayApiProperties properties) {
         this.restClient = restClient;
         this.properties = properties;
+        if (properties.hasServiceKey() && isEncoded(properties.serviceKey())) {
+            log.warn("yamu.holiday.service-key에 인코딩 키가 들어 있어 한 번 풀어서 씁니다. 디코딩 키로 바꾸는 것을 권장합니다(docs/be/holiday.md)");
+        }
     }
 
     /**
@@ -75,10 +82,31 @@ public class HolidayApiClient {
         if (!properties.hasServiceKey()) {
             throw new HolidayApiException("서비스 키가 없습니다(yamu.holiday.service-key)");
         }
-        return parse(call(year, month), year, month);
+        return parse(call(year, month, decodedKey(year, month)), year, month);
     }
 
-    private byte[] call(int year, int month) {
+    /**
+     * 포털은 같은 키를 디코딩·인코딩 두 가지로 보여 준다. 인코딩 키를 그대로 다시 인코딩하면 %가 %25가 되어 403이 나므로,
+     * %가 있으면 인코딩 키로 보고 한 번 푼다. 디코딩 키(영문·숫자·+·/·=)에는 %가 나오지 않아 둘을 헷갈리지 않는다.
+     */
+    private String decodedKey(int year, int month) {
+        String key = properties.serviceKey().strip();
+        if (!isEncoded(key)) {
+            return key;
+        }
+        try {
+            // URLDecoder와 달리 +를 공백으로 바꾸지 않는다
+            return UriUtils.decode(key, StandardCharsets.UTF_8);
+        } catch (IllegalArgumentException e) {
+            throw failure(year, month, "서비스 키의 % 인코딩이 깨져 있습니다(yamu.holiday.service-key)");
+        }
+    }
+
+    private static boolean isEncoded(String key) {
+        return key.indexOf('%') >= 0;
+    }
+
+    private byte[] call(int year, int month, String key) {
         // encode()를 build 전에 부르면 변수 값은 +·/·=까지 모두 퍼센트 인코딩된다. 디코딩 키를 여기서 한 번만 인코딩한다.
         URI uri = UriComponentsBuilder.fromUriString(properties.baseUrl())
                 .path("/getRestDeInfo")
@@ -87,7 +115,7 @@ public class HolidayApiClient {
                 .queryParam("solMonth", "%02d".formatted(month))
                 .queryParam("numOfRows", ROWS)
                 .encode()
-                .buildAndExpand(Map.of("key", properties.serviceKey()))
+                .buildAndExpand(Map.of("key", key))
                 .toUri();
         try {
             byte[] body = restClient.get().uri(uri).retrieve().body(byte[].class);

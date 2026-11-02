@@ -66,6 +66,28 @@ class HolidayApiClientTest {
     }
 
     @Test
+    void 인코딩_키를_넣어도_한_번_풀어서_디코딩_키와_똑같이_보낸다(CapturedOutput output) {
+        HolidayApiClient client = client("test%2Bkey%2Fabc%3D%3D");
+        server.expect(requestTo(containsString("ServiceKey=test%2Bkey%2Fabc%3D%3D&")))
+                .andRespond(xml(ok()));
+
+        assertThat(client.fetchMonth(2026, 5)).isEmpty();
+        server.verify();
+        assertThat(output.getAll()).contains("인코딩 키가 들어 있어 한 번 풀어서 씁니다").doesNotContain("test%2Bkey");
+    }
+
+    @Test
+    void 키의_퍼센트_인코딩이_깨져_있으면_부르지_않고_키를_남기지_않고_실패한다() {
+        HolidayApiClient client = client("test%zzkey");
+
+        assertThatThrownBy(() -> client.fetchMonth(2026, 5))
+                .isInstanceOf(HolidayApiException.class)
+                .hasMessageContaining("% 인코딩이 깨져 있습니다")
+                .message().doesNotContain("test%zzkey");
+        server.verify();
+    }
+
+    @Test
     void 같은_날_공휴일_둘은_이름을_합쳐_하나로_둔다() {
         HolidayApiClient client = client(KEY);
         expectMonth(5, ok(item("20250505", "어린이날", "Y"), item("20250505", "부처님오신날", "Y")));
