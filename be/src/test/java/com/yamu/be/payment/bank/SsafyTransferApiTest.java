@@ -307,7 +307,7 @@ class SsafyTransferApiTest {
     // ───────── 태그로 결과 확정 ─────────
 
     @Test
-    void 요청한_날_전날부터_오늘까지_같은_방향만_조회해_태그가_정확히_같은_거래를_찾는다() {
+    void 요청한_날_전날부터_다음_날까지_같은_방향만_조회해_태그가_정확히_같은_거래를_찾는다() {
         // 번호는 11월 1일, 오늘은 11월 2일. YAMU-P10은 YAMU-P1로 시작하지만 다른 결제다
         server.expect(requestTo(BASE + SsafyTransferApi.HISTORY_PATH))
                 .andExpect(jsonPath("$.startDate").value("20261031"))
@@ -323,6 +323,35 @@ class SsafyTransferApiTest {
 
         assertThat(lookup.result()).isEqualTo(TagLookup.Result.FOUND);
         assertThat(lookup.found().bankTransactionNo()).isEqualTo("1102");
+        server.verify();
+    }
+
+    @Test
+    void 확인이_늦어져도_조회_기간은_요청한_날_다음_날까지다() {
+        // 10월 20일 요청을 11월 2일에 확인해도 10월 19일~21일만 본다. 기간이 늘면 거래가 많은 계좌에서 목록이 잘린다
+        server.expect(requestTo(BASE + SsafyTransferApi.HISTORY_PATH))
+                .andExpect(jsonPath("$.startDate").value("20261019"))
+                .andExpect(jsonPath("$.endDate").value("20261021"))
+                .andRespond(withSuccess(history("0"), MediaType.APPLICATION_JSON));
+
+        TagLookup lookup = api.findByTag(USER_KEY, ACCOUNT_NO, TransferTag.payment(1), 5_000, "20261020120000000001");
+
+        assertThat(lookup.result()).isEqualTo(TagLookup.Result.NOT_FOUND);
+        server.verify();
+    }
+
+    @Test
+    void 요청한_날_바로_확인하면_끝_날짜는_오늘이다() {
+        // SSAFY가 미래 끝 날짜를 받는지 확인하지 못해 오늘을 넘기지 않는다. 다음 날로 찍힌 거래는 유예 시간 뒤 다시 확인할 때 보인다
+        server.expect(requestTo(BASE + SsafyTransferApi.HISTORY_PATH))
+                .andExpect(jsonPath("$.startDate").value("20261101"))
+                .andExpect(jsonPath("$.endDate").value("20261102"))
+                .andRespond(withSuccess(history("1", row("1102", "20261102", "092959", "2", "5000", "95000", "YAMU-P1")),
+                        MediaType.APPLICATION_JSON));
+
+        TagLookup lookup = api.findByTag(USER_KEY, ACCOUNT_NO, TransferTag.payment(1), 5_000, "20261102092958000001");
+
+        assertThat(lookup.result()).isEqualTo(TagLookup.Result.FOUND);
         server.verify();
     }
 
@@ -392,6 +421,50 @@ class SsafyTransferApiTest {
     }
 
     @Test
+    void 목록이_잘려_왔으면_태그를_찾았어도_판단하지_않는다() {
+        // 빠진 4줄에 같은 태그가 더 있으면 FOUND가 아니라 DUPLICATED다
+        respondHistory(history("5", row("1102", "20261102", "000001", "2", "5000", "95000", "YAMU-P1")));
+
+        assertThatThrownBy(() -> api.findByTag(USER_KEY, ACCOUNT_NO, TransferTag.payment(1), 5_000, TX))
+                .isInstanceOf(BusinessException.class)
+                .satisfies(e -> assertThat(((BusinessException) e).getErrorCode()).isEqualTo(ErrorCode.FIN_API_UNAVAILABLE));
+    }
+
+    @Test
+    void totalCount가_없거나_숫자가_아니면_잘린_목록과_같이_판단하지_않는다() {
+        for (String rec : List.of("{\"list\":[]}", "{\"totalCount\":null,\"list\":[]}",
+                "{\"totalCount\":\"abc\",\"list\":[]}", "{\"totalCount\":\"-1\",\"list\":[]}")) {
+            server.reset();
+            respondHistory(success(rec));
+
+            assertThatThrownBy(() -> api.findByTag(USER_KEY, ACCOUNT_NO, TransferTag.payment(1), 5_000, TX))
+                    .as(rec)
+                    .isInstanceOf(BusinessException.class)
+                    .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
+                            .isEqualTo(ErrorCode.FIN_API_UNAVAILABLE));
+        }
+    }
+
+    @Test
+    void 거래가_없어_list가_null이면_totalCount가_0일_때만_빈_목록이다() {
+        respondHistory(success("{\"totalCount\":\"0\",\"list\":null}"));
+        assertThat(api.findByTag(USER_KEY, ACCOUNT_NO, TransferTag.payment(1), 5_000, TX).result())
+                .isEqualTo(TagLookup.Result.NOT_FOUND);
+
+        for (String rec : List.of("{\"totalCount\":\"3\",\"list\":null}", "{\"list\":null}", "{\"totalCount\":\"x\"}")) {
+            server.reset();
+            respondHistory(success(rec));
+
+            assertThatThrownBy(() -> api.history(USER_KEY, ACCOUNT_NO, LocalDate.of(2026, 11, 1),
+                    LocalDate.of(2026, 11, 2), null))
+                    .as(rec)
+                    .isInstanceOf(BusinessException.class)
+                    .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
+                            .isEqualTo(ErrorCode.FIN_API_UNAVAILABLE));
+        }
+    }
+
+    @Test
     void 조회가_실패하면_아무것도_확정하지_않고_예외를_던진다() {
         server.expect(requestTo(BASE + SsafyTransferApi.HISTORY_PATH))
                 .andRespond(withException(new HttpTimeoutException("request timed out")));
@@ -423,6 +496,32 @@ class SsafyTransferApiTest {
         // 로그가 실제로 잡히는지 먼저 확인한다. 아무것도 안 잡히면 아래 검사는 의미가 없다
         assertThat(output.getAll()).contains("YAMU-P4242").contains("A1014");
         assertThat(output.getAll()).doesNotContain(ACCOUNT_NO).doesNotContain(USER_KEY).doesNotContain(API_KEY);
+    }
+
+    @Test
+    void 결과_불명의_응답코드는_거절_코드처럼_남기지_않는다(CapturedOutput output) {
+        respondWithdraw(HttpStatus.INTERNAL_SERVER_ERROR, "A1014");
+        api.withdraw(USER_KEY, ACCOUNT_NO, 87_000, TransferTag.payment(4343), TX);
+
+        String line = output.getAll().lines().filter(l -> l.contains("YAMU-P4343")).findFirst().orElseThrow();
+        assertThat(line).contains("UNKNOWN").contains("처리 여부 아님").contains("A1014").doesNotContain("code=A1014");
+    }
+
+    @Test
+    void 요청과_거래_한_줄의_문자열에는_계좌번호와_거래_후_잔액이_없다() {
+        String transfer = new SsafyTransferApi.TransferRequest(ACCOUNT_NO, "87000", "YAMU-P1").toString();
+        String historyRequest = new SsafyTransferApi.HistoryRequest(ACCOUNT_NO, "20261101", "20261102", "D", "ASC")
+                .toString();
+        String historyRow = new SsafyTransferApi.HistoryRow("1102", "20261102", "000001", "2", "14250", "1235750",
+                "YAMU-P1").toString();
+        String transaction = new BankTransaction("1102", LocalDate.of(2026, 11, 2), LocalTime.of(0, 0, 1),
+                BankDirection.WITHDRAWAL, 14_250, 1_235_750, "YAMU-P1").toString();
+
+        assertThat(transfer).doesNotContain(ACCOUNT_NO).contains("****5934").contains("YAMU-P1");
+        assertThat(historyRequest).doesNotContain(ACCOUNT_NO).contains("****5934").contains("20261101");
+        assertThat(historyRow).doesNotContain("1235750").contains("14250");
+        assertThat(transaction).doesNotContain("1235750").contains("14250");
+        assertThat(SsafyTransferApi.maskAccount("123")).isEqualTo("****");
     }
 
     // ───────── 응답 만들기 ─────────
