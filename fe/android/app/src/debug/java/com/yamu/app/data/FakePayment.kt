@@ -32,9 +32,10 @@ import kotlin.random.Random
 /** 가짜 가맹점 — 고객 앱 P-01과 모의 POS 단말(debug)이 같이 쓴다 */
 object FakeMerchants {
     val all = listOf(
-        Merchant(301, "야무카페 역삼점", "카페", isOnline = false, posCode = "POS-0301"),
+        // 카드 혜택이 브랜드에 걸린 곳(톡톡 스타벅스 · 노리2 GS25)은 그 브랜드 이름으로
+        Merchant(301, "스타벅스 역삼점", "카페", isOnline = false, posCode = "POS-0301"),
         Merchant(302, "야무마트 강남점", "대형마트", isOnline = false, posCode = "POS-0302"),
-        Merchant(303, "야무편의점 역삼역점", "편의점", isOnline = false, posCode = "POS-0303"),
+        Merchant(303, "GS25 역삼역점", "편의점", isOnline = false, posCode = "POS-0303"),
         Merchant(304, "야무주유소 선릉점", "주유", isOnline = false, posCode = "POS-0304"),
         Merchant(305, "야무텔레콤 강남점", "통신", isOnline = false, posCode = "POS-0305"),
         Merchant(318, "야무몰", "온라인 쇼핑", isOnline = true, posCode = null),
@@ -43,7 +44,8 @@ object FakeMerchants {
 
 /**
  * debug 전용 가짜 결제 서버 — 코드 발급 → (디버그 메뉴 '결제 상태'대로) 3초 뒤 가짜 가맹점이 찍음 → 승인 · 거절.
- * 숫자는 프로토타입 P-06c · P-07과 같다(신한 생활 신용카드 카페 10% 1,500원 · 10월 실적 285,000 / 300,000원).
+ * 카드 · 혜택은 BE 카드 시드(be/seed 01 · 02)에 있는 상품의 실제 혜택 · 월 한도로 계산한다.
+ * 실적 숫자(이번 달 285,000 / 300,000원)는 프로토타입 P-07 그대로.
  */
 @Singleton
 class FakePaymentRepository @Inject constructor(private val perf: FakePerformanceStore) : PaymentRepository {
@@ -61,25 +63,25 @@ class FakePaymentRepository @Inject constructor(private val perf: FakePerformanc
     private fun card(id: Long, issuer: String, color: String, name: String, last4: String, check: Boolean, benefit: Long, benefitName: String?, months: List<Int> = emptyList(), charged: Long? = null, perf: String? = null) =
         PayCard(id, brandOf(issuer, color = color), name, last4, check, benefit, benefitName, charged, months, benefitName?.let { "$it ${"%,d".format(benefit)}원" }, perf)
 
-    private val shinhan get() = card(11, "신한카드", "#0046FF", "신한 생활 신용카드", "1021", false, 1_500, "카페 10% 할인", months = listOf(2, 3, 6), perf = "이번 달 실적 +15,000원")
-    private val kb get() = card(12, "KB국민카드", "#FFBC00", "KB국민 적립 신용카드", "3310", false, 300, "2% 적립", perf = "이번 달 실적 +15,000원")
+    // 혜택 · 월 한도는 시드 값 — 톡톡 스타벅스 50%(한도 10,000) · ZERO 1.2% M포인트 · Mr.Life 주말 마트 10%(한도 3,000) · 노리2 GS25·CU 5%(한도 2,000)
+    private val toktok get() = card(11, "KB국민카드", "#FFBC00", "KB국민 청춘대로 톡톡카드", "1021", false, 7_500, "스타벅스 50% 청구할인", months = listOf(2, 3, 6), perf = "이번 달 실적 +15,000원")
+    private val zero get() = card(12, "현대카드", "#1A1A1A", "현대카드ZERO Edition3(포인트형)", "3310", false, 180, "1.2% M포인트 적립", perf = "이번 달 실적 +15,000원")
+    private fun mrLife(benefit: Long) = card(15, "신한카드", "#0046FF", "신한카드 Mr.Life", "5096", false, benefit, "주말 마트 10% 할인", months = listOf(2, 3, 6))
+    private fun nori2(benefit: Long, amount: Long) = card(16, "KB국민카드", "#60584C", "KB국민 노리2 체크카드(KB Pay)", "8823", true, benefit, "GS25·CU 5% 할인", charged = amount - benefit)
 
     private fun requestFor(scenario: PayScenario, paymentId: Long, deadline: String): PaymentRequest = when (scenario) {
         PayScenario.MART -> PaymentRequest(
             paymentId, "야무마트 강남점", "대형마트", 90_000, deadline,
             listOf(
-                card(15, "하나카드", "#008C8C", "하나 마트·주유 신용카드", "5096", false, 4_500, "마트 5% 할인", months = listOf(2, 3, 6), perf = "이번 달 실적 +90,000원"),
-                card(11, "신한카드", "#0046FF", "신한 생활 신용카드", "1021", false, 900, "1% 할인", months = listOf(2, 3, 6), perf = "이번 달 실적 +90,000원"),
+                mrLife(3_000).copy(performanceNote = "이번 달 실적 +90,000원"),
+                zero.copy(netBenefit = 1_080, reason = "1.2% M포인트 적립 1,080원", installmentOptions = listOf(2, 3, 6), performanceNote = "이번 달 실적 +90,000원"),
             ),
         )
         PayScenario.CHECK_DECLINED -> PaymentRequest(
-            paymentId, "야무편의점 역삼역점", "편의점", 15_000, deadline,
-            listOf(
-                card(16, "KB국민카드", "#60584C", "KB국민 체크카드", "8823", true, 750, "편의점 5% 즉시할인", charged = 14_250, perf = "할인받은 결제는 실적에서 빠져요"),
-                shinhan.copy(benefitName = "편의점 3% 할인", netBenefit = 450, reason = "편의점 3% 할인 450원"),
-            ),
+            paymentId, "GS25 역삼역점", "편의점", 15_000, deadline,
+            listOf(nori2(750, 15_000).copy(performanceNote = "할인받은 결제는 실적에서 빠져요"), zero),
         )
-        else -> PaymentRequest(paymentId, "야무카페 역삼점", "카페", 15_000, deadline, listOf(shinhan, kb))
+        else -> PaymentRequest(paymentId, "스타벅스 역삼점", "카페", 15_000, deadline, listOf(toktok, zero))
     }
 
     override suspend fun merchants(): ApiResult<List<Merchant>> = withFault { merchantsNow() }
@@ -94,13 +96,13 @@ class FakePaymentRepository @Inject constructor(private val perf: FakePerformanc
     private suspend fun recommendNow(merchantId: Long, amount: Long): ApiResult<Recommendation> {
         delay(500)
         val m = FakeMerchants.all.firstOrNull { it.id == merchantId } ?: return ApiResult.Failure(ApiError.NotFound("MERCHANT_NOT_FOUND"))
+        fun withBenefit(c: PayCard, benefit: Long) = c.copy(netBenefit = benefit, reason = c.benefitName?.let { "$it ${"%,d".format(benefit)}원" })
+        val point = withBenefit(zero, amount * 12 / 1_000)
         val cards = when (m.categoryName) {
-            "카페" -> listOf(shinhan.copy(netBenefit = amount / 10), kb.copy(netBenefit = amount / 50))
-            "대형마트" -> listOf(
-                card(15, "하나카드", "#008C8C", "하나 마트·주유 신용카드", "5096", false, amount / 20, "마트 5% 할인"),
-                kb.copy(netBenefit = amount / 50),
-            )
-            else -> listOf(kb.copy(netBenefit = amount / 50), shinhan.copy(netBenefit = amount / 100, benefitName = "1% 할인", reason = "1% 할인"))
+            "카페" -> listOf(withBenefit(toktok, minOf(amount / 2, 10_000)), point)
+            "대형마트" -> listOf(withBenefit(mrLife(0), minOf(amount / 10, 3_000)), point)
+            "편의점" -> listOf(withBenefit(nori2(0, amount), minOf(amount / 20, 2_000)).let { it.copy(chargedAmount = amount - it.netBenefit) }, point)
+            else -> listOf(point)
         }
         return ApiResult.Success(Recommendation(m.name, amount, cards, isEstimate = false))
     }
@@ -196,11 +198,11 @@ class FakePaymentRepository @Inject constructor(private val perf: FakePerformanc
     private suspend fun detailNow(paymentId: Long): ApiResult<PaymentReceipt> {
         delay(400)
         val receipt = receipts[paymentId] ?: FakePaymentHistory.receipt(paymentId) ?: PaymentReceipt(   // 결제 내역(S-05)에 없는 예전 결제
-            paymentId = paymentId, merchantName = "야무카페 역삼점", categoryName = "카페", amount = 15_000,
+            paymentId = paymentId, merchantName = "스타벅스 역삼점", categoryName = "카페", amount = 15_000,
             paidAtIso = OffsetDateTime.now(KST).minusHours(1).truncatedTo(ChronoUnit.MINUTES).toString(),
-            cardId = 11, cardBrand = shinhan.brand, cardName = shinhan.name, cardLast4 = "1021", isCheck = false,
-            approvalNo = "Y20261026093800938", installmentMonths = null, benefits = listOf(ReceiptBenefit("카페 10% 할인", 1_500)),
-            chargedAmount = 15_000, balanceAfter = null, billDateIso = YearMonth.now(KST).plusMonths(1).atDay(14).toString(), billAmount = 13_500,
+            cardId = 11, cardBrand = toktok.brand, cardName = toktok.name, cardLast4 = "1021", isCheck = false,
+            approvalNo = "Y20261026093800938", installmentMonths = null, benefits = listOf(ReceiptBenefit("스타벅스 50% 청구할인", 7_500)),
+            chargedAmount = 15_000, balanceAfter = null, billDateIso = YearMonth.now(KST).plusMonths(1).atDay(14).toString(), billAmount = 7_500,
             perfMonth = LocalDate.now(KST).monthValue, perfRecognized = 15_000, perfCounted = true, perfTotalAfter = 285_000, perfTarget = 300_000,
         )
         return ApiResult.Success(receipt)

@@ -46,7 +46,6 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.toRoute
-import com.yamu.app.BuildConfig
 import com.yamu.app.core.designsystem.component.AmountText
 import com.yamu.app.core.designsystem.component.BottomCta
 import com.yamu.app.core.designsystem.component.CharacterImage
@@ -69,6 +68,7 @@ import com.yamu.app.core.designsystem.theme.YamuRadius
 import com.yamu.app.core.designsystem.theme.YamuSpacing
 import com.yamu.app.core.designsystem.theme.YamuTheme
 import com.yamu.app.core.format.toWon
+import com.yamu.app.core.network.ApiFeature
 import com.yamu.app.core.network.ApiResult
 import com.yamu.app.core.network.newIdempotencyKey
 import com.yamu.app.core.ui.LocalSnackbar
@@ -148,7 +148,7 @@ data class PosMerchantsState(val loading: Boolean = true, val merchants: List<Me
 class PosMerchantsViewModel @Inject constructor(private val repo: PosRepository, private val settings: PosSettings) : ViewModel() {
     private val _state = MutableStateFlow(PosMerchantsState())
     val state: StateFlow<PosMerchantsState> = _state.asStateFlow()
-    val missingKey: Boolean = !repo.hasKey && !BuildConfig.USE_FAKE_API
+    val missingKey: Boolean = !repo.hasKey && ApiFeature.POS.isReal
 
     init { load() }
 

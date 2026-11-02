@@ -75,8 +75,8 @@ class FakeHomeRepository @Inject constructor(private val my: FakeMyRepository) :
             isProvisional = scenario == HomeScenario.FIRST_DAY,
         )
         val todos = listOf(
-            TodoDto("우리카드는 통신비만 옮기면 채워져요", "실적 달성 추천", "PRIMARY", 13),
-            TodoDto("NH농협카드는 안 채우는 게 유리해요", "추가 소비 비추천", "ERROR", 14),
+            TodoDto("롯데카드는 통신비만 옮기면 채워져요", "실적 달성 추천", "PRIMARY", 13),
+            TodoDto("삼성카드는 안 채우는 게 유리해요", "추가 소비 비추천", "ERROR", 14),
         )
         val base = HomeDto(
             cards = CardsDto(count = 6),
@@ -85,15 +85,15 @@ class FakeHomeRepository @Inject constructor(private val my: FakeMyRepository) :
             dataSyncedAt = synced,
             todos = todos,
             onboarding = OnboardingDto("DONE"),
-            todayCard = TodayCardDto(2, "신한카드", "카페 · 편의점 10% 할인"),
+            todayCard = TodayCardDto(2, "KB국민카드", "스타벅스 50% · 버거 20% 할인"),
         )
         return when (scenario) {
             HomeScenario.FIRST_DAY -> base.copy(
                 unreadNotificationCount = 0,
-                todos = listOf(TodoDto("우리카드는 통신비만 옮기면 채워져요", "실적 달성 추천", "PRIMARY", 13)),   // 잠정은 카드 머리 '잠정 판단'이 말한다
+                todos = listOf(TodoDto("롯데카드는 통신비만 옮기면 채워져요", "실적 달성 추천", "PRIMARY", 13)),   // 잠정은 카드 머리 '잠정 판단'이 말한다
             )
             HomeScenario.AFTER_PAYMENT -> base.copy(
-                recentPayment = RecentPaymentDto(938L, "야무카페 역삼점", 15_000, "신한카드", 1_500),
+                recentPayment = RecentPaymentDto(938L, "스타벅스 역삼점", 15_000, "KB국민카드", 7_500),
             )
             HomeScenario.NOT_LINKED -> HomeDto(
                 cards = CardsDto(count = 0),

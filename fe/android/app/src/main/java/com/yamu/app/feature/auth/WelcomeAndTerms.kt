@@ -51,15 +51,15 @@ import com.yamu.app.core.designsystem.component.YamuTopBar
 import com.yamu.app.core.designsystem.theme.YamuSpacing
 import com.yamu.app.core.designsystem.theme.YamuTheme
 
-/** A-01 첫 화면 */
+/** A-01 첫 화면. [onLogin]이 null이면 로그인 버튼을 숨긴다(기기 재등록은 Task 8.2.9) */
 @Composable
-fun WelcomeScreen(onStart: () -> Unit, onLogin: () -> Unit, onDebugMenu: (() -> Unit)?) {
+fun WelcomeScreen(onStart: () -> Unit, onLogin: (() -> Unit)?, onDebugMenu: (() -> Unit)?) {
     val c = YamuTheme.colors
     Scaffold(
         topBar = { YamuTopBar("YAMU", logo = TopBarLogo.Start) },
         containerColor = c.surface,
         bottomBar = {
-            BottomCta(secondary = { NeutralButton("로그인", onClick = onLogin) }) {
+            BottomCta(secondary = onLogin?.let { { NeutralButton("로그인", onClick = it) } }) {
                 PrimaryButton("시작하기", onClick = onStart)
             }
         },

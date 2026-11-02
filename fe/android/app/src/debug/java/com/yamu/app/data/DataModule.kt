@@ -1,8 +1,10 @@
 package com.yamu.app.data
 
-import com.yamu.app.BuildConfig
+import com.yamu.app.core.network.ApiFeature
 import com.yamu.app.feature.auth.data.AuthRepository
 import com.yamu.app.feature.auth.data.AuthRepositoryImpl
+import com.yamu.app.feature.auth.data.SignupRepository
+import com.yamu.app.feature.auth.data.SignupRepositoryImpl
 import com.yamu.app.feature.forecast.data.ForecastRepository
 import com.yamu.app.feature.forecast.data.ForecastRepositoryImpl
 import com.yamu.app.feature.home.data.HomeRepository
@@ -27,8 +29,8 @@ import javax.inject.Provider
 import javax.inject.Singleton
 
 /**
- * debug 빌드: USE_FAKE_API면 가짜, 아니면 진짜 Repository.
- * API가 준비되면 기능마다 여기서 진짜로 바꾼다(release는 src/release의 DataModule — 진짜만).
+ * debug 빌드: local.properties의 yamu.realApi에 적은 기능만 진짜, 나머지는 가짜 Repository(ApiFeature).
+ * release는 src/release의 DataModule — 진짜만.
  */
 @Module
 @InstallIn(SingletonComponent::class)
@@ -36,45 +38,50 @@ object DataModule {
     @Provides
     @Singleton
     fun homeRepository(real: Provider<HomeRepositoryImpl>, fake: Provider<FakeHomeRepository>): HomeRepository =
-        if (BuildConfig.USE_FAKE_API) fake.get() else real.get()
+        if (ApiFeature.HOME.isReal) real.get() else fake.get()
 
     @Provides
     @Singleton
     fun authRepository(real: Provider<AuthRepositoryImpl>, fake: Provider<FakeAuthRepository>): AuthRepository =
-        if (BuildConfig.USE_FAKE_API) fake.get() else real.get()
+        if (ApiFeature.AUTH.isReal) real.get() else fake.get()
+
+    @Provides
+    @Singleton
+    fun signupRepository(real: Provider<SignupRepositoryImpl>, fake: Provider<FakeSignupRepository>): SignupRepository =
+        if (ApiFeature.AUTH.isReal) real.get() else fake.get()
 
     @Provides
     @Singleton
     fun linkRepository(real: Provider<LinkRepositoryImpl>, fake: Provider<FakeLinkRepository>): LinkRepository =
-        if (BuildConfig.USE_FAKE_API) fake.get() else real.get()
+        if (ApiFeature.LINK.isReal) real.get() else fake.get()
 
     @Provides
     @Singleton
     fun cashflowRepository(real: Provider<CashflowRepositoryImpl>, fake: Provider<FakeCashflowRepository>): CashflowRepository =
-        if (BuildConfig.USE_FAKE_API) fake.get() else real.get()
+        if (ApiFeature.CASHFLOW.isReal) real.get() else fake.get()
 
     @Provides
     @Singleton
     fun paymentRepository(real: Provider<PaymentRepositoryImpl>, fake: Provider<FakePaymentRepository>): PaymentRepository =
-        if (BuildConfig.USE_FAKE_API) fake.get() else real.get()
+        if (ApiFeature.PAYMENT.isReal) real.get() else fake.get()
 
     @Provides
     @Singleton
     fun performanceRepository(real: Provider<PerformanceRepositoryImpl>, fake: Provider<FakePerformanceRepository>): PerformanceRepository =
-        if (BuildConfig.USE_FAKE_API) fake.get() else real.get()
+        if (ApiFeature.PERFORMANCE.isReal) real.get() else fake.get()
 
     @Provides
     @Singleton
     fun forecastRepository(real: Provider<ForecastRepositoryImpl>, fake: Provider<FakeForecastRepository>): ForecastRepository =
-        if (BuildConfig.USE_FAKE_API) fake.get() else real.get()
+        if (ApiFeature.FORECAST.isReal) real.get() else fake.get()
 
     @Provides
     @Singleton
     fun reportRepository(real: Provider<ReportRepositoryImpl>, fake: Provider<FakeReportRepository>): ReportRepository =
-        if (BuildConfig.USE_FAKE_API) fake.get() else real.get()
+        if (ApiFeature.REPORT.isReal) real.get() else fake.get()
 
     @Provides
     @Singleton
     fun myRepository(real: Provider<MyRepositoryImpl>, fake: Provider<FakeMyRepository>): MyRepository =
-        if (BuildConfig.USE_FAKE_API) fake.get() else real.get()
+        if (ApiFeature.MY.isReal) real.get() else fake.get()
 }

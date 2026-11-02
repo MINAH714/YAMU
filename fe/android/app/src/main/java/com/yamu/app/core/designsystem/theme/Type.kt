@@ -63,5 +63,4 @@ data class YamuTypography(
     val labelM: TextStyle = style(12, 16, FontWeight.SemiBold),
     val labelS: TextStyle = style(11, 16, FontWeight.SemiBold),
     val link: TextStyle = style(13, 18, FontWeight.Medium),        // 조용한 글자 버튼 · 펼치기(자세히 · 모두 보기 · 전체 보기)
-    val logo: TextStyle = style(22, 22, FontWeight.ExtraBold, tracking = -0.02),   // 앱바 YAMU
 )
