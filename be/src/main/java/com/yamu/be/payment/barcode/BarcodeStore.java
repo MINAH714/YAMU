@@ -1,6 +1,7 @@
 package com.yamu.be.payment.barcode;
 
 import java.time.Duration;
+import java.time.Instant;
 import java.util.Optional;
 
 /** 바코드 보관소. 서버는 Redis({@link RedisBarcodeStore})를 쓴다. */
@@ -21,8 +22,11 @@ public interface BarcodeStore {
     /**
      * POS가 스캔해 결제 요청이 생겼다. ISSUED이고 만료 전일 때만 SCANNED로 바꾸고 결제 번호를 붙인다(한 번에 처리).
      * 같은 바코드를 동시에 스캔하면 한 건만 SCANNED를 받는다. 보관 시간은 결제 마감 이후까지 다시 늘린다.
+     *
+     * @param userId 바코드 주인. 부르는 쪽이 이미 읽은 값을 넘겨 바코드를 다시 읽지 않는다. 그 사용자의 현재 바코드가 이 토큰일 때만 보관 시간을 같이 늘린다
+     * @param now    만료 판정 시각. 부르는 쪽의 시계와 같은 값을 쓴다
      */
-    ScanResult scan(String token, Long paymentId, Duration retention);
+    ScanResult scan(String token, Long userId, Long paymentId, Instant now, Duration retention);
 
     /**
      * 스캔은 됐는데 결제 요청 저장이 실패했을 때 되돌린다. 그 결제 번호로 SCANNED일 때만 ISSUED로 돌린다.

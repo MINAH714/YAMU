@@ -14,7 +14,7 @@ import com.yamu.be.global.exception.BusinessException;
 import com.yamu.be.global.exception.ErrorCode;
 import com.yamu.be.global.security.AuthUser;
 import com.yamu.be.payment.lookup.PaymentCardLookup;
-import com.yamu.be.payment.pos.PaymentRequestViewReader;
+import com.yamu.be.payment.request.PaymentRequestViewReader;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -233,7 +233,8 @@ class BarcodeServiceTest {
         }
 
         @Override
-        public synchronized ScanResult scan(String token, Long paymentId, Duration retention) {
+        public synchronized ScanResult scan(String token, Long userId, Long paymentId, Instant now,
+                Duration retention) {
             Barcode barcode = barcodes.get(token);
             if (barcode == null) {
                 return ScanResult.NOT_FOUND;
