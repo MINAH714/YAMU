@@ -75,4 +75,16 @@ class BillingCycleTest {
         assertThatThrownBy(() -> new BillingCycle(15, 0)).isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> new BillingCycle(15, 32)).isInstanceOf(IllegalArgumentException.class);
     }
+
+    @Test
+    void supports는_of가_예외_없이_만들_수_있는_값만_참이다() {
+        assertThat(BillingCycle.supports(1, 1)).isTrue();
+        assertThat(BillingCycle.supports(27, 31)).isTrue();
+        assertThat(BillingCycle.supports(15, null)).isTrue();
+        assertThat(BillingCycle.supports(0, 14)).isFalse();
+        assertThat(BillingCycle.supports(28, 14)).isFalse();
+        assertThat(BillingCycle.supports(31, null)).isFalse();
+        assertThat(BillingCycle.supports(15, 0)).isFalse();
+        assertThat(BillingCycle.supports(15, 32)).isFalse();
+    }
 }

@@ -33,7 +33,20 @@ public record BillingCycle(int paymentDay, int cutoffDays) {
 
     /** @param billingCutoffDays 상품의 마감 일수. null이면 {@link #DEFAULT_CUTOFF_DAYS} */
     public static BillingCycle of(int paymentDay, Integer billingCutoffDays) {
-        return new BillingCycle(paymentDay, billingCutoffDays == null ? DEFAULT_CUTOFF_DAYS : billingCutoffDays);
+        return new BillingCycle(paymentDay, cutoffOrDefault(billingCutoffDays));
+    }
+
+    /**
+     * {@link #of}가 예외 없이 주기를 만들 수 있는 값인지. DB는 결제일 1~31·마감 일수 1 이상까지 허용하므로
+     * 승인 전 사전 검사가 이것으로 거른다.
+     */
+    public static boolean supports(int paymentDay, Integer billingCutoffDays) {
+        int cutoffDays = cutoffOrDefault(billingCutoffDays);
+        return paymentDay >= 1 && paymentDay <= MAX_PAYMENT_DAY && cutoffDays >= 1 && cutoffDays <= MAX_CUTOFF_DAYS;
+    }
+
+    private static int cutoffOrDefault(Integer billingCutoffDays) {
+        return billingCutoffDays == null ? DEFAULT_CUTOFF_DAYS : billingCutoffDays;
     }
 
     /** usageDate(한국 날짜)에 쓴 금액이 들어가는 청구서. */

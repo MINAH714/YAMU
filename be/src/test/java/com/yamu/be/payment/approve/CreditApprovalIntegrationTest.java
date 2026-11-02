@@ -120,6 +120,7 @@ class CreditApprovalIntegrationTest extends MySqlTestSupport {
     final ObjectMapper json = new ObjectMapper();
     OwnershipFixtures fixtures;
     long user;
+    long account;
     long creditCard;
     long secondCard;
     long cardWithoutDay;
@@ -139,7 +140,7 @@ class CreditApprovalIntegrationTest extends MySqlTestSupport {
         clock.reset();
         fixtures = new OwnershipFixtures(jdbc);
         user = fixtures.user();
-        long account = fixtures.account(user);
+        account = fixtures.account(user);
         long creditProduct = fixtures.product();
         creditCard = fixtures.card(user, creditProduct, account, "ACTIVE");
         jdbc.update("UPDATE user_card SET is_default = TRUE, payment_day = ? WHERE user_card_id = ?", PAYMENT_DAY,
@@ -382,7 +383,61 @@ class CreditApprovalIntegrationTest extends MySqlTestSupport {
         assertThat(billCount(secondCard)).isEqualTo(3L);
     }
 
+    @Test
+    void 미납_청구서가_있는_카드는_DECLINED_UNPAID_BILL이고_회차를_만들지_않는다() throws Exception {
+        unpaidBill(creditCard);
+        Requested requested = requested(100_000, 3);
+
+        approve(requested.paymentId(), UUID.randomUUID().toString(), body(creditCard))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.status").value("DECLINED"))
+                .andExpect(jsonPath("$.data.failure.code").value("UNPAID_BILL"))
+                .andExpect(jsonPath("$.data.retryable").value(true))
+                .andExpect(jsonPath("$.data.billItems").isEmpty());
+
+        PaymentTransaction payment = payments.findById(requested.paymentId()).orElseThrow();
+        assertThat(payment.getStatus()).isEqualTo(PaymentStatus.DECLINED);
+        assertThat(payment.getFailureCode()).isEqualTo("UNPAID_BILL");
+        assertThat(attempts.count(requested.paymentId())).isEqualTo(1);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM bill_item", Long.class)).isZero();
+        assertThat(billCount(creditCard)).isEqualTo(1L); // 넣어 둔 미납 청구서뿐
+
+        // 미납이 없는 다른 카드로 재승인
+        approve(requested.paymentId(), UUID.randomUUID().toString(), body(secondCard))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.status").value("APPROVED"))
+                .andExpect(jsonPath("$.data.billItems.length()").value(3));
+        assertThat(billCount(secondCard)).isEqualTo(3L);
+    }
+
+    @Test
+    void 결제일이_27일을_넘는_신용카드는_승인_전_422이고_결제는_REQUESTED_그대로다() throws Exception {
+        jdbc.update("UPDATE user_card SET payment_day = 31 WHERE user_card_id = ?", cardWithoutDay);
+        Requested requested = requested(15_000, null);
+
+        approve(requested.paymentId(), UUID.randomUUID().toString(), body(cardWithoutDay))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.error.code").value("DATA_INSUFFICIENT"))
+                .andExpect(jsonPath("$.error.details.reason").value("BILLING_CYCLE_UNSUPPORTED"));
+
+        assertThat(payments.findById(requested.paymentId()).orElseThrow().getStatus()).isEqualTo(PaymentStatus.REQUESTED);
+        assertThat(attempts.count(requested.paymentId())).isZero();
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM card_bill", Long.class)).isZero();
+    }
+
     // ───────── 도우미 ─────────
+
+    /** 카드에 지난달 미납 청구서를 넣는다. 청구 확정·출금 실패(Task 5.4.2·5.4.3)가 아직 없어 직접 적는다. */
+    private void unpaidBill(long userCardId) {
+        Cycle last = cycle().cycleOf(cycle().cycleFor(today()).billingMonth().minusMonths(1));
+        LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
+        jdbc.update("""
+                INSERT INTO card_bill (user_id, user_card_id, linked_account_id, billing_month, period_start, period_end,
+                    withdrawal_date, status, confirmed_amount, confirmed_at, failed_at, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, 'UNPAID', 50000, ?, ?, ?, ?)
+                """, user, userCardId, account, last.billingMonth().atDay(1), last.periodStart(), last.periodEnd(),
+                last.paymentDate(), now, now, now, now);
+    }
 
     private BillingCycle cycle() {
         return new BillingCycle(PAYMENT_DAY, CUTOFF_DAYS);

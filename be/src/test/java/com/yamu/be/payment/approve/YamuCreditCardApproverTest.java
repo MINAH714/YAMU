@@ -3,6 +3,8 @@ package com.yamu.be.payment.approve;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
@@ -17,6 +19,8 @@ import com.yamu.be.payment.PaymentTerms;
 import com.yamu.be.payment.approve.ApprovalOutcome.Approved;
 import com.yamu.be.payment.approve.ApprovalOutcome.Declined;
 import com.yamu.be.payment.approve.CreditLimitSource.LimitCheck;
+import com.yamu.be.payment.billing.BillStatus;
+import com.yamu.be.payment.billing.CardBillRepository;
 import com.yamu.be.payment.billing.InstallmentPlan.Installment;
 import com.yamu.be.payment.recommend.RecommendationResult.CardSummary;
 import com.yamu.be.support.WeekdayCalendar;
@@ -32,7 +36,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
 
-/** 신용카드 모의 승인(Task 5.2.4): 한도 판정과 청구 계획. 계좌·금융망은 쓰지 않는다. */
+/** 신용카드 모의 승인(Task 5.2.4): 미납·한도 판정과 청구 계획. 계좌·금융망은 쓰지 않는다. */
 @ExtendWith(MockitoExtension.class)
 @MockitoSettings(strictness = Strictness.LENIENT)
 class YamuCreditCardApproverTest {
@@ -46,12 +50,13 @@ class YamuCreditCardApproverTest {
 
     @Mock CardQueryService cardQuery;
     @Mock CreditLimitSource limits;
+    @Mock CardBillRepository bills;
 
     YamuCreditCardApprover approver;
 
     @BeforeEach
     void setUp() {
-        approver = new YamuCreditCardApprover(cardQuery, limits, new WeekdayCalendar());
+        approver = new YamuCreditCardApprover(cardQuery, limits, bills, new WeekdayCalendar());
         when(cardQuery.findRegisteredCard(7L, 15L)).thenReturn(Optional.of(ref(15, 14)));
         when(limits.check(anyLong(), anyLong(), anyLong())).thenReturn(LimitCheck.skipped());
     }
@@ -102,6 +107,17 @@ class YamuCreditCardApproverTest {
     }
 
     @Test
+    void 미납_청구서가_있는_카드는_UNPAID_BILL로_거절하고_한도를_보지_않는다() {
+        when(bills.existsByUserCardIdAndStatus(15L, BillStatus.UNPAID)).thenReturn(true);
+
+        Declined declined = (Declined) approver.approve(command(PaymentTerms.installment(100_000, 3)));
+
+        assertThat(declined.code()).isEqualTo(FailureCode.UNPAID_BILL);
+        assertThat(declined.message()).isEqualTo(FailureCode.UNPAID_BILL.message());
+        verify(limits, never()).check(anyLong(), anyLong(), anyLong());
+    }
+
+    @Test
     void 상품에_마감_일수가_없으면_14일로_계산한다() {
         when(cardQuery.findRegisteredCard(7L, 15L)).thenReturn(Optional.of(ref(15, null)));
 
@@ -131,6 +147,29 @@ class YamuCreditCardApproverTest {
     }
 
     @Test
+    void 사전_검사는_결제일이_27일을_넘으면_DATA_INSUFFICIENT다() {
+        // DB는 31일까지 허용하지만 청구 주기는 1~27일만 만든다(카드 등록 규칙)
+        when(cardQuery.findRegisteredCard(7L, 15L)).thenReturn(Optional.of(ref(28, 14)));
+
+        assertThatThrownBy(() -> approver.precheck(7L, CARD, PaymentTerms.lumpSum(15_000)))
+                .isInstanceOfSatisfying(BusinessException.class, e -> {
+                    assertThat(e.getErrorCode()).isEqualTo(ErrorCode.DATA_INSUFFICIENT);
+                    assertThat(e.getDetails()).containsEntry("reason", "BILLING_CYCLE_UNSUPPORTED");
+                });
+    }
+
+    @Test
+    void 사전_검사는_마감_일수가_31일을_넘으면_DATA_INSUFFICIENT다() {
+        when(cardQuery.findRegisteredCard(7L, 15L)).thenReturn(Optional.of(ref(15, 32)));
+
+        assertThatThrownBy(() -> approver.precheck(7L, CARD, PaymentTerms.lumpSum(15_000)))
+                .isInstanceOfSatisfying(BusinessException.class, e -> {
+                    assertThat(e.getErrorCode()).isEqualTo(ErrorCode.DATA_INSUFFICIENT);
+                    assertThat(e.getDetails()).containsEntry("reason", "BILLING_CYCLE_UNSUPPORTED");
+                });
+    }
+
+    @Test
     void 사전_검사는_한도를_모르면_DATA_INSUFFICIENT다() {
         when(limits.check(7L, 15L, 15_000)).thenReturn(LimitCheck.unknown());
 
@@ -150,7 +189,7 @@ class YamuCreditCardApproverTest {
     void 사전_검사는_체크카드를_보지_않는다() {
         approver.precheck(7L, CHECK, PaymentTerms.lumpSum(15_000));
 
-        verifyNoInteractions(cardQuery, limits);
+        verifyNoInteractions(cardQuery, limits, bills);
     }
 
     private static ApprovalCommand command(PaymentTerms terms) {
