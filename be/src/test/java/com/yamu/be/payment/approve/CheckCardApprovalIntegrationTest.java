@@ -84,7 +84,7 @@ import org.testcontainers.utility.DockerImageName;
 
 /**
  * 체크카드 승인(출금)과 결과 불명 복구를 실제 MySQL·Redis로 확인한다. 금융망 출금·거래내역 조회(SsafyTransferApi)만 가짜다.
- * 결제 요청은 POS 결제 요청 API로 만들고, 추천은 Mock(BE3 구현 전)이라 혜택은 0원이다.
+ * 결제 요청은 POS 결제 요청 API로 만들고, 추천은 명시적인 Mock fixture라 혜택은 0원이다.
  */
 @AutoConfigureMockMvc
 @TestPropertySource(properties = "spring.application.name=yamu-check-card-approval-test")
@@ -105,6 +105,13 @@ class CheckCardApprovalIntegrationTest extends MySqlTestSupport {
 
     @TestConfiguration
     static class ClockConfig {
+        @Bean
+        @Primary
+        com.yamu.be.payment.recommend.CardRecommender approvalRecommendationFixture(
+                com.yamu.be.payment.lookup.PaymentCardLookup cards, java.time.Clock clock) {
+            return new com.yamu.be.payment.recommend.MockCardRecommender(cards, clock);
+        }
+
         @Bean
         @Primary
         MutableClock mutableClock() {

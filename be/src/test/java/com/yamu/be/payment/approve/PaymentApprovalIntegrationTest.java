@@ -69,7 +69,7 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.utility.DockerImageName;
 
 /**
- * 결제 승인을 실제 MySQL·Redis로 확인한다. 추천은 Mock(BE3 구현 전)이고, 승인 실행 포트는 테스트가 바꿔 끼운다
+ * 결제 승인을 실제 MySQL·Redis로 확인한다. 추천은 명시적인 Mock fixture이고, 승인 실행 포트는 테스트가 바꿔 끼운다
  * (기본은 임시 승인과 같은 동작, 거절·실패 시나리오는 그 테스트에서 지정).
  * 결제 요청은 POS 결제 요청 API로 만든다(바코드는 저장소에 직접 넣는다).
  */
@@ -89,6 +89,13 @@ class PaymentApprovalIntegrationTest extends MySqlTestSupport {
 
     @TestConfiguration
     static class ClockConfig {
+        @Bean
+        @Primary
+        com.yamu.be.payment.recommend.CardRecommender approvalRecommendationFixture(
+                com.yamu.be.payment.lookup.PaymentCardLookup cards, java.time.Clock clock) {
+            return new com.yamu.be.payment.recommend.MockCardRecommender(cards, clock);
+        }
+
         @Bean
         @Primary
         MutableClock mutableClock() {
