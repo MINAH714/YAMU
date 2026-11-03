@@ -1,6 +1,7 @@
 package com.yamu.be.payment.approve;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doReturn;
@@ -25,6 +26,7 @@ import com.yamu.be.payment.billing.BillingCycle;
 import com.yamu.be.payment.billing.BillingCycle.Cycle;
 import com.yamu.be.payment.billing.CardBill;
 import com.yamu.be.payment.billing.CardBillRepository;
+import com.yamu.be.payment.billing.CreditBillingWriter;
 import com.yamu.be.payment.domain.PaymentStatus;
 import com.yamu.be.payment.domain.PaymentTransaction;
 import com.yamu.be.payment.domain.PaymentTransactionRepository;
@@ -58,6 +60,7 @@ import org.springframework.boot.testcontainers.service.connection.ServiceConnect
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
 import org.springframework.context.annotation.Primary;
+import org.springframework.dao.TransientDataAccessResourceException;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -65,6 +68,7 @@ import org.springframework.jdbc.core.simple.SimpleJdbcInsert;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.ResultActions;
@@ -106,6 +110,7 @@ class CreditApprovalIntegrationTest extends MySqlTestSupport {
 
     @MockitoBean SsafyTransferApi transfer;
     @MockitoBean CreditLimitSource limits;
+    @MockitoSpyBean CreditBillingWriter billing;
 
     @Autowired MockMvc mockMvc;
     @Autowired JdbcTemplate jdbc;
@@ -334,6 +339,50 @@ class CreditApprovalIntegrationTest extends MySqlTestSupport {
             assertThat(payments.findById(requested.paymentId()).orElseThrow().getStatus())
                     .isEqualTo(PaymentStatus.APPROVED);
         }
+    }
+
+    @Test
+    void 청구서를_만든_뒤_일시적_오류로_실패해도_같은_키로_다시_하면_승인과_회차는_한_번만_생긴다() throws Exception {
+        // DB 장애를 실제로 일으키지 않고, 청구서 확보가 청구서를 만든 직후 일시적 오류를 던지는 것으로 흉내 낸다
+        doAnswer(invocation -> {
+            invocation.callRealMethod();
+            throw new TransientDataAccessResourceException("연결 끊김(테스트)");
+        }).doCallRealMethod().when(billing).ensureBills(anyLong(), anyLong(), any());
+        Requested requested = requested(100_000, 3);
+        String key = UUID.randomUUID().toString();
+
+        approve(requested.paymentId(), key, body(creditCard))
+                .andExpect(status().isInternalServerError())
+                .andExpect(jsonPath("$.error.code").value("INTERNAL_ERROR"));
+
+        assertThat(payments.findById(requested.paymentId()).orElseThrow().getStatus()).isEqualTo(PaymentStatus.REQUESTED);
+        assertThat(attempts.count(requested.paymentId())).isZero();
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM bill_item", Long.class)).isZero();
+        assertThat(billCount(creditCard)).isEqualTo(3L); // 빈 ACCUMULATING 청구서만 남는다
+
+        // 복구 유예를 기다리지 않고 같은 키로 바로 다시
+        String retried = approve(requested.paymentId(), key, body(creditCard))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.status").value("APPROVED"))
+                .andExpect(jsonPath("$.data.billItems.length()").value(3))
+                .andReturn().getResponse().getContentAsString();
+
+        assertThat(billCount(creditCard)).isEqualTo(3L); // 남은 청구서를 다시 쓴다
+        assertThat(items.findByPaymentTransactionIdOrderByInstallmentNoAsc(requested.paymentId()))
+                .extracting(BillItem::getInstallmentNo).containsExactly(1, 2, 3);
+        assertThat(attempts.count(requested.paymentId())).isEqualTo(1);
+
+        // 같은 키를 또 보내면 처음 응답, 다른 키면 이미 처리됨. 어느 쪽도 회차를 더 만들지 않는다
+        String replayed = approve(requested.paymentId(), key, body(creditCard))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        assertThat(json.readTree(replayed).get("data")).isEqualTo(json.readTree(retried).get("data"));
+        approve(requested.paymentId(), UUID.randomUUID().toString(), body(creditCard))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error.code").value("PAYMENT_ALREADY_PROCESSED"));
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM bill_item", Long.class)).isEqualTo(3L);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM payment_transaction WHERE status = 'APPROVED'", Long.class))
+                .isEqualTo(1L);
     }
 
     // ───────── 사전 검사·한도 ─────────
