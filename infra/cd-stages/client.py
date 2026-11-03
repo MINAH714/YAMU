@@ -25,8 +25,12 @@ def initialize():
     command = ':'.join(['stages', os.environ['YAMU_CD_BUILD'], os.environ.get('YAMU_CD_SOURCE', 'cached'),
                         os.environ['YAMU_CD_SCENARIO'], uuid.uuid4().hex])
     build, source, scenario, run_id = request(command)
+    revision = os.environ.get('CD_CONTROL_REVISION', '')
+    if revision and (len(revision) != 40 or any(c not in '0123456789abcdef' for c in revision)):
+        raise ValueError('Invalid control checkout revision')
     DIRECTORY.mkdir(mode=0o700)
-    save({'request': command, 'run_id': run_id, 'ci_build': build, 'source': source, 'scenario': scenario, 'phases': {}, 'done': None})
+    save({'request': command, 'run_id': run_id, 'control_revision': revision, 'ci_build': build,
+          'source': source, 'scenario': scenario, 'phases': {}, 'done': None})
 
 
 def consume(lines, snapshot):
