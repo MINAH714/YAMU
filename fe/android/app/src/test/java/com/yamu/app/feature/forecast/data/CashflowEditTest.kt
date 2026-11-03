@@ -1,5 +1,7 @@
 package com.yamu.app.feature.forecast.data
 
+import com.yamu.app.core.network.YamuJson
+import kotlinx.serialization.encodeToString
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -45,6 +47,36 @@ class CashflowEditTest {
         val body = rent.toPatch(f, CashflowScope.THIS_AND_FUTURE)
         assertEquals("2026-12-31", body.date)
         assertEquals(RecurrenceRequest("MONTHLY", dayOfMonth = 31, endDate = "2027-06-30"), body.recurrence)
+    }
+
+    @Test fun `수정 본문은 BE 필드 이름 그대로 · 안 바꾼 칸은 JSON에 없다`() {
+        val body = rent.toPatch(rent.toForm().withMonthEnd(false).copy(amount = 550_000), CashflowScope.THIS_AND_FUTURE)
+        assertEquals(
+            """{"amount":550000,"recurrence":{"frequency":"MONTHLY","dayOfMonth":30,"endDate":"2027-06-30"},"scope":"THIS_AND_FUTURE","occurrenceDate":"2026-11-30"}""",
+            YamuJson.encodeToString(body),
+        )
+        val thisOnly = rent.toPatch(rent.toForm().copy(title = "관리비", date = LocalDate.of(2026, 11, 28)).withCard(16), CashflowScope.THIS_ONLY)
+        assertEquals(
+            """{"title":"관리비","date":"2026-11-28","userCardId":16,"scope":"THIS_ONLY","occurrenceDate":"2026-11-30"}""",
+            YamuJson.encodeToString(thisOnly),
+        )
+    }
+
+    @Test fun `수정 화면의 매월 칩은 규칙의 기준일 · 날짜를 옮기면 새 날짜`() {
+        val feb = LocalDate.of(2027, 2, 28)
+        val day30 = rent.copy(dayOfMonth = 30, occurrenceDate = feb, date = feb)
+        assertEquals(30, day30.monthlyDayOn(day30.toForm()))
+        assertEquals(20, day30.monthlyDayOn(day30.toForm().copy(date = LocalDate.of(2027, 2, 20))))
+        assertEquals(30, rent.monthlyDayOn(rent.toForm().withMonthEnd(false)))   // 말일을 끈 11/30
+    }
+
+    @Test fun `옮겨 둔 회차 — 원래 날짜가 지나면 이후 전부를 못 고르고 · 안 지났으면 원래 날짜로 돌아감을 알린다`() {
+        val moved = rent.copy(dayOfMonth = 25, occurrenceDate = LocalDate.of(2026, 11, 25), date = LocalDate.of(2026, 11, 27))
+        assertTrue(moved.canEditFuture(LocalDate.of(2026, 11, 25)))
+        assertFalse(moved.canEditFuture(LocalDate.of(2026, 11, 26)))
+        assertTrue(moved.revertsToOccurrence(moved.toForm().copy(amount = 1)))
+        assertFalse(moved.revertsToOccurrence(moved.toForm().copy(date = LocalDate.of(2026, 11, 28))))
+        assertFalse(rent.revertsToOccurrence(rent.toForm()))
     }
 
     @Test fun `반복 규칙(말일 · 종료일 · 주기)을 바꾸면 이번 회차만은 고를 수 없다`() {

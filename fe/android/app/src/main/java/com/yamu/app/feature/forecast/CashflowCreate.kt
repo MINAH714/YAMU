@@ -197,7 +197,7 @@ class CashflowCreateViewModel @Inject constructor(
         _state.update { it.copy(scopeAsk = null) }
         val body = editing.toPatch(s.form, scope)
         if (body.changesNothing()) return _state.update { it.copy(done = true) }
-        submit { repo.updateItem(editing.itemId, body) }
+        submit(sentPayment = body.accountId != null || body.userCardId != null) { repo.updateItem(editing.itemId, body) }
     }
 
     /** 삭제 — 반복이면 범위를, 1회면 한 번 더 묻는다 */
@@ -214,18 +214,18 @@ class CashflowCreateViewModel @Inject constructor(
 
     fun dismissAsk() = _state.update { it.copy(scopeAsk = null, confirmDelete = false) }
 
-    private fun submit(call: suspend () -> ApiResult<Unit>) {
+    private fun submit(sentPayment: Boolean = false, call: suspend () -> ApiResult<Unit>) {
         if (_state.value.saving) return
         viewModelScope.launch {
             _state.update { it.copy(saving = true, saveError = null, unknownResult = false, gone = false) }
             when (val r = call()) {
                 is ApiResult.Success -> _state.update { it.copy(saving = false, done = true) }
-                is ApiResult.Failure -> fail(r.error)
+                is ApiResult.Failure -> fail(r.error, sentPayment)
             }
         }
     }
 
-    private fun fail(e: ApiError) {
+    private fun fail(e: ApiError, sentPayment: Boolean) {
         val editing = _state.value.editing != null
         val reasons = e.fieldErrors().mapValues { (_, reason) -> reason.ifBlank { "다시 확인해 주세요" } }
         val fields = reasons.mapNotNull { (field, reason) -> cashflowFieldOf(field)?.let { it to reason } }.toMap()
@@ -233,12 +233,14 @@ class CashflowCreateViewModel @Inject constructor(
         _state.update { cur ->
             when {
                 // 실패가 아니라 결과 불명 — 반영됐을 수도 있어 자동으로 다시 보내지 않고 목록부터 보게 한다
-                e == ApiError.Network -> cur.copy(saving = false, unknownResult = true, saveError = "연결이 끊겨 반영됐는지 확인하지 못했어요 · 목록에서 먼저 확인해 주세요")
+                e.isOutcomeUnknown -> cur.copy(saving = false, unknownResult = true, saveError = "응답을 받지 못해 반영됐는지 확인하지 못했어요 · 목록에서 먼저 확인해 주세요")
                 e.code == "PAID_OCCURRENCE_LOCKED" -> cur.copy(saving = false, saveError = "이미 결제된 회차가 있어 바꿀 수 없어요")
                 fields.isNotEmpty() -> cur.copy(saving = false, showErrors = true, errors = fields, saveError = others.firstOrNull())
                 others.isNotEmpty() -> cur.copy(saving = false, saveError = others.joinToString(" · "))
-                // 수정 중 404 — 항목이 그사이 바뀌었거나(이후 전부로 나뉨) 지워졌거나, 고른 계좌 · 카드가 끊겼다
-                e is ApiError.NotFound && editing -> cur.copy(saving = false, gone = true, saveError = "그사이 바뀌었거나 지워진 항목이에요 · 목록에서 다시 골라 주세요")
+                // 수정 중 404 — 서버는 보낸 계좌 · 카드만 확인한다. 안 보냈으면 항목이 그사이 바뀌었거나(이후 전부로 나뉨) 지워졌다
+                e is ApiError.NotFound && editing && !sentPayment -> cur.copy(saving = false, gone = true, saveError = "그사이 바뀌었거나 지워진 항목이에요 · 목록에서 다시 골라 주세요")
+                // 보냈으면 둘 중 어느 쪽인지 코드로 가릴 수 없어 저장을 막지 않는다
+                e is ApiError.NotFound && editing -> cur.copy(saving = false, showErrors = true, errors = mapOf(CashflowField.PAYMENT to "고른 계좌나 카드를 찾을 수 없어요 · 다른 걸 고르거나 목록에서 다시 확인해 주세요"))
                 e is ApiError.NotFound -> cur.copy(saving = false, showErrors = true, errors = mapOf(CashflowField.PAYMENT to "고른 계좌나 카드를 찾을 수 없어요 · 다른 걸 골라 주세요"))
                 else -> cur.copy(saving = false, saveError = e.userMessage())
             }
@@ -360,7 +362,7 @@ fun CashflowCreateRoute(onBack: () -> Unit, onDone: () -> Unit, viewModel: Cashf
                     Spacer(Modifier.height(YamuSpacing.x3))
                     Row(horizontalArrangement = Arrangement.spacedBy(YamuSpacing.x2)) {
                         // 31일에 시작하면 'N일'이 곧 말일이라 칩은 하나
-                        if (f.date.dayOfMonth < 31) GreyChip("매월 ${f.date.dayOfMonth}일", selected = !f.isMonthEnd, onClick = { viewModel.setMonthEnd(false) })
+                        if (f.date.dayOfMonth < 31) GreyChip("매월 ${editing?.monthlyDayOn(f) ?: f.date.dayOfMonth}일", selected = !f.isMonthEnd, onClick = { viewModel.setMonthEnd(false) })
                         GreyChip("매월 말일", selected = f.isMonthEnd, onClick = { viewModel.setMonthEnd(true) })
                     }
                     Spacer(Modifier.height(YamuSpacing.x2))
@@ -434,7 +436,8 @@ fun CashflowCreateRoute(onBack: () -> Unit, onDone: () -> Unit, viewModel: Cashf
         ) { DatePicker(state = state) }
     }
 
-    // 반복 항목 — 저장 · 삭제할 범위. 반복 규칙을 바꿨으면 서버가 '이번 회차만'을 받지 않아 '이후 전부'만
+    // 반복 항목 — 저장 · 삭제할 범위. 반복 규칙을 바꿨으면 서버가 '이번 회차만'을 받지 않아 '이후 전부'만,
+    // 옮겨 둔 회차의 원래 날짜가 지났으면 '이후 전부'를 받지 않아 '이번 회차만'
     val ask = s.scopeAsk
     if (ask != null && editing != null) {
         YamuBottomSheet(onDismiss = viewModel::dismissAsk) {
@@ -443,12 +446,19 @@ fun CashflowCreateRoute(onBack: () -> Unit, onDone: () -> Unit, viewModel: Cashf
             val day = editing.date.toKoreanDate()
             when (ask) {
                 ScopeAsk.SAVE -> {
-                    if (editing.canEditThisOnly(f)) {
+                    val thisOnly = editing.canEditThisOnly(f)
+                    val future = editing.canEditFuture(LocalDate.now(KST))
+                    val original = editing.occurrenceDate.toKoreanDate()
+                    if (thisOnly) {
                         ListRow("이번 회차만", sub = "${day} 한 번만 바꿔요", chevron = true, onClick = { viewModel.update(CashflowScope.THIS_ONLY) })
                     }
-                    ListRow("이후 전부", sub = "${day}부터 모든 회차를 바꿔요", chevron = true, onClick = { viewModel.update(CashflowScope.THIS_AND_FUTURE) })
-                    if (!editing.canEditThisOnly(f)) {
-                        Text("반복 설정을 바꿔서 이후 전부에만 적용할 수 있어요", style = YamuTheme.typography.bodyS, color = c.text3)
+                    if (future) {
+                        val sub = if (editing.revertsToOccurrence(f)) "${original}부터 모든 회차를 바꿔요 · 이 회차도 그날로 돌아가요" else "${day}부터 모든 회차를 바꿔요"
+                        ListRow("이후 전부", sub = sub, chevron = true, onClick = { viewModel.update(CashflowScope.THIS_AND_FUTURE) })
+                    }
+                    when {
+                        !future -> Text("원래 날짜(${original})가 지나 이후 전부는 바꿀 수 없어요 · 다음 회차에서 바꿔 주세요", style = YamuTheme.typography.bodyS, color = c.text3)
+                        !thisOnly -> Text("반복 설정을 바꿔서 이후 전부에만 적용할 수 있어요", style = YamuTheme.typography.bodyS, color = c.text3)
                     }
                 }
                 ScopeAsk.DELETE -> {

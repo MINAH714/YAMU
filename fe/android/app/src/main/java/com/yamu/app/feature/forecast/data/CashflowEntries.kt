@@ -69,6 +69,13 @@ data class CashflowEntry(
     fun repeatLabel(): String? = if (repeat == CashflowRepeat.MONTHLY && dayOfMonth != null) "매월 ${monthlyDayLabel(dayOfMonth)}" else toForm().repeatLabel()
 
     /**
+     * 말일이 아닌 매월 기준일. 날짜를 안 옮겼으면 회차 날짜(2/28)가 아니라 규칙의 기준일(30)이고,
+     * 규칙이 말일(31)이면 말일을 끈 것이라 원래 회차의 날짜(11/30 → 30)다
+     */
+    fun monthlyDayOn(form: CashflowForm): Int =
+        if (form.date != date) form.date.dayOfMonth else dayOfMonth?.takeIf { it < 31 } ?: occurrenceDate.dayOfMonth
+
+    /**
      * 날짜를 안 옮겼으면 기준일을 지킨다. 서버는 date가 없으면 원래 회차를 규칙의 첫날로 본다.
      * 2/28 회차에서 규칙만 바꿔도 매월 30일이 28일로 밀리지 않고, 이번 회차만 옮겨 둔 회차(25일 → 27일)도 첫날과 반복일이 어긋나 400이 나지 않게
      */
@@ -81,6 +88,12 @@ data class CashflowEntry(
 
     /** '이번 회차만'을 고를 수 있는지 — 반복 규칙(주기 · 말일 · 종료일)을 바꾸면 서버가 받지 않는다 */
     fun canEditThisOnly(form: CashflowForm): Boolean = isRecurring && !form.ruleChangedFrom(toForm())
+
+    /** '이후 전부'를 고를 수 있는지 — 서버는 원래 회차부터 바꾸므로 그 날짜가 지났으면 옮긴 날짜가 남아 있어도 400을 준다 */
+    fun canEditFuture(today: LocalDate): Boolean = !occurrenceDate.isBefore(today)
+
+    /** '이후 전부'로 저장하면 이 회차가 원래 날짜로 돌아가는지 — 옮겨 둔 회차(25일 → 27일)에서 날짜를 그대로 둔 경우 */
+    fun revertsToOccurrence(form: CashflowForm): Boolean = date != occurrenceDate && form.date == date
 
     /**
      * 수정 요청 — 바꾼 칸만 보낸다. 반복(recurrence)은 통째로 교체되는 칸이라 규칙을 안 바꿨으면 보내지 않는다(종료일 유지).
