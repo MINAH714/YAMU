@@ -49,6 +49,12 @@ class CashflowEditTest {
         assertEquals(RecurrenceRequest("MONTHLY", dayOfMonth = 31, endDate = "2027-06-30"), body.recurrence)
     }
 
+    @Test fun `말일을 끄면 원래 회차의 날짜를 기준일로 보낸다 · 31로 덮으면 저장돼도 바뀌는 게 없다`() {
+        val body = rent.toPatch(rent.toForm().withMonthEnd(false), CashflowScope.THIS_AND_FUTURE)
+        assertNull(body.date)
+        assertEquals(RecurrenceRequest("MONTHLY", dayOfMonth = 30, endDate = "2027-06-30"), body.recurrence)
+    }
+
     @Test fun `수정 본문은 BE 필드 이름 그대로 · 안 바꾼 칸은 JSON에 없다`() {
         val body = rent.toPatch(rent.toForm().withMonthEnd(false).copy(amount = 550_000), CashflowScope.THIS_AND_FUTURE)
         assertEquals(

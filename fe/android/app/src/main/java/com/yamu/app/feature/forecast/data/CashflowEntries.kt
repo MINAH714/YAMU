@@ -82,7 +82,7 @@ data class CashflowEntry(
     private fun RecurrenceRequest.keepBaseDay(dateChanged: Boolean, form: CashflowForm): RecurrenceRequest = when {
         dateChanged -> this
         frequency == "WEEKLY" -> copy(dayOfWeek = occurrenceDate.dayOfWeek.name)
-        frequency == "MONTHLY" && !form.isMonthEnd -> copy(dayOfMonth = this@CashflowEntry.dayOfMonth ?: occurrenceDate.dayOfMonth)
+        frequency == "MONTHLY" && !form.isMonthEnd -> copy(dayOfMonth = monthlyDayOn(form))
         else -> this
     }
 
