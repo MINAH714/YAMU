@@ -15,6 +15,7 @@ import com.yamu.app.feature.link.data.LinkedOverview
 import com.yamu.app.feature.link.data.RegisteredCard
 import com.yamu.app.feature.link.data.brandOf
 import com.yamu.app.feature.link.data.toLinked
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
@@ -73,6 +74,21 @@ class AccountManageViewModelTest {
         assertEquals(Update(2, "생활비", false), link.updates.single())
         assertEquals("생활비", vm.state.value.accounts[1].name)
         assertTrue(vm.state.value.accounts[0].isPrimary)
+    }
+
+    @Test fun `저장을 시작하면 진행 중인 읽기는 버린다 — 늦게 와서 저장한 값을 덮으면 안 된다`() = runTest(dispatcher) {
+        val vm = viewModel()
+        val gate = CompletableDeferred<Unit>()
+        link.listGate = gate
+        vm.load()
+        advanceUntilIdle()
+        link.updateResult = ApiResult.Success(SECOND.copy(isPrimary = true))
+        vm.makePrimary(2)
+        advanceUntilIdle()
+        gate.complete(Unit)
+        advanceUntilIdle()
+        assertEquals(listOf(2L), vm.state.value.accounts.filter { it.isPrimary }.map { it.accountId })
+        assertFalse(vm.state.value.loading)
     }
 
     @Test fun `연타해도 저장은 한 번`() = runTest(dispatcher) {
@@ -143,10 +159,15 @@ class AccountManageViewModelTest {
     private class StubLink : LinkRepository {
         var list = listOf(FIRST, SECOND)
         var listResult: ApiResult<List<LinkedAccount>>? = null
+        var listGate: CompletableDeferred<Unit>? = null
         var updateResult: ApiResult<LinkedAccount> = ApiResult.Success(SECOND)
         val updates = mutableListOf<Update>()
 
-        override suspend fun accounts(): ApiResult<List<LinkedAccount>> = listResult ?: ApiResult.Success(list)
+        override suspend fun accounts(): ApiResult<List<LinkedAccount>> {
+            val result = listResult ?: ApiResult.Success(list)
+            listGate?.await()
+            return result
+        }
 
         /** 카드 목록이 실패해도 계좌 화면이 열리도록 이 화면은 부르지 않는다 */
         override suspend fun linkedOverview(refresh: Boolean): ApiResult<LinkedOverview> = error("안 씀")
