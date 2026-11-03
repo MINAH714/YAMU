@@ -9,15 +9,10 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.http.client.JdkClientHttpRequestFactory;
 import org.springframework.scheduling.TaskScheduler;
-import org.springframework.scheduling.annotation.EnableScheduling;
 import org.springframework.web.client.RestClient;
 
-/**
- * 공휴일 API 동기화 구성(docs/be/holiday.md). 앱의 첫 정기 작업이라 {@code @EnableScheduling}을 여기서 켠다.
- * 앱 클래스가 아니라 여기 두는 이유: 정기 작업이 어디서 켜졌는지 이 기능과 같이 보이게.
- */
+/** 공휴일 API 동기화 구성(docs/be/holiday.md). 정기 작업은 {@code SchedulingConfig}가 켠다. */
 @Configuration
-@EnableScheduling
 @EnableConfigurationProperties(HolidayApiProperties.class)
 class HolidaySyncConfig {
 
