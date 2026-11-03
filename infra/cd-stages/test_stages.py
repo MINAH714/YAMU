@@ -63,14 +63,14 @@ class HostFlow(unittest.TestCase):
         self.assertEqual(snapshot['done']['state'], 'failed')
 
     def test_every_mutating_phase_failure_attempts_recovery(self):
-        for name in ['deploy', 'health_candidate', 'persist_candidate', 'manual_rollback',
+        for name in ['baseline', 'deploy', 'health_candidate', 'persist_candidate', 'manual_rollback',
                      'automatic_rollback', 'persistence', 'final_deploy', 'final_health']:
             code, adapter, snapshot, lines = self.run_flow(Fake(name))
             self.assertEqual(code, 1); self.assertTrue(adapter.restored, name)
             self.assertNotIn('private test fixture', ''.join(lines))
 
     def test_validation_or_preparation_failure_does_not_touch_backend(self):
-        for name in ['validate', 'prepare', 'baseline']:
+        for name in ['validate', 'prepare']:
             code, adapter, snapshot, lines = self.run_flow(Fake(name))
             self.assertEqual(code, 1); self.assertFalse(adapter.restored)
             self.assertNotIn('deploy', adapter.actions)

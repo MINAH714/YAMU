@@ -47,8 +47,8 @@ def execute(adapter, events, scenario):
     try:
         with events.phase('validate'): adapter.validate()
         with events.phase('prepare'): adapter.prepare()
-        with events.phase('baseline'): adapter.baseline()
         touched = True
+        with events.phase('baseline'): adapter.baseline()
         with events.phase('deploy'): adapter.deploy()
         with events.phase('health'):
             adapter.health_candidate()
@@ -166,6 +166,9 @@ class Adapter:
         v.db("CREATE TABLE IF NOT EXISTS cd_verification_probe (id INT PRIMARY KEY, marker VARCHAR(100) NOT NULL); "
              "INSERT INTO cd_verification_probe VALUES (1,'yamu-cd-verify-20261029') ON DUPLICATE KEY UPDATE marker=VALUES(marker);")
         v.redis('SET', 'cd-verification-marker', PROJECT)
+        # Make the previous and candidate versions distinct for a meaningful recovery test.
+        self.apply(self.old); self.health(self.old); self.persist(self.old)
+        self.initial = self.old
 
     def deploy(self): self.apply(self.candidate)
     def health_candidate(self): self.health(self.candidate)
