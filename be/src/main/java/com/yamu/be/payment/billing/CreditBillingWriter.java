@@ -56,8 +56,8 @@ public class CreditBillingWriter {
 
     /**
      * 회차는 이용기간이 진행 중인 청구서에만 붙인다. 확정·출금·미납 청구서에 붙으면 확정된 청구 금액이 바뀐다.
-     * 청구 월 계산이 맞으면 일어나지 않는다(결제일 변경 미반영은 S15P31E103-205). 승인 저장 전이라 결제는 PROCESSING에 남고,
-     * 요청 번호가 없으므로 복구가 유예 뒤 REQUESTED로 되돌린다.
+     * 청구 월 계산이 맞으면 일어나지 않는다(결제일 변경 미반영은 S15P31E103-205). 승인 저장 전이라 승인 서비스가 결제를
+     * 바로 REQUESTED로 되돌린다.
      */
     private static CardBill requireAccumulating(CardBill bill) {
         if (bill.getStatus() != BillStatus.ACCUMULATING) {

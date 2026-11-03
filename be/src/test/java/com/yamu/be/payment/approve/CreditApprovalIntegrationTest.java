@@ -474,6 +474,35 @@ class CreditApprovalIntegrationTest extends MySqlTestSupport {
     }
 
     @Test
+    void 회차를_붙일_청구서가_이미_확정됐으면_500이고_결제는_바로_REQUESTED로_되돌아가_다른_카드로_승인된다() throws Exception {
+        Cycle current = cycle().cycleFor(today());
+        LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
+        jdbc.update("""
+                INSERT INTO card_bill (user_id, user_card_id, linked_account_id, billing_month, period_start, period_end,
+                    withdrawal_date, status, confirmed_amount, confirmed_at, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, 'CONFIRMED', 50000, ?, ?, ?)
+                """, user, creditCard, account, current.billingMonth().atDay(1), current.periodStart(),
+                current.periodEnd(), current.paymentDate(), now, now, now);
+        Requested requested = requested(15_000, null);
+
+        approve(requested.paymentId(), UUID.randomUUID().toString(), body(creditCard))
+                .andExpect(status().isInternalServerError())
+                .andExpect(jsonPath("$.error.code").value("INTERNAL_ERROR"));
+
+        PaymentTransaction payment = payments.findById(requested.paymentId()).orElseThrow();
+        assertThat(payment.getStatus()).isEqualTo(PaymentStatus.REQUESTED);
+        assertThat(attempts.count(requested.paymentId())).isZero();
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM bill_item", Long.class)).isZero();
+        assertThat(billCount(creditCard)).isEqualTo(1L); // 넣어 둔 확정 청구서뿐
+
+        // 복구 유예를 기다리지 않고 바로 다른 카드로 승인
+        approve(requested.paymentId(), UUID.randomUUID().toString(), body(secondCard))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.status").value("APPROVED"))
+                .andExpect(jsonPath("$.data.billItems.length()").value(1));
+    }
+
+    @Test
     void 결제일이_27일을_넘는_신용카드는_승인_전_422이고_결제는_REQUESTED_그대로다() throws Exception {
         jdbc.update("UPDATE user_card SET payment_day = 31 WHERE user_card_id = ?", cardWithoutDay);
         Requested requested = requested(15_000, null);

@@ -273,6 +273,26 @@ class PaymentApprovalServiceTest {
         verify(billing, never()).writeItems(any(), any(), any());
     }
 
+    @Test
+    void 청구서_확보가_실패하면_승인_전으로_바로_되돌리고_시도를_지우며_500이다() {
+        InstallmentPlan plan = InstallmentPlan.of(15_000, 1, new BillingCycle(15, 14), LocalDate.of(2026, 10, 22),
+                new WeekdayCalendar());
+        doReturn(new ApprovalOutcome.Approved(15_000, 15_000, 0, LocalDate.of(2026, 10, 1), List.of(), null, null,
+                plan)).when(approver).approve(any());
+        when(billing.ensureBills(7L, 15L, plan)).thenThrow(new IllegalStateException("청구서가 이용기간 진행 중이 아닙니다"));
+
+        assertThatThrownBy(() -> service.approve(ME, PAYMENT_ID, request(null), KEY))
+                .extracting(e -> ((BusinessException) e).getErrorCode()).isEqualTo(ErrorCode.INTERNAL_ERROR);
+
+        assertThat(payment.getStatus()).isEqualTo(PaymentStatus.REQUESTED);
+        verify(attempts).release(eq(PAYMENT_ID), any());
+        verify(attempts, never()).recordResult(anyLong(), any(), any());
+        verify(ledger, never()).recordApproval(any(), any());
+        verify(billing, never()).writeItems(any(), any(), any());
+        verify(idempotency, never()).remember(anyLong(), anyString(), any());
+        verify(barcodes, never()).markUsed(anyLong());
+    }
+
     // ───────── 카드 검증 ─────────
 
     @Test
