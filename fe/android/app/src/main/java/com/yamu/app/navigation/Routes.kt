@@ -27,10 +27,7 @@ import kotlinx.serialization.Serializable
 @Serializable data object SignupDone         // A-07
 
 // ── 계좌 · 카드 연결 (LinkGraph) ──
-@Serializable data object InstitutionSelect  // C-01
-@Serializable data class LinkConsent(val linkSessionId: String)   // C-02 · C-02b · C-02c · C-02d
-@Serializable data class LinkSelect(val linkSessionId: String)    // C-03
-@Serializable data object LinkDone           // C-04
+@Serializable data object CardRegister       // C-01 카드 번호 입력 · 확인 · 계좌 연결 · 완료(같은 화면의 단계 — 번호를 인자로 넘기지 않음)
 @Serializable data object CashflowConfirm    // B-06
 @Serializable data object FirstAnalysis      // B-07 · B-07b(알림 권한은 시스템 창)
 
@@ -67,9 +64,7 @@ import kotlinx.serialization.Serializable
 // ── 마이 탭 (MyGraph) ──
 @Serializable data object My                 // M-01
 @Serializable data object CardManage         // M-02
-@Serializable data object AddCardInstitution // C-11
-@Serializable data class AddCardFound(val linkSessionId: String)  // C-12 · C-13b(지문은 시스템 창)
-@Serializable data class AddCardDone(val userCardId: Long)        // C-14
+@Serializable data object AddCard            // C-11 카드 추가(CardRegister와 같은 화면)
 @Serializable data object NotificationSettings // M-04
 @Serializable data object Profile            // M-06
 @Serializable data object Security           // M-08

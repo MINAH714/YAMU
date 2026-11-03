@@ -356,7 +356,7 @@ class CardManageViewModel @Inject constructor(private val my: MyRepository, priv
 fun CardManageRoute(onBack: () -> Unit, onAddCard: () -> Unit, viewModel: CardManageViewModel = hiltViewModel()) {
     val s by viewModel.state.collectAsStateWithLifecycle()
     LifecycleResumeEffect(Unit) {
-        viewModel.load()   // 카드 추가(C-11 ~ C-14)에서 돌아오면 새 카드가 보이게
+        viewModel.load()   // 카드 추가에서 돌아오면 새 카드가 보이게
         onPauseOrDispose { }
     }
     val c = YamuTheme.colors
@@ -405,7 +405,7 @@ fun CardManageRoute(onBack: () -> Unit, onAddCard: () -> Unit, viewModel: CardMa
                         ListRow(
                             title = card.productName,
                             lead = { CardListThumb(card.brand, card.productName) },
-                            titleTag = if (card.isDefault) ({ StatusTag("기본") }) else null,
+                            titleTag = if (card.stateLabel != null || card.isDefault) ({ StatusTag(card.stateLabel ?: "기본") }) else null,
                             minHeight = 72.dp,
                         )
                     }

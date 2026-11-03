@@ -18,13 +18,22 @@ fun Context.findActivity(): FragmentActivity? {
     return null
 }
 
-/** 이 화면이 보이는 동안 캡처 · 최근 앱 미리보기를 막는다 — 간편 비밀번호 · 결제 코드 */
+private var secureScreens = 0   // 메인 스레드(Compose 효과)에서만 바꾼다
+
+/**
+ * 이 화면이 보이는 동안 캡처 · 최근 앱 미리보기를 막는다 — 간편 비밀번호 · 결제 코드 · 카드 번호 입력.
+ * 수를 세는 까닭: 화면 전환 때 새 화면이 먼저 켜고 앞 화면이 뒤늦게 꺼서(로그인 → 카드 번호 입력) 막아 둔 것이 풀리지 않게
+ */
 @Composable
 fun SecureScreen() {
     val activity = LocalContext.current.findActivity()
     DisposableEffect(activity) {
+        secureScreens++
         activity?.window?.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
-        onDispose { activity?.window?.clearFlags(WindowManager.LayoutParams.FLAG_SECURE) }
+        onDispose {
+            secureScreens--
+            if (secureScreens == 0) activity?.window?.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
+        }
     }
 }
 

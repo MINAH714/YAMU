@@ -7,97 +7,84 @@ import com.yamu.app.core.security.SessionStore
 import com.yamu.app.core.session.DevSession
 import com.yamu.app.core.session.HomeScenario
 import com.yamu.app.core.session.LinkScenario
-import com.yamu.app.feature.link.data.AccountAsset
+import com.yamu.app.feature.auth.data.AccountCandidate
+import com.yamu.app.feature.link.data.AccountLinkResult
+import com.yamu.app.feature.link.data.AccountRef
 import com.yamu.app.feature.link.data.BillLine
-import com.yamu.app.feature.link.data.CardAsset
+import com.yamu.app.feature.link.data.CardLookup
 import com.yamu.app.feature.link.data.CashflowCandidate
 import com.yamu.app.feature.link.data.CashflowDraft
 import com.yamu.app.feature.link.data.CashflowPlan
 import com.yamu.app.feature.link.data.CashflowRepository
-import com.yamu.app.feature.link.data.Institution
-import com.yamu.app.feature.link.data.InstitutionType
-import com.yamu.app.feature.link.data.LinkAssets
-import com.yamu.app.feature.link.data.LinkCompletion
-import com.yamu.app.feature.link.data.LinkPurpose
+import com.yamu.app.feature.link.data.IssuerAccount
 import com.yamu.app.feature.link.data.LinkRepository
-import com.yamu.app.feature.link.data.LinkSession
 import com.yamu.app.feature.link.data.LinkedAccount
 import com.yamu.app.feature.link.data.LinkedCard
 import com.yamu.app.feature.link.data.LinkedOverview
-import com.yamu.app.feature.link.data.OneWonSent
-import com.yamu.app.feature.link.data.OwnAccount
-import com.yamu.app.feature.link.data.Terms
+import com.yamu.app.feature.link.data.RegisteredCard
 import com.yamu.app.feature.link.data.brandOf
 import kotlinx.coroutines.delay
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
+import java.time.Instant
 import java.time.OffsetDateTime
+import java.time.YearMonth
 import java.time.temporal.ChronoUnit
 import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * debug 전용 가짜 은행 · 카드사 — 기관 목록 · 내 명의 자산 · 연결 상태를 메모리에 둔다(09 문서 5-6).
- * 숫자는 프로토타입 C-01 · C-03 · C-04 · C-12와 같다. 앱을 다시 켜면 '초기 설정 끝' 여부로 다시 채운다.
+ * debug 전용 가짜 은행 · 카드사 — 내 명의 계좌 · 카드와 등록 상태를 메모리에 둔다.
+ * 앱을 다시 켜면 '초기 설정 끝' 여부로 다시 채운다.
  *
- * 시험값: 1원 숫자 1004 · '0000'은 시간 지남 · 그 밖은 틀림(5번째 틀리면 1원 다시 받기)
+ * 시험값(카드 번호 9410 0000 0000 + 끝 4자리): 아래 [cards]의 끝자리는 내 카드 · 0001 카드사 만료 · 0002 카드사 정지 ·
+ * 0003 이미 등록 · 그 밖은 없는 카드. 5096 Mr.Life는 결제 계좌(신한 ·5678)를 먼저 연결해야 한다. 등록 단계 오류는 디버그 메뉴 '연결 상태'
  */
 @Singleton
 class FakeBank @Inject constructor(private val sessionStore: SessionStore) {
 
-    private data class Inst(val id: String, val name: String, val type: InstitutionType, val color: String?, val mine: Boolean)
-
-    private val institutions = listOf(
-        Inst("BANK_KB", "KB국민은행", InstitutionType.BANK, "#FFBC00", true),
-        Inst("CARD_KB", "KB국민카드", InstitutionType.CARD, "#FFBC00", true),
-        Inst("CARD_HYUNDAI", "현대카드", InstitutionType.CARD, "#1A1A1A", true),
-        Inst("CARD_LOTTE", "롯데카드", InstitutionType.CARD, "#E60012", true),
-        Inst("CARD_SAMSUNG", "삼성카드", InstitutionType.CARD, "#1428A0", true),
-        Inst("CARD_SHINHAN", "신한카드", InstitutionType.CARD, "#0046FF", true),
-        Inst("CARD_HANA", "하나카드", InstitutionType.CARD, "#008C8C", true),   // 가입 뒤 새로 나온 트래블로그만(C-12)
-        Inst("BANK_SHINHAN", "신한은행", InstitutionType.BANK, null, false),
-        Inst("BANK_HANA", "하나은행", InstitutionType.BANK, null, false),
-        Inst("BANK_WOORI", "우리은행", InstitutionType.BANK, null, false),
-        Inst("BANK_NH", "NH농협은행", InstitutionType.BANK, null, false),
-        Inst("CARD_WOORI", "우리카드", InstitutionType.CARD, null, false),
-        Inst("CARD_NH", "NH농협카드", InstitutionType.CARD, null, false),
-        Inst("CARD_BC", "BC카드", InstitutionType.CARD, null, false),
-    )
-
-    private data class Account(val assetId: String, val inst: String, val name: String, val last4: String, val balance: Long)
+    private data class Account(val assetId: String, val bankCode: String, val bank: String, val name: String, val last4: String, val balance: Long)
 
     private data class Card(
         val assetId: String,
-        val inst: String,
+        val issuer: String,
+        val issuerColor: String,
         val product: String,
         val last4: String,
         val paymentDay: Int?,
         val check: Boolean = false,
-        val newlyIssued: Boolean = false,   // 가입 뒤 새로 나온 카드(C-12에서만 보임)
+        val newlyIssued: Boolean = false,   // 가입 뒤 새로 나온 카드 — 이전 거래가 없음
         val recognized: Long = 0,
         val color: String? = null,          // 상품 색(체크 = 회갈색) — 없으면 카드사 색. 실적 · 결제 가짜 값과 같게
-    )
+        val accountId: String = "A1",       // 카드사가 정한 출금 계좌
+    ) {
+        val number: String get() = NUMBER_PREFIX + last4
+    }
 
-    private val accounts = listOf(Account("A1", "BANK_KB", "입출금", "1234", 950_000))
+    private class Issued(val cardId: String, val expiresAt: Instant)
+
+    private val accounts = listOf(
+        Account("A1", "004", "KB국민은행", "입출금", "1234", 950_000),
+        Account("A2", "088", "신한은행", "신한 주거래 통장", "5678", 320_000),
+    )
 
     // BE 카드 시드(be/seed 01 · 02)에 있는 상품만 — 상품 그림(CardImages)이 있는 것 위주
     private val cards = listOf(
-        Card("C1", "CARD_KB", "KB국민 청춘대로 톡톡카드", "1021", 14, recognized = 120_000),
-        Card("C2", "CARD_HYUNDAI", "현대카드ZERO Edition3(포인트형)", "3310", 14, recognized = 210_000),
-        Card("C3", "CARD_LOTTE", "LOCA LIKIT Shop", "7782", 14, recognized = 320_000),
-        Card("C4", "CARD_SAMSUNG", "삼성 iD ON 카드", "4410", 15, recognized = 80_000),
-        Card("C5", "CARD_SHINHAN", "신한카드 Mr.Life", "5096", 20, recognized = 150_000),
-        Card("C6", "CARD_KB", "KB국민 노리2 체크카드(KB Pay)", "8823", null, check = true, recognized = 60_000, color = "#60584C"),
-        Card("C7", "CARD_HANA", "하나카드 트래블로그 체크카드", "5527", null, check = true, newlyIssued = true),
+        Card("C1", "KB국민카드", "#FFBC00", "KB국민 청춘대로 톡톡카드", "1021", 14, recognized = 120_000),
+        Card("C2", "현대카드", "#1A1A1A", "현대카드ZERO Edition3(포인트형)", "3310", 14, recognized = 210_000),
+        Card("C3", "롯데카드", "#E60012", "LOCA LIKIT Shop", "7782", 14, recognized = 320_000),
+        Card("C4", "삼성카드", "#1428A0", "삼성 iD ON 카드", "4410", 15, recognized = 80_000),
+        Card("C5", "신한카드", "#0046FF", "신한카드 Mr.Life", "5096", 20, recognized = 150_000, accountId = "A2"),
+        Card("C6", "KB국민카드", "#FFBC00", "KB국민 노리2 체크카드(KB Pay)", "8823", null, check = true, recognized = 60_000, color = "#60584C"),
+        Card("C7", "하나카드", "#008C8C", "하나카드 트래블로그 체크카드", "5527", null, check = true, newlyIssued = true),
     )
 
-    private class Session(val id: String, val purpose: String, val institutionIds: List<String>, var verified: Boolean = false)
-
-    private val sessions = mutableMapOf<String, Session>()
-    private val linked = linkedSetOf<String>()        // 연결된 assetId
-    private var ownAccountVerified = false
-    private var oneWonSent = false
-    private var wrongCodes = 0
+    private val linked = linkedSetOf("A1")            // 연결된 계좌 · 등록된 카드 assetId. 가입 때 1원으로 계좌 하나는 연결돼 있다
+    private val tokens = mutableMapOf<String, Issued>()
+    private var tokenSeq = 0
+    private var candidateGeneration = 0
+    private var candidateExpiryServed = false
+    private val linkResults = mutableMapOf<String, Pair<List<String>, AccountLinkResult>>()   // 멱등 키 → 처음 요청 · 결과
     private var loaded = false
     private val linkedAt = OffsetDateTime.now(KST).truncatedTo(ChronoUnit.MINUTES).toString()
 
@@ -112,163 +99,158 @@ class FakeBank @Inject constructor(private val sessionStore: SessionStore) {
     fun linkAll(updateHome: Boolean = true) {
         if (updateHome && DevSession.homeScenario in setOf(HomeScenario.NOT_LINKED, HomeScenario.FIRST_DAY)) DevSession.homeScenario = HomeScenario.NORMAL
         loaded = true
-        ownAccountVerified = true
         linked.clear()
-        linked += accounts.map { it.assetId } + cards.filterNot { it.newlyIssued }.map { it.assetId }
+        linked += listOf("A1") + cards.filterNot { it.newlyIssued }.map { it.assetId }
     }
 
-    /** 새로 가입 · 연결 전 — 가짜 홈도 '연결 전'으로(연결을 마치면 '가입 첫날') */
+    /** 새로 가입 · 연결 전 — 가짜 홈도 '연결 전'으로(카드를 등록하면 '가입 첫날') */
     fun reset() {
         DevSession.homeScenario = HomeScenario.NOT_LINKED
         loaded = true
-        ownAccountVerified = false
-        oneWonSent = false
-        wrongCodes = 0
         linked.clear()
-        sessions.clear()
+        linked += "A1"
+        tokens.clear()
+        linkResults.clear()
+        candidateExpiryServed = false
     }
 
-    private fun Inst.toInstitution() = Institution(
-        id = id,
-        brand = brandOf(name, color = color),
-        type = type,
-        hasMyProducts = mine && DevSession.linkScenario != LinkScenario.NO_PRODUCTS,
-        linkedCount = (accounts.filter { it.inst == id }.map { it.assetId } + cards.filter { it.inst == id }.map { it.assetId }).count { it in linked },
-        selectable = true,
-    )
+    private fun account(id: String) = accounts.first { it.assetId == id }
 
-    private fun inst(id: String) = institutions.first { it.id == id }
-
-    private val terms = listOf(
-        Terms("FIN_INFO", "1.0", "금융 정보 조회 · 제공", true),
-        Terms("AUTO_DEBIT", "1.0", "카드대금 자동이체 · 확정된 청구액만 출금해요", true),
-        Terms("PRIVACY", "1.0", "개인정보 처리", true),
-    )
-
-    private fun Session.toModel(): LinkSession {
-        val needsCheck = purpose == LinkPurpose.ONBOARDING && "BANK_KB" in institutionIds
-        val verifiedAlready = ownAccountVerified || DevSession.linkScenario == LinkScenario.ALREADY_VERIFIED
-        return LinkSession(
-            id = id,
-            status = if (verified) "VERIFIED" else "SELECTED",
-            institutionCount = institutionIds.size,
-            ownAccount = if (needsCheck) OwnAccount(required = true, bankName = "KB국민은행", last4 = "1234", verified = verifiedAlready) else null,
-            terms = if (purpose == LinkPurpose.ONBOARDING) terms else emptyList(),
-        )
-    }
+    private fun Card.brand() = brandOf(issuer, color = color ?: issuerColor)
 
     // ── LinkRepository가 부르는 것 ──
 
-    suspend fun institutions(type: InstitutionType?): ApiResult<List<Institution>> {
+    /** BE CardRegistrationService.lookup과 같은 순서 — 기간 → 없는 카드 → 이미 등록 → 카드사 정지 · 만료 */
+    suspend fun lookup(number: String, month: String, year: String): ApiResult<CardLookup> {
         ensureLoaded()
-        delay(400)
-        return ApiResult.Success(institutions.filter { type == null || it.type == type }.map { it.toInstitution() })
-    }
-
-    suspend fun startSession(ids: List<String>, purpose: String): ApiResult<LinkSession> {
-        ensureLoaded()
-        delay(400)
-        val s = Session("ls_${sessions.size + 1}", purpose, ids)
-        sessions[s.id] = s
-        return ApiResult.Success(s.toModel())
-    }
-
-    suspend fun session(id: String): ApiResult<LinkSession> {
-        delay(200)
-        val s = sessions[id] ?: return ApiResult.Failure(ApiError.NotFound("LINK_SESSION_NOT_FOUND"))
-        return ApiResult.Success(s.toModel())
-    }
-
-    suspend fun sendOneWon(id: String): ApiResult<OneWonSent> {
-        delay(700)
-        if (sessions[id] == null) return ApiResult.Failure(ApiError.NotFound("LINK_SESSION_NOT_FOUND"))
-        oneWonSent = true
-        wrongCodes = 0
-        val expires = OffsetDateTime.now(KST).plusMinutes(10).toString()
-        return ApiResult.Success(OneWonSent(prefix = "YAMU", codeLength = 4, expiresAtIso = expires))
-    }
-
-    suspend fun verify(id: String, authCode: String?): ApiResult<Unit> {
-        delay(500)
-        val s = sessions[id] ?: return ApiResult.Failure(ApiError.NotFound("LINK_SESSION_NOT_FOUND"))
-        val model = s.toModel()
-        if (model.ownAccount?.let { it.required && !it.verified } == true) {
-            when (authCode) {
-                "1004" -> Unit
-                "0000" -> return ApiResult.Failure(ApiError.InvalidRequest("AUTH_CODE_EXPIRED"))
-                else -> {
-                    wrongCodes++
-                    return ApiResult.Failure(ApiError.InvalidRequest("AUTH_CODE_MISMATCH", buildJsonObject { put("remainingAttempts", 5 - wrongCodes) }))
-                }
-            }
-            ownAccountVerified = true
+        delay(600)
+        if (YearMonth.of(2000 + year.toInt(), month.toInt()).isBefore(YearMonth.now(KST))) return verificationFailed("EXPIRY_PASSED")
+        when (number) {
+            NUMBER_PREFIX + "0001" -> return verificationFailed("ISSUER_EXPIRED")
+            NUMBER_PREFIX + "0002" -> return verificationFailed("ISSUER_SUSPENDED")
+            NUMBER_PREFIX + "0003" -> return ApiResult.Failure(ApiError.Conflict("CARD_ALREADY_REGISTERED"))
         }
-        s.verified = true
-        return ApiResult.Success(Unit)
-    }
-
-    suspend fun assets(id: String): ApiResult<LinkAssets> {
-        delay(1_200)   // '찾고 있어요'가 잠깐 보이게
-        val s = sessions[id] ?: return ApiResult.Failure(ApiError.NotFound("LINK_SESSION_NOT_FOUND"))
-        if (DevSession.linkScenario == LinkScenario.NO_PRODUCTS) return ApiResult.Success(LinkAssets(emptyList(), emptyList()))
-        val inIds = s.institutionIds.toSet()
-        val acc = accounts.filter { it.inst in inIds && s.purpose == LinkPurpose.ONBOARDING }.map {
-            AccountAsset(it.assetId, brandOf(inst(it.inst).name, color = inst(it.inst).color), it.name, it.last4, suggestedPrimary = true)
-        }
-        val crd = cards.filter { it.inst in inIds && (s.purpose == LinkPurpose.CARD_ADD || !it.newlyIssued) }.map {
-            val i = inst(it.inst)
-            CardAsset(it.assetId, brandOf(i.name, color = it.color ?: i.color), it.product, it.check, it.last4, it.paymentDay, hasPriorHistory = !it.newlyIssued, alreadyRegistered = it.assetId in linked)
-        }
-        return ApiResult.Success(LinkAssets(acc, crd))
-    }
-
-    suspend fun complete(id: String, accountIds: List<String>, cardIds: List<String>): ApiResult<LinkCompletion> {
-        delay(900)
-        val s = sessions[id] ?: return ApiResult.Failure(ApiError.NotFound("LINK_SESSION_NOT_FOUND"))
-        if (DevSession.linkScenario == LinkScenario.BANK_ERROR) return ApiResult.Failure(ApiError.BankUnavailable("BANK_TIMEOUT"))
-        if (s.purpose == LinkPurpose.ONBOARDING && !s.verified) return ApiResult.Failure(ApiError.StepUpRequired("STEP_UP_REQUIRED"))
-        linked += accountIds + cardIds
-        if (DevSession.homeScenario == HomeScenario.NOT_LINKED) DevSession.homeScenario = HomeScenario.FIRST_DAY
+        val card = cards.firstOrNull { it.number == number } ?: return ApiResult.Failure(ApiError.NotFound("CARD_NOT_FOUND"))
+        if (card.assetId in linked) return ApiResult.Failure(ApiError.Conflict("CARD_ALREADY_REGISTERED"))
+        val token = "cvt_${++tokenSeq}"
+        tokens[token] = Issued(card.assetId, Instant.now().plus(5, ChronoUnit.MINUTES))
+        val account = account(card.accountId)
+        // '등록 때 계좌 미연결' 상태면 확인 때는 연결된 것처럼 보이고 등록에서 409가 난다(그 사이 연결을 끊은 경우)
+        val shownLinked = account.assetId in linked || DevSession.linkScenario == LinkScenario.ACCOUNT_NOT_LINKED
         return ApiResult.Success(
-            LinkCompletion(
-                accountIds = accountIds.map { a -> accounts.indexOfFirst { it.assetId == a } + 1L },
-                userCardIds = cardIds.map { c -> cards.indexOfFirst { it.assetId == c } + 11L },
+            CardLookup(
+                verificationToken = token,
+                brand = card.brand(),
+                productName = card.product,
+                isCheck = card.check,
+                maskedNumber = "${number.take(4)}-****-****-${number.takeLast(4)}",
+                last4 = card.last4,
+                paymentDay = card.paymentDay,
+                hasPriorHistory = !card.newlyIssued,
+                holderMatched = true,
+                alreadyRegistered = false,
+                issuerAccount = IssuerAccount(account.bankCode, account.last4, shownLinked),
             ),
         )
+    }
+
+    /** BE CardRegistrationService.register와 같은 순서 — 토큰 → 계좌 연결 → 토큰 소비. 계좌 때문에 실패하면 토큰이 남는다 */
+    suspend fun register(verificationToken: String): ApiResult<RegisteredCard> {
+        delay(700)
+        val issued = tokens[verificationToken]
+        if (issued == null || Instant.now().isAfter(issued.expiresAt) || DevSession.linkScenario == LinkScenario.TOKEN_EXPIRED) {
+            return ApiResult.Failure(ApiError.InvalidRequest("VERIFICATION_TOKEN_EXPIRED"))
+        }
+        val card = cards.first { it.assetId == issued.cardId }
+        if (card.assetId in linked) return ApiResult.Failure(ApiError.Conflict("CARD_ALREADY_REGISTERED"))
+        val account = account(card.accountId)
+        if (account.assetId !in linked) {
+            return ApiResult.Failure(
+                ApiError.Conflict(
+                    "CARD_ACCOUNT_NOT_LINKED",
+                    buildJsonObject {
+                        put("bankCode", account.bankCode)
+                        put("accountLast4", account.last4)
+                    },
+                ),
+            )
+        }
+        tokens.remove(verificationToken)
+        linked += card.assetId
+        if (DevSession.homeScenario == HomeScenario.NOT_LINKED) DevSession.homeScenario = HomeScenario.FIRST_DAY
+        return ApiResult.Success(
+            RegisteredCard(
+                userCardId = cards.indexOf(card) + 11L,
+                brand = card.brand(),
+                productName = card.product,
+                isCheck = card.check,
+                last4 = card.last4,
+                paymentDay = card.paymentDay,
+                prevMonthAmount = card.recognized.takeUnless { card.newlyIssued },
+            ),
+        )
+    }
+
+    /** 가입 후 목록 — 아직 연결 안 한 계좌만. 목록을 새로 받으면 이전 candidateId는 쓸 수 없다 */
+    suspend fun candidates(): ApiResult<List<AccountCandidate>> {
+        ensureLoaded()
+        delay(500)
+        candidateGeneration++
+        return ApiResult.Success(
+            accounts.filter { it.assetId !in linked }.map {
+                AccountCandidate(candidateId(it), brandOf(it.bank), it.name, it.last4, alreadyLinked = false, bankCode = it.bankCode)
+            },
+        )
+    }
+
+    private fun candidateId(account: Account) = "cand_${candidateGeneration}_${account.assetId}"
+
+    /** 같은 키면 다시 연결하지 않고 처음 결과, 같은 키로 다른 계좌면 409(BE AccountLinkService.link) */
+    suspend fun linkAccounts(candidateIds: List<String>, idempotencyKey: String): ApiResult<AccountLinkResult> {
+        delay(800)
+        linkResults[idempotencyKey]?.let { (ids, result) ->
+            return if (ids == candidateIds) ApiResult.Success(result) else ApiResult.Failure(ApiError.Conflict("IDEMPOTENCY_KEY_REUSED"))
+        }
+        if (DevSession.linkScenario == LinkScenario.BANK_ERROR) return ApiResult.Failure(ApiError.BankUnavailable("FIN_API_UNAVAILABLE"))
+        if (DevSession.linkScenario == LinkScenario.CANDIDATE_EXPIRED && !candidateExpiryServed) {
+            candidateExpiryServed = true
+            return ApiResult.Failure(ApiError.InvalidRequest("ACCOUNT_CANDIDATE_EXPIRED"))
+        }
+        val selected = accounts.filter { candidateId(it) in candidateIds }
+        if (selected.size != candidateIds.size) return ApiResult.Failure(ApiError.InvalidRequest("ACCOUNT_CANDIDATE_EXPIRED"))
+        linked += selected.map { it.assetId }
+        val result = AccountLinkResult(selected.map { AccountRef(it.bankCode, it.last4) })
+        linkResults[idempotencyKey] = candidateIds to result
+        return ApiResult.Success(result)
     }
 
     suspend fun overview(): ApiResult<LinkedOverview> {
         ensureLoaded()
         delay(400)
         val acc = accounts.filter { it.assetId in linked }.mapIndexed { i, a ->
-            val institution = inst(a.inst)
-            LinkedAccount(i + 1L, brandOf(institution.name, color = institution.color), a.name, a.last4, a.balance, linkedAt, isPrimary = i == 0)
+            LinkedAccount(i + 1L, brandOf(a.bank), a.name, a.last4, a.balance, linkedAt, isPrimary = i == 0)
         }
         val crd = cards.filter { it.assetId in linked }.map { c ->
-            val institution = inst(c.inst)
-            LinkedCard(cards.indexOf(c) + 11L, brandOf(institution.name, color = c.color ?: institution.color), c.product, c.check, c.last4, c.paymentDay, c.recognized, java.time.YearMonth.now(KST).toString(), isDefault = c.assetId == "C2")
+            LinkedCard(cards.indexOf(c) + 11L, c.brand(), c.product, c.check, c.last4, c.paymentDay, c.recognized, YearMonth.now(KST).toString(), isDefault = c.assetId == "C2")
         }
         return ApiResult.Success(LinkedOverview(acc, crd, linkedAt))
     }
+
+    private fun verificationFailed(reason: String): ApiResult<Nothing> =
+        ApiResult.Failure(ApiError.InvalidRequest("CARD_VERIFICATION_FAILED", buildJsonObject { put("reason", reason) }))
+
+    private companion object {
+        const val NUMBER_PREFIX = "941000000000"
+    }
 }
 
-/** debug 전용 가짜 연결 저장소 — 실제 흐름(세션 → 1원 → 서명 → 목록 → 확정)을 그대로 흉내 */
+/** debug 전용 가짜 연결 저장소 — 실제 흐름(카드 확인 → 본인 인증 → 등록 · 계좌 연결)을 그대로 흉내 */
 @Singleton
 class FakeLinkRepository @Inject constructor(private val bank: FakeBank) : LinkRepository {
-    override suspend fun institutions(type: InstitutionType?) = withFault { bank.institutions(type) }
-    override suspend fun startSession(institutionIds: List<String>, purpose: String) = bank.startSession(institutionIds, purpose)
-    override suspend fun session(id: String) = bank.session(id)
-    override suspend fun sendOneWon(id: String) = bank.sendOneWon(id)
-    override suspend fun verify(id: String, stepUpToken: String, authCode: String?, agreements: List<Terms>) = bank.verify(id, authCode)
-    override suspend fun assets(id: String) = bank.assets(id)
-    override suspend fun complete(
-        id: String,
-        accountAssetIds: List<String>,
-        cardAssetIds: List<String>,
-        primaryAccountAssetId: String?,
-        idempotencyKey: String,
-        stepUpToken: String?,
-    ) = bank.complete(id, accountAssetIds, cardAssetIds)
+    override suspend fun lookupCard(cardNumber: String, expiryMonth: String, expiryYear: String) = bank.lookup(cardNumber, expiryMonth, expiryYear)
+    override suspend fun registerCard(verificationToken: String, nickname: String?, stepUpToken: String) = bank.register(verificationToken)
+    override suspend fun accountCandidates() = withFault { bank.candidates() }
+    override suspend fun linkAccounts(candidateIds: List<String>, idempotencyKey: String, stepUpToken: String) = bank.linkAccounts(candidateIds, idempotencyKey)
     override suspend fun linkedOverview(refresh: Boolean) = withFault(empty = { ApiResult.Success(LinkedOverview(emptyList(), emptyList(), null)) }) { bank.overview() }
 }
 

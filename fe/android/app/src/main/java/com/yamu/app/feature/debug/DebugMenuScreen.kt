@@ -32,17 +32,17 @@ import com.yamu.app.core.session.LinkScenario
 import com.yamu.app.core.session.PayScenario
 import com.yamu.app.core.session.HomeScenario
 import com.yamu.app.core.session.StartState
-import com.yamu.app.navigation.AddCardInstitution
+import com.yamu.app.navigation.AddCard
 import com.yamu.app.navigation.BenefitLimits
 import com.yamu.app.navigation.BenefitReport
 import com.yamu.app.navigation.BuyCheckInput
 import com.yamu.app.navigation.BuyCheckResult
 import com.yamu.app.navigation.CardManage
 import com.yamu.app.navigation.CardPerformance
+import com.yamu.app.navigation.CardRegister
 import com.yamu.app.navigation.CashflowList
 import com.yamu.app.navigation.ComponentGallery
 import com.yamu.app.navigation.Forecast
-import com.yamu.app.navigation.InstitutionSelect
 import com.yamu.app.navigation.Login
 import com.yamu.app.navigation.MyCards
 import com.yamu.app.navigation.NotificationSettings
@@ -134,7 +134,7 @@ fun DebugMenuScreen(navController: NavController, viewModel: DebugMenuViewModel 
                 Text("연결 상태 (가짜 데이터)", style = YamuTheme.typography.titleM, color = c.text1)
                 Text(
                     if (ApiFeature.LINK.isReal) "연결이 진짜 서버를 써서 여기서 바꿀 수 없어요(yamu.realApi)"
-                    else "1원 숫자 1004 · 0000은 시간 지남 · 그 밖은 틀림. 문자 시험: adb emu sms send 15880000 '[KB국민은행] *1234 입금 1원 YAMU 1004'",
+                    else "카드 번호: 9410 0000 0000 + 1021 톡톡 · 5527 트래블로그 체크 · 5096 Mr.Life(결제 계좌 먼저) · 0001 만료 · 0002 정지 · 0003 이미 등록 · 그 밖은 없는 카드",
                     style = YamuTheme.typography.bodyS,
                     color = c.text3,
                 )
@@ -170,7 +170,7 @@ fun DebugMenuScreen(navController: NavController, viewModel: DebugMenuViewModel 
                 val screens: List<Pair<String, Any>> = listOf(
                     "A-03 로그인" to Login,
                     "A-04 약관 동의" to Terms,
-                    "C-01 은행 · 카드사 선택" to InstitutionSelect,
+                    "C-01 카드 등록" to CardRegister,
                     "H-02 알림" to Notifications,
                     "H-03 내 카드" to MyCards,
                     "F-01 잔고예보" to Forecast,
@@ -185,7 +185,7 @@ fun DebugMenuScreen(navController: NavController, viewModel: DebugMenuViewModel 
                     "S-04 혜택 리포트" to BenefitReport,
                     "S-05 결제 내역" to Payments,
                     "M-02 카드 관리" to CardManage,
-                    "C-11 카드 추가" to AddCardInstitution,
+                    "C-11 카드 추가" to AddCard,
                     "M-04 알림 설정" to NotificationSettings,
                     "M-06 회원 정보" to Profile,
                     "M-08 보안 · 인증" to Security,
