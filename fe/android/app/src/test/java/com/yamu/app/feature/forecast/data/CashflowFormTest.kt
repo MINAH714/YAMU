@@ -1,6 +1,8 @@
 package com.yamu.app.feature.forecast.data
 
 import com.yamu.app.core.network.ApiError
+import com.yamu.app.core.network.YamuJson
+import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.addJsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -25,6 +27,19 @@ class CashflowFormTest {
         assertNull(r.recurrence)
         assertEquals(3L, r.accountId)
         assertNull(r.userCardId)
+    }
+
+    @Test fun `등록 본문은 BE 필드 이름 그대로 · 없는 칸은 JSON에 없다`() {
+        val monthEnd = form(LocalDate.of(2026, 11, 30)).withRepeat(CashflowRepeat.MONTHLY).withMonthEnd(true)
+        assertEquals(
+            """{"type":"EXPENSE","title":"월세","amount":500000,"date":"2026-11-30","recurrence":{"frequency":"MONTHLY","dayOfMonth":31},"accountId":3}""",
+            YamuJson.encodeToString(monthEnd.toRequest()),
+        )
+        val weeklyCard = form(LocalDate.of(2026, 11, 3)).withRepeat(CashflowRepeat.WEEKLY).withCard(16)
+        assertEquals(
+            """{"type":"EXPENSE","title":"월세","amount":500000,"date":"2026-11-03","recurrence":{"frequency":"WEEKLY","dayOfWeek":"TUESDAY"},"userCardId":16}""",
+            YamuJson.encodeToString(weeklyCard.toRequest()),
+        )
     }
 
     @Test fun `매주는 첫 발생일의 요일로 보낸다`() {

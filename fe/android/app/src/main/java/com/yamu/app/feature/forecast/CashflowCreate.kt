@@ -233,7 +233,7 @@ class CashflowCreateViewModel @Inject constructor(
         _state.update { cur ->
             when {
                 // 실패가 아니라 결과 불명 — 반영됐을 수도 있어 자동으로 다시 보내지 않고 목록부터 보게 한다
-                e == ApiError.Network -> cur.copy(saving = false, unknownResult = true, saveError = "연결이 끊겨 반영됐는지 확인하지 못했어요 · 목록에서 먼저 확인해 주세요")
+                e.isOutcomeUnknown -> cur.copy(saving = false, unknownResult = true, saveError = "응답을 받지 못해 반영됐는지 확인하지 못했어요 · 목록에서 먼저 확인해 주세요")
                 e.code == "PAID_OCCURRENCE_LOCKED" -> cur.copy(saving = false, saveError = "이미 결제된 회차가 있어 바꿀 수 없어요")
                 fields.isNotEmpty() -> cur.copy(saving = false, showErrors = true, errors = fields, saveError = others.firstOrNull())
                 others.isNotEmpty() -> cur.copy(saving = false, saveError = others.joinToString(" · "))
