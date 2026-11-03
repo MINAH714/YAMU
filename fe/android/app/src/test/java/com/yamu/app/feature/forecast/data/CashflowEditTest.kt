@@ -1,5 +1,7 @@
 package com.yamu.app.feature.forecast.data
 
+import com.yamu.app.core.network.YamuJson
+import kotlinx.serialization.encodeToString
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -45,6 +47,19 @@ class CashflowEditTest {
         val body = rent.toPatch(f, CashflowScope.THIS_AND_FUTURE)
         assertEquals("2026-12-31", body.date)
         assertEquals(RecurrenceRequest("MONTHLY", dayOfMonth = 31, endDate = "2027-06-30"), body.recurrence)
+    }
+
+    @Test fun `수정 본문은 BE 필드 이름 그대로 · 안 바꾼 칸은 JSON에 없다`() {
+        val body = rent.toPatch(rent.toForm().withMonthEnd(false).copy(amount = 550_000), CashflowScope.THIS_AND_FUTURE)
+        assertEquals(
+            """{"amount":550000,"recurrence":{"frequency":"MONTHLY","dayOfMonth":30,"endDate":"2027-06-30"},"scope":"THIS_AND_FUTURE","occurrenceDate":"2026-11-30"}""",
+            YamuJson.encodeToString(body),
+        )
+        val thisOnly = rent.toPatch(rent.toForm().copy(title = "관리비", date = LocalDate.of(2026, 11, 28)).withCard(16), CashflowScope.THIS_ONLY)
+        assertEquals(
+            """{"title":"관리비","date":"2026-11-28","userCardId":16,"scope":"THIS_ONLY","occurrenceDate":"2026-11-30"}""",
+            YamuJson.encodeToString(thisOnly),
+        )
     }
 
     @Test fun `수정 화면의 매월 칩은 규칙의 기준일 · 날짜를 옮기면 새 날짜`() {

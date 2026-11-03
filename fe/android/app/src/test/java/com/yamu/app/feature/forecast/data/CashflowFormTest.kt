@@ -30,9 +30,9 @@ class CashflowFormTest {
     }
 
     @Test fun `등록 본문은 BE 필드 이름 그대로 · 없는 칸은 JSON에 없다`() {
-        val monthEnd = form(LocalDate.of(2026, 11, 30)).withRepeat(CashflowRepeat.MONTHLY).withMonthEnd(true)
+        val monthEnd = form(LocalDate.of(2026, 11, 30)).withRepeat(CashflowRepeat.MONTHLY).withMonthEnd(true).withEndDate(LocalDate.of(2027, 6, 30))
         assertEquals(
-            """{"type":"EXPENSE","title":"월세","amount":500000,"date":"2026-11-30","recurrence":{"frequency":"MONTHLY","dayOfMonth":31},"accountId":3}""",
+            """{"type":"EXPENSE","title":"월세","amount":500000,"date":"2026-11-30","recurrence":{"frequency":"MONTHLY","dayOfMonth":31,"endDate":"2027-06-30"},"accountId":3}""",
             YamuJson.encodeToString(monthEnd.toRequest()),
         )
         val weeklyCard = form(LocalDate.of(2026, 11, 3)).withRepeat(CashflowRepeat.WEEKLY).withCard(16)
