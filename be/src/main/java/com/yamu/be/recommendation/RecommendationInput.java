@@ -67,7 +67,7 @@ public record RecommendationInput(
             if (userCardId <= 0 || userId <= 0) {
                 throw new IllegalArgumentException("카드·사용자 ID는 양수여야 합니다.");
             }
-            Objects.requireNonNull(cardType);
+            // 상품 조회 누락은 종류 미확인으로 보존한다. Selector가 정상 계산을 막는다.
             Objects.requireNonNull(registrationStatus);
             Objects.requireNonNull(issuerStatus);
             Objects.requireNonNull(availability);
@@ -91,13 +91,17 @@ public record RecommendationInput(
         }
 
         public boolean isKnown() {
-            return period != null
+            // 확인된 최소 기준 0원에는 신규 충족이 없다. 미확인 금액을 0으로 대체하는 것은 아니다.
+            return Long.valueOf(0L).equals(minimumAmount) || period != null
                     && beforeAmount != null && minimumAmount != null && recognizedAmount != null;
         }
 
         public boolean newlyMeetsMinimum() {
             if (!isKnown()) {
                 throw new IllegalStateException("실적 보조 정보가 미확인입니다.");
+            }
+            if (minimumAmount == 0) {
+                return false;
             }
             // 덧셈 오버플로 없이 before < minimum <= before + recognized를 검사한다.
             return beforeAmount < minimumAmount && recognizedAmount >= minimumAmount - beforeAmount;
