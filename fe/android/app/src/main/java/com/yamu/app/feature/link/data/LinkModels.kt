@@ -200,6 +200,11 @@ data class LinkedCard(
 
 data class LinkedOverview(val accounts: List<LinkedAccount>, val cards: List<LinkedCard>, val syncedAtIso: String?) {
     val primaryAccount: LinkedAccount? get() = accounts.firstOrNull { it.isPrimary } ?: accounts.firstOrNull()
+
+    /** 확인한 카드가 목록에 있으면 등록된 것 — 카드 번호를 지운 뒤라 카드사 · 상품 · 끝 4자리로 찾는다. 목록에는 등록 전 실적이 없어 null */
+    fun registeredCardOf(lookup: CardLookup): RegisteredCard? =
+        cards.firstOrNull { it.brand.name == lookup.brand.name && it.productName == lookup.productName && it.last4 == lookup.last4 }
+            ?.let { RegisteredCard(it.userCardId, it.brand, it.productName, it.isCheck, it.last4, it.paymentDay, prevMonthAmount = null) }
 }
 
 // ── 입력 규칙 ──
