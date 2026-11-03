@@ -353,7 +353,12 @@ class CardManageViewModel @Inject constructor(private val my: MyRepository, priv
 }
 
 @Composable
-fun CardManageRoute(onBack: () -> Unit, onAddCard: () -> Unit, viewModel: CardManageViewModel = hiltViewModel()) {
+fun CardManageRoute(
+    onBack: () -> Unit,
+    onAddCard: () -> Unit,
+    onCardDetail: (userCardId: Long) -> Unit,
+    viewModel: CardManageViewModel = hiltViewModel(),
+) {
     val s by viewModel.state.collectAsStateWithLifecycle()
     LifecycleResumeEffect(Unit) {
         viewModel.load()   // 카드 추가에서 돌아오면 새 카드가 보이게
@@ -403,10 +408,12 @@ fun CardManageRoute(onBack: () -> Unit, onAddCard: () -> Unit, viewModel: CardMa
                     if (s.cards.isEmpty()) EmptyState("연결한 카드가 없어요", actionText = "카드 추가", onAction = onAddCard)
                     s.cards.forEach { card ->
                         ListRow(
-                            title = card.productName,
+                            title = card.displayName,
                             lead = { CardListThumb(card.brand, card.productName) },
                             titleTag = if (card.stateLabel != null || card.isDefault) ({ StatusTag(card.stateLabel ?: "기본") }) else null,
                             minHeight = 72.dp,
+                            chevron = true,
+                            onClick = { onCardDetail(card.userCardId) },
                         )
                     }
                 }

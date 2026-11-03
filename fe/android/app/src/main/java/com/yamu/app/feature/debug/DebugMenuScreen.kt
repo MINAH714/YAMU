@@ -37,6 +37,7 @@ import com.yamu.app.navigation.BenefitLimits
 import com.yamu.app.navigation.BenefitReport
 import com.yamu.app.navigation.BuyCheckInput
 import com.yamu.app.navigation.BuyCheckResult
+import com.yamu.app.navigation.CardDetail
 import com.yamu.app.navigation.CardManage
 import com.yamu.app.navigation.CardPerformance
 import com.yamu.app.navigation.CardRegister
@@ -185,6 +186,7 @@ fun DebugMenuScreen(navController: NavController, viewModel: DebugMenuViewModel 
                     "S-04 혜택 리포트" to BenefitReport,
                     "S-05 결제 내역" to Payments,
                     "M-02 카드 관리" to CardManage,
+                    "M-03 카드 상세" to CardDetail(userCardId = 12L),
                     "C-11 카드 추가" to AddCard,
                     "M-04 알림 설정" to NotificationSettings,
                     "M-06 회원 정보" to Profile,

@@ -10,6 +10,7 @@ import androidx.navigation.toRoute
 import com.yamu.app.BuildConfig
 import com.yamu.app.core.designsystem.component.gallery.ComponentGallery
 import androidx.compose.runtime.rememberCoroutineScope
+import com.yamu.app.core.format.objectParticle
 import com.yamu.app.core.ui.LocalSnackbar
 import com.yamu.app.core.ui.findActivity
 import androidx.activity.compose.BackHandler
@@ -47,6 +48,7 @@ import com.yamu.app.feature.performance.PerfOverviewRoute
 import com.yamu.app.feature.link.CardRegisterRoute
 import com.yamu.app.feature.link.CashflowConfirmRoute
 import com.yamu.app.feature.link.FirstAnalysisRoute
+import com.yamu.app.feature.my.CardDetailRoute
 import com.yamu.app.feature.my.CardManageRoute
 import com.yamu.app.feature.my.MyCardsRoute
 import com.yamu.app.feature.my.MyRoute
@@ -338,7 +340,21 @@ fun YamuNavHost(navController: NavHostController, modifier: Modifier = Modifier)
                     )
                 }
                 composable<CardManage> {
-                    CardManageRoute(onBack = back, onAddCard = { navController.navigate(AddCard) })
+                    CardManageRoute(
+                        onBack = back,
+                        onAddCard = { navController.navigate(AddCard) },
+                        onCardDetail = { id -> navController.navigate(CardDetail(id)) },
+                    )
+                }
+                composable<CardDetail> {
+                    CardDetailRoute(
+                        onBack = back,
+                        onUnregistered = { name ->
+                            back()
+                            showMessage("${name}${name.objectParticle()} 해제했어요")
+                        },
+                        onOpenPinPad = openPinPad,
+                    )
                 }
                 composable<AddCard> {
                     CardRegisterRoute(
