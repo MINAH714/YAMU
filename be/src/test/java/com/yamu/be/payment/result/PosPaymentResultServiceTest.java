@@ -15,6 +15,7 @@ import com.yamu.be.global.exception.ErrorCode;
 import com.yamu.be.payment.PaymentExpiry;
 import com.yamu.be.payment.PaymentPlan;
 import com.yamu.be.payment.approve.ApprovalAttemptStore;
+import com.yamu.be.payment.approve.FailureCode;
 import com.yamu.be.payment.approve.PaymentApprovalProperties;
 import com.yamu.be.payment.barcode.BarcodeStore;
 import com.yamu.be.payment.domain.PaymentChannel;
@@ -104,7 +105,28 @@ class PosPaymentResultServiceTest {
         PosPaymentResult.Failure failure = service.get("key", POS_CODE, PAYMENT_ID).failure();
 
         assertThat(failure.code()).isEqualTo("REMOVED_REASON");
-        assertThat(failure.message()).isEqualTo(PosPaymentResultService.DEFAULT_FAILURE_MESSAGE);
+        assertThat(failure.message()).isEqualTo(PosFailureMessages.DEFAULT);
+    }
+
+    @Test
+    void 거절_문구는_앱용이_아니라_POS_영수증용이다() {
+        PaymentTransaction payment = declined("ACCOUNT_UNAVAILABLE");
+        when(payments.findById(PAYMENT_ID)).thenReturn(Optional.of(payment));
+
+        PosPaymentResult.Failure failure = service.get("key", POS_CODE, PAYMENT_ID).failure();
+
+        assertThat(failure.code()).isEqualTo("ACCOUNT_UNAVAILABLE");
+        assertThat(failure.message()).isEqualTo("출금 계좌 문제로 결제가 거절됐습니다.")
+                .isNotEqualTo(FailureCode.ACCOUNT_UNAVAILABLE.message());
+    }
+
+    @Test
+    void 출금_미확인_거절은_확정된_실패로_읽히지_않게_앱에서_확인하라고_안내한다() {
+        PaymentTransaction payment = declined("WITHDRAWAL_NOT_CONFIRMED");
+        when(payments.findById(PAYMENT_ID)).thenReturn(Optional.of(payment));
+
+        assertThat(service.get("key", POS_CODE, PAYMENT_ID).failure().message())
+                .isEqualTo("결제 결과를 확인하지 못했습니다. 고객 앱에서 결제 내역을 확인해 주세요.");
     }
 
     @Test

@@ -39,6 +39,9 @@ public record PosPaymentResult(
     public record Card(String issuerName, CardType cardType, String maskedNumber, PaymentPlan plan,
             Integer installmentMonths) {}
 
-    /** @param code {@code FailureCode} 값. message는 사유별 기본 문구만 쓴다(앱용 문구에는 잔액 같은 값이 들어갈 수 있다) */
+    /**
+     * @param code    {@code FailureCode} 값
+     * @param message POS 영수증용 사유별 문구({@link PosFailureMessages}). 앱용 문구는 사용자에게 하는 말이고 잔액 같은 값이 들어갈 수 있어 쓰지 않는다
+     */
     public record Failure(String code, String message) {}
 }

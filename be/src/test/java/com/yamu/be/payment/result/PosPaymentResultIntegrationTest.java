@@ -219,7 +219,7 @@ class PosPaymentResultIntegrationTest extends MySqlTestSupport {
                 .andExpect(jsonPath("$.data.status").value("DECLINED"))
                 .andExpect(jsonPath("$.data.retryable").value(true))
                 .andExpect(jsonPath("$.data.failure.code").value("INSUFFICIENT_BALANCE"))
-                .andExpect(jsonPath("$.data.failure.message").value("연결 계좌 잔액이 부족합니다."))
+                .andExpect(jsonPath("$.data.failure.message").value("잔액 부족으로 결제가 거절됐습니다."))
                 .andExpect(jsonPath("$.data.failure.details").doesNotExist())
                 .andExpect(jsonPath("$.data.card.cardType").value("CHECK"))
                 .andExpect(jsonPath("$.data.approvalNo").value((Object) null))

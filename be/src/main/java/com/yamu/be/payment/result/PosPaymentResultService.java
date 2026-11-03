@@ -7,7 +7,6 @@ import com.yamu.be.payment.PaymentExpiry;
 import com.yamu.be.payment.PaymentPlan;
 import com.yamu.be.payment.approve.ApprovalAttemptStore;
 import com.yamu.be.payment.approve.ApprovalNumbers;
-import com.yamu.be.payment.approve.FailureCode;
 import com.yamu.be.payment.approve.PaymentApprovalProperties;
 import com.yamu.be.payment.barcode.BarcodeStore;
 import com.yamu.be.payment.domain.PaymentStatus;
@@ -40,8 +39,6 @@ import org.springframework.stereotype.Service;
 @Slf4j
 @Service
 public class PosPaymentResultService {
-
-    static final String DEFAULT_FAILURE_MESSAGE = "결제가 거절됐습니다.";
 
     private final PosTerminalResolver terminals;
     private final PaymentTransactionRepository payments;
@@ -130,11 +127,7 @@ public class PosPaymentResultService {
         if (code == null) {
             return null;
         }
-        try {
-            return new PosPaymentResult.Failure(code, FailureCode.valueOf(code).message());
-        } catch (IllegalArgumentException e) {
-            return new PosPaymentResult.Failure(code, DEFAULT_FAILURE_MESSAGE);
-        }
+        return new PosPaymentResult.Failure(code, PosFailureMessages.of(code));
     }
 
     /**
