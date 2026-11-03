@@ -24,17 +24,41 @@ STACK은 개별 한도를 반영한 값과 공유 금액 한도를 구분한다.
 
 Docker 활성화 후 실제 실행에서 기본 MySQL 바이너리 로그 설정의 트리거 생성 권한 오류(1419)를 확인했다. `MySqlTestSupport`의 폐기 가능한 컨테이너에만 `--log-bin-trust-function-creators=1`을 지정한다. 개발/운영 DB 설정은 변경하지 않았다. 실제 배포 전 DBA는 마이그레이션 계정의 TRIGGER 권한과 바이너리 로그 환경의 생성 권한 또는 해당 서버 설정을 준비해야 한다. 이 조건이 없으면 기본 설정에서 이 마이그레이션이 실패하며 MySQL DDL은 전체 롤백되지 않으므로 적용 전에 확인한다. 자동 clean/repair로 우회하지 않는다.
 
-현재 신규 적재 순서는 Flyway → `01-card-catalog.sql` → `02-card-catalog-ab20.sql` → `03-benefit-composition.sql`이다. 01/02도 새 구조의 경로를 생성하므로 새 DB와 기존 DB 재실행을 모두 지원하도록 변경했다. 02는 기존 생성 결과를 `target-groups.mjs` 변환기로 갱신했으며 이후 원본 생성기도 같은 변환기를 사용한다. 03은 명시적 승인 관계를 적재하는 별도 반복 실행 가능한 SQL이다. 기존 로컬 Seed CLI는 01만 실행하는 기존 범위를 유지하므로 17종 적재에는 02/03을 명시적으로 실행해야 한다. 코드 작업 중 실제 DB에 적재하지 않았다.
+현재 신규 적재 순서는 Flyway → `01-card-catalog.sql` → `02-card-catalog-ab20.sql` → `03-benefit-composition.sql`이다. 01/02도 새 구조의 경로를 생성하므로 새 DB와 기존 DB 재실행을 모두 지원하도록 변경했다. 02는 기존 생성 결과를 `target-groups.mjs` 변환기로 갱신했으며 이후 원본 생성기도 같은 변환기를 사용한다. 03은 명시적 승인 관계를 적재하는 별도 반복 실행 가능한 SQL이다. 기존 로컬 Seed CLI는 01만 실행하는 기존 범위를 유지하므로 17종 적재에는 02/03을 명시적으로 실행해야 한다. 개발/운영 DB에는 적재하지 않았다. Testcontainers MySQL에는 01→02→03을 실제 적재해 아래 추천 경로를 검증한다.
 
 - 노리2 모바일·구독 STACK, 앱스토어 AND YOUTUBE_PREMIUM_SUBSCRIPTION 경로는 **사용자 전달 카드사 전화 상담** 근거다. 공개 약관 직접 확인으로 표현하거나 다른 구독·결제 경로로 확대하지 않는다. 기존 직접 결제 경로는 OR로 보존한다. 기존 공통 제외 사실을 임의로 false로 만들지는 않는다.
 - 카카오뱅크는 Seed에 있는 기본과 현재 추가 혜택만 STACK으로 연결한다. MAX_ONE 관계를 자동 생성하지 않는다.
 - 현대 M은 두 우대 순위 1, 기본 순위 2와 한 단계 fallback을 적재한다. 우대의 국내/해외 공통 CONDITION을 보존한다. ‘한도 초과 시 기본 적립률’은 공식 문구, 같은 거래의 원금 분할은 승인된 설계 해석이며 공식 숫자 예시 확인으로 기록하지 않는다.
 
-새 구조가 기존 미확인 숫자를 확인한 것은 아니다. `complete=false`, 확인되지 않은 조건/버전, 계산 순서·기준액·포인트 원화 환산·반올림/기간·횟수 정책의 미확인은 보존한다. 확인된 관계가 있으면 조합 미등록 사유만 해소하며 17종 모두 실제 CALCULATED/READY가 된다고 보증하지 않는다.
+새 구조가 기존 미확인 숫자를 실제 상품 정책으로 확인한 것은 아니다. 아래 승인된 모의 기준으로만 계산 입력을 보완한다. Seed 범위 밖·필수 사실·미등록 관계·집계 누락의 미확인은 유지하며 17종 모든 거래의 READY를 보증하지 않는다.
+
+## 승인된 모의 정책 — 2026-11-03 일괄 결정
+
+의사결정 세션의 사용자 일괄 승인에 따른다. **공식 자료 / 사용자 전달 상담 / 승인된 원금 분할 해석 / 아래 YAMU 모의 규칙**을 구분한다. 원본 Seed의 NULL을 공식 값으로 덮어쓰지 않고 입력 조립 시 적용한다.
+
+| 규칙 | 적용 값·범위 |
+|---|---|
+| `YAMU_BASIC_PURCHASE/1` | 미확인인 국내/해외는 국내, 시설은 일반 매장, 결제 경로는 직접 결제, 미지정 구매 항목은 명시한 특수 거래를 제외한 일반 구매, 자동납부/정기결제 및 별도 카드사 행사는 미적용. 확인된 값 우선. 온라인/오프라인·공식 경로·제휴 수단은 추정하지 않음 |
+| `YAMU_SIM_CARD_POLICY/1` 범위 | `simulation-catalog.json`에 명시한 Seed 17종·56개 혜택의 버전 1. 승인된 등록 목록의 모의 완전성만 보증하며 실제 약관 전체를 보증하지 않음. 빠진 필수 대상·제외 사실·중첩 관계는 계산기가 계속 검사 |
+| 누락 반올림 | `DOWN`, 지급 단위 1원/1P, 거래별 `PER_TRANSACTION`. 기존 HALF_UP 등 실제 저장값 우선 |
+| 계산 입력 | 대상 조건을 충족한 일반 거래의 원금, 기존 승인 순서 `LIMIT_THEN_ROUND`. 현대 M은 fallback에서 해당 원금을 분할. 임의로 ROUND_THEN_LIMIT로 전환하지 않음 |
+| 누락 유효기간 | 한국 시간 `[2026-11-01, 2026-12-01)`의 모의 창. 알려진 경계와 교집합을 취하고 이미 종료된 실제 정책은 부활시키지 않음. 알려진 양쪽 경계는 보존 |
+| 누락 포인트 환산 | M ME4 3개·ZERO 포인트형 1개·taptap O 1개·트래블로그 1개에만 모의 비교용 `1P=1원`. 확인된 환산값 우선. 실제 환급액·현금 가치 보증 아님 |
+| 단일 혜택 COUNT | 버전 1의 한 혜택에만 연결된 COUNT에 `PER_BENEFIT`, `consumeOnZero=false`. 새로운 공유 COUNT 배분이나 사용량 갱신을 만들지 않음 |
+
+`simulationRules`에는 적용 규칙 ID/버전, 카드 ID·혜택 ID, 보완 필드와 다음 안내가 담긴다. JSON 저장/복원에서도 유지한다. 기본 거래 규칙을 적용하지 않았으면 그 규칙을 기록하지 않는다.
+
+> YAMU에 등록된 혜택과 모의 계산 기준으로 추천했습니다. 포인트의 비교 금액은 실제 환급액과 다를 수 있습니다.
+
+정책 비용은 지원 일시불·모의 무이자 할부 모두 명시적 0원이다. 비용 0원만으로 정책을 완료 처리하지 않는다. 실적·월 사용량·잔액·결제 가능성은 모의로 채우지 않는다. 외부 규칙 조건이 여전히 불명확한 ZERO 할인형의 `RULE:OVERSEAS_ELIGIBILITY` 같은 거래는 DATA_INSUFFICIENT가 될 수 있다.
+
+공유 한도의 `LIMIT_THEN_ROUND`는 그대로다. 노리2의 정수 원시 금액·거래별 DOWN/단위 1인 경우 한도 차감과 반올림을 어떤 개별 순서로 적용해도 총액이 동일함을 확인한 좁은 경우만 총액 1,800원을 제공한다. 그 밖의 충돌은 기존 미확인으로 남긴다. 상세 배분·개별 횟수 사용 예상값은 만들지 않는다.
 
 ## 결제 담당 호출 계약
 
 `RecommendationRequest`에 최초 보존한 purchaseItemCode, 검증한 verifiedFacts, 카드별 availability를 전달한다. 기존 MerchantContext는 결제처/업종/채널/시설 용도다. 누락된 카드 결제 가능 여부는 AVAILABLE이 아니라 UNKNOWN이다. 새 `DatabaseCardRecommender`는 별도 네트워크/재시도 없이 내부 서비스를 호출하며 후보·제외·미비교 및 조회 사유를 반환한다.
+
+최신 develop 통합으로 기존 `PosPaymentRequestService`와 `PaymentApprovalService`의 포트 호출은 존재한다. 다만 두 호출은 아직 availability/구매 항목/추가 사실을 공급하지 않으므로 현재 앱 흐름의 추천 성공을 보증하지 않는다. 결제 담당자는 이 입력과 최초 거래 조건 재사용, DB 보존 호출·커밋 후 응답, retryable 오류 안내, 승인 전 재검증을 연결해야 한다. 기존 Redis `RecommendationSnapshotStore` 인터페이스와 구현은 유지하고 DB 보존 클래스를 `DatabaseRecommendationResultStore`로 구분했다. 추천 BigDecimal 총액을 기존 long 화면 DTO로 옮기는 두 경계는 `longValueExact()`를 사용하므로 미래에 소수 환산 정책을 추가할 경우 표시 계약 협의가 필요하다.
 
 `RecommendationResult.schemaVersion=1`, 후보별 netBenefit은 필수 숫자(BigDecimal), benefits[].amount는 정수 또는 NULL, unallocatedBenefitGroups는 필수 배열이다. 원시 금액은 BigDecimal로 보존해 정률 소수를 버리지 않는다. 포인트 환산 후 경제적 순혜택 소수도 정수로 절사하지 않는다. RuleVersion은 혜택별 실제 버전을 보존하고, 하나의 공통 버전이 없으면 단일 version은 NULL이다.
 
@@ -42,19 +66,19 @@ Docker 활성화 후 실제 실행에서 기본 MySQL 바이너리 로그 설정
 
 ```java
 // 결제 담당의 기존 접수 트랜잭션: 소유권·불변 요청 비교·잠금은 호출자가 처리한다.
-snapshotStore.preservePurchaseItem(userId, paymentId, validatedPurchaseItemCode);
+databaseRecommendationResultStore.preservePurchaseItem(userId, paymentId, validatedPurchaseItemCode);
 RecommendationResult result = cardRecommender.recommend(preservedRequest);
-snapshotStore.save(userId, paymentId, result);
+databaseRecommendationResultStore.save(userId, paymentId, result);
 // 위 트랜잭션 커밋 성공 이후에만 저장 완료로 응답한다.
 // 앱 조회: 재계산하지 않는다. 과거 NULL이면 Optional.empty().
-snapshotStore.find(userId, paymentId);
+databaseRecommendationResultStore.find(userId, paymentId);
 ```
 
-`RecommendationSnapshotStore`의 쓰기는 MANDATORY 트랜잭션이며 사용자·거래로 필터링한다. 구매 항목/추천 JSON 및 수정 시각/버전만 변경한다. 실적·사용량·승인 금액·상태를 갱신하지 않는다. 저장 실패는 예외이며 저장 완료 결과를 반환하지 않는다. 호출자는 동시 저장·재시도·중복 요청·승인 재검증을 담당하고, 미배분 결과를 payment_benefit의 승인 확정 내역으로 복사하면 안 된다. 기존 HTTP API/앱 화면은 새로 만들지 않았다.
+`DatabaseRecommendationResultStore`의 쓰기는 MANDATORY 트랜잭션이며 사용자·거래로 필터링한다. 구매 항목/추천 JSON 및 수정 시각/버전만 변경한다. 실적·사용량·승인 금액·상태를 갱신하지 않는다. 저장 실패는 예외이며 저장 완료 결과를 반환하지 않는다. 호출자는 동시 저장·재시도·중복 요청·승인 재검증을 담당하고, 미배분 결과를 payment_benefit의 승인 확정 내역으로 복사하면 안 된다. 기존 HTTP API/앱 화면은 새로 만들지 않았다.
 
 ## 검증 구분
 
-순수 조건/계산 테스트는 확인된 가상 정책을 사용한다. 실제 조립기/서비스 경로 테스트는 complete=false를 true로 덮어쓰지 않고 새 그룹이 엔진에 전달됨을 검사한다. JSON·저장 호출 단위 테스트와 MySQL 마이그레이션/Seed/JPA/보존 테스트를 구분한다. Docker 엔진 연결 불가 시 DB 테스트는 생략되며 BUILD SUCCESSFUL만으로 실제 DB 제약/저장 검증 통과를 보고하지 않는다.
+순수 조건/계산 테스트는 확인된 가상 정책을 사용한다. 기존 조합 연결 테스트는 미확인 정책을 덮어쓰지 않고 그룹 전달을 검사한다. 추가 실제 Seed 테스트는 승인된 모의 정책을 실제 조립기로 적용하고 엔진의 양수 추천까지 검사한다. JSON·저장 호출 단위 테스트와 MySQL 마이그레이션/Seed/JPA/보존 테스트를 구분한다. Docker 엔진 연결 불가 시 DB 테스트는 생략되며 BUILD SUCCESSFUL만으로 실제 DB 제약/저장 검증 통과를 보고하지 않는다.
 
 2026-11-03 Docker 활성화 전 기록: 관련 Gradle 테스트 **253개 중 211개 통과, 실패·오류 0, MySQL 테스트 42개 생략**. 새 조합/실제 조립/구매 항목/결제 포트→서비스→Selector 연결, JSON NULL/0 보존, Mock 대체 빈 구성을 포함한다. 이때의 MySQL 검증은 Docker 엔진 연결 불가로 생략됐으며 아래에 실제 실행 결과를 구분한다.
 
@@ -71,3 +95,37 @@ snapshotStore.find(userId, paymentId);
 Seed 생성 회귀 `node --test be/seed/catalog-ab20/build-seed.test.mjs`는 **1개 통과**다. 원본 ZIP 없이 테스트용 입력으로 생성기와 동일 변환기를 실행한 검증이며, 원본 20종 재가공이나 실제 SQL 실행 검증이 아니다. 중간 실행에서 구형 JSON의 새 필드 NULL 처리 및 생성자 오버로드/미확인 사유 회귀를 수정했으며 위 수치는 수정 후 마지막 실행의 XML 기준이다. `git diff --check`도 통과했다.
 
 예상 한도 사용량은 후보의 expectedLimitUses로 전달한다. 미배분 충돌의 개별 한도·횟수는 공급하지 않으며, 이는 승인 확정 기록이 아니다. 사용량·실적·잔액·신용한도 갱신, 승인·청구·취소·복구·멱등성·동시 저장 구현은 추가하지 않았다.
+
+## 실제 Seed 추천 검증과 통합 회귀 — 추가 실행
+
+`SimulationSeedRecommendationDatabaseTest`는 01/02/03 Seed를 Testcontainers MySQL 8.4.11에 실제 적재하고 `CardRecommender → Service → JPA/집계 조회 → 실제 Assembler → Selector/Calculator`를 실행한다. 조립기 반환값을 완성 정책 fixture로 바꾸지 않는다. 고객 보유 카드·실적·월 사용량·결제 가능 판정은 명시적인 가상 고객 자료다.
+
+| 실제 Seed 시나리오 | 결과 |
+|---|---|
+| Mr.Life·GS25·10,000원·전월 400,000원 + 정책 미등록 카드 | Mr.Life 1,000원, PARTIAL_READY. 미등록 카드만 미비교. 사용량 불변 및 Seed 반올림 NULL 보존 |
+| 노리2·앱스토어·유튜브·15,000원·전월 200,000원·공유 잔여 1,800원 | READY·1,800원. 두 상세 NULL·미배분 묶음 유지. 모의 규칙과 함께 실제 DB JSON 저장/조회 |
+| 현대 M·음식점·100,000원·전월 1,000,000원·우대 잔여 1,000P | READY·우대 1,000P + 기본 1,200P, 비교액 2,200원. 원래 HALF_UP 보존. 공과금/교통 등 기본 모의 범위 밖 제외 사실은 이 가상 거래에 대해 명시 제공 |
+| ZERO 할인형의 별도 필수 조건 미확인 | DATA_INSUFFICIENT 유지. 모든 조건을 false로 채우지 않음 |
+| 12월 거래·승인되지 않은 혜택 버전·이미 종료된 원본 | 승인된 11월 모의 정책으로 되살리지 않음 |
+
+JSON 원시 BigDecimal은 형식 검증 트리를 변환 데이터로 재사용하지 않고 원문에서 복원해 소수 정밀도를 보존한다. 프로젝트 공통 UTC 시간 JSON은 초 단위이며 MySQL JSON은 숫자의 소수 자릿수 표기를 정규화하므로, DB 테스트는 금액의 수치·NULL·규칙 기록을 검사한다.
+
+전체 BE 회귀 초회는 1,301개 실행·12개 실패·생략 0이었다. 기존 POS/승인 테스트가 조건부 Mock 빈을 전제로 한 11건은 테스트 구성에 기존 `MockCardRecommender`를 명시적으로 주입해 해결했다. 승인 실행 코드나 실제 추천의 availability UNKNOWN 정책을 완화하지 않았다. 나머지 1건은 MySQL 숫자 표기의 scale 차이를 금액의 수치 비교로 보완했다. 해당 5개 클래스 및 새 계산 경계의 재실행 **81개 전부 통과**다. 실제 Seed 추천 테스트와 POS/승인 Mock fixture 검증을 구분한다. 실패와 무관한 전체 테스트를 다시 반복 실행하지 않았다.
+
+다른 세션의 미추적 `Nori2SeedRecommendationDatabaseTest.java`는 수정·커밋하지 않았고 전체 검사에서 제외했다. 그 파일은 모의 정책 적용 이전의 DATA_INSUFFICIENT 기대를 고정한 진단 파일이다. 아래 전체 명령의 init script는 그 파일 한 개만 제외하며 테스트 결과를 성공으로 바꾸는 처리는 없다.
+
+```powershell
+.\gradlew.bat test --init-script build/recommendation-tracked-tests.init.gradle
+# init script: allprojects { tasks.withType(Test).configureEach { exclude '**/Nori2SeedRecommendationDatabaseTest.class' } }
+.\gradlew.bat test --tests 'com.yamu.be.recommendation.SimulationSeedRecommendationDatabaseTest' --tests 'com.yamu.be.recommendation.BenefitCompositionTest' --tests 'com.yamu.be.payment.approve.PaymentApprovalIntegrationTest' --tests 'com.yamu.be.payment.approve.CheckCardApprovalIntegrationTest' --tests 'com.yamu.be.payment.pos.PosPaymentRequestIntegrationTest'
+```
+
+그 뒤 실제 Seed 테스트에 미승인 버전·종료 원본 경계를 추가해 해당 클래스 **6개 전부 통과**를 확인했다. 초회 결과에서 재실행한 클래스의 결과를 교체해 집계하면 고유 테스트 **1,304개·실패/오류/생략 0**이며 이 중 MySqlTestSupport 기반 실제 MySQL 테스트는 **447개**다. 이는 수정 후 전체 단일 실행 통과 기록이 아니라 전체 초회와 변경된 범위 재실행을 합친 기록이다. Seed 생성 Node 테스트 1개와 `git diff --check`도 통과했다.
+
+개발/운영 DB 적용, 실제 POS→앱의 추천 성공 E2E, 결제 가능 상태 공급, 미래 환산값의 소수 화면 표시, 다중 공유 한도 네트워크는 검증하지 않았다. 기존 안전한 retryable 오류 정보는 유지하며 자동 재조회는 새로 추가하지 않는다.
+
+## Primary Notion 반영 상태·문안
+
+POL-012·POL-013·카드 추천 공통 처리 페이지를 로그인된 사이드 브라우저에서 직접 읽었다. 본문 편집은 clipboard 대상 불일치/입력 시간 초과로 실패했고 POL-012 원문 보존을 다시 확인했다. 페이지 수정 완료로 간주하지 않는다. 다음 문안을 해당 추천 정책 절에 추가할 수 있다. 기존 약관 기준과 추가 비용 0원 정책은 보존한다.
+
+> 2026-11-03 사용자 일괄 승인: YAMU_BASIC_PURCHASE/1은 확인값 우선·승인된 일반 국내 직접 구매 사실만 보완하며 채널·공식 경로·제휴 수단·실적·사용량·결제 가능성은 추정하지 않는다. YAMU_SIM_CARD_POLICY/1은 Seed 17종·56개 혜택의 버전 1 및 한국 시간 2026년 11월에만 적용한다. 누락 반올림은 DOWN·지급 단위 1·거래별이며 확인된 값은 보존한다. 기존 LIMIT_THEN_ROUND와 잔여 한도 지급을 유지한다. 누락 기간은 [2026-11-01, 2026-12-01)과 알려진 경계의 교집합이다. 누락 포인트 환산은 M ME4 3개·ZERO 포인트형·taptap O·트래블로그 각 1개에만 모의 비교용 1P=1원이다. 한 혜택에만 연결된 COUNT는 PER_BENEFIT·0원 미차감이다. 미등록 관계·필수 사실·집계 누락은 계속 미확인으로 남긴다. 원본 Seed NULL은 유지하고 적용 규칙 ID/버전·필드·카드·혜택을 simulationRules와 결과 JSON에 보존한다. 안내는 ‘YAMU에 등록된 혜택과 모의 계산 기준으로 추천했습니다. 포인트의 비교 금액은 실제 환급액과 다를 수 있습니다.’이다. 실제 상품 약관 전체 확인이나 승인·청구·차감 구현 완료를 뜻하지 않는다. 노리2의 사용자 전달 카드사 전화 상담과 현대 M의 공식 기본 전환·승인된 원금 분할 해석은 이 모의 규칙과 구분한다.
