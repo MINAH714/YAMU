@@ -5,8 +5,8 @@ import java.util.Optional;
 import java.util.Set;
 
 /**
- * 연도별 공휴일 목록을 준다. 지금은 내장 파일({@link EmbeddedHolidays})만 있고,
- * 공공데이터 API로 받은 목록(S15P31E103-211)이 생기면 그것을 먼저 보고 없을 때 내장 파일을 보게 한다.
+ * 연도별 공휴일 목록을 준다. 영업일 계산기는 {@link MergedHolidays}를 읽는다. 그 해 공공데이터 API로 받은 목록이 있으면
+ * 그것을, 없으면 내장 파일({@link EmbeddedHolidays})을 쓴다.
  */
 public interface HolidaySource {
 
