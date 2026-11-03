@@ -69,7 +69,7 @@ BE(develop, 2026-11-03)와 맞춰 본 결과는 이렇다.
 |---|---|---|
 | `auth` | 본인인증 · 가입 중 계좌 연결 · PIN · 기기 등록 · 로그인 · 본인 확인 · 재발급 · 로그아웃 | 없음 |
 | `link` | 카드 확인 · 등록 · 로그인 후 계좌 추가 · 계좌 · 카드 목록 · 계좌 별칭 · 기준 계좌 · 카드 상세 · 수정 · 해제 · 순서 | 없음 |
-| `cashflow` | `cashflow-items` 등록 · 조회 · 수정 · 삭제, `forecasts/settings` 수정 | `forecasts/balance`(실패해도 화면은 진행, 하루 생활비 제안만 빠짐). 후보 항목을 만드는 곳이 없어 B-06은 늘 비어 있음 |
+| `cashflow` | `cashflow-items` 등록 · 조회 · 수정 · 삭제, `forecasts/settings` 조회 · 수정 | `forecasts/balance`(실패해도 화면은 진행, 하루 생활비 제안만 빠짐). 후보 항목을 만드는 곳이 없어 B-06은 늘 비어 있음 |
 | `forecast` | 켜지 않음. debug에서는 `cashflow`를 켜면 가계부 메서드만 진짜(`RealCashflowWithFakes`) | `forecasts/balance`, `spending-decisions`, 구매 계획 구분. F-01과 F-02 합계 · 카드대금 · 월급은 가짜라 가계부 줄과 숫자가 맞지 않음 |
 | `payment` | 결제 코드 발급 · 상태 · 승인 | 가맹점 목록, 결제 전 추천, 거절(요청이 마감까지 남음), 결제 상세. 후보에 카드사 · 카테고리가 없어 별칭으로 보임 |
 | `my` | 기기 목록 · 해제(`APP_UNLOCK` 본인 확인), 회원 탈퇴(`WITHDRAW_MEMBER` 본인 확인) | 회원 정보, 결제 · 보안 설정, 알림. release는 회원 정보를 못 읽어 M-01에서 회원 정보 · 탈퇴로 들어갈 수 없음 |

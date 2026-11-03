@@ -51,6 +51,11 @@ import javax.inject.Singleton
     val dailyLivingCostTarget: Long? = null,
 )
 
+/** `GET /forecasts/settings`에서 지금 정한 월급만. 정한 적이 없거나 더는 받을 월급이 없으면 null */
+@Serializable data class ForecastSettingsDto(val income: ForecastIncomeDto? = null)
+
+@Serializable data class ForecastIncomeDto(val cashflowItemId: Long? = null)
+
 /** #10에서 하루 생활비 제안값만 */
 @Serializable data class ForecastLivingCostDto(val livingCost: LivingCostDto? = null)
 
@@ -62,6 +67,9 @@ interface CashflowApi {
 
     @PATCH("cashflow-items/{id}")
     suspend fun patch(@Path("id") id: Long, @Body body: CashflowPatchRequest): Response<ApiEnvelope<CashflowItemDto>>
+
+    @GET("forecasts/settings")
+    suspend fun settings(): Response<ApiEnvelope<ForecastSettingsDto>>
 
     @PATCH("forecasts/settings")
     suspend fun patchSettings(@Body body: JsonObject): Response<ApiEnvelope<kotlinx.serialization.json.JsonElement>>
@@ -94,6 +102,7 @@ data class CashflowDraft(
     val expenses: List<CashflowCandidate>,
     val bills: List<BillLine>,
     val dailyLivingCost: Long?,
+    val currentIncomeId: Long? = null,      // 이미 정해 둔 월급 — 후보가 아니어도 온다
 ) {
     val isEmpty: Boolean get() = income == null && expenses.isEmpty() && bills.isEmpty()
 }
@@ -105,21 +114,24 @@ data class CashflowPlan(
     val decisions: List<CashflowDecision>,
     val incomeId: Long?,
     val dailyLivingCost: Long?,
+    val currentIncomeId: Long? = null,
 )
 
-/** #19 후보 → B-06 줄. 월급 = 매달 오는 수입 중 가장 큰 것, 고정 지출은 날짜순 */
-fun List<CashflowItemDto>.toDraft(dailyLivingCost: Long?): CashflowDraft {
+/** #19 후보 → B-06 줄. 월급 = 이미 정해 둔 항목, 없으면 매달 오는 수입 중 가장 큰 것. 고정 지출은 날짜순 */
+fun List<CashflowItemDto>.toDraft(dailyLivingCost: Long?, currentIncomeId: Long? = null): CashflowDraft {
     fun CashflowItemDto.day() = recurrence?.dayOfMonth ?: occurrenceDate?.takeLast(2)?.toIntOrNull()
     val bills = filter { it.kind.equals("CARD_BILL", ignoreCase = true) }
     val rest = this - bills.toSet()
     // 서버는 매월 반복 수입만 월급으로 받는다(아니면 400)
-    val income = rest.filter { it.type.equals("INCOME", ignoreCase = true) && it.recurrence?.frequency.equals("MONTHLY", ignoreCase = true) }.maxByOrNull { it.amount }
+    val incomes = rest.filter { it.type.equals("INCOME", ignoreCase = true) && it.recurrence?.frequency.equals("MONTHLY", ignoreCase = true) }
+    val income = incomes.firstOrNull { it.cashflowItemId == currentIncomeId } ?: incomes.maxByOrNull { it.amount }
     val expenses = rest.filter { it.type.equals("EXPENSE", ignoreCase = true) }.sortedBy { it.day() ?: 99 }
     return CashflowDraft(
         income = income?.let { CashflowCandidate(it.cashflowItemId, true, it.title, it.amount, it.day()) },
         expenses = expenses.map { CashflowCandidate(it.cashflowItemId, false, it.title, it.amount, it.day()) },
         bills = bills.map { BillLine(it.title, it.amount, it.day()) },
         dailyLivingCost = dailyLivingCost,
+        currentIncomeId = currentIncomeId,
     )
 }
 
@@ -128,7 +140,9 @@ fun CashflowPlan.toPatches(): Pair<List<Pair<Long, CashflowPatchRequest>>, Forec
     val patches = decisions.map { d ->
         d.id to if (d.include) CashflowPatchRequest("CONFIRMED", d.amount) else CashflowPatchRequest("IGNORED")
     }
-    val income = incomeId?.takeIf { id -> decisions.any { it.id == id && it.include } }
+    val picked = incomeId?.takeIf { id -> decisions.any { it.id == id && it.include } }
+    // 고른 월급이 없어도 이미 정한 월급은 그대로 둔다. 사용자가 바로 그 줄을 뺐을 때만 지운다
+    val income = picked ?: currentIncomeId?.takeIf { it != incomeId }
     val settings = ForecastSettingsPatch(
         horizon = if (income != null) "NEXT_INCOME" else "DAYS",
         incomeCashflowItemId = income,
@@ -145,7 +159,7 @@ fun ForecastSettingsPatch.toBody(): JsonObject = buildJsonObject {
 }
 
 interface CashflowRepository {
-    /** B-06 미리 채울 값 — 후보(#19)와 하루 생활비 제안(#10, 실패해도 됨) */
+    /** B-06 미리 채울 값 — 후보(#19) · 지금 월급 · 하루 생활비 제안(#10, 실패해도 됨) */
     suspend fun draft(): ApiResult<CashflowDraft>
 
     /** 확정 — 항목마다 #8, 마지막에 #17. 다시 시도하면 처음부터(같은 값이라 결과가 같음) */
@@ -158,8 +172,13 @@ class CashflowRepositoryImpl @Inject constructor(private val api: CashflowApi) :
     override suspend fun draft(): ApiResult<CashflowDraft> = coroutineScope {
         val items = async { apiCall { api.items(status = "CANDIDATE", expand = false) } }
         val forecast = async { apiCall { api.forecast() } }
+        val settings = async { apiCall { api.settings() } }
         val daily = (forecast.await() as? ApiResult.Success)?.data?.livingCost?.dailyAverage
-        items.await().map { it.items.toDraft(daily) }
+        // 지금 월급을 모른 채 저장하면 정해 둔 월급을 지울 수 있어 실패로 돌려 다시 읽게 한다
+        when (val s = settings.await()) {
+            is ApiResult.Failure -> s
+            is ApiResult.Success -> items.await().map { it.items.toDraft(daily, s.data.income?.cashflowItemId) }
+        }
     }
 
     override suspend fun confirm(plan: CashflowPlan): ApiResult<Unit> {
