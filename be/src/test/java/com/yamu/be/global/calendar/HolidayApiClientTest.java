@@ -182,6 +182,21 @@ class HolidayApiClientTest {
     }
 
     @Test
+    void DOCTYPE이_든_응답은_외부_엔티티를_읽지_않고_실패한다() {
+        HolidayApiClient client = client(KEY);
+        expectMonth(5, """
+                <?xml version="1.0" encoding="UTF-8"?>
+                <!DOCTYPE response [<!ENTITY xxe SYSTEM "file:///etc/hostname">]>
+                <response><header><resultCode>00</resultCode></header>
+                <body><items><item><dateName>&xxe;</dateName><isHoliday>Y</isHoliday><locdate>20260505</locdate></item></items>
+                <totalCount>1</totalCount></body></response>""");
+
+        assertThatThrownBy(() -> client.fetchMonth(2026, 5))
+                .isInstanceOf(HolidayApiException.class)
+                .hasMessageContaining("XML이 아닌 응답");
+    }
+
+    @Test
     void 키가_없으면_부르지_않고_실패한다() {
         HolidayApiClient client = client(" ");
 
