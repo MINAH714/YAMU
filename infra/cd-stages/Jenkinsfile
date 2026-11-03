@@ -1,0 +1,96 @@
+// A single SSH execution holds the host locks. The second lane observes its real events.
+properties([
+    parameters([
+        string(name: 'CI_BUILD', defaultValue: '21', description: 'Completed CI artifact compatible with the isolated fixture schema'),
+        choice(name: 'SCENARIO', choices: ['normal', 'fail-health'], description: 'fail-health intentionally fails and verifies recovery in the isolated environment')
+    ]),
+    disableConcurrentBuilds(),
+    buildDiscarder(logRotator(numToKeepStr: '20'))
+])
+node('yamu-ci') {
+    timeout(time: 18, unit: 'MINUTES') {
+        timestamps {
+            try {
+                stage('검증 준비') {
+                    deleteDir()
+                    checkout scm
+                    sh 'python3 -m unittest discover -s infra/cd-stages -p "test_*.py"'
+                    withEnv(["YAMU_CD_BUILD=${params.CI_BUILD}", "YAMU_CD_SCENARIO=${params.SCENARIO}"]) {
+                        sh 'python3 infra/cd-stages/client.py init'
+                    }
+                    currentBuild.description = "격리 CD · CI #${params.CI_BUILD} · ${params.SCENARIO}"
+                }
+                parallel(
+                    '원격 실행': {
+                        withCredentials([sshUserPrivateKey(credentialsId: 'yamu-cd-verify-trigger', keyFileVariable: 'VERIFY_KEY')]) {
+                            sh 'set +x; python3 infra/cd-stages/client.py run'
+                        }
+                    },
+                    '실제 단계': {
+                        def phases = [
+                            ['validate', '대상·후보 확인'], ['prepare', '이미지 준비'], ['baseline', '기준 상태·유지 표식'],
+                            ['deploy', '컨테이너 교체·Docker 대기'], ['health', 'API·DB·Redis 헬스체크'],
+                            ['persist', '정상 버전 기록'], ['manual_rollback', '수동 롤백 검증'],
+                            ['automatic_rollback', '불건전 후보 거절·자동 복구'], ['persistence', 'DB·Redis 유지 확인'],
+                            ['final_deploy', '최종 후보 재배포'], ['final_health', '최종 상태 확인']
+                        ]
+                        def failed = false
+                        for (def phase : phases) {
+                            if (failed) break
+                            def started = 10
+                            waitUntil(initialRecurrencePeriod: 1000, quiet: true) {
+                                started = sh(returnStatus: true, script: "python3 infra/cd-stages/client.py poll ${phase[0]} started")
+                                return started != 10
+                            }
+                            stage(phase[1]) {
+                                def finished = started
+                                if (started == 0) {
+                                    waitUntil(initialRecurrencePeriod: 1000, quiet: true) {
+                                        finished = sh(returnStatus: true, script: "python3 infra/cd-stages/client.py poll ${phase[0]} finished")
+                                        return finished != 10
+                                    }
+                                }
+                                if (finished != 0) {
+                                    failed = true
+                                    catchError(buildResult: 'FAILURE', stageResult: 'FAILURE', catchInterruptions: false) {
+                                        error('원격 단계 실패 또는 전송 중단. 진행 기록과 복구 결과를 확인하세요.')
+                                    }
+                                }
+                            }
+                        }
+                        if (failed) {
+                            def recovery = 10
+                            waitUntil(initialRecurrencePeriod: 1000, quiet: true) {
+                                recovery = sh(returnStatus: true, script: 'python3 infra/cd-stages/client.py poll recovery started')
+                                return recovery != 10
+                            }
+                            if (recovery == 0) {
+                                stage('실패 후 이전 버전 복구') {
+                                    def restored = 10
+                                    waitUntil(initialRecurrencePeriod: 1000, quiet: true) {
+                                        restored = sh(returnStatus: true, script: 'python3 infra/cd-stages/client.py poll recovery finished')
+                                        return restored != 10
+                                    }
+                                    if (restored != 0) error('이전 버전 복구가 확인되지 않았습니다. 운영자 확인이 필요합니다.')
+                                }
+                            }
+                        } else {
+                            stage('최종 결과 수신') {
+                                def result = 10
+                                waitUntil(initialRecurrencePeriod: 1000, quiet: true) {
+                                    result = sh(returnStatus: true, script: 'python3 infra/cd-stages/client.py poll final finished')
+                                    return result != 10
+                                }
+                                if (result != 0) error('완료된 전체 단계와 최종 성공 보고가 필요합니다.')
+                            }
+                        }
+                    },
+                    failFast: false
+                )
+            } finally {
+                archiveArtifacts artifacts: 'stage-status/*.json,stage-status/*.jsonl', allowEmptyArchive: true, fingerprint: false
+                deleteDir()
+            }
+        }
+    }
+}
