@@ -41,8 +41,8 @@ export type PaymentResult = {
     installmentMonths: number | null
   } | null
   failure: { code: string; message: string } | null
-  /** 명세 Q1 제안. 아직 없을 수 있어 선택값으로 둔다. false면 DECLINED가 마감 전에도 최종이다 */
-  retryable?: boolean
+  /** 명세 Q1(11/3 반영). DECLINED일 때만 값이 있고 다른 상태는 null이다. false면 DECLINED가 마감 전에도 최종이다 */
+  retryable?: boolean | null
 }
 
 // 추천 계산(목표 10초)과 서버의 멱등 잠금(15초)보다 길게 기다린다
