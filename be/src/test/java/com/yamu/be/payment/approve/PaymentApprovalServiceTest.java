@@ -29,6 +29,11 @@ import com.yamu.be.payment.approve.ApprovalAttemptStore.Attempt;
 import com.yamu.be.payment.approve.ApprovalAttemptStore.Reservation;
 import com.yamu.be.payment.approve.ApprovalIdempotencyStore.Previous;
 import com.yamu.be.payment.barcode.BarcodeStore;
+import com.yamu.be.payment.billing.BillItem;
+import com.yamu.be.payment.billing.BillingCycle;
+import com.yamu.be.payment.billing.CardBill;
+import com.yamu.be.payment.billing.CreditBillingWriter;
+import com.yamu.be.payment.billing.InstallmentPlan;
 import com.yamu.be.payment.domain.FacilityType;
 import com.yamu.be.payment.domain.PaymentChannel;
 import com.yamu.be.payment.domain.PaymentStatus;
@@ -44,13 +49,16 @@ import com.yamu.be.payment.recommend.RecommendationResult.CardSummary;
 import com.yamu.be.payment.recommend.RecommendationResult.RuleVersion;
 import com.yamu.be.payment.recommend.RecommendationResult.SelectionReason;
 import com.yamu.be.payment.recommend.RecommendationSnapshotStore;
+import com.yamu.be.support.WeekdayCalendar;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.YearMonth;
 import java.time.ZoneOffset;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import org.junit.jupiter.api.BeforeEach;
@@ -95,6 +103,7 @@ class PaymentApprovalServiceTest {
     @Mock CardRecommender recommender;
     @Mock PaymentApprover approver;
     @Mock ApprovalLedger ledger;
+    @Mock CreditBillingWriter billing;
     @Mock ApprovalIdempotencyStore idempotency;
     @Mock ApprovalAttemptStore attempts;
     @Mock PaymentExpiry expiry;
@@ -119,7 +128,7 @@ class PaymentApprovalServiceTest {
     @BeforeEach
     void setUp() {
         service = new PaymentApprovalService(payments, cardQuery, cards, snapshots, recommender, approver, ledger,
-                idempotency, attempts, expiry, recovery, barcodes, locks, transaction, new ObjectMapper(),
+                billing, idempotency, attempts, expiry, recovery, barcodes, locks, transaction, new ObjectMapper(),
                 posProperties, properties, clock);
         payment = requested(15_000, 1);
         recommendation = recommendation(List.of(candidate(1, CREDIT), candidate(2, CHECK)));
@@ -145,7 +154,7 @@ class PaymentApprovalServiceTest {
         when(recovery.recover(PAYMENT_ID)).thenReturn(PaymentStatus.PROCESSING);
         when(snapshots.find(PAYMENT_ID)).thenAnswer(inv -> Optional.of(recommendation));
         when(cards.findActiveCards(7L)).thenReturn(List.of(CREDIT, CHECK, SUSPENDED));
-        when(approver.approve(any())).thenAnswer(inv -> new TemporaryCreditCardApprover().approve(inv.getArgument(0)));
+        when(approver.approve(any())).thenAnswer(inv -> approvedLike(inv.getArgument(0)));
     }
 
     // ───────── 승인 ─────────
@@ -205,6 +214,99 @@ class PaymentApprovalServiceTest {
 
         assertThat(response.selectedCard().userCardId()).isEqualTo(15L);
         verify(snapshots).save(eq(PAYMENT_ID), eq(recommendation), eq(Duration.ofMinutes(10)));
+    }
+
+    // ───────── 사전 검사·청구 회차 ─────────
+
+    @Test
+    void 사전_검사가_거절하면_선점과_시도_없이_그대로_던진다() {
+        doThrow(new BusinessException(ErrorCode.DATA_INSUFFICIENT)).when(approver).precheck(eq(7L), any(), any());
+
+        assertThatThrownBy(() -> service.approve(ME, PAYMENT_ID, request(null), KEY))
+                .extracting(e -> ((BusinessException) e).getErrorCode()).isEqualTo(ErrorCode.DATA_INSUFFICIENT);
+
+        assertThat(payment.getStatus()).isEqualTo(PaymentStatus.REQUESTED);
+        verify(attempts, never()).reserve(anyLong(), any());
+        verify(approver, never()).approve(any());
+        verify(locks, never()).tryLock(startsWith(WithdrawalRecovery.SETTLE_LOCK_PREFIX), any());
+        verify(idempotency, never()).remember(anyLong(), anyString(), any());
+    }
+
+    @Test
+    void 청구_계획이_있는_승인은_청구서를_먼저_확보하고_tx2에서_회차를_적어_응답한다() {
+        InstallmentPlan plan = InstallmentPlan.of(15_000, 1, new BillingCycle(15, 14), LocalDate.of(2026, 10, 22),
+                new WeekdayCalendar());
+        doReturn(new ApprovalOutcome.Approved(15_000, 15_000, 0, LocalDate.of(2026, 10, 1), List.of(), null, null,
+                plan)).when(approver).approve(any());
+        CardBill bill = CardBill.accumulating(7L, 15L, plan.installments().get(0).cycle(), LocalDate.of(2026, 11, 16));
+        ReflectionTestUtils.setField(bill, "id", 501L);
+        Map<YearMonth, CardBill> bills = Map.of(YearMonth.of(2026, 11), bill);
+        when(billing.ensureBills(7L, 15L, plan)).thenReturn(bills);
+        BillItem item = BillItem.pending(PAYMENT_ID, 7L, 15L, 501L, 1, LocalDate.of(2026, 11, 1), 15_000);
+        ReflectionTestUtils.setField(item, "id", 9001L);
+        when(billing.writeItems(payment, plan, bills)).thenReturn(List.of(item));
+
+        PaymentApprovalResponse response = service.approve(ME, PAYMENT_ID, request(null), KEY);
+
+        assertThat(response.status()).isEqualTo(PaymentStatus.APPROVED);
+        assertThat(response.billItems()).hasSize(1);
+        PaymentApprovalResponse.BillItem shown = response.billItems().get(0);
+        assertThat(shown.billItemId()).isEqualTo(9001L);
+        assertThat(shown.seq()).isEqualTo(1);
+        assertThat(shown.amount()).isEqualTo(15_000);
+        assertThat(shown.billingMonth()).isEqualTo("2026-11");
+        assertThat(shown.expectedWithdrawalDate()).isEqualTo(LocalDate.of(2026, 11, 16));
+        assertThat(shown.status()).isEqualTo("PENDING");
+        InOrder order = inOrder(billing, ledger);
+        order.verify(billing).ensureBills(7L, 15L, plan);
+        order.verify(ledger).recordApproval(eq(payment), any());
+        order.verify(billing).writeItems(payment, plan, bills);
+    }
+
+    @Test
+    void 청구_계획이_없는_승인은_청구서와_회차를_만들지_않는다() {
+        PaymentApprovalResponse response = service.approve(ME, PAYMENT_ID, request(16L), KEY);
+
+        assertThat(response.status()).isEqualTo(PaymentStatus.APPROVED);
+        assertThat(response.billItems()).isEmpty();
+        verify(billing, never()).ensureBills(anyLong(), anyLong(), any());
+        verify(billing, never()).writeItems(any(), any(), any());
+    }
+
+    @Test
+    void 청구서_확보가_실패하면_승인_전으로_바로_되돌리고_시도를_지우며_500이다() {
+        InstallmentPlan plan = InstallmentPlan.of(15_000, 1, new BillingCycle(15, 14), LocalDate.of(2026, 10, 22),
+                new WeekdayCalendar());
+        doReturn(new ApprovalOutcome.Approved(15_000, 15_000, 0, LocalDate.of(2026, 10, 1), List.of(), null, null,
+                plan)).when(approver).approve(any());
+        when(billing.ensureBills(7L, 15L, plan)).thenThrow(new IllegalStateException("청구서가 이용기간 진행 중이 아닙니다"));
+
+        assertThatThrownBy(() -> service.approve(ME, PAYMENT_ID, request(null), KEY))
+                .extracting(e -> ((BusinessException) e).getErrorCode()).isEqualTo(ErrorCode.INTERNAL_ERROR);
+
+        assertThat(payment.getStatus()).isEqualTo(PaymentStatus.REQUESTED);
+        verify(attempts).release(eq(PAYMENT_ID), any());
+        verify(attempts, never()).recordResult(anyLong(), any(), any());
+        verify(ledger, never()).recordApproval(any(), any());
+        verify(billing, never()).writeItems(any(), any(), any());
+        verify(idempotency, never()).remember(anyLong(), anyString(), any());
+        verify(barcodes, never()).markUsed(anyLong());
+    }
+
+    @Test
+    void 청구서가_마감돼_확보하지_못하면_되돌린_뒤_그_업무_오류로_답한다() {
+        InstallmentPlan plan = InstallmentPlan.of(15_000, 1, new BillingCycle(15, 14), LocalDate.of(2026, 10, 22),
+                new WeekdayCalendar());
+        doReturn(new ApprovalOutcome.Approved(15_000, 15_000, 0, LocalDate.of(2026, 10, 1), List.of(), null, null,
+                plan)).when(approver).approve(any());
+        BusinessException closed = new BusinessException(ErrorCode.DATA_INSUFFICIENT, Map.of("reason", "BILL_CLOSED"));
+        when(billing.ensureBills(7L, 15L, plan)).thenThrow(closed);
+
+        assertThatThrownBy(() -> service.approve(ME, PAYMENT_ID, request(null), KEY)).isSameAs(closed);
+
+        assertThat(payment.getStatus()).isEqualTo(PaymentStatus.REQUESTED);
+        verify(attempts).release(eq(PAYMENT_ID), any());
+        verify(attempts, never()).recordResult(anyLong(), any(), any());
     }
 
     // ───────── 카드 검증 ─────────
@@ -379,7 +481,8 @@ class PaymentApprovalServiceTest {
 
     @Test
     void 원장_반영이_실패해도_거래_번호와_출금액을_저장_전에_시도_기록에_남긴다() {
-        doReturn(new ApprovalOutcome.Approved(15_000, 14_000, 0, LocalDate.of(2026, 10, 1), List.of(), null, "FIN-0001"))
+        doReturn(new ApprovalOutcome.Approved(15_000, 14_000, 0, LocalDate.of(2026, 10, 1), List.of(), null, "FIN-0001",
+                null))
                 .when(approver).approve(any());
         doThrow(new IllegalStateException("ledger")).when(ledger).recordApproval(any(), any());
 
@@ -461,6 +564,19 @@ class PaymentApprovalServiceTest {
         verify(attempts).release(eq(PAYMENT_ID), any());
         verify(idempotency, never()).remember(anyLong(), anyString(), any());
         verify(barcodes, never()).markUsed(anyLong());
+    }
+
+    @Test
+    void 보내지_않은_실행이_돌려줄_오류를_실었으면_되돌린_뒤_그_오류로_답한다() {
+        BusinessException notFound = new BusinessException(ErrorCode.RESOURCE_NOT_FOUND);
+        doThrow(new ApprovalNotSentException("신용 승인 실행 실패", notFound, notFound)).when(approver).approve(any());
+
+        assertThatThrownBy(() -> service.approve(ME, PAYMENT_ID, request(16L), KEY)).isSameAs(notFound);
+
+        assertThat(payment.getStatus()).isEqualTo(PaymentStatus.REQUESTED);
+        verify(attempts).release(eq(PAYMENT_ID), any());
+        verify(attempts, never()).recordResult(anyLong(), any(), any());
+        verify(idempotency, never()).remember(anyLong(), anyString(), any());
     }
 
     @Test
@@ -586,7 +702,7 @@ class PaymentApprovalServiceTest {
             payment.assignFinRequestNo(TX_NO);
             payment.decline("WITHDRAWAL_NOT_CONFIRMED");
             return new ApprovalOutcome.Approved(15_000, 15_000, 0, LocalDate.of(2026, 10, 1), List.of(), TX_NO,
-                    "1101");
+                    "1101", null);
         }).when(approver).approve(any());
 
         PaymentApprovalResponse response = service.approve(ME, PAYMENT_ID, request(16L), KEY);
@@ -611,7 +727,7 @@ class PaymentApprovalServiceTest {
     @Test
     void 승인_결과의_출금_요청_번호가_행과_다르면_저장하지_않는다() {
         doReturn(new ApprovalOutcome.Approved(15_000, 15_000, 0, LocalDate.of(2026, 10, 1), List.of(),
-                "20261022143005000009", "1101")).when(approver).approve(any());
+                "20261022143005000009", "1101", null)).when(approver).approve(any());
 
         assertThatThrownBy(() -> service.approve(ME, PAYMENT_ID, request(16L), KEY))
                 .isInstanceOf(IllegalStateException.class);
@@ -704,6 +820,13 @@ class PaymentApprovalServiceTest {
     }
 
     // ───────── 도우미 ─────────
+
+    /** 체크카드·혜택 0원 승인과 같은 모양: 승인액 = 원금, 실적 0, 청구 계획 없음. */
+    static ApprovalOutcome.Approved approvedLike(ApprovalCommand command) {
+        long amount = command.terms().amount();
+        return new ApprovalOutcome.Approved(amount, amount, 0, ApprovalDates.performanceMonth(command.now()),
+                List.of(), null, null, null);
+    }
 
     /** 결과 불명으로 끝난 이 키의 시도(출금 요청 번호 TX_NO). */
     private static Attempt unknownAttempt(ActiveCard card, Integer rank, boolean userSelected) {

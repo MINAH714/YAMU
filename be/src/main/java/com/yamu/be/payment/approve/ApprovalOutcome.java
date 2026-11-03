@@ -1,5 +1,6 @@
 package com.yamu.be.payment.approve;
 
+import com.yamu.be.payment.billing.InstallmentPlan;
 import com.yamu.be.payment.recommend.RecommendationResult.BenefitLine;
 import java.time.LocalDate;
 import java.util.List;
@@ -22,13 +23,19 @@ public sealed interface ApprovalOutcome permits ApprovalOutcome.Approved, Approv
      * @param finRequestNo                체크카드 출금에 쓴 기관거래고유번호. 결과를 저장할 때 행의 번호와 같아야 한다(늦게 온 옛 시도의 결과 차단).
      *                                    신용카드·0원 승인은 null
      * @param finTransactionNo            체크카드 출금의 금융망 거래 번호. 신용카드·0원 승인은 null
+     * @param installments                신용카드의 청구 계획(회차별 원금·청구 월·출금 예정일). 결과 저장이 회차로 적는다. 체크카드는 null
      */
     record Approved(long approvedAmount, long chargedAmount, long recognizedPerformanceAmount,
-            LocalDate performanceMonth, List<BenefitLine> benefits, String finRequestNo, String finTransactionNo)
+            LocalDate performanceMonth, List<BenefitLine> benefits, String finRequestNo, String finTransactionNo,
+            InstallmentPlan installments)
             implements ApprovalOutcome {
         public Approved {
             Objects.requireNonNull(performanceMonth, "performanceMonth");
             benefits = benefits == null ? List.of() : List.copyOf(benefits);
+        }
+
+        public boolean hasInstallments() {
+            return installments != null;
         }
     }
 

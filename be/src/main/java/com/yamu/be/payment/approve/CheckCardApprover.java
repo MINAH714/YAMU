@@ -55,7 +55,7 @@ public class CheckCardApprover {
     public ApprovalOutcome approve(ApprovalCommand command) {
         Long paymentId = command.paymentId();
         long charged = chargedAmount(command);
-        LocalDate performanceMonth = TemporaryCreditCardApprover.performanceMonth(command);
+        LocalDate performanceMonth = ApprovalDates.performanceMonth(command.now());
         if (charged <= 0) {
             log.info("체크카드 0원 승인, 출금 생략 paymentId={}", paymentId);
             return approved(command, 0, performanceMonth, null, null);
@@ -131,7 +131,7 @@ public class CheckCardApprover {
             String finRequestNo, String bankTransactionNo) {
         // 임시: 혜택·실적 계산 전이라 승인액은 요청액, 실적 인정액은 0 (BE3·Task 5.2.5)
         return new ApprovalOutcome.Approved(command.terms().amount(), charged, 0, performanceMonth, List.of(),
-                finRequestNo, bankTransactionNo);
+                finRequestNo, bankTransactionNo, null);
     }
 
     private static ApprovalOutcome declined(Long paymentId, TransferResult result) {
