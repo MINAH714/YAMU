@@ -84,6 +84,14 @@ python3 -m unittest discover -s infra/android -p 'test_*.py' -v
 이 검사는 실제 AWS 자격이나 Docker 엔진 없이 설정 격리·업로드 계약·조건부 재시도를 확인한다.
 실제 SDK·APK·S3 검증 결과는 해당 Jenkins 빌드의 JUnit·build-manifest.json·publication.json으로 구분해 확인한다.
 
+## 2026-11-03 최초 Jenkins 검증
+
+`yamu/mobile/apk-mock-verification #1`이 소스 `5e315db9ff471f0a225213e771fd63674e886401`에서 SUCCESS로 완료됐다.
+자동화 도구 검사 11개, 고객 앱 테스트 115개에서 실패·오류·생략은 없었다.
+실제 Jenkins 보관 APK와 S3의 APK·체크섬·매니페스트 3개를 SHA-256·크기로 독립 대조했다.
+서명 URL의 APK 다운로드와 익명 접근 403도 확인했다. 실행기 대기 시간과 실제 빌드 시간은 구분한다.
+물리 휴대폰 실행은 미확인이며, develop Job은 사람의 MR 머지 후 활성화하는 상태로 유지한다.
+
 공식 근거: [Android 명령행 빌드](https://developer.android.com/build/building-cmdline),
 [SDK 도구·체크섬](https://developer.android.com/studio#command-line-tools-only),
 [Jenkins Credentials Binding](https://www.jenkins.io/doc/pipeline/steps/credentials-binding/),
