@@ -28,7 +28,10 @@ enum class ApiFeature(val key: String, val label: String) {
 
         fun parse(value: String): Set<ApiFeature> {
             val names = value.split(',').map { it.trim() }.toSet()
-            return entries.filterTo(mutableSetOf()) { it.key in names }
+            val on = entries.filterTo(mutableSetOf()) { it.key in names }
+            // 가계부의 계좌 · 카드 번호는 연결 목록에서 온다. 목록이 가짜면 가짜 번호가 진짜 POST · PATCH에 실려 같은 번호의 진짜 계좌에 붙는다
+            if (CASHFLOW in on || FORECAST in on) on += LINK
+            return on
         }
     }
 }
