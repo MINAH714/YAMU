@@ -133,6 +133,7 @@ class CashflowConfirmViewModel @Inject constructor(private val cashflow: Cashflo
             },
             incomeId = draft.income?.id,
             dailyLivingCost = s.dailyCost,
+            currentIncomeId = draft.currentIncomeId,
         )
         viewModelScope.launch {
             _state.update { it.copy(saving = true, saveError = null) }

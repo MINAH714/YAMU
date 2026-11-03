@@ -10,6 +10,7 @@ import androidx.navigation.toRoute
 import com.yamu.app.BuildConfig
 import com.yamu.app.core.designsystem.component.gallery.ComponentGallery
 import androidx.compose.runtime.rememberCoroutineScope
+import com.yamu.app.core.format.objectParticle
 import com.yamu.app.core.ui.LocalSnackbar
 import com.yamu.app.core.ui.findActivity
 import androidx.activity.compose.BackHandler
@@ -37,28 +38,27 @@ import com.yamu.app.feature.payment.RecommendRoute
 import com.yamu.app.feature.forecast.BuyCheckInputRoute
 import com.yamu.app.feature.forecast.BuyCheckResultRoute
 import com.yamu.app.feature.forecast.BuyCheckSavedRoute
+import com.yamu.app.feature.forecast.CashflowCreateRoute
 import com.yamu.app.feature.forecast.CashflowListRoute
 import com.yamu.app.feature.forecast.ForecastRoute
 import com.yamu.app.feature.performance.BenefitLimitsRoute
 import com.yamu.app.feature.performance.CardPerformanceRoute
 import com.yamu.app.feature.performance.PerfAnalysisRoute
 import com.yamu.app.feature.performance.PerfOverviewRoute
-import com.yamu.app.feature.link.AddCardDoneRoute
-import com.yamu.app.feature.link.AddCardFoundRoute
-import com.yamu.app.feature.link.AddCardInstitutionRoute
+import com.yamu.app.feature.link.CardRegisterRoute
 import com.yamu.app.feature.link.CashflowConfirmRoute
 import com.yamu.app.feature.link.FirstAnalysisRoute
-import com.yamu.app.feature.link.InstitutionSelectRoute
-import com.yamu.app.feature.link.LinkConsentRoute
-import com.yamu.app.feature.link.LinkDoneRoute
-import com.yamu.app.feature.link.LinkSelectRoute
+import com.yamu.app.feature.my.AccountManageRoute
+import com.yamu.app.feature.my.CardDetailRoute
 import com.yamu.app.feature.my.CardManageRoute
+import com.yamu.app.feature.my.CardOrderRoute
 import com.yamu.app.feature.my.MyCardsRoute
 import com.yamu.app.feature.my.MyRoute
 import com.yamu.app.feature.my.NotificationSettingsRoute
 import com.yamu.app.feature.my.NotificationsRoute
 import com.yamu.app.feature.my.ProfileRoute
 import com.yamu.app.feature.my.SecurityRoute
+import com.yamu.app.feature.my.WithdrawRoute
 import com.yamu.app.feature.my.data.NotiTarget
 import com.yamu.app.feature.report.BenefitReportRoute
 import com.yamu.app.feature.report.PaymentsRoute
@@ -173,27 +173,17 @@ fun YamuNavHost(navController: NavHostController, modifier: Modifier = Modifier)
         }
 
         // ── 계좌 · 카드 연결 (5단계: 실제 화면 — 09 문서) ──
-        navigation<LinkGraph>(startDestination = InstitutionSelect) {
-            composable<InstitutionSelect> {
-                InstitutionSelectRoute(
-                    onBack = if (navController.previousBackStackEntry != null) back else ({ navController.skipLinkToMain() }),
-                    onStarted = { id -> navController.navigate(LinkConsent(id)) },
-                )
-            }
-            composable<LinkConsent> {
-                LinkConsentRoute(
-                    onBack = back,
-                    onVerified = { id -> navController.toLinkSelect(id) },
+        navigation<LinkGraph>(startDestination = CardRegister) {
+            composable<CardRegister> {
+                // 가입 · 로그인에서 바로 왔으면 스택에 이 화면뿐 — 뒤로 = 메인. 홈 · 잔고예보에서 왔으면 그 화면으로
+                val hasPrevious = navController.previousBackStackEntry != null
+                CardRegisterRoute(
+                    onboarding = true,
+                    onLeave = if (hasPrevious) back else ({ navController.finishOnboarding() }),
+                    onFinished = { navController.navigate(CashflowConfirm) },
+                    onCloseDone = { navController.finishOnboarding() },
                     onOpenPinPad = openPinPad,
-                )
-            }
-            composable<LinkSelect> {
-                LinkSelectRoute(onBack = back, onCompleted = { navController.toLinkDone() }, onReselect = back)
-            }
-            composable<LinkDone> {
-                LinkDoneRoute(
-                    onNext = { navController.navigate(CashflowConfirm) },
-                    onExitToHome = { navController.finishOnboarding() },
+                    onSkip = { navController.finishOnboarding() },
                 )
             }
             composable<CashflowConfirm> {
@@ -239,7 +229,7 @@ fun YamuNavHost(navController: NavHostController, modifier: Modifier = Modifier)
                 composable<MyCards> {
                     MyCardsRoute(
                         onBack = back,
-                        onAddCard = { navController.navigate(AddCardInstitution) },
+                        onAddCard = { navController.navigate(AddCard) },
                         onAnalysis = { id -> navController.navigate(PerfAnalysis(id)) },
                         onCardDetail = { id -> navController.navigate(CardPerformance(id)) },
                     )
@@ -255,7 +245,16 @@ fun YamuNavHost(navController: NavHostController, modifier: Modifier = Modifier)
                         onAlertSettings = { navController.navigate(NotificationSettings) },
                     )
                 }
-                composable<CashflowList> { CashflowListRoute(onBack = back, onLink = { navController.navigate(LinkGraph) }) }
+                composable<CashflowList> {
+                    CashflowListRoute(
+                        onBack = back,
+                        onLink = { navController.navigate(LinkGraph) },
+                        onAdd = { navController.navigate(CashflowCreate) },
+                        onEdit = { id, occurrence -> navController.navigate(CashflowEdit(id, occurrence.toString())) },
+                    )
+                }
+                composable<CashflowCreate> { CashflowCreateRoute(onBack = back, onDone = back) }
+                composable<CashflowEdit> { CashflowCreateRoute(onBack = back, onDone = back) }   // 같은 화면 · 수정 모드(경로 값으로 구분)
                 composable<BuyCheckInput> {
                     BuyCheckInputRoute(
                         onBack = back,
@@ -283,7 +282,7 @@ fun YamuNavHost(navController: NavHostController, modifier: Modifier = Modifier)
             navigation<PayGraph>(startDestination = Recommend) {
                 composable<Recommend> {
                     // 6단계: 실제 화면(10 문서)
-                    RecommendRoute(onOpenPayCode = { navController.navigate(PayCode) }, onAddCard = { navController.navigate(AddCardInstitution) }, onNotifications = { navController.navigate(Notifications) })
+                    RecommendRoute(onOpenPayCode = { navController.navigate(PayCode) }, onAddCard = { navController.navigate(AddCard) }, onNotifications = { navController.navigate(Notifications) })
                 }
             }
 
@@ -293,7 +292,7 @@ fun YamuNavHost(navController: NavHostController, modifier: Modifier = Modifier)
                     PerfOverviewRoute(
                         onAnalysis = { id -> navController.navigate(PerfAnalysis(id)) },
                         onCardDetail = { id -> navController.navigate(CardPerformance(id)) },
-                        onAddCard = { navController.navigate(AddCardInstitution) },
+                        onAddCard = { navController.navigate(AddCard) },
                     )
                 }
                 composable<CardPerformance> {
@@ -333,6 +332,7 @@ fun YamuNavHost(navController: NavHostController, modifier: Modifier = Modifier)
                         onNotifications = { navController.navigate(Notifications) },
                         onProfile = { navController.navigate(Profile) },
                         onCardManage = { navController.navigate(CardManage) },
+                        onAccountManage = { navController.navigate(AccountManage) },
                         onNotificationSettings = { navController.navigate(NotificationSettings) },
                         onSecurity = { navController.navigate(Security) },
                         onNotReady = showMessage,
@@ -344,23 +344,54 @@ fun YamuNavHost(navController: NavHostController, modifier: Modifier = Modifier)
                     )
                 }
                 composable<CardManage> {
-                    CardManageRoute(onBack = back, onAddCard = { navController.navigate(AddCardInstitution) })
-                }
-                composable<AddCardInstitution> {
-                    AddCardInstitutionRoute(onBack = back, onStarted = { id -> navController.navigate(AddCardFound(id)) })
-                }
-                composable<AddCardFound> {
-                    AddCardFoundRoute(
+                    CardManageRoute(
                         onBack = back,
-                        onAdded = { userCardId -> navController.toAddCardDone(userCardId) },
+                        onAddCard = { navController.navigate(AddCard) },
+                        onCardDetail = { id -> navController.navigate(CardDetail(id)) },
+                        onCardOrder = { navController.navigate(CardOrder) },
+                    )
+                }
+                composable<CardDetail> {
+                    CardDetailRoute(
+                        onBack = back,
+                        onUnregistered = { name ->
+                            back()
+                            showMessage("${name}${name.objectParticle()} 해제했어요")
+                        },
                         onOpenPinPad = openPinPad,
                     )
                 }
-                composable<AddCardDone> {
-                    AddCardDoneRoute(onDone = back)
+                composable<CardOrder> {
+                    CardOrderRoute(
+                        onBack = back,
+                        onSaved = {
+                            back()
+                            showMessage("카드 순서를 저장했어요")
+                        },
+                    )
                 }
+                composable<AddCard> {
+                    CardRegisterRoute(
+                        onboarding = false,
+                        onLeave = back,
+                        onFinished = back,
+                        onCloseDone = back,
+                        onOpenPinPad = openPinPad,
+                    )
+                }
+                composable<AccountManage> { AccountManageRoute(onBack = back) }
                 composable<NotificationSettings> { NotificationSettingsRoute(onBack = back) }
-                composable<Profile> { ProfileRoute(onBack = back) }
+                composable<Profile> { ProfileRoute(onBack = back, onOpenPinPad = openPinPad, onWithdraw = { navController.navigate(Withdraw) }) }
+                composable<Withdraw> {
+                    WithdrawRoute(
+                        onBack = back,
+                        onOpenPinPad = openPinPad,
+                        onWithdrawn = {
+                            navController.restartFromSplash()   // 스택을 비워 뒤로 가도 앱 안 화면으로 돌아가지 않게
+                            showMessage("탈퇴했어요")
+                        },
+                    )
+                }
                 composable<Security> { SecurityRoute(onBack = back, onOpenPinPad = openPinPad) }
             }
 
@@ -374,7 +405,7 @@ fun YamuNavHost(navController: NavHostController, modifier: Modifier = Modifier)
                     },
                     onPaid = { paymentId -> navController.toPayDone(paymentId) },
                     onOpenPinPad = openPinPad,
-                    onAddCard = { navController.navigate(AddCardInstitution) { popUpTo<PayCode> { inclusive = true } } },
+                    onAddCard = { navController.navigate(AddCard) { popUpTo<PayCode> { inclusive = true } } },
                 )
             }
             composable<PayDone> {

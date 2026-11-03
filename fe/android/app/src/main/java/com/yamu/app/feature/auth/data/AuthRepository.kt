@@ -74,6 +74,9 @@ interface AuthRepository {
 
     /** 초기 설정(계좌 · 카드 연결 · 첫 분석)이 끝났을 때 */
     suspend fun completeOnboarding()
+
+    /** 회원 탈퇴가 끝났을 때 — 이 폰을 처음 상태로. 실패했을 때 부르면 계정은 남았는데 기기만 비게 된다 */
+    suspend fun forgetAfterWithdrawal()
 }
 
 /** 서버에서 이 기기가 없어졌다(해제 · 사용자 상태 변경) — 첫 화면에서 다시 시작 */
@@ -194,6 +197,8 @@ class AuthRepositoryImpl @Inject constructor(
     }
 
     override suspend fun completeOnboarding() = sessionStore.setOnboardingCompleted(true)
+
+    override suspend fun forgetAfterWithdrawal() = forgetDevice()
 
     /** 이 폰을 처음 상태로 — 토큰 · 세션 · 기기 키 */
     private suspend fun forgetDevice() {

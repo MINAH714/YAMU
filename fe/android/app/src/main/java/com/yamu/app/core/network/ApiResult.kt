@@ -1,6 +1,7 @@
 package com.yamu.app.core.network
 
 import kotlinx.serialization.SerializationException
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.contentOrNull
@@ -45,11 +46,26 @@ sealed interface ApiError {
     }
     data class Unknown(override val code: String, val httpStatus: Int? = null, override val details: JsonObject? = null) : ApiError
 
+    /**
+     * 보낸 요청이 반영됐는지 모른다 — 응답이 끊겼거나, 서버 코드 없는 502 · 504(프록시가 대신 답함)이거나, 성공 응답을 읽지 못했다.
+     * 서버 코드가 있는 오류는 서버가 거절한 것이라 실패다
+     */
+    val isOutcomeUnknown: Boolean
+        get() = this == Network || (this is BankUnavailable && code.isEmpty()) || (this is Unknown && (code == "PARSE_ERROR" || code == "EMPTY_DATA"))
+
     /** details 안의 숫자(예: remainingAttempts) */
     fun detailInt(key: String): Int? = details?.get(key)?.jsonPrimitive?.intOrNull
 
     /** details 안의 글자(예: unlockAt) */
     fun detailString(key: String): String? = details?.get(key)?.jsonPrimitive?.contentOrNull
+
+    /** 입력 검사 실패의 칸별 사유 — details.fieldErrors [{field, reason}] → 칸 이름 · 사유(API 명세서 1장) */
+    fun fieldErrors(): Map<String, String> =
+        (details?.get("fieldErrors") as? JsonArray).orEmpty().mapNotNull { e ->
+            val o = e as? JsonObject ?: return@mapNotNull null
+            val field = o["field"]?.jsonPrimitive?.contentOrNull ?: return@mapNotNull null
+            field to o["reason"]?.jsonPrimitive?.contentOrNull.orEmpty()
+        }.toMap()
 
     companion object {
         fun from(httpStatus: Int, code: String?, details: JsonObject? = null): ApiError {

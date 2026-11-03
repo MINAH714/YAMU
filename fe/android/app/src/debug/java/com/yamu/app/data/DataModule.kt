@@ -62,7 +62,7 @@ object DataModule {
 
     @Provides
     @Singleton
-    fun paymentRepository(real: Provider<PaymentRepositoryImpl>, fake: Provider<FakePaymentRepository>): PaymentRepository =
+    fun paymentRepository(real: Provider<RealPaymentWithFakes>, fake: Provider<FakePaymentRepository>): PaymentRepository =
         if (ApiFeature.PAYMENT.isReal) real.get() else fake.get()
 
     @Provides
@@ -72,8 +72,15 @@ object DataModule {
 
     @Provides
     @Singleton
-    fun forecastRepository(real: Provider<ForecastRepositoryImpl>, fake: Provider<FakeForecastRepository>): ForecastRepository =
-        if (ApiFeature.FORECAST.isReal) real.get() else fake.get()
+    fun forecastRepository(
+        real: Provider<ForecastRepositoryImpl>,
+        cashflowOnly: Provider<RealCashflowWithFakes>,
+        fake: Provider<FakeForecastRepository>,
+    ): ForecastRepository = when {
+        ApiFeature.FORECAST.isReal -> real.get()
+        ApiFeature.CASHFLOW.isReal -> cashflowOnly.get()
+        else -> fake.get()
+    }
 
     @Provides
     @Singleton
@@ -82,6 +89,6 @@ object DataModule {
 
     @Provides
     @Singleton
-    fun myRepository(real: Provider<MyRepositoryImpl>, fake: Provider<FakeMyRepository>): MyRepository =
+    fun myRepository(real: Provider<RealMyWithFakes>, fake: Provider<FakeMyRepository>): MyRepository =
         if (ApiFeature.MY.isReal) real.get() else fake.get()
 }

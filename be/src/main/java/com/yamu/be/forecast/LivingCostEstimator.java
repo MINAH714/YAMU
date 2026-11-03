@@ -7,6 +7,7 @@ import java.time.YearMonth;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
+import java.util.EnumMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -18,6 +19,7 @@ import java.util.TreeMap;
  * 계좌별 최근 완료 3개월의 생활 소비로 하루·한 달 평균 생활비를 추정한다(명세 AVG_3M). DB·외부 호출 없이 계산한다.
  *
  * <ul>
+ *   <li>원천의 일별 줄을 월별로 더한다. 그달(이번 달은 오늘까지) 모든 날의 줄이 있고 모두 complete인 달만 complete다.</li>
  *   <li>이번 달은 빼고 지난 3개월 중 거래를 빠짐없이 확인한(complete) 달만 쓴다. 0원으로 확인된 달도 평균에 넣는다.</li>
  *   <li>한 계좌 안에서 실제 거래(REAL)와 모의 소비(SEED)를 섞지 않는다(Task 7.1.1 정책). REAL 달이 하나라도 있으면
  *       REAL 달만, 없을 때만 SEED 달을 쓴다.</li>
@@ -37,43 +39,77 @@ final class LivingCostEstimator {
      * 선택 계좌마다 생활비를 추정하고 통합 값을 더한다.
      *
      * @param accountIds 선택 계좌(결과 순서)
-     * @param months     월별 생활 소비 합계. 선택하지 않은 계좌의 행은 무시한다
+     * @param days       일별 생활 소비 합계. 선택하지 않은 계좌의 줄은 무시하고, 완료 3개월보다 앞선 날의 줄은
+     *                   계약 위반(음수·중복 등)만 검사한 뒤 계산에 쓰지 않는다. 체크카드 몫은 검사만 하고 AVG_3M에는 쓰지 않는다
      * @param today      한국 날짜 오늘. 완료 3개월과 이번 달을 정한다
      * @return 계좌별·통합 추정
      */
-    static Estimate estimate(List<Long> accountIds, List<LivingCostReader.MonthlySpending> months, LocalDate today) {
+    static Estimate estimate(List<Long> accountIds, List<LivingCostReader.DailySpending> days, LocalDate today) {
         YearMonth thisMonth = YearMonth.from(today);
         YearMonth firstMonth = thisMonth.minusMonths(MONTHS);
         Set<Long> selected = Set.copyOf(accountIds);
-        Map<Long, List<LivingCostReader.MonthlySpending>> rowsByAccount = new LinkedHashMap<>();
+        Map<Long, List<LivingCostReader.DailySpending>> rowsByAccount = new LinkedHashMap<>();
         accountIds.forEach(accountId -> rowsByAccount.put(accountId, new ArrayList<>()));
         Set<String> seen = new HashSet<>();
-        for (LivingCostReader.MonthlySpending row : months) {
+        for (LivingCostReader.DailySpending row : days) {
             if (!selected.contains(row.accountId())) {
                 continue;
             }
-            // 예외 메시지는 전역 예외 로그에 남으므로 계좌·월·소비액을 넣지 않는다.
+            // 예외 메시지는 전역 예외 로그에 남으므로 계좌·날짜·소비액을 넣지 않는다.
             if (row.amount() < 0) {
                 throw new IllegalStateException("생활비 원천이 음수 소비 합계를 줬다.");
             }
-            if (!seen.add(row.accountId() + ":" + row.month() + ":" + row.origin())) {
-                throw new IllegalStateException("생활비 원천이 같은 계좌·월·출처의 행을 두 번 줬다.");
+            if (row.checkCardAmount() < 0 || row.checkCardAmount() > row.amount()) {
+                throw new IllegalStateException("생활비 원천의 체크카드 몫이 0원보다 작거나 그날 합계보다 크다.");
+            }
+            if (row.date().isAfter(today)) {
+                throw new IllegalStateException("생활비 원천이 오늘보다 뒤 날짜의 줄을 줬다.");
+            }
+            if (!seen.add(row.accountId() + ":" + row.date() + ":" + row.origin())) {
+                throw new IllegalStateException("생활비 원천이 같은 계좌·날짜·출처의 줄을 두 번 줬다.");
             }
             rowsByAccount.get(row.accountId()).add(row);
         }
 
         Map<Long, AccountEstimate> byAccount = new LinkedHashMap<>();
-        rowsByAccount.forEach((accountId, rows) ->
-                byAccount.put(accountId, estimateAccount(accountId, rows, firstMonth, thisMonth, today)));
+        rowsByAccount.forEach((accountId, rows) -> byAccount.put(accountId,
+                estimateAccount(accountId, monthly(rows, firstMonth, today), firstMonth, thisMonth, today)));
         return new Estimate(byAccount, total(byAccount.values()));
     }
 
-    private static AccountEstimate estimateAccount(Long accountId, List<LivingCostReader.MonthlySpending> rows,
+    /**
+     * 한 계좌의 일별 줄을 월·출처별 합계로 더한다. 그달(이번 달은 오늘까지)의 모든 날에 줄이 있고 모두 complete일 때만
+     * 그 월을 complete로 본다. 완료 3개월보다 앞선 날은 버린다.
+     */
+    private static List<MonthlySpending> monthly(List<LivingCostReader.DailySpending> rows, YearMonth firstMonth,
+            LocalDate today) {
+        Map<YearMonth, Map<LivingCostReader.Origin, MonthTally>> tallies = new TreeMap<>();
+        for (LivingCostReader.DailySpending row : rows) {
+            YearMonth month = YearMonth.from(row.date());
+            if (month.isBefore(firstMonth)) {
+                continue;
+            }
+            tallies.computeIfAbsent(month, key -> new EnumMap<>(LivingCostReader.Origin.class))
+                    .computeIfAbsent(row.origin(), key -> new MonthTally())
+                    .add(row);
+        }
+        YearMonth thisMonth = YearMonth.from(today);
+        List<MonthlySpending> months = new ArrayList<>();
+        tallies.forEach((month, byOrigin) -> byOrigin.forEach((origin, tally) -> {
+            int expectedDays = month.equals(thisMonth) ? today.getDayOfMonth() : month.lengthOfMonth();
+            // 중복·미래 날짜는 위에서 거절했으므로 줄 수가 일수와 같으면 모든 날이 있다.
+            boolean complete = tally.allComplete && tally.days == expectedDays;
+            months.add(new MonthlySpending(month, tally.sum, origin, complete));
+        }));
+        return months;
+    }
+
+    private static AccountEstimate estimateAccount(Long accountId, List<MonthlySpending> rows,
             YearMonth firstMonth, YearMonth thisMonth, LocalDate today) {
-        List<LivingCostReader.MonthlySpending> real = completedMonths(rows, LivingCostReader.Origin.REAL,
+        List<MonthlySpending> real = completedMonths(rows, LivingCostReader.Origin.REAL,
                 firstMonth, thisMonth);
         LivingCostReader.Origin origin = real.isEmpty() ? LivingCostReader.Origin.SEED : LivingCostReader.Origin.REAL;
-        List<LivingCostReader.MonthlySpending> used = real.isEmpty()
+        List<MonthlySpending> used = real.isEmpty()
                 ? completedMonths(rows, LivingCostReader.Origin.SEED, firstMonth, thisMonth) : real;
         if (used.isEmpty()) {
             return AccountEstimate.insufficient(accountId);
@@ -81,7 +117,7 @@ final class LivingCostEstimator {
         long sum = 0;
         long days = 0;
         List<MonthAmount> sources = new ArrayList<>();
-        for (LivingCostReader.MonthlySpending row : used) {
+        for (MonthlySpending row : used) {
             sum = Math.addExact(sum, row.amount());
             days += row.month().lengthOfMonth();
             sources.add(new MonthAmount(row.month(), row.amount()));
@@ -98,12 +134,12 @@ final class LivingCostEstimator {
     }
 
     /** 완료 3개월 안에서 거래를 다 확인한 그 출처의 달. 오래된 달부터. */
-    private static List<LivingCostReader.MonthlySpending> completedMonths(List<LivingCostReader.MonthlySpending> rows,
+    private static List<MonthlySpending> completedMonths(List<MonthlySpending> rows,
             LivingCostReader.Origin origin, YearMonth firstMonth, YearMonth thisMonth) {
         return rows.stream()
                 .filter(row -> row.origin() == origin && row.complete())
                 .filter(row -> !row.month().isBefore(firstMonth) && row.month().isBefore(thisMonth))
-                .sorted(Comparator.comparing(LivingCostReader.MonthlySpending::month))
+                .sorted(Comparator.comparing(MonthlySpending::month))
                 .toList();
     }
 
@@ -168,6 +204,21 @@ final class LivingCostEstimator {
     enum Confidence { HIGH, MEDIUM, LOW, INSUFFICIENT }
 
     enum DataOrigin { REAL, SEED, INSUFFICIENT }
+
+    /** 일별 줄을 더한 한 계좌·한 달·한 출처의 합계. complete면 그달 모든 날을 빠짐없이 확인했다. */
+    private record MonthlySpending(YearMonth month, long amount, LivingCostReader.Origin origin, boolean complete) {}
+
+    private static final class MonthTally {
+        private long sum;
+        private int days;
+        private boolean allComplete = true;
+
+        private void add(LivingCostReader.DailySpending row) {
+            sum = Math.addExact(sum, row.amount());
+            days++;
+            allComplete &= row.complete();
+        }
+    }
 
     /** 한 달의 생활 소비 합계(원). */
     record MonthAmount(YearMonth month, long amount) {}

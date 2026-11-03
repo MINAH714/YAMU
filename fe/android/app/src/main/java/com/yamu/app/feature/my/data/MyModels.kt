@@ -124,6 +124,13 @@ data class NotificationsPage(val unread: Int, val items: List<AppNotification>, 
 
 // ── 서버 값 → 화면 값 ──
 
+/** 탈퇴를 막는 서버 코드 → 문장. 모르는 코드면 null */
+fun withdrawErrorMessage(code: String): String? = when (code) {
+    "BILL_OUTSTANDING" -> "출금이 끝나지 않은 청구가 있어 탈퇴할 수 없어요"
+    "REFUND_PENDING" -> "입금되지 않은 환급이 있어 탈퇴할 수 없어요"
+    else -> null
+}
+
 /** 'yamu.kim@example.com' → 'ya***@example.com' */
 fun maskEmail(email: String?): String? {
     if (email.isNullOrBlank()) return null

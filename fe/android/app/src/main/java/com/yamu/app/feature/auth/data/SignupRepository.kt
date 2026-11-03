@@ -107,7 +107,7 @@ enum class Carrier(val code: String, val label: String) {
 
 data class CodeSent(val verificationId: String, val demoCode: String?)
 
-data class AccountCandidate(val id: String, val brand: Brand, val name: String, val last4: String, val alreadyLinked: Boolean)
+data class AccountCandidate(val id: String, val brand: Brand, val name: String, val last4: String, val alreadyLinked: Boolean, val bankCode: String? = null)
 
 data class SignupOneWon(
     val bankName: String,
@@ -125,6 +125,7 @@ fun AccountCandidateDto.toCandidate() = AccountCandidate(
     name = accountName ?: bank.name,
     last4 = maskedAccountNo.filter(Char::isDigit).takeLast(4),
     alreadyLinked = alreadyLinked,
+    bankCode = bank.code,
 )
 
 /** 가입 진행 토큰이 없거나 만료 — 본인인증부터 다시 */

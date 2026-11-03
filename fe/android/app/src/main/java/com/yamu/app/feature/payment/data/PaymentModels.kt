@@ -21,7 +21,7 @@ import kotlinx.serialization.Serializable
 
 @Serializable data class MerchantRefDto(
     val merchantId: Long? = null,
-    val name: String,
+    val name: String = "가맹점",                // BE에서 null일 수 있다
     val categoryCode: String? = null,
     val categoryName: String? = null,
 )
@@ -80,6 +80,8 @@ import kotlinx.serialization.Serializable
     val status: String = "REQUESTED",
     val merchant: MerchantRefDto,
     val amount: Long,
+    val plan: String = "LUMP_SUM",           // POS가 정한다
+    val installmentMonths: Int? = null,
     val confirmDeadline: String? = null,
     val recommendation: RecommendationDto? = null,
 )
@@ -90,7 +92,8 @@ import kotlinx.serialization.Serializable
     val isEstimate: Boolean = false,
 )
 
-@Serializable data class ApproveRequest(val userCardId: Long, val plan: String = "LUMP_SUM", val installmentMonths: Int? = null)
+/** 결제 방식 · 할부 개월은 POS가 정한다 — BE는 이 칸들이 오면 400 INVALID_INSTALLMENT */
+@Serializable data class ApproveRequest(val userCardId: Long)
 
 @Serializable data class RejectRequest(val reason: String = "USER_REJECTED")
 

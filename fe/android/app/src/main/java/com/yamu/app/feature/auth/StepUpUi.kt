@@ -134,8 +134,10 @@ class PinPadViewModel @Inject constructor(
 }
 
 private fun pinPadTitle(purpose: String) = when (purpose) {
-    StepUpPurpose.ACCOUNT_LINK -> "간편 비밀번호로\n서명해 주세요"
-    StepUpPurpose.CARD_REGISTER -> "간편 비밀번호로\n카드를 연결해요"
+    StepUpPurpose.ACCOUNT_LINK -> "간편 비밀번호로\n계좌를 연결해요"
+    StepUpPurpose.CARD_REGISTER -> "간편 비밀번호로\n카드를 등록해요"
+    StepUpPurpose.CARD_DELETE -> "간편 비밀번호로\n카드를 해제해요"
+    StepUpPurpose.WITHDRAW_MEMBER -> "간편 비밀번호로\n탈퇴를 확인해요"
     StepUpPurpose.BARCODE -> "간편 비밀번호로\n결제 코드를 열어요"
     else -> "간편 비밀번호를\n넣어 주세요"
 }
