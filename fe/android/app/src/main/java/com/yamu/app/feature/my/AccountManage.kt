@@ -98,7 +98,7 @@ class AccountManageViewModel @Inject constructor(private val link: LinkRepositor
                 is ApiResult.Success -> _state.update { s ->
                     s.copy(saving = false, accounts = s.accounts.map { a ->
                         when {
-                            a.accountId == r.data.accountId -> r.data
+                            a.accountId == r.data.accountId -> r.data.keepingBalanceOf(a)
                             r.data.isPrimary -> a.copy(isPrimary = false)   // 서버가 전에 있던 기준 계좌를 풀었다
                             else -> a
                         }
@@ -193,6 +193,10 @@ fun AccountManageRoute(onBack: () -> Unit, viewModel: AccountManageViewModel = h
         }
     }
 }
+
+/** 수정 응답도 잔액을 다시 읽어 만든다 — 금융망이 실패해 비어 있어도 별칭만 바꿨는데 잔액이 사라지지 않게 */
+private fun LinkedAccount.keepingBalanceOf(before: LinkedAccount) =
+    if (balance != null) this else copy(balance = before.balance, balanceAsOfIso = before.balanceAsOfIso)
 
 /** '신한은행 ·1234 · 카드 2장' */
 internal fun accountRowSub(account: LinkedAccount): String =

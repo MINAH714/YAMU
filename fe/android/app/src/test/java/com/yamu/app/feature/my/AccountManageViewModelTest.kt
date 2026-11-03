@@ -99,6 +99,23 @@ class AccountManageViewModelTest {
         assertEquals(1, link.updates.size)
     }
 
+    @Test fun `수정 응답에 잔액이 없으면 있던 잔액을 둔다`() = runTest(dispatcher) {
+        link.updateResult = ApiResult.Success(SECOND.copy(name = "생활비", alias = "생활비", balance = null))
+        val vm = viewModel()
+        vm.rename(2, "생활비")
+        advanceUntilIdle()
+        assertEquals("생활비", vm.state.value.accounts[1].name)
+        assertEquals(50_000L, vm.state.value.accounts[1].balance)
+    }
+
+    @Test fun `수정 응답에 잔액이 있으면 그 값을 쓴다`() = runTest(dispatcher) {
+        link.updateResult = ApiResult.Success(SECOND.copy(balance = 70_000))
+        val vm = viewModel()
+        vm.rename(2, "생활비")
+        advanceUntilIdle()
+        assertEquals(70_000L, vm.state.value.accounts[1].balance)
+    }
+
     @Test fun `저장이 실패하면 목록은 그대로 두고 이유를 알린다`() = runTest(dispatcher) {
         link.updateResult = ApiResult.Failure(ApiError.Network)
         val vm = viewModel()
