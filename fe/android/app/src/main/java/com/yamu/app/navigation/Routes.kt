@@ -70,6 +70,7 @@ import kotlinx.serialization.Serializable
 @Serializable data object CardOrder          // M-02g 카드 순서
 @Serializable data class CardDetail(val userCardId: Long)   // M-03 · M-03c(해제 시트)
 @Serializable data object AddCard            // C-11 카드 추가(CardRegister와 같은 화면)
+@Serializable data object AccountManage      // M-01b 계좌 관리(월급 · 고정 지출은 빼고 계좌만)
 @Serializable data object NotificationSettings // M-04
 @Serializable data object Profile            // M-06
 @Serializable data object Security           // M-08

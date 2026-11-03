@@ -102,7 +102,13 @@ import java.time.YearMonth
     val balance: Long? = null,
     val balanceAsOf: String? = null,
     val isPrimary: Boolean = false,
+    val linkedCards: List<AccountCardDto> = emptyList(),   // 이 계좌에서 출금하는 등록 카드
 )
+
+@Serializable data class AccountCardDto(val userCardId: Long)
+
+/** 보낸 값만 바뀐다 — null은 보내지 않고, 별칭 ""은 지우기. isPrimary false는 서버가 거절해 보내지 않는다(BE AccountUpdateRequest) */
+@Serializable data class AccountUpdateRequest(val accountName: String? = null, val isPrimary: Boolean? = null)
 
 /** #7 `GET /cards` */
 @Serializable data class CardsResponse(val cards: List<CardDto> = emptyList(), val dataSyncedAt: String? = null)
@@ -213,6 +219,8 @@ data class LinkedAccount(
     val balance: Long?,
     val balanceAsOfIso: String?,
     val isPrimary: Boolean,
+    val alias: String? = null,              // 사용자가 지은 별칭만. name은 없을 때 기본 이름까지 채운 값
+    val cardCount: Int = 0,                 // 이 계좌에서 출금하는 카드 수
 )
 
 data class LinkedCard(
@@ -269,7 +277,7 @@ data class LinkedOverview(val accounts: List<LinkedAccount>, val cards: List<Lin
 object CardValidation {
     const val NUMBER_LENGTH = 16
     const val EXPIRY_LENGTH = 4
-    const val NICKNAME_MAX = 20
+    const val NICKNAME_MAX = 20             // 카드 · 계좌 별칭(서버 CardUpdateRequest · AccountUpdateRequest)
     private val NUMBER = Regex("\\d{16}")
     private val EXPIRY = Regex("(0[1-9]|1[0-2])\\d{2}")
 
@@ -406,6 +414,8 @@ fun AccountDto.toLinked() = LinkedAccount(
     balance = balance,
     balanceAsOfIso = balanceAsOf,
     isPrimary = isPrimary,
+    alias = accountName,
+    cardCount = linkedCards.size,
 )
 
 /** 카드 관리 줄 태그 — 카드사가 막은 상태를 먼저. 평소 상태면 null */

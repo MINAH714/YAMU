@@ -181,6 +181,7 @@ data class MyState(
     val info: MyInfo? = null,
     val unread: Int = 0,
     val cardCount: Int? = null,
+    val accountCount: Int? = null,
     val notificationsOn: Boolean? = null,
     val error: String? = null,
 )
@@ -200,16 +201,18 @@ class MyViewModel @Inject constructor(
             _state.update { it.copy(loading = it.info == null, error = null) }
             val info = async { my.me() }
             val notifications = async { my.notifications(page = 1) }
-            val cards = async { link.linkedOverview() }
+            val linked = async { link.linkedOverview() }
             val settings = async { my.notificationSettings() }
             val i = info.await()
+            val overview = (linked.await() as? ApiResult.Success)?.data
             _state.update { s ->
                 s.copy(
                     loading = false,
                     info = (i as? ApiResult.Success)?.data ?: s.info,
                     error = (i as? ApiResult.Failure)?.error?.userMessage(),
                     unread = (notifications.await() as? ApiResult.Success)?.data?.unread ?: s.unread,
-                    cardCount = (cards.await() as? ApiResult.Success)?.data?.cards?.size ?: s.cardCount,
+                    cardCount = overview?.cards?.size ?: s.cardCount,
+                    accountCount = overview?.accounts?.size ?: s.accountCount,
                     notificationsOn = (settings.await() as? ApiResult.Success)?.data?.let { it.performance || it.balance || it.payment } ?: s.notificationsOn,
                 )
             }
@@ -229,6 +232,7 @@ fun MyRoute(
     onNotifications: () -> Unit,
     onProfile: () -> Unit,
     onCardManage: () -> Unit,
+    onAccountManage: () -> Unit,
     onNotificationSettings: () -> Unit,
     onSecurity: () -> Unit,
     onNotReady: (String) -> Unit,
@@ -274,6 +278,7 @@ fun MyRoute(
             }
             YamuCard(contentPadding = MenuPadding) {
                 ListRow(title = "카드 관리", valuePlain = s.cardCount?.let { "${it}장" }, chevron = true, onClick = onCardManage)
+                ListRow(title = "계좌 관리", valuePlain = s.accountCount?.let { "${it}개" }, chevron = true, onClick = onAccountManage)
                 ListRow(
                     title = "알림 설정",
                     valuePlain = s.notificationsOn?.let { if (it) "켜짐" else "꺼짐" },

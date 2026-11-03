@@ -91,6 +91,8 @@ class FakeBank @Inject constructor(private val sessionStore: SessionStore) {
     private var candidateExpiryServed = false
     private val linkResults = mutableMapOf<String, Pair<List<String>, AccountLinkResult>>()   // 멱등 키 → 처음 요청 · 결과
     private val nicknames = mutableMapOf<String, String>()
+    private val accountAliases = mutableMapOf<String, String>()
+    private var primaryAccount = "A1"
     private val excluded = mutableSetOf<String>()     // 자동 선택에서 뺀 카드
     private var defaultCard: String? = "C2"
     private var order: List<String> = emptyList()     // 저장한 카드 순서(assetId)
@@ -122,6 +124,8 @@ class FakeBank @Inject constructor(private val sessionStore: SessionStore) {
         linkResults.clear()
         candidateExpiryServed = false
         nicknames.clear()
+        accountAliases.clear()
+        primaryAccount = "A1"
         excluded.clear()
         defaultCard = "C2"
         order = emptyList()
@@ -240,9 +244,7 @@ class FakeBank @Inject constructor(private val sessionStore: SessionStore) {
     suspend fun overview(): ApiResult<LinkedOverview> {
         ensureLoaded()
         delay(400)
-        val acc = accounts.filter { it.assetId in linked }.mapIndexed { i, a ->
-            LinkedAccount(i + 1L, brandOf(a.bank), a.name, a.last4, a.balance, linkedAt, isPrimary = i == 0)
-        }
+        val acc = linkedAccounts().map { it.toLinked() }
         val crd = linkedCards().map { c ->
             LinkedCard(
                 c.userCardId(), c.brand(), c.product, c.check, c.last4, c.paymentDay, c.recognized, YearMonth.now(KST).toString(),
@@ -252,6 +254,29 @@ class FakeBank @Inject constructor(private val sessionStore: SessionStore) {
             )
         }
         return ApiResult.Success(LinkedOverview(acc, crd, linkedAt))
+    }
+
+    private fun linkedAccounts() = accounts.filter { it.assetId in linked }
+
+    private fun Account.toLinked() = LinkedAccount(
+        accountId = linkedAccounts().indexOf(this) + 1L,
+        brand = brandOf(bank),
+        name = accountAliases[assetId] ?: name,
+        last4 = last4,
+        balance = balance,
+        balanceAsOfIso = linkedAt,
+        isPrimary = assetId == primaryAccount,
+        alias = accountAliases[assetId],
+        cardCount = cards.count { it.assetId in linked && it.accountId == assetId },
+    )
+
+    /** BE AccountManagementService.update와 같게 */
+    suspend fun updateAccount(accountId: Long, alias: String?, makePrimary: Boolean): ApiResult<LinkedAccount> {
+        delay(300)
+        val account = linkedAccounts().getOrNull((accountId - 1).toInt()) ?: return ApiResult.Failure(ApiError.NotFound("RESOURCE_NOT_FOUND"))
+        alias?.let { if (it.isBlank()) accountAliases.remove(account.assetId) else accountAliases[account.assetId] = it.trim() }
+        if (makePrimary) primaryAccount = account.assetId
+        return ApiResult.Success(account.toLinked())
     }
 
     private fun Card.userCardId() = cards.indexOf(this) + 11L
@@ -345,6 +370,7 @@ class FakeLinkRepository @Inject constructor(private val bank: FakeBank) : LinkR
     override suspend fun accountCandidates() = withFault { bank.candidates() }
     override suspend fun linkAccounts(candidateIds: List<String>, idempotencyKey: String, stepUpToken: String) = bank.linkAccounts(candidateIds, idempotencyKey)
     override suspend fun linkedOverview(refresh: Boolean) = withFault(empty = { ApiResult.Success(LinkedOverview(emptyList(), emptyList(), null)) }) { bank.overview() }
+    override suspend fun updateAccount(accountId: Long, alias: String?, makePrimary: Boolean) = bank.updateAccount(accountId, alias, makePrimary)
     override suspend fun cardDetail(userCardId: Long) = withFault { bank.cardDetail(userCardId) }
     override suspend fun updateCard(userCardId: Long, nickname: String?, recommended: Boolean?, isDefault: Boolean?) = bank.updateCard(userCardId, nickname, recommended, isDefault)
     override suspend fun saveCardOrder(userCardIds: List<Long>) = bank.saveCardOrder(userCardIds)
