@@ -155,7 +155,7 @@ class CashflowCreateViewModel @Inject constructor(
                     _state.update { cur ->
                         when {
                             // 실패가 아니라 결과 불명 — 등록됐을 수도 있어 자동으로 다시 보내지 않고 목록부터 보게 한다
-                            e == ApiError.Network -> cur.copy(saving = false, unknownResult = true, saveError = "연결이 끊겨 등록됐는지 확인하지 못했어요 · 목록에서 먼저 확인해 주세요")
+                            e.isOutcomeUnknown -> cur.copy(saving = false, unknownResult = true, saveError = "응답을 받지 못해 등록됐는지 확인하지 못했어요 · 목록에서 먼저 확인해 주세요")
                             fields.isNotEmpty() -> cur.copy(saving = false, showErrors = true, errors = fields)
                             // 그사이 끊긴 계좌 · 카드 — 목록을 다시 받아 다른 걸 고르게
                             e is ApiError.NotFound -> cur.copy(saving = false, showErrors = true, errors = mapOf(CashflowField.PAYMENT to "고른 계좌나 카드를 찾을 수 없어요 · 다른 걸 골라 주세요"))
