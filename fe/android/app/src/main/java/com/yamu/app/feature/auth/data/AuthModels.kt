@@ -116,6 +116,7 @@ object StepUpPurpose {
     const val ACCOUNT_LINK = "ACCOUNT_LINK"
     const val CARD_REGISTER = "CARD_REGISTER"
     const val CARD_DELETE = "CARD_DELETE"
+    const val WITHDRAW_MEMBER = "WITHDRAW_MEMBER"
     /** 간편 비밀번호 바꾸기 · 지문 켜기/끄기 */
     const val SECURITY_SETTINGS = "SECURITY_SETTINGS"
 }

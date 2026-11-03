@@ -115,6 +115,13 @@ class FakeAuthRepository @Inject constructor(
         tokenStore.clear()
     }
 
+    override suspend fun forgetAfterWithdrawal() {
+        tokenStore.clear()
+        sessionStore.clear()
+        deviceKeys.deleteAll()
+        bank.reset()
+    }
+
     override fun canUseBiometric(): Boolean = deviceKeys.canUseBiometric()
 
     override suspend fun setBiometric(enabled: Boolean, stepUpToken: String): ApiResult<Unit> {

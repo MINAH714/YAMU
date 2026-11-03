@@ -59,6 +59,7 @@ import com.yamu.app.navigation.Profile
 import com.yamu.app.navigation.Security
 import com.yamu.app.navigation.Terms
 import com.yamu.app.navigation.restartFromSplash
+import com.yamu.app.navigation.Withdraw
 
 /** 디버그 메뉴(debug 빌드만) — 시작 상태 바꾸기 · 화면 바로 열기 · 컴포넌트 갤러리. 프로토타입 index.html 화면 목록과 같은 역할 */
 @Composable
@@ -194,6 +195,7 @@ fun DebugMenuScreen(navController: NavController, viewModel: DebugMenuViewModel 
                     "M-01b 계좌 관리" to AccountManage,
                     "M-04 알림 설정" to NotificationSettings,
                     "M-06 회원 정보" to Profile,
+                    "M-07b 회원 탈퇴" to Withdraw,
                     "M-08 보안 · 인증" to Security,
                     "간편 비밀번호" to PinPad("BARCODE"),
                 )

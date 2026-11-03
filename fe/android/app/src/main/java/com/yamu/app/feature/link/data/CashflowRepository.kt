@@ -12,6 +12,7 @@ import dagger.hilt.components.SingletonComponent
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.Transient
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -49,7 +50,13 @@ import javax.inject.Singleton
     val horizon: String,
     val incomeCashflowItemId: Long? = null,
     val dailyLivingCostTarget: Long? = null,
+    @Transient val keepIncome: Boolean = false,   // 이미 정한 월급 · 기간 기준은 보내지 않아 그대로 둔다
 )
+
+/** `GET /forecasts/settings`에서 지금 정한 월급만. 확정 항목이라 B-06 후보 목록에는 없다. 정한 적이 없거나 더는 받을 월급이 없으면 null */
+@Serializable data class ForecastSettingsDto(val income: ForecastIncomeDto? = null)
+
+@Serializable data class ForecastIncomeDto(val cashflowItemId: Long? = null)
 
 /** #10에서 하루 생활비 제안값만 */
 @Serializable data class ForecastLivingCostDto(val livingCost: LivingCostDto? = null)
@@ -62,6 +69,9 @@ interface CashflowApi {
 
     @PATCH("cashflow-items/{id}")
     suspend fun patch(@Path("id") id: Long, @Body body: CashflowPatchRequest): Response<ApiEnvelope<CashflowItemDto>>
+
+    @GET("forecasts/settings")
+    suspend fun settings(): Response<ApiEnvelope<ForecastSettingsDto>>
 
     @PATCH("forecasts/settings")
     suspend fun patchSettings(@Body body: JsonObject): Response<ApiEnvelope<kotlinx.serialization.json.JsonElement>>
@@ -94,6 +104,7 @@ data class CashflowDraft(
     val expenses: List<CashflowCandidate>,
     val bills: List<BillLine>,
     val dailyLivingCost: Long?,
+    val currentIncomeId: Long? = null,      // 이미 정해 둔 월급 — 후보가 아니어도 온다
 ) {
     val isEmpty: Boolean get() = income == null && expenses.isEmpty() && bills.isEmpty()
 }
@@ -105,10 +116,11 @@ data class CashflowPlan(
     val decisions: List<CashflowDecision>,
     val incomeId: Long?,
     val dailyLivingCost: Long?,
+    val currentIncomeId: Long? = null,
 )
 
-/** #19 후보 → B-06 줄. 월급 = 매달 오는 수입 중 가장 큰 것, 고정 지출은 날짜순 */
-fun List<CashflowItemDto>.toDraft(dailyLivingCost: Long?): CashflowDraft {
+/** #19 후보 → B-06 줄. 월급 = 매달 오는 수입 중 가장 큰 것, 고정 지출은 날짜순. [currentIncomeId]는 후보가 아니라 저장할 때 지키려고 들고 있는다 */
+fun List<CashflowItemDto>.toDraft(dailyLivingCost: Long?, currentIncomeId: Long? = null): CashflowDraft {
     fun CashflowItemDto.day() = recurrence?.dayOfMonth ?: occurrenceDate?.takeLast(2)?.toIntOrNull()
     val bills = filter { it.kind.equals("CARD_BILL", ignoreCase = true) }
     val rest = this - bills.toSet()
@@ -120,6 +132,7 @@ fun List<CashflowItemDto>.toDraft(dailyLivingCost: Long?): CashflowDraft {
         expenses = expenses.map { CashflowCandidate(it.cashflowItemId, false, it.title, it.amount, it.day()) },
         bills = bills.map { BillLine(it.title, it.amount, it.day()) },
         dailyLivingCost = dailyLivingCost,
+        currentIncomeId = currentIncomeId,
     )
 }
 
@@ -133,19 +146,22 @@ fun CashflowPlan.toPatches(): Pair<List<Pair<Long, CashflowPatchRequest>>, Forec
         horizon = if (income != null) "NEXT_INCOME" else "DAYS",
         incomeCashflowItemId = income,
         dailyLivingCostTarget = dailyLivingCost,
+        keepIncome = income == null && currentIncomeId != null,
     )
     return patches to settings
 }
 
 /** #17 본문은 직접 만든다 — 월급을 빼면 "incomeCashflowItemId": null이 있어야 서버가 지운다(앱 JSON 설정은 null을 뺀다) */
 fun ForecastSettingsPatch.toBody(): JsonObject = buildJsonObject {
-    put("horizon", horizon)
-    put("incomeCashflowItemId", incomeCashflowItemId)
+    if (!keepIncome) {
+        put("horizon", horizon)
+        put("incomeCashflowItemId", incomeCashflowItemId)
+    }
     dailyLivingCostTarget?.let { put("dailyLivingCostTarget", it) }
 }
 
 interface CashflowRepository {
-    /** B-06 미리 채울 값 — 후보(#19)와 하루 생활비 제안(#10, 실패해도 됨) */
+    /** B-06 미리 채울 값 — 후보(#19) · 지금 월급 · 하루 생활비 제안(#10, 실패해도 됨) */
     suspend fun draft(): ApiResult<CashflowDraft>
 
     /** 확정 — 항목마다 #8, 마지막에 #17. 다시 시도하면 처음부터(같은 값이라 결과가 같음) */
@@ -158,8 +174,13 @@ class CashflowRepositoryImpl @Inject constructor(private val api: CashflowApi) :
     override suspend fun draft(): ApiResult<CashflowDraft> = coroutineScope {
         val items = async { apiCall { api.items(status = "CANDIDATE", expand = false) } }
         val forecast = async { apiCall { api.forecast() } }
+        val settings = async { apiCall { api.settings() } }
         val daily = (forecast.await() as? ApiResult.Success)?.data?.livingCost?.dailyAverage
-        items.await().map { it.items.toDraft(daily) }
+        // 지금 월급을 모른 채 저장하면 정해 둔 월급을 지울 수 있어 실패로 돌려 다시 읽게 한다
+        when (val s = settings.await()) {
+            is ApiResult.Failure -> s
+            is ApiResult.Success -> items.await().map { it.items.toDraft(daily, s.data.income?.cashflowItemId) }
+        }
     }
 
     override suspend fun confirm(plan: CashflowPlan): ApiResult<Unit> {
@@ -168,7 +189,8 @@ class CashflowRepositoryImpl @Inject constructor(private val api: CashflowApi) :
             val r = apiCall { api.patch(id, body) }
             if (r is ApiResult.Failure) return r
         }
-        return apiCallNoData { api.patchSettings(settings.toBody()) }
+        val body = settings.toBody()
+        return if (body.isEmpty()) ApiResult.Success(Unit) else apiCallNoData { api.patchSettings(body) }   // 빈 본문은 서버가 400으로 거절한다
     }
 }
 

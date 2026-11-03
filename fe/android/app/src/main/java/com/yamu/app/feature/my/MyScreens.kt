@@ -77,6 +77,7 @@ import com.yamu.app.core.designsystem.component.SkeletonBlock
 import com.yamu.app.core.designsystem.component.StatusTag
 import com.yamu.app.core.designsystem.component.TabScreen
 import com.yamu.app.core.designsystem.component.TagTone
+import com.yamu.app.core.designsystem.component.TextButtonGrey
 import com.yamu.app.core.designsystem.component.YamuBottomSheet
 import com.yamu.app.core.designsystem.component.YamuCard
 import com.yamu.app.core.designsystem.component.YamuSwitch
@@ -625,7 +626,7 @@ class ProfileViewModel @Inject constructor(private val my: MyRepository, stepUpF
 }
 
 @Composable
-fun ProfileRoute(onBack: () -> Unit, onOpenPinPad: (purpose: String) -> Unit, viewModel: ProfileViewModel = hiltViewModel()) {
+fun ProfileRoute(onBack: () -> Unit, onOpenPinPad: (purpose: String) -> Unit, onWithdraw: () -> Unit, viewModel: ProfileViewModel = hiltViewModel()) {
     val s by viewModel.state.collectAsStateWithLifecycle()
     StepUpEffect(viewModel.stepUp, onOpenPinPad)
     val c = YamuTheme.colors
@@ -665,6 +666,13 @@ fun ProfileRoute(onBack: () -> Unit, onOpenPinPad: (purpose: String) -> Unit, vi
                             },
                         )
                     }
+                }
+            }
+            // 회원 정보를 못 읽어도 탈퇴는 할 수 있게 목록 밖에 둔다
+            if (!s.loading) {
+                Spacer(Modifier.height(YamuSpacing.x4))
+                Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                    TextButtonGrey("회원 탈퇴", onClick = onWithdraw, muted = true, small = true)
                 }
             }
             Spacer(Modifier.height(YamuSpacing.x6))
