@@ -387,6 +387,7 @@ class CardRegisterViewModelTest {
         var lastRegister: Triple<String, String?, String>? = null
         val linkKeys = mutableListOf<String>()
 
+        override suspend fun accounts(): ApiResult<List<LinkedAccount>> = error("안 씀")
         override suspend fun updateAccount(accountId: Long, alias: String?, makePrimary: Boolean): ApiResult<LinkedAccount> = error("안 씀")
         override suspend fun lookupCard(cardNumber: String, expiryMonth: String, expiryYear: String): ApiResult<CardLookup> {
             lookups++

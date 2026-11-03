@@ -46,6 +46,7 @@ import com.yamu.app.feature.link.data.CardValidation
 import com.yamu.app.feature.link.data.LinkRepository
 import com.yamu.app.feature.link.data.LinkedAccount
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -68,13 +69,15 @@ data class AccountManageState(
 class AccountManageViewModel @Inject constructor(private val link: LinkRepository) : ViewModel() {
     private val _state = MutableStateFlow(AccountManageState())
     val state: StateFlow<AccountManageState> = _state.asStateFlow()
+    private var loadJob: Job? = null
 
     fun load() {
         if (_state.value.saving) return
-        viewModelScope.launch {
+        loadJob?.cancel()
+        loadJob = viewModelScope.launch {
             _state.update { it.copy(loading = it.accounts.isEmpty(), error = null) }
-            when (val r = link.linkedOverview()) {
-                is ApiResult.Success -> _state.update { it.copy(loading = false, accounts = r.data.accounts) }
+            when (val r = link.accounts()) {
+                is ApiResult.Success -> _state.update { it.copy(loading = false, accounts = r.data) }
                 is ApiResult.Failure -> _state.update { it.copy(loading = false, error = r.error.userMessage()) }
             }
         }
@@ -88,13 +91,14 @@ class AccountManageViewModel @Inject constructor(private val link: LinkRepositor
     /** 같은 값을 다시 보내도 결과가 같아 응답을 못 받으면 그대로 다시 누르면 된다. 한 번에 하나만 */
     private fun save(call: suspend () -> ApiResult<LinkedAccount>) {
         if (_state.value.saving) return
-        _state.update { it.copy(saving = true) }
+        loadJob?.cancel()   // 목록은 금융망 잔액을 기다려 느리다 — 저장 전에 읽은 값이 늦게 와서 방금 저장한 값을 덮지 않게
+        _state.update { it.copy(saving = true, loading = false) }
         viewModelScope.launch {
             when (val r = call()) {
                 is ApiResult.Success -> _state.update { s ->
                     s.copy(saving = false, accounts = s.accounts.map { a ->
                         when {
-                            a.accountId == r.data.accountId -> r.data
+                            a.accountId == r.data.accountId -> r.data.keepingBalanceOf(a)
                             r.data.isPrimary -> a.copy(isPrimary = false)   // 서버가 전에 있던 기준 계좌를 풀었다
                             else -> a
                         }
@@ -155,11 +159,11 @@ fun AccountManageRoute(onBack: () -> Unit, viewModel: AccountManageViewModel = h
                             valuePlain = a.balance?.let { "${it.toWon()}원" } ?: "잔액 확인 불가",
                             chevron = true,
                             minHeight = 72.dp,
-                            onClick = { selectedId = a.accountId },
+                            onClick = if (s.saving) null else ({ selectedId = a.accountId }),   // 저장 중에 고른 계좌가 조용히 무시되지 않게
                         )
                     }
                     Spacer(Modifier.height(YamuSpacing.x3))
-                    Text("기준 계좌는 홈에 먼저 보여요", style = YamuTheme.typography.bodyS, color = c.text3)
+                    Text(if (s.saving) "저장하는 중이에요" else "기준 계좌는 홈에 먼저 보여요", style = YamuTheme.typography.bodyS, color = c.text3)
                 }
             }
             Spacer(Modifier.height(YamuSpacing.x6))
@@ -189,6 +193,10 @@ fun AccountManageRoute(onBack: () -> Unit, viewModel: AccountManageViewModel = h
         }
     }
 }
+
+/** 수정 응답도 잔액을 다시 읽어 만든다 — 금융망이 실패해 비어 있어도 별칭만 바꿨는데 잔액이 사라지지 않게 */
+private fun LinkedAccount.keepingBalanceOf(before: LinkedAccount) =
+    if (balance != null) this else copy(balance = before.balance, balanceAsOfIso = before.balanceAsOfIso)
 
 /** '신한은행 ·1234 · 카드 2장' */
 internal fun accountRowSub(account: LinkedAccount): String =

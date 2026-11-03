@@ -251,6 +251,7 @@ class FakeBank @Inject constructor(private val sessionStore: SessionStore) {
                 isDefault = c.assetId == defaultCard,
                 stateLabel = cardStateLabel(if (c.assetId in excluded) "INACTIVE" else "ACTIVE", "NORMAL"),
                 nickname = nicknames[c.assetId],
+                recommended = c.assetId !in excluded,
             )
         }
         return ApiResult.Success(LinkedOverview(acc, crd, linkedAt))
@@ -270,9 +271,16 @@ class FakeBank @Inject constructor(private val sessionStore: SessionStore) {
         cardCount = cards.count { it.assetId in linked && it.accountId == assetId },
     )
 
+    suspend fun linkedAccountList(): ApiResult<List<LinkedAccount>> {
+        ensureLoaded()
+        delay(300)
+        return ApiResult.Success(linkedAccounts().map { it.toLinked() })
+    }
+
     /** BE AccountManagementService.update와 같게 */
     suspend fun updateAccount(accountId: Long, alias: String?, makePrimary: Boolean): ApiResult<LinkedAccount> {
         delay(300)
+        if (alias != null && alias.length > 20) return ApiResult.Failure(ApiError.InvalidRequest("INVALID_REQUEST"))
         val account = linkedAccounts().getOrNull((accountId - 1).toInt()) ?: return ApiResult.Failure(ApiError.NotFound("RESOURCE_NOT_FOUND"))
         alias?.let { if (it.isBlank()) accountAliases.remove(account.assetId) else accountAliases[account.assetId] = it.trim() }
         if (makePrimary) primaryAccount = account.assetId
@@ -303,7 +311,8 @@ class FakeBank @Inject constructor(private val sessionStore: SessionStore) {
             paymentDay = paymentDay,
             settlementAccountId = if (check) null else accounts.filter { it.assetId in linked }.indexOf(account).takeIf { it >= 0 }?.let { it + 1L },
             checkAccountLabel = if (check) "${account.bank} ·${account.last4}" else null,
-            nextWithdrawal = if (check) null else NextWithdrawal(recognized, LocalDate.now(KST).plusDays(10)),
+            nextWithdrawal = if (assetId == "C3") NextWithdrawal(recognized, LocalDate.now(KST).plusDays(10)) else null,
+            hasOpenBill = assetId == "C3",
         )
     }
 
@@ -370,11 +379,12 @@ class FakeLinkRepository @Inject constructor(private val bank: FakeBank) : LinkR
     override suspend fun accountCandidates() = withFault { bank.candidates() }
     override suspend fun linkAccounts(candidateIds: List<String>, idempotencyKey: String, stepUpToken: String) = bank.linkAccounts(candidateIds, idempotencyKey)
     override suspend fun linkedOverview(refresh: Boolean) = withFault(empty = { ApiResult.Success(LinkedOverview(emptyList(), emptyList(), null)) }) { bank.overview() }
-    override suspend fun updateAccount(accountId: Long, alias: String?, makePrimary: Boolean) = bank.updateAccount(accountId, alias, makePrimary)
+    override suspend fun accounts() = withFault(empty = { ApiResult.Success(emptyList()) }) { bank.linkedAccountList() }
+    override suspend fun updateAccount(accountId: Long, alias: String?, makePrimary: Boolean) = withFault { bank.updateAccount(accountId, alias, makePrimary) }
     override suspend fun cardDetail(userCardId: Long) = withFault { bank.cardDetail(userCardId) }
-    override suspend fun updateCard(userCardId: Long, nickname: String?, recommended: Boolean?, isDefault: Boolean?) = bank.updateCard(userCardId, nickname, recommended, isDefault)
-    override suspend fun saveCardOrder(userCardIds: List<Long>) = bank.saveCardOrder(userCardIds)
-    override suspend fun unregisterCard(userCardId: Long, stepUpToken: String) = bank.unregisterCard(userCardId)
+    override suspend fun updateCard(userCardId: Long, nickname: String?, recommended: Boolean?, isDefault: Boolean?) = withFault { bank.updateCard(userCardId, nickname, recommended, isDefault) }
+    override suspend fun saveCardOrder(userCardIds: List<Long>) = withFault { bank.saveCardOrder(userCardIds) }
+    override suspend fun unregisterCard(userCardId: Long, stepUpToken: String) = withFault { bank.unregisterCard(userCardId) }
 }
 
 /** debug 전용 가짜 월급 · 고정 지출 — 프로토타입 B-06 숫자(월급 10일 2,800,000 · 월세 · 통신비 · 구독료 + 신한카드 대금) */

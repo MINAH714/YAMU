@@ -15,6 +15,7 @@ import com.yamu.app.feature.link.data.LinkedOverview
 import com.yamu.app.feature.link.data.RegisteredCard
 import com.yamu.app.feature.link.data.brandOf
 import com.yamu.app.feature.link.data.toLinked
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
@@ -75,12 +76,44 @@ class AccountManageViewModelTest {
         assertTrue(vm.state.value.accounts[0].isPrimary)
     }
 
+    @Test fun `저장을 시작하면 진행 중인 읽기는 버린다 — 늦게 와서 저장한 값을 덮으면 안 된다`() = runTest(dispatcher) {
+        val vm = viewModel()
+        val gate = CompletableDeferred<Unit>()
+        link.listGate = gate
+        vm.load()
+        advanceUntilIdle()
+        link.updateResult = ApiResult.Success(SECOND.copy(isPrimary = true))
+        vm.makePrimary(2)
+        advanceUntilIdle()
+        gate.complete(Unit)
+        advanceUntilIdle()
+        assertEquals(listOf(2L), vm.state.value.accounts.filter { it.isPrimary }.map { it.accountId })
+        assertFalse(vm.state.value.loading)
+    }
+
     @Test fun `연타해도 저장은 한 번`() = runTest(dispatcher) {
         val vm = viewModel()
         vm.makePrimary(2)
         vm.makePrimary(2)
         advanceUntilIdle()
         assertEquals(1, link.updates.size)
+    }
+
+    @Test fun `수정 응답에 잔액이 없으면 있던 잔액을 둔다`() = runTest(dispatcher) {
+        link.updateResult = ApiResult.Success(SECOND.copy(name = "생활비", alias = "생활비", balance = null))
+        val vm = viewModel()
+        vm.rename(2, "생활비")
+        advanceUntilIdle()
+        assertEquals("생활비", vm.state.value.accounts[1].name)
+        assertEquals(50_000L, vm.state.value.accounts[1].balance)
+    }
+
+    @Test fun `수정 응답에 잔액이 있으면 그 값을 쓴다`() = runTest(dispatcher) {
+        link.updateResult = ApiResult.Success(SECOND.copy(balance = 70_000))
+        val vm = viewModel()
+        vm.rename(2, "생활비")
+        advanceUntilIdle()
+        assertEquals(70_000L, vm.state.value.accounts[1].balance)
     }
 
     @Test fun `저장이 실패하면 목록은 그대로 두고 이유를 알린다`() = runTest(dispatcher) {
@@ -96,7 +129,7 @@ class AccountManageViewModelTest {
     @Test fun `없는 계좌면 지금 목록으로 다시 읽는다`() = runTest(dispatcher) {
         link.updateResult = ApiResult.Failure(ApiError.NotFound("RESOURCE_NOT_FOUND"))
         val vm = viewModel()
-        link.accounts = listOf(FIRST)
+        link.list = listOf(FIRST)
         vm.rename(2, "생활비")
         advanceUntilIdle()
         assertEquals(listOf(1L), vm.state.value.accounts.map { it.accountId })
@@ -104,7 +137,7 @@ class AccountManageViewModelTest {
 
     @Test fun `목록을 못 읽으면 오류 — 이미 읽은 목록은 지우지 않는다`() = runTest(dispatcher) {
         val vm = viewModel()
-        link.overviewResult = ApiResult.Failure(ApiError.Network)
+        link.listResult = ApiResult.Failure(ApiError.Network)
         vm.load()
         advanceUntilIdle()
         assertEquals(2, vm.state.value.accounts.size)
@@ -141,13 +174,20 @@ class AccountManageViewModelTest {
     private data class Update(val accountId: Long, val alias: String?, val makePrimary: Boolean)
 
     private class StubLink : LinkRepository {
-        var accounts = listOf(FIRST, SECOND)
-        var overviewResult: ApiResult<LinkedOverview>? = null
+        var list = listOf(FIRST, SECOND)
+        var listResult: ApiResult<List<LinkedAccount>>? = null
+        var listGate: CompletableDeferred<Unit>? = null
         var updateResult: ApiResult<LinkedAccount> = ApiResult.Success(SECOND)
         val updates = mutableListOf<Update>()
 
-        override suspend fun linkedOverview(refresh: Boolean): ApiResult<LinkedOverview> =
-            overviewResult ?: ApiResult.Success(LinkedOverview(accounts, emptyList(), null))
+        override suspend fun accounts(): ApiResult<List<LinkedAccount>> {
+            val result = listResult ?: ApiResult.Success(list)
+            listGate?.await()
+            return result
+        }
+
+        /** 카드 목록이 실패해도 계좌 화면이 열리도록 이 화면은 부르지 않는다 */
+        override suspend fun linkedOverview(refresh: Boolean): ApiResult<LinkedOverview> = error("안 씀")
 
         override suspend fun updateAccount(accountId: Long, alias: String?, makePrimary: Boolean): ApiResult<LinkedAccount> {
             updates += Update(accountId, alias, makePrimary)

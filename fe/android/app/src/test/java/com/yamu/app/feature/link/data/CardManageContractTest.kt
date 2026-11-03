@@ -59,6 +59,13 @@ class CardManageContractTest {
         assertNull(card.stateLabel)
     }
 
+    @Test fun `확정 · 미납 청구가 있으면 해제할 수 없는 카드`() {
+        assertTrue(YamuJson.decodeFromString<CardDetailDto>(creditJson).toInfo().hasOpenBill)
+        val unpaid = creditJson.replace(""""nextWithdrawal":{"billId":7,"amount":32000,"withdrawalDate":"2026-11-14","status":"CONFIRMED"},"hasUnpaidBill":false""", """"nextWithdrawal":null,"hasUnpaidBill":true""")
+        assertTrue(YamuJson.decodeFromString<CardDetailDto>(unpaid).toInfo().hasOpenBill)
+        assertFalse(YamuJson.decodeFromString<CardDetailDto>(checkJson).toInfo().hasOpenBill)
+    }
+
     @Test fun `별칭이 없으면 서버가 상품명을 주는데 이건 별칭이 아니다`() {
         val card = YamuJson.decodeFromString<CardDetailDto>(creditJson).toInfo()
         assertNull(card.nickname)
@@ -75,6 +82,12 @@ class CardManageContractTest {
         assertFalse(card.recommended)
         assertTrue(card.issuerBlocked)
         assertEquals("카드사 정지", card.stateLabel)
+    }
+
+    @Test fun `목록에서 INACTIVE는 자동 선택에 포함되지 않은 카드`() {
+        val dto = CardDto(1, null, IssuerDto(name = "KB국민카드"), "KB 카드", maskedNumber = "9410-****-****-1021")
+        assertFalse(dto.copy(status = "INACTIVE").toLinked().recommended)
+        assertTrue(dto.copy(status = "ACTIVE").toLinked().recommended)
     }
 
     @Test fun `목록의 별칭도 상품명과 같으면 없는 것으로`() {
