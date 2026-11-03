@@ -235,6 +235,22 @@ class LivingCostEstimatorTest {
     }
 
     @Test
+    void 출처마다_덮는_기간에만_줄을_주면_카드를_등록한_달은_두_출처_모두_빠진다() {
+        // 8/15 카드 등록: SEED는 7/1~8/14, REAL은 8/15~10/26을 덮는다(쓴 게 없는 날은 그 출처의 0원 줄).
+        LocalDate registered = AUG.atDay(15);
+        List<DailySpending> seedJul = seed(JUL, 310_000);
+        List<DailySpending> seedAug = seed(AUG, 900_000).stream().filter(row -> row.date().isBefore(registered)).toList();
+        List<DailySpending> realAug = real(AUG, 0).stream().filter(row -> !row.date().isBefore(registered)).toList();
+
+        AccountEstimate result = estimateA(seedJul, seedAug, realAug, real(SEP, 300_000));
+
+        // 8월은 SEED·REAL 모두 일부 날만 있어 미완료. REAL 완료 달(9월)이 있으므로 REAL만 쓴다.
+        assertThat(result.dataOrigin()).isEqualTo(DataOrigin.REAL);
+        assertThat(result.sources()).extracting(MonthAmount::month).containsExactly(SEP);
+        assertThat(result.dailyAverage()).isEqualTo(10_000L);
+    }
+
+    @Test
     void AVG_3M은_체크카드_몫이_아니라_그날_전체_합계로_계산한다() {
         // 9월 1일 300,000원 중 체크카드 몫은 0원(계좌 출금만)이어도 평균은 전체 합계로 낸다.
         List<DailySpending> accountOnly = real(SEP, 300_000).stream()
