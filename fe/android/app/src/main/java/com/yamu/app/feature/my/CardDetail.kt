@@ -62,6 +62,7 @@ import com.yamu.app.feature.link.data.CardValidation
 import com.yamu.app.feature.link.data.LinkRepository
 import com.yamu.app.feature.link.data.cardErrorMessage
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -106,11 +107,13 @@ class CardDetailViewModel @Inject constructor(
     private val _state = MutableStateFlow(CardDetailState())
     val state: StateFlow<CardDetailState> = _state.asStateFlow()
     val stepUp = stepUpFactory.create(viewModelScope)
+    private var loadJob: Job? = null
 
     /** 화면에 돌아올 때마다 — 다른 기기에서 바꾼 값이 보이게. 저장 중이면 그 응답을 기다린다 */
     fun load() {
         if (_state.value.saving) return
-        viewModelScope.launch {
+        loadJob?.cancel()
+        loadJob = viewModelScope.launch {
             _state.update { it.copy(loading = it.card == null, error = null) }
             val overview = async { link.linkedOverview() }
             val detail = link.cardDetail(userCardId)
@@ -155,7 +158,8 @@ class CardDetailViewModel @Inject constructor(
     private fun save(optimistic: (CardInfo) -> CardInfo, done: () -> String? = { null }, call: suspend () -> ApiResult<CardInfo>) {
         val before = _state.value.card ?: return
         if (_state.value.saving) return
-        _state.update { it.copy(saving = true, card = optimistic(before)) }
+        loadJob?.cancel()   // 저장 전에 읽은 값이 늦게 와서 방금 저장한 값을 덮지 않게
+        _state.update { it.copy(saving = true, loading = false, card = optimistic(before)) }
         viewModelScope.launch {
             when (val r = call()) {
                 is ApiResult.Success -> _state.update { it.copy(saving = false, card = r.data, message = done()) }

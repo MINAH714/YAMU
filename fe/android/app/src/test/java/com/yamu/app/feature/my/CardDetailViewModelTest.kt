@@ -21,6 +21,7 @@ import com.yamu.app.feature.link.data.LinkedCard
 import com.yamu.app.feature.link.data.LinkedOverview
 import com.yamu.app.feature.link.data.RegisteredCard
 import com.yamu.app.feature.link.data.brandOf
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
@@ -178,6 +179,22 @@ class CardDetailViewModelTest {
         assertEquals("자동 선택에서 빼면서 기본 카드 지정도 풀었어요", vm.state.value.message)
     }
 
+    @Test fun `저장을 시작하면 진행 중인 읽기는 버린다 — 늦게 와서 저장한 값을 덮으면 안 된다`() = runTest(dispatcher) {
+        val vm = detail()
+        val gate = CompletableDeferred<Unit>()
+        link.detailGate = gate
+        vm.load()
+        advanceUntilIdle()
+        link.updateResult = ApiResult.Success(CARD.copy(isDefault = true))
+        vm.setDefault(true)
+        advanceUntilIdle()
+        assertTrue(vm.state.value.card!!.isDefault)
+        gate.complete(Unit)
+        advanceUntilIdle()
+        assertTrue(vm.state.value.card!!.isDefault)
+        assertFalse(vm.state.value.loading)
+    }
+
     @Test fun `저장 중 다른 기기에서 해제됐으면 이미 해제로`() = runTest(dispatcher) {
         link.updateResult = ApiResult.Failure(ApiError.Conflict("CARD_UNREGISTERED"))
         val vm = detail()
@@ -274,6 +291,7 @@ class CardDetailViewModelTest {
         var unregisterResult: ApiResult<Unit> = ApiResult.Success(Unit)
         var cards = listOf(linkedCard(1), linkedCard(2), linkedCard(3))
         var overviewResult: ApiResult<LinkedOverview>? = null
+        var detailGate: CompletableDeferred<Unit>? = null
         val updates = mutableListOf<Update>()
         var detailReads = 0
         var unregisters = 0
@@ -281,7 +299,9 @@ class CardDetailViewModelTest {
 
         override suspend fun cardDetail(userCardId: Long): ApiResult<CardInfo> {
             detailReads++
-            return detailResult
+            val result = detailResult
+            detailGate?.await()
+            return result
         }
 
         override suspend fun updateCard(userCardId: Long, nickname: String?, recommended: Boolean?, isDefault: Boolean?): ApiResult<CardInfo> {
