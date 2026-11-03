@@ -19,7 +19,8 @@ const kstTime = new Intl.DateTimeFormat('ko-KR', {
 })
 
 /**
- * 최종 결과 화면. 거절 사유는 고객 앱에서 보므로 POS에는 띄우지 않는다.
+ * 최종 결과 화면. 거절이면 서버가 준 사유(failure.message)를 띄운다.
+ * 이 문구는 사유별 기본 문구라 잔액 같은 고객 정보가 들어 있지 않다(BE PosPaymentResult.Failure).
  * 주문 메뉴 줄은 FE 담당 작업(메뉴 입력)에서 더한다.
  */
 export function Receipt({ result, onNext, onRetry }: Props) {
@@ -76,7 +77,7 @@ export function Receipt({ result, onNext, onRetry }: Props) {
         <StatusScreen
           tone="failed"
           title="결제에 실패했습니다."
-          description="고객 앱에서 실패 사유를 확인해 주세요."
+          description={result.failure?.message ?? '고객 앱에서 실패 사유를 확인해 주세요.'}
           rows={base}
           action={{ label: '다시 결제', onClick: onRetry }}
         />
