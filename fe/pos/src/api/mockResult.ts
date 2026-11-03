@@ -71,7 +71,7 @@ export function applyMockAction(paymentId: number, action: MockAction) {
   payment.result = {
     ...result,
     status: 'DECLINED',
-    failure: { code: 'INSUFFICIENT_BALANCE', message: '잔액이 부족합니다.' },
+    failure: { code: 'INSUFFICIENT_BALANCE', message: '잔액 부족으로 결제가 거절됐습니다.' },
     retryable: action === 'decline',
   }
 }
