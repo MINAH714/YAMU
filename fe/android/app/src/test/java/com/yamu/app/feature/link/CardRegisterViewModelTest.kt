@@ -13,6 +13,7 @@ import com.yamu.app.feature.auth.data.StepUpPurpose
 import com.yamu.app.feature.auth.data.StepUpToken
 import com.yamu.app.feature.link.data.AccountLinkResult
 import com.yamu.app.feature.link.data.AccountRef
+import com.yamu.app.feature.link.data.CardInfo
 import com.yamu.app.feature.link.data.CardLookup
 import com.yamu.app.feature.link.data.IssuerAccount
 import com.yamu.app.feature.link.data.LinkRepository
@@ -416,6 +417,10 @@ class CardRegisterViewModelTest {
             overviewLoads++
             return overviewResult
         }
+        override suspend fun cardDetail(userCardId: Long): ApiResult<CardInfo> = error("안 씀")
+        override suspend fun updateCard(userCardId: Long, nickname: String?, recommended: Boolean?, isDefault: Boolean?): ApiResult<CardInfo> = error("안 씀")
+        override suspend fun saveCardOrder(userCardIds: List<Long>): ApiResult<Unit> = error("안 씀")
+        override suspend fun unregisterCard(userCardId: Long, stepUpToken: String): ApiResult<Unit> = error("안 씀")
     }
 
     private companion object {

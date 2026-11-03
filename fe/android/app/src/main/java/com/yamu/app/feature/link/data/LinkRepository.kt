@@ -4,6 +4,7 @@ import com.yamu.app.core.network.ApiEnvelope
 import com.yamu.app.core.network.ApiResult
 import com.yamu.app.core.network.YamuHeaders
 import com.yamu.app.core.network.apiCall
+import com.yamu.app.core.network.apiCallNoData
 import com.yamu.app.core.network.map
 import com.yamu.app.feature.auth.data.AccountCandidate
 import com.yamu.app.feature.auth.data.AccountCandidatesResponse
@@ -14,12 +15,17 @@ import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
+import kotlinx.serialization.json.JsonElement
 import retrofit2.Response
 import retrofit2.Retrofit
 import retrofit2.http.Body
+import retrofit2.http.DELETE
 import retrofit2.http.GET
 import retrofit2.http.Header
+import retrofit2.http.PATCH
 import retrofit2.http.POST
+import retrofit2.http.PUT
+import retrofit2.http.Path
 import retrofit2.http.Query
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -52,6 +58,22 @@ interface LinkApi {
     /** #7 */
     @GET("cards")
     suspend fun cards(): Response<ApiEnvelope<CardsResponse>>
+
+    @GET("cards/{id}")
+    suspend fun card(@Path("id") userCardId: Long): Response<ApiEnvelope<CardDetailDto>>
+
+    @PATCH("cards/{id}")
+    suspend fun updateCard(@Path("id") userCardId: Long, @Body body: CardUpdateRequest): Response<ApiEnvelope<CardDetailDto>>
+
+    @PUT("cards/order")
+    suspend fun saveCardOrder(@Body body: CardOrderRequest): Response<ApiEnvelope<JsonElement>>
+
+    /** 204 — 행은 남고 UNREGISTERED로 바뀐다 */
+    @DELETE("cards/{id}")
+    suspend fun unregisterCard(
+        @Header(YamuHeaders.STEP_UP_TOKEN) stepUpToken: String,   // CARD_DELETE
+        @Path("id") userCardId: Long,
+    ): Response<ApiEnvelope<JsonElement>>
 }
 
 interface LinkRepository {
@@ -69,6 +91,18 @@ interface LinkRepository {
 
     /** 연결된 계좌(잔액 — 금융망) · 카드 */
     suspend fun linkedOverview(refresh: Boolean = false): ApiResult<LinkedOverview>
+
+    /** 내 카드 한 장. 없거나 해제한 카드 · 남의 카드는 404 */
+    suspend fun cardDetail(userCardId: Long): ApiResult<CardInfo>
+
+    /** 넘긴 값만 바꾸고 바뀐 카드를 돌려준다. [nickname] ""은 별칭 지우기. 기본 카드를 추천에서 빼면 기본 지정도 풀린다 */
+    suspend fun updateCard(userCardId: Long, nickname: String? = null, recommended: Boolean? = null, isDefault: Boolean? = null): ApiResult<CardInfo>
+
+    /** 등록된 카드 전체의 순서. 그 사이 카드가 바뀌었으면 ORDER_INCOMPLETE */
+    suspend fun saveCardOrder(userCardIds: List<Long>): ApiResult<Unit>
+
+    /** 카드 해제 · 본인 인증 토큰(CARD_DELETE) 필요 */
+    suspend fun unregisterCard(userCardId: Long, stepUpToken: String): ApiResult<Unit>
 }
 
 @Singleton
@@ -101,6 +135,17 @@ class LinkRepositoryImpl @Inject constructor(private val api: LinkApi) : LinkRep
             }
         }
     }
+
+    override suspend fun cardDetail(userCardId: Long): ApiResult<CardInfo> = apiCall { api.card(userCardId) }.map { it.toInfo() }
+
+    override suspend fun updateCard(userCardId: Long, nickname: String?, recommended: Boolean?, isDefault: Boolean?): ApiResult<CardInfo> {
+        val status = recommended?.let { if (it) "ACTIVE" else "INACTIVE" }
+        return apiCall { api.updateCard(userCardId, CardUpdateRequest(nickname, status, isDefault)) }.map { it.toInfo() }
+    }
+
+    override suspend fun saveCardOrder(userCardIds: List<Long>): ApiResult<Unit> = apiCallNoData { api.saveCardOrder(CardOrderRequest(userCardIds)) }
+
+    override suspend fun unregisterCard(userCardId: Long, stepUpToken: String): ApiResult<Unit> = apiCallNoData { api.unregisterCard(stepUpToken, userCardId) }
 }
 
 @Module

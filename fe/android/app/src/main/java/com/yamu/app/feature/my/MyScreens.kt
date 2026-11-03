@@ -9,6 +9,7 @@ import android.content.Intent
 import android.provider.Settings
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -70,6 +71,7 @@ import com.yamu.app.BuildConfig
 import com.yamu.app.core.designsystem.component.EmptyState
 import com.yamu.app.core.designsystem.component.ErrorState
 import com.yamu.app.core.designsystem.component.FlowScreen
+import com.yamu.app.core.designsystem.component.LinkButton
 import com.yamu.app.core.designsystem.component.ListRow
 import com.yamu.app.core.designsystem.component.SkeletonBlock
 import com.yamu.app.core.designsystem.component.StatusTag
@@ -121,13 +123,13 @@ internal val TapRowHeight = 64.dp
 
 /** 설정 목록 묶음 이름 — '결제' · '알림 종류' */
 @Composable
-internal fun SectionLabel(text: String, first: Boolean = false) {
+internal fun SectionLabel(text: String, first: Boolean = false, modifier: Modifier = Modifier) {
     Text(
         text,
         style = YamuTheme.typography.sub.copy(fontWeight = FontWeight.SemiBold),
         color = YamuTheme.colors.text3,
         // 묶음 사이는 28dp(프로토타입 .grp + .grp 12 + 라벨 위 16), 화면 첫 라벨만 16
-        modifier = Modifier.padding(top = if (first) YamuSpacing.x4 else 28.dp, bottom = YamuSpacing.x1),
+        modifier = modifier.padding(top = if (first) YamuSpacing.x4 else 28.dp, bottom = YamuSpacing.x1),
     )
 }
 
@@ -353,7 +355,13 @@ class CardManageViewModel @Inject constructor(private val my: MyRepository, priv
 }
 
 @Composable
-fun CardManageRoute(onBack: () -> Unit, onAddCard: () -> Unit, viewModel: CardManageViewModel = hiltViewModel()) {
+fun CardManageRoute(
+    onBack: () -> Unit,
+    onAddCard: () -> Unit,
+    onCardDetail: (userCardId: Long) -> Unit,
+    onCardOrder: () -> Unit,
+    viewModel: CardManageViewModel = hiltViewModel(),
+) {
     val s by viewModel.state.collectAsStateWithLifecycle()
     LifecycleResumeEffect(Unit) {
         viewModel.load()   // 카드 추가에서 돌아오면 새 카드가 보이게
@@ -399,14 +407,19 @@ fun CardManageRoute(onBack: () -> Unit, onAddCard: () -> Unit, viewModel: CardMa
                 else -> {
                     SectionLabel("결제", first = true)
                     s.autoSelect?.let { on -> SwitchRow("결제 카드 자동 선택", checked = on, onToggle = ::toggle, sub = "혜택이 가장 큰 카드로 결제") }
-                    SectionLabel("내 카드 ${s.cards.size}장")
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        SectionLabel("내 카드 ${s.cards.size}장", modifier = Modifier.alignByBaseline())
+                        if (s.cards.size > 1) LinkButton("순서 바꾸기", onClick = onCardOrder, modifier = Modifier.alignByBaseline())
+                    }
                     if (s.cards.isEmpty()) EmptyState("연결한 카드가 없어요", actionText = "카드 추가", onAction = onAddCard)
                     s.cards.forEach { card ->
                         ListRow(
-                            title = card.productName,
+                            title = card.displayName,
                             lead = { CardListThumb(card.brand, card.productName) },
                             titleTag = if (card.stateLabel != null || card.isDefault) ({ StatusTag(card.stateLabel ?: "기본") }) else null,
                             minHeight = 72.dp,
+                            chevron = true,
+                            onClick = { onCardDetail(card.userCardId) },
                         )
                     }
                 }

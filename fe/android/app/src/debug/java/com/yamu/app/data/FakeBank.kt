@@ -11,6 +11,7 @@ import com.yamu.app.feature.auth.data.AccountCandidate
 import com.yamu.app.feature.link.data.AccountLinkResult
 import com.yamu.app.feature.link.data.AccountRef
 import com.yamu.app.feature.link.data.BillLine
+import com.yamu.app.feature.link.data.CardInfo
 import com.yamu.app.feature.link.data.CardLookup
 import com.yamu.app.feature.link.data.CashflowCandidate
 import com.yamu.app.feature.link.data.CashflowDraft
@@ -21,12 +22,15 @@ import com.yamu.app.feature.link.data.LinkRepository
 import com.yamu.app.feature.link.data.LinkedAccount
 import com.yamu.app.feature.link.data.LinkedCard
 import com.yamu.app.feature.link.data.LinkedOverview
+import com.yamu.app.feature.link.data.NextWithdrawal
 import com.yamu.app.feature.link.data.RegisteredCard
 import com.yamu.app.feature.link.data.brandOf
+import com.yamu.app.feature.link.data.cardStateLabel
 import kotlinx.coroutines.delay
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import java.time.Instant
+import java.time.LocalDate
 import java.time.OffsetDateTime
 import java.time.YearMonth
 import java.time.temporal.ChronoUnit
@@ -38,7 +42,8 @@ import javax.inject.Singleton
  * 앱을 다시 켜면 '초기 설정 끝' 여부로 다시 채운다.
  *
  * 시험값(카드 번호 9410 0000 0000 + 끝 4자리): 아래 [cards]의 끝자리는 내 카드 · 0001 카드사 만료 · 0002 카드사 정지 ·
- * 0003 이미 등록 · 그 밖은 없는 카드. 5096 Mr.Life는 결제 계좌(신한 ·5678)를 먼저 연결해야 한다. 등록 단계 오류는 디버그 메뉴 '연결 상태'
+ * 0003 이미 등록 · 그 밖은 없는 카드. 5096 Mr.Life는 결제 계좌(신한 ·5678)를 먼저 연결해야 한다. 등록 단계 오류는 디버그 메뉴 '연결 상태'.
+ * 7782 LOCA LIKIT은 출금 전 청구가 있어 해제할 수 없다.
  */
 @Singleton
 class FakeBank @Inject constructor(private val sessionStore: SessionStore) {
@@ -85,6 +90,10 @@ class FakeBank @Inject constructor(private val sessionStore: SessionStore) {
     private var candidateGeneration = 0
     private var candidateExpiryServed = false
     private val linkResults = mutableMapOf<String, Pair<List<String>, AccountLinkResult>>()   // 멱등 키 → 처음 요청 · 결과
+    private val nicknames = mutableMapOf<String, String>()
+    private val excluded = mutableSetOf<String>()     // 자동 선택에서 뺀 카드
+    private var defaultCard: String? = "C2"
+    private var order: List<String> = emptyList()     // 저장한 카드 순서(assetId)
     private var loaded = false
     private val linkedAt = OffsetDateTime.now(KST).truncatedTo(ChronoUnit.MINUTES).toString()
 
@@ -112,6 +121,10 @@ class FakeBank @Inject constructor(private val sessionStore: SessionStore) {
         tokens.clear()
         linkResults.clear()
         candidateExpiryServed = false
+        nicknames.clear()
+        excluded.clear()
+        defaultCard = "C2"
+        order = emptyList()
     }
 
     private fun account(id: String) = accounts.first { it.assetId == id }
@@ -230,10 +243,92 @@ class FakeBank @Inject constructor(private val sessionStore: SessionStore) {
         val acc = accounts.filter { it.assetId in linked }.mapIndexed { i, a ->
             LinkedAccount(i + 1L, brandOf(a.bank), a.name, a.last4, a.balance, linkedAt, isPrimary = i == 0)
         }
-        val crd = cards.filter { it.assetId in linked }.map { c ->
-            LinkedCard(cards.indexOf(c) + 11L, c.brand(), c.product, c.check, c.last4, c.paymentDay, c.recognized, YearMonth.now(KST).toString(), isDefault = c.assetId == "C2")
+        val crd = linkedCards().map { c ->
+            LinkedCard(
+                c.userCardId(), c.brand(), c.product, c.check, c.last4, c.paymentDay, c.recognized, YearMonth.now(KST).toString(),
+                isDefault = c.assetId == defaultCard,
+                stateLabel = cardStateLabel(if (c.assetId in excluded) "INACTIVE" else "ACTIVE", "NORMAL"),
+                nickname = nicknames[c.assetId],
+                recommended = c.assetId !in excluded,
+            )
         }
         return ApiResult.Success(LinkedOverview(acc, crd, linkedAt))
+    }
+
+    private fun Card.userCardId() = cards.indexOf(this) + 11L
+
+    /** 저장한 순서가 먼저, 나중에 등록한 카드는 뒤에 */
+    private fun linkedCards(): List<Card> =
+        cards.filter { it.assetId in linked }.sortedBy { c -> order.indexOf(c.assetId).takeIf { it >= 0 } ?: Int.MAX_VALUE }
+
+    private fun linkedCard(userCardId: Long): Card? = cards.firstOrNull { it.userCardId() == userCardId && it.assetId in linked }
+
+    private fun Card.toInfo(): CardInfo {
+        val account = account(accountId)
+        return CardInfo(
+            userCardId = userCardId(),
+            brand = brand(),
+            nickname = nicknames[assetId],
+            productName = product,
+            isCheck = check,
+            last4 = last4,
+            recommended = assetId !in excluded,
+            stateLabel = cardStateLabel(if (assetId in excluded) "INACTIVE" else "ACTIVE", "NORMAL"),
+            issuerBlocked = false,
+            isDefault = assetId == defaultCard,
+            paymentDay = paymentDay,
+            settlementAccountId = if (check) null else accounts.filter { it.assetId in linked }.indexOf(account).takeIf { it >= 0 }?.let { it + 1L },
+            checkAccountLabel = if (check) "${account.bank} ·${account.last4}" else null,
+            nextWithdrawal = if (assetId == "C3") NextWithdrawal(recognized, LocalDate.now(KST).plusDays(10)) else null,
+            hasOpenBill = assetId == "C3",
+        )
+    }
+
+    suspend fun cardDetail(userCardId: Long): ApiResult<CardInfo> {
+        ensureLoaded()
+        delay(300)
+        return linkedCard(userCardId)?.let { ApiResult.Success(it.toInfo()) } ?: ApiResult.Failure(ApiError.NotFound("RESOURCE_NOT_FOUND"))
+    }
+
+    /** BE CardManagementService.update와 같게 — 추천에서 빼면 기본 지정이 풀리고, 빠진 카드는 기본이 될 수 없다 */
+    suspend fun updateCard(userCardId: Long, nickname: String?, recommended: Boolean?, isDefault: Boolean?): ApiResult<CardInfo> {
+        delay(300)
+        val card = linkedCard(userCardId) ?: return ApiResult.Failure(ApiError.NotFound("RESOURCE_NOT_FOUND"))
+        val staysExcluded = recommended?.not() ?: (card.assetId in excluded)
+        if (isDefault == true && staysExcluded) return ApiResult.Failure(ApiError.InvalidRequest("INVALID_REQUEST"))
+        nickname?.let { if (it.isBlank()) nicknames.remove(card.assetId) else nicknames[card.assetId] = it.trim() }
+        recommended?.let {
+            if (it) {
+                excluded -= card.assetId
+            } else {
+                excluded += card.assetId
+                if (defaultCard == card.assetId) defaultCard = null
+            }
+        }
+        isDefault?.let { if (it) defaultCard = card.assetId else if (defaultCard == card.assetId) defaultCard = null }
+        return ApiResult.Success(card.toInfo())
+    }
+
+    /** 카드 전체를 한 번씩 보내야 한다 */
+    suspend fun saveCardOrder(userCardIds: List<Long>): ApiResult<Unit> {
+        delay(300)
+        val current = linkedCards()
+        if (userCardIds.size != current.size || userCardIds.toSet() != current.map { it.userCardId() }.toSet()) {
+            return ApiResult.Failure(ApiError.InvalidRequest("ORDER_INCOMPLETE"))
+        }
+        order = userCardIds.map { id -> current.first { it.userCardId() == id }.assetId }
+        return ApiResult.Success(Unit)
+    }
+
+    suspend fun unregisterCard(userCardId: Long): ApiResult<Unit> {
+        delay(500)
+        val card = linkedCard(userCardId) ?: return ApiResult.Failure(ApiError.NotFound("RESOURCE_NOT_FOUND"))
+        if (card.assetId == "C3") return ApiResult.Failure(ApiError.Conflict("CARD_HAS_OPEN_BILL"))
+        linked -= card.assetId
+        if (defaultCard == card.assetId) defaultCard = null
+        nicknames.remove(card.assetId)
+        excluded -= card.assetId
+        return ApiResult.Success(Unit)
     }
 
     private fun verificationFailed(reason: String): ApiResult<Nothing> =
@@ -252,6 +347,10 @@ class FakeLinkRepository @Inject constructor(private val bank: FakeBank) : LinkR
     override suspend fun accountCandidates() = withFault { bank.candidates() }
     override suspend fun linkAccounts(candidateIds: List<String>, idempotencyKey: String, stepUpToken: String) = bank.linkAccounts(candidateIds, idempotencyKey)
     override suspend fun linkedOverview(refresh: Boolean) = withFault(empty = { ApiResult.Success(LinkedOverview(emptyList(), emptyList(), null)) }) { bank.overview() }
+    override suspend fun cardDetail(userCardId: Long) = withFault { bank.cardDetail(userCardId) }
+    override suspend fun updateCard(userCardId: Long, nickname: String?, recommended: Boolean?, isDefault: Boolean?) = withFault { bank.updateCard(userCardId, nickname, recommended, isDefault) }
+    override suspend fun saveCardOrder(userCardIds: List<Long>) = withFault { bank.saveCardOrder(userCardIds) }
+    override suspend fun unregisterCard(userCardId: Long, stepUpToken: String) = withFault { bank.unregisterCard(userCardId) }
 }
 
 /** debug 전용 가짜 월급 · 고정 지출 — 프로토타입 B-06 숫자(월급 10일 2,800,000 · 월세 · 통신비 · 구독료 + 신한카드 대금) */
