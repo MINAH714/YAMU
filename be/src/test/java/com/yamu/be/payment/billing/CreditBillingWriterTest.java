@@ -9,6 +9,8 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.yamu.be.global.exception.BusinessException;
+import com.yamu.be.global.exception.ErrorCode;
 import com.yamu.be.payment.billing.InstallmentPlan.Installment;
 import com.yamu.be.support.WeekdayCalendar;
 import java.sql.SQLIntegrityConstraintViolationException;
@@ -21,7 +23,7 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.transaction.PlatformTransactionManager;
 
-/** 청구서 확보: 같은 달 동시 생성 충돌만 다시 읽고, 이용기간이 끝난 청구서에는 회차를 붙이지 않는다. */
+/** 청구서 확보: 같은 달 동시 생성 충돌만 다시 읽고, 이용기간이 끝난 청구서에는 회차를 붙이지 않는다(422 BILL_CLOSED). */
 class CreditBillingWriterTest {
 
     static final long USER = 7L;
@@ -73,7 +75,7 @@ class CreditBillingWriterTest {
         when(bills.findByUserCardIdAndBillingMonth(CARD, november)).thenReturn(Optional.of(confirmed));
 
         assertThatThrownBy(() -> writer.ensureBills(USER, CARD, plan))
-                .isInstanceOf(IllegalStateException.class);
+                .isInstanceOfSatisfying(BusinessException.class, CreditBillingWriterTest::billClosed);
 
         verify(bills, never()).saveAndFlush(any());
     }
@@ -89,7 +91,12 @@ class CreditBillingWriterTest {
                 "Duplicate entry '22-2026-11-01' for key 'card_bill.uk_bill_card_month'"));
 
         assertThatThrownBy(() -> writer.ensureBills(USER, CARD, plan))
-                .isInstanceOf(IllegalStateException.class);
+                .isInstanceOfSatisfying(BusinessException.class, CreditBillingWriterTest::billClosed);
+    }
+
+    private static void billClosed(BusinessException e) {
+        assertThat(e.getErrorCode()).isEqualTo(ErrorCode.DATA_INSUFFICIENT);
+        assertThat(e.getDetails()).containsEntry("reason", "BILL_CLOSED");
     }
 
     private static DataIntegrityViolationException violation(String message) {

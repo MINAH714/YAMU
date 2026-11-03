@@ -1,5 +1,7 @@
 package com.yamu.be.payment.billing;
 
+import com.yamu.be.global.exception.BusinessException;
+import com.yamu.be.global.exception.ErrorCode;
 import com.yamu.be.payment.domain.PaymentTransaction;
 import java.time.YearMonth;
 import java.util.ArrayList;
@@ -26,6 +28,8 @@ public class CreditBillingWriter {
 
     /** 같은 카드·같은 청구 월 청구서는 하나다. 이 이름의 충돌만 동시 생성으로 보고 다시 읽는다. */
     static final String CARD_MONTH_KEY = "uk_bill_card_month";
+    /** 회차를 붙일 청구서가 이미 닫혔을 때 422의 사유(임시: 명세에 없는 값) */
+    static final String BILL_CLOSED = "BILL_CLOSED";
 
     private final CardBillRepository bills;
     private final BillItemRepository items;
@@ -56,14 +60,16 @@ public class CreditBillingWriter {
 
     /**
      * 회차는 이용기간이 진행 중인 청구서에만 붙인다. 확정·출금·미납 청구서에 붙으면 확정된 청구 금액이 바뀐다.
-     * 청구 월 계산이 맞으면 일어나지 않는다(결제일 변경 미반영은 S15P31E103-205). 승인 저장 전이라 승인 서비스가 결제를
+     * 청구 월 계산이 맞으면 일어나지 않는다(결제일 변경 미반영은 S15P31E103-205). 같은 카드로는 다시 해도 계속 실패하므로
+     * 500이 아니라 422 {@code reason=BILL_CLOSED}로 알려 다른 카드를 고르게 한다. 승인 저장 전이라 승인 서비스가 결제를
      * 바로 REQUESTED로 되돌린다.
      */
     private static CardBill requireAccumulating(CardBill bill) {
         if (bill.getStatus() != BillStatus.ACCUMULATING) {
             log.error("회차를 붙일 청구서가 이용기간 진행 중이 아님, 운영 확인 cardBillId={} userCardId={} month={} status={}",
                     bill.getId(), bill.getUserCardId(), bill.getBillingMonth(), bill.getStatus());
-            throw new IllegalStateException("청구서가 이용기간 진행 중이 아닙니다 (청구서 " + bill.getId() + ")");
+            throw new BusinessException(ErrorCode.DATA_INSUFFICIENT, "이 카드의 이번 청구서가 이미 마감돼 지금은 결제할 수 없습니다.",
+                    Map.of("reason", BILL_CLOSED));
         }
         return bill;
     }

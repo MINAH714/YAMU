@@ -293,6 +293,22 @@ class PaymentApprovalServiceTest {
         verify(barcodes, never()).markUsed(anyLong());
     }
 
+    @Test
+    void 청구서가_마감돼_확보하지_못하면_되돌린_뒤_그_업무_오류로_답한다() {
+        InstallmentPlan plan = InstallmentPlan.of(15_000, 1, new BillingCycle(15, 14), LocalDate.of(2026, 10, 22),
+                new WeekdayCalendar());
+        doReturn(new ApprovalOutcome.Approved(15_000, 15_000, 0, LocalDate.of(2026, 10, 1), List.of(), null, null,
+                plan)).when(approver).approve(any());
+        BusinessException closed = new BusinessException(ErrorCode.DATA_INSUFFICIENT, Map.of("reason", "BILL_CLOSED"));
+        when(billing.ensureBills(7L, 15L, plan)).thenThrow(closed);
+
+        assertThatThrownBy(() -> service.approve(ME, PAYMENT_ID, request(null), KEY)).isSameAs(closed);
+
+        assertThat(payment.getStatus()).isEqualTo(PaymentStatus.REQUESTED);
+        verify(attempts).release(eq(PAYMENT_ID), any());
+        verify(attempts, never()).recordResult(anyLong(), any(), any());
+    }
+
     // ───────── 카드 검증 ─────────
 
     @Test

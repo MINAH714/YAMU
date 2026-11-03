@@ -474,7 +474,7 @@ class CreditApprovalIntegrationTest extends MySqlTestSupport {
     }
 
     @Test
-    void 회차를_붙일_청구서가_이미_확정됐으면_500이고_결제는_바로_REQUESTED로_되돌아가_다른_카드로_승인된다() throws Exception {
+    void 회차를_붙일_청구서가_이미_확정됐으면_422_BILL_CLOSED이고_결제는_바로_REQUESTED로_되돌아가_다른_카드로_승인된다() throws Exception {
         Cycle current = cycle().cycleFor(today());
         LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
         jdbc.update("""
@@ -486,8 +486,9 @@ class CreditApprovalIntegrationTest extends MySqlTestSupport {
         Requested requested = requested(15_000, null);
 
         approve(requested.paymentId(), UUID.randomUUID().toString(), body(creditCard))
-                .andExpect(status().isInternalServerError())
-                .andExpect(jsonPath("$.error.code").value("INTERNAL_ERROR"));
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.error.code").value("DATA_INSUFFICIENT"))
+                .andExpect(jsonPath("$.error.details.reason").value("BILL_CLOSED"));
 
         PaymentTransaction payment = payments.findById(requested.paymentId()).orElseThrow();
         assertThat(payment.getStatus()).isEqualTo(PaymentStatus.REQUESTED);

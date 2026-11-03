@@ -70,7 +70,8 @@ import org.springframework.transaction.support.TransactionTemplate;
  *    선점하지 못하면 예약을 지운다
  * ⑥ 승인 실행(PaymentApprover, DB 트랜잭션 밖. 체크카드는 금융망 출금, 신용카드는 한도 확인·청구 계획). 결과 불명은 PROCESSING에 둔 채 502,
  *    금융망에 보내지도 못했으면 REQUESTED로 되돌리고 시도를 지운다(신용카드 실행 실패도 외부로 보낸 것이 없으므로 같고, 응답은 그 오류).
- *    신용카드 승인이면 이어서 회차가 걸리는 달의 청구서를 확보한다(별도 트랜잭션). 실패해도 승인·회차는 저장 전이므로 같은 방식으로 되돌리고 500
+ *    신용카드 승인이면 이어서 회차가 걸리는 달의 청구서를 확보한다(별도 트랜잭션). 실패해도 승인·회차는 저장 전이므로 같은 방식으로 되돌리고,
+ *    청구서가 이미 마감됐으면 422(BILL_CLOSED), 그 밖은 500
  * ⑦ 실행 결과(거래 번호·출금액·응답)를 로그와 시도 기록에 먼저 남긴다
  * ⑧ tx2: APPROVED(원장 반영 포트·청구 회차 저장) 또는 DECLINED 저장
  *    → 바코드 USED → 청구 회차가 생겼으면 회차를 채운 응답으로 시도 기록을 다시 적는다 → 응답 기억(실패해도 ⑦이 있으므로 응답은 그대로)
@@ -483,8 +484,8 @@ public class PaymentApprovalService {
 
     /**
      * ⑥ 신용카드 승인이면 회차가 걸리는 달의 청구서를 확보한다(별도 트랜잭션, 같은 달은 재사용). 시도 기록보다 먼저 해서,
-     * 실패하면 승인·회차가 저장된 것이 없으므로 REQUESTED로 되돌리고 시도를 지운다(시도 횟수에 세지 않음).
-     * 남을 수 있는 것은 빈 ACCUMULATING 청구서뿐이고 다음 승인이 재사용한다. 서버가 여기서 죽으면 PROCESSING에 남고,
+     * 실패하면 승인·회차가 저장된 것이 없으므로 REQUESTED로 되돌리고 시도를 지운다(시도 횟수에 세지 않음). 업무 오류(청구서 마감
+     * 422)는 그 오류로, 나머지는 500으로 답한다. 남을 수 있는 것은 빈 ACCUMULATING 청구서뿐이고 다음 승인이 재사용한다. 서버가 여기서 죽으면 PROCESSING에 남고,
      * 요청 번호가 없으므로 복구가 유예 뒤 REQUESTED로 되돌린다.
      */
     private Map<YearMonth, CardBill> ensureBills(Long paymentId, Long userId, Selection selection,
@@ -498,7 +499,7 @@ public class PaymentApprovalService {
             releaseApproval(paymentId);
             release(paymentId, attempt);
             log.warn("청구서를 확보하지 못해 승인 전으로 되돌림 paymentId={} attempt={}", paymentId, attempt.no(), e);
-            throw new BusinessException(ErrorCode.INTERNAL_ERROR);
+            throw e instanceof BusinessException business ? business : new BusinessException(ErrorCode.INTERNAL_ERROR);
         }
     }
 
