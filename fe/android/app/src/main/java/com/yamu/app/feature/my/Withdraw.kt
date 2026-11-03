@@ -1,5 +1,6 @@
 package com.yamu.app.feature.my
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -133,10 +134,12 @@ fun WithdrawRoute(
     StepUpEffect(viewModel.stepUp, onOpenPinPad)
     LaunchedEffect(stepUpUi) { viewModel.onStepUpIdle() }
     LaunchedEffect(s.done) { if (s.done) onWithdrawn() }
+    // 요청 중에 나가면 ViewModel과 함께 요청이 취소돼 탈퇴가 끝났는지 알 수 없다
+    BackHandler(enabled = s.working) { }
     val c = YamuTheme.colors
     FlowScreen(
         title = "회원 탈퇴",
-        onBack = onBack,
+        onBack = { if (!s.working) onBack() },
         bottomBar = {
             BottomCta {
                 PrimaryButton("탈퇴하기", onClick = viewModel::withdraw, enabled = s.confirmed, loading = s.working)
