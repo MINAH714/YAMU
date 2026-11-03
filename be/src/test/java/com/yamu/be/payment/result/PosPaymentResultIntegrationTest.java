@@ -14,11 +14,11 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jayway.jsonpath.JsonPath;
 import com.yamu.be.global.exception.BusinessException;
 import com.yamu.be.global.exception.ErrorCode;
+import com.yamu.be.payment.approve.ApprovalCommand;
 import com.yamu.be.payment.approve.ApprovalNumbers;
 import com.yamu.be.payment.approve.ApprovalOutcome;
 import com.yamu.be.payment.approve.FailureCode;
 import com.yamu.be.payment.approve.PaymentApprover;
-import com.yamu.be.payment.approve.TemporaryCreditCardApprover;
 import com.yamu.be.payment.barcode.Barcode;
 import com.yamu.be.payment.barcode.BarcodeStatus;
 import com.yamu.be.payment.barcode.BarcodeStore;
@@ -34,6 +34,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.HashMap;
 import java.util.List;
@@ -76,7 +77,7 @@ class PosPaymentResultIntegrationTest extends MySqlTestSupport {
     static final String POS_KEY = "test-pos-key";
     static final String POS_CODE = "POS-TEST-CAFE";
     static final Duration RETENTION = Duration.ofMinutes(10);
-    static final TemporaryCreditCardApprover TEMPORARY = new TemporaryCreditCardApprover();
+    static final ZoneId KST = ZoneId.of("Asia/Seoul");
 
     @Container
     @ServiceConnection(name = "redis")
@@ -129,7 +130,18 @@ class PosPaymentResultIntegrationTest extends MySqlTestSupport {
         checkCard = fixtures.card(user, checkProduct, account, "ACTIVE");
         thirdCard = fixtures.card(user, creditProduct, account, "ACTIVE");
         cafe = merchant("테스트 카페", "TEST_CAFE", "COFFEE_SHOP");
-        when(approver.approve(any())).thenAnswer(inv -> TEMPORARY.approve(inv.getArgument(0)));
+        when(approver.approve(any())).thenAnswer(inv -> approvedLike(inv.getArgument(0)));
+    }
+
+    /**
+     * 혜택 0원 승인과 같은 모양: 승인액 = 원금, 실적 0, 청구 계획 없음. 결과 조회는 회차를 보지 않으므로 신용카드도 회차 없이 승인한다.
+     * (Task 5.2.4에서 없어진 임시 신용 승인과 같은 값)
+     */
+    static ApprovalOutcome.Approved approvedLike(ApprovalCommand command) {
+        long amount = command.terms().amount();
+        LocalDate month = command.now().atOffset(ZoneOffset.UTC).atZoneSameInstant(KST).toLocalDate()
+                .withDayOfMonth(1);
+        return new ApprovalOutcome.Approved(amount, amount, 0, month, List.of(), null, null, null);
     }
 
     // ───────── 상태별 응답 ─────────
@@ -196,7 +208,7 @@ class PosPaymentResultIntegrationTest extends MySqlTestSupport {
     void 즉시할인이_있으면_영수증_금액은_승인액이고_할인은_요청액과의_차이다() throws Exception {
         Requested requested = requested(15_000, null, null);
         doReturn(new ApprovalOutcome.Approved(13_000, 13_000, 13_000, LocalDate.now(ZoneOffset.UTC).withDayOfMonth(1),
-                List.of(), null, null)).when(approver).approve(any());
+                List.of(), null, null, null)).when(approver).approve(any());
         approve(requested.paymentId(), checkCard).andExpect(status().isOk());
 
         result(POS_KEY, requested.paymentId(), POS_CODE)
