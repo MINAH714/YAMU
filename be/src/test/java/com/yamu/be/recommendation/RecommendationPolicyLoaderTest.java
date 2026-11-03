@@ -22,7 +22,9 @@ class RecommendationPolicyLoaderTest {
     TierLimitRepository tiers = mock(TierLimitRepository.class);
     MonthlyLimitUsageRepository monthly = mock(MonthlyLimitUsageRepository.class);
     PaymentLimitUsageRepository daily = mock(PaymentLimitUsageRepository.class);
-    RecommendationPolicyLoader loader = new RecommendationPolicyLoader(benefits, targets, links, groups, tiers, monthly, daily);
+    RecommendationPolicyLoader loader = new RecommendationPolicyLoader(benefits, targets, links, groups, tiers, monthly, daily,
+            mock(BenefitTargetGroupRepository.class), mock(BenefitTargetGroupMemberRepository.class),
+            mock(BenefitApplicationGroupRepository.class), mock(BenefitApplicationMemberRepository.class), mock(PurchaseItemRepository.class));
 
     @Test
     void batchesSharedProductsAndGroupsAndQueriesOnlyTheCorrespondingPeriod() {

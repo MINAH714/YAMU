@@ -31,13 +31,14 @@ public class RecommendationService {
     private final CardActivityReader activity;
     private final RecommendationPerformanceAssembler performance;
     private final RecommendationRecognitionResolver recognitionResolver;
+    private final PurchaseItemReader purchaseItems;
     private final TransactionTemplate read;
     private final RecommendationSelector selector = new RecommendationSelector();
 
     public RecommendationService(UserCardRepository cards, CardProductRepository products,
             RecommendationPolicyLoader policies, RecommendationInputAssembler assembler,
             CardActivityReader activity, RecommendationPerformanceAssembler performance,
-            RecommendationRecognitionResolver recognitionResolver,
+            RecommendationRecognitionResolver recognitionResolver, PurchaseItemReader purchaseItems,
             PlatformTransactionManager transactions) {
         this.cards = cards;
         this.products = products;
@@ -46,6 +47,7 @@ public class RecommendationService {
         this.activity = activity;
         this.performance = performance;
         this.recognitionResolver = recognitionResolver;
+        this.purchaseItems = purchaseItems;
         read = new TransactionTemplate(transactions);
         read.setReadOnly(true);
         // 호출 측 승인 트랜잭션을 읽기 실패로 rollback-only 상태로 만들지 않는다.
@@ -53,7 +55,9 @@ public class RecommendationService {
     }
 
     /** 결과 변환에서 재사용할 표시 정보만 남긴다. 암호문·해시는 반환하지 않는다. */
-    public record CardContext(long cardProductId, String productName, String alias, String last4) { }
+    public record CardContext(long cardProductId, String productName, String alias, String last4,
+                              com.yamu.be.card.domain.CardType cardType, String issuerCode, boolean defaultCard,
+                              Map<Long, String> benefitTiming) { }
 
     public record Result(RecommendationSelector.Result recommendation, List<RecommendationDataIssue> issues,
                          Map<Long, CardContext> cards) {
@@ -165,6 +169,9 @@ public class RecommendationService {
         if (!ownedIds.containsAll(command.availability().keySet())) {
             throw new IllegalArgumentException("조회된 사용자 등록 카드 외의 결제 가능 판정을 전달할 수 없습니다.");
         }
+        loaded.stage = "PURCHASE_ITEM";
+        loaded.affectedCardIds = loaded.cards.stream().map(UserCard::getId).toList();
+        purchaseItems.validateStored(command.transaction().purchaseItemCode());
         // 상품을 inner join해서 상품 누락 카드가 사라지지 않게 한다.
         var ids = loaded.cards.stream().map(UserCard::getCardProductId).distinct().toList();
         loaded.stage = "PRODUCT_BATCH";
@@ -181,6 +188,8 @@ public class RecommendationService {
         loaded.stage = "POLICY_AND_USAGE_BATCH";
         loaded.affectedCardIds = eligible.stream().map(UserCard::getId).toList();
         var data = policies.load(command.userId(), eligible, date);
+        data.benefits().stream().filter(b -> b.getApplicationTiming() != null)
+                .forEach(b -> loaded.benefitTiming.put(b.getId(), b.getApplicationTiming()));
         // min_performance_amount의 저장 의미는 '최소 전월 실적'이다. 서버 현재 월은 사용하지 않는다.
         // 이 자료를 읽어도 약관 확인 완료가 되는 것은 아니며 complete=false로 전달한다.
         var priorIds = eligible.stream().filter(c -> data.benefits().stream().anyMatch(b ->
@@ -257,7 +266,8 @@ public class RecommendationService {
         for (var card : loaded.cards) {
             var product = loaded.products.get(card.getCardProductId());
             result.put(card.getId(), new CardContext(card.getCardProductId(), product == null ? null : product.getProductName(),
-                    card.getCardAlias(), card.getCardLast4()));
+                    card.getCardAlias(), card.getCardLast4(), product == null ? null : product.getCardType(),
+                    product == null ? null : product.getIssuerCode(), card.isDefaultCard(), Map.copyOf(loaded.benefitTiming)));
         }
         return result;
     }
@@ -269,6 +279,7 @@ public class RecommendationService {
         private Map<Long, CardProduct> products = Map.of();
         private List<Recognition> recognitions;
         private Map<Long, BenefitPolicy> policies = Map.of();
+        private final Map<Long, String> benefitTiming = new HashMap<>();
     }
 
     private record Prepared(RecommendationInput input, List<RecommendationDataIssue> issues) { }

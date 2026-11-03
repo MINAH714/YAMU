@@ -28,27 +28,45 @@ public final class BenefitConditionEvaluator {
         boolean unknown = false;
         boolean included = false;
         boolean includeUnknown = false;
-        for (Target target : conditions.targets()) {
-            Match match = targetMatch(target, transaction);
-            if (target.excluded()) {
-                if (match == Match.MATCHED) {
+        if (conditions.targetGroups() != null) {
+            boolean hasInclude = false;
+            for (var group : conditions.targetGroups()) {
+                Match match = and(group.members().stream().map(t -> targetMatch(t, transaction)).toList());
+                if (group.excluded()) {
+                    if (match == Match.MATCHED) return Match.NOT_MATCHED;
+                    unknown |= match == Match.UNKNOWN;
+                } else {
+                    hasInclude = true;
+                    included |= match == Match.MATCHED;
+                    includeUnknown |= match == Match.UNKNOWN;
+                }
+            }
+            if (!hasInclude) unknown = true;
+            else if (!included && !includeUnknown) return Match.NOT_MATCHED;
+            unknown |= !included && includeUnknown;
+        } else {
+            for (Target target : conditions.targets()) {
+                Match match = targetMatch(target, transaction);
+                if (target.excluded()) {
+                    if (match == Match.MATCHED) {
+                        return Match.NOT_MATCHED;
+                    }
+                    unknown |= match == Match.UNKNOWN;
+                } else {
+                    included |= match == Match.MATCHED;
+                    includeUnknown |= match == Match.UNKNOWN;
+                }
+            }
+            if (!included && !includeUnknown) {
+                // 포함 대상 자체가 없다면 정책 누락이며 '대상 없음'으로 단정하지 않는다.
+                if (conditions.targets().stream().noneMatch(target -> !target.excluded())) {
+                    unknown = true;
+                } else {
                     return Match.NOT_MATCHED;
                 }
-                unknown |= match == Match.UNKNOWN;
-            } else {
-                included |= match == Match.MATCHED;
-                includeUnknown |= match == Match.UNKNOWN;
             }
+            unknown |= !included && includeUnknown;
         }
-        if (!included && !includeUnknown) {
-            // 포함 대상 자체가 없다면 정책 누락이며 '대상 없음'으로 단정하지 않는다.
-            if (conditions.targets().stream().noneMatch(target -> !target.excluded())) {
-                unknown = true;
-            } else {
-                return Match.NOT_MATCHED;
-            }
-        }
-        unknown |= !included && includeUnknown;
 
         for (String fact : conditions.excludedFacts()) {
             Boolean value = fact(transaction, fact);
@@ -72,6 +90,18 @@ public final class BenefitConditionEvaluator {
         return unknown ? Match.UNKNOWN : Match.MATCHED;
     }
 
+    public static Match and(java.util.List<Match> values) {
+        if (values.isEmpty()) return Match.UNKNOWN;
+        if (values.contains(Match.NOT_MATCHED)) return Match.NOT_MATCHED;
+        return values.contains(Match.UNKNOWN) ? Match.UNKNOWN : Match.MATCHED;
+    }
+
+    public static Match or(java.util.List<Match> values) {
+        if (values.isEmpty()) return Match.UNKNOWN;
+        if (values.contains(Match.MATCHED)) return Match.MATCHED;
+        return values.contains(Match.UNKNOWN) ? Match.UNKNOWN : Match.NOT_MATCHED;
+    }
+
     private Boolean fact(Transaction transaction, String code) {
         // 무이자 여부는 보존된 결제 방식에서 확정된다. 외부 map으로 덮어쓸 수 없다.
         if (code.equals("INSTALLMENT:INTEREST_FREE")) {
@@ -87,6 +117,8 @@ public final class BenefitConditionEvaluator {
                     : target.merchantId().equals(transaction.merchantId()) ? Match.MATCHED : Match.NOT_MATCHED;
             case CATEGORY -> transaction.merchantCategoryCode() == null ? Match.UNKNOWN
                     : target.categoryCode().equals(transaction.merchantCategoryCode()) ? Match.MATCHED : Match.NOT_MATCHED;
+            case PURCHASE_ITEM -> transaction.purchaseItemCode() == null ? Match.UNKNOWN
+                    : target.categoryCode().equals(transaction.purchaseItemCode()) ? Match.MATCHED : Match.NOT_MATCHED;
         };
     }
 

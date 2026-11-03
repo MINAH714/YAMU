@@ -130,8 +130,14 @@ public class RecommendationRecognitionResolver {
                 // 기존 계산을 재사용한다. 계산 불가를 할인 없음으로 바꾸지 않는다.
                 var calculation = calculator.calculate(transaction, benefits);
                 if (calculation.complete()) {
-                    discounted = calculation.benefits().stream().anyMatch(b -> b.type() == BenefitPolicy.BenefitType.DISCOUNT
-                            && b.value().signum() > 0);
+                    boolean knownDiscount = calculation.benefits().stream().anyMatch(b -> b.type() == BenefitPolicy.BenefitType.DISCOUNT
+                            && b.value() != null && b.value().signum() > 0);
+                    boolean unresolvedDiscount = calculation.benefits().stream().anyMatch(b -> b.type() == BenefitPolicy.BenefitType.DISCOUNT && b.value() == null);
+                    // 같은 할인 종류만으로 구성된 미배분 묶음의 양수 총액은 할인 발생을 확정한다.
+                    knownDiscount |= calculation.unallocatedBenefitGroups().stream().anyMatch(g -> g.totalAmount().signum() > 0
+                            && calculation.benefits().stream().filter(b -> g.benefitIds().contains(b.benefitId()))
+                            .allMatch(b -> b.type() == BenefitPolicy.BenefitType.DISCOUNT));
+                    discounted = knownDiscount ? true : unresolvedDiscount ? null : false;
                 }
             }
             if (Boolean.TRUE.equals(discounted)) return 0L;

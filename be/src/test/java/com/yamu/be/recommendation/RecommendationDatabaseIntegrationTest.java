@@ -56,7 +56,9 @@ class RecommendationDatabaseIntegrationTest extends MySqlTestSupport {
                 "merchant_name", "테스트 카페", "merchant_category_code", "CAFE", "updated_at", now()));
         benefit = benefit("MAIN", 1, LocalDate.of(2026, 1, 1), BenefitPolicy.NO_END_DATE, product);
         shared = group("MONTHLY", "KRW");
-        insert("benefit_target", "benefit_target_id", Map.of("card_benefit_id", benefit, "target_type", "CATEGORY", "target_value", "CAFE"));
+        long target = insert("benefit_target", "benefit_target_id", Map.of("card_benefit_id", benefit, "target_type", "CATEGORY", "target_value", "CAFE"));
+        long targetGroup = insert("benefit_target_group", "benefit_target_group_id", Map.of("card_benefit_id", benefit, "group_code", "FIXTURE_CAFE", "is_excluded", false));
+        jdbc.update("INSERT INTO benefit_target_group_member(benefit_target_group_id,benefit_target_id,card_benefit_id) VALUES(?,?,?)", targetGroup, target, benefit);
         link(benefit, shared);
         performance(first, "2026-09-01", 0);
         performance(first, "2026-10-01", 999_999);
@@ -73,6 +75,8 @@ class RecommendationDatabaseIntegrationTest extends MySqlTestSupport {
         jdbc.update("delete from card_monthly_performance where user_card_id in (select user_card_id from user_card where user_id in (?, ?))", user, otherUser);
         jdbc.update("delete from user_card where user_id in (?, ?)", user, otherUser);
         for (long id : new long[] {product, otherProduct}) {
+            jdbc.update("delete from benefit_target_group_member where card_benefit_id in (select card_benefit_id from card_benefit where card_product_id = ?)", id);
+            jdbc.update("delete from benefit_target_group where card_benefit_id in (select card_benefit_id from card_benefit where card_product_id = ?)", id);
             jdbc.update("delete from benefit_target where card_benefit_id in (select card_benefit_id from card_benefit where card_product_id = ?)", id);
             jdbc.update("delete from benefit_limit_link where card_product_id = ?", id);
             jdbc.update("delete from tier_limit where limit_group_id in (select limit_group_id from limit_group where card_product_id = ?)", id);

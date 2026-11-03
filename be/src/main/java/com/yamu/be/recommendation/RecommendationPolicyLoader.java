@@ -18,6 +18,11 @@ class RecommendationPolicyLoader {
     private final TierLimitRepository tiers;
     private final MonthlyLimitUsageRepository monthly;
     private final PaymentLimitUsageRepository daily;
+    private final BenefitTargetGroupRepository targetGroups;
+    private final BenefitTargetGroupMemberRepository targetMembers;
+    private final BenefitApplicationGroupRepository applicationGroups;
+    private final BenefitApplicationMemberRepository applicationMembers;
+    private final PurchaseItemRepository purchaseItems;
 
     RecommendationPolicyData load(long userId, List<UserCard> cards, LocalDate date) {
         if (cards.isEmpty()) {
@@ -27,6 +32,8 @@ class RecommendationPolicyLoader {
         var rows = benefits.findPossiblyEffective(productIds, date, BenefitPolicy.NO_END_DATE);
         var benefitIds = rows.stream().map(CardBenefit::getId).toList();
         var targetRows = benefitIds.isEmpty() ? List.<BenefitTarget>of() : targets.findByCardBenefitIdIn(benefitIds);
+        var itemCodes = targetRows.stream().filter(t -> t.getTargetType() == BenefitTarget.Kind.PURCHASE_ITEM)
+                .map(BenefitTarget::getTargetValue).distinct().toList();
         var linkRows = benefitIds.isEmpty() ? List.<BenefitLimitLink>of()
                 : links.findByCardProductIdInAndCardBenefitIdIn(productIds, benefitIds);
         // 모든 버전을 보존한다. 연결된 버전의 실효성과 같은 코드의 중첩은 입력 구성에서 검사한다.
@@ -42,6 +49,9 @@ class RecommendationPolicyLoader {
         return new RecommendationPolicyData(rows, targetRows, linkRows, groupRows, tierRows,
                 monthlyIds.isEmpty() ? List.of()
                         : monthly.findByUserCardIdInAndLimitGroupIdInAndUsageMonth(cardIds, monthlyIds, month),
-                dailyIds.isEmpty() ? List.of() : daily.sumDaily(userId, cardIds, dailyIds, date, month));
+                dailyIds.isEmpty() ? List.of() : daily.sumDaily(userId, cardIds, dailyIds, date, month),
+                benefitIds.isEmpty() ? List.of() : targetGroups.findByCardBenefitIdIn(benefitIds),
+                benefitIds.isEmpty() ? List.of() : targetMembers.findByCardBenefitIdIn(benefitIds),
+                applicationGroups.findByCardProductIdIn(productIds), applicationMembers.findByCardProductIdIn(productIds), itemCodes.isEmpty() ? List.of() : purchaseItems.findAllById(itemCodes));
     }
 }

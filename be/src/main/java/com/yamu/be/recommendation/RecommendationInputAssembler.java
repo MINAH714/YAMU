@@ -29,7 +29,6 @@ class RecommendationInputAssembler {
         }
         // DB에는 조사 완료·빠진 혜택/제외 조건의 유무를 보증하는 필드가 없다.
         issue(issues, card, null, "POLICY_COMPLETENESS_UNVERIFIED");
-        issue(issues, card, null, "BENEFIT_COMBINATIONS_UNKNOWN");
         var codes = new HashSet<String>();
         var converted = new ArrayList<Benefit>();
         var groupIds = new LinkedHashSet<Long>();
@@ -66,7 +65,7 @@ class RecommendationInputAssembler {
             }
             // false는 조건 없음이 아니라 약관의 완전성/현행 확인 근거가 공급되지 않았음을 뜻한다.
             var conditions = new Conditions(false, false, row.getValidFrom(), row.getValidUntil(), targets,
-                    required, excluded, schedule);
+                    required, excluded, schedule, targetGroups(row, data));
             var rounding = new Rounding(row.getRoundingMode() == null ? null : RoundingMode.valueOf(row.getRoundingMode()),
                     row.getRoundingUnit() == null ? null : BigDecimal.valueOf(row.getRoundingUnit()),
                     row.getRoundingStage(), null);
@@ -110,7 +109,83 @@ class RecommendationInputAssembler {
         }
         // POL-012·013: 현재 지원하는 일시불·YAMU 모의 무이자 할부의 금융 수수료·이자는 0원이다.
         // 비용 0원과 다른 상품 정책의 확인 여부는 별개이므로 complete=false를 유지한다.
-        return new BenefitPolicy(false, previous, BigDecimal.ZERO, converted, limits, null);
+        var applications = applicationGroups(card, data, rows);
+        var fallbacks = new HashMap<Long, Fallback>();
+        for (var row : rows) {
+            if ((row.getFallbackBenefitId() == null) != (row.getFallbackMode() == null)) {
+                throw new IllegalArgumentException("전환 정책 필드 누락");
+            }
+            if (row.getFallbackBenefitId() != null) {
+                var destination = rows.stream().filter(b -> b.getId().equals(row.getFallbackBenefitId())).findFirst()
+                        .orElseThrow(() -> new IllegalArgumentException("전환 혜택 누락"));
+                if (destination == row || destination.getFallbackBenefitId() != null
+                        || row.getCalculationType() != CalculationType.RATE || destination.getCalculationType() != CalculationType.RATE
+                        || row.getRate() == null || row.getRate().signum() <= 0) {
+                    throw new IllegalArgumentException("순환·연쇄·정액 전환 불가");
+                }
+                fallbacks.put(row.getId(), new Fallback(destination.getId(), row.getFallbackMode()));
+            }
+        }
+        if (applications.isEmpty()) issue(issues, card, null, "BENEFIT_COMBINATIONS_UNKNOWN");
+        return new BenefitPolicy(false, previous, BigDecimal.ZERO, converted, limits, null, applications, fallbacks);
+    }
+
+    private List<TargetGroup> targetGroups(CardBenefit benefit, RecommendationPolicyData data) {
+        if (data.targetGroups().stream().noneMatch(g -> g.getCardBenefitId().equals(benefit.getId()))) {
+            if (data.targets().stream().anyMatch(t -> t.getCardBenefitId().equals(benefit.getId()) && t.getTargetType() != BenefitTarget.Kind.CONDITION)) {
+                throw new IllegalArgumentException("그룹에 연결되지 않은 일반 대상");
+            }
+            return List.of();
+        }
+        var targets = data.targets().stream().filter(t -> t.getCardBenefitId().equals(benefit.getId()))
+                .collect(java.util.stream.Collectors.toMap(BenefitTarget::getId, t -> t));
+        var connected = new HashSet<Long>();
+        var result = new ArrayList<TargetGroup>();
+        for (var group : data.targetGroups()) {
+            if (!group.getCardBenefitId().equals(benefit.getId())) continue;
+            var members = new ArrayList<Target>();
+            for (var member : data.targetMembers()) {
+                if (!member.getBenefitTargetGroupId().equals(group.getId())) continue;
+                var target = targets.get(member.getBenefitTargetId());
+                if (!member.getCardBenefitId().equals(benefit.getId()) || target == null
+                        || target.getTargetType() == BenefitTarget.Kind.CONDITION || target.isExcluded()) {
+                    throw new IllegalArgumentException("다른 혜택/공통 조건은 대상 그룹에 연결할 수 없습니다.");
+                }
+                if (target.getTargetType() == BenefitTarget.Kind.PURCHASE_ITEM && data.purchaseItems().stream()
+                        .noneMatch(item -> item.getPurchaseItemCode().equals(target.getTargetValue()))) {
+                    throw new IllegalArgumentException("등록되지 않은 정책 구매 항목");
+                }
+                connected.add(target.getId());
+                members.add(new Target(TargetType.valueOf(target.getTargetType().name()), target.getMerchantId(), target.getTargetValue(), false));
+            }
+            result.add(new TargetGroup(group.getId(), group.isExcluded(), members));
+        }
+        if (!result.isEmpty() && targets.values().stream().anyMatch(t -> t.getTargetType() != BenefitTarget.Kind.CONDITION
+                && !connected.contains(t.getId()))) throw new IllegalArgumentException("연결되지 않은 대상");
+        return result;
+    }
+
+    private List<ApplicationGroup> applicationGroups(UserCard card, RecommendationPolicyData data, List<CardBenefit> benefits) {
+        var ids = benefits.stream().map(CardBenefit::getId).collect(java.util.stream.Collectors.toSet());
+        var attached = new HashSet<Long>();
+        var codes = new HashSet<String>();
+        var result = new ArrayList<ApplicationGroup>();
+        for (var group : data.applicationGroups()) {
+            if (!group.getCardProductId().equals(card.getCardProductId())) continue;
+            var members = new ArrayList<ApplicationMember>();
+            for (var member : data.applicationMembers()) {
+                if (!member.getBenefitApplicationGroupId().equals(group.getId())) continue;
+                if (!member.getCardProductId().equals(card.getCardProductId())) throw new IllegalArgumentException("다른 상품 연결");
+                if (!ids.contains(member.getCardBenefitId())) continue;
+                if (!attached.add(member.getCardBenefitId())) throw new IllegalArgumentException("혜택 적용 그룹 중복");
+                members.add(new ApplicationMember(member.getCardBenefitId(), member.getPriorityOrder()));
+            }
+            if (!members.isEmpty()) {
+                if (!codes.add(group.getGroupCode())) throw new IllegalArgumentException("적용 그룹 버전 중첩");
+                result.add(new ApplicationGroup(group.getId(), ApplicationMode.valueOf(group.getApplicationMode()), members));
+            }
+        }
+        return result;
     }
 
     private Long maximum(LimitGroup group, List<TierLimit> tiers, Long previous) {

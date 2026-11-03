@@ -56,7 +56,7 @@ class RecommendationServiceTest {
         logger.addAppender(logs);
         when(transactions.getTransaction(any())).thenReturn(mock(TransactionStatus.class));
         service = new RecommendationService(cards, products, loader, assembler, activity, performance,
-                new RecommendationRecognitionResolver(new ObjectMapper()), transactions);
+                new RecommendationRecognitionResolver(new ObjectMapper()), mock(PurchaseItemReader.class), transactions);
         when(cards.findOrdered(eq(1L), anyCollection())).thenReturn(List.of(card(1), card(2), card(3)));
         when(products.findAllById(List.of(10L))).thenReturn(List.of(product()));
         when(loader.load(eq(1L), anyList(), any())).thenReturn(empty());
@@ -523,6 +523,31 @@ class RecommendationServiceTest {
     private RecommendationCommand command(Map<Long, PaymentAvailability> states) {
         return new RecommendationCommand(100, 1, new Transaction(10_000, Plan.LUMP_SUM, 1,
                 Instant.parse("2026-09-30T15:30:00Z"), 20L, "CAFE", Map.of()), states);
+    }
+
+    @Test
+    void actualPaymentPortPassesPurchaseItemAndRealAssembledGroupsToSelectorWithoutClaimingPolicyCompleteness() {
+        var data = new CompositionAssemblyTest().data(true, false);
+        when(loader.load(anyLong(), anyList(), any())).thenReturn(data);
+        when(activity.recognizedAmounts(anyList(), any())).thenReturn(Map.of(1L, 400_000L));
+        var inputs = observeSelectorInput();
+        var port = new com.yamu.be.payment.recommend.DatabaseCardRecommender(service,
+                java.time.Clock.fixed(Instant.parse("2026-11-03T00:00:00Z"), java.time.ZoneOffset.UTC));
+        var request = new com.yamu.be.payment.recommend.RecommendationRequest(100L, 1L,
+                new com.yamu.be.payment.PaymentTerms(10_000, com.yamu.be.payment.PaymentPlan.LUMP_SUM, null),
+                new com.yamu.be.payment.recommend.RecommendationRequest.MerchantContext(20L, "CAFE", "ONLINE", null),
+                java.time.LocalDateTime.of(2026, 10, 1, 0, 0), "YOUTUBE_PREMIUM_SUBSCRIPTION", Map.of(1L, available()), Map.of());
+        var result = port.recommend(request);
+        assertThat(inputs.get(0).transaction().purchaseItemCode()).isEqualTo("YOUTUBE_PREMIUM_SUBSCRIPTION");
+        var policy = inputs.get(0).cards().get(0).policy();
+        assertThat(policy.complete()).isFalse();
+        assertThat(policy.applicationGroups()).hasSize(1);
+        assertThat(policy.benefits().get(0).conditions().targetGroups()).hasSize(1);
+        assertThat(policy.additionalCost()).isZero();
+        assertThat(result.status()).isEqualTo(com.yamu.be.payment.recommend.RecommendationResult.Status.DATA_INSUFFICIENT);
+        assertThat(result.schemaVersion()).isEqualTo(1);
+        assertThat(result.uncomparedCards()).hasSize(3);
+        assertThat(result.issues()).anyMatch(i -> i.code().equals("POLICY_COMPLETENESS_UNVERIFIED"));
     }
 
     private PaymentAvailability available() {

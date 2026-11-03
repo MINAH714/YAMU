@@ -15,9 +15,16 @@ import java.util.Objects;
  * @param requestedAt 결제 요청 시각(UTC). 계산 기준 시각으로 명시해 넘긴다(요일·시간 조건과 실적 월 판정)
  */
 public record RecommendationRequest(Long paymentId, Long userId, PaymentTerms terms, MerchantContext merchant,
-        LocalDateTime requestedAt) {
+        LocalDateTime requestedAt, String purchaseItemCode, java.util.Map<Long, com.yamu.be.recommendation.RecommendationCommand.PaymentAvailability> availability,
+        java.util.Map<String, Boolean> verifiedFacts) {
+    public RecommendationRequest(Long paymentId, Long userId, PaymentTerms terms, MerchantContext merchant, LocalDateTime requestedAt) {
+        this(paymentId, userId, terms, merchant, requestedAt, null, java.util.Map.of(), java.util.Map.of());
+    }
 
     public RecommendationRequest {
+        availability = java.util.Map.copyOf(availability);
+        verifiedFacts = java.util.Map.copyOf(verifiedFacts);
+        if (purchaseItemCode != null && !purchaseItemCode.matches("[A-Z0-9_]{1,64}")) throw new IllegalArgumentException("구매 항목 코드 형식 오류");
         Objects.requireNonNull(paymentId, "paymentId");
         Objects.requireNonNull(userId, "userId");
         Objects.requireNonNull(terms, "terms");

@@ -34,8 +34,16 @@ public record RecommendationInput(
 
     /** facts는 서버가 검증한 CONDITION 코드별 사실. 키 부재는 false가 아니라 미확인이다. */
     public record Transaction(long amount, Plan plan, int installmentMonths, Instant occurredAt,
-                              Long merchantId, String merchantCategoryCode, Map<String, Boolean> facts) {
+                              Long merchantId, String merchantCategoryCode, Map<String, Boolean> facts,
+                              String purchaseItemCode) {
+        public Transaction(long amount, Plan plan, int installmentMonths, Instant occurredAt,
+                Long merchantId, String merchantCategoryCode, Map<String, Boolean> facts) {
+            this(amount, plan, installmentMonths, occurredAt, merchantId, merchantCategoryCode, facts, null);
+        }
         public Transaction {
+            if (purchaseItemCode != null && !purchaseItemCode.matches("[A-Z0-9_]{1,64}")) {
+                throw new IllegalArgumentException("구매 항목 코드 형식 오류");
+            }
             Objects.requireNonNull(plan);
             Objects.requireNonNull(occurredAt);
             facts = Map.copyOf(facts);
