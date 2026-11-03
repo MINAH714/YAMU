@@ -16,6 +16,7 @@ import com.yamu.app.feature.link.data.AccountRef
 import com.yamu.app.feature.link.data.CardLookup
 import com.yamu.app.feature.link.data.IssuerAccount
 import com.yamu.app.feature.link.data.LinkRepository
+import com.yamu.app.feature.link.data.LinkedCard
 import com.yamu.app.feature.link.data.LinkedOverview
 import com.yamu.app.feature.link.data.RegisteredCard
 import com.yamu.app.feature.link.data.brandOf
@@ -156,6 +157,79 @@ class CardRegisterViewModelTest {
         assertFalse(s.registering)
         assertEquals("확인 시간이 지났어요 · 카드 정보를 다시 넣어 주세요", s.inputError)
         assertEquals(0, onboardingCompleted)
+    }
+
+    @Test fun `등록 응답을 못 받았는데 목록에 있으면 완료로 · 초기 설정 끝`() = runTest(dispatcher) {
+        link.registerResult = ApiResult.Failure(ApiError.Network)
+        link.overviewResult = ApiResult.Success(LinkedOverview(emptyList(), listOf(LINKED), null))
+        val vm = viewModel()
+        toConfirm(vm)
+        vm.register()
+        passStepUp(vm, StepUpPurpose.CARD_REGISTER)
+        val s = vm.state.value
+        assertEquals(CardRegisterStep.Done, s.step)
+        assertEquals(21L, s.registered?.userCardId)
+        assertNull(s.registered?.prevMonthAmount)    // 목록에는 등록 전 실적이 없다
+        assertNull(s.lookup)
+        assertFalse(s.registering)
+        assertNull(s.message)
+        assertEquals(1, link.registers)
+        assertEquals(1, onboardingCompleted)
+    }
+
+    @Test fun `토큰이 이미 쓰였거나 이미 등록으로 와도 목록에 있으면 완료로`() = runTest(dispatcher) {
+        link.overviewResult = ApiResult.Success(LinkedOverview(emptyList(), listOf(LINKED), null))
+        listOf(ApiError.InvalidRequest("VERIFICATION_TOKEN_EXPIRED"), ApiError.Conflict("CARD_ALREADY_REGISTERED")).forEach { e ->
+            link.registerResult = ApiResult.Failure(e)
+            val vm = viewModel()
+            toConfirm(vm)
+            vm.register()
+            passStepUp(vm, StepUpPurpose.CARD_REGISTER)
+            assertEquals(e.code, CardRegisterStep.Done, vm.state.value.step)
+        }
+        assertEquals(2, onboardingCompleted)
+    }
+
+    @Test fun `응답을 못 받았고 목록에도 없으면 토큰을 두고 다시 누를 수 있다`() = runTest(dispatcher) {
+        link.registerResult = ApiResult.Failure(ApiError.Network)
+        val vm = viewModel()
+        toConfirm(vm)
+        vm.register()
+        passStepUp(vm, StepUpPurpose.CARD_REGISTER)
+        val s = vm.state.value
+        assertEquals(CardRegisterStep.Confirm, s.step)
+        assertEquals("cvt_1", s.lookup?.verificationToken)
+        assertFalse(s.registering)
+        assertNotNull(s.message)
+        assertEquals(0, onboardingCompleted)
+    }
+
+    @Test fun `목록 확인까지 실패하면 등록됐다고 보지 않는다`() = runTest(dispatcher) {
+        link.registerResult = ApiResult.Failure(ApiError.Network)
+        link.overviewResult = ApiResult.Failure(ApiError.Network)
+        val vm = viewModel()
+        toConfirm(vm)
+        vm.register()
+        passStepUp(vm, StepUpPurpose.CARD_REGISTER)
+        assertEquals(CardRegisterStep.Confirm, vm.state.value.step)
+        assertFalse(vm.state.value.registering)
+        assertEquals(0, onboardingCompleted)
+    }
+
+    @Test fun `끝 4자리가 같아도 상품이나 카드사가 다르면 다른 카드다`() = runTest(dispatcher) {
+        val others = listOf(LINKED.copy(productName = "Deep Dream"), LINKED.copy(brand = brandOf("국민카드")))
+        assertNull(LinkedOverview(emptyList(), others, null).registeredCardOf(LOOKUP))
+    }
+
+    @Test fun `계좌 미연결 거절은 목록을 보지 않는다`() = runTest(dispatcher) {
+        link.registerResult = ApiResult.Failure(ApiError.Conflict("CARD_ACCOUNT_NOT_LINKED"))
+        link.overviewResult = ApiResult.Success(LinkedOverview(emptyList(), listOf(LINKED), null))
+        val vm = viewModel()
+        toConfirm(vm)
+        vm.register()
+        passStepUp(vm, StepUpPurpose.CARD_REGISTER)
+        assertEquals(0, link.overviewLoads)
+        assertEquals(CardRegisterStep.Confirm, vm.state.value.step)
     }
 
     @Test fun `그 사이 정지된 카드면 입력 화면으로`() = runTest(dispatcher) {
@@ -302,6 +376,8 @@ class CardRegisterViewModelTest {
         var lookupResult: ApiResult<CardLookup> = ApiResult.Success(LOOKUP)
         var registerResult: ApiResult<RegisteredCard> = ApiResult.Success(REGISTERED)
         var linkResult: ApiResult<AccountLinkResult> = ApiResult.Success(AccountLinkResult(emptyList()))
+        var overviewResult: ApiResult<LinkedOverview> = ApiResult.Success(LinkedOverview(emptyList(), emptyList(), null))
+        var overviewLoads = 0
         var lookups = 0
         var registers = 0
         var candidateLoads = 0
@@ -336,7 +412,10 @@ class CardRegisterViewModelTest {
             return linkResult
         }
 
-        override suspend fun linkedOverview(refresh: Boolean): ApiResult<LinkedOverview> = ApiResult.Success(LinkedOverview(emptyList(), emptyList(), null))
+        override suspend fun linkedOverview(refresh: Boolean): ApiResult<LinkedOverview> {
+            overviewLoads++
+            return overviewResult
+        }
     }
 
     private companion object {
@@ -355,6 +434,7 @@ class CardRegisterViewModelTest {
             issuerAccount = IssuerAccount("088", "5678", linked = true),
         )
         val REGISTERED = RegisteredCard(21, brandOf("신한카드"), "Mr.Life", false, "5678", 14, null)
+        val LINKED = LinkedCard(21, brandOf("신한카드"), "Mr.Life", false, "5678", 14, null, null)
 
         fun unusedAuth(): AuthRepository = Proxy.newProxyInstance(
             AuthRepository::class.java.classLoader,

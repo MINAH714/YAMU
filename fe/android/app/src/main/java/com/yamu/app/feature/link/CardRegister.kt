@@ -164,20 +164,28 @@ class CardRegisterViewModel @Inject constructor(
             onError = { e -> _state.update { it.copy(registering = false, message = e.cardMessage()) } },
         ) { token ->
             when (val r = link.registerCard(lookup.verificationToken, nickname, token.token)) {
-                is ApiResult.Success -> {
-                    auth.completeOnboarding()      // 카드가 등록되면 서버도 초기 설정 끝으로 본다 — 다시 켜도 홈으로
-                    _state.update {
-                        it.copy(registering = false, lookup = null, nickname = "", registered = r.data, step = CardRegisterStep.Done)
-                    }
-                }
+                is ApiResult.Success -> onRegistered(r.data)
                 is ApiResult.Failure -> onRegisterFailed(r.error, lookup)
             }
         }
     }
 
-    private fun onRegisterFailed(error: ApiError, lookup: CardLookup) {
+    private suspend fun onRegistered(card: RegisteredCard) {
+        auth.completeOnboarding()      // 카드가 등록되면 서버도 초기 설정 끝으로 본다 — 다시 켜도 홈으로
+        _state.update {
+            it.copy(registering = false, lookup = null, nickname = "", registered = card, step = CardRegisterStep.Done)
+        }
+    }
+
+    private suspend fun onRegisterFailed(error: ApiError, lookup: CardLookup) {
+        val failure = cardRegisterFailure(error.code)
+        // 등록은 됐는데 응답만 못 받았을 수 있다 — 다시 보내면 토큰이 이미 쓰여 실패처럼 보이므로 목록부터 본다. 계좌 미연결은 서버가 확실히 거절한 것
+        if (failure != CardRegisterFailure.ACCOUNT_NOT_LINKED) {
+            val listed = (link.linkedOverview() as? ApiResult.Success)?.data?.registeredCardOf(lookup)
+            if (listed != null) return onRegistered(listed)
+        }
         val message = error.cardMessage()
-        when (cardRegisterFailure(error.code)) {
+        when (failure) {
             CardRegisterFailure.RESTART -> restart(message)
             CardRegisterFailure.ACCOUNT_NOT_LINKED -> {
                 // 어느 계좌인지는 서버 details가 더 최신. 확인 토큰은 그대로라 계좌만 연결하면 이어서 등록한다
