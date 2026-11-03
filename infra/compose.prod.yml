@@ -66,6 +66,8 @@ services:
       YAMU_JWT_SECRET: ${YAMU_JWT_SECRET:?Set YAMU_JWT_SECRET}
       # Holiday sync key (data.go.kr decoded key). Optional: when empty the backend still starts and uses the bundled holiday files.
       DATA_GO_KR_SERVICE_KEY: ${DATA_GO_KR_SERVICE_KEY:-}
+      # Periodic recovery of payments left PROCESSING with an unknown result (Task 5.2.3). The app default is off so it never runs locally.
+      PAYMENT_RECOVERY_ENABLED: ${PAYMENT_RECOVERY_ENABLED:-true}
       MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE: health
       MANAGEMENT_ENDPOINT_HEALTH_SHOWDETAILS: never
       # Temporary deployment choice: API docs are not publicly exposed.
