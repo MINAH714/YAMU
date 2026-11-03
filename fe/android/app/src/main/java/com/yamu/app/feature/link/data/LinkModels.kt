@@ -147,6 +147,7 @@ import java.time.YearMonth
     val paymentDay: Int? = null,
     val settlementAccountId: Long? = null,
     val nextWithdrawal: NextWithdrawalDto? = null,
+    val hasUnpaidBill: Boolean = false,
 )
 
 @Serializable data class NextWithdrawalDto(val amount: Long? = null, val withdrawalDate: String? = null)
@@ -249,6 +250,7 @@ data class CardInfo(
     val settlementAccountId: Long?,         // 신용카드 결제 계좌 — 이름은 계좌 목록에서 찾는다
     val checkAccountLabel: String?,         // 체크카드 연결 계좌
     val nextWithdrawal: NextWithdrawal?,
+    val hasOpenBill: Boolean = false,       // 확정 · 미납 청구가 있어 해제할 수 없다. 쌓이는 중인 청구는 여기 없어 해제 때 서버가 막는다
 ) {
     val displayName: String get() = nickname ?: productName
 }
@@ -452,4 +454,5 @@ fun CardDetailDto.toInfo() = CardInfo(
         val date = n.withdrawalDate?.let { runCatching { LocalDate.parse(it) }.getOrNull() } ?: return@let null
         NextWithdrawal(amount, date)
     },
+    hasOpenBill = billing?.nextWithdrawal != null || billing?.hasUnpaidBill == true,
 )

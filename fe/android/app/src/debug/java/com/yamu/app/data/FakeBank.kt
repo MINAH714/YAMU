@@ -279,7 +279,8 @@ class FakeBank @Inject constructor(private val sessionStore: SessionStore) {
             paymentDay = paymentDay,
             settlementAccountId = if (check) null else accounts.filter { it.assetId in linked }.indexOf(account).takeIf { it >= 0 }?.let { it + 1L },
             checkAccountLabel = if (check) "${account.bank} ·${account.last4}" else null,
-            nextWithdrawal = if (check) null else NextWithdrawal(recognized, LocalDate.now(KST).plusDays(10)),
+            nextWithdrawal = if (assetId == "C3") NextWithdrawal(recognized, LocalDate.now(KST).plusDays(10)) else null,
+            hasOpenBill = assetId == "C3",
         )
     }
 
