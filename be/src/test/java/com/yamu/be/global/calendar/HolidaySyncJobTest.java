@@ -25,6 +25,7 @@ import java.util.Set;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.springframework.boot.test.system.CapturedOutput;
 import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.data.redis.RedisConnectionFailureException;
@@ -137,12 +138,34 @@ class HolidaySyncJobTest {
     }
 
     @Test
-    void 다른_서버가_동기화_중이면_건너뛴다() {
+    void 다른_서버가_동기화_중이면_부르지_않고_잠금_TTL_뒤에_Redis에서_다시_읽는다() {
         given(redisLocks.tryLock(HolidaySyncJob.LOCK_KEY, HolidaySyncJob.LOCK_TTL)).willReturn(Optional.empty());
 
         job("key").daily();
 
         verifyNoInteractions(client, store);
+        ArgumentCaptor<Runnable> reload = ArgumentCaptor.forClass(Runnable.class);
+        verify(scheduler).schedule(reload.capture(), eq(CLOCK.instant().plus(HolidaySyncJob.LOCK_TTL)));
+
+        // 잠금을 잡은 서버가 그사이 Redis에 2027년을 넣었다
+        given(store.find(2026)).willReturn(Optional.empty());
+        given(store.find(2027)).willReturn(Optional.of(HOLIDAYS_2027));
+        reload.getValue().run();
+
+        verifyNoInteractions(client);
+        assertThat(holidays.syncedYears()).containsExactly(2027);
+        assertThat(holidays.holidaysOf(2027)).contains(Set.of(LocalDate.of(2027, 1, 1)));
+    }
+
+    @Test
+    void 다시_읽다가_한_해에서_Redis가_실패해도_다른_해는_읽는다(CapturedOutput output) {
+        given(store.find(2026)).willThrow(new RedisConnectionFailureException("down"));
+        given(store.find(2027)).willReturn(Optional.of(HOLIDAYS_2027));
+
+        job("key").reload(List.of(2026, 2027));
+
+        assertThat(holidays.syncedYears()).containsExactly(2027);
+        assertThat(output.getAll()).contains("2026년 공휴일을 Redis에서 다시 읽지 못해");
     }
 
     @Test
@@ -163,6 +186,20 @@ class HolidaySyncJobTest {
 
         verifyNoInteractions(client);
         assertThat(output.getAll()).contains("Redis에서 읽지 못했습니다");
+    }
+
+    @Test
+    void 시작할_때_한_해만_Redis를_읽지_못하면_다른_해는_읽고_동기화한_적_없으면_받는다() {
+        given(store.find(2026)).willThrow(new RedisConnectionFailureException("down"));
+        given(store.find(2027)).willReturn(Optional.empty());
+        given(store.syncedAt(2027)).willReturn(Optional.empty());
+        given(client.fetchYear(2027)).willReturn(HOLIDAYS_2027);
+
+        job("key").startup();
+
+        verify(client, never()).fetchYear(2026);
+        verify(store).replace(2027, HOLIDAYS_2027, CLOCK.instant());
+        assertThat(holidays.syncedYears()).containsExactly(2027);
     }
 
     private HolidaySyncJob job(String key) {

@@ -26,7 +26,8 @@ import org.springframework.scheduling.annotation.Scheduled;
  *
  * <p>실패해도 서버와 영업일 계산은 그대로다. 한 달이라도 실패하면 그 해는 덮어쓰지 않고, 바로 다시 부르지 않고 다음 날을 기다린다.
  * 0건인 해는 아직 발표 전(월력요항은 전년도 6월쯤)으로 보고 저장하지 않는다. 서비스 키가 없으면 아무것도 하지 않고 내장 파일로만 센다.
- * 여러 서버가 같은 Redis를 쓰면 {@link RedisLocks}로 하나만 부른다.
+ * 여러 서버가 같은 Redis를 쓰면 {@link RedisLocks}로 하나만 부른다. 잠금을 못 잡은 서버는 잠금 TTL 뒤에
+ * Redis에서 다시 읽어, 잠금을 잡은 서버가 받은 목록을 메모리에 반영한다.
  *
  * <p>예외는 종류와 {@link HolidayApiException}의 메시지만 남긴다. 다른 예외의 메시지·스택에 키가 든 주소가 섞일 수 있어서다.
  */
@@ -80,13 +81,13 @@ public class HolidaySyncJob {
         List<Integer> neverSynced = new ArrayList<>();
         for (int year : targetYears()) {
             try {
-                store.find(year).ifPresent(found -> holidays.update(year, found.keySet()));
+                loadFromRedis(year);
                 if (store.syncedAt(year).isEmpty()) {
                     neverSynced.add(year);
                 }
             } catch (RuntimeException e) {
+                // 이 해만 건너뛴다. 다른 해는 계속 읽고, 이 해는 다음 04:00에 받는다
                 log.error("{}년 공휴일을 Redis에서 읽지 못했습니다. 내장 파일로 셉니다: {}", year, e.getClass().getSimpleName());
-                return;
             }
         }
         if (!neverSynced.isEmpty()) {
@@ -103,7 +104,9 @@ public class HolidaySyncJob {
             return;
         }
         if (lock.isEmpty()) {
-            log.info("다른 서버가 공휴일을 동기화하고 있어 건너뜁니다");
+            // 잠금을 잡은 서버는 TTL 안에 끝나거나, 못 끝내면 잠금이 풀린다. 그때 그 서버가 남긴 목록을 읽는다
+            log.info("다른 서버가 공휴일을 동기화하고 있어 건너뜁니다. {}분 뒤 Redis에서 다시 읽습니다", LOCK_TTL.toMinutes());
+            scheduler.schedule(() -> reload(years), clock.instant().plus(LOCK_TTL));
             return;
         }
         try (RedisLocks.Lock held = lock.get()) {
@@ -112,6 +115,21 @@ public class HolidaySyncJob {
             // 잠금을 풀다가 Redis가 끊긴 경우. 잠금은 TTL이 지나면 풀린다
             log.warn("공휴일 동기화 잠금을 풀지 못했습니다: {}", e.getClass().getSimpleName());
         }
+    }
+
+    /** 다른 서버가 동기화한 목록을 메모리로 읽는다. 읽지 못한 해는 지금 메모리 그대로 둔다. */
+    void reload(List<Integer> years) {
+        for (int year : years) {
+            try {
+                loadFromRedis(year);
+            } catch (RuntimeException e) {
+                log.error("{}년 공휴일을 Redis에서 다시 읽지 못해 지금 목록을 그대로 씁니다: {}", year, e.getClass().getSimpleName());
+            }
+        }
+    }
+
+    private void loadFromRedis(int year) {
+        store.find(year).ifPresent(found -> holidays.update(year, found.keySet()));
     }
 
     private void syncYear(int year) {
