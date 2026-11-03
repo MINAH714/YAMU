@@ -3,6 +3,7 @@ package com.yamu.app.pos
 import android.content.Context
 import com.yamu.app.BuildConfig
 import com.yamu.app.core.network.ApiEnvelope
+import com.yamu.app.core.network.ApiError
 import com.yamu.app.core.network.ApiResult
 import com.yamu.app.core.network.YamuHeaders
 import com.yamu.app.core.network.apiCall
@@ -32,7 +33,7 @@ import javax.inject.Singleton
 
 const val POS_KEY_HEADER = "X-POS-Key"
 
-@Serializable data class PosPaymentRequest(val barcodeToken: String, val merchantId: Long, val amount: Long, val orderNo: String)
+@Serializable data class PosPaymentRequest(val barcodeToken: String, val merchantId: Long, val posCode: String, val amount: Long, val orderNo: String)
 
 @Serializable data class PosRequestResponse(val paymentId: Long, val orderNo: String? = null, val status: String = "REQUESTED", val confirmDeadline: String? = null)
 
@@ -74,7 +75,8 @@ interface PosApi {
     suspend fun result(@Header(POS_KEY_HEADER) posKey: String, @Path("id") paymentId: Long): Response<ApiEnvelope<PosResultDto>>
 }
 
-enum class PosStatus { WAITING, APPROVED, DECLINED, ENDED }
+/** [SENT]: 요청은 갔지만 서버에서 결과를 읽을 수 없음(BE에 결과 조회가 생기면 지운다) */
+enum class PosStatus { WAITING, APPROVED, DECLINED, ENDED, SENT }
 
 /** 영수증에 찍을 것 — 고객 이름 · 추천은 받지도 보여 주지도 않는다 */
 data class PosResult(
@@ -110,7 +112,7 @@ interface PosRepository {
     /** 단말 키가 있나(없으면 첫 화면에 안내) */
     val hasKey: Boolean
     suspend fun merchants(): ApiResult<List<Merchant>>
-    suspend fun request(barcodeToken: String, merchantId: Long, amount: Long, orderNo: String, idempotencyKey: String): ApiResult<Long>
+    suspend fun request(barcodeToken: String, merchant: Merchant, amount: Long, orderNo: String, idempotencyKey: String): ApiResult<Long>
     suspend fun result(paymentId: Long): ApiResult<PosResult>
 }
 
@@ -122,8 +124,10 @@ class PosRepositoryImpl @Inject constructor(private val api: PosApi) : PosReposi
     override suspend fun merchants(): ApiResult<List<Merchant>> =
         apiCall { api.merchants(key) }.map { r -> r.items.map { it.toMerchant() }.filter { !it.isOnline } }
 
-    override suspend fun request(barcodeToken: String, merchantId: Long, amount: Long, orderNo: String, idempotencyKey: String): ApiResult<Long> =
-        apiCall { api.request(key, idempotencyKey, PosPaymentRequest(barcodeToken, merchantId, amount, orderNo)) }.map { it.paymentId }
+    override suspend fun request(barcodeToken: String, merchant: Merchant, amount: Long, orderNo: String, idempotencyKey: String): ApiResult<Long> {
+        val posCode = merchant.posCode ?: return ApiResult.Failure(ApiError.NotFound("MERCHANT_NOT_FOUND"))   // 서버가 단말 시나리오를 posCode로 찾는다
+        return apiCall { api.request(key, idempotencyKey, PosPaymentRequest(barcodeToken, merchant.id, posCode, amount, orderNo)) }.map { it.paymentId }
+    }
 
     override suspend fun result(paymentId: Long): ApiResult<PosResult> = apiCall { api.result(key, paymentId) }.map { it.toResult() }
 }
@@ -135,11 +139,11 @@ class PosSettings @Inject constructor(@ApplicationContext context: Context) {
     var merchant: Merchant?
         get() {
             val id = prefs.getLong("merchantId", -1L).takeIf { it > 0 } ?: return null
-            return Merchant(id, prefs.getString("merchantName", null) ?: return null, prefs.getString("category", null), isOnline = false, posCode = null)
+            return Merchant(id, prefs.getString("merchantName", null) ?: return null, prefs.getString("category", null), isOnline = false, posCode = prefs.getString("posCode", null))
         }
         set(value) {
             prefs.edit().apply {
-                if (value == null) clear() else putLong("merchantId", value.id).putString("merchantName", value.name).putString("category", value.categoryName)
+                if (value == null) clear() else putLong("merchantId", value.id).putString("merchantName", value.name).putString("posCode", value.posCode).putString("category", value.categoryName)
             }.apply()
         }
 }

@@ -10,19 +10,23 @@ import androidx.navigation.toRoute
 import com.yamu.app.BuildConfig
 import com.yamu.app.core.designsystem.component.gallery.ComponentGallery
 import androidx.compose.runtime.rememberCoroutineScope
+import com.yamu.app.core.format.objectParticle
 import com.yamu.app.core.ui.LocalSnackbar
 import com.yamu.app.core.ui.findActivity
 import androidx.activity.compose.BackHandler
 import androidx.compose.ui.platform.LocalContext
-import com.yamu.app.feature.auth.LoginRoute
+import com.yamu.app.feature.auth.PinLoginRoute
 import com.yamu.app.feature.auth.PinPadRoute
 import com.yamu.app.feature.auth.PinSetupRoute
 import com.yamu.app.feature.auth.SignupDoneRoute
-import com.yamu.app.feature.auth.SignupInfoRoute
+import com.yamu.app.feature.auth.PhoneVerifyRoute
+import com.yamu.app.feature.auth.RecoveryIntroRoute
+import com.yamu.app.feature.auth.SignupAccountsRoute
+import com.yamu.app.feature.auth.SignupNext
+import com.yamu.app.feature.auth.SignupOneWonRoute
+import com.yamu.app.feature.auth.TermsRoute
+import com.yamu.app.feature.auth.WelcomeRoute
 import com.yamu.app.feature.auth.SplashRoute
-import com.yamu.app.feature.auth.TermsScreen
-import com.yamu.app.feature.auth.UnlockRoute
-import com.yamu.app.feature.auth.WelcomeScreen
 import com.yamu.app.feature.auth.data.SessionStart
 import kotlinx.coroutines.launch
 import com.yamu.app.feature.debug.DebugMenuScreen
@@ -34,28 +38,27 @@ import com.yamu.app.feature.payment.RecommendRoute
 import com.yamu.app.feature.forecast.BuyCheckInputRoute
 import com.yamu.app.feature.forecast.BuyCheckResultRoute
 import com.yamu.app.feature.forecast.BuyCheckSavedRoute
+import com.yamu.app.feature.forecast.CashflowCreateRoute
 import com.yamu.app.feature.forecast.CashflowListRoute
 import com.yamu.app.feature.forecast.ForecastRoute
 import com.yamu.app.feature.performance.BenefitLimitsRoute
 import com.yamu.app.feature.performance.CardPerformanceRoute
 import com.yamu.app.feature.performance.PerfAnalysisRoute
 import com.yamu.app.feature.performance.PerfOverviewRoute
-import com.yamu.app.feature.link.AddCardDoneRoute
-import com.yamu.app.feature.link.AddCardFoundRoute
-import com.yamu.app.feature.link.AddCardInstitutionRoute
+import com.yamu.app.feature.link.CardRegisterRoute
 import com.yamu.app.feature.link.CashflowConfirmRoute
 import com.yamu.app.feature.link.FirstAnalysisRoute
-import com.yamu.app.feature.link.InstitutionSelectRoute
-import com.yamu.app.feature.link.LinkConsentRoute
-import com.yamu.app.feature.link.LinkDoneRoute
-import com.yamu.app.feature.link.LinkSelectRoute
+import com.yamu.app.feature.my.AccountManageRoute
+import com.yamu.app.feature.my.CardDetailRoute
 import com.yamu.app.feature.my.CardManageRoute
+import com.yamu.app.feature.my.CardOrderRoute
 import com.yamu.app.feature.my.MyCardsRoute
 import com.yamu.app.feature.my.MyRoute
 import com.yamu.app.feature.my.NotificationSettingsRoute
 import com.yamu.app.feature.my.NotificationsRoute
 import com.yamu.app.feature.my.ProfileRoute
 import com.yamu.app.feature.my.SecurityRoute
+import com.yamu.app.feature.my.WithdrawRoute
 import com.yamu.app.feature.my.data.NotiTarget
 import com.yamu.app.feature.report.BenefitReportRoute
 import com.yamu.app.feature.report.PaymentsRoute
@@ -81,7 +84,6 @@ fun YamuNavHost(navController: NavHostController, modifier: Modifier = Modifier)
                 onDecided = { start ->
                     val target: Any = when (start) {
                         SessionStart.Welcome -> AuthGraph
-                        SessionStart.Unlock -> Unlock
                         SessionStart.Login -> Login
                     }
                     navController.navigate(target) { popUpTo<Splash> { inclusive = true } }
@@ -92,40 +94,74 @@ fun YamuNavHost(navController: NavHostController, modifier: Modifier = Modifier)
         // ── 시작 · 가입 · 로그인 (4단계: 실제 화면 — 08 문서) ──
         navigation<AuthGraph>(startDestination = Welcome) {
             composable<Welcome> {
-                WelcomeScreen(
+                WelcomeRoute(
                     onStart = { navController.navigate(Terms) },
-                    onLogin = { navController.navigate(Login) },
+                    onLogin = { navController.navigate(IdentityVerify) },   // 이 폰에 기기가 없을 때 = 본인인증 → 기기 재등록
                     onDebugMenu = debugMenu,
                 )
             }
             composable<Login> {
-                LoginRoute(
-                    onBack = if (navController.previousBackStackEntry != null) back else null,
+                PinLoginRoute(
                     onLoggedIn = { done -> navController.finishAuth(done) },
-                    onSignup = { navController.navigate(Terms) },
-                    onFindPassword = { showMessage("비밀번호 찾기는 준비 중이에요") },
-                )
-            }
-            composable<Unlock> {
-                UnlockRoute(
-                    onUnlocked = { done -> navController.finishAuth(done) },
-                    onEmailLogin = { navController.navigate(Login) },
+                    onNoDevice = { navController.toWelcome() },
                     onDebugMenu = debugMenu,
                 )
             }
             composable<Terms> {
-                TermsScreen(onBack = back, onAgree = { navController.navigate(IdentityVerify) }, onOpenTerm = { showMessage("약관 전문은 준비 중이에요") })
+                TermsRoute(
+                    onBack = back,
+                    onVerify = { navController.navigate(IdentityVerify) },
+                    onAccounts = { navController.navigate(SignupAccounts) },   // 로그인으로 들어와 본인인증을 이미 마친 가입
+                    onOpenTerm = { showMessage("약관 전문은 준비 중이에요") },
+                )
+            }
+            // 가입 진행 토큰 만료 · 앱이 다시 켜져 진행 상태가 없음 → 본인인증부터
+            val restartSignup: () -> Unit = {
+                navController.navigate(IdentityVerify) { popUpTo<Welcome> { inclusive = false } }
+                showMessage("시간이 지났어요 · 본인인증부터 다시 해 주세요")
             }
             composable<IdentityVerify> {
-                SignupInfoRoute(
+                PhoneVerifyRoute(
                     onBack = back,
-                    onSignedUp = { navController.navigate(PinSetup) { popUpTo<Welcome> { inclusive = false } } },
+                    onNext = { next ->
+                        val target: Any = when (next) {
+                            SignupNext.TERMS -> Terms
+                            SignupNext.ACCOUNTS -> SignupAccounts
+                            SignupNext.RECOVERY -> RecoveryIntro
+                        }
+                        navController.navigate(target)
+                    },
+                )
+            }
+            composable<RecoveryIntro> {
+                RecoveryIntroRoute(
+                    onBack = back,
+                    onKeepPin = { navController.navigate(SignupAccounts) },
+                    onNewPin = { navController.navigate(PinSetup) },
+                )
+            }
+            composable<SignupAccounts> {
+                SignupAccountsRoute(onBack = back, onSent = { navController.navigate(SignupOneWon) }, onRestart = restartSignup)
+            }
+            composable<SignupOneWon> {
+                SignupOneWonRoute(
+                    onBack = back,
+                    // 계좌 연결이 끝나면 1원 · 계좌 화면으로 돌아가지 않게
+                    onLinked = { navController.navigate(PinSetup) { popUpTo<IdentityVerify> { inclusive = false } } },
+                    onRecovered = {
+                        navController.navigate(Login) { popUpTo(navController.graph.id) { inclusive = true } }
+                        showMessage("이 폰을 등록했어요 · 간편 비밀번호로 로그인해 주세요")
+                    },
+                    onRestart = restartSignup,
                 )
             }
             composable<PinSetup> {
                 PinSetupRoute(
                     onBack = back,
                     onFinished = { navController.navigate(SignupDone) { popUpTo<AuthGraph> { inclusive = false } } },
+                    // PIN 화면을 스택에서 빼서 뒤로 가면 A-08로 돌아간다(남겨 두면 완료 상태가 다시 계좌 화면으로 보낸다)
+                    onRecoveryPinSet = { navController.navigate(SignupAccounts) { popUpTo<RecoveryIntro> { inclusive = false } } },
+                    onRestart = restartSignup,
                 )
             }
             composable<SignupDone> {
@@ -137,27 +173,17 @@ fun YamuNavHost(navController: NavHostController, modifier: Modifier = Modifier)
         }
 
         // ── 계좌 · 카드 연결 (5단계: 실제 화면 — 09 문서) ──
-        navigation<LinkGraph>(startDestination = InstitutionSelect) {
-            composable<InstitutionSelect> {
-                InstitutionSelectRoute(
-                    onBack = if (navController.previousBackStackEntry != null) back else ({ navController.skipLinkToMain() }),
-                    onStarted = { id -> navController.navigate(LinkConsent(id)) },
-                )
-            }
-            composable<LinkConsent> {
-                LinkConsentRoute(
-                    onBack = back,
-                    onVerified = { id -> navController.toLinkSelect(id) },
+        navigation<LinkGraph>(startDestination = CardRegister) {
+            composable<CardRegister> {
+                // 가입 · 로그인에서 바로 왔으면 스택에 이 화면뿐 — 뒤로 = 메인. 홈 · 잔고예보에서 왔으면 그 화면으로
+                val hasPrevious = navController.previousBackStackEntry != null
+                CardRegisterRoute(
+                    onboarding = true,
+                    onLeave = if (hasPrevious) back else ({ navController.finishOnboarding() }),
+                    onFinished = { navController.navigate(CashflowConfirm) },
+                    onCloseDone = { navController.finishOnboarding() },
                     onOpenPinPad = openPinPad,
-                )
-            }
-            composable<LinkSelect> {
-                LinkSelectRoute(onBack = back, onCompleted = { navController.toLinkDone() }, onReselect = back)
-            }
-            composable<LinkDone> {
-                LinkDoneRoute(
-                    onNext = { navController.navigate(CashflowConfirm) },
-                    onExitToHome = { navController.finishOnboarding() },
+                    onSkip = { navController.finishOnboarding() },
                 )
             }
             composable<CashflowConfirm> {
@@ -203,7 +229,7 @@ fun YamuNavHost(navController: NavHostController, modifier: Modifier = Modifier)
                 composable<MyCards> {
                     MyCardsRoute(
                         onBack = back,
-                        onAddCard = { navController.navigate(AddCardInstitution) },
+                        onAddCard = { navController.navigate(AddCard) },
                         onAnalysis = { id -> navController.navigate(PerfAnalysis(id)) },
                         onCardDetail = { id -> navController.navigate(CardPerformance(id)) },
                     )
@@ -219,7 +245,16 @@ fun YamuNavHost(navController: NavHostController, modifier: Modifier = Modifier)
                         onAlertSettings = { navController.navigate(NotificationSettings) },
                     )
                 }
-                composable<CashflowList> { CashflowListRoute(onBack = back, onLink = { navController.navigate(LinkGraph) }) }
+                composable<CashflowList> {
+                    CashflowListRoute(
+                        onBack = back,
+                        onLink = { navController.navigate(LinkGraph) },
+                        onAdd = { navController.navigate(CashflowCreate) },
+                        onEdit = { id, occurrence -> navController.navigate(CashflowEdit(id, occurrence.toString())) },
+                    )
+                }
+                composable<CashflowCreate> { CashflowCreateRoute(onBack = back, onDone = back) }
+                composable<CashflowEdit> { CashflowCreateRoute(onBack = back, onDone = back) }   // 같은 화면 · 수정 모드(경로 값으로 구분)
                 composable<BuyCheckInput> {
                     BuyCheckInputRoute(
                         onBack = back,
@@ -247,7 +282,7 @@ fun YamuNavHost(navController: NavHostController, modifier: Modifier = Modifier)
             navigation<PayGraph>(startDestination = Recommend) {
                 composable<Recommend> {
                     // 6단계: 실제 화면(10 문서)
-                    RecommendRoute(onOpenPayCode = { navController.navigate(PayCode) }, onAddCard = { navController.navigate(AddCardInstitution) }, onNotifications = { navController.navigate(Notifications) })
+                    RecommendRoute(onOpenPayCode = { navController.navigate(PayCode) }, onAddCard = { navController.navigate(AddCard) }, onNotifications = { navController.navigate(Notifications) })
                 }
             }
 
@@ -257,7 +292,7 @@ fun YamuNavHost(navController: NavHostController, modifier: Modifier = Modifier)
                     PerfOverviewRoute(
                         onAnalysis = { id -> navController.navigate(PerfAnalysis(id)) },
                         onCardDetail = { id -> navController.navigate(CardPerformance(id)) },
-                        onAddCard = { navController.navigate(AddCardInstitution) },
+                        onAddCard = { navController.navigate(AddCard) },
                     )
                 }
                 composable<CardPerformance> {
@@ -297,6 +332,7 @@ fun YamuNavHost(navController: NavHostController, modifier: Modifier = Modifier)
                         onNotifications = { navController.navigate(Notifications) },
                         onProfile = { navController.navigate(Profile) },
                         onCardManage = { navController.navigate(CardManage) },
+                        onAccountManage = { navController.navigate(AccountManage) },
                         onNotificationSettings = { navController.navigate(NotificationSettings) },
                         onSecurity = { navController.navigate(Security) },
                         onNotReady = showMessage,
@@ -308,24 +344,55 @@ fun YamuNavHost(navController: NavHostController, modifier: Modifier = Modifier)
                     )
                 }
                 composable<CardManage> {
-                    CardManageRoute(onBack = back, onAddCard = { navController.navigate(AddCardInstitution) })
-                }
-                composable<AddCardInstitution> {
-                    AddCardInstitutionRoute(onBack = back, onStarted = { id -> navController.navigate(AddCardFound(id)) })
-                }
-                composable<AddCardFound> {
-                    AddCardFoundRoute(
+                    CardManageRoute(
                         onBack = back,
-                        onAdded = { userCardId -> navController.toAddCardDone(userCardId) },
+                        onAddCard = { navController.navigate(AddCard) },
+                        onCardDetail = { id -> navController.navigate(CardDetail(id)) },
+                        onCardOrder = { navController.navigate(CardOrder) },
+                    )
+                }
+                composable<CardDetail> {
+                    CardDetailRoute(
+                        onBack = back,
+                        onUnregistered = { name ->
+                            back()
+                            showMessage("${name}${name.objectParticle()} 해제했어요")
+                        },
                         onOpenPinPad = openPinPad,
                     )
                 }
-                composable<AddCardDone> {
-                    AddCardDoneRoute(onDone = back)
+                composable<CardOrder> {
+                    CardOrderRoute(
+                        onBack = back,
+                        onSaved = {
+                            back()
+                            showMessage("카드 순서를 저장했어요")
+                        },
+                    )
                 }
+                composable<AddCard> {
+                    CardRegisterRoute(
+                        onboarding = false,
+                        onLeave = back,
+                        onFinished = back,
+                        onCloseDone = back,
+                        onOpenPinPad = openPinPad,
+                    )
+                }
+                composable<AccountManage> { AccountManageRoute(onBack = back) }
                 composable<NotificationSettings> { NotificationSettingsRoute(onBack = back) }
-                composable<Profile> { ProfileRoute(onBack = back) }
-                composable<Security> { SecurityRoute(onBack = back) }
+                composable<Profile> { ProfileRoute(onBack = back, onOpenPinPad = openPinPad, onWithdraw = { navController.navigate(Withdraw) }) }
+                composable<Withdraw> {
+                    WithdrawRoute(
+                        onBack = back,
+                        onOpenPinPad = openPinPad,
+                        onWithdrawn = {
+                            navController.restartFromSplash()   // 스택을 비워 뒤로 가도 앱 안 화면으로 돌아가지 않게
+                            showMessage("탈퇴했어요")
+                        },
+                    )
+                }
+                composable<Security> { SecurityRoute(onBack = back, onOpenPinPad = openPinPad) }
             }
 
             // 결제 — 탭 밖 전체 화면. 어느 탭에서 열든 그 탭 위에 쌓인다
@@ -338,7 +405,7 @@ fun YamuNavHost(navController: NavHostController, modifier: Modifier = Modifier)
                     },
                     onPaid = { paymentId -> navController.toPayDone(paymentId) },
                     onOpenPinPad = openPinPad,
-                    onAddCard = { navController.navigate(AddCardInstitution) { popUpTo<PayCode> { inclusive = true } } },
+                    onAddCard = { navController.navigate(AddCard) { popUpTo<PayCode> { inclusive = true } } },
                 )
             }
             composable<PayDone> {
@@ -361,9 +428,9 @@ fun YamuNavHost(navController: NavHostController, modifier: Modifier = Modifier)
         composable<Relock> {
             val activity = LocalContext.current.findActivity()
             BackHandler { activity?.moveTaskToBack(true) }
-            UnlockRoute(
-                onUnlocked = { back() },
-                onEmailLogin = { navController.navigate(Login) { popUpTo(navController.graph.id) { inclusive = true } } },
+            PinLoginRoute(
+                onLoggedIn = { back() },
+                onNoDevice = { navController.toWelcome() },
                 onDebugMenu = null,
             )
         }

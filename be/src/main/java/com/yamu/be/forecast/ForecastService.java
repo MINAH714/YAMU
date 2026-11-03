@@ -183,12 +183,14 @@ public class ForecastService {
                 LIVING_COST_EXCLUSIONS, null, pace, read.syncedAt(), accountLivingCosts);
     }
 
-    /** 이번 달을 포함해 지난 3개월치 생활 소비를 읽어 계좌별로 추정한다. 원천 실패는 그대로 던진다. */
+    /**
+     * (이번 달 − 3개월)의 1일부터 오늘까지 일별 생활 소비를 읽어 계좌별로 추정한다. 이 범위는 늘 90일 이상이다.
+     * 원천 실패는 그대로 던진다.
+     */
     private LivingCostRead estimateLivingCost(Long userId, List<Long> selected, LocalDate today) {
-        YearMonth thisMonth = YearMonth.from(today);
-        LivingCostReader.Spending spending = livingCosts.monthlySpending(userId, selected,
-                thisMonth.minusMonths(LivingCostEstimator.MONTHS), thisMonth);
-        return new LivingCostRead(LivingCostEstimator.estimate(selected, spending.months(), today),
+        LocalDate from = YearMonth.from(today).minusMonths(LivingCostEstimator.MONTHS).atDay(1);
+        LivingCostReader.Spending spending = livingCosts.dailySpending(userId, selected, from, today);
+        return new LivingCostRead(LivingCostEstimator.estimate(selected, spending.days(), today),
                 spending.syncedAt());
     }
 

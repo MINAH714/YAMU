@@ -107,7 +107,7 @@ class PaymentRepositoryImpl @Inject constructor(private val api: PaymentApi) : P
     override suspend fun codeStatus(token: String): ApiResult<PayCodeStatus> = apiCall { api.codeStatus(token) }.map { it.toStatus() }
 
     override suspend fun approve(request: PaymentRequest, card: PayCard, installmentMonths: Int?, idempotencyKey: String): ApiResult<ApproveOutcome> {
-        val body = if (installmentMonths != null) ApproveRequest(card.userCardId, "INSTALLMENT", installmentMonths) else ApproveRequest(card.userCardId)
+        val body = ApproveRequest(card.userCardId)
         return apiCall { api.approve(request.paymentId, idempotencyKey, body) }.map { r ->
             if (r.status.equals("APPROVED", ignoreCase = true)) {
                 val receipt = r.toReceipt(request, card)

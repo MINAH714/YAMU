@@ -27,6 +27,7 @@ import com.yamu.app.feature.auth.data.AuthRepository
 import com.yamu.app.feature.auth.data.StepUpPurpose
 import com.yamu.app.navigation.PinPad
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -99,8 +100,8 @@ class PinPadViewModel @Inject constructor(
             _state.update { it.copy(busy = true) }
             val challenge = auth.challenge(purpose)
             if (challenge is ApiResult.Failure) return@launch fail(challenge.error)
-            val id = (challenge as ApiResult.Success).data.challengeId
-            when (val v = auth.verifyPin(id, pin)) {
+            val issued = (challenge as ApiResult.Success).data   // PIN도 기기 키로 이 challenge에 서명해 보낸다
+            when (val v = auth.verifyPin(issued, pin)) {
                 is ApiResult.Success -> {
                     results.deliver(PinPadResult.Verified(purpose, v.data))
                     _state.update { it.copy(busy = false, done = true) }
@@ -115,21 +116,28 @@ class PinPadViewModel @Inject constructor(
     }
 
     private fun fail(error: ApiError) {
+        val lockMillis = error.lockMillis()
         _state.update {
             it.copy(
                 busy = false,
                 input = "",
                 error = error.authMessage(),
-                locked = error.code == "DEVICE_LOCKED",
+                locked = lockMillis != null,
                 shuffleKey = it.shuffleKey + 1,
             )
+        }
+        if (lockMillis != null) viewModelScope.launch {
+            delay(lockMillis)
+            _state.update { it.copy(locked = false, error = null) }
         }
     }
 }
 
 private fun pinPadTitle(purpose: String) = when (purpose) {
-    StepUpPurpose.ACCOUNT_LINK -> "간편 비밀번호로\n서명해 주세요"
-    StepUpPurpose.CARD_REGISTER -> "간편 비밀번호로\n카드를 연결해요"
+    StepUpPurpose.ACCOUNT_LINK -> "간편 비밀번호로\n계좌를 연결해요"
+    StepUpPurpose.CARD_REGISTER -> "간편 비밀번호로\n카드를 등록해요"
+    StepUpPurpose.CARD_DELETE -> "간편 비밀번호로\n카드를 해제해요"
+    StepUpPurpose.WITHDRAW_MEMBER -> "간편 비밀번호로\n탈퇴를 확인해요"
     StepUpPurpose.BARCODE -> "간편 비밀번호로\n결제 코드를 열어요"
     else -> "간편 비밀번호를\n넣어 주세요"
 }

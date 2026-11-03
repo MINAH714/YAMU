@@ -152,6 +152,7 @@ CONSTRAINT ck_linked_account_version CHECK (version >= 0)
 | card_product_id | `BIGINT NOT NULL AUTO_INCREMENT` | YAMU 내부 상품 번호; 외부 상품 코드 아님 |
 | issuer_code | `VARCHAR(32) NOT NULL` | YAMU 카드사 코드 |
 | product_name | `VARCHAR(150) NOT NULL` | 세대·에디션을 포함해 구분한 상품명 |
+| image_key | `VARCHAR(1024) NULL` | 카드 앞면 이미지 S3 객체 키. 미수집은 NULL. CDN URL은 API에서 조합 |
 | card_type | `VARCHAR(16) NOT NULL` | CREDIT / CHECK |
 | billing_cutoff_days | `SMALLINT NULL` | 결제일에서 뺄 일수; 신용카드 정책 자료로 설정 |
 | terms_url | `VARCHAR(1000) NULL` | 원본 상품 약관 위치 |
@@ -394,9 +395,14 @@ CONSTRAINT ck_tier_value CHECK (limit_value >= 0)
 | 체크카드 출금 처리 중·결과 확인 중 | PROCESSING | 성공 거래 번호 확인 전에는 NULL |
 | 체크카드 출금 성공 후 승인 완료 | APPROVED | 금융망이 반환한 출금 거래 번호 |
 | 체크카드 잔액 부족으로 출금 실패 확정 | DECLINED | NULL |
+| 체크카드 출금 결과 불명 뒤 유예가 지나도 거래내역에 태그가 없어 거절(WITHDRAWAL_NOT_CONFIRMED, 임시) | DECLINED, 마감이 지났으면 EXPIRED | NULL |
+| 위 거절 뒤 같은 요청 번호의 출금이 늦게 확인되어 승인으로 바로잡음(임시) | APPROVED | 거래내역에서 찾은 출금 거래 번호 |
+| 금융망에 출금 요청을 보내지 못해 승인 전으로 되돌림(임시) | REQUESTED | NULL |
 | 신용카드 일시불·할부 승인 완료 | APPROVED | NULL. 승인 때 계좌에서 출금하지 않음 |
 
 fin_transaction_no는 상태 코드가 아니라 **이 결제로 발생한 계좌 출금의 거래 번호**다. NULL만 보고 결제 실패로 판단하지 않고 status를 함께 확인한다. 출금 응답을 받지 못한 경우도 바로 거절로 확정하지 않고 결과를 확인한다. 체크카드 결제를 나중에 취소해도 원 출금 번호는 보존하며 환급 거래는 REFUND에서 관리한다. 신용카드는 일시불·할부 모두 결제일에 CARD_BILL 기준으로 출금하고, 그 출금 거래 번호는 CARD_BILL에 저장한다. 가맹점 정산을 기록하는 테이블은 아니다.
+
+출금 결과 불명 처리(임시, Task 5.2.3 · [S15P31E103-199](https://ssafy.atlassian.net/browse/S15P31E103-199)): 결과를 모르는 PROCESSING은 fin_request_no의 태그로 거래내역을 찾아 있으면 APPROVED, 유예가 지나도 없으면 WITHDRAWAL_NOT_CONFIRMED로 DECLINED(마감이 지났으면 EXPIRED)로 확정한다. 금액이 다르거나 태그가 둘 이상이면 PROCESSING에 두고 운영이 확인한다. 기존 흐름에 없는 전이 두 가지를 임시로 쓴다. PROCESSING → REQUESTED는 금융망에 아무것도 보내지 못했을 때만, DECLINED·EXPIRED → APPROVED는 WITHDRAWAL_NOT_CONFIRMED이고 같은 fin_request_no의 출금이 늦게 확인됐을 때만이다. 재승인을 시작하면 앞 시도의 fin_request_no·fin_transaction_no를 지우고 새로 받는다(앞 번호는 Redis 시도 기록에 남는다).
 
 시설 코드와 혜택 적용 규칙의 기준 문서는 [FR-014의 입점 시설 코드 정책](https://app.notion.com/p/e0431720f35882188d5101733ebd9269)이다. 이 절은 DB 저장값을 설명한다.
 
@@ -428,7 +434,7 @@ fin_transaction_no는 상태 코드가 아니라 **이 결제로 발생한 계�
 | approved_at | `TIMESTAMP(6) NULL` | UTC 승인 시각 |
 | canceled_at | `TIMESTAMP(6) NULL` | UTC 전체 취소 시각 |
 | performance_reversed_at | `TIMESTAMP(6) NULL` | UTC 실적 복구 완료 시각; 서비스에서 1회 처리 |
-| failure_code | `VARCHAR(64) NULL` | 승인 거절 시 API failure.code와 같은 값 저장: INSUFFICIENT_BALANCE(잔액 부족) / CREDIT_LIMIT_EXCEEDED(신용 한도 초과) / CARD_SUSPENDED(카드 정지) / UNPAID_BILL(미납) / ISSUER_DECLINED(모의 승인 거절). 거절 사유가 없으면 NULL. 서버에서 허용값 검증 |
+| failure_code | `VARCHAR(64) NULL` | 승인 거절 시 API failure.code와 같은 값 저장: INSUFFICIENT_BALANCE(잔액 부족) / CREDIT_LIMIT_EXCEEDED(신용 한도 초과) / CARD_SUSPENDED(카드 정지) / UNPAID_BILL(미납) / ISSUER_DECLINED(모의 승인 거절) / ACCOUNT_UNAVAILABLE(출금 계좌 없음·해지, 임시) / WITHDRAWAL_NOT_CONFIRMED(출금 결과 불명 뒤 거래내역에 없음, 임시). 거절 사유가 없으면 NULL. 서버에서 허용값 검증 |
 | fin_request_no | `CHAR(20) CHARACTER SET ascii COLLATE ascii_bin NULL` | SSAFY 요청 Header.institutionTransactionUniqueNo. 서버가 YYYYMMDD + HHMMSS + 일련번호 6자리로 생성; 아래 채번 규칙 참조. 요청 전 NULL |
 | fin_transaction_no | `VARCHAR(128) CHARACTER SET ascii COLLATE ascii_bin NULL` | 체크카드 출금 성공 시 금융망이 반환한 거래 번호; 상태 코드가 아님. 신용카드는 승인 시 NULL이며 결제일 출금 번호는 CARD_BILL에 저장 |
 | created_at | `TIMESTAMP(6) NOT NULL` | UTC 생성 시각 |

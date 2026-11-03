@@ -230,7 +230,7 @@ class FakeMyRepository @Inject constructor(
             MyInfo(
                 name = s.name ?: "김야무", email = s.email ?: "yamu.kim@example.com",
                 autoLockSeconds = session.autoLockSeconds.first(), pinOnlyForCode = FakeSecurity.pinOnlyForCode,
-                biometricEnabled = s.deviceRegistered, currentDeviceId = 7, autoSelect = autoSelect,
+                biometricEnabled = s.biometricEnabled, currentDeviceId = s.userDeviceId, autoSelect = autoSelect,
             ),
         )
     }
@@ -263,7 +263,12 @@ class FakeMyRepository @Inject constructor(
         ApiResult.Success(devices.toList())
     }
 
-    override suspend fun revokeDevice(id: Long): ApiResult<Unit> { delay(300); devices.removeAll { it.id == id }; return ApiResult.Success(Unit) }
+    override suspend fun revokeDevice(id: Long, stepUpToken: String): ApiResult<Unit> { delay(300); devices.removeAll { it.id == id }; return ApiResult.Success(Unit) }
+
+    override suspend fun withdraw(stepUpToken: String): ApiResult<Unit> = withFault {
+        delay(500)
+        ApiResult.Success(Unit)
+    }
 
     private fun all(): List<AppNotification> {
         val paid = payments.approved().map {

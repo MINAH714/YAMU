@@ -50,16 +50,6 @@ fun NavController.finishOnboarding() = navigate(MainGraph) {
     popUpTo(graph.id) { inclusive = true }
 }
 
-/** 본인 확인 · 서명 끝(C-02) → 목록(C-03): 뒤로 = 기관 선택(C-01) — 서명한 화면으로 돌아가지 않음 */
-fun NavController.toLinkSelect(linkSessionId: String) = navigate(LinkSelect(linkSessionId)) {
-    popUpTo<LinkConsent> { inclusive = true }
-}
-
-/** 연결 확정(C-03) → 완료(C-04): 기관 선택 · 목록을 걷어 낸다 */
-fun NavController.toLinkDone() = navigate(LinkDone) {
-    popUpTo<InstitutionSelect> { inclusive = true }
-}
-
 /** 결제 완료: 결제 코드 · 확인 화면은 빼고 완료만 남김 → 뒤로 = 결제를 시작한 화면 */
 fun NavController.toPayDone(paymentId: Long) = navigate(PayDone(paymentId)) {
     popUpTo<PayCode> { inclusive = true }
@@ -70,7 +60,7 @@ fun NavController.toBuyCheckSaved(planId: Long) = navigate(BuyCheckSaved(planId)
     popUpTo<Forecast> { inclusive = false }
 }
 
-/** 카드 추가 완료: 추가 흐름을 빼고 → 뒤로 = 카드 추가를 시작한 화면 */
-fun NavController.toAddCardDone(userCardId: Long) = navigate(AddCardDone(userCardId)) {
-    popUpTo<AddCardInstitution> { inclusive = true }
+/** 이 폰에 등록된 기기가 없어짐 → 첫 화면(A-01). 스택을 모두 비운다 */
+fun NavController.toWelcome() = navigate(AuthGraph) {
+    popUpTo(graph.id) { inclusive = true }
 }

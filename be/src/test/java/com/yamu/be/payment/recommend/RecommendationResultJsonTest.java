@@ -47,7 +47,7 @@ class RecommendationResultJsonTest {
     }
     @Test void failedSaveDoesNotReturnAStoredResultAndScopesUpdateByOwnerAndPayment() {
         var jdbc=mock(JdbcTemplate.class);var items=mock(PurchaseItemReader.class);
-        var store=new RecommendationSnapshotStore(jdbc,codec,items);
+        var store=new DatabaseRecommendationResultStore(jdbc,codec,items);
         var result=result(candidate(lines("AFTER_BILLING"),List.of(group())));
         assertThatThrownBy(()->store.save(7,100,result)).isInstanceOf(IllegalStateException.class);
         verify(jdbc).update("UPDATE payment_transaction SET recommendation_result_json=CAST(? AS JSON), version=version+1, updated_at=UTC_TIMESTAMP(6) WHERE payment_transaction_id=? AND user_id=?",

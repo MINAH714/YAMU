@@ -28,3 +28,40 @@ yamu:
     pin-pepper: 21zmotCRVO8RYY0N3gWiHctx+Sb9BSjCwaZZL+4K4Do=
   jwt:
     secret: QtMBagkzR6RDQxrKVCjsIIbWYns3aRMksLkC+dwPfro=
+  # 모의 POS 테스트 설정. 시나리오의 brand-code는 테스트가 merchant 행으로 직접 넣는다
+  pos:
+    key: test-pos-key
+    confirm-window: 60s
+    scanned-retention: 10m
+    snapshot-ttl: 10m
+    idempotency-ttl: 24h
+    idempotency-lock-ttl: 15s
+    terminals:
+      - pos-code: POS-TEST-CAFE
+        brand-code: TEST_CAFE
+        channel: OFFLINE
+        facility-type: GENERAL
+      - pos-code: POS-TEST-CAFE-DEPT
+        brand-code: TEST_CAFE
+        channel: OFFLINE
+        facility-type: DEPARTMENT_STORE
+      - pos-code: POS-TEST-SHOP
+        brand-code: TEST_SHOP
+        channel: ONLINE
+  # PC·CI에 DATA_GO_KR_SERVICE_KEY가 있어도 테스트가 실제 공휴일 API를 부르지 않게 비워 둔다
+  holiday:
+    service-key: ""
+  payment:
+    approve:
+      idempotency-ttl: 24h
+      idempotency-lock-ttl: 30s
+      start-lock-ttl: 5s
+      max-attempts: 3
+      attempt-ttl: 24h
+      settle-lock-ttl: 60s
+      recovery-grace: 30s
+      recovery-interval: 60s
+      recovery-hold: 5m
+      late-withdrawal-window: 10m
+      # 주기 작업은 테스트가 직접 부른다
+      recovery-enabled: false

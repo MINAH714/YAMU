@@ -7,7 +7,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import com.yamu.app.core.designsystem.card.CardImages
 import com.yamu.app.core.designsystem.component.CardArt
 import com.yamu.app.core.designsystem.component.CardThumb
-import com.yamu.app.core.designsystem.icon.YamuIcons
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.unit.em
 import com.yamu.app.core.designsystem.component.ExpandToggle
@@ -30,9 +29,6 @@ import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.CheckCircle
-import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -43,7 +39,6 @@ import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
@@ -137,91 +132,10 @@ fun BrandCardArt(brand: Brand, name: String, last4: String?, modifier: Modifier 
 
 /** 카드 목록 줄 앞자리(M-02 · H-03) — 88dp 상품 그림, 없으면 같은 크기의 카드사 색 카드 */
 @Composable
-fun CardListThumb(brand: Brand, productName: String) {
-    CardThumb(CardImages.forProduct(productName), width = 88.dp) {
-        Box(Modifier.width(88.dp).aspectRatio(1.586f).clip(RoundedCornerShape(8.dp))) {
+fun CardListThumb(brand: Brand, productName: String, width: Dp = 88.dp) {
+    CardThumb(CardImages.forProduct(productName), width = width) {
+        Box(Modifier.width(width).aspectRatio(1.586f).clip(RoundedCornerShape(8.dp))) {
             BrandMark(brand, Modifier.fillMaxSize(), large = true)
-        }
-    }
-}
-
-/**
- * 기관 타일 격자(3열) — C-01 · C-11. 고르면 테두리 + 체크(색만으로 알리지 않음).
- * 스크롤 화면 안이라 LazyVerticalGrid 대신 줄을 직접 나눈다.
- */
-@Composable
-fun <T> TileGrid(
-    items: List<T>,
-    brand: (T) -> Brand,
-    selected: (T) -> Boolean,
-    onToggle: (T) -> Unit,
-    modifier: Modifier = Modifier,
-    dimmed: (T) -> Boolean = { false },
-    stateText: (T) -> String? = { null },
-) {
-    Column(modifier, verticalArrangement = Arrangement.spacedBy(YamuSpacing.x2)) {
-        items.chunked(3).forEach { row ->
-            Row(horizontalArrangement = Arrangement.spacedBy(YamuSpacing.x2)) {
-                row.forEach { item ->
-                    InstitutionTile(
-                        brand = brand(item),
-                        selected = selected(item),
-                        dimmed = dimmed(item),
-                        stateText = stateText(item),
-                        onClick = { onToggle(item) },
-                        modifier = Modifier.weight(1f),
-                    )
-                }
-                repeat(3 - row.size) { Spacer(Modifier.weight(1f)) }
-            }
-        }
-    }
-}
-
-@Composable
-private fun InstitutionTile(
-    brand: Brand,
-    selected: Boolean,
-    dimmed: Boolean,
-    stateText: String?,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    val c = YamuTheme.colors
-    val shape = RoundedCornerShape(16.dp)
-    Box(
-        modifier
-            .heightIn(min = 88.dp)
-            .clip(shape)
-            .background(c.surfaceVariant)
-            .then(if (selected) Modifier.border(2.dp, c.primary, shape) else Modifier)
-            .toggleable(value = selected, role = Role.Checkbox, onValueChange = { onClick() })
-            .semantics {
-                contentDescription = brand.name
-                stateDescription = listOfNotNull(stateText, if (selected) "선택됨" else "선택 안 됨").joinToString(", ")
-            }
-            .padding(YamuSpacing.x2),
-    ) {
-        Column(Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally) {
-            if (brand.isBank()) BankMark(brand, size = 32.dp, onSurface = false)
-            else BrandMark(if (dimmed) brand.copy(colorArgb = null) else brand, large = true)
-            Spacer(Modifier.height(YamuSpacing.x2))
-            Text(
-                brand.name,
-                style = YamuTheme.typography.labelL,
-                color = if (dimmed) c.text3 else c.text1,
-                textAlign = TextAlign.Center,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
-        if (selected) {
-            Icon(
-                YamuIcons.CheckCircleFilled,
-                contentDescription = null,
-                tint = c.primary,
-                modifier = Modifier.align(Alignment.TopEnd).size(20.dp),
-            )
         }
     }
 }

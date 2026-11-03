@@ -46,7 +46,6 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.toRoute
-import com.yamu.app.BuildConfig
 import com.yamu.app.core.designsystem.component.AmountText
 import com.yamu.app.core.designsystem.component.BottomCta
 import com.yamu.app.core.designsystem.component.CharacterImage
@@ -69,6 +68,7 @@ import com.yamu.app.core.designsystem.theme.YamuRadius
 import com.yamu.app.core.designsystem.theme.YamuSpacing
 import com.yamu.app.core.designsystem.theme.YamuTheme
 import com.yamu.app.core.format.toWon
+import com.yamu.app.core.network.ApiFeature
 import com.yamu.app.core.network.ApiResult
 import com.yamu.app.core.network.newIdempotencyKey
 import com.yamu.app.core.ui.LocalSnackbar
@@ -148,7 +148,7 @@ data class PosMerchantsState(val loading: Boolean = true, val merchants: List<Me
 class PosMerchantsViewModel @Inject constructor(private val repo: PosRepository, private val settings: PosSettings) : ViewModel() {
     private val _state = MutableStateFlow(PosMerchantsState())
     val state: StateFlow<PosMerchantsState> = _state.asStateFlow()
-    val missingKey: Boolean = !repo.hasKey && !BuildConfig.USE_FAKE_API
+    val missingKey: Boolean = !repo.hasKey && ApiFeature.POS.isReal
 
     init { load() }
 
@@ -276,7 +276,7 @@ class PosScanViewModel @Inject constructor(
             _state.update { it.copy(requesting = true, error = null) }
             val key = keys.getOrPut("$token:$amount") { newIdempotencyKey() }
             val orderNo = "POS-" + LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss"))
-            when (val r = repo.request(token, m.id, amount, orderNo, key)) {
+            when (val r = repo.request(token, m, amount, orderNo, key)) {
                 is ApiResult.Success -> _state.update { it.copy(requesting = false, paymentId = r.data) }
                 is ApiResult.Failure -> {
                     lastFailed = token to System.currentTimeMillis()
@@ -403,6 +403,7 @@ private fun PosResultScreen(onNewPayment: () -> Unit, viewModel: PosResultViewMo
                 PosStatus.APPROVED -> "결제됐어요"
                 PosStatus.DECLINED -> "결제가 거절됐어요"
                 PosStatus.ENDED -> "결제되지 않았어요"
+                PosStatus.SENT -> "결제 요청을 보냈어요"
             }
             Text(headline, style = YamuTheme.typography.headlineS, color = c.text1, textAlign = TextAlign.Center)
             Spacer(Modifier.height(YamuSpacing.x2))
@@ -415,6 +416,7 @@ private fun PosResultScreen(onNewPayment: () -> Unit, viewModel: PosResultViewMo
                 PosStatus.APPROVED -> Receipt(r)
                 PosStatus.DECLINED -> Text(r.failureMessage ?: "고객 카드가 승인되지 않았어요", style = YamuTheme.typography.bodyM, color = c.error, textAlign = TextAlign.Center)
                 PosStatus.ENDED -> Text("고객이 거절했거나 확인 시간이 지났어요", style = YamuTheme.typography.bodyM, color = c.text3, textAlign = TextAlign.Center)
+                PosStatus.SENT -> Text("결과는 고객 앱에서 확인해 주세요", style = YamuTheme.typography.bodyM, color = c.text3, textAlign = TextAlign.Center)
             }
         }
     }

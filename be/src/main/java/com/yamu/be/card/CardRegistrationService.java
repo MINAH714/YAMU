@@ -77,6 +77,7 @@ public class CardRegistrationService {
     private final LookupHasher lookupHasher;
     private final LoginRateLimiter rateLimiter;
     private final Clock clock;
+    private final CardImageUrlResolver imageUrlResolver;
 
     @Transactional(readOnly = true)
     public CardLookupResponse lookup(AuthUser me, CardLookupRequest request) {
@@ -113,7 +114,8 @@ public class CardRegistrationService {
         return new CardLookupResponse(token, expiresAt,
                 new CardLookupResponse.IssuerResponse(issuer.code(), issuer.name(), issuer.color(),
                         credit ? product.getBillingCutoffDays() : null),
-                new CardLookupResponse.Product(product.getId(), product.getProductName(), product.getCardType()),
+                new CardLookupResponse.Product(product.getId(), product.getProductName(), product.getCardType(),
+                        imageUrlResolver.resolve(product.getImageKey())),
                 masked, true, historyReader.hasPriorHistory(card.getId()),
                 new CardLookupResponse.IssuerAccount(card.getIssuerAccountBankCode(),
                         maskAccount(card.getIssuerAccountLast4()), linked.map(LinkedAccount::getId).orElse(null),
@@ -178,7 +180,7 @@ public class CardRegistrationService {
                 new CardRegisterResponse.Issuer(issuer.code(), issuer.name(), issuer.color()),
                 product.getProductName(), product.getCardType(), verified.maskedNumber(),
                 card.getRegistrationStatus(), false, accountId, billing, performance,
-                card.getRegisteredAt().truncatedTo(ChronoUnit.SECONDS));
+                card.getRegisteredAt().truncatedTo(ChronoUnit.SECONDS), imageUrlResolver.resolve(product.getImageKey()));
     }
 
     /** 유효기간은 그 달 말일까지 유효하다. 한국 날짜 기준으로 이번 달보다 앞이면 지난 것이다. */

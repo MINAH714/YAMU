@@ -32,6 +32,12 @@ pipeline {
                     env.GIT_COMMIT = revision.GIT_COMMIT
                 }
                 sh 'git rev-parse HEAD > ci-revision.txt'
+                script {
+                    if (fileExists('infra/gitlab/status.groovy')) {
+                        def statusReporter = load 'infra/gitlab/status.groovy'
+                        statusReporter.sendDevelop('RUNNING')
+                    }
+                }
             }
         }
         stage('Build environment') {
@@ -90,6 +96,10 @@ pipeline {
     post {
         always {
             script {
+                if (fileExists('infra/gitlab/status.groovy')) {
+                    def statusReporter = load 'infra/gitlab/status.groovy'
+                    statusReporter.sendDevelop(currentBuild.currentResult)
+                }
                 if (env.JOB_NAME == 'yamu/ci' && fileExists('infra/ci/mattermost.groovy')) {
                     def notifier = load 'infra/ci/mattermost.groovy'
                     notifier.send('CI', currentBuild.currentResult)

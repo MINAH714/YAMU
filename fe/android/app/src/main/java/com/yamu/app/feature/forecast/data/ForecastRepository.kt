@@ -2,6 +2,7 @@ package com.yamu.app.feature.forecast.data
 
 import com.yamu.app.core.format.parseDate
 import com.yamu.app.core.network.ApiEnvelope
+import com.yamu.app.core.network.ApiError
 import com.yamu.app.core.network.ApiResult
 import com.yamu.app.core.network.apiCall
 import com.yamu.app.core.network.apiCallNoData
@@ -11,11 +12,13 @@ import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
 import kotlinx.serialization.json.JsonElement
+import com.yamu.app.feature.link.data.LinkApi
 import retrofit2.Response
 import retrofit2.Retrofit
 import retrofit2.http.Body
 import retrofit2.http.DELETE
 import retrofit2.http.GET
+import retrofit2.http.PATCH
 import retrofit2.http.POST
 import retrofit2.http.Path
 import retrofit2.http.Query
@@ -34,6 +37,18 @@ interface ForecastApi {
 
     @POST("cashflow-items")
     suspend fun savePlan(@Body body: PurchasePlanRequest): Response<ApiEnvelope<CashflowCreatedDto>>
+
+    @POST("cashflow-items")
+    suspend fun createItem(@Body body: CashflowCreateRequest): Response<ApiEnvelope<CashflowCreatedDto>>
+
+    @GET("cashflow-items")
+    suspend fun cashflowItems(@Query("from") from: String, @Query("to") to: String, @Query("expand") expand: Boolean = true): Response<ApiEnvelope<CashflowListResponse>>
+
+    @PATCH("cashflow-items/{id}")
+    suspend fun updateItem(@Path("id") cashflowItemId: Long, @Body body: CashflowUpdateRequest): Response<ApiEnvelope<JsonElement>>
+
+    @DELETE("cashflow-items/{id}")
+    suspend fun deleteItem(@Path("id") cashflowItemId: Long, @Query("scope") scope: String, @Query("occurrenceDate") occurrenceDate: String?): Response<ApiEnvelope<JsonElement>>
 
     @DELETE("cashflow-items/{id}")
     suspend fun deletePlan(@Path("id") cashflowItemId: Long): Response<ApiEnvelope<JsonElement>>
@@ -55,10 +70,23 @@ interface ForecastRepository {
     fun savedPlan(planId: Long): SavedPlan?
 
     suspend fun deletePlan(planId: Long): ApiResult<Unit>
+
+    /** F-02a — #20 예정 수입·지출 등록(새 항목 ID). 서버에 재시도 키가 없어 실패해도 다시 보내지 않는다 */
+    suspend fun createItem(form: CashflowForm): ApiResult<Long>
+
+    /** F-02 — 기간 안 가계부 회차(확정만, 회차마다 한 줄). 마지막 값은 수정 화면이 [cachedEntry]로 쓴다 */
+    suspend fun cashflowEntries(from: LocalDate, to: LocalDate): ApiResult<List<CashflowEntry>>
+
+    fun cachedEntry(itemId: Long, occurrenceDate: LocalDate): CashflowEntry?
+
+    /** F-02b 수정 — 이후 전부는 규칙이 나뉘어 ID가 바뀔 수 있어 목록을 새로 부른다 */
+    suspend fun updateItem(itemId: Long, body: CashflowUpdateRequest): ApiResult<Unit>
+
+    suspend fun deleteItem(itemId: Long, scope: CashflowDeleteScope, occurrenceDate: LocalDate?): ApiResult<Unit>
 }
 
 @Singleton
-class ForecastRepositoryImpl @Inject constructor(private val api: ForecastApi) : ForecastRepository {
+class ForecastRepositoryImpl @Inject constructor(private val api: ForecastApi, private val linkApi: LinkApi) : ForecastRepository {
 
     @Volatile private var last: Forecast? = null
     private val plans = ConcurrentHashMap<Long, SavedPlan>()
@@ -73,7 +101,12 @@ class ForecastRepositoryImpl @Inject constructor(private val api: ForecastApi) :
             .map { it.toBuyCheck(title, amount, purchaseDate) }
 
     override suspend fun savePlan(option: BuyOption, title: String?, amount: Long): ApiResult<SavedPlan> {
-        val body = option.toPlanRequest(title, amount)
+        val accountId = if (option.userCardId != null) null else when (val a = apiCall { linkApi.accounts(null) }) {
+            is ApiResult.Failure -> return a
+            is ApiResult.Success -> a.data.accounts.firstOrNull { it.isPrimary }?.accountId
+                ?: return ApiResult.Failure(ApiError.InvalidRequest("ACCOUNT_NOT_LINKED"))
+        }
+        val body = option.toPlanRequest(title, amount, accountId)
         return apiCall { api.savePlan(body) }.map { r ->
             SavedPlan(
                 id = r.cashflowItemId,
@@ -91,6 +124,25 @@ class ForecastRepositoryImpl @Inject constructor(private val api: ForecastApi) :
 
     override suspend fun deletePlan(planId: Long): ApiResult<Unit> =
         apiCallNoData { api.deletePlan(planId) }.also { if (it is ApiResult.Success) plans.remove(planId) }
+
+    override suspend fun createItem(form: CashflowForm): ApiResult<Long> =
+        apiCall { api.createItem(form.toRequest()) }.map { it.cashflowItemId }
+
+    @Volatile private var entries: List<CashflowEntry> = emptyList()
+
+    override suspend fun cashflowEntries(from: LocalDate, to: LocalDate): ApiResult<List<CashflowEntry>> =
+        apiCall { api.cashflowItems(from.toString(), to.toString()) }
+            .map { r -> r.items.mapNotNull { it.toEntry() } }
+            .also { if (it is ApiResult.Success) entries = it.data }
+
+    override fun cachedEntry(itemId: Long, occurrenceDate: LocalDate): CashflowEntry? =
+        entries.firstOrNull { it.itemId == itemId && it.occurrenceDate == occurrenceDate }
+
+    override suspend fun updateItem(itemId: Long, body: CashflowUpdateRequest): ApiResult<Unit> =
+        apiCallNoData { api.updateItem(itemId, body) }
+
+    override suspend fun deleteItem(itemId: Long, scope: CashflowDeleteScope, occurrenceDate: LocalDate?): ApiResult<Unit> =
+        apiCallNoData { api.deleteItem(itemId, scope.name, occurrenceDate?.toString()) }
 }
 
 @Module

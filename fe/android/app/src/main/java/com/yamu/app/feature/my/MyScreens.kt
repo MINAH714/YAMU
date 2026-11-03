@@ -9,6 +9,7 @@ import android.content.Intent
 import android.provider.Settings
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -46,6 +47,7 @@ import androidx.compose.material3.TimePicker
 import androidx.compose.material3.TimePickerDefaults
 import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -69,11 +71,13 @@ import com.yamu.app.BuildConfig
 import com.yamu.app.core.designsystem.component.EmptyState
 import com.yamu.app.core.designsystem.component.ErrorState
 import com.yamu.app.core.designsystem.component.FlowScreen
+import com.yamu.app.core.designsystem.component.LinkButton
 import com.yamu.app.core.designsystem.component.ListRow
 import com.yamu.app.core.designsystem.component.SkeletonBlock
 import com.yamu.app.core.designsystem.component.StatusTag
 import com.yamu.app.core.designsystem.component.TabScreen
 import com.yamu.app.core.designsystem.component.TagTone
+import com.yamu.app.core.designsystem.component.TextButtonGrey
 import com.yamu.app.core.designsystem.component.YamuBottomSheet
 import com.yamu.app.core.designsystem.component.YamuCard
 import com.yamu.app.core.designsystem.component.YamuSwitch
@@ -86,7 +90,11 @@ import com.yamu.app.core.network.ApiError
 import com.yamu.app.core.network.ApiResult
 import com.yamu.app.core.ui.LocalSnackbar
 import com.yamu.app.core.ui.userMessage
+import com.yamu.app.feature.auth.StepUpEffect
+import com.yamu.app.feature.auth.StepUpFactory
+import com.yamu.app.feature.auth.StepUpPrompt
 import com.yamu.app.feature.auth.data.AuthRepository
+import com.yamu.app.feature.auth.data.StepUpPurpose
 import com.yamu.app.feature.link.CardListThumb
 import com.yamu.app.feature.link.data.LinkRepository
 import com.yamu.app.feature.link.data.LinkedCard
@@ -116,13 +124,13 @@ internal val TapRowHeight = 64.dp
 
 /** 설정 목록 묶음 이름 — '결제' · '알림 종류' */
 @Composable
-internal fun SectionLabel(text: String, first: Boolean = false) {
+internal fun SectionLabel(text: String, first: Boolean = false, modifier: Modifier = Modifier) {
     Text(
         text,
         style = YamuTheme.typography.sub.copy(fontWeight = FontWeight.SemiBold),
         color = YamuTheme.colors.text3,
         // 묶음 사이는 28dp(프로토타입 .grp + .grp 12 + 라벨 위 16), 화면 첫 라벨만 16
-        modifier = Modifier.padding(top = if (first) YamuSpacing.x4 else 28.dp, bottom = YamuSpacing.x1),
+        modifier = modifier.padding(top = if (first) YamuSpacing.x4 else 28.dp, bottom = YamuSpacing.x1),
     )
 }
 
@@ -174,6 +182,7 @@ data class MyState(
     val info: MyInfo? = null,
     val unread: Int = 0,
     val cardCount: Int? = null,
+    val accountCount: Int? = null,
     val notificationsOn: Boolean? = null,
     val error: String? = null,
 )
@@ -193,16 +202,18 @@ class MyViewModel @Inject constructor(
             _state.update { it.copy(loading = it.info == null, error = null) }
             val info = async { my.me() }
             val notifications = async { my.notifications(page = 1) }
-            val cards = async { link.linkedOverview() }
+            val linked = async { link.linkedOverview() }
             val settings = async { my.notificationSettings() }
             val i = info.await()
+            val overview = (linked.await() as? ApiResult.Success)?.data
             _state.update { s ->
                 s.copy(
                     loading = false,
                     info = (i as? ApiResult.Success)?.data ?: s.info,
                     error = (i as? ApiResult.Failure)?.error?.userMessage(),
                     unread = (notifications.await() as? ApiResult.Success)?.data?.unread ?: s.unread,
-                    cardCount = (cards.await() as? ApiResult.Success)?.data?.cards?.size ?: s.cardCount,
+                    cardCount = overview?.cards?.size ?: s.cardCount,
+                    accountCount = overview?.accounts?.size ?: s.accountCount,
                     notificationsOn = (settings.await() as? ApiResult.Success)?.data?.let { it.performance || it.balance || it.payment } ?: s.notificationsOn,
                 )
             }
@@ -222,6 +233,7 @@ fun MyRoute(
     onNotifications: () -> Unit,
     onProfile: () -> Unit,
     onCardManage: () -> Unit,
+    onAccountManage: () -> Unit,
     onNotificationSettings: () -> Unit,
     onSecurity: () -> Unit,
     onNotReady: (String) -> Unit,
@@ -267,6 +279,7 @@ fun MyRoute(
             }
             YamuCard(contentPadding = MenuPadding) {
                 ListRow(title = "카드 관리", valuePlain = s.cardCount?.let { "${it}장" }, chevron = true, onClick = onCardManage)
+                ListRow(title = "계좌 관리", valuePlain = s.accountCount?.let { "${it}개" }, chevron = true, onClick = onAccountManage)
                 ListRow(
                     title = "알림 설정",
                     valuePlain = s.notificationsOn?.let { if (it) "켜짐" else "꺼짐" },
@@ -348,10 +361,16 @@ class CardManageViewModel @Inject constructor(private val my: MyRepository, priv
 }
 
 @Composable
-fun CardManageRoute(onBack: () -> Unit, onAddCard: () -> Unit, viewModel: CardManageViewModel = hiltViewModel()) {
+fun CardManageRoute(
+    onBack: () -> Unit,
+    onAddCard: () -> Unit,
+    onCardDetail: (userCardId: Long) -> Unit,
+    onCardOrder: () -> Unit,
+    viewModel: CardManageViewModel = hiltViewModel(),
+) {
     val s by viewModel.state.collectAsStateWithLifecycle()
     LifecycleResumeEffect(Unit) {
-        viewModel.load()   // 카드 추가(C-11 ~ C-14)에서 돌아오면 새 카드가 보이게
+        viewModel.load()   // 카드 추가에서 돌아오면 새 카드가 보이게
         onPauseOrDispose { }
     }
     val c = YamuTheme.colors
@@ -394,14 +413,19 @@ fun CardManageRoute(onBack: () -> Unit, onAddCard: () -> Unit, viewModel: CardMa
                 else -> {
                     SectionLabel("결제", first = true)
                     s.autoSelect?.let { on -> SwitchRow("결제 카드 자동 선택", checked = on, onToggle = ::toggle, sub = "혜택이 가장 큰 카드로 결제") }
-                    SectionLabel("내 카드 ${s.cards.size}장")
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        SectionLabel("내 카드 ${s.cards.size}장", modifier = Modifier.alignByBaseline())
+                        if (s.cards.size > 1) LinkButton("순서 바꾸기", onClick = onCardOrder, modifier = Modifier.alignByBaseline())
+                    }
                     if (s.cards.isEmpty()) EmptyState("연결한 카드가 없어요", actionText = "카드 추가", onAction = onAddCard)
                     s.cards.forEach { card ->
                         ListRow(
-                            title = card.productName,
+                            title = card.displayName,
                             lead = { CardListThumb(card.brand, card.productName) },
-                            titleTag = if (card.isDefault) ({ StatusTag("기본") }) else null,
+                            titleTag = if (card.stateLabel != null || card.isDefault) ({ StatusTag(card.stateLabel ?: "기본") }) else null,
                             minHeight = 72.dp,
+                            chevron = true,
+                            onClick = { onCardDetail(card.userCardId) },
                         )
                     }
                 }
@@ -563,9 +587,10 @@ fun NotificationSettingsRoute(onBack: () -> Unit, viewModel: NotificationSetting
 data class ProfileState(val loading: Boolean = true, val info: MyInfo? = null, val devices: List<Device> = emptyList(), val error: String? = null)
 
 @HiltViewModel
-class ProfileViewModel @Inject constructor(private val my: MyRepository) : ViewModel() {
+class ProfileViewModel @Inject constructor(private val my: MyRepository, stepUpFactory: StepUpFactory) : ViewModel() {
     private val _state = MutableStateFlow(ProfileState())
     val state: StateFlow<ProfileState> = _state.asStateFlow()
+    val stepUp = stepUpFactory.create(viewModelScope)
 
     init { load() }
 
@@ -584,8 +609,12 @@ class ProfileViewModel @Inject constructor(private val my: MyRepository) : ViewM
 
     /** 다른 기기 로그아웃(#16) — 그 기기의 세션을 서버가 끊는다 */
     fun revoke(device: Device, onDone: (String) -> Unit) {
-        viewModelScope.launch {
-            when (val r = my.revokeDevice(device.id)) {
+        stepUp.start(
+            purpose = StepUpPurpose.APP_UNLOCK,
+            prompt = StepUpPrompt("${device.name}에서 로그아웃해요", null),
+            onError = { e -> onDone("로그아웃하지 못했어요 · ${e.userMessage()}") },
+        ) { token ->
+            when (val r = my.revokeDevice(device.id, token.token)) {
                 is ApiResult.Success -> {
                     _state.update { s -> s.copy(devices = s.devices.filter { it.id != device.id }) }
                     onDone("${device.name}에서 로그아웃했어요")
@@ -597,8 +626,9 @@ class ProfileViewModel @Inject constructor(private val my: MyRepository) : ViewM
 }
 
 @Composable
-fun ProfileRoute(onBack: () -> Unit, viewModel: ProfileViewModel = hiltViewModel()) {
+fun ProfileRoute(onBack: () -> Unit, onOpenPinPad: (purpose: String) -> Unit, onWithdraw: () -> Unit, viewModel: ProfileViewModel = hiltViewModel()) {
     val s by viewModel.state.collectAsStateWithLifecycle()
+    StepUpEffect(viewModel.stepUp, onOpenPinPad)
     val c = YamuTheme.colors
     val snackbar = LocalSnackbar.current
     val scope = rememberCoroutineScope()
@@ -638,6 +668,13 @@ fun ProfileRoute(onBack: () -> Unit, viewModel: ProfileViewModel = hiltViewModel
                     }
                 }
             }
+            // 회원 정보를 못 읽어도 탈퇴는 할 수 있게 목록 밖에 둔다
+            if (!s.loading) {
+                Spacer(Modifier.height(YamuSpacing.x4))
+                Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                    TextButtonGrey("회원 탈퇴", onClick = onWithdraw, muted = true, small = true)
+                }
+            }
             Spacer(Modifier.height(YamuSpacing.x6))
         }
     }
@@ -649,15 +686,20 @@ data class SecurityState(
     val loading: Boolean = true,
     val info: MyInfo? = null,
     val biometricAvailable: Boolean = false,   // 이 휴대폰에 지문이 등록돼 있나
-    val biometricOn: Boolean = false,          // 이 기기 키가 등록돼 있나
+    val biometricOn: Boolean = false,          // 이 기기에 지문 키가 등록돼 있나
     val busy: Boolean = false,
     val error: String? = null,
 )
 
 @HiltViewModel
-class SecurityViewModel @Inject constructor(private val my: MyRepository, private val auth: AuthRepository) : ViewModel() {
+class SecurityViewModel @Inject constructor(
+    private val my: MyRepository,
+    private val auth: AuthRepository,
+    stepUpFactory: StepUpFactory,
+) : ViewModel() {
     private val _state = MutableStateFlow(SecurityState())
     val state: StateFlow<SecurityState> = _state.asStateFlow()
+    val stepUp = stepUpFactory.create(viewModelScope)
 
     fun load() {
         viewModelScope.launch {
@@ -671,15 +713,30 @@ class SecurityViewModel @Inject constructor(private val my: MyRepository, privat
         }
     }
 
-    /** 지문 켜기 = 기기 키 만들고 등록(#15) · 끄기 = 이 기기 등록 해제(#16) + 키 삭제 */
+    /**
+     * 지문 켜기 · 끄기 — SECURITY_SETTINGS 본인 확인 뒤 이 기기를 다시 등록(POST /auth/devices).
+     * 켤 때는 지문 키를 새로 만들어 같이 보내고, 끌 때는 빼고 보낸다. 기기 해제 API는 없다
+     */
     fun setBiometric(on: Boolean, onFail: (String) -> Unit) {
-        if (_state.value.busy) return
-        _state.update { it.copy(busy = true, biometricOn = on) }
-        viewModelScope.launch {
-            val r = if (on) auth.registerDevice() else auth.disableBiometric(_state.value.info?.currentDeviceId)
-            _state.update { it.copy(busy = false, biometricOn = if (r is ApiResult.Success) on else !on) }
+        if (_state.value.busy || stepUp.busy) return
+        _state.update { it.copy(busy = true) }
+        stepUp.start(
+            purpose = StepUpPurpose.SECURITY_SETTINGS,
+            prompt = StepUpPrompt(if (on) "지문 인증을 켜요" else "지문 인증을 꺼요", null),
+            onError = { e ->
+                _state.update { it.copy(busy = false) }
+                onFail(e.settingMessage())
+            },
+        ) { token ->
+            val r = auth.setBiometric(on, token.token)
+            _state.update { it.copy(busy = false, biometricOn = if (r is ApiResult.Success) on else it.biometricOn) }
             if (r is ApiResult.Failure) onFail(r.error.settingMessage())
         }
+    }
+
+    /** 본인 확인을 취소하고 닫았을 때 */
+    fun onStepUpIdle() {
+        if (_state.value.busy && !stepUp.busy) _state.update { it.copy(busy = false) }
     }
 
     fun setAutoLock(seconds: Int, onFail: (String) -> Unit) {
@@ -718,8 +775,11 @@ private fun Context.openBiometricEnroll() {
 }
 
 @Composable
-fun SecurityRoute(onBack: () -> Unit, viewModel: SecurityViewModel = hiltViewModel()) {
+fun SecurityRoute(onBack: () -> Unit, onOpenPinPad: (purpose: String) -> Unit, viewModel: SecurityViewModel = hiltViewModel()) {
     val s by viewModel.state.collectAsStateWithLifecycle()
+    val stepUpUi by viewModel.stepUp.ui.collectAsStateWithLifecycle()
+    StepUpEffect(viewModel.stepUp, onOpenPinPad)
+    LaunchedEffect(stepUpUi) { viewModel.onStepUpIdle() }
     LifecycleResumeEffect(Unit) {
         viewModel.load()   // 시스템 설정에서 지문을 등록하고 돌아오면 스위치를 쓸 수 있게
         onPauseOrDispose { }

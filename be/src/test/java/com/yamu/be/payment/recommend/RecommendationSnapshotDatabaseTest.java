@@ -18,7 +18,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 @TestPropertySource(properties="spring.application.name=recommendation-snapshot-database")
 class RecommendationSnapshotDatabaseTest extends MySqlTestSupport {
     @Autowired JdbcTemplate jdbc;
-    @Autowired RecommendationSnapshotStore store;
+    @Autowired DatabaseRecommendationResultStore store;
     @Autowired PlatformTransactionManager transactions;
     @Test void persistsOnlyOwnedPaymentAndReadsStoredSnapshotWithoutRecalculationOrUsageWrites() {
         var fixtures=new OwnershipFixtures(jdbc);long user=fixtures.user();long other=fixtures.user();

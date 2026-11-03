@@ -26,10 +26,11 @@ enum class HomeScenario(val label: String) {
 
 /** 가짜 데이터(debug)로 볼 연결 상태 — 09 문서 5-5 */
 enum class LinkScenario(val label: String) {
-    NORMAL("정상(계좌 1 · 카드 6)"),
-    NO_PRODUCTS("내 명의 상품 없음"),
-    ALREADY_VERIFIED("본인 계좌 이미 확인함(1원 없이)"),
-    BANK_ERROR("연결 확정 때 금융망 오류"),
+    NORMAL("정상"),
+    TOKEN_EXPIRED("등록 때 카드 확인 시간 지남"),
+    ACCOUNT_NOT_LINKED("Mr.Life 등록 때 결제 계좌 미연결(409)"),
+    CANDIDATE_EXPIRED("계좌 연결 때 목록 만료(한 번)"),
+    BANK_ERROR("계좌 연결 때 금융망 오류"),
 }
 
 /** 가짜 데이터(debug)로 볼 결제 — 10 문서 6-7. 고객 앱 혼자 돌 때 '가맹점이 찍은 것처럼' */
@@ -56,7 +57,7 @@ enum class FaultScenario(val label: String) {
 /**
  * 개발용 상태 — 디버그 메뉴에서 바꾼다.
  * startState + applyOnNextStart: 디버그 메뉴 '이 상태로 처음부터' → 가짜 인증(FakeAuthRepository)이 다음 시작 때 저장소에 반영.
- * homeScenario · linkScenario: debug 빌드 가짜 홈 · 연결 데이터. 진짜 API(USE_FAKE_API=false)에서는 쓰이지 않는다.
+ * homeScenario · linkScenario: debug 빌드 가짜 홈 · 연결 데이터. 그 기능이 진짜 서버(yamu.realApi)면 쓰이지 않는다.
  */
 object DevSession {
     var startState by mutableStateOf(StartState.NEED_SIGNUP)

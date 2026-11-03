@@ -33,6 +33,10 @@ public class CardProduct extends BaseTimeEntity {
     @Column(nullable = false, length = 150)
     private String productName;
 
+    /** 비공개 S3의 카드 이미지 객체 키. 없으면 기본 카드 그림을 사용한다. */
+    @Column(length = 1024)
+    private String imageKey;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 16)
     private CardType cardType;

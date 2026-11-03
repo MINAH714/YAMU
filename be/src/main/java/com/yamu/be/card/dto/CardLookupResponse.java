@@ -21,7 +21,8 @@ public record CardLookupResponse(String verificationToken, LocalDateTime expires
     public record IssuerResponse(String code, String name, String color, Integer closingDayOffset) {
     }
 
-    public record Product(Long cardProductId, String name, CardType cardType) {
+    /** @param imageUrl 카드 앞면 CDN URL. 이미지 미수집·잘못된 키는 null */
+    public record Product(Long cardProductId, String name, CardType cardType, String imageUrl) {
     }
 
     /**

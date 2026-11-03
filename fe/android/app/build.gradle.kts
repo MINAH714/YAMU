@@ -8,7 +8,7 @@ plugins {
     alias(libs.plugins.hilt)
 }
 
-// local.properties(Git에 안 올림) — 모의 POS 단말 키 yamu.posKey · release 서명 키 yamu.release.*
+// local.properties(Git에 안 올림) — 모의 POS 단말 키 yamu.posKey · release 서명 키 yamu.release.* · 실서버 시험 yamu.baseUrl · yamu.realApi
 val localProps = Properties().apply {
     val file = rootProject.file("local.properties")
     if (file.exists()) file.inputStream().use { load(it) }
@@ -30,6 +30,24 @@ val releaseKey: Map<String, String>? = releaseKeyNames
 // 기기 시험용: -Pyamu.devSign → release를 debug 키로 서명하고 버전 끝에 -devsign(M-01에 보임). 배포 금지
 val devSign = providers.gradleProperty("yamu.devSign").map { it != "false" }.getOrElse(false)
 
+// 실서버 연결 시험(debug만) — local.properties의 yamu.baseUrl · yamu.realApi.
+// 비우면 로컬 BE(8080) 주소에 전부 가짜. yamu.realApi=cashflow,link처럼 적은 기능만 진짜 Repository, all이면 전부
+val debugBaseUrl = localProps.getProperty("yamu.baseUrl").orEmpty().trim().ifEmpty { "http://localhost:8080/api/" }
+    .also {
+        check(it.startsWith("http://") || it.startsWith("https://")) { "yamu.baseUrl은 http:// 또는 https://로 시작해야 해요: $it" }
+        check(it.endsWith("/")) { "yamu.baseUrl은 /로 끝나야 해요: $it" }
+    }
+val apiFeatures = listOf("auth", "link", "cashflow", "home", "payment", "performance", "forecast", "report", "my", "pos")   // ApiFeature와 같은 이름
+// yamu.realApi=all이 켜는 기능 — BE에 API가 있는 것만. home · performance · forecast · report는 이름을 직접 적어야 켜진다(지금 켜면 404)
+val connectedApiFeatures = listOf("auth", "link", "cashflow", "payment", "my", "pos")
+val debugRealApi = localProps.getProperty("yamu.realApi").orEmpty()
+    .split(',').map { it.trim() }.filter { it.isNotEmpty() }
+    .also { names ->   // all을 펼치기 전에 봐야 all,cashflw 같은 오타도 걸린다
+        val unknown = names.filterNot { it == "all" || it in apiFeatures }
+        check(unknown.isEmpty()) { "yamu.realApi에 모르는 이름: ${unknown.joinToString()} (쓸 수 있는 이름: all, ${apiFeatures.joinToString()})" }
+    }
+    .let { names -> if ("all" in names) (connectedApiFeatures + names - "all").distinct() else names }
+
 android {
     namespace = "com.yamu.app"
     compileSdk = 37
@@ -41,6 +59,7 @@ android {
         versionCode = 1
         versionName = "0.1.0"
         buildConfigField("String", "POS_KEY", "\"\"")
+        buildConfigField("String", "API_FEATURES", "\"${apiFeatures.joinToString(",")}\"")   // ApiFeatureTest가 ApiFeature와 같은지 본다
     }
 
     // 같은 프로젝트에서 앱 두 개 — 고객 앱(customer)과 모의 POS 단말(pos, 가맹점 쪽 · 따로 설치). 10 문서 6-5
@@ -55,6 +74,9 @@ android {
             applicationIdSuffix = ".pos"
             versionNameSuffix = "-pos"
             buildConfigField("String", "POS_KEY", "\"${localProps.getProperty("yamu.posKey", "")}\"")
+            // BE에 가맹점 목록이 없는 동안 debug 단말 하나 — merchant.brand_code가 단말 시나리오와 같은 가맹점의 번호(시드마다 다르다)
+            buildConfigField("long", "POS_MERCHANT_ID", "${localProps.getProperty("yamu.posMerchantId", "0").trim().toLong()}L")
+            buildConfigField("String", "POS_CODE", "\"${localProps.getProperty("yamu.posCode", "POS-YAMU-CAFE").trim()}\"")
         }
     }
 
@@ -78,15 +100,15 @@ android {
 
     buildTypes {
         debug {
-            // 로컬 백엔드(FastAPI · 8000). 폰은 adb reverse tcp:8000 tcp:8000 뒤 localhost, 에뮬레이터는 10.0.2.2도 됨
-            buildConfigField("String", "BASE_URL", "\"http://localhost:8000/api/v1/\"")
-            // 백엔드 API가 아직 없는 기능은 가짜(Fake) 데이터로 화면을 먼저 만든다 — debug에서만
-            buildConfigField("boolean", "USE_FAKE_API", "true")
+            // 로컬 BE(Spring · 8080). 폰 · 에뮬레이터 모두 adb reverse tcp:8080 tcp:8080 뒤 localhost, 에뮬레이터는 10.0.2.2도 됨
+            buildConfigField("String", "BASE_URL", "\"$debugBaseUrl\"")
+            // BE API가 아직 없는 기능은 가짜(Fake) 데이터로 화면을 먼저 만든다 — debug에서만. 진짜로 쓸 기능 이름을 쉼표로
+            buildConfigField("String", "REAL_API", "\"${debugRealApi.joinToString(",")}\"")
         }
         release {
             // TODO 배포 서버 주소(HTTPS) 확정 후 바꾸기
-            buildConfigField("String", "BASE_URL", "\"https://example.invalid/api/v1/\"")
-            buildConfigField("boolean", "USE_FAKE_API", "false")
+            buildConfigField("String", "BASE_URL", "\"https://example.invalid/api/\"")   // 경로는 BE와 같은 /api/ — 호스트만 바꾸면 된다
+            buildConfigField("String", "REAL_API", "\"${apiFeatures.joinToString(",")}\"")
             // R8: 코드 줄이기 · 이름 바꾸기 + 안 쓰는 리소스 빼기. 앱 규칙은 proguard-rules.pro
             isMinifyEnabled = true
             isShrinkResources = true

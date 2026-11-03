@@ -78,6 +78,7 @@ public class CardManagementService {
     private final CardActivityReader activityReader;
     private final PersonalDataCipher cipher;
     private final Clock clock;
+    private final CardImageUrlResolver imageUrlResolver;
 
     /** @param status ACTIVE·INACTIVE 중 하나만 볼 때. null이면 둘 다 */
     @Transactional(readOnly = true)
@@ -103,7 +104,7 @@ public class CardManagementService {
                     new CardListResponse.Issuer(issuer.code(), issuer.name(), issuer.color()),
                     product.getProductName(), product.getCardType(), maskedNumber(card),
                     card.getRegistrationStatus(), card.getIssuerStatus(), card.isDefaultCard(), List.of(),
-                    performance, billing);
+                    performance, billing, imageUrlResolver.resolve(product.getImageKey()));
         }).toList();
         return new CardListResponse(summaries, null);
     }
@@ -277,7 +278,8 @@ public class CardManagementService {
                         credit ? product.getBillingCutoffDays() : null),
                 product.getProductName(), product.getCardType(), maskedNumber(card), null,
                 card.getRegistrationStatus(), card.getIssuerStatus(), card.isDefaultCard(), linkedAccount, billing,
-                card.getRegisteredAt() == null ? null : card.getRegisteredAt().truncatedTo(ChronoUnit.SECONDS), null);
+                card.getRegisteredAt() == null ? null : card.getRegisteredAt().truncatedTo(ChronoUnit.SECONDS), null,
+                imageUrlResolver.resolve(product.getImageKey()));
     }
 
     private static LocalDate paymentDayChangeableFrom(UserCard card) {

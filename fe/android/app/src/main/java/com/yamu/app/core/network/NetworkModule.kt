@@ -53,6 +53,11 @@ object NetworkModule {
     @Singleton
     fun authApi(@Named("auth") retrofit: Retrofit): AuthApi = retrofit.create(AuthApi::class.java)
 
+    /** 서버 연결 확인 — 인증 헤더 없이 */
+    @Provides
+    @Singleton
+    fun healthApi(@Named("auth") retrofit: Retrofit): HealthApi = retrofit.create(HealthApi::class.java)
+
     @Provides
     @Singleton
     fun okHttpClient(tokenStore: TokenStore, authApi: AuthApi): OkHttpClient = baseClient()
