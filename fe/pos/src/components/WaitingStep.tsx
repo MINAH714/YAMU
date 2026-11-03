@@ -9,6 +9,8 @@ import { StatusScreen, type StatusRow } from './StatusScreen'
 
 type Props = {
   paymentId: number
+  /** 결제를 요청한 매장의 posCode. 결과도 이 posCode로만 볼 수 있다 */
+  posCode: string
   orderNo: string | null
   terms: Terms
   /** 이 POS 시계 기준 마감 시각(ms). 서버 시계와의 차이를 뺀 값 */
@@ -39,7 +41,7 @@ function isFinal(result: PaymentResult, pastDeadline: boolean): boolean {
   }
 }
 
-export function WaitingStep({ paymentId, orderNo, terms, deadlineAt, onFinal, onFatal, onAbandon }: Props) {
+export function WaitingStep({ paymentId, posCode, orderNo, terms, deadlineAt, onFinal, onFatal, onAbandon }: Props) {
   const [now, setNow] = useState(() => Date.now())
   const [last, setLast] = useState<PaymentResult | null>(null)
   const [connectionError, setConnectionError] = useState<string | null>(null)
@@ -63,7 +65,7 @@ export function WaitingStep({ paymentId, orderNo, terms, deadlineAt, onFinal, on
 
     const poll = async () => {
       try {
-        const result = await getPaymentResult(paymentId)
+        const result = await getPaymentResult(paymentId, posCode)
         if (cancelled) return
         setLast(result)
         setConnectionError(null)
@@ -101,7 +103,7 @@ export function WaitingStep({ paymentId, orderNo, terms, deadlineAt, onFinal, on
       cancelled = true
       clearTimeout(timer)
     }
-  }, [paymentId, deadlineAt, generation])
+  }, [paymentId, posCode, deadlineAt, generation])
 
   const pastDeadline = now > deadlineAt
   const rows: StatusRow[] = [

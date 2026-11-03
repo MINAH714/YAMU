@@ -1,9 +1,12 @@
 import { useState, type FormEvent } from 'react'
 import { formatToken, parseManual } from '../payment/barcode'
 import { formatWon, planLabel, type Terms } from '../payment/terms'
+import type { Order } from '../store/cart'
 import { CameraScanner } from './CameraScanner'
+import { OrderSummary } from './OrderSummary'
 
 type Props = {
+  order: Order
   terms: Terms
   notice: string | null
   /** 방금 거절된 코드. 같은 QR이 카메라 앞에 그대로 있으면 다시 보내지 않는다 */
@@ -12,7 +15,7 @@ type Props = {
   onBack: () => void
 }
 
-export function ScanStep({ terms, notice, rejectedToken, onToken, onBack }: Props) {
+export function ScanStep({ order, terms, notice, rejectedToken, onToken, onBack }: Props) {
   const [manual, setManual] = useState('')
   const [hint, setHint] = useState<string | null>(null)
 
@@ -36,41 +39,46 @@ export function ScanStep({ terms, notice, rejectedToken, onToken, onBack }: Prop
   }
 
   return (
-    <section className="panel">
-      <h2>QR 스캔</h2>
-      <dl className="summary">
-        <dt>결제 금액</dt>
-        <dd>{formatWon(terms.amount)}</dd>
-        <dt>결제 방식</dt>
-        <dd>{planLabel(terms.plan, terms.installmentMonths)}</dd>
-      </dl>
-      {notice && <p className="alert alert-error">{notice}</p>}
+    <div className="checkout">
+      <OrderSummary order={order} />
 
-      <CameraScannerWithGuard
-        rejectedToken={rejectedToken}
-        onRead={accept}
-        onUnknownQr={() => setHint('YAMU 결제 QR이 아니에요.')}
-      />
-      {hint && <p className="alert alert-info">{hint}</p>}
+      <section className="checkout-main scan">
+        <div className="scan-head">
+          <h2>고객 앱의 YAMU 결제 QR을 스캔해 주세요</h2>
+          <p>
+            YAMU페이 · {planLabel(terms.plan, terms.installmentMonths)} · <strong>{formatWon(terms.amount)}</strong>
+          </p>
+        </div>
+        {notice && <p className="alert alert-error">{notice}</p>}
 
-      <form className="manual" onSubmit={handleManual}>
-        <label className="field">
-          <span>직접 입력</span>
-          <input
-            inputMode="numeric"
-            autoComplete="off"
-            placeholder="결제 코드 16자리"
-            value={manual}
-            onChange={(event) => setManual(event.target.value)}
-          />
-        </label>
-        <button type="submit">보내기</button>
-      </form>
+        <CameraScannerWithGuard
+          rejectedToken={rejectedToken}
+          onRead={accept}
+          onUnknownQr={() => setHint('YAMU 결제 QR이 아니에요.')}
+        />
+        {hint && <p className="alert alert-info">{hint}</p>}
 
-      <button type="button" className="link" onClick={onBack}>
-        금액·결제 방식 고치기
-      </button>
-    </section>
+        <form className="manual" onSubmit={handleManual}>
+          <label className="field">
+            <span>결제 코드 직접 입력</span>
+            <input
+              inputMode="numeric"
+              autoComplete="off"
+              placeholder="결제 코드 16자리"
+              value={manual}
+              onChange={(event) => setManual(event.target.value)}
+            />
+          </label>
+          <button type="submit">확인</button>
+        </form>
+
+        <footer className="checkout-footer">
+          <button type="button" onClick={onBack}>
+            ← 결제수단 변경
+          </button>
+        </footer>
+      </section>
+    </div>
   )
 }
 

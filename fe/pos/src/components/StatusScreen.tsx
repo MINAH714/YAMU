@@ -5,12 +5,17 @@ export type StatusTone = 'waiting' | 'checking' | 'failed' | 'expired' | 'approv
 
 export type StatusRow = { label: string; value: ReactNode; mono?: boolean }
 
+/** 영수증의 품목 줄 */
+export type StatusItem = { key: string; label: string; quantity: number; amount: string }
+
 type Props = {
   tone: StatusTone
   title: ReactNode
   /** 제목 위의 작은 문장. 완료 화면은 이 문장 아래 큰 금액을 제목으로 둔다 */
   lead?: ReactNode
   description?: ReactNode
+  /** 요약 카드 위쪽에 품목 줄로 보인다 */
+  items?: StatusItem[]
   rows: StatusRow[]
   /** 요약 카드 아래(안내·보조 버튼 등) */
   children?: ReactNode
@@ -19,7 +24,7 @@ type Props = {
 }
 
 /** 고객 승인 대기·결과 확인 중·실패·만료·완료를 같은 틀(아이콘 → 문구 → 요약 카드 → 버튼)로 보여 준다. */
-export function StatusScreen({ tone, title, lead, description, rows, children, action }: Props) {
+export function StatusScreen({ tone, title, lead, description, items, rows, children, action }: Props) {
   return (
     <section className={`status status-${tone}`} aria-live="polite">
       <div className="status-body">
@@ -29,14 +34,27 @@ export function StatusScreen({ tone, title, lead, description, rows, children, a
         {lead && <p className="status-lead">{lead}</p>}
         <h2 className="status-title">{title}</h2>
         {description && <p className="status-description">{description}</p>}
-        <dl className="status-card">
-          {rows.map((row) => (
-            <div className="status-row" key={row.label}>
-              <dt>{row.label}</dt>
-              <dd className={row.mono ? 'mono' : undefined}>{row.value}</dd>
-            </div>
-          ))}
-        </dl>
+        <div className="status-card">
+          {items && items.length > 0 && (
+            <ul className="status-items">
+              {items.map((item) => (
+                <li key={item.key}>
+                  <span>{item.label}</span>
+                  <span className="qty">×{item.quantity}</span>
+                  <span>{item.amount}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+          <dl className="status-rows">
+            {rows.map((row) => (
+              <div className="status-row" key={row.label}>
+                <dt>{row.label}</dt>
+                <dd className={row.mono ? 'mono' : undefined}>{row.value}</dd>
+              </div>
+            ))}
+          </dl>
+        </div>
         {children}
       </div>
       {action && (
