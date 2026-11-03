@@ -228,6 +228,7 @@ data class LinkedCard(
     val stateLabel: String? = null,         // 정지 · 만료 · 추천 제외일 때만
     val issuerBlocked: Boolean = false,     // 카드사 정지 · 만료 — 예정 지출의 결제 수단으로 고를 수 없다
     val nickname: String? = null,           // 사용자가 지은 별칭만
+    val recommended: Boolean = true,        // 결제 카드 자동 선택에 포함(status ACTIVE)
 ) {
     val displayName: String get() = nickname ?: productName
 }
@@ -429,6 +430,7 @@ fun CardDto.toLinked() = LinkedCard(
     stateLabel = cardStateLabel(status, issuerStatus),
     issuerBlocked = issuerStatus == "SUSPENDED" || issuerStatus == "EXPIRED",
     nickname = nickname?.takeIf { it != productName },
+    recommended = status != "INACTIVE",
 )
 
 fun CardDetailDto.toInfo() = CardInfo(

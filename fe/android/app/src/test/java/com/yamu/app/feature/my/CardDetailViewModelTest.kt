@@ -75,10 +75,48 @@ class CardDetailViewModelTest {
         assertEquals("신한은행 ·5678", detail().state.value.settlementAccountLabel)
     }
 
-    @Test fun `마지막 한 장이면 해제 시트에서 알린다`() = runTest(dispatcher) {
-        assertFalse(detail().state.value.lastCard)
-        link.cards = link.cards.take(1)
-        assertTrue(detail().state.value.lastCard)
+    @Test fun `다른 카드가 자동 선택에 있으면 마지막 카드가 아니다`() = runTest(dispatcher) {
+        link.cards = listOf(linkedCard(21), linkedCard(2))
+        assertFalse(detail().state.value.isLastActive)
+    }
+
+    @Test fun `다른 카드가 모두 추천 제외면 카드가 여러 장이어도 마지막이다 — BE는 ACTIVE만 센다`() = runTest(dispatcher) {
+        link.cards = listOf(linkedCard(21), linkedCard(2).copy(recommended = false))
+        assertTrue(detail().state.value.isLastActive)
+    }
+
+    @Test fun `추천에서 뺀 카드는 마지막 카드가 아니다 — 다시 켤 수 있어야 한다`() = runTest(dispatcher) {
+        link.detailResult = ApiResult.Success(CARD.copy(recommended = false))
+        link.cards = listOf(linkedCard(21).copy(recommended = false))
+        val vm = detail()
+        assertFalse(vm.state.value.isLastActive)
+        link.updateResult = ApiResult.Success(CARD)
+        vm.setRecommended(true)
+        advanceUntilIdle()
+        assertEquals(true, link.updates.single().recommended)
+    }
+
+    @Test fun `목록을 못 읽으면 마지막 카드로 단정하지 않는다`() = runTest(dispatcher) {
+        link.overviewResult = ApiResult.Failure(ApiError.Network)
+        assertFalse(detail().state.value.isLastActive)
+    }
+
+    @Test fun `마지막 카드는 자동 선택에서 뺄 수 없다`() = runTest(dispatcher) {
+        link.cards = listOf(linkedCard(21))
+        val vm = detail()
+        vm.setRecommended(false)
+        advanceUntilIdle()
+        assertTrue(link.updates.isEmpty())
+        assertTrue(vm.state.value.card!!.recommended)
+    }
+
+    @Test fun `다른 카드가 있으면 자동 선택에서 뺄 수 있다`() = runTest(dispatcher) {
+        link.cards = listOf(linkedCard(21), linkedCard(2))
+        link.updateResult = ApiResult.Success(CARD.copy(recommended = false))
+        val vm = detail()
+        vm.setRecommended(false)
+        advanceUntilIdle()
+        assertEquals(false, link.updates.single().recommended)
     }
 
     @Test fun `없거나 해제한 카드면 이미 해제로`() = runTest(dispatcher) {
@@ -235,6 +273,7 @@ class CardDetailViewModelTest {
         var updateResult: ApiResult<CardInfo> = ApiResult.Success(CARD)
         var unregisterResult: ApiResult<Unit> = ApiResult.Success(Unit)
         var cards = listOf(linkedCard(1), linkedCard(2), linkedCard(3))
+        var overviewResult: ApiResult<LinkedOverview>? = null
         val updates = mutableListOf<Update>()
         var detailReads = 0
         var unregisters = 0
@@ -257,7 +296,7 @@ class CardDetailViewModelTest {
         }
 
         override suspend fun linkedOverview(refresh: Boolean): ApiResult<LinkedOverview> =
-            ApiResult.Success(LinkedOverview(listOf(ACCOUNT), cards, null))
+            overviewResult ?: ApiResult.Success(LinkedOverview(listOf(ACCOUNT), cards, null))
 
         override suspend fun saveCardOrder(userCardIds: List<Long>): ApiResult<Unit> = error("안 씀")
         override suspend fun lookupCard(cardNumber: String, expiryMonth: String, expiryYear: String): ApiResult<CardLookup> = error("안 씀")

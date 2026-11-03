@@ -249,6 +249,7 @@ class FakeBank @Inject constructor(private val sessionStore: SessionStore) {
                 isDefault = c.assetId == defaultCard,
                 stateLabel = cardStateLabel(if (c.assetId in excluded) "INACTIVE" else "ACTIVE", "NORMAL"),
                 nickname = nicknames[c.assetId],
+                recommended = c.assetId !in excluded,
             )
         }
         return ApiResult.Success(LinkedOverview(acc, crd, linkedAt))

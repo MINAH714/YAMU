@@ -77,6 +77,12 @@ class CardManageContractTest {
         assertEquals("카드사 정지", card.stateLabel)
     }
 
+    @Test fun `목록에서 INACTIVE는 자동 선택에 포함되지 않은 카드`() {
+        val dto = CardDto(1, null, IssuerDto(name = "KB국민카드"), "KB 카드", maskedNumber = "9410-****-****-1021")
+        assertFalse(dto.copy(status = "INACTIVE").toLinked().recommended)
+        assertTrue(dto.copy(status = "ACTIVE").toLinked().recommended)
+    }
+
     @Test fun `목록의 별칭도 상품명과 같으면 없는 것으로`() {
         val dto = CardDto(1, "KB 카드", IssuerDto(name = "KB국민카드"), "KB 카드", maskedNumber = "9410-****-****-1021")
         assertNull(dto.toLinked().nickname)
