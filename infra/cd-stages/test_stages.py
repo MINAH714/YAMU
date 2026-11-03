@@ -101,6 +101,18 @@ class HostFlow(unittest.TestCase):
         code = host.execute(adapter, FailingEvents(), 'normal')
         self.assertEqual(code, 1); self.assertTrue(adapter.restored)
 
+    def test_real_adapter_masks_deadline_and_repeated_cancel_before_compensation(self):
+        adapter = object.__new__(host.Adapter); adapter.initial = 'previous'
+        actions = []
+        adapter.apply = lambda image: actions.append(('apply', image))
+        adapter.health = lambda image: actions.append(('health', image))
+        adapter.persist = lambda image: actions.append(('persist', image))
+        with patch.object(host.signal, 'alarm', create=True) as alarm, patch.object(host.signal, 'signal') as handler:
+            adapter.recover()
+        alarm.assert_called_once_with(0)
+        self.assertEqual(handler.call_count, 2)
+        self.assertEqual(actions, [('apply', 'previous'), ('health', 'previous'), ('persist', 'previous')])
+
 
 class Protocol(unittest.TestCase):
     @unittest.skipUnless(os.name == 'posix', 'Linux host flock contract')

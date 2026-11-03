@@ -205,6 +205,10 @@ class Adapter:
                 'production_unchanged': True}
 
     def recover(self):
+        # Once compensation starts, an expiring deadline or repeated cancellation must not cut it short.
+        signal.alarm(0)
+        signal.signal(signal.SIGTERM, signal.SIG_IGN)
+        signal.signal(signal.SIGINT, signal.SIG_IGN)
         self.apply(self.initial); self.health(self.initial); self.persist(self.initial)
 
 
