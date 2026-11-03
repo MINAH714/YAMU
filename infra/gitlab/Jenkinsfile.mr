@@ -34,13 +34,14 @@ pipeline {
                     withEnv(["YAMU_MR_IID=${params.MR_IID.trim()}", "YAMU_RETRY_MR=${params.RETRY}"]) {
                         withCredentials([file(credentialsId: 'yamu-gitlab-status-api', variable: 'YAMU_GITLAB_API_FILE')]) {
                             def selected = sh(returnStdout: true, script: 'set +x; python3 infra/gitlab/status.py select').trim()
-                            if (selected == 'selected') {
-                                def ctx = new groovy.json.JsonSlurperClassic().parseText(readFile('gitlab-status/context.json'))
-                                env.YAMU_PINNED_SHA = ctx.sha
-                                env.YAMU_PINNED_REF = ctx.ref
-                                env.YAMU_PINNED_IID = ctx.iid.toString()
+                            def fields = selected.split('\n')
+                            if (fields.length == 4 && fields[0] == 'selected') {
+                                // Python validates and parses the API JSON; Groovy only reads public text fields.
+                                env.YAMU_PINNED_IID = fields[1]
+                                env.YAMU_PINNED_SHA = fields[2]
+                                env.YAMU_PINNED_REF = fields[3]
                                 env.YAMU_MR_SELECTED = 'true'
-                                currentBuild.description = "MR !${ctx.iid} · ${ctx.sha.take(12)}"
+                                currentBuild.description = "MR !${env.YAMU_PINNED_IID} · ${env.YAMU_PINNED_SHA.take(12)}"
                                 withEnv(['YAMU_GITLAB_STATE=running']) {
                                     sh 'set +x; python3 infra/gitlab/status.py mr-report'
                                 }

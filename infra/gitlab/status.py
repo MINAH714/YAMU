@@ -168,7 +168,8 @@ def main():
         args.context.parent.mkdir(parents=True, exist_ok=True)
         if args.context.exists(): raise ValueError('Stale context file')
         args.context.write_text(json.dumps(context))
-        print('selected')
+        # A fixed four-line public contract avoids Jenkins sandbox JSON constructors.
+        print('\n'.join(['selected', str(context['iid']), context['sha'], context['ref']]))
     elif args.action == 'mr-report':
         context = json.loads(args.context.read_text())
         validate_context(context, env['YAMU_PINNED_SHA'], env['YAMU_PINNED_REF'], env['YAMU_PINNED_IID'])

@@ -4,6 +4,8 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
+from contextlib import redirect_stdout
 import urllib.error
 
 import status
@@ -80,6 +82,21 @@ class Reporting(unittest.TestCase):
 
 
 class Selection(unittest.TestCase):
+    def test_cli_selection_handoff_matches_archived_context_without_token(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / 'context.json'
+            client = Fake()
+            client.project = lambda: 7
+            output = io.StringIO()
+            with patch('sys.argv', ['status.py', 'select', '--context', str(path)]), \
+                    patch.dict('os.environ', {'YAMU_GITLAB_API_FILE': 'private-file', 'YAMU_MR_IID': '9', 'YAMU_RETRY_MR': 'false'}), \
+                    patch.object(status, 'read_token', return_value='private-test-token-value'), \
+                    patch.object(status, 'Client', return_value=client), redirect_stdout(output):
+                status.main()
+            self.assertEqual(output.getvalue().splitlines(), ['selected', '9', SHA, REF])
+            self.assertEqual(json.loads(path.read_text()), {'iid': 9, 'project_id': 7, 'sha': SHA, 'ref': REF})
+            self.assertNotIn('private-test-token-value', output.getvalue() + path.read_text())
+
     def test_only_same_project_open_develop_mr_is_selected(self):
         self.assertEqual(status.choose(Fake(), 7)['sha'], SHA)
         for change in [{'source_project_id': 8}, {'target_project_id': 8}, {'state': 'merged'}, {'target_branch': 'master'}]:
