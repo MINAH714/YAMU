@@ -18,7 +18,7 @@ import com.yamu.be.payment.approve.ApprovalNumbers;
 import com.yamu.be.payment.approve.ApprovalOutcome;
 import com.yamu.be.payment.approve.FailureCode;
 import com.yamu.be.payment.approve.PaymentApprover;
-import com.yamu.be.payment.approve.TemporaryPaymentApprover;
+import com.yamu.be.payment.approve.TemporaryCreditCardApprover;
 import com.yamu.be.payment.barcode.Barcode;
 import com.yamu.be.payment.barcode.BarcodeStatus;
 import com.yamu.be.payment.barcode.BarcodeStore;
@@ -76,7 +76,7 @@ class PosPaymentResultIntegrationTest extends MySqlTestSupport {
     static final String POS_KEY = "test-pos-key";
     static final String POS_CODE = "POS-TEST-CAFE";
     static final Duration RETENTION = Duration.ofMinutes(10);
-    static final TemporaryPaymentApprover TEMPORARY = new TemporaryPaymentApprover();
+    static final TemporaryCreditCardApprover TEMPORARY = new TemporaryCreditCardApprover();
 
     @Container
     @ServiceConnection(name = "redis")
@@ -196,7 +196,7 @@ class PosPaymentResultIntegrationTest extends MySqlTestSupport {
     void 즉시할인이_있으면_영수증_금액은_승인액이고_할인은_요청액과의_차이다() throws Exception {
         Requested requested = requested(15_000, null, null);
         doReturn(new ApprovalOutcome.Approved(13_000, 13_000, 13_000, LocalDate.now(ZoneOffset.UTC).withDayOfMonth(1),
-                List.of(), null)).when(approver).approve(any());
+                List.of(), null, null)).when(approver).approve(any());
         approve(requested.paymentId(), checkCard).andExpect(status().isOk());
 
         result(POS_KEY, requested.paymentId(), POS_CODE)

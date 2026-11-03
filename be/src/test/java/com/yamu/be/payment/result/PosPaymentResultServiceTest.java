@@ -53,7 +53,8 @@ class PosPaymentResultServiceTest {
         service = new PosPaymentResultService(mock(PosTerminalResolver.class), payments, expiry,
                 mock(BarcodeStore.class), attempts, cards,
                 new PaymentApprovalProperties(Duration.ofHours(24), Duration.ofSeconds(30), Duration.ofSeconds(5), 3,
-                        Duration.ofHours(24)),
+                        Duration.ofHours(24), Duration.ofSeconds(60), Duration.ofSeconds(30), Duration.ofSeconds(60),
+                        Duration.ofMinutes(5), Duration.ofMinutes(10), false),
                 objectMapper);
         when(cards.findReceiptCard(any())).thenReturn(
                 Optional.of(new PaymentCardLookup.ReceiptCard("HANA", CardType.CREDIT, "5678")));
@@ -96,12 +97,12 @@ class PosPaymentResultServiceTest {
 
     @Test
     void 모르는_거절_사유는_코드를_그대로_두고_기본_문구를_쓴다() {
-        PaymentTransaction payment = declined("ACCOUNT_UNAVAILABLE");
+        PaymentTransaction payment = declined("REMOVED_REASON");
         when(payments.findById(PAYMENT_ID)).thenReturn(Optional.of(payment));
 
         PosPaymentResult.Failure failure = service.get("key", POS_CODE, PAYMENT_ID).failure();
 
-        assertThat(failure.code()).isEqualTo("ACCOUNT_UNAVAILABLE");
+        assertThat(failure.code()).isEqualTo("REMOVED_REASON");
         assertThat(failure.message()).isEqualTo(PosPaymentResultService.DEFAULT_FAILURE_MESSAGE);
     }
 
