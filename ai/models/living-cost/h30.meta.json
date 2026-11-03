@@ -1,0 +1,45 @@
+{
+  "model_version": "two-stage-tree-20261103-fraud-large1000000-recurring",
+  "model": "TWO_STAGE_TREE",
+  "variant": "fraud+large1000000+recurring",
+  "exclusions": {
+    "fraud": "이상거래여부 1",
+    "large": "체크 거래 한 건 1,000,000원 초과",
+    "recurring": "같은 카드·가맹점·금액이 3개 이상의 달"
+  },
+  "target": "다음 30일 체크(승인거래코드 10·11) 소비 합계(원)",
+  "training": {
+    "rows": 100086,
+    "people": 1562,
+    "from": "2021-04-01",
+    "to": "2024-11-28",
+    "trees": {
+      "classifier": 300,
+      "regressor": 151
+    }
+  },
+  "evaluated_in": [
+    "20261103-110529-crossval"
+  ],
+  "trained_at": "2026-11-03T11:18:51",
+  "horizon": 30,
+  "features": [
+    "sum_7d",
+    "days_7d",
+    "sum_14d",
+    "days_14d",
+    "sum_28d",
+    "days_28d",
+    "sum_84d",
+    "days_84d",
+    "week_minus2",
+    "week_minus3",
+    "week_minus4",
+    "days_since_last",
+    "mean_active_84d",
+    "adi_84d",
+    "cv2_84d"
+  ],
+  "sklearn_version": "1.9.1",
+  "history_days": 90
+}
