@@ -24,6 +24,9 @@ import org.springframework.transaction.support.TransactionTemplate;
 @Component
 public class CreditBillingWriter {
 
+    /** 같은 카드·같은 청구 월 청구서는 하나다. 이 이름의 충돌만 동시 생성으로 보고 다시 읽는다. */
+    static final String CARD_MONTH_KEY = "uk_bill_card_month";
+
     private final CardBillRepository bills;
     private final BillItemRepository items;
     private final TransactionTemplate newTransaction;
@@ -47,7 +50,22 @@ public class CreditBillingWriter {
 
     private CardBill ensureBill(Long userId, Long userCardId, InstallmentPlan.Installment installment) {
         return bills.findByUserCardIdAndBillingMonth(userCardId, installment.billingMonth().atDay(1))
+                .map(CreditBillingWriter::requireAccumulating)
                 .orElseGet(() -> create(userId, userCardId, installment));
+    }
+
+    /**
+     * 회차는 이용기간이 진행 중인 청구서에만 붙인다. 확정·출금·미납 청구서에 붙으면 확정된 청구 금액이 바뀐다.
+     * 청구 월 계산이 맞으면 일어나지 않는다(결제일 변경 미반영은 S15P31E103-205). 승인 저장 전이라 결제는 PROCESSING에 남고,
+     * 요청 번호가 없으므로 복구가 유예 뒤 REQUESTED로 되돌린다.
+     */
+    private static CardBill requireAccumulating(CardBill bill) {
+        if (bill.getStatus() != BillStatus.ACCUMULATING) {
+            log.error("회차를 붙일 청구서가 이용기간 진행 중이 아님, 운영 확인 cardBillId={} userCardId={} month={} status={}",
+                    bill.getId(), bill.getUserCardId(), bill.getBillingMonth(), bill.getStatus());
+            throw new IllegalStateException("청구서가 이용기간 진행 중이 아닙니다 (청구서 " + bill.getId() + ")");
+        }
+        return bill;
     }
 
     private CardBill create(Long userId, Long userCardId, InstallmentPlan.Installment installment) {
@@ -55,11 +73,21 @@ public class CreditBillingWriter {
             return newTransaction.execute(status -> bills.saveAndFlush(
                     CardBill.accumulating(userId, userCardId, installment.cycle(), installment.withdrawalDate())));
         } catch (DataIntegrityViolationException e) {
+            if (!isSameMonthDuplicate(e)) {
+                // FK·CHECK 위반 등은 동시 생성이 아니다
+                throw e;
+            }
             // 같은 달 청구서를 다른 결제가 방금 만들었다
             log.info("청구서 동시 생성 충돌, 다시 읽음 userCardId={} month={}", userCardId, installment.billingMonth());
             return bills.findByUserCardIdAndBillingMonth(userCardId, installment.billingMonth().atDay(1))
+                    .map(CreditBillingWriter::requireAccumulating)
                     .orElseThrow(() -> new IllegalStateException("청구서를 만들지도 찾지도 못했습니다", e));
         }
+    }
+
+    private static boolean isSameMonthDuplicate(DataIntegrityViolationException e) {
+        String message = e.getMostSpecificCause().getMessage();
+        return message != null && message.contains(CARD_MONTH_KEY);
     }
 
     /**
