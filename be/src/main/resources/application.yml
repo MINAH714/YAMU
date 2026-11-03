@@ -134,6 +134,10 @@ yamu:
         brand-code: YAMU_TEST_CAFE
         channel: OFFLINE
         facility-type: GENERAL
+      - pos-code: POS-GS25-GENERAL
+        brand-code: GS25
+        channel: OFFLINE
+        facility-type: GENERAL
   # 결제 승인(노션 명세 「결제 승인 요청 (카드 확정)」). 확정 마감 60초는 pos.confirm-window를 같이 쓴다
   payment:
     approve:
