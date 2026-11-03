@@ -18,11 +18,11 @@ pipeline {
         TZ = 'UTC'
         NODE_OPTIONS = '--max-old-space-size=1024'
         VITE_API_BASE_URL = '/api'
-        YAMU_MR_SELECTED = 'false'
     }
     stages {
         stage('Trusted control checkout') {
             steps {
+                script { env.YAMU_MR_SELECTED = 'false' }
                 deleteDir()
                 checkout scm
                 sh 'python3 -m unittest discover -s infra/gitlab -p "test_*.py"'
@@ -94,7 +94,10 @@ pipeline {
         }
         stage('Android customer tests and build') {
             when { environment name: 'YAMU_MR_SELECTED', value: 'true' }
-            steps { sh 'python3 infra/gitlab/candidate.py android' }
+            steps {
+                sh 'python3 infra/gitlab/candidate.py android'
+                writeFile file: 'gitlab-status/validated-sha.txt', text: env.YAMU_PINNED_SHA
+            }
             post {
                 always {
                     script {
@@ -110,6 +113,12 @@ pipeline {
         always {
             script {
                 if (env.YAMU_MR_SELECTED == 'true') {
+                    if (currentBuild.currentResult == 'SUCCESS' &&
+                            (!fileExists('gitlab-status/validated-sha.txt') ||
+                             readFile('gitlab-status/validated-sha.txt').trim() != env.YAMU_PINNED_SHA)) {
+                        currentBuild.result = 'FAILURE'
+                        echo 'MR validation completion evidence is missing; refusing success status.'
+                    }
                     def mapping = ['SUCCESS': 'success', 'FAILURE': 'failed', 'UNSTABLE': 'failed', 'ABORTED': 'canceled', 'NOT_BUILT': 'skipped']
                     def state = mapping[currentBuild.currentResult] ?: 'failed'
                     try {
@@ -123,7 +132,7 @@ pipeline {
                     } catch (Exception ignored) {
                         unstable('Final GitLab status delivery failed; inspect this Jenkins build before retrying.')
                     }
-                    archiveArtifacts artifacts: 'gitlab-status/context.json', fingerprint: false
+                    archiveArtifacts artifacts: 'gitlab-status/*', fingerprint: false
                 }
             }
         }
