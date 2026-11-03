@@ -99,13 +99,15 @@ class ForecastViewModel @Inject constructor(private val repo: ForecastRepository
         viewModelScope.launch { refreshForecast() }
     }
 
-    /** F-02 — 예보(합계 · 카드대금)를 받은 뒤 같은 기간(오늘 ~ 다음 월급날)의 가계부 회차 */
+    /** F-02 — 예보(합계 · 카드대금)를 받은 뒤 같은 기간(오늘 ~ 다음 월급날)의 가계부 회차. 예보가 없으면 오늘부터 30일 */
     fun refreshWithEntries() {
         viewModelScope.launch {
             refreshForecast()
-            val f = _state.value.forecast ?: return@launch
-            val from = f.from ?: LocalDate.now(KST)
-            val to = f.incomeDate ?: f.to ?: from.plusDays(30)
+            if (_state.value.noAccount) return@launch
+            // 예보가 실패하면 메모리에 지난 값이 남아 있다 — 그 from을 쓰면 자정을 넘겼을 때 어제 회차를 읽는다
+            val f = _state.value.forecast.takeIf { _state.value.error == null }
+            val from = f?.from ?: LocalDate.now(KST)
+            val to = f?.incomeDate ?: f?.to ?: from.plusDays(29)   // 서버 기본값처럼 첫날을 넣어 30일
             when (val r = repo.cashflowEntries(from, to)) {
                 is ApiResult.Success -> _state.update { it.copy(entries = r.data, entriesError = null) }
                 is ApiResult.Failure -> _state.update { it.copy(entriesError = r.error.userMessage()) }
@@ -367,23 +369,24 @@ fun CashflowListRoute(
                 }
                 // 계좌를 아직 안 이었으면 오류가 아니라 빈 상태(F-01과 같은 문장 · 행동)
                 s.noAccount -> YamuCard { EmptyState("계좌를 연결하면 예정된 돈을 보여 드려요", actionText = "계좌 연결", onAction = onLink) }
-                f == null -> YamuCard { ErrorState(s.error ?: "예정된 돈을 불러오지 못했어요", onRetry = viewModel::refreshWithEntries) }
+                f == null && s.entries == null -> YamuCard { ErrorState(s.error ?: "예정된 돈을 불러오지 못했어요", onRetry = viewModel::refreshWithEntries) }
                 else -> {
                     // 가계부 회차를 받았으면 그 줄(고칠 수 있음) + 카드대금, 못 받았으면 예보 줄만(읽기 전용)
                     val entries = s.entries
                     val rows = if (entries != null) cashflowRows(entries, f) else {
+                        requireNotNull(f)   // 둘 다 없으면 위에서 오류 화면
                         val income = f.incomeDate?.takeIf { (f.incomeAmount ?: 0) > 0 }?.let { CashflowRow(it, f.incomeTitle, f.incomeAmount ?: 0, null, null) }
                         (f.upcoming.map { CashflowRow(it.date, it.title, it.amount, null, null) } + listOfNotNull(income)).sortedBy { it.date }
                     }
                     YamuCard {
-                        Text("월급 전까지 나갈 돈", style = YamuTheme.typography.titleS, color = c.text2)
+                        Text(if (f != null) "월급 전까지 나갈 돈" else "30일 동안 나갈 돈", style = YamuTheme.typography.titleS, color = c.text2)
                         Spacer(Modifier.height(4.dp))
-                        AmountText(f.scheduledOutflow)
+                        AmountText(f?.scheduledOutflow ?: rows.filter { it.amount < 0 }.sumOf { -it.amount })
                         Spacer(Modifier.height(4.dp))
                         val outCount = rows.count { it.amount < 0 }
                         Text(
                             listOfNotNull(
-                                if (f.from != null && f.to != null) "${f.from.toMonthDay()} ~ ${f.to.toMonthDay()}" else null,
+                                if (f?.from != null && f.to != null) "${f.from.toMonthDay()} ~ ${f.to.toMonthDay()}" else null,
                                 "출금 ${outCount}건",
                             ).joinToString(" · "),
                             style = YamuTheme.typography.bodyM,

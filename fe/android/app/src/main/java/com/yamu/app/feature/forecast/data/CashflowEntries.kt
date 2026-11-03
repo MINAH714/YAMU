@@ -1,6 +1,7 @@
 package com.yamu.app.feature.forecast.data
 
 import com.yamu.app.core.format.parseDate
+import com.yamu.app.feature.link.data.monthlyDayLabel
 import kotlinx.serialization.Serializable
 import java.time.LocalDate
 
@@ -64,12 +65,26 @@ data class CashflowEntry(
         accountId = accountId, userCardId = userCardId,
     )
 
+    /** F-02 반복 표시 — 짧은 달 회차(2/28)여도 규칙의 기준일로 */
+    fun repeatLabel(): String? = if (repeat == CashflowRepeat.MONTHLY && dayOfMonth != null) "매월 ${monthlyDayLabel(dayOfMonth)}" else toForm().repeatLabel()
+
     /**
      * 말일이 아닌 매월 기준일. 날짜를 안 옮겼으면 회차 날짜(2/28)가 아니라 규칙의 기준일(30)이고,
      * 규칙이 말일(31)이면 말일을 끈 것이라 원래 회차의 날짜(11/30 → 30)다
      */
     fun monthlyDayOn(form: CashflowForm): Int =
         if (form.date != date) form.date.dayOfMonth else dayOfMonth?.takeIf { it < 31 } ?: occurrenceDate.dayOfMonth
+
+    /**
+     * 날짜를 안 옮겼으면 기준일을 지킨다. 서버는 date가 없으면 원래 회차를 규칙의 첫날로 본다.
+     * 2/28 회차에서 규칙만 바꿔도 매월 30일이 28일로 밀리지 않고, 이번 회차만 옮겨 둔 회차(25일 → 27일)도 첫날과 반복일이 어긋나 400이 나지 않게
+     */
+    private fun RecurrenceRequest.keepBaseDay(dateChanged: Boolean, form: CashflowForm): RecurrenceRequest = when {
+        dateChanged -> this
+        frequency == "WEEKLY" -> copy(dayOfWeek = occurrenceDate.dayOfWeek.name)
+        frequency == "MONTHLY" && !form.isMonthEnd -> copy(dayOfMonth = monthlyDayOn(form))
+        else -> this
+    }
 
     /** '이번 회차만'을 고를 수 있는지 — 반복 규칙(주기 · 말일 · 종료일)을 바꾸면 서버가 받지 않는다 */
     fun canEditThisOnly(form: CashflowForm): Boolean = isRecurring && !form.ruleChangedFrom(toForm())
@@ -92,7 +107,7 @@ data class CashflowEntry(
             title = form.title.trim().takeIf { it != before.title },
             amount = form.amount.takeIf { it != before.amount },
             date = form.date.takeIf { dateChanged }?.toString(),
-            recurrence = if (!sendRecurrence) null else form.recurrenceRequest() ?: RecurrenceRequest("NONE"),
+            recurrence = if (!sendRecurrence) null else form.recurrenceRequest()?.keepBaseDay(dateChanged, form) ?: RecurrenceRequest("NONE"),
             accountId = form.accountId.takeIf { it != null && it != before.accountId },
             userCardId = form.userCardId.takeIf { it != null && it != before.userCardId },
             scope = scope.name.takeIf { isRecurring },
@@ -134,12 +149,12 @@ data class CashflowRow(val date: LocalDate?, val title: String, val amount: Long
  * F-02 줄 합치기 — 가계부 회차(고칠 수 있음) + 예보의 카드대금(읽기 전용). 다음 월급이 가계부에 없으면 예보 값으로 맨 끝에.
  * 날짜는 서버가 준 값 그대로 쓰고 다시 계산하지 않는다
  */
-fun cashflowRows(entries: List<CashflowEntry>, forecast: Forecast): List<CashflowRow> {
-    val fromItems = entries.map { e -> CashflowRow(e.date, e.title, e.signedAmount, e.toForm().repeatLabel(), e) }
-    val bills = forecast.upcoming.filter { it.isCardBill }.map { CashflowRow(it.date, it.title, it.amount, null, null) }
-    val incomeDate = forecast.incomeDate
+fun cashflowRows(entries: List<CashflowEntry>, forecast: Forecast?): List<CashflowRow> {
+    val fromItems = entries.map { e -> CashflowRow(e.date, e.title, e.signedAmount, e.repeatLabel(), e) }
+    val bills = forecast?.upcoming.orEmpty().filter { it.isCardBill }.map { CashflowRow(it.date, it.title, it.amount, null, null) }
+    val incomeDate = forecast?.incomeDate
     val incomeListed = incomeDate != null && entries.any { it.isIncome && it.date == incomeDate }
-    val income = if (incomeDate != null && !incomeListed && (forecast.incomeAmount ?: 0) > 0) {
+    val income = if (forecast != null && incomeDate != null && !incomeListed && (forecast.incomeAmount ?: 0) > 0) {
         listOf(CashflowRow(incomeDate, forecast.incomeTitle, forecast.incomeAmount ?: 0, null, null))
     } else emptyList()
     return (fromItems + bills + income).sortedWith(compareBy({ it.date }, { it.entry?.itemId ?: Long.MAX_VALUE }))

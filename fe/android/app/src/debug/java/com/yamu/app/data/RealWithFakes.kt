@@ -1,6 +1,12 @@
 package com.yamu.app.data
 
 import com.yamu.app.core.network.ApiResult
+import com.yamu.app.feature.forecast.data.CashflowDeleteScope
+import com.yamu.app.feature.forecast.data.CashflowEntry
+import com.yamu.app.feature.forecast.data.CashflowForm
+import com.yamu.app.feature.forecast.data.CashflowUpdateRequest
+import com.yamu.app.feature.forecast.data.ForecastRepository
+import com.yamu.app.feature.forecast.data.ForecastRepositoryImpl
 import com.yamu.app.feature.my.data.Device
 import com.yamu.app.feature.my.data.MyInfo
 import com.yamu.app.feature.my.data.MyRepository
@@ -13,6 +19,7 @@ import com.yamu.app.feature.payment.data.PaymentReceipt
 import com.yamu.app.feature.payment.data.PaymentRepository
 import com.yamu.app.feature.payment.data.PaymentRepositoryImpl
 import com.yamu.app.feature.payment.data.Recommendation
+import java.time.LocalDate
 import javax.inject.Inject
 
 // debug 전용 — yamu.realApi로 켠 기능 중 BE에 아직 없는 API만 가짜로 메운다. release에는 들어가지 않는다.
@@ -32,6 +39,22 @@ class RealPaymentWithFakes @Inject constructor(
     /** 방금 승인한 결제는 진짜 영수증 — 가짜 내역과 번호가 겹쳐도 남의 결제가 나오지 않게 먼저 본다 */
     override suspend fun detail(paymentId: Long): ApiResult<PaymentReceipt> =
         real.recentReceipt(paymentId)?.let { ApiResult.Success(it) } ?: fake.detail(paymentId)
+}
+
+/**
+ * 진짜: 가계부 등록 · 목록 · 수정 · 삭제. 가짜: 잔고예보 · 구매 판단 · 구매 계획.
+ * 계획 지우기는 가짜로 둔다 — 가짜 계획 번호로 진짜 DELETE를 부르면 같은 번호의 내 항목이 지워질 수 있다
+ */
+class RealCashflowWithFakes @Inject constructor(
+    private val real: ForecastRepositoryImpl,
+    fake: FakeForecastRepository,
+) : ForecastRepository by fake {
+    override suspend fun createItem(form: CashflowForm): ApiResult<Long> = real.createItem(form)
+    override suspend fun cashflowEntries(from: LocalDate, to: LocalDate): ApiResult<List<CashflowEntry>> = real.cashflowEntries(from, to)
+    override fun cachedEntry(itemId: Long, occurrenceDate: LocalDate): CashflowEntry? = real.cachedEntry(itemId, occurrenceDate)
+    override suspend fun updateItem(itemId: Long, body: CashflowUpdateRequest): ApiResult<Unit> = real.updateItem(itemId, body)
+    override suspend fun deleteItem(itemId: Long, scope: CashflowDeleteScope, occurrenceDate: LocalDate?): ApiResult<Unit> =
+        real.deleteItem(itemId, scope, occurrenceDate)
 }
 
 /** 진짜: 기기 목록 · 해제. 가짜: 회원 정보 · 설정 · 알림 */

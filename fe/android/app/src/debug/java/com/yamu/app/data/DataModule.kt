@@ -72,8 +72,15 @@ object DataModule {
 
     @Provides
     @Singleton
-    fun forecastRepository(real: Provider<ForecastRepositoryImpl>, fake: Provider<FakeForecastRepository>): ForecastRepository =
-        if (ApiFeature.FORECAST.isReal) real.get() else fake.get()
+    fun forecastRepository(
+        real: Provider<ForecastRepositoryImpl>,
+        cashflowOnly: Provider<RealCashflowWithFakes>,
+        fake: Provider<FakeForecastRepository>,
+    ): ForecastRepository = when {
+        ApiFeature.FORECAST.isReal -> real.get()
+        ApiFeature.CASHFLOW.isReal -> cashflowOnly.get()
+        else -> fake.get()
+    }
 
     @Provides
     @Singleton

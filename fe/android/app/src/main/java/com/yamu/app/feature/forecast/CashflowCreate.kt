@@ -150,7 +150,7 @@ class CashflowCreateViewModel @Inject constructor(
                     // 아직 안 골랐으면 주 계좌로(지출 · 수입 모두 받을 수 있는 수단)
                     val picked = s.form.accountId != null || s.form.userCardId != null
                     val form = if (picked) s.form else o.primaryAccount?.let { s.form.withAccount(it.accountId) } ?: s.form
-                    s.copy(loadingPayments = false, accounts = o.accounts, cards = o.cards, form = form)
+                    s.copy(loadingPayments = false, accounts = o.accounts, cards = o.cards.filterNot { it.issuerBlocked }, form = form)
                 }
                 is ApiResult.Failure -> _state.update { it.copy(loadingPayments = false, paymentsError = r.error.userMessage()) }
             }
@@ -160,7 +160,7 @@ class CashflowCreateViewModel @Inject constructor(
     /** 칸 고치기 — 한 번 눌러 본 뒤면 바로 다시 검사해 이유를 바꾼다 */
     fun edit(change: (CashflowForm) -> CashflowForm) = _state.update { s ->
         val form = change(s.form)
-        s.copy(form = form, errors = if (s.showErrors) form.validate(today) else emptyMap(), saveError = null, unknownResult = false)
+        s.copy(form = form, errors = if (s.showErrors) form.validate(today) else emptyMap(), saveError = if (s.unknownResult) s.saveError else null)
     }
 
     fun setMonthEnd(on: Boolean) {
@@ -286,7 +286,8 @@ fun CashflowCreateRoute(onBack: () -> Unit, onDone: () -> Unit, viewModel: Cashf
                     f.isIncome -> "예정 수입 추가"
                     else -> "예정 지출 추가"
                 }
-                PrimaryButton(label, onClick = viewModel::save, loading = s.saving, enabled = !s.gone)
+                // 응답을 못 받았으면 반영됐을 수 있다 — 등록은 두 번 들어가고, 나뉜 규칙의 수정은 400이 나서 목록부터 보게 한다
+                PrimaryButton(label, onClick = viewModel::save, loading = s.saving, enabled = !s.gone && !s.unknownResult)
             }
         },
     ) { inner ->

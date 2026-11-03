@@ -12,6 +12,9 @@ import dagger.hilt.components.SingletonComponent
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import retrofit2.Response
 import retrofit2.Retrofit
 import retrofit2.http.Body
@@ -30,7 +33,7 @@ import javax.inject.Singleton
     val cashflowItemId: Long,
     val type: String,                         // INCOME · EXPENSE
     val title: String,
-    val amount: Long,
+    val amount: Long = 0,                     // 금액 미정이면 서버가 null — 목록 전체가 실패하지 않게
     val occurrenceDate: String? = null,
     val recurrence: RecurrenceDto? = null,
     val kind: String? = null,                 // 보완안: CARD_BILL이면 읽기 전용 줄
@@ -61,7 +64,7 @@ interface CashflowApi {
     suspend fun patch(@Path("id") id: Long, @Body body: CashflowPatchRequest): Response<ApiEnvelope<CashflowItemDto>>
 
     @PATCH("forecasts/settings")
-    suspend fun patchSettings(@Body body: ForecastSettingsPatch): Response<ApiEnvelope<kotlinx.serialization.json.JsonElement>>
+    suspend fun patchSettings(@Body body: JsonObject): Response<ApiEnvelope<kotlinx.serialization.json.JsonElement>>
 
     @GET("forecasts/balance")
     suspend fun forecast(): Response<ApiEnvelope<ForecastLivingCostDto>>
@@ -109,7 +112,8 @@ fun List<CashflowItemDto>.toDraft(dailyLivingCost: Long?): CashflowDraft {
     fun CashflowItemDto.day() = recurrence?.dayOfMonth ?: occurrenceDate?.takeLast(2)?.toIntOrNull()
     val bills = filter { it.kind.equals("CARD_BILL", ignoreCase = true) }
     val rest = this - bills.toSet()
-    val income = rest.filter { it.type.equals("INCOME", ignoreCase = true) }.maxByOrNull { it.amount }
+    // 서버는 매월 반복 수입만 월급으로 받는다(아니면 400)
+    val income = rest.filter { it.type.equals("INCOME", ignoreCase = true) && it.recurrence?.frequency.equals("MONTHLY", ignoreCase = true) }.maxByOrNull { it.amount }
     val expenses = rest.filter { it.type.equals("EXPENSE", ignoreCase = true) }.sortedBy { it.day() ?: 99 }
     return CashflowDraft(
         income = income?.let { CashflowCandidate(it.cashflowItemId, true, it.title, it.amount, it.day()) },
@@ -131,6 +135,13 @@ fun CashflowPlan.toPatches(): Pair<List<Pair<Long, CashflowPatchRequest>>, Forec
         dailyLivingCostTarget = dailyLivingCost,
     )
     return patches to settings
+}
+
+/** #17 본문은 직접 만든다 — 월급을 빼면 "incomeCashflowItemId": null이 있어야 서버가 지운다(앱 JSON 설정은 null을 뺀다) */
+fun ForecastSettingsPatch.toBody(): JsonObject = buildJsonObject {
+    put("horizon", horizon)
+    put("incomeCashflowItemId", incomeCashflowItemId)
+    dailyLivingCostTarget?.let { put("dailyLivingCostTarget", it) }
 }
 
 interface CashflowRepository {
@@ -157,7 +168,7 @@ class CashflowRepositoryImpl @Inject constructor(private val api: CashflowApi) :
             val r = apiCall { api.patch(id, body) }
             if (r is ApiResult.Failure) return r
         }
-        return apiCallNoData { api.patchSettings(settings) }
+        return apiCallNoData { api.patchSettings(settings.toBody()) }
     }
 }
 

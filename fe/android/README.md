@@ -58,7 +58,7 @@ yamu.baseUrl=http://localhost:8080/api/
 
 - `yamu.baseUrl`은 `http://`나 `https://`로 시작하고 `/`로 끝나야 한다(아니면 빌드가 멈춘다). 로컬 BE는 `adb reverse tcp:8080 tcp:8080` 뒤 `localhost`, 에뮬레이터는 `http://10.0.2.2:8080/api/`도 된다.
 - http는 `network_security_config`가 `localhost`와 `10.0.2.2`만 허용한다. LAN IP(`http://192.168.…`)는 막히므로 실기기는 `adb reverse`로 `localhost`를 쓴다.
-- 기능을 진짜로 켤 때는 `yamu.realApi`에 이름을 쉼표로 적는다. 쓸 수 있는 이름은 `auth` · `link` · `cashflow` · `home` · `payment` · `performance` · `forecast` · `report` · `my` · `pos`이다. `all`은 BE에 API가 있는 `auth` · `link` · `cashflow` · `payment` · `my` · `pos`만 켠다. 나머지는 이름을 직접 적어야 켜지고 지금 켜면 404가 난다.
+- 기능을 진짜로 켤 때는 `yamu.realApi`에 이름을 쉼표로 적는다. 쓸 수 있는 이름은 `auth` · `link` · `cashflow` · `home` · `payment` · `performance` · `forecast` · `report` · `my` · `pos`이다. `all`은 BE에 API가 있는 `auth` · `link` · `cashflow` · `payment` · `my` · `pos`만 켠다. 나머지는 이름을 직접 적어야 켜지고 지금 켜면 404가 난다. `cashflow`나 `forecast`를 켜면 `link`도 같이 켜진다(가짜 계좌 · 카드 번호가 진짜 서버로 가지 않게).
 - `payment` · `my` · `pos`는 debug에서 BE에 없는 메서드만 가짜로 메운다(`src/debug/.../RealWithFakes.kt`, `src/posDebug/.../FakePosRepository.kt`). release에는 가짜가 없어 그대로 404다.
 - 진짜 API는 로그인 토큰이 필요하다. `auth`를 가짜로 두고 다른 기능만 켜면 가짜 토큰이 실려 401이 나므로 다른 기능을 켤 때는 `auth`도 같이 켠다.
 - 모의 POS는 `yamu.posKey`(BE `yamu.pos.key`와 같은 값), `yamu.posMerchantId`(단말의 `brand_code`와 같은 가맹점 번호, 시드마다 다름), `yamu.posCode`(기본 `POS-YAMU-CAFE`)를 적는다.
@@ -69,8 +69,8 @@ BE(develop, 2026-11-03)와 맞춰 본 결과는 이렇다.
 |---|---|---|
 | `auth` | 본인인증 · 가입 중 계좌 연결 · PIN · 기기 등록 · 로그인 · 본인 확인 · 재발급 · 로그아웃 | 없음 |
 | `link` | 카드 확인 · 등록 · 로그인 후 계좌 추가 · 계좌 · 카드 목록 | 없음 |
-| `cashflow` | `cashflow-items` 조회 · 수정, `forecasts/settings` 수정 | `forecasts/balance`(실패해도 화면은 진행, 하루 생활비 제안만 빠짐). 후보 항목을 만드는 곳이 없어 확인 화면은 늘 비어 있음 |
-| `forecast` | 켜지 않음 | `forecasts/balance`, `spending-decisions`. 계획 저장 `cashflow-items`는 본문을 맞췄지만 할부 · 구매 계획 구분 칸이 BE에 없음 |
+| `cashflow` | `cashflow-items` 등록 · 조회 · 수정 · 삭제, `forecasts/settings` 수정 | `forecasts/balance`(실패해도 화면은 진행, 하루 생활비 제안만 빠짐). 후보 항목을 만드는 곳이 없어 B-06은 늘 비어 있음 |
+| `forecast` | 켜지 않음. debug에서는 `cashflow`를 켜면 가계부 메서드만 진짜(`RealCashflowWithFakes`) | `forecasts/balance`, `spending-decisions`, 구매 계획 구분. F-01과 F-02 합계 · 카드대금 · 월급은 가짜라 가계부 줄과 숫자가 맞지 않음 |
 | `payment` | 결제 코드 발급 · 상태 · 승인 | 가맹점 목록, 결제 전 추천, 거절(요청이 마감까지 남음), 결제 상세. 후보에 카드사 · 카테고리가 없어 별칭으로 보임 |
 | `my` | 기기 목록 · 해제(`APP_UNLOCK` 본인 확인) | 회원 정보, 결제 · 보안 설정, 알림 |
 | `pos` | 결제 요청 | 가맹점 목록, 결과 조회(결과는 고객 앱에서 확인) |
