@@ -12,6 +12,8 @@
 
 각 Job은 동시 실행을 막고 60분 뒤 중단한다. 기존 `yamu-ci` 라벨의 실행기 1개를 사용해 업무 CI와 동시에 과도한 빌드를 실행하지 않는다.
 `disableConcurrentBuilds`와 컨테이너의 CPU 2개·메모리 4GiB 제한을 적용한다. 최초 SDK·Gradle 다운로드는 캐시가 없으면 오래 걸릴 수 있다.
+컨테이너 안에서는 Gradle worker 1개·heap 2GiB·metaspace 512MiB·code cache 128MiB, Kotlin in-process, 테스트 worker 1개·heap 256MiB로 실행한다.
+앱의 기본 Gradle 설정을 수정하지 않고 CI 전용 인자·초기화 스크립트로 제한한다. 이 설정은 별도 Kotlin daemon과 테스트 프로세스가 동시에 메모리를 차지해 발생한 첫 격리 빌드의 OOM을 보완한다.
 GitLab webhook은 추가하지 않는다. 새 커밋 감지까지 최대 5분 정도 기다릴 수 있다.
 
 ## 빌드와 자격정보 분리

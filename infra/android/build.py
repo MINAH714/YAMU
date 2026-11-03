@@ -76,7 +76,11 @@ def main():
     if OUT.exists():
         raise ValueError('Output directory must be fresh; do not reuse a previous build')
     OUT.mkdir()
-    subprocess.run(['sh', './gradlew', '--no-daemon', '--max-workers=2', '--console=plain',
+    init = OUT / 'ci-memory.init.gradle'
+    init.write_text('allprojects { tasks.withType(org.gradle.api.tasks.testing.Test).configureEach { maxHeapSize = "256m"; maxParallelForks = 1 } }\n')
+    subprocess.run(['sh', './gradlew', '--no-daemon', '--max-workers=1', '--console=plain',
+                    '-Dorg.gradle.jvmargs=-Xmx2048m -XX:MaxMetaspaceSize=512m -XX:ReservedCodeCacheSize=128m -Dfile.encoding=UTF-8',
+                    '-Pkotlin.compiler.execution.strategy=in-process', '--init-script', str(init),
                     'testCustomerDebugUnitTest', 'assembleCustomerDebug'], cwd=APP, check=True)
     config = list((APP / 'app/build/generated/source/buildConfig/customer/debug').rglob('BuildConfig.java'))
     if len(config) != 1:
