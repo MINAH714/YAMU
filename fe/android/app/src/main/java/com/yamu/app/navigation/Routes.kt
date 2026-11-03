@@ -67,6 +67,7 @@ import kotlinx.serialization.Serializable
 // ── 마이 탭 (MyGraph) ──
 @Serializable data object My                 // M-01
 @Serializable data object CardManage         // M-02
+@Serializable data object CardOrder          // M-02g 카드 순서
 @Serializable data class CardDetail(val userCardId: Long)   // M-03 · M-03c(해제 시트)
 @Serializable data object AddCard            // C-11 카드 추가(CardRegister와 같은 화면)
 @Serializable data object NotificationSettings // M-04

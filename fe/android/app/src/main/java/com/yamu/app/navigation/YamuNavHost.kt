@@ -50,6 +50,7 @@ import com.yamu.app.feature.link.CashflowConfirmRoute
 import com.yamu.app.feature.link.FirstAnalysisRoute
 import com.yamu.app.feature.my.CardDetailRoute
 import com.yamu.app.feature.my.CardManageRoute
+import com.yamu.app.feature.my.CardOrderRoute
 import com.yamu.app.feature.my.MyCardsRoute
 import com.yamu.app.feature.my.MyRoute
 import com.yamu.app.feature.my.NotificationSettingsRoute
@@ -344,6 +345,7 @@ fun YamuNavHost(navController: NavHostController, modifier: Modifier = Modifier)
                         onBack = back,
                         onAddCard = { navController.navigate(AddCard) },
                         onCardDetail = { id -> navController.navigate(CardDetail(id)) },
+                        onCardOrder = { navController.navigate(CardOrder) },
                     )
                 }
                 composable<CardDetail> {
@@ -354,6 +356,15 @@ fun YamuNavHost(navController: NavHostController, modifier: Modifier = Modifier)
                             showMessage("${name}${name.objectParticle()} 해제했어요")
                         },
                         onOpenPinPad = openPinPad,
+                    )
+                }
+                composable<CardOrder> {
+                    CardOrderRoute(
+                        onBack = back,
+                        onSaved = {
+                            back()
+                            showMessage("카드 순서를 저장했어요")
+                        },
                     )
                 }
                 composable<AddCard> {

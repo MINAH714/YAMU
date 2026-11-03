@@ -132,9 +132,9 @@ fun BrandCardArt(brand: Brand, name: String, last4: String?, modifier: Modifier 
 
 /** 카드 목록 줄 앞자리(M-02 · H-03) — 88dp 상품 그림, 없으면 같은 크기의 카드사 색 카드 */
 @Composable
-fun CardListThumb(brand: Brand, productName: String) {
-    CardThumb(CardImages.forProduct(productName), width = 88.dp) {
-        Box(Modifier.width(88.dp).aspectRatio(1.586f).clip(RoundedCornerShape(8.dp))) {
+fun CardListThumb(brand: Brand, productName: String, width: Dp = 88.dp) {
+    CardThumb(CardImages.forProduct(productName), width = width) {
+        Box(Modifier.width(width).aspectRatio(1.586f).clip(RoundedCornerShape(8.dp))) {
             BrandMark(brand, Modifier.fillMaxSize(), large = true)
         }
     }
