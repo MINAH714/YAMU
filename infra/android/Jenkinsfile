@@ -1,0 +1,57 @@
+pipeline {
+    agent { label 'yamu-ci' }
+    options {
+        skipDefaultCheckout(true)
+        disableConcurrentBuilds()
+        skipStagesAfterUnstable()
+        timeout(time: 60, unit: 'MINUTES')
+        buildDiscarder(logRotator(numToKeepStr: '15', artifactNumToKeepStr: '5'))
+        timestamps()
+    }
+    triggers {
+        // The verification job uses the work branch and never polls it automatically.
+        pollSCM(env.JOB_NAME == 'yamu/mobile/apk-mock' ? 'H/5 * * * *' : '')
+    }
+    environment {
+        CI = 'true'
+        TZ = 'UTC'
+    }
+    stages {
+        stage('Checkout') {
+            steps {
+                deleteDir()
+                script {
+                    def revision = checkout scm
+                    env.GIT_COMMIT = revision.GIT_COMMIT
+                }
+                sh 'python3 -m unittest discover -s infra/android -p "test_*.py"'
+            }
+        }
+        stage('Android toolchain') {
+            steps { sh 'python3 infra/android/run.py image' }
+        }
+        stage('Mock APK and customer tests') {
+            steps { sh 'python3 infra/android/run.py build' }
+            post {
+                always { junit testResults: 'fe/android/app/build/test-results/testCustomerDebugUnitTest/TEST-*.xml', allowEmptyResults: false }
+            }
+        }
+        stage('Archive verified APK') {
+            steps {
+                archiveArtifacts artifacts: 'apk-out/*.apk,apk-out/*.sha256,apk-out/build-manifest.json', fingerprint: true
+            }
+        }
+        stage('Upload private APK') {
+            steps {
+                withCredentials([file(credentialsId: 'yamu-apk-s3-credentials', variable: 'YAMU_APK_AWS_FILE')]) {
+                    // Never Groovy-interpolate credential contents or print a presigned URL.
+                    sh 'set +x; python3 infra/android/run.py publish'
+                }
+                archiveArtifacts artifacts: 'apk-out/publication.json,apk-out/download-url.txt', fingerprint: false
+            }
+        }
+    }
+    post {
+        cleanup { deleteDir() }
+    }
+}
