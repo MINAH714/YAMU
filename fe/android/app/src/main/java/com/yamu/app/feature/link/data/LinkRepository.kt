@@ -59,6 +59,9 @@ interface LinkApi {
     @GET("cards")
     suspend fun cards(): Response<ApiEnvelope<CardsResponse>>
 
+    @PATCH("accounts/{id}")
+    suspend fun updateAccount(@Path("id") accountId: Long, @Body body: AccountUpdateRequest): Response<ApiEnvelope<AccountDto>>
+
     @GET("cards/{id}")
     suspend fun card(@Path("id") userCardId: Long): Response<ApiEnvelope<CardDetailDto>>
 
@@ -91,6 +94,12 @@ interface LinkRepository {
 
     /** 연결된 계좌(잔액 — 금융망) · 카드 */
     suspend fun linkedOverview(refresh: Boolean = false): ApiResult<LinkedOverview>
+
+    /** 연결된 계좌만(잔액 — 금융망). 카드 목록이 실패해도 계좌 화면은 열려야 한다 */
+    suspend fun accounts(): ApiResult<List<LinkedAccount>>
+
+    /** 넘긴 값만 바꾸고 바뀐 계좌를 돌려준다. [alias] ""은 별칭 지우기. [makePrimary]면 이 계좌가 기준 계좌가 되고 전에 있던 기준 계좌는 풀린다 */
+    suspend fun updateAccount(accountId: Long, alias: String? = null, makePrimary: Boolean = false): ApiResult<LinkedAccount>
 
     /** 내 카드 한 장. 없거나 해제한 카드 · 남의 카드는 404 */
     suspend fun cardDetail(userCardId: Long): ApiResult<CardInfo>
@@ -135,6 +144,11 @@ class LinkRepositoryImpl @Inject constructor(private val api: LinkApi) : LinkRep
             }
         }
     }
+
+    override suspend fun accounts(): ApiResult<List<LinkedAccount>> = apiCall { api.accounts(null) }.map { r -> r.accounts.map { it.toLinked() } }
+
+    override suspend fun updateAccount(accountId: Long, alias: String?, makePrimary: Boolean): ApiResult<LinkedAccount> =
+        apiCall { api.updateAccount(accountId, AccountUpdateRequest(alias, true.takeIf { makePrimary })) }.map { it.toLinked() }
 
     override suspend fun cardDetail(userCardId: Long): ApiResult<CardInfo> = apiCall { api.card(userCardId) }.map { it.toInfo() }
 

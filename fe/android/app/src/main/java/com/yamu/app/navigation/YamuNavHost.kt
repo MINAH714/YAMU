@@ -48,6 +48,7 @@ import com.yamu.app.feature.performance.PerfOverviewRoute
 import com.yamu.app.feature.link.CardRegisterRoute
 import com.yamu.app.feature.link.CashflowConfirmRoute
 import com.yamu.app.feature.link.FirstAnalysisRoute
+import com.yamu.app.feature.my.AccountManageRoute
 import com.yamu.app.feature.my.CardDetailRoute
 import com.yamu.app.feature.my.CardManageRoute
 import com.yamu.app.feature.my.CardOrderRoute
@@ -330,6 +331,7 @@ fun YamuNavHost(navController: NavHostController, modifier: Modifier = Modifier)
                         onNotifications = { navController.navigate(Notifications) },
                         onProfile = { navController.navigate(Profile) },
                         onCardManage = { navController.navigate(CardManage) },
+                        onAccountManage = { navController.navigate(AccountManage) },
                         onNotificationSettings = { navController.navigate(NotificationSettings) },
                         onSecurity = { navController.navigate(Security) },
                         onNotReady = showMessage,
@@ -376,6 +378,7 @@ fun YamuNavHost(navController: NavHostController, modifier: Modifier = Modifier)
                         onOpenPinPad = openPinPad,
                     )
                 }
+                composable<AccountManage> { AccountManageRoute(onBack = back) }
                 composable<NotificationSettings> { NotificationSettingsRoute(onBack = back) }
                 composable<Profile> { ProfileRoute(onBack = back, onOpenPinPad = openPinPad) }
                 composable<Security> { SecurityRoute(onBack = back, onOpenPinPad = openPinPad) }

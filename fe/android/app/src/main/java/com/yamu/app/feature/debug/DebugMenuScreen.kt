@@ -32,6 +32,7 @@ import com.yamu.app.core.session.LinkScenario
 import com.yamu.app.core.session.PayScenario
 import com.yamu.app.core.session.HomeScenario
 import com.yamu.app.core.session.StartState
+import com.yamu.app.navigation.AccountManage
 import com.yamu.app.navigation.AddCard
 import com.yamu.app.navigation.BenefitLimits
 import com.yamu.app.navigation.BenefitReport
@@ -190,6 +191,7 @@ fun DebugMenuScreen(navController: NavController, viewModel: DebugMenuViewModel 
                     "M-02g 카드 순서" to CardOrder,
                     "M-03 카드 상세" to CardDetail(userCardId = 12L),
                     "C-11 카드 추가" to AddCard,
+                    "M-01b 계좌 관리" to AccountManage,
                     "M-04 알림 설정" to NotificationSettings,
                     "M-06 회원 정보" to Profile,
                     "M-08 보안 · 인증" to Security,
