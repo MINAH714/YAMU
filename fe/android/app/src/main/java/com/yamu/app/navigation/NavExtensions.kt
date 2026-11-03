@@ -74,3 +74,8 @@ fun NavController.toBuyCheckSaved(planId: Long) = navigate(BuyCheckSaved(planId)
 fun NavController.toAddCardDone(userCardId: Long) = navigate(AddCardDone(userCardId)) {
     popUpTo<AddCardInstitution> { inclusive = true }
 }
+
+/** 이 폰에 등록된 기기가 없어짐 → 첫 화면(A-01). 스택을 모두 비운다 */
+fun NavController.toWelcome() = navigate(AuthGraph) {
+    popUpTo(graph.id) { inclusive = true }
+}

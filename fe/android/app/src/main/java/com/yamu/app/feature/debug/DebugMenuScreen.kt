@@ -93,7 +93,7 @@ fun DebugMenuScreen(navController: NavController, viewModel: DebugMenuViewModel 
                 Spacer(Modifier.height(8.dp))
                 Text(
                     if (ApiFeature.AUTH.isReal) "가입 · 로그인이 진짜 서버를 써서 시작 상태와 가짜 인증 시험값은 쓰이지 않아요(yamu.realApi)"
-                    else "가짜 인증 시험값: 가입 dup@ssafy.com(이미 가입) · fin@ssafy.com(금융망 이메일) · 로그인 비밀번호 Wrong1234!(불일치) · done…으로 시작하는 이메일(설정 끝난 사용자) · 간편 비밀번호 기본 135790",
+                    else "가짜 인증 시험값: 본인인증 번호 01012345678은 가입 · 01099998888은 이미 가입(이 폰 재등록) · 그 밖은 시연 사용자 아님(이름 · 생년월일은 아무거나). 인증번호 · 1원 숫자는 문자 알림을 누르면 채워짐(1원 1004 · 0000은 시간 지남). 간편 비밀번호 기본 135790(5번 틀리면 30분 잠김) · 로그인 때 000000은 서버에서 기기가 없어진 경우. 로그인 · 연결 전 · 끝은 이 폰을 기기 7번으로 등록해 둔 상태",
                     style = YamuTheme.typography.bodyS,
                     color = c.text3,
                 )

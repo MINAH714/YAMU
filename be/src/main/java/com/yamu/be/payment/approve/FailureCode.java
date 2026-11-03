@@ -9,7 +9,11 @@ public enum FailureCode {
     CREDIT_LIMIT_EXCEEDED("이 카드의 가용 한도를 넘었습니다."),
     CARD_SUSPENDED("카드사에서 정지한 카드입니다."),
     UNPAID_BILL("미납 청구서가 있어 결제할 수 없습니다."),
-    ISSUER_DECLINED("카드사 모의 승인이 거절됐습니다.");
+    ISSUER_DECLINED("카드사 모의 승인이 거절됐습니다."),
+    /** 임시(명세 8장 Q9 제안): 출금 계좌가 없거나 해지됨(A1003)·연결 계좌 없음. 명세 failure.code 목록에 추가 필요 */
+    ACCOUNT_UNAVAILABLE("출금 계좌를 쓸 수 없습니다. 계좌를 다시 연결해 주세요."),
+    /** 임시(Task 5.2.3): 출금 결과를 모른 채 거래내역에도 없음. 돈은 나가지 않았고 마감 전이면 다시 승인할 수 있다. 명세에 추가 필요 */
+    WITHDRAWAL_NOT_CONFIRMED("출금이 확인되지 않았습니다. 다시 시도해 주세요.");
 
     private final String message;
 

@@ -6,6 +6,8 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.startsWith;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
@@ -75,6 +77,7 @@ class PaymentApprovalServiceTest {
     static final long PAYMENT_ID = 1024L;
     static final AuthUser ME = new AuthUser(7L, 1L);
     static final String KEY = "4b4a1f4e-0d1e-4a1e-9b4e-5f7d2c1a0001";
+    static final String TX_NO = "20261022143005000001";
     static final LocalDateTime REQUESTED_AT = LocalDateTime.of(2026, 10, 22, 5, 30);
     static final Instant NOW = REQUESTED_AT.plusSeconds(30).toInstant(ZoneOffset.UTC);
 
@@ -95,6 +98,7 @@ class PaymentApprovalServiceTest {
     @Mock ApprovalIdempotencyStore idempotency;
     @Mock ApprovalAttemptStore attempts;
     @Mock PaymentExpiry expiry;
+    @Mock WithdrawalRecovery recovery;
     @Mock BarcodeStore barcodes;
     @Mock RedisLocks locks;
     @Mock RedisLocks.Lock lock;
@@ -103,7 +107,8 @@ class PaymentApprovalServiceTest {
     final PosProperties posProperties = new PosProperties(null, Duration.ofSeconds(60), Duration.ofMinutes(10),
             Duration.ofMinutes(10), Duration.ofHours(24), Duration.ofSeconds(15), List.of());
     final PaymentApprovalProperties properties = new PaymentApprovalProperties(Duration.ofHours(24),
-            Duration.ofSeconds(30), Duration.ofSeconds(5), 3, Duration.ofHours(24));
+            Duration.ofSeconds(30), Duration.ofSeconds(5), 3, Duration.ofHours(24), Duration.ofSeconds(60),
+            Duration.ofSeconds(30), Duration.ofSeconds(60), Duration.ofMinutes(5), Duration.ofMinutes(10), false);
     final Clock clock = Clock.fixed(NOW, ZoneOffset.UTC);
 
     PaymentApprovalService service;
@@ -114,8 +119,8 @@ class PaymentApprovalServiceTest {
     @BeforeEach
     void setUp() {
         service = new PaymentApprovalService(payments, cardQuery, cards, snapshots, recommender, approver, ledger,
-                idempotency, attempts, expiry, barcodes, locks, transaction, new ObjectMapper(), posProperties,
-                properties, clock);
+                idempotency, attempts, expiry, recovery, barcodes, locks, transaction, new ObjectMapper(),
+                posProperties, properties, clock);
         payment = requested(15_000, 1);
         recommendation = recommendation(List.of(candidate(1, CREDIT), candidate(2, CHECK)));
         attemptNo = 1;
@@ -137,9 +142,10 @@ class PaymentApprovalServiceTest {
         when(attempts.triedCardIds(PAYMENT_ID)).thenReturn(Set.of());
         when(attempts.declinedCardIds(PAYMENT_ID)).thenReturn(Set.of());
         when(expiry.isPastDeadline(any())).thenReturn(false);
+        when(recovery.recover(PAYMENT_ID)).thenReturn(PaymentStatus.PROCESSING);
         when(snapshots.find(PAYMENT_ID)).thenAnswer(inv -> Optional.of(recommendation));
         when(cards.findActiveCards(7L)).thenReturn(List.of(CREDIT, CHECK, SUSPENDED));
-        when(approver.approve(any())).thenAnswer(inv -> new TemporaryPaymentApprover().approve(inv.getArgument(0)));
+        when(approver.approve(any())).thenAnswer(inv -> new TemporaryCreditCardApprover().approve(inv.getArgument(0)));
     }
 
     // ───────── 승인 ─────────
@@ -373,7 +379,7 @@ class PaymentApprovalServiceTest {
 
     @Test
     void 원장_반영이_실패해도_거래_번호와_출금액을_저장_전에_시도_기록에_남긴다() {
-        doReturn(new ApprovalOutcome.Approved(15_000, 14_000, 0, LocalDate.of(2026, 10, 1), List.of(), "FIN-0001"))
+        doReturn(new ApprovalOutcome.Approved(15_000, 14_000, 0, LocalDate.of(2026, 10, 1), List.of(), null, "FIN-0001"))
                 .when(approver).approve(any());
         doThrow(new IllegalStateException("ledger")).when(ledger).recordApproval(any(), any());
 
@@ -439,6 +445,190 @@ class PaymentApprovalServiceTest {
 
         assertThat(response.status()).isEqualTo(PaymentStatus.APPROVED);
         assertThat(payment.getStatus()).isEqualTo(PaymentStatus.APPROVED);
+    }
+
+    // ───────── 결과 불명 복구·되돌리기(5.2.3) ─────────
+
+    @Test
+    void 금융망에_보내지_못했으면_결제를_REQUESTED로_되돌리고_시도를_지우며_502이고_결과를_기억하지_않는다() {
+        doThrow(new ApprovalNotSentException("연결 실패", null)).when(approver).approve(any());
+
+        assertThatThrownBy(() -> service.approve(ME, PAYMENT_ID, request(16L), KEY))
+                .extracting(e -> ((BusinessException) e).getErrorCode()).isEqualTo(ErrorCode.FIN_API_UNAVAILABLE);
+
+        assertThat(payment.getStatus()).isEqualTo(PaymentStatus.REQUESTED);
+        assertThat(payment.getUserCardId()).isEqualTo(16L);
+        verify(attempts).release(eq(PAYMENT_ID), any());
+        verify(idempotency, never()).remember(anyLong(), anyString(), any());
+        verify(barcodes, never()).markUsed(anyLong());
+    }
+
+    @Test
+    void PROCESSING_결제는_횟수_카드_검사보다_먼저_복구를_거치고_풀렸으면_이어서_승인한다() {
+        payment.startApproval(15L, 3L);
+        when(recovery.recover(PAYMENT_ID)).thenAnswer(inv -> {
+            payment.releaseApproval();
+            return PaymentStatus.REQUESTED;
+        });
+
+        PaymentApprovalResponse response = service.approve(ME, PAYMENT_ID, request(16L), KEY);
+
+        assertThat(response.status()).isEqualTo(PaymentStatus.APPROVED);
+        assertThat(response.selectedCard().userCardId()).isEqualTo(16L);
+        InOrder order = inOrder(recovery, attempts);
+        order.verify(recovery).recover(PAYMENT_ID);
+        order.verify(attempts).count(PAYMENT_ID);
+    }
+
+    @Test
+    void 같은_키의_결과_불명_시도를_복구가_승인으로_확정하면_행에서_만든_승인_응답을_돌려주고_새_시도를_만들지_않는다() {
+        payment.startApproval(15L, 3L);
+        payment.assignFinRequestNo(TX_NO);
+        when(attempts.findByKey(PAYMENT_ID, KEY)).thenReturn(Optional.of(unknownAttempt(CREDIT, 1, false)));
+        when(recovery.recover(PAYMENT_ID)).thenAnswer(inv -> {
+            payment.approve(15_000, 0, LocalDate.of(2026, 10, 1), REQUESTED_AT.plusSeconds(20), "1101");
+            return PaymentStatus.APPROVED;
+        });
+
+        PaymentApprovalResponse response = service.approve(ME, PAYMENT_ID, request(null), KEY);
+
+        assertThat(response.status()).isEqualTo(PaymentStatus.APPROVED);
+        assertThat(response.approvalNo()).isEqualTo("Y202610220000001024");
+        assertThat(response.selectedCard().userCardId()).isEqualTo(15L);
+        assertThat(response.selectedCard().recommendedRank()).isEqualTo(1);
+        assertThat(response.selectedCard().userSelected()).isFalse();
+        assertThat(response.chargedAmount()).isEqualTo(15_000);
+        verify(approver, never()).approve(any());
+        verify(attempts, never()).reserve(anyLong(), any());
+        verify(idempotency).remember(eq(7L), eq(KEY), any());
+    }
+
+    @Test
+    void 주기_작업이_먼저_확정했어도_같은_키는_같은_승인_응답이다() {
+        payment.startApproval(15L, 3L);
+        payment.assignFinRequestNo(TX_NO);
+        payment.approve(15_000, 0, LocalDate.of(2026, 10, 1), REQUESTED_AT.plusSeconds(20), "1101");
+        when(attempts.findByKey(PAYMENT_ID, KEY)).thenReturn(Optional.of(unknownAttempt(CREDIT, 1, false)
+                .withResult(Attempt.APPROVED, null, "1101", 15_000L, null)));
+
+        PaymentApprovalResponse response = service.approve(ME, PAYMENT_ID, request(null), KEY);
+
+        assertThat(response.status()).isEqualTo(PaymentStatus.APPROVED);
+        assertThat(response.selectedCard().userCardId()).isEqualTo(15L);
+        verify(recovery, never()).recover(anyLong());
+        verify(approver, never()).approve(any());
+    }
+
+    @Test
+    void 다른_키로_온_요청이_복구를_거쳐_승인이면_409_PAYMENT_ALREADY_PROCESSED다() {
+        payment.startApproval(15L, 3L);
+        payment.assignFinRequestNo(TX_NO);
+        when(recovery.recover(PAYMENT_ID)).thenAnswer(inv -> {
+            payment.approve(15_000, 0, LocalDate.of(2026, 10, 1), REQUESTED_AT.plusSeconds(20), "1101");
+            return PaymentStatus.APPROVED;
+        });
+
+        assertThatThrownBy(() -> service.approve(ME, PAYMENT_ID, request(16L), KEY))
+                .extracting(e -> ((BusinessException) e).getErrorCode()).isEqualTo(ErrorCode.PAYMENT_ALREADY_PROCESSED);
+        verify(approver, never()).approve(any());
+    }
+
+    @Test
+    void 복구가_출금_미확인으로_거절하면_그_요청은_거절_응답으로_끝나고_다시_출금하지_않는다() {
+        payment.startApproval(15L, 3L);
+        payment.assignFinRequestNo(TX_NO);
+        when(attempts.count(PAYMENT_ID)).thenReturn(1);
+        when(recovery.recover(PAYMENT_ID)).thenAnswer(inv -> {
+            payment.decline("WITHDRAWAL_NOT_CONFIRMED");
+            return PaymentStatus.DECLINED;
+        });
+
+        PaymentApprovalResponse response = service.approve(ME, PAYMENT_ID, request(16L), KEY);
+
+        assertThat(response.status()).isEqualTo(PaymentStatus.DECLINED);
+        assertThat(response.failure().code()).isEqualTo("WITHDRAWAL_NOT_CONFIRMED");
+        assertThat(response.selectedCard().userCardId()).isEqualTo(15L);
+        assertThat(response.retryable()).isTrue();
+        assertThat(response.remainingAttempts()).isEqualTo(2);
+        verify(approver, never()).approve(any());
+        verify(attempts, never()).reserve(anyLong(), any());
+        verify(idempotency).remember(eq(7L), eq(KEY), any());
+    }
+
+    @Test
+    void 출금_미확인으로_거절된_결제를_재승인하기_직전에_앞_출금을_다시_본다() {
+        payment.startApproval(15L, 3L);
+        payment.assignFinRequestNo(TX_NO);
+        payment.decline("WITHDRAWAL_NOT_CONFIRMED");
+        when(attempts.count(PAYMENT_ID)).thenReturn(1);
+        attemptNo = 2;
+
+        when(recovery.recheckBeforeRetry(PAYMENT_ID)).thenReturn(WithdrawalRecovery.LateCheck.CONFIRMED);
+        assertThatThrownBy(() -> service.approve(ME, PAYMENT_ID, request(16L), KEY))
+                .extracting(e -> ((BusinessException) e).getErrorCode()).isEqualTo(ErrorCode.PAYMENT_ALREADY_PROCESSED);
+
+        when(recovery.recheckBeforeRetry(PAYMENT_ID)).thenReturn(WithdrawalRecovery.LateCheck.UNDECIDED);
+        assertThatThrownBy(() -> service.approve(ME, PAYMENT_ID, request(16L), KEY))
+                .extracting(e -> ((BusinessException) e).getErrorCode()).isEqualTo(ErrorCode.FIN_API_UNAVAILABLE);
+        verify(approver, never()).approve(any());
+        verify(attempts, never()).reserve(anyLong(), any());
+
+        when(recovery.recheckBeforeRetry(PAYMENT_ID)).thenReturn(WithdrawalRecovery.LateCheck.NOT_FOUND);
+        PaymentApprovalResponse response = service.approve(ME, PAYMENT_ID, request(16L), KEY);
+        assertThat(response.status()).isEqualTo(PaymentStatus.APPROVED);
+        verify(approver).approve(any());
+    }
+
+    @Test
+    void 정산_잠금이_풀린_사이_출금_미확인으로_거절됐는데_출금_성공이_늦게_오면_승인으로_바로잡는다() {
+        doAnswer(inv -> {
+            // 출금 대기 중 잠금이 풀려 복구가 이 시도를 출금 미확인으로 거절했다
+            payment.assignFinRequestNo(TX_NO);
+            payment.decline("WITHDRAWAL_NOT_CONFIRMED");
+            return new ApprovalOutcome.Approved(15_000, 15_000, 0, LocalDate.of(2026, 10, 1), List.of(), TX_NO,
+                    "1101");
+        }).when(approver).approve(any());
+
+        PaymentApprovalResponse response = service.approve(ME, PAYMENT_ID, request(16L), KEY);
+
+        assertThat(response.status()).isEqualTo(PaymentStatus.APPROVED);
+        assertThat(payment.getStatus()).isEqualTo(PaymentStatus.APPROVED);
+        assertThat(payment.getFailureCode()).isNull();
+        assertThat(payment.getFinTransactionNo()).isEqualTo("1101");
+        verify(ledger).recordApproval(eq(payment), any());
+    }
+
+    @Test
+    void 복구_뒤에도_PROCESSING이면_IDEMPOTENCY_IN_PROGRESS다() {
+        payment.startApproval(15L, 3L);
+        when(recovery.recover(PAYMENT_ID)).thenReturn(PaymentStatus.PROCESSING);
+
+        assertThatThrownBy(() -> service.approve(ME, PAYMENT_ID, request(null), KEY))
+                .extracting(e -> ((BusinessException) e).getErrorCode()).isEqualTo(ErrorCode.IDEMPOTENCY_IN_PROGRESS);
+        verify(approver, never()).approve(any());
+    }
+
+    @Test
+    void 승인_결과의_출금_요청_번호가_행과_다르면_저장하지_않는다() {
+        doReturn(new ApprovalOutcome.Approved(15_000, 15_000, 0, LocalDate.of(2026, 10, 1), List.of(),
+                "20261022143005000009", "1101")).when(approver).approve(any());
+
+        assertThatThrownBy(() -> service.approve(ME, PAYMENT_ID, request(16L), KEY))
+                .isInstanceOf(IllegalStateException.class);
+
+        assertThat(payment.getStatus()).isEqualTo(PaymentStatus.PROCESSING);
+        verify(ledger, never()).recordApproval(any(), any());
+        verify(barcodes, never()).markUsed(anyLong());
+    }
+
+    @Test
+    void 결제별_정산_잠금을_못_잡으면_선점하지_않고_IDEMPOTENCY_IN_PROGRESS다() {
+        when(locks.tryLock(startsWith(WithdrawalRecovery.SETTLE_LOCK_PREFIX), any())).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.approve(ME, PAYMENT_ID, request(null), KEY))
+                .extracting(e -> ((BusinessException) e).getErrorCode()).isEqualTo(ErrorCode.IDEMPOTENCY_IN_PROGRESS);
+        assertThat(payment.getStatus()).isEqualTo(PaymentStatus.REQUESTED);
+        verify(approver, never()).approve(any());
     }
 
     // ───────── 멱등 ─────────
@@ -514,6 +704,12 @@ class PaymentApprovalServiceTest {
     }
 
     // ───────── 도우미 ─────────
+
+    /** 결과 불명으로 끝난 이 키의 시도(출금 요청 번호 TX_NO). */
+    private static Attempt unknownAttempt(ActiveCard card, Integer rank, boolean userSelected) {
+        return Attempt.start(KEY, userSelected ? PAYMENT_ID + ":" + card.userCardId() : PAYMENT_ID + ":auto",
+                candidate(rank, card).card(), rank, userSelected, REQUESTED_AT).withNo(1).withFinRequestNo(TX_NO);
+    }
 
     /** 첫 시도가 이 카드로 거절된 상태. 두 번째 시도를 준비한다. */
     private void declinedOnce(Long cardId) {

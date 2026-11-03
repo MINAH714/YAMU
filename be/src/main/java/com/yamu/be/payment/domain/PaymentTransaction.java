@@ -33,6 +33,9 @@ import org.hibernate.type.SqlTypes;
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class PaymentTransaction extends BaseTimeEntity {
 
+    /** 출금 결과를 모른 채 거래내역에도 없어 거절한 사유(approve.FailureCode와 같은 값). 늦은 출금 확인의 대상이다 */
+    public static final String WITHDRAWAL_NOT_CONFIRMED = "WITHDRAWAL_NOT_CONFIRMED";
+
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     @Column(name = "payment_transaction_id")
@@ -183,7 +186,33 @@ public class PaymentTransaction extends BaseTimeEntity {
         this.userCardId = userCardId;
         this.cardProductId = cardProductId;
         this.failureCode = null;
+        // 앞 시도의 금융망 요청·거래 번호는 지운다. 남겨 두면 복구가 옛 시도의 출금을 이번 시도로 오인한다(옛 번호는 Redis 시도 기록에 있다)
+        this.finRequestNo = null;
+        this.finTransactionNo = null;
         this.status = PaymentStatus.PROCESSING;
+    }
+
+    /**
+     * 금융망 출금을 부르기 전에 기관거래고유번호를 남긴다(명세 1장 멱등성: PROCESSING과 요청 번호를 먼저 저장).
+     * 결과를 모를 때 이 번호의 날짜·태그로 거래내역을 찾는다. 한 시도에 한 번만 받는다.
+     */
+    public void assignFinRequestNo(String finRequestNo) {
+        requireStatus("출금 요청 번호 저장", PaymentStatus.PROCESSING);
+        if (this.finRequestNo != null) {
+            throw new IllegalStateException("이미 출금 요청 번호가 있습니다 (결제 " + id + ")");
+        }
+        this.finRequestNo = finRequestNo;
+    }
+
+    /**
+     * 승인 실행이 금융망에 아무것도 보내지 못했다(채번 실패·연결 실패). 돈이 움직이지 않았으므로 결제를 승인 전(REQUESTED)으로 되돌려
+     * 다시 승인할 수 있게 한다. 임시(명세 4-2에 없는 역방향 전이): 카드는 남기고 요청 번호·거절 사유는 지운다.
+     */
+    public void releaseApproval() {
+        requireStatus("승인 되돌리기", PaymentStatus.PROCESSING);
+        this.finRequestNo = null;
+        this.failureCode = null;
+        this.status = PaymentStatus.REQUESTED;
     }
 
     /**
@@ -195,6 +224,34 @@ public class PaymentTransaction extends BaseTimeEntity {
     public void approve(long approvedAmount, long recognizedPerformanceAmount, LocalDate performanceMonth,
             LocalDateTime approvedAt, String finTransactionNo) {
         requireStatus("승인", PaymentStatus.PROCESSING);
+        this.approvedAmount = approvedAmount;
+        this.recognizedPerformanceAmount = recognizedPerformanceAmount;
+        this.performanceMonth = performanceMonth;
+        this.approvedAt = approvedAt;
+        this.finTransactionNo = finTransactionNo;
+        this.failureCode = null;
+        this.status = PaymentStatus.APPROVED;
+    }
+
+    /**
+     * 거래내역에 없어 "출금 미확인"으로 거절·만료한 결제인데, 같은 요청 번호의 출금이 뒤늦게 확인됐는지 볼 수 있는 상태인지.
+     * 다음 재승인이 시작되면(startApproval) 요청 번호가 지워지므로 그 뒤에는 거짓이다.
+     */
+    public boolean isLateConfirmable(String finRequestNo) {
+        return (status == PaymentStatus.DECLINED || status == PaymentStatus.EXPIRED)
+                && WITHDRAWAL_NOT_CONFIRMED.equals(failureCode)
+                && finRequestNo != null && finRequestNo.equals(this.finRequestNo);
+    }
+
+    /**
+     * 출금 미확인으로 거절·만료한 뒤 같은 요청 번호의 출금이 확인됐다(은행의 늦은 처리). 돈이 나갔으므로 승인으로 바로잡는다.
+     * 임시(명세 4-2에 없는 DECLINED·EXPIRED → APPROVED 전이, Task 5.2.3 리뷰): 요청 번호가 같을 때만 허용한다.
+     */
+    public void confirmLateWithdrawal(String finRequestNo, long approvedAmount, long recognizedPerformanceAmount,
+            LocalDate performanceMonth, LocalDateTime approvedAt, String finTransactionNo) {
+        if (!isLateConfirmable(finRequestNo)) {
+            throw new IllegalStateException("늦은 출금 확인으로 승인할 수 없는 결제입니다 (결제 " + id + ", 상태 " + status + ")");
+        }
         this.approvedAmount = approvedAmount;
         this.recognizedPerformanceAmount = recognizedPerformanceAmount;
         this.performanceMonth = performanceMonth;
