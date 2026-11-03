@@ -348,9 +348,9 @@ class FakeLinkRepository @Inject constructor(private val bank: FakeBank) : LinkR
     override suspend fun linkAccounts(candidateIds: List<String>, idempotencyKey: String, stepUpToken: String) = bank.linkAccounts(candidateIds, idempotencyKey)
     override suspend fun linkedOverview(refresh: Boolean) = withFault(empty = { ApiResult.Success(LinkedOverview(emptyList(), emptyList(), null)) }) { bank.overview() }
     override suspend fun cardDetail(userCardId: Long) = withFault { bank.cardDetail(userCardId) }
-    override suspend fun updateCard(userCardId: Long, nickname: String?, recommended: Boolean?, isDefault: Boolean?) = bank.updateCard(userCardId, nickname, recommended, isDefault)
-    override suspend fun saveCardOrder(userCardIds: List<Long>) = bank.saveCardOrder(userCardIds)
-    override suspend fun unregisterCard(userCardId: Long, stepUpToken: String) = bank.unregisterCard(userCardId)
+    override suspend fun updateCard(userCardId: Long, nickname: String?, recommended: Boolean?, isDefault: Boolean?) = withFault { bank.updateCard(userCardId, nickname, recommended, isDefault) }
+    override suspend fun saveCardOrder(userCardIds: List<Long>) = withFault { bank.saveCardOrder(userCardIds) }
+    override suspend fun unregisterCard(userCardId: Long, stepUpToken: String) = withFault { bank.unregisterCard(userCardId) }
 }
 
 /** debug 전용 가짜 월급 · 고정 지출 — 프로토타입 B-06 숫자(월급 10일 2,800,000 · 월세 · 통신비 · 구독료 + 신한카드 대금) */
