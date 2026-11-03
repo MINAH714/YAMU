@@ -4,7 +4,7 @@
 
 ## 조회와 계산
 
-`DatabaseCardRecommender` → `RecommendationService` → 기존 카드/상품 Repository → `RecommendationPolicyLoader` → `RecommendationInputAssembler` → 기존 Calculator/Selector를 사용한다. 실제 포트가 등록되면 기존 조건부 Mock 빈은 등록하지 않는다. POS HTTP 접수와 승인/청구 서비스는 이 브랜치에 없으므로 HTTP부터 연결된 기능은 아니다.
+`DatabaseCardRecommender` → `RecommendationService` → 기존 카드/상품 Repository → `RecommendationPolicyLoader` → `RecommendationInputAssembler` → 기존 Calculator/Selector를 사용한다. 실제 포트가 등록되면 기존 조건부 Mock 빈은 등록하지 않는다. POS 접수와 승인 중 추천 재생성은 실제 포트를 호출한다. 카드별 결제 가능 상태는 추천 서비스가 조회하며 외부 잔액 조회는 POS 저장 트랜잭션 전에 준비한다.
 
 구매 항목은 merchantId와 별개인 purchaseItemCode다. 신규 POS 선택은 `PurchaseItemReader.validateNewSelection(code)`로 등록·활성을 확인하고 최초 접수 트랜잭션에서 보존한다. 미지정은 NULL이며 다른 상품 구매로 간주하지 않는다. 보존 거래의 추천/재시도는 `validateStored`를 사용해 비활성화 후에도 원래 코드를 재현한다. 사용된 코드의 삭제/의미 변경/재사용은 금지하며 비활성화로 신규 선택을 제한한다. 상품 카테고리/가맹점 허용 목록을 대신 만들지 않는다.
 
@@ -56,9 +56,9 @@ Docker 활성화 후 실제 실행에서 기본 MySQL 바이너리 로그 설정
 
 ## 결제 담당 호출 계약
 
-`RecommendationRequest`에 최초 보존한 purchaseItemCode, 검증한 verifiedFacts, 카드별 availability를 전달한다. 기존 MerchantContext는 결제처/업종/채널/시설 용도다. 누락된 카드 결제 가능 여부는 AVAILABLE이 아니라 UNKNOWN이다. 새 `DatabaseCardRecommender`는 별도 네트워크/재시도 없이 내부 서비스를 호출하며 후보·제외·미비교 및 조회 사유를 반환한다.
+`RecommendationRequest`에 최초 보존한 purchaseItemCode, 검증한 verifiedFacts를 전달한다. availability는 호환용이며 서버 판정에 사용하지 않는다. 기존 MerchantContext는 결제처/업종/채널/시설 용도다. 누락된 카드 결제 가능 여부는 AVAILABLE이 아니라 UNKNOWN이다. DatabaseCardRecommender는 기존 잔액 서비스를 이용한 서버 판정과 계산을 연결하고 후보, 제외, 미비교 및 조회 사유를 반환한다. 자동 재시도는 추가하지 않는다.
 
-최신 develop 통합으로 기존 `PosPaymentRequestService`와 `PaymentApprovalService`의 포트 호출은 존재한다. 다만 두 호출은 아직 availability/구매 항목/추가 사실을 공급하지 않으므로 현재 앱 흐름의 추천 성공을 보증하지 않는다. 결제 담당자는 이 입력과 최초 거래 조건 재사용, DB 보존 호출·커밋 후 응답, retryable 오류 안내, 승인 전 재검증을 연결해야 한다. 기존 Redis `RecommendationSnapshotStore` 인터페이스와 구현은 유지하고 DB 보존 클래스를 `DatabaseRecommendationResultStore`로 구분했다. 추천 BigDecimal 총액을 기존 long 화면 DTO로 옮기는 두 경계는 `longValueExact()`를 사용하므로 미래에 소수 환산 정책을 추가할 경우 표시 계약 협의가 필요하다.
+PosPaymentRequestService는 기존 저장 트랜잭션 전에 prepare를 호출해 잔액 조회를 완료하고, 기존 결제 저장과 바코드 전환은 원자적으로 유지한다. PaymentApprovalService의 추천 재생성도 서버 상태를 조회한다. SKIPPED 신용한도는 충분 확인과 구분하고 계좌별 잔액 실패는 해당 카드에만 연결한다. 승인 전 재검증 책임은 유지한다. 앱 응답은 미배분 개별 금액 null과 확정 그룹 총액을 함께 전달한다. 금융망 응답을 모의한 서버 호출 검증과 실제 단말 및 앱 E2E는 구분한다.
 
 `RecommendationResult.schemaVersion=1`, 후보별 netBenefit은 필수 숫자(BigDecimal), benefits[].amount는 정수 또는 NULL, unallocatedBenefitGroups는 필수 배열이다. 원시 금액은 BigDecimal로 보존해 정률 소수를 버리지 않는다. 포인트 환산 후 경제적 순혜택 소수도 정수로 절사하지 않는다. RuleVersion은 혜택별 실제 버전을 보존하고, 하나의 공통 버전이 없으면 단일 version은 NULL이다.
 

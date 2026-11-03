@@ -22,17 +22,19 @@
 var transaction = new RecommendationInput.Transaction(
         preservedAmount, preservedPlan, preservedMonths, preservedOccurredAt,
         preservedMerchantId, preservedMerchantCategoryCode, verifiedFacts);
-var command = new RecommendationCommand(paymentId, serverUserId, transaction, availabilityByUserCardId);
+var command = new RecommendationCommand(paymentId, serverUserId, transaction, Map.of());
 RecommendationService.Result result = recommendationService.recommend(command);
 RecommendationSelector.Result recommendation = result.recommendation();
 // result.issues(): 입력 조회·확인 사유. result.cards(): 이미 조회한 상품명·별칭·끝 4자리.
 ```
 
-`availabilityByUserCardId`는 `Map<Long, RecommendationCommand.PaymentAvailability>`다. 결제 담당이 잔액·모의 가용 한도·미납 등으로 확인한 AVAILABLE / UNAVAILABLE / UNKNOWN과 사유를 전달한다. 누락은 UNKNOWN이고 남의 카드·등록 전·등록 해제 카드 ID를 넣으면 거절한다. 저장된 issuer_status는 DB의 상태이며 실시간 카드사 조회 결과가 아니다. 카드 조회는 ACTIVE와 INACTIVE를 포함해 추천 제외 상태를 숨기지 않는다.
+결제 가능 상태는 추천 서비스가 사용자 소유 카드, 상품과 계좌, 미납 청구서, 청구 가능 조건과 기존 CreditLimitSource를 조회해 생성합니다. 기존 availability 입력은 호환용이며 서버 판정을 덮어쓰지 않습니다. POS가 카드 목록이나 판정을 공급할 필요는 없습니다. 체크카드 잔액은 기존 AccountBalanceService의 부분 조회 결과를 사용하고 같은 계좌는 한 번 읽습니다. 실패한 계좌만 미비교로 남기며 잔액 0원으로 대체하지 않습니다. 신용한도 SKIPPED는 다른 조건이 맞으면 후보가 되지만 한도 충분 확인으로 바꾸지 않고 CREDIT_LIMIT_CHECK_SKIPPED 사유를 남깁니다.
+
+일반 recommend 호출은 DB 트랜잭션 밖에서 시작합니다. POS는 저장 트랜잭션 전에 cardRecommender.prepare(userId, terms)로 외부 조회를 마친 뒤 반환된 추천기를 기존 저장 트랜잭션 안에서 사용합니다. 결제 저장과 바코드 전환의 원자성은 유지합니다. 준비 단계가 활성 DB 트랜잭션 안에서 호출되면 거절하며, 바깥 트랜잭션을 중단하는 것만으로 연결이 반환됐다고 가정하지 않습니다. 잔액은 추천 시점 참고 판정이며 최종 승인은 재검증합니다.
 
 **현재 DB 경로:** `CardRecommender → DatabaseCardRecommender → RecommendationService → Repository/Loader → RecommendationInputAssembler → RecommendationSelector/CardBenefitCalculator`가 연결돼 있다. 2026-11-03 일괄 승인된 `YAMU_SIM_CARD_POLICY/1`은 Seed 17종·56개 혜택의 버전 1 및 2026년 11월 한국 거래에만 누락 계산 기준을 제공한다. 실제 상품 정책을 확인한 것으로 표시하지 않고 `simulationRules`에 적용 필드·카드·혜택을 남긴다. 세부 값과 제한은 [조합 연결 문서](benefit-composition.md)의 모의 정책 표를 따른다. 기존 5인자 조립기 테스트는 모의 범위를 공급하지 않으므로 기존 미확인을 유지한다.
 
-최신 develop의 POS 접수/승인 재계산 호출부는 실제 `CardRecommender`를 호출한다. 다만 이 기존 호출은 카드별 `availability`·구매 항목·추가 검증 사실을 아직 전달하지 않는다. 이 경우 결제 가능성을 UNKNOWN으로 유지하므로 앱에서 추천까지 완료됐다고 볼 수 없다. 이번에 POS/승인 로직은 변경하지 않았다. 검증된 계약 입력으로 호출한 실제 Seed·DB 추천과 기존 HTTP/앱 연결은 구분한다. DB JSON 보존은 `DatabaseRecommendationResultStore`, 기존 결제 진행 중 Redis 저장은 `RecommendationSnapshotStore`로 역할을 분리한다.
+POS 접수와 승인 중 추천 재생성은 위 서버 판정을 사용합니다. 최초 구매 항목과 추가 검증 사실은 별도 입력이며 미공급 사실을 일괄 false로 만들지 않습니다. DB JSON 보존은 DatabaseRecommendationResultStore, 결제 진행 중 Redis 저장은 RecommendationSnapshotStore입니다. 앱 조회 응답에는 미배분 상세의 null과 확정 그룹 총액을 함께 전달합니다.
 
 ## 반환하는 결과
 
@@ -124,6 +126,8 @@ POL-012·013의 2026-11-02 확정에 따라 거래 추가 비용은 카드·결�
 
 ## 조회 실패와 읽기 범위
 
+결제 가능 상태 준비의 미납 조회 실패는 그 조회에 의존하는 신용카드만 미확인으로 남기며 체크카드 판정은 계속합니다. 잔액 조회는 계좌별 부분 결과를 보존합니다. POS 결제 행 생성 전 준비 실패에는 아직 결제 ID가 없을 수 있습니다.
+
 Service는 카드·상품·정책/사용량 조회, 혜택용 전월 실적 일괄 조회, 동률 보조 집계를 각각 독립된 readOnly `REQUIRES_NEW` 트랜잭션에서 수행한다. 전월 실적 조회가 불필요하면 해당 트랜잭션은 열지 않는다. 카드·정책 조회 트랜잭션을 정상 종료한 뒤 전월 실적을 읽고, 실적 트랜잭션이 종료된 밖에서 정책을 조립한다. 조회 예외 및 트랜잭션 종료 예외는 `execute` 밖에서 처리하므로 실패한 트랜잭션 안에서 조립·추가 조회를 계속하지 않는다. 분리된 읽기는 하나의 동일 DB 스냅샷을 보증하지 않으며 호출 측이 아직 커밋하지 않은 값도 보이지 않는다. 이 읽기는 승인 전 재검증·예약·동시성 보장이 아니다.
 
 - `TransientDataAccessException`: 읽기 트랜잭션 롤백 후 DATABASE_READ_RETRYABLE·retryable=true로 구분한다. 후보 조회 자체가 실패하면 빈 카드로 NO_ELIGIBLE_CARD를 만들지 않고 `RecommendationReadException`을 던진다.
@@ -147,7 +151,7 @@ Service는 카드·상품·정책/사용량 조회, 혜택용 전월 실적 일�
 
 호출자는 `Result.issues()`의 `code`, `retryable`, `message()`를 읽는다. DATABASE_READ_RETRYABLE 및 RECOGNITION_AGGREGATE_READ_RETRYABLE의 안내는 **“일시적으로 카드 정보를 불러오지 못했습니다. 잠시 후 다시 시도해주세요.”**다. `message`는 JSON 직렬화에도 포함된다. 정책 미등록·잘못된 정책·집계 행 누락은 기존 코드와 retryable=false를 유지하며 이 재시도 안내를 붙이지 않는다. 후보 조회 실패 예외는 `RecommendationReadException.code()`, `retryable()`, `paymentId()`, `getMessage()`로 같은 정보를 제공하고 원본 DB 예외를 원인으로 보존하지 않는다. 결과와 예외 모두 자동 재조회를 수행하지 않는다.
 
-현재 `CardRecommender`에는 실제 `DatabaseCardRecommender` 빈을 추가했으며 기존 조건부 Mock을 대체한다. POS HTTP/앱 호출 흐름은 없다. 결제 담당이 실제 서비스 어댑터를 연결할 때 결과의 조회 오류와 후보 조회 예외를 모두 받아 기존 API의 `ApiResponse.error.code/message/details` 계약에 맞춰 변환해야 한다. 후보 조회 예외를 전역 처리기에 그대로 넘기면 현재는 일반 INTERNAL_ERROR 응답이 되어 재시도 안내가 전달되지 않는다. 기존 `GlobalExceptionHandler`는 BusinessException을 정해진 ErrorCode로 변환하고 기타 예외를 INTERNAL_ERROR로 처리한다. 이번에는 명세에 없는 HTTP ErrorCode나 새 핸들러/API를 추가하지 않고 내부 전달 정보를 제공했다.
+현재 `CardRecommender`에는 실제 `DatabaseCardRecommender` 빈을 추가했으며 기존 조건부 Mock을 대체한다. 기존 POS와 앱 조회 호출 흐름이 있으며 추천 재생성과 상태 조회를 연결한다. 결제 담당은 결과의 조회 오류와 후보 조회 예외를 모두 받아 기존 API의 `ApiResponse.error.code/message/details` 계약에 맞춰 변환해야 한다. 후보 조회 예외를 전역 처리기에 그대로 넘기면 현재는 일반 INTERNAL_ERROR 응답이 되어 재시도 안내가 전달되지 않는다. 기존 `GlobalExceptionHandler`는 BusinessException을 정해진 ErrorCode로 변환하고 기타 예외를 INTERNAL_ERROR로 처리한다. 이번에는 명세에 없는 HTTP ErrorCode나 새 핸들러/API를 추가하지 않고 내부 전달 정보를 제공했다.
 
 ## 담당 경계와 후속 작업
 
@@ -155,7 +159,7 @@ Service는 카드·상품·정책/사용량 조회, 혜택용 전월 실적 일�
 
 | 남은 작업 | 연결할 내용 |
 |---|---|
-| 실제 입력 보완 | 상품별 표의 구체적인 미확인 및 결제 측의 확인된 거래 사실/가능 상태 공급. 이미 연결한 실적 원본·산출·월 조회를 전체 미구현으로 간주하지 않음 |
+| 실제 입력 보완 | 상품별 표의 구체적인 미확인 및 결제 측의 확인된 거래 사실 공급. 결제 가능 상태는 추천 서비스가 조회. 이미 연결한 실적 원본·산출·월 조회를 전체 미구현으로 간주하지 않음 |
 | 상품 정책 확인 | 승인된 03 Seed 이외의 중첩 관계, 미확인 계산·환산·반올림·기간·횟수 정책의 근거 확인 |
 | 제한적 재조회 | 공급·서비스 계층에서 복구 가능한 읽기 실패만 제한적으로 재조회하고, 이후에도 미확인인 카드와 사유를 전달 |
 | 결제·앱 연결 | POS 처리 뒤 엔진 호출, 추천 결과 JSON 저장과 앱 조회 응답 변환, PARTIAL_READY 표시·기존 관리자 문의 경로 연결 |
