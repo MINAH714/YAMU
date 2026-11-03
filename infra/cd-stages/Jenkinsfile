@@ -2,6 +2,7 @@
 properties([
     parameters([
         string(name: 'CI_BUILD', defaultValue: '21', description: 'Completed CI artifact compatible with the isolated fixture schema'),
+        choice(name: 'SOURCE', choices: ['cached', 'ci'], description: 'cached uses the pinned historical fixture; ci rechecks a retained Jenkins artifact'),
         choice(name: 'SCENARIO', choices: ['normal', 'fail-health'], description: 'fail-health intentionally fails and verifies recovery in the isolated environment')
     ]),
     disableConcurrentBuilds(),
@@ -15,10 +16,10 @@ node('yamu-ci') {
                     deleteDir()
                     checkout scm
                     sh 'python3 -m unittest discover -s infra/cd-stages -p "test_*.py"'
-                    withEnv(["YAMU_CD_BUILD=${params.CI_BUILD}", "YAMU_CD_SCENARIO=${params.SCENARIO}"]) {
+                    withEnv(["YAMU_CD_BUILD=${params.CI_BUILD}", "YAMU_CD_SOURCE=${params.SOURCE ?: 'cached'}", "YAMU_CD_SCENARIO=${params.SCENARIO}"]) {
                         sh 'python3 infra/cd-stages/client.py init'
                     }
-                    currentBuild.description = "격리 CD · CI #${params.CI_BUILD} · ${params.SCENARIO}"
+                    currentBuild.description = "격리 CD · ${params.SOURCE ?: 'cached'} #${params.CI_BUILD} · ${params.SCENARIO}"
                 }
                 parallel(
                     '원격 실행': {

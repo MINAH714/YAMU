@@ -22,10 +22,11 @@ def load(): return json.loads((DIRECTORY / 'state.json').read_text(encoding='utf
 
 
 def initialize():
-    command = ':'.join(['stages', os.environ['YAMU_CD_BUILD'], os.environ['YAMU_CD_SCENARIO'], uuid.uuid4().hex])
-    build, scenario, run_id = request(command)
+    command = ':'.join(['stages', os.environ['YAMU_CD_BUILD'], os.environ.get('YAMU_CD_SOURCE', 'cached'),
+                        os.environ['YAMU_CD_SCENARIO'], uuid.uuid4().hex])
+    build, source, scenario, run_id = request(command)
     DIRECTORY.mkdir(mode=0o700)
-    save({'request': command, 'run_id': run_id, 'ci_build': build, 'scenario': scenario, 'phases': {}, 'done': None})
+    save({'request': command, 'run_id': run_id, 'ci_build': build, 'source': source, 'scenario': scenario, 'phases': {}, 'done': None})
 
 
 def consume(lines, snapshot):

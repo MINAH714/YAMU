@@ -7,14 +7,18 @@ Jenkins Pipeline Graph View에 표시한다. 완료 후 결과를 여러 가짜 
 
 - 고정 대상: `/opt/yamu/cd-verification-20261030`, Compose `yamu-cd-verify-20261029`.
 - 고정 DB: 격리 Compose 내부 `db:3306/yamu_cd_verify`. 외부 DB·RDS·호스트 포트를 거절한다.
-- 요청: `stages:<CI 번호>:normal|fail-health:<32자리 hex 요청 ID>`.
+- 요청: `stages:<CI 번호>:cached|ci:normal|fail-health:<32자리 hex 요청 ID>`.
   명령·경로·이미지·호스트·환경변수는 호출자가 지정할 수 없다.
 - 기존 `verify:<CI 번호>` 요청은 기존 실행기로 그대로 처리한다.
 - `request.lock`, 기존 검증 잠금, `test.lock`을 실행·복구 전체에 걸쳐 보유한다.
   동시 요청은 대기·중복 실행하지 않고 실패한다. 이미 사용한 요청 ID도 거절한다.
   새 요청 ID는 새로운 명시적 검증 실행이다. 결과 불명 실행을 자동 재시도하지 않는다.
 - 기존 검증 호스트의 root 소유 `verify.py`, `prepare-candidate.py`를 신뢰하는 도구로 사용한다.
-  CI 성공·JAR 체크섬·마이그레이션 일치는 기존 후보 준비기가 확인한다.
+  `ci` 모드는 보관된 CI 성공·JAR 체크섬·마이그레이션 일치를 기존 후보 준비기로 확인한다.
+  기본 `cached` 모드는 root 소유 metadata의 고정 빌드 번호·캐시 JAR 체크섬·기준 JAR과의
+  마이그레이션 일치·이미지 ID 및 소스 revision 라벨을 대조한다. CI 21의 Jenkins 기록은
+  보관 기간 만료로 삭제되어 이 모드를 사용한다. 새 CI 성공을 재확인한 것으로 표시하지 않으며
+  최종 결과에 `artifact_source=cached_fixture`를 명시한다.
 
 ## 표시 단계
 
@@ -61,7 +65,7 @@ SIGKILL, 호스트 장애, Docker 데몬 장애는 코드로 복구를 보장할
    ```
 
 4. `yamu/cd-stages-verification`에서 `normal`, `fail-health`를 각각 실행한다.
-   기본 CI 21은 기존 격리 스키마와 같은 검증 아티팩트다. 최신 CI가 스키마와 같다고
+   기본 SOURCE=cached, CI 21은 기존 격리 스키마와 같은 고정 검증 자료다. 최신 CI가 스키마와 같다고
    가정하지 않는다. 테스트는 운영·공용 개발 DB 또는 해당 컨테이너를 변경하지 않는다.
 5. 기존 `yamu/cd-verification`과 운영 CD Job은 그대로 둔다. 머지 후 기존 검증 Job으로
    적용하는 작업은 별도로 검토한다. AI가 승인·머지하지 않는다.

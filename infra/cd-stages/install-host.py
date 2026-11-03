@@ -11,7 +11,7 @@ ROOT = Path('/opt/yamu/cd-verification-20261030')
 ENTRY = Path('/usr/local/sbin/yamu-cd-verify')
 PREFIX = """# S15P31E103-273: fixed progress-protocol dispatch; legacy source follows unchanged.
 import os as _os, re as _re
-if _re.fullmatch(r'stages:[1-9][0-9]{0,8}:(?:normal|fail-health):[0-9a-f]{32}', _os.environ.get('SSH_ORIGINAL_COMMAND','')):
+if _re.fullmatch(r'stages:[1-9][0-9]{0,8}:(?:cached|ci):(?:normal|fail-health):[0-9a-f]{32}', _os.environ.get('SSH_ORIGINAL_COMMAND','')):
     _os.execv('/usr/bin/python3', ['python3','/opt/yamu/cd-verification-20261030/stages/host.py'])
 """
 
@@ -41,7 +41,9 @@ def main():
         if hashlib.sha256(original).hexdigest() != expected['entry.py']: raise ValueError('Legacy version differs')
         text = original.decode(); head, body = text.split('\n', 1)
         updated = head + '\n' + PREFIX + body
-        if ENTRY.read_bytes() not in [original, updated.encode()]: raise ValueError('Entry modified outside this installation')
+        previous_protocol = head + '\n' + PREFIX.replace(':(?:cached|ci):', ':') + body
+        if ENTRY.read_bytes() not in [original, updated.encode(), previous_protocol.encode()]:
+            raise ValueError('Entry modified outside this installation')
         destination = ROOT / 'stages'
         destination.mkdir(mode=0o755, exist_ok=True); trusted(destination)
         for name in ['host.py', 'protocol.py']:

@@ -9,9 +9,9 @@ RESULT_FLAGS = ['successful_deploy', 'manual_rollback', 'automatic_rollback_heal
 
 
 def request(value):
-    match = re.fullmatch(r'stages:([1-9][0-9]{0,8}):(normal|fail-health):([0-9a-f]{32})', value)
+    match = re.fullmatch(r'stages:([1-9][0-9]{0,8}):(cached|ci):(normal|fail-health):([0-9a-f]{32})', value)
     if not match: raise ValueError('Invalid isolated verification request')
-    return int(match[1]), match[2], match[3]
+    return int(match[1]), match[2], match[3], match[4]
 
 
 def event(line, run_id, sequence):
@@ -27,6 +27,7 @@ def event(line, run_id, sequence):
         if value['state'] == 'success':
             result = value.get('result', {})
             if result.get('project') != 'yamu-cd-verify-20261029' or result.get('rds_used') is not False \
+                    or result.get('artifact_source') not in ['cached_fixture', 'retained_ci'] \
                     or any(result.get(k) is not True for k in RESULT_FLAGS) \
                     or not re.fullmatch('[0-9a-f]{40}', result.get('ci_revision', '')) \
                     or type(result.get('ci_build')) is not int or result['ci_build'] <= 0:

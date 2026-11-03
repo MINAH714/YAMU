@@ -3,6 +3,8 @@ import json
 import os
 from pathlib import Path
 import tempfile
+from types import SimpleNamespace
+import hashlib
 import unittest
 from unittest.mock import patch
 
@@ -14,7 +16,7 @@ RUN = 'a' * 32
 
 
 def result():
-    return {'project': host.PROJECT, 'rds_used': False, 'ci_build': 21, 'ci_revision': 'b' * 40,
+    return {'project': host.PROJECT, 'rds_used': False, 'ci_build': 21, 'ci_revision': 'b' * 40, 'artifact_source': 'cached_fixture',
             **dict.fromkeys(RESULT_FLAGS, True)}
 
 
@@ -110,10 +112,10 @@ class Protocol(unittest.TestCase):
                 with self.assertRaises(BlockingIOError): fcntl.flock(second, fcntl.LOCK_EX | fcntl.LOCK_NB)
 
     def test_request_is_only_fixed_build_scenario_and_run_id(self):
-        self.assertEqual(request('stages:21:normal:' + RUN), (21, 'normal', RUN))
-        for value in ['verify:21', 'stages:0:normal:' + RUN, 'stages:21:prod:' + RUN,
-                      'stages:21:normal:../../tmp', 'stages:21:normal:' + RUN + ';id',
-                      'stages:21:normal:' + RUN + '\n']:
+        self.assertEqual(request('stages:21:cached:normal:' + RUN), (21, 'cached', 'normal', RUN))
+        for value in ['verify:21', 'stages:0:cached:normal:' + RUN, 'stages:21:prod:normal:' + RUN,
+                      'stages:21:cached:normal:../../tmp', 'stages:21:cached:normal:' + RUN + ';id',
+                      'stages:21:cached:normal:' + RUN + '\n']:
             with self.assertRaises(ValueError): request(value)
 
     def test_stale_duplicate_out_of_order_or_oversized_events_are_rejected(self):
@@ -161,6 +163,50 @@ class AgentProgress(unittest.TestCase):
     def test_missing_phase_after_terminal_failure_does_not_wait_forever(self):
         snapshot = client.load();snapshot['done'] = {'state': 'failed'};client.save(snapshot)
         self.assertEqual(client.poll('deploy', 'started'), 20)
+
+
+class CachedFixture(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory(); self.root = Path(self.tmp.name)
+        for n in ['baseline', 'candidate']: (self.root / n).mkdir()
+        for n in ['baseline/app.jar', 'candidate/app.jar']: (self.root / n).write_bytes(b'fixture jar')
+        self.image = 'sha256:' + 'a' * 64; self.revision = 'b' * 40
+        meta = {'project': host.PROJECT, 'rds_used': False, 'production_baseline': {}, 'candidate_build': 21,
+                'artifacts': {'candidate': {'ci_build': 21, 'revision': self.revision, 'image': self.image,
+                    'jar_sha256': hashlib.sha256(b'fixture jar').hexdigest()}}}
+        (self.root / 'metadata.json').write_text(json.dumps(meta))
+        (self.root / 'compose.json').write_text(json.dumps({'services': {'backend': {'environment': {
+            'SPRING_DATASOURCE_URL': 'jdbc:mysql://db:3306/yamu_cd_verify?fixture=true'}}}}))
+        self.image_record = {'Id': self.image, 'Config': {'Labels': {'yamu.verification.revision': self.revision}}}
+        def run(args):
+            if 'inspect' in args: return json.dumps([self.image_record]).encode()
+            return json.dumps({'status': 'UP' if args[-1].endswith('/actuator/health') else 'ok'}).encode()
+        self.verify = SimpleNamespace(ROOT=self.root, PROJECT=host.PROJECT, production=lambda: {},
+            service=lambda name: {'Image': self.image, 'State': {'Health': {'Status': 'healthy'}}},
+            db=lambda sql: '1', redis=lambda *args: 'PONG', run=run)
+        self.preparer = SimpleNamespace(migrations=lambda value: {'migration': value})
+
+    def tearDown(self): self.tmp.cleanup()
+
+    def validate(self):
+        with patch.object(host, 'ROOT', self.root), patch.object(host, 'trusted_module',
+                side_effect=lambda name: self.verify if name == 'verify' else self.preparer), \
+                patch.object(host.subprocess, 'check_output', side_effect=AssertionError('Cached mode must not claim retained CI')):
+            host.Adapter(21, 'cached').validate()
+
+    def test_cached_mode_explicitly_verifies_pinned_cache_without_claiming_live_ci(self): self.validate()
+
+    def test_modified_cached_jar_is_rejected(self):
+        (self.root / 'candidate/app.jar').write_bytes(b'tampered')
+        with self.assertRaises(ValueError): self.validate()
+
+    def test_cached_migration_difference_is_rejected(self):
+        (self.root / 'baseline/app.jar').write_bytes(b'other schema')
+        with self.assertRaises(ValueError): self.validate()
+
+    def test_image_revision_must_match_cached_artifact(self):
+        self.image_record['Config']['Labels']['yamu.verification.revision'] = 'c' * 40
+        with self.assertRaises(ValueError): self.validate()
 
 
 if __name__ == '__main__': unittest.main()

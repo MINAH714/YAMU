@@ -87,8 +87,8 @@ def trusted_module(name):
 
 
 class Adapter:
-    def __init__(self, build):
-        self.build = build
+    def __init__(self, build, source):
+        self.build, self.source = build, source
         self.verify = trusted_module('verify')
         self.preparer = trusted_module('prepare-candidate')
 
@@ -105,6 +105,20 @@ class Adapter:
         for s in ['backend', 'db', 'redis']: v.service(s)
         self.initial = v.service('backend')['Image']
         self.health(self.initial)
+        if self.source == 'cached':
+            cached = self.meta['artifacts']['candidate']
+            if self.meta['candidate_build'] != self.build or cached['ci_build'] != self.build:
+                raise ValueError('Cached fixture build differs')
+            data = (ROOT / 'candidate/app.jar').read_bytes()
+            if hashlib.sha256(data).hexdigest() != cached['jar_sha256']: raise ValueError('Cached fixture digest differs')
+            if self.preparer.migrations(data) != self.preparer.migrations((ROOT / 'baseline/app.jar').read_bytes()):
+                raise ValueError('Cached fixture schema differs')
+            self.revision = cached['revision']
+            if not re.fullmatch('[0-9a-f]{40}', self.revision): raise ValueError('Invalid cached revision')
+            image = json.loads(v.run(['docker', 'image', 'inspect', cached['image']]))[0]
+            if image['Id'] != cached['image'] or image['Config'].get('Labels', {}).get('yamu.verification.revision') != self.revision:
+                raise ValueError('Cached image provenance differs')
+            return
         archive = '/var/jenkins_home/jobs/yamu/jobs/ci/builds/' + str(self.build) + '/'
         def read(path): return subprocess.check_output(['docker', 'exec', 'yamu-ci-jenkins-1', 'cat', archive + path], stderr=subprocess.PIPE)
         if ET.fromstring(read('build.xml')).findtext('result') != 'SUCCESS': raise ValueError('CI must be completed SUCCESS')
@@ -113,8 +127,9 @@ class Adapter:
         if not re.fullmatch('[0-9a-f]{40}', self.revision): raise ValueError('Invalid revision')
 
     def prepare(self):
-        subprocess.run(['python3', str(ROOT / 'prepare-candidate.py'), str(self.build), self.revision],
-                       check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        if self.source == 'ci':
+            subprocess.run(['python3', str(ROOT / 'prepare-candidate.py'), str(self.build), self.revision],
+                           check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         self.meta = json.loads((ROOT / 'metadata.json').read_text())
         self.old = self.meta['artifacts']['baseline']['image']
         self.candidate = self.meta['artifacts']['candidate']['image']
@@ -181,6 +196,7 @@ class Adapter:
         self.health(self.candidate); self.persistence()
         if self.verify.production() != self.meta['production_baseline']: raise ValueError('Production baseline changed')
         return {'ci_build': self.build, 'ci_revision': self.revision, 'project': PROJECT, 'rds_used': False,
+                'artifact_source': 'cached_fixture' if self.source == 'cached' else 'retained_ci',
                 'successful_deploy': True, 'manual_rollback': True, 'automatic_rollback_healthy': True,
                 'db_marker_preserved': True, 'redis_marker_preserved': True, 'final_candidate_healthy': True,
                 'production_unchanged': True}
@@ -193,7 +209,7 @@ def main():
     import fcntl
     if os.geteuid() != 0: raise ValueError('Privileged installed entry point required')
     os.umask(0o077)
-    build, scenario, run_id = request(os.environ.get('SSH_ORIGINAL_COMMAND', ''))
+    build, source, scenario, run_id = request(os.environ.get('SSH_ORIGINAL_COMMAND', ''))
     # Disconnect does not interrupt compensation. No new caller may bypass these same locks.
     signal.signal(signal.SIGHUP, signal.SIG_IGN)
     with open(ROOT / 'request.lock', 'a') as request_lock, \
@@ -211,7 +227,7 @@ def main():
                 raise TimeoutError('Isolated verification deadline')
             signal.signal(signal.SIGTERM, expired); signal.signal(signal.SIGINT, expired)
             signal.signal(signal.SIGALRM, expired); signal.alarm(12 * 60)
-            try: return execute(Adapter(build), events, scenario)
+            try: return execute(Adapter(build, source), events, scenario)
             finally: signal.alarm(0)
 
 
