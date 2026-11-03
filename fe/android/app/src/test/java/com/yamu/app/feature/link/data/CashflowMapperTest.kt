@@ -37,27 +37,37 @@ class CashflowMapperTest {
         assertEquals("1일", monthlyDayLabel(1))
     }
 
-    @Test fun `이미 정한 월급이 후보에 있으면 금액이 더 작아도 그 항목`() {
-        val items = listOf(item(301, "INCOME", "월급", 2_800_000, 10), item(305, "INCOME", "부수입", 30_000, 3))
-        assertEquals(305L, items.toDraft(null, currentIncomeId = 305).income?.id)
-        assertEquals(301L, items.toDraft(null, currentIncomeId = 999).income?.id)
+    @Test fun `지금 월급은 확정 항목이라 후보에 없다 — 번호만 들고 있고 줄은 후보에서 고른다`() {
+        val draft = listOf(item(305, "INCOME", "부수입", 30_000, 3)).toDraft(null, currentIncomeId = 301)
+        assertEquals(305L, draft.income?.id)
+        assertEquals(301L, draft.currentIncomeId)
     }
 
-    @Test fun `월급 후보가 없어도 이미 정한 월급은 지우지 않는다`() {
+    @Test fun `월급 후보가 없으면 정한 월급과 기간 기준을 보내지 않는다 — 사용자가 일수 기준으로 정해 뒀을 수 있다`() {
         val (_, settings) = CashflowPlan(listOf(CashflowDecision(302, true, null)), incomeId = null, dailyLivingCost = null, currentIncomeId = 301).toPatches()
-        assertEquals(301L, settings.incomeCashflowItemId)
-        assertEquals("NEXT_INCOME", settings.horizon)
+        assertEquals(emptySet<String>(), settings.toBody().keys)
     }
 
-    @Test fun `이미 정한 월급 줄을 사용자가 빼면 지운다`() {
-        val (_, settings) = CashflowPlan(listOf(CashflowDecision(301, false, null)), incomeId = 301, dailyLivingCost = null, currentIncomeId = 301).toPatches()
-        assertNull(settings.incomeCashflowItemId)
-        assertEquals("DAYS", settings.horizon)
+    @Test fun `새 후보를 빼도 정한 월급은 그대로`() {
+        val (_, settings) = CashflowPlan(listOf(CashflowDecision(305, false, null)), incomeId = 305, dailyLivingCost = null, currentIncomeId = 301).toPatches()
+        assertEquals(emptySet<String>(), settings.toBody().keys)
+    }
+
+    @Test fun `월급을 유지하면서 하루 생활비만 바꾸면 그것만 보낸다`() {
+        val (_, settings) = CashflowPlan(listOf(CashflowDecision(302, true, null)), incomeId = null, dailyLivingCost = 6_000, currentIncomeId = 301).toPatches()
+        assertEquals(setOf("dailyLivingCostTarget"), settings.toBody().keys)
     }
 
     @Test fun `다른 후보를 고르면 그 항목이 월급`() {
         val (_, settings) = CashflowPlan(listOf(CashflowDecision(305, true, null)), incomeId = 305, dailyLivingCost = null, currentIncomeId = 301).toPatches()
         assertEquals(305L, settings.incomeCashflowItemId)
+        assertEquals(setOf("horizon", "incomeCashflowItemId"), settings.toBody().keys)
+    }
+
+    @Test fun `정한 월급이 없고 후보도 빼면 일수 기준으로 명시한다`() {
+        val (_, settings) = CashflowPlan(listOf(CashflowDecision(305, false, null)), incomeId = 305, dailyLivingCost = null).toPatches()
+        assertEquals(setOf("horizon", "incomeCashflowItemId"), settings.toBody().keys)
+        assertEquals("DAYS", settings.horizon)
     }
 
     @Test fun `설정 응답 — 월급만 읽는다`() {

@@ -12,6 +12,7 @@ import dagger.hilt.components.SingletonComponent
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.Transient
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -49,9 +50,10 @@ import javax.inject.Singleton
     val horizon: String,
     val incomeCashflowItemId: Long? = null,
     val dailyLivingCostTarget: Long? = null,
+    @Transient val keepIncome: Boolean = false,   // 이미 정한 월급 · 기간 기준은 보내지 않아 그대로 둔다
 )
 
-/** `GET /forecasts/settings`에서 지금 정한 월급만. 정한 적이 없거나 더는 받을 월급이 없으면 null */
+/** `GET /forecasts/settings`에서 지금 정한 월급만. 확정 항목이라 B-06 후보 목록에는 없다. 정한 적이 없거나 더는 받을 월급이 없으면 null */
 @Serializable data class ForecastSettingsDto(val income: ForecastIncomeDto? = null)
 
 @Serializable data class ForecastIncomeDto(val cashflowItemId: Long? = null)
@@ -117,14 +119,13 @@ data class CashflowPlan(
     val currentIncomeId: Long? = null,
 )
 
-/** #19 후보 → B-06 줄. 월급 = 이미 정해 둔 항목, 없으면 매달 오는 수입 중 가장 큰 것. 고정 지출은 날짜순 */
+/** #19 후보 → B-06 줄. 월급 = 매달 오는 수입 중 가장 큰 것, 고정 지출은 날짜순. [currentIncomeId]는 후보가 아니라 저장할 때 지키려고 들고 있는다 */
 fun List<CashflowItemDto>.toDraft(dailyLivingCost: Long?, currentIncomeId: Long? = null): CashflowDraft {
     fun CashflowItemDto.day() = recurrence?.dayOfMonth ?: occurrenceDate?.takeLast(2)?.toIntOrNull()
     val bills = filter { it.kind.equals("CARD_BILL", ignoreCase = true) }
     val rest = this - bills.toSet()
     // 서버는 매월 반복 수입만 월급으로 받는다(아니면 400)
-    val incomes = rest.filter { it.type.equals("INCOME", ignoreCase = true) && it.recurrence?.frequency.equals("MONTHLY", ignoreCase = true) }
-    val income = incomes.firstOrNull { it.cashflowItemId == currentIncomeId } ?: incomes.maxByOrNull { it.amount }
+    val income = rest.filter { it.type.equals("INCOME", ignoreCase = true) && it.recurrence?.frequency.equals("MONTHLY", ignoreCase = true) }.maxByOrNull { it.amount }
     val expenses = rest.filter { it.type.equals("EXPENSE", ignoreCase = true) }.sortedBy { it.day() ?: 99 }
     return CashflowDraft(
         income = income?.let { CashflowCandidate(it.cashflowItemId, true, it.title, it.amount, it.day()) },
@@ -140,21 +141,22 @@ fun CashflowPlan.toPatches(): Pair<List<Pair<Long, CashflowPatchRequest>>, Forec
     val patches = decisions.map { d ->
         d.id to if (d.include) CashflowPatchRequest("CONFIRMED", d.amount) else CashflowPatchRequest("IGNORED")
     }
-    val picked = incomeId?.takeIf { id -> decisions.any { it.id == id && it.include } }
-    // 고른 월급이 없어도 이미 정한 월급은 그대로 둔다. 사용자가 바로 그 줄을 뺐을 때만 지운다
-    val income = picked ?: currentIncomeId?.takeIf { it != incomeId }
+    val income = incomeId?.takeIf { id -> decisions.any { it.id == id && it.include } }
     val settings = ForecastSettingsPatch(
         horizon = if (income != null) "NEXT_INCOME" else "DAYS",
         incomeCashflowItemId = income,
         dailyLivingCostTarget = dailyLivingCost,
+        keepIncome = income == null && currentIncomeId != null,
     )
     return patches to settings
 }
 
 /** #17 본문은 직접 만든다 — 월급을 빼면 "incomeCashflowItemId": null이 있어야 서버가 지운다(앱 JSON 설정은 null을 뺀다) */
 fun ForecastSettingsPatch.toBody(): JsonObject = buildJsonObject {
-    put("horizon", horizon)
-    put("incomeCashflowItemId", incomeCashflowItemId)
+    if (!keepIncome) {
+        put("horizon", horizon)
+        put("incomeCashflowItemId", incomeCashflowItemId)
+    }
     dailyLivingCostTarget?.let { put("dailyLivingCostTarget", it) }
 }
 
@@ -187,7 +189,8 @@ class CashflowRepositoryImpl @Inject constructor(private val api: CashflowApi) :
             val r = apiCall { api.patch(id, body) }
             if (r is ApiResult.Failure) return r
         }
-        return apiCallNoData { api.patchSettings(settings.toBody()) }
+        val body = settings.toBody()
+        return if (body.isEmpty()) ApiResult.Success(Unit) else apiCallNoData { api.patchSettings(body) }   // 빈 본문은 서버가 400으로 거절한다
     }
 }
 
