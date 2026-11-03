@@ -280,6 +280,7 @@ class FakeBank @Inject constructor(private val sessionStore: SessionStore) {
     /** BE AccountManagementService.update와 같게 */
     suspend fun updateAccount(accountId: Long, alias: String?, makePrimary: Boolean): ApiResult<LinkedAccount> {
         delay(300)
+        if (alias != null && alias.length > 20) return ApiResult.Failure(ApiError.InvalidRequest("INVALID_REQUEST"))
         val account = linkedAccounts().getOrNull((accountId - 1).toInt()) ?: return ApiResult.Failure(ApiError.NotFound("RESOURCE_NOT_FOUND"))
         alias?.let { if (it.isBlank()) accountAliases.remove(account.assetId) else accountAliases[account.assetId] = it.trim() }
         if (makePrimary) primaryAccount = account.assetId
@@ -379,7 +380,7 @@ class FakeLinkRepository @Inject constructor(private val bank: FakeBank) : LinkR
     override suspend fun linkAccounts(candidateIds: List<String>, idempotencyKey: String, stepUpToken: String) = bank.linkAccounts(candidateIds, idempotencyKey)
     override suspend fun linkedOverview(refresh: Boolean) = withFault(empty = { ApiResult.Success(LinkedOverview(emptyList(), emptyList(), null)) }) { bank.overview() }
     override suspend fun accounts() = withFault(empty = { ApiResult.Success(emptyList()) }) { bank.linkedAccountList() }
-    override suspend fun updateAccount(accountId: Long, alias: String?, makePrimary: Boolean) = bank.updateAccount(accountId, alias, makePrimary)
+    override suspend fun updateAccount(accountId: Long, alias: String?, makePrimary: Boolean) = withFault { bank.updateAccount(accountId, alias, makePrimary) }
     override suspend fun cardDetail(userCardId: Long) = withFault { bank.cardDetail(userCardId) }
     override suspend fun updateCard(userCardId: Long, nickname: String?, recommended: Boolean?, isDefault: Boolean?) = withFault { bank.updateCard(userCardId, nickname, recommended, isDefault) }
     override suspend fun saveCardOrder(userCardIds: List<Long>) = withFault { bank.saveCardOrder(userCardIds) }
