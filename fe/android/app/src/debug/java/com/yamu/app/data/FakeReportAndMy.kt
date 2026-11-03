@@ -265,7 +265,10 @@ class FakeMyRepository @Inject constructor(
 
     override suspend fun revokeDevice(id: Long, stepUpToken: String): ApiResult<Unit> { delay(300); devices.removeAll { it.id == id }; return ApiResult.Success(Unit) }
 
-    override suspend fun withdraw(stepUpToken: String): ApiResult<Unit> { delay(500); return ApiResult.Success(Unit) }
+    override suspend fun withdraw(stepUpToken: String): ApiResult<Unit> = withFault {
+        delay(500)
+        ApiResult.Success(Unit)
+    }
 
     private fun all(): List<AppNotification> {
         val paid = payments.approved().map {

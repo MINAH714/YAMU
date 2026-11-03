@@ -10,6 +10,7 @@ import com.yamu.app.feature.auth.StepUpResults
 import com.yamu.app.feature.auth.data.AuthRepository
 import com.yamu.app.feature.auth.data.StepUpPurpose
 import com.yamu.app.feature.auth.data.StepUpToken
+import com.yamu.app.feature.my.data.Device
 import com.yamu.app.feature.my.data.MyRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.test.StandardTestDispatcher
@@ -35,6 +36,8 @@ class WithdrawViewModelTest {
     private var withdrawals = 0
     private var lastToken: String? = null
     private var result: ApiResult<Unit> = ApiResult.Success(Unit)
+    private var devicesResult: ApiResult<List<Device>> = ApiResult.Success(emptyList())
+    private var deviceReads = 0
 
     private val auth = object : AuthRepository by unused<AuthRepository>() {
         override suspend fun biometricReady() = false
@@ -48,6 +51,11 @@ class WithdrawViewModelTest {
             withdrawals++
             lastToken = stepUpToken
             return result
+        }
+
+        override suspend fun devices(): ApiResult<List<Device>> {
+            deviceReads++
+            return devicesResult
         }
     }
 
@@ -80,6 +88,56 @@ class WithdrawViewModelTest {
         assertEquals("su_withdraw", lastToken)
         assertEquals(1, forgotten)
         assertTrue(vm.state.value.done)
+    }
+
+    @Test fun `응답을 못 받았는데 계정이 없으면 탈퇴가 끝난 것`() = runTest(dispatcher) {
+        result = ApiResult.Failure(ApiError.Network)
+        devicesResult = ApiResult.Failure(ApiError.Unauthorized("UNAUTHORIZED"))
+        val vm = viewModel()
+        vm.setConfirmed(true)
+        vm.withdraw()
+        passStepUp(vm)
+        assertEquals(1, forgotten)
+        assertTrue(vm.state.value.done)
+    }
+
+    @Test fun `계정 확인도 못 하면 기기 정보를 지우지 않는다`() = runTest(dispatcher) {
+        result = ApiResult.Failure(ApiError.Network)
+        devicesResult = ApiResult.Failure(ApiError.Network)
+        val vm = viewModel()
+        vm.setConfirmed(true)
+        vm.withdraw()
+        passStepUp(vm)
+        assertEquals(0, forgotten)
+        assertFalse(vm.state.value.done)
+        assertEquals("탈퇴가 끝났는지 확인하지 못했어요 · 다시 눌러 주세요", vm.state.value.error)
+    }
+
+    @Test fun `다시 누를 때 계정이 없으면 본인 인증 없이 끝낸다 — 끝난 계정은 간편 비밀번호 화면에서 막힌다`() = runTest(dispatcher) {
+        result = ApiResult.Failure(ApiError.Network)
+        devicesResult = ApiResult.Failure(ApiError.Network)
+        val vm = viewModel()
+        vm.setConfirmed(true)
+        vm.withdraw()
+        passStepUp(vm)
+        devicesResult = ApiResult.Failure(ApiError.Unauthorized("UNAUTHORIZED"))
+        vm.withdraw()
+        advanceUntilIdle()
+        assertTrue(vm.state.value.done)
+        assertEquals(1, forgotten)
+        assertEquals(1, withdrawals)
+        assertFalse(vm.stepUp.busy)
+    }
+
+    @Test fun `응답 유실 없이 401이면 탈퇴로 치지 않는다 — 다른 이유로 끊긴 세션일 수 있다`() = runTest(dispatcher) {
+        result = ApiResult.Failure(ApiError.Unauthorized("UNAUTHORIZED"))
+        val vm = viewModel()
+        vm.setConfirmed(true)
+        vm.withdraw()
+        passStepUp(vm)
+        assertEquals(0, forgotten)
+        assertEquals(0, deviceReads)
+        assertEquals("탈퇴를 완료하지 못했어요 · 다시 로그인해 주세요", vm.state.value.error)
     }
 
     @Test fun `응답을 못 받으면 기기 정보를 지우지 않고 다시 누를 수 있다`() = runTest(dispatcher) {
