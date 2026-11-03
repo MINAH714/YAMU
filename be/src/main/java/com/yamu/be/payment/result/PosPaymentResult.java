@@ -13,7 +13,7 @@ import java.time.LocalDateTime;
  * @param amount          POS가 요청한 결제 금액
  * @param chargedAmount   확정 승인액({@code approved_amount}). 즉시할인을 뺀 영수증 금액이다. 승인되지 않았으면 null
  * @param instantDiscount 결제 금액 − 확정 승인액. 승인되지 않았으면 null
- * @param card            결제에 쓴(또는 거절된) 카드. 카드가 정해지지 않았거나 승인 처리 중이면 null
+ * @param card            결제에 쓴(또는 거절된) 카드. 카드가 정해지지 않았거나 승인 전·처리 중이면 null
  * @param failure         확정 거절 사유. 거절된 뒤 마감이 지나 EXPIRED가 된 결제도 마지막 거절 사유를 둔다. 없으면 null
  * @param retryable       임시(명세 Q1 제안, 명세 반영 전): DECLINED일 때만. 마감 전이고 재승인 횟수가 남았으면 true.
  *                        false면 POS는 마감을 기다리지 않고 거절 영수증을 띄운다. 다른 상태는 null

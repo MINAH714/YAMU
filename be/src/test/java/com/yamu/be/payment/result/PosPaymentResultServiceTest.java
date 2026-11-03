@@ -18,6 +18,7 @@ import com.yamu.be.payment.approve.ApprovalAttemptStore;
 import com.yamu.be.payment.approve.PaymentApprovalProperties;
 import com.yamu.be.payment.barcode.BarcodeStore;
 import com.yamu.be.payment.domain.PaymentChannel;
+import com.yamu.be.payment.domain.PaymentStatus;
 import com.yamu.be.payment.domain.PaymentTransaction;
 import com.yamu.be.payment.domain.PaymentTransactionRepository;
 import com.yamu.be.payment.lookup.PaymentCardLookup;
@@ -31,7 +32,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.data.redis.RedisConnectionFailureException;
 import org.springframework.test.util.ReflectionTestUtils;
 
-/** DB·Redis 없이 보는 경계: POS 요청이 아닌 거래, 시도 기록 장애, 모르는 거절 사유. 나머지는 통합 테스트가 본다. */
+/** DB·Redis 없이 보는 경계: POS 요청이 아닌 거래, 시도 기록 장애, 모르는 거절 사유, 승인 되돌리기 뒤의 카드. 나머지는 통합 테스트가 본다. */
 class PosPaymentResultServiceTest {
 
     static final long PAYMENT_ID = 1024L;
@@ -106,13 +107,33 @@ class PosPaymentResultServiceTest {
         assertThat(failure.message()).isEqualTo(PosPaymentResultService.DEFAULT_FAILURE_MESSAGE);
     }
 
+    @Test
+    void 승인을_되돌려_REQUESTED가_된_결제는_행에_카드가_남아_있어도_카드를_보이지_않는다() {
+        PaymentTransaction payment = posPayment();
+        payment.startApproval(7L, 3L);
+        payment.releaseApproval();
+        when(payments.findById(PAYMENT_ID)).thenReturn(Optional.of(payment));
+
+        PosPaymentResult result = service.get("key", POS_CODE, PAYMENT_ID);
+
+        assertThat(payment.getUserCardId()).isNotNull();
+        assertThat(result.status()).isEqualTo(PaymentStatus.REQUESTED);
+        assertThat(result.card()).isNull();
+        assertThat(result.failure()).isNull();
+        assertThat(result.retryable()).isNull();
+    }
+
     private PaymentTransaction declined(String failureCode) {
-        PaymentTransaction payment = payment(new MerchantContextSnapshot(MerchantContextSnapshot.CURRENT_VERSION,
-                POS_CODE, "TEST_CAFE", "테스트 카페", "COFFEE_SHOP", PaymentChannel.OFFLINE, null, "POS-0001",
-                15_000, PaymentPlan.LUMP_SUM, null).toJson(objectMapper));
+        PaymentTransaction payment = posPayment();
         payment.startApproval(7L, 3L);
         payment.decline(failureCode);
         return payment;
+    }
+
+    private PaymentTransaction posPayment() {
+        return payment(new MerchantContextSnapshot(MerchantContextSnapshot.CURRENT_VERSION,
+                POS_CODE, "TEST_CAFE", "테스트 카페", "COFFEE_SHOP", PaymentChannel.OFFLINE, null, "POS-0001",
+                15_000, PaymentPlan.LUMP_SUM, null).toJson(objectMapper));
     }
 
     private PaymentTransaction payment(String snapshot) {

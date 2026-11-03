@@ -108,9 +108,14 @@ public class PosPaymentResultService {
                 status == PaymentStatus.DECLINED ? retryable(payment) : null);
     }
 
-    /** 승인·거절로 정해진 카드. 승인 처리 중(PROCESSING)의 카드는 아직 결과가 아니라 보이지 않는다. */
+    /**
+     * 승인·거절로 정해진 카드. 승인 전(REQUESTED)·처리 중(PROCESSING)의 카드는 아직 결과가 아니라 보이지 않는다.
+     * 승인 되돌리기({@code releaseApproval}) 뒤의 REQUESTED는 행에 카드가 남아 있어도 숨긴다.
+     */
     private PosPaymentResult.Card card(PaymentTransaction payment) {
-        if (payment.getUserCardId() == null || payment.getStatus() == PaymentStatus.PROCESSING) {
+        PaymentStatus status = payment.getStatus();
+        if (payment.getUserCardId() == null || status == PaymentStatus.REQUESTED
+                || status == PaymentStatus.PROCESSING) {
             return null;
         }
         PaymentPlan plan = payment.isInstallment() ? PaymentPlan.INSTALLMENT : PaymentPlan.LUMP_SUM;
