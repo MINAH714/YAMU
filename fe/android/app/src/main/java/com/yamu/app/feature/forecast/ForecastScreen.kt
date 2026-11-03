@@ -104,9 +104,10 @@ class ForecastViewModel @Inject constructor(private val repo: ForecastRepository
         viewModelScope.launch {
             refreshForecast()
             if (_state.value.noAccount) return@launch
-            val f = _state.value.forecast
+            // 예보가 실패하면 메모리에 지난 값이 남아 있다 — 그 from을 쓰면 자정을 넘겼을 때 어제 회차를 읽는다
+            val f = _state.value.forecast.takeIf { _state.value.error == null }
             val from = f?.from ?: LocalDate.now(KST)
-            val to = f?.incomeDate ?: f?.to ?: from.plusDays(30)
+            val to = f?.incomeDate ?: f?.to ?: from.plusDays(29)   // 서버 기본값처럼 첫날을 넣어 30일
             when (val r = repo.cashflowEntries(from, to)) {
                 is ApiResult.Success -> _state.update { it.copy(entries = r.data, entriesError = null) }
                 is ApiResult.Failure -> _state.update { it.copy(entriesError = r.error.userMessage()) }
