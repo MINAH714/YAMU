@@ -1,5 +1,7 @@
 package com.yamu.app.feature.forecast
 
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Icon
 import androidx.compose.foundation.layout.size
@@ -292,15 +294,22 @@ private fun EventRow(e: ForecastEvent) {
 // ───────────────────────── F-02 예정 수입 · 지출 ─────────────────────────
 
 @Composable
-fun CashflowListRoute(onBack: () -> Unit, onLink: () -> Unit = {}, viewModel: ForecastViewModel = hiltViewModel()) {
+fun CashflowListRoute(onBack: () -> Unit, onLink: () -> Unit = {}, onAdd: () -> Unit = {}, viewModel: ForecastViewModel = hiltViewModel()) {
     val s by viewModel.state.collectAsStateWithLifecycle()
     LifecycleResumeEffect(Unit) {
-        viewModel.refresh()
+        viewModel.refresh()   // 추가(F-02a)하고 돌아오면 새로
         onPauseOrDispose { }
     }
     val c = YamuTheme.colors
-    // 회색 바탕 + 카드: 요약 · 달마다 하나(프로토타입 F-02)
-    FlowScreen(title = "예정 수입·지출", onBack = onBack, cards = true) { inner ->
+    // 회색 바탕 + 카드: 요약 · 달마다 하나(프로토타입 F-02). 계좌를 이었을 때만 + (추가는 계좌 · 카드가 있어야 한다)
+    FlowScreen(
+        title = "예정 수입·지출",
+        onBack = onBack,
+        cards = true,
+        actions = {
+            if (!s.noAccount) IconButton(onClick = onAdd) { Icon(Icons.Rounded.Add, contentDescription = "예정 수입·지출 추가", tint = c.text1) }
+        },
+    ) { inner ->
         Column(Modifier.padding(inner).consumeWindowInsets(inner).fillMaxSize().verticalScroll(rememberScrollState())) {
             val f = s.forecast
             when {

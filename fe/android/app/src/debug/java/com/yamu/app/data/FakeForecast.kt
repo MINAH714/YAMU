@@ -7,12 +7,18 @@ import com.yamu.app.feature.forecast.data.BuyCheck
 import com.yamu.app.feature.forecast.data.BuyMethod
 import com.yamu.app.feature.forecast.data.BuyOption
 import com.yamu.app.feature.forecast.data.BuyVerdict
+import com.yamu.app.feature.forecast.data.CashflowForm
+import com.yamu.app.feature.forecast.data.CashflowRepeat
 import com.yamu.app.feature.forecast.data.Forecast
 import com.yamu.app.feature.forecast.data.ForecastAccount
 import com.yamu.app.feature.forecast.data.ForecastEvent
 import com.yamu.app.feature.forecast.data.ForecastRepository
 import com.yamu.app.feature.forecast.data.SavedPlan
 import kotlinx.coroutines.delay
+import kotlinx.serialization.json.addJsonObject
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
+import kotlinx.serialization.json.putJsonArray
 import java.time.LocalDate
 import java.time.OffsetDateTime
 import java.time.YearMonth
@@ -30,7 +36,11 @@ class FakeForecastRepository @Inject constructor() : ForecastRepository {
 
     private class Plan(val id: Long, val title: String, val amount: Long, val payDate: LocalDate)
 
+    /** F-02a로 등록한 예정 수입 · 지출 — [amount]는 수입 +, 지출 − */
+    private class Item(val title: String, val amount: Long, val date: LocalDate, val repeat: CashflowRepeat, val dayOfMonth: Int?)
+
     private val plans = mutableListOf<Plan>()
+    private val items = mutableListOf<Item>()
     private val saved = mutableMapOf<Long, SavedPlan>()
     private var nextId = 901L
     private var last: Forecast? = null
@@ -47,7 +57,24 @@ class FakeForecastRepository @Inject constructor() : ForecastRepository {
         Triple(today.plusDays(9), "월세", -250_000L),
         Triple(today.plusDays(11), "통신비", -35_000L),
         Triple(today.plusDays(16), "구독료 (OTT·음악)", -15_000L),
-    )
+    ) + items.flatMap { item -> occurrences(item).map { Triple(it, item.title, item.amount) } }
+
+    /** 등록한 항목의 예보 기간 안 회차 — 가짜 서버가 계산한다(앱은 계산하지 않는다). 매월은 그달에 기준일이 없으면 말일 */
+    private fun occurrences(item: Item): List<LocalDate> {
+        val dates = mutableListOf<LocalDate>()
+        var n = 0L
+        while (true) {
+            val d = when (item.repeat) {
+                CashflowRepeat.NONE -> if (n == 0L) item.date else break
+                CashflowRepeat.WEEKLY -> item.date.plusWeeks(n)
+                CashflowRepeat.MONTHLY -> YearMonth.from(item.date).plusMonths(n).let { ym -> ym.atDay(minOf(item.dayOfMonth ?: item.date.dayOfMonth, ym.lengthOfMonth())) }
+            }
+            if (d.isAfter(horizonTo)) break
+            dates += d
+            n++
+        }
+        return dates
+    }
 
     /** 날마다 예상 잔액 — extra(날짜, 금액)는 아직 저장 안 한 '사 보면' 출금 */
     private fun simulate(extra: List<Pair<LocalDate, Long>> = emptyList()): List<Pair<LocalDate, Long>> {
@@ -87,7 +114,7 @@ class FakeForecastRepository @Inject constructor() : ForecastRepository {
             from = today, to = horizonTo, fallback = false,
             upcoming = upcoming,
             plans = planEvents,
-            scheduledOutflow = 450_000,
+            scheduledOutflow = -upcoming.filter { it.amount < 0 }.sumOf { it.amount },   // 처음엔 4건 450,000 — 등록한 지출이 더해진다
             livingCost = daily * points.size,
             points = points,
             isEstimate = true,
@@ -175,5 +202,25 @@ class FakeForecastRepository @Inject constructor() : ForecastRepository {
         plans.removeAll { it.id == planId }
         saved.remove(planId)
         return ApiResult.Success(Unit)
+    }
+
+    /**
+     * F-02a 등록 — 시험값(모의 POS처럼 영문): 이름 TIMEOUT은 응답 못 받음(결과 불명, 실제로는 등록됨) · INVALID는 서버가 이름 칸을 거절(fieldErrors).
+     * 말일 반복은 시작일이 그달 말일이 아니면 서버처럼 거절한다
+     */
+    override suspend fun createItem(form: CashflowForm): ApiResult<Long> {
+        delay(700)
+        val body = form.toRequest()
+        fun invalid(field: String, reason: String) = ApiResult.Failure(
+            ApiError.InvalidRequest("INVALID_REQUEST", buildJsonObject { putJsonArray("fieldErrors") { addJsonObject { put("field", field); put("reason", reason) } } }),
+        )
+        if (body.title == "INVALID") return invalid("title", "서버가 거절한 이름이에요(시험값)")
+        val day = body.recurrence?.dayOfMonth
+        if (day != null && day != form.date.dayOfMonth && form.date != YearMonth.from(form.date).atEndOfMonth()) {
+            return invalid("recurrence.dayOfMonth", "매월 반복일은 첫 발생일의 날짜와 같아야 합니다(말일 시작이면 더 큰 날도 됩니다).")
+        }
+        items += Item(body.title, if (form.isIncome) body.amount else -body.amount, form.date, form.repeat, day)
+        if (body.title == "TIMEOUT") return ApiResult.Failure(ApiError.Network)
+        return ApiResult.Success(nextId++)
     }
 }
