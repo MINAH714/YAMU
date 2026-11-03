@@ -38,13 +38,15 @@ val debugBaseUrl = localProps.getProperty("yamu.baseUrl").orEmpty().trim().ifEmp
         check(it.endsWith("/")) { "yamu.baseUrl은 /로 끝나야 해요: $it" }
     }
 val apiFeatures = listOf("auth", "link", "cashflow", "home", "payment", "performance", "forecast", "report", "my", "pos")   // ApiFeature와 같은 이름
+// yamu.realApi=all이 켜는 기능 — BE에 API가 있는 것만. home · performance · forecast · report는 이름을 직접 적어야 켜진다(지금 켜면 404)
+val connectedApiFeatures = listOf("auth", "cashflow", "payment", "my", "pos")
 val debugRealApi = localProps.getProperty("yamu.realApi").orEmpty()
     .split(',').map { it.trim() }.filter { it.isNotEmpty() }
     .also { names ->   // all을 펼치기 전에 봐야 all,cashflw 같은 오타도 걸린다
         val unknown = names.filterNot { it == "all" || it in apiFeatures }
         check(unknown.isEmpty()) { "yamu.realApi에 모르는 이름: ${unknown.joinToString()} (쓸 수 있는 이름: all, ${apiFeatures.joinToString()})" }
     }
-    .let { names -> if ("all" in names) apiFeatures else names }
+    .let { names -> if ("all" in names) (connectedApiFeatures + names - "all").distinct() else names }
 
 android {
     namespace = "com.yamu.app"
@@ -72,6 +74,9 @@ android {
             applicationIdSuffix = ".pos"
             versionNameSuffix = "-pos"
             buildConfigField("String", "POS_KEY", "\"${localProps.getProperty("yamu.posKey", "")}\"")
+            // BE에 가맹점 목록이 없는 동안 debug 단말 하나 — merchant.brand_code가 단말 시나리오와 같은 가맹점의 번호(시드마다 다르다)
+            buildConfigField("long", "POS_MERCHANT_ID", "${localProps.getProperty("yamu.posMerchantId", "0").trim().toLong()}L")
+            buildConfigField("String", "POS_CODE", "\"${localProps.getProperty("yamu.posCode", "POS-YAMU-CAFE").trim()}\"")
         }
     }
 

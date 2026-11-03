@@ -360,7 +360,7 @@ fun YamuNavHost(navController: NavHostController, modifier: Modifier = Modifier)
                     AddCardDoneRoute(onDone = back)
                 }
                 composable<NotificationSettings> { NotificationSettingsRoute(onBack = back) }
-                composable<Profile> { ProfileRoute(onBack = back) }
+                composable<Profile> { ProfileRoute(onBack = back, onOpenPinPad = openPinPad) }
                 composable<Security> { SecurityRoute(onBack = back, onOpenPinPad = openPinPad) }
             }
 
