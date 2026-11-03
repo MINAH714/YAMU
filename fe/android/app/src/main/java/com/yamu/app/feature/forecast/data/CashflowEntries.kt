@@ -64,6 +64,13 @@ data class CashflowEntry(
         accountId = accountId, userCardId = userCardId,
     )
 
+    /**
+     * 말일이 아닌 매월 기준일. 날짜를 안 옮겼으면 회차 날짜(2/28)가 아니라 규칙의 기준일(30)이고,
+     * 규칙이 말일(31)이면 말일을 끈 것이라 원래 회차의 날짜(11/30 → 30)다
+     */
+    fun monthlyDayOn(form: CashflowForm): Int =
+        if (form.date != date) form.date.dayOfMonth else dayOfMonth?.takeIf { it < 31 } ?: occurrenceDate.dayOfMonth
+
     /** '이번 회차만'을 고를 수 있는지 — 반복 규칙(주기 · 말일 · 종료일)을 바꾸면 서버가 받지 않는다 */
     fun canEditThisOnly(form: CashflowForm): Boolean = isRecurring && !form.ruleChangedFrom(toForm())
 

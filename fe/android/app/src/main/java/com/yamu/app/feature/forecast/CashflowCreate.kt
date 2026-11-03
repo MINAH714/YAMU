@@ -361,7 +361,7 @@ fun CashflowCreateRoute(onBack: () -> Unit, onDone: () -> Unit, viewModel: Cashf
                     Spacer(Modifier.height(YamuSpacing.x3))
                     Row(horizontalArrangement = Arrangement.spacedBy(YamuSpacing.x2)) {
                         // 31일에 시작하면 'N일'이 곧 말일이라 칩은 하나
-                        if (f.date.dayOfMonth < 31) GreyChip("매월 ${f.date.dayOfMonth}일", selected = !f.isMonthEnd, onClick = { viewModel.setMonthEnd(false) })
+                        if (f.date.dayOfMonth < 31) GreyChip("매월 ${editing?.monthlyDayOn(f) ?: f.date.dayOfMonth}일", selected = !f.isMonthEnd, onClick = { viewModel.setMonthEnd(false) })
                         GreyChip("매월 말일", selected = f.isMonthEnd, onClick = { viewModel.setMonthEnd(true) })
                     }
                     Spacer(Modifier.height(YamuSpacing.x2))
