@@ -108,19 +108,4 @@ public class CreditBillingWriter {
         items.flush();
         return saved;
     }
-
-    /** 결제의 회차(회차 순). 승인 응답을 다시 만들 때 쓴다. */
-    public List<BillItem> itemsOf(Long paymentId) {
-        return items.findByPaymentTransactionIdOrderByInstallmentNoAsc(paymentId);
-    }
-
-    /** 회차들이 배정된 청구서. 응답의 출금 예정일을 채운다. */
-    public Map<Long, CardBill> billsOf(List<BillItem> billItems) {
-        Map<Long, CardBill> result = new LinkedHashMap<>();
-        for (CardBill bill : bills.findAllById(billItems.stream().map(BillItem::getCardBillId).filter(id -> id != null)
-                .distinct().toList())) {
-            result.put(bill.getId(), bill);
-        }
-        return result;
-    }
 }
