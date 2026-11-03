@@ -197,7 +197,7 @@ class CashflowCreateViewModel @Inject constructor(
         _state.update { it.copy(scopeAsk = null) }
         val body = editing.toPatch(s.form, scope)
         if (body.changesNothing()) return _state.update { it.copy(done = true) }
-        submit { repo.updateItem(editing.itemId, body) }
+        submit(sentPayment = body.accountId != null || body.userCardId != null) { repo.updateItem(editing.itemId, body) }
     }
 
     /** 삭제 — 반복이면 범위를, 1회면 한 번 더 묻는다 */
@@ -214,18 +214,18 @@ class CashflowCreateViewModel @Inject constructor(
 
     fun dismissAsk() = _state.update { it.copy(scopeAsk = null, confirmDelete = false) }
 
-    private fun submit(call: suspend () -> ApiResult<Unit>) {
+    private fun submit(sentPayment: Boolean = false, call: suspend () -> ApiResult<Unit>) {
         if (_state.value.saving) return
         viewModelScope.launch {
             _state.update { it.copy(saving = true, saveError = null, unknownResult = false, gone = false) }
             when (val r = call()) {
                 is ApiResult.Success -> _state.update { it.copy(saving = false, done = true) }
-                is ApiResult.Failure -> fail(r.error)
+                is ApiResult.Failure -> fail(r.error, sentPayment)
             }
         }
     }
 
-    private fun fail(e: ApiError) {
+    private fun fail(e: ApiError, sentPayment: Boolean) {
         val editing = _state.value.editing != null
         val reasons = e.fieldErrors().mapValues { (_, reason) -> reason.ifBlank { "다시 확인해 주세요" } }
         val fields = reasons.mapNotNull { (field, reason) -> cashflowFieldOf(field)?.let { it to reason } }.toMap()
@@ -237,8 +237,10 @@ class CashflowCreateViewModel @Inject constructor(
                 e.code == "PAID_OCCURRENCE_LOCKED" -> cur.copy(saving = false, saveError = "이미 결제된 회차가 있어 바꿀 수 없어요")
                 fields.isNotEmpty() -> cur.copy(saving = false, showErrors = true, errors = fields, saveError = others.firstOrNull())
                 others.isNotEmpty() -> cur.copy(saving = false, saveError = others.joinToString(" · "))
-                // 수정 중 404 — 항목이 그사이 바뀌었거나(이후 전부로 나뉨) 지워졌거나, 고른 계좌 · 카드가 끊겼다
-                e is ApiError.NotFound && editing -> cur.copy(saving = false, gone = true, saveError = "그사이 바뀌었거나 지워진 항목이에요 · 목록에서 다시 골라 주세요")
+                // 수정 중 404 — 서버는 보낸 계좌 · 카드만 확인한다. 안 보냈으면 항목이 그사이 바뀌었거나(이후 전부로 나뉨) 지워졌다
+                e is ApiError.NotFound && editing && !sentPayment -> cur.copy(saving = false, gone = true, saveError = "그사이 바뀌었거나 지워진 항목이에요 · 목록에서 다시 골라 주세요")
+                // 보냈으면 둘 중 어느 쪽인지 코드로 가릴 수 없어 저장을 막지 않는다
+                e is ApiError.NotFound && editing -> cur.copy(saving = false, showErrors = true, errors = mapOf(CashflowField.PAYMENT to "고른 계좌나 카드를 찾을 수 없어요 · 다른 걸 고르거나 목록에서 다시 확인해 주세요"))
                 e is ApiError.NotFound -> cur.copy(saving = false, showErrors = true, errors = mapOf(CashflowField.PAYMENT to "고른 계좌나 카드를 찾을 수 없어요 · 다른 걸 골라 주세요"))
                 else -> cur.copy(saving = false, saveError = e.userMessage())
             }
