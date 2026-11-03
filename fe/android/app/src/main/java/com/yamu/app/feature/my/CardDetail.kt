@@ -86,10 +86,7 @@ data class CardDetailState(
     val unregisteredName: String? = null,          // 해제 끝 — 화면을 닫는다
     val message: String? = null,                   // 스낵바 한 번
 ) {
-    /**
-     * 자동 선택에 포함된 마지막 카드 — 빼거나 해제하면 BE가 초기 설정 전으로 본다(OnboardingStatusReader: ACTIVE 카드 1장 이상, 임시 기준).
-     * 다시 로그인하면 카드 등록으로 가는데, 추천에서만 뺀 카드는 등록돼 있어 다시 등록할 수 없다
-     */
+    /** 자동 선택에 포함된 마지막 카드 — 빠지면 결제할 카드가 없어 BE가 결제 코드를 발급하지 않는다(BarcodeService: NO_ACTIVE_CARD) */
     val isLastActive: Boolean get() = card?.recommended == true && otherActiveCards == 0
 }
 
@@ -142,7 +139,7 @@ class CardDetailViewModel @Inject constructor(
         save({ it.copy(nickname = nickname) }) { link.updateCard(userCardId, nickname = nickname.orEmpty()) }
     }
 
-    /** 마지막 카드는 뺄 수 없다(임시). 결제할 카드가 없어지고 다시 로그인하면 등록에서 막힌다 */
+    /** 마지막 카드는 뺄 수 없다. 빼면 결제 코드가 열리지 않는다 */
     fun setRecommended(on: Boolean) {
         if (!on && _state.value.isLastActive) return
         val wasDefault = _state.value.card?.isDefault == true
@@ -400,7 +397,7 @@ private fun UnregisterSheet(card: CardInfo, lastActive: Boolean, onConfirm: () -
         }
         if (lastActive) {
             Spacer(Modifier.height(YamuSpacing.x1))
-            Text("자동 선택에 포함된 마지막 카드예요 · 다시 로그인하면 카드 등록부터 해요", style = YamuTheme.typography.bodyM, color = c.warning)
+            Text("자동 선택에 포함된 마지막 카드예요 · 해제하면 결제 코드를 열 수 없어요", style = YamuTheme.typography.bodyM, color = c.warning)
         }
         Spacer(Modifier.height(YamuSpacing.x5))
         PrimaryButton("카드 해제하기", onClick = onConfirm, enabled = !card.hasOpenBill)
