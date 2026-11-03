@@ -8,7 +8,7 @@ public record RecommendationDataIssue(Long userCardId, Long policyId, String cod
     @com.fasterxml.jackson.annotation.JsonProperty("message")
     public String message() {
         return switch (code) {
-            case "DATABASE_READ_RETRYABLE", "RECOGNITION_AGGREGATE_READ_RETRYABLE" -> RETRY_MESSAGE;
+            case "DATABASE_READ_RETRYABLE", "RECOGNITION_AGGREGATE_READ_RETRYABLE", "BALANCE_READ_RETRYABLE" -> RETRY_MESSAGE;
             default -> null;
         };
     }

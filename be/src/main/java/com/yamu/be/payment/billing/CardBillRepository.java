@@ -6,6 +6,8 @@ import org.springframework.data.jpa.repository.JpaRepository;
 
 public interface CardBillRepository extends JpaRepository<CardBill, Long> {
 
+    java.util.List<CardBill> findByUserCardIdInAndStatus(java.util.Collection<Long> cardIds, BillStatus status);
+
     /** 같은 카드·같은 청구 월의 청구서는 하나다({@code uk_bill_card_month}). */
     Optional<CardBill> findByUserCardIdAndBillingMonth(Long userCardId, LocalDate billingMonth);
 

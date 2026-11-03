@@ -47,16 +47,19 @@ class RecommendationServiceTest {
     RecommendationPerformanceAssembler performance = spy(new RecommendationPerformanceAssembler(activity));
     PlatformTransactionManager transactions = mock(PlatformTransactionManager.class);
     RecommendationService service;
+    RecommendationAvailabilityReader availabilityReader = mock(RecommendationAvailabilityReader.class);
     Logger logger = (Logger) LoggerFactory.getLogger(RecommendationService.class);
     ListAppender<ILoggingEvent> logs = new ListAppender<>();
 
     @BeforeEach
     void setUp() {
+        when(availabilityReader.prepare(any(),anyLong(),anyLong(),any())).thenReturn(
+                new RecommendationAvailabilityReader.Assessment(Map.of(1L,available(),2L,available(),3L,available()),List.of()));
         logs.start();
         logger.addAppender(logs);
         when(transactions.getTransaction(any())).thenReturn(mock(TransactionStatus.class));
         service = new RecommendationService(cards, products, loader, assembler, activity, performance,
-                new RecommendationRecognitionResolver(new ObjectMapper()), mock(PurchaseItemReader.class), transactions);
+                new RecommendationRecognitionResolver(new ObjectMapper()), mock(PurchaseItemReader.class), transactions, availabilityReader);
         when(cards.findOrdered(eq(1L), anyCollection())).thenReturn(List.of(card(1), card(2), card(3)));
         when(products.findAllById(List.of(10L))).thenReturn(List.of(product()));
         when(loader.load(eq(1L), anyList(), any())).thenReturn(empty());
@@ -74,7 +77,7 @@ class RecommendationServiceTest {
         doReturn(fixedPolicy("500")).when(assembler).policy(argThat(c -> c.getId() == 1), any(), any(), any(), anyList(), any(), any());
         doReturn(fixedPolicy("0")).when(assembler).policy(argThat(c -> c.getId() == 2), any(), any(), any(), anyList(), any(), any());
         var available = Map.of(1L, available(), 2L, available(), 3L, available());
-        var result = service.recommend(command(available)).recommendation();
+        var result = recommend(command(available)).recommendation();
         assertThat(result.status()).isEqualTo(RecommendationSelector.Status.PARTIAL_READY);
         assertThat(result.selectedUserCardId()).isEqualTo(1L);
         assertThat(result.rankedCards()).extracting(RecommendationSelector.CardEvaluation::userCardId).containsExactly(1L, 2L);
@@ -102,7 +105,7 @@ class RecommendationServiceTest {
         var transaction = new Transaction(50_000, plan, plan == Plan.LUMP_SUM ? 1 : 2,
                 Instant.parse("2026-09-30T15:30:00Z"), 20L, "CAFE", Map.of());
 
-        var result = service.recommend(new RecommendationCommand(100, 1, transaction,
+        var result = recommend(new RecommendationCommand(100, 1, transaction,
                 Map.of(1L, available(), 2L, available(), 3L, available())));
 
         assertThat(assembled).hasSize(3).allSatisfy(policy -> {
@@ -127,7 +130,7 @@ class RecommendationServiceTest {
     @Test
     void knownUnpayableCardDoesNotRequireBenefitPolicyAndUnknownAvailabilityIsNotAvailable() {
         doReturn(fixedPolicy("500")).when(assembler).policy(argThat(c -> c.getId() == 1), any(), any(), any(), anyList(), any(), any());
-        var result = service.recommend(command(Map.of(1L, available(), 2L,
+        var result = recommend(command(Map.of(1L, available(), 2L,
                 new PaymentAvailability(Availability.UNAVAILABLE, "INSUFFICIENT_BALANCE")))).recommendation();
         assertThat(result.status()).isEqualTo(RecommendationSelector.Status.PARTIAL_READY);
         assertThat(result.evaluatedCards().get(1).status()).isEqualTo(RecommendationSelector.CardStatus.EXCLUDED);
@@ -140,7 +143,7 @@ class RecommendationServiceTest {
         var data = new RecommendationPolicyData(List.of(benefit(1)), List.of(), List.of(), List.of(), List.of(), List.of(), List.of());
         when(loader.load(eq(1L), anyList(), eq(LocalDate.of(2026, 10, 1)))).thenReturn(data);
         when(activity.recognizedAmounts(List.of(1L, 2L), YearMonth.of(2026, 9))).thenReturn(Map.of(1L, 0L));
-        var result = service.recommend(command(Map.of(1L, available(), 2L, available())));
+        var result = recommend(command(Map.of(1L, available(), 2L, available())));
         verify(assembler).policy(argThat(c -> c.getId() == 1), eq(data), eq(LocalDate.of(2026, 10, 1)), eq(0L), anyList(), any(), any());
         verify(assembler).policy(argThat(c -> c.getId() == 2), eq(data), eq(LocalDate.of(2026, 10, 1)), isNull(), anyList(), any(), any());
         assertThat(result.issues()).anyMatch(i -> i.userCardId() == 2 && i.code().equals("PREVIOUS_PERFORMANCE_MISSING"));
@@ -156,7 +159,7 @@ class RecommendationServiceTest {
         setField(second, "registrationStatus", CardRegistrationStatus.INACTIVE);
         when(cards.findOrdered(eq(1L), anyCollection())).thenReturn(List.of(first, second));
         when(products.findAllById(List.of(10L))).thenReturn(List.of());
-        var result = service.recommend(command(Map.of(1L, available(), 2L, available()))).recommendation();
+        var result = recommend(command(Map.of(1L, available(), 2L, available()))).recommendation();
         assertThat(result.evaluatedCards().get(0).reason()).isEqualTo("PRODUCT_UNKNOWN");
         assertThat(result.evaluatedCards().get(1).status()).isEqualTo(RecommendationSelector.CardStatus.EXCLUDED);
         assertThat(result.status()).isEqualTo(RecommendationSelector.Status.DATA_INSUFFICIENT);
@@ -164,7 +167,7 @@ class RecommendationServiceTest {
 
     @Test
     void rejectsAvailabilityForAnotherUsersCardBeforePolicyQueries() {
-        assertThatIllegalArgumentException().isThrownBy(() -> service.recommend(command(Map.of(999L, available()))));
+        assertThatIllegalArgumentException().isThrownBy(() -> recommend(command(Map.of(999L, available()))));
         verifyNoInteractions(products, loader, activity);
     }
 
@@ -173,7 +176,7 @@ class RecommendationServiceTest {
         var foreign = card(99);
         setField(foreign, "userId", 2L);
         when(cards.findOrdered(anyLong(), anyCollection())).thenReturn(List.of(foreign));
-        assertThatIllegalArgumentException().isThrownBy(() -> service.recommend(command(Map.of())));
+        assertThatIllegalArgumentException().isThrownBy(() -> recommend(command(Map.of())));
         verifyNoInteractions(products, loader, activity);
     }
 
@@ -182,7 +185,7 @@ class RecommendationServiceTest {
         doReturn(fixedPolicy("500")).when(assembler).policy(argThat(c -> c.getId() == 1), any(), any(), any(), anyList(), any(), any());
         doThrow(new IllegalArgumentException("incompatible unit")).when(assembler)
                 .policy(argThat(c -> c.getId() == 2), any(), any(), any(), anyList(), any(), any());
-        var result = service.recommend(command(Map.of(1L, available(), 2L, available())));
+        var result = recommend(command(Map.of(1L, available(), 2L, available())));
         assertThat(result.recommendation().status()).isEqualTo(RecommendationSelector.Status.PARTIAL_READY);
         assertThat(result.recommendation().selectedUserCardId()).isEqualTo(1L);
         assertThat(result.issues()).anyMatch(i -> i.userCardId() == 2 && i.code().equals("POLICY_DATA_INVALID"));
@@ -193,7 +196,7 @@ class RecommendationServiceTest {
     @Test
     void transientReadFailureRollsBackReadTransactionAndRemainsRetryableInsteadOfUnregisteredPolicy() {
         when(loader.load(anyLong(), anyList(), any())).thenThrow(new TransientDataAccessResourceException("private database detail"));
-        var result = service.recommend(command(Map.of(1L, available())));
+        var result = recommend(command(Map.of(1L, available())));
         assertThat(result.recommendation().status()).isEqualTo(RecommendationSelector.Status.DATA_INSUFFICIENT);
         assertThat(result.issues()).allMatch(RecommendationDataIssue::retryable);
         assertThat(result.issues()).extracting(RecommendationDataIssue::code).containsOnly("DATABASE_READ_RETRYABLE");
@@ -208,7 +211,7 @@ class RecommendationServiceTest {
     @Test
     void failedCandidateLookupIsNotReportedAsNoEligibleCardAndNonTransientFailureIsNotSwallowed() {
         when(cards.findOrdered(anyLong(), anyCollection())).thenThrow(new TransientDataAccessResourceException("private"));
-        var failure = catchThrowableOfType(() -> service.recommend(command(Map.of())),
+        var failure = catchThrowableOfType(() -> recommend(command(Map.of())),
                 RecommendationService.RecommendationReadException.class);
         assertThat(failure.code()).isEqualTo("DATABASE_READ_RETRYABLE");
         assertThat(failure.retryable()).isTrue();
@@ -218,7 +221,7 @@ class RecommendationServiceTest {
         assertSafeLog("CANDIDATE_BATCH", "[]", "DATABASE_READ_RETRYABLE", "TransientDataAccessResourceException");
         assertThat(logs.list.get(0).getFormattedMessage()).contains("scope=UNKNOWN_CANDIDATES");
         doThrow(new DataAccessResourceFailureException("schema failure")).when(cards).findOrdered(anyLong(), anyCollection());
-        assertThatThrownBy(() -> service.recommend(command(Map.of()))).isInstanceOf(DataAccessResourceFailureException.class);
+        assertThatThrownBy(() -> recommend(command(Map.of()))).isInstanceOf(DataAccessResourceFailureException.class);
     }
 
     @Test
@@ -229,7 +232,7 @@ class RecommendationServiceTest {
         setField(second, "displayOrder", 0);
         when(cards.findOrdered(anyLong(), anyCollection())).thenReturn(List.of(second, first));
         doReturn(fixedPolicy("0")).when(assembler).policy(any(), any(), any(), any(), anyList(), any(), any());
-        var result = service.recommend(command(Map.of(1L, available(), 2L, available()))).recommendation();
+        var result = recommend(command(Map.of(1L, available(), 2L, available()))).recommendation();
         assertThat(result.status()).isEqualTo(RecommendationSelector.Status.READY);
         assertThat(result.selectedUserCardId()).isEqualTo(2L);
         assertThat(result.noBenefit()).isTrue();
@@ -244,7 +247,7 @@ class RecommendationServiceTest {
         when(activity.recognizedAmounts(List.of(1L, 2L), YearMonth.of(2026, 10)))
                 .thenReturn(Map.of(1L, 280_000L, 2L, beforeSecond));
         var inputs = observeSelectorInput();
-        var result = service.recommend(sourceCommand(amount, RecognitionFixtures.ordinaryDomestic("shinhan-cheoeum")));
+        var result = recommend(sourceCommand(amount, RecognitionFixtures.ordinaryDomestic("shinhan-cheoeum")));
         assertThat(result.recommendation().status()).isEqualTo(RecommendationSelector.Status.DATA_INSUFFICIENT);
         var actual = inputs.get(0);
         assertThat(actual.cards()).allSatisfy(c -> {
@@ -272,7 +275,7 @@ class RecommendationServiceTest {
         facts.put("PERFORMANCE:POSTPAID_TRANSIT", true);
         facts.put("PERFORMANCE:MOBILE_POSTPAID_TRANSIT", false);
         facts.put("TRANSACTION_KIND:GIFT_CARD_PURCHASE", true);
-        service.recommend(sourceCommand(10_000, facts));
+        recommend(sourceCommand(10_000, facts));
         assertThat(inputs.get(0).cards()).allSatisfy(c -> {
             assertThat(c.performance().period()).isEqualTo(YearMonth.of(2026, 11));
             assertThat(c.performance().recognizedAmount()).isZero();
@@ -280,7 +283,7 @@ class RecommendationServiceTest {
         });
         assertThat(selectWithConfirmedEqualBenefits(inputs.get(0)).performanceTieBreakSkipped()).isFalse();
         facts.remove("TRANSACTION_KIND:GIFT_CARD_PURCHASE");
-        service.recommend(sourceCommand(10_000, facts));
+        recommend(sourceCommand(10_000, facts));
         assertThat(inputs.get(1).cards()).allSatisfy(c -> {
             assertThat(c.performance().recognizedAmount()).isNull();
             assertThat(c.performance().beforeAmount()).isNotNull();
@@ -296,7 +299,7 @@ class RecommendationServiceTest {
         when(activity.recognizedAmounts(List.of(1L, 2L), YearMonth.of(2026, 10)))
                 .thenThrow(new QueryTimeoutException("timeout"));
         var inputs = observeSelectorInput();
-        var result = service.recommend(sourceCommand(10_000, RecognitionFixtures.ordinaryDomestic("shinhan-cheoeum")));
+        var result = recommend(sourceCommand(10_000, RecognitionFixtures.ordinaryDomestic("shinhan-cheoeum")));
         assertThat(inputs.get(0).cards()).allSatisfy(c -> {
             assertThat(c.policy()).isNotNull();
             assertThat(c.performance().beforeAmount()).isNull();
@@ -314,7 +317,7 @@ class RecommendationServiceTest {
         when(products.findAllById(any())).thenThrow(new QueryTimeoutException(
                 "private password=secret token=secret jdbc:mysql://private SQL binding=1234",
                 new IllegalStateException("private cause")));
-        var result = service.recommend(command(Map.of(1L, available(), 2L, available())));
+        var result = recommend(command(Map.of(1L, available(), 2L, available())));
         assertSafeLog("PRODUCT_BATCH", "[1, 2, 3]", "DATABASE_READ_RETRYABLE", "QueryTimeoutException");
         assertThat(logs.list.get(0).getFormattedMessage()).contains("scope=BATCH_POTENTIALLY_AFFECTED");
         var json = new ObjectMapper().writeValueAsString(result.issues());
@@ -325,7 +328,7 @@ class RecommendationServiceTest {
 
     @Test
     void missingPolicyRemainsNonRetryableWithoutDatabaseFailureLogOrRetryNotice() {
-        var result = service.recommend(command(Map.of(1L, available())));
+        var result = recommend(command(Map.of(1L, available())));
         assertThat(result.issues()).isNotEmpty().noneMatch(RecommendationDataIssue::retryable);
         assertThat(result.issues()).allSatisfy(i -> assertThat(i.message()).isNull());
         assertThat(logs.list).isEmpty();
@@ -337,7 +340,7 @@ class RecommendationServiceTest {
         when(loader.load(anyLong(), anyList(), any())).thenReturn(new RecommendationPolicyData(
                 List.of(benefit(1)), List.of(), List.of(), List.of(), List.of(), List.of(), List.of()));
         when(activity.recognizedAmounts(anyList(), any())).thenThrow(new QueryTimeoutException("private"));
-        var result = service.recommend(command(Map.of(1L, available(), 2L, available())));
+        var result = recommend(command(Map.of(1L, available(), 2L, available())));
         assertSafeLog("PREVIOUS_PERFORMANCE_BATCH", "[1, 2]", "DATABASE_READ_RETRYABLE", "QueryTimeoutException");
         assertThat(result.issues()).extracting(RecommendationDataIssue::code).containsOnly("DATABASE_READ_RETRYABLE");
         assertThat(result.issues()).extracting(RecommendationDataIssue::userCardId).containsExactly(1L, 2L);
@@ -356,7 +359,7 @@ class RecommendationServiceTest {
             when(activity.recognizedAmounts(List.of(2L), YearMonth.of(2026, 9))).thenThrow(new QueryTimeoutException("private"));
         }
         var inputs = observeSelectorInput();
-        var result = service.recommend(command(Map.of(1L, available(), 2L, available())));
+        var result = recommend(command(Map.of(1L, available(), 2L, available())));
         var realPolicy = inputs.get(0).cards().get(0).policy();
         assertThat(realPolicy).isNotNull();
         assertThat(realPolicy.complete()).isFalse();
@@ -400,7 +403,7 @@ class RecommendationServiceTest {
             when(activity.recognizedAmounts(List.of(2L), YearMonth.of(2026, 9))).thenThrow(new QueryTimeoutException("private"));
         }
         var inputs = observeSelectorInput();
-        var result = service.recommend(command(Map.of(1L, available(), 2L, available())));
+        var result = recommend(command(Map.of(1L, available(), 2L, available())));
         assertThat(inputs.get(0).cards().get(0).policy()).isSameAs(confirmedA);
         assertThat(result.recommendation().status()).isEqualTo(querySucceeds
                 ? RecommendationSelector.Status.READY : RecommendationSelector.Status.PARTIAL_READY);
@@ -430,7 +433,7 @@ class RecommendationServiceTest {
                 List.of(), List.of(link), List.of(group), List.of(tier), List.of(), List.of()));
         when(activity.recognizedAmounts(List.of(2L), YearMonth.of(2026, 9))).thenThrow(new QueryTimeoutException("private"));
         var inputs = observeSelectorInput();
-        var result = service.recommend(command(Map.of(1L, available(), 2L, available())));
+        var result = recommend(command(Map.of(1L, available(), 2L, available())));
         assertThat(inputs.get(0).cards().get(0).policy()).isNotNull();
         assertThat(inputs.get(0).cards().get(1).policy()).isNull();
         assertThat(result.issues()).filteredOn(RecommendationDataIssue::retryable)
@@ -458,7 +461,7 @@ class RecommendationServiceTest {
     void readTransactionCompletionFailureDoesNotContinueToTieReadsWithUncommittedInputs() {
         sourceProducts();
         doThrow(new QueryTimeoutException("private")).when(transactions).commit(any());
-        var result = service.recommend(sourceCommand(10_000, RecognitionFixtures.ordinaryDomestic("shinhan-cheoeum")));
+        var result = recommend(sourceCommand(10_000, RecognitionFixtures.ordinaryDomestic("shinhan-cheoeum")));
         assertSafeLog("INPUT_READ_TRANSACTION_COMPLETION", "[1, 2]", "DATABASE_READ_RETRYABLE", "QueryTimeoutException");
         assertThat(result.issues()).extracting(RecommendationDataIssue::code).containsOnly("DATABASE_READ_RETRYABLE");
         verifyNoInteractions(activity);
@@ -470,7 +473,7 @@ class RecommendationServiceTest {
         setField(inactive, "registrationStatus", CardRegistrationStatus.INACTIVE);
         when(cards.findOrdered(anyLong(), anyCollection())).thenReturn(List.of(inactive));
         when(products.findAllById(any())).thenThrow(new QueryTimeoutException("private"));
-        var result = service.recommend(command(Map.of()));
+        var result = recommend(command(Map.of()));
         assertThat(result.issues()).hasSize(1).allSatisfy(i -> {
             assertThat(i.userCardId()).isNull();
             assertThat(i.retryable()).isTrue();
@@ -520,6 +523,12 @@ class RecommendationServiceTest {
                 actual.transaction(), actual.defaultUserCardId(), candidates));
     }
 
+    // 정책 조회/실패 격리만 검증하는 테스트의 상태 공급 fixture. 실제 상태 판정은 DB 테스트에서 별도 검증한다.
+    private RecommendationService.Result recommend(RecommendationCommand command) {
+        when(availabilityReader.prepare(any(),anyLong(),anyLong(),any())).thenReturn(
+                new RecommendationAvailabilityReader.Assessment(command.availability(),List.of()));
+        return service.recommend(command);
+    }
     private RecommendationCommand command(Map<Long, PaymentAvailability> states) {
         return new RecommendationCommand(100, 1, new Transaction(10_000, Plan.LUMP_SUM, 1,
                 Instant.parse("2026-09-30T15:30:00Z"), 20L, "CAFE", Map.of()), states);

@@ -32,6 +32,7 @@ public class RecommendationService {
     private final RecommendationPerformanceAssembler performance;
     private final RecommendationRecognitionResolver recognitionResolver;
     private final PurchaseItemReader purchaseItems;
+    private final RecommendationAvailabilityReader availabilityReader;
     private final TransactionTemplate read;
     private final RecommendationSelector selector = new RecommendationSelector();
 
@@ -39,7 +40,7 @@ public class RecommendationService {
             RecommendationPolicyLoader policies, RecommendationInputAssembler assembler,
             CardActivityReader activity, RecommendationPerformanceAssembler performance,
             RecommendationRecognitionResolver recognitionResolver, PurchaseItemReader purchaseItems,
-            PlatformTransactionManager transactions) {
+            PlatformTransactionManager transactions, RecommendationAvailabilityReader availabilityReader) {
         this.cards = cards;
         this.products = products;
         this.policies = policies;
@@ -48,6 +49,7 @@ public class RecommendationService {
         this.performance = performance;
         this.recognitionResolver = recognitionResolver;
         this.purchaseItems = purchaseItems;
+        this.availabilityReader=availabilityReader;
         read = new TransactionTemplate(transactions);
         read.setReadOnly(true);
         // 호출 측 승인 트랜잭션을 읽기 실패로 rollback-only 상태로 만들지 않는다.
@@ -77,12 +79,31 @@ public class RecommendationService {
      */
     public Result recommend(RecommendationCommand command) {
         Objects.requireNonNull(command);
+        var state=availabilityReader.prepare(command.paymentId(),command.userId(),command.transaction().amount(),command.transaction().plan());
+        return recommendPrepared(command,state);
+    }
+
+    /** POS 저장 트랜잭션 전에 서버 상태를 확보한다. 반환 함수는 같은 사용자와 결제 조건에만 쓸 수 있다. */
+    public Function<RecommendationCommand,Result> prepare(long userId,long principal,Plan plan) {
+        var state=availabilityReader.prepare(null,userId,principal,plan);
+        return command -> {
+            if(command.userId()!=userId || command.transaction().amount()!=principal || command.transaction().plan()!=plan)
+                throw new IllegalArgumentException("준비한 추천의 사용자 또는 결제 조건이 다릅니다.");
+            return recommendPrepared(command,state);
+        };
+    }
+
+    private Result recommendPrepared(RecommendationCommand supplied,RecommendationAvailabilityReader.Assessment state) {
+        // 호환 입력의 카드 소유권은 검사하되 전달된 AVAILABLE 값으로 서버 판정을 덮어쓰지 않는다.
+        if(!state.cards().keySet().containsAll(supplied.availability().keySet()))
+            throw new IllegalArgumentException("사용자 보유 카드 외의 결제 가능 판정입니다.");
+        var command=new RecommendationCommand(supplied.paymentId(),supplied.userId(),supplied.transaction(),state.cards());
         var loaded = new Loaded();
         Prepared prepared = null;
         PolicyRows rows = null;
         try {
             rows = Objects.requireNonNull(read.execute(status -> {
-                var result = load(command, loaded);
+                var result = load(command, loaded, supplied.availability().keySet());
                 loaded.stage = "INPUT_READ_TRANSACTION_COMPLETION";
                 loaded.affectedCardIds = loaded.cards.stream().map(UserCard::getId).toList();
                 return result;
@@ -163,16 +184,18 @@ public class RecommendationService {
         // 트랜잭션이 끝난 뒤 순수 계산만 실행한다. 읽기 실패가 정상적인 정책 미등록으로 바뀌지 않는다.
         var rules=new ArrayList<>(command.transaction().simulationRules());
         loaded.policies.entrySet().stream().sorted(Map.Entry.comparingByKey()).forEach(e -> rules.addAll(e.getValue().simulationRules()));
-        return new Result(selector.select(prepared.input()), prepared.issues(), context(loaded), rules);
+        var combinedIssues=new ArrayList<>(prepared.issues());
+        combinedIssues.addAll(state.issues());
+        return new Result(selector.select(prepared.input()), combinedIssues, context(loaded), rules);
     }
 
-    private PolicyRows load(RecommendationCommand command, Loaded loaded) {
+    private PolicyRows load(RecommendationCommand command, Loaded loaded, Set<Long> suppliedCardIds) {
         loaded.cards = cards.findOrdered(command.userId(), List.of(CardRegistrationStatus.ACTIVE, CardRegistrationStatus.INACTIVE));
         if (loaded.cards.stream().anyMatch(c -> !c.getUserId().equals(command.userId()))) {
             throw new IllegalArgumentException("다른 사용자의 카드는 추천할 수 없습니다.");
         }
         var ownedIds = loaded.cards.stream().map(UserCard::getId).collect(Collectors.toSet());
-        if (!ownedIds.containsAll(command.availability().keySet())) {
+        if (!ownedIds.containsAll(suppliedCardIds)) {
             throw new IllegalArgumentException("조회된 사용자 등록 카드 외의 결제 가능 판정을 전달할 수 없습니다.");
         }
         loaded.stage = "PURCHASE_ITEM";
@@ -303,14 +326,14 @@ public class RecommendationService {
     }
 
     public static final class RecommendationReadException extends RuntimeException {
-        private final long paymentId;
+        private final Long paymentId;
 
-        public RecommendationReadException(long paymentId) {
+        public RecommendationReadException(Long paymentId) {
             super(RecommendationDataIssue.RETRY_MESSAGE);
             this.paymentId = paymentId;
         }
 
-        public long paymentId() { return paymentId; }
+        public Long paymentId() { return paymentId; }
         public String code() { return "DATABASE_READ_RETRYABLE"; }
         public boolean retryable() { return true; }
     }

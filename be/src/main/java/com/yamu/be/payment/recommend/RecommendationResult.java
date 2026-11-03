@@ -309,7 +309,8 @@ public record RecommendationResult(String recommendationId, LocalDateTime calcul
         CHECK_CARD_INSTALLMENT_NOT_SUPPORTED,
         UNPAID_BILL,
         CREDIT_LIMIT_EXCEEDED,
-        INSUFFICIENT_BALANCE
+        INSUFFICIENT_BALANCE,
+        PAYMENT_ACCOUNT_DISCONNECTED
     }
 
     /** 비교하지 못한 사유. 혜택만 미확인인지, 결제 가능 여부가 미확인인지 나눈다(2026-11-02 정책 변경). 문구는 !63과 같다. */

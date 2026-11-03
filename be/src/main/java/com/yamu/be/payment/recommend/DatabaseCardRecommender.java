@@ -11,7 +11,7 @@ import java.time.LocalDateTime;
 import java.util.*;
 import org.springframework.stereotype.Component;
 
-/** 결제 담당이 검증·보존한 조건과 결제 가능 판정을 전달하는 실제 포트. 승인/저장은 호출자가 수행한다. */
+/** 검증·보존한 조건으로 서버 상태를 조회하는 실제 포트. 승인과 저장은 호출자가 수행한다. */
 @Component
 public class DatabaseCardRecommender implements CardRecommender {
     private final RecommendationService service;
@@ -19,12 +19,23 @@ public class DatabaseCardRecommender implements CardRecommender {
     public DatabaseCardRecommender(RecommendationService service, Clock clock) { this.service=service; this.clock=clock; }
 
     public RecommendationResult recommend(RecommendationRequest request) {
+        return recommend(request,service::recommend);
+    }
+
+    @Override
+    public CardRecommender prepare(Long userId,com.yamu.be.payment.PaymentTerms terms) {
+        var prepared=service.prepare(userId,terms.amount(),RecommendationInput.Plan.valueOf(terms.plan().name()));
+        return request -> recommend(request,prepared);
+    }
+
+    private RecommendationResult recommend(RecommendationRequest request,
+            java.util.function.Function<RecommendationCommand,RecommendationService.Result> execute) {
         var terms = request.terms();
         var preserved = new RecommendationInput.Transaction(terms.amount(), RecommendationInput.Plan.valueOf(terms.plan().name()),
                 terms.installmentMonths() == null ? 1 : terms.installmentMonths(), request.requestedAt().toInstant(ZoneOffset.UTC),
                 request.merchant().merchantId(), request.merchant().categoryCode(), request.verifiedFacts(), request.purchaseItemCode());
         var transaction=com.yamu.be.recommendation.BasicPurchaseSimulation.apply(preserved,request.merchant().channel(),request.merchant().facilityType());
-        var result = service.recommend(new RecommendationCommand(request.paymentId(), request.userId(), transaction, request.availability()));
+        var result = execute.apply(new RecommendationCommand(request.paymentId(), request.userId(), transaction, request.availability()));
         var candidates = new ArrayList<Candidate>();
         var excluded = new ArrayList<ExcludedCard>();
         var uncompared = new ArrayList<UncomparedCard>();

@@ -3,7 +3,7 @@ package com.yamu.be.recommendation;
 import java.util.Map;
 import java.util.Objects;
 
-/** 결제 담당이 검증·보존한 거래와 결제 가능 판정. 상품 정책을 호출자가 만들 필요는 없다. */
+/** 서버 내부 거래 입력. availability는 기존 호출 호환용이며 실제 서비스 판정은 서버 조회 결과를 사용한다. */
 public record RecommendationCommand(long paymentId, long userId, RecommendationInput.Transaction transaction,
                                     Map<Long, PaymentAvailability> availability) {
     public RecommendationCommand {

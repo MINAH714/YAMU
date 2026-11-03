@@ -49,8 +49,9 @@ class RecommendationDatabaseIntegrationTest extends MySqlTestSupport {
         otherUser = fixtures.user();
         product = fixtures.product();
         otherProduct = fixtures.product();
-        first = fixtures.card(user, product, null, "ACTIVE");
-        second = fixtures.card(user, product, null, "ACTIVE");
+        first = fixtures.card(user, product, fixtures.account(user), "ACTIVE");
+        second = fixtures.card(user, product, fixtures.account(user), "ACTIVE");
+        jdbc.update("UPDATE user_card SET payment_day=15 WHERE user_id=?",user);
         foreign = fixtures.card(otherUser, product, null, "ACTIVE");
         merchant = insert("merchant", "merchant_id", Map.of("brand_code", "TEST_" + UUID.randomUUID(),
                 "merchant_name", "테스트 카페", "merchant_category_code", "CAFE", "updated_at", now()));
@@ -74,6 +75,7 @@ class RecommendationDatabaseIntegrationTest extends MySqlTestSupport {
         }
         jdbc.update("delete from card_monthly_performance where user_card_id in (select user_card_id from user_card where user_id in (?, ?))", user, otherUser);
         jdbc.update("delete from user_card where user_id in (?, ?)", user, otherUser);
+        jdbc.update("delete from linked_account where user_id in (?, ?)", user, otherUser);
         for (long id : new long[] {product, otherProduct}) {
             jdbc.update("delete from benefit_target_group_member where card_benefit_id in (select card_benefit_id from card_benefit where card_product_id = ?)", id);
             jdbc.update("delete from benefit_target_group where card_benefit_id in (select card_benefit_id from card_benefit where card_product_id = ?)", id);

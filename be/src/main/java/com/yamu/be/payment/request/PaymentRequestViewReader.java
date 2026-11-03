@@ -82,7 +82,7 @@ public class PaymentRequestViewReader {
                 masked(card), c.netBenefit().longValueExact(),
                 c.benefits().stream().map(b -> new PaymentRequestView.Benefit(b.benefitId(), b.name(), b.type(),
                         b.amount(), b.realization())).toList(),
-                terms.chargedAmount(c.instantDiscount()), c.reason(), c.selectionReason());
+                terms.chargedAmount(c.instantDiscount()), c.reason(), c.selectionReason(),c.unallocatedBenefitGroups());
     }
 
     private static PaymentRequestView.UncomparedCard uncompared(UncomparedCard u) {
