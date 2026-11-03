@@ -435,7 +435,8 @@ fun CashflowCreateRoute(onBack: () -> Unit, onDone: () -> Unit, viewModel: Cashf
         ) { DatePicker(state = state) }
     }
 
-    // 반복 항목 — 저장 · 삭제할 범위. 반복 규칙을 바꿨으면 서버가 '이번 회차만'을 받지 않아 '이후 전부'만
+    // 반복 항목 — 저장 · 삭제할 범위. 반복 규칙을 바꿨으면 서버가 '이번 회차만'을 받지 않아 '이후 전부'만,
+    // 옮겨 둔 회차의 원래 날짜가 지났으면 '이후 전부'를 받지 않아 '이번 회차만'
     val ask = s.scopeAsk
     if (ask != null && editing != null) {
         YamuBottomSheet(onDismiss = viewModel::dismissAsk) {
@@ -444,12 +445,19 @@ fun CashflowCreateRoute(onBack: () -> Unit, onDone: () -> Unit, viewModel: Cashf
             val day = editing.date.toKoreanDate()
             when (ask) {
                 ScopeAsk.SAVE -> {
-                    if (editing.canEditThisOnly(f)) {
+                    val thisOnly = editing.canEditThisOnly(f)
+                    val future = editing.canEditFuture(LocalDate.now(KST))
+                    val original = editing.occurrenceDate.toKoreanDate()
+                    if (thisOnly) {
                         ListRow("이번 회차만", sub = "${day} 한 번만 바꿔요", chevron = true, onClick = { viewModel.update(CashflowScope.THIS_ONLY) })
                     }
-                    ListRow("이후 전부", sub = "${day}부터 모든 회차를 바꿔요", chevron = true, onClick = { viewModel.update(CashflowScope.THIS_AND_FUTURE) })
-                    if (!editing.canEditThisOnly(f)) {
-                        Text("반복 설정을 바꿔서 이후 전부에만 적용할 수 있어요", style = YamuTheme.typography.bodyS, color = c.text3)
+                    if (future) {
+                        val sub = if (editing.revertsToOccurrence(f)) "${original}부터 모든 회차를 바꿔요 · 이 회차도 그날로 돌아가요" else "${day}부터 모든 회차를 바꿔요"
+                        ListRow("이후 전부", sub = sub, chevron = true, onClick = { viewModel.update(CashflowScope.THIS_AND_FUTURE) })
+                    }
+                    when {
+                        !future -> Text("원래 날짜(${original})가 지나 이후 전부는 바꿀 수 없어요 · 다음 회차에서 바꿔 주세요", style = YamuTheme.typography.bodyS, color = c.text3)
+                        !thisOnly -> Text("반복 설정을 바꿔서 이후 전부에만 적용할 수 있어요", style = YamuTheme.typography.bodyS, color = c.text3)
                     }
                 }
                 ScopeAsk.DELETE -> {

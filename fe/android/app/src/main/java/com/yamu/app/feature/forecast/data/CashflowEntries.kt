@@ -67,6 +67,12 @@ data class CashflowEntry(
     /** '이번 회차만'을 고를 수 있는지 — 반복 규칙(주기 · 말일 · 종료일)을 바꾸면 서버가 받지 않는다 */
     fun canEditThisOnly(form: CashflowForm): Boolean = isRecurring && !form.ruleChangedFrom(toForm())
 
+    /** '이후 전부'를 고를 수 있는지 — 서버는 원래 회차부터 바꾸므로 그 날짜가 지났으면 옮긴 날짜가 남아 있어도 400을 준다 */
+    fun canEditFuture(today: LocalDate): Boolean = !occurrenceDate.isBefore(today)
+
+    /** '이후 전부'로 저장하면 이 회차가 원래 날짜로 돌아가는지 — 옮겨 둔 회차(25일 → 27일)에서 날짜를 그대로 둔 경우 */
+    fun revertsToOccurrence(form: CashflowForm): Boolean = date != occurrenceDate && form.date == date
+
     /**
      * 수정 요청 — 바꾼 칸만 보낸다. 반복(recurrence)은 통째로 교체되는 칸이라 규칙을 안 바꿨으면 보내지 않는다(종료일 유지).
      * 이후 전부에서 날짜를 옮기면 서버는 새 날짜를 기준일로 삼으므로, 매월 말일 · 매주 요일이 흐트러지지 않게 반복을 같이 보낸다

@@ -47,6 +47,15 @@ class CashflowEditTest {
         assertEquals(RecurrenceRequest("MONTHLY", dayOfMonth = 31, endDate = "2027-06-30"), body.recurrence)
     }
 
+    @Test fun `옮겨 둔 회차 — 원래 날짜가 지나면 이후 전부를 못 고르고 · 안 지났으면 원래 날짜로 돌아감을 알린다`() {
+        val moved = rent.copy(dayOfMonth = 25, occurrenceDate = LocalDate.of(2026, 11, 25), date = LocalDate.of(2026, 11, 27))
+        assertTrue(moved.canEditFuture(LocalDate.of(2026, 11, 25)))
+        assertFalse(moved.canEditFuture(LocalDate.of(2026, 11, 26)))
+        assertTrue(moved.revertsToOccurrence(moved.toForm().copy(amount = 1)))
+        assertFalse(moved.revertsToOccurrence(moved.toForm().copy(date = LocalDate.of(2026, 11, 28))))
+        assertFalse(rent.revertsToOccurrence(rent.toForm()))
+    }
+
     @Test fun `반복 규칙(말일 · 종료일 · 주기)을 바꾸면 이번 회차만은 고를 수 없다`() {
         assertFalse(rent.canEditThisOnly(rent.toForm().withMonthEnd(false)))
         assertFalse(rent.canEditThisOnly(rent.toForm().withEndDate(null)))
