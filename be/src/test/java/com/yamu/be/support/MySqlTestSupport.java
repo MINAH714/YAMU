@@ -28,5 +28,8 @@ public abstract class MySqlTestSupport {
 
     @Container
     @ServiceConnection
-    static final MySQLContainer<?> MYSQL = new MySQLContainer<>("mysql:8.4.11");
+    // V20261103_1 creates self-reference guard triggers. This flag is confined to the disposable test DB;
+    // deployment requires the DBA to provision the corresponding trigger/binlog permissions separately.
+    static final MySQLContainer<?> MYSQL = new MySQLContainer<>("mysql:8.4.11")
+            .withCommand("--log-bin-trust-function-creators=1");
 }

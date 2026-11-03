@@ -6,7 +6,7 @@
 
 | 문서 | 독자와 목적 |
 |---|---|
-| [컬럼 사전](dictionary.md) | 사람·AI 공통. 25개 테이블의 컬럼·타입·NULL·기본값·키·제약과 컬럼별 설명 |
+| [컬럼 사전](dictionary.md) | 사람·AI 공통. 30개 테이블의 컬럼·타입·NULL·기본값·키·제약과 컬럼별 설명 |
 | [구현 지침](implementation.md) | 구현하는 개발자·AI. 서비스 검증, 동시성·재시도, 미확인 사항과 검증 방법 |
 | [이전 검토 기록](archive/initial-review.md) | 과거 논의가 필요한 경우에만 조회. 현행 구현 기준으로 사용하지 않음 |
 
@@ -27,7 +27,7 @@ DB에서 실행할 구조는 [Flyway 마이그레이션 폴더](../../../be/src/
 | 영역 | 테이블 | 무엇을 관리하나요? |
 |---|---|---|
 | 사용자·계좌 | `app_user`, `linked_account` | 사용자와 연결 계좌. 계좌 잔액 원장은 금융망에서 관리 |
-| 카드·정책 | `card_product`, `user_card`, `merchant`, `card_benefit`, `benefit_target`, `limit_group`, `benefit_limit_link`, `tier_limit` | 카드 상품·보유 카드, 브랜드, 혜택 적용 대상과 한도 규칙 |
+| 카드·정책 | `card_product`, `user_card`, `merchant`, `card_benefit`, `benefit_target`, `benefit_target_group`, `benefit_target_group_member`, `benefit_application_group`, `benefit_application_member`, `purchase_item`, `limit_group`, `benefit_limit_link`, `tier_limit` | 카드 상품·보유 카드, 브랜드, 혜택 적용 대상과 한도 규칙 |
 | 결제·집계 | `payment_transaction`, `payment_benefit`, `payment_limit_usage`, `card_monthly_performance`, `monthly_limit_usage` | 결제 상태, 실제 혜택, 한도 사용 내역과 월간 합계 |
 | 청구·환급 | `card_bill`, `bill_item`, `refund` | 신용카드 청구서, 일시불·할부 회차, 취소 후 환급 |
 | 예정 내역·알림 | `cashflow_item`, `cashflow_occurrence`, `cashflow_payment_match`, `notification` | 반복 규칙·회차별 예정 내역·실제 결제 연결과 앱 내 알림 |

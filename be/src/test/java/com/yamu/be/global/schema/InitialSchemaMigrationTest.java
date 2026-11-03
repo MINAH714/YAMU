@@ -36,7 +36,7 @@ class InitialSchemaMigrationTest extends MySqlTestSupport {
     private static final LocalDate MONTH = LocalDate.of(2026, 10, 1);
     private static final List<String> TABLES = List.of(
             "app_user", "linked_account", "card_product", "user_card", "card_benefit",
-            "benefit_target", "merchant", "limit_group", "benefit_limit_link", "tier_limit",
+            "benefit_target", "benefit_target_group", "benefit_target_group_member", "benefit_application_group", "benefit_application_member", "purchase_item", "merchant", "limit_group", "benefit_limit_link", "tier_limit",
             "payment_transaction", "payment_benefit", "payment_limit_usage",
             "card_monthly_performance", "monthly_limit_usage", "card_bill", "bill_item",
             "refund", "cashflow_item", "notification", "user_device", "user_device_event",
@@ -52,7 +52,7 @@ class InitialSchemaMigrationTest extends MySqlTestSupport {
                 String.class);
         assertThat(actual).containsAll(TABLES);
         assertThat(actual).doesNotContain("payment_limit_impact");
-        assertThat(actual.stream().filter(TABLES::contains).count()).isEqualTo(25);
+        assertThat(actual.stream().filter(TABLES::contains).count()).isEqualTo(30);
         assertThat(jdbc.queryForObject("""
                 SELECT COUNT(*) FROM flyway_schema_history
                 WHERE version = '20261026.1' AND success = 1

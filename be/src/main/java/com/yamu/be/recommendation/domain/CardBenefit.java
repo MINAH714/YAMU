@@ -50,6 +50,8 @@ public class CardBenefit extends BaseCreatedTimeEntity {
     private BigDecimal pointKrwRate;
     @Column(length = 32)
     private String applicationTiming;
+    private Long fallbackBenefitId;
+    private String fallbackMode;
     @Column(length = 16)
     private String roundingMode;
     @Column(columnDefinition = "smallint")

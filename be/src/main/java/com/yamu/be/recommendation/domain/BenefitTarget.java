@@ -22,7 +22,7 @@ public class BenefitTarget extends BaseCreatedTimeEntity {
     @Id
     @Column(name = "benefit_target_id")
     private Long id;
-    public enum Kind { ALL, BRAND, CATEGORY, CONDITION }
+    public enum Kind { ALL, BRAND, CATEGORY, CONDITION, PURCHASE_ITEM }
     @Column(name = "card_benefit_id", nullable = false)
     private Long cardBenefitId;
     @Enumerated(EnumType.STRING)
