@@ -12,23 +12,43 @@ import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.util.*;
-import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
-/** 저장된 필드만 변환한다. 정책 조사 완료·계산 순서·조합·인정 규칙을 발명하지 않는다. */
+/** 저장된 정책을 우선하며, 명시적으로 승인된 Seed 범위에만 추적 가능한 모의 계산 기준을 적용한다. */
 @Component
-@RequiredArgsConstructor
 class RecommendationInputAssembler {
     private final ObjectMapper json;
+    private final List<CatalogScope> catalog;
+    private static final LocalDate SIM_FROM = LocalDate.of(2026,11,1);
+    private static final LocalDate SIM_UNTIL = LocalDate.of(2026,12,1);
+    private record CatalogScope(String issuer, String product, String type, List<String> benefits, List<String> mockPointBenefits) { }
+
+    RecommendationInputAssembler(ObjectMapper json) {
+        this.json=json;
+        try (var in = new org.springframework.core.io.ClassPathResource("recommendation/simulation-catalog.json").getInputStream()) {
+            catalog=List.of(json.readValue(in,CatalogScope[].class));
+        } catch (java.io.IOException failure) { throw new IllegalStateException("모의 정책 범위 자료를 읽지 못했습니다."); }
+    }
 
     BenefitPolicy policy(UserCard card, RecommendationPolicyData data, LocalDate date, Long previous,
                          List<RecommendationDataIssue> issues) {
+        return policy(card,data,date,previous,issues,null,null);
+    }
+
+    BenefitPolicy policy(UserCard card, RecommendationPolicyData data, LocalDate date, Long previous,
+            List<RecommendationDataIssue> issues, RecommendationInput.Transaction transaction, com.yamu.be.card.domain.CardProduct product) {
         var rows = data.benefits().stream().filter(b -> b.getCardProductId().equals(card.getCardProductId())).toList();
         if (rows.isEmpty()) {
             issue(issues, card, null, "POLICY_NOT_REGISTERED_FOR_TRANSACTION");
         }
-        // DB에는 조사 완료·빠진 혜택/제외 조건의 유무를 보증하는 필드가 없다.
-        issue(issues, card, null, "POLICY_COMPLETENESS_UNVERIFIED");
+        var scope=product==null || transaction==null || date.isBefore(SIM_FROM) || !date.isBefore(SIM_UNTIL) ? null
+                : catalog.stream().filter(c -> c.issuer().equals(product.getIssuerCode()) && c.product().equals(product.getProductName())
+                    && c.type().equals(product.getCardType().name())).findFirst().orElse(null);
+        boolean scoped=scope!=null && rows.size()==scope.benefits().size() && rows.stream().allMatch(b -> b.getPolicyVersion()==1
+                && scope.benefits().contains(b.getBenefitCode())) && rows.stream().map(CardBenefit::getBenefitCode).distinct().count()==rows.size();
+        var traces=new ArrayList<SimulationRule>();
+        if (!scoped) issue(issues,card,null,"POLICY_COMPLETENESS_UNVERIFIED");
+        else trace(traces,card,null,List.of("catalogScope=SEED_17_PRODUCTS_56_BENEFITS_VERSION_1"));
         var codes = new HashSet<String>();
         var converted = new ArrayList<Benefit>();
         var groupIds = new LinkedHashSet<Long>();
@@ -36,7 +56,9 @@ class RecommendationInputAssembler {
             if (!codes.add(row.getBenefitCode())) {
                 issue(issues, card, row.getId(), "BENEFIT_VERSION_AMBIGUOUS");
             }
-            if (!effective(row.getValidFrom(), row.getValidUntil(), date)) {
+            var applied=new ArrayList<String>();
+            var validity=validity(row.getValidFrom(),row.getValidUntil(),scoped,applied);
+            if (!effective(validity[0], validity[1], date)) {
                 issue(issues, card, row.getId(), "BENEFIT_VALIDITY_UNKNOWN");
             }
             var links = data.links().stream().filter(l -> l.getCardProductId().equals(card.getCardProductId())
@@ -63,20 +85,33 @@ class RecommendationInputAssembler {
                 schedule = null;
                 issue(issues, card, row.getId(), "SCHEDULE_INVALID");
             }
-            // false는 조건 없음이 아니라 약관의 완전성/현행 확인 근거가 공급되지 않았음을 뜻한다.
-            var conditions = new Conditions(false, false, row.getValidFrom(), row.getValidUntil(), targets,
+            // 승인된 Seed의 모의 완전성이다. 실제 상품 약관 전체를 확인했다는 뜻이 아니다.
+            var conditions = new Conditions(scoped, scoped, validity[0], validity[1], targets,
                     required, excluded, schedule, targetGroups(row, data));
-            var rounding = new Rounding(row.getRoundingMode() == null ? null : RoundingMode.valueOf(row.getRoundingMode()),
-                    row.getRoundingUnit() == null ? null : BigDecimal.valueOf(row.getRoundingUnit()),
-                    row.getRoundingStage(), null);
+            var mode=row.getRoundingMode()==null ? null : RoundingMode.valueOf(row.getRoundingMode());
+            var unit=row.getRoundingUnit()==null ? null : BigDecimal.valueOf(row.getRoundingUnit());
+            var stage=row.getRoundingStage();
+            if (scoped) {
+                applied.add("baseAmount=transaction.amount");
+                applied.add("calculationOrder=LIMIT_THEN_ROUND");
+                if (mode==null) { mode=RoundingMode.DOWN; applied.add("roundingMode=DOWN"); }
+                if (unit==null) { unit=BigDecimal.ONE; applied.add("roundingUnit=1"); }
+                if (stage==null) { stage=RoundingStage.PER_TRANSACTION; applied.add("roundingStage=PER_TRANSACTION"); }
+            }
+            var rounding=new Rounding(mode,unit,stage,null);
+            var pointRate=row.getPointKrwRate();
+            if (scoped && pointRate==null && scope.mockPointBenefits().contains(row.getBenefitCode())) {
+                pointRate=BigDecimal.ONE; applied.add("pointKrwRate=1(MOCK_COMPARISON_ONLY)");
+            }
+            trace(traces,card,row.getId(),applied);
             if (row.getRoundingStage() == RoundingStage.AFTER_AGGREGATION) {
                 issue(issues, card, row.getId(), "RAW_AGGREGATION_SCOPE_AND_VALUE_UNKNOWN");
             }
             converted.add(new Benefit(row.getId(), row.getPolicyVersion(), row.getBenefitName(), row.getBenefitType(),
                     row.getCalculationType(), row.getCalculationType() == CalculationType.RATE ? row.getRate() : row.getFixedValue(),
-                    row.getValueUnit(), row.getPointKrwRate(), null,
-                    // DEFAULT 0만으로 확인된 무조건 정책임을 보증하지 않는다. complete=false를 유지한다.
-                    row.getMinPaymentAmount(), row.getMinPerformanceAmount(), conditions, rounding, null, links));
+                    row.getValueUnit(), pointRate, scoped ? transaction.amount() : null,
+                    // 최소값은 승인된 Seed 범위에서 사용하며, 그 밖의 DEFAULT 0을 확인된 정책으로 승격하지 않는다.
+                    row.getMinPaymentAmount(), row.getMinPerformanceAmount(), conditions, rounding, scoped ? CalculationOrder.LIMIT_THEN_ROUND : null, links));
         }
         var limits = new ArrayList<Limit>();
         for (Long groupId : groupIds) {
@@ -86,7 +121,11 @@ class RecommendationInputAssembler {
                 issue(issues, card, groupId, "LINKED_LIMIT_MISSING");
                 continue;
             }
-            boolean valid = effective(group.getValidFrom(), group.getValidUntil(), date);
+            var groupFields=new ArrayList<String>();
+            boolean scopedGroup=scoped && group.getPolicyVersion()==1;
+            var groupValidity=validity(group.getValidFrom(),group.getValidUntil(),scopedGroup,groupFields);
+            trace(traces,card,null,groupFields.stream().map(f -> "limit:"+groupId+"."+f).toList());
+            boolean valid = effective(groupValidity[0],groupValidity[1],date);
             long versions = data.groups().stream().filter(g -> g.getCardProductId().equals(card.getCardProductId())
                     && g.getGroupCode().equals(group.getGroupCode())
                     && possiblyEffective(g.getValidFrom(), g.getValidUntil(), date)).count();
@@ -101,14 +140,15 @@ class RecommendationInputAssembler {
             if (used == null) {
                 issue(issues, card, groupId, "LIMIT_USAGE_MISSING");
             }
-            if (group.getLimitUnit() == Unit.COUNT) {
-                issue(issues, card, groupId, "COUNT_CONSUMPTION_POLICY_UNKNOWN");
-            }
+            boolean singleCount=scopedGroup && group.getLimitUnit()==Unit.COUNT && data.links().stream()
+                    .filter(l -> l.getLimitGroupId().equals(groupId)).map(BenefitLimitLink::getCardBenefitId).distinct().count()==1;
+            if (group.getLimitUnit()==Unit.COUNT && !singleCount) issue(issues,card,groupId,"COUNT_CONSUMPTION_POLICY_UNKNOWN");
+            if (singleCount) trace(traces,card,null,List.of("limit:"+groupId+".countMode=PER_BENEFIT","limit:"+groupId+".consumeOnZero=false"));
             limits.add(new Limit(groupId, group.getPolicyVersion(), group.getLimitUnit(), group.getPeriodType(),
-                    maximum, used, null, null));
+                    maximum, used, singleCount ? CountMode.PER_BENEFIT : null, singleCount ? false : null));
         }
         // POL-012·013: 현재 지원하는 일시불·YAMU 모의 무이자 할부의 금융 수수료·이자는 0원이다.
-        // 비용 0원과 다른 상품 정책의 확인 여부는 별개이므로 complete=false를 유지한다.
+        // 비용 0원은 정책 완전성 판단을 바꾸지 않는다. 승인 범위 밖은 기존 미확인을 유지한다.
         var applications = applicationGroups(card, data, rows);
         var fallbacks = new HashMap<Long, Fallback>();
         for (var row : rows) {
@@ -126,8 +166,22 @@ class RecommendationInputAssembler {
                 fallbacks.put(row.getId(), new Fallback(destination.getId(), row.getFallbackMode()));
             }
         }
-        if (applications.isEmpty()) issue(issues, card, null, "BENEFIT_COMBINATIONS_UNKNOWN");
-        return new BenefitPolicy(false, previous, BigDecimal.ZERO, converted, limits, null, applications, fallbacks);
+        if (applications.isEmpty() && !scoped) issue(issues,card,null,"BENEFIT_COMBINATIONS_UNKNOWN");
+        return new BenefitPolicy(scoped,previous,BigDecimal.ZERO,converted,limits,null,applications,fallbacks,traces);
+    }
+
+    private LocalDate[] validity(LocalDate from,LocalDate until,boolean scoped,List<String> fields) {
+        if (scoped && (from==null || until==null)) {
+            from=from==null || from.isBefore(SIM_FROM) ? SIM_FROM : from;
+            until=until==null || until.isAfter(SIM_UNTIL) ? SIM_UNTIL : until;
+            fields.add("validity=YAMU_MOCK_2026-11_KST");
+        }
+        return new LocalDate[]{from,until};
+    }
+
+    private void trace(List<SimulationRule> traces,UserCard card,Long benefit,List<String> fields) {
+        if (!fields.isEmpty()) traces.add(new SimulationRule("YAMU_SIM_CARD_POLICY",1,
+                "YAMU에 등록된 혜택과 모의 계산 기준으로 추천했습니다. 포인트의 비교 금액은 실제 환급액과 다를 수 있습니다.",card.getId(),benefit,fields));
     }
 
     private List<TargetGroup> targetGroups(CardBenefit benefit, RecommendationPolicyData data) {

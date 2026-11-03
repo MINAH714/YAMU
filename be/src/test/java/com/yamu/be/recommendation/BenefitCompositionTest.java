@@ -93,6 +93,18 @@ class BenefitCompositionTest {
         assertThat(calculator.calculate(noriTx,sufficient).netBenefit()).isEqualByComparingTo("2500");
     }
 
+    @ParameterizedTest @CsvSource({"1500,true", "1500.5,false"})
+    void limitThenRoundSharedTotalIsKnownOnlyForIntegerUnitDownInputs(String raw,boolean known) {
+        var a=change(benefit(1,raw),conditions(),rounding(),CalculationOrder.LIMIT_THEN_ROUND,List.of(9L));
+        var b=change(benefit(2,"1000"),conditions(),rounding(),CalculationOrder.LIMIT_THEN_ROUND,List.of(9L));
+        var result=calculator.calculate(tx,policy(List.of(a,b),List.of(limit(9,Unit.KRW,1800,0)),ApplicationMode.STACK,Map.of()));
+        assertThat(result.complete()).isEqualTo(known);
+        if(known) {
+            assertThat(result.netBenefit()).isEqualByComparingTo("1800");
+            assertThat(result.benefits()).allSatisfy(v->assertThat(v.value()).isNull());
+        } else assertThat(result.problems()).extracting(CardBenefitCalculator.Problem::code).contains("SHARED_ROUNDING_ORDER_UNKNOWN");
+    }
+
     @Test void purchaseItemAndMerchantAreAndPathsOrAndUnknownIsNotFalse() {
         var groups=List.of(new TargetGroup(1,false,List.of(new Target(TargetType.BRAND,1L,null,false),
                 new Target(TargetType.PURCHASE_ITEM,null,"YOUTUBE_PREMIUM_SUBSCRIPTION",false))),

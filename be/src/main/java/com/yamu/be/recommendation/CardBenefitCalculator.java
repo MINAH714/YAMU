@@ -271,7 +271,16 @@ public final class CardBenefitCalculator {
                 uses.put(limit.id(), new LimitUse(limit.id(), limit.version(), limit.unit(), limit.period(), cap, paid));
                 if (paid.compareTo(amount) < 0) {
                     var positive = members.stream().filter(b -> b.value().signum() > 0).toList();
-                    if (positive.stream().anyMatch(b -> benefits.get(b.benefitId()).calculationOrder() != BenefitPolicy.CalculationOrder.ROUND_THEN_LIMIT)) return insufficient(null, "SHARED_ROUNDING_ORDER_UNKNOWN");
+                    // 기존 LIMIT_THEN_ROUND를 유지한다. 노리2처럼 원시값·최종 공유 한도 모두 정수이고
+                    // 거래별 1원 절사인 경우 총액은 확정된다. 상세 배분 순서는 여전히 정하지 않는다.
+                    if (positive.stream().anyMatch(b -> {
+                        var policyBenefit=benefits.get(b.benefitId());
+                        if (policyBenefit.calculationOrder()==BenefitPolicy.CalculationOrder.ROUND_THEN_LIMIT) return false;
+                        var rounding=policyBenefit.rounding();
+                        return rounding.stage()!=BenefitPolicy.RoundingStage.PER_TRANSACTION || rounding.mode()!=java.math.RoundingMode.DOWN
+                                || rounding.unit().compareTo(BigDecimal.ONE)!=0 || b.rawValue().remainder(BigDecimal.ONE).signum()!=0
+                                || paid.remainder(BigDecimal.ONE).signum()!=0;
+                    })) return insufficient(null, "SHARED_ROUNDING_ORDER_UNKNOWN");
                     if (paid.signum() == 0 || positive.size() == 1) {
                         for (var b : positive) values.set(values.indexOf(b), new BenefitValue(b.benefitId(), b.version(), b.name(), b.type(), b.rawValue(),
                                 paid, b.unit(), paid.multiply(conversion), "SHARED_LIMIT_CAPPED"));

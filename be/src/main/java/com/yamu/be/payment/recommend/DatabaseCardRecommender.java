@@ -19,16 +19,11 @@ public class DatabaseCardRecommender implements CardRecommender {
     public DatabaseCardRecommender(RecommendationService service, Clock clock) { this.service=service; this.clock=clock; }
 
     public RecommendationResult recommend(RecommendationRequest request) {
-        var facts = new HashMap<>(request.verifiedFacts());
-        if (request.merchant().channel() != null && !request.merchant().channel().equals("UNKNOWN")) {
-            facts.put("CHANNEL:ONLINE", request.merchant().channel().equals("ONLINE"));
-            facts.put("CHANNEL:OFFLINE", request.merchant().channel().equals("OFFLINE"));
-        }
-        if (request.merchant().facilityType() != null) facts.put("FACILITY:" + request.merchant().facilityType(), true);
         var terms = request.terms();
-        var transaction = new RecommendationInput.Transaction(terms.amount(), RecommendationInput.Plan.valueOf(terms.plan().name()),
+        var preserved = new RecommendationInput.Transaction(terms.amount(), RecommendationInput.Plan.valueOf(terms.plan().name()),
                 terms.installmentMonths() == null ? 1 : terms.installmentMonths(), request.requestedAt().toInstant(ZoneOffset.UTC),
-                request.merchant().merchantId(), request.merchant().categoryCode(), facts, request.purchaseItemCode());
+                request.merchant().merchantId(), request.merchant().categoryCode(), request.verifiedFacts(), request.purchaseItemCode());
+        var transaction=com.yamu.be.recommendation.BasicPurchaseSimulation.apply(preserved,request.merchant().channel(),request.merchant().facilityType());
         var result = service.recommend(new RecommendationCommand(request.paymentId(), request.userId(), transaction, request.availability()));
         var candidates = new ArrayList<Candidate>();
         var excluded = new ArrayList<ExcludedCard>();
@@ -63,7 +58,7 @@ public class DatabaseCardRecommender implements CardRecommender {
                 uncompared.add(new UncomparedCard(card, reason, issue.map(i -> i.message()).orElse(evaluated.message())));
             }
         }
-        return new RecommendationResult("rec_"+UUID.randomUUID(), LocalDateTime.ofInstant(clock.instant(),ZoneOffset.UTC),false,candidates,excluded,uncompared,1,result.issues());
+        return new RecommendationResult("rec_"+UUID.randomUUID(), LocalDateTime.ofInstant(clock.instant(),ZoneOffset.UTC),false,candidates,excluded,uncompared,1,result.issues(),result.simulationRules());
     }
 
     private CardSummary summary(long id, RecommendationService.CardContext c) {

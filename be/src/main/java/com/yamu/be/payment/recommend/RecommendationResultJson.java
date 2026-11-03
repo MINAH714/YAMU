@@ -27,7 +27,8 @@ public class RecommendationResultJson {
                     throw new IllegalArgumentException("추천 총액/배분 배열 누락");
                 }
             }
-            return json.treeToValue(tree, RecommendationResult.class);
+            // 트리는 형식 검증에만 쓴다. 실수 노드를 거치면 원시 정률 금액의 소수 정밀도가 손실될 수 있다.
+            return json.readValue(value, RecommendationResult.class);
         } catch (JsonProcessingException ex) { throw new IllegalArgumentException("추천 결과 JSON 형식 오류"); }
     }
 }

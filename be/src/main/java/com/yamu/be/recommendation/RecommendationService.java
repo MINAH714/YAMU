@@ -19,7 +19,7 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionTemplate;
 
-/** 같은 BE의 내부 진입점. POS·승인·저장·HTTP 포트는 이 서비스를 아직 호출하지 않는다. */
+/** 같은 BE의 추천 내부 진입점. DatabaseCardRecommender가 결제 포트 입력을 변환해서 호출한다. */
 @Service
 @Slf4j
 public class RecommendationService {
@@ -60,10 +60,14 @@ public class RecommendationService {
                               Map<Long, String> benefitTiming) { }
 
     public record Result(RecommendationSelector.Result recommendation, List<RecommendationDataIssue> issues,
-                         Map<Long, CardContext> cards) {
+                         Map<Long, CardContext> cards, List<SimulationRule> simulationRules) {
+        public Result(RecommendationSelector.Result recommendation,List<RecommendationDataIssue> issues,Map<Long,CardContext> cards) {
+            this(recommendation,issues,cards,List.of());
+        }
         public Result {
             issues = List.copyOf(issues);
             cards = Map.copyOf(cards);
+            simulationRules=List.copyOf(simulationRules);
         }
     }
 
@@ -157,7 +161,9 @@ public class RecommendationService {
             prepared = new Prepared(input(command, loaded, loaded.policies, progress), issues);
         }
         // 트랜잭션이 끝난 뒤 순수 계산만 실행한다. 읽기 실패가 정상적인 정책 미등록으로 바뀌지 않는다.
-        return new Result(selector.select(prepared.input()), prepared.issues(), context(loaded));
+        var rules=new ArrayList<>(command.transaction().simulationRules());
+        loaded.policies.entrySet().stream().sorted(Map.Entry.comparingByKey()).forEach(e -> rules.addAll(e.getValue().simulationRules()));
+        return new Result(selector.select(prepared.input()), prepared.issues(), context(loaded), rules);
     }
 
     private PolicyRows load(RecommendationCommand command, Loaded loaded) {
@@ -191,7 +197,7 @@ public class RecommendationService {
         data.benefits().stream().filter(b -> b.getApplicationTiming() != null)
                 .forEach(b -> loaded.benefitTiming.put(b.getId(), b.getApplicationTiming()));
         // min_performance_amount의 저장 의미는 '최소 전월 실적'이다. 서버 현재 월은 사용하지 않는다.
-        // 이 자료를 읽어도 약관 확인 완료가 되는 것은 아니며 complete=false로 전달한다.
+        // 실적 조회 성공만으로 상품 정책을 확인 완료로 승격하지 않는다.
         var priorIds = eligible.stream().filter(c -> data.benefits().stream().anyMatch(b ->
                 b.getCardProductId().equals(c.getCardProductId()) && b.getMinPerformanceAmount() > 0)
                 || data.links().stream().anyMatch(l -> l.getCardProductId().equals(c.getCardProductId())
@@ -213,7 +219,8 @@ public class RecommendationService {
                 issues.add(new RecommendationDataIssue(card.getId(), null, "PREVIOUS_PERFORMANCE_MISSING", false));
             }
             try {
-                policyByCard.put(card.getId(), assembler.policy(card, rows.data(), rows.date(), previous.get(card.getId()), issues));
+                policyByCard.put(card.getId(), assembler.policy(card, rows.data(), rows.date(), previous.get(card.getId()), issues,
+                        command.transaction(),loaded.products.get(card.getCardProductId())));
             } catch (IllegalArgumentException invalidPolicy) {
                 // DB의 개별 필드 제약만으로 보장되지 않는 정책 조합 오류도 해당 카드에 한정한다.
                 issues.add(new RecommendationDataIssue(card.getId(), null, "POLICY_DATA_INVALID", false));

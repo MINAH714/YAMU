@@ -33,7 +33,13 @@ import java.util.stream.Stream;
  */
 public record RecommendationResult(String recommendationId, LocalDateTime calculatedAt, boolean estimate,
         List<Candidate> candidates, List<ExcludedCard> excludedCards, List<UncomparedCard> uncomparedCards, int schemaVersion,
-        List<com.yamu.be.recommendation.RecommendationDataIssue> issues) {
+        List<com.yamu.be.recommendation.RecommendationDataIssue> issues,
+        List<com.yamu.be.recommendation.SimulationRule> simulationRules) {
+    public RecommendationResult(String recommendationId,LocalDateTime calculatedAt,boolean estimate,List<Candidate> candidates,
+            List<ExcludedCard> excludedCards,List<UncomparedCard> uncomparedCards,int schemaVersion,
+            List<com.yamu.be.recommendation.RecommendationDataIssue> issues) {
+        this(recommendationId,calculatedAt,estimate,candidates,excludedCards,uncomparedCards,schemaVersion,issues,List.of());
+    }
     public RecommendationResult(String recommendationId, LocalDateTime calculatedAt, boolean estimate,
             List<Candidate> candidates, List<ExcludedCard> excludedCards, List<UncomparedCard> uncomparedCards) {
         this(recommendationId, calculatedAt, estimate, candidates, excludedCards, uncomparedCards, 1, List.of());
@@ -43,6 +49,7 @@ public record RecommendationResult(String recommendationId, LocalDateTime calcul
     public static final String NO_BENEFIT_NOTICE = "혜택 정보를 확인할 수 없어 혜택 없이 결제됩니다.";
 
     public RecommendationResult {
+        simulationRules=simulationRules==null ? List.of() : List.copyOf(simulationRules);
         issues = issues == null ? List.of() : List.copyOf(issues);
         // 구형 진행 중 스냅샷 읽기 호환. 신규 DB 보존은 codec에서 버전 필수를 검사한다.
         if (schemaVersion == 0) schemaVersion = 1;

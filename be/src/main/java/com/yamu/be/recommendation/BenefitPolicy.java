@@ -16,7 +16,12 @@ import java.util.Set;
 public record BenefitPolicy(boolean complete, Long previousMonthPerformance,
                             BigDecimal additionalCost, List<Benefit> benefits,
                             List<Limit> limits, List<List<Long>> allowedCombinations,
-                            List<ApplicationGroup> applicationGroups, java.util.Map<Long, Fallback> fallbacks) {
+                            List<ApplicationGroup> applicationGroups, java.util.Map<Long, Fallback> fallbacks,
+                            List<SimulationRule> simulationRules) {
+    public BenefitPolicy(boolean complete, Long previousMonthPerformance, BigDecimal additionalCost, List<Benefit> benefits,
+            List<Limit> limits, List<List<Long>> allowedCombinations, List<ApplicationGroup> applicationGroups, java.util.Map<Long, Fallback> fallbacks) {
+        this(complete,previousMonthPerformance,additionalCost,benefits,limits,allowedCombinations,applicationGroups,fallbacks,List.of());
+    }
     public BenefitPolicy(boolean complete, Long previousMonthPerformance, BigDecimal additionalCost,
             List<Benefit> benefits, List<Limit> limits, List<List<Long>> allowedCombinations) {
         this(complete, previousMonthPerformance, additionalCost, benefits, limits, allowedCombinations, null, java.util.Map.of());
@@ -34,6 +39,7 @@ public record BenefitPolicy(boolean complete, Long previousMonthPerformance,
         limits = List.copyOf(limits);
         applicationGroups = applicationGroups == null ? null : List.copyOf(applicationGroups);
         fallbacks = java.util.Map.copyOf(fallbacks);
+        simulationRules = List.copyOf(simulationRules);
         if (allowedCombinations != null) {
             allowedCombinations = allowedCombinations.stream().map(List::copyOf).toList();
         }

@@ -31,6 +31,16 @@ class RecommendationResultJsonTest {
         assertThat(codec.decode(json)).isEqualTo(original);
         assertThat(codec.decode(json).status()).isEqualTo(Status.READY);
     }
+    @Test void legacyJsonWithoutSimulationRulesRemainsReadableAndRawDecimalsKeepPrecision() {
+        var original=result(candidate(List.of(new BenefitLine(1L,"raw","POINT",
+                new java.math.BigDecimal("1234567890.123456789012345678"),1L,"POINT_ACCRUAL")),List.of()));
+        var json=codec.encode(original);
+        assertThat(codec.decode(json)).isEqualTo(original);
+        var legacy=json.replace(",\"simulationRules\":[]","");
+        assertThat(codec.decode(legacy).simulationRules()).isEmpty();
+        assertThat(codec.decode(legacy).candidates().get(0).benefits().get(0).rawAmount())
+                .isEqualTo(new java.math.BigDecimal("1234567890.123456789012345678"));
+    }
     @Test void rejectsMissingVersionAndUnexplainedOrDuplicatedNulls() {
         assertThatThrownBy(()->codec.decode("{\"candidates\":[]}")).isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(()->candidate(lines("AFTER_BILLING"),List.of())).isInstanceOf(IllegalArgumentException.class);

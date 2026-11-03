@@ -107,6 +107,7 @@ public final class BenefitConditionEvaluator {
         if (code.equals("INSTALLMENT:INTEREST_FREE")) {
             return transaction.plan() == RecommendationInput.Plan.INSTALLMENT;
         }
+        if (code.equals("INSTALLMENT:LUMP_SUM")) return transaction.plan() == RecommendationInput.Plan.LUMP_SUM;
         return transaction.facts().get(code);
     }
 
