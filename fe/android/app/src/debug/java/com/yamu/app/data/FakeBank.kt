@@ -251,6 +251,7 @@ class FakeBank @Inject constructor(private val sessionStore: SessionStore) {
                 isDefault = c.assetId == defaultCard,
                 stateLabel = cardStateLabel(if (c.assetId in excluded) "INACTIVE" else "ACTIVE", "NORMAL"),
                 nickname = nicknames[c.assetId],
+                recommended = c.assetId !in excluded,
             )
         }
         return ApiResult.Success(LinkedOverview(acc, crd, linkedAt))
@@ -303,7 +304,8 @@ class FakeBank @Inject constructor(private val sessionStore: SessionStore) {
             paymentDay = paymentDay,
             settlementAccountId = if (check) null else accounts.filter { it.assetId in linked }.indexOf(account).takeIf { it >= 0 }?.let { it + 1L },
             checkAccountLabel = if (check) "${account.bank} ·${account.last4}" else null,
-            nextWithdrawal = if (check) null else NextWithdrawal(recognized, LocalDate.now(KST).plusDays(10)),
+            nextWithdrawal = if (assetId == "C3") NextWithdrawal(recognized, LocalDate.now(KST).plusDays(10)) else null,
+            hasOpenBill = assetId == "C3",
         )
     }
 
@@ -372,9 +374,9 @@ class FakeLinkRepository @Inject constructor(private val bank: FakeBank) : LinkR
     override suspend fun linkedOverview(refresh: Boolean) = withFault(empty = { ApiResult.Success(LinkedOverview(emptyList(), emptyList(), null)) }) { bank.overview() }
     override suspend fun updateAccount(accountId: Long, alias: String?, makePrimary: Boolean) = bank.updateAccount(accountId, alias, makePrimary)
     override suspend fun cardDetail(userCardId: Long) = withFault { bank.cardDetail(userCardId) }
-    override suspend fun updateCard(userCardId: Long, nickname: String?, recommended: Boolean?, isDefault: Boolean?) = bank.updateCard(userCardId, nickname, recommended, isDefault)
-    override suspend fun saveCardOrder(userCardIds: List<Long>) = bank.saveCardOrder(userCardIds)
-    override suspend fun unregisterCard(userCardId: Long, stepUpToken: String) = bank.unregisterCard(userCardId)
+    override suspend fun updateCard(userCardId: Long, nickname: String?, recommended: Boolean?, isDefault: Boolean?) = withFault { bank.updateCard(userCardId, nickname, recommended, isDefault) }
+    override suspend fun saveCardOrder(userCardIds: List<Long>) = withFault { bank.saveCardOrder(userCardIds) }
+    override suspend fun unregisterCard(userCardId: Long, stepUpToken: String) = withFault { bank.unregisterCard(userCardId) }
 }
 
 /** debug 전용 가짜 월급 · 고정 지출 — 프로토타입 B-06 숫자(월급 10일 2,800,000 · 월세 · 통신비 · 구독료 + 신한카드 대금) */

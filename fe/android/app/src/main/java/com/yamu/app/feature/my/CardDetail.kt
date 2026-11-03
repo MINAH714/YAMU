@@ -62,6 +62,7 @@ import com.yamu.app.feature.link.data.CardValidation
 import com.yamu.app.feature.link.data.LinkRepository
 import com.yamu.app.feature.link.data.cardErrorMessage
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -77,14 +78,20 @@ data class CardDetailState(
     val loading: Boolean = true,
     val card: CardInfo? = null,
     val settlementAccountLabel: String? = null,    // 신용카드 결제 계좌 — 계좌 목록을 못 읽으면 null
-    val lastCard: Boolean = false,                 // 해제하면 카드가 0장 — 다시 로그인하면 BE가 초기 설정으로 보낸다
+    val otherActiveCards: Int? = null,             // 자동 선택에 포함된 다른 카드 수. 목록을 못 읽으면 null
     val error: String? = null,
     val gone: Boolean = false,                     // 없거나 다른 기기에서 해제한 카드
     val saving: Boolean = false,
     val unregistering: Boolean = false,
     val unregisteredName: String? = null,          // 해제 끝 — 화면을 닫는다
     val message: String? = null,                   // 스낵바 한 번
-)
+) {
+    /**
+     * 자동 선택에 포함된 마지막 카드 — 빼거나 해제하면 BE가 초기 설정 전으로 본다(OnboardingStatusReader: ACTIVE 카드 1장 이상, 임시 기준).
+     * 다시 로그인하면 카드 등록으로 가는데, 추천에서만 뺀 카드는 등록돼 있어 다시 등록할 수 없다
+     */
+    val isLastActive: Boolean get() = card?.recommended == true && otherActiveCards == 0
+}
 
 /** 없는 카드(404)와 해제한 카드(409)는 고칠 수 없다 — 줄을 되돌리는 대신 '이미 해제'로 */
 private fun ApiError.isCardGone(): Boolean = this is ApiError.NotFound || code == "CARD_UNREGISTERED"
@@ -100,11 +107,13 @@ class CardDetailViewModel @Inject constructor(
     private val _state = MutableStateFlow(CardDetailState())
     val state: StateFlow<CardDetailState> = _state.asStateFlow()
     val stepUp = stepUpFactory.create(viewModelScope)
+    private var loadJob: Job? = null
 
     /** 화면에 돌아올 때마다 — 다른 기기에서 바꾼 값이 보이게. 저장 중이면 그 응답을 기다린다 */
     fun load() {
         if (_state.value.saving) return
-        viewModelScope.launch {
+        loadJob?.cancel()
+        loadJob = viewModelScope.launch {
             _state.update { it.copy(loading = it.card == null, error = null) }
             val overview = async { link.linkedOverview() }
             val detail = link.cardDetail(userCardId)
@@ -117,7 +126,7 @@ class CardDetailViewModel @Inject constructor(
                         gone = false,
                         settlementAccountLabel = linked?.accounts?.firstOrNull { it.accountId == detail.data.settlementAccountId }
                             ?.let { "${it.brand.name} ·${it.last4}" } ?: s.settlementAccountLabel,
-                        lastCard = linked?.cards?.size == 1,
+                        otherActiveCards = linked?.cards?.count { it.recommended && it.userCardId != userCardId } ?: s.otherActiveCards,
                     )
                     is ApiResult.Failure ->
                         if (detail.error.isCardGone()) s.copy(loading = false, gone = true)
@@ -133,7 +142,9 @@ class CardDetailViewModel @Inject constructor(
         save({ it.copy(nickname = nickname) }) { link.updateCard(userCardId, nickname = nickname.orEmpty()) }
     }
 
+    /** 마지막 카드는 뺄 수 없다(임시). 결제할 카드가 없어지고 다시 로그인하면 등록에서 막힌다 */
     fun setRecommended(on: Boolean) {
+        if (!on && _state.value.isLastActive) return
         val wasDefault = _state.value.card?.isDefault == true
         save(
             optimistic = { it.copy(recommended = on) },
@@ -147,7 +158,8 @@ class CardDetailViewModel @Inject constructor(
     private fun save(optimistic: (CardInfo) -> CardInfo, done: () -> String? = { null }, call: suspend () -> ApiResult<CardInfo>) {
         val before = _state.value.card ?: return
         if (_state.value.saving) return
-        _state.update { it.copy(saving = true, card = optimistic(before)) }
+        loadJob?.cancel()   // 저장 전에 읽은 값이 늦게 와서 방금 저장한 값을 덮지 않게
+        _state.update { it.copy(saving = true, loading = false, card = optimistic(before)) }
         viewModelScope.launch {
             when (val r = call()) {
                 is ApiResult.Success -> _state.update { it.copy(saving = false, card = r.data, message = done()) }
@@ -164,11 +176,12 @@ class CardDetailViewModel @Inject constructor(
 
     /**
      * 본인 확인 뒤 해제. 응답을 못 받았으면 서버가 끝냈을 수 있어 카드가 남아 있는지 본다 — 다시 누르게 하면 본인 인증을 한 번 더 받아야 한다.
-     * 다시 눌렀을 때 서버가 404를 줘도 처음 요청이 끝난 것이라 해제로 본다. 청구가 남아 막히면(409) 서버는 본인 인증 토큰을 쓰지 않는다
+     * 다시 눌렀을 때 서버가 404를 줘도 처음 요청이 끝난 것이라 해제로 본다. 청구가 남아 막히면(409) 서버는 본인 인증 토큰을 쓰지 않는다.
+     * 상세에서 이미 아는 청구는 간편 비밀번호를 받기 전에 막는다
      */
     fun unregister() {
         val card = _state.value.card ?: return
-        if (_state.value.unregistering || stepUp.busy) return
+        if (card.hasOpenBill || _state.value.unregistering || stepUp.busy) return
         _state.update { it.copy(unregistering = true) }
         stepUp.start(
             purpose = StepUpPurpose.CARD_DELETE,
@@ -241,6 +254,7 @@ fun CardDetailRoute(
                 else -> CardDetailBody(
                     card = card,
                     settlementAccountLabel = s.settlementAccountLabel,
+                    lastActive = s.isLastActive,
                     saving = s.saving,
                     unregistering = s.unregistering,
                     onNickname = { sheet = CardDetailSheet.NICKNAME },
@@ -265,7 +279,7 @@ fun CardDetailRoute(
             )
             CardDetailSheet.UNREGISTER -> UnregisterSheet(
                 card = card,
-                lastCard = s.lastCard,
+                lastActive = s.isLastActive,
                 onConfirm = {
                     sheet = null
                     viewModel.unregister()
@@ -281,6 +295,7 @@ fun CardDetailRoute(
 private fun CardDetailBody(
     card: CardInfo,
     settlementAccountLabel: String?,
+    lastActive: Boolean,
     saving: Boolean,
     unregistering: Boolean,
     onNickname: () -> Unit,
@@ -319,8 +334,8 @@ private fun CardDetailBody(
         "자동 선택에 포함",
         checked = card.recommended,
         onToggle = onRecommended,
-        sub = "끄면 결제 카드를 고를 때 빠져요",
-        enabled = !saving,
+        sub = if (lastActive) "자동 선택에 포함된 마지막 카드라 뺄 수 없어요" else "끄면 결제 카드를 고를 때 빠져요",
+        enabled = !saving && !lastActive,
     )
     // 기본 카드는 풀 수는 있어도, 빠진 카드 · 정지 카드를 새로 고를 수는 없다
     val canPickDefault = card.recommended && !card.issuerBlocked
@@ -366,7 +381,7 @@ private fun NicknameSheet(card: CardInfo, onSave: (String) -> Unit, onDismiss: (
 
 /** M-03c — 실제 카드 해지로 오해하지 않게 첫 줄에 적는다. BE가 바로 해제해 실행 취소는 없다 */
 @Composable
-private fun UnregisterSheet(card: CardInfo, lastCard: Boolean, onConfirm: () -> Unit, onDismiss: () -> Unit) {
+private fun UnregisterSheet(card: CardInfo, lastActive: Boolean, onConfirm: () -> Unit, onDismiss: () -> Unit) {
     val c = YamuTheme.colors
     val name = card.displayName
     YamuBottomSheet(onDismiss = onDismiss) {
@@ -378,13 +393,17 @@ private fun UnregisterSheet(card: CardInfo, lastCard: Boolean, onConfirm: () -> 
         Spacer(Modifier.height(YamuSpacing.x1))
         Text("다시 쓰려면 카드를 다시 등록해야 해요", style = YamuTheme.typography.bodyM, color = c.text2)
         Spacer(Modifier.height(YamuSpacing.x1))
-        Text("출금이 끝나지 않은 청구가 있으면 해제할 수 없어요", style = YamuTheme.typography.bodyM, color = c.text2)
-        if (lastCard) {
+        if (card.hasOpenBill) {
+            Text("출금이 끝나지 않은 청구가 있어 지금은 해제할 수 없어요", style = YamuTheme.typography.bodyM, color = c.warning)
+        } else {
+            Text("출금이 끝나지 않은 청구가 있으면 해제할 수 없어요", style = YamuTheme.typography.bodyM, color = c.text2)
+        }
+        if (lastActive) {
             Spacer(Modifier.height(YamuSpacing.x1))
-            Text("마지막 카드예요 · 다시 로그인하면 카드 등록부터 해요", style = YamuTheme.typography.bodyM, color = c.warning)
+            Text("자동 선택에 포함된 마지막 카드예요 · 다시 로그인하면 카드 등록부터 해요", style = YamuTheme.typography.bodyM, color = c.warning)
         }
         Spacer(Modifier.height(YamuSpacing.x5))
-        PrimaryButton("카드 해제하기", onClick = onConfirm)
+        PrimaryButton("카드 해제하기", onClick = onConfirm, enabled = !card.hasOpenBill)
         Spacer(Modifier.height(YamuSpacing.x2))
         NeutralButton("취소", onClick = onDismiss)
         Spacer(Modifier.height(YamuSpacing.x2))

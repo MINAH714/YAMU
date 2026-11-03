@@ -21,6 +21,7 @@ import com.yamu.app.feature.link.data.LinkedCard
 import com.yamu.app.feature.link.data.LinkedOverview
 import com.yamu.app.feature.link.data.RegisteredCard
 import com.yamu.app.feature.link.data.brandOf
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
@@ -75,10 +76,48 @@ class CardDetailViewModelTest {
         assertEquals("신한은행 ·5678", detail().state.value.settlementAccountLabel)
     }
 
-    @Test fun `마지막 한 장이면 해제 시트에서 알린다`() = runTest(dispatcher) {
-        assertFalse(detail().state.value.lastCard)
-        link.cards = link.cards.take(1)
-        assertTrue(detail().state.value.lastCard)
+    @Test fun `다른 카드가 자동 선택에 있으면 마지막 카드가 아니다`() = runTest(dispatcher) {
+        link.cards = listOf(linkedCard(21), linkedCard(2))
+        assertFalse(detail().state.value.isLastActive)
+    }
+
+    @Test fun `다른 카드가 모두 추천 제외면 카드가 여러 장이어도 마지막이다 — BE는 ACTIVE만 센다`() = runTest(dispatcher) {
+        link.cards = listOf(linkedCard(21), linkedCard(2).copy(recommended = false))
+        assertTrue(detail().state.value.isLastActive)
+    }
+
+    @Test fun `추천에서 뺀 카드는 마지막 카드가 아니다 — 다시 켤 수 있어야 한다`() = runTest(dispatcher) {
+        link.detailResult = ApiResult.Success(CARD.copy(recommended = false))
+        link.cards = listOf(linkedCard(21).copy(recommended = false))
+        val vm = detail()
+        assertFalse(vm.state.value.isLastActive)
+        link.updateResult = ApiResult.Success(CARD)
+        vm.setRecommended(true)
+        advanceUntilIdle()
+        assertEquals(true, link.updates.single().recommended)
+    }
+
+    @Test fun `목록을 못 읽으면 마지막 카드로 단정하지 않는다`() = runTest(dispatcher) {
+        link.overviewResult = ApiResult.Failure(ApiError.Network)
+        assertFalse(detail().state.value.isLastActive)
+    }
+
+    @Test fun `마지막 카드는 자동 선택에서 뺄 수 없다`() = runTest(dispatcher) {
+        link.cards = listOf(linkedCard(21))
+        val vm = detail()
+        vm.setRecommended(false)
+        advanceUntilIdle()
+        assertTrue(link.updates.isEmpty())
+        assertTrue(vm.state.value.card!!.recommended)
+    }
+
+    @Test fun `다른 카드가 있으면 자동 선택에서 뺄 수 있다`() = runTest(dispatcher) {
+        link.cards = listOf(linkedCard(21), linkedCard(2))
+        link.updateResult = ApiResult.Success(CARD.copy(recommended = false))
+        val vm = detail()
+        vm.setRecommended(false)
+        advanceUntilIdle()
+        assertEquals(false, link.updates.single().recommended)
     }
 
     @Test fun `없거나 해제한 카드면 이미 해제로`() = runTest(dispatcher) {
@@ -138,6 +177,22 @@ class CardDetailViewModelTest {
         advanceUntilIdle()
         assertFalse(vm.state.value.card!!.isDefault)
         assertEquals("자동 선택에서 빼면서 기본 카드 지정도 풀었어요", vm.state.value.message)
+    }
+
+    @Test fun `저장을 시작하면 진행 중인 읽기는 버린다 — 늦게 와서 저장한 값을 덮으면 안 된다`() = runTest(dispatcher) {
+        val vm = detail()
+        val gate = CompletableDeferred<Unit>()
+        link.detailGate = gate
+        vm.load()
+        advanceUntilIdle()
+        link.updateResult = ApiResult.Success(CARD.copy(isDefault = true))
+        vm.setDefault(true)
+        advanceUntilIdle()
+        assertTrue(vm.state.value.card!!.isDefault)
+        gate.complete(Unit)
+        advanceUntilIdle()
+        assertTrue(vm.state.value.card!!.isDefault)
+        assertFalse(vm.state.value.loading)
     }
 
     @Test fun `저장 중 다른 기기에서 해제됐으면 이미 해제로`() = runTest(dispatcher) {
@@ -216,6 +271,16 @@ class CardDetailViewModelTest {
         assertEquals("출금이 끝나지 않은 청구가 있어 해제할 수 없어요", vm.state.value.message)
     }
 
+    @Test fun `이미 아는 청구가 있으면 본인 인증을 받지 않는다`() = runTest(dispatcher) {
+        link.detailResult = ApiResult.Success(CARD.copy(hasOpenBill = true))
+        val vm = detail()
+        vm.unregister()
+        advanceUntilIdle()
+        assertFalse(vm.state.value.unregistering)
+        assertFalse(vm.stepUp.busy)
+        assertEquals(0, link.unregisters)
+    }
+
     @Test fun `본인 인증을 취소하면 다시 누를 수 있다`() = runTest(dispatcher) {
         val vm = detail()
         vm.unregister()
@@ -235,6 +300,8 @@ class CardDetailViewModelTest {
         var updateResult: ApiResult<CardInfo> = ApiResult.Success(CARD)
         var unregisterResult: ApiResult<Unit> = ApiResult.Success(Unit)
         var cards = listOf(linkedCard(1), linkedCard(2), linkedCard(3))
+        var overviewResult: ApiResult<LinkedOverview>? = null
+        var detailGate: CompletableDeferred<Unit>? = null
         val updates = mutableListOf<Update>()
         var detailReads = 0
         var unregisters = 0
@@ -242,7 +309,9 @@ class CardDetailViewModelTest {
 
         override suspend fun cardDetail(userCardId: Long): ApiResult<CardInfo> {
             detailReads++
-            return detailResult
+            val result = detailResult
+            detailGate?.await()
+            return result
         }
 
         override suspend fun updateCard(userCardId: Long, nickname: String?, recommended: Boolean?, isDefault: Boolean?): ApiResult<CardInfo> {
@@ -257,7 +326,7 @@ class CardDetailViewModelTest {
         }
 
         override suspend fun linkedOverview(refresh: Boolean): ApiResult<LinkedOverview> =
-            ApiResult.Success(LinkedOverview(listOf(ACCOUNT), cards, null))
+            overviewResult ?: ApiResult.Success(LinkedOverview(listOf(ACCOUNT), cards, null))
 
         override suspend fun saveCardOrder(userCardIds: List<Long>): ApiResult<Unit> = error("안 씀")
         override suspend fun updateAccount(accountId: Long, alias: String?, makePrimary: Boolean): ApiResult<LinkedAccount> = error("안 씀")
