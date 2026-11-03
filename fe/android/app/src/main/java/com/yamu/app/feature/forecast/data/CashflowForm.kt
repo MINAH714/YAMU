@@ -19,7 +19,12 @@ import java.util.Locale
     val userCardId: Long? = null,
 )
 
-@Serializable data class RecurrenceRequest(val frequency: String, val dayOfMonth: Int? = null, val dayOfWeek: String? = null)
+@Serializable data class RecurrenceRequest(
+    val frequency: String,                        // NONE(1회로 바꿀 때만) · WEEKLY · MONTHLY
+    val dayOfMonth: Int? = null,
+    val dayOfWeek: String? = null,
+    val endDate: String? = null,                  // 없으면 끝없이(수정에서는 통째로 교체라 빼면 종료일이 지워진다)
+)
 
 enum class CashflowRepeat { NONE, WEEKLY, MONTHLY }
 
@@ -38,6 +43,7 @@ data class CashflowForm(
     val date: LocalDate,
     val repeat: CashflowRepeat = CashflowRepeat.NONE,
     val monthEnd: Boolean = false,                // 매월 말일
+    val endDate: LocalDate? = null,               // 반복이 끝나는 날(그날 포함) — 반복일 때만
     val accountId: Long? = null,
     val userCardId: Long? = null,
 ) {
@@ -55,6 +61,10 @@ data class CashflowForm(
 
     fun withAccount(id: Long) = copy(accountId = id, userCardId = null)
     fun withCard(id: Long) = copy(accountId = null, userCardId = id)
+    fun withEndDate(d: LocalDate?) = copy(endDate = d)
+
+    /** 실제로 보낼 종료일 — 반복이 아니면 없다 */
+    val effectiveEndDate: LocalDate? get() = endDate.takeIf { repeat != CashflowRepeat.NONE }
 
     /** 보내기 전 검사 — 서버 검사(7.1.2)와 같은 범위. 비어 있으면 보내도 된다 */
     fun validate(today: LocalDate): Map<CashflowField, String> = buildMap {
@@ -69,6 +79,7 @@ data class CashflowForm(
             a > CASHFLOW_AMOUNT_MAX -> put(CashflowField.AMOUNT, "1,000억 원까지 넣을 수 있어요")
         }
         if (date.isBefore(today)) put(CashflowField.DATE, "오늘이나 그 뒤 날짜를 골라 주세요")
+        if (effectiveEndDate?.isBefore(date) == true) put(CashflowField.RECURRENCE, "끝나는 날은 시작일과 같거나 그 뒤여야 해요")
         when {
             accountId == null && userCardId == null -> put(CashflowField.PAYMENT, if (isIncome) "들어올 계좌를 골라 주세요" else "나갈 계좌나 카드를 골라 주세요")
             isIncome && userCardId != null -> put(CashflowField.PAYMENT, "수입은 계좌로만 받을 수 있어요")
@@ -80,14 +91,17 @@ data class CashflowForm(
         title = title.trim(),
         amount = amount ?: 0,
         date = date.toString(),
-        recurrence = when (repeat) {
-            CashflowRepeat.NONE -> null
-            CashflowRepeat.WEEKLY -> RecurrenceRequest("WEEKLY", dayOfWeek = date.dayOfWeek.name)   // 첫 발생일의 요일과 같아야 한다
-            CashflowRepeat.MONTHLY -> RecurrenceRequest("MONTHLY", dayOfMonth = if (isMonthEnd) MONTH_END else date.dayOfMonth)
-        },
+        recurrence = recurrenceRequest(),
         accountId = accountId,
         userCardId = userCardId,
     )
+
+    /** 반복 규칙 요청 — 1회면 null(수정에서 1회로 바꿀 때는 [CashflowEntry.toPatch]가 NONE을 보낸다) */
+    fun recurrenceRequest(): RecurrenceRequest? = when (repeat) {
+        CashflowRepeat.NONE -> null
+        CashflowRepeat.WEEKLY -> RecurrenceRequest("WEEKLY", dayOfWeek = date.dayOfWeek.name, endDate = effectiveEndDate?.toString())   // 첫 발생일의 요일과 같아야 한다
+        CashflowRepeat.MONTHLY -> RecurrenceRequest("MONTHLY", dayOfMonth = if (isMonthEnd) MONTH_END else date.dayOfMonth, endDate = effectiveEndDate?.toString())
+    }
 
     /** '매주 화요일' · '매월 25일' · '매월 말일' — 반복 안 함이면 null */
     fun repeatLabel(): String? = when (repeat) {
