@@ -271,6 +271,12 @@ class FakeBank @Inject constructor(private val sessionStore: SessionStore) {
         cardCount = cards.count { it.assetId in linked && it.accountId == assetId },
     )
 
+    suspend fun linkedAccountList(): ApiResult<List<LinkedAccount>> {
+        ensureLoaded()
+        delay(300)
+        return ApiResult.Success(linkedAccounts().map { it.toLinked() })
+    }
+
     /** BE AccountManagementService.update와 같게 */
     suspend fun updateAccount(accountId: Long, alias: String?, makePrimary: Boolean): ApiResult<LinkedAccount> {
         delay(300)
@@ -372,6 +378,7 @@ class FakeLinkRepository @Inject constructor(private val bank: FakeBank) : LinkR
     override suspend fun accountCandidates() = withFault { bank.candidates() }
     override suspend fun linkAccounts(candidateIds: List<String>, idempotencyKey: String, stepUpToken: String) = bank.linkAccounts(candidateIds, idempotencyKey)
     override suspend fun linkedOverview(refresh: Boolean) = withFault(empty = { ApiResult.Success(LinkedOverview(emptyList(), emptyList(), null)) }) { bank.overview() }
+    override suspend fun accounts() = withFault(empty = { ApiResult.Success(emptyList()) }) { bank.linkedAccountList() }
     override suspend fun updateAccount(accountId: Long, alias: String?, makePrimary: Boolean) = bank.updateAccount(accountId, alias, makePrimary)
     override suspend fun cardDetail(userCardId: Long) = withFault { bank.cardDetail(userCardId) }
     override suspend fun updateCard(userCardId: Long, nickname: String?, recommended: Boolean?, isDefault: Boolean?) = withFault { bank.updateCard(userCardId, nickname, recommended, isDefault) }

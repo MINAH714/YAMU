@@ -96,7 +96,7 @@ class AccountManageViewModelTest {
     @Test fun `없는 계좌면 지금 목록으로 다시 읽는다`() = runTest(dispatcher) {
         link.updateResult = ApiResult.Failure(ApiError.NotFound("RESOURCE_NOT_FOUND"))
         val vm = viewModel()
-        link.accounts = listOf(FIRST)
+        link.list = listOf(FIRST)
         vm.rename(2, "생활비")
         advanceUntilIdle()
         assertEquals(listOf(1L), vm.state.value.accounts.map { it.accountId })
@@ -104,7 +104,7 @@ class AccountManageViewModelTest {
 
     @Test fun `목록을 못 읽으면 오류 — 이미 읽은 목록은 지우지 않는다`() = runTest(dispatcher) {
         val vm = viewModel()
-        link.overviewResult = ApiResult.Failure(ApiError.Network)
+        link.listResult = ApiResult.Failure(ApiError.Network)
         vm.load()
         advanceUntilIdle()
         assertEquals(2, vm.state.value.accounts.size)
@@ -141,13 +141,15 @@ class AccountManageViewModelTest {
     private data class Update(val accountId: Long, val alias: String?, val makePrimary: Boolean)
 
     private class StubLink : LinkRepository {
-        var accounts = listOf(FIRST, SECOND)
-        var overviewResult: ApiResult<LinkedOverview>? = null
+        var list = listOf(FIRST, SECOND)
+        var listResult: ApiResult<List<LinkedAccount>>? = null
         var updateResult: ApiResult<LinkedAccount> = ApiResult.Success(SECOND)
         val updates = mutableListOf<Update>()
 
-        override suspend fun linkedOverview(refresh: Boolean): ApiResult<LinkedOverview> =
-            overviewResult ?: ApiResult.Success(LinkedOverview(accounts, emptyList(), null))
+        override suspend fun accounts(): ApiResult<List<LinkedAccount>> = listResult ?: ApiResult.Success(list)
+
+        /** 카드 목록이 실패해도 계좌 화면이 열리도록 이 화면은 부르지 않는다 */
+        override suspend fun linkedOverview(refresh: Boolean): ApiResult<LinkedOverview> = error("안 씀")
 
         override suspend fun updateAccount(accountId: Long, alias: String?, makePrimary: Boolean): ApiResult<LinkedAccount> {
             updates += Update(accountId, alias, makePrimary)

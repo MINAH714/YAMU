@@ -73,8 +73,8 @@ class AccountManageViewModel @Inject constructor(private val link: LinkRepositor
         if (_state.value.saving) return
         viewModelScope.launch {
             _state.update { it.copy(loading = it.accounts.isEmpty(), error = null) }
-            when (val r = link.linkedOverview()) {
-                is ApiResult.Success -> _state.update { it.copy(loading = false, accounts = r.data.accounts) }
+            when (val r = link.accounts()) {
+                is ApiResult.Success -> _state.update { it.copy(loading = false, accounts = r.data) }
                 is ApiResult.Failure -> _state.update { it.copy(loading = false, error = r.error.userMessage()) }
             }
         }

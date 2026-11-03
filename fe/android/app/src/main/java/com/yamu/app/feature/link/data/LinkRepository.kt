@@ -95,6 +95,9 @@ interface LinkRepository {
     /** 연결된 계좌(잔액 — 금융망) · 카드 */
     suspend fun linkedOverview(refresh: Boolean = false): ApiResult<LinkedOverview>
 
+    /** 연결된 계좌만(잔액 — 금융망). 카드 목록이 실패해도 계좌 화면은 열려야 한다 */
+    suspend fun accounts(): ApiResult<List<LinkedAccount>>
+
     /** 넘긴 값만 바꾸고 바뀐 계좌를 돌려준다. [alias] ""은 별칭 지우기. [makePrimary]면 이 계좌가 기준 계좌가 되고 전에 있던 기준 계좌는 풀린다 */
     suspend fun updateAccount(accountId: Long, alias: String? = null, makePrimary: Boolean = false): ApiResult<LinkedAccount>
 
@@ -141,6 +144,8 @@ class LinkRepositoryImpl @Inject constructor(private val api: LinkApi) : LinkRep
             }
         }
     }
+
+    override suspend fun accounts(): ApiResult<List<LinkedAccount>> = apiCall { api.accounts(null) }.map { r -> r.accounts.map { it.toLinked() } }
 
     override suspend fun updateAccount(accountId: Long, alias: String?, makePrimary: Boolean): ApiResult<LinkedAccount> =
         apiCall { api.updateAccount(accountId, AccountUpdateRequest(alias, true.takeIf { makePrimary })) }.map { it.toLinked() }

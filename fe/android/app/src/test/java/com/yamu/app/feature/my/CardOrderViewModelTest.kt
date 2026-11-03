@@ -121,6 +121,7 @@ class CardOrderViewModelTest {
         override suspend fun cardDetail(userCardId: Long): ApiResult<CardInfo> = error("안 씀")
         override suspend fun updateCard(userCardId: Long, nickname: String?, recommended: Boolean?, isDefault: Boolean?): ApiResult<CardInfo> = error("안 씀")
         override suspend fun unregisterCard(userCardId: Long, stepUpToken: String): ApiResult<Unit> = error("안 씀")
+        override suspend fun accounts(): ApiResult<List<LinkedAccount>> = error("안 씀")
         override suspend fun updateAccount(accountId: Long, alias: String?, makePrimary: Boolean): ApiResult<LinkedAccount> = error("안 씀")
         override suspend fun lookupCard(cardNumber: String, expiryMonth: String, expiryYear: String): ApiResult<CardLookup> = error("안 씀")
         override suspend fun registerCard(verificationToken: String, nickname: String?, stepUpToken: String): ApiResult<RegisteredCard> = error("안 씀")
