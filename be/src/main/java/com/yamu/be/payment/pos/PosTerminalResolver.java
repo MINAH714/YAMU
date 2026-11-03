@@ -15,7 +15,7 @@ import org.springframework.stereotype.Component;
 @Component
 public class PosTerminalResolver {
 
-    public static final String HEADER = "X-POS-Key";
+    static final String HEADER = "X-POS-Key";
 
     private final PosProperties properties;
 
