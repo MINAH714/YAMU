@@ -58,6 +58,7 @@ import com.yamu.app.feature.my.NotificationSettingsRoute
 import com.yamu.app.feature.my.NotificationsRoute
 import com.yamu.app.feature.my.ProfileRoute
 import com.yamu.app.feature.my.SecurityRoute
+import com.yamu.app.feature.my.WithdrawRoute
 import com.yamu.app.feature.my.data.NotiTarget
 import com.yamu.app.feature.report.BenefitReportRoute
 import com.yamu.app.feature.report.PaymentsRoute
@@ -380,7 +381,17 @@ fun YamuNavHost(navController: NavHostController, modifier: Modifier = Modifier)
                 }
                 composable<AccountManage> { AccountManageRoute(onBack = back) }
                 composable<NotificationSettings> { NotificationSettingsRoute(onBack = back) }
-                composable<Profile> { ProfileRoute(onBack = back, onOpenPinPad = openPinPad) }
+                composable<Profile> { ProfileRoute(onBack = back, onOpenPinPad = openPinPad, onWithdraw = { navController.navigate(Withdraw) }) }
+                composable<Withdraw> {
+                    WithdrawRoute(
+                        onBack = back,
+                        onOpenPinPad = openPinPad,
+                        onWithdrawn = {
+                            navController.restartFromSplash()   // 스택을 비워 뒤로 가도 앱 안 화면으로 돌아가지 않게
+                            showMessage("탈퇴했어요")
+                        },
+                    )
+                }
                 composable<Security> { SecurityRoute(onBack = back, onOpenPinPad = openPinPad) }
             }
 

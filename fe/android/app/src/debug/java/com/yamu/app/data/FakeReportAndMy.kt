@@ -265,6 +265,8 @@ class FakeMyRepository @Inject constructor(
 
     override suspend fun revokeDevice(id: Long, stepUpToken: String): ApiResult<Unit> { delay(300); devices.removeAll { it.id == id }; return ApiResult.Success(Unit) }
 
+    override suspend fun withdraw(stepUpToken: String): ApiResult<Unit> { delay(500); return ApiResult.Success(Unit) }
+
     private fun all(): List<AppNotification> {
         val paid = payments.approved().map {
             AppNotification(it.paymentId, "결제 완료 · ${it.merchantName}", "${"%,d".format(it.amount)}원 · ${it.cardName ?: "카드"}", false, it.paidAtIso, NotiTarget.Payment(it.paymentId))

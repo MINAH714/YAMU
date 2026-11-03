@@ -73,6 +73,7 @@ import kotlinx.serialization.Serializable
 @Serializable data object AccountManage      // M-01b 계좌 관리(월급 · 고정 지출은 빼고 계좌만)
 @Serializable data object NotificationSettings // M-04
 @Serializable data object Profile            // M-06
+@Serializable data object Withdraw           // M-07b 회원 탈퇴
 @Serializable data object Security           // M-08
 
 // ── 공통 ──
