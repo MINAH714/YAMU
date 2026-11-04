@@ -102,7 +102,13 @@ import java.time.YearMonth
     val balance: Long? = null,
     val balanceAsOf: String? = null,
     val isPrimary: Boolean = false,
+    val linkedCards: List<AccountCardDto> = emptyList(),   // 이 계좌에서 출금하는 등록 카드
 )
+
+@Serializable data class AccountCardDto(val userCardId: Long)
+
+/** 보낸 값만 바뀐다 — null은 보내지 않고, 별칭 ""은 지우기. isPrimary false는 서버가 거절해 보내지 않는다(BE AccountUpdateRequest) */
+@Serializable data class AccountUpdateRequest(val accountName: String? = null, val isPrimary: Boolean? = null)
 
 /** #7 `GET /cards` */
 @Serializable data class CardsResponse(val cards: List<CardDto> = emptyList(), val dataSyncedAt: String? = null)
@@ -125,6 +131,38 @@ import java.time.YearMonth
 @Serializable data class CardPerformanceDto(val yearMonth: String? = null, val targetAmount: Long? = null, val recognizedAmount: Long = 0)
 
 @Serializable data class BillingSummaryDto(val paymentDay: Int? = null)
+
+/** `GET /cards/{id}` · `PATCH /cards/{id}` 응답 — 체크카드는 linkedAccount, 신용카드는 billing만 온다 */
+@Serializable data class CardDetailDto(
+    val userCardId: Long,
+    val nickname: String? = null,           // 별칭이 없으면 상품명이 온다
+    val issuer: IssuerDto,
+    val productName: String,
+    val cardType: String = "CREDIT",
+    val maskedNumber: String,
+    val status: String? = null,             // ACTIVE 추천 포함 · INACTIVE 추천 제외
+    val issuerStatus: String? = null,       // NORMAL · SUSPENDED · EXPIRED
+    val isDefault: Boolean = false,
+    val linkedAccount: CardLinkedAccountDto? = null,
+    val billing: CardDetailBillingDto? = null,
+)
+
+@Serializable data class CardLinkedAccountDto(val bankName: String? = null, val maskedAccountNo: String? = null)
+
+@Serializable data class CardDetailBillingDto(
+    val paymentDay: Int? = null,
+    val settlementAccountId: Long? = null,
+    val nextWithdrawal: NextWithdrawalDto? = null,
+    val hasUnpaidBill: Boolean = false,
+)
+
+@Serializable data class NextWithdrawalDto(val amount: Long? = null, val withdrawalDate: String? = null)
+
+/** 보낸 값만 바뀐다 — null은 보내지 않고, 별칭 ""은 지우기(BE CardUpdateRequest) */
+@Serializable data class CardUpdateRequest(val nickname: String? = null, val status: String? = null, val isDefault: Boolean? = null)
+
+/** 등록된 카드 전체를 빠짐없이 원하는 순서로(BE CardOrderRequest) */
+@Serializable data class CardOrderRequest(val userCardIds: List<Long>)
 
 // ── 앱 안에서 쓰는 값 ──
 
@@ -182,6 +220,8 @@ data class LinkedAccount(
     val balance: Long?,
     val balanceAsOfIso: String?,
     val isPrimary: Boolean,
+    val alias: String? = null,              // 사용자가 지은 별칭만. name은 없을 때 기본 이름까지 채운 값
+    val cardCount: Int = 0,                 // 이 계좌에서 출금하는 카드 수
 )
 
 data class LinkedCard(
@@ -196,7 +236,34 @@ data class LinkedCard(
     val isDefault: Boolean = false,
     val stateLabel: String? = null,         // 정지 · 만료 · 추천 제외일 때만
     val issuerBlocked: Boolean = false,     // 카드사 정지 · 만료 — 예정 지출의 결제 수단으로 고를 수 없다
-)
+    val nickname: String? = null,           // 사용자가 지은 별칭만
+    val recommended: Boolean = true,        // 결제 카드 자동 선택에 포함(status ACTIVE)
+) {
+    val displayName: String get() = nickname ?: productName
+}
+
+/** 카드 상세(M-03) */
+data class CardInfo(
+    val userCardId: Long,
+    val brand: Brand,
+    val nickname: String?,                  // 사용자가 지은 별칭만
+    val productName: String,
+    val isCheck: Boolean,
+    val last4: String,
+    val recommended: Boolean,               // 결제 카드 자동 선택에 포함
+    val stateLabel: String?,
+    val issuerBlocked: Boolean,
+    val isDefault: Boolean,
+    val paymentDay: Int?,
+    val settlementAccountId: Long?,         // 신용카드 결제 계좌 — 이름은 계좌 목록에서 찾는다
+    val checkAccountLabel: String?,         // 체크카드 연결 계좌
+    val nextWithdrawal: NextWithdrawal?,
+    val hasOpenBill: Boolean = false,       // 확정 · 미납 청구가 있어 해제할 수 없다. 쌓이는 중인 청구는 여기 없어 해제 때 서버가 막는다
+) {
+    val displayName: String get() = nickname ?: productName
+}
+
+data class NextWithdrawal(val amount: Long, val date: LocalDate)
 
 data class LinkedOverview(val accounts: List<LinkedAccount>, val cards: List<LinkedCard>, val syncedAtIso: String?) {
     val primaryAccount: LinkedAccount? get() = accounts.firstOrNull { it.isPrimary } ?: accounts.firstOrNull()
@@ -213,7 +280,7 @@ data class LinkedOverview(val accounts: List<LinkedAccount>, val cards: List<Lin
 object CardValidation {
     const val NUMBER_LENGTH = 16
     const val EXPIRY_LENGTH = 4
-    const val NICKNAME_MAX = 20
+    const val NICKNAME_MAX = 20             // 카드 · 계좌 별칭(서버 CardUpdateRequest · AccountUpdateRequest)
     private val NUMBER = Regex("\\d{16}")
     private val EXPIRY = Regex("(0[1-9]|1[0-2])\\d{2}")
 
@@ -247,6 +314,9 @@ fun cardErrorMessage(code: String, reason: String? = null): String? = when (code
     "CARD_ACCOUNT_NOT_SET" -> "카드사에 결제 정보가 없어 등록할 수 없어요"
     "CARD_ACCOUNT_NOT_LINKED" -> "이 카드의 결제 계좌를 먼저 연결해 주세요"
     "VERIFICATION_TOKEN_EXPIRED" -> "확인 시간이 지났어요 · 카드 정보를 다시 넣어 주세요"
+    "CARD_HAS_OPEN_BILL" -> "출금이 끝나지 않은 청구가 있어 해제할 수 없어요"
+    "CARD_UNREGISTERED" -> "이미 해제한 카드예요"
+    "ORDER_INCOMPLETE" -> "다른 기기에서 카드가 바뀌었어요 · 순서를 다시 정해 주세요"
     else -> null
 }
 
@@ -347,6 +417,8 @@ fun AccountDto.toLinked() = LinkedAccount(
     balance = balance,
     balanceAsOfIso = balanceAsOf,
     isPrimary = isPrimary,
+    alias = accountName,
+    cardCount = linkedCards.size,
 )
 
 /** 카드 관리 줄 태그 — 카드사가 막은 상태를 먼저. 평소 상태면 null */
@@ -369,4 +441,28 @@ fun CardDto.toLinked() = LinkedCard(
     isDefault = isDefault,
     stateLabel = cardStateLabel(status, issuerStatus),
     issuerBlocked = issuerStatus == "SUSPENDED" || issuerStatus == "EXPIRED",
+    nickname = nickname?.takeIf { it != productName },
+    recommended = status != "INACTIVE",
+)
+
+fun CardDetailDto.toInfo() = CardInfo(
+    userCardId = userCardId,
+    brand = brandOf(issuer.name, color = issuer.color),
+    nickname = nickname?.takeIf { it != productName },
+    productName = productName,
+    isCheck = cardType.equals("CHECK", ignoreCase = true),
+    last4 = maskedNumber.lastDigits(),
+    recommended = status != "INACTIVE",
+    stateLabel = cardStateLabel(status, issuerStatus),
+    issuerBlocked = issuerStatus == "SUSPENDED" || issuerStatus == "EXPIRED",
+    isDefault = isDefault,
+    paymentDay = billing?.paymentDay,
+    settlementAccountId = billing?.settlementAccountId,
+    checkAccountLabel = linkedAccount?.let { a -> listOfNotNull(a.bankName, a.maskedAccountNo?.lastDigits()?.let { "·$it" }).joinToString(" ").ifEmpty { null } },
+    nextWithdrawal = billing?.nextWithdrawal?.let { n ->
+        val amount = n.amount ?: return@let null
+        val date = n.withdrawalDate?.let { runCatching { LocalDate.parse(it) }.getOrNull() } ?: return@let null
+        NextWithdrawal(amount, date)
+    },
+    hasOpenBill = billing?.nextWithdrawal != null || billing?.hasUnpaidBill == true,
 )

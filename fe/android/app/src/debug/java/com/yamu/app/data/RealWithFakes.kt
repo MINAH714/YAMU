@@ -57,7 +57,7 @@ class RealCashflowWithFakes @Inject constructor(
         real.deleteItem(itemId, scope, occurrenceDate)
 }
 
-/** 진짜: 기기 목록 · 해제. 가짜: 회원 정보 · 설정 · 알림 */
+/** 진짜: 기기 목록 · 해제 · 회원 탈퇴. 가짜: 회원 정보 · 설정 · 알림 */
 class RealMyWithFakes @Inject constructor(
     real: MyRepositoryImpl,
     private val fake: FakeMyRepository,

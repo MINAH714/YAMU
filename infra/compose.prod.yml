@@ -64,6 +64,8 @@ services:
       YAMU_CRYPTO_HMAC_KEY: ${YAMU_CRYPTO_HMAC_KEY:?Set YAMU_CRYPTO_HMAC_KEY}
       YAMU_CRYPTO_PIN_PEPPER: ${YAMU_CRYPTO_PIN_PEPPER:?Set YAMU_CRYPTO_PIN_PEPPER}
       YAMU_JWT_SECRET: ${YAMU_JWT_SECRET:?Set YAMU_JWT_SECRET}
+      # Holiday sync key (data.go.kr decoded key). Optional: when empty the backend still starts and uses the bundled holiday files.
+      DATA_GO_KR_SERVICE_KEY: ${DATA_GO_KR_SERVICE_KEY:-}
       MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE: health
       MANAGEMENT_ENDPOINT_HEALTH_SHOWDETAILS: never
       # Temporary deployment choice: API docs are not publicly exposed.

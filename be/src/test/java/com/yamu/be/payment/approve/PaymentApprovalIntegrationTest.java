@@ -81,7 +81,6 @@ class PaymentApprovalIntegrationTest extends MySqlTestSupport {
 
     static final String POS_KEY = "test-pos-key";
     static final Duration RETENTION = Duration.ofMinutes(10);
-    static final TemporaryCreditCardApprover TEMPORARY = new TemporaryCreditCardApprover();
 
     @Container
     @ServiceConnection(name = "redis")
@@ -122,6 +121,8 @@ class PaymentApprovalIntegrationTest extends MySqlTestSupport {
 
     @BeforeEach
     void setUp() {
+        jdbc.update("DELETE FROM bill_item");
+        jdbc.update("DELETE FROM card_bill");
         jdbc.update("DELETE FROM payment_transaction");
         jdbc.update("DELETE FROM user_card");
         jdbc.update("DELETE FROM linked_account");
@@ -141,7 +142,7 @@ class PaymentApprovalIntegrationTest extends MySqlTestSupport {
         checkCard = fixtures.card(user, checkProduct, account, "ACTIVE");
         otherCard = fixtures.card(other, creditProduct, fixtures.account(other), "ACTIVE");
         cafe = merchant("테스트 카페", "TEST_CAFE", "COFFEE_SHOP");
-        when(approver.approve(any())).thenAnswer(inv -> TEMPORARY.approve(inv.getArgument(0)));
+        when(approver.approve(any())).thenAnswer(inv -> approvedLike(inv.getArgument(0)));
     }
 
     // ───────── 승인 ─────────
@@ -289,7 +290,7 @@ class PaymentApprovalIntegrationTest extends MySqlTestSupport {
         CountDownLatch release = new CountDownLatch(1);
         doAnswer(inv -> {
             release.await(10, TimeUnit.SECONDS);
-            return TEMPORARY.approve(inv.getArgument(0));
+            return approvedLike(inv.getArgument(0));
         }).when(approver).approve(any());
         int requests = 5;
         ExecutorService pool = Executors.newFixedThreadPool(requests);
@@ -409,7 +410,7 @@ class PaymentApprovalIntegrationTest extends MySqlTestSupport {
         Requested requested = requested(15_000, null, null);
         doReturn(new ApprovalOutcome.Declined(FailureCode.INSUFFICIENT_BALANCE, null,
                 Map.of("availableBalance", 8_000)))
-                .doAnswer(inv -> TEMPORARY.approve(inv.getArgument(0)))
+                .doAnswer(inv -> approvedLike(inv.getArgument(0)))
                 .when(approver).approve(any());
 
         approve(user, requested.paymentId(), UUID.randomUUID().toString(), body(creditCard))
@@ -474,7 +475,7 @@ class PaymentApprovalIntegrationTest extends MySqlTestSupport {
     void 이_결제에서_거절된_카드를_다시_고르면_400이고_시도를_세지_않으며_생략하면_다음_후보로_승인한다() throws Exception {
         Requested requested = requested(15_000, null, null);
         doReturn(ApprovalOutcome.Declined.of(FailureCode.ISSUER_DECLINED))
-                .doAnswer(inv -> TEMPORARY.approve(inv.getArgument(0)))
+                .doAnswer(inv -> approvedLike(inv.getArgument(0)))
                 .when(approver).approve(any());
         approve(user, requested.paymentId(), UUID.randomUUID().toString(), "{}")
                 .andExpect(status().isOk())
@@ -633,6 +634,13 @@ class PaymentApprovalIntegrationTest extends MySqlTestSupport {
             builder.content(body);
         }
         return mockMvc.perform(builder);
+    }
+
+    /** 체크카드·혜택 0원 승인과 같은 모양: 승인액 = 원금, 실적 0, 청구 계획 없음. */
+    static ApprovalOutcome.Approved approvedLike(ApprovalCommand command) {
+        long amount = command.terms().amount();
+        return new ApprovalOutcome.Approved(amount, amount, 0, ApprovalDates.performanceMonth(command.now()),
+                List.of(), null, null, null);
     }
 
     private static String body(long userCardId) {

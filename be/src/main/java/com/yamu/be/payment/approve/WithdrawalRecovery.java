@@ -383,7 +383,7 @@ public class WithdrawalRecovery {
         LocalDate performanceMonth = nowUtc().atOffset(ZoneOffset.UTC).atZoneSameInstant(KST).toLocalDate()
                 .withDayOfMonth(1);
         return new ApprovalOutcome.Approved(amount, amount, 0, performanceMonth, List.of(), finRequestNo,
-                found.bankTransactionNo());
+                found.bankTransactionNo(), null);
     }
 
     private LocalDateTime nowUtc() {

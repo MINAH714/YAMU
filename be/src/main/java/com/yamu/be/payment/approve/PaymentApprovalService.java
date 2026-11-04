@@ -20,6 +20,9 @@ import com.yamu.be.payment.approve.PaymentApprovalResponse.SelectedCard;
 import com.yamu.be.payment.approve.PaymentApprovalResponse.SuggestedCard;
 import com.yamu.be.payment.bank.TransferTag;
 import com.yamu.be.payment.barcode.BarcodeStore;
+import com.yamu.be.payment.billing.BillItem;
+import com.yamu.be.payment.billing.CardBill;
+import com.yamu.be.payment.billing.CreditBillingWriter;
 import com.yamu.be.payment.domain.PaymentStatus;
 import com.yamu.be.payment.domain.PaymentTransaction;
 import com.yamu.be.payment.domain.PaymentTransactionRepository;
@@ -39,6 +42,7 @@ import jakarta.persistence.OptimisticLockException;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDateTime;
+import java.time.YearMonth;
 import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
@@ -60,13 +64,17 @@ import org.springframework.transaction.support.TransactionTemplate;
  * ③ 결제 소유 확인(남의 결제 404) → PROCESSING이면 결과 불명 복구(WithdrawalRecovery). 복구를 거친 요청은 새로 출금하지 않고
  *    복구 결과로 답한다(금융망에 간 적 없어 되돌린 REQUESTED만 이어서 승인) → 상태·마감 선검사(만료면 EXPIRED 저장 후 410)
  * ④ 카드 결정(직접 고름: 소유 404·이 결제에서 거절된 카드 400·적격 400, 생략: 거절된 카드를 뺀 1순위 추천)
+ *    → 사전 검사(신용카드 결제일·한도 자료 없음 422)
  * ⑤ 결제별 정산 잠금(출금 실행·결과 저장·복구가 겹치지 않게) 안에서: 출금 미확인으로 거절된 결제면 앞 출금을 거래내역에서 다시 보고
  *    (찾으면 승인으로 바로잡고 409, 조회 실패면 502), 시작 잠금 안에서: 시도 예약(최대 3회, 임시. 횟수 검사와 붙이기가 원자적) → tx1: REQUESTED·DECLINED → PROCESSING 선점.
  *    선점하지 못하면 예약을 지운다
- * ⑥ 승인 실행(PaymentApprover, DB 트랜잭션 밖. 체크카드는 금융망 출금). 결과 불명은 PROCESSING에 둔 채 502,
- *    금융망에 보내지도 못했으면 REQUESTED로 되돌리고 시도를 지운다
+ * ⑥ 승인 실행(PaymentApprover, DB 트랜잭션 밖. 체크카드는 금융망 출금, 신용카드는 한도 확인·청구 계획). 결과 불명은 PROCESSING에 둔 채 502,
+ *    금융망에 보내지도 못했으면 REQUESTED로 되돌리고 시도를 지운다(신용카드 실행 실패도 외부로 보낸 것이 없으므로 같고, 응답은 그 오류).
+ *    신용카드 승인이면 이어서 회차가 걸리는 달의 청구서를 확보한다(별도 트랜잭션). 실패해도 승인·회차는 저장 전이므로 같은 방식으로 되돌리고,
+ *    청구서가 이미 마감됐으면 422(BILL_CLOSED), 그 밖은 500
  * ⑦ 실행 결과(거래 번호·출금액·응답)를 로그와 시도 기록에 먼저 남긴다
- * ⑧ tx2: APPROVED(원장 반영 포트) 또는 DECLINED 저장 → 바코드 USED → 응답 기억(실패해도 ⑦이 있으므로 응답은 그대로)
+ * ⑧ tx2: APPROVED(원장 반영 포트·청구 회차 저장) 또는 DECLINED 저장
+ *    → 바코드 USED → 청구 회차가 생겼으면 회차를 채운 응답으로 시도 기록을 다시 적는다 → 응답 기억(실패해도 ⑦이 있으므로 응답은 그대로)
  * </pre>
  *
  * <p>깨질 수 있는 곳
@@ -93,6 +101,7 @@ public class PaymentApprovalService {
     private final CardRecommender recommender;
     private final PaymentApprover approver;
     private final ApprovalLedger ledger;
+    private final CreditBillingWriter billing;
     private final ApprovalIdempotencyStore idempotency;
     private final ApprovalAttemptStore attempts;
     private final PaymentExpiry expiry;
@@ -107,7 +116,8 @@ public class PaymentApprovalService {
 
     public PaymentApprovalService(PaymentTransactionRepository payments, CardQueryService cardQuery,
             PaymentCardLookup cards, RecommendationSnapshotStore snapshots, CardRecommender recommender,
-            PaymentApprover approver, ApprovalLedger ledger, ApprovalIdempotencyStore idempotency,
+            PaymentApprover approver, ApprovalLedger ledger, CreditBillingWriter billing,
+            ApprovalIdempotencyStore idempotency,
             ApprovalAttemptStore attempts, PaymentExpiry expiry, WithdrawalRecovery recovery, BarcodeStore barcodes,
             RedisLocks locks, TransactionTemplate transaction, ObjectMapper objectMapper,
             PosProperties posProperties, PaymentApprovalProperties properties, Clock clock) {
@@ -118,6 +128,7 @@ public class PaymentApprovalService {
         this.recommender = recommender;
         this.approver = approver;
         this.ledger = ledger;
+        this.billing = billing;
         this.idempotency = idempotency;
         this.attempts = attempts;
         this.expiry = expiry;
@@ -195,6 +206,8 @@ public class PaymentApprovalService {
         PaymentTerms terms = termsOf(payment);
         RecommendationResult recommendation = recommendationOf(payment, terms);
         Selection selection = select(userId, request, terms, recommendation, attempts.declinedCardIds(paymentId));
+        // 자료만으로 승인할 수 없는 카드는 선점·시도 횟수를 쓰기 전에 거른다(신용카드 결제일·한도 자료 없음 → 422)
+        approver.precheck(userId, selection.card(), terms);
 
         // 출금 실행·결과 저장과 복구가 같은 결제에 겹치지 않게 결제별로 잠근다
         RedisLocks.Lock settleLock = locks.tryLock(WithdrawalRecovery.settleLockKey(paymentId),
@@ -247,15 +260,22 @@ public class PaymentApprovalService {
 
         ApprovalOutcome outcome = run(new ApprovalCommand(paymentId, userId, terms, selection.card(),
                 selection.candidate(), payment.getRequestedAt(), nowUtc, attempt.no()), attempt);
+        Map<YearMonth, CardBill> bills = ensureBills(paymentId, userId, selection, outcome, attempt);
         PaymentApprovalResponse response = response(payment, selection, recommendation, outcome, attempt.no(),
-                nowUtc);
-        record(paymentId, attempt, outcome, response);
-        PaymentTransaction settled = settle(paymentId, attempt, outcome, nowUtc);
+                nowUtc, List.of());
+        Attempt recorded = record(paymentId, attempt, outcome, response);
+        Settled settled = settle(paymentId, attempt, outcome, nowUtc, bills);
         if (outcome instanceof ApprovalOutcome.Approved) {
             markBarcodeUsed(paymentId);
         }
-        log.info("결제 승인 결과 저장 paymentId={} attempt={} status={} failure={}", paymentId, attempt.no(),
-                settled.getStatus(), settled.getFailureCode());
+        if (!settled.items().isEmpty()) {
+            // 회차 번호는 tx2가 저장해야 생기므로, 회차를 채운 응답으로 시도 기록을 다시 적는다
+            response = response(payment, selection, recommendation, outcome, attempt.no(), nowUtc,
+                    billItems(settled.items(), bills));
+            recordBillItems(paymentId, attempt, recorded, response);
+        }
+        log.info("결제 승인 결과 저장 paymentId={} attempt={} status={} failure={} billItems={}", paymentId, attempt.no(),
+                settled.payment().getStatus(), settled.payment().getFailureCode(), settled.items().size());
         return response;
     }
 
@@ -450,7 +470,8 @@ public class PaymentApprovalService {
             release(command.paymentId(), attempt);
             log.warn("결제 승인 실행을 보내지 못해 되돌림 paymentId={} attempt={}: {}", command.paymentId(), attempt.no(),
                     e.getMessage());
-            throw new BusinessException(ErrorCode.FIN_API_UNAVAILABLE);
+            // 신용카드 실행 실패는 그 오류로(예: 카드 해지 404), 체크카드 미전송은 502로 답한다
+            throw e.reply().orElseGet(() -> new BusinessException(ErrorCode.FIN_API_UNAVAILABLE));
         } catch (BusinessException e) {
             log.warn("결제 승인 실행 실패, PROCESSING 유지 paymentId={} attempt={} code={}", command.paymentId(),
                     attempt.no(), e.getErrorCode(), e);
@@ -461,8 +482,29 @@ public class PaymentApprovalService {
         }
     }
 
+    /**
+     * ⑥ 신용카드 승인이면 회차가 걸리는 달의 청구서를 확보한다(별도 트랜잭션, 같은 달은 재사용). 시도 기록보다 먼저 해서,
+     * 실패하면 승인·회차가 저장된 것이 없으므로 REQUESTED로 되돌리고 시도를 지운다(시도 횟수에 세지 않음). 업무 오류(청구서 마감
+     * 422)는 그 오류로, 나머지는 500으로 답한다. 남을 수 있는 것은 빈 ACCUMULATING 청구서뿐이고 다음 승인이 재사용한다. 서버가 여기서 죽으면 PROCESSING에 남고,
+     * 요청 번호가 없으므로 복구가 유예 뒤 REQUESTED로 되돌린다.
+     */
+    private Map<YearMonth, CardBill> ensureBills(Long paymentId, Long userId, Selection selection,
+            ApprovalOutcome outcome, Attempt attempt) {
+        if (!(outcome instanceof ApprovalOutcome.Approved approved) || !approved.hasInstallments()) {
+            return Map.of();
+        }
+        try {
+            return billing.ensureBills(userId, selection.card().userCardId(), approved.installments());
+        } catch (RuntimeException e) {
+            releaseApproval(paymentId);
+            release(paymentId, attempt);
+            log.warn("청구서를 확보하지 못해 승인 전으로 되돌림 paymentId={} attempt={}", paymentId, attempt.no(), e);
+            throw e instanceof BusinessException business ? business : new BusinessException(ErrorCode.INTERNAL_ERROR);
+        }
+    }
+
     /** ⑦ tx2 전에 실행 결과를 남긴다. 로그는 항상, 시도 기록은 할 수 있을 때. tx2가 실패하면 이것이 복구 근거다. */
-    private void record(Long paymentId, Attempt attempt, ApprovalOutcome outcome, PaymentApprovalResponse response) {
+    private Attempt record(Long paymentId, Attempt attempt, ApprovalOutcome outcome, PaymentApprovalResponse response) {
         Attempt result;
         if (outcome instanceof ApprovalOutcome.Approved approved) {
             result = attempt.withResult(Attempt.APPROVED, null, approved.finTransactionNo(), approved.chargedAmount(),
@@ -480,10 +522,26 @@ public class PaymentApprovalService {
             log.warn("승인 실행 결과를 시도 기록에 남기지 못함(위 로그가 근거) paymentId={} attempt={}", paymentId,
                     attempt.no(), e);
         }
+        return result;
     }
 
-    /** ⑧ tx2: 승인 결과 저장. 승인이면 원장 반영 포트까지 같은 트랜잭션이다. 실패하면 승인까지 롤백되어 PROCESSING에 남는다. */
-    private PaymentTransaction settle(Long paymentId, Attempt attempt, ApprovalOutcome outcome, LocalDateTime now) {
+    /** ⑧ 뒤 청구 회차를 채운 응답으로 시도 기록을 다시 적는다. 실패하면 같은 키 재전송은 회차 없는 ⑦의 응답을 돌려준다. */
+    private void recordBillItems(Long paymentId, Attempt attempt, Attempt recorded, PaymentApprovalResponse response) {
+        try {
+            attempts.recordResult(paymentId, attempt, recorded.withResult(recorded.outcome(), recorded.failureCode(),
+                    recorded.finTransactionNo(), recorded.chargedAmount(), response));
+        } catch (RuntimeException e) {
+            log.warn("청구 회차를 채운 응답을 시도 기록에 남기지 못함(재전송은 회차 없는 응답) paymentId={} attempt={}", paymentId,
+                    attempt.no(), e);
+        }
+    }
+
+    /**
+     * ⑧ tx2: 승인 결과 저장. 승인이면 원장 반영 포트와 신용카드 청구 회차 저장까지 같은 트랜잭션이다
+     * (회차의 FK가 결제 행의 카드와 맞아야 하므로 승인 저장 뒤에 넣는다). 실패하면 승인까지 롤백되어 PROCESSING에 남는다.
+     */
+    private Settled settle(Long paymentId, Attempt attempt, ApprovalOutcome outcome, LocalDateTime now,
+            Map<YearMonth, CardBill> bills) {
         try {
             return transaction.execute(status -> {
                 PaymentTransaction payment = payments.findById(paymentId)
@@ -509,11 +567,15 @@ public class PaymentApprovalService {
                     }
                     payments.saveAndFlush(payment);
                     ledger.recordApproval(payment, approved);
-                } else if (outcome instanceof ApprovalOutcome.Declined declined) {
-                    payment.decline(declined.code().name());
-                    payments.saveAndFlush(payment);
+                    List<BillItem> items = approved.hasInstallments()
+                            ? billing.writeItems(payment, approved.installments(), bills)
+                            : List.of();
+                    return new Settled(payment, items);
                 }
-                return payment;
+                ApprovalOutcome.Declined declined = (ApprovalOutcome.Declined) outcome;
+                payment.decline(declined.code().name());
+                payments.saveAndFlush(payment);
+                return new Settled(payment, List.of());
             });
         } catch (RuntimeException e) {
             String finTransactionNo = outcome instanceof ApprovalOutcome.Approved approved
@@ -620,9 +682,21 @@ public class PaymentApprovalService {
         }
     }
 
+    /** 신용카드 청구 회차(회차 순). 출금 예정일은 그 회차가 배정된 청구서의 값이다. 체크카드는 빈 목록. */
+    private static List<PaymentApprovalResponse.BillItem> billItems(List<BillItem> items,
+            Map<YearMonth, CardBill> bills) {
+        return items.stream().map(item -> {
+            YearMonth month = YearMonth.from(item.getBillingMonth());
+            CardBill bill = bills.get(month);
+            return new PaymentApprovalResponse.BillItem(item.getId(), item.getInstallmentNo(), item.getBilledAmount(),
+                    month.toString(), bill == null ? null : bill.getWithdrawalDate(), item.getStatus().name());
+        }).toList();
+    }
+
     /** tx2 전에 만든다. 저장될 값(상태·승인 시각)은 실행 결과와 처리 시각으로 정해지므로 저장 뒤의 행과 같다. */
     private PaymentApprovalResponse response(PaymentTransaction payment, Selection selection,
-            RecommendationResult recommendation, ApprovalOutcome outcome, int attemptNo, LocalDateTime now) {
+            RecommendationResult recommendation, ApprovalOutcome outcome, int attemptNo, LocalDateTime now,
+            List<PaymentApprovalResponse.BillItem> billItems) {
         CardSummary card = selection.card();
         SelectedCard selected = new SelectedCard(card.userCardId(), nickname(card), masked(card.last4()),
                 card.cardType(), selection.recommendedRank(), selection.userSelected());
@@ -636,7 +710,7 @@ public class PaymentApprovalService {
                     .toList();
             return new PaymentApprovalResponse(payment.getId(), PaymentStatus.APPROVED,
                     ApprovalNumbers.of(now, payment.getId()), now, selected, payment.getRequestedAmount(), plan,
-                    months, benefits, approved.chargedAmount(), null, List.of(), null, List.of(), null, null, null,
+                    months, benefits, approved.chargedAmount(), null, billItems, null, List.of(), null, null, null,
                     List.of());
         }
         ApprovalOutcome.Declined declined = (ApprovalOutcome.Declined) outcome;
@@ -753,6 +827,9 @@ public class PaymentApprovalService {
      * @param recommendedRank 추천 순위. 후보가 아니면 null
      */
     private record Selection(CardSummary card, Candidate candidate, Integer recommendedRank, boolean userSelected) {}
+
+    /** tx2가 저장한 것: 결제 행, 신용카드면 청구 회차. */
+    private record Settled(PaymentTransaction payment, List<BillItem> items) {}
 
     /** 선점 트랜잭션 안에서 마감을 발견했을 때 롤백하고 밖에서 만료 처리하기 위한 신호. */
     private static final class DeadlinePassed extends RuntimeException {

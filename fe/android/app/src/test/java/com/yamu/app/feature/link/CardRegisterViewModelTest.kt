@@ -13,10 +13,12 @@ import com.yamu.app.feature.auth.data.StepUpPurpose
 import com.yamu.app.feature.auth.data.StepUpToken
 import com.yamu.app.feature.link.data.AccountLinkResult
 import com.yamu.app.feature.link.data.AccountRef
+import com.yamu.app.feature.link.data.CardInfo
 import com.yamu.app.feature.link.data.CardLookup
 import com.yamu.app.feature.link.data.IssuerAccount
 import com.yamu.app.feature.link.data.LinkRepository
 import com.yamu.app.feature.link.data.LinkedCard
+import com.yamu.app.feature.link.data.LinkedAccount
 import com.yamu.app.feature.link.data.LinkedOverview
 import com.yamu.app.feature.link.data.RegisteredCard
 import com.yamu.app.feature.link.data.brandOf
@@ -385,6 +387,8 @@ class CardRegisterViewModelTest {
         var lastRegister: Triple<String, String?, String>? = null
         val linkKeys = mutableListOf<String>()
 
+        override suspend fun accounts(): ApiResult<List<LinkedAccount>> = error("안 씀")
+        override suspend fun updateAccount(accountId: Long, alias: String?, makePrimary: Boolean): ApiResult<LinkedAccount> = error("안 씀")
         override suspend fun lookupCard(cardNumber: String, expiryMonth: String, expiryYear: String): ApiResult<CardLookup> {
             lookups++
             lastLookup = Triple(cardNumber, expiryMonth, expiryYear)
@@ -416,6 +420,10 @@ class CardRegisterViewModelTest {
             overviewLoads++
             return overviewResult
         }
+        override suspend fun cardDetail(userCardId: Long): ApiResult<CardInfo> = error("안 씀")
+        override suspend fun updateCard(userCardId: Long, nickname: String?, recommended: Boolean?, isDefault: Boolean?): ApiResult<CardInfo> = error("안 씀")
+        override suspend fun saveCardOrder(userCardIds: List<Long>): ApiResult<Unit> = error("안 씀")
+        override suspend fun unregisterCard(userCardId: Long, stepUpToken: String): ApiResult<Unit> = error("안 씀")
     }
 
     private companion object {

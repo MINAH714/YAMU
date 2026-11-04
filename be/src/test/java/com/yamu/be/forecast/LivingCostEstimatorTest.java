@@ -8,11 +8,13 @@ import com.yamu.be.forecast.LivingCostEstimator.Confidence;
 import com.yamu.be.forecast.LivingCostEstimator.DataOrigin;
 import com.yamu.be.forecast.LivingCostEstimator.Estimate;
 import com.yamu.be.forecast.LivingCostEstimator.MonthAmount;
-import com.yamu.be.forecast.LivingCostReader.MonthlySpending;
+import com.yamu.be.forecast.LivingCostReader.DailySpending;
 import com.yamu.be.forecast.LivingCostReader.Origin;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.YearMonth;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 
@@ -84,7 +86,7 @@ class LivingCostEstimatorTest {
     @Test
     void 윤년_2월은_29일로_센다() {
         LocalDate may = LocalDate.of(2028, 5, 10);
-        AccountEstimate result = LivingCostEstimator.estimate(List.of(A), List.of(
+        AccountEstimate result = LivingCostEstimator.estimate(List.of(A), days(
                 real(YearMonth.of(2028, 2), 90_000), real(YearMonth.of(2028, 3), 90_000),
                 real(YearMonth.of(2028, 4), 90_000)), may).byAccount().get(A);
 
@@ -139,7 +141,7 @@ class LivingCostEstimatorTest {
 
     @Test
     void 통합은_계좌별_합이고_REAL과_SEED_계좌를_함께_고르면_SEED로_표시한다() {
-        Estimate result = LivingCostEstimator.estimate(List.of(A, B), List.of(
+        Estimate result = LivingCostEstimator.estimate(List.of(A, B), days(
                 real(A, JUL, 310_000), real(A, AUG, 310_000), real(A, SEP, 300_000),
                 seed(B, SEP, 150_000)), TODAY);
 
@@ -156,7 +158,7 @@ class LivingCostEstimatorTest {
 
     @Test
     void 한_계좌라도_자료가_없으면_통합_평균을_비운다() {
-        Estimate result = LivingCostEstimator.estimate(List.of(A, B), List.of(real(A, SEP, 300_000)), TODAY);
+        Estimate result = LivingCostEstimator.estimate(List.of(A, B), days(real(A, SEP, 300_000)), TODAY);
 
         assertThat(result.byAccount().get(A).dailyAverage()).isEqualTo(10_000L);
         assertThat(result.byAccount().get(B).dataOrigin()).isEqualTo(DataOrigin.INSUFFICIENT);
@@ -166,14 +168,14 @@ class LivingCostEstimatorTest {
 
     @Test
     void 선택하지_않은_계좌의_행은_무시하고_음수나_중복_행은_거절한다() {
-        assertThat(LivingCostEstimator.estimate(List.of(A), List.of(real(B, SEP, 1)), TODAY)
+        assertThat(LivingCostEstimator.estimate(List.of(A), days(real(B, SEP, 1)), TODAY)
                 .byAccount()).containsOnlyKeys(A);
         assertThatThrownBy(() -> estimateA(real(SEP, -1))).isInstanceOf(IllegalStateException.class);
         assertThatThrownBy(() -> estimateA(real(SEP, 1), real(SEP, 2))).isInstanceOf(IllegalStateException.class);
     }
 
     @Test
-    void 계약_위반_오류_메시지에는_계좌_월_소비액을_남기지_않는다() {
+    void 계약_위반_오류_메시지에는_계좌_날짜_소비액을_남기지_않는다() {
         // 메시지는 전역 예외 로그에 그대로 남는다.
         assertThatThrownBy(() -> estimateA(real(SEP, -123_456)))
                 .message().doesNotContain("123456").doesNotContain(SEP.toString()).doesNotContain(A.toString());
@@ -181,27 +183,145 @@ class LivingCostEstimatorTest {
                 .message().doesNotContain("777777").doesNotContain("888888").doesNotContain(SEP.toString());
     }
 
-    private static AccountEstimate estimateA(MonthlySpending... months) {
-        return LivingCostEstimator.estimate(List.of(A), List.of(months), TODAY).byAccount().get(A);
+    @Test
+    void 일별_줄을_더해_월_합계를_만들고_0원_날만_있는_달도_완료로_본다() {
+        List<DailySpending> july = new ArrayList<>();
+        for (int day = 1; day <= 31; day++) {
+            july.add(new DailySpending(A, JUL.atDay(day), 10_000, 10_000, Origin.REAL, true));
+        }
+        AccountEstimate result = estimateA(july, real(AUG, 0), real(SEP, 0));
+
+        // 310,000 ÷ 92일 = 3,369.6 → 3,370원
+        assertThat(result.dailyAverage()).isEqualTo(3_370L);
+        assertThat(result.confidence()).isEqualTo(Confidence.HIGH);
+        assertThat(result.sources()).containsExactly(new MonthAmount(JUL, 310_000), new MonthAmount(AUG, 0),
+                new MonthAmount(SEP, 0));
     }
 
-    private static MonthlySpending real(YearMonth month, long amount) {
+    @Test
+    void 하루라도_줄이_없거나_complete가_아닌_달은_미완료로_뺀다() {
+        List<DailySpending> missingDay = real(AUG, 999_999).stream()
+                .filter(row -> !row.date().equals(AUG.atDay(15))).toList();
+        List<DailySpending> oneIncomplete = real(JUL, 999_999).stream()
+                .map(row -> row.date().equals(JUL.atDay(31))
+                        ? new DailySpending(A, row.date(), 0, 0, Origin.REAL, false) : row)
+                .toList();
+
+        AccountEstimate result = estimateA(oneIncomplete, missingDay, real(SEP, 300_000));
+
+        assertThat(result.dailyAverage()).isEqualTo(10_000L);
+        assertThat(result.confidence()).isEqualTo(Confidence.LOW);
+        assertThat(result.sources()).extracting(MonthAmount::month).containsExactly(SEP);
+    }
+
+    @Test
+    void 이번_달은_1일부터_오늘까지_모든_날이_있어야_속도를_계산한다() {
+        // 10/26까지 26일치 줄. 오늘 줄이 빠지면 이번 달은 미완료다.
+        List<DailySpending> withoutToday = real(OCT, 13_001L * 26).stream()
+                .filter(row -> !row.date().equals(TODAY)).toList();
+
+        assertThat(estimateA(real(SEP, 300_000), real(OCT, 13_001L * 26)).pace().flagged()).isTrue();
+        assertThat(estimateA(real(SEP, 300_000), withoutToday).pace()).isNull();
+    }
+
+    @Test
+    void 오늘보다_뒤_날짜의_줄은_거절하고_메시지에_날짜를_남기지_않는다() {
+        LocalDate tomorrow = TODAY.plusDays(1);
+        List<DailySpending> future = List.of(new DailySpending(A, tomorrow, 4_321, 0, Origin.REAL, true));
+
+        assertThatThrownBy(() -> estimateA(real(SEP, 300_000), future))
+                .isInstanceOf(IllegalStateException.class)
+                .message().doesNotContain(tomorrow.toString()).doesNotContain("4321");
+    }
+
+    @Test
+    void 출처마다_덮는_기간에만_줄을_주면_카드를_등록한_달은_두_출처_모두_빠진다() {
+        // 8/15 카드 등록: SEED는 7/1~8/14, REAL은 8/15~10/26을 덮는다(쓴 게 없는 날은 그 출처의 0원 줄).
+        LocalDate registered = AUG.atDay(15);
+        List<DailySpending> seedJul = seed(JUL, 310_000);
+        List<DailySpending> seedAug = seed(AUG, 900_000).stream().filter(row -> row.date().isBefore(registered)).toList();
+        List<DailySpending> realAug = real(AUG, 0).stream().filter(row -> !row.date().isBefore(registered)).toList();
+
+        AccountEstimate result = estimateA(seedJul, seedAug, realAug, real(SEP, 300_000));
+
+        // 8월은 SEED·REAL 모두 일부 날만 있어 미완료. REAL 완료 달(9월)이 있으므로 REAL만 쓴다.
+        assertThat(result.dataOrigin()).isEqualTo(DataOrigin.REAL);
+        assertThat(result.sources()).extracting(MonthAmount::month).containsExactly(SEP);
+        assertThat(result.dailyAverage()).isEqualTo(10_000L);
+    }
+
+    @Test
+    void AVG_3M은_체크카드_몫이_아니라_그날_전체_합계로_계산한다() {
+        // 9월 1일 300,000원 중 체크카드 몫은 0원(계좌 출금만)이어도 평균은 전체 합계로 낸다.
+        List<DailySpending> accountOnly = real(SEP, 300_000).stream()
+                .map(row -> new DailySpending(A, row.date(), row.amount(), 0, Origin.REAL, true)).toList();
+
+        assertThat(estimateA(accountOnly).dailyAverage()).isEqualTo(10_000L);
+    }
+
+    @Test
+    void 체크카드_몫이_음수이거나_그날_합계보다_크면_거절하고_메시지에_값을_남기지_않는다() {
+        List<DailySpending> over = List.of(new DailySpending(A, SEP.atDay(3), 4_321, 4_322, Origin.REAL, true));
+        List<DailySpending> negative = List.of(new DailySpending(A, SEP.atDay(3), 4_321, -1, Origin.REAL, true));
+
+        assertThatThrownBy(() -> estimateA(over)).isInstanceOf(IllegalStateException.class)
+                .message().doesNotContain("4321").doesNotContain("4322").doesNotContain(SEP.toString());
+        assertThatThrownBy(() -> estimateA(negative)).isInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
+    void 읽는_범위보다_앞선_날의_줄은_계산에_쓰지_않지만_음수와_중복은_똑같이_거절한다() {
+        // 10/26 기준 읽는 범위는 7/1부터다. 6월 줄은 평균에 들어가지 않는다.
+        YearMonth june = YearMonth.of(2026, 6);
+        DailySpending oldRow = new DailySpending(A, june.atDay(30), 1_000, 0, Origin.REAL, true);
+
+        assertThat(estimateA(real(SEP, 300_000), List.of(oldRow)).dailyAverage()).isEqualTo(10_000L);
+        assertThatThrownBy(() -> estimateA(real(SEP, 300_000), List.of(oldRow, oldRow)))
+                .isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> estimateA(real(SEP, 300_000),
+                List.of(new DailySpending(A, june.atDay(30), -1, 0, Origin.REAL, true))))
+                .isInstanceOf(IllegalStateException.class);
+    }
+
+    @SafeVarargs
+    private static AccountEstimate estimateA(List<DailySpending>... months) {
+        return LivingCostEstimator.estimate(List.of(A), days(months), TODAY).byAccount().get(A);
+    }
+
+    @SafeVarargs
+    private static List<DailySpending> days(List<DailySpending>... months) {
+        return Arrays.stream(months).flatMap(List::stream).toList();
+    }
+
+    private static List<DailySpending> real(YearMonth month, long amount) {
         return real(A, month, amount);
     }
 
-    private static MonthlySpending real(Long accountId, YearMonth month, long amount) {
-        return new MonthlySpending(accountId, month, amount, Origin.REAL, true);
+    private static List<DailySpending> real(Long accountId, YearMonth month, long amount) {
+        return rows(accountId, month, amount, Origin.REAL, true);
     }
 
-    private static MonthlySpending seed(YearMonth month, long amount) {
+    private static List<DailySpending> seed(YearMonth month, long amount) {
         return seed(A, month, amount);
     }
 
-    private static MonthlySpending seed(Long accountId, YearMonth month, long amount) {
-        return new MonthlySpending(accountId, month, amount, Origin.SEED, true);
+    private static List<DailySpending> seed(Long accountId, YearMonth month, long amount) {
+        return rows(accountId, month, amount, Origin.SEED, true);
     }
 
-    private static MonthlySpending incomplete(YearMonth month, long amount) {
-        return new MonthlySpending(A, month, amount, Origin.REAL, false);
+    private static List<DailySpending> incomplete(YearMonth month, long amount) {
+        return rows(A, month, amount, Origin.REAL, false);
+    }
+
+    /** 그달(TODAY가 든 달은 TODAY까지) 모든 날의 줄. 금액은 첫날에 몰고 나머지 날은 0원이다. 모두 체크카드 몫이다. */
+    private static List<DailySpending> rows(Long accountId, YearMonth month, long amount, Origin origin,
+            boolean complete) {
+        int lastDay = month.equals(YearMonth.from(TODAY)) ? TODAY.getDayOfMonth() : month.lengthOfMonth();
+        List<DailySpending> rows = new ArrayList<>();
+        for (int day = 1; day <= lastDay; day++) {
+            long dayAmount = day == 1 ? amount : 0;
+            rows.add(new DailySpending(accountId, month.atDay(day), dayAmount, Math.max(dayAmount, 0), origin, complete));
+        }
+        return rows;
     }
 }

@@ -67,9 +67,13 @@ import kotlinx.serialization.Serializable
 // ── 마이 탭 (MyGraph) ──
 @Serializable data object My                 // M-01
 @Serializable data object CardManage         // M-02
+@Serializable data object CardOrder          // M-02g 카드 순서
+@Serializable data class CardDetail(val userCardId: Long)   // M-03 · M-03c(해제 시트)
 @Serializable data object AddCard            // C-11 카드 추가(CardRegister와 같은 화면)
+@Serializable data object AccountManage      // M-01b 계좌 관리(월급 · 고정 지출은 빼고 계좌만)
 @Serializable data object NotificationSettings // M-04
 @Serializable data object Profile            // M-06
+@Serializable data object Withdraw           // M-07b 회원 탈퇴
 @Serializable data object Security           // M-08
 
 // ── 공통 ──

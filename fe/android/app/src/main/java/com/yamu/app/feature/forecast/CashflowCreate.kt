@@ -402,7 +402,7 @@ fun CashflowCreateRoute(onBack: () -> Unit, onDone: () -> Unit, viewModel: Cashf
                         SelectRow(a.brand, a.name, checked = f.accountId == a.accountId, onToggle = { viewModel.edit { it.withAccount(a.accountId) } }, suffix = "·${a.last4}")
                     }
                     if (!f.isIncome) s.cards.forEach { card ->
-                        SelectRow(card.brand, card.productName, checked = f.userCardId == card.userCardId, onToggle = { viewModel.edit { it.withCard(card.userCardId) } }, suffix = "·${card.last4}")
+                        SelectRow(card.brand, card.displayName, checked = f.userCardId == card.userCardId, onToggle = { viewModel.edit { it.withCard(card.userCardId) } }, suffix = "·${card.last4}")
                     }
                 }
             }

@@ -18,10 +18,15 @@ class CalendarConfig {
         return loadHolidays(objectMapper, new PathMatchingResourcePatternResolver());
     }
 
-    /** 내장 파일을 직접 받는다. API 동기화(S15P31E103-211)로 HolidaySource가 늘면 여기서 둘을 묶은 소스로 바꾼다. */
+    /** 그 해 공휴일 API 목록이 있으면 그것, 없으면 내장 파일. API 목록은 동기화(HolidaySyncJob)가 채운다. */
     @Bean
-    BusinessDayCalendar businessDayCalendar(EmbeddedHolidays embeddedHolidays) {
-        return new KoreanBusinessDayCalendar(embeddedHolidays);
+    MergedHolidays mergedHolidays(EmbeddedHolidays embeddedHolidays) {
+        return new MergedHolidays(embeddedHolidays);
+    }
+
+    @Bean
+    BusinessDayCalendar businessDayCalendar(MergedHolidays mergedHolidays) {
+        return new KoreanBusinessDayCalendar(mergedHolidays);
     }
 
     /**
