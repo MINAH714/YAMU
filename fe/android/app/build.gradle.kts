@@ -52,7 +52,7 @@ val debugRealApi = localProps.getProperty("yamu.realApi").orEmpty()
 val releaseBaseUrl = (providers.gradleProperty("yamu.releaseBaseUrl").orNull ?: localProps.getProperty("yamu.releaseBaseUrl")).orEmpty().trim().ifEmpty { "https://example.invalid/api/" }
     .also {
         check(it.startsWith("https://")) { "yamu.releaseBaseUrl은 https://로 시작해야 해요: $it" }
-        check(it.endsWith("/")) { "yamu.releaseBaseUrl은 /로 끝나야 해요: $it" }
+        check(it.endsWith("/api/")) { "yamu.releaseBaseUrl은 /api/로 끝나야 해요: $it" }
     }
 
 android {
