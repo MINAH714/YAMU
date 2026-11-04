@@ -75,3 +75,5 @@ SIGKILL, 호스트 장애, Docker 데몬 장애는 코드로 복구를 보장할
 로컬 검사: `python -m unittest discover -s infra/cd-stages -p "test_*.py"`.
 진행 자료는 Jenkins `stage-status/*.json`, `*.jsonl`에 공개 검증 정보만 보관한다.
 키 파일·환경변수·Docker 원문 오류·컨테이너 설정은 출력하거나 보관하지 않는다.
+
+<!-- Jenkins CD-only routing verification fixture. -->
