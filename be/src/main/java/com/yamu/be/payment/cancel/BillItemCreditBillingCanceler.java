@@ -32,7 +32,8 @@ import org.springframework.stereotype.Component;
  * ACCUMULATING·미배정 / PENDING → EXCLUDED       없음
  * CONFIRMED / BILLED            → REFUND_PENDING PENDING, 기한 없음(출금 대기). 금액은 예상값
  * PAID / PAID                   → REFUND_PENDING PENDING, 취소일 + 3영업일. 금액은 실제 출금된 몫
- * UNPAID / BILLED               → EXCLUDED       없음. 청구서에 미납 제외액을 쌓는다
+ * UNPAID / BILLED               → EXCLUDED       없음. 청구서에 미납 제외액을 쌓는다(남은 미납액이 0원이 되면 청구서 CANCELED)
+ * CANCELED / BILLED(0원)        → EXCLUDED       없음. 미납이 정리된 청구서에 남은 0원 회차
  * </pre>
  *
  * <p>확정된 청구액은 취소해도 그대로 출금한다. 출금 결과 불명은 청구서가 CONFIRMED로 남으므로 출금 대기 환급이 되고, 결과가 확정되면
@@ -107,6 +108,12 @@ public class BillItemCreditBillingCanceler implements CreditBillingCanceler {
                 if (share > 0) {
                     bill.waiveUnpaidPrincipal(share);
                 }
+            } else if (billStatus == BillStatus.CANCELED && before == BillItemStatus.BILLED) {
+                // 다른 결제를 모두 취소해 남은 미납액이 0원이 된 청구서에 남은 회차. 남은 미납액이 0원이므로 이 회차 몫도 0원뿐이다
+                if (share(bill, item, sharesByBill) != 0) {
+                    throw mismatch(payment, item, bill, "미납이 정리된 청구서에 금액이 남은 회차가 있습니다");
+                }
+                item.waiveUnpaid(canceledAt);
             } else {
                 throw mismatch(payment, item, bill, "청구서와 회차 상태가 맞지 않습니다");
             }

@@ -14,7 +14,8 @@ import java.util.List;
  *   <li>청구 전 {@code PENDING} → {@code EXCLUDED}</li>
  *   <li>확정·출금 전(청구서 {@code CONFIRMED}) → {@code REFUND_PENDING}, 기한 없는 환급 대기</li>
  *   <li>출금 완료(청구서 {@code PAID}) → {@code REFUND_PENDING}, 취소일 + 3영업일 기한의 환급 대기</li>
- *   <li>미납(청구서 {@code UNPAID}) → {@code EXCLUDED}, 미납 원금 제외 기록. 환급 없음, 확정 원본 유지</li>
+ *   <li>미납(청구서 {@code UNPAID}) → {@code EXCLUDED}, 미납 원금 제외 기록. 환급 없음, 확정 원본 유지.
+ *       남은 미납액이 0원이 되면 청구서는 {@code CANCELED}</li>
  * </ul>
  * 예외를 던지면 취소까지 함께 롤백된다. 구현은 {@link BillItemCreditBillingCanceler}다.
  */

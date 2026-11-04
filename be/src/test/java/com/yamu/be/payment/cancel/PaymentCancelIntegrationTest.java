@@ -471,8 +471,27 @@ class PaymentCancelIntegrationTest extends MySqlTestSupport {
                 .containsEntry("status", "UNPAID")
                 .containsEntry("confirmed_amount", 15_000L)
                 .containsEntry("canceled_unpaid_principal", 10_000L);
-        // 다른 결제의 미납 5천 원이 남아 이 카드는 계속 미납이다
-        assertThat(bills.existsOutstandingUnpaid(creditCard, BillStatus.UNPAID)).isTrue();
+        // 다른 결제의 미납 5천 원이 남아 청구서는 UNPAID 그대로이고 이 카드는 계속 미납이다
+        assertThat(bills.existsByUserCardIdAndStatus(creditCard, BillStatus.UNPAID)).isTrue();
+    }
+
+    @Test
+    void 출금_전에_청구서의_결제를_모두_취소했는데_출금이_실패하면_남은_미납액이_0원이라_청구서가_CANCELED가_된다() throws Exception {
+        long paymentId = approved(user, creditCard, "YAMU");
+        long confirmedBill = bill("CONFIRMED", DECEMBER, 15_000);
+        long mine = billItem(paymentId, confirmedBill, 1, "BILLED", 15_000);
+        cancel(paymentId, UUID.randomUUID().toString(), null).andExpect(status().isOk());
+
+        withdrawalFailed(confirmedBill);
+
+        assertThat(itemStatus(mine)).isEqualTo("EXCLUDED");
+        assertThat(billRow(confirmedBill))
+                .containsEntry("status", "CANCELED")
+                .containsEntry("confirmed_amount", 15_000L)
+                .containsEntry("paid_amount", 0L)
+                .containsEntry("canceled_unpaid_principal", 15_000L);
+        assertThat(failedAt(confirmedBill)).isNotNull();
+        assertThat(bills.existsByUserCardIdAndStatus(creditCard, BillStatus.UNPAID)).isFalse();
     }
 
     @Test
@@ -522,23 +541,49 @@ class PaymentCancelIntegrationTest extends MySqlTestSupport {
     // ───────── 미납 0원 ─────────
 
     @Test
-    void 미납_결제를_모두_취소하면_그_청구서로는_미납이_아니고_다른_청구서에_미납이_남으면_미납이다() throws Exception {
+    void 미납_결제를_모두_취소하면_청구서가_CANCELED가_되고_확정_원본과_출금_실패_이력은_남는다() throws Exception {
         long paymentId = approved(user, creditCard, "YAMU");
         long unpaidBill = bill("UNPAID", DECEMBER, 40_000);
         billItem(paymentId, unpaidBill, 1, "BILLED", 40_000);
 
         cancel(paymentId, UUID.randomUUID().toString(), null).andExpect(status().isOk());
 
-        // UNPAID와 확정 원본·실패 이력은 그대로, 남은 미납액만 0원
+        // 낼 돈이 없으니 미납이 아니고, 출금도 없었으니 PAID도 아니다
         assertThat(billRow(unpaidBill))
-                .containsEntry("status", "UNPAID")
+                .containsEntry("status", "CANCELED")
                 .containsEntry("confirmed_amount", 40_000L)
+                .containsEntry("paid_amount", 0L)
                 .containsEntry("canceled_unpaid_principal", 40_000L);
-        assertThat(bills.existsOutstandingUnpaid(creditCard, BillStatus.UNPAID)).isFalse();
+        assertThat(failedAt(unpaidBill)).isNotNull();
+        assertThat(bills.existsByUserCardIdAndStatus(creditCard, BillStatus.UNPAID)).isFalse();
 
+        // 다른 청구서에 미납이 남으면 그 카드는 여전히 미납이다
         long otherPayment = approved(user, creditCard, "YAMU");
         billItem(otherPayment, bill("UNPAID", DECEMBER.plusMonths(1), 20_000), 1, "BILLED", 20_000);
-        assertThat(bills.existsOutstandingUnpaid(creditCard, BillStatus.UNPAID)).isTrue();
+        assertThat(bills.existsByUserCardIdAndStatus(creditCard, BillStatus.UNPAID)).isTrue();
+    }
+
+    @Test
+    void 미납이_정리된_청구서에_남은_0원_회차의_결제도_취소된다() throws Exception {
+        // 4만 원 미납 청구서에 다른 결제의 0원 회차(1원 할부의 앞 회차 등)가 함께 있다
+        long paymentId = approved(user, creditCard, "YAMU");
+        long zeroPayment = approved(user, creditCard, "YAMU");
+        long unpaidBill = bill("UNPAID", DECEMBER, 40_000);
+        billItem(paymentId, unpaidBill, 1, "BILLED", 40_000);
+        long zero = billItem(zeroPayment, unpaidBill, 1, "BILLED", 0);
+        cancel(paymentId, UUID.randomUUID().toString(), null).andExpect(status().isOk());
+        assertThat(billRow(unpaidBill)).containsEntry("status", "CANCELED");
+
+        cancel(zeroPayment, UUID.randomUUID().toString(), null)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.billItems[0].before").value("BILLED"))
+                .andExpect(jsonPath("$.data.billItems[0].after").value("EXCLUDED"))
+                .andExpect(jsonPath("$.data.refunds.length()").value(0));
+
+        assertThat(itemStatus(zero)).isEqualTo("EXCLUDED");
+        assertThat(billRow(unpaidBill))
+                .containsEntry("status", "CANCELED")
+                .containsEntry("canceled_unpaid_principal", 40_000L);
     }
 
     // ───────── 취소할 수 없는 결제 ─────────
@@ -761,6 +806,10 @@ class PaymentCancelIntegrationTest extends MySqlTestSupport {
                     now, cardBillId);
             return settler.onWithdrawalFailed(cardBillId, now);
         });
+    }
+
+    private LocalDateTime failedAt(long cardBillId) {
+        return jdbc.queryForObject("SELECT failed_at FROM card_bill WHERE card_bill_id = ?", LocalDateTime.class, cardBillId);
     }
 
     private Map<String, Object> billRow(long cardBillId) {
