@@ -30,7 +30,9 @@ RecommendationSelector.Result recommendation = result.recommendation();
 
 결제 가능 상태는 추천 서비스가 사용자 소유 카드, 상품과 계좌, 미납 청구서, 청구 가능 조건과 기존 CreditLimitSource를 조회해 생성합니다. 기존 availability 입력은 호환용이며 서버 판정을 덮어쓰지 않습니다. POS가 카드 목록이나 판정을 공급할 필요는 없습니다. 체크카드 잔액은 기존 AccountBalanceService의 부분 조회 결과를 사용하고 같은 계좌는 한 번 읽습니다. 실패한 계좌만 미비교로 남기며 잔액 0원으로 대체하지 않습니다. 신용한도 SKIPPED는 다른 조건이 맞으면 후보가 되지만 한도 충분 확인으로 바꾸지 않고 CREDIT_LIMIT_CHECK_SKIPPED 사유를 남깁니다.
 
-일반 recommend 호출은 DB 트랜잭션 밖에서 시작합니다. POS는 저장 트랜잭션 전에 cardRecommender.prepare(userId, terms)로 외부 조회를 마친 뒤 반환된 추천기를 기존 저장 트랜잭션 안에서 사용합니다. 결제 저장과 바코드 전환의 원자성은 유지합니다. 준비 단계가 활성 DB 트랜잭션 안에서 호출되면 거절하며, 바깥 트랜잭션을 중단하는 것만으로 연결이 반환됐다고 가정하지 않습니다. 잔액은 추천 시점 참고 판정이며 최종 승인은 재검증합니다.
+일반 `recommend` 호출은 DB 트랜잭션 밖에서 시작합니다. POS는 저장 전에 `cardRecommender.prepare(request)`로 사용자와 거래 조건을 전달해 카드 상태, 잔액, 혜택 정책, 사용량과 실적 조회를 마칩니다. 저장 트랜잭션 안에서는 발급된 결제 ID만 전달해 준비한 입력으로 한 번 계산합니다.
+
+접수 추천은 조회 시점의 예상값입니다. 조회와 저장 사이에 사용량이 바뀌면 이 요청은 준비한 값으로 계산하고 새 요청은 다시 조회합니다. 추천은 한도를 예약하지 않으며 최종 승인 시 최신 상태 확인과 실제 사용량 반영은 결제 담당의 책임입니다.
 
 **현재 DB 경로:** `CardRecommender → DatabaseCardRecommender → RecommendationService → Repository/Loader → RecommendationInputAssembler → RecommendationSelector/CardBenefitCalculator`가 연결돼 있다. 2026-11-03 일괄 승인된 `YAMU_SIM_CARD_POLICY/1`은 Seed 17종·56개 혜택의 버전 1 및 2026년 11월 한국 거래에만 누락 계산 기준을 제공한다. 실제 상품 정책을 확인한 것으로 표시하지 않고 `simulationRules`에 적용 필드·카드·혜택을 남긴다. 세부 값과 제한은 [조합 연결 문서](benefit-composition.md)의 모의 정책 표를 따른다. 기존 5인자 조립기 테스트는 모의 범위를 공급하지 않으므로 기존 미확인을 유지한다.
 

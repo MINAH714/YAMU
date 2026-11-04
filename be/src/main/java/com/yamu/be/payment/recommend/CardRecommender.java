@@ -1,5 +1,7 @@
 package com.yamu.be.payment.recommend;
 
+import java.util.function.LongFunction;
+
 /**
  * 결제 조건에 맞는 최적 카드를 고르는 추천 엔진으로 가는 문(포트). HTTP API가 아니라 결제 요청·승인 안에서 부른다.
  * (API 명세 V2 「[내부 설명·HTTP API 아님] 카드 추천 공통 처리」 2026-10-31판, FR-011~FR-018)
@@ -14,6 +16,10 @@ public interface CardRecommender {
 
     RecommendationResult recommend(RecommendationRequest request);
 
-    /** DB 저장 트랜잭션 전에 잔액 등 외부 조회를 완료한다. 기존 Mock은 준비할 외부 조회가 없다. */
-    default CardRecommender prepare(Long userId, com.yamu.be.payment.PaymentTerms terms) { return this; }
+    /** 저장 전 조회를 완료한다. 반환 함수에는 이 요청에서 발급된 결제 ID만 전달한다. */
+    default LongFunction<RecommendationResult> prepare(RecommendationRequest request) {
+        return paymentId -> recommend(new RecommendationRequest(paymentId, request.userId(), request.terms(),
+                request.merchant(), request.requestedAt(), request.purchaseItemCode(), request.availability(),
+                request.verifiedFacts()));
+    }
 }

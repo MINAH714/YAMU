@@ -9,6 +9,7 @@ import java.time.ZoneOffset;
 import java.time.Clock;
 import java.time.LocalDateTime;
 import java.util.*;
+import java.util.function.LongFunction;
 import org.springframework.stereotype.Component;
 
 /** 검증·보존한 조건으로 서버 상태를 조회하는 실제 포트. 승인과 저장은 호출자가 수행한다. */
@@ -19,23 +20,25 @@ public class DatabaseCardRecommender implements CardRecommender {
     public DatabaseCardRecommender(RecommendationService service, Clock clock) { this.service=service; this.clock=clock; }
 
     public RecommendationResult recommend(RecommendationRequest request) {
-        return recommend(request,service::recommend);
+        return convert(service.recommend(command(request)));
     }
 
     @Override
-    public CardRecommender prepare(Long userId,com.yamu.be.payment.PaymentTerms terms) {
-        var prepared=service.prepare(userId,terms.amount(),RecommendationInput.Plan.valueOf(terms.plan().name()));
-        return request -> recommend(request,prepared);
+    public LongFunction<RecommendationResult> prepare(RecommendationRequest request) {
+        var prepared = service.prepare(command(request));
+        return paymentId -> convert(prepared.apply(paymentId));
     }
 
-    private RecommendationResult recommend(RecommendationRequest request,
-            java.util.function.Function<RecommendationCommand,RecommendationService.Result> execute) {
+    private RecommendationCommand command(RecommendationRequest request) {
         var terms = request.terms();
         var preserved = new RecommendationInput.Transaction(terms.amount(), RecommendationInput.Plan.valueOf(terms.plan().name()),
                 terms.installmentMonths() == null ? 1 : terms.installmentMonths(), request.requestedAt().toInstant(ZoneOffset.UTC),
                 request.merchant().merchantId(), request.merchant().categoryCode(), request.verifiedFacts(), request.purchaseItemCode());
         var transaction=com.yamu.be.recommendation.BasicPurchaseSimulation.apply(preserved,request.merchant().channel(),request.merchant().facilityType());
-        var result = execute.apply(new RecommendationCommand(request.paymentId(), request.userId(), transaction, request.availability()));
+        return new RecommendationCommand(request.paymentId(), request.userId().longValue(), transaction, request.availability());
+    }
+
+    private RecommendationResult convert(RecommendationService.Result result) {
         var candidates = new ArrayList<Candidate>();
         var excluded = new ArrayList<ExcludedCard>();
         var uncompared = new ArrayList<UncomparedCard>();

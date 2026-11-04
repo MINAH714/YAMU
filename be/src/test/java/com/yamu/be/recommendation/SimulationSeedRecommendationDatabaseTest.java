@@ -25,6 +25,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 /** 실제 Seed/Repository/조립기를 통과한다. 실적·사용량·결제 가능 판정만 명시적 가상 고객 값이다. */
 @DirtiesContext(classMode=DirtiesContext.ClassMode.AFTER_CLASS)
 @TestPropertySource(properties={"spring.application.name=simulation-seed-acceptance", "yamu.pos.terminals[0].brand-code=GS25",
+        "spring.datasource.hikari.maximum-pool-size=1", "spring.datasource.hikari.connection-timeout=2000",
         "yamu.pos.terminals[0].pos-code=POS-TEST-CAFE", "yamu.pos.terminals[0].channel=OFFLINE", "yamu.pos.terminals[0].facility-type=GENERAL"})
 @org.springframework.context.annotation.Import(SimulationSeedRecommendationDatabaseTest.TimeConfig.class)
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
@@ -301,7 +302,37 @@ class SimulationSeedRecommendationDatabaseTest extends MySqlTestSupport {
                 .extracting(RecommendationDataIssue::userCardId).containsExactly(mr);
     }
 
+    @Test void preparedRecommendationKeepsReadUsageUntilItsOnlyExecution() throws Exception {
+        long user = new OwnershipFixtures(jdbc).user();
+        long mr = card(user, product("신한카드 Mr.Life"), 400_000, 0);
+        var request = request(user, List.of(mr), "GS25", 10_000, null, Map.of());
+        var beforeSave = new RecommendationRequest(null, user, request.terms(), request.merchant(), request.requestedAt());
+
+        var prepared = port.prepare(beforeSave);
+        assertNoHeldReadConnection();
+        jdbc.update("UPDATE monthly_limit_usage SET used_value=1000000 WHERE user_card_id=?", mr);
+
+        // 한 연결뿐인 풀에서 저장 트랜잭션을 열고 실행한다. 추가 REQUIRES_NEW 조회는 연결을 얻지 못한다.
+        var result = new TransactionTemplate(transactions).execute(status -> {
+            long before = sessionQuestions();
+            var calculated = prepared.apply(101L);
+            // 두 번째 상태 조회 자체를 제외하면 같은 연결에서도 SQL이 없어야 한다.
+            assertThat(sessionQuestions() - before).isEqualTo(1);
+            return calculated;
+        });
+        assertThat(result.topCandidate().orElseThrow().netBenefit()).isEqualByComparingTo("1000");
+        assertThatThrownBy(() -> prepared.apply(102L)).isInstanceOf(IllegalArgumentException.class);
+
+        var next = port.prepare(beforeSave).apply(102L);
+        assertThat(next.topCandidate().orElseThrow().netBenefit()).isEqualByComparingTo("0");
+    }
+
+    private long sessionQuestions() {
+        return jdbc.queryForObject("SHOW SESSION STATUS LIKE 'Questions'", (rs, index) -> rs.getLong(2));
+    }
+
     @Test void realPosAndApprovalSnapshotRegenerationUseServerStateAndBalanceOutsideTransactions() throws Exception {
+        assertThat(source.unwrap(com.zaxxer.hikari.HikariDataSource.class).getMaximumPoolSize()).isEqualTo(1);
         long user=new OwnershipFixtures(jdbc).user();long mr=card(user,product("신한카드 Mr.Life"),400_000,0);
         long check=card(user,product("KB국민 노리2 체크카드(KB Pay)"),200_000,0);
         org.mockito.Mockito.when(bank.balance(org.mockito.ArgumentMatchers.anyString(),org.mockito.ArgumentMatchers.anyString())).thenAnswer(inv->{assertNoHeldReadConnection();return 100_000L;});

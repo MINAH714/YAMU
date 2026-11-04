@@ -11,6 +11,8 @@ import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.*;
 import java.util.function.Function;
+import java.util.function.LongFunction;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.TransientDataAccessException;
@@ -78,28 +80,35 @@ public class RecommendationService {
      * 읽기 트랜잭션 밖에서 실패를 처리해 rollback-only 트랜잭션을 계속 사용하지 않는다.
      */
     public Result recommend(RecommendationCommand command) {
-        Objects.requireNonNull(command);
-        var state=availabilityReader.prepare(command.paymentId(),command.userId(),command.transaction().amount(),command.transaction().plan());
-        return recommendPrepared(command,state);
+        long paymentId = Objects.requireNonNull(command.paymentId(), "paymentId");
+        return calculate(command, readInputs(command), paymentId);
     }
 
-    /** POS 저장 트랜잭션 전에 서버 상태를 확보한다. 반환 함수는 같은 사용자와 결제 조건에만 쓸 수 있다. */
-    public Function<RecommendationCommand,Result> prepare(long userId,long principal,Plan plan) {
-        var state=availabilityReader.prepare(null,userId,principal,plan);
-        return command -> {
-            if(command.userId()!=userId || command.transaction().amount()!=principal || command.transaction().plan()!=plan)
-                throw new IllegalArgumentException("준비한 추천의 사용자 또는 결제 조건이 다릅니다.");
-            return recommendPrepared(command,state);
+    /** POS 저장 전 읽기를 완료한다. 이 거래의 입력에 결제 ID를 한 번만 붙일 수 있다. */
+    public LongFunction<Result> prepare(RecommendationCommand command) {
+        if (command.paymentId() != null) {
+            throw new IllegalArgumentException("결제 ID는 저장 후 전달해야 합니다.");
+        }
+        var prepared = readInputs(command);
+        var used = new AtomicBoolean();
+        return paymentId -> {
+            if (paymentId <= 0 || !used.compareAndSet(false, true)) {
+                throw new IllegalArgumentException("새로 저장한 결제 ID를 한 번만 전달해야 합니다.");
+            }
+            return calculate(command, prepared, paymentId);
         };
     }
 
-    private Result recommendPrepared(RecommendationCommand supplied,RecommendationAvailabilityReader.Assessment state) {
+    private Prepared readInputs(RecommendationCommand supplied) {
+        var state = availabilityReader.prepare(supplied.paymentId(), supplied.userId(),
+                supplied.transaction().amount(), supplied.transaction().plan());
         // 호환 입력의 카드 소유권은 검사하되 전달된 AVAILABLE 값으로 서버 판정을 덮어쓰지 않는다.
         if(!state.cards().keySet().containsAll(supplied.availability().keySet()))
             throw new IllegalArgumentException("사용자 보유 카드 외의 결제 가능 판정입니다.");
         var command=new RecommendationCommand(supplied.paymentId(),supplied.userId(),supplied.transaction(),state.cards());
         var loaded = new Loaded();
-        Prepared prepared = null;
+        var issues = new ArrayList<RecommendationDataIssue>();
+        Map<Long, PerformanceProgress> progress = Map.of();
         PolicyRows rows = null;
         try {
             rows = Objects.requireNonNull(read.execute(status -> {
@@ -114,16 +123,14 @@ public class RecommendationService {
                 // 후보 목록조차 모르면 빈 카드 목록을 정상 NO_ELIGIBLE_CARD로 반환할 수 없다.
                 throw new RecommendationReadException(command.paymentId());
             }
-            var issues = loaded.cards.stream().filter(this::needsBenefit)
-                    .map(c -> new RecommendationDataIssue(c.getId(), null, "DATABASE_READ_RETRYABLE", true)).toList();
+            loaded.cards.stream().filter(this::needsBenefit)
+                    .map(c -> new RecommendationDataIssue(c.getId(), null, "DATABASE_READ_RETRYABLE", true))
+                    .forEach(issues::add);
             if (issues.isEmpty()) {
-                issues = List.of(new RecommendationDataIssue(null, null, "DATABASE_READ_RETRYABLE", true));
+                issues.add(new RecommendationDataIssue(null, null, "DATABASE_READ_RETRYABLE", true));
             }
-            loaded.recognitions = null;
-            prepared = new Prepared(input(command, loaded, Map.of(), Map.of()), issues);
         }
         if (rows != null) {
-            var issues = new ArrayList<RecommendationDataIssue>();
             Map<Long, Long> previous = Map.of();
             Set<Long> failedPrevious = Set.of();
             if (!rows.priorIds().isEmpty()) {
@@ -144,12 +151,9 @@ public class RecommendationService {
                     priorIds.forEach(id -> issues.add(new RecommendationDataIssue(id, null, "DATABASE_READ_RETRYABLE", true)));
                 }
             }
-            prepared = assemble(command, loaded, rows, previous, failedPrevious, issues);
+            assemble(command, loaded, rows, previous, failedPrevious, issues);
         }
-        Objects.requireNonNull(prepared);
         if (loaded.recognitions != null) {
-            Map<Long, PerformanceProgress> progress;
-            var issues = new ArrayList<>(prepared.issues());
             try {
                 loaded.stage = "TIE_PERFORMANCE_BATCH";
                 loaded.affectedCardIds = loaded.recognitions.stream().filter(r -> r.period() != null)
@@ -179,14 +183,18 @@ public class RecommendationService {
                     }
                 }
             }
-            prepared = new Prepared(input(command, loaded, loaded.policies, progress), issues);
         }
         // 트랜잭션이 끝난 뒤 순수 계산만 실행한다. 읽기 실패가 정상적인 정책 미등록으로 바뀌지 않는다.
         var rules=new ArrayList<>(command.transaction().simulationRules());
         loaded.policies.entrySet().stream().sorted(Map.Entry.comparingByKey()).forEach(e -> rules.addAll(e.getValue().simulationRules()));
-        var combinedIssues=new ArrayList<>(prepared.issues());
-        combinedIssues.addAll(state.issues());
-        return new Result(selector.select(prepared.input()), combinedIssues, context(loaded), rules);
+        issues.addAll(state.issues());
+        return prepareInput(command, loaded, progress, issues, rules);
+    }
+
+    private Result calculate(RecommendationCommand command, Prepared prepared, long paymentId) {
+        var input = new RecommendationInput(paymentId, command.userId(), command.transaction(),
+                prepared.defaultCardId(), prepared.candidates());
+        return new Result(selector.select(input), prepared.issues(), prepared.cards(), prepared.rules());
     }
 
     private PolicyRows load(RecommendationCommand command, Loaded loaded, Set<Long> suppliedCardIds) {
@@ -229,7 +237,7 @@ public class RecommendationService {
         return new PolicyRows(data, eligible, priorIds, date);
     }
 
-    private Prepared assemble(RecommendationCommand command, Loaded loaded, PolicyRows rows,
+    private void assemble(RecommendationCommand command, Loaded loaded, PolicyRows rows,
             Map<Long, Long> previous, Set<Long> failedPrevious, List<RecommendationDataIssue> issues) {
         var policyByCard = new HashMap<Long, BenefitPolicy>();
         var recognitions = new ArrayList<Recognition>();
@@ -256,11 +264,10 @@ public class RecommendationService {
         loaded.policies = Map.copyOf(policyByCard);
         loaded.cards.stream().filter(c -> !loaded.products.containsKey(c.getCardProductId()))
                 .forEach(c -> issues.add(new RecommendationDataIssue(c.getId(), null, "PRODUCT_MISSING", false)));
-        return new Prepared(input(command, loaded, policyByCard, Map.of()), issues);
     }
 
-    private RecommendationInput input(RecommendationCommand command, Loaded loaded, Map<Long, BenefitPolicy> policies,
-            Map<Long, PerformanceProgress> progress) {
+    private Prepared prepareInput(RecommendationCommand command, Loaded loaded, Map<Long, PerformanceProgress> progress,
+            List<RecommendationDataIssue> issues, List<SimulationRule> rules) {
         Long defaultId = null;
         var candidates = new ArrayList<CardCandidate>();
         for (var card : loaded.cards) {
@@ -277,10 +284,10 @@ public class RecommendationService {
             var available = availability(command, card);
             candidates.add(new CardCandidate(card.getId(), card.getUserId(), product == null ? null
                     : RecommendationInput.CardType.valueOf(product.getCardType().name()), card.getRegistrationStatus(),
-                    card.getIssuerStatus(), available.status(), available.reason(), policies.get(card.getId()),
+                    card.getIssuerStatus(), available.status(), available.reason(), loaded.policies.get(card.getId()),
                     progress.get(card.getId()), card.getDisplayOrder(), card.getRegisteredAt()));
         }
-        return new RecommendationInput(command.paymentId(), command.userId(), command.transaction(), defaultId, candidates);
+        return new Prepared(defaultId, List.copyOf(candidates), List.copyOf(issues), Map.copyOf(context(loaded)), List.copyOf(rules));
     }
 
     private boolean needsBenefit(UserCard card) {
@@ -313,7 +320,8 @@ public class RecommendationService {
         private final Map<Long, String> benefitTiming = new HashMap<>();
     }
 
-    private record Prepared(RecommendationInput input, List<RecommendationDataIssue> issues) { }
+    private record Prepared(Long defaultCardId, List<CardCandidate> candidates, List<RecommendationDataIssue> issues,
+                            Map<Long, CardContext> cards, List<SimulationRule> rules) { }
 
     private record PolicyRows(RecommendationPolicyData data, List<UserCard> eligible, List<Long> priorIds,
                               LocalDate date) { }

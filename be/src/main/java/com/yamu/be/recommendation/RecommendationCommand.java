@@ -4,10 +4,15 @@ import java.util.Map;
 import java.util.Objects;
 
 /** 서버 내부 거래 입력. availability는 기존 호출 호환용이며 실제 서비스 판정은 서버 조회 결과를 사용한다. */
-public record RecommendationCommand(long paymentId, long userId, RecommendationInput.Transaction transaction,
+public record RecommendationCommand(Long paymentId, long userId, RecommendationInput.Transaction transaction,
                                     Map<Long, PaymentAvailability> availability) {
+    public RecommendationCommand(long paymentId, long userId, RecommendationInput.Transaction transaction,
+            Map<Long, PaymentAvailability> availability) {
+        this(Long.valueOf(paymentId), userId, transaction, availability);
+    }
+
     public RecommendationCommand {
-        if (paymentId <= 0 || userId <= 0) {
+        if ((paymentId != null && paymentId <= 0) || userId <= 0) {
             throw new IllegalArgumentException("결제·사용자 ID는 양수여야 합니다.");
         }
         Objects.requireNonNull(transaction);

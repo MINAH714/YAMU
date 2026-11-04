@@ -144,8 +144,10 @@ public class PosPaymentRequestService {
                 terms.isInstallment() ? terms.installmentMonths() : null);
         // 바코드를 전환했을 수 있는 결제 번호. 스캔 응답을 못 받아도 되돌릴 수 있게 스캔 전에 적는다(되돌리기는 이 번호일 때만 바꾼다)
         Long[] scanning = new Long[1];
-        // 카드/계좌 조회 트랜잭션을 끝내고 금융망 잔액을 읽는다. 바깥 저장 트랜잭션을 중단하는 우회가 아니다.
-        CardRecommender prepared = recommender.prepare(barcode.userId(),terms);
+        // 추천에 필요한 조회를 마친 뒤 결제 저장 트랜잭션을 시작한다.
+        var prepared = recommender.prepare(new RecommendationRequest(null, barcode.userId(), terms,
+                new MerchantContext(merchant.merchantId(), merchant.categoryCode(), terminal.channel().name(),
+                        terminal.facilityType() == null ? null : terminal.facilityType().name()), requestedAt));
         try {
             return transaction.execute(status -> {
                 PaymentTransaction saved = payments.saveAndFlush(PaymentTransaction.request(barcode.userId(),
@@ -159,11 +161,7 @@ public class PosPaymentRequestService {
                     scanning[0] = null;
                     throw scanFailure(scan);
                 }
-                RecommendationResult result = prepared.recommend(new RecommendationRequest(saved.getId(),
-                        barcode.userId(), terms, new MerchantContext(merchant.merchantId(), merchant.categoryCode(),
-                                terminal.channel().name(),
-                                terminal.facilityType() == null ? null : terminal.facilityType().name()),
-                        requestedAt));
+                RecommendationResult result = prepared.apply(saved.getId());
                 snapshots.save(saved.getId(), result, properties.snapshotTtl());
                 return saved;
             });
