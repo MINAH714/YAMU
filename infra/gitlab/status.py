@@ -177,7 +177,11 @@ def main():
         state = env['YAMU_GITLAB_STATE']
         current = client.mr(context['iid'])
         state = final_state(context, current, state)
-        client.report(context['sha'], context['ref'], state, MR_CONTEXT, env['BUILD_URL'], 'Jenkins MR validation: ' + state)
+        description = 'Jenkins MR validation: ' + state
+        checks = env.get('YAMU_MR_CHECKS', '')
+        if checks and all(check in ('be', 'pos', 'expo', 'android', 'cd') for check in checks.split(',')):
+            description += ' | checks: ' + checks
+        client.report(context['sha'], context['ref'], state, MR_CONTEXT, env['BUILD_URL'], description)
         print('GitLab MR status sent.')
     else:
         if env.get('JOB_NAME') != 'yamu/ci' or env.get('GIT_BRANCH') != 'origin/develop':
