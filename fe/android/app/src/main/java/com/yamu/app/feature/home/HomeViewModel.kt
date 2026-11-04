@@ -25,7 +25,11 @@ data class HomeUiState(
     val content: HomeSummary? = null,
     val error: ApiError? = null,
     val userName: String? = null,        // 인사 머리 '○○님, 월급까지 D-25'
-)
+) {
+    /** 잔고예보 · 예정 수입·지출로 가는 길은 예상 잔액 카드뿐이라 카드가 없으면 따로 보여 준다(연결 전은 연결이 먼저) */
+    val showsEntries: Boolean
+        get() = if (content != null) content.forecast == null && !content.needsLinking else !isLoading && error != null
+}
 
 @HiltViewModel
 class HomeViewModel @Inject constructor(
