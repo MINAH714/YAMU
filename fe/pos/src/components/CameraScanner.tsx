@@ -31,39 +31,49 @@ export function CameraScanner({ onRead, onUnknownQr }: Props) {
 
     // 카메라는 같은 QR을 1초에 여러 번 읽는다. 첫 번째만 넘기고 나머지는 버린다
     let done = false
-    const scanner = new QrScanner(
-      video,
-      (result) => {
-        if (done) return
-        const token = parseQr(result.data)
-        if (!token) {
-          onUnknownRef.current()
-          return
-        }
-        done = true
-        scanner.stop()
-        onReadRef.current(token)
-      },
-      { returnDetailedScanResult: true, preferredCamera: 'environment', maxScansPerSecond: 5, highlightScanRegion: true },
-    )
-    scanner
-      .start()
-      .then(() => {
-        if (!done) setState({ kind: 'on' })
-      })
-      .catch((error: unknown) => {
-        if (done) return
-        const denied = error instanceof DOMException && error.name === 'NotAllowedError'
-        setState({
-          kind: 'error',
-          message: denied
-            ? '카메라 권한이 거부됐어요. 브라우저 설정에서 허용하거나 아래에 직접 입력해 주세요.'
-            : '카메라를 켜지 못했어요. 아래에 직접 입력해 주세요.',
+    let scanner: QrScanner | null = null
+
+    // 개발 모드(StrictMode)는 이 effect를 붙였다 바로 떼고 다시 붙인다. 바로 켜면 두 스캐너가 같은 <video>를 쓰다가
+    // 먼저 정리되는 쪽이 나중 쪽의 영상을 끊어, 카메라는 켜졌는데 화면이 비고 QR을 읽지 못한다.
+    // 한 박자 늦게 켜고, 그 전에 정리되면 켜지 않는다. 배포 빌드에서는 한 번만 붙으므로 동작이 같다.
+    const startTimer = setTimeout(() => {
+      const current = new QrScanner(
+        video,
+        (result) => {
+          if (done) return
+          const token = parseQr(result.data)
+          if (!token) {
+            onUnknownRef.current()
+            return
+          }
+          done = true
+          current.stop()
+          onReadRef.current(token)
+        },
+        { returnDetailedScanResult: true, preferredCamera: 'environment', maxScansPerSecond: 5, highlightScanRegion: true },
+      )
+      scanner = current
+      current
+        .start()
+        .then(() => {
+          if (!done) setState({ kind: 'on' })
         })
-      })
+        .catch((error: unknown) => {
+          if (done) return
+          const denied = error instanceof DOMException && error.name === 'NotAllowedError'
+          setState({
+            kind: 'error',
+            message: denied
+              ? '카메라 권한이 거부됐어요. 브라우저 설정에서 허용하거나 아래에 직접 입력해 주세요.'
+              : '카메라를 켜지 못했어요. 아래에 직접 입력해 주세요.',
+          })
+        })
+    }, 0)
+
     return () => {
       done = true
-      scanner.destroy()
+      clearTimeout(startTimer)
+      scanner?.destroy()
     }
   }, [])
 
