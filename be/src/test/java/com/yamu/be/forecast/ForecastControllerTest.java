@@ -12,6 +12,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.yamu.be.account.AccountBalance;
 import com.yamu.be.account.AccountBalanceService;
+import com.yamu.be.cashflow.CashflowItem;
+import com.yamu.be.cashflow.CashflowService;
 import com.yamu.be.support.AuthUsers;
 import com.yamu.be.support.MySqlTestSupport;
 import com.yamu.be.support.OwnershipFixtures;
@@ -49,6 +51,7 @@ class ForecastControllerTest extends MySqlTestSupport {
     @Autowired MockMvc mockMvc;
     @Autowired JdbcTemplate jdbc;
     @MockitoBean AccountBalanceService balances;
+    @Autowired CashflowService cashflows;
 
     long owner;
     long accountA;
@@ -178,6 +181,37 @@ class ForecastControllerTest extends MySqlTestSupport {
                 .andExpect(jsonPath("$.data.accountForecasts[0].accountId").value(accountA))
                 .andExpect(jsonPath("$.data.accountForecasts[0].summary.status").value("WARNING"))
                 .andExpect(jsonPath("$.data.accountForecasts[0].riskWindows[0].level").value("WARNING"));
+    }
+
+    @Test
+    void 계좌를_쉼표로_이어_보내도_되고_중복은_한_번만_쓴다() throws Exception {
+        mockMvc.perform(get("/api/forecasts/balance").with(AuthUsers.asUser(owner))
+                        .param("accountIds", accountA + "," + accountB + "," + accountA)
+                        .param("until", "DAYS").param("days", "7"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.accountIds", hasSize(2)))
+                .andExpect(jsonPath("$.data.selectionCount").value(2))
+                .andExpect(jsonPath("$.data.currentTotalBalance").value(2_000_000));
+    }
+
+    @Test
+    void 설정한_월급이_있으면_기간은_다음_월급일_전날까지다() throws Exception {
+        LocalDate payday = today.plusDays(5);
+        long salary = cashflows.create(owner, new CashflowService.CreateCommand("월급", CashflowItem.Direction.INCOME,
+                2_800_000L, payday, CashflowItem.RecurrenceType.MONTHLY, null, null, null, accountA, null, null,
+                null)).id();
+        jdbc.update("UPDATE app_user SET forecast_settings = ? WHERE user_id = ?", """
+                {"horizon":"NEXT_INCOME","defaultDays":30,"alertThreshold":100000,"incomeCashflowItemId":%d,
+                 "dailyLivingCostTarget":null,"includeCandidates":true,"conservativeLine":true,"updatedAt":null}"""
+                .formatted(salary), owner);
+
+        mockMvc.perform(get("/api/forecasts/balance").with(AuthUsers.asUser(owner))
+                        .param("accountIds", String.valueOf(accountA)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.horizon.type").value("NEXT_INCOME"))
+                .andExpect(jsonPath("$.data.horizon.to").value(payday.minusDays(1).toString()))
+                .andExpect(jsonPath("$.data.horizon.days").value(4))
+                .andExpect(jsonPath("$.data.series", hasSize(5)));
     }
 
     @Test
