@@ -274,6 +274,16 @@ public class PaymentTransaction extends BaseTimeEntity {
         this.status = PaymentStatus.EXPIRED;
     }
 
+    /**
+     * 전체 취소(POL-006, Task 5.3.2). APPROVED에서만 CANCELED가 된다. 승인 당시 값(승인액·실적 인정액·실적 월·출금 번호)은
+     * 지우지 않는다. 실적·한도 복구는 원장 포트가 같은 트랜잭션에서 한다.
+     */
+    public void cancel(LocalDateTime canceledAt) {
+        requireStatus("취소", PaymentStatus.APPROVED);
+        this.canceledAt = canceledAt;
+        this.status = PaymentStatus.CANCELED;
+    }
+
     private void requireStatus(String action, PaymentStatus... allowed) {
         for (PaymentStatus candidate : allowed) {
             if (status == candidate) {

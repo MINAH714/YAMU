@@ -107,4 +107,36 @@ public class CardBill extends BaseTimeEntity {
         bill.canceledUnpaidPrincipal = 0;
         return bill;
     }
+
+    /**
+     * 미납액 중 취소된 회차 몫을 납부 대상에서 뺀다(POL-006). 확정 원본({@code confirmedAmount})·실패 이력은 그대로 두고
+     * 제외액만 쌓는다. 몫은 확정액 안에서의 그 회차 금액이라(청구할인이 생기면 할인 뒤 금액) 할인을 두 번 빼지 않는다.
+     * 남은 미납액보다 많이 뺄 수는 없다.
+     *
+     * <p>빼고 나서 남은 미납액이 정확히 0원이면 상태를 CANCELED로 바꾼다. 금액과 상태를 같은 곳에서 같이 바꿔, 상태로 미납을 보는 곳
+     * (추천·카드 관리·승인)과 금액이 어긋나지 않게 한다. 0원보다 크면 UNPAID 그대로다.
+     */
+    public void waiveUnpaidPrincipal(long share) {
+        if (status != BillStatus.UNPAID) {
+            throw new IllegalStateException("미납 청구서만 미납액을 뺄 수 있습니다 (청구서 " + id + ", 상태 " + status + ")");
+        }
+        if (share <= 0 || share > outstandingUnpaid()) {
+            throw new IllegalStateException("뺄 금액이 남은 미납액을 넘습니다 (청구서 " + id + ", 금액 " + share
+                    + ", 남은 미납액 " + outstandingUnpaid() + ")");
+        }
+        this.canceledUnpaidPrincipal += share;
+        if (outstandingUnpaid() == 0) {
+            this.status = BillStatus.CANCELED;
+        }
+    }
+
+    /** 확정액 전부가 출금됐는지. 청구액 일부 출금은 지원하지 않으므로 출금 완료 청구서는 늘 그래야 한다. */
+    public boolean isFullyPaid() {
+        return status == BillStatus.PAID && confirmedAmount != null && paidAmount == confirmedAmount;
+    }
+
+    /** 남은 미납액 = 확정액 − 출금액 − 취소로 뺀 미납 원금. 확정 전이면 0. */
+    public long outstandingUnpaid() {
+        return confirmedAmount == null ? 0 : confirmedAmount - paidAmount - canceledUnpaidPrincipal;
+    }
 }
