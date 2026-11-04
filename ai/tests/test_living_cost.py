@@ -1,5 +1,6 @@
 """생활비 예측: 특징·예측이 학습 저장소의 기대값(golden)과 같은지, 모델 읽기 검사, API 입력 검증과 실패 응답."""
 
+import hashlib
 import json
 import os
 import shutil
@@ -84,8 +85,25 @@ class Models(unittest.TestCase):
                 path.write_text(json.dumps(meta), encoding="utf-8")
             return change
 
+        def flip_middle_byte(tmp: Path):
+            # 숫자 배열 부분이 바뀌면 joblib은 오류 없이 읽으므로(2026-11-04 측정 46가지 중 37가지) 지문으로 막는다
+            path = tmp / "h14.joblib"
+            data = bytearray(path.read_bytes())
+            data[len(data) // 2] ^= 0xFF
+            path.write_bytes(bytes(data))
+
+        def not_two_stage(tmp: Path):
+            # 지문은 맞춰 두고 형식만 틀리게 해 형식 검사까지 닿게 한다
+            joblib.dump({"model": 1}, tmp / "h14.joblib")
+            meta_path = tmp / "h14.meta.json"
+            meta = json.loads(meta_path.read_text(encoding="utf-8"))
+            meta["sha256"] = hashlib.sha256((tmp / "h14.joblib").read_bytes()).hexdigest()
+            meta_path.write_text(json.dumps(meta), encoding="utf-8")
+
         cases = {
             "h30 없음": lambda tmp: (tmp / "h30.joblib").unlink(),
+            "모델 파일 1바이트 바뀜": flip_middle_byte,
+            "지문 없음": edit_meta("sha256", None),
             "설명 없음": lambda tmp: (tmp / "h30.meta.json").unlink(),
             "특징 순서": edit_meta("features", list(reversed(living_cost.FEATURES))),
             "scikit-learn 버전": edit_meta("sklearn_version", "0.0.0"),
@@ -93,7 +111,7 @@ class Models(unittest.TestCase):
             "기록 길이": edit_meta("history_days", 84),
             "모델 버전 없음": edit_meta("model_version", ""),
             "모델 종류": edit_meta("model", "HGB_POISSON"),
-            "두 단계 형식 아님": lambda tmp: joblib.dump({"model": 1}, tmp / "h14.joblib"),
+            "두 단계 형식 아님": not_two_stage,
         }
         for name, change in cases.items():
             with self.subTest(name), self.assertRaises(ValueError):
@@ -206,6 +224,15 @@ class Api(unittest.TestCase):
         res = client.post("/forecast/living-cost", json=body())
         self.assertEqual(res.status_code, 503)
         self.assertEqual(res.json(), {"error": "MODEL_MISSING"})
+
+    def test_unexpected_load_error_still_starts_server(self):
+        # 망가진 joblib은 KeyError처럼 미리 셀 수 없는 예외도 낸다(2026-11-04 측정). 그래도 서버는 뜨고 503이다
+        with mock.patch.object(living_cost, "load_models", side_effect=KeyError("broken")), \
+                self.assertLogs("app.main", level="ERROR"):
+            client = self.client()
+
+        self.assertEqual(client.get("/health").json(), {"status": "ok", "livingCostModel": {"loaded": False}})
+        self.assertEqual(client.post("/forecast/living-cost", json=body()).status_code, 503)
 
 
 if __name__ == "__main__":

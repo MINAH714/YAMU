@@ -1,6 +1,5 @@
 import logging
 import os
-import pickle
 import re
 import time
 from contextlib import asynccontextmanager
@@ -77,7 +76,8 @@ async def lifespan(app: FastAPI):
     app.state.living_cost_models = {}
     try:
         app.state.living_cost_models = living_cost.load_models(model_dir)
-    except (OSError, ValueError, EOFError, ImportError, AttributeError, pickle.UnpicklingError):
+    except Exception:
+        # 망가진 joblib은 KeyError 등 종류를 다 셀 수 없는 예외를 낸다. 서버는 띄우고 오류는 로그·/health(loaded=false)·503으로 드러낸다
         log.exception("생활비 예측 모델을 읽지 못했습니다")
     yield
 

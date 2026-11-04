@@ -12,7 +12,7 @@
 | 파일 | 내용 |
 |---|---|
 | `h14.joblib`, `h30.joblib` | 다음 14·30일 체크카드 생활 소비 합계를 예측하는 두 단계 모델(TWO_STAGE_TREE). scikit-learn 모델 두 개의 사전이다: `classifier`(`HistGradientBoostingClassifier`, 다음 H일에 쓸 확률), `regressor`(`HistGradientBoostingRegressor(loss="gamma")`, 쓴다면 합계). 예측 = 확률 × 합계 |
-| `h{H}.meta.json` | 모델 버전·종류, 특징 15개의 순서, 학습에서 뺀 거래 규칙, 학습 기간·행 수·트리 수, scikit-learn 버전 |
+| `h{H}.meta.json` | 모델 버전·종류, 특징 15개의 순서, 학습에서 뺀 거래 규칙, 학습 기간·행 수·트리 수, scikit-learn 버전, 모델 파일의 SHA-256(`sha256`, 읽을 때 대조) |
 
 - 모델 버전: `two-stage-tree-20261103-fraud-large1000000-recurring`. scikit-learn 1.9.1로 만들었고, 다른 버전에서는 서버가 읽지 않는다(`app/living_cost.py`).
 - 7일 모델은 두지 않는다. 아래 평가에서 단순 방식(TSB)보다 낫지 않아 BE가 TSB로 계산한다(2026-11-03 결정).
@@ -39,5 +39,6 @@
 ### 모델을 바꿀 때
 
 1. 학습 저장소에서 `scripts/train_final.py --model TWO_STAGE_TREE --horizons 14 30 --large-amount 1000000`으로 새 모델을 만들고 `h{14,30}.joblib`·`h{H}.meta.json`을 이 폴더에 덮어쓴다(기간이나 모델 종류를 바꾸려면 `app/living_cost.py`의 `HORIZONS`·`MODEL_NAME`도 바꾼다).
-2. 학습 저장소의 `scripts/make_golden.py`로 `ai/tests/golden_living_cost.json`을 다시 만든다. 서빙 코드의 특징 계산이 학습 코드와 같은 값을 내는지 이 파일로 확인한다.
-3. `ai/README.md`의 테스트를 돌린다.
+2. 새 `h{H}.joblib`의 SHA-256을 `h{H}.meta.json`의 `sha256`에 적는다(학습 저장소가 아직 이 칸을 쓰지 않음). 다르면 서버가 모델을 읽지 않는다.
+3. 학습 저장소의 `scripts/make_golden.py`로 `ai/tests/golden_living_cost.json`을 다시 만든다. 서빙 코드의 특징 계산이 학습 코드와 같은 값을 내는지 이 파일로 확인한다.
+4. `ai/README.md`의 테스트를 돌린다.

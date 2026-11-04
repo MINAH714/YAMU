@@ -8,6 +8,7 @@ tests/golden_living_cost.json(학습 저장소가 만든 기대값)과 비교해
 모델 파일은 joblib(pickle) 형식이라 읽을 때 코드가 실행될 수 있다. 이 저장소에 커밋된 파일만 읽는다.
 """
 
+import hashlib
 import json
 from dataclasses import dataclass
 from pathlib import Path
@@ -73,6 +74,9 @@ def load_models(model_dir: Path) -> dict[int, LoadedModel]:
         version = meta.get("model_version")
         if not isinstance(version, str) or not version:
             raise ValueError(f"h{horizon} 설명에 모델 버전이 없습니다")
+        # 모델 숫자 배열 부분이 바뀌면 joblib은 오류 없이 다른 가중치를 읽는다. 커밋한 파일과 같은지 먼저 본다
+        if meta.get("sha256") != hashlib.sha256(model_path.read_bytes()).hexdigest():
+            raise ValueError(f"h{horizon} 모델 파일이 설명의 sha256과 다릅니다")
         parts = joblib.load(model_path)
         if not (isinstance(parts, dict) and set(parts) == {"classifier", "regressor"}
                 and hasattr(parts["classifier"], "predict_proba")):

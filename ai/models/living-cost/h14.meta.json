@@ -41,5 +41,6 @@
     "cv2_84d"
   ],
   "sklearn_version": "1.9.1",
-  "history_days": 90
+  "history_days": 90,
+  "sha256": "528650506e23f3cdc014068fc206bd36ee49ab2b3b7659af34b65540842e5bdb"
 }
