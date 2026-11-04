@@ -98,7 +98,7 @@ class ForecastServiceTest {
             billRequestsTo.add(to);
             return bills;
         };
-        CreditWithdrawalSchedule creditSchedule = (card, spendDate) -> spendDate;
+        CreditWithdrawalSchedule creditSchedule = (card, spendDate) -> Optional.of(spendDate);
         LivingCostReader livingReader = (userId, accountIds, fromDate, toDate) -> {
             livingRequests.add(List.of(fromDate, toDate));
             if (livingFailure != null) {
