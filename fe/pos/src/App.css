@@ -179,7 +179,7 @@ button.primary {
 }
 
 button.text {
-  min-height: 40px;
+  min-height: 48px;
   border: 0;
   background: none;
   color: var(--muted);
@@ -423,8 +423,8 @@ button.link {
 }
 
 .cart-remove {
-  min-width: 40px;
-  min-height: 40px;
+  min-width: 48px;
+  min-height: 48px;
   padding: 0;
   border: 0;
   color: #9aa1ac;
@@ -453,8 +453,8 @@ button.link {
 }
 
 .stepper button {
-  width: 44px;
-  min-height: 40px;
+  width: 48px;
+  min-height: 48px;
   padding: 0;
   border: 0;
   border-radius: 999px;
