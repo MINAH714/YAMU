@@ -108,7 +108,7 @@ class YamuCreditCardApproverTest {
 
     @Test
     void 미납_청구서가_있는_카드는_UNPAID_BILL로_거절하고_한도를_보지_않는다() {
-        when(bills.existsByUserCardIdAndStatus(15L, BillStatus.UNPAID)).thenReturn(true);
+        when(bills.existsOutstandingUnpaid(15L, BillStatus.UNPAID)).thenReturn(true);
 
         Declined declined = (Declined) approver.approve(command(PaymentTerms.installment(100_000, 3)));
 

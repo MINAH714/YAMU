@@ -11,7 +11,7 @@ import java.util.List;
  *
  * @param restored            이번 취소로 복구한 실적·한도. 원장 반영(Task 5.2.5) 전에는 비어 있다
  * @param billItems           신용카드 회차별 상태 변화(회차 순). 체크카드는 빈 목록
- * @param refunds             이번 취소로 만든 환급 대기. 출금 전·미납·청구 전 회차는 만들지 않는다
+ * @param refunds             이번 취소로 만든 환급 대기(청구 확정 뒤 회차). 청구 전·미납 회차는 만들지 않는다
  * @param accountBalanceAfter 체크카드 환불 입금 뒤 잔액(Task 5.3.3). 신용카드는 null
  */
 public record PaymentCancelResponse(
@@ -50,8 +50,9 @@ public record PaymentCancelResponse(
     public record BillItemChange(Long billItemId, int seq, long amount, String before, String after) {}
 
     /**
-     * @param dueDate     출금이 끝난 회차는 기한(한국 날짜), 출금 전 회차는 null(출금 성공 뒤 정함)
-     * @param toAccountId 환급 계좌
+     * @param amount      출금이 끝난 회차는 실제 출금된 몫. 출금 전 회차는 예상 금액이고 출금 성공 뒤 확정한다
+     * @param dueDate     출금이 끝난 회차는 취소일 + 3영업일(한국 날짜), 출금 전 회차는 null(출금 성공일 + 3영업일로 정함)
+     * @param toAccountId 환급 계좌(청구서 확정 당시 출금 계좌)
      */
     public record RefundLine(Long refundId, Long billItemId, long amount,
             @Schema(example = "PENDING") String status, LocalDate dueDate, Long toAccountId) {}

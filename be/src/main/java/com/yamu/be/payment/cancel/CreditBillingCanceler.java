@@ -16,10 +16,7 @@ import java.util.List;
  *   <li>출금 완료(청구서 {@code PAID}) → {@code REFUND_PENDING}, 취소일 + 3영업일 기한의 환급 대기</li>
  *   <li>미납(청구서 {@code UNPAID}) → {@code EXCLUDED}, 미납 원금 제외 기록. 환급 없음, 확정 원본 유지</li>
  * </ul>
- * 예외를 던지면 취소까지 함께 롤백된다.
- *
- * <p>구현은 {@link BillItemCreditBillingCanceler}다. 청구 확정(S15P31E103-206) 전이라 지금은 청구 전 회차만 처리하고,
- * 나머지 경우는 실패시킨다.
+ * 예외를 던지면 취소까지 함께 롤백된다. 구현은 {@link BillItemCreditBillingCanceler}다.
  */
 public interface CreditBillingCanceler {
 

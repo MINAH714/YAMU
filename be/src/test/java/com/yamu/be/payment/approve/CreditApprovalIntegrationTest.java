@@ -523,6 +523,18 @@ class CreditApprovalIntegrationTest extends MySqlTestSupport {
     }
 
     @Test
+    void 미납_결제를_모두_취소해_남은_미납액이_0원이면_청구서가_UNPAID여도_승인한다() throws Exception {
+        unpaidBill(creditCard);
+        // 미납 5만 원의 결제가 모두 취소돼 미납 원금에서 빠졌다(POL-006). 확정 원본·미납 상태는 그대로다
+        jdbc.update("UPDATE card_bill SET canceled_unpaid_principal = confirmed_amount WHERE user_card_id = ?", creditCard);
+        Requested requested = requested(15_000, null);
+
+        approve(requested.paymentId(), UUID.randomUUID().toString(), body(creditCard))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.status").value("APPROVED"));
+    }
+
+    @Test
     void 회차를_붙일_청구서가_이미_확정됐으면_422_BILL_CLOSED이고_결제는_바로_REQUESTED로_되돌아가_다른_카드로_승인된다() throws Exception {
         Cycle current = cycle().cycleFor(today());
         LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);

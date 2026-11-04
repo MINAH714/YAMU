@@ -77,7 +77,7 @@ public class YamuCreditCardApprover implements CreditCardApprover {
             // 사전 검사에서 걸렀어야 한다. 결제일 없이는 청구 월을 정할 수 없으므로 승인하지 않는다
             throw new BusinessException(ErrorCode.DATA_INSUFFICIENT, "이 카드의 결제일 정보가 없어 청구 일정을 만들 수 없습니다.");
         }
-        if (bills.existsByUserCardIdAndStatus(command.card().userCardId(), BillStatus.UNPAID)) {
+        if (bills.existsOutstandingUnpaid(command.card().userCardId(), BillStatus.UNPAID)) {
             log.info("신용 승인 거절: 미납 청구서가 있는 카드 paymentId={} card=****{}", command.paymentId(),
                     command.card().last4());
             return ApprovalOutcome.Declined.of(FailureCode.UNPAID_BILL);

@@ -105,4 +105,34 @@ public class Refund extends BaseTimeEntity {
         refund.status = RefundStatus.PENDING;
         return refund;
     }
+
+    /** 원 청구서의 출금 성공을 기다리는 환급인지. 금액은 예상값이고 입금하면 안 된다. */
+    public boolean isAwaitingWithdrawal() {
+        return status == RefundStatus.PENDING && dueDate == null;
+    }
+
+    /**
+     * 출금 성공을 확인한 뒤 금액과 기한을 확정한다. 금액은 그 회차에 실제로 출금된 몫이다.
+     *
+     * @param dueDate 출금 성공일 + 3영업일
+     */
+    public void confirmAfterWithdrawal(long amount, LocalDate dueDate) {
+        if (!isAwaitingWithdrawal()) {
+            throw new IllegalStateException("출금을 기다리는 환급이 아닙니다 (환급 " + id + ", 상태 " + status + ", 기한 " + this.dueDate + ")");
+        }
+        if (amount <= 0) {
+            throw new IllegalArgumentException("확정 환급액은 양수여야 합니다 (환급 " + id + ")");
+        }
+        this.principalAmount = amount;
+        this.refundAmount = amount;
+        this.dueDate = dueDate;
+    }
+
+    /** 원 청구서가 출금 실패(미납)로 끝나 돌려줄 돈이 없다. 출금을 기다리던 환급만 무효로 바꾼다. */
+    public void voidForUnpaid() {
+        if (!isAwaitingWithdrawal()) {
+            throw new IllegalStateException("출금을 기다리는 환급만 무효로 바꿀 수 있습니다 (환급 " + id + ", 상태 " + status + ")");
+        }
+        this.status = RefundStatus.CANCELED;
+    }
 }
