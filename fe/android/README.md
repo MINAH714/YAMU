@@ -105,8 +105,8 @@ app/src/debug · posDebug   가짜 데이터(release에는 안 들어감)
 - 화면 코드에 색 · 크기 숫자를 직접 쓰지 않는다 — `YamuTheme.colors.*` · `YamuTheme.typography.*` · `YamuSpacing` · `YamuRadius`.
 - **메인 색 교체는 `core/designsystem/theme/BrandColor.kt` 한 곳**(10/23 회의 — 토스 파랑에서 바꾸기, 후보 청록 `#0B8576`).
 - 앱은 YAMU 백엔드 API만 부르고, 판정 · 추천 · 예측은 계산하지 않는다(서버 값 그대로).
-- 서버 주소: debug 기본 `http://localhost:8080/api/`(로컬 BE, `adb reverse tcp:8080 tcp:8080`), `yamu.baseUrl`로 바꿀 수 있다. release는 `app/build.gradle.kts`의 TODO.
-- `local.properties`(SDK 경로 · POS 키 `yamu.posKey` · 실서버 시험 `yamu.baseUrl` · `yamu.realApi`)는 Git에 올리지 않는다.
+- 서버 주소: debug 기본 `http://localhost:8080/api/`(로컬 BE, `adb reverse tcp:8080 tcp:8080`), `yamu.baseUrl`로 바꿀 수 있다. release는 `-Pyamu.releaseBaseUrl=https://…/api/`가 먼저이고 다음이 `local.properties`의 `yamu.releaseBaseUrl`이다. `https://`로 시작하고 `/`로 끝나야 하며(아니면 빌드가 멈춘다), 둘 다 없으면 어디에도 붙지 않는 `example.invalid`로 빌드된다.
+- `local.properties`(SDK 경로 · POS 키 `yamu.posKey` · release 서버 주소 `yamu.releaseBaseUrl` · 실서버 시험 `yamu.baseUrl` · `yamu.realApi`)는 Git에 올리지 않는다.
 
 ## 사용한 외부 자료
 - Pretendard 1.3.9 (SIL OFL) — Regular · Medium · SemiBold · Bold · ExtraBold, `app/src/main/res/font`, 라이선스 `third_party/Pretendard-LICENSE.txt`

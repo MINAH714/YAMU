@@ -8,7 +8,7 @@ plugins {
     alias(libs.plugins.hilt)
 }
 
-// local.properties(Git에 안 올림) — 모의 POS 단말 키 yamu.posKey · release 서명 키 yamu.release.* · 실서버 시험 yamu.baseUrl · yamu.realApi
+// local.properties(Git에 안 올림) — 모의 POS 단말 키 yamu.posKey · release 서명 키 yamu.release.* · release 서버 주소 yamu.releaseBaseUrl · 실서버 시험 yamu.baseUrl · yamu.realApi
 val localProps = Properties().apply {
     val file = rootProject.file("local.properties")
     if (file.exists()) file.inputStream().use { load(it) }
@@ -47,6 +47,13 @@ val debugRealApi = localProps.getProperty("yamu.realApi").orEmpty()
         check(unknown.isEmpty()) { "yamu.realApi에 모르는 이름: ${unknown.joinToString()} (쓸 수 있는 이름: all, ${apiFeatures.joinToString()})" }
     }
     .let { names -> if ("all" in names) (connectedApiFeatures + names - "all").distinct() else names }
+
+// release 서버 주소 — -Pyamu.releaseBaseUrl(CI)가 먼저, 다음 local.properties. 둘 다 없으면 어디에도 붙지 않는 자리표시자
+val releaseBaseUrl = (providers.gradleProperty("yamu.releaseBaseUrl").orNull ?: localProps.getProperty("yamu.releaseBaseUrl")).orEmpty().trim().ifEmpty { "https://example.invalid/api/" }
+    .also {
+        check(it.startsWith("https://")) { "yamu.releaseBaseUrl은 https://로 시작해야 해요: $it" }
+        check(it.endsWith("/")) { "yamu.releaseBaseUrl은 /로 끝나야 해요: $it" }
+    }
 
 android {
     namespace = "com.yamu.app"
@@ -106,8 +113,7 @@ android {
             buildConfigField("String", "REAL_API", "\"${debugRealApi.joinToString(",")}\"")
         }
         release {
-            // TODO 배포 서버 주소(HTTPS) 확정 후 바꾸기
-            buildConfigField("String", "BASE_URL", "\"https://example.invalid/api/\"")   // 경로는 BE와 같은 /api/ — 호스트만 바꾸면 된다
+            buildConfigField("String", "BASE_URL", "\"$releaseBaseUrl\"")   // 경로는 BE와 같은 /api/까지 적는다
             buildConfigField("String", "REAL_API", "\"${apiFeatures.joinToString(",")}\"")
             // R8: 코드 줄이기 · 이름 바꾸기 + 안 쓰는 리소스 빼기. 앱 규칙은 proguard-rules.pro
             isMinifyEnabled = true
