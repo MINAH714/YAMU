@@ -162,6 +162,8 @@ class Api(unittest.TestCase):
             "일수 없음": {"asOf": GOLDEN["asOf"], "accounts": body()["accounts"]},
             "숫자 날짜": body(asOf=4321),
             "잘못된 날짜": body(asOf="2026-13-01"),
+            "날짜시각": body(asOf=GOLDEN["asOf"] + "T00:00:00"),
+            "구분자 없는 날짜": body(asOf=GOLDEN["asOf"].replace("-", "")),
         }
         client = self.client()
         for name, payload in cases.items():

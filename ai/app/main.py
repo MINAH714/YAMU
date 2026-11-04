@@ -1,6 +1,7 @@
 import logging
 import os
 import pickle
+import re
 import time
 from contextlib import asynccontextmanager
 from datetime import date
@@ -21,6 +22,8 @@ MAX_ACCOUNTS = 20
 MAX_DAILY_AMOUNT = 1_000_000_000_000  # 하루 1조 원. 이보다 크면 잘못된 입력으로 본다
 # 가장 큰 정상 요청(계좌 20개 × 90일 × 13자리)이 약 30KB라 넉넉히 두 배. 넘으면 JSON을 읽기 전에 413
 MAX_BODY_BYTES = 64 * 1024
+# asOf는 YYYY-MM-DD만 받는다. pydantic 날짜 해석은 "2026-11-02T00:00:00" 같은 날짜시각도 받아 준다
+ISO_DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
 
 
 class BodySizeLimit:
@@ -101,7 +104,7 @@ class LivingCostRequest(BaseModel):
     @field_validator("asOf", mode="before")
     @classmethod
     def iso_date_string(cls, value: object) -> object:
-        if not isinstance(value, str):
+        if not isinstance(value, str) or not ISO_DATE.fullmatch(value):
             raise ValueError("날짜는 YYYY-MM-DD 문자열이어야 합니다")
         return value
 
