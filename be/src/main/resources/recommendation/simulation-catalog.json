@@ -1,0 +1,204 @@
+[
+  {
+    "issuer": "LOTTE",
+    "product": "LOCA LIKIT 2.0",
+    "type": "CREDIT",
+    "benefits": [
+      "DOMESTIC_12",
+      "OVERSEAS_20"
+    ],
+    "mockPointBenefits": []
+  },
+  {
+    "issuer": "SAMSUNG",
+    "product": "삼성 iD SIMPLE",
+    "type": "CREDIT",
+    "benefits": [
+      "MEMBERSHIP"
+    ],
+    "mockPointBenefits": []
+  },
+  {
+    "issuer": "LOTTE",
+    "product": "LOCA LIKIT Eat",
+    "type": "CREDIT",
+    "benefits": [
+      "FOOD",
+      "DELIVERY",
+      "COFFEE",
+      "MEMBERSHIP"
+    ],
+    "mockPointBenefits": []
+  },
+  {
+    "issuer": "HYUNDAI",
+    "product": "현대카드 M ME4",
+    "type": "CREDIT",
+    "benefits": [
+      "BASE_15",
+      "FOOD_5",
+      "OVERSEAS_5"
+    ],
+    "mockPointBenefits": [
+      "BASE_15",
+      "FOOD_5",
+      "OVERSEAS_5"
+    ]
+  },
+  {
+    "issuer": "KB",
+    "product": "KB국민 노리 체크",
+    "type": "CHECK",
+    "benefits": [
+      "DINING",
+      "STARBUCKS",
+      "THEMEPARK",
+      "GS25",
+      "BOOK",
+      "TELECOM"
+    ],
+    "mockPointBenefits": []
+  },
+  {
+    "issuer": "SAMSUNG",
+    "product": "삼성 taptap O",
+    "type": "CREDIT",
+    "benefits": [
+      "OVERSEAS_POINT"
+    ],
+    "mockPointBenefits": [
+      "OVERSEAS_POINT"
+    ]
+  },
+  {
+    "issuer": "KAKAOBANK",
+    "product": "카카오뱅크 프렌즈 체크",
+    "type": "CHECK",
+    "benefits": [
+      "BASE_WEEKDAY",
+      "PROMO_OIL",
+      "PROMO_TELECOM",
+      "PROMO_ACADEMY",
+      "PROMO_TAXI"
+    ],
+    "mockPointBenefits": []
+  },
+  {
+    "issuer": "HYUNDAI",
+    "product": "현대카드ZERO Edition3(포인트형)",
+    "type": "CREDIT",
+    "benefits": [
+      "M_POINT_EARN_1_2"
+    ],
+    "mockPointBenefits": [
+      "M_POINT_EARN_1_2"
+    ]
+  },
+  {
+    "issuer": "SAMSUNG",
+    "product": "삼성 iD ON 카드",
+    "type": "CREDIT",
+    "benefits": [
+      "TRANSIT_TELECOM_STREAMING_10"
+    ],
+    "mockPointBenefits": []
+  },
+  {
+    "issuer": "KB",
+    "product": "KB국민 청춘대로 톡톡카드",
+    "type": "CREDIT",
+    "benefits": [
+      "STARBUCKS_50",
+      "BURGER_20"
+    ],
+    "mockPointBenefits": []
+  },
+  {
+    "issuer": "KB",
+    "product": "KB국민 노리2 체크카드(KB Pay)",
+    "type": "CHECK",
+    "benefits": [
+      "COFFEE_10",
+      "MOBILE_10",
+      "CULTURE_10",
+      "BEAUTY_5",
+      "CONVENIENCE_5",
+      "SUBSCRIPTION_1000",
+      "DELIVERY_1000",
+      "MOVIE_4000",
+      "AMUSEMENT_15000"
+    ],
+    "mockPointBenefits": []
+  },
+  {
+    "issuer": "HANA",
+    "product": "하나카드 트래블로그 체크카드",
+    "type": "CHECK",
+    "benefits": [
+      "DOMESTIC_0_3P"
+    ],
+    "mockPointBenefits": [
+      "DOMESTIC_0_3P"
+    ]
+  },
+  {
+    "issuer": "LOTTE",
+    "product": "LOCA LIKIT Play",
+    "type": "CREDIT",
+    "benefits": [
+      "FUEL_60",
+      "MOVIE_60",
+      "MEMBERSHIP_60"
+    ],
+    "mockPointBenefits": []
+  },
+  {
+    "issuer": "LOTTE",
+    "product": "LOCA LIKIT Shop",
+    "type": "CREDIT",
+    "benefits": [
+      "ONLINE_SHOP_60",
+      "SALON_60",
+      "CONVENIENCE_60",
+      "MEMBERSHIP_60"
+    ],
+    "mockPointBenefits": []
+  },
+  {
+    "issuer": "SHINHAN",
+    "product": "신한카드 Mr.Life",
+    "type": "CREDIT",
+    "benefits": [
+      "UTILITY",
+      "CONVENIENCE",
+      "HOSPITAL_PHARMACY",
+      "LAUNDRY",
+      "NIGHT_SHOPPING",
+      "NIGHT_TAXI",
+      "NIGHT_FOOD",
+      "WEEKEND_MART"
+    ],
+    "mockPointBenefits": []
+  },
+  {
+    "issuer": "HYUNDAI",
+    "product": "현대카드 ZERO Edition3 (할인형)",
+    "type": "CREDIT",
+    "benefits": [
+      "BASE_DISCOUNT"
+    ],
+    "mockPointBenefits": []
+  },
+  {
+    "issuer": "SHINHAN",
+    "product": "신한카드 처음",
+    "type": "CREDIT",
+    "benefits": [
+      "TODAY_FOOD",
+      "TODAY_CAFE",
+      "TODAY_CONVENIENCE",
+      "TODAY_ONLINE_SHOPPING"
+    ],
+    "mockPointBenefits": []
+  }
+]

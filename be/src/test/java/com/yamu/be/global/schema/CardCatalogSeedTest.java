@@ -102,7 +102,9 @@ class CardCatalogSeedTest extends MySqlTestSupport {
         assertThat(jdbc.queryForObject("""
                 SELECT COUNT(*) FROM benefit_target t JOIN card_benefit b USING (card_benefit_id)
                 WHERE b.benefit_code = 'HOSPITAL_PHARMACY' AND t.target_value = 'VETERINARY_CLINIC'
-                  AND t.is_excluded = TRUE
+                  AND EXISTS (SELECT 1 FROM benefit_target_group_member gm
+                    JOIN benefit_target_group g USING (benefit_target_group_id)
+                    WHERE gm.benefit_target_id=t.benefit_target_id AND g.is_excluded=TRUE)
                 """, Integer.class)).isEqualTo(1);
         assertThat(jdbc.queryForObject("""
                 SELECT COUNT(*) FROM merchant m JOIN benefit_target t

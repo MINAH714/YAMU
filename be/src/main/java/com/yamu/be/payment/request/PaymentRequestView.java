@@ -4,6 +4,7 @@ import com.yamu.be.card.domain.CardType;
 import com.yamu.be.payment.PaymentPlan;
 import com.yamu.be.payment.domain.PaymentChannel;
 import com.yamu.be.payment.domain.PaymentStatus;
+import com.yamu.be.payment.recommend.RecommendationResult;
 import com.yamu.be.payment.recommend.RecommendationResult.SelectionReason;
 import com.yamu.be.payment.recommend.RecommendationResult.Status;
 import com.yamu.be.payment.recommend.RecommendationResult.UncomparedReason;
@@ -53,9 +54,15 @@ public record PaymentRequestView(
      */
     public record Candidate(int rank, Long userCardId, String nickname, CardType cardType, String maskedNumber,
             long netBenefit, List<Benefit> benefits, long chargedAmount, String reason,
-            SelectionReason selectionReason) {}
+            SelectionReason selectionReason, List<RecommendationResult.UnallocatedBenefitGroup> unallocatedBenefitGroups) {
+        public Candidate(int rank,Long userCardId,String nickname,CardType cardType,String maskedNumber,long netBenefit,
+                List<Benefit> benefits,long chargedAmount,String reason,SelectionReason selectionReason) {
+            this(rank,userCardId,nickname,cardType,maskedNumber,netBenefit,benefits,chargedAmount,reason,selectionReason,List.of());
+        }
+        public Candidate { unallocatedBenefitGroups=unallocatedBenefitGroups==null ? List.of() : List.copyOf(unallocatedBenefitGroups); }
+    }
 
-    public record Benefit(Long benefitId, String name, String type, long amount, String realization) {}
+    public record Benefit(Long benefitId, String name, String type, Long amount, String realization) {}
 
     /**
      * 비교하지 못한 카드.

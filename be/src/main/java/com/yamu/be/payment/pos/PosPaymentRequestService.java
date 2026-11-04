@@ -43,7 +43,7 @@ import org.springframework.transaction.support.TransactionTemplate;
  * ② 입력 검증(금액 → 할부 순), Idempotency-Key(UUID)
  * ③ 멱등: 같은 키 재전송은 처음 결과, 다른 본문은 409, 처리 중이면 409.
  *    Redis에 기록이 없으면 DB의 request_key로 찾아 fingerprint를 대조한다(기록 실패·재시작 대비)
- * ④ 바코드 미리 확인(없음 404 · 만료 410 · 사용 409)
+ * ④ 바코드 미리 확인(없음 404 · 만료 410 · 사용 409) → DB 트랜잭션 밖에서 카드 상태·잔액 준비
  * ⑤ 트랜잭션: 결제 REQUESTED 저장(번호 확보) → 바코드 ISSUED→SCANNED(원자, 실패하면 바로 롤백) → 추천 계산·스냅샷 → 커밋
  * ⑥ 멱등 결과 기억(실패해도 ③의 DB 대조가 있으므로 201) → 201
  * </pre>
@@ -52,8 +52,8 @@ import org.springframework.transaction.support.TransactionTemplate;
  * ⑤가 예외로 끝나면 결제 행이 실제로 커밋됐는지 DB에서 다시 확인하고, 행이 없을 때만 바코드 전환을 되돌린다(보상). 행이 있으면 커밋된 것이므로
  * 처음 결과로 응답한다. 추천 계산 실패(예외)는 전체 롤백이고, 후보 없음(NO_ELIGIBLE_CARD)은 정상 결과다.
  *
- * <p>한계: 추천 계산이 DB 트랜잭션 안에서 돈다. Mock은 바로 끝나지만 실제 엔진(체크카드 잔액 조회, 목표 10초)을 붙일 때는 추천을 커밋 뒤로 빼고
- * 이 보상 경로를 쓰는 편이 커넥션을 덜 잡는다. 되돌리는 사이 사용자가 새 바코드를 발급했으면 옛 바코드가 ISSUED로 돌아와 ISSUED가 둘이 될 수 있다.
+ * <p>외부 잔액 조회는 저장 트랜잭션 전에 준비하고, 기존 결제 저장과 바코드 전환의 원자성은 유지한다.
+ * 잔액은 추천 시점의 참고값이며 승인은 다시 확인한다. 되돌리는 사이 사용자가 새 바코드를 발급했으면 옛 바코드가 ISSUED로 돌아와 ISSUED가 둘이 될 수 있다.
  */
 @Slf4j
 @Service
@@ -144,6 +144,10 @@ public class PosPaymentRequestService {
                 terms.isInstallment() ? terms.installmentMonths() : null);
         // 바코드를 전환했을 수 있는 결제 번호. 스캔 응답을 못 받아도 되돌릴 수 있게 스캔 전에 적는다(되돌리기는 이 번호일 때만 바꾼다)
         Long[] scanning = new Long[1];
+        // 추천에 필요한 조회를 마친 뒤 결제 저장 트랜잭션을 시작한다.
+        var prepared = recommender.prepare(new RecommendationRequest(null, barcode.userId(), terms,
+                new MerchantContext(merchant.merchantId(), merchant.categoryCode(), terminal.channel().name(),
+                        terminal.facilityType() == null ? null : terminal.facilityType().name()), requestedAt));
         try {
             return transaction.execute(status -> {
                 PaymentTransaction saved = payments.saveAndFlush(PaymentTransaction.request(barcode.userId(),
@@ -157,11 +161,7 @@ public class PosPaymentRequestService {
                     scanning[0] = null;
                     throw scanFailure(scan);
                 }
-                RecommendationResult result = recommender.recommend(new RecommendationRequest(saved.getId(),
-                        barcode.userId(), terms, new MerchantContext(merchant.merchantId(), merchant.categoryCode(),
-                                terminal.channel().name(),
-                                terminal.facilityType() == null ? null : terminal.facilityType().name()),
-                        requestedAt));
+                RecommendationResult result = prepared.apply(saved.getId());
                 snapshots.save(saved.getId(), result, properties.snapshotTtl());
                 return saved;
             });

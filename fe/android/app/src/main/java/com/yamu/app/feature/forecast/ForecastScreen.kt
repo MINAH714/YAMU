@@ -86,8 +86,17 @@ data class ForecastState(
     val error: String? = null,
     val noAccount: Boolean = false,
     val entries: List<CashflowEntry>? = null,     // F-02 가계부 회차(고칠 수 있는 줄) — 못 받으면 예보 줄만(읽기 전용)
+    val entriesLoading: Boolean = false,
     val entriesError: String? = null,
-)
+) {
+    /** F-02 — 예보가 실패해도 회차만으로 목록을 그리므로 보여 줄 것이 없으면 회차 응답까지 기다린다 */
+    val cashflowLoading: Boolean
+        get() = forecast == null && entries == null && (loading || entriesLoading)
+
+    /** F-02 — 이 화면은 회차를 보여 주므로 둘 다 실패하면 회차 쪽 오류가 먼저 */
+    val cashflowError: String?
+        get() = entriesError ?: error
+}
 
 /** F-01 · F-02 — 돌아올 때마다 새로(결제 · 계획 저장 · 지우기 · 추가 · 수정 뒤 바뀌므로) */
 @HiltViewModel
@@ -102,6 +111,7 @@ class ForecastViewModel @Inject constructor(private val repo: ForecastRepository
     /** F-02 — 예보(합계 · 카드대금)를 받은 뒤 같은 기간(오늘 ~ 다음 월급날)의 가계부 회차. 예보가 없으면 오늘부터 30일 */
     fun refreshWithEntries() {
         viewModelScope.launch {
+            _state.update { it.copy(entriesLoading = true) }
             refreshForecast()
             if (_state.value.noAccount) return@launch
             // 예보가 실패하면 메모리에 지난 값이 남아 있다 — 그 from을 쓰면 자정을 넘겼을 때 어제 회차를 읽는다
@@ -109,8 +119,8 @@ class ForecastViewModel @Inject constructor(private val repo: ForecastRepository
             val from = f?.from ?: LocalDate.now(KST)
             val to = f?.incomeDate ?: f?.to ?: from.plusDays(29)   // 서버 기본값처럼 첫날을 넣어 30일
             when (val r = repo.cashflowEntries(from, to)) {
-                is ApiResult.Success -> _state.update { it.copy(entries = r.data, entriesError = null) }
-                is ApiResult.Failure -> _state.update { it.copy(entriesError = r.error.userMessage()) }
+                is ApiResult.Success -> _state.update { it.copy(entries = r.data, entriesLoading = false, entriesError = null) }
+                is ApiResult.Failure -> _state.update { it.copy(entriesLoading = false, entriesError = r.error.userMessage()) }
             }
         }
     }
@@ -361,7 +371,7 @@ fun CashflowListRoute(
         Column(Modifier.padding(inner).consumeWindowInsets(inner).fillMaxSize().verticalScroll(rememberScrollState())) {
             val f = s.forecast
             when {
-                f == null && s.loading -> YamuCard {
+                s.cashflowLoading -> YamuCard {
                     repeat(4) {
                         SkeletonBlock(height = 48.dp)
                         Spacer(Modifier.height(YamuSpacing.x3))
@@ -369,7 +379,7 @@ fun CashflowListRoute(
                 }
                 // 계좌를 아직 안 이었으면 오류가 아니라 빈 상태(F-01과 같은 문장 · 행동)
                 s.noAccount -> YamuCard { EmptyState("계좌를 연결하면 예정된 돈을 보여 드려요", actionText = "계좌 연결", onAction = onLink) }
-                f == null && s.entries == null -> YamuCard { ErrorState(s.error ?: "예정된 돈을 불러오지 못했어요", onRetry = viewModel::refreshWithEntries) }
+                f == null && s.entries == null -> YamuCard { ErrorState(s.cashflowError ?: "예정된 돈을 불러오지 못했어요", onRetry = viewModel::refreshWithEntries) }
                 else -> {
                     // 가계부 회차를 받았으면 그 줄(고칠 수 있음) + 카드대금, 못 받았으면 예보 줄만(읽기 전용)
                     val entries = s.entries

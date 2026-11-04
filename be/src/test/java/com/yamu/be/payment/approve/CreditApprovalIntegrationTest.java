@@ -497,8 +497,9 @@ class CreditApprovalIntegrationTest extends MySqlTestSupport {
 
     @Test
     void 미납_청구서가_있는_카드는_DECLINED_UNPAID_BILL이고_회차를_만들지_않는다() throws Exception {
-        unpaidBill(creditCard);
         Requested requested = requested(100_000, 3);
+        // 추천 이후 미납이 생겨도 최종 승인 검사가 거절하는지 확인한다.
+        unpaidBill(creditCard);
 
         approve(requested.paymentId(), UUID.randomUUID().toString(), body(creditCard))
                 .andExpect(status().isOk())
@@ -532,6 +533,19 @@ class CreditApprovalIntegrationTest extends MySqlTestSupport {
         approve(requested.paymentId(), UUID.randomUUID().toString(), body(creditCard))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.status").value("APPROVED"));
+    }
+
+    @Test
+    void 추천_시점에_이미_미납인_카드는_선택에서_제외하고_승인_시도를_소비하지_않는다() throws Exception {
+        unpaidBill(creditCard);
+        Requested requested = requested(100_000,3);
+        approve(requested.paymentId(),UUID.randomUUID().toString(),body(creditCard))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("CARD_NOT_ELIGIBLE"))
+                .andExpect(jsonPath("$.error.details.reason").value("UNPAID_BILL"));
+        assertThat(payments.findById(requested.paymentId()).orElseThrow().getStatus()).isEqualTo(PaymentStatus.REQUESTED);
+        assertThat(attempts.count(requested.paymentId())).isZero();
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM bill_item",Long.class)).isZero();
     }
 
     @Test
