@@ -118,6 +118,15 @@ class ForecastViewModelTest {
         assertEquals(0, entriesCalls)
     }
 
+    @Test fun `예정된 돈의 기간 — 월급일이 있는 예보만 월급 전까지이고 나머지는 30일`() {
+        val payday = LocalDate.of(2026, 11, 25)
+
+        assertEquals("월급 전까지", cashflowPeriod(FORECAST.copy(incomeDate = payday)))
+        assertEquals("30일 동안", cashflowPeriod(null))
+        assertEquals("30일 동안", cashflowPeriod(FORECAST.copy(incomeDate = null)))
+        assertEquals("30일 동안", cashflowPeriod(FORECAST.copy(incomeDate = payday, fallback = true)))
+    }
+
     private companion object {
         val FORECAST_ERROR = ApiError.from(404, "NOT_FOUND")
         val ENTRIES_ERROR: ApiError = ApiError.Network

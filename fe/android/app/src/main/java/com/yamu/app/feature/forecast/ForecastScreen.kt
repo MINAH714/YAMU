@@ -275,7 +275,7 @@ private fun ForecastBody(f: Forecast, error: String?, onCashflowList: () -> Unit
     // 목록 카드는 안쪽 16(프로토타입 .card.tight) · 머리 줄 24dp. '전체 보기' 터치 칸(48)은 머리 줄 위아래로 넘친다(.card-hd .more 음수 여백)
     YamuCard(contentPadding = PaddingValues(16.dp)) {
         Row(Modifier.heightIn(min = 24.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text("월급 전까지 예정된 돈", style = YamuTheme.typography.cardTitle, color = c.text1, modifier = Modifier.weight(1f))
+            Text("${cashflowPeriod(f)} 예정된 돈", style = YamuTheme.typography.cardTitle, color = c.text1, modifier = Modifier.weight(1f))
             if (!short) {
                 Row(
                     Modifier
@@ -345,6 +345,10 @@ private fun CashflowRowLine(row: CashflowRow, onClick: (() -> Unit)?) {
     )
 }
 
+/** F-01 · F-02 — 예정된 돈의 기간. 예보가 없거나 월급일을 못 찾으면(서버도 30일로 계산) 오늘부터 30일 */
+internal fun cashflowPeriod(f: Forecast?): String =
+    if (f == null || f.fallback || f.incomeDate == null) "30일 동안" else "월급 전까지"
+
 @Composable
 fun CashflowListRoute(
     onBack: () -> Unit,
@@ -388,8 +392,9 @@ fun CashflowListRoute(
                         val income = f.incomeDate?.takeIf { (f.incomeAmount ?: 0) > 0 }?.let { CashflowRow(it, f.incomeTitle, f.incomeAmount ?: 0, null, null) }
                         (f.upcoming.map { CashflowRow(it.date, it.title, it.amount, null, null) } + listOfNotNull(income)).sortedBy { it.date }
                     }
+                    val period = cashflowPeriod(f)
                     YamuCard {
-                        Text(if (f != null) "월급 전까지 나갈 돈" else "30일 동안 나갈 돈", style = YamuTheme.typography.titleS, color = c.text2)
+                        Text("$period 나갈 돈", style = YamuTheme.typography.titleS, color = c.text2)
                         Spacer(Modifier.height(4.dp))
                         AmountText(f?.scheduledOutflow ?: rows.filter { it.amount < 0 }.sumOf { -it.amount })
                         Spacer(Modifier.height(4.dp))
@@ -404,7 +409,7 @@ fun CashflowListRoute(
                         )
                     }
                     s.entriesError?.let { YamuCard { ErrorState("고칠 수 있는 목록을 불러오지 못했어요 · $it", onRetry = viewModel::refreshWithEntries) } }
-                    if (rows.isEmpty()) YamuCard { EmptyState("월급 전까지 예정된 돈이 없어요", actionText = "추가", onAction = onAdd) }
+                    if (rows.isEmpty()) YamuCard { EmptyState("$period 예정된 돈이 없어요", actionText = "추가", onAction = onAdd) }
                     rows.groupBy { it.date?.monthValue }.forEach { (month, monthRows) ->
                         YamuCard(contentPadding = PaddingValues(YamuSpacing.x4)) {
                             month?.let { Text("${it}월", style = YamuTheme.typography.cardTitle, color = c.text1) }
