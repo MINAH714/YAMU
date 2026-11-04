@@ -29,7 +29,10 @@ import org.springframework.stereotype.Component;
  *
  * <p>쓰기는 {@code spending_class IS NULL}일 때만 한다. 그래서 사용자가 고친 값(USER)을 덮지 않고, 두 요청이 동시에 분류해도
  * 한 번만 써진다(같은 데이터로 같은 값을 계산한다). JPA {@code version}은 올리지 않는다. 올리면 같은 결제를 고치는 BE 2 흐름(취소 등)이
- * 낙관적 잠금 충돌로 실패하는데, 반대로 그 흐름이 옛 값(NULL)으로 덮어도 다음 읽기에서 같은 값으로 다시 분류되기 때문이다.
+ * 낙관적 잠금 충돌로 실패하는데, 반대로 그 흐름이 옛 값(NULL)으로 덮어도 AUTO 값은 다음 읽기에서 같은 값으로 다시 분류되기 때문이다.
+ * USER 값은 다시 만들 수 없어, 엔티티 저장이 모든 컬럼을 덮지 않게 하는 것은 BE 2가 맡는다({@code @DynamicUpdate}, Task 204 검토).
+ *
+ * <p>읽기 전용 트랜잭션({@code @Transactional(readOnly = true)}) 안에서 부르지 말 것. UPDATE를 해서 MySQL이 거부한다.
  */
 @Component
 class SpendingClassifier {

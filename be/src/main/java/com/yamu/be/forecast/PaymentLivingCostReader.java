@@ -30,7 +30,7 @@ import org.springframework.stereotype.Component;
  *       ({@code card_product.card_type = 'CHECK'})의 승인(APPROVED)·LIVING 결제. 신용카드(청구로 반영), LARGE·EXCLUDED·미분류,
  *       취소 결제는 넣지 않는다. 등록 해제한 카드의 과거 결제도 넣는다(2026-11-04 결정).</li>
  *   <li><b>반복 지출 빼기</b>: 그 결제의 달과 앞 5개 달(6개월) 안에서 같은 카드·가맹점·승인 금액의 승인 결제가 서로 다른 3개 달 이상에
- *       나오면 뺀다(분류·출처와 상관없이 셈). 월세·구독료처럼 예정 지출로 따로 반영하는 정기 지출이 두 번 빠지지 않게 한다.</li>
+ *       나오면 뺀다(분류·출처와 상관없이 셈, 취소 결제는 세지 않음). 월세·구독료처럼 예정 지출로 따로 반영하는 정기 지출이 두 번 빠지지 않게 한다.</li>
  *   <li><b>출처별 기간(계좌마다)</b>: REAL은 그 계좌 체크카드의 첫 YAMU 결제일(한국 날짜)부터 toDate까지, SEED는 그 계좌
  *       체크카드의 첫 SEED 결제일부터 가장 이른 등록일 전날(등록한 카드가 없으면 toDate)까지 매일 한 줄을 준다(2026-11-04 결정).
  *       등록만 하고 결제하지 않은 기간은 YAMU를 쓰지 않은 것인지 알 수 없어 줄을 주지 않는다(0원으로 확정하지 않음).
@@ -41,6 +41,8 @@ import org.springframework.stereotype.Component;
  *
  * <p>한계: 한 계좌에 체크카드가 여럿이면 REAL은 그중 가장 이른 첫 결제일부터라, 늦게 쓰기 시작한 카드의 그 전 소비는 모른다.
  * 첫 결제 뒤에 YAMU를 쓰지 않게 된 날도 0원으로 센다.
+ *
+ * <p>읽기 전용 트랜잭션({@code @Transactional(readOnly = true)}) 안에서 부르지 말 것. 분류가 UPDATE를 해서 MySQL이 거부한다.
  */
 @Component
 class PaymentLivingCostReader implements LivingCostReader {
