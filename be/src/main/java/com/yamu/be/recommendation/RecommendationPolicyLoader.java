@@ -24,6 +24,16 @@ class RecommendationPolicyLoader {
     private final BenefitApplicationMemberRepository applicationMembers;
     private final PurchaseItemRepository purchaseItems;
 
+    void validateFallbacks(UserCard card, RecommendationPolicyData data) {
+        // 일괄 조회 결과를 카드별로 검증해 다른 상품의 정책 조립은 계속한다.
+        for (var benefit : data.benefits()) {
+            if (card.getCardProductId().equals(benefit.getCardProductId())
+                    && benefit.getId().equals(benefit.getFallbackBenefitId())) {
+                throw new IllegalArgumentException("혜택 전환은 자기 자신을 참조할 수 없습니다.");
+            }
+        }
+    }
+
     RecommendationPolicyData load(long userId, List<UserCard> cards, LocalDate date) {
         if (cards.isEmpty()) {
             return new RecommendationPolicyData(List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of());

@@ -159,6 +159,35 @@ class SimulationSeedRecommendationDatabaseTest extends MySqlTestSupport {
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM card_benefit WHERE card_product_id=? AND rounding_mode='HALF_UP'",Long.class,p)).isEqualTo(3);
     }
 
+    @Test void selfReferencingFallbackOnlyInvalidatesCardsWithThatPolicy() {
+        var fixtures = new OwnershipFixtures(jdbc);
+        long user = fixtures.user();
+        long hyundaiProduct = product("현대카드 M ME4");
+        long invalidCard = card(user, hyundaiProduct, 1_000_000, 0);
+        long validCard = card(user, product("신한카드 Mr.Life"), 400_000, 0);
+        var fallback = jdbc.queryForMap("""
+                SELECT card_benefit_id, fallback_benefit_id FROM card_benefit
+                WHERE card_product_id=? AND fallback_benefit_id IS NOT NULL LIMIT 1
+                """, hyundaiProduct);
+        long benefitId = ((Number) fallback.get("card_benefit_id")).longValue();
+        try {
+            assertThat(jdbc.update("UPDATE card_benefit SET fallback_benefit_id=card_benefit_id WHERE card_benefit_id=?",
+                    benefitId)).isEqualTo(1);
+            var result = port.recommend(request(user, List.of(invalidCard, validCard), "GS25", 10_000, null, Map.of()));
+            assertThat(result.status()).isEqualTo(RecommendationResult.Status.PARTIAL_READY);
+            assertThat(result.topCandidate().orElseThrow().card().userCardId()).isEqualTo(validCard);
+            assertThat(result.uncomparedCards()).extracting(c -> c.card().userCardId()).containsExactly(invalidCard);
+            assertThat(result.issues()).filteredOn(i -> i.code().equals("POLICY_DATA_INVALID"))
+                    .singleElement().satisfies(i -> {
+                        assertThat(i.userCardId()).isEqualTo(invalidCard);
+                        assertThat(i.retryable()).isFalse();
+                    });
+        } finally {
+            jdbc.update("UPDATE card_benefit SET fallback_benefit_id=? WHERE card_benefit_id=?",
+                    fallback.get("fallback_benefit_id"), benefitId);
+        }
+    }
+
     @Test void approvedWindowDoesNotEnableDecember() {
         long user=new OwnershipFixtures(jdbc).user();long id=card(user,product("신한카드 Mr.Life"),400_000,0);
         var november=request(user,List.of(id),"GS25",10_000,null,Map.of());

@@ -106,18 +106,4 @@ ALTER TABLE card_benefit
  ADD CONSTRAINT fk_fallback_product FOREIGN KEY(fallback_benefit_id,card_product_id)
   REFERENCES card_benefit(card_benefit_id,card_product_id);
 
--- MySQL CHECK cannot reference an AUTO_INCREMENT column. Enforce self-reference with triggers.
-DELIMITER $$
-CREATE TRIGGER benefit_fallback_insert BEFORE INSERT ON card_benefit FOR EACH ROW
-BEGIN
- IF NEW.fallback_benefit_id = NEW.card_benefit_id THEN
-  SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Self-referencing benefit fallback is not allowed';
- END IF;
-END$$
-CREATE TRIGGER benefit_fallback_update BEFORE UPDATE ON card_benefit FOR EACH ROW
-BEGIN
- IF NEW.fallback_benefit_id = NEW.card_benefit_id THEN
-  SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Self-referencing benefit fallback is not allowed';
- END IF;
-END$$
-DELIMITER ;
+-- 자기 참조는 RecommendationPolicyLoader에서 카드별로 검증한다.

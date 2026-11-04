@@ -27,6 +27,19 @@ class BenefitCompositionDatabaseTest extends MySqlTestSupport {
     @Autowired RecommendationInputAssembler assembler;
     @Autowired UserCardRepository cards;
 
+    @Test void migrationSucceedsWithBinaryLoggingAndDefaultCreatorTrust() {
+        assertThat(jdbc.queryForObject("SELECT @@GLOBAL.log_bin", Integer.class)).isEqualTo(1);
+        assertThat(jdbc.queryForObject("SELECT @@GLOBAL.log_bin_trust_function_creators", Integer.class)).isZero();
+        assertThat(jdbc.queryForObject("""
+                SELECT COUNT(*) FROM information_schema.triggers
+                WHERE trigger_schema=DATABASE()
+                  AND trigger_name IN ('benefit_fallback_insert', 'benefit_fallback_update')
+                """, Long.class)).isZero();
+        assertThat(jdbc.queryForObject("""
+                SELECT COUNT(*) FROM flyway_schema_history WHERE version='20261103.1' AND success=1
+                """, Long.class)).isEqualTo(1);
+    }
+
     @Test void seedRerunPreservesPathsAndLoadsActualGroupsAndFallbacks() throws Exception {
         for(var name:List.of("01-card-catalog.sql","02-card-catalog-ab20.sql","03-benefit-composition.sql")) apply(name);
         long groupCount=jdbc.queryForObject("SELECT COUNT(*) FROM benefit_target_group",Long.class);
@@ -53,8 +66,6 @@ class BenefitCompositionDatabaseTest extends MySqlTestSupport {
         var group=jdbc.queryForObject("SELECT benefit_target_group_id FROM benefit_target_group WHERE card_benefit_id=? LIMIT 1",Long.class,benefits.get(0));
         var target=jdbc.queryForObject("SELECT benefit_target_id FROM benefit_target WHERE card_benefit_id=? LIMIT 1",Long.class,benefits.get(1));
         assertThatThrownBy(()->jdbc.update("INSERT INTO benefit_target_group_member VALUES(?,?,?)",group,target,benefits.get(0))).isInstanceOf(org.springframework.dao.DataAccessException.class);
-        long preferred=jdbc.queryForObject("SELECT card_benefit_id FROM card_benefit WHERE fallback_benefit_id IS NOT NULL LIMIT 1",Long.class);
-        assertThatThrownBy(()->jdbc.update("UPDATE card_benefit SET fallback_benefit_id=card_benefit_id WHERE card_benefit_id=?",preferred)).isInstanceOf(org.springframework.dao.DataAccessException.class);
     }
     private void apply(String name) throws Exception {
         try(var connection=source.getConnection()) {

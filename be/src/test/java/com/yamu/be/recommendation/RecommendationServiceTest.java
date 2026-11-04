@@ -194,6 +194,33 @@ class RecommendationServiceTest {
     }
 
     @Test
+    void selfReferencingFallbackLeavesOtherProductComparable() {
+        var invalidCard = card(2);
+        setField(invalidCard, "cardProductId", 20L);
+        var invalidProduct = product();
+        setField(invalidProduct, "id", 20L);
+        var selfReference = benefit(200L);
+        setField(selfReference, "cardProductId", 20L);
+        setField(selfReference, "fallbackBenefitId", 200L);
+        setField(selfReference, "minPerformanceAmount", 0L);
+        when(cards.findOrdered(eq(1L), anyCollection())).thenReturn(List.of(card(1), invalidCard));
+        when(products.findAllById(List.of(10L, 20L))).thenReturn(List.of(product(), invalidProduct));
+        when(loader.load(eq(1L), anyList(), any())).thenReturn(new RecommendationPolicyData(
+                List.of(selfReference), List.of(), List.of(), List.of(), List.of(), List.of(), List.of()));
+        doCallRealMethod().when(loader).validateFallbacks(any(), any());
+        doReturn(fixedPolicy("500")).when(assembler)
+                .policy(argThat(c -> c.getId() == 1), any(), any(), any(), anyList(), any(), any());
+
+        var result = recommend(command(Map.of(1L, available(), 2L, available())));
+
+        assertThat(result.recommendation().status()).isEqualTo(RecommendationSelector.Status.PARTIAL_READY);
+        assertThat(result.recommendation().selectedUserCardId()).isEqualTo(1L);
+        assertThat(result.issues()).filteredOn(i -> i.code().equals("POLICY_DATA_INVALID"))
+                .containsExactly(new RecommendationDataIssue(2L, null, "POLICY_DATA_INVALID", false));
+        verify(assembler, never()).policy(eq(invalidCard), any(), any(), any(), anyList(), any(), any());
+    }
+
+    @Test
     void transientReadFailureRollsBackReadTransactionAndRemainsRetryableInsteadOfUnregisteredPolicy() {
         when(loader.load(anyLong(), anyList(), any())).thenThrow(new TransientDataAccessResourceException("private database detail"));
         var result = recommend(command(Map.of(1L, available())));

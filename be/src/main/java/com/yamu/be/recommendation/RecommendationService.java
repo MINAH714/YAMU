@@ -242,6 +242,7 @@ public class RecommendationService {
                 issues.add(new RecommendationDataIssue(card.getId(), null, "PREVIOUS_PERFORMANCE_MISSING", false));
             }
             try {
+                policies.validateFallbacks(card, rows.data());
                 policyByCard.put(card.getId(), assembler.policy(card, rows.data(), rows.date(), previous.get(card.getId()), issues,
                         command.transaction(),loaded.products.get(card.getCardProductId())));
             } catch (IllegalArgumentException invalidPolicy) {
