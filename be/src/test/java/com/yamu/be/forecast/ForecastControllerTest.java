@@ -254,25 +254,32 @@ class ForecastControllerTest extends MySqlTestSupport {
         itemOf(owner, cardBill, userCard, principal, itemStatus);
     }
 
-    /** 회차는 결제 행을 가리켜야 해서(FK) 회차마다 청구 전 결제를 하나 만든다. */
+    /**
+     * 회차는 결제 행을 가리켜야 해서(FK) 회차마다 결제를 하나 만든다. 실제로 회차는 승인된 결제에만 붙으므로 APPROVED로 넣는다
+     * (승인 칸은 ck_payment_approval이 함께 요구한다. 실적 인정액은 지금 승인기처럼 0, 일시불).
+     */
     private void itemOf(long user, long cardBill, long userCard, long principal, String itemStatus) {
         long product = jdbc.queryForObject("SELECT card_product_id FROM user_card WHERE user_card_id = ?", Long.class,
                 userCard);
         LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
+        LocalDate month = jdbc.queryForObject("SELECT billing_month FROM card_bill WHERE card_bill_id = ?",
+                LocalDate.class, cardBill);
         long payment = new SimpleJdbcInsert(jdbc).withTableName("payment_transaction")
                 .usingGeneratedKeyColumns("payment_transaction_id")
                 .usingColumns("user_id", "merchant_id", "user_card_id", "card_product_id", "request_key",
-                        "request_fingerprint", "source", "status", "requested_amount", "requested_at", "created_at",
-                        "updated_at")
+                        "request_fingerprint", "source", "status", "requested_amount", "approved_amount",
+                        "installment_months", "recognized_performance_amount", "performance_month", "requested_at",
+                        "approved_at", "created_at", "updated_at")
                 .executeAndReturnKey(Map.ofEntries(Map.entry("user_id", user), Map.entry("merchant_id", merchant),
                         Map.entry("user_card_id", userCard), Map.entry("card_product_id", product),
                         Map.entry("request_key", UUID.randomUUID().toString()),
                         Map.entry("request_fingerprint", hash()), Map.entry("source", "YAMU"),
-                        Map.entry("status", "REQUESTED"), Map.entry("requested_amount", principal),
-                        Map.entry("requested_at", now), Map.entry("created_at", now), Map.entry("updated_at", now)))
+                        Map.entry("status", "APPROVED"), Map.entry("requested_amount", principal),
+                        Map.entry("approved_amount", principal), Map.entry("installment_months", 1),
+                        Map.entry("recognized_performance_amount", 0L), Map.entry("performance_month", month),
+                        Map.entry("requested_at", now), Map.entry("approved_at", now), Map.entry("created_at", now),
+                        Map.entry("updated_at", now)))
                 .longValue();
-        LocalDate month = jdbc.queryForObject("SELECT billing_month FROM card_bill WHERE card_bill_id = ?",
-                LocalDate.class, cardBill);
         new SimpleJdbcInsert(jdbc).withTableName("bill_item")
                 .usingColumns("payment_transaction_id", "user_id", "user_card_id", "card_bill_id", "installment_no",
                         "billing_month", "principal_amount", "status", "created_at", "updated_at")
