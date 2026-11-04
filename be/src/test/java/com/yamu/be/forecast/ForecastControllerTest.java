@@ -153,6 +153,34 @@ class ForecastControllerTest extends MySqlTestSupport {
     }
 
     @Test
+    void 위험_구간과_원인과_계좌별_결과가_응답에_그대로_나간다() throws Exception {
+        // 안전 잔액 950,000원: 10일 뒤 청구 60,000원이 빠지면 940,000원으로 기준 아래(확정 선은 그대로라 예상 선 WARNING)
+        jdbc.update("UPDATE app_user SET forecast_settings = ? WHERE user_id = ?", """
+                {"horizon":"DAYS","defaultDays":14,"alertThreshold":950000,"incomeCashflowItemId":null,
+                 "dailyLivingCostTarget":null,"includeCandidates":true,"conservativeLine":true,"updatedAt":null}""",
+                owner);
+        long bill = bill(cardOnA, today.plusDays(10), 0);
+        item(bill, cardOnA, 60_000L, "PENDING");
+
+        mockMvc.perform(get("/api/forecasts/balance").with(AuthUsers.asUser(owner))
+                        .param("accountIds", String.valueOf(accountA)).param("includeAccountDetails", "true"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.summary.status").value("WARNING"))
+                .andExpect(jsonPath("$.data.summary.largestOutflow.amount").value(-60_000))
+                .andExpect(jsonPath("$.data.riskWindows[0].from").value(today.plusDays(10).toString()))
+                .andExpect(jsonPath("$.data.riskWindows[0].level").value("WARNING"))
+                .andExpect(jsonPath("$.data.riskWindows[0].line").value("EXPECTED"))
+                .andExpect(jsonPath("$.data.riskWindows[0].shortfall").value(10_000))
+                .andExpect(jsonPath("$.data.riskWindows[0].causes[0].type").value("CARD_BILLING"))
+                .andExpect(jsonPath("$.data.riskWindows[0].causes[0].refId").value(bill))
+                .andExpect(jsonPath("$.data.series[10].events[0].type").value("CARD_BILLING"))
+                .andExpect(jsonPath("$.data.series[10].events[0].confidence").value("EXPECTED"))
+                .andExpect(jsonPath("$.data.accountForecasts[0].accountId").value(accountA))
+                .andExpect(jsonPath("$.data.accountForecasts[0].summary.status").value("WARNING"))
+                .andExpect(jsonPath("$.data.accountForecasts[0].riskWindows[0].level").value("WARNING"));
+    }
+
+    @Test
     void 다른_사용자의_청구는_내_예보에_섞이지_않는다() throws Exception {
         // 남의 카드가 내 계좌를 가리키는 데이터는 DB 외래 키(fk_card_account_owner)가 막는다. 남의 계좌·카드의 청구만 둔다.
         OwnershipFixtures fixtures = new OwnershipFixtures(jdbc);
