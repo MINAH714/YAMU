@@ -281,9 +281,13 @@ public class ForecastService {
     /**
      * NEXT_INCOME은 다음 월급일 전날까지다(명세). 월급일이 내일이면 오늘 하루뿐이다(2026-11-04 결정: 명세대로).
      * 다음 월급일을 모르면 명세의 대체 기간 30일을 DAYS로 계산한다.
+     * days는 기간 기준과 상관없이 보내면 늘 7·14·30인지 검사한다. NEXT_INCOME이면 검사만 하고 쓰지 않는다(2026-11-04 결정).
      */
     private static BalanceForecast.Horizon horizon(BalanceForecast.Until until, Integer days,
             Optional<LocalDate> nextIncome, LocalDate today) {
+        if (days != null && !ALLOWED_DAYS.contains(days)) {
+            throw invalid("days", "예보 기간은 7, 14, 30일 중에서 골라 주세요.");
+        }
         if (until == null || until == BalanceForecast.Until.NEXT_INCOME) {
             if (nextIncome.isPresent()) {
                 LocalDate to = nextIncome.get().minusDays(1);
@@ -293,7 +297,7 @@ public class ForecastService {
             return new BalanceForecast.Horizon(BalanceForecast.Until.DAYS, today,
                     today.plusDays(NEXT_INCOME_FALLBACK_DAYS), NEXT_INCOME_FALLBACK_DAYS);
         }
-        if (days == null || !ALLOWED_DAYS.contains(days)) {
+        if (days == null) {
             throw invalid("days", "예보 기간은 7, 14, 30일 중에서 골라 주세요.");
         }
         return new BalanceForecast.Horizon(BalanceForecast.Until.DAYS, today, today.plusDays(days), days);

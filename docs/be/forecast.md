@@ -50,6 +50,7 @@ Jira -66·-70은 진행 중입니다. 완료 조건에 "실제로 동작하는 �
 - 시작은 한국 날짜 오늘(주입한 `Clock` + `Asia/Seoul`), 끝은 시작 + 일수(끝 날 포함)입니다.
 - `until=DAYS`면 `days`는 7·14·30입니다.
 - 요청에 `until`·`days`가 없으면 잔고예보 설정의 기간 기준(`horizon`)·기본 일수(`defaultDays`)를 씁니다. 안전 잔액도 설정(`alertThreshold`)에서 읽습니다(2026-11-04).
+- `days`는 보내면 기간 기준과 상관없이 늘 7·14·30인지 검사합니다. 기간 기준이 `NEXT_INCOME`(요청 또는 설정)이면 검사만 하고 쓰지 않습니다. 그래서 `until` 없이 `days=7`만 보내도 설정이 `NEXT_INCOME`이면 다음 월급일 기준입니다(2026-11-04 결정).
 - `until=NEXT_INCOME`(기본)은 **다음 월급일 전날까지**입니다(명세). 다음 월급일은 설정의 월급 시리즈에서 **오늘보다 뒤**의 첫 회차입니다. 오늘 들어올 월급은 잔액에 이미 들어왔는지 몰라 예보에서 빼므로(`TODAY_INCOME_UNVERIFIED`) 오늘은 다음 월급일이 아닙니다. 수정 전 규칙에 남은 회차도 셉니다.
   - 월급일이 내일이면 기간은 오늘 하루(`days=0`)입니다(2026-11-04 결정: 명세대로, 기간을 늘리는 규칙을 더하지 않음).
   - 월급을 정하지 않았거나 지금 월급으로 쓸 수 없거나(설정 조회의 `income`이 null) 두 달 안에 회차가 없으면 명세의 대체 규칙대로 30일이고, 응답의 `horizon.type`은 실제로 계산한 `DAYS`입니다.
@@ -397,7 +398,7 @@ enum Origin { REAL, SEED }
 | 상황 | 응답 |
 |---|---|
 | `accountIds` 없음·빈 목록 | 400 `ACCOUNT_SELECTION_REQUIRED` |
-| 계좌 번호 null·0 이하, 중복을 뺀 계좌가 20개 초과, `days`가 7·14·30이 아님 | 400 `INVALID_REQUEST` + `details.fieldErrors` |
+| 계좌 번호 null·0 이하, 중복을 뺀 계좌가 20개 초과, 보낸 `days`가 7·14·30이 아님(기간 기준과 상관없이) | 400 `INVALID_REQUEST` + `details.fieldErrors` |
 | `until`·`days`·`refresh` 등 쿼리 값의 형식이 틀림(예: `until=WEEK`) | 400 `INVALID_REQUEST` (전역 예외 처리) |
 | 남의·연결 해제 계좌(하나라도) | 404 `RESOURCE_NOT_FOUND` (BE 1이 던짐) |
 | SSAFY 회원(userKey)이 없는 사용자 | 400 `INVALID_REQUEST` (BE 1이 던짐. 시드 누락이라 정상 흐름에서는 없음) |
@@ -517,7 +518,7 @@ enum Origin { REAL, SEED }
 | `CashflowServiceTest` | +1 | 결제 연결 회차만 `paid` |
 | `BillingScheduleTest` | 10 | 명세 예시(11/16·12/14·1/14, 다음 회차는 원래 결제일 기준, 연말→다음 해), POL-005 평년·윤년·25일 마감일 당일·다음 날, 결제일 27일·N=31 경계(2/24 → 3월 청구 3/29 출금, 2/25 → 4월 청구 4/27 출금), N 없으면 14, 공휴일이 겹쳐 출금일이 다음 달로 넘어가도 청구 월 유지, 체크카드 주말 구매일 즉시, 나머지 배분과 회차 합계 = 원금(아주 큰 금액 포함), 5만 원 미만 승인 금액 할부도 거절 안 함, 범위 밖 값·0원 회차 금액 거절과 경계 값, 달력 계약 위반 |
 | `ForecastSettingsServiceTest` | 13 | 실제 MySQL. 다음 월급일(2026-11-04): 기준일보다 뒤의 첫 회차·수정 전 규칙 회차 포함, 월급 없음·남의 항목은 없음. 기본값·기준 계좌 표시(없으면 null), 보낸 필드만 수정·null 해제·기준 계좌 미저장, 이후 전부 수정 뒤 최신 월급 규칙, 뒤 규칙을 지정해도 첫 규칙으로 저장·앞 회차를 다시 고쳐 뒤 규칙이 지워져도 유지, 종료일이 오늘이지만 남은 회차가 없으면 400·null, 시작 전 규칙 삭제·시작한 규칙 전체 삭제(어제로 닫힘) 뒤 월급 null과 재지정 400, 지출·1회 400, 남의·없는 항목 404, 동시 수정 두 필드 모두 유지, 잘못된 저장값 500(값 미노출) |
-| `ForecastControllerTest` | 8 | 실제 MySQL·인증 필터, 잔액만 목(2026-11-04). 401, 위험 구간·원인·계좌별 결과의 JSON 이름(WARNING·EXPECTED·CARD_BILLING·refId), 계좌 없음 400 `ACCOUNT_SELECTION_REQUIRED`, `until` 형식 오류 400, 진행 중 청구서의 청구 전 회차만 카드 출금 계좌에서 출금일에 차감(취소 회차·빈 청구서·고르지 않은 계좌 청구 제외), 출금일 지난 진행 중 청구는 오늘, 설정의 기본 일수·안전 잔액, 다른 사용자 청구 미포함. 생활비 자료 없음이라 보수적 선 null |
+| `ForecastControllerTest` | 10 | 실제 MySQL·인증 필터, 잔액만 목(2026-11-04). 401, 쉼표로 이은 계좌·중복 제거, 설정한 월급으로 NEXT_INCOME 기간(다음 월급일 전날까지), 위험 구간·원인·계좌별 결과의 JSON 이름(WARNING·EXPECTED·CARD_BILLING·refId), 계좌 없음 400 `ACCOUNT_SELECTION_REQUIRED`, `until` 형식 오류 400, 진행 중 청구서의 청구 전 회차만 카드 출금 계좌에서 출금일에 차감(취소 회차·빈 청구서·고르지 않은 계좌 청구 제외), 출금일 지난 진행 중 청구는 오늘, 설정의 기본 일수·안전 잔액, 다른 사용자 청구 미포함. 생활비 자료 없음이라 보수적 선 null |
 | `CardBillingWithdrawalScheduleTest` | 6 | 명세 예시 11/16, 마감일 당일·다음 날, N 없으면 14, 공휴일 결제일, 결제일 없음·28일·N=32는 empty, `BillingSchedule` 일시불 출금일과 대조 |
 | `ForecastSettingsControllerTest` | 5 | 401, 명세 이름의 기본값 응답·수정 뒤 `updatedAt` Z, 틀린 필드 한 번에 400(`baseAccountId`·모르는 필드 포함), 문자열 숫자·int 초과·null 안전 잔액·0원 목표 400과 int 최댓값 허용, 빈 객체·본문 없음(둘 다 `fieldErrors`)·배열·깨진 JSON 400 |
 

@@ -424,6 +424,10 @@ class ForecastServiceTest {
                 ErrorCode.INVALID_REQUEST);
         assertError(() -> service.forecast(USER, List.of(A), Until.DAYS, 10, false, false),
                 ErrorCode.INVALID_REQUEST);
+        // 기간 기준이 NEXT_INCOME이어도(보냈든 설정이든) 보낸 days는 검사한다
+        assertError(() -> service.forecast(USER, List.of(A), Until.NEXT_INCOME, 5, false, false),
+                ErrorCode.INVALID_REQUEST);
+        assertError(() -> service.forecast(USER, List.of(A), null, 5, false, false), ErrorCode.INVALID_REQUEST);
         assertThat(balanceRequests).isEmpty();
     }
 
