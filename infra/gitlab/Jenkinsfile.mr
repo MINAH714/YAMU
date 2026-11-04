@@ -22,7 +22,10 @@ pipeline {
     stages {
         stage('Trusted control checkout') {
             steps {
-                script { env.YAMU_MR_SELECTED = 'false' }
+                script {
+                    env.YAMU_MR_SELECTED = 'false'
+                    env.YAMU_MR_CHECKS = ''
+                }
                 deleteDir()
                 checkout scm
                 sh 'python3 -m unittest discover -s infra/gitlab -p "test_*.py"'
@@ -64,16 +67,26 @@ pipeline {
                         extensions: []])
                 }
                 sh 'python3 infra/gitlab/candidate.py check'
-                dir('candidate') { sh 'sh infra/ci/check-environment.sh' }
+                script {
+                    env.YAMU_MR_CHECKS = sh(returnStdout: true, script: 'python3 infra/gitlab/scope.py').trim()
+                    if (!env.YAMU_MR_CHECKS) error('Empty MR verification scope')
+                    currentBuild.description += " · ${env.YAMU_MR_CHECKS}"
+                }
+                script {
+                    if (env.YAMU_MR_CHECKS != 'cd') {
+                        dir('candidate') { sh 'sh infra/ci/check-environment.sh' }
+                    }
+                }
             }
         }
         stage('BE tests and JAR') {
-            when { environment name: 'YAMU_MR_SELECTED', value: 'true' }
+            when { expression { env.YAMU_MR_SELECTED == 'true' && (',' + env.YAMU_MR_CHECKS + ',').contains(',be,') } }
             steps {
                 dir('candidate/be') {
                     sh 'sh ./gradlew --no-daemon --max-workers=1 -Dorg.gradle.jvmargs="-Xmx768m -XX:MaxMetaspaceSize=384m" clean test bootJar'
                 }
                 sh 'python3 infra/ci/check-test-results.py candidate/be/build/test-results/test'
+                script { env.YAMU_MR_BE_DONE = 'true' }
             }
             post {
                 always {
@@ -85,18 +98,33 @@ pipeline {
                 }
             }
         }
-        stage('POS and Expo checks') {
-            when { environment name: 'YAMU_MR_SELECTED', value: 'true' }
+        stage('POS checks') {
+            when { expression { env.YAMU_MR_SELECTED == 'true' && (',' + env.YAMU_MR_CHECKS + ',').contains(',pos,') } }
             steps {
                 dir('candidate/fe/pos') { sh 'npm ci --no-audit --no-fund && npm run lint && npm run build' }
+                script { env.YAMU_MR_POS_DONE = 'true' }
+            }
+        }
+        stage('Expo checks') {
+            when { expression { env.YAMU_MR_SELECTED == 'true' && (',' + env.YAMU_MR_CHECKS + ',').contains(',expo,') } }
+            steps {
                 dir('candidate/fe/mobile') { sh 'npm ci --no-audit --no-fund && ./node_modules/.bin/tsc --noEmit' }
+                script { env.YAMU_MR_EXPO_DONE = 'true' }
+            }
+        }
+        stage('Isolated CD checks') {
+            when { expression { env.YAMU_MR_SELECTED == 'true' && (',' + env.YAMU_MR_CHECKS + ',').contains(',cd,') } }
+            steps {
+                sh 'python3 -m compileall -q candidate/infra/cd-stages'
+                sh 'python3 candidate/infra/cd-stages/test_stages.py'
+                script { env.YAMU_MR_CD_DONE = 'true' }
             }
         }
         stage('Android customer tests and build') {
-            when { environment name: 'YAMU_MR_SELECTED', value: 'true' }
+            when { expression { env.YAMU_MR_SELECTED == 'true' && (',' + env.YAMU_MR_CHECKS + ',').contains(',android,') } }
             steps {
                 sh 'python3 infra/gitlab/candidate.py android'
-                writeFile file: 'gitlab-status/validated-sha.txt', text: env.YAMU_PINNED_SHA
+                script { env.YAMU_MR_ANDROID_DONE = 'true' }
             }
             post {
                 always {
@@ -113,11 +141,17 @@ pipeline {
         always {
             script {
                 if (env.YAMU_MR_SELECTED == 'true') {
-                    if (currentBuild.currentResult == 'SUCCESS' &&
-                            (!fileExists('gitlab-status/validated-sha.txt') ||
-                             readFile('gitlab-status/validated-sha.txt').trim() != env.YAMU_PINNED_SHA)) {
-                        currentBuild.result = 'FAILURE'
-                        echo 'MR validation completion evidence is missing; refusing success status.'
+                    if (currentBuild.currentResult == 'SUCCESS') {
+                        def completed = ['be': env.YAMU_MR_BE_DONE, 'pos': env.YAMU_MR_POS_DONE,
+                            'expo': env.YAMU_MR_EXPO_DONE, 'android': env.YAMU_MR_ANDROID_DONE,
+                            'cd': env.YAMU_MR_CD_DONE]
+                        def checks = env.YAMU_MR_CHECKS.split(',')
+                        if (!fileExists('gitlab-status/scope.json') || !checks.every { completed[it] == 'true' }) {
+                            currentBuild.result = 'FAILURE'
+                            echo 'MR validation completion evidence is missing; refusing success status.'
+                        } else {
+                            writeFile file: 'gitlab-status/validated-sha.txt', text: env.YAMU_PINNED_SHA
+                        }
                     }
                     def mapping = ['SUCCESS': 'success', 'FAILURE': 'failed', 'UNSTABLE': 'failed', 'ABORTED': 'canceled', 'NOT_BUILT': 'skipped']
                     def state = mapping[currentBuild.currentResult] ?: 'failed'

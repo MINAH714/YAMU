@@ -14,7 +14,14 @@ Tailscale에 연결된 팀원만 열 수 있다. Jenkins를 인터넷에 공개�
 | `yamu/gitlab/mr-ci-verification` | 268 작업 브랜치 | 지정한 같은 프로젝트 MR의 소스 SHA | 최초 수동 검증 |
 | `yamu/gitlab/mr-ci` | develop | develop 대상의 같은 프로젝트 열린 MR | 사람의 머지 후 활성화, 5분 간격 |
 
-MR 검증은 BE 테스트·JAR, POS lint·build, Expo TypeScript, 네이티브 Android
+MR 검증은 고정된 소스 커밋과 `develop`의 병합 기준점 사이에서 변경 경로를 확인한다.
+BE·POS·Expo·Android 경로는 해당 검사를 선택하고 여러 영역이 바뀌면 검사를 합친다.
+공통 설정, 미분류 경로, 비교 실패는 기존 앱 검사 전체를 실행한다. 이름 변경은 이전 경로와 새 경로를 모두 평가한다.
+격리 CD의 지정된 파일과 !104 형태의 정확한 Job 허용 목록 변경은 CD Python 컴파일과 단위 테스트를 실행한다.
+그 외 격리 CD 변경은 앱 검사와 CD 검사 모두 실행한다. Job 실행과 배포 검증은 별도 절차로 수행한다.
+GitLab 상태 설명에는 선택한 검사가 표시된다. 연결된 Jenkins 빌드의 `scope.json`에서 변경 경로와 생략한 검사도 볼 수 있다.
+
+앱 전체 검증은 BE 테스트·JAR, POS lint·build, Expo TypeScript, 네이티브 Android
 customer 테스트·mock APK 빌드를 실행한다. AI 테스트는 포함하지 않는다.
 배포·S3 업로드·RDS 적재는 실행하지 않는다.
 
