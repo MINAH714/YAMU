@@ -34,8 +34,21 @@ public record RecommendationInput(
 
     /** facts는 서버가 검증한 CONDITION 코드별 사실. 키 부재는 false가 아니라 미확인이다. */
     public record Transaction(long amount, Plan plan, int installmentMonths, Instant occurredAt,
-                              Long merchantId, String merchantCategoryCode, Map<String, Boolean> facts) {
+                              Long merchantId, String merchantCategoryCode, Map<String, Boolean> facts,
+                              String purchaseItemCode, List<SimulationRule> simulationRules) {
+        public Transaction(long amount, Plan plan, int installmentMonths, Instant occurredAt,
+                Long merchantId, String merchantCategoryCode, Map<String, Boolean> facts, String purchaseItemCode) {
+            this(amount,plan,installmentMonths,occurredAt,merchantId,merchantCategoryCode,facts,purchaseItemCode,List.of());
+        }
+        public Transaction(long amount, Plan plan, int installmentMonths, Instant occurredAt,
+                Long merchantId, String merchantCategoryCode, Map<String, Boolean> facts) {
+            this(amount, plan, installmentMonths, occurredAt, merchantId, merchantCategoryCode, facts, null);
+        }
         public Transaction {
+            simulationRules = List.copyOf(simulationRules);
+            if (purchaseItemCode != null && !purchaseItemCode.matches("[A-Z0-9_]{1,64}")) {
+                throw new IllegalArgumentException("구매 항목 코드 형식 오류");
+            }
             Objects.requireNonNull(plan);
             Objects.requireNonNull(occurredAt);
             facts = Map.copyOf(facts);
@@ -67,7 +80,7 @@ public record RecommendationInput(
             if (userCardId <= 0 || userId <= 0) {
                 throw new IllegalArgumentException("카드·사용자 ID는 양수여야 합니다.");
             }
-            Objects.requireNonNull(cardType);
+            // 상품 조회 누락은 종류 미확인으로 보존한다. Selector가 정상 계산을 막는다.
             Objects.requireNonNull(registrationStatus);
             Objects.requireNonNull(issuerStatus);
             Objects.requireNonNull(availability);
@@ -91,13 +104,17 @@ public record RecommendationInput(
         }
 
         public boolean isKnown() {
-            return period != null
+            // 확인된 최소 기준 0원에는 신규 충족이 없다. 미확인 금액을 0으로 대체하는 것은 아니다.
+            return Long.valueOf(0L).equals(minimumAmount) || period != null
                     && beforeAmount != null && minimumAmount != null && recognizedAmount != null;
         }
 
         public boolean newlyMeetsMinimum() {
             if (!isKnown()) {
                 throw new IllegalStateException("실적 보조 정보가 미확인입니다.");
+            }
+            if (minimumAmount == 0) {
+                return false;
             }
             // 덧셈 오버플로 없이 before < minimum <= before + recognized를 검사한다.
             return beforeAmount < minimumAmount && recognizedAmount >= minimumAmount - beforeAmount;

@@ -15,7 +15,17 @@ import java.util.Set;
  */
 public record BenefitPolicy(boolean complete, Long previousMonthPerformance,
                             BigDecimal additionalCost, List<Benefit> benefits,
-                            List<Limit> limits, List<List<Long>> allowedCombinations) {
+                            List<Limit> limits, List<List<Long>> allowedCombinations,
+                            List<ApplicationGroup> applicationGroups, java.util.Map<Long, Fallback> fallbacks,
+                            List<SimulationRule> simulationRules) {
+    public BenefitPolicy(boolean complete, Long previousMonthPerformance, BigDecimal additionalCost, List<Benefit> benefits,
+            List<Limit> limits, List<List<Long>> allowedCombinations, List<ApplicationGroup> applicationGroups, java.util.Map<Long, Fallback> fallbacks) {
+        this(complete,previousMonthPerformance,additionalCost,benefits,limits,allowedCombinations,applicationGroups,fallbacks,List.of());
+    }
+    public BenefitPolicy(boolean complete, Long previousMonthPerformance, BigDecimal additionalCost,
+            List<Benefit> benefits, List<Limit> limits, List<List<Long>> allowedCombinations) {
+        this(complete, previousMonthPerformance, additionalCost, benefits, limits, allowedCombinations, null, java.util.Map.of());
+    }
     /** 종료 제한이 없음을 확인한 경우에만 공급하는 값. NULL 날짜의 기본값으로 사용하지 않는다. */
     public static final LocalDate NO_END_DATE = LocalDate.of(9999, 12, 31);
     public BenefitPolicy {
@@ -27,6 +37,9 @@ public record BenefitPolicy(boolean complete, Long previousMonthPerformance,
         }
         benefits = List.copyOf(benefits);
         limits = List.copyOf(limits);
+        applicationGroups = applicationGroups == null ? null : List.copyOf(applicationGroups);
+        fallbacks = java.util.Map.copyOf(fallbacks);
+        simulationRules = List.copyOf(simulationRules);
         if (allowedCombinations != null) {
             allowedCombinations = allowedCombinations.stream().map(List::copyOf).toList();
         }
@@ -52,7 +65,31 @@ public record BenefitPolicy(boolean complete, Long previousMonthPerformance,
     public enum RoundingStage { PER_TRANSACTION, AFTER_AGGREGATION }
     public enum Period { PER_TRANSACTION, DAILY, MONTHLY }
     public enum CountMode { PER_BENEFIT, PER_TRANSACTION }
-    public enum TargetType { ALL, BRAND, CATEGORY }
+    public enum TargetType { ALL, BRAND, CATEGORY, PURCHASE_ITEM }
+    public enum ApplicationMode { STACK, MAX_ONE, PRIORITY_ONE }
+    public record ApplicationMember(long benefitId, Integer priorityOrder) { }
+    public record ApplicationGroup(long id, ApplicationMode mode, List<ApplicationMember> members) {
+        public ApplicationGroup {
+            Objects.requireNonNull(mode);
+            members = List.copyOf(members);
+            if (members.isEmpty() || members.stream().map(ApplicationMember::benefitId).distinct().count() != members.size()
+                    || members.stream().anyMatch(m -> m.benefitId() <= 0 || (mode == ApplicationMode.PRIORITY_ONE
+                        ? m.priorityOrder() == null || m.priorityOrder() <= 0 : m.priorityOrder() != null))) {
+                throw new IllegalArgumentException("혜택 적용 그룹 구성 오류");
+            }
+        }
+    }
+    public record Fallback(long benefitId, String mode) {
+        public Fallback {
+            if (benefitId <= 0 || !"EXCESS_PAYMENT_AMOUNT".equals(mode)) throw new IllegalArgumentException("전환 정책 오류");
+        }
+    }
+    public record TargetGroup(long id, boolean excluded, List<Target> members) {
+        public TargetGroup {
+            members = List.copyOf(members);
+            if (members.isEmpty() || members.stream().anyMatch(Target::excluded)) throw new IllegalArgumentException("대상 그룹 구성 오류");
+        }
+    }
 
     /** baseAmount는 상품 정책에 따른 계산 대상액. 포인트 사용분 제외 등의 사실 미확인은 null이다. */
     public record Benefit(long id, int version, String name, BenefitType type,
@@ -118,15 +155,21 @@ public record BenefitPolicy(boolean complete, Long previousMonthPerformance,
     }
 
     /**
-     * 포함 대상 OR, requiredFacts AND, 제외 대상·excludedFacts OR. facts 키 부재는 미확인이다.
+     * targetGroups는 경로 내 AND·경로 간 OR다. null이면 기존 평면 대상 OR 입력의 호환 경로다.
+     * requiredFacts AND, 제외 경로·excludedFacts OR. facts 키 부재는 미확인이다.
      * 시작일·종료일 NULL은 미확인이다. 종료 제한이 없음이 확인된 경우만 NO_END_DATE를 전달한다.
      * 일반 종료일은 미포함이며 verified/currentVersionVerified로 누락 날짜를 대신하지 않는다.
      */
     public record Conditions(boolean verified, boolean currentVersionVerified,
                              LocalDate validFrom, LocalDate validUntil,
                              List<Target> targets, Set<String> requiredFacts,
-                             Set<String> excludedFacts, Schedule schedule) {
+                             Set<String> excludedFacts, Schedule schedule, List<TargetGroup> targetGroups) {
+        public Conditions(boolean verified, boolean currentVersionVerified, LocalDate validFrom, LocalDate validUntil,
+                List<Target> targets, Set<String> requiredFacts, Set<String> excludedFacts, Schedule schedule) {
+            this(verified, currentVersionVerified, validFrom, validUntil, targets, requiredFacts, excludedFacts, schedule, null);
+        }
         public Conditions {
+            targetGroups = targetGroups == null ? null : List.copyOf(targetGroups);
             targets = List.copyOf(targets);
             requiredFacts = Set.copyOf(requiredFacts);
             excludedFacts = Set.copyOf(excludedFacts);
@@ -140,7 +183,7 @@ public record BenefitPolicy(boolean complete, Long previousMonthPerformance,
         public Target {
             Objects.requireNonNull(type);
             if ((type == TargetType.BRAND && (merchantId == null || merchantId <= 0 || categoryCode != null))
-                    || (type == TargetType.CATEGORY
+                    || ((type == TargetType.CATEGORY || type == TargetType.PURCHASE_ITEM)
                     && (categoryCode == null || categoryCode.isBlank() || merchantId != null))
                     || (type == TargetType.ALL && (merchantId != null || categoryCode != null))) {
                 throw new IllegalArgumentException("혜택 대상 형식이 잘못되었습니다.");

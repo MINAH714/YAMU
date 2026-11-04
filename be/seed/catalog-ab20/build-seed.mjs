@@ -7,6 +7,7 @@ import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
+import { withTargetGroups } from './target-groups.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const src = process.argv[2];
@@ -487,7 +488,7 @@ COMMIT;
 
 DROP TEMPORARY TABLE ab20_product, ab20_benefit, ab20_merchant, ab20_guard, ab20_target, ab20_limit${outTiers.length ? ', ab20_tier' : ''}, ab20_link;
 `;
-writeFileSync(join(here, '..', '02-card-catalog-ab20.sql'), sql);
+writeFileSync(join(here, '..', '02-card-catalog-ab20.sql'), withTargetGroups(sql));
 
 const summary = { cards: outProducts.length, benefits: outBenefits.length, targets: outTargets.length, limit_groups: outGroups.length, tier_limits: outTiers.length, links: outLinks.length, merchants: outMerchants.length, condition_codes: [...conditionCodes.values()].filter(c => outTargets.some(t => t.target_value === c.yamu_code)).length, excluded: excluded.length, assumptions: assumptions.length };
 writeFileSync(out('report/summary.json'), JSON.stringify(summary, null, 2) + '\n');
