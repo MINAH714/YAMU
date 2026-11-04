@@ -8,7 +8,19 @@ import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
-/** 결제 담당이 소유권·잠금·중복 요청을 처리한 트랜잭션 안에서 호출하는 보존 계약. 추천 계산에서는 호출하지 않는다. */
+/**
+ * 결제 담당이 소유권, 잠금, 중복 요청을 처리한 트랜잭션에서 구매 항목과 추천 결과를 보존한다.
+ *
+ * <p>{@link #preservePurchaseItem}과 {@link #save}는 JDBC로 결제 행의 {@code version}을 증가시킨다.
+ * 호출자의 JPA 영속성 컨텍스트가 같은 행의
+ * {@link com.yamu.be.payment.domain.PaymentTransaction}을 이미 관리 중이면 엔티티의
+ * {@code @Version}에는 이전 값이 남는다. 이후 그 엔티티의 변경을 flush하면
+ * 낙관적 잠금 검사에서 {@link jakarta.persistence.OptimisticLockException}이 발생할 수 있다.
+ *
+ * <p>두 쓰기 메서드는 같은 결제 행의 엔티티가 관리 중인 트랜잭션에서 호출하지 않는다.
+ * 같은 영속성 컨텍스트에서 함께 변경해야 한다면 {@code purchase_item_code}와
+ * {@code recommendation_result_json}을 엔티티에 매핑하고 JPA로 갱신한다.
+ */
 @Repository
 @RequiredArgsConstructor
 public class DatabaseRecommendationResultStore {
