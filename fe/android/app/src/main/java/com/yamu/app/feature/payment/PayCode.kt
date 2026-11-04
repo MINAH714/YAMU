@@ -57,7 +57,6 @@ import com.yamu.app.core.designsystem.component.LinkButton
 import com.yamu.app.core.designsystem.component.PrimaryButton
 import com.yamu.app.core.designsystem.component.RoundCheckbox
 import com.yamu.app.core.designsystem.component.Segmented
-import com.yamu.app.core.designsystem.component.SkeletonBlock
 import com.yamu.app.core.designsystem.component.StatusTag
 import com.yamu.app.core.designsystem.component.TextButtonGrey
 import com.yamu.app.core.designsystem.component.YamuDialog
@@ -495,7 +494,10 @@ private fun RequestBody(request: PaymentRequest, s: PayCodeState, onSelectCard: 
             Spacer(Modifier.height(YamuSpacing.x5))
         }
         Text("결제 카드", style = YamuTheme.typography.sub, color = c.text3)
-        if (request.cards.isEmpty()) SkeletonBlock(height = 56.dp)
+        // 서버가 추천을 끝낸 결과라 기다려도 바뀌지 않는다(FR-018)
+        if (request.cards.isEmpty()) {
+            EmptyState(if (request.cardsUnknown) "카드 정보를 확인하지 못해 결제할 카드를 고를 수 없어요" else "이 결제에 쓸 수 있는 카드가 없어요")
+        }
         request.cards.forEach { card ->
             PayCardRow(card, selected = card.userCardId == s.selectedCardId, enabled = !s.requestDone && !s.approving, onClick = { onSelectCard(card.userCardId) })
         }
@@ -543,6 +545,10 @@ private fun PayCardRow(card: PayCard, selected: Boolean, enabled: Boolean, onCli
 private fun RequestButtons(request: PaymentRequest, s: PayCodeState, onApprove: () -> Unit, onReject: () -> Unit, onClose: () -> Unit) {
     if (s.requestDone) {
         BottomCta { PrimaryButton("닫기", onClick = onClose) }
+        return
+    }
+    if (request.cards.isEmpty()) {
+        BottomCta { PrimaryButton("거절", onClick = onReject, loading = s.rejecting) }
         return
     }
     val card = s.selectedCard

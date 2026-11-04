@@ -43,6 +43,30 @@ class PaymentMapperTest {
         assertEquals(CodeState.EXPIRED, BarcodeStatusResponse(status = "EXPIRED").toStatus().state)
     }
 
+    private fun scanned(recommendation: String) = YamuJson.decodeFromString(
+        BarcodeStatusResponse.serializer(),
+        """{"status":"SCANNED","payment":{"paymentId":1024,"merchant":{"merchantId":301,"name":"야무카페 역삼점"},"amount":15000$recommendation}}""",
+    ).toStatus()
+
+    @Test fun `찍혔는데 쓸 수 있는 카드가 없으면 요청은 두고 카드만 비운다`() {
+        val status = scanned(""","recommendation":{"status":"NO_ELIGIBLE_CARD","candidates":[],"excludedCount":2}""")
+        assertEquals(CodeState.SCANNED, status.state)
+        assertTrue(status.request!!.cards.isEmpty())
+        assertFalse(status.request.cardsUnknown)
+    }
+
+    @Test fun `데이터 부족이면 카드를 확인하지 못한 것으로`() {
+        val status = scanned(""","recommendation":{"status":"DATA_INSUFFICIENT","candidates":[]}""")
+        assertTrue(status.request!!.cards.isEmpty())
+        assertTrue(status.request.cardsUnknown)
+    }
+
+    @Test fun `추천 스냅샷이 없어도 찍힌 것으로 두고 카드를 확인하지 못한 것으로`() {
+        val status = scanned("")
+        assertEquals(CodeState.SCANNED, status.state)
+        assertTrue(status.request!!.cardsUnknown)
+    }
+
     @Test fun `신용 할부 승인 — 첫 회차 청구일 · 금액, 실적`() {
         val dto = PaymentResultDto(
             paymentId = 1024, status = "APPROVED", amount = 90_000, plan = "INSTALLMENT", installmentMonths = 3, chargedAmount = 90_000,
