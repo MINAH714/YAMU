@@ -123,13 +123,45 @@ class ForecastControllerTest extends MySqlTestSupport {
                 .andExpect(jsonPath("$.data.series[10].expected").value(970_000))
                 .andExpect(jsonPath("$.data.series[10].confirmed").value(1_000_000))
                 .andExpect(jsonPath("$.data.series[14].expected").value(970_000))
-                // 생활비 원천이 아직 자료 없음이라 보수적 선은 비운다
+                // A에는 신용카드뿐이라 생활비 자료가 없어 보수적 선은 비운다
                 .andExpect(jsonPath("$.data.series[14].conservative").value(nullValue()))
                 .andExpect(jsonPath("$.data.livingCost.dailyAverage").value(nullValue()))
                 // 앱은 이 값으로 "생활비 미반영"을 안내한다(요약 상태만으로는 생활비가 빠졌는지 알 수 없음)
                 .andExpect(jsonPath("$.data.livingCost.dataOrigin").value("INSUFFICIENT"))
                 .andExpect(jsonPath("$.data.livingCost.confidence").value("INSUFFICIENT"))
                 .andExpect(jsonPath("$.data.excluded", hasSize(0)));
+    }
+
+    @Test
+    void 완료_3개월의_SEED_체크카드_소비가_있으면_생활비를_추정해_보수적_선을_낸다() throws Exception {
+        // 오늘 체크카드를 등록한 계좌. 등록 전 3개월(1일부터 어제까지)은 SEED가 덮고, YAMU 결제가 아직 없어 REAL 줄은 없다
+        OwnershipFixtures ownership = new OwnershipFixtures(jdbc);
+        SpendingFixtures spending = new SpendingFixtures(jdbc);
+        long account = ownership.account(owner);
+        long check = spending.card(owner, spending.product("CHECK"), account, today);
+        LocalDate firstMonth = today.withDayOfMonth(1).minusMonths(3);
+        long total = 0;
+        long days = 0;
+        for (int month = 0; month < 3; month++) {
+            LocalDate day = firstMonth.plusMonths(month);
+            // 금액을 달마다 다르게 해 반복 지출(같은 카드·가맹점·금액이 3개 달)로 빠지지 않게 한다
+            long amount = 31_000L + month * 1_000L;
+            spending.payment(owner, check, merchant, amount, 1, SpendingFixtures.utc(day, 12), "SEED", "APPROVED");
+            total += amount;
+            days += day.lengthOfMonth();
+        }
+        long daily = (total * 2 + days) / (days * 2);
+
+        mockMvc.perform(get("/api/forecasts/balance").with(AuthUsers.asUser(owner))
+                        .param("accountIds", String.valueOf(account)).param("until", "DAYS").param("days", "7"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.livingCost.dataOrigin").value("SEED"))
+                .andExpect(jsonPath("$.data.livingCost.confidence").value("HIGH"))
+                .andExpect(jsonPath("$.data.livingCost.dailyAverage").value(daily))
+                // 오늘 쓴 돈은 잔액에 이미 들어 있어 내일부터 뺀다
+                .andExpect(jsonPath("$.data.series[0].conservative").value(1_000_000))
+                .andExpect(jsonPath("$.data.series[1].conservative").value(1_000_000 - daily))
+                .andExpect(jsonPath("$.data.series[7].conservative").value(1_000_000 - daily * 7));
     }
 
     @Test
