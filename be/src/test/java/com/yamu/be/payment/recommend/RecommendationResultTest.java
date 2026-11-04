@@ -223,6 +223,50 @@ class RecommendationResultTest {
         assertThat(read.uncompared(1L).orElseThrow().directPaymentAllowed()).isTrue();
     }
 
+    // ───────── 순혜택 정수 계약(S15P31E103-283) ─────────
+
+    @Test
+    void 순혜택에_소수가_있으면_후보를_만들지_않는다() {
+        // 포인트 환산율 0.5: 3포인트 → 1.5원. 추천 포트가 내림하지 않고 넘긴 경우
+        assertThatThrownBy(() -> candidate(1, CARD_1, new java.math.BigDecimal("1.5")))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("원 단위 정수");
+        assertThatThrownBy(() -> candidate(1, CARD_1, new java.math.BigDecimal("-0.5")))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void 소수_자리만_0이면_정수로_맞춘다() {
+        Candidate candidate = candidate(1, CARD_1, new java.math.BigDecimal("1500.00"));
+
+        assertThat(candidate.netBenefit()).isEqualTo(new java.math.BigDecimal("1500"));
+        assertThat(candidate.netBenefit().longValueExact()).isEqualTo(1500L);
+    }
+
+    @Test
+    void long_범위를_넘는_순혜택은_거부한다() {
+        java.math.BigDecimal huge = java.math.BigDecimal.valueOf(Long.MAX_VALUE).add(java.math.BigDecimal.ONE);
+
+        assertThatThrownBy(() -> candidate(1, CARD_1, huge)).isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void 소수_순혜택이_담긴_스냅샷은_읽을_때_거부한다() throws Exception {
+        // 계약 전에 저장된 값이 있다면 승인 응답을 만들다 터지지 않고 스냅샷 읽기에서 실패한다
+        ObjectMapper json = json();
+        String written = json.writeValueAsString(result(List.of(candidate(1, CARD_1, 500)), List.of(), List.of()));
+        String decimal = written.replace("\"netBenefit\":500", "\"netBenefit\":500.5");
+
+        assertThat(decimal).isNotEqualTo(written);
+        assertThatThrownBy(() -> json.readValue(decimal, RecommendationResult.class))
+                .hasRootCauseInstanceOf(IllegalArgumentException.class);
+    }
+
+    private static Candidate candidate(int rank, CardSummary card, java.math.BigDecimal netBenefit) {
+        return new Candidate(rank, card, netBenefit, List.of(), "", null,
+                new RuleVersion(card.cardProductId(), 1));
+    }
+
     private static RecommendationResult result(List<Candidate> candidates, List<ExcludedCard> excluded,
             List<UncomparedCard> uncompared) {
         return new RecommendationResult("rec_000000000001", AT, false, candidates, excluded, uncompared);

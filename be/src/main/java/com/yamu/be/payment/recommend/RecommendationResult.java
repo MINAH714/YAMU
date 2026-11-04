@@ -138,6 +138,9 @@ public record RecommendationResult(String recommendationId, LocalDateTime calcul
      * 결제할 금액(chargedAmount)은 담지 않는다. 결제 쪽이 {@code PaymentTerms.chargedAmount(instantDiscount())}로 계산한다.
      *
      * @param card            결제 쪽이 조회한 카드 표시 정보를 그대로 담는다
+     * @param netBenefit      이번 결제 순혜택(원 단위 정수, S15P31E103-283). 포인트 환산 뒤 소수는 추천 엔진 안의 비교에만 쓰고,
+     *                        후보를 만들 때 0 쪽으로 내림(DOWN)해 넘긴다. 정수가 아니면 생성자가 거부한다.
+     *                        결제 쪽(승인 응답·앱 결제 요청 조회)이 {@code longValueExact()}로 읽어도 되도록 보장하는 값이다
      * @param selectionReason 1순위를 고른 기준(!63의 selectionReason). 1순위에만 있고 나머지는 null
      * @param ruleVersion     결제 쪽이 조회한 상품 규칙 버전을 그대로 담는다
      */
@@ -163,7 +166,7 @@ public record RecommendationResult(String recommendationId, LocalDateTime calcul
 
         public Candidate {
             Objects.requireNonNull(card, "card");
-            Objects.requireNonNull(netBenefit, "netBenefit");
+            netBenefit = wholeWon(Objects.requireNonNull(netBenefit, "netBenefit"));
             benefits = List.copyOf(benefits);
             Objects.requireNonNull(ruleVersion, "ruleVersion");
             unallocatedBenefitGroups = unallocatedBenefitGroups == null ? List.of() : List.copyOf(unallocatedBenefitGroups);
@@ -176,6 +179,22 @@ public record RecommendationResult(String recommendationId, LocalDateTime calcul
                 }
             }
             if (benefits.stream().anyMatch(b -> b.amount() == null && !ids.contains(b.benefitId()))) throw new IllegalArgumentException("NULL 상세 금액 근거 누락");
+        }
+
+        /**
+         * 순혜택을 원 단위 정수로 확인한다. {@code 1500.00}처럼 소수 자리만 0이면 {@code 1500}으로 맞추고, 소수가 남으면 거부한다.
+         * POS 접수(추천 계산·스냅샷 저장)에서 실패시켜야 롤백할 수 있다. 승인 뒤 응답을 만들다 실패하면 결제는 APPROVED인데 500이 된다.
+         * long 범위를 넘는 값도 결제 쪽이 읽을 수 없으므로 거부한다.
+         */
+        private static java.math.BigDecimal wholeWon(java.math.BigDecimal netBenefit) {
+            java.math.BigDecimal whole;
+            try {
+                whole = netBenefit.setScale(0, java.math.RoundingMode.UNNECESSARY);
+                whole.longValueExact();
+            } catch (ArithmeticException e) {
+                throw new IllegalArgumentException("순혜택은 원 단위 정수여야 합니다: " + netBenefit.toPlainString());
+            }
+            return whole;
         }
 
         /** 승인 때 바로 반영되는 즉시할인({@link BenefitLine#AT_APPROVAL}) 합계. 청구할인·캐시백·적립은 넣지 않는다. */
