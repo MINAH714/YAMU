@@ -1,0 +1,12 @@
+{
+  "jobs": [
+    {"path": "ci", "group": "CI", "label": "develop 통합 검사", "purpose": "BE 테스트·JAR, POS, Expo 검사"},
+    {"path": "gitlab/mr-ci", "group": "CI", "label": "MR 자동 검사", "purpose": "같은 프로젝트 MR 소스 커밋 검사. 활성 여부는 아래 실제 Job 상태 확인"},
+    {"path": "gitlab/mr-ci-verification", "group": "CI", "label": "MR 연동 검증", "purpose": "지정한 MR의 Jenkins·GitLab 연동 확인"},
+    {"path": "ci-master", "group": "CD", "label": "배포 브랜치 검사", "purpose": "master 배포 후보 검사. 실제 실행은 배포 절차에 따름"},
+    {"path": "cd", "group": "CD", "label": "BE 배포", "purpose": "실제 배포 Job. 일반 결과 확인 시 재실행 버튼을 누르지 않음"},
+    {"path": "cd-verification", "group": "CD", "label": "격리 CD 검증", "purpose": "격리 환경의 배포·롤백·데이터 유지 검증. 현재 실행 단위는 SSH 명령 1회"},
+    {"path": "mobile/apk-mock", "group": "APK", "label": "목데이터 APK", "purpose": "APK 테스트·빌드·S3 업로드. 휴대폰 실제 실행 확인은 별도"},
+    {"path": "mobile/apk-mock-verification", "group": "APK", "label": "APK 자동화 검증", "purpose": "검증 브랜치의 APK 빌드·업로드 확인"}
+  ]
+}
