@@ -40,6 +40,8 @@ class CashflowEventsTest {
     private static final Long EXPIRED_ON_A = 25L;
     private static final Long INACTIVE_ON_A = 26L;
     private static final Long SUSPENDED_CREDIT_ON_A = 27L;
+    /** 결제일이 없어 출금일을 정할 수 없는 신용카드. */
+    private static final Long CREDIT_WITHOUT_CYCLE_ON_A = 28L;
 
     private final List<LocalDate> creditSpendDates = new ArrayList<>();
     private final Map<Long, UserCardRef> registered = Map.of(
@@ -55,12 +57,14 @@ class CashflowEventsTest {
             INACTIVE_ON_A, card(INACTIVE_ON_A, A, CardType.CHECK, CardRegistrationStatus.INACTIVE,
                     CardIssuerStatus.NORMAL),
             SUSPENDED_CREDIT_ON_A, card(SUSPENDED_CREDIT_ON_A, A, CardType.CREDIT, CardRegistrationStatus.ACTIVE,
-                    CardIssuerStatus.SUSPENDED));
+                    CardIssuerStatus.SUSPENDED),
+            CREDIT_WITHOUT_CYCLE_ON_A, card(CREDIT_WITHOUT_CYCLE_ON_A, A, CardType.CREDIT,
+                    CardRegistrationStatus.ACTIVE, CardIssuerStatus.NORMAL));
     // BE 1 조회처럼 없거나 해제된 카드는 empty다.
     private final CardQueryService cards = mock(CardQueryService.class);
     private final CreditWithdrawalSchedule creditSchedule = (card, spendDate) -> {
         creditSpendDates.add(spendDate);
-        return CREDIT_WITHDRAWAL;
+        return card.userCardId().equals(CREDIT_WITHOUT_CYCLE_ON_A) ? Optional.empty() : Optional.of(CREDIT_WITHDRAWAL);
     };
 
     @BeforeEach
@@ -201,6 +205,23 @@ class CashflowEventsTest {
                 .containsExactly(tuple(1L, ExcludedItem.Reason.CARD_SUSPENDED_OR_EXPIRED));
         assertThat(outside.events()).isEmpty();
         assertThat(outside.excluded()).isEmpty();
+    }
+
+    @Test
+    void 출금일을_정할_수_없는_신용카드_회차는_사용일이_기간_안이고_선택한_계좌일_때만_알린다() {
+        CashflowEvents.Converted inside = convert(Set.of(A),
+                entry(1L, null, CREDIT_WITHOUT_CYCLE_ON_A, CashflowItem.Direction.EXPENSE, 9_000L, TODAY.plusDays(2)));
+        CashflowEvents.Converted afterRange = convert(Set.of(A),
+                entry(1L, null, CREDIT_WITHOUT_CYCLE_ON_A, CashflowItem.Direction.EXPENSE, 9_000L, TO.plusDays(1)));
+        CashflowEvents.Converted otherAccount = convert(Set.of(B),
+                entry(1L, null, CREDIT_WITHOUT_CYCLE_ON_A, CashflowItem.Direction.EXPENSE, 9_000L, TODAY.plusDays(2)));
+
+        assertThat(inside.events()).isEmpty();
+        assertThat(inside.excluded())
+                .extracting(ExcludedItem::cashflowItemId, ExcludedItem::date, ExcludedItem::reason)
+                .containsExactly(tuple(1L, TODAY.plusDays(2), ExcludedItem.Reason.BILLING_CYCLE_UNKNOWN));
+        assertThat(afterRange.excluded()).isEmpty();
+        assertThat(otherAccount.excluded()).isEmpty();
     }
 
     @Test
