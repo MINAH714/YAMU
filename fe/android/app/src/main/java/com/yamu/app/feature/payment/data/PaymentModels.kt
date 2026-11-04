@@ -87,6 +87,7 @@ import kotlinx.serialization.Serializable
 )
 
 @Serializable data class RecommendationDto(
+    val status: String? = null,              // 임시(명세 반영 전) READY · PARTIAL_READY · NO_ELIGIBLE_CARD · DATA_INSUFFICIENT
     val candidates: List<CandidateDto> = emptyList(),
     val excludedCount: Int = 0,
     val isEstimate: Boolean = false,
@@ -181,6 +182,7 @@ data class PaymentRequest(
     val amount: Long,
     val confirmDeadlineIso: String?,
     val cards: List<PayCard>,
+    val cardsUnknown: Boolean = false,       // 카드가 없는 게 아니라 확인하지 못했다(추천 스냅샷 없음 · 데이터 부족)
 )
 
 data class PayCodeStatus(val state: CodeState, val request: PaymentRequest?)
@@ -250,6 +252,7 @@ fun BarcodeStatusResponse.toStatus(): PayCodeStatus {
             amount = p.amount,
             confirmDeadlineIso = p.confirmDeadline,
             cards = p.recommendation?.candidates.orEmpty().sortedBy { it.rank }.map { it.toPayCard() },
+            cardsUnknown = p.recommendation == null || p.recommendation.status == "DATA_INSUFFICIENT",
         )
     }
     // 찍혔는데 요청 내용이 없으면 아직 찍히기 전으로 본다(다음 확인에서 다시)

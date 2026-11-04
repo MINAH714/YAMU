@@ -39,6 +39,8 @@ enum class PayScenario(val label: String) {
     MART("3초 뒤 가맹점이 찍음 · 마트 90,000원(할부)"),
     CHECK_DECLINED("1순위 체크카드 잔액 부족 → 다른 카드"),
     NO_SCAN("아무도 안 찍음(20초 코드)"),
+    NO_CARD("가맹점이 찍었는데 쓸 수 있는 카드 없음"),
+    CARDS_UNKNOWN("가맹점이 찍었는데 카드 정보 확인 못 함"),
 }
 
 /**
