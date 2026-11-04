@@ -752,17 +752,25 @@ button.checkout {
   font-size: 1.2rem;
 }
 
+/* 스캔 화면의 남는 높이를 카메라가 모두 쓴다(태블릿 1180×820에서 약 430px, 1024×768에서도 300px 이상) */
 .camera {
   position: relative;
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  justify-content: center;
+  min-height: 300px;
   overflow: hidden;
   border-radius: 14px;
   background: #0d1b29;
 }
 
 .camera video {
+  position: absolute;
+  inset: 0;
   display: block;
   width: 100%;
-  height: 300px;
+  height: 100%;
   object-fit: cover;
 }
 
