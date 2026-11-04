@@ -86,3 +86,5 @@ Job 실행 및 MR 상태 표시 검증은 설치 후 추가 기록한다.
 
 근거: [GitLab 외부 커밋 상태 API](https://docs.gitlab.com/api/commits/#set-commit-pipeline-status),
 [보호 브랜치](https://docs.gitlab.com/user/project/repository/branches/protected/).
+
+> 전체 검사 분기 확인용 임시 변경 (S15P31E103-275).
