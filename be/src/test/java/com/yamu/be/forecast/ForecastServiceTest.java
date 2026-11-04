@@ -68,6 +68,8 @@ class ForecastServiceTest {
     // 따로 정하지 않은 카드는 BE 1 조회처럼 empty(Mockito 기본값)다.
     @Mock CardQueryService cardService;
     @Mock ForecastSettingsStore settingsStore;
+    // 따로 정하지 않으면 다음 월급일은 없다(Mockito 기본값 Optional.empty).
+    @Mock ForecastSettingsService settingsService;
 
     private final List<List<Long>> balanceRequests = new ArrayList<>();
     private final List<Boolean> refreshRequests = new ArrayList<>();
@@ -113,7 +115,7 @@ class ForecastServiceTest {
         // 생활비 상세는 설정을 읽지 않아 lenient로 둔다.
         lenient().when(settingsStore.read(anyLong())).thenAnswer(invocation -> userSettings);
         return new ForecastService(cashflows, balanceService, billReader, cardService, creditSchedule, livingReader,
-                accounts, settingsStore, clock);
+                accounts, settingsStore, settingsService, clock);
     }
 
     @Test
@@ -442,6 +444,37 @@ class ForecastServiceTest {
         }
         givenEntries(TODAY, TODAY.plusDays(7));
         assertThat(service.forecast(USER, duplicated, Until.DAYS, 7, false, false).accountIds()).containsExactly(A, B);
+    }
+
+    @Test
+    void NEXT_INCOME은_다음_월급일_전날까지이고_월급일이_내일이면_오늘_하루다() {
+        userSettings = new ForecastSettings(Until.NEXT_INCOME, 30, THRESHOLD, 55L, null, true, true, null);
+        service = serviceAt(CLOCK);
+        givenEntries(TODAY, TODAY.plusDays(9));
+        when(settingsService.nextIncomeDate(USER, 55L, TODAY)).thenReturn(Optional.of(TODAY.plusDays(10)));
+
+        BalanceForecast result = service.forecast(USER, List.of(A), null, null, false, false);
+
+        assertThat(result.horizon()).isEqualTo(new BalanceForecast.Horizon(Until.NEXT_INCOME, TODAY,
+                TODAY.plusDays(9), 9));
+        assertThat(result.series()).hasSize(10);
+
+        givenEntries(TODAY, TODAY);
+        when(settingsService.nextIncomeDate(USER, 55L, TODAY)).thenReturn(Optional.of(TODAY.plusDays(1)));
+        BalanceForecast eve = service.forecast(USER, List.of(A), Until.NEXT_INCOME, null, false, false);
+
+        assertThat(eve.horizon()).isEqualTo(new BalanceForecast.Horizon(Until.NEXT_INCOME, TODAY, TODAY, 0));
+        assertThat(eve.series()).hasSize(1);
+    }
+
+    @Test
+    void 다음_월급일을_모르면_NEXT_INCOME도_30일_DAYS로_계산한다() {
+        givenEntries(TODAY, TODAY.plusDays(30));
+
+        BalanceForecast result = service.forecast(USER, List.of(A), Until.NEXT_INCOME, null, false, false);
+
+        assertThat(result.horizon()).isEqualTo(new BalanceForecast.Horizon(Until.DAYS, TODAY, TODAY.plusDays(30),
+                30));
     }
 
     @Test

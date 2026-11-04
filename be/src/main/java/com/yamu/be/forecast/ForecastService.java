@@ -15,12 +15,14 @@ import java.time.LocalDateTime;
 import java.time.YearMonth;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import org.springframework.stereotype.Service;
 
@@ -30,7 +32,7 @@ import org.springframework.stereotype.Service;
  *
  * <p>잔액·카드는 BE 1 서비스, 신용카드 출금일은 BE 2 청구 주기({@link CreditWithdrawalSchedule})를 쓴다. 청구({@link CardBillReader})와
  * 생활비({@link LivingCostReader})는 임시 원천이다(청구는 진행 중 청구서만, 생활비는 자료 없음). 안전 잔액·기간 기본값은
- * 잔고예보 설정({@link ForecastSettingsStore})에서 읽는다.
+ * 잔고예보 설정({@link ForecastSettingsStore})에서, 다음 월급일은 설정의 월급 항목({@link ForecastSettingsService})에서 읽는다.
  */
 @Service
 public class ForecastService {
@@ -38,7 +40,7 @@ public class ForecastService {
     private static final Set<Integer> ALLOWED_DAYS = Set.of(7, 14, 30);
     /** 한 번에 예보할 수 있는 계좌 수. 계좌마다 금융망 잔액 조회가 나가므로 막는다. AI 생활비 API 입력 상한과 같다(2026-11-04 결정). */
     static final int MAX_ACCOUNTS = 20;
-    /** 다음 수입일을 정할 잔고예보 설정이 아직 없어 명세의 대체 기간을 쓴다. */
+    /** 월급을 설정하지 않았거나 두 달 안에 회차가 없으면 NEXT_INCOME 대신 쓰는 명세의 대체 기간. */
     private static final int NEXT_INCOME_FALLBACK_DAYS = 30;
     private static final String LIVING_COST_METHOD = "AVG_3M";
     /** 명세 「생활비 예측 상세」의 제외 안내. 실제로 빼는 일은 생활비 원천({@link LivingCostReader})이 한다. */
@@ -55,11 +57,13 @@ public class ForecastService {
     private final LivingCostReader livingCosts;
     private final AccountQueryService accounts;
     private final ForecastSettingsStore settings;
+    private final ForecastSettingsService settingsService;
     private final Clock clock;
 
     ForecastService(CashflowService cashflows, AccountBalanceService balances, CardBillReader bills,
             CardQueryService cards, CreditWithdrawalSchedule creditSchedule, LivingCostReader livingCosts,
-            AccountQueryService accounts, ForecastSettingsStore settings, Clock clock) {
+            AccountQueryService accounts, ForecastSettingsStore settings, ForecastSettingsService settingsService,
+            Clock clock) {
         this.cashflows = cashflows;
         this.balances = balances;
         this.bills = bills;
@@ -68,6 +72,7 @@ public class ForecastService {
         this.livingCosts = livingCosts;
         this.accounts = accounts;
         this.settings = settings;
+        this.settingsService = settingsService;
         this.clock = clock;
     }
 
@@ -91,7 +96,12 @@ public class ForecastService {
         long alertThreshold = userSettings.alertThreshold();
         LocalDate today = today();
         BalanceForecast.Until effectiveUntil = until != null ? until : userSettings.horizon();
-        BalanceForecast.Horizon horizon = horizon(effectiveUntil, days != null ? days : userSettings.defaultDays(), today);
+        // 오늘 들어올 월급은 잔액에 이미 들어왔는지 몰라 예보에서 빼므로, 다음 월급일은 오늘보다 뒤의 첫 회차다.
+        Optional<LocalDate> nextIncome = effectiveUntil == BalanceForecast.Until.NEXT_INCOME
+                ? settingsService.nextIncomeDate(authenticatedUserId, userSettings.incomeCashflowItemId(), today)
+                : Optional.empty();
+        BalanceForecast.Horizon horizon = horizon(effectiveUntil, days != null ? days : userSettings.defaultDays(),
+                nextIncome, today);
 
         // 잔액·생활비는 금융망을 부를 수 있어 DB를 읽기 전에 따로 읽는다. 남의·연결 해제 계좌는 BE 1이 404로 거절한다.
         Map<Long, AccountBalance> balanceById = readBalances(authenticatedUserId, selected, refresh);
@@ -160,7 +170,7 @@ public class ForecastService {
         // 잔액을 읽지 않으므로 소유·연결 확인을 여기서 한다. 남의·연결 해제 계좌는 404다.
         selected.forEach(accountId -> accounts.requireConnectedAccount(authenticatedUserId, accountId));
         LocalDate today = today();
-        BalanceForecast.Horizon horizon = horizon(null, null, today);
+        BalanceForecast.Horizon horizon = horizon(null, null, Optional.empty(), today);
         LivingCostRead read = estimateLivingCost(authenticatedUserId, selected, today);
         LivingCostEstimator.Estimate estimate = read.estimate();
         boolean anyData = estimate.byAccount().values().stream()
@@ -268,8 +278,18 @@ public class ForecastService {
         return selected;
     }
 
-    private static BalanceForecast.Horizon horizon(BalanceForecast.Until until, Integer days, LocalDate today) {
+    /**
+     * NEXT_INCOME은 다음 월급일 전날까지다(명세). 월급일이 내일이면 오늘 하루뿐이다(2026-11-04 결정: 명세대로).
+     * 다음 월급일을 모르면 명세의 대체 기간 30일을 DAYS로 계산한다.
+     */
+    private static BalanceForecast.Horizon horizon(BalanceForecast.Until until, Integer days,
+            Optional<LocalDate> nextIncome, LocalDate today) {
         if (until == null || until == BalanceForecast.Until.NEXT_INCOME) {
+            if (nextIncome.isPresent()) {
+                LocalDate to = nextIncome.get().minusDays(1);
+                return new BalanceForecast.Horizon(BalanceForecast.Until.NEXT_INCOME, today, to,
+                        (int) ChronoUnit.DAYS.between(today, to));
+            }
             return new BalanceForecast.Horizon(BalanceForecast.Until.DAYS, today,
                     today.plusDays(NEXT_INCOME_FALLBACK_DAYS), NEXT_INCOME_FALLBACK_DAYS);
         }
