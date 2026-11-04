@@ -23,13 +23,13 @@ Jira -66·-70은 진행 중입니다. 완료 조건에 "실제로 동작하는 �
 
 ## 지금 상태
 
-**`GET /api/forecasts/balance`가 있습니다**(2026-11-04, -66). 잔액·카드(BE 1)는 실제 서비스를, 신용카드 출금일은 BE 2 청구 주기를 씁니다. 카드 청구는 **임시 원천**이고, 과거 생활비는 체크카드 LIVING 결제로 **구현됐습니다**(2026-11-04, -255, 아래 표). 생활비 예측 상세(`GET /api/forecasts/living-cost`) 컨트롤러는 아직 열지 않았습니다(「미완료·한계」).
+**`GET /api/forecasts/balance`가 있습니다**(2026-11-04, -66). 잔액·카드(BE 1)는 실제 서비스를, 신용카드 출금일은 BE 2 청구 주기를 씁니다. 카드 청구는 BE 2 원천으로 **연결됐고**(-205), 과거 생활비는 체크카드 LIVING 결제로 **구현됐습니다**(2026-11-04, -255, 아래 표). 생활비 예측 상세(`GET /api/forecasts/living-cost`) 컨트롤러는 아직 열지 않았습니다(「미완료·한계」).
 
 | 원천 | 쓰는 것 | 상태 |
 |---|---|---|
 | 잔액 | BE 1 `AccountBalanceService.getBalances` | **연결됨**(2026-10-30 임시 계약 `AccountBalanceReader` 삭제) |
 | 카드 | BE 1 `CardQueryService.findRegisteredCard` → `UserCardRef` | **연결됨**(임시 계약 `CardReader` 삭제). 없거나 해제된 카드는 empty |
-| `CardBillReader` | BE 2 카드 청구(`card_bill`) | **임시**(`AccumulatingCardBillReader`, 2026-11-04 BE 2 합의). 확정·출금 배치가 없어 생기는 청구는 진행 중(`ACCUMULATING`)뿐이라 그것만 읽음: 청구 전(PENDING) 회차 원금 합, 카드의 현재 출금 계좌, 청구서 출금 예정일. 예상 청구할인은 0(원천 없음), 회차 없는 빈 청구서는 뺌. BE 2 구현(-205)이 머지되면 지우고 바꿈. 상태별 규칙은 아래 「카드 청구」 |
+| `CardBillReader` | BE 2 카드 청구(`card_bill`) | **연결됨**(BE 2 `payment.billing.OutstandingCardBillReader`, -205. 임시 원천 `AccumulatingCardBillReader` 삭제). 진행 중·확정·미납을 상태별 계약대로 읽음(아래 「카드 청구」). 예상 청구할인은 아직 0(혜택 원장 없음), 금액이 0원인 청구는 뺌 |
 | `CreditWithdrawalSchedule` | 신용카드 사용일 → 청구 출금일 | **구현됨**(`CardBillingWithdrawalSchedule`, 2026-11-04). BE 2 `BillingCycle`(신용 승인이 청구서 출금일을 만드는 계산)과 `BusinessDayCalendar`를 그대로 써서 예정 지출과 실제 청구의 출금일이 같다. 결제일이 없거나 청구 주기를 만들 수 없는 카드는 empty → `excluded`에 `BILLING_CYCLE_UNKNOWN` |
 | `LivingCostReader` | YAMU 체크카드 LIVING 결제(`payment_transaction`). 계좌 출금은 분류 규칙이 없어 지금은 넣지 않음 | **구현됨**(`PaymentLivingCostReader`, 2026-11-04, -255). 읽기 직전에 `SpendingClassifier`가 미분류 결제를 LIVING·LARGE로 채움. 임시 원천 `UnclassifiedLivingCostReader`(늘 자료 없음) 삭제. BE 4 구현, BE 2 리뷰(2026-11-04 합의). 규칙은 아래 「소비 분류」「생활비 원천 계약」 |
 
@@ -533,9 +533,8 @@ enum Origin { REAL, SEED }
 
 ## 미완료·한계
 
-- **임시 원천**: 청구는 진행 중 청구서만(-205 머지 때 교체)입니다. 앱에서 호출해 확인하지는 못했습니다(MockMvc 통합 테스트까지).
+- **청구 원천**: BE 2 구현(-205)으로 교체해 진행 중·확정·미납을 읽습니다. 예상 청구할인은 혜택 원장이 없어 아직 0입니다. 앱에서 호출해 확인하지는 못했습니다(MockMvc 통합 테스트까지).
   - 생활비 자료가 없는 계좌(체크카드가 없거나 완료한 달이 없음)는 위험을 확정·예상 선으로만 판단합니다. 생활비 때문에 생길 부족은 잡지 못해 `summary.status`가 SAFE여도 실제로는 모자랄 수 있습니다. 응답의 `livingCost.dataOrigin`·`confidence`가 `INSUFFICIENT`이므로 **앱이 "생활비 미반영"을 안내**합니다(2026-11-04 결정). BE가 상태를 올리면 자료 없는 사용자가 늘 WARNING이 되어 고르지 않았습니다.
-  - 임시 청구 원천은 확정·미납 청구를 읽지 않습니다. 청구 확정 배치(-206)가 원천 교체(-205)보다 먼저 들어오면 확정 청구가 예보에서 소리 없이 빠지므로, -206 전에 교체해야 합니다.
 - **하루 목표 미연결 (7.1.7)**: 안전 잔액·기간 기준·기본 일수·다음 월급일은 설정에서 읽습니다. 하루 목표는 생활비 상세 컨트롤러와 함께 연결합니다. 그때까지 -237은 완료가 아닙니다.
 - **생활비 원천의 한계 (2026-11-04, -255)**:
   - 한 계좌에 체크카드가 여럿이면 `REAL`은 그중 가장 이른 첫 결제일부터라, 늦게 쓰기 시작한 카드의 그 전 소비는 모릅니다(그 뒤 매일 `complete=true`).

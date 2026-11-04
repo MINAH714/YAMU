@@ -39,7 +39,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 /**
  * 잔고예보 조회 API를 인증 필터·실제 MySQL까지 묶어 확인한다. 잔액(BE 1, 금융망)만 가짜로 두고,
- * 임시 청구 원천({@link AccumulatingCardBillReader})이 실제 card_bill·bill_item을 읽는 것을 본다.
+ * 청구 원천(BE 2 {@code OutstandingCardBillReader})이 실제 card_bill·bill_item을 읽는 것을 본다.
  */
 @Transactional
 @AutoConfigureMockMvc
