@@ -126,6 +126,9 @@ class ForecastControllerTest extends MySqlTestSupport {
                 // 생활비 원천이 아직 자료 없음이라 보수적 선은 비운다
                 .andExpect(jsonPath("$.data.series[14].conservative").value(nullValue()))
                 .andExpect(jsonPath("$.data.livingCost.dailyAverage").value(nullValue()))
+                // 앱은 이 값으로 "생활비 미반영"을 안내한다(요약 상태만으로는 생활비가 빠졌는지 알 수 없음)
+                .andExpect(jsonPath("$.data.livingCost.dataOrigin").value("INSUFFICIENT"))
+                .andExpect(jsonPath("$.data.livingCost.confidence").value("INSUFFICIENT"))
                 .andExpect(jsonPath("$.data.excluded", hasSize(0)));
     }
 
