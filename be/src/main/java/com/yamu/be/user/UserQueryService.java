@@ -1,7 +1,6 @@
 package com.yamu.be.user;
 
-import com.yamu.be.account.domain.LinkedAccount;
-import com.yamu.be.account.domain.LinkedAccountRepository;
+import com.yamu.be.auth.OnboardingStatusReader;
 import com.yamu.be.auth.domain.UserDevice;
 import com.yamu.be.auth.domain.UserDeviceRepository;
 import com.yamu.be.card.domain.UserCard;
@@ -14,7 +13,6 @@ import com.yamu.be.global.security.AuthUser;
 import com.yamu.be.user.domain.AppUser;
 import com.yamu.be.user.domain.AppUserRepository;
 import com.yamu.be.user.dto.MyInfoResponse;
-import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -23,8 +21,8 @@ import org.springframework.transaction.annotation.Transactional;
  * 내 정보 조회(명세 V2 「내 정보 조회」 No.42, FR-001). 토큰의 사용자·기기 기준이라 남의 정보를 볼 경로가 없다.
  *
  * <ul>
- *   <li>초기 설정(onboarding): 등록된 카드(ACTIVE·INACTIVE) 1장 이상 + 연결된 기준 계좌. 명세 「로그인」의 기준과 같다.
- *       로그인 응답의 onboardingCompleted는 !96(S15P31E103-269)이 머지되면 같은 기준이 된다</li>
+ *   <li>초기 설정(onboarding): 로그인 응답의 onboardingCompleted와 같은 {@link OnboardingStatusReader}로 판단한다
+ *       (등록된 카드 ACTIVE·INACTIVE 1장 이상 + 연결된 기준 계좌)</li>
  *   <li>보안 설정: PIN 설정 여부·생체인증·지금 기기는 실제 값. 앱 잠금·결제 코드 인증 생략 시간과 결제 코드 인증 방식은
  *       <b>임시</b> 기본값이다. 저장할 칸과 수정 API(「보안 설정 수정」 P2)가 아직 없다</li>
  *   <li>결제 설정: 기본 카드는 user_card.is_default. 카드 자동 선택(autoSelect)은 <b>임시</b>로 항상 true.
@@ -49,7 +47,7 @@ public class UserQueryService {
 
     private final AppUserRepository userRepository;
     private final UserCardRepository cardRepository;
-    private final LinkedAccountRepository accountRepository;
+    private final OnboardingStatusReader onboardingStatusReader;
     private final UserDeviceRepository deviceRepository;
     private final PersonalDataCipher cipher;
 
@@ -60,13 +58,10 @@ public class UserQueryService {
                 .filter(found -> !found.isWithdrawn())
                 .orElseThrow(() -> new BusinessException(ErrorCode.UNAUTHORIZED));
 
-        List<UserCard> registered = cardRepository.findByUserId(user.getId()).stream()
+        OnboardingStatusReader.Status onboarding = onboardingStatusReader.status(user.getId());
+        Long defaultUserCardId = cardRepository.findByUserId(user.getId()).stream()
                 .filter(card -> card.getRegistrationStatus().isRegistered())
-                .toList();
-        boolean primaryAccountSet = accountRepository.findByUserIdAndPrimaryTrue(user.getId()).stream()
-                .anyMatch(LinkedAccount::isConnected);
-        boolean cardRegistered = !registered.isEmpty();
-        Long defaultUserCardId = registered.stream().filter(UserCard::isDefaultCard).map(UserCard::getId)
+                .filter(UserCard::isDefaultCard).map(UserCard::getId)
                 .findFirst().orElse(null);
         UserDevice device = currentDevice(me);
 
@@ -74,7 +69,8 @@ public class UserQueryService {
                 user.getId(),
                 maskPhone(user.getPhoneEnc() == null ? null : cipher.decrypt(user.getPhoneEnc(), CipherField.APP_USER_PHONE)),
                 user.getName(),
-                new MyInfoResponse.Onboarding(cardRegistered, primaryAccountSet, cardRegistered && primaryAccountSet),
+                new MyInfoResponse.Onboarding(onboarding.cardRegistered(), onboarding.primaryAccountSet(),
+                        onboarding.completed()),
                 new MyInfoResponse.SecuritySettings(DEFAULT_AUTO_LOCK_SECONDS, DEFAULT_SETUP_GRACE_SECONDS,
                         DEFAULT_BARCODE_AUTH_GRACE_SECONDS, DEFAULT_BARCODE_AUTH_METHOD,
                         device != null && device.isBiometricEnabled(), user.getPinHash() != null,
