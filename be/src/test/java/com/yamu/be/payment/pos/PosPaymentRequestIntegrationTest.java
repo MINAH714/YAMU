@@ -61,13 +61,21 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.utility.DockerImageName;
 
 /**
- * POS 결제 요청 생성을 실제 MySQL·Redis로 확인한다. 추천은 Mock(BE3 구현 전)이고 금융망은 부르지 않는다.
+ * POS 결제 요청 생성을 실제 MySQL·Redis로 확인한다. 추천은 명시적인 Mock fixture이고 금융망은 부르지 않는다.
  * 바코드는 발급 API 대신 저장소에 직접 넣는다(발급·본인 인증은 BarcodeIssueIntegrationTest가 확인).
  */
 @AutoConfigureMockMvc
 @TestPropertySource(properties = "spring.application.name=yamu-pos-payment-request-test")
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 class PosPaymentRequestIntegrationTest extends MySqlTestSupport {
+    @org.springframework.boot.test.context.TestConfiguration
+    static class RecommendationFixtureConfig {
+        @org.springframework.context.annotation.Bean
+        @org.springframework.context.annotation.Primary
+        CardRecommender posRecommendationFixture(com.yamu.be.payment.lookup.PaymentCardLookup cards, java.time.Clock clock) {
+            return new com.yamu.be.payment.recommend.MockCardRecommender(cards, clock);
+        }
+    }
 
     static final String POS_KEY = "test-pos-key";
     static final Duration RETENTION = Duration.ofMinutes(10);

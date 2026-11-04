@@ -32,12 +32,28 @@ import java.util.stream.Stream;
  * @param uncomparedCards  비교하지 못한 카드와 사유. 순위가 없다. 이 칸이 생기기 전 스냅샷(JSON)에서 읽으면 빈 목록이다
  */
 public record RecommendationResult(String recommendationId, LocalDateTime calculatedAt, boolean estimate,
-        List<Candidate> candidates, List<ExcludedCard> excludedCards, List<UncomparedCard> uncomparedCards) {
+        List<Candidate> candidates, List<ExcludedCard> excludedCards, List<UncomparedCard> uncomparedCards, int schemaVersion,
+        List<com.yamu.be.recommendation.RecommendationDataIssue> issues,
+        List<com.yamu.be.recommendation.SimulationRule> simulationRules) {
+    public RecommendationResult(String recommendationId,LocalDateTime calculatedAt,boolean estimate,List<Candidate> candidates,
+            List<ExcludedCard> excludedCards,List<UncomparedCard> uncomparedCards,int schemaVersion,
+            List<com.yamu.be.recommendation.RecommendationDataIssue> issues) {
+        this(recommendationId,calculatedAt,estimate,candidates,excludedCards,uncomparedCards,schemaVersion,issues,List.of());
+    }
+    public RecommendationResult(String recommendationId, LocalDateTime calculatedAt, boolean estimate,
+            List<Candidate> candidates, List<ExcludedCard> excludedCards, List<UncomparedCard> uncomparedCards) {
+        this(recommendationId, calculatedAt, estimate, candidates, excludedCards, uncomparedCards, 1, List.of());
+    }
 
     /** 혜택만 미확인인 카드를 사용자가 직접 골랐을 때 승인 전에 보여 주고 확인받는 문구(2026-11-02 정책 변경). */
     public static final String NO_BENEFIT_NOTICE = "혜택 정보를 확인할 수 없어 혜택 없이 결제됩니다.";
 
     public RecommendationResult {
+        simulationRules=simulationRules==null ? List.of() : List.copyOf(simulationRules);
+        issues = issues == null ? List.of() : List.copyOf(issues);
+        // 구형 진행 중 스냅샷 읽기 호환. 신규 DB 보존은 codec에서 버전 필수를 검사한다.
+        if (schemaVersion == 0) schemaVersion = 1;
+        if (schemaVersion != 1) throw new IllegalArgumentException("지원하지 않는 추천 schemaVersion");
         Objects.requireNonNull(recommendationId, "recommendationId");
         Objects.requireNonNull(calculatedAt, "calculatedAt");
         candidates = List.copyOf(candidates);
@@ -84,7 +100,7 @@ public record RecommendationResult(String recommendationId, LocalDateTime calcul
 
     /** 확인된 후보의 이번 결제 순혜택이 모두 0원인지(!63의 noBenefit). 미비교 카드는 0원으로 세지 않는다. 후보가 없으면 false. */
     public boolean noBenefit() {
-        return !candidates.isEmpty() && candidates.stream().allMatch(c -> c.netBenefit() == 0);
+        return !candidates.isEmpty() && candidates.stream().allMatch(c -> c.netBenefit().signum() == 0);
     }
 
     public Optional<Candidate> topCandidate() {
@@ -125,18 +141,72 @@ public record RecommendationResult(String recommendationId, LocalDateTime calcul
      * @param selectionReason 1순위를 고른 기준(!63의 selectionReason). 1순위에만 있고 나머지는 null
      * @param ruleVersion     결제 쪽이 조회한 상품 규칙 버전을 그대로 담는다
      */
-    public record Candidate(int rank, CardSummary card, long netBenefit, List<BenefitLine> benefits,
-            String reason, SelectionReason selectionReason, RuleVersion ruleVersion) {
+    public record Candidate(int rank, CardSummary card, java.math.BigDecimal netBenefit, List<BenefitLine> benefits,
+            String reason, SelectionReason selectionReason, RuleVersion ruleVersion,
+            List<UnallocatedBenefitGroup> unallocatedBenefitGroups, List<ExpectedLimitUse> expectedLimitUses) {
+        public Candidate(int rank, CardSummary card, long netBenefit, List<BenefitLine> benefits,
+                String reason, SelectionReason selectionReason, RuleVersion ruleVersion) {
+            this(rank, card, java.math.BigDecimal.valueOf(netBenefit), benefits, reason, selectionReason, ruleVersion, List.of(), List.of());
+        }
+        public Candidate(int rank, CardSummary card, java.math.BigDecimal netBenefit, List<BenefitLine> benefits,
+                String reason, SelectionReason selectionReason, RuleVersion ruleVersion) {
+            this(rank, card, netBenefit, benefits, reason, selectionReason, ruleVersion, List.of(), List.of());
+        }
+        public Candidate(int rank, CardSummary card, long netBenefit, List<BenefitLine> benefits,
+                String reason, SelectionReason selectionReason, RuleVersion ruleVersion, List<UnallocatedBenefitGroup> groups) {
+            this(rank, card, java.math.BigDecimal.valueOf(netBenefit), benefits, reason, selectionReason, ruleVersion, groups, List.of());
+        }
+        public Candidate(int rank, CardSummary card, java.math.BigDecimal netBenefit, List<BenefitLine> benefits,
+                String reason, SelectionReason selectionReason, RuleVersion ruleVersion, List<UnallocatedBenefitGroup> groups) {
+            this(rank, card, netBenefit, benefits, reason, selectionReason, ruleVersion, groups, List.of());
+        }
 
         public Candidate {
             Objects.requireNonNull(card, "card");
+            Objects.requireNonNull(netBenefit, "netBenefit");
             benefits = List.copyOf(benefits);
             Objects.requireNonNull(ruleVersion, "ruleVersion");
+            unallocatedBenefitGroups = unallocatedBenefitGroups == null ? List.of() : List.copyOf(unallocatedBenefitGroups);
+            expectedLimitUses = expectedLimitUses == null ? List.of() : List.copyOf(expectedLimitUses);
+            var ids = new HashSet<Long>();
+            if (benefits.stream().map(BenefitLine::benefitId).distinct().count() != benefits.size()) throw new IllegalArgumentException("혜택 중복");
+            for (var group : unallocatedBenefitGroups) for (var id : group.benefitIds()) {
+                if (!ids.add(id) || benefits.stream().noneMatch(b -> b.benefitId().equals(id) && b.amount() == null)) {
+                    throw new IllegalArgumentException("미확정 묶음의 혜택 참조 오류");
+                }
+            }
+            if (benefits.stream().anyMatch(b -> b.amount() == null && !ids.contains(b.benefitId()))) throw new IllegalArgumentException("NULL 상세 금액 근거 누락");
         }
 
         /** 승인 때 바로 반영되는 즉시할인({@link BenefitLine#AT_APPROVAL}) 합계. 청구할인·캐시백·적립은 넣지 않는다. */
         public long instantDiscount() {
-            return benefits.stream().filter(BenefitLine::isInstant).mapToLong(BenefitLine::amount).sum();
+            if (benefits.stream().anyMatch(b -> "DISCOUNT".equals(b.type()) && b.realization() == null)) {
+                throw new IllegalStateException("할인 반영 시점 미확인");
+            }
+            long total = benefits.stream().filter(BenefitLine::isInstant).filter(b -> b.amount() != null).mapToLong(BenefitLine::amount).reduce(0, Math::addExact);
+            for (var group : unallocatedBenefitGroups) {
+                var members = benefits.stream().filter(b -> group.benefitIds().contains(b.benefitId())).toList();
+                if (members.stream().anyMatch(BenefitLine::isInstant)) {
+                    if (!members.stream().allMatch(BenefitLine::isInstant) || !"KRW".equals(group.unit())) throw new IllegalStateException("즉시할인 배분 미확인");
+                    total = Math.addExact(total, group.totalAmount());
+                }
+            }
+            return total;
+        }
+    }
+
+    /** 추천의 예상치이며 승인 확정 차감 기록이 아니다. 미확정 개별 한도는 목록에 공급하지 않는다. */
+    public record ExpectedLimitUse(long limitGroupId, int policyVersion, String unit, String period,
+                                   java.math.BigDecimal remainingBefore, java.math.BigDecimal consumed) { }
+
+    public record UnallocatedBenefitGroup(List<Long> benefitIds, long limitGroupId, long totalAmount, String unit, String reasonCode) {
+        public UnallocatedBenefitGroup {
+            benefitIds = List.copyOf(benefitIds);
+            if (benefitIds.size() < 2 || benefitIds.stream().distinct().count() != benefitIds.size()
+                    || benefitIds.stream().anyMatch(id -> id <= 0) || limitGroupId <= 0 || totalAmount < 0
+                    || !("KRW".equals(unit) || "POINT".equals(unit)) || !"SHARED_LIMIT_ALLOCATION_UNRESOLVED".equals(reasonCode)) {
+                throw new IllegalArgumentException("미확정 배분 묶음 오류");
+            }
         }
     }
 
@@ -158,8 +228,16 @@ public record RecommendationResult(String recommendationId, LocalDateTime calcul
      * @param amount      한도를 적용한 실제 평가액
      * @param realization AT_APPROVAL(즉시) / AT_BILLING(청구) / AFTER_BILLING(캐시백) / POINT_ACCRUAL(적립)
      */
-    public record BenefitLine(Long benefitId, String name, String type, long rawAmount, long amount,
+    public record BenefitLine(Long benefitId, String name, String type, java.math.BigDecimal rawAmount, Long amount,
             String realization) {
+        public BenefitLine(Long benefitId, String name, String type, long rawAmount, long amount, String realization) {
+            this(benefitId, name, type, java.math.BigDecimal.valueOf(rawAmount), Long.valueOf(amount), realization);
+        }
+
+        public BenefitLine {
+            Objects.requireNonNull(benefitId);
+            if (amount != null && amount < 0) throw new IllegalArgumentException("음수 혜택 금액");
+        }
 
         /** 승인 때 바로 반영되는 즉시할인의 realization 값 */
         public static final String AT_APPROVAL = "AT_APPROVAL";
@@ -194,7 +272,10 @@ public record RecommendationResult(String recommendationId, LocalDateTime calcul
     }
 
     /** 혜택 계산에 쓴 상품 규칙 버전. 결제 쪽이 조회한 버전을 재사용하고, 승인 때 같은 버전으로 다시 계산한다. */
-    public record RuleVersion(Long cardProductId, int version) {}
+    public record RuleVersion(Long cardProductId, Integer version, java.util.Map<Long, Integer> benefitVersions) {
+        public RuleVersion(Long cardProductId, int version) { this(cardProductId, version, java.util.Map.of()); }
+        public RuleVersion { benefitVersions = benefitVersions == null ? java.util.Map.of() : java.util.Map.copyOf(benefitVersions); }
+    }
 
     /** 추천 상태. 이름과 판정은 BE3 엔진(!63)의 {@code Status}와 같다. */
     public enum Status {
@@ -228,7 +309,8 @@ public record RecommendationResult(String recommendationId, LocalDateTime calcul
         CHECK_CARD_INSTALLMENT_NOT_SUPPORTED,
         UNPAID_BILL,
         CREDIT_LIMIT_EXCEEDED,
-        INSUFFICIENT_BALANCE
+        INSUFFICIENT_BALANCE,
+        PAYMENT_ACCOUNT_DISCONNECTED
     }
 
     /** 비교하지 못한 사유. 혜택만 미확인인지, 결제 가능 여부가 미확인인지 나눈다(2026-11-02 정책 변경). 문구는 !63과 같다. */

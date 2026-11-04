@@ -28,7 +28,8 @@ final class CashflowEvents {
      * 계좌 지정 항목은 예정일에, 체크카드는 사용일에, 신용카드는 청구 출금일에 카드 출금 계좌에서 나간다.
      * 선택하지 않은 계좌에 귀속되는 회차는 이 예보의 범위가 아니라 조용히 넘긴다. 오늘(from) 수입은 더하지 않고 알린다.
      * 카드사 정지·만료 카드로는 결제가 일어날 수 없어 그 카드의 예정 지출은 빼고 알린다. 정상 카드였어도 기간 밖으로 출금됐을 회차는
-     * 알리지 않는다. 추천에서만 뺀 INACTIVE 카드는 그대로 뺀다.
+     * 알리지 않는다. 추천에서만 뺀 INACTIVE 카드는 그대로 뺀다. 결제일 정보가 없어 출금일을 정할 수 없는 신용카드 회차도
+     * 빼고 알린다(사용일이 기간 안일 때만).
      * 이미 확정된 카드 청구는 카드가 정지돼도 출금되므로 이 판단과 상관없다(청구는 {@link CardBillReader}).
      *
      * @param entries          가계부 목록 회차(확정 항목)
@@ -49,6 +50,7 @@ final class CashflowEvents {
             Long accountId;
             LocalDate date;
             boolean cardUnusable = false;
+            boolean withdrawalDateUnknown = false;
             if (item.accountId() != null) {
                 accountId = item.accountId();
                 date = entry.date();
@@ -66,8 +68,14 @@ final class CashflowEvents {
                 accountId = card.get().linkedAccountId();
                 // 정상(NORMAL)이 아닌 상태는 모르는 값이어도 쓸 수 있는 카드로 보지 않는다.
                 cardUnusable = card.get().issuerStatus() != CardIssuerStatus.NORMAL;
-                date = card.get().cardType() == CardType.CREDIT
-                        ? creditSchedule.withdrawalDate(card.get(), entry.date()) : entry.date();
+                if (card.get().cardType() == CardType.CREDIT) {
+                    Optional<LocalDate> withdrawal = creditSchedule.withdrawalDate(card.get(), entry.date());
+                    // 출금일을 모르면 사용일로 기간·계좌만 따져 알린다. 사용일보다 앞서 출금되는 일은 없다.
+                    withdrawalDateUnknown = withdrawal.isEmpty();
+                    date = withdrawal.orElse(entry.date());
+                } else {
+                    date = entry.date();
+                }
             } else {
                 // 등록 API는 계좌·카드 중 하나를 받지만, 다른 경로로 들어온 행이 있으면 어느 계좌에도 임의로 배분하지 않는다.
                 excluded.add(ExcludedItem.of(entry, ExcludedItem.Reason.NO_WITHDRAWAL_ACCOUNT));
@@ -83,6 +91,10 @@ final class CashflowEvents {
             // 정지 카드도 선택한 계좌·기간 안의 회차만 알린다. 범위 밖 회차는 정상 카드처럼 이 예보와 관계없다.
             if (cardUnusable) {
                 excluded.add(ExcludedItem.of(entry, ExcludedItem.Reason.CARD_SUSPENDED_OR_EXPIRED));
+                continue;
+            }
+            if (withdrawalDateUnknown) {
+                excluded.add(ExcludedItem.of(entry, ExcludedItem.Reason.BILLING_CYCLE_UNKNOWN));
                 continue;
             }
             // 금액 미정은 0원 지출이 아니므로 차감하지 않고 알린다.

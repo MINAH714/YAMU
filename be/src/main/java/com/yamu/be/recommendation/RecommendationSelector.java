@@ -54,9 +54,7 @@ public final class RecommendationSelector {
     }
 
     public Result select(RecommendationInput input) {
-        // TODO(S15P31E103-221): 실제 정책·실적·사용량·잔액 공급 연결은 아직 없다.
-        // 공급/서비스 계층이 복구 가능한 읽기만 제한적으로 재조회한 뒤 미확인 카드와 사유를 입력으로 전달해야 한다.
-        // 정책 미등록은 반복 조회·추정하지 않으며, 이 엔진에는 네트워크 호출·재시도를 넣지 않는다.
+        // DB 공급은 RecommendationService가 담당한다. 이 엔진은 조회·재시도·차감을 하지 않는다.
         List<CardEvaluation> evaluations = input.cards().stream()
                 .sorted(Comparator.comparingLong(CardCandidate::userCardId))
                 .map(card -> evaluate(input, card)).toList();
@@ -128,6 +126,11 @@ public final class RecommendationSelector {
         if (card.availability() == Availability.UNKNOWN) {
             return new CardEvaluation(card.userCardId(), CardStatus.NOT_COMPARED,
                     card.availabilityReason(), null);
+        }
+        if (card.cardType() == null) {
+            return new CardEvaluation(card.userCardId(), CardStatus.NOT_COMPARED, "PRODUCT_UNKNOWN",
+                    new Calculation(false, null, List.of(), List.of(),
+                            List.of(new CardBenefitCalculator.Problem(null, "PRODUCT_UNKNOWN"))));
         }
         Calculation calculation = calculator.calculate(input.transaction(), card.policy());
         String problem = calculation.problems().stream().anyMatch(item -> item.code().equals("BASE_AMOUNT_INVALID"))

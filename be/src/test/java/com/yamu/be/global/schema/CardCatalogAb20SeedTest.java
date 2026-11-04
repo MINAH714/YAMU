@@ -29,6 +29,7 @@ import org.springframework.test.context.TestPropertySource;
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 class CardCatalogAb20SeedTest extends MySqlTestSupport {
     private static final List<String> CATALOG_TABLES = List.of(
+            "benefit_application_member", "benefit_application_group", "benefit_target_group_member", "benefit_target_group",
             "benefit_limit_link", "tier_limit", "benefit_target", "limit_group", "card_benefit", "merchant", "card_product");
     private static final String TOKTOK = "KB국민 청춘대로 톡톡카드";
 
@@ -98,11 +99,13 @@ class CardCatalogAb20SeedTest extends MySqlTestSupport {
                 .containsEntry("base_limit_value", null).containsEntry("min_performance_amount", 300000L)
                 .containsEntry("max_performance_amount", null).containsEntry("limit_value", 10000L);
         assertThat(jdbc.queryForList("""
-                SELECT CONCAT(t.target_type, ':', t.is_excluded, ':', COALESCE(m.brand_code, t.target_value, '*'))
+                SELECT CONCAT(t.target_type, ':', COALESCE(g.is_excluded,t.is_excluded), ':', COALESCE(m.brand_code, t.target_value, '*'))
                 FROM benefit_target t
                 JOIN card_benefit b USING (card_benefit_id)
                 JOIN card_product p ON p.card_product_id = b.card_product_id
                 LEFT JOIN merchant m ON m.merchant_id = t.merchant_id
+                LEFT JOIN benefit_target_group_member gm ON gm.benefit_target_id=t.benefit_target_id
+                LEFT JOIN benefit_target_group g ON g.benefit_target_group_id=gm.benefit_target_group_id
                 WHERE p.product_name = ? AND b.benefit_code = 'STARBUCKS_50'
                 """, String.class, TOKTOK)).hasSize(11)
                 .contains("BRAND:0:STARBUCKS", "CONDITION:1:TRANSACTION_KIND:GIFT_CERTIFICATE_PURCHASE",

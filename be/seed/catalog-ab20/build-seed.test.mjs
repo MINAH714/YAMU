@@ -14,6 +14,7 @@ test('Point Plan 전체를 보류하고 다른 카드와 재생성 결과는 유
     const source = join(temp, 'input');
     mkdirSync(generator, { recursive: true });
     cpSync(join(original, 'build-seed.mjs'), join(generator, 'build-seed.mjs'));
+    cpSync(join(original, 'target-groups.mjs'), join(generator, 'target-groups.mjs'));
     cpSync(join(original, 'codes'), join(generator, 'codes'), { recursive: true });
     cpSync(join(original, '..', '01-card-catalog.sql'), join(generator, '..', '01-card-catalog.sql'));
     const csv = (path, columns, rows = []) => {

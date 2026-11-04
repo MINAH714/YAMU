@@ -141,6 +141,23 @@ public class AccountBalanceService implements DisposableBean {
         return balances;
     }
 
+    /** 추천 참고 판정용 부분 결과. 실패 계좌를 0원으로 바꾸거나 정상 계좌의 결과를 버리지 않는다. */
+    public Map<Long, BalanceRead> getBalanceResults(Long userId, List<Long> linkedAccountIds) {
+        var ids = new ArrayList<>(new LinkedHashSet<>(linkedAccountIds));
+        if (ids.isEmpty()) return Map.of();
+        if (userId == null || ids.contains(null)) throw new BusinessException(ErrorCode.RESOURCE_NOT_FOUND);
+        var owned = connected(userId, ids);
+        var results = new LinkedHashMap<Long, BalanceRead>();
+        ids.stream().filter(id->!owned.containsKey(id)).forEach(id->results.put(id,new BalanceRead(null,ErrorCode.RESOURCE_NOT_FOUND)));
+        if (owned.isEmpty()) return Map.copyOf(results);
+        var userKey = userKeyOf(userId).orElseThrow(() -> new BusinessException(ErrorCode.INVALID_REQUEST));
+        readAll(userKey, ids.stream().filter(owned::containsKey).map(owned::get).toList(), false, true).forEach((id, result) ->
+                results.put(id, new BalanceRead(result.balance(), result.error() == null ? null : result.error().getErrorCode())));
+        return Map.copyOf(results);
+    }
+
+    public record BalanceRead(AccountBalance balance, ErrorCode errorCode) { }
+
     /**
      * 캐시에 있는 잔액만 돌려준다(금융망을 부르지 않는다). DB 트랜잭션 안에서 화면을 만드는 곳(체크카드 상세 등)이
      * 금융망 응답을 기다리며 DB 연결을 잡고 있지 않게 하려고 둔다. 10분 안에 계좌 목록·잔고예보가 읽었으면 그 값이 나온다.
@@ -202,6 +219,10 @@ public class AccountBalanceService implements DisposableBean {
      * 504 UPSTREAM_TIMEOUT(결과 불명)으로 두고, 그 호출은 취소한다.
      */
     private Map<Long, Result> readAll(String userKey, List<LinkedAccount> accounts, boolean refresh) {
+        return readAll(userKey,accounts,refresh,false);
+    }
+
+    private Map<Long, Result> readAll(String userKey, List<LinkedAccount> accounts, boolean refresh, boolean partial) {
         Map<Long, Result> results = new LinkedHashMap<>();
         Map<Long, CompletableFuture<AccountBalance>> pending = new LinkedHashMap<>();
         for (LinkedAccount account : accounts) {
@@ -216,7 +237,13 @@ public class AccountBalanceService implements DisposableBean {
         }
         long deadline = System.nanoTime() + properties.overallTimeout().toNanos();
         for (Map.Entry<Long, CompletableFuture<AccountBalance>> entry : pending.entrySet()) {
-            results.put(entry.getKey(), await(entry.getValue(), deadline));
+            try {
+                results.put(entry.getKey(), await(entry.getValue(), deadline));
+            } catch(IllegalStateException failure) {
+                if(!partial) throw failure;
+                log.warn("계좌 잔액 부분 조회 실패 accountId={} code=INTERNAL_ERROR exceptionType={}",entry.getKey(),failure.getClass().getName());
+                results.put(entry.getKey(),Result.failed(new BusinessException(ErrorCode.INTERNAL_ERROR)));
+            }
         }
         // 응답 순서는 넘긴 순서대로.
         Map<Long, Result> ordered = new LinkedHashMap<>();
@@ -236,6 +263,7 @@ public class AccountBalanceService implements DisposableBean {
             if (cause instanceof BusinessException business) {
                 return Result.failed(business);
             }
+            if (cause instanceof Error fatal) throw fatal;
             throw new IllegalStateException("잔액 조회 중 예상하지 못한 오류", cause);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();

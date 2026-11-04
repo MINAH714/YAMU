@@ -77,6 +77,7 @@ import java.time.LocalDate
 fun HomeRoute(
     onPay: () -> Unit,
     onForecast: () -> Unit,
+    onCashflow: () -> Unit,
     onNotifications: () -> Unit,
     onMyCards: () -> Unit,
     onStartLinking: () -> Unit,
@@ -95,6 +96,7 @@ fun HomeRoute(
         onRetry = viewModel::load,
         onPay = onPay,
         onForecast = onForecast,
+        onCashflow = onCashflow,
         onNotifications = onNotifications,
         onMyCards = onMyCards,
         onStartLinking = onStartLinking,
@@ -111,6 +113,7 @@ fun HomeScreen(
     onRetry: () -> Unit,
     onPay: () -> Unit,
     onForecast: () -> Unit,
+    onCashflow: () -> Unit,
     onNotifications: () -> Unit,
     onMyCards: () -> Unit,
     onStartLinking: () -> Unit,
@@ -141,6 +144,7 @@ fun HomeScreen(
                     state.isLoading -> HomeSkeleton()
                     state.error != null -> YamuCard { ErrorState(state.error.userMessage(), onRetry = onRetry) }
                 }
+                if (state.showsEntries) HomeEntries(onPay.takeIf { content == null }, onForecast, onCashflow)
                 Spacer(Modifier.height(YamuSpacing.bottomSafe))
             }
         }
@@ -238,6 +242,20 @@ private fun HomeContent(
                 TodoRow(todo, onClick = { onTodo(todo.userCardId) })
             }
         }
+    }
+}
+
+/** 홈 요약 없이도 열 수 있는 화면 — 요약을 받았으면 결제 버튼은 위에 이미 있다 */
+@Composable
+private fun HomeEntries(onPay: (() -> Unit)?, onForecast: () -> Unit, onCashflow: () -> Unit) {
+    onPay?.let {
+        Column(Modifier.padding(horizontal = YamuSpacing.screen).padding(bottom = YamuSpacing.blockGap)) {
+            PrimaryButton("QR로 결제하기", onClick = it)
+        }
+    }
+    YamuCard(contentPadding = PaddingValues(start = 20.dp, end = 16.dp, top = 8.dp, bottom = 8.dp)) {
+        ListRow(title = "잔고예보", chevron = true, onClick = onForecast)
+        ListRow(title = "예정 수입·지출", chevron = true, onClick = onCashflow)
     }
 }
 
@@ -367,7 +385,7 @@ private fun HomeScreenPreview() = YamuTheme {
                 failedAreas = emptySet(),
             ),
         ),
-        onRefresh = {}, onRetry = {}, onPay = {}, onForecast = {}, onNotifications = {}, onMyCards = {},
+        onRefresh = {}, onRetry = {}, onPay = {}, onForecast = {}, onCashflow = {}, onNotifications = {}, onMyCards = {},
         onStartLinking = {}, onTodo = {}, onRecentPayment = {},
     )
 }
