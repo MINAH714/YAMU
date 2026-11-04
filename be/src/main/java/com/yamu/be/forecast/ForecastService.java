@@ -151,24 +151,27 @@ public class ForecastService {
     }
 
     /**
-     * 선택 계좌의 예상 생활비와 계산 근거(생활비 예측 상세)를 돌려준다. 기간은 until·days 없이 부른 잔고예보와 같다
-     * (잔고예보 설정의 기간 기준·기본 일수·다음 월급일). 하루 목표는 설정 값을 그대로 보여 주고 예측에 섞지 않는다.
+     * 선택 계좌의 예상 생활비와 계산 근거(생활비 예측 상세)를 돌려준다. 기간은 같은 until·days로 부른 잔고예보와 같다
+     * (보내지 않으면 잔고예보 설정의 기간 기준·기본 일수·다음 월급일). 하루 목표는 설정 값을 그대로 보여 주고 예측에 섞지 않는다.
      * 선택한 어느 계좌에도 생활비 자료가 없으면 0원으로 확정하지 않고 422 DATA_INSUFFICIENT다.
      * 생활비 원천이 소비 분류를 쓰므로 읽기 전용 트랜잭션 안에서 부르지 않는다.
      *
      * @param accountIds            생활비를 볼 연결 계좌. 중복은 한 번만 쓴다
+     * @param until                 기간 기준. null이면 잔고예보 설정의 기간 기준
+     * @param days                  until=DAYS일 때 7·14·30. null이면 잔고예보 설정의 기본 일수
      * @param includeAccountDetails 계좌별 생활비 포함 여부
      * @return 생활비 예측 상세
      */
-    public LivingCostForecast livingCost(Long authenticatedUserId, List<Long> accountIds,
-            boolean includeAccountDetails) {
+    public LivingCostForecast livingCost(Long authenticatedUserId, List<Long> accountIds, BalanceForecast.Until until,
+            Integer days, boolean includeAccountDetails) {
         requireUser(authenticatedUserId);
         List<Long> selected = selectedAccounts(accountIds);
-        // 잔액을 읽지 않으므로 소유·연결 확인을 여기서 한다. 남의·연결 해제 계좌는 404다.
-        selected.forEach(accountId -> accounts.requireConnectedAccount(authenticatedUserId, accountId));
         ForecastSettings userSettings = settings.read(authenticatedUserId);
         LocalDate today = today();
-        BalanceForecast.Horizon horizon = horizon(authenticatedUserId, userSettings, null, null, today);
+        // 잘못된 기간은 계좌·원천을 읽기 전에 400으로 거절한다(잔고예보와 같은 검사).
+        BalanceForecast.Horizon horizon = horizon(authenticatedUserId, userSettings, until, days, today);
+        // 잔액을 읽지 않으므로 소유·연결 확인을 여기서 한다. 남의·연결 해제 계좌는 404다.
+        selected.forEach(accountId -> accounts.requireConnectedAccount(authenticatedUserId, accountId));
         LivingCostRead read = estimateLivingCost(authenticatedUserId, selected, today);
         LivingCostEstimator.Estimate estimate = read.estimate();
         boolean anyData = estimate.byAccount().values().stream()

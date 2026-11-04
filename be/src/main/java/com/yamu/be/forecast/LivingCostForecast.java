@@ -13,7 +13,7 @@ import java.util.List;
  * @param method             계산 방식(최근 완료 3개월 평균)
  * @param sources            평균에 쓴 달별 합계(계좌 합)
  * @param excluded           중복 예측을 막으려고 생활비에서 빼는 소비 종류 안내
- * @param period             예상 생활비를 계산한 기간. until·days 없이 부른 잔고예보와 같다
+ * @param period             예상 생활비를 계산한 기간. 같은 until·days로 부른 잔고예보와 같다
  * @param dailyTarget        잔고예보 설정의 하루 목표 생활비(dailyLivingCostTarget). 없으면 null. 예측 값에는 섞지 않는다
  * @param paceCheck          이번 달 소비 속도. 계산할 수 없으면 null
  * @param dataSyncedAt       생활비 원천을 읽은 UTC 시각

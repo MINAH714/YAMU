@@ -222,7 +222,7 @@ class ForecastServiceTest {
         spending = days(real(A, JUL, 155_000), real(A, AUG, 155_000), real(A, SEP, 150_000),
                 real(B, SEP, 60_000));
 
-        LivingCostForecast result = service.livingCost(USER, List.of(A, B, A), true);
+        LivingCostForecast result = service.livingCost(USER, List.of(A, B, A), null, null, true);
 
         verify(accounts).requireConnectedAccount(USER, A);
         verify(accounts).requireConnectedAccount(USER, B);
@@ -250,7 +250,7 @@ class ForecastServiceTest {
         userSettings = new ForecastSettings(Until.DAYS, 14, THRESHOLD, null, 9_000L, true, true, null);
         spending = days(real(A, JUL, 155_000), real(A, AUG, 155_000), real(A, SEP, 150_000));
 
-        LivingCostForecast result = service.livingCost(USER, List.of(A), false);
+        LivingCostForecast result = service.livingCost(USER, List.of(A), null, null, false);
 
         assertThat(result.period()).isEqualTo(new LivingCostForecast.Period(TODAY, TODAY.plusDays(14), 14, Until.DAYS));
         assertThat(result.dailyAverage()).isEqualTo(5_000L);
@@ -265,7 +265,7 @@ class ForecastServiceTest {
         when(settingsService.nextIncomeDate(USER, 41L, TODAY)).thenReturn(Optional.of(NOV_5));
         spending = days(real(A, JUL, 155_000), real(A, AUG, 155_000), real(A, SEP, 150_000));
 
-        LivingCostForecast result = service.livingCost(USER, List.of(A), false);
+        LivingCostForecast result = service.livingCost(USER, List.of(A), null, null, false);
 
         // 11/5 월급이면 10/26~11/4, 9일. 잔고예보의 NEXT_INCOME 기간과 같다.
         assertThat(result.period())
@@ -274,8 +274,26 @@ class ForecastServiceTest {
     }
 
     @Test
+    void 생활비_상세에_잔고예보와_같은_기간을_보내면_설정보다_그_기간을_쓴다() {
+        userSettings = new ForecastSettings(Until.DAYS, 14, THRESHOLD, null, null, true, true, null);
+        spending = days(real(A, JUL, 155_000), real(A, AUG, 155_000), real(A, SEP, 150_000));
+
+        LivingCostForecast result = service.livingCost(USER, List.of(A), Until.DAYS, 7, false);
+
+        assertThat(result.period()).isEqualTo(new LivingCostForecast.Period(TODAY, TODAY.plusDays(7), 7, Until.DAYS));
+        assertThat(result.projectedAmount()).isEqualTo(35_000L);
+    }
+
+    @Test
+    void 생활비_상세의_잘못된_기간은_계좌와_원천을_읽기_전에_400이다() {
+        assertError(() -> service.livingCost(USER, List.of(A), Until.DAYS, 10, false), ErrorCode.INVALID_REQUEST);
+        verifyNoInteractions(accounts);
+        assertThat(livingRequests).isEmpty();
+    }
+
+    @Test
     void 생활비_상세는_어느_계좌에도_자료가_없으면_0원으로_확정하지_않고_422다() {
-        assertError(() -> service.livingCost(USER, List.of(A), false), ErrorCode.DATA_INSUFFICIENT);
+        assertError(() -> service.livingCost(USER, List.of(A), null, null, false), ErrorCode.DATA_INSUFFICIENT);
     }
 
     @Test
@@ -283,7 +301,7 @@ class ForecastServiceTest {
         when(accounts.requireConnectedAccount(USER, A)).thenReturn(null);
         when(accounts.requireConnectedAccount(USER, B)).thenThrow(new BusinessException(ErrorCode.RESOURCE_NOT_FOUND));
 
-        assertError(() -> service.livingCost(USER, List.of(A, B), false), ErrorCode.RESOURCE_NOT_FOUND);
+        assertError(() -> service.livingCost(USER, List.of(A, B), null, null, false), ErrorCode.RESOURCE_NOT_FOUND);
         assertThat(livingRequests).isEmpty();
     }
 

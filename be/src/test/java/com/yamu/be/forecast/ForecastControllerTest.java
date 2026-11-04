@@ -312,6 +312,32 @@ class ForecastControllerTest extends MySqlTestSupport {
     }
 
     @Test
+    void 생활비_상세에_잔고예보와_같은_기간을_보내면_예상_생활비가_잔고예보와_같다() throws Exception {
+        // 설정은 30일이지만 앱이 잔고예보를 14일로 불렀다면 상세도 14일로 부른다
+        long account = ownership().account(owner);
+        long daily = seedThreeMonths(account);
+
+        mockMvc.perform(get("/api/forecasts/balance").with(AuthUsers.asUser(owner))
+                        .param("accountIds", String.valueOf(account)).param("until", "DAYS").param("days", "14"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.livingCost.projectedAmount").value(daily * 14));
+        mockMvc.perform(get("/api/forecasts/living-cost").with(AuthUsers.asUser(owner))
+                        .param("accountIds", String.valueOf(account)).param("until", "DAYS").param("days", "14"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.period.days").value(14))
+                .andExpect(jsonPath("$.data.projectedAmount").value(daily * 14));
+        mockMvc.perform(get("/api/forecasts/living-cost").with(AuthUsers.asUser(owner))
+                        .param("accountIds", String.valueOf(account)).param("until", "DAYS").param("days", "10"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("INVALID_REQUEST"))
+                .andExpect(jsonPath("$.error.details.fieldErrors[0].field").value("days"));
+        mockMvc.perform(get("/api/forecasts/living-cost").with(AuthUsers.asUser(owner))
+                        .param("accountIds", String.valueOf(account)).param("until", "WEEK"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("INVALID_REQUEST"));
+    }
+
+    @Test
     void 생활비_상세에서_자료_없는_계좌가_섞이면_통합은_비우고_계좌별_값은_보여_준다() throws Exception {
         long account = ownership().account(owner);
         long daily = seedThreeMonths(account);
