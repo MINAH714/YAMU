@@ -18,8 +18,8 @@ import java.util.List;
  * </ul>
  * 예외를 던지면 취소까지 함께 롤백된다.
  *
- * <p>청구 회차 엔티티는 Task 5.2.4(S15P31E103-200)에 있어, 그 작업이 develop에 들어온 뒤 실제 구현을 붙인다.
- * 그 전에는 {@link NoBillItemsCreditBillingCanceler}가 쓰인다.
+ * <p>구현은 {@link BillItemCreditBillingCanceler}다. 청구 확정(S15P31E103-206) 전이라 지금은 청구 전 회차만 처리하고,
+ * 나머지 경우는 실패시킨다.
  */
 public interface CreditBillingCanceler {
 

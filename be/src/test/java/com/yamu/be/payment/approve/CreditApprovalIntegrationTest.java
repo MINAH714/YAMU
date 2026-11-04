@@ -567,6 +567,37 @@ class CreditApprovalIntegrationTest extends MySqlTestSupport {
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM card_bill", Long.class)).isZero();
     }
 
+    // ───────── 취소 ─────────
+
+    @Test
+    void 승인으로_만든_할부_회차는_청구_전_취소에서_모두_EXCLUDED가_되고_청구서는_그대로다() throws Exception {
+        Requested requested = requested(100_000, 3);
+        approve(requested.paymentId(), UUID.randomUUID().toString(), body(creditCard))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(post("/api/payments/{paymentId}/cancel", requested.paymentId())
+                        .with(AuthUsers.asUser(user))
+                        .header("Idempotency-Key", UUID.randomUUID().toString()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.status").value("CANCELED"))
+                .andExpect(jsonPath("$.data.billItems.length()").value(3))
+                .andExpect(jsonPath("$.data.billItems[0].seq").value(1))
+                .andExpect(jsonPath("$.data.billItems[0].before").value("PENDING"))
+                .andExpect(jsonPath("$.data.billItems[0].after").value("EXCLUDED"))
+                .andExpect(jsonPath("$.data.billItems[2].seq").value(3))
+                .andExpect(jsonPath("$.data.billItems[2].amount").value(33_334))
+                .andExpect(jsonPath("$.data.refunds.length()").value(0));
+
+        List<BillItem> canceled = items.findByPaymentTransactionIdOrderByInstallmentNoAsc(requested.paymentId());
+        assertThat(canceled).extracting(BillItem::getStatus).containsOnly(BillItemStatus.EXCLUDED);
+        assertThat(billCount(creditCard)).isEqualTo(3L);
+        for (BillItem item : canceled) {
+            assertThat(bills.findById(item.getCardBillId()).orElseThrow().getStatus()).isEqualTo(BillStatus.ACCUMULATING);
+        }
+        assertThat(payments.findById(requested.paymentId()).orElseThrow().getStatus()).isEqualTo(PaymentStatus.CANCELED);
+        verifyNoInteractions(transfer);
+    }
+
     // ───────── 도우미 ─────────
 
     /** 카드에 지난달 미납 청구서를 넣는다. 청구 확정·출금 실패(Task 5.4.2·5.4.3)가 아직 없어 직접 적는다. */

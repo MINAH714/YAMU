@@ -102,4 +102,12 @@ public class BillItem extends BaseTimeEntity {
         item.status = BillItemStatus.PENDING;
         return item;
     }
+
+    /** 청구 전 취소(POL-006). 청구 확정 전(PENDING) 회차만 청구에서 뺀다. 환급은 없다. */
+    public void exclude() {
+        if (status != BillItemStatus.PENDING) {
+            throw new IllegalStateException("청구 전 회차만 제외할 수 있습니다 (회차 " + id + ", 상태 " + status + ")");
+        }
+        this.status = BillItemStatus.EXCLUDED;
+    }
 }

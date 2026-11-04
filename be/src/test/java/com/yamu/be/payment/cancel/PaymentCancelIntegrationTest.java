@@ -46,13 +46,16 @@ import org.testcontainers.utility.DockerImageName;
 /**
  * 결제 전체 취소(Task 5.3.2)를 실제 MySQL·Redis로 확인한다. 승인 흐름과 떼어 보려고 승인된 결제 행은 SQL로 직접 넣는다.
  *
- * <p>청구 회차 처리는 S15P31E103-200 Merge 뒤 붙이므로 여기서는 회차 없는 결제와, 회차가 있으면 임시 구현이 취소를 막는지만 본다.
- * 실적·한도 복구도 원장 반영(Task 5.2.5) 전이라 응답의 {@code restored}는 비어 있다.
+ * <p>청구 회차·청구서도 SQL로 넣는다. 청구 확정(S15P31E103-206) 전이라 청구 전 회차가 EXCLUDED가 되는 것과, 확정된 청구서의
+ * 회차는 취소를 막는 것까지 본다. 실제 승인으로 만든 회차의 취소는 {@code CreditApprovalIntegrationTest}가 본다.
+ * 실적·한도 복구는 원장 반영(Task 5.2.5) 전이라 응답의 {@code restored}는 비어 있다.
  */
 @AutoConfigureMockMvc
 @TestPropertySource(properties = "spring.application.name=yamu-payment-cancel-test")
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 class PaymentCancelIntegrationTest extends MySqlTestSupport {
+
+    static final LocalDate DECEMBER = LocalDate.of(2026, 12, 1);
 
     @Container
     @ServiceConnection(name = "redis")
@@ -184,6 +187,7 @@ class PaymentCancelIntegrationTest extends MySqlTestSupport {
     @Test
     void 다른_키로_동시에_취소하면_한_건만_성공하고_나머지는_ALREADY_CANCELED() throws Exception {
         long paymentId = approved(user, creditCard, "YAMU");
+        long itemId = billItem(paymentId, bill("ACCUMULATING", DECEMBER), 1, "PENDING", 15_000);
 
         List<String> results = Concurrently.run(3, () -> {
             String body = cancel(paymentId, UUID.randomUUID().toString(), null).andReturn().getResponse()
@@ -193,6 +197,74 @@ class PaymentCancelIntegrationTest extends MySqlTestSupport {
 
         assertThat(results).containsExactlyInAnyOrder("OK", "ALREADY", "ALREADY");
         assertThat(payments.findById(paymentId).orElseThrow().getStatus()).isEqualTo(PaymentStatus.CANCELED);
+        assertThat(itemStatus(itemId)).isEqualTo("EXCLUDED");
+        assertThat(itemVersion(itemId)).isEqualTo(1L);
+    }
+
+    // ───────── 청구 회차 ─────────
+
+    @Test
+    void 청구_전_일시불_회차는_EXCLUDED가_되고_환급은_만들지_않으며_청구서는_그대로다() throws Exception {
+        long paymentId = approved(user, creditCard, "YAMU");
+        long billId = bill("ACCUMULATING", DECEMBER);
+        long itemId = billItem(paymentId, billId, 1, "PENDING", 15_000);
+
+        cancel(paymentId, UUID.randomUUID().toString(), null)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.status").value("CANCELED"))
+                .andExpect(jsonPath("$.data.billItems.length()").value(1))
+                .andExpect(jsonPath("$.data.billItems[0].billItemId").value(itemId))
+                .andExpect(jsonPath("$.data.billItems[0].seq").value(1))
+                .andExpect(jsonPath("$.data.billItems[0].amount").value(15_000))
+                .andExpect(jsonPath("$.data.billItems[0].before").value("PENDING"))
+                .andExpect(jsonPath("$.data.billItems[0].after").value("EXCLUDED"))
+                .andExpect(jsonPath("$.data.refunds.length()").value(0));
+
+        assertThat(itemStatus(itemId)).isEqualTo("EXCLUDED");
+        assertThat(refunds.findByPaymentTransactionIdOrderByBillItemIdAsc(paymentId)).isEmpty();
+        assertThat(jdbc.queryForObject("SELECT status FROM card_bill WHERE card_bill_id = ?", String.class, billId))
+                .isEqualTo("ACCUMULATING");
+    }
+
+    @Test
+    void 할부_회차는_모두_EXCLUDED가_되고_응답은_회차_순이다() throws Exception {
+        long paymentId = approved(user, creditCard, "YAMU");
+        // 회차 번호와 저장 순서를 엇갈리게 넣는다
+        long third = billItem(paymentId, bill("ACCUMULATING", DECEMBER.plusMonths(2)), 3, "PENDING", 33_334);
+        long first = billItem(paymentId, bill("ACCUMULATING", DECEMBER), 1, "PENDING", 33_333);
+        long second = billItem(paymentId, bill("ACCUMULATING", DECEMBER.plusMonths(1)), 2, "PENDING", 33_333);
+
+        cancel(paymentId, UUID.randomUUID().toString(), null)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.billItems.length()").value(3))
+                .andExpect(jsonPath("$.data.billItems[0].billItemId").value(first))
+                .andExpect(jsonPath("$.data.billItems[0].seq").value(1))
+                .andExpect(jsonPath("$.data.billItems[1].billItemId").value(second))
+                .andExpect(jsonPath("$.data.billItems[1].seq").value(2))
+                .andExpect(jsonPath("$.data.billItems[2].billItemId").value(third))
+                .andExpect(jsonPath("$.data.billItems[2].seq").value(3))
+                .andExpect(jsonPath("$.data.billItems[2].amount").value(33_334))
+                .andExpect(jsonPath("$.data.billItems[2].after").value("EXCLUDED"))
+                .andExpect(jsonPath("$.data.refunds.length()").value(0));
+
+        assertThat(List.of(itemStatus(first), itemStatus(second), itemStatus(third)))
+                .containsOnly("EXCLUDED");
+    }
+
+    @Test
+    void 청구가_확정된_회차가_있으면_취소하지_않고_결제와_회차를_그대로_둔다() throws Exception {
+        long paymentId = approved(user, creditCard, "YAMU");
+        long pending = billItem(paymentId, bill("ACCUMULATING", DECEMBER.plusMonths(1)), 2, "PENDING", 7_500);
+        long billed = billItem(paymentId, bill("CONFIRMED", DECEMBER), 1, "BILLED", 7_500);
+
+        cancel(paymentId, UUID.randomUUID().toString(), null)
+                .andExpect(status().isInternalServerError());
+
+        PaymentTransaction payment = payments.findById(paymentId).orElseThrow();
+        assertThat(payment.getStatus()).isEqualTo(PaymentStatus.APPROVED);
+        assertThat(payment.getCanceledAt()).isNull();
+        assertThat(itemStatus(billed)).isEqualTo("BILLED");
+        assertThat(itemStatus(pending)).isEqualTo("PENDING");
     }
 
     // ───────── 취소할 수 없는 결제 ─────────
@@ -244,19 +316,6 @@ class PaymentCancelIntegrationTest extends MySqlTestSupport {
         assertThat(payments.findById(paymentId).orElseThrow().getStatus()).isEqualTo(PaymentStatus.APPROVED);
     }
 
-    @Test
-    void 청구_회차가_있으면_회차_처리_구현_전에는_취소하지_않고_결제를_APPROVED로_둔다() throws Exception {
-        long paymentId = approved(user, creditCard, "YAMU");
-        billItem(paymentId);
-
-        cancel(paymentId, UUID.randomUUID().toString(), null)
-                .andExpect(status().isInternalServerError());
-
-        PaymentTransaction payment = payments.findById(paymentId).orElseThrow();
-        assertThat(payment.getStatus()).isEqualTo(PaymentStatus.APPROVED);
-        assertThat(payment.getCanceledAt()).isNull();
-    }
-
     // ───────── 잘못된 요청 ─────────
 
     @Test
@@ -300,7 +359,7 @@ class PaymentCancelIntegrationTest extends MySqlTestSupport {
     @Test
     void 환급은_회차당_한_행이고_수수료_0원으로_원금과_같은_금액을_적는다() {
         long paymentId = approved(user, creditCard, "YAMU");
-        long itemId = billItem(paymentId);
+        long itemId = billItem(paymentId, bill("ACCUMULATING", DECEMBER), 1, "PENDING", 15_000);
 
         Refund saved = refunds.saveAndFlush(Refund.pending(paymentId, itemId, user, account, 15_000, LocalDate.of(2026, 11, 6)));
 
@@ -367,22 +426,57 @@ class PaymentCancelIntegrationTest extends MySqlTestSupport {
         return row;
     }
 
-    /** 청구서 배정 전 일시불 회차. 회차 엔티티(S15P31E103-200)가 아직 develop에 없어 SQL로 넣는다. */
-    private long billItem(long paymentId) {
+    /**
+     * 신용카드의 청구서. 날짜는 결제일 15일·마감 14일 기준의 모양만 맞춘다. 확정 이후 상태는 청구 확정(S15P31E103-206) 전이라
+     * 확정 칸까지 직접 채운다.
+     */
+    private long bill(String status, LocalDate billingMonth) {
         LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
+        Map<String, Object> row = new HashMap<>();
+        row.put("user_id", user);
+        row.put("user_card_id", creditCard);
+        row.put("billing_month", billingMonth);
+        row.put("period_start", billingMonth.minusMonths(1).withDayOfMonth(2));
+        row.put("period_end", billingMonth.withDayOfMonth(1));
+        row.put("withdrawal_date", billingMonth.withDayOfMonth(15));
+        row.put("status", status);
+        if (!status.equals("ACCUMULATING")) {
+            row.put("linked_account_id", account);
+            row.put("confirmed_amount", 15_000L);
+            row.put("confirmed_at", now);
+        }
+        row.put("created_at", now);
+        row.put("updated_at", now);
+        return insert("card_bill", "card_bill_id", row);
+    }
+
+    /** 청구서에 배정된 무이자 회차(청구액 = 원금). */
+    private long billItem(long paymentId, long cardBillId, int seq, String status, long amount) {
+        LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
+        LocalDate billingMonth = jdbc.queryForObject("SELECT billing_month FROM card_bill WHERE card_bill_id = ?",
+                LocalDate.class, cardBillId);
         Map<String, Object> row = new HashMap<>();
         row.put("payment_transaction_id", paymentId);
         row.put("user_id", user);
         row.put("user_card_id", creditCard);
-        row.put("installment_no", 1);
-        row.put("billing_month", LocalDate.of(2026, 12, 1));
-        row.put("principal_amount", 15_000L);
+        row.put("card_bill_id", cardBillId);
+        row.put("installment_no", seq);
+        row.put("billing_month", billingMonth);
+        row.put("principal_amount", amount);
         row.put("fee_amount", 0L);
-        row.put("billed_amount", 15_000L);
-        row.put("status", "PENDING");
+        row.put("billed_amount", amount);
+        row.put("status", status);
         row.put("created_at", now);
         row.put("updated_at", now);
         return insert("bill_item", "bill_item_id", row);
+    }
+
+    private String itemStatus(long billItemId) {
+        return jdbc.queryForObject("SELECT status FROM bill_item WHERE bill_item_id = ?", String.class, billItemId);
+    }
+
+    private long itemVersion(long billItemId) {
+        return jdbc.queryForObject("SELECT version FROM bill_item WHERE bill_item_id = ?", Long.class, billItemId);
     }
 
     private long merchant() {
