@@ -2,6 +2,8 @@ package com.yamu.be.payment.cancel;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doThrow;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -35,12 +37,14 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.data.redis.RedisConnectionFailureException;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.simple.SimpleJdbcInsert;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.TestPropertySource;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
@@ -79,6 +83,7 @@ class PaymentCancelIntegrationTest extends MySqlTestSupport {
     @Autowired CardBillRepository bills;
     @Autowired CanceledBillItemSettler settler;
     @Autowired TransactionTemplate transaction;
+    @MockitoSpyBean CancelIdempotencyStore idempotency;
 
     OwnershipFixtures fixtures;
     long user;
@@ -159,6 +164,19 @@ class PaymentCancelIntegrationTest extends MySqlTestSupport {
     }
 
     // ───────── 재시도·동시 요청 ─────────
+
+    @Test
+    void 취소_뒤_응답_기억이_실패해도_취소_결과를_그대로_돌려준다() throws Exception {
+        long paymentId = approved(user, creditCard, "YAMU");
+        doThrow(new RedisConnectionFailureException("Redis 끊김")).when(idempotency).remember(any(), any(), any());
+
+        cancel(paymentId, UUID.randomUUID().toString(), null)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.paymentId").value(paymentId))
+                .andExpect(jsonPath("$.data.status").value("CANCELED"));
+
+        assertThat(payments.findById(paymentId).orElseThrow().getStatus()).isEqualTo(PaymentStatus.CANCELED);
+    }
 
     @Test
     void 같은_키로_다시_보내면_처음_응답을_그대로_돌려준다() throws Exception {

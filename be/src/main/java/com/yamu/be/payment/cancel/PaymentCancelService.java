@@ -94,8 +94,20 @@ public class PaymentCancelService {
                 return replay(done.get(), fingerprint);
             }
             PaymentCancelResponse response = transaction.execute(status -> process(userId, paymentId));
-            idempotency.remember(userId, key, new Previous(fingerprint, paymentId, response));
+            remember(userId, key, new Previous(fingerprint, paymentId, response));
             return response;
+        }
+    }
+
+    /**
+     * 응답 기억. 취소는 이미 커밋됐으므로 실패해도 응답은 그대로 돌려준다(승인과 같다). 예외를 던지면 앱은 실제로 취소된 결제를
+     * 실패로 보게 된다. 한계: 기억하지 못한 키로 다시 보내면 처음 응답 대신 409 ALREADY_CANCELED를 받는다.
+     */
+    private void remember(Long userId, String key, Previous previous) {
+        try {
+            idempotency.remember(userId, key, previous);
+        } catch (RuntimeException e) {
+            log.warn("취소 응답 기억 실패(취소는 완료, 같은 키 재전송은 ALREADY_CANCELED) paymentId={}", previous.paymentId(), e);
         }
     }
 
