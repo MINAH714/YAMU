@@ -166,7 +166,7 @@ class PayCodeViewModel @Inject constructor(
         _state.update { it.copy(phase = PayPhase.Auth, error = null, remainingSec = null) }
         stepUp.start(
             purpose = StepUpPurpose.BARCODE,
-            prompt = StepUpPrompt("결제 코드 열기", "인증하면 3분 동안 결제 코드가 보여요"),
+            prompt = StepUpPrompt("결제 코드 열기", "인증하면 결제 코드가 보여요"),
             onError = { e -> _state.update { it.copy(error = e.authMessage()) } },
         ) { token ->
             _state.update { it.copy(issuing = true) }
@@ -409,7 +409,7 @@ private fun AuthBody(error: String?) {
     Spacer(Modifier.height(YamuSpacing.x5))
     Text("인증하면 결제 코드가 열려요", style = YamuTheme.typography.titleL, color = c.text1, textAlign = TextAlign.Center)
     Spacer(Modifier.height(6.dp))
-    Text("3분 동안 보여요 · 매장 단말이 찍으면 결제 요청이 와요", style = YamuTheme.typography.bodyM, color = c.text3, textAlign = TextAlign.Center)
+    Text("매장 단말이 찍으면 결제 요청이 와요", style = YamuTheme.typography.bodyM, color = c.text3, textAlign = TextAlign.Center)
     error?.let {
         Spacer(Modifier.height(YamuSpacing.x4))
         Text(it, style = YamuTheme.typography.bodyM, color = c.error, textAlign = TextAlign.Center)
