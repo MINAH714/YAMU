@@ -20,6 +20,7 @@ import com.yamu.be.support.OwnershipFixtures;
 import java.nio.ByteBuffer;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.YearMonth;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.List;
@@ -38,7 +39,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * 잔고예보 조회 API를 인증 필터·실제 MySQL까지 묶어 확인한다. 잔액(BE 1, 금융망)만 가짜로 두고,
+ * 잔고예보 조회·생활비 예측 상세 API를 인증 필터·실제 MySQL까지 묶어 확인한다. 잔액(BE 1, 금융망)만 가짜로 두고,
  * 임시 청구 원천({@link AccumulatingCardBillReader})이 실제 card_bill·bill_item을 읽는 것을 본다.
  */
 @Transactional
@@ -134,23 +135,8 @@ class ForecastControllerTest extends MySqlTestSupport {
 
     @Test
     void 완료_3개월의_SEED_체크카드_소비가_있으면_생활비를_추정해_보수적_선을_낸다() throws Exception {
-        // 오늘 체크카드를 등록한 계좌. 등록 전 3개월(1일부터 어제까지)은 SEED가 덮고, YAMU 결제가 아직 없어 REAL 줄은 없다
-        OwnershipFixtures ownership = new OwnershipFixtures(jdbc);
-        SpendingFixtures spending = new SpendingFixtures(jdbc);
-        long account = ownership.account(owner);
-        long check = spending.card(owner, spending.product("CHECK"), account, today);
-        LocalDate firstMonth = today.withDayOfMonth(1).minusMonths(3);
-        long total = 0;
-        long days = 0;
-        for (int month = 0; month < 3; month++) {
-            LocalDate day = firstMonth.plusMonths(month);
-            // 금액을 달마다 다르게 해 반복 지출(같은 카드·가맹점·금액이 3개 달)로 빠지지 않게 한다
-            long amount = 31_000L + month * 1_000L;
-            spending.payment(owner, check, merchant, amount, 1, SpendingFixtures.utc(day, 12), "SEED", "APPROVED");
-            total += amount;
-            days += day.lengthOfMonth();
-        }
-        long daily = (total * 2 + days) / (days * 2);
+        long account = ownership().account(owner);
+        long daily = seedThreeMonths(account);
 
         mockMvc.perform(get("/api/forecasts/balance").with(AuthUsers.asUser(owner))
                         .param("accountIds", String.valueOf(account)).param("until", "DAYS").param("days", "7"))
@@ -262,6 +248,110 @@ class ForecastControllerTest extends MySqlTestSupport {
                         .param("accountIds", String.valueOf(accountA)).param("until", "DAYS").param("days", "7"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.series[7].expected").value(1_000_000));
+    }
+
+    @Test
+    void 생활비_상세는_토큰이_없으면_401이고_계좌가_없으면_400이다() throws Exception {
+        mockMvc.perform(get("/api/forecasts/living-cost").param("accountIds", String.valueOf(accountA)))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.error.code").value("UNAUTHORIZED"));
+        mockMvc.perform(get("/api/forecasts/living-cost").with(AuthUsers.asUser(owner)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("ACCOUNT_SELECTION_REQUIRED"));
+    }
+
+    @Test
+    void 생활비_상세에서_남의_계좌는_404다() throws Exception {
+        long strangerAccount = ownership().account(ownership().user());
+
+        mockMvc.perform(get("/api/forecasts/living-cost").with(AuthUsers.asUser(owner))
+                        .param("accountIds", accountA + "," + strangerAccount))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error.code").value("RESOURCE_NOT_FOUND"));
+    }
+
+    @Test
+    void 생활비_상세는_고른_어느_계좌에도_자료가_없으면_422다() throws Exception {
+        // A에는 신용카드뿐이라 생활비 자료가 없다. 0원으로 확정하지 않는다
+        mockMvc.perform(get("/api/forecasts/living-cost").with(AuthUsers.asUser(owner))
+                        .param("accountIds", String.valueOf(accountA)))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.error.code").value("DATA_INSUFFICIENT"));
+    }
+
+    @Test
+    void 생활비_상세는_설정의_기본_일수로_예상하고_하루_목표를_그대로_보여_준다() throws Exception {
+        jdbc.update("UPDATE app_user SET forecast_settings = ? WHERE user_id = ?", """
+                {"horizon":"DAYS","defaultDays":7,"alertThreshold":100000,"incomeCashflowItemId":null,
+                 "dailyLivingCostTarget":9000,"includeCandidates":true,"conservativeLine":true,"updatedAt":null}""",
+                owner);
+        long account = ownership().account(owner);
+        long daily = seedThreeMonths(account);
+
+        mockMvc.perform(get("/api/forecasts/living-cost").with(AuthUsers.asUser(owner))
+                        .param("accountIds", String.valueOf(account)).param("includeAccountDetails", "true"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.accountIds[0]").value(account))
+                .andExpect(jsonPath("$.data.method").value("AVG_3M"))
+                .andExpect(jsonPath("$.data.dataOrigin").value("SEED"))
+                .andExpect(jsonPath("$.data.confidence").value("HIGH"))
+                .andExpect(jsonPath("$.data.dailyAverage").value(daily))
+                .andExpect(jsonPath("$.data.projectedAmount").value(daily * 7))
+                .andExpect(jsonPath("$.data.period.from").value(today.toString()))
+                .andExpect(jsonPath("$.data.period.to").value(today.plusDays(7).toString()))
+                .andExpect(jsonPath("$.data.period.days").value(7))
+                .andExpect(jsonPath("$.data.period.basis").value("DAYS"))
+                .andExpect(jsonPath("$.data.sources", hasSize(3)))
+                .andExpect(jsonPath("$.data.sources[0].yearMonth").value(YearMonth.from(today).minusMonths(3).toString()))
+                .andExpect(jsonPath("$.data.excluded[3].type").value("LARGE"))
+                // 하루 목표는 보여 주기만 하고 예상 생활비를 바꾸지 않는다
+                .andExpect(jsonPath("$.data.dailyTarget").value(9_000))
+                .andExpect(jsonPath("$.data.dataSyncedAt").isString())
+                .andExpect(jsonPath("$.data.accountLivingCosts", hasSize(1)))
+                .andExpect(jsonPath("$.data.accountLivingCosts[0].projectedAmount").value(daily * 7));
+    }
+
+    @Test
+    void 생활비_상세에서_자료_없는_계좌가_섞이면_통합은_비우고_계좌별_값은_보여_준다() throws Exception {
+        long account = ownership().account(owner);
+        long daily = seedThreeMonths(account);
+
+        mockMvc.perform(get("/api/forecasts/living-cost").with(AuthUsers.asUser(owner))
+                        .param("accountIds", accountA + "," + account).param("includeAccountDetails", "true"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.dailyAverage").value(nullValue()))
+                .andExpect(jsonPath("$.data.projectedAmount").value(nullValue()))
+                .andExpect(jsonPath("$.data.confidence").value("INSUFFICIENT"))
+                .andExpect(jsonPath("$.data.dailyTarget").value(nullValue()))
+                .andExpect(jsonPath("$.data.accountLivingCosts[0].accountId").value(accountA))
+                .andExpect(jsonPath("$.data.accountLivingCosts[0].dataOrigin").value("INSUFFICIENT"))
+                .andExpect(jsonPath("$.data.accountLivingCosts[1].accountId").value(account))
+                .andExpect(jsonPath("$.data.accountLivingCosts[1].dailyAverage").value(daily));
+    }
+
+    private OwnershipFixtures ownership() {
+        return new OwnershipFixtures(jdbc);
+    }
+
+    /**
+     * 오늘 체크카드를 등록한 계좌에 완료 3개월의 SEED 결제를 달마다 한 건 넣고, 기대 일평균(원 단위 반올림)을 돌려준다.
+     * 등록 전 3개월(1일부터 어제까지)은 SEED가 덮고, YAMU 결제가 아직 없어 REAL 줄은 없다.
+     */
+    private long seedThreeMonths(long account) {
+        SpendingFixtures spending = new SpendingFixtures(jdbc);
+        long check = spending.card(owner, spending.product("CHECK"), account, today);
+        LocalDate firstMonth = today.withDayOfMonth(1).minusMonths(3);
+        long total = 0;
+        long days = 0;
+        for (int month = 0; month < 3; month++) {
+            LocalDate day = firstMonth.plusMonths(month);
+            // 금액을 달마다 다르게 해 반복 지출(같은 카드·가맹점·금액이 3개 달)로 빠지지 않게 한다
+            long amount = 31_000L + month * 1_000L;
+            spending.payment(owner, check, merchant, amount, 1, SpendingFixtures.utc(day, 12), "SEED", "APPROVED");
+            total += amount;
+            days += day.lengthOfMonth();
+        }
+        return (total * 2 + days) / (days * 2);
     }
 
     private long bill(long userCard, LocalDate withdrawalDate, int monthOffset) {

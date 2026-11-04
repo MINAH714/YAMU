@@ -13,7 +13,8 @@ import java.util.List;
  * @param method             계산 방식(최근 완료 3개월 평균)
  * @param sources            평균에 쓴 달별 합계(계좌 합)
  * @param excluded           중복 예측을 막으려고 생활비에서 빼는 소비 종류 안내
- * @param dailyTarget        사용자가 정한 하루 목표 생활비. 잔고예보 설정 API가 아직 없어 null
+ * @param period             예상 생활비를 계산한 기간. until·days 없이 부른 잔고예보와 같다
+ * @param dailyTarget        잔고예보 설정의 하루 목표 생활비(dailyLivingCostTarget). 없으면 null. 예측 값에는 섞지 않는다
  * @param paceCheck          이번 달 소비 속도. 계산할 수 없으면 null
  * @param dataSyncedAt       생활비 원천을 읽은 UTC 시각
  * @param accountLivingCosts 계좌별 생활비. 자세히 보기(includeAccountDetails)가 아니면 null
@@ -23,7 +24,7 @@ public record LivingCostForecast(List<Long> accountIds, Long projectedAmount, Lo
         Period period, List<Source> sources, List<Exclusion> excluded, Long dailyTarget, PaceCheck paceCheck,
         LocalDateTime dataSyncedAt, List<AccountLivingCost> accountLivingCosts) {
 
-    /** 예상 생활비를 계산한 예보 기간. basis는 실제로 쓴 기간 기준(DAYS). */
+    /** 예상 생활비를 계산한 예보 기간. basis는 실제로 쓴 기간 기준(다음 월급일이 없으면 NEXT_INCOME이어도 DAYS). */
     public record Period(LocalDate from, LocalDate to, int days, BalanceForecast.Until basis) {}
 
     public record Source(YearMonth yearMonth, long amount) {}

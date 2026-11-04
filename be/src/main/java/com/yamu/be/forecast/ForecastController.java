@@ -9,7 +9,10 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-/** 잔고예보 조회 API. 명세: 노션 API 명세서 V2 「잔고예보 조회」. 명세와 다른 점은 docs/be/forecast.md 「명세와 다른 점」. */
+/**
+ * 잔고예보·생활비 예측 상세 조회 API. 명세: 노션 API 명세서 V2 「잔고예보 조회」「생활비 예측 상세」.
+ * 명세와 다른 점은 docs/be/forecast.md 「명세와 다른 점」.
+ */
 @RestController
 @RequestMapping("/api/forecasts")
 class ForecastController {
@@ -32,5 +35,16 @@ class ForecastController {
             @RequestParam(defaultValue = "false") boolean includeAccountDetails,
             @RequestParam(defaultValue = "false") boolean refresh) {
         return ApiResponse.ok(service.forecast(me.userId(), accountIds, until, days, includeAccountDetails, refresh));
+    }
+
+    /**
+     * 선택한 계좌의 예상 생활비와 계산 근거(명세 「생활비 예측 상세」). accountIds는 잔고예보와 같은 방식으로 보낸다.
+     * 기간은 잔고예보 설정을 따른다. 생활비 원천이 소비 분류를 쓰므로 읽기 전용 트랜잭션을 붙이지 않는다.
+     */
+    @GetMapping("/living-cost")
+    ApiResponse<LivingCostForecast> livingCost(@AuthenticationPrincipal AuthUser me,
+            @RequestParam(required = false) List<Long> accountIds,
+            @RequestParam(defaultValue = "false") boolean includeAccountDetails) {
+        return ApiResponse.ok(service.livingCost(me.userId(), accountIds, includeAccountDetails));
     }
 }

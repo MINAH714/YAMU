@@ -112,7 +112,7 @@ class ForecastServiceTest {
             }
             return new LivingCostReader.Spending(spending, LIVING_SYNCED_AT);
         };
-        // 생활비 상세는 설정을 읽지 않아 lenient로 둔다.
+        // 남의 계좌로 실패하는 테스트는 설정을 읽기 전에 끝나 lenient로 둔다.
         lenient().when(settingsStore.read(anyLong())).thenAnswer(invocation -> userSettings);
         return new ForecastService(cashflows, balanceService, billReader, cardService, creditSchedule, livingReader,
                 accounts, settingsStore, settingsService, clock);
@@ -235,7 +235,7 @@ class ForecastServiceTest {
         assertThat(result.sources()).extracting(LivingCostForecast.Source::amount)
                 .containsExactly(155_000L, 155_000L, 210_000L);
         assertThat(result.excluded()).extracting(LivingCostForecast.Exclusion::type)
-                .containsExactly("RECURRING", "CREDIT_PAYMENT", "UNCLASSIFIED");
+                .containsExactly("RECURRING", "CREDIT_PAYMENT", "UNCLASSIFIED", "LARGE");
         assertThat(result.dailyTarget()).isNull();
         assertThat(result.dataSyncedAt()).isEqualTo(LIVING_SYNCED_AT);
         assertThat(result.accountLivingCosts())
@@ -243,6 +243,34 @@ class ForecastServiceTest {
                         LivingCostForecast.AccountLivingCost::dailyAverage,
                         LivingCostForecast.AccountLivingCost::projectedAmount)
                 .containsExactly(tuple(A, 5_000L, 150_000L), tuple(B, 2_000L, 60_000L));
+    }
+
+    @Test
+    void 생활비_상세는_설정의_기본_일수와_하루_목표를_쓰고_목표를_예측에_섞지_않는다() {
+        userSettings = new ForecastSettings(Until.DAYS, 14, THRESHOLD, null, 9_000L, true, true, null);
+        spending = days(real(A, JUL, 155_000), real(A, AUG, 155_000), real(A, SEP, 150_000));
+
+        LivingCostForecast result = service.livingCost(USER, List.of(A), false);
+
+        assertThat(result.period()).isEqualTo(new LivingCostForecast.Period(TODAY, TODAY.plusDays(14), 14, Until.DAYS));
+        assertThat(result.dailyAverage()).isEqualTo(5_000L);
+        assertThat(result.projectedAmount()).isEqualTo(70_000L);
+        assertThat(result.dailyTarget()).isEqualTo(9_000L);
+        assertThat(result.accountLivingCosts()).isNull();
+    }
+
+    @Test
+    void 생활비_상세는_잔고예보처럼_다음_월급일_전날까지_계산한다() {
+        userSettings = new ForecastSettings(Until.NEXT_INCOME, 30, THRESHOLD, 41L, null, true, true, null);
+        when(settingsService.nextIncomeDate(USER, 41L, TODAY)).thenReturn(Optional.of(NOV_5));
+        spending = days(real(A, JUL, 155_000), real(A, AUG, 155_000), real(A, SEP, 150_000));
+
+        LivingCostForecast result = service.livingCost(USER, List.of(A), false);
+
+        // 11/5 월급이면 10/26~11/4, 9일. 잔고예보의 NEXT_INCOME 기간과 같다.
+        assertThat(result.period())
+                .isEqualTo(new LivingCostForecast.Period(TODAY, NOV_5.minusDays(1), 9, Until.NEXT_INCOME));
+        assertThat(result.projectedAmount()).isEqualTo(45_000L);
     }
 
     @Test
