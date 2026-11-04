@@ -48,8 +48,10 @@ import org.springframework.transaction.support.TransactionTemplate;
  *       카드 행의 카드번호·카드사 계좌·결제일. 이름 해시는 재가입 때 이름까지 맞는지 보려고 남긴다(이름 원문은 지움).
  *       재가입하면 새 사용자로 옮겨지고 이 행에서는 지워진다({@link RejoinService}). SSAFY 계정은 지우는 API가 없어 그대로다</li>
  *   <li>지우는 것: 이름·휴대폰 암호문·PIN·본인인증 시각(NULL), 계좌번호(무작위 값으로 덮음, NOT NULL), 기기 공개키(무작위, NOT NULL),
- *       기기 이름(NULL, "OO의 갤럭시"처럼 이름이 들어갈 수 있음),
+ *       기기 이름(NULL, "OO의 갤럭시"처럼 이름이 들어갈 수 있음), 잔고예보 설정(forecast_settings NULL),
  *       본인 인증 기록의 IP·User-Agent(NULL), Redis의 Refresh Token·가입 토큰·잔액 캐시</li>
+ *   <li>잔고예보 설정 수정(BE 4)이 탈퇴보다 먼저 들어와 사용자 행 잠금을 기다리면, 탈퇴가 커밋된 뒤 설정을 다시 쓸 수 있다(한계).
+ *       막으려면 설정 저장 쪽에서 탈퇴 사용자를 거절해야 한다</li>
  *   <li>행은 지우지 않는다. 거래·청구·감사 로그가 FK(RESTRICT)로 가리키기 때문이다. 이력은 옛 user_id에 남고 재가입한 새 계정에는 보이지 않는다</li>
  *   <li>하지 않는 것(확인 필요): 30일 뒤 이력 삭제, 탈퇴 철회 기간, 쌓이는 중(ACCUMULATING) 청구 회차 정리(BE 2),
  *       예정 수입·지출(BE 4, cashflow_item의 제목·메모 포함). 쌓이는 중 청구도 "끝나지 않은 청구"라 탈퇴를 막는다</li>
@@ -161,6 +163,10 @@ public class WithdrawalService {
 
         user.withdraw(now, user.getName() == null ? null : lookupHasher.name(user.getName()));
         userRepository.flush();
+        // 잔고예보 설정(BE 4 소유 칸). 지운 계좌·예정 수입을 가리키는 ID가 남지 않게 비운다(!62 리뷰에서 약속).
+        // AppUser 엔티티에 매핑되지 않은 칸이라 SQL로 바꾼다.
+        jdbc.update("UPDATE app_user SET forecast_settings = NULL WHERE user_id = :userId",
+                new MapSqlParameterSource("userId", userId));
         jdbc.update("UPDATE step_up_audit_log SET ip_address = NULL, user_agent = NULL WHERE user_id = :userId",
                 new MapSqlParameterSource("userId", userId));
         return new Cleanup(devices.stream().map(UserDevice::getId).toList(),

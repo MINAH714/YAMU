@@ -121,12 +121,15 @@ class WithdrawalIntegrationTest extends MySqlTestSupport {
         Member member = activeMember();
         long card = card(member.userId(), "ACTIVE");
         byte[] accountHashBefore = accountHash(member.userId());
+        jdbc.update("UPDATE app_user SET forecast_settings = JSON_OBJECT('defaultDays', 30) WHERE user_id = ?",
+                member.userId());
         String stepUp = stepUpToken(member, StepUpPurpose.WITHDRAW_MEMBER);
 
         withdraw(member, stepUp).andExpect(status().isNoContent());
 
         Map<String, Object> user = jdbc.queryForMap("SELECT * FROM app_user WHERE user_id = ?", member.userId());
         assertThat(user.get("status")).isEqualTo("WITHDRAWN");
+        assertThat(user.get("forecast_settings")).isNull();
         assertThat(user.get("deleted_at")).isNotNull();
         assertThat(user.get("name")).isNull();
         assertThat(user.get("phone_enc")).isNull();
