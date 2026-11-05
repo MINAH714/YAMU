@@ -114,6 +114,41 @@ class AccountBalanceServiceTest {
     }
 
     @Test
+    void 추천용_부분_결과는_실패와_확인된_0원을_구분하고_정상_계좌를_보존한다() {
+        when(ssafy.balance("user-key", "fast")).thenReturn(0L);
+        when(ssafy.balance("user-key", "slow")).thenThrow(FinApiException.timedOut("balance"));
+        var results=service.getBalanceResults(USER,List.of(10L,11L,10L));
+        assertThat(results).hasSize(2);
+        assertThat(results.get(10L).balance().balance()).isZero();
+        assertThat(results.get(10L).errorCode()).isNull();
+        assertThat(results.get(11L).balance()).isNull();
+        assertThat(results.get(11L).errorCode()).isEqualTo(ErrorCode.UPSTREAM_TIMEOUT);
+        org.mockito.Mockito.verify(ssafy,org.mockito.Mockito.times(1)).balance("user-key","fast");
+        org.mockito.Mockito.verify(ssafy,org.mockito.Mockito.times(1)).balance("user-key","slow");
+    }
+
+    @Test
+    void 추천용_부분_조회는_잘못된_개별_응답도_다른_정상_계좌로_전파하지_않는다() {
+        when(ssafy.balance("user-key","fast")).thenReturn(10_000L);
+        when(ssafy.balance("user-key","slow")).thenThrow(new IllegalArgumentException("invalid response"));
+        var results=service.getBalanceResults(USER,List.of(10L,11L));
+        assertThat(results.get(10L).balance().balance()).isEqualTo(10_000);
+        assertThat(results.get(11L).balance()).isNull();
+        assertThat(results.get(11L).errorCode()).isEqualTo(ErrorCode.INTERNAL_ERROR);
+    }
+
+    @Test
+    void 부분_조회에서는_없는_계좌만_거절하고_정상_계좌는_조회한다() {
+        when(accounts.findByIdInAndUserIdAndStatus(anyList(),eq(USER),eq(LinkedAccountStatus.CONNECTED))).thenReturn(List.of(fast));
+        when(ssafy.balance("user-key","fast")).thenReturn(10_000L);
+        var result=service.getBalanceResults(USER,List.of(10L,99L));
+        assertThat(result.get(10L).balance().balance()).isEqualTo(10_000);
+        assertThat(result.get(99L).balance()).isNull();
+        assertThat(result.get(99L).errorCode()).isEqualTo(ErrorCode.RESOURCE_NOT_FOUND);
+        org.mockito.Mockito.verify(ssafy,org.mockito.Mockito.times(1)).balance(org.mockito.ArgumentMatchers.anyString(),org.mockito.ArgumentMatchers.anyString());
+    }
+
+    @Test
     void 계좌들을_동시에_조회해_계좌_수만큼_기다리지_않는다() {
         when(ssafy.balance(eq("user-key"), anyString())).thenAnswer(inv -> {
             Thread.sleep(400);

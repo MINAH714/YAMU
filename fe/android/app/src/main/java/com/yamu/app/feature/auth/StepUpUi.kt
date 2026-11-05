@@ -163,7 +163,7 @@ fun PinPadRoute(onClose: () -> Unit, viewModel: PinPadViewModel = hiltViewModel(
             title = pinPadTitle(viewModel.purpose),
             // 무엇을 확인하는지 먼저(지문 창 부제와 같은 말) — 결제 코드는 열리는 시간을 알려 준다
             sub = when {
-                viewModel.purpose == StepUpPurpose.BARCODE -> "인증하면 3분 동안 결제 코드가 보여요"
+                viewModel.purpose == StepUpPurpose.BARCODE -> "인증하면 결제 코드가 보여요"
                 viewModel.detail != null -> viewModel.detail
                 else -> "가입할 때 만든 6자리예요"
             },

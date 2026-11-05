@@ -9,7 +9,7 @@ import java.util.List;
  *
  * <p>임시 계약: 원천은 YAMU 체크카드 LIVING 소비(BE 2 결제)다. 명세의 "생활비로 확인된 SSAFY 계좌 출금"은 확인 방법이
  * 정의되지 않아 지금은 넣지 않는다(docs/be/forecast.md 「계좌 출금은 지금 넣지 않음」).
- * 원천 구현이 아직 없어 잔고예보가 필요한 모양을 먼저 정했다. 원천을 붙일 때 담당자와 맞춘다(docs/be/forecast.md 「생활비 원천 계약」).
+ * 구현은 {@link PaymentLivingCostReader}다(BE 4 구현, BE 2 리뷰, docs/be/forecast.md 「생활비 원천 계약」).
  *
  * <p>구현이 지켜야 할 것:
  * <ul>

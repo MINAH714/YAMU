@@ -57,7 +57,6 @@ import com.yamu.app.core.designsystem.component.LinkButton
 import com.yamu.app.core.designsystem.component.PrimaryButton
 import com.yamu.app.core.designsystem.component.RoundCheckbox
 import com.yamu.app.core.designsystem.component.Segmented
-import com.yamu.app.core.designsystem.component.SkeletonBlock
 import com.yamu.app.core.designsystem.component.StatusTag
 import com.yamu.app.core.designsystem.component.TextButtonGrey
 import com.yamu.app.core.designsystem.component.YamuDialog
@@ -166,7 +165,7 @@ class PayCodeViewModel @Inject constructor(
         _state.update { it.copy(phase = PayPhase.Auth, error = null, remainingSec = null) }
         stepUp.start(
             purpose = StepUpPurpose.BARCODE,
-            prompt = StepUpPrompt("결제 코드 열기", "인증하면 3분 동안 결제 코드가 보여요"),
+            prompt = StepUpPrompt("결제 코드 열기", "인증하면 결제 코드가 보여요"),
             onError = { e -> _state.update { it.copy(error = e.authMessage()) } },
         ) { token ->
             _state.update { it.copy(issuing = true) }
@@ -409,7 +408,7 @@ private fun AuthBody(error: String?) {
     Spacer(Modifier.height(YamuSpacing.x5))
     Text("인증하면 결제 코드가 열려요", style = YamuTheme.typography.titleL, color = c.text1, textAlign = TextAlign.Center)
     Spacer(Modifier.height(6.dp))
-    Text("3분 동안 보여요 · 매장 단말이 찍으면 결제 요청이 와요", style = YamuTheme.typography.bodyM, color = c.text3, textAlign = TextAlign.Center)
+    Text("매장 단말이 찍으면 결제 요청이 와요", style = YamuTheme.typography.bodyM, color = c.text3, textAlign = TextAlign.Center)
     error?.let {
         Spacer(Modifier.height(YamuSpacing.x4))
         Text(it, style = YamuTheme.typography.bodyM, color = c.error, textAlign = TextAlign.Center)
@@ -495,7 +494,10 @@ private fun RequestBody(request: PaymentRequest, s: PayCodeState, onSelectCard: 
             Spacer(Modifier.height(YamuSpacing.x5))
         }
         Text("결제 카드", style = YamuTheme.typography.sub, color = c.text3)
-        if (request.cards.isEmpty()) SkeletonBlock(height = 56.dp)
+        // 서버가 추천을 끝낸 결과라 기다려도 바뀌지 않는다(FR-018)
+        if (request.cards.isEmpty()) {
+            EmptyState(if (request.cardsUnknown) "카드 정보를 확인하지 못해 결제할 카드를 고를 수 없어요" else "이 결제에 쓸 수 있는 카드가 없어요")
+        }
         request.cards.forEach { card ->
             PayCardRow(card, selected = card.userCardId == s.selectedCardId, enabled = !s.requestDone && !s.approving, onClick = { onSelectCard(card.userCardId) })
         }
@@ -543,6 +545,10 @@ private fun PayCardRow(card: PayCard, selected: Boolean, enabled: Boolean, onCli
 private fun RequestButtons(request: PaymentRequest, s: PayCodeState, onApprove: () -> Unit, onReject: () -> Unit, onClose: () -> Unit) {
     if (s.requestDone) {
         BottomCta { PrimaryButton("닫기", onClick = onClose) }
+        return
+    }
+    if (request.cards.isEmpty()) {
+        BottomCta { PrimaryButton("거절", onClick = onReject, loading = s.rejecting) }
         return
     }
     val card = s.selectedCard

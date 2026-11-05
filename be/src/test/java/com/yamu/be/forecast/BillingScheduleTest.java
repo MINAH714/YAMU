@@ -6,7 +6,8 @@ import static org.assertj.core.api.Assertions.tuple;
 
 import com.yamu.be.card.domain.CardType;
 import com.yamu.be.forecast.BillingSchedule.Withdrawal;
-import java.time.DayOfWeek;
+import com.yamu.be.global.calendar.BusinessDayCalendar;
+import com.yamu.be.support.WeekdayCalendar;
 import java.time.LocalDate;
 import java.time.YearMonth;
 import java.util.List;
@@ -17,13 +18,11 @@ class BillingScheduleTest {
     /** 2027-03-01(월) 삼일절. 실제 공휴일 API 대신 쓰는 테스트용 공휴일이다. */
     private static final Set<LocalDate> HOLIDAYS = Set.of(LocalDate.of(2027, 3, 1));
     /** 주말과 HOLIDAYS를 건너뛰는 가짜 달력. */
-    private static final BusinessCalendar CALENDAR = date -> {
-        LocalDate day = date;
-        while (day.getDayOfWeek() == DayOfWeek.SATURDAY || day.getDayOfWeek() == DayOfWeek.SUNDAY
-                || HOLIDAYS.contains(day)) {
-            day = day.plusDays(1);
+    private static final BusinessDayCalendar CALENDAR = new WeekdayCalendar() {
+        @Override
+        public boolean isBusinessDay(LocalDate date) {
+            return super.isBusinessDay(date) && !HOLIDAYS.contains(date);
         }
-        return day;
     };
 
     private final BillingSchedule schedule = new BillingSchedule(CALENDAR);
@@ -145,7 +144,12 @@ class BillingScheduleTest {
 
     @Test
     void 영업일_달력이_앞선_날을_주면_계약_위반으로_실패한다() {
-        BillingSchedule broken = new BillingSchedule(date -> date.minusDays(1));
+        BillingSchedule broken = new BillingSchedule(new WeekdayCalendar() {
+            @Override
+            public LocalDate businessDayOnOrAfter(LocalDate date) {
+                return date.minusDays(1);
+            }
+        });
 
         assertThatThrownBy(() -> broken.schedule(CardType.CREDIT, 14, 14, LocalDate.of(2026, 10, 24), 10_000L, 1))
                 .isInstanceOf(IllegalStateException.class);

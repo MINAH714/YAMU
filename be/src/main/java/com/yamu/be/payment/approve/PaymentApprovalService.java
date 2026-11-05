@@ -742,7 +742,7 @@ public class PaymentApprovalService {
                 .filter(c -> !tried.contains(c.card().userCardId()))
                 .limit(SUGGESTED_CARDS)
                 .map(c -> new SuggestedCard(c.card().userCardId(), nickname(c.card()), masked(c.card().last4()),
-                        c.card().cardType(), c.rank(), c.netBenefit()))
+                        c.card().cardType(), c.rank(), c.netBenefit().longValueExact()))
                 .toList();
     }
 

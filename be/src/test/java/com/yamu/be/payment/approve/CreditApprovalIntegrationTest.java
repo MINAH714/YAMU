@@ -497,8 +497,9 @@ class CreditApprovalIntegrationTest extends MySqlTestSupport {
 
     @Test
     void 미납_청구서가_있는_카드는_DECLINED_UNPAID_BILL이고_회차를_만들지_않는다() throws Exception {
-        unpaidBill(creditCard);
         Requested requested = requested(100_000, 3);
+        // 추천 이후 미납이 생겨도 최종 승인 검사가 거절하는지 확인한다.
+        unpaidBill(creditCard);
 
         approve(requested.paymentId(), UUID.randomUUID().toString(), body(creditCard))
                 .andExpect(status().isOk())
@@ -520,6 +521,55 @@ class CreditApprovalIntegrationTest extends MySqlTestSupport {
                 .andExpect(jsonPath("$.data.status").value("APPROVED"))
                 .andExpect(jsonPath("$.data.billItems.length()").value(3));
         assertThat(billCount(secondCard)).isEqualTo(3L);
+    }
+
+    @Test
+    void 미납_결제를_모두_취소하면_청구서가_CANCELED가_되고_그_카드는_다시_추천되어_승인된다() throws Exception {
+        // 승인으로 만든 회차가 든 청구서를 출금 실패(미납)로 돌린 뒤 그 결제를 취소한다
+        Requested unpaid = requested(15_000, null);
+        approve(unpaid.paymentId(), UUID.randomUUID().toString(), body(creditCard)).andExpect(status().isOk());
+        long billId = turnCurrentBillUnpaid(creditCard);
+        cancel(unpaid.paymentId()).andExpect(status().isOk());
+        assertThat(jdbc.queryForObject("SELECT status FROM card_bill WHERE card_bill_id = ?", String.class, billId))
+                .isEqualTo("CANCELED");
+
+        Requested next = requested(15_000, null);
+        approve(next.paymentId(), UUID.randomUUID().toString(), body(creditCard))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.status").value("APPROVED"));
+    }
+
+    @Test
+    void 미납_청구서의_결제_일부만_취소하면_UNPAID로_남고_그_카드는_계속_추천에서_제외된다() throws Exception {
+        Requested canceled = requested(15_000, null);
+        approve(canceled.paymentId(), UUID.randomUUID().toString(), body(creditCard)).andExpect(status().isOk());
+        Requested kept = requested(5_000, null);
+        approve(kept.paymentId(), UUID.randomUUID().toString(), body(creditCard)).andExpect(status().isOk());
+        long billId = turnCurrentBillUnpaid(creditCard);
+        cancel(canceled.paymentId()).andExpect(status().isOk());
+        // 남은 미납 5천 원
+        assertThat(jdbc.queryForMap("SELECT status, canceled_unpaid_principal FROM card_bill WHERE card_bill_id = ?", billId))
+                .containsEntry("status", "UNPAID")
+                .containsEntry("canceled_unpaid_principal", 15_000L);
+
+        Requested next = requested(15_000, null);
+        approve(next.paymentId(), UUID.randomUUID().toString(), body(creditCard))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("CARD_NOT_ELIGIBLE"))
+                .andExpect(jsonPath("$.error.details.reason").value("UNPAID_BILL"));
+    }
+
+    @Test
+    void 추천_시점에_이미_미납인_카드는_선택에서_제외하고_승인_시도를_소비하지_않는다() throws Exception {
+        unpaidBill(creditCard);
+        Requested requested = requested(100_000,3);
+        approve(requested.paymentId(),UUID.randomUUID().toString(),body(creditCard))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("CARD_NOT_ELIGIBLE"))
+                .andExpect(jsonPath("$.error.details.reason").value("UNPAID_BILL"));
+        assertThat(payments.findById(requested.paymentId()).orElseThrow().getStatus()).isEqualTo(PaymentStatus.REQUESTED);
+        assertThat(attempts.count(requested.paymentId())).isZero();
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM bill_item",Long.class)).isZero();
     }
 
     @Test
@@ -567,6 +617,37 @@ class CreditApprovalIntegrationTest extends MySqlTestSupport {
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM card_bill", Long.class)).isZero();
     }
 
+    // ───────── 취소 ─────────
+
+    @Test
+    void 승인으로_만든_할부_회차는_청구_전_취소에서_모두_EXCLUDED가_되고_청구서는_그대로다() throws Exception {
+        Requested requested = requested(100_000, 3);
+        approve(requested.paymentId(), UUID.randomUUID().toString(), body(creditCard))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(post("/api/payments/{paymentId}/cancel", requested.paymentId())
+                        .with(AuthUsers.asUser(user))
+                        .header("Idempotency-Key", UUID.randomUUID().toString()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.status").value("CANCELED"))
+                .andExpect(jsonPath("$.data.billItems.length()").value(3))
+                .andExpect(jsonPath("$.data.billItems[0].seq").value(1))
+                .andExpect(jsonPath("$.data.billItems[0].before").value("PENDING"))
+                .andExpect(jsonPath("$.data.billItems[0].after").value("EXCLUDED"))
+                .andExpect(jsonPath("$.data.billItems[2].seq").value(3))
+                .andExpect(jsonPath("$.data.billItems[2].amount").value(33_334))
+                .andExpect(jsonPath("$.data.refunds.length()").value(0));
+
+        List<BillItem> canceled = items.findByPaymentTransactionIdOrderByInstallmentNoAsc(requested.paymentId());
+        assertThat(canceled).extracting(BillItem::getStatus).containsOnly(BillItemStatus.EXCLUDED);
+        assertThat(billCount(creditCard)).isEqualTo(3L);
+        for (BillItem item : canceled) {
+            assertThat(bills.findById(item.getCardBillId()).orElseThrow().getStatus()).isEqualTo(BillStatus.ACCUMULATING);
+        }
+        assertThat(payments.findById(requested.paymentId()).orElseThrow().getStatus()).isEqualTo(PaymentStatus.CANCELED);
+        verifyNoInteractions(transfer);
+    }
+
     // ───────── 도우미 ─────────
 
     /** 카드에 지난달 미납 청구서를 넣는다. 청구 확정·출금 실패(Task 5.4.2·5.4.3)가 아직 없어 직접 적는다. */
@@ -579,6 +660,35 @@ class CreditApprovalIntegrationTest extends MySqlTestSupport {
                 VALUES (?, ?, ?, ?, ?, ?, ?, 'UNPAID', 50000, ?, ?, ?, ?)
                 """, user, userCardId, account, last.billingMonth().atDay(1), last.periodStart(), last.periodEnd(),
                 last.paymentDate(), now, now, now, now);
+    }
+
+    /**
+     * 승인으로 쌓인 카드의 이번 청구서를 지난달 출금 실패(미납) 청구서로 바꾼다. 청구 확정·출금(S15P31E103-206·-207)이 아직 없어
+     * 확정액(회차 청구액 합)·출금 계좌·확정·실패 시각을 직접 적고 회차를 BILLED로 돌린다. 다음 승인이 이번 달 청구서를 새로 만들도록
+     * 청구 월을 한 달 당긴다.
+     */
+    private long turnCurrentBillUnpaid(long userCardId) {
+        long billId = jdbc.queryForObject(
+                "SELECT card_bill_id FROM card_bill WHERE user_card_id = ? AND status = 'ACCUMULATING'", Long.class, userCardId);
+        long confirmed = jdbc.queryForObject("SELECT SUM(billed_amount) FROM bill_item WHERE card_bill_id = ?", Long.class,
+                billId);
+        Cycle last = cycle().cycleOf(cycle().cycleFor(today()).billingMonth().minusMonths(1));
+        LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
+        jdbc.update("""
+                UPDATE card_bill SET billing_month = ?, period_start = ?, period_end = ?, withdrawal_date = ?, status = 'UNPAID',
+                    linked_account_id = ?, confirmed_amount = ?, confirmed_at = ?, failed_at = ?
+                WHERE card_bill_id = ?
+                """, last.billingMonth().atDay(1), last.periodStart(), last.periodEnd(), last.paymentDate(), account, confirmed,
+                now, now, billId);
+        jdbc.update("UPDATE bill_item SET status = 'BILLED', billing_month = ? WHERE card_bill_id = ?",
+                last.billingMonth().atDay(1), billId);
+        return billId;
+    }
+
+    private ResultActions cancel(long paymentId) throws Exception {
+        return mockMvc.perform(post("/api/payments/{paymentId}/cancel", paymentId)
+                .with(AuthUsers.asUser(user))
+                .header("Idempotency-Key", UUID.randomUUID().toString()));
     }
 
     private BillingCycle cycle() {
