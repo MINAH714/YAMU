@@ -121,8 +121,8 @@ class OutstandingCardBillReaderTest extends MySqlTestSupport {
     }
 
     @Test
-    void 출금_계좌가_없는_카드의_진행_중_청구는_빼고_다른_청구는_그대로_돌려준다() {
-        // 임시(계약과 다름): 계좌 없는 카드 하나 때문에 예보 전체를 실패시키지 않고 경고 로그만 남긴다
+    void 출금_계좌가_없는_카드의_진행_중_청구는_빼지_않고_계좌를_비운_채_돌려준다() {
+        // 실제로는 생기지 않는 데이터다. 조용히 빼지 않고 넘겨 잔고예보가 계약 위반으로 실패하게 한다(ForecastServiceTest가 실패를 확인)
         long noAccountCard = owners.card(user, owners.product(), null, "ACTIVE");
         long orphan = bills.accumulating(user, noAccountCard, month.plusMonths(1), today.plusDays(5));
         long payment = bills.payment(user, noAccountCard, merchant, 30_000L, 1, LocalDateTime.now().minusDays(1));
@@ -130,7 +130,8 @@ class OutstandingCardBillReaderTest extends MySqlTestSupport {
         long confirmed = bills.confirmed(user, card, month, today.plusDays(1), accountA, 50_000L);
 
         assertThat(reader.outstanding(user, List.of(accountA, accountB), today.plusDays(10)))
-                .extracting(OutstandingBill::cardBillId).containsExactly(confirmed);
+                .extracting(OutstandingBill::cardBillId, OutstandingBill::accountId)
+                .containsExactly(tuple(confirmed, accountA), tuple(orphan, null));
     }
 
     private void item(long bill, YearMonth billMonth, long principal, String status) {

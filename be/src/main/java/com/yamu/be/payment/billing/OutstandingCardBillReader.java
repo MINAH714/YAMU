@@ -22,9 +22,10 @@ import org.springframework.stereotype.Component;
  * </ul>
  * 금액이 0원 이하인 청구(회차가 없는 빈 청구서 등)는 빠질 돈이 없어 넣지 않는다. 고른 계좌가 아닌 청구와 남의 청구는 넣지 않는다.
  *
- * <p>임시(계약과 다름): 출금 계좌가 없는 청구는 계약대로라면 잔고예보를 실패시켜야 하지만, 경고 로그만 남기고 뺀다. 확정 뒤 청구서는
- * {@code ck_bill_confirmed}로 계좌가 있으나, 진행 중 청구서는 카드의 지금 계좌를 쓰고 {@code user_card.linked_account_id}가 NULL일 수
- * 있다. 그 카드 하나 때문에 다른 계좌의 예보까지 실패시키지 않으려는 것이다. 계약 문구는 잔고예보 담당과 다시 맞춘다.
+ * <p>출금 계좌가 없는 청구는 빼지 않고 계좌를 비운 채 넘긴다. 계약대로 잔고예보가 데이터 계약 위반으로 실패한다(조용히 빼면 출금이
+ * 예보에서 사라져 잔액을 높게 보인다). 실제로는 생기지 않는다: 확정 뒤 청구서는 {@code ck_bill_confirmed}로 계좌가 있고, 진행 중
+ * 청구서의 카드는 등록할 때 계좌가 정해지고(없으면 등록 실패) 계좌를 비우는 곳이 없으며, 계좌 없는 카드는 결제 승인에서 거절해 회차가
+ * 생기지 않는다.
  */
 @Slf4j
 @Component
@@ -74,12 +75,7 @@ class OutstandingCardBillReader implements CardBillReader {
                     if (amount <= 0) {
                         return null;
                     }
-                    Long accountId = rs.getObject("account_id", Long.class);
-                    if (accountId == null) {
-                        log.warn("출금 계좌가 없는 카드의 청구라 잔고예보에서 뺍니다. cardBillId={}, status={}", billId, status);
-                        return null;
-                    }
-                    return new OutstandingBill(billId, accountId, status,
+                    return new OutstandingBill(billId, rs.getObject("account_id", Long.class), status,
                             rs.getObject("withdrawal_date", LocalDate.class), amount);
                 }).stream().filter(Objects::nonNull).toList();
     }
