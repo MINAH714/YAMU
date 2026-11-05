@@ -91,14 +91,14 @@ public class BillItemCreditBillingCanceler implements CreditBillingCanceler {
                 item.exclude();
             } else if (billStatus == BillStatus.CONFIRMED && before == BillItemStatus.BILLED) {
                 long amount = refundable(item, share(bill, item, sharesByBill), existingRefunds);
-                refundOrClose(payment, item, bill, amount, null, created);
+                refundOrClose(payment, item, bill, amount, null, canceledAt, created);
             } else if (billStatus == BillStatus.PAID && before == BillItemStatus.PAID) {
                 if (!bill.isFullyPaid()) {
                     throw mismatch(payment, item, bill, "출금 완료 청구서의 출금액이 확정액과 다릅니다(청구액 일부 출금은 지원하지 않음)");
                 }
                 long amount = refundable(item, share(bill, item, sharesByBill), existingRefunds);
                 LocalDate due = amount > 0 ? calendar.plusBusinessDays(koreanDate(canceledAt), REFUND_BUSINESS_DAYS) : null;
-                refundOrClose(payment, item, bill, amount, due, created);
+                refundOrClose(payment, item, bill, amount, due, canceledAt, created);
             } else if (billStatus == BillStatus.UNPAID && before == BillItemStatus.BILLED) {
                 if (bill.getPaidAmount() != 0) {
                     throw mismatch(payment, item, bill, "미납 청구서에 출금액이 있습니다(청구액 일부 출금은 지원하지 않음)");
@@ -155,9 +155,9 @@ public class BillItemCreditBillingCanceler implements CreditBillingCanceler {
 
     /** 돌려줄 금액이 있으면 확정 당시 출금 계좌로 환급 대기를 만들고, 0원이면 회차만 닫는다. */
     private static void refundOrClose(PaymentTransaction payment, BillItem item, CardBill bill, long amount,
-            LocalDate dueDate, List<Refund> created) {
+            LocalDate dueDate, LocalDateTime canceledAt, List<Refund> created) {
         if (amount <= 0) {
-            item.closeWithoutRefund();
+            item.closeWithoutRefund(canceledAt);
             return;
         }
         if (bill.getLinkedAccountId() == null) {

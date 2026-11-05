@@ -423,6 +423,9 @@ class PaymentCancelIntegrationTest extends MySqlTestSupport {
                 .andExpect(jsonPath("$.data.refunds.length()").value(0));
 
         assertThat(itemStatus(zero)).isEqualTo("EXCLUDED");
+        // 확정액에 들어간 회차라 제외 시각을 남긴다(확정 전 취소와 가르는 표시. 청구서 조회 건수·회차 몫 계산이 쓴다)
+        assertThat(jdbc.queryForObject("SELECT unpaid_principal_waived_at FROM bill_item WHERE bill_item_id = ?",
+                LocalDateTime.class, zero)).isNotNull();
         assertThat(refunds.findByPaymentTransactionIdOrderByBillItemIdAsc(paymentId)).isEmpty();
     }
 

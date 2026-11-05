@@ -24,7 +24,11 @@ import org.springframework.stereotype.Repository;
 @Repository
 class BillQueryReader {
 
-    /** 청구서 한 줄 + 카드·계좌 표시값 + 회차 합계. 확정 전 취소로 빠진 회차(EXCLUDED)는 건수·합계에 넣지 않는다. */
+    /**
+     * 청구서 한 줄 + 카드·계좌 표시값 + 회차 합계. 회차 합계는 청구에 들어간 회차만 센다. 확정 전 취소로 빠진 회차(EXCLUDED, 제외 시각
+     * 없음)는 넣지 않고, 확정 뒤 취소로 EXCLUDED가 된 회차(미납 제외·0원 닫기, 제외 시각 있음)는 확정액에 들어 있으므로 넣는다
+     * ({@code BillItem.isInConfirmedAmount}와 같은 기준). 그래서 확정 뒤에는 회차 합계 − 청구할인 = 확정액이다.
+     */
     private static final String BILL_SELECT = """
             SELECT b.card_bill_id, b.user_card_id, c.card_alias, c.card_last4, p.product_name, p.billing_cutoff_days,
                    b.billing_month, b.period_start, b.period_end, b.withdrawal_date, b.status,
@@ -40,9 +44,10 @@ class BillQueryReader {
                    AND a.linked_account_id = CASE WHEN b.status = 'ACCUMULATING' THEN c.linked_account_id
                                                   ELSE b.linked_account_id END
               LEFT JOIN (SELECT i.card_bill_id,
-                                SUM(CASE WHEN i.status <> 'EXCLUDED' THEN 1 ELSE 0 END) AS item_count,
-                                SUM(CASE WHEN i.status <> 'EXCLUDED'
-                                         THEN COALESCE(i.billed_amount, i.principal_amount) ELSE 0 END) AS item_amount,
+                                SUM(CASE WHEN i.status = 'EXCLUDED' AND i.unpaid_principal_waived_at IS NULL
+                                         THEN 0 ELSE 1 END) AS item_count,
+                                SUM(CASE WHEN i.status = 'EXCLUDED' AND i.unpaid_principal_waived_at IS NULL
+                                         THEN 0 ELSE COALESCE(i.billed_amount, i.principal_amount) END) AS item_amount,
                                 SUM(CASE WHEN i.status = 'PENDING' THEN i.principal_amount ELSE 0 END) AS pending_amount
                            FROM bill_item i
                           WHERE i.user_id = :userId
@@ -116,7 +121,7 @@ class BillQueryReader {
     }
 
     /**
-     * 청구서의 회차. 확정 전 취소로 빠진 회차(EXCLUDED)도 보여 준다(금액 합계에는 넣지 않음).
+     * 청구서의 회차. 취소로 EXCLUDED가 된 회차도 모두 보여 준다(금액 합계에 넣는 기준은 {@link #BILL_SELECT}).
      * 가맹점 이름은 승인 당시 기록(merchant_context_snapshot)을 먼저 쓰고, 없으면 가맹점 표의 이름을 쓴다.
      */
     List<ItemRow> items(long userId, long billId) {
@@ -170,8 +175,8 @@ class BillQueryReader {
 
     /**
      * @param accountId     출금 계좌(진행 중이면 카드의 지금 계좌, 확정 뒤에는 확정 당시 계좌). 계좌가 없으면 null
-     * @param itemCount     청구에서 빠진 회차를 뺀 회차 수
-     * @param itemAmount    청구에서 빠진 회차를 뺀 회차 청구액(원금 + 수수료) 합계
+     * @param itemCount     청구에 들어간 회차 수(확정 전 취소로 빠진 회차만 뺀다)
+     * @param itemAmount    청구에 들어간 회차 청구액(원금 + 수수료) 합계
      * @param pendingAmount 청구 전(PENDING) 회차 원금 합계. 진행 중 청구서의 예상 청구액 바탕
      */
     record BillRow(long billId, long userCardId, String cardAlias, String cardLast4, String productName,

@@ -77,7 +77,8 @@ public class BillQueryService {
         return new BillDetailResponse(bill.billId(), bill.userCardId(), nickname(bill), maskedCard(bill.cardLast4()),
                 YearMonth.from(bill.billingMonth()), usagePeriod(bill), bill.periodEnd(), paymentDate(bill),
                 bill.withdrawalDate(), bill.status(),
-                new BillDetailResponse.Amounts(bill.itemAmount(), 0, expectedAmount(bill), finalAmount(bill)),
+                new BillDetailResponse.Amounts(bill.itemAmount(), 0, expectedAmount(bill), finalAmount(bill),
+                        unpaidAmount(bill)),
                 withdrawalAccount(bill), items, List.of(), withdrawal(bill), refunds, history(bill));
     }
 
@@ -89,7 +90,7 @@ public class BillQueryService {
         return new BillListResponse.Item(bill.billId(), bill.userCardId(), nickname(bill),
                 YearMonth.from(bill.billingMonth()), usagePeriod(bill), bill.periodEnd(), paymentDate(bill),
                 bill.withdrawalDate(), bill.status(), bill.itemCount(), bill.itemAmount(), 0, expectedAmount(bill),
-                finalAmount(bill), bill.confirmedAt(), bill.paidAt(), withdrawalAccount(bill));
+                finalAmount(bill), unpaidAmount(bill), bill.confirmedAt(), bill.paidAt(), withdrawalAccount(bill));
     }
 
     private static BillDetailResponse.Item item(ItemRow item) {
@@ -132,6 +133,18 @@ public class BillQueryService {
 
     private static Long finalAmount(BillRow bill) {
         return bill.status() == BillStatus.ACCUMULATING ? null : bill.confirmedAmount();
+    }
+
+    /**
+     * 남은 미납액 = 확정액 − 출금액 − 취소로 뺀 미납 원금({@code CardBill.outstandingUnpaid}, 잔고예보의 미납 금액과 같은 식).
+     * 미납(UNPAID)과 미납이 취소로 정리된 CANCELED(0원)에만 낸다.
+     */
+    private static Long unpaidAmount(BillRow bill) {
+        if (bill.status() != BillStatus.UNPAID && bill.status() != BillStatus.CANCELED) {
+            return null;
+        }
+        long confirmed = bill.confirmedAmount() == null ? 0 : bill.confirmedAmount();
+        return confirmed - bill.paidAmount() - bill.canceledUnpaidPrincipal();
     }
 
     private static String nickname(BillRow bill) {

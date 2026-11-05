@@ -12,7 +12,8 @@ import java.time.YearMonth;
 import java.util.List;
 
 /**
- * 청구서 상세 응답(노션 API 명세 V2 「청구서 상세」). 명세에 더해 목록과 같은 {@code withdrawalAccount}와 {@code amounts.expectedAmount}를 낸다.
+ * 청구서 상세 응답(노션 API 명세 V2 「청구서 상세」). 명세에 더해 목록과 같은 {@code withdrawalAccount}, {@code amounts.expectedAmount},
+ * {@code amounts.unpaidAmount}를 낸다.
  *
  * <p>임시(원천이 아직 없는 값):
  * <ul>
@@ -30,11 +31,13 @@ public record BillDetailResponse(Long billId, Long userCardId, String nickname, 
         List<History> history) {
 
     /**
-     * @param itemAmount     청구에서 빠진 회차를 뺀 회차 청구액 합계
+     * @param itemAmount     청구에 들어간 회차 청구액 합계(확정 전 취소로 빠진 회차만 뺀다). 확정 뒤에는 − billingDiscount = finalAmount
      * @param expectedAmount 진행 중일 때만. 회차 합계 − 예상 청구할인
      * @param finalAmount    확정 뒤에만. 확정 원본 청구액
+     * @param unpaidAmount   명세에 더해 낸다. 미납·CANCELED일 때만. 남은 미납액(목록과 같음)
      */
-    public record Amounts(long itemAmount, long billingDiscount, Long expectedAmount, Long finalAmount) {
+    public record Amounts(long itemAmount, long billingDiscount, Long expectedAmount, Long finalAmount,
+            Long unpaidAmount) {
     }
 
     /**

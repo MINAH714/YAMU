@@ -1,5 +1,6 @@
 package com.yamu.be.payment.billing.query;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.contains;
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.nullValue;
@@ -7,6 +8,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.yamu.be.forecast.CardBillReader;
 import com.yamu.be.payment.billing.BillFixtures;
 import com.yamu.be.support.AuthUsers;
 import com.yamu.be.support.MutableClock;
@@ -17,6 +19,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.YearMonth;
+import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -56,6 +59,7 @@ class BillQueryIntegrationTest extends MySqlTestSupport {
     @Autowired MockMvc mockMvc;
     @Autowired JdbcTemplate jdbc;
     @Autowired MutableClock clock;
+    @Autowired CardBillReader cardBillReader;
 
     OwnershipFixtures owners;
     BillFixtures bills;
@@ -283,6 +287,63 @@ class BillQueryIntegrationTest extends MySqlTestSupport {
                 .andExpect(jsonPath("$.data.withdrawal.result").value(nullValue()))
                 .andExpect(jsonPath("$.data.withdrawal.failureReason").value(nullValue()))
                 .andExpect(jsonPath("$.data.history[*].status").value(contains("ACCUMULATING", "CONFIRMED", "UNPAID")));
+    }
+
+    @Test
+    void 미납_청구서에서_취소로_뺀_회차는_합계에_남고_남은_미납액은_따로_보여_잔고예보와_같다() throws Exception {
+        // 확정액 30,000원 미납 청구서(A 10,000원 + B 20,000원). C 5,000원은 확정 전에 취소돼 확정액에 없다
+        YearMonth november = YearMonth.of(2026, 11);
+        long unpaidNovember = bills.unpaid(user, card, november, LocalDate.of(2026, 11, 16), accountA, 30_000L, 0L);
+        long a = bills.payment(user, card, merchant, 10_000L, 1, LocalDateTime.of(2026, 10, 3, 1, 0));
+        long aItem = bills.item(a, user, card, unpaidNovember, 1, november, 10_000L, "BILLED");
+        long b = bills.payment(user, card, merchant, 20_000L, 1, LocalDateTime.of(2026, 10, 4, 1, 0));
+        bills.item(b, user, card, unpaidNovember, 1, november, 20_000L, "BILLED");
+        long c = bills.payment(user, card, merchant, 5_000L, 1, LocalDateTime.of(2026, 10, 5, 1, 0));
+        bills.item(c, user, card, unpaidNovember, 1, november, 5_000L, "EXCLUDED");
+        // A를 취소한 뒤(미납 회차 취소: 회차 EXCLUDED + 제외 시각, 청구서에 미납 제외액)
+        jdbc.update("UPDATE bill_item SET status = 'EXCLUDED', unpaid_principal_waived_at = ? WHERE bill_item_id = ?",
+                LocalDateTime.of(2026, 11, 20, 1, 0), aItem);
+        jdbc.update("UPDATE card_bill SET canceled_unpaid_principal = 10000 WHERE card_bill_id = ?", unpaidNovember);
+
+        // 회차 합계는 확정액과 같고(A·B), 남은 미납액은 20,000원이다
+        mockMvc.perform(get("/api/billings").with(AuthUsers.asUser(user)).param("billingMonth", "2026-11"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.items[*].billId").value(contains((int) unpaidNovember)))
+                .andExpect(jsonPath("$.data.items[0].itemCount").value(2))
+                .andExpect(jsonPath("$.data.items[0].itemAmount").value(30_000))
+                .andExpect(jsonPath("$.data.items[0].finalAmount").value(30_000))
+                .andExpect(jsonPath("$.data.items[0].unpaidAmount").value(20_000));
+        mockMvc.perform(get("/api/billings/{billId}", unpaidNovember).with(AuthUsers.asUser(user)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.amounts.itemAmount").value(30_000))
+                .andExpect(jsonPath("$.data.amounts.finalAmount").value(30_000))
+                .andExpect(jsonPath("$.data.amounts.unpaidAmount").value(20_000))
+                .andExpect(jsonPath("$.data.items", hasSize(3)));
+
+        // 잔고예보가 읽는 같은 청구서의 금액도 남은 미납액이다
+        assertThat(cardBillReader.outstanding(user, List.of(accountA), LocalDate.of(2026, 12, 31)))
+                .filteredOn(bill -> bill.cardBillId() == unpaidNovember)
+                .extracting(CardBillReader.OutstandingBill::amount)
+                .containsExactly(20_000L);
+    }
+
+    @Test
+    void 남은_미납액은_미납과_CANCELED에만_있다() throws Exception {
+        mockMvc.perform(get("/api/billings").with(AuthUsers.asUser(user)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.items[0].status").value("ACCUMULATING"))
+                .andExpect(jsonPath("$.data.items[0].unpaidAmount").value(nullValue()))
+                .andExpect(jsonPath("$.data.items[1].status").value("CONFIRMED"))
+                .andExpect(jsonPath("$.data.items[1].unpaidAmount").value(nullValue()))
+                .andExpect(jsonPath("$.data.items[2].status").value("PAID"))
+                .andExpect(jsonPath("$.data.items[2].unpaidAmount").value(nullValue()))
+                // 확정 40,000원 중 15,000원을 취소로 뺐다
+                .andExpect(jsonPath("$.data.items[3].status").value("UNPAID"))
+                .andExpect(jsonPath("$.data.items[3].unpaidAmount").value(25_000));
+        mockMvc.perform(get("/api/billings/{billId}", canceledAugust).with(AuthUsers.asUser(user)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.status").value("CANCELED"))
+                .andExpect(jsonPath("$.data.amounts.unpaidAmount").value(0));
     }
 
     @Test
