@@ -6,7 +6,10 @@ import static org.hamcrest.Matchers.nullValue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.reset;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -23,6 +26,7 @@ import com.yamu.be.global.exception.BusinessException;
 import com.yamu.be.global.exception.ErrorCode;
 import com.yamu.be.global.redis.RedisLocks;
 import com.yamu.be.payment.recommend.CardRecommender;
+import com.yamu.be.payment.recommend.DatabaseRecommendationResultStore;
 import com.yamu.be.payment.recommend.RecommendationResult;
 import com.yamu.be.payment.recommend.RecommendationSnapshotStore;
 import com.yamu.be.payment.request.PaymentRequestView;
@@ -92,9 +96,11 @@ class PosPaymentRequestIntegrationTest extends MySqlTestSupport {
     @Autowired BarcodeService barcodeService;
     @Autowired PaymentTransactionRepository payments;
     @Autowired RedisLocks locks;
+    @Autowired org.springframework.transaction.support.TransactionTemplate transaction;
     @MockitoSpyBean RecommendationSnapshotStore snapshots;
     @MockitoSpyBean CardRecommender recommender;
     @MockitoSpyBean PosIdempotencyStore idempotency;
+    @MockitoSpyBean DatabaseRecommendationResultStore results;
 
     OwnershipFixtures fixtures;
     long user;
@@ -111,7 +117,7 @@ class PosPaymentRequestIntegrationTest extends MySqlTestSupport {
         jdbc.update("DELETE FROM merchant");
         jdbc.update("DELETE FROM app_user");
         redis.getRequiredConnectionFactory().getConnection().serverCommands().flushAll();
-        reset(snapshots, recommender, idempotency);
+        reset(snapshots, recommender, idempotency, results);
         fixtures = new OwnershipFixtures(jdbc);
         user = fixtures.user();
         other = fixtures.user();
@@ -160,6 +166,19 @@ class PosPaymentRequestIntegrationTest extends MySqlTestSupport {
         assertThat(barcode.status()).isEqualTo(BarcodeStatus.SCANNED);
         assertThat(barcode.paymentId()).isEqualTo(paymentId);
         assertThat(snapshots.find(paymentId)).isPresent();
+    }
+
+    @Test
+    void 접수하면_당시_추천_결과가_결제_행에도_남고_Redis_스냅샷과_같다() throws Exception {
+        String token = issued(user);
+        long paymentId = paymentId(request(POS_KEY, UUID.randomUUID().toString(),
+                body(token, cafe, "POS-TEST-CAFE", 15000, null, null, null)).andExpect(status().isCreated()));
+
+        RecommendationResult stored = results.find(user, paymentId).orElseThrow();
+        assertThat(stored).usingRecursiveComparison().isEqualTo(snapshots.find(paymentId).orElseThrow());
+        assertThat(stored.candidates()).isNotEmpty();
+        // 남의 결제로는 읽히지 않는다
+        assertThat(results.find(other, paymentId)).isEmpty();
     }
 
     @Test
@@ -251,6 +270,23 @@ class PosPaymentRequestIntegrationTest extends MySqlTestSupport {
         assertThat(JsonPath.<Object>read(second, "$.data.paymentId")).isEqualTo(JsonPath.read(first, "$.data.paymentId"));
         assertThat(JsonPath.<String>read(second, "$.data.orderNo")).isEqualTo("POS-0002");
         assertThat(payments.count()).isEqualTo(1);
+    }
+
+    @Test
+    void 같은_키로_다시_보내도_추천_결과를_다시_쓰지_않는다() throws Exception {
+        String token = issued(user);
+        String key = UUID.randomUUID().toString();
+        Map<String, Object> body = body(token, cafe, "POS-TEST-CAFE", 15000, null, null, null);
+        long paymentId = paymentId(request(POS_KEY, key, body).andExpect(status().isCreated()));
+        Map<String, Object> before = storedRow(paymentId);
+
+        // Redis 멱등 기록이 남은 재전송과, 기록이 사라져 DB request_key로 찾는 재전송 둘 다
+        request(POS_KEY, key, body).andExpect(status().isCreated());
+        redis.delete(redis.keys("*" + key + "*"));
+        request(POS_KEY, key, body).andExpect(status().isCreated());
+
+        assertThat(storedRow(paymentId)).isEqualTo(before);
+        verify(results, times(1)).save(anyLong(), anyLong(), any());
     }
 
     @Test
@@ -438,6 +474,24 @@ class PosPaymentRequestIntegrationTest extends MySqlTestSupport {
         assertThat(payments.count()).isEqualTo(1);
     }
 
+    @Test
+    void 추천_결과_DB_보관이_실패하면_결제는_롤백되고_바코드는_ISSUED로_돌아오며_스냅샷도_남지_않는다() throws Exception {
+        String token = issued(user);
+        // save는 @Transactional(MANDATORY)이라 스파이 stubbing 호출도 트랜잭션 프록시를 지난다. 트랜잭션 안에서 걸어 둔다
+        transaction.executeWithoutResult(status ->
+                doThrow(new IllegalStateException("db down")).when(results).save(anyLong(), anyLong(), any()));
+
+        request(POS_KEY, UUID.randomUUID().toString(), body(token, cafe, "POS-TEST-CAFE", 15000, null, null, null))
+                .andExpect(status().isInternalServerError());
+
+        assertThat(payments.count()).isZero();
+        Barcode barcode = barcodes.find(token).orElseThrow();
+        assertThat(barcode.status()).isEqualTo(BarcodeStatus.ISSUED);
+        assertThat(barcode.paymentId()).isNull();
+        // DB를 먼저 쓰므로 롤백되지 않는 Redis 스냅샷은 만들어지지 않는다
+        verify(snapshots, never()).save(anyLong(), any(), any());
+    }
+
     // ───────── POS 인증·가맹점 ─────────
 
     @Test
@@ -511,6 +565,12 @@ class PosPaymentRequestIntegrationTest extends MySqlTestSupport {
     private static long paymentId(ResultActions result) throws Exception {
         return ((Number) JsonPath.read(result.andReturn().getResponse().getContentAsString(), "$.data.paymentId"))
                 .longValue();
+    }
+
+    /** 결제 행의 추천 결과 JSON과 version. 다시 쓰면 version이 오른다. */
+    private Map<String, Object> storedRow(long paymentId) {
+        return jdbc.queryForMap("SELECT CAST(recommendation_result_json AS CHAR) AS result, version"
+                + " FROM payment_transaction WHERE payment_transaction_id = ?", paymentId);
     }
 
     private ResultActions request(String posKey, String idempotencyKey, Map<String, Object> body) throws Exception {

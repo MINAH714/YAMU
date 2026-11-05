@@ -15,6 +15,7 @@ import com.yamu.be.payment.domain.PaymentTransactionRepository;
 import com.yamu.be.payment.merchant.MerchantLookup;
 import com.yamu.be.payment.merchant.MerchantLookup.Merchant;
 import com.yamu.be.payment.recommend.CardRecommender;
+import com.yamu.be.payment.recommend.DatabaseRecommendationResultStore;
 import com.yamu.be.payment.recommend.RecommendationRequest;
 import com.yamu.be.payment.recommend.RecommendationRequest.MerchantContext;
 import com.yamu.be.payment.recommend.RecommendationResult;
@@ -44,7 +45,8 @@ import org.springframework.transaction.support.TransactionTemplate;
  * ③ 멱등: 같은 키 재전송은 처음 결과, 다른 본문은 409, 처리 중이면 409.
  *    Redis에 기록이 없으면 DB의 request_key로 찾아 fingerprint를 대조한다(기록 실패·재시작 대비)
  * ④ 바코드 미리 확인(없음 404 · 만료 410 · 사용 409) → DB 트랜잭션 밖에서 카드 상태·잔액 준비
- * ⑤ 트랜잭션: 결제 REQUESTED 저장(번호 확보) → 바코드 ISSUED→SCANNED(원자, 실패하면 바로 롤백) → 추천 계산·스냅샷 → 커밋
+ * ⑤ 트랜잭션: 결제 REQUESTED 저장(번호 확보) → 바코드 ISSUED→SCANNED(원자, 실패하면 바로 롤백) → 추천 계산
+ *    → 추천 결과 DB 보관(결제 행) → Redis 스냅샷 → 커밋
  * ⑥ 멱등 결과 기억(실패해도 ③의 DB 대조가 있으므로 201) → 201
  * </pre>
  *
@@ -67,6 +69,7 @@ public class PosPaymentRequestService {
     private final PaymentTransactionRepository payments;
     private final CardRecommender recommender;
     private final RecommendationSnapshotStore snapshots;
+    private final DatabaseRecommendationResultStore results;
     private final PosIdempotencyStore idempotency;
     private final RedisLocks locks;
     private final TransactionTemplate transaction;
@@ -76,14 +79,16 @@ public class PosPaymentRequestService {
 
     public PosPaymentRequestService(PosTerminalResolver terminals, MerchantLookup merchants, BarcodeStore barcodes,
             PaymentTransactionRepository payments, CardRecommender recommender,
-            RecommendationSnapshotStore snapshots, PosIdempotencyStore idempotency, RedisLocks locks,
-            TransactionTemplate transaction, ObjectMapper objectMapper, PosProperties properties, Clock clock) {
+            RecommendationSnapshotStore snapshots, DatabaseRecommendationResultStore results,
+            PosIdempotencyStore idempotency, RedisLocks locks, TransactionTemplate transaction,
+            ObjectMapper objectMapper, PosProperties properties, Clock clock) {
         this.terminals = terminals;
         this.merchants = merchants;
         this.barcodes = barcodes;
         this.payments = payments;
         this.recommender = recommender;
         this.snapshots = snapshots;
+        this.results = results;
         this.idempotency = idempotency;
         this.locks = locks;
         this.transaction = transaction;
@@ -162,6 +167,10 @@ public class PosPaymentRequestService {
                     throw scanFailure(scan);
                 }
                 RecommendationResult result = prepared.apply(saved.getId());
+                // 접수 당시 추천을 결제 행에 남긴다(S15P31E103-293). 결제와 같은 트랜잭션이라 실패하면 결제도 남지 않는다.
+                // 재전송은 여기까지 오지 않고, 승인 때 재계산은 이 값을 덮어쓰지 않는다. Redis는 롤백되지 않으므로 DB를 먼저 쓴다.
+                // 주의: JDBC로 version을 올리므로 이 트랜잭션에서 이 뒤에 saved 엔티티를 고치면 낙관적 잠금 충돌이 난다(읽기만 한다)
+                results.save(saved.getUserId(), saved.getId(), result);
                 snapshots.save(saved.getId(), result, properties.snapshotTtl());
                 return saved;
             });
