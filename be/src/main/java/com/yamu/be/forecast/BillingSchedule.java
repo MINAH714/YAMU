@@ -1,6 +1,7 @@
 package com.yamu.be.forecast;
 
 import com.yamu.be.card.domain.CardType;
+import com.yamu.be.global.calendar.BusinessDayCalendar;
 import java.time.LocalDate;
 import java.time.YearMonth;
 import java.util.ArrayList;
@@ -30,9 +31,9 @@ public final class BillingSchedule {
     private static final int MAX_PAYMENT_DAY = 27;
     private static final int MAX_CUTOFF_DAYS = 31;
 
-    private final BusinessCalendar calendar;
+    private final BusinessDayCalendar calendar;
 
-    public BillingSchedule(BusinessCalendar calendar) {
+    public BillingSchedule(BusinessDayCalendar calendar) {
         this.calendar = calendar;
     }
 
@@ -97,7 +98,7 @@ public final class BillingSchedule {
     }
 
     private LocalDate businessDayOnOrAfter(LocalDate date) {
-        LocalDate businessDay = calendar.onOrAfter(date);
+        LocalDate businessDay = calendar.businessDayOnOrAfter(date);
         if (businessDay == null || businessDay.isBefore(date)) {
             throw new IllegalStateException("영업일 달력이 계약과 다른 날을 돌려줬다.");
         }

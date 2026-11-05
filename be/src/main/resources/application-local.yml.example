@@ -43,3 +43,6 @@ yamu:
   # 데모용 인증: fe/pos는 브라우저 앱이라 이 키가 빌드된 JS에 그대로 들어간다. 키는 하나이고 posCode와 묶이지 않으며 호출 횟수 제한도 없다.
   pos:
     key: ${YAMU_POS_KEY:local-pos-key}
+  # 운영 API(정기 작업 수동 실행)의 X-Admin-Key. 로컬 전용 값. 비워 두면 운영 API가 403이다.
+  admin:
+    key: ${YAMU_ADMIN_KEY:local-admin-key}

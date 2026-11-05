@@ -81,6 +81,8 @@ class FakePaymentRepository @Inject constructor(private val perf: FakePerformanc
             paymentId, "GS25 역삼역점", "편의점", 15_000, deadline,
             listOf(nori2(750, 15_000).copy(performanceNote = "할인받은 결제는 실적에서 빠져요"), zero),
         )
+        PayScenario.NO_CARD -> PaymentRequest(paymentId, "스타벅스 역삼점", "카페", 15_000, deadline, emptyList())
+        PayScenario.CARDS_UNKNOWN -> PaymentRequest(paymentId, "스타벅스 역삼점", "카페", 15_000, deadline, emptyList(), cardsUnknown = true)
         else -> PaymentRequest(paymentId, "스타벅스 역삼점", "카페", 15_000, deadline, listOf(toktok, zero))
     }
 

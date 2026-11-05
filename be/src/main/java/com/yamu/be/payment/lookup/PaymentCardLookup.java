@@ -3,6 +3,7 @@ package com.yamu.be.payment.lookup;
 import com.yamu.be.card.domain.CardIssuerStatus;
 import com.yamu.be.card.domain.CardType;
 import java.util.List;
+import java.util.Optional;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 
@@ -54,6 +55,31 @@ public class PaymentCardLookup {
                 rs.getString("issuer_code"),
                 rs.getString("product_name")), userId);
     }
+
+    /** 카드 상품의 종류. 결제 취소처럼 등록 해제된 카드의 결제도 다뤄야 할 때 상품 번호로 본다. */
+    public Optional<CardType> cardTypeOfProduct(Long cardProductId) {
+        return jdbc.query("select card_type from card_product where card_product_id = ?",
+                (rs, i) -> CardType.valueOf(rs.getString("card_type")), cardProductId).stream().findFirst();
+    }
+
+    /**
+     * 결제에 쓴 카드의 영수증 표시값. 결제 뒤 카드를 해제·제외했어도 결제 기록은 보여야 하므로 카드 상태로 거르지 않는다.
+     * 소유 확인을 하지 않으므로 결제 행의 user_card_id로만 부른다.
+     */
+    public Optional<ReceiptCard> findReceiptCard(Long userCardId) {
+        return jdbc.query("""
+                select p.issuer_code, p.card_type, c.card_last4
+                from user_card c
+                join card_product p on p.card_product_id = c.card_product_id
+                where c.user_card_id = ?
+                """, (rs, i) -> new ReceiptCard(
+                rs.getString("issuer_code"),
+                CardType.valueOf(rs.getString("card_type")),
+                rs.getString("card_last4")), userCardId).stream().findFirst();
+    }
+
+    /** 영수증에 보일 카드. 사용자 별칭은 넣지 않는다. */
+    public record ReceiptCard(String issuerCode, CardType cardType, String last4) {}
 
     /**
      * 추천에 필요한 보유 카드 한 장.

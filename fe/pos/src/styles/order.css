@@ -1,0 +1,443 @@
+/* 매장 선택과 주문 화면 */
+
+/* 매장 선택. 흰 바탕 가운데 */
+
+.store-select {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  padding: var(--s-6);
+  overflow-y: auto;
+  background: var(--surface);
+}
+
+.store-select-title {
+  margin: var(--s-4) 0 var(--s-8);
+  font-size: var(--fs-title);
+  font-weight: var(--fw-bold);
+  line-height: 1.35;
+}
+
+.store-cards {
+  display: flex;
+  gap: var(--s-4);
+}
+
+.store-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s-3);
+  width: 288px;
+  min-height: 160px;
+  padding: var(--s-6);
+  border-radius: var(--r-card);
+  background: var(--surface-variant);
+}
+
+.store-card strong {
+  font-size: var(--fs-card-title);
+  font-weight: var(--fw-semibold);
+}
+
+.store-card small {
+  color: var(--on-warning-container);
+  font-size: var(--fs-caption-sm);
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.store-card:disabled .brand-mark {
+  opacity: 0.5;
+}
+
+.store-card:disabled strong {
+  color: var(--text3);
+}
+
+/* 글자 크기가 달라도 지점명 줄이 맞도록 로고 줄 높이를 고정한다 */
+.store-card .brand-mark {
+  line-height: 40px;
+}
+
+.store-card .brand-starbucks {
+  font-size: var(--fs-amount-md);
+}
+
+.store-card .brand-gs25 {
+  font-size: var(--fs-amount-lg);
+}
+
+/* 주문 3단 */
+
+.order {
+  display: grid;
+  grid-template-columns: 112px minmax(0, 1fr) 352px;
+  height: 100%;
+  min-height: 0;
+}
+
+/* 카테고리 레일 */
+
+.rail {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-1);
+  min-height: 0;
+  padding: var(--s-2);
+  overflow-y: auto;
+  background: var(--surface);
+  scrollbar-width: none;
+}
+
+.rail::-webkit-scrollbar {
+  display: none;
+}
+
+.rail-item {
+  position: relative;
+  flex: none;
+  min-height: 64px;
+  border-radius: var(--r-button);
+  color: var(--text2);
+  font-size: var(--fs-body);
+  font-weight: var(--fw-medium);
+}
+
+.rail-item[aria-selected='true'] {
+  color: var(--on-primary-container);
+  font-weight: var(--fw-semibold);
+}
+
+.rail-indicator {
+  position: absolute;
+  inset: 0;
+  border-radius: var(--r-button);
+  background: var(--primary-container);
+}
+
+.rail-label {
+  position: relative;
+}
+
+/* 메뉴판. 밀려 들어오는 그리드가 옆 칸을 덮지 않게 여기서 자른다 */
+
+.menu {
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--background);
+}
+
+.menu-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(168px, 1fr));
+  /* 높이가 모자라도 카드가 눌리지 않고 스크롤된다 */
+  grid-auto-rows: max-content;
+  align-content: start;
+  gap: var(--s-3);
+  height: 100%;
+  padding: var(--s-4);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: none;
+}
+
+.menu-grid::-webkit-scrollbar {
+  display: none;
+}
+
+.menu-item {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  padding: var(--s-2) var(--s-4) var(--s-4);
+  border-radius: var(--r-card);
+  background: var(--surface);
+  text-align: left;
+}
+
+.menu-item:disabled {
+  color: var(--text3);
+}
+
+.menu-count {
+  position: absolute;
+  top: var(--s-3);
+  right: var(--s-3);
+  z-index: 1;
+  min-width: 28px;
+  height: 28px;
+  padding: 0 var(--s-2);
+  border-radius: var(--r-pill);
+  background: var(--primary);
+  color: var(--on-primary);
+  font-size: var(--fs-caption);
+  font-weight: var(--fw-bold);
+  font-variant-numeric: tabular-nums;
+  line-height: 28px;
+  text-align: center;
+}
+
+/* 사진 바탕이 흰색이라 카드와 이어지도록 자르지 않고 담는다 */
+.menu-image {
+  display: block;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  margin-bottom: var(--s-2);
+  object-fit: contain;
+  /* 길게 눌러도 이미지 메뉴가 뜨지 않게 한다. 탭은 부모 버튼이 받는다 */
+  pointer-events: none;
+}
+
+.menu-name {
+  display: -webkit-box;
+  min-height: 2.8em;
+  margin-bottom: var(--s-1);
+  overflow: hidden;
+  font-size: var(--fs-body-sm);
+  font-weight: var(--fw-medium);
+  line-height: 1.4;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.menu-price {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--s-2);
+  margin-top: auto;
+  font-size: var(--fs-body);
+  font-weight: var(--fw-bold);
+  font-variant-numeric: tabular-nums;
+}
+
+.menu-price small {
+  color: var(--text3);
+  font-size: var(--fs-caption-sm);
+  font-weight: var(--fw-regular);
+  white-space: nowrap;
+}
+
+/* 주문 내역 */
+
+.cart {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--surface);
+}
+
+.cart-header {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-2);
+  min-height: 64px;
+  padding: var(--s-2) var(--s-2) var(--s-2) var(--s-5);
+}
+
+.cart-header h2 {
+  font-size: var(--fs-card-title);
+  font-weight: var(--fw-semibold);
+  white-space: nowrap;
+}
+
+.cart-header h2 span {
+  color: var(--text3);
+  font-size: var(--fs-body);
+  font-weight: var(--fw-medium);
+  font-variant-numeric: tabular-nums;
+}
+
+.cart-header .text {
+  white-space: nowrap;
+}
+
+.cart-body {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+}
+
+/* popLayout으로 빠지는 줄이 이 목록 기준으로 자리를 잡는다 */
+.cart-lines {
+  position: relative;
+  height: 100%;
+  padding: 0 var(--s-5);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: none;
+}
+
+.cart-lines::-webkit-scrollbar {
+  display: none;
+}
+
+.cart-line {
+  padding-bottom: var(--s-4);
+  background: var(--surface);
+}
+
+.cart-line-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--s-2);
+}
+
+.cart-line-name {
+  min-width: 0;
+  padding-top: var(--s-1);
+  font-size: var(--fs-body);
+  font-weight: var(--fw-medium);
+  line-height: 1.4;
+}
+
+.cart-line-name small {
+  margin-left: var(--s-1);
+  color: var(--text3);
+  font-size: var(--fs-caption-sm);
+  font-weight: var(--fw-regular);
+}
+
+/* 터치 영역은 48px 그대로 두고 그림만 줄 오른쪽 끝에 맞춘다 */
+.cart-remove {
+  margin: calc(var(--s-1) * -1) calc(var(--s-3) * -1) 0 0;
+  color: var(--text3);
+}
+
+.cart-line-bottom {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-2);
+}
+
+.stepper {
+  display: flex;
+  align-items: center;
+  border-radius: var(--r-input);
+  background: var(--surface-variant);
+}
+
+.stepper button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--touch-min);
+  height: var(--touch-min);
+  border-radius: var(--r-input);
+  color: var(--text2);
+}
+
+.stepper button:disabled {
+  color: var(--outline);
+}
+
+.stepper b {
+  min-width: 32px;
+  font-size: var(--fs-body);
+  font-weight: var(--fw-semibold);
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
+.cart-line-amount {
+  font-size: var(--fs-body);
+  font-weight: var(--fw-semibold);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.cart-empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text3);
+  font-size: var(--fs-body-sm);
+}
+
+.cart-footer {
+  flex: none;
+  padding: var(--s-3) var(--s-5) var(--s-5);
+}
+
+.cart-total {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--s-3);
+  margin-bottom: var(--s-3);
+  color: var(--text2);
+  font-size: var(--fs-body-sm);
+}
+
+.cart-total-amount {
+  color: var(--text1);
+}
+
+.cart-total-amount[data-empty='true'] {
+  color: var(--text3);
+}
+
+/* 금액이 바뀌면 새 숫자가 살짝 번져 나온다. 자리는 움직이지 않는다 */
+.cart-total-value {
+  animation: order-value-in var(--dur-fast) var(--ease);
+}
+
+@keyframes order-value-in {
+  from {
+    opacity: 0.35;
+  }
+}
+
+/* 주 버튼 */
+
+.checkout {
+  position: relative;
+  display: block;
+  width: 100%;
+  min-height: 60px;
+  padding: 0;
+  overflow: hidden;
+  transition:
+    transform var(--dur-fast) var(--ease),
+    background-color var(--dur-fast) var(--ease);
+}
+
+/* 금액은 가운데에서 왼쪽으로, '결제하기'는 오른쪽으로 놓는다. 비었을 때는 '결제하기'만 가운데로 옮긴다 */
+.checkout-label {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  align-items: center;
+  column-gap: var(--s-2);
+}
+
+.checkout-amount {
+  text-align: right;
+  transition: opacity var(--dur-fast) var(--ease);
+}
+
+.checkout-word {
+  justify-self: start;
+  transition: transform var(--dur-base) var(--ease);
+}
+
+.checkout-label[data-empty='true'] .checkout-amount {
+  opacity: 0;
+}
+
+.checkout-label[data-empty='true'] .checkout-word {
+  transform: translateX(calc(-50% - var(--s-1)));
+}

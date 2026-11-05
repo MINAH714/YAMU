@@ -27,10 +27,10 @@ public record BalanceForecast(List<Long> accountIds, int selectionCount, long cu
     public enum Until { NEXT_INCOME, DAYS }
 
     /**
-     * 실제로 계산한 기간. 다음 수입일을 정할 설정이 없으면 NEXT_INCOME도 30일 DAYS로 계산한다.
+     * 실제로 계산한 기간. NEXT_INCOME은 다음 월급일 전날까지이고, 월급을 설정하지 않았거나 두 달 안에 회차가 없으면 30일 DAYS다.
      *
      * @param from 한국 날짜 오늘
-     * @param to   from + days
+     * @param to   from + days(끝 날 포함). NEXT_INCOME이면 다음 월급일 전날이라 days가 0일 수 있다(월급일이 내일)
      */
     public record Horizon(Until type, LocalDate from, LocalDate to, int days) {}
 

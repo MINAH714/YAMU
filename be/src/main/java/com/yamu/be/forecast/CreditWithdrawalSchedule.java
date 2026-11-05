@@ -2,12 +2,11 @@ package com.yamu.be.forecast;
 
 import com.yamu.be.card.UserCardRef;
 import java.time.LocalDate;
+import java.util.Optional;
 
 /**
  * 신용카드 사용일의 청구 출금일을 정한다(FR-036: 이용기간 마감·결제일·비영업일이면 다음 영업일).
- *
- * <p>계산은 Task 7.2.1(가상 구매 청구 일정)에서 만든다. BE 2 청구(card_bill)와 같은 규칙이어야 해서
- * 계산 함수를 BE 2와 공유할지는 7.2.1에서 BE 2와 정한다. 그전까지 잔고예보는 이 계약만 쓴다.
+ * 구현은 {@link CardBillingWithdrawalSchedule}이다. 실제 청구서(BE 2 card_bill)와 같은 계산을 쓴다.
  */
 interface CreditWithdrawalSchedule {
 
@@ -15,7 +14,7 @@ interface CreditWithdrawalSchedule {
      * 신용카드로 spendDate에 쓴 금액이 계좌에서 빠지는 날을 돌려준다.
      *
      * @param card BE 1 카드 정보. 결제일·이용기간 마감 일수(paymentDay·billingCutoffDays)를 쓴다
-     * @return 한국 날짜 기준 출금 예정일
+     * @return 한국 날짜 기준 출금 예정일. 결제일이 없거나 청구 주기를 만들 수 없는 값이면 empty
      */
-    LocalDate withdrawalDate(UserCardRef card, LocalDate spendDate);
+    Optional<LocalDate> withdrawalDate(UserCardRef card, LocalDate spendDate);
 }

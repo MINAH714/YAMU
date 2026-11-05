@@ -49,8 +49,9 @@ import org.springframework.transaction.support.TransactionTemplate;
  * 재승인 직전({@link #recheckBeforeRetry})과 주기 작업의 대조 기간 동안({@link #recheckDeclined}) 같은 요청 번호의 태그를 다시 보고,
  * 찾으면 승인으로 바로잡는다(DECLINED·EXPIRED → APPROVED). 대조 기간이 지난 뒤의 늦은 처리는 운영이 태그로 대조한다(한계).
  *
- * <p>출금액 비교 기준은 임시로 결제 요청액(requested_amount)이다. 지금은 즉시할인이 없어 출금액과 같고, 즉시할인이 생기면(BE3·Task 5.2.5)
- * 다시 정한다. 다르면 자동 판정하지 않는다.
+ * <p>출금액 비교 기준은 출금 직전에 요청 번호와 함께 저장한 출금 요청액(fin_request_amount = 결제 금액 − 즉시할인)이다
+ * (S15P31E103-292). 그 칸이 생기기 전에 출금한 행은 비어 있어 결제 요청액(requested_amount)으로 비교한다. 다르면 자동 판정하지 않는다.
+ * 승인으로 확정할 때의 승인액도 이 금액이다.
  *
  * <p>결제별 정산 잠금으로 출금 실행 스레드·재요청·주기 작업이 서로 다른 결정을 내리지 못하게 한다.
  * 금융망 조회 실패는 판정을 미루고(PROCESSING), 그 밖의 예외(계좌 복호화·DB 저장·원장 반영)는 밖으로 낸다.
@@ -166,7 +167,7 @@ public class WithdrawalRecovery {
     private PaymentStatus recoverByTag(PaymentTransaction payment) {
         Long paymentId = payment.getId();
         String finRequestNo = payment.getFinRequestNo();
-        long amount = payment.getRequestedAmount();
+        long amount = requestedWithdrawal(payment);
         Optional<TagLookup> lookup = lookup(payment);
         if (lookup.isEmpty()) {
             return PaymentStatus.PROCESSING;
@@ -190,7 +191,7 @@ public class WithdrawalRecovery {
     private LateCheck lateCheck(PaymentTransaction payment) {
         Long paymentId = payment.getId();
         String finRequestNo = payment.getFinRequestNo();
-        long amount = payment.getRequestedAmount();
+        long amount = requestedWithdrawal(payment);
         Optional<TagLookup> lookup = lookup(payment);
         if (lookup.isEmpty()) {
             return LateCheck.UNDECIDED;
@@ -224,7 +225,7 @@ public class WithdrawalRecovery {
         }
         try {
             return Optional.of(transfer.findByTag(access.get().userKey(), access.get().accountNo(),
-                    TransferTag.payment(paymentId), payment.getRequestedAmount(), finRequestNo));
+                    TransferTag.payment(paymentId), requestedWithdrawal(payment), finRequestNo));
         } catch (BusinessException e) {
             // FinApiException(금융망 오류)과 응답을 읽지 못한 BusinessException. 그 밖의 예외(프로그래밍 오류)는 숨기지 않는다
             log.warn("출금 결과 확인용 거래내역 조회 실패, 다음에 다시 확인 paymentId={} code={}", paymentId, e.getErrorCode(), e);
@@ -232,11 +233,19 @@ public class WithdrawalRecovery {
         }
     }
 
+    /**
+     * 이 시도가 금융망에 보낸 출금액. 요청 번호와 함께 저장한 값이고, 그 칸이 생기기 전에 출금한 행(null)은 결제 요청액이다.
+     * 옛 행은 즉시할인을 저장하지 않았으므로 할인이 있었다면 금액 불일치로 남아 운영이 확인한다.
+     */
+    static long requestedWithdrawal(PaymentTransaction payment) {
+        return payment.getFinRequestAmount() != null ? payment.getFinRequestAmount() : payment.getRequestedAmount();
+    }
+
     /** 자동 판정하지 않는 조회 결과. 금액이 다르면 거래 번호와 두 금액을 남긴다. */
     private static void logUndecided(Long paymentId, long expectedAmount, TagLookup lookup) {
         if (lookup.result() == TagLookup.Result.AMOUNT_MISMATCH) {
             for (BankTransaction match : lookup.matches()) {
-                log.warn("출금 금액이 결제 요청액과 달라 자동 판정하지 않음, 운영 확인 paymentId={} bankTransactionNo={} "
+                log.warn("출금 금액이 출금 요청액과 달라 자동 판정하지 않음, 운영 확인 paymentId={} bankTransactionNo={} "
                         + "expectedAmount={} bankAmount={}", paymentId, match.bankTransactionNo(), expectedAmount,
                         match.amount());
             }
@@ -383,7 +392,7 @@ public class WithdrawalRecovery {
         LocalDate performanceMonth = nowUtc().atOffset(ZoneOffset.UTC).atZoneSameInstant(KST).toLocalDate()
                 .withDayOfMonth(1);
         return new ApprovalOutcome.Approved(amount, amount, 0, performanceMonth, List.of(), finRequestNo,
-                found.bankTransactionNo());
+                found.bankTransactionNo(), null);
     }
 
     private LocalDateTime nowUtc() {

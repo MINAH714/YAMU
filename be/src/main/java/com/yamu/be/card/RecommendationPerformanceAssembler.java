@@ -15,20 +15,19 @@ import org.springframework.stereotype.Component;
  * 동률용 실적 입력을 확인된 거래 인정월의 누적액과 조합한다. 카드 패키지의 기존 월 지정 조회를 재사용한다.
  * 카드 목록의 현재 월 조회와 무관하며, 이 클래스는 현재 월이나 상품별 실적 정책을 결정하지 않는다.
  *
- * <p>TODO(S15P31E103-221): 운영 호출부·상품별 인정 정책 공급은 아직 없다. 향후 입력 생성 담당은
- * 소유권을 확인한 카드와 확인된 인정월·인정액·그 기간의 최소 기준을 전달하고 반환값을 추천 입력에 연결해야 한다.
- * 이 컴포넌트만으로 추천 전체의 운영 조회 연결을 완료한 것은 아니다.
+ * <p>RecommendationService가 원본에 근거해 산출한 카드별 인정 정보를 전달한다.
+ * 인정월만 확인돼도 해당 월의 누적액을 읽으며, 다른 미확인 항목을 0으로 채우지 않는다.
  */
 @Component
 @RequiredArgsConstructor
-class RecommendationPerformanceAssembler {
+public class RecommendationPerformanceAssembler {
     private final CardActivityReader activityReader;
 
     /**
      * 소유권 확인을 마친 카드별 거래 인정 정보. 같은 카드의 중복 입력은 거절한다.
-     * 기간·인정액·최소 기준 미확인은 조회로 복원하거나 추정하지 않고 보조 정보 미확인으로 유지한다.
+     * 기간·인정액·최소 기준 미확인은 추정하지 않는다. 기간이 확인된 누적액은 다른 항목과 독립해 읽는다.
      */
-    Map<Long, PerformanceProgress> assemble(Collection<Recognition> recognitions) {
+    public Map<Long, PerformanceProgress> assemble(Collection<Recognition> recognitions) {
         List<Recognition> inputs = List.copyOf(recognitions);
         if (inputs.stream().map(Recognition::userCardId).distinct().count() != inputs.size()) {
             throw new IllegalArgumentException("같은 카드의 실적 입력을 중복 전달할 수 없습니다.");
@@ -36,7 +35,7 @@ class RecommendationPerformanceAssembler {
 
         Map<YearMonth, List<Long>> cardsByPeriod = new TreeMap<>();
         for (Recognition recognition : inputs) {
-            if (recognition.period() != null && recognition.minimumAmount() != null && recognition.recognizedAmount() != null) {
+            if (recognition.period() != null) {
                 cardsByPeriod.computeIfAbsent(recognition.period(), ignored -> new ArrayList<>())
                         .add(recognition.userCardId());
             }
@@ -59,8 +58,8 @@ class RecommendationPerformanceAssembler {
     }
 
     /** period는 상품 정책에서 확인한 이번 거래의 인정월이다. 서버 현재 월을 대신 넣지 않는다. */
-    record Recognition(long userCardId, YearMonth period, Long minimumAmount, Long recognizedAmount) {
-        Recognition {
+    public record Recognition(long userCardId, YearMonth period, Long minimumAmount, Long recognizedAmount) {
+        public Recognition {
             if (userCardId <= 0) {
                 throw new IllegalArgumentException("카드 ID는 양수여야 합니다.");
             }

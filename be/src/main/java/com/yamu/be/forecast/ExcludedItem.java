@@ -25,6 +25,8 @@ public record ExcludedItem(Long cashflowItemId, Long cardBillId, LocalDate occur
         CARD_UNAVAILABLE,
         /** 지정한 카드를 카드사가 정지했거나 유효기간이 끝나 결제가 일어날 수 없다. 결제 카드를 바꾸면 반영한다. */
         CARD_SUSPENDED_OR_EXPIRED,
+        /** 신용카드의 결제일이 없거나 청구 주기를 만들 수 없는 값이라 출금일을 정할 수 없다. 카드 결제일을 고치면 반영한다. */
+        BILLING_CYCLE_UNKNOWN,
         /** 오늘 예정 수입. 현재 잔액에 이미 들어왔는지 알 수 없어 두 번 더하지 않도록 뺐다. */
         TODAY_INCOME_UNVERIFIED,
         /** 출금에 실패한 미납 청구. 재출금 일정이 정해지지 않아 차감하지 않았다(FR-069 미정). */

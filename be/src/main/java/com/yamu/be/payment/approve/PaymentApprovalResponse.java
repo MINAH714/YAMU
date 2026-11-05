@@ -11,7 +11,8 @@ import java.util.Map;
 /**
  * 승인 응답(API 명세 「결제 승인 요청 (카드 확정)」 Response). 승인과 확정 거절 모두 200이고 {@code status}로 구분한다.
  *
- * <p>임시: {@code billItems}(Task 5.2.4), {@code performance}·{@code limitImpacts}(Task 5.2.5), {@code accountBalanceAfter}(Task 5.2.3)는
+ * <p>{@code billItems}는 신용카드 승인의 청구 회차(Task 5.2.4). 체크카드·거절은 빈 목록이다.
+ * 임시: {@code performance}·{@code limitImpacts}(Task 5.2.5), {@code accountBalanceAfter}(Task 5.2.3)는
  * 그 태스크가 채울 때까지 빈 목록·null이다. 모양은 명세대로 둔다.
  *
  * @param approvalNo        승인번호(임시 규칙 Q3). 거절이면 null
@@ -67,6 +68,10 @@ public record PaymentApprovalResponse(
     /** 확정 거절 사유. {@code code}는 {@link FailureCode}. */
     public record Failure(String code, String message, Map<String, Object> details) {}
 
+    /**
+     * @param netBenefit 예상 순혜택(원). 추천 후보 값 그대로라 포인트 환산율에 소수가 있으면 {@code 1.5}처럼 소수가 나온다
+     *                   (S15P31E103-283). 정수면 소수점 없이 나간다
+     */
     public record SuggestedCard(Long userCardId, String nickname, String maskedNumber, CardType cardType,
-            int recommendedRank, long netBenefit) {}
+            int recommendedRank, java.math.BigDecimal netBenefit) {}
 }

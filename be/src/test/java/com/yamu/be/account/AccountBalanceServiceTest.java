@@ -12,6 +12,7 @@ import static org.mockito.Mockito.when;
 import com.yamu.be.account.domain.LinkedAccount;
 import com.yamu.be.account.domain.LinkedAccountRepository;
 import com.yamu.be.account.domain.LinkedAccountStatus;
+import com.yamu.be.auth.LoginRateLimitProperties;
 import com.yamu.be.auth.LoginRateLimiter;
 import com.yamu.be.global.crypto.CipherField;
 import com.yamu.be.global.crypto.PersonalDataCipher;
@@ -85,6 +86,66 @@ class AccountBalanceServiceTest {
         assertThat(service.getBalances(USER, List.of(10L, 11L), false))
                 .extracting(AccountBalance::balance).containsExactly(1000L, 2000L);
         assertThat(service.findCachedBalance(USER, 10L)).isEmpty();
+    }
+
+    @Test
+    void Redis가_죽어도_새로고침은_한도를_건너뛰고_금융망에서_읽어_잔액을_돌려준다() {
+        // 진짜 한도 검사기에 죽은 Redis를 넣는다(S15P31E103-238: 예전에는 여기서 500).
+        StringRedisTemplate down = mock(StringRedisTemplate.class, invocation -> {
+            throw new RedisConnectionFailureException("down");
+        });
+        AccountBalanceService withRealLimiter = new AccountBalanceService(accounts, users, ssafy, cipher, redis,
+                new LoginRateLimiter(down, new LoginRateLimitProperties(Duration.ofMinutes(1), 3, 5)),
+                new AccountBalanceProperties(Duration.ofMinutes(10), 5, Duration.ofMillis(800), 6),
+                Clock.fixed(Instant.parse("2026-10-30T03:00:00Z"), ZoneOffset.UTC));
+        try {
+            when(ssafy.balance("user-key", "fast")).thenReturn(1000L);
+            when(ssafy.balance("user-key", "slow")).thenReturn(2000L);
+
+            // 잔고예보용
+            assertThat(withRealLimiter.getBalances(USER, List.of(10L, 11L), true))
+                    .extracting(AccountBalance::balance).containsExactly(1000L, 2000L);
+            // 계좌 목록용
+            assertThat(withRealLimiter.readAvailable(USER, List.of(fast, slow), true).values())
+                    .extracting(AccountBalance::balance).containsExactly(1000L, 2000L);
+        } finally {
+            withRealLimiter.destroy();
+        }
+    }
+
+    @Test
+    void 추천용_부분_결과는_실패와_확인된_0원을_구분하고_정상_계좌를_보존한다() {
+        when(ssafy.balance("user-key", "fast")).thenReturn(0L);
+        when(ssafy.balance("user-key", "slow")).thenThrow(FinApiException.timedOut("balance"));
+        var results=service.getBalanceResults(USER,List.of(10L,11L,10L));
+        assertThat(results).hasSize(2);
+        assertThat(results.get(10L).balance().balance()).isZero();
+        assertThat(results.get(10L).errorCode()).isNull();
+        assertThat(results.get(11L).balance()).isNull();
+        assertThat(results.get(11L).errorCode()).isEqualTo(ErrorCode.UPSTREAM_TIMEOUT);
+        org.mockito.Mockito.verify(ssafy,org.mockito.Mockito.times(1)).balance("user-key","fast");
+        org.mockito.Mockito.verify(ssafy,org.mockito.Mockito.times(1)).balance("user-key","slow");
+    }
+
+    @Test
+    void 추천용_부분_조회는_잘못된_개별_응답도_다른_정상_계좌로_전파하지_않는다() {
+        when(ssafy.balance("user-key","fast")).thenReturn(10_000L);
+        when(ssafy.balance("user-key","slow")).thenThrow(new IllegalArgumentException("invalid response"));
+        var results=service.getBalanceResults(USER,List.of(10L,11L));
+        assertThat(results.get(10L).balance().balance()).isEqualTo(10_000);
+        assertThat(results.get(11L).balance()).isNull();
+        assertThat(results.get(11L).errorCode()).isEqualTo(ErrorCode.INTERNAL_ERROR);
+    }
+
+    @Test
+    void 부분_조회에서는_없는_계좌만_거절하고_정상_계좌는_조회한다() {
+        when(accounts.findByIdInAndUserIdAndStatus(anyList(),eq(USER),eq(LinkedAccountStatus.CONNECTED))).thenReturn(List.of(fast));
+        when(ssafy.balance("user-key","fast")).thenReturn(10_000L);
+        var result=service.getBalanceResults(USER,List.of(10L,99L));
+        assertThat(result.get(10L).balance().balance()).isEqualTo(10_000);
+        assertThat(result.get(99L).balance()).isNull();
+        assertThat(result.get(99L).errorCode()).isEqualTo(ErrorCode.RESOURCE_NOT_FOUND);
+        org.mockito.Mockito.verify(ssafy,org.mockito.Mockito.times(1)).balance(org.mockito.ArgumentMatchers.anyString(),org.mockito.ArgumentMatchers.anyString());
     }
 
     @Test

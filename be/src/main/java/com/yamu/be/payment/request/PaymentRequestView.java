@@ -4,6 +4,7 @@ import com.yamu.be.card.domain.CardType;
 import com.yamu.be.payment.PaymentPlan;
 import com.yamu.be.payment.domain.PaymentChannel;
 import com.yamu.be.payment.domain.PaymentStatus;
+import com.yamu.be.payment.recommend.RecommendationResult;
 import com.yamu.be.payment.recommend.RecommendationResult.SelectionReason;
 import com.yamu.be.payment.recommend.RecommendationResult.Status;
 import com.yamu.be.payment.recommend.RecommendationResult.UncomparedReason;
@@ -48,14 +49,22 @@ public record PaymentRequestView(
     /**
      * @param nickname        사용자 별칭. 없으면 상품명
      * @param maskedNumber    끝 4자리만 보이는 카드번호
+     * @param netBenefit      예상 순혜택(원). 엔진 값 그대로라 포인트 환산율에 소수가 있으면 {@code 1.5}처럼 소수가 나온다
+     *                        (S15P31E103-283). 정수면 소수점 없이 나간다. {@code reason} 문구의 금액과 같은 값이다
      * @param chargedAmount   지금 빠지거나 청구에 올라갈 금액(즉시할인만 차감). 결제 조건으로 서버가 계산한다
      * @param selectionReason 1순위를 고른 기준. 1순위에만 있다
      */
     public record Candidate(int rank, Long userCardId, String nickname, CardType cardType, String maskedNumber,
-            long netBenefit, List<Benefit> benefits, long chargedAmount, String reason,
-            SelectionReason selectionReason) {}
+            java.math.BigDecimal netBenefit, List<Benefit> benefits, long chargedAmount, String reason,
+            SelectionReason selectionReason, List<RecommendationResult.UnallocatedBenefitGroup> unallocatedBenefitGroups) {
+        public Candidate(int rank,Long userCardId,String nickname,CardType cardType,String maskedNumber,java.math.BigDecimal netBenefit,
+                List<Benefit> benefits,long chargedAmount,String reason,SelectionReason selectionReason) {
+            this(rank,userCardId,nickname,cardType,maskedNumber,netBenefit,benefits,chargedAmount,reason,selectionReason,List.of());
+        }
+        public Candidate { unallocatedBenefitGroups=unallocatedBenefitGroups==null ? List.of() : List.copyOf(unallocatedBenefitGroups); }
+    }
 
-    public record Benefit(Long benefitId, String name, String type, long amount, String realization) {}
+    public record Benefit(Long benefitId, String name, String type, Long amount, String realization) {}
 
     /**
      * 비교하지 못한 카드.

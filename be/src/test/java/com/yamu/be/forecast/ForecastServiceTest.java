@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.tuple;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -66,6 +67,9 @@ class ForecastServiceTest {
     @Mock AccountBalanceService balanceService;
     // 따로 정하지 않은 카드는 BE 1 조회처럼 empty(Mockito 기본값)다.
     @Mock CardQueryService cardService;
+    @Mock ForecastSettingsStore settingsStore;
+    // 따로 정하지 않으면 다음 월급일은 없다(Mockito 기본값 Optional.empty).
+    @Mock ForecastSettingsService settingsService;
 
     private final List<List<Long>> balanceRequests = new ArrayList<>();
     private final List<Boolean> refreshRequests = new ArrayList<>();
@@ -77,6 +81,8 @@ class ForecastServiceTest {
     private final List<LocalDate> billRequestsTo = new ArrayList<>();
     private List<DailySpending> spending = List.of();
     private RuntimeException livingFailure;
+    /** 잔고예보 설정. 기본은 명세 기본값(NEXT_INCOME·30일·안전 잔액 100,000원). */
+    private ForecastSettings userSettings = ForecastSettings.DEFAULTS;
     private ForecastService service;
 
     @BeforeEach
@@ -98,7 +104,7 @@ class ForecastServiceTest {
             billRequestsTo.add(to);
             return bills;
         };
-        CreditWithdrawalSchedule creditSchedule = (card, spendDate) -> spendDate;
+        CreditWithdrawalSchedule creditSchedule = (card, spendDate) -> Optional.of(spendDate);
         LivingCostReader livingReader = (userId, accountIds, fromDate, toDate) -> {
             livingRequests.add(List.of(fromDate, toDate));
             if (livingFailure != null) {
@@ -106,8 +112,10 @@ class ForecastServiceTest {
             }
             return new LivingCostReader.Spending(spending, LIVING_SYNCED_AT);
         };
+        // 남의 계좌로 실패하는 테스트는 설정을 읽기 전에 끝나 lenient로 둔다.
+        lenient().when(settingsStore.read(anyLong())).thenAnswer(invocation -> userSettings);
         return new ForecastService(cashflows, balanceService, billReader, cardService, creditSchedule, livingReader,
-                accounts, THRESHOLD, clock);
+                accounts, settingsStore, settingsService, clock);
     }
 
     @Test
@@ -214,7 +222,7 @@ class ForecastServiceTest {
         spending = days(real(A, JUL, 155_000), real(A, AUG, 155_000), real(A, SEP, 150_000),
                 real(B, SEP, 60_000));
 
-        LivingCostForecast result = service.livingCost(USER, List.of(A, B, A), true);
+        LivingCostForecast result = service.livingCost(USER, List.of(A, B, A), null, null, true);
 
         verify(accounts).requireConnectedAccount(USER, A);
         verify(accounts).requireConnectedAccount(USER, B);
@@ -227,7 +235,7 @@ class ForecastServiceTest {
         assertThat(result.sources()).extracting(LivingCostForecast.Source::amount)
                 .containsExactly(155_000L, 155_000L, 210_000L);
         assertThat(result.excluded()).extracting(LivingCostForecast.Exclusion::type)
-                .containsExactly("RECURRING", "CREDIT_PAYMENT", "UNCLASSIFIED");
+                .containsExactly("RECURRING", "CREDIT_PAYMENT", "UNCLASSIFIED", "LARGE");
         assertThat(result.dailyTarget()).isNull();
         assertThat(result.dataSyncedAt()).isEqualTo(LIVING_SYNCED_AT);
         assertThat(result.accountLivingCosts())
@@ -238,8 +246,54 @@ class ForecastServiceTest {
     }
 
     @Test
+    void 생활비_상세는_설정의_기본_일수와_하루_목표를_쓰고_목표를_예측에_섞지_않는다() {
+        userSettings = new ForecastSettings(Until.DAYS, 14, THRESHOLD, null, 9_000L, true, true, null);
+        spending = days(real(A, JUL, 155_000), real(A, AUG, 155_000), real(A, SEP, 150_000));
+
+        LivingCostForecast result = service.livingCost(USER, List.of(A), null, null, false);
+
+        assertThat(result.period()).isEqualTo(new LivingCostForecast.Period(TODAY, TODAY.plusDays(14), 14, Until.DAYS));
+        assertThat(result.dailyAverage()).isEqualTo(5_000L);
+        assertThat(result.projectedAmount()).isEqualTo(70_000L);
+        assertThat(result.dailyTarget()).isEqualTo(9_000L);
+        assertThat(result.accountLivingCosts()).isNull();
+    }
+
+    @Test
+    void 생활비_상세는_잔고예보처럼_다음_월급일_전날까지_계산한다() {
+        userSettings = new ForecastSettings(Until.NEXT_INCOME, 30, THRESHOLD, 41L, null, true, true, null);
+        when(settingsService.nextIncomeDate(USER, 41L, TODAY)).thenReturn(Optional.of(NOV_5));
+        spending = days(real(A, JUL, 155_000), real(A, AUG, 155_000), real(A, SEP, 150_000));
+
+        LivingCostForecast result = service.livingCost(USER, List.of(A), null, null, false);
+
+        // 11/5 월급이면 10/26~11/4, 9일. 잔고예보의 NEXT_INCOME 기간과 같다.
+        assertThat(result.period())
+                .isEqualTo(new LivingCostForecast.Period(TODAY, NOV_5.minusDays(1), 9, Until.NEXT_INCOME));
+        assertThat(result.projectedAmount()).isEqualTo(45_000L);
+    }
+
+    @Test
+    void 생활비_상세에_잔고예보와_같은_기간을_보내면_설정보다_그_기간을_쓴다() {
+        userSettings = new ForecastSettings(Until.DAYS, 14, THRESHOLD, null, null, true, true, null);
+        spending = days(real(A, JUL, 155_000), real(A, AUG, 155_000), real(A, SEP, 150_000));
+
+        LivingCostForecast result = service.livingCost(USER, List.of(A), Until.DAYS, 7, false);
+
+        assertThat(result.period()).isEqualTo(new LivingCostForecast.Period(TODAY, TODAY.plusDays(7), 7, Until.DAYS));
+        assertThat(result.projectedAmount()).isEqualTo(35_000L);
+    }
+
+    @Test
+    void 생활비_상세의_잘못된_기간은_계좌와_원천을_읽기_전에_400이다() {
+        assertError(() -> service.livingCost(USER, List.of(A), Until.DAYS, 10, false), ErrorCode.INVALID_REQUEST);
+        verifyNoInteractions(accounts);
+        assertThat(livingRequests).isEmpty();
+    }
+
+    @Test
     void 생활비_상세는_어느_계좌에도_자료가_없으면_0원으로_확정하지_않고_422다() {
-        assertError(() -> service.livingCost(USER, List.of(A), false), ErrorCode.DATA_INSUFFICIENT);
+        assertError(() -> service.livingCost(USER, List.of(A), null, null, false), ErrorCode.DATA_INSUFFICIENT);
     }
 
     @Test
@@ -247,7 +301,7 @@ class ForecastServiceTest {
         when(accounts.requireConnectedAccount(USER, A)).thenReturn(null);
         when(accounts.requireConnectedAccount(USER, B)).thenThrow(new BusinessException(ErrorCode.RESOURCE_NOT_FOUND));
 
-        assertError(() -> service.livingCost(USER, List.of(A, B), false), ErrorCode.RESOURCE_NOT_FOUND);
+        assertError(() -> service.livingCost(USER, List.of(A, B), null, null, false), ErrorCode.RESOURCE_NOT_FOUND);
         assertThat(livingRequests).isEmpty();
     }
 
@@ -364,12 +418,16 @@ class ForecastServiceTest {
     }
 
     @Test
-    void 진행_중_청구의_출금일이_지났으면_계약_위반으로_실패한다() {
+    void 출금일이_지났는데_진행_중인_청구는_오늘_빠질_돈으로_본다() {
+        // 청구 확정·출금 배치가 없어 출금일이 지나도 진행 중으로 남는다(2026-11-04 BE 2 합의)
         givenEntries(TODAY, TODAY.plusDays(14));
         bills = List.of(new OutstandingBill(88L, A, Status.ACCUMULATING, TODAY.minusDays(1), 50_000L));
 
-        assertThatThrownBy(() -> service.forecast(USER, List.of(A), Until.DAYS, 14, false, false))
-                .isInstanceOf(IllegalStateException.class);
+        BalanceForecast result = service.forecast(USER, List.of(A), Until.DAYS, 14, false, false);
+
+        assertThat(day(result.series(), TODAY).expected()).isEqualTo(750_000L);
+        assertThat(day(result.series(), TODAY).confirmed()).isEqualTo(800_000L);
+        assertThat(result.excluded()).isEmpty();
     }
 
     @Test
@@ -412,9 +470,75 @@ class ForecastServiceTest {
                 ErrorCode.INVALID_REQUEST);
         assertError(() -> service.forecast(USER, List.of(A), Until.DAYS, 10, false, false),
                 ErrorCode.INVALID_REQUEST);
-        assertError(() -> service.forecast(USER, List.of(A), Until.DAYS, null, false, false),
+        // 기간 기준이 NEXT_INCOME이어도(보냈든 설정이든) 보낸 days는 검사한다
+        assertError(() -> service.forecast(USER, List.of(A), Until.NEXT_INCOME, 5, false, false),
                 ErrorCode.INVALID_REQUEST);
+        assertError(() -> service.forecast(USER, List.of(A), null, 5, false, false), ErrorCode.INVALID_REQUEST);
         assertThat(balanceRequests).isEmpty();
+    }
+
+    @Test
+    void 계좌는_중복을_빼고_20개까지만_고를_수_있다() {
+        List<Long> twentyOne = new ArrayList<>();
+        for (long id = 1; id <= 21; id++) {
+            twentyOne.add(id);
+        }
+
+        assertError(() -> service.forecast(USER, twentyOne, Until.DAYS, 7, false, false), ErrorCode.INVALID_REQUEST);
+        assertThat(balanceRequests).isEmpty();
+
+        // 중복을 빼면 2개라 통과한다
+        List<Long> duplicated = new ArrayList<>();
+        for (int i = 0; i < 21; i++) {
+            duplicated.add(i % 2 == 0 ? A : B);
+        }
+        givenEntries(TODAY, TODAY.plusDays(7));
+        assertThat(service.forecast(USER, duplicated, Until.DAYS, 7, false, false).accountIds()).containsExactly(A, B);
+    }
+
+    @Test
+    void NEXT_INCOME은_다음_월급일_전날까지이고_월급일이_내일이면_오늘_하루다() {
+        userSettings = new ForecastSettings(Until.NEXT_INCOME, 30, THRESHOLD, 55L, null, true, true, null);
+        service = serviceAt(CLOCK);
+        givenEntries(TODAY, TODAY.plusDays(9));
+        when(settingsService.nextIncomeDate(USER, 55L, TODAY)).thenReturn(Optional.of(TODAY.plusDays(10)));
+
+        BalanceForecast result = service.forecast(USER, List.of(A), null, null, false, false);
+
+        assertThat(result.horizon()).isEqualTo(new BalanceForecast.Horizon(Until.NEXT_INCOME, TODAY,
+                TODAY.plusDays(9), 9));
+        assertThat(result.series()).hasSize(10);
+
+        givenEntries(TODAY, TODAY);
+        when(settingsService.nextIncomeDate(USER, 55L, TODAY)).thenReturn(Optional.of(TODAY.plusDays(1)));
+        BalanceForecast eve = service.forecast(USER, List.of(A), Until.NEXT_INCOME, null, false, false);
+
+        assertThat(eve.horizon()).isEqualTo(new BalanceForecast.Horizon(Until.NEXT_INCOME, TODAY, TODAY, 0));
+        assertThat(eve.series()).hasSize(1);
+    }
+
+    @Test
+    void 다음_월급일을_모르면_NEXT_INCOME도_30일_DAYS로_계산한다() {
+        givenEntries(TODAY, TODAY.plusDays(30));
+
+        BalanceForecast result = service.forecast(USER, List.of(A), Until.NEXT_INCOME, null, false, false);
+
+        assertThat(result.horizon()).isEqualTo(new BalanceForecast.Horizon(Until.DAYS, TODAY, TODAY.plusDays(30),
+                30));
+    }
+
+    @Test
+    void 기간과_안전_잔액을_보내지_않으면_잔고예보_설정의_값을_쓴다() {
+        userSettings = new ForecastSettings(Until.DAYS, 14, 50_000L, null, null, true, true, null);
+        service = serviceAt(CLOCK);
+        givenEntries(TODAY, TODAY.plusDays(14));
+
+        BalanceForecast byDefault = service.forecast(USER, List.of(A), null, null, false, false);
+        BalanceForecast daysOnly = service.forecast(USER, List.of(A), Until.DAYS, null, false, false);
+
+        assertThat(byDefault.horizon().days()).isEqualTo(14);
+        assertThat(byDefault.alertThreshold()).isEqualTo(50_000L);
+        assertThat(daysOnly.horizon().days()).isEqualTo(14);
     }
 
     @Test

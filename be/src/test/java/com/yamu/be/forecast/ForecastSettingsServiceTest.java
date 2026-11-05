@@ -16,6 +16,7 @@ import com.yamu.be.support.OwnershipFixtures;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.YearMonth;
 import java.time.ZoneId;
 import java.util.HashMap;
 import java.util.List;
@@ -232,6 +233,32 @@ class ForecastSettingsServiceTest extends MySqlTestSupport {
                     assertThat(error.getErrorCode()).isEqualTo(ErrorCode.INVALID_REQUEST);
                     assertThat(error.getDetails().toString()).contains(field);
                 });
+    }
+
+    @Test
+    void 다음_월급일은_기준일보다_뒤의_첫_회차이고_수정_전_규칙의_회차도_센다() {
+        LocalDate first = today.plusDays(3);
+        long salary = monthlyIncome(first);
+        // 둘째 회차부터 바꾸면 첫 회차는 수정 전 규칙(salary)에 남는다
+        cashflows.update(owner, salary, new CashflowService.UpdateCommand(null, "월급(인상)", 3_000_000L, null, null,
+                null, null, null, null, null, CashflowService.UpdateScope.THIS_AND_FUTURE, first.plusMonths(1)));
+
+        assertThat(service.nextIncomeDate(owner, salary, today)).contains(first);
+        // 기준일 당일 회차는 빼고 그 뒤의 첫 회차(바뀐 규칙)다. 말일 보정이 있어 달만 본다
+        assertThat(service.nextIncomeDate(owner, salary, first))
+                .hasValueSatisfying(date -> assertThat(YearMonth.from(date))
+                        .isEqualTo(YearMonth.from(first).plusMonths(1)));
+    }
+
+    @Test
+    void 월급을_정하지_않았거나_남의_항목이면_다음_월급일이_없다() {
+        long stranger = fixtures.user();
+        long strangerSalary = cashflows.create(stranger, new CashflowService.CreateCommand("월급",
+                CashflowItem.Direction.INCOME, 2_800_000L, today.plusDays(3), CashflowItem.RecurrenceType.MONTHLY,
+                null, null, null, fixtures.account(stranger), null, null, null)).id();
+
+        assertThat(service.nextIncomeDate(owner, null, today)).isEmpty();
+        assertThat(service.nextIncomeDate(owner, strangerSalary, today)).isEmpty();
     }
 
     private long monthlyIncome(LocalDate first) {

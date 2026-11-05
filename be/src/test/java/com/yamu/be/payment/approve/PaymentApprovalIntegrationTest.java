@@ -69,7 +69,7 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.utility.DockerImageName;
 
 /**
- * 결제 승인을 실제 MySQL·Redis로 확인한다. 추천은 Mock(BE3 구현 전)이고, 승인 실행 포트는 테스트가 바꿔 끼운다
+ * 결제 승인을 실제 MySQL·Redis로 확인한다. 추천은 명시적인 Mock fixture이고, 승인 실행 포트는 테스트가 바꿔 끼운다
  * (기본은 임시 승인과 같은 동작, 거절·실패 시나리오는 그 테스트에서 지정).
  * 결제 요청은 POS 결제 요청 API로 만든다(바코드는 저장소에 직접 넣는다).
  */
@@ -81,7 +81,6 @@ class PaymentApprovalIntegrationTest extends MySqlTestSupport {
 
     static final String POS_KEY = "test-pos-key";
     static final Duration RETENTION = Duration.ofMinutes(10);
-    static final TemporaryCreditCardApprover TEMPORARY = new TemporaryCreditCardApprover();
 
     @Container
     @ServiceConnection(name = "redis")
@@ -90,6 +89,13 @@ class PaymentApprovalIntegrationTest extends MySqlTestSupport {
 
     @TestConfiguration
     static class ClockConfig {
+        @Bean
+        @Primary
+        com.yamu.be.payment.recommend.CardRecommender approvalRecommendationFixture(
+                com.yamu.be.payment.lookup.PaymentCardLookup cards, java.time.Clock clock) {
+            return new com.yamu.be.payment.recommend.MockCardRecommender(cards, clock);
+        }
+
         @Bean
         @Primary
         MutableClock mutableClock() {
@@ -122,6 +128,8 @@ class PaymentApprovalIntegrationTest extends MySqlTestSupport {
 
     @BeforeEach
     void setUp() {
+        jdbc.update("DELETE FROM bill_item");
+        jdbc.update("DELETE FROM card_bill");
         jdbc.update("DELETE FROM payment_transaction");
         jdbc.update("DELETE FROM user_card");
         jdbc.update("DELETE FROM linked_account");
@@ -141,7 +149,7 @@ class PaymentApprovalIntegrationTest extends MySqlTestSupport {
         checkCard = fixtures.card(user, checkProduct, account, "ACTIVE");
         otherCard = fixtures.card(other, creditProduct, fixtures.account(other), "ACTIVE");
         cafe = merchant("테스트 카페", "TEST_CAFE", "COFFEE_SHOP");
-        when(approver.approve(any())).thenAnswer(inv -> TEMPORARY.approve(inv.getArgument(0)));
+        when(approver.approve(any())).thenAnswer(inv -> approvedLike(inv.getArgument(0)));
     }
 
     // ───────── 승인 ─────────
@@ -202,6 +210,25 @@ class PaymentApprovalIntegrationTest extends MySqlTestSupport {
                 .andExpect(jsonPath("$.data.status").value("APPROVED"))
                 .andExpect(jsonPath("$.data.selectedCard.userCardId").value(creditCard));
         assertThat(snapshots.find(requested.paymentId())).isPresent();
+    }
+
+    @Test
+    void 추천을_다시_계산해_승인해도_결제_행의_접수_당시_추천은_그대로다() throws Exception {
+        Requested requested = requested(15_000, null, null);
+        String recommendedAtRequest = storedRecommendationId(requested.paymentId());
+        assertThat(recommendedAtRequest).isNotNull();
+        snapshots.delete(requested.paymentId());
+
+        // 접수 트랜잭션이 JDBC로 version을 올렸어도 승인은 새로 읽은 엔티티로 고치므로 낙관적 잠금 충돌이 없다
+        approve(user, requested.paymentId(), UUID.randomUUID().toString(), "{}")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.status").value("APPROVED"));
+
+        assertThat(payments.findById(requested.paymentId()).orElseThrow().getStatus()).isEqualTo(PaymentStatus.APPROVED);
+        // 재계산한 스냅샷은 새 추천 번호지만 결제 행은 접수 때 값이다
+        assertThat(snapshots.find(requested.paymentId()).orElseThrow().recommendationId())
+                .isNotEqualTo(recommendedAtRequest);
+        assertThat(storedRecommendationId(requested.paymentId())).isEqualTo(recommendedAtRequest);
     }
 
     // ───────── 멱등 ─────────
@@ -289,7 +316,7 @@ class PaymentApprovalIntegrationTest extends MySqlTestSupport {
         CountDownLatch release = new CountDownLatch(1);
         doAnswer(inv -> {
             release.await(10, TimeUnit.SECONDS);
-            return TEMPORARY.approve(inv.getArgument(0));
+            return approvedLike(inv.getArgument(0));
         }).when(approver).approve(any());
         int requests = 5;
         ExecutorService pool = Executors.newFixedThreadPool(requests);
@@ -409,7 +436,7 @@ class PaymentApprovalIntegrationTest extends MySqlTestSupport {
         Requested requested = requested(15_000, null, null);
         doReturn(new ApprovalOutcome.Declined(FailureCode.INSUFFICIENT_BALANCE, null,
                 Map.of("availableBalance", 8_000)))
-                .doAnswer(inv -> TEMPORARY.approve(inv.getArgument(0)))
+                .doAnswer(inv -> approvedLike(inv.getArgument(0)))
                 .when(approver).approve(any());
 
         approve(user, requested.paymentId(), UUID.randomUUID().toString(), body(creditCard))
@@ -474,7 +501,7 @@ class PaymentApprovalIntegrationTest extends MySqlTestSupport {
     void 이_결제에서_거절된_카드를_다시_고르면_400이고_시도를_세지_않으며_생략하면_다음_후보로_승인한다() throws Exception {
         Requested requested = requested(15_000, null, null);
         doReturn(ApprovalOutcome.Declined.of(FailureCode.ISSUER_DECLINED))
-                .doAnswer(inv -> TEMPORARY.approve(inv.getArgument(0)))
+                .doAnswer(inv -> approvedLike(inv.getArgument(0)))
                 .when(approver).approve(any());
         approve(user, requested.paymentId(), UUID.randomUUID().toString(), "{}")
                 .andExpect(status().isOk())
@@ -633,6 +660,19 @@ class PaymentApprovalIntegrationTest extends MySqlTestSupport {
             builder.content(body);
         }
         return mockMvc.perform(builder);
+    }
+
+    /** 체크카드·혜택 0원 승인과 같은 모양: 승인액 = 원금, 실적 0, 청구 계획 없음. */
+    static ApprovalOutcome.Approved approvedLike(ApprovalCommand command) {
+        long amount = command.terms().amount();
+        return new ApprovalOutcome.Approved(amount, amount, 0, ApprovalDates.performanceMonth(command.now()),
+                List.of(), null, null, null);
+    }
+
+    /** 결제 행에 보관한 추천 결과의 추천 번호. 보관하지 않았으면 null. */
+    private String storedRecommendationId(long paymentId) {
+        return jdbc.queryForObject("SELECT JSON_UNQUOTE(JSON_EXTRACT(recommendation_result_json, '$.recommendationId'))"
+                + " FROM payment_transaction WHERE payment_transaction_id = ?", String.class, paymentId);
     }
 
     private static String body(long userCardId) {

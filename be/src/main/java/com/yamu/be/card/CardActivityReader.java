@@ -24,7 +24,7 @@ import org.springframework.stereotype.Component;
  */
 @Component
 @RequiredArgsConstructor
-class CardActivityReader {
+public class CardActivityReader {
 
     /**
      * 끝난 청구. 이 상태가 아닌 청구가 하나라도 있으면 카드를 해제할 수 없다(명세 CARD_HAS_OPEN_BILL).
@@ -35,7 +35,7 @@ class CardActivityReader {
     private final NamedParameterJdbcTemplate jdbc;
 
     /** 카드별 한 달 실적(한국 기준 월). 집계된 행이 없는 카드는 빠진다. */
-    Map<Long, Long> recognizedAmounts(Collection<Long> userCardIds, YearMonth month) {
+    public Map<Long, Long> recognizedAmounts(Collection<Long> userCardIds, YearMonth month) {
         Map<Long, Long> amounts = new HashMap<>();
         if (userCardIds.isEmpty()) {
             return amounts;

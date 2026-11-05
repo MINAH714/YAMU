@@ -77,14 +77,18 @@ class RecommendationPerformanceAssemblerTest {
     @Test
     void unknownPolicyInputsDoNotQueryCurrentMonthOrInventMissingValues() {
         YearMonth month = YearMonth.of(2026, 10);
+        when(reader.recognizedAmounts(List.of(2L, 3L), month)).thenReturn(Map.of(2L, 500L));
         var result = assembler.assemble(List.of(new Recognition(1, null, 300_000L, 10_000L),
                 new Recognition(2, month, null, 10_000L), new Recognition(3, month, 300_000L, null)));
         assertThat(result.values()).allMatch(progress -> !progress.isKnown());
         assertThat(result.get(1L).period()).isNull();
         assertThat(result.get(2L).minimumAmount()).isNull();
         assertThat(result.get(3L).recognizedAmount()).isNull();
-        assertThat(result.values()).allMatch(progress -> progress.beforeAmount() == null);
-        verifyNoInteractions(reader);
+        assertThat(result.get(1L).beforeAmount()).isNull();
+        assertThat(result.get(2L).beforeAmount()).isEqualTo(500L);
+        assertThat(result.get(3L).beforeAmount()).isNull();
+        verify(reader).recognizedAmounts(List.of(2L, 3L), month);
+        verifyNoMoreInteractions(reader);
     }
 
     @Test

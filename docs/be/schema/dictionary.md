@@ -1,6 +1,6 @@
 # 초기 스키마 컬럼 사전
 
-사람과 AI가 함께 참조하는 25개 테이블의 저장 정의다. 개요·리뷰 순서는 [스키마 안내](README.md), 서비스 구현 책임과 미확인 사항은 [구현 지침](implementation.md)을 참고한다.
+사람과 AI가 함께 참조하는 30개 테이블의 저장 정의다. 개요·리뷰 순서는 [스키마 안내](README.md), 서비스 구현 책임과 미확인 사항은 [구현 지침](implementation.md)을 참고한다.
 
 SQL 원본: [초기 생성](../../../be/src/main/resources/db/migration/V20261026_1__create_initial_schema.sql) → [결제별 한도 사용 테이블 이름 변경](../../../be/src/main/resources/db/migration/V20261027_1__rename_payment_limit_impact_to_usage.sql) → [금융망 사용자 ID 설명 수정](../../../be/src/main/resources/db/migration/V20261027_2__update_ssafy_member_id_comment.sql) → [모든 기기 서명 키 필수화](../../../be/src/main/resources/db/migration/V20261027_3__require_device_signing_keys.sql) → [현금흐름·구매 계획 보완](../../../be/src/main/resources/db/migration/V20261027_4__extend_cashflow_and_purchase_plans.sql) → [물품 코드·상품명·가맹점 업종 명칭 보완](../../../be/src/main/resources/db/migration/V20261027_5__separate_product_and_merchant_categories.sql) 순서로 적용한 최종 구조다. 초기 SQL은 이미 Merge되어 당시 이름과 설명을 보존한다. 작성일 2026-10-26, 문서 분리·컬럼명 정리 2026-10-27. 이슈 [S15P31E103-101](https://ssafy.atlassian.net/browse/S15P31E103-101), 후속 [S15P31E103-145](https://ssafy.atlassian.net/browse/S15P31E103-145).
 
@@ -325,14 +325,16 @@ CONSTRAINT ck_limit_dates CHECK (valid_from IS NULL OR valid_until IS NULL OR va
 
 ### benefit_target — 혜택 적용·제외 대상
 
+2026-11-03: `(benefit_target_id,card_benefit_id)` UNIQUE 추가. CONDITION 이외 행은 is_excluded=FALSE CHECK. PURCHASE_ITEM의 target_value 등록 여부는 서비스 검증이며 전용 FK를 달지 않는다. 대상의 적용/제외는 아래 경로 테이블에서 결정한다.
+
 | 컬럼 | SQL 정의 | 설명 |
 |---|---|---|
 | benefit_target_id | `BIGINT NOT NULL AUTO_INCREMENT` | 혜택 대상 번호 |
 | card_benefit_id | `BIGINT NOT NULL` | 혜택 정책 버전 |
-| target_type | `VARCHAR(16) NOT NULL` | ALL / BRAND / CATEGORY / CONDITION |
+| target_type | `VARCHAR(16) NOT NULL` | ALL / BRAND / CATEGORY / CONDITION / PURCHASE_ITEM |
 | merchant_id | `BIGINT NULL` | BRAND 대상의 브랜드 단위 MERCHANT 참조 |
 | target_value | `VARCHAR(128) NULL` | 업종 또는 거래 조건 코드; 예: CHANNEL:ONLINE, FACILITY:DEPARTMENT_STORE |
-| is_excluded | `BOOLEAN NOT NULL DEFAULT FALSE` | 1이면 제외 조건 |
+| is_excluded | `BOOLEAN NOT NULL DEFAULT FALSE` | CONDITION의 제외 조건. 그 외 대상은 FALSE이고 경로의 제외 여부는 그룹에 저장 |
 | target_key | `VARCHAR(128) GENERATED ALWAYS AS (CASE WHEN target_type = 'BRAND' THEN CAST(merchant_id AS CHAR) WHEN target_type = 'ALL' THEN '*' ELSE target_value END) STORED` | NULL 중복을 피하는 대상 비교 키 |
 | created_at | `TIMESTAMP(6) NOT NULL` | UTC 생성 시각 |
 
@@ -342,7 +344,7 @@ UNIQUE KEY uk_benefit_target (card_benefit_id, target_type, is_excluded, target_
 CONSTRAINT fk_target_benefit FOREIGN KEY (card_benefit_id) REFERENCES card_benefit (card_benefit_id);
 CONSTRAINT fk_target_merchant FOREIGN KEY (merchant_id) REFERENCES merchant (merchant_id);
 CONSTRAINT ck_target_excluded CHECK (is_excluded IN (0,1));
-CONSTRAINT ck_target_shape CHECK ((target_type = 'BRAND' AND merchant_id IS NOT NULL AND target_value IS NULL) OR (target_type = 'ALL' AND merchant_id IS NULL AND target_value IS NULL) OR (target_type IN ('CATEGORY','CONDITION') AND merchant_id IS NULL AND target_value IS NOT NULL))
+CONSTRAINT ck_target_shape CHECK ((target_type = 'BRAND' AND merchant_id IS NOT NULL AND target_value IS NULL) OR (target_type = 'ALL' AND merchant_id IS NULL AND target_value IS NULL) OR (target_type IN ('CATEGORY','CONDITION','PURCHASE_ITEM') AND merchant_id IS NULL AND target_value IS NOT NULL))
 ```
 
 ### benefit_limit_link — 혜택과 공유 한도 연결
@@ -400,7 +402,7 @@ CONSTRAINT ck_tier_value CHECK (limit_value >= 0)
 
 fin_transaction_no는 상태 코드가 아니라 **이 결제로 발생한 계좌 출금의 거래 번호**다. NULL만 보고 결제 실패로 판단하지 않고 status를 함께 확인한다. 출금 응답을 받지 못한 경우도 바로 거절로 확정하지 않고 결과를 확인한다. 체크카드 결제를 나중에 취소해도 원 출금 번호는 보존하며 환급 거래는 REFUND에서 관리한다. 신용카드는 일시불·할부 모두 결제일에 CARD_BILL 기준으로 출금하고, 그 출금 거래 번호는 CARD_BILL에 저장한다. 가맹점 정산을 기록하는 테이블은 아니다.
 
-출금 결과 불명 처리(임시, Task 5.2.3 · [S15P31E103-199](https://ssafy.atlassian.net/browse/S15P31E103-199)): 결과를 모르는 PROCESSING은 fin_request_no의 태그로 거래내역을 찾아 있으면 APPROVED, 유예가 지나도 없으면 WITHDRAWAL_NOT_CONFIRMED로 DECLINED(마감이 지났으면 EXPIRED)로 확정한다. 금액이 다르거나 태그가 둘 이상이면 PROCESSING에 두고 운영이 확인한다. 기존 흐름에 없는 전이 두 가지를 임시로 쓴다. PROCESSING → REQUESTED는 금융망에 아무것도 보내지 못했을 때만, DECLINED·EXPIRED → APPROVED는 WITHDRAWAL_NOT_CONFIRMED이고 같은 fin_request_no의 출금이 늦게 확인됐을 때만이다. 재승인을 시작하면 앞 시도의 fin_request_no·fin_transaction_no를 지우고 새로 받는다(앞 번호는 Redis 시도 기록에 남는다).
+출금 결과 불명 처리(임시, Task 5.2.3 · [S15P31E103-199](https://ssafy.atlassian.net/browse/S15P31E103-199)): 결과를 모르는 PROCESSING은 fin_request_no의 태그로 거래내역을 찾아 fin_request_amount와 금액이 같으면 APPROVED, 유예가 지나도 없으면 WITHDRAWAL_NOT_CONFIRMED로 DECLINED(마감이 지났으면 EXPIRED)로 확정한다. 금액이 다르거나 태그가 둘 이상이면 PROCESSING에 두고 운영이 확인한다. 기존 흐름에 없는 전이 두 가지를 임시로 쓴다. PROCESSING → REQUESTED는 금융망에 아무것도 보내지 못했을 때만, DECLINED·EXPIRED → APPROVED는 WITHDRAWAL_NOT_CONFIRMED이고 같은 fin_request_no의 출금이 늦게 확인됐을 때만이다. 재승인을 시작하면 앞 시도의 fin_request_no·fin_request_amount·fin_transaction_no를 지우고 새로 받는다(앞 번호는 Redis 시도 기록에 남는다).
 
 시설 코드와 혜택 적용 규칙의 기준 문서는 [FR-014의 입점 시설 코드 정책](https://app.notion.com/p/e0431720f35882188d5101733ebd9269)이다. 이 절은 DB 저장값을 설명한다.
 
@@ -423,7 +425,7 @@ fin_transaction_no는 상태 코드가 아니라 **이 결제로 발생한 계�
 | source | `VARCHAR(16) NOT NULL` | YAMU / SEED |
 | status | `VARCHAR(24) NOT NULL` | 결제 처리 상태 코드; REQUESTED 등 API 계약 |
 | requested_amount | `BIGINT NOT NULL` | 최초 요청 금액; 양수 |
-| approved_amount | `BIGINT NULL` | 확정 모의 승인 금액; 전액 할인 시 0 가능 |
+| approved_amount | `BIGINT NULL` | 확정 모의 승인 금액 = requested_amount − 즉시할인(체크카드 출금액·신용카드 청구 원금 합계). 청구할인·캐시백·적립은 빼지 않음; 전액 할인 시 0 가능 |
 | installment_months | `SMALLINT NULL` | 일시불은 1, 할부는 총 개월 수(3개월 할부는 3); 현재 회차 번호가 아님. 지원 개월은 서비스 검증 |
 | recognized_performance_amount | `BIGINT NULL` | 승인 당시 실적 인정액; 미확정은 NULL |
 | performance_basis_amount | `BIGINT NULL` | 혜택 계산에 사용한 전월 실적 인정액(원). 실제 0원은 0, 계산 전·실적 조건 미사용은 NULL. 이번 결제로 새로 쌓이는 실적과 구분 |
@@ -434,6 +436,7 @@ fin_transaction_no는 상태 코드가 아니라 **이 결제로 발생한 계�
 | performance_reversed_at | `TIMESTAMP(6) NULL` | UTC 실적 복구 완료 시각; 서비스에서 1회 처리 |
 | failure_code | `VARCHAR(64) NULL` | 승인 거절 시 API failure.code와 같은 값 저장: INSUFFICIENT_BALANCE(잔액 부족) / CREDIT_LIMIT_EXCEEDED(신용 한도 초과) / CARD_SUSPENDED(카드 정지) / UNPAID_BILL(미납) / ISSUER_DECLINED(모의 승인 거절) / ACCOUNT_UNAVAILABLE(출금 계좌 없음·해지, 임시) / WITHDRAWAL_NOT_CONFIRMED(출금 결과 불명 뒤 거래내역에 없음, 임시). 거절 사유가 없으면 NULL. 서버에서 허용값 검증 |
 | fin_request_no | `CHAR(20) CHARACTER SET ascii COLLATE ascii_bin NULL` | SSAFY 요청 Header.institutionTransactionUniqueNo. 서버가 YYYYMMDD + HHMMSS + 일련번호 6자리로 생성; 아래 채번 규칙 참조. 요청 전 NULL |
+| fin_request_amount | `BIGINT NULL` | 이번 시도의 체크카드 출금 요청액(결제 금액 − 즉시할인). fin_request_no와 같은 트랜잭션에서 저장하고 재승인·되돌리기 때 함께 지운다. 출금 결과 불명 시 거래내역 금액과 비교한다. 출금 요청 전·신용카드·0원 승인은 NULL; S15P31E103-292 이전 행도 NULL이라 requested_amount로 비교 |
 | fin_transaction_no | `VARCHAR(128) CHARACTER SET ascii COLLATE ascii_bin NULL` | 체크카드 출금 성공 시 금융망이 반환한 거래 번호; 상태 코드가 아님. 신용카드는 승인 시 NULL이며 결제일 출금 번호는 CARD_BILL에 저장 |
 | created_at | `TIMESTAMP(6) NOT NULL` | UTC 생성 시각 |
 | updated_at | `TIMESTAMP(6) NOT NULL` | UTC 수정 시각 |
@@ -457,6 +460,7 @@ CONSTRAINT ck_payment_channel CHECK (payment_channel IN ('ONLINE','OFFLINE','UNK
 CONSTRAINT ck_payment_card_pair CHECK ((user_card_id IS NULL AND card_product_id IS NULL) OR (user_card_id IS NOT NULL AND card_product_id IS NOT NULL));
 CONSTRAINT ck_payment_amounts CHECK (requested_amount > 0 AND (approved_amount IS NULL OR approved_amount >= 0) AND (recognized_performance_amount IS NULL OR recognized_performance_amount >= 0));
 CONSTRAINT ck_payment_installment CHECK (installment_months IS NULL OR installment_months > 0);
+CONSTRAINT ck_payment_fin_request_amount CHECK (fin_request_amount IS NULL OR fin_request_amount > 0);
 CONSTRAINT ck_payment_performance_basis CHECK (performance_basis_amount IS NULL OR performance_basis_amount >= 0);
 CONSTRAINT ck_payment_month CHECK (performance_month IS NULL OR DAYOFMONTH(performance_month) = 1);
 CONSTRAINT ck_payment_source CHECK (source IN ('YAMU','SEED'));
@@ -878,3 +882,75 @@ CONSTRAINT ck_notification_target CHECK ((target_type IS NULL AND target_id IS N
 - [스키마 안내·정책 원본 위치](README.md)
 - [서비스 구현 책임·검증 방법](implementation.md)
 - [Flyway SQL 전체 적용 순서](../../../be/src/main/resources/db/migration)
+
+## 2026-11-03 구매 항목·혜택 조합 확장
+
+아래 정의는 V20261103_1에서 추가한다. 생성 SQL과 JPA 매핑이 실행 기준이다.
+
+### purchase_item — 혜택 판정 구매 항목
+
+| 컬럼 | SQL 정의 | 의미 |
+|---|---|---|
+| purchase_item_code | `VARCHAR(64) NOT NULL PRIMARY KEY` | 대문자·숫자·밑줄 코드, CHECK |
+| display_name | `VARCHAR(150) NOT NULL` | 표시 이름 |
+| is_active | `BOOLEAN NOT NULL DEFAULT TRUE` | 0/1 CHECK, 비활성은 신규 선택 제한 |
+
+사용된 코드 삭제·의미 변경·재사용 금지. 비활성화가 과거 거래의 코드를 바꾸지는 않는다.
+
+### benefit_target_group — 대상 AND 경로
+
+| 컬럼 | SQL 정의 | 의미 |
+|---|---|---|
+| benefit_target_group_id | `BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY` | 경로 ID |
+| card_benefit_id | `BIGINT NOT NULL` | 특정 혜택 정책 버전 FK, 삭제 제한 |
+| group_code | `VARCHAR(64) NOT NULL` | 고정 Seed 논리 코드 |
+| is_excluded | `BOOLEAN NOT NULL` | 0/1 CHECK, 제외 경로 여부 |
+| created_at | `TIMESTAMP(6) NOT NULL` | UTC 생성 시각 |
+
+UNIQUE(card_benefit_id,group_code), UNIQUE(benefit_target_group_id,card_benefit_id). 별도 정책 버전은 없다.
+
+### benefit_target_group_member — 경로 멤버
+
+| 컬럼 | SQL 정의 | 의미 |
+|---|---|---|
+| benefit_target_group_id | `BIGINT NOT NULL` | 경로 |
+| benefit_target_id | `BIGINT NOT NULL` | 대상 |
+| card_benefit_id | `BIGINT NOT NULL` | 같은 혜택 연결 검증 |
+
+PK(benefit_target_group_id,benefit_target_id). 그룹/혜택 및 대상/혜택 각각 복합 FK, 연쇄 삭제 없음. 빈 경로·CONDITION 멤버·그룹에 연결되지 않은 일반 대상은 서비스가 거절한다.
+
+### benefit_application_group — 혜택 적용 방식
+
+| 컬럼 | SQL 정의 | 의미 |
+|---|---|---|
+| benefit_application_group_id | `BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY` | 적용 그룹 ID |
+| card_product_id | `BIGINT NOT NULL` | 상품 FK, 삭제 제한 |
+| group_code | `VARCHAR(64) NOT NULL` | 논리 코드 |
+| policy_version | `SMALLINT NOT NULL` | 양수 CHECK |
+| application_mode | `VARCHAR(16) NOT NULL` | STACK/MAX_ONE/PRIORITY_ONE CHECK |
+
+UNIQUE(card_product_id,group_code,policy_version), UNIQUE(benefit_application_group_id,card_product_id).
+
+### benefit_application_member — 적용 그룹 혜택
+
+| 컬럼 | SQL 정의 | 의미 |
+|---|---|---|
+| benefit_application_group_id | `BIGINT NOT NULL` | 적용 그룹 |
+| card_benefit_id | `BIGINT NOT NULL` | 특정 혜택 버전, UNIQUE |
+| card_product_id | `BIGINT NOT NULL` | 같은 상품 복합 FK 검증 |
+| priority_order | `SMALLINT NULL` | NULL 또는 양수 CHECK |
+
+PK(benefit_application_group_id,card_benefit_id). 그룹/상품, 혜택/상품 복합 FK, 삭제 제한. PRIORITY_ONE 필수 우선순위 및 STACK/MAX_ONE의 NULL 우선순위는 서비스 검증이다. 같은 우선순위의 동시 적용은 ID 정렬로 해결하지 않는다.
+
+### 기존 테이블 추가 컬럼
+
+| 테이블·컬럼 | SQL 정의 | 의미 |
+|---|---|---|
+| card_benefit.fallback_benefit_id | `BIGINT NULL` | 같은 상품의 기본 혜택 복합 FK |
+| card_benefit.fallback_mode | `VARCHAR(32) NULL` | 현재 EXCESS_PAYMENT_AMOUNT |
+| payment_transaction.purchase_item_code | `VARCHAR(64) NULL` | purchase_item FK, 삭제 제한, 과거 거래 NULL 보존 |
+| payment_transaction.recommendation_result_json | `JSON NULL` | 승인 결과와 구분한 당시 추천 결과, 과거 NULL 보존 |
+
+fallback 두 필드는 동시에 NULL이거나 동시에 값이어야 한다. MySQL AUTO_INCREMENT CHECK 제한 때문에 자기 참조는 INSERT/UPDATE 트리거로 차단한다. 한 단계·정률·양수 우대율·연쇄/순환 금지와 금액 한도 하나 검증은 조립기/계산기에서 수행한다.
+
+추천 JSON은 schemaVersion=1, 후보별 netBenefit 필수, benefits[].amount nullable, unallocatedBenefitGroups 배열 필수다. NULL은 미확정이며 0원과 다르다. 단순 조회로 재계산·실적/사용량 갱신·과거 결과 생성을 하지 않는다. 결제 담당의 트랜잭션·재시도·소유권/동시 저장 책임은 [연결 계약](../benefit-composition.md)을 따른다.

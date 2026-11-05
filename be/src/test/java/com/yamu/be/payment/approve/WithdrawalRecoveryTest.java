@@ -157,6 +157,43 @@ class WithdrawalRecoveryTest {
     }
 
     @Test
+    void 즉시할인으로_요청액보다_적게_출금했으면_저장한_출금액으로_찾아_그_금액으로_승인한다() {
+        // 15,000원 결제에 즉시할인 1,000원 → 14,000원 출금. 요청액으로 찾으면 금액 불일치로 PROCESSING에 남았다
+        payment = processingWithRequestNo(14_000);
+        when(transfer.findByTag("user-key", "0012345678901234", TransferTag.payment(PAYMENT_ID), 14_000, TX_NO))
+                .thenReturn(new TagLookup(Result.FOUND, List.of(bankWithdrawal(14_000))));
+
+        assertThat(recovery.recover(PAYMENT_ID)).isEqualTo(PaymentStatus.APPROVED);
+
+        assertThat(payment.getApprovedAmount()).isEqualTo(14_000);
+        verify(transfer, never()).findByTag(anyString(), anyString(), any(), eq(15_000L), anyString());
+        verify(attempts).recordResult(eq(PAYMENT_ID), eq(ATTEMPT),
+                argThat(a -> Attempt.APPROVED.equals(a.outcome()) && Long.valueOf(14_000).equals(a.chargedAmount())));
+    }
+
+    @Test
+    void 출금_요청액이_없는_옛_행은_결제_요청액으로_찾는다() {
+        ReflectionTestUtils.setField(payment, "finRequestAmount", null);
+        when(transfer.findByTag("user-key", "0012345678901234", TransferTag.payment(PAYMENT_ID), 15_000, TX_NO))
+                .thenReturn(new TagLookup(Result.FOUND, List.of(bankWithdrawal(15_000))));
+
+        assertThat(recovery.recover(PAYMENT_ID)).isEqualTo(PaymentStatus.APPROVED);
+        assertThat(payment.getApprovedAmount()).isEqualTo(15_000);
+    }
+
+    @Test
+    void 즉시할인_결제의_늦은_출금도_저장한_출금액으로_찾아_승인으로_바로잡는다() {
+        payment = processingWithRequestNo(14_000);
+        payment.decline("WITHDRAWAL_NOT_CONFIRMED");
+        when(transfer.findByTag("user-key", "0012345678901234", TransferTag.payment(PAYMENT_ID), 14_000, TX_NO))
+                .thenReturn(new TagLookup(Result.FOUND, List.of(bankWithdrawal(14_000))));
+
+        assertThat(recovery.recheckBeforeRetry(PAYMENT_ID)).isEqualTo(WithdrawalRecovery.LateCheck.CONFIRMED);
+        assertThat(payment.getStatus()).isEqualTo(PaymentStatus.APPROVED);
+        assertThat(payment.getApprovedAmount()).isEqualTo(14_000);
+    }
+
+    @Test
     void 태그가_없으면_유예_전엔_PROCESSING_유예_뒤엔_WITHDRAWAL_NOT_CONFIRMED로_거절한다() {
         when(transfer.findByTag(anyString(), anyString(), any(), anyLong(), anyString()))
                 .thenReturn(new TagLookup(Result.NOT_FOUND, List.of()));
@@ -353,9 +390,14 @@ class WithdrawalRecoveryTest {
     }
 
     private static PaymentTransaction processingWithRequestNo() {
+        return processingWithRequestNo(15_000);
+    }
+
+    /** @param withdrawalAmount 출금 요청액(결제 요청액 15,000원 − 즉시할인) */
+    private static PaymentTransaction processingWithRequestNo(long withdrawalAmount) {
         PaymentTransaction payment = requested();
         payment.startApproval(16L, 4L);
-        payment.assignFinRequestNo(TX_NO);
+        payment.assignFinRequestNo(TX_NO, withdrawalAmount);
         return payment;
     }
 }

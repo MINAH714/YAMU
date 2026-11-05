@@ -16,6 +16,7 @@ import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
@@ -34,7 +35,7 @@ import org.springframework.transaction.annotation.Transactional;
  *       뒤 규칙은 다시 수정할 때 지워지고 새로 만들어지지만 첫 규칙은 남기 때문이다. 앞으로 남은 회차가 없으면 null이다</li>
  *   <li>수정은 보낸 필드만 바꾸고, 같은 사용자의 수정은 사용자 행 잠금으로 차례로 처리한다</li>
  * </ul>
- * 아직 잔고예보·생활비 계산은 이 설정을 읽지 않는다. 잔고예보 API(컨트롤러)를 붙이는 MR에서 연결한다.
+ * 잔고예보 조회는 안전 잔액·기간 기준·기본 일수와 다음 월급일({@link #nextIncomeDate})을 읽는다. 생활비 상세는 같은 기간과 하루 목표를 읽는다.
  */
 @Service
 public class ForecastSettingsService {
@@ -111,6 +112,48 @@ public class ForecastSettingsService {
         return new ForecastSettingsResponse(base == null ? null : base.accountId(), base, settings.horizon(),
                 settings.defaultDays(), settings.alertThreshold(), income, settings.dailyLivingCostTarget(),
                 settings.includeCandidates(), settings.conservativeLine(), settings.updatedAt());
+    }
+
+    /**
+     * 설정한 월급 시리즈에서 after보다 뒤의 첫 입금일. 월급이 없거나 지금 월급으로 쓸 수 없거나(설정 조회에서 income이 null인 경우와 같음),
+     * after 다음 날부터 두 달 안에 회차가 없으면 empty다. 날짜는 가계부 목록과 같은 계산(말일 보정, 이번만 옮김 반영)이다.
+     *
+     * @param incomeCashflowItemId 설정에 저장한 월급 시리즈의 첫 규칙 ID. null이면 월급 없음
+     * @param after                이 날은 빼고 그 뒤부터 찾는다(한국 날짜)
+     */
+    @Transactional(readOnly = true)
+    Optional<LocalDate> nextIncomeDate(long userId, Long incomeCashflowItemId, LocalDate after) {
+        if (incomeCashflowItemId == null) {
+            return Optional.empty();
+        }
+        Optional<CashflowItem> latest = latest(userId, incomeCashflowItemId);
+        if (latest.isEmpty() || !isUsableIncome(userId, latest.get())) {
+            return Optional.empty();
+        }
+        Set<Long> series = seriesIds(userId, incomeCashflowItemId);
+        return cashflows.list(userId, after.plusDays(1), after.plusDays(UPCOMING_DAYS), CashflowItem.Direction.INCOME,
+                        CashflowItem.Status.CONFIRMED, true).stream()
+                .filter(entry -> series.contains(entry.item().id()))
+                .map(CashflowService.Entry::date)
+                .min(Comparator.naturalOrder());
+    }
+
+    /**
+     * 저장한 규칙부터 "이후 전부" 수정으로 이어진 마지막 규칙까지의 ID. 수정 전 규칙에도 아직 남은 회차가 있을 수 있어 모두 본다.
+     * 내 항목이 아니거나 없으면 빈 집합이다.
+     */
+    private Set<Long> seriesIds(long userId, long cashflowItemId) {
+        Set<Long> ids = new HashSet<>();
+        Optional<CashflowItem> current = cashflowItems.findById(cashflowItemId)
+                .filter(item -> item.getUserId().equals(userId));
+        while (current.isPresent() && ids.add(current.get().getId())) {
+            List<CashflowItem> next = cashflowItems.findByPreviousCashflowItemIdAndUserId(current.get().getId(), userId);
+            if (next.size() > 1) {
+                throw new IllegalStateException("가계부 시리즈가 갈라져 있다 (cashflowItemId=" + current.get().getId() + ")");
+            }
+            current = next.stream().findFirst();
+        }
+        return ids;
     }
 
     /** 월급으로 지정할 항목. 이어진 최신 규칙이 월급으로 쓸 수 없으면 400, 없거나 남의 항목이면 404. */

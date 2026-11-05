@@ -120,31 +120,48 @@ class PaymentTransactionTransitionTest {
     @Test
     void 출금_요청_번호는_PROCESSING에서_한_번만_받고_다음_시도가_시작되면_지워진다() {
         PaymentTransaction payment = requested();
-        assertThatThrownBy(() -> payment.assignFinRequestNo("20261022143005000001"))
+        assertThatThrownBy(() -> payment.assignFinRequestNo("20261022143005000001", 15_000))
                 .isInstanceOf(IllegalStateException.class);
 
         payment.startApproval(15L, 3L);
-        payment.assignFinRequestNo("20261022143005000001");
+        payment.assignFinRequestNo("20261022143005000001", 15_000);
         assertThat(payment.getFinRequestNo()).isEqualTo("20261022143005000001");
-        assertThatThrownBy(() -> payment.assignFinRequestNo("20261022143005000002"))
+        assertThatThrownBy(() -> payment.assignFinRequestNo("20261022143005000002", 15_000))
                 .isInstanceOf(IllegalStateException.class);
 
         payment.decline("WITHDRAWAL_NOT_CONFIRMED");
         payment.startApproval(16L, 4L);
         assertThat(payment.getFinRequestNo()).isNull();
+        assertThat(payment.getFinRequestAmount()).isNull();
         assertThat(payment.getFinTransactionNo()).isNull();
+    }
+
+    @Test
+    void 출금_요청액은_요청_번호와_함께_저장되고_1원_이상이어야_한다() {
+        PaymentTransaction payment = requested();
+        payment.startApproval(15L, 3L);
+
+        assertThatThrownBy(() -> payment.assignFinRequestNo("20261022143005000001", 0))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThat(payment.getFinRequestNo()).isNull();
+
+        // 즉시할인 1,000원: 출금 요청액은 결제 요청액보다 작다
+        payment.assignFinRequestNo("20261022143005000001", 14_000);
+        assertThat(payment.getFinRequestAmount()).isEqualTo(14_000L);
+        assertThat(payment.getRequestedAmount()).isEqualTo(15_000L);
     }
 
     @Test
     void 되돌리기는_PROCESSING을_REQUESTED로_바꾸고_번호와_사유를_지우되_카드는_남긴다() {
         PaymentTransaction payment = requested();
         payment.startApproval(15L, 3L);
-        payment.assignFinRequestNo("20261022143005000001");
+        payment.assignFinRequestNo("20261022143005000001", 15_000);
 
         payment.releaseApproval();
 
         assertThat(payment.getStatus()).isEqualTo(PaymentStatus.REQUESTED);
         assertThat(payment.getFinRequestNo()).isNull();
+        assertThat(payment.getFinRequestAmount()).isNull();
         assertThat(payment.getFailureCode()).isNull();
         assertThat(payment.getUserCardId()).isEqualTo(15L);
         assertThat(payment.isConfirmable()).isTrue();

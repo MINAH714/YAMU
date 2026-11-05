@@ -796,14 +796,37 @@ INSERT INTO ab20_target VALUES
 ('LOTTE', 'LOCA LIKIT Shop', 'CREDIT', 'MEMBERSHIP_60', 'BRAND', NULL, 'NAVER_PLUS_MEMBERSHIP', 0);
 
 INSERT INTO benefit_target (card_benefit_id, target_type, merchant_id, target_value, is_excluded, created_at)
-SELECT b.card_benefit_id, s.target_type, m.merchant_id, s.target_value, s.is_excluded, @ab20_now
+SELECT DISTINCT b.card_benefit_id, s.target_type, m.merchant_id, s.target_value, IF(s.target_type='CONDITION',s.is_excluded,0), @ab20_now
 FROM ab20_target s
 JOIN card_product p ON p.issuer_code = s.issuer_code AND p.product_name = s.product_name AND p.card_type = s.card_type
 JOIN card_benefit b ON b.card_product_id = p.card_product_id AND b.benefit_code = s.benefit_code AND b.policy_version = 1
 LEFT JOIN merchant m ON m.brand_code = s.brand_code
 WHERE NOT EXISTS (SELECT 1 FROM benefit_target t
-    WHERE t.card_benefit_id = b.card_benefit_id AND t.target_type = s.target_type AND t.is_excluded = s.is_excluded
+    WHERE t.card_benefit_id = b.card_benefit_id AND t.target_type = s.target_type AND t.is_excluded = IF(s.target_type='CONDITION',s.is_excluded,0)
       AND t.target_key = (CASE WHEN s.target_type = 'BRAND' THEN CAST(m.merchant_id AS CHAR) WHEN s.target_type = 'ALL' THEN '*' ELSE s.target_value END));
+-- target groups generated; CONDITION stays common, not a group member.
+INSERT INTO benefit_target_group(card_benefit_id,group_code,is_excluded,created_at)
+SELECT DISTINCT b.card_benefit_id, CONCAT('LEGACY_',s.is_excluded,'_',LEFT(SHA2(CONCAT(s.target_type,':',COALESCE(s.brand_code,s.target_value,'*')),256),40)), s.is_excluded, @ab20_now
+FROM ab20_target s
+JOIN card_product p ON p.issuer_code = s.issuer_code AND p.product_name = s.product_name AND p.card_type = s.card_type
+JOIN card_benefit b ON b.card_product_id = p.card_product_id AND b.benefit_code = s.benefit_code AND b.policy_version = 1
+LEFT JOIN merchant m ON m.brand_code = s.brand_code
+
+WHERE s.target_type <> 'CONDITION' AND NOT EXISTS (
+ SELECT 1 FROM benefit_target_group g WHERE g.card_benefit_id=b.card_benefit_id AND g.group_code=CONCAT('LEGACY_',s.is_excluded,'_',LEFT(SHA2(CONCAT(s.target_type,':',COALESCE(s.brand_code,s.target_value,'*')),256),40)));
+INSERT INTO benefit_target_group_member(benefit_target_group_id,benefit_target_id,card_benefit_id)
+SELECT DISTINCT g.benefit_target_group_id,t.benefit_target_id,b.card_benefit_id
+FROM ab20_target s
+JOIN card_product p ON p.issuer_code = s.issuer_code AND p.product_name = s.product_name AND p.card_type = s.card_type
+JOIN card_benefit b ON b.card_product_id = p.card_product_id AND b.benefit_code = s.benefit_code AND b.policy_version = 1
+LEFT JOIN merchant m ON m.brand_code = s.brand_code
+
+JOIN benefit_target_group g ON g.card_benefit_id=b.card_benefit_id AND g.group_code=CONCAT('LEGACY_',s.is_excluded,'_',LEFT(SHA2(CONCAT(s.target_type,':',COALESCE(s.brand_code,s.target_value,'*')),256),40))
+JOIN benefit_target t ON t.card_benefit_id=b.card_benefit_id AND t.target_type=s.target_type
+ AND t.merchant_id <=> m.merchant_id AND t.target_value <=> s.target_value AND t.is_excluded=0
+WHERE s.target_type <> 'CONDITION' AND NOT EXISTS (
+ SELECT 1 FROM benefit_target_group_member x WHERE x.benefit_target_group_id=g.benefit_target_group_id AND x.benefit_target_id=t.benefit_target_id);
+
 
 CREATE TEMPORARY TABLE ab20_limit (
     issuer_code VARCHAR(32) NOT NULL, product_name VARCHAR(150) NOT NULL, card_type VARCHAR(16) NOT NULL,

@@ -51,6 +51,11 @@ yamu:
   # PC·CI에 DATA_GO_KR_SERVICE_KEY가 있어도 테스트가 실제 공휴일 API를 부르지 않게 비워 둔다
   holiday:
     service-key: ""
+  # 운영 API 테스트 키. 청구 정기 작업 스케줄은 끄고(기본값) 테스트가 작업을 직접 부른다
+  admin:
+    key: test-admin-key
+  billing:
+    jobs-enabled: false
   payment:
     approve:
       idempotency-ttl: 24h

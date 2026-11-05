@@ -203,6 +203,7 @@ fun YamuNavHost(navController: NavHostController, modifier: Modifier = Modifier)
                     HomeRoute(
                         onPay = { navController.navigate(PayCode) },
                         onForecast = { navController.navigate(Forecast) },
+                        onCashflow = { navController.navigate(CashflowList) },
                         onNotifications = { navController.navigate(Notifications) },
                         onMyCards = { navController.navigate(MyCards) },
                         onStartLinking = { navController.navigate(LinkGraph) },

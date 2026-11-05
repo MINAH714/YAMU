@@ -103,6 +103,33 @@ class CheckCardApproverTest {
     }
 
     @Test
+    void 즉시할인이_있으면_할인_뒤_금액을_출금하고_승인액도_그_금액이다() {
+        when(transfer.withdraw(anyString(), anyString(), anyLong(), any(), anyString()))
+                .thenReturn(new TransferResult(Status.SUCCESS, "1101", LocalDate.of(2026, 10, 22), null, null));
+
+        ApprovalOutcome.Approved approved = (ApprovalOutcome.Approved) approver.approve(command(candidate(14_000)));
+
+        // POS 결과는 요청액 − 승인액으로 즉시할인을 보여 주므로 승인액이 출금액과 같아야 한다
+        assertThat(approved.approvedAmount()).isEqualTo(14_000);
+        assertThat(approved.chargedAmount()).isEqualTo(14_000);
+        verify(transfer).withdraw("user-key", "0012345678901234", 14_000, TransferTag.payment(PAYMENT_ID), TX_NO);
+    }
+
+    @Test
+    void 출금을_부르기_전에_요청_번호와_출금액을_결제_행에_먼저_저장한다() {
+        when(transfer.withdraw(anyString(), anyString(), anyLong(), any(), anyString())).thenAnswer(inv -> {
+            // 결과를 모를 때 복구가 이 금액으로 거래내역을 비교한다
+            assertThat(payment.getFinRequestNo()).isEqualTo(inv.getArgument(4));
+            assertThat(payment.getFinRequestAmount()).isEqualTo(inv.<Long>getArgument(2));
+            return new TransferResult(Status.SUCCESS, "1101", LocalDate.of(2026, 10, 22), null, null);
+        });
+
+        approver.approve(command(candidate(14_000)));
+
+        assertThat(payment.getFinRequestAmount()).isEqualTo(14_000L);
+    }
+
+    @Test
     void 출금을_부르기_전에_요청_번호를_결제_행에_먼저_저장한다() {
         when(transfer.withdraw(anyString(), anyString(), anyLong(), any(), anyString())).thenAnswer(inv -> {
             // 출금 호출 시점에 행에는 이미 같은 번호가 있어야 한다
@@ -122,12 +149,14 @@ class CheckCardApproverTest {
         ApprovalOutcome outcome = approver.approve(command(candidate(0)));
 
         ApprovalOutcome.Approved approved = (ApprovalOutcome.Approved) outcome;
+        assertThat(approved.approvedAmount()).isZero();
         assertThat(approved.chargedAmount()).isZero();
         assertThat(approved.finRequestNo()).isNull();
         assertThat(approved.finTransactionNo()).isNull();
         verify(transfer, never()).newTransactionNo();
         verify(transfer, never()).withdraw(anyString(), anyString(), anyLong(), any(), anyString());
         assertThat(payment.getFinRequestNo()).isNull();
+        assertThat(payment.getFinRequestAmount()).isNull();
     }
 
     @Test
