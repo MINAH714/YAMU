@@ -11,9 +11,14 @@ import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
+import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
 import java.time.YearMonth;
 import org.springframework.format.annotation.DateTimeFormat;
+import org.springframework.http.ContentDisposition;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -21,16 +26,21 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-/** 사용자 결제 내역. API 명세 V2 「결제 내역 목록 조회」「결제 상세 조회」. */
+/**
+ * 사용자 결제 내역. API 명세 V2 「결제 내역 목록 조회」「결제 상세 조회」「결제 내역 CSV 내려받기」.
+ * CSV는 파일이라 공통 응답(ApiResponse)으로 감싸지 않는다. 실패는 공통 예외 처리기가 JSON으로 답한다.
+ */
 @Tag(name = "결제 내역")
 @RestController
 @RequestMapping("/api/payments")
 class PaymentHistoryController {
 
     private final PaymentHistoryService service;
+    private final PaymentExportService export;
 
-    PaymentHistoryController(PaymentHistoryService service) {
+    PaymentHistoryController(PaymentHistoryService service, PaymentExportService export) {
         this.service = service;
+        this.export = export;
     }
 
     @Operation(summary = "결제 내역 목록 조회",
@@ -62,6 +72,34 @@ class PaymentHistoryController {
             @Max(value = PageResponse.MAX_SIZE, message = "size는 100 이하입니다.") int size) {
         return ApiResponse.ok(service.list(me, yearMonth, from, to, userCardId, status, source,
                 new PaymentHistoryService.Conditions(q, categoryCode, spendingClass, channel, benefitStatus), page, size));
+    }
+
+    @Operation(summary = "결제 내역 CSV 내려받기",
+            description = "결제 내역 목록과 같은 조건(page·size 제외)으로 전체를 text/csv(UTF-8 BOM)로 내려준다. 결제일시는 한국 시각. "
+                    + "기간은 12개월까지이고 시작·종료일을 모두 정해야 한다(아니면 400 RANGE_TOO_LARGE, 1만 건을 넘어도 같은 400). "
+                    + "사용자마다 분당 3번까지(넘으면 429 RATE_LIMITED, details.retryAfterSeconds). 실패 응답은 공통 JSON이다.")
+    @GetMapping(value = "/export", produces = {"text/csv", "application/json"})
+    ResponseEntity<byte[]> export(@AuthenticationPrincipal AuthUser me,
+            @Parameter(description = "한국 기준 월(YYYY-MM)") @RequestParam(required = false) YearMonth yearMonth,
+            @Parameter(description = "한국 날짜, 포함") @RequestParam(required = false)
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+            @Parameter(description = "한국 날짜, 포함") @RequestParam(required = false)
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
+            @RequestParam(required = false) Long userCardId,
+            @RequestParam(required = false) PaymentStatus status,
+            @RequestParam(required = false) TransactionSource source,
+            @RequestParam(required = false) String q,
+            @RequestParam(required = false) String categoryCode,
+            @RequestParam(required = false) String spendingClass,
+            @RequestParam(required = false) BenefitStatus benefitStatus,
+            @RequestParam(required = false) PaymentChannel channel) {
+        PaymentExportService.CsvFile file = export.export(me, yearMonth, from, to, userCardId, status, source,
+                new PaymentHistoryService.Conditions(q, categoryCode, spendingClass, channel, benefitStatus));
+        return ResponseEntity.ok()
+                .contentType(new MediaType("text", "csv", StandardCharsets.UTF_8))
+                .header(HttpHeaders.CONTENT_DISPOSITION,
+                        ContentDisposition.attachment().filename(file.filename(), StandardCharsets.UTF_8).build().toString())
+                .body(file.content());
     }
 
     @Operation(summary = "결제 상세 조회",
