@@ -54,7 +54,7 @@ public class JobRunService {
         Instant asOf = request != null && request.asOf() != null ? request.asOf() : clock.instant();
         JobRunCommand command = new JobRunCommand(asOf, request == null ? null : request.userId(),
                 request != null && Boolean.TRUE.equals(request.dryRun()));
-        requireUserForFuture(command);
+        rejectFuture(command);
         log.info("정기 작업 수동 실행 job={} asOf={} userId={} dryRun={}", jobName, asOf, command.userId(),
                 command.dryRun());
         JobRunReport report = jobLocks.locked(jobName, () -> job.run(command));
@@ -67,16 +67,18 @@ public class JobRunService {
     }
 
     /**
-     * 미래 {@code asOf}(한국 날짜가 오늘보다 뒤)로 실제 실행할 때는 {@code userId}가 있어야 한다. 미래로 돌린 결과(이용기간이 안 끝난
-     * 청구서 확정 등)는 되돌리지 않으므로, 배포 서버에서 실수로 미래 날짜를 넣어도 전체 사용자가 아니라 시연 계정 하나만 바뀌게 한다.
-     * 대상을 고르는 기준이 한국 날짜라 같은 날의 뒤 시각은 지금과 결과가 같아 막지 않는다. {@code dryRun}은 바꾸는 것이 없어 막지 않는다.
-     * 임시: 명세(「[운영] 정기 작업 수동 실행」)에 없는 제한이다.
+     * 미래 {@code asOf}(한국 날짜가 오늘보다 뒤)는 400으로 막는다. 미래로 돌리면 이용기간이 안 끝난 청구서도 확정되고 되돌릴 수 없으며,
+     * 그 뒤 실제 마감일까지 그 카드로 같은 청구 월에 결제하면 422 {@code BILL_CLOSED}가 된다(MR !125 리뷰). 시연을 위해 이 결과를
+     * 감수하지 않기로 했다(2026-11-05). 대상을 고르는 기준이 한국 날짜라 오늘 안의 뒤 시각은 지금과 결과가 같아 막지 않는다.
+     * {@code dryRun}도 같은 규칙을 따른다.
+     *
+     * <p>명세와 다름: 「[운영] 정기 작업 수동 실행」은 "미래로 두면 그 날짜 기준으로 처리"다(노션 반영 필요).
      */
-    private void requireUserForFuture(JobRunCommand command) {
+    private void rejectFuture(JobRunCommand command) {
         LocalDate today = LocalDate.now(clock.withZone(KST));
-        if (command.koreanDate().isAfter(today) && command.userId() == null && !command.dryRun()) {
+        if (command.koreanDate().isAfter(today)) {
             throw new BusinessException(ErrorCode.INVALID_REQUEST, Map.of("fieldErrors", List.of(
-                    new FieldErrorResponse("userId", "미래 asOf로 실행할 때는 처리할 사용자(userId)를 정해야 합니다."))));
+                    new FieldErrorResponse("asOf", "기준 시각은 오늘(한국 날짜)까지만 쓸 수 있습니다."))));
         }
     }
 

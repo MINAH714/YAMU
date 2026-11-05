@@ -1,22 +1,16 @@
 package com.yamu.be.payment.billing.confirm;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doReturn;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.yamu.be.global.calendar.BusinessDayCalendar;
-import com.yamu.be.global.exception.BusinessException;
 import com.yamu.be.global.job.JobLocks;
 import com.yamu.be.global.job.JobRunCommand;
 import com.yamu.be.global.job.JobRunReport;
 import com.yamu.be.payment.bank.SsafyTransferApi;
-import com.yamu.be.payment.billing.BillingCycle;
-import com.yamu.be.payment.billing.CreditBillingWriter;
-import com.yamu.be.payment.billing.InstallmentPlan;
 import com.yamu.be.support.Concurrently;
 import com.yamu.be.support.MySqlTestSupport;
 import com.yamu.be.support.OwnershipFixtures;
@@ -85,8 +79,6 @@ class BillConfirmIntegrationTest extends MySqlTestSupport {
     @Autowired BillConfirmJob job;
     @Autowired BillConfirmer confirmer;
     @Autowired ApplicationEvents events;
-    @Autowired CreditBillingWriter billingWriter;
-    @Autowired BusinessDayCalendar calendar;
 
     OwnershipFixtures fixtures;
     long user;
@@ -329,97 +321,44 @@ class BillConfirmIntegrationTest extends MySqlTestSupport {
                 .andExpect(jsonPath("$.data.summary.targets").value(0));
     }
 
-    // ───────── 미래 asOf (명세대로 허용, 결과는 되돌리지 않음) ─────────
+    // ───────── 미래 asOf (수동 실행은 오늘 한국 날짜까지만) ─────────
 
     @Test
-    void 미래_asOf면_이용기간이_안_끝난_청구서도_확정되고_그_뒤_같은_청구_월_신용_결제는_BILL_CLOSED다() {
-        // 실제 오늘(AS_OF, 11/2)에는 12월 청구서(이용기간 11/2~12/1)가 진행 중이다. 시연처럼 asOf를 12/2 00:30(한국)으로 돌린다
-        YearMonth december = YearMonth.of(2026, 12);
-        long bill = accumulating(user, card, december, LocalDate.of(2026, 12, 1));
-        item(payment(user, card, 10_000), user, card, bill, 1, 10_000, "PENDING");
-
-        JobRunReport report = run(Instant.parse("2026-12-01T15:30:00Z"), null, false);
-
-        assertThat(report.count(JobRunReport.Outcome.SUCCEEDED)).isEqualTo(1);
-        assertThat(billRow(bill).get("status")).isEqualTo("CONFIRMED");
-
-        // 그 뒤 실제 이용기간 안(11/20)에 같은 카드로 결제하면 12월 청구서에 회차를 붙여야 하는데 이미 확정돼 422 BILL_CLOSED다.
-        // 실제 마감일(12/1)이 지나 다음 청구 월로 넘어갈 때까지 그 카드로는 신용 결제를 할 수 없다
-        InstallmentPlan plan = InstallmentPlan.of(5_000, 1, new BillingCycle(15, 14), LocalDate.of(2026, 11, 20),
-                calendar);
-        assertThat(plan.installments().get(0).billingMonth()).isEqualTo(december);
-        assertThatThrownBy(() -> billingWriter.ensureBills(user, card, plan))
-                .isInstanceOfSatisfying(BusinessException.class,
-                        e -> assertThat(e.getDetails()).containsEntry("reason", "BILL_CLOSED"));
-    }
-
-    @Test
-    void 몇_달_뒤_asOf면_할부의_다음_달_청구서도_함께_확정된다() {
-        // 할부는 승인 때 다음 달 회차까지 그 달 청구서에 붙여 둔다(3개월 할부의 2·3회차)
-        long installment = payment(user, card, 30_000);
-        long december = accumulating(user, card, YearMonth.of(2026, 12), LocalDate.of(2026, 12, 1));
-        item(installment, user, card, december, 2, 10_000, "PENDING");
-        long january = accumulating(user, card, YearMonth.of(2027, 1), LocalDate.of(2027, 1, 1));
-        item(installment, user, card, january, 3, 10_000, "PENDING");
-
-        // 2027-01-02 00:30(한국)
-        JobRunReport report = run(Instant.parse("2027-01-01T15:30:00Z"), null, false);
-
-        assertThat(report.count(JobRunReport.Outcome.SUCCEEDED)).isEqualTo(2);
-        assertThat(billRow(december).get("status")).isEqualTo("CONFIRMED");
-        assertThat(billRow(january).get("status")).isEqualTo("CONFIRMED");
-    }
-
-    @Test
-    void 수동_실행은_미래_asOf에_userId가_없으면_400이고_아무것도_바꾸지_않는다() throws Exception {
-        // 실제 시계 기준: 내일 마감인 청구서. 사흘 뒤로 돌리면 확정 대상이다
+    void 수동_실행은_미래_asOf면_userId를_줘도_400이고_아무것도_바꾸지_않는다() throws Exception {
+        // 실제 시계 기준: 내일 마감인 청구서. 사흘 뒤로 돌리면 확정 대상이 되지만 미래라 막는다
         LocalDate today = LocalDate.now(KOREA);
         long bill = accumulating(user, card, YearMonth.from(today.plusDays(1)), today.plusDays(1));
         item(payment(user, card, 10_000), user, card, bill, 1, 10_000, "PENDING");
-
-        mockMvc.perform(post("/api/admin/jobs/bill-confirm/run").header("X-Admin-Key", ADMIN_KEY)
-                        .contentType(MediaType.APPLICATION_JSON).content("{\"asOf\":\"" + koreanTime0030(today.plusDays(3)) + "\"}"))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.error.code").value("INVALID_REQUEST"))
-                .andExpect(jsonPath("$.error.details.fieldErrors[0].field").value("userId"));
-
-        assertThat(billRow(bill).get("status")).isEqualTo("ACCUMULATING");
-    }
-
-    @Test
-    void 수동_실행은_미래_asOf에_userId를_주면_그_사용자의_청구서만_확정한다() throws Exception {
-        LocalDate today = LocalDate.now(KOREA);
-        long mine = accumulating(user, card, YearMonth.from(today.plusDays(1)), today.plusDays(1));
-        item(payment(user, card, 10_000), user, card, mine, 1, 10_000, "PENDING");
-        long other = fixtures.user();
-        long otherCard = creditCard(other, fixtures.account(other));
-        long theirs = accumulating(other, otherCard, YearMonth.from(today.plusDays(1)), today.plusDays(1));
-        item(payment(other, otherCard, 20_000), other, otherCard, theirs, 1, 20_000, "PENDING");
 
         mockMvc.perform(post("/api/admin/jobs/bill-confirm/run").header("X-Admin-Key", ADMIN_KEY)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"asOf\":\"" + koreanTime0030(today.plusDays(3)) + "\",\"userId\":" + user + "}"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.summary.succeeded").value(1));
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("INVALID_REQUEST"))
+                .andExpect(jsonPath("$.error.details.fieldErrors[0].field").value("asOf"));
 
-        assertThat(billRow(mine).get("status")).isEqualTo("CONFIRMED");
-        assertThat(billRow(theirs).get("status")).isEqualTo("ACCUMULATING");
+        assertThat(billRow(bill).get("status")).isEqualTo("ACCUMULATING");
     }
 
     @Test
-    void 수동_실행은_미래_asOf라도_dryRun이면_userId_없이_대상만_센다() throws Exception {
-        LocalDate today = LocalDate.now(KOREA);
-        long bill = accumulating(user, card, YearMonth.from(today.plusDays(1)), today.plusDays(1));
-        item(payment(user, card, 10_000), user, card, bill, 1, 10_000, "PENDING");
+    void 수동_실행은_미래_asOf면_dryRun도_400이다() throws Exception {
+        LocalDate tomorrow = LocalDate.now(KOREA).plusDays(1);
 
         mockMvc.perform(post("/api/admin/jobs/bill-confirm/run").header("X-Admin-Key", ADMIN_KEY)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"asOf\":\"" + koreanTime0030(today.plusDays(3)) + "\",\"dryRun\":true}"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.dryRun").value(true))
-                .andExpect(jsonPath("$.data.summary.targets").value(1));
+                        .content("{\"asOf\":\"" + koreanTime0030(tomorrow) + "\",\"dryRun\":true}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.details.fieldErrors[0].field").value("asOf"));
+    }
 
-        assertThat(billRow(bill).get("status")).isEqualTo("ACCUMULATING");
+    @Test
+    void 수동_실행은_오늘_안의_뒤_시각은_받는다() throws Exception {
+        // 대상을 한국 날짜로 고르므로 오늘 23:59는 지금과 결과가 같다
+        Instant lateToday = LocalDate.now(KOREA).atTime(23, 59).atZone(KOREA).toInstant();
+
+        mockMvc.perform(post("/api/admin/jobs/bill-confirm/run").header("X-Admin-Key", ADMIN_KEY)
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"asOf\":\"" + lateToday + "\"}"))
+                .andExpect(status().isOk());
     }
 
     // ───────── 도우미 ─────────
