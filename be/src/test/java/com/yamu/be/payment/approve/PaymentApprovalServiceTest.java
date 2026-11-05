@@ -230,13 +230,13 @@ class PaymentApprovalServiceTest {
                 List.of(new ExpectedLimitUse(7L, 1, "KRW", "MONTHLY", java.math.BigDecimal.valueOf(5_000),
                         java.math.BigDecimal.valueOf(1_000))));
         when(recommender.recommend(any())).thenReturn(recommendation(List.of(fresh, candidate(2, CHECK))));
-        when(approver.approve(any())).thenAnswer(inv -> {
+        doAnswer(inv -> {
             ApprovalCommand command = inv.getArgument(0);
             long amount = command.chargedAmount();
             return new ApprovalOutcome.Approved(amount, amount, 0, ApprovalDates.performanceMonth(command.now()),
                     ApprovalOutcome.Approved.applied(command.candidate()), null, null, null, command.candidate());
-        });
-        when(ledger.recordApproval(eq(payment), any())).thenReturn(new ApprovalLedger.Recorded(Map.of(101L, 777L)));
+        }).when(approver).approve(any());
+        doReturn(new ApprovalLedger.Recorded(Map.of(101L, 777L))).when(ledger).recordApproval(eq(payment), any());
 
         PaymentApprovalResponse response = service.approve(ME, PAYMENT_ID, request(null), KEY);
 

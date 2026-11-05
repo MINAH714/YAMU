@@ -28,6 +28,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.Callable;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -80,6 +81,24 @@ class PaymentLedgerIntegrationTest extends MySqlTestSupport {
         monthly = limitGroup(product, "LIFE_SHARED", "MONTHLY");
         daily = limitGroup(product, "DAILY_CAP", "DAILY");
         otherProductLimit = limitGroup(otherProduct, "OTHER_SHARED", "MONTHLY");
+    }
+
+    /**
+     * 이 테스트가 만든 원장·혜택·한도 행을 지운다. 남기면 다른 테스트 클래스가 결제·카드·상품을 지울 때 외래 키에 걸린다.
+     * 결제·카드·사용자 행은 다른 클래스가 처음에 비우는 표라 남겨도 된다.
+     */
+    @AfterEach
+    void tearDown() {
+        List<Long> products = List.of(product, otherProduct);
+        for (String table : List.of("payment_benefit", "payment_limit_usage")) {
+            jdbc.update("DELETE FROM " + table + " WHERE card_product_id IN (?, ?)", product, otherProduct);
+        }
+        jdbc.update("DELETE FROM monthly_limit_usage WHERE user_card_id = ?", card);
+        jdbc.update("DELETE FROM card_monthly_performance WHERE user_card_id = ?", card);
+        for (Long id : products) {
+            jdbc.update("DELETE FROM limit_group WHERE card_product_id = ?", id);
+            jdbc.update("DELETE FROM card_benefit WHERE card_product_id = ?", id);
+        }
     }
 
     // ───────── 승인 반영 ─────────
