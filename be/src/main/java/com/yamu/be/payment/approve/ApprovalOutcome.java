@@ -15,15 +15,17 @@ public sealed interface ApprovalOutcome permits ApprovalOutcome.Approved, Approv
     /**
      * 승인.
      *
-     * @param approvedAmount              확정 승인액(원). 전액 즉시할인이면 0
-     * @param chargedAmount               체크카드는 즉시할인을 뺀 출금액, 신용카드는 승인 원금(청구할인은 청구 때)
+     * @param approvedAmount              확정 승인액(원) = 결제 금액 − 즉시할인. 전액 즉시할인이면 0
+     * @param chargedAmount               지금 빠지거나 청구에 올라가는 금액(결제 금액 − 즉시할인). 체크카드는 출금액, 신용카드는
+     *                                    청구 원금 합계다. 지금은 승인액과 같다. 청구할인·캐시백·적립은 빼지 않는다
      * @param recognizedPerformanceAmount 승인 시점에 확정한 실적 인정액. 실적 제외 거래면 0
      * @param performanceMonth            실적을 합산할 월(한국 날짜, 1일)
      * @param benefits                    적용한 혜택. 없으면 빈 목록
      * @param finRequestNo                체크카드 출금에 쓴 기관거래고유번호. 결과를 저장할 때 행의 번호와 같아야 한다(늦게 온 옛 시도의 결과 차단).
      *                                    신용카드·0원 승인은 null
      * @param finTransactionNo            체크카드 출금의 금융망 거래 번호. 신용카드·0원 승인은 null
-     * @param installments                신용카드의 청구 계획(회차별 원금·청구 월·출금 예정일). 결과 저장이 회차로 적는다. 체크카드는 null
+     * @param installments                신용카드의 청구 계획(회차별 원금·청구 월·출금 예정일). 결과 저장이 회차로 적는다.
+     *                                    체크카드와 신용카드 0원 승인은 null
      */
     record Approved(long approvedAmount, long chargedAmount, long recognizedPerformanceAmount,
             LocalDate performanceMonth, List<BenefitLine> benefits, String finRequestNo, String finTransactionNo,
