@@ -114,7 +114,14 @@ public final class CardBenefitCalculator {
                     List.of("excludeBrandDependentBenefits")));
         }
         return new Calculation(result.complete(), result.netBenefit(), result.benefits(), result.limitUses(),
-                result.problems(), result.unallocatedBenefitGroups(), context.missing.stream()
+                result.problems().stream().flatMap(problem -> {
+                    if (policy == null || problem.benefitId() == null
+                            || !List.of("CONDITION_UNKNOWN", "PRIORITY_CONDITION_UNKNOWN").contains(problem.code())) {
+                        return java.util.stream.Stream.of(problem);
+                    }
+                    return policy.benefits().stream().filter(b -> b.id() == problem.benefitId())
+                            .flatMap(b -> blockingCauses(transaction, policy, b).stream());
+                }).distinct().toList(), result.unallocatedBenefitGroups(), context.missing.stream()
                         .sorted(Comparator.comparingLong(MissingInformation::benefitId).thenComparing(MissingInformation::field)).toList(),
                 exclusions, rules.stream().distinct().toList());
     }
@@ -135,6 +142,21 @@ public final class CardBenefitCalculator {
     }
 
     private boolean excluded(long id) { return simulation != null && simulation.excluded.contains(id); }
+
+    private boolean performanceUnknown(BenefitPolicy policy, Benefit benefit) {
+        return benefit.minimumPerformance() == null || benefit.minimumPayment() == null
+                || benefit.minimumPerformance() > 0 && policy.previousMonthPerformance() == null;
+    }
+
+    private List<Problem> blockingCauses(Transaction transaction, BenefitPolicy policy, Benefit benefit) {
+        var evaluation = conditionEvaluator.explain(benefit.conditions(), transaction);
+        var problems = new ArrayList<Problem>();
+        evaluation.missingInformation().forEach(m -> problems.add(new Problem(benefit.id(), m.code())));
+        if (evaluation.policyUnknown()) problems.add(new Problem(benefit.id(), "CONDITION_UNKNOWN"));
+        if (performanceUnknown(policy, benefit)) problems.add(new Problem(benefit.id(), "PERFORMANCE_OR_MINIMUM_UNKNOWN"));
+        if (problems.isEmpty()) problems.add(new Problem(benefit.id(), "CONDITION_UNKNOWN"));
+        return problems.stream().distinct().toList();
+    }
 
     /** 0원 상세의 존재는 금액 계산 수행의 증거가 아니다. 건너뛴 단계의 가정은 반환하지 않는다. */
     private boolean usedPolicyField(BenefitValue value, String field) {
@@ -273,7 +295,7 @@ public final class CardBenefitCalculator {
     private Match applicable(Transaction transaction, BenefitPolicy policy, Benefit benefit, boolean allowExclusion, boolean recordEvidence) {
         if (benefit.conditions() == null || !benefit.conditions().currentVersionVerified()) return Match.UNKNOWN;
         if (zeroReason(transaction, policy, benefit) != null) return Match.NOT_MATCHED;
-        var match = conditionMatch(transaction, benefit, allowExclusion, recordEvidence);
+        var match = conditionMatch(transaction, benefit, allowExclusion && !performanceUnknown(policy, benefit), recordEvidence);
         if (match == Match.MATCHED && (benefit.minimumPerformance() == null || benefit.minimumPayment() == null
                 || benefit.minimumPerformance() > 0 && policy.previousMonthPerformance() == null)) return Match.UNKNOWN;
         return match;
@@ -318,7 +340,7 @@ public final class CardBenefitCalculator {
         // 전환 대상의 브랜드 미확인을 제외 옵션으로 건너뛰어 전환 완료로 확정하지 않는다.
         if (simulation != null && simulation.options.excludeBrandDependentBenefits()
                 && applicable(transaction, policy, base, false) == Match.UNKNOWN) {
-            return insufficient(base.id(), "FALLBACK_CONDITION_UNKNOWN");
+            return new Calculation(false, null, List.of(), List.of(), blockingCauses(transaction, policy, base));
         }
         var second = calculateCombination(transaction, withoutCost(policy, policy.benefits(), policy.limits()), List.of(base.id()), benefits, limits,
                 Map.of(base.id(), excess));
@@ -456,7 +478,7 @@ public final class CardBenefitCalculator {
                 values.add(zero(benefit, zeroReason));
                 continue;
             }
-            Match match = conditionMatch(transaction, benefit, true);
+            Match match = conditionMatch(transaction, benefit, !performanceUnknown(policy, benefit));
             if (excluded(benefitId)) continue;
             if (match == Match.NOT_MATCHED) {
                 values.add(zero(benefit, "CONDITION_NOT_MATCHED"));

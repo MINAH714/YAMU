@@ -96,7 +96,7 @@ class BrandMissingSimulationTest {
         assertThat(original.netBenefit()).isNull();
         assertThat(original.problems()).extracting(CardBenefitCalculator.Problem::code).containsExactly("CONDITION_UNKNOWN");
         var explicitOff = calculator.calculate(tx, policy, CalculationOptions.DEFAULT);
-        assertThat(explicitOff.problems()).isEqualTo(original.problems());
+        assertThat(explicitOff.problems()).extracting(CardBenefitCalculator.Problem::code).containsExactly("BRAND_MISSING");
         assertThat(explicitOff.netBenefit()).isNull();
         assertThat(explicitOff.excludedBenefits()).isEmpty();
         assertThat(explicitOff.missingInformation()).extracting(CardBenefitCalculator.MissingInformation::code).containsExactly("BRAND_MISSING");
@@ -140,7 +140,7 @@ class BrandMissingSimulationTest {
         assertThat(result.excludedBenefits()).isEmpty();
     }
 
-    @Test void disabledFallbackKeepsOriginalProblemCodeAndAmounts() {
+    @Test void disabledFallbackPreservesAmountsAndExplainsCauseWithoutChangingActualCode() {
         var fixture = new BenefitCompositionTest();
         var preferred = fixture.rate(1, "0.05", Unit.KRW, List.of(9L));
         var base = fixture.rate(2, "0.015", Unit.KRW, List.of());
@@ -149,7 +149,8 @@ class BrandMissingSimulationTest {
                 ApplicationMode.PRIORITY_ONE, Map.of(1L, new Fallback(2, "EXCESS_PAYMENT_AMOUNT")));
         var existing = calculator.calculate(tx, policy);
         var disabled = calculator.calculate(tx, policy, CalculationOptions.DEFAULT);
-        assertThat(disabled.problems()).isEqualTo(existing.problems());
+        assertThat(existing.problems()).extracting(CardBenefitCalculator.Problem::code).containsExactly("CONDITION_UNKNOWN");
+        assertThat(disabled.problems()).extracting(CardBenefitCalculator.Problem::code).containsExactly("BRAND_MISSING");
         assertThat(disabled.netBenefit()).isEqualTo(existing.netBenefit());
         assertThat(disabled.benefits()).isEqualTo(existing.benefits());
         assertThat(disabled.limitUses()).isEqualTo(existing.limitUses());
@@ -180,7 +181,7 @@ class BrandMissingSimulationTest {
             var result = calculator.calculate(tx, grouped(ApplicationMode.PRIORITY_ONE, brandOnly(), fallbacks), enabled);
             assertThat(result.complete()).isFalse();
             assertThat(result.netBenefit()).isNull();
-            assertThat(result.problems()).extracting(CardBenefitCalculator.Problem::code).containsExactly("PRIORITY_CONDITION_UNKNOWN");
+            assertThat(result.problems()).extracting(CardBenefitCalculator.Problem::code).containsExactly("BRAND_MISSING");
             assertThat(result.excludedBenefits()).isEmpty();
             assertThat(result.missingInformation()).extracting(CardBenefitCalculator.MissingInformation::code).containsExactly("BRAND_MISSING");
         }
@@ -250,7 +251,7 @@ class BrandMissingSimulationTest {
         assertThat(result.complete()).isFalse();
         assertThat(result.netBenefit()).isNull();
         assertThat(result.excludedBenefits()).containsExactly(new CardBenefitCalculator.ExcludedBenefit(1, "BRAND_MISSING"));
-        assertThat(result.problems()).containsExactly(new CardBenefitCalculator.Problem(2L, "CONDITION_UNKNOWN"));
+        assertThat(result.problems()).containsExactly(new CardBenefitCalculator.Problem(2L, "FACILITY_MISSING"));
         assertThat(result.missingInformation()).extracting(CardBenefitCalculator.MissingInformation::code)
                 .containsExactly("BRAND_MISSING", "FACILITY_MISSING");
     }
@@ -265,7 +266,39 @@ class BrandMissingSimulationTest {
         var result = calculator.calculate(tx, policy, enabled);
         assertThat(result.complete()).isFalse();
         assertThat(result.netBenefit()).isNull();
-        assertThat(result.problems()).extracting(CardBenefitCalculator.Problem::code).containsExactly("FALLBACK_CONDITION_UNKNOWN");
+        assertThat(result.problems()).extracting(CardBenefitCalculator.Problem::code).containsExactly("BRAND_MISSING");
         assertThat(result.excludedBenefits()).isEmpty();
+    }
+
+    @Test void fallbackPreservesPerformanceAndCombinedMissingCauses() {
+        var fixture = new BenefitCompositionTest();
+        for (boolean missingBrand : List.of(false, true)) {
+            var preferred = fixture.rate(1, "0.05", Unit.KRW, List.of(9L));
+            var b = fixture.rate(2, "0.015", Unit.KRW, List.of());
+            var base = new Benefit(b.id(), b.version(), b.name(), b.type(), b.calculationType(), b.rateOrFixedValue(),
+                    b.unit(), b.pointKrwRate(), b.baseAmount(), 0L, 300_000L,
+                    missingBrand ? brandOnly() : b.conditions(), b.rounding(), b.calculationOrder(), b.limitIds());
+            var p = fixture.policy(List.of(preferred, base), List.of(fixture.limit(9, Unit.KRW, 1000, 0)),
+                    ApplicationMode.PRIORITY_ONE, Map.of(1L, new Fallback(2, "EXCESS_PAYMENT_AMOUNT")));
+            var policy = new BenefitPolicy(true, null, BigDecimal.ZERO, p.benefits(), p.limits(), null,
+                    p.applicationGroups(), p.fallbacks());
+            for (var option : List.of(CalculationOptions.DEFAULT, enabled)) {
+                var result = calculator.calculate(tx, policy, option);
+                assertThat(result.complete()).isFalse();
+                assertThat(result.netBenefit()).isNull();
+                assertThat(result.excludedBenefits()).isEmpty();
+                assertThat(result.problems()).extracting(CardBenefitCalculator.Problem::code)
+                        .contains("PERFORMANCE_OR_MINIMUM_UNKNOWN").doesNotContain("FALLBACK_CONDITION_UNKNOWN");
+                if (missingBrand) assertThat(result.problems()).extracting(CardBenefitCalculator.Problem::code).contains("BRAND_MISSING");
+                else assertThat(result.problems()).extracting(CardBenefitCalculator.Problem::code).doesNotContain("BRAND_MISSING");
+                var independent = new BenefitPolicy(true, null, BigDecimal.ZERO, List.of(base), List.of(), List.of(List.of(2L)));
+                var standalone = calculator.calculate(tx, independent, option);
+                assertThat(standalone.complete()).isFalse();
+                assertThat(standalone.excludedBenefits()).isEmpty();
+                assertThat(standalone.problems()).extracting(CardBenefitCalculator.Problem::code)
+                        .contains("PERFORMANCE_OR_MINIMUM_UNKNOWN");
+                if (missingBrand) assertThat(standalone.problems()).extracting(CardBenefitCalculator.Problem::code).contains("BRAND_MISSING");
+            }
+        }
     }
 }

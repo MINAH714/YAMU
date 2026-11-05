@@ -5,6 +5,12 @@
 ## 호출 계약
 
 ```java
+// 가상 구매 공개 서비스: 기존 서버 조회·정책 조립·카드 추천을 재사용한다.
+RecommendationService.Result result =
+    recommendationService.recommendSimulation(userId, transaction, new CalculationOptions(true));
+// result.recommendation().paymentId() == null
+// evaluatedCards: 카드별 계산, rankedCards/selectedUserCardId: 기존 추천 결과
+
 // 실제 POS/승인: 기존 호출 유지. 옵션이나 모의 가정을 자동 적용하지 않는다.
 Calculation actual = calculator.calculate(transaction, policy);
 
@@ -15,9 +21,11 @@ Calculation strict = calculator.calculate(transaction, policy, CalculationOption
 Calculation scoped = calculator.calculate(transaction, policy, new CalculationOptions(true));
 ```
 
-`CalculationOptions`의 필드는 `excludeBrandDependentBenefits`다. `false`가 기본이다. 기존 2인자 호출의 금액·완료 상태·문제 코드는 유지한다. 3인자 OFF 호출도 기존 계산 결과를 유지하고 누락 정보 설명을 추가한다. `merchantId`나 `facts`를 변경하지 않는다.
+`CalculationOptions`의 필드는 `excludeBrandDependentBenefits`다. `false`가 기본이다. 기존 2인자 호출의 금액·완료 상태·문제 코드는 유지한다. 3인자 OFF 호출도 금액·완료 상태는 유지하되 차단 사유는 실제 원인으로 구체화한다. `merchantId`나 `facts`를 변경하지 않는다.
 
-시뮬레이션 담당자는 서버에서 검증한 `RecommendationInput.Transaction`, 카드별 `BenefitPolicy`를 공급한다. 카드 식별은 기존 `CardEvaluation.userCardId` 등의 바깥 카드 결과를 재사용한다. 새로운 결제 ID를 만들거나 `RecommendationService.prepare()`를 가상 구매용으로 호출하지 않는다. 해당 서비스/Selector의 실제 결제 경로에는 옵션을 연결하지 않았다.
+시뮬레이션 담당자는 인증된 userId와 서버에서 검증한 `RecommendationInput.Transaction`, 옵션을 공개 서비스에 전달한다. 카드별 정책은 서비스가 기존 조회·조립 로직으로 공급하며, 다른 사용자 카드가 섞이면 거부한다. 카드 식별은 기존 `CardEvaluation.userCardId`를 재사용한다. 새로운 결제 ID를 만들거나 `prepare()`를 호출하지 않는다. 실제 결제 경로는 기존 Selector 호출을 유지한다.
+
+시뮬레이션 서비스는 결제 생성·저장·승인·한도 차감을 수행하지 않는다. 기존 결제 가능 여부 조회를 재사용하므로 체크카드 잔액의 캐시/금융망 조회는 발생할 수 있다. 해당 조회는 DB 트랜잭션 밖에서 수행해야 하므로 HTTP 호출자는 활성 DB 트랜잭션으로 이 메서드를 감싸지 않는다. 일반 구매·시설 facts와 실제 적용한 가정, 브랜드 선택 검증 및 앱 안내는 호출 담당자의 연결 범위다. 서비스 최상위 simulationRules는 계산 결과에 실제 남은 근거만 카드 ID와 함께 모은다.
 
 ## 결과 필드
 
@@ -25,14 +33,14 @@ Calculation scoped = calculator.calculate(transaction, policy, new CalculationOp
 |---|---|
 | `complete` | 선택한 계산 범위에서 총 순혜택을 계산했는지 |
 | `netBenefit` | 순혜택. 계산 불가면 `null`; 확인된 0과 구분 |
-| `problems` | 기존 계산 차단 문제(`benefitId`, `code`). 완료 결과에서는 빈 목록 |
+| `problems` | 계산을 막은 실제 원인(`benefitId`, `code`). 시뮬레이션은 누락 입력 코드와 기존 정책·실적 코드를 사용하며 완료 결과에서는 빈 목록 |
 | `missingInformation` | `benefitId`, `code`, `field`. 판정 중 결과에 영향을 주는 누락 입력. 이 목록 자체는 실패 여부가 아님 |
 | `excludedBenefits` | 실제 계산 범위에서 제외한 `benefitId`, `reasonCode=BRAND_MISSING`. 빈 목록이면 브랜드 제외가 실제 적용되지 않음 |
 | `simulationRules` | 기존 `SimulationRule` 재사용. 전달받은 거래 가정, 사용한 정책 근거, 실제 브랜드 제외 근거 |
 
 추가 목록은 JSON에서 비어 있으면 생략한다. 기존 5/6인자 `Calculation` 생성자를 유지하며 이전 JSON에 새 필드가 없어도 읽을 수 있다. 기존 `benefits`, `limitUses`, `unallocatedBenefitGroups`의 의미는 유지한다. 제외 혜택을 0원 `BenefitValue`로 만들지 않는다.
 
-부족 정보 코드는 `BRAND_MISSING` (`merchantId`), `MERCHANT_CATEGORY_MISSING` (`merchantCategoryCode`), `PURCHASE_ITEM_MISSING` (`purchaseItemCode`), `CHANNEL_MISSING` (`facts.CHANNEL:...`), `FACILITY_MISSING` (`facts.FACILITY:...`), `FACT_MISSING` (그 외 facts)다. 정책/한도/추가비용 미확인은 기존 차단 코드를 유지한다. 브랜드 제외 옵션으로 fallback 전환 대상의 미확인을 우회할 수 없으며 이때 `FALLBACK_CONDITION_UNKNOWN`으로 차단한다.
+부족 정보 코드는 `BRAND_MISSING` (`merchantId`), `MERCHANT_CATEGORY_MISSING` (`merchantCategoryCode`), `PURCHASE_ITEM_MISSING` (`purchaseItemCode`), `CHANNEL_MISSING` (`facts.CHANNEL:...`), `FACILITY_MISSING` (`facts.FACILITY:...`), `FACT_MISSING` (그 외 facts)다. 정책/한도/추가비용 미확인은 기존 차단 코드를 유지한다. fallback 전환 대상의 미확인은 원래 원인으로 차단한다. 브랜드 누락은 `BRAND_MISSING`, 실적·최소 기준 누락은 `PERFORMANCE_OR_MINIMUM_UNKNOWN`이며 함께 부족하면 두 코드를 모두 problems에 남긴다. `FALLBACK_` 계열은 연결·전환 규칙 자체의 문제에만 사용한다.
 
 누락 정보는 계산이 실제 도달한 판정 경로를 설명한다. 기존 계산기의 조기 종료를 유지하므로 모든 카드 정책의 누락을 전수 검사한 목록은 아니다. 카드별 계산을 호출한 담당자가 카드 ID와 함께 표시한다.
 
@@ -54,7 +62,7 @@ Calculation scoped = calculator.calculate(transaction, policy, new CalculationOp
 }
 ```
 
-같은 거래에서 옵션 OFF이면 `complete=false`, `netBenefit=null`, `problems=[{"benefitId":1,"code":"CONDITION_UNKNOWN"}]`, `missingInformation`에 `BRAND_MISSING`이 있고 `excludedBenefits`는 없다. 제외 후 남은 혜택이 없고 추가비용이 0이며 다른 계산 정보가 모두 확인되면 선택 범위의 순혜택은 0이다. 이는 실제 모든 혜택이 0이라는 뜻이 아니다.
+같은 거래에서 옵션 OFF이면 `complete=false`, `netBenefit=null`, `problems=[{"benefitId":1,"code":"BRAND_MISSING"}]`, `missingInformation`에 `BRAND_MISSING`이 있고 `excludedBenefits`는 없다. 제외 후 남은 혜택이 없고 추가비용이 0이며 다른 계산 정보가 모두 확인되면 선택 범위의 순혜택은 0이다. 이는 실제 모든 혜택이 0이라는 뜻이 아니다.
 
 ## 조합 및 가정 처리
 
@@ -63,13 +71,19 @@ Calculation scoped = calculator.calculate(transaction, policy, new CalculationOp
 - 브랜드 제외조건을 판단 못하는 경우 해당 혜택을 제외하며 제외조건 자체를 삭제하지 않는다.
 - 채널·시설·구매 항목 또는 조건 정책까지 미확인이면 브랜드 옵션으로 이를 해소하지 않는다. 같은 혜택에 브랜드와 채널 등이 함께 부족하면 계산 미완료로 남긴다.
 - 독립 혜택, STACK, 기존 허용 조합은 제외 혜택의 금액·한도를 사용하지 않는다. MAX_ONE은 제외 후 선택 범위의 최대값이며 전체 혜택의 최대값이 아니다.
-- PRIORITY_ONE은 브랜드 미확인 우선 혜택을 건너뛰지 않는다. 실제 다음 혜택 적용 여부가 불분명하면 기존 `PRIORITY_CONDITION_UNKNOWN`으로 차단한다.
+- PRIORITY_ONE은 브랜드 미확인 우선 혜택을 건너뛰지 않는다. 시뮬레이션은 실제 누락 원인으로 차단하고, 기존 실제 결제 호출의 `PRIORITY_CONDITION_UNKNOWN`은 유지한다.
 - fallback은 기존 한도 전환 조건을 유지한다. 전환 대상이 미확인이면 제외 옵션으로 다시 진입시키지 않는다.
 - 계산 옵션과 제외/누락 수집 상태는 호출마다 격리한다. 같은 계산기 인스턴스의 동시 요청·재시도도 상태를 공유하지 않는다. DB 쓰기나 외부 금융망 요청은 없다.
 
 `BasicPurchaseSimulation.apply()`는 자동 호출하지 않는다. 일반 구매/시설 facts와 적용 근거는 담당자가 공급한다. 기존 함수는 실제 추가한 필드만 `YAMU_BASIC_PURCHASE.appliedFields`에 기록하므로 해당 규칙을 그대로 전달한다. 호출자는 적용하지 않은 가정을 규칙으로 넘기지 않아야 한다. 거래 규칙을 전달하고, 정책 규칙은 카드 공통 근거와 결과에 사용한 혜택의 근거를 반환한다. 제외하지 않은 경우 브랜드 제외 규칙을 생성하지 않는다.
 
 ## 검증
+
+MR !134 후속 리뷰 반영: 결제 번호 없는 서비스 진입점, 사용자 카드 소유권 거부, 기존 실제 결제 결과 유지, 옵션 순차·동시 호출 격리 및 실제 사용한 근거 집계를 추가 검증했다. 브랜드 단독·실적 단독·동시 누락을 fallback과 일반 경로에서 확인했다.
+
+추천·결제 추천·승인 전체 회귀 420건 중 419건 통과, 기존 사유 코드를 기대하던 테스트 1건 실패였다(오류/생략 0). 새 계약으로 해당 기대값을 수정하고 서비스 동시성 검증을 추가한 뒤 최종 관련 96건(브랜드 19, 서비스 34, 선택기 38, JSON 5)이 모두 통과했다(실패/오류/생략 0). 프로덕션 코드는 전체 회귀 이후 변경하지 않았다. 두 실행은 중복되므로 합산하지 않는다. 서비스 테스트는 DB 조회 mock 기반이며 금융망·전체 앱 화면 검증을 의미하지 않는다.
+
+아래 63/412/61건은 후속 리뷰 반영 이전의 실행 기록이다.
 
 독립 검토 후 설명 오류 두 건을 보완했다. PRIORITY_ONE의 관계 확인용 재평가는 누락/제외 근거를 기록하지 않아 하위 우선순위 브랜드의 목록 순서가 결과 설명을 바꾸지 않는다. 정책 근거는 혜택 ID가 결과에 존재하는지만 보지 않고 반환 사유별로 실제 사용한 단계를 구분한다. 최소금액 미달에는 최소금액 근거만, 조건 불일치에는 유효기간·최소 기준 근거만 남기며 수행하지 않은 반올림 가정은 제외한다. 실제 계산 경로의 근거는 유지한다. 옵션 OFF/ON과 [A,B]/[B,A] 순서, 최소금액 미달/조건 불일치/실제 적용 경계를 추가해 관련 63건이 통과했다(실패/오류/생략 0). 재검토 요청 전의 구현자 검증이며 독립 검토 승인과 구분한다.
 
