@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.*;
 import com.yamu.be.support.MySqlTestSupport;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
+import java.nio.file.Files;
 import java.util.List;
 import javax.sql.DataSource;
 import org.junit.jupiter.api.Test;
@@ -25,10 +26,18 @@ class MerchantCatalogDatabaseTest extends MySqlTestSupport {
     @Autowired MerchantCatalogService service;
 
     @Test void actualSeedCodesBrandsAndQueriesAgreeWithoutChangingFinancialState() throws Exception {
-        for (var file : List.of("01-card-catalog.sql", "02-card-catalog-ab20.sql")) {
+        // 기본 로더의 01뿐 아니라 별도로 추가되는 카탈로그/혜택 SQL도 검사한다.
+        List<Path> scripts;
+        try (var files = Files.list(Path.of("seed"))) {
+            scripts = files.filter(Files::isRegularFile)
+                    .filter(path -> path.getFileName().toString().endsWith(".sql"))
+                    .sorted().toList();
+        }
+        assertThat(scripts).isNotEmpty();
+        for (var file : scripts) {
             try (var connection = dataSource.getConnection()) {
                 ScriptUtils.executeSqlScript(connection, new EncodedResource(
-                        new FileSystemResource(Path.of("seed", file)), StandardCharsets.UTF_8));
+                        new FileSystemResource(file), StandardCharsets.UTF_8));
             }
         }
         var supported = service.categories().stream().map(MerchantCategories.Category::merchantCategoryCode).toList();

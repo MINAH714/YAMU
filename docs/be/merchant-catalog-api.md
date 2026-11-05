@@ -63,7 +63,8 @@ MerchantCatalogService.Selection selection = catalog.resolveSelection(request.me
 
 - 브랜드 미선택/선택 해제: `merchantId=null`, 선택한 업종 유지. 지원 업종 검증 후 DB 브랜드 조회 없이 반환한다.
 - 브랜드 선택: DB 행을 merchantId로 읽고 저장된 업종을 사용한다. 요청 업종이 함께 있고 다르면 `INVALID_REQUEST`, `fieldErrors.merchantCategoryCode`로 거부한다.
-- 없는 브랜드/0 이하 ID: `INVALID_REQUEST`, `fieldErrors.merchantId`로 거부한다. DB 업종이 지원 목록에 없으면 실패하며 OTHER로 바꾸지 않는다.
+- 없는 브랜드: HTTP 404 `MERCHANT_NOT_FOUND`. 0 이하 ID는 기존 HTTP 400 `INVALID_REQUEST`, `fieldErrors.merchantId`로 거부한다.
+- 요청에 직접 보낸 미지원 업종은 HTTP 400이다. DB에 저장된 브랜드 업종이 지원 목록에 없으면 서버 데이터 불일치이므로 HTTP 500 `INTERNAL_ERROR`로 처리한다. 가맹점 ID와 저장된 업종 코드는 서버 로그에만 남기며 응답에 노출하거나 OTHER로 바꾸지 않는다.
 - 브랜드만 있고 업종이 생략되면 DB 업종을 반환한다. 이는 브랜드 목록 API의 필수 업종 필터와 별개인 내부 선택 검증 계약이다.
 - 브랜드로 온라인/오프라인·시설·구매 항목을 추론하지 않는다. `merchantCategoryCode`는 업종, `productCategoryCode`는 물품 분류, `purchaseItemCode`는 구매 항목이다.
 - 브랜드 미입력 계산 옵션은 Task 296의 3인자 calculate를 시뮬레이션에서 명시적으로 사용한다. 이 Task는 옵션이나 일반 구매 가정을 자동 적용하지 않는다.
@@ -82,13 +83,15 @@ MerchantCatalogService.Selection selection = catalog.resolveSelection(request.me
 
 ## 검증 및 제약
 
-2026-11-05 최종 실행: 목록 API·선택 검증·기존 바코드 인증 회귀 총 26건 통과, 실패/오류/생략 0건. 실제 Seed를 적재한 MySQL DB 테스트 1건 포함.
+2026-11-05 리뷰 수정 후 실행: 목록 API·선택 검증·기존 바코드 인증 회귀 총 29건 통과, 실패/오류/생략 0건. 실제 Seed를 적재한 MySQL DB 테스트 1건 포함. DB 업종 불일치의 500 응답·진단 로그, 없는 브랜드의 404 응답, 잘못된 요청 업종의 400 유지 회귀를 추가했다. 이전 26건 실행과 중복되므로 합산하지 않는다.
 
 `MerchantCatalogControllerTest`: 실제 SecurityConfig를 적용한 MVC 테스트. 공개 조회, 기존 응답 형식, 정상 빈 목록, 필터 누락/잘못된 코드, 다른 메서드·하위 경로·결제 경로 인증 유지.
 
 `MerchantSelectionTest`: 브랜드 없는 업종 입력, 브랜드 선택/해제, DB 업종 사용, 불일치/없는 브랜드 거부, 계산 Transaction 입력 연결, 코드 사전 전체와 지원 목록 대조.
 
 `MerchantCatalogDatabaseTest`: Testcontainers MySQL + 실제 Flyway + 기존 Seed SQL. 업종 코드 전체 포함, OTHER 브랜드, 빈 업종, 정확 일치, 동명 ID 정렬, 선택 검증과 금융 상태 미변경 확인. 운영/개발 DB를 사용하지 않는다.
+
+리뷰 보완: DB 테스트는 `be/seed` 바로 아래의 모든 `.sql` 파일을 파일명순으로 적재한다. 현재 로컬 로더의 기본 01 시드 외에 별도 추가되는 카탈로그·혜택 시드도 검사하며, 새 SQL 파일의 merchant 업종 및 CATEGORY 대상 코드가 목록에서 빠지면 실패한다. 실제 로더의 적재 범위는 변경하지 않는다.
 
 ```powershell
 .\gradlew.bat test --tests 'com.yamu.be.merchant.*' --tests 'com.yamu.be.payment.barcode.BarcodeControllerTest'

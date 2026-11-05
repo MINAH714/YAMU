@@ -5,12 +5,16 @@ import static org.mockito.Mockito.*;
 
 import com.yamu.be.global.exception.BusinessException;
 import com.yamu.be.global.exception.ErrorCode;
+import com.yamu.be.global.exception.GlobalExceptionHandler;
 import com.yamu.be.recommendation.RecommendationInput;
 import java.time.Instant;
 import java.util.Comparator;
 import java.util.Map;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 
 class MerchantSelectionTest {
     final MerchantCatalogRepository repository = mock(MerchantCatalogRepository.class);
@@ -43,8 +47,33 @@ class MerchantSelectionTest {
             assertThatThrownBy(() -> service.resolveSelection(id, "OTHER")).isInstanceOf(BusinessException.class);
         }
         assertThatThrownBy(() -> service.resolveSelection(null, null)).isInstanceOf(BusinessException.class);
+    }
+
+    @Test void absentBrandUsesExistingNotFoundResponse() {
+        when(repository.findById(999)).thenReturn(Optional.empty());
+        var exception = catchThrowableOfType(() -> service.resolveSelection(999L, null), BusinessException.class);
+        var response = new GlobalExceptionHandler().handleBusiness(exception);
+        assertThat(response.getStatusCode().value()).isEqualTo(404);
+        assertThat(response.getBody().error().code()).isEqualTo("MERCHANT_NOT_FOUND");
+    }
+
+    @Test @ExtendWith(OutputCaptureExtension.class)
+    void unsupportedStoredCategoryIsServerFailureWithDiagnosticLog(CapturedOutput output) {
         when(repository.findById(9)).thenReturn(Optional.of(new MerchantCatalogRepository.Merchant(9, "UNKNOWN", "미분류", "UNKNOWN")));
-        assertThatThrownBy(() -> service.resolveSelection(9L, null)).isInstanceOf(BusinessException.class);
+        var exception = catchThrowableOfType(() -> service.resolveSelection(9L, null), IllegalStateException.class);
+        var response = new GlobalExceptionHandler().handleUnexpected(exception);
+        assertThat(response.getStatusCode().value()).isEqualTo(500);
+        assertThat(response.getBody().error().code()).isEqualTo("INTERNAL_ERROR");
+        assertThat(response.getBody().error().details()).isNull();
+        assertThat(response.getBody().error().message()).doesNotContain("UNKNOWN", "merchantId");
+        assertThat(output.getOut()).contains("merchantId=9", "merchantCategoryCode=UNKNOWN");
+    }
+
+    @Test void invalidRequestedCategoryRemainsClientError() {
+        assertThatThrownBy(() -> service.resolveSelection(9L, "UNKNOWN"))
+                .isInstanceOfSatisfying(BusinessException.class, ex ->
+                        assertThat(ex.getErrorCode()).isEqualTo(ErrorCode.INVALID_REQUEST));
+        verifyNoInteractions(repository);
     }
 
     @Test void categoryCatalogHasUniqueCodesAndStableNameOrder() {

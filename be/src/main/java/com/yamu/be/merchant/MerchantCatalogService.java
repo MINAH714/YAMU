@@ -1,5 +1,7 @@
 package com.yamu.be.merchant;
 
+import com.yamu.be.global.exception.BusinessException;
+import com.yamu.be.global.exception.ErrorCode;
 import java.util.List;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -27,9 +29,14 @@ public class MerchantCatalogService {
             return new Selection(null, merchantCategoryCode);
         }
         if (merchantId <= 0) throw MerchantCategories.invalid("merchantId", "올바른 브랜드를 선택해 주세요.");
+        if (merchantCategoryCode != null) MerchantCategories.requireSupported(merchantCategoryCode);
         var merchant = merchants.findById(merchantId)
-                .orElseThrow(() -> MerchantCategories.invalid("merchantId", "존재하지 않는 브랜드입니다."));
-        MerchantCategories.requireSupported(merchant.merchantCategoryCode());
+                .orElseThrow(() -> new BusinessException(ErrorCode.MERCHANT_NOT_FOUND));
+        if (MerchantCategories.list().stream().noneMatch(c -> c.merchantCategoryCode().equals(merchant.merchantCategoryCode()))) {
+            // 전역 예외 처리기가 진단 정보를 로그에 남기고, 응답에는 INTERNAL_ERROR만 노출한다.
+            throw new IllegalStateException("Unsupported stored merchant category: merchantId=" + merchant.merchantId()
+                    + ", merchantCategoryCode=" + merchant.merchantCategoryCode());
+        }
         if (merchantCategoryCode != null && !merchant.merchantCategoryCode().equals(merchantCategoryCode)) {
             throw MerchantCategories.invalid("merchantCategoryCode", "선택한 브랜드의 업종과 일치하지 않습니다.");
         }
