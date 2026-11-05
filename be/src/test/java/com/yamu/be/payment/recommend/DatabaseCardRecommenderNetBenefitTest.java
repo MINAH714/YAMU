@@ -28,9 +28,9 @@ import java.util.Map;
 import org.junit.jupiter.api.Test;
 
 /**
- * 추천 포트의 순혜택 정수 계약(S15P31E103-283). 포인트 환산율에 소수(0.5)가 있으면 엔진의 순혜택이 1.5원처럼 나온다.
- * 포트는 후보를 만들 때 원 단위로 내림하고, 순위는 엔진이 소수까지 비교해 정한 순서를 그대로 쓴다.
- * 그래서 결제 쪽(승인 응답의 추천 카드 목록·앱 결제 요청 조회)의 {@code longValueExact()}가 실패하지 않는다.
+ * 소수 순혜택(S15P31E103-283). 포인트 환산율에 소수(0.5)가 있으면 엔진의 순혜택이 1.5원처럼 나온다.
+ * 포트는 엔진 값과 순위를 그대로 후보에 담는다(명세: 공식 환산 뒤 추가 반올림 없이 비교). 결제 쪽(승인 응답의 추천 카드 목록·앱 결제
+ * 요청 조회)도 같은 값을 내보내므로 정수 변환 때문에 응답이 실패하지 않는다. 표기만 정리한다(끝의 0 제거, 정수는 소수점 없이).
  */
 class DatabaseCardRecommenderNetBenefitTest {
 
@@ -38,7 +38,7 @@ class DatabaseCardRecommenderNetBenefitTest {
     static final MerchantContext CAFE = new MerchantContext(301L, "F01-CAFE", "OFFLINE", "GENERAL");
 
     @Test
-    void 소수_환산율의_순혜택은_원_단위로_내림하고_엔진_순위를_유지한다() {
+    void 소수_환산율의_순혜택은_엔진_값과_순위를_그대로_담는다() {
         // 카드 10: 3포인트 × 0.5 = 1.5원, 카드 20: 2포인트 × 0.5 = 1.0원, 카드 30: 1포인트 × 0.5 = 0.5원
         RecommendationService service = mock(RecommendationService.class);
         when(service.recommend(any())).thenReturn(result(
@@ -49,16 +49,16 @@ class DatabaseCardRecommenderNetBenefitTest {
                 PaymentTerms.lumpSum(10_000), CAFE, LocalDateTime.ofInstant(NOW, ZoneOffset.UTC)));
 
         assertThat(result.candidates()).extracting(c -> c.card().userCardId()).containsExactly(10L, 20L, 30L);
+        // 1.0은 값이 같은 1로 표기만 정리된다
         assertThat(result.candidates()).extracting(Candidate::netBenefit)
-                .containsExactly(new BigDecimal("1"), new BigDecimal("1"), new BigDecimal("0"));
-        // 결제 쪽 호출부와 같은 변환이 예외 없이 된다
-        assertThat(result.candidates()).extracting(c -> c.netBenefit().longValueExact()).containsExactly(1L, 1L, 0L);
+                .containsExactly(new BigDecimal("1.5"), new BigDecimal("1"), new BigDecimal("0.5"));
+        // 0.5원도 0원이 아니므로 혜택 없음이 아니다(POL-011: 모두 0원일 때만)
         assertThat(result.noBenefit()).isFalse();
     }
 
     @Test
-    void 음수_순혜택은_0_쪽으로_내림한다() {
-        // 추가 비용이 혜택보다 큰 카드: −1.5원 → −1원(DOWN은 0 쪽으로 자른다)
+    void 음수_순혜택도_그대로_담는다() {
+        // 추가 비용이 혜택보다 큰 카드: −1.5원
         RecommendationService service = mock(RecommendationService.class);
         when(service.recommend(any())).thenReturn(result(calculated(10L, "-1.5", 1)));
         DatabaseCardRecommender recommender = new DatabaseCardRecommender(service, Clock.fixed(NOW, ZoneOffset.UTC));
@@ -66,7 +66,7 @@ class DatabaseCardRecommenderNetBenefitTest {
         RecommendationResult result = recommender.recommend(new RecommendationRequest(1024L, 7L,
                 PaymentTerms.lumpSum(10_000), CAFE, LocalDateTime.ofInstant(NOW, ZoneOffset.UTC)));
 
-        assertThat(result.topCandidate().orElseThrow().netBenefit()).isEqualTo(new BigDecimal("-1"));
+        assertThat(result.topCandidate().orElseThrow().netBenefit()).isEqualTo(new BigDecimal("-1.5"));
     }
 
     private static RecommendationService.Result result(CardEvaluation... ranked) {

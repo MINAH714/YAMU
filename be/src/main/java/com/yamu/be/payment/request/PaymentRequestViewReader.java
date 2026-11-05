@@ -79,7 +79,7 @@ public class PaymentRequestViewReader {
     private static PaymentRequestView.Candidate candidate(RecommendationResult.Candidate c, PaymentTerms terms) {
         CardSummary card = c.card();
         return new PaymentRequestView.Candidate(c.rank(), card.userCardId(), nickname(card), card.cardType(),
-                masked(card), c.netBenefit().longValueExact(),
+                masked(card), c.netBenefit(),
                 c.benefits().stream().map(b -> new PaymentRequestView.Benefit(b.benefitId(), b.name(), b.type(),
                         b.amount(), b.realization())).toList(),
                 terms.chargedAmount(c.instantDiscount()), c.reason(), c.selectionReason(),c.unallocatedBenefitGroups());

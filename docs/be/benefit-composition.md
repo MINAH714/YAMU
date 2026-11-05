@@ -60,7 +60,7 @@ Docker 활성화 후 실제 실행에서 기본 MySQL 바이너리 로그 설정
 
 `PosPaymentRequestService`는 거래 조건 전체를 전달해 저장 트랜잭션 전에 잔액, 정책, 사용량과 실적 조회를 완료합니다. 결제 저장과 바코드 전환 뒤에는 실제 결제 ID만 붙여 준비한 입력으로 계산합니다. 접수 추천은 조회 시점의 예상값이며 최종 승인 시 최신 상태 확인과 사용량 반영은 결제 담당의 책임입니다. `PaymentApprovalService`의 추천 재생성도 서버 상태를 조회합니다. `SKIPPED` 신용한도는 충분 확인과 구분하고 계좌별 잔액 실패는 해당 카드에만 연결합니다. 앱 응답은 미배분 개별 금액 `null`과 확정 그룹 총액을 함께 전달합니다.
 
-`RecommendationResult.schemaVersion=1`, 후보별 netBenefit은 필수 숫자(BigDecimal), benefits[].amount는 정수 또는 NULL, unallocatedBenefitGroups는 필수 배열이다. 원시 금액은 BigDecimal로 보존해 정률 소수를 버리지 않는다. 포인트 환산 후 경제적 순혜택 소수는 Selector 안의 순위·동률 비교에만 쓰고 절사하지 않는다. 후보(`Candidate.netBenefit`)로 넘길 때는 원 단위 정수로 내림(DOWN)한다(S15P31E103-283). `Candidate` 생성자는 정수가 아니거나 long 범위를 넘는 값을 거부하므로, 계약이 깨지면 승인 뒤가 아니라 POS 접수(롤백 가능)에서 실패한다. 결제 쪽 승인 응답·앱 결제 요청 조회의 netBenefit은 이 정수를 그대로 long으로 내보낸다. 순위는 내림 전 값으로 정해지므로 표시 금액이 같은 두 후보의 순서가 다를 수 있다. RuleVersion은 혜택별 실제 버전을 보존하고, 하나의 공통 버전이 없으면 단일 version은 NULL이다.
+`RecommendationResult.schemaVersion=1`, 후보별 netBenefit은 필수 숫자(BigDecimal), benefits[].amount는 정수 또는 NULL, unallocatedBenefitGroups는 필수 배열이다. 원시 금액은 BigDecimal로 보존해 정률 소수를 버리지 않는다. 포인트 환산 후 경제적 순혜택 소수도 정수로 절사하지 않는다. RuleVersion은 혜택별 실제 버전을 보존하고, 하나의 공통 버전이 없으면 단일 version은 NULL이다.
 
 `instantDiscount()`는 확인된 즉시할인 상세와 전부 즉시할인인 미배분 묶음의 총액만 한 번씩 합산한다. 즉시/이후 반영이 섞여 즉시금액이 불명확하거나 할인 반영 시점이 없으면 0으로 대체하지 않고 거절한다. 실적 인정 Resolver도 NULL 상세를 할인 없음으로 오해하지 않는다.
 

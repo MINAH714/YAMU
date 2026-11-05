@@ -56,9 +56,7 @@ public class DatabaseCardRecommender implements CardRecommender {
                     u.period().name(), u.remainingBefore(), u.consumed())).toList();
             var reason = Objects.equals(evaluated.userCardId(), result.recommendation().selectedUserCardId())
                     ? SelectionReason.valueOf(result.recommendation().selectionReason().name()) : null;
-            // 포트 계약(S15P31E103-283): 후보 순혜택은 원 단위 정수. 순위는 Selector가 소수까지 비교해 이미 정했고, 여기서는 표시·저장값만 내림한다
-            candidates.add(new Candidate(candidates.size()+1, summary(evaluated.userCardId(),context),
-                    calculation.netBenefit().setScale(0, java.math.RoundingMode.DOWN),
+            candidates.add(new Candidate(candidates.size()+1, summary(evaluated.userCardId(),context), calculation.netBenefit(),
                     lines, result.recommendation().message(), reason,
                     new RuleVersion(context.cardProductId(), distinctVersions.size()==1 ? distinctVersions.get(0) : null, versions),groups,uses));
         }

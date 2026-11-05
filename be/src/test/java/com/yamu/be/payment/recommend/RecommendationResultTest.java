@@ -223,43 +223,40 @@ class RecommendationResultTest {
         assertThat(read.uncompared(1L).orElseThrow().directPaymentAllowed()).isTrue();
     }
 
-    // ───────── 순혜택 정수 계약(S15P31E103-283) ─────────
+    // ───────── 소수 순혜택(S15P31E103-283) ─────────
 
     @Test
-    void 순혜택에_소수가_있으면_후보를_만들지_않는다() {
-        // 포인트 환산율 0.5: 3포인트 → 1.5원. 추천 포트가 내림하지 않고 넘긴 경우
-        assertThatThrownBy(() -> candidate(1, CARD_1, new java.math.BigDecimal("1.5")))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("원 단위 정수");
-        assertThatThrownBy(() -> candidate(1, CARD_1, new java.math.BigDecimal("-0.5")))
-                .isInstanceOf(IllegalArgumentException.class);
+    void 소수_순혜택은_값을_그대로_두고_표기만_정리한다() {
+        // 포인트 환산율 0.5: 3포인트 → 1.5원. 환산율이 DECIMAL(19,6)이라 엔진 값은 소수 자리 0이 붙어 올 수 있다
+        assertThat(candidate(1, CARD_1, new java.math.BigDecimal("1.500000")).netBenefit().toString()).isEqualTo("1.5");
+        assertThat(candidate(1, CARD_1, new java.math.BigDecimal("-1.5")).netBenefit().toString()).isEqualTo("-1.5");
+        // 정수는 소수점 없이. stripTrailingZeros만 하면 1.5E+3이 된다
+        assertThat(candidate(1, CARD_1, new java.math.BigDecimal("1500.000000")).netBenefit().toString()).isEqualTo("1500");
+        assertThat(candidate(1, CARD_1, new java.math.BigDecimal("0.000000")).netBenefit().toString()).isEqualTo("0");
     }
 
     @Test
-    void 소수_자리만_0이면_정수로_맞춘다() {
-        Candidate candidate = candidate(1, CARD_1, new java.math.BigDecimal("1500.00"));
-
-        assertThat(candidate.netBenefit()).isEqualTo(new java.math.BigDecimal("1500"));
-        assertThat(candidate.netBenefit().longValueExact()).isEqualTo(1500L);
+    void 모두_0원_판정은_소수까지_본다() {
+        // POL-011: 확인된 후보가 모두 0원일 때만 혜택 없음. 0.5원은 혜택이 있다
+        assertThat(result(List.of(candidate(1, CARD_1, new java.math.BigDecimal("0.5"))), List.of(), List.of())
+                .noBenefit()).isFalse();
+        assertThat(result(List.of(candidate(1, CARD_1, new java.math.BigDecimal("0.000000"))), List.of(), List.of())
+                .noBenefit()).isTrue();
     }
 
     @Test
-    void long_범위를_넘는_순혜택은_거부한다() {
-        java.math.BigDecimal huge = java.math.BigDecimal.valueOf(Long.MAX_VALUE).add(java.math.BigDecimal.ONE);
-
-        assertThatThrownBy(() -> candidate(1, CARD_1, huge)).isInstanceOf(IllegalArgumentException.class);
-    }
-
-    @Test
-    void 소수_순혜택이_담긴_스냅샷은_읽을_때_거부한다() throws Exception {
-        // 계약 전에 저장된 값이 있다면 승인 응답을 만들다 터지지 않고 스냅샷 읽기에서 실패한다
+    void 소수_순혜택은_스냅샷을_거쳐도_그대로고_정수는_소수점_없이_쓴다() throws Exception {
         ObjectMapper json = json();
-        String written = json.writeValueAsString(result(List.of(candidate(1, CARD_1, 500)), List.of(), List.of()));
-        String decimal = written.replace("\"netBenefit\":500", "\"netBenefit\":500.5");
+        RecommendationResult result = result(List.of(candidate(1, CARD_1, new java.math.BigDecimal("1.5")),
+                candidate(2, CARD_2, new java.math.BigDecimal("1500.000000"))), List.of(), List.of());
 
-        assertThat(decimal).isNotEqualTo(written);
-        assertThatThrownBy(() -> json.readValue(decimal, RecommendationResult.class))
-                .hasRootCauseInstanceOf(IllegalArgumentException.class);
+        String written = json.writeValueAsString(result);
+        RecommendationResult read = json.readValue(written, RecommendationResult.class);
+
+        // 정수를 기대하는 클라이언트도 정수 값은 읽을 수 있게 1500.000000·1.5E+3이 아니라 1500으로 쓴다
+        assertThat(written).contains("\"netBenefit\":1.5").contains("\"netBenefit\":1500,");
+        assertThat(read.candidates()).extracting(Candidate::netBenefit)
+                .containsExactly(new java.math.BigDecimal("1.5"), new java.math.BigDecimal("1500"));
     }
 
     private static Candidate candidate(int rank, CardSummary card, java.math.BigDecimal netBenefit) {
