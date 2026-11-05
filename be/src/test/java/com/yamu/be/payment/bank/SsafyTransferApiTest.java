@@ -430,6 +430,63 @@ class SsafyTransferApiTest {
                 .satisfies(e -> assertThat(((BusinessException) e).getErrorCode()).isEqualTo(ErrorCode.FIN_API_UNAVAILABLE));
     }
 
+    // ───────── 금액 없이 태그로 모두 찾기 ─────────
+
+    @Test
+    void 요청_번호로_찾으면_같은_조회_기간에서_금액과_상관없이_태그가_같은_거래를_모두_돌려준다() {
+        // 체크카드 취소가 즉시할인 뒤 실제 출금액을 읽을 때. 금액을 모르니 비교하지 않는다
+        server.expect(requestTo(BASE + SsafyTransferApi.HISTORY_PATH))
+                .andExpect(jsonPath("$.startDate").value("20261031"))
+                .andExpect(jsonPath("$.endDate").value("20261102"))
+                .andExpect(jsonPath("$.transactionType").value("D"))
+                .andRespond(withSuccess(history("2",
+                        row("1101", "20261101", "235958", "2", "13500", "100000", "YAMU-P1"),
+                        row("1102", "20261102", "000001", "2", "5000", "95000", "YAMU-P10")),
+                        MediaType.APPLICATION_JSON));
+
+        List<BankTransaction> found = api.findAllByTag(USER_KEY, ACCOUNT_NO, TransferTag.payment(1), TX);
+
+        assertThat(found).extracting(BankTransaction::amount).containsExactly(13_500L);
+        server.verify();
+    }
+
+    @Test
+    void 기간을_정해_찾으면_그_기간의_같은_방향만_보고_끝_날짜는_오늘을_넘기지_않는다() {
+        // 체크카드 환불 YAMU-C는 요청 번호를 저장해 두지 않아 승인일부터 찾는다. 오늘은 11월 2일
+        server.expect(requestTo(BASE + SsafyTransferApi.HISTORY_PATH))
+                .andExpect(jsonPath("$.startDate").value("20261020"))
+                .andExpect(jsonPath("$.endDate").value("20261102"))
+                .andExpect(jsonPath("$.transactionType").value("M"))
+                .andRespond(withSuccess(history("2",
+                        row("1101", "20261025", "120000", "1", "15000", "115000", "YAMU-C7"),
+                        row("1102", "20261101", "120000", "1", "15000", "130000", "YAMU-C7")),
+                        MediaType.APPLICATION_JSON));
+
+        List<BankTransaction> found = api.findAllByTag(USER_KEY, ACCOUNT_NO, TransferTag.checkRefund(7),
+                LocalDate.of(2026, 10, 20), LocalDate.of(2026, 11, 5));
+
+        assertThat(found).extracting(BankTransaction::bankTransactionNo).containsExactly("1101", "1102");
+        server.verify();
+    }
+
+    @Test
+    void 기간을_정해_찾을_때도_목록이_잘려_오면_판단하지_않는다() {
+        respondHistory(history("5", row("1101", "20261101", "120000", "1", "15000", "115000", "YAMU-C7")));
+
+        assertThatThrownBy(() -> api.findAllByTag(USER_KEY, ACCOUNT_NO, TransferTag.checkRefund(7),
+                LocalDate.of(2026, 10, 20), LocalDate.of(2026, 11, 2)))
+                .isInstanceOf(BusinessException.class)
+                .satisfies(e -> assertThat(((BusinessException) e).getErrorCode()).isEqualTo(ErrorCode.FIN_API_UNAVAILABLE));
+    }
+
+    @Test
+    void 기간이_거꾸로면_조회하지_않는다() {
+        assertThatThrownBy(() -> api.findAllByTag(USER_KEY, ACCOUNT_NO, TransferTag.checkRefund(7),
+                LocalDate.of(2026, 11, 2), LocalDate.of(2026, 11, 1)))
+                .isInstanceOf(IllegalArgumentException.class);
+        server.verify();
+    }
+
     @Test
     void totalCount가_없거나_숫자가_아니면_잘린_목록과_같이_판단하지_않는다() {
         for (String rec : List.of("{\"list\":[]}", "{\"totalCount\":null,\"list\":[]}",

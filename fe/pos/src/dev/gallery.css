@@ -1,0 +1,55 @@
+/* 화면 확인 페이지 전용 */
+
+.gallery {
+  display: flex;
+  height: 100dvh;
+  background: var(--surface-high);
+}
+
+.gallery-nav {
+  flex: none;
+  width: 220px;
+  padding: var(--s-3);
+  overflow-y: auto;
+  background: var(--surface);
+  font-size: var(--fs-caption-sm);
+}
+
+.gallery-nav h2 {
+  margin: var(--s-4) 0 var(--s-1);
+  color: var(--text3);
+  font-size: var(--fs-min);
+  font-weight: var(--fw-semibold);
+}
+
+.gallery-nav button {
+  display: block;
+  width: 100%;
+  min-height: 32px;
+  padding: var(--s-1) var(--s-2);
+  border-radius: var(--r-tag);
+  text-align: left;
+}
+
+.gallery-nav button[aria-current='true'],
+.gallery-nav button[aria-pressed='true'] {
+  background: var(--primary-container);
+  color: var(--on-primary-container);
+  font-weight: var(--fw-semibold);
+}
+
+.gallery-replay {
+  margin-top: var(--s-2);
+  background: var(--surface-variant) !important;
+}
+
+.gallery-stage {
+  flex: 1;
+  min-width: 0;
+  padding: var(--s-4);
+  overflow: auto;
+}
+
+.gallery-stage .app {
+  flex: none;
+}

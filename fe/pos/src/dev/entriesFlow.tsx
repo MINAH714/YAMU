@@ -1,0 +1,173 @@
+import { Character } from '../components/Character'
+import { FatalScreen, UnknownScreen } from '../components/FlowScreens'
+import { PAYMENT_METHOD, Receipt } from '../components/Receipt'
+import { StatusScreen } from '../components/StatusScreen'
+import { WaitingView } from '../components/WaitingStep'
+import { formatToken } from '../payment/barcode'
+import { formatWon } from '../payment/terms'
+import { orderItems } from '../store/cart'
+import {
+  APPROVED_RESULT,
+  CANCELED_RESULT,
+  DECLINED_RESULT,
+  DEMO_ORDER,
+  DEMO_TERMS,
+  DEMO_TOKEN,
+  EXPIRED_RESULT,
+  NOT_CONFIRMED_RESULT,
+} from './fixtures'
+import type { GalleryEntry } from './types'
+
+const noop = () => {}
+
+const GROUP = '결제 흐름'
+const flow = { group: GROUP, store: 'starbucks', step: 3, surface: 'flow' } as const
+
+/** 폴링 없이 그린 승인 대기. 남은 시간과 상태만 바꿔 쓴다 */
+function waitingView(state: { remainingMs: number; checking?: boolean; stopped?: boolean; declined?: boolean; connectionError?: string }) {
+  return (
+    <WaitingView
+      paymentId={1001}
+      orderNo="POS-20261105-120000-001"
+      terms={DEMO_TERMS}
+      totalMs={60_000}
+      checking={false}
+      stopped={false}
+      declined={false}
+      connectionError={null}
+      onRecheck={noop}
+      onAbandon={noop}
+      {...state}
+    />
+  )
+}
+
+export const flowEntries: GalleryEntry[] = [
+  {
+    ...flow,
+    id: 'sending',
+    label: '요청 중',
+    render: () => (
+      <StatusScreen
+        tone="checking"
+        title="결제를 요청하고 있어요"
+        description={`결제 코드 ${formatToken(DEMO_TOKEN)}`}
+        rows={[
+          { label: '주문 금액', value: formatWon(DEMO_TERMS.amount) },
+          { label: '결제 수단', value: PAYMENT_METHOD },
+        ]}
+      />
+    ),
+  },
+  {
+    ...flow,
+    id: 'unknown',
+    label: '결과 미확인(요청)',
+    render: () => (
+      <UnknownScreen message="서버 응답이 늦어요. 잠시 후 다시 시도해 주세요." onRetry={noop} onNewOrder={noop} />
+    ),
+  },
+  {
+    ...flow,
+    id: 'waiting',
+    label: '승인 대기',
+    render: () => waitingView({ remainingMs: 42_000 }),
+  },
+  {
+    ...flow,
+    id: 'waiting-urgent',
+    label: '승인 대기(마지막 10초)',
+    render: () => waitingView({ remainingMs: 8_000 }),
+  },
+  {
+    ...flow,
+    id: 'waiting-declined',
+    label: '승인 대기(카드 거절)',
+    render: () => waitingView({ remainingMs: 30_000, declined: true }),
+  },
+  {
+    ...flow,
+    id: 'waiting-stopped',
+    label: '승인 대기(조회 멈춤)',
+    render: () =>
+      waitingView({ remainingMs: 0, checking: true, stopped: true, connectionError: '서버에 연결하지 못했어요.' }),
+  },
+  {
+    ...flow,
+    id: 'receipt-approved',
+    label: '승인 완료',
+    render: () => <Receipt result={APPROVED_RESULT} order={DEMO_ORDER} onNext={noop} onRetry={noop} />,
+  },
+  {
+    ...flow,
+    id: 'receipt-declined',
+    label: '거절',
+    render: () => <Receipt result={DECLINED_RESULT} order={DEMO_ORDER} onNext={noop} onRetry={noop} />,
+  },
+  {
+    ...flow,
+    id: 'receipt-expired',
+    label: '만료',
+    render: () => <Receipt result={EXPIRED_RESULT} order={DEMO_ORDER} onNext={noop} onRetry={noop} />,
+  },
+  {
+    ...flow,
+    id: 'receipt-canceled',
+    label: '취소',
+    render: () => <Receipt result={CANCELED_RESULT} order={DEMO_ORDER} onNext={noop} onRetry={noop} />,
+  },
+  {
+    ...flow,
+    id: 'receipt-not-confirmed',
+    label: '결과 미확인(영수증)',
+    render: () => <Receipt result={NOT_CONFIRMED_RESULT} order={DEMO_ORDER} onNext={noop} onRetry={noop} />,
+  },
+  {
+    ...flow,
+    id: 'cash-done',
+    label: '현금 완료',
+    render: () => (
+      <StatusScreen
+        tone="approved"
+        graphic={<Character pose="pay" size={160} />}
+        lead="현금 결제를 완료했어요"
+        title={formatWon(DEMO_ORDER.total)}
+        items={orderItems(DEMO_ORDER)}
+        rows={[
+          { label: '결제 수단', value: '현금' },
+          { label: '받은 금액', value: formatWon(30_000) },
+          { label: '거스름돈', value: formatWon(30_000 - DEMO_ORDER.total) },
+        ]}
+        action={{ label: '다음 주문', onClick: noop }}
+      />
+    ),
+  },
+  {
+    ...flow,
+    id: 'fatal',
+    label: '오류',
+    render: () => (
+      <FatalScreen
+        message="결제를 찾을 수 없어요. 다른 POS 키로 만든 결제이거나 없는 결제예요."
+        isConfig={false}
+        canLeaveStore
+        onNewOrder={noop}
+        onLeaveStore={noop}
+      />
+    ),
+  },
+  {
+    ...flow,
+    id: 'fatal-config',
+    label: '설정 오류',
+    render: () => (
+      <FatalScreen
+        message="POS 키가 올바르지 않아 결과를 볼 수 없어요. VITE_POS_KEY를 확인해 주세요."
+        isConfig
+        canLeaveStore
+        onNewOrder={noop}
+        onLeaveStore={noop}
+      />
+    ),
+  },
+]
