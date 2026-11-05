@@ -614,7 +614,7 @@ class PaymentApprovalServiceTest {
     @Test
     void 같은_키의_결과_불명_시도를_복구가_승인으로_확정하면_행에서_만든_승인_응답을_돌려주고_새_시도를_만들지_않는다() {
         payment.startApproval(15L, 3L);
-        payment.assignFinRequestNo(TX_NO);
+        payment.assignFinRequestNo(TX_NO, 15_000);
         when(attempts.findByKey(PAYMENT_ID, KEY)).thenReturn(Optional.of(unknownAttempt(CREDIT, 1, false)));
         when(recovery.recover(PAYMENT_ID)).thenAnswer(inv -> {
             payment.approve(15_000, 0, LocalDate.of(2026, 10, 1), REQUESTED_AT.plusSeconds(20), "1101");
@@ -637,7 +637,7 @@ class PaymentApprovalServiceTest {
     @Test
     void 주기_작업이_먼저_확정했어도_같은_키는_같은_승인_응답이다() {
         payment.startApproval(15L, 3L);
-        payment.assignFinRequestNo(TX_NO);
+        payment.assignFinRequestNo(TX_NO, 15_000);
         payment.approve(15_000, 0, LocalDate.of(2026, 10, 1), REQUESTED_AT.plusSeconds(20), "1101");
         when(attempts.findByKey(PAYMENT_ID, KEY)).thenReturn(Optional.of(unknownAttempt(CREDIT, 1, false)
                 .withResult(Attempt.APPROVED, null, "1101", 15_000L, null)));
@@ -653,7 +653,7 @@ class PaymentApprovalServiceTest {
     @Test
     void 다른_키로_온_요청이_복구를_거쳐_승인이면_409_PAYMENT_ALREADY_PROCESSED다() {
         payment.startApproval(15L, 3L);
-        payment.assignFinRequestNo(TX_NO);
+        payment.assignFinRequestNo(TX_NO, 15_000);
         when(recovery.recover(PAYMENT_ID)).thenAnswer(inv -> {
             payment.approve(15_000, 0, LocalDate.of(2026, 10, 1), REQUESTED_AT.plusSeconds(20), "1101");
             return PaymentStatus.APPROVED;
@@ -667,7 +667,7 @@ class PaymentApprovalServiceTest {
     @Test
     void 복구가_출금_미확인으로_거절하면_그_요청은_거절_응답으로_끝나고_다시_출금하지_않는다() {
         payment.startApproval(15L, 3L);
-        payment.assignFinRequestNo(TX_NO);
+        payment.assignFinRequestNo(TX_NO, 15_000);
         when(attempts.count(PAYMENT_ID)).thenReturn(1);
         when(recovery.recover(PAYMENT_ID)).thenAnswer(inv -> {
             payment.decline("WITHDRAWAL_NOT_CONFIRMED");
@@ -689,7 +689,7 @@ class PaymentApprovalServiceTest {
     @Test
     void 출금_미확인으로_거절된_결제를_재승인하기_직전에_앞_출금을_다시_본다() {
         payment.startApproval(15L, 3L);
-        payment.assignFinRequestNo(TX_NO);
+        payment.assignFinRequestNo(TX_NO, 15_000);
         payment.decline("WITHDRAWAL_NOT_CONFIRMED");
         when(attempts.count(PAYMENT_ID)).thenReturn(1);
         attemptNo = 2;
@@ -714,7 +714,7 @@ class PaymentApprovalServiceTest {
     void 정산_잠금이_풀린_사이_출금_미확인으로_거절됐는데_출금_성공이_늦게_오면_승인으로_바로잡는다() {
         doAnswer(inv -> {
             // 출금 대기 중 잠금이 풀려 복구가 이 시도를 출금 미확인으로 거절했다
-            payment.assignFinRequestNo(TX_NO);
+            payment.assignFinRequestNo(TX_NO, 15_000);
             payment.decline("WITHDRAWAL_NOT_CONFIRMED");
             return new ApprovalOutcome.Approved(15_000, 15_000, 0, LocalDate.of(2026, 10, 1), List.of(), TX_NO,
                     "1101", null);

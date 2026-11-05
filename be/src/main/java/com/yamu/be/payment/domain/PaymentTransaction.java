@@ -121,6 +121,13 @@ public class PaymentTransaction extends BaseTimeEntity {
     @Column(name = "fin_request_no", columnDefinition = "char(20)")
     private String finRequestNo;
 
+    /**
+     * 이번 시도의 금융망 출금 요청액(결제 금액 − 즉시할인). 요청 번호와 같이 저장되고 같이 지워진다.
+     * 결과를 모르는 출금을 거래내역에서 확인할 때 이 금액과 비교한다. 이 칸이 생기기 전에 저장된 행은 null이다
+     */
+    @Column(name = "fin_request_amount")
+    private Long finRequestAmount;
+
     @Column(name = "fin_transaction_no", length = 128)
     private String finTransactionNo;
 
@@ -188,20 +195,27 @@ public class PaymentTransaction extends BaseTimeEntity {
         this.failureCode = null;
         // 앞 시도의 금융망 요청·거래 번호는 지운다. 남겨 두면 복구가 옛 시도의 출금을 이번 시도로 오인한다(옛 번호는 Redis 시도 기록에 있다)
         this.finRequestNo = null;
+        this.finRequestAmount = null;
         this.finTransactionNo = null;
         this.status = PaymentStatus.PROCESSING;
     }
 
     /**
-     * 금융망 출금을 부르기 전에 기관거래고유번호를 남긴다(명세 1장 멱등성: PROCESSING과 요청 번호를 먼저 저장).
-     * 결과를 모를 때 이 번호의 날짜·태그로 거래내역을 찾는다. 한 시도에 한 번만 받는다.
+     * 금융망 출금을 부르기 전에 기관거래고유번호와 출금 요청액을 남긴다(명세 1장 멱등성: PROCESSING과 요청 번호를 먼저 저장).
+     * 결과를 모를 때 이 번호의 날짜·태그로 거래내역을 찾고 금액을 비교한다. 한 시도에 한 번만 받는다.
+     *
+     * @param amount 출금 요청액(결제 금액 − 즉시할인). 1원 이상
      */
-    public void assignFinRequestNo(String finRequestNo) {
+    public void assignFinRequestNo(String finRequestNo, long amount) {
         requireStatus("출금 요청 번호 저장", PaymentStatus.PROCESSING);
         if (this.finRequestNo != null) {
             throw new IllegalStateException("이미 출금 요청 번호가 있습니다 (결제 " + id + ")");
         }
+        if (amount <= 0) {
+            throw new IllegalArgumentException("출금 요청액은 1원 이상이어야 합니다: " + amount);
+        }
         this.finRequestNo = finRequestNo;
+        this.finRequestAmount = amount;
     }
 
     /**
@@ -211,6 +225,7 @@ public class PaymentTransaction extends BaseTimeEntity {
     public void releaseApproval() {
         requireStatus("승인 되돌리기", PaymentStatus.PROCESSING);
         this.finRequestNo = null;
+        this.finRequestAmount = null;
         this.failureCode = null;
         this.status = PaymentStatus.REQUESTED;
     }
@@ -218,6 +233,7 @@ public class PaymentTransaction extends BaseTimeEntity {
     /**
      * 모의 승인 확정. DB CHECK {@code ck_payment_approval}이 승인 시각과 함께 카드·승인액·실적 인정액·실적 월·개월 수를 요구한다.
      *
+     * @param approvedAmount    결제 금액 − 즉시할인(체크카드 출금액·신용카드 청구 원금). 전액 즉시할인이면 0
      * @param performanceMonth  실적을 합산할 월(한국 날짜, 1일로 저장)
      * @param finTransactionNo  체크카드 출금의 금융망 거래 번호. 신용카드·0원 승인은 null
      */
