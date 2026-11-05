@@ -109,6 +109,46 @@ public class CardBill extends BaseTimeEntity {
     }
 
     /**
+     * 청구 확정(Task 5.4.2, POL-005). 이용기간이 끝난 청구서의 청구 전 회차 합계를 확정 원본으로 고정하고, 그 시점의 출금 계좌와
+     * 영업일로 다시 계산한 출금 예정일을 적는다. 확정 뒤에는 금액을 덮어쓰지 않는다(확정 뒤 취소는 환급으로 처리).
+     *
+     * @param confirmedAmount 확정 청구액(원, 0 이상). 회차가 모두 제외됐으면 0
+     * @param linkedAccountId 확정 당시 카드의 출금 계좌. 없으면 확정할 수 없다({@code ck_bill_confirmed})
+     * @param withdrawalDate  결제일을 영업일로 보정한 출금 예정일(한국 날짜)
+     * @param confirmedAt     확정 시각(UTC)
+     */
+    public void confirm(long confirmedAmount, Long linkedAccountId, LocalDate withdrawalDate, LocalDateTime confirmedAt) {
+        if (status != BillStatus.ACCUMULATING) {
+            throw new IllegalStateException("이용기간 진행 중인 청구서만 확정할 수 있습니다 (청구서 " + id + ", 상태 " + status + ")");
+        }
+        if (confirmedAmount < 0) {
+            throw new IllegalArgumentException("확정 청구액은 0원 이상이어야 합니다 (청구서 " + id + ", 금액 " + confirmedAmount + ")");
+        }
+        if (linkedAccountId == null || withdrawalDate == null || confirmedAt == null) {
+            throw new IllegalArgumentException("확정에는 출금 계좌·출금 예정일·확정 시각이 필요합니다 (청구서 " + id + ")");
+        }
+        this.confirmedAmount = confirmedAmount;
+        this.linkedAccountId = linkedAccountId;
+        this.withdrawalDate = withdrawalDate;
+        this.confirmedAt = confirmedAt;
+        this.status = BillStatus.CONFIRMED;
+    }
+
+    /**
+     * 확정액이 0원인 청구서(회차가 모두 확정 전에 취소됐거나, 승인 저장 실패로 회차 없이 남은 청구서)는 출금할 돈이 없다.
+     * 확정 직후 출금 없이 PAID(출금액 0)로 닫아, 카드 해제·탈퇴가 빈 청구서 때문에 막히지 않게 한다. 임시(2026-11-05 결정):
+     * 명세에는 없는 처리라 PAID 대신 다른 상태를 둘지는 명세에 반영할 때 정한다.
+     */
+    public void settleWithoutWithdrawal(LocalDateTime paidAt) {
+        if (status != BillStatus.CONFIRMED || confirmedAmount == null || confirmedAmount != 0 || paidAmount != 0) {
+            throw new IllegalStateException("확정액 0원의 확정 청구서만 출금 없이 닫을 수 있습니다 (청구서 " + id + ", 상태 " + status
+                    + ", 확정액 " + confirmedAmount + ")");
+        }
+        this.paidAt = paidAt;
+        this.status = BillStatus.PAID;
+    }
+
+    /**
      * 미납액 중 취소된 회차 몫을 납부 대상에서 뺀다(POL-006). 확정 원본({@code confirmedAmount})·실패 이력은 그대로 두고
      * 제외액만 쌓는다. 몫은 확정액 안에서의 그 회차 금액이라(청구할인이 생기면 할인 뒤 금액) 할인을 두 번 빼지 않는다.
      * 남은 미납액보다 많이 뺄 수는 없다.
