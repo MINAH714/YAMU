@@ -3,6 +3,7 @@ package com.yamu.be.payment.history;
 import com.yamu.be.global.common.ApiResponse;
 import com.yamu.be.global.common.PageResponse;
 import com.yamu.be.global.security.AuthUser;
+import com.yamu.be.payment.domain.PaymentChannel;
 import com.yamu.be.payment.domain.PaymentStatus;
 import com.yamu.be.payment.domain.TransactionSource;
 import io.swagger.v3.oas.annotations.Operation;
@@ -35,7 +36,9 @@ class PaymentHistoryController {
     @Operation(summary = "결제 내역 목록 조회",
             description = "기간·카드·상태·출처로 거른 결제 내역과 전체 합계. 기간은 한국 날짜이고 POS 요청 시각 기준이다. "
                     + "yearMonth와 from·to는 함께 쓰지 않으며, 모두 없으면 이번 달이다. 상태 기본값은 APPROVED+CANCELED이고, "
-                    + "합계 금액·혜택은 승인 건만 더한다. 최근 요청 순.")
+                    + "합계 금액·혜택은 승인 건만 더한다. 최근 요청 순. "
+                    + "q는 가맹점명·메모 부분 일치(숫자만이면 결제 금액·승인액 일치도), categoryCode는 업종 접두어 일치, "
+                    + "benefitStatus는 NONE(혜택 없음·승인 아님)·EXPECTED(확정 전 혜택 있음)·CONFIRMED(모두 확정).")
     @GetMapping
     ApiResponse<PaymentListResponse> list(@AuthenticationPrincipal AuthUser me,
             @Parameter(description = "한국 기준 월(YYYY-MM)") @RequestParam(required = false) YearMonth yearMonth,
@@ -47,11 +50,18 @@ class PaymentHistoryController {
             @Parameter(description = "APPROVED · DECLINED · CANCELED") @RequestParam(required = false)
             PaymentStatus status,
             @RequestParam(required = false) TransactionSource source,
+            @Parameter(description = "가맹점명·메모 부분 일치, 숫자만이면 금액 일치. 50자 이하") @RequestParam(required = false) String q,
+            @Parameter(description = "업종 코드 접두어") @RequestParam(required = false) String categoryCode,
+            @Parameter(description = "LIVING · LARGE · EXCLUDED") @RequestParam(required = false) String spendingClass,
+            @Parameter(description = "NONE · EXPECTED · CONFIRMED") @RequestParam(required = false)
+            BenefitStatus benefitStatus,
+            @Parameter(description = "OFFLINE · ONLINE") @RequestParam(required = false) PaymentChannel channel,
             @RequestParam(defaultValue = "1") @Min(value = 1, message = "page는 1 이상입니다.") int page,
             @RequestParam(defaultValue = "" + PageResponse.DEFAULT_SIZE)
             @Min(value = 1, message = "size는 1 이상입니다.")
             @Max(value = PageResponse.MAX_SIZE, message = "size는 100 이하입니다.") int size) {
-        return ApiResponse.ok(service.list(me, yearMonth, from, to, userCardId, status, source, page, size));
+        return ApiResponse.ok(service.list(me, yearMonth, from, to, userCardId, status, source,
+                new PaymentHistoryService.Conditions(q, categoryCode, spendingClass, channel, benefitStatus), page, size));
     }
 
     @Operation(summary = "결제 상세 조회",

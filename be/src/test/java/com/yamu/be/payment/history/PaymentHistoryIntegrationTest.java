@@ -89,7 +89,9 @@ class PaymentHistoryIntegrationTest extends MySqlTestSupport {
                 .andExpect(jsonPath("$.data.hasNext").value(false))
                 .andExpect(jsonPath("$.data.summary.count").value(0))
                 .andExpect(jsonPath("$.data.summary.amount").value(0))
-                .andExpect(jsonPath("$.data.summary.confirmedBenefit").value(nullValue()));
+                .andExpect(jsonPath("$.data.summary.confirmedBenefit").value(0))
+                .andExpect(jsonPath("$.data.summary.byClass.LIVING").value(0))
+                .andExpect(jsonPath("$.data.summary.yamuPickCount").value(0));
     }
 
     @Test
@@ -325,6 +327,120 @@ class PaymentHistoryIntegrationTest extends MySqlTestSupport {
                 .andExpect(jsonPath("$.error.code").value("RESOURCE_NOT_FOUND"));
     }
 
+    // ───────── v0.3.1 보완: 검색·필터·칸 (Task 5.3.4) ─────────
+
+    @Test
+    void 검색어는_가맹점명과_메모를_부분_일치로_찾고_숫자만이면_금액도_찾는다() throws Exception {
+        long memoHit = approved(owner, card, OCT_10, 12_000, 1);
+        jdbc.update("UPDATE payment_transaction SET memo = '팀 회식 정산' WHERE payment_transaction_id = ?", memoHit);
+        long amountHit = approved(owner, card, OCT_10.plusHours(1), 15_000, 1);
+        approved(owner, card, OCT_10.plusHours(2), 9_000, 1);
+
+        mockMvc.perform(list().param("yearMonth", OCTOBER).param("q", "  회식 "))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.items[*].paymentId").value(contains((int) memoHit)))
+                .andExpect(jsonPath("$.data.items[0].memo").value("팀 회식 정산"));
+        mockMvc.perform(list().param("yearMonth", OCTOBER).param("q", "15,000"))
+                .andExpect(jsonPath("$.data.items[*].paymentId").value(contains((int) amountHit)));
+        // 가맹점명(스냅샷 "스타벅스 역삼점") 부분 일치는 모두
+        mockMvc.perform(list().param("yearMonth", OCTOBER).param("q", "역삼"))
+                .andExpect(jsonPath("$.data.items", hasSize(3)));
+        // LIKE 특수문자는 글자 그대로 찾는다
+        mockMvc.perform(list().param("yearMonth", OCTOBER).param("q", "%"))
+                .andExpect(jsonPath("$.data.items", hasSize(0)));
+    }
+
+    @Test
+    void 업종_접두어_소비_분류_채널로_거른다() throws Exception {
+        long living = approved(owner, card, OCT_10, 10_000, 1);
+        jdbc.update("UPDATE payment_transaction SET spending_class = 'LIVING', spending_class_source = 'AUTO', payment_channel = 'ONLINE' "
+                + "WHERE payment_transaction_id = ?", living);
+        long large = approved(owner, card, OCT_10.plusHours(1), 300_000, 1);
+        jdbc.update("UPDATE payment_transaction SET spending_class = 'LARGE', spending_class_source = 'AUTO' WHERE payment_transaction_id = ?", large);
+
+        mockMvc.perform(list().param("yearMonth", OCTOBER).param("categoryCode", "F01"))
+                .andExpect(jsonPath("$.data.items", hasSize(2)))
+                .andExpect(jsonPath("$.data.items[0].categoryCode").value("F01-CAFE"));
+        mockMvc.perform(list().param("yearMonth", OCTOBER).param("categoryCode", "F02"))
+                .andExpect(jsonPath("$.data.items", hasSize(0)));
+        mockMvc.perform(list().param("yearMonth", OCTOBER).param("spendingClass", "LIVING"))
+                .andExpect(jsonPath("$.data.items[*].paymentId").value(contains((int) living)))
+                .andExpect(jsonPath("$.data.items[0].spendingClass").value("LIVING"));
+        mockMvc.perform(list().param("yearMonth", OCTOBER).param("channel", "ONLINE"))
+                .andExpect(jsonPath("$.data.items[*].paymentId").value(contains((int) living)))
+                .andExpect(jsonPath("$.data.items[0].channel").value("ONLINE"));
+        mockMvc.perform(list().param("yearMonth", OCTOBER))
+                .andExpect(jsonPath("$.data.summary.byClass.LIVING").value(10_000))
+                .andExpect(jsonPath("$.data.summary.byClass.LARGE").value(300_000))
+                .andExpect(jsonPath("$.data.summary.byClass.EXCLUDED").value(0));
+    }
+
+    @Test
+    void 혜택_상태는_즉시할인은_승인_때_청구할인은_회차가_모두_확정되면_확정이다() throws Exception {
+        long instant = approved(owner, card, OCT_10, 10_000, 1);
+        benefit(instant, 1_000, "AT_APPROVAL");
+        long billingPending = approved(owner, card, OCT_10.plusHours(1), 20_000, 1);
+        benefit(billingPending, 2_000, "AT_BILLING");
+        billItem(billingPending, null, 1, LocalDate.of(2026, 11, 1), 20_000, "PENDING");
+        long billingDone = approved(owner, card, OCT_10.plusHours(2), 30_000, 1);
+        benefit(billingDone, 3_000, "AT_BILLING");
+        billItem(billingDone, null, 1, LocalDate.of(2026, 11, 1), 30_000, "BILLED");
+        long points = approved(owner, card, OCT_10.plusHours(3), 40_000, 1);
+        benefit(points, 400, "POINT_ACCRUAL");
+        long none = approved(owner, card, OCT_10.plusHours(4), 5_000, 1);
+
+        mockMvc.perform(list().param("yearMonth", OCTOBER).param("benefitStatus", "CONFIRMED"))
+                .andExpect(jsonPath("$.data.items[*].paymentId").value(contains((int) billingDone, (int) instant)))
+                .andExpect(jsonPath("$.data.items[0].benefitConfirmed").value(true));
+        mockMvc.perform(list().param("yearMonth", OCTOBER).param("benefitStatus", "EXPECTED"))
+                .andExpect(jsonPath("$.data.items[*].paymentId").value(contains((int) points, (int) billingPending)))
+                .andExpect(jsonPath("$.data.items[0].benefitConfirmed").value(false));
+        mockMvc.perform(list().param("yearMonth", OCTOBER).param("benefitStatus", "NONE"))
+                .andExpect(jsonPath("$.data.items[*].paymentId").value(contains((int) none)))
+                .andExpect(jsonPath("$.data.items[0].benefitConfirmed").value(nullValue()))
+                .andExpect(jsonPath("$.data.items[0].benefitStatus").value("NONE"));
+        mockMvc.perform(list().param("yearMonth", OCTOBER))
+                .andExpect(jsonPath("$.data.summary.expectedBenefit").value(6_400))
+                .andExpect(jsonPath("$.data.summary.confirmedBenefit").value(4_000));
+    }
+
+    @Test
+    void 취소된_결제는_혜택_기록이_있어도_NONE이다() throws Exception {
+        long canceled = approved(owner, card, OCT_10, 10_000, 1);
+        benefit(canceled, 1_000, "AT_APPROVAL");
+        jdbc.update("UPDATE payment_transaction SET status = 'CANCELED', canceled_at = ? WHERE payment_transaction_id = ?",
+                OCT_10.plusHours(1), canceled);
+
+        mockMvc.perform(list().param("yearMonth", OCTOBER).param("benefitStatus", "NONE"))
+                .andExpect(jsonPath("$.data.items[*].paymentId").value(contains((int) canceled)));
+    }
+
+    @Test
+    void 야무픽은_저장된_추천_1순위_카드로_승인한_건만_센다() throws Exception {
+        long pick = approved(owner, card, OCT_10, 10_000, 1);
+        long other = approved(owner, card, OCT_10.plusHours(1), 10_000, 1);
+        approved(owner, card, OCT_10.plusHours(2), 10_000, 1);
+        String result = "{\"schemaVersion\":1,\"candidates\":[{\"rank\":1,\"card\":{\"userCardId\":%d}},"
+                + "{\"rank\":2,\"card\":{\"userCardId\":%d}}]}";
+        jdbc.update("UPDATE payment_transaction SET recommendation_result_json = ? WHERE payment_transaction_id = ?",
+                result.formatted(card, otherCard), pick);
+        jdbc.update("UPDATE payment_transaction SET recommendation_result_json = ? WHERE payment_transaction_id = ?",
+                result.formatted(otherCard, card), other);
+
+        mockMvc.perform(list().param("yearMonth", OCTOBER))
+                .andExpect(jsonPath("$.data.summary.yamuPickCount").value(1));
+    }
+
+    @Test
+    void 새_필터의_잘못된_값은_400_INVALID_REQUEST다() throws Exception {
+        expectInvalid(list().param("q", "가".repeat(51)), "q");
+        expectInvalid(list().param("categoryCode", "F01;DROP"), "categoryCode");
+        expectInvalid(list().param("spendingClass", "FOOD"), "spendingClass");
+        expectInvalid(list().param("channel", "UNKNOWN"), "channel");
+        mockMvc.perform(list().param("benefitStatus", "MAYBE"))
+                .andExpect(status().isBadRequest());
+    }
+
     private MockHttpServletRequestBuilder list() {
         return get("/api/payments").with(AuthUsers.asUser(owner));
     }
@@ -385,10 +501,14 @@ class PaymentHistoryIntegrationTest extends MySqlTestSupport {
     }
 
     private long benefit(long paymentId, long krw) {
+        return benefit(paymentId, krw, "AT_BILLING");
+    }
+
+    private long benefit(long paymentId, long krw, String timing) {
         long cardBenefit = insert("card_benefit", "card_benefit_id", Map.of("card_product_id", product,
                 "benefit_code", "CAFE-" + UUID.randomUUID(), "policy_version", 1, "benefit_name", "카페 10% 청구할인",
                 "benefit_type", "DISCOUNT", "calculation_type", "FIXED", "fixed_value", krw, "value_unit", "KRW",
-                "application_timing", "AT_BILLING", "created_at", now()));
+                "application_timing", timing, "created_at", now()));
         return insert("payment_benefit", "payment_benefit_id", Map.of("payment_transaction_id", paymentId,
                 "card_product_id", product, "card_benefit_id", cardBenefit, "benefit_value", krw, "value_unit", "KRW",
                 "krw_amount", krw, "created_at", now()));

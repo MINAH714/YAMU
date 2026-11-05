@@ -29,22 +29,56 @@ import org.springframework.stereotype.Component;
 @Component
 class PaymentHistoryReader {
 
+    private static final String MERCHANT_NAME =
+            "coalesce(nullif(p.merchant_context_snapshot ->> '$.merchantName', 'null'), m.merchant_name)";
+    private static final String CATEGORY_CODE =
+            "coalesce(nullif(p.merchant_context_snapshot ->> '$.categoryCode', 'null'), m.merchant_category_code)";
+
+    /**
+     * 혜택 줄이 확정됐는지(2026-11-06 결정, {@link BenefitStatus}). 즉시할인은 승인 때, 청구할인은 결제의 회차가 모두 청구 확정되면
+     * (청구 전 PENDING 회차가 없으면) 확정이다. 캐시백·적립·시점 미확인은 지급 기록이 없어 확정되지 않는다.
+     * 임시: 할부 청구할인은 회차가 일부만 확정된 동안 확정으로 세지 않는다(회차별 배분은 S15P31E103-299의 bill_item_discount).
+     */
+    private static final String CONFIRMED_LINE = """
+            (cb.application_timing = 'AT_APPROVAL'
+             or (cb.application_timing = 'AT_BILLING'
+                 and exists (select 1 from bill_item i where i.payment_transaction_id = b.payment_transaction_id)
+                 and not exists (select 1 from bill_item i
+                                 where i.payment_transaction_id = b.payment_transaction_id and i.status = 'PENDING')))
+            """;
+    private static final String BENEFIT_LINES = "(select count(*) from payment_benefit b"
+            + " where b.payment_transaction_id = p.payment_transaction_id and b.benefit_value > 0)";
+    private static final String CONFIRMED_LINES = "(select count(*) from payment_benefit b"
+            + " join card_benefit cb on cb.card_benefit_id = b.card_benefit_id"
+            + " where b.payment_transaction_id = p.payment_transaction_id and b.benefit_value > 0 and " + CONFIRMED_LINE + ")";
+    private static final String CONFIRMED_AMOUNT = "(select coalesce(sum(b.krw_amount), 0) from payment_benefit b"
+            + " join card_benefit cb on cb.card_benefit_id = b.card_benefit_id"
+            + " where b.payment_transaction_id = p.payment_transaction_id and " + CONFIRMED_LINE + ")";
+    private static final String BENEFIT_AMOUNT = "(select sum(b.krw_amount) from payment_benefit b"
+            + " where b.payment_transaction_id = p.payment_transaction_id)";
+    /** 추천 1순위(저장된 추천 결과의 첫 후보)로 승인했는지. 결과가 없는 결제(SEED·옛 결제)는 아니다 */
+    private static final String YAMU_PICK = "(p.status = 'APPROVED' and p.user_card_id is not null"
+            + " and cast(json_unquote(json_extract(p.recommendation_result_json, '$.candidates[0].card.userCardId'))"
+            + " as unsigned) = p.user_card_id)";
+
     private static final String LIST_COLUMNS = """
             select p.payment_transaction_id, p.source, p.status, p.requested_at, p.approved_at, p.canceled_at,
-                   p.merchant_id,
-                   coalesce(nullif(p.merchant_context_snapshot ->> '$.merchantName', 'null'), m.merchant_name) as merchant_name,
-                   coalesce(nullif(p.merchant_context_snapshot ->> '$.categoryCode', 'null'), m.merchant_category_code) as category_code,
+                   p.merchant_id, %s as merchant_name, %s as category_code,
                    p.payment_channel, p.requested_amount, p.approved_amount, p.installment_months,
                    p.recognized_performance_amount, p.performance_month, p.failure_code,
+                   p.spending_class, p.memo,
                    p.user_card_id, c.card_alias, c.card_last4, cp.product_name, cp.card_type,
-                   (select cast(sum(b.krw_amount) as signed) from payment_benefit b
-                    where b.payment_transaction_id = p.payment_transaction_id) as benefit_amount
+                   cast(%s as signed) as benefit_amount, %s as benefit_lines, %s as confirmed_lines
             from payment_transaction p
             join merchant m on m.merchant_id = p.merchant_id
             left join user_card c on c.user_card_id = p.user_card_id
             left join card_product cp on cp.card_product_id = p.card_product_id
-            """;
+            """.formatted(MERCHANT_NAME, CATEGORY_CODE, BENEFIT_AMOUNT, BENEFIT_LINES, CONFIRMED_LINES);
 
+    /**
+     * 목록 조건(v0.3.1 보완 포함). q는 가맹점명·메모 부분 일치이고, 숫자만이면 결제 금액·승인액이 같은 결제도 찾는다.
+     * 업종 코드는 접두어 일치다. LIKE 특수문자는 {@link Filter}가 막아 그대로 찾는다.
+     */
     private static final String FILTER = """
             where p.user_id = :userId
               and p.status in (:statuses)
@@ -52,7 +86,16 @@ class PaymentHistoryReader {
               and (:until is null or p.requested_at < :until)
               and (:userCardId is null or p.user_card_id = :userCardId)
               and (:source is null or p.source = :source)
-            """;
+              and (:qLike is null or %1$s like :qLike or p.memo like :qLike
+                   or (:qAmount is not null and (p.requested_amount = :qAmount or p.approved_amount = :qAmount)))
+              and (:categoryPrefix is null or %2$s like :categoryPrefix)
+              and (:spendingClass is null or p.spending_class = :spendingClass)
+              and (:channel is null or p.payment_channel = :channel)
+              and (:benefitStatus is null
+                   or (:benefitStatus = 'NONE' and (p.status <> 'APPROVED' or %3$s = 0))
+                   or (:benefitStatus = 'CONFIRMED' and p.status = 'APPROVED' and %3$s > 0 and %4$s = %3$s)
+                   or (:benefitStatus = 'EXPECTED' and p.status = 'APPROVED' and %3$s > 0 and %4$s < %3$s))
+            """.formatted(MERCHANT_NAME, CATEGORY_CODE, BENEFIT_LINES, CONFIRMED_LINES);
 
     private final NamedParameterJdbcTemplate jdbc;
 
@@ -67,7 +110,13 @@ class PaymentHistoryReader {
      * @param until 요청 시각 상한(UTC, 미포함). null이면 제한 없음
      */
     record Filter(Long userId, List<PaymentStatus> statuses, LocalDateTime from, LocalDateTime until, Long userCardId,
-            TransactionSource source) {
+            TransactionSource source, String q, Long qAmount, String categoryCode, String spendingClass,
+            PaymentChannel channel, BenefitStatus benefitStatus) {
+
+        Filter(Long userId, List<PaymentStatus> statuses, LocalDateTime from, LocalDateTime until, Long userCardId,
+                TransactionSource source) {
+            this(userId, statuses, from, until, userCardId, source, null, null, null, null, null, null);
+        }
 
         MapSqlParameterSource params() {
             return new MapSqlParameterSource()
@@ -76,7 +125,18 @@ class PaymentHistoryReader {
                     .addValue("from", from)
                     .addValue("until", until)
                     .addValue("userCardId", userCardId)
-                    .addValue("source", source == null ? null : source.name());
+                    .addValue("source", source == null ? null : source.name())
+                    .addValue("qLike", q == null ? null : "%" + escapeLike(q) + "%")
+                    .addValue("qAmount", qAmount)
+                    .addValue("categoryPrefix", categoryCode == null ? null : escapeLike(categoryCode) + "%")
+                    .addValue("spendingClass", spendingClass)
+                    .addValue("channel", channel == null ? null : channel.name())
+                    .addValue("benefitStatus", benefitStatus == null ? null : benefitStatus.name());
+        }
+
+        /** MySQL LIKE의 기본 이스케이프 문자(\)로 %·_·\를 글자 그대로 찾게 한다. */
+        private static String escapeLike(String value) {
+            return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_");
         }
     }
 
@@ -89,20 +149,30 @@ class PaymentHistoryReader {
                 """, params, (rs, i) -> item(rs));
     }
 
-    /** 필터를 적용한 전체 개수와 승인 건의 금액·혜택 합계. */
+    /** 필터를 적용한 전체 개수와 승인 건의 금액·혜택·확정 혜택·소비 분류별 금액·야무픽 건수. */
     Totals totals(Filter filter) {
         return jdbc.queryForObject("""
                 select count(*) as cnt,
                        coalesce(sum(case when p.status = 'APPROVED' then p.requested_amount end), 0) as amount,
-                       coalesce(sum(case when p.status = 'APPROVED' then
-                           (select sum(b.krw_amount) from payment_benefit b
-                            where b.payment_transaction_id = p.payment_transaction_id) end), 0) as benefit
+                       coalesce(sum(case when p.status = 'APPROVED' then %1$s end), 0) as benefit,
+                       coalesce(sum(case when p.status = 'APPROVED' then %2$s end), 0) as confirmed_benefit,
+                       coalesce(sum(case when p.status = 'APPROVED' and p.spending_class = 'LIVING'
+                                         then p.requested_amount end), 0) as living,
+                       coalesce(sum(case when p.status = 'APPROVED' and p.spending_class = 'LARGE'
+                                         then p.requested_amount end), 0) as large,
+                       coalesce(sum(case when p.status = 'APPROVED' and p.spending_class = 'EXCLUDED'
+                                         then p.requested_amount end), 0) as excluded,
+                       coalesce(sum(case when %3$s then 1 else 0 end), 0) as yamu_pick
                 from payment_transaction p
-                """ + FILTER, filter.params(),
-                (rs, i) -> new Totals(rs.getLong("cnt"), rs.getLong("amount"), rs.getLong("benefit")));
+                join merchant m on m.merchant_id = p.merchant_id
+                """.formatted(BENEFIT_AMOUNT, CONFIRMED_AMOUNT, YAMU_PICK) + FILTER, filter.params(),
+                (rs, i) -> new Totals(rs.getLong("cnt"), rs.getLong("amount"), rs.getLong("benefit"),
+                        rs.getLong("confirmed_benefit"), new PaymentListResponse.ByClass(rs.getLong("living"),
+                                rs.getLong("large"), rs.getLong("excluded")), rs.getLong("yamu_pick")));
     }
 
-    record Totals(long count, long amount, long benefit) {}
+    record Totals(long count, long amount, long benefit, long confirmedBenefit, PaymentListResponse.ByClass byClass,
+            long yamuPickCount) {}
 
     /** 이 사용자의 결제 한 건. 없거나 남의 결제면 empty다. */
     Optional<PaymentRow> findOne(Long paymentId, Long userId) {
@@ -192,6 +262,8 @@ class PaymentHistoryReader {
         boolean installment = months != null && months > 1;
         Long recognized = rs.getObject("recognized_performance_amount", Long.class);
         Long benefit = rs.getObject("benefit_amount", Long.class);
+        BenefitStatus benefitStatus = benefitStatus(status, rs.getLong("benefit_lines"), rs.getLong("confirmed_lines"));
+        String categoryCode = rs.getString("category_code");
         return new PaymentListResponse.Item(
                 rs.getLong("payment_transaction_id"),
                 TransactionSource.valueOf(rs.getString("source")),
@@ -199,14 +271,27 @@ class PaymentHistoryReader {
                 rs.getObject("requested_at", LocalDateTime.class),
                 rs.getObject("approved_at", LocalDateTime.class),
                 new PaymentListResponse.Merchant(rs.getLong("merchant_id"), rs.getString("merchant_name"),
-                        rs.getString("category_code"), null),
+                        categoryCode, null),
                 rs.getLong("requested_amount"),
                 installment ? PaymentPlan.INSTALLMENT : PaymentPlan.LUMP_SUM,
                 installment ? months : null,
                 card(rs),
                 status != PaymentStatus.APPROVED || benefit == null ? 0 : benefit,
-                null,
-                status == PaymentStatus.APPROVED && recognized != null && recognized > 0);
+                benefitStatus == BenefitStatus.NONE ? null : benefitStatus == BenefitStatus.CONFIRMED,
+                status == PaymentStatus.APPROVED && recognized != null && recognized > 0,
+                benefitStatus,
+                rs.getString("spending_class"),
+                rs.getString("memo"),
+                PaymentChannel.valueOf(rs.getString("payment_channel")),
+                categoryCode);
+    }
+
+    /** 승인 건만 혜택이 있다. 혜택 줄이 모두 확정이면 CONFIRMED, 하나라도 아니면 EXPECTED. */
+    static BenefitStatus benefitStatus(PaymentStatus status, long lines, long confirmedLines) {
+        if (status != PaymentStatus.APPROVED || lines == 0) {
+            return BenefitStatus.NONE;
+        }
+        return confirmedLines == lines ? BenefitStatus.CONFIRMED : BenefitStatus.EXPECTED;
     }
 
     private static PaymentListResponse.Card card(ResultSet rs) throws SQLException {
