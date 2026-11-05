@@ -9,9 +9,14 @@ import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.yamu.be.global.crypto.CipherField;
 import com.yamu.be.global.crypto.PersonalDataCipher;
+import com.yamu.be.global.job.JobRunCommand;
+import com.yamu.be.global.job.JobRunReport;
 import com.yamu.be.payment.approve.PaymentApprovalProperties;
 import com.yamu.be.payment.bank.BankDirection;
 import com.yamu.be.payment.bank.BankTransaction;
@@ -41,33 +46,37 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Primary;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.context.event.ApplicationEvents;
 import org.springframework.test.context.event.RecordApplicationEvents;
+import org.springframework.test.web.servlet.MockMvc;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.utility.DockerImageName;
 
 /**
- * 신용카드 취소 환급 입금 배치(Task 5.4.4)를 실제 MySQL로 확인한다. 금융망(SsafyTransferApi)만 가짜 은행으로 바꾼다.
+ * 신용카드 취소 환급 입금 정기 작업({@code refund-payout}, Task 5.4.4)을 실제 MySQL·Redis로 확인한다. 금융망(SsafyTransferApi)만 가짜 은행으로 바꾼다.
  *
  * <p>결제일 출금(S15P31E103-207) 전이라 기한이 정해진 환급은 실제 흐름으로 만들 수 없어, 출금 완료 청구서·환급 대기 회차·환급을
- * SQL로 넣는다(출금 뒤 취소한 모양). 배치는 켜 두고 {@link RefundDepositJob#run()}을 직접 부른다.
+ * SQL로 넣는다(출금 뒤 취소한 모양). 작업은 {@link RefundPayoutJob#run(JobRunCommand)}을 직접 부르거나 운영 API로 부른다.
  */
+@AutoConfigureMockMvc
 @RecordApplicationEvents
-@TestPropertySource(properties = {"spring.application.name=yamu-refund-deposit-test",
-        "yamu.payment.refund.deposit-enabled=true"})
+@TestPropertySource(properties = "spring.application.name=yamu-refund-deposit-test")
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 class RefundDepositIntegrationTest extends MySqlTestSupport {
 
+    static final String ADMIN_KEY = "test-admin-key";
     static final String ACCOUNT_NO = "0012345678901234";
     static final ZoneId KST = ZoneId.of("Asia/Seoul");
     static final DateTimeFormatter REQUEST_TIME = DateTimeFormatter.ofPattern("yyyyMMddHHmmss");
@@ -90,7 +99,8 @@ class RefundDepositIntegrationTest extends MySqlTestSupport {
 
     @MockitoBean SsafyTransferApi transfer;
 
-    @Autowired RefundDepositJob job;
+    @Autowired RefundPayoutJob job;
+    @Autowired MockMvc mockMvc;
     @Autowired RefundDepositor depositor;
     @Autowired JdbcTemplate jdbc;
     @Autowired StringRedisTemplate redis;
@@ -145,9 +155,16 @@ class RefundDepositIntegrationTest extends MySqlTestSupport {
     void 기한이_정해진_대기_환급을_YAMU_R로_저장된_계좌에_입금하고_완료와_회차_REFUNDED로_바꾼다() {
         Refund refund = refundAfterWithdrawal(15_000);
 
-        RefundDepositJob.Report report = job.run();
+        JobRunReport report = run();
 
-        assertThat(report.count(Outcome.COMPLETED)).isEqualTo(1);
+        assertThat(report.results()).singleElement().satisfies(item -> {
+            assertThat(item.refType()).isEqualTo("REFUND");
+            assertThat(item.refId()).isEqualTo(refund.id());
+            assertThat(item.outcome()).isEqualTo(JobRunReport.Outcome.SUCCEEDED);
+            assertThat(item.result()).isEqualTo("COMPLETED");
+            assertThat(item.amount()).isEqualTo(15_000L);
+            assertThat(item.finTransactionNo()).isEqualTo("D1");
+        });
         verify(transfer).deposit(eq("user-key-" + user), eq(ACCOUNT_NO), eq(15_000L), eq(TransferTag.refund(refund.id())),
                 anyString());
         Map<String, Object> row = refundRow(refund.id());
@@ -196,9 +213,7 @@ class RefundDepositIntegrationTest extends MySqlTestSupport {
                     status, status, LocalDateTime.now(ZoneOffset.UTC), other.id());
         }
 
-        RefundDepositJob.Report report = job.run();
-
-        assertThat(report.outcomes()).isEmpty();
+        assertThat(run().results()).isEmpty();
         verify(transfer, never()).deposit(anyString(), anyString(), anyLong(), any(), anyString());
         assertThat(depositor.deposit(awaiting.id())).isEqualTo(Outcome.SKIPPED);
     }
@@ -226,14 +241,11 @@ class RefundDepositIntegrationTest extends MySqlTestSupport {
             throw new IllegalStateException("입금 뒤 서버가 멈춘 상황");
         }).when(transfer).deposit(anyString(), anyString(), anyLong(), any(), anyString());
 
-        RefundDepositJob.Report first = job.run();
-        assertThat(first.errors()).isEqualTo(1);
+        assertThat(count(run(), "ERROR")).isEqualTo(1);
         assertThat(refundStatus(refund.id())).isEqualTo("PENDING");
 
         clock.advance(properties.recoveryGrace().plusSeconds(1));
-        RefundDepositJob.Report second = job.run();
-
-        assertThat(second.count(Outcome.COMPLETED)).isEqualTo(1);
+        assertThat(count(run(), "COMPLETED")).isEqualTo(1);
         verify(transfer, times(1)).deposit(anyString(), anyString(), anyLong(), any(), anyString());
         assertThat(refundStatus(refund.id())).isEqualTo("COMPLETED");
     }
@@ -312,14 +324,18 @@ class RefundDepositIntegrationTest extends MySqlTestSupport {
         doAnswer(inv -> rejected(RejectReason.ACCOUNT_NOT_FOUND)).when(transfer)
                 .deposit(anyString(), anyString(), anyLong(), any(), anyString());
 
-        assertThat(job.run().count(Outcome.FAILED)).isEqualTo(1);
+        JobRunReport report = run();
+        assertThat(report.results()).singleElement().satisfies(item -> {
+            assertThat(item.outcome()).isEqualTo(JobRunReport.Outcome.FAILED);
+            assertThat(item.result()).isEqualTo("FAILED");
+        });
         assertThat(refundStatus(refund.id())).isEqualTo("FAILED");
         assertThat(itemStatus(refund.itemId())).isEqualTo("REFUND_PENDING");
         assertThat(events.stream(RefundFailedEvent.class)).containsExactly(
                 new RefundFailedEvent(refund.id(), user, refund.paymentId(), 15_000, RejectReason.ACCOUNT_NOT_FOUND));
 
         clock.advance(properties.recoveryGrace().plusSeconds(1));
-        assertThat(job.run().outcomes()).isEmpty();
+        assertThat(run().results()).isEmpty();
         verify(transfer, times(1)).deposit(anyString(), anyString(), anyLong(), any(), anyString());
     }
 
@@ -363,16 +379,100 @@ class RefundDepositIntegrationTest extends MySqlTestSupport {
         }).when(transfer).findAllByTag(anyString(), anyString(), any(TransferTag.class), any(LocalDate.class),
                 any(LocalDate.class));
 
-        RefundDepositJob.Report report = job.run();
+        JobRunReport report = run();
 
-        assertThat(report.errors()).isEqualTo(1);
-        assertThat(report.count(Outcome.COMPLETED)).isEqualTo(1);
+        assertThat(count(report, "ERROR")).isEqualTo(1);
+        assertThat(count(report, "COMPLETED")).isEqualTo(1);
+        assertThat(report.count(JobRunReport.Outcome.FAILED)).isEqualTo(1);
         assertThat(refundStatus(broken.id())).isEqualTo("PENDING");
         assertThat(refundRow(broken.id()).get("fin_request_no")).isNull();
         assertThat(refundStatus(fine.id())).isEqualTo("COMPLETED");
     }
 
+    // ───────── 정기 작업·운영 API ─────────
+
+    @Test
+    void 자동으로_판단하지_않은_환급은_결과에_NEEDS_REVIEW_실패로_남긴다() {
+        Refund refund = refundAfterWithdrawal(15_000);
+        land(TransferTag.refund(refund.id()), 14_000);
+
+        assertThat(run().results()).singleElement().satisfies(item -> {
+            assertThat(item.outcome()).isEqualTo(JobRunReport.Outcome.FAILED);
+            assertThat(item.result()).isEqualTo("NEEDS_REVIEW");
+        });
+        assertThat(refundStatus(refund.id())).isEqualTo("PENDING");
+    }
+
+    @Test
+    void dryRun은_대상만_세고_입금하지_않는다() {
+        Refund refund = refundAfterWithdrawal(15_000);
+
+        JobRunReport report = job.run(new JobRunCommand(clock.instant(), null, true));
+
+        assertThat(report.results()).singleElement().satisfies(item -> {
+            assertThat(item.result()).isEqualTo("DRY_RUN");
+            assertThat(item.amount()).isEqualTo(15_000L);
+        });
+        verify(transfer, never()).findAllByTag(anyString(), anyString(), any(TransferTag.class), any(LocalDate.class),
+                any(LocalDate.class));
+        verify(transfer, never()).deposit(anyString(), anyString(), anyLong(), any(), anyString());
+        assertThat(refundStatus(refund.id())).isEqualTo("PENDING");
+    }
+
+    @Test
+    void userId를_주면_그_사용자의_환급만_입금한다() {
+        Refund mine = refundAfterWithdrawal(15_000);
+        long other = ssafyUser();
+        long otherAccount = account(other);
+        long otherCard = owners.card(other, owners.product(), otherAccount, "ACTIVE");
+        Refund others = refundFor(other, otherCard, otherAccount, 5_000);
+
+        JobRunReport report = job.run(new JobRunCommand(clock.instant(), user, false));
+
+        assertThat(report.results()).extracting(JobRunReport.Item::refId).containsExactly(mine.id());
+        assertThat(refundStatus(mine.id())).isEqualTo("COMPLETED");
+        assertThat(refundStatus(others.id())).isEqualTo("PENDING");
+    }
+
+    @Test
+    void 정기_작업_설정이_꺼져_있으면_스케줄_실행은_아무것도_하지_않는다() {
+        Refund refund = refundAfterWithdrawal(15_000);
+
+        job.scheduled();
+
+        verify(transfer, never()).deposit(anyString(), anyString(), anyLong(), any(), anyString());
+        assertThat(refundStatus(refund.id())).isEqualTo("PENDING");
+    }
+
+    @Test
+    void 운영_API로_refund_payout을_돌리면_입금하고_결과를_돌려준다() throws Exception {
+        Refund refund = refundAfterWithdrawal(15_000);
+
+        mockMvc.perform(post("/api/admin/jobs/refund-payout/run").header("X-Admin-Key", ADMIN_KEY)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"userId\":" + user + "}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.jobName").value("refund-payout"))
+                .andExpect(jsonPath("$.data.summary.targets").value(1))
+                .andExpect(jsonPath("$.data.summary.succeeded").value(1))
+                .andExpect(jsonPath("$.data.results[0].refType").value("REFUND"))
+                .andExpect(jsonPath("$.data.results[0].refId").value(refund.id()))
+                .andExpect(jsonPath("$.data.results[0].result").value("COMPLETED"))
+                .andExpect(jsonPath("$.data.results[0].amount").value(15_000))
+                .andExpect(jsonPath("$.data.results[0].finTransactionNo").value("D1"));
+
+        assertThat(refundStatus(refund.id())).isEqualTo("COMPLETED");
+    }
+
     // ───────── 도우미 ─────────
+
+    private JobRunReport run() {
+        return job.run(JobRunCommand.now(clock));
+    }
+
+    private static long count(JobRunReport report, String result) {
+        return report.results().stream().filter(item -> item.result().equals(result)).count();
+    }
 
     record Refund(long id, long itemId, long paymentId) {
     }
@@ -381,6 +481,10 @@ class RefundDepositIntegrationTest extends MySqlTestSupport {
      * 출금 뒤 취소한 모양: 출금 완료 청구서(확정액 = 회차 금액), 환급 대기 회차, 기한이 정해진 대기 환급(취소일 + 3영업일 자리에 7일 뒤).
      */
     private Refund refundAfterWithdrawal(long amount) {
+        return refundFor(user, card, account, amount);
+    }
+
+    private Refund refundFor(long user, long card, long account, long amount) {
         LocalDate withdrawn = LocalDate.now(KST).minusDays(1);
         // 청구서는 카드·청구 월마다 하나라 환급마다 다른 달을 쓴다
         YearMonth month = NOVEMBER.minusMonths(months.getAndIncrement());
