@@ -91,7 +91,7 @@ public class ForecastService {
      */
     public BalanceForecast forecast(Long authenticatedUserId, List<Long> accountIds, BalanceForecast.Until until,
             Integer days, boolean includeAccountDetails, boolean refresh) {
-        Prepared prepared = prepare(authenticatedUserId, accountIds, until, days, refresh);
+        Prepared prepared = prepare(authenticatedUserId, accountIds, until, days, refresh, today());
         List<Long> selected = prepared.selected();
         long alertThreshold = prepared.alertThreshold();
         BalanceForecast.Horizon horizon = prepared.horizon();
@@ -133,13 +133,15 @@ public class ForecastService {
      * 잔고예보 계산 재료(선택 계좌·기간·안전 잔액·현재 잔액·미래 입출금·계좌별 하루 생활비)를 모은다.
      * 잔고예보 조회와 가상 구매 시뮬레이션이 같은 재료로 계산해 구매 전 결과가 잔고예보와 같다.
      * 생활비 원천이 소비 분류를 쓰므로 읽기 전용 트랜잭션 안에서 부르지 않는다.
+     *
+     * @param today 한국 날짜 오늘(예보 시작일). 부르는 쪽이 요청마다 한 번 정해 넘긴다. 시뮬레이션이 구매일을 검사한 날과
+     *              예보 시작일이 자정을 사이에 두고 어긋나지 않게 하려는 것이다
      */
     Prepared prepare(Long authenticatedUserId, List<Long> accountIds, BalanceForecast.Until until, Integer days,
-            boolean refresh) {
+            boolean refresh, LocalDate today) {
         requireUser(authenticatedUserId);
         List<Long> selected = selectedAccounts(accountIds);
         ForecastSettings userSettings = settings.read(authenticatedUserId);
-        LocalDate today = today();
         BalanceForecast.Horizon horizon = horizon(authenticatedUserId, userSettings, until, days, today);
 
         // 잔액·생활비는 금융망을 부를 수 있어 DB를 읽기 전에 따로 읽는다. 남의·연결 해제 계좌는 BE 1이 404로 거절한다.
@@ -278,7 +280,8 @@ public class ForecastService {
         return dailyAverage == null ? null : Math.multiplyExact(dailyAverage.longValue(), horizon.days());
     }
 
-    private LocalDate today() {
+    /** 한국 날짜 오늘. 시뮬레이션도 같은 시계로 정한다. */
+    LocalDate today() {
         return LocalDate.now(clock.withZone(KOREA));
     }
 

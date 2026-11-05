@@ -429,7 +429,7 @@ enum Origin { REAL, SEED }
 
 ### 가상 구매 시뮬레이션 API (`PurchaseSimulationService`, 2026-11-05)
 
-`POST /api/forecasts/simulations`. 계산만 하고 결제·청구·실적·혜택 사용량·한도를 바꾸지 않으며 아무것도 저장하지 않습니다. 그래서 같은 요청을 여러 번 보내도 상태가 바뀌지 않습니다.
+`POST /api/forecasts/simulations`. 계산만 하고 결제·청구·실적·혜택 사용량·한도는 저장하거나 바꾸지 않습니다. **다만 잔고예보 조회와 마찬가지로 생활비 원천이 미분류 결제의 자동 소비 분류(`spending_class`, AUTO)를 채웁니다**(아래 「소비 분류」, 코드 리뷰 반영 2026-11-05). 분류는 같은 데이터에서 늘 같은 값이라 같은 요청을 다시 보내도 결과는 같고, 처음 요청만 분류 쓰기만큼 느릴 수 있습니다. 분류를 건너뛰면 미분류 결제가 생활비에서 빠져 구매 전 결과가 잔고예보와 달라지므로 건너뛰지 않습니다(2026-11-05 결정).
 
 - **순서**: 요청 검증 → 카드 확인 → 추천(`SimulationRecommender`) → 출금 일정(`BillingSchedule`) → 잔고예보 재료(`ForecastService.prepare`, 잔고예보 조회와 같은 재료) → 전후 비교(`PurchaseSimulator`). 요청만으로 알 수 있는 오류는 계좌 잔액·금융망을 읽기 전에 거절합니다.
 - **요청 검증**
@@ -442,9 +442,10 @@ enum Origin { REAL, SEED }
   - 카드를 고르지 않으면 명세상 추천 1순위입니다. **추천 엔진 연결 전에는 422 `DATA_INSUFFICIENT`(`details.reason = RECOMMENDATION_UNAVAILABLE`)** 입니다(2026-11-05 결정). 아무 카드나 추천처럼 보이지 않게 하려는 것입니다.
   - 카드 이름(`card.nickname`)은 별칭, 없으면 상품명입니다. BE 1 카드 조회에 이름이 없어 `CardNameReader`가 user_card·card_product를 읽기만 합니다(2026-11-05 결정).
   - 출금 계좌가 없거나, 신용카드인데 결제일이 없거나 청구 주기를 만들 수 없으면 422 `DATA_INSUFFICIENT`(`CARD_ACCOUNT_UNKNOWN`·`BILLING_CYCLE_UNKNOWN`)입니다. 임의 날짜로 계산하지 않습니다.
-- **혜택·추천**: 연결 전 임시 구현(`UnconnectedSimulationRecommender`)은 늘 "계산할 수 없음"입니다. 그래서 카드를 고른 요청도 `benefit`·`alternatives`·`performanceImpact`는 null이고, 즉시할인 없이 결제 금액 그대로 출금합니다. 0원 혜택으로 확정하지 않습니다. 엔진이 붙으면 `benefit.chargedAmount`(즉시할인 뺀 금액)로 출금하고, 엔진이 돌려준 카드도 내 카드·결제 가능 카드인지 다시 확인합니다.
+- **혜택·추천**: 연결 전 임시 구현(`UnconnectedSimulationRecommender`)은 늘 "계산할 수 없음"입니다. 그래서 카드를 고른 요청도 `benefit`·`alternatives`·`performanceImpact`는 null이고, 즉시할인 없이 결제 금액 그대로 출금합니다. 0원 혜택으로 확정하지 않습니다. 엔진이 붙으면 `benefit.chargedAmount`(즉시할인 뺀 금액)로 출금하고, 엔진이 돌려준 카드도 내 카드·결제 가능 카드인지 다시 확인합니다. 대안 카드도 모두 내 등록 카드인지 확인하고, 아니면 남의 카드 정보를 싣지 않도록 엔진 계약 위반으로 실패합니다(코드 리뷰 반영, 2026-11-05).
 - **신용한도**: 신용카드면 `creditLimit: { status: "SKIPPED", availableLimit: null }`, 체크카드면 null입니다. 명세에 없는 필드이고, 명세의 422 `CREDIT_LIMIT_EXCEEDED`·한도 미확인 `DATA_INSUFFICIENT`는 쓰지 않습니다(2026-11-05 결정, BE 2 안내).
 - **안내 문장(`message`)**: 구매 뒤 가장 낮은 잔액과 기간 밖 금액만 알립니다. 예: "11월 16일 잔액이 12,000원까지 내려가요. 예보 기간 밖에서 800,000원이 더 빠져요." 잔액이 마이너스면 "…원 모자라요", 출금 계좌가 선택 밖이면 "선택하지 않은 계좌에서 …원이 빠져 비교 결과는 같아요."입니다. 구매를 권하거나 말리는 말은 넣지 않습니다(FR-032).
+- **오늘 날짜**: 요청마다 한 번만 정해 구매일 검사와 예보 시작일에 같이 씁니다(`ForecastService.prepare`의 `today` 인자). 두 번 읽으면 자정을 사이에 두고 어긋나 계산기가 500을 낼 수 있어서입니다(코드 리뷰 반영, 2026-11-05).
 - **트랜잭션**: 추천(체크카드 잔액 조회)과 잔고예보 재료(금융망 잔액, 소비 분류 쓰기)가 있어 트랜잭션을 붙이지 않습니다.
 
 **남은 것 (후속)**
@@ -611,7 +612,8 @@ enum Origin { REAL, SEED }
 | `LivingCostEstimatorTest` | 23 | 실제 일수 일평균·월평균, confidence 3·2·1·0달, complete 0원 달 포함, 미완료·누락 달 제외, 이번 달·3개월 전 제외, 윤년 2월, 반올림, REAL 우선·SEED만, paceCheck 1.3배 경계·계산 불가, 통합 합·SEED 표시, 한 계좌 자료 없으면 통합 null, 계약 위반 거절, 오류 메시지에 계좌·날짜·소비액 없음. 일별 집계(2026-11-02): 여러 날 합계·0원 날만 있는 달 완료, 하루 빠짐·하루 미완료면 그달 제외, 이번 달은 오늘까지 모든 날, 오늘 뒤 날짜 거절, AVG_3M은 체크카드 몫이 아니라 전체 합계, 체크카드 몫 음수·초과 거절(메시지에 값 없음), 범위 앞 줄은 계산 제외·음수·중복은 거절, 출처마다 덮는 기간에만 줄을 주면 카드 등록 달은 두 출처 모두 빠짐 |
 | `RiskDetectorTest` | 11 | SAFE(기준과 같은 금액 포함), DANGER(확정 선·부족액·원인, 예상 출금은 원인에서 뺌), WARNING(예상 선, 생활비 원인 없음), 생활비 때문에만 위험(보수적 선·`LIVING_COST_ESTIMATE`), WARNING→DANGER→WARNING 구간 분리, 예상 선 → 보수적 선 구간 분리와 원인 맞춤, 보수적 선 없을 때, 최저 날 동점, 가상 구매 원인(`SIMULATED_PURCHASE`), 최종 수준(`overall`) |
 | `PurchaseSimulatorTest` | 11 | 명세 예시(기간 안 −40만·밖 −80만, 이름표, 구매 뒤 DANGER), 과거 구매일 거절(출금일이 미래여도), 기간 뒤 미래 구매, 오늘 체크카드 한 번만 차감, 기간 마지막 날·다음 날 경계, 선택 밖 출금 계좌(전후 같음·전체 금액을 음수로), 통합 최저 ≠ 계좌별 최저 합, 생활비 일부만(그 계좌 생활비 위험 유지, 합계 차이)·모두(보수적 선, 계좌별 종료 합 = 통합), 입력 불변·같은 입력 같은 결과, 계산할 수 없는 회차 거절 |
-| `PurchaseSimulationControllerTest` | 11 | 실제 MySQL·인증 필터, 잔액·추천 엔진만 목(2026-11-05, -132). 401, 체크카드 구매일 한 번 출금·전후 종료 잔액·카드 별칭·혜택/대안/실적/한도 null·안내 문장, 신용 3개월 할부 회차·이름표·`creditLimit` SKIPPED·계좌별 비교, 선택 밖 출금 계좌(전후 같음·`outsideSelectionImpact`), 추천 결과의 카드·즉시할인 뺀 금액으로 출금, 카드 생략은 422 `RECOMMENDATION_UNAVAILABLE`(잔액 안 읽음), `MERCHANT_OR_CATEGORY_REQUIRED`, 소수·0원·1,000억 초과 `INVALID_AMOUNT`·체크 할부·5만 원 미만·일시불 개월 수 `INVALID_INSTALLMENT`(잔액 안 읽음), 지난 구매일·`days` 10 400, 남의 카드 404·꺼 둔 카드 400·결제일 없는 신용카드 422, 계좌 없음 400 |
+| `PurchaseSimulationControllerTest` | 12 | 실제 MySQL·인증 필터, 잔액·추천 엔진만 목(2026-11-05, -132). 401, 체크카드 구매일 한 번 출금·전후 종료 잔액·카드 별칭·혜택/대안/실적/한도 null·안내 문장, 신용 3개월 할부 회차·이름표·`creditLimit` SKIPPED·계좌별 비교, 선택 밖 출금 계좌(전후 같음·`outsideSelectionImpact`), 추천 결과의 카드·즉시할인 뺀 금액으로 출금, 카드 생략은 422 `RECOMMENDATION_UNAVAILABLE`(잔액 안 읽음), `MERCHANT_OR_CATEGORY_REQUIRED`, 소수·0원·1,000억 초과 `INVALID_AMOUNT`·체크 할부·5만 원 미만·일시불 개월 수 `INVALID_INSTALLMENT`(잔액 안 읽음), 지난 구매일·`days` 10 400, 남의 카드 404·꺼 둔 카드 400·결제일 없는 신용카드 422, 계좌 없음 400, 추천 엔진이 남의 카드를 대안으로 주면 500(응답에 안 실림) |
+| `PurchaseSimulationServiceTest` | 1 | DB 없음(-132). 오늘은 요청마다 한 번만 정해 구매일 검사와 예보 시작일에 같이 씀(시계가 그 사이 다음 날로 넘어가도 같은 날) |
 | `PurchaseSimulationMessageTest` | 2 | DB 없음(-132). 최저 잔액과 기간 밖 금액 문장, 마이너스 잔액은 모자란 금액 |
 | `ForecastServiceTest` | 33 | 위의 7.1.4 경우들(출금일 지난 확정 청구는 오늘, 미납은 `excluded`, 지난 진행 중 청구·빈 필드 청구 거절, 정지 카드의 확정 청구는 차감, 잔액 조회 오류 400·404·429·502·504 전파 포함), 명세 예시(통합 SAFE·B DANGER·최종 DANGER·위험 계좌 1·통합 보수적 430,000원·B −120,000원), 생활비 자료 없음, 생활비 원천 실패 전파, 한국 날짜 월 경계(UTC 10/31 15:30 → 8/1~11/1 일별), 생활비 상세(소유 확인·근거·계좌별, 422, 404, 설정의 기본 일수·하루 목표를 쓰고 목표는 예측에 안 섞음, NEXT_INCOME이면 다음 월급일 전날까지, 보낸 기간이 설정보다 우선, 잘못된 기간은 계좌·원천을 읽기 전에 400, -70) |
 | `CashflowServiceTest` | +1 | 결제 연결 회차만 `paid` |
@@ -629,4 +631,4 @@ enum Origin { REAL, SEED }
 - 생활비 원천 일별 계약(S15P31E103-255): `.\gradlew.bat cleanTest test` 전체 1030개 통과(실패 0, 건너뜀 0, 2026-11-03 박강원 님 리뷰 반영 뒤, develop 33ed3435 위).
 - 소비 분류·생활비 원천(S15P31E103-255): 한국 시간대 PC에서 `.\gradlew.bat cleanTest test` 전체 1358개 통과(실패 0, 건너뜀 0, 2026-11-04 코드 리뷰 반영 뒤, develop aeeffa85 위).
 - 생활비 예측 상세 API(S15P31E103-70): 한국 시간대 PC에서 `.\gradlew.bat cleanTest test` 전체 1368개 통과(실패 0, 건너뜀 0, 2026-11-04 코드 리뷰 반영 뒤, develop 5e73dcce 위).
-- 가상 구매 시뮬레이션 API(S15P31E103-132): 한국 시간대 PC에서 `.\gradlew.bat cleanTest test` 전체 1381개 통과(실패 0, 건너뜀 0, 2026-11-05, !122 dc47cf01 위).
+- 가상 구매 시뮬레이션 API(S15P31E103-132): 한국 시간대 PC에서 `.\gradlew.bat cleanTest test` 전체 1383개 통과(실패 0, 건너뜀 0, 2026-11-05 코드 리뷰 반영 뒤, !122 dc47cf01 위).

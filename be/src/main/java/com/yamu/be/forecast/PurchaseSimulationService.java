@@ -11,9 +11,7 @@ import com.yamu.be.global.exception.BusinessException;
 import com.yamu.be.global.exception.ErrorCode;
 import com.yamu.be.payment.PaymentTerms;
 import com.yamu.be.payment.billing.BillingCycle;
-import java.time.Clock;
 import java.time.LocalDate;
-import java.time.ZoneId;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -21,7 +19,8 @@ import org.springframework.stereotype.Service;
 
 /**
  * 가상 구매 시뮬레이션(명세 「가상 구매 시뮬레이션」 POST /api/forecasts/simulations, Task 7.2.2).
- * 요청을 검증하고, 카드·혜택을 정한 뒤, 잔고예보와 같은 재료에 가상 구매 출금을 얹어 전후를 비교한다. 아무것도 저장하지 않는다.
+ * 요청을 검증하고, 카드·혜택을 정한 뒤, 잔고예보와 같은 재료에 가상 구매 출금을 얹어 전후를 비교한다. 결제·청구·실적·혜택
+ * 사용량·한도는 저장하지 않는다. 다만 잔고예보 조회처럼 생활비 원천이 미분류 결제의 자동 소비 분류를 채운다.
  *
  * <p>추천·혜택은 {@link SimulationRecommender}가 맡는다. 연결 전에는 계산할 수 없어 카드를 고르지 않은 요청은 422이고,
  * 고른 요청은 혜택·대안·실적 영향 없이 잔고만 비교한다(2026-11-05 결정). 추천은 체크카드 잔액을 조회할 수 있어
@@ -29,7 +28,6 @@ import org.springframework.stereotype.Service;
  */
 @Service
 public class PurchaseSimulationService {
-    private static final ZoneId KOREA = ZoneId.of("Asia/Seoul");
     private static final String CREDIT_LIMIT_SKIPPED = "SKIPPED";
 
     private final ForecastService forecasts;
@@ -37,16 +35,14 @@ public class PurchaseSimulationService {
     private final CardNameReader cardNames;
     private final SimulationRecommender recommender;
     private final BillingSchedule billingSchedule;
-    private final Clock clock;
 
     PurchaseSimulationService(ForecastService forecasts, CardQueryService cards, CardNameReader cardNames,
-            SimulationRecommender recommender, BusinessDayCalendar calendar, Clock clock) {
+            SimulationRecommender recommender, BusinessDayCalendar calendar) {
         this.forecasts = forecasts;
         this.cards = cards;
         this.cardNames = cardNames;
         this.recommender = recommender;
         this.billingSchedule = new BillingSchedule(calendar);
-        this.clock = clock;
     }
 
     /**
@@ -64,7 +60,8 @@ public class PurchaseSimulationService {
         PaymentTerms terms = request.toTerms();
         validateDescription(request);
         Integer days = request.days();
-        LocalDate today = LocalDate.now(clock.withZone(KOREA));
+        // 오늘은 요청마다 한 번만 정한다. 구매일 검사와 예보 시작일이 자정을 사이에 두고 어긋나면 계산기가 500을 낸다(코드 리뷰 반영).
+        LocalDate today = forecasts.today();
         LocalDate purchaseDate = request.purchaseDate() == null ? today : request.purchaseDate();
         if (purchaseDate.isBefore(today)) {
             throw invalid("purchaseDate", "구매일은 오늘 이후로 골라 주세요.");
@@ -98,6 +95,9 @@ public class PurchaseSimulationService {
         }
         SimulationRecommender.Benefit benefit = recommendation.map(SimulationRecommender.Recommendation::benefit)
                 .orElse(null);
+        List<SimulationRecommender.Alternative> alternatives = recommendation
+                .map(SimulationRecommender.Recommendation::alternatives).orElse(null);
+        requireOwnAlternatives(authenticatedUserId, alternatives);
         long charged = benefit == null ? terms.amount() : benefit.chargedAmount();
         if (charged < 1 || charged > terms.amount()) {
             throw new IllegalStateException("혜택 계산의 청구 금액이 결제 금액 범위를 벗어났다: " + charged);
@@ -105,7 +105,7 @@ public class PurchaseSimulationService {
         List<BillingSchedule.Withdrawal> withdrawals = withdrawals(card, purchaseDate, charged, terms);
 
         ForecastService.Prepared prepared = forecasts.prepare(authenticatedUserId, request.accountIds(),
-                days == null ? null : BalanceForecast.Until.DAYS, days, false);
+                days == null ? null : BalanceForecast.Until.DAYS, days, false, today);
         PurchaseSimulation simulation = PurchaseSimulator.simulate(new PurchaseSimulator.Input(
                 prepared.startBalances(), prepared.events(), prepared.horizon().from(), prepared.horizon().to(),
                 prepared.dailyLiving(), prepared.alertThreshold(), purchaseDate, card.linkedAccountId(), withdrawals));
@@ -121,12 +121,27 @@ public class PurchaseSimulationService {
                         .map(w -> new SimulationResponse.Schedule(w.date(), w.amount(), w.label())).toList(),
                 simulation.comparison(), simulation.series(),
                 recommendation.map(SimulationRecommender.Recommendation::performanceImpact).orElse(null),
-                recommendation.map(SimulationRecommender.Recommendation::alternatives).orElse(null),
+                alternatives,
                 card.cardType() == CardType.CREDIT ? new SimulationResponse.CreditLimit(CREDIT_LIMIT_SKIPPED, null) : null,
                 simulation.outsideSelectionImpact(),
                 request.includeAccountDetails() ? simulation.accountComparisons() : null,
                 message(simulation),
                 true);
+    }
+
+    /**
+     * 추천 엔진이 돌려준 대안 카드도 믿지 않는다. 사용자 본인의 등록 카드가 아니면 남의 카드 정보를 응답에 싣지 않도록
+     * 엔진 계약 위반으로 실패한다(코드 리뷰 반영, 2026-11-05).
+     */
+    private void requireOwnAlternatives(long userId, List<SimulationRecommender.Alternative> alternatives) {
+        if (alternatives == null) {
+            return;
+        }
+        for (SimulationRecommender.Alternative alternative : alternatives) {
+            if (cards.findRegisteredCard(userId, alternative.userCardId()).isEmpty()) {
+                throw new IllegalStateException("추천 엔진의 대안 카드가 사용자의 카드가 아니다: " + alternative.userCardId());
+            }
+        }
     }
 
     /** 물품·업종·가맹점 중 하나는 있어야 하고(명세), 상품명·코드는 길이를 넘지 않아야 한다. */

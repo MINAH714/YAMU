@@ -167,6 +167,21 @@ class PurchaseSimulationControllerTest extends MySqlTestSupport {
     }
 
     @Test
+    void 추천_엔진이_남의_카드를_대안으로_주면_응답하지_않고_실패한다() throws Exception {
+        OwnershipFixtures ownership = new OwnershipFixtures(jdbc);
+        long stranger = ownership.user();
+        long strangerCard = ownership.card(stranger, ownership.product(), ownership.account(stranger), "ACTIVE");
+        when(recommender.recommend(any())).thenReturn(Optional.of(new SimulationRecommender.Recommendation(checkOnA,
+                null, List.of(new SimulationRecommender.Alternative(strangerCard, "남의 카드",
+                        com.yamu.be.card.domain.CardType.CREDIT, "LUMP_SUM", null, 1_000L, null)), null)));
+
+        // 엔진 계약 위반이라 500이다. 남의 카드 정보가 응답에 실리지 않는다
+        perform(body(accountA, checkOnA, "300000", ""))
+                .andExpect(status().isInternalServerError())
+                .andExpect(jsonPath("$.data").value(nullValue()));
+    }
+
+    @Test
     void 추천_엔진_연결_전에_카드를_고르지_않으면_422다() throws Exception {
         perform(bodyWithoutCard(accountA, "300000", ""))
                 .andExpect(status().isUnprocessableEntity())
