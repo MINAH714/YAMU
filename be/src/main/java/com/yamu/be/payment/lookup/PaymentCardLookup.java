@@ -56,6 +56,12 @@ public class PaymentCardLookup {
                 rs.getString("product_name")), userId);
     }
 
+    /** 카드 상품의 종류. 결제 취소처럼 등록 해제된 카드의 결제도 다뤄야 할 때 상품 번호로 본다. */
+    public Optional<CardType> cardTypeOfProduct(Long cardProductId) {
+        return jdbc.query("select card_type from card_product where card_product_id = ?",
+                (rs, i) -> CardType.valueOf(rs.getString("card_type")), cardProductId).stream().findFirst();
+    }
+
     /**
      * 결제에 쓴 카드의 영수증 표시값. 결제 뒤 카드를 해제·제외했어도 결제 기록은 보여야 하므로 카드 상태로 거르지 않는다.
      * 소유 확인을 하지 않으므로 결제 행의 user_card_id로만 부른다.

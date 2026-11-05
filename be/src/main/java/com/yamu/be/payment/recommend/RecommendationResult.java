@@ -138,6 +138,10 @@ public record RecommendationResult(String recommendationId, LocalDateTime calcul
      * 결제할 금액(chargedAmount)은 담지 않는다. 결제 쪽이 {@code PaymentTerms.chargedAmount(instantDiscount())}로 계산한다.
      *
      * @param card            결제 쪽이 조회한 카드 표시 정보를 그대로 담는다
+     * @param netBenefit      이번 결제 순혜택(원, S15P31E103-283). 추천 엔진이 계산한 값 그대로이며 포인트 환산율에 소수가 있으면
+     *                        소수가 남는다(예: 3포인트 × 0.5 = 1.5원). 명세(카드 추천 공통 처리, POL-011)대로 공식 환산 뒤 추가
+     *                        반올림 없이 순위·동률·0원을 판정하고, 앱 응답에도 같은 값을 내보낸다. 값은 바꾸지 않고 표기만
+     *                        맞춘다: 끝의 0을 지우고 정수면 소수점 없이({@code 1500.000000} → {@code 1500}, {@code 1.50} → {@code 1.5})
      * @param selectionReason 1순위를 고른 기준(!63의 selectionReason). 1순위에만 있고 나머지는 null
      * @param ruleVersion     결제 쪽이 조회한 상품 규칙 버전을 그대로 담는다
      */
@@ -163,7 +167,7 @@ public record RecommendationResult(String recommendationId, LocalDateTime calcul
 
         public Candidate {
             Objects.requireNonNull(card, "card");
-            Objects.requireNonNull(netBenefit, "netBenefit");
+            netBenefit = plain(Objects.requireNonNull(netBenefit, "netBenefit"));
             benefits = List.copyOf(benefits);
             Objects.requireNonNull(ruleVersion, "ruleVersion");
             unallocatedBenefitGroups = unallocatedBenefitGroups == null ? List.of() : List.copyOf(unallocatedBenefitGroups);
@@ -176,6 +180,16 @@ public record RecommendationResult(String recommendationId, LocalDateTime calcul
                 }
             }
             if (benefits.stream().anyMatch(b -> b.amount() == null && !ids.contains(b.benefitId()))) throw new IllegalArgumentException("NULL 상세 금액 근거 누락");
+        }
+
+        /**
+         * 값은 그대로 두고 표기만 맞춘다. 환산율이 {@code DECIMAL(19,6)}이라 엔진 값은 {@code 3.000000}처럼 나올 수 있는데,
+         * 그대로 JSON에 쓰면 정수를 기대하는 클라이언트가 읽지 못한다. {@code stripTrailingZeros()}만 하면 {@code 1500}이
+         * {@code 1.5E+3}이 되므로 정수는 소수 자리 0으로 되돌린다.
+         */
+        private static java.math.BigDecimal plain(java.math.BigDecimal value) {
+            java.math.BigDecimal stripped = value.stripTrailingZeros();
+            return stripped.scale() < 0 ? stripped.setScale(0) : stripped;
         }
 
         /** 승인 때 바로 반영되는 즉시할인({@link BenefitLine#AT_APPROVAL}) 합계. 청구할인·캐시백·적립은 넣지 않는다. */

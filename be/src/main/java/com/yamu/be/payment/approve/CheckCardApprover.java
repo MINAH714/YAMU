@@ -25,7 +25,7 @@ import org.springframework.transaction.support.TransactionTemplate;
  * <pre>
  * ① 출금액(즉시할인 뒤 금액, 지금은 혜택 0원이라 요청액). 0원이면 출금 없이 승인(Q8)
  * ② 카드의 연결 계좌·userKey 복원. 없으면 거절(ACCOUNT_UNAVAILABLE, 임시)
- * ③ 기관거래고유번호 채번 → 결제 행에 먼저 저장(짧은 트랜잭션, 커밋이 출금보다 먼저)
+ * ③ 기관거래고유번호 채번 → 번호·출금액을 결제 행에 먼저 저장(짧은 트랜잭션, 커밋이 출금보다 먼저)
  * ④ 출금(태그 YAMU-P{paymentId}) → 성공은 승인, 잔액 부족·계좌 없음·그 밖의 거절은 DECLINED,
  *    결과 불명은 금융망 예외(결제는 PROCESSING에 남아 WithdrawalRecovery가 확정), 못 보냄은 ApprovalNotSentException(결제를 되돌림)
  * </pre>
@@ -54,7 +54,7 @@ public class CheckCardApprover {
 
     public ApprovalOutcome approve(ApprovalCommand command) {
         Long paymentId = command.paymentId();
-        long charged = chargedAmount(command);
+        long charged = command.chargedAmount();
         LocalDate performanceMonth = ApprovalDates.performanceMonth(command.now());
         if (charged <= 0) {
             log.info("체크카드 0원 승인, 출금 생략 paymentId={}", paymentId);
@@ -72,7 +72,7 @@ public class CheckCardApprover {
         } catch (FinApiException e) {
             throw new ApprovalNotSentException("기관거래고유번호를 받지 못해 출금을 보내지 않았습니다.", e);
         }
-        assignFinRequestNo(paymentId, finRequestNo);
+        assignFinRequestNo(paymentId, finRequestNo, charged);
         attachFinRequestNo(paymentId, command.attemptNo(), finRequestNo);
 
         TransferTag tag = TransferTag.payment(paymentId);
@@ -90,12 +90,6 @@ public class CheckCardApprover {
         };
     }
 
-    /** 출금액: 결제 금액 − 추천 후보의 즉시할인(PaymentTerms.chargedAmount). 후보가 아니면 즉시할인 0원이라 결제 금액. */
-    static long chargedAmount(ApprovalCommand command) {
-        long instantDiscount = command.candidate() != null ? command.candidate().instantDiscount() : 0;
-        return command.terms().chargedAmount(instantDiscount);
-    }
-
     /** 시도 기록에도 요청 번호를 남긴다. 행에는 이미 커밋됐으므로 Redis가 실패해도 출금은 진행한다. */
     private void attachFinRequestNo(Long paymentId, int attemptNo, String finRequestNo) {
         try {
@@ -106,10 +100,11 @@ public class CheckCardApprover {
     }
 
     /**
-     * 출금 전에 기관거래고유번호를 결제 행에 남긴다(명세 1장 멱등성). 이 커밋이 출금 호출보다 먼저여야 결과를 모를 때 찾을 수 있다.
+     * 출금 전에 기관거래고유번호와 출금 요청액을 결제 행에 남긴다(명세 1장 멱등성). 이 커밋이 출금 호출보다 먼저여야 결과를 모를 때
+     * 찾을 수 있다. 금액도 같이 남겨야 즉시할인으로 요청액과 달라진 출금을 금액 불일치로 오인하지 않는다.
      * 행이 PROCESSING이 아니거나(복구·다른 요청이 바꿈) version이 어긋나면 출금하지 않는다.
      */
-    private void assignFinRequestNo(Long paymentId, String finRequestNo) {
+    private void assignFinRequestNo(Long paymentId, String finRequestNo, long amount) {
         try {
             transaction.execute(status -> {
                 PaymentTransaction payment = payments.findById(paymentId)
@@ -117,7 +112,7 @@ public class CheckCardApprover {
                 if (payment.getStatus() != PaymentStatus.PROCESSING) {
                     throw new BusinessException(ErrorCode.IDEMPOTENCY_IN_PROGRESS);
                 }
-                payment.assignFinRequestNo(finRequestNo);
+                payment.assignFinRequestNo(finRequestNo, amount);
                 payments.saveAndFlush(payment);
                 return null;
             });
@@ -129,8 +124,8 @@ public class CheckCardApprover {
 
     private static ApprovalOutcome approved(ApprovalCommand command, long charged, LocalDate performanceMonth,
             String finRequestNo, String bankTransactionNo) {
-        // 임시: 혜택·실적 계산 전이라 승인액은 요청액, 실적 인정액은 0 (BE3·Task 5.2.5)
-        return new ApprovalOutcome.Approved(command.terms().amount(), charged, 0, performanceMonth, List.of(),
+        // 승인액 = 출금액(즉시할인 뒤). 임시: 실적 계산 전이라 실적 인정액은 0 (BE3·Task 5.2.5)
+        return new ApprovalOutcome.Approved(charged, charged, 0, performanceMonth, List.of(),
                 finRequestNo, bankTransactionNo, null);
     }
 

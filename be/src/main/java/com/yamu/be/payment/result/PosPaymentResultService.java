@@ -36,8 +36,8 @@ import org.springframework.stereotype.Service;
  * {@link PaymentExpiry#expire}가 다시 읽은 상태를 돌려준다. 그래서 응답은 저장 뒤의 행을 다시 읽어 만든다.
  * 출금이 걸려 있을 수 있는 PROCESSING은 마감이 지나도 바꾸지 않으므로 POS는 계속 기다린다(복구는 Task 5.2.3).
  *
- * <p>한계: 즉시할인은 {@code approved_amount}가 할인 뒤 금액이라는 스키마 정의를 따른다. 지금 승인 쪽(체크카드·임시 신용카드·출금 복구)은
- * 혜택 계산 전이라 요청액을 저장하므로 즉시할인은 늘 0이다(Task 5.2.4·5.2.5에서 승인 쪽을 맞춘다).
+ * <p>한계: 즉시할인은 {@code approved_amount}가 할인 뒤 금액이라는 스키마 정의를 따른다. 승인 쪽(체크카드·신용카드·출금 복구)은
+ * 결제 금액 − 즉시할인({@code ApprovalCommand#chargedAmount})을 승인액으로 저장한다.
  * 출금 미확인으로 거절·만료된 결제가 늦게 출금이 확인되어 APPROVED로 바뀌면, 그 전에 폴링을 멈춘 POS에는 실패 영수증이 남는다.
  */
 @Slf4j

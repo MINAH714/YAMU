@@ -12,6 +12,7 @@ import static org.mockito.Mockito.when;
 import com.yamu.be.account.domain.LinkedAccount;
 import com.yamu.be.account.domain.LinkedAccountRepository;
 import com.yamu.be.account.domain.LinkedAccountStatus;
+import com.yamu.be.auth.LoginRateLimitProperties;
 import com.yamu.be.auth.LoginRateLimiter;
 import com.yamu.be.global.crypto.CipherField;
 import com.yamu.be.global.crypto.PersonalDataCipher;
@@ -85,6 +86,31 @@ class AccountBalanceServiceTest {
         assertThat(service.getBalances(USER, List.of(10L, 11L), false))
                 .extracting(AccountBalance::balance).containsExactly(1000L, 2000L);
         assertThat(service.findCachedBalance(USER, 10L)).isEmpty();
+    }
+
+    @Test
+    void Redis가_죽어도_새로고침은_한도를_건너뛰고_금융망에서_읽어_잔액을_돌려준다() {
+        // 진짜 한도 검사기에 죽은 Redis를 넣는다(S15P31E103-238: 예전에는 여기서 500).
+        StringRedisTemplate down = mock(StringRedisTemplate.class, invocation -> {
+            throw new RedisConnectionFailureException("down");
+        });
+        AccountBalanceService withRealLimiter = new AccountBalanceService(accounts, users, ssafy, cipher, redis,
+                new LoginRateLimiter(down, new LoginRateLimitProperties(Duration.ofMinutes(1), 3, 5)),
+                new AccountBalanceProperties(Duration.ofMinutes(10), 5, Duration.ofMillis(800), 6),
+                Clock.fixed(Instant.parse("2026-10-30T03:00:00Z"), ZoneOffset.UTC));
+        try {
+            when(ssafy.balance("user-key", "fast")).thenReturn(1000L);
+            when(ssafy.balance("user-key", "slow")).thenReturn(2000L);
+
+            // 잔고예보용
+            assertThat(withRealLimiter.getBalances(USER, List.of(10L, 11L), true))
+                    .extracting(AccountBalance::balance).containsExactly(1000L, 2000L);
+            // 계좌 목록용
+            assertThat(withRealLimiter.readAvailable(USER, List.of(fast, slow), true).values())
+                    .extracting(AccountBalance::balance).containsExactly(1000L, 2000L);
+        } finally {
+            withRealLimiter.destroy();
+        }
     }
 
     @Test

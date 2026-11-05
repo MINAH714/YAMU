@@ -223,6 +223,47 @@ class RecommendationResultTest {
         assertThat(read.uncompared(1L).orElseThrow().directPaymentAllowed()).isTrue();
     }
 
+    // ───────── 소수 순혜택(S15P31E103-283) ─────────
+
+    @Test
+    void 소수_순혜택은_값을_그대로_두고_표기만_정리한다() {
+        // 포인트 환산율 0.5: 3포인트 → 1.5원. 환산율이 DECIMAL(19,6)이라 엔진 값은 소수 자리 0이 붙어 올 수 있다
+        assertThat(candidate(1, CARD_1, new java.math.BigDecimal("1.500000")).netBenefit().toString()).isEqualTo("1.5");
+        assertThat(candidate(1, CARD_1, new java.math.BigDecimal("-1.5")).netBenefit().toString()).isEqualTo("-1.5");
+        // 정수는 소수점 없이. stripTrailingZeros만 하면 1.5E+3이 된다
+        assertThat(candidate(1, CARD_1, new java.math.BigDecimal("1500.000000")).netBenefit().toString()).isEqualTo("1500");
+        assertThat(candidate(1, CARD_1, new java.math.BigDecimal("0.000000")).netBenefit().toString()).isEqualTo("0");
+    }
+
+    @Test
+    void 모두_0원_판정은_소수까지_본다() {
+        // POL-011: 확인된 후보가 모두 0원일 때만 혜택 없음. 0.5원은 혜택이 있다
+        assertThat(result(List.of(candidate(1, CARD_1, new java.math.BigDecimal("0.5"))), List.of(), List.of())
+                .noBenefit()).isFalse();
+        assertThat(result(List.of(candidate(1, CARD_1, new java.math.BigDecimal("0.000000"))), List.of(), List.of())
+                .noBenefit()).isTrue();
+    }
+
+    @Test
+    void 소수_순혜택은_스냅샷을_거쳐도_그대로고_정수는_소수점_없이_쓴다() throws Exception {
+        ObjectMapper json = json();
+        RecommendationResult result = result(List.of(candidate(1, CARD_1, new java.math.BigDecimal("1.5")),
+                candidate(2, CARD_2, new java.math.BigDecimal("1500.000000"))), List.of(), List.of());
+
+        String written = json.writeValueAsString(result);
+        RecommendationResult read = json.readValue(written, RecommendationResult.class);
+
+        // 정수를 기대하는 클라이언트도 정수 값은 읽을 수 있게 1500.000000·1.5E+3이 아니라 1500으로 쓴다
+        assertThat(written).contains("\"netBenefit\":1.5").contains("\"netBenefit\":1500,");
+        assertThat(read.candidates()).extracting(Candidate::netBenefit)
+                .containsExactly(new java.math.BigDecimal("1.5"), new java.math.BigDecimal("1500"));
+    }
+
+    private static Candidate candidate(int rank, CardSummary card, java.math.BigDecimal netBenefit) {
+        return new Candidate(rank, card, netBenefit, List.of(), "", null,
+                new RuleVersion(card.cardProductId(), 1));
+    }
+
     private static RecommendationResult result(List<Candidate> candidates, List<ExcludedCard> excluded,
             List<UncomparedCard> uncompared) {
         return new RecommendationResult("rec_000000000001", AT, false, candidates, excluded, uncompared);

@@ -22,11 +22,15 @@ import com.yamu.be.payment.approve.CreditLimitSource.LimitCheck;
 import com.yamu.be.payment.billing.BillStatus;
 import com.yamu.be.payment.billing.CardBillRepository;
 import com.yamu.be.payment.billing.InstallmentPlan.Installment;
+import com.yamu.be.payment.recommend.RecommendationResult.BenefitLine;
+import com.yamu.be.payment.recommend.RecommendationResult.Candidate;
 import com.yamu.be.payment.recommend.RecommendationResult.CardSummary;
+import com.yamu.be.payment.recommend.RecommendationResult.RuleVersion;
 import com.yamu.be.support.WeekdayCalendar;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.YearMonth;
+import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -87,6 +91,60 @@ class YamuCreditCardApproverTest {
 
         assertThat(approved.installments().months()).isEqualTo(1);
         assertThat(approved.installments().installments().get(0).principal()).isEqualTo(15_000);
+    }
+
+    // ───────── 즉시할인(S15P31E103-292) ─────────
+
+    @Test
+    void 즉시할인이_있으면_할인_뒤_금액으로_승인하고_청구하며_한도도_그_금액으로_본다() {
+        when(limits.check(7L, 15L, 14_000)).thenReturn(LimitCheck.sufficient(500_000));
+
+        Approved approved = (Approved) approver.approve(command(PaymentTerms.lumpSum(15_000), discount(1_000)));
+
+        assertThat(approved.approvedAmount()).isEqualTo(14_000);
+        assertThat(approved.chargedAmount()).isEqualTo(14_000);
+        assertThat(approved.installments().total()).isEqualTo(14_000);
+        assertThat(approved.installments().installments()).extracting(Installment::principal).containsExactly(14_000L);
+        verify(limits).check(7L, 15L, 14_000);
+    }
+
+    @Test
+    void 할인_뒤_금액이_할부_최소_금액보다_작아도_POS가_정한_할부는_유지한다() {
+        // 100,000원 3개월 할부에 즉시할인 60,000원 → 40,000원. 5만 원 미만이어도 개월 수는 그대로
+        Approved approved = (Approved) approver.approve(command(PaymentTerms.installment(100_000, 3), discount(60_000)));
+
+        assertThat(approved.installments().months()).isEqualTo(3);
+        assertThat(approved.installments().installments()).extracting(Installment::principal)
+                .containsExactly(13_333L, 13_333L, 13_334L);
+    }
+
+    @Test
+    void 전액_즉시할인이면_한도를_보지_않고_회차_없이_0원으로_승인한다() {
+        Approved approved = (Approved) approver.approve(command(PaymentTerms.installment(100_000, 3), discount(100_000)));
+
+        assertThat(approved.approvedAmount()).isZero();
+        assertThat(approved.chargedAmount()).isZero();
+        assertThat(approved.hasInstallments()).isFalse();
+        assertThat(approved.performanceMonth()).isEqualTo(LocalDate.of(2026, 10, 1));
+        verify(limits, never()).check(anyLong(), anyLong(), anyLong());
+    }
+
+    @Test
+    void 할인_뒤_금액이_가용_한도를_넘으면_거절한다() {
+        when(limits.check(7L, 15L, 90_000)).thenReturn(LimitCheck.exceeded(80_000));
+
+        Declined declined = (Declined) approver.approve(command(PaymentTerms.installment(100_000, 3), discount(10_000)));
+
+        assertThat(declined.code()).isEqualTo(FailureCode.CREDIT_LIMIT_EXCEEDED);
+    }
+
+    @Test
+    void 전액_할인이어도_미납_청구서가_있으면_UNPAID_BILL이다() {
+        when(bills.existsByUserCardIdAndStatus(15L, BillStatus.UNPAID)).thenReturn(true);
+
+        Declined declined = (Declined) approver.approve(command(PaymentTerms.lumpSum(15_000), discount(15_000)));
+
+        assertThat(declined.code()).isEqualTo(FailureCode.UNPAID_BILL);
     }
 
     @Test
@@ -193,7 +251,17 @@ class YamuCreditCardApproverTest {
     }
 
     private static ApprovalCommand command(PaymentTerms terms) {
-        return new ApprovalCommand(1024L, 7L, terms, CARD, null, NOW.minusSeconds(5), NOW, 1);
+        return command(terms, null);
+    }
+
+    private static ApprovalCommand command(PaymentTerms terms, Candidate candidate) {
+        return new ApprovalCommand(1024L, 7L, terms, CARD, candidate, NOW.minusSeconds(5), NOW, 1);
+    }
+
+    /** 승인 때 바로 반영되는 즉시할인만 있는 추천 후보. */
+    private static Candidate discount(long instantDiscount) {
+        return new Candidate(1, CARD, instantDiscount, List.of(new BenefitLine(1L, "즉시할인", "DISCOUNT",
+                instantDiscount, instantDiscount, BenefitLine.AT_APPROVAL)), "mock", null, new RuleVersion(3L, 0));
     }
 
     private static UserCardRef ref(Integer paymentDay, Integer billingCutoffDays) {

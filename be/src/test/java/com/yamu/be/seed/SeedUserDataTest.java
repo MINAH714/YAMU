@@ -66,6 +66,8 @@ class SeedUserDataTest extends MySqlTestSupport {
             var account = jdbc.queryForMap("SELECT * FROM linked_account");
             assertThat(cipher.decrypt((byte[]) account.get("account_no_enc"), CipherField.LINKED_ACCOUNT_NO)).isEqualTo(accountNumber);
             assertThat(account.get("account_no_hash")).isEqualTo(hashes.account("088", accountNumber));
+            // 가입을 마친 사용자처럼 첫 연결 계좌가 기준 계좌다(초기 설정 완료 판단, S15P31E103-269).
+            assertThat(account.get("is_primary")).isEqualTo(true);
             for (var cardRow : jdbc.queryForList("SELECT card_no_enc,card_no_hash,status,issuer_status FROM user_card")) {
                 String rawCard = cipher.decrypt((byte[]) cardRow.get("card_no_enc"), CipherField.USER_CARD_NO);
                 assertThat(cardRow.get("card_no_hash")).isEqualTo(hashes.card(rawCard));

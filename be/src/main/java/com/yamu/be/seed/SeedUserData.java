@@ -73,8 +73,8 @@ public final class SeedUserData {
                     "{\"performanceEnabled\":true,\"balanceRiskEnabled\":true,\"transactionEnabled\":true}", now, now);
             long account = insert("""
                     INSERT INTO linked_account (user_id,bank_code,account_no_enc,account_no_hash,account_name,
-                        account_alias,account_last4,status,connected_at,created_at,updated_at)
-                    VALUES (?,?,?,?,?,?,?,'CONNECTED',?,?,?)
+                        account_alias,account_last4,status,is_primary,connected_at,created_at,updated_at)
+                    VALUES (?,?,?,?,?,?,?,'CONNECTED',TRUE,?,?,?)
                     """, user, bankCode, cipher.encrypt(accountNumber, CipherField.LINKED_ACCOUNT_NO), accountHash, "YAMU 테스트 입출금", "테스트 결제 계좌",
                     last4(accountNumber), registered, now, now);
             String[] products = PRODUCTS;

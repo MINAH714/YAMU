@@ -77,13 +77,24 @@ class InstallmentPlanTest {
     }
 
     @Test
-    void 개월_수_범위와_회차_최소_금액을_검사한다() {
+    void 개월_수_범위와_원금_최소_금액을_검사한다() {
         assertThatThrownBy(() -> InstallmentPlan.of(100_000, 0, cycle, usage, calendar))
                 .isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> InstallmentPlan.of(100_000, 13, cycle, usage, calendar))
                 .isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> InstallmentPlan.of(2, 3, cycle, usage, calendar))
+        assertThatThrownBy(() -> InstallmentPlan.of(0, 1, cycle, usage, calendar))
                 .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void 원금이_개월_수보다_작으면_앞_회차는_0원이고_원금은_마지막_회차에_붙는다() {
+        // 즉시할인으로 원금이 5원만 남은 12개월 할부: 개월 수는 POS 조건이라 그대로 둔다
+        InstallmentPlan plan = InstallmentPlan.of(5, 12, cycle, usage, calendar);
+
+        assertThat(plan.installments()).hasSize(12);
+        assertThat(plan.installments().subList(0, 11)).extracting(Installment::principal).containsOnly(0L);
+        assertThat(plan.installments().get(11).principal()).isEqualTo(5);
+        assertThat(plan.total()).isEqualTo(5);
     }
 
     @Test
