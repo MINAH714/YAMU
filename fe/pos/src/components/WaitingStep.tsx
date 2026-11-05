@@ -1,11 +1,15 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { ApiError } from '../api/client'
 import { applyMockAction, type MockAction } from '../api/mockResult'
 import { getPaymentResult, type PaymentResult } from '../api/pos'
 import { config } from '../config'
-import { formatWon, planLabel, type Terms } from '../payment/terms'
-import { PAYMENT_METHOD } from './Receipt'
-import { StatusScreen, type StatusRow } from './StatusScreen'
+import { planLabel, type Terms } from '../payment/terms'
+import '../styles/result.css'
+import { Amount } from './Amount'
+import { Character } from './Character'
+import { ConfirmButton } from './ConfirmButton'
+import { PAYMENT_AMOUNT_ID, PAYMENT_METHOD } from './Receipt'
+import { PAYMENT_STATUS_MARK_ID, StatusMark } from './StatusScreen'
 
 type Props = {
   paymentId: number
@@ -23,6 +27,8 @@ type Props = {
 const POLL_INTERVAL_MS = 2_000
 // 마감 직후에는 서버가 아직 EXPIRED로 바꾸지 않았을 수 있다. 이만큼 더 물어본 뒤 멈춘다
 const AFTER_DEADLINE_GRACE_MS = 10_000
+// 마감이 이만큼 남으면 카운트다운이 주의 색으로 바뀐다
+const URGENT_MS = 10_000
 
 /**
  * DECLINED는 마감 전이면 최종이 아니다. 사용자가 앱에서 다른 카드로 다시 승인할 수 있다(명세 Q1).
@@ -43,6 +49,8 @@ function isFinal(result: PaymentResult, pastDeadline: boolean): boolean {
 
 export function WaitingStep({ paymentId, posCode, orderNo, terms, deadlineAt, onFinal, onFatal, onAbandon }: Props) {
   const [now, setNow] = useState(() => Date.now())
+  // 카운트다운 선의 기준. 처음 뜬 순간 남아 있던 시간을 꽉 찬 선으로 그린다
+  const [totalMs] = useState(() => Math.max(deadlineAt - Date.now(), 1))
   const [last, setLast] = useState<PaymentResult | null>(null)
   const [connectionError, setConnectionError] = useState<string | null>(null)
   const [stopped, setStopped] = useState(false)
@@ -106,59 +114,123 @@ export function WaitingStep({ paymentId, posCode, orderNo, terms, deadlineAt, on
   }, [paymentId, posCode, deadlineAt, generation])
 
   const pastDeadline = now > deadlineAt
-  const rows: StatusRow[] = [
-    { label: '주문 금액', value: formatWon(terms.amount) },
-    { label: '결제 수단', value: PAYMENT_METHOD },
-  ]
-  if (terms.plan === 'INSTALLMENT') rows.push({ label: '결제 방식', value: planLabel(terms.plan, terms.installmentMonths) })
 
   // 승인 처리 중(카드사 결과 대기)·연결 오류·마감 뒤 결과 대기는 "확인 중"으로 보인다
   const checking = stopped || last?.status === 'PROCESSING' || connectionError !== null || pastDeadline
   const declined = last?.status === 'DECLINED'
 
   return (
-    <StatusScreen
-      tone={checking ? 'checking' : 'waiting'}
-      title={checking ? '결제 결과를 확인 중입니다.' : '고객 승인을 기다리고 있어요.'}
-      description={
-        stopped
-          ? `결과를 확인하지 못했어요. ${connectionError ?? ''}`
-          : checking
-            ? '결과가 확인될 때까지 잠시 기다려 주세요.'
-            : declined
-              ? '카드가 거절됐어요. 고객이 앱에서 다른 카드로 다시 결제할 수 있어요.'
-              : '고객의 YAMU 앱에서 결제를 승인해 주세요.'
-      }
-      rows={rows}
-    >
-      {stopped && (
-        <button
-          type="button"
-          className="primary"
-          onClick={() => {
-            setStopped(false)
-            setGeneration((g) => g + 1)
-          }}
-        >
-          결과 다시 확인
-        </button>
-      )}
+    <WaitingView
+      paymentId={paymentId}
+      orderNo={orderNo}
+      terms={terms}
+      remainingMs={deadlineAt - now}
+      totalMs={totalMs}
+      checking={checking}
+      stopped={stopped}
+      declined={declined}
+      connectionError={connectionError}
+      onRecheck={() => {
+        setStopped(false)
+        setGeneration((g) => g + 1)
+      }}
+      onAbandon={onAbandon}
+    />
+  )
+}
 
-      {config.mockResult && <MockPanel paymentId={paymentId} />}
+type WaitingViewProps = {
+  paymentId: number
+  orderNo: string | null
+  terms: Terms
+  remainingMs: number
+  /** 카운트다운 선이 꽉 찼을 때의 남은 시간 */
+  totalMs: number
+  checking: boolean
+  stopped: boolean
+  declined: boolean
+  connectionError: string | null
+  onRecheck: () => void
+  onAbandon: () => void
+}
 
-      <button
-        type="button"
-        className="link status-link"
-        title={orderNo ? `결제 번호 ${paymentId} · 주문 번호 ${orderNo}` : `결제 번호 ${paymentId}`}
-        onClick={() => {
-          if (window.confirm('결과를 기다리지 않고 새 결제를 시작할까요? 이 결제는 고객이 승인하면 그대로 진행돼요.')) {
-            onAbandon()
-          }
-        }}
-      >
-        기다리지 않고 새 결제
-      </button>
-    </StatusScreen>
+/** 승인 대기 화면. 폴링과 판정은 WaitingStep에 있고 여기서는 받은 값만 그린다 */
+export function WaitingView({
+  paymentId,
+  orderNo,
+  terms,
+  remainingMs,
+  totalMs,
+  checking,
+  stopped,
+  declined,
+  connectionError,
+  onRecheck,
+  onAbandon,
+}: WaitingViewProps) {
+  const remainingSeconds = Math.max(Math.ceil(remainingMs / 1000), 0)
+  const ratio = Math.min(Math.max(remainingMs / totalMs, 0), 1)
+  const urgent = !checking && remainingMs <= URGENT_MS
+  // layoutId가 있는 요소는 다시 그려질 때마다 자리를 잰다. 250ms마다 오는 타이머에 끌려가지 않게 묶어 둔다
+  const amount = useMemo(() => <Amount value={terms.amount} size="xl" layoutId={PAYMENT_AMOUNT_ID} />, [terms.amount])
+  const mark = useMemo(
+    () => <StatusMark state={stopped ? 'warning' : 'pending'} size={24} layoutId={PAYMENT_STATUS_MARK_ID} />,
+    [stopped],
+  )
+
+  return (
+    <section className="waiting">
+      <div className="waiting-block">
+        <Character pose="thinking" size={128} />
+        <div className="waiting-text" aria-live="polite">
+          <h2 className="flow-title">{stopped ? '결제 결과를 확인하지 못했어요' : checking ? '결제 결과를 확인하고 있어요' : '고객 앱에서 승인을 기다리고 있어요'}</h2>
+          <p className="flow-description">
+            {stopped
+              ? connectionError ?? '결과 다시 확인을 눌러 주세요.'
+              : checking
+                ? '결과가 확인될 때까지 잠시 기다려 주세요.'
+                : declined
+                  ? '카드가 거절됐어요. 고객이 앱에서 다른 카드로 다시 결제할 수 있어요.'
+                  : '고객의 YAMU 앱에서 결제를 승인해 주세요.'}
+          </p>
+        </div>
+
+        {amount}
+        <p className="waiting-method">
+          {PAYMENT_METHOD}
+          {terms.plan === 'INSTALLMENT' && ` · ${planLabel(terms.plan, terms.installmentMonths)}`}
+        </p>
+
+        <div className="waiting-timer" data-urgent={urgent}>
+          {mark}
+          {!checking && (
+            <span role="timer">
+              남은 시간 <strong>{remainingSeconds}초</strong>
+            </span>
+          )}
+        </div>
+        <div className="waiting-countdown" data-urgent={urgent} hidden={checking} aria-hidden="true">
+          <span style={{ transform: `scaleX(${ratio})` }} />
+        </div>
+
+        {stopped && (
+          <button type="button" className="primary waiting-recheck" onClick={onRecheck}>
+            결과 다시 확인
+          </button>
+        )}
+      </div>
+
+      <div className="waiting-foot">
+        {config.mockResult && <MockPanel paymentId={paymentId} />}
+        <span title={orderNo ? `결제 번호 ${paymentId} · 주문 번호 ${orderNo}` : `결제 번호 ${paymentId}`}>
+          <ConfirmButton
+            label="기다리지 않고 새 결제"
+            confirmLabel="고객이 승인하면 이 결제는 그대로 진행돼요. 한 번 더 누르면 새 결제를 시작해요"
+            onConfirm={onAbandon}
+          />
+        </span>
+      </div>
+    </section>
   )
 }
 
@@ -174,7 +246,7 @@ function MockPanel({ paymentId }: { paymentId: number }) {
   return (
     <div className="mock">
       <p>
-        <strong>Mock 결과</strong> · 결과 조회 API 전까지 사용자의 앱 동작을 흉내 냅니다. 누르지 않으면 60초 뒤 만료돼요.
+        <strong>Mock 결과</strong> · 결과 조회 API 전까지 사용자의 앱 동작을 흉내 내요. 누르지 않으면 60초 뒤 만료돼요.
       </p>
       <div className="mock-actions">
         {MOCK_ACTIONS.map(({ action, label }) => (
