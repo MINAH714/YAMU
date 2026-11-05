@@ -44,8 +44,10 @@ import com.yamu.be.payment.lookup.PaymentCardLookup.ActiveCard;
 import com.yamu.be.payment.pos.PosProperties;
 import com.yamu.be.payment.recommend.CardRecommender;
 import com.yamu.be.payment.recommend.RecommendationResult;
+import com.yamu.be.payment.recommend.RecommendationResult.BenefitLine;
 import com.yamu.be.payment.recommend.RecommendationResult.Candidate;
 import com.yamu.be.payment.recommend.RecommendationResult.CardSummary;
+import com.yamu.be.payment.recommend.RecommendationResult.ExpectedLimitUse;
 import com.yamu.be.payment.recommend.RecommendationResult.RuleVersion;
 import com.yamu.be.payment.recommend.RecommendationResult.SelectionReason;
 import com.yamu.be.payment.recommend.RecommendationSnapshotStore;
@@ -143,6 +145,8 @@ class PaymentApprovalServiceTest {
         when(payments.saveAndFlush(any())).thenAnswer(inv -> inv.getArgument(0));
         when(transaction.execute(any())).thenAnswer(inv -> inv.<TransactionCallback<Object>>getArgument(0)
                 .doInTransaction(mock(TransactionStatus.class)));
+        // 승인 전 혜택 재계산(Task 5.2.5): 따로 정하지 않은 테스트는 그 사이 한도가 바뀌지 않아 추천과 같은 결과다
+        when(recommender.recommend(any())).thenAnswer(inv -> snapshots.find(PAYMENT_ID).orElse(recommendation));
         when(attempts.count(PAYMENT_ID)).thenReturn(0);
         when(attempts.reserve(eq(PAYMENT_ID), any()))
                 .thenAnswer(inv -> new Reservation(Reservation.Status.RESERVED,
@@ -214,6 +218,97 @@ class PaymentApprovalServiceTest {
 
         assertThat(response.selectedCard().userCardId()).isEqualTo(15L);
         verify(snapshots).save(eq(PAYMENT_ID), eq(recommendation), eq(Duration.ofMinutes(10)));
+    }
+
+    // ───────── 승인 전 혜택 재계산·카드 잠금(Task 5.2.5) ─────────
+
+    @Test
+    void 승인_전에_다시_계산한_후보로_승인액을_정하고_시도_기록과_원장_응답에_그_값을_쓴다() {
+        BenefitLine instant = new BenefitLine(101L, "카페 즉시할인", "DISCOUNT", 1_000, 1_000, BenefitLine.AT_APPROVAL);
+        Candidate fresh = new Candidate(1, candidate(1, CREDIT).card(), java.math.BigDecimal.valueOf(1_000),
+                List.of(instant), "mock", SelectionReason.DEFAULT_CARD, new RuleVersion(3L, 1), List.of(),
+                List.of(new ExpectedLimitUse(7L, 1, "KRW", "MONTHLY", java.math.BigDecimal.valueOf(5_000),
+                        java.math.BigDecimal.valueOf(1_000))));
+        when(recommender.recommend(any())).thenReturn(recommendation(List.of(fresh, candidate(2, CHECK))));
+        when(approver.approve(any())).thenAnswer(inv -> {
+            ApprovalCommand command = inv.getArgument(0);
+            long amount = command.chargedAmount();
+            return new ApprovalOutcome.Approved(amount, amount, 0, ApprovalDates.performanceMonth(command.now()),
+                    ApprovalOutcome.Approved.applied(command.candidate()), null, null, null, command.candidate());
+        });
+        when(ledger.recordApproval(eq(payment), any())).thenReturn(new ApprovalLedger.Recorded(Map.of(101L, 777L)));
+
+        PaymentApprovalResponse response = service.approve(ME, PAYMENT_ID, request(null), KEY);
+
+        ArgumentCaptor<ApprovalCommand> command = ArgumentCaptor.forClass(ApprovalCommand.class);
+        verify(approver).approve(command.capture());
+        assertThat(command.getValue().candidate()).isEqualTo(fresh);
+        assertThat(command.getValue().chargedAmount()).isEqualTo(14_000);
+        ArgumentCaptor<Attempt> reserved = ArgumentCaptor.forClass(Attempt.class);
+        verify(attempts).reserve(eq(PAYMENT_ID), reserved.capture());
+        assertThat(reserved.getValue().basis()).isEqualTo(fresh);
+        assertThat(response.chargedAmount()).isEqualTo(14_000);
+        assertThat(response.benefits()).singleElement().satisfies(b -> {
+            assertThat(b.paymentBenefitId()).isEqualTo(777L);
+            assertThat(b.amount()).isEqualTo(1_000);
+            assertThat(b.confirmed()).isTrue();
+        });
+        assertThat(response.limitImpacts()).containsExactly(
+                new PaymentApprovalResponse.LimitImpact(7L, "MONTHLY", 1_000, 4_000L));
+        assertThat(response.performance().yearMonth()).isEqualTo("2026-10");
+        assertThat(response.performance().recognizedAmount()).isZero();
+        assertThat(response.performance().recognized()).isFalse();
+    }
+
+    @Test
+    void 같은_카드를_다른_결제가_처리_중이면_409이고_선점하지_않는다() {
+        when(locks.tryLock(startsWith(PaymentApprovalService.CARD_LEDGER_LOCK_PREFIX), any()))
+                .thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.approve(ME, PAYMENT_ID, request(null), KEY))
+                .extracting(e -> ((BusinessException) e).getErrorCode()).isEqualTo(ErrorCode.IDEMPOTENCY_IN_PROGRESS);
+
+        assertThat(payment.getStatus()).isEqualTo(PaymentStatus.REQUESTED);
+        verify(recommender, never()).recommend(any());
+        verify(attempts, never()).reserve(anyLong(), any());
+        verify(approver, never()).approve(any());
+    }
+
+    @Test
+    void 승인_전_재계산이_실패하면_409이고_선점하지_않는다() {
+        when(recommender.recommend(any())).thenThrow(new IllegalStateException("DB 읽기 실패"));
+
+        assertThatThrownBy(() -> service.approve(ME, PAYMENT_ID, request(null), KEY))
+                .extracting(e -> ((BusinessException) e).getErrorCode()).isEqualTo(ErrorCode.CONCURRENT_MODIFICATION);
+
+        assertThat(payment.getStatus()).isEqualTo(PaymentStatus.REQUESTED);
+        verify(attempts, never()).reserve(anyLong(), any());
+        verify(approver, never()).approve(any());
+        verify(lock, org.mockito.Mockito.atLeastOnce()).close();
+    }
+
+    @Test
+    void 다시_계산하니_후보가_아니면_혜택_없이_승인한다() {
+        when(recommender.recommend(any())).thenReturn(recommendation(List.of(candidate(1, CHECK))));
+
+        PaymentApprovalResponse response = service.approve(ME, PAYMENT_ID, request(null), KEY);
+
+        ArgumentCaptor<ApprovalCommand> command = ArgumentCaptor.forClass(ApprovalCommand.class);
+        verify(approver).approve(command.capture());
+        assertThat(command.getValue().card().userCardId()).isEqualTo(15L);
+        assertThat(command.getValue().candidate()).isNull();
+        assertThat(response.status()).isEqualTo(PaymentStatus.APPROVED);
+        assertThat(response.selectedCard().recommendedRank()).isEqualTo(1);
+    }
+
+    @Test
+    void 추천_밖의_카드를_직접_고르면_다시_계산하지_않고_카드_잠금도_잡지_않는다() {
+        recommendation = recommendation(List.of(candidate(1, CREDIT)));
+
+        service.approve(ME, PAYMENT_ID, request(16L), KEY);
+
+        verify(recommender, never()).recommend(any());
+        verify(locks, never()).tryLock(startsWith(PaymentApprovalService.CARD_LEDGER_LOCK_PREFIX), any());
     }
 
     // ───────── 사전 검사·청구 회차 ─────────

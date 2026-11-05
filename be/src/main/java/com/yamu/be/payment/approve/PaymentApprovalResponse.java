@@ -12,8 +12,9 @@ import java.util.Map;
  * 승인 응답(API 명세 「결제 승인 요청 (카드 확정)」 Response). 승인과 확정 거절 모두 200이고 {@code status}로 구분한다.
  *
  * <p>{@code billItems}는 신용카드 승인의 청구 회차(Task 5.2.4). 체크카드·거절은 빈 목록이다.
- * 임시: {@code performance}·{@code limitImpacts}(Task 5.2.5), {@code accountBalanceAfter}(Task 5.2.3)는
- * 그 태스크가 채울 때까지 빈 목록·null이다. 모양은 명세대로 둔다.
+ * {@code benefits}·{@code performance}·{@code limitImpacts}는 승인 때 다시 계산해 원장에 적은 값이다(Task 5.2.5).
+ * 임시: 실적 인정액은 BE3 결과 확장 전이라 0원이고 달성률은 null, {@code accountBalanceAfter}(Task 5.2.3)는 null이다.
+ * 복구로 확정된 결제의 응답은 혜택·실적·한도를 싣지 않는다.
  *
  * @param approvalNo        승인번호(임시 규칙 Q3). 거절이면 null
  * @param chargedAmount     체크카드는 즉시할인을 뺀 출금액, 신용카드는 승인 원금. 거절이면 null
@@ -50,7 +51,10 @@ public record PaymentApprovalResponse(
     public record SelectedCard(Long userCardId, String nickname, String maskedNumber, CardType cardType,
             Integer recommendedRank, boolean userSelected) {}
 
-    /** @param paymentBenefitId {@code payment_benefit} 행 번호. 원장 반영(Task 5.2.5) 전에는 null */
+    /**
+     * @param paymentBenefitId {@code payment_benefit} 행 번호. 원장 저장 전에 만든 응답(저장 실패 뒤 재전송 등)은 null
+     * @param confirmed        승인과 함께 반영된 즉시할인이면 true. 청구할인·캐시백·적립은 청구·지급 때 확정되므로 false
+     */
     public record Benefit(Long paymentBenefitId, Long benefitId, String name, String type, long amount,
             String realization, boolean confirmed) {}
 

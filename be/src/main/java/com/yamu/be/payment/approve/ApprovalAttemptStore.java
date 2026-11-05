@@ -2,6 +2,7 @@ package com.yamu.be.payment.approve;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.yamu.be.payment.recommend.RecommendationResult.Candidate;
 import com.yamu.be.payment.recommend.RecommendationResult.CardSummary;
 import java.time.LocalDateTime;
 import java.util.LinkedHashSet;
@@ -266,11 +267,13 @@ public class ApprovalAttemptStore {
      * @param finTransactionNo 체크카드 출금의 금융망 거래 번호. 없으면 null
      * @param chargedAmount    승인으로 빠져나간(체크카드)·청구될(신용카드) 금액. 승인이 아니면 null
      * @param response         실행 결과로 만든 응답. 같은 키 재전송에 돌려준다. 실행 전이면 null
+     * @param basis            이 시도의 승인액을 정한 추천 후보(승인 때 다시 계산한 값, Task 5.2.5). 결과 불명 출금을 복구가
+     *                         승인으로 확정할 때 이 값으로 원장을 적는다. 추천 밖의 카드이거나 이 칸이 생기기 전의 기록이면 null
      */
     public record Attempt(int no, String idempotencyKey, String fingerprint, CardSummary card,
             Integer recommendedRank, boolean userSelected, LocalDateTime startedAt, String outcome,
             String failureCode, String finRequestNo, String finTransactionNo, Long chargedAmount,
-            PaymentApprovalResponse response) {
+            PaymentApprovalResponse response, Candidate basis) {
 
         public static final String PROCESSING = "PROCESSING";
         public static final String APPROVED = "APPROVED";
@@ -278,24 +281,30 @@ public class ApprovalAttemptStore {
 
         static Attempt start(String idempotencyKey, String fingerprint, CardSummary card, Integer recommendedRank,
                 boolean userSelected, LocalDateTime startedAt) {
+            return start(idempotencyKey, fingerprint, card, recommendedRank, userSelected, startedAt, null);
+        }
+
+        static Attempt start(String idempotencyKey, String fingerprint, CardSummary card, Integer recommendedRank,
+                boolean userSelected, LocalDateTime startedAt, Candidate basis) {
             return new Attempt(0, idempotencyKey, fingerprint, card, recommendedRank, userSelected, startedAt,
-                    PROCESSING, null, null, null, null, null);
+                    PROCESSING, null, null, null, null, null, basis);
         }
 
         Attempt withNo(int newNo) {
             return new Attempt(newNo, idempotencyKey, fingerprint, card, recommendedRank, userSelected, startedAt,
-                    outcome, failureCode, finRequestNo, finTransactionNo, chargedAmount, response);
+                    outcome, failureCode, finRequestNo, finTransactionNo, chargedAmount, response, basis);
         }
 
         Attempt withFinRequestNo(String newFinRequestNo) {
             return new Attempt(no, idempotencyKey, fingerprint, card, recommendedRank, userSelected, startedAt,
-                    outcome, failureCode, newFinRequestNo, finTransactionNo, chargedAmount, response);
+                    outcome, failureCode, newFinRequestNo, finTransactionNo, chargedAmount, response, basis);
         }
 
         Attempt withResult(String newOutcome, String newFailureCode, String newFinTransactionNo,
                 Long newChargedAmount, PaymentApprovalResponse newResponse) {
             return new Attempt(no, idempotencyKey, fingerprint, card, recommendedRank, userSelected, startedAt,
-                    newOutcome, newFailureCode, finRequestNo, newFinTransactionNo, newChargedAmount, newResponse);
+                    newOutcome, newFailureCode, finRequestNo, newFinTransactionNo, newChargedAmount, newResponse,
+                    basis);
         }
     }
 }
