@@ -526,6 +526,21 @@ class PaymentApprovalServiceTest {
     }
 
     @Test
+    void 소수_순혜택이어도_다음_카드_목록에_그대로_내려준다() {
+        // S15P31E103-283: 포인트 환산율 0.5면 엔진 순혜택이 1.5원처럼 나온다. longValueExact()였으면 승인 뒤 여기서 500
+        recommendation = recommendation(List.of(candidate(1, CREDIT, new java.math.BigDecimal("2.5")),
+                candidate(2, CHECK, new java.math.BigDecimal("1.5"))));
+        doReturn(ApprovalOutcome.Declined.of(FailureCode.INSUFFICIENT_BALANCE)).when(approver).approve(any());
+        when(attempts.triedCardIds(PAYMENT_ID)).thenReturn(Set.of(15L));
+
+        PaymentApprovalResponse response = service.approve(ME, PAYMENT_ID, request(null), KEY);
+
+        assertThat(response.suggestedCards()).extracting(PaymentApprovalResponse.SuggestedCard::userCardId,
+                PaymentApprovalResponse.SuggestedCard::netBenefit)
+                .containsExactly(org.assertj.core.groups.Tuple.tuple(16L, new java.math.BigDecimal("1.5")));
+    }
+
+    @Test
     void 세_번째_거절이면_더_시도할_수_없다고_알린다() {
         doReturn(ApprovalOutcome.Declined.of(FailureCode.CREDIT_LIMIT_EXCEEDED)).when(approver).approve(any());
         when(attempts.count(PAYMENT_ID)).thenReturn(2);
@@ -859,9 +874,13 @@ class PaymentApprovalServiceTest {
     }
 
     private static Candidate candidate(int rank, ActiveCard card) {
+        return candidate(rank, card, java.math.BigDecimal.ZERO);
+    }
+
+    private static Candidate candidate(int rank, ActiveCard card, java.math.BigDecimal netBenefit) {
         CardSummary summary = new CardSummary(card.userCardId(), card.cardProductId(), card.cardType(),
                 card.defaultCard(), card.alias(), card.last4(), card.issuerCode(), card.productName());
-        return new Candidate(rank, summary, 0, List.of(), "mock", rank == 1 ? SelectionReason.DEFAULT_CARD : null,
+        return new Candidate(rank, summary, netBenefit, List.of(), "mock", rank == 1 ? SelectionReason.DEFAULT_CARD : null,
                 new RuleVersion(card.cardProductId(), 0));
     }
 }

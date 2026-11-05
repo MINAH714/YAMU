@@ -125,7 +125,7 @@ class SimulationSeedRecommendationDatabaseTest extends MySqlTestSupport {
                 .withComparatorForType(java.math.BigDecimal::compareTo,java.math.BigDecimal.class).isEqualTo(restored);
         snapshots.save(payment,result,java.time.Duration.ofMinutes(10));
         var displayed=views.find(payment,user).orElseThrow().recommendation().candidates().get(0);
-        assertThat(displayed.netBenefit()).isEqualTo(1800);
+        assertThat(displayed.netBenefit()).isEqualByComparingTo("1800");
         assertThat(displayed.unallocatedBenefitGroups()).singleElement().satisfies(g->assertThat(g.totalAmount()).isEqualTo(1800));
         assertThat(displayed.benefits()).filteredOn(b->candidate.unallocatedBenefitGroups().get(0).benefitIds().contains(b.benefitId()))
                 .allSatisfy(b->assertThat(b.amount()).isNull());
@@ -348,7 +348,7 @@ class SimulationSeedRecommendationDatabaseTest extends MySqlTestSupport {
         assertThat(initial.topCandidate().orElseThrow().netBenefit()).isEqualByComparingTo("1000");
         var app=barcodeService.get(user,token).payment().recommendation();
         assertThat(app.candidates().get(0).userCardId()).isEqualTo(mr);
-        assertThat(app.candidates().get(0).netBenefit()).isEqualTo(1000);
+        assertThat(app.candidates().get(0).netBenefit()).isEqualByComparingTo("1000");
         assertThat(pos.create("test-pos-key",body,key).paymentId()).isEqualTo(created.paymentId());
         snapshots.delete(created.paymentId());
         long account=jdbc.queryForObject("SELECT linked_account_id FROM user_card WHERE user_card_id=?",Long.class,check);
