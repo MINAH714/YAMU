@@ -10,7 +10,12 @@ import static org.springframework.test.web.client.response.MockRestResponseCreat
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
 import java.net.SocketTimeoutException;
+import java.time.Clock;
+import java.time.Duration;
+import java.time.Instant;
 import java.time.LocalDate;
+import java.time.ZoneId;
+import java.time.ZoneOffset;
 import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -28,15 +33,18 @@ class AiLivingCostClientTest {
     private static final LocalDate AS_OF = LocalDate.of(2026, 11, 4);
     private static final String URL = "http://ai.test/forecast/living-cost";
 
+    private static final Duration PAUSE = Duration.ofSeconds(30);
+
     private MockRestServiceServer server;
     private AiLivingCostClient client;
+    private final MovableClock clock = new MovableClock(Instant.parse("2026-11-05T03:00:00Z"));
     private final Map<String, long[]> histories = new LinkedHashMap<>();
 
     @BeforeEach
     void setUp() {
         RestClient.Builder builder = RestClient.builder().baseUrl("http://ai.test");
         server = MockRestServiceServer.bindTo(builder).build();
-        client = new AiLivingCostClient(builder.build());
+        client = new AiLivingCostClient(builder.build(), clock, PAUSE);
         long[] daily = new long[90];
         Arrays.fill(daily, 1_000);
         histories.put("a0", daily);
@@ -105,10 +113,81 @@ class AiLivingCostClientTest {
     }
 
     @Test
+    void 시간_초과_뒤_30초_동안은_부르지_않고_지나면_다시_부른다() {
+        server.expect(requestTo(URL)).andRespond(withException(new SocketTimeoutException("read timed out")));
+        server.expect(requestTo(URL)).andRespond(withSuccess(
+                "{\"horizonDays\":14,\"predictions\":[{\"key\":\"a0\",\"amount\":1},{\"key\":\"a1\",\"amount\":2}]}",
+                MediaType.APPLICATION_JSON));
+
+        assertThat(client.predict(AS_OF, 14, histories)).isEmpty();
+        clock.advance(PAUSE.minusSeconds(1));
+        // 멈춘 동안에는 요청을 보내지 않는다(두 번째 응답이 아직 쓰이지 않음)
+        assertThat(client.predict(AS_OF, 14, histories)).isEmpty();
+        clock.advance(Duration.ofSeconds(1));
+        assertThat(client.predict(AS_OF, 14, histories)).contains(Map.of("a0", 1L, "a1", 2L));
+        server.verify();
+    }
+
+    @Test
+    void 계약_위반은_빠르게_끝나므로_멈추지_않는다() {
+        server.expect(requestTo(URL)).andRespond(withSuccess("{\"horizonDays\":30}", MediaType.APPLICATION_JSON));
+        server.expect(requestTo(URL)).andRespond(withSuccess(
+                "{\"horizonDays\":30,\"predictions\":[{\"key\":\"a0\",\"amount\":1},{\"key\":\"a1\",\"amount\":2}]}",
+                MediaType.APPLICATION_JSON));
+
+        assertThat(client.predict(AS_OF, 30, histories)).isEmpty();
+        assertThat(client.predict(AS_OF, 30, histories)).isPresent();
+        server.verify();
+    }
+
+    @Test
+    void 예측이_하루_입력_상한_곱하기_일수를_넘으면_계약_위반이다() {
+        long limit = AiLivingCostClient.MAX_DAILY_AMOUNT * 30;
+        server.expect(requestTo(URL)).andRespond(withSuccess(
+                "{\"horizonDays\":30,\"predictions\":[{\"key\":\"a0\",\"amount\":%d},{\"key\":\"a1\",\"amount\":0}]}"
+                        .formatted(limit), MediaType.APPLICATION_JSON));
+        server.expect(requestTo(URL)).andRespond(withSuccess(
+                "{\"horizonDays\":30,\"predictions\":[{\"key\":\"a0\",\"amount\":%d},{\"key\":\"a1\",\"amount\":0}]}"
+                        .formatted(limit + 1), MediaType.APPLICATION_JSON));
+
+        assertThat(client.predict(AS_OF, 30, histories)).contains(Map.of("a0", limit, "a1", 0L));
+        // 이보다 크면 뒤의 직선 잇기·하루 값 계산이 넘칠 수 있다
+        assertThat(client.predict(AS_OF, 30, histories)).isEmpty();
+    }
+
+    @Test
     void 주소가_없거나_보낼_계좌가_없으면_부르지_않는다() {
         assertThat(AiLivingCostClient.disabled().enabled()).isFalse();
         assertThat(AiLivingCostClient.disabled().predict(AS_OF, 30, histories)).isEmpty();
         assertThat(client.predict(AS_OF, 30, Map.of())).isEmpty();
         server.verify();
+    }
+
+    /** 테스트에서 시간을 앞으로 옮기는 시계. */
+    private static final class MovableClock extends Clock {
+        private Instant now;
+
+        MovableClock(Instant now) {
+            this.now = now;
+        }
+
+        void advance(Duration duration) {
+            now = now.plus(duration);
+        }
+
+        @Override
+        public ZoneId getZone() {
+            return ZoneOffset.UTC;
+        }
+
+        @Override
+        public Clock withZone(ZoneId zone) {
+            return this;
+        }
+
+        @Override
+        public Instant instant() {
+            return now;
+        }
     }
 }

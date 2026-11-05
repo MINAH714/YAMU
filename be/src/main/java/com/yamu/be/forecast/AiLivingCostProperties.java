@@ -10,9 +10,10 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  *                       비어 있으면 AI를 부르지 않고 TSB로 계산한다(서버 시작 때 경고 로그 한 번)
  * @param connectTimeout 연결 제한 시간(2026-11-05 결정 1초)
  * @param readTimeout    응답 제한 시간(1초). 넘으면 그 요청 전체를 TSB로 계산한다
+ * @param failurePause   시간 초과·연결 실패·서버 오류 뒤 AI를 부르지 않고 바로 TSB로 계산하는 시간(2026-11-05 결정 30초)
  */
 @ConfigurationProperties(prefix = "yamu.ai")
-record AiLivingCostProperties(String baseUrl, Duration connectTimeout, Duration readTimeout) {
+record AiLivingCostProperties(String baseUrl, Duration connectTimeout, Duration readTimeout, Duration failurePause) {
 
     boolean hasBaseUrl() {
         return baseUrl != null && !baseUrl.isBlank();

@@ -1,6 +1,7 @@
 package com.yamu.be.forecast;
 
 import java.net.http.HttpClient;
+import java.time.Clock;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
@@ -15,7 +16,7 @@ import org.springframework.web.client.RestClient;
 class AiLivingCostConfig {
 
     @Bean
-    AiLivingCostClient aiLivingCostClient(RestClient.Builder builder, AiLivingCostProperties properties) {
+    AiLivingCostClient aiLivingCostClient(RestClient.Builder builder, AiLivingCostProperties properties, Clock clock) {
         if (!properties.hasBaseUrl()) {
             log.warn("yamu.ai.base-url(AI_BASE_URL)이 비어 있어 AI 생활비 예측을 부르지 않습니다. 생활비는 TSB로 계산합니다.");
             return AiLivingCostClient.disabled();
@@ -27,6 +28,7 @@ class AiLivingCostConfig {
                 .build();
         JdkClientHttpRequestFactory requestFactory = new JdkClientHttpRequestFactory(httpClient);
         requestFactory.setReadTimeout(properties.readTimeout());
-        return new AiLivingCostClient(builder.baseUrl(properties.baseUrl()).requestFactory(requestFactory).build());
+        return new AiLivingCostClient(builder.baseUrl(properties.baseUrl()).requestFactory(requestFactory).build(),
+                clock, properties.failurePause());
     }
 }

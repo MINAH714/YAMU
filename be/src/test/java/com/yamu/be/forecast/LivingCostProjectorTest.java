@@ -7,6 +7,8 @@ import com.yamu.be.forecast.LivingCostEstimator.Confidence;
 import com.yamu.be.forecast.LivingCostEstimator.DataOrigin;
 import com.yamu.be.forecast.LivingCostReader.DailySpending;
 import com.yamu.be.forecast.LivingCostReader.Origin;
+import java.time.Clock;
+import java.time.Duration;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -215,7 +217,7 @@ class LivingCostProjectorTest {
         private final List<Call> calls = new ArrayList<>();
 
         FakeAi(Map<Integer, Long> answers) {
-            super(null);
+            super(null, Clock.systemUTC(), Duration.ZERO);
             this.answers = answers;
         }
 
