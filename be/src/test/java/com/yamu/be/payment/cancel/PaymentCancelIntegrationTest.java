@@ -90,7 +90,6 @@ class PaymentCancelIntegrationTest extends MySqlTestSupport {
     long otherUser;
     long account;
     long creditCard;
-    long checkCard;
     long merchant;
 
     @BeforeEach
@@ -110,10 +109,6 @@ class PaymentCancelIntegrationTest extends MySqlTestSupport {
         otherUser = fixtures.user();
         account = fixtures.account(user);
         creditCard = fixtures.card(user, fixtures.product(), account, "ACTIVE");
-        long checkProduct = fixtures.product();
-        jdbc.update("UPDATE card_product SET card_type = 'CHECK', billing_cutoff_days = NULL WHERE card_product_id = ?",
-                checkProduct);
-        checkCard = fixtures.card(user, checkProduct, account, "ACTIVE");
         merchant = merchant();
     }
 
@@ -640,17 +635,6 @@ class PaymentCancelIntegrationTest extends MySqlTestSupport {
                 .andExpect(jsonPath("$.error.code").value("PAYMENT_NOT_CANCELABLE"))
                 .andExpect(jsonPath("$.error.details.reason").value("SEED_TRANSACTION"));
         assertThat(payments.findById(seed).orElseThrow().getStatus()).isEqualTo(PaymentStatus.APPROVED);
-    }
-
-    @Test
-    void 체크카드_결제는_입금_구현_전까지_409_PAYMENT_NOT_CANCELABLE() throws Exception {
-        long paymentId = approved(user, checkCard, "YAMU");
-
-        cancel(paymentId, UUID.randomUUID().toString(), null)
-                .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.error.code").value("PAYMENT_NOT_CANCELABLE"))
-                .andExpect(jsonPath("$.error.details.reason").value("CHECK_CARD_NOT_SUPPORTED"));
-        assertThat(payments.findById(paymentId).orElseThrow().getStatus()).isEqualTo(PaymentStatus.APPROVED);
     }
 
     // ───────── 잘못된 요청 ─────────

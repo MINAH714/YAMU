@@ -129,18 +129,7 @@ public class SsafyTransferApi {
     public TagLookup findByTag(String userKey, String accountNo, TransferTag tag, long amount, String transactionNo) {
         requireTag(tag);
         requirePositive(amount);
-        LocalDate requestedOn = requestDateOf(transactionNo);
-        History history = fetch(userKey, accountNo, requestedOn.minusDays(1), lookupEnd(requestedOn), tag.direction());
-        if (!history.complete()) {
-            // 빠진 줄에 같은 태그가 있을 수 있다. "없다"로 보면 실제로 나간 돈을 놓치고, "한 건"으로 보면 중복 처리를 놓친다.
-            log.warn("금융망 거래내역 tag={} 목록이 다 오지 않아 판단하지 않음", tag);
-            throw new BusinessException(ErrorCode.FIN_API_UNAVAILABLE);
-        }
-
-        String value = tag.value();
-        List<BankTransaction> matches = history.transactions().stream()
-                .filter(t -> t.direction() == tag.direction() && value.equals(t.summary()))
-                .toList();
+        List<BankTransaction> matches = findAllByTag(userKey, accountNo, tag, transactionNo);
         TagLookup lookup;
         if (matches.isEmpty()) {
             lookup = new TagLookup(TagLookup.Result.NOT_FOUND, matches);
@@ -157,6 +146,47 @@ public class SsafyTransferApi {
             log.warn("금융망 거래내역 tag={} → {} ({}건) 운영 확인 필요", tag, lookup.result(), matches.size());
         }
         return lookup;
+    }
+
+    /**
+     * 그 요청 번호의 조회 기간({@link #findByTag}와 같은 최대 3일)에서 태그·방향이 같은 거래를 금액과 상관없이 모두 돌려준다.
+     * 금액을 미리 모를 때 쓴다(예: 체크카드 취소가 원 출금의 실제 출금액을 읽을 때). 실패·잘린 목록은 {@link #findByTag}와 같이 예외다.
+     */
+    public List<BankTransaction> findAllByTag(String userKey, String accountNo, TransferTag tag, String transactionNo) {
+        requireTag(tag);
+        LocalDate requestedOn = requestDateOf(transactionNo);
+        return matching(userKey, accountNo, tag, requestedOn.minusDays(1), lookupEnd(requestedOn));
+    }
+
+    /**
+     * 정한 기간(한국 날짜)에서 태그·방향이 같은 거래를 금액과 상관없이 모두 돌려준다. 요청 번호를 저장해 두지 않은 거래를 찾을 때 쓴다
+     * (예: 체크카드 취소 환불 {@code YAMU-C}는 결제 승인일부터 오늘까지). 끝 날짜는 오늘을 넘기지 않는다.
+     * 기간이 길면 목록이 잘릴 수 있고, 잘리면 판단하지 않고 예외를 던진다.
+     */
+    public List<BankTransaction> findAllByTag(String userKey, String accountNo, TransferTag tag, LocalDate from,
+            LocalDate to) {
+        requireTag(tag);
+        if (from == null || to == null || from.isAfter(to)) {
+            throw new IllegalArgumentException("조회 기간이 잘못되었습니다: " + from + " ~ " + to);
+        }
+        LocalDate today = LocalDate.ofInstant(clock.instant(), KOREA);
+        LocalDate end = to.isAfter(today) ? today : to;
+        LocalDate start = from.isAfter(end) ? end : from;
+        return matching(userKey, accountNo, tag, start, end);
+    }
+
+    private List<BankTransaction> matching(String userKey, String accountNo, TransferTag tag, LocalDate from,
+            LocalDate to) {
+        History history = fetch(userKey, accountNo, from, to, tag.direction());
+        if (!history.complete()) {
+            // 빠진 줄에 같은 태그가 있을 수 있다. "없다"로 보면 실제로 나간 돈을 놓치고, "한 건"으로 보면 중복 처리를 놓친다.
+            log.warn("금융망 거래내역 tag={} 목록이 다 오지 않아 판단하지 않음", tag);
+            throw new BusinessException(ErrorCode.FIN_API_UNAVAILABLE);
+        }
+        String value = tag.value();
+        return history.transactions().stream()
+                .filter(t -> t.direction() == tag.direction() && value.equals(t.summary()))
+                .toList();
     }
 
     /** 요청한 날 다음 날. 단 오늘을 넘기지 않고, YAMU 시계가 늦어 오늘이 요청한 날보다 앞이면 요청한 날이다. */
