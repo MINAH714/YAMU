@@ -120,6 +120,19 @@ class OutstandingCardBillReaderTest extends MySqlTestSupport {
                 .isEmpty();
     }
 
+    @Test
+    void 출금_계좌가_없는_카드의_진행_중_청구는_빼고_다른_청구는_그대로_돌려준다() {
+        // 임시(계약과 다름): 계좌 없는 카드 하나 때문에 예보 전체를 실패시키지 않고 경고 로그만 남긴다
+        long noAccountCard = owners.card(user, owners.product(), null, "ACTIVE");
+        long orphan = bills.accumulating(user, noAccountCard, month.plusMonths(1), today.plusDays(5));
+        long payment = bills.payment(user, noAccountCard, merchant, 30_000L, 1, LocalDateTime.now().minusDays(1));
+        bills.item(payment, user, noAccountCard, orphan, 1, month.plusMonths(1), 30_000L, "PENDING");
+        long confirmed = bills.confirmed(user, card, month, today.plusDays(1), accountA, 50_000L);
+
+        assertThat(reader.outstanding(user, List.of(accountA, accountB), today.plusDays(10)))
+                .extracting(OutstandingBill::cardBillId).containsExactly(confirmed);
+    }
+
     private void item(long bill, YearMonth billMonth, long principal, String status) {
         long payment = bills.payment(user, card, merchant, principal, 1, LocalDateTime.now().minusDays(1));
         bills.item(payment, user, card, bill, 1, billMonth, principal, status);

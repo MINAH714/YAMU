@@ -21,6 +21,10 @@ import org.springframework.stereotype.Component;
  *   <li>출금 완료(PAID)와 미납이 취소로 0원이 된 CANCELED는 넣지 않는다.</li>
  * </ul>
  * 금액이 0원 이하인 청구(회차가 없는 빈 청구서 등)는 빠질 돈이 없어 넣지 않는다. 고른 계좌가 아닌 청구와 남의 청구는 넣지 않는다.
+ *
+ * <p>임시(계약과 다름): 출금 계좌가 없는 청구는 계약대로라면 잔고예보를 실패시켜야 하지만, 경고 로그만 남기고 뺀다. 확정 뒤 청구서는
+ * {@code ck_bill_confirmed}로 계좌가 있으나, 진행 중 청구서는 카드의 지금 계좌를 쓰고 {@code user_card.linked_account_id}가 NULL일 수
+ * 있다. 그 카드 하나 때문에 다른 계좌의 예보까지 실패시키지 않으려는 것이다. 계약 문구는 잔고예보 담당과 다시 맞춘다.
  */
 @Slf4j
 @Component
@@ -53,7 +57,7 @@ class OutstandingCardBillReader implements CardBillReader {
                        AND ((b.status IN ('ACCUMULATING', 'CONFIRMED') AND b.withdrawal_date <= :to)
                             OR b.status = 'UNPAID')
                 ) x
-                 WHERE x.account_id IN (:accountIds)
+                 WHERE x.account_id IN (:accountIds) OR x.account_id IS NULL
                  ORDER BY x.withdrawal_date, x.card_bill_id
                 """,
                 new MapSqlParameterSource("userId", userId).addValue("accountIds", accountIds).addValue("to", to),
@@ -70,7 +74,12 @@ class OutstandingCardBillReader implements CardBillReader {
                     if (amount <= 0) {
                         return null;
                     }
-                    return new OutstandingBill(billId, rs.getLong("account_id"), status,
+                    Long accountId = rs.getObject("account_id", Long.class);
+                    if (accountId == null) {
+                        log.warn("출금 계좌가 없는 카드의 청구라 잔고예보에서 뺍니다. cardBillId={}, status={}", billId, status);
+                        return null;
+                    }
+                    return new OutstandingBill(billId, accountId, status,
                             rs.getObject("withdrawal_date", LocalDate.class), amount);
                 }).stream().filter(Objects::nonNull).toList();
     }
