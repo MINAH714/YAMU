@@ -184,6 +184,10 @@ yamu:
   billing:
     # 청구 확정: 매일 00:30. 이용기간 마감이 지난 진행 중 청구서를 확정한다
     confirm-cron: "0 30 0 * * *"
+    # 청구 출금: 매일 07:00. 출금일이 지난 확정 청구서를 YAMU-B 태그로 출금한다(공휴일 동기화 04:00 뒤)
+    withdraw-cron: "0 0 7 * * *"
+    # 결과를 모르는 청구 출금을 거래내역으로 확인·재시도하는 주기. 새 출금은 07:00에만 한다. 유예는 payment.approve.recovery-grace를 같이 쓴다
+    withdraw-recovery-interval: 10m
     jobs-enabled: ${BILLING_JOBS_ENABLED:false}
   # 운영 API(X-Admin-Key). 운영은 환경변수 YAMU_ADMIN_KEY, 로컬은 application-local.yml. 비어 있으면 운영 API는 모두 403
   admin:

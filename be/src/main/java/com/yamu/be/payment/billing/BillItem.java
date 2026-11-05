@@ -119,6 +119,14 @@ public class BillItem extends BaseTimeEntity {
         this.status = BillItemStatus.BILLED;
     }
 
+    /** 청구서 출금 성공(Task 5.4.3). 확정된(BILLED) 회차만 출금 완료로 바꾼다. 출금 전에 취소한 회차(REFUND_PENDING 등)는 그대로다. */
+    public void markPaid() {
+        if (status != BillItemStatus.BILLED) {
+            throw new IllegalStateException("청구 확정 회차만 출금 완료로 바꿀 수 있습니다 (회차 " + id + ", 상태 " + status + ")");
+        }
+        this.status = BillItemStatus.PAID;
+    }
+
     /** 청구 전 취소(POL-006). 청구 확정 전(PENDING) 회차만 청구에서 뺀다. 환급은 없다. */
     public void exclude() {
         if (status != BillItemStatus.PENDING) {
