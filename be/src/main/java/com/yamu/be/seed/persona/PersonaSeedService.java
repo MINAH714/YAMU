@@ -13,6 +13,7 @@ import jakarta.validation.Validator;
 import java.sql.Timestamp;
 import java.time.Clock;
 import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
@@ -36,6 +37,7 @@ import org.springframework.transaction.support.TransactionTemplate;
  * app_user  PENDING, 이름·생년월일·휴대폰(암호문·조회 해시)·SSAFY 회원 ID·userKey(암호문). PIN·본인인증 시각은 비움
  * user_card PENDING, linked_account_id 없음. 카드사가 정한 계좌는 issuer_account_*(은행·조회 해시·끝 4자리)로,
  *           신용카드 결제일은 payment_day로 적는다. 카드 등록 때 연결 계좌와 대조해 linked_account_id가 채워진다(!47)
+ * payment_transaction·card_monthly_performance  카드 등록 전 6개월 모의 소비(SEED)와 그 실적({@link PersonaSpendingHistory})
  * 넣지 않음 linked_account(가입 중 계좌 목록에서 골라 연결), user_device(가입의 마지막 단계)
  * </pre>
  *
@@ -61,6 +63,7 @@ public class PersonaSeedService {
     private final PersonaAccountCheck accountCheck;
     private final Validator validator;
     private final Clock clock;
+    private final PersonaSpendingHistory history;
 
     public enum Result {
         CREATED, RESET, SKIPPED_EXISTS, SKIPPED_NOT_PENDING, FAILED
@@ -240,7 +243,8 @@ public class PersonaSeedService {
 
     /**
      * 아직 PENDING인지 행을 잠그고 다시 본 뒤 지운다. 그 사이 가입을 마쳤으면 지우지 않는다.
-     * 가입 중 연결한 계좌·카드도 같이 지운다. 그 밖의 데이터가 걸려 있으면 FK가 막아 이 페르소나만 실패한다.
+     * 가입 중 연결한 계좌·카드와, 시드가 넣은 등록 전 모의 소비·실적도 같이 지운다. 그 밖의 데이터가 걸려 있으면 FK가 막아
+     * 이 페르소나만 실패한다.
      */
     private void deletePending(long userId) {
         List<String> status = jdbc.queryForList("SELECT status FROM app_user WHERE user_id = ? FOR UPDATE",
@@ -249,6 +253,10 @@ public class PersonaSeedService {
             throw new SeedFailure("초기화 중에 상태가 바뀌어 건너뜀");
         }
         try {
+            // PENDING 사용자는 결제할 수 없어 결제·실적은 모두 시드가 넣은 것이다.
+            jdbc.update("DELETE FROM payment_transaction WHERE user_id = ?", userId);
+            jdbc.update("DELETE p FROM card_monthly_performance p JOIN user_card c USING (user_card_id) WHERE c.user_id = ?",
+                    userId);
             jdbc.update("DELETE FROM user_card WHERE user_id = ?", userId);
             jdbc.update("DELETE FROM linked_account WHERE user_id = ?", userId);
             jdbc.update("DELETE FROM app_user WHERE user_id = ?", userId);
@@ -268,6 +276,7 @@ public class PersonaSeedService {
                 now, now);
         Long userId = jdbc.queryForObject("SELECT user_id FROM app_user WHERE phone_hash = ? AND birth_date = ?",
                 Long.class, phoneHash, persona.birthDate());
+        List<PersonaSpendingHistory.SeededCard> seeded = new ArrayList<>();
         for (ResolvedCard resolved : cards) {
             Card card = resolved.card();
             String cardNo = PersonalDataNormalizer.cardNo(card.cardNo());
@@ -282,7 +291,11 @@ public class PersonaSeedService {
                     lookup.account(card.account().bankCode(), accountNo), accountNo.substring(accountNo.length() - 4),
                     cipher.encrypt(cardNo, CipherField.USER_CARD_NO), lookup.card(cardNo),
                     cardNo.substring(cardNo.length() - 4), card.paymentDay(), card.issuerStatus().name(), now, now);
+            Long cardId = jdbc.queryForObject("SELECT user_card_id FROM user_card WHERE user_id = ? AND card_no_hash = ?",
+                    Long.class, userId, lookup.card(cardNo));
+            seeded.add(new PersonaSpendingHistory.SeededCard(cardId, resolved.productId(), resolved.cardType()));
         }
+        history.insert(userId, persona.ssafyMemberId(), seeded, LocalDate.now(clock.withZone(ZoneId.of("Asia/Seoul"))), now);
     }
 
     private static void log(Outcome outcome) {

@@ -17,6 +17,8 @@ import com.yamu.be.account.domain.LinkedAccountRepository;
 import com.yamu.be.card.domain.CardIssuerStatus;
 import com.yamu.be.card.domain.UserCard;
 import com.yamu.be.card.domain.UserCardRepository;
+import com.yamu.be.forecast.ForecastService;
+import com.yamu.be.forecast.LivingCostForecast;
 import com.yamu.be.global.crypto.CipherField;
 import com.yamu.be.global.crypto.LookupHasher;
 import com.yamu.be.global.crypto.PersonalDataCipher;
@@ -33,6 +35,7 @@ import com.yamu.be.support.MySqlTestSupport;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.LocalDate;
+import java.time.ZoneId;
 import java.time.YearMonth;
 import java.util.ArrayList;
 import java.util.List;
@@ -65,6 +68,7 @@ class PersonaSeedServiceTest extends MySqlTestSupport {
     @Autowired ObjectMapper objectMapper;
     @Autowired LinkedAccountRepository linkedAccountRepository;
     @Autowired UserCardRepository userCardRepository;
+    @Autowired ForecastService forecasts;
     @MockitoBean FinApiClient finApiClient;
 
     /** SsafyAccountApi.LIST_PATH(패키지 전용)와 같은 경로. 계좌 목록을 가짜로 돌려줄 때 쓴다. */
@@ -72,6 +76,7 @@ class PersonaSeedServiceTest extends MySqlTestSupport {
     /** {@link #accounts}가 돌려주는 첫 계좌. 카드사가 정한 카드 계좌로 쓴다. */
     private static final Account ACCOUNT = new Account("088", "088-000-000000000");
 
+    private static final ZoneId KOREA = ZoneId.of("Asia/Seoul");
     private static final String CREDIT_PRODUCT = "페르소나 테스트 신용";
     private static final String CHECK_PRODUCT = "페르소나 테스트 체크";
 
@@ -85,6 +90,11 @@ class PersonaSeedServiceTest extends MySqlTestSupport {
                     VALUES (?, ?, ?, UTC_TIMESTAMP(6), UTC_TIMESTAMP(6))
                     """, p);
         }
+        // 과거 소비 시드가 쓰는 가맹점(카드 카탈로그 시드에 있는 브랜드).
+        PersonaSpendingHistory.BRANDS.forEach((brand, category) -> jdbc.update("""
+                INSERT IGNORE INTO merchant (merchant_name, brand_code, merchant_category_code, created_at, updated_at)
+                VALUES (?, ?, ?, UTC_TIMESTAMP(6), UTC_TIMESTAMP(6))
+                """, brand, brand, category));
     }
 
     @Test
@@ -364,6 +374,117 @@ class PersonaSeedServiceTest extends MySqlTestSupport {
         assertThat(card.getPaymentDay()).isEqualTo(14);
         assertThat(matched.getUserId()).isEqualTo(userId);
         assertThat(matched.isConnected()).isTrue();
+    }
+
+    @Test
+    void 카드_등록_전_6개월_모의_소비와_달별_실적을_넣는다() {
+        Persona persona = persona("과거 소비", List.of(card(CHECK_PRODUCT), card(CREDIT_PRODUCT)));
+        accounts(persona, 1);
+
+        seedService.seed(List.of(persona), false);
+
+        long userId = userId(persona);
+        LocalDate today = LocalDate.now(KOREA);
+        LocalDate from = YearMonth.from(today).minusMonths(PersonaSpendingHistory.MONTHS).atDay(1);
+        List<Map<String, Object>> payments = jdbc.queryForList("""
+                SELECT p.*, m.brand_code, cp.card_type FROM payment_transaction p
+                  JOIN merchant m ON m.merchant_id = p.merchant_id
+                  JOIN card_product cp ON cp.card_product_id = p.card_product_id
+                 WHERE p.user_id = ?
+                """, userId);
+        assertThat(payments).isNotEmpty().allSatisfy(p -> {
+            assertThat(p.get("source")).isEqualTo("SEED");
+            assertThat(p.get("status")).isEqualTo("APPROVED");
+            assertThat(p.get("spending_class")).isNull();
+            assertThat(korean(p.get("approved_at"))).isBetween(from, today.minusDays(1));
+            // 반복 지출 규칙에 일상 소비가 잘못 걸리지 않게 10원 단위로 흩뜨린다
+            assertThat(amount(p) % 10).isZero();
+        });
+        List<Map<String, Object>> check = payments.stream().filter(p -> "CHECK".equals(p.get("card_type"))).toList();
+        long netflixMonths = from.datesUntil(today).filter(day -> day.getDayOfMonth() == 5).count();
+        assertThat(check.stream().filter(p -> "NETFLIX".equals(p.get("brand_code"))).toList())
+                .hasSize((int) netflixMonths).allSatisfy(p -> assertThat(amount(p)).isEqualTo(13_500L));
+        assertThat(check.stream().filter(p -> amount(p) == 1_290_000L).toList()).hasSize(1);
+        assertThat(payments.stream().filter(p -> ((Number) p.get("installment_months")).intValue() == 3).toList())
+                .singleElement().satisfies(p -> assertThat(p.get("card_type")).isEqualTo("CREDIT"));
+        // 완료 3개월 체크카드 일상 소비(넷플릭스·큰 지출 제외)는 달마다 50만~80만 원 안
+        for (int back = 1; back <= 3; back++) {
+            YearMonth month = YearMonth.from(today).minusMonths(back);
+            long daily = check.stream()
+                    .filter(p -> YearMonth.from(korean(p.get("approved_at"))).equals(month))
+                    .filter(p -> !"NETFLIX".equals(p.get("brand_code")))
+                    .mapToLong(PersonaSeedServiceTest::amount)
+                    .filter(amount -> amount < 1_000_000L).sum();
+            assertThat(daily).as(month.toString()).isBetween(500_000L, 800_000L);
+        }
+        // 실적은 카드마다 기간의 모든 달(이번 달 포함)에 넣은 결제의 단순 합
+        List<Map<String, Object>> performance = jdbc.queryForList("""
+                SELECT p.recognized_amount,
+                       (SELECT COALESCE(SUM(t.approved_amount), 0) FROM payment_transaction t
+                         WHERE t.user_card_id = p.user_card_id AND t.performance_month = p.performance_month) AS paid
+                  FROM card_monthly_performance p JOIN user_card c ON c.user_card_id = p.user_card_id
+                 WHERE c.user_id = ?
+                """, userId);
+        assertThat(performance).hasSize(2 * (PersonaSpendingHistory.MONTHS + 1))
+                .allSatisfy(row -> assertThat(((Number) row.get("recognized_amount")).longValue())
+                        .isEqualTo(((Number) row.get("paid")).longValue()));
+    }
+
+    @Test
+    void 가입하고_카드를_등록하면_잔고예보_생활비가_SEED_HIGH로_나온다() {
+        Persona persona = persona("생활비", List.of(card(CHECK_PRODUCT)));
+        accounts(persona, 1);
+        seedService.seed(List.of(persona), false);
+        long userId = userId(persona);
+        // 가입(계좌 연결·ACTIVE)과 카드 등록(계좌 연결·등록 시각)을 마친 상태로 바꾼다
+        String accountNo = "088000000000000";
+        jdbc.update("""
+                INSERT INTO linked_account (user_id, bank_code, account_no_enc, account_no_hash, account_last4, status,
+                    connected_at, created_at, updated_at)
+                VALUES (?, '088', ?, ?, '0000', 'CONNECTED', UTC_TIMESTAMP(6), UTC_TIMESTAMP(6), UTC_TIMESTAMP(6))
+                """, userId, cipher.encrypt(accountNo, CipherField.LINKED_ACCOUNT_NO), lookup.account("088", accountNo));
+        long accountId = jdbc.queryForObject("SELECT linked_account_id FROM linked_account WHERE user_id = ?",
+                Long.class, userId);
+        jdbc.update("UPDATE app_user SET status = 'ACTIVE', pin_hash = 'x', pin_updated_at = UTC_TIMESTAMP(6), "
+                + "identity_verified_at = UTC_TIMESTAMP(6) WHERE user_id = ?", userId);
+        jdbc.update("UPDATE user_card SET status = 'ACTIVE', linked_account_id = ?, registered_at = UTC_TIMESTAMP(6) "
+                + "WHERE user_id = ?", accountId, userId);
+
+        LivingCostForecast living = forecasts.livingCost(userId, List.of(accountId), false);
+
+        assertThat(String.valueOf(living.dataOrigin())).isEqualTo("SEED");
+        assertThat(String.valueOf(living.confidence())).isEqualTo("HIGH");
+        // 큰 지출(129만 원)과 반복 지출(넷플릭스)은 빠져 달 평균이 일상 소비 수준
+        assertThat(living.monthlyAverage()).isBetween(500_000L, 800_000L);
+    }
+
+    @Test
+    void 초기화하면_과거_소비와_실적도_지우고_같은_값으로_다시_넣는다() {
+        Persona persona = persona("초기화", List.of(card(CHECK_PRODUCT), card(CREDIT_PRODUCT)));
+        accounts(persona, 1);
+        seedService.seed(List.of(persona), false);
+        long before = userId(persona);
+        Map<String, Object> first = jdbc.queryForMap(
+                "SELECT COUNT(*) AS n, SUM(approved_amount) AS total FROM payment_transaction WHERE user_id = ?", before);
+
+        assertThat(seedService.seed(List.of(persona), true).outcomes().get(0).result()).isEqualTo(Result.RESET);
+
+        long after = userId(persona);
+        assertThat(count("payment_transaction", before)).isZero();
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM card_monthly_performance p JOIN user_card c ON c.user_card_id = p.user_card_id "
+                        + "WHERE c.user_id = ?", Integer.class, before)).isZero();
+        assertThat(jdbc.queryForMap(
+                "SELECT COUNT(*) AS n, SUM(approved_amount) AS total FROM payment_transaction WHERE user_id = ?", after))
+                .isEqualTo(first);
+    }
+
+    private static long amount(Map<String, Object> payment) {
+        return ((Number) payment.get("approved_amount")).longValue();
+    }
+
+    private static LocalDate korean(Object utc) {
+        return ((java.sql.Timestamp) utc).toInstant().atZone(KOREA).toLocalDate();
     }
 
     private static FinApiException rejected() {
