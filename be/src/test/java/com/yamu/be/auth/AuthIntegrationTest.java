@@ -22,6 +22,7 @@ import com.yamu.be.support.AuthUsers;
 import com.yamu.be.support.DeviceKeys;
 import com.yamu.be.support.MutableClock;
 import com.yamu.be.support.MySqlTestSupport;
+import com.yamu.be.support.OwnershipFixtures;
 import com.yamu.be.user.domain.AppUser;
 import com.yamu.be.user.domain.AppUserRepository;
 import java.time.Duration;
@@ -111,17 +112,21 @@ class AuthIntegrationTest extends MySqlTestSupport {
 
     DeviceKeys deviceKey;
     DeviceKeys biometricKey;
+    OwnershipFixtures fixtures;
 
     @BeforeEach
     void setUp() {
         jdbc.update("DELETE FROM step_up_audit_log");
         jdbc.update("DELETE FROM user_device_event");
         jdbc.update("DELETE FROM user_device");
+        jdbc.update("DELETE FROM user_card");
+        jdbc.update("DELETE FROM linked_account");
         jdbc.update("DELETE FROM app_user");
         redis.getRequiredConnectionFactory().getConnection().serverCommands().flushAll();
         clock.reset();
         deviceKey = DeviceKeys.generate();
         biometricKey = DeviceKeys.generate();
+        fixtures = new OwnershipFixtures(jdbc);
     }
 
     // ───────── 로그인 성공 ─────────
@@ -146,6 +151,45 @@ class AuthIntegrationTest extends MySqlTestSupport {
         assertThat(logs).hasSize(1);
         assertThat(logs.get(0).isSuccess()).isTrue();
         assertThat(logs.get(0).getPurpose().name()).isEqualTo("LOGIN");
+    }
+
+    // ───────── onboardingCompleted (등록된 카드 + 기준 계좌) ─────────
+
+    @Test
+    void 추천에서_뺀_INACTIVE_카드만_남아도_기준_계좌가_있으면_초기_설정_완료다() throws Exception {
+        UserDevice device = activeDevice(false);
+        long userId = device.getUser().getId();
+        long account = primaryAccount(userId);
+        fixtures.card(userId, fixtures.product(), account, "INACTIVE");
+
+        login(device, "PIN", deviceKey, PIN)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.user.onboardingCompleted").value(true));
+    }
+
+    @Test
+    void 가입_전_PENDING_카드와_해제한_카드만_있으면_초기_설정_미완료다() throws Exception {
+        UserDevice device = activeDevice(false);
+        long userId = device.getUser().getId();
+        long account = primaryAccount(userId);
+        fixtures.card(userId, fixtures.product(), null, "PENDING");
+        fixtures.card(userId, fixtures.product(), account, "UNREGISTERED");
+
+        login(device, "PIN", deviceKey, PIN)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.user.onboardingCompleted").value(false));
+    }
+
+    @Test
+    void 등록된_카드가_있어도_기준_계좌가_없으면_초기_설정_미완료다() throws Exception {
+        UserDevice device = activeDevice(false);
+        long userId = device.getUser().getId();
+        long account = fixtures.account(userId); // 연결은 됐지만 기준 계좌가 아님
+        fixtures.card(userId, fixtures.product(), account, "ACTIVE");
+
+        login(device, "PIN", deviceKey, PIN)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.user.onboardingCompleted").value(false));
     }
 
     @Test
@@ -456,6 +500,13 @@ class AuthIntegrationTest extends MySqlTestSupport {
 
     private UserDevice activeDevice(boolean biometric) {
         return saveDevice("01012345678", deviceKey, biometric ? biometricKey : null);
+    }
+
+    /** 연결된 기준 계좌. */
+    private long primaryAccount(long userId) {
+        long account = fixtures.account(userId);
+        jdbc.update("UPDATE linked_account SET is_primary = TRUE WHERE linked_account_id = ?", account);
+        return account;
     }
 
     private UserDevice otherActiveDevice() {
