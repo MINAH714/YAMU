@@ -158,4 +158,6 @@ def forecast_living_cost(body: LivingCostRequest) -> dict[str, object] | JSONRes
 if __name__ == "__main__":
     import uvicorn
 
+    # uvicorn은 자기 로거만 설정한다. 이 설정이 없으면 app.main의 INFO(예측 일수·계좌 수·처리 시간)가 출력되지 않는다.
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s:     %(name)s %(message)s")
     uvicorn.run("app.main:app", host="0.0.0.0", port=int(os.getenv("AI_PORT", "8001")))

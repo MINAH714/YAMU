@@ -142,6 +142,7 @@ docker build -t yamu-ai:manual ai
 - 빌드 약 50초, 테스트 11개 통과, 이미지 크기 677MB(`docker image ls` 기준).
 - `--read-only --tmpfs /tmp --init`, 인터넷이 없는 내부 네트워크(`--internal`)로 띄워 healthy가 됐습니다. `/app` 쓰기는 거부되고, 외부 주소 조회는 실패했습니다.
 - 같은 네트워크의 다른 컨테이너에서 예측을 부르면 200이 옵니다. 계좌 20개 요청은 14·30일 모두 약 7~10ms 걸렸습니다.
+- 예측할 때마다 컨테이너 로그에 `app.main living-cost horizon=14 accounts=1 ms=18.1`처럼 한 줄이 찍힙니다. 입력한 key와 금액은 로그에 나오지 않았습니다.
 - 메모리는 예측 뒤 약 130MiB입니다. `AI_LIVING_COST_MODEL_DIR`을 없는 폴더로 주면 unhealthy가 됩니다.
 - 테스트 하나를 일부러 실패시키면 빌드가 멈추고 이미지가 만들어지지 않았습니다.
 - 운영 서버(EC2)에서는 아직 띄워 보지 않았습니다.
