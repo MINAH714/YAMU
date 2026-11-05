@@ -1,6 +1,7 @@
 package com.yamu.be.payment.billing;
 
 import com.yamu.be.forecast.CardBillReader;
+import com.yamu.be.payment.billing.confirm.BillingDiscountSource;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Objects;
@@ -14,7 +15,7 @@ import org.springframework.stereotype.Component;
  *
  * <ul>
  *   <li>진행 중(ACCUMULATING): 금액은 청구 전(PENDING) 회차 원금 합계 − 예상 청구할인, 계좌는 카드의 지금 출금 계좌.
- *       확정 전 취소로 빠진 회차(EXCLUDED)는 넣지 않는다. 임시: 예상 청구할인 원천(혜택 원장, Task 5.2.5)이 없어 빼지 않는다(출금을 크게 잡는 쪽).</li>
+ *       확정 전 취소로 빠진 회차(EXCLUDED)는 넣지 않는다. 예상 청구할인은 청구 확정과 같은 배분({@link BillingDiscountSource})으로 계산한다(Task 5.4.7).</li>
  *   <li>확정(CONFIRMED): 금액은 확정 원본 청구액, 계좌는 확정 당시 계좌. 확정 뒤 취소는 확정액을 바꾸지 않고 환급으로 처리하므로(POL-006)
  *       확정액이 그대로 빠진다. 출금일이 지났어도 아직 출금 결과가 없으면 넣는다.</li>
  *   <li>미납(UNPAID): 남은 미납액(확정액 − 출금된 금액 − 취소로 뺀 미납 원금), 확정 당시 계좌, 원래 출금일. 출금일과 상관없이 넣는다.</li>
@@ -32,9 +33,11 @@ import org.springframework.stereotype.Component;
 class OutstandingCardBillReader implements CardBillReader {
 
     private final NamedParameterJdbcTemplate jdbc;
+    private final BillingDiscountSource discounts;
 
-    OutstandingCardBillReader(NamedParameterJdbcTemplate jdbc) {
+    OutstandingCardBillReader(NamedParameterJdbcTemplate jdbc, BillingDiscountSource discounts) {
         this.jdbc = jdbc;
+        this.discounts = discounts;
     }
 
     @Override
@@ -67,7 +70,8 @@ class OutstandingCardBillReader implements CardBillReader {
                     Status status = Status.valueOf(rs.getString("status"));
                     Long confirmed = rs.getObject("confirmed_amount", Long.class);
                     long amount = switch (status) {
-                        case ACCUMULATING -> rs.getLong("pending_amount");
+                        case ACCUMULATING -> rs.getLong("pending_amount")
+                                - BillingDiscountSource.Allocation.total(discounts.allocate(billId));
                         case CONFIRMED -> confirmedOrZero(billId, confirmed);
                         case UNPAID -> confirmedOrZero(billId, confirmed) - rs.getLong("paid_amount")
                                 - rs.getLong("canceled_unpaid_principal");

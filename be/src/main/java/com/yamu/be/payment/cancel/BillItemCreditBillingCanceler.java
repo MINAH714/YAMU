@@ -2,6 +2,7 @@ package com.yamu.be.payment.cancel;
 
 import com.yamu.be.global.calendar.BusinessDayCalendar;
 import com.yamu.be.payment.billing.BillItem;
+import com.yamu.be.payment.billing.BillItemDiscountReader;
 import com.yamu.be.payment.billing.BillItemRepository;
 import com.yamu.be.payment.billing.BillItemStatus;
 import com.yamu.be.payment.billing.BillStatus;
@@ -39,7 +40,7 @@ import org.springframework.stereotype.Component;
  * <p>확정된 청구액은 취소해도 그대로 출금한다. 출금 결과 불명은 청구서가 CONFIRMED로 남으므로 출금 대기 환급이 되고, 결과가 확정되면
  * {@link CanceledBillItemSettler}가 금액·기한을 확정하거나 환급을 무효로 바꾼다.
  *
- * <p>금액은 회차의 확정액 몫({@link BillShares})이다. 아직 취소되지 않은 결제의 회차에 환급이 이미 있으면 기록이 어긋난 것이라
+ * <p>금액은 회차의 확정액 몫({@link BillShares}: 회차 청구액 − 확정 때 나눈 청구할인)이다. 아직 취소되지 않은 결제의 회차에 환급이 이미 있으면 기록이 어긋난 것이라
  * 실패시킨다. 0원이면 환급 행 없이 회차만 닫는다. 청구액 일부 출금은
  * 지원하지 않으므로 출금 완료 청구서는 전액 출금, 미납 청구서는 출금 0원이어야 한다. 환급 계좌는 청구서 확정 당시 출금 계좌다.
  * 이 규칙과 맞지 않는 데이터는 일부만 처리하지 않고 실패시켜 취소까지 롤백한다.
@@ -58,13 +59,15 @@ public class BillItemCreditBillingCanceler implements CreditBillingCanceler {
     private final CardBillRepository bills;
     private final RefundRepository refunds;
     private final BusinessDayCalendar calendar;
+    private final BillItemDiscountReader discounts;
 
     public BillItemCreditBillingCanceler(BillItemRepository items, CardBillRepository bills, RefundRepository refunds,
-            BusinessDayCalendar calendar) {
+            BusinessDayCalendar calendar, BillItemDiscountReader discounts) {
         this.items = items;
         this.bills = bills;
         this.refunds = refunds;
         this.calendar = calendar;
+        this.discounts = discounts;
     }
 
     @Override
@@ -132,7 +135,7 @@ public class BillItemCreditBillingCanceler implements CreditBillingCanceler {
     /** 확정액 중 이 회차 몫. 청구서마다 한 번만 계산한다(청구서를 잠근 뒤 읽으므로 그 사이 바뀌지 않는다). */
     private long share(CardBill bill, BillItem item, Map<Long, Map<Long, Long>> sharesByBill) {
         Map<Long, Long> shares = sharesByBill.computeIfAbsent(bill.getId(),
-                id -> BillShares.of(bill, items.findByCardBillIdIn(List.of(id))));
+                id -> BillShares.of(bill, items.findByCardBillIdIn(List.of(id)), discounts.amountsByItem(id)));
         Long share = shares.get(item.getId());
         if (share == null) {
             throw new IllegalStateException("확정액에 들어가지 않은 회차입니다 (회차 " + item.getId() + ")");

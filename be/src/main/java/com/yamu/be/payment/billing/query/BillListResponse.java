@@ -9,7 +9,8 @@ import java.util.List;
 /**
  * 청구서 목록 응답(노션 API 명세 V2 「청구서 목록」).
  *
- * <p>임시: 청구할인 원천(혜택 원장, Task 5.2.5)이 아직 없어 {@code billingDiscount}는 0이고 예상 청구액은 회차 합계 그대로다.
+ * <p>{@code billingDiscount}: 진행 중이면 예상 청구할인(확정 때와 같은 배분으로 계산, 저장하지 않음), 확정 뒤에는 확정 때 회차에 나눈 합계다
+ * (Task 5.4.7). 예상 청구액 = 청구 전 회차 합계 − 예상 청구할인.
  */
 public record BillListResponse(List<Item> items, Summary summary) {
 

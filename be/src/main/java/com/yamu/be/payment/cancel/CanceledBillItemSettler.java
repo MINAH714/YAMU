@@ -2,6 +2,7 @@ package com.yamu.be.payment.cancel;
 
 import com.yamu.be.global.calendar.BusinessDayCalendar;
 import com.yamu.be.payment.billing.BillItem;
+import com.yamu.be.payment.billing.BillItemDiscountReader;
 import com.yamu.be.payment.billing.BillItemRepository;
 import com.yamu.be.payment.billing.BillItemStatus;
 import com.yamu.be.payment.billing.BillStatus;
@@ -41,13 +42,15 @@ public class CanceledBillItemSettler {
     private final CardBillRepository bills;
     private final RefundRepository refunds;
     private final BusinessDayCalendar calendar;
+    private final BillItemDiscountReader discounts;
 
     public CanceledBillItemSettler(BillItemRepository items, CardBillRepository bills, RefundRepository refunds,
-            BusinessDayCalendar calendar) {
+            BusinessDayCalendar calendar, BillItemDiscountReader discounts) {
         this.items = items;
         this.bills = bills;
         this.refunds = refunds;
         this.calendar = calendar;
+        this.discounts = discounts;
     }
 
     /**
@@ -67,7 +70,7 @@ public class CanceledBillItemSettler {
             throw new IllegalStateException("실제 출금 계좌가 청구서 확정 당시 출금 계좌와 다릅니다 (청구서 " + cardBillId + ")");
         }
         List<BillItem> billItems = items.findByCardBillIdIn(List.of(cardBillId));
-        Map<Long, Long> shares = BillShares.of(bill, billItems);
+        Map<Long, Long> shares = BillShares.of(bill, billItems, discounts.amountsByItem(cardBillId));
         LocalDate due = calendar.plusBusinessDays(withdrawnOn, BillItemCreditBillingCanceler.REFUND_BUSINESS_DAYS);
         List<Refund> confirmed = new ArrayList<>();
         for (Refund refund : awaiting(cardBillId, billItems)) {
@@ -94,7 +97,7 @@ public class CanceledBillItemSettler {
             throw new IllegalStateException("출금 0원의 미납 청구서가 아닙니다 (청구서 " + cardBillId + ", 상태 " + bill.getStatus() + ")");
         }
         List<BillItem> billItems = items.findByCardBillIdIn(List.of(cardBillId));
-        Map<Long, Long> shares = BillShares.of(bill, billItems);
+        Map<Long, Long> shares = BillShares.of(bill, billItems, discounts.amountsByItem(cardBillId));
         Map<Long, BillItem> byId = billItems.stream().collect(Collectors.toMap(BillItem::getId, Function.identity()));
         List<Refund> voided = new ArrayList<>();
         for (Refund refund : awaiting(cardBillId, billItems)) {

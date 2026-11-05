@@ -15,9 +15,10 @@ import java.util.List;
  * 청구서 상세 응답(노션 API 명세 V2 「청구서 상세」). 명세에 더해 목록과 같은 {@code withdrawalAccount}, {@code amounts.expectedAmount},
  * {@code amounts.unpaidAmount}를 낸다.
  *
+ * <p>{@code amounts.billingDiscount}: 진행 중이면 예상 청구할인(확정 때와 같은 배분으로 계산), 확정 뒤에는 확정 때 회차에 나눈 합계(Task 5.4.7).
+ *
  * <p>임시(원천이 아직 없는 값):
  * <ul>
- *   <li>{@code discounts}는 빈 배열, {@code amounts.billingDiscount}는 0. 청구할인 원천(혜택 원장, Task 5.2.5)이 생기면 채운다.</li>
  *   <li>{@code withdrawal.failureReason}·{@code accountBalanceAfter}는 null이고, 미납이면 {@code result}도 null이다.
  *       출금 배치(Task 5.4.3)가 실패 사유를 남기면 채운다.</li>
  *   <li>{@code history}는 상태 이력 표가 없어 청구서에 남은 시각(생성·확정·출금·출금 실패)으로 만든다.
@@ -52,7 +53,7 @@ public record BillDetailResponse(Long billId, Long userCardId, String nickname, 
             Long feeAmount, String installmentPolicy) {
     }
 
-    /** 청구 확정 때 확정한 청구할인. 임시: 원천이 없어 항상 비어 있다. */
+    /** 청구 확정 때 확정한 청구할인(혜택별, 이 청구서에 나눈 금액). 진행 중 청구서는 빈 배열이고 예상값은 {@code amounts.billingDiscount}에 있다. */
     public record Discount(Long paymentBenefitId, Long paymentId, String name, long amount,
             LocalDateTime confirmedAt) {
     }
