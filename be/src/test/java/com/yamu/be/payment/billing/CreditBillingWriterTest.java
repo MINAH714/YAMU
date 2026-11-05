@@ -94,6 +94,23 @@ class CreditBillingWriterTest {
                 .isInstanceOfSatisfying(BusinessException.class, CreditBillingWriterTest::billClosed);
     }
 
+    @Test
+    void 회차를_적기_전에_청구서를_잠가_보고_그_사이_확정됐으면_붙이지_않는다() {
+        CardBill ensured = CardBill.accumulating(USER, CARD, only.cycle(), only.withdrawalDate());
+        ReflectionTestUtils.setField(ensured, "id", 5L);
+        CardBill lockedNow = CardBill.accumulating(USER, CARD, only.cycle(), only.withdrawalDate());
+        ReflectionTestUtils.setField(lockedNow, "id", 5L);
+        ReflectionTestUtils.setField(lockedNow, "status", BillStatus.CONFIRMED);
+        when(bills.findAllForUpdate(java.util.List.of(5L))).thenReturn(java.util.List.of(lockedNow));
+        com.yamu.be.payment.domain.PaymentTransaction payment = mock(com.yamu.be.payment.domain.PaymentTransaction.class);
+        when(payment.getUserCardId()).thenReturn(CARD);
+
+        assertThatThrownBy(() -> writer.writeItems(payment, plan, Map.of(YearMonth.of(2026, 11), ensured)))
+                .isInstanceOfSatisfying(BusinessException.class, CreditBillingWriterTest::billClosed);
+
+        verify(items, never()).saveAll(any());
+    }
+
     private static void billClosed(BusinessException e) {
         assertThat(e.getErrorCode()).isEqualTo(ErrorCode.DATA_INSUFFICIENT);
         assertThat(e.getDetails()).containsEntry("reason", "BILL_CLOSED");

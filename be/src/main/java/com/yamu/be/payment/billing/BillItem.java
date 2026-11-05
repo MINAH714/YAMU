@@ -108,6 +108,17 @@ public class BillItem extends BaseTimeEntity {
         return item;
     }
 
+    /** 청구 확정(Task 5.4.2). 청구 전(PENDING) 회차를 확정액에 넣는다. 청구액이 정해지지 않은 회차는 합산할 수 없다. */
+    public void bill() {
+        if (status != BillItemStatus.PENDING) {
+            throw new IllegalStateException("청구 전 회차만 확정할 수 있습니다 (회차 " + id + ", 상태 " + status + ")");
+        }
+        if (billedAmount == null) {
+            throw new IllegalStateException("청구액이 정해지지 않은 회차는 확정할 수 없습니다 (회차 " + id + ")");
+        }
+        this.status = BillItemStatus.BILLED;
+    }
+
     /** 청구 전 취소(POL-006). 청구 확정 전(PENDING) 회차만 청구에서 뺀다. 환급은 없다. */
     public void exclude() {
         if (status != BillItemStatus.PENDING) {
