@@ -50,7 +50,7 @@ export function CameraScanner({ onRead, onUnknownQr }: Props) {
           current.stop()
           onReadRef.current(token)
         },
-        { returnDetailedScanResult: true, preferredCamera: 'environment', maxScansPerSecond: 5, highlightScanRegion: true },
+        { returnDetailedScanResult: true, preferredCamera: 'environment', maxScansPerSecond: 5 },
       )
       scanner = current
       current
@@ -78,8 +78,13 @@ export function CameraScanner({ onRead, onUnknownQr }: Props) {
   }, [])
 
   return (
-    <div className="camera">
+    <div className="camera" data-state={state.kind}>
       <video ref={videoRef} muted playsInline hidden={state.kind === 'error'} />
+      {state.kind === 'on' && (
+        <svg className="camera-guide" viewBox="0 0 100 100" aria-hidden="true">
+          <path d="M2 20V10a8 8 0 0 1 8-8h10M80 2h10a8 8 0 0 1 8 8v10M98 80v10a8 8 0 0 1-8 8H80M20 98H10a8 8 0 0 1-8-8V80" />
+        </svg>
+      )}
       {state.kind === 'starting' && <p className="camera-message">카메라를 켜는 중…</p>}
       {state.kind === 'error' && <p className="camera-message">{state.message}</p>}
     </div>
