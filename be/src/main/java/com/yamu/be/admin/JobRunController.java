@@ -24,7 +24,8 @@ public class JobRunController {
     @Operation(summary = "정기 작업 수동 실행",
             description = "청구 확정(bill-confirm) 등 정기 작업을 기준 시각(asOf)으로 즉시 실행한다. 이미 처리된 대상은 다시 처리하지 않는다. "
                     + "asOf를 미래로 두면 그 날짜 기준으로 처리하고 되돌리지 않는다(이용기간이 안 끝난 청구서도 확정되어, 실제 마감일까지 "
-                    + "그 카드·그 청구 월 신용 결제는 422 BILL_CLOSED). "
+                    + "그 카드·그 청구 월 신용 결제는 422 BILL_CLOSED). 그래서 미래 asOf로 실제 실행할 때는 userId가 필수다. "
+                    + "400 INVALID_REQUEST(미래 asOf인데 userId 없음), "
                     + "403 ADMIN_ONLY(키 불일치), 404 JOB_NOT_FOUND, 409 JOB_ALREADY_RUNNING",
             parameters = @Parameter(name = AdminKeyInterceptor.HEADER, in = ParameterIn.HEADER, required = true))
     @PostMapping("/api/admin/jobs/{jobName}/run")

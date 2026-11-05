@@ -19,6 +19,8 @@ import java.time.ZoneId;
  *   <li>그 뒤 실제 마감일까지 그 카드로 같은 청구 월에 신용 결제하면 회차를 붙일 청구서가 이미 확정돼 422 {@code reason=BILL_CLOSED}다
  *       ({@code CreditBillingWriter}). 시연은 결제를 모두 마친 뒤 확정하거나, 확정 뒤에는 다른 카드로 결제한다.</li>
  *   <li>운영 프로필이 따로 없어 운영 키({@code YAMU_ADMIN_KEY})를 설정한 서버라면 어디서든 돌릴 수 있다. 키가 비면 모두 403이다.</li>
+ *   <li>그래서 수동 실행은 미래 {@code asOf}로 실제 실행할 때 {@code userId}를 꼭 받는다({@code admin.JobRunService}, 임시).
+ *       실수로 미래 날짜를 넣어도 시연 계정 하나만 바뀐다.</li>
  * </ul>
  *
  * @param asOf   기준 시각. 스케줄 실행은 지금

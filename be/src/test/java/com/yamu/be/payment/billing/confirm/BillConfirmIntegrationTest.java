@@ -25,6 +25,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.YearMonth;
+import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.HashMap;
 import java.util.List;
@@ -63,6 +64,7 @@ import org.testcontainers.utility.DockerImageName;
 class BillConfirmIntegrationTest extends MySqlTestSupport {
 
     static final String ADMIN_KEY = "test-admin-key";
+    static final ZoneId KOREA = ZoneId.of("Asia/Seoul");
     static final YearMonth NOVEMBER = YearMonth.of(2026, 11);
     /** 2026-11-02 00:30 KST */
     static final Instant AS_OF = Instant.parse("2026-11-01T15:30:00Z");
@@ -368,7 +370,64 @@ class BillConfirmIntegrationTest extends MySqlTestSupport {
         assertThat(billRow(january).get("status")).isEqualTo("CONFIRMED");
     }
 
+    @Test
+    void 수동_실행은_미래_asOf에_userId가_없으면_400이고_아무것도_바꾸지_않는다() throws Exception {
+        // 실제 시계 기준: 내일 마감인 청구서. 사흘 뒤로 돌리면 확정 대상이다
+        LocalDate today = LocalDate.now(KOREA);
+        long bill = accumulating(user, card, YearMonth.from(today.plusDays(1)), today.plusDays(1));
+        item(payment(user, card, 10_000), user, card, bill, 1, 10_000, "PENDING");
+
+        mockMvc.perform(post("/api/admin/jobs/bill-confirm/run").header("X-Admin-Key", ADMIN_KEY)
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"asOf\":\"" + koreanTime0030(today.plusDays(3)) + "\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("INVALID_REQUEST"))
+                .andExpect(jsonPath("$.error.details.fieldErrors[0].field").value("userId"));
+
+        assertThat(billRow(bill).get("status")).isEqualTo("ACCUMULATING");
+    }
+
+    @Test
+    void 수동_실행은_미래_asOf에_userId를_주면_그_사용자의_청구서만_확정한다() throws Exception {
+        LocalDate today = LocalDate.now(KOREA);
+        long mine = accumulating(user, card, YearMonth.from(today.plusDays(1)), today.plusDays(1));
+        item(payment(user, card, 10_000), user, card, mine, 1, 10_000, "PENDING");
+        long other = fixtures.user();
+        long otherCard = creditCard(other, fixtures.account(other));
+        long theirs = accumulating(other, otherCard, YearMonth.from(today.plusDays(1)), today.plusDays(1));
+        item(payment(other, otherCard, 20_000), other, otherCard, theirs, 1, 20_000, "PENDING");
+
+        mockMvc.perform(post("/api/admin/jobs/bill-confirm/run").header("X-Admin-Key", ADMIN_KEY)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"asOf\":\"" + koreanTime0030(today.plusDays(3)) + "\",\"userId\":" + user + "}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.summary.succeeded").value(1));
+
+        assertThat(billRow(mine).get("status")).isEqualTo("CONFIRMED");
+        assertThat(billRow(theirs).get("status")).isEqualTo("ACCUMULATING");
+    }
+
+    @Test
+    void 수동_실행은_미래_asOf라도_dryRun이면_userId_없이_대상만_센다() throws Exception {
+        LocalDate today = LocalDate.now(KOREA);
+        long bill = accumulating(user, card, YearMonth.from(today.plusDays(1)), today.plusDays(1));
+        item(payment(user, card, 10_000), user, card, bill, 1, 10_000, "PENDING");
+
+        mockMvc.perform(post("/api/admin/jobs/bill-confirm/run").header("X-Admin-Key", ADMIN_KEY)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"asOf\":\"" + koreanTime0030(today.plusDays(3)) + "\",\"dryRun\":true}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.dryRun").value(true))
+                .andExpect(jsonPath("$.data.summary.targets").value(1));
+
+        assertThat(billRow(bill).get("status")).isEqualTo("ACCUMULATING");
+    }
+
     // ───────── 도우미 ─────────
+
+    /** 그 한국 날짜 00:30을 UTC 시각으로 */
+    private static Instant koreanTime0030(LocalDate date) {
+        return date.atTime(0, 30).atZone(KOREA).toInstant();
+    }
 
     private JobRunReport run(Instant asOf, Long userId, boolean dryRun) {
         return job.run(new JobRunCommand(asOf, userId, dryRun));
