@@ -1,9 +1,12 @@
 import type { PaymentResult } from '../api/pos'
 import { formatWon, planLabel } from '../payment/terms'
+import { orderItems, type Order } from '../store/cart'
 import { StatusScreen, type StatusRow } from './StatusScreen'
 
 type Props = {
   result: PaymentResult
+  /** 이 결제의 주문. 결제 API는 금액만 받으므로 품목은 POS 화면에만 있다 */
+  order: Order
   /** 승인 뒤 다음 주문으로(입력 화면) */
   onNext: () => void
   /** 실패·만료 뒤 같은 금액으로 새 바코드를 스캔 */
@@ -24,9 +27,9 @@ const kstTime = new Intl.DateTimeFormat('ko-KR', {
 /**
  * 최종 결과 화면. 거절이면 서버가 준 사유(failure.message)를 띄운다.
  * 이 문구는 사유별 기본 문구라 잔액 같은 고객 정보가 들어 있지 않다(BE PosPaymentResult.Failure).
- * 주문 메뉴 줄은 FE 담당 작업(메뉴 입력)에서 더한다.
  */
-export function Receipt({ result, onNext, onRetry }: Props) {
+export function Receipt({ result, order, onNext, onRetry }: Props) {
+  const items = orderItems(order)
   const base: StatusRow[] = [
     { label: '주문 금액', value: formatWon(result.amount) },
     { label: '결제 수단', value: PAYMENT_METHOD },
@@ -65,6 +68,7 @@ export function Receipt({ result, onNext, onRetry }: Props) {
           tone="approved"
           lead="결제가 완료되었습니다."
           title={formatWon(charged)}
+          items={items}
           rows={rows}
           action={{ label: '다음 주문', onClick: onNext }}
         />

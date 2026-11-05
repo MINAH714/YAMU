@@ -54,7 +54,7 @@ export function classifyCreateError(error: unknown): CreateFailure {
     case 'INVALID_POS_KEY':
       return { kind: 'config', message: 'POS 키가 없거나 올바르지 않아요. VITE_POS_KEY 설정을 확인해 주세요.' }
     case 'MERCHANT_NOT_FOUND':
-      return { kind: 'config', message: `${error.message} VITE_POS_CODE·VITE_MERCHANT_ID 설정을 확인해 주세요.` }
+      return { kind: 'config', message: `${error.message} 이 매장의 POS_CODE·MERCHANT_ID 설정을 확인해 주세요.` }
   }
   if (error.status >= 500) {
     return { kind: 'retry', message: `서버 오류(${error.code})가 났어요. 결제가 접수됐는지 알 수 없어요.` }
