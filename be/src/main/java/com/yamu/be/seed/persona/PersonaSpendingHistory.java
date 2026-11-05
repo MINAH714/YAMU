@@ -9,6 +9,7 @@ import java.time.LocalDate;
 import java.time.YearMonth;
 import java.time.ZoneId;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -25,7 +26,8 @@ import org.springframework.stereotype.Component;
  * <ul>
  *   <li>기간: (이번 달 − 6개월)의 1일부터 시드를 넣는 날 전날까지(한국 날짜). 완료 3개월 평균(AVG_3M)·AI(90일)·반복 지출
  *       규칙(직전 6개월)에 모두 충분하다.</li>
- *   <li>체크카드: 평일 커피·점심·편의점·배달, 주말 마트·영화·올리브영으로 월 60만~70만 원. 넷플릭스 13,500원 매달 5일
+ *   <li>체크카드: 평일 커피·점심·편의점·배달, 주말 마트·영화·올리브영으로 달마다 60만~70만 원(결제를 빼고 더해 맞춤,
+ *       {@link #fitMonths}). 넷플릭스 13,500원 매달 5일
  *       (3번째 달부터 반복 지출로 빠짐), 2개월 전 15일 쿠팡 129만 원 1건(100만 원 초과라 LARGE로 빠짐).</li>
  *   <li>신용카드: 매주 토요일 온라인 쇼핑, 3·17일 주유, 25일 통신비, 3개월 전 20일 90만 원 3개월 할부 1건.
  *       잔고예보 생활비에는 들어가지 않는다(신용카드는 청구로 반영).</li>
@@ -41,6 +43,10 @@ import org.springframework.stereotype.Component;
 class PersonaSpendingHistory {
     private static final ZoneId KOREA = ZoneId.of("Asia/Seoul");
     static final int MONTHS = 6;
+    /** 체크카드 일상 소비(넷플릭스·큰 지출 제외) 한 달 합계의 범위. 이번 달은 지난 날수만큼 줄인다. */
+    static final long MONTHLY_MIN = 600_000L;
+    static final long MONTHLY_MAX = 700_000L;
+    private static final List<String> CONVENIENCE = List.of("GS25", "CU", "SEVEN_ELEVEN");
 
     /** 시드가 쓰는 브랜드와 업종. 카드 카탈로그 시드(be/seed/01·02)에 모두 있다. 테스트도 이 목록으로 가맹점을 넣는다. */
     static final Map<String, String> BRANDS = Map.ofEntries(
@@ -128,25 +134,26 @@ class PersonaSpendingHistory {
         return rows.size();
     }
 
-    /** 체크카드 일상 소비. 하루 평균 약 2만 원이고, 넷플릭스와 큰 지출 1건이 더해진다. */
+    /** 체크카드 일상 소비(달마다 60만~70만 원으로 맞춤)에 넷플릭스와 큰 지출 1건을 더한다. */
     private static List<Payment> check(SeededCard card, String memberId, LocalDate from, LocalDate to) {
+        List<Payment> daily = new ArrayList<>();
         List<Payment> payments = new ArrayList<>();
         LocalDate largeDay = YearMonth.from(to.plusDays(1)).minusMonths(2).atDay(15);
         for (LocalDate day = from; !day.isAfter(to); day = day.plusDays(1)) {
             boolean weekend = day.getDayOfWeek() == DayOfWeek.SATURDAY || day.getDayOfWeek() == DayOfWeek.SUNDAY;
             if (!weekend) {
-                pick(payments, card, memberId, day, 1, 60, List.of("STARBUCKS", "TWOSOME_PLACE", "PAUL_BASSETT", "HOLLYS"),
+                pick(daily, card, memberId, day, 1, 60, List.of("STARBUCKS", "TWOSOME_PLACE", "PAUL_BASSETT", "HOLLYS"),
                         4_000, 6_990, 8, false);
-                pick(payments, card, memberId, day, 2, 50, List.of("BURGER_KING", "MCDONALDS", "LOTTERIA"),
+                pick(daily, card, memberId, day, 2, 50, List.of("BURGER_KING", "MCDONALDS", "LOTTERIA"),
                         7_000, 11_990, 12, false);
-                pick(payments, card, memberId, day, 3, 40, List.of("GS25", "CU", "SEVEN_ELEVEN"), 1_500, 11_990, 18, false);
-                pick(payments, card, memberId, day, 4, 25, List.of("BAEMIN", "COUPANG_EATS", "YOGIYO"),
+                pick(daily, card, memberId, day, 3, 40, CONVENIENCE, 1_500, 11_990, 18, false);
+                pick(daily, card, memberId, day, 4, 25, List.of("BAEMIN", "COUPANG_EATS", "YOGIYO"),
                         15_000, 29_990, 19, true);
             } else {
-                pick(payments, card, memberId, day, 1, 50, List.of("STARBUCKS", "TWOSOME_PLACE"), 4_000, 6_990, 11, false);
-                pick(payments, card, memberId, day, 5, 50, List.of("EMART", "HOMEPLUS"), 20_000, 69_990, 15, false);
-                pick(payments, card, memberId, day, 6, 15, List.of("CGV", "MEGABOX"), 14_000, 29_990, 20, false);
-                pick(payments, card, memberId, day, 7, 20, List.of("OLIVE_YOUNG"), 8_000, 39_990, 16, false);
+                pick(daily, card, memberId, day, 1, 50, List.of("STARBUCKS", "TWOSOME_PLACE"), 4_000, 6_990, 11, false);
+                pick(daily, card, memberId, day, 5, 50, List.of("EMART", "HOMEPLUS"), 20_000, 69_990, 15, false);
+                pick(daily, card, memberId, day, 6, 15, List.of("CGV", "MEGABOX"), 14_000, 29_990, 20, false);
+                pick(daily, card, memberId, day, 7, 20, List.of("OLIVE_YOUNG"), 8_000, 39_990, 16, false);
             }
             if (day.getDayOfMonth() == 5) {
                 payments.add(new Payment(card, day, 8, "NETFLIX", 13_500, 1, 9, true));
@@ -155,7 +162,43 @@ class PersonaSpendingHistory {
                 payments.add(new Payment(card, day, 9, "COUPANG", 1_290_000, 1, 21, true));
             }
         }
+        payments.addAll(fitMonths(daily, card, memberId, from, to));
         return payments;
+    }
+
+    /**
+     * 달마다 일상 소비 합계를 {@link #MONTHLY_MIN}~{@link #MONTHLY_MAX}(덜 찬 이번 달은 지난 날수만큼 줄인 값) 안으로 맞춘다.
+     * 넘으면 해시 순서로 결제를 하나씩 빼고, 모자라면 편의점 결제(1,500~11,990원)를 하나씩 더한다. 개별 금액은 바꾸지 않는다.
+     * 금액을 비율로 늘리면 마트 결제가 "직전 3개월 중앙값의 10배"를 넘어 큰 지출로 빠지기 때문이다(2026-11-05, 회원 1,000명
+     * 측정: 비율 보정 8.1%, 이 방식 1.1%). 한 건이 최대 69,990원이라 꽉 찬 달은 늘 범위 안에 든다.
+     */
+    private static List<Payment> fitMonths(List<Payment> daily, SeededCard card, String memberId, LocalDate from,
+            LocalDate to) {
+        List<Payment> fitted = new ArrayList<>();
+        for (YearMonth month = YearMonth.from(from); !month.isAfter(YearMonth.from(to)); month = month.plusMonths(1)) {
+            YearMonth current = month;
+            int covered = month.equals(YearMonth.from(to)) ? to.getDayOfMonth() : month.lengthOfMonth();
+            long min = MONTHLY_MIN * covered / month.lengthOfMonth();
+            long max = MONTHLY_MAX * covered / month.lengthOfMonth();
+            List<Payment> kept = new ArrayList<>(daily.stream()
+                    .filter(payment -> YearMonth.from(payment.date()).equals(current))
+                    .sorted(Comparator.comparingLong(payment -> hash(memberId, payment.date(), 100 + payment.slot())))
+                    .toList());
+            long sum = kept.stream().mapToLong(Payment::amount).sum();
+            while (sum > max && !kept.isEmpty()) {
+                sum -= kept.remove(kept.size() - 1).amount();
+            }
+            for (int extra = 0; sum < min; extra++) {
+                long hash = hash(memberId, month.atDay(1), 200 + extra);
+                LocalDate day = month.atDay(1 + (int) Math.floorMod(hash, (long) covered));
+                String brand = CONVENIENCE.get((int) Math.floorMod(hash >>> 8, (long) CONVENIENCE.size()));
+                long amount = 1_500 + Math.floorMod(hash >>> 16, (11_990L - 1_500) / 10 + 1) * 10;
+                kept.add(new Payment(card, day, 20 + extra, brand, amount, 1, 13, false));
+                sum += amount;
+            }
+            fitted.addAll(kept);
+        }
+        return fitted;
     }
 
     /** 신용카드 소비. 잔고예보 생활비에는 들어가지 않고 소비 리포트·실적에 보인다. */

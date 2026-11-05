@@ -407,15 +407,16 @@ class PersonaSeedServiceTest extends MySqlTestSupport {
         assertThat(check.stream().filter(p -> amount(p) == 1_290_000L).toList()).hasSize(1);
         assertThat(payments.stream().filter(p -> ((Number) p.get("installment_months")).intValue() == 3).toList())
                 .singleElement().satisfies(p -> assertThat(p.get("card_type")).isEqualTo("CREDIT"));
-        // 완료 3개월 체크카드 일상 소비(넷플릭스·큰 지출 제외)는 달마다 50만~80만 원 안
-        for (int back = 1; back <= 3; back++) {
+        // 다 찬 달의 체크카드 일상 소비(넷플릭스·큰 지출 제외)는 회원 ID와 관계없이 달마다 60만~70만 원 안
+        for (int back = 1; back <= PersonaSpendingHistory.MONTHS; back++) {
             YearMonth month = YearMonth.from(today).minusMonths(back);
             long daily = check.stream()
                     .filter(p -> YearMonth.from(korean(p.get("approved_at"))).equals(month))
                     .filter(p -> !"NETFLIX".equals(p.get("brand_code")))
                     .mapToLong(PersonaSeedServiceTest::amount)
                     .filter(amount -> amount < 1_000_000L).sum();
-            assertThat(daily).as(month.toString()).isBetween(500_000L, 800_000L);
+            assertThat(daily).as(month.toString())
+                    .isBetween(PersonaSpendingHistory.MONTHLY_MIN, PersonaSpendingHistory.MONTHLY_MAX);
         }
         // 실적은 카드마다 기간의 모든 달(이번 달 포함)에 넣은 결제의 단순 합
         List<Map<String, Object>> performance = jdbc.queryForList("""
@@ -477,6 +478,49 @@ class PersonaSeedServiceTest extends MySqlTestSupport {
         assertThat(jdbc.queryForMap(
                 "SELECT COUNT(*) AS n, SUM(approved_amount) AS total FROM payment_transaction WHERE user_id = ?", after))
                 .isEqualTo(first);
+    }
+
+    @Test
+    void 초기화는_시드가_아닌_결제가_있으면_아무것도_지우지_않고_실패한다() {
+        Persona persona = persona("다른 결제", List.of(card(CHECK_PRODUCT)));
+        accounts(persona, 1);
+        seedService.seed(List.of(persona), false);
+        long userId = userId(persona);
+        int seeded = count("payment_transaction", userId);
+        // 다른 경로로 들어온 결제(YAMU) 한 건을 만든다
+        jdbc.update("""
+                INSERT INTO payment_transaction (user_id, user_card_id, card_product_id, merchant_id, payment_channel,
+                    facility_type, merchant_context_snapshot, request_key, request_fingerprint, source, status,
+                    requested_amount, approved_amount, installment_months, recognized_performance_amount,
+                    performance_basis_amount, performance_month, requested_at, approved_at, created_at, updated_at)
+                SELECT user_id, user_card_id, card_product_id, merchant_id, payment_channel, facility_type,
+                       merchant_context_snapshot, UUID(), request_fingerprint, 'YAMU', status, requested_amount,
+                       approved_amount, installment_months, recognized_performance_amount, performance_basis_amount,
+                       performance_month, requested_at, approved_at, created_at, updated_at
+                  FROM payment_transaction WHERE user_id = ? LIMIT 1
+                """, userId);
+
+        Outcome outcome = seedService.seed(List.of(persona), true).outcomes().get(0);
+
+        assertThat(outcome.result()).isEqualTo(Result.FAILED);
+        assertThat(userId(persona)).isEqualTo(userId);
+        assertThat(count("payment_transaction", userId)).isEqualTo(seeded + 1);
+    }
+
+    @Test
+    void 가입_전인데_모의_소비를_오늘_전에_넣었으면_건너뛰면서_reset을_안내한다() {
+        Persona persona = persona("오래된 시드", List.of(card(CHECK_PRODUCT)));
+        accounts(persona, 1);
+        seedService.seed(List.of(persona), false);
+        long userId = userId(persona);
+
+        assertThat(seedService.seed(List.of(persona), false).outcomes().get(0).message()).doesNotContain("--reset");
+
+        jdbc.update("UPDATE payment_transaction SET created_at = created_at - INTERVAL 2 DAY WHERE user_id = ?", userId);
+        Outcome stale = seedService.seed(List.of(persona), false).outcomes().get(0);
+
+        assertThat(stale.result()).isEqualTo(Result.SKIPPED_EXISTS);
+        assertThat(stale.message()).contains("--reset");
     }
 
     private static long amount(Map<String, Object> payment) {

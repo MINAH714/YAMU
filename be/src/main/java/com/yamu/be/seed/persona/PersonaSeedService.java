@@ -55,6 +55,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 @Service
 @RequiredArgsConstructor
 public class PersonaSeedService {
+    private static final ZoneId KOREA = ZoneId.of("Asia/Seoul");
 
     private final JdbcTemplate jdbc;
     private final TransactionTemplate transaction;
@@ -122,7 +123,8 @@ public class PersonaSeedService {
 
         Existing existing = findExisting(phoneHash, persona.birthDate());
         if (existing != null && !reset) {
-            return new Outcome(tag, Result.SKIPPED_EXISTS, "이미 있어 건너뜀(status=" + existing.status() + ")");
+            return new Outcome(tag, Result.SKIPPED_EXISTS, "이미 있어 건너뜀(status=" + existing.status() + ")"
+                    + staleHistory(existing));
         }
         if (existing != null && !"PENDING".equals(existing.status())) {
             return new Outcome(tag, Result.SKIPPED_NOT_PENDING,
@@ -235,6 +237,27 @@ public class PersonaSeedService {
         }
     }
 
+    /**
+     * 아직 가입 전(PENDING)인데 등록 전 모의 소비를 오늘 전에 넣었거나 아예 없으면 --reset 안내를 붙인다. 모의 소비는 넣은 날
+     * 전날까지만 있어서, 그 뒤 빈 날은 잔고예보 생활비에서 소비 0원인 날로 세져 평균이 낮아진다(2026-11-05 결정: 자동으로
+     * 채우지 않고 알리기만 한다). 결제가 없는 날도 있으므로 마지막 결제일이 아니라 넣은 날로 본다.
+     */
+    private String staleHistory(Existing existing) {
+        if (!"PENDING".equals(existing.status())) {
+            return "";
+        }
+        Timestamp seededAt = jdbc.queryForObject(
+                "SELECT MAX(created_at) FROM payment_transaction WHERE user_id = ? AND source = 'SEED'",
+                Timestamp.class, existing.userId());
+        if (seededAt == null) {
+            return ". 등록 전 모의 소비가 없습니다. 잔고예보 생활비를 보이려면 --reset으로 다시 넣으세요";
+        }
+        LocalDate seededDay = seededAt.toInstant().atZone(KOREA).toLocalDate();
+        return seededDay.isBefore(LocalDate.now(clock.withZone(KOREA)))
+                ? ". 등록 전 모의 소비는 " + seededDay.minusDays(1) + "까지만 있습니다. 가입 시연 전에 --reset으로 다시 넣으세요"
+                : "";
+    }
+
     private Existing findExisting(byte[] phoneHash, LocalDate birthDate) {
         List<Existing> rows = jdbc.query("SELECT user_id, status FROM app_user WHERE phone_hash = ? AND birth_date = ?",
                 (rs, n) -> new Existing(rs.getLong(1), rs.getString(2)), phoneHash, birthDate);
@@ -253,8 +276,8 @@ public class PersonaSeedService {
             throw new SeedFailure("초기화 중에 상태가 바뀌어 건너뜀");
         }
         try {
-            // PENDING 사용자는 결제할 수 없어 결제·실적은 모두 시드가 넣은 것이다.
-            jdbc.update("DELETE FROM payment_transaction WHERE user_id = ?", userId);
+            // 시드가 넣은 결제(SEED)만 지운다. 다른 결제가 남아 있으면 카드 삭제가 FK에 막혀 전체가 되돌아간다.
+            jdbc.update("DELETE FROM payment_transaction WHERE user_id = ? AND source = 'SEED'", userId);
             jdbc.update("DELETE p FROM card_monthly_performance p JOIN user_card c USING (user_card_id) WHERE c.user_id = ?",
                     userId);
             jdbc.update("DELETE FROM user_card WHERE user_id = ?", userId);
@@ -295,7 +318,7 @@ public class PersonaSeedService {
                     Long.class, userId, lookup.card(cardNo));
             seeded.add(new PersonaSpendingHistory.SeededCard(cardId, resolved.productId(), resolved.cardType()));
         }
-        history.insert(userId, persona.ssafyMemberId(), seeded, LocalDate.now(clock.withZone(ZoneId.of("Asia/Seoul"))), now);
+        history.insert(userId, persona.ssafyMemberId(), seeded, LocalDate.now(clock.withZone(KOREA)), now);
     }
 
     private static void log(Outcome outcome) {
