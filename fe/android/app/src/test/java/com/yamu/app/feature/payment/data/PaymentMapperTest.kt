@@ -2,11 +2,14 @@ package com.yamu.app.feature.payment.data
 
 import com.yamu.app.core.network.YamuJson
 import com.yamu.app.feature.link.data.IssuerDto
+import kotlinx.serialization.SerializationException
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.math.BigDecimal
 
 /** #12 · #1 · #3 응답 → 화면 값(서버 값 그대로 — 앱이 빼고 더하지 않음) */
 class PaymentMapperTest {
@@ -34,6 +37,33 @@ class PaymentMapperTest {
         assertEquals(listOf(2, 3, 6), best.installmentOptions)
         assertTrue(request.cards[1].isCheck)
         assertEquals("생활비 카드", request.cards[1].brand.name)   // issuer가 없으면 별명으로
+    }
+
+    private fun netBenefitOf(field: String) = YamuJson.decodeFromString(
+        CandidateDto.serializer(), """{"userCardId":1$field}""",
+    ).toPayCard().netBenefit
+
+    @Test fun `순혜택은 소수도 정수도 서버 값 그대로 읽는다`() {
+        assertEquals(BigDecimal("1.5"), netBenefitOf(""","netBenefit":1.5"""))
+        assertEquals(BigDecimal("1500"), netBenefitOf(""","netBenefit":1500"""))
+        assertEquals(BigDecimal("-1.5"), netBenefitOf(""","netBenefit":-1.5"""))
+    }
+
+    @Test fun `순혜택이 없거나 null이면 0원`() {
+        assertEquals(BigDecimal.ZERO, netBenefitOf(""))
+        assertEquals(BigDecimal.ZERO, netBenefitOf(""","netBenefit":null"""))
+    }
+
+    @Test fun `순혜택이 숫자가 아니면 파싱 오류로 처리된다`() {
+        assertThrows(SerializationException::class.java) { netBenefitOf(""","netBenefit":"abc"""") }
+        assertThrows(SerializationException::class.java) { netBenefitOf(""","netBenefit":{}""") }
+    }
+
+    @Test fun `소수 순혜택 카드가 섞여도 결제 요청 화면 값으로 바뀐다`() {
+        val status = scanned(""","recommendation":{"candidates":[{"rank":1,"userCardId":7,"netBenefit":1.5},{"rank":2,"userCardId":8,"netBenefit":1}]}""")
+        val cards = status.request!!.cards
+        assertEquals(listOf(7L, 8L), cards.map { it.userCardId })
+        assertEquals(BigDecimal("0.5"), cards[0].netBenefit - cards[1].netBenefit)   // "0.5원 더 받아요"
     }
 
     @Test fun `찍혔다는데 요청이 없으면 아직 안 찍힌 것으로`() {
