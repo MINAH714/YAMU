@@ -1,5 +1,6 @@
 package com.yamu.be.forecast;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.nullValue;
 import static org.mockito.ArgumentMatchers.anyBoolean;
@@ -10,6 +11,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.jayway.jsonpath.JsonPath;
 import com.yamu.be.account.AccountBalance;
 import com.yamu.be.account.AccountBalanceService;
 import com.yamu.be.cashflow.CashflowItem;
@@ -138,16 +140,26 @@ class ForecastControllerTest extends MySqlTestSupport {
         long account = ownership().account(owner);
         long daily = seedThreeMonths(account);
 
-        mockMvc.perform(get("/api/forecasts/balance").with(AuthUsers.asUser(owner))
+        String body = mockMvc.perform(get("/api/forecasts/balance").with(AuthUsers.asUser(owner))
                         .param("accountIds", String.valueOf(account)).param("until", "DAYS").param("days", "7"))
                 .andExpect(status().isOk())
+                // AI 서버 주소가 없는 테스트 환경이라 TSB다(기록이 3개월 넘게 있어 HIGH)
+                .andExpect(jsonPath("$.data.livingCost.method").value("TSB"))
                 .andExpect(jsonPath("$.data.livingCost.dataOrigin").value("SEED"))
                 .andExpect(jsonPath("$.data.livingCost.confidence").value("HIGH"))
+                // 평균은 지난 3개월 실적 요약 그대로
                 .andExpect(jsonPath("$.data.livingCost.dailyAverage").value(daily))
-                // 오늘 쓴 돈은 잔액에 이미 들어 있어 내일부터 뺀다
-                .andExpect(jsonPath("$.data.series[0].conservative").value(1_000_000))
-                .andExpect(jsonPath("$.data.series[1].conservative").value(1_000_000 - daily))
-                .andExpect(jsonPath("$.data.series[7].conservative").value(1_000_000 - daily * 7));
+                .andReturn().getResponse().getContentAsString();
+
+        // 예상 생활비 = 날마다 빼는 값 × 7. 오늘 쓴 돈은 잔액에 이미 들어 있어 내일부터 뺀다
+        long projected = ((Number) JsonPath.read(body, "$.data.livingCost.projectedAmount")).longValue();
+        assertThat(projected % 7).isZero();
+        long perDay = projected / 7;
+        assertThat(((Number) JsonPath.read(body, "$.data.series[0].conservative")).longValue()).isEqualTo(1_000_000);
+        assertThat(((Number) JsonPath.read(body, "$.data.series[1].conservative")).longValue())
+                .isEqualTo(1_000_000 - perDay);
+        assertThat(((Number) JsonPath.read(body, "$.data.series[7].conservative")).longValue())
+                .isEqualTo(1_000_000 - projected);
     }
 
     @Test
@@ -288,15 +300,14 @@ class ForecastControllerTest extends MySqlTestSupport {
         long account = ownership().account(owner);
         long daily = seedThreeMonths(account);
 
-        mockMvc.perform(get("/api/forecasts/living-cost").with(AuthUsers.asUser(owner))
+        String body = mockMvc.perform(get("/api/forecasts/living-cost").with(AuthUsers.asUser(owner))
                         .param("accountIds", String.valueOf(account)).param("includeAccountDetails", "true"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.accountIds[0]").value(account))
-                .andExpect(jsonPath("$.data.method").value("AVG_3M"))
+                .andExpect(jsonPath("$.data.method").value("TSB"))
                 .andExpect(jsonPath("$.data.dataOrigin").value("SEED"))
                 .andExpect(jsonPath("$.data.confidence").value("HIGH"))
                 .andExpect(jsonPath("$.data.dailyAverage").value(daily))
-                .andExpect(jsonPath("$.data.projectedAmount").value(daily * 7))
                 .andExpect(jsonPath("$.data.period.from").value(today.toString()))
                 .andExpect(jsonPath("$.data.period.to").value(today.plusDays(7).toString()))
                 .andExpect(jsonPath("$.data.period.days").value(7))
@@ -308,24 +319,33 @@ class ForecastControllerTest extends MySqlTestSupport {
                 .andExpect(jsonPath("$.data.dailyTarget").value(9_000))
                 .andExpect(jsonPath("$.data.dataSyncedAt").isString())
                 .andExpect(jsonPath("$.data.accountLivingCosts", hasSize(1)))
-                .andExpect(jsonPath("$.data.accountLivingCosts[0].projectedAmount").value(daily * 7));
+                .andExpect(jsonPath("$.data.accountLivingCosts[0].method").value("TSB"))
+                .andReturn().getResponse().getContentAsString();
+
+        // 하루 목표(9,000원)는 섞지 않는다. 계좌 하나라 계좌별 예상 생활비가 통합과 같다
+        long projected = ((Number) JsonPath.read(body, "$.data.projectedAmount")).longValue();
+        assertThat(projected % 7).isZero();
+        assertThat(((Number) JsonPath.read(body, "$.data.accountLivingCosts[0].projectedAmount")).longValue())
+                .isEqualTo(projected);
     }
 
     @Test
     void 생활비_상세에_잔고예보와_같은_기간을_보내면_예상_생활비가_잔고예보와_같다() throws Exception {
         // 설정은 30일이지만 앱이 잔고예보를 14일로 불렀다면 상세도 14일로 부른다
         long account = ownership().account(owner);
-        long daily = seedThreeMonths(account);
+        seedThreeMonths(account);
 
-        mockMvc.perform(get("/api/forecasts/balance").with(AuthUsers.asUser(owner))
+        String forecast = mockMvc.perform(get("/api/forecasts/balance").with(AuthUsers.asUser(owner))
                         .param("accountIds", String.valueOf(account)).param("until", "DAYS").param("days", "14"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.livingCost.projectedAmount").value(daily * 14));
+                .andReturn().getResponse().getContentAsString();
+        Object projected = JsonPath.read(forecast, "$.data.livingCost.projectedAmount");
+        assertThat(projected).isNotNull();
         mockMvc.perform(get("/api/forecasts/living-cost").with(AuthUsers.asUser(owner))
                         .param("accountIds", String.valueOf(account)).param("until", "DAYS").param("days", "14"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.period.days").value(14))
-                .andExpect(jsonPath("$.data.projectedAmount").value(daily * 14));
+                .andExpect(jsonPath("$.data.projectedAmount").value(projected));
         mockMvc.perform(get("/api/forecasts/living-cost").with(AuthUsers.asUser(owner))
                         .param("accountIds", String.valueOf(account)).param("until", "DAYS").param("days", "10"))
                 .andExpect(status().isBadRequest())

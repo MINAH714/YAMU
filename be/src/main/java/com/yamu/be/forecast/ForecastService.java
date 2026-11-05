@@ -28,7 +28,8 @@ import org.springframework.stereotype.Service;
 
 /**
  * 선택 계좌의 날짜별 잔고예보를 만든다. 계좌마다 현재 잔액에 예정 수입·지출과 카드 청구 출금을 더하고,
- * 최근 3개월 생활비로 보수적 선을 낸 뒤 같은 날짜끼리 합한다. 통합 선과 계좌별 선에서 안전 잔액 미달을 찾는다.
+ * 예상 생활비(AI 또는 TSB, {@link LivingCostProjector})로 보수적 선을 낸 뒤 같은 날짜끼리 합한다. 통합 선과 계좌별 선에서
+ * 안전 잔액 미달을 찾는다. 생활비의 평균·월별 합계는 지난 3개월 실적 요약({@link LivingCostEstimator})이다.
  *
  * <p>잔액·카드는 BE 1 서비스, 신용카드 출금일은 BE 2 청구 주기({@link CreditWithdrawalSchedule})를 쓴다. 청구({@link CardBillReader})는
  * 임시 원천(진행 중 청구서만)이고, 생활비({@link LivingCostReader})는 체크카드 LIVING 결제({@link PaymentLivingCostReader})다. 안전 잔액·기간 기본값은
@@ -42,7 +43,6 @@ public class ForecastService {
     static final int MAX_ACCOUNTS = 20;
     /** 월급을 설정하지 않았거나 두 달 안에 회차가 없으면 NEXT_INCOME 대신 쓰는 명세의 대체 기간. */
     private static final int NEXT_INCOME_FALLBACK_DAYS = 30;
-    private static final String LIVING_COST_METHOD = "AVG_3M";
     /** 명세 「생활비 예측 상세」의 제외 안내. 실제로 빼는 일은 생활비 원천({@link LivingCostReader})이 한다. */
     private static final List<LivingCostForecast.Exclusion> LIVING_COST_EXCLUSIONS = List.of(
             new LivingCostForecast.Exclusion("RECURRING", "월세·통신비·구독료는 예정 지출로 별도 반영"),
@@ -59,12 +59,13 @@ public class ForecastService {
     private final AccountQueryService accounts;
     private final ForecastSettingsStore settings;
     private final ForecastSettingsService settingsService;
+    private final LivingCostProjector projector;
     private final Clock clock;
 
     ForecastService(CashflowService cashflows, AccountBalanceService balances, CardBillReader bills,
             CardQueryService cards, CreditWithdrawalSchedule creditSchedule, LivingCostReader livingCosts,
             AccountQueryService accounts, ForecastSettingsStore settings, ForecastSettingsService settingsService,
-            Clock clock) {
+            LivingCostProjector projector, Clock clock) {
         this.cashflows = cashflows;
         this.balances = balances;
         this.bills = bills;
@@ -74,6 +75,7 @@ public class ForecastService {
         this.accounts = accounts;
         this.settings = settings;
         this.settingsService = settingsService;
+        this.projector = projector;
         this.clock = clock;
     }
 
@@ -100,7 +102,7 @@ public class ForecastService {
 
         // 잔액·생활비는 금융망을 부를 수 있어 DB를 읽기 전에 따로 읽는다. 남의·연결 해제 계좌는 BE 1이 404로 거절한다.
         Map<Long, AccountBalance> balanceById = readBalances(authenticatedUserId, selected, refresh);
-        LivingCostEstimator.Estimate living = estimateLivingCost(authenticatedUserId, selected, today).estimate();
+        LivingCostRead living = estimateLivingCost(authenticatedUserId, selected, today, horizon);
         List<CashflowService.Entry> entries = cashflows.list(authenticatedUserId, horizon.from(), horizon.to(),
                 null, CashflowItem.Status.CONFIRMED, true);
         Set<Long> selectedSet = Set.copyOf(selected);
@@ -114,7 +116,7 @@ public class ForecastService {
         Map<Long, Long> dailyLiving = new HashMap<>();
         for (Long accountId : selected) {
             startBalances.put(accountId, balanceById.get(accountId).balance());
-            Long daily = living.byAccount().get(accountId).dailyAverage();
+            Long daily = living.projection().byAccount().get(accountId).dailyAmount();
             if (daily != null) {
                 dailyLiving.put(accountId, daily);
             }
@@ -141,9 +143,11 @@ public class ForecastService {
                     })
                     .toList();
         }
-        LivingCostEstimator.Total total = living.total();
-        BalanceForecast.LivingCost livingCost = new BalanceForecast.LivingCost(projected(total.dailyAverage(), horizon),
-                total.dailyAverage(), total.monthlyAverage(), LIVING_COST_METHOD, total.dataOrigin(), total.confidence());
+        LivingCostEstimator.Total history = living.estimate().total();
+        LivingCostProjector.Total projected = living.projection().total();
+        BalanceForecast.LivingCost livingCost = new BalanceForecast.LivingCost(projected.projectedAmount(),
+                history.dailyAverage(), history.monthlyAverage(), projected.method(), projected.dataOrigin(),
+                projected.confidence());
         long currentTotal = startBalances.values().stream().reduce(0L, Math::addExact);
         return new BalanceForecast(selected, selected.size(), currentTotal, horizon, alertThreshold, summary,
                 series(projection.total()), aggregate.windows(), livingCost, accountForecasts, List.copyOf(excluded),
@@ -172,28 +176,34 @@ public class ForecastService {
         BalanceForecast.Horizon horizon = horizon(authenticatedUserId, userSettings, until, days, today);
         // 잔액을 읽지 않으므로 소유·연결 확인을 여기서 한다. 남의·연결 해제 계좌는 404다.
         selected.forEach(accountId -> accounts.requireConnectedAccount(authenticatedUserId, accountId));
-        LivingCostRead read = estimateLivingCost(authenticatedUserId, selected, today);
+        LivingCostRead read = estimateLivingCost(authenticatedUserId, selected, today, horizon);
         LivingCostEstimator.Estimate estimate = read.estimate();
-        boolean anyData = estimate.byAccount().values().stream()
+        LivingCostProjector.Projection projection = read.projection();
+        boolean anyData = projection.byAccount().values().stream()
                 .anyMatch(account -> account.dataOrigin() != LivingCostEstimator.DataOrigin.INSUFFICIENT);
         if (!anyData) {
             throw new BusinessException(ErrorCode.DATA_INSUFFICIENT);
         }
 
         LivingCostEstimator.Total total = estimate.total();
+        LivingCostProjector.Total projected = projection.total();
         List<LivingCostForecast.AccountLivingCost> accountLivingCosts = null;
         if (includeAccountDetails) {
-            accountLivingCosts = estimate.byAccount().values().stream()
-                    .map(account -> new LivingCostForecast.AccountLivingCost(account.accountId(),
-                            account.dailyAverage(), account.monthlyAverage(),
-                            projected(account.dailyAverage(), horizon), account.dataOrigin()))
+            accountLivingCosts = selected.stream()
+                    .map(accountId -> {
+                        LivingCostEstimator.AccountEstimate history = estimate.byAccount().get(accountId);
+                        LivingCostProjector.AccountProjection account = projection.byAccount().get(accountId);
+                        return new LivingCostForecast.AccountLivingCost(accountId, history.dailyAverage(),
+                                history.monthlyAverage(), account.projectedAmount(), account.method(),
+                                account.dataOrigin());
+                    })
                     .toList();
         }
         LivingCostForecast.PaceCheck pace = total.pace() == null ? null
                 : new LivingCostForecast.PaceCheck(total.pace().thisMonthDaily(), total.pace().averageDaily(),
                         total.pace().overRatio(), total.pace().flagged(), now());
-        return new LivingCostForecast(selected, projected(total.dailyAverage(), horizon), total.dailyAverage(),
-                total.monthlyAverage(), LIVING_COST_METHOD, total.dataOrigin(), total.confidence(),
+        return new LivingCostForecast(selected, projected.projectedAmount(), total.dailyAverage(),
+                total.monthlyAverage(), projected.method(), projected.dataOrigin(), projected.confidence(),
                 new LivingCostForecast.Period(horizon.from(), horizon.to(), horizon.days(), horizon.type()),
                 total.sources().stream()
                         .map(source -> new LivingCostForecast.Source(source.month(), source.amount())).toList(),
@@ -214,14 +224,21 @@ public class ForecastService {
     }
 
     /**
-     * (이번 달 − 3개월)의 1일부터 오늘까지 일별 생활 소비를 읽어 계좌별로 추정한다. 이 범위는 늘 90일 이상이다.
-     * 원천 실패는 그대로 던진다.
+     * 일별 생활 소비를 한 번 읽어 지난 3개월 실적 요약(AVG_3M)과 예보 기간의 예상 생활비(AI·TSB)를 함께 낸다.
+     * 범위는 (이번 달 − 3개월)의 1일과 오늘부터 90일 전 중 이른 날부터 오늘까지다(AI 입력은 어제까지 90일).
+     * 원천 실패는 그대로 던진다. AI 서버 실패는 던지지 않고 TSB로 계산한다({@link LivingCostProjector}).
      */
-    private LivingCostRead estimateLivingCost(Long userId, List<Long> selected, LocalDate today) {
-        LocalDate from = YearMonth.from(today).minusMonths(LivingCostEstimator.MONTHS).atDay(1);
+    private LivingCostRead estimateLivingCost(Long userId, List<Long> selected, LocalDate today,
+            BalanceForecast.Horizon horizon) {
+        LocalDate monthsFrom = YearMonth.from(today).minusMonths(LivingCostEstimator.MONTHS).atDay(1);
+        LocalDate historyFrom = today.minusDays(LivingCostProjector.HISTORY_DAYS);
+        LocalDate from = historyFrom.isBefore(monthsFrom) ? historyFrom : monthsFrom;
         LivingCostReader.Spending spending = livingCosts.dailySpending(userId, selected, from, today);
-        return new LivingCostRead(LivingCostEstimator.estimate(selected, spending.days(), today),
-                spending.syncedAt());
+        // 원천 계약 검사(음수·중복·미래 날짜)는 실적 요약이 먼저 한다.
+        LivingCostEstimator.Estimate estimate = LivingCostEstimator.estimate(selected, spending.days(), today);
+        LivingCostProjector.Projection projection = projector.project(selected, spending.days(), today,
+                horizon.days());
+        return new LivingCostRead(estimate, projection, spending.syncedAt());
     }
 
     /**
@@ -255,10 +272,6 @@ public class ForecastService {
             }
         }
         return largest;
-    }
-
-    private static Long projected(Long dailyAverage, BalanceForecast.Horizon horizon) {
-        return dailyAverage == null ? null : Math.multiplyExact(dailyAverage.longValue(), horizon.days());
     }
 
     private LocalDate today() {
@@ -398,5 +411,6 @@ public class ForecastService {
     }
 
     /** 생활비 추정과 원천을 읽은 시각. */
-    private record LivingCostRead(LivingCostEstimator.Estimate estimate, LocalDateTime syncedAt) {}
+    private record LivingCostRead(LivingCostEstimator.Estimate estimate, LivingCostProjector.Projection projection,
+            LocalDateTime syncedAt) {}
 }
