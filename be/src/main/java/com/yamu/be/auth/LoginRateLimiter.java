@@ -5,6 +5,8 @@ import com.yamu.be.global.exception.ErrorCode;
 import java.util.List;
 import java.util.Map;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.DataAccessException;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.data.redis.core.script.RedisScript;
@@ -21,10 +23,12 @@ import org.springframework.stereotype.Component;
  * auth:rate:ip:{ip}               → 요청 수   TTL = 구간
  * auth:rate:signup-ip:{ip}        → 요청 수   TTL = 구간   본인인증 요청·확인(인증 없이 열린 가입 API)
  * auth:rate:card-lookup:{userId}  → 요청 수   TTL = 구간   카드 확인(카드번호 대입 막기)
+ * auth:rate:balance-refresh:{userId} → 요청 수 TTL = 구간  잔액 새로고침(금융망 보호, Redis 장애 때는 건너뜀)
  * </pre>
  *
  * 고정 구간 방식이라 구간 경계에서 잠깐 두 배까지 허용될 수 있다. 목적이 대량 시도 차단이라 정확한 초당 제어는 하지 않는다.
  */
+@Slf4j
 @Component
 @RequiredArgsConstructor
 public class LoginRateLimiter {
@@ -68,10 +72,21 @@ public class LoginRateLimiter {
         }
     }
 
-    /** 캐시를 건너뛰고 금융망 잔액을 새로 읽는 호출(refresh=true)을 사용자별로 센다. 새로 고침 연타로 금융망을 두드리지 않게. */
+    /**
+     * 캐시를 건너뛰고 금융망 잔액을 새로 읽는 호출(refresh=true)을 사용자별로 센다. 새로 고침 연타로 금융망을 두드리지 않게.
+     *
+     * <p>Redis가 죽어 셀 수 없으면 경고만 남기고 통과시킨다(S15P31E103-238). 이 한도는 보안이 아니라 금융망 보호용이라,
+     * 잠깐의 장애 동안 호출이 늘더라도 잔액 조회를 살리는 쪽을 골랐다. 로그인·가입·카드 확인 한도는 대입 공격을 막는 보안용이라
+     * Redis가 죽으면 지금처럼 실패한다.
+     */
     public void checkBalanceRefresh(Long userId, int limit) {
-        if (userId != null) {
+        if (userId == null) {
+            return;
+        }
+        try {
             hit("balance-refresh:" + userId, limit);
+        } catch (DataAccessException e) {
+            log.warn("잔액 새로고침 한도를 세지 못해 건너뜀({}) (userId={})", e.getClass().getSimpleName(), userId);
         }
     }
 
