@@ -69,11 +69,12 @@ public record PaymentDetailResponse(
     /**
      * @param period         PER_TRANSACTION · DAILY · MONTHLY
      * @param yearMonth      사용 월(한국 기준, YYYY-MM)
-     * @param consumedAmount 이 결제로 줄어든 한도(금액 또는 횟수)
+     * @param consumedAmount 이 결제로 줄어든 한도. 단위는 {@code unit}을 따른다
+     * @param unit           한도 단위({@code limit_group.limit_unit}): KRW 원 · POINT 포인트 · COUNT 횟수
      * @param restoredAt     취소로 한도를 되돌린 시각. 되돌리지 않았으면 null
      */
     public record LimitImpact(Long limitGroupId, String name, String period, String yearMonth, long consumedAmount,
-            LocalDateTime restoredAt) {}
+            String unit, LocalDateTime restoredAt) {}
 
     /**
      * 신용카드 청구 회차.

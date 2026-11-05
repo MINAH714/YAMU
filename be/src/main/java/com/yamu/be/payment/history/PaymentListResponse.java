@@ -34,7 +34,8 @@ public record PaymentListResponse(
      * @param amount                POS가 요청한 결제 금액(즉시할인 전)
      * @param installmentMonths     할부 개월 수. 일시불은 null
      * @param card                  승인·거절에 쓴 카드
-     * @param benefitAmount         적용 혜택 원화 합계. 기록된 혜택이 없으면 0
+     * @param benefitAmount         승인 건의 적용 혜택 원화 합계. 취소·거절 건이나 기록된 혜택이 없으면 0(취소해도 혜택 기록은
+     *                              남지만 받지 않은 혜택이다. 상세의 {@code benefits}에는 기록 그대로 보인다)
      * @param benefitConfirmed      임시: 확정 여부를 저장하는 칸이 없어 null이다
      * @param performanceRecognized 승인 상태이고 실적 인정액이 0원보다 큰지
      */

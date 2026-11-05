@@ -20,7 +20,9 @@ import org.springframework.stereotype.Component;
  * 결제 내역을 SQL로 읽는다. 조회 전용이라 엔티티를 거치지 않는다.
  *
  * <p>청구 회차·청구서·혜택·한도·환급은 승인·청구 Task(5.2.x)가 쓰는 테이블이다. 엔티티를 공유하지 않고 Flyway 스키마의 칸만 읽으므로
- * 쓰는 쪽이 머지되면 응답이 그대로 채워진다. 모든 조회는 {@code user_id}를 조건에 넣어 남의 결제를 읽지 않는다.
+ * 쓰는 쪽이 머지되면 응답이 그대로 채워진다. 결제를 읽는 조회(목록·합계·상세 한 건)는 {@code user_id}를 조건에 넣어 남의 결제를
+ * 읽지 않는다. 하위 테이블 조회({@code find*(paymentId)})는 결제 번호로만 찾으므로, 반드시 {@link #findOne}으로 소유를 확인한
+ * 결제 번호만 넘긴다.
  *
  * <p>쿼리 수는 고정이다. 목록은 페이지 1번 + 합계 1번, 상세는 결제 1번 + 하위 테이블마다 1번.
  */
@@ -132,7 +134,8 @@ class PaymentHistoryReader {
 
     List<PaymentDetailResponse.LimitImpact> findLimitImpacts(Long paymentId) {
         return jdbc.query("""
-                select u.limit_group_id, g.group_name, g.period_type, u.usage_month, u.consumed_value, u.restored_at
+                select u.limit_group_id, g.group_name, g.period_type, u.usage_month, u.consumed_value, g.limit_unit,
+                       u.restored_at
                 from payment_limit_usage u
                 join limit_group g on g.limit_group_id = u.limit_group_id
                 where u.payment_transaction_id = :paymentId
@@ -141,7 +144,7 @@ class PaymentHistoryReader {
                 (rs, i) -> new PaymentDetailResponse.LimitImpact(rs.getLong("limit_group_id"),
                         rs.getString("group_name"), rs.getString("period_type"),
                         yearMonth(rs.getObject("usage_month", LocalDate.class)), rs.getLong("consumed_value"),
-                        rs.getObject("restored_at", LocalDateTime.class)));
+                        rs.getString("limit_unit"), rs.getObject("restored_at", LocalDateTime.class)));
     }
 
     List<PaymentDetailResponse.BillItem> findBillItems(Long paymentId) {
@@ -201,7 +204,7 @@ class PaymentHistoryReader {
                 installment ? PaymentPlan.INSTALLMENT : PaymentPlan.LUMP_SUM,
                 installment ? months : null,
                 card(rs),
-                benefit == null ? 0 : benefit,
+                status != PaymentStatus.APPROVED || benefit == null ? 0 : benefit,
                 null,
                 status == PaymentStatus.APPROVED && recognized != null && recognized > 0);
     }

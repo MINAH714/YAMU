@@ -121,6 +121,8 @@ class PaymentHistoryIntegrationTest extends MySqlTestSupport {
                 .andExpect(jsonPath("$.data.items[1].installmentMonths").value(nullValue()))
                 .andExpect(jsonPath("$.data.items[1].benefitAmount").value(1_000))
                 .andExpect(jsonPath("$.data.items[1].performanceRecognized").value(true))
+                .andExpect(jsonPath("$.data.items[0].status").value("CANCELED"))
+                .andExpect(jsonPath("$.data.items[0].benefitAmount").value(0))
                 .andExpect(jsonPath("$.data.items[0].performanceRecognized").value(false));
     }
 
@@ -279,6 +281,7 @@ class PaymentHistoryIntegrationTest extends MySqlTestSupport {
                 .andExpect(jsonPath("$.data.limitImpacts[0].period").value("MONTHLY"))
                 .andExpect(jsonPath("$.data.limitImpacts[0].yearMonth").value(OCTOBER))
                 .andExpect(jsonPath("$.data.limitImpacts[0].consumedAmount").value(3_000))
+                .andExpect(jsonPath("$.data.limitImpacts[0].unit").value("KRW"))
                 .andExpect(jsonPath("$.data.billItems[*].seq").value(contains(1, 2, 3)))
                 .andExpect(jsonPath("$.data.billItems[0].billId").value(bill))
                 .andExpect(jsonPath("$.data.billItems[0].billingMonth").value("2026-11"))
