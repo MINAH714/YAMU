@@ -444,6 +444,7 @@ fin_transaction_no는 상태 코드가 아니라 **이 결제로 발생한 계�
 | spending_class | `VARCHAR(16) NULL` | LIVING / LARGE / EXCLUDED; 미분류 NULL, 실적 인정액과 별개 |
 | spending_class_source | `VARCHAR(16) NULL` | AUTO / USER; 미분류 NULL, 사용자 수정 USER는 자동 재분류로 덮어쓰지 않음 |
 | memo | `VARCHAR(100) NULL` | 사용자 결제 메모; API는 빈 문자열 요청을 삭제로 처리 |
+| memo_updated_at | `TIMESTAMP(6) NULL` | UTC 메모를 남기거나 지운 마지막 시각; 메모 API만 바꿈, 고친 적 없으면 NULL (S15P31E103-301, V20261106_1) |
 
 ```sql
 PRIMARY KEY (payment_transaction_id);
