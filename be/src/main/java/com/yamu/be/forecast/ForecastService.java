@@ -32,7 +32,7 @@ import org.springframework.stereotype.Service;
  * 안전 잔액 미달을 찾는다. 생활비의 평균·월별 합계는 지난 3개월 실적 요약({@link LivingCostEstimator})이다.
  *
  * <p>잔액·카드는 BE 1 서비스, 신용카드 출금일은 BE 2 청구 주기({@link CreditWithdrawalSchedule})를 쓴다. 청구({@link CardBillReader})는
- * 임시 원천(진행 중 청구서만)이고, 생활비({@link LivingCostReader})는 체크카드 LIVING 결제({@link PaymentLivingCostReader})다. 안전 잔액·기간 기본값은
+ * BE 2 원천(진행 중·확정·미납 청구, {@code OutstandingCardBillReader})이고, 생활비({@link LivingCostReader})는 체크카드 LIVING 결제({@link PaymentLivingCostReader})다. 안전 잔액·기간 기본값은
  * 잔고예보 설정({@link ForecastSettingsStore})에서, 다음 월급일은 설정의 월급 항목({@link ForecastSettingsService})에서 읽는다.
  */
 @Service

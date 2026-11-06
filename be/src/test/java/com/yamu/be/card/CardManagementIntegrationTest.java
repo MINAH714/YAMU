@@ -12,6 +12,9 @@ import com.yamu.be.auth.domain.StepUpPurpose;
 import com.yamu.be.global.crypto.CipherField;
 import com.yamu.be.global.crypto.LookupHasher;
 import com.yamu.be.global.crypto.PersonalDataCipher;
+import com.yamu.be.payment.billing.BillFixtures;
+import com.yamu.be.payment.billing.BillStatus;
+import com.yamu.be.payment.billing.BillingCycle;
 import com.yamu.be.support.AuthUsers;
 import com.yamu.be.support.Concurrently;
 import com.yamu.be.support.MySqlTestSupport;
@@ -82,6 +85,8 @@ class CardManagementIntegrationTest extends MySqlTestSupport {
 
     @BeforeEach
     void setUp() {
+        jdbc.update("DELETE FROM bill_item");
+        jdbc.update("DELETE FROM payment_transaction");
         jdbc.update("DELETE FROM card_bill");
         jdbc.update("DELETE FROM card_monthly_performance");
         jdbc.update("DELETE FROM user_card");
@@ -204,6 +209,109 @@ class CardManagementIntegrationTest extends MySqlTestSupport {
                 .andExpect(jsonPath("$.data.billing.hasUnpaidBill").value(false))
                 .andExpect(jsonPath("$.data.registeredAt").exists());
         assertThat(later).isNotEqualTo(sooner);
+    }
+
+    @Test
+    void 진행_중_이용기간의_누적액은_오늘이_들어가는_청구서의_청구_전_회차_합계다() throws Exception {
+        long credit = card(member.userId(), creditProduct, "4570000011111234", "ACTIVE", 14, account, 1);
+        BillFixtures bills = new BillFixtures(jdbc);
+        long merchant = bills.merchant("이마트");
+        BillingCycle.Cycle now = BillingCycle.of(14, 13).cycleFor(todayKst());
+        BillingCycle.Cycle next = BillingCycle.of(14, 13).cycleOf(now.billingMonth().plusMonths(1));
+        BillingCycle.Cycle previous = BillingCycle.of(14, 13).cycleOf(now.billingMonth().minusMonths(1));
+        long current = accumulatingBill(credit, now);
+        long future = accumulatingBill(credit, next);
+        // 마감이 지났지만 확정 배치가 아직 돌지 않은 지난 기간 청구서
+        long overdue = accumulatingBill(credit, previous);
+        LocalDateTime approvedAt = now.periodStart().atTime(3, 0);
+        long lumpSum = bills.payment(member.userId(), credit, merchant, 30_000L, 1, approvedAt);
+        bills.item(lumpSum, member.userId(), credit, current, 1, now.billingMonth(), 30_000L, "PENDING");
+        long installment = bills.payment(member.userId(), credit, merchant, 90_000L, 3, approvedAt);
+        bills.item(installment, member.userId(), credit, current, 1, now.billingMonth(), 30_000L, "PENDING");
+        bills.item(installment, member.userId(), credit, future, 2, next.billingMonth(), 30_000L, "PENDING");
+        long canceled = bills.payment(member.userId(), credit, merchant, 5_000L, 1, approvedAt);
+        bills.item(canceled, member.userId(), credit, current, 1, now.billingMonth(), 5_000L, "EXCLUDED");
+        long last = bills.payment(member.userId(), credit, merchant, 7_000L, 1, previous.periodStart().atTime(3, 0));
+        bills.item(last, member.userId(), credit, overdue, 1, previous.billingMonth(), 7_000L, "PENDING");
+
+        get(member, "/api/cards/" + credit)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.billing.currentCycle.usagePeriod.start").value(now.periodStart().toString()))
+                .andExpect(jsonPath("$.data.billing.currentCycle.usagePeriod.end").value(now.periodEnd().toString()))
+                .andExpect(jsonPath("$.data.billing.currentCycle.accumulatingAmount").value(60_000))
+                .andExpect(jsonPath("$.data.billing.currentCycle.confirmAt")
+                        .value(now.periodEnd().plusDays(1).toString()));
+        get(member, "/api/cards")
+                .andExpect(jsonPath("$.data.cards[0].billingSummary.accumulatingAmount").value(60_000));
+        patch(member, credit, "{\"nickname\":\"생활비 카드\"}")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.billing.currentCycle.accumulatingAmount").value(60_000));
+    }
+
+    @Test
+    void 이번_기간에_쓴_돈이_없으면_0원이고_기간은_지금_결제일로_계산한다() throws Exception {
+        long credit = card(member.userId(), creditProduct, "4570000011111234", "ACTIVE", 14, account, 1);
+        long check = card(member.userId(), checkProduct, "9410123456785678", "ACTIVE", null, account, 2);
+        BillingCycle.Cycle now = BillingCycle.of(14, 13).cycleFor(todayKst());
+
+        get(member, "/api/cards/" + credit)
+                .andExpect(jsonPath("$.data.billing.currentCycle.usagePeriod.start").value(now.periodStart().toString()))
+                .andExpect(jsonPath("$.data.billing.currentCycle.usagePeriod.end").value(now.periodEnd().toString()))
+                .andExpect(jsonPath("$.data.billing.currentCycle.accumulatingAmount").value(0))
+                .andExpect(jsonPath("$.data.billing.currentCycle.confirmAt")
+                        .value(now.periodEnd().plusDays(1).toString()));
+        get(member, "/api/cards")
+                .andExpect(jsonPath("$.data.cards[0].billingSummary.accumulatingAmount").value(0))
+                .andExpect(jsonPath("$.data.cards[1].userCardId").value(check))
+                .andExpect(jsonPath("$.data.cards[1].billingSummary").doesNotExist());
+    }
+
+    @Test
+    void 결제일을_바꾼_뒤에도_이미_만든_이번_기간_청구서의_기간을_따른다() throws Exception {
+        long credit = card(member.userId(), creditProduct, "4570000011111234", "ACTIVE", 14, account, 1);
+        // 결제일 25일일 때 만든 청구서. 지금 결제일(14일)로 계산한 기간과 다르다
+        BillingCycle.Cycle old = BillingCycle.of(25, 13).cycleFor(todayKst());
+        long current = accumulatingBill(credit, old);
+        BillFixtures bills = new BillFixtures(jdbc);
+        long payment = bills.payment(member.userId(), credit, bills.merchant("이마트"), 12_000L, 1,
+                old.periodStart().atTime(3, 0));
+        bills.item(payment, member.userId(), credit, current, 1, old.billingMonth(), 12_000L, "PENDING");
+
+        get(member, "/api/cards/" + credit)
+                .andExpect(jsonPath("$.data.billing.currentCycle.usagePeriod.start").value(old.periodStart().toString()))
+                .andExpect(jsonPath("$.data.billing.currentCycle.usagePeriod.end").value(old.periodEnd().toString()))
+                .andExpect(jsonPath("$.data.billing.currentCycle.accumulatingAmount").value(12_000));
+    }
+
+    @Test
+    void 남의_진행_중_청구서는_내_카드_누적액에_들어가지_않는다() throws Exception {
+        long mine = card(member.userId(), creditProduct, "4570000011111234", "ACTIVE", 14, account, 1);
+        Member other = member("01077778888");
+        long otherAccount = account(other.userId(), "1111");
+        long others = card(other.userId(), creditProduct, "4570000022225678", "ACTIVE", 14, otherAccount, 1);
+        BillingCycle.Cycle now = BillingCycle.of(14, 13).cycleFor(todayKst());
+        BillFixtures bills = new BillFixtures(jdbc);
+        long othersBill = insert("card_bill", "card_bill_id", accumulatingRow(other.userId(), others, now));
+        long payment = bills.payment(other.userId(), others, bills.merchant("이마트"), 50_000L, 1,
+                now.periodStart().atTime(3, 0));
+        bills.item(payment, other.userId(), others, othersBill, 1, now.billingMonth(), 50_000L, "PENDING");
+
+        get(member, "/api/cards/" + mine).andExpect(jsonPath("$.data.billing.currentCycle.accumulatingAmount").value(0));
+        get(other, "/api/cards/" + others)
+                .andExpect(jsonPath("$.data.billing.currentCycle.accumulatingAmount").value(50_000));
+    }
+
+    @Test
+    void 결제일이_청구_규칙이_받지_않는_값이면_진행_중_이용기간은_비운다() throws Exception {
+        long credit = card(member.userId(), creditProduct, "4570000011111234", "ACTIVE", 14, account, 1);
+        jdbc.update("UPDATE user_card SET payment_day = 28 WHERE user_card_id = ?", credit);
+
+        get(member, "/api/cards/" + credit)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.billing.paymentDay").value(28))
+                .andExpect(jsonPath("$.data.billing.currentCycle").doesNotExist());
+        get(member, "/api/cards")
+                .andExpect(jsonPath("$.data.cards[0].billingSummary.accumulatingAmount").doesNotExist());
     }
 
     // ───────── 수정 ─────────
@@ -348,18 +456,24 @@ class CardManagementIntegrationTest extends MySqlTestSupport {
     @Test
     void 끝나지_않은_청구는_어떤_상태든_해제를_막고_PAID_CANCELED만_통과한다() throws Exception {
         long card = card(member.userId(), creditProduct, "4570000011111234", "ACTIVE", 14, account, 1);
-        bill(card, "PAID", LocalDate.of(2026, 9, 14));
-        bill(card, "CANCELED", LocalDate.of(2026, 10, 14));
-        // 출금 실패처럼 명세에 아직 없는 상태도 끝난 상태가 아니면 막는다.
-        long failed = bill(card, "FAILED", LocalDate.of(2026, 11, 16));
+        bill(card, "PAID", LocalDate.of(2026, 1, 14));
+        bill(card, "CANCELED", LocalDate.of(2026, 2, 14));
+        // 쌓이는 중(ACCUMULATING)·확정·미납과 앞으로 BillStatus에 더해질 상태도 끝난 상태(PAID·CANCELED)가 아니면 막는다.
+        List<Long> open = new ArrayList<>();
+        int month = 3;
+        for (BillStatus status : BillStatus.values()) {
+            if (status != BillStatus.PAID && status != BillStatus.CANCELED) {
+                open.add(bill(card, status.name(), LocalDate.of(2026, month++, 14)));
+            }
+        }
         String token = stepUp(member, StepUpPurpose.CARD_DELETE);
 
         delete(member, card, token)
                 .andExpect(errorCode(409, "CARD_HAS_OPEN_BILL"))
-                .andExpect(jsonPath("$.error.details.billIds.length()").value(1))
-                .andExpect(jsonPath("$.error.details.billIds[0]").value(failed));
+                .andExpect(jsonPath("$.error.details.billIds.length()").value(open.size()))
+                .andExpect(jsonPath("$.error.details.billIds[0]").value(open.get(0)));
 
-        jdbc.update("UPDATE card_bill SET status = 'CANCELED' WHERE card_bill_id = ?", failed);
+        open.forEach(id -> jdbc.update("UPDATE card_bill SET status = 'CANCELED' WHERE card_bill_id = ?", id));
         delete(member, card, token).andExpect(status().isNoContent());
     }
 
@@ -577,7 +691,7 @@ class CardManagementIntegrationTest extends MySqlTestSupport {
                 """, card, Date.valueOf(month.atDay(1)), amount, now(), now());
     }
 
-    /** 확정된 청구서(신용카드). status는 명세 이름(CONFIRMED·UNPAID·PAID). */
+    /** 청구서(신용카드). status는 BillStatus 이름. */
     private long bill(long card, String status, LocalDate withdrawalDate) {
         YearMonth month = YearMonth.from(withdrawalDate);
         return insert("card_bill", "card_bill_id", new HashMap<>(Map.ofEntries(
@@ -588,6 +702,19 @@ class CardManagementIntegrationTest extends MySqlTestSupport {
                 Map.entry("withdrawal_date", Date.valueOf(withdrawalDate)), Map.entry("status", status),
                 Map.entry("confirmed_amount", 128500L), Map.entry("confirmed_at", now()),
                 Map.entry("created_at", now()), Map.entry("updated_at", now()))));
+    }
+
+    /** 진행 중 청구서. 확정 전이라 출금 계좌·확정액은 비어 있다. */
+    private long accumulatingBill(long card, BillingCycle.Cycle cycle) {
+        return insert("card_bill", "card_bill_id", accumulatingRow(member.userId(), card, cycle));
+    }
+
+    private static Map<String, Object> accumulatingRow(long owner, long card, BillingCycle.Cycle cycle) {
+        return new HashMap<>(Map.of("user_id", owner, "user_card_id", card,
+                "billing_month", Date.valueOf(cycle.billingMonth().atDay(1)),
+                "period_start", Date.valueOf(cycle.periodStart()), "period_end", Date.valueOf(cycle.periodEnd()),
+                "withdrawal_date", Date.valueOf(cycle.paymentDate()), "status", "ACCUMULATING",
+                "created_at", now(), "updated_at", now()));
     }
 
     private List<Long> defaults() {
@@ -634,6 +761,10 @@ class CardManagementIntegrationTest extends MySqlTestSupport {
             assertThat(result.getResponse().getStatus()).as("HTTP status").isEqualTo(status);
             assertThat((String) JsonPath.read(result.getResponse().getContentAsString(), "$.error.code")).isEqualTo(code);
         };
+    }
+
+    private static LocalDate todayKst() {
+        return LocalDate.now(ZoneId.of("Asia/Seoul"));
     }
 
     private static Timestamp now() {

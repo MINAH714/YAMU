@@ -42,7 +42,7 @@ public record CardDetailResponse(Long userCardId, String nickname, Issuer issuer
      * @param paymentDayChangeableFrom 결제일을 다시 바꿀 수 있는 날(직전 변경 후 3개월, 한국 날짜). 바꾼 적 없으면 null(지금 바꿀 수 있음)
      * @param creditLimit              카드 한도. 저장 칸이 없어 null
      * @param availableLimit           남은 한도. 한도가 없어 null
-     * @param currentCycle             진행 중 이용기간. 이용기간·청구 계산(BE 2)이 아직 없어 null
+     * @param currentCycle             진행 중 이용기간(오늘이 들어가는 기간). 결제일이 없거나 청구 규칙이 받지 않는 값이면 null
      * @param nextWithdrawal           출금일이 가장 가까운 확정 청구서. 없으면 null
      */
     public record Billing(Integer paymentDay, LocalDate paymentDayChangeableFrom, Long settlementAccountId,
@@ -50,9 +50,14 @@ public record CardDetailResponse(Long userCardId, String nickname, Issuer issuer
             boolean hasUnpaidBill) {
     }
 
+    /**
+     * @param accumulatingAmount 지금까지 쌓인 금액(원). BE 2 청구서의 예상 청구액(청구 전 회차 합계 − 예상 청구할인). 쓴 돈이 없으면 0
+     * @param confirmAt          청구가 확정되는 날(한국 날짜) = 이용기간 마감 다음 날
+     */
     public record CurrentCycle(UsagePeriod usagePeriod, Long accumulatingAmount, LocalDate confirmAt) {
     }
 
+    /** 이용기간(양 끝 포함, 한국 날짜) */
     public record UsagePeriod(LocalDate start, LocalDate end) {
     }
 

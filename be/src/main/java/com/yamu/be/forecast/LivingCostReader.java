@@ -5,10 +5,11 @@ import java.time.LocalDateTime;
 import java.util.List;
 
 /**
- * 선택 계좌의 일별 유효 생활 소비 합계를 읽는다. 잔고예보의 생활비 추정(명세 「생활비 예측 상세」 AVG_3M, 이후 AI 예측) 입력이다.
+ * 선택 계좌의 일별 유효 생활 소비 합계를 읽는다. 잔고예보의 예상 생활비(AI·TSB, {@link LivingCostProjector})와
+ * 지난 3개월 실적 요약(AVG_3M, {@link LivingCostEstimator})의 입력이다.
  *
- * <p>임시 계약: 원천은 YAMU 체크카드 LIVING 소비(BE 2 결제)다. 명세의 "생활비로 확인된 SSAFY 계좌 출금"은 확인 방법이
- * 정의되지 않아 지금은 넣지 않는다(docs/be/forecast.md 「계좌 출금은 지금 넣지 않음」).
+ * <p>원천은 YAMU 체크카드 LIVING 소비(BE 2 결제)다. 명세의 "생활비로 확인된 SSAFY 계좌 출금"은 확인 방법이
+ * 정의되지 않아 넣지 않는다(2026-11-05 결정, docs/be/forecast.md 「결정과 이유」의 "계좌 출금은 원천에서 뺌").
  * 구현은 {@link PaymentLivingCostReader}다(BE 4 구현, BE 2 리뷰, docs/be/forecast.md 「생활비 원천 계약」).
  *
  * <p>구현이 지켜야 할 것:

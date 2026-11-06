@@ -4,6 +4,7 @@ import com.yamu.be.global.exception.BusinessException;
 import com.yamu.be.global.exception.ErrorCode;
 import com.yamu.be.global.finapi.FinApiClient;
 import com.yamu.be.global.finapi.FinApiException;
+import com.yamu.be.global.finapi.FinApiOutcome;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
@@ -237,6 +238,15 @@ public class SsafyTransferApi {
             return TransferResult.unknown(null);
         }
         return TransferResult.success(rec.transactionUniqueNo(), date);
+    }
+
+    /**
+     * 금융망이 계좌 없음(해지 등, A1003)으로 거절한 예외인지. 거래내역 조회처럼 결과를 예외로 알리는 호출에서 쓴다
+     * (출금·입금은 {@link TransferResult.RejectReason#ACCOUNT_NOT_FOUND}로 돌려준다).
+     */
+    public static boolean isAccountNotFound(Throwable e) {
+        return e instanceof FinApiException fin && fin.getOutcome() == FinApiOutcome.REJECTED
+                && ACCOUNT_INVALID.equals(fin.getFinCode());
     }
 
     private static TransferResult classify(FinApiException e) {
