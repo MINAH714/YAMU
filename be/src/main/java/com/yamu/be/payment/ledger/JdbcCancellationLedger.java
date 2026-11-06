@@ -74,7 +74,7 @@ public class JdbcCancellationLedger implements CancellationLedger {
                 JOIN limit_group g ON g.limit_group_id = u.limit_group_id
                 WHERE u.payment_transaction_id = :payment AND u.restored_at IS NULL
                 ORDER BY u.payment_limit_usage_id
-                FOR UPDATE
+                FOR UPDATE OF u
                 """, new MapSqlParameterSource("payment", payment.getId()),
                 (rs, i) -> new UsageRow(rs.getLong("payment_limit_usage_id"), rs.getLong("limit_group_id"),
                         rs.getLong("consumed_value"), rs.getObject("usage_month", LocalDate.class),
