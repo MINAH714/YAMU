@@ -179,6 +179,15 @@ yamu:
     read-timeout: 10s
     # 매일 04:00(한국 시간). 청구 확정(00:30) 뒤, 청구 출금(07:00) 전
     sync-cron: "0 0 4 * * *"
+  # 신용카드 청구 정기 작업(API 명세 V2 4장). 시각은 한국 시간. 기본은 끔이고 운영은 BILLING_JOBS_ENABLED=true로 켠다.
+  # 수동 실행(POST /api/admin/jobs/{jobName}/run)은 이 값과 상관없이 돈다.
+  billing:
+    # 청구 확정: 매일 00:30. 이용기간 마감이 지난 진행 중 청구서를 확정한다
+    confirm-cron: "0 30 0 * * *"
+    jobs-enabled: ${BILLING_JOBS_ENABLED:false}
+  # 운영 API(X-Admin-Key). 운영은 환경변수 YAMU_ADMIN_KEY, 로컬은 application-local.yml. 비어 있으면 운영 API는 모두 403
+  admin:
+    key: ${YAMU_ADMIN_KEY:}
 
 springdoc:
   swagger-ui:

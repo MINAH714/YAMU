@@ -8,6 +8,8 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Component;
@@ -60,13 +62,13 @@ public class CreditBillingWriter {
 
     /**
      * 회차는 이용기간이 진행 중인 청구서에만 붙인다. 확정·출금·미납 청구서에 붙으면 확정된 청구 금액이 바뀐다.
-     * 청구 월 계산이 맞으면 일어나지 않는다(결제일 변경 미반영은 S15P31E103-205). 같은 카드로는 다시 해도 계속 실패하므로
-     * 500이 아니라 422 {@code reason=BILL_CLOSED}로 알려 다른 카드를 고르게 한다. 승인 저장 전이라 승인 서비스가 결제를
-     * 바로 REQUESTED로 되돌린다.
+     * 청구 월 계산이 맞으면 {@link #ensureBills}에서는 일어나지 않고(결제일 변경 미반영은 S15P31E103-205), {@link #writeItems}에서는
+     * 그 사이 청구 확정이 끝난 경합 때만 일어난다. 같은 카드로는 다시 해도 계속 실패하므로 500이 아니라 422
+     * {@code reason=BILL_CLOSED}로 알려 다른 카드를 고르게 한다. 확보 단계에서 나면 승인 서비스가 결제를 바로 REQUESTED로 되돌린다.
      */
     private static CardBill requireAccumulating(CardBill bill) {
         if (bill.getStatus() != BillStatus.ACCUMULATING) {
-            log.error("회차를 붙일 청구서가 이용기간 진행 중이 아님, 운영 확인 cardBillId={} userCardId={} month={} status={}",
+            log.warn("회차를 붙일 청구서가 이용기간 진행 중이 아님 cardBillId={} userCardId={} month={} status={}",
                     bill.getId(), bill.getUserCardId(), bill.getBillingMonth(), bill.getStatus());
             throw new BusinessException(ErrorCode.DATA_INSUFFICIENT, "이 카드의 이번 청구서가 이미 마감돼 지금은 결제할 수 없습니다.",
                     Map.of("reason", BILL_CLOSED));
@@ -99,14 +101,24 @@ public class CreditBillingWriter {
     /**
      * 승인된 결제의 회차를 적는다. 호출하는 쪽의 트랜잭션(승인 저장) 안에서 부른다.
      * 회차의 사용자·카드는 결제 행의 값이어야 FK({@code fk_item_payment_owner})가 맞는다.
+     *
+     * <p>청구서는 적기 전에 번호 순으로 잠그고({@code SELECT ... FOR UPDATE}) 아직 이용기간 진행 중인지 다시 본다. {@link #ensureBills}가
+     * 읽은 뒤 청구 확정 배치(Task 5.4.2)가 그 청구서를 확정했으면, 여기서 회차를 붙이면 확정액에 들어가지 않은 회차가 영원히 PENDING으로
+     * 남는다. 그래서 422 {@code BILL_CLOSED}로 승인 저장을 되돌린다(돈은 움직이지 않았다). 그 결제는 PROCESSING에 남았다가
+     * 결과 불명 복구(요청 번호 없음 → 유예 뒤 REQUESTED)가 되돌린다. 잠금 순서(청구서 → 회차)는 취소·확정과 같다.
      */
     public List<BillItem> writeItems(PaymentTransaction payment, InstallmentPlan plan, Map<YearMonth, CardBill> bills) {
+        List<Long> billIds = bills.values().stream().map(CardBill::getId).sorted().toList();
+        Map<Long, CardBill> locked = billIds.isEmpty() ? Map.of() : this.bills.findAllForUpdate(billIds).stream()
+                .collect(Collectors.toMap(CardBill::getId, Function.identity()));
         List<BillItem> created = new ArrayList<>(plan.installments().size());
         for (InstallmentPlan.Installment installment : plan.installments()) {
-            CardBill bill = bills.get(installment.billingMonth());
+            CardBill ensured = bills.get(installment.billingMonth());
+            CardBill bill = ensured == null ? null : locked.get(ensured.getId());
             if (bill == null || !bill.getUserCardId().equals(payment.getUserCardId())) {
                 throw new IllegalStateException("회차의 청구서가 없거나 카드가 다릅니다 (결제 " + payment.getId() + ")");
             }
+            requireAccumulating(bill);
             created.add(BillItem.pending(payment.getId(), payment.getUserId(), payment.getUserCardId(), bill.getId(),
                     installment.no(), installment.billingMonth().atDay(1), installment.principal()));
         }

@@ -47,7 +47,8 @@ public class ForecastService {
     private static final List<LivingCostForecast.Exclusion> LIVING_COST_EXCLUSIONS = List.of(
             new LivingCostForecast.Exclusion("RECURRING", "월세·통신비·구독료는 예정 지출로 별도 반영"),
             new LivingCostForecast.Exclusion("CREDIT_PAYMENT", "신용카드 청구는 출금일에 별도 반영"),
-            new LivingCostForecast.Exclusion("UNCLASSIFIED", "소비 목적을 확인할 수 없는 계좌 출금은 임의로 포함하지 않음"));
+            new LivingCostForecast.Exclusion("UNCLASSIFIED", "소비 목적을 확인할 수 없는 계좌 출금은 임의로 포함하지 않음"),
+            new LivingCostForecast.Exclusion("LARGE", "할부, 100만 원 초과, 평소 건당 소비의 10배 이상인 큰 결제는 평균에서 뺌"));
 
     private final CashflowService cashflows;
     private final AccountBalanceService balances;
@@ -95,13 +96,7 @@ public class ForecastService {
         ForecastSettings userSettings = settings.read(authenticatedUserId);
         long alertThreshold = userSettings.alertThreshold();
         LocalDate today = today();
-        BalanceForecast.Until effectiveUntil = until != null ? until : userSettings.horizon();
-        // 오늘 들어올 월급은 잔액에 이미 들어왔는지 몰라 예보에서 빼므로, 다음 월급일은 오늘보다 뒤의 첫 회차다.
-        Optional<LocalDate> nextIncome = effectiveUntil == BalanceForecast.Until.NEXT_INCOME
-                ? settingsService.nextIncomeDate(authenticatedUserId, userSettings.incomeCashflowItemId(), today)
-                : Optional.empty();
-        BalanceForecast.Horizon horizon = horizon(effectiveUntil, days != null ? days : userSettings.defaultDays(),
-                nextIncome, today);
+        BalanceForecast.Horizon horizon = horizon(authenticatedUserId, userSettings, until, days, today);
 
         // 잔액·생활비는 금융망을 부를 수 있어 DB를 읽기 전에 따로 읽는다. 남의·연결 해제 계좌는 BE 1이 404로 거절한다.
         Map<Long, AccountBalance> balanceById = readBalances(authenticatedUserId, selected, refresh);
@@ -156,21 +151,27 @@ public class ForecastService {
     }
 
     /**
-     * 선택 계좌의 예상 생활비와 계산 근거(생활비 예측 상세)를 돌려준다. 기간은 잔고예보 기본 기간(30일)이다.
+     * 선택 계좌의 예상 생활비와 계산 근거(생활비 예측 상세)를 돌려준다. 기간은 같은 until·days로 부른 잔고예보와 같다
+     * (보내지 않으면 잔고예보 설정의 기간 기준·기본 일수·다음 월급일). 하루 목표는 설정 값을 그대로 보여 주고 예측에 섞지 않는다.
      * 선택한 어느 계좌에도 생활비 자료가 없으면 0원으로 확정하지 않고 422 DATA_INSUFFICIENT다.
+     * 생활비 원천이 소비 분류를 쓰므로 읽기 전용 트랜잭션 안에서 부르지 않는다.
      *
      * @param accountIds            생활비를 볼 연결 계좌. 중복은 한 번만 쓴다
+     * @param until                 기간 기준. null이면 잔고예보 설정의 기간 기준
+     * @param days                  until=DAYS일 때 7·14·30. null이면 잔고예보 설정의 기본 일수
      * @param includeAccountDetails 계좌별 생활비 포함 여부
      * @return 생활비 예측 상세
      */
-    public LivingCostForecast livingCost(Long authenticatedUserId, List<Long> accountIds,
-            boolean includeAccountDetails) {
+    public LivingCostForecast livingCost(Long authenticatedUserId, List<Long> accountIds, BalanceForecast.Until until,
+            Integer days, boolean includeAccountDetails) {
         requireUser(authenticatedUserId);
         List<Long> selected = selectedAccounts(accountIds);
+        ForecastSettings userSettings = settings.read(authenticatedUserId);
+        LocalDate today = today();
+        // 잘못된 기간은 계좌·원천을 읽기 전에 400으로 거절한다(잔고예보와 같은 검사).
+        BalanceForecast.Horizon horizon = horizon(authenticatedUserId, userSettings, until, days, today);
         // 잔액을 읽지 않으므로 소유·연결 확인을 여기서 한다. 남의·연결 해제 계좌는 404다.
         selected.forEach(accountId -> accounts.requireConnectedAccount(authenticatedUserId, accountId));
-        LocalDate today = today();
-        BalanceForecast.Horizon horizon = horizon(null, null, Optional.empty(), today);
         LivingCostRead read = estimateLivingCost(authenticatedUserId, selected, today);
         LivingCostEstimator.Estimate estimate = read.estimate();
         boolean anyData = estimate.byAccount().values().stream()
@@ -196,7 +197,20 @@ public class ForecastService {
                 new LivingCostForecast.Period(horizon.from(), horizon.to(), horizon.days(), horizon.type()),
                 total.sources().stream()
                         .map(source -> new LivingCostForecast.Source(source.month(), source.amount())).toList(),
-                LIVING_COST_EXCLUSIONS, null, pace, read.syncedAt(), accountLivingCosts);
+                LIVING_COST_EXCLUSIONS, userSettings.dailyLivingCostTarget(), pace, read.syncedAt(), accountLivingCosts);
+    }
+
+    /**
+     * 요청 값이 없으면 잔고예보 설정으로 예보 기간을 정한다. 오늘 들어올 월급은 잔액에 이미 들어왔는지 몰라 예보에서 빼므로,
+     * 다음 월급일은 오늘보다 뒤의 첫 회차다.
+     */
+    private BalanceForecast.Horizon horizon(Long userId, ForecastSettings userSettings, BalanceForecast.Until until,
+            Integer days, LocalDate today) {
+        BalanceForecast.Until effectiveUntil = until != null ? until : userSettings.horizon();
+        Optional<LocalDate> nextIncome = effectiveUntil == BalanceForecast.Until.NEXT_INCOME
+                ? settingsService.nextIncomeDate(userId, userSettings.incomeCashflowItemId(), today)
+                : Optional.empty();
+        return horizon(effectiveUntil, days != null ? days : userSettings.defaultDays(), nextIncome, today);
     }
 
     /**

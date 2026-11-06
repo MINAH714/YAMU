@@ -1,10 +1,12 @@
 package com.yamu.app.feature.payment.data
 
+import com.yamu.app.core.network.BigDecimalSerializer
 import com.yamu.app.feature.link.data.Brand
 import com.yamu.app.feature.link.data.IssuerDto
 import com.yamu.app.feature.link.data.brandOf
 import com.yamu.app.feature.link.data.lastDigits
 import kotlinx.serialization.Serializable
+import java.math.BigDecimal
 
 // ── 서버 요청 · 응답 — #5 가맹점 · #64 추천 · #77 코드 발급 · #12 코드 상태 · #1 승인 · #3 상세 · 추가 7 거절. 10 문서 6-2 ──
 
@@ -43,7 +45,8 @@ import kotlinx.serialization.Serializable
     val issuer: IssuerDto? = null,           // 보완안(#12 후보에도 — 10 문서 6-8 ④)
     val cardType: String = "CREDIT",
     val maskedNumber: String? = null,
-    val netBenefit: Long = 0,
+    @Serializable(with = BigDecimalSerializer::class)
+    val netBenefit: BigDecimal = BigDecimal.ZERO,   // 포인트 환산율에 소수가 있으면 1.5처럼 온다(S15P31E103-283)
     val benefits: List<BenefitDto> = emptyList(),
     val chargedAmount: Long? = null,
     val installmentOptions: List<Int> = emptyList(),
@@ -161,7 +164,7 @@ data class PayCard(
     val name: String,
     val last4: String,
     val isCheck: Boolean,
-    val netBenefit: Long,
+    val netBenefit: BigDecimal,
     val benefitName: String?,
     val chargedAmount: Long?,
     val installmentOptions: List<Int>,

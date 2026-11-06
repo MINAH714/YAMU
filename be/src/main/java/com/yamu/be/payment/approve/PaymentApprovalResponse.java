@@ -68,6 +68,10 @@ public record PaymentApprovalResponse(
     /** 확정 거절 사유. {@code code}는 {@link FailureCode}. */
     public record Failure(String code, String message, Map<String, Object> details) {}
 
+    /**
+     * @param netBenefit 예상 순혜택(원). 추천 후보 값 그대로라 포인트 환산율에 소수가 있으면 {@code 1.5}처럼 소수가 나온다
+     *                   (S15P31E103-283). 정수면 소수점 없이 나간다
+     */
     public record SuggestedCard(Long userCardId, String nickname, String maskedNumber, CardType cardType,
-            int recommendedRank, long netBenefit) {}
+            int recommendedRank, java.math.BigDecimal netBenefit) {}
 }

@@ -58,12 +58,15 @@ public class SecurityConfig {
     private static final String SIGNUP_TOKEN_PREFIX = "sgt_";
 
     private static final String[] PUBLIC_GET = {
+            "/api/merchant-categories", "/api/merchants",
             "/api/health",
             "/actuator/health", "/actuator/health/**",
             "/swagger-ui.html", "/swagger-ui/**", "/v3/api-docs", "/v3/api-docs/**"
     };
     /** 모의 POS 화면이 부르는 API. Bearer가 아니라 X-POS-Key로 인증하므로(명세 1장) JWT 검사 없이 열고 컨트롤러가 확인한다. */
     static final String POS_PATHS = "/api/pos/**";
+    /** 운영 API. X-Admin-Key로 인증하므로(명세 1장) JWT 검사 없이 열고 인터셉터({@code admin.AdminKeyInterceptor})가 확인한다. */
+    static final String ADMIN_PATHS = "/api/admin/**";
 
     private final AuthUserJwtConverter authUserJwtConverter;
     private final JsonAuthenticationEntryPoint authenticationEntryPoint;
@@ -82,6 +85,7 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.POST, SIGNUP_TOKEN_POST).permitAll()
                         .requestMatchers(HttpMethod.GET, SIGNUP_TOKEN_GET).permitAll()
                         .requestMatchers(POS_PATHS).permitAll()
+                        .requestMatchers(ADMIN_PATHS).permitAll()
                         // 컨트롤러가 던진 예외를 Spring이 /error로 다시 보낼 때 401로 바뀌지 않게 연다.
                         .requestMatchers("/error").permitAll()
                         .anyRequest().authenticated())
@@ -105,7 +109,7 @@ public class SecurityConfig {
         RequestMatcher publicPaths = new OrRequestMatcher(Stream.of(
                 Arrays.stream(PUBLIC_POST).map(path -> (RequestMatcher) paths.matcher(HttpMethod.POST, path)),
                 Arrays.stream(PUBLIC_GET).map(path -> (RequestMatcher) paths.matcher(HttpMethod.GET, path)),
-                Stream.of((RequestMatcher) paths.matcher(POS_PATHS)))
+                Stream.of((RequestMatcher) paths.matcher(POS_PATHS), paths.matcher(ADMIN_PATHS)))
                 .flatMap(s -> s).toList());
         // 가입 진행 토큰을 JWT 검사에서 빼는 것은 그 토큰을 받는 API에서만. 다른 경로에서는 JWT로 검사해 401이 된다.
         RequestMatcher signupTokenPaths = new OrRequestMatcher(Stream.concat(

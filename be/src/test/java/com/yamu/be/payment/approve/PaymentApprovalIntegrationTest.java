@@ -212,6 +212,25 @@ class PaymentApprovalIntegrationTest extends MySqlTestSupport {
         assertThat(snapshots.find(requested.paymentId())).isPresent();
     }
 
+    @Test
+    void 추천을_다시_계산해_승인해도_결제_행의_접수_당시_추천은_그대로다() throws Exception {
+        Requested requested = requested(15_000, null, null);
+        String recommendedAtRequest = storedRecommendationId(requested.paymentId());
+        assertThat(recommendedAtRequest).isNotNull();
+        snapshots.delete(requested.paymentId());
+
+        // 접수 트랜잭션이 JDBC로 version을 올렸어도 승인은 새로 읽은 엔티티로 고치므로 낙관적 잠금 충돌이 없다
+        approve(user, requested.paymentId(), UUID.randomUUID().toString(), "{}")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.status").value("APPROVED"));
+
+        assertThat(payments.findById(requested.paymentId()).orElseThrow().getStatus()).isEqualTo(PaymentStatus.APPROVED);
+        // 재계산한 스냅샷은 새 추천 번호지만 결제 행은 접수 때 값이다
+        assertThat(snapshots.find(requested.paymentId()).orElseThrow().recommendationId())
+                .isNotEqualTo(recommendedAtRequest);
+        assertThat(storedRecommendationId(requested.paymentId())).isEqualTo(recommendedAtRequest);
+    }
+
     // ───────── 멱등 ─────────
 
     @Test
@@ -648,6 +667,12 @@ class PaymentApprovalIntegrationTest extends MySqlTestSupport {
         long amount = command.terms().amount();
         return new ApprovalOutcome.Approved(amount, amount, 0, ApprovalDates.performanceMonth(command.now()),
                 List.of(), null, null, null);
+    }
+
+    /** 결제 행에 보관한 추천 결과의 추천 번호. 보관하지 않았으면 null. */
+    private String storedRecommendationId(long paymentId) {
+        return jdbc.queryForObject("SELECT JSON_UNQUOTE(JSON_EXTRACT(recommendation_result_json, '$.recommendationId'))"
+                + " FROM payment_transaction WHERE payment_transaction_id = ?", String.class, paymentId);
     }
 
     private static String body(long userCardId) {

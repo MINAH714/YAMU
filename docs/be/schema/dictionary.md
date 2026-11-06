@@ -402,7 +402,7 @@ CONSTRAINT ck_tier_value CHECK (limit_value >= 0)
 
 fin_transaction_no는 상태 코드가 아니라 **이 결제로 발생한 계좌 출금의 거래 번호**다. NULL만 보고 결제 실패로 판단하지 않고 status를 함께 확인한다. 출금 응답을 받지 못한 경우도 바로 거절로 확정하지 않고 결과를 확인한다. 체크카드 결제를 나중에 취소해도 원 출금 번호는 보존하며 환급 거래는 REFUND에서 관리한다. 신용카드는 일시불·할부 모두 결제일에 CARD_BILL 기준으로 출금하고, 그 출금 거래 번호는 CARD_BILL에 저장한다. 가맹점 정산을 기록하는 테이블은 아니다.
 
-출금 결과 불명 처리(임시, Task 5.2.3 · [S15P31E103-199](https://ssafy.atlassian.net/browse/S15P31E103-199)): 결과를 모르는 PROCESSING은 fin_request_no의 태그로 거래내역을 찾아 있으면 APPROVED, 유예가 지나도 없으면 WITHDRAWAL_NOT_CONFIRMED로 DECLINED(마감이 지났으면 EXPIRED)로 확정한다. 금액이 다르거나 태그가 둘 이상이면 PROCESSING에 두고 운영이 확인한다. 기존 흐름에 없는 전이 두 가지를 임시로 쓴다. PROCESSING → REQUESTED는 금융망에 아무것도 보내지 못했을 때만, DECLINED·EXPIRED → APPROVED는 WITHDRAWAL_NOT_CONFIRMED이고 같은 fin_request_no의 출금이 늦게 확인됐을 때만이다. 재승인을 시작하면 앞 시도의 fin_request_no·fin_transaction_no를 지우고 새로 받는다(앞 번호는 Redis 시도 기록에 남는다).
+출금 결과 불명 처리(임시, Task 5.2.3 · [S15P31E103-199](https://ssafy.atlassian.net/browse/S15P31E103-199)): 결과를 모르는 PROCESSING은 fin_request_no의 태그로 거래내역을 찾아 fin_request_amount와 금액이 같으면 APPROVED, 유예가 지나도 없으면 WITHDRAWAL_NOT_CONFIRMED로 DECLINED(마감이 지났으면 EXPIRED)로 확정한다. 금액이 다르거나 태그가 둘 이상이면 PROCESSING에 두고 운영이 확인한다. 기존 흐름에 없는 전이 두 가지를 임시로 쓴다. PROCESSING → REQUESTED는 금융망에 아무것도 보내지 못했을 때만, DECLINED·EXPIRED → APPROVED는 WITHDRAWAL_NOT_CONFIRMED이고 같은 fin_request_no의 출금이 늦게 확인됐을 때만이다. 재승인을 시작하면 앞 시도의 fin_request_no·fin_request_amount·fin_transaction_no를 지우고 새로 받는다(앞 번호는 Redis 시도 기록에 남는다).
 
 시설 코드와 혜택 적용 규칙의 기준 문서는 [FR-014의 입점 시설 코드 정책](https://app.notion.com/p/e0431720f35882188d5101733ebd9269)이다. 이 절은 DB 저장값을 설명한다.
 
@@ -425,7 +425,7 @@ fin_transaction_no는 상태 코드가 아니라 **이 결제로 발생한 계�
 | source | `VARCHAR(16) NOT NULL` | YAMU / SEED |
 | status | `VARCHAR(24) NOT NULL` | 결제 처리 상태 코드; REQUESTED 등 API 계약 |
 | requested_amount | `BIGINT NOT NULL` | 최초 요청 금액; 양수 |
-| approved_amount | `BIGINT NULL` | 확정 모의 승인 금액; 전액 할인 시 0 가능 |
+| approved_amount | `BIGINT NULL` | 확정 모의 승인 금액 = requested_amount − 즉시할인(체크카드 출금액·신용카드 청구 원금 합계). 청구할인·캐시백·적립은 빼지 않음; 전액 할인 시 0 가능 |
 | installment_months | `SMALLINT NULL` | 일시불은 1, 할부는 총 개월 수(3개월 할부는 3); 현재 회차 번호가 아님. 지원 개월은 서비스 검증 |
 | recognized_performance_amount | `BIGINT NULL` | 승인 당시 실적 인정액; 미확정은 NULL |
 | performance_basis_amount | `BIGINT NULL` | 혜택 계산에 사용한 전월 실적 인정액(원). 실제 0원은 0, 계산 전·실적 조건 미사용은 NULL. 이번 결제로 새로 쌓이는 실적과 구분 |
@@ -436,6 +436,7 @@ fin_transaction_no는 상태 코드가 아니라 **이 결제로 발생한 계�
 | performance_reversed_at | `TIMESTAMP(6) NULL` | UTC 실적 복구 완료 시각; 서비스에서 1회 처리 |
 | failure_code | `VARCHAR(64) NULL` | 승인 거절 시 API failure.code와 같은 값 저장: INSUFFICIENT_BALANCE(잔액 부족) / CREDIT_LIMIT_EXCEEDED(신용 한도 초과) / CARD_SUSPENDED(카드 정지) / UNPAID_BILL(미납) / ISSUER_DECLINED(모의 승인 거절) / ACCOUNT_UNAVAILABLE(출금 계좌 없음·해지, 임시) / WITHDRAWAL_NOT_CONFIRMED(출금 결과 불명 뒤 거래내역에 없음, 임시). 거절 사유가 없으면 NULL. 서버에서 허용값 검증 |
 | fin_request_no | `CHAR(20) CHARACTER SET ascii COLLATE ascii_bin NULL` | SSAFY 요청 Header.institutionTransactionUniqueNo. 서버가 YYYYMMDD + HHMMSS + 일련번호 6자리로 생성; 아래 채번 규칙 참조. 요청 전 NULL |
+| fin_request_amount | `BIGINT NULL` | 이번 시도의 체크카드 출금 요청액(결제 금액 − 즉시할인). fin_request_no와 같은 트랜잭션에서 저장하고 재승인·되돌리기 때 함께 지운다. 출금 결과 불명 시 거래내역 금액과 비교한다. 출금 요청 전·신용카드·0원 승인은 NULL; S15P31E103-292 이전 행도 NULL이라 requested_amount로 비교 |
 | fin_transaction_no | `VARCHAR(128) CHARACTER SET ascii COLLATE ascii_bin NULL` | 체크카드 출금 성공 시 금융망이 반환한 거래 번호; 상태 코드가 아님. 신용카드는 승인 시 NULL이며 결제일 출금 번호는 CARD_BILL에 저장 |
 | created_at | `TIMESTAMP(6) NOT NULL` | UTC 생성 시각 |
 | updated_at | `TIMESTAMP(6) NOT NULL` | UTC 수정 시각 |
@@ -459,6 +460,7 @@ CONSTRAINT ck_payment_channel CHECK (payment_channel IN ('ONLINE','OFFLINE','UNK
 CONSTRAINT ck_payment_card_pair CHECK ((user_card_id IS NULL AND card_product_id IS NULL) OR (user_card_id IS NOT NULL AND card_product_id IS NOT NULL));
 CONSTRAINT ck_payment_amounts CHECK (requested_amount > 0 AND (approved_amount IS NULL OR approved_amount >= 0) AND (recognized_performance_amount IS NULL OR recognized_performance_amount >= 0));
 CONSTRAINT ck_payment_installment CHECK (installment_months IS NULL OR installment_months > 0);
+CONSTRAINT ck_payment_fin_request_amount CHECK (fin_request_amount IS NULL OR fin_request_amount > 0);
 CONSTRAINT ck_payment_performance_basis CHECK (performance_basis_amount IS NULL OR performance_basis_amount >= 0);
 CONSTRAINT ck_payment_month CHECK (performance_month IS NULL OR DAYOFMONTH(performance_month) = 1);
 CONSTRAINT ck_payment_source CHECK (source IN ('YAMU','SEED'));

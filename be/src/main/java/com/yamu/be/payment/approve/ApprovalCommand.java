@@ -26,4 +26,13 @@ public record ApprovalCommand(Long paymentId, Long userId, PaymentTerms terms, C
         Objects.requireNonNull(card, "card");
         Objects.requireNonNull(now, "now");
     }
+
+    /**
+     * 승인액: 결제 금액 − 추천 후보의 즉시할인({@link PaymentTerms#chargedAmount}). 체크카드는 출금액, 신용카드는 청구 원금이다.
+     * 후보가 아니면(추천 밖의 카드를 직접 고름) 즉시할인 0원이라 결제 금액이다. 결제 화면이 보여 준 금액과 같은 계산이다.
+     */
+    public long chargedAmount() {
+        long instantDiscount = candidate != null ? candidate.instantDiscount() : 0;
+        return terms.chargedAmount(instantDiscount);
+    }
 }

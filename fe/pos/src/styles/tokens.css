@@ -1,0 +1,108 @@
+/* 디자인 토큰. 색 값은 이 파일에만 쓰고 다른 CSS는 var()만 쓴다 */
+
+@font-face {
+  font-family: 'Pretendard';
+  src: url('../assets/fonts/PretendardVariable.woff2') format('woff2');
+  font-weight: 45 920;
+  font-display: swap;
+}
+
+:root {
+  /* 메인 색. 바꿀 때는 이 줄만 고친다. 아래 두 값(#E8F3FF, #1B64DA 근사)은 여기서 계산된다.
+     yamu-logo.svg와 public/icons는 원본 색(#00A3E5) 그대로 두는 예외라 함께 바뀌지 않는다 */
+  --primary: #3182f6;
+  --on-primary: #fff;
+  --primary-container: color-mix(in srgb, var(--primary) 11%, #fff);
+  --on-primary-container: color-mix(in oklch, var(--primary) 84%, #000);
+  --primary-pressed: color-mix(in srgb, var(--primary) 88%, #000);
+
+  /* 회색 */
+  --background: #f2f4f6;
+  --surface: #fff;
+  --surface-dim: #f9fafb;
+  --surface-variant: #f2f4f6;
+  --surface-high: #e5e8eb;
+  --text1: #191f28;
+  --text2: #4e5968;
+  --text3: #8b95a1;
+  --outline: #d1d6db;
+  --outline-variant: #e5e8eb;
+  --scrim: rgba(0, 0, 0, 0.4);
+
+  /* 상태색은 상태를 말할 때만 쓴다 */
+  --success: #03b26c;
+  --success-container: #ebf9f2;
+  --on-success-container: #028a55;
+  --warning: #e57a00;
+  --warning-container: #fff4e5;
+  --on-warning-container: #b35f00;
+  --error: #f04452;
+  --error-container: #ffeeef;
+  --on-error-container: #d22030;
+
+  /* 매장 브랜드색은 BrandMark 로고에만 쓴다 */
+  --brand-starbucks: #00704a;
+  --brand-gs25: #0a64c8;
+  --brand-gs25-accent: #00a9e0;
+
+  /* 글자 */
+  --font: 'Pretendard', system-ui, sans-serif;
+  --fs-amount-xl: 40px;
+  --fs-amount-lg: 34px;
+  --fs-amount-md: 22px;
+  --fs-title: 26px;
+  --fs-card-title: 18px;
+  --fs-card-title-sm: 17px;
+  --fs-body: 16px;
+  --fs-body-sm: 15px;
+  --fs-caption: 14px;
+  --fs-caption-sm: 13px;
+  --fs-min: 12px;
+  --fw-regular: 400;
+  --fw-medium: 500;
+  --fw-semibold: 600;
+  --fw-bold: 700;
+
+  /* 반경 */
+  --r-tag-sm: 6px;
+  --r-tag: 8px;
+  --r-input: 12px;
+  --r-button: 16px;
+  --r-card: 20px;
+  --r-tray: 24px;
+  --r-pill: 999px;
+
+  /* 간격(4px 그리드) */
+  --s-1: 4px;
+  --s-2: 8px;
+  --s-3: 12px;
+  --s-4: 16px;
+  --s-5: 20px;
+  --s-6: 24px;
+  --s-8: 32px;
+  --s-10: 40px;
+  --s-12: 48px;
+
+  /* 크기 */
+  --touch-min: 48px;
+  --button-h: 56px;
+  --header-h: 56px;
+  /* 앱 전체 높이. 확인 페이지는 기기 크기를 흉내 내려고 이 값을 덮어쓴다 */
+  --app-height: 100dvh;
+
+  /* 그림자는 떠 있는 트레이에만 쓴다 */
+  --shadow-tray: 0 8px 32px rgba(0, 0, 0, 0.08);
+
+  /* 움직임. 자바스크립트 쪽 값은 src/styles/motion.ts에 같은 값으로 둔다 */
+  --ease: cubic-bezier(0.2, 0, 0, 1);
+  --dur-fast: 150ms;
+  --dur-base: 200ms;
+  --press-scale: 0.97;
+}
+
+/* 검정과 섞으면 채도까지 빠져 탁해진다. 지원하는 브라우저(Chrome 119 이상)는 밝기만 낮춘다 */
+@supports (color: oklch(from red l c h)) {
+  :root {
+    --on-primary-container: oklch(from var(--primary) calc(l * 0.84) c h);
+  }
+}

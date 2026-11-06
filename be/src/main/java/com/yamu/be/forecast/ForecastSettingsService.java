@@ -35,7 +35,7 @@ import org.springframework.transaction.annotation.Transactional;
  *       뒤 규칙은 다시 수정할 때 지워지고 새로 만들어지지만 첫 규칙은 남기 때문이다. 앞으로 남은 회차가 없으면 null이다</li>
  *   <li>수정은 보낸 필드만 바꾸고, 같은 사용자의 수정은 사용자 행 잠금으로 차례로 처리한다</li>
  * </ul>
- * 잔고예보 조회는 안전 잔액·기간 기준·기본 일수와 다음 월급일({@link #nextIncomeDate})을 읽는다. 하루 목표는 생활비 상세에 아직 연결하지 않았다.
+ * 잔고예보 조회는 안전 잔액·기간 기준·기본 일수와 다음 월급일({@link #nextIncomeDate})을 읽는다. 생활비 상세는 같은 기간과 하루 목표를 읽는다.
  */
 @Service
 public class ForecastSettingsService {

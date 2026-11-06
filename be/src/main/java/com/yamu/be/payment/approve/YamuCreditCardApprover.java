@@ -13,6 +13,7 @@ import com.yamu.be.payment.billing.BillingCycle;
 import com.yamu.be.payment.billing.CardBillRepository;
 import com.yamu.be.payment.billing.InstallmentPlan;
 import com.yamu.be.payment.recommend.RecommendationResult.CardSummary;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
 import lombok.extern.slf4j.Slf4j;
@@ -24,11 +25,15 @@ import org.springframework.stereotype.Component;
  * <pre>
  * 사전 검사(승인 전): 결제일 없음·청구 주기를 만들 수 없는 결제일(1~27 밖)·마감 일수(1~31 밖)·한도 자료 없음
  *                   → 422 DATA_INSUFFICIENT (PROCESSING·시도 횟수를 쓰지 않음)
- * 승인 실행: 미납 청구서가 있는 카드면 DECLINED UNPAID_BILL, 전체 원금이 가용 한도를 넘으면 DECLINED CREDIT_LIMIT_EXCEEDED,
+ * 승인 실행: 미납 청구서가 있는 카드면 DECLINED UNPAID_BILL, 즉시할인 뒤 원금이 0원이면 회차 없이 승인,
+ *           즉시할인 뒤 전체 원금이 가용 한도를 넘으면 DECLINED CREDIT_LIMIT_EXCEEDED,
  *           아니면 승인하고 청구 계획(회차별 원금·청구 월·출금 예정일)을 만든다
  * </pre>
  *
- * 청구 회차는 결과 저장이 {@code CreditBillingWriter}로 적는다. 혜택 재계산·실적 인정액은 BE3·Task 5.2.5 전이라 0이다(임시).
+ * <p>원금은 결제 금액 − 즉시할인이다(S15P31E103-292). 할인 뒤 금액이 할부 최소 금액(5만 원)보다 작아져도 POS가 정한 할부 조건은
+ * 그대로 둔다. 청구할인·캐시백·적립은 원금에서 빼지 않는다.
+ *
+ * <p>청구 회차는 결과 저장이 {@code CreditBillingWriter}로 적는다. 실적 인정액은 BE3·Task 5.2.5 전이라 0이다(임시).
  * 미납 해소 방법이 정해지지 않아(FR-069) 한 번 미납된 카드는 계속 거절된다(임시).
  */
 @Slf4j
@@ -71,7 +76,8 @@ public class YamuCreditCardApprover implements CreditCardApprover {
 
     @Override
     public ApprovalOutcome approve(ApprovalCommand command) {
-        long amount = command.terms().amount();
+        // 청구 원금 = 결제 금액 − 즉시할인(결제 화면이 보여 준 금액). 청구할인·캐시백·적립은 여기서 빼지 않는다
+        long amount = command.chargedAmount();
         UserCardRef ref = registered(command.userId(), command.card().userCardId());
         if (ref.paymentDay() == null) {
             // 사전 검사에서 걸렀어야 한다. 결제일 없이는 청구 월을 정할 수 없으므로 승인하지 않는다
@@ -81,6 +87,12 @@ public class YamuCreditCardApprover implements CreditCardApprover {
             log.info("신용 승인 거절: 미납 청구서가 있는 카드 paymentId={} card=****{}", command.paymentId(),
                     command.card().last4());
             return ApprovalOutcome.Declined.of(FailureCode.UNPAID_BILL);
+        }
+        LocalDate performanceMonth = ApprovalDates.performanceMonth(command.now());
+        if (amount == 0) {
+            // 전액 즉시할인: 청구할 원금이 없으므로 한도를 보지 않고 회차 없이 승인한다(체크카드 0원 승인과 같음)
+            log.info("신용 0원 승인, 청구 회차 없음 paymentId={}", command.paymentId());
+            return new ApprovalOutcome.Approved(0, 0, 0, performanceMonth, List.of(), null, null, null);
         }
         LimitCheck limit = limits.check(command.userId(), command.card().userCardId(), amount);
         if (limit.result() == CreditLimitSource.Result.EXCEEDED) {
@@ -98,9 +110,8 @@ public class YamuCreditCardApprover implements CreditCardApprover {
                 ApprovalDates.koreanDate(command.now()), calendar);
         log.info("신용 승인 paymentId={} amount={} months={} firstBillingMonth={}", command.paymentId(), amount,
                 plan.months(), plan.installments().get(0).billingMonth());
-        // 임시: 혜택·실적 계산 전이라 승인액 = 원금, 실적 인정액 0 (BE3·Task 5.2.5)
-        return new ApprovalOutcome.Approved(amount, amount, 0, ApprovalDates.performanceMonth(command.now()),
-                List.of(), null, null, plan);
+        // 승인액 = 청구 원금(즉시할인 뒤). 임시: 실적 계산 전이라 실적 인정액 0 (BE3·Task 5.2.5)
+        return new ApprovalOutcome.Approved(amount, amount, 0, performanceMonth, List.of(), null, null, plan);
     }
 
     private UserCardRef registered(Long userId, Long userCardId) {

@@ -1,22 +1,29 @@
-import { useEffect, useRef, useState } from 'react'
-import './App.css'
+import { AnimatePresence, MotionConfig, useIsPresent } from 'motion/react'
+import { useRef, useState, type ComponentProps } from 'react'
 import { newIdempotencyKey } from './api/client'
 import { createPaymentRequest, type PaymentRequestBody, type PaymentResult } from './api/pos'
-import { BrandMark } from './components/BrandMark'
+import { Amount } from './components/Amount'
+import { AppHeader } from './components/AppHeader'
 import { CashStep } from './components/CashStep'
+import { Character } from './components/Character'
+import { FatalScreen, UnknownScreen } from './components/FlowScreens'
 import { OrderStep } from './components/OrderStep'
 import { PaymentMethodStep, type PlanInput } from './components/PaymentMethodStep'
 import { PAYMENT_METHOD, Receipt } from './components/Receipt'
 import { ScanStep } from './components/ScanStep'
 import { StatusScreen } from './components/StatusScreen'
 import { StoreSelect } from './components/StoreSelect'
+import { Tray, TrayStep } from './components/Tray'
+import { TRAY_META } from './components/trayMeta'
 import { WaitingStep } from './components/WaitingStep'
 import { config, missingConfig } from './config'
+import { enterFullscreenOnFirstTouch } from './hooks/useFullscreen'
 import { formatToken } from './payment/barcode'
 import { classifyCreateError } from './payment/errors'
 import { formatWon, MIN_INSTALLMENT_AMOUNT, validateTerms, type Terms, type TermsErrors } from './payment/terms'
 import { STORES, type StoreId } from './store/catalog'
 import { changeQuantity, orderItems, removeItem, toOrder, type Cart, type Order } from './store/cart'
+import { FAST } from './styles/motion'
 
 /**
  * 결제 한 건의 요청. 멱등 키는 이 본문과 한 묶음이다.
@@ -35,7 +42,7 @@ type Phase =
   | { step: 'method'; order: Order; errors: TermsErrors; notice: string | null }
   | { step: 'cash'; order: Order }
   | { step: 'cashDone'; order: Order; received: number }
-  | { step: 'scan'; order: Order; terms: Terms; notice: string | null; rejectedToken: string | null }
+  | { step: 'scan'; order: Order; terms: Terms; notice: string | null; rejectedToken: string | null; entry: number }
   | { step: 'sending'; attempt: Attempt }
   | { step: 'unknown'; attempt: Attempt; message: string }
   | { step: 'waiting'; attempt: Attempt; paymentId: number; orderNo: string | null; deadlineAt: number }
@@ -45,7 +52,6 @@ type Phase =
 const EMPTY_PLAN: PlanInput = { plan: 'LUMP_SUM', installmentMonths: '' }
 const EMPTY_CARTS: Record<StoreId, Cart> = { starbucks: {}, gs25: {} }
 const CONFIRM_WINDOW_MS = 60_000
-const STEPS = ['주문', '결제수단', '결제']
 
 function App() {
   const missing = missingConfig()
@@ -59,6 +65,7 @@ function App() {
   )
   // 버튼 연타·스캔 콜백이 겹쳐도 요청은 하나만 나간다(상태 갱신 전에 막아야 해서 ref로 둔다)
   const sendingRef = useRef(false)
+  const scanEntry = useRef(0)
 
   const store = storeId ? STORES[storeId] : null
 
@@ -94,13 +101,22 @@ function App() {
     setPhase({ step: 'method', order, errors: {}, notice: null })
   }
 
+  /**
+   * 요청이 트레이가 닫히기 전에 실패하면 트레이가 언마운트되지 않고 되살아나, 한 번 읽고 멈춘 카메라가 그대로 남는다.
+   * 스캔에 들어올 때마다 회차를 올려 ScanStep을 새로 만든다.
+   */
+  const showScan = (order: Order, terms: Terms, notice: string | null = null, rejectedToken: string | null = null) => {
+    scanEntry.current += 1
+    setPhase({ step: 'scan', order, terms, notice, rejectedToken, entry: scanEntry.current })
+  }
+
   const toScan = (order: Order) => {
     const validated = validateTerms({ amount: String(order.total), ...planInput })
     if ('errors' in validated) {
       setPhase({ step: 'method', order, errors: validated.errors, notice: null })
       return
     }
-    setPhase({ step: 'scan', order, terms: validated.terms, notice: null, rejectedToken: null })
+    showScan(order, validated.terms)
   }
 
   const startAttempt = (order: Order, terms: Terms, barcodeToken: string) => {
@@ -139,13 +155,7 @@ function App() {
           setPhase({ step: 'method', order, errors: failure.errors, notice: failure.message })
           break
         case 'barcode':
-          setPhase({
-            step: 'scan',
-            order,
-            terms,
-            notice: `${failure.message} (${formatToken(attempt.body.barcodeToken)})`,
-            rejectedToken: attempt.body.barcodeToken,
-          })
+          showScan(order, terms, `${failure.message} (${formatToken(attempt.body.barcodeToken)})`, attempt.body.barcodeToken)
           break
         case 'retry':
           setPhase({ step: 'unknown', attempt, message: failure.message })
@@ -154,7 +164,7 @@ function App() {
           setPhase({ step: 'fatal', message: failure.message, config: true })
           break
         case 'discard':
-          setPhase({ step: 'scan', order, terms, notice: failure.message, rejectedToken: null })
+          showScan(order, terms, failure.message)
           break
       }
     } finally {
@@ -162,185 +172,185 @@ function App() {
     }
   }
 
-  const stepIndex = currentStep(phase)
+  const showOrder = phase.step === 'order' || phase.step === 'method' || phase.step === 'cash' || phase.step === 'scan'
+  const surface = phase.step === 'home' || showOrder ? 'canvas' : 'flow'
 
   return (
-    <div className="app" data-store={storeId ?? undefined}>
-      <header className="app-header">
-        <div className="app-brand">
-          {storeId && store ? (
-            <>
-              <BrandMark storeId={storeId} />
-              <span className="app-branch">{store.branch}</span>
-            </>
-          ) : (
-            <h1>
-              YAMU <span>POS</span>
-            </h1>
-          )}
-        </div>
+    <MotionConfig reducedMotion="user" transition={FAST}>
+      <div className="app">
+        <AppHeader
+          store={store}
+          step={currentStep(phase)}
+          mock={config.mockResult}
+          onChangeStore={phase.step === 'order' ? leaveStore : undefined}
+        />
 
-        {stepIndex > 0 && (
-          <ol className="steps" aria-label="결제 단계">
-            {STEPS.map((label, i) => (
-              <li key={label} className={i + 1 === stepIndex ? 'current' : i + 1 < stepIndex ? 'done' : undefined}>
-                <i>{i + 1}</i>
-                {label}
-              </li>
-            ))}
-          </ol>
-        )}
-
-        <div className="app-meta">
-          {config.mockResult && <span className="badge">결과 Mock</span>}
-          <Clock />
-          {phase.step === 'order' && (
-            <button type="button" className="text" onClick={leaveStore}>
-              매장 변경
-            </button>
-          )}
-        </div>
-      </header>
-
-      <main className={`app-main app-main-${phase.step}`}>
-        {phase.step === 'home' && <StoreSelect onSelect={openStore} />}
-
-        {phase.step === 'order' && store && storeId && (
-          <OrderStep
-            store={store}
-            cart={carts[storeId]}
-            onChange={(itemId, delta) => updateCart((cart) => changeQuantity(cart, itemId, delta))}
-            onRemove={(itemId) => updateCart((cart) => removeItem(cart, itemId))}
-            onClear={() => updateCart(() => ({}))}
-            onCheckout={checkout}
-          />
-        )}
-
-        {phase.step === 'method' && (
-          <PaymentMethodStep
-            order={phase.order}
-            planInput={planInput}
-            errors={phase.errors}
-            notice={phase.notice}
-            onPlanChange={(input) => {
-              setPlanInput(input)
-              setPhase({ ...phase, errors: {}, notice: null })
-            }}
-            onYamu={() => toScan(phase.order)}
-            onCash={() => setPhase({ step: 'cash', order: phase.order })}
-            onBack={() => setPhase({ step: 'order' })}
-          />
-        )}
-
-        {phase.step === 'cash' && (
-          <CashStep
-            order={phase.order}
-            onDone={(received) => setPhase({ step: 'cashDone', order: phase.order, received })}
-            onBack={() => setPhase({ step: 'method', order: phase.order, errors: {}, notice: null })}
-          />
-        )}
-
-        {phase.step === 'cashDone' && (
-          <StatusScreen
-            tone="approved"
-            lead="현금 결제가 완료되었습니다."
-            title={formatWon(phase.order.total)}
-            items={orderItems(phase.order)}
-            rows={[
-              { label: '결제 수단', value: '현금' },
-              { label: '받은 금액', value: formatWon(phase.received) },
-              { label: '거스름돈', value: formatWon(phase.received - phase.order.total) },
-            ]}
-            action={{ label: '다음 주문', onClick: newOrder }}
-          />
-        )}
-
-        {phase.step === 'scan' && (
-          <ScanStep
-            order={phase.order}
-            terms={phase.terms}
-            notice={phase.notice}
-            rejectedToken={phase.rejectedToken}
-            onToken={(token) => startAttempt(phase.order, phase.terms, token)}
-            onBack={() => setPhase({ step: 'method', order: phase.order, errors: {}, notice: null })}
-          />
-        )}
-
-        {phase.step === 'sending' && (
-          <StatusScreen
-            tone="checking"
-            title="결제를 요청하고 있어요."
-            description={`결제 코드 ${formatToken(phase.attempt.body.barcodeToken)}`}
-            rows={[
-              { label: '주문 금액', value: formatWon(phase.attempt.terms.amount) },
-              { label: '결제 수단', value: PAYMENT_METHOD },
-            ]}
-          />
-        )}
-
-        {phase.step === 'unknown' && (
-          <section className="panel">
-            <h2>결과를 확인하지 못했어요</h2>
-            <p className="alert alert-error">{phase.message}</p>
-            <p>같은 요청으로 다시 보내면 이미 접수된 결제는 새로 만들어지지 않고 처음 결과를 돌려받아요.</p>
-            <button type="button" className="primary" onClick={() => send(phase.attempt)}>
-              같은 요청 다시 보내기
-            </button>
-            <button
-              type="button"
-              className="link"
-              onClick={() => {
-                if (window.confirm('새 주문을 시작할까요? 이 결제는 이미 접수됐을 수 있어 고객 앱의 결제 내역을 먼저 확인해 주세요.')) newOrder()
+        <main className="app-main" data-surface={surface}>
+          {phase.step === 'home' && (
+            <StoreSelect
+              onSelect={(id) => {
+                // 전체화면은 사용자 입력 안에서만 요청할 수 있다
+                enterFullscreenOnFirstTouch()
+                openStore(id)
               }}
+            />
+          )}
+
+          {/* 결제수단·현금·스캔은 주문 화면을 그대로 둔 채 트레이로 띄운다. 그동안 주문은 고칠 수 없다 */}
+          {showOrder && store && storeId && (
+            <OrderStep
+              store={store}
+              cart={carts[storeId]}
+              locked={phase.step !== 'order'}
+              onChange={(itemId, delta) => updateCart((cart) => changeQuantity(cart, itemId, delta))}
+              onRemove={(itemId) => updateCart((cart) => removeItem(cart, itemId))}
+              onClear={() => updateCart(() => ({}))}
+              onCheckout={checkout}
+            />
+          )}
+
+          {phase.step === 'cashDone' && (
+            <StatusScreen
+              tone="approved"
+              graphic={<Character pose="pay" size={160} />}
+              lead="현금 결제를 완료했어요"
+              title={formatWon(phase.order.total)}
+              items={orderItems(phase.order)}
+              rows={[
+                { label: '결제 수단', value: '현금' },
+                { label: '받은 금액', value: formatWon(phase.received) },
+                { label: '거스름돈', value: formatWon(phase.received - phase.order.total) },
+              ]}
+              action={{ label: '다음 주문', onClick: newOrder }}
+            />
+          )}
+
+          {phase.step === 'sending' && (
+            <StatusScreen
+              tone="checking"
+              title="결제를 요청하고 있어요"
+              description={`결제 코드 ${formatToken(phase.attempt.body.barcodeToken)}`}
+              rows={[
+                { label: '주문 금액', value: formatWon(phase.attempt.terms.amount) },
+                { label: '결제 수단', value: PAYMENT_METHOD },
+              ]}
+            />
+          )}
+
+          {phase.step === 'unknown' && (
+            <UnknownScreen message={phase.message} onRetry={() => send(phase.attempt)} onNewOrder={newOrder} />
+          )}
+
+          {phase.step === 'waiting' && (
+            <WaitingStep
+              key={phase.paymentId}
+              paymentId={phase.paymentId}
+              posCode={phase.attempt.body.posCode}
+              orderNo={phase.orderNo}
+              terms={phase.attempt.terms}
+              deadlineAt={phase.deadlineAt}
+              onFinal={(result) => setPhase({ step: 'receipt', result, attempt: phase.attempt })}
+              onFatal={(message, isConfig) => setPhase({ step: 'fatal', message, config: isConfig })}
+              onAbandon={newOrder}
+            />
+          )}
+
+          {phase.step === 'receipt' && (
+            <Receipt
+              result={phase.result}
+              order={phase.attempt.order}
+              onNext={newOrder}
+              onRetry={() => showScan(phase.attempt.order, phase.attempt.terms)}
+            />
+          )}
+
+          {phase.step === 'fatal' && (
+            <FatalScreen
+              message={phase.message}
+              isConfig={phase.config}
+              canLeaveStore={storeId !== null}
+              onNewOrder={newOrder}
+              onLeaveStore={leaveStore}
+            />
+          )}
+        </main>
+
+        <AnimatePresence>
+          {(phase.step === 'method' || phase.step === 'cash' || phase.step === 'scan') && (
+            <Tray
+              key="tray"
+              title={TRAY_META[phase.step].title}
+              width={TRAY_META[phase.step].width}
+              onClose={phase.step === 'method' ? () => setPhase({ step: 'order' }) : undefined}
+              onBack={
+                phase.step === 'method'
+                  ? undefined
+                  : () => setPhase({ step: 'method', order: phase.order, errors: {}, notice: null })
+              }
             >
-              새 주문 시작
-            </button>
-          </section>
-        )}
+              <Amount className="tray-amount" layoutId="order-total" value={phase.order.total} size="lg" />
 
-        {phase.step === 'waiting' && (
-          <WaitingStep
-            key={phase.paymentId}
-            paymentId={phase.paymentId}
-            posCode={phase.attempt.body.posCode}
-            orderNo={phase.orderNo}
-            terms={phase.attempt.terms}
-            deadlineAt={phase.deadlineAt}
-            onFinal={(result) => setPhase({ step: 'receipt', result, attempt: phase.attempt })}
-            onFatal={(message, isConfig) => setPhase({ step: 'fatal', message, config: isConfig })}
-            onAbandon={newOrder}
-          />
-        )}
+              {phase.step === 'method' && (
+                <TrayStep key="method">
+                  <PaymentMethodStep
+                    order={phase.order}
+                    planInput={planInput}
+                    errors={phase.errors}
+                    notice={phase.notice}
+                    onPlanChange={(input) => {
+                      setPlanInput(input)
+                      setPhase({ ...phase, errors: {}, notice: null })
+                    }}
+                    onYamu={() => toScan(phase.order)}
+                    onCash={() => setPhase({ step: 'cash', order: phase.order })}
+                  />
+                </TrayStep>
+              )}
 
-        {phase.step === 'receipt' && (
-          <Receipt
-            result={phase.result}
-            order={phase.attempt.order}
-            onNext={newOrder}
-            onRetry={() =>
-              setPhase({ step: 'scan', order: phase.attempt.order, terms: phase.attempt.terms, notice: null, rejectedToken: null })
-            }
-          />
-        )}
+              {phase.step === 'cash' && (
+                <TrayStep key="cash">
+                  <CashStep
+                    order={phase.order}
+                    onDone={(received) => setPhase({ step: 'cashDone', order: phase.order, received })}
+                  />
+                </TrayStep>
+              )}
 
-        {phase.step === 'fatal' && (
-          <section className="panel">
-            <h2>{phase.config ? 'POS 설정 오류' : '결제를 이어갈 수 없어요'}</h2>
-            <p className="alert alert-error">{phase.message}</p>
-            {!phase.config && (
-              <button type="button" className="primary" onClick={newOrder}>
-                새 주문
-              </button>
-            )}
-            {phase.config && storeId && (
-              <button type="button" onClick={leaveStore}>
-                매장 선택으로
-              </button>
-            )}
-          </section>
-        )}
-      </main>
-    </div>
+              {phase.step === 'scan' && (
+                <TrayStep key={`scan-${phase.entry}`}>
+                  <ScanInTray
+                    terms={phase.terms}
+                    notice={phase.notice}
+                    rejectedToken={phase.rejectedToken}
+                    onToken={(token) => startAttempt(phase.order, phase.terms, token)}
+                  />
+                </TrayStep>
+              )}
+            </Tray>
+          )}
+        </AnimatePresence>
+
+        <div className="portrait-guard" role="alert">
+          가로로 돌려 주세요
+        </div>
+      </div>
+    </MotionConfig>
+  )
+}
+
+/**
+ * 트레이가 닫히는 동안에도 스캔 화면은 잠깐 남아 있고 카메라도 켜져 있다.
+ * 그 사이에 읽힌 QR이 두 번째 결제가 되지 않게 버린다.
+ */
+function ScanInTray({ onToken, ...props }: ComponentProps<typeof ScanStep>) {
+  const isPresent = useIsPresent()
+  return (
+    <ScanStep
+      {...props}
+      onToken={(token) => {
+        if (isPresent) onToken(token)
+      }}
+    />
   )
 }
 
@@ -358,25 +368,6 @@ function currentStep(phase: Phase): number {
     default:
       return 3
   }
-}
-
-const clockFormat = new Intl.DateTimeFormat('ko-KR', {
-  timeZone: 'Asia/Seoul',
-  month: '2-digit',
-  day: '2-digit',
-  weekday: 'short',
-  hour: '2-digit',
-  minute: '2-digit',
-  hourCycle: 'h23',
-})
-
-function Clock() {
-  const [now, setNow] = useState(() => new Date())
-  useEffect(() => {
-    const timer = setInterval(() => setNow(new Date()), 10_000)
-    return () => clearInterval(timer)
-  }, [])
-  return <time className="clock">{clockFormat.format(now)}</time>
 }
 
 /**

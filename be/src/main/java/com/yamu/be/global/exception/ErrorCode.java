@@ -151,7 +151,12 @@ public enum ErrorCode {
     /* 모의 POS - 결제 요청 생성 (API 명세 「POS 결제 요청 생성」). 금액·할부 오류는 위 INVALID_AMOUNT·INVALID_INSTALLMENT */
     INVALID_POS_KEY(HttpStatus.UNAUTHORIZED, "POS 키가 없거나 올바르지 않습니다."),
     MERCHANT_NOT_FOUND(HttpStatus.NOT_FOUND, "가맹점을 찾을 수 없습니다."),
-    IDEMPOTENCY_KEY_REQUIRED(HttpStatus.BAD_REQUEST, "Idempotency-Key 헤더(UUID)가 필요합니다.");
+    IDEMPOTENCY_KEY_REQUIRED(HttpStatus.BAD_REQUEST, "Idempotency-Key 헤더(UUID)가 필요합니다."),
+
+    /* 운영 - 정기 작업 수동 실행 (API 명세 「[운영] 정기 작업 수동 실행」) */
+    ADMIN_ONLY(HttpStatus.FORBIDDEN, "운영자만 사용할 수 있습니다."),
+    JOB_NOT_FOUND(HttpStatus.NOT_FOUND, "없는 작업입니다."),
+    JOB_ALREADY_RUNNING(HttpStatus.CONFLICT, "같은 작업이 실행 중입니다. 잠시 후 다시 시도해 주세요.");
 
     private final HttpStatus status;
     private final String message;

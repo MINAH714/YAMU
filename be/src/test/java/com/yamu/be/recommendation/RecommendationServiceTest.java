@@ -71,6 +71,72 @@ class RecommendationServiceTest {
         logs.stop();
     }
 
+    @Test void simulationReusesPoliciesWithoutPaymentIdAndKeepsActualPaymentResult() {
+        doReturn(fixedPolicy("500")).when(assembler).policy(any(), any(), any(), any(), anyList(), any(), any());
+        var command = command(Map.of(1L, available(), 2L, available(), 3L, available()));
+        var actual = recommend(command).recommendation();
+        var simulated = service.recommendSimulation(1L, command.transaction(), CalculationOptions.DEFAULT).recommendation();
+        assertThat(simulated.paymentId()).isNull();
+        assertThat(simulated.selectedUserCardId()).isEqualTo(actual.selectedUserCardId());
+        assertThat(simulated.evaluatedCards()).isEqualTo(actual.evaluatedCards());
+        assertThat(simulated.rankedCards()).isEqualTo(actual.rankedCards());
+        assertThat(recommend(command).recommendation()).isEqualTo(actual);
+        verify(availabilityReader).prepare(isNull(), eq(1L), eq(10_000L), eq(Plan.LUMP_SUM));
+        verify(cards, never()).save(any());
+    }
+
+    @Test void simulationChecksOwnershipBeforePolicyLoading() {
+        var foreign = card(99);
+        setField(foreign, "userId", 2L);
+        when(cards.findOrdered(anyLong(), anyCollection())).thenReturn(List.of(foreign));
+        assertThatIllegalArgumentException().isThrownBy(() ->
+                service.recommendSimulation(1L, command(Map.of()).transaction(), CalculationOptions.DEFAULT));
+        verifyNoInteractions(products, loader, activity);
+    }
+
+    @Test void simulationOptionsDoNotLeakAndOnlyAppliedRulesAreReturned() {
+        var fixture = new BrandMissingSimulationTest();
+        doReturn(fixture.legacy(fixture.brandOnly())).when(assembler).policy(any(), any(), any(), any(), anyList(), any(), any());
+        var enabled = service.recommendSimulation(1L, fixture.tx, new CalculationOptions(true));
+        assertThat(enabled.recommendation().rankedCards()).hasSize(3).allSatisfy(c -> {
+            assertThat(c.calculation().netBenefit()).isEqualByComparingTo("500");
+            assertThat(c.calculation().excludedBenefits()).hasSize(1);
+        });
+        assertThat(enabled.simulationRules()).hasSize(3).allSatisfy(r -> assertThat(r.userCardId()).isNotNull());
+        var disabled = service.recommendSimulation(1L, fixture.tx, CalculationOptions.DEFAULT);
+        assertThat(disabled.recommendation().selectedUserCardId()).isNull();
+        assertThat(disabled.recommendation().uncomparedCards()).hasSize(3).allSatisfy(c -> {
+            assertThat(c.calculation().netBenefit()).isNull();
+            assertThat(c.calculation().excludedBenefits()).isEmpty();
+            assertThat(c.calculation().problems()).extracting(CardBenefitCalculator.Problem::code).contains("BRAND_MISSING");
+        });
+        assertThat(disabled.simulationRules()).isEmpty();
+        assertThat(service.recommendSimulation(1L, fixture.tx, new CalculationOptions(true))).isEqualTo(enabled);
+    }
+
+    @Test void concurrentSimulationsKeepOptionsIsolated() throws Exception {
+        var fixture = new BrandMissingSimulationTest();
+        doReturn(fixture.legacy(fixture.brandOnly())).when(assembler).policy(any(), any(), any(), any(), anyList(), any(), any());
+        var pool = java.util.concurrent.Executors.newFixedThreadPool(4);
+        try {
+            var tasks = new ArrayList<java.util.concurrent.Callable<Void>>();
+            for (int i = 0; i < 12; i++) {
+                boolean exclude = i % 2 == 0;
+                tasks.add(() -> {
+                    var result = service.recommendSimulation(1L, fixture.tx, new CalculationOptions(exclude));
+                    assertThat(result.recommendation().paymentId()).isNull();
+                    assertThat(result.recommendation().rankedCards()).hasSize(exclude ? 3 : 0);
+                    assertThat(result.simulationRules()).hasSize(exclude ? 3 : 0);
+                    return null;
+                });
+            }
+            for (var task : pool.invokeAll(tasks)) task.get();
+        } finally {
+            pool.shutdownNow();
+        }
+        verify(cards, never()).save(any());
+    }
+
     @Test
     void passesLoadedInputsToRealSelectorAndKeepsPartialReadyExclusionAndConfirmedZeroDistinct() {
         // 테스트에서만 제공하는 확인된 입력. 실제 상품의 정책 공급 설정이 아니다.
