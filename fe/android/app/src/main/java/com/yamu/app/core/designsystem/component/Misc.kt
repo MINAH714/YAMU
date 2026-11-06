@@ -13,8 +13,14 @@ import androidx.compose.foundation.layout.offset
 import androidx.annotation.DrawableRes
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.keyframes
+import androidx.compose.animation.core.tween
+import android.os.SystemClock
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
+import kotlinx.coroutines.launch
+import com.yamu.app.core.designsystem.theme.YamuMotion
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -209,7 +215,14 @@ enum class CharacterSize(val size: Dp) { S(64.dp), M(96.dp), L(128.dp) }
 /**
  * 캐릭터 — 장식이라 contentDescription 없음.
  * [circle]이면 연한 원 안에 얼굴 쪽만(카드 · 목록 안 작은 자리), 아니면 배경 없이 전신(환영 · 완료처럼 가운데 크게). 기본은 S만 원형.
- * 자리 크기는 둘 다 [size] 정사각형이라 둘레 배치는 그대로. 움직임은 보류 — 지금은 들어올 때 한 번 볼록
+ * 자리 크기는 둘 다 [size] 정사각형이라 둘레 배치는 그대로.
+ *
+ * 움직임은 둘이다.
+ * - [animate]: 처음 그려질 때 조용한 등장(0.92 → 1 + 페이드, 넘침 없음). 결제 완료처럼 자주 보는 화면은 이것만 쓴다.
+ * - [celebrateKey]: 카드 등록 · 가입 완료처럼 드문 순간의 축하 팝(눌림 → 정점 → 안착 + 고리 · 파티클).
+ *   null이 아닌 새 값이 올 때마다 한 번 돈다. 팝이 시작되면 [onCelebrated]가 불리니, 화면은 거기서 키를 비워
+ *   단계를 되돌아오거나 화면이 다시 만들어져도 같은 축하가 또 돌지 않게 한다.
+ * 모션 줄이기가 켜져 있으면 둘 다 크기 · 회전 · 고리 · 파티클 없이 짧은 페이드만 남는다.
  */
 @Composable
 fun CharacterImage(
@@ -218,27 +231,140 @@ fun CharacterImage(
     size: CharacterSize = CharacterSize.M,
     animate: Boolean = false,
     circle: Boolean = size == CharacterSize.S,
+    celebrateKey: Any? = null,
+    onCelebrated: () -> Unit = {},
+) = CharacterImageImpl(pose, modifier, size, animate, circle, celebrateKey, onCelebrated, tilt = true)
+
+/** [tilt]는 컴포넌트 갤러리에서 팝 크기만 재려고 회전을 끌 때만 false */
+@Composable
+internal fun CharacterImageImpl(
+    pose: YamuPose,
+    modifier: Modifier,
+    size: CharacterSize,
+    animate: Boolean,
+    circle: Boolean,
+    celebrateKey: Any?,
+    onCelebrated: () -> Unit,
+    tilt: Boolean,
 ) {
-    val scale = remember { Animatable(if (animate) 0.9f else 1f) }
-    LaunchedEffect(animate) {
-        if (animate) scale.animateTo(1f, spring(dampingRatio = Spring.DampingRatioMediumBouncy))
-    }
-    val box = modifier
-        .size(size.size)
-        .graphicsLayer {
-            scaleX = scale.value
-            scaleY = scale.value
+    val reduce = YamuTheme.reduceMotion
+    val enter = animate && celebrateKey == null
+    val scale = remember { Animatable(if (enter && !reduce) YamuMotion.CHARACTER_ENTER_FROM else 1f) }
+    val alpha = remember { Animatable(if (enter) 0f else 1f) }
+    val rotation = remember { Animatable(0f) }
+    val burst = remember { Animatable(BURST_TOTAL_MS.toFloat()) }
+    var burstParts by remember { mutableStateOf(BurstParts.NONE) }
+    val streak = remember { BurstStreak() }
+    // 팝은 키가 바뀌어도(화면이 onCelebrated에서 키를 비워도) 끊기지 않게 이 자리의 범위에서 돈다
+    val scope = rememberCoroutineScope()
+    val latestOnCelebrated by rememberUpdatedState(onCelebrated)
+
+    LaunchedEffect(Unit) {
+        if (!enter) return@LaunchedEffect
+        if (reduce) {
+            alpha.animateTo(1f, tween(YamuMotion.SHORT_MS, easing = YamuMotion.standard))
+        } else {
+            val spec = tween<Float>(YamuMotion.CHARACTER_ENTER_MS, easing = YamuMotion.standard)
+            launch { alpha.animateTo(1f, spec) }
+            scale.animateTo(1f, spec)
         }
-    if (circle) {
-        Image(
-            painter = painterResource(pose.res),
-            contentDescription = null,
-            contentScale = remember(pose) { ZoomCrop(pose.circleZoom) },
-            alignment = BiasAlignment(pose.circleBiasX, pose.circleBiasY),
-            modifier = box.clip(CircleShape).background(YamuTheme.colors.primaryContainer),
-        )
-    } else {
-        Image(painter = painterResource(pose.res), contentDescription = null, modifier = box)
+    }
+
+    LaunchedEffect(celebrateKey) {
+        if (celebrateKey == null) return@LaunchedEffect
+        latestOnCelebrated()
+        scope.launch {
+            if (reduce) {
+                burstParts = BurstParts.NONE
+                scale.snapTo(1f)
+                rotation.snapTo(0f)
+                alpha.snapTo(0f)
+                alpha.animateTo(1f, tween(YamuMotion.SHORT_MS, easing = YamuMotion.standard))
+                return@launch
+            }
+            burstParts = streak.next(SystemClock.uptimeMillis())
+            alpha.snapTo(1f)
+            scale.snapTo(1f)
+            rotation.snapTo(0f)
+            launch { scale.animateTo(1f, popScale()) }
+            if (tilt) launch { rotation.animateTo(0f, popRotation()) }
+            burst.snapTo(0f)
+            burst.animateTo(BURST_TOTAL_MS.toFloat(), tween(BURST_TOTAL_MS, easing = LinearEasing))
+            burstParts = BurstParts.NONE   // 다 그렸으면 Canvas를 뺀다. 새 팝이 끊으면 여기까지 오지 않는다
+        }
+    }
+
+    Box(modifier.size(size.size)) {
+        if (burstParts != BurstParts.NONE) {
+            CelebrationBurst(
+                elapsedMs = { burst.value },
+                modifier = Modifier.matchParentSize(),
+                ripple = burstParts.ripple,
+                particles = burstParts.particles,
+            )
+        }
+        val box = Modifier
+            .matchParentSize()
+            .graphicsLayer {
+                scaleX = scale.value
+                scaleY = scale.value
+                rotationZ = rotation.value
+                this.alpha = alpha.value
+            }
+        if (circle) {
+            Image(
+                painter = painterResource(pose.res),
+                contentDescription = null,
+                contentScale = remember(pose) { ZoomCrop(pose.circleZoom) },
+                alignment = BiasAlignment(pose.circleBiasX, pose.circleBiasY),
+                modifier = box.clip(CircleShape).background(YamuTheme.colors.primaryContainer),
+            )
+        } else {
+            Image(painter = painterResource(pose.res), contentDescription = null, modifier = box)
+        }
+    }
+}
+
+/** 1 → 0.80(눌림) → 1.19(정점) → 0.993 → 1. Compose의 using은 그 키프레임에서 시작하는 구간의 곡선 */
+private fun popScale() = keyframes {
+    durationMillis = YamuMotion.POP_MS
+    1f at 0 using YamuMotion.inOut
+    YamuMotion.POP_PRESS_SCALE at YamuMotion.POP_PRESS_AT using YamuMotion.inOut
+    YamuMotion.POP_PEAK_SCALE at YamuMotion.POP_PEAK_AT using LinearEasing
+    YamuMotion.POP_SETTLE_SCALE at YamuMotion.POP_SETTLE_AT using YamuMotion.inOut
+}
+
+/** 눌릴 때 왼쪽으로 기울었다가 정점에서 살짝 넘어간 뒤 바로 섬 */
+private fun popRotation() = keyframes {
+    durationMillis = YamuMotion.POP_ROTATE_MS
+    0f at 0 using YamuMotion.inOut
+    YamuMotion.POP_TILT_DEG at YamuMotion.POP_PRESS_AT using YamuMotion.inOut
+    YamuMotion.POP_TILT_BACK_DEG at YamuMotion.POP_PEAK_AT using YamuMotion.inOut
+}
+
+internal enum class BurstParts(val ripple: Boolean, val particles: Boolean) {
+    ALL(true, true),
+    RIPPLE_ONLY(true, false),
+    NONE(false, false),
+}
+
+/**
+ * 연달아 터질 때 줄이기. 앞 버스트가 끝나고 쉬는 시간(PARTICLE_COOLDOWN_MS) 안에 다음이 오면 파티클을 빼고,
+ * 그렇게 이어진 것이 PARTICLE_MAX_IN_ROW번을 넘으면 고리도 뺀다. 팝(크기)은 늘 돈다.
+ */
+internal class BurstStreak {
+    private var lastEnd = Long.MIN_VALUE
+    private var inRow = 0
+
+    fun next(now: Long): BurstParts {
+        val chained = lastEnd != Long.MIN_VALUE && now < lastEnd + YamuMotion.PARTICLE_COOLDOWN_MS
+        inRow = if (chained) inRow + 1 else 1
+        lastEnd = now + BURST_TOTAL_MS
+        return when {
+            !chained -> BurstParts.ALL
+            inRow <= YamuMotion.PARTICLE_MAX_IN_ROW -> BurstParts.RIPPLE_ONLY
+            else -> BurstParts.NONE
+        }
     }
 }
 

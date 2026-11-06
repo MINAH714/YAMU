@@ -21,6 +21,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.rememberCoroutineScope
@@ -37,6 +38,7 @@ import com.yamu.app.core.designsystem.card.CardImages
 import com.yamu.app.core.designsystem.component.CardArt
 import com.yamu.app.core.designsystem.component.CardThumb
 import com.yamu.app.core.designsystem.component.CharacterImage
+import com.yamu.app.core.designsystem.component.CharacterImageImpl
 import com.yamu.app.core.designsystem.component.CharacterSize
 import com.yamu.app.core.designsystem.component.EmptyState
 import com.yamu.app.core.designsystem.component.ErrorState
@@ -67,6 +69,7 @@ import com.yamu.app.core.designsystem.component.YamuTabs
 import com.yamu.app.core.designsystem.component.YamuTopBar
 import com.yamu.app.core.designsystem.theme.BrandColor
 import com.yamu.app.core.designsystem.theme.Issuer
+import com.yamu.app.core.designsystem.theme.YamuMotionDebug
 import com.yamu.app.core.designsystem.theme.YamuTheme
 import com.yamu.app.core.ui.LocalSnackbar
 import kotlinx.coroutines.launch
@@ -101,11 +104,56 @@ fun ComponentGallery(onBack: (() -> Unit)? = null) {
                         ToggleRow("글자 1.3배", bigFont) { bigFont = it }
                         ToggleRow("브랜드 색 미리보기(청록 후보)", teal) { teal = it }
                     }
+                    CharacterMotionSamples()
                     GallerySections()
                     Spacer(Modifier.height(56.dp))
                 }
             }
         }
+    }
+}
+
+/**
+ * 캐릭터 등장 견본 — 녹화로 박자를 재는 자리(모션 명세 M-DONE-character).
+ * 다시 재생은 견본을 새로 그리거나(조용한 등장) 새 축하 키를 넘긴다(팝). '견본 다시 넣기'는 키를 비운 뒤
+ * 견본을 새로 그려, 이미 쓴 축하가 다시 돌지 않는지 본다. 팝 크기를 잴 때는 회전을 끈다.
+ */
+@Composable
+private fun CharacterMotionSamples() {
+    var enterRun by rememberSaveable { mutableIntStateOf(0) }
+    var popCount by rememberSaveable { mutableIntStateOf(0) }
+    var popKey by rememberSaveable { mutableStateOf<Int?>(null) }
+    var popMount by rememberSaveable { mutableIntStateOf(0) }
+    var tilt by rememberSaveable { mutableStateOf(true) }
+    YamuCard {
+        Text("캐릭터 등장", style = YamuTheme.typography.titleM, color = YamuTheme.colors.text1)
+        ToggleRow("모션 줄이기 강제", YamuMotionDebug.forceReduceMotion) { YamuMotionDebug.forceReduceMotion = it }
+        ToggleRow("팝 회전", tilt) { tilt = it }
+        Row(
+            Modifier.fillMaxWidth().padding(vertical = 24.dp),
+            horizontalArrangement = Arrangement.SpaceEvenly,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            key(enterRun) { CharacterImage(YamuPose.Pay, size = CharacterSize.M, animate = true) }
+            key(popMount) {
+                CharacterImageImpl(
+                    YamuPose.Card,
+                    modifier = Modifier,
+                    size = CharacterSize.M,
+                    animate = false,
+                    circle = false,
+                    celebrateKey = popKey,
+                    onCelebrated = { popKey = null },
+                    tilt = tilt,
+                )
+            }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            NeutralButton("조용한 등장", onClick = { enterRun++ }, modifier = Modifier.weight(1f))
+            NeutralButton("축하 팝", onClick = { popKey = ++popCount }, modifier = Modifier.weight(1f))
+        }
+        Spacer(Modifier.height(8.dp))
+        TextButtonGrey("견본 다시 넣기(팝이 다시 돌면 안 됨)", onClick = { popMount++ })
     }
 }
 
