@@ -58,6 +58,7 @@ public class SecurityConfig {
     private static final String SIGNUP_TOKEN_PREFIX = "sgt_";
 
     private static final String[] PUBLIC_GET = {
+            "/api/merchant-categories", "/api/merchants",
             "/api/health",
             "/actuator/health", "/actuator/health/**",
             "/swagger-ui.html", "/swagger-ui/**", "/v3/api-docs", "/v3/api-docs/**"

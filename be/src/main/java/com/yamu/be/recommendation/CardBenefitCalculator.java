@@ -19,8 +19,22 @@ import java.util.stream.Collectors;
 /** POL-012. 명시적 적용 그룹 또는 기존 순서별 조합을 계산한다. 한도 사용 예상값은 호출 안의 지역 변수다. */
 public final class CardBenefitCalculator {
     private final BenefitConditionEvaluator conditionEvaluator = new BenefitConditionEvaluator();
+    private final SimulationContext simulation;
+
+    public CardBenefitCalculator() { this(null); }
+    private CardBenefitCalculator(SimulationContext simulation) { this.simulation = simulation; }
+
+    /** 호출마다 독립된 상태이며 공유 계산기에는 저장하지 않는다. */
+    private static final class SimulationContext {
+        final CalculationOptions options;
+        final java.util.Set<MissingInformation> missing = new java.util.LinkedHashSet<>();
+        final java.util.Set<Long> excluded = new java.util.LinkedHashSet<>();
+        SimulationContext(CalculationOptions options) { this.options = options; }
+    }
 
     public record Problem(Long benefitId, String code) { }
+    public record MissingInformation(long benefitId, String code, String field) { }
+    public record ExcludedBenefit(long benefitId, String reasonCode) { }
     public record BenefitValue(long benefitId, int version, String name, BenefitPolicy.BenefitType type,
                                BigDecimal rawValue, BigDecimal value, Unit unit, BigDecimal krwValue,
                                String reason) { }
@@ -32,12 +46,25 @@ public final class CardBenefitCalculator {
     }
     public record Calculation(boolean complete, BigDecimal netBenefit, List<BenefitValue> benefits,
                               List<LimitUse> limitUses, List<Problem> problems,
-                              List<UnallocatedBenefitGroup> unallocatedBenefitGroups) {
+                              List<UnallocatedBenefitGroup> unallocatedBenefitGroups,
+                              @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_EMPTY)
+                              List<MissingInformation> missingInformation,
+                              @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_EMPTY)
+                              List<ExcludedBenefit> excludedBenefits,
+                              @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_EMPTY)
+                              List<SimulationRule> simulationRules) {
+        public Calculation(boolean complete, BigDecimal netBenefit, List<BenefitValue> benefits,
+                List<LimitUse> limitUses, List<Problem> problems, List<UnallocatedBenefitGroup> unallocatedBenefitGroups) {
+            this(complete, netBenefit, benefits, limitUses, problems, unallocatedBenefitGroups, List.of(), List.of(), List.of());
+        }
         public Calculation(boolean complete, BigDecimal netBenefit, List<BenefitValue> benefits,
                 List<LimitUse> limitUses, List<Problem> problems) {
             this(complete, netBenefit, benefits, limitUses, problems, List.of());
         }
         public Calculation {
+            missingInformation = missingInformation == null ? List.of() : List.copyOf(missingInformation);
+            excludedBenefits = excludedBenefits == null ? List.of() : List.copyOf(excludedBenefits);
+            simulationRules = simulationRules == null ? List.of() : List.copyOf(simulationRules);
             unallocatedBenefitGroups = List.copyOf(unallocatedBenefitGroups);
             benefits = List.copyOf(benefits);
             limitUses = List.copyOf(limitUses);
@@ -59,6 +86,91 @@ public final class CardBenefitCalculator {
                 throw new IllegalArgumentException("미확정 상세 금액의 근거 누락");
             }
         }
+    }
+
+    /** 시뮬레이션의 명시적 진입점. 기존 2인자 호출의 결과/직렬화 계약은 그대로 둔다. */
+    public Calculation calculate(Transaction transaction, BenefitPolicy policy, CalculationOptions options) {
+        var context = new SimulationContext(java.util.Objects.requireNonNull(options));
+        var result = new CardBenefitCalculator(context).calculate(transaction, policy);
+        var exclusions = context.excluded.stream().sorted().map(id -> new ExcludedBenefit(id, "BRAND_MISSING")).toList();
+        var rules = new ArrayList<>(transaction.simulationRules());
+        if (policy != null) {
+            var values = result.benefits().stream().collect(Collectors.toMap(BenefitValue::benefitId, Function.identity(), (a, b) -> b));
+            for (var rule : policy.simulationRules()) {
+                if (rule.benefitId() == null) {
+                    if (policy.complete() && policy.additionalCost() != null) rules.add(rule);
+                    continue;
+                }
+                var value = values.get(rule.benefitId());
+                if (value == null) continue;
+                var fields = rule.appliedFields().stream().filter(field -> usedPolicyField(value, field)).toList();
+                if (!fields.isEmpty()) rules.add(new SimulationRule(rule.id(), rule.version(), rule.description(),
+                        rule.userCardId(), rule.benefitId(), fields));
+            }
+        }
+        for (var exclusion : exclusions) {
+            rules.add(new SimulationRule("YAMU_EXCLUDE_BRAND_DEPENDENT_BENEFIT", 1,
+                    "브랜드 미입력으로 판정할 수 없는 혜택을 제외한 모의 계산", null, exclusion.benefitId(),
+                    List.of("excludeBrandDependentBenefits")));
+        }
+        return new Calculation(result.complete(), result.netBenefit(), result.benefits(), result.limitUses(),
+                result.problems().stream().flatMap(problem -> {
+                    if (policy == null || problem.benefitId() == null
+                            || !List.of("CONDITION_UNKNOWN", "PRIORITY_CONDITION_UNKNOWN").contains(problem.code())) {
+                        return java.util.stream.Stream.of(problem);
+                    }
+                    return policy.benefits().stream().filter(b -> b.id() == problem.benefitId())
+                            .flatMap(b -> blockingCauses(transaction, policy, b).stream());
+                }).distinct().toList(), result.unallocatedBenefitGroups(), context.missing.stream()
+                        .sorted(Comparator.comparingLong(MissingInformation::benefitId).thenComparing(MissingInformation::field)).toList(),
+                exclusions, rules.stream().distinct().toList());
+    }
+
+    private Match conditionMatch(Transaction transaction, Benefit benefit, boolean allowExclusion) {
+        return conditionMatch(transaction, benefit, allowExclusion, true);
+    }
+
+    private Match conditionMatch(Transaction transaction, Benefit benefit, boolean allowExclusion, boolean recordEvidence) {
+        if (simulation == null) return conditionEvaluator.evaluate(benefit.conditions(), transaction);
+        var evaluation = conditionEvaluator.explain(benefit.conditions(), transaction);
+        if (recordEvidence) evaluation.missingInformation().forEach(m -> simulation.missing.add(new MissingInformation(benefit.id(), m.code(), m.field())));
+        if (allowExclusion && simulation.options.excludeBrandDependentBenefits() && evaluation.brandOnlyUnknown()) {
+            if (recordEvidence) simulation.excluded.add(benefit.id());
+            return Match.NOT_MATCHED;
+        }
+        return evaluation.match();
+    }
+
+    private boolean excluded(long id) { return simulation != null && simulation.excluded.contains(id); }
+
+    private boolean performanceUnknown(BenefitPolicy policy, Benefit benefit) {
+        return benefit.minimumPerformance() == null || benefit.minimumPayment() == null
+                || benefit.minimumPerformance() > 0 && policy.previousMonthPerformance() == null;
+    }
+
+    private List<Problem> blockingCauses(Transaction transaction, BenefitPolicy policy, Benefit benefit) {
+        var evaluation = conditionEvaluator.explain(benefit.conditions(), transaction);
+        var problems = new ArrayList<Problem>();
+        evaluation.missingInformation().forEach(m -> problems.add(new Problem(benefit.id(), m.code())));
+        if (evaluation.policyUnknown()) problems.add(new Problem(benefit.id(), "CONDITION_UNKNOWN"));
+        if (performanceUnknown(policy, benefit)) problems.add(new Problem(benefit.id(), "PERFORMANCE_OR_MINIMUM_UNKNOWN"));
+        if (problems.isEmpty()) problems.add(new Problem(benefit.id(), "CONDITION_UNKNOWN"));
+        return problems.stream().distinct().toList();
+    }
+
+    /** 0원 상세의 존재는 금액 계산 수행의 증거가 아니다. 건너뛴 단계의 가정은 반환하지 않는다. */
+    private boolean usedPolicyField(BenefitValue value, String field) {
+        String key = field.split("=", 2)[0];
+        if (value.reason().equals("BELOW_MINIMUM_PAYMENT")) return key.equals("minimumPayment");
+        if (value.reason().equals("BELOW_REQUIRED_PERFORMANCE")) {
+            return List.of("minimumPayment", "minimumPerformance", "previousMonthPerformance").contains(key);
+        }
+        if (value.reason().equals("CONDITION_NOT_MATCHED")) {
+            return List.of("validity", "minimumPayment", "minimumPerformance", "previousMonthPerformance").contains(key);
+        }
+        if (value.reason().equals("COUNT_LIMIT_EXHAUSTED")
+                && (key.startsWith("rounding") || key.equals("calculationOrder"))) return false;
+        return true;
     }
 
     public Calculation calculate(Transaction transaction, BenefitPolicy policy) {
@@ -137,7 +249,7 @@ public final class CardBenefitCalculator {
                 for (var member : group.members().stream().sorted(Comparator.comparing(BenefitPolicy.ApplicationMember::priorityOrder)).toList()) {
                     if (priority != null && member.priorityOrder() > priority) break;
                     var benefit = benefits.get(member.benefitId());
-                    Match match = applicable(transaction, policy, benefit);
+                    Match match = applicable(transaction, policy, benefit, false);
                     if (match == Match.UNKNOWN) return insufficient(benefit.id(), "PRIORITY_CONDITION_UNKNOWN");
                     if (match == Match.MATCHED) { priority = member.priorityOrder(); applicable.add(member); }
                 }
@@ -156,7 +268,8 @@ public final class CardBenefitCalculator {
             if (match == Match.MATCHED) active++;
         }
         boolean groupedActive = policy.applicationGroups().stream().flatMap(g -> g.members().stream())
-                .anyMatch(m -> applicable(transaction, policy, benefits.get(m.benefitId())) != Match.NOT_MATCHED);
+                // 관계 확인은 조건의 판정값만 필요하다. 실제 선택하지 않은 하위 우선순위의 근거를 추가하지 않는다.
+                .anyMatch(m -> applicable(transaction, policy, benefits.get(m.benefitId()), true, false) != Match.NOT_MATCHED);
         if (active > 1 || active > 0 && groupedActive) return insufficient(null, "BENEFIT_RELATIONSHIP_UNKNOWN");
         for (var benefit : ungrouped) {
             var calculation = single(transaction, policy, benefit.id(), benefits, limits);
@@ -172,9 +285,17 @@ public final class CardBenefitCalculator {
     }
 
     private Match applicable(Transaction transaction, BenefitPolicy policy, Benefit benefit) {
+        return applicable(transaction, policy, benefit, true);
+    }
+
+    private Match applicable(Transaction transaction, BenefitPolicy policy, Benefit benefit, boolean allowExclusion) {
+        return applicable(transaction, policy, benefit, allowExclusion, true);
+    }
+
+    private Match applicable(Transaction transaction, BenefitPolicy policy, Benefit benefit, boolean allowExclusion, boolean recordEvidence) {
         if (benefit.conditions() == null || !benefit.conditions().currentVersionVerified()) return Match.UNKNOWN;
         if (zeroReason(transaction, policy, benefit) != null) return Match.NOT_MATCHED;
-        var match = conditionEvaluator.evaluate(benefit.conditions(), transaction);
+        var match = conditionMatch(transaction, benefit, allowExclusion && !performanceUnknown(policy, benefit), recordEvidence);
         if (match == Match.MATCHED && (benefit.minimumPerformance() == null || benefit.minimumPayment() == null
                 || benefit.minimumPerformance() > 0 && policy.previousMonthPerformance() == null)) return Match.UNKNOWN;
         return match;
@@ -185,6 +306,9 @@ public final class CardBenefitCalculator {
     }
 
     private Calculation single(Transaction transaction, BenefitPolicy policy, long id, Map<Long, Benefit> benefits, Map<Long, Limit> limits) {
+        if (simulation != null && applicable(transaction, policy, benefits.get(id)) == Match.NOT_MATCHED && excluded(id)) {
+            return new Calculation(true, BigDecimal.ZERO, List.of(), List.of(), List.of());
+        }
         var fallback = policy.fallbacks().get(id);
         if (fallback == null || applicable(transaction, policy, benefits.get(id)) == Match.NOT_MATCHED) {
             return calculateCombination(transaction, withoutCost(policy, policy.benefits(), policy.limits()), List.of(id), benefits, limits);
@@ -213,6 +337,11 @@ public final class CardBenefitCalculator {
         if (!first.complete()) return first;
         var excess = BigDecimal.valueOf(base.baseAmount()).subtract(funded).max(BigDecimal.ZERO);
         if (excess.signum() == 0) return first;
+        // 전환 대상의 브랜드 미확인을 제외 옵션으로 건너뛰어 전환 완료로 확정하지 않는다.
+        if (simulation != null && simulation.options.excludeBrandDependentBenefits()
+                && applicable(transaction, policy, base, false) == Match.UNKNOWN) {
+            return new Calculation(false, null, List.of(), List.of(), blockingCauses(transaction, policy, base));
+        }
         var second = calculateCombination(transaction, withoutCost(policy, policy.benefits(), policy.limits()), List.of(base.id()), benefits, limits,
                 Map.of(base.id(), excess));
         if (!second.complete()) return second;
@@ -349,7 +478,8 @@ public final class CardBenefitCalculator {
                 values.add(zero(benefit, zeroReason));
                 continue;
             }
-            Match match = conditionEvaluator.evaluate(benefit.conditions(), transaction);
+            Match match = conditionMatch(transaction, benefit, !performanceUnknown(policy, benefit));
+            if (excluded(benefitId)) continue;
             if (match == Match.NOT_MATCHED) {
                 values.add(zero(benefit, "CONDITION_NOT_MATCHED"));
                 continue;
