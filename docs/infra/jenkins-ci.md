@@ -185,8 +185,13 @@ SCM polling은 Push 이벤트 즉시 실행이 아니며 최초 Job 실행 전�
 | `fe/pos/` | POS lint·build |
 | `fe/mobile/` | Expo 타입 검사 |
 | `docs/` | 공통 환경·CI 도구 검사 |
+| `fe/android/` | 기존 BE·POS·Expo 전체 검사. 네이티브 Android 검사는 MR 검증 Job에서 실행 |
 | BE, 공통 설정, 그 외 경로, 기준 커밋 없음 또는 비교 불가 | 기존 BE·POS·Expo 전체 검사 |
 
 POS와 Expo가 함께 바뀌면 둘 다 검사합니다. 모든 실행의 기준 커밋과 선택된 검사 범위는 `ci-scope.json`에서 확인할 수 있습니다.
 
-격리 배포에 사용할 develop 후보는 Jenkins의 **파라미터와 함께 빌드**에서 `FULL_CI`를 체크해 실행합니다. 성공한 전체 검사 빌드에서만 배포 매니페스트, BE JAR, POS 빌드 결과를 보관합니다. `yamu/ci-master`도 항상 전체 검사를 실행합니다.
+격리 배포에 사용할 develop 후보는 Jenkins의 **파라미터와 함께 빌드**에서 `FULL_CI`를 체크해 실행합니다. 배포 매니페스트, BE JAR, POS 빌드 결과를 보관한 뒤 Jenkins가 후보 빌드를 **Keep this build forever** 상태로 고정합니다. 후보를 고정하면 이후 부분 빌드가 쌓여도 [Jenkins 빌드 정리 규칙](https://github.com/jenkinsci/jenkins/blob/master/core/src/main/java/hudson/tasks/LogRotator.java)이 해당 빌드와 산출물을 보존합니다. 격리 배포에 넘기기 전에 후보 빌드의 `SUCCESS`, 고정 상태와 산출물을 확인합니다. 검증과 롤백에 더 이상 필요하지 않은 후보는 빌드 화면에서 고정을 해제합니다.
+
+`yamu/ci-master`는 항상 전체 검사를 실행하고 운영 배포용 산출물을 생성합니다.
+
+머지 후 첫 부분 검사에서 `ci-scope.json`의 `reason`이 `known-paths`인지, Jenkins 화면의 실행·건너뛴 단계가 기록과 일치하는지 확인합니다. `no-comparable-success`가 계속 나오면 이전 성공 커밋이 체크아웃에 있는지 확인합니다. 같은 실행에서 단계 조건이 스크립트 승인 요청 없이 평가되는지도 확인합니다.

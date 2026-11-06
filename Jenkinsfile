@@ -16,7 +16,7 @@ pipeline {
     }
 
     parameters {
-        booleanParam(name: 'FULL_CI', defaultValue: false, description: 'Run all checks and archive release candidate artifacts')
+        booleanParam(name: 'FULL_CI', defaultValue: false, description: 'Run all checks and pin the archived develop release candidate')
     }
 
     environment {
@@ -109,6 +109,11 @@ pipeline {
             steps {
                 sh 'python3 infra/cd/manifest.py'
                 archiveArtifacts artifacts: 'ci-revision.txt,ci-manifest.json,be/build/libs/*.jar,fe/pos/dist/**', fingerprint: true
+                script {
+                    if (env.JOB_NAME == 'yamu/ci' && params.FULL_CI == true) {
+                        currentBuild.keepLog = true
+                    }
+                }
             }
         }
     }
