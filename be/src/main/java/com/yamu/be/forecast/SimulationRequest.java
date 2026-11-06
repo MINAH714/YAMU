@@ -37,7 +37,8 @@ public class SimulationRequest {
     @JsonIgnore
     private boolean installmentMonthsPresent;
     private BigDecimal days;
-    private BalanceForecast.Until until;
+    /** 문자열로 받는다. enum으로 받으면 Jackson이 숫자를 순번으로 읽어 {@code 0}이 NEXT_INCOME이 된다. */
+    private String until;
     private String paymentChannel;
 
     @JsonSetter("accountIds")
@@ -106,7 +107,7 @@ public class SimulationRequest {
     }
 
     @JsonSetter("until")
-    public void setUntil(BalanceForecast.Until until) {
+    public void setUntil(String until) {
         this.until = until;
     }
 
@@ -212,7 +213,16 @@ public class SimulationRequest {
      * 같은 until·days로 부른 두 API의 기간이 같다(S15P31E103-318).
      */
     BalanceForecast.Until until() {
-        return until;
+        if (until == null) {
+            return null;
+        }
+        for (BalanceForecast.Until value : BalanceForecast.Until.values()) {
+            if (value.name().equals(until)) {
+                return value;
+            }
+        }
+        // 숫자(0·1)나 다른 문자열은 순번·대소문자로 맞춰 보지 않고 거절한다(Codex 검토, 2026-11-06).
+        throw PaymentTerms.invalid(ErrorCode.INVALID_REQUEST, "until", "기간 기준은 NEXT_INCOME 또는 DAYS입니다.");
     }
 
     /** 비교 기간(7·14·30). 없으면 null(잔고예보 설정). 정수가 아니면 거절한다. 값의 범위는 잔고예보 기간 검사가 본다. */

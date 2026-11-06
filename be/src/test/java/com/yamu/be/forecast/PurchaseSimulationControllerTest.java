@@ -401,7 +401,14 @@ class PurchaseSimulationControllerTest extends MySqlTestSupport {
     void until_값이_틀리면_400이다() throws Exception {
         perform(body(accountA, checkOnA, "300000", "\"until\": \"WEEK\""))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.error.code").value("INVALID_REQUEST"));
+                .andExpect(jsonPath("$.error.code").value("INVALID_REQUEST"))
+                .andExpect(jsonPath("$.error.details.fieldErrors[0].field").value("until"));
+        // 숫자는 enum 순번(0 = NEXT_INCOME)으로 읽지 않는다.
+        for (String value : new String[] {"0", "1", "\"days\""}) {
+            perform(body(accountA, checkOnA, "300000", "\"until\": " + value + ", \"days\": 7"))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.error.details.fieldErrors[0].field").value("until"));
+        }
     }
 
     private ResultActions perform(String json) throws Exception {
