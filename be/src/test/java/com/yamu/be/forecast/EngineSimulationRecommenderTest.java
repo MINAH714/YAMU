@@ -47,6 +47,7 @@ class EngineSimulationRecommenderTest {
     private static final long UNCOMPARED = 12L;
     private static final long EXCLUDED = 13L;
     private static final LocalDate PURCHASE_DATE = LocalDate.of(2026, 11, 10);
+    private static final LocalDate TODAY = LocalDate.of(2026, 11, 6);
 
     @Mock RecommendationService engine;
     EngineSimulationRecommender recommender;
@@ -91,6 +92,7 @@ class EngineSimulationRecommenderTest {
         assertThat(result.alternatives().get(0).nickname()).isEqualTo("카드 11");
         assertThat(result.alternatives().get(1).netBenefit()).isNull();
         assertThat(result.alternatives().get(1).note()).startsWith("혜택 정보를 확인하지 못해");
+        assertThat(result.alternatives()).noneMatch(SimulationRecommender.Alternative::recommended);
         // 가정: 구매 시각 + 그 카드·공통 규칙만. 브랜드를 골랐으니 브랜드 안내는 없다
         assertThat(result.assumptions()).extracting(SimulationRecommender.Assumption::id)
                 .containsExactly("YAMU_PURCHASE_TIME_NOON", "RULE_CARD", "RULE_COMMON");
@@ -204,6 +206,8 @@ class EngineSimulationRecommenderTest {
                 new SimulationRecommender.MissingInformation("INSUFFICIENT_BALANCE", null),
                 new SimulationRecommender.MissingInformation("COMMON_PROBLEM", null));
         assertThat(result.alternatives()).extracting(SimulationRecommender.Alternative::userCardId).containsExactly(OTHER);
+        // 사용자가 다른 카드를 골랐으니 엔진의 1순위 카드를 대안에서 알아볼 수 있게 표시한다(!155 리뷰)
+        assertThat(result.alternatives().get(0).recommended()).isTrue();
     }
 
     @Test
@@ -213,12 +217,42 @@ class EngineSimulationRecommenderTest {
                 List.of(), List.of(), Map.of());
         assertThat(recommender.recommend(request(null, 55L)).unavailableReason()).isEqualTo("NO_ELIGIBLE_CARD");
 
+        // 혜택 정보를 확인하지 못한 카드(계산 결과 있음)가 하나라도 있으면 혜택 정보 부족
+        Calculation unresolved = new Calculation(false, null, List.of(), List.of(), List.of(new Problem(1L, "MISSING_FACT")));
         stub(selection(Status.DATA_INSUFFICIENT, null, List.of(),
-                List.of(new CardEvaluation(CARD, CardStatus.NOT_COMPARED, "BENEFIT_UNRESOLVED", null))),
+                List.of(new CardEvaluation(CARD, CardStatus.NOT_COMPARED, "BENEFIT_UNRESOLVED", unresolved),
+                        new CardEvaluation(OTHER, CardStatus.NOT_COMPARED, "BALANCE_READ_RETRYABLE", null))),
                 List.of(), List.of(), Map.of());
         SimulationRecommender.Result result = recommender.recommend(request(null, 55L));
         assertThat(result.recommendation()).isNull();
         assertThat(result.unavailableReason()).isEqualTo("BENEFIT_DATA_INSUFFICIENT");
+    }
+
+    @Test
+    void 모든_카드가_결제_가능_여부를_몰라_빠지면_혜택_정보_부족이_아니라_결제_가능_여부_미확인이다() {
+        // 금융망 잔액 조회 실패처럼 계산 결과 없이 빠진 카드만 있으면 외부 실패를 혜택 정보 부족으로 보이지 않는다(!155 리뷰)
+        stub(selection(Status.DATA_INSUFFICIENT, null, List.of(),
+                List.of(new CardEvaluation(CARD, CardStatus.NOT_COMPARED, "BALANCE_READ_RETRYABLE", null),
+                        new CardEvaluation(OTHER, CardStatus.NOT_COMPARED, "BALANCE_READ_RETRYABLE", null),
+                        new CardEvaluation(EXCLUDED, CardStatus.EXCLUDED, "CARD_SUSPENDED", null))),
+                List.of(), List.of(), Map.of());
+
+        assertThat(recommender.recommend(request(null, 55L)).unavailableReason())
+                .isEqualTo("PAYMENT_AVAILABILITY_UNKNOWN");
+    }
+
+    @Test
+    void 다음_달_이후_구매면_전월_실적이_오늘까지_기준이라고_안내한다() {
+        stub(selection(Status.READY, CARD, List.of(calculated(CARD, zero())), List.of(calculated(CARD, zero()))),
+                List.of(), List.of(), Map.of());
+
+        // 오늘 11/6, 구매 12/3: 엔진의 "전월"은 아직 진행 중인 11월
+        assertThat(recommender.recommend(request(null, 55L, LocalDate.of(2026, 12, 3))).recommendation().assumptions())
+                .extracting(SimulationRecommender.Assumption::id)
+                .containsExactly("YAMU_PURCHASE_TIME_NOON", "YAMU_PREVIOUS_PERFORMANCE_AS_OF_TODAY");
+        // 같은 달 구매(11/30)면 전월(10월)은 끝난 달이라 안내하지 않는다
+        assertThat(recommender.recommend(request(null, 55L, LocalDate.of(2026, 11, 30))).recommendation().assumptions())
+                .extracting(SimulationRecommender.Assumption::id).containsExactly("YAMU_PURCHASE_TIME_NOON");
     }
 
     @Test
@@ -268,7 +302,11 @@ class EngineSimulationRecommenderTest {
     }
 
     private static SimulationRecommender.Request request(Long userCardId, Long merchantId) {
+        return request(userCardId, merchantId, PURCHASE_DATE);
+    }
+
+    private static SimulationRecommender.Request request(Long userCardId, Long merchantId, LocalDate purchaseDate) {
         return new SimulationRecommender.Request(USER, userCardId, PaymentTerms.lumpSum(300_000L), "OFFLINE", merchantId,
-                "SUPERMARKET", PURCHASE_DATE);
+                "SUPERMARKET", purchaseDate, TODAY);
     }
 }

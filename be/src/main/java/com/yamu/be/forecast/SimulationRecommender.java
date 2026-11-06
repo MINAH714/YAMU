@@ -30,14 +30,15 @@ public interface SimulationRecommender {
      * @param merchantId           확인된 브랜드 가맹점. 고르지 않았으면 null(브랜드 혜택을 빼고 계산)
      * @param merchantCategoryCode 확인된 업종(브랜드를 고르면 그 브랜드의 업종)
      * @param purchaseDate         구매 예정일(한국 날짜). 요일·실적 월 판정 기준
+     * @param today                요청에서 한 번 정한 한국 날짜 오늘. 구매 월이 이번 달과 다른지 판단한다
      */
     record Request(long userId, Long userCardId, PaymentTerms terms, String paymentChannel, Long merchantId,
-            String merchantCategoryCode, LocalDate purchaseDate) {}
+            String merchantCategoryCode, LocalDate purchaseDate, LocalDate today) {}
 
     /**
      * @param recommendation    계산 결과. 추천할 카드가 없으면 null
      * @param unavailableReason 카드를 고르지 않았는데 추천할 카드가 없을 때의 이유(NO_ELIGIBLE_CARD·BENEFIT_DATA_INSUFFICIENT·
-     *                          RECOMMENDATION_UNAVAILABLE). 결과가 있으면 null
+     *                          PAYMENT_AVAILABILITY_UNKNOWN·RECOMMENDATION_UNAVAILABLE). 결과가 있으면 null
      */
     record Result(Recommendation recommendation, String unavailableReason) {
         static Result of(Recommendation recommendation) {
@@ -68,17 +69,21 @@ public interface SimulationRecommender {
     record Benefit(BigDecimal netBenefit, List<BenefitItem> benefits, long instantDiscount) {}
 
     /**
-     * 결제 추천의 혜택 줄과 같은 모양이다.
+     * 결제 추천의 혜택 줄과 같은 칸이다. 다만 amount는 원화로 바꾼 값이다(결제 추천은 단위 그대로라 포인트면 포인트 수,
+     * 2026-11-06 결정: 잔고 비교 화면이라 돈으로 보인다).
      *
      * @param type        DISCOUNT·CASHBACK·POINT
      * @param realization 적용 시점(AT_APPROVAL 즉시할인, 그 밖은 청구·적립 등). 모르면 null
-     * @param amount      원화 금액. 공유 한도 배분이 정해지지 않았으면 null
+     * @param amount      원화 금액(포인트도 원화 환산). 공유 한도 배분이 정해지지 않았으면 null
      */
     record BenefitItem(Long benefitId, String name, String type, String realization, BigDecimal amount) {}
 
-    /** @param netBenefit 비교하지 못한 카드는 null이고 note에 이유가 있다 */
+    /**
+     * @param netBenefit  비교하지 못한 카드는 null이고 note에 이유가 있다
+     * @param recommended 추천 엔진의 1순위 카드면 true. 사용자가 다른 카드를 골랐을 때만 대안에 1순위가 있다
+     */
     record Alternative(long userCardId, String nickname, CardType cardType, String plan, Integer installmentMonths,
-            BigDecimal netBenefit, String note) {}
+            BigDecimal netBenefit, String note, boolean recommended) {}
 
     /** @param meetsThresholdAfter 구매 뒤 그달 실적 기준을 넘는지 */
     record PerformanceImpact(YearMonth yearMonth, long recognizedAmount, boolean meetsThresholdAfter) {}

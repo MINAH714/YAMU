@@ -86,7 +86,7 @@ public class PurchaseSimulationService {
         MerchantCatalogService.Selection selection = request.merchantId() != null || request.merchantCategoryCode() != null
                 ? catalog.resolveSelection(request.merchantId(), request.merchantCategoryCode()) : null;
         SimulationRecommender.Recommendation recommendation = recommend(authenticatedUserId, request, terms,
-                paymentChannel, selection, purchaseDate);
+                paymentChannel, selection, purchaseDate, today);
         long cardId = recommendation.userCardId();
         if (request.userCardId() != null && cardId != request.userCardId()) {
             throw new IllegalStateException("추천 결과의 카드가 지정 카드와 다르다: " + cardId);
@@ -148,7 +148,7 @@ public class PurchaseSimulationService {
      * 보이지 않게, 2026-11-05·11-06 결정).
      */
     private SimulationRecommender.Recommendation recommend(long userId, SimulationRequest request, PaymentTerms terms,
-            String paymentChannel, MerchantCatalogService.Selection selection, LocalDate purchaseDate) {
+            String paymentChannel, MerchantCatalogService.Selection selection, LocalDate purchaseDate, LocalDate today) {
         if (selection == null) {
             if (request.userCardId() == null) {
                 throw new BusinessException(ErrorCode.DATA_INSUFFICIENT, "추천 카드를 고르려면 업종이나 브랜드를 골라 주세요.",
@@ -160,7 +160,7 @@ public class PurchaseSimulationService {
         }
         SimulationRecommender.Result result = recommender.recommend(new SimulationRecommender.Request(userId,
                 request.userCardId(), terms, paymentChannel, selection.merchantId(), selection.merchantCategoryCode(),
-                purchaseDate));
+                purchaseDate, today));
         if (result.recommendation() == null) {
             throw new BusinessException(ErrorCode.DATA_INSUFFICIENT, unavailableMessage(result.unavailableReason()),
                     Map.of("reason", result.unavailableReason()));
@@ -172,6 +172,7 @@ public class PurchaseSimulationService {
         return switch (reason) {
             case "NO_ELIGIBLE_CARD" -> "지금 이 구매에 쓸 수 있는 카드가 없어요. 카드를 직접 골라 주세요.";
             case "BENEFIT_DATA_INSUFFICIENT" -> "카드 혜택 정보가 부족해 추천할 수 없어요. 카드를 직접 골라 주세요.";
+            case "PAYMENT_AVAILABILITY_UNKNOWN" -> "지금 카드 결제 가능 여부(잔액·한도)를 확인하지 못했어요. 잠시 뒤 다시 시도해 주세요.";
             default -> "추천 카드를 지금 계산할 수 없어요. 카드를 직접 골라 주세요.";
         };
     }

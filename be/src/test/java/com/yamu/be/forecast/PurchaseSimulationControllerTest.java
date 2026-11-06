@@ -203,7 +203,7 @@ class PurchaseSimulationControllerTest extends MySqlTestSupport {
                 new SimulationRecommender.Recommendation(checkOnA, null,
                         List.of(new SimulationRecommender.Alternative(strangerCard, "남의 카드",
                                 com.yamu.be.card.domain.CardType.CREDIT, "LUMP_SUM", null, new BigDecimal("1000"),
-                                null)), null, List.of(), List.of())));
+                                null, false)), null, List.of(), List.of())));
 
         // 엔진 계약 위반이라 500이다. 남의 카드 정보가 응답에 실리지 않는다
         perform(body(accountA, checkOnA, "300000", "\"merchantCategoryCode\": \"SUPERMARKET\""))
@@ -222,6 +222,13 @@ class PurchaseSimulationControllerTest extends MySqlTestSupport {
         perform(bodyWithoutCard(accountA, "300000", "\"merchantCategoryCode\": \"SUPERMARKET\""))
                 .andExpect(status().isUnprocessableEntity())
                 .andExpect(jsonPath("$.error.details.reason").value("NO_ELIGIBLE_CARD"));
+
+        // 금융망 잔액 확인 실패 등은 혜택 정보 부족과 다른 이유·문구다(!155 리뷰)
+        when(recommender.recommend(any())).thenReturn(SimulationRecommender.Result.unavailable("PAYMENT_AVAILABILITY_UNKNOWN"));
+        perform(bodyWithoutCard(accountA, "300000", "\"merchantCategoryCode\": \"SUPERMARKET\""))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.error.details.reason").value("PAYMENT_AVAILABILITY_UNKNOWN"))
+                .andExpect(jsonPath("$.error.message").value("지금 카드 결제 가능 여부(잔액·한도)를 확인하지 못했어요. 잠시 뒤 다시 시도해 주세요."));
         verify(balances, never()).getBalances(any(), anyList(), anyBoolean());
     }
 

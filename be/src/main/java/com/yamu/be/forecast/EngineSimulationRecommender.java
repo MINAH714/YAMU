@@ -14,6 +14,7 @@ import com.yamu.be.recommendation.RecommendationService;
 import com.yamu.be.recommendation.SimulationRule;
 import java.math.BigDecimal;
 import java.time.LocalTime;
+import java.time.YearMonth;
 import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -34,7 +35,9 @@ import org.springframework.stereotype.Component;
  *   <li>혜택: 계산을 끝낸 카드만 순혜택(소수 그대로)·항목(결제 추천과 같은 모양)을 준다. 아니면 null이고 이유는 missingInformation이다.</li>
  *   <li>즉시할인 합계는 결제 추천과 같은 규칙이다: 적용 시점이 승인 때(AT_APPROVAL)인 혜택의 금액과, 배분이 안 정해진 즉시할인 묶음의
  *       원화 합계. 할인 혜택의 적용 시점을 모르면 즉시할인을 정할 수 없어 혜택을 null로 둔다.</li>
- *   <li>대안: 계산한 다른 카드(순혜택 순)와 비교하지 못한 카드(순혜택 null, 이유). 엔진이 제외한 카드는 넣지 않는다.</li>
+ *   <li>대안: 계산한 다른 카드(순혜택 순)와 비교하지 못한 카드(순혜택 null, 이유). 엔진이 제외한 카드는 넣지 않는다.
+ *       사용자가 다른 카드를 골랐으면 엔진의 1순위 카드에 recommended=true를 단다.</li>
+ *   <li>엔진은 구매일의 전월 실적을 읽어, 다음 달 이후 구매면 아직 진행 중인 이번 달 실적으로 판정한다. 계산은 그대로 두고 안내한다.</li>
  *   <li>엔진은 오늘 잔액으로 체크카드를 거른다. 사용자가 고른 카드가 그래서 제외됐으면 혜택만 비우고 잔고 비교는 그대로 한다.</li>
  * </ul>
  *
@@ -48,6 +51,9 @@ class EngineSimulationRecommender implements SimulationRecommender {
             "구매 시각을 구매일 낮 12시로 가정했어요(요일·시간대 조건 판정).");
     static final Assumption BRAND_NOT_SELECTED = new Assumption("YAMU_BRAND_NOT_SELECTED",
             "브랜드 혜택을 제외한 예상 금액이에요. 브랜드를 고르면 더 커질 수 있어요.");
+    /** 엔진은 구매일의 전월 실적을 읽는다. 다음 달 이후 구매면 그 "전월"은 아직 진행 중이라 오늘까지 쌓인 실적이다(!155 리뷰). */
+    static final Assumption PREVIOUS_PERFORMANCE_AS_OF_TODAY = new Assumption("YAMU_PREVIOUS_PERFORMANCE_AS_OF_TODAY",
+            "다음 달 이후 구매라 전월 실적은 오늘까지 쌓인 실적으로 판정했어요. 실적이 더 쌓이면 혜택이 달라질 수 있어요.");
     private static final String AT_APPROVAL = "AT_APPROVAL";
     /** 신용한도 확인 생략은 응답의 creditLimit으로 따로 보이므로 빠진 정보로 다시 싣지 않는다. */
     private static final Set<String> SHOWN_ELSEWHERE = Set.of("CREDIT_LIMIT_CHECK_SKIPPED");
@@ -76,8 +82,7 @@ class EngineSimulationRecommender implements SimulationRecommender {
         RecommendationSelector.Result selection = result.recommendation();
         Long target = request.userCardId() != null ? request.userCardId() : selection.selectedUserCardId();
         if (target == null) {
-            return Result.unavailable(selection.status() == RecommendationSelector.Status.NO_ELIGIBLE_CARD
-                    ? "NO_ELIGIBLE_CARD" : "BENEFIT_DATA_INSUFFICIENT");
+            return Result.unavailable(unavailableReason(selection));
         }
         Optional<CardEvaluation> evaluation = selection.evaluatedCards().stream()
                 .filter(card -> card.userCardId() == target).findFirst();
@@ -109,9 +114,24 @@ class EngineSimulationRecommender implements SimulationRecommender {
                 .forEach(code -> missing.add(new MissingInformation(code, null)));
 
         return Result.of(new Recommendation(target, benefit, alternatives(request, selection, result.cards(), target),
-                null, assumptions(result.simulationRules(), target, benefit != null
+                null, assumptions(request, result.simulationRules(), target, benefit != null
                         && calculation != null && !calculation.excludedBenefits().isEmpty()),
                 distinct(missing)));
+    }
+
+    /**
+     * 추천할 카드가 없는 이유. 비교하지 못한 카드가 모두 계산 결과 없이 빠졌으면 혜택 정보가 아니라 결제 가능 여부(잔액·한도·출금 계좌)를
+     * 확인하지 못한 것이다(결제 추천의 PAYMENT_AVAILABILITY_UNKNOWN과 같은 구분, !155 리뷰).
+     */
+    private static String unavailableReason(RecommendationSelector.Result selection) {
+        if (selection.status() == RecommendationSelector.Status.NO_ELIGIBLE_CARD) {
+            return "NO_ELIGIBLE_CARD";
+        }
+        List<CardEvaluation> uncompared = selection.uncomparedCards();
+        if (!uncompared.isEmpty() && uncompared.stream().allMatch(card -> card.calculation() == null)) {
+            return "PAYMENT_AVAILABILITY_UNKNOWN";
+        }
+        return "BENEFIT_DATA_INSUFFICIENT";
     }
 
     /** 구매일 낮 12시(KST), 요청한 결제 방식·개월 수, 확인된 가맹점·업종. 물품 코드는 넘기지 않는다(화면 표시용, 2026-11-05 결정). */
@@ -157,27 +177,35 @@ class EngineSimulationRecommender implements SimulationRecommender {
         String plan = request.terms().plan().name();
         Integer months = request.terms().installmentMonths();
         List<Alternative> alternatives = new ArrayList<>();
+        Long first = selection.selectedUserCardId();
         for (CardEvaluation card : selection.rankedCards()) {
             if (card.userCardId() != target) {
                 alternatives.add(new Alternative(card.userCardId(), nickname(cards.get(card.userCardId())),
                         cardType(cards.get(card.userCardId())), plan, months,
-                        plain(card.calculation().netBenefit()), null));
+                        plain(card.calculation().netBenefit()), null,
+                        first != null && first == card.userCardId()));
             }
         }
         for (CardEvaluation card : selection.evaluatedCards()) {
             if (card.userCardId() != target && card.status() == CardStatus.NOT_COMPARED) {
                 String note = card.message() != null ? card.message() : UNCOMPARED_NOTE;
                 alternatives.add(new Alternative(card.userCardId(), nickname(cards.get(card.userCardId())),
-                        cardType(cards.get(card.userCardId())), plan, months, null, note));
+                        cardType(cards.get(card.userCardId())), plan, months, null, note, false));
             }
         }
         return List.copyOf(alternatives);
     }
 
-    /** 구매 시각 가정, 엔진이 그 카드 계산에 쓴 가정, 브랜드 혜택을 빼고 계산을 끝냈을 때의 브랜드 안내. */
-    private static List<Assumption> assumptions(List<SimulationRule> rules, long target, boolean brandExcluded) {
+    /**
+     * 구매 시각 가정, 다음 달 이후 구매면 전월 실적 안내, 엔진이 그 카드 계산에 쓴 가정, 브랜드 혜택을 빼고 계산을 끝냈을 때의 브랜드 안내.
+     */
+    private static List<Assumption> assumptions(Request request, List<SimulationRule> rules, long target,
+            boolean brandExcluded) {
         Map<String, Assumption> byId = new LinkedHashMap<>();
         byId.put(PURCHASE_TIME.id(), PURCHASE_TIME);
+        if (!YearMonth.from(request.purchaseDate()).equals(YearMonth.from(request.today()))) {
+            byId.put(PREVIOUS_PERFORMANCE_AS_OF_TODAY.id(), PREVIOUS_PERFORMANCE_AS_OF_TODAY);
+        }
         for (SimulationRule rule : rules) {
             if (rule.userCardId() == null || rule.userCardId() == target) {
                 byId.putIfAbsent(rule.id(), new Assumption(rule.id(), rule.description()));
