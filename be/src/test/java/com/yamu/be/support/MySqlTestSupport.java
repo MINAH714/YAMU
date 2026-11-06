@@ -6,7 +6,10 @@ import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
+import org.springframework.beans.factory.DisposableBean;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.context.annotation.Import;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.TestPropertySource;
@@ -21,7 +24,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
  * 대신 스프링 테스트 컨텍스트를 새로 만들 때마다 빈 데이터베이스(test_1, test_2, ...)를 새로 만들어 연결하고,
  * Flyway가 그 데이터베이스에 처음부터 마이그레이션을 적용한다. 그래서 각 테스트 클래스는 예전처럼 자기만의 빈 DB에서
  * 시작하고(다른 클래스가 남긴 행을 보지 않는다), 같은 컨텍스트를 캐시로 같이 쓰는 클래스끼리만 DB를 같이 쓴다.
- * 컨테이너는 테스트가 끝나면 Testcontainers(Ryuk)가 지운다.
+ * 컨텍스트가 닫히면 그 데이터베이스를 지운다(DropDatabaseOnClose). 컨테이너는 테스트가 끝나면 Testcontainers(Ryuk)가 지운다.
  *
  * <p>MySQL 데이터 폴더는 메모리 디스크(tmpfs)에 둔다. Windows Docker Desktop에서는 디스크에 쓸 때마다 확정(fsync)하는
  * 비용이 커서 Flyway가 클래스마다 10초 넘게 걸렸다. SQL 동작은 같고, 컨테이너가 꺼지면 데이터가 사라질 뿐이다.
@@ -32,6 +35,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
  * <p>db/testmigration은 테스트 전용 테이블(예: test_audit_sample)이다. 실제 서버에는 들어가지 않는다.
  */
 @SpringBootTest
+@Import(MySqlTestSupport.DropDatabaseOnClose.class)
 @Testcontainers(disabledWithoutDocker = true)
 @TestPropertySource(properties = {
         "spring.flyway.enabled=true",
@@ -45,6 +49,8 @@ public abstract class MySqlTestSupport {
             .withTmpFs(Map.of("/var/lib/mysql", "rw"));
 
     private static final AtomicInteger DATABASE_COUNT = new AtomicInteger();
+    private static final String DATABASE_PROPERTY = "yamu.test.database";
+    private static final int DROP_LOCK_WAIT_SECONDS = 10;
 
     static {
         if (DockerClientFactory.instance().isDockerAvailable()) {
@@ -61,16 +67,42 @@ public abstract class MySqlTestSupport {
         registry.add("spring.datasource.url", () -> url);
         registry.add("spring.datasource.username", MYSQL::getUsername);
         registry.add("spring.datasource.password", MYSQL::getPassword);
+        registry.add(DATABASE_PROPERTY, () -> database);
     }
 
     /** 테스트 계정은 컨테이너가 처음 만든 데이터베이스에만 권한이 있어서, root로 만들고 권한을 준다. */
     private static void createDatabase(String database) {
-        try (Connection connection = DriverManager.getConnection(MYSQL.getJdbcUrl(), "root", MYSQL.getPassword());
-             Statement statement = connection.createStatement()) {
+        try (Connection connection = rootConnection(); Statement statement = connection.createStatement()) {
             statement.execute("CREATE DATABASE " + database);
             statement.execute("GRANT ALL ON " + database + ".* TO '" + MYSQL.getUsername() + "'@'%'");
         } catch (SQLException e) {
             throw new IllegalStateException("테스트 데이터베이스를 만들지 못했습니다: " + database, e);
+        }
+    }
+
+    private static Connection rootConnection() throws SQLException {
+        return DriverManager.getConnection(MYSQL.getJdbcUrl(), "root", MYSQL.getPassword());
+    }
+
+    /**
+     * 컨텍스트가 닫힐 때(@DirtiesContext 등) 그 컨텍스트의 데이터베이스를 지운다. 지우지 않으면 메모리 디스크에
+     * 데이터베이스가 쌓여 MySQL 메모리가 DB 테스트 클래스 수에 비례해 늘어난다(전체 실행 끝에 약 875MB).
+     */
+    static class DropDatabaseOnClose implements DisposableBean {
+
+        private final String database;
+
+        DropDatabaseOnClose(@Value("${" + DATABASE_PROPERTY + "}") String database) {
+            this.database = database;
+        }
+
+        @Override
+        public void destroy() throws SQLException {
+            try (Connection connection = rootConnection(); Statement statement = connection.createStatement()) {
+                // 남은 연결이 테이블 잠금을 쥐고 있으면 기본값(1년) 동안 기다리므로, 짧게 기다리고 실패를 드러낸다.
+                statement.execute("SET SESSION lock_wait_timeout = " + DROP_LOCK_WAIT_SECONDS);
+                statement.execute("DROP DATABASE " + database);
+            }
         }
     }
 
