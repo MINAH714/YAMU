@@ -34,6 +34,7 @@ pipeline {
                 script {
                     def revision = checkout scm
                     env.GIT_COMMIT = revision.GIT_COMMIT
+                    env.GIT_BRANCH = revision.GIT_BRANCH ?: ''
                     withEnv([
                         "CI_CHECKOUT_BRANCH=${revision.GIT_BRANCH ?: ''}",
                         "CI_PREVIOUS_SUCCESS=${revision.GIT_PREVIOUS_SUCCESSFUL_COMMIT ?: ''}",
