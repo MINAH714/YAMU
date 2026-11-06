@@ -98,6 +98,8 @@ import com.yamu.app.feature.auth.data.StepUpPurpose
 import com.yamu.app.feature.link.CardListThumb
 import com.yamu.app.feature.link.data.LinkRepository
 import com.yamu.app.feature.link.data.LinkedCard
+import com.yamu.app.feature.link.data.benefitsLine
+import com.yamu.app.feature.link.data.performanceLine
 import com.yamu.app.feature.my.data.AUTO_LOCK_CHOICES
 import com.yamu.app.feature.my.data.Device
 import com.yamu.app.feature.my.data.MyInfo
@@ -107,7 +109,6 @@ import com.yamu.app.feature.my.data.NotiSettings
 import com.yamu.app.feature.my.data.autoLockLabel
 import com.yamu.app.feature.my.data.deviceLastUsed
 import com.yamu.app.feature.my.data.koreanTime
-import com.yamu.app.feature.my.data.maskEmail
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -271,7 +272,7 @@ fun MyRoute(
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
                             Text("${info.name}님", style = YamuTheme.typography.titleL, color = c.text1)
-                            maskEmail(info.email)?.let { Text(it, style = YamuTheme.typography.bodyM, color = c.text3, modifier = Modifier.padding(top = 4.dp)) }
+                            info.maskedPhone?.let { Text(it, style = YamuTheme.typography.bodyM, color = c.text3, modifier = Modifier.padding(top = 4.dp)) }
                         }
                         Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, contentDescription = null, tint = c.text3)
                     }
@@ -421,6 +422,8 @@ fun CardManageRoute(
                     s.cards.forEach { card ->
                         ListRow(
                             title = card.displayName,
+                            // 실적 줄 · 혜택 줄 중 있는 것만(BE !150)
+                            sub = listOfNotNull(card.performanceLine(), card.benefitsLine()).takeIf { it.isNotEmpty() }?.joinToString("\n"),
                             lead = { CardListThumb(card.brand, card.productName) },
                             titleTag = if (card.stateLabel != null || card.isDefault) ({ StatusTag(card.stateLabel ?: "기본") }) else null,
                             minHeight = 72.dp,
@@ -654,7 +657,7 @@ fun ProfileRoute(onBack: () -> Unit, onOpenPinPad: (purpose: String) -> Unit, on
                         minHeight = 56.dp,
                         trailing = { Icon(YamuIcons.Lock, contentDescription = "바꿀 수 없음", tint = c.text3, modifier = Modifier.size(24.dp)) },
                     )
-                    info.email?.let { KeyValueRow("이메일", it, keyWidth = 64.dp, minHeight = 56.dp) }
+                    info.maskedPhone?.let { KeyValueRow("휴대폰", it, keyWidth = 64.dp, minHeight = 56.dp) }
                     SectionLabel("로그인한 기기")
                     s.devices.forEach { d ->
                         ListRow(
