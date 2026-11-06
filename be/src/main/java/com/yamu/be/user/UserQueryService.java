@@ -25,8 +25,8 @@ import org.springframework.transaction.annotation.Transactional;
  *       (등록된 카드 ACTIVE·INACTIVE 1장 이상 + 연결된 기준 계좌)</li>
  *   <li>보안 설정: PIN 설정 여부·생체인증·지금 기기는 실제 값. 앱 잠금·결제 코드 인증 생략 시간과 결제 코드 인증 방식은
  *       <b>임시</b> 기본값이다. 저장할 칸과 수정 API(「보안 설정 수정」 P2)가 아직 없다</li>
- *   <li>결제 설정: 기본 카드는 user_card.is_default. 카드 자동 선택(autoSelect)은 <b>임시</b>로 항상 true.
- *       저장할 칸과 수정 API(「결제 설정 수정」 P1)가 아직 없다</li>
+ *   <li>결제 설정: 기본 카드는 user_card.is_default, 카드 자동 선택(autoSelect)은 app_user.payment_auto_select.
+ *       바꾸는 곳은 「결제 설정 수정」({@code PaymentSettingsService})</li>
  *   <li>명세 v0.3.1의 onboarding.step·incomeSet·recurringCount(예정 수입·고정 지출, BE 4)는 넣지 않았다</li>
  * </ul>
  */
@@ -42,8 +42,6 @@ public class UserQueryService {
     static final int DEFAULT_BARCODE_AUTH_GRACE_SECONDS = 60;
     /** 임시: 결제 코드 인증 방식(명세 기본값). */
     static final String DEFAULT_BARCODE_AUTH_METHOD = "BIOMETRIC_OR_PIN";
-    /** 임시: 결제 카드 자동 선택(명세 결제 설정 기본). */
-    static final boolean DEFAULT_AUTO_SELECT = true;
 
     private final AppUserRepository userRepository;
     private final UserCardRepository cardRepository;
@@ -75,7 +73,7 @@ public class UserQueryService {
                         DEFAULT_BARCODE_AUTH_GRACE_SECONDS, DEFAULT_BARCODE_AUTH_METHOD,
                         device != null && device.isBiometricEnabled(), user.getPinHash() != null,
                         device == null ? null : new MyInfoResponse.CurrentDevice(device.getId(), device.getDeviceName())),
-                new MyInfoResponse.PaymentSettings(DEFAULT_AUTO_SELECT, defaultUserCardId),
+                new MyInfoResponse.PaymentSettings(user.isPaymentAutoSelect(), defaultUserCardId),
                 user.getCreatedAt());
     }
 

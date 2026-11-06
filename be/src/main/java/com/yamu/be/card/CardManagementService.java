@@ -82,6 +82,7 @@ public class CardManagementService {
     private final CardImageUrlResolver imageUrlResolver;
     private final CurrentCycleReader currentCycleReader;
     private final CardBenefitSummaryReader benefitSummaryReader;
+    private final PaymentSettingsService paymentSettingsService;
 
     /** @param status ACTIVE·INACTIVE 중 하나만 볼 때. null이면 둘 다 */
     @Transactional(readOnly = true)
@@ -139,10 +140,11 @@ public class CardManagementService {
      * <p>결제일은 바로 바뀐다. 진행 중 이용기간부터 새 결제일로 볼지(잔고예보가 {@code UserCardRef.paymentDay}로 출금일을 정함)
      * 다음 이용기간부터 적용할지는 BE 2(청구)·BE 4(잔고예보)와 정할 일이라 MR 확인 필요에 남겼다.
      * 추천에서 뺀(INACTIVE) 카드는 기본 카드가 될 수 없다. 기본 카드를 INACTIVE로 바꾸면 기본 지정도 풀린다.
+     * 임시: 결제 카드 자동 선택이 꺼진 상태에서 기본 카드가 없어지면 자동 선택을 다시 켠다({@link PaymentSettingsService}).
      */
     @Transactional
     public CardDetailResponse update(AuthUser me, Long userCardId, CardUpdateRequest request) {
-        lockUser(me);
+        AppUser user = lockUser(me);
         UserCard card = cardRepository.findByIdAndUserId(userCardId, me.userId())
                 .filter(c -> c.getRegistrationStatus() != CardRegistrationStatus.PENDING)
                 .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND));
@@ -177,6 +179,7 @@ public class CardManagementService {
             throw invalid("isDefault", "추천에서 제외한 카드는 기본 카드로 지정할 수 없습니다.");
         }
 
+        boolean wasDefaultBefore = card.isDefaultCard();
         if (request.nickname() != null) {
             card.rename(request.nickname().isBlank() ? null : request.nickname().strip());
         }
@@ -196,6 +199,9 @@ public class CardManagementService {
             changeDefault(me, card, request.isDefault());
         }
         cardRepository.saveAndFlush(card);
+        if (wasDefaultBefore && !card.isDefaultCard()) {
+            paymentSettingsService.restoreAutoSelectIfNoDefault(user);
+        }
         return toDetail(card);
     }
 
@@ -226,7 +232,7 @@ public class CardManagementService {
      */
     @Transactional
     public void unregister(AuthUser me, Long userCardId, String stepUpToken) {
-        lockUser(me);
+        AppUser user = lockUser(me);
         UserCard card = cardRepository.findByIdAndUserId(userCardId, me.userId())
                 .filter(c -> c.getRegistrationStatus().isRegistered())
                 .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND));
@@ -235,8 +241,12 @@ public class CardManagementService {
             throw new BusinessException(ErrorCode.CARD_HAS_OPEN_BILL, Map.of("billIds", openBills));
         }
         stepUpService.requireStepUp(me, StepUpPurpose.CARD_DELETE, stepUpToken);
+        boolean wasDefault = card.isDefaultCard();
         card.unregister();
         cardRepository.saveAndFlush(card);
+        if (wasDefault) {
+            paymentSettingsService.restoreAutoSelectIfNoDefault(user);
+        }
     }
 
     /**
@@ -323,13 +333,14 @@ public class CardManagementService {
                 .plusMonths(PAYMENT_DAY_LOCK_MONTHS);
     }
 
-    private void lockUser(AuthUser me) {
+    private AppUser lockUser(AuthUser me) {
         AppUser user = userRepository.findByIdForUpdate(me.userId())
                 .orElseThrow(() -> new BusinessException(ErrorCode.UNAUTHORIZED));
         // 요청 시작 때 토큰 검사를 통과했어도 잠금을 기다리는 사이 탈퇴했을 수 있다. 탈퇴한 사용자에게 데이터를 다시 남기지 않는다.
         if (user.isWithdrawn()) {
             throw new BusinessException(ErrorCode.UNAUTHORIZED);
         }
+        return user;
     }
 
     private Map<Long, CardProduct> products(List<UserCard> cards) {
