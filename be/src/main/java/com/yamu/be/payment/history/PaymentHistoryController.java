@@ -82,7 +82,7 @@ class PaymentHistoryController {
     }
 
     @Operation(summary = "결제 내역 CSV 내려받기",
-            description = "결제 내역 목록과 같은 조건(page·size 제외)으로 전체를 text/csv(UTF-8 BOM)로 내려준다. 결제일시는 한국 시각. "
+            description = "결제 내역 목록과 같은 조건(page·size 제외)으로 전체를 text/csv(UTF-8 BOM)로 내려준다. 결제일시는 목록 기간과 같은 요청 시각의 한국 시각. "
                     + "기간은 12개월까지이고 시작·종료일을 모두 정해야 한다(아니면 400 RANGE_TOO_LARGE, 1만 건을 넘어도 같은 400). "
                     + "사용자마다 분당 3번까지(넘으면 429 RATE_LIMITED, details.retryAfterSeconds). 실패 응답은 공통 JSON이다.")
     @GetMapping(value = "/export", produces = {"text/csv", "application/json"})

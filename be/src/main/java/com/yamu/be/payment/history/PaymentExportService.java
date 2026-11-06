@@ -31,9 +31,11 @@ import org.springframework.transaction.annotation.Transactional;
  *
  * <ul>
  *   <li>기간은 12개월까지다(400 RANGE_TOO_LARGE). from·to 중 한쪽만 주면 기간이 끝없이 길어지므로 같은 400이다. 아무것도 없으면 이번 달.</li>
- *   <li>사용자마다 분당 3번까지다(429 RATE_LIMITED, Redis 분 단위 카운터). Redis가 실패하면 막지 않고 남긴다(내려받기를 막을 만큼 위험하지 않다).</li>
+ *   <li>사용자마다 분당 3번까지다(429 RATE_LIMITED, Redis 분 단위 카운터). Redis가 실패하면 막지 않고 남긴다(내려받기를 막을 만큼 위험하지 않다).
+ *       행 수 초과로 400이 나는 요청도 센다. 초과 여부는 쿼리를 돌려야 알고, 그 쿼리가 서버 부담의 본체라서다.</li>
  *   <li>행 수는 {@value #MAX_ROWS}건까지다(임시). 넘으면 400 RANGE_TOO_LARGE로 기간을 줄이게 한다.</li>
- *   <li>엑셀에서 바로 열리게 UTF-8 BOM을 붙이고, 결제일시는 한국 시각 {@code yyyy-MM-dd HH:mm}이다(API의 UTC 규칙과 다름, 명세대로).</li>
+ *   <li>엑셀에서 바로 열리게 UTF-8 BOM을 붙이고, 결제일시는 한국 시각 {@code yyyy-MM-dd HH:mm}이다(API의 UTC 규칙과 다름, 명세대로).
+ *       시각은 목록의 기간·정렬과 같은 요청 시각이다. 승인 시각을 쓰면 자정 직전 요청·직후 승인 건이 10월 파일에 11-01로 나온다.</li>
  *   <li>카드번호는 끝 4자리만 보인다. 셀이 =·+·-·@로 시작하면 엑셀이 수식으로 읽지 않게 앞에 '를 붙인다(CSV 수식 주입 방지).</li>
  *   <li>청구예정액(임시): 승인 건만. 신용카드는 승인액 − 청구할인, 체크카드는 승인액(출금액). 취소·거절은 빈 칸.</li>
  * </ul>
@@ -101,7 +103,7 @@ public class PaymentExportService {
         }
     }
 
-    /** 한국 시각 분 단위 고정 창. 창마다 3번까지. */
+    /** 한국 시각 분 단위 고정 창. 창마다 3번까지. 행 수 검사보다 먼저 세므로 1만 건 초과로 끝나는 요청도 센다(쿼리는 이미 돌았다). */
     private void checkRate(Long userId) {
         long minute = clock.instant().getEpochSecond() / 60;
         String key = RATE_KEY_PREFIX + userId + ":" + minute;
@@ -131,7 +133,8 @@ public class PaymentExportService {
 
     static String line(ExportRow row) {
         PaymentListResponse.Item item = row.item();
-        LocalDateTime at = item.approvedAt() != null ? item.approvedAt() : item.requestedAt();
+        // 결제일시는 목록의 기간·정렬과 같은 요청 시각. 승인 시각은 자정을 넘길 수 있어 전달 파일에 다음 달 날짜가 섞인다
+        LocalDateTime at = item.requestedAt();
         PaymentListResponse.Card card = item.card();
         return String.join(",",
                 cell(at.atOffset(ZoneOffset.UTC).atZoneSameInstant(KST).format(KOREAN_TIME)),

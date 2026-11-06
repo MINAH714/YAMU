@@ -103,7 +103,7 @@ class PaymentExportIntegrationTest extends MySqlTestSupport {
         List<String> lines = lines(body);
         assertThat(lines.get(0)).isEqualTo(PaymentExportService.HEADER);
         assertThat(lines).hasSize(2);
-        // 승인 2초 뒤 = 한국 12:00, 청구예정액 = 승인액 − 청구할인. 소비분류는 내려받기 직전에 분류한 값
+        // 결제일시는 요청 시각(한국 12:00), 청구예정액 = 승인액 − 청구할인. 소비분류는 내려받기 직전에 분류한 값
         assertThat(lines.get(1)).isEqualTo("2026-10-10 12:00,스타벅스 역삼점,F01-CAFE,메인 신용카드,****-****-****-1234,"
                 + "야무 통합 바코드,일시불,15000,1500,13500,승인,인정,생활 소비,\"팀 회식, \"\"1/N\"\"\"");
     }
@@ -199,6 +199,23 @@ class PaymentExportIntegrationTest extends MySqlTestSupport {
     @Test
     void 토큰이_없으면_401이다() throws Exception {
         mockMvc.perform(get("/api/payments/export")).andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void 결제일시는_요청_시각이라_자정을_넘겨_승인된_건도_요청한_달_파일에_그_날짜로_나온다() throws Exception {
+        // 한국 10-31 23:59:50 요청, 11-01 00:00:05 승인. 목록 기간·정렬과 같은 요청 시각이라 10월 파일에 10-31로 나온다
+        long id = payment(owner, card, "APPROVED", LocalDateTime.of(2026, 10, 31, 14, 59, 50), 15_000);
+        jdbc.update("UPDATE payment_transaction SET approved_at = ? WHERE payment_transaction_id = ?",
+                LocalDateTime.of(2026, 10, 31, 15, 0, 5), id);
+
+        List<String> october = lines(mockMvc.perform(export().param("yearMonth", "2026-10"))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsByteArray());
+        List<String> november = lines(mockMvc.perform(export().param("yearMonth", "2026-11"))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsByteArray());
+
+        assertThat(october).hasSize(2);
+        assertThat(october.get(1)).startsWith("2026-10-31 23:59,");
+        assertThat(november).hasSize(1);
     }
 
     private MockHttpServletRequestBuilder export() {
