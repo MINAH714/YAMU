@@ -10,7 +10,7 @@
 |---|---|
 | `app/main.py` | FastAPI 앱, 상태 확인·생활비 예측 API, 로컬 실행 진입점 |
 | `app/living_cost.py` | 생활비 예측 모델 읽기, 특징 계산, 예측 |
-| `models/living-cost/` | 생활비 예측 모델(14·30일)과 설명. 출처는 `models/README.md` |
+| `models/living-cost/` | 생활비 예측 모델(7·14·30일)과 설명. 출처는 `models/README.md` |
 | `tests/` | 테스트와 학습 저장소가 만든 기대값(`golden_living_cost.json`) |
 | `requirements.txt` | 실행에 필요한 패키지 버전 고정 |
 | `requirements-dev.txt` | 테스트에 더 필요한 패키지(`httpx`) |
@@ -56,15 +56,15 @@
    `ok`가 출력되면 통과입니다. 브라우저에서 `http://localhost:8001/health`를 열면 아래 응답을 볼 수 있습니다. `livingCostModel.loaded`가 `false`면 모델을 읽지 못한 것이고, 서버 터미널에 이유가 찍힙니다(예측만 503, 서버는 동작).
 
    ```json
-   {"status":"ok","livingCostModel":{"loaded":true,"horizons":[14,30],"modelVersion":{"14":"two-stage-tree-20261106-fraud-large1000000-recurring_once","30":"two-stage-tree-20261106-fraud-large1000000-recurring_once"}}}
+   {"status":"ok","livingCostModel":{"loaded":true,"horizons":[7,14,30],"modelVersion":{"7":"two-stage-tree-20261106-fraud-large1000000-recurring_once","14":"two-stage-tree-20261106-fraud-large1000000-recurring_once","30":"two-stage-tree-20261106-fraud-large1000000-recurring_once"}}}
    ```
 
 ## 3. 생활비 예측 API
 
-BE의 잔고예보만 부르는 내부 API입니다. 계좌별 최근 90일의 일별 체크카드 생활 소비를 받아 다음 14일 또는 30일 합계를 예측합니다. 7일은 AI 모델이 단순 방식(TSB)보다 낫지 않아 BE가 TSB로 계산합니다([models/README.md](models/README.md) 「평가 결과」). 예보 기간이 7·14·30일이 아닌 N일이면 BE가 (0일, 0원)·(7일, TSB)·(14일, 이 API의 14일 예측)·(30일, 30일 예측)을 직선으로 잇고(앞 점보다 낮은 점은 올림), 30일보다 길면 30일 하루 평균 × N을 씁니다. 기간을 늘려도 생활비가 줄지 않게 하려는 규칙입니다([잔고예보 문서](../docs/be/forecast.md) 「큰 일회성 지출」 단락). 원천 정제(정기 지출·큰 일회성 지출 제외 등)는 BE가 한 뒤 넘깁니다([잔고예보 문서](../docs/be/forecast.md) 「생활비 원천 계약」).
+BE의 잔고예보만 부르는 내부 API입니다. 계좌별 최근 90일의 일별 체크카드 생활 소비를 받아 다음 7일·14일·30일 중 하나의 합계를 예측합니다([models/README.md](models/README.md) 「평가 결과」). 7일 모델은 2026-11-06에 더했습니다(S15P31E103-304). 그 전까지 BE는 7일을 TSB로 계산했고, 7일 점을 이 API로 바꾸는 것은 BE 연동(-255)에서 합니다. 예보 기간이 7·14·30일이 아닌 N일이면 BE가 (0일, 0원)·(7일, TSB)·(14일, 이 API의 14일 예측)·(30일, 30일 예측)을 직선으로 잇고(앞 점보다 낮은 점은 올림), 30일보다 길면 30일 하루 평균 × N을 씁니다. 기간을 늘려도 생활비가 줄지 않게 하려는 규칙입니다([잔고예보 문서](../docs/be/forecast.md) 「큰 일회성 지출」 단락). 원천 정제(정기 지출·큰 일회성 지출 제외 등)는 BE가 한 뒤 넘깁니다([잔고예보 문서](../docs/be/forecast.md) 「생활비 원천 계약」).
 
 - **넘기는 값**: BE 생활비 원천(`LivingCostReader`)이 주는 날짜별 `checkCardAmount`(그날 YAMU 체크카드 LIVING 결제 합계)입니다. 모델이 체크카드 거래로만 학습했으므로 계좌 출금 등 다른 소비를 더해 넘기지 않습니다.
-- **부르지 않는 계좌**: 기록이 90일 미만이거나 최근 90일에 체크카드 사용이 없는 계좌는 학습·평가 범위 밖이라 BE가 부르지 않고 TSB로 계산합니다. API는 이런 입력도 거절하지 않고 값을 냅니다(예: 90일 모두 0원이어도 14일 3,753원, 30일 12,532원).
+- **부르지 않는 계좌**: 기록이 90일 미만이거나 최근 90일에 체크카드 사용이 없는 계좌는 학습·평가 범위 밖이라 BE가 부르지 않고 TSB로 계산합니다. API는 이런 입력도 거절하지 않고 값을 냅니다(예: 90일 모두 0원이어도 7일 1,183원, 14일 3,753원, 30일 12,532원).
 - **아주 큰 입력**: 트리 모델이라 학습한 범위 밖으로 값을 늘리지 못합니다(예: 하루 1조 원씩 넣어도 30일 예측 약 119만 원). 예측이 입력에 비해 터무니없이 작으면 이상값으로 보고 TSB로 바꿀지 BE 연동 때 기준을 정합니다.
 
 `POST /forecast/living-cost`
@@ -77,7 +77,7 @@ BE의 잔고예보만 부르는 내부 API입니다. 계좌별 최근 90일의 �
 | 필드 | 규칙 |
 |---|---|
 | `asOf` | 기록의 마지막 날(`YYYY-MM-DD` 문자열) |
-| `horizonDays` | 14 또는 30(정수). 7 등 다른 값은 400. 예측은 asOf 다음 날부터 |
+| `horizonDays` | 7·14·30 중 하나(정수). 다른 값은 400. 예측은 asOf 다음 날부터 |
 | `accounts` | 1~20개 |
 | `accounts[].key` | BE가 정한 임의 구분값(문자열 1~64자, 요청 안에서 겹치지 않음). 사용자 ID·계좌번호는 넣지 않음 |
 | `accounts[].dailySpending` | 정확히 90개의 정수(원, 0 이상, 하루 1조 원 이하). 문자열·소수·true/false는 거절 |

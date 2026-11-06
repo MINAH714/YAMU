@@ -1,0 +1,48 @@
+{
+  "model_version": "two-stage-tree-20261106-fraud-large1000000-recurring_once",
+  "model": "TWO_STAGE_TREE",
+  "variant": "fraud+large1000000+recurring_once",
+  "exclusions": {
+    "fraud": "이상거래여부 1",
+    "large": "체크 거래 한 건 1,000,000원 초과",
+    "recurring": "그 결제의 달과 앞 5개 달 중 같은 카드·가맹점·금액이 3개 이상의 달에 나오고 그중 두 번 이상 나온 달이 없음(과거만 봄)"
+  },
+  "target": "다음 7일 체크(승인거래코드 10·11) 소비 합계(원)",
+  "training": {
+    "rows": 107016,
+    "people": 1594,
+    "from": "2021-04-01",
+    "to": "2024-12-19",
+    "trees": {
+      "classifier": 132,
+      "regressor": 82
+    }
+  },
+  "evaluated_in": [
+    "20261106-092429-crossval",
+    "20261106-100126-tsb-fixed",
+    "20261106-100657-short-history"
+  ],
+  "trained_at": "2026-11-06T10:08:42",
+  "horizon": 7,
+  "features": [
+    "sum_7d",
+    "days_7d",
+    "sum_14d",
+    "days_14d",
+    "sum_28d",
+    "days_28d",
+    "sum_84d",
+    "days_84d",
+    "week_minus2",
+    "week_minus3",
+    "week_minus4",
+    "days_since_last",
+    "mean_active_84d",
+    "adi_84d",
+    "cv2_84d"
+  ],
+  "sklearn_version": "1.9.1",
+  "history_days": 90,
+  "sha256": "ee501e6f87f3c23ce8daf4378f6b049ab04997a2b47acbefba8e74d6e189d28f"
+}
