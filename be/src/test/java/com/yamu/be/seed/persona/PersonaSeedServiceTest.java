@@ -523,6 +523,22 @@ class PersonaSeedServiceTest extends MySqlTestSupport {
         assertThat(stale.message()).contains("--reset");
     }
 
+    @Test
+    void 가입_전인데_모의_소비가_없으면_건너뛰면서_reset을_안내한다() {
+        // 이 기능 전에 넣은 페르소나처럼 SEED 결제가 하나도 없는 경우
+        Persona persona = persona("모의 소비 없음", List.of(card(CHECK_PRODUCT)));
+        accounts(persona, 1);
+        seedService.seed(List.of(persona), false);
+        long userId = userId(persona);
+        jdbc.update("DELETE FROM payment_transaction WHERE user_id = ? AND source = 'SEED'", userId);
+
+        Outcome outcome = seedService.seed(List.of(persona), false).outcomes().get(0);
+
+        assertThat(outcome.result()).isEqualTo(Result.SKIPPED_EXISTS);
+        assertThat(outcome.message()).contains("모의 소비가 없습니다").contains("--reset");
+        assertThat(userId(persona)).isEqualTo(userId);
+    }
+
     private static long amount(Map<String, Object> payment) {
         return ((Number) payment.get("approved_amount")).longValue();
     }
