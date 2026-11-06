@@ -316,11 +316,14 @@ class ForecastScenarioIntegrationTest extends MySqlTestSupport {
                 .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
     }
 
-    /** GS25(편의점)에서 체크카드로 일시불, A 계좌·30일. */
+    /**
+     * GS25(편의점)에서 체크카드로 일시불, A 계좌·30일. 잔고예보 조회처럼 until=DAYS를 보내야 사용자 설정과 상관없이 30일이다
+     * (-318 이후 until이 없으면 설정을 따름. 그 전 서버는 모르는 칸이라 무시함).
+     */
     private String checkPurchase(long amount) {
         return """
-                {"accountIds": [%d], "amount": %d, "userCardId": %d, "plan": "LUMP_SUM", "days": 30,
-                 "merchantCategoryCode": "CONVENIENCE_STORE", "merchantId": %d, "paymentChannel": "OFFLINE"}"""
+                {"accountIds": [%d], "amount": %d, "userCardId": %d, "plan": "LUMP_SUM", "until": "DAYS",
+                 "days": 30, "merchantCategoryCode": "CONVENIENCE_STORE", "merchantId": %d, "paymentChannel": "OFFLINE"}"""
                 .formatted(accountA, amount, checkCard, gs25);
     }
 
@@ -328,7 +331,8 @@ class ForecastScenarioIntegrationTest extends MySqlTestSupport {
     private String creditInstallment(long amount, int months) {
         return """
                 {"accountIds": [%d], "amount": %d, "userCardId": %d, "plan": "INSTALLMENT", "installmentMonths": %d,
-                 "days": 30, "merchantCategoryCode": "CONVENIENCE_STORE", "merchantId": %d, "paymentChannel": "OFFLINE"}"""
+                 "until": "DAYS", "days": 30, "merchantCategoryCode": "CONVENIENCE_STORE", "merchantId": %d,
+                 "paymentChannel": "OFFLINE"}"""
                 .formatted(accountA, amount, creditCard, months, gs25);
     }
 
