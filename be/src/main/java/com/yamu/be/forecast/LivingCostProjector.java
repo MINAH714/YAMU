@@ -23,7 +23,8 @@ import org.springframework.stereotype.Component;
  *   <li>기간 n일 값: (0, 0)·(7, TSB 7일)·(14, AI 14일)·(30, AI 30일)을 직선으로 잇고 앞 점보다 낮은 점은 올린다.
  *       30일보다 길면 30일 값의 하루 평균 × n이다. TSB만 쓰는 계좌는 TSB 하루 예측 × n이다.</li>
  *   <li>잔고예보는 내일부터 N일 동안 생활비를 빼는데, 어제까지의 기록으로 한 예측은 오늘부터다. 그래서 오늘을 포함한 N+1일을
- *       예측하고 오늘 이미 쓴 금액을 뺀 뒤 N으로 나눠 하루 값을 만든다. 예상 생활비는 하루 값 × N이다(잔고예보 선과 같은 값).</li>
+ *       예측하고, 오늘 이미 쓴 금액을 오늘 몫(N+1일 예측 ÷ (N+1))까지만 뺀 뒤 N으로 나눠 하루 값을 만든다. 예상 생활비는
+ *       하루 값 × N이다(잔고예보 선과 같은 값).</li>
  *   <li>신뢰도는 기록 길이다: 60일 이상 HIGH(짧은 기록 평가에서 두 해 모두 통과한 길이), 14~59일 MEDIUM, 1~13일 LOW.
  *       어제까지 기록이 없으면 INSUFFICIENT이고 예상 생활비를 비운다(0원으로 정하지 않음).</li>
  * </ul>
@@ -150,7 +151,10 @@ class LivingCostProjector {
         String method = aiPoint == null ? METHOD_TSB : METHOD_AI;
         long upcoming = aiPoint == null ? round(tsbDaily * predictDays)
                 : interpolate(round(tsbDaily * 7), aiPoint[0], aiPoint[1], predictDays);
-        long daily = horizonDays == 0 ? 0 : roundedDivide(Math.max(0, upcoming - history.spentToday()), horizonDays);
+        // 오늘 이미 쓴 돈은 오늘 몫(N+1일 예측 ÷ (N+1))까지만 뺀다. 오늘 크게 써도 내일부터의 생활비가 줄지 않게 한다(!136 리뷰)
+        long todayShare = roundedDivide(upcoming, predictDays);
+        long daily = horizonDays == 0 ? 0
+                : roundedDivide(upcoming - Math.min(history.spentToday(), todayShare), horizonDays);
         LivingCostEstimator.Confidence confidence = history.historyDays() >= HIGH_CONFIDENCE_DAYS
                 ? LivingCostEstimator.Confidence.HIGH
                 : history.historyDays() >= AI_MIN_HISTORY_DAYS ? LivingCostEstimator.Confidence.MEDIUM

@@ -178,13 +178,31 @@ class LivingCostProjectorTest {
     }
 
     @Test
-    void 오늘_이미_예측보다_많이_썼으면_0원이고_기간이_0일이면_0원이다() {
+    void 오늘_많이_써도_오늘_몫까지만_빼서_내일부터_생활비는_그대로고_기간이_0일이면_0원이다() {
+        // 하루 1,000원 쓰던 사람이 오늘 500,000원을 썼다. 7일 예보: 8일 예측 8,000원, 오늘 몫 1,000원만 빼 7,000원 ÷ 7
         List<DailySpending> rows = new ArrayList<>(everyDay(A, TODAY.minusDays(120), YESTERDAY, 1_000, Origin.REAL));
         rows.add(new DailySpending(A, TODAY, 500_000, 500_000, Origin.REAL, true));
         LivingCostProjector projector = new LivingCostProjector(AiLivingCostClient.disabled());
 
-        assertThat(projector.project(List.of(A), rows, TODAY, 7).byAccount().get(A).projectedAmount()).isZero();
+        LivingCostProjector.AccountProjection week = projector.project(List.of(A), rows, TODAY, 7).byAccount().get(A);
+        assertThat(week.dailyAmount()).isEqualTo(1_000L);
+        assertThat(week.projectedAmount()).isEqualTo(7_000L);
+        assertThat(projector.project(List.of(A), rows, TODAY, 30).byAccount().get(A).projectedAmount())
+                .isEqualTo(30_000L);
         assertThat(projector.project(List.of(A), rows, TODAY, 0).byAccount().get(A).projectedAmount()).isZero();
+    }
+
+    @Test
+    void 오늘_쓴_돈이_오늘_몫보다_적으면_남은_몫은_내일부터_하루_값에_얹힌다() {
+        // 하루 6,000원(30일 예보 31일 예측 186,000원, 오늘 몫 6,000원)인데 오늘 2,000원만 썼다 → (186,000 − 2,000) ÷ 30
+        List<DailySpending> rows = new ArrayList<>(everyDay(A, TODAY.minusDays(120), YESTERDAY, 6_000, Origin.REAL));
+        rows.add(new DailySpending(A, TODAY, 2_000, 2_000, Origin.REAL, true));
+
+        LivingCostProjector.AccountProjection result = new LivingCostProjector(AiLivingCostClient.disabled())
+                .project(List.of(A), rows, TODAY, 30).byAccount().get(A);
+
+        assertThat(result.dailyAmount()).isEqualTo(6_133L);
+        assertThat(result.projectedAmount()).isEqualTo(6_133L * 30);
     }
 
     @Test
