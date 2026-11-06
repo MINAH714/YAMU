@@ -84,6 +84,25 @@ public class RecommendationService {
         return calculate(command, readInputs(command), paymentId);
     }
 
+    /** 결제 생성/저장/승인 없이 기존 서버 조회와 정책 조립을 재사용한다. paymentId는 null이다. */
+    public Result recommendSimulation(long userId, Transaction transaction, CalculationOptions options) {
+        Objects.requireNonNull(options, "options");
+        var command = new RecommendationCommand(null, userId, transaction, Map.of());
+        var prepared = readInputs(command);
+        var input = new RecommendationInput(null, userId, transaction, prepared.defaultCardId(), prepared.candidates());
+        var recommendation = selector.select(input, options);
+        var rules = new ArrayList<>(transaction.simulationRules());
+        for (var card : recommendation.evaluatedCards()) {
+            if (card.calculation() == null) continue;
+            for (var rule : card.calculation().simulationRules()) {
+                if (transaction.simulationRules().contains(rule)) continue;
+                rules.add(new SimulationRule(rule.id(), rule.version(), rule.description(), card.userCardId(),
+                        rule.benefitId(), rule.appliedFields()));
+            }
+        }
+        return new Result(recommendation, prepared.issues(), prepared.cards(), rules.stream().distinct().toList());
+    }
+
     /** POS 저장 전 읽기를 완료한다. 이 거래의 입력에 결제 ID를 한 번만 붙일 수 있다. */
     public LongFunction<Result> prepare(RecommendationCommand command) {
         if (command.paymentId() != null) {

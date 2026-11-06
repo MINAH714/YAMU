@@ -446,8 +446,11 @@ public class WithdrawalRecovery {
         return !clock.instant().isBefore(since.plus(properties.recoveryGrace()));
     }
 
-    /** 기관거래고유번호의 앞 14자리는 채번한 때의 한국 시각이다(스키마 사전 「금융망 요청 번호 채번 규칙」). */
-    static Instant requestTime(String finRequestNo) {
+    /**
+     * 기관거래고유번호의 앞 14자리는 채번한 때의 한국 시각이다(스키마 사전 「금융망 요청 번호 채번 규칙」).
+     * 신용카드 환급 입금(Task 5.4.4)도 유예 판단에 같이 쓴다.
+     */
+    public static Instant requestTime(String finRequestNo) {
         try {
             return LocalDateTime.parse(finRequestNo.substring(0, 14), REQUEST_TIME).atZone(KST).toInstant();
         } catch (DateTimeParseException | IndexOutOfBoundsException e) {

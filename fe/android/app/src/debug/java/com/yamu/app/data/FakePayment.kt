@@ -61,7 +61,7 @@ class FakePaymentRepository @Inject constructor(private val perf: FakePerformanc
     private var nextPaymentId = 1001L
 
     private fun card(id: Long, issuer: String, color: String, name: String, last4: String, check: Boolean, benefit: Long, benefitName: String?, months: List<Int> = emptyList(), charged: Long? = null, perf: String? = null) =
-        PayCard(id, brandOf(issuer, color = color), name, last4, check, benefit, benefitName, charged, months, benefitName?.let { "$it ${"%,d".format(benefit)}원" }, perf)
+        PayCard(id, brandOf(issuer, color = color), name, last4, check, benefit.toBigDecimal(), benefitName, charged, months, benefitName?.let { "$it ${"%,d".format(benefit)}원" }, perf)
 
     // 혜택 · 월 한도는 시드 값 — 톡톡 스타벅스 50%(한도 10,000) · ZERO 1.2% M포인트 · Mr.Life 주말 마트 10%(한도 3,000) · 노리2 GS25·CU 5%(한도 2,000)
     private val toktok get() = card(11, "KB국민카드", "#FFBC00", "KB국민 청춘대로 톡톡카드", "1021", false, 7_500, "스타벅스 50% 청구할인", months = listOf(2, 3, 6), perf = "이번 달 실적 +15,000원")
@@ -74,7 +74,7 @@ class FakePaymentRepository @Inject constructor(private val perf: FakePerformanc
             paymentId, "야무마트 강남점", "대형마트", 90_000, deadline,
             listOf(
                 mrLife(3_000).copy(performanceNote = "이번 달 실적 +90,000원"),
-                zero.copy(netBenefit = 1_080, reason = "1.2% M포인트 적립 1,080원", installmentOptions = listOf(2, 3, 6), performanceNote = "이번 달 실적 +90,000원"),
+                zero.copy(netBenefit = 1_080.toBigDecimal(), reason = "1.2% M포인트 적립 1,080원", installmentOptions = listOf(2, 3, 6), performanceNote = "이번 달 실적 +90,000원"),
             ),
         )
         PayScenario.CHECK_DECLINED -> PaymentRequest(
@@ -98,12 +98,12 @@ class FakePaymentRepository @Inject constructor(private val perf: FakePerformanc
     private suspend fun recommendNow(merchantId: Long, amount: Long): ApiResult<Recommendation> {
         delay(500)
         val m = FakeMerchants.all.firstOrNull { it.id == merchantId } ?: return ApiResult.Failure(ApiError.NotFound("MERCHANT_NOT_FOUND"))
-        fun withBenefit(c: PayCard, benefit: Long) = c.copy(netBenefit = benefit, reason = c.benefitName?.let { "$it ${"%,d".format(benefit)}원" })
+        fun withBenefit(c: PayCard, benefit: Long) = c.copy(netBenefit = benefit.toBigDecimal(), reason = c.benefitName?.let { "$it ${"%,d".format(benefit)}원" })
         val point = withBenefit(zero, amount * 12 / 1_000)
         val cards = when (m.categoryName) {
             "카페" -> listOf(withBenefit(toktok, minOf(amount / 2, 10_000)), point)
             "대형마트" -> listOf(withBenefit(mrLife(0), minOf(amount / 10, 3_000)), point)
-            "편의점" -> listOf(withBenefit(nori2(0, amount), minOf(amount / 20, 2_000)).let { it.copy(chargedAmount = amount - it.netBenefit) }, point)
+            "편의점" -> listOf(withBenefit(nori2(0, amount), minOf(amount / 20, 2_000)).let { it.copy(chargedAmount = amount - it.netBenefit.toLong()) }, point)
             else -> listOf(point)
         }
         return ApiResult.Success(Recommendation(m.name, amount, cards, isEstimate = false))
@@ -168,11 +168,11 @@ class FakePaymentRepository @Inject constructor(private val perf: FakePerformanc
             isCheck = card.isCheck,
             approvalNo = "Y" + now.format(DateTimeFormatter.ofPattern("yyyyMMddHHmmss")) + "%03d".format(request.paymentId % 1000),
             installmentMonths = installmentMonths,
-            benefits = listOfNotNull(card.benefitName?.let { ReceiptBenefit(it, card.netBenefit) }),
+            benefits = listOfNotNull(card.benefitName?.let { ReceiptBenefit(it, card.netBenefit.toLong()) }),
             chargedAmount = card.chargedAmount ?: request.amount,
             balanceAfter = if (card.isCheck) 950_000 - (card.chargedAmount ?: request.amount) else null,
             billDateIso = if (card.isCheck) null else payDay.toString(),
-            billAmount = if (card.isCheck) null else (request.amount - card.netBenefit) / (installmentMonths ?: 1),
+            billAmount = if (card.isCheck) null else (request.amount - card.netBenefit.toLong()) / (installmentMonths ?: 1),
             perfMonth = LocalDate.now(KST).monthValue,
             perfRecognized = if (card.isCheck) 0 else request.amount,
             perfCounted = !card.isCheck,

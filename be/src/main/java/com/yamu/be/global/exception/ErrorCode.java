@@ -112,6 +112,9 @@ public enum ErrorCode {
     /* 잔고예보 - 조회 (API 명세 「잔고예보 조회」). accountIds 누락 또는 빈 선택 */
     ACCOUNT_SELECTION_REQUIRED(HttpStatus.BAD_REQUEST, "잔고예보에 사용할 계좌를 하나 이상 선택해 주세요."),
 
+    /* 잔고예보 - 가상 구매 시뮬레이션 (API 명세 「가상 구매 시뮬레이션」). 물품 카테고리·가맹점 업종·가맹점이 모두 없음 */
+    MERCHANT_OR_CATEGORY_REQUIRED(HttpStatus.BAD_REQUEST, "구매할 물품이나 가맹점 업종, 가맹점 중 하나를 입력해 주세요."),
+
     /* 결제 - POS 결제 요청 생성·결제 승인 요청 (API 명세 각 페이지). 금액·할부 규칙은 POL-013 */
     INVALID_AMOUNT(HttpStatus.BAD_REQUEST, "결제 금액은 1원 이상 정수로 보내 주세요."),
     INVALID_INSTALLMENT(HttpStatus.BAD_REQUEST, "할부는 신용카드로 50,000원 이상, 2~12개월만 가능합니다."),
