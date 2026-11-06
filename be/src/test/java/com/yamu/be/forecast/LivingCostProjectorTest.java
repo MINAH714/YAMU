@@ -38,7 +38,7 @@ class LivingCostProjectorTest {
 
     @Test
     void AI는_어제까지_90일을_보내고_N_더하기_1일을_직선으로_이은_뒤_오늘_쓴_금액을_뺀다() {
-        FakeAi ai = new FakeAi(Map.of(14, 100_000L, 30, 200_000L));
+        FakeAi ai = new FakeAi(Map.of(7, 35_000L, 14, 100_000L, 30, 200_000L));
         List<DailySpending> rows = everyDay(A, TODAY.minusDays(120), TODAY, 5_000, Origin.REAL);
 
         LivingCostProjector.AccountProjection result = new LivingCostProjector(ai)
@@ -48,7 +48,7 @@ class LivingCostProjectorTest {
         assertThat(result.method()).isEqualTo("ML_V1");
         assertThat(result.dailyAmount()).isEqualTo(6_722L);
         assertThat(result.projectedAmount()).isEqualTo(6_722L * 30);
-        assertThat(ai.calls).extracting(Call::horizon).containsExactly(14, 30);
+        assertThat(ai.calls).extracting(Call::horizon).containsExactly(7, 14, 30);
         assertThat(ai.calls).allSatisfy(call -> {
             assertThat(call.asOf()).isEqualTo(YESTERDAY);
             assertThat(call.histories()).containsOnlyKeys("a0");
@@ -57,35 +57,49 @@ class LivingCostProjectorTest {
     }
 
     @Test
-    void 예보_7일이면_8일_값이_필요해_AI_14일만_부른다() {
-        FakeAi ai = new FakeAi(Map.of(14, 100_000L));
+    void 예보_7일이면_8일_값이_필요해_AI_7일과_14일만_부른다() {
+        FakeAi ai = new FakeAi(Map.of(7, 35_000L, 14, 100_000L, 30, 200_000L));
 
         LivingCostProjector.AccountProjection result = new LivingCostProjector(ai)
                 .project(List.of(A), everyDay(A, TODAY.minusDays(120), TODAY, 5_000, Origin.REAL), TODAY, 7)
                 .byAccount().get(A);
 
-        // TSB 7일 35,000원 → AI 14일 100,000원 사이 8일 = 35,000 + 65,000 × 1/7 = 44,286원. − 5,000원 ÷ 7 = 5,612원
-        assertThat(ai.calls).extracting(Call::horizon).containsExactly(14);
+        // AI 7일 35,000원 → AI 14일 100,000원 사이 8일 = 35,000 + 65,000 × 1/7 = 44,286원. − 5,000원 ÷ 7 = 5,612원
+        assertThat(ai.calls).extracting(Call::horizon).containsExactly(7, 14);
         assertThat(result.method()).isEqualTo("ML_V1");
         assertThat(result.dailyAmount()).isEqualTo(5_612L);
     }
 
     @Test
-    void 예보_6일_이하는_7일_이하만_필요해_AI를_부르지_않는다() {
-        FakeAi ai = new FakeAi(Map.of(14, 100_000L, 30, 200_000L));
+    void 예보_6일_이하는_7일_이하만_필요해_AI_7일만_부른다() {
+        FakeAi ai = new FakeAi(Map.of(7, 42_000L, 14, 100_000L, 30, 200_000L));
 
         LivingCostProjector.AccountProjection result = new LivingCostProjector(ai)
                 .project(List.of(A), everyDay(A, TODAY.minusDays(120), TODAY, 5_000, Origin.REAL), TODAY, 6)
                 .byAccount().get(A);
 
+        // 7일 = AI 7일 42,000원, 오늘 몫 6,000원 중 쓴 5,000원을 빼 37,000원 ÷ 6 = 6,167원
+        assertThat(ai.calls).extracting(Call::horizon).containsExactly(7);
+        assertThat(result.method()).isEqualTo("ML_V1");
+        assertThat(result.dailyAmount()).isEqualTo(6_167L);
+        assertThat(result.projectedAmount()).isEqualTo(6_167L * 6);
+    }
+
+    @Test
+    void 예보_0일이면_뺄_날이_없어_AI를_부르지_않는다() {
+        FakeAi ai = new FakeAi(Map.of(7, 42_000L, 14, 100_000L, 30, 200_000L));
+
+        LivingCostProjector.AccountProjection result = new LivingCostProjector(ai)
+                .project(List.of(A), everyDay(A, TODAY.minusDays(120), TODAY, 5_000, Origin.REAL), TODAY, 0)
+                .byAccount().get(A);
+
         assertThat(ai.calls).isEmpty();
-        assertThat(result.method()).isEqualTo("TSB");
-        assertThat(result.projectedAmount()).isEqualTo(30_000L);
+        assertThat(result.projectedAmount()).isZero();
     }
 
     @Test
     void 기록_13일은_TSB_14일부터_AI이고_신뢰도는_기록_길이다() {
-        FakeAi ai = new FakeAi(Map.of(14, 70_000L, 30, 150_000L));
+        FakeAi ai = new FakeAi(Map.of(7, 35_000L, 14, 70_000L, 30, 150_000L));
         // A: 어제까지 13일 기록, B: 14일 기록
         List<DailySpending> rows = Stream.concat(
                 everyDay(A, YESTERDAY.minusDays(12), TODAY, 5_000, Origin.REAL).stream(),
@@ -115,7 +129,7 @@ class LivingCostProjectorTest {
 
     @Test
     void 기록_60일_미만은_AI_30일이_TSB_30일보다_낮으면_TSB_30일을_쓴다() {
-        FakeAi ai = new FakeAi(Map.of(14, 1_000L, 30, 1_000L));
+        FakeAi ai = new FakeAi(Map.of(7, 35_000L, 14, 1_000L, 30, 1_000L));
         // A: 어제까지 59일 기록(MEDIUM), B: 60일 기록(HIGH). 둘 다 날마다 5,000원
         List<DailySpending> rows = Stream.concat(
                 everyDay(A, YESTERDAY.minusDays(58), TODAY, 5_000, Origin.REAL).stream(),
@@ -123,18 +137,18 @@ class LivingCostProjectorTest {
 
         LivingCostProjector.Projection result = new LivingCostProjector(ai).project(List.of(A, B), rows, TODAY, 30);
 
-        // A: TSB 하루 4,999.99원 → 7일 35,000원, 30일 150,000원. AI 30일 1,000원 대신 150,000원을 써
+        // A: TSB 하루 4,999.99원 → 30일 150,000원. AI 30일 1,000원 대신 150,000원을 써
         //    31일 = 150,000 × 31/30 = 155,000원, 오늘 몫 5,000원을 빼 150,000 ÷ 30 = 5,000원
         assertThat(result.byAccount().get(A).method()).isEqualTo("ML_V1");
         assertThat(result.byAccount().get(A).dailyAmount()).isEqualTo(5_000L);
-        // B: 하한 없음. 30일은 14일 점(TSB 7일 35,000원으로 올린 값) 높이 → 31일 36,167원, 오늘 몫 1,167원을 빼 ÷ 30 = 1,167원
+        // B: 하한 없음. 30일은 14일 점(AI 7일 35,000원으로 올린 값) 높이 → 31일 36,167원, 오늘 몫 1,167원을 빼 ÷ 30 = 1,167원
         assertThat(result.byAccount().get(B).method()).isEqualTo("ML_V1");
         assertThat(result.byAccount().get(B).dailyAmount()).isEqualTo(1_167L);
     }
 
     @Test
     void 기록_60일_미만이어도_AI_30일이_TSB보다_크면_AI를_쓴다() {
-        FakeAi ai = new FakeAi(Map.of(14, 1_000L, 30, 300_000L));
+        FakeAi ai = new FakeAi(Map.of(7, 35_000L, 14, 1_000L, 30, 300_000L));
 
         LivingCostProjector.AccountProjection result = new LivingCostProjector(ai)
                 .project(List.of(A), everyDay(A, YESTERDAY.minusDays(29), TODAY, 5_000, Origin.REAL), TODAY, 30)
@@ -147,8 +161,8 @@ class LivingCostProjectorTest {
 
     @Test
     void AI가_한_번이라도_실패하면_그_요청의_모든_계좌를_TSB로_계산한다() {
-        // 14일은 답하고 30일은 실패
-        FakeAi ai = new FakeAi(Map.of(14, 100_000L));
+        // 7·14일은 답하고 30일은 실패
+        FakeAi ai = new FakeAi(Map.of(7, 35_000L, 14, 100_000L));
         List<DailySpending> rows = Stream.concat(
                 everyDay(A, TODAY.minusDays(120), TODAY, 5_000, Origin.REAL).stream(),
                 everyDay(B, TODAY.minusDays(120), TODAY, 2_000, Origin.REAL).stream()).toList();
@@ -161,8 +175,22 @@ class LivingCostProjectorTest {
     }
 
     @Test
+    void AI_7일이_실패하면_14_30일은_부르지_않고_모두_TSB로_계산한다() {
+        // 예: 7일 모델이 없는 옛 AI 서버가 400으로 거절
+        FakeAi ai = new FakeAi(Map.of(14, 100_000L, 30, 200_000L));
+
+        LivingCostProjector.AccountProjection result = new LivingCostProjector(ai)
+                .project(List.of(A), everyDay(A, TODAY.minusDays(120), TODAY, 5_000, Origin.REAL), TODAY, 30)
+                .byAccount().get(A);
+
+        assertThat(ai.calls).extracting(Call::horizon).containsExactly(7);
+        assertThat(result.method()).isEqualTo("TSB");
+        assertThat(result.projectedAmount()).isEqualTo(150_000L);
+    }
+
+    @Test
     void SEED와_REAL을_이어_붙이고_기록_뒤_빈_날은_0원이다() {
-        FakeAi ai = new FakeAi(Map.of(14, 50_000L, 30, 90_000L));
+        FakeAi ai = new FakeAi(Map.of(7, 25_000L, 14, 50_000L, 30, 90_000L));
         // 40일 전~11일 전 SEED, 10일 전은 줄 없음(카드 등록일), 9일 전~오늘 REAL
         List<DailySpending> rows = new ArrayList<>(everyDay(A, TODAY.minusDays(40), TODAY.minusDays(11), 3_000,
                 Origin.SEED));
@@ -185,7 +213,7 @@ class LivingCostProjectorTest {
         List<DailySpending> rows = new ArrayList<>(everyDay(A, TODAY.minusDays(30), TODAY.minusDays(2), 1_000,
                 Origin.REAL));
         rows.add(new DailySpending(A, YESTERDAY, 7_000, 7_000, Origin.REAL, false));
-        FakeAi ai = new FakeAi(Map.of(14, 1L, 30, 1L));
+        FakeAi ai = new FakeAi(Map.of(7, 1L, 14, 1L, 30, 1L));
 
         new LivingCostProjector(ai).project(List.of(A), rows, TODAY, 30);
 
@@ -246,9 +274,13 @@ class LivingCostProjectorTest {
         assertThat(LivingCostProjector.interpolate(70_000, 140_000, 300_000, 30)).isEqualTo(300_000L);
         assertThat(LivingCostProjector.interpolate(70_000, 140_000, 300_000, 31)).isEqualTo(310_000L);
         assertThat(LivingCostProjector.interpolate(70_000, 140_000, 300_000, 3)).isEqualTo(30_000L);
-        // AI 14일이 TSB 7일보다 작으면 14일을 7일 높이로, 30일이 14일보다 작으면 30일을 14일 높이로
+        // 14일이 7일보다 작으면 14일을 7일 높이로, 30일이 14일보다 작으면 30일을 14일 높이로
         assertThat(LivingCostProjector.interpolate(70_000, 50_000, 300_000, 10)).isEqualTo(70_000L);
         assertThat(LivingCostProjector.interpolate(70_000, 140_000, 100_000, 20)).isEqualTo(140_000L);
+        // 7일 이하는 7일 값만 쓴다. 더 긴 기간에 필요한 값이 없으면 거절
+        assertThat(LivingCostProjector.interpolate(70_000, -1, -1, 5)).isEqualTo(50_000L);
+        assertThatThrownBy(() -> LivingCostProjector.interpolate(70_000, -1, -1, 8))
+                .isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> LivingCostProjector.interpolate(70_000, 140_000, -1, 15))
                 .isInstanceOf(IllegalArgumentException.class);
     }

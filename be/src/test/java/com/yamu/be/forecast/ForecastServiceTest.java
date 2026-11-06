@@ -237,7 +237,7 @@ class ForecastServiceTest {
 
     @Test
     void AI가_답하면_보수적_선과_예상_생활비에_AI_값을_쓰고_평균은_지난_3개월_실적이다() {
-        // AI 14일 예측 140,000원. 예보 7일이면 8일 값 = TSB 7일 35,000 + (140,000 − 35,000) × 1/7 = 50,000원
+        // AI 7일 35,000원·14일 140,000원. 예보 7일이면 8일 값 = 35,000 + (140,000 − 35,000) × 1/7 = 50,000원
         projectorAi = new AiLivingCostClient(null, Clock.systemUTC(), java.time.Duration.ZERO) {
             @Override
             boolean enabled() {
@@ -247,7 +247,7 @@ class ForecastServiceTest {
             @Override
             Optional<Map<String, Long>> predict(LocalDate asOf, int horizonDays, Map<String, long[]> histories) {
                 assertThat(asOf).isEqualTo(TODAY.minusDays(1));
-                return Optional.of(Map.of("a0", horizonDays == 14 ? 140_000L : 300_000L));
+                return Optional.of(Map.of("a0", horizonDays == 7 ? 35_000L : horizonDays == 14 ? 140_000L : 300_000L));
             }
         };
         ForecastService withAi = serviceAt(CLOCK);
