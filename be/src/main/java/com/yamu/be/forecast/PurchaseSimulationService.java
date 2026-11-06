@@ -10,7 +10,10 @@ import com.yamu.be.global.common.ApiResponse.FieldErrorResponse;
 import com.yamu.be.global.exception.BusinessException;
 import com.yamu.be.global.exception.ErrorCode;
 import com.yamu.be.payment.PaymentTerms;
+import com.yamu.be.payment.approve.CreditLimitSource;
+import com.yamu.be.payment.billing.BillStatus;
 import com.yamu.be.payment.billing.BillingCycle;
+import com.yamu.be.payment.billing.CardBillRepository;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
@@ -28,21 +31,24 @@ import org.springframework.stereotype.Service;
  */
 @Service
 public class PurchaseSimulationService {
-    private static final String CREDIT_LIMIT_SKIPPED = "SKIPPED";
-
     private final ForecastService forecasts;
     private final CardQueryService cards;
     private final CardNameReader cardNames;
     private final SimulationRecommender recommender;
     private final BillingSchedule billingSchedule;
+    private final CreditLimitSource creditLimits;
+    private final CardBillRepository bills;
 
     PurchaseSimulationService(ForecastService forecasts, CardQueryService cards, CardNameReader cardNames,
-            SimulationRecommender recommender, BusinessDayCalendar calendar) {
+            SimulationRecommender recommender, BusinessDayCalendar calendar, CreditLimitSource creditLimits,
+            CardBillRepository bills) {
         this.forecasts = forecasts;
         this.cards = cards;
         this.cardNames = cardNames;
         this.recommender = recommender;
         this.billingSchedule = new BillingSchedule(calendar);
+        this.creditLimits = creditLimits;
+        this.bills = bills;
     }
 
     /**
@@ -67,7 +73,7 @@ public class PurchaseSimulationService {
             throw invalid("purchaseDate", "구매일은 오늘 이후로 골라 주세요.");
         }
 
-        // 고른 카드는 추천을 부르기 전에 확인한다. 남의·없는 카드 404, 결제할 수 없는 카드 400.
+        // 고른 카드는 추천을 부르기 전에 확인한다. 남의·없는 카드 404, 결제할 수 없는 카드 400 CARD_NOT_ELIGIBLE.
         UserCardRef chosen = null;
         if (request.userCardId() != null) {
             chosen = cards.requireRegisteredCard(authenticatedUserId, request.userCardId());
@@ -88,10 +94,14 @@ public class PurchaseSimulationService {
         }
         UserCardRef card = chosen;
         if (card == null) {
-            // 추천 결과도 믿지 않는다. 내 카드가 아니거나 쓸 수 없는 카드면 엔진 계약 위반이다.
+            // 추천 결과도 믿지 않는다. 내 카드가 아니거나 쓸 수 없는 카드면 엔진 계약 위반이다. 사용자가 보내지 않은
+            // userCardId로 400을 내지 않고 서버 오류로 드러낸다(!126 리뷰).
             card = cards.findRegisteredCard(authenticatedUserId, cardId)
                     .orElseThrow(() -> new IllegalStateException("추천 카드가 사용자의 카드가 아니다: " + cardId));
-            usableCard(card, terms);
+            UserCardRef recommended = card;
+            ineligibleReason(recommended).ifPresent(reason -> {
+                throw new IllegalStateException("추천 엔진이 쓸 수 없는 카드를 골랐다: " + reason);
+            });
         }
         SimulationRecommender.Benefit benefit = recommendation.map(SimulationRecommender.Recommendation::benefit)
                 .orElse(null);
@@ -122,7 +132,7 @@ public class PurchaseSimulationService {
                 simulation.comparison(), simulation.series(),
                 recommendation.map(SimulationRecommender.Recommendation::performanceImpact).orElse(null),
                 alternatives,
-                card.cardType() == CardType.CREDIT ? new SimulationResponse.CreditLimit(CREDIT_LIMIT_SKIPPED, null) : null,
+                creditLimit(authenticatedUserId, card, charged),
                 simulation.outsideSelectionImpact(),
                 request.includeAccountDetails() ? simulation.accountComparisons() : null,
                 message(simulation),
@@ -166,15 +176,67 @@ public class PurchaseSimulationService {
         }
     }
 
-    /** 결제할 수 있는 카드인지. 사용자가 꺼 둔 카드·카드사 정지·만료 카드는 400, 체크카드 할부는 INVALID_INSTALLMENT다. */
-    private static void usableCard(UserCardRef card, PaymentTerms terms) {
-        if (card.registrationStatus() != CardRegistrationStatus.ACTIVE
-                || card.issuerStatus() != CardIssuerStatus.NORMAL) {
-            throw invalid("userCardId", "지금 결제할 수 없는 카드예요.");
-        }
+    /**
+     * 사용자가 고른 카드로 결제할 수 있는지. 결제 요청과 같은 400 CARD_NOT_ELIGIBLE + reason이고(!126 리뷰), 체크카드 할부는
+     * INVALID_INSTALLMENT다.
+     */
+    private void usableCard(UserCardRef card, PaymentTerms terms) {
+        ineligibleReason(card).ifPresent(reason -> {
+            throw new BusinessException(ErrorCode.CARD_NOT_ELIGIBLE, reason.message(), Map.of("reason", reason.name()));
+        });
         if (!terms.allows(card.cardType())) {
             throw PaymentTerms.invalid(ErrorCode.INVALID_INSTALLMENT, "plan", "체크카드는 일시불만 가능합니다.");
         }
+    }
+
+    /**
+     * 실제 결제에서 거절될 카드면 그 이유. 사용자가 꺼 둔 카드, 카드사 정지·만료 카드, 미납 청구서가 있는 신용카드(실제 승인은
+     * UNPAID_BILL로 거절)다.
+     */
+    private Optional<IneligibleReason> ineligibleReason(UserCardRef card) {
+        if (card.registrationStatus() != CardRegistrationStatus.ACTIVE) {
+            return Optional.of(IneligibleReason.CARD_INACTIVE);
+        }
+        if (card.issuerStatus() == CardIssuerStatus.SUSPENDED) {
+            return Optional.of(IneligibleReason.CARD_SUSPENDED);
+        }
+        if (card.issuerStatus() == CardIssuerStatus.EXPIRED) {
+            return Optional.of(IneligibleReason.CARD_EXPIRED);
+        }
+        if (card.cardType() == CardType.CREDIT && bills.existsByUserCardIdAndStatus(card.userCardId(), BillStatus.UNPAID)) {
+            return Optional.of(IneligibleReason.UNPAID_BILL);
+        }
+        return Optional.empty();
+    }
+
+    /** 결제 요청의 CARD_NOT_ELIGIBLE reason과 같은 이름이다. */
+    enum IneligibleReason {
+        CARD_INACTIVE("꺼 둔 카드예요. 카드 설정에서 다시 켜 주세요."),
+        CARD_SUSPENDED("카드사에서 정지한 카드예요."),
+        CARD_EXPIRED("유효기간이 지난 카드예요."),
+        UNPAID_BILL("미납 청구서가 있어 결제할 수 없는 카드예요.");
+
+        private final String message;
+
+        IneligibleReason(String message) {
+            this.message = message;
+        }
+
+        String message() {
+            return message;
+        }
+    }
+
+    /**
+     * 신용카드의 한도 확인 결과를 결제와 같은 포트({@link CreditLimitSource})에서 그대로 옮긴다. 한도를 차감하지 않고 읽기만 한다.
+     * 지금 구현은 늘 SKIPPED이고, 실제 한도 구현이 생기면 따라 바뀐다(!126 리뷰). 체크카드는 null이다.
+     */
+    private SimulationResponse.CreditLimit creditLimit(Long userId, UserCardRef card, long principal) {
+        if (card.cardType() != CardType.CREDIT) {
+            return null;
+        }
+        CreditLimitSource.LimitCheck check = creditLimits.check(userId, card.userCardId(), principal);
+        return new SimulationResponse.CreditLimit(check.result().name(), check.availableLimit());
     }
 
     /** 카드 출금 회차. 출금 계좌·결제일을 몰라 일정을 만들 수 없으면 0원·임의 날짜로 채우지 않고 422다. */

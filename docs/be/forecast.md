@@ -436,18 +436,18 @@ enum Origin { REAL, SEED }
   - 물품 카테고리·가맹점 업종·가맹점이 모두 없으면 400 `MERCHANT_OR_CATEGORY_REQUIRED`입니다(명세 코드, `ErrorCode`에 추가). 상품명 150자, 코드 64자를 넘으면 400 `INVALID_REQUEST`입니다.
   - 구매일은 기본이 한국 날짜 오늘이고, 지난 날이면 400 `INVALID_REQUEST`(`purchaseDate`)입니다. `days`는 7·14·30이고, 없으면 잔고예보 설정(NEXT_INCOME이면 다음 월급일 전날까지)입니다.
 - **카드**
-  - 고른 카드: 남의·없는·등록 해제 카드 404. 사용자가 꺼 둔(INACTIVE) 카드, 카드사 정지·만료 카드는 400 `INVALID_REQUEST`(`userCardId`, "지금 결제할 수 없는 카드")입니다(2026-11-05 결정).
+  - 고른 카드: 남의·없는·등록 해제 카드 404. 사용자가 꺼 둔(INACTIVE) 카드, 카드사 정지·만료 카드, 미납 청구서가 있는 신용카드는 결제 요청과 같은 400 `CARD_NOT_ELIGIBLE` + `reason`(`CARD_INACTIVE`·`CARD_SUSPENDED`·`CARD_EXPIRED`·`UNPAID_BILL`)입니다. 실제 승인이 미납 카드를 `UNPAID_BILL`로 거절하므로 시뮬레이션도 같이 막고, FE가 결제와 같은 문구를 쓰게 합니다(2026-11-06 !126 리뷰, 11-05에는 `INVALID_REQUEST`+`fieldErrors(userCardId)`). 추천 엔진이 이런 카드를 고르면 사용자가 보내지 않은 `userCardId` 오류를 내지 않고 엔진 계약 위반(500)으로 드러냅니다.
   - 카드를 고르지 않으면 명세상 추천 1순위입니다. **추천 엔진 연결 전에는 422 `DATA_INSUFFICIENT`(`details.reason = RECOMMENDATION_UNAVAILABLE`)** 입니다(2026-11-05 결정). 아무 카드나 추천처럼 보이지 않게 하려는 것입니다.
   - 카드 이름(`card.nickname`)은 별칭, 없으면 상품명입니다. BE 1 카드 조회에 이름이 없어 `CardNameReader`가 user_card·card_product를 읽기만 합니다(2026-11-05 결정).
   - 출금 계좌가 없거나, 신용카드인데 결제일이 없거나 청구 주기를 만들 수 없으면 422 `DATA_INSUFFICIENT`(`CARD_ACCOUNT_UNKNOWN`·`BILLING_CYCLE_UNKNOWN`)입니다. 임의 날짜로 계산하지 않습니다.
 - **혜택·추천**: 연결 전 임시 구현(`UnconnectedSimulationRecommender`)은 늘 "계산할 수 없음"입니다. 그래서 카드를 고른 요청도 `benefit`·`alternatives`·`performanceImpact`는 null이고, 즉시할인 없이 결제 금액 그대로 출금합니다. 0원 혜택으로 확정하지 않습니다. 엔진이 붙으면 `benefit.chargedAmount`(즉시할인 뺀 금액)로 출금하고, 엔진이 돌려준 카드도 내 카드·결제 가능 카드인지 다시 확인합니다. 대안 카드도 모두 내 등록 카드인지 확인하고, 아니면 남의 카드 정보를 싣지 않도록 엔진 계약 위반으로 실패합니다(코드 리뷰 반영, 2026-11-05).
-- **신용한도**: 신용카드면 `creditLimit: { status: "SKIPPED", availableLimit: null }`, 체크카드면 null입니다. 명세에 없는 필드이고, 명세의 422 `CREDIT_LIMIT_EXCEEDED`·한도 미확인 `DATA_INSUFFICIENT`는 쓰지 않습니다(2026-11-05 결정, BE 2 안내).
+- **신용한도**: 신용카드면 결제와 같은 한도 포트(`CreditLimitSource.check`, 읽기만 함)의 결과를 그대로 `creditLimit: { status, availableLimit }`로 옮기고, 체크카드면 null입니다. 지금 구현(`UnlimitedCreditLimitSource`)은 늘 `SKIPPED`·null이고, 실제 한도 구현이 생기면 따라 바뀝니다(2026-11-06 !126 리뷰). 명세에 없는 필드이고, 명세의 422 `CREDIT_LIMIT_EXCEEDED`·한도 미확인 `DATA_INSUFFICIENT`는 쓰지 않습니다(2026-11-05 결정, BE 2 안내).
 - **안내 문장(`message`)**: 구매 뒤 가장 낮은 잔액과 기간 밖 금액만 알립니다. 예: "11월 16일 잔액이 12,000원까지 내려가요. 예보 기간 밖에서 800,000원이 더 빠져요." 잔액이 마이너스면 "…원 모자라요", 출금 계좌가 선택 밖이면 "선택하지 않은 계좌에서 …원이 빠져 비교 결과는 같아요."입니다. 구매를 권하거나 말리는 말은 넣지 않습니다(FR-032).
 - **오늘 날짜**: 요청마다 한 번만 정해 구매일 검사와 예보 시작일에 같이 씁니다(`ForecastService.prepare`의 `today` 인자). 두 번 읽으면 자정을 사이에 두고 어긋나 계산기가 500을 낼 수 있어서입니다(코드 리뷰 반영, 2026-11-05).
 - **트랜잭션**: 추천(체크카드 잔액 조회)과 잔고예보 재료(금융망 잔액, 소비 분류 쓰기)가 있어 트랜잭션을 붙이지 않습니다.
 
 **남은 것 (후속)**
-- 신용한도: 모의 신용한도는 저장·조회하지 않아 한도 확인 결과가 `SKIPPED`, 가용 한도 `null`입니다(BE 2 답변, 2026-11-05). 그래서 명세의 422 `CREDIT_LIMIT_EXCEEDED`는 쓰지 않고 "신용한도 확인 생략"으로 표시합니다.
+- 신용한도: 모의 신용한도는 저장·조회하지 않아 지금 한도 포트의 결과가 `SKIPPED`, 가용 한도 `null`입니다(BE 2 답변, 2026-11-05). 포트 결과를 그대로 옮기므로 한도 구현이 생기면 `SUFFICIENT`·`EXCEEDED`·`UNKNOWN`이 나옵니다. 그래서 명세의 422 `CREDIT_LIMIT_EXCEEDED`는 쓰지 않고 "신용한도 확인 생략"으로 표시합니다.
 - **추천 연동 방향 (BE 2 안내, 2026-11-05)**: 추천 준비 단계(`prepare()`)는 `paymentId` 없이 보유 카드·혜택 조건을 읽을 수 있지만, 금액을 넣어 추천 카드·대안 카드·예상 혜택을 계산하는 단계는 결제 요청을 저장할 때 생기는 `paymentId`가 필요합니다. 그래서 시뮬레이션은 POS용 `CardRecommender`를 거치지 않고, 결제 요청 없이 기존 혜택 계산을 부르는 방법을 BE 2가 BE 3(김경린)과 협의합니다(가맹점 없이 업종만 넣었을 때 비교할 수 있는 혜택 범위 포함). 가짜 `paymentId`로 부르지 않습니다.
   - 그동안 BE 4는 `SimulationRecommender` 같은 인터페이스를 두고 시뮬레이션 API를 먼저 만들어도 됩니다(BE 2 제안). 입력은 가맹점 또는 업종과 구매 예정 금액, 결과는 추천 카드·예상 혜택·대안 카드이고, 테스트는 예시 결과를 쓰다가 BE 3와 호출 방식이 정해지면 실제 엔진을 연결합니다.
   - 추천은 체크카드에서 금융망 잔액을 조회하므로 **DB 트랜잭션 밖에서** 부릅니다.
@@ -545,7 +545,7 @@ enum Origin { REAL, SEED }
 
 | 명세 V2 「가상 구매 시뮬레이션」 | 구현 |
 |---|---|
-| 422 `CREDIT_LIMIT_EXCEEDED`, 한도 미확인 422 `DATA_INSUFFICIENT` | 쓰지 않음. 신용카드는 `creditLimit: {status: SKIPPED, availableLimit: null}`(명세에 없는 필드). 모의 한도를 저장·조회하지 않음(BE 2) |
+| 422 `CREDIT_LIMIT_EXCEEDED`, 한도 미확인 422 `DATA_INSUFFICIENT` | 쓰지 않음. 신용카드는 결제와 같은 한도 포트 결과를 `creditLimit: {status, availableLimit}`로 보여 줌(명세에 없는 필드, 지금은 `SKIPPED`·null). 모의 한도를 저장·조회하지 않음(BE 2) |
 | `userCardId` 생략 → 추천 1순위 | 추천 엔진 연결 전에는 422 `DATA_INSUFFICIENT`(`RECOMMENDATION_UNAVAILABLE`) |
 | `benefit`·`alternatives`·`performanceImpact` | 엔진 연결 전에는 null(0원으로 확정하지 않음) |
 | 에러 표에 없음 | 지난 구매일·잘못된 `days`·상품명/코드 길이 400 `INVALID_REQUEST`, 결제할 수 없는 카드 400(`userCardId`), 출금 일정을 만들 수 없는 카드 422 `DATA_INSUFFICIENT`, 금액 1,000억 원 초과 400 `INVALID_AMOUNT` |
@@ -609,8 +609,8 @@ enum Origin { REAL, SEED }
 | `LivingCostEstimatorTest` | 23 | 실제 일수 일평균·월평균, confidence 3·2·1·0달, complete 0원 달 포함, 미완료·누락 달 제외, 이번 달·3개월 전 제외, 윤년 2월, 반올림, REAL 우선·SEED만, paceCheck 1.3배 경계·계산 불가, 통합 합·SEED 표시, 한 계좌 자료 없으면 통합 null, 계약 위반 거절, 오류 메시지에 계좌·날짜·소비액 없음. 일별 집계(2026-11-02): 여러 날 합계·0원 날만 있는 달 완료, 하루 빠짐·하루 미완료면 그달 제외, 이번 달은 오늘까지 모든 날, 오늘 뒤 날짜 거절, AVG_3M은 체크카드 몫이 아니라 전체 합계, 체크카드 몫 음수·초과 거절(메시지에 값 없음), 범위 앞 줄은 계산 제외·음수·중복은 거절, 출처마다 덮는 기간에만 줄을 주면 카드 등록 달은 두 출처 모두 빠짐 |
 | `RiskDetectorTest` | 11 | SAFE(기준과 같은 금액 포함), DANGER(확정 선·부족액·원인, 예상 출금은 원인에서 뺌), WARNING(예상 선, 생활비 원인 없음), 생활비 때문에만 위험(보수적 선·`LIVING_COST_ESTIMATE`), WARNING→DANGER→WARNING 구간 분리, 예상 선 → 보수적 선 구간 분리와 원인 맞춤, 보수적 선 없을 때, 최저 날 동점, 가상 구매 원인(`SIMULATED_PURCHASE`), 최종 수준(`overall`) |
 | `PurchaseSimulatorTest` | 11 | 명세 예시(기간 안 −40만·밖 −80만, 이름표, 구매 뒤 DANGER), 과거 구매일 거절(출금일이 미래여도), 기간 뒤 미래 구매, 오늘 체크카드 한 번만 차감, 기간 마지막 날·다음 날 경계, 선택 밖 출금 계좌(전후 같음·전체 금액을 음수로), 통합 최저 ≠ 계좌별 최저 합, 생활비 일부만(그 계좌 생활비 위험 유지, 합계 차이)·모두(보수적 선, 계좌별 종료 합 = 통합), 입력 불변·같은 입력 같은 결과, 계산할 수 없는 회차 거절 |
-| `PurchaseSimulationControllerTest` | 12 | 실제 MySQL·인증 필터, 잔액·추천 엔진만 목(2026-11-05, -132). 401, 체크카드 구매일 한 번 출금·전후 종료 잔액·카드 별칭·혜택/대안/실적/한도 null·안내 문장, 신용 3개월 할부 회차·이름표·`creditLimit` SKIPPED·계좌별 비교, 선택 밖 출금 계좌(전후 같음·`outsideSelectionImpact`), 추천 결과의 카드·즉시할인 뺀 금액으로 출금, 카드 생략은 422 `RECOMMENDATION_UNAVAILABLE`(잔액 안 읽음), `MERCHANT_OR_CATEGORY_REQUIRED`, 소수·0원·1,000억 초과 `INVALID_AMOUNT`·체크 할부·5만 원 미만·일시불 개월 수 `INVALID_INSTALLMENT`(잔액 안 읽음), 지난 구매일·`days` 10 400, 남의 카드 404·꺼 둔 카드 400·결제일 없는 신용카드 422, 계좌 없음 400, 추천 엔진이 남의 카드를 대안으로 주면 500(응답에 안 실림) |
-| `PurchaseSimulationServiceTest` | 1 | DB 없음(-132). 오늘은 요청마다 한 번만 정해 구매일 검사와 예보 시작일에 같이 씀(시계가 그 사이 다음 날로 넘어가도 같은 날) |
+| `PurchaseSimulationControllerTest` | 13 | 실제 MySQL·인증 필터, 잔액·추천 엔진만 목(2026-11-05, -132). 401, 체크카드 구매일 한 번 출금·전후 종료 잔액·카드 별칭·혜택/대안/실적/한도 null·안내 문장, 신용 3개월 할부 회차·이름표·`creditLimit` SKIPPED·계좌별 비교, 선택 밖 출금 계좌(전후 같음·`outsideSelectionImpact`), 추천 결과의 카드·즉시할인 뺀 금액으로 출금, 카드 생략은 422 `RECOMMENDATION_UNAVAILABLE`(잔액 안 읽음), `MERCHANT_OR_CATEGORY_REQUIRED`, 소수·0원·1,000억 초과 `INVALID_AMOUNT`·체크 할부·5만 원 미만·일시불 개월 수 `INVALID_INSTALLMENT`(잔액 안 읽음), 지난 구매일·`days` 10 400, 남의 카드 404·꺼 둔 카드와 정지 카드 400 `CARD_NOT_ELIGIBLE`(`CARD_INACTIVE`·`CARD_SUSPENDED`)·결제일 없는 신용카드 422, 미납 청구서가 있는 신용카드 400 `CARD_NOT_ELIGIBLE` `UNPAID_BILL`, 계좌 없음 400, 추천 엔진이 남의 카드를 대안으로 주면 500(응답에 안 실림) |
+| `PurchaseSimulationServiceTest` | 2 | DB 없음(-132). 오늘은 요청마다 한 번만 정해 구매일 검사와 예보 시작일에 같이 씀(시계가 그 사이 다음 날로 넘어가도 같은 날), 신용한도는 한도 포트 결과(EXCEEDED·가용 한도)를 그대로 옮김 |
 | `PurchaseSimulationMessageTest` | 2 | DB 없음(-132). 최저 잔액과 기간 밖 금액 문장, 마이너스 잔액은 모자란 금액 |
 | `ForecastServiceTest` | 33 | 위의 7.1.4 경우들(출금일 지난 확정 청구는 오늘, 미납은 `excluded`, 지난 진행 중 청구·빈 필드 청구 거절, 정지 카드의 확정 청구는 차감, 잔액 조회 오류 400·404·429·502·504 전파 포함), 명세 예시(통합 SAFE·B DANGER·최종 DANGER·위험 계좌 1·통합 보수적 430,000원·B −120,000원), 생활비 자료 없음, 생활비 원천 실패 전파, 한국 날짜 월 경계(UTC 10/31 15:30 → 8/1~11/1 일별), 생활비 상세(소유 확인·근거·계좌별, 422, 404, 설정의 기본 일수·하루 목표를 쓰고 목표는 예측에 안 섞음, NEXT_INCOME이면 다음 월급일 전날까지, 보낸 기간이 설정보다 우선, 잘못된 기간은 계좌·원천을 읽기 전에 400, -70) |
 | `CashflowServiceTest` | +1 | 결제 연결 회차만 `paid` |

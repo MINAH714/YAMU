@@ -229,7 +229,8 @@ class PurchaseSimulationControllerTest extends MySqlTestSupport {
     }
 
     @Test
-    void 남의_카드는_404_꺼_둔_카드는_400_결제일_없는_신용카드는_422다() throws Exception {
+    void 남의_카드는_404_꺼_둔_카드와_정지_카드는_결제와_같은_400_CARD_NOT_ELIGIBLE_결제일_없는_신용카드는_422다()
+            throws Exception {
         OwnershipFixtures ownership = new OwnershipFixtures(jdbc);
         long stranger = ownership.user();
         long strangerCard = ownership.card(stranger, ownership.product(), ownership.account(stranger), "ACTIVE");
@@ -240,12 +241,39 @@ class PurchaseSimulationControllerTest extends MySqlTestSupport {
         jdbc.update("UPDATE user_card SET status = 'INACTIVE' WHERE user_card_id = ?", checkOnA);
         perform(body(accountA, checkOnA, "300000", ""))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.error.details.fieldErrors[0].field").value("userCardId"));
+                .andExpect(jsonPath("$.error.code").value("CARD_NOT_ELIGIBLE"))
+                .andExpect(jsonPath("$.error.details.reason").value("CARD_INACTIVE"));
+
+        // 같은 트랜잭션에서 이미 읽은 카드는 JPA가 기억하므로, 정지 카드는 새 카드로 확인한다
+        long suspended = new SpendingFixtures(jdbc).card(owner, new SpendingFixtures(jdbc).product("CHECK"), accountA,
+                today.minusDays(1));
+        jdbc.update("UPDATE user_card SET issuer_status = 'SUSPENDED' WHERE user_card_id = ?", suspended);
+        perform(body(accountA, suspended, "300000", ""))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("CARD_NOT_ELIGIBLE"))
+                .andExpect(jsonPath("$.error.details.reason").value("CARD_SUSPENDED"));
 
         jdbc.update("UPDATE user_card SET payment_day = NULL WHERE user_card_id = ?", creditOnB);
         perform(body(accountB, creditOnB, "300000", ""))
                 .andExpect(status().isUnprocessableEntity())
                 .andExpect(jsonPath("$.error.details.reason").value("BILLING_CYCLE_UNKNOWN"));
+    }
+
+    @Test
+    void 미납_청구서가_있는_신용카드는_실제_승인처럼_400_CARD_NOT_ELIGIBLE_UNPAID_BILL이다() throws Exception {
+        LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
+        LocalDate lastMonth = today.minusMonths(1).withDayOfMonth(1);
+        jdbc.update("""
+                INSERT INTO card_bill (user_id, user_card_id, linked_account_id, billing_month, period_start, period_end,
+                    withdrawal_date, status, confirmed_amount, confirmed_at, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, 'UNPAID', 50000, ?, ?, ?)
+                """, owner, creditOnB, accountB, lastMonth, lastMonth.minusMonths(1), lastMonth.minusDays(1),
+                lastMonth.withDayOfMonth(25), now, now, now);
+
+        perform(body(accountB, creditOnB, "300000", ""))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("CARD_NOT_ELIGIBLE"))
+                .andExpect(jsonPath("$.error.details.reason").value("UNPAID_BILL"));
     }
 
     @Test

@@ -16,6 +16,9 @@ import com.yamu.be.card.domain.CardIssuerStatus;
 import com.yamu.be.card.domain.CardRegistrationStatus;
 import com.yamu.be.card.domain.CardType;
 import com.yamu.be.global.calendar.BusinessDayCalendar;
+import com.yamu.be.payment.approve.CreditLimitSource;
+import com.yamu.be.payment.billing.BillStatus;
+import com.yamu.be.payment.billing.CardBillRepository;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
@@ -39,6 +42,8 @@ class PurchaseSimulationServiceTest {
     @Mock CardNameReader cardNames;
     @Mock SimulationRecommender recommender;
     @Mock BusinessDayCalendar calendar;
+    @Mock CreditLimitSource creditLimits;
+    @Mock CardBillRepository bills;
 
     @Test
     void 오늘은_요청마다_한_번만_정해_구매일_검사와_예보_시작일에_같이_쓴다() {
@@ -52,7 +57,7 @@ class PurchaseSimulationServiceTest {
                         new BalanceForecast.Horizon(BalanceForecast.Until.DAYS, NOV_5, NOV_5.plusDays(7), 7),
                         100_000L, null, null, List.of(), List.of(), Map.of(ACCOUNT, 1_000_000L), Map.of()));
         PurchaseSimulationService service = new PurchaseSimulationService(forecasts, cards, cardNames, recommender,
-                calendar);
+                calendar, creditLimits, bills);
 
         SimulationResponse result = service.simulate(USER, request());
 
@@ -61,6 +66,28 @@ class PurchaseSimulationServiceTest {
         assertThat(result.schedule()).singleElement()
                 .satisfies(withdrawal -> assertThat(withdrawal.date()).isEqualTo(NOV_5));
         assertThat(result.comparison().after().endBalance()).isEqualTo(700_000L);
+    }
+
+    @Test
+    void 신용카드_한도는_결제와_같은_한도_포트의_결과를_그대로_옮긴다() {
+        // 한도 구현이 생기면 시뮬레이션도 따라 바뀌어야 한다(!126 리뷰). 여기서는 한도 초과로 답하는 가짜 포트를 쓴다
+        when(forecasts.today()).thenReturn(NOV_5);
+        when(cards.requireRegisteredCard(USER, CARD)).thenReturn(new UserCardRef(CARD, 1L, ACCOUNT, "1234",
+                CardRegistrationStatus.ACTIVE, CardIssuerStatus.NORMAL, CardType.CREDIT, 25, null));
+        when(bills.existsByUserCardIdAndStatus(CARD, BillStatus.UNPAID)).thenReturn(false);
+        when(recommender.recommend(any())).thenReturn(Optional.empty());
+        when(calendar.businessDayOnOrAfter(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        when(creditLimits.check(USER, CARD, 300_000L)).thenReturn(CreditLimitSource.LimitCheck.exceeded(100_000L));
+        when(forecasts.prepare(eq(USER), anyList(), isNull(), isNull(), anyBoolean(), eq(NOV_5)))
+                .thenReturn(new ForecastService.Prepared(List.of(ACCOUNT),
+                        new BalanceForecast.Horizon(BalanceForecast.Until.DAYS, NOV_5, NOV_5.plusDays(30), 30),
+                        100_000L, null, null, List.of(), List.of(), Map.of(ACCOUNT, 1_000_000L), Map.of()));
+        PurchaseSimulationService service = new PurchaseSimulationService(forecasts, cards, cardNames, recommender,
+                calendar, creditLimits, bills);
+
+        SimulationResponse result = service.simulate(USER, request());
+
+        assertThat(result.creditLimit()).isEqualTo(new SimulationResponse.CreditLimit("EXCEEDED", 100_000L));
     }
 
     private static SimulationRequest request() {
