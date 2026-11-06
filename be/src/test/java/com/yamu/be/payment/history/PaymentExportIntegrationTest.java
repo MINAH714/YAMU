@@ -103,9 +103,25 @@ class PaymentExportIntegrationTest extends MySqlTestSupport {
         List<String> lines = lines(body);
         assertThat(lines.get(0)).isEqualTo(PaymentExportService.HEADER);
         assertThat(lines).hasSize(2);
-        // 승인 2초 뒤 = 한국 12:00, 청구예정액 = 승인액 − 청구할인
+        // 승인 2초 뒤 = 한국 12:00, 청구예정액 = 승인액 − 청구할인. 소비분류는 내려받기 직전에 분류한 값
         assertThat(lines.get(1)).isEqualTo("2026-10-10 12:00,스타벅스 역삼점,F01-CAFE,메인 신용카드,****-****-****-1234,"
-                + "야무 통합 바코드,일시불,15000,1500,13500,승인,인정,,\"팀 회식, \"\"1/N\"\"\"");
+                + "야무 통합 바코드,일시불,15000,1500,13500,승인,인정,생활 소비,\"팀 회식, \"\"1/N\"\"\"");
+    }
+
+    @Test
+    void 미분류_결제는_내려받기_직전에_분류해_소비분류_칸과_필터에_쓴다() throws Exception {
+        long living = payment(owner, card, "APPROVED", OCT_10, 15_000);
+        long large = payment(owner, card, "APPROVED", OCT_10.plusHours(1), 2_000_000);  // 100만 원 초과라 큰 결제
+
+        List<String> lines = lines(mockMvc.perform(export().param("yearMonth", "2026-10").param("spendingClass", "LARGE"))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsByteArray());
+
+        assertThat(lines).hasSize(2);
+        assertThat(lines.get(1)).contains(",2000000,").contains(",큰 결제,");
+        assertThat(jdbc.queryForObject("SELECT spending_class FROM payment_transaction WHERE payment_transaction_id = ?",
+                String.class, living)).isEqualTo("LIVING");
+        assertThat(jdbc.queryForObject("SELECT spending_class FROM payment_transaction WHERE payment_transaction_id = ?",
+                String.class, large)).isEqualTo("LARGE");
     }
 
     @Test
