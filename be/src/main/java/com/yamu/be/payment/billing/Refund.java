@@ -128,6 +128,59 @@ public class Refund extends BaseTimeEntity {
         this.dueDate = dueDate;
     }
 
+    /** 입금할 환급인지(Task 5.4.4). 기한이 정해져 금액이 확정된 대기 환급만 입금한다. */
+    public boolean isDepositTarget() {
+        return status == RefundStatus.PENDING && dueDate != null;
+    }
+
+    /**
+     * 입금 요청을 보내기 직전에 요청 번호를 남긴다. 결과를 모르면 이 번호의 시각으로 유예를 따지고, 다시 보낼 때는 새 번호로 바꾼다.
+     * 금융망을 부르기 전에 커밋해야 한다.
+     */
+    public void recordSending(String finRequestNo) {
+        requireDepositTarget("입금 요청을 남길");
+        if (finRequestNo == null || !finRequestNo.matches("\\d{20}")) {
+            throw new IllegalArgumentException("기관거래고유번호는 20자리 숫자여야 합니다 (환급 " + id + ")");
+        }
+        this.finRequestNo = finRequestNo;
+    }
+
+    /** 요청이 금융망에 가지 않았다(돈이 움직이지 않음). 남긴 번호가 그 요청의 것일 때만 지워 다음 실행이 유예 없이 다시 보내게 한다. */
+    public void clearSending(String sentRequestNo) {
+        if (isDepositTarget() && sentRequestNo.equals(this.finRequestNo)) {
+            this.finRequestNo = null;
+        }
+    }
+
+    /**
+     * 입금을 확인했다(입금 성공 응답이나 거래내역의 태그).
+     *
+     * @param bankTransactionNo SSAFY 입금 거래 번호
+     * @param completedAt       확인한 시각(UTC)
+     */
+    public void complete(String bankTransactionNo, LocalDateTime completedAt) {
+        requireDepositTarget("완료할");
+        if (linkedAccountId == null) {
+            throw new IllegalStateException("환급 계좌가 없는 환급은 완료할 수 없습니다 (환급 " + id + ")");
+        }
+        this.status = RefundStatus.COMPLETED;
+        this.finTransactionNo = bankTransactionNo;
+        this.completedAt = completedAt;
+    }
+
+    /** 은행이 입금을 거절했다(계좌 없음 등). 자동으로 다시 보내지 않고 운영이 본다. */
+    public void fail() {
+        requireDepositTarget("실패로 바꿀");
+        this.status = RefundStatus.FAILED;
+    }
+
+    private void requireDepositTarget(String action) {
+        if (!isDepositTarget()) {
+            throw new IllegalStateException("입금할 환급이 아니라 " + action + " 수 없습니다 (환급 " + id + ", 상태 " + status
+                    + ", 기한 " + dueDate + ")");
+        }
+    }
+
     /** 원 청구서가 출금 실패(미납)로 끝나 돌려줄 돈이 없다. 출금을 기다리던 환급만 무효로 바꾼다. */
     public void voidForUnpaid() {
         if (!isAwaitingWithdrawal()) {
