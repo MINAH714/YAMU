@@ -120,8 +120,6 @@ class BillingScheduleTest {
         LocalDate purchase = LocalDate.of(2026, 10, 24);
         List<Runnable> invalid = List.of(
                 () -> schedule.schedule(CardType.CREDIT, 14, 14, purchase, 0L, 1),
-                // 0원 회차가 생기는 금액(2원 3개월 → 0 / 0 / 2)
-                () -> schedule.schedule(CardType.CREDIT, 14, 14, purchase, 2L, 3),
                 () -> schedule.schedule(CardType.CREDIT, 14, 14, purchase, 10_000L, 0),
                 () -> schedule.schedule(CardType.CREDIT, 14, 14, purchase, 100_000L, 13),
                 () -> schedule.schedule(CardType.CHECK, null, null, purchase, 100_000L, 3),
@@ -140,6 +138,9 @@ class BillingScheduleTest {
         assertThat(schedule.schedule(CardType.CREDIT, 27, 31, purchase, 100_000L, 12)).hasSize(12);
         assertThat(schedule.schedule(CardType.CREDIT, 14, 14, purchase, 3L, 3))
                 .extracting(Withdrawal::amount).containsExactly(1L, 1L, 1L);
+        // 결제 승인의 할부 계산과 같이 원금이 개월 수보다 작으면 앞 회차가 0원이다(2026-11-06, -132)
+        assertThat(schedule.schedule(CardType.CREDIT, 14, 14, purchase, 2L, 3))
+                .extracting(Withdrawal::amount).containsExactly(0L, 0L, 2L);
     }
 
     @Test

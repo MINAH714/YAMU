@@ -16,6 +16,7 @@ import com.yamu.be.card.domain.CardIssuerStatus;
 import com.yamu.be.card.domain.CardRegistrationStatus;
 import com.yamu.be.card.domain.CardType;
 import com.yamu.be.global.calendar.BusinessDayCalendar;
+import com.yamu.be.merchant.MerchantCatalogService;
 import com.yamu.be.payment.approve.CreditLimitSource;
 import com.yamu.be.payment.billing.BillStatus;
 import com.yamu.be.payment.billing.CardBillRepository;
@@ -44,6 +45,7 @@ class PurchaseSimulationServiceTest {
     @Mock BusinessDayCalendar calendar;
     @Mock CreditLimitSource creditLimits;
     @Mock CardBillRepository bills;
+    @Mock MerchantCatalogService catalog;
 
     @Test
     void 오늘은_요청마다_한_번만_정해_구매일_검사와_예보_시작일에_같이_쓴다() {
@@ -51,13 +53,12 @@ class PurchaseSimulationServiceTest {
         when(forecasts.today()).thenReturn(NOV_5, NOV_5.plusDays(1));
         when(cards.requireRegisteredCard(USER, CARD)).thenReturn(new UserCardRef(CARD, 1L, ACCOUNT, "1234",
                 CardRegistrationStatus.ACTIVE, CardIssuerStatus.NORMAL, CardType.CHECK, null, null));
-        when(recommender.recommend(any())).thenReturn(Optional.empty());
         when(forecasts.prepare(eq(USER), anyList(), isNull(), isNull(), anyBoolean(), eq(NOV_5)))
                 .thenReturn(new ForecastService.Prepared(List.of(ACCOUNT),
                         new BalanceForecast.Horizon(BalanceForecast.Until.DAYS, NOV_5, NOV_5.plusDays(7), 7),
                         100_000L, null, null, List.of(), List.of(), Map.of(ACCOUNT, 1_000_000L), Map.of()));
         PurchaseSimulationService service = new PurchaseSimulationService(forecasts, cards, cardNames, recommender,
-                calendar, creditLimits, bills);
+                calendar, creditLimits, bills, catalog);
 
         SimulationResponse result = service.simulate(USER, request());
 
@@ -75,7 +76,6 @@ class PurchaseSimulationServiceTest {
         when(cards.requireRegisteredCard(USER, CARD)).thenReturn(new UserCardRef(CARD, 1L, ACCOUNT, "1234",
                 CardRegistrationStatus.ACTIVE, CardIssuerStatus.NORMAL, CardType.CREDIT, 25, null));
         when(bills.existsByUserCardIdAndStatus(CARD, BillStatus.UNPAID)).thenReturn(false);
-        when(recommender.recommend(any())).thenReturn(Optional.empty());
         when(calendar.businessDayOnOrAfter(any())).thenAnswer(invocation -> invocation.getArgument(0));
         when(creditLimits.check(USER, CARD, 300_000L)).thenReturn(CreditLimitSource.LimitCheck.exceeded(100_000L));
         when(forecasts.prepare(eq(USER), anyList(), isNull(), isNull(), anyBoolean(), eq(NOV_5)))
@@ -83,7 +83,7 @@ class PurchaseSimulationServiceTest {
                         new BalanceForecast.Horizon(BalanceForecast.Until.DAYS, NOV_5, NOV_5.plusDays(30), 30),
                         100_000L, null, null, List.of(), List.of(), Map.of(ACCOUNT, 1_000_000L), Map.of()));
         PurchaseSimulationService service = new PurchaseSimulationService(forecasts, cards, cardNames, recommender,
-                calendar, creditLimits, bills);
+                calendar, creditLimits, bills, catalog);
 
         SimulationResponse result = service.simulate(USER, request());
 
@@ -96,6 +96,7 @@ class PurchaseSimulationServiceTest {
         request.setUserCardId(CARD);
         request.setAmount(BigDecimal.valueOf(300_000));
         request.setProductCategoryCode("PRODUCT_ELECTRONICS");
+        request.setPaymentChannel("OFFLINE");
         return request;
     }
 }

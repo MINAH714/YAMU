@@ -247,11 +247,8 @@ class PurchaseSimulatorTest {
         Map<Long, Long> balances = Map.of(A, 500_000L);
 
         assertThatThrownBy(() -> PurchaseSimulator.simulate(input(balances, List.of(), today, today.plusDays(7),
-                Map.of(), today, A, List.of())))
-                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("회차가 없다");
-        assertThatThrownBy(() -> PurchaseSimulator.simulate(input(balances, List.of(), today, today.plusDays(7),
-                Map.of(), today, A, List.of(check(today, 0)))))
-                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("1원 이상");
+                Map.of(), today, A, List.of(check(today, -1)))))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("0원 이상");
         assertThatThrownBy(() -> PurchaseSimulator.simulate(input(balances, List.of(), today, today.plusDays(7),
                 Map.of(), today.plusDays(2), A, List.of(check(today.plusDays(1), 10_000)))))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("구매일보다 이르다");

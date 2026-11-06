@@ -27,7 +27,8 @@ final class PurchaseSimulator {
      *
      * @param input 구매 전 예보 재료와 가상 구매 출금 회차
      * @return 출금 일정, 통합·계좌별 전후 비교, 날짜별 전후 잔액
-     * @throws IllegalArgumentException 과거 구매일, 빈 회차, 0원 이하 회차, 구매일보다 이른 출금일, 출금 계좌 없음
+     * @throws IllegalArgumentException 과거 구매일, 음수 회차, 구매일보다 이른 출금일, 출금 계좌 없음. 회차가 없으면(청구 0원)
+     *                                  전후가 같고, 0원 회차는 일정에만 보인다
      */
     static PurchaseSimulation simulate(Input input) {
         validate(input);
@@ -45,7 +46,7 @@ final class PurchaseSimulator {
                     label, withdrawal.installmentNo(), withdrawal.installmentMonths(), withdrawal.billingMonth(),
                     input.withdrawalAccountId(), withinPeriod));
             total = Math.addExact(total, withdrawal.amount());
-            if (!selected) {
+            if (!selected || withdrawal.amount() == 0) {
                 continue;
             }
             if (withinPeriod) {
@@ -91,12 +92,9 @@ final class PurchaseSimulator {
         if (input.purchaseDate().isBefore(input.from())) {
             throw new IllegalArgumentException("과거 구매일이다: " + input.purchaseDate() + " < " + input.from());
         }
-        if (input.withdrawals().isEmpty()) {
-            throw new IllegalArgumentException("출금 회차가 없다.");
-        }
         for (BillingSchedule.Withdrawal withdrawal : input.withdrawals()) {
-            if (withdrawal.amount() <= 0) {
-                throw new IllegalArgumentException("회차 금액은 1원 이상이어야 한다: " + withdrawal.amount());
+            if (withdrawal.amount() < 0) {
+                throw new IllegalArgumentException("회차 금액은 0원 이상이어야 한다: " + withdrawal.amount());
             }
             if (withdrawal.withdrawalDate().isBefore(input.purchaseDate())) {
                 throw new IllegalArgumentException("출금일이 구매일보다 이르다: " + withdrawal.withdrawalDate());
