@@ -60,6 +60,26 @@ public class PaymentAccountReader {
     }
 
     /**
+     * 신용카드 환급(Task 5.4.4)을 입금할 계좌와 키. 환급 행에 저장한 계좌(청구서 확정 당시 출금 계좌)를 쓰고, 앱에서 연결을 끊었어도
+     * (DISCONNECTED) 돈이 빠져나간 그 계좌로 돌려준다. 은행에서 계좌가 없으면 입금이 거절된다.
+     * 계좌가 이 사용자의 것이 아니거나 SSAFY 회원 키가 없으면 empty다.
+     */
+    public Optional<BankAccess> forRefundAccount(Long userId, Long linkedAccountId) {
+        if (linkedAccountId == null) {
+            return Optional.empty();
+        }
+        Optional<LinkedAccount> account = accounts.findByIdAndUserId(linkedAccountId, userId);
+        Optional<AppUser> user = users.findById(userId).filter(found -> found.getSsafyUserKey() != null);
+        if (account.isEmpty() || user.isEmpty()) {
+            return Optional.empty();
+        }
+        return Optional.of(new BankAccess(
+                cipher.decrypt(user.get().getSsafyUserKey(), CipherField.APP_USER_SSAFY_USER_KEY),
+                cipher.decrypt(account.get().getAccountNoEnc(), CipherField.LINKED_ACCOUNT_NO),
+                CardType.CREDIT, account.get().getId()));
+    }
+
+    /**
      * 금융망 호출에 쓰는 값. {@code toString}은 비밀값을 가린다.
      *
      * @param cardType 행의 카드 종류. 복구가 체크카드 결제에만 거래내역을 찾도록 한다

@@ -38,6 +38,7 @@ import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -84,6 +85,8 @@ class ForecastServiceTest {
     /** 잔고예보 설정. 기본은 명세 기본값(NEXT_INCOME·30일·안전 잔액 100,000원). */
     private ForecastSettings userSettings = ForecastSettings.DEFAULTS;
     private ForecastService service;
+    /** AI 서버. 기본은 주소 없음(TSB로 계산). */
+    private AiLivingCostClient projectorAi = AiLivingCostClient.disabled();
 
     @BeforeEach
     void setUp() {
@@ -115,7 +118,7 @@ class ForecastServiceTest {
         // 남의 계좌로 실패하는 테스트는 설정을 읽기 전에 끝나 lenient로 둔다.
         lenient().when(settingsStore.read(anyLong())).thenAnswer(invocation -> userSettings);
         return new ForecastService(cashflows, balanceService, billReader, cardService, creditSchedule, livingReader,
-                accounts, settingsStore, settingsService, clock);
+                accounts, settingsStore, settingsService, new LivingCostProjector(projectorAi), clock);
     }
 
     @Test
@@ -143,8 +146,8 @@ class ForecastServiceTest {
         // A 800,000원·하루 생활비 5,000원, 11/5 예정 출금 200,000원. B 300,000원·하루 2,000원, 11/5 카드 청구 400,000원
         givenEntries(TODAY, TODAY.plusDays(14), entry(1L, A, 200_000L, NOV_5, false));
         bills = List.of(new OutstandingBill(88L, B, Status.CONFIRMED, NOV_5, 400_000L));
-        spending = days(real(A, JUL, 155_000), real(A, AUG, 155_000), real(A, SEP, 150_000),
-                real(B, JUL, 62_000), real(B, AUG, 62_000), real(B, SEP, 60_000));
+        // 7/1부터 오늘까지 매일 같은 금액을 쓰면 지난 3개월 실적 하루 평균과 TSB 하루 예측이 같다
+        spending = days(everyDay(A, JUL.atDay(1), TODAY, 5_000), everyDay(B, JUL.atDay(1), TODAY, 2_000));
 
         BalanceForecast result = service.forecast(USER, List.of(A, B), Until.DAYS, 14, true, false);
 
@@ -162,8 +165,10 @@ class ForecastServiceTest {
         assertThat(result.riskWindows()).isEmpty();
         assertThat(result.livingCost())
                 .extracting(BalanceForecast.LivingCost::dailyAverage, BalanceForecast.LivingCost::projectedAmount,
-                        BalanceForecast.LivingCost::dataOrigin)
-                .containsExactly(7_000L, 98_000L, LivingCostEstimator.DataOrigin.REAL);
+                        BalanceForecast.LivingCost::method, BalanceForecast.LivingCost::dataOrigin,
+                        BalanceForecast.LivingCost::confidence)
+                .containsExactly(7_000L, 98_000L, "TSB", LivingCostEstimator.DataOrigin.REAL,
+                        LivingCostEstimator.Confidence.HIGH);
 
         BalanceForecast.AccountForecast b = result.accountForecasts().get(1);
         assertThat(b.summary().status()).isEqualTo(RiskDetector.Level.DANGER);
@@ -218,9 +223,51 @@ class ForecastServiceTest {
     }
 
     @Test
+    void 생활비는_어제까지_90일이_완료_3개월보다_길면_그만큼_앞에서부터_읽는다() {
+        // 한국 5/1이면 완료 3개월은 2/1부터지만 어제(4/30)까지 90일은 1/31부터다
+        LocalDate may1 = LocalDate.of(2026, 5, 1);
+        ForecastService service = serviceAt(Clock.fixed(Instant.parse("2026-04-30T15:30:00Z"), ZoneOffset.UTC));
+        when(cashflows.list(USER, may1, may1.plusDays(7), null, CashflowItem.Status.CONFIRMED, true))
+                .thenReturn(List.of());
+
+        service.forecast(USER, List.of(A), Until.DAYS, 7, false, false);
+
+        assertThat(livingRequests).containsExactly(List.of(LocalDate.of(2026, 1, 31), may1));
+    }
+
+    @Test
+    void AI가_답하면_보수적_선과_예상_생활비에_AI_값을_쓰고_평균은_지난_3개월_실적이다() {
+        // AI 14일 예측 140,000원. 예보 7일이면 8일 값 = TSB 7일 35,000 + (140,000 − 35,000) × 1/7 = 50,000원
+        projectorAi = new AiLivingCostClient(null, Clock.systemUTC(), java.time.Duration.ZERO) {
+            @Override
+            boolean enabled() {
+                return true;
+            }
+
+            @Override
+            Optional<Map<String, Long>> predict(LocalDate asOf, int horizonDays, Map<String, long[]> histories) {
+                assertThat(asOf).isEqualTo(TODAY.minusDays(1));
+                return Optional.of(Map.of("a0", horizonDays == 14 ? 140_000L : 300_000L));
+            }
+        };
+        ForecastService withAi = serviceAt(CLOCK);
+        givenEntries(TODAY, TODAY.plusDays(7));
+        spending = everyDay(A, JUL.atDay(1), TODAY, 5_000);
+
+        BalanceForecast result = withAi.forecast(USER, List.of(A), Until.DAYS, 7, false, false);
+
+        // 50,000원 − 오늘 쓴 5,000원 = 45,000원 ÷ 7 = 하루 6,429원
+        assertThat(result.livingCost())
+                .extracting(BalanceForecast.LivingCost::projectedAmount, BalanceForecast.LivingCost::dailyAverage,
+                        BalanceForecast.LivingCost::method)
+                .containsExactly(6_429L * 7, 5_000L, "ML_V1");
+        assertThat(day(result.series(), TODAY.plusDays(1)).conservative()).isEqualTo(800_000L - 6_429L);
+    }
+
+    @Test
     void 생활비_상세는_소유를_확인하고_계산_근거와_계좌별_값을_돌려준다() {
-        spending = days(real(A, JUL, 155_000), real(A, AUG, 155_000), real(A, SEP, 150_000),
-                real(B, SEP, 60_000));
+        // A는 7/1부터(기록 90일), B는 9/1부터(기록 55일) 매일 같은 금액
+        spending = days(everyDay(A, JUL.atDay(1), TODAY, 5_000), everyDay(B, SEP.atDay(1), TODAY, 2_000));
 
         LivingCostForecast result = service.livingCost(USER, List.of(A, B, A), null, null, true);
 
@@ -229,8 +276,9 @@ class ForecastServiceTest {
         assertThat(result.accountIds()).containsExactly(A, B);
         assertThat(result.dailyAverage()).isEqualTo(7_000L);
         assertThat(result.projectedAmount()).isEqualTo(210_000L);
-        assertThat(result.method()).isEqualTo("AVG_3M");
-        assertThat(result.confidence()).isEqualTo(LivingCostEstimator.Confidence.LOW);
+        assertThat(result.method()).isEqualTo("TSB");
+        // 기록 길이: A 90일 HIGH, B 55일 MEDIUM → 통합은 낮은 쪽
+        assertThat(result.confidence()).isEqualTo(LivingCostEstimator.Confidence.MEDIUM);
         assertThat(result.period()).isEqualTo(new LivingCostForecast.Period(TODAY, TODAY.plusDays(30), 30, Until.DAYS));
         assertThat(result.sources()).extracting(LivingCostForecast.Source::amount)
                 .containsExactly(155_000L, 155_000L, 210_000L);
@@ -241,14 +289,15 @@ class ForecastServiceTest {
         assertThat(result.accountLivingCosts())
                 .extracting(LivingCostForecast.AccountLivingCost::accountId,
                         LivingCostForecast.AccountLivingCost::dailyAverage,
-                        LivingCostForecast.AccountLivingCost::projectedAmount)
-                .containsExactly(tuple(A, 5_000L, 150_000L), tuple(B, 2_000L, 60_000L));
+                        LivingCostForecast.AccountLivingCost::projectedAmount,
+                        LivingCostForecast.AccountLivingCost::method)
+                .containsExactly(tuple(A, 5_000L, 150_000L, "TSB"), tuple(B, 2_000L, 60_000L, "TSB"));
     }
 
     @Test
     void 생활비_상세는_설정의_기본_일수와_하루_목표를_쓰고_목표를_예측에_섞지_않는다() {
         userSettings = new ForecastSettings(Until.DAYS, 14, THRESHOLD, null, 9_000L, true, true, null);
-        spending = days(real(A, JUL, 155_000), real(A, AUG, 155_000), real(A, SEP, 150_000));
+        spending = everyDay(A, JUL.atDay(1), TODAY, 5_000);
 
         LivingCostForecast result = service.livingCost(USER, List.of(A), null, null, false);
 
@@ -263,7 +312,7 @@ class ForecastServiceTest {
     void 생활비_상세는_잔고예보처럼_다음_월급일_전날까지_계산한다() {
         userSettings = new ForecastSettings(Until.NEXT_INCOME, 30, THRESHOLD, 41L, null, true, true, null);
         when(settingsService.nextIncomeDate(USER, 41L, TODAY)).thenReturn(Optional.of(NOV_5));
-        spending = days(real(A, JUL, 155_000), real(A, AUG, 155_000), real(A, SEP, 150_000));
+        spending = everyDay(A, JUL.atDay(1), TODAY, 5_000);
 
         LivingCostForecast result = service.livingCost(USER, List.of(A), null, null, false);
 
@@ -276,7 +325,7 @@ class ForecastServiceTest {
     @Test
     void 생활비_상세에_잔고예보와_같은_기간을_보내면_설정보다_그_기간을_쓴다() {
         userSettings = new ForecastSettings(Until.DAYS, 14, THRESHOLD, null, null, true, true, null);
-        spending = days(real(A, JUL, 155_000), real(A, AUG, 155_000), real(A, SEP, 150_000));
+        spending = everyDay(A, JUL.atDay(1), TODAY, 5_000);
 
         LivingCostForecast result = service.livingCost(USER, List.of(A), Until.DAYS, 7, false);
 
@@ -613,6 +662,12 @@ class ForecastServiceTest {
             rows.add(new DailySpending(accountId, month.atDay(day), dayAmount, dayAmount, Origin.REAL, true));
         }
         return rows;
+    }
+
+    /** from~to(포함) 매일 같은 금액을 쓴 줄. */
+    private static List<DailySpending> everyDay(Long accountId, LocalDate from, LocalDate to, long amount) {
+        return from.datesUntil(to.plusDays(1))
+                .map(date -> new DailySpending(accountId, date, amount, amount, Origin.REAL, true)).toList();
     }
 
     private static BalanceForecast.SeriesPoint day(List<BalanceForecast.SeriesPoint> series, LocalDate date) {

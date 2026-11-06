@@ -202,6 +202,21 @@ class WithdrawalIntegrationTest extends MySqlTestSupport {
     }
 
     @Test
+    void 쌓이는_중인_청구도_탈퇴를_막고_취소로_끝난_청구는_통과한다() throws Exception {
+        Member member = activeMember();
+        long card = card(member.userId(), "ACTIVE");
+        long bill = bill(member.userId(), card, "ACCUMULATING");
+        String stepUp = stepUpToken(member, StepUpPurpose.WITHDRAW_MEMBER);
+
+        withdraw(member, stepUp).andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error.code").value("BILL_OUTSTANDING"))
+                .andExpect(jsonPath("$.error.details.billIds[0]").value(bill));
+
+        jdbc.update("UPDATE card_bill SET status = 'CANCELED' WHERE card_bill_id = ?", bill);
+        withdraw(member, stepUp).andExpect(status().isNoContent());
+    }
+
+    @Test
     void 본인_인증_없이_탈퇴하면_403이다() throws Exception {
         Member member = activeMember();
 

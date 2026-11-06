@@ -54,7 +54,8 @@ import org.springframework.transaction.annotation.Transactional;
  * 해제(UNREGISTERED)한 카드는 목록·상세에서 빠지고(404) 수정은 409 CARD_UNREGISTERED다.
  *
  * <p>기본 카드·순서처럼 한 사용자의 카드 여러 장을 같이 바꾸는 요청은 사용자 행을 잠가(SELECT … FOR UPDATE) 차례로 처리한다.
- * 실적·청구처럼 다른 파트가 아직 만들지 않은 값은 null로 두고 MR에 적었다.
+ * 실적·청구처럼 다른 파트가 아직 만들지 않은 값은 null로 두고 MR에 적었다. 진행 중 이용기간·누적액은 BE 2 청구서 조회를
+ * 그대로 쓴다({@link CurrentCycleReader}).
  */
 @Slf4j
 @Service
@@ -79,6 +80,7 @@ public class CardManagementService {
     private final PersonalDataCipher cipher;
     private final Clock clock;
     private final CardImageUrlResolver imageUrlResolver;
+    private final CurrentCycleReader currentCycleReader;
     private final CardBenefitSummaryReader benefitSummaryReader;
 
     /** @param status ACTIVE·INACTIVE 중 하나만 볼 때. null이면 둘 다 */
@@ -91,6 +93,13 @@ public class CardManagementService {
         YearMonth month = YearMonth.from(today());
         Map<Long, Long> performances = activityReader.recognizedAmounts(ids, month);
         Set<Long> unpaid = activityReader.cardsWithUnpaidBill(ids);
+        List<CurrentCycleReader.CreditTerms> credits = cards.stream()
+                .filter(card -> products.get(card.getCardProductId()).getCardType() == CardType.CREDIT)
+                .map(card -> new CurrentCycleReader.CreditTerms(card.getId(), card.getPaymentDay(),
+                        products.get(card.getCardProductId()).getBillingCutoffDays()))
+                .toList();
+        Map<Long, CurrentCycleReader.CurrentCycle> cycles =
+                currentCycleReader.currentCycles(me.userId(), null, credits, today());
         Map<Long, CardBenefitSummaryReader.Summary> benefitSummaries =
                 benefitSummaryReader.summaries(products.keySet(), today());
 
@@ -103,7 +112,8 @@ public class CardManagementService {
                     : CardListResponse.Performance.of(month.toString(),
                             benefits == null ? null : benefits.targetFor(recognized), recognized);
             CardListResponse.BillingSummary billing = product.getCardType() == CardType.CREDIT
-                    ? new CardListResponse.BillingSummary(card.getPaymentDay(), null, unpaid.contains(card.getId()))
+                    ? new CardListResponse.BillingSummary(card.getPaymentDay(), accumulatingAmount(cycles.get(card.getId())),
+                            unpaid.contains(card.getId()))
                     : null;
             return new CardListResponse.CardSummary(card.getId(), nickname(card, product),
                     new CardListResponse.Issuer(issuer.code(), issuer.name(), issuer.color()),
@@ -247,6 +257,10 @@ public class CardManagementService {
         card.markDefault(true);
     }
 
+    private static Long accumulatingAmount(CurrentCycleReader.CurrentCycle cycle) {
+        return cycle == null ? null : cycle.accumulatingAmount();
+    }
+
     private CardDetailResponse toDetail(UserCard card) {
         CardProduct product = productOf(card);
         boolean credit = product.getCardType() == CardType.CREDIT;
@@ -260,8 +274,14 @@ public class CardManagementService {
                             b.status()))
                     .orElse(null);
             boolean unpaid = activityReader.cardsWithUnpaidBill(List.of(card.getId())).contains(card.getId());
+            CurrentCycleReader.CurrentCycle cycle = currentCycleReader.currentCycles(card.getUserId(), card.getId(),
+                    CurrentCycleReader.CreditTerms.single(card.getId(), card.getPaymentDay(),
+                            product.getBillingCutoffDays()), today()).get(card.getId());
+            CardDetailResponse.CurrentCycle currentCycle = cycle == null ? null
+                    : new CardDetailResponse.CurrentCycle(new CardDetailResponse.UsagePeriod(cycle.start(), cycle.end()),
+                            cycle.accumulatingAmount(), cycle.confirmAt());
             billing = new CardDetailResponse.Billing(card.getPaymentDay(), paymentDayChangeableFrom(card),
-                    card.getLinkedAccountId(), null, null, null, next, unpaid);
+                    card.getLinkedAccountId(), null, null, currentCycle, next, unpaid);
         } else if (card.getLinkedAccountId() != null) {
             // 연결을 해제한 계좌는 출금 계좌로 보여 주지 않는다. 잔액은 연결 중인 계좌만 붙인다.
             // 트랜잭션 안이라 금융망은 부르지 않고 계좌 잔액 캐시(10분)에 있으면 보여 준다.

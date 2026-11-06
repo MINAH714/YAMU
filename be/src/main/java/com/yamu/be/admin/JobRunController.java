@@ -22,7 +22,7 @@ public class JobRunController {
     }
 
     @Operation(summary = "정기 작업 수동 실행",
-            description = "청구 확정(bill-confirm) 등 정기 작업을 기준 시각(asOf)으로 즉시 실행한다. 이미 처리된 대상은 다시 처리하지 않는다. "
+            description = "청구 확정(bill-confirm)·환급 입금(refund-payout) 등 정기 작업을 기준 시각(asOf)으로 즉시 실행한다. 이미 처리된 대상은 다시 처리하지 않는다. "
                     + "asOf는 오늘(한국 날짜)까지만 된다. "
                     + "400 INVALID_REQUEST(미래 asOf), "
                     + "403 ADMIN_ONLY(키 불일치), 404 JOB_NOT_FOUND, 409 JOB_ALREADY_RUNNING",

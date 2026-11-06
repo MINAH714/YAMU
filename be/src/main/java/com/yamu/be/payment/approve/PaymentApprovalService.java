@@ -66,8 +66,9 @@ import org.springframework.transaction.support.TransactionTemplate;
  * ④ 카드 결정(직접 고름: 소유 404·이 결제에서 거절된 카드 400·적격 400, 생략: 거절된 카드를 뺀 1순위 추천)
  *    → 사전 검사(신용카드 결제일·한도 자료 없음 422)
  * ⑤ 결제별 정산 잠금(출금 실행·결과 저장·복구가 겹치지 않게) 안에서: 출금 미확인으로 거절된 결제면 앞 출금을 거래내역에서 다시 보고
- *    (찾으면 승인으로 바로잡고 409, 조회 실패면 502), 시작 잠금 안에서: 시도 예약(최대 3회, 임시. 횟수 검사와 붙이기가 원자적) → tx1: REQUESTED·DECLINED → PROCESSING 선점.
- *    선점하지 못하면 예약을 지운다
+ *    (찾으면 승인으로 바로잡고 409, 조회 실패면 502). 추천 후보 카드면 카드별 원장 잠금을 잡고 혜택을 다시 계산한다(Task 5.2.5,
+ *    다른 결제가 그 카드를 처리 중이면 409, 재계산 실패면 409). 시작 잠금 안에서: 시도 예약(최대 3회, 임시. 횟수 검사와 붙이기가 원자적,
+ *    다시 계산한 후보를 함께 남김) → tx1: REQUESTED·DECLINED → PROCESSING 선점. 선점하지 못하면 예약을 지운다
  * ⑥ 승인 실행(PaymentApprover, DB 트랜잭션 밖. 체크카드는 금융망 출금, 신용카드는 한도 확인·청구 계획). 결과 불명은 PROCESSING에 둔 채 502,
  *    금융망에 보내지도 못했으면 REQUESTED로 되돌리고 시도를 지운다(신용카드 실행 실패도 외부로 보낸 것이 없으므로 같고, 응답은 그 오류).
  *    신용카드 승인이면 이어서 회차가 걸리는 달의 청구서를 확보한다(별도 트랜잭션). 실패해도 승인·회차는 저장 전이므로 같은 방식으로 되돌리고,
@@ -85,6 +86,9 @@ import org.springframework.transaction.support.TransactionTemplate;
  *   <li>tx2 실패(원장 반영 예외 등): 승인까지 롤백되어 PROCESSING에 남고 500이다. ⑦의 기록이 복구(Task 5.2.3) 근거다.</li>
  *   <li>후보 없음은 거절로 저장하지 않는다(failure_code 허용값에 없음). 예약 전에 끝나므로 시도 횟수도 쓰지 않는다.</li>
  *   <li>마감은 ③과 ⑤의 tx1에서 두 번 본다.</li>
+ *   <li>같은 카드의 혜택 한도를 두 결제가 동시에 쓰기: 카드별 원장 잠금이 재계산부터 tx2 커밋까지 한 결제씩 지나가게 한다. 뒤 결제는
+ *       앞 결제의 원장이 커밋된 사용량으로 다시 계산한다. 월 합계는 원장이 원자적으로 더한다. 결과 불명 복구는 이 잠금을 잡지 않고
+ *       시도 기록의 값으로 적으므로(임시) 그 사이 다른 결제가 같은 한도를 쓰면 월 합계가 한도를 넘을 수 있다(한계).</li>
  * </ul>
  */
 @Slf4j
@@ -93,6 +97,7 @@ public class PaymentApprovalService {
 
     static final int SUGGESTED_CARDS = 2;
     static final String ALREADY_DECLINED = "ALREADY_DECLINED";
+    static final String CARD_LEDGER_LOCK_PREFIX = "payment:approve:card-ledger:";
 
     private final PaymentTransactionRepository payments;
     private final CardQueryService cardQuery;
@@ -214,8 +219,85 @@ public class PaymentApprovalService {
                 properties.settleLockTtl()).orElseThrow(PaymentApprovalService::inProgress);
         try (settleLock) {
             recheckPreviousWithdrawal(payment);
-            return execute(payment, terms, recommendation, selection, key, fingerprint);
+            if (selection.candidate() == null) {
+                // 추천 밖의 카드를 직접 골랐다: 혜택·한도를 쓰지 않으므로 다시 계산하지 않는다
+                return execute(payment, terms, recommendation, selection, key, fingerprint);
+            }
+            // 같은 카드의 한도를 두 결제가 동시에 깎지 않게, 다시 계산 ~ 원장 커밋까지 카드별로 잠근다(Task 5.2.5, 임시 B1)
+            RedisLocks.Lock cardLock = locks.tryLock(cardLedgerLockKey(selection.card().userCardId()),
+                    properties.settleLockTtl()).orElseThrow(() -> new BusinessException(ErrorCode.IDEMPOTENCY_IN_PROGRESS,
+                            "같은 카드로 다른 결제를 처리하고 있어요. 잠시 후 다시 시도해 주세요."));
+            try (cardLock) {
+                Selection current = recalculated(payment, terms, selection);
+                return execute(payment, terms, recommendation, current, key, fingerprint);
+            }
         }
+    }
+
+    /** 카드 하나의 혜택 한도·실적을 쓰는 승인이 겹치지 않게 잡는 잠금 키. 정산 잠금 다음에만 잡는다(잠금 순서 고정). */
+    static String cardLedgerLockKey(Long userCardId) {
+        return CARD_LEDGER_LOCK_PREFIX + userCardId;
+    }
+
+    /**
+     * 명세 처리 순서 2: 저장된 POS 조건으로 고른 카드의 혜택을 지금 한도 사용량으로 다시 계산한다(추천 뒤 다른 결제가 한도를 썼을 수 있음).
+     * 카드 잠금 안에서 부르므로, 앞 결제의 원장이 커밋된 뒤의 사용량을 읽는다. PROCESSING 선점 전이라 실패해도 결제 행은 그대로다.
+     *
+     * <ul>
+     *   <li>다시 계산한 값이 추천과 달라도 그대로 승인하고 응답에 실제 값을 보인다(정책 Q10, 임시 B2).</li>
+     *   <li>다시 계산하니 후보가 아니면(혜택 자료 미확인 등) 혜택 없이 승인한다(임시). 결제 가능 여부는 승인 실행이 다시 확인한다.</li>
+     *   <li>규칙 기준일은 POS 요청 시각이다(추천과 같은 입력). 추천 당시 규칙 버전 고정은 BE3 엔진에 없다(임시 A1).</li>
+     * </ul>
+     */
+    private Selection recalculated(PaymentTransaction payment, PaymentTerms terms, Selection selection) {
+        Long cardId = selection.card().userCardId();
+        RecommendationResult fresh;
+        try {
+            fresh = recommender.recommend(recommendationRequest(payment, terms));
+        } catch (RuntimeException e) {
+            log.warn("승인 전 혜택 재계산 실패, 승인하지 않음 paymentId={} card=****{}", payment.getId(), selection.card().last4(),
+                    e);
+            throw recalculationFailed();
+        }
+        if (fresh == null) {
+            log.error("승인 전 혜택 재계산 결과가 비어 있음 paymentId={}", payment.getId());
+            throw recalculationFailed();
+        }
+        Optional<Candidate> again = fresh.candidate(cardId);
+        if (again.isEmpty()) {
+            log.warn("승인 전 다시 계산하니 후보가 아님, 혜택 없이 승인(임시) paymentId={} card=****{} status={}", payment.getId(),
+                    selection.card().last4(), fresh.cardStatus(cardId).map(Enum::name).orElse("MISSING"));
+            return new Selection(selection.card(), null, selection.recommendedRank(), selection.userSelected());
+        }
+        Candidate candidate = again.get();
+        Long before = instantDiscountOrNull(selection.candidate());
+        long now;
+        try {
+            now = candidate.instantDiscount();
+        } catch (IllegalStateException e) {
+            log.warn("다시 계산한 후보의 즉시할인을 확정할 수 없음 paymentId={} card=****{}", payment.getId(),
+                    selection.card().last4(), e);
+            throw new BusinessException(ErrorCode.DATA_INSUFFICIENT, "이 카드의 할인 금액을 확정할 수 없어요. 다른 카드를 골라 주세요.",
+                    Map.of("reason", "INSTANT_DISCOUNT_UNRESOLVED"));
+        }
+        if (before == null || before != now
+                || candidate.netBenefit().compareTo(selection.candidate().netBenefit()) != 0) {
+            log.info("승인 때 다시 계산한 혜택이 추천과 다름(그대로 승인) paymentId={} instantDiscount {}→{} netBenefit {}→{}",
+                    payment.getId(), before, now, selection.candidate().netBenefit(), candidate.netBenefit());
+        }
+        return new Selection(selection.card(), candidate, selection.recommendedRank(), selection.userSelected());
+    }
+
+    private static Long instantDiscountOrNull(Candidate candidate) {
+        try {
+            return candidate.instantDiscount();
+        } catch (IllegalStateException e) {
+            return null;
+        }
+    }
+
+    private static BusinessException recalculationFailed() {
+        return new BusinessException(ErrorCode.CONCURRENT_MODIFICATION, "혜택을 다시 계산하지 못했어요. 잠시 후 다시 시도해 주세요.");
     }
 
     /**
@@ -254,25 +336,26 @@ public class PaymentApprovalService {
         Long userId = payment.getUserId();
         Instant now = clock.instant();
         LocalDateTime nowUtc = LocalDateTime.ofInstant(now, ZoneOffset.UTC).truncatedTo(ChronoUnit.MICROS);
+        // 시도 기록에 승인액을 정한 후보를 남긴다. 결과 불명 출금을 복구가 승인으로 확정할 때 이 값으로 원장을 적는다
         Attempt attempt = start(paymentId, selection, Attempt.start(key, fingerprint, selection.card(),
-                selection.recommendedRank(), selection.userSelected(), nowUtc));
+                selection.recommendedRank(), selection.userSelected(), nowUtc, selection.candidate()));
         log.info("결제 승인 시작 paymentId={} attempt={} card=****{}", paymentId, attempt.no(), selection.card().last4());
 
         ApprovalOutcome outcome = run(new ApprovalCommand(paymentId, userId, terms, selection.card(),
                 selection.candidate(), payment.getRequestedAt(), nowUtc, attempt.no()), attempt);
         Map<YearMonth, CardBill> bills = ensureBills(paymentId, userId, selection, outcome, attempt);
         PaymentApprovalResponse response = response(payment, selection, recommendation, outcome, attempt.no(),
-                nowUtc, List.of());
+                nowUtc, List.of(), Map.of());
         Attempt recorded = record(paymentId, attempt, outcome, response);
         Settled settled = settle(paymentId, attempt, outcome, nowUtc, bills);
         if (outcome instanceof ApprovalOutcome.Approved) {
             markBarcodeUsed(paymentId);
         }
-        if (!settled.items().isEmpty()) {
-            // 회차 번호는 tx2가 저장해야 생기므로, 회차를 채운 응답으로 시도 기록을 다시 적는다
+        if (!settled.items().isEmpty() || !settled.paymentBenefitIds().isEmpty()) {
+            // 회차 번호·혜택 행 번호는 tx2가 저장해야 생기므로, 그 번호를 채운 응답으로 시도 기록을 다시 적는다
             response = response(payment, selection, recommendation, outcome, attempt.no(), nowUtc,
-                    billItems(settled.items(), bills));
-            recordBillItems(paymentId, attempt, recorded, response);
+                    billItems(settled.items(), bills), settled.paymentBenefitIds());
+            recordSavedNumbers(paymentId, attempt, recorded, response);
         }
         log.info("결제 승인 결과 저장 paymentId={} attempt={} status={} failure={} billItems={}", paymentId, attempt.no(),
                 settled.payment().getStatus(), settled.payment().getFailureCode(), settled.items().size());
@@ -318,18 +401,22 @@ public class PaymentApprovalService {
     /** 스냅샷이 사라졌으면(보관 종료·장애) 현재 규칙으로 다시 계산해 쓴다(Q2, 임시). */
     private RecommendationResult recommendationOf(PaymentTransaction payment, PaymentTerms terms) {
         return snapshots.find(payment.getId()).orElseGet(() -> {
-            Optional<MerchantContextSnapshot> context = MerchantContextSnapshot.of(payment, objectMapper);
-            RecommendationResult result = recommender.recommend(new RecommendationRequest(payment.getId(),
-                    payment.getUserId(), terms,
-                    new MerchantContext(payment.getMerchantId(),
-                            context.map(MerchantContextSnapshot::categoryCode).orElse(null),
-                            payment.getPaymentChannel().name(),
-                            payment.getFacilityType() == null ? null : payment.getFacilityType().name()),
-                    payment.getRequestedAt()));
+            RecommendationResult result = recommender.recommend(recommendationRequest(payment, terms));
             snapshots.save(payment.getId(), result, posProperties.snapshotTtl());
             log.info("추천 스냅샷이 없어 다시 계산 paymentId={}", payment.getId());
             return result;
         });
+    }
+
+    /** 저장된 POS 조건으로 만든 추천 요청. 스냅샷이 없을 때와 승인 전 재계산이 같은 입력을 쓴다. */
+    private RecommendationRequest recommendationRequest(PaymentTransaction payment, PaymentTerms terms) {
+        Optional<MerchantContextSnapshot> context = MerchantContextSnapshot.of(payment, objectMapper);
+        return new RecommendationRequest(payment.getId(), payment.getUserId(), terms,
+                new MerchantContext(payment.getMerchantId(),
+                        context.map(MerchantContextSnapshot::categoryCode).orElse(null),
+                        payment.getPaymentChannel().name(),
+                        payment.getFacilityType() == null ? null : payment.getFacilityType().name()),
+                payment.getRequestedAt());
     }
 
     /**
@@ -525,14 +612,17 @@ public class PaymentApprovalService {
         return result;
     }
 
-    /** ⑧ 뒤 청구 회차를 채운 응답으로 시도 기록을 다시 적는다. 실패하면 같은 키 재전송은 회차 없는 ⑦의 응답을 돌려준다. */
-    private void recordBillItems(Long paymentId, Attempt attempt, Attempt recorded, PaymentApprovalResponse response) {
+    /**
+     * ⑧ 뒤 청구 회차·혜택 행 번호를 채운 응답으로 시도 기록을 다시 적는다. 실패하면 같은 키 재전송은 번호 없는 ⑦의 응답을 돌려준다.
+     */
+    private void recordSavedNumbers(Long paymentId, Attempt attempt, Attempt recorded,
+            PaymentApprovalResponse response) {
         try {
             attempts.recordResult(paymentId, attempt, recorded.withResult(recorded.outcome(), recorded.failureCode(),
                     recorded.finTransactionNo(), recorded.chargedAmount(), response));
         } catch (RuntimeException e) {
-            log.warn("청구 회차를 채운 응답을 시도 기록에 남기지 못함(재전송은 회차 없는 응답) paymentId={} attempt={}", paymentId,
-                    attempt.no(), e);
+            log.warn("청구 회차·혜택 번호를 채운 응답을 시도 기록에 남기지 못함(재전송은 번호 없는 응답) paymentId={} attempt={}",
+                    paymentId, attempt.no(), e);
         }
     }
 
@@ -566,16 +656,17 @@ public class PaymentApprovalService {
                         throw new IllegalStateException("승인 결과를 저장할 수 없는 결제 상태입니다 (결제 " + paymentId + ")");
                     }
                     payments.saveAndFlush(payment);
-                    ledger.recordApproval(payment, approved);
+                    ApprovalLedger.Recorded recorded = ledger.recordApproval(payment, approved);
                     List<BillItem> items = approved.hasInstallments()
                             ? billing.writeItems(payment, approved.installments(), bills)
                             : List.of();
-                    return new Settled(payment, items);
+                    return new Settled(payment, items,
+                            recorded == null ? Map.of() : recorded.paymentBenefitIds());
                 }
                 ApprovalOutcome.Declined declined = (ApprovalOutcome.Declined) outcome;
                 payment.decline(declined.code().name());
                 payments.saveAndFlush(payment);
-                return new Settled(payment, List.of());
+                return new Settled(payment, List.of(), Map.of());
             });
         } catch (RuntimeException e) {
             String finTransactionNo = outcome instanceof ApprovalOutcome.Approved approved
@@ -606,7 +697,7 @@ public class PaymentApprovalService {
 
     /**
      * 복구가 확정한 결제의 응답을 결제 행에서 만든다(승인 또는 출금 미확인 거절). 카드는 행의 카드이고, 같은 키의 시도가 있으면
-     * 그 시도의 카드 표시·추천 순위·직접 선택 여부를 쓴다. 혜택 줄은 원장 반영(Task 5.2.5) 전이라 비어 있다.
+     * 그 시도의 카드 표시·추천 순위·직접 선택 여부를 쓴다. 혜택 줄·실적·한도는 싣지 않는다(임시: 원장에는 적혀 있고 결제 상세로 본다).
      *
      * @param attempt 이 요청 키가 만든 시도. 다른 키의 요청이면 null
      */
@@ -693,10 +784,15 @@ public class PaymentApprovalService {
         }).toList();
     }
 
-    /** tx2 전에 만든다. 저장될 값(상태·승인 시각)은 실행 결과와 처리 시각으로 정해지므로 저장 뒤의 행과 같다. */
+    /**
+     * tx2 전에 만든다. 저장될 값(상태·승인 시각)은 실행 결과와 처리 시각으로 정해지므로 저장 뒤의 행과 같다.
+     * 혜택 행 번호와 청구 회차 번호는 tx2 뒤에 다시 만들 때 채운다.
+     *
+     * @param paymentBenefitIds 혜택 번호 → payment_benefit 행 번호. tx2 전이면 빈 맵(번호 null)
+     */
     private PaymentApprovalResponse response(PaymentTransaction payment, Selection selection,
             RecommendationResult recommendation, ApprovalOutcome outcome, int attemptNo, LocalDateTime now,
-            List<PaymentApprovalResponse.BillItem> billItems) {
+            List<PaymentApprovalResponse.BillItem> billItems, Map<Long, Long> paymentBenefitIds) {
         CardSummary card = selection.card();
         SelectedCard selected = new SelectedCard(card.userCardId(), nickname(card), masked(card.last4()),
                 card.cardType(), selection.recommendedRank(), selection.userSelected());
@@ -704,14 +800,15 @@ public class PaymentApprovalService {
         Integer months = payment.isInstallment() ? payment.getInstallmentMonths() : null;
 
         if (outcome instanceof ApprovalOutcome.Approved approved) {
+            // confirmed: 승인과 함께 반영된 즉시할인만 확정이다. 청구할인·캐시백·적립은 청구·지급 때 확정된다
             List<Benefit> benefits = approved.benefits().stream()
-                    .map(b -> new Benefit(null, b.benefitId(), b.name(), b.type(), b.amount(), b.realization(),
-                            false))
+                    .map(b -> new Benefit(paymentBenefitIds.get(b.benefitId()), b.benefitId(), b.name(), b.type(),
+                            b.amount(), b.realization(), b.isInstant()))
                     .toList();
             return new PaymentApprovalResponse(payment.getId(), PaymentStatus.APPROVED,
                     ApprovalNumbers.of(now, payment.getId()), now, selected, payment.getRequestedAmount(), plan,
-                    months, benefits, approved.chargedAmount(), null, billItems, null, List.of(), null, null, null,
-                    List.of());
+                    months, benefits, approved.chargedAmount(), null, billItems, performance(approved),
+                    limitImpacts(approved.basis()), null, null, null, List.of());
         }
         ApprovalOutcome.Declined declined = (ApprovalOutcome.Declined) outcome;
         // 예약이 최대 횟수를 넘지 않게 하므로 attemptNo ≤ maxAttempts다
@@ -724,6 +821,32 @@ public class PaymentApprovalService {
                 payment.getRequestedAmount(), plan, months, List.of(), null, null, List.of(), null, List.of(),
                 new Failure(declined.code().name(), declined.message(), declined.details()), retryable, remaining,
                 suggested);
+    }
+
+    /**
+     * 이 승인의 실적 반영. 달성률은 최소 실적 기준을 BE3 결과가 내보내지 않아 null이다(임시).
+     * 실적 인정액도 지금은 0원이고 {@code recognized=false}다(임시 A3: BE3 결과 확장 전).
+     */
+    private static PaymentApprovalResponse.Performance performance(ApprovalOutcome.Approved approved) {
+        long amount = approved.recognizedPerformanceAmount();
+        return new PaymentApprovalResponse.Performance(YearMonth.from(approved.performanceMonth()).toString(), amount,
+                amount > 0, null);
+    }
+
+    /**
+     * 이 승인이 쓴 한도(원장의 payment_limit_usage와 같은 값). 사용량이 0인 그룹은 뺀다.
+     * 남은 한도 = 사용 직전 남은 한도 − 사용량이다.
+     */
+    private static List<PaymentApprovalResponse.LimitImpact> limitImpacts(Candidate basis) {
+        if (basis == null) {
+            return List.of();
+        }
+        return basis.expectedLimitUses().stream()
+                .filter(use -> use.consumed().signum() > 0)
+                .map(use -> new PaymentApprovalResponse.LimitImpact(use.limitGroupId(), use.period(),
+                        use.consumed().longValue(), use.remainingBefore().subtract(use.consumed()).max(
+                                java.math.BigDecimal.ZERO).longValue()))
+                .toList();
     }
 
     /** 실행 결과를 저장하기 전에 읽으므로 Redis가 실패해도 저장을 막지 않는다. 그때는 이번 카드만 뺀다. */
@@ -828,8 +951,8 @@ public class PaymentApprovalService {
      */
     private record Selection(CardSummary card, Candidate candidate, Integer recommendedRank, boolean userSelected) {}
 
-    /** tx2가 저장한 것: 결제 행, 신용카드면 청구 회차. */
-    private record Settled(PaymentTransaction payment, List<BillItem> items) {}
+    /** tx2가 저장한 것: 결제 행, 신용카드면 청구 회차, 원장에 적은 혜택 행 번호(혜택 번호 → payment_benefit 번호). */
+    private record Settled(PaymentTransaction payment, List<BillItem> items, Map<Long, Long> paymentBenefitIds) {}
 
     /** 선점 트랜잭션 안에서 마감을 발견했을 때 롤백하고 밖에서 만료 처리하기 위한 신호. */
     private static final class DeadlinePassed extends RuntimeException {

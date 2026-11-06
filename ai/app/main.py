@@ -112,7 +112,7 @@ class LivingCostRequest(BaseModel):
     @classmethod
     def supported_horizon(cls, value: int) -> int:
         if value not in living_cost.HORIZONS:
-            raise ValueError("예측 일수는 14·30 중 하나여야 합니다(7일은 BE가 TSB로 계산)")
+            raise ValueError("예측 일수는 7·14·30 중 하나여야 합니다")
         return value
 
     @field_validator("accounts")

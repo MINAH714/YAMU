@@ -118,6 +118,47 @@ class PaymentLivingCostReaderTest extends MySqlTestSupport {
     }
 
     @Test
+    void 같은_가격을_한_달에_여러_번_쓰는_일상_소비는_3개_달_이상이어도_넣는다() {
+        // 4·5·6월 매달 월·수·금처럼 4,500원 커피를 세 번씩 산다(S15P31E103-295)
+        long cafe = fixtures.merchant();
+        for (int month = 4; month <= 6; month++) {
+            for (int day : new int[] {3, 5, 8}) {
+                fixtures.approved(owner, checkA, cafe, 4_500L, LocalDate.of(2026, month, day), 12);
+            }
+        }
+
+        Map<LocalDate, Long> amounts = amounts(reader.dailySpending(owner, List.of(accountA), FROM, TO).days(),
+                accountA, LivingCostReader.Origin.REAL);
+
+        assertThat(amounts.get(LocalDate.of(2026, 6, 3))).isEqualTo(4_500L);
+        assertThat(amounts.get(LocalDate.of(2026, 6, 5))).isEqualTo(4_500L);
+        assertThat(amounts.get(LocalDate.of(2026, 6, 8))).isEqualTo(4_500L);
+    }
+
+    @Test
+    void 매달_한_번이던_결제도_6개월_안에_두_번_나온_달이_있으면_넣는다() {
+        // 4·5·6월 매달 13,500원인데 5월에 같은 금액을 한 번 더 썼다. 매달 한 번인 정기 결제로 보지 않는다
+        long store = fixtures.merchant();
+        fixtures.approved(owner, checkA, store, 13_500L, LocalDate.of(2026, 4, 10), 12);
+        fixtures.approved(owner, checkA, store, 13_500L, LocalDate.of(2026, 5, 10), 12);
+        fixtures.approved(owner, checkA, store, 13_500L, LocalDate.of(2026, 5, 25), 12);
+        fixtures.approved(owner, checkA, store, 13_500L, LocalDate.of(2026, 6, 10), 12);
+        // 두 번 나온 달(12월)이 6월의 6개월(1~6월) 밖이면 1·2·6월 매달 한 번이라 뺀다
+        long older = fixtures.merchant();
+        fixtures.approved(owner, checkA, older, 6_600L, LocalDate.of(2025, 12, 5), 12);
+        fixtures.approved(owner, checkA, older, 6_600L, LocalDate.of(2025, 12, 20), 12);
+        fixtures.approved(owner, checkA, older, 6_600L, LocalDate.of(2026, 1, 5), 12);
+        fixtures.approved(owner, checkA, older, 6_600L, LocalDate.of(2026, 2, 5), 12);
+        fixtures.approved(owner, checkA, older, 6_600L, LocalDate.of(2026, 6, 15), 12);
+
+        Map<LocalDate, Long> amounts = amounts(reader.dailySpending(owner, List.of(accountA), FROM, TO).days(),
+                accountA, LivingCostReader.Origin.REAL);
+
+        assertThat(amounts.get(LocalDate.of(2026, 6, 10))).isEqualTo(13_500L);
+        assertThat(amounts.get(LocalDate.of(2026, 6, 15))).isZero();
+    }
+
+    @Test
     void SEED는_첫_SEED_결제일부터_등록_전날까지_REAL은_첫_YAMU_결제일부터이고_그_출처_결제만_더한다() {
         long account = ownership.account(owner);
         long card = fixtures.card(owner, fixtures.product("CHECK"), account, LocalDate.of(2026, 6, 15));
