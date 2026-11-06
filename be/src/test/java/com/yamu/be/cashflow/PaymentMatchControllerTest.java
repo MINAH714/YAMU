@@ -189,6 +189,32 @@ class PaymentMatchControllerTest extends MySqlTestSupport {
     }
 
     @Test
+    void ID에_소수가_오면_잘라서_다른_결제와_연결하지_않고_400이다() throws Exception {
+        long payment = cashflows.payment(owner, card, gym, 30000L, target, "YAMU", "APPROVED");
+
+        mockMvc.perform(post("/api/cashflow-payment-matches").with(AuthUsers.asUser(owner))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{ \"cashflowItemId\": %d, \"occurrenceDate\": \"%s\", \"paymentId\": %d.9 }"
+                                .formatted(rule, target, payment)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("INVALID_REQUEST"));
+        mockMvc.perform(post("/api/cashflow-payment-matches").with(AuthUsers.asUser(owner))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{ \"cashflowItemId\": %d.5, \"occurrenceDate\": \"%s\", \"paymentId\": %d }"
+                                .formatted(rule, target, payment)))
+                .andExpect(status().isBadRequest());
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM cashflow_payment_match WHERE user_id = ?",
+                Integer.class, owner)).isZero();
+        // 값이 정수인 소수 표기는 받는다(가계부 등록과 같은 기준).
+        mockMvc.perform(post("/api/cashflow-payment-matches").with(AuthUsers.asUser(owner))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{ \"cashflowItemId\": %d.0, \"occurrenceDate\": \"%s\", \"paymentId\": %d.0 }"
+                                .formatted(rule, target, payment)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.paymentId").value(payment));
+    }
+
+    @Test
     void 해제하면_204이고_연결이_없어지며_다시_해제하면_404다() throws Exception {
         long payment = cashflows.payment(owner, card, gym, 30000L, target, "YAMU", "APPROVED");
         long matchId = matchId(confirm(owner, rule, target, payment).andExpect(status().isCreated()));

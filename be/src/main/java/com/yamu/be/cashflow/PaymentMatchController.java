@@ -1,5 +1,6 @@
 package com.yamu.be.cashflow;
 
+import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
 import com.yamu.be.global.common.ApiResponse;
 import com.yamu.be.global.security.AuthUser;
 import jakarta.validation.Valid;
@@ -63,11 +64,14 @@ class PaymentMatchController {
         return ApiResponse.ok(service.candidates(me.userId(), cashflowItemId, occurrenceDate));
     }
 
+    /** ID 칸에 소수(1.9)가 오면 잘라서 다른 항목·결제와 연결하지 않고 400으로 거절한다. */
     record ConfirmRequest(
             @NotNull(message = "연결할 예정 지출을 골라 주세요.") @Positive(message = "예정 지출 ID가 올바르지 않습니다.")
+            @JsonDeserialize(using = IntegralNumberDeserializers.LongValue.class)
             Long cashflowItemId,
             @NotNull(message = "연결할 회차 날짜를 보내 주세요.") LocalDate occurrenceDate,
             @NotNull(message = "연결할 결제를 골라 주세요.") @Positive(message = "결제 ID가 올바르지 않습니다.")
+            @JsonDeserialize(using = IntegralNumberDeserializers.LongValue.class)
             Long paymentId) {
     }
 }
