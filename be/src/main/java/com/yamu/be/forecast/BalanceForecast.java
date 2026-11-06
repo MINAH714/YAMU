@@ -64,8 +64,12 @@ public record BalanceForecast(List<Long> accountIds, int selectionCount, long cu
     /**
      * 예보 기간의 예상 생활비.
      *
-     * @param projectedAmount 일평균 × 예보 일수
-     * @param method          계산 방식(최근 완료 3개월 평균)
+     * @param projectedAmount 예보 기간(내일부터) 예상 생활비 = 보수적 선에서 날마다 빼는 값의 합. AI 또는 TSB
+     * @param dailyAverage    지난 3개월 실적 요약의 하루 평균(예측 값이 아님)
+     * @param monthlyAverage  지난 3개월 실적 요약의 한 달 평균(예측 값이 아님)
+     * @param method          예상 생활비 계산 방식. ML_V1·TSB, 계좌마다 다르면 MIXED
+     * @param dataOrigin      예측 입력에 모의 소비(SEED)가 있으면 SEED
+     * @param confidence      기록 길이 기준(60일 이상 HIGH, 14~59일 MEDIUM, 1~13일 LOW)
      */
     public record LivingCost(Long projectedAmount, Long dailyAverage, Long monthlyAverage, String method,
             LivingCostEstimator.DataOrigin dataOrigin, LivingCostEstimator.Confidence confidence) {}
