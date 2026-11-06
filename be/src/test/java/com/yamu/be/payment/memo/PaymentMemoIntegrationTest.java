@@ -119,6 +119,71 @@ class PaymentMemoIntegrationTest extends MySqlTestSupport {
     }
 
     @Test
+    void 줄바꿈과_탭은_공백_하나로_바꿔_한_줄로_저장한다() throws Exception {
+        long paymentId = payment("APPROVED");
+
+        memo(owner, paymentId, "{\"memo\": \"\\n 첫 줄\\r\\n둘째\\n셋\\t넷\\r다섯\\u2028끝 \\t\"}")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.memo").value("첫 줄 둘째 셋 넷 다섯 끝"));
+
+        assertThat(row(paymentId).get("memo")).isEqualTo("첫 줄 둘째 셋 넷 다섯 끝");
+    }
+
+    @Test
+    void 줄바꿈과_탭뿐이면_메모를_지운다() throws Exception {
+        long paymentId = payment("APPROVED");
+        memo(owner, paymentId, "{\"memo\": \"지울 메모\"}").andExpect(status().isOk());
+
+        memo(owner, paymentId, "{\"memo\": \"\\r\\n\\t\\n \"}")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.memo").value(nullValue()));
+
+        assertThat(row(paymentId).get("memo")).isNull();
+    }
+
+    @Test
+    void 길이는_줄바꿈을_공백으로_바꾼_뒤에_센다() throws Exception {
+        long paymentId = payment("APPROVED");
+        // \r\n은 공백 하나라 50 + 1 + 49 = 100자
+        String body = "가".repeat(50) + "\\r\\n" + "가".repeat(49);
+
+        memo(owner, paymentId, "{\"memo\": \"" + body + "\"}")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.memo").value("가".repeat(50) + " " + "가".repeat(49)));
+    }
+
+    @Test
+    void 줄바꿈_탭_외의_제어문자가_있으면_400_INVALID_REQUEST이고_바꾸지_않는다() throws Exception {
+        long paymentId = payment("APPROVED");
+
+        for (String control : new String[] {"\\u0000", "\\u0007", "\\u001B", "\\u007F", "\\u0090"}) {
+            memo(owner, paymentId, "{\"memo\": \"앞" + control + "뒤\"}")
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.error.code").value("INVALID_REQUEST"))
+                    .andExpect(jsonPath("$.error.details.fieldErrors[0].field").value("memo"));
+        }
+
+        assertThat(row(paymentId).get("memo_updated_at")).isNull();
+    }
+
+    @Test
+    void 여러_코드포인트로_된_이모지는_코드포인트_수만큼_센다() throws Exception {
+        long paymentId = payment("APPROVED");
+        // 가족 이모지 하나 = 사람 3 + 잇는 문자(ZWJ) 2 = 5 코드포인트. 20개면 100자
+        String family = "\uD83D\uDC68\u200D\uD83D\uDC69\u200D\uD83D\uDC67";
+        String hundred = family.repeat(20);
+
+        memo(owner, paymentId, "{\"memo\": \"" + hundred + "\"}")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.memo").value(hundred));
+        memo(owner, paymentId, "{\"memo\": \"" + hundred + "가\"}")
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("MEMO_TOO_LONG"));
+
+        assertThat(row(paymentId).get("memo")).isEqualTo(hundred);
+    }
+
+    @Test
     void memo_칸이_없거나_문자열이_아니면_400_INVALID_REQUEST이고_바꾸지_않는다() throws Exception {
         long paymentId = payment("APPROVED");
 
