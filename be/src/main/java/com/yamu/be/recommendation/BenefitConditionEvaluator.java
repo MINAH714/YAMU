@@ -13,6 +13,69 @@ public final class BenefitConditionEvaluator {
 
     public enum Match { MATCHED, NOT_MATCHED, UNKNOWN }
 
+    public record Missing(String code, String field) { }
+    public record Evaluation(Match match, java.util.List<Missing> missingInformation, boolean policyUnknown) {
+        public Evaluation { missingInformation = java.util.List.copyOf(missingInformation); }
+        public boolean brandOnlyUnknown() {
+            return match == Match.UNKNOWN && !policyUnknown && !missingInformation.isEmpty()
+                    && missingInformation.stream().allMatch(m -> m.code().equals("BRAND_MISSING"));
+        }
+    }
+
+    /** 기존 판정이 UNKNOWN인 경우에만, 결과에 남아 있는 미확인 입력의 근거를 수집한다. */
+    public Evaluation explain(Conditions conditions, Transaction transaction) {
+        Match match = evaluate(conditions, transaction);
+        if (match != Match.UNKNOWN) return new Evaluation(match, java.util.List.of(), false);
+        if (conditions == null || !conditions.verified() || !conditions.currentVersionVerified()
+                || conditions.validFrom() == null || conditions.validUntil() == null) {
+            return new Evaluation(match, java.util.List.of(), true);
+        }
+        var included = new java.util.ArrayList<Evaluation>();
+        var excluded = new java.util.ArrayList<Evaluation>();
+        if (conditions.targetGroups() != null) {
+            for (var group : conditions.targetGroups()) {
+                var members = group.members().stream().map(t -> explainTarget(t, transaction)).toList();
+                (group.excluded() ? excluded : included).add(merge(members, true));
+            }
+        } else {
+            for (var target : conditions.targets()) {
+                (target.excluded() ? excluded : included).add(explainTarget(target, transaction));
+            }
+        }
+        var missing = new java.util.ArrayList<Missing>();
+        var inclusion = merge(included, false);
+        missing.addAll(inclusion.missingInformation());
+        excluded.stream().filter(e -> e.match() == Match.UNKNOWN)
+                .forEach(e -> missing.addAll(e.missingInformation()));
+        java.util.stream.Stream.concat(conditions.requiredFacts().stream(), conditions.excludedFacts().stream())
+                .filter(key -> fact(transaction, key) == null).sorted()
+                .forEach(key -> missing.add(new Missing(key.startsWith("CHANNEL:") ? "CHANNEL_MISSING"
+                        : key.startsWith("FACILITY:") ? "FACILITY_MISSING" : "FACT_MISSING", "facts." + key)));
+        return new Evaluation(match, missing.stream().distinct().toList(),
+                inclusion.policyUnknown() || conditions.schedule() == null);
+    }
+
+    private Evaluation explainTarget(Target target, Transaction transaction) {
+        Match match = targetMatch(target, transaction);
+        if (match != Match.UNKNOWN) return new Evaluation(match, java.util.List.of(), false);
+        Missing missing = switch (target.type()) {
+            case BRAND -> new Missing("BRAND_MISSING", "merchantId");
+            case CATEGORY -> new Missing("MERCHANT_CATEGORY_MISSING", "merchantCategoryCode");
+            case PURCHASE_ITEM -> new Missing("PURCHASE_ITEM_MISSING", "purchaseItemCode");
+            case ALL -> throw new IllegalStateException("ALL은 미확인 대상이 아닙니다.");
+        };
+        return new Evaluation(match, java.util.List.of(missing), false);
+    }
+
+    private Evaluation merge(java.util.List<Evaluation> values, boolean conjunction) {
+        var matches = values.stream().map(Evaluation::match).toList();
+        Match match = conjunction ? and(matches) : or(matches);
+        if (match != Match.UNKNOWN) return new Evaluation(match, java.util.List.of(), false);
+        return new Evaluation(match, values.stream().filter(e -> e.match() == Match.UNKNOWN)
+                .flatMap(e -> e.missingInformation().stream()).distinct().toList(),
+                values.isEmpty() || values.stream().anyMatch(Evaluation::policyUnknown));
+    }
+
     public Match evaluate(Conditions conditions, Transaction transaction) {
         if (conditions == null || !conditions.verified() || !conditions.currentVersionVerified()
                 || conditions.validFrom() == null || conditions.validUntil() == null) {

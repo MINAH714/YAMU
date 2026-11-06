@@ -33,6 +33,21 @@ public interface CardBillRepository extends JpaRepository<CardBill, Long> {
             @Param("userId") Long userId, @Param("lastId") long lastId, Pageable page);
 
     /**
+     * 청구 출금 대상(Task 5.4.3): 출금 예정일이 기준일 이하(withdrawal_date &lt;= asOf)인 확정 청구서를 번호 순으로 한 쪽씩.
+     * 출금을 이미 요청해 결과를 기다리는 청구서(요청 번호 있음)도 들어 있다. 상태·출금일은 {@code ix_bill_due}가 받친다.
+     */
+    @Query("SELECT b FROM CardBill b WHERE b.status = :status AND b.withdrawalDate <= :asOf AND b.id > :lastId"
+            + " AND (:userId IS NULL OR b.userId = :userId) ORDER BY b.id")
+    List<CardBill> findDueForWithdraw(@Param("status") BillStatus status, @Param("asOf") LocalDate asOf,
+            @Param("userId") Long userId, @Param("lastId") long lastId, Pageable page);
+
+    /** 출금을 요청했지만 결과가 아직 확정되지 않은 확정 청구서(요청 번호 있음)를 번호 순으로 한 쪽씩. 결과 불명 복구가 읽는다. */
+    @Query("SELECT b FROM CardBill b WHERE b.status = :status AND b.finRequestNo IS NOT NULL AND b.id > :lastId"
+            + " ORDER BY b.id")
+    List<CardBill> findWithdrawalsInFlight(@Param("status") BillStatus status, @Param("lastId") long lastId,
+            Pageable page);
+
+    /**
      * 청구서 잠금(SELECT ... FOR UPDATE). 번호 순으로 잠가, 여러 청구서를 잠그는 작업끼리(취소, 청구 확정) 순서가 엇갈리지 않게 한다.
      * 빈 목록은 넘기지 않는다.
      */

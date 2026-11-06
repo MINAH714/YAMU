@@ -31,6 +31,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.Callable;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -59,7 +60,7 @@ import org.testcontainers.utility.DockerImageName;
  * <p>청구 회차·청구서도 SQL로 넣는다. 청구 확정(S15P31E103-206)·출금(S15P31E103-207) 전이라 확정·출금 완료·미납 청구서는
  * 직접 만들어 POL-006의 회차별 처리(제외·환급 대기·미납 원금 제외)를 본다. 실제 승인으로 만든 회차의 취소는
  * {@code CreditApprovalIntegrationTest}가 본다.
- * 실적·한도 복구는 원장 반영(Task 5.2.5) 전이라 응답의 {@code restored}는 비어 있다.
+ * 실적·한도 복구의 세부(한도·두 번 되돌리지 않음·지난달 취소)는 {@code PaymentLedgerIntegrationTest}가 본다.
  */
 @AutoConfigureMockMvc
 @TestPropertySource(properties = "spring.application.name=yamu-payment-cancel-test")
@@ -94,6 +95,7 @@ class PaymentCancelIntegrationTest extends MySqlTestSupport {
 
     @BeforeEach
     void setUp() {
+        jdbc.update("DELETE FROM card_monthly_performance");
         jdbc.update("DELETE FROM refund");
         jdbc.update("DELETE FROM bill_item");
         jdbc.update("DELETE FROM card_bill");
@@ -112,18 +114,28 @@ class PaymentCancelIntegrationTest extends MySqlTestSupport {
         merchant = merchant();
     }
 
+    /** 실적 합계 행은 카드를 지울 수 없게 하므로 다음 테스트 클래스를 위해 지운다. */
+    @AfterEach
+    void deletePerformanceRows() {
+        jdbc.update("DELETE FROM card_monthly_performance");
+    }
+
     // ───────── 취소 성공 ─────────
 
     @Test
     void 승인된_신용카드_결제를_취소하면_CANCELED와_취소_시각이_남고_승인_당시_값은_그대로다() throws Exception {
         long paymentId = approved(user, creditCard, "YAMU");
+        jdbc.update("INSERT INTO card_monthly_performance (user_card_id, performance_month, recognized_amount, "
+                + "created_at, updated_at) VALUES (?, ?, 40000, NOW(6), NOW(6))", creditCard, LocalDate.of(2026, 11, 1));
 
         cancel(paymentId, UUID.randomUUID().toString(), "{\"reason\": \"고객 요청\"}")
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.paymentId").value(paymentId))
                 .andExpect(jsonPath("$.data.status").value("CANCELED"))
                 .andExpect(jsonPath("$.data.canceledAt").isString())
-                .andExpect(jsonPath("$.data.restored.performance").doesNotExist())
+                // 승인 당시 실적 인정액을 원래 실적 월에서 뺀다(Task 5.2.5). 이 결제는 한도를 쓰지 않았다
+                .andExpect(jsonPath("$.data.restored.performance.yearMonth").value("2026-11"))
+                .andExpect(jsonPath("$.data.restored.performance.amount").value(15_000))
                 .andExpect(jsonPath("$.data.restored.limitImpacts.length()").value(0))
                 .andExpect(jsonPath("$.data.billItems.length()").value(0))
                 .andExpect(jsonPath("$.data.refunds.length()").value(0))
@@ -132,11 +144,13 @@ class PaymentCancelIntegrationTest extends MySqlTestSupport {
         PaymentTransaction payment = payments.findById(paymentId).orElseThrow();
         assertThat(payment.getStatus()).isEqualTo(PaymentStatus.CANCELED);
         assertThat(payment.getCanceledAt()).isNotNull();
-        // 승인 당시 값은 지우지 않는다. 실적 복구는 원장 반영 전이라 아직 하지 않았으므로 복구 시각도 없다
+        // 승인 당시 값은 지우지 않는다. 실적을 되돌린 시각이 남는다
         assertThat(payment.getApprovedAmount()).isEqualTo(15_000L);
         assertThat(payment.getRecognizedPerformanceAmount()).isEqualTo(15_000L);
         assertThat(payment.getPerformanceMonth()).isEqualTo(LocalDate.of(2026, 11, 1));
-        assertThat(payment.getPerformanceReversedAt()).isNull();
+        assertThat(payment.getPerformanceReversedAt()).isNotNull();
+        assertThat(jdbc.queryForObject("SELECT recognized_amount FROM card_monthly_performance WHERE user_card_id = ?",
+                Long.class, creditCard)).isEqualTo(25_000L);
     }
 
     @Test

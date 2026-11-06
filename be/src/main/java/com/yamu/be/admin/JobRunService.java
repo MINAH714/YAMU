@@ -26,7 +26,8 @@ import org.springframework.stereotype.Service;
  * 정기 작업 수동 실행(API 명세 「[운영] 정기 작업 수동 실행」). 등록된 {@link ManualJob}을 이름으로 찾아 작업 잠금 안에서 한 번 돌린다.
  * 스케줄 실행과 같은 잠금을 쓰므로 둘이 겹치면 뒤의 것이 409 {@code JOB_ALREADY_RUNNING}이다.
  *
- * <p>지금 등록된 작업: {@code bill-confirm}(Task 5.4.2). 명세 표의 나머지 작업은 각 Task에서 {@link ManualJob}으로 추가한다.
+ * <p>지금 등록된 작업: {@code bill-confirm}(Task 5.4.2), {@code bill-withdraw}(Task 5.4.3), {@code refund-payout}(Task 5.4.4).
+ * 명세 표의 나머지 작업은 각 Task에서 {@link ManualJob}으로 추가한다.
  */
 @Slf4j
 @Service
@@ -75,7 +76,7 @@ public class JobRunService {
      * <p>명세와 다름: 「[운영] 정기 작업 수동 실행」은 "미래로 두면 그 날짜 기준으로 처리"다(노션 반영 필요).
      */
     private void rejectFuture(JobRunCommand command) {
-        LocalDate today = LocalDate.now(clock.withZone(KST));
+        LocalDate today = LocalDate.ofInstant(clock.instant(), KST);
         if (command.koreanDate().isAfter(today)) {
             throw new BusinessException(ErrorCode.INVALID_REQUEST, Map.of("fieldErrors", List.of(
                     new FieldErrorResponse("asOf", "기준 시각은 오늘(한국 날짜)까지만 쓸 수 있습니다."))));

@@ -536,7 +536,7 @@ private fun PayCardRow(card: PayCard, selected: Boolean, enabled: Boolean, onCli
             val sub = if (card.isCheck && card.chargedAmount != null) "${card.benefitName ?: "체크카드"} · ${card.chargedAmount.toWon()}원 출금" else card.benefitName ?: card.reason
             sub?.let { Text(it, style = YamuTheme.typography.sub, color = c.text3) }
         }
-        if (card.netBenefit > 0) Text("−${card.netBenefit.toWon()}원", style = YamuTheme.typography.value, color = c.primary)
+        if (card.netBenefit.signum() > 0) Text("−${card.netBenefit.toWon()}원", style = YamuTheme.typography.value, color = c.primary)
         RoundCheckbox(checked = selected, onCheckedChange = null)
     }
 }

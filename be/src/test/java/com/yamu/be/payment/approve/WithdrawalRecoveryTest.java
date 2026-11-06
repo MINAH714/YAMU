@@ -32,6 +32,12 @@ import com.yamu.be.payment.domain.PaymentChannel;
 import com.yamu.be.payment.domain.PaymentStatus;
 import com.yamu.be.payment.domain.PaymentTransaction;
 import com.yamu.be.payment.domain.PaymentTransactionRepository;
+import com.yamu.be.payment.recommend.RecommendationResult.BenefitLine;
+import com.yamu.be.payment.recommend.RecommendationResult.Candidate;
+import com.yamu.be.payment.recommend.RecommendationResult.CardSummary;
+import com.yamu.be.payment.recommend.RecommendationResult.ExpectedLimitUse;
+import com.yamu.be.payment.recommend.RecommendationResult.RuleVersion;
+import com.yamu.be.payment.recommend.RecommendationResult.SelectionReason;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -44,6 +50,7 @@ import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
@@ -191,6 +198,90 @@ class WithdrawalRecoveryTest {
         assertThat(recovery.recheckBeforeRetry(PAYMENT_ID)).isEqualTo(WithdrawalRecovery.LateCheck.CONFIRMED);
         assertThat(payment.getStatus()).isEqualTo(PaymentStatus.APPROVED);
         assertThat(payment.getApprovedAmount()).isEqualTo(14_000);
+    }
+
+    // ───────── 복구 승인의 혜택 근거(시도 기록의 후보) ─────────
+
+    @Test
+    void 시도_기록의_후보로_계산한_출금액이_실제와_같으면_그_후보로_원장에_적는다(CapturedOutput output) {
+        Candidate basis = basisWithInstantDiscount(1_000);
+        payment = processingWithRequestNo(14_000);
+        when(attempts.findByFinRequestNo(PAYMENT_ID, TX_NO)).thenReturn(Optional.of(attemptWith(basis)));
+        when(transfer.findByTag("user-key", "0012345678901234", TransferTag.payment(PAYMENT_ID), 14_000, TX_NO))
+                .thenReturn(new TagLookup(Result.FOUND, List.of(bankWithdrawal(14_000))));
+
+        assertThat(recovery.recover(PAYMENT_ID)).isEqualTo(PaymentStatus.APPROVED);
+
+        ApprovalOutcome.Approved recorded = recordedApproval();
+        assertThat(recorded.basis()).isEqualTo(basis);
+        assertThat(recorded.benefits()).extracting(BenefitLine::benefitId).containsExactly(101L);
+        assertThat(output).doesNotContain("혜택 없이 원장에 적음");
+    }
+
+    @Test
+    void 시도_기록의_후보로_계산한_출금액이_실제와_다르면_혜택_없이_적고_경고한다(CapturedOutput output) {
+        // 후보는 즉시할인 500원(→ 14,500원 출금)인데 실제로는 14,000원이 나갔다
+        payment = processingWithRequestNo(14_000);
+        when(attempts.findByFinRequestNo(PAYMENT_ID, TX_NO))
+                .thenReturn(Optional.of(attemptWith(basisWithInstantDiscount(500))));
+        when(transfer.findByTag("user-key", "0012345678901234", TransferTag.payment(PAYMENT_ID), 14_000, TX_NO))
+                .thenReturn(new TagLookup(Result.FOUND, List.of(bankWithdrawal(14_000))));
+
+        assertThat(recovery.recover(PAYMENT_ID)).isEqualTo(PaymentStatus.APPROVED);
+
+        ApprovalOutcome.Approved recorded = recordedApproval();
+        assertThat(recorded.basis()).isNull();
+        assertThat(recorded.benefits()).isEmpty();
+        assertThat(output).contains("혜택 근거가 실제 출금액과 맞지 않아 혜택 없이 원장에 적음")
+                .contains("paymentId=1024 finRequestNo=" + TX_NO + " amount=14000");
+    }
+
+    @Test
+    void 시도_기록이_없으면_혜택_없이_적고_출금액과_요청액을_경고로_남긴다(CapturedOutput output) {
+        payment = processingWithRequestNo(14_000);
+        when(attempts.findByFinRequestNo(PAYMENT_ID, TX_NO)).thenReturn(Optional.empty());
+        when(transfer.findByTag("user-key", "0012345678901234", TransferTag.payment(PAYMENT_ID), 14_000, TX_NO))
+                .thenReturn(new TagLookup(Result.FOUND, List.of(bankWithdrawal(14_000))));
+
+        assertThat(recovery.recover(PAYMENT_ID)).isEqualTo(PaymentStatus.APPROVED);
+
+        ApprovalOutcome.Approved recorded = recordedApproval();
+        assertThat(recorded.basis()).isNull();
+        assertThat(recorded.benefits()).isEmpty();
+        assertThat(output).contains("복구 승인의 시도 기록이 없어 혜택 근거를 모름")
+                .contains("paymentId=1024 finRequestNo=" + TX_NO + " amount=14000 requestedAmount=15000");
+    }
+
+    @Test
+    void 추천_밖_카드를_고른_시도는_후보가_없어도_경고하지_않는다(CapturedOutput output) {
+        when(transfer.findByTag(anyString(), anyString(), any(), anyLong(), anyString()))
+                .thenReturn(new TagLookup(Result.FOUND, List.of(bankWithdrawal(15_000))));
+
+        assertThat(recovery.recover(PAYMENT_ID)).isEqualTo(PaymentStatus.APPROVED);
+
+        assertThat(recordedApproval().basis()).isNull();
+        assertThat(output).doesNotContain("혜택 없이 원장에 적음");
+    }
+
+    private ApprovalOutcome.Approved recordedApproval() {
+        ArgumentCaptor<ApprovalOutcome.Approved> captor = ArgumentCaptor.forClass(ApprovalOutcome.Approved.class);
+        verify(ledger).recordApproval(eq(payment), captor.capture());
+        return captor.getValue();
+    }
+
+    private static Attempt attemptWith(Candidate basis) {
+        return Attempt.start("key", "1024:16", basis.card(), 1, false, REQUESTED_AT, basis).withNo(1)
+                .withFinRequestNo(TX_NO);
+    }
+
+    private static Candidate basisWithInstantDiscount(long discount) {
+        CardSummary card = new CardSummary(16L, 4L, CardType.CHECK, true, null, "1234", "088", "테스트 체크");
+        BenefitLine instant = new BenefitLine(101L, "카페 즉시할인", "DISCOUNT", discount, discount,
+                BenefitLine.AT_APPROVAL);
+        return new Candidate(1, card, java.math.BigDecimal.valueOf(discount), List.of(instant), "mock",
+                SelectionReason.DEFAULT_CARD, new RuleVersion(4L, 1), List.of(),
+                List.of(new ExpectedLimitUse(7L, 1, "KRW", "MONTHLY", java.math.BigDecimal.valueOf(5_000),
+                        java.math.BigDecimal.valueOf(discount))));
     }
 
     @Test

@@ -11,7 +11,7 @@ import java.time.LocalDateTime;
  * 되돌리고 {@code restored_at}을 적는다. 이미 시각이 있으면 다시 빼지 않는다. 예외를 던지면 취소까지 함께 롤백된다.
  * {@code payment_benefit}은 지우지 않는다(취소 여부는 결제 상태로 본다).
  *
- * <p>구현이 없으면 {@link NoopCancellationLedger}가 쓰인다. 승인 쪽도 아직 아무것도 적지 않으므로(Noop) 되돌릴 것이 없다.
+ * <p>구현: {@code com.yamu.be.payment.ledger.JdbcCancellationLedger}. 없으면 {@link NoopCancellationLedger}가 쓰인다.
  */
 public interface CancellationLedger {
 

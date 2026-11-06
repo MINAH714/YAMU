@@ -41,6 +41,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.Callable;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -112,6 +113,7 @@ class PosPaymentResultIntegrationTest extends MySqlTestSupport {
 
     @BeforeEach
     void setUp() {
+        deleteLedgerRows();
         jdbc.update("DELETE FROM payment_transaction");
         jdbc.update("DELETE FROM user_card");
         jdbc.update("DELETE FROM linked_account");
@@ -466,6 +468,18 @@ class PosPaymentResultIntegrationTest extends MySqlTestSupport {
         assertThat(barcodes.issue(new Barcode(token, userId, BarcodeStatus.ISSUED, now, now.plusSeconds(60)), RETENTION))
                 .isTrue();
         return token;
+    }
+
+    /**
+     * 승인 원장(Task 5.2.5)이 적은 행. 실적 인정액이 있는 승인은 card_monthly_performance를 만들어 카드·결제 행을 지울 수 없게 하므로,
+     * 시작할 때 지우고 끝날 때도 지워 다음 테스트 클래스가 카드를 지울 수 있게 한다.
+     */
+    @AfterEach
+    void deleteLedgerRows() {
+        jdbc.update("DELETE FROM payment_benefit");
+        jdbc.update("DELETE FROM payment_limit_usage");
+        jdbc.update("DELETE FROM monthly_limit_usage");
+        jdbc.update("DELETE FROM card_monthly_performance");
     }
 
     private long product(String cardType) {
