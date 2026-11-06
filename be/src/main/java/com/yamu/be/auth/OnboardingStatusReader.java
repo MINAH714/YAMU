@@ -22,10 +22,28 @@ public class OnboardingStatusReader {
     private final JdbcTemplate jdbc;
 
     public boolean isCompleted(Long userId) {
-        Boolean completed = jdbc.queryForObject("""
-                SELECT EXISTS (SELECT 1 FROM user_card WHERE user_id = ? AND status IN ('ACTIVE', 'INACTIVE'))
-                   AND EXISTS (SELECT 1 FROM linked_account WHERE user_id = ? AND status = 'CONNECTED' AND is_primary = TRUE)
-                """, Boolean.class, userId, userId);
-        return Boolean.TRUE.equals(completed);
+        return status(userId).completed();
+    }
+
+    /** 초기 설정의 두 조건을 따로. 내 정보 조회(GET /api/users/me)의 onboarding에 쓴다. */
+    public Status status(Long userId) {
+        return jdbc.queryForObject("""
+                SELECT EXISTS (SELECT 1 FROM user_card WHERE user_id = ? AND status IN ('ACTIVE', 'INACTIVE')) AS card_registered,
+                       EXISTS (SELECT 1 FROM linked_account WHERE user_id = ? AND status = 'CONNECTED' AND is_primary = TRUE)
+                           AS primary_account_set
+                """, (rs, rowNum) -> new Status(rs.getBoolean("card_registered"), rs.getBoolean("primary_account_set")),
+                userId, userId);
+    }
+
+    /**
+     * @param cardRegistered    등록된 카드(ACTIVE·INACTIVE)가 1장 이상
+     * @param primaryAccountSet 연결된 기준 계좌가 있음
+     */
+    public record Status(boolean cardRegistered, boolean primaryAccountSet) {
+
+        /** 둘 다면 초기 설정 완료. */
+        public boolean completed() {
+            return cardRegistered && primaryAccountSet;
+        }
     }
 }
