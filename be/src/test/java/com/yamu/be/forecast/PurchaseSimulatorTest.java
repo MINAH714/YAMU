@@ -127,6 +127,19 @@ class PurchaseSimulatorTest {
     }
 
     @Test
+    void 빠지는_금액이_없으면_출금_계좌가_선택_밖이어도_바깥_영향이_없고_전후가_같다() {
+        LocalDate today = LocalDate.of(2026, 11, 1);
+
+        PurchaseSimulation result = PurchaseSimulator.simulate(input(Map.of(A, 1_000_000L), List.of(), today,
+                today.plusDays(30), Map.of(), today, 9L, List.of()));
+
+        assertThat(result.outsideSelectionImpact()).isNull();
+        assertThat(result.schedule()).isEmpty();
+        assertThat(result.comparison().after()).isEqualTo(result.comparison().before());
+        assertThat(result.comparison().withinPeriodImpact()).isZero();
+    }
+
+    @Test
     void 카드_출금_계좌가_선택_밖이면_비교에_넣지_않고_전체_금액을_다른_영향액처럼_음수로_알린다() {
         LocalDate today = LocalDate.of(2026, 11, 1);
         Long unselected = 9L;
@@ -247,11 +260,8 @@ class PurchaseSimulatorTest {
         Map<Long, Long> balances = Map.of(A, 500_000L);
 
         assertThatThrownBy(() -> PurchaseSimulator.simulate(input(balances, List.of(), today, today.plusDays(7),
-                Map.of(), today, A, List.of())))
-                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("회차가 없다");
-        assertThatThrownBy(() -> PurchaseSimulator.simulate(input(balances, List.of(), today, today.plusDays(7),
-                Map.of(), today, A, List.of(check(today, 0)))))
-                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("1원 이상");
+                Map.of(), today, A, List.of(check(today, -1)))))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("0원 이상");
         assertThatThrownBy(() -> PurchaseSimulator.simulate(input(balances, List.of(), today, today.plusDays(7),
                 Map.of(), today.plusDays(2), A, List.of(check(today.plusDays(1), 10_000)))))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("구매일보다 이르다");

@@ -35,6 +35,7 @@ public class SimulationRequest {
     @JsonIgnore
     private boolean installmentMonthsPresent;
     private BigDecimal days;
+    private String paymentChannel;
 
     @JsonSetter("accountIds")
     public void setAccountIds(List<Long> accountIds) {
@@ -96,6 +97,23 @@ public class SimulationRequest {
     @JsonSetter("days")
     public void setDays(BigDecimal days) {
         this.days = days;
+    }
+
+    @JsonSetter("paymentChannel")
+    public void setPaymentChannel(String paymentChannel) {
+        this.paymentChannel = paymentChannel;
+    }
+
+    /**
+     * 결제 채널(ONLINE·OFFLINE). 혜택의 온라인·매장 조건 판정에 쓴다. 필수이고 다른 값은 400 INVALID_REQUEST다
+     * (2026-11-05 결정, 화면 기본값은 OFFLINE).
+     */
+    String paymentChannel() {
+        if (!"ONLINE".equals(paymentChannel) && !"OFFLINE".equals(paymentChannel)) {
+            throw PaymentTerms.invalid(ErrorCode.INVALID_REQUEST, "paymentChannel",
+                    "결제 방식(온라인·매장)을 골라 주세요.");
+        }
+        return paymentChannel;
     }
 
     List<Long> accountIds() {

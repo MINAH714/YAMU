@@ -1,7 +1,9 @@
 package com.yamu.app.feature.link.data
 
 import com.yamu.app.core.format.KST
+import com.yamu.app.core.format.toManWon
 import kotlinx.serialization.Serializable
+import java.math.BigDecimal
 import java.time.LocalDate
 import java.time.YearMonth
 
@@ -122,13 +124,24 @@ import java.time.YearMonth
     val maskedNumber: String,
     val status: String? = null,             // PENDING · ACTIVE · INACTIVE · UNREGISTERED
     val issuerStatus: String? = null,       // NORMAL · SUSPENDED · EXPIRED
+    val mainBenefits: List<String> = emptyList(),   // 혜택 이름 최대 3개(BE !150 임시 규칙). 오늘 유효한 혜택이 없으면 빈 목록
     val performance: CardPerformanceDto? = null,
     val billingSummary: BillingSummaryDto? = null,
     val isDefault: Boolean = false,
     val imageUrl: String? = null,
 )
 
-@Serializable data class CardPerformanceDto(val yearMonth: String? = null, val targetAmount: Long? = null, val recognizedAmount: Long = 0)
+/**
+ * 이번 달 실적. [targetAmount]는 지금 실적보다 큰 기준 중 가장 작은 값이라 한 구간을 넘기면 다음 구간으로 바뀐다(BE !150).
+ * 목표가 없으면 [targetAmount] · [achievementRate] · [remainingAmount]가 모두 null
+ */
+@Serializable data class CardPerformanceDto(
+    val yearMonth: String? = null,
+    val targetAmount: Long? = null,
+    val recognizedAmount: Long = 0,
+    val achievementRate: Double? = null,            // %. 소수 한 자리에서 버림, 최대 100
+    val remainingAmount: Long? = null,
+)
 
 @Serializable data class BillingSummaryDto(val paymentDay: Int? = null)
 
@@ -238,9 +251,30 @@ data class LinkedCard(
     val issuerBlocked: Boolean = false,     // 카드사 정지 · 만료 — 예정 지출의 결제 수단으로 고를 수 없다
     val nickname: String? = null,           // 사용자가 지은 별칭만
     val recommended: Boolean = true,        // 결제 카드 자동 선택에 포함(status ACTIVE)
+    val targetAmount: Long? = null,         // 지금 구간의 목표 실적
+    val achievementRate: Double? = null,
+    val remainingAmount: Long? = null,
+    val mainBenefits: List<String> = emptyList(),
 ) {
     val displayName: String get() = nickname ?: productName
 }
+
+/** 카드 관리 줄의 실적 — '목표 70만 원 · 달성률 78.5% · 15만 원 남음'. 목표가 없으면 null */
+fun LinkedCard.performanceLine(): String? {
+    val target = targetAmount ?: return null
+    return buildList {
+        add("목표 ${target.toManWon()}")
+        achievementRate?.let { add("달성률 ${it.toPercent()}") }
+        remainingAmount?.takeIf { it > 0 }?.let { add("${it.toManWon()} 남음") }
+    }.joinToString(" · ")
+}
+
+/** 카드 관리 줄의 주요 혜택 — '편의점 할인 · 주유 할인 · 카페 할인'. 없으면 null */
+fun LinkedCard.benefitsLine(): String? =
+    mainBenefits.map { it.trim() }.filter { it.isNotEmpty() }.takeIf { it.isNotEmpty() }?.joinToString(" · ")
+
+/** 78.5 → '78.5%', 100.0 → '100%'. 서버가 이미 소수 한 자리에서 버린 값이라 다시 반올림하지 않는다 */
+private fun Double.toPercent(): String = "${BigDecimal.valueOf(this).stripTrailingZeros().toPlainString()}%"
 
 /** 카드 상세(M-03) */
 data class CardInfo(
@@ -443,6 +477,10 @@ fun CardDto.toLinked() = LinkedCard(
     issuerBlocked = issuerStatus == "SUSPENDED" || issuerStatus == "EXPIRED",
     nickname = nickname?.takeIf { it != productName },
     recommended = status != "INACTIVE",
+    targetAmount = performance?.targetAmount,
+    achievementRate = performance?.achievementRate,
+    remainingAmount = performance?.remainingAmount,
+    mainBenefits = mainBenefits,
 )
 
 fun CardDetailDto.toInfo() = CardInfo(

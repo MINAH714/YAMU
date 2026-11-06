@@ -9,6 +9,7 @@ import com.yamu.be.global.calendar.BusinessDayCalendar;
 import com.yamu.be.global.common.ApiResponse.FieldErrorResponse;
 import com.yamu.be.global.exception.BusinessException;
 import com.yamu.be.global.exception.ErrorCode;
+import com.yamu.be.merchant.MerchantCatalogService;
 import com.yamu.be.payment.PaymentTerms;
 import com.yamu.be.payment.approve.CreditLimitSource;
 import com.yamu.be.payment.billing.BillStatus;
@@ -25,9 +26,8 @@ import org.springframework.stereotype.Service;
  * 요청을 검증하고, 카드·혜택을 정한 뒤, 잔고예보와 같은 재료에 가상 구매 출금을 얹어 전후를 비교한다. 결제·청구·실적·혜택
  * 사용량·한도는 저장하지 않는다. 다만 잔고예보 조회처럼 생활비 원천이 미분류 결제의 자동 소비 분류를 채운다.
  *
- * <p>추천·혜택은 {@link SimulationRecommender}가 맡는다. 연결 전에는 계산할 수 없어 카드를 고르지 않은 요청은 422이고,
- * 고른 요청은 혜택·대안·실적 영향 없이 잔고만 비교한다(2026-11-05 결정). 추천은 체크카드 잔액을 조회할 수 있어
- * 트랜잭션 없이 부른다. 생활비 원천이 소비 분류를 쓰므로 이 서비스도 읽기 전용 트랜잭션 안에서 부르지 않는다.
+ * <p>추천·혜택은 {@link SimulationRecommender}(추천 엔진)가 맡는다. 청구 금액은 결제 승인과 같이 결제 금액 − 즉시할인이고,
+ * 0원이면 출금 회차가 없다. 추천은 체크카드 잔액을 조회할 수 있어 트랜잭션 없이 부른다. 생활비 원천이 소비 분류를 쓰므로 이 서비스도 읽기 전용 트랜잭션 안에서 부르지 않는다.
  */
 @Service
 public class PurchaseSimulationService {
@@ -38,10 +38,11 @@ public class PurchaseSimulationService {
     private final BillingSchedule billingSchedule;
     private final CreditLimitSource creditLimits;
     private final CardBillRepository bills;
+    private final MerchantCatalogService catalog;
 
     PurchaseSimulationService(ForecastService forecasts, CardQueryService cards, CardNameReader cardNames,
             SimulationRecommender recommender, BusinessDayCalendar calendar, CreditLimitSource creditLimits,
-            CardBillRepository bills) {
+            CardBillRepository bills, MerchantCatalogService catalog) {
         this.forecasts = forecasts;
         this.cards = cards;
         this.cardNames = cardNames;
@@ -49,6 +50,7 @@ public class PurchaseSimulationService {
         this.billingSchedule = new BillingSchedule(calendar);
         this.creditLimits = creditLimits;
         this.bills = bills;
+        this.catalog = catalog;
     }
 
     /**
@@ -65,6 +67,7 @@ public class PurchaseSimulationService {
         // 계좌·금융망을 읽기 전에 요청만으로 알 수 있는 오류부터 거절한다.
         PaymentTerms terms = request.toTerms();
         validateDescription(request);
+        String paymentChannel = request.paymentChannel();
         Integer days = request.days();
         // 오늘은 요청마다 한 번만 정한다. 구매일 검사와 예보 시작일이 자정을 사이에 두고 어긋나면 계산기가 500을 낸다(코드 리뷰 반영).
         LocalDate today = forecasts.today();
@@ -79,18 +82,14 @@ public class PurchaseSimulationService {
             chosen = cards.requireRegisteredCard(authenticatedUserId, request.userCardId());
             usableCard(chosen, terms);
         }
-        Optional<SimulationRecommender.Recommendation> recommendation = recommender.recommend(
-                new SimulationRecommender.Request(authenticatedUserId, request.userCardId(), terms,
-                        request.productCategoryCode(), request.merchantCategoryCode(), request.merchantId(),
-                        purchaseDate));
-        if (request.userCardId() == null && recommendation.isEmpty()) {
-            // 추천 엔진 연결 전에는 추천 카드를 정할 수 없다. 아무 카드나 추천처럼 보이지 않게 거절한다(2026-11-05 결정).
-            throw new BusinessException(ErrorCode.DATA_INSUFFICIENT, "추천 카드를 아직 계산할 수 없어요. 카드를 골라 주세요.",
-                    Map.of("reason", "RECOMMENDATION_UNAVAILABLE"));
-        }
-        long cardId = request.userCardId() != null ? request.userCardId() : recommendation.get().userCardId();
-        if (recommendation.isPresent() && recommendation.get().userCardId() != cardId) {
-            throw new IllegalStateException("추천 결과의 카드가 지정 카드와 다르다: " + recommendation.get().userCardId());
+        // 업종·브랜드가 있을 때만 확인한다(브랜드면 DB의 업종을 쓴다). 물품만 있으면 혜택을 계산할 수 없다(2026-11-05 결정).
+        MerchantCatalogService.Selection selection = request.merchantId() != null || request.merchantCategoryCode() != null
+                ? catalog.resolveSelection(request.merchantId(), request.merchantCategoryCode()) : null;
+        SimulationRecommender.Recommendation recommendation = recommend(authenticatedUserId, request, terms,
+                paymentChannel, selection, purchaseDate, today);
+        long cardId = recommendation.userCardId();
+        if (request.userCardId() != null && cardId != request.userCardId()) {
+            throw new IllegalStateException("추천 결과의 카드가 지정 카드와 다르다: " + cardId);
         }
         UserCardRef card = chosen;
         if (card == null) {
@@ -103,16 +102,16 @@ public class PurchaseSimulationService {
                 throw new IllegalStateException("추천 엔진이 쓸 수 없는 카드를 골랐다: " + reason);
             });
         }
-        SimulationRecommender.Benefit benefit = recommendation.map(SimulationRecommender.Recommendation::benefit)
-                .orElse(null);
-        List<SimulationRecommender.Alternative> alternatives = recommendation
-                .map(SimulationRecommender.Recommendation::alternatives).orElse(null);
-        requireOwnAlternatives(authenticatedUserId, alternatives);
-        long charged = benefit == null ? terms.amount() : benefit.chargedAmount();
-        if (charged < 1 || charged > terms.amount()) {
-            throw new IllegalStateException("혜택 계산의 청구 금액이 결제 금액 범위를 벗어났다: " + charged);
+        SimulationRecommender.Benefit benefit = recommendation.benefit();
+        requireOwnAlternatives(authenticatedUserId, recommendation.alternatives());
+        // 출금 계좌가 없는 카드는 실제 결제도 할 수 없다. 전액 즉시할인으로 빠지는 금액이 없어도 같은 422다(Codex 검토).
+        if (card.linkedAccountId() == null) {
+            throw insufficient("CARD_ACCOUNT_UNKNOWN", "카드의 출금 계좌를 알 수 없어요.");
         }
-        List<BillingSchedule.Withdrawal> withdrawals = withdrawals(card, purchaseDate, charged, terms);
+        // 청구 금액은 결제 승인과 같이 계산한다: 결제 금액 − 즉시할인, 0원 아래로 내려가지 않음(!126 리뷰 1번).
+        long charged = terms.chargedAmount(benefit == null ? 0 : benefit.instantDiscount());
+        List<BillingSchedule.Withdrawal> withdrawals = charged == 0 ? List.of()
+                : withdrawals(card, purchaseDate, charged, terms);
 
         ForecastService.Prepared prepared = forecasts.prepare(authenticatedUserId, request.accountIds(),
                 days == null ? null : BalanceForecast.Until.DAYS, days, false, today);
@@ -122,21 +121,60 @@ public class PurchaseSimulationService {
 
         return new SimulationResponse(
                 new SimulationResponse.Input(terms.amount(), request.productCategoryCode(), request.productName(),
-                        request.merchantCategoryCode(), request.merchantId(), purchaseDate, terms.plan(),
-                        terms.installmentMonths()),
+                        selection == null ? null : selection.merchantCategoryCode(),
+                        selection == null ? null : selection.merchantId(), purchaseDate, terms.plan(),
+                        terms.installmentMonths(), paymentChannel),
                 new SimulationResponse.Card(cardId, cardNames.name(authenticatedUserId, cardId), card.cardType(),
                         request.userCardId() == null),
-                benefit,
+                benefit == null ? null
+                        : new SimulationResponse.Benefit(benefit.netBenefit(), benefit.benefits(), charged),
                 simulation.schedule().stream()
                         .map(w -> new SimulationResponse.Schedule(w.date(), w.amount(), w.label())).toList(),
                 simulation.comparison(), simulation.series(),
-                recommendation.map(SimulationRecommender.Recommendation::performanceImpact).orElse(null),
-                alternatives,
+                recommendation.performanceImpact(),
+                recommendation.alternatives(),
+                recommendation.assumptions(),
+                recommendation.missingInformation(),
                 creditLimit(authenticatedUserId, card, charged),
                 simulation.outsideSelectionImpact(),
                 request.includeAccountDetails() ? simulation.accountComparisons() : null,
                 message(simulation),
                 true);
+    }
+
+    /**
+     * 추천 엔진으로 카드·혜택을 정한다. 업종·브랜드가 없으면 엔진을 부르지 않는다: 카드를 골랐으면 혜택 없이 잔고만 비교하고,
+     * 고르지 않았으면 추천할 수 없어 422다. 카드를 고르지 않았는데 엔진이 추천할 카드가 없어도 422다(아무 카드나 추천처럼
+     * 보이지 않게, 2026-11-05·11-06 결정).
+     */
+    private SimulationRecommender.Recommendation recommend(long userId, SimulationRequest request, PaymentTerms terms,
+            String paymentChannel, MerchantCatalogService.Selection selection, LocalDate purchaseDate, LocalDate today) {
+        if (selection == null) {
+            if (request.userCardId() == null) {
+                throw new BusinessException(ErrorCode.DATA_INSUFFICIENT, "추천 카드를 고르려면 업종이나 브랜드를 골라 주세요.",
+                        Map.of("reason", "CATEGORY_REQUIRED"));
+            }
+            return new SimulationRecommender.Recommendation(request.userCardId(), null, null, null, List.of(),
+                    List.of(new SimulationRecommender.MissingInformation("MERCHANT_CATEGORY_MISSING",
+                            "merchantCategoryCode")));
+        }
+        SimulationRecommender.Result result = recommender.recommend(new SimulationRecommender.Request(userId,
+                request.userCardId(), terms, paymentChannel, selection.merchantId(), selection.merchantCategoryCode(),
+                purchaseDate, today));
+        if (result.recommendation() == null) {
+            throw new BusinessException(ErrorCode.DATA_INSUFFICIENT, unavailableMessage(result.unavailableReason()),
+                    Map.of("reason", result.unavailableReason()));
+        }
+        return result.recommendation();
+    }
+
+    private static String unavailableMessage(String reason) {
+        return switch (reason) {
+            case "NO_ELIGIBLE_CARD" -> "지금 이 구매에 쓸 수 있는 카드가 없어요. 카드를 직접 골라 주세요.";
+            case "BENEFIT_DATA_INSUFFICIENT" -> "카드 혜택 정보가 부족해 추천할 수 없어요. 카드를 직접 골라 주세요.";
+            case "PAYMENT_AVAILABILITY_UNKNOWN" -> "지금 카드 결제 가능 여부(잔액·한도)를 확인하지 못했어요. 잠시 뒤 다시 시도해 주세요.";
+            default -> "추천 카드를 지금 계산할 수 없어요. 카드를 직접 골라 주세요.";
+        };
     }
 
     /**
@@ -239,12 +277,9 @@ public class PurchaseSimulationService {
         return new SimulationResponse.CreditLimit(check.result().name(), check.availableLimit());
     }
 
-    /** 카드 출금 회차. 출금 계좌·결제일을 몰라 일정을 만들 수 없으면 0원·임의 날짜로 채우지 않고 422다. */
+    /** 카드 출금 회차. 결제일을 몰라 일정을 만들 수 없으면 임의 날짜로 채우지 않고 422다(출금 계좌는 부르는 쪽이 확인). */
     private List<BillingSchedule.Withdrawal> withdrawals(UserCardRef card, LocalDate purchaseDate, long charged,
             PaymentTerms terms) {
-        if (card.linkedAccountId() == null) {
-            throw insufficient("CARD_ACCOUNT_UNKNOWN", "카드의 출금 계좌를 알 수 없어요.");
-        }
         if (card.cardType() == CardType.CREDIT && (card.paymentDay() == null
                 || !BillingCycle.supports(card.paymentDay(), card.billingCutoffDays()))) {
             throw insufficient("BILLING_CYCLE_UNKNOWN", "카드 결제일을 알 수 없어 출금일을 계산할 수 없어요.");
@@ -258,6 +293,10 @@ public class PurchaseSimulationService {
      * 예: "11월 16일 잔액이 12,000원까지 내려가요. 예보 기간 밖에서 800,000원이 더 빠져요."
      */
     static String message(PurchaseSimulation simulation) {
+        // 청구 금액이 1원 이상이면 회차가 하나 이상이다. 회차가 없으면 전액 즉시할인이라 전후가 같다(Codex 검토).
+        if (simulation.schedule().isEmpty()) {
+            return "즉시할인으로 빠지는 금액이 없어 비교 결과는 같아요.";
+        }
         if (simulation.outsideSelectionImpact() != null) {
             return "선택하지 않은 계좌에서 " + won(-simulation.outsideSelectionImpact().amount())
                     + "이 빠져 비교 결과는 같아요.";

@@ -255,7 +255,8 @@ class ForecastServiceTest {
 
     @Test
     void AI가_답하면_보수적_선과_예상_생활비에_AI_값을_쓰고_평균은_지난_3개월_실적이다() {
-        // AI 14일 예측 140,000원. 예보 7일이면 8일 값 = TSB 7일 35,000 + (140,000 − 35,000) × 1/7 = 50,000원
+        // AI 7일 42,000원(TSB 7일 35,000원과 다르게 둬 7일 점이 AI 값인지 가림, !158 리뷰)·14일 140,000원.
+        // 예보 7일이면 8일 값 = 42,000 + (140,000 − 42,000) × 1/7 = 56,000원
         projectorAi = new AiLivingCostClient(null, Clock.systemUTC(), java.time.Duration.ZERO) {
             @Override
             boolean enabled() {
@@ -265,7 +266,7 @@ class ForecastServiceTest {
             @Override
             Optional<Map<String, Long>> predict(LocalDate asOf, int horizonDays, Map<String, long[]> histories) {
                 assertThat(asOf).isEqualTo(TODAY.minusDays(1));
-                return Optional.of(Map.of("a0", horizonDays == 14 ? 140_000L : 300_000L));
+                return Optional.of(Map.of("a0", horizonDays == 7 ? 42_000L : horizonDays == 14 ? 140_000L : 300_000L));
             }
         };
         ForecastService withAi = serviceAt(CLOCK);
@@ -274,12 +275,12 @@ class ForecastServiceTest {
 
         BalanceForecast result = withAi.forecast(USER, List.of(A), Until.DAYS, 7, false, false);
 
-        // 50,000원 − 오늘 쓴 5,000원 = 45,000원 ÷ 7 = 하루 6,429원
+        // 56,000원 − 오늘 쓴 5,000원 = 51,000원 ÷ 7 = 하루 7,286원(7일 점이 TSB면 6,429원)
         assertThat(result.livingCost())
                 .extracting(BalanceForecast.LivingCost::projectedAmount, BalanceForecast.LivingCost::dailyAverage,
                         BalanceForecast.LivingCost::method)
-                .containsExactly(6_429L * 7, 5_000L, "ML_V1");
-        assertThat(day(result.series(), TODAY.plusDays(1)).conservative()).isEqualTo(800_000L - 6_429L);
+                .containsExactly(7_286L * 7, 5_000L, "ML_V1");
+        assertThat(day(result.series(), TODAY.plusDays(1)).conservative()).isEqualTo(800_000L - 7_286L);
     }
 
     @Test

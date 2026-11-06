@@ -64,7 +64,7 @@ class AiLivingCostClient {
      * 계좌마다 다음 horizonDays일(asOf 다음 날부터) 체크카드 생활 소비 합계를 예측한다.
      *
      * @param asOf        기록의 마지막 날(한국 날짜)
-     * @param horizonDays 14 또는 30
+     * @param horizonDays 7·14·30 중 하나
      * @param histories   key(계좌번호·사용자 ID가 아닌 임의 값) → asOf까지 90일 일별 소비(오래된 날부터)
      * @return key → 예측 합계(원). 부를 수 없거나 실패·계약 위반이면 empty
      */

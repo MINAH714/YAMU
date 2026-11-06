@@ -4,6 +4,7 @@ import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.nullValue;
 import static org.hamcrest.Matchers.startsWith;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
@@ -19,12 +20,12 @@ import com.yamu.be.account.AccountBalanceService;
 import com.yamu.be.support.AuthUsers;
 import com.yamu.be.support.MySqlTestSupport;
 import com.yamu.be.support.OwnershipFixtures;
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.List;
-import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -98,10 +99,12 @@ class PurchaseSimulationControllerTest extends MySqlTestSupport {
                 .andExpect(jsonPath("$.data.card.nickname").value("생활비 체크"))
                 .andExpect(jsonPath("$.data.card.cardType").value("CHECK"))
                 .andExpect(jsonPath("$.data.card.recommended").value(false))
-                // 추천 엔진 연결 전이라 혜택·대안·실적 영향은 모른다(0원으로 확정하지 않음)
+                .andExpect(jsonPath("$.data.input.paymentChannel").value("OFFLINE"))
+                // 업종·브랜드가 없어 엔진을 부르지 않는다. 혜택은 모른다(0원으로 확정하지 않음)
                 .andExpect(jsonPath("$.data.benefit").value(nullValue()))
                 .andExpect(jsonPath("$.data.alternatives").value(nullValue()))
                 .andExpect(jsonPath("$.data.performanceImpact").value(nullValue()))
+                .andExpect(jsonPath("$.data.missingInformation[0].code").value("MERCHANT_CATEGORY_MISSING"))
                 .andExpect(jsonPath("$.data.creditLimit").value(nullValue()))
                 .andExpect(jsonPath("$.data.schedule", hasSize(1)))
                 .andExpect(jsonPath("$.data.schedule[0].date").value(today.toString()))
@@ -150,20 +153,45 @@ class PurchaseSimulationControllerTest extends MySqlTestSupport {
 
     @Test
     void 추천_엔진이_고른_카드와_즉시할인_뺀_금액으로_계산한다() throws Exception {
-        when(recommender.recommend(any())).thenReturn(Optional.of(new SimulationRecommender.Recommendation(checkOnA,
-                new SimulationRecommender.Benefit(30_000L,
-                        List.of(new SimulationRecommender.BenefitItem(140L, "가전 10% 즉시할인", "INSTANT_DISCOUNT", 30_000L)),
-                        270_000L),
-                List.of(), null)));
+        when(recommender.recommend(any())).thenReturn(SimulationRecommender.Result.of(
+                new SimulationRecommender.Recommendation(checkOnA,
+                        new SimulationRecommender.Benefit(new BigDecimal("30000.5"),
+                                List.of(new SimulationRecommender.BenefitItem(140L, "가전 10% 즉시할인", "DISCOUNT",
+                                        "AT_APPROVAL", new BigDecimal("30000"))), 30_000L),
+                        List.of(), null, List.of(new SimulationRecommender.Assumption("YAMU_PURCHASE_TIME_NOON", "낮 12시")),
+                        List.of())));
 
-        perform(bodyWithoutCard(accountA, "300000", "\"days\": 7"))
+        perform(bodyWithoutCard(accountA, "300000", "\"days\": 7, \"merchantCategoryCode\": \"SUPERMARKET\""))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.card.userCardId").value(checkOnA))
                 .andExpect(jsonPath("$.data.card.recommended").value(true))
-                .andExpect(jsonPath("$.data.benefit.netBenefit").value(30_000))
+                .andExpect(jsonPath("$.data.input.merchantCategoryCode").value("SUPERMARKET"))
+                .andExpect(jsonPath("$.data.benefit.netBenefit").value(30_000.5))
+                .andExpect(jsonPath("$.data.benefit.benefits[0].realization").value("AT_APPROVAL"))
+                // 청구 금액은 결제 승인과 같이 결제 금액 − 즉시할인
                 .andExpect(jsonPath("$.data.benefit.chargedAmount").value(270_000))
                 .andExpect(jsonPath("$.data.schedule[0].amount").value(-270_000))
-                .andExpect(jsonPath("$.data.comparison.after.endBalance").value(730_000));
+                .andExpect(jsonPath("$.data.comparison.after.endBalance").value(730_000))
+                .andExpect(jsonPath("$.data.assumptions[0].id").value("YAMU_PURCHASE_TIME_NOON"));
+        verify(recommender).recommend(argThat(request -> "OFFLINE".equals(request.paymentChannel())
+                && "SUPERMARKET".equals(request.merchantCategoryCode()) && request.merchantId() == null));
+    }
+
+    @Test
+    void 전액_즉시할인으로_청구_금액이_0원이면_출금_회차가_없고_전후가_같다() throws Exception {
+        when(recommender.recommend(any())).thenReturn(SimulationRecommender.Result.of(
+                new SimulationRecommender.Recommendation(checkOnA,
+                        new SimulationRecommender.Benefit(new BigDecimal("300000"),
+                                List.of(new SimulationRecommender.BenefitItem(140L, "전액 할인", "DISCOUNT",
+                                        "AT_APPROVAL", new BigDecimal("300000"))), 300_000L),
+                        List.of(), null, List.of(), List.of())));
+
+        perform(body(accountA, checkOnA, "300000", "\"days\": 7, \"merchantCategoryCode\": \"SUPERMARKET\""))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.benefit.chargedAmount").value(0))
+                .andExpect(jsonPath("$.data.schedule", hasSize(0)))
+                .andExpect(jsonPath("$.data.comparison.after.endBalance").value(1_000_000))
+                .andExpect(jsonPath("$.data.comparison.withinPeriodImpact").value(0));
     }
 
     @Test
@@ -171,29 +199,57 @@ class PurchaseSimulationControllerTest extends MySqlTestSupport {
         OwnershipFixtures ownership = new OwnershipFixtures(jdbc);
         long stranger = ownership.user();
         long strangerCard = ownership.card(stranger, ownership.product(), ownership.account(stranger), "ACTIVE");
-        when(recommender.recommend(any())).thenReturn(Optional.of(new SimulationRecommender.Recommendation(checkOnA,
-                null, List.of(new SimulationRecommender.Alternative(strangerCard, "남의 카드",
-                        com.yamu.be.card.domain.CardType.CREDIT, "LUMP_SUM", null, 1_000L, null)), null)));
+        when(recommender.recommend(any())).thenReturn(SimulationRecommender.Result.of(
+                new SimulationRecommender.Recommendation(checkOnA, null,
+                        List.of(new SimulationRecommender.Alternative(strangerCard, "남의 카드",
+                                com.yamu.be.card.domain.CardType.CREDIT, "LUMP_SUM", null, new BigDecimal("1000"),
+                                null, false)), null, List.of(), List.of())));
 
         // 엔진 계약 위반이라 500이다. 남의 카드 정보가 응답에 실리지 않는다
-        perform(body(accountA, checkOnA, "300000", ""))
+        perform(body(accountA, checkOnA, "300000", "\"merchantCategoryCode\": \"SUPERMARKET\""))
                 .andExpect(status().isInternalServerError())
                 .andExpect(jsonPath("$.data").value(nullValue()));
     }
 
     @Test
-    void 추천_엔진_연결_전에_카드를_고르지_않으면_422다() throws Exception {
+    void 카드를_고르지_않았는데_업종_브랜드가_없거나_추천할_카드가_없으면_422다() throws Exception {
         perform(bodyWithoutCard(accountA, "300000", ""))
                 .andExpect(status().isUnprocessableEntity())
                 .andExpect(jsonPath("$.error.code").value("DATA_INSUFFICIENT"))
-                .andExpect(jsonPath("$.error.details.reason").value("RECOMMENDATION_UNAVAILABLE"));
+                .andExpect(jsonPath("$.error.details.reason").value("CATEGORY_REQUIRED"));
+
+        when(recommender.recommend(any())).thenReturn(SimulationRecommender.Result.unavailable("NO_ELIGIBLE_CARD"));
+        perform(bodyWithoutCard(accountA, "300000", "\"merchantCategoryCode\": \"SUPERMARKET\""))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.error.details.reason").value("NO_ELIGIBLE_CARD"));
+
+        // 금융망 잔액 확인 실패 등은 혜택 정보 부족과 다른 이유·문구다(!155 리뷰)
+        when(recommender.recommend(any())).thenReturn(SimulationRecommender.Result.unavailable("PAYMENT_AVAILABILITY_UNKNOWN"));
+        perform(bodyWithoutCard(accountA, "300000", "\"merchantCategoryCode\": \"SUPERMARKET\""))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.error.details.reason").value("PAYMENT_AVAILABILITY_UNKNOWN"))
+                .andExpect(jsonPath("$.error.message").value("지금 카드 결제 가능 여부(잔액·한도)를 확인하지 못했어요. 잠시 뒤 다시 시도해 주세요."));
         verify(balances, never()).getBalances(any(), anyList(), anyBoolean());
+    }
+
+    @Test
+    void 결제_채널이_없거나_다른_값이면_400_INVALID_REQUEST다() throws Exception {
+        perform("""
+                {"accountIds": [%d], "userCardId": %d, "amount": 300000, "productCategoryCode": "PRODUCT_ELECTRONICS"}"""
+                .formatted(accountA, checkOnA))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("INVALID_REQUEST"))
+                .andExpect(jsonPath("$.error.details.fieldErrors[0].field").value("paymentChannel"));
+        perform(body(accountA, checkOnA, "300000", "").replace("OFFLINE", "PHONE"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.details.fieldErrors[0].field").value("paymentChannel"));
     }
 
     @Test
     void 물품_업종_가맹점이_모두_없으면_400_MERCHANT_OR_CATEGORY_REQUIRED다() throws Exception {
         perform("""
-                {"accountIds": [%d], "userCardId": %d, "amount": 300000}""".formatted(accountA, checkOnA))
+                {"accountIds": [%d], "userCardId": %d, "amount": 300000, "paymentChannel": "OFFLINE"}"""
+                .formatted(accountA, checkOnA))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("MERCHANT_OR_CATEGORY_REQUIRED"));
     }
@@ -279,7 +335,8 @@ class PurchaseSimulationControllerTest extends MySqlTestSupport {
     @Test
     void 계좌를_고르지_않으면_400_ACCOUNT_SELECTION_REQUIRED다() throws Exception {
         perform("""
-                {"userCardId": %d, "amount": 300000, "productCategoryCode": "PRODUCT_ELECTRONICS"}"""
+                {"userCardId": %d, "amount": 300000, "productCategoryCode": "PRODUCT_ELECTRONICS",
+                 "paymentChannel": "OFFLINE"}"""
                 .formatted(checkOnA))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("ACCOUNT_SELECTION_REQUIRED"));
@@ -290,14 +347,16 @@ class PurchaseSimulationControllerTest extends MySqlTestSupport {
                 .contentType(MediaType.APPLICATION_JSON).content(json));
     }
 
-    /** 물품 카테고리를 넣은 요청. extra는 쉼표 없이 이어 붙일 필드(빈 문자열이면 없음). */
+    /** 물품 카테고리·매장 결제를 넣은 요청. extra는 쉼표 없이 이어 붙일 필드(빈 문자열이면 없음). */
     private static String body(long account, long card, String amount, String extra) {
         return "{\"accountIds\": [" + account + "], \"userCardId\": " + card + ", \"amount\": " + amount
-                + ", \"productCategoryCode\": \"PRODUCT_ELECTRONICS\"" + (extra.isEmpty() ? "" : ", " + extra) + "}";
+                + ", \"productCategoryCode\": \"PRODUCT_ELECTRONICS\", \"paymentChannel\": \"OFFLINE\""
+                + (extra.isEmpty() ? "" : ", " + extra) + "}";
     }
 
     private static String bodyWithoutCard(long account, String amount, String extra) {
         return "{\"accountIds\": [" + account + "], \"amount\": " + amount
-                + ", \"productCategoryCode\": \"PRODUCT_ELECTRONICS\"" + (extra.isEmpty() ? "" : ", " + extra) + "}";
+                + ", \"productCategoryCode\": \"PRODUCT_ELECTRONICS\", \"paymentChannel\": \"OFFLINE\""
+                + (extra.isEmpty() ? "" : ", " + extra) + "}";
     }
 }
