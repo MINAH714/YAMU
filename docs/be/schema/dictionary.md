@@ -702,6 +702,7 @@ CONSTRAINT ck_discount_amount CHECK (amount > 0);
 ```
 
 - 환급 행의 `principal_amount`는 할인을 뺀 실제 환급 원금이다(`ck_refund_amounts` 때문에 환급에는 할인 칸을 두지 않는다).
+- 한계(2026-11-06 결정): 외래키는 다른 표처럼 삭제를 막는다(CASCADE 없음). 앱은 `bill_item`·`payment_benefit`을 지우지 않으므로 운영에는 영향이 없다. 다만 로컬 테스트 사용자 시드 초기화(`be/seed/load.ps1 -Reset`, `SeedUserData.deleteUserData`)는 이 표를 지우지 않아, 그 사용자로 청구할인이 있는 청구서를 확정한 뒤에는 `bill_item` 삭제에서 막힌다. 그때는 로컬 DB를 새로 만들고(`docker compose down -v` → `up -d`) 시드를 다시 넣는다. 시연 페르소나 시드 초기화는 청구서를 지우지 않아 해당 없다.
 
 ### refund — 청구 회차별 환급
 
