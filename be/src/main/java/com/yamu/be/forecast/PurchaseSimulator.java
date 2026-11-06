@@ -76,7 +76,8 @@ final class PurchaseSimulator {
                         snapshot(beforeSide.byAccount().get(accountId), beforeSide.byAccount().get(accountId).status()),
                         snapshot(afterSide.byAccount().get(accountId), afterSide.byAccount().get(accountId).status())))
                 .toList();
-        PurchaseSimulation.OutsideSelectionImpact outside = selected ? null
+        // 빠지는 금액이 없으면(전액 즉시할인) 선택 밖 계좌 영향도 없다. "0원이 빠져" 같은 안내를 만들지 않는다(Codex 검토).
+        PurchaseSimulation.OutsideSelectionImpact outside = selected || total == 0 ? null
                 : new PurchaseSimulation.OutsideSelectionImpact(input.withdrawalAccountId(), -total,
                         OUTSIDE_SELECTION_NOTE);
 

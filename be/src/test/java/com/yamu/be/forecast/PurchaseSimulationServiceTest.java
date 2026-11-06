@@ -1,11 +1,13 @@
 package com.yamu.be.forecast;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -16,6 +18,8 @@ import com.yamu.be.card.domain.CardIssuerStatus;
 import com.yamu.be.card.domain.CardRegistrationStatus;
 import com.yamu.be.card.domain.CardType;
 import com.yamu.be.global.calendar.BusinessDayCalendar;
+import com.yamu.be.global.exception.BusinessException;
+import com.yamu.be.global.exception.ErrorCode;
 import com.yamu.be.merchant.MerchantCatalogService;
 import com.yamu.be.payment.approve.CreditLimitSource;
 import com.yamu.be.payment.billing.BillStatus;
@@ -88,6 +92,31 @@ class PurchaseSimulationServiceTest {
         SimulationResponse result = service.simulate(USER, request());
 
         assertThat(result.creditLimit()).isEqualTo(new SimulationResponse.CreditLimit("EXCEEDED", 100_000L));
+    }
+
+    @Test
+    void 전액_즉시할인이어도_출금_계좌가_없는_카드는_422_CARD_ACCOUNT_UNKNOWN이다() {
+        // 추천 계산 뒤 카드의 연결 계좌가 풀린 경우. 출금이 없다고 계산기까지 가서 500이 나면 안 된다(Codex 검토)
+        when(forecasts.today()).thenReturn(NOV_5);
+        when(cards.requireRegisteredCard(USER, CARD)).thenReturn(new UserCardRef(CARD, 1L, null, "1234",
+                CardRegistrationStatus.ACTIVE, CardIssuerStatus.NORMAL, CardType.CHECK, null, null));
+        when(catalog.resolveSelection(null, "SUPERMARKET"))
+                .thenReturn(new MerchantCatalogService.Selection(null, "SUPERMARKET"));
+        when(recommender.recommend(any())).thenReturn(SimulationRecommender.Result.of(
+                new SimulationRecommender.Recommendation(CARD,
+                        new SimulationRecommender.Benefit(new BigDecimal("300000"), List.of(), 300_000L),
+                        List.of(), null, List.of(), List.of())));
+        PurchaseSimulationService service = new PurchaseSimulationService(forecasts, cards, cardNames, recommender,
+                calendar, creditLimits, bills, catalog);
+        SimulationRequest request = request();
+        request.setMerchantCategoryCode("SUPERMARKET");
+
+        assertThatThrownBy(() -> service.simulate(USER, request))
+                .isInstanceOfSatisfying(BusinessException.class, e -> {
+                    assertThat(e.getErrorCode()).isEqualTo(ErrorCode.DATA_INSUFFICIENT);
+                    assertThat(e.getDetails()).isEqualTo(Map.of("reason", "CARD_ACCOUNT_UNKNOWN"));
+                });
+        verify(forecasts, never()).prepare(any(), anyList(), any(), any(), anyBoolean(), any());
     }
 
     private static SimulationRequest request() {

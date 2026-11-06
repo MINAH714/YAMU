@@ -127,6 +127,19 @@ class PurchaseSimulatorTest {
     }
 
     @Test
+    void 빠지는_금액이_없으면_출금_계좌가_선택_밖이어도_바깥_영향이_없고_전후가_같다() {
+        LocalDate today = LocalDate.of(2026, 11, 1);
+
+        PurchaseSimulation result = PurchaseSimulator.simulate(input(Map.of(A, 1_000_000L), List.of(), today,
+                today.plusDays(30), Map.of(), today, 9L, List.of()));
+
+        assertThat(result.outsideSelectionImpact()).isNull();
+        assertThat(result.schedule()).isEmpty();
+        assertThat(result.comparison().after()).isEqualTo(result.comparison().before());
+        assertThat(result.comparison().withinPeriodImpact()).isZero();
+    }
+
+    @Test
     void 카드_출금_계좌가_선택_밖이면_비교에_넣지_않고_전체_금액을_다른_영향액처럼_음수로_알린다() {
         LocalDate today = LocalDate.of(2026, 11, 1);
         Long unselected = 9L;

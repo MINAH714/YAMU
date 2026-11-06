@@ -104,6 +104,10 @@ public class PurchaseSimulationService {
         }
         SimulationRecommender.Benefit benefit = recommendation.benefit();
         requireOwnAlternatives(authenticatedUserId, recommendation.alternatives());
+        // 출금 계좌가 없는 카드는 실제 결제도 할 수 없다. 전액 즉시할인으로 빠지는 금액이 없어도 같은 422다(Codex 검토).
+        if (card.linkedAccountId() == null) {
+            throw insufficient("CARD_ACCOUNT_UNKNOWN", "카드의 출금 계좌를 알 수 없어요.");
+        }
         // 청구 금액은 결제 승인과 같이 계산한다: 결제 금액 − 즉시할인, 0원 아래로 내려가지 않음(!126 리뷰 1번).
         long charged = terms.chargedAmount(benefit == null ? 0 : benefit.instantDiscount());
         List<BillingSchedule.Withdrawal> withdrawals = charged == 0 ? List.of()
@@ -272,12 +276,9 @@ public class PurchaseSimulationService {
         return new SimulationResponse.CreditLimit(check.result().name(), check.availableLimit());
     }
 
-    /** 카드 출금 회차. 출금 계좌·결제일을 몰라 일정을 만들 수 없으면 0원·임의 날짜로 채우지 않고 422다. */
+    /** 카드 출금 회차. 결제일을 몰라 일정을 만들 수 없으면 임의 날짜로 채우지 않고 422다(출금 계좌는 부르는 쪽이 확인). */
     private List<BillingSchedule.Withdrawal> withdrawals(UserCardRef card, LocalDate purchaseDate, long charged,
             PaymentTerms terms) {
-        if (card.linkedAccountId() == null) {
-            throw insufficient("CARD_ACCOUNT_UNKNOWN", "카드의 출금 계좌를 알 수 없어요.");
-        }
         if (card.cardType() == CardType.CREDIT && (card.paymentDay() == null
                 || !BillingCycle.supports(card.paymentDay(), card.billingCutoffDays()))) {
             throw insufficient("BILLING_CYCLE_UNKNOWN", "카드 결제일을 알 수 없어 출금일을 계산할 수 없어요.");
@@ -291,6 +292,10 @@ public class PurchaseSimulationService {
      * 예: "11월 16일 잔액이 12,000원까지 내려가요. 예보 기간 밖에서 800,000원이 더 빠져요."
      */
     static String message(PurchaseSimulation simulation) {
+        // 청구 금액이 1원 이상이면 회차가 하나 이상이다. 회차가 없으면 전액 즉시할인이라 전후가 같다(Codex 검토).
+        if (simulation.schedule().isEmpty()) {
+            return "즉시할인으로 빠지는 금액이 없어 비교 결과는 같아요.";
+        }
         if (simulation.outsideSelectionImpact() != null) {
             return "선택하지 않은 계좌에서 " + won(-simulation.outsideSelectionImpact().amount())
                     + "이 빠져 비교 결과는 같아요.";
