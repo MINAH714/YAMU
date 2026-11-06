@@ -18,9 +18,10 @@ import org.springframework.stereotype.Component;
  * <ul>
  *   <li>입력: 계좌마다 어제까지 90일의 일별 체크카드 생활 소비. 모의 소비(SEED)와 실제 결제(REAL)를 날짜순으로 이어 붙인다.
  *       기록 시작(그 계좌의 첫 줄) 전과, 시작 뒤 줄이 없는 날은 0원이다. 다 확인하지 못한 날(complete=false)은 확인된 금액을 쓴다.</li>
- *   <li>방식: 기록이 {@value #AI_MIN_HISTORY_DAYS}일 이상이고 90일 안에 사용이 있으면 AI(14·30일 모델), 아니면 TSB.
- *       AI 서버가 없거나 실패·계약 위반이면 그 요청의 모든 계좌를 TSB로 계산한다.</li>
- *   <li>기간 n일 값: (0, 0)·(7, TSB 7일)·(14, AI 14일)·(30, AI 30일)을 직선으로 잇고 앞 점보다 낮은 점은 올린다.
+ *   <li>방식: 기록이 {@value #AI_MIN_HISTORY_DAYS}일 이상이고 90일 안에 사용이 있으면 AI(7·14·30일 모델), 아니면 TSB.
+ *       필요한 기간만 7 → 14 → 30일 순서로 부르고, AI 서버가 없거나 한 번이라도 실패·계약 위반이면 그 요청의 모든 계좌를
+ *       TSB로 계산한다.</li>
+ *   <li>기간 n일 값: (0, 0)·(7, AI 7일)·(14, AI 14일)·(30, AI 30일)을 직선으로 잇고 앞 점보다 낮은 점은 올린다.
  *       30일보다 길면 30일 값의 하루 평균 × n이다. TSB만 쓰는 계좌는 TSB 하루 예측 × n이다.
  *       기록 {@value #HIGH_CONFIDENCE_DAYS}일 미만인 AI 계좌는 30일 점을 max(AI 30일, TSB 30일)로 쓴다.</li>
  *   <li>잔고예보는 내일부터 N일 동안 생활비를 빼는데, 어제까지의 기록으로 한 예측은 오늘부터다. 그래서 오늘을 포함한 N+1일을
@@ -67,7 +68,7 @@ class LivingCostProjector {
 
         Map<String, Long> keys = new LinkedHashMap<>();
         Map<String, long[]> aiInputs = new LinkedHashMap<>();
-        if (horizonDays > 0 && predictDays > 7) {
+        if (horizonDays > 0) {
             histories.forEach((accountId, history) -> {
                 if (history.historyDays() >= AI_MIN_HISTORY_DAYS && history.hasSpending()) {
                     // 계좌번호·사용자 ID 대신 요청 안에서만 쓰는 순번을 보낸다.
@@ -85,27 +86,31 @@ class LivingCostProjector {
         return new Projection(byAccount, total(byAccount.values()));
     }
 
-    /** AI 14·30일 예측을 계좌별 [14일, 30일]로 돌려준다. 30일이 필요 없으면 30일 칸은 -1. 하나라도 실패하면 빈 값(모두 TSB). */
+    /**
+     * AI 예측을 계좌별 [7일, 14일, 30일]로 돌려준다. n일 값에 필요한 기간만 7 → 14 → 30일 순서로 부르고(7일 이하면 7일만,
+     * 14일 이하면 7·14일), 부르지 않은 칸은 -1이다. 하나라도 실패하면 남은 기간은 부르지 않고 빈 값(모두 TSB)을 돌려준다.
+     */
     private Map<Long, long[]> aiPoints(LocalDate asOf, int predictDays, Map<String, Long> keys,
             Map<String, long[]> inputs) {
         if (inputs.isEmpty() || !ai.enabled()) {
             return Map.of();
         }
-        Optional<Map<String, Long>> h14 = ai.predict(asOf, 14, inputs);
-        if (h14.isEmpty()) {
-            return Map.of();
-        }
-        Optional<Map<String, Long>> h30 = Optional.empty();
-        if (predictDays > 14) {
-            h30 = ai.predict(asOf, 30, inputs);
-            if (h30.isEmpty()) {
+        int[] horizons = predictDays <= 7 ? new int[] {7} : predictDays <= 14 ? new int[] {7, 14} : new int[] {7, 14, 30};
+        List<Map<String, Long>> answers = new ArrayList<>();
+        for (int horizon : horizons) {
+            Optional<Map<String, Long>> answer = ai.predict(asOf, horizon, inputs);
+            if (answer.isEmpty()) {
                 return Map.of();
             }
+            answers.add(answer.get());
         }
         Map<Long, long[]> out = new HashMap<>();
         for (Map.Entry<String, Long> key : keys.entrySet()) {
-            long a30 = h30.map(values -> values.get(key.getKey())).orElse(-1L);
-            out.put(key.getValue(), new long[] {h14.get().get(key.getKey()), a30});
+            long[] point = {-1, -1, -1};
+            for (int i = 0; i < answers.size(); i++) {
+                point[i] = answers.get(i).get(key.getKey());
+            }
+            out.put(key.getValue(), point);
         }
         return out;
     }
@@ -154,13 +159,13 @@ class LivingCostProjector {
         if (aiPoint == null) {
             upcoming = round(tsbDaily * predictDays);
         } else {
-            long a30 = aiPoint[1];
+            long a30 = aiPoint[2];
             if (a30 >= 0 && history.historyDays() < HIGH_CONFIDENCE_DAYS) {
-                // 기록 14~59일은 AI 30일 예측이 생활비를 적게 보는 쪽으로 치우친다(기록 30일에서 −10~−14%).
+                // 기록 14~59일은 AI 30일 예측이 생활비를 적게 보는 쪽으로 치우친다(기록 30일에서 −13.5%·−14.3%).
                 // 그래서 TSB 30일보다 낮으면 TSB 30일을 쓴다. AI가 더 크게 보면 AI 그대로다(!148 리뷰, 2026-11-06 결정)
                 a30 = Math.max(a30, round(tsbDaily * 30));
             }
-            upcoming = interpolate(round(tsbDaily * 7), aiPoint[0], a30, predictDays);
+            upcoming = interpolate(aiPoint[0], aiPoint[1], a30, predictDays);
         }
         // 오늘 이미 쓴 돈은 오늘 몫(N+1일 예측 ÷ (N+1))까지만 뺀다. 오늘 크게 써도 내일부터의 생활비가 줄지 않게 한다(!136 리뷰)
         long todayShare = roundedDivide(upcoming, predictDays);
@@ -175,19 +180,22 @@ class LivingCostProjector {
     }
 
     /**
-     * (0, 0)·(7, t7)·(14, a14)·(30, a30)을 직선으로 이은 n일 값. 앞 점보다 낮은 점은 앞 점 높이로 올려 기간을 늘려도 줄지 않게 한다.
-     * 30일보다 길면 30일 값의 하루 평균 × n. n이 14 이하이면 a30은 쓰지 않는다(-1이어도 된다).
+     * (0, 0)·(7, a7)·(14, a14)·(30, a30)을 직선으로 이은 n일 값. 앞 점보다 낮은 점은 앞 점 높이로 올려 기간을 늘려도 줄지 않게 한다.
+     * 30일보다 길면 30일 값의 하루 평균 × n. n이 7 이하이면 a14·a30을, 14 이하이면 a30을 쓰지 않는다(-1이어도 된다).
      */
-    static long interpolate(long t7, long a14, long a30, int n) {
+    static long interpolate(long a7, long a14, long a30, int n) {
         if (n < 1) {
             throw new IllegalArgumentException("기간은 1일 이상이어야 한다.");
         }
-        long p14 = Math.max(a14, t7);
         if (n <= 7) {
-            return roundedDivide(Math.multiplyExact(t7, n), 7);
+            return roundedDivide(Math.multiplyExact(a7, n), 7);
         }
+        if (a14 < 0) {
+            throw new IllegalArgumentException("7일보다 긴 기간에는 14일 예측이 필요하다.");
+        }
+        long p14 = Math.max(a14, a7);
         if (n <= 14) {
-            return t7 + roundedDivide(Math.multiplyExact(p14 - t7, n - 7), 7);
+            return a7 + roundedDivide(Math.multiplyExact(p14 - a7, n - 7), 7);
         }
         if (a30 < 0) {
             throw new IllegalArgumentException("14일보다 긴 기간에는 30일 예측이 필요하다.");
