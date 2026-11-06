@@ -107,7 +107,6 @@ import com.yamu.app.feature.my.data.NotiSettings
 import com.yamu.app.feature.my.data.autoLockLabel
 import com.yamu.app.feature.my.data.deviceLastUsed
 import com.yamu.app.feature.my.data.koreanTime
-import com.yamu.app.feature.my.data.maskEmail
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -271,7 +270,7 @@ fun MyRoute(
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
                             Text("${info.name}님", style = YamuTheme.typography.titleL, color = c.text1)
-                            maskEmail(info.email)?.let { Text(it, style = YamuTheme.typography.bodyM, color = c.text3, modifier = Modifier.padding(top = 4.dp)) }
+                            info.maskedPhone?.let { Text(it, style = YamuTheme.typography.bodyM, color = c.text3, modifier = Modifier.padding(top = 4.dp)) }
                         }
                         Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, contentDescription = null, tint = c.text3)
                     }
@@ -654,7 +653,7 @@ fun ProfileRoute(onBack: () -> Unit, onOpenPinPad: (purpose: String) -> Unit, on
                         minHeight = 56.dp,
                         trailing = { Icon(YamuIcons.Lock, contentDescription = "바꿀 수 없음", tint = c.text3, modifier = Modifier.size(24.dp)) },
                     )
-                    info.email?.let { KeyValueRow("이메일", it, keyWidth = 64.dp, minHeight = 56.dp) }
+                    info.maskedPhone?.let { KeyValueRow("휴대폰", it, keyWidth = 64.dp, minHeight = 56.dp) }
                     SectionLabel("로그인한 기기")
                     s.devices.forEach { d ->
                         ListRow(

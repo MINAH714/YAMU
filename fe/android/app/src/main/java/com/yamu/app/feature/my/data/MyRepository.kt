@@ -27,8 +27,9 @@ import javax.inject.Singleton
 
 /** 마이 · 알림 — #23 · #38/#39 · #52/#53 · #41 · #42/#16 · #49/#50/#51. 13 문서 9·10-3 */
 interface MyApi {
-    @GET("users/{userId}")
-    suspend fun me(@Path("userId") userId: String): Response<ApiEnvelope<UserInfoDto>>
+    /** 토큰의 사용자 기준이라 경로에 userId가 없다(#42, BE !113) */
+    @GET("users/me")
+    suspend fun me(): Response<ApiEnvelope<UserInfoDto>>
 
     @PATCH("users/{userId}/payment-settings")
     suspend fun paymentSettings(@Path("userId") userId: String, @Body body: PaymentSettingsPatch): Response<ApiEnvelope<JsonElement>>
@@ -87,7 +88,7 @@ class MyRepositoryImpl @Inject constructor(private val api: MyApi, private val s
     private suspend fun userId() = session.read().userId?.toString() ?: "me"
 
     override suspend fun me(): ApiResult<MyInfo> =
-        apiCall { api.me(userId()) }.map { it.toMyInfo() }.also { r ->
+        apiCall { api.me() }.map { it.toMyInfo() }.also { r ->
             if (r is ApiResult.Success) session.setAutoLockSeconds(r.data.autoLockSeconds)
         }
 
