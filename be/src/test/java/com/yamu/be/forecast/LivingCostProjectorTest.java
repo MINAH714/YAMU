@@ -58,16 +58,18 @@ class LivingCostProjectorTest {
 
     @Test
     void 예보_7일이면_8일_값이_필요해_AI_7일과_14일만_부른다() {
-        FakeAi ai = new FakeAi(Map.of(7, 35_000L, 14, 100_000L, 30, 200_000L));
+        // 7일 값은 TSB 7일(매일 5,000원 → 35,000원)과 다르게 둬 7일 점이 AI 값인지 가린다(!158 리뷰)
+        FakeAi ai = new FakeAi(Map.of(7, 42_000L, 14, 100_000L, 30, 200_000L));
 
         LivingCostProjector.AccountProjection result = new LivingCostProjector(ai)
                 .project(List.of(A), everyDay(A, TODAY.minusDays(120), TODAY, 5_000, Origin.REAL), TODAY, 7)
                 .byAccount().get(A);
 
-        // AI 7일 35,000원 → AI 14일 100,000원 사이 8일 = 35,000 + 65,000 × 1/7 = 44,286원. − 5,000원 ÷ 7 = 5,612원
+        // AI 7일 42,000원 → AI 14일 100,000원 사이 8일 = 42,000 + 58,000 × 1/7 = 50,286원. − 5,000원 ÷ 7 = 6,469원
+        // (7일 점이 TSB 35,000원이면 5,612원)
         assertThat(ai.calls).extracting(Call::horizon).containsExactly(7, 14);
         assertThat(result.method()).isEqualTo("ML_V1");
-        assertThat(result.dailyAmount()).isEqualTo(5_612L);
+        assertThat(result.dailyAmount()).isEqualTo(6_469L);
     }
 
     @Test
@@ -129,7 +131,7 @@ class LivingCostProjectorTest {
 
     @Test
     void 기록_60일_미만은_AI_30일이_TSB_30일보다_낮으면_TSB_30일을_쓴다() {
-        FakeAi ai = new FakeAi(Map.of(7, 35_000L, 14, 1_000L, 30, 1_000L));
+        FakeAi ai = new FakeAi(Map.of(7, 42_000L, 14, 1_000L, 30, 1_000L));
         // A: 어제까지 59일 기록(MEDIUM), B: 60일 기록(HIGH). 둘 다 날마다 5,000원
         List<DailySpending> rows = Stream.concat(
                 everyDay(A, YESTERDAY.minusDays(58), TODAY, 5_000, Origin.REAL).stream(),
@@ -141,9 +143,10 @@ class LivingCostProjectorTest {
         //    31일 = 150,000 × 31/30 = 155,000원, 오늘 몫 5,000원을 빼 150,000 ÷ 30 = 5,000원
         assertThat(result.byAccount().get(A).method()).isEqualTo("ML_V1");
         assertThat(result.byAccount().get(A).dailyAmount()).isEqualTo(5_000L);
-        // B: 하한 없음. 30일은 14일 점(AI 7일 35,000원으로 올린 값) 높이 → 31일 36,167원, 오늘 몫 1,167원을 빼 ÷ 30 = 1,167원
+        // B: 하한 없음. 30일은 14일 점(AI 7일 42,000원으로 올린 값) 높이 → 31일 43,400원, 오늘 몫 1,400원을 빼 ÷ 30 = 1,400원
+        //    (7일 점이 TSB 35,000원이면 1,167원)
         assertThat(result.byAccount().get(B).method()).isEqualTo("ML_V1");
-        assertThat(result.byAccount().get(B).dailyAmount()).isEqualTo(1_167L);
+        assertThat(result.byAccount().get(B).dailyAmount()).isEqualTo(1_400L);
     }
 
     @Test
