@@ -616,6 +616,7 @@ CONSTRAINT ck_monthly_limit_usage_version CHECK (version >= 0)
 | confirmed_at | `TIMESTAMP(6) NULL` | UTC 청구 확정 시각 |
 | paid_at | `TIMESTAMP(6) NULL` | UTC 출금 성공 확인 시각 |
 | failed_at | `TIMESTAMP(6) NULL` | UTC 출금 실패 확인 시각 |
+| withdrawal_retried_at | `TIMESTAMP(6) NULL` | UTC 첫 출금이 유예 뒤에도 거래내역에 없어 새 요청 번호로 다시 보낸 시각. 출금은 한 번만 다시 보낸다(S15P31E103-207); 다시 보내지 않았으면 NULL |
 | fin_request_no | `CHAR(20) CHARACTER SET ascii COLLATE ascii_bin NULL` | 은행 출금 요청의 기관거래고유번호. YYYYMMDD + HHMMSS + 일련번호 6자리; payment_transaction 절의 공통 채번 규칙 적용 |
 | fin_transaction_no | `VARCHAR(128) CHARACTER SET ascii COLLATE ascii_bin NULL` | 확인한 은행 출금 거래 참조 |
 | created_at | `TIMESTAMP(6) NOT NULL` | UTC 생성 시각 |
@@ -638,6 +639,8 @@ CONSTRAINT ck_bill_confirmed CHECK (confirmed_at IS NULL OR (confirmed_amount IS
 CONSTRAINT ck_bill_paid CHECK (paid_at IS NULL OR (confirmed_at IS NOT NULL AND linked_account_id IS NOT NULL));
 CONSTRAINT ck_card_bill_version CHECK (version >= 0)
 ```
+
+결제일 출금(임시, Task 5.4.3 · [S15P31E103-207](https://ssafy.atlassian.net/browse/S15P31E103-207)): 출금 중 상태 값은 따로 두지 않는다. CONFIRMED에 fin_request_no가 있으면 출금을 요청해 결과를 기다리는 것이다. 요청 번호를 먼저 커밋한 뒤 `YAMU-B{card_bill_id}` 태그로 출금하고, 보내기 전마다 출금 예정일 전날 ~ 오늘의 거래내역에서 같은 태그를 찾아 이미 나갔으면 다시 보내지 않는다. 은행 거절(잔액 부족 등 모든 거절)만 UNPAID(failed_at)이고, 결과 불명은 CONFIRMED로 둔 채 조회로 확정한다. 유예 뒤에도 없으면 새 번호로 한 번만 다시 보내고 withdrawal_retried_at을 남긴다. 실패 사유는 저장하지 않는다.
 
 ### bill_item — 일시불·할부 회차 청구
 
