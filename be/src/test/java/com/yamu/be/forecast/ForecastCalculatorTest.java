@@ -185,6 +185,43 @@ class ForecastCalculatorTest {
         return points.stream().filter(point -> !point.events().isEmpty()).toList();
     }
 
+    @Test
+    void CONSERVATIVE_출금은_보수적_선에만_빼고_생활비_누적은_따로_남긴다() {
+        // S15P31E103-286: 하루 생활비 1,000원, 3일째 마감 전 신용카드 사용 추정 30,000원
+        Projection result = ForecastCalculator.project(balances(A, 500_000L, B, 200_000L), List.of(
+                event(A, TODAY.plusDays(3), -30_000L, Confidence.CONSERVATIVE)), TODAY, TO,
+                Map.of(A, 1_000L, B, 500L));
+
+        assertThat(at(result.byAccount().get(A), TODAY.plusDays(3)))
+                .extracting(BalancePoint::confirmed, BalancePoint::expected, BalancePoint::conservative,
+                        BalancePoint::livingCost)
+                .containsExactly(500_000L, 500_000L, 467_000L, 3_000L);
+        assertThat(at(result.total(), TODAY.plusDays(3)))
+                .extracting(BalancePoint::expected, BalancePoint::conservative, BalancePoint::livingCost)
+                .containsExactly(700_000L, 665_500L, 4_500L);
+    }
+
+    @Test
+    void 생활비가_없는_계좌도_CONSERVATIVE_출금이_있으면_생활비_0원으로_보수적_선을_낸다() {
+        // 신용카드만 쓰는 계좌(2026-11-06 결정): 추정이 위험 판단에 쓰이게 한다
+        Projection result = ForecastCalculator.project(balances(A, 500_000L), List.of(
+                event(A, TODAY.plusDays(3), -30_000L, Confidence.CONSERVATIVE)), TODAY, TO, NO_LIVING);
+
+        assertThat(List.of(at(result.total(), TODAY), at(result.total(), TODAY.plusDays(3))))
+                .extracting(BalancePoint::expected, BalancePoint::conservative, BalancePoint::livingCost)
+                .containsExactly(tuple(500_000L, 500_000L, 0L), tuple(500_000L, 470_000L, 0L));
+    }
+
+    @Test
+    void 생활비도_CONSERVATIVE_출금도_없는_계좌가_있으면_통합_보수적_선은_null이다() {
+        Projection result = ForecastCalculator.project(balances(A, 500_000L, B, 100_000L), List.of(
+                event(A, TODAY.plusDays(3), -30_000L, Confidence.CONSERVATIVE)), TODAY, TO, NO_LIVING);
+
+        assertThat(at(result.byAccount().get(A), TODAY.plusDays(3)).conservative()).isEqualTo(470_000L);
+        assertThat(at(result.byAccount().get(B), TODAY.plusDays(3)).conservative()).isNull();
+        assertThat(at(result.total(), TODAY.plusDays(3)).conservative()).isNull();
+    }
+
     private static FlowEvent event(Long accountId, LocalDate date, long amount, Confidence confidence) {
         Type type = amount > 0 ? Type.SCHEDULED_INCOME : Type.SCHEDULED_OUTFLOW;
         return new FlowEvent(accountId, date, amount, type, confidence, "항목", 1L);

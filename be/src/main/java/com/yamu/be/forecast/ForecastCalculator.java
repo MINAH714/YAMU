@@ -10,7 +10,9 @@ import java.util.TreeMap;
 /**
  * 계좌별 시작 잔액에 미래 입출금을 날짜순으로 더해 날짜별 예상 잔액을 계산한다. DB·외부 호출 없이 입력만으로 계산한다.
  * 확정 선은 CONFIRMED 입출금만, 예상 선은 CONFIRMED와 EXPECTED를 모두 더한다.
- * 보수적 선은 예상 선에서 추정 하루 생활비를 내일부터 그날까지 날마다 뺀다(오늘 쓴 돈은 현재 잔액에 이미 반영됨).
+ * 보수적 선은 예상 선에 CONSERVATIVE 입출금(마감 전 신용카드 사용 추정)을 더하고, 추정 하루 생활비를 내일부터 그날까지 날마다 뺀다
+ * (오늘 쓴 돈은 현재 잔액에 이미 반영됨). 생활비 추정이 없는 계좌는 보수적 선이 null이지만, 기간 안에 CONSERVATIVE 입출금이 있으면
+ * 생활비 0원으로 보수적 선을 낸다.
  * 통합 선은 같은 날짜의 계좌별 잔액 합이라, 상세의 계좌별 수치를 더하면 항상 통합 수치와 같다(FR-039).
  */
 final class ForecastCalculator {
@@ -25,7 +27,8 @@ final class ForecastCalculator {
      *
      * @param startBalances   선택한 계좌별 현재 잔액(원). 순서대로 결과에 담는다
      * @param events          미래 입출금. 계좌는 startBalances에 있어야 한다
-     * @param dailyLivingCost 계좌별 추정 하루 생활비(원). 없는 계좌는 보수적 선을 null로 두고, 그러면 통합 보수적 선도 null이다
+     * @param dailyLivingCost 계좌별 추정 하루 생활비(원). 없는 계좌는 보수적 선을 null로 두고(기간 안에 CONSERVATIVE 입출금이
+     *                        있으면 생활비 0원으로 계산), 그러면 통합 보수적 선도 null이다
      * @return 통합 선과 계좌별 선
      */
     static Projection project(Map<Long, Long> startBalances, List<FlowEvent> events, LocalDate from, LocalDate to,
@@ -57,29 +60,48 @@ final class ForecastCalculator {
         for (Map.Entry<Long, TreeMap<LocalDate, List<FlowEvent>>> account : eventsByAccount.entrySet()) {
             long confirmed = startBalances.get(account.getKey());
             long expected = confirmed;
+            long conservativeOnly = 0;
+            // 생활비 자료가 없는 계좌는 보수적 선이 null이다. 다만 기간 안에 보수적 선 전용 출금(신용카드 사용 추정)이 있으면
+            // 생활비 0원으로 보수적 선을 내 그 추정이 위험 판단에 쓰이게 한다(2026-11-06 결정, Codex 검토 반영).
+            // 생활비가 빠졌다는 사실은 응답의 생활비 dataOrigin(INSUFFICIENT)으로 따로 알린다.
             Long living = dailyLivingCost.get(account.getKey());
+            if (living == null && hasConservativeOnly(account.getValue())) {
+                living = 0L;
+            }
             List<BalancePoint> points = new ArrayList<>();
             for (int day = 0; day < dates.size(); day++) {
                 LocalDate date = dates.get(day);
                 List<FlowEvent> dayEvents = account.getValue().getOrDefault(date, List.of());
                 for (FlowEvent event : dayEvents) {
-                    expected = Math.addExact(expected, event.amount());
-                    if (event.confidence() == FlowEvent.Confidence.CONFIRMED) {
-                        confirmed = Math.addExact(confirmed, event.amount());
+                    switch (event.confidence()) {
+                        case CONFIRMED -> {
+                            confirmed = Math.addExact(confirmed, event.amount());
+                            expected = Math.addExact(expected, event.amount());
+                        }
+                        case EXPECTED -> expected = Math.addExact(expected, event.amount());
+                        case CONSERVATIVE -> conservativeOnly = Math.addExact(conservativeOnly, event.amount());
                     }
                 }
+                Long livingToDate = living == null ? null : Math.multiplyExact(living.longValue(), day);
                 Long conservative = living == null ? null
-                        : Math.subtractExact(expected, Math.multiplyExact(living.longValue(), day));
-                totals.get(date).add(confirmed, expected, conservative, dayEvents);
-                points.add(new BalancePoint(date, confirmed, expected, conservative, List.copyOf(dayEvents)));
+                        : Math.subtractExact(Math.addExact(expected, conservativeOnly), livingToDate);
+                totals.get(date).add(confirmed, expected, conservative, livingToDate, dayEvents);
+                points.add(new BalancePoint(date, confirmed, expected, conservative, livingToDate,
+                        List.copyOf(dayEvents)));
             }
             byAccount.put(account.getKey(), List.copyOf(points));
         }
         List<BalancePoint> total = totals.entrySet().stream()
                 .map(entry -> new BalancePoint(entry.getKey(), entry.getValue().confirmed, entry.getValue().expected,
-                        entry.getValue().conservative, List.copyOf(entry.getValue().events)))
+                        entry.getValue().conservative, entry.getValue().livingCost,
+                        List.copyOf(entry.getValue().events)))
                 .toList();
         return new Projection(total, byAccount);
+    }
+
+    private static boolean hasConservativeOnly(TreeMap<LocalDate, List<FlowEvent>> byDate) {
+        return byDate.values().stream().flatMap(List::stream)
+                .anyMatch(event -> event.confidence() == FlowEvent.Confidence.CONSERVATIVE);
     }
 
     /**
@@ -88,9 +110,11 @@ final class ForecastCalculator {
      * @param confirmed    확정 선 잔액(원)
      * @param expected     예상 선 잔액(원)
      * @param conservative 보수적 선 잔액(원). 생활비 추정이 없으면 null
+     * @param livingCost   보수적 선에서 그날까지 뺀 추정 생활비 합계(원, 0 이상). 보수적 선이 null이면 null
      * @param events       그날 반영한 입출금
      */
-    record BalancePoint(LocalDate date, long confirmed, long expected, Long conservative, List<FlowEvent> events) {}
+    record BalancePoint(LocalDate date, long confirmed, long expected, Long conservative, Long livingCost,
+            List<FlowEvent> events) {}
 
     /**
      * 통합 선과 계좌별 선.
@@ -106,13 +130,17 @@ final class ForecastCalculator {
         private long expected;
         /** 한 계좌라도 보수적 선이 없으면 null로 남겨 일부만 더한 값을 내지 않는다. */
         private Long conservative = 0L;
+        private Long livingCost = 0L;
         private final List<FlowEvent> events = new ArrayList<>();
 
-        void add(long accountConfirmed, long accountExpected, Long accountConservative, List<FlowEvent> dayEvents) {
+        void add(long accountConfirmed, long accountExpected, Long accountConservative, Long accountLivingCost,
+                List<FlowEvent> dayEvents) {
             confirmed = Math.addExact(confirmed, accountConfirmed);
             expected = Math.addExact(expected, accountExpected);
             conservative = conservative == null || accountConservative == null
                     ? null : Math.addExact(conservative, accountConservative);
+            livingCost = livingCost == null || accountLivingCost == null
+                    ? null : Math.addExact(livingCost, accountLivingCost);
             events.addAll(dayEvents);
         }
     }
