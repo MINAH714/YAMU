@@ -40,7 +40,7 @@ def plan(job, branch, force_full, base, head):
     mode, checks = 'full', CHECKS
     if force_full:
         reason = 'requested-full'
-    elif (job, branch) != ('yamu/ci', 'origin/develop'):
+    elif (job, branch) != ('yamu/ci-scope-verification-307', 'origin/test/infra/S15P31E103-307-ci-runtime'):
         reason = 'outside-develop-ci'
     else:
         try:

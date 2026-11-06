@@ -23,7 +23,7 @@ class ScopeTest(unittest.TestCase):
 
     def test_release_and_other_jobs_bypass_path_selection(self):
         for job, branch, force, reason in [
-            ('yamu/ci', 'origin/develop', True, 'requested-full'),
+            ('yamu/ci-scope-verification-307', 'origin/test/infra/S15P31E103-307-ci-runtime', True, 'requested-full'),
             ('yamu/ci-master', 'origin/master', False, 'outside-develop-ci'),
             ('yamu/ci', 'origin/master', False, 'outside-develop-ci'),
         ]:
@@ -33,7 +33,7 @@ class ScopeTest(unittest.TestCase):
                 changes.assert_not_called()
 
     def test_missing_revision_forces_full(self):
-        result = scope.plan('yamu/ci', 'origin/develop', False, '', 'b' * 40)
+        result = scope.plan('yamu/ci-scope-verification-307', 'origin/test/infra/S15P31E103-307-ci-runtime', False, '', 'b' * 40)
         self.assertEqual((result['mode'], result['reason']), ('full', 'no-comparable-success'))
 
 
@@ -65,7 +65,7 @@ class GitScopeTest(unittest.TestCase):
         return self.git('rev-parse', 'HEAD').decode().strip()
 
     def plan(self, base, head):
-        return scope.plan('yamu/ci', 'origin/develop', False, base, head)
+        return scope.plan('yamu/ci-scope-verification-307', 'origin/test/infra/S15P31E103-307-ci-runtime', False, base, head)
 
     def test_compares_across_failed_or_unbuilt_revisions(self):
         good = self.commit('be/src/Rule.java', 'original')

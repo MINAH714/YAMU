@@ -110,7 +110,7 @@ pipeline {
                 sh 'python3 infra/cd/manifest.py'
                 archiveArtifacts artifacts: 'ci-revision.txt,ci-manifest.json,be/build/libs/*.jar,fe/pos/dist/**', fingerprint: true
                 script {
-                    if (env.JOB_NAME == 'yamu/ci' && params.FULL_CI == true) {
+                    if (env.JOB_NAME == 'yamu/ci-scope-verification-307' && params.FULL_CI == true) {
                         currentBuild.keepLog = true
                     }
                 }
