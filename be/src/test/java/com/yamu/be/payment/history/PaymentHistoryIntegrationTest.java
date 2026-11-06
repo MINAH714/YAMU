@@ -223,16 +223,19 @@ class PaymentHistoryIntegrationTest extends MySqlTestSupport {
     @Test
     void 목록은_건수와_상관없이_같은_수의_쿼리로_읽는다() throws Exception {
         approved(owner, card, OCT_10, 1_000, 1);
+        // 처음 읽을 때는 미분류 결제를 분류하느라 문장이 더 나간다. 분류가 끝난 뒤의 읽기만 잰다
+        mockMvc.perform(list().param("yearMonth", OCTOBER)).andExpect(status().isOk());
         long one = questionsDuring(list().param("yearMonth", OCTOBER));
 
         for (int i = 0; i < 20; i++) {
             long id = approved(owner, card, OCT_10.plusMinutes(i), 1_000, 1);
             benefit(id, 100);
         }
+        mockMvc.perform(list().param("yearMonth", OCTOBER)).andExpect(status().isOk());
         long many = questionsDuring(list().param("yearMonth", OCTOBER));
 
-        // 합계 1번 + 페이지 1번(+ 측정 문장). 0이면 다른 연결을 재고 있는 것이다
-        assertThat(one).isBetween(2L, 4L);
+        // 미분류 확인 1번 + 합계 1번 + 페이지 1번(+ 측정 문장). 0이면 다른 연결을 재고 있는 것이다
+        assertThat(one).isBetween(3L, 5L);
         assertThat(many).isEqualTo(one);
     }
 
@@ -348,6 +351,68 @@ class PaymentHistoryIntegrationTest extends MySqlTestSupport {
         // LIKE 특수문자는 글자 그대로 찾는다
         mockMvc.perform(list().param("yearMonth", OCTOBER).param("q", "%"))
                 .andExpect(jsonPath("$.data.items", hasSize(0)));
+    }
+
+    @Test
+    void 검색은_대소문자를_가리지_않고_밑줄은_글자_그대로_찾는다() throws Exception {
+        long latin = approved(owner, card, OCT_10, 5_000, 1);
+        jdbc.update("UPDATE payment_transaction SET merchant_context_snapshot = "
+                + "JSON_SET(merchant_context_snapshot, '$.merchantName', 'Starbucks Gangnam') WHERE payment_transaction_id = ?",
+                latin);
+        long underscore = approved(owner, card, OCT_10.plusHours(1), 6_000, 1);
+        jdbc.update("UPDATE payment_transaction SET memo = 'Team_A Dinner' WHERE payment_transaction_id = ?", underscore);
+        long lookalike = approved(owner, card, OCT_10.plusHours(2), 7_000, 1);
+        jdbc.update("UPDATE payment_transaction SET memo = 'teamXa dinner' WHERE payment_transaction_id = ?", lookalike);
+
+        // 표 정렬 규칙(utf8mb4_0900_bin)은 대소문자를 가리지만 검색은 가리지 않는다(!142 리뷰)
+        mockMvc.perform(list().param("yearMonth", OCTOBER).param("q", "starbucks"))
+                .andExpect(jsonPath("$.data.items[*].paymentId").value(contains((int) latin)));
+        mockMvc.perform(list().param("yearMonth", OCTOBER).param("q", "DINNER"))
+                .andExpect(jsonPath("$.data.items", hasSize(2)));
+        // _는 LIKE에서 아무 한 글자이지만 이스케이프해서 밑줄만 찾는다("teamXa"는 걸리지 않음)
+        mockMvc.perform(list().param("yearMonth", OCTOBER).param("q", "team_a"))
+                .andExpect(jsonPath("$.data.items[*].paymentId").value(contains((int) underscore)));
+    }
+
+    @Test
+    void 검색어_길이는_코드포인트로_센다() throws Exception {
+        String emoji = "😀";  // UTF-16 두 칸, 한 글자
+        mockMvc.perform(list().param("yearMonth", OCTOBER).param("q", emoji.repeat(50)))
+                .andExpect(status().isOk());
+        expectInvalid(list().param("yearMonth", OCTOBER).param("q", emoji.repeat(51)), "q");
+    }
+
+    // ───────── 소비 분류: 목록을 읽기 직전에 분류(2026-11-06 BE 4 결정) ─────────
+
+    @Test
+    void 예보를_열지_않은_사용자도_목록을_읽으면_미분류_결제가_분류된다() throws Exception {
+        long living = approved(owner, card, OCT_10, 10_000, 1);
+        long installment = approved(owner, card, OCT_10.plusHours(1), 600_000, 3);  // 할부라 LARGE
+        long userChosen = approved(owner, card, OCT_10.plusHours(2), 8_000, 1);
+        jdbc.update("UPDATE payment_transaction SET spending_class = 'LARGE', spending_class_source = 'USER' "
+                + "WHERE payment_transaction_id = ?", userChosen);
+        long canceled = payment(owner, card, "CANCELED", OCT_10.plusHours(3), 4_000, 1, "YAMU");
+
+        mockMvc.perform(list().param("yearMonth", OCTOBER).param("spendingClass", "LIVING"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.items[*].paymentId").value(contains((int) living)))
+                .andExpect(jsonPath("$.data.items[0].spendingClass").value("LIVING"));
+        mockMvc.perform(list().param("yearMonth", OCTOBER))
+                .andExpect(jsonPath("$.data.summary.byClass.LIVING").value(10_000))
+                .andExpect(jsonPath("$.data.summary.byClass.LARGE").value(608_000))
+                .andExpect(jsonPath("$.data.summary.byClass.EXCLUDED").value(0));
+
+        assertThat(spendingClass(installment)).isEqualTo("LARGE");
+        // 사용자가 고친 값은 덮지 않고, 취소 결제는 분류하지 않는다
+        assertThat(spendingClass(userChosen)).isEqualTo("LARGE");
+        assertThat(jdbc.queryForObject("SELECT spending_class_source FROM payment_transaction WHERE payment_transaction_id = ?",
+                String.class, userChosen)).isEqualTo("USER");
+        assertThat(spendingClass(canceled)).isNull();
+    }
+
+    private String spendingClass(long paymentId) {
+        return jdbc.queryForObject("SELECT spending_class FROM payment_transaction WHERE payment_transaction_id = ?",
+                String.class, paymentId);
     }
 
     @Test
