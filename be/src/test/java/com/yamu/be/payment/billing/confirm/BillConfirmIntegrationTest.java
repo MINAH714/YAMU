@@ -291,6 +291,47 @@ class BillConfirmIntegrationTest extends MySqlTestSupport {
     }
 
     @Test
+    void 나머지가_마지막_회차_원금을_넘으면_앞_회차로_넘겨_1원도_잃지_않는다() {
+        // 원금 3,333 / 3,333 / 3,334에 할인 9,999원: 예전 규칙은 마지막이 3,335원이라 1원이 잘렸다(!141 리뷰)
+        long bill = accumulating(user, card, NOVEMBER, LocalDate.of(2026, 11, 1));
+        long installment = payment(user, card, 10_000);
+        long first = item(installment, user, card, bill, 1, 3_333, "PENDING");
+        long second = item(installment, user, card, bill, 2, 3_333, "PENDING");
+        long third = item(installment, user, card, bill, 3, 3_334, "PENDING");
+        billingDiscount(installment, 9_999, "AT_BILLING", "DISCOUNT");
+
+        run(AS_OF, null, false);
+
+        assertThat(jdbc.queryForList("SELECT bill_item_id, amount FROM bill_item_discount WHERE card_bill_id = ? "
+                + "ORDER BY bill_item_id", bill)).containsExactly(
+                Map.of("bill_item_id", first, "amount", 3_332L),
+                Map.of("bill_item_id", second, "amount", 3_333L),
+                Map.of("bill_item_id", third, "amount", 3_334L));
+        assertThat(billRow(bill).get("confirmed_amount")).isEqualTo(1L);
+    }
+
+    @Test
+    void 회차_하나에_나눈_할인이_그_회차_청구액보다_크면_확정하지_않는다() {
+        long bill = accumulating(user, card, NOVEMBER, LocalDate.of(2026, 11, 1));
+        long payment = payment(user, card, 30_000);
+        long small = item(payment, user, card, bill, 1, 10_000, "PENDING");
+        long large = item(payment(user, card, 20_000), user, card, bill, 1, 20_000, "PENDING");
+        long benefit = billingDiscount(payment, 1_000, "AT_BILLING", "DISCOUNT");
+        // 합계(12,000)는 회차 합(30,000) 안이지만 회차 하나(10,000)를 넘는 깨진 배분
+        doReturn(List.of(new BillingDiscountSource.Allocation(small, payment, benefit, "깨진 배분", 12_000)))
+                .when(discounts).allocate(bill);
+
+        JobRunReport report = run(AS_OF, null, false);
+
+        assertThat(report.count(JobRunReport.Outcome.FAILED)).isEqualTo(1);
+        assertThat(billRow(bill).get("status")).isEqualTo("ACCUMULATING");
+        assertThat(itemStatus(small)).isEqualTo("PENDING");
+        assertThat(itemStatus(large)).isEqualTo("PENDING");
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM bill_item_discount WHERE card_bill_id = ?", Integer.class,
+                bill)).isZero();
+    }
+
+    @Test
     void 다시_실행해도_할인_배분을_한_번만_저장한다() {
         long bill = accumulating(user, card, NOVEMBER, LocalDate.of(2026, 11, 1));
         long lump = payment(user, card, 30_000);
@@ -351,12 +392,15 @@ class BillConfirmIntegrationTest extends MySqlTestSupport {
         item(lump, user, card, bill, 1, 30_000, "PENDING");
         long discount = billingDiscount(lump, 3_000, "AT_BILLING", "DISCOUNT");
 
-        // 확정 전: 예상 청구할인과 예상 청구액
+        // 확정 전: 예상 청구할인과 예상 청구액. discounts[]도 같은 금액을 확정 시각 없이 보인다(!141 리뷰)
         mockMvc.perform(get("/api/billings/{billId}", bill).with(AuthUsers.asUser(user)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.amounts.billingDiscount").value(3_000))
                 .andExpect(jsonPath("$.data.amounts.expectedAmount").value(27_000))
-                .andExpect(jsonPath("$.data.discounts.length()").value(0));
+                .andExpect(jsonPath("$.data.discounts.length()").value(1))
+                .andExpect(jsonPath("$.data.discounts[0].paymentBenefitId").value(discount))
+                .andExpect(jsonPath("$.data.discounts[0].amount").value(3_000))
+                .andExpect(jsonPath("$.data.discounts[0].confirmedAt").doesNotExist());
 
         run(AS_OF, null, false);
 

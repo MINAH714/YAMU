@@ -10,8 +10,11 @@ import com.yamu.be.payment.billing.CardBill;
 import com.yamu.be.payment.billing.CardBillRepository;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
@@ -121,16 +124,29 @@ public class BillConfirmer {
 
     /**
      * 회차별 청구할인 배분을 남긴다. 청구서를 잠근 트랜잭션 안이라 같은 청구서를 두 번 확정하지 않고,
-     * {@code uk_item_discount}가 같은 회차·혜택의 중복을 막는다. 이 청구서의 청구 전 회차가 아닌 배분이 오면 실패시킨다.
+     * {@code uk_item_discount}가 같은 회차·혜택의 중복을 막는다. 이 청구서의 청구 전 회차가 아닌 배분이 오거나, 한 회차의 배분 합이
+     * 그 회차 청구액을 넘으면 저장하지 않고 실패시킨다(확정 전체가 롤백되어 다음 실행·운영이 다시 본다). 회차 몫이 청구액을 넘은 채
+     * 저장되면 그 회차를 취소할 때 {@code BillShares}의 몫이 음수가 되어 취소가 계속 실패하기 때문이다(!141 리뷰). 원천도 청구액까지만
+     * 넣지만 원천 구현에 기대지 않고 여기서 한 번 더 본다.
      */
     private void saveDiscounts(Long cardBillId, List<BillItem> pending, List<BillingDiscountSource.Allocation> allocations,
             LocalDateTime now) {
-        java.util.Set<Long> pendingIds = pending.stream().map(BillItem::getId).collect(java.util.stream.Collectors.toSet());
+        Map<Long, Long> billedById = pending.stream()
+                .collect(Collectors.toMap(BillItem::getId, BillItem::getBilledAmount));
+        Map<Long, Long> allocatedById = new HashMap<>();
         for (BillingDiscountSource.Allocation allocation : allocations) {
-            if (!pendingIds.contains(allocation.billItemId()) || allocation.amount() <= 0) {
+            Long billed = billedById.get(allocation.billItemId());
+            if (billed == null || allocation.amount() <= 0) {
                 throw new IllegalStateException("이 청구서의 청구 전 회차가 아닌 할인 배분입니다 (청구서 " + cardBillId + ", 회차 "
                         + allocation.billItemId() + ", 금액 " + allocation.amount() + ")");
             }
+            long allocated = allocatedById.merge(allocation.billItemId(), allocation.amount(), Math::addExact);
+            if (allocated > billed) {
+                throw new IllegalStateException("회차에 나눈 청구할인이 그 회차 청구액보다 큽니다 (청구서 " + cardBillId + ", 회차 "
+                        + allocation.billItemId() + ", 할인 " + allocated + ", 청구액 " + billed + ")");
+            }
+        }
+        for (BillingDiscountSource.Allocation allocation : allocations) {
             jdbc.update("""
                     INSERT INTO bill_item_discount (card_bill_id, bill_item_id, payment_benefit_id, amount, created_at)
                     VALUES (:bill, :item, :benefit, :amount, :now)

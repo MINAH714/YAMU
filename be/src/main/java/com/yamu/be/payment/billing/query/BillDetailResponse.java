@@ -53,7 +53,11 @@ public record BillDetailResponse(Long billId, Long userCardId, String nickname, 
             Long feeAmount, String installmentPolicy) {
     }
 
-    /** 청구 확정 때 확정한 청구할인(혜택별, 이 청구서에 나눈 금액). 진행 중 청구서는 빈 배열이고 예상값은 {@code amounts.billingDiscount}에 있다. */
+    /**
+     * 청구할인(혜택별, 이 청구서에 나눈 금액). 합은 {@code amounts.billingDiscount}와 같다.
+     *
+     * @param confirmedAt 청구 확정 때 저장한 시각. 진행 중 청구서의 예상 할인은 null이다(확정 때 금액이 바뀔 수 있음)
+     */
     public record Discount(Long paymentBenefitId, Long paymentId, String name, long amount,
             LocalDateTime confirmedAt) {
     }

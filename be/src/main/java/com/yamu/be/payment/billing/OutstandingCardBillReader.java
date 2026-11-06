@@ -4,6 +4,7 @@ import com.yamu.be.forecast.CardBillReader;
 import com.yamu.be.payment.billing.confirm.BillingDiscountSource;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
@@ -45,7 +46,7 @@ class OutstandingCardBillReader implements CardBillReader {
         if (accountIds.isEmpty()) {
             return List.of();
         }
-        return jdbc.query("""
+        List<Row> rows = jdbc.query("""
                 SELECT x.* FROM (
                     SELECT b.card_bill_id, b.status, b.withdrawal_date,
                            CASE WHEN b.status = 'ACCUMULATING' THEN c.linked_account_id ELSE b.linked_account_id END
@@ -65,24 +66,29 @@ class OutstandingCardBillReader implements CardBillReader {
                  ORDER BY x.withdrawal_date, x.card_bill_id
                 """,
                 new MapSqlParameterSource("userId", userId).addValue("accountIds", accountIds).addValue("to", to),
-                (rs, rowNum) -> {
-                    long billId = rs.getLong("card_bill_id");
-                    Status status = Status.valueOf(rs.getString("status"));
-                    Long confirmed = rs.getObject("confirmed_amount", Long.class);
-                    long amount = switch (status) {
-                        case ACCUMULATING -> rs.getLong("pending_amount")
-                                - BillingDiscountSource.Allocation.total(discounts.allocate(billId));
-                        case CONFIRMED -> confirmedOrZero(billId, confirmed);
-                        case UNPAID -> confirmedOrZero(billId, confirmed) - rs.getLong("paid_amount")
-                                - rs.getLong("canceled_unpaid_principal");
-                    };
-                    if (amount <= 0) {
-                        return null;
-                    }
-                    return new OutstandingBill(billId, rs.getObject("account_id", Long.class), status,
-                            rs.getObject("withdrawal_date", LocalDate.class), amount);
-                }).stream().filter(Objects::nonNull).toList();
+                (rs, rowNum) -> new Row(rs.getLong("card_bill_id"), Status.valueOf(rs.getString("status")),
+                        rs.getObject("account_id", Long.class), rs.getObject("withdrawal_date", LocalDate.class),
+                        rs.getObject("confirmed_amount", Long.class), rs.getLong("paid_amount"),
+                        rs.getLong("canceled_unpaid_principal"), rs.getLong("pending_amount")));
+        // 진행 중 청구서의 예상 청구할인은 행을 다 읽은 뒤 한 번에 계산한다(청구서 수와 상관없이 쿼리 3번, !141 리뷰)
+        List<Long> accumulating = rows.stream().filter(row -> row.status() == Status.ACCUMULATING).map(Row::billId).toList();
+        Map<Long, List<BillingDiscountSource.Allocation>> expected = accumulating.isEmpty() ? Map.of()
+                : discounts.allocateAll(accumulating);
+        return rows.stream().map(row -> {
+            long amount = switch (row.status()) {
+                case ACCUMULATING -> row.pendingAmount()
+                        - BillingDiscountSource.Allocation.total(expected.getOrDefault(row.billId(), List.of()));
+                case CONFIRMED -> confirmedOrZero(row.billId(), row.confirmed());
+                case UNPAID -> confirmedOrZero(row.billId(), row.confirmed()) - row.paid() - row.canceledUnpaid();
+            };
+            return amount <= 0 ? null
+                    : new OutstandingBill(row.billId(), row.accountId(), row.status(), row.withdrawalDate(), amount);
+        }).filter(Objects::nonNull).toList();
     }
+
+    /** 쿼리 한 행. 금액 계산은 예상 청구할인을 모은 뒤에 한다. */
+    private record Row(long billId, Status status, Long accountId, LocalDate withdrawalDate, Long confirmed, long paid,
+            long canceledUnpaid, long pendingAmount) {}
 
     /** 확정·미납 청구서에는 확정액이 있어야 한다(ck_bill_confirmed는 확정 시각이 있을 때만 막는다). 없으면 예보에서 빼고 남긴다. */
     private static long confirmedOrZero(long billId, Long confirmed) {
