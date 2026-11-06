@@ -39,7 +39,7 @@ public final class RecommendationSelector {
     }
 
     /** rankedCards는 순위 순서의 전체 후보. 보류 결과는 선택 카드·확정 순위를 제공하지 않는다. */
-    public record Result(long paymentId, Status status, Long selectedUserCardId, SelectionReason selectionReason,
+    public record Result(Long paymentId, Status status, Long selectedUserCardId, SelectionReason selectionReason,
                          String message, boolean performanceTieBreakSkipped, boolean noBenefit,
                          List<CardEvaluation> rankedCards, List<CardEvaluation> evaluatedCards) {
         public Result {
@@ -54,10 +54,19 @@ public final class RecommendationSelector {
     }
 
     public Result select(RecommendationInput input) {
+        java.util.Objects.requireNonNull(input.paymentId(), "paymentId");
+        return selectInternal(input, null);
+    }
+
+    public Result select(RecommendationInput input, CalculationOptions options) {
+        return selectInternal(input, java.util.Objects.requireNonNull(options));
+    }
+
+    private Result selectInternal(RecommendationInput input, CalculationOptions options) {
         // DB 공급은 RecommendationService가 담당한다. 이 엔진은 조회·재시도·차감을 하지 않는다.
         List<CardEvaluation> evaluations = input.cards().stream()
                 .sorted(Comparator.comparingLong(CardCandidate::userCardId))
-                .map(card -> evaluate(input, card)).toList();
+                .map(card -> evaluate(input, card, options)).toList();
         boolean partial = evaluations.stream().anyMatch(card -> card.status() == CardStatus.NOT_COMPARED);
         List<CardEvaluation> calculated = evaluations.stream()
                 .filter(card -> card.status() == CardStatus.CALCULATED).toList();
@@ -118,7 +127,7 @@ public final class RecommendationSelector {
                 skipped, allZero, ranked, evaluations);
     }
 
-    private CardEvaluation evaluate(RecommendationInput input, CardCandidate card) {
+    private CardEvaluation evaluate(RecommendationInput input, CardCandidate card, CalculationOptions options) {
         String exclusion = exclusion(input, card);
         if (exclusion != null) {
             return new CardEvaluation(card.userCardId(), CardStatus.EXCLUDED, exclusion, null);
@@ -132,7 +141,8 @@ public final class RecommendationSelector {
                     new Calculation(false, null, List.of(), List.of(),
                             List.of(new CardBenefitCalculator.Problem(null, "PRODUCT_UNKNOWN"))));
         }
-        Calculation calculation = calculator.calculate(input.transaction(), card.policy());
+        Calculation calculation = options == null ? calculator.calculate(input.transaction(), card.policy())
+                : calculator.calculate(input.transaction(), card.policy(), options);
         String problem = calculation.problems().stream().anyMatch(item -> item.code().equals("BASE_AMOUNT_INVALID"))
                 ? "BASE_AMOUNT_INVALID" : "BENEFIT_DATA_INSUFFICIENT";
         return new CardEvaluation(card.userCardId(), calculation.complete() ? CardStatus.CALCULATED

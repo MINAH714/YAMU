@@ -83,6 +83,11 @@ public class CardBill extends BaseTimeEntity {
     @Column(name = "failed_at")
     private LocalDateTime failedAt;
 
+    /** 첫 출금이 처리되지 않았다고 보고 새 요청 번호로 다시 보낸 시각(UTC). 출금은 한 번만 다시 보낸다(Task 5.4.3) */
+    @Column(name = "withdrawal_retried_at")
+    private LocalDateTime withdrawalRetriedAt;
+
+    /** 마지막으로 보낸(또는 보내려고 남긴) 출금 요청 번호. 출금 결과가 나오기 전 CONFIRMED에 이 값이 있으면 출금을 요청한 것이다 */
     @Column(name = "fin_request_no", columnDefinition = "char(20)")
     private String finRequestNo;
 
@@ -146,6 +151,115 @@ public class CardBill extends BaseTimeEntity {
         }
         this.paidAt = paidAt;
         this.status = BillStatus.PAID;
+    }
+
+    /**
+     * 출금 전에 요청 번호를 남긴다(Task 5.4.3). 이 값을 커밋한 뒤에 출금을 보내야, 결과를 모를 때 그 번호의 시각으로 유예를 지키고
+     * 거래내역을 찾을 수 있다. 출금 대기(확정액 &gt; 0, 요청 번호 없음)인 확정 청구서만 된다.
+     */
+    public void requestWithdrawal(String requestNo) {
+        requireAwaitingWithdrawal();
+        if (finRequestNo != null) {
+            throw new IllegalStateException("이미 출금을 요청한 청구서입니다 (청구서 " + id + ")");
+        }
+        this.finRequestNo = requireRequestNo(requestNo);
+    }
+
+    /**
+     * 첫 출금이 유예가 지나도 거래내역에 없어, 새 요청 번호로 한 번 다시 보낸다(2026-11-05 결정). 두 번째는 없다.
+     *
+     * @param retriedAt 다시 보낸 시각(UTC)
+     */
+    public void retryWithdrawal(String requestNo, LocalDateTime retriedAt) {
+        requireAwaitingWithdrawal();
+        if (finRequestNo == null || withdrawalRetriedAt != null) {
+            throw new IllegalStateException("요청한 출금이 없거나 이미 한 번 다시 보낸 청구서입니다 (청구서 " + id + ")");
+        }
+        this.finRequestNo = requireRequestNo(requestNo);
+        this.withdrawalRetriedAt = retriedAt;
+    }
+
+    /** 다시 보낸 적이 있는지. 있으면 출금을 더 보내지 않는다. */
+    public boolean isWithdrawalRetried() {
+        return withdrawalRetriedAt != null;
+    }
+
+    /**
+     * 요청이 금융망에 가지 않았다(NOT_SENT). 돈이 움직이지 않았으므로 남긴 번호를 지워 다음 실행이 새 번호로 보내게 한다.
+     * 그 사이 다른 실행이 번호를 바꿨으면 그대로 둔다.
+     *
+     * @return 지웠는지
+     */
+    public boolean clearUnsentRequest(String requestNo) {
+        if (status != BillStatus.CONFIRMED || requestNo == null || !requestNo.equals(finRequestNo)) {
+            return false;
+        }
+        this.finRequestNo = null;
+        return true;
+    }
+
+    /**
+     * 출금 성공(Task 5.4.3). 확정액 전부가 나간 것을 확인했을 때만 PAID로 바꾼다(청구액 일부 출금은 지원하지 않는다).
+     *
+     * @param amount           확인한 출금액. 확정액과 같아야 한다
+     * @param finTransactionNo 금융망 출금 거래 번호
+     * @param paidAt           출금 성공을 확인한 시각(UTC)
+     */
+    public void markPaid(long amount, String finTransactionNo, LocalDateTime paidAt) {
+        requireAwaitingWithdrawal();
+        if (amount != confirmedAmount) {
+            throw new IllegalStateException("출금액이 확정액과 다릅니다 (청구서 " + id + ", 출금 " + amount + ", 확정 "
+                    + confirmedAmount + ")");
+        }
+        if (finTransactionNo == null || finTransactionNo.isBlank() || paidAt == null) {
+            throw new IllegalArgumentException("출금 성공에는 거래 번호와 확인 시각이 필요합니다 (청구서 " + id + ")");
+        }
+        this.paidAmount = amount;
+        this.finTransactionNo = finTransactionNo;
+        this.paidAt = paidAt;
+        this.status = BillStatus.PAID;
+    }
+
+    /**
+     * 은행이 출금을 거절했다(잔액 부족 A1014, 계좌 없음 A1003 등 모든 거절). 미납(UNPAID)으로 바꾼다. 통신 오류·결과 불명은
+     * 여기로 오지 않는다(2026-11-05 결정). 미납은 자동으로 다시 출금하지 않는다.
+     *
+     * @param failedAt 거절을 확인한 시각(UTC)
+     */
+    public void markUnpaid(LocalDateTime failedAt) {
+        requireAwaitingWithdrawal();
+        if (finRequestNo == null || failedAt == null) {
+            throw new IllegalStateException("요청한 출금이 없는 청구서는 미납으로 바꿀 수 없습니다 (청구서 " + id + ")");
+        }
+        this.failedAt = failedAt;
+        this.status = BillStatus.UNPAID;
+    }
+
+    /**
+     * 확정 뒤 출금 예정일이 공휴일이 됐다(공휴일 발표·동기화가 확정보다 늦음). 출금하지 않고 다음 영업일로 미룬다.
+     * 출금을 요청하기 전에만 옮긴다.
+     */
+    public void postponeWithdrawal(LocalDate newDate) {
+        requireAwaitingWithdrawal();
+        if (finRequestNo != null || newDate == null || !newDate.isAfter(withdrawalDate)) {
+            throw new IllegalStateException("출금 요청 전, 더 뒤 날짜로만 미룰 수 있습니다 (청구서 " + id + ", " + withdrawalDate
+                    + " → " + newDate + ")");
+        }
+        this.withdrawalDate = newDate;
+    }
+
+    private void requireAwaitingWithdrawal() {
+        if (status != BillStatus.CONFIRMED || confirmedAmount == null || confirmedAmount <= 0 || paidAmount != 0) {
+            throw new IllegalStateException("출금 대기 중인 확정 청구서가 아닙니다 (청구서 " + id + ", 상태 " + status
+                    + ", 확정액 " + confirmedAmount + ")");
+        }
+    }
+
+    private String requireRequestNo(String requestNo) {
+        if (requestNo == null || !requestNo.matches("\\d{20}")) {
+            throw new IllegalArgumentException("출금 요청 번호는 20자리 숫자여야 합니다 (청구서 " + id + ")");
+        }
+        return requestNo;
     }
 
     /**

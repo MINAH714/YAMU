@@ -9,12 +9,10 @@ import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.EnumMap;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 import java.util.TreeMap;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
@@ -30,7 +28,9 @@ import org.springframework.stereotype.Component;
  *       ({@code card_product.card_type = 'CHECK'})의 승인(APPROVED)·LIVING 결제. 신용카드(청구로 반영), LARGE·EXCLUDED·미분류,
  *       취소 결제는 넣지 않는다. 등록 해제한 카드의 과거 결제도 넣는다(2026-11-04 결정).</li>
  *   <li><b>반복 지출 빼기</b>: 그 결제의 달과 앞 5개 달(6개월) 안에서 같은 카드·가맹점·승인 금액의 승인 결제가 서로 다른 3개 달 이상에
- *       나오면 뺀다(분류·출처와 상관없이 셈, 취소 결제는 세지 않음). 월세·구독료처럼 예정 지출로 따로 반영하는 정기 지출이 두 번 빠지지 않게 한다.</li>
+ *       나오고, 그 6개월 중 두 번 이상 나온 달이 없으면(매달 한 번) 뺀다(분류·출처와 상관없이 셈, 취소 결제는 세지 않음).
+ *       월세·구독료처럼 예정 지출로 따로 반영하는 정기 지출이 두 번 빠지지 않게 한다. 주 3회 4,500원 커피처럼 한 달에 여러 번 나오는
+ *       같은 가격 소비는 생활비에 남긴다(S15P31E103-295).</li>
  *   <li><b>출처별 기간(계좌마다)</b>: REAL은 그 계좌 체크카드의 첫 YAMU 결제일(한국 날짜)부터 toDate까지, SEED는 그 계좌
  *       체크카드의 첫 SEED 결제일부터 가장 이른 등록일 전날(등록한 카드가 없으면 toDate)까지 매일 한 줄을 준다(2026-11-04 결정).
  *       등록만 하고 결제하지 않은 기간은 YAMU를 쓰지 않은 것인지 알 수 없어 줄을 주지 않는다(0원으로 확정하지 않음).
@@ -117,10 +117,10 @@ class PaymentLivingCostReader implements LivingCostReader {
                         "SEED".equals(rs.getString("source")) ? Origin.SEED : Origin.REAL,
                         "LIVING".equals(rs.getString("spending_class"))));
 
-        Map<RecurringKey, Set<YearMonth>> monthsByKey = new HashMap<>();
+        Map<RecurringKey, Map<YearMonth, Integer>> countsByKey = new HashMap<>();
         for (Payment payment : payments) {
-            monthsByKey.computeIfAbsent(payment.recurringKey(), key -> new HashSet<>())
-                    .add(YearMonth.from(payment.date()));
+            countsByKey.computeIfAbsent(payment.recurringKey(), key -> new HashMap<>())
+                    .merge(YearMonth.from(payment.date()), 1, Integer::sum);
         }
 
         List<DailySpending> days = new ArrayList<>();
@@ -132,7 +132,7 @@ class PaymentLivingCostReader implements LivingCostReader {
                 Range range = coverage.get(payment.origin());
                 if (payment.accountId() != accountId.longValue() || !payment.living() || range == null
                         || !range.contains(payment.date())
-                        || recurring(monthsByKey.get(payment.recurringKey()), YearMonth.from(payment.date()))) {
+                        || recurring(countsByKey.get(payment.recurringKey()), YearMonth.from(payment.date()))) {
                     continue;
                 }
                 sums.computeIfAbsent(payment.origin(), key -> new TreeMap<>())
@@ -172,12 +172,24 @@ class PaymentLivingCostReader implements LivingCostReader {
         return coverage;
     }
 
-    /** 그 달과 앞 5개 달 중 같은 카드·가맹점·금액이 나온 서로 다른 달이 3개 이상인지. */
-    private static boolean recurring(Set<YearMonth> months, YearMonth month) {
+    /**
+     * 그 달과 앞 5개 달 중 같은 카드·가맹점·금액이 나온 서로 다른 달이 3개 이상이고, 그중 두 번 이상 나온 달이 없는지.
+     *
+     * @param countsByMonth 같은 키의 달별 승인 결제 수
+     */
+    private static boolean recurring(Map<YearMonth, Integer> countsByMonth, YearMonth month) {
         YearMonth first = month.minusMonths(RECURRING_WINDOW_MONTHS - 1);
-        long count = months.stream().filter(candidate -> !candidate.isBefore(first) && !candidate.isAfter(month))
-                .count();
-        return count >= RECURRING_MIN_MONTHS;
+        int months = 0;
+        for (Map.Entry<YearMonth, Integer> entry : countsByMonth.entrySet()) {
+            if (entry.getKey().isBefore(first) || entry.getKey().isAfter(month)) {
+                continue;
+            }
+            if (entry.getValue() > 1) {
+                return false;
+            }
+            months++;
+        }
+        return months >= RECURRING_MIN_MONTHS;
     }
 
     private static LocalDate korean(LocalDateTime utc) {

@@ -1,5 +1,6 @@
 package com.yamu.be.payment.history;
 
+import com.yamu.be.forecast.SpendingClassifier;
 import com.yamu.be.global.common.ApiResponse;
 import com.yamu.be.global.common.PageResponse;
 import com.yamu.be.global.security.AuthUser;
@@ -37,10 +38,13 @@ class PaymentHistoryController {
 
     private final PaymentHistoryService service;
     private final PaymentExportService export;
+    private final SpendingClassifier classifier;
 
-    PaymentHistoryController(PaymentHistoryService service, PaymentExportService export) {
+    PaymentHistoryController(PaymentHistoryService service, PaymentExportService export,
+            SpendingClassifier classifier) {
         this.service = service;
         this.export = export;
+        this.classifier = classifier;
     }
 
     @Operation(summary = "결제 내역 목록 조회",
@@ -70,6 +74,9 @@ class PaymentHistoryController {
             @RequestParam(defaultValue = "" + PageResponse.DEFAULT_SIZE)
             @Min(value = 1, message = "size는 1 이상입니다.")
             @Max(value = PageResponse.MAX_SIZE, message = "size는 100 이하입니다.") int size) {
+        // 소비 분류 필터·byClass가 비지 않게, 읽기 직전에 이 사용자의 미분류 승인 결제를 분류한다(잔고예보와 같은 방식, 2026-11-06 BE 4 결정).
+        // 분류는 UPDATE라 읽기 전용 트랜잭션인 service.list 밖(여기)에서 부른다. 입력 검증보다 먼저라 잘못된 요청에도 분류는 일어난다
+        classifier.classify(me.userId());
         return ApiResponse.ok(service.list(me, yearMonth, from, to, userCardId, status, source,
                 new PaymentHistoryService.Conditions(q, categoryCode, spendingClass, channel, benefitStatus), page, size));
     }
@@ -93,6 +100,8 @@ class PaymentHistoryController {
             @RequestParam(required = false) String spendingClass,
             @RequestParam(required = false) BenefitStatus benefitStatus,
             @RequestParam(required = false) PaymentChannel channel) {
+        // 목록과 같이 내려받기 직전에 분류한다(spendingClass 칸·필터). export는 읽기 전용 트랜잭션이라 그 밖에서 부른다
+        classifier.classify(me.userId());
         PaymentExportService.CsvFile file = export.export(me, yearMonth, from, to, userCardId, status, source,
                 new PaymentHistoryService.Conditions(q, categoryCode, spendingClass, channel, benefitStatus));
         return ResponseEntity.ok()

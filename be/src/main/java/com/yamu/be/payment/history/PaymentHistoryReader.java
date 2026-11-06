@@ -78,6 +78,8 @@ class PaymentHistoryReader {
     /**
      * 목록 조건(v0.3.1 보완 포함). q는 가맹점명·메모 부분 일치이고, 숫자만이면 결제 금액·승인액이 같은 결제도 찾는다.
      * 업종 코드는 접두어 일치다. LIKE 특수문자는 {@link Filter}가 막아 그대로 찾는다.
+     * 표 기본 정렬 규칙(utf8mb4_0900_bin)은 대소문자를 가려서, 검색은 utf8mb4_0900_ai_ci로 비교한다("starbucks"로 "Starbucks"를 찾음).
+     * 앞에 %가 붙는 부분 일치라 원래 색인을 쓰지 못하므로 정렬 규칙을 바꿔도 비용은 같다.
      */
     private static final String FILTER = """
             where p.user_id = :userId
@@ -86,7 +88,8 @@ class PaymentHistoryReader {
               and (:until is null or p.requested_at < :until)
               and (:userCardId is null or p.user_card_id = :userCardId)
               and (:source is null or p.source = :source)
-              and (:qLike is null or %1$s like :qLike or p.memo like :qLike
+              and (:qLike is null or (%1$s) collate utf8mb4_0900_ai_ci like :qLike
+                   or p.memo collate utf8mb4_0900_ai_ci like :qLike
                    or (:qAmount is not null and (p.requested_amount = :qAmount or p.approved_amount = :qAmount)))
               and (:categoryPrefix is null or %2$s like :categoryPrefix)
               and (:spendingClass is null or p.spending_class = :spendingClass)

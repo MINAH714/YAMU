@@ -85,7 +85,7 @@ class BenefitCompositionTest {
             assertThat(g.benefitIds()).containsExactly(1L,2L); assertThat(g.totalAmount()).isEqualByComparingTo("1800");
         });
         assertThat(result.limitUses()).extracting(CardBenefitCalculator.LimitUse::limitId).containsExactly(9L);
-        var input=new RecommendationInput(1,1,noriTx,null,List.of(new CardCandidate(1,1,CardType.CREDIT,
+        var input=new RecommendationInput(1L,1,noriTx,null,List.of(new CardCandidate(1,1,CardType.CREDIT,
                 com.yamu.be.card.domain.CardRegistrationStatus.ACTIVE,com.yamu.be.card.domain.CardIssuerStatus.NORMAL,Availability.AVAILABLE,null,policy,null,0,null)));
         assertThat(new RecommendationSelector().select(input).status()).isEqualTo(RecommendationSelector.Status.READY);
         var sufficient=policy(List.of(mobile,subscription),List.of(limit(8,Unit.KRW,3000,0),limit(7,Unit.KRW,2000,0),limit(9,Unit.KRW,3000,0)),ApplicationMode.STACK,Map.of());

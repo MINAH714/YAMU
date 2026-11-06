@@ -65,6 +65,6 @@ final class RecommendationFixtures {
     }
 
     static RecommendationInput input(Long defaultCard, CardCandidate... cards) {
-        return new RecommendationInput(100, 1, transaction(), defaultCard, List.of(cards));
+        return new RecommendationInput(100L, 1, transaction(), defaultCard, List.of(cards));
     }
 }

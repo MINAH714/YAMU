@@ -115,7 +115,8 @@ class PaymentHistoryService {
             endInclusive = month.atEndOfMonth();
         }
         String q = conditions.q() == null || conditions.q().isBlank() ? null : conditions.q().strip();
-        if (q != null && q.length() > MAX_QUERY_LENGTH) {
+        // 글자 수는 코드포인트로 센다. String.length()는 이모지를 2로 세어 실제보다 빨리 400이 난다(메모 100자와 같은 기준)
+        if (q != null && q.codePointCount(0, q.length()) > MAX_QUERY_LENGTH) {
             throw invalid("q", "검색어는 " + MAX_QUERY_LENGTH + "자 이하로 적어 주세요.");
         }
         String category = conditions.categoryCode() == null || conditions.categoryCode().isBlank() ? null
