@@ -114,6 +114,38 @@ class LivingCostProjectorTest {
     }
 
     @Test
+    void 기록_60일_미만은_AI_30일이_TSB_30일보다_낮으면_TSB_30일을_쓴다() {
+        FakeAi ai = new FakeAi(Map.of(14, 1_000L, 30, 1_000L));
+        // A: 어제까지 59일 기록(MEDIUM), B: 60일 기록(HIGH). 둘 다 날마다 5,000원
+        List<DailySpending> rows = Stream.concat(
+                everyDay(A, YESTERDAY.minusDays(58), TODAY, 5_000, Origin.REAL).stream(),
+                everyDay(B, YESTERDAY.minusDays(59), TODAY, 5_000, Origin.REAL).stream()).toList();
+
+        LivingCostProjector.Projection result = new LivingCostProjector(ai).project(List.of(A, B), rows, TODAY, 30);
+
+        // A: TSB 하루 4,999.99원 → 7일 35,000원, 30일 150,000원. AI 30일 1,000원 대신 150,000원을 써
+        //    31일 = 150,000 × 31/30 = 155,000원, 오늘 몫 5,000원을 빼 150,000 ÷ 30 = 5,000원
+        assertThat(result.byAccount().get(A).method()).isEqualTo("ML_V1");
+        assertThat(result.byAccount().get(A).dailyAmount()).isEqualTo(5_000L);
+        // B: 하한 없음. 30일은 14일 점(TSB 7일 35,000원으로 올린 값) 높이 → 31일 36,167원, 오늘 몫 1,167원을 빼 ÷ 30 = 1,167원
+        assertThat(result.byAccount().get(B).method()).isEqualTo("ML_V1");
+        assertThat(result.byAccount().get(B).dailyAmount()).isEqualTo(1_167L);
+    }
+
+    @Test
+    void 기록_60일_미만이어도_AI_30일이_TSB보다_크면_AI를_쓴다() {
+        FakeAi ai = new FakeAi(Map.of(14, 1_000L, 30, 300_000L));
+
+        LivingCostProjector.AccountProjection result = new LivingCostProjector(ai)
+                .project(List.of(A), everyDay(A, YESTERDAY.minusDays(29), TODAY, 5_000, Origin.REAL), TODAY, 30)
+                .byAccount().get(A);
+
+        // 기록 30일, TSB 30일 149,814원 < AI 300,000원 → 31일 310,000원, 오늘 5,000원을 빼 305,000 ÷ 30 = 10,167원
+        assertThat(result.confidence()).isEqualTo(Confidence.MEDIUM);
+        assertThat(result.dailyAmount()).isEqualTo(10_167L);
+    }
+
+    @Test
     void AI가_한_번이라도_실패하면_그_요청의_모든_계좌를_TSB로_계산한다() {
         // 14일은 답하고 30일은 실패
         FakeAi ai = new FakeAi(Map.of(14, 100_000L));

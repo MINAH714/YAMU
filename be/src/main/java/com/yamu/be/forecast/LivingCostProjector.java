@@ -21,7 +21,8 @@ import org.springframework.stereotype.Component;
  *   <li>방식: 기록이 {@value #AI_MIN_HISTORY_DAYS}일 이상이고 90일 안에 사용이 있으면 AI(14·30일 모델), 아니면 TSB.
  *       AI 서버가 없거나 실패·계약 위반이면 그 요청의 모든 계좌를 TSB로 계산한다.</li>
  *   <li>기간 n일 값: (0, 0)·(7, TSB 7일)·(14, AI 14일)·(30, AI 30일)을 직선으로 잇고 앞 점보다 낮은 점은 올린다.
- *       30일보다 길면 30일 값의 하루 평균 × n이다. TSB만 쓰는 계좌는 TSB 하루 예측 × n이다.</li>
+ *       30일보다 길면 30일 값의 하루 평균 × n이다. TSB만 쓰는 계좌는 TSB 하루 예측 × n이다.
+ *       기록 {@value #HIGH_CONFIDENCE_DAYS}일 미만인 AI 계좌는 30일 점을 max(AI 30일, TSB 30일)로 쓴다.</li>
  *   <li>잔고예보는 내일부터 N일 동안 생활비를 빼는데, 어제까지의 기록으로 한 예측은 오늘부터다. 그래서 오늘을 포함한 N+1일을
  *       예측하고, 오늘 이미 쓴 금액을 오늘 몫(N+1일 예측 ÷ (N+1))까지만 뺀 뒤 N으로 나눠 하루 값을 만든다. 예상 생활비는
  *       하루 값 × N이다(잔고예보 선과 같은 값).</li>
@@ -149,8 +150,18 @@ class LivingCostProjector {
         }
         double tsbDaily = TsbEstimator.daily(history.daily());
         String method = aiPoint == null ? METHOD_TSB : METHOD_AI;
-        long upcoming = aiPoint == null ? round(tsbDaily * predictDays)
-                : interpolate(round(tsbDaily * 7), aiPoint[0], aiPoint[1], predictDays);
+        long upcoming;
+        if (aiPoint == null) {
+            upcoming = round(tsbDaily * predictDays);
+        } else {
+            long a30 = aiPoint[1];
+            if (a30 >= 0 && history.historyDays() < HIGH_CONFIDENCE_DAYS) {
+                // 기록 14~59일은 AI 30일 예측이 생활비를 적게 보는 쪽으로 치우친다(기록 30일에서 −10~−14%).
+                // 그래서 TSB 30일보다 낮으면 TSB 30일을 쓴다. AI가 더 크게 보면 AI 그대로다(!148 리뷰, 2026-11-06 결정)
+                a30 = Math.max(a30, round(tsbDaily * 30));
+            }
+            upcoming = interpolate(round(tsbDaily * 7), aiPoint[0], a30, predictDays);
+        }
         // 오늘 이미 쓴 돈은 오늘 몫(N+1일 예측 ÷ (N+1))까지만 뺀다. 오늘 크게 써도 내일부터의 생활비가 줄지 않게 한다(!136 리뷰)
         long todayShare = roundedDivide(upcoming, predictDays);
         long daily = horizonDays == 0 ? 0
