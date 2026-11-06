@@ -57,10 +57,13 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Supplier;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Primary;
@@ -73,6 +76,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.context.event.ApplicationEvents;
 import org.springframework.test.context.event.RecordApplicationEvents;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.util.StringUtils;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.utility.DockerImageName;
@@ -86,6 +90,7 @@ import org.testcontainers.utility.DockerImageName;
  */
 @AutoConfigureMockMvc
 @RecordApplicationEvents
+@ExtendWith(OutputCaptureExtension.class)
 @TestPropertySource(properties = "spring.application.name=yamu-bill-withdraw-test")
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 class BillWithdrawIntegrationTest extends MySqlTestSupport {
@@ -354,7 +359,8 @@ class BillWithdrawIntegrationTest extends MySqlTestSupport {
     }
 
     @Test
-    void 다시_보낸_출금도_확인되지_않으면_더_보내지_않고_CONFIRMED로_두어_운영이_확인한다() {
+    void 다시_보낸_출금도_확인되지_않으면_더_보내지_않고_CONFIRMED로_두어_운영이_확인하며_error_로그는_한_번만_남긴다(
+            CapturedOutput output) {
         Bill bill = confirmed(30_000);
         answers.add(BillWithdrawIntegrationTest::unknown);
         answers.add(BillWithdrawIntegrationTest::unknown);
@@ -364,6 +370,8 @@ class BillWithdrawIntegrationTest extends MySqlTestSupport {
         job.recoverInFlight();  // 한 번 다시 보냄
         clock.advance(PAST_GRACE);
         JobRunReport gaveUp = job.recoverInFlight();
+        clock.advance(Duration.ofMinutes(10));
+        JobRunReport next = job.recoverInFlight();
         clock.advance(Duration.ofDays(1));
         runNow();
         job.recoverInFlight();
@@ -372,11 +380,94 @@ class BillWithdrawIntegrationTest extends MySqlTestSupport {
             assertThat(item.outcome()).isEqualTo(JobRunReport.Outcome.FAILED);
             assertThat(item.message()).contains("운영 확인");
         });
+        // 정기 작업 결과에는 매번 운영 확인으로 나오지만 error 로그는 처음 한 번만(!139 리뷰)
+        assertThat(next.results()).singleElement()
+                .satisfies(item -> assertThat(item.outcome()).isEqualTo(JobRunReport.Outcome.FAILED));
+        assertThat(StringUtils.countOccurrencesOf(output.getAll(),
+                "청구 출금을 자동으로 판단하지 않음, CONFIRMED 유지 운영 확인 cardBillId=" + bill.id() + " ")).isEqualTo(1);
+        assertThat(output.getAll()).contains("운영 확인으로 알린 청구서라 다시 알리지 않음 cardBillId=" + bill.id());
         verify(transfer, times(2)).withdraw(anyString(), anyString(), anyLong(), any(), anyString());
         Map<String, Object> row = billRow(bill.id());
         assertThat(row.get("status")).isEqualTo("CONFIRMED");
         assertThat(row.get("withdrawal_retried_at")).isNotNull();
         assertThat(row.get("failed_at")).isNull();
+    }
+
+    @Test
+    void 다시_보낸_출금이_거절됐는데_앞_요청이_늦게_나갔으면_미납이_아니라_PAID다() {
+        Bill bill = confirmed(30_000);
+        TransferTag tag = TransferTag.bill(bill.id());
+        answers.add(BillWithdrawIntegrationTest::unknown);  // 첫 요청: 응답을 못 받았고 확인 때도 아직 처리 전
+        answers.add(() -> {
+            land(tag, 30_000);  // 은행이 첫 요청을 늦게 처리해 잔액을 가져갔고
+            return rejected(RejectReason.INSUFFICIENT_BALANCE, "A1014");  // 그래서 재시도는 잔액 부족으로 거절
+        });
+
+        runNow();
+        clock.advance(PAST_GRACE);
+        JobRunReport recovered = job.recoverInFlight();
+
+        assertThat(recovered.results()).singleElement().satisfies(item -> assertThat(item.result()).isEqualTo("PAID"));
+        verify(transfer, times(2)).withdraw(anyString(), anyString(), anyLong(), eq(tag), anyString());
+        Map<String, Object> row = billRow(bill.id());
+        assertThat(row.get("status")).isEqualTo("PAID");
+        assertThat(row.get("failed_at")).isNull();
+        assertThat(events.stream(BillUnpaidEvent.class)).isEmpty();
+        assertThat(events.stream(BillWithdrawnEvent.class)).hasSize(1);
+        assertThat(bank).hasSize(1);
+    }
+
+    @Test
+    void 다시_보낸_출금이_거절되고_앞_요청의_출금도_없으면_미납이다() {
+        Bill bill = confirmed(30_000);
+        answers.add(BillWithdrawIntegrationTest::unknown);
+        answers.add(() -> rejected(RejectReason.INSUFFICIENT_BALANCE, "A1014"));
+
+        runNow();
+        clock.advance(PAST_GRACE);
+        JobRunReport recovered = job.recoverInFlight();
+
+        assertThat(recovered.results()).singleElement().satisfies(item -> assertThat(item.result()).isEqualTo("UNPAID"));
+        // 첫 실행·복구 전·거절 뒤 한 번 더
+        verify(transfer, times(3)).findAllByTag(anyString(), anyString(), eq(TransferTag.bill(bill.id())),
+                any(LocalDate.class), any(LocalDate.class));
+        assertThat(billRow(bill.id()).get("status")).isEqualTo("UNPAID");
+        assertThat(events.stream(BillUnpaidEvent.class)).singleElement()
+                .satisfies(event -> assertThat(event.reason()).isEqualTo(RejectReason.INSUFFICIENT_BALANCE));
+    }
+
+    @Test
+    void 다시_보낸_출금이_거절된_뒤_거래내역을_확인하지_못하면_미납으로_정하지_않고_운영이_확인한다() {
+        Bill bill = confirmed(30_000);
+        answers.add(BillWithdrawIntegrationTest::unknown);
+        answers.add(() -> rejected(RejectReason.INSUFFICIENT_BALANCE, "A1014"));
+        AtomicInteger lookups = new AtomicInteger();
+        doAnswer(inv -> {
+            if (lookups.incrementAndGet() == 3) {  // 거절 뒤 확인만 실패
+                throw new BusinessException(ErrorCode.FIN_API_UNAVAILABLE);
+            }
+            return matching(inv.getArgument(2));
+        }).when(transfer).findAllByTag(anyString(), anyString(), any(TransferTag.class), any(LocalDate.class),
+                any(LocalDate.class));
+
+        runNow();
+        clock.advance(PAST_GRACE);
+        JobRunReport recovered = job.recoverInFlight();
+
+        assertThat(recovered.results()).singleElement().satisfies(item -> {
+            assertThat(item.outcome()).isEqualTo(JobRunReport.Outcome.FAILED);
+            assertThat(item.message()).contains("운영 확인");
+        });
+        Map<String, Object> row = billRow(bill.id());
+        assertThat(row.get("status")).isEqualTo("CONFIRMED");
+        assertThat(row.get("failed_at")).isNull();
+        assertThat(events.stream(BillUnpaidEvent.class)).isEmpty();
+
+        // 다음 복구는 재시도까지 한 청구서로 보고 더 보내지 않는다
+        clock.advance(PAST_GRACE);
+        job.recoverInFlight();
+        verify(transfer, times(2)).withdraw(anyString(), anyString(), anyLong(), any(), anyString());
+        assertThat(billRow(bill.id()).get("status")).isEqualTo("CONFIRMED");
     }
 
     @Test

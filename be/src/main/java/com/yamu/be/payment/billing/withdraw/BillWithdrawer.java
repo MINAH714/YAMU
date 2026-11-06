@@ -26,6 +26,8 @@ import java.time.format.DateTimeParseException;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Component;
@@ -43,7 +45,8 @@ import org.springframework.transaction.support.TransactionTemplate;
  * ④ 없으면: 첫 출금이면 새 요청 번호를 청구서에 먼저 커밋하고 출금. 요청한 출금이 유예 뒤에도 없으면 새 번호로 한 번만 다시 보내고
  *    다시 보낸 시각을 남긴다. 다시 보낸 출금도 없으면 더 보내지 않고 CONFIRMED로 둔 채 운영 로그
  * ⑤ 성공 → PAID·회차 PAID·출금 전 취소 환급 확정(기한 = 출금일 + 3영업일)·이벤트
- *    은행 거절(모든 REJECTED) → UNPAID·출금 전 취소 환급 무효·이벤트. 자동으로 다시 출금하지 않는다
+ *    은행 거절(모든 REJECTED) → UNPAID·출금 전 취소 환급 무효·이벤트. 자동으로 다시 출금하지 않는다.
+ *    다시 보낸 출금이 거절되면 앞 요청이 늦게 나갔는지 태그를 한 번 더 찾는다. 있으면 PAID, 확인하지 못하면 CONFIRMED·운영 확인
  *    결과 불명 → 그대로(다음 실행이 ①③으로 확정) / 요청 안 감 → 남긴 번호를 지운다
  * </pre>
  *
@@ -72,6 +75,8 @@ public class BillWithdrawer {
     private final ApplicationEventPublisher events;
     private final TransactionTemplate transaction;
     private final Clock clock;
+    /** 운영 확인 error 로그를 이미 남긴 "청구서:사유". 운영 확인으로 멈춘 청구서만 쌓여 작다 */
+    private final Set<String> reviewLogged = ConcurrentHashMap.newKeySet();
 
     public BillWithdrawer(CardBillRepository bills, BillItemRepository items, BillAccountReader accounts,
             SsafyTransferApi transfer, CanceledBillItemSettler settler, BusinessDayCalendar calendar,
@@ -141,23 +146,14 @@ public class BillWithdrawer {
                     e.getErrorCode());
             return Result.of(Kind.LOOKUP_FAILED, bill, "거래내역 조회에 실패했습니다. 다음 실행에 다시 확인합니다");
         }
-        if (found.size() > 1) {
-            return needsReview(bill, "청구 출금이 " + found.size() + "건(두 번 나갔을 수 있음)");
-        }
-        if (found.size() == 1) {
-            BankTransaction withdrawn = found.get(0);
-            if (withdrawn.amount() != bill.amount()) {
-                return needsReview(bill, "출금액 " + withdrawn.amount() + "원이 확정액 " + bill.amount() + "원과 다름");
-            }
-            log.info("청구 출금을 거래내역에서 찾음, 다시 보내지 않음 cardBillId={} tag={}", cardBillId, tag);
-            return paid(cardBillId, withdrawn.bankTransactionNo(), withdrawn.date());
+        Result settled = settleFound(bill, tag, found);
+        if (settled != null) {
+            return settled;
         }
 
         boolean retry = bill.finRequestNo() != null;
         if (retry && bill.retried()) {
-            log.error("다시 보낸 청구 출금도 거래내역에 없어 더 보내지 않음, CONFIRMED 유지 운영 확인 cardBillId={} tag={}",
-                    cardBillId, tag);
-            return Result.of(Kind.NEEDS_REVIEW, bill, "다시 보낸 출금도 확인되지 않아 더 보내지 않습니다(운영 확인)");
+            return needsReview(bill, "다시 보낸 출금도 거래내역에 없어 더 보내지 않음");
         }
         if (retry) {
             log.warn("요청한 청구 출금이 유예 뒤에도 거래내역에 없어 새 번호로 한 번 다시 보냄 cardBillId={} tag={}", cardBillId,
@@ -183,6 +179,13 @@ public class BillWithdrawer {
                 yield paid(cardBillId, result.bankTransactionNo(), result.transactionDate());
             }
             case REJECTED -> {
+                if (retry) {
+                    // 첫 요청이 확인 뒤에 늦게 처리돼 잔액을 가져가는 바람에 재시도가 거절됐을 수 있다. 미납으로 바꾸기 전에 태그를 한 번 더 찾는다
+                    Result late = lateFirstWithdrawal(bill, access, tag, result);
+                    if (late != null) {
+                        yield late;
+                    }
+                }
                 log.warn("청구 출금 거절, 미납으로 바꿈 cardBillId={} reason={} code={}", cardBillId, result.rejectReason(),
                         result.finCode());
                 yield unpaid(cardBillId, requestNo, result.rejectReason());
@@ -198,6 +201,51 @@ public class BillWithdrawer {
                 yield Result.of(Kind.NOT_SENT, bill, "출금 요청이 금융망에 가지 않았습니다. 다음 실행에 다시 보냅니다");
             }
         };
+    }
+
+    /**
+     * 거래내역에서 찾은 이 청구서의 출금으로 결과를 정한다. 1건이고 금액이 확정액과 같으면 PAID, 2건 이상이거나 금액이 다르면
+     * CONFIRMED로 두고 운영 확인이다.
+     *
+     * @return 없으면 null(아직 나가지 않음)
+     */
+    private Result settleFound(Snapshot bill, TransferTag tag, List<BankTransaction> found) {
+        if (found.isEmpty()) {
+            return null;
+        }
+        if (found.size() > 1) {
+            return needsReview(bill, "청구 출금이 " + found.size() + "건(두 번 나갔을 수 있음)");
+        }
+        BankTransaction withdrawn = found.get(0);
+        if (withdrawn.amount() != bill.amount()) {
+            return needsReview(bill, "출금액 " + withdrawn.amount() + "원이 확정액 " + bill.amount() + "원과 다름");
+        }
+        log.info("청구 출금을 거래내역에서 찾음, 다시 보내지 않음 cardBillId={} tag={}", bill.cardBillId(), tag);
+        return paid(bill.cardBillId(), withdrawn.bankTransactionNo(), withdrawn.date());
+    }
+
+    /**
+     * 다시 보낸 출금이 거절됐을 때 앞 요청이 늦게 처리됐는지 태그로 한 번 더 확인한다(!139 리뷰). 찾으면 PAID(또는 운영 확인)다.
+     * 확인하지 못하면 돈이 나갔을 수 있어 미납으로 확정하지 않고 CONFIRMED로 두어 운영이 확인한다. 이때 다음 실행은 재시도 뒤에도
+     * 출금이 없는 청구서로 보고 더 보내지 않는다.
+     *
+     * @return 앞 요청의 출금도 없으면 null(거절대로 미납)
+     */
+    private Result lateFirstWithdrawal(Snapshot bill, BankAccess access, TransferTag tag, TransferResult rejected) {
+        List<BankTransaction> found;
+        try {
+            found = transfer.findAllByTag(access.userKey(), access.accountNo(), tag,
+                    bill.withdrawalDate().minusDays(1), today());
+        } catch (BusinessException e) {
+            return needsReview(bill, "다시 보낸 출금이 거절(" + rejected.rejectReason() + ")됐는데 앞 요청이 늦게 나갔는지 "
+                    + "거래내역으로 확인하지 못함(" + e.getErrorCode() + ")");
+        }
+        Result settled = settleFound(bill, tag, found);
+        if (settled != null) {
+            log.warn("다시 보낸 청구 출금은 거절됐지만 앞 요청의 출금이 거래내역에 있음 cardBillId={} reason={} code={}",
+                    bill.cardBillId(), rejected.rejectReason(), rejected.finCode());
+        }
+        return settled;
     }
 
     /** 읽은 뒤 아무도 바꾸지 않았으면 요청 번호를 남긴다. 이 커밋이 같은 청구서를 두 번 보내지 않게 하는 선점이다. */
@@ -302,8 +350,16 @@ public class BillWithdrawer {
                 .orElseThrow(() -> new IllegalStateException("청구서가 없습니다 (청구서 " + cardBillId + ")"));
     }
 
+    /**
+     * CONFIRMED로 두고 운영 확인으로 넘긴다. 결과 불명 복구가 10분마다 같은 청구서를 다시 보므로, error 로그는 청구서·사유마다 이 서버에서
+     * 처음 한 번만 남기고 그 뒤는 info다(!139 리뷰). 서버를 다시 켜면 한 번 더 error가 남는다. 정기 작업 결과에는 매번 FAILED로 나온다.
+     */
     private Result needsReview(Snapshot bill, String what) {
-        log.error("청구 출금을 자동으로 판단하지 않음, CONFIRMED 유지 운영 확인 cardBillId={} {}", bill.cardBillId(), what);
+        if (reviewLogged.add(bill.cardBillId() + ":" + what)) {
+            log.error("청구 출금을 자동으로 판단하지 않음, CONFIRMED 유지 운영 확인 cardBillId={} {}", bill.cardBillId(), what);
+        } else {
+            log.info("운영 확인으로 알린 청구서라 다시 알리지 않음 cardBillId={} {}", bill.cardBillId(), what);
+        }
         return Result.of(Kind.NEEDS_REVIEW, bill, what + "(운영 확인)");
     }
 
