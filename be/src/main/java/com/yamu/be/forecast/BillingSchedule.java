@@ -2,6 +2,8 @@ package com.yamu.be.forecast;
 
 import com.yamu.be.card.domain.CardType;
 import com.yamu.be.global.calendar.BusinessDayCalendar;
+import com.yamu.be.payment.billing.BillingCycle;
+import com.yamu.be.payment.billing.InstallmentPlan;
 import java.time.LocalDate;
 import java.time.YearMonth;
 import java.util.ArrayList;
@@ -17,6 +19,8 @@ import java.util.List;
  *       아니면 다음 달 결제일에 청구된다. 할부(POL-013)의 k번째 회차는 첫 청구 월에서 k−1달 뒤 결제일이다.
  *       회차마다 원래 결제일을 만든 뒤 비영업일이면 다음 영업일로 옮긴다. 옮긴 날이 다음 달이어도 청구 월은 그대로다.</li>
  *   <li>할부 금액은 똑같이 나누고 원 단위 나머지는 마지막 회차에 붙인다(수수료 0원).</li>
+ *   <li>신용카드 회차는 결제 승인과 같은 BE 2 {@link InstallmentPlan}이 계산한다(2026-11-06, -132). 그래서 원금이 개월 수보다
+ *       작으면(즉시할인으로 원금이 크게 준 할부) 앞 회차가 0원일 수 있다.</li>
  * </ul>
  *
  * <p>amount는 승인 금액이다. 즉시할인은 부르는 쪽이 이미 뺀 값이고, 청구할인은 반영하지 않는다(청구 단위 할인은 BE 2 청구가 맡음).
@@ -44,7 +48,7 @@ public final class BillingSchedule {
      * @param paymentDay        신용카드 결제일(1~27). 체크카드는 쓰지 않는다
      * @param billingCutoffDays 신용카드 이용기간 마감 일수 N(1~31). null이면 14일
      * @param purchaseDate      한국 날짜 기준 구매일
-     * @param amount            승인 금액(원). 회차마다 1원 이상이 되도록 할부 개월 수 이상
+     * @param amount            승인 금액(원, 1원 이상). 신용 할부는 개월 수보다 작으면 앞 회차가 0원이다
      * @param installmentMonths 일시불 1, 할부 2~12. 체크카드는 1만
      * @return 회차 순서대로의 출금 일정
      * @throws IllegalArgumentException 계산이 성립하지 않는 값
@@ -59,10 +63,6 @@ public final class BillingSchedule {
         }
         if (installmentMonths < 1 || installmentMonths > MAX_INSTALLMENT_MONTHS) {
             throw new IllegalArgumentException("할부 개월 수는 1(일시불)~12다: " + installmentMonths);
-        }
-        // 회차마다 1원 이상 빠져야 한다. 0원 출금 회차는 시뮬레이션·예보에 보일 의미가 없다.
-        if (amount < installmentMonths) {
-            throw new IllegalArgumentException("할부 회차마다 1원 이상이어야 한다.");
         }
         if (cardType == CardType.CHECK) {
             if (installmentMonths != 1) {
@@ -82,30 +82,21 @@ public final class BillingSchedule {
         //  BE 1 카드 수정은 결제일을 바로 바꾸지만, BE 2는 그달 청구서가 이미 있으면 그 청구서(만들 때 저장한 옛 출금일)에 붙인다.
         //  그래서 결제일을 바꾼 뒤에는 이 계산과 청구서 출금일이 다를 수 있다(예: 12월 청구서 12/14가 있는데 결제일 25일로 바꾸면 여기는 12/25).
         //  언제부터 새 결제일을 쓸지 BE 1·BE 2·BE 4가 정하면 그 규칙으로 바꾼다(CardManagementService.update 주석).
-        YearMonth firstMonth = YearMonth.from(purchaseDate);
-        while (purchaseDate.isAfter(firstMonth.atDay(paymentDay).minusDays(cutoffDays))) {
-            firstMonth = firstMonth.plusMonths(1);
-        }
-        long base = amount / installmentMonths;
+        InstallmentPlan plan = InstallmentPlan.of(amount, installmentMonths, BillingCycle.of(paymentDay, cutoffDays),
+                purchaseDate, calendar);
         List<Withdrawal> withdrawals = new ArrayList<>();
-        for (int no = 1; no <= installmentMonths; no++) {
-            // 이전 회차의 실제 출금일이 아니라 청구 월의 원래 결제일에서 다시 시작한다.
-            YearMonth billingMonth = firstMonth.plusMonths(no - 1L);
-            LocalDate paymentDate = billingMonth.atDay(paymentDay);
-            long installmentAmount = no < installmentMonths ? base : amount - base * (installmentMonths - 1);
-            withdrawals.add(new Withdrawal(no, installmentMonths, billingMonth, paymentDate,
-                    businessDayOnOrAfter(paymentDate), installmentAmount));
+        for (InstallmentPlan.Installment installment : plan.installments()) {
+            LocalDate paymentDate = installment.cycle().paymentDate();
+            LocalDate withdrawalDate = installment.withdrawalDate();
+            if (withdrawalDate == null || withdrawalDate.isBefore(paymentDate)) {
+                throw new IllegalStateException("영업일 달력이 계약과 다른 날을 돌려줬다.");
+            }
+            withdrawals.add(new Withdrawal(installment.no(), installmentMonths, installment.billingMonth(), paymentDate,
+                    withdrawalDate, installment.principal()));
         }
         return List.copyOf(withdrawals);
     }
 
-    private LocalDate businessDayOnOrAfter(LocalDate date) {
-        LocalDate businessDay = calendar.businessDayOnOrAfter(date);
-        if (businessDay == null || businessDay.isBefore(date)) {
-            throw new IllegalStateException("영업일 달력이 계약과 다른 날을 돌려줬다.");
-        }
-        return businessDay;
-    }
 
     /**
      * 출금 한 회차.
