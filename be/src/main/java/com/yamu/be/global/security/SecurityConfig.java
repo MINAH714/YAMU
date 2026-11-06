@@ -4,6 +4,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import java.util.Arrays;
 import java.util.stream.Stream;
 import lombok.RequiredArgsConstructor;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
@@ -22,8 +23,12 @@ import org.springframework.security.web.util.matcher.RequestMatcher;
  *
  * <p>JWT 검증 필터는 Spring Resource Server가 붙인다. 직접 짠 것은 토큰 → {@link AuthUser} 변환과 401 응답 모양뿐이다.
  * 공개 URL 외에는 모두 인증이 필요하다. 인증 없이 열어야 하는 API가 생기면 {@link #PUBLIC_POST}에 추가한다.
+ *
+ * <p>웹 서버 없이 띄울 때(가입 시연 페르소나 시드 {@code persona-seed} 프로필의 {@code web-application-type: none})는
+ * 받을 요청이 없고 {@code HttpSecurity}도 만들어지지 않으므로 이 설정을 건너뛴다(S15P31E103-316).
  */
 @Configuration
+@ConditionalOnWebApplication(type = ConditionalOnWebApplication.Type.SERVLET)
 @RequiredArgsConstructor
 public class SecurityConfig {
 
