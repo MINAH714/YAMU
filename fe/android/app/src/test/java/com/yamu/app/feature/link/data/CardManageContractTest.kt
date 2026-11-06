@@ -96,6 +96,51 @@ class CardManageContractTest {
         assertEquals("생활비", dto.copy(nickname = "생활비").toLinked().displayName)
     }
 
+    /** BE !150 CardManagementIntegrationTest와 같은 값 — 기준 30만 · 50만 · 70만 */
+    private fun listCard(performance: String?, benefits: String = "[]") = YamuJson.decodeFromString<CardsResponse>(
+        """{"cards":[{"userCardId":1,"nickname":null,"issuer":{"code":"KB","name":"KB국민카드","color":"#FFBC00"},"productName":"KB 카드",
+           "cardType":"CREDIT","maskedNumber":"9410-****-****-1021","status":"ACTIVE","issuerStatus":"NORMAL",
+           "mainBenefits":$benefits,"performance":$performance,"billingSummary":null,"isDefault":false,"imageUrl":null}],"dataSyncedAt":null}""",
+    ).cards.single().toLinked()
+
+    @Test fun `목록 실적 — 첫 구간 전이면 첫 기준이 목표`() {
+        val card = listCard("""{"yearMonth":"2026-11","targetAmount":300000,"recognizedAmount":280000,"achievementRate":93.3,"remainingAmount":20000}""")
+        assertEquals(300_000L, card.targetAmount)
+        assertEquals(93.3, card.achievementRate!!, 0.0)
+        assertEquals(20_000L, card.remainingAmount)
+        assertEquals("목표 30만 원 · 달성률 93.3% · 2만 원 남음", card.performanceLine())
+    }
+
+    @Test fun `목록 실적 — 한 구간을 넘기면 다음 구간이 목표로 보인다`() {
+        val card = listCard("""{"yearMonth":"2026-11","targetAmount":700000,"recognizedAmount":550000,"achievementRate":78.5,"remainingAmount":150000}""")
+        assertEquals("목표 70만 원 · 달성률 78.5% · 15만 원 남음", card.performanceLine())
+    }
+
+    @Test fun `목록 실적 — 다 넘으면 남은 금액 없이 100%`() {
+        val card = listCard("""{"yearMonth":"2026-11","targetAmount":700000,"recognizedAmount":800000,"achievementRate":100.0,"remainingAmount":0}""")
+        assertEquals("목표 70만 원 · 달성률 100%", card.performanceLine())
+    }
+
+    @Test fun `목록 실적 — 목표가 없거나 실적 행이 없으면 줄을 그리지 않는다`() {
+        assertNull(listCard("""{"yearMonth":"2026-11","targetAmount":null,"recognizedAmount":50000,"achievementRate":null,"remainingAmount":null}""").performanceLine())
+        assertNull(listCard(null).performanceLine())
+    }
+
+    @Test fun `목록 주요 혜택 — 받은 순서대로, 없으면 줄을 그리지 않는다`() {
+        assertEquals("편의점 할인 · 주유 할인 · 카페 할인", listCard(null, """["편의점 할인","주유 할인","카페 할인"]""").benefitsLine())
+        assertNull(listCard(null).benefitsLine())
+        assertNull(listCard(null, """[" "]""").benefitsLine())
+    }
+
+    @Test fun `목록 — 혜택 · 달성률 칸이 없는 옛 응답도 읽는다`() {
+        val old = YamuJson.decodeFromString<CardsResponse>(
+            """{"cards":[{"userCardId":1,"issuer":{"name":"KB국민카드"},"productName":"KB 카드","maskedNumber":"1021",
+               "performance":{"yearMonth":"2026-11","targetAmount":300000,"recognizedAmount":100000}}]}""",
+        ).cards.single().toLinked()
+        assertEquals("목표 30만 원", old.performanceLine())
+        assertNull(old.benefitsLine())
+    }
+
     @Test fun `해제 · 순서 오류 문장`() {
         assertEquals("출금이 끝나지 않은 청구가 있어 해제할 수 없어요", cardErrorMessage("CARD_HAS_OPEN_BILL"))
         assertEquals("다른 기기에서 카드가 바뀌었어요 · 순서를 다시 정해 주세요", cardErrorMessage("ORDER_INCOMPLETE"))

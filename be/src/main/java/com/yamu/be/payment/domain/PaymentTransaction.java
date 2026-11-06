@@ -18,6 +18,7 @@ import java.time.ZoneOffset;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
+import org.hibernate.annotations.DynamicUpdate;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 
@@ -26,8 +27,12 @@ import org.hibernate.type.SqlTypes;
  *
  * <p>사용자·카드·가맹점은 연관관계 대신 번호로 둔다. 결제 조건(금액·개월 수·채널·시설·POS 조건 근거)은 POS 최초 요청 값을
  * 보존하고 재시도·승인·취소가 그대로 쓴다. 승인 이후 칸(승인액·실적·출금 번호 등)은 Task 5.2.x에서 채운다.
+ *
+ * <p>{@code @DynamicUpdate}: 저장할 때 바뀐 칸만 쓴다. 메모(Task 5.3.5)와 소비 분류(BE4)는 이 엔티티를 거치지 않고 SQL로 그 칸만
+ * 고치는데, 모든 칸을 쓰면 그 사이 승인·취소가 저장할 때 읽어 둔 옛 값으로 덮어쓴다. 메모 칸은 엔티티에서 아예 쓰지 않는다(updatable=false).
  */
 @Entity
+@DynamicUpdate
 @Table(name = "payment_transaction")
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
@@ -138,8 +143,16 @@ public class PaymentTransaction extends BaseTimeEntity {
     @Column(name = "spending_class_source", length = 16)
     private String spendingClassSource;
 
-    @Column(length = 100)
+    /**
+     * 사용자 메모(최대 100자). 메모 API(Task 5.3.5)가 SQL로 이 칸과 {@link #memoUpdatedAt}만 고친다.
+     * 엔티티 저장으로는 쓰지 않는다(updatable=false). 그래서 승인·취소와 겹쳐도 서로 덮어쓰거나 version 충돌을 만들지 않는다.
+     */
+    @Column(length = 100, updatable = false)
     private String memo;
+
+    /** 메모를 남기거나 지운 마지막 시각(UTC). 고친 적 없으면 null */
+    @Column(name = "memo_updated_at", updatable = false)
+    private LocalDateTime memoUpdatedAt;
 
     @Version
     @Column(nullable = false)

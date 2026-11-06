@@ -12,7 +12,7 @@ import java.util.List;
  * @param schedule               가상 구매의 모든 출금 회차(기간 밖 포함)
  * @param comparison             선택 계좌 통합 기준 전후 비교
  * @param series                 통합 선의 날짜별 전후 잔액(기간의 모든 날짜)
- * @param outsideSelectionImpact 카드 출금 계좌가 선택 밖이면 그 영향. 선택 안이면 null
+ * @param outsideSelectionImpact 카드 출금 계좌가 선택 밖이면 그 영향. 선택 안이거나 빠지는 금액이 없으면 null
  * @param accountComparisons     선택 계좌별 전후 비교(선택 순서). 응답에 넣을지는 includeAccountDetails로 정한다
  */
 public record PurchaseSimulation(List<ScheduledWithdrawal> schedule, Comparison comparison, List<SeriesPoint> series,

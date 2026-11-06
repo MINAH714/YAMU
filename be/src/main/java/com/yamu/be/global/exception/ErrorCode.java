@@ -134,6 +134,9 @@ public enum ErrorCode {
     PAYMENT_NOT_CANCELABLE(HttpStatus.CONFLICT, "취소할 수 없는 결제입니다."),
     ALREADY_CANCELED(HttpStatus.CONFLICT, "이미 취소된 결제입니다."),
 
+    /* 결제 - 결제 메모 (API 명세 「결제 메모」). 없는·남의 결제는 공통 RESOURCE_NOT_FOUND */
+    MEMO_TOO_LONG(HttpStatus.BAD_REQUEST, "메모는 100자까지 적을 수 있어요."),
+
     /* 공통 - Spring MVC가 분류하는 요청 오류. 명세서 1장에 추가 필요 */
     API_NOT_FOUND(HttpStatus.NOT_FOUND, "요청한 API를 찾을 수 없습니다."),
     METHOD_NOT_ALLOWED(HttpStatus.METHOD_NOT_ALLOWED, "지원하지 않는 HTTP 메서드입니다."),
