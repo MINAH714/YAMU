@@ -62,7 +62,7 @@ class Models(unittest.TestCase):
     def test_committed_models_predict_golden_values(self):
         models = living_cost.load_models(MODEL_DIR)
 
-        self.assertEqual(sorted(models), [14, 30])
+        self.assertEqual(sorted(models), [7, 14, 30])
         for horizon, loaded in models.items():
             self.assertEqual(loaded.version, GOLDEN["modelVersion"])
             expected = [case["predictions"][str(horizon)] for case in GOLDEN["cases"]]
@@ -136,11 +136,12 @@ class Api(unittest.TestCase):
         self.assertEqual(res.json()["status"], "ok")
         version = GOLDEN["modelVersion"]
         self.assertEqual(res.json()["livingCostModel"],
-                         {"loaded": True, "horizons": [14, 30], "modelVersion": {"14": version, "30": version}})
+                         {"loaded": True, "horizons": [7, 14, 30],
+                          "modelVersion": {"7": version, "14": version, "30": version}})
 
     def test_prediction_matches_golden_and_keeps_order(self):
         client = self.client()
-        for horizon in (14, 30):
+        for horizon in (7, 14, 30):
             res = client.post("/forecast/living-cost", json=body(horizonDays=horizon))
             self.assertEqual(res.status_code, 200)
             data = res.json()
@@ -175,7 +176,6 @@ class Api(unittest.TestCase):
             "계좌 0개": body(accounts=[]),
             "계좌 21개": body(accounts=many),
             "지원하지 않는 일수": body(horizonDays=10),
-            "7일(TSB로 계산)": body(horizonDays=7),
             "문자열 일수": body(horizonDays="30"),
             "일수 없음": {"asOf": GOLDEN["asOf"], "accounts": body()["accounts"]},
             "숫자 날짜": body(asOf=4321),
