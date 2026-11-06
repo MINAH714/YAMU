@@ -12,6 +12,8 @@ import java.util.Map;
 import java.util.Optional;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.MediaType;
+import org.springframework.web.client.HttpServerErrorException;
+import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
 
@@ -22,8 +24,9 @@ import org.springframework.web.client.RestClientException;
  * {@value #MAX_DAILY_AMOUNT}원 × 예측 일수 이하 정수 하나)을 어기면 empty를 돌려주고 부르는 쪽이 그 요청 전체를 TSB로
  * 계산한다(2026-11-05 결정: 계약 검사만). 상한은 AI 서버가 받는 하루 입력 상한과 같아, 뒤의 계산이 넘치지 않는다(코드 리뷰 반영).
  *
- * <p>시간 초과·연결 실패·200이 아닌 응답이 나면 failurePause 동안 부르지 않고 바로 empty를 돌려준다. 장애가 이어져도 예보
- * 요청마다 시간 제한만큼 기다리지 않게 하려는 것이다(코드 리뷰 반영, 2026-11-05). 계약 위반은 빠르게 끝나므로 멈추지 않는다.
+ * <p>시간 초과·연결 실패·5xx가 나면 failurePause 동안 부르지 않고 바로 empty를 돌려준다. 장애가 이어져도 예보
+ * 요청마다 시간 제한만큼 기다리지 않게 하려는 것이다(코드 리뷰 반영, 2026-11-05). 4xx·읽을 수 없는 본문·계약 위반은
+ * 그 요청만의 문제이고 빠르게 끝나므로 멈추지 않는다(2026-11-06 !136 리뷰).
  * 요청·응답 값은 로그에 남기지 않는다(계좌 수·예측 일수·실패 종류만).
  */
 @Slf4j
@@ -80,11 +83,16 @@ class AiLivingCostClient {
         try {
             response = restClient.post().uri("/forecast/living-cost").contentType(MediaType.APPLICATION_JSON)
                     .body(body).retrieve().body(JsonNode.class);
-        } catch (RestClientException e) {
-            // 시간 초과·연결 실패·200이 아닌 응답·읽을 수 없는 본문. 응답 본문은 남기지 않는다.
+        } catch (ResourceAccessException | HttpServerErrorException e) {
+            // 시간 초과·연결 실패·5xx: AI 서버 장애로 보고 잠시 부르지 않는다. 응답 본문은 남기지 않는다.
             pausedUntil = clock.instant().plus(failurePause);
             log.warn("AI 생활비 예측 실패, TSB로 계산하고 {} 동안 부르지 않음: horizon={} accounts={} cause={}",
                     failurePause, horizonDays, histories.size(), e.getClass().getSimpleName());
+            return Optional.empty();
+        } catch (RestClientException e) {
+            // 4xx·읽을 수 없는 본문: 이 요청의 문제라 이 요청만 TSB로 계산하고 멈추지 않는다(!136 리뷰).
+            log.warn("AI 생활비 예측 응답을 쓸 수 없어 이 요청만 TSB로 계산: horizon={} accounts={} cause={}",
+                    horizonDays, histories.size(), e.getClass().getSimpleName());
             return Optional.empty();
         }
         Optional<Map<String, Long>> predictions = readPredictions(response, horizonDays, histories.keySet().size());

@@ -129,6 +129,38 @@ class AiLivingCostClientTest {
     }
 
     @Test
+    void 서버_오류_5xx_뒤에도_30초_동안은_부르지_않는다() {
+        server.expect(requestTo(URL)).andRespond(withStatus(HttpStatus.SERVICE_UNAVAILABLE));
+        server.expect(requestTo(URL)).andRespond(withSuccess(
+                "{\"horizonDays\":14,\"predictions\":[{\"key\":\"a0\",\"amount\":1},{\"key\":\"a1\",\"amount\":2}]}",
+                MediaType.APPLICATION_JSON));
+
+        assertThat(client.predict(AS_OF, 14, histories)).isEmpty();
+        assertThat(client.predict(AS_OF, 14, histories)).isEmpty();
+        clock.advance(PAUSE);
+        assertThat(client.predict(AS_OF, 14, histories)).isPresent();
+        server.verify();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"bad-request", "not-json"})
+    void 입력_오류_4xx나_읽을_수_없는_본문은_그_요청만_empty고_멈추지_않는다(String kind) {
+        if (kind.equals("bad-request")) {
+            server.expect(requestTo(URL)).andRespond(withStatus(HttpStatus.BAD_REQUEST)
+                    .contentType(MediaType.APPLICATION_JSON).body("{\"error\":\"INVALID_REQUEST\"}"));
+        } else {
+            server.expect(requestTo(URL)).andRespond(withSuccess("not json", MediaType.APPLICATION_JSON));
+        }
+        server.expect(requestTo(URL)).andRespond(withSuccess(
+                "{\"horizonDays\":30,\"predictions\":[{\"key\":\"a0\",\"amount\":1},{\"key\":\"a1\",\"amount\":2}]}",
+                MediaType.APPLICATION_JSON));
+
+        assertThat(client.predict(AS_OF, 30, histories)).isEmpty();
+        assertThat(client.predict(AS_OF, 30, histories)).isPresent();
+        server.verify();
+    }
+
+    @Test
     void 계약_위반은_빠르게_끝나므로_멈추지_않는다() {
         server.expect(requestTo(URL)).andRespond(withSuccess("{\"horizonDays\":30}", MediaType.APPLICATION_JSON));
         server.expect(requestTo(URL)).andRespond(withSuccess(
