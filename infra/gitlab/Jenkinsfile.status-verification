@@ -1,0 +1,45 @@
+pipeline {
+    agent { label 'yamu-ci' }
+    options {
+        skipDefaultCheckout(true)
+        disableConcurrentBuilds()
+        timestamps()
+    }
+    stages {
+        stage('Check checkout and publish running status') {
+            steps {
+                deleteDir()
+                script {
+                    def revision = checkout scm
+                    env.GIT_COMMIT = revision.GIT_COMMIT
+                    if (revision.GIT_BRANCH != 'origin/test/infra/S15P31E103-313-gitlab-status') {
+                        error('Unexpected verification checkout')
+                    }
+                    def statusReporter = load 'infra/gitlab/status.groovy'
+                    echo "GIT_BRANCH before explicit assignment: ${env.GIT_BRANCH ?: '(unset)'}"
+                    if (env.GIT_BRANCH || statusReporter.sendDevelop('RUNNING')) {
+                        error('Expected the original status guard to skip')
+                    }
+                    echo 'Original guard skipped GitLab reporting'
+                    env.GIT_BRANCH = revision.GIT_BRANCH ?: ''
+                    if (!statusReporter.sendDevelop('RUNNING')) {
+                        error('GitLab running status was not sent')
+                    }
+                }
+            }
+        }
+    }
+    post {
+        always {
+            script {
+                if (env.GIT_BRANCH && fileExists('infra/gitlab/status.groovy')) {
+                    def statusReporter = load 'infra/gitlab/status.groovy'
+                    if (!statusReporter.sendDevelop(currentBuild.currentResult)) {
+                        error('GitLab final status was not sent')
+                    }
+                }
+            }
+        }
+        cleanup { deleteDir() }
+    }
+}

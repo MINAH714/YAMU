@@ -35,7 +35,7 @@ def ref(value):
 
 
 def build_url(value):
-    if not re.fullmatch(r'http://100\.102\.125\.41:8081/job/yamu/(?:job/gitlab/)?job/(?:ci|mr-ci|mr-ci-verification)/[1-9][0-9]*/', value or ''):
+    if not re.fullmatch(r'http://100\.102\.125\.41:8081/job/yamu/job/gitlab/job/develop-status-verification-313/[1-9][0-9]*/', value or ''):
         raise ValueError('Unexpected Jenkins build link')
     return value
 
@@ -107,7 +107,7 @@ class Client:
         return max(matches, key=lambda s: int(s['id']), default=None)
 
     def report(self, revision, branch, state, context, url, description):
-        if state not in STATES or context not in (MR_CONTEXT, 'jenkins/develop-ci'):
+        if state not in STATES or context not in (MR_CONTEXT, 'jenkins/develop-ci-verification'):
             raise ValueError('Unexpected status or context')
         return self.request('POST', '/statuses/' + sha(revision), {'state': state, 'ref': ref(branch),
             'name': context, 'target_url': build_url(url), 'description': description[:255]})
@@ -184,9 +184,9 @@ def main():
         client.report(context['sha'], context['ref'], state, MR_CONTEXT, env['BUILD_URL'], description)
         print('GitLab MR status sent.')
     else:
-        if env.get('JOB_NAME') != 'yamu/ci' or env.get('GIT_BRANCH') != 'origin/develop':
+        if env.get('JOB_NAME') != 'yamu/gitlab/develop-status-verification-313' or env.get('GIT_BRANCH') != 'origin/test/infra/S15P31E103-313-gitlab-status':
             raise ValueError('Only the actual develop CI job may report develop results')
-        client.report(sha(env['GIT_COMMIT']), 'develop', env['YAMU_GITLAB_STATE'], 'jenkins/develop-ci',
+        client.report(sha(env['GIT_COMMIT']), 'test/infra/S15P31E103-313-gitlab-status', env['YAMU_GITLAB_STATE'], 'jenkins/develop-ci-verification',
             env['BUILD_URL'], 'Jenkins develop CI: ' + env['YAMU_GITLAB_STATE'])
         print('GitLab develop status sent.')
 

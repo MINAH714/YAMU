@@ -4,7 +4,7 @@ def stateFor(String result) {
 }
 
 def sendDevelop(String result) {
-    if (env.JOB_NAME != 'yamu/ci' || env.GIT_BRANCH != 'origin/develop') return false
+    if (env.JOB_NAME != 'yamu/gitlab/develop-status-verification-313' || env.GIT_BRANCH != 'origin/test/infra/S15P31E103-313-gitlab-status') return false
     try {
         withEnv(["YAMU_GITLAB_STATE=${stateFor(result)}"]) {
             withCredentials([file(credentialsId: 'yamu-gitlab-status-api', variable: 'YAMU_GITLAB_API_FILE')]) {
