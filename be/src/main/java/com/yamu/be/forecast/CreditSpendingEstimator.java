@@ -2,6 +2,7 @@ package com.yamu.be.forecast;
 
 import com.yamu.be.card.UserCardRef;
 import com.yamu.be.card.domain.CardIssuerStatus;
+import com.yamu.be.card.domain.CardRegistrationStatus;
 import com.yamu.be.card.domain.CardType;
 import com.yamu.be.payment.billing.BillingCycle;
 import java.time.LocalDate;
@@ -20,8 +21,8 @@ import java.util.Set;
  * <p>진행 중 청구서에는 오늘까지 쓴 금액만 있고 생활비는 체크카드만 보므로, 앞으로 쓸 신용카드 금액은 예보 어디에도 없었다.
  *
  * <ul>
- *   <li>대상: 출금 계좌가 선택 계좌이고 카드사 상태가 정상(NORMAL)인 등록 신용카드. 추천에서만 뺀 카드(INACTIVE)도 결제는 되므로 넣는다.
- *       정지·만료 카드와 결제일·청구 주기를 만들 수 없는 카드는 승인이 거절돼 앞으로 쓸 금액이 없으므로 조용히 뺀다.</li>
+ *   <li>대상: 출금 계좌가 선택 계좌이고, 지금 결제할 수 있는 신용카드. 사용자가 끈 카드(INACTIVE), 정지·만료 카드, 미납 청구서가 있는 카드,
+ *       결제일·청구 주기를 만들 수 없는 카드는 승인이 거절돼 앞으로 쓸 금액이 없으므로 조용히 뺀다(미납은 부르는 쪽이 걸러 넘긴다).</li>
  *   <li>일평균: 그 카드의 신용 LIVING 결제를 지난 3개월 실적 요약과 같은 규칙({@link LivingCostEstimator}, 완료한 달만, REAL 우선)으로
  *       계산한다. 카드 번호를 묶음 번호로 넣어 그대로 쓴다.</li>
  *   <li>금액: 일평균 × (이번 이용기간 마감일 − 오늘)일. 오늘 쓴 금액은 진행 중 청구서에 이미 들어 있어 내일부터 센다.
@@ -36,7 +37,7 @@ final class CreditSpendingEstimator {
     }
 
     /**
-     * @param cards        BE 1로 확인한 등록 카드(ACTIVE·INACTIVE). 신용카드가 아니거나 선택 계좌가 아닌 카드는 무시한다
+     * @param cards        BE 1로 확인한 등록 카드 중 미납 청구서가 없는 카드. ACTIVE·신용카드·선택 계좌가 아닌 카드는 무시한다
      * @param names        카드 번호별 화면 이름(별칭, 없으면 상품명)
      * @param days         카드별 일별 신용 LIVING 결제 합계({@link CreditSpendingReader})
      * @param selected     선택 계좌
@@ -59,7 +60,8 @@ final class CreditSpendingEstimator {
         List<FlowEvent> events = new ArrayList<>();
         List<ExcludedItem> excluded = new ArrayList<>();
         for (UserCardRef card : cards) {
-            if (card.cardType() != CardType.CREDIT || card.issuerStatus() != CardIssuerStatus.NORMAL
+            if (card.cardType() != CardType.CREDIT || card.registrationStatus() != CardRegistrationStatus.ACTIVE
+                    || card.issuerStatus() != CardIssuerStatus.NORMAL
                     || card.linkedAccountId() == null || !selected.contains(card.linkedAccountId())
                     || card.paymentDay() == null || !BillingCycle.supports(card.paymentDay(), card.billingCutoffDays())) {
                 continue;

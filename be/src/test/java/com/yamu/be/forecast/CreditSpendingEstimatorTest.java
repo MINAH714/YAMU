@@ -81,7 +81,7 @@ class CreditSpendingEstimatorTest {
 
     @Test
     void 여러_카드는_카드마다_자기_출금_계좌와_출금일에_넣는다() {
-        UserCardRef second = new UserCardRef(42L, 1L, B, "2222", CardRegistrationStatus.INACTIVE,
+        UserCardRef second = new UserCardRef(42L, 1L, B, "2222", CardRegistrationStatus.ACTIVE,
                 CardIssuerStatus.NORMAL, CardType.CREDIT, 14, 14);
         List<CardDailySpending> days = new ArrayList<>(everyDay(41L, 10_000L));
         days.addAll(everyDay(42L, 2_000L));
@@ -97,7 +97,10 @@ class CreditSpendingEstimatorTest {
     }
 
     @Test
-    void 정지_카드_체크카드_선택_밖_계좌_결제일_없는_카드와_0원은_넣지_않는다() {
+    void 끈_카드_정지_카드_체크카드_선택_밖_계좌_결제일_없는_카드와_0원은_넣지_않는다() {
+        // 추천에서 끈 카드(INACTIVE)는 결제 승인이 CARD_INACTIVE로 거절한다
+        UserCardRef inactive = new UserCardRef(56L, 1L, A, "5656", CardRegistrationStatus.INACTIVE,
+                CardIssuerStatus.NORMAL, CardType.CREDIT, 25, 14);
         UserCardRef suspended = new UserCardRef(51L, 1L, A, "5151", CardRegistrationStatus.ACTIVE,
                 CardIssuerStatus.SUSPENDED, CardType.CREDIT, 25, 14);
         UserCardRef check = new UserCardRef(52L, 1L, A, "5252", CardRegistrationStatus.ACTIVE,
@@ -111,9 +114,10 @@ class CreditSpendingEstimatorTest {
             days.addAll(everyDay(id, 10_000L));
         }
         days.addAll(everyDay(55L, 0L));
+        days.addAll(everyDay(56L, 10_000L));
 
         CreditSpendingEstimator.Result result = estimate(
-                List.of(suspended, check, otherAccount, noPaymentDay, card(55L, A)), days, NOV_6, NOV_25);
+                List.of(suspended, check, otherAccount, noPaymentDay, card(55L, A), inactive), days, NOV_6, NOV_25);
 
         assertThat(result.events()).isEmpty();
         assertThat(result.excluded()).isEmpty();

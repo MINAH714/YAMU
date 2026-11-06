@@ -10,6 +10,8 @@ import com.yamu.be.cashflow.CashflowService;
 import com.yamu.be.global.common.ApiResponse.FieldErrorResponse;
 import com.yamu.be.global.exception.BusinessException;
 import com.yamu.be.global.exception.ErrorCode;
+import com.yamu.be.payment.billing.BillStatus;
+import com.yamu.be.payment.billing.CardBillRepository;
 import java.time.Clock;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -64,12 +66,14 @@ public class ForecastService {
     private final LivingCostProjector projector;
     private final CreditSpendingReader creditSpending;
     private final CardNameReader cardNames;
+    private final CardBillRepository cardBills;
     private final Clock clock;
 
     ForecastService(CashflowService cashflows, AccountBalanceService balances, CardBillReader bills,
             CardQueryService cards, CreditWithdrawalSchedule creditSchedule, LivingCostReader livingCosts,
             AccountQueryService accounts, ForecastSettingsStore settings, ForecastSettingsService settingsService,
-            LivingCostProjector projector, CreditSpendingReader creditSpending, CardNameReader cardNames, Clock clock) {
+            LivingCostProjector projector, CreditSpendingReader creditSpending, CardNameReader cardNames, CardBillRepository cardBills,
+            Clock clock) {
         this.cashflows = cashflows;
         this.balances = balances;
         this.bills = bills;
@@ -82,6 +86,7 @@ public class ForecastService {
         this.projector = projector;
         this.creditSpending = creditSpending;
         this.cardNames = cardNames;
+        this.cardBills = cardBills;
         this.clock = clock;
     }
 
@@ -420,7 +425,8 @@ public class ForecastService {
 
     /**
      * 내일부터 이번 이용기간 마감까지 쓸 신용카드 금액을 카드 출금일에 보수적 선에서만 뺀다(S15P31E103-286).
-     * 일평균은 지난 3개월 실적 요약과 같은 완료 3개월로 계산하므로 그만큼만 읽는다. 등록 해제한 카드는 BE 1 조회에서 빠진다.
+     * 일평균은 지난 3개월 실적 요약과 같은 완료 3개월로 계산하므로 그만큼만 읽는다. 등록 해제한 카드는 BE 1 조회에서 빠지고,
+     * 미납 청구서가 있는 카드는 실제 승인처럼(UNPAID_BILL 거절) 앞으로 쓸 수 없어 뺀다(가상 구매와 같은 BE 2 조회).
      */
     private List<FlowEvent> creditSpendingEvents(Long userId, List<Long> selected, Set<Long> selectedSet,
             BalanceForecast.Horizon horizon, List<ExcludedItem> excluded) {
@@ -431,6 +437,9 @@ public class ForecastService {
         Map<Long, String> names = new HashMap<>();
         for (Long userCardId : spending.userCardIds()) {
             cards.findRegisteredCard(userId, userCardId).ifPresent(card -> {
+                if (cardBills.existsByUserCardIdAndStatus(userCardId, BillStatus.UNPAID)) {
+                    return;
+                }
                 usable.add(card);
                 String name = cardNames.name(userId, userCardId);
                 if (name != null) {

@@ -202,13 +202,24 @@ class ForecastCalculatorTest {
     }
 
     @Test
-    void 생활비가_없는_계좌는_CONSERVATIVE_출금이_있어도_보수적_선이_null이다() {
+    void 생활비가_없는_계좌도_CONSERVATIVE_출금이_있으면_생활비_0원으로_보수적_선을_낸다() {
+        // 신용카드만 쓰는 계좌(2026-11-06 결정): 추정이 위험 판단에 쓰이게 한다
         Projection result = ForecastCalculator.project(balances(A, 500_000L), List.of(
                 event(A, TODAY.plusDays(3), -30_000L, Confidence.CONSERVATIVE)), TODAY, TO, NO_LIVING);
 
-        assertThat(at(result.total(), TODAY.plusDays(3)))
+        assertThat(List.of(at(result.total(), TODAY), at(result.total(), TODAY.plusDays(3))))
                 .extracting(BalancePoint::expected, BalancePoint::conservative, BalancePoint::livingCost)
-                .containsExactly(500_000L, null, null);
+                .containsExactly(tuple(500_000L, 500_000L, 0L), tuple(500_000L, 470_000L, 0L));
+    }
+
+    @Test
+    void 생활비도_CONSERVATIVE_출금도_없는_계좌가_있으면_통합_보수적_선은_null이다() {
+        Projection result = ForecastCalculator.project(balances(A, 500_000L, B, 100_000L), List.of(
+                event(A, TODAY.plusDays(3), -30_000L, Confidence.CONSERVATIVE)), TODAY, TO, NO_LIVING);
+
+        assertThat(at(result.byAccount().get(A), TODAY.plusDays(3)).conservative()).isEqualTo(470_000L);
+        assertThat(at(result.byAccount().get(B), TODAY.plusDays(3)).conservative()).isNull();
+        assertThat(at(result.total(), TODAY.plusDays(3)).conservative()).isNull();
     }
 
     private static FlowEvent event(Long accountId, LocalDate date, long amount, Confidence confidence) {

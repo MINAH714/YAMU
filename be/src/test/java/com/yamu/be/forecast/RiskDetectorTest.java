@@ -163,6 +163,21 @@ class RiskDetectorTest {
     }
 
     @Test
+    void 생활비_없이_신용카드_사용_추정만으로_미달이면_추정_생활비_0원은_원인에_넣지_않는다() {
+        FlowEvent estimate = new FlowEvent(3L, TODAY.plusDays(1), -80_000L, FlowEvent.Type.CARD_SPENDING_ESTIMATE,
+                FlowEvent.Confidence.CONSERVATIVE, "카드", 41L);
+        ForecastCalculator.Projection projection = ForecastCalculator.project(Map.of(3L, 150_000L),
+                List.of(estimate), TODAY, TODAY.plusDays(1), Map.of());
+
+        Assessment result = RiskDetector.assess(projection.total(), THRESHOLD);
+
+        assertThat(result.status()).isEqualTo(Level.WARNING);
+        assertThat(result.windows()).singleElement().satisfies(window ->
+                assertThat(window.causes()).extracting(Cause::type, Cause::amount)
+                        .containsExactly(tuple(CauseType.CARD_SPENDING_ESTIMATE, -80_000L)));
+    }
+
+    @Test
     void WARNING과_DANGER가_바뀌면_구간을_나눈다() {
         Assessment result = RiskDetector.assess(List.of(
                 point(0, 200_000, 200_000, 200_000),

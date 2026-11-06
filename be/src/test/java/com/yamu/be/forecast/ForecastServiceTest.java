@@ -29,6 +29,8 @@ import com.yamu.be.forecast.LivingCostReader.DailySpending;
 import com.yamu.be.forecast.LivingCostReader.Origin;
 import com.yamu.be.global.exception.BusinessException;
 import com.yamu.be.global.exception.ErrorCode;
+import com.yamu.be.payment.billing.BillStatus;
+import com.yamu.be.payment.billing.CardBillRepository;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -71,6 +73,8 @@ class ForecastServiceTest {
     @Mock ForecastSettingsStore settingsStore;
     // 따로 정하지 않으면 다음 월급일은 없다(Mockito 기본값 Optional.empty).
     @Mock ForecastSettingsService settingsService;
+    // 따로 정하지 않으면 미납 청구서는 없다(Mockito 기본값 false).
+    @Mock CardBillRepository cardBillRepository;
 
     private final List<List<Long>> balanceRequests = new ArrayList<>();
     private final List<Boolean> refreshRequests = new ArrayList<>();
@@ -132,7 +136,7 @@ class ForecastServiceTest {
         CreditWithdrawalSchedule schedule = (card, spendDate) -> creditSchedule.withdrawalDate(card, spendDate);
         return new ForecastService(cashflows, balanceService, billReader, cardService, schedule, livingReader,
                 accounts, settingsStore, settingsService, new LivingCostProjector(projectorAi), creditReader, names,
-                clock);
+                cardBillRepository, clock);
     }
 
     @Test
@@ -712,6 +716,34 @@ class ForecastServiceTest {
 
         assertThat(result.series()).allSatisfy(point -> assertThat(point.events()).isEmpty());
         assertThat(result.excluded()).isEmpty();
+    }
+
+    @Test
+    void 미납_청구서가_있는_카드는_추정하지_않고_신용카드만_쓰는_계좌도_보수적_선에_추정을_뺀다() {
+        // 계좌 A는 체크카드 생활비 기록이 없다(신용카드만). 카드 41은 정상, 카드 43은 미납 청구서가 있어 결제가 거절된다
+        LocalDate nov25 = LocalDate.of(2026, 11, 25);
+        creditSchedule = (card, spendDate) -> Optional.of(nov25);
+        givenEntries(TODAY, TODAY.plusDays(30));
+        creditCards = List.of(41L, 43L);
+        List<CreditSpendingReader.CardDailySpending> credit = new ArrayList<>();
+        for (LocalDate day = JUL.atDay(1); !day.isAfter(TODAY); day = day.plusDays(1)) {
+            credit.add(new CreditSpendingReader.CardDailySpending(41L, day, 3_000L, Origin.REAL));
+            credit.add(new CreditSpendingReader.CardDailySpending(43L, day, 9_000L, Origin.REAL));
+        }
+        creditDays = credit;
+        when(cardService.findRegisteredCard(USER, 41L)).thenReturn(Optional.of(creditCard(41L, A)));
+        when(cardService.findRegisteredCard(USER, 43L)).thenReturn(Optional.of(creditCard(43L, A)));
+        when(cardBillRepository.existsByUserCardIdAndStatus(41L, BillStatus.UNPAID)).thenReturn(false);
+        when(cardBillRepository.existsByUserCardIdAndStatus(43L, BillStatus.UNPAID)).thenReturn(true);
+
+        BalanceForecast result = service.forecast(USER, List.of(A), Until.DAYS, 30, false, false);
+
+        // 생활비 0원으로 계산: 800,000 − 3,000 × 16일
+        assertThat(day(result.series(), nov25).conservative()).isEqualTo(800_000L - 48_000L);
+        assertThat(day(result.series(), TODAY).conservative()).isEqualTo(800_000L);
+        assertThat(day(result.series(), nov25).events()).extracting(BalanceForecast.Event::title)
+                .containsExactly("카드41 · 10/27~11/11 16일 × 일평균 3,000원");
+        assertThat(result.livingCost().dataOrigin()).isEqualTo(LivingCostEstimator.DataOrigin.INSUFFICIENT);
     }
 
     private static UserCardRef creditCard(long id, Long accountId) {

@@ -123,7 +123,8 @@ final class RiskDetector {
         }
         // 보수적 선 구간은 예상 선은 기준 이상인데 추정 생활비(와 신용카드 사용 추정)를 빼서 미만이 된 날들이다.
         // 신용카드 사용 추정은 위에서 출금으로 넣었으므로, 여기서는 최저일까지 뺀 추정 생활비만 더한다.
-        if (line == Line.CONSERVATIVE) {
+        // 추정 생활비가 0원(신용카드 사용 추정만으로 미달)이면 원인이 아니라 넣지 않는다(Codex 검토 반영).
+        if (line == Line.CONSERVATIVE && lowest.livingCost() != 0) {
             causes.add(new Cause(CauseType.LIVING_COST_ESTIMATE, "추정 생활비",
                     Math.negateExact(lowest.livingCost()), null, lowest.date()));
         }
