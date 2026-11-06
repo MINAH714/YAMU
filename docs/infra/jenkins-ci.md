@@ -176,3 +176,17 @@ SCM polling은 Push 이벤트 즉시 실행이 아니며 최초 Job 실행 전�
 - [Testcontainers 컨테이너 내부 실행](https://java.testcontainers.org/supported_docker_environment/continuous_integration/dind_patterns/)
 - [Docker Rootless 설치](https://docs.docker.com/engine/security/rootless/)
 - [Rootless 자원 제한](https://docs.docker.com/engine/security/rootless/tips/)
+## develop CI 검사 범위
+
+`yamu/ci`는 [Jenkins Git 플러그인이 제공하는 마지막 성공 커밋](https://plugins.jenkins.io/git/#commit-variables)부터 현재 커밋까지 비교합니다. 실패한 빌드나 폴링 사이에 들어온 변경도 이 비교에 포함됩니다.
+
+| 변경 범위 | 실행 |
+|---|---|
+| `fe/pos/` | POS lint·build |
+| `fe/mobile/` | Expo 타입 검사 |
+| `docs/` | 공통 환경·CI 도구 검사 |
+| BE, 공통 설정, 그 외 경로, 기준 커밋 없음 또는 비교 불가 | 기존 BE·POS·Expo 전체 검사 |
+
+POS와 Expo가 함께 바뀌면 둘 다 검사합니다. 모든 실행의 기준 커밋과 선택된 검사 범위는 `ci-scope.json`에서 확인할 수 있습니다.
+
+격리 배포에 사용할 develop 후보는 Jenkins의 **파라미터와 함께 빌드**에서 `FULL_CI`를 체크해 실행합니다. 성공한 전체 검사 빌드에서만 배포 매니페스트, BE JAR, POS 빌드 결과를 보관합니다. `yamu/ci-master`도 항상 전체 검사를 실행합니다.

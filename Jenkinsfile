@@ -15,6 +15,10 @@ pipeline {
         pollSCM(env.JOB_NAME == 'yamu/ci' ? 'H/5 * * * *' : '')
     }
 
+    parameters {
+        booleanParam(name: 'FULL_CI', defaultValue: false, description: 'Run all checks and archive release candidate artifacts')
+    }
+
     environment {
         CI = 'true'
         TZ = 'UTC'
@@ -30,7 +34,17 @@ pipeline {
                 script {
                     def revision = checkout scm
                     env.GIT_COMMIT = revision.GIT_COMMIT
+                    withEnv([
+                        "CI_CHECKOUT_BRANCH=${revision.GIT_BRANCH ?: ''}",
+                        "CI_PREVIOUS_SUCCESS=${revision.GIT_PREVIOUS_SUCCESSFUL_COMMIT ?: ''}",
+                        "CI_FORCE_FULL=${params.FULL_CI == true}"
+                    ]) {
+                        env.CI_SCOPE = sh(script: 'python3 infra/ci/scope.py', returnStdout: true).trim()
+                    }
+                    echo "CI scope: ${env.CI_SCOPE}"
+                    currentBuild.description = "CI scope: ${env.CI_SCOPE}"
                 }
+                archiveArtifacts artifacts: 'ci-scope.json', fingerprint: true
                 sh 'git rev-parse HEAD > ci-revision.txt'
                 script {
                     if (fileExists('infra/gitlab/status.groovy')) {
@@ -44,11 +58,13 @@ pipeline {
             steps {
                 sh 'sh infra/ci/check-environment.sh'
                 sh 'python3 infra/ci/test_check_test_results.py'
+                sh 'python3 -m unittest discover -s infra/ci -p "test_scope.py"'
                 sh 'python3 -m unittest discover -s infra/ci -p "test_notify_mattermost.py"'
                 sh 'python3 -m unittest discover -s infra/cd -p "test_*.py"'
             }
         }
         stage('BE tests') {
+            when { expression { env.CI_SCOPE.split(',').contains('be') } }
             steps {
                 dir('be') {
                     sh 'sh ./gradlew --no-daemon --max-workers=1 -Dorg.gradle.jvmargs="-Xmx768m -XX:MaxMetaspaceSize=384m" clean test'
@@ -62,6 +78,7 @@ pipeline {
             }
         }
         stage('BE JAR') {
+            when { expression { env.CI_SCOPE.split(',').contains('full') } }
             steps {
                 dir('be') {
                     sh 'sh ./gradlew --no-daemon --max-workers=1 -Dorg.gradle.jvmargs="-Xmx768m -XX:MaxMetaspaceSize=384m" bootJar'
@@ -69,6 +86,7 @@ pipeline {
             }
         }
         stage('POS lint and build') {
+            when { expression { env.CI_SCOPE.split(',').contains('pos') } }
             steps {
                 dir('fe/pos') {
                     sh 'npm ci --no-audit --no-fund'
@@ -78,6 +96,7 @@ pipeline {
             }
         }
         stage('Mobile typecheck') {
+            when { expression { env.CI_SCOPE.split(',').contains('expo') } }
             steps {
                 dir('fe/mobile') {
                     sh 'npm ci --no-audit --no-fund'
@@ -86,6 +105,7 @@ pipeline {
             }
         }
         stage('Archive') {
+            when { expression { env.CI_SCOPE.split(',').contains('full') } }
             steps {
                 sh 'python3 infra/cd/manifest.py'
                 archiveArtifacts artifacts: 'ci-revision.txt,ci-manifest.json,be/build/libs/*.jar,fe/pos/dist/**', fingerprint: true
