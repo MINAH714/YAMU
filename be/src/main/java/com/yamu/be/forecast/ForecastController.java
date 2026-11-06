@@ -5,22 +5,26 @@ import com.yamu.be.global.security.AuthUser;
 import java.util.List;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * 잔고예보·생활비 예측 상세 조회 API. 명세: 노션 API 명세서 V2 「잔고예보 조회」「생활비 예측 상세」.
- * 명세와 다른 점은 docs/be/forecast.md 「명세와 다른 점」.
+ * 잔고예보·생활비 예측 상세 조회와 가상 구매 시뮬레이션 API. 명세: 노션 API 명세서 V2 「잔고예보 조회」「생활비 예측 상세」
+ * 「가상 구매 시뮬레이션」. 명세와 다른 점은 docs/be/forecast.md 「명세와 다른 점」.
  */
 @RestController
 @RequestMapping("/api/forecasts")
 class ForecastController {
 
     private final ForecastService service;
+    private final PurchaseSimulationService simulations;
 
-    ForecastController(ForecastService service) {
+    ForecastController(ForecastService service, PurchaseSimulationService simulations) {
         this.service = service;
+        this.simulations = simulations;
     }
 
     /**
@@ -49,5 +53,15 @@ class ForecastController {
             @RequestParam(required = false) Integer days,
             @RequestParam(defaultValue = "false") boolean includeAccountDetails) {
         return ApiResponse.ok(service.livingCost(me.userId(), accountIds, until, days, includeAccountDetails));
+    }
+
+    /**
+     * 가상 구매 전후 잔고 비교(명세 「가상 구매 시뮬레이션」). 계산만 하고 결제·청구·실적·한도를 바꾸지 않는다.
+     * 추천·잔액 조회가 외부를 부를 수 있어 트랜잭션을 붙이지 않는다.
+     */
+    @PostMapping("/simulations")
+    ApiResponse<SimulationResponse> simulate(@AuthenticationPrincipal AuthUser me,
+            @RequestBody SimulationRequest request) {
+        return ApiResponse.ok(simulations.simulate(me.userId(), request));
     }
 }
