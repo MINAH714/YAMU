@@ -98,6 +98,8 @@ import com.yamu.app.feature.auth.data.StepUpPurpose
 import com.yamu.app.feature.link.CardListThumb
 import com.yamu.app.feature.link.data.LinkRepository
 import com.yamu.app.feature.link.data.LinkedCard
+import com.yamu.app.feature.link.data.benefitsLine
+import com.yamu.app.feature.link.data.performanceLine
 import com.yamu.app.feature.my.data.AUTO_LOCK_CHOICES
 import com.yamu.app.feature.my.data.Device
 import com.yamu.app.feature.my.data.MyInfo
@@ -420,6 +422,8 @@ fun CardManageRoute(
                     s.cards.forEach { card ->
                         ListRow(
                             title = card.displayName,
+                            // 실적 줄 · 혜택 줄 중 있는 것만(BE !150)
+                            sub = listOfNotNull(card.performanceLine(), card.benefitsLine()).takeIf { it.isNotEmpty() }?.joinToString("\n"),
                             lead = { CardListThumb(card.brand, card.productName) },
                             titleTag = if (card.stateLabel != null || card.isDefault) ({ StatusTag(card.stateLabel ?: "기본") }) else null,
                             minHeight = 72.dp,
