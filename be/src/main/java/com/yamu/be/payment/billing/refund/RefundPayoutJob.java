@@ -2,6 +2,8 @@ package com.yamu.be.payment.billing.refund;
 
 import com.yamu.be.global.exception.BusinessException;
 import com.yamu.be.global.exception.ErrorCode;
+import com.yamu.be.global.finapi.FinApiException;
+import com.yamu.be.global.finapi.FinApiOutcome;
 import com.yamu.be.global.job.JobLocks;
 import com.yamu.be.global.job.JobRunCommand;
 import com.yamu.be.global.job.JobRunReport;
@@ -11,6 +13,7 @@ import com.yamu.be.payment.billing.Refund;
 import com.yamu.be.payment.billing.RefundRepository;
 import com.yamu.be.payment.billing.RefundStatus;
 import com.yamu.be.payment.billing.refund.RefundDepositor.Outcome;
+import com.yamu.be.payment.billing.refund.RefundDepositor.Result;
 import java.time.Clock;
 import java.util.ArrayList;
 import java.util.List;
@@ -30,11 +33,16 @@ import org.springframework.stereotype.Component;
  *       한 번에 하나만 돈다. 잠금 TTL이 지나 겹쳐도 환급 단위로 막힌다.</li>
  *   <li>실패 격리: 한 건의 예외(금융망 조회·채번 실패)는 결과에 {@code ERROR}로 남기고 다음 환급으로 간다. 아무것도 바꾸지 않았으니
  *       다음 실행이 다시 본다.</li>
+ *   <li>멈춤(임시): 금융망이 같은 코드로 {@value #HALT_STREAK}건 연달아 거절하면(입금 거절이든 거래내역 조회 거절이든) API 키처럼
+ *       모든 요청에 걸리는 오류로 보고 이번 실행의 남은 환급은 보내지 않는다({@code HALTED}). SSAFY 오류 코드 표가 없어 코드 대신
+ *       연속 횟수로 판단한다. 한계: 앞번호 환급 {@value #HALT_STREAK}건이 각자 같은 코드로 거절되면 뒤 환급은 원인을 고칠 때까지
+ *       계속 멈춘다(운영 로그로 드러난다).</li>
  * </ul>
  *
- * <p>결과 이름({@code result}): {@code COMPLETED}(입금했거나 이미 들어간 입금을 찾음)·{@code FAILED}(은행 거절로 환급 실패)·
- * {@code NEEDS_REVIEW}(자동으로 판단하지 않고 대기로 둠)·{@code ERROR}는 집계상 실패, {@code UNKNOWN}·{@code NOT_SENT}·
- * {@code IN_FLIGHT}·{@code CONTENDED}·{@code SKIPPED}·{@code DRY_RUN}은 건너뜀이다.
+ * <p>결과 이름({@code result}): {@code COMPLETED}(입금했거나 이미 들어간 입금을 찾음)·{@code FAILED}(계좌 없음으로 환급 실패)·
+ * {@code NEEDS_REVIEW}(자동으로 판단하지 않거나 계좌 없음이 아닌 거절이라 대기로 둠)·{@code ERROR}는 집계상 실패,
+ * {@code UNKNOWN}·{@code NOT_SENT}·{@code IN_FLIGHT}·{@code CONTENDED}·{@code SKIPPED}·{@code HALTED}·{@code DRY_RUN}은
+ * 건너뜀이다.
  *
  * <p>스케줄은 {@code yamu.billing.jobs-enabled=true}일 때만 실제로 돈다(기본 끔). 수동 실행 API는 설정과 상관없이 돈다.
  */
@@ -45,6 +53,8 @@ public class RefundPayoutJob implements ManualJob {
     public static final String NAME = "refund-payout";
     static final String REF_TYPE = "REFUND";
     static final int PAGE_SIZE = 50;
+    /** 같은 거절 코드가 이만큼 연달아 나오면 이번 실행의 남은 입금을 멈춘다(임시). */
+    static final int HALT_STREAK = 3;
 
     private final RefundRepository refunds;
     private final RefundDepositor depositor;
@@ -88,15 +98,23 @@ public class RefundPayoutJob implements ManualJob {
     @Override
     public JobRunReport run(JobRunCommand command) {
         List<JobRunReport.Item> results = new ArrayList<>();
+        RejectStreak streak = new RejectStreak();
         long lastId = 0;
         while (true) {
             List<Refund> page = refunds.findPayoutTargets(RefundStatus.PENDING, command.userId(), lastId,
                     PageRequest.of(0, PAGE_SIZE));
             for (Refund refund : page) {
                 lastId = refund.getId();
-                results.add(command.dryRun()
-                        ? JobRunReport.Item.dryRun(REF_TYPE, refund.getId(), refund.getUserId(), refund.getRefundAmount())
-                        : payOne(refund));
+                if (command.dryRun()) {
+                    results.add(JobRunReport.Item.dryRun(REF_TYPE, refund.getId(), refund.getUserId(),
+                            refund.getRefundAmount()));
+                } else if (streak.halted()) {
+                    results.add(item(refund.getId(), refund.getUserId(), JobRunReport.Outcome.SKIPPED, "HALTED",
+                            refund.getRefundAmount(), null, "금융망이 같은 코드(" + streak.code() + ")로 "
+                                    + HALT_STREAK + "건 연달아 거절해 이번 실행에서는 보내지 않았습니다"));
+                } else {
+                    results.add(payOne(refund, streak));
+                }
             }
             if (page.size() < PAGE_SIZE) {
                 return new JobRunReport(results);
@@ -104,23 +122,32 @@ public class RefundPayoutJob implements ManualJob {
         }
     }
 
-    private JobRunReport.Item payOne(Refund refund) {
+    private JobRunReport.Item payOne(Refund refund, RejectStreak streak) {
         Long id = refund.getId();
         Long userId = refund.getUserId();
         long amount = refund.getRefundAmount();
-        Outcome outcome;
+        Result result;
         try {
-            outcome = depositor.deposit(id);
+            result = depositor.deposit(id);
         } catch (RuntimeException e) {
             log.warn("환급 입금 실패, 다음 실행에 다시 refundId={}", id, e);
+            streak.record(rejectCode(e));
             return item(id, userId, JobRunReport.Outcome.FAILED, "ERROR", null, null,
                     "처리 중 오류가 났습니다. 다음 실행에 다시 봅니다(서버 로그 확인)");
+        }
+        Outcome outcome = result.outcome();
+        if (outcome == Outcome.REJECTED) {
+            streak.record(result.finCode());
+        } else if (sentToBank(outcome)) {
+            streak.record(null);
         }
         return switch (outcome) {
             case COMPLETED -> JobRunReport.Item.succeeded(REF_TYPE, id, userId, outcome.name(), amount,
                     refunds.findById(id).map(Refund::getFinTransactionNo).orElse(null));
             case FAILED -> item(id, userId, JobRunReport.Outcome.FAILED, outcome.name(), amount, null,
-                    "은행이 입금을 거절해 환급을 실패로 끝냈습니다");
+                    "환급 계좌가 없어 은행이 입금을 거절했습니다. 환급을 실패로 끝냈습니다");
+            case REJECTED -> item(id, userId, JobRunReport.Outcome.FAILED, Outcome.NEEDS_REVIEW.name(), amount, null,
+                    "은행이 입금을 거절했습니다(코드 " + result.finCode() + "). 대기로 두었고, 원인을 고치면 다음 실행에 다시 보냅니다");
             case NEEDS_REVIEW -> item(id, userId, JobRunReport.Outcome.FAILED, outcome.name(), amount, null,
                     "자동으로 판단하지 않고 대기로 두었습니다. 운영 확인이 필요합니다(서버 로그 확인)");
             case UNKNOWN -> item(id, userId, JobRunReport.Outcome.SKIPPED, outcome.name(), amount, null,
@@ -133,6 +160,48 @@ public class RefundPayoutJob implements ManualJob {
                     "다른 실행이 먼저 처리해 보내지 않았습니다");
             case SKIPPED -> JobRunReport.Item.skipped(REF_TYPE, id, userId, "입금할 환급이 아닙니다");
         };
+    }
+
+    /** 금융망과 주고받은 결과인지. 건너뛴 결과(유예·경합·대상 아님)는 연속 거절을 끊지 않는다. */
+    private static boolean sentToBank(Outcome outcome) {
+        return switch (outcome) {
+            case IN_FLIGHT, CONTENDED, SKIPPED -> false;
+            default -> true;
+        };
+    }
+
+    /** 금융망 거절 예외(거래내역 조회 등)의 코드. 그 밖의 예외는 null이라 연속 거절을 끊는다. */
+    private static String rejectCode(RuntimeException e) {
+        return e instanceof FinApiException fin && fin.getOutcome() == FinApiOutcome.REJECTED ? fin.getFinCode() : null;
+    }
+
+    /** 한 번 실행 안에서 같은 거절 코드가 몇 건 연달아 나왔는지. */
+    private static final class RejectStreak {
+
+        private String code;
+        private int count;
+
+        /** 거절 코드를 센다. null(거절이 아닌 결과)이면 처음부터 다시 센다. */
+        void record(String rejectCode) {
+            if (rejectCode == null) {
+                code = null;
+                count = 0;
+                return;
+            }
+            count = rejectCode.equals(code) ? count + 1 : 1;
+            code = rejectCode;
+            if (count == HALT_STREAK) {
+                log.error("금융망이 같은 코드로 {}건 연달아 거절, 이번 실행의 남은 환급 입금을 멈춤 code={}", HALT_STREAK, code);
+            }
+        }
+
+        boolean halted() {
+            return count >= HALT_STREAK;
+        }
+
+        String code() {
+            return code;
+        }
     }
 
     private static JobRunReport.Item item(Long refundId, Long userId, JobRunReport.Outcome outcome, String result,

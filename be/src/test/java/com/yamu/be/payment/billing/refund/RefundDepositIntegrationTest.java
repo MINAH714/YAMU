@@ -6,15 +6,19 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.yamu.be.global.crypto.CipherField;
 import com.yamu.be.global.crypto.PersonalDataCipher;
+import com.yamu.be.global.finapi.FinApiException;
+import com.yamu.be.global.finapi.FinApiOutcome;
 import com.yamu.be.global.job.JobRunCommand;
 import com.yamu.be.global.job.JobRunReport;
 import com.yamu.be.payment.approve.PaymentApprovalProperties;
@@ -187,7 +191,7 @@ class RefundDepositIntegrationTest extends MySqlTestSupport {
         Refund refund = refundAfterWithdrawal(15_000);
         jdbc.update("UPDATE refund SET due_date = ? WHERE refund_id = ?", LocalDate.now(KST).minusDays(1), refund.id());
 
-        assertThat(depositor.deposit(refund.id())).isEqualTo(Outcome.COMPLETED);
+        assertThat(depositor.deposit(refund.id()).outcome()).isEqualTo(Outcome.COMPLETED);
         assertThat(refundStatus(refund.id())).isEqualTo("COMPLETED");
     }
 
@@ -197,7 +201,7 @@ class RefundDepositIntegrationTest extends MySqlTestSupport {
         jdbc.update("UPDATE linked_account SET status = 'DISCONNECTED', disconnected_at = ? WHERE linked_account_id = ?",
                 LocalDateTime.now(ZoneOffset.UTC), account);
 
-        assertThat(depositor.deposit(refund.id())).isEqualTo(Outcome.COMPLETED);
+        assertThat(depositor.deposit(refund.id()).outcome()).isEqualTo(Outcome.COMPLETED);
         verify(transfer).deposit(anyString(), eq(ACCOUNT_NO), eq(15_000L), any(), anyString());
     }
 
@@ -215,7 +219,7 @@ class RefundDepositIntegrationTest extends MySqlTestSupport {
 
         assertThat(run().results()).isEmpty();
         verify(transfer, never()).deposit(anyString(), anyString(), anyLong(), any(), anyString());
-        assertThat(depositor.deposit(awaiting.id())).isEqualTo(Outcome.SKIPPED);
+        assertThat(depositor.deposit(awaiting.id()).outcome()).isEqualTo(Outcome.SKIPPED);
     }
 
     // ───────── 이중 입금 방지 ─────────
@@ -225,7 +229,7 @@ class RefundDepositIntegrationTest extends MySqlTestSupport {
         Refund refund = refundAfterWithdrawal(15_000);
         land(TransferTag.refund(refund.id()), 15_000);
 
-        assertThat(depositor.deposit(refund.id())).isEqualTo(Outcome.COMPLETED);
+        assertThat(depositor.deposit(refund.id()).outcome()).isEqualTo(Outcome.COMPLETED);
 
         verify(transfer, never()).newTransactionNo();
         verify(transfer, never()).deposit(anyString(), anyString(), anyLong(), any(), anyString());
@@ -258,12 +262,12 @@ class RefundDepositIntegrationTest extends MySqlTestSupport {
             return unknown();
         }).when(transfer).deposit(anyString(), anyString(), anyLong(), any(), anyString());
 
-        assertThat(depositor.deposit(refund.id())).isEqualTo(Outcome.UNKNOWN);
+        assertThat(depositor.deposit(refund.id()).outcome()).isEqualTo(Outcome.UNKNOWN);
         assertThat(refundStatus(refund.id())).isEqualTo("PENDING");
-        assertThat(depositor.deposit(refund.id())).isEqualTo(Outcome.IN_FLIGHT);
+        assertThat(depositor.deposit(refund.id()).outcome()).isEqualTo(Outcome.IN_FLIGHT);
 
         clock.advance(properties.recoveryGrace().plusSeconds(1));
-        assertThat(depositor.deposit(refund.id())).isEqualTo(Outcome.COMPLETED);
+        assertThat(depositor.deposit(refund.id()).outcome()).isEqualTo(Outcome.COMPLETED);
 
         verify(transfer, times(1)).deposit(anyString(), anyString(), anyLong(), any(), anyString());
         assertThat(itemStatus(refund.itemId())).isEqualTo("REFUNDED");
@@ -273,12 +277,12 @@ class RefundDepositIntegrationTest extends MySqlTestSupport {
     void 결과_불명_뒤_유예가_지나도_태그가_없으면_새_요청_번호로_다시_보낸다() {
         Refund refund = refundAfterWithdrawal(15_000);
         doAnswer(inv -> unknown()).when(transfer).deposit(anyString(), anyString(), anyLong(), any(), anyString());
-        assertThat(depositor.deposit(refund.id())).isEqualTo(Outcome.UNKNOWN);
+        assertThat(depositor.deposit(refund.id()).outcome()).isEqualTo(Outcome.UNKNOWN);
         String firstRequestNo = (String) refundRow(refund.id()).get("fin_request_no");
 
         succeedDeposits();
         clock.advance(properties.recoveryGrace().plusSeconds(1));
-        assertThat(depositor.deposit(refund.id())).isEqualTo(Outcome.COMPLETED);
+        assertThat(depositor.deposit(refund.id()).outcome()).isEqualTo(Outcome.COMPLETED);
 
         ArgumentCaptor<String> requestNos = ArgumentCaptor.forClass(String.class);
         verify(transfer, times(2)).deposit(anyString(), anyString(), eq(15_000L), any(), requestNos.capture());
@@ -291,11 +295,11 @@ class RefundDepositIntegrationTest extends MySqlTestSupport {
     void 요청이_금융망에_가지_않으면_남긴_번호를_지우고_다음_실행이_유예_없이_다시_보낸다() {
         Refund refund = refundAfterWithdrawal(15_000);
         doAnswer(inv -> notSent()).when(transfer).deposit(anyString(), anyString(), anyLong(), any(), anyString());
-        assertThat(depositor.deposit(refund.id())).isEqualTo(Outcome.NOT_SENT);
+        assertThat(depositor.deposit(refund.id()).outcome()).isEqualTo(Outcome.NOT_SENT);
         assertThat(refundRow(refund.id()).get("fin_request_no")).isNull();
 
         succeedDeposits();
-        assertThat(depositor.deposit(refund.id())).isEqualTo(Outcome.COMPLETED);
+        assertThat(depositor.deposit(refund.id()).outcome()).isEqualTo(Outcome.COMPLETED);
     }
 
     @Test
@@ -307,7 +311,7 @@ class RefundDepositIntegrationTest extends MySqlTestSupport {
             return success();
         }).when(transfer).deposit(anyString(), anyString(), anyLong(), any(), anyString());
 
-        List<Outcome> outcomes = Concurrently.run(2, () -> depositor.deposit(refund.id()));
+        List<Outcome> outcomes = Concurrently.run(2, () -> depositor.deposit(refund.id()).outcome());
 
         verify(transfer, times(1)).deposit(anyString(), anyString(), anyLong(), any(), anyString());
         assertThat(outcomes).contains(Outcome.COMPLETED);
@@ -319,7 +323,7 @@ class RefundDepositIntegrationTest extends MySqlTestSupport {
     // ───────── 실패·운영 확인 ─────────
 
     @Test
-    void 은행이_거절하면_FAILED로_끝내고_이벤트를_남기며_다시_보내지_않는다() {
+    void 계좌가_없다고_거절하면_FAILED로_끝내고_이벤트를_남기며_다시_보내지_않는다() {
         Refund refund = refundAfterWithdrawal(15_000);
         doAnswer(inv -> rejected(RejectReason.ACCOUNT_NOT_FOUND)).when(transfer)
                 .deposit(anyString(), anyString(), anyLong(), any(), anyString());
@@ -340,6 +344,104 @@ class RefundDepositIntegrationTest extends MySqlTestSupport {
     }
 
     @Test
+    void 계좌_없음이_아닌_거절은_대기로_두고_코드를_결과에_남기며_원인을_고치면_다음_실행에_보낸다() {
+        Refund refund = refundAfterWithdrawal(15_000);
+        doAnswer(inv -> rejectedWith("H1008")).when(transfer)
+                .deposit(anyString(), anyString(), anyLong(), any(), anyString());
+
+        assertThat(run().results()).singleElement().satisfies(item -> {
+            assertThat(item.outcome()).isEqualTo(JobRunReport.Outcome.FAILED);
+            assertThat(item.result()).isEqualTo("NEEDS_REVIEW");
+            assertThat(item.message()).contains("H1008");
+        });
+        assertThat(refundStatus(refund.id())).isEqualTo("PENDING");
+        // 남긴 번호는 그대로 둔다. 다음 실행은 유예가 지난 뒤 태그부터 확인한다
+        assertThat(refundRow(refund.id()).get("fin_request_no")).isNotNull();
+        assertThat(events.stream(RefundFailedEvent.class)).isEmpty();
+
+        succeedDeposits();
+        clock.advance(properties.recoveryGrace().plusSeconds(1));
+        assertThat(count(run(), "COMPLETED")).isEqualTo(1);
+        assertThat(refundStatus(refund.id())).isEqualTo("COMPLETED");
+        verify(transfer, times(2)).deposit(anyString(), anyString(), anyLong(), any(), anyString());
+    }
+
+    @Test
+    void 거절됐지만_실제로는_입금된_환급은_다음_실행이_태그로_찾아_다시_보내지_않는다() {
+        Refund refund = refundAfterWithdrawal(15_000);
+        doAnswer(inv -> {
+            land(inv.getArgument(3), inv.getArgument(2));
+            return rejectedWith("Q9999");
+        }).when(transfer).deposit(anyString(), anyString(), anyLong(), any(), anyString());
+
+        assertThat(depositor.deposit(refund.id())).isEqualTo(new RefundDepositor.Result(Outcome.REJECTED, "Q9999"));
+
+        clock.advance(properties.recoveryGrace().plusSeconds(1));
+        assertThat(depositor.deposit(refund.id()).outcome()).isEqualTo(Outcome.COMPLETED);
+        verify(transfer, times(1)).deposit(anyString(), anyString(), anyLong(), any(), anyString());
+    }
+
+    @Test
+    void 같은_코드로_연달아_거절하면_이번_실행의_남은_환급은_보내지_않는다() {
+        List<Refund> refunds = List.of(refundAfterWithdrawal(1_000), refundAfterWithdrawal(2_000),
+                refundAfterWithdrawal(3_000), refundAfterWithdrawal(4_000));
+        doAnswer(inv -> rejectedWith("H1008")).when(transfer)
+                .deposit(anyString(), anyString(), anyLong(), any(), anyString());
+
+        JobRunReport report = run();
+
+        assertThat(report.results()).extracting(JobRunReport.Item::result)
+                .containsExactly("NEEDS_REVIEW", "NEEDS_REVIEW", "NEEDS_REVIEW", "HALTED");
+        assertThat(report.results().get(3).outcome()).isEqualTo(JobRunReport.Outcome.SKIPPED);
+        assertThat(report.results().get(3).message()).contains("H1008");
+        verify(transfer, times(RefundPayoutJob.HALT_STREAK))
+                .deposit(anyString(), anyString(), anyLong(), any(), anyString());
+        assertThat(refunds).allSatisfy(refund -> assertThat(refundStatus(refund.id())).isEqualTo("PENDING"));
+    }
+
+    @Test
+    void 거래내역_조회가_같은_코드로_연달아_거절돼도_남은_환급은_보내지_않는다() {
+        for (int i = 0; i < 4; i++) {
+            refundAfterWithdrawal(1_000);
+        }
+        FinApiException rejected = mock(FinApiException.class);
+        when(rejected.getOutcome()).thenReturn(FinApiOutcome.REJECTED);
+        when(rejected.getFinCode()).thenReturn("H1008");
+        doAnswer(inv -> {
+            throw rejected;
+        }).when(transfer).findAllByTag(anyString(), anyString(), any(TransferTag.class), any(LocalDate.class),
+                any(LocalDate.class));
+
+        JobRunReport report = run();
+
+        assertThat(report.results()).extracting(JobRunReport.Item::result)
+                .containsExactly("ERROR", "ERROR", "ERROR", "HALTED");
+        verify(transfer, times(RefundPayoutJob.HALT_STREAK)).findAllByTag(anyString(), anyString(),
+                any(TransferTag.class), any(LocalDate.class), any(LocalDate.class));
+    }
+
+    @Test
+    void 다른_코드나_성공이_끼면_연속_거절을_처음부터_센다() {
+        Refund[] refunds = {refundAfterWithdrawal(1_000), refundAfterWithdrawal(2_000), refundAfterWithdrawal(3_000),
+                refundAfterWithdrawal(4_000), refundAfterWithdrawal(5_000)};
+        // 1·2번 H1008, 3번 성공, 4번 H1008, 5번 Q9999 → 같은 코드가 3건 연달아 나오지 않는다
+        doAnswer(inv -> {
+            long amount = inv.getArgument(2);
+            if (amount == 3_000) {
+                land(inv.getArgument(3), amount);
+                return success();
+            }
+            return rejectedWith(amount == 5_000 ? "Q9999" : "H1008");
+        }).when(transfer).deposit(anyString(), anyString(), anyLong(), any(), anyString());
+
+        JobRunReport report = run();
+
+        assertThat(report.results()).extracting(JobRunReport.Item::result)
+                .containsExactly("NEEDS_REVIEW", "NEEDS_REVIEW", "COMPLETED", "NEEDS_REVIEW", "NEEDS_REVIEW");
+        verify(transfer, times(refunds.length)).deposit(anyString(), anyString(), anyLong(), any(), anyString());
+    }
+
+    @Test
     void YAMU_R_입금이_두_건이거나_금액이_다르면_대기로_두고_보내지_않는다() {
         Refund duplicated = refundAfterWithdrawal(15_000);
         land(TransferTag.refund(duplicated.id()), 15_000);
@@ -347,8 +449,8 @@ class RefundDepositIntegrationTest extends MySqlTestSupport {
         Refund mismatched = refundAfterWithdrawal(15_000);
         land(TransferTag.refund(mismatched.id()), 14_000);
 
-        assertThat(depositor.deposit(duplicated.id())).isEqualTo(Outcome.NEEDS_REVIEW);
-        assertThat(depositor.deposit(mismatched.id())).isEqualTo(Outcome.NEEDS_REVIEW);
+        assertThat(depositor.deposit(duplicated.id()).outcome()).isEqualTo(Outcome.NEEDS_REVIEW);
+        assertThat(depositor.deposit(mismatched.id()).outcome()).isEqualTo(Outcome.NEEDS_REVIEW);
 
         verify(transfer, never()).deposit(anyString(), anyString(), anyLong(), any(), anyString());
         assertThat(refundStatus(duplicated.id())).isEqualTo("PENDING");
@@ -360,7 +462,7 @@ class RefundDepositIntegrationTest extends MySqlTestSupport {
         Refund refund = refundAfterWithdrawal(15_000);
         jdbc.update("UPDATE app_user SET ssafy_user_key = NULL WHERE user_id = ?", user);
 
-        assertThat(depositor.deposit(refund.id())).isEqualTo(Outcome.NEEDS_REVIEW);
+        assertThat(depositor.deposit(refund.id()).outcome()).isEqualTo(Outcome.NEEDS_REVIEW);
         verify(transfer, never()).findAllByTag(anyString(), anyString(), any(TransferTag.class), any(LocalDate.class),
                 any(LocalDate.class));
         assertThat(refundStatus(refund.id())).isEqualTo("PENDING");
@@ -541,6 +643,11 @@ class RefundDepositIntegrationTest extends MySqlTestSupport {
 
     private static TransferResult rejected(RejectReason reason) {
         return new TransferResult(Status.REJECTED, null, null, reason, "A1003");
+    }
+
+    /** 계좌 없음이 아닌 거절(API 키·헤더 오류나 뜻을 모르는 코드). 코드 값은 테스트용이다. */
+    private static TransferResult rejectedWith(String finCode) {
+        return new TransferResult(Status.REJECTED, null, null, RejectReason.OTHER, finCode);
     }
 
     /** 채번기와 같은 모양: 지금(테스트 시계, 한국 시각) 14자리 + 일련번호 6자리. */
