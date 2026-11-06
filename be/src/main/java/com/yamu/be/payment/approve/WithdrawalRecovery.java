@@ -15,6 +15,7 @@ import com.yamu.be.payment.barcode.BarcodeStore;
 import com.yamu.be.payment.domain.PaymentStatus;
 import com.yamu.be.payment.domain.PaymentTransaction;
 import com.yamu.be.payment.domain.PaymentTransactionRepository;
+import com.yamu.be.payment.recommend.RecommendationResult.Candidate;
 import jakarta.persistence.OptimisticLockException;
 import java.time.Clock;
 import java.time.Instant;
@@ -173,7 +174,7 @@ public class WithdrawalRecovery {
             return PaymentStatus.PROCESSING;
         }
         return switch (lookup.get().result()) {
-            case FOUND -> confirmApproved(paymentId, finRequestNo, amount, lookup.get().found());
+            case FOUND -> confirmApproved(payment, finRequestNo, amount, lookup.get().found());
             case NOT_FOUND -> {
                 if (!pastGrace(requestTime(finRequestNo))) {
                     yield PaymentStatus.PROCESSING;
@@ -197,7 +198,7 @@ public class WithdrawalRecovery {
             return LateCheck.UNDECIDED;
         }
         return switch (lookup.get().result()) {
-            case FOUND -> confirmLate(paymentId, finRequestNo, amount, lookup.get().found()) == PaymentStatus.APPROVED
+            case FOUND -> confirmLate(payment, finRequestNo, amount, lookup.get().found()) == PaymentStatus.APPROVED
                     ? LateCheck.CONFIRMED : LateCheck.UNDECIDED;
             case NOT_FOUND -> LateCheck.NOT_FOUND;
             default -> {
@@ -256,8 +257,10 @@ public class WithdrawalRecovery {
     }
 
     /** 거래내역에 출금이 있다: 돈이 나갔으므로 승인으로 확정한다. */
-    private PaymentStatus confirmApproved(Long paymentId, String finRequestNo, long amount, BankTransaction found) {
-        ApprovalOutcome.Approved approved = approvedOutcome(finRequestNo, amount, found);
+    private PaymentStatus confirmApproved(PaymentTransaction row, String finRequestNo, long amount,
+            BankTransaction found) {
+        Long paymentId = row.getId();
+        ApprovalOutcome.Approved approved = approvedOutcome(row, finRequestNo, amount, found);
         LocalDateTime now = nowUtc();
         PaymentStatus after = settle(paymentId, finRequestNo, payment -> {
             payment.approve(approved.approvedAmount(), approved.recognizedPerformanceAmount(),
@@ -274,8 +277,9 @@ public class WithdrawalRecovery {
     }
 
     /** 출금 미확인으로 거절·만료한 뒤 같은 요청 번호의 출금을 찾았다: 승인으로 바로잡는다. */
-    private PaymentStatus confirmLate(Long paymentId, String finRequestNo, long amount, BankTransaction found) {
-        ApprovalOutcome.Approved approved = approvedOutcome(finRequestNo, amount, found);
+    private PaymentStatus confirmLate(PaymentTransaction row, String finRequestNo, long amount, BankTransaction found) {
+        Long paymentId = row.getId();
+        ApprovalOutcome.Approved approved = approvedOutcome(row, finRequestNo, amount, found);
         LocalDateTime now = nowUtc();
         PaymentStatus after = change(paymentId, payment -> {
             if (!payment.isLateConfirmable(finRequestNo)) {
@@ -388,11 +392,50 @@ public class WithdrawalRecovery {
         }
     }
 
-    private ApprovalOutcome.Approved approvedOutcome(String finRequestNo, long amount, BankTransaction found) {
+    /**
+     * 복구로 확정하는 승인. 혜택·한도 사용은 그 요청 번호로 출금한 시도에 남긴 후보(승인 때 다시 계산한 값)로 원장에 적는다(Task 5.2.5).
+     * 시도 기록이 없거나(보관 종료·Redis 실패) 후보의 출금액이 실제 출금액과 다르면 근거를 모르는 것이므로 혜택 없이 승인하고 남긴다(임시).
+     */
+    private ApprovalOutcome.Approved approvedOutcome(PaymentTransaction row, String finRequestNo, long amount,
+            BankTransaction found) {
         LocalDate performanceMonth = nowUtc().atOffset(ZoneOffset.UTC).atZoneSameInstant(KST).toLocalDate()
                 .withDayOfMonth(1);
-        return new ApprovalOutcome.Approved(amount, amount, 0, performanceMonth, List.of(), finRequestNo,
-                found.bankTransactionNo(), null);
+        Candidate basis = basisOf(row, finRequestNo, amount);
+        return new ApprovalOutcome.Approved(amount, amount, 0, performanceMonth,
+                ApprovalOutcome.Approved.applied(basis), finRequestNo, found.bankTransactionNo(), null, basis);
+    }
+
+    private Candidate basisOf(PaymentTransaction row, String finRequestNo, long amount) {
+        Long paymentId = row.getId();
+        Optional<Attempt> attempt;
+        try {
+            attempt = attempts.findByFinRequestNo(paymentId, finRequestNo);
+        } catch (RuntimeException e) {
+            log.warn("복구 승인의 혜택 근거(시도 기록)를 읽지 못해 혜택 없이 원장에 적음, 운영 확인 paymentId={} finRequestNo={} "
+                    + "amount={} requestedAmount={}", paymentId, finRequestNo, amount, row.getRequestedAmount(), e);
+            return null;
+        }
+        if (attempt.isEmpty()) {
+            // 보관 기간이 지났거나 저장에 실패했다. 즉시할인 뒤 금액으로 출금됐어도 어떤 혜택·한도였는지 알 수 없다
+            log.warn("복구 승인의 시도 기록이 없어 혜택 근거를 모름, 혜택 없이 원장에 적음, 운영 확인 paymentId={} finRequestNo={} "
+                    + "amount={} requestedAmount={}", paymentId, finRequestNo, amount, row.getRequestedAmount());
+            return null;
+        }
+        Candidate basis = attempt.get().basis();
+        if (basis == null) {
+            // 추천 밖의 카드를 직접 고른 시도: 혜택·한도를 쓰지 않는다
+            return null;
+        }
+        try {
+            if (row.getRequestedAmount() - basis.instantDiscount() == amount) {
+                return basis;
+            }
+        } catch (IllegalStateException e) {
+            // 즉시할인 금액을 확정할 수 없는 후보. 출금액이 그 값으로 정해졌을 리 없다
+        }
+        log.warn("복구 승인의 혜택 근거가 실제 출금액과 맞지 않아 혜택 없이 원장에 적음, 운영 확인 paymentId={} finRequestNo={} amount={}",
+                paymentId, finRequestNo, amount);
+        return null;
     }
 
     private LocalDateTime nowUtc() {
