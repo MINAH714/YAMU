@@ -42,6 +42,7 @@ import java.time.YearMonth;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -442,6 +443,60 @@ class RefundDepositIntegrationTest extends MySqlTestSupport {
     }
 
     @Test
+    void 입금_전_거래내역_조회에서_계좌가_없다고_거절하면_FAILED로_끝내고_이벤트를_남기며_다음_실행은_건너뛴다() {
+        Refund refund = refundAfterWithdrawal(15_000);
+        accountGoneOnLookup(refund.id());
+
+        assertThat(run().results()).singleElement().satisfies(item -> {
+            assertThat(item.outcome()).isEqualTo(JobRunReport.Outcome.FAILED);
+            assertThat(item.result()).isEqualTo("FAILED");
+        });
+        assertThat(refundStatus(refund.id())).isEqualTo("FAILED");
+        assertThat(itemStatus(refund.itemId())).isEqualTo("REFUND_PENDING");
+        assertThat(events.stream(RefundFailedEvent.class)).containsExactly(
+                new RefundFailedEvent(refund.id(), user, refund.paymentId(), 15_000, RejectReason.ACCOUNT_NOT_FOUND));
+        verify(transfer, never()).newTransactionNo();
+        verify(transfer, never()).deposit(anyString(), anyString(), anyLong(), any(), anyString());
+
+        assertThat(run().results()).isEmpty();
+    }
+
+    @Test
+    void 예전_입금_요청이_남은_환급은_조회에서_계좌가_없어도_실패로_끝내지_않고_운영_확인으로_남긴다() {
+        Refund refund = refundAfterWithdrawal(15_000);
+        doAnswer(inv -> unknown()).when(transfer).deposit(anyString(), anyString(), anyLong(), any(), anyString());
+        assertThat(depositor.deposit(refund.id()).outcome()).isEqualTo(Outcome.UNKNOWN);
+        String requestNo = (String) refundRow(refund.id()).get("fin_request_no");
+
+        // 결과 불명이던 입금이 해지 전에 들어갔을 수 있는데, 이제는 거래내역으로 확인할 수 없다
+        clock.advance(properties.recoveryGrace().plusSeconds(1));
+        accountGoneOnLookup(refund.id());
+
+        assertThat(run().results()).singleElement().satisfies(item -> {
+            assertThat(item.outcome()).isEqualTo(JobRunReport.Outcome.FAILED);
+            assertThat(item.result()).isEqualTo("NEEDS_REVIEW");
+        });
+        assertThat(refundStatus(refund.id())).isEqualTo("PENDING");
+        assertThat(refundRow(refund.id()).get("fin_request_no")).isEqualTo(requestNo);
+        assertThat(events.stream(RefundFailedEvent.class)).isEmpty();
+        verify(transfer, times(1)).deposit(anyString(), anyString(), anyLong(), any(), anyString());
+    }
+
+    @Test
+    void 앞번호에_해지_계좌_환급이_여러_건이어도_멈추지_않고_뒤_환급을_입금한다() {
+        Refund[] closed = {refundAfterWithdrawal(1_000), refundAfterWithdrawal(2_000), refundAfterWithdrawal(3_000)};
+        Refund open = refundAfterWithdrawal(4_000);
+        accountGoneOnLookup(closed[0].id(), closed[1].id(), closed[2].id());
+
+        JobRunReport report = run();
+
+        assertThat(report.results()).extracting(JobRunReport.Item::result)
+                .containsExactly("FAILED", "FAILED", "FAILED", "COMPLETED");
+        assertThat(refundStatus(open.id())).isEqualTo("COMPLETED");
+        verify(transfer, times(1)).deposit(anyString(), anyString(), eq(4_000L), any(), anyString());
+    }
+
+    @Test
     void YAMU_R_입금이_두_건이거나_금액이_다르면_대기로_두고_보내지_않는다() {
         Refund duplicated = refundAfterWithdrawal(15_000);
         land(TransferTag.refund(duplicated.id()), 15_000);
@@ -627,6 +682,22 @@ class RefundDepositIntegrationTest extends MySqlTestSupport {
 
     private List<BankTransaction> matching(TransferTag tag) {
         return bank.stream().filter(t -> t.direction() == tag.direction() && tag.value().equals(t.summary())).toList();
+    }
+
+    /** 이 환급들의 입금 전 거래내역 조회를 계좌 없음(A1003)으로 거절한다(해지된 환급 계좌). 나머지는 가짜 은행 거래내역을 읽는다. */
+    private void accountGoneOnLookup(long... refundIds) {
+        List<String> closedTags = Arrays.stream(refundIds).mapToObj(id -> TransferTag.refund(id).value()).toList();
+        FinApiException accountGone = mock(FinApiException.class);
+        when(accountGone.getOutcome()).thenReturn(FinApiOutcome.REJECTED);
+        when(accountGone.getFinCode()).thenReturn("A1003");
+        doAnswer(inv -> {
+            TransferTag tag = inv.getArgument(2);
+            if (closedTags.contains(tag.value())) {
+                throw accountGone;
+            }
+            return matching(tag);
+        }).when(transfer).findAllByTag(anyString(), anyString(), any(TransferTag.class), any(LocalDate.class),
+                any(LocalDate.class));
     }
 
     private static TransferResult success() {

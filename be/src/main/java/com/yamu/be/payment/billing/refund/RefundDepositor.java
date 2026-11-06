@@ -1,5 +1,6 @@
 package com.yamu.be.payment.billing.refund;
 
+import com.yamu.be.global.finapi.FinApiException;
 import com.yamu.be.payment.approve.PaymentAccountReader;
 import com.yamu.be.payment.approve.PaymentAccountReader.BankAccess;
 import com.yamu.be.payment.approve.PaymentApprovalProperties;
@@ -31,7 +32,8 @@ import org.springframework.transaction.support.TransactionTemplate;
  * ① 직전 입금 요청이 유예(approve.recovery-grace) 안이면 건너뛴다. SSAFY가 아직 처리 중일 수 있다
  * ② 환급 계좌: 환급 행에 저장한 계좌(청구서 확정 당시 출금 계좌). 앱에서 연결을 끊었어도 그 계좌로 보낸다
  * ③ 이미 입금했는지: 환급 생성일(한국) 전날 ~ 오늘의 입금 내역에서 YAMU-R{refundId}를 찾는다. 있으면 완료로 바꾸고 다시 보내지 않는다
- *    (입금 뒤 DB 저장 실패, 결과 불명 뒤 늦은 처리를 같이 막는다)
+ *    (입금 뒤 DB 저장 실패, 결과 불명 뒤 늦은 처리를 같이 막는다). 이 조회를 계좌 없음(A1003)으로 거절하면, 이 환급으로 보낸 적이
+ *    없을 때(남긴 번호 없음)만 FAILED + 이벤트로 끝내고, 남긴 번호가 있으면 해지 전에 들어갔을 수 있어 대기로 두고 운영 로그를 남긴다
  * ④ 없으면 새 요청 번호를 환급 행에 먼저 커밋하고 입금한다
  * ⑤ 성공 → COMPLETED + 회차 REFUNDED + 이벤트 / 계좌 없음(A1003) → FAILED + 이벤트 / 그 밖의 거절 → 대기 그대로 + 운영 로그
  *    / 결과 불명 → 그대로(다음 실행이 ①③으로 확정) / 요청 안 감 → 남긴 번호를 지운다
@@ -42,7 +44,8 @@ import org.springframework.transaction.support.TransactionTemplate;
  * 지난 뒤 ③의 태그 확인부터 하므로, 거절이 실제로는 처리된 경우에도 두 번 보내지 않는다.
  *
  * <p>같은 환급을 두 실행이 동시에 다루면 ④에서 환급 행을 잠그고 버전을 비교해 한쪽만 보낸다. 늦은 쪽은 남긴 번호를 보고 ①에서 멈춘다.
- * 자동으로 판단하지 않는 경우(태그가 2건 이상이거나 금액이 다름, 환급 계좌·회원 키를 읽을 수 없음)는 대기로 두고 운영 로그를 남긴다.
+ * 자동으로 판단하지 않는 경우(태그가 2건 이상이거나 금액이 다름, 환급 계좌·회원 키를 읽을 수 없음, 남긴 번호가 있는데 계좌가 없음)는
+ * 대기로 두고 운영 로그를 남긴다.
  *
  * <p>한계: 입금 응답이 유예보다 늦게 오는 사이 다른 실행이 ③을 지나 다시 보내면 두 번 들어갈 수 있다(응답 제한 10초, 유예 30초).
  * 로그에는 환급 번호·태그·금액·결과만 남긴다(계좌번호·userKey 금지).
@@ -77,6 +80,7 @@ public class RefundDepositor {
 
     /**
      * 환급 한 건을 입금하거나 입금을 확인한다. 금융망 조회 실패·채번 실패는 예외 그대로다(아무것도 바꾸지 않았으니 다음 실행이 다시 본다).
+     * 단 조회가 계좌 없음(A1003)으로 거절되면 예외 대신 실패나 운영 확인으로 돌려준다.
      */
     public Result deposit(Long refundId) {
         Snapshot refund = transaction.execute(status -> refunds.findById(refundId).map(Snapshot::of).orElse(null));
@@ -98,8 +102,16 @@ public class RefundDepositor {
         }
 
         TransferTag tag = TransferTag.refund(refundId);
-        List<BankTransaction> found = transfer.findAllByTag(access.userKey(), access.accountNo(), tag,
-                refund.createdOn().minusDays(1), today());
+        List<BankTransaction> found;
+        try {
+            found = transfer.findAllByTag(access.userKey(), access.accountNo(), tag, refund.createdOn().minusDays(1),
+                    today());
+        } catch (FinApiException e) {
+            if (!SsafyTransferApi.isAccountNotFound(e)) {
+                throw e;
+            }
+            return Result.of(accountGone(refund, e.getFinCode()));
+        }
         if (found.size() > 1) {
             return Result.of(needsReview(refundId, "환급 입금이 " + found.size() + "건"));
         }
@@ -178,6 +190,31 @@ public class RefundDepositor {
         });
     }
 
+    /**
+     * 입금 전 거래내역 조회에서 환급 계좌가 없다고(A1003) 거절됐다. 해지된 계좌는 다음 실행에도 같으니 대기로 두면 매일 오류만 쌓인다.
+     * 이 환급으로 보낸 적이 없을 때(남긴 번호 없음)만 실패로 끝낸다. 남긴 번호가 있으면 그 입금이 해지 전에 들어갔을 수 있는데 이제
+     * 거래내역으로 확인할 수 없으므로, 실패로 끝내면 운영이 다시 보내 두 번 나갈 수 있다. 그래서 대기로 두고 운영 확인으로 남긴다.
+     */
+    private Outcome accountGone(Snapshot read, String finCode) {
+        Long refundId = read.refundId();
+        if (read.finRequestNo() != null) {
+            return needsReview(refundId, "환급 계좌가 없는데(code=" + finCode + ") 예전 입금 요청의 결과를 확인할 수 없음");
+        }
+        return transaction.execute(status -> {
+            Refund locked = refunds.findByIdForUpdate(refundId).orElse(null);
+            if (locked == null || !locked.isDepositTarget() || !locked.getVersion().equals(read.version())) {
+                log.info("다른 실행이 먼저 환급을 바꿈, 실패로 바꾸지 않음 refundId={}", refundId);
+                return Outcome.CONTENDED;
+            }
+            log.warn("환급 계좌가 없어 거래내역 조회 거절, 실패로 끝냄 refundId={} code={}", refundId, finCode);
+            locked.fail();
+            refunds.flush();
+            events.publishEvent(new RefundFailedEvent(refundId, locked.getUserId(), locked.getPaymentTransactionId(),
+                    locked.getRefundAmount(), TransferResult.RejectReason.ACCOUNT_NOT_FOUND));
+            return Outcome.FAILED;
+        });
+    }
+
     /** 계좌가 없어 은행이 거절한 환급을 실패로 끝낸다. 남긴 번호가 이 요청의 것이 아니면(다른 실행이 다시 보냄) 바꾸지 않는다. */
     private Outcome fail(Long refundId, String requestNo, TransferResult.RejectReason reason) {
         return transaction.execute(status -> {
@@ -215,7 +252,7 @@ public class RefundDepositor {
     public enum Outcome {
         /** 입금했거나 이미 들어간 입금을 찾아 완료로 바꿈 */
         COMPLETED,
-        /** 계좌가 없어(A1003) 은행이 거절해 실패로 끝냄 */
+        /** 계좌가 없어(A1003) 은행이 입금이나 입금 전 조회를 거절해 실패로 끝냄 */
         FAILED,
         /** 계좌 없음이 아닌 거절. 대기로 두고 운영 로그를 남겼다. 원인을 고치면 다음 실행이 태그 확인 뒤 다시 보낸다 */
         REJECTED,
