@@ -397,8 +397,8 @@ public class ForecastService {
                     events.add(billEvent(bill, date, FlowEvent.Confidence.CONFIRMED));
                 }
                 case ACCUMULATING -> {
-                    // 청구 확정·출금 배치(-206·-207)가 없어 출금일이 지나도 진행 중으로 남고 돈도 빠지지 않는다.
-                    // 결국 빠질 돈이라 오늘 빠질 돈으로 본다(2026-11-04 BE 2 합의). 배치가 생기면 이 경우는 확정·미납으로 넘어간다.
+                    // 확정·출금 배치(-206·-207)가 돌지 않으면(정기 실행 기본 꺼짐) 출금일이 지나도 진행 중으로 남고 돈도 빠지지 않는다.
+                    // 결국 빠질 돈이라 오늘 빠질 돈으로 본다(2026-11-04 BE 2 합의). 배치가 돌면 이 경우는 확정·미납으로 넘어간다.
                     LocalDate date = bill.withdrawalDate().isBefore(horizon.from())
                             ? horizon.from() : bill.withdrawalDate();
                     events.add(billEvent(bill, date, FlowEvent.Confidence.EXPECTED));
