@@ -37,6 +37,7 @@ public class SimulationRequest {
     @JsonIgnore
     private boolean installmentMonthsPresent;
     private BigDecimal days;
+    private BalanceForecast.Until until;
     private String paymentChannel;
 
     @JsonSetter("accountIds")
@@ -102,6 +103,11 @@ public class SimulationRequest {
     @JsonSetter("days")
     public void setDays(BigDecimal days) {
         this.days = days;
+    }
+
+    @JsonSetter("until")
+    public void setUntil(BalanceForecast.Until until) {
+        this.until = until;
     }
 
     @JsonSetter("paymentChannel")
@@ -199,6 +205,14 @@ public class SimulationRequest {
             }
         }
         return new PaymentTerms(won, paymentPlan, months);
+    }
+
+    /**
+     * 기간 기준(NEXT_INCOME·DAYS). 없으면 null이고 잔고예보 설정을 따른다. 잔고예보 조회의 {@code until}과 같은 뜻이라
+     * 같은 until·days로 부른 두 API의 기간이 같다(S15P31E103-318).
+     */
+    BalanceForecast.Until until() {
+        return until;
     }
 
     /** 비교 기간(7·14·30). 없으면 null(잔고예보 설정). 정수가 아니면 거절한다. 값의 범위는 잔고예보 기간 검사가 본다. */

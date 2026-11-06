@@ -489,7 +489,8 @@ enum Origin { REAL, SEED }
   - 결제 방식·개월 수는 BE 2 `PaymentTerms` 규칙입니다. 체크카드 할부, 5만 원 미만 할부, 2~12개월 밖, 일시불에 개월 수를 보내면 400 `INVALID_INSTALLMENT`입니다.
   - 물품 카테고리·가맹점 업종·가맹점이 모두 없으면 400 `MERCHANT_OR_CATEGORY_REQUIRED`입니다(명세 코드, `ErrorCode`에 추가). 상품명 150자, 코드 64자를 넘으면 400 `INVALID_REQUEST`입니다.
   - 결제 방식 `paymentChannel`은 `ONLINE`·`OFFLINE` 중 하나가 필수이고, 없거나 다른 값이면 400 `INVALID_REQUEST`(`paymentChannel`)입니다(2026-11-06). 결제 추천과 같이 온라인·매장 조건 혜택을 판정하는 데 씁니다.
-  - 구매일은 기본이 한국 날짜 오늘이고, 지난 날이면 400 `INVALID_REQUEST`(`purchaseDate`)입니다. `days`는 7·14·30이고, 없으면 잔고예보 설정(NEXT_INCOME이면 다음 월급일 전날까지)입니다.
+  - 구매일은 기본이 한국 날짜 오늘이고, 지난 날이면 400 `INVALID_REQUEST`(`purchaseDate`)입니다.
+  - 기간은 **잔고예보 조회와 같은 규칙**입니다(2026-11-06, S15P31E103-318): 선택값 `until`(NEXT_INCOME·DAYS)과 `days`(7·14·30)를 받고, `until`이 없으면 잔고예보 설정의 기간 기준을 따르며, 기준이 NEXT_INCOME이면 `days`는 검사만 하고 쓰지 않습니다. 그래서 같은 `until`·`days`로 부른 잔고예보와 가상 구매의 기간이 늘 같습니다. 전에는 `until`이 없고 `days`를 보내면 늘 N일이라, 설정이 NEXT_INCOME인 사용자는 잔고예보와 기간이 달랐습니다. **앱은 N일로 보려면 `until: DAYS`를 함께 보내야 합니다.** `until` 값이 틀리면 400 `INVALID_REQUEST`입니다.
 - **카드**
   - 고른 카드: 남의·없는·등록 해제 카드 404. 사용자가 꺼 둔(INACTIVE) 카드, 카드사 정지·만료 카드, 미납 청구서가 있는 신용카드는 결제 요청과 같은 400 `CARD_NOT_ELIGIBLE` + `reason`(`CARD_INACTIVE`·`CARD_SUSPENDED`·`CARD_EXPIRED`·`UNPAID_BILL`)입니다. 실제 승인이 미납 카드를 `UNPAID_BILL`로 거절하므로 시뮬레이션도 같이 막고, FE가 결제와 같은 문구를 쓰게 합니다(2026-11-06 !126 리뷰, 11-05에는 `INVALID_REQUEST`+`fieldErrors(userCardId)`). 추천 엔진이 이런 카드를 고르면 사용자가 보내지 않은 `userCardId` 오류를 내지 않고 엔진 계약 위반(500)으로 드러냅니다.
   - 카드를 고르지 않으면 추천 엔진의 1순위입니다. 추천할 수 없으면 아무 카드나 추천처럼 보이지 않게 422 `DATA_INSUFFICIENT` + `details.reason`입니다(2026-11-06): 업종·브랜드가 없음 `CATEGORY_REQUIRED`, 쓸 수 있는 카드 없음 `NO_ELIGIBLE_CARD`, 혜택 정보 부족 `BENEFIT_DATA_INSUFFICIENT`, 비교 못 한 카드가 모두 결제 가능 여부(금융망 잔액·한도·출금 계좌)를 몰라 빠짐 `PAYMENT_AVAILABILITY_UNKNOWN`(결제 추천과 같은 구분, !155 리뷰), 엔진 DB 읽기 실패 `RECOMMENDATION_UNAVAILABLE`.
@@ -632,7 +633,7 @@ enum Origin { REAL, SEED }
 | 요청에 결제 방식 없음 | `paymentChannel`(`ONLINE`·`OFFLINE`) 필수 |
 | 응답에 가정·빠진 정보 없음 | `assumptions[]`·`missingInformation[]` 추가 |
 | 에러 표에 없음 | 지난 구매일·잘못된 `days`·상품명/코드 길이 400 `INVALID_REQUEST`, 결제할 수 없는 카드 400(`userCardId`), 출금 일정을 만들 수 없는 카드 422 `DATA_INSUFFICIENT`, 금액 1,000억 원 초과 400 `INVALID_AMOUNT` |
-| `days` 기본값 "설정값" | 잔고예보 설정의 기간 기준까지 따름(NEXT_INCOME이면 다음 월급일 전날까지) |
+| `days` 기본값 "설정값" | 잔고예보 설정의 기간 기준까지 따름(NEXT_INCOME이면 다음 월급일 전날까지). 선택값 `until` 추가, 기간 규칙은 잔고예보 조회와 같음(2026-11-06, -318) |
 
 「가상 구매 시뮬레이션」 노션 명세에는 위 차이를 반영했습니다(2026-11-05: 에러 표의 한도 두 줄에 덧붙임, 「요청 검증과 한도 조회」 아래 구현 반영 문단, 비고).
 
