@@ -81,6 +81,11 @@ class ForecastServiceTest {
     private List<OutstandingBill> bills = List.of();
     private final List<LocalDate> billRequestsTo = new ArrayList<>();
     private List<DailySpending> spending = List.of();
+    /** 선택 계좌가 출금 계좌인 신용카드와 카드별 일별 소비. 기본은 없음. */
+    private List<Long> creditCards = List.of();
+    private List<CreditSpendingReader.CardDailySpending> creditDays = List.of();
+    /** 신용카드 출금일. 기본은 사용일과 같은 날(예정 지출 테스트용). */
+    private CreditWithdrawalSchedule creditSchedule = (card, spendDate) -> Optional.of(spendDate);
     private RuntimeException livingFailure;
     /** 잔고예보 설정. 기본은 명세 기본값(NEXT_INCOME·30일·안전 잔액 100,000원). */
     private ForecastSettings userSettings = ForecastSettings.DEFAULTS;
@@ -107,7 +112,6 @@ class ForecastServiceTest {
             billRequestsTo.add(to);
             return bills;
         };
-        CreditWithdrawalSchedule creditSchedule = (card, spendDate) -> Optional.of(spendDate);
         LivingCostReader livingReader = (userId, accountIds, fromDate, toDate) -> {
             livingRequests.add(List.of(fromDate, toDate));
             if (livingFailure != null) {
@@ -117,8 +121,18 @@ class ForecastServiceTest {
         };
         // 남의 계좌로 실패하는 테스트는 설정을 읽기 전에 끝나 lenient로 둔다.
         lenient().when(settingsStore.read(anyLong())).thenAnswer(invocation -> userSettings);
-        return new ForecastService(cashflows, balanceService, billReader, cardService, creditSchedule, livingReader,
-                accounts, settingsStore, settingsService, new LivingCostProjector(projectorAi), clock);
+        CreditSpendingReader creditReader = (userId, accountIds, fromDate, toDate) ->
+                new CreditSpendingReader.CreditSpending(creditCards, creditDays);
+        CardNameReader names = new CardNameReader(null) {
+            @Override
+            String name(long userId, long userCardId) {
+                return "카드" + userCardId;
+            }
+        };
+        CreditWithdrawalSchedule schedule = (card, spendDate) -> creditSchedule.withdrawalDate(card, spendDate);
+        return new ForecastService(cashflows, balanceService, billReader, cardService, schedule, livingReader,
+                accounts, settingsStore, settingsService, new LivingCostProjector(projectorAi), creditReader, names,
+                clock);
     }
 
     @Test
@@ -647,6 +661,62 @@ class ForecastServiceTest {
         CashflowService.Item item = new CashflowService.Item(id, accountId, null, "월세", CashflowItem.Direction.EXPENSE,
                 amount, date, CashflowItem.RecurrenceType.NONE, null, null, null, CashflowItem.Status.CONFIRMED, null);
         return new CashflowService.Entry(item, date, date, paid);
+    }
+
+    @Test
+    void 마감_전_신용카드_사용_추정을_출금일에_보수적_선에서만_빼고_예정_출금_합계에는_세지_않는다() {
+        // S15P31E103-286. 오늘 10/26, 결제일 25일·마감 14일 카드 41(A 계좌): 이용기간 마감 11/11, 출금 11/25
+        // 7/1부터 매일 3,000원 → 일평균 3,000원 × 10/27~11/11 16일 = 48,000원
+        LocalDate nov25 = LocalDate.of(2026, 11, 25);
+        creditSchedule = (card, spendDate) -> Optional.of(nov25);
+        givenEntries(TODAY, TODAY.plusDays(30));
+        spending = days(everyDay(A, JUL.atDay(1), TODAY, 5_000));
+        creditCards = List.of(41L, 42L);
+        List<CreditSpendingReader.CardDailySpending> credit = new ArrayList<>();
+        for (LocalDate day = JUL.atDay(1); !day.isAfter(TODAY); day = day.plusDays(1)) {
+            credit.add(new CreditSpendingReader.CardDailySpending(41L, day, 3_000L, Origin.REAL));
+        }
+        creditDays = credit;
+        when(cardService.findRegisteredCard(USER, 41L)).thenReturn(Optional.of(creditCard(41L, A)));
+        // 카드 42는 기록이 없어 추정하지 못하고 알린다
+        when(cardService.findRegisteredCard(USER, 42L)).thenReturn(Optional.of(creditCard(42L, A)));
+
+        BalanceForecast result = service.forecast(USER, List.of(A), Until.DAYS, 30, false, false);
+
+        BalanceForecast.SeriesPoint withdrawal = day(result.series(), nov25);
+        // 생활비 5,000원 × 30일 = 150,000원, 추정 48,000원
+        assertThat(withdrawal)
+                .extracting(BalanceForecast.SeriesPoint::confirmed, BalanceForecast.SeriesPoint::expected,
+                        BalanceForecast.SeriesPoint::conservative)
+                .containsExactly(800_000L, 800_000L, 800_000L - 150_000L - 48_000L);
+        assertThat(withdrawal.events()).containsExactly(new BalanceForecast.Event(
+                FlowEvent.Type.CARD_SPENDING_ESTIMATE, "카드41 · 10/27~11/11 16일 × 일평균 3,000원", -48_000L,
+                FlowEvent.Confidence.CONSERVATIVE));
+        assertThat(result.summary().largestOutflow()).isNull();
+        assertThat(result.excluded()).extracting(ExcludedItem::title, ExcludedItem::date, ExcludedItem::reason)
+                .containsExactly(tuple("카드42", nov25, ExcludedItem.Reason.CREDIT_SPENDING_UNKNOWN));
+    }
+
+    @Test
+    void 등록_해제돼_BE_1이_주지_않는_신용카드는_추정하지_않는다() {
+        creditCards = List.of(41L);
+        List<CreditSpendingReader.CardDailySpending> credit = new ArrayList<>();
+        for (LocalDate day = JUL.atDay(1); !day.isAfter(TODAY); day = day.plusDays(1)) {
+            credit.add(new CreditSpendingReader.CardDailySpending(41L, day, 3_000L, Origin.REAL));
+        }
+        creditDays = credit;
+        givenEntries(TODAY, TODAY.plusDays(30));
+        spending = days(everyDay(A, JUL.atDay(1), TODAY, 5_000));
+
+        BalanceForecast result = service.forecast(USER, List.of(A), Until.DAYS, 30, false, false);
+
+        assertThat(result.series()).allSatisfy(point -> assertThat(point.events()).isEmpty());
+        assertThat(result.excluded()).isEmpty();
+    }
+
+    private static UserCardRef creditCard(long id, Long accountId) {
+        return new UserCardRef(id, 1L, accountId, "1234", CardRegistrationStatus.ACTIVE, CardIssuerStatus.NORMAL,
+                CardType.CREDIT, 25, 14);
     }
 
     @SafeVarargs

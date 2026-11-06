@@ -13,6 +13,7 @@ import com.yamu.be.forecast.RiskDetector.RiskWindow;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import org.junit.jupiter.api.Test;
 
 class RiskDetectorTest {
@@ -135,6 +136,33 @@ class RiskDetectorTest {
     }
 
     @Test
+    void 신용카드_사용_추정은_보수적_구간에서만_원인이고_추정_생활비와_따로_센다() {
+        // S15P31E103-286: 예상 선은 기준 이상, 2일째 추정 50,000원과 하루 생활비 10,000원으로 보수적 선만 미달
+        FlowEvent estimate = new FlowEvent(3L, TODAY.plusDays(2), -50_000L, FlowEvent.Type.CARD_SPENDING_ESTIMATE,
+                FlowEvent.Confidence.CONSERVATIVE, "카드 · 11/7~11/11 5일 × 일평균 10,000원", 41L);
+        ForecastCalculator.Projection projection = ForecastCalculator.project(Map.of(3L, 150_000L),
+                List.of(estimate), TODAY, TODAY.plusDays(2), Map.of(3L, 10_000L));
+
+        Assessment result = RiskDetector.assess(projection.total(), THRESHOLD);
+
+        assertThat(result.windows()).singleElement().satisfies(window -> {
+            assertThat(window.line()).isEqualTo(Line.CONSERVATIVE);
+            assertThat(window.lowestBalance()).isEqualTo(80_000L);
+            assertThat(window.causes()).extracting(Cause::type, Cause::amount, Cause::refId)
+                    .containsExactly(tuple(CauseType.CARD_SPENDING_ESTIMATE, -50_000L, 41L),
+                            tuple(CauseType.LIVING_COST_ESTIMATE, -20_000L, null));
+        });
+        // 예상 선 미달 구간이면 추정은 그 선에 없어 원인에 넣지 않는다
+        Assessment expectedOnly = RiskDetector.assess(List.of(
+                point(0, 150_000, 150_000, 150_000),
+                point(1, 150_000, 90_000, 40_000, estimate)), THRESHOLD);
+        assertThat(expectedOnly.windows()).singleElement().satisfies(window -> {
+            assertThat(window.line()).isEqualTo(Line.EXPECTED);
+            assertThat(window.causes()).isEmpty();
+        });
+    }
+
+    @Test
     void WARNING과_DANGER가_바뀌면_구간을_나눈다() {
         Assessment result = RiskDetector.assess(List.of(
                 point(0, 200_000, 200_000, 200_000),
@@ -204,7 +232,10 @@ class RiskDetectorTest {
     }
 
     private static BalancePoint point(int day, long confirmed, long expected, Long conservative, FlowEvent... events) {
-        return new BalancePoint(TODAY.plusDays(day), confirmed, expected, conservative, new ArrayList<>(List.of(events)));
+        // 이 도우미의 입출금에는 보수적 선 전용(CONSERVATIVE)이 없어, 예상 선과 보수적 선의 차이가 곧 추정 생활비다.
+        Long livingCost = conservative == null ? null : expected - conservative;
+        return new BalancePoint(TODAY.plusDays(day), confirmed, expected, conservative, livingCost,
+                new ArrayList<>(List.of(events)));
     }
 
     private static BalancePoint point(int day, long confirmed, long expected, long conservative, FlowEvent... events) {

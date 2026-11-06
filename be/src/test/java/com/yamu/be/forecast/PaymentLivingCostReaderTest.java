@@ -222,6 +222,60 @@ class PaymentLivingCostReaderTest extends MySqlTestSupport {
         assertThat(reader.dailySpending(owner, List.of(creditOnly), FROM, TO).days()).isEmpty();
     }
 
+    @Test
+    void 신용카드는_카드별로_같은_규칙으로_더하고_체크카드와_남의_카드는_섞지_않는다() {
+        // S15P31E103-286: 선택 계좌 A가 출금 계좌인 신용카드 두 장
+        long creditA2 = fixtures.card(owner, fixtures.product("CREDIT"), accountA, LocalDate.of(2025, 12, 1));
+        long creditB = fixtures.card(owner, fixtures.product("CREDIT"), accountB, LocalDate.of(2025, 12, 1));
+        fixtures.approved(owner, creditA, fixtures.merchant(), 1_000L, LocalDate.of(2026, 5, 20), 12);
+        fixtures.approved(owner, creditA, merchant, 10_000L, LocalDate.of(2026, 6, 3), 12);
+        fixtures.approved(owner, creditA, merchant, 2_000_000L, LocalDate.of(2026, 6, 4), 12);       // LARGE
+        fixtures.payment(owner, creditA, merchant, 3_000L, 1, SpendingFixtures.utc(LocalDate.of(2026, 6, 5), 12),
+                "YAMU", "CANCELED");                                                                    // 취소
+        fixtures.approved(owner, creditA2, merchant, 6_000L, LocalDate.of(2026, 6, 10), 12);
+        fixtures.approved(owner, checkA, merchant, 9_000L, LocalDate.of(2026, 6, 3), 12);             // 체크카드
+        fixtures.approved(owner, creditB, merchant, 8_000L, LocalDate.of(2026, 6, 3), 12);            // 고르지 않은 계좌
+        // 매달 한 번 같은 가맹점·금액(4·5·6월)은 반복 지출이라 뺀다
+        long subscription = fixtures.merchant();
+        for (int month = 4; month <= 6; month++) {
+            fixtures.approved(owner, creditA, subscription, 17_000L, LocalDate.of(2026, month, 15), 12);
+        }
+        long strangerAccount = strangerAccountWithSpending();
+        long stranger = jdbc.queryForObject("SELECT user_id FROM linked_account WHERE linked_account_id = ?",
+                Long.class, strangerAccount);
+        long strangerCredit = fixtures.card(stranger, fixtures.product("CREDIT"), strangerAccount,
+                LocalDate.of(2025, 12, 1));
+        fixtures.approved(stranger, strangerCredit, merchant, 50_000L, LocalDate.of(2026, 6, 3), 12);
+
+        CreditSpendingReader.CreditSpending result = reader.creditDailySpending(owner,
+                List.of(accountA, strangerAccount), FROM, TO);
+
+        assertThat(result.userCardIds()).containsExactly(creditA, creditA2);
+        Map<LocalDate, Long> first = creditAmounts(result, creditA);
+        assertThat(first).hasSize(30);     // 첫 결제(5/20)가 기간 앞이라 6월 전체
+        assertThat(first.get(LocalDate.of(2026, 6, 3))).isEqualTo(10_000L);
+        assertThat(first.get(LocalDate.of(2026, 6, 4))).isZero();
+        assertThat(first.get(LocalDate.of(2026, 6, 5))).isZero();
+        assertThat(first.get(LocalDate.of(2026, 6, 15))).isZero();
+        assertThat(first.values().stream().mapToLong(Long::longValue).sum()).isEqualTo(10_000L);
+        Map<LocalDate, Long> second = creditAmounts(result, creditA2);
+        assertThat(second).hasSize(21);    // 첫 YAMU 결제 6/10부터
+        assertThat(second.get(LocalDate.of(2026, 6, 10))).isEqualTo(6_000L);
+        assertThat(result.days()).allSatisfy(day -> assertThat(day.origin()).isEqualTo(LivingCostReader.Origin.REAL));
+    }
+
+    @Test
+    void 선택_계좌에_신용카드가_없으면_빈_목록이다() {
+        assertThat(reader.creditDailySpending(owner, List.of(accountB), FROM, TO))
+                .isEqualTo(new CreditSpendingReader.CreditSpending(List.of(), List.of()));
+    }
+
+    private static Map<LocalDate, Long> creditAmounts(CreditSpendingReader.CreditSpending spending, long userCardId) {
+        return spending.days().stream().filter(day -> day.userCardId() == userCardId)
+                .collect(Collectors.toMap(CreditSpendingReader.CardDailySpending::date,
+                        CreditSpendingReader.CardDailySpending::amount));
+    }
+
     private void seed(long card, long amount, LocalDate day) {
         fixtures.payment(owner, card, merchant, amount, 1, SpendingFixtures.utc(day, 12), "SEED", "APPROVED");
     }

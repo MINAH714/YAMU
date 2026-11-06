@@ -185,6 +185,32 @@ class ForecastCalculatorTest {
         return points.stream().filter(point -> !point.events().isEmpty()).toList();
     }
 
+    @Test
+    void CONSERVATIVE_출금은_보수적_선에만_빼고_생활비_누적은_따로_남긴다() {
+        // S15P31E103-286: 하루 생활비 1,000원, 3일째 마감 전 신용카드 사용 추정 30,000원
+        Projection result = ForecastCalculator.project(balances(A, 500_000L, B, 200_000L), List.of(
+                event(A, TODAY.plusDays(3), -30_000L, Confidence.CONSERVATIVE)), TODAY, TO,
+                Map.of(A, 1_000L, B, 500L));
+
+        assertThat(at(result.byAccount().get(A), TODAY.plusDays(3)))
+                .extracting(BalancePoint::confirmed, BalancePoint::expected, BalancePoint::conservative,
+                        BalancePoint::livingCost)
+                .containsExactly(500_000L, 500_000L, 467_000L, 3_000L);
+        assertThat(at(result.total(), TODAY.plusDays(3)))
+                .extracting(BalancePoint::expected, BalancePoint::conservative, BalancePoint::livingCost)
+                .containsExactly(700_000L, 665_500L, 4_500L);
+    }
+
+    @Test
+    void 생활비가_없는_계좌는_CONSERVATIVE_출금이_있어도_보수적_선이_null이다() {
+        Projection result = ForecastCalculator.project(balances(A, 500_000L), List.of(
+                event(A, TODAY.plusDays(3), -30_000L, Confidence.CONSERVATIVE)), TODAY, TO, NO_LIVING);
+
+        assertThat(at(result.total(), TODAY.plusDays(3)))
+                .extracting(BalancePoint::expected, BalancePoint::conservative, BalancePoint::livingCost)
+                .containsExactly(500_000L, null, null);
+    }
+
     private static FlowEvent event(Long accountId, LocalDate date, long amount, Confidence confidence) {
         Type type = amount > 0 ? Type.SCHEDULED_INCOME : Type.SCHEDULED_OUTFLOW;
         return new FlowEvent(accountId, date, amount, type, confidence, "항목", 1L);

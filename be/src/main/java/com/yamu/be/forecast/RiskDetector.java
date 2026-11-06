@@ -100,7 +100,7 @@ final class RiskDetector {
 
     /**
      * 같은 선이 기준 미만인 날짜들을 구간 하나로 만든다. 원인은 그 선에 반영된 출금만 넣는다.
-     * 확정 선은 확정 출금만, 예상·보수적 선은 확정·예상 출금을, 보수적 선은 추정 생활비도 더한다.
+     * 확정 선은 확정 출금만, 예상 선은 확정·예상 출금을, 보수적 선은 거기에 마감 전 신용카드 사용 추정과 추정 생활비를 더한다.
      */
     private static RiskWindow window(List<ForecastCalculator.BalancePoint> days, Line line, long threshold) {
         ForecastCalculator.BalancePoint lowest = days.get(0);
@@ -114,21 +114,30 @@ final class RiskDetector {
         List<Cause> causes = new ArrayList<>();
         for (ForecastCalculator.BalancePoint day : days) {
             for (FlowEvent event : day.events()) {
-                // 확정 선에는 예상(진행 중 청구 등) 출금이 반영되지 않으므로 원인에도 넣지 않는다.
-                boolean onLine = line != Line.CONFIRMED || event.confidence() == FlowEvent.Confidence.CONFIRMED;
-                if (event.amount() < 0 && onLine) {
+                // 그 선에 반영되지 않은 출금은 원인에 넣지 않는다(확정 선의 진행 중 청구, 예상 선의 신용카드 사용 추정 등).
+                if (event.amount() < 0 && onLine(event.confidence(), line)) {
                     causes.add(new Cause(CauseType.valueOf(event.type().name()), event.title(), event.amount(),
                             event.refId(), day.date()));
                 }
             }
         }
-        // 보수적 선 구간은 예상 선은 기준 이상인데 추정 생활비를 빼서 미만이 된 날들이라, 추정 생활비가 원인이다.
+        // 보수적 선 구간은 예상 선은 기준 이상인데 추정 생활비(와 신용카드 사용 추정)를 빼서 미만이 된 날들이다.
+        // 신용카드 사용 추정은 위에서 출금으로 넣었으므로, 여기서는 최저일까지 뺀 추정 생활비만 더한다.
         if (line == Line.CONSERVATIVE) {
             causes.add(new Cause(CauseType.LIVING_COST_ESTIMATE, "추정 생활비",
-                    Math.subtractExact(lowest.conservative(), lowest.expected()), null, lowest.date()));
+                    Math.negateExact(lowest.livingCost()), null, lowest.date()));
         }
         return new RiskWindow(days.get(0).date(), days.get(days.size() - 1).date(), levelOf(line), line,
                 lowestBalance, Math.subtractExact(threshold, lowestBalance), List.copyOf(causes));
+    }
+
+    /** 그 등급의 입출금이 그 선에 반영되는지. 확정 선 ⊂ 예상 선 ⊂ 보수적 선이다. */
+    private static boolean onLine(FlowEvent.Confidence confidence, Line line) {
+        return switch (line) {
+            case CONFIRMED -> confidence == FlowEvent.Confidence.CONFIRMED;
+            case EXPECTED -> confidence != FlowEvent.Confidence.CONSERVATIVE;
+            case CONSERVATIVE -> true;
+        };
     }
 
     private static long balanceOn(ForecastCalculator.BalancePoint point, Line line) {
@@ -149,7 +158,9 @@ final class RiskDetector {
     enum Line { CONFIRMED, EXPECTED, CONSERVATIVE }
 
     /** 잔액을 떨어뜨린 원인. 입출금 종류({@link FlowEvent.Type})에 추정 생활비를 더했다. 이름이 같아야 한다. */
-    enum CauseType { SCHEDULED_INCOME, SCHEDULED_OUTFLOW, CARD_BILLING, SIMULATED_PURCHASE, LIVING_COST_ESTIMATE }
+    enum CauseType {
+        SCHEDULED_INCOME, SCHEDULED_OUTFLOW, CARD_BILLING, SIMULATED_PURCHASE, CARD_SPENDING_ESTIMATE, LIVING_COST_ESTIMATE
+    }
 
     /**
      * @param amount 출금(음수, 원). 추정 생활비는 구간 최저 날까지 누적한 금액
