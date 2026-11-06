@@ -1,5 +1,6 @@
 package com.yamu.app.core.format
 
+import java.math.BigDecimal
 import java.text.NumberFormat
 import java.util.Locale
 import kotlin.math.abs
@@ -12,6 +13,14 @@ fun Long.toWon(withPlusSign: Boolean = false): String {
         withPlusSign && this > 0 -> "+$digits"
         else -> digits
     }
+}
+
+/** 소수가 올 수 있는 금액(추천 순혜택) → "1,500" · "1.5". 반올림하지 않아 서버 추천 문구의 금액과 같다 */
+fun BigDecimal.toWon(): String {
+    val plain = stripTrailingZeros()
+    val format = NumberFormat.getNumberInstance(Locale.KOREA).apply { maximumFractionDigits = plain.scale().coerceAtLeast(0) }
+    val digits = format.format(plain.abs())
+    return if (signum() < 0) "−$digits" else digits
 }
 
 /** 실적 기준처럼 만 원 단위 금액 → "40만 원". 만 원으로 안 나눠지면 "125,000원" */
