@@ -257,14 +257,14 @@ class RecommendationSelectorTest {
     @Test
     void partialShuffledInputAndRepeatedCallsKeepConfirmedRankingAndMissingReasons() {
         var cards = List.of(card(1, "800", null), card(2, "500", null), unknownAvailability(3), excluded(4));
-        Result expected = selector.select(new RecommendationInput(100, 1, transaction(), null, cards));
+        Result expected = selector.select(new RecommendationInput(100L, 1, transaction(), null, cards));
         for (int seed = 0; seed < 20; seed++) {
             var shuffled = new ArrayList<>(cards);
             Collections.shuffle(shuffled, new java.util.Random(seed));
-            assertThat(selector.select(new RecommendationInput(100, 1, transaction(), null, shuffled))).isEqualTo(expected);
+            assertThat(selector.select(new RecommendationInput(100L, 1, transaction(), null, shuffled))).isEqualTo(expected);
         }
         assertThat(IntStream.range(0, 30).parallel().mapToObj(index -> selector.select(
-                new RecommendationInput(100, 1, transaction(), null, cards))).toList()).allMatch(expected::equals);
+                new RecommendationInput(100L, 1, transaction(), null, cards))).toList()).allMatch(expected::equals);
     }
 
     private CardCandidate unknownAvailability(long id) {
@@ -288,7 +288,7 @@ class RecommendationSelectorTest {
                 CardIssuerStatus.EXPIRED, Availability.UNKNOWN, "UNKNOWN", null, null, null, null);
         var check = new CardCandidate(4, 1, CardType.CHECK, CardRegistrationStatus.ACTIVE,
                 CardIssuerStatus.NORMAL, Availability.UNKNOWN, "UNKNOWN", null, null, null, null);
-        Result result = selector.select(new RecommendationInput(100, 1, transaction, null,
+        Result result = selector.select(new RecommendationInput(100L, 1, transaction, null,
                 List.of(inactive, suspended, expired, check)));
         assertThat(result.status()).isEqualTo(Status.NO_ELIGIBLE_CARD);
         assertThat(result.rankedCards()).isEmpty();
@@ -313,12 +313,12 @@ class RecommendationSelectorTest {
     void shuffledInputsAndConcurrentRetriesProduceSameImmutableResult() {
         var candidates = List.of(card(1, "500", progress(0, 300_000, 0)),
                 card(2, "500", progress(290_000, 300_000, 10_000)), card(3, "300", null));
-        var request = new RecommendationInput(100, 1, transaction(), null, candidates);
+        var request = new RecommendationInput(100L, 1, transaction(), null, candidates);
         Result expected = selector.select(request);
         for (int index = 0; index < 20; index++) {
             var shuffled = new ArrayList<>(candidates);
             Collections.shuffle(shuffled, new java.util.Random(index));
-            assertThat(selector.select(new RecommendationInput(100, 1, transaction(), null, shuffled))).isEqualTo(expected);
+            assertThat(selector.select(new RecommendationInput(100L, 1, transaction(), null, shuffled))).isEqualTo(expected);
         }
         assertThat(IntStream.range(0, 50).parallel().mapToObj(index -> selector.select(request)).toList())
                 .allMatch(expected::equals);
@@ -330,7 +330,7 @@ class RecommendationSelectorTest {
     void rejectsDuplicateCardsAndOtherUserData() {
         var candidate = card(1, "500", null);
         assertThatThrownBy(() -> input(null, candidate, candidate)).isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> new RecommendationInput(100, 2, transaction(), null, List.of(candidate)))
+        assertThatThrownBy(() -> new RecommendationInput(100L, 2, transaction(), null, List.of(candidate)))
                 .isInstanceOf(IllegalArgumentException.class);
     }
 
@@ -455,14 +455,14 @@ class RecommendationSelectorTest {
 
     private void assertEveryPermutation(List<CardCandidate> candidates, Long defaultCard, long selectedId,
                                         SelectionReason reason) {
-        Result expected = selector.select(new RecommendationInput(100, 1, transaction(), defaultCard, candidates));
+        Result expected = selector.select(new RecommendationInput(100L, 1, transaction(), defaultCard, candidates));
         assertThat(expected.selectedUserCardId()).isEqualTo(selectedId);
         assertThat(expected.selectionReason()).isEqualTo(reason);
         var permutations = new ArrayList<List<CardCandidate>>();
         permutations(new ArrayList<>(candidates), 0, permutations);
         assertThat(permutations).hasSize(120);
         for (var permutation : permutations) {
-            assertThat(selector.select(new RecommendationInput(100, 1, transaction(), defaultCard, permutation)))
+            assertThat(selector.select(new RecommendationInput(100L, 1, transaction(), defaultCard, permutation)))
                     .isEqualTo(expected);
         }
     }
