@@ -42,12 +42,6 @@ public final class RecommendationSelector {
     public record Result(Long paymentId, Status status, Long selectedUserCardId, SelectionReason selectionReason,
                          String message, boolean performanceTieBreakSkipped, boolean noBenefit,
                          List<CardEvaluation> rankedCards, List<CardEvaluation> evaluatedCards) {
-        public Result(long paymentId, Status status, Long selectedUserCardId, SelectionReason selectionReason,
-                String message, boolean performanceTieBreakSkipped, boolean noBenefit,
-                List<CardEvaluation> rankedCards, List<CardEvaluation> evaluatedCards) {
-            this(Long.valueOf(paymentId), status, selectedUserCardId, selectionReason, message,
-                    performanceTieBreakSkipped, noBenefit, rankedCards, evaluatedCards);
-        }
         public Result {
             rankedCards = List.copyOf(rankedCards);
             evaluatedCards = List.copyOf(evaluatedCards);
@@ -129,7 +123,7 @@ public final class RecommendationSelector {
                 .forEach(ranked::add);
         boolean allZero = calculated.stream().allMatch(card -> card.calculation().netBenefit().signum() == 0);
         return new Result(input.paymentId(), partial ? Status.PARTIAL_READY : Status.READY,
-                Long.valueOf(selected.userCardId()), reason, message(reason, allZero, skipped, multipleNewlyMet, partial, maximum),
+                selected.userCardId(), reason, message(reason, allZero, skipped, multipleNewlyMet, partial, maximum),
                 skipped, allZero, ranked, evaluations);
     }
 
