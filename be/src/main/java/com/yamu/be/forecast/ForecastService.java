@@ -93,36 +93,15 @@ public class ForecastService {
      */
     public BalanceForecast forecast(Long authenticatedUserId, List<Long> accountIds, BalanceForecast.Until until,
             Integer days, boolean includeAccountDetails, boolean refresh) {
-        requireUser(authenticatedUserId);
-        List<Long> selected = selectedAccounts(accountIds);
-        ForecastSettings userSettings = settings.read(authenticatedUserId);
-        long alertThreshold = userSettings.alertThreshold();
-        LocalDate today = today();
-        BalanceForecast.Horizon horizon = horizon(authenticatedUserId, userSettings, until, days, today);
-
-        // 잔액·생활비는 금융망을 부를 수 있어 DB를 읽기 전에 따로 읽는다. 남의·연결 해제 계좌는 BE 1이 404로 거절한다.
-        Map<Long, AccountBalance> balanceById = readBalances(authenticatedUserId, selected, refresh);
-        LivingCostRead living = estimateLivingCost(authenticatedUserId, selected, today, horizon);
-        List<CashflowService.Entry> entries = cashflows.list(authenticatedUserId, horizon.from(), horizon.to(),
-                null, CashflowItem.Status.CONFIRMED, true);
-        Set<Long> selectedSet = Set.copyOf(selected);
-        CashflowEvents.Converted converted = CashflowEvents.convert(authenticatedUserId, entries, selectedSet, cards,
-                creditSchedule, horizon.from(), horizon.to());
-        List<FlowEvent> events = new ArrayList<>(converted.events());
-        List<ExcludedItem> excluded = new ArrayList<>(converted.excluded());
-        events.addAll(billEvents(authenticatedUserId, selected, selectedSet, horizon, excluded));
-
-        Map<Long, Long> startBalances = new LinkedHashMap<>();
-        Map<Long, Long> dailyLiving = new HashMap<>();
-        for (Long accountId : selected) {
-            startBalances.put(accountId, balanceById.get(accountId).balance());
-            Long daily = living.projection().byAccount().get(accountId).dailyAmount();
-            if (daily != null) {
-                dailyLiving.put(accountId, daily);
-            }
-        }
-        ForecastCalculator.Projection projection = ForecastCalculator.project(startBalances, events,
-                horizon.from(), horizon.to(), dailyLiving);
+        Prepared prepared = prepare(authenticatedUserId, accountIds, until, days, refresh, today());
+        List<Long> selected = prepared.selected();
+        long alertThreshold = prepared.alertThreshold();
+        BalanceForecast.Horizon horizon = prepared.horizon();
+        Map<Long, AccountBalance> balanceById = prepared.balanceById();
+        LivingCostRead living = prepared.living();
+        Map<Long, Long> startBalances = prepared.startBalances();
+        ForecastCalculator.Projection projection = ForecastCalculator.project(startBalances, prepared.events(),
+                horizon.from(), horizon.to(), prepared.dailyLiving());
 
         RiskDetector.Assessment aggregate = RiskDetector.assess(projection.total(), alertThreshold);
         Map<Long, RiskDetector.Assessment> byAccount = new LinkedHashMap<>();
@@ -150,8 +129,48 @@ public class ForecastService {
                 projected.confidence());
         long currentTotal = startBalances.values().stream().reduce(0L, Math::addExact);
         return new BalanceForecast(selected, selected.size(), currentTotal, horizon, alertThreshold, summary,
-                series(projection.total()), aggregate.windows(), livingCost, accountForecasts, List.copyOf(excluded),
-                true, now());
+                series(projection.total()), aggregate.windows(), livingCost, accountForecasts,
+                List.copyOf(prepared.excluded()), true, now());
+    }
+
+    /**
+     * 잔고예보 계산 재료(선택 계좌·기간·안전 잔액·현재 잔액·미래 입출금·계좌별 하루 생활비)를 모은다.
+     * 잔고예보 조회와 가상 구매 시뮬레이션이 같은 재료로 계산해 구매 전 결과가 잔고예보와 같다.
+     * 생활비 원천이 소비 분류를 쓰므로 읽기 전용 트랜잭션 안에서 부르지 않는다.
+     *
+     * @param today 한국 날짜 오늘(예보 시작일). 부르는 쪽이 요청마다 한 번 정해 넘긴다. 시뮬레이션이 구매일을 검사한 날과
+     *              예보 시작일이 자정을 사이에 두고 어긋나지 않게 하려는 것이다
+     */
+    Prepared prepare(Long authenticatedUserId, List<Long> accountIds, BalanceForecast.Until until, Integer days,
+            boolean refresh, LocalDate today) {
+        requireUser(authenticatedUserId);
+        List<Long> selected = selectedAccounts(accountIds);
+        ForecastSettings userSettings = settings.read(authenticatedUserId);
+        BalanceForecast.Horizon horizon = horizon(authenticatedUserId, userSettings, until, days, today);
+
+        // 잔액·생활비는 금융망을 부를 수 있어 DB를 읽기 전에 따로 읽는다. 남의·연결 해제 계좌는 BE 1이 404로 거절한다.
+        Map<Long, AccountBalance> balanceById = readBalances(authenticatedUserId, selected, refresh);
+        LivingCostRead living = estimateLivingCost(authenticatedUserId, selected, today, horizon);
+        List<CashflowService.Entry> entries = cashflows.list(authenticatedUserId, horizon.from(), horizon.to(),
+                null, CashflowItem.Status.CONFIRMED, true);
+        Set<Long> selectedSet = Set.copyOf(selected);
+        CashflowEvents.Converted converted = CashflowEvents.convert(authenticatedUserId, entries, selectedSet, cards,
+                creditSchedule, horizon.from(), horizon.to());
+        List<FlowEvent> events = new ArrayList<>(converted.events());
+        List<ExcludedItem> excluded = new ArrayList<>(converted.excluded());
+        events.addAll(billEvents(authenticatedUserId, selected, selectedSet, horizon, excluded));
+
+        Map<Long, Long> startBalances = new LinkedHashMap<>();
+        Map<Long, Long> dailyLiving = new HashMap<>();
+        for (Long accountId : selected) {
+            startBalances.put(accountId, balanceById.get(accountId).balance());
+            Long daily = living.projection().byAccount().get(accountId).dailyAmount();
+            if (daily != null) {
+                dailyLiving.put(accountId, daily);
+            }
+        }
+        return new Prepared(selected, horizon, userSettings.alertThreshold(), balanceById, living, List.copyOf(events),
+                List.copyOf(excluded), startBalances, dailyLiving);
     }
 
     /**
@@ -274,7 +293,8 @@ public class ForecastService {
         return largest;
     }
 
-    private LocalDate today() {
+    /** 한국 날짜 오늘. 시뮬레이션도 같은 시계로 정한다. */
+    LocalDate today() {
         return LocalDate.now(clock.withZone(KOREA));
     }
 
@@ -411,6 +431,22 @@ public class ForecastService {
     }
 
     /** 생활비 추정과 원천을 읽은 시각. */
-    private record LivingCostRead(LivingCostEstimator.Estimate estimate, LivingCostProjector.Projection projection,
+    /** 생활비 추정(지난 3개월 실적 요약·AI/TSB 예상 생활비)과 원천을 읽은 시각. */
+    record LivingCostRead(LivingCostEstimator.Estimate estimate, LivingCostProjector.Projection projection,
             LocalDateTime syncedAt) {}
+
+    /**
+     * 잔고예보 계산 재료.
+     *
+     * @param selected      중복을 뺀 선택 계좌(요청 순서)
+     * @param horizon       예보 기간. from은 한국 날짜 오늘
+     * @param living        지난 3개월 실적 요약과 계좌별 예상 생활비(AI 또는 TSB)
+     * @param startBalances 선택 계좌별 현재 잔액(선택 순서)
+     * @param events        기간 안 미래 입출금(예정 항목·카드 청구)
+     * @param excluded      계산에서 뺀 항목과 이유
+     * @param dailyLiving   생활비 자료가 있는 계좌의 하루 생활비(AI 또는 TSB 예상 생활비의 하루 값). 없는 계좌는 빠진다
+     */
+    record Prepared(List<Long> selected, BalanceForecast.Horizon horizon, long alertThreshold,
+            Map<Long, AccountBalance> balanceById, LivingCostRead living, List<FlowEvent> events,
+            List<ExcludedItem> excluded, Map<Long, Long> startBalances, Map<Long, Long> dailyLiving) {}
 }
