@@ -1,5 +1,5 @@
-"""생활비 예측 모델을 읽고, 계좌별 최근 90일 일별 체크 생활 소비로 다음 14·30일 합계를 예측한다.
-7일은 AI 모델이 단순 방식(TSB)보다 낫지 않아 BE가 TSB로 계산한다(models/README.md 「평가 결과」).
+"""생활비 예측 모델을 읽고, 계좌별 최근 90일 일별 체크 생활 소비로 다음 7·14·30일 합계를 예측한다.
+기간마다 따로 학습한 모델이다(models/README.md 「평가 결과」).
 
 모델은 개인 저장소(YAMU, 학습 코드)에서 학습한 TWO_STAGE_TREE다. 1단계 분류 모델이 "다음 H일에 쓸 확률"을,
 2단계 회귀 모델이 "쓴다면 합계"를 내고, 예측은 둘의 곱이다. 특징 계산은 학습 때와 값이 같아야 하므로
@@ -19,7 +19,7 @@ import pandas as pd
 import sklearn
 
 HISTORY_DAYS = 90
-HORIZONS = (14, 30)
+HORIZONS = (7, 14, 30)
 MODEL_NAME = "TWO_STAGE_TREE"
 WINDOWS = (7, 14, 28, 84)
 # 모델이 학습한 특징 순서. meta.json의 features와 다르면 읽지 않는다.

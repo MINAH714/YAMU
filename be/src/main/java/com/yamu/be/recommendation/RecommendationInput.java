@@ -14,11 +14,6 @@ public record RecommendationInput(
         Long paymentId, long userId, Transaction transaction,
         Long defaultUserCardId, List<CardCandidate> cards) {
 
-    public RecommendationInput(long paymentId, long userId, Transaction transaction,
-            Long defaultUserCardId, List<CardCandidate> cards) {
-        this(Long.valueOf(paymentId), userId, transaction, defaultUserCardId, cards);
-    }
-
     public RecommendationInput {
         if ((paymentId != null && paymentId <= 0) || userId <= 0 || (defaultUserCardId != null && defaultUserCardId <= 0)) {
             throw new IllegalArgumentException("결제·사용자·기본 카드 ID는 양수여야 합니다.");

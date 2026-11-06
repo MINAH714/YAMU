@@ -13,6 +13,7 @@ import com.yamu.be.global.crypto.CipherField;
 import com.yamu.be.global.crypto.LookupHasher;
 import com.yamu.be.global.crypto.PersonalDataCipher;
 import com.yamu.be.payment.billing.BillFixtures;
+import com.yamu.be.payment.billing.BillStatus;
 import com.yamu.be.payment.billing.BillingCycle;
 import com.yamu.be.support.AuthUsers;
 import com.yamu.be.support.Concurrently;
@@ -455,18 +456,24 @@ class CardManagementIntegrationTest extends MySqlTestSupport {
     @Test
     void 끝나지_않은_청구는_어떤_상태든_해제를_막고_PAID_CANCELED만_통과한다() throws Exception {
         long card = card(member.userId(), creditProduct, "4570000011111234", "ACTIVE", 14, account, 1);
-        bill(card, "PAID", LocalDate.of(2026, 9, 14));
-        bill(card, "CANCELED", LocalDate.of(2026, 10, 14));
-        // 출금 실패처럼 명세에 아직 없는 상태도 끝난 상태가 아니면 막는다.
-        long failed = bill(card, "FAILED", LocalDate.of(2026, 11, 16));
+        bill(card, "PAID", LocalDate.of(2026, 1, 14));
+        bill(card, "CANCELED", LocalDate.of(2026, 2, 14));
+        // 쌓이는 중(ACCUMULATING)·확정·미납과 앞으로 BillStatus에 더해질 상태도 끝난 상태(PAID·CANCELED)가 아니면 막는다.
+        List<Long> open = new ArrayList<>();
+        int month = 3;
+        for (BillStatus status : BillStatus.values()) {
+            if (status != BillStatus.PAID && status != BillStatus.CANCELED) {
+                open.add(bill(card, status.name(), LocalDate.of(2026, month++, 14)));
+            }
+        }
         String token = stepUp(member, StepUpPurpose.CARD_DELETE);
 
         delete(member, card, token)
                 .andExpect(errorCode(409, "CARD_HAS_OPEN_BILL"))
-                .andExpect(jsonPath("$.error.details.billIds.length()").value(1))
-                .andExpect(jsonPath("$.error.details.billIds[0]").value(failed));
+                .andExpect(jsonPath("$.error.details.billIds.length()").value(open.size()))
+                .andExpect(jsonPath("$.error.details.billIds[0]").value(open.get(0)));
 
-        jdbc.update("UPDATE card_bill SET status = 'CANCELED' WHERE card_bill_id = ?", failed);
+        open.forEach(id -> jdbc.update("UPDATE card_bill SET status = 'CANCELED' WHERE card_bill_id = ?", id));
         delete(member, card, token).andExpect(status().isNoContent());
     }
 
@@ -684,7 +691,7 @@ class CardManagementIntegrationTest extends MySqlTestSupport {
                 """, card, Date.valueOf(month.atDay(1)), amount, now(), now());
     }
 
-    /** 확정된 청구서(신용카드). status는 명세 이름(CONFIRMED·UNPAID·PAID). */
+    /** 청구서(신용카드). status는 BillStatus 이름. */
     private long bill(long card, String status, LocalDate withdrawalDate) {
         YearMonth month = YearMonth.from(withdrawalDate);
         return insert("card_bill", "card_bill_id", new HashMap<>(Map.ofEntries(
