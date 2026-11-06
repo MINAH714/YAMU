@@ -41,7 +41,8 @@ public record CardListResponse(List<CardSummary> cards, LocalDateTime dataSynced
     }
 
     /**
-     * @param accumulatingAmount 이번 이용기간 누적액. 청구 항목 집계(BE 2)가 아직 없어 null
+     * @param accumulatingAmount 진행 중 이용기간(오늘이 들어가는 기간)에 쌓인 금액(원). BE 2 청구서의 예상 청구액이고 쓴 돈이 없으면 0.
+     *                           결제일이 없거나 청구 규칙이 받지 않는 값이면 null
      * @param hasUnpaidBill      미납 청구서가 있는지
      */
     public record BillingSummary(Integer paymentDay, Long accumulatingAmount, boolean hasUnpaidBill) {
