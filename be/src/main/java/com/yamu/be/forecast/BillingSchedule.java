@@ -78,8 +78,10 @@ public final class BillingSchedule {
             throw new IllegalArgumentException("이용기간 마감 일수는 1~31이어야 한다: " + cutoffDays);
         }
 
-        // TODO(S15P31E103-205): 결제일을 바꾸면 다음 청구서부터 적용된다(명세 「청구서 목록」). 진행 중 청구서 데이터가 생기면
-        //  첫 회차는 그 청구서의 출금일을 쓰도록 BE 2와 맞춘다. 지금은 현재 결제일로만 계산한다.
+        // TODO(S15P31E103-205): 결제일을 바꾸면 다음 청구서부터 적용된다(명세 「청구서 목록」). 지금은 현재 결제일로만 계산한다.
+        //  BE 1 카드 수정은 결제일을 바로 바꾸지만, BE 2는 그달 청구서가 이미 있으면 그 청구서(만들 때 저장한 옛 출금일)에 붙인다.
+        //  그래서 결제일을 바꾼 뒤에는 이 계산과 청구서 출금일이 다를 수 있다(예: 12월 청구서 12/14가 있는데 결제일 25일로 바꾸면 여기는 12/25).
+        //  언제부터 새 결제일을 쓸지 BE 1·BE 2·BE 4가 정하면 그 규칙으로 바꾼다(CardManagementService.update 주석).
         YearMonth firstMonth = YearMonth.from(purchaseDate);
         while (purchaseDate.isAfter(firstMonth.atDay(paymentDay).minusDays(cutoffDays))) {
             firstMonth = firstMonth.plusMonths(1);
