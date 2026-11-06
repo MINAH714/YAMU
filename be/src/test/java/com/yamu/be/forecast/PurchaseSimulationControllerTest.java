@@ -342,6 +342,24 @@ class PurchaseSimulationControllerTest extends MySqlTestSupport {
                 .andExpect(jsonPath("$.error.code").value("ACCOUNT_SELECTION_REQUIRED"));
     }
 
+    @Test
+    void 계좌_카드_가맹점_ID에_소수점_아래가_있으면_다른_ID로_계산하지_않고_400이다() throws Exception {
+        // S15P31E103-318: 전에는 merchantId 2.9를 2번 가맹점으로, 계좌 3.5를 3번 계좌로 계산했다
+        perform("{\"accountIds\": [" + accountA + ".5], \"userCardId\": " + checkOnA + ", \"amount\": 300000, "
+                + "\"productCategoryCode\": \"PRODUCT_ELECTRONICS\", \"paymentChannel\": \"OFFLINE\"}")
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("INVALID_REQUEST"));
+        perform(body(accountA, checkOnA, "300000", "\"merchantId\": 2.9"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("INVALID_REQUEST"));
+        perform(body(accountA, checkOnA, "300000", "").replace("\"userCardId\": " + checkOnA, "\"userCardId\": " + checkOnA + ".2"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("INVALID_REQUEST"));
+        // 값이 정수인 소수 표기는 받는다
+        perform(body(accountA, checkOnA, "300000", "\"days\": 7").replace("\"userCardId\": " + checkOnA, "\"userCardId\": " + checkOnA + ".0"))
+                .andExpect(status().isOk());
+    }
+
     private ResultActions perform(String json) throws Exception {
         return mockMvc.perform(post("/api/forecasts/simulations").with(AuthUsers.asUser(owner))
                 .contentType(MediaType.APPLICATION_JSON).content(json));

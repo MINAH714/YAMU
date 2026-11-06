@@ -1,5 +1,7 @@
 package com.yamu.be.forecast;
 
+import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
+import com.yamu.be.cashflow.IntegralNumberDeserializers;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonSetter;
 import com.yamu.be.global.exception.ErrorCode;
@@ -38,6 +40,7 @@ public class SimulationRequest {
     private String paymentChannel;
 
     @JsonSetter("accountIds")
+    @JsonDeserialize(contentUsing = IntegralNumberDeserializers.LongValue.class)
     public void setAccountIds(List<Long> accountIds) {
         this.accountIds = accountIds;
     }
@@ -68,6 +71,7 @@ public class SimulationRequest {
     }
 
     @JsonSetter("merchantId")
+    @JsonDeserialize(using = IntegralNumberDeserializers.LongValue.class)
     public void setMerchantId(Long merchantId) {
         this.merchantId = merchantId;
     }
@@ -78,6 +82,7 @@ public class SimulationRequest {
     }
 
     @JsonSetter("userCardId")
+    @JsonDeserialize(using = IntegralNumberDeserializers.LongValue.class)
     public void setUserCardId(Long userCardId) {
         this.userCardId = userCardId;
     }

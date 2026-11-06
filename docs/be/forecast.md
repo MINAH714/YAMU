@@ -485,6 +485,7 @@ enum Origin { REAL, SEED }
 - **순서**: 요청 검증 → 카드 확인 → 추천(`SimulationRecommender`) → 출금 일정(`BillingSchedule`) → 잔고예보 재료(`ForecastService.prepare`, 잔고예보 조회와 같은 재료) → 전후 비교(`PurchaseSimulator`). 요청만으로 알 수 있는 오류는 계좌 잔액·금융망을 읽기 전에 거절합니다.
 - **요청 검증**
   - 금액은 소수를 잘라 쓰지 않도록 숫자 그대로 받습니다. 정수가 아니거나 0원 이하, 1,000억 원 초과면 400 `INVALID_AMOUNT`입니다.
+  - 계좌·카드·가맹점 ID(`accountIds`·`userCardId`·`merchantId`)에 소수점 아래가 있으면 400 `INVALID_REQUEST`(본문 형식 오류)입니다. 전에는 Jackson 기본값으로 소수점 아래를 버려 다른 계좌·카드·가맹점으로 계산했습니다(2026-11-06, S15P31E103-318). 값이 정수인 소수 표기(`3.0`)는 받습니다.
   - 결제 방식·개월 수는 BE 2 `PaymentTerms` 규칙입니다. 체크카드 할부, 5만 원 미만 할부, 2~12개월 밖, 일시불에 개월 수를 보내면 400 `INVALID_INSTALLMENT`입니다.
   - 물품 카테고리·가맹점 업종·가맹점이 모두 없으면 400 `MERCHANT_OR_CATEGORY_REQUIRED`입니다(명세 코드, `ErrorCode`에 추가). 상품명 150자, 코드 64자를 넘으면 400 `INVALID_REQUEST`입니다.
   - 결제 방식 `paymentChannel`은 `ONLINE`·`OFFLINE` 중 하나가 필수이고, 없거나 다른 값이면 400 `INVALID_REQUEST`(`paymentChannel`)입니다(2026-11-06). 결제 추천과 같이 온라인·매장 조건 혜택을 판정하는 데 씁니다.
