@@ -451,7 +451,7 @@ class PersonaSeedServiceTest extends MySqlTestSupport {
         jdbc.update("UPDATE user_card SET status = 'ACTIVE', linked_account_id = ?, registered_at = UTC_TIMESTAMP(6) "
                 + "WHERE user_id = ?", accountId, userId);
 
-        LivingCostForecast living = forecasts.livingCost(userId, List.of(accountId), false);
+        LivingCostForecast living = forecasts.livingCost(userId, List.of(accountId), null, null, false);
 
         assertThat(String.valueOf(living.dataOrigin())).isEqualTo("SEED");
         assertThat(String.valueOf(living.confidence())).isEqualTo("HIGH");
