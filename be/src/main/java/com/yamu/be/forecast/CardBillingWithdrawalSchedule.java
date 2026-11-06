@@ -30,7 +30,7 @@ class CardBillingWithdrawalSchedule implements CreditWithdrawalSchedule {
             return Optional.empty();
         }
         // TODO(S15P31E103-205): 결제일을 바꾸면 다음 청구서부터 적용된다(명세 「청구서 목록」). 지금은 현재 결제일로만 센다.
-        //  BE 2 청구서 작성도 현재 결제일로 만들어 지금은 서로 같다. 적용 시점은 BE 1·BE 2·BE 4가 정할 일이다(BillingSchedule 주석).
+        //  그달 청구서가 이미 있으면 청구서는 옛 결제일의 출금일을 그대로 써서 다를 수 있다. 적용 시점은 BE 1·BE 2·BE 4가 정할 일이다(BillingSchedule 주석).
         LocalDate paymentDate = BillingCycle.of(paymentDay, card.billingCutoffDays()).cycleFor(spendDate).paymentDate();
         return Optional.of(calendar.businessDayOnOrAfter(paymentDate));
     }
