@@ -407,15 +407,23 @@ public class WithdrawalRecovery {
 
     private Candidate basisOf(PaymentTransaction row, String finRequestNo, long amount) {
         Long paymentId = row.getId();
-        Candidate basis;
+        Optional<Attempt> attempt;
         try {
-            basis = attempts.findByFinRequestNo(paymentId, finRequestNo).map(Attempt::basis).orElse(null);
+            attempt = attempts.findByFinRequestNo(paymentId, finRequestNo);
         } catch (RuntimeException e) {
-            log.warn("복구 승인의 혜택 근거(시도 기록)를 읽지 못해 혜택 없이 원장에 적음 paymentId={} finRequestNo={}", paymentId,
-                    finRequestNo, e);
+            log.warn("복구 승인의 혜택 근거(시도 기록)를 읽지 못해 혜택 없이 원장에 적음, 운영 확인 paymentId={} finRequestNo={} "
+                    + "amount={} requestedAmount={}", paymentId, finRequestNo, amount, row.getRequestedAmount(), e);
             return null;
         }
+        if (attempt.isEmpty()) {
+            // 보관 기간이 지났거나 저장에 실패했다. 즉시할인 뒤 금액으로 출금됐어도 어떤 혜택·한도였는지 알 수 없다
+            log.warn("복구 승인의 시도 기록이 없어 혜택 근거를 모름, 혜택 없이 원장에 적음, 운영 확인 paymentId={} finRequestNo={} "
+                    + "amount={} requestedAmount={}", paymentId, finRequestNo, amount, row.getRequestedAmount());
+            return null;
+        }
+        Candidate basis = attempt.get().basis();
         if (basis == null) {
+            // 추천 밖의 카드를 직접 고른 시도: 혜택·한도를 쓰지 않는다
             return null;
         }
         try {
