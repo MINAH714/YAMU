@@ -12,6 +12,7 @@ import com.yamu.be.auth.domain.UserDevice;
 import com.yamu.be.auth.domain.UserDeviceEvent;
 import com.yamu.be.auth.domain.UserDeviceEventRepository;
 import com.yamu.be.auth.domain.UserDeviceRepository;
+import com.yamu.be.card.CardBillQueryRepository;
 import com.yamu.be.card.domain.CardRegistrationStatus;
 import com.yamu.be.card.domain.UserCard;
 import com.yamu.be.card.domain.UserCardRepository;
@@ -21,6 +22,7 @@ import com.yamu.be.global.crypto.PersonalDataCipher;
 import com.yamu.be.global.exception.BusinessException;
 import com.yamu.be.global.exception.ErrorCode;
 import com.yamu.be.global.security.AuthUser;
+import com.yamu.be.payment.billing.CardBill;
 import com.yamu.be.user.domain.AppUser;
 import com.yamu.be.user.domain.AppUserRepository;
 import java.security.SecureRandom;
@@ -66,8 +68,6 @@ import org.springframework.transaction.support.TransactionTemplate;
 @RequiredArgsConstructor
 public class WithdrawalService {
 
-    /** 끝난 청구(카드 해제와 같은 기준). 이 상태가 아닌 청구가 있으면 탈퇴를 막는다. */
-    private static final List<String> SETTLED_BILL_STATUSES = List.of("PAID", "CANCELED");
     /** 끝난 환급. refund.status 허용값이 아직 없어(DDL "상태 코드") 끝난 상태만 나열하고 나머지는 모두 막는다. BE 2와 이름을 맞춘다. */
     private static final List<String> SETTLED_REFUND_STATUSES = List.of("COMPLETED", "CANCELED");
 
@@ -83,6 +83,7 @@ public class WithdrawalService {
     private final PersonalDataCipher cipher;
     private final LookupHasher lookupHasher;
     private final NamedParameterJdbcTemplate jdbc;
+    private final CardBillQueryRepository bills;
     private final TransactionTemplate transaction;
     private final Clock clock;
     private final SecureRandom random = new SecureRandom();
@@ -117,9 +118,8 @@ public class WithdrawalService {
     }
 
     private void requireSettled(Long userId) {
-        List<Long> billIds = jdbc.queryForList("""
-                SELECT card_bill_id FROM card_bill WHERE user_id = :userId AND status NOT IN (:statuses) ORDER BY card_bill_id
-                """, new MapSqlParameterSource("userId", userId).addValue("statuses", SETTLED_BILL_STATUSES), Long.class);
+        List<Long> billIds = bills.findByUserIdAndStatusNotInOrderByIdAsc(userId, CardBillQueryRepository.SETTLED).stream()
+                .map(CardBill::getId).toList();
         if (!billIds.isEmpty()) {
             throw new BusinessException(ErrorCode.BILL_OUTSTANDING, Map.of("billIds", billIds));
         }

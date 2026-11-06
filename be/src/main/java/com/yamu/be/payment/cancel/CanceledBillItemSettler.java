@@ -24,7 +24,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 /**
  * 청구서 출금 결과가 확정된 뒤, 출금 전에 취소한 회차(REFUND_PENDING + 출금 대기 환급)를 정리한다(POL-006).
- * 결제일 출금(S15P31E103-207)이 출금 결과를 청구서에 저장한 트랜잭션 안에서 부른다. 아직 부르는 곳은 없다.
+ * 결제일 출금(S15P31E103-207, {@code BillWithdrawer})이 출금 결과를 청구서에 저장한 트랜잭션 안에서 부른다.
  *
  * <ul>
  *   <li>출금 성공: 환급 금액을 실제 출금된 몫으로 확정하고 기한을 출금 성공일 + 3영업일로 정한다. 환급 계좌가 실제 출금 계좌와 같은지 본다.</li>

@@ -300,6 +300,18 @@ public class PaymentTransaction extends BaseTimeEntity {
         this.status = PaymentStatus.CANCELED;
     }
 
+    /**
+     * 취소로 실적을 되돌렸다(Task 5.2.5). 한 번만 적는다. 이미 시각이 있으면 원장이 다시 빼지 않으므로 여기서도 막는다.
+     * 실적 인정액이 0원이어도 적는다(되돌릴 것을 확인했다는 표시).
+     */
+    public void markPerformanceReversed(LocalDateTime reversedAt) {
+        requireStatus("실적 복구", PaymentStatus.CANCELED);
+        if (performanceReversedAt != null) {
+            throw new IllegalStateException("이미 실적을 되돌린 결제입니다 (결제 " + id + ")");
+        }
+        this.performanceReversedAt = reversedAt;
+    }
+
     private void requireStatus(String action, PaymentStatus... allowed) {
         for (PaymentStatus candidate : allowed) {
             if (status == candidate) {

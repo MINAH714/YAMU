@@ -10,9 +10,9 @@ import com.yamu.be.payment.bank.TransferTag;
 import com.yamu.be.payment.domain.PaymentStatus;
 import com.yamu.be.payment.domain.PaymentTransaction;
 import com.yamu.be.payment.domain.PaymentTransactionRepository;
+import com.yamu.be.payment.recommend.RecommendationResult.Candidate;
 import jakarta.persistence.OptimisticLockException;
 import java.time.LocalDate;
-import java.util.List;
 import java.util.Optional;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.OptimisticLockingFailureException;
@@ -124,9 +124,11 @@ public class CheckCardApprover {
 
     private static ApprovalOutcome approved(ApprovalCommand command, long charged, LocalDate performanceMonth,
             String finRequestNo, String bankTransactionNo) {
-        // 승인액 = 출금액(즉시할인 뒤). 임시: 실적 계산 전이라 실적 인정액은 0 (BE3·Task 5.2.5)
-        return new ApprovalOutcome.Approved(charged, charged, 0, performanceMonth, List.of(),
-                finRequestNo, bankTransactionNo, null);
+        // 승인액 = 출금액(즉시할인 뒤). 혜택·한도 사용은 승인 때 다시 계산한 후보 그대로 원장에 적는다(Task 5.2.5).
+        // 임시: BE3 추천 결과가 실적 인정액을 내보내지 않아 실적 인정액은 0이다(BE3 결과 확장 뒤 바꾼다)
+        Candidate basis = command.candidate();
+        return new ApprovalOutcome.Approved(charged, charged, 0, performanceMonth, ApprovalOutcome.Approved.applied(basis),
+                finRequestNo, bankTransactionNo, null, basis);
     }
 
     private static ApprovalOutcome declined(Long paymentId, TransferResult result) {
