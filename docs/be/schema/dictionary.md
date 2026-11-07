@@ -581,7 +581,7 @@ CONSTRAINT ck_card_monthly_performance_version CHECK (version >= 0)
 | card_product_id | `BIGINT NOT NULL` | 카드·한도 상품 일치 검증용 |
 | limit_group_id | `BIGINT NOT NULL` | 한도 그룹 버전 |
 | usage_month | `DATE NOT NULL` | 한국 기준 월의 1일 |
-| used_value | `BIGINT NOT NULL` | 확정된 한도 사용량; 금액 또는 횟수. 신규 카드·확인된 미사용은 0 |
+| used_value | `BIGINT NOT NULL` | 확정된 한도 사용량; 금액 또는 횟수. 신규 카드·확인된 미사용은 0. 그 달 행이 없으면 추천은 사용량 0으로 읽고, 첫 혜택 사용 승인 때 행을 만든다(S15P31E103-324) |
 | created_at | `TIMESTAMP(6) NOT NULL` | UTC 생성 시각 |
 | updated_at | `TIMESTAMP(6) NOT NULL` | UTC 수정 시각 |
 | version | `BIGINT NOT NULL DEFAULT 0` | JPA 낙관적 락 버전 |

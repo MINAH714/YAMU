@@ -268,8 +268,15 @@ class RecommendationInputAssembler {
             return 0L; // 건별 한도는 과거 사용량을 이월하지 않는 엔진의 기존 의미다.
         }
         if (group.getPeriodType() == Period.MONTHLY) {
-            return data.monthly().stream().filter(u -> u.getUserCardId().equals(card.getId())
-                    && u.getCardProductId().equals(card.getCardProductId()) && u.getLimitGroupId().equals(group.getId()))
+            // Loader의 월별 조회가 정상 완료된 결과다. 그 달 행이 없으면 아직 혜택을 쓰지 않은 0이다(S15P31E103-324).
+            // 행은 첫 혜택 사용 승인 때 결제 원장이 만든다. 조회 실패는 Loader에서 예외로 전달되므로 이 경로에 빈 결과로 들어오지 않는다.
+            var rows = data.monthly().stream().filter(u -> u.getUserCardId().equals(card.getId())
+                    && u.getLimitGroupId().equals(group.getId())).toList();
+            if (rows.isEmpty()) {
+                return 0L;
+            }
+            // 같은 카드·그룹인데 상품이 다른 행은 자료 불일치다. 0으로 바꾸지 않고 미확인으로 남긴다.
+            return rows.stream().filter(u -> u.getCardProductId().equals(card.getCardProductId()))
                     .map(MonthlyLimitUsage::getUsedValue).findFirst().orElse(null);
         }
         // Loader의 일별 조회가 정상 완료된 결과다. 미복구 기록이 없으면 미사용/전부 복구된 0이다.
