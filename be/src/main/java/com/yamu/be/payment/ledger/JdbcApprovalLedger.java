@@ -225,9 +225,9 @@ public class JdbcApprovalLedger implements ApprovalLedger {
                 .stream().collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
     }
 
-    private void addPerformance(PaymentTransaction payment, long amount, LocalDate performanceMonth,
+    private void addPerformance(PaymentTransaction payment, Long amount, LocalDate performanceMonth,
             LocalDateTime now) {
-        if (amount <= 0) {
+        if (amount == null || amount <= 0) { // 제외(0)·미확인(null)은 월 합계에 더하지 않는다
             return;
         }
         jdbc.update("""

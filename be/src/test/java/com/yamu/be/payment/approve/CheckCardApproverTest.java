@@ -97,7 +97,8 @@ class CheckCardApproverTest {
         assertThat(approved.finRequestNo()).isEqualTo(TX_NO);
         assertThat(approved.finTransactionNo()).isEqualTo("1101");
         assertThat(approved.performanceMonth()).isEqualTo(LocalDate.of(2026, 10, 1));
-        assertThat(approved.recognizedPerformanceAmount()).isZero();
+        // 실적 인정 값이 없는 명령: 인정액 미확인, 실적 월은 승인월(Task 5.2.11)
+        assertThat(approved.recognizedPerformanceAmount()).isNull();
         verify(transfer).withdraw("user-key", "0012345678901234", 15_000, TransferTag.payment(PAYMENT_ID), TX_NO);
         verify(attempts).attachFinRequestNo(PAYMENT_ID, 1, TX_NO);
     }
@@ -223,6 +224,21 @@ class CheckCardApproverTest {
         assertThatThrownBy(() -> approver.approve(command(null)))
                 .extracting(e -> ((BusinessException) e).getErrorCode()).isEqualTo(ErrorCode.IDEMPOTENCY_IN_PROGRESS);
         verify(transfer, never()).withdraw(anyString(), anyString(), anyLong(), any(), anyString());
+    }
+
+    @Test
+    void BE3_실적_인정_값이_있으면_그_인정액과_인정월로_승인한다() {
+        // Task 5.2.11: 승인 시각은 10월이지만 BE3가 정한 11월을 쓴다(예: 다음 달 실적 규칙)
+        when(transfer.withdraw(anyString(), anyString(), anyLong(), any(), anyString()))
+                .thenReturn(new TransferResult(Status.SUCCESS, "1101", LocalDate.of(2026, 10, 22), null, null));
+        var recognition = new com.yamu.be.payment.recommend.RecommendationResult.PerformanceRecognition(
+                CHECK.userCardId(), java.time.YearMonth.of(2026, 11), 15_000L);
+
+        ApprovalOutcome.Approved approved = (ApprovalOutcome.Approved) approver.approve(new ApprovalCommand(PAYMENT_ID, 7L,
+                PaymentTerms.lumpSum(15_000), CHECK, candidate(15_000), REQUESTED_AT, NOW, 1, recognition));
+
+        assertThat(approved.recognizedPerformanceAmount()).isEqualTo(15_000L);
+        assertThat(approved.performanceMonth()).isEqualTo(LocalDate.of(2026, 11, 1));
     }
 
     // ───────── 도우미 ─────────

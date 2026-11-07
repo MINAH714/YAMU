@@ -44,7 +44,7 @@ class PaymentTransactionTransitionTest {
         payment.startApproval(15L, 3L);
         LocalDateTime approvedAt = REQUESTED_AT.plusSeconds(10);
 
-        payment.approve(15_000, 0, LocalDate.of(2026, 10, 1), approvedAt, null);
+        payment.approve(15_000, 0L, LocalDate.of(2026, 10, 1), approvedAt, null);
 
         assertThat(payment.getStatus()).isEqualTo(PaymentStatus.APPROVED);
         assertThat(payment.getApprovedAmount()).isEqualTo(15_000);
@@ -104,13 +104,13 @@ class PaymentTransactionTransitionTest {
 
         PaymentTransaction approved = requested();
         approved.startApproval(15L, 3L);
-        approved.approve(15_000, 0, LocalDate.of(2026, 10, 1), REQUESTED_AT, null);
+        approved.approve(15_000, 0L, LocalDate.of(2026, 10, 1), REQUESTED_AT, null);
         assertThatThrownBy(() -> approved.startApproval(16L, 4L)).isInstanceOf(IllegalStateException.class);
         assertThatThrownBy(() -> approved.decline("UNPAID_BILL")).isInstanceOf(IllegalStateException.class);
         assertThatThrownBy(approved::expire).isInstanceOf(IllegalStateException.class);
 
         PaymentTransaction fresh = requested();
-        assertThatThrownBy(() -> fresh.approve(1, 0, LocalDate.of(2026, 10, 1), REQUESTED_AT, null))
+        assertThatThrownBy(() -> fresh.approve(1, 0L, LocalDate.of(2026, 10, 1), REQUESTED_AT, null))
                 .isInstanceOf(IllegalStateException.class);
         assertThatThrownBy(() -> fresh.decline("UNPAID_BILL")).isInstanceOf(IllegalStateException.class);
     }

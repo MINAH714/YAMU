@@ -30,11 +30,20 @@ import java.util.stream.Stream;
  * @param candidates       순혜택 내림차순 후보. 1순위가 첫 번째이고 순위는 1부터 빈틈없이 매긴다
  * @param excludedCards    확인된 사유로 결제할 수 없어 뺀 카드와 사유
  * @param uncomparedCards  비교하지 못한 카드와 사유. 순위가 없다. 이 칸이 생기기 전 스냅샷(JSON)에서 읽으면 빈 목록이다
+ * @param recognitions     카드별 이번 거래의 실적 인정 값(BE3 계산 그대로, Task 5.2.11). 후보가 아닌 카드도 계산됐으면 있다.
+ *                         계산하지 못한 카드와 이 칸이 생기기 전 스냅샷(JSON)에는 없다(승인은 미확인으로 저장)
  */
 public record RecommendationResult(String recommendationId, LocalDateTime calculatedAt, boolean estimate,
         List<Candidate> candidates, List<ExcludedCard> excludedCards, List<UncomparedCard> uncomparedCards, int schemaVersion,
         List<com.yamu.be.recommendation.RecommendationDataIssue> issues,
-        List<com.yamu.be.recommendation.SimulationRule> simulationRules) {
+        List<com.yamu.be.recommendation.SimulationRule> simulationRules, List<PerformanceRecognition> recognitions) {
+    public RecommendationResult(String recommendationId, LocalDateTime calculatedAt, boolean estimate,
+            List<Candidate> candidates, List<ExcludedCard> excludedCards, List<UncomparedCard> uncomparedCards, int schemaVersion,
+            List<com.yamu.be.recommendation.RecommendationDataIssue> issues,
+            List<com.yamu.be.recommendation.SimulationRule> simulationRules) {
+        this(recommendationId, calculatedAt, estimate, candidates, excludedCards, uncomparedCards, schemaVersion, issues,
+                simulationRules, List.of());
+    }
     public RecommendationResult(String recommendationId,LocalDateTime calculatedAt,boolean estimate,List<Candidate> candidates,
             List<ExcludedCard> excludedCards,List<UncomparedCard> uncomparedCards,int schemaVersion,
             List<com.yamu.be.recommendation.RecommendationDataIssue> issues) {
@@ -50,6 +59,10 @@ public record RecommendationResult(String recommendationId, LocalDateTime calcul
 
     public RecommendationResult {
         simulationRules=simulationRules==null ? List.of() : List.copyOf(simulationRules);
+        recognitions = recognitions == null ? List.of() : List.copyOf(recognitions);
+        if (recognitions.stream().map(PerformanceRecognition::userCardId).distinct().count() != recognitions.size()) {
+            throw new IllegalArgumentException("한 카드의 실적 인정 값은 하나다");
+        }
         issues = issues == null ? List.of() : List.copyOf(issues);
         // 구형 진행 중 스냅샷 읽기 호환. 신규 DB 보존은 codec에서 버전 필수를 검사한다.
         if (schemaVersion == 0) schemaVersion = 1;
@@ -109,6 +122,27 @@ public record RecommendationResult(String recommendationId, LocalDateTime calcul
 
     public Optional<Candidate> candidate(Long userCardId) {
         return candidates.stream().filter(c -> c.card().userCardId().equals(userCardId)).findFirst();
+    }
+
+    /** 카드의 실적 인정 값. 계산되지 않았으면 비어 있다(승인은 인정액 미확인으로 저장한다). */
+    public Optional<PerformanceRecognition> recognition(Long userCardId) {
+        return recognitions.stream().filter(r -> r.userCardId().equals(userCardId)).findFirst();
+    }
+
+    /**
+     * 카드 한 장의 이번 거래 실적 인정 값. BE3 {@code RecommendationRecognitionResolver}가 상품 규칙과 거래 사실로 계산한 값을
+     * 그대로 옮긴다(결제가 다시 계산하지 않는다).
+     *
+     * @param month  실적을 더할 월. 상품에 인정월 규칙이 없거나(최소 실적 0 상품 포함) 사실이 모자라 정하지 못했으면 null
+     * @param amount 실적 인정액(원). 0은 약관상 실적 제외 확정, 양수는 인정, null은 미확인·해당 없음
+     */
+    public record PerformanceRecognition(Long userCardId, java.time.YearMonth month, Long amount) {
+        public PerformanceRecognition {
+            Objects.requireNonNull(userCardId, "userCardId");
+            if (amount != null && amount < 0) {
+                throw new IllegalArgumentException("실적 인정액은 0 이상이다");
+            }
+        }
     }
 
     public Optional<ExcludedCard> excluded(Long userCardId) {

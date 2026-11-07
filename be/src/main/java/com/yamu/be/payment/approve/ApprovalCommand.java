@@ -3,6 +3,8 @@ package com.yamu.be.payment.approve;
 import com.yamu.be.payment.PaymentTerms;
 import com.yamu.be.payment.recommend.RecommendationResult.Candidate;
 import com.yamu.be.payment.recommend.RecommendationResult.CardSummary;
+import com.yamu.be.payment.recommend.RecommendationResult.PerformanceRecognition;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.Objects;
 
@@ -15,9 +17,16 @@ import java.util.Objects;
  * @param requestedAt POS 요청 시각(UTC)
  * @param now         승인 처리 시각(UTC)
  * @param attemptNo   이 결제의 몇 번째 승인 시도인지(1부터). 거절 뒤 재승인이면 2 이상
+ * @param recognition 승인할 카드의 실적 인정 값(BE3 계산, Task 5.2.11). 계산되지 않았으면 null(인정액 미확인으로 저장)
  */
 public record ApprovalCommand(Long paymentId, Long userId, PaymentTerms terms, CardSummary card, Candidate candidate,
-        LocalDateTime requestedAt, LocalDateTime now, int attemptNo) {
+        LocalDateTime requestedAt, LocalDateTime now, int attemptNo, PerformanceRecognition recognition) {
+
+    /** 실적 인정 값 없이 만든 명령. 승인은 인정액 미확인·승인월로 저장한다. */
+    public ApprovalCommand(Long paymentId, Long userId, PaymentTerms terms, CardSummary card, Candidate candidate,
+            LocalDateTime requestedAt, LocalDateTime now, int attemptNo) {
+        this(paymentId, userId, terms, card, candidate, requestedAt, now, attemptNo, null);
+    }
 
     public ApprovalCommand {
         Objects.requireNonNull(paymentId, "paymentId");
@@ -34,5 +43,15 @@ public record ApprovalCommand(Long paymentId, Long userId, PaymentTerms terms, C
     public long chargedAmount() {
         long instantDiscount = candidate != null ? candidate.instantDiscount() : 0;
         return terms.chargedAmount(instantDiscount);
+    }
+
+    /** 저장할 실적 인정액. {@link ApprovalPerformance#amount}를 따른다. */
+    public Long recognizedPerformanceAmount() {
+        return ApprovalPerformance.amount(recognition, candidate != null);
+    }
+
+    /** 저장할 실적 월. {@link ApprovalPerformance#month}를 따른다. */
+    public LocalDate performanceMonth() {
+        return ApprovalPerformance.month(recognition, now);
     }
 }

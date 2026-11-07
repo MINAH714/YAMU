@@ -244,13 +244,14 @@ public class PaymentTransaction extends BaseTimeEntity {
     }
 
     /**
-     * 모의 승인 확정. DB CHECK {@code ck_payment_approval}이 승인 시각과 함께 카드·승인액·실적 인정액·실적 월·개월 수를 요구한다.
+     * 모의 승인 확정. DB CHECK {@code ck_payment_approval}이 승인 시각과 함께 카드·승인액·실적 월·개월 수를 요구한다.
+     * 실적 인정액은 BE3 계산 값이며 미확인이면 null이다(Task 5.2.11).
      *
      * @param approvedAmount    결제 금액 − 즉시할인(체크카드 출금액·신용카드 청구 원금). 전액 즉시할인이면 0
      * @param performanceMonth  실적을 합산할 월(한국 날짜, 1일로 저장)
      * @param finTransactionNo  체크카드 출금의 금융망 거래 번호. 신용카드·0원 승인은 null
      */
-    public void approve(long approvedAmount, long recognizedPerformanceAmount, LocalDate performanceMonth,
+    public void approve(long approvedAmount, Long recognizedPerformanceAmount, LocalDate performanceMonth,
             LocalDateTime approvedAt, String finTransactionNo) {
         requireStatus("승인", PaymentStatus.PROCESSING);
         this.approvedAmount = approvedAmount;
@@ -276,7 +277,7 @@ public class PaymentTransaction extends BaseTimeEntity {
      * 출금 미확인으로 거절·만료한 뒤 같은 요청 번호의 출금이 확인됐다(은행의 늦은 처리). 돈이 나갔으므로 승인으로 바로잡는다.
      * 임시(명세 4-2에 없는 DECLINED·EXPIRED → APPROVED 전이, Task 5.2.3 리뷰): 요청 번호가 같을 때만 허용한다.
      */
-    public void confirmLateWithdrawal(String finRequestNo, long approvedAmount, long recognizedPerformanceAmount,
+    public void confirmLateWithdrawal(String finRequestNo, long approvedAmount, Long recognizedPerformanceAmount,
             LocalDate performanceMonth, LocalDateTime approvedAt, String finTransactionNo) {
         if (!isLateConfirmable(finRequestNo)) {
             throw new IllegalStateException("늦은 출금 확인으로 승인할 수 없는 결제입니다 (결제 " + id + ", 상태 " + status + ")");

@@ -63,15 +63,24 @@ public class RecommendationService {
                               com.yamu.be.card.domain.CardType cardType, String issuerCode, boolean defaultCard,
                               Map<Long, String> benefitTiming) { }
 
+    /**
+     * @param recognitions 카드별 이번 거래의 실적 인정 값(인정월·최소 실적·인정액, Task 5.2.11). 추천 순위와 같은 입력으로 계산한 값이며
+     *                     결제 승인이 고른 카드의 값을 저장한다. 계산하지 못한 카드(조회 실패·상품 누락 등)는 없다
+     */
     public record Result(RecommendationSelector.Result recommendation, List<RecommendationDataIssue> issues,
-                         Map<Long, CardContext> cards, List<SimulationRule> simulationRules) {
+                         Map<Long, CardContext> cards, List<SimulationRule> simulationRules, Map<Long, Recognition> recognitions) {
         public Result(RecommendationSelector.Result recommendation,List<RecommendationDataIssue> issues,Map<Long,CardContext> cards) {
             this(recommendation,issues,cards,List.of());
+        }
+        public Result(RecommendationSelector.Result recommendation, List<RecommendationDataIssue> issues,
+                Map<Long, CardContext> cards, List<SimulationRule> simulationRules) {
+            this(recommendation, issues, cards, simulationRules, Map.of());
         }
         public Result {
             issues = List.copyOf(issues);
             cards = Map.copyOf(cards);
             simulationRules=List.copyOf(simulationRules);
+            recognitions = recognitions == null ? Map.of() : Map.copyOf(recognitions);
         }
     }
 
@@ -100,7 +109,8 @@ public class RecommendationService {
                         rule.benefitId(), rule.appliedFields()));
             }
         }
-        return new Result(recommendation, prepared.issues(), prepared.cards(), rules.stream().distinct().toList());
+        return new Result(recommendation, prepared.issues(), prepared.cards(), rules.stream().distinct().toList(),
+                prepared.recognitions());
     }
 
     /** POS 저장 전 읽기를 완료한다. 이 거래의 입력에 결제 ID를 한 번만 붙일 수 있다. */
@@ -213,7 +223,7 @@ public class RecommendationService {
     private Result calculate(RecommendationCommand command, Prepared prepared, long paymentId) {
         var input = new RecommendationInput(paymentId, command.userId(), command.transaction(),
                 prepared.defaultCardId(), prepared.candidates());
-        return new Result(selector.select(input), prepared.issues(), prepared.cards(), prepared.rules());
+        return new Result(selector.select(input), prepared.issues(), prepared.cards(), prepared.rules(), prepared.recognitions());
     }
 
     private PolicyRows load(RecommendationCommand command, Loaded loaded, Set<Long> suppliedCardIds) {
@@ -306,7 +316,8 @@ public class RecommendationService {
                     card.getIssuerStatus(), available.status(), available.reason(), loaded.policies.get(card.getId()),
                     progress.get(card.getId()), card.getDisplayOrder(), card.getRegisteredAt()));
         }
-        return new Prepared(defaultId, List.copyOf(candidates), List.copyOf(issues), Map.copyOf(context(loaded)), List.copyOf(rules));
+        return new Prepared(defaultId, List.copyOf(candidates), List.copyOf(issues), Map.copyOf(context(loaded)), List.copyOf(rules),
+                recognitionsByCard(loaded));
     }
 
     private boolean needsBenefit(UserCard card) {
@@ -316,6 +327,16 @@ public class RecommendationService {
     private PaymentAvailability availability(RecommendationCommand command, UserCard card) {
         return command.availability().getOrDefault(card.getId(),
                 new PaymentAvailability(Availability.UNKNOWN, "PAYMENT_AVAILABILITY_UNKNOWN"));
+    }
+
+    /** 결제 승인이 고른 카드의 인정 값을 꺼낼 수 있게 카드별로 둔다. 계산 전에 읽기가 실패했으면 비어 있다. */
+    private static Map<Long, Recognition> recognitionsByCard(Loaded loaded) {
+        if (loaded.recognitions == null) {
+            return Map.of();
+        }
+        var result = new LinkedHashMap<Long, Recognition>();
+        loaded.recognitions.forEach(recognition -> result.put(recognition.userCardId(), recognition));
+        return result;
     }
 
     private Map<Long, CardContext> context(Loaded loaded) {
@@ -340,7 +361,7 @@ public class RecommendationService {
     }
 
     private record Prepared(Long defaultCardId, List<CardCandidate> candidates, List<RecommendationDataIssue> issues,
-                            Map<Long, CardContext> cards, List<SimulationRule> rules) { }
+                            Map<Long, CardContext> cards, List<SimulationRule> rules, Map<Long, Recognition> recognitions) { }
 
     private record PolicyRows(RecommendationPolicyData data, List<UserCard> eligible, List<Long> priorIds,
                               LocalDate date) { }
