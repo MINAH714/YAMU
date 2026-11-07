@@ -220,10 +220,11 @@ class WithdrawalRecoveryTest {
 
     @Test
     void 시도_기록의_실적_인정_값으로_인정액과_실적_월을_적는다() {
-        // Task 5.2.11: 복구는 승인 때 다시 계산한 BE3 인정 값을 시도 기록에서 읽는다
+        // Task 5.2.11: 복구는 승인 때 다시 계산한 BE3 인정 값을 시도 기록에서 읽는다.
+        // BE3가 요청월(10월)에서 한 달 민 인정월(다음 달 실적 규칙)이면 승인월(10월)에서도 한 달 민다
         Candidate basis = basisWithInstantDiscount(1_000);
         var recognition = new com.yamu.be.payment.recommend.RecommendationResult.PerformanceRecognition(16L,
-                java.time.YearMonth.of(2026, 9), 15_000L);
+                java.time.YearMonth.of(2026, 11), 15_000L);
         payment = processingWithRequestNo(14_000);
         when(attempts.findByFinRequestNo(PAYMENT_ID, TX_NO)).thenReturn(Optional.of(
                 Attempt.start("key", "1024:16", basis.card(), 1, false, REQUESTED_AT, basis, recognition).withNo(1)
@@ -235,7 +236,7 @@ class WithdrawalRecoveryTest {
 
         ApprovalOutcome.Approved recorded = recordedApproval();
         assertThat(recorded.recognizedPerformanceAmount()).isEqualTo(15_000L);
-        assertThat(recorded.performanceMonth()).isEqualTo(java.time.LocalDate.of(2026, 9, 1));
+        assertThat(recorded.performanceMonth()).isEqualTo(java.time.LocalDate.of(2026, 11, 1));
         assertThat(payment.getRecognizedPerformanceAmount()).isEqualTo(15_000L);
     }
 

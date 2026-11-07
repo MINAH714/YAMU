@@ -400,37 +400,38 @@ public class WithdrawalRecovery {
     private ApprovalOutcome.Approved approvedOutcome(PaymentTransaction row, String finRequestNo, long amount,
             BankTransaction found) {
         Optional<Attempt> attempt = attemptOf(row, finRequestNo, amount);
-        Candidate basis = basisOf(row, finRequestNo, amount, attempt);
-        PerformanceRecognition recognition = attempt == null ? null : attempt.map(Attempt::recognition).orElse(null);
+        Candidate basis = attempt.map(a -> basisOf(row, finRequestNo, amount, a)).orElse(null);
+        PerformanceRecognition recognition = attempt.map(Attempt::recognition).orElse(null);
         return new ApprovalOutcome.Approved(amount, amount, ApprovalPerformance.amount(recognition, basis != null),
-                ApprovalPerformance.month(recognition, nowUtc()), ApprovalOutcome.Approved.applied(basis), finRequestNo,
-                found.bankTransactionNo(), null, basis);
+                ApprovalPerformance.month(recognition, row.getRequestedAt(), nowUtc()),
+                ApprovalOutcome.Approved.applied(basis), finRequestNo, found.bankTransactionNo(), null, basis);
     }
 
-    /** 그 요청 번호로 출금한 시도. 기록이 없으면 비어 있고, 읽지 못하면 null이다(둘 다 근거를 모르는 것으로 처리한다). */
+    /**
+     * 그 요청 번호로 출금한 시도. 기록이 없거나(보관 종료·저장 실패) 읽지 못하면 비어 있다. 둘 다 혜택·실적 근거를 모르는 것이라
+     * 같은 처리(혜택 없음·인정액 미확인)를 하고, 어느 쪽인지는 여기서 로그로 남긴다.
+     */
     private Optional<Attempt> attemptOf(PaymentTransaction row, String finRequestNo, long amount) {
+        Optional<Attempt> attempt;
         try {
-            return attempts.findByFinRequestNo(row.getId(), finRequestNo);
+            attempt = attempts.findByFinRequestNo(row.getId(), finRequestNo);
         } catch (RuntimeException e) {
             log.warn("복구 승인의 혜택 근거(시도 기록)를 읽지 못해 혜택·실적 인정 없이 원장에 적음, 운영 확인 paymentId={} "
                     + "finRequestNo={} amount={} requestedAmount={}", row.getId(), finRequestNo, amount,
                     row.getRequestedAmount(), e);
-            return null;
-        }
-    }
-
-    private Candidate basisOf(PaymentTransaction row, String finRequestNo, long amount, Optional<Attempt> attempt) {
-        Long paymentId = row.getId();
-        if (attempt == null) {
-            return null;
+            return Optional.empty();
         }
         if (attempt.isEmpty()) {
             // 보관 기간이 지났거나 저장에 실패했다. 즉시할인 뒤 금액으로 출금됐어도 어떤 혜택·한도였는지 알 수 없다
             log.warn("복구 승인의 시도 기록이 없어 혜택 근거를 모름, 혜택 없이 원장에 적음, 운영 확인 paymentId={} finRequestNo={} "
-                    + "amount={} requestedAmount={}", paymentId, finRequestNo, amount, row.getRequestedAmount());
-            return null;
+                    + "amount={} requestedAmount={}", row.getId(), finRequestNo, amount, row.getRequestedAmount());
         }
-        Candidate basis = attempt.get().basis();
+        return attempt;
+    }
+
+    private Candidate basisOf(PaymentTransaction row, String finRequestNo, long amount, Attempt attempt) {
+        Long paymentId = row.getId();
+        Candidate basis = attempt.basis();
         if (basis == null) {
             // 추천 밖의 카드를 직접 고른 시도: 혜택·한도를 쓰지 않는다
             return null;

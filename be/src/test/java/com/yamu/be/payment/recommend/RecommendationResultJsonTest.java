@@ -41,6 +41,23 @@ class RecommendationResultJsonTest {
         assertThat(codec.decode(legacy).candidates().get(0).benefits().get(0).rawAmount())
                 .isEqualTo(new java.math.BigDecimal("1234567890.123456789012345678"));
     }
+    @Test void 실적_인정_값을_왕복하고_이_칸이_없던_스냅샷은_빈_목록으로_읽는다() {
+        // Task 5.2.11: 승인이 고른 카드의 인정 값을 스냅샷에서 꺼낸다. 빠지면 조용히 미확인으로 저장된다
+        var base=result(candidate(lines("AFTER_BILLING"),List.of(group())));
+        var original=new RecommendationResult(base.recommendationId(),base.calculatedAt(),base.estimate(),base.candidates(),
+                base.excludedCards(),base.uncomparedCards(),base.schemaVersion(),base.issues(),base.simulationRules(),
+                List.of(new PerformanceRecognition(1L,java.time.YearMonth.of(2026,11),15_000L),
+                        new PerformanceRecognition(2L,null,null)));
+        var json=codec.encode(original);
+        assertThat(codec.decode(json)).isEqualTo(original);
+        assertThat(codec.decode(json).recognition(1L)).contains(original.recognitions().get(0));
+
+        // 310 이전 스냅샷: recognitions 칸이 없다
+        var legacy=codec.encode(base).replace(",\"recognitions\":[]","");
+        assertThat(legacy).doesNotContain("recognitions");
+        assertThat(codec.decode(legacy).recognitions()).isEmpty();
+        assertThat(codec.decode(legacy).recognition(1L)).isEmpty();
+    }
     @Test void rejectsMissingVersionAndUnexplainedOrDuplicatedNulls() {
         assertThatThrownBy(()->codec.decode("{\"candidates\":[]}")).isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(()->candidate(lines("AFTER_BILLING"),List.of())).isInstanceOf(IllegalArgumentException.class);

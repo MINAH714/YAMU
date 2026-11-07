@@ -52,6 +52,6 @@ public record ApprovalCommand(Long paymentId, Long userId, PaymentTerms terms, C
 
     /** 저장할 실적 월. {@link ApprovalPerformance#month}를 따른다. */
     public LocalDate performanceMonth() {
-        return ApprovalPerformance.month(recognition, now);
+        return ApprovalPerformance.month(recognition, requestedAt, now);
     }
 }

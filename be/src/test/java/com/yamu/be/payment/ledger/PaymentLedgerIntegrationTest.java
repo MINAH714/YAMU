@@ -232,7 +232,7 @@ class PaymentLedgerIntegrationTest extends MySqlTestSupport {
 
     @Test
     void 실적_인정액이_미확인이면_승인된_결제에_NULL로_저장되고_월_합계에_더하지_않으며_취소도_빼지_않는다() {
-        // Task 5.2.11: ck_payment_approval이 승인된 결제의 인정액 NULL을 허용한다(V20261106_3)
+        // Task 5.2.11: ck_payment_approval이 승인된 결제의 인정액 NULL을 허용한다(V20261108_1)
         long paymentId = approvedPayment(15_000, null, NOVEMBER);
         record(paymentId, unconfirmed(15_000));
 

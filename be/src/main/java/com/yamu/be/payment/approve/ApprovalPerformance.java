@@ -3,13 +3,15 @@ package com.yamu.be.payment.approve;
 import com.yamu.be.payment.recommend.RecommendationResult.PerformanceRecognition;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.YearMonth;
+import java.time.temporal.ChronoUnit;
 
 /**
- * 승인이 저장할 실적 인정액·실적 월(Task 5.2.11). 값은 BE3 실적 인정 계산 결과를 그대로 쓰고, 결제는 다시 계산하지 않는다.
+ * 승인이 저장할 실적 인정액·실적 월(Task 5.2.11). 값은 BE3 실적 인정 계산 결과를 쓰고, 결제는 인정 여부를 다시 계산하지 않는다.
  *
  * <ul>
  *   <li>인정액: 0은 약관상 실적 제외 확정, 양수는 인정, null은 미확인이다. 미확인은 월 실적 합계에 더하지 않는다.</li>
- *   <li>실적 월: BE3가 정한 월. BE3가 정하지 않았으면(인정월 규칙이 없는 상품·최소 실적 0 상품) 명세 기본값인 승인월(한국 날짜)이다.</li>
+ *   <li>실적 월: 명세 기본값인 승인월(한국 날짜)에 BE3가 정한 이동(예: 후불교통은 다음 달)만 더한다. 자세한 건 {@link #month}.</li>
  * </ul>
  */
 final class ApprovalPerformance {
@@ -34,10 +36,24 @@ final class ApprovalPerformance {
         return amount;
     }
 
-    static LocalDate month(PerformanceRecognition recognition, LocalDateTime approvedAtUtc) {
-        if (recognition != null && recognition.month() != null) {
+    /**
+     * 실적 월. BE3는 거래 시각을 POS 요청 시각으로 받아 인정월을 정하므로, 그 월을 그대로 쓰면 월말에 요청하고 다음 달에 승인한
+     * 결제(승인 대기 60초·결과 불명 복구)가 카드마다 다른 월에 들어간다(규칙 있는 카드는 요청월, 없는 카드는 승인월).
+     * 그래서 BE3 월이 요청월에서 몇 달 밀렸는지만 읽어 승인월에 더한다(임시, 명세 "일반 POS 결제는 승인월"에 맞춤).
+     *
+     * @param recognition    승인할 카드의 인정 값. 없거나 인정월이 없으면(인정월 규칙 없는 상품·최소 실적 0 상품) 승인월이다
+     * @param requestedAtUtc BE3 계산 기준 시각인 POS 요청 시각(UTC). 모르면 BE3 월을 그대로 쓴다
+     * @param approvedAtUtc  승인 시각(UTC)
+     */
+    static LocalDate month(PerformanceRecognition recognition, LocalDateTime requestedAtUtc, LocalDateTime approvedAtUtc) {
+        LocalDate approvalMonth = ApprovalDates.performanceMonth(approvedAtUtc);
+        if (recognition == null || recognition.month() == null) {
+            return approvalMonth;
+        }
+        if (requestedAtUtc == null) {
             return recognition.month().atDay(1);
         }
-        return ApprovalDates.performanceMonth(approvedAtUtc);
+        YearMonth requestMonth = YearMonth.from(ApprovalDates.koreanDate(requestedAtUtc));
+        return approvalMonth.plusMonths(requestMonth.until(recognition.month(), ChronoUnit.MONTHS));
     }
 }
