@@ -24,6 +24,8 @@ import com.yamu.app.core.designsystem.component.PrimaryButton
 import com.yamu.app.core.designsystem.component.Segmented
 import com.yamu.app.core.designsystem.component.YamuCard
 import com.yamu.app.core.designsystem.component.YamuTopBar
+import com.yamu.app.core.designsystem.component.YamuSwitch
+import com.yamu.app.core.designsystem.theme.YamuMotionDebug
 import com.yamu.app.core.designsystem.theme.YamuTheme
 import com.yamu.app.core.designsystem.component.RoundCheckbox
 import com.yamu.app.core.session.DevSession
@@ -168,6 +170,12 @@ fun DebugMenuScreen(navController: NavController, viewModel: DebugMenuViewModel 
             }
             YamuCard {
                 ListRow("컴포넌트 갤러리", chevron = true, onClick = { navController.navigate(ComponentGallery) })
+                ListRow(
+                    "모션 줄이기 강제",
+                    sub = "시스템 '애니메이션 삭제'처럼 이동 · 크기 · 회전을 끄고 페이드만 남겨요. 촬영 · 점검용",
+                    trailing = { YamuSwitch(checked = YamuMotionDebug.forceReduceMotion, onCheckedChange = null) },
+                    onClick = { YamuMotionDebug.forceReduceMotion = !YamuMotionDebug.forceReduceMotion },
+                )
             }
             YamuCard {
                 Text("화면 바로 열기", style = YamuTheme.typography.titleM, color = c.text1)
