@@ -19,6 +19,15 @@ import androidx.compose.animation.core.tween
 import android.os.SystemClock
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.ui.MotionDurationScale
+import androidx.compose.ui.layout.LayoutCoordinates
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import com.yamu.app.core.designsystem.theme.YamuMotion
 import androidx.compose.foundation.Image
@@ -220,9 +229,13 @@ enum class CharacterSize(val size: Dp) { S(64.dp), M(96.dp), L(128.dp) }
  * 움직임은 둘이다.
  * - [animate]: 처음 그려질 때 조용한 등장(0.92 → 1 + 페이드, 넘침 없음). 결제 완료처럼 자주 보는 화면은 이것만 쓴다.
  * - [celebrateKey]: 카드 등록 · 가입 완료처럼 드문 순간의 축하 팝(눌림 → 정점 → 안착 + 고리 · 파티클).
- *   null이 아닌 새 값이 올 때마다 한 번 돈다. 팝이 시작되면 [onCelebrated]가 불리니, 화면은 거기서 키를 비워
+ *   null이 아닌 새 값이 올 때마다 한 번 돈다. 키를 받자마자 [onCelebrated]가 불리니, 화면은 거기서 키를 비워
  *   단계를 되돌아오거나 화면이 다시 만들어져도 같은 축하가 또 돌지 않게 한다.
+ *   [celebrateDelayMs]만큼 기다렸다가 시작한다(화면 교체 페이드가 끝난 뒤 돌게). 기다리는 동안은 멈춘 그림이다.
+ *   [burstLayer]를 넘기면 고리 · 파티클을 그 층(화면 맨 위)에 그려 스크롤 · 상단 바가 자르지 않는다.
+ *   팝 도중 화면이 멈추면(앱 백그라운드) 끝 상태로 바로 간다.
  * 모션 줄이기가 켜져 있으면 둘 다 크기 · 회전 · 고리 · 파티클 없이 짧은 페이드만 남는다.
+ * 기다렸다 시작하는 팝은 화면 교체 페이드가 이미 있으니 캐릭터 페이드도 없이 멈춘 그림이다.
  */
 @Composable
 fun CharacterImage(
@@ -233,7 +246,12 @@ fun CharacterImage(
     circle: Boolean = size == CharacterSize.S,
     celebrateKey: Any? = null,
     onCelebrated: () -> Unit = {},
-) = CharacterImageImpl(pose, modifier, size, animate, circle, celebrateKey, onCelebrated, tilt = true)
+    celebrateDelayMs: Int = 0,
+    burstLayer: CelebrationLayerState? = null,
+) = CharacterImageImpl(
+    pose, modifier, size, animate, circle, celebrateKey, onCelebrated,
+    tilt = true, celebrateDelayMs = celebrateDelayMs, burstLayer = burstLayer,
+)
 
 /** [tilt]는 컴포넌트 갤러리에서 팝 크기만 재려고 회전을 끌 때만 false */
 @Composable
@@ -246,6 +264,8 @@ internal fun CharacterImageImpl(
     celebrateKey: Any?,
     onCelebrated: () -> Unit,
     tilt: Boolean,
+    celebrateDelayMs: Int = 0,
+    burstLayer: CelebrationLayerState? = null,
 ) {
     val reduce = YamuTheme.reduceMotion
     val enter = animate && celebrateKey == null
@@ -258,6 +278,29 @@ internal fun CharacterImageImpl(
     // 팝은 키가 바뀌어도(화면이 onCelebrated에서 키를 비워도) 끊기지 않게 이 자리의 범위에서 돈다
     val scope = rememberCoroutineScope()
     val latestOnCelebrated by rememberUpdatedState(onCelebrated)
+    val pop = remember { PopRun() }
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+
+    /** 팝을 끊고 끝 상태(포스터 프레임)로 */
+    suspend fun rest() {
+        burstParts = BurstParts.NONE
+        burst.snapTo(BURST_TOTAL_MS.toFloat())
+        scale.snapTo(1f)
+        rotation.snapTo(0f)
+        alpha.snapTo(1f)
+    }
+
+    // 팝 도중 화면이 멈추면(앱 백그라운드 · 다른 화면으로 감) 돌아왔을 때 이어 돌지 않게 끝 상태로
+    DisposableEffect(lifecycle) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_STOP && pop.job?.isActive == true) {
+                pop.job?.cancel()
+                scope.launch { rest() }
+            }
+        }
+        lifecycle.addObserver(observer)
+        onDispose { lifecycle.removeObserver(observer) }
+    }
 
     LaunchedEffect(Unit) {
         if (!enter) return@LaunchedEffect
@@ -273,14 +316,20 @@ internal fun CharacterImageImpl(
     LaunchedEffect(celebrateKey) {
         if (celebrateKey == null) return@LaunchedEffect
         latestOnCelebrated()
-        scope.launch {
+        if (!lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) return@LaunchedEffect   // 안 보이는 동안 온 축하는 건너뜀
+        pop.job?.cancel()
+        pop.job = scope.launch {
             if (reduce) {
-                burstParts = BurstParts.NONE
-                scale.snapTo(1f)
-                rotation.snapTo(0f)
+                rest()
+                if (celebrateDelayMs > 0) return@launch   // 화면 교체 페이드만으로 들어온다
                 alpha.snapTo(0f)
                 alpha.animateTo(1f, tween(YamuMotion.SHORT_MS, easing = YamuMotion.standard))
                 return@launch
+            }
+            if (celebrateDelayMs > 0) {
+                rest()   // 앞 팝을 끊고 왔으면 기다리는 동안 반쯤 돈 모습이 남지 않게
+                // 화면 교체 페이드처럼 시스템 애니메이션 배율을 따라 기다린다(delay만 쓰면 배율을 바꾼 기기에서 페이드와 어긋남)
+                delay((celebrateDelayMs * (coroutineContext[MotionDurationScale]?.scaleFactor ?: 1f)).toLong())
             }
             burstParts = streak.next(SystemClock.uptimeMillis())
             alpha.snapTo(1f)
@@ -294,8 +343,18 @@ internal fun CharacterImageImpl(
         }
     }
 
-    Box(modifier.size(size.size)) {
-        if (burstParts != BurstParts.NONE) {
+    // 층에 맡기면 고리 · 파티클을 여기서 그리지 않고, 터지는 동안 층에 이 자리를 알린다
+    val place = remember { PlaceRef() }
+    if (burstLayer != null && burstParts != BurstParts.NONE) {
+        DisposableEffect(burstLayer, burstParts) {
+            val spot = BurstSpot(elapsedMs = { burst.value }, parts = burstParts, coords = { place.coords })
+            burstLayer.spots += spot
+            onDispose { burstLayer.spots -= spot }
+        }
+    }
+
+    Box(modifier.size(size.size).then(if (burstLayer != null) Modifier.onGloballyPositioned { place.coords = it } else Modifier)) {
+        if (burstLayer == null && burstParts != BurstParts.NONE) {
             CelebrationBurst(
                 elapsedMs = { burst.value },
                 modifier = Modifier.matchParentSize(),
@@ -341,6 +400,12 @@ private fun popRotation() = keyframes {
     YamuMotion.POP_TILT_DEG at YamuMotion.POP_PRESS_AT using YamuMotion.inOut
     YamuMotion.POP_TILT_BACK_DEG at YamuMotion.POP_PEAK_AT using YamuMotion.inOut
 }
+
+/** 돌고 있는 팝 하나. 상태가 아니라 끊을 때만 본다 */
+private class PopRun { var job: Job? = null }
+
+/** 층에 알릴 캐릭터 자리. 그리기 때만 읽는다 */
+private class PlaceRef { var coords: LayoutCoordinates? = null }
 
 internal enum class BurstParts(val ripple: Boolean, val particles: Boolean) {
     ALL(true, true),

@@ -1,6 +1,10 @@
 package com.yamu.app.feature.link
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.consumeWindowInsets
@@ -17,6 +21,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.input.ImeAction
@@ -30,6 +35,9 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import com.yamu.app.core.designsystem.component.BottomCta
+import com.yamu.app.core.designsystem.component.CelebrationLayer
+import com.yamu.app.core.designsystem.component.CelebrationLayerState
+import com.yamu.app.core.designsystem.component.rememberCelebrationLayer
 import com.yamu.app.core.designsystem.component.CharacterImage
 import com.yamu.app.core.designsystem.component.CharacterSize
 import com.yamu.app.core.designsystem.component.EmptyState
@@ -42,8 +50,11 @@ import com.yamu.app.core.designsystem.component.TextButtonGrey
 import com.yamu.app.core.designsystem.component.YamuPose
 import com.yamu.app.core.designsystem.component.YamuTextField
 import com.yamu.app.core.designsystem.icon.YamuIcons
+import com.yamu.app.core.designsystem.theme.YamuMotion
 import com.yamu.app.core.designsystem.theme.YamuSpacing
 import com.yamu.app.core.designsystem.theme.YamuTheme
+import com.yamu.app.core.designsystem.theme.screenSwapEnter
+import com.yamu.app.core.designsystem.theme.screenSwapExit
 import com.yamu.app.core.format.objectParticle
 import com.yamu.app.core.format.toWon
 import com.yamu.app.core.network.ApiError
@@ -91,6 +102,7 @@ data class CardRegisterState(
     val biometricReady: Boolean = false,
     val registering: Boolean = false,
     val registered: RegisteredCard? = null,        // 마지막으로 등록한 카드
+    val celebrateCardId: Long? = null,             // 서버가 등록을 확정했는데 아직 축하 팝을 돌리지 않은 카드 — 팝이 시작되면 비운다
     val accountsLoading: Boolean = false,
     val accountsError: String? = null,
     val candidates: List<AccountCandidate> = emptyList(),
@@ -170,12 +182,19 @@ class CardRegisterViewModel @Inject constructor(
         }
     }
 
+    /** 서버가 등록을 확정함(응답 · 목록 재조회 둘 다). 축하는 이 카드로 한 번만 — 탭 수가 아니라 카드 id에 묶는다 */
     private suspend fun onRegistered(card: RegisteredCard) {
         auth.completeOnboarding()      // 카드가 등록되면 서버도 초기 설정 끝으로 본다 — 다시 켜도 홈으로
         _state.update {
-            it.copy(registering = false, lookup = null, nickname = "", registered = card, step = CardRegisterStep.Done)
+            it.copy(
+                registering = false, lookup = null, nickname = "", registered = card, step = CardRegisterStep.Done,
+                celebrateCardId = card.userCardId,
+            )
         }
     }
+
+    /** 완료 화면이 축하 팝을 시작함 — 단계를 되돌아오거나 화면이 다시 그려져도 다시 돌지 않게 */
+    fun celebrated() = _state.update { it.copy(celebrateCardId = null) }
 
     private suspend fun onRegisterFailed(error: ApiError, lookup: CardLookup) {
         val failure = cardRegisterFailure(error.code)
@@ -213,8 +232,10 @@ class CardRegisterViewModel @Inject constructor(
     /** [다른 카드 입력하기] · 카드 다시 확인 */
     fun reenterCard() = restart(null)
 
-    /** [다른 카드 등록] */
-    fun anotherCard() = _state.update { it.copy(step = CardRegisterStep.Input, showErrors = false, inputError = null) }
+    /** [다른 카드 등록] — 아직 돌지 않은 축하도 버린다(뒤로 와서 완료 화면이면 멈춘 그림) */
+    fun anotherCard() = _state.update {
+        it.copy(step = CardRegisterStep.Input, showErrors = false, inputError = null, celebrateCardId = null)
+    }
 
     // ── 결제 계좌 연결 ──
 
@@ -373,15 +394,45 @@ fun CardRegisterRoute(
     BackHandler(onBack = back)
     val title = if (onboarding) "카드 등록" else "카드 추가"
     val flowStep = if (onboarding) FlowStep(1, 2) else null
-    when (s.step) {
-        CardRegisterStep.Input -> CardInputStep(s, title, flowStep, back, onSkip.takeIf { s.registered == null }, viewModel)
-        CardRegisterStep.Confirm -> s.lookup?.let { CardConfirmStep(s, it, title, flowStep, back, viewModel) }
-        CardRegisterStep.Accounts -> AccountLinkStep(s, title, flowStep, back, viewModel)
-        CardRegisterStep.Done -> s.registered?.let { card ->
-            CardDoneStep(card, title, flowStep, finishLabel = if (onboarding) "월급 · 고정 지출 확인하기" else "완료", back, onFinished, viewModel::anotherCard)
+    val reduce = YamuTheme.reduceMotion
+    // 확인 단계는 떠나기 직전 상태로 페이드아웃한다. onRegistered가 Done과 함께 lookup을 비우므로 지금 상태로 그리면
+    // 확인 단계가 첫 프레임에 비어 버린다. 값 대신 단계만 AnimatedContent에 넘겨 같은 단계 안의 상태 변화는 그대로 그린다.
+    // 번호 · 기간이 든 입력 단계 상태는 남기지 않는다(확인이 끝나면 번호를 지우는 것과 같은 까닭)
+    val lastConfirm = remember { LastState() }
+    if (s.step == CardRegisterStep.Confirm) lastConfirm.state = s
+    val layer = rememberCelebrationLayer()   // 완료 축하의 고리 · 파티클은 스크롤 · 상단 바 위 층에
+    CelebrationLayer(layer) {
+        AnimatedContent(
+            targetState = s.step,
+            transitionSpec = {
+                // 완료로 들어갈 때만 화면 교체 페이드. 나머지 단계 사이는 지금처럼 바로 바뀐다
+                if (targetState == CardRegisterStep.Done) {
+                    (screenSwapEnter(reduce) togetherWith screenSwapExit(reduce)).using(null)
+                } else {
+                    (EnterTransition.None togetherWith ExitTransition.None).using(null)
+                }
+            },
+            label = "cardRegisterStep",
+        ) { step ->
+            val st = if (step == CardRegisterStep.Confirm && s.step != CardRegisterStep.Confirm) lastConfirm.state ?: s else s
+            when (step) {
+                CardRegisterStep.Input -> CardInputStep(st, title, flowStep, back, onSkip.takeIf { st.registered == null }, viewModel)
+                CardRegisterStep.Confirm -> st.lookup?.let { CardConfirmStep(st, it, title, flowStep, back, viewModel) }
+                CardRegisterStep.Accounts -> AccountLinkStep(st, title, flowStep, back, viewModel)
+                CardRegisterStep.Done -> st.registered?.let { card ->
+                    CardDoneStep(
+                        card, title, flowStep, finishLabel = if (onboarding) "월급 · 고정 지출 확인하기" else "완료",
+                        onClose = back, onFinished = onFinished, onAnother = viewModel::anotherCard,
+                        celebrateKey = st.celebrateCardId, onCelebrated = viewModel::celebrated, burstLayer = layer,
+                    )
+                }
+            }
         }
     }
 }
+
+/** 페이드아웃하는 확인 단계가 그릴 마지막 상태. 그릴 때만 읽어서 상태로 두지 않는다 */
+private class LastState { var state: CardRegisterState? = null }
 
 // ───────────────────────── 번호 입력 ─────────────────────────
 
@@ -594,6 +645,9 @@ private fun CardDoneStep(
     onClose: () -> Unit,
     onFinished: () -> Unit,
     onAnother: () -> Unit,
+    celebrateKey: Long?,
+    onCelebrated: () -> Unit,
+    burstLayer: CelebrationLayerState,
 ) {
     val c = YamuTheme.colors
     FlowScreen(
@@ -612,7 +666,12 @@ private fun CardDoneStep(
                 .padding(horizontal = YamuSpacing.screen),
         ) {
             Spacer(Modifier.height(20.dp))
-            CharacterImage(YamuPose.Card, size = CharacterSize.M, animate = true)
+            // 서버가 확정한 카드마다 한 번 축하 팝(화면 교체 페이드 뒤). 되돌아오면 키가 비어 멈춘 그림
+            CharacterImage(
+                YamuPose.Card, size = CharacterSize.M,
+                celebrateKey = celebrateKey, onCelebrated = onCelebrated,
+                celebrateDelayMs = YamuMotion.CELEBRATE_AFTER_SWAP_MS, burstLayer = burstLayer,
+            )
             Spacer(Modifier.height(12.dp))
             Text("${card.productName}${card.productName.objectParticle()}\n등록했어요", style = YamuTheme.typography.headlineS, color = c.text1)
             Spacer(Modifier.height(6.dp))

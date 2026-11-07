@@ -56,6 +56,11 @@ object YamuMotion {
     const val SHORT_MS = 150
     const val BASE_MS = 200
 
+    /** 화면 교체(앱 화면 이동 · 카드 등록 완료 단계): 통째로 페이드, 옮기거나 미끄러뜨리지 않음. 모션 줄이기에서는 SHORT_MS */
+    const val SCREEN_SWAP_MS = BASE_MS
+    /** 완료 화면의 축하 팝은 화면 교체 페이드가 끝난 뒤 시작 */
+    const val CELEBRATE_AFTER_SWAP_MS = SCREEN_SWAP_MS
+
     /** 캐릭터 조용한 등장: 0.92 → 1 + 페이드, 넘침 없음 */
     const val CHARACTER_ENTER_MS = 400
     const val CHARACTER_ENTER_FROM = 0.92f
