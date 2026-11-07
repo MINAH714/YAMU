@@ -681,6 +681,33 @@ CONSTRAINT ck_item_rate CHECK (annual_fee_rate IS NULL OR annual_fee_rate BETWEE
 CONSTRAINT ck_bill_item_version CHECK (version >= 0)
 ```
 
+### bill_item_discount — 회차별 청구할인 배분
+
+청구 확정 때 청구서의 청구 전 회차에 청구할인을 나눈 기록이다(S15P31E103-299, V20261106_2). 원천은 승인 원장의 `payment_benefit` 중 `card_benefit.benefit_type = DISCOUNT`, `application_timing = AT_BILLING`인 줄이다. 결제의 할인을 모든 회차 원금 비율로 원 단위 내림해 나누고 나머지는 마지막 회차에 둔다. 확정 때 한 번 쓰고 고치지 않는다. 취소 환급·미납 제외 몫은 회차 청구액 − 이 배분 합계다.
+
+| 컬럼 | 타입 | 설명 |
+|---|---|---|
+| bill_item_discount_id | `BIGINT NOT NULL AUTO_INCREMENT` | 회차별 청구할인 배분 번호 |
+| card_bill_id | `BIGINT NOT NULL` | 할인을 확정한 청구서 |
+| bill_item_id | `BIGINT NOT NULL` | 할인을 나눈 회차 |
+| payment_benefit_id | `BIGINT NOT NULL` | 나눈 청구할인(승인 원장의 혜택 행) |
+| amount | `BIGINT NOT NULL` | 이 회차에 나눈 할인(원), 1원 이상 |
+| created_at | `TIMESTAMP(6) NOT NULL` | UTC 생성 시각(청구 확정 시각) |
+
+```sql
+PRIMARY KEY (bill_item_discount_id);
+UNIQUE KEY uk_item_discount (bill_item_id, payment_benefit_id);
+KEY ix_discount_bill (card_bill_id);
+KEY ix_discount_benefit (payment_benefit_id);
+CONSTRAINT fk_discount_bill FOREIGN KEY (card_bill_id) REFERENCES card_bill (card_bill_id);
+CONSTRAINT fk_discount_item FOREIGN KEY (bill_item_id) REFERENCES bill_item (bill_item_id);
+CONSTRAINT fk_discount_benefit FOREIGN KEY (payment_benefit_id) REFERENCES payment_benefit (payment_benefit_id);
+CONSTRAINT ck_discount_amount CHECK (amount > 0);
+```
+
+- 환급 행의 `principal_amount`는 할인을 뺀 실제 환급 원금이다(`ck_refund_amounts` 때문에 환급에는 할인 칸을 두지 않는다).
+- 한계(2026-11-06 결정): 외래키는 다른 표처럼 삭제를 막는다(CASCADE 없음). 앱은 `bill_item`·`payment_benefit`을 지우지 않으므로 운영에는 영향이 없다. 다만 로컬 테스트 사용자 시드 초기화(`be/seed/load.ps1 -Reset`, `SeedUserData.deleteUserData`)는 이 표를 지우지 않아, 그 사용자로 청구할인이 있는 청구서를 확정한 뒤에는 `bill_item` 삭제에서 막힌다. 그때는 로컬 DB를 새로 만들고(`docker compose down -v` → `up -d`) 시드를 다시 넣는다. 시연 페르소나 시드 초기화는 청구서를 지우지 않아 해당 없다.
+
 ### refund — 청구 회차별 환급
 
 | 컬럼 | SQL 정의 | 설명 |
