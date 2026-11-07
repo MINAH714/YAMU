@@ -104,6 +104,7 @@ class RefundQueryIntegrationTest extends MySqlTestSupport {
                 .andExpect(jsonPath("$.data.items[0].billId").value(bill))
                 .andExpect(jsonPath("$.data.items[0].scheduledAfter").value("2026-12-14"))
                 .andExpect(jsonPath("$.data.items[0].dueDate").value(nullValue()))
+                .andExpect(jsonPath("$.data.items[0].estimated").value(true))
                 .andExpect(jsonPath("$.data.items[0].nickname").value("메인 신용카드"))
                 .andExpect(jsonPath("$.data.items[0].merchantName").value("스타벅스 역삼점"))
                 .andExpect(jsonPath("$.data.items[0].toAccount.accountId").value(account))
@@ -117,10 +118,47 @@ class RefundQueryIntegrationTest extends MySqlTestSupport {
                 .andExpect(jsonPath("$.data.items[1].dueDate")
                         .value(now.minusDays(2).atOffset(ZoneOffset.UTC).atZoneSameInstant(KST).toLocalDate().toString()))
                 .andExpect(jsonPath("$.data.items[1].completedAt").isString())
+                .andExpect(jsonPath("$.data.items[1].estimated").value(false))
                 // 출금 뒤 완료된 환급
                 .andExpect(jsonPath("$.data.items[2].refundId").value(completed))
                 .andExpect(jsonPath("$.data.items[2].scheduledAfter").value(nullValue()))
-                .andExpect(jsonPath("$.data.items[2].dueDate").value("2026-11-19"));
+                .andExpect(jsonPath("$.data.items[2].dueDate").value("2026-11-19"))
+                .andExpect(jsonPath("$.data.items[2].estimated").value(false));
+    }
+
+    @Test
+    void 무효_환급은_목록에_남기되_금액을_0으로_보인다() throws Exception {
+        long bill = bill(owner, creditCard, "UNPAID", LocalDate.of(2026, 11, 16));
+        long canceled = refund(owner, payment(owner, creditCard, creditProduct, "CANCELED", 30_000), bill, 30_000,
+                "CANCELED", null, now.minusDays(1));
+
+        mockMvc.perform(refunds())
+                .andExpect(jsonPath("$.data.summary.pendingAmount").value(0))
+                .andExpect(jsonPath("$.data.items", hasSize(1)))
+                .andExpect(jsonPath("$.data.items[0].refundId").value(canceled))
+                .andExpect(jsonPath("$.data.items[0].status").value("CANCELED"))
+                .andExpect(jsonPath("$.data.items[0].amount").value(0))
+                .andExpect(jsonPath("$.data.items[0].estimated").value(false));
+        mockMvc.perform(refunds().param("status", "CANCELED"))
+                .andExpect(jsonPath("$.data.items[0].amount").value(0));
+    }
+
+    @Test
+    void 기한이_없는_대기_환급은_예상값으로_표시하고_합계에서_따로_센다() throws Exception {
+        long confirmedBill = bill(owner, creditCard, "CONFIRMED", LocalDate.of(2026, 12, 14));
+        refund(owner, payment(owner, creditCard, creditProduct, "CANCELED", 30_000), confirmedBill, 27_000, "PENDING",
+                null, now.minusDays(2));
+        long paidBill = bill(owner, creditCard, "PAID", LocalDate.of(2026, 11, 16));
+        refund(owner, payment(owner, creditCard, creditProduct, "CANCELED", 10_000), paidBill, 10_000, "PENDING",
+                LocalDate.of(2026, 11, 19), now.minusDays(1));
+
+        mockMvc.perform(refunds())
+                .andExpect(jsonPath("$.data.summary.pendingAmount").value(37_000))
+                .andExpect(jsonPath("$.data.summary.pendingCount").value(2))
+                .andExpect(jsonPath("$.data.summary.estimatedAmount").value(27_000))
+                .andExpect(jsonPath("$.data.summary.estimatedCount").value(1))
+                // 기한이 정해진 대기 환급(최신)은 확정값, 출금 전 청구서의 대기 환급은 예상값
+                .andExpect(jsonPath("$.data.items[*].estimated").value(contains(false, true)));
     }
 
     @Test
@@ -170,6 +208,16 @@ class RefundQueryIntegrationTest extends MySqlTestSupport {
         mockMvc.perform(refunds().param("from", "2026-11-02").param("to", "2026-11-01"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.details.fieldErrors[0].field").value("from"));
+        LocalDate today = LocalDate.now(KST);
+        mockMvc.perform(refunds().param("from", today.plusDays(1).toString()))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.details.fieldErrors[0].reason").value("from은 오늘보다 늦을 수 없습니다."));
+        // 기간은 12개월 이하: 시작일 + 12개월 전날까지는 되고 그날부터는 안 된다
+        mockMvc.perform(refunds().param("from", "2025-11-09").param("to", "2026-11-08")).andExpect(status().isOk());
+        mockMvc.perform(refunds().param("from", "2025-11-08").param("to", "2026-11-08"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.details.fieldErrors[0].reason").value("조회 기간은 12개월 이하여야 합니다."));
+        mockMvc.perform(refunds().param("from", "2000-01-01")).andExpect(status().isBadRequest());
         mockMvc.perform(refunds().param("status", "DONE")).andExpect(status().isBadRequest());
         mockMvc.perform(refunds().param("size", "101")).andExpect(status().isBadRequest());
         mockMvc.perform(get("/api/refunds")).andExpect(status().isUnauthorized());

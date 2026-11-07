@@ -29,15 +29,16 @@ class RefundQueryController {
 
     @Operation(summary = "환급 내역 조회",
             description = "신용카드 확정 후 취소 환급(CANCEL_AFTER_CONFIRM)과 체크카드 취소 환불(CHECK_CANCEL, refundId null)을 "
-                    + "생성 시각 최신순으로. 기간은 생성일(한국 날짜, 포함)이고 기본은 오늘을 포함한 최근 3개월. "
-                    + "summary는 기간·상태와 상관없이 입금 전(PENDING) 환급의 금액·건수다.")
+                    + "생성 시각 최신순으로. 기간은 생성일(한국 날짜, 포함)이고 기본은 오늘을 포함한 최근 3개월, 최대 12개월. "
+                    + "무효(CANCELED) 환급은 금액 0, 기한이 아직 없는 PENDING 환급은 estimated=true(금액이 예상값). "
+                    + "summary는 기간·상태와 상관없이 입금 전(PENDING) 환급의 금액·건수와 그중 예상값 몫이다.")
     @GetMapping
     ApiResponse<RefundListResponse> list(@AuthenticationPrincipal AuthUser me,
             @Parameter(description = "PENDING · COMPLETED · FAILED · CANCELED") @RequestParam(required = false)
             RefundStatus status,
-            @Parameter(description = "한국 날짜, 포함") @RequestParam(required = false)
+            @Parameter(description = "한국 날짜, 포함. to 없이 오늘보다 늦으면 400") @RequestParam(required = false)
             @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
-            @Parameter(description = "한국 날짜, 포함") @RequestParam(required = false)
+            @Parameter(description = "한국 날짜, 포함. from부터 12개월 이하") @RequestParam(required = false)
             @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
             @RequestParam(defaultValue = "1") @Min(value = 1, message = "page는 1 이상입니다.") int page,
             @RequestParam(defaultValue = "" + PageResponse.DEFAULT_SIZE)

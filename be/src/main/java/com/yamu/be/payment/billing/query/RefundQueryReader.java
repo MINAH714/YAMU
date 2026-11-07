@@ -21,11 +21,14 @@ class RefundQueryReader {
     private static final String MERCHANT_NAME =
             "coalesce(nullif(t.merchant_context_snapshot ->> '$.merchantName', 'null'), m.merchant_name)";
 
-    /** 신용카드 환급 + 체크카드 취소 환불. 체크카드는 0원 승인(출금 없음)과 등록 전 거래(SEED, 취소 불가)를 뺀다. */
+    /**
+     * 신용카드 환급 + 체크카드 취소 환불. 체크카드는 0원 승인(출금 없음)과 등록 전 거래(SEED, 취소 불가)를 뺀다.
+     * 무효(CANCELED) 환급은 돌려줄 돈이 없으므로 금액을 0으로 읽는다.
+     */
     private static final String UNION = """
             select r.refund_id, r.payment_transaction_id, r.bill_item_id, i.card_bill_id, t.user_card_id,
                    c.card_alias, p.product_name, %1$s as merchant_name, 'CANCEL_AFTER_CONFIRM' as reason,
-                   r.refund_amount as amount, r.status, r.created_at,
+                   case when r.status = 'CANCELED' then 0 else r.refund_amount end as amount, r.status, r.created_at,
                    case when r.due_date is null and b.status = 'CONFIRMED' then b.withdrawal_date end as scheduled_after,
                    r.due_date, r.completed_at, r.fin_transaction_no,
                    a.linked_account_id, a.bank_code, a.account_last4
@@ -99,14 +102,22 @@ class RefundQueryReader {
         return count == null ? 0 : count;
     }
 
-    /** 입금 전(PENDING) 신용카드 환급의 금액·건수. 기간과 상관없다. */
-    long[] pending(long userId) {
+    /**
+     * 입금 전(PENDING) 신용카드 환급의 금액·건수. 기간과 상관없다.
+     * 기한({@code due_date})이 아직 없는 환급은 원 청구서의 출금을 기다리는 중이라 금액이 예상값이다(그 몫을 따로 센다).
+     */
+    Pending pending(long userId) {
         return jdbc.queryForObject("""
-                select coalesce(sum(refund_amount), 0) as amount, count(*) as cnt
+                select coalesce(sum(refund_amount), 0) as amount, count(*) as cnt,
+                       coalesce(sum(case when due_date is null then refund_amount else 0 end), 0) as estimated_amount,
+                       coalesce(sum(case when due_date is null then 1 else 0 end), 0) as estimated_cnt
                   from refund where user_id = :userId and status = 'PENDING'
-                """, new MapSqlParameterSource("userId", userId),
-                (rs, n) -> new long[] {rs.getLong("amount"), rs.getLong("cnt")});
+                """, new MapSqlParameterSource("userId", userId), (rs, n) -> new Pending(rs.getLong("amount"),
+                rs.getLong("cnt"), rs.getLong("estimated_amount"), rs.getLong("estimated_cnt")));
     }
+
+    /** @param estimatedAmount 전체 PENDING 금액({@code amount}) 가운데 기한이 아직 없어 예상값인 몫 */
+    record Pending(long amount, long count, long estimatedAmount, long estimatedCount) {}
 
     record Row(Long refundId, long paymentId, Long billItemId, Long billId, Long userCardId, String cardAlias,
             String productName, String merchantName, String reason, long amount, RefundStatus status,
