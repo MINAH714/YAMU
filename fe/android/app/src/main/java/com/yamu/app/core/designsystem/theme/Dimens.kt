@@ -91,4 +91,21 @@ object YamuMotion {
     const val PARTICLE_SIZE = 0.12f
     const val PARTICLE_COOLDOWN_MS = 400
     const val PARTICLE_MAX_IN_ROW = 3
+
+    /** 링 한 바퀴 그리기(결제 확정 링) */
+    const val RING_MS = 220
+    /** 결과 값이 아닌 표시가 바뀔 때는 글자 · 모양은 바로 바꾸고 색만 이 길이로 보간(남은 시간 임박) */
+    const val VALUE_COLOR_MS = 300
+
+    /** 승인 대기 헤일로: 0.96 ↔ 1.04를 한 방향 500ms로 오감(극대에서 다음 극대까지 1000ms). 화면의 무한 반복은 이것 하나 */
+    const val HALO_PERIOD_MS = 1000
+    const val HALO_HALF_MS = HALO_PERIOD_MS / 2
+    const val HALO_MIN = 0.96f
+    const val HALO_MAX = 1.04f
+    /** 임시: 헤일로 지름은 원판의 2배, 색은 이 투명도로 얹음 */
+    const val HALO_DIAMETER_RATIO = 2f
+    const val HALO_ALPHA = 0.16f
+
+    /** 남은 시간 링을 다시 재는 간격. 그 사이는 같은 속도로 줄어듦 */
+    const val COUNTDOWN_TICK_MS = 250
 }
