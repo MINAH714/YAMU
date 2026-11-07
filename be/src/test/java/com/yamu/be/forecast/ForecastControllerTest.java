@@ -358,6 +358,40 @@ class ForecastControllerTest extends MySqlTestSupport {
     }
 
     @Test
+    void 잔고예보와_생활비_상세는_계좌별_예상_생활비를_기간마다_그날_첫_값으로_이력에_남긴다() throws Exception {
+        long account = ownership().account(owner);
+        seedThreeMonths(account);
+        long empty = ownership().account(owner);
+
+        String forecast = mockMvc.perform(get("/api/forecasts/balance").with(AuthUsers.asUser(owner))
+                        .param("accountIds", String.valueOf(account)).param("until", "DAYS").param("days", "14"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        long fourteen = ((Number) JsonPath.read(forecast, "$.data.livingCost.projectedAmount")).longValue();
+        // 같은 날 같은 기간을 생활비 상세로 다시 불러도 행을 더하지 않는다
+        mockMvc.perform(get("/api/forecasts/living-cost").with(AuthUsers.asUser(owner))
+                        .param("accountIds", String.valueOf(account)).param("until", "DAYS").param("days", "14"))
+                .andExpect(status().isOk());
+        // 기간이 다르면 따로 남기고, 자료 없는 계좌는 남기지 않는다
+        String detail = mockMvc.perform(get("/api/forecasts/living-cost").with(AuthUsers.asUser(owner))
+                        .param("accountIds", account + "," + empty).param("until", "DAYS").param("days", "7")
+                        .param("includeAccountDetails", "true"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        long seven = ((Number) JsonPath.read(detail, "$.data.accountLivingCosts[0].projectedAmount")).longValue();
+
+        assertThat(jdbc.queryForList("""
+                SELECT linked_account_id, predicted_on, horizon_days, method, projected_amount, data_origin
+                FROM living_cost_prediction WHERE user_id = ? ORDER BY horizon_days""", owner))
+                .extracting(row -> List.of(((Number) row.get("linked_account_id")).longValue(),
+                        row.get("predicted_on").toString(), ((Number) row.get("horizon_days")).intValue(),
+                        row.get("method"), ((Number) row.get("projected_amount")).longValue(), row.get("data_origin")))
+                .containsExactly(
+                        List.of(account, today.toString(), 7, "TSB", seven, "SEED"),
+                        List.of(account, today.toString(), 14, "TSB", fourteen, "SEED"));
+    }
+
+    @Test
     void 생활비_상세에서_자료_없는_계좌가_섞이면_통합은_비우고_계좌별_값은_보여_준다() throws Exception {
         long account = ownership().account(owner);
         long daily = seedThreeMonths(account);

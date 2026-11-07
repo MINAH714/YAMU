@@ -87,6 +87,36 @@ class LivingCostPredictionLogTest extends MySqlTestSupport {
     }
 
     @Test
+    void 이미_저장한_계좌는_다시_쓰지_않아_자동_증가_번호를_쓰지_않는다() {
+        log.record(owner, DAY, 14, List.of(projection(70_000L, 5_000L)));
+        long first = idOf(DAY, 14);
+        for (int i = 0; i < 5; i++) {
+            log.record(owner, DAY, 14, List.of(projection(84_000L, 6_000L)));
+        }
+
+        log.record(owner, DAY, 30, List.of(projection(150_000L, 5_000L)));
+
+        // 중복이어도 INSERT를 보내면 MySQL 8 기본 설정(innodb_autoinc_lock_mode=2)에서 번호를 하나씩 써 first + 6이 된다
+        assertThat(idOf(DAY, 30)).isEqualTo(first + 1);
+    }
+
+    @Test
+    void 일부_계좌만_저장돼_있으면_빠진_계좌만_넣는다() {
+        long other = ownership.account(owner);
+        log.record(owner, DAY, 14, List.of(projection(70_000L, 5_000L)));
+
+        log.record(owner, DAY, 14, List.of(projection(84_000L, 6_000L),
+                new AccountProjection(other, 28_000L, 2_000L, "TSB", Confidence.LOW, DataOrigin.REAL)));
+
+        assertThat(jdbc.queryForList("""
+                SELECT linked_account_id, projected_amount FROM living_cost_prediction
+                WHERE user_id = ? ORDER BY linked_account_id""", owner))
+                .extracting(row -> tuple(((Number) row.get("linked_account_id")).longValue(),
+                        ((Number) row.get("projected_amount")).longValue()))
+                .containsExactly(tuple(account, 70_000L), tuple(other, 28_000L));
+    }
+
+    @Test
     void 자료_부족_계좌와_기간_0일은_남기지_않는다() {
         long empty = ownership.account(owner);
 
@@ -125,7 +155,7 @@ class LivingCostPredictionLogTest extends MySqlTestSupport {
     }
 
     @Test
-    void 저장이_실패해도_던지지_않고_금액_없이_경고만_남긴다(CapturedOutput output) {
+    void 저장이_실패해도_던지지_않고_금액_없이_예외_이름만_경고로_남긴다(CapturedOutput output) {
         // 다른 사용자의 계좌는 소유 외래 키가 거절한다. 예보는 부르기 전에 소유를 확인하므로 실제로는 DB 장애 같은 경우다.
         long stranger = ownership.user();
 
@@ -135,7 +165,10 @@ class LivingCostPredictionLogTest extends MySqlTestSupport {
                 Long.class, account)).isZero();
         assertThat(output.getOut()).contains("생활비 예측 이력을 저장하지 못했다")
                 .contains("accountIds=[" + account + "]")
-                .doesNotContain("1234567").doesNotContain("88183");
+                .contains("cause=DataIntegrityViolationException")
+                .doesNotContain("1234567").doesNotContain("88183")
+                // 다른 로그처럼 예외 메시지(SQL·제약 이름)와 스택은 남기지 않는다
+                .doesNotContain("fk_prediction_account_owner").doesNotContain("living_cost_prediction (");
     }
 
     @Test
@@ -148,6 +181,13 @@ class LivingCostPredictionLogTest extends MySqlTestSupport {
 
     private AccountProjection projection(long projectedAmount, long dailyAmount) {
         return new AccountProjection(account, projectedAmount, dailyAmount, "TSB", Confidence.MEDIUM, DataOrigin.REAL);
+    }
+
+    private long idOf(LocalDate day, int horizonDays) {
+        return jdbc.queryForObject("""
+                SELECT living_cost_prediction_id FROM living_cost_prediction
+                WHERE linked_account_id = ? AND predicted_on = ? AND horizon_days = ?""",
+                Long.class, account, day, horizonDays);
     }
 
     private List<org.assertj.core.groups.Tuple> rows() {

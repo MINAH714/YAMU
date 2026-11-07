@@ -6,6 +6,7 @@ import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.util.Collection;
 import java.util.List;
+import java.util.Set;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
@@ -14,10 +15,10 @@ import org.springframework.stereotype.Component;
 
 /**
  * 잔고예보·생활비 상세가 낸 계좌별 예상 생활비를 {@code living_cost_prediction}에 남긴다(S15P31E103-309).
- * 계좌·한국 날짜·기간(N)마다 그날 첫 값 한 행만 남기고, 같은 날 다시 조회해도 바꾸지 않는다. 동시 요청도 고유 키로 한 행이다.
- * 가상 구매는 남기지 않는다(부르는 쪽이 잔고예보·생활비 상세뿐이다).
+ * 계좌·한국 날짜·기간(N)마다 그날 첫 값 한 행만 남기고, 같은 날 다시 조회해도 바꾸지 않는다. 이미 있는 행은 먼저 읽어 건너뛰고
+ * 없는 계좌만 넣는다. 동시 요청도 고유 키로 한 행이다. 가상 구매는 남기지 않는다(부르는 쪽이 잔고예보·생활비 상세뿐이다).
  *
- * <p>이력은 예보 응답의 부산물이라 저장이 실패해도 예보는 그대로 준다. DB 오류만 경고 로그(사용자·계좌 번호와 원인, 금액 없음)로 남기고,
+ * <p>이력은 예보 응답의 부산물이라 저장이 실패해도 예보는 그대로 준다. DB 오류만 경고 로그(사용자·계좌 번호와 예외 클래스 이름, 금액 없음)로 남기고,
  * 예측값이 계약을 어기면(음수 등) 숨기지 않고 던진다.
  *
  * <p>{@code @Repository}가 아니라 {@code @Component}다. SQL 예외는 {@link NamedParameterJdbcTemplate}이 이미
@@ -32,6 +33,10 @@ class LivingCostPredictionLog {
             VALUES (:userId, :accountId, :predictedOn, :horizonDays, :method,
                 :projectedAmount, :dailyAmount, :confidence, :dataOrigin, :createdAt)
             ON DUPLICATE KEY UPDATE living_cost_prediction_id = living_cost_prediction_id
+            """;
+    private static final String SELECT_SAVED = """
+            SELECT linked_account_id FROM living_cost_prediction
+            WHERE linked_account_id IN (:accountIds) AND predicted_on = :predictedOn AND horizon_days = :horizonDays
             """;
 
     private final NamedParameterJdbcTemplate jdbc;
@@ -56,6 +61,7 @@ class LivingCostPredictionLog {
             return;
         }
         LocalDateTime createdAt = LocalDateTime.now(clock.withZone(ZoneOffset.UTC));
+        // 이미 저장한 계좌여도 계약 검사는 매번 한다.
         List<MapSqlParameterSource> rows = accounts.stream()
                 .filter(account -> account.projectedAmount() != null)
                 .map(account -> row(userId, predictedOn, horizonDays, account, createdAt))
@@ -63,11 +69,24 @@ class LivingCostPredictionLog {
         if (rows.isEmpty()) {
             return;
         }
+        List<Long> accountIds = rows.stream().map(row -> (Long) row.getValue("accountId")).toList();
         try {
-            jdbc.batchUpdate(INSERT, rows.toArray(MapSqlParameterSource[]::new));
+            // 같은 날 다시 조회하면 대개 모두 저장돼 있다. 읽기 한 번으로 끝내고 쓰기·잠금과 자동 증가 번호 소모를 피한다
+            // (ON DUPLICATE KEY는 중복이어도 번호를 하나씩 쓴다, 2026-11-07 측정). 읽은 뒤 다른 요청이 먼저 넣는 경우는 고유 키가 막는다.
+            Set<Long> saved = Set.copyOf(jdbc.queryForList(SELECT_SAVED, new MapSqlParameterSource()
+                    .addValue("accountIds", accountIds)
+                    .addValue("predictedOn", predictedOn)
+                    .addValue("horizonDays", horizonDays), Long.class));
+            MapSqlParameterSource[] missing = rows.stream()
+                    .filter(row -> !saved.contains((Long) row.getValue("accountId")))
+                    .toArray(MapSqlParameterSource[]::new);
+            if (missing.length > 0) {
+                jdbc.batchUpdate(INSERT, missing);
+            }
         } catch (DataAccessException e) {
+            // 다른 로그처럼 예외 클래스 이름만 남긴다(메시지·SQL은 남기지 않음).
             log.warn("생활비 예측 이력을 저장하지 못했다. 예보 응답은 그대로 준다. userId={}, accountIds={}, cause={}",
-                    userId, rows.stream().map(row -> row.getValue("accountId")).toList(), e.getClass().getSimpleName(), e);
+                    userId, accountIds, e.getClass().getSimpleName());
         }
     }
 
