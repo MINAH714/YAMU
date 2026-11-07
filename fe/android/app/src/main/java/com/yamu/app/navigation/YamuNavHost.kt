@@ -9,6 +9,9 @@ import androidx.navigation.compose.navigation
 import androidx.navigation.toRoute
 import com.yamu.app.BuildConfig
 import com.yamu.app.core.designsystem.component.gallery.ComponentGallery
+import com.yamu.app.core.designsystem.theme.YamuTheme
+import com.yamu.app.core.designsystem.theme.screenSwapEnter
+import com.yamu.app.core.designsystem.theme.screenSwapExit
 import androidx.compose.runtime.rememberCoroutineScope
 import com.yamu.app.core.format.objectParticle
 import com.yamu.app.core.ui.LocalSnackbar
@@ -76,8 +79,18 @@ fun YamuNavHost(navController: NavHostController, modifier: Modifier = Modifier)
     val scope = rememberCoroutineScope()
     val showMessage: (String) -> Unit = { message -> scope.launch { snackbar.showSnackbar(message) } }
     val openPinPad: (String) -> Unit = { purpose -> navController.navigate(PinPad(purpose)) }
+    // 화면 교체는 통째로 0.2초 페이드(라이브러리 기본 0.7초 대신). 앞뒤 이동 모두 같고, 옮기거나 미끄러뜨리지 않는다
+    val reduce = YamuTheme.reduceMotion
 
-    NavHost(navController = navController, startDestination = Splash, modifier = modifier) {
+    NavHost(
+        navController = navController,
+        startDestination = Splash,
+        modifier = modifier,
+        enterTransition = { screenSwapEnter(reduce) },
+        exitTransition = { screenSwapExit(reduce) },
+        popEnterTransition = { screenSwapEnter(reduce) },
+        popExitTransition = { screenSwapExit(reduce) },
+    ) {
 
         composable<Splash> {
             SplashRoute(
