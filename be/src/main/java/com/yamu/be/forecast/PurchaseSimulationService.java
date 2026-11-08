@@ -83,7 +83,7 @@ public class PurchaseSimulationService {
         // 1년으로 둔다(당일 포함, S15P31E103-327). 첫 청구가 구매 달에서 두 달까지 밀리고 공휴일이면 출금일도 밀리므로,
         // 12개월 할부의 마지막 출금은 구매일로부터 약 14개월 안(오늘부터 2년 남짓)이다.
         if (purchaseDate.isAfter(today.plusYears(MAX_PURCHASE_YEARS))) {
-            throw invalid("purchaseDate", "구매일은 오늘부터 1년 안으로 골라 주세요.");
+            throw invalid("purchaseDate", "구매일은 오늘부터 " + MAX_PURCHASE_YEARS + "년 안으로 골라 주세요.");
         }
 
         // 고른 카드는 추천을 부르기 전에 확인한다. 남의·없는 카드 404, 결제할 수 없는 카드 400 CARD_NOT_ELIGIBLE.
