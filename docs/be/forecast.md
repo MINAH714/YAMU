@@ -19,7 +19,8 @@
 | 7.3 (S15P31E103-255) | 7일 점도 AI 7일 예측으로(7 → 14 → 30일 중 필요한 기간만 호출) | !158 | develop에 머지 |
 | 7.2.2 (S15P31E103-132) | 가상 구매 시뮬레이션 API, 추천 연결 지점(`SimulationRecommender`, 엔진 연결 전 임시), 신용한도 확인 생략 표시 | !126 | develop에 머지 |
 | 7.2.2 (S15P31E103-132) | 추천 엔진 연결(`EngineSimulationRecommender`), 결제 방식(`paymentChannel`), 결제와 같은 혜택·청구 금액, 할부 회차를 BE 2 `InstallmentPlan`으로 | !155 | develop에 머지 |
-| 7.1.8 (S15P31E103-286) | 이번 이용기간 마감까지 쓸 신용카드 금액을 추정해 출금일에 보수적 선에서만 뺌 | 이 MR | 리뷰 전 |
+| 7.1.8 (S15P31E103-286) | 이번 이용기간 마감까지 쓸 신용카드 금액을 추정해 출금일에 보수적 선에서만 뺌 | !160 | develop에 머지 |
+| 7.2.3 (S15P31E103-133) | 잔고예보·가상 구매 통합 시나리오 테스트(실제 MySQL·추천 엔진·시드 카탈로그), 결과·예시 기록 | 이 MR | 리뷰 전 |
 
 - 명세: 팀 노션 API 명세서 V2 「잔고예보 조회」 `GET /api/forecasts/balance`, 「생활비 예측 상세」 `GET /api/forecasts/living-cost`, 요구사항 정의서 V2 FR-033~041·045·046·064, DEC-008
 - 계산 원칙: 팀 노션 「YAMU 잔고예보 계산 원칙 설계 (Task 7.1.1)」, 「잔고예보 복수 계좌·통합→상세 변경 내역 (2026-10-26)」
@@ -531,6 +532,90 @@ enum Origin { REAL, SEED }
 - 신용한도: 모의 신용한도는 저장·조회하지 않아 지금 한도 포트의 결과가 `SKIPPED`, 가용 한도 `null`입니다(BE 2 답변, 2026-11-05). 포트 결과를 그대로 옮기므로 한도 구현이 생기면 `SUFFICIENT`·`EXCEEDED`·`UNKNOWN`이 나옵니다. 그래서 명세의 422 `CREDIT_LIMIT_EXCEEDED`는 쓰지 않고 "신용한도 확인 생략"으로 표시합니다.
 - 추천 연동(BE 2 안내, 2026-11-05)은 BE 3 `recommendSimulation`(결제 요청 없이 계산)으로 해결됐습니다(2026-11-06). 가짜 `paymentId`로 부르지 않고, 엔진이 DB 트랜잭션 안이면 거절하므로 트랜잭션 밖에서 부릅니다.
 
+## 통합 시나리오 테스트 (`ForecastScenarioIntegrationTest`, 7.2.3, 2026-11-06)
+
+한 사용자에게 예정 수입·지출, 확정·진행 중 카드 청구, 체크카드 생활비, 신용카드 마감 전 사용 추정을 함께 넣고 HTTP 요청부터 실제 MySQL까지 확인합니다(Jira S15P31E103-133). 오늘은 2026-11-06(금, 한국 10시)로 고정합니다.
+
+**무엇이 실제이고 무엇이 가짜인가**
+
+| 부분 | 담당 | 테스트에서 |
+|---|---|---|
+| 시큐리티 필터 체인, 잔고예보·가상 구매 서비스, 가계부·결제 매칭, 소비 분류·생활비 원천, 신용카드 원천 | BE 4 | 실제. 단 로그인 사용자는 테스트가 요청에 바로 넣음(`AuthUsers.asUser`). Bearer JWT 발급·검증은 이 테스트에서 하지 않고 `AuthIntegrationTest` 등(BE 1)이 확인 |
+| 카드 조회(`CardQueryService`) | BE 1 | 실제 |
+| 금융망 잔액(`AccountBalanceService`) | BE 1 | **가짜**(계좌마다 1,000,000원). 실패 시나리오는 시간 초과를 던지게 함 |
+| 카드 청구 원천(`card_bill`·`bill_item`), 미납 조회 | BE 2 | 실제 |
+| 금융망 이체(`SsafyTransferApi`) | BE 2 | 가짜. **한 번도 부르지 않는지** 확인 |
+| 추천 엔진(`RecommendationService.recommendSimulation`)과 시드 카탈로그 `01`·`02`·`03` | BE 3 | 실제 |
+| AI 생활비 서버 | BE 4 | 주소 없음 → TSB |
+
+**시나리오와 결과 (6개 모두 통과)**
+
+데이터: 계좌 A(잔액 1,000,000원)에 체크카드(KB국민 노리 체크, 11/1 등록, 8~10월 SEED 생활 소비), 신용카드 1(신한카드 Mr.Life, 결제일 25일, 8/1부터 날마다 4,000원, 진행 중 청구서 10/12~11/11 → 11/25 출금 104,000원), 신용카드 2(삼성 iD ON, 이용기간 9/27~10/27의 10/15 결제 80,000원이 BILLED 회차인 확정 청구서 → 11/10 출금), 월세 예정 지출 500,000원(11/10), 월급 예정 수입 2,500,000원(11/25).
+
+| 시나리오 | 확인한 것 |
+|---|---|
+| 여러 원천을 한꺼번에 | 11/10 월세·확정 청구는 확정 선부터(420,000원), 11/25 월급은 확정 선, 진행 중 청구는 예상 선부터, 신용카드 추정 20,000원(5일 × 4,000원)은 보수적 선에만. 예정 출금 합계는 추정을 세지 않음(-580,000원). **가상 구매의 구매 전 선 = 잔고예보 보수적 선**(날마다 같음), 구매 후 = 구매 전 − 청구 금액 |
+| 이중 차감 | 체크카드로 낼 헬스장 회비(11/10, 30,000원)를 11/5에 결제하고 매칭 API(`POST /api/cashflow-payment-matches`)로 연결하면, 11/10 확정 선에서 회비가 빠지고(잔액 1,000,000 − 월세 500,000 − 확정 청구 80,000 = 420,000원) 그 결제는 생활비 예측에서도 빠짐(연결 전보다 작음). 경고 없이 201. 같은 시뮬레이션을 두 번 불러도 선·비교가 같고, 가상 구매는 한 번만 빠짐. 회비는 생활비(LIVING)로 분류되는 금액이어야 한다: 이 사용자의 직전 3개월 생활 결제 중앙값이 4,000원이라 40,000원 이상이면 큰 지출(LARGE)로 처음부터 생활비에 없음(2026-11-08, !163 머지 뒤 SQL 연결에서 API로 바꿈) |
+| 실제 데이터 불변 | 시뮬레이션(체크 일시불, 신용 3개월 할부) 전후로 이 사용자의 결제·청구서·청구 회차·월별 실적·월 한도 사용량·결제별 한도 사용·가계부 항목·회차·결제 매칭이 그대로(매칭을 하나 만들어 둔 상태에서 비교). 금융망 이체 호출 없음 |
+| 잔액 부족 | 신용 9,000,000원 3개월: 1회차가 11/25에 빠져 확정 선이 안전 잔액 아래 → 구매 후 DANGER(구매 전은 DANGER 아님), 2·3회차는 기간 밖 영향 |
+| 데이터 누락 | 금융망 잔액 시간 초과 → 잔고예보·가상 구매 모두 504 `UPSTREAM_TIMEOUT`(일부만 계산하지 않음) |
+| 신용카드만 쓰는 계좌 | 생활비 자료 없음(`dataOrigin` INSUFFICIENT)이어도 신용카드 추정(15,000원)만으로 보수적 선이 나옴. 완료한 달이 없는 카드는 `excluded`에 `CREDIT_SPENDING_UNKNOWN`(11/25) |
+
+**요청·응답 예시 (위 데이터, 실제 실행 결과에서 발췌)**
+
+```http
+GET /api/forecasts/balance?accountIds=3&until=DAYS&days=30
+```
+```json
+{
+  "horizon": { "type": "DAYS", "from": "2026-11-06", "to": "2026-12-06", "days": 30 },
+  "summary": { "status": "SAFE", "minBalance": 359628, "minBalanceDate": "2026-11-24", "endBalance": 2695380,
+               "largestOutflow": { "date": "2026-11-10", "title": "예정 출금 합계", "amount": -580000 } },
+  "series": [
+    { "date": "2026-11-10", "confirmed": 420000, "expected": 420000, "conservative": 406584,
+      "events": [ { "type": "SCHEDULED_OUTFLOW", "title": "월세", "amount": -500000, "confidence": "CONFIRMED" },
+                  { "type": "CARD_BILLING", "title": "카드 청구 출금", "amount": -80000, "confidence": "CONFIRMED" } ] },
+    { "date": "2026-11-25", "confirmed": 2920000, "expected": 2816000, "conservative": 2732274,
+      "events": [ { "type": "SCHEDULED_INCOME", "title": "월급", "amount": 2500000, "confidence": "CONFIRMED" },
+                  { "type": "CARD_BILLING", "title": "카드 청구 출금", "amount": -104000, "confidence": "EXPECTED" },
+                  { "type": "CARD_SPENDING_ESTIMATE", "title": "신한카드 Mr.Life · 11/7~11/11 5일 × 일평균 4,000원",
+                    "amount": -20000, "confidence": "CONSERVATIVE" } ] }
+  ],
+  "livingCost": { "projectedAmount": 100620, "dailyAverage": 10000, "method": "TSB", "dataOrigin": "SEED", "confidence": "HIGH" },
+  "excluded": []
+}
+```
+
+```http
+POST /api/forecasts/simulations
+{ "accountIds": [3], "amount": 300000, "userCardId": 1, "plan": "LUMP_SUM", "until": "DAYS", "days": 30,
+  "merchantCategoryCode": "CONVENIENCE_STORE", "merchantId": 12, "paymentChannel": "OFFLINE" }
+```
+```json
+{
+  "card": { "userCardId": 1, "nickname": "KB국민 노리 체크", "cardType": "CHECK", "recommended": false },
+  "benefit": { "netBenefit": 1000, "chargedAmount": 300000,
+               "benefits": [ { "name": "GS25 환급할인", "type": "CASHBACK", "realization": "AFTER_BILLING", "amount": 1000 } ] },
+  "alternatives": [ { "nickname": "신한카드 Mr.Life", "cardType": "CREDIT", "netBenefit": 1000, "recommended": true },
+                    { "nickname": "삼성 iD ON 카드", "cardType": "CREDIT", "netBenefit": 0, "recommended": false } ],
+  "schedule": [ { "date": "2026-11-06", "amount": -300000, "label": "체크카드 즉시 출금" } ],
+  "comparison": { "before": { "minBalance": 359628, "minBalanceDate": "2026-11-24", "endBalance": 2695380, "status": "SAFE" },
+                  "after": { "minBalance": 59628, "minBalanceDate": "2026-11-24", "endBalance": 2395380, "status": "WARNING" },
+                  "withinPeriodImpact": -300000, "beyondPeriodImpact": 0 },
+  "message": "11월 24일 잔액이 59,628원까지 내려가요."
+}
+```
+`benefit.benefits[]`는 실제로는 그 카드의 모든 혜택(적용되지 않은 것은 `amount` 0)이 함께 오고, 위에는 적용된 것만 남겼습니다. 환급할인(`AFTER_BILLING`)은 즉시할인이 아니라 `chargedAmount`가 결제 금액 그대로입니다.
+
+**테스트하며 찾은 것**
+- **월 한도 사용량 행이 없으면 혜택이 비어 나옵니다.** 추천 엔진은 월 한도가 있는 카드에 그달 한도 사용량(`monthly_limit_usage`)이 없으면 `LIMIT_USAGE_MISSING`으로 혜택을 계산하지 않습니다(`benefit` null). 이 행은 그달 첫 결제 승인 때(`JdbcApprovalLedger`)와 로컬 시드(`SeedUserData`)만 만들고, 시연 페르소나 시드는 넣지 않습니다. 그래서 **가입·카드 등록 직후 그달 첫 결제 전에는 가상 구매 혜택이 비어 나올 수 있습니다**(테스트에서 한도 사용량만 빼고 돌려 확인, 2026-11-06). 추천 엔진(BE 3)·승인 원장(BE 2) 쪽 결정이라 여기서는 고치지 않았습니다. 테스트는 시드 추천 테스트와 같이 10월 실적과 11월 한도 사용량 0을 넣습니다. 이 문제는 !171(S15P31E103-324)에서 "행 없음 = 사용량 0"으로 고치는 중입니다(2026-11-08 기준 머지 전). 머지되면 테스트의 한도 사용량 행은 없어도 되지만 그대로 둡니다.
+- **추천 엔진은 DB 트랜잭션 안에서 부르면 거절합니다**(`RecommendationAvailabilityReader`, 금융망 잔액을 트랜잭션 밖에서 읽기 위함). 그래서 이 테스트는 다른 컨트롤러 테스트와 달리 `@Transactional`로 감싸지 않고, 테스트마다 새 사용자를 만들어 섞이지 않게 합니다.
+
+**미완료·실제 연동이 아닌 것**
+- 금융망 잔액은 가짜입니다. 실제 SSAFY 금융망으로는 시연 페르소나 로컬 리허설에서 계좌 조회(`inquireDemandDepositAccountList`)까지만 확인했습니다.
+- AI 서버를 붙인 경우(`ML_V1`)는 이 테스트에 없습니다(`AiLivingCostClientTest`·`LivingCostProjectorTest`가 따로 확인).
+- 혜택 금액은 시드 카탈로그에 묶여 있어, 테스트는 금액 대신 "혜택이 있다(0보다 큼), 출금 = 청구 금액"처럼 관계를 확인합니다.
+
 ## 에러
 
 | 상황 | 응답 |
@@ -737,6 +822,7 @@ enum Origin { REAL, SEED }
 | `BillingScheduleTest` | 10 | 명세 예시(11/16·12/14·1/14, 다음 회차는 원래 결제일 기준, 연말→다음 해), POL-005 평년·윤년·25일 마감일 당일·다음 날, 결제일 27일·N=31 경계(2/24 → 3월 청구 3/29 출금, 2/25 → 4월 청구 4/27 출금), N 없으면 14, 공휴일이 겹쳐 출금일이 다음 달로 넘어가도 청구 월 유지, 체크카드 주말 구매일 즉시, 나머지 배분과 회차 합계 = 원금(아주 큰 금액 포함), 5만 원 미만 승인 금액 할부도 거절 안 함, 범위 밖 값·0원 회차 금액 거절과 경계 값, 달력 계약 위반, 원금이 개월 수보다 작으면 앞 회차 0원(2원 3개월 → 0/0/2, 2026-11-06) |
 | `ForecastSettingsServiceTest` | 13 | 실제 MySQL. 다음 월급일(2026-11-04): 기준일보다 뒤의 첫 회차·수정 전 규칙 회차 포함, 월급 없음·남의 항목은 없음. 기본값·기준 계좌 표시(없으면 null), 보낸 필드만 수정·null 해제·기준 계좌 미저장, 이후 전부 수정 뒤 최신 월급 규칙, 뒤 규칙을 지정해도 첫 규칙으로 저장·앞 회차를 다시 고쳐 뒤 규칙이 지워져도 유지, 종료일이 오늘이지만 남은 회차가 없으면 400·null, 시작 전 규칙 삭제·시작한 규칙 전체 삭제(어제로 닫힘) 뒤 월급 null과 재지정 400, 지출·1회 400, 남의·없는 항목 404, 동시 수정 두 필드 모두 유지, 잘못된 저장값 500(값 미노출) |
 | `ForecastControllerTest` | 17 | 실제 MySQL·인증 필터, 잔액만 목(2026-11-04). 401, 쉼표로 이은 계좌·중복 제거, 설정한 월급으로 NEXT_INCOME 기간(다음 월급일 전날까지), 위험 구간·원인·계좌별 결과의 JSON 이름(WARNING·EXPECTED·CARD_BILLING·refId), 계좌 없음 400 `ACCOUNT_SELECTION_REQUIRED`, `until` 형식 오류 400, 진행 중 청구서의 청구 전 회차만 카드 출금 계좌에서 출금일에 차감(취소 회차·빈 청구서·고르지 않은 계좌 청구 제외), 출금일 지난 진행 중 청구는 오늘, 설정의 기본 일수·안전 잔액, 다른 사용자 청구 미포함, 신용카드뿐인 계좌는 생활비 자료 없음(보수적 선 null). 오늘 체크카드를 등록하고 완료 3개월 SEED 결제가 있으면 `livingCost.method` TSB(테스트는 AI 주소 없음)·SEED·HIGH·실적 일평균, 보수적 선은 내일부터 날마다 예상 생활비 ÷ 일수만큼 줄어듦(-255). 생활비 상세(-70): 401·계좌 없음 400, 남의 계좌 404, 자료 없음 422, 설정 기본 일수 7일로 기간·예상 생활비·`dailyTarget`·LARGE 안내·계좌별 값, `until`·`days`를 같이 보내면 잔고예보와 같은 예상 생활비·`days` 10은 400·`until` 형식 오류 400, 자료 없는 계좌가 섞이면 통합 null·계좌별 값 표시. 생활비 예측 이력(+1, -309): 잔고예보 14일 → 생활비 상세 14일 → 7일(자료 없는 계좌 포함)을 부르면 응답 값 그대로 7·14일 두 행만 남음 |
+| `ForecastScenarioIntegrationTest` | 6 | 실제 MySQL·시큐리티 필터(로그인 사용자는 주입, JWT 검증 안 함)·추천 엔진·시드 카탈로그 01·02·03, 금융망 잔액만 가짜, 시계 고정(-133). 여러 원천을 한꺼번에(선별 반영·구매 전 = 잔고예보), 매칭 API로 연결한 카드 예정 지출의 예정 차감·생활비 이중 차감 없음·같은 시뮬레이션 반복, 시뮬레이션 전후 결제·청구·실적·한도 사용량·회차·매칭 불변과 금융망 이체 미호출, 할부로 구매 후 DANGER, 잔액 시간 초과 504, 신용카드만 쓰는 계좌의 추정·기록 없는 카드 알림 |
 | `SpendingClassifierTest` | 8 | 실제 MySQL(-255). 할부 LARGE·일시불 LIVING(신용·체크), 100만 원 LIVING·100만 1원 LARGE, 중앙값 10배 경계(99,999원 LIVING·100,000원 LARGE, 앞 결제가 표본에 들어감), 표본 4건이면 중앙값 기준 안 씀, 승인 시각 3개월 경계(1시간 앞은 표본 밖), 사용자 분류(USER) 유지·취소 결제 미분류, 두 번 돌려도 같은 결과·두 번째는 0건, 다른 사용자 결제 미변경 |
 | `PaymentLivingCostReaderTest` | 11 | 실제 MySQL(-255). 예정 지출과 연결된 결제는 생활비·신용 추정에 더하지 않고 반복 판정에는 셈(-319). 한국 날짜별 합계(자정 경계)·0원 날 줄·`complete`·`checkCardAmount = amount`, 신용·LARGE·취소·고르지 않은 계좌·남의 계좌 제외, 반복 지출 2개 달 포함·3개 달 제외(사용자 LARGE 결제도 셈, 1·2·6월은 제외·12·1·6월은 포함, 금액이 다르면 다른 지출), 한 달에 세 번 사는 같은 가격 커피는 3개 달이어도 포함·6개월 안에 두 번 나온 달이 있으면 포함·두 번 나온 달이 6개월 밖이면 제외(-295), SEED는 첫 SEED 결제일부터 등록 전날·REAL은 첫 YAMU 결제일부터이고 등록~첫 결제 전날은 줄 없음·등록 뒤 SEED 결제는 버림, 등록만 하고 결제하지 않은 계좌는 줄 없음, 조회 시작일 앞 줄 없음·등록 전(PENDING) 카드의 SEED는 끝날까지, 체크카드 없는 계좌는 줄 없음 |
 | `SpendingClassifierDecideTest` | 2 | DB 없음(-255). 동시 실행 때 대상이면서 이미 LIVING으로 표본에 온 결제를 한 번만 셈(두 번 세면 표본 5건이 되어 LARGE로 틀리는 경계), 표본 쿼리에 대상이 섞여도 결과가 같음 |
