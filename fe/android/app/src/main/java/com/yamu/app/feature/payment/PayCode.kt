@@ -3,6 +3,17 @@ package com.yamu.app.feature.payment
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.em
 import com.yamu.app.core.designsystem.component.CompactButton
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.EnterExitState
+import androidx.compose.runtime.remember
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import com.yamu.app.core.designsystem.component.CountdownRing
+import com.yamu.app.core.designsystem.component.WaitRingDefaults
+import com.yamu.app.core.designsystem.component.animateCountdownColor
+import com.yamu.app.core.designsystem.component.rememberCountdown
+import com.yamu.app.core.designsystem.theme.screenSwapEnter
+import com.yamu.app.core.designsystem.theme.screenSwapExit
+import com.yamu.app.feature.payment.data.epochMillisOrNull
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.Crossfade
 import androidx.compose.foundation.background
@@ -118,16 +129,25 @@ data class PayCodeState(
     val selectedCardId: Long? = null,
     val installmentMonths: Int? = null,        // null = 일시불
     val approving: Boolean = false,
+    /** 지금 결제를 맡긴 카드 — 대기 판 알약은 이것만 보인다(거절 응답이 다음 카드를 고르는 순간에도 걷히는 판에는 맡긴 카드) */
+    val approvingCardId: Long? = null,
     val declined: String? = null,
     val canRetry: Boolean = true,
     val requestExpired: Boolean = false,
     val rejecting: Boolean = false,
     val paidId: Long? = null,                  // 승인 → P-07
+    /**
+     * 승인됐고 P-07로 넘어가는 중 — 화면이 바뀔 때까지 대기 판을 붙여 둔다(navigated()가 지우지 않음).
+     * 승인 응답은 approving을 끄므로 이것 없이는 화면 교체 동안 판이 먼저 걷혀 요청 화면이 비친다
+     */
+    val approvedLeaving: Boolean = false,
     val closeMessage: String? = null,          // 거절 → 닫고 스낵바
 ) {
     val request: PaymentRequest? get() = (phase as? PayPhase.Request)?.request
     val selectedCard: PayCard? get() = request?.cards?.firstOrNull { it.userCardId == selectedCardId }
     val requestDone: Boolean get() = requestExpired || !canRetry
+    /** 대기 판이 떠 있음 — 승인을 기다리거나 승인 뒤 화면을 떠나는 중. 이 동안 결제 · 거절 · 뒤로가기는 받지 않는다 */
+    val waiting: Boolean get() = approving || approvedLeaving
 }
 
 @HiltViewModel
@@ -267,14 +287,22 @@ class PayCodeViewModel @Inject constructor(
         val s = _state.value
         val request = s.request ?: return
         val card = s.selectedCard ?: return
-        if (s.approving || s.requestDone) return
+        if (s.waiting || s.rejecting || s.requestDone) return
+        // 1초 시계보다 먼저 마감이 지났으면(남은 시간 링은 이미 00:00) 판을 띄우지 않고 만료로
+        if ((secondsUntil(request.confirmDeadlineIso) ?: 1) <= 0) {
+            _state.update { it.copy(requestExpired = true, remainingSec = 0) }
+            return
+        }
         val keyName = "${request.paymentId}:${card.userCardId}:${s.installmentMonths}"
         val key = approveKeys.getOrPut(keyName) { newIdempotencyKey() }
+        // 코루틴이 돌기 전에 켜 둬야 같은 프레임의 두 번째 누름이 위에서 걸린다
+        _state.update { it.copy(approving = true, approvingCardId = card.userCardId, declined = null) }
         viewModelScope.launch {
-            _state.update { it.copy(approving = true, declined = null) }
             when (val r = payments.approve(request, card, s.installmentMonths, key)) {
                 is ApiResult.Success -> when (val o = r.data) {
-                    is ApproveOutcome.Approved -> _state.update { it.copy(approving = false, paidId = o.receipt.paymentId) }
+                    is ApproveOutcome.Approved -> _state.update {
+                        it.copy(approving = false, approvedLeaving = true, paidId = o.receipt.paymentId)
+                    }
                     is ApproveOutcome.Declined -> {
                         approveKeys.remove(keyName)          // 같은 카드로 다시 시도하면 새 시도
                         val next = o.suggestedCardId?.takeIf { id -> request.cards.any { it.userCardId == id } }
@@ -302,7 +330,8 @@ class PayCodeViewModel @Inject constructor(
     /** P-06c [거절](추가 7) — 실패해도 요청은 60초 뒤 만료되니 화면은 닫는다 */
     fun reject() {
         val request = _state.value.request ?: return _state.update { it.copy(closeMessage = "") }
-        if (_state.value.rejecting) return
+        // 승인 요청이 날아가는 중에 거절까지 나가면 결과가 엇갈린다(판이 터치를 막지만 TalkBack · 연타 대비)
+        if (_state.value.rejecting || _state.value.waiting) return
         viewModelScope.launch {
             _state.update { it.copy(rejecting = true) }
             val r = payments.reject(request.paymentId, rejectKey)
@@ -345,41 +374,71 @@ fun PayCodeRoute(
         onClose(message.ifEmpty { null })
     }
     val close = {
-        if (s.request != null && !s.requestDone) askReject = true else onClose(null)
+        when {
+            s.waiting -> Unit   // 승인을 기다리는 동안은 아무 일도 없음(판에 '결제하고 있어요'가 떠 있음)
+            s.request != null && !s.requestDone -> askReject = true
+            else -> onClose(null)
+        }
     }
     BackHandler(onBack = close)
     val c = YamuTheme.colors
+    val reduce = YamuTheme.reduceMotion
     val busy = stepUpUi != StepUpUi.Idle || s.issuing
     val confirming = s.request != null && !s.requestDone
-    FlowScreen(
-        title = if (s.request != null) "결제 확인" else "결제하기",
-        onBack = if (confirming) null else close,      // 확인 단계는 ✕ 없이 — 뒤로 누르면 거절을 묻는다
-        closeIcon = true,
-        actions = { MockPayTag() },
-        bottomBar = {
-            when (val p = s.phase) {
-                PayPhase.Auth -> BottomCta {
-                    PrimaryButton(if (s.biometricReady) "지문으로 결제 코드 열기" else "결제 코드 열기", onClick = viewModel::openCode, loading = busy)
+    Box(Modifier.fillMaxSize()) {
+        FlowScreen(
+            title = if (s.request != null) "결제 확인" else "결제하기",
+            onBack = if (confirming) null else close,      // 확인 단계는 ✕ 없이 — 뒤로 누르면 거절을 묻는다
+            // 대기 판이 떠 있는 동안 아래 화면은 터치뿐 아니라 TalkBack에서도 숨긴다('거절'에 닿지 않게)
+            modifier = if (s.waiting) Modifier.clearAndSetSemantics {} else Modifier,
+            closeIcon = true,
+            actions = { MockPayTag() },
+            bottomBar = {
+                when (val p = s.phase) {
+                    PayPhase.Auth -> BottomCta {
+                        PrimaryButton(if (s.biometricReady) "지문으로 결제 코드 열기" else "결제 코드 열기", onClick = viewModel::openCode, loading = busy)
+                    }
+                    PayPhase.CodeExpired -> BottomCta { PrimaryButton("새 코드 받기", onClick = viewModel::openCode, loading = busy) }
+                    is PayPhase.Request -> RequestButtons(p.request, s, onApprove = viewModel::approve, onReject = { if (!s.waiting) askReject = true }, onClose = { onClose(null) })
+                    else -> Unit
                 }
-                PayPhase.CodeExpired -> BottomCta { PrimaryButton("새 코드 받기", onClick = viewModel::openCode, loading = busy) }
-                is PayPhase.Request -> RequestButtons(p.request, s, onApprove = viewModel::approve, onReject = { askReject = true }, onClose = { onClose(null) })
-                else -> Unit
+            },
+        ) { inner ->
+            Column(
+                Modifier.padding(inner).consumeWindowInsets(inner).fillMaxSize().verticalScroll(rememberScrollState())
+                    .padding(horizontal = YamuSpacing.screen),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                when (val p = s.phase) {
+                    PayPhase.Auth -> AuthBody(s.error)
+                    is PayPhase.Code -> CodeBody(p.code, s.remainingSec, s.unstable, onNewCode = viewModel::openCode)
+                    PayPhase.CodeExpired -> MessageBody("시간이 지났어요", "새 코드를 받아 매장에 보여 주세요")
+                    PayPhase.NoCard -> EmptyState("결제할 카드가 없어요", actionText = "카드 추가", onAction = onAddCard)
+                    is PayPhase.Request -> RequestBody(p.request, s, onSelectCard = viewModel::selectCard, onInstallment = viewModel::selectInstallment)
+                }
+                Spacer(Modifier.height(YamuSpacing.x6))
             }
-        },
-    ) { inner ->
-        Column(
-            Modifier.padding(inner).consumeWindowInsets(inner).fillMaxSize().verticalScroll(rememberScrollState())
-                .padding(horizontal = YamuSpacing.screen),
-            horizontalAlignment = Alignment.CenterHorizontally,
+        }
+        // 결제 승인 대기 판(M-WAIT-ENTER · APPROVED). 누르자마자 덮고, 승인되면 판째로 P-07에 화면 교체 페이드
+        AnimatedVisibility(
+            visible = s.waiting,
+            enter = screenSwapEnter(reduce),
+            exit = screenSwapExit(reduce),
         ) {
-            when (val p = s.phase) {
-                PayPhase.Auth -> AuthBody(s.error)
-                is PayPhase.Code -> CodeBody(p.code, s.remainingSec, s.unstable, onNewCode = viewModel::openCode)
-                PayPhase.CodeExpired -> MessageBody("시간이 지났어요", "새 코드를 받아 매장에 보여 주세요")
-                PayPhase.NoCard -> EmptyState("결제할 카드가 없어요", actionText = "카드 추가", onAction = onAddCard)
-                is PayPhase.Request -> RequestBody(p.request, s, onSelectCard = viewModel::selectCard, onInstallment = viewModel::selectInstallment)
-            }
-            Spacer(Modifier.height(YamuSpacing.x6))
+            // 다시 그려질 때(회전 등)는 들어오는 모션 없이 끝 상태로
+            val entering = remember { transition.currentState == EnterExitState.PreEnter }
+            val leaving = transition.targetState == EnterExitState.PostExit
+            WaitingSurface(
+                phase = WaitPhase.Processing,
+                title = "결제하고 있어요",
+                pill = s.request?.let { request ->
+                    request.cards.firstOrNull { it.userCardId == s.approvingCardId }?.let { "${it.brand.name} · ${request.amount.toWon()}원" }
+                },
+                entering = entering,
+                // 승인 뒤 화면을 떠나기 시작하면 아이콘은 되돌리되 터치는 계속 막는다(같은 결제를 또 누르지 않게)
+                lightStatusBar = !leaving && !s.approvedLeaving,
+                blockTouches = !leaving,
+            )
         }
     }
     if (askReject) {
@@ -473,10 +532,19 @@ private fun RequestBody(request: PaymentRequest, s: PayCodeState, onSelectCard: 
             Text("결제 요청이 왔어요", style = YamuTheme.typography.headlineS, color = c.text1)
             AmountText(request.amount)
             Text(listOfNotNull(request.merchantName, request.categoryName).joinToString(" · "), style = YamuTheme.typography.bodyL, color = c.text2)
-            val left = s.remainingSec ?: 0
+            val deadlineMs = remember(request.confirmDeadlineIso) { request.confirmDeadlineIso?.let(::epochMillisOrNull) }
             if (s.requestExpired) {
                 Text("확인 시간이 지났어요 · 결제되지 않았어요", style = YamuTheme.typography.titleS, color = c.error)
+            } else if (deadlineMs != null) {
+                // 링과 숫자가 같은 틱을 읽어 '00:10'이 되는 순간 둘 다 주황으로(M-WAIT-COUNTDOWN)
+                val countdown = rememberCountdown(deadlineMs, key = "pay-${request.paymentId}")
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    CountdownRing(countdown, Modifier.size(WaitRingDefaults.miniSize))
+                    Text("남은 시간", style = YamuTheme.typography.sub, color = c.text3)
+                    Text(formatRemaining(countdown.remainingSec), style = YamuTheme.typography.value, color = animateCountdownColor(countdown))
+                }
             } else {
+                val left = s.remainingSec ?: 0
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text("남은 시간", style = YamuTheme.typography.sub, color = c.text3)
                     Text(formatRemaining(left), style = YamuTheme.typography.value, color = if (left <= 10) c.warning else c.primary)
@@ -499,7 +567,7 @@ private fun RequestBody(request: PaymentRequest, s: PayCodeState, onSelectCard: 
             EmptyState(if (request.cardsUnknown) "카드 정보를 확인하지 못해 결제할 카드를 고를 수 없어요" else "이 결제에 쓸 수 있는 카드가 없어요")
         }
         request.cards.forEach { card ->
-            PayCardRow(card, selected = card.userCardId == s.selectedCardId, enabled = !s.requestDone && !s.approving, onClick = { onSelectCard(card.userCardId) })
+            PayCardRow(card, selected = card.userCardId == s.selectedCardId, enabled = !s.requestDone && !s.waiting, onClick = { onSelectCard(card.userCardId) })
         }
         val options = s.selectedCard?.installmentOptions.orEmpty()
         if (options.isNotEmpty()) {
@@ -556,6 +624,6 @@ private fun RequestButtons(request: PaymentRequest, s: PayCodeState, onApprove: 
     val label = if (s.declined != null) "$name${name.directionParticle()} 다시 결제"
     else "$name${name.directionParticle()} ${request.amount.toWon()}원 결제"
     BottomCta(secondary = { TextButtonGrey("거절", onClick = onReject, modifier = Modifier.fillMaxWidth()) }) {
-        PrimaryButton(label, onClick = onApprove, enabled = card != null && !s.rejecting, loading = s.approving)
+        PrimaryButton(label, onClick = onApprove, enabled = card != null && !s.rejecting, loading = s.waiting)
     }
 }

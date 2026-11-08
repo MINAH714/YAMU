@@ -73,6 +73,17 @@ class CountdownTest {
     }
 
     @Test
+    fun `보이는 남은 초는 올림이고 00 10이 되는 순간 임박이 된다`() {
+        assertEquals(11L, Countdown.remainingSec(nowMs = 49_999, deadlineMs = deadline))
+        assertFalse(Countdown.urgent(nowMs = 49_999, deadlineMs = deadline, urgentMs = 10_000))
+        assertEquals(10L, Countdown.remainingSec(nowMs = 50_000, deadlineMs = deadline))
+        assertTrue(Countdown.urgent(nowMs = 50_000, deadlineMs = deadline, urgentMs = 10_000))
+        assertEquals(1L, Countdown.remainingSec(nowMs = 59_600, deadlineMs = deadline))   // 0.4초 남으면 1초
+        assertEquals(0L, Countdown.remainingSec(nowMs = 60_000, deadlineMs = deadline))
+        assertEquals(0L, Countdown.remainingSec(nowMs = 70_000, deadlineMs = deadline))
+    }
+
+    @Test
     fun `만료는 마감 시각부터다`() {
         assertFalse(Countdown.expired(nowMs = 59_999, deadlineMs = deadline))
         assertTrue(Countdown.expired(nowMs = 60_000, deadlineMs = deadline))
