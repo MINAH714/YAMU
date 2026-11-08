@@ -1,5 +1,6 @@
 package com.yamu.be.cashflow;
 
+import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
@@ -21,6 +22,7 @@ public record CreateCashflowItemRequest(
         @NotNull(message = "금액을 입력해 주세요.")
         @Positive(message = "금액은 1원 이상이어야 합니다.")
         @Max(value = CashflowService.MAX_AMOUNT, message = CashflowService.MAX_AMOUNT_MESSAGE)
+        @JsonDeserialize(using = IntegralNumberDeserializers.LongValue.class)
         Long amount,
 
         @NotNull(message = "첫 발생일을 입력해 주세요.")
@@ -33,9 +35,11 @@ public record CreateCashflowItemRequest(
         String merchantCategoryCode,
 
         @Positive(message = "올바른 계좌를 선택해 주세요.")
+        @JsonDeserialize(using = IntegralNumberDeserializers.LongValue.class)
         Long accountId,
 
         @Positive(message = "올바른 카드를 선택해 주세요.")
+        @JsonDeserialize(using = IntegralNumberDeserializers.LongValue.class)
         Long userCardId,
 
         String memo) {
@@ -47,6 +51,7 @@ public record CreateCashflowItemRequest(
 
             @Min(value = 1, message = "매월 반복일은 1~31이어야 합니다.")
             @Max(value = 31, message = "매월 반복일은 1~31이어야 합니다.")
+            @JsonDeserialize(using = IntegralNumberDeserializers.IntegerValue.class)
             Integer dayOfMonth,
 
             DayOfWeek dayOfWeek,

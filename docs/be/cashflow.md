@@ -157,6 +157,7 @@ Java record와 Jackson은 "보내지 않음"과 `null`을 구분하지 못해 �
 | 상황 | 응답 |
 |---|---|
 | 입력 범위(금액·길이·날짜 등), 지난 회차·일정, 규칙의 회차가 아닌 날짜, 지운 회차 수정, 앞 구간 종료일 이전으로 당기기 | 400 `INVALID_REQUEST` + `details.fieldErrors` |
+| 정수 칸(`amount`·`accountId`·`userCardId`·`recurrence.dayOfMonth`)에 소수점 아래가 있는 값(예: `500000.9`). `500000.0`·`1e3`처럼 값이 정수면 받음 | 400 `INVALID_REQUEST`(본문 형식 오류, `fieldErrors` 없음). 전에는 Jackson 기본값으로 소수점 아래를 버리고 저장했음(2026-11-06, S15P31E103-318) |
 | JSON 형식 오류(본문 없음, 없는 enum 값, 숫자 자리에 문자 등) | 400 `INVALID_REQUEST`, `details` 없음(공통 처리) |
 | 남의·없는 항목·계좌·카드 | 404 `RESOURCE_NOT_FOUND` |
 | 후보가 아닌 상태 전환 | 409 `INVALID_STATUS_CHANGE` |
@@ -218,6 +219,7 @@ Java record와 Jackson은 "보내지 않음"과 `null`을 구분하지 못해 �
 - **구매 계획 행**: 수정·삭제 API가 `item_kind`를 거르지 않습니다. 구매 계획을 만드는 기능이 아직 없어 지금은 생기지 않고, 그 기능에서 정합니다.
 - **이어받는 카드·계좌 재확인 없음**: 수정 때 새로 보낸 계좌·카드만 소유·정지 여부를 확인합니다. 정지된 카드가 붙은 규칙의 금액만 고치면 그 카드가 새 규칙에 그대로 남습니다.
 - **문서 차이**: [schema/implementation.md](schema/implementation.md) 104행은 카드·계좌 동시 지정을 "API 협의 사항"으로 두지만, API는 "둘 중 정확히 하나"로 구현돼 있습니다.
+- **enum 칸의 숫자**: 요청의 `type`·`frequency`·`status`·`scope`·`dayOfWeek`는 Jackson 기본 설정이 숫자를 enum 순번으로 읽어, 예를 들어 `"type": 0`이 `INCOME`이 됩니다. 가상 구매 `until`만 막았고(-318) 이 칸들은 후속으로 둡니다(2026-11-06 결정).
 
 ## 테스트 (2026-10-30, 7.1.6 브랜치)
 

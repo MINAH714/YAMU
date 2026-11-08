@@ -69,6 +69,7 @@ public class PurchaseSimulationService {
         validateDescription(request);
         String paymentChannel = request.paymentChannel();
         Integer days = request.days();
+        BalanceForecast.Until until = request.until();
         // 오늘은 요청마다 한 번만 정한다. 구매일 검사와 예보 시작일이 자정을 사이에 두고 어긋나면 계산기가 500을 낸다(코드 리뷰 반영).
         LocalDate today = forecasts.today();
         LocalDate purchaseDate = request.purchaseDate() == null ? today : request.purchaseDate();
@@ -113,8 +114,10 @@ public class PurchaseSimulationService {
         List<BillingSchedule.Withdrawal> withdrawals = charged == 0 ? List.of()
                 : withdrawals(card, purchaseDate, charged, terms);
 
+        // 기간은 잔고예보 조회와 같은 규칙이다: until이 없으면 설정을 따르고, 기간 기준이 NEXT_INCOME이면 days는 검사만 하고 쓰지 않는다.
+        // 전에는 days가 있으면 DAYS로 정해, 같은 days로 부른 잔고예보와 기간이 달랐다(S15P31E103-318).
         ForecastService.Prepared prepared = forecasts.prepare(authenticatedUserId, request.accountIds(),
-                days == null ? null : BalanceForecast.Until.DAYS, days, false, today);
+                until, days, false, today);
         PurchaseSimulation simulation = PurchaseSimulator.simulate(new PurchaseSimulator.Input(
                 prepared.startBalances(), prepared.events(), prepared.horizon().from(), prepared.horizon().to(),
                 prepared.dailyLiving(), prepared.alertThreshold(), purchaseDate, card.linkedAccountId(), withdrawals));
