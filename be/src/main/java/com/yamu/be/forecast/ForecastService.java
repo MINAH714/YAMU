@@ -211,7 +211,7 @@ public class ForecastService {
         // 잘못된 기간은 계좌·원천을 읽기 전에 400으로 거절한다(잔고예보와 같은 검사).
         BalanceForecast.Horizon horizon = horizon(authenticatedUserId, userSettings, until, days, today);
         // 잔액을 읽지 않으므로 소유·연결 확인을 여기서 한다. 남의·연결 해제 계좌는 404다.
-        selected.forEach(accountId -> accounts.requireConnectedAccount(authenticatedUserId, accountId));
+        requireOwnedAccounts(authenticatedUserId, selected);
         LivingCostRead read = estimateLivingCost(authenticatedUserId, selected, today, horizon);
         LivingCostEstimator.Estimate estimate = read.estimate();
         LivingCostProjector.Projection projection = read.projection();
@@ -330,6 +330,17 @@ public class ForecastService {
     }
 
     /** 중복을 뺀 선택 계좌. 비었으면 명세의 ACCOUNT_SELECTION_REQUIRED다. */
+    /**
+     * 선택 계좌가 모두 이 사용자의 연결 계좌인지 확인한다. 남의·연결 해제 계좌는 404, 빈 선택은 400 ACCOUNT_SELECTION_REQUIRED다.
+     * 잔액을 읽지 않는 생활비 상세와, 추천 엔진(체크카드 잔액을 금융망에서 읽음)을 부르기 전의 가상 구매가 쓴다(S15P31E103-333).
+     *
+     * @param userId     로그인 사용자
+     * @param accountIds 요청한 계좌(중복 가능)
+     */
+    void requireOwnedAccounts(Long userId, List<Long> accountIds) {
+        selectedAccounts(accountIds).forEach(accountId -> accounts.requireConnectedAccount(userId, accountId));
+    }
+
     private static List<Long> selectedAccounts(List<Long> accountIds) {
         if (accountIds == null || accountIds.isEmpty()) {
             throw new BusinessException(ErrorCode.ACCOUNT_SELECTION_REQUIRED);

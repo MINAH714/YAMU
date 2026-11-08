@@ -1,5 +1,8 @@
 package com.yamu.be.forecast;
 
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -77,9 +80,11 @@ class ForecastAccountOwnershipTest extends MySqlTestSupport {
     }
 
     @Test
-    void 가상_구매에_남의_계좌를_보내면_내_카드여도_404이고_금융망을_부르지_않는다() throws Exception {
+    void 가상_구매에_남의_계좌를_보내면_업종을_골라도_추천_전에_404이고_금융망을_부르지_않는다() throws Exception {
         expectNotFound(simulate("[" + strangerAccount + "]"));
         expectNotFound(simulate("[" + myAccount + ", " + strangerAccount + "]"));
+        // 추천 엔진은 체크카드 잔액을 금융망에서 읽으므로 계좌 확인보다 먼저 불리면 안 된다(Codex 검토)
+        verify(recommender, never()).recommend(any());
         verifyNoInteractions(ssafy);
     }
 
@@ -88,7 +93,7 @@ class ForecastAccountOwnershipTest extends MySqlTestSupport {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"accountIds\": " + accountIds + ", \"userCardId\": " + myCheckCard
                         + ", \"amount\": 300000, \"productCategoryCode\": \"PRODUCT_ELECTRONICS\","
-                        + " \"paymentChannel\": \"OFFLINE\"}"));
+                        + " \"merchantCategoryCode\": \"SUPERMARKET\", \"paymentChannel\": \"OFFLINE\"}"));
     }
 
     private static void expectNotFound(ResultActions result) throws Exception {
