@@ -31,6 +31,9 @@ import org.springframework.stereotype.Service;
  */
 @Service
 public class PurchaseSimulationService {
+    /** 구매일은 오늘부터 이 햇수가 되는 날(당일 포함)까지 받는다. */
+    static final int MAX_PURCHASE_YEARS = 1;
+
     private final ForecastService forecasts;
     private final CardQueryService cards;
     private final CardNameReader cardNames;
@@ -75,6 +78,11 @@ public class PurchaseSimulationService {
         LocalDate purchaseDate = request.purchaseDate() == null ? today : request.purchaseDate();
         if (purchaseDate.isBefore(today)) {
             throw invalid("purchaseDate", "구매일은 오늘 이후로 골라 주세요.");
+        }
+        // 상한이 없으면 아주 먼 날의 신용카드 청구 주기 계산이 날짜 범위를 넘어 500이 났다. 예보 기간(최대 30일)보다 충분히 길고
+        // 12개월 할부 출금도 2년 안에 끝나는 1년으로 둔다(당일 포함, S15P31E103-327).
+        if (purchaseDate.isAfter(today.plusYears(MAX_PURCHASE_YEARS))) {
+            throw invalid("purchaseDate", "구매일은 오늘부터 1년 안으로 골라 주세요.");
         }
 
         // 고른 카드는 추천을 부르기 전에 확인한다. 남의·없는 카드 404, 결제할 수 없는 카드 400 CARD_NOT_ELIGIBLE.

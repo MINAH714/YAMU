@@ -289,6 +289,31 @@ class PurchaseSimulationControllerTest extends MySqlTestSupport {
     }
 
     @Test
+    void 아주_먼_구매일은_신용카드여도_500이_아니라_400이고_잔액과_추천을_읽지_않는다() throws Exception {
+        // 상한이 없을 때는 청구 주기 계산이 999999999년 12월의 다음 달을 구하다 DateTimeException으로 500이었다(S15P31E103-327)
+        perform(body(accountB, creditOnB, "300000", "\"purchaseDate\": \"+999999999-12-31\""))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("INVALID_REQUEST"))
+                .andExpect(jsonPath("$.error.details.fieldErrors[0].field").value("purchaseDate"));
+        verify(balances, never()).getBalances(any(), anyList(), anyBoolean());
+        verify(recommender, never()).recommend(any());
+    }
+
+    @Test
+    void 구매일은_오늘부터_1년째_되는_날까지_받고_그다음_날은_400이다() throws Exception {
+        LocalDate lastDay = today.plusYears(1);
+        perform(body(accountB, creditOnB, "300000",
+                "\"plan\": \"INSTALLMENT\", \"installmentMonths\": 12, \"purchaseDate\": \"" + lastDay + "\""))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.input.purchaseDate").value(lastDay.toString()))
+                .andExpect(jsonPath("$.data.schedule", hasSize(12)));
+        perform(body(accountB, creditOnB, "300000", "\"purchaseDate\": \"" + lastDay.plusDays(1) + "\""))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("INVALID_REQUEST"))
+                .andExpect(jsonPath("$.error.details.fieldErrors[0].field").value("purchaseDate"));
+    }
+
+    @Test
     void 남의_카드는_404_꺼_둔_카드와_정지_카드는_결제와_같은_400_CARD_NOT_ELIGIBLE_결제일_없는_신용카드는_422다()
             throws Exception {
         OwnershipFixtures ownership = new OwnershipFixtures(jdbc);
