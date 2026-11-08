@@ -216,6 +216,21 @@ class PurchaseSimulationControllerTest extends MySqlTestSupport {
     }
 
     @Test
+    void 카드를_고르지_않았는데_추천_엔진이_남의_카드를_1순위로_주면_응답하지_않고_잔액도_읽지_않는다() throws Exception {
+        OwnershipFixtures ownership = new OwnershipFixtures(jdbc);
+        long stranger = ownership.user();
+        long strangerCard = ownership.card(stranger, ownership.product(), ownership.account(stranger), "ACTIVE");
+        when(recommender.recommend(any())).thenReturn(SimulationRecommender.Result.of(
+                new SimulationRecommender.Recommendation(strangerCard, null, List.of(), null, List.of(), List.of())));
+
+        // 추천 결과도 믿지 않고 내 카드인지 다시 확인한다(S15P31E103-333). 엔진 계약 위반이라 500이고, 남의 카드로 계산하지 않는다
+        perform(bodyWithoutCard(accountA, "300000", "\"merchantCategoryCode\": \"SUPERMARKET\""))
+                .andExpect(status().isInternalServerError())
+                .andExpect(jsonPath("$.data").value(nullValue()));
+        verify(balances, never()).getBalances(any(), anyList(), anyBoolean());
+    }
+
+    @Test
     void 카드를_고르지_않았는데_업종_브랜드가_없거나_추천할_카드가_없으면_422다() throws Exception {
         perform(bodyWithoutCard(accountA, "300000", ""))
                 .andExpect(status().isUnprocessableEntity())
