@@ -16,6 +16,7 @@ pipeline {
     }
 
     parameters {
+        string(name: 'RELEASE_REVISION', defaultValue: '', description: 'CD-only: exact master commit requiring approval')
         booleanParam(name: 'FULL_CI', defaultValue: false, description: 'Run all checks and pin the archived develop release candidate')
     }
 
@@ -35,6 +36,13 @@ pipeline {
                     def revision = checkout scm
                     env.GIT_COMMIT = revision.GIT_COMMIT
                     env.GIT_BRANCH = revision.GIT_BRANCH ?: ''
+                    if (params.RELEASE_REVISION) {
+                        if (env.JOB_NAME != 'yamu/ci-master' ||
+                                !(params.RELEASE_REVISION ==~ /[0-9a-f]{40}/) ||
+                                revision.GIT_COMMIT != params.RELEASE_REVISION) {
+                            error('Release checkout differs from the requested master candidate')
+                        }
+                    }
                     withEnv([
                         "CI_CHECKOUT_BRANCH=${revision.GIT_BRANCH ?: ''}",
                         "CI_PREVIOUS_SUCCESS=${revision.GIT_PREVIOUS_SUCCESSFUL_COMMIT ?: ''}",
@@ -111,7 +119,7 @@ pipeline {
                 sh 'python3 infra/cd/manifest.py'
                 archiveArtifacts artifacts: 'ci-revision.txt,ci-manifest.json,be/build/libs/*.jar,fe/pos/dist/**', fingerprint: true
                 script {
-                    if (env.JOB_NAME == 'yamu/ci' && params.FULL_CI == true) {
+                    if (env.JOB_NAME == 'yamu/ci-master' || (env.JOB_NAME == 'yamu/ci' && params.FULL_CI == true)) {
                         currentBuild.keepLog = true
                     }
                 }
