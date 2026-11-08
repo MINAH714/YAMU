@@ -7,12 +7,14 @@ import com.yamu.app.core.network.ApiResult
 import com.yamu.app.core.network.apiCall
 import com.yamu.app.core.network.apiCallNoData
 import com.yamu.app.core.network.map
+import com.yamu.app.feature.link.data.AccountDto
+import com.yamu.app.feature.link.data.LinkApi
+import com.yamu.app.feature.link.data.lastDigits
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
 import kotlinx.serialization.json.JsonElement
-import com.yamu.app.feature.link.data.LinkApi
 import retrofit2.Response
 import retrofit2.Retrofit
 import retrofit2.http.Body
@@ -27,10 +29,15 @@ import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 import javax.inject.Singleton
 
-/** 잔고예보 · 이거 사도 될까? — #10 · #33 · #20 · #9. 12 문서 8-2 */
+/** 잔고예보 · 이거 사도 될까? · 예정 수입·지출 — docs/be/forecast.md · cashflow.md */
 interface ForecastApi {
+    /** accountIds는 필수(없으면 400 ACCOUNT_SELECTION_REQUIRED). until · days를 빼면 잔고예보 설정, N일은 until=DAYS와 days를 같이 */
     @GET("forecasts/balance")
-    suspend fun forecast(@Query("until") until: String = "NEXT_INCOME"): Response<ApiEnvelope<ForecastDto>>
+    suspend fun forecast(
+        @Query("accountIds") accountIds: List<Long>,
+        @Query("until") until: String?,
+        @Query("days") days: Int?,
+    ): Response<ApiEnvelope<BalanceForecastDto>>
 
     @POST("spending-decisions")
     suspend fun check(@Body body: SpendingDecisionRequest): Response<ApiEnvelope<SpendingDecisionDto>>
@@ -55,18 +62,26 @@ interface ForecastApi {
 }
 
 interface ForecastRepository {
-    /** F-01 · F-02 — 돌아올 때마다 새로(결제 · 계획 저장 뒤 바뀌므로) */
+    /** F-01 · F-02 — 지금 고른 기간 · 계좌([selection])로. 돌아올 때마다 새로(결제 · 계획 저장 뒤 바뀌므로) */
     suspend fun forecast(): ApiResult<Forecast>
 
     fun cached(): Forecast?
 
+    /** 고른 기간 · 계좌 — 앱을 켜 둔 동안만(서버 설정에는 저장하지 않는다, 2026-11-08 결정) */
+    fun selection(): ForecastSelection
+
+    fun select(selection: ForecastSelection)
+
+    /** 계좌 고르기 시트 — 연결 계좌 전체 */
+    suspend fun accounts(): ApiResult<List<ForecastAccountOption>>
+
     /** I-02 · I-03 — #33 판정 그대로 */
     suspend fun check(amount: Long, title: String?, purchaseDate: LocalDate): ApiResult<BuyCheck>
 
-    /** I-04 · I-02 [계획 저장] — #20 PURCHASE_PLAN */
+    /** I-04 · I-02 [계획 저장] — #20 */
     suspend fun savePlan(option: BuyOption, title: String?, amount: Long): ApiResult<SavedPlan>
 
-    /** 방금 저장한 계획(I-05) — 앱이 다시 켜졌으면 없음(잔고예보의 계획 줄에서 다시) */
+    /** 방금 저장한 계획(I-05) — 앱이 다시 켜졌으면 없음 */
     fun savedPlan(planId: Long): SavedPlan?
 
     suspend fun deletePlan(planId: Long): ApiResult<Unit>
@@ -83,18 +98,57 @@ interface ForecastRepository {
     suspend fun updateItem(itemId: Long, body: CashflowUpdateRequest): ApiResult<Unit>
 
     suspend fun deleteItem(itemId: Long, scope: CashflowDeleteScope, occurrenceDate: LocalDate?): ApiResult<Unit>
+
+    companion object {
+        /** 연결한 계좌가 없다 — BE가 accountIds 없이 부르면 내는 코드와 같게 둬 화면이 한 곳에서 빈 상태로 바꾼다 */
+        const val NO_ACCOUNT = "ACCOUNT_SELECTION_REQUIRED"
+    }
 }
+
+/** 고른 계좌 중 아직 연결된 것만. 고른 게 없거나 모두 해제됐으면 연결 계좌 전체 */
+fun ForecastSelection.accountIdsFrom(accounts: List<ForecastAccountOption>): List<Long> {
+    val all = accounts.map { it.accountId }
+    return accountIds?.let { ids -> all.filter { it in ids } }.orEmpty().ifEmpty { all }
+}
+
+fun AccountDto.toOption() = ForecastAccountOption(
+    accountId = accountId,
+    name = accountName?.takeIf { it.isNotBlank() } ?: "${bank.name} 입출금",
+    bankName = bank.name,
+    last4 = maskedAccountNo.lastDigits(),
+    balance = balance,
+    isPrimary = isPrimary,
+)
 
 @Singleton
 class ForecastRepositoryImpl @Inject constructor(private val api: ForecastApi, private val linkApi: LinkApi) : ForecastRepository {
 
     @Volatile private var last: Forecast? = null
+    @Volatile private var current = ForecastSelection()
     private val plans = ConcurrentHashMap<Long, SavedPlan>()
 
-    override suspend fun forecast(): ApiResult<Forecast> =
-        apiCall { api.forecast() }.map { it.toForecast() }.also { r -> if (r is ApiResult.Success) last = r.data }
+    override suspend fun forecast(): ApiResult<Forecast> {
+        val accounts = when (val a = accounts()) {
+            is ApiResult.Failure -> return a
+            is ApiResult.Success -> a.data
+        }
+        if (accounts.isEmpty()) return ApiResult.Failure(ApiError.InvalidRequest(ForecastRepository.NO_ACCOUNT))
+        val period = current.period
+        return apiCall { api.forecast(current.accountIdsFrom(accounts), period?.until, period?.days) }
+            .map { it.toForecast() }
+            .also { r -> if (r is ApiResult.Success) last = r.data }
+    }
 
     override fun cached(): Forecast? = last
+
+    override fun selection(): ForecastSelection = current
+
+    override fun select(selection: ForecastSelection) {
+        current = selection
+    }
+
+    override suspend fun accounts(): ApiResult<List<ForecastAccountOption>> =
+        apiCall { linkApi.accounts(null) }.map { r -> r.accounts.map { it.toOption() } }
 
     override suspend fun check(amount: Long, title: String?, purchaseDate: LocalDate): ApiResult<BuyCheck> =
         apiCall { api.check(SpendingDecisionRequest(amount, title?.takeIf { it.isNotBlank() }, purchaseDate.toString())) }
@@ -113,9 +167,9 @@ class ForecastRepositoryImpl @Inject constructor(private val api: ForecastApi, p
                 title = body.title,
                 amount = amount,
                 date = parseDate(r.occurrenceDate) ?: option.date,
-                minBefore = r.forecastImpact?.minBalanceBefore,
-                minAfter = r.forecastImpact?.minBalanceAfter,
-                shortfallFrom = parseDate(r.forecastImpact?.shortfallFrom),
+                minBefore = null,
+                minAfter = null,
+                shortfallFrom = null,
             ).also { plans[it.id] = it }
         }
     }

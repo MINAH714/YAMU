@@ -5,7 +5,11 @@ import com.yamu.app.core.network.ApiResult
 import com.yamu.app.core.ui.userMessage
 import com.yamu.app.feature.forecast.data.CashflowEntry
 import com.yamu.app.feature.forecast.data.Forecast
+import com.yamu.app.feature.forecast.data.ForecastAccountOption
+import com.yamu.app.feature.forecast.data.ForecastPeriod
 import com.yamu.app.feature.forecast.data.ForecastRepository
+import com.yamu.app.feature.forecast.data.ForecastSelection
+import com.yamu.app.feature.forecast.data.testForecast
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.test.StandardTestDispatcher
@@ -16,23 +20,35 @@ import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import java.lang.reflect.Proxy
 import java.time.LocalDate
 
-/** F-02 — 예보가 실패해도 회차로 목록을 그리므로 회차 응답 전에는 오류 화면을 보여 주지 않는다 */
+/** F-01 · F-02 — 예보가 실패해도 회차로 목록을 그리고, 기간 · 계좌를 바꾸면 그 값으로 다시 부른다 */
 class ForecastViewModelTest {
     private val dispatcher = StandardTestDispatcher()
     private var cachedForecast: Forecast? = null
     private var forecastResult: ApiResult<Forecast> = ApiResult.Failure(FORECAST_ERROR)
+    private var pendingForecast: CompletableDeferred<ApiResult<Forecast>>? = null
+    private var forecastCalls = 0
     private var entriesResponse = CompletableDeferred<ApiResult<List<CashflowEntry>>>()
     private var entriesCalls = 0
+    private var selected = ForecastSelection()
 
     private val repo = object : ForecastRepository by unused() {
-        override suspend fun forecast() = forecastResult
+        override suspend fun forecast(): ApiResult<Forecast> {
+            forecastCalls++
+            return pendingForecast?.also { pendingForecast = null }?.await() ?: forecastResult
+        }
         override fun cached() = cachedForecast
+        override fun selection() = selected
+        override fun select(selection: ForecastSelection) {
+            selected = selection
+        }
+        override suspend fun accounts(): ApiResult<List<ForecastAccountOption>> = ApiResult.Success(ACCOUNTS)
         override suspend fun cashflowEntries(from: LocalDate, to: LocalDate): ApiResult<List<CashflowEntry>> {
             entriesCalls++
             return entriesResponse.await()
@@ -99,7 +115,7 @@ class ForecastViewModelTest {
     }
 
     @Test fun `지난 예보가 남아 있으면 회차 응답 전에도 그 예보로 그린다`() = runTest(dispatcher) {
-        cachedForecast = FORECAST
+        cachedForecast = testForecast()
         val vm = ForecastViewModel(repo)
         vm.refreshWithEntries()
         advanceUntilIdle()
@@ -108,7 +124,7 @@ class ForecastViewModelTest {
     }
 
     @Test fun `계좌를 잇지 않았으면 회차를 부르지 않고 빈 상태로 끝난다`() = runTest(dispatcher) {
-        forecastResult = ApiResult.Failure(ApiError.from(400, "BASE_ACCOUNT_NOT_SET"))
+        forecastResult = ApiResult.Failure(ApiError.from(400, ForecastRepository.NO_ACCOUNT))
         val vm = ForecastViewModel(repo)
         vm.refreshWithEntries()
         advanceUntilIdle()
@@ -118,37 +134,62 @@ class ForecastViewModelTest {
         assertEquals(0, entriesCalls)
     }
 
-    @Test fun `예정된 돈의 기간 — 월급일이 있는 예보만 월급 전까지이고 나머지는 30일`() {
-        val payday = LocalDate.of(2026, 11, 25)
+    @Test fun `옛 서버 코드 BASE_ACCOUNT_NOT_SET도 빈 상태`() = runTest(dispatcher) {
+        forecastResult = ApiResult.Failure(ApiError.from(404, "BASE_ACCOUNT_NOT_SET"))
+        val vm = ForecastViewModel(repo)
+        vm.refresh()
+        advanceUntilIdle()
 
-        assertEquals("월급 전까지", cashflowPeriod(FORECAST.copy(incomeDate = payday)))
+        assertTrue(vm.state.value.noAccount)
+    }
+
+    @Test fun `기간 · 계좌를 고르면 기억하고 그 값으로 다시 부른다 — 모두 고르면 전체(null)`() = runTest(dispatcher) {
+        forecastResult = ApiResult.Success(testForecast())
+        val vm = ForecastViewModel(repo)
+        vm.loadAccounts()
+        advanceUntilIdle()
+
+        vm.apply(ForecastPeriod.DAYS_14, setOf(2L))
+        advanceUntilIdle()
+        assertEquals(ForecastSelection(ForecastPeriod.DAYS_14, setOf(2L)), selected)
+        assertEquals(selected, vm.state.value.selection)
+        assertEquals(1, forecastCalls)
+
+        vm.apply(null, setOf(1L, 2L))
+        advanceUntilIdle()
+        assertNull(selected.accountIds)
+        assertEquals(2, forecastCalls)
+    }
+
+    @Test fun `다시 부르면 앞 요청의 늦은 결과는 버린다`() = runTest(dispatcher) {
+        val slow = CompletableDeferred<ApiResult<Forecast>>()
+        pendingForecast = slow
+        val vm = ForecastViewModel(repo)
+        vm.refresh()
+        advanceUntilIdle()
+
+        forecastResult = ApiResult.Success(testForecast(horizonDays = 14, isNextIncome = false))
+        vm.refresh()
+        advanceUntilIdle()
+        slow.complete(ApiResult.Success(testForecast(horizonDays = 30, isNextIncome = false)))
+        advanceUntilIdle()
+
+        assertEquals(14, vm.state.value.forecast?.horizonDays)
+    }
+
+    @Test fun `예정된 돈의 기간 — 월급날 기준이면 월급 전까지, 아니면 실제 일수`() {
+        assertEquals("월급 전까지", cashflowPeriod(testForecast()))
         assertEquals("30일 동안", cashflowPeriod(null))
-        assertEquals("30일 동안", cashflowPeriod(FORECAST.copy(incomeDate = null)))
-        assertEquals("30일 동안", cashflowPeriod(FORECAST.copy(incomeDate = payday, fallback = true)))
+        assertEquals("14일 동안", cashflowPeriod(testForecast(isNextIncome = false, horizonDays = 14)))
+        assertEquals("30일 동안", cashflowPeriod(testForecast(isNextIncome = false, horizonDays = null)))
     }
 
     private companion object {
         val FORECAST_ERROR = ApiError.from(404, "NOT_FOUND")
         val ENTRIES_ERROR: ApiError = ApiError.Network
-
-        val FORECAST = Forecast(
-            currentBalance = 100_000,
-            balanceAsOfIso = null,
-            minBalance = null,
-            shortfallFrom = null,
-            incomeDate = null,
-            incomeAmount = null,
-            incomeTitle = "월급",
-            from = null,
-            to = null,
-            fallback = false,
-            upcoming = emptyList(),
-            plans = emptyList(),
-            scheduledOutflow = 0,
-            livingCost = null,
-            points = emptyList(),
-            isEstimate = false,
-            accounts = emptyList(),
+        val ACCOUNTS = listOf(
+            ForecastAccountOption(1, "월급 통장", "신한은행", "4021", 412_000, isPrimary = true),
+            ForecastAccountOption(2, "생활비 통장", "KB국민은행", "7730", 268_000, isPrimary = false),
         )
 
         /** 안 쓰는 메서드를 부르면 테스트가 실패해야 하므로 Proxy는 예외를 던진다 */

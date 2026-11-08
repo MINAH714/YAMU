@@ -476,13 +476,8 @@ data class PlanState(val plan: SavedPlan? = null, val deleting: Boolean = false,
 @HiltViewModel
 class PlanViewModel @Inject constructor(savedStateHandle: SavedStateHandle, private val repo: ForecastRepository) : ViewModel() {
     private val planId = savedStateHandle.toRoute<BuyCheckSaved>().planId
-    private val _state = MutableStateFlow(PlanState(plan = repo.savedPlan(planId) ?: fromForecast()))
+    private val _state = MutableStateFlow(PlanState(plan = repo.savedPlan(planId)))
     val state: StateFlow<PlanState> = _state.asStateFlow()
-
-    /** 앱이 다시 켜졌거나 잔고예보 계획 줄에서 왔으면 예보 응답의 계획 줄로 */
-    private fun fromForecast(): SavedPlan? = repo.cached()?.plans?.firstOrNull { it.planId == planId }?.let { e ->
-        SavedPlan(planId, e.title, -e.amount, e.date ?: LocalDate.now(KST), null, null, null)
-    }
 
     fun delete() {
         if (_state.value.deleting) return

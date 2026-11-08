@@ -254,7 +254,6 @@ fun YamuNavHost(navController: NavHostController, modifier: Modifier = Modifier)
                         onBack = back,
                         onBuyCheck = { navController.navigate(BuyCheckInput) },
                         onCashflowList = { navController.navigate(CashflowList) },
-                        onPlan = { planId -> navController.navigate(BuyCheckSaved(planId)) },
                         onLink = { navController.navigate(LinkGraph) },
                         onAlertSettings = { navController.navigate(NotificationSettings) },
                     )
