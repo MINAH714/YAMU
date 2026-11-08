@@ -3,6 +3,9 @@ package com.yamu.app.data
 import com.yamu.app.core.format.KST
 import com.yamu.app.core.network.ApiError
 import com.yamu.app.core.network.ApiResult
+import com.yamu.app.core.session.DevSession
+import com.yamu.app.core.session.FaultScenario
+import com.yamu.app.feature.forecast.data.BalanceForecastDto
 import com.yamu.app.feature.forecast.data.BuyCheck
 import com.yamu.app.feature.forecast.data.BuyMethod
 import com.yamu.app.feature.forecast.data.BuyOption
@@ -12,11 +15,22 @@ import com.yamu.app.feature.forecast.data.CashflowEntry
 import com.yamu.app.feature.forecast.data.CashflowForm
 import com.yamu.app.feature.forecast.data.CashflowRepeat
 import com.yamu.app.feature.forecast.data.CashflowUpdateRequest
+import com.yamu.app.feature.forecast.data.ExcludedItemDto
 import com.yamu.app.feature.forecast.data.Forecast
-import com.yamu.app.feature.forecast.data.ForecastAccount
-import com.yamu.app.feature.forecast.data.ForecastEvent
+import com.yamu.app.feature.forecast.data.ForecastAccountOption
+import com.yamu.app.feature.forecast.data.ForecastEventDto
+import com.yamu.app.feature.forecast.data.ForecastLivingCostDto
+import com.yamu.app.feature.forecast.data.ForecastPeriod
 import com.yamu.app.feature.forecast.data.ForecastRepository
+import com.yamu.app.feature.forecast.data.ForecastSelection
+import com.yamu.app.feature.forecast.data.ForecastSummaryDto
+import com.yamu.app.feature.forecast.data.HorizonDto
+import com.yamu.app.feature.forecast.data.RiskCauseDto
+import com.yamu.app.feature.forecast.data.RiskWindowDto
 import com.yamu.app.feature.forecast.data.SavedPlan
+import com.yamu.app.feature.forecast.data.SeriesPointDto
+import com.yamu.app.feature.forecast.data.accountIdsFrom
+import com.yamu.app.feature.forecast.data.toForecast
 import kotlinx.coroutines.delay
 import kotlinx.serialization.json.addJsonObject
 import kotlinx.serialization.json.buildJsonObject
@@ -25,19 +39,28 @@ import kotlinx.serialization.json.putJsonArray
 import java.time.LocalDate
 import java.time.OffsetDateTime
 import java.time.YearMonth
+import java.time.ZoneOffset
 import java.time.temporal.ChronoUnit
 import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * debug 전용 가짜 잔고예보 서버 — 날마다 계산한다: 잔액 950,000 − 하루 생활비 6,000 − 예정 지출 4건(450,000) → 월급 전 350,000.
- * 숫자는 프로토타입 F-01 · I-02 · I-03 그대로, 날짜만 오늘 기준(+4 카드대금 · +9 월세 · +11 통신비 · +16 구독료 · +25 월급).
+ * debug 전용 가짜 잔고예보 서버 — BE BalanceForecast와 같은 모양을 만들어 앱의 매퍼를 그대로 거친다.
+ * 계좌 둘(월급 통장 412,000 · 생활비 통장 268,000), 하루 생활비 6,000(계좌마다 3,000), +4 카드 청구(진행 중, 예상 선) · 카드 사용 예상(보수적 선만),
+ * +9 월세 · +11 통신비 · +16 구독료(확정 선), +25 월급. 그래서 보수적 선만 월급 전에 안전 잔액(100,000) 아래로 내려간다.
+ * 디버그 메뉴 '데이터 부족'이면 생활비 기록이 없는 응답(보수적 선 null · INSUFFICIENT)을 준다.
  * 계획을 저장하면 같이 계산 → 잔고예보 숫자가 바뀐다(12 문서 8-5).
  */
 @Singleton
 class FakeForecastRepository @Inject constructor() : ForecastRepository {
 
     private class Plan(val id: Long, val title: String, val amount: Long, val payDate: LocalDate)
+
+    /** 가짜 계좌 — [dailyLiving]이 null이면 생활비 기록이 없는 계좌 */
+    private data class Account(val id: Long, val name: String, val bank: String, val last4: String, val balance: Long, val primary: Boolean, val dailyLiving: Long?)
+
+    /** 미래 입출금 하나(BE FlowEvent) */
+    private data class Flow(val accountId: Long, val date: LocalDate, val amount: Long, val type: String, val confidence: String, val title: String)
 
     /** 가계부 규칙(가짜 서버) — 처음 3개는 프로토타입 고정 지출, F-02a로 등록하면 더한다. 수정 · 삭제는 서버 규칙(docs/be/cashflow.md)을 흉내 */
     private data class Item(
@@ -49,17 +72,19 @@ class FakeForecastRepository @Inject constructor() : ForecastRepository {
     /** 이번 회차만 고친 값 — (규칙, 원래 회차)마다 */
     private data class Override(val title: String?, val amount: Long?, val date: LocalDate?)
 
+    private val accountList = listOf(
+        Account(1, "월급 통장", "신한은행", "4021", 412_000, primary = true, dailyLiving = 3_000),
+        Account(2, "생활비 통장", "KB국민은행", "7730", 268_000, primary = false, dailyLiving = 3_000),
+    )
     private val plans = mutableListOf<Plan>()
     private val saved = mutableMapOf<Long, SavedPlan>()
     private var nextId = 901L
-    private var last: Forecast? = null
+    @Volatile private var last: Forecast? = null
+    @Volatile private var current = ForecastSelection()
 
-    private val balance = 950_000L
-    private val daily = 6_000L
     private val alert = 100_000L
     private val today get() = LocalDate.now(KST)
     private val income get() = today.plusDays(25)
-    private val horizonTo get() = income.minusDays(1)
 
     private fun monthly(id: Long, title: String, amount: Long, date: LocalDate) =
         Item(id, isIncome = false, title, amount, date, CashflowRepeat.MONTHLY, date.dayOfMonth, null, accountId = 1, userCardId = null)
@@ -71,12 +96,6 @@ class FakeForecastRepository @Inject constructor() : ForecastRepository {
     )
     private val overrides = mutableMapOf<Pair<Long, LocalDate>, Override>()
     private val excluded = mutableSetOf<Pair<Long, LocalDate>>()
-
-    /** 카드대금 — 가계부 항목이 아니라 예보에만(F-02에서 읽기 전용) */
-    private val cardBill get() = ForecastEvent(today.plusDays(4), "신한카드 대금", -150_000, isPlan = false, planId = null, afterIncome = false, isCardBill = true)
-
-    private fun scheduled(): List<Triple<LocalDate, String, Long>> =
-        listOf(Triple(cardBill.date!!, cardBill.title, cardBill.amount)) + entriesBetween(today, horizonTo).map { Triple(it.date, it.title, it.signedAmount) }
 
     /** 규칙의 원래 회차 — 가짜 서버가 계산한다(앱은 계산하지 않는다). 매월은 그달에 기준일이 없으면 말일, 종료일 포함 */
     private fun occurrences(item: Item, until: LocalDate): List<LocalDate> {
@@ -110,111 +129,195 @@ class FakeForecastRepository @Inject constructor() : ForecastRepository {
         }
     }.sortedWith(compareBy({ it.date }, { it.itemId }))
 
-    /** 날마다 예상 잔액 — extra(날짜, 금액)는 아직 저장 안 한 '사 보면' 출금 */
-    private fun simulate(extra: List<Pair<LocalDate, Long>> = emptyList()): List<Pair<LocalDate, Long>> {
-        var running = balance
-        val points = mutableListOf<Pair<LocalDate, Long>>()
-        var d = today
-        while (!d.isAfter(horizonTo)) {
-            running -= daily
-            scheduled().filter { it.first == d }.forEach { running += it.third }
-            plans.filter { it.payDate == d }.forEach { running -= it.amount }
-            extra.filter { it.first == d }.forEach { running -= it.second }
-            points += d to running
-            d = d.plusDays(1)
-        }
-        return points
+    private fun LocalDate.md() = "$monthValue/$dayOfMonth"
+
+    /** 잔고예보 설정은 NEXT_INCOME(월급 +25) — 고르지 않으면 월급 전날까지, N일이면 오늘 + N */
+    private fun horizonTo(period: ForecastPeriod?): LocalDate = period?.days?.let { today.plusDays(it.toLong()) } ?: income.minusDays(1)
+
+    /** 기간 안 모든 입출금 — 가계부 회차는 계좌가 없으면(카드) 생활비 통장에서 나간다고 본다 */
+    private fun flows(to: LocalDate): List<Flow> {
+        val bill = Flow(2, today.plusDays(4), -150_000, "CARD_BILLING", "EXPECTED", "신한카드 청구")
+        val estimate = Flow(2, today.plusDays(4), -36_000, "CARD_SPENDING_ESTIMATE", "CONSERVATIVE", "생활카드 · ${today.plusDays(1).md()}~${today.plusDays(3).md()} 3일 × 일평균 12,000원")
+        val fromItems = entriesBetween(today, to).map { Flow(it.accountId ?: 2, it.date, it.signedAmount, if (it.isIncome) "SCHEDULED_INCOME" else "SCHEDULED_OUTFLOW", "CONFIRMED", it.title) }
+        val salary = listOf(Flow(1, income, 2_800_000, "SCHEDULED_INCOME", "CONFIRMED", "월급"))
+        val planFlows = plans.map { Flow(2, it.payDate, -it.amount, "SCHEDULED_OUTFLOW", "CONFIRMED", it.title) }
+        return listOf(bill, estimate) + fromItems + salary + planFlows
     }
 
-    private fun min(points: List<Pair<LocalDate, Long>>) = points.minOf { it.second }
-    private fun shortfall(points: List<Pair<LocalDate, Long>>) = points.firstOrNull { it.second < 0 }?.first
+    private fun options(): List<ForecastAccountOption> = accountList.map { ForecastAccountOption(it.id, it.name, it.bank, it.last4, it.balance, it.primary) }
 
-    /** 신용카드 청구일 — 월급 전에 사면 월급 4일 뒤(프로토타입: 11/10 월급 → 11/14 결제일), 그 뒤면 다음 달 14일 */
-    private fun billDate(d: LocalDate) = if (d.isBefore(income)) income.plusDays(4) else YearMonth.from(d).plusMonths(1).atDay(14)
-
-    override suspend fun forecast(): ApiResult<Forecast> = withFault(empty = { ApiResult.Failure(ApiError.NotFound("BASE_ACCOUNT_NOT_SET")) }) { forecastNow() }
-
-    private suspend fun forecastNow(): ApiResult<Forecast> {
-        delay(500)
-        val points = simulate()
-        val upcoming = listOf(cardBill) + entriesBetween(today, horizonTo).map { ForecastEvent(it.date, it.title, it.signedAmount, isPlan = false, planId = null, afterIncome = false) }
-        val planEvents = plans.map { ForecastEvent(it.payDate, it.title, -it.amount, isPlan = true, planId = it.id, afterIncome = it.payDate.isAfter(horizonTo)) }
-        val f = Forecast(
-            currentBalance = balance,
-            balanceAsOfIso = OffsetDateTime.now(KST).truncatedTo(ChronoUnit.MINUTES).toString(),
-            minBalance = min(points),
-            shortfallFrom = shortfall(points),
-            incomeDate = income, incomeAmount = 2_800_000, incomeTitle = "월급",
-            from = today, to = horizonTo, fallback = false,
-            upcoming = upcoming,
-            plans = planEvents,
-            scheduledOutflow = -upcoming.filter { it.amount < 0 }.sumOf { it.amount },   // 처음엔 4건 450,000 — 등록한 지출이 더해진다
-            livingCost = daily * points.size,
-            points = points,
-            isEstimate = true,
-            accounts = listOf(ForecastAccount("KB국민은행 입출금", "생활비", "1234", balance, min(points), shortfall(points))),
+    /** 날마다 세 선 · 위험 구간 · 요약 — BE ForecastCalculator · RiskDetector 규칙을 줄여 흉내 낸다 */
+    private fun build(selection: ForecastSelection, extra: List<Flow> = emptyList(), noLiving: Boolean = false): BalanceForecastDto {
+        val ids = selection.accountIdsFrom(options()).toSet()
+        val accounts = accountList.filter { it.id in ids }
+        val to = horizonTo(selection.period)
+        val flows = (flows(to) + extra).filter { it.accountId in ids && !it.date.isBefore(today) && !it.date.isAfter(to) }
+        val living = accounts.map { if (noLiving) null else it.dailyLiving }
+        // 생활비 기록이 없는 계좌도 카드 사용 추정이 있으면 생활비 0원으로 보수적 선을 낸다. 한 계좌라도 없으면 통합 보수적 선은 null
+        val consAvailable = accounts.zip(living).all { (a, l) -> l != null || flows.any { it.accountId == a.id && it.confidence == "CONSERVATIVE" } }
+        val daily = living.sumOf { it ?: 0L }
+        val start = accounts.sumOf { it.balance }
+        val dates = generateSequence(today) { it.plusDays(1) }.takeWhile { !it.isAfter(to) }.toList()
+        var confirmed = start
+        var expected = start
+        var estimates = 0L
+        val series = dates.mapIndexed { i, d ->
+            val todays = flows.filter { it.date == d }
+            todays.forEach { f ->
+                when (f.confidence) {
+                    "CONFIRMED" -> { confirmed += f.amount; expected += f.amount }
+                    "EXPECTED" -> expected += f.amount
+                    else -> estimates += f.amount
+                }
+            }
+            SeriesPointDto(
+                date = d.toString(),
+                confirmed = confirmed,
+                expected = expected,
+                conservative = if (consAvailable) expected - daily * i + estimates else null,
+                events = todays.map { ForecastEventDto(it.type, it.title, it.amount, it.confidence) },
+            )
+        }
+        val worst = series.map { it.conservative ?: it.expected!! }
+        // 날마다 기준 미만인 가장 확실한 선 → 같은 선이 이어지면 한 구간
+        fun lineOf(p: SeriesPointDto) = when {
+            p.confirmed!! < alert -> "CONFIRMED"
+            p.expected!! < alert -> "EXPECTED"
+            p.conservative != null && p.conservative < alert -> "CONSERVATIVE"
+            else -> null
+        }
+        val windows = mutableListOf<RiskWindowDto>()
+        var i = 0
+        while (i < series.size) {
+            val line = lineOf(series[i]) ?: run { i++; null } ?: continue
+            var j = i
+            while (j + 1 < series.size && lineOf(series[j + 1]) == line) j++
+            val part = series.subList(i, j + 1)
+            fun value(p: SeriesPointDto) = when (line) {
+                "CONFIRMED" -> p.confirmed!!
+                "EXPECTED" -> p.expected!!
+                else -> p.conservative!!
+            }
+            val lowest = part.minOf { value(it) }
+            val lowestDate = part.first { value(it) == lowest }.date
+            val allowed = when (line) {
+                "CONFIRMED" -> setOf("CONFIRMED")
+                "EXPECTED" -> setOf("CONFIRMED", "EXPECTED")
+                else -> setOf("CONFIRMED", "EXPECTED", "CONSERVATIVE")
+            }
+            val causes = flows.filter { f -> f.amount < 0 && f.confidence in allowed && !f.date.isBefore(dates[i]) && !f.date.isAfter(dates[j]) }
+                .map { RiskCauseDto(it.type, it.title, it.amount, it.date.toString()) } +
+                if (line == "CONSERVATIVE" && daily > 0) listOf(RiskCauseDto("LIVING_COST_ESTIMATE", "예상 생활비", -daily * dates.indexOf(LocalDate.parse(lowestDate)), lowestDate)) else emptyList()
+            windows += RiskWindowDto(dates[i].toString(), dates[j].toString(), if (line == "CONFIRMED") "DANGER" else "WARNING", line, lowest, alert - lowest, causes)
+            i = j + 1
+        }
+        val min = worst.minOrNull() ?: start
+        val status = when {
+            windows.any { it.level == "DANGER" } -> "DANGER"
+            windows.isNotEmpty() -> "WARNING"
+            else -> "SAFE"
+        }
+        val days = dates.size - 1
+        val excludedItems = listOfNotNull(
+            ExcludedItemDto(date = today.plusDays(14).toString(), title = "여행카드", reason = "CREDIT_SPENDING_UNKNOWN").takeIf { 2L in ids && !today.plusDays(14).isAfter(to) },
+            ExcludedItemDto(cashflowItemId = 7009, date = today.plusDays(20).toString(), title = "관리비", reason = "AMOUNT_UNKNOWN").takeIf { 1L in ids && !today.plusDays(20).isAfter(to) },
         )
-        last = f
-        return ApiResult.Success(f)
+        return BalanceForecastDto(
+            accountIds = accounts.map { it.id },
+            currentTotalBalance = start,
+            horizon = HorizonDto(if (selection.period?.days == null) "NEXT_INCOME" else "DAYS", today.toString(), to.toString(), days),
+            alertThreshold = alert,
+            summary = ForecastSummaryDto(status, status, min, series[worst.indexOf(min)].date, worst.last()),
+            series = series,
+            riskWindows = windows,
+            livingCost = ForecastLivingCostDto(
+                projectedAmount = if (living.all { it != null }) daily * days else null,
+                dailyAverage = if (living.all { it != null }) daily else null,
+                method = "ML_V1",
+                dataOrigin = if (living.all { it != null }) "REAL" else "INSUFFICIENT",
+            ),
+            excluded = excludedItems,
+            isEstimate = true,
+            calculatedAt = OffsetDateTime.now(ZoneOffset.UTC).truncatedTo(ChronoUnit.SECONDS).toLocalDateTime().toString(),
+        )
+    }
+
+    override suspend fun forecast(): ApiResult<Forecast> {
+        // '데이터 부족'은 실패가 아니라 생활비 기록이 없는 응답 — 잔고예보는 이때도 실패하지 않는다(docs/be/forecast.md 「에러」)
+        if (DevSession.faultScenario == FaultScenario.DATA_INSUFFICIENT) {
+            delay(300)
+            return ApiResult.Success(build(current, noLiving = true).toForecast().also { last = it })
+        }
+        return withFault(empty = { ApiResult.Failure(ApiError.InvalidRequest(ForecastRepository.NO_ACCOUNT)) }) {
+            delay(500)
+            ApiResult.Success(build(current).toForecast().also { last = it })
+        }
     }
 
     override fun cached(): Forecast? = last
 
-    override suspend fun check(amount: Long, title: String?, purchaseDate: LocalDate): ApiResult<BuyCheck> = withFault { checkNow(amount, title, purchaseDate) }
+    override fun selection(): ForecastSelection = current
 
-    private suspend fun checkNow(amount: Long, title: String?, purchaseDate: LocalDate): ApiResult<BuyCheck> {
+    override fun select(selection: ForecastSelection) {
+        current = selection
+    }
+
+    override suspend fun accounts(): ApiResult<List<ForecastAccountOption>> = withFault(empty = { ApiResult.Success(emptyList()) }) {
+        delay(300)
+        ApiResult.Success(options())
+    }
+
+    /** 가장 나쁜 선의 날짜별 잔액 — [extra]는 아직 저장하지 않은 '사 보면' 출금(확정 선) */
+    private fun worst(extra: List<Pair<LocalDate, Long>> = emptyList()): List<Pair<LocalDate, Long>> =
+        build(current, extra.map { (d, a) -> Flow(2, d, -a, "SIMULATED_PURCHASE", "CONFIRMED", "가상 구매") }).series
+            .map { LocalDate.parse(it.date) to (it.conservative ?: it.expected ?: 0) }
+
+    private fun min(points: List<Pair<LocalDate, Long>>) = points.minOf { it.second }
+    private fun shortfall(points: List<Pair<LocalDate, Long>>) = points.firstOrNull { it.second < 0 }?.first
+
+    /** 신용카드 청구일 — 월급 전에 사면 월급 4일 뒤, 그 뒤면 다음 달 14일 */
+    private fun billDate(d: LocalDate) = if (d.isBefore(income)) income.plusDays(4) else YearMonth.from(d).plusMonths(1).atDay(14)
+
+    // ── #33 판단(I-02 · I-03) — S15P31E103-326에서 가상 구매 시뮬레이션으로 바꾼다 ──
+
+    override suspend fun check(amount: Long, title: String?, purchaseDate: LocalDate): ApiResult<BuyCheck> = withFault {
         delay(800)
-        if (amount <= 0) return ApiResult.Failure(ApiError.InvalidRequest("INVALID_AMOUNT"))
-        val base = simulate()
-        val withCheck = simulate(listOf(purchaseDate to amount))
+        if (amount <= 0) return@withFault ApiResult.Failure(ApiError.InvalidRequest("INVALID_AMOUNT"))
+        val withCheck = worst(listOf(purchaseDate to amount))
         val creditBill = billDate(purchaseDate)
-        val withCredit = simulate(listOf(creditBill to amount))
+        val withCredit = worst(listOf(creditBill to amount))
         val monthly = (amount + 2) / 3
-        val withInstallment = simulate(listOf(creditBill to monthly))
+        val withInstallment = worst(listOf(creditBill to monthly))
         val minCheck = min(withCheck)
         val verdict = when {
             minCheck >= alert -> BuyVerdict.OK
             min(withCredit) >= 0 -> BuyVerdict.CAUTION
             else -> BuyVerdict.HOLD
         }
-        val what = title?.takeIf { it.isNotBlank() }
-        val m = YearMonth.now(KST).monthValue
-        val reasons = if (verdict == BuyVerdict.OK) {
-            val perDay = ((minCheck - alert) / 25 + daily) / 100 * 100
-            listOf("월급 전까지 하루 ${"%,d".format(perDay)}원까지 써도 괜찮아요", "신용카드로 내면 월급 전 잔액은 그대로예요")
-        } else {
-            val from = shortfall(withCheck)
-            listOfNotNull(
-                from?.let { "${it.monthValue}월 ${it.dayOfMonth}일부터 잔액이 모자라요" },
-                "카드 실적은 변화 없어요",
-                "${income.monthValue}월 ${income.dayOfMonth}일 월급 뒤에 사면 괜찮아요",
-            )
-        }
-        fun option(method: BuyMethod, date: LocalDate, card: Long, name: String, months: Int?, minBalance: Long, monthlyAmount: Long?, points: List<Pair<LocalDate, Long>>) =
-            BuyOption(method, date, card, name, months, minBalance, monthlyAmount, shortfall(points), recommended = false)
+        fun option(method: BuyMethod, date: LocalDate, card: Long, name: String, months: Int?, points: List<Pair<LocalDate, Long>>, monthlyAmount: Long?) =
+            BuyOption(method, date, card, name, months, min(points), monthlyAmount, shortfall(points), recommended = false)
         val options = listOf(
-            option(BuyMethod.CHECK_LUMP_SUM, purchaseDate, 16, "KB국민 노리2 체크카드(KB Pay)", null, minCheck, null, withCheck),
-            option(BuyMethod.CREDIT_LUMP_SUM, purchaseDate, 11, "KB국민 청춘대로 톡톡카드", null, min(withCredit), null, withCredit),
-            option(BuyMethod.CREDIT_INSTALLMENT, purchaseDate, 11, "KB국민 청춘대로 톡톡카드", 3, min(withInstallment), monthly, withInstallment),
-        ) + if (verdict == BuyVerdict.OK) emptyList() else listOf(BuyOption(BuyMethod.DELAY, income, 16, "KB국민 노리2 체크카드(KB Pay)", null, min(base), null, null, recommended = true))
+            option(BuyMethod.CHECK_LUMP_SUM, purchaseDate, 16, "KB국민 노리2 체크카드(KB Pay)", null, withCheck, null),
+            option(BuyMethod.CREDIT_LUMP_SUM, purchaseDate, 11, "KB국민 청춘대로 톡톡카드", null, withCredit, null),
+            option(BuyMethod.CREDIT_INSTALLMENT, purchaseDate, 11, "KB국민 청춘대로 톡톡카드", 3, withInstallment, monthly),
+        ) + if (verdict == BuyVerdict.OK) emptyList() else listOf(BuyOption(BuyMethod.DELAY, income, 16, "KB국민 노리2 체크카드(KB Pay)", null, min(worst()), null, null, recommended = true))
         val headline = when (verdict) {
             BuyVerdict.OK -> "지금 사도 월급 전에 ${minCheck / 10_000}만 원 남아요"
             else -> "지금 사면 월급 전에 ${(-minCheck + 9_999) / 10_000}만 원 모자라요"
         }
-        return ApiResult.Success(
+        ApiResult.Success(
             BuyCheck(
-                title = what, amount = amount, purchaseDate = purchaseDate, verdict = verdict, headline = headline,
-                firstMethodLabel = "체크카드",
-                baselineRatio = (amount * 100.0 / 1_180_000).let { Math.round(it).toInt() },
-                baselineAverage = 1_180_000, baselinePeriod = "${(m + 6) % 12 + 1}~${(m + 10) % 12 + 1}월 평균",
-                reasons = reasons, options = options, isEstimate = true,
+                title = title?.takeIf { it.isNotBlank() }, amount = amount, purchaseDate = purchaseDate, verdict = verdict, headline = headline,
+                firstMethodLabel = "체크카드", baselineRatio = null, baselineAverage = null, baselinePeriod = null,
+                reasons = shortfall(withCheck)?.let { listOf("${it.monthValue}월 ${it.dayOfMonth}일부터 잔액이 모자라요") }.orEmpty(),
+                options = options, isEstimate = true,
             ),
         )
     }
 
     override suspend fun savePlan(option: BuyOption, title: String?, amount: Long): ApiResult<SavedPlan> {
         delay(600)
-        val before = min(simulate())
+        val before = min(worst())
         val payDate = when (option.method) {
             BuyMethod.CHECK_LUMP_SUM, BuyMethod.DELAY -> option.date
             else -> billDate(option.date)
@@ -223,7 +326,7 @@ class FakeForecastRepository @Inject constructor() : ForecastRepository {
         val id = nextId++
         val name = title?.takeIf { it.isNotBlank() } ?: "구매 계획"
         plans += Plan(id, name, payAmount, payDate)
-        val after = simulate()
+        val after = worst()
         val plan = SavedPlan(id, name, amount, option.date, before, min(after), shortfall(after))
         saved[id] = plan
         return ApiResult.Success(plan)
