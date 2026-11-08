@@ -148,10 +148,17 @@ class ForecastScenarioIntegrationTest extends MySqlTestSupport {
                 billItem(owner, creditCard, accumulating, payment, CREDIT_DAILY);
             }
         }
-        // 신용카드 2: 결제일 10일, 11/10 출금 확정 청구 80,000원. 사용 기록은 없지만 이번 이용기간 출금일(12/10)이 기간 밖이라 알림도 없다
+        // 신용카드 2: 결제일 10일, 11/10 출금 확정 청구 80,000원(이용기간 9/27~10/27의 10/15 결제 한 건이 BILLED 회차).
+        // 이번 이용기간(10/28~)은 사용 기록이 없고 출금일(12/10)도 기간 밖이라 알림이 없다
         creditCard2 = card(owner, product("삼성 iD ON 카드"), accountA, LocalDate.of(2026, 7, 1), 10);
-        bill(owner, creditCard2, LocalDate.of(2026, 11, 1), LocalDate.of(2026, 9, 28), LocalDate.of(2026, 10, 27),
-                RENT_DAY, "CONFIRMED", CONFIRMED_BILL);
+        long confirmed = bill(owner, creditCard2, LocalDate.of(2026, 11, 1), LocalDate.of(2026, 9, 27),
+                LocalDate.of(2026, 10, 27), RENT_DAY, "CONFIRMED", CONFIRMED_BILL);
+        long billedPayment = payment(owner, creditCard2, CONFIRMED_BILL, LocalDate.of(2026, 10, 15), "YAMU");
+        // 확정 회차는 청구액이 정해져 있다(일시불은 수수료 0, BillItem.bill()은 청구액 없는 회차를 확정하지 않음)
+        insert("bill_item", "bill_item_id", Map.of("payment_transaction_id", billedPayment, "user_id", owner,
+                "user_card_id", creditCard2, "card_bill_id", confirmed, "installment_no", 1,
+                "billing_month", LocalDate.of(2026, 11, 1), "principal_amount", CONFIRMED_BILL, "fee_amount", 0L,
+                "billed_amount", CONFIRMED_BILL, "status", "BILLED"));
 
         // 추천 엔진이 혜택을 계산하려면 전월(10월) 실적과 이번 달 한도 사용량이 있어야 한다(시드 추천 테스트와 같은 방식)
         for (long card : List.of(checkCard, creditCard, creditCard2)) {
