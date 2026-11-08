@@ -34,7 +34,7 @@ import org.springframework.stereotype.Component;
  * payment_benefit           받은 혜택 한 줄씩(금액이 확정되고 0원보다 큰 줄). 원화 환산액은 KRW면 금액, POINT면 금액 × 환산율이
  *                           정수일 때만(소수·환산율 없음은 NULL = 미환산, 2026-11-05 결정)
  * payment_limit_usage       한도 그룹별 사용 직전 남은 한도·사용량(승인 때 다시 계산한 후보의 expectedLimitUses). 사용량 0은 적지 않는다
- * monthly_limit_usage       MONTHLY 한도만, 원래 사용 월(POS 요청 시각의 한국 월)에 원자적으로 더한다. 행이 없으면 만든다(임시 A5)
+ * monthly_limit_usage       MONTHLY 한도만, 원래 사용 월(POS 요청 시각의 한국 월)에 원자적으로 더한다. 행이 없으면 만든다(S15P31E103-324: 추천은 행 없음을 사용량 0으로 읽는다)
  * card_monthly_performance  실적 인정액이 0원보다 클 때만 실적 월에 원자적으로 더한다. 지금은 BE3 결과가 인정액을 내보내지 않아 늘 0이다(임시 A3)
  * </pre>
  *
@@ -197,7 +197,7 @@ public class JdbcApprovalLedger implements ApprovalLedger {
                 .addValue("month", usageMonth)
                 .addValue("now", now));
         if (LedgerDates.MONTHLY.equals(period)) {
-            // 원자적으로 더한다. 행이 없으면 이 사용량으로 만든다(임시 A5)
+            // 원자적으로 더한다. 행이 없으면 이 사용량으로 만든다(첫 혜택 사용 승인, S15P31E103-324)
             jdbc.update("""
                     INSERT INTO monthly_limit_usage (user_card_id, card_product_id, limit_group_id, usage_month, used_value,
                                                      created_at, updated_at, version)

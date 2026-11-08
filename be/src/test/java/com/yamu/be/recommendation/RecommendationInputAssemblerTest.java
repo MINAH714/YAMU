@@ -42,7 +42,16 @@ class RecommendationInputAssemblerTest {
     }
 
     @Test
-    void distinguishesMissingMonthlyRowFromConfirmedZeroAndRejectsOtherProductUsage() {
+    void missingMonthlyRowAfterSuccessfulReadMeansNoUsageYet() {
+        // S15P31E103-324: 정상 조회했는데 그 달 행이 없으면 아직 혜택을 쓰지 않은 0이다. 행은 첫 혜택 사용 승인 때 생긴다
+        var policy = assembler.policy(card(1), data(List.of(), List.of()), date, null, issues);
+        assertThat(policy.limits().get(0).used()).isZero();
+        assertThat(issues).extracting(RecommendationDataIssue::code).doesNotContain("LIMIT_USAGE_MISSING");
+    }
+
+    @Test
+    void rejectsOtherProductUsageAsUnknownInsteadOfZero() {
+        // 같은 카드·그룹인데 상품이 다른 행은 자료 불일치다. 행 없음(0)으로 바꾸지 않는다
         var wrong = usage(999L);
         setField(wrong, "cardProductId", 99L);
         var policy = assembler.policy(card(1), data(List.of(), List.of(wrong)), date, null, issues);
@@ -51,7 +60,7 @@ class RecommendationInputAssemblerTest {
     }
 
     @Test
-    void successfulEmptyDailyResultMeansZeroWhileMissingMonthlyAndPreviousPerformanceRemainUnknown() {
+    void successfulEmptyDailyAndMonthlyResultsMeanZeroWhileMissingPreviousPerformanceRemainsUnknown() {
         var daily = group();
         setField(daily, "id", 101L);
         setField(daily, "groupCode", "DAILY");
@@ -66,10 +75,9 @@ class RecommendationInputAssemblerTest {
         assertThat(policy.limits()).filteredOn(l -> l.id() == 101).singleElement()
                 .satisfies(l -> assertThat(l.used()).isZero());
         assertThat(policy.limits()).filteredOn(l -> l.id() == 100).singleElement()
-                .satisfies(l -> assertThat(l.used()).isNull());
+                .satisfies(l -> assertThat(l.used()).isZero());
         assertThat(policy.previousMonthPerformance()).isNull();
-        assertThat(issues).filteredOn(i -> i.code().equals("LIMIT_USAGE_MISSING"))
-                .extracting(RecommendationDataIssue::policyId).containsExactly(100L);
+        assertThat(issues).extracting(RecommendationDataIssue::code).doesNotContain("LIMIT_USAGE_MISSING");
     }
 
     @Test
