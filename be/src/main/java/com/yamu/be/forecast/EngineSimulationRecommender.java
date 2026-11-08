@@ -63,11 +63,13 @@ class EngineSimulationRecommender implements SimulationRecommender {
     /**
      * 이 업종의 브랜드면 POS 거래 사실(택시·후불교통·공과금·등록금 등이 "아니다")을 확정할 수 없어 넘기지 않는다. 지금 시드에는 이 업종의
      * 가맹점이 없고, 카탈로그에 생기면 그 브랜드의 가상 구매는 사실 없이 계산한다(Codex 검토, 2026-11-08).
+     * 유치원은 학교 납입금({@code SCHOOL_PAYMENT})에 들어가는지 원문이 없어 넣었다: 넣고 틀리면 자료 부족, 빼고 틀리면 혜택이 커진다.
+     * 목록이 빠짐없는지는 테스트로 증명할 수 없다(업종별 약관 해석).
      */
     static final Set<String> FACTS_UNCONFIRMED_CATEGORIES = Set.of(
             "TAXI", "CITY_BUS", "INTERCITY_BUS", "EXPRESS_BUS", "SUBWAY", "RAILWAY",
             "ELECTRIC_UTILITY", "WATER_UTILITY", "CITY_GAS_UTILITY",
-            "UNIVERSITY", "PRIMARY_SECONDARY_SCHOOL");
+            "UNIVERSITY", "PRIMARY_SECONDARY_SCHOOL", "KINDERGARTEN");
 
     private final RecommendationService engine;
 
