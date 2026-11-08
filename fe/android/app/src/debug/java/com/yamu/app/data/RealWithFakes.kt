@@ -15,7 +15,6 @@ import com.yamu.app.feature.my.data.NotiKind
 import com.yamu.app.feature.my.data.NotiSettings
 import com.yamu.app.feature.my.data.NotificationsPage
 import com.yamu.app.feature.payment.data.Merchant
-import com.yamu.app.feature.payment.data.PaymentReceipt
 import com.yamu.app.feature.payment.data.PaymentRepository
 import com.yamu.app.feature.payment.data.PaymentRepositoryImpl
 import com.yamu.app.feature.payment.data.Recommendation
@@ -26,9 +25,12 @@ import javax.inject.Inject
 // BE에 API가 생기면 여기 줄을 지운다. 지울 게 없어지면 클래스째 지우고 DataModule이 Impl을 바로 쓰게 한다.
 // 기본 위임은 항상 real이다. 메서드가 늘면 진짜로 가서 BE에 없으면 404로 드러난다.
 
-/** 진짜: 결제 코드 발급 · 상태 · 승인. 가짜: 가맹점 목록 · 결제 전 추천 · 거절 · 결제 상세 */
+/**
+ * 진짜: 결제 코드 발급 · 상태 · 승인 · 결제 상세 · 취소 · 메모. 가짜: 가맹점 목록 · 결제 전 추천 · 거절.
+ * 결제 상세는 진짜여야 한다 — 가짜 상세에서 본 번호로 진짜 취소 · 메모가 나가면 같은 번호의 내 실제 결제가 바뀐다
+ */
 class RealPaymentWithFakes @Inject constructor(
-    private val real: PaymentRepositoryImpl,
+    real: PaymentRepositoryImpl,
     private val fake: FakePaymentRepository,
 ) : PaymentRepository by real {
     override suspend fun merchants(): ApiResult<List<Merchant>> = fake.merchants()
@@ -36,9 +38,6 @@ class RealPaymentWithFakes @Inject constructor(
 
     /** 서버에 알리지 못해 결제는 확정 마감까지 요청 상태로 남는다 */
     override suspend fun reject(paymentId: Long, idempotencyKey: String): ApiResult<Unit> = ApiResult.Success(Unit)
-    /** 방금 승인한 결제는 진짜 영수증 — 가짜 내역과 번호가 겹쳐도 남의 결제가 나오지 않게 먼저 본다 */
-    override suspend fun detail(paymentId: Long): ApiResult<PaymentReceipt> =
-        real.recentReceipt(paymentId)?.let { ApiResult.Success(it) } ?: fake.detail(paymentId)
 }
 
 /**

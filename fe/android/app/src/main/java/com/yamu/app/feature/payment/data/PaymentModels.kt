@@ -55,7 +55,7 @@ import java.math.BigDecimal
 )
 
 @Serializable data class BenefitDto(
-    val name: String,
+    val name: String = "혜택",                 // #3 상세에서 null일 수 있다
     val type: String? = null,                // BILLING_DISCOUNT · INSTANT_DISCOUNT · POINT …
     val amount: Long = 0,
     val expectedAmount: Long? = null,        // #3
@@ -121,6 +121,10 @@ import java.math.BigDecimal
     val retryable: Boolean = false,
     val remainingAttempts: Int? = null,
     val suggestedCards: List<SuggestedCardDto> = emptyList(),
+    val source: String? = null,              // #3 — YAMU · SEED(가입 전 거래, 취소 불가)
+    val canceledAt: String? = null,          // #3
+    val refunds: List<RefundDto> = emptyList(),   // #3 — 출금 뒤 취소로 생긴 환급
+    val memo: String? = null,                // #3에는 아직 없다(BE에 요청). 오면 이 값을 먼저 쓴다
 )
 
 @Serializable data class SelectedCardDto(
@@ -134,7 +138,8 @@ import java.math.BigDecimal
 
 @Serializable data class BillItemDto(
     val seq: Int = 1,
-    val amount: Long,
+    val amount: Long? = null,                // #3 — 수수료를 아직 셈하지 않았으면 null
+    val principalAmount: Long? = null,       // #3
     val billedAmount: Long? = null,          // 보완안: 청구할인 반영 금액
     val billingMonth: String? = null,
     val expectedWithdrawalDate: String? = null,   // #1
@@ -152,6 +157,37 @@ import java.math.BigDecimal
 @Serializable data class FailureDto(val code: String, val message: String? = null)
 
 @Serializable data class SuggestedCardDto(val userCardId: Long)
+
+/** 취소 사유는 BE가 저장하지 않아 보내지 않는다 → 본문 {}. 취소 금액 칸을 넣으면 400 PARTIAL_CANCEL_NOT_SUPPORTED */
+@Serializable data class CancelRequest(val reason: String? = null)
+
+/** 결제 취소 응답 — 신용카드는 회차별 결과 · 환급, 체크카드는 입금 뒤 잔액 */
+@Serializable data class CancelResponseDto(
+    val paymentId: Long,
+    val status: String = "CANCELED",
+    val canceledAt: String? = null,
+    val billItems: List<CancelBillItemDto> = emptyList(),
+    val refunds: List<RefundDto> = emptyList(),
+    val accountBalanceAfter: Long? = null,
+)
+
+@Serializable data class CancelBillItemDto(val seq: Int = 1, val amount: Long = 0, val before: String? = null, val after: String? = null)
+
+/** 환급 한 줄 — 취소 응답은 amount, 상세는 refundAmount로 온다 */
+@Serializable data class RefundDto(
+    val amount: Long? = null,
+    val refundAmount: Long? = null,
+    val dueDate: String? = null,              // 출금 전 회차는 null(출금 뒤 3영업일로 정해진다)
+    val status: String? = null,               // PENDING · COMPLETED …
+)
+
+/**
+ * 메모 본문. memo 칸이 빠지면 BE가 400이라 지울 때도 null 대신 ""를 보낸다
+ * (YamuJson은 null 칸을 빼고 보낸다 — explicitNulls = false)
+ */
+@Serializable data class MemoRequest(val memo: String)
+
+@Serializable data class MemoResponseDto(val paymentId: Long, val memo: String? = null, val memoUpdatedAt: String? = null)
 
 // ── 앱 안에서 쓰는 값 ──
 
@@ -192,6 +228,19 @@ data class PayCodeStatus(val state: CodeState, val request: PaymentRequest?)
 
 data class ReceiptBenefit(val name: String, val amount: Long)
 
+enum class PayStatus {
+    APPROVED, CANCELED, DECLINED, OTHER;
+
+    companion object {
+        fun of(value: String?): PayStatus = entries.firstOrNull { it.name.equals(value, ignoreCase = true) } ?: OTHER
+    }
+}
+
+/** 돌려받을 금액 — [dueDateIso]가 없으면 아직 출금 전이라 출금 뒤 3영업일 안으로 정해진다 */
+data class RefundLine(val amount: Long, val dueDateIso: String?, val completed: Boolean)
+
+fun RefundDto.toLine() = RefundLine(refundAmount ?: amount ?: 0, dueDate, status.equals("COMPLETED", ignoreCase = true))
+
 data class PaymentReceipt(
     val paymentId: Long,
     val merchantName: String?,
@@ -215,6 +264,32 @@ data class PaymentReceipt(
     val perfCounted: Boolean,
     val perfTotalAfter: Long?,
     val perfTarget: Long?,
+    val status: PayStatus = PayStatus.APPROVED,
+    val isSeed: Boolean = false,              // 가입 전 거래(SEED) — 취소할 수 없다
+    val canceledAtIso: String? = null,
+    val refunds: List<RefundLine> = emptyList(),
+    val memo: String? = null,
+) {
+    /** 승인된 야무 결제만 취소할 수 있다(BE PAYMENT_NOT_CANCELABLE의 NOT_APPROVED · SEED_TRANSACTION과 같은 기준) */
+    val cancelable: Boolean get() = status == PayStatus.APPROVED && !isSeed
+    val canceled: Boolean get() = status == PayStatus.CANCELED
+}
+
+/** 취소 결과 — [balanceAfter]는 체크카드 환불 입금 뒤 잔액(못 읽었거나 신용카드면 null) */
+data class CancelResult(
+    val paymentId: Long,
+    val canceledAtIso: String?,
+    val excludedBills: Int,
+    val refunds: List<RefundLine>,
+    val balanceAfter: Long?,
+)
+
+fun CancelResponseDto.toResult() = CancelResult(
+    paymentId = paymentId,
+    canceledAtIso = canceledAt,
+    excludedBills = billItems.count { it.after.equals("EXCLUDED", ignoreCase = true) },
+    refunds = refunds.map { it.toLine() },
+    balanceAfter = accountBalanceAfter,
 )
 
 sealed interface ApproveOutcome {
@@ -283,11 +358,16 @@ fun PaymentResultDto.toReceipt(request: PaymentRequest? = null, card: PayCard? =
         chargedAmount = chargedAmount,
         balanceAfter = accountBalanceAfter,
         billDateIso = if (isCheck) null else bill?.let { it.expectedWithdrawalDate ?: it.withdrawalDate },
-        billAmount = if (isCheck) null else bill?.let { it.billedAmount ?: it.amount },
+        billAmount = if (isCheck) null else bill?.let { it.billedAmount ?: it.amount ?: it.principalAmount },
         perfMonth = performance?.yearMonth?.takeLast(2)?.toIntOrNull(),
         perfRecognized = performance?.recognizedAmount,
         perfCounted = performance?.recognized ?: true,
         perfTotalAfter = performance?.recognizedTotalAfter,
         perfTarget = performance?.targetAmount,
+        status = PayStatus.of(status),
+        isSeed = source.equals("SEED", ignoreCase = true),
+        canceledAtIso = canceledAt,
+        refunds = refunds.map { it.toLine() },
+        memo = memo,
     )
 }

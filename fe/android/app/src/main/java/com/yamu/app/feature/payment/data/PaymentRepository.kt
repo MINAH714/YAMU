@@ -16,6 +16,7 @@ import retrofit2.Retrofit
 import retrofit2.http.Body
 import retrofit2.http.GET
 import retrofit2.http.Header
+import retrofit2.http.PATCH
 import retrofit2.http.POST
 import retrofit2.http.Path
 import retrofit2.http.Query
@@ -23,7 +24,7 @@ import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 import javax.inject.Singleton
 
-/** 결제(고객 앱) — #5 · #64 · #77 · #12 · #1 · #3 · 추가 7. 가맹점 단말 API(#27 · #63)는 모의 POS 앱에만 */
+/** 결제(고객 앱) — #5 · #64 · #77 · #12 · #1 · #3 · 추가 7 · #31 취소 · #42 메모. 가맹점 단말 API(#27 · #63)는 모의 POS 앱에만 */
 interface PaymentApi {
     @GET("merchants")
     suspend fun merchants(@Query("channel") channel: String?, @Query("size") size: Int = 50): Response<ApiEnvelope<MerchantsResponse>>
@@ -53,6 +54,16 @@ interface PaymentApi {
 
     @GET("payments/{id}")
     suspend fun detail(@Path("id") paymentId: Long): Response<ApiEnvelope<PaymentResultDto>>
+
+    @POST("payments/{id}/cancel")
+    suspend fun cancel(
+        @Path("id") paymentId: Long,
+        @Header(YamuHeaders.IDEMPOTENCY_KEY) idempotencyKey: String,
+        @Body body: CancelRequest,
+    ): Response<ApiEnvelope<CancelResponseDto>>
+
+    @PATCH("payments/{id}/memo")
+    suspend fun memo(@Path("id") paymentId: Long, @Body body: MemoRequest): Response<ApiEnvelope<MemoResponseDto>>
 }
 
 interface PaymentRepository {
@@ -79,10 +90,16 @@ interface PaymentRepository {
 
     /** #3 결제 상세(P-08 · 앱이 다시 켜진 P-07) */
     suspend fun detail(paymentId: Long): ApiResult<PaymentReceipt>
+
+    /** P-08 결제 전체 취소. 같은 결제를 다시 시도할 땐 같은 [idempotencyKey] — BE가 처음 결과를 그대로 준다 */
+    suspend fun cancel(paymentId: Long, idempotencyKey: String): ApiResult<CancelResult>
+
+    /** P-08 메모. [memo]가 null · 빈 문자열이면 지운다. 저장된 메모(지웠으면 null)를 돌려준다 */
+    suspend fun saveMemo(paymentId: Long, memo: String?): ApiResult<String?>
 }
 
 @Singleton
-class PaymentRepositoryImpl @Inject constructor(private val api: PaymentApi) : PaymentRepository {
+class PaymentRepositoryImpl @Inject constructor(private val api: PaymentApi, private val edits: PaymentEdits) : PaymentRepository {
 
     private val receipts = ConcurrentHashMap<Long, PaymentReceipt>()
 
@@ -129,7 +146,25 @@ class PaymentRepositoryImpl @Inject constructor(private val api: PaymentApi) : P
 
     override fun recentReceipt(paymentId: Long): PaymentReceipt? = receipts[paymentId]
 
-    override suspend fun detail(paymentId: Long): ApiResult<PaymentReceipt> = apiCall { api.detail(paymentId) }.map { it.toReceipt() }
+    /** 상세 응답엔 memo가 없어 목록에서 받아 둔 메모로 채운다([PaymentEdits]) */
+    override suspend fun detail(paymentId: Long): ApiResult<PaymentReceipt> =
+        apiCall { api.detail(paymentId) }.map { dto -> dto.toReceipt().let { it.copy(memo = it.memo ?: edits.memo(paymentId)) } }
+
+    override suspend fun cancel(paymentId: Long, idempotencyKey: String): ApiResult<CancelResult> =
+        apiCall { api.cancel(paymentId, idempotencyKey, CancelRequest()) }.map { it.toResult() }.also {
+            if (it is ApiResult.Success) {
+                receipts.remove(paymentId)   // 방금 승인한 영수증(P-07)이 승인 상태로 남지 않게
+                edits.changed()
+            }
+        }
+
+    override suspend fun saveMemo(paymentId: Long, memo: String?): ApiResult<String?> =
+        apiCall { api.memo(paymentId, MemoRequest(memo.orEmpty())) }.map { it.memo }.also {
+            if (it is ApiResult.Success) {
+                edits.rememberMemo(paymentId, it.data)
+                edits.changed()
+            }
+        }
 }
 
 @Module

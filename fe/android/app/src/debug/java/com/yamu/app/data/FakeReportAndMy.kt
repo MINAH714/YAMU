@@ -18,6 +18,8 @@ import com.yamu.app.feature.payment.data.PaymentReceipt
 import com.yamu.app.feature.payment.data.ReceiptBenefit
 import com.yamu.app.feature.report.data.BenefitReport
 import com.yamu.app.feature.report.data.CategoryShare
+import com.yamu.app.feature.report.data.CsvFile
+import com.yamu.app.feature.report.data.defaultCsvName
 import com.yamu.app.feature.report.data.MissedBenefit
 import com.yamu.app.feature.report.data.MonthlySpend
 import com.yamu.app.feature.report.data.PaymentItem
@@ -26,6 +28,8 @@ import com.yamu.app.feature.report.data.ReportRepository
 import com.yamu.app.feature.report.data.periodLabel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import java.time.LocalDate
 import java.time.LocalTime
 import java.time.OffsetDateTime
@@ -181,14 +185,66 @@ class FakeReportRepository @Inject constructor(private val payments: FakePayment
 
     override suspend fun payments(page: Int): ApiResult<PaymentsPage> = withFault(empty = { ApiResult.Success(PaymentsPage(count = 0, amount = 0, items = emptyList(), page = page, hasNext = false)) }) { paymentsNow(page) }
 
+    /** 취소한 결제는 줄에 '취소'로 남고 합계에서 빠진다(BE: 합계는 승인 건만, 취소 건 혜택은 0원) */
     private suspend fun paymentsNow(page: Int): ApiResult<PaymentsPage> {
         delay(400)
-        val all = sessionItems() + seed
+        val all = (sessionItems() + seed).map { if (payments.isCanceled(it.paymentId)) it.copy(canceled = true, benefit = null) else it }
         val size = 20
         val from = (page - 1) * size
         if (from > all.size) return ApiResult.Failure(ApiError.InvalidRequest("INVALID_PAGE"))
         val items = all.drop(from).take(size)
-        return ApiResult.Success(PaymentsPage(all.size, 2_164_200 + sessionItems().sumOf { it.amount }, items, page, hasNext = from + size < all.size))
+        val canceledAmount = all.filter { it.canceled }.sumOf { it.amount }
+        return ApiResult.Success(PaymentsPage(all.size, 2_164_200 + sessionItems().sumOf { it.amount } - canceledAmount, items, page, hasNext = from + size < all.size))
+    }
+
+    /** 분 단위 고정 창마다 내려받은 횟수(BE PaymentExportService와 같은 분당 3번) */
+    private val exportsByMinute = mutableMapOf<Long, Int>()
+
+    override suspend fun exportCsv(): ApiResult<CsvFile> = withFault(empty = { ApiResult.Success(CsvFile(defaultCsvName(), FakeCsv.file(emptyList()))) }) { exportNow() }
+
+    private suspend fun exportNow(): ApiResult<CsvFile> {
+        delay(600)
+        val nowSec = System.currentTimeMillis() / 1_000
+        val count = exportsByMinute.merge(nowSec / 60, 1, Int::plus) ?: 1
+        if (count > 3) {
+            return ApiResult.Failure(ApiError.from(429, "RATE_LIMITED", buildJsonObject { put("retryAfterSeconds", 60 - nowSec % 60) }))
+        }
+        val month = YearMonth.now(KST)
+        val rows = (sessionItems() + seed)
+            .filter { it.date?.let(YearMonth::from) == month }   // 이번 달만(BE: 조건이 없으면 이번 달)
+            .map { item -> FakeCsv.row(item, payments.receiptOf(item.paymentId), canceled = payments.isCanceled(item.paymentId), memo = payments.memoOf(item.paymentId)) }
+        return ApiResult.Success(CsvFile(defaultCsvName(), FakeCsv.file(rows)))
+    }
+}
+
+/** 가짜 CSV — BE PaymentExportService와 같은 칸 · BOM · 수식 막기 */
+private object FakeCsv {
+    private const val HEADER = "결제일시,가맹점,업종,카드,카드번호,결제방식,할부,금액,혜택,청구예정액,상태,실적인정,소비분류,메모"
+    private val BOM = byteArrayOf(0xEF.toByte(), 0xBB.toByte(), 0xBF.toByte())
+
+    fun file(rows: List<String>): ByteArray = BOM + (listOf(HEADER) + rows).joinToString("") { "$it\r\n" }.toByteArray(Charsets.UTF_8)
+
+    fun row(item: PaymentItem, receipt: PaymentReceipt, canceled: Boolean, memo: String?): String = listOf(
+        "${item.date} ${item.time ?: "00:00"}",
+        item.merchant,
+        receipt.categoryName,
+        receipt.cardName,
+        receipt.cardLast4?.let { "****-****-****-$it" },
+        "야무 통합 바코드",
+        receipt.installmentMonths?.let { "${it}개월" } ?: "일시불",
+        item.amount.toString(),
+        if (canceled) "0" else (item.benefit ?: 0).toString(),
+        if (canceled) null else (receipt.billAmount ?: receipt.chargedAmount ?: item.amount).toString(),
+        if (canceled) "취소" else "승인",
+        if (!canceled && !item.excluded) "인정" else "미인정",
+        null,
+        memo,
+    ).joinToString(",") { cell(it) }
+
+    private fun cell(value: String?): String {
+        if (value.isNullOrEmpty()) return ""
+        val safe = if (value[0] in "=+-@\t\r") "'$value" else value
+        return if (safe.any { it == ',' || it == '"' || it == '\n' || it == '\r' }) "\"" + safe.replace("\"", "\"\"") + "\"" else safe
     }
 }
 

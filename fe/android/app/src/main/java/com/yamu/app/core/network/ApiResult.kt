@@ -7,6 +7,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonPrimitive
+import okhttp3.ResponseBody
 import retrofit2.Response
 import java.io.IOException
 
@@ -115,6 +116,20 @@ suspend fun apiCallNoData(block: suspend () -> Response<ApiEnvelope<JsonElement>
     val response = block()
     val body = response.body()
     if (response.isSuccessful && (body == null || body.success)) ApiResult.Success(Unit) else response.failure(body)
+}
+
+/** JSON으로 감싸지 않은 파일 응답(결제 내역 CSV). [contentDisposition]은 서버가 붙인 파일 이름 헤더 그대로 */
+class DownloadedFile(val bytes: ByteArray, val contentDisposition: String?)
+
+/** 성공하면 본문 바이트를 그대로 받고, 실패는 다른 API처럼 JSON 오류로 읽는다 */
+suspend fun apiCallFile(block: suspend () -> Response<ResponseBody>): ApiResult<DownloadedFile> = guarded {
+    val response = block()
+    val body = response.body()
+    when {
+        response.isSuccessful && body != null -> ApiResult.Success(DownloadedFile(body.bytes(), response.headers()["Content-Disposition"]))
+        response.isSuccessful -> ApiResult.Failure(ApiError.Unknown("EMPTY_DATA", response.code()))
+        else -> response.failure(null)
+    }
 }
 
 private inline fun <T> guarded(block: () -> ApiResult<T>): ApiResult<T> = try {

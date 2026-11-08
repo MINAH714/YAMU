@@ -2,6 +2,8 @@ package com.yamu.app.feature.report.data
 
 import com.yamu.app.core.format.KST
 import com.yamu.app.core.format.toWon
+import com.yamu.app.core.network.ApiError
+import com.yamu.app.core.ui.userMessage
 import com.yamu.app.feature.link.data.Brand
 import com.yamu.app.feature.link.data.IssuerDto
 import com.yamu.app.feature.link.data.brandOf
@@ -14,7 +16,7 @@ import java.time.format.TextStyle
 import java.util.Locale
 import kotlin.math.roundToInt
 
-// ── 서버 요청 · 응답 — #54 월간 소비 · #55 혜택 리포트 · #4 결제 내역. 13 문서 9·10-3 ──
+// ── 서버 요청 · 응답 — #54 월간 소비 · #55 혜택 리포트 · #4 결제 내역 · #63 CSV. 13 문서 9·10-3 ──
 
 @Serializable data class MonthlyReportDto(
     val yearMonth: String? = null,
@@ -74,6 +76,7 @@ import kotlin.math.roundToInt
     val benefitAmount: Long? = null,
     val benefitType: String? = null,            // 보완안 ③ — INSTANT_DISCOUNT · BILLING_DISCOUNT · POINT · CASHBACK
     val performanceRecognized: Boolean = true,
+    val memo: String? = null,                   // 결제 상세 응답엔 없어 여기서 받아 둔다(PaymentEdits)
 )
 
 @Serializable data class PaymentMerchantDto(val name: String, val categoryName: String? = null)
@@ -223,6 +226,36 @@ fun paymentDayLabel(date: LocalDate?, today: LocalDate = LocalDate.now(KST)): St
     val week = date.dayOfWeek.getDisplayName(TextStyle.SHORT, Locale.KOREAN)
     val base = "${date.monthValue}월 ${date.dayOfMonth}일 ($week)"
     return if (date == today) "$base · 오늘" else base
+}
+
+/** 결제 내역 CSV(#63) — 서버가 정한 파일 이름과 내용(UTF-8 BOM 포함) 그대로 */
+class CsvFile(val name: String, val bytes: ByteArray)
+
+/**
+ * Content-Disposition의 파일 이름. RFC 5987 `filename*=UTF-8''…`을 먼저 보고, 없으면 `filename="…"`.
+ * RFC 2047(`=?UTF-8?Q?…?=`)로 감싼 이름 · 경로가 섞인 이름은 쓰지 않고 [fallback]
+ */
+fun csvFileName(contentDisposition: String?, fallback: String): String {
+    val header = contentDisposition.orEmpty()
+    val extended = Regex("""filename\*\s*=\s*([^']*)'[^']*'([^;]+)""", RegexOption.IGNORE_CASE).find(header)?.let { m ->
+        val charset = m.groupValues[1].ifBlank { "UTF-8" }
+        runCatching { java.net.URLDecoder.decode(m.groupValues[2].trim().replace("+", "%2B"), charset) }.getOrNull()
+    }
+    val plain = Regex("""filename\s*=\s*"([^"]*)"""", RegexOption.IGNORE_CASE).find(header)?.groupValues?.get(1)
+        ?: Regex("""filename\s*=\s*([^";]+)""", RegexOption.IGNORE_CASE).find(header)?.groupValues?.get(1)?.trim()
+    return listOfNotNull(extended, plain)
+        .firstOrNull { it.isNotBlank() && !it.startsWith("=?") && '/' !in it && '\\' !in it }
+        ?: fallback
+}
+
+/** 서버가 이름을 주지 않았을 때 — 이번 달 */
+fun defaultCsvName(today: LocalDate = LocalDate.now(KST)): String = "yamu-payments-${YearMonth.from(today)}.csv"
+
+/** CSV 내려받기 실패 → 사용자 문장. 429는 남은 초까지 */
+fun exportErrorMessage(error: ApiError): String = when (error.code) {
+    "RATE_LIMITED" -> "내려받기는 1분에 3번까지예요. " + (error.detailInt("retryAfterSeconds")?.let { "${it}초 뒤 다시 눌러 주세요" } ?: "잠시 뒤 다시 눌러 주세요")
+    "RANGE_TOO_LARGE" -> "한 번에 내려받기엔 결제가 너무 많아요"
+    else -> error.userMessage()
 }
 
 /** 다음 쪽을 붙일 때 · 돌아와 첫 쪽을 다시 받을 때 — 같은 결제는 한 번만(새 결제가 맨 위로) */

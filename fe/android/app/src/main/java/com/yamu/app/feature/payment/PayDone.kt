@@ -1,9 +1,5 @@
 package com.yamu.app.feature.payment
 
-import androidx.compose.ui.text.withStyle
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.buildAnnotatedString
-import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.Alignment
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Arrangement
@@ -51,11 +47,9 @@ import com.yamu.app.core.format.parseDate
 import com.yamu.app.core.format.toWon
 import com.yamu.app.core.network.ApiResult
 import com.yamu.app.core.ui.userMessage
-import com.yamu.app.feature.link.BrandMark
 import com.yamu.app.feature.payment.data.PaymentReceipt
 import com.yamu.app.feature.payment.data.PaymentRepository
 import com.yamu.app.navigation.PayDone
-import com.yamu.app.navigation.PaymentDetail
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -69,12 +63,12 @@ import javax.inject.Inject
 data class ReceiptState(val loading: Boolean = true, val receipt: PaymentReceipt? = null, val error: String? = null)
 
 /** '10월 26일 09:38' */
-private fun formatPaidAt(iso: String?): String? = iso?.let {
+internal fun formatPaidAt(iso: String?): String? = iso?.let {
     runCatching { OffsetDateTime.parse(it).atZoneSameInstant(KST).format(DateTimeFormatter.ofPattern("M월 d일 HH:mm")) }.getOrNull()
 }
 
 /** '2026-11-16' → '11월 16일' */
-private fun formatDay(iso: String?): String? = parseDate(iso)?.let { "${it.monthValue}월 ${it.dayOfMonth}일" }
+internal fun formatDay(iso: String?): String? = parseDate(iso)?.let { "${it.monthValue}월 ${it.dayOfMonth}일" }
 
 // ───────────────────────── P-07 결제 완료 ─────────────────────────
 
@@ -193,98 +187,3 @@ private fun ReceiptLines(r: PaymentReceipt, onPerformance: ((Long) -> Unit)?) {
     }
 }
 
-// ───────────────────────── P-08 거래 상세 ─────────────────────────
-
-@HiltViewModel
-class PaymentDetailViewModel @Inject constructor(savedStateHandle: SavedStateHandle, private val payments: PaymentRepository) : ViewModel() {
-    private val paymentId = savedStateHandle.toRoute<PaymentDetail>().paymentId
-    private val _state = MutableStateFlow(ReceiptState())
-    val state: StateFlow<ReceiptState> = _state.asStateFlow()
-
-    init { load() }
-
-    fun load() {
-        viewModelScope.launch {
-            _state.update { it.copy(loading = true, error = null) }
-            when (val r = payments.detail(paymentId)) {
-                is ApiResult.Success -> _state.update { ReceiptState(loading = false, receipt = r.data) }
-                is ApiResult.Failure -> _state.update { ReceiptState(loading = false, error = r.error.userMessage()) }
-            }
-        }
-    }
-}
-
-@Composable
-fun PaymentDetailRoute(onBack: () -> Unit, viewModel: PaymentDetailViewModel = hiltViewModel()) {
-    val s by viewModel.state.collectAsStateWithLifecycle()
-    val c = YamuTheme.colors
-    val r = s.receipt
-    FlowScreen(title = "거래 상세", onBack = onBack, actions = { MockPayTag() }) { inner ->
-        Column(Modifier.padding(inner).consumeWindowInsets(inner).fillMaxSize().verticalScroll(rememberScrollState())) {
-            when {
-                s.loading -> Column(Modifier.padding(YamuSpacing.screen)) {
-                    repeat(4) {
-                        SkeletonBlock(height = 44.dp)
-                        Spacer(Modifier.height(YamuSpacing.x3))
-                    }
-                }
-                r == null -> ErrorState(s.error ?: "결제 내역을 불러오지 못했어요", onRetry = viewModel::load, modifier = Modifier.padding(YamuSpacing.screen))
-                else -> {
-                    // 가맹점 · 일시 → 금액 → 결과 한 줄('1,500원 할인받고 13,500원 청구 예정') — 위 12 · 사이 6(프로토타입 P-08 .hd)
-                    Column(Modifier.padding(start = YamuSpacing.screen, end = YamuSpacing.screen, top = 12.dp, bottom = 24.dp)) {
-                        Text(listOfNotNull(r.merchantName, formatPaidAt(r.paidAtIso)).joinToString(" · "), style = YamuTheme.typography.bodyL, color = c.text2)
-                        Spacer(Modifier.height(6.dp))
-                        AmountText(r.amount)
-                        val benefit = r.benefits.sumOf { it.amount }
-                        if (benefit > 0 && r.billAmount != null && !r.isCheck) {
-                            Spacer(Modifier.height(6.dp))
-                            Text(
-                                buildAnnotatedString {
-                                    append("${benefit.toWon()}원 할인받고 ")
-                                    withStyle(SpanStyle(fontWeight = FontWeight.Bold, color = c.text1)) { append("${r.billAmount.toWon()}원") }
-                                    append(" 청구 예정")
-                                },
-                                style = YamuTheme.typography.bodyM,
-                                color = c.text2,
-                            )
-                        }
-                    }
-                    HorizontalDivider(color = c.outlineVariant, modifier = Modifier.padding(horizontal = YamuSpacing.screen))
-                    Column(Modifier.padding(horizontal = YamuSpacing.screen, vertical = 12.dp)) {
-                        KeyValueRow(
-                            "결제 카드",
-                            listOfNotNull(r.cardName, r.cardLast4?.let { "•••• $it" }).joinToString(" "),
-                            large = false,
-                            valueLead = r.cardBrand?.let { b -> { BrandMark(b) } },
-                        )
-                        r.approvalNo?.let { KeyValueRow("승인번호", it, large = false) }
-                    }
-                    HorizontalDivider(color = c.outlineVariant, modifier = Modifier.padding(horizontal = YamuSpacing.screen))
-                    Column(Modifier.padding(horizontal = YamuSpacing.screen, vertical = 12.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(vertical = 8.dp)) {
-                            Text("혜택 · 실적", style = YamuTheme.typography.titleM, color = c.text1)
-                            EstimateTag(text = "추정치")
-                        }
-                        r.benefits.forEach { b -> KeyValueRow(b.name, "−${b.amount.toWon()}원", large = false, valueColor = c.primary) }
-                        if (r.perfRecognized != null) {
-                            val card = r.cardBrand?.name ?: "카드"
-                            val month = r.perfMonth?.let { "${it}월 " }.orEmpty()
-                            val total = r.perfTotalAfter
-                            val target = r.perfTarget
-                            KeyValueRow(
-                                "$card ${month}실적",
-                                when {
-                                    !r.perfCounted -> "이 결제는 빠져요"
-                                    total != null && target != null -> "${total.toWon()} / ${target.toWon()}원"
-                                    else -> "+${r.perfRecognized.toWon()}원"
-                                },
-                                large = false,
-                            )
-                        }
-                    }
-                }
-            }
-            Spacer(Modifier.height(YamuSpacing.x6))
-        }
-    }
-}

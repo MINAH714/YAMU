@@ -8,8 +8,12 @@ import com.yamu.app.core.session.HomeScenario
 import com.yamu.app.core.session.PayScenario
 import com.yamu.app.feature.link.data.brandOf
 import com.yamu.app.feature.payment.data.ApproveOutcome
+import com.yamu.app.feature.payment.data.CancelResult
 import com.yamu.app.feature.payment.data.CodeState
+import com.yamu.app.feature.payment.data.MemoRules
 import com.yamu.app.feature.payment.data.Merchant
+import com.yamu.app.feature.payment.data.PayStatus
+import com.yamu.app.feature.payment.data.PaymentEdits
 import com.yamu.app.feature.payment.data.PayCard
 import com.yamu.app.feature.payment.data.PayCode
 import com.yamu.app.feature.payment.data.PayCodeStatus
@@ -20,6 +24,10 @@ import com.yamu.app.feature.payment.data.ReceiptBenefit
 import com.yamu.app.feature.payment.data.Recommendation
 import com.yamu.app.feature.payment.data.declineMessage
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import java.time.LocalDate
 import java.time.OffsetDateTime
 import java.time.YearMonth
@@ -48,7 +56,10 @@ object FakeMerchants {
  * 실적 숫자(이번 달 285,000 / 300,000원)는 프로토타입 P-07 그대로.
  */
 @Singleton
-class FakePaymentRepository @Inject constructor(private val perf: FakePerformanceStore) : PaymentRepository {
+class FakePaymentRepository @Inject constructor(
+    private val perf: FakePerformanceStore,
+    private val edits: PaymentEdits,
+) : PaymentRepository {
 
     private class Issued(val code: PayCode, val issuedAt: Long, val scenario: PayScenario) {
         var request: PaymentRequest? = null
@@ -200,14 +211,77 @@ class FakePaymentRepository @Inject constructor(private val perf: FakePerformanc
 
     private suspend fun detailNow(paymentId: Long): ApiResult<PaymentReceipt> {
         delay(400)
-        val receipt = receipts[paymentId] ?: FakePaymentHistory.receipt(paymentId) ?: PaymentReceipt(   // 결제 내역(S-05)에 없는 예전 결제
-            paymentId = paymentId, merchantName = "스타벅스 역삼점", categoryName = "카페", amount = 15_000,
-            paidAtIso = OffsetDateTime.now(KST).minusHours(1).truncatedTo(ChronoUnit.MINUTES).toString(),
-            cardId = 11, cardBrand = toktok.brand, cardName = toktok.name, cardLast4 = "1021", isCheck = false,
-            approvalNo = "Y20261026093800938", installmentMonths = null, benefits = listOf(ReceiptBenefit("스타벅스 50% 청구할인", 7_500)),
-            chargedAmount = 15_000, balanceAfter = null, billDateIso = YearMonth.now(KST).plusMonths(1).atDay(14).toString(), billAmount = 7_500,
-            perfMonth = LocalDate.now(KST).monthValue, perfRecognized = 15_000, perfCounted = true, perfTotalAfter = 285_000, perfTarget = 300_000,
+        return ApiResult.Success(receiptOf(paymentId).withEdits())
+    }
+
+    /** 이번 실행의 결제 → 가짜 결제 내역 → 그 밖의 번호는 예전 스타벅스 결제(홈 최근 결제 · 알림에서 들어오는 번호) */
+    fun receiptOf(paymentId: Long): PaymentReceipt = receipts[paymentId] ?: FakePaymentHistory.receipt(paymentId) ?: PaymentReceipt(
+        paymentId = paymentId, merchantName = "스타벅스 역삼점", categoryName = "카페", amount = 15_000,
+        paidAtIso = OffsetDateTime.now(KST).minusHours(1).truncatedTo(ChronoUnit.MINUTES).toString(),
+        cardId = 11, cardBrand = toktok.brand, cardName = toktok.name, cardLast4 = "1021", isCheck = false,
+        approvalNo = "Y20261026093800938", installmentMonths = null, benefits = listOf(ReceiptBenefit("스타벅스 50% 청구할인", 7_500)),
+        chargedAmount = 15_000, balanceAfter = null, billDateIso = YearMonth.now(KST).plusMonths(1).atDay(14).toString(), billAmount = 7_500,
+        perfMonth = LocalDate.now(KST).monthValue, perfRecognized = 15_000, perfCounted = true, perfTotalAfter = 285_000, perfTarget = 300_000,
+    )
+
+    // ── 취소 · 메모 — BE PaymentCancelService · PaymentMemoRequest와 같은 규칙 ──
+
+    private val cancelLock = Mutex()
+    private val cancelResults = mutableMapOf<Long, CancelResult>()
+    private val cancelByKey = mutableMapOf<String, CancelResult>()
+    private val memos = mutableMapOf<Long, String>()
+
+    fun isCanceled(paymentId: Long): Boolean = paymentId in cancelResults
+
+    fun memoOf(paymentId: Long): String? = memos[paymentId]
+
+    private fun PaymentReceipt.withEdits(): PaymentReceipt {
+        val done = cancelResults[paymentId]
+        return copy(
+            memo = memos[paymentId],
+            status = if (done != null) PayStatus.CANCELED else status,
+            canceledAtIso = done?.canceledAtIso ?: canceledAtIso,
+            refunds = done?.refunds ?: refunds,
         )
-        return ApiResult.Success(receipt)
+    }
+
+    /** 디버그 메뉴 '은행 오류'면 502 — BE처럼 결제는 승인 상태로 남아 다시 취소할 수 있다 */
+    override suspend fun cancel(paymentId: Long, idempotencyKey: String): ApiResult<CancelResult> =
+        withFault { cancelLock.withLock { cancelNow(paymentId, idempotencyKey) } }
+
+    /** 한 줄로 세운다 — 같은 키는 처음 결과, 다른 키로 동시에 두 번이면 뒤 요청은 409 ALREADY_CANCELED */
+    private suspend fun cancelNow(paymentId: Long, key: String): ApiResult<CancelResult> {
+        delay(900)
+        cancelByKey[key]?.let { previous ->
+            return if (previous.paymentId == paymentId) ApiResult.Success(previous) else ApiResult.Failure(ApiError.Conflict("IDEMPOTENCY_KEY_REUSED"))
+        }
+        if (paymentId in cancelResults) return ApiResult.Failure(ApiError.Conflict("ALREADY_CANCELED"))
+        val receipt = receiptOf(paymentId)
+        if (receipt.isSeed) return ApiResult.Failure(ApiError.Conflict("PAYMENT_NOT_CANCELABLE", buildJsonObject { put("reason", "SEED_TRANSACTION") }))
+        val now = OffsetDateTime.now(KST).truncatedTo(ChronoUnit.SECONDS).toString()
+        val result = if (receipt.isCheck) {
+            // 체크카드 — 출금액을 연결 계좌로 바로 입금하고 입금 뒤 잔액
+            CancelResult(paymentId, now, excludedBills = 0, refunds = emptyList(), balanceAfter = (receipt.balanceAfter ?: 950_000) + (receipt.chargedAmount ?: receipt.amount))
+        } else {
+            // 신용카드 — 가짜 청구일은 다음 달이라 모두 청구 전 → 청구에서 빠진다
+            CancelResult(paymentId, now, excludedBills = receipt.installmentMonths ?: 1, refunds = emptyList(), balanceAfter = null)
+        }
+        cancelResults[paymentId] = result
+        cancelByKey[key] = result
+        if (receipts.containsKey(paymentId)) receipt.cardId?.let { perf.addPayment(it, -receipt.amount, counted = receipt.perfCounted) }   // 실적 되돌림
+        edits.changed()
+        return ApiResult.Success(result)
+    }
+
+    override suspend fun saveMemo(paymentId: Long, memo: String?): ApiResult<String?> = withFault { saveMemoNow(paymentId, memo) }
+
+    private suspend fun saveMemoNow(paymentId: Long, memo: String?): ApiResult<String?> {
+        delay(400)
+        val text = MemoRules.normalize(memo.orEmpty())
+        if (text.any { Character.isISOControl(it) }) return ApiResult.Failure(ApiError.InvalidRequest("INVALID_REQUEST"))
+        if (MemoRules.length(text) > MemoRules.MAX_LENGTH) return ApiResult.Failure(ApiError.InvalidRequest("MEMO_TOO_LONG"))
+        if (text.isEmpty()) memos.remove(paymentId) else memos[paymentId] = text
+        edits.changed()
+        return ApiResult.Success(text.ifEmpty { null })
     }
 }
