@@ -1,6 +1,8 @@
 package com.yamu.be.forecast;
 
+import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.hasSize;
+import static org.hamcrest.Matchers.not;
 import static org.hamcrest.Matchers.nullValue;
 import static org.hamcrest.Matchers.startsWith;
 import static org.mockito.ArgumentMatchers.any;
@@ -226,7 +228,10 @@ class PurchaseSimulationControllerTest extends MySqlTestSupport {
         // 추천 결과도 믿지 않고 내 카드인지 다시 확인한다(S15P31E103-333). 엔진 계약 위반이라 500이고, 남의 카드로 계산하지 않는다
         perform(bodyWithoutCard(accountA, "300000", "\"merchantCategoryCode\": \"SUPERMARKET\""))
                 .andExpect(status().isInternalServerError())
-                .andExpect(jsonPath("$.data").value(nullValue()));
+                .andExpect(jsonPath("$.data").value(nullValue()))
+                // 오류 메시지·상세에도 남의 카드 번호를 싣지 않는다(Codex 검토)
+                .andExpect(jsonPath("$.error.message").value(not(containsString(String.valueOf(strangerCard)))))
+                .andExpect(jsonPath("$.error.details").value(nullValue()));
         verify(balances, never()).getBalances(any(), anyList(), anyBoolean());
     }
 
