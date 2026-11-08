@@ -82,6 +82,8 @@ class ForecastScenarioIntegrationTest extends MySqlTestSupport {
     static final long RENT = 500_000L;
     static final long SALARY = 2_500_000L;
     static final long CONFIRMED_BILL = 80_000L;
+    /** 생활비(LIVING)로 분류되는 금액. 이 사용자의 직전 3개월 생활 결제 중앙값(4,000원)의 10배 이상이면 큰 지출(LARGE)이다. */
+    static final long GYM_FEE = 30_000L;
     /** 신용카드 1의 하루 사용액. 이번 이용기간(10/12~11/6) 26일치가 진행 중 청구서에 있다. */
     static final long CREDIT_DAILY = 4_000L;
     static final long ACCUMULATING_BILL = CREDIT_DAILY * 26;
@@ -110,7 +112,6 @@ class ForecastScenarioIntegrationTest extends MySqlTestSupport {
     long creditCard;
     long creditCard2;
     long gs25;
-    long rentItem;
 
     @BeforeAll
     void loadCatalog() throws Exception {
@@ -156,8 +157,8 @@ class ForecastScenarioIntegrationTest extends MySqlTestSupport {
         }
 
         // 예정 지출(월세)·예정 수입(월급), 둘 다 A 계좌
-        rentItem = cashflows.create(owner, new CashflowService.CreateCommand("월세", CashflowItem.Direction.EXPENSE,
-                RENT, RENT_DAY, CashflowItem.RecurrenceType.NONE, null, null, null, accountA, null, null, null)).id();
+        cashflows.create(owner, new CashflowService.CreateCommand("월세", CashflowItem.Direction.EXPENSE,
+                RENT, RENT_DAY, CashflowItem.RecurrenceType.NONE, null, null, null, accountA, null, null, null));
         cashflows.create(owner, new CashflowService.CreateCommand("월급", CashflowItem.Direction.INCOME, SALARY, PAYDAY,
                 CashflowItem.RecurrenceType.NONE, null, null, null, accountA, null, null, null));
     }
@@ -214,13 +215,32 @@ class ForecastScenarioIntegrationTest extends MySqlTestSupport {
     }
 
     @Test
-    void 실제_결제와_연결된_예정_지출은_청구와_두_번_빠지지_않고_같은_시뮬레이션은_다시_불러도_결과가_같다() throws Exception {
-        // 사용자가 월세 회차를 실제 결제와 연결했다 → 예정 지출에서 빼고 실제 결제·청구 쪽이 대신한다
-        long occurrence = occurrence(owner, rentItem, RENT_DAY);
-        matchPayment(owner, occurrence, payment(owner, checkCard, RENT, LocalDate.of(2026, 11, 5), "YAMU"));
+    void 매칭_API로_실제_결제와_연결한_카드_예정_지출은_예정_차감과_생활비에서_한_번만_빠지고_같은_시뮬레이션은_다시_불러도_같다()
+            throws Exception {
+        // 체크카드로 낼 헬스장 회비(11/10)를 예정 지출로 적어 두고, 11/5에 그 카드로 미리 결제했다.
+        // 가맹점은 시나리오 공통 GS25다. 예정 지출에 업종을 지정하지 않아 매칭 판정에는 영향이 없다.
+        long gymItem = cashflows.create(owner, new CashflowService.CreateCommand("헬스장 회비",
+                CashflowItem.Direction.EXPENSE, GYM_FEE, RENT_DAY, CashflowItem.RecurrenceType.NONE, null, null, null,
+                null, checkCard, null, null)).id();
+        long gymPayment = payment(owner, checkCard, GYM_FEE, LocalDate.of(2026, 11, 5), "YAMU");
 
+        // 연결 전: 예정 지출로 한 번, 생활비(체크카드 결제)로 한 번 빠진다
+        String unmatched = forecast(accountA, 30);
+        assertThat(lineOn(unmatched, RENT_DAY, "confirmed")).isEqualTo(BALANCE - RENT - CONFIRMED_BILL - GYM_FEE);
+
+        mockMvc.perform(post("/api/cashflow-payment-matches").with(AuthUsers.asUser(owner))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"cashflowItemId\": %d, \"occurrenceDate\": \"%s\", \"paymentId\": %d}"
+                                .formatted(gymItem, RENT_DAY, gymPayment)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.warnings").isEmpty())
+                .andExpect(jsonPath("$.data.forecastTreatment").value("ACTUAL_PAYMENT_ONLY"));
+
+        // 연결 뒤: 예정 차감에서 빠지고, 그 결제는 생활비 계산에서도 빠진다
         String forecast = forecast(accountA, 30);
-        assertThat(lineOn(forecast, RENT_DAY, "confirmed")).isEqualTo(BALANCE - CONFIRMED_BILL);
+        assertThat(lineOn(forecast, RENT_DAY, "confirmed")).isEqualTo(BALANCE - RENT - CONFIRMED_BILL);
+        assertThat(((Number) JsonPath.read(forecast, "$.data.livingCost.projectedAmount")).longValue())
+                .isLessThan(((Number) JsonPath.read(unmatched, "$.data.livingCost.projectedAmount")).longValue());
 
         String first = simulate(checkPurchase(300_000));
         String second = simulate(checkPurchase(300_000));
@@ -417,20 +437,6 @@ class ForecastScenarioIntegrationTest extends MySqlTestSupport {
         insert("bill_item", "bill_item_id", Map.of("payment_transaction_id", payment, "user_id", user,
                 "user_card_id", card, "card_bill_id", cardBill, "installment_no", 1, "billing_month", month,
                 "principal_amount", principal, "status", "PENDING"));
-    }
-
-    /** 가계부가 항목을 만들 때 넣어 둔 그 날짜의 회차 행. */
-    private long occurrence(long user, long item, LocalDate date) {
-        return jdbc.queryForObject("SELECT cashflow_occurrence_id FROM cashflow_occurrence "
-                + "WHERE user_id = ? AND cashflow_item_id = ? AND occurrence_date = ?", Long.class, user, item, date);
-    }
-
-    private void matchPayment(long user, long occurrence, long payment) {
-        LocalDateTime now = LocalDateTime.of(2026, 11, 5, 1, 0);
-        new SimpleJdbcInsert(jdbc).withTableName("cashflow_payment_match")
-                .usingColumns("user_id", "cashflow_occurrence_id", "payment_transaction_id", "matched_at", "created_at")
-                .execute(Map.of("user_id", user, "cashflow_occurrence_id", occurrence,
-                        "payment_transaction_id", payment, "matched_at", now, "created_at", now));
     }
 
     /** 가상 구매가 바꾸면 안 되는 표들의 이 사용자 행. */
