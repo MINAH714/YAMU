@@ -1,5 +1,7 @@
 package com.yamu.be.forecast;
 
+import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
+import com.yamu.be.cashflow.IntegralNumberDeserializers;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonSetter;
 import com.yamu.be.global.exception.ErrorCode;
@@ -35,8 +37,12 @@ public class SimulationRequest {
     @JsonIgnore
     private boolean installmentMonthsPresent;
     private BigDecimal days;
+    /** 문자열로 받는다. enum으로 받으면 Jackson이 숫자를 순번으로 읽어 {@code 0}이 NEXT_INCOME이 된다. */
+    private String until;
+    private String paymentChannel;
 
     @JsonSetter("accountIds")
+    @JsonDeserialize(contentUsing = IntegralNumberDeserializers.LongValue.class)
     public void setAccountIds(List<Long> accountIds) {
         this.accountIds = accountIds;
     }
@@ -67,6 +73,7 @@ public class SimulationRequest {
     }
 
     @JsonSetter("merchantId")
+    @JsonDeserialize(using = IntegralNumberDeserializers.LongValue.class)
     public void setMerchantId(Long merchantId) {
         this.merchantId = merchantId;
     }
@@ -77,6 +84,7 @@ public class SimulationRequest {
     }
 
     @JsonSetter("userCardId")
+    @JsonDeserialize(using = IntegralNumberDeserializers.LongValue.class)
     public void setUserCardId(Long userCardId) {
         this.userCardId = userCardId;
     }
@@ -96,6 +104,28 @@ public class SimulationRequest {
     @JsonSetter("days")
     public void setDays(BigDecimal days) {
         this.days = days;
+    }
+
+    @JsonSetter("until")
+    public void setUntil(String until) {
+        this.until = until;
+    }
+
+    @JsonSetter("paymentChannel")
+    public void setPaymentChannel(String paymentChannel) {
+        this.paymentChannel = paymentChannel;
+    }
+
+    /**
+     * 결제 채널(ONLINE·OFFLINE). 혜택의 온라인·매장 조건 판정에 쓴다. 필수이고 다른 값은 400 INVALID_REQUEST다
+     * (2026-11-05 결정, 화면 기본값은 OFFLINE).
+     */
+    String paymentChannel() {
+        if (!"ONLINE".equals(paymentChannel) && !"OFFLINE".equals(paymentChannel)) {
+            throw PaymentTerms.invalid(ErrorCode.INVALID_REQUEST, "paymentChannel",
+                    "결제 방식(온라인·매장)을 골라 주세요.");
+        }
+        return paymentChannel;
     }
 
     List<Long> accountIds() {
@@ -176,6 +206,23 @@ public class SimulationRequest {
             }
         }
         return new PaymentTerms(won, paymentPlan, months);
+    }
+
+    /**
+     * 기간 기준(NEXT_INCOME·DAYS). 없으면 null이고 잔고예보 설정을 따른다. 잔고예보 조회의 {@code until}과 같은 뜻이라
+     * 같은 until·days로 부른 두 API의 기간이 같다(S15P31E103-318).
+     */
+    BalanceForecast.Until until() {
+        if (until == null) {
+            return null;
+        }
+        for (BalanceForecast.Until value : BalanceForecast.Until.values()) {
+            if (value.name().equals(until)) {
+                return value;
+            }
+        }
+        // 숫자(0·1)나 다른 문자열은 순번·대소문자로 맞춰 보지 않고 거절한다(Codex 검토, 2026-11-06).
+        throw PaymentTerms.invalid(ErrorCode.INVALID_REQUEST, "until", "기간 기준은 NEXT_INCOME 또는 DAYS입니다.");
     }
 
     /** 비교 기간(7·14·30). 없으면 null(잔고예보 설정). 정수가 아니면 거절한다. 값의 범위는 잔고예보 기간 검사가 본다. */

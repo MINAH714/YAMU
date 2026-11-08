@@ -90,6 +90,10 @@ class CardManagementIntegrationTest extends MySqlTestSupport {
         jdbc.update("DELETE FROM card_bill");
         jdbc.update("DELETE FROM card_monthly_performance");
         jdbc.update("DELETE FROM user_card");
+        jdbc.update("DELETE FROM tier_limit");
+        jdbc.update("DELETE FROM benefit_limit_link");
+        jdbc.update("DELETE FROM limit_group");
+        jdbc.update("DELETE FROM card_benefit");
         jdbc.update("DELETE FROM card_product");
         jdbc.update("DELETE FROM linked_account");
         jdbc.update("DELETE FROM step_up_audit_log");
@@ -175,6 +179,79 @@ class CardManagementIntegrationTest extends MySqlTestSupport {
         get(member, "/api/cards/" + others).andExpect(errorCode(404, "RESOURCE_NOT_FOUND"));
         get(member, "/api/cards/" + pending).andExpect(errorCode(404, "RESOURCE_NOT_FOUND"));
         patch(member, others, "{\"nickname\":\"내 카드\"}").andExpect(errorCode(404, "RESOURCE_NOT_FOUND"));
+    }
+
+    @Test
+    void 목표_실적은_이번_달_실적보다_큰_가장_작은_기준이고_주요_혜택은_실적_조건_낮은_순으로_3개까지다() throws Exception {
+        long credit = card(member.userId(), creditProduct, "4570000011111234", "ACTIVE", 14, account, 1);
+        long check = card(member.userId(), checkProduct, "9410123456785678", "ACTIVE", null, account, 2);
+        YearMonth month = YearMonth.now(ZoneId.of("Asia/Seoul"));
+        benefit(creditProduct, "CVS", 1, "편의점 할인", "0.10", 0, null);
+        benefit(creditProduct, "OIL", 1, "주유 할인", "0.05", 0, null);
+        long cafe = benefit(creditProduct, "CAFE", 1, "카페 할인", "0.20", 300_000, null);
+        benefit(creditProduct, "MOVIE", 1, "영화 할인", "0.30", 500_000, null);
+        long group = limitGroup(creditProduct, "CAFE_MONTHLY");
+        link(creditProduct, cafe, group);
+        tier(group, 300_000, 700_000L, 10_000);
+        tier(group, 700_000, null, 20_000);
+        benefit(checkProduct, "CAFE", 1, "카페 10% 할인", "0.10", 300_000, null);
+        performance(credit, month, 280_000);
+        performance(check, month, 800_000);
+
+        get(member, "/api/cards")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.cards[0].userCardId").value(credit))
+                .andExpect(jsonPath("$.data.cards[0].mainBenefits.length()").value(3))
+                .andExpect(jsonPath("$.data.cards[0].mainBenefits[0]").value("편의점 할인"))
+                .andExpect(jsonPath("$.data.cards[0].mainBenefits[1]").value("주유 할인"))
+                .andExpect(jsonPath("$.data.cards[0].mainBenefits[2]").value("카페 할인"))
+                .andExpect(jsonPath("$.data.cards[0].performance.yearMonth").value(month.toString()))
+                .andExpect(jsonPath("$.data.cards[0].performance.recognizedAmount").value(280_000))
+                .andExpect(jsonPath("$.data.cards[0].performance.targetAmount").value(300_000))
+                .andExpect(jsonPath("$.data.cards[0].performance.achievementRate").value(93.3))
+                .andExpect(jsonPath("$.data.cards[0].performance.remainingAmount").value(20_000))
+                // 기준(30만·50만·70만)을 다 넘으면 가장 큰 기준으로 100%
+                .andExpect(jsonPath("$.data.cards[1].mainBenefits[0]").value("카페 10% 할인"))
+                .andExpect(jsonPath("$.data.cards[1].performance.targetAmount").value(300_000))
+                .andExpect(jsonPath("$.data.cards[1].performance.achievementRate").value(100.0))
+                .andExpect(jsonPath("$.data.cards[1].performance.remainingAmount").value(0));
+
+        jdbc.update("UPDATE card_monthly_performance SET recognized_amount = 550000 WHERE user_card_id = ?"
+                + " AND performance_month = ?", credit, Date.valueOf(month.atDay(1)));
+        get(member, "/api/cards")
+                .andExpect(jsonPath("$.data.cards[0].performance.targetAmount").value(700_000))
+                .andExpect(jsonPath("$.data.cards[0].performance.achievementRate").value(78.5))
+                .andExpect(jsonPath("$.data.cards[0].performance.remainingAmount").value(150_000));
+    }
+
+    @Test
+    void 실적_기준이_없으면_목표는_비고_유효하지_않거나_버전이_겹친_혜택과_남의_상품_혜택은_보이지_않는다() throws Exception {
+        long credit = card(member.userId(), creditProduct, "4570000011111234", "ACTIVE", 14, account, 1);
+        long check = card(member.userId(), checkProduct, "9410123456785678", "ACTIVE", null, account, 2);
+        LocalDate today = LocalDate.now(ZoneId.of("Asia/Seoul"));
+        benefit(creditProduct, "BASE", 1, "기본 청구 할인", "0.01", 0, null);
+        // 같은 코드의 두 버전이 모두 유효해 보이면 어느 쪽이 현행인지 몰라 뺀다
+        benefit(creditProduct, "TAXI", 1, "택시 할인", "0.10", 0, null);
+        benefit(creditProduct, "TAXI", 2, "택시 할인 개정", "0.05", 0, null);
+        // 끝난 혜택
+        benefit(creditProduct, "OLD", 1, "끝난 할인", "0.50", 0, today);
+        long otherProduct = product("KB", "다른 상품", "CREDIT", 14);
+        benefit(otherProduct, "OTHER", 1, "다른 상품 할인", "0.30", 300_000, null);
+        performance(credit, YearMonth.from(today), 120_000);
+
+        get(member, "/api/cards")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.cards[0].userCardId").value(credit))
+                .andExpect(jsonPath("$.data.cards[0].mainBenefits.length()").value(1))
+                .andExpect(jsonPath("$.data.cards[0].mainBenefits[0]").value("기본 청구 할인"))
+                .andExpect(jsonPath("$.data.cards[0].performance.recognizedAmount").value(120_000))
+                .andExpect(jsonPath("$.data.cards[0].performance.targetAmount").doesNotExist())
+                .andExpect(jsonPath("$.data.cards[0].performance.achievementRate").doesNotExist())
+                .andExpect(jsonPath("$.data.cards[0].performance.remainingAmount").doesNotExist())
+                // 혜택도 실적 행도 없는 카드
+                .andExpect(jsonPath("$.data.cards[1].userCardId").value(check))
+                .andExpect(jsonPath("$.data.cards[1].mainBenefits.length()").value(0))
+                .andExpect(jsonPath("$.data.cards[1].performance").doesNotExist());
     }
 
     // ───────── 상세 ─────────
@@ -715,6 +792,40 @@ class CardManagementIntegrationTest extends MySqlTestSupport {
                 "period_start", Date.valueOf(cycle.periodStart()), "period_end", Date.valueOf(cycle.periodEnd()),
                 "withdrawal_date", Date.valueOf(cycle.paymentDate()), "status", "ACCUMULATING",
                 "created_at", now(), "updated_at", now()));
+    }
+
+    /** 혜택 정책 버전. validUntil(미포함)이 null이면 종료일 미확인 */
+    private long benefit(long product, String code, int version, String name, String rate, long minPerformance,
+            LocalDate validUntil) {
+        Map<String, Object> values = new HashMap<>(Map.of("card_product_id", product, "benefit_code", code,
+                "policy_version", version, "benefit_name", name, "benefit_type", "DISCOUNT",
+                "calculation_type", "RATE", "rate", new java.math.BigDecimal(rate), "value_unit", "KRW",
+                "min_performance_amount", minPerformance, "created_at", now()));
+        if (validUntil != null) {
+            values.put("valid_from", Date.valueOf(validUntil.minusMonths(6)));
+            values.put("valid_until", Date.valueOf(validUntil));
+        }
+        return insert("card_benefit", "card_benefit_id", values);
+    }
+
+    private long limitGroup(long product, String code) {
+        return insert("limit_group", "limit_group_id", Map.of("card_product_id", product, "group_code", code,
+                "policy_version", 1, "group_name", code, "period_type", "MONTHLY", "limit_unit", "KRW",
+                "created_at", now()));
+    }
+
+    private void link(long product, long benefit, long group) {
+        insert("benefit_limit_link", "benefit_limit_link_id", Map.of("card_product_id", product,
+                "card_benefit_id", benefit, "limit_group_id", group, "created_at", now()));
+    }
+
+    private void tier(long group, long min, Long max, long limit) {
+        Map<String, Object> values = new HashMap<>(Map.of("limit_group_id", group, "min_performance_amount", min,
+                "limit_value", limit, "created_at", now()));
+        if (max != null) {
+            values.put("max_performance_amount", max);
+        }
+        insert("tier_limit", "tier_limit_id", values);
     }
 
     private List<Long> defaults() {

@@ -146,16 +146,11 @@ fun CashflowEntryDto.toEntry(): CashflowEntry? {
 data class CashflowRow(val date: LocalDate?, val title: String, val amount: Long, val repeatLabel: String?, val entry: CashflowEntry?)
 
 /**
- * F-02 줄 합치기 — 가계부 회차(고칠 수 있음) + 예보의 카드대금(읽기 전용). 다음 월급이 가계부에 없으면 예보 값으로 맨 끝에.
- * 날짜는 서버가 준 값 그대로 쓰고 다시 계산하지 않는다
+ * F-02 줄 합치기 — 가계부 회차(고칠 수 있음) + 예보의 카드 청구(읽기 전용).
+ * 카드 사용 예상(보수적 선 전용 추정)은 예정된 돈이 아니라 넣지 않는다. 날짜는 서버가 준 값 그대로 쓰고 다시 계산하지 않는다
  */
 fun cashflowRows(entries: List<CashflowEntry>, forecast: Forecast?): List<CashflowRow> {
     val fromItems = entries.map { e -> CashflowRow(e.date, e.title, e.signedAmount, e.repeatLabel(), e) }
     val bills = forecast?.upcoming.orEmpty().filter { it.isCardBill }.map { CashflowRow(it.date, it.title, it.amount, null, null) }
-    val incomeDate = forecast?.incomeDate
-    val incomeListed = incomeDate != null && entries.any { it.isIncome && it.date == incomeDate }
-    val income = if (forecast != null && incomeDate != null && !incomeListed && (forecast.incomeAmount ?: 0) > 0) {
-        listOf(CashflowRow(incomeDate, forecast.incomeTitle, forecast.incomeAmount ?: 0, null, null))
-    } else emptyList()
-    return (fromItems + bills + income).sortedWith(compareBy({ it.date }, { it.entry?.itemId ?: Long.MAX_VALUE }))
+    return (fromItems + bills).sortedWith(compareBy({ it.date }, { it.entry?.itemId ?: Long.MAX_VALUE }))
 }

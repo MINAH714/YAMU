@@ -14,22 +14,18 @@ import java.time.LocalDate
 class MyMapperTest {
     private val today = LocalDate.parse("2026-10-27")
 
-    @Test fun `이메일 가림 — 앞 2글자 + 별 + 도메인`() {
-        assertEquals("ya***@example.com", maskEmail("yamu.kim@example.com"))
-        assertEquals("a***@x.com", maskEmail("a@x.com"))
-        assertEquals("no-at-sign", maskEmail("no-at-sign"))
-        assertNull(maskEmail(""))
-        assertNull(maskEmail(null))
-    }
-
     @Test fun `내 정보 — v0_3_1 설정이 없으면 기본값(1분 · 지문 또는 간편 비밀번호 · 자동 선택 켜짐)`() {
+        // GET /users/me(BE !113) 응답 모양 그대로 — 모르는 칸(onboarding · createdAt · pinSet …)은 버린다
         val full = YamuJson.decodeFromString(
             UserInfoDto.serializer(),
-            """{"userId":1,"email":"yamu.kim@example.com","name":"김야무",
-               "securitySettings":{"autoLockSeconds":300,"barcodeAuthMethod":"PIN_ONLY","biometricEnabled":true,"currentDevice":{"userDeviceId":7,"deviceName":"Galaxy S24"}},
-               "paymentSettings":{"autoSelect":false,"defaultUserCardId":12},"phone":"010"}""",
+            """{"userId":1,"maskedPhone":"010-****-5678","name":"김야무",
+               "onboarding":{"cardRegistered":true,"primaryAccountSet":true,"completed":true},
+               "securitySettings":{"autoLockSeconds":300,"setupGraceSeconds":300,"barcodeAuthGraceSeconds":60,"barcodeAuthMethod":"PIN_ONLY",
+                 "biometricEnabled":true,"pinSet":true,"currentDevice":{"userDeviceId":7,"deviceName":"Galaxy S24"}},
+               "paymentSettings":{"autoSelect":false,"defaultUserCardId":12},"createdAt":"2026-11-01T00:00:00Z"}""",
         ).toMyInfo()
         assertEquals("김야무", full.name)
+        assertEquals("010-****-5678", full.maskedPhone)
         assertEquals(300, full.autoLockSeconds)
         assertTrue(full.pinOnlyForCode)
         assertTrue(full.biometricEnabled)
@@ -41,6 +37,7 @@ class MyMapperTest {
         assertFalse(bare.pinOnlyForCode)
         assertTrue(bare.autoSelect)
         assertNull(bare.currentDeviceId)
+        assertNull(bare.maskedPhone)
     }
 
     @Test fun `알림 설정 — 받는 시각은 실적 · 잔액 공통, 없으면 오전 8시 30분`() {

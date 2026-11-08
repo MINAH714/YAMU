@@ -15,7 +15,7 @@ import java.util.Locale
 
 @Serializable data class UserInfoDto(
     val userId: Long? = null,
-    val email: String? = null,
+    val maskedPhone: String? = null,                     // 010-****-5678. 이메일은 오지 않는다(DEC-001)
     val name: String? = null,
     val securitySettings: SecuritySettingsDto? = null,   // v0.3.1
     val paymentSettings: PaymentSettingsDto? = null,     // v0.3.1
@@ -81,7 +81,7 @@ import java.util.Locale
 
 data class MyInfo(
     val name: String,
-    val email: String?,
+    val maskedPhone: String?,
     val autoLockSeconds: Int,
     val pinOnlyForCode: Boolean,
     val biometricEnabled: Boolean,
@@ -131,17 +131,9 @@ fun withdrawErrorMessage(code: String): String? = when (code) {
     else -> null
 }
 
-/** 'yamu.kim@example.com' → 'ya***@example.com' */
-fun maskEmail(email: String?): String? {
-    if (email.isNullOrBlank()) return null
-    val at = email.indexOf('@')
-    if (at <= 0) return email
-    return email.take(minOf(2, at)) + "***" + email.substring(at)
-}
-
 fun UserInfoDto.toMyInfo() = MyInfo(
     name = name ?: "야무",
-    email = email,
+    maskedPhone = maskedPhone?.takeIf { it.isNotBlank() },
     autoLockSeconds = securitySettings?.autoLockSeconds ?: 60,
     pinOnlyForCode = securitySettings?.barcodeAuthMethod.equals("PIN_ONLY", ignoreCase = true),
     biometricEnabled = securitySettings?.biometricEnabled ?: false,

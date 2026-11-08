@@ -30,7 +30,12 @@ public record ExcludedItem(Long cashflowItemId, Long cardBillId, LocalDate occur
         /** 오늘 예정 수입. 현재 잔액에 이미 들어왔는지 알 수 없어 두 번 더하지 않도록 뺐다. */
         TODAY_INCOME_UNVERIFIED,
         /** 출금에 실패한 미납 청구. 재출금 일정이 정해지지 않아 차감하지 않았다(FR-069 미정). */
-        UNPAID_BILL
+        UNPAID_BILL,
+        /**
+         * 신용카드의 지난 3개월 사용 기록(완료한 달)이 없어 이번 이용기간 마감까지 쓸 금액을 추정하지 못했다.
+         * 보수적 선이 실제보다 높을 수 있다. 출금일이 예보 기간 안인 카드만 알린다.
+         */
+        CREDIT_SPENDING_UNKNOWN
     }
 
     static ExcludedItem of(CashflowService.Entry entry, Reason reason) {

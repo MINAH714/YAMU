@@ -26,6 +26,11 @@ class PayFormatTest {
         assertNull(secondsUntil("곧", now))
     }
 
+    @Test fun `서버 시각을 epoch 밀리초로 — 못 읽으면 null`() {
+        assertEquals(Instant.parse("2026-10-26T05:33:00Z").toEpochMilli(), epochMillisOrNull("2026-10-26T14:33:00+09:00"))
+        assertNull(epochMillisOrNull("곧"))
+    }
+
     @Test fun `찍은 값에서 토큰 꺼내기 — QR · 바코드 · 손 입력`() {
         assertEquals("YAMU8F2A9C1D7E", parseScannedCode("yamu://pay/YAMU8F2A9C1D7E"))
         assertEquals("YAMU8F2A9C1D7E", parseScannedCode("YAMU8F2A9C1D7E"))

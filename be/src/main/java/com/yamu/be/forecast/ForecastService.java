@@ -4,11 +4,14 @@ import com.yamu.be.account.AccountBalance;
 import com.yamu.be.account.AccountBalanceService;
 import com.yamu.be.account.AccountQueryService;
 import com.yamu.be.card.CardQueryService;
+import com.yamu.be.card.UserCardRef;
 import com.yamu.be.cashflow.CashflowItem;
 import com.yamu.be.cashflow.CashflowService;
 import com.yamu.be.global.common.ApiResponse.FieldErrorResponse;
 import com.yamu.be.global.exception.BusinessException;
 import com.yamu.be.global.exception.ErrorCode;
+import com.yamu.be.payment.billing.BillStatus;
+import com.yamu.be.payment.billing.CardBillRepository;
 import java.time.Clock;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -34,6 +37,8 @@ import org.springframework.stereotype.Service;
  * <p>잔액·카드는 BE 1 서비스, 신용카드 출금일은 BE 2 청구 주기({@link CreditWithdrawalSchedule})를 쓴다. 청구({@link CardBillReader})는
  * BE 2 원천(진행 중·확정·미납 청구, {@code OutstandingCardBillReader})이고, 생활비({@link LivingCostReader})는 체크카드 LIVING 결제({@link PaymentLivingCostReader})다. 안전 잔액·기간 기본값은
  * 잔고예보 설정({@link ForecastSettingsStore})에서, 다음 월급일은 설정의 월급 항목({@link ForecastSettingsService})에서 읽는다.
+ * 이번 이용기간 마감까지 쓸 신용카드 금액은 카드별 신용 LIVING 일평균으로 추정해 보수적 선에만 뺀다({@link CreditSpendingEstimator}).
+ * 잔고예보와 생활비 상세는 응답 직전에 계좌별 예상 생활비를 이력으로 남긴다({@link LivingCostPredictionLog}). 가상 구매 재료({@link #prepare})는 남기지 않는다.
  */
 @Service
 public class ForecastService {
@@ -60,12 +65,17 @@ public class ForecastService {
     private final ForecastSettingsStore settings;
     private final ForecastSettingsService settingsService;
     private final LivingCostProjector projector;
+    private final CreditSpendingReader creditSpending;
+    private final CardNameReader cardNames;
+    private final CardBillRepository cardBills;
+    private final LivingCostPredictionLog predictionLog;
     private final Clock clock;
 
     ForecastService(CashflowService cashflows, AccountBalanceService balances, CardBillReader bills,
             CardQueryService cards, CreditWithdrawalSchedule creditSchedule, LivingCostReader livingCosts,
             AccountQueryService accounts, ForecastSettingsStore settings, ForecastSettingsService settingsService,
-            LivingCostProjector projector, Clock clock) {
+            LivingCostProjector projector, CreditSpendingReader creditSpending, CardNameReader cardNames, CardBillRepository cardBills,
+            LivingCostPredictionLog predictionLog, Clock clock) {
         this.cashflows = cashflows;
         this.balances = balances;
         this.bills = bills;
@@ -76,6 +86,10 @@ public class ForecastService {
         this.settings = settings;
         this.settingsService = settingsService;
         this.projector = projector;
+        this.creditSpending = creditSpending;
+        this.cardNames = cardNames;
+        this.cardBills = cardBills;
+        this.predictionLog = predictionLog;
         this.clock = clock;
     }
 
@@ -128,6 +142,8 @@ public class ForecastService {
                 history.dailyAverage(), history.monthlyAverage(), projected.method(), projected.dataOrigin(),
                 projected.confidence());
         long currentTotal = startBalances.values().stream().reduce(0L, Math::addExact);
+        predictionLog.record(authenticatedUserId, horizon.from(), horizon.days(),
+                living.projection().byAccount().values());
         return new BalanceForecast(selected, selected.size(), currentTotal, horizon, alertThreshold, summary,
                 series(projection.total()), aggregate.windows(), livingCost, accountForecasts,
                 List.copyOf(prepared.excluded()), true, now());
@@ -159,6 +175,7 @@ public class ForecastService {
         List<FlowEvent> events = new ArrayList<>(converted.events());
         List<ExcludedItem> excluded = new ArrayList<>(converted.excluded());
         events.addAll(billEvents(authenticatedUserId, selected, selectedSet, horizon, excluded));
+        events.addAll(creditSpendingEvents(authenticatedUserId, selected, selectedSet, horizon, excluded));
 
         Map<Long, Long> startBalances = new LinkedHashMap<>();
         Map<Long, Long> dailyLiving = new HashMap<>();
@@ -221,6 +238,7 @@ public class ForecastService {
         LivingCostForecast.PaceCheck pace = total.pace() == null ? null
                 : new LivingCostForecast.PaceCheck(total.pace().thisMonthDaily(), total.pace().averageDaily(),
                         total.pace().overRatio(), total.pace().flagged(), now());
+        predictionLog.record(authenticatedUserId, horizon.from(), horizon.days(), projection.byAccount().values());
         return new LivingCostForecast(selected, projected.projectedAmount(), total.dailyAverage(),
                 total.monthlyAverage(), projected.method(), projected.dataOrigin(), projected.confidence(),
                 new LivingCostForecast.Period(horizon.from(), horizon.to(), horizon.days(), horizon.type()),
@@ -276,13 +294,16 @@ public class ForecastService {
                 aggregate.minBalanceDate(), aggregate.endBalance(), atRisk > 0, atRisk, largestOutflow(total));
     }
 
-    /** 통합 출금 합이 가장 큰 날. 같으면 이른 날이다. */
+    /**
+     * 통합 예정 출금 합이 가장 큰 날. 같으면 이른 날이다. 보수적 선에만 넣는 추정(마감 전 신용카드 사용)은 예정 출금이 아니라
+     * 세지 않는다(2026-11-06 결정, -286).
+     */
     private static BalanceForecast.Outflow largestOutflow(List<ForecastCalculator.BalancePoint> total) {
         BalanceForecast.Outflow largest = null;
         for (ForecastCalculator.BalancePoint point : total) {
             long outflow = 0;
             for (FlowEvent event : point.events()) {
-                if (event.amount() < 0) {
+                if (event.amount() < 0 && event.confidence() != FlowEvent.Confidence.CONSERVATIVE) {
                     outflow = Math.addExact(outflow, event.amount());
                 }
             }
@@ -397,8 +418,8 @@ public class ForecastService {
                     events.add(billEvent(bill, date, FlowEvent.Confidence.CONFIRMED));
                 }
                 case ACCUMULATING -> {
-                    // 청구 확정·출금 배치(-206·-207)가 없어 출금일이 지나도 진행 중으로 남고 돈도 빠지지 않는다.
-                    // 결국 빠질 돈이라 오늘 빠질 돈으로 본다(2026-11-04 BE 2 합의). 배치가 생기면 이 경우는 확정·미납으로 넘어간다.
+                    // 확정·출금 배치(-206·-207)가 돌지 않으면(정기 실행 기본 꺼짐) 출금일이 지나도 진행 중으로 남고 돈도 빠지지 않는다.
+                    // 결국 빠질 돈이라 오늘 빠질 돈으로 본다(2026-11-04 BE 2 합의). 배치가 돌면 이 경우는 확정·미납으로 넘어간다.
                     LocalDate date = bill.withdrawalDate().isBefore(horizon.from())
                             ? horizon.from() : bill.withdrawalDate();
                     events.add(billEvent(bill, date, FlowEvent.Confidence.EXPECTED));
@@ -406,6 +427,36 @@ public class ForecastService {
             }
         }
         return events;
+    }
+
+    /**
+     * 내일부터 이번 이용기간 마감까지 쓸 신용카드 금액을 카드 출금일에 보수적 선에서만 뺀다(S15P31E103-286).
+     * 일평균은 지난 3개월 실적 요약과 같은 완료 3개월로 계산하므로 그만큼만 읽는다. 등록 해제한 카드는 BE 1 조회에서 빠지고,
+     * 미납 청구서가 있는 카드는 실제 승인처럼(UNPAID_BILL 거절) 앞으로 쓸 수 없어 뺀다(가상 구매와 같은 BE 2 조회).
+     */
+    private List<FlowEvent> creditSpendingEvents(Long userId, List<Long> selected, Set<Long> selectedSet,
+            BalanceForecast.Horizon horizon, List<ExcludedItem> excluded) {
+        LocalDate today = horizon.from();
+        LocalDate from = YearMonth.from(today).minusMonths(LivingCostEstimator.MONTHS).atDay(1);
+        CreditSpendingReader.CreditSpending spending = creditSpending.creditDailySpending(userId, selected, from, today);
+        List<UserCardRef> usable = new ArrayList<>();
+        Map<Long, String> names = new HashMap<>();
+        for (Long userCardId : spending.userCardIds()) {
+            cards.findRegisteredCard(userId, userCardId).ifPresent(card -> {
+                if (cardBills.existsByUserCardIdAndStatus(userCardId, BillStatus.UNPAID)) {
+                    return;
+                }
+                usable.add(card);
+                String name = cardNames.name(userId, userCardId);
+                if (name != null) {
+                    names.put(userCardId, name);
+                }
+            });
+        }
+        CreditSpendingEstimator.Result result = CreditSpendingEstimator.estimate(usable, names, spending.days(),
+                selectedSet, today, horizon.to(), creditSchedule);
+        excluded.addAll(result.excluded());
+        return result.events();
     }
 
     private static FlowEvent billEvent(CardBillReader.OutstandingBill bill, LocalDate date,
@@ -442,7 +493,7 @@ public class ForecastService {
      * @param horizon       예보 기간. from은 한국 날짜 오늘
      * @param living        지난 3개월 실적 요약과 계좌별 예상 생활비(AI 또는 TSB)
      * @param startBalances 선택 계좌별 현재 잔액(선택 순서)
-     * @param events        기간 안 미래 입출금(예정 항목·카드 청구)
+     * @param events        기간 안 미래 입출금(예정 항목·카드 청구·보수적 선 전용 신용카드 사용 추정)
      * @param excluded      계산에서 뺀 항목과 이유
      * @param dailyLiving   생활비 자료가 있는 계좌의 하루 생활비(AI 또는 TSB 예상 생활비의 하루 값). 없는 계좌는 빠진다
      */

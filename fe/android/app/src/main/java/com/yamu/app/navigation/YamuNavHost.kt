@@ -9,6 +9,9 @@ import androidx.navigation.compose.navigation
 import androidx.navigation.toRoute
 import com.yamu.app.BuildConfig
 import com.yamu.app.core.designsystem.component.gallery.ComponentGallery
+import com.yamu.app.core.designsystem.theme.YamuTheme
+import com.yamu.app.core.designsystem.theme.screenSwapEnter
+import com.yamu.app.core.designsystem.theme.screenSwapExit
 import androidx.compose.runtime.rememberCoroutineScope
 import com.yamu.app.core.format.objectParticle
 import com.yamu.app.core.ui.LocalSnackbar
@@ -38,6 +41,8 @@ import com.yamu.app.feature.payment.RecommendRoute
 import com.yamu.app.feature.forecast.BuyCheckInputRoute
 import com.yamu.app.feature.forecast.BuyCheckResultRoute
 import com.yamu.app.feature.forecast.BuyCheckSavedRoute
+import com.yamu.app.feature.forecast.BuyConditionsRoute
+import com.yamu.app.feature.forecast.toRoute
 import com.yamu.app.feature.forecast.CashflowCreateRoute
 import com.yamu.app.feature.forecast.CashflowListRoute
 import com.yamu.app.feature.forecast.ForecastRoute
@@ -76,8 +81,18 @@ fun YamuNavHost(navController: NavHostController, modifier: Modifier = Modifier)
     val scope = rememberCoroutineScope()
     val showMessage: (String) -> Unit = { message -> scope.launch { snackbar.showSnackbar(message) } }
     val openPinPad: (String) -> Unit = { purpose -> navController.navigate(PinPad(purpose)) }
+    // 화면 교체는 통째로 0.2초 페이드(라이브러리 기본 0.7초 대신). 앞뒤 이동 모두 같고, 옮기거나 미끄러뜨리지 않는다
+    val reduce = YamuTheme.reduceMotion
 
-    NavHost(navController = navController, startDestination = Splash, modifier = modifier) {
+    NavHost(
+        navController = navController,
+        startDestination = Splash,
+        modifier = modifier,
+        enterTransition = { screenSwapEnter(reduce) },
+        exitTransition = { screenSwapExit(reduce) },
+        popEnterTransition = { screenSwapEnter(reduce) },
+        popExitTransition = { screenSwapExit(reduce) },
+    ) {
 
         composable<Splash> {
             SplashRoute(
@@ -241,7 +256,6 @@ fun YamuNavHost(navController: NavHostController, modifier: Modifier = Modifier)
                         onBack = back,
                         onBuyCheck = { navController.navigate(BuyCheckInput) },
                         onCashflowList = { navController.navigate(CashflowList) },
-                        onPlan = { planId -> navController.navigate(BuyCheckSaved(planId)) },
                         onLink = { navController.navigate(LinkGraph) },
                         onAlertSettings = { navController.navigate(NotificationSettings) },
                     )
@@ -259,12 +273,21 @@ fun YamuNavHost(navController: NavHostController, modifier: Modifier = Modifier)
                 composable<BuyCheckInput> {
                     BuyCheckInputRoute(
                         onBack = back,
-                        onCheck = { amount, title, date -> navController.navigate(BuyCheckResult(amount, title, date.toString())) },
+                        onNext = { amount, title -> navController.navigate(BuyCheckConditions(amount, title)) },
+                    )
+                }
+                composable<BuyCheckConditions> {
+                    BuyConditionsRoute(
+                        onBack = back,
+                        onCompare = { query -> navController.navigate(query.toRoute()) },
                     )
                 }
                 composable<BuyCheckResult> {
                     BuyCheckResultRoute(
                         onBack = back,
+                        onEditConditions = back,
+                        onEditAmount = { if (!navController.popBackStack<BuyCheckInput>(inclusive = false)) back() },
+                        onForecast = { if (!navController.popBackStack<Forecast>(inclusive = false)) back() },
                         onPay = { navController.navigate(PayCode) },
                         onSaved = { planId -> navController.toBuyCheckSaved(planId) },
                     )

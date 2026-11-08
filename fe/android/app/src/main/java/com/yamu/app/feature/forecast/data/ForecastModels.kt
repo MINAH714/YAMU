@@ -2,116 +2,323 @@ package com.yamu.app.feature.forecast.data
 
 import com.yamu.app.core.format.parseDate
 import com.yamu.app.core.format.toWon
-import com.yamu.app.feature.link.data.LivingCostDto
-import com.yamu.app.feature.link.data.lastDigits
 import kotlinx.serialization.Serializable
 import java.time.LocalDate
-import kotlin.math.roundToInt
+import kotlin.math.abs
 
-// ── 서버 요청 · 응답 — #10 잔고예보(v0.3.1) · #33 소비 판단 · #20 구매 계획. 12 문서 8-2 ──
+// ── 서버 응답 — GET /api/forecasts/balance(BE BalanceForecast, docs/be/forecast.md 「결과」) ──
+// 종류 · 확신도 · 이유 같은 값은 문자열로 받는다. BE가 새 값을 더해도 읽기는 깨지지 않고, 화면은 아는 값만 따로 그린다
 
-@Serializable data class ForecastDto(
-    val account: ForecastAccountDto? = null,
-    val accounts: List<ForecastAccountDto> = emptyList(),       // 10/26 회의 — 계좌별(보완 필요)
+@Serializable data class BalanceForecastDto(
+    val accountIds: List<Long> = emptyList(),
+    val currentTotalBalance: Long? = null,
     val horizon: HorizonDto? = null,
     val alertThreshold: Long? = null,
-    val summary: ForecastSummaryDto = ForecastSummaryDto(),
+    val summary: ForecastSummaryDto? = null,
     val series: List<SeriesPointDto> = emptyList(),
-    val beyondHorizon: List<ForecastEventDto> = emptyList(),
-    val livingCost: LivingCostDto? = null,
+    val riskWindows: List<RiskWindowDto> = emptyList(),
+    val livingCost: ForecastLivingCostDto? = null,
+    val excluded: List<ExcludedItemDto> = emptyList(),
     val isEstimate: Boolean = true,
+    val calculatedAt: String? = null,
 )
 
-@Serializable data class ForecastAccountDto(
-    val accountId: Long? = null,
-    val bankName: String? = null,
-    val nickname: String? = null,          // 10/26 회의 — 계좌 별칭
-    val category: String? = null,          // 10/26 회의 — 월급 · 생활비 · 저축 …
-    val maskedAccountNo: String? = null,
-    val balance: Long? = null,
-    val syncedAt: String? = null,
-    val minBalance: Long? = null,
-    val shortfallFrom: String? = null,
-)
+/** type은 실제로 계산한 기준 — NEXT_INCOME이면 to가 다음 월급일 전날, 월급을 못 찾으면 DAYS(30일) */
+@Serializable data class HorizonDto(val type: String? = null, val from: String? = null, val to: String? = null, val days: Int? = null)
 
-@Serializable data class HorizonDto(
-    val type: String? = null,
-    val from: String? = null,
-    val to: String? = null,
-    val nextIncome: NextIncomeEventDto? = null,
-    val fallback: Boolean = false,
-)
-
-@Serializable data class NextIncomeEventDto(val date: String, val amount: Long? = null, val title: String? = null)
-
+/** 금액은 가장 나쁜 선(보수적, 없으면 예상) 기준 */
 @Serializable data class ForecastSummaryDto(
     val status: String? = null,
+    val aggregateStatus: String? = null,
     val minBalance: Long? = null,
     val minBalanceDate: String? = null,
-    val shortfallFrom: String? = null,          // 보완안 ⑥
-    val scheduledOutflow: Long? = null,         // 보완안 ⑥
+    val endBalance: Long? = null,
+    val hasAccountRisk: Boolean = false,
+    val atRiskAccountCount: Int = 0,
 )
 
+/** conservative는 생활비 자료가 없는 계좌가 하나라도 있으면 null(BE는 일부만 더한 값을 주지 않는다) */
 @Serializable data class SeriesPointDto(
     val date: String,
     val confirmed: Long? = null,
     val expected: Long? = null,
+    val conservative: Long? = null,
     val events: List<ForecastEventDto> = emptyList(),
 )
 
-@Serializable data class ForecastEventDto(
-    val type: String,                           // INCOME · EXPENSE · RECURRING_EXPENSE · CARD_BILLING · PURCHASE_PLAN · REFUND
-    val title: String,
-    val amount: Long,
+@Serializable data class ForecastEventDto(val type: String? = null, val title: String? = null, val amount: Long = 0, val confidence: String? = null)
+
+@Serializable data class RiskWindowDto(
+    val from: String? = null,
+    val to: String? = null,
+    val level: String? = null,
+    val line: String? = null,
+    val lowestBalance: Long? = null,
+    val shortfall: Long? = null,
+    val causes: List<RiskCauseDto> = emptyList(),
+)
+
+@Serializable data class RiskCauseDto(val type: String? = null, val title: String? = null, val amount: Long = 0, val date: String? = null)
+
+/** 예상 생활비는 projectedAmount만 보인다. dailyAverage · monthlyAverage는 지난 3개월 실적이라 예측 값이 아니다(BE 11/5 안내) */
+@Serializable data class ForecastLivingCostDto(
+    val projectedAmount: Long? = null,
+    val dailyAverage: Long? = null,
+    val monthlyAverage: Long? = null,
+    val method: String? = null,
+    val dataOrigin: String? = null,
+    val confidence: String? = null,
+)
+
+@Serializable data class ExcludedItemDto(
+    val cashflowItemId: Long? = null,
+    val cardBillId: Long? = null,
     val date: String? = null,
-    val refId: Long? = null,
-)
-
-@Serializable data class SpendingDecisionRequest(
-    val amount: Long,
     val title: String? = null,
-    val purchaseDate: String? = null,
-    val categoryCode: String? = null,           // 지금 명세는 필수 — 보완안은 선택(12 문서 8-6 ③)
+    val amount: Long? = null,
+    val reason: String? = null,
 )
 
-@Serializable data class SpendingDecisionDto(
-    val verdict: String = "UNKNOWN",            // OK · CAUTION · HOLD · UNKNOWN
-    val headline: String? = null,
-    val affordable: AffordableDto? = null,
-    val methods: List<MethodDto> = emptyList(),
-    val reasons: List<ReasonDto> = emptyList(),
-    val alternatives: List<AlternativeDto> = emptyList(),
-    val monthlyBaseline: BaselineDto? = null,   // 보완안 ④
-    val isEstimate: Boolean = true,
+// ── 앱 안에서 쓰는 값 ──
+
+/** 어느 선부터 반영한 돈인지. 모르는 값은 [UNKNOWN] — 목록에는 그대로 보이고 선 설명에서는 '기타'로 묶인다 */
+enum class FlowConfidence { CONFIRMED, EXPECTED, CONSERVATIVE, UNKNOWN }
+
+/** 입출금 종류. 위험 원인에만 LIVING_COST_ESTIMATE(누적 예상 생활비)가 더 있다 */
+enum class FlowType { SCHEDULED_INCOME, SCHEDULED_OUTFLOW, CARD_BILLING, SIMULATED_PURCHASE, CARD_SPENDING_ESTIMATE, LIVING_COST_ESTIMATE, UNKNOWN }
+
+/** 위험 수준 — 확정 선이 안전 잔액 아래면 DANGER, 예상 · 보수적 선만 아래면 WARNING */
+enum class RiskLevel { SAFE, WARNING, DANGER, UNKNOWN }
+
+/** 예상 생활비 계산 방식 — AI(ML_V1) · 최근 소비(TSB) · 계좌마다 다름(MIXED) */
+enum class LivingMethod(val label: String?) { ML_V1("AI 예측"), TSB("최근 소비 기준"), MIXED("계좌마다 다른 방식"), UNKNOWN(null) }
+
+internal inline fun <reified E : Enum<E>> enumOf(value: String?, fallback: E): E =
+    enumValues<E>().firstOrNull { it.name.equals(value?.trim(), ignoreCase = true) } ?: fallback
+
+/** 예보 기간 — 보내지 않으면(null) 잔고예보 설정을 따른다. N일은 until=DAYS와 days를 함께 보내야 한다(BE -318) */
+enum class ForecastPeriod(val until: String, val days: Int?, val label: String) {
+    NEXT_INCOME("NEXT_INCOME", null, "월급날까지"),
+    DAYS_7("DAYS", 7, "7일"),
+    DAYS_14("DAYS", 14, "14일"),
+    DAYS_30("DAYS", 30, "30일"),
+}
+
+/** 화면에서 고른 기간 · 계좌. null은 '정하지 않음'(기간은 서버 설정, 계좌는 연결 계좌 전체). 앱을 켜 둔 동안만 기억한다 */
+data class ForecastSelection(val period: ForecastPeriod? = null, val accountIds: Set<Long>? = null)
+
+/** 계좌 고르기 시트의 한 줄 */
+data class ForecastAccountOption(val accountId: Long, val name: String, val bankName: String?, val last4: String, val balance: Long?, val isPrimary: Boolean)
+
+data class ForecastEvent(val date: LocalDate, val type: FlowType, val title: String, val amount: Long, val confidence: FlowConfidence) {
+    /** 보수적 선에만 넣은 추정(카드 사용 예상) — '추정' 태그 */
+    val isEstimate: Boolean get() = type == FlowType.CARD_SPENDING_ESTIMATE || confidence == FlowConfidence.CONSERVATIVE
+
+    /** 카드 청구 — 가계부 항목이 아니라 F-02에서 고칠 수 없다 */
+    val isCardBill: Boolean get() = type == FlowType.CARD_BILLING
+
+    /** 진행 중인 청구처럼 예상 선부터 넣은 돈 — '예상' 태그 */
+    val isExpected: Boolean get() = confidence == FlowConfidence.EXPECTED
+
+    /** 줄 이름. 카드 사용 예상은 title이 근거 문장이라 이름은 고정하고 title은 보조 줄에 그대로 둔다 */
+    val label: String get() = if (type == FlowType.CARD_SPENDING_ESTIMATE) "카드 사용 예상" else title
+
+    val basis: String? get() = title.takeIf { type == FlowType.CARD_SPENDING_ESTIMATE }
+}
+
+/** 하루 끝 잔액 — 선 하나가 없으면(보수적 선 null) 그 값만 null */
+data class ForecastDay(val date: LocalDate, val confirmed: Long?, val expected: Long?, val conservative: Long?, val events: List<ForecastEvent>)
+
+data class RiskCause(val type: FlowType, val title: String, val amount: Long, val date: LocalDate?) {
+    val label: String get() = when (type) {
+        FlowType.CARD_SPENDING_ESTIMATE -> "카드 사용 예상"
+        FlowType.LIVING_COST_ESTIMATE -> "예상 생활비"
+        else -> title
+    }
+
+    /** 보조 줄 — 카드 사용 예상은 근거 문장, 생활비는 누적한 마지막 날 */
+    fun sub(livingMethod: LivingMethod?): String? = when (type) {
+        FlowType.CARD_SPENDING_ESTIMATE -> title
+        FlowType.LIVING_COST_ESTIMATE -> listOfNotNull(date?.let { "${it.monthValue}월 ${it.dayOfMonth}일까지" }, livingMethod?.label).joinToString(" · ").ifEmpty { null }
+        else -> date?.let { "${it.monthValue}월 ${it.dayOfMonth}일" }
+    }
+}
+
+data class RiskWindow(
+    val from: LocalDate,
+    val to: LocalDate,
+    val level: RiskLevel,
+    val line: FlowConfidence,
+    val lowestBalance: Long?,
+    val shortfall: Long?,
+    val causes: List<RiskCause>,
 )
 
-@Serializable data class AffordableDto(val beforeNextIncome: Long? = null, val nextIncomeDate: String? = null, val alertThreshold: Long? = null)
+data class ForecastLivingCost(val projectedAmount: Long?, val method: LivingMethod, val insufficient: Boolean)
 
-@Serializable data class MethodDto(
-    val method: String,                         // CHECK_LUMP_SUM · CREDIT_LUMP_SUM · CREDIT_INSTALLMENT
-    val userCardId: Long? = null,
-    val nickname: String? = null,
-    val months: Int? = null,
-    val withdrawals: List<WithdrawalDto> = emptyList(),
-    val minBalance: Long? = null,
-    val shortfallFrom: String? = null,
-    val status: String? = null,                 // SAFE · WARNING · DANGER
-)
+/** 계산에서 뺀 것 — 이유마다 문장 하나 */
+data class ExcludedNote(val reason: String?, val text: String)
 
-@Serializable data class WithdrawalDto(val date: String, val amount: Long)
+/** '세 선은 이렇게 계산했어요'의 한 줄 */
+data class LineStep(val label: String, val amount: Long, val note: String? = null)
 
-@Serializable data class ReasonDto(val axis: String? = null, val level: String? = null, val message: String)
+/** 한 선의 설명 — 그 선에 더한 돈과 기간 끝 잔액. 보수적 선이 없으면 [end]가 null */
+data class LineGroup(val line: FlowConfidence, val steps: List<LineStep>, val end: Long?)
 
-@Serializable data class AlternativeDto(
-    val type: String,                           // DELAY · INSTALLMENT
-    val until: String? = null,
-    val minBalanceAfter: Long? = null,
-    val months: Int? = null,
-    val monthlyAmount: Long? = null,
-    val message: String? = null,
-)
+data class Forecast(
+    val accountIds: List<Long>,
+    val currentBalance: Long?,
+    val from: LocalDate?,
+    val to: LocalDate?,
+    val isNextIncome: Boolean,
+    val horizonDays: Int?,
+    val alertThreshold: Long?,
+    val status: RiskLevel,
+    val hasAccountRisk: Boolean,
+    val atRiskAccountCount: Int,
+    val minBalance: Long?,
+    val minBalanceDate: LocalDate?,
+    val endBalance: Long?,
+    val days: List<ForecastDay>,
+    val riskWindows: List<RiskWindow>,
+    val livingCost: ForecastLivingCost?,
+    val excluded: List<ExcludedNote>,
+    val isEstimate: Boolean,
+    val calculatedAtIso: String?,
+) {
+    /** 다음 월급일 — 기간 기준이 NEXT_INCOME일 때만(끝 날은 월급 전날). DAYS면 월급을 못 찾았거나 N일을 고른 것 */
+    val incomeDate: LocalDate? get() = to?.takeIf { isNextIncome }?.plusDays(1)
 
-@Serializable data class BaselineDto(val averageMonthly: Long? = null, val overRatio: Double? = null, val periodLabel: String? = null)
+    /** 보수적 선이 있는지 — 날마다 같이 오거나 같이 빠진다 */
+    val hasConservative: Boolean get() = days.any { it.conservative != null }
+
+    /** 기간 안 입출금(0원 제외, 날짜순) */
+    val upcoming: List<ForecastEvent> get() = days.flatMap { it.events }.filter { it.amount != 0L }
+
+    /** 예정 출금 합(양수) — 보수적 선에만 넣은 추정은 예정 출금이 아니라 세지 않는다(BE summary.largestOutflow와 같은 기준) */
+    val scheduledOutflow: Long get() = -upcoming.filter { it.amount < 0 && !it.isEstimate }.sumOf { it.amount }
+
+    /** 안전 잔액 아래로 처음 내려가는 날 */
+    val riskFrom: LocalDate? get() = riskWindows.minOfOrNull { it.from }
+
+    /** 선마다 무엇을 더했는지 — 확정 → 예상 → 보수적. 금액은 서버 이벤트 합, 끝 잔액은 서버 선의 마지막 날 그대로 */
+    fun lineGroups(): List<LineGroup> {
+        val events = upcoming
+        fun steps(of: List<ForecastEvent>, names: (FlowType) -> String) = of.groupBy { names(it.type) }.map { (label, list) ->
+            LineStep(if (list.size > 1) "$label ${list.size}건" else label, list.sumOf { it.amount })
+        }.sortedBy { it.label.startsWith("기타") }   // 모르는 종류는 맨 끝
+        val last = days.lastOrNull()
+        val confirmed = steps(events.filter { it.confidence == FlowConfidence.CONFIRMED }) {
+            when (it) {
+                FlowType.SCHEDULED_INCOME -> "예정 수입"
+                FlowType.SCHEDULED_OUTFLOW -> "예정 지출"
+                FlowType.CARD_BILLING -> "확정된 카드 청구"
+                else -> "기타"
+            }
+        }
+        val expected = steps(events.filter { it.confidence == FlowConfidence.EXPECTED || it.confidence == FlowConfidence.UNKNOWN }) {
+            when (it) {
+                FlowType.CARD_BILLING -> "진행 중인 카드 청구"
+                FlowType.SCHEDULED_INCOME -> "예정 수입"
+                FlowType.SCHEDULED_OUTFLOW -> "예정 지출"
+                else -> "기타"
+            }
+        }
+        val living = livingCost?.takeIf { !it.insufficient }?.projectedAmount?.let { LineStep("예상 생활비", -it, livingCost.method.label) }
+        val conservative = listOfNotNull(living) + steps(events.filter { it.confidence == FlowConfidence.CONSERVATIVE }) {
+            if (it == FlowType.CARD_SPENDING_ESTIMATE) "앞으로 쓸 신용카드 금액" else "기타 추정"
+        }
+        return listOf(
+            LineGroup(FlowConfidence.CONFIRMED, confirmed, last?.confirmed),
+            LineGroup(FlowConfidence.EXPECTED, expected, last?.expected),
+            LineGroup(FlowConfidence.CONSERVATIVE, conservative, last?.conservative),
+        )
+    }
+}
+
+// ── 서버 값 → 화면 값 ──
+
+fun BalanceForecastDto.toForecast(): Forecast {
+    val days = series.mapNotNull { p ->
+        val date = parseDate(p.date) ?: return@mapNotNull null
+        ForecastDay(
+            date = date,
+            confirmed = p.confirmed,
+            expected = p.expected,
+            conservative = p.conservative,
+            events = p.events.map { e ->
+                ForecastEvent(date, enumOf(e.type, FlowType.UNKNOWN), e.title?.takeIf { it.isNotBlank() } ?: "예정된 돈", e.amount, enumOf(e.confidence, FlowConfidence.UNKNOWN))
+            },
+        )
+    }.sortedBy { it.date }
+    val living = livingCost?.let {
+        ForecastLivingCost(it.projectedAmount, enumOf(it.method, LivingMethod.UNKNOWN), insufficient = it.dataOrigin.equals("INSUFFICIENT", ignoreCase = true) || it.projectedAmount == null)
+    }
+    return Forecast(
+        accountIds = accountIds,
+        currentBalance = currentTotalBalance,
+        from = parseDate(horizon?.from),
+        to = parseDate(horizon?.to),
+        isNextIncome = horizon?.type.equals("NEXT_INCOME", ignoreCase = true),
+        horizonDays = horizon?.days,
+        alertThreshold = alertThreshold,
+        status = enumOf(summary?.status, RiskLevel.UNKNOWN),
+        hasAccountRisk = summary?.hasAccountRisk ?: false,
+        atRiskAccountCount = summary?.atRiskAccountCount ?: 0,
+        minBalance = summary?.minBalance,
+        minBalanceDate = parseDate(summary?.minBalanceDate),
+        endBalance = summary?.endBalance,
+        days = days,
+        riskWindows = riskWindows.mapNotNull { w ->
+            val from = parseDate(w.from) ?: return@mapNotNull null
+            RiskWindow(
+                from = from,
+                to = parseDate(w.to) ?: from,
+                level = enumOf(w.level, RiskLevel.UNKNOWN),
+                line = enumOf(w.line, FlowConfidence.UNKNOWN),
+                lowestBalance = w.lowestBalance,
+                shortfall = w.shortfall,
+                causes = w.causes.map { RiskCause(enumOf(it.type, FlowType.UNKNOWN), it.title?.takeIf { t -> t.isNotBlank() } ?: "예정된 돈", it.amount, parseDate(it.date)) },
+            )
+        }.sortedBy { it.from },
+        livingCost = living,
+        excluded = excluded.map { it.toNote() },
+        isEstimate = isEstimate,
+        calculatedAtIso = calculatedAt,
+    )
+}
+
+/** 뺀 이유 → 문장(BE ExcludedItem.Reason). 모르는 이유는 '○○ 1건은 빼고 계산했어요' */
+fun ExcludedItemDto.toNote(): ExcludedNote {
+    val name = title?.trim()?.takeIf { it.isNotEmpty() }
+    val thing = name ?: "예정된 돈"
+    val text = when (reason?.uppercase()) {
+        "AMOUNT_UNKNOWN" -> "금액을 정하지 않은 ${thing}${thing.topicParticle()} 빼고 계산했어요."
+        "NO_WITHDRAWAL_ACCOUNT" -> "${thing}${thing.topicParticle()} 어느 계좌에서 나갈지 몰라 빼고 계산했어요."
+        "CARD_UNAVAILABLE" -> "${thing}${thing.topicParticle()} 결제할 카드를 찾을 수 없어 빼고 계산했어요."
+        "CARD_SUSPENDED_OR_EXPIRED" -> "${thing}${thing.topicParticle()} 카드가 정지됐거나 유효기간이 지나 빼고 계산했어요."
+        "BILLING_CYCLE_UNKNOWN" -> "${thing}${thing.topicParticle()} 카드 결제일을 몰라 빼고 계산했어요."
+        "TODAY_INCOME_UNVERIFIED" -> "오늘 들어올 ${thing}${thing.topicParticle()} 이미 들어왔는지 몰라 빼고 계산했어요."
+        "UNPAID_BILL" -> "${amount?.let { "미납된 카드 청구 ${abs(it).toWon()}원은" } ?: "미납된 카드 청구는"}다시 빠질 날이 정해지지 않아 빼고 계산했어요."
+        "CREDIT_SPENDING_UNKNOWN" -> "${name ?: "신용카드"}${(name ?: "신용카드").topicParticle()} 사용 기록이 부족해 앞으로 쓸 금액을 반영하지 못했어요."
+        else -> "$thing 1건은 빼고 계산했어요."
+    }
+    return ExcludedNote(reason, text)
+}
+
+/** 받침이 있으면 '이', 없으면 '가' — '알뜰카드가' · '신한 삼성카드 Ⅱ가' */
+internal fun String.subjectParticle(): String {
+    val last = trimEnd().lastOrNull() ?: return "가"
+    if (last !in '가'..'힣') return "가"
+    return if ((last - '가') % 28 != 0) "이" else "가"
+}
+
+/** 받침이 있으면 '은', 없으면 '는' — '관리비는' · '월세는' */
+internal fun String.topicParticle(): String {
+    val last = trimEnd().lastOrNull() ?: return "는"
+    if (last !in '가'..'힣') return "는"
+    return if ((last - '가') % 28 != 0) "은" else "는"
+}
 
 /**
  * #20 구매 계획 = POST /cashflow-items(BE CreateCashflowItemRequest). type · date는 필수, 계좌와 카드 중 하나만 보낸다.
@@ -129,110 +336,7 @@ import kotlin.math.roundToInt
 @Serializable data class CashflowCreatedDto(
     val cashflowItemId: Long,
     val occurrenceDate: String? = null,
-    val forecastImpact: ForecastImpactDto? = null,
 )
-
-@Serializable data class ForecastImpactDto(
-    val minBalanceBefore: Long? = null,
-    val minBalanceAfter: Long? = null,
-    val shortfallFrom: String? = null,
-)
-
-// ── 앱 안에서 쓰는 값 ──
-
-data class ForecastEvent(
-    val date: LocalDate?,
-    val title: String,
-    val amount: Long,
-    val isPlan: Boolean,
-    val planId: Long?,
-    val afterIncome: Boolean,
-    val isCardBill: Boolean = false,            // 카드대금 — 가계부 항목이 아니라 F-02에서 고칠 수 없다
-)
-
-data class ForecastAccount(val name: String, val category: String?, val last4: String, val balance: Long?, val minBalance: Long?, val shortfallFrom: LocalDate?)
-
-data class Forecast(
-    val currentBalance: Long?,
-    val balanceAsOfIso: String?,
-    val minBalance: Long?,
-    val shortfallFrom: LocalDate?,
-    val incomeDate: LocalDate?,
-    val incomeAmount: Long?,
-    val incomeTitle: String,
-    val from: LocalDate?,
-    val to: LocalDate?,
-    val fallback: Boolean,
-    val upcoming: List<ForecastEvent>,          // 월급 전까지 예정된 돈(계획 제외)
-    val plans: List<ForecastEvent>,             // 구매 계획(월급 뒤 포함)
-    val scheduledOutflow: Long,                 // 예정 지출 합(양수)
-    val livingCost: Long?,
-    val points: List<Pair<LocalDate, Long>>,    // 그래프 — 예상 선
-    val isEstimate: Boolean,
-    val accounts: List<ForecastAccount>,
-)
-
-enum class BuyVerdict(val label: String) {
-    OK("괜찮아요"),
-    CAUTION("미루는 게 좋아요"),
-    HOLD("사지 않는 게 좋아요"),
-    UNKNOWN("아직 판단하기 어려워요");
-
-    companion object {
-        fun from(value: String?): BuyVerdict = entries.firstOrNull { it.name.equals(value, ignoreCase = true) } ?: UNKNOWN
-    }
-}
-
-enum class BuyMethod { CHECK_LUMP_SUM, CREDIT_LUMP_SUM, CREDIT_INSTALLMENT, DELAY }
-
-/** 사는 방법 한 줄(I-04) — 서버가 준 방식 · 대안 그대로 */
-data class BuyOption(
-    val method: BuyMethod,
-    val date: LocalDate,
-    val userCardId: Long?,
-    val cardName: String?,
-    val months: Int?,
-    val minBalance: Long?,
-    val monthlyAmount: Long?,
-    val shortfallFrom: LocalDate?,
-    val recommended: Boolean,
-) {
-    /** '10월 26일에 사기' · '3개월 할부' */
-    val title: String get() = if (method == BuyMethod.CREDIT_INSTALLMENT) "${months ?: 0}개월 할부" else "${date.monthValue}월 ${date.dayOfMonth}일에 사기"
-
-    /** '체크카드' · '신용카드 일시불' · '신용카드' · '월급 뒤' */
-    val methodLabel: String get() = when (method) {
-        BuyMethod.CHECK_LUMP_SUM -> "체크카드"
-        BuyMethod.CREDIT_LUMP_SUM -> "신용카드 일시불"
-        BuyMethod.CREDIT_INSTALLMENT -> "신용카드"
-        BuyMethod.DELAY -> "월급 뒤"
-    }
-
-    /** '−50,000원 월급 전' · '133,400원 매달' */
-    val valueLabel: String? get() = when {
-        method == BuyMethod.CREDIT_INSTALLMENT && monthlyAmount != null -> "${monthlyAmount.toWon()}원 매달"
-        minBalance != null -> "${minBalance.toWon()}원 월급 전"
-        else -> null
-    }
-}
-
-data class BuyCheck(
-    val title: String?,
-    val amount: Long,
-    val purchaseDate: LocalDate,
-    val verdict: BuyVerdict,
-    val headline: String?,
-    val firstMethodLabel: String?,
-    val baselineRatio: Int?,
-    val baselineAverage: Long?,
-    val baselinePeriod: String?,
-    val reasons: List<String>,
-    val options: List<BuyOption>,
-    val isEstimate: Boolean,
-) {
-    /** 미루기 대안(있으면 주 버튼 '○월 ○일로 계획 저장') */
-    val delay: BuyOption? get() = options.firstOrNull { it.method == BuyMethod.DELAY }
-}
 
 data class SavedPlan(
     val id: Long,
@@ -242,105 +346,4 @@ data class SavedPlan(
     val minBefore: Long?,
     val minAfter: Long?,
     val shortfallFrom: LocalDate?,
-)
-
-// ── 서버 값 → 화면 값 ──
-
-private val PLAN_TYPES = setOf("PURCHASE_PLAN")
-
-fun ForecastDto.toForecast(): Forecast {
-    val incomeDate = parseDate(horizon?.nextIncome?.date)
-    val to = parseDate(horizon?.to)
-    fun ForecastEventDto.toEvent(pointDate: LocalDate?, after: Boolean) = ForecastEvent(
-        date = parseDate(date) ?: pointDate,
-        title = title,
-        amount = amount,
-        isPlan = type.uppercase() in PLAN_TYPES,
-        planId = refId.takeIf { type.uppercase() in PLAN_TYPES },
-        afterIncome = after,
-        isCardBill = type.uppercase() == "CARD_BILLING",
-    )
-    val inHorizon = series.flatMap { p -> p.events.map { it.toEvent(parseDate(p.date), after = false) } }
-    val beyond = beyondHorizon.map { it.toEvent(null, after = true) }
-    val upcoming = inHorizon.filter { !it.isPlan && it.amount != 0L }.sortedBy { it.date }
-    val points = series.mapNotNull { p -> parseDate(p.date)?.let { d -> (p.expected ?: p.confirmed)?.let { d to it } } }.sortedBy { it.first }
-    val primary = account ?: accounts.firstOrNull()
-    return Forecast(
-        // 지금 필드(account)는 합친 결과 — 없으면 계좌별 잔액 합
-        currentBalance = account?.balance ?: accounts.mapNotNull { it.balance }.takeIf { it.isNotEmpty() }?.sum(),
-        balanceAsOfIso = primary?.syncedAt,
-        minBalance = summary.minBalance,
-        // 부족 시작일: 서버 값 → 없으면 예상 선이 처음 0 아래인 날(표시용)
-        shortfallFrom = parseDate(summary.shortfallFrom) ?: points.firstOrNull { it.second < 0 }?.first,
-        incomeDate = incomeDate,
-        incomeAmount = horizon?.nextIncome?.amount,
-        incomeTitle = horizon?.nextIncome?.title ?: "월급",
-        from = parseDate(horizon?.from),
-        to = to,
-        fallback = horizon?.fallback ?: false,
-        upcoming = upcoming,
-        plans = (inHorizon + beyond).filter { it.isPlan }.sortedBy { it.date },
-        scheduledOutflow = summary.scheduledOutflow ?: -upcoming.filter { it.amount < 0 }.sumOf { it.amount },
-        livingCost = livingCost?.projectedAmount,
-        points = points,
-        isEstimate = isEstimate,
-        accounts = accounts.map {
-            ForecastAccount(
-                name = it.nickname ?: listOfNotNull(it.bankName, "입출금").joinToString(" "),
-                category = it.category,
-                last4 = it.maskedAccountNo?.lastDigits().orEmpty(),
-                balance = it.balance,
-                minBalance = it.minBalance,
-                shortfallFrom = parseDate(it.shortfallFrom),
-            )
-        },
-    )
-}
-
-/** #33 → I-02 · I-03 · I-04 */
-fun SpendingDecisionDto.toBuyCheck(title: String?, amount: Long, purchaseDate: LocalDate): BuyCheck {
-    val options = methods.mapNotNull { m ->
-        val method = runCatching { BuyMethod.valueOf(m.method.uppercase()) }.getOrNull() ?: return@mapNotNull null
-        BuyOption(
-            method = method,
-            date = parseDate(m.withdrawals.firstOrNull()?.date)?.takeIf { method == BuyMethod.CHECK_LUMP_SUM } ?: purchaseDate,
-            userCardId = m.userCardId,
-            cardName = m.nickname,
-            months = m.months,
-            minBalance = m.minBalance,
-            monthlyAmount = m.withdrawals.firstOrNull()?.amount.takeIf { method == BuyMethod.CREDIT_INSTALLMENT },
-            shortfallFrom = parseDate(m.shortfallFrom),
-            recommended = false,
-        )
-    }
-    val first = options.firstOrNull()
-    val delays = alternatives.filter { it.type.equals("DELAY", ignoreCase = true) }.mapNotNull { alt ->
-        val until = parseDate(alt.until) ?: return@mapNotNull null
-        // 미룬 날에는 처음 방식(카드)으로 산다고 본다
-        BuyOption(BuyMethod.DELAY, until, first?.userCardId, first?.cardName, null, alt.minBalanceAfter, null, null, recommended = true)
-    }
-    return BuyCheck(
-        title = title?.takeIf { it.isNotBlank() },
-        amount = amount,
-        purchaseDate = purchaseDate,
-        verdict = BuyVerdict.from(verdict),
-        headline = headline,
-        firstMethodLabel = first?.methodLabel,
-        baselineRatio = monthlyBaseline?.overRatio?.roundToInt(),
-        baselineAverage = monthlyBaseline?.averageMonthly,
-        baselinePeriod = monthlyBaseline?.periodLabel,
-        reasons = reasons.map { it.message } + alternatives.mapNotNull { it.message },
-        options = options + delays,
-        isEstimate = isEstimate,
-    )
-}
-
-/** I-04 · I-02 [계획 저장] → #20 본문. 카드가 없는 선택지(현금 · 계좌)는 [accountId]로 나간다 */
-fun BuyOption.toPlanRequest(title: String?, amount: Long, accountId: Long? = null) = PurchasePlanRequest(
-    type = "EXPENSE",
-    title = title?.takeIf { it.isNotBlank() }?.take(30) ?: "구매 계획",
-    amount = amount,
-    date = date.toString(),
-    accountId = accountId.takeIf { userCardId == null },
-    userCardId = userCardId,
 )

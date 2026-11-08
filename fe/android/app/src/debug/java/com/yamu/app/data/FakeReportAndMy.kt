@@ -228,7 +228,7 @@ class FakeMyRepository @Inject constructor(
         val s = session.read()
         return ApiResult.Success(
             MyInfo(
-                name = s.name ?: "김야무", email = s.email ?: "yamu.kim@example.com",
+                name = s.name ?: "김야무", maskedPhone = "010-****-5678",
                 autoLockSeconds = session.autoLockSeconds.first(), pinOnlyForCode = FakeSecurity.pinOnlyForCode,
                 biometricEnabled = s.biometricEnabled, currentDeviceId = s.userDeviceId, autoSelect = autoSelect,
             ),

@@ -24,6 +24,8 @@ import com.yamu.app.core.designsystem.component.PrimaryButton
 import com.yamu.app.core.designsystem.component.Segmented
 import com.yamu.app.core.designsystem.component.YamuCard
 import com.yamu.app.core.designsystem.component.YamuTopBar
+import com.yamu.app.core.designsystem.component.YamuSwitch
+import com.yamu.app.core.designsystem.theme.YamuMotionDebug
 import com.yamu.app.core.designsystem.theme.YamuTheme
 import com.yamu.app.core.designsystem.component.RoundCheckbox
 import com.yamu.app.core.session.DevSession
@@ -57,7 +59,9 @@ import com.yamu.app.navigation.PerfAnalysis
 import com.yamu.app.navigation.PinPad
 import com.yamu.app.navigation.Profile
 import com.yamu.app.navigation.Security
+import com.yamu.app.navigation.SignupDone
 import com.yamu.app.navigation.Terms
+import com.yamu.app.core.ui.SecureScreenDebug
 import com.yamu.app.navigation.restartFromSplash
 import com.yamu.app.navigation.Withdraw
 
@@ -168,19 +172,32 @@ fun DebugMenuScreen(navController: NavController, viewModel: DebugMenuViewModel 
             }
             YamuCard {
                 ListRow("컴포넌트 갤러리", chevron = true, onClick = { navController.navigate(ComponentGallery) })
+                ListRow(
+                    "모션 줄이기 강제",
+                    sub = "시스템 '애니메이션 삭제'처럼 이동 · 크기 · 회전을 끄고 페이드만 남겨요. 촬영 · 점검용",
+                    trailing = { YamuSwitch(checked = YamuMotionDebug.forceReduceMotion, onCheckedChange = null) },
+                    onClick = { YamuMotionDebug.forceReduceMotion = !YamuMotionDebug.forceReduceMotion },
+                )
+                ListRow(
+                    "화면 캡처 막기 끄기",
+                    sub = "간편 비밀번호 · 카드 번호 화면도 녹화되게 해요. 앱을 다시 켜면 꺼져요. 촬영 · 점검용",
+                    trailing = { YamuSwitch(checked = SecureScreenDebug.allowCapture, onCheckedChange = null) },
+                    onClick = { SecureScreenDebug.allowCapture = !SecureScreenDebug.allowCapture },
+                )
             }
             YamuCard {
                 Text("화면 바로 열기", style = YamuTheme.typography.titleM, color = c.text1)
                 val screens: List<Pair<String, Any>> = listOf(
                     "A-03 로그인" to Login,
                     "A-04 약관 동의" to Terms,
+                    "A-07 가입 완료" to SignupDone,
                     "C-01 카드 등록" to CardRegister,
                     "H-02 알림" to Notifications,
                     "H-03 내 카드" to MyCards,
                     "F-01 잔고예보" to Forecast,
                     "F-02 예정 수입 · 지출" to CashflowList,
                     "I-01 이거 사도 될까?" to BuyCheckInput,
-                    "I-02 결과(400,000원)" to BuyCheckResult(400_000, "태블릿", java.time.LocalDate.now().toString()),
+                    "I-02 결과(400,000원 · 대형마트)" to BuyCheckResult(400_000, "태블릿", categoryCode = "HYPERMARKET", categoryName = "대형마트", channel = "OFFLINE", purchaseDate = java.time.LocalDate.now().toString()),
                     "P-06 결제 코드" to PayCode,
                     "P-08 거래 상세" to PaymentDetail(938L),
                     "R-02 카드 실적 상세(신한)" to CardPerformance(userCardId = 2L),

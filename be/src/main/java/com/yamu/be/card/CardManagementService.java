@@ -81,6 +81,7 @@ public class CardManagementService {
     private final Clock clock;
     private final CardImageUrlResolver imageUrlResolver;
     private final CurrentCycleReader currentCycleReader;
+    private final CardBenefitSummaryReader benefitSummaryReader;
 
     /** @param status ACTIVE·INACTIVE 중 하나만 볼 때. null이면 둘 다 */
     @Transactional(readOnly = true)
@@ -99,13 +100,17 @@ public class CardManagementService {
                 .toList();
         Map<Long, CurrentCycleReader.CurrentCycle> cycles =
                 currentCycleReader.currentCycles(me.userId(), null, credits, today());
+        Map<Long, CardBenefitSummaryReader.Summary> benefitSummaries =
+                benefitSummaryReader.summaries(products.keySet(), today());
 
         List<CardListResponse.CardSummary> summaries = cards.stream().map(card -> {
             CardProduct product = products.get(card.getCardProductId());
             CardIssuers.Issuer issuer = CardIssuers.of(product.getIssuerCode());
             Long recognized = performances.get(card.getId());
+            CardBenefitSummaryReader.Summary benefits = benefitSummaries.get(card.getCardProductId());
             CardListResponse.Performance performance = recognized == null ? null
-                    : new CardListResponse.Performance(month.toString(), null, recognized, null, null);
+                    : CardListResponse.Performance.of(month.toString(),
+                            benefits == null ? null : benefits.targetFor(recognized), recognized);
             CardListResponse.BillingSummary billing = product.getCardType() == CardType.CREDIT
                     ? new CardListResponse.BillingSummary(card.getPaymentDay(), accumulatingAmount(cycles.get(card.getId())),
                             unpaid.contains(card.getId()))
@@ -113,8 +118,8 @@ public class CardManagementService {
             return new CardListResponse.CardSummary(card.getId(), nickname(card, product),
                     new CardListResponse.Issuer(issuer.code(), issuer.name(), issuer.color()),
                     product.getProductName(), product.getCardType(), maskedNumber(card),
-                    card.getRegistrationStatus(), card.getIssuerStatus(), card.isDefaultCard(), List.of(),
-                    performance, billing, imageUrlResolver.resolve(product.getImageKey()));
+                    card.getRegistrationStatus(), card.getIssuerStatus(), card.isDefaultCard(),
+                    benefits == null ? List.of() : benefits.mainBenefits(), performance, billing, imageUrlResolver.resolve(product.getImageKey()));
         }).toList();
         return new CardListResponse(summaries, null);
     }

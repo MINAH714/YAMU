@@ -222,8 +222,105 @@ class PaymentLivingCostReaderTest extends MySqlTestSupport {
         assertThat(reader.dailySpending(owner, List.of(creditOnly), FROM, TO).days()).isEmpty();
     }
 
+    @Test
+    void 신용카드는_카드별로_같은_규칙으로_더하고_체크카드와_남의_카드는_섞지_않는다() {
+        // S15P31E103-286: 선택 계좌 A가 출금 계좌인 신용카드 두 장
+        long creditA2 = fixtures.card(owner, fixtures.product("CREDIT"), accountA, LocalDate.of(2025, 12, 1));
+        long creditB = fixtures.card(owner, fixtures.product("CREDIT"), accountB, LocalDate.of(2025, 12, 1));
+        fixtures.approved(owner, creditA, fixtures.merchant(), 1_000L, LocalDate.of(2026, 5, 20), 12);
+        fixtures.approved(owner, creditA, merchant, 10_000L, LocalDate.of(2026, 6, 3), 12);
+        fixtures.approved(owner, creditA, merchant, 2_000_000L, LocalDate.of(2026, 6, 4), 12);       // LARGE
+        fixtures.payment(owner, creditA, merchant, 3_000L, 1, SpendingFixtures.utc(LocalDate.of(2026, 6, 5), 12),
+                "YAMU", "CANCELED");                                                                    // 취소
+        fixtures.approved(owner, creditA2, merchant, 6_000L, LocalDate.of(2026, 6, 10), 12);
+        fixtures.approved(owner, checkA, merchant, 9_000L, LocalDate.of(2026, 6, 3), 12);             // 체크카드
+        fixtures.approved(owner, creditB, merchant, 8_000L, LocalDate.of(2026, 6, 3), 12);            // 고르지 않은 계좌
+        // 매달 한 번 같은 가맹점·금액(4·5·6월)은 반복 지출이라 뺀다
+        long subscription = fixtures.merchant();
+        for (int month = 4; month <= 6; month++) {
+            fixtures.approved(owner, creditA, subscription, 17_000L, LocalDate.of(2026, month, 15), 12);
+        }
+        long strangerAccount = strangerAccountWithSpending();
+        long stranger = jdbc.queryForObject("SELECT user_id FROM linked_account WHERE linked_account_id = ?",
+                Long.class, strangerAccount);
+        long strangerCredit = fixtures.card(stranger, fixtures.product("CREDIT"), strangerAccount,
+                LocalDate.of(2025, 12, 1));
+        fixtures.approved(stranger, strangerCredit, merchant, 50_000L, LocalDate.of(2026, 6, 3), 12);
+
+        CreditSpendingReader.CreditSpending result = reader.creditDailySpending(owner,
+                List.of(accountA, strangerAccount), FROM, TO);
+
+        assertThat(result.userCardIds()).containsExactly(creditA, creditA2);
+        Map<LocalDate, Long> first = creditAmounts(result, creditA);
+        assertThat(first).hasSize(30);     // 첫 결제(5/20)가 기간 앞이라 6월 전체
+        assertThat(first.get(LocalDate.of(2026, 6, 3))).isEqualTo(10_000L);
+        assertThat(first.get(LocalDate.of(2026, 6, 4))).isZero();
+        assertThat(first.get(LocalDate.of(2026, 6, 5))).isZero();
+        assertThat(first.get(LocalDate.of(2026, 6, 15))).isZero();
+        assertThat(first.values().stream().mapToLong(Long::longValue).sum()).isEqualTo(10_000L);
+        Map<LocalDate, Long> second = creditAmounts(result, creditA2);
+        assertThat(second).hasSize(21);    // 첫 YAMU 결제 6/10부터
+        assertThat(second.get(LocalDate.of(2026, 6, 10))).isEqualTo(6_000L);
+        assertThat(result.days()).allSatisfy(day -> assertThat(day.origin()).isEqualTo(LivingCostReader.Origin.REAL));
+    }
+
+    @Test
+    void 예정_지출과_연결된_결제는_생활비와_신용_추정에_더하지_않고_반복_판정에는_센다() {
+        // S15P31E103-319: 매주 반복 지출처럼 반복 판정에 걸리지 않는 결제도 예정 지출과 두 번 빠지지 않게 한다
+        long gym = fixtures.merchant();
+        fixtures.approved(owner, checkA, fixtures.merchant(), 1_000L, LocalDate.of(2026, 5, 20), 12);
+        matchToCashflow(fixtures.approved(owner, checkA, gym, 30_000L, LocalDate.of(2026, 6, 3), 12));
+        fixtures.approved(owner, checkA, merchant, 5_000L, LocalDate.of(2026, 6, 3), 18);
+        fixtures.approved(owner, creditA, fixtures.merchant(), 1_000L, LocalDate.of(2026, 5, 20), 12);
+        matchToCashflow(fixtures.approved(owner, creditA, gym, 20_000L, LocalDate.of(2026, 6, 4), 12));
+        // 4월 결제는 연결됐어도 반복 횟수에 센다. 4·5·6월 매달 한 번이라 6월 결제는 반복 지출로 빠진다
+        long subscription = fixtures.merchant();
+        matchToCashflow(fixtures.approved(owner, checkA, subscription, 9_900L, LocalDate.of(2026, 4, 11), 12));
+        fixtures.approved(owner, checkA, subscription, 9_900L, LocalDate.of(2026, 5, 11), 12);
+        fixtures.approved(owner, checkA, subscription, 9_900L, LocalDate.of(2026, 6, 11), 12);
+
+        Map<LocalDate, Long> living = amounts(reader.dailySpending(owner, List.of(accountA), FROM, TO).days(),
+                accountA, LivingCostReader.Origin.REAL);
+        Map<LocalDate, Long> credit = creditAmounts(reader.creditDailySpending(owner, List.of(accountA), FROM, TO),
+                creditA);
+
+        assertThat(living.get(LocalDate.of(2026, 6, 3))).isEqualTo(5_000L);
+        assertThat(living.get(LocalDate.of(2026, 6, 11))).isZero();
+        assertThat(living.values().stream().mapToLong(Long::longValue).sum()).isEqualTo(5_000L);
+        assertThat(credit.get(LocalDate.of(2026, 6, 4))).isZero();
+        assertThat(credit.values().stream().mapToLong(Long::longValue).sum()).isZero();
+    }
+
+    @Test
+    void 선택_계좌에_신용카드가_없으면_빈_목록이다() {
+        assertThat(reader.creditDailySpending(owner, List.of(accountB), FROM, TO))
+                .isEqualTo(new CreditSpendingReader.CreditSpending(List.of(), List.of()));
+    }
+
+    private static Map<LocalDate, Long> creditAmounts(CreditSpendingReader.CreditSpending spending, long userCardId) {
+        return spending.days().stream().filter(day -> day.userCardId() == userCardId)
+                .collect(Collectors.toMap(CreditSpendingReader.CardDailySpending::date,
+                        CreditSpendingReader.CardDailySpending::amount));
+    }
+
     private void seed(long card, long amount, LocalDate day) {
         fixtures.payment(owner, card, merchant, amount, 1, SpendingFixtures.utc(day, 12), "SEED", "APPROVED");
+    }
+
+    /** 결제를 계좌 예정 지출의 회차 하나와 연결한다(매칭 확정 API가 남기는 행과 같다). */
+    private void matchToCashflow(long payment) {
+        LocalDate day = LocalDate.of(2026, 6, 1);
+        jdbc.update("INSERT INTO cashflow_item (user_id, linked_account_id, title, direction, amount, scheduled_date, "
+                + "recurrence_type, status, created_at, updated_at) VALUES (?, ?, '헬스장', 'EXPENSE', 30000, ?, 'NONE', "
+                + "'CONFIRMED', NOW(6), NOW(6))", owner, accountA, day);
+        long rule = jdbc.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
+        jdbc.update("INSERT INTO cashflow_occurrence (cashflow_item_id, user_id, occurrence_date, scheduled_date, title, "
+                + "direction, amount, linked_account_id, status, is_overridden, created_at, updated_at) "
+                + "VALUES (?, ?, ?, ?, '헬스장', 'EXPENSE', 30000, ?, 'CONFIRMED', 0, NOW(6), NOW(6))",
+                rule, owner, day, day, accountA);
+        long occurrence = jdbc.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
+        jdbc.update("INSERT INTO cashflow_payment_match (user_id, cashflow_occurrence_id, payment_transaction_id, "
+                + "matched_at, created_at) VALUES (?, ?, ?, NOW(6), NOW(6))", owner, occurrence, payment);
     }
 
     /** 남의 계좌·체크카드·결제. 내 사용자로 읽으면 줄이 나오면 안 된다. */

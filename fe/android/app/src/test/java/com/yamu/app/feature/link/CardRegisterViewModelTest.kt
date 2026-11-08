@@ -374,6 +374,88 @@ class CardRegisterViewModelTest {
         assertFalse(vm.back())                       // 완료 → 떠남
     }
 
+    // ── 완료 축하 팝 — 서버가 확정한 카드마다 한 번 ──
+
+    @Test fun `등록이 확정되면 그 카드로 축하하고 팝이 시작되면 비운다`() = runTest(dispatcher) {
+        val vm = viewModel()
+        toConfirm(vm)
+        assertNull(vm.state.value.celebrateCardId)
+        vm.register()
+        vm.register()                                // 연타해도 등록 · 축하는 한 번
+        passStepUp(vm, StepUpPurpose.CARD_REGISTER)
+        assertEquals(21L, vm.state.value.celebrateCardId)
+        vm.celebrated()
+        assertNull(vm.state.value.celebrateCardId)
+        assertEquals(1, link.registers)
+    }
+
+    @Test fun `응답을 못 받았어도 목록에서 등록이 확인되면 축하한다`() = runTest(dispatcher) {
+        link.registerResult = ApiResult.Failure(ApiError.Network)
+        link.overviewResult = ApiResult.Success(LinkedOverview(emptyList(), listOf(LINKED), null))
+        val vm = viewModel()
+        toConfirm(vm)
+        vm.register()
+        passStepUp(vm, StepUpPurpose.CARD_REGISTER)
+        assertEquals(21L, vm.state.value.celebrateCardId)
+    }
+
+    @Test fun `토큰이 이미 쓰였거나 이미 등록으로 와도 목록에서 확인되면 그 카드로 한 번 축하한다`() = runTest(dispatcher) {
+        link.overviewResult = ApiResult.Success(LinkedOverview(emptyList(), listOf(LINKED), null))
+        listOf(ApiError.InvalidRequest("VERIFICATION_TOKEN_EXPIRED"), ApiError.Conflict("CARD_ALREADY_REGISTERED")).forEach { e ->
+            link.registerResult = ApiResult.Failure(e)
+            val vm = viewModel()
+            toConfirm(vm)
+            vm.register()
+            passStepUp(vm, StepUpPurpose.CARD_REGISTER)
+            assertEquals(e.code, 21L, vm.state.value.celebrateCardId)
+        }
+    }
+
+    @Test fun `확인 토큰이 만료돼 입력 화면으로 가면 축하하지 않는다`() = runTest(dispatcher) {
+        link.registerResult = ApiResult.Failure(ApiError.InvalidRequest("VERIFICATION_TOKEN_EXPIRED"))
+        val vm = viewModel()
+        toConfirm(vm)
+        vm.register()
+        passStepUp(vm, StepUpPurpose.CARD_REGISTER)
+        assertEquals(CardRegisterStep.Input, vm.state.value.step)
+        assertNull(vm.state.value.celebrateCardId)
+    }
+
+    @Test fun `결과를 모르고 목록에도 없으면 축하하지 않는다`() = runTest(dispatcher) {
+        link.registerResult = ApiResult.Failure(ApiError.Network)
+        val vm = viewModel()
+        toConfirm(vm)
+        vm.register()
+        passStepUp(vm, StepUpPurpose.CARD_REGISTER)
+        assertEquals(CardRegisterStep.Confirm, vm.state.value.step)
+        assertNull(vm.state.value.celebrateCardId)
+    }
+
+    @Test fun `다른 카드 등록 뒤 완료로 돌아오면 축하가 다시 돌지 않는다`() = runTest(dispatcher) {
+        val vm = viewModel()
+        toConfirm(vm)
+        vm.register()
+        passStepUp(vm, StepUpPurpose.CARD_REGISTER)
+        vm.anotherCard()                             // 팝이 시작되기 전에 눌러도 축하는 버린다
+        assertTrue(vm.back())
+        assertEquals(CardRegisterStep.Done, vm.state.value.step)
+        assertNull(vm.state.value.celebrateCardId)
+    }
+
+    @Test fun `두 번째 카드를 등록하면 그 카드로 다시 축하한다`() = runTest(dispatcher) {
+        val vm = viewModel()
+        toConfirm(vm)
+        vm.register()
+        passStepUp(vm, StepUpPurpose.CARD_REGISTER)
+        vm.celebrated()
+        vm.anotherCard()
+        link.registerResult = ApiResult.Success(REGISTERED.copy(userCardId = 22))
+        toConfirm(vm)
+        vm.register()
+        passStepUp(vm, StepUpPurpose.CARD_REGISTER)
+        assertEquals(22L, vm.state.value.celebrateCardId)
+    }
+
     private class StubLink : LinkRepository {
         var lookupResult: ApiResult<CardLookup> = ApiResult.Success(LOOKUP)
         var registerResult: ApiResult<RegisteredCard> = ApiResult.Success(REGISTERED)

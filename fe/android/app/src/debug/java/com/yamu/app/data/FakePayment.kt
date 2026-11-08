@@ -130,7 +130,7 @@ class FakePaymentRepository @Inject constructor(private val perf: FakePerformanc
             return ApiResult.Success(PayCodeStatus(CodeState.EXPIRED, null))
         }
         if (issued.scenario != PayScenario.NO_SCAN && now - issued.issuedAt >= 3_000) {
-            val deadline = OffsetDateTime.now(KST).plusSeconds(60).toString()
+            val deadline = OffsetDateTime.now(KST).plusSeconds(if (issued.scenario == PayScenario.REQUEST_SHORT) 15 else 60).toString()
             issued.request = requestFor(issued.scenario, nextPaymentId++, deadline)
             return ApiResult.Success(PayCodeStatus(CodeState.SCANNED, issued.request))
         }
@@ -138,7 +138,8 @@ class FakePaymentRepository @Inject constructor(private val perf: FakePerformanc
     }
 
     override suspend fun approve(request: PaymentRequest, card: PayCard, installmentMonths: Int?, idempotencyKey: String): ApiResult<ApproveOutcome> {
-        delay(900)
+        val slow = codes.values.firstOrNull { it.request?.paymentId == request.paymentId }?.scenario == PayScenario.APPROVE_SLOW
+        delay(if (slow) 4_000 else 900)
         receipts[request.paymentId]?.let { return ApiResult.Success(ApproveOutcome.Approved(it)) }   // 같은 결제 두 번 — 처음 결과
         val issued = codes.values.firstOrNull { it.request?.paymentId == request.paymentId }
             ?: return ApiResult.Failure(ApiError.NotFound("RESOURCE_NOT_FOUND"))

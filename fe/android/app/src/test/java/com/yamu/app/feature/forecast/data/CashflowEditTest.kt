@@ -124,14 +124,20 @@ class CashflowEditTest {
         assertEquals(CashflowRepeat.MONTHLY, e.repeat)
     }
 
-    @Test fun `F-02 줄 — 가계부 회차는 고칠 수 있고 카드대금 · 목록에 없는 월급은 읽기 전용`() {
-        val f = forecast(
-            upcoming = listOf(ForecastEvent(LocalDate.of(2026, 11, 5), "하나카드 대금", -150_000, false, null, false, isCardBill = true)),
-            incomeDate = LocalDate.of(2026, 11, 26),
+    @Test fun `F-02 줄 — 가계부 회차는 고칠 수 있고 카드 청구는 읽기 전용, 카드 사용 예상은 넣지 않는다`() {
+        val nov5 = LocalDate.of(2026, 11, 5)
+        val f = testForecast(
+            days = listOf(
+                day(
+                    nov5,
+                    ForecastEvent(nov5, FlowType.CARD_BILLING, "하나카드 청구", -150_000, FlowConfidence.EXPECTED),
+                    ForecastEvent(nov5, FlowType.CARD_SPENDING_ESTIMATE, "하나카드 · 11/2~11/4 3일 × 일평균 12,000원", -36_000, FlowConfidence.CONSERVATIVE),
+                ),
+            ),
         )
         val rows = cashflowRows(listOf(rent.copy(date = LocalDate.of(2026, 11, 20), occurrenceDate = LocalDate.of(2026, 11, 20))), f)
-        assertEquals(listOf("하나카드 대금", "월세", "월급"), rows.map { it.title })
-        assertEquals(listOf(false, true, false), rows.map { it.entry != null })
+        assertEquals(listOf("하나카드 청구", "월세"), rows.map { it.title })
+        assertEquals(listOf(false, true), rows.map { it.entry != null })
         assertEquals("매월 말일", rows[1].repeatLabel)
     }
 
@@ -171,18 +177,10 @@ class CashflowEditTest {
         assertEquals(listOf(true), rows.map { it.entry != null })
     }
 
-    @Test fun `F-02 줄 — 월급이 가계부에 있으면 예보 월급을 또 붙이지 않는다`() {
+    @Test fun `F-02 줄 — 월급은 가계부 회차 그대로 한 번만`() {
         val salary = rent.copy(itemId = 7, isIncome = true, title = "월급", amount = 2_800_000, date = LocalDate.of(2026, 11, 26), occurrenceDate = LocalDate.of(2026, 11, 26))
-        val rows = cashflowRows(listOf(salary), forecast(upcoming = emptyList(), incomeDate = LocalDate.of(2026, 11, 26)))
+        val rows = cashflowRows(listOf(salary), testForecast())
         assertEquals(1, rows.size)
         assertEquals(2_800_000L, rows.single().amount)
     }
-
-    private fun forecast(upcoming: List<ForecastEvent>, incomeDate: LocalDate?) = Forecast(
-        currentBalance = 950_000, balanceAsOfIso = null, minBalance = 350_000, shortfallFrom = null,
-        incomeDate = incomeDate, incomeAmount = 2_800_000, incomeTitle = "월급",
-        from = LocalDate.of(2026, 11, 1), to = LocalDate.of(2026, 11, 25), fallback = false,
-        upcoming = upcoming, plans = emptyList(), scheduledOutflow = 450_000, livingCost = null, points = emptyList(), isEstimate = true,
-        accounts = emptyList(),
-    )
 }

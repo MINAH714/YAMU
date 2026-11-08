@@ -581,7 +581,7 @@ CONSTRAINT ck_card_monthly_performance_version CHECK (version >= 0)
 | card_product_id | `BIGINT NOT NULL` | 카드·한도 상품 일치 검증용 |
 | limit_group_id | `BIGINT NOT NULL` | 한도 그룹 버전 |
 | usage_month | `DATE NOT NULL` | 한국 기준 월의 1일 |
-| used_value | `BIGINT NOT NULL` | 확정된 한도 사용량; 금액 또는 횟수. 신규 카드·확인된 미사용은 0 |
+| used_value | `BIGINT NOT NULL` | 확정된 한도 사용량; 금액 또는 횟수. 신규 카드·확인된 미사용은 0. 그 달 행이 없으면 추천은 사용량 0으로 읽고, 첫 혜택 사용 승인 때 행을 만든다(S15P31E103-324) |
 | created_at | `TIMESTAMP(6) NOT NULL` | UTC 생성 시각 |
 | updated_at | `TIMESTAMP(6) NOT NULL` | UTC 수정 시각 |
 | version | `BIGINT NOT NULL DEFAULT 0` | JPA 낙관적 락 버전 |
@@ -680,6 +680,33 @@ CONSTRAINT ck_item_amounts CHECK (principal_amount >= 0 AND (fee_amount IS NULL 
 CONSTRAINT ck_item_rate CHECK (annual_fee_rate IS NULL OR annual_fee_rate BETWEEN 0 AND 1);
 CONSTRAINT ck_bill_item_version CHECK (version >= 0)
 ```
+
+### bill_item_discount — 회차별 청구할인 배분
+
+청구 확정 때 청구서의 청구 전 회차에 청구할인을 나눈 기록이다(S15P31E103-299, V20261106_2). 원천은 승인 원장의 `payment_benefit` 중 `card_benefit.benefit_type = DISCOUNT`, `application_timing = AT_BILLING`인 줄이다. 결제의 할인을 모든 회차 원금 비율로 원 단위 내림해 나누고 나머지는 마지막 회차에 둔다. 확정 때 한 번 쓰고 고치지 않는다. 취소 환급·미납 제외 몫은 회차 청구액 − 이 배분 합계다.
+
+| 컬럼 | 타입 | 설명 |
+|---|---|---|
+| bill_item_discount_id | `BIGINT NOT NULL AUTO_INCREMENT` | 회차별 청구할인 배분 번호 |
+| card_bill_id | `BIGINT NOT NULL` | 할인을 확정한 청구서 |
+| bill_item_id | `BIGINT NOT NULL` | 할인을 나눈 회차 |
+| payment_benefit_id | `BIGINT NOT NULL` | 나눈 청구할인(승인 원장의 혜택 행) |
+| amount | `BIGINT NOT NULL` | 이 회차에 나눈 할인(원), 1원 이상 |
+| created_at | `TIMESTAMP(6) NOT NULL` | UTC 생성 시각(청구 확정 시각) |
+
+```sql
+PRIMARY KEY (bill_item_discount_id);
+UNIQUE KEY uk_item_discount (bill_item_id, payment_benefit_id);
+KEY ix_discount_bill (card_bill_id);
+KEY ix_discount_benefit (payment_benefit_id);
+CONSTRAINT fk_discount_bill FOREIGN KEY (card_bill_id) REFERENCES card_bill (card_bill_id);
+CONSTRAINT fk_discount_item FOREIGN KEY (bill_item_id) REFERENCES bill_item (bill_item_id);
+CONSTRAINT fk_discount_benefit FOREIGN KEY (payment_benefit_id) REFERENCES payment_benefit (payment_benefit_id);
+CONSTRAINT ck_discount_amount CHECK (amount > 0);
+```
+
+- 환급 행의 `principal_amount`는 할인을 뺀 실제 환급 원금이다(`ck_refund_amounts` 때문에 환급에는 할인 칸을 두지 않는다).
+- 한계(2026-11-06 결정): 외래키는 다른 표처럼 삭제를 막는다(CASCADE 없음). 앱은 `bill_item`·`payment_benefit`을 지우지 않으므로 운영에는 영향이 없다. 다만 로컬 테스트 사용자 시드 초기화(`be/seed/load.ps1 -Reset`, `SeedUserData.deleteUserData`)는 이 표를 지우지 않아, 그 사용자로 청구할인이 있는 청구서를 확정한 뒤에는 `bill_item` 삭제에서 막힌다. 그때는 로컬 DB를 새로 만들고(`docker compose down -v` → `up -d`) 시드를 다시 넣는다. 시연 페르소나 시드 초기화는 청구서를 지우지 않아 해당 없다.
 
 ### refund — 청구 회차별 환급
 
@@ -958,3 +985,38 @@ PK(benefit_application_group_id,card_benefit_id). 그룹/상품, 혜택/상품 �
 fallback 두 필드는 동시에 NULL이거나 동시에 값이어야 한다. MySQL AUTO_INCREMENT CHECK 제한 때문에 자기 참조는 INSERT/UPDATE 트리거로 차단한다. 한 단계·정률·양수 우대율·연쇄/순환 금지와 금액 한도 하나 검증은 조립기/계산기에서 수행한다.
 
 추천 JSON은 schemaVersion=1, 후보별 netBenefit 필수, benefits[].amount nullable, unallocatedBenefitGroups 배열 필수다. NULL은 미확정이며 0원과 다르다. 단순 조회로 재계산·실적/사용량 갱신·과거 결과 생성을 하지 않는다. 결제 담당의 트랜잭션·재시도·소유권/동시 저장 책임은 [연결 계약](../benefit-composition.md)을 따른다.
+
+## 2026-11-07 생활비 예측 이력
+
+아래 정의는 V20261107_1에서 추가한다. 생성 SQL이 실행 기준이고 JPA 엔티티는 없다(잔고예보가 SQL로 쓴다). 저장 시점·비교 방법은 [잔고예보 문서](../forecast.md) 「생활비 예측 이력」을 따른다.
+
+### living_cost_prediction — 계좌별 생활비 예측 이력
+
+| 컬럼 | SQL 정의 | 설명 |
+|---|---|---|
+| living_cost_prediction_id | `BIGINT NOT NULL AUTO_INCREMENT` | 생활비 예측 이력 번호 |
+| user_id | `BIGINT NOT NULL` | 계좌 소유 사용자 |
+| linked_account_id | `BIGINT NOT NULL` | 예측한 연결 계좌; 같은 사용자 소유 |
+| predicted_on | `DATE NOT NULL` | 예측한 한국 날짜; 예측 기간은 다음 날부터 horizon_days일 |
+| horizon_days | `SMALLINT NOT NULL` | 예측 기간 일수 N(1 이상) |
+| method | `VARCHAR(16) NOT NULL` | ML_V1 AI / TSB |
+| projected_amount | `BIGINT NOT NULL` | 예상 생활비(원) = daily_amount × horizon_days |
+| daily_amount | `BIGINT NOT NULL` | 하루 예상 생활비(원); 잔고예보 보수적 선에서 날마다 뺀 값 |
+| confidence | `VARCHAR(16) NOT NULL` | HIGH / MEDIUM / LOW; 기록 길이 기준 |
+| data_origin | `VARCHAR(16) NOT NULL` | REAL / SEED; 입력 90일에 모의 소비가 있으면 SEED |
+| created_at | `TIMESTAMP(6) NOT NULL` | UTC 저장 시각 |
+
+```sql
+PRIMARY KEY (living_cost_prediction_id);
+UNIQUE KEY uk_prediction_account_day (linked_account_id, predicted_on, horizon_days);
+KEY ix_prediction_account_owner (linked_account_id, user_id);
+KEY ix_prediction_owner_day (user_id, predicted_on);
+CONSTRAINT fk_prediction_account_owner FOREIGN KEY (linked_account_id, user_id) REFERENCES linked_account (linked_account_id, user_id);
+CONSTRAINT ck_prediction_horizon CHECK (horizon_days >= 1);
+CONSTRAINT ck_prediction_method CHECK (method IN ('ML_V1','TSB'));
+CONSTRAINT ck_prediction_amount CHECK (projected_amount >= 0 AND daily_amount >= 0);
+CONSTRAINT ck_prediction_confidence CHECK (confidence IN ('HIGH','MEDIUM','LOW'));
+CONSTRAINT ck_prediction_origin CHECK (data_origin IN ('REAL','SEED'))
+```
+
+계좌·날짜·기간마다 그날 첫 예측 한 행만 남기고, 같은 키가 다시 오면 아무 칸도 바꾸지 않는다. 이미 있는 키는 먼저 읽어 INSERT를 보내지 않는다(중복 INSERT도 자동 증가 번호를 쓰기 때문). 자료 부족(INSUFFICIENT) 계좌와 기간 0일은 남기지 않는다. 통합 값과 날짜별 잔액 선, 가상 구매 결과는 저장하지 않는다. 연결 해제·탈퇴는 계좌 행을 지우지 않으므로 이력도 남는다. 다른 이력과 같이 보존 기간·파기는 팀 보존·파기 정책이 정해지면 함께 처리한다(아직 미정).

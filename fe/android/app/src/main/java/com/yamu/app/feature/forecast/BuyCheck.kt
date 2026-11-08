@@ -1,26 +1,13 @@
 package com.yamu.app.feature.forecast
 
-import androidx.compose.ui.text.withStyle
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.buildAnnotatedString
-import androidx.compose.ui.text.SpanStyle
-import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.draw.clip
-import androidx.compose.material3.Icon
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.background
-import com.yamu.app.core.designsystem.theme.YamuRadius
-import com.yamu.app.core.designsystem.icon.YamuIcons
-import com.yamu.app.core.designsystem.component.KeyValueRow
-import com.yamu.app.core.designsystem.component.SectionBlock
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.consumeWindowInsets
@@ -31,29 +18,37 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.SelectableDates
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberDatePickerState
+import androidx.compose.material3.SelectableDates
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
@@ -62,47 +57,48 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import androidx.navigation.toRoute
-import com.yamu.app.core.designsystem.component.AmountText
 import com.yamu.app.core.designsystem.component.BottomCta
 import com.yamu.app.core.designsystem.component.CharacterImage
 import com.yamu.app.core.designsystem.component.CharacterSize
 import com.yamu.app.core.designsystem.component.ErrorState
-import com.yamu.app.core.designsystem.component.EstimateTag
 import com.yamu.app.core.designsystem.component.FlowScreen
+import com.yamu.app.core.designsystem.component.GreyChip
+import com.yamu.app.core.designsystem.component.KeyValueRow
 import com.yamu.app.core.designsystem.component.KeypadKey
 import com.yamu.app.core.designsystem.component.KeypadMode
 import com.yamu.app.core.designsystem.component.LinkButton
 import com.yamu.app.core.designsystem.component.ListRow
-import com.yamu.app.core.designsystem.component.MoreDetails
 import com.yamu.app.core.designsystem.component.NumberKeypad
 import com.yamu.app.core.designsystem.component.PrimaryButton
 import com.yamu.app.core.designsystem.component.RoundCheckbox
+import com.yamu.app.core.designsystem.component.Segmented
 import com.yamu.app.core.designsystem.component.SkeletonBlock
-import com.yamu.app.core.designsystem.component.StatusTag
-import com.yamu.app.core.designsystem.component.TagTone
 import com.yamu.app.core.designsystem.component.TextButtonGrey
 import com.yamu.app.core.designsystem.component.YamuBottomSheet
 import com.yamu.app.core.designsystem.component.YamuPose
 import com.yamu.app.core.designsystem.component.YamuTextField
+import com.yamu.app.core.designsystem.icon.YamuIcons
+import com.yamu.app.core.designsystem.theme.YamuRadius
 import com.yamu.app.core.designsystem.theme.YamuSpacing
 import com.yamu.app.core.designsystem.theme.YamuTheme
 import com.yamu.app.core.format.KST
 import com.yamu.app.core.format.objectParticle
 import com.yamu.app.core.format.toKoreanDate
-import com.yamu.app.core.format.toMonthDayWeek
 import com.yamu.app.core.format.toWon
-import com.yamu.app.core.network.ApiError
 import com.yamu.app.core.network.ApiResult
 import com.yamu.app.core.ui.LocalSnackbar
 import com.yamu.app.core.ui.userMessage
-import com.yamu.app.feature.forecast.data.BuyCheck
-import com.yamu.app.feature.forecast.data.BuyOption
-import com.yamu.app.feature.forecast.data.BuyVerdict
+import com.yamu.app.feature.forecast.data.CatalogMerchant
 import com.yamu.app.feature.forecast.data.ForecastRepository
+import com.yamu.app.feature.forecast.data.MerchantCategory
+import com.yamu.app.feature.forecast.data.PaymentChannel
 import com.yamu.app.feature.forecast.data.SavedPlan
-import com.yamu.app.navigation.BuyCheckResult
+import com.yamu.app.feature.forecast.data.SimCardOption
+import com.yamu.app.feature.forecast.data.SimulationQuery
+import com.yamu.app.navigation.BuyCheckConditions
 import com.yamu.app.navigation.BuyCheckSaved
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -112,14 +108,6 @@ import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneOffset
 import javax.inject.Inject
-
-/** 판정 색 — 괜찮아요 초록 · 미루기 주황 · 사지 않기 빨강 · 판단 보류 회색 */
-private fun BuyVerdict.tone(): TagTone = when (this) {
-    BuyVerdict.OK -> TagTone.Success
-    BuyVerdict.CAUTION -> TagTone.Warning
-    BuyVerdict.HOLD -> TagTone.Error
-    BuyVerdict.UNKNOWN -> TagTone.Neutral
-}
 
 // ───────────────────────── I-01 금액 넣기 ─────────────────────────
 
@@ -143,22 +131,18 @@ private fun AmountField(amount: Long) {
     }
 }
 
-/** 금액 키 — 0으로 시작하지 않고 10자리까지 */
+/** 금액 키 — 0으로 시작하지 않고 10자리까지(BE 상한 1,000억 원보다 작다) */
 private fun String.applyAmountKey(key: KeypadKey): String = when (key) {
     is KeypadKey.Digit -> if (isEmpty() && key.value == 0) this else (this + key.value).take(10)
     KeypadKey.DoubleZero -> if (isEmpty()) this else (this + "00").take(10)
     KeypadKey.Delete -> dropLast(1)
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun BuyCheckInputRoute(onBack: () -> Unit, onCheck: (amount: Long, title: String?, purchaseDate: LocalDate) -> Unit) {
+fun BuyCheckInputRoute(onBack: () -> Unit, onNext: (amount: Long, title: String?) -> Unit) {
     var digits by rememberSaveable { mutableStateOf("") }
     var title by rememberSaveable { mutableStateOf("") }
-    var day by rememberSaveable { mutableLongStateOf(LocalDate.now(KST).toEpochDay()) }
-    var picking by rememberSaveable { mutableStateOf(false) }
     val amount = digits.toLongOrNull() ?: 0L
-    val date = LocalDate.ofEpochDay(day)
     val c = YamuTheme.colors
     FlowScreen(
         title = "이거 사도 될까?",
@@ -167,7 +151,7 @@ fun BuyCheckInputRoute(onBack: () -> Unit, onCheck: (amount: Long, title: String
         bottomBar = {
             // 주 버튼은 키패드 바로 위(프로토타입 I-01 — 키보드 위 버튼)
             Column {
-                BottomCta(insets = false) { PrimaryButton("사도 될지 보기", onClick = { onCheck(amount, title.trim().ifEmpty { null }, date) }, enabled = amount > 0) }
+                BottomCta(insets = false) { PrimaryButton("다음", onClick = { onNext(amount, title.trim().ifEmpty { null }) }, enabled = amount > 0) }
                 NumberKeypad(KeypadMode.Amount, onKey = { digits = digits.applyAmountKey(it) })
             }
         },
@@ -190,283 +174,400 @@ fun BuyCheckInputRoute(onBack: () -> Unit, onCheck: (amount: Long, title: String
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
             )
             Spacer(Modifier.height(8.dp))
-            // 날짜 — 이름(32dp) · 값을 나눈 한 줄(52dp). 선은 줄과 줄 사이에만(프로토타입 .ir + .ir) — 지금은 한 줄이라 없음
-            Row(Modifier.fillMaxWidth().heightIn(min = 52.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text("날짜", style = YamuTheme.typography.bodyM, color = c.text3, modifier = Modifier.width(32.dp))
-                Spacer(Modifier.width(12.dp))
-                Text(
-                    "${date.toKoreanDate()} (${date.dayOfWeek.getDisplayName(java.time.format.TextStyle.SHORT, java.util.Locale.KOREAN)})${if (date == LocalDate.now(KST)) " · 오늘" else ""}",
-                    style = YamuTheme.typography.titleS,
-                    color = c.text1,
-                    modifier = Modifier.weight(1f),
-                )
-                // 글자 끝을 화면 여백선(16dp)에 맞춘다 — 버튼 안쪽 여백(12)만큼 밖으로
-                LinkButton("바꾸기", onClick = { picking = true }, modifier = Modifier.offset(x = 12.dp))
-            }
-            Text("결제 방법은 결과에서 비교해 드려요", style = YamuTheme.typography.bodyS, color = c.text3)
+            Text("어디서 · 어떤 카드로 살지는 다음 화면에서 골라요", style = YamuTheme.typography.bodyS, color = c.text3)
         }
-    }
-    if (picking) {
-        val todayUtc = LocalDate.now(KST).atStartOfDay().toInstant(ZoneOffset.UTC).toEpochMilli()
-        val state = rememberDatePickerState(
-            initialSelectedDateMillis = date.atStartOfDay().toInstant(ZoneOffset.UTC).toEpochMilli(),
-            selectableDates = object : SelectableDates {
-                override fun isSelectableDate(utcTimeMillis: Long) = utcTimeMillis >= todayUtc   // 오늘부터(과거엔 못 삼)
-            },
-        )
-        DatePickerDialog(
-            onDismissRequest = { picking = false },
-            confirmButton = {
-                TextButton(onClick = {
-                    state.selectedDateMillis?.let { day = Instant.ofEpochMilli(it).atZone(ZoneOffset.UTC).toLocalDate().toEpochDay() }
-                    picking = false
-                }) { Text("고르기", style = YamuTheme.typography.labelL, color = c.primary) }
-            },
-            dismissButton = { TextButton(onClick = { picking = false }) { Text("닫기", style = YamuTheme.typography.labelL, color = c.text2) } },
-        ) { DatePicker(state = state) }
     }
 }
 
-// ───────────────────────── I-02 · I-03 결과 + I-04 방법 비교 ─────────────────────────
+// ───────────────────────── I-01b 어디서 · 어떻게 ─────────────────────────
 
-data class BuyCheckState(
-    val loading: Boolean = true,
-    val check: BuyCheck? = null,
-    val noData: Boolean = false,
-    val error: String? = null,
-    val saving: Boolean = false,
-    val savedPlanId: Long? = null,
-    val message: String? = null,
-)
+data class ConditionsState(
+    val categories: List<MerchantCategory>? = null,
+    val categoriesError: String? = null,
+    val category: MerchantCategory? = null,
+    val merchants: List<CatalogMerchant>? = null,
+    val merchantsError: String? = null,
+    val merchant: CatalogMerchant? = null,
+    val channel: PaymentChannel = PaymentChannel.OFFLINE,   // 화면 기본값은 매장(BE 2026-11-05 결정)
+    val cards: List<SimCardOption>? = null,
+    val cardsError: String? = null,
+    val cardId: Long? = null,                               // null = 혜택이 가장 큰 카드(추천 1순위)
+    val months: Int? = null,                                // null = 일시불
+    val date: LocalDate = LocalDate.now(KST),
+) {
+    val card: SimCardOption? get() = cards?.firstOrNull { it.userCardId == cardId }
+}
 
-/** 서버 판정(#33) 그대로 — 입력은 경로에서(결과는 저장된 게 아니라 이 입력으로 부른 값) */
+/** 할부를 고를 수 있는지 — 신용카드 · 5만 원 이상(BE PaymentTerms). 카드를 고르지 않았으면 추천 카드가 신용카드일 수 있어 연다 */
+internal fun installmentAllowed(amount: Long, card: SimCardOption?): Boolean =
+    amount >= SimulationQuery.INSTALLMENT_MIN_AMOUNT && (card == null || card.isCredit)
+
+/** I-01b — 고른 조건은 이 화면에만(결과로 넘길 때 경로 값으로 굳힌다) */
 @HiltViewModel
-class BuyCheckViewModel @Inject constructor(savedStateHandle: SavedStateHandle, private val repo: ForecastRepository) : ViewModel() {
-    private val input = savedStateHandle.toRoute<BuyCheckResult>()
-    val title: String? = input.title
-    val amount: Long = input.amount
-    private val purchaseDate: LocalDate = LocalDate.parse(input.purchaseDate)
-    private val _state = MutableStateFlow(BuyCheckState())
-    val state: StateFlow<BuyCheckState> = _state.asStateFlow()
+class BuyConditionsViewModel internal constructor(val amount: Long, val title: String?, private val repo: ForecastRepository) : ViewModel() {
+    @Inject constructor(savedStateHandle: SavedStateHandle, repo: ForecastRepository) :
+        this(savedStateHandle.toRoute<BuyCheckConditions>().amount, savedStateHandle.toRoute<BuyCheckConditions>().title, repo)
 
-    init { load() }
+    private val _state = MutableStateFlow(ConditionsState())
+    val state: StateFlow<ConditionsState> = _state.asStateFlow()
+    private var merchantsJob: Job? = null
 
-    fun load() {
+    init {
+        loadCategories()
+        loadCards()
+    }
+
+    fun loadCategories() {
         viewModelScope.launch {
-            _state.update { it.copy(loading = true, error = null, noData = false) }
-            when (val r = repo.check(amount, title, purchaseDate)) {
-                is ApiResult.Success -> _state.update { it.copy(loading = false, check = r.data) }
-                is ApiResult.Failure -> _state.update {
-                    if (r.error is ApiError.DataInsufficient) it.copy(loading = false, noData = true)
-                    else it.copy(loading = false, error = r.error.userMessage())
-                }
+            _state.update { it.copy(categoriesError = null) }
+            when (val r = repo.categories()) {
+                is ApiResult.Success -> _state.update { it.copy(categories = r.data) }
+                is ApiResult.Failure -> _state.update { it.copy(categoriesError = r.error.userMessage()) }
             }
         }
     }
 
-    fun save(option: BuyOption) {
-        if (_state.value.saving) return
+    fun loadCards() {
         viewModelScope.launch {
-            _state.update { it.copy(saving = true) }
-            when (val r = repo.savePlan(option, title, amount)) {
-                is ApiResult.Success -> _state.update { it.copy(saving = false, savedPlanId = r.data.id) }
-                is ApiResult.Failure -> _state.update { it.copy(saving = false, message = r.error.userMessage()) }
+            _state.update { it.copy(cardsError = null) }
+            when (val r = repo.simulationCards()) {
+                is ApiResult.Success -> _state.update { it.copy(cards = r.data) }
+                is ApiResult.Failure -> _state.update { it.copy(cardsError = r.error.userMessage()) }
             }
         }
     }
 
-    fun messageShown() = _state.update { it.copy(message = null) }
-    fun navigated() = _state.update { it.copy(savedPlanId = null) }
+    /** 업종을 바꾸면 브랜드는 비우고 그 업종의 브랜드를 새로(앞 업종 요청은 버린다) */
+    fun pickCategory(category: MerchantCategory) {
+        if (_state.value.category == category) return
+        _state.update { it.copy(category = category, merchant = null, merchants = null, merchantsError = null) }
+        merchantsJob?.cancel()
+        merchantsJob = viewModelScope.launch {
+            when (val r = repo.merchants(category.code)) {
+                is ApiResult.Success -> _state.update { it.copy(merchants = r.data) }
+                is ApiResult.Failure -> _state.update { it.copy(merchantsError = r.error.userMessage()) }
+            }
+        }
+    }
+
+    fun retryMerchants() {
+        val c = _state.value.category ?: return
+        _state.update { it.copy(category = null) }
+        pickCategory(c)
+    }
+
+    fun pickMerchant(merchant: CatalogMerchant?) = _state.update { it.copy(merchant = merchant) }
+
+    fun setChannel(channel: PaymentChannel) = _state.update { it.copy(channel = channel) }
+
+    /** 체크카드를 고르면 할부를 푼다(체크카드는 일시불만) */
+    fun pickCard(cardId: Long?) = _state.update { s ->
+        val card = s.cards?.firstOrNull { it.userCardId == cardId }
+        s.copy(cardId = cardId, months = s.months.takeIf { installmentAllowed(amount, card) })
+    }
+
+    fun setMonths(months: Int?) = _state.update { it.copy(months = months.takeIf { m -> m != null && installmentAllowed(amount, it.card) }) }
+
+    fun setDate(date: LocalDate) = _state.update { it.copy(date = date) }
+
+    /** 업종은 필수 — 없으면 추천도 혜택도 계산할 수 없다(2026-11-08 결정) */
+    fun query(): SimulationQuery? {
+        val s = _state.value
+        val category = s.category ?: return null
+        return SimulationQuery(amount, title, category.code, category.name, s.merchant?.id, s.merchant?.name, s.channel, s.cardId, s.months, s.date)
+    }
 }
 
+/** 업종 칩에 먼저 보일 것 — 목록에 있는 것만, 나머지는 '전체 업종' 시트 */
+private val POPULAR_CATEGORIES = listOf("HYPERMARKET", "ONLINE_MARKETPLACE", "CONVENIENCE_STORE", "COFFEE_SHOP", "DELIVERY_APP", "HEALTH_BEAUTY_STORE", "GENERAL_RESTAURANT")
+
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun BuyCheckResultRoute(onBack: () -> Unit, onPay: () -> Unit, onSaved: (planId: Long) -> Unit, viewModel: BuyCheckViewModel = hiltViewModel()) {
+fun BuyConditionsRoute(onBack: () -> Unit, onCompare: (SimulationQuery) -> Unit, viewModel: BuyConditionsViewModel = hiltViewModel()) {
     val s by viewModel.state.collectAsStateWithLifecycle()
-    val snackbar = LocalSnackbar.current
-    var comparing by rememberSaveable { mutableStateOf(false) }
-    LaunchedEffect(s.message) {
-        s.message?.let { snackbar.showSnackbar(it) }
-        viewModel.messageShown()
-    }
-    LaunchedEffect(s.savedPlanId) {
-        s.savedPlanId?.let {
-            viewModel.navigated()
-            onSaved(it)
-        }
-    }
+    var sheet by rememberSaveable { mutableStateOf<String?>(null) }   // category · brand · card · months
+    var picking by rememberSaveable { mutableStateOf(false) }
     val c = YamuTheme.colors
-    val check = s.check
     FlowScreen(
         title = "이거 사도 될까?",
         onBack = onBack,
         bottomBar = {
-            if (check != null) {
-                val delay = check.delay
-                when {
-                    check.verdict == BuyVerdict.OK -> BottomCta { PrimaryButton("결제하러 가기", onClick = onPay) }
-                    // 비교 입구는 본문 파란 링크 하나만(아래 보조 버튼과 겹치지 않게)
-                    delay != null -> BottomCta { PrimaryButton("${delay.date.toKoreanDate()}로 계획 저장", onClick = { viewModel.save(delay) }, loading = s.saving) }
-                    else -> BottomCta { PrimaryButton("다른 방법과 비교", onClick = { comparing = true }) }
-                }
-            }
+            BottomCta { PrimaryButton("사기 전후 비교하기", onClick = { viewModel.query()?.let(onCompare) }, enabled = s.category != null) }
         },
     ) { inner ->
-        Column(Modifier.padding(inner).consumeWindowInsets(inner).fillMaxSize().verticalScroll(rememberScrollState())) {
-            val what = listOfNotNull(viewModel.title, "${viewModel.amount.toWon()}원", check?.firstMethodLabel).joinToString(" · ")
+        Column(
+            Modifier.padding(inner).consumeWindowInsets(inner).fillMaxSize().verticalScroll(rememberScrollState())
+                .padding(horizontal = YamuSpacing.screen),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(listOfNotNull(viewModel.title, "${viewModel.amount.toWon()}원").joinToString(" · "), style = YamuTheme.typography.bodyM, color = c.text3, modifier = Modifier.weight(1f))
+                LinkButton("고치기", onClick = onBack, modifier = Modifier.offset(x = 12.dp))
+            }
+            Text("어디서 어떻게 살지\n알려 주세요", style = YamuTheme.typography.headlineS, color = c.text1)
+
+            Spacer(Modifier.height(24.dp))
+            SectionLabel("어디서 · 필수")
+            Spacer(Modifier.height(10.dp))
+            val categories = s.categories
             when {
-                s.loading -> SectionBlock(divider = false) {
-                    Text(what, style = YamuTheme.typography.bodyM, color = c.text3)
-                    Spacer(Modifier.height(YamuSpacing.x2))
-                    Text("야무가 계산 중이에요", style = YamuTheme.typography.headlineS, color = c.text1)
-                    Spacer(Modifier.height(YamuSpacing.x4))
-                    repeat(3) {
-                        SkeletonBlock(height = 40.dp)
-                        Spacer(Modifier.height(YamuSpacing.x3))
+                categories == null && s.categoriesError != null -> ErrorState(s.categoriesError ?: "", onRetry = viewModel::loadCategories)
+                categories == null -> SkeletonBlock(height = 40.dp)
+                else -> {
+                    val popular = POPULAR_CATEGORIES.mapNotNull { code -> categories.firstOrNull { it.code == code } }
+                    val shown = (popular + listOfNotNull(s.category)).distinct()
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        shown.forEach { cat -> GreyChip(cat.name, selected = cat == s.category, onClick = { viewModel.pickCategory(cat) }) }
+                        GreyChip("전체 업종", onClick = { sheet = "category" })
                     }
                 }
-                s.noData -> SectionBlock(divider = false) {
-                    Text(what, style = YamuTheme.typography.bodyM, color = c.text3)
-                    Spacer(Modifier.height(YamuSpacing.x2))
-                    StatusTag(BuyVerdict.UNKNOWN.label, tone = TagTone.Neutral)
-                    Spacer(Modifier.height(YamuSpacing.x2))
-                    Text("거래가 쌓이면 더 정확히 알려 드려요", style = YamuTheme.typography.headlineS, color = c.text1)
-                }
-                check == null -> SectionBlock(divider = false) { ErrorState(s.error ?: "판단을 불러오지 못했어요", onRetry = viewModel::load) }
-                else -> ResultBody(check, what, onCompare = { comparing = true })
+            }
+            Spacer(Modifier.height(8.dp))
+            ChoiceRow(
+                label = "브랜드",
+                value = s.merchant?.name ?: "고르지 않음",
+                enabled = s.category != null,
+                onClick = { sheet = "brand" },
+            )
+            Text("브랜드를 고르면 브랜드 혜택까지 계산해요", style = YamuTheme.typography.bodyS, color = c.text3)
+
+            Spacer(Modifier.height(20.dp))
+            HorizontalDivider(color = c.outlineVariant)
+            Spacer(Modifier.height(20.dp))
+            SectionLabel("어떻게")
+            Spacer(Modifier.height(10.dp))
+            Segmented(listOf("매장에서", "온라인으로"), selectedIndex = s.channel.ordinal, onSelect = { viewModel.setChannel(PaymentChannel.entries[it]) })
+
+            Spacer(Modifier.height(18.dp))
+            Text("카드", style = YamuTheme.typography.bodyM, color = c.text3)
+            RadioRow(
+                title = "혜택이 가장 큰 카드",
+                sub = s.cards?.count { it.unusableReason == null }?.let { "내 카드 ${it}장 중에서 골라 드려요" },
+                selected = s.cardId == null,
+                onClick = { viewModel.pickCard(null) },
+            )
+            HorizontalDivider(color = c.outlineVariant)
+            RadioRow(
+                title = s.card?.name ?: "직접 고르기",
+                sub = s.card?.let { if (it.isCredit) "신용카드" else "체크카드" },
+                selected = s.cardId != null,
+                onClick = { sheet = "card" },
+                chevron = true,
+            )
+
+            Spacer(Modifier.height(14.dp))
+            Text("결제", style = YamuTheme.typography.bodyM, color = c.text3)
+            Spacer(Modifier.height(8.dp))
+            val canInstallment = installmentAllowed(viewModel.amount, s.card)
+            if (canInstallment) {
+                Segmented(
+                    listOf("일시불", s.months?.let { "할부 ${it}개월" } ?: "할부"),
+                    selectedIndex = if (s.months == null) 0 else 1,
+                    onSelect = { if (it == 0) viewModel.setMonths(null) else sheet = "months" },
+                )
+            } else {
+                Text("일시불", style = YamuTheme.typography.titleS, color = c.text1)
+            }
+            Text("할부는 신용카드로 5만 원 이상일 때만 볼 수 있어요", style = YamuTheme.typography.bodyS, color = c.text3, modifier = Modifier.padding(top = 6.dp))
+
+            Spacer(Modifier.height(8.dp))
+            Row(Modifier.fillMaxWidth().heightIn(min = 52.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text("날짜", style = YamuTheme.typography.bodyM, color = c.text3, modifier = Modifier.width(48.dp))
+                Text(
+                    s.date.toKoreanDateWeek() + if (s.date == LocalDate.now(KST)) " · 오늘" else "",
+                    style = YamuTheme.typography.titleS,
+                    color = c.text1,
+                    modifier = Modifier.weight(1f),
+                )
+                LinkButton("바꾸기", onClick = { picking = true }, modifier = Modifier.offset(x = 12.dp))
             }
             Spacer(Modifier.height(YamuSpacing.x6))
         }
     }
-    if (comparing && check != null) {
-        CompareSheet(check, saving = s.saving, onDismiss = { comparing = false }, onSave = { option ->
-            comparing = false
-            viewModel.save(option)
+    when (sheet) {
+        "category" -> CategorySheet(s.categories.orEmpty(), s.category, onDismiss = { sheet = null }, onPick = {
+            sheet = null
+            viewModel.pickCategory(it)
+        })
+        "brand" -> BrandSheet(s.category?.name, s.merchants, s.merchantsError, s.merchant, onRetry = viewModel::retryMerchants, onDismiss = { sheet = null }, onPick = {
+            sheet = null
+            viewModel.pickMerchant(it)
+        })
+        "card" -> CardSheet(s.cards, s.cardsError, s.cardId, onRetry = viewModel::loadCards, onDismiss = { sheet = null }, onPick = {
+            sheet = null
+            viewModel.pickCard(it)
+        })
+        "months" -> MonthsSheet(s.months, onDismiss = { sheet = null }, onPick = {
+            sheet = null
+            viewModel.setMonths(it)
         })
     }
+    if (picking) PurchaseDatePicker(s.date, onDismiss = { picking = false }, onPick = {
+        picking = false
+        viewModel.setDate(it)
+    })
 }
 
 @Composable
-private fun ResultBody(check: BuyCheck, what: String, onCompare: () -> Unit) {
+private fun SectionLabel(text: String) = Text(text, style = YamuTheme.typography.bodyS, color = YamuTheme.colors.primary)
+
+/** 이름 · 값 · › 한 줄(52dp) */
+@Composable
+private fun ChoiceRow(label: String, value: String, enabled: Boolean, onClick: () -> Unit) {
     val c = YamuTheme.colors
-    val delay = check.delay
-    // ① 답 — 판정 태그 · 머리 문장(24sp), 캐릭터는 오른쪽 위 구석(글 흐름 밖). 구역은 위아래 16(프로토타입 I-02 .sec)
-    SectionBlock(divider = false, top = 16.dp, bottom = 16.dp) {
-        Box(Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(end = 76.dp)) {
-                Text(what, style = YamuTheme.typography.bodyM, color = c.text3)
-                Spacer(Modifier.height(12.dp))
-                StatusTag(check.verdict.label, tone = check.verdict.tone())
-                check.headline?.let {
-                    Spacer(Modifier.height(8.dp))
-                    Text(it, style = YamuTheme.typography.headlineS, color = c.text1)
-                }
-            }
-            CharacterImage(if (check.verdict == BuyVerdict.OK) YamuPose.ThumbsUp else YamuPose.Alert, size = CharacterSize.S, modifier = Modifier.align(Alignment.TopEnd))
-        }
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .heightIn(min = 52.dp)
+            .alpha(if (enabled) 1f else 0.4f)
+            .clickable(enabled = enabled, role = Role.Button, onClick = onClick),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(label, style = YamuTheme.typography.bodyM, color = c.text3, modifier = Modifier.width(64.dp))
+        Text(value, style = YamuTheme.typography.titleS, color = c.text1, modifier = Modifier.weight(1f))
+        Icon(YamuIcons.ChevronRight, contentDescription = null, tint = c.text3, modifier = Modifier.size(18.dp))
     }
-    // ② 숫자 하나 — 평소 한 달보다
-    if (check.baselineRatio != null || check.reasons.isNotEmpty()) {
-        SectionBlock(top = 16.dp, bottom = 16.dp) {
-            if (check.baselineRatio != null) {
-                Text("평소 한 달보다", style = YamuTheme.typography.titleS, color = c.text2)
-                Spacer(Modifier.height(2.dp))
-                Text(
-                    buildAnnotatedString {
-                        append("+${check.baselineRatio}")
-                        withStyle(SpanStyle(fontSize = YamuTheme.typography.amountL.fontSize * 0.6f, fontWeight = FontWeight.SemiBold)) { append("%") }
-                    },
-                    style = YamuTheme.typography.amountL,
-                    color = c.text1,
-                )   // 지난 달들 평균이라 '예측'이 아님
-                Spacer(Modifier.height(4.dp))   // 작은 '%'가 줄 아래로 내려가는 만큼(AmountText와 같음)
-                listOfNotNull(check.baselinePeriod, check.baselineAverage?.let { "${it.toWon()}원" }).joinToString(" ").takeIf { it.isNotEmpty() }?.let {
-                    Text(it, style = YamuTheme.typography.sub, color = c.text3)
-                }
-            }
-            if (check.reasons.isNotEmpty()) {
-                Spacer(Modifier.height(4.dp))
-                MoreDetails {
-                    check.reasons.forEach { Text("· $it", style = YamuTheme.typography.sub, color = c.text2) }
-                }
-            }
+}
+
+/** 둘 중 하나 고르기 줄 — 둥근 표시 + 이름 · 보조 */
+@Composable
+internal fun RadioRow(title: String, sub: String?, selected: Boolean, onClick: () -> Unit, enabled: Boolean = true, chevron: Boolean = false) {
+    val c = YamuTheme.colors
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .heightIn(min = 56.dp)
+            .alpha(if (enabled) 1f else 0.45f)
+            .selectable(selected = selected, enabled = enabled, role = Role.RadioButton, onClick = onClick)
+            .padding(vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        RoundCheckbox(checked = selected, onCheckedChange = null)
+        Column(Modifier.weight(1f)) {
+            Text(title, style = YamuTheme.typography.titleS, color = c.text1)
+            sub?.let { Text(it, style = YamuTheme.typography.bodyS, color = c.text3) }
         }
+        if (chevron) Icon(YamuIcons.ChevronRight, contentDescription = null, tint = c.text3, modifier = Modifier.size(18.dp))
     }
-    // ③ 다른 방법 — 대안 한 줄 + 비교 링크(줄 전체 폭, › 끝). 괜찮아요면 비교할 필요가 없다
-    val canCompare = check.options.size > 1
-    if (check.verdict != BuyVerdict.OK && (delay != null || canCompare)) {
-        SectionBlock(top = 16.dp, bottom = 16.dp) {
-            delay?.let { Text("${it.date.toKoreanDate()} ${it.methodLabel}에 사면 괜찮아요", style = YamuTheme.typography.titleM, color = c.text1) }
-            if (canCompare) {
-                if (delay != null) Spacer(Modifier.height(4.dp))
-                val installment = check.options.firstOrNull { it.months != null }
-                Row(
-                    Modifier.fillMaxWidth().heightIn(min = 48.dp).clip(RoundedCornerShape(YamuRadius.s)).clickable(role = Role.Button, onClick = onCompare),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(listOfNotNull(installment?.title, "다른 날과 비교").joinToString(" · "), style = YamuTheme.typography.labelL, color = c.primary, modifier = Modifier.weight(1f))
-                    Icon(YamuIcons.ChevronRight, contentDescription = null, tint = c.primary, modifier = Modifier.size(18.dp))
-                }
-            }
+}
+
+/** 시트 안 긴 목록 — 화면 높이를 넘지 않게 스크롤 */
+@Composable
+private fun SheetList(content: @Composable ColumnScope.() -> Unit) {
+    Column(Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState()), content = content)
+}
+
+@Composable
+private fun CategorySheet(categories: List<MerchantCategory>, selected: MerchantCategory?, onDismiss: () -> Unit, onPick: (MerchantCategory) -> Unit) {
+    YamuBottomSheet(onDismiss = onDismiss) {
+        Text("업종", style = YamuTheme.typography.titleL, color = YamuTheme.colors.text1)
+        Spacer(Modifier.height(8.dp))
+        SheetList {
+            categories.forEach { cat -> RadioRow(cat.name, null, selected = cat == selected, onClick = { onPick(cat) }) }
         }
     }
 }
 
-/** I-04 사는 방법 비교 — 줄을 고르고 그 방법으로 계획 저장 */
 @Composable
-private fun CompareSheet(check: BuyCheck, saving: Boolean, onDismiss: () -> Unit, onSave: (BuyOption) -> Unit) {
-    var selected by rememberSaveable { mutableStateOf(check.options.indexOfFirst { it.recommended }.coerceAtLeast(0)) }
+private fun BrandSheet(
+    categoryName: String?,
+    merchants: List<CatalogMerchant>?,
+    error: String?,
+    selected: CatalogMerchant?,
+    onRetry: () -> Unit,
+    onDismiss: () -> Unit,
+    onPick: (CatalogMerchant?) -> Unit,
+) {
     val c = YamuTheme.colors
     YamuBottomSheet(onDismiss = onDismiss) {
-        Text("사는 방법 비교", style = YamuTheme.typography.titleL, color = c.text1)
-        Spacer(Modifier.height(4.dp))   // 제목 아래 4 · 보조 아래 16(프로토타입 .sheet-title · .sheet-sub)
-        Text(listOfNotNull(check.title, "${check.amount.toWon()}원").joinToString(" "), style = YamuTheme.typography.bodyM, color = c.text2)
-        Spacer(Modifier.height(16.dp))
-        check.options.forEachIndexed { i, o ->
-            if (i > 0) HorizontalDivider(color = c.outlineVariant)
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .heightIn(min = 64.dp)
-                    .selectable(selected = i == selected, role = Role.RadioButton, onClick = { selected = i })
-                    .padding(vertical = YamuSpacing.x2),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(YamuSpacing.x3),
-            ) {
-                Column(Modifier.weight(1f)) {
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Text(o.title, style = YamuTheme.typography.titleM, color = c.text1)
-                        if (o.recommended) StatusTag("추천", tone = TagTone.Primary)
-                    }
-                    Text(o.methodLabel, style = YamuTheme.typography.sub, color = c.text3)
-                }
-                // 금액 / 단위('월급 전' · '매달') 두 줄 — 추천은 파랑, 모자라면 빨강
-                val amount = if (o.monthlyAmount != null && o.months != null) o.monthlyAmount else o.minBalance
-                if (amount != null) {
-                    Column(horizontalAlignment = Alignment.End) {
-                        Text(
-                            "${amount.toWon()}원",
-                            style = YamuTheme.typography.titleM,
-                            color = when {
-                                amount < 0 && o.monthlyAmount == null -> c.error
-                                o.recommended -> c.primary
-                                else -> c.text1
-                            },
-                        )
-                        Text(if (o.months != null) "매달" else "월급 전", style = YamuTheme.typography.bodyS, color = c.text3)
-                    }
-                }
-                RoundCheckbox(checked = i == selected, onCheckedChange = null)
+        Text(listOfNotNull(categoryName, "브랜드").joinToString(" "), style = YamuTheme.typography.titleL, color = c.text1)
+        Spacer(Modifier.height(8.dp))
+        when {
+            merchants == null && error != null -> ErrorState(error, onRetry = onRetry)
+            merchants == null -> repeat(3) {
+                SkeletonBlock(height = 48.dp)
+                Spacer(Modifier.height(8.dp))
+            }
+            else -> SheetList {
+                RadioRow("고르지 않음", "업종 혜택만 계산해요", selected = selected == null, onClick = { onPick(null) })
+                if (merchants.isEmpty()) Text("이 업종에는 고를 브랜드가 없어요", style = YamuTheme.typography.bodyM, color = c.text3, modifier = Modifier.padding(vertical = 12.dp))
+                merchants.forEach { m -> RadioRow(m.name, null, selected = m == selected, onClick = { onPick(m) }) }
             }
         }
-        Spacer(Modifier.height(YamuSpacing.x4))
-        val option = check.options.getOrNull(selected)
-        PrimaryButton(
-            option?.let { if (it.months != null) "${it.title}로 계획 저장" else "${it.date.toKoreanDate()}로 계획 저장" } ?: "계획 저장",
-            onClick = { option?.let(onSave) },
-            enabled = option != null,
-            loading = saving,
-        )
     }
+}
+
+/** 카드 고르기 — 맨 위는 '혜택이 가장 큰 카드'(null), 결제할 수 없는 카드는 이유를 달고 고를 수 없다 */
+@Composable
+internal fun CardSheet(
+    cards: List<SimCardOption>?,
+    error: String?,
+    selectedId: Long?,
+    onRetry: () -> Unit,
+    onDismiss: () -> Unit,
+    onPick: (Long?) -> Unit,
+) {
+    val c = YamuTheme.colors
+    YamuBottomSheet(onDismiss = onDismiss) {
+        Text("카드", style = YamuTheme.typography.titleL, color = c.text1)
+        Spacer(Modifier.height(8.dp))
+        RadioRow("혜택이 가장 큰 카드", "야무가 골라 드려요", selected = selectedId == null, onClick = { onPick(null) })
+        when {
+            cards == null && error != null -> ErrorState(error, onRetry = onRetry)
+            cards == null -> repeat(2) {
+                SkeletonBlock(height = 48.dp)
+                Spacer(Modifier.height(8.dp))
+            }
+            else -> SheetList {
+                cards.forEach { card ->
+                    HorizontalDivider(color = c.outlineVariant)
+                    RadioRow(
+                        title = card.name,
+                        sub = listOfNotNull(if (card.isCredit) "신용카드" else "체크카드", card.unusableReason).joinToString(" · "),
+                        selected = card.userCardId == selectedId,
+                        enabled = card.unusableReason == null,
+                        onClick = { onPick(card.userCardId) },
+                    )
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+internal fun MonthsSheet(selected: Int?, onDismiss: () -> Unit, onPick: (Int) -> Unit) {
+    YamuBottomSheet(onDismiss = onDismiss) {
+        Text("할부 개월", style = YamuTheme.typography.titleL, color = YamuTheme.colors.text1)
+        Spacer(Modifier.height(14.dp))
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            SimulationQuery.INSTALLMENT_MONTHS.forEach { m -> GreyChip("${m}개월", selected = m == selected, onClick = { onPick(m) }) }
+        }
+        Spacer(Modifier.height(YamuSpacing.x4))
+    }
+}
+
+/** 구매일 — 오늘부터(지난 날은 BE가 400) */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+internal fun PurchaseDatePicker(date: LocalDate, onDismiss: () -> Unit, onPick: (LocalDate) -> Unit) {
+    val c = YamuTheme.colors
+    val todayUtc = LocalDate.now(KST).atStartOfDay().toInstant(ZoneOffset.UTC).toEpochMilli()
+    val state = rememberDatePickerState(
+        initialSelectedDateMillis = date.atStartOfDay().toInstant(ZoneOffset.UTC).toEpochMilli(),
+        selectableDates = object : SelectableDates {
+            override fun isSelectableDate(utcTimeMillis: Long) = utcTimeMillis >= todayUtc
+        },
+    )
+    DatePickerDialog(
+        onDismissRequest = onDismiss,
+        confirmButton = {
+            TextButton(onClick = {
+                state.selectedDateMillis?.let { onPick(Instant.ofEpochMilli(it).atZone(ZoneOffset.UTC).toLocalDate()) } ?: onDismiss()
+            }) { Text("고르기", style = YamuTheme.typography.labelL, color = c.primary) }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("닫기", style = YamuTheme.typography.labelL, color = c.text2) } },
+    ) { DatePicker(state = state) }
 }
 
 // ───────────────────────── I-05 계획 저장 ─────────────────────────
@@ -476,18 +577,13 @@ data class PlanState(val plan: SavedPlan? = null, val deleting: Boolean = false,
 @HiltViewModel
 class PlanViewModel @Inject constructor(savedStateHandle: SavedStateHandle, private val repo: ForecastRepository) : ViewModel() {
     private val planId = savedStateHandle.toRoute<BuyCheckSaved>().planId
-    private val _state = MutableStateFlow(PlanState(plan = repo.savedPlan(planId) ?: fromForecast()))
+    private val _state = MutableStateFlow(PlanState(plan = repo.savedPlan(planId)))
     val state: StateFlow<PlanState> = _state.asStateFlow()
-
-    /** 앱이 다시 켜졌거나 잔고예보 계획 줄에서 왔으면 예보 응답의 계획 줄로 */
-    private fun fromForecast(): SavedPlan? = repo.cached()?.plans?.firstOrNull { it.planId == planId }?.let { e ->
-        SavedPlan(planId, e.title, -e.amount, e.date ?: LocalDate.now(KST), null, null, null)
-    }
 
     fun delete() {
         if (_state.value.deleting) return
+        _state.update { it.copy(deleting = true) }   // 연타가 두 번 나가지 않게 코루틴 전에
         viewModelScope.launch {
-            _state.update { it.copy(deleting = true) }
             when (val r = repo.deletePlan(planId)) {
                 is ApiResult.Success -> _state.update { it.copy(deleting = false, deleted = true) }
                 is ApiResult.Failure -> _state.update { it.copy(deleting = false, message = r.error.userMessage()) }
@@ -532,16 +628,33 @@ fun BuyCheckSavedRoute(onForecast: () -> Unit, onDeleted: (message: String) -> U
             val thing = if (p.title == "구매 계획") "" else "${p.title}${p.title.objectParticle()} "
             Text("${p.date.toKoreanDate()}에 ${thing}\n사기로 했어요", style = YamuTheme.typography.headlineS, color = c.text1)
             Spacer(Modifier.height(6.dp))
+            // 전후 값은 저장하기 전 가상 구매 비교 값(가계부 등록 응답에는 잔액 영향이 없다)
             when {
                 p.minBefore != null && p.minAfter != null && p.minBefore == p.minAfter ->
-                    Text("월급 전 예상 잔액은 ${p.minAfter.toWon()}원 그대로예요", style = YamuTheme.typography.bodyM, color = c.text2)
+                    Text("가장 낮을 때 잔액은 ${p.minAfter.toWon()}원 그대로예요", style = YamuTheme.typography.bodyM, color = c.text2)
                 p.minBefore != null && p.minAfter != null ->
-                    Text("월급 전 예상 잔액이 ${p.minBefore.toWon()}원 → ${p.minAfter.toWon()}원이 돼요", style = YamuTheme.typography.bodyM, color = if (p.minAfter < 0) c.error else c.text2)
+                    Text("가장 낮을 때 잔액이 ${p.minBefore.toWon()}원 → ${p.minAfter.toWon()}원이 돼요", style = YamuTheme.typography.bodyM, color = if (p.minAfter < 0) c.error else c.text2)
             }
-            p.shortfallFrom?.let { Text("${it.toMonthDayWeek()}부터 부족 예상", style = YamuTheme.typography.bodyM, color = c.error) }
-            Spacer(Modifier.height(24.dp))   // 머리 아래 8 + 덩어리 위 16(프로토타입 I-05 .hd · .blk)
-            // 키–값(48dp) — 날짜는 머리 문장이 말해 뺀다. 알림 · 결제 후 잔액 줄은 서버 값이 생기면(14 문서 14-6)
+            Spacer(Modifier.height(24.dp))
             KeyValueRow("예정 지출", "${(-p.amount).toWon()}원", large = false, minHeight = 48.dp)
         }
+    }
+}
+
+/** 시트 · 칩에서 쓰는 작은 둥근 바탕 — 결과 화면 칩과 같은 모양 */
+@Composable
+internal fun PillButton(text: String, contentDescription: String, onClick: () -> Unit) {
+    val c = YamuTheme.colors
+    Row(
+        Modifier
+            .heightIn(min = 36.dp)
+            .clip(RoundedCornerShape(18.dp))
+            .background(c.surface)
+            .clickable(role = Role.Button, onClickLabel = contentDescription, onClick = onClick)
+            .padding(start = 12.dp, end = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(text, style = YamuTheme.typography.labelL, color = c.text1)
+        Icon(YamuIcons.ExpandMore, contentDescription = null, tint = c.text3, modifier = Modifier.size(16.dp))
     }
 }

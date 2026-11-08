@@ -7,12 +7,15 @@ import com.yamu.app.core.network.ApiResult
 import com.yamu.app.core.network.apiCall
 import com.yamu.app.core.network.apiCallNoData
 import com.yamu.app.core.network.map
+import com.yamu.app.feature.link.data.AccountDto
+import com.yamu.app.feature.link.data.CardDto
+import com.yamu.app.feature.link.data.LinkApi
+import com.yamu.app.feature.link.data.lastDigits
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
 import kotlinx.serialization.json.JsonElement
-import com.yamu.app.feature.link.data.LinkApi
 import retrofit2.Response
 import retrofit2.Retrofit
 import retrofit2.http.Body
@@ -27,13 +30,27 @@ import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 import javax.inject.Singleton
 
-/** 잔고예보 · 이거 사도 될까? — #10 · #33 · #20 · #9. 12 문서 8-2 */
+/** 잔고예보 · 이거 사도 될까? · 예정 수입·지출 — docs/be/forecast.md · cashflow.md */
 interface ForecastApi {
+    /** accountIds는 필수(없으면 400 ACCOUNT_SELECTION_REQUIRED). until · days를 빼면 잔고예보 설정, N일은 until=DAYS와 days를 같이 */
     @GET("forecasts/balance")
-    suspend fun forecast(@Query("until") until: String = "NEXT_INCOME"): Response<ApiEnvelope<ForecastDto>>
+    suspend fun forecast(
+        @Query("accountIds") accountIds: List<Long>,
+        @Query("until") until: String?,
+        @Query("days") days: Int?,
+    ): Response<ApiEnvelope<BalanceForecastDto>>
 
-    @POST("spending-decisions")
-    suspend fun check(@Body body: SpendingDecisionRequest): Response<ApiEnvelope<SpendingDecisionDto>>
+    /** 가상 구매 전후 비교. 계산만 하고 결제 · 청구 · 실적 · 한도는 바꾸지 않아 다시 보내도 된다 */
+    @POST("forecasts/simulations")
+    suspend fun simulate(@Body body: SimulationRequest): Response<ApiEnvelope<SimulationResponseDto>>
+
+    /** 업종 49개(인증 없이 공개) — docs/be/merchant-catalog-api.md */
+    @GET("merchant-categories")
+    suspend fun categories(): Response<ApiEnvelope<List<MerchantCategoryDto>>>
+
+    /** 업종의 브랜드. 결제 쪽 GET merchants(channel · size)와 같은 주소지만 merchantCategoryCode로 거른다 */
+    @GET("merchants")
+    suspend fun merchants(@Query("merchantCategoryCode") merchantCategoryCode: String): Response<ApiEnvelope<List<CatalogMerchantDto>>>
 
     @POST("cashflow-items")
     suspend fun savePlan(@Body body: PurchasePlanRequest): Response<ApiEnvelope<CashflowCreatedDto>>
@@ -55,18 +72,33 @@ interface ForecastApi {
 }
 
 interface ForecastRepository {
-    /** F-01 · F-02 — 돌아올 때마다 새로(결제 · 계획 저장 뒤 바뀌므로) */
+    /** F-01 · F-02 — 지금 고른 기간 · 계좌([selection])로. 돌아올 때마다 새로(결제 · 계획 저장 뒤 바뀌므로) */
     suspend fun forecast(): ApiResult<Forecast>
 
     fun cached(): Forecast?
 
-    /** I-02 · I-03 — #33 판정 그대로 */
-    suspend fun check(amount: Long, title: String?, purchaseDate: LocalDate): ApiResult<BuyCheck>
+    /** 고른 기간 · 계좌 — 앱을 켜 둔 동안만(서버 설정에는 저장하지 않는다, 2026-11-08 결정) */
+    fun selection(): ForecastSelection
 
-    /** I-04 · I-02 [계획 저장] — #20 PURCHASE_PLAN */
-    suspend fun savePlan(option: BuyOption, title: String?, amount: Long): ApiResult<SavedPlan>
+    fun select(selection: ForecastSelection)
 
-    /** 방금 저장한 계획(I-05) — 앱이 다시 켜졌으면 없음(잔고예보의 계획 줄에서 다시) */
+    /** 계좌 고르기 시트 — 연결 계좌 전체 */
+    suspend fun accounts(): ApiResult<List<ForecastAccountOption>>
+
+    /** I-02 — 가상 구매. 잔고예보와 같은 기간 · 계좌로 불러 '사기 전'이 잔고예보 화면과 같다 */
+    suspend fun simulate(query: SimulationQuery): ApiResult<Simulation>
+
+    /** I-01b 업종(한 번 받으면 기억) · 업종의 브랜드 · 내 카드 */
+    suspend fun categories(): ApiResult<List<MerchantCategory>>
+
+    suspend fun merchants(categoryCode: String): ApiResult<List<CatalogMerchant>>
+
+    suspend fun simulationCards(): ApiResult<List<SimCardOption>>
+
+    /** I-02 [계획 저장] — #20 일반 예정 지출. 일시불 결과만(할부는 화면에서 막는다). 재시도 키가 없어 실패해도 다시 보내지 않는다 */
+    suspend fun savePlan(simulation: Simulation): ApiResult<SavedPlan>
+
+    /** 방금 저장한 계획(I-05) — 앱이 다시 켜졌으면 없음 */
     fun savedPlan(planId: Long): SavedPlan?
 
     suspend fun deletePlan(planId: Long): ApiResult<Unit>
@@ -83,39 +115,107 @@ interface ForecastRepository {
     suspend fun updateItem(itemId: Long, body: CashflowUpdateRequest): ApiResult<Unit>
 
     suspend fun deleteItem(itemId: Long, scope: CashflowDeleteScope, occurrenceDate: LocalDate?): ApiResult<Unit>
+
+    companion object {
+        /** 연결한 계좌가 없다 — BE가 accountIds 없이 부르면 내는 코드와 같게 둬 화면이 한 곳에서 빈 상태로 바꾼다 */
+        const val NO_ACCOUNT = "ACCOUNT_SELECTION_REQUIRED"
+    }
 }
+
+/** 고른 계좌 중 아직 연결된 것만. 고른 게 없거나 모두 해제됐으면 연결 계좌 전체 */
+fun ForecastSelection.accountIdsFrom(accounts: List<ForecastAccountOption>): List<Long> {
+    val all = accounts.map { it.accountId }
+    return accountIds?.let { ids -> all.filter { it in ids } }.orEmpty().ifEmpty { all }
+}
+
+/** 등록 카드 → 카드 고르기 줄. 등록 중 · 해제 카드는 빼고, 결제할 수 없는 카드는 이유를 달아 둔다(BE CARD_NOT_ELIGIBLE과 같은 기준) */
+fun CardDto.toSimCardOption(): SimCardOption? {
+    val state = status?.uppercase()
+    if (state == "PENDING" || state == "UNREGISTERED") return null
+    val reason = when {
+        state == "INACTIVE" -> "꺼 둔 카드"
+        issuerStatus.equals("SUSPENDED", ignoreCase = true) -> "카드사에서 정지한 카드"
+        issuerStatus.equals("EXPIRED", ignoreCase = true) -> "유효기간이 지난 카드"
+        else -> null
+    }
+    return SimCardOption(userCardId, nickname?.takeIf { it.isNotBlank() } ?: productName, productName, cardType.equals("CREDIT", ignoreCase = true), reason)
+}
+
+fun AccountDto.toOption() = ForecastAccountOption(
+    accountId = accountId,
+    name = accountName?.takeIf { it.isNotBlank() } ?: "${bank.name} 입출금",
+    bankName = bank.name,
+    last4 = maskedAccountNo.lastDigits(),
+    balance = balance,
+    isPrimary = isPrimary,
+)
 
 @Singleton
 class ForecastRepositoryImpl @Inject constructor(private val api: ForecastApi, private val linkApi: LinkApi) : ForecastRepository {
 
     @Volatile private var last: Forecast? = null
+    @Volatile private var current = ForecastSelection()
     private val plans = ConcurrentHashMap<Long, SavedPlan>()
 
-    override suspend fun forecast(): ApiResult<Forecast> =
-        apiCall { api.forecast() }.map { it.toForecast() }.also { r -> if (r is ApiResult.Success) last = r.data }
+    override suspend fun forecast(): ApiResult<Forecast> {
+        val accounts = when (val a = accounts()) {
+            is ApiResult.Failure -> return a
+            is ApiResult.Success -> a.data
+        }
+        if (accounts.isEmpty()) return ApiResult.Failure(ApiError.InvalidRequest(ForecastRepository.NO_ACCOUNT))
+        val period = current.period
+        return apiCall { api.forecast(current.accountIdsFrom(accounts), period?.until, period?.days) }
+            .map { it.toForecast() }
+            .also { r -> if (r is ApiResult.Success) last = r.data }
+    }
 
     override fun cached(): Forecast? = last
 
-    override suspend fun check(amount: Long, title: String?, purchaseDate: LocalDate): ApiResult<BuyCheck> =
-        apiCall { api.check(SpendingDecisionRequest(amount, title?.takeIf { it.isNotBlank() }, purchaseDate.toString())) }
-            .map { it.toBuyCheck(title, amount, purchaseDate) }
+    override fun selection(): ForecastSelection = current
 
-    override suspend fun savePlan(option: BuyOption, title: String?, amount: Long): ApiResult<SavedPlan> {
-        val accountId = if (option.userCardId != null) null else when (val a = apiCall { linkApi.accounts(null) }) {
+    override fun select(selection: ForecastSelection) {
+        current = selection
+    }
+
+    override suspend fun accounts(): ApiResult<List<ForecastAccountOption>> =
+        apiCall { linkApi.accounts(null) }.map { r -> r.accounts.map { it.toOption() } }
+
+    override suspend fun simulate(query: SimulationQuery): ApiResult<Simulation> {
+        val accounts = when (val a = accounts()) {
             is ApiResult.Failure -> return a
-            is ApiResult.Success -> a.data.accounts.firstOrNull { it.isPrimary }?.accountId
-                ?: return ApiResult.Failure(ApiError.InvalidRequest("ACCOUNT_NOT_LINKED"))
+            is ApiResult.Success -> a.data
         }
-        val body = option.toPlanRequest(title, amount, accountId)
+        if (accounts.isEmpty()) return ApiResult.Failure(ApiError.InvalidRequest(ForecastRepository.NO_ACCOUNT))
+        val body = query.toRequest(current.accountIdsFrom(accounts), current.period)
+        return apiCall { api.simulate(body) }.map { it.toSimulation(query) }
+    }
+
+    @Volatile private var categoryCache: List<MerchantCategory>? = null
+
+    override suspend fun categories(): ApiResult<List<MerchantCategory>> {
+        categoryCache?.let { return ApiResult.Success(it) }
+        return apiCall { api.categories() }
+            .map { list -> list.map { MerchantCategory(it.merchantCategoryCode, it.merchantCategoryName) } }
+            .also { if (it is ApiResult.Success) categoryCache = it.data }
+    }
+
+    override suspend fun merchants(categoryCode: String): ApiResult<List<CatalogMerchant>> =
+        apiCall { api.merchants(categoryCode) }.map { list -> list.map { CatalogMerchant(it.merchantId, it.merchantName) } }
+
+    override suspend fun simulationCards(): ApiResult<List<SimCardOption>> =
+        apiCall { linkApi.cards() }.map { r -> r.cards.mapNotNull { it.toSimCardOption() } }
+
+    override suspend fun savePlan(simulation: Simulation): ApiResult<SavedPlan> {
+        val body = simulation.toPlanRequest()
         return apiCall { api.savePlan(body) }.map { r ->
             SavedPlan(
                 id = r.cashflowItemId,
                 title = body.title,
-                amount = amount,
-                date = parseDate(r.occurrenceDate) ?: option.date,
-                minBefore = r.forecastImpact?.minBalanceBefore,
-                minAfter = r.forecastImpact?.minBalanceAfter,
-                shortfallFrom = parseDate(r.forecastImpact?.shortfallFrom),
+                amount = body.amount,
+                date = parseDate(r.occurrenceDate) ?: simulation.query.purchaseDate,
+                minBefore = simulation.before?.minBalance,
+                minAfter = simulation.after?.minBalance,
+                shortfallFrom = null,
             ).also { plans[it.id] = it }
         }
     }

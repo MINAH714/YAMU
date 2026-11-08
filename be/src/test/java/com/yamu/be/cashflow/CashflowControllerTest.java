@@ -410,6 +410,19 @@ class CashflowControllerTest extends MySqlTestSupport {
                 .andExpect(jsonPath("$.error.details.fieldErrors[0].field").value("date"));
     }
 
+    @Test
+    void 금액_계좌에_소수점_아래가_있으면_잘라_저장하지_않고_400이다() throws Exception {
+        // S15P31E103-318: 전에는 500000.9를 500000원으로, 계좌 3.9를 3번 계좌로 저장했다
+        for (String field : new String[] {"\"amount\": 500000.9, \"accountId\": %d", "\"amount\": 500000, \"accountId\": %d.9"}) {
+            mockMvc.perform(post("/api/cashflow-items").with(AuthUsers.asUser(owner))
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(("{ \"type\": \"EXPENSE\", \"title\": \"월세\", \"date\": \"%s\", " + field + " }")
+                                    .formatted(LocalDate.now(java.time.ZoneId.of("Asia/Seoul")).plusDays(1), account)))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.error.code").value("INVALID_REQUEST"));
+        }
+    }
+
     /** 내일부터 매주 반복하는 계좌 지출을 등록하고 규칙 ID를 돌려준다. */
     private long weekly() throws Exception {
         mockMvc.perform(post("/api/cashflow-items").with(AuthUsers.asUser(owner))

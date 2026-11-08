@@ -169,8 +169,9 @@ class RecommendationDatabaseIntegrationTest extends MySqlTestSupport {
                 data, date, null, issues);
         assertThat(policy.limits()).filteredOn(l -> l.id() == dayGroup).singleElement()
                 .satisfies(l -> assertThat(l.used()).isEqualTo(expected));
+        // S15P31E103-324: 정상 조회에서 그 달 월간 행이 없으면 일별과 같이 사용량 0이다
         assertThat(policy.limits()).filteredOn(l -> l.id() == shared).singleElement()
-                .satisfies(l -> assertThat(l.used()).isNull());
+                .satisfies(l -> assertThat(l.used()).isZero());
         assertThat(issues).noneMatch(i -> i.code().equals("LIMIT_USAGE_MISSING") && i.policyId() == dayGroup);
     }
 
@@ -194,8 +195,9 @@ class RecommendationDatabaseIntegrationTest extends MySqlTestSupport {
             assertThat(l.used()).isZero();
             assertThat(l.version()).isEqualTo(1);
         });
+        // 두 번째 카드는 이번 달 행이 없다(S15P31E103-324: 아직 쓰지 않은 0)
         var missing = assembler.policy(owned.get(1), data, date, null, new ArrayList<>());
-        assertThat(missing.limits().get(0).used()).isNull();
+        assertThat(missing.limits().get(0).used()).isZero();
         assertThat(data.daily()).isEmpty(); // 월간 그룹의 상세 기록을 집계에 다시 더하지 않는다.
     }
 
