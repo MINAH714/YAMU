@@ -104,7 +104,8 @@ class PaymentMatchControllerTest extends MySqlTestSupport {
                 .andExpect(jsonPath("$.data.match.matchId").value(matchId))
                 .andExpect(jsonPath("$.data.match.paymentId").value(payment))
                 .andExpect(jsonPath("$.data.match.merchantName").value("테스트 가맹점"))
-                .andExpect(jsonPath("$.data.match.paidAmount").value(30000))
+                .andExpect(jsonPath("$.data.match.amount").value(30000))
+                .andExpect(jsonPath("$.data.match.approvedAmount").value(30000))
                 .andExpect(jsonPath("$.data.match.paymentStatus").value("APPROVED"))
                 .andExpect(jsonPath("$.data.match.matchStatus").value("ACTIVE"));
         assertThat(paid(target)).isTrue();
@@ -270,6 +271,7 @@ class PaymentMatchControllerTest extends MySqlTestSupport {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.scheduledDate").value(target.toString()))
                 .andExpect(jsonPath("$.data.scheduledAmount").value(30000))
+                .andExpect(jsonPath("$.data.match").value(nullValue()))
                 .andExpect(jsonPath("$.data.candidates", hasSize(4)))
                 .andExpect(jsonPath("$.data.candidates[*].paymentId")
                         .value(contains((int) best, (int) sameAmountNear, (int) sameAmountFar, (int) cardOnly)))
@@ -280,6 +282,69 @@ class PaymentMatchControllerTest extends MySqlTestSupport {
                 .andExpect(jsonPath("$.data.candidates[2].matchReasons", contains("AMOUNT_MATCH")))
                 .andExpect(jsonPath("$.data.candidates[2].warnings",
                         contains("CARD_MISMATCH", "MERCHANT_CATEGORY_MISMATCH")));
+    }
+
+    @Test
+    void 결제_금액이나_승인_금액_중_하나가_예정_금액과_같으면_금액_일치다() throws Exception {
+        // 가격표 30,000원을 즉시할인 카드로 내 27,000원이 승인됐다.
+        long discounted = cashflows.payment(owner, card, gym, 30000L, 27000L, target, "YAMU", "APPROVED");
+        // 33,000원짜리를 할인받아 예정 금액과 같은 30,000원이 승인됐다.
+        long approvedSame = cashflows.payment(owner, card, gym, 33000L, 30000L, target.plusDays(1), "YAMU",
+                "APPROVED");
+        long neither = cashflows.payment(owner, card, gym, 31000L, 29000L, target, "YAMU", "APPROVED");
+
+        mockMvc.perform(get("/api/cashflow-items/{id}/payment-match-candidates", rule)
+                        .with(AuthUsers.asUser(owner)).param("occurrenceDate", target.toString()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.candidates[*].paymentId")
+                        .value(contains((int) discounted, (int) approvedSame, (int) neither)))
+                .andExpect(jsonPath("$.data.candidates[0].amount").value(30000))
+                .andExpect(jsonPath("$.data.candidates[0].approvedAmount").value(27000))
+                .andExpect(jsonPath("$.data.candidates[0].matchReasons[0]").value("AMOUNT_MATCH"))
+                .andExpect(jsonPath("$.data.candidates[1].matchReasons[0]").value("AMOUNT_MATCH"))
+                .andExpect(jsonPath("$.data.candidates[2].warnings", contains("AMOUNT_MISMATCH")));
+
+        confirm(owner, rule, target, discounted).andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.warnings", empty()));
+        mockMvc.perform(get("/api/cashflow-payment-matches").with(AuthUsers.asUser(owner))
+                        .param("cashflowItemId", String.valueOf(rule)).param("occurrenceDate", target.toString()))
+                .andExpect(jsonPath("$.data.match.amount").value(30000))
+                .andExpect(jsonPath("$.data.match.approvedAmount").value(27000));
+    }
+
+    @Test
+    void 가맹점_이름과_업종은_결제_당시_기록을_먼저_쓴다() throws Exception {
+        // 결제 때는 음식점이었는데 지금 가맹점 표는 운동(SPORTS)이다.
+        long payment = cashflows.payment(owner, card, gym, 30000L, target, "YAMU", "APPROVED");
+        cashflows.merchantSnapshot(payment, "결제 당시 이름", "FOOD");
+
+        mockMvc.perform(get("/api/cashflow-items/{id}/payment-match-candidates", rule)
+                        .with(AuthUsers.asUser(owner)).param("occurrenceDate", target.toString()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.candidates[0].merchantName").value("결제 당시 이름"))
+                .andExpect(jsonPath("$.data.candidates[0].matchReasons",
+                        contains("AMOUNT_MATCH", "CARD_MATCH", "DATE_NEAR")))
+                .andExpect(jsonPath("$.data.candidates[0].warnings", contains("MERCHANT_CATEGORY_MISMATCH")));
+        confirm(owner, rule, target, payment).andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.warnings", contains("MERCHANT_CATEGORY_MISMATCH")));
+        mockMvc.perform(get("/api/cashflow-payment-matches").with(AuthUsers.asUser(owner))
+                        .param("cashflowItemId", String.valueOf(rule)).param("occurrenceDate", target.toString()))
+                .andExpect(jsonPath("$.data.match.merchantName").value("결제 당시 이름"));
+    }
+
+    @Test
+    void 이미_연결된_회차의_후보_조회는_현재_연결도_준다() throws Exception {
+        long payment = cashflows.payment(owner, card, gym, 30000L, target, "YAMU", "APPROVED");
+        long other = cashflows.payment(owner, card, gym, 30000L, target, "YAMU", "APPROVED");
+        long matchId = matchId(confirm(owner, rule, target, payment).andExpect(status().isCreated()));
+
+        mockMvc.perform(get("/api/cashflow-items/{id}/payment-match-candidates", rule)
+                        .with(AuthUsers.asUser(owner)).param("occurrenceDate", target.toString()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.match.matchId").value(matchId))
+                .andExpect(jsonPath("$.data.match.paymentId").value(payment))
+                .andExpect(jsonPath("$.data.match.matchStatus").value("ACTIVE"))
+                .andExpect(jsonPath("$.data.candidates[*].paymentId").value(contains((int) other)));
     }
 
     private ResultActions confirm(long user, long item, LocalDate occurrenceDate, long payment) throws Exception {

@@ -75,9 +75,15 @@ class CashflowFixtures {
                 "brand_code", UUID.randomUUID().toString(), "merchant_category_code", category));
     }
 
-    /** 한국 날짜 day 정오에 승인된 일시불 결제. status가 CANCELED면 취소 시각도 넣는다. */
+    /** 한국 날짜 day 정오에 승인된 즉시할인 없는 일시불 결제(결제 금액 = 승인 금액). status가 CANCELED면 취소 시각도 넣는다. */
     long payment(long owner, long userCard, long merchant, long amount, LocalDate day, String source,
             String status) {
+        return payment(owner, userCard, merchant, amount, amount, day, source, status);
+    }
+
+    /** 결제 금액(requested)과 즉시할인 뒤 승인 금액(approved)이 다른 결제. 나머지는 위와 같다. */
+    long payment(long owner, long userCard, long merchant, long requested, long approved, LocalDate day,
+            String source, String status) {
         long product = jdbc.queryForObject("SELECT card_product_id FROM user_card WHERE user_card_id = ?", Long.class,
                 userCard);
         LocalDateTime approvedAt = day.atTime(12, 0).atZone(java.time.ZoneId.of("Asia/Seoul"))
@@ -86,14 +92,20 @@ class CashflowFixtures {
                 Map.entry("merchant_id", merchant), Map.entry("user_card_id", userCard),
                 Map.entry("card_product_id", product), Map.entry("request_key", UUID.randomUUID().toString()),
                 Map.entry("request_fingerprint", new byte[32]), Map.entry("source", source),
-                Map.entry("status", status), Map.entry("requested_amount", amount),
-                Map.entry("approved_amount", amount), Map.entry("installment_months", 1),
+                Map.entry("status", status), Map.entry("requested_amount", requested),
+                Map.entry("approved_amount", approved), Map.entry("installment_months", 1),
                 Map.entry("recognized_performance_amount", 0L), Map.entry("performance_month", day.withDayOfMonth(1)),
                 Map.entry("requested_at", approvedAt), Map.entry("approved_at", approvedAt)));
         if (status.equals("CANCELED")) {
             fields.put("canceled_at", approvedAt.plusHours(1));
         }
         return insert("payment_transaction", "payment_transaction_id", fields);
+    }
+
+    /** 결제 당시 가맹점 기록(merchant_context_snapshot)을 넣는다. 결제 뒤 가맹점 이름·업종이 바뀐 경우를 만든다. */
+    void merchantSnapshot(long payment, String merchantName, String categoryCode) {
+        jdbc.update("UPDATE payment_transaction SET merchant_context_snapshot = JSON_OBJECT('merchantName', ?, "
+                + "'categoryCode', ?) WHERE payment_transaction_id = ?", merchantName, categoryCode, payment);
     }
 
     private long insert(String table, String idColumn, Map<String, Object> fields) {

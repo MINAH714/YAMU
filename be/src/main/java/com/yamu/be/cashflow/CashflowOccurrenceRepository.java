@@ -25,13 +25,14 @@ public interface CashflowOccurrenceRepository extends JpaRepository<CashflowOccu
     List<Long> findMatchedIds(@Param("ids") Collection<Long> ids);
 
     /**
-     * ids 중 취소되지 않은 결제와 연결된 회차. 잔고예보는 이 회차를 실제 결제로 보고 예정 차감에서 뺀다.
-     * 연결된 결제가 취소되면 다시 예정으로 센다. 수정 잠금은 연결 해제 전까지 {@link #findMatchedIds}로 유지한다.
+     * ids 중 승인된 결제와 연결된 회차. 잔고예보는 이 회차를 실제 결제로 보고 예정 차감에서 뺀다.
+     * 매칭은 승인된 결제만 받고 승인 뒤에는 취소로만 바뀌므로, 연결된 결제가 취소되면 다시 예정으로 센다.
+     * 수정 잠금은 연결 해제 전까지 {@link #findMatchedIds}로 유지한다.
      */
     @Query(value = """
             select m.cashflow_occurrence_id from cashflow_payment_match m
             join payment_transaction p on p.payment_transaction_id = m.payment_transaction_id
-            where m.cashflow_occurrence_id in (:ids) and p.status <> 'CANCELED'
+            where m.cashflow_occurrence_id in (:ids) and p.status = 'APPROVED'
             """, nativeQuery = true)
     List<Long> findPaidIds(@Param("ids") Collection<Long> ids);
 

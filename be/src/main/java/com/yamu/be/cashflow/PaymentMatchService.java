@@ -103,15 +103,7 @@ public class PaymentMatchService {
         CashflowService.requireUser(authenticatedUserId);
         MatchTarget target = cashflows.readOccurrenceForMatch(authenticatedUserId, cashflowItemId, occurrenceDate,
                 false);
-        Match match = target.occurrenceId() == null ? null : store.byOccurrence(target.occurrenceId()).orElse(null);
-        if (match == null) {
-            return new Status(cashflowItemId, occurrenceDate, null);
-        }
-        Payment payment = store.payment(authenticatedUserId, match.paymentId()).orElseThrow(() ->
-                new IllegalStateException("연결된 결제가 같은 사용자의 것이 아니다: match " + match.matchId()));
-        return new Status(cashflowItemId, occurrenceDate, new MatchView(match.matchId(), payment.paymentId(),
-                payment.merchantName(), payment.approvedAmount(), payment.status(), MatchStatus.of(payment.status()),
-                match.matchedAtUtc()));
+        return new Status(cashflowItemId, occurrenceDate, currentMatch(authenticatedUserId, target));
     }
 
     /**
@@ -132,11 +124,25 @@ public class PaymentMatchService {
                         .thenComparingLong(payment -> Math.abs(daysApart(target, payment)))
                         .thenComparingLong(Payment::paymentId))
                 .limit(CANDIDATE_LIMIT)
-                .map(payment -> new Candidate(payment.paymentId(), payment.merchantName(), payment.approvedAmount(),
-                        payment.approvedAtUtc(), payment.userCardId(), payment.cardType(), reasons(target, payment),
-                        warnings(target, payment)))
+                .map(payment -> new Candidate(payment.paymentId(), payment.merchantName(), payment.requestedAmount(),
+                        payment.approvedAmount(), payment.approvedAtUtc(), payment.userCardId(), payment.cardType(),
+                        reasons(target, payment), warnings(target, payment)))
                 .toList();
-        return new Candidates(cashflowItemId, occurrenceDate, scheduled, target.amount(), candidates);
+        // 이미 연결된 회차면 현재 연결도 같이 준다. FE가 상태 조회를 따로 부르지 않아도 된다(!163 리뷰).
+        return new Candidates(cashflowItemId, occurrenceDate, scheduled, target.amount(),
+                currentMatch(authenticatedUserId, target), candidates);
+    }
+
+    /** 회차에 지금 연결된 결제. 회차 행이 없거나 연결이 없으면 null이다. */
+    private MatchView currentMatch(long userId, MatchTarget target) {
+        Match match = target.occurrenceId() == null ? null : store.byOccurrence(target.occurrenceId()).orElse(null);
+        if (match == null) {
+            return null;
+        }
+        Payment payment = store.payment(userId, match.paymentId()).orElseThrow(() ->
+                new IllegalStateException("연결된 결제가 같은 사용자의 것이 아니다: match " + match.matchId()));
+        return new MatchView(match.matchId(), payment.paymentId(), payment.merchantName(), payment.requestedAmount(),
+                payment.approvedAmount(), payment.status(), MatchStatus.of(payment.status()), match.matchedAtUtc());
     }
 
     private static Confirmed confirmed(MatchTarget target, Payment payment, Match match) {
@@ -185,8 +191,13 @@ public class PaymentMatchService {
         return warnings;
     }
 
+    /**
+     * 예정 금액이 결제 금액(즉시할인 전)이나 승인 금액 중 하나와 같으면 같은 지출로 본다. 예정 지출에는 가격표 금액을
+     * 적는데, 즉시할인 카드로 내면 승인 금액이 작아져 같은 지출에도 경고가 붙기 때문이다(!163 리뷰).
+     */
     private static boolean sameAmount(MatchTarget target, Payment payment) {
-        return Objects.equals(target.amount(), payment.approvedAmount());
+        return target.amount() != null && (target.amount() == payment.requestedAmount()
+                || target.amount().equals(payment.approvedAmount()));
     }
 
     private static boolean sameCard(MatchTarget target, Payment payment) {

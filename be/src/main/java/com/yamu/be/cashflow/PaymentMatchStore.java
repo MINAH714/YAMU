@@ -19,9 +19,17 @@ import org.springframework.stereotype.Repository;
 @Repository
 class PaymentMatchStore {
 
+    /**
+     * 가맹점 이름·업종은 결제 목록·상세(PaymentHistoryReader)와 같이 결제 당시 기록을 먼저 쓴다.
+     * 그래야 두 화면의 이름이 같고, 업종 일치도 결제 당시 업종으로 판정한다(!163 리뷰).
+     */
     private static final String PAYMENT_COLUMNS = """
-            SELECT p.payment_transaction_id, p.user_card_id, cp.card_type, m.merchant_name, m.merchant_category_code,
-                   p.approved_amount, p.approved_at, p.source, p.status
+            SELECT p.payment_transaction_id, p.user_card_id, cp.card_type,
+                   coalesce(nullif(p.merchant_context_snapshot ->> '$.merchantName', 'null'), m.merchant_name)
+                       AS merchant_name,
+                   coalesce(nullif(p.merchant_context_snapshot ->> '$.categoryCode', 'null'), m.merchant_category_code)
+                       AS merchant_category_code,
+                   p.requested_amount, p.approved_amount, p.approved_at, p.source, p.status
               FROM payment_transaction p
               JOIN merchant m ON m.merchant_id = p.merchant_id
               LEFT JOIN card_product cp ON cp.card_product_id = p.card_product_id
@@ -93,7 +101,7 @@ class PaymentMatchStore {
     private static Payment payment(ResultSet rs, int row) throws SQLException {
         return new Payment(rs.getLong("payment_transaction_id"), (Long) rs.getObject("user_card_id", Long.class),
                 rs.getString("card_type"), rs.getString("merchant_name"), rs.getString("merchant_category_code"),
-                (Long) rs.getObject("approved_amount", Long.class),
+                rs.getLong("requested_amount"), (Long) rs.getObject("approved_amount", Long.class),
                 rs.getObject("approved_at", LocalDateTime.class), rs.getString("source"),
                 PaymentStatus.valueOf(rs.getString("status")));
     }
@@ -103,9 +111,13 @@ class PaymentMatchStore {
                 rs.getLong("payment_transaction_id"), rs.getObject("matched_at", LocalDateTime.class));
     }
 
-    /** 결제 한 건. approvedAtUtc·approvedAmount는 승인 전이면 null, cardType은 카드 선택 전이면 null이다. */
+    /**
+     * 결제 한 건. requestedAmount는 POS가 요청한 결제 금액(즉시할인 전, 결제 목록의 amount)이고, approvedAmount는
+     * 즉시할인 뒤 승인 금액이다. approvedAtUtc·approvedAmount는 승인 전이면 null, cardType은 카드 선택 전이면 null이다.
+     */
     record Payment(long paymentId, Long userCardId, String cardType, String merchantName,
-            String merchantCategoryCode, Long approvedAmount, LocalDateTime approvedAtUtc, String source,
+            String merchantCategoryCode, long requestedAmount, Long approvedAmount, LocalDateTime approvedAtUtc,
+            String source,
             PaymentStatus status) {
     }
 
