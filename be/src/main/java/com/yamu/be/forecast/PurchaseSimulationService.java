@@ -79,8 +79,9 @@ public class PurchaseSimulationService {
         if (purchaseDate.isBefore(today)) {
             throw invalid("purchaseDate", "구매일은 오늘 이후로 골라 주세요.");
         }
-        // 상한이 없으면 아주 먼 날의 신용카드 청구 주기 계산이 날짜 범위를 넘어 500이 났다. 예보 기간(최대 30일)보다 충분히 길고
-        // 12개월 할부 출금도 2년 안에 끝나는 1년으로 둔다(당일 포함, S15P31E103-327).
+        // 상한이 없으면 아주 먼 날의 신용카드 청구 주기 계산이 날짜 범위를 넘어 500이 났다. 예보 기간(최대 30일)보다 충분히 긴
+        // 1년으로 둔다(당일 포함, S15P31E103-327). 첫 청구가 구매 달에서 두 달까지 밀리고 공휴일이면 출금일도 밀리므로,
+        // 12개월 할부의 마지막 출금은 구매일로부터 약 14개월 안(오늘부터 2년 남짓)이다.
         if (purchaseDate.isAfter(today.plusYears(MAX_PURCHASE_YEARS))) {
             throw invalid("purchaseDate", "구매일은 오늘부터 1년 안으로 골라 주세요.");
         }
