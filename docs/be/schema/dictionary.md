@@ -985,3 +985,38 @@ PK(benefit_application_group_id,card_benefit_id). 그룹/상품, 혜택/상품 �
 fallback 두 필드는 동시에 NULL이거나 동시에 값이어야 한다. MySQL AUTO_INCREMENT CHECK 제한 때문에 자기 참조는 INSERT/UPDATE 트리거로 차단한다. 한 단계·정률·양수 우대율·연쇄/순환 금지와 금액 한도 하나 검증은 조립기/계산기에서 수행한다.
 
 추천 JSON은 schemaVersion=1, 후보별 netBenefit 필수, benefits[].amount nullable, unallocatedBenefitGroups 배열 필수다. NULL은 미확정이며 0원과 다르다. 단순 조회로 재계산·실적/사용량 갱신·과거 결과 생성을 하지 않는다. 결제 담당의 트랜잭션·재시도·소유권/동시 저장 책임은 [연결 계약](../benefit-composition.md)을 따른다.
+
+## 2026-11-07 생활비 예측 이력
+
+아래 정의는 V20261107_1에서 추가한다. 생성 SQL이 실행 기준이고 JPA 엔티티는 없다(잔고예보가 SQL로 쓴다). 저장 시점·비교 방법은 [잔고예보 문서](../forecast.md) 「생활비 예측 이력」을 따른다.
+
+### living_cost_prediction — 계좌별 생활비 예측 이력
+
+| 컬럼 | SQL 정의 | 설명 |
+|---|---|---|
+| living_cost_prediction_id | `BIGINT NOT NULL AUTO_INCREMENT` | 생활비 예측 이력 번호 |
+| user_id | `BIGINT NOT NULL` | 계좌 소유 사용자 |
+| linked_account_id | `BIGINT NOT NULL` | 예측한 연결 계좌; 같은 사용자 소유 |
+| predicted_on | `DATE NOT NULL` | 예측한 한국 날짜; 예측 기간은 다음 날부터 horizon_days일 |
+| horizon_days | `SMALLINT NOT NULL` | 예측 기간 일수 N(1 이상) |
+| method | `VARCHAR(16) NOT NULL` | ML_V1 AI / TSB |
+| projected_amount | `BIGINT NOT NULL` | 예상 생활비(원) = daily_amount × horizon_days |
+| daily_amount | `BIGINT NOT NULL` | 하루 예상 생활비(원); 잔고예보 보수적 선에서 날마다 뺀 값 |
+| confidence | `VARCHAR(16) NOT NULL` | HIGH / MEDIUM / LOW; 기록 길이 기준 |
+| data_origin | `VARCHAR(16) NOT NULL` | REAL / SEED; 입력 90일에 모의 소비가 있으면 SEED |
+| created_at | `TIMESTAMP(6) NOT NULL` | UTC 저장 시각 |
+
+```sql
+PRIMARY KEY (living_cost_prediction_id);
+UNIQUE KEY uk_prediction_account_day (linked_account_id, predicted_on, horizon_days);
+KEY ix_prediction_account_owner (linked_account_id, user_id);
+KEY ix_prediction_owner_day (user_id, predicted_on);
+CONSTRAINT fk_prediction_account_owner FOREIGN KEY (linked_account_id, user_id) REFERENCES linked_account (linked_account_id, user_id);
+CONSTRAINT ck_prediction_horizon CHECK (horizon_days >= 1);
+CONSTRAINT ck_prediction_method CHECK (method IN ('ML_V1','TSB'));
+CONSTRAINT ck_prediction_amount CHECK (projected_amount >= 0 AND daily_amount >= 0);
+CONSTRAINT ck_prediction_confidence CHECK (confidence IN ('HIGH','MEDIUM','LOW'));
+CONSTRAINT ck_prediction_origin CHECK (data_origin IN ('REAL','SEED'))
+```
+
+계좌·날짜·기간마다 그날 첫 예측 한 행만 남기고, 같은 키가 다시 오면 아무 칸도 바꾸지 않는다. 이미 있는 키는 먼저 읽어 INSERT를 보내지 않는다(중복 INSERT도 자동 증가 번호를 쓰기 때문). 자료 부족(INSUFFICIENT) 계좌와 기간 0일은 남기지 않는다. 통합 값과 날짜별 잔액 선, 가상 구매 결과는 저장하지 않는다. 연결 해제·탈퇴는 계좌 행을 지우지 않으므로 이력도 남는다. 다른 이력과 같이 보존 기간·파기는 팀 보존·파기 정책이 정해지면 함께 처리한다(아직 미정).
