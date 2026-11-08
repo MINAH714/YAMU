@@ -47,7 +47,10 @@ import com.yamu.be.payment.recommend.RecommendationResult;
 import com.yamu.be.payment.recommend.RecommendationResult.BenefitLine;
 import com.yamu.be.payment.recommend.RecommendationResult.Candidate;
 import com.yamu.be.payment.recommend.RecommendationResult.CardSummary;
+import com.yamu.be.payment.recommend.PosPurchaseFacts;
+import com.yamu.be.payment.recommend.RecommendationRequest;
 import com.yamu.be.payment.recommend.RecommendationResult.ExpectedLimitUse;
+import com.yamu.be.payment.recommend.RecommendationResult.PerformanceRecognition;
 import com.yamu.be.payment.recommend.RecommendationResult.RuleVersion;
 import com.yamu.be.payment.recommend.RecommendationResult.SelectionReason;
 import com.yamu.be.payment.recommend.RecommendationSnapshotStore;
@@ -302,6 +305,50 @@ class PaymentApprovalServiceTest {
     }
 
     @Test
+    void 다시_계산한_결과의_그_카드_실적_인정_값을_승인_명령과_시도_기록에_넣고_POS_거래_사실로_계산한다() {
+        // Task 5.2.11
+        Candidate fresh = candidate(1, CREDIT);
+        PerformanceRecognition recognition = new PerformanceRecognition(CREDIT.userCardId(), YearMonth.of(2026, 10), 15_000L);
+        when(recommender.recommend(any())).thenReturn(new RecommendationResult("rec_fresh", REQUESTED_AT, false,
+                List.of(fresh), List.of(), List.of(), 1, List.of(), List.of(),
+                List.of(recognition, new PerformanceRecognition(CHECK.userCardId(), null, null))));
+        doAnswer(inv -> {
+            ApprovalCommand command = inv.getArgument(0);
+            long amount = command.chargedAmount();
+            return new ApprovalOutcome.Approved(amount, amount, command.recognizedPerformanceAmount(),
+                    command.performanceMonth(), List.of(), null, null, null, command.candidate());
+        }).when(approver).approve(any());
+
+        PaymentApprovalResponse response = service.approve(ME, PAYMENT_ID, request(null), KEY);
+
+        ArgumentCaptor<ApprovalCommand> command = ArgumentCaptor.forClass(ApprovalCommand.class);
+        verify(approver).approve(command.capture());
+        assertThat(command.getValue().recognition()).isEqualTo(recognition);
+        ArgumentCaptor<Attempt> reserved = ArgumentCaptor.forClass(Attempt.class);
+        verify(attempts).reserve(eq(PAYMENT_ID), reserved.capture());
+        assertThat(reserved.getValue().recognition()).isEqualTo(recognition);
+        ArgumentCaptor<RecommendationRequest> asked = ArgumentCaptor.forClass(RecommendationRequest.class);
+        verify(recommender).recommend(asked.capture());
+        assertThat(asked.getValue().verifiedFacts()).isEqualTo(PosPurchaseFacts.verified());
+        assertThat(response.performance().recognizedAmount()).isEqualTo(15_000);
+        assertThat(response.performance().recognized()).isTrue();
+    }
+
+    @Test
+    void 추천_밖의_카드를_직접_고르면_추천_결과에_남은_그_카드의_실적_인정_값을_쓴다() {
+        PerformanceRecognition recognition = new PerformanceRecognition(16L, YearMonth.of(2026, 10), 15_000L);
+        recommendation = new RecommendationResult("rec_test", REQUESTED_AT, false, List.of(candidate(1, CREDIT)),
+                List.of(), List.of(), 1, List.of(), List.of(), List.of(recognition));
+
+        service.approve(ME, PAYMENT_ID, request(16L), KEY);
+
+        ArgumentCaptor<ApprovalCommand> command = ArgumentCaptor.forClass(ApprovalCommand.class);
+        verify(approver).approve(command.capture());
+        assertThat(command.getValue().candidate()).isNull();
+        assertThat(command.getValue().recognition()).isEqualTo(recognition);
+    }
+
+    @Test
     void 추천_밖의_카드를_직접_고르면_다시_계산하지_않고_카드_잠금도_잡지_않는다() {
         recommendation = recommendation(List.of(candidate(1, CREDIT)));
 
@@ -471,7 +518,7 @@ class PaymentApprovalServiceTest {
         assertThatThrownBy(() -> service.approve(ME, PAYMENT_ID, request(null), KEY))
                 .extracting(e -> ((BusinessException) e).getErrorCode()).isEqualTo(ErrorCode.IDEMPOTENCY_IN_PROGRESS);
 
-        payment.approve(15_000, 0, LocalDate.of(2026, 10, 1), REQUESTED_AT, null);
+        payment.approve(15_000, 0L, LocalDate.of(2026, 10, 1), REQUESTED_AT, null);
         assertThatThrownBy(() -> service.approve(ME, PAYMENT_ID, request(null), KEY))
                 .extracting(e -> ((BusinessException) e).getErrorCode()).isEqualTo(ErrorCode.PAYMENT_ALREADY_PROCESSED);
 
@@ -712,7 +759,7 @@ class PaymentApprovalServiceTest {
         payment.assignFinRequestNo(TX_NO, 15_000);
         when(attempts.findByKey(PAYMENT_ID, KEY)).thenReturn(Optional.of(unknownAttempt(CREDIT, 1, false)));
         when(recovery.recover(PAYMENT_ID)).thenAnswer(inv -> {
-            payment.approve(15_000, 0, LocalDate.of(2026, 10, 1), REQUESTED_AT.plusSeconds(20), "1101");
+            payment.approve(15_000, 0L, LocalDate.of(2026, 10, 1), REQUESTED_AT.plusSeconds(20), "1101");
             return PaymentStatus.APPROVED;
         });
 
@@ -733,7 +780,7 @@ class PaymentApprovalServiceTest {
     void 주기_작업이_먼저_확정했어도_같은_키는_같은_승인_응답이다() {
         payment.startApproval(15L, 3L);
         payment.assignFinRequestNo(TX_NO, 15_000);
-        payment.approve(15_000, 0, LocalDate.of(2026, 10, 1), REQUESTED_AT.plusSeconds(20), "1101");
+        payment.approve(15_000, 0L, LocalDate.of(2026, 10, 1), REQUESTED_AT.plusSeconds(20), "1101");
         when(attempts.findByKey(PAYMENT_ID, KEY)).thenReturn(Optional.of(unknownAttempt(CREDIT, 1, false)
                 .withResult(Attempt.APPROVED, null, "1101", 15_000L, null)));
 
@@ -750,7 +797,7 @@ class PaymentApprovalServiceTest {
         payment.startApproval(15L, 3L);
         payment.assignFinRequestNo(TX_NO, 15_000);
         when(recovery.recover(PAYMENT_ID)).thenAnswer(inv -> {
-            payment.approve(15_000, 0, LocalDate.of(2026, 10, 1), REQUESTED_AT.plusSeconds(20), "1101");
+            payment.approve(15_000, 0L, LocalDate.of(2026, 10, 1), REQUESTED_AT.plusSeconds(20), "1101");
             return PaymentStatus.APPROVED;
         });
 

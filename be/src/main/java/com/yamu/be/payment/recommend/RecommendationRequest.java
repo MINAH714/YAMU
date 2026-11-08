@@ -21,6 +21,16 @@ public record RecommendationRequest(Long paymentId, Long userId, PaymentTerms te
         this(paymentId, userId, terms, merchant, requestedAt, null, java.util.Map.of(), java.util.Map.of());
     }
 
+    /**
+     * 모의 POS 일반 구매의 추천 요청. POS가 확인한 거래 사실({@link PosPurchaseFacts})을 함께 넘겨 실적 인정 계산이 미확인으로 남지 않게 한다
+     * (Task 5.2.11). POS 요청 때의 추천과 승인 전 재계산이 같은 입력을 쓴다.
+     */
+    public static RecommendationRequest posPurchase(Long paymentId, Long userId, PaymentTerms terms, MerchantContext merchant,
+            LocalDateTime requestedAt) {
+        return new RecommendationRequest(paymentId, userId, terms, merchant, requestedAt, null, java.util.Map.of(),
+                PosPurchaseFacts.verified());
+    }
+
     public RecommendationRequest {
         availability = java.util.Map.copyOf(availability);
         verifiedFacts = java.util.Map.copyOf(verifiedFacts);

@@ -72,7 +72,10 @@ public class DatabaseCardRecommender implements CardRecommender {
                 uncompared.add(new UncomparedCard(card, reason, issue.map(i -> i.message()).orElse(evaluated.message())));
             }
         }
-        return new RecommendationResult("rec_"+UUID.randomUUID(), LocalDateTime.ofInstant(clock.instant(),ZoneOffset.UTC),false,candidates,excluded,uncompared,1,result.issues(),result.simulationRules());
+        // BE3가 계산한 카드별 실적 인정 값을 그대로 옮긴다(Task 5.2.11). 결제 승인이 고른 카드의 값을 저장한다
+        var recognitions = result.recognitions().values().stream()
+                .map(r -> new PerformanceRecognition(r.userCardId(), r.period(), r.recognizedAmount())).toList();
+        return new RecommendationResult("rec_"+UUID.randomUUID(), LocalDateTime.ofInstant(clock.instant(),ZoneOffset.UTC),false,candidates,excluded,uncompared,1,result.issues(),result.simulationRules(),recognitions);
     }
 
     private CardSummary summary(long id, RecommendationService.CardContext c) {

@@ -7,8 +7,10 @@ import com.yamu.be.payment.approve.ApprovalAttemptStore.Attempt;
 import com.yamu.be.payment.approve.ApprovalAttemptStore.Reservation;
 import com.yamu.be.payment.domain.PaymentStatus;
 import com.yamu.be.payment.recommend.RecommendationResult.CardSummary;
+import com.yamu.be.payment.recommend.RecommendationResult.PerformanceRecognition;
 import com.yamu.be.support.RedisTestSupport;
 import java.time.LocalDateTime;
+import java.time.YearMonth;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.Callable;
@@ -121,6 +123,28 @@ class ApprovalAttemptStoreTest extends RedisTestSupport {
         assertThat(found.response().failure().code()).isEqualTo("INSUFFICIENT_BALANCE");
         assertThat(store.declinedCardIds(PAYMENT_ID)).containsExactly(15L);
         assertThat(store.triedCardIds(PAYMENT_ID)).containsExactly(15L, 16L);
+    }
+
+    @Test
+    void 실적_인정_값을_남기고_읽으며_이_칸이_없던_기록은_null로_읽는다() {
+        // Task 5.2.11: 복구가 승인으로 확정할 때 이 값으로 실적을 적는다. 매퍼 설정이 바뀌어 값이 빠지면 조용히 미확인이 된다
+        CardSummary card = new CardSummary(15L, 3L, CardType.CHECK, false, null, "1234", "TEST", "테스트 카드");
+        var recognition = new PerformanceRecognition(15L, YearMonth.of(2026, 11), 15_000L);
+        Attempt reserved = store.reserve(PAYMENT_ID, Attempt.start("k1", PAYMENT_ID + ":15", card, 1, true, STARTED_AT,
+                null, recognition)).attempt();
+        store.attachFinRequestNo(PAYMENT_ID, reserved.no(), "REQ-0001");
+
+        assertThat(store.findByFinRequestNo(PAYMENT_ID, "REQ-0001").orElseThrow().recognition()).isEqualTo(recognition);
+
+        // 310 이전에 남긴 기록: recognition 칸이 없다
+        String key = ApprovalAttemptStore.KEY_PREFIX + PAYMENT_ID;
+        String stored = redis.opsForList().index(key, 0);
+        assertThat(stored).contains("\"recognition\"");
+        String legacy = stored.replaceAll(",\"recognition\":\\{[^}]*\\}", "");
+        assertThat(legacy).doesNotContain("recognition");
+        redis.opsForList().set(key, 0, legacy);
+
+        assertThat(store.findByFinRequestNo(PAYMENT_ID, "REQ-0001").orElseThrow().recognition()).isNull();
     }
 
     private static Attempt draft(String key, Long userCardId) {

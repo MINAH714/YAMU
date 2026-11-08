@@ -16,10 +16,10 @@ import com.yamu.be.payment.domain.PaymentStatus;
 import com.yamu.be.payment.domain.PaymentTransaction;
 import com.yamu.be.payment.domain.PaymentTransactionRepository;
 import com.yamu.be.payment.recommend.RecommendationResult.Candidate;
+import com.yamu.be.payment.recommend.RecommendationResult.PerformanceRecognition;
 import jakarta.persistence.OptimisticLockException;
 import java.time.Clock;
 import java.time.Instant;
-import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
@@ -395,33 +395,43 @@ public class WithdrawalRecovery {
     /**
      * 복구로 확정하는 승인. 혜택·한도 사용은 그 요청 번호로 출금한 시도에 남긴 후보(승인 때 다시 계산한 값)로 원장에 적는다(Task 5.2.5).
      * 시도 기록이 없거나(보관 종료·Redis 실패) 후보의 출금액이 실제 출금액과 다르면 근거를 모르는 것이므로 혜택 없이 승인하고 남긴다(임시).
+     * 실적 인정액·실적 월도 그 시도에 남긴 BE3 인정 값으로 적는다(Task 5.2.11). 시도 기록이 없으면 인정액 미확인·승인월이다.
      */
     private ApprovalOutcome.Approved approvedOutcome(PaymentTransaction row, String finRequestNo, long amount,
             BankTransaction found) {
-        LocalDate performanceMonth = nowUtc().atOffset(ZoneOffset.UTC).atZoneSameInstant(KST).toLocalDate()
-                .withDayOfMonth(1);
-        Candidate basis = basisOf(row, finRequestNo, amount);
-        return new ApprovalOutcome.Approved(amount, amount, 0, performanceMonth,
+        Optional<Attempt> attempt = attemptOf(row, finRequestNo, amount);
+        Candidate basis = attempt.map(a -> basisOf(row, finRequestNo, amount, a)).orElse(null);
+        PerformanceRecognition recognition = attempt.map(Attempt::recognition).orElse(null);
+        return new ApprovalOutcome.Approved(amount, amount, ApprovalPerformance.amount(recognition, basis != null),
+                ApprovalPerformance.month(recognition, row.getRequestedAt(), nowUtc()),
                 ApprovalOutcome.Approved.applied(basis), finRequestNo, found.bankTransactionNo(), null, basis);
     }
 
-    private Candidate basisOf(PaymentTransaction row, String finRequestNo, long amount) {
-        Long paymentId = row.getId();
+    /**
+     * 그 요청 번호로 출금한 시도. 기록이 없거나(보관 종료·저장 실패) 읽지 못하면 비어 있다. 둘 다 혜택·실적 근거를 모르는 것이라
+     * 같은 처리(혜택 없음·인정액 미확인)를 하고, 어느 쪽인지는 여기서 로그로 남긴다.
+     */
+    private Optional<Attempt> attemptOf(PaymentTransaction row, String finRequestNo, long amount) {
         Optional<Attempt> attempt;
         try {
-            attempt = attempts.findByFinRequestNo(paymentId, finRequestNo);
+            attempt = attempts.findByFinRequestNo(row.getId(), finRequestNo);
         } catch (RuntimeException e) {
-            log.warn("복구 승인의 혜택 근거(시도 기록)를 읽지 못해 혜택 없이 원장에 적음, 운영 확인 paymentId={} finRequestNo={} "
-                    + "amount={} requestedAmount={}", paymentId, finRequestNo, amount, row.getRequestedAmount(), e);
-            return null;
+            log.warn("복구 승인의 혜택 근거(시도 기록)를 읽지 못해 혜택·실적 인정 없이 원장에 적음, 운영 확인 paymentId={} "
+                    + "finRequestNo={} amount={} requestedAmount={}", row.getId(), finRequestNo, amount,
+                    row.getRequestedAmount(), e);
+            return Optional.empty();
         }
         if (attempt.isEmpty()) {
             // 보관 기간이 지났거나 저장에 실패했다. 즉시할인 뒤 금액으로 출금됐어도 어떤 혜택·한도였는지 알 수 없다
             log.warn("복구 승인의 시도 기록이 없어 혜택 근거를 모름, 혜택 없이 원장에 적음, 운영 확인 paymentId={} finRequestNo={} "
-                    + "amount={} requestedAmount={}", paymentId, finRequestNo, amount, row.getRequestedAmount());
-            return null;
+                    + "amount={} requestedAmount={}", row.getId(), finRequestNo, amount, row.getRequestedAmount());
         }
-        Candidate basis = attempt.get().basis();
+        return attempt;
+    }
+
+    private Candidate basisOf(PaymentTransaction row, String finRequestNo, long amount, Attempt attempt) {
+        Long paymentId = row.getId();
+        Candidate basis = attempt.basis();
         if (basis == null) {
             // 추천 밖의 카드를 직접 고른 시도: 혜택·한도를 쓰지 않는다
             return null;

@@ -150,7 +150,7 @@ public class PosPaymentRequestService {
         // 바코드를 전환했을 수 있는 결제 번호. 스캔 응답을 못 받아도 되돌릴 수 있게 스캔 전에 적는다(되돌리기는 이 번호일 때만 바꾼다)
         Long[] scanning = new Long[1];
         // 추천에 필요한 조회를 마친 뒤 결제 저장 트랜잭션을 시작한다.
-        var prepared = recommender.prepare(new RecommendationRequest(null, barcode.userId(), terms,
+        var prepared = recommender.prepare(RecommendationRequest.posPurchase(null, barcode.userId(), terms,
                 new MerchantContext(merchant.merchantId(), merchant.categoryCode(), terminal.channel().name(),
                         terminal.facilityType() == null ? null : terminal.facilityType().name()), requestedAt));
         try {

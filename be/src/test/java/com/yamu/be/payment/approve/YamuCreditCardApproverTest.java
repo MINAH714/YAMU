@@ -71,7 +71,8 @@ class YamuCreditCardApproverTest {
 
         assertThat(approved.approvedAmount()).isEqualTo(100_000);
         assertThat(approved.chargedAmount()).isEqualTo(100_000);
-        assertThat(approved.recognizedPerformanceAmount()).isZero();
+        // 실적 인정 값이 없는 명령: 인정액 미확인(Task 5.2.11)
+        assertThat(approved.recognizedPerformanceAmount()).isNull();
         assertThat(approved.performanceMonth()).isEqualTo(LocalDate.of(2026, 10, 1));
         assertThat(approved.benefits()).isEmpty();
         assertThat(approved.finRequestNo()).isNull();

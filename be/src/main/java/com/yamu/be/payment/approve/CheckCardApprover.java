@@ -55,7 +55,7 @@ public class CheckCardApprover {
     public ApprovalOutcome approve(ApprovalCommand command) {
         Long paymentId = command.paymentId();
         long charged = command.chargedAmount();
-        LocalDate performanceMonth = ApprovalDates.performanceMonth(command.now());
+        LocalDate performanceMonth = command.performanceMonth();
         if (charged <= 0) {
             log.info("체크카드 0원 승인, 출금 생략 paymentId={}", paymentId);
             return approved(command, 0, performanceMonth, null, null);
@@ -125,9 +125,10 @@ public class CheckCardApprover {
     private static ApprovalOutcome approved(ApprovalCommand command, long charged, LocalDate performanceMonth,
             String finRequestNo, String bankTransactionNo) {
         // 승인액 = 출금액(즉시할인 뒤). 혜택·한도 사용은 승인 때 다시 계산한 후보 그대로 원장에 적는다(Task 5.2.5).
-        // 임시: BE3 추천 결과가 실적 인정액을 내보내지 않아 실적 인정액은 0이다(BE3 결과 확장 뒤 바꾼다)
+        // 실적 인정액은 BE3가 계산한 값 그대로다(Task 5.2.11, 미확인은 null)
         Candidate basis = command.candidate();
-        return new ApprovalOutcome.Approved(charged, charged, 0, performanceMonth, ApprovalOutcome.Approved.applied(basis),
+        return new ApprovalOutcome.Approved(charged, charged, command.recognizedPerformanceAmount(), performanceMonth,
+                ApprovalOutcome.Approved.applied(basis),
                 finRequestNo, bankTransactionNo, null, basis);
     }
 

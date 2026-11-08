@@ -231,6 +231,25 @@ class PaymentLedgerIntegrationTest extends MySqlTestSupport {
     }
 
     @Test
+    void 실적_인정액이_미확인이면_승인된_결제에_NULL로_저장되고_월_합계에_더하지_않으며_취소도_빼지_않는다() {
+        // Task 5.2.11: ck_payment_approval이 승인된 결제의 인정액 NULL을 허용한다(V20261108_1)
+        long paymentId = approvedPayment(15_000, null, NOVEMBER);
+        record(paymentId, unconfirmed(15_000));
+
+        assertThat(row("SELECT recognized_performance_amount FROM payment_transaction WHERE payment_transaction_id = ?",
+                paymentId).get("recognized_performance_amount")).isNull();
+        assertThat(count("SELECT COUNT(*) FROM card_monthly_performance WHERE user_card_id = ?", card)).isZero();
+
+        long counted = approvedPayment(15_000, 15_000L, NOVEMBER);
+        record(counted, approved(15_000, 15_000, null));
+        cancel(paymentId);
+        PaymentCancelResponse.Restored restored = reverse(paymentId);
+
+        assertThat(restored.performance()).isNull();
+        assertThat(performance(NOVEMBER)).isEqualTo(15_000L);
+    }
+
+    @Test
     void 원장_반영이_실패하면_그_트랜잭션의_원장_행이_모두_롤백된다() {
         long paymentId = approvedPayment(15_000, 0, NOVEMBER);
         Candidate basis = candidate(List.of(line(discount, "DISCOUNT", 1_500L, "AT_APPROVAL")),
@@ -352,6 +371,11 @@ class PaymentLedgerIntegrationTest extends MySqlTestSupport {
                 now));
     }
 
+    /** 실적 인정액 미확인 승인(혜택 없음). */
+    private ApprovalOutcome.Approved unconfirmed(long amount) {
+        return new ApprovalOutcome.Approved(amount, amount, (Long) null, NOVEMBER, List.of(), null, null, null, null);
+    }
+
     private ApprovalOutcome.Approved approved(long amount, long recognized, Candidate basis) {
         return new ApprovalOutcome.Approved(amount, amount, recognized, NOVEMBER,
                 ApprovalOutcome.Approved.applied(basis), null, null, null, basis);
@@ -374,6 +398,10 @@ class PaymentLedgerIntegrationTest extends MySqlTestSupport {
     }
 
     private long approvedPayment(long requested, long recognized, LocalDate performanceMonth) {
+        return approvedPayment(requested, Long.valueOf(recognized), performanceMonth);
+    }
+
+    private long approvedPayment(long requested, Long recognized, LocalDate performanceMonth) {
         LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
         UUID a = UUID.randomUUID();
         Map<String, Object> row = new HashMap<>();

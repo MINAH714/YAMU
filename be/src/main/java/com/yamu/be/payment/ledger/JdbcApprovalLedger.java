@@ -35,7 +35,8 @@ import org.springframework.stereotype.Component;
  *                           정수일 때만(소수·환산율 없음은 NULL = 미환산, 2026-11-05 결정)
  * payment_limit_usage       한도 그룹별 사용 직전 남은 한도·사용량(승인 때 다시 계산한 후보의 expectedLimitUses). 사용량 0은 적지 않는다
  * monthly_limit_usage       MONTHLY 한도만, 원래 사용 월(POS 요청 시각의 한국 월)에 원자적으로 더한다. 행이 없으면 만든다(S15P31E103-324: 추천은 행 없음을 사용량 0으로 읽는다)
- * card_monthly_performance  실적 인정액이 0원보다 클 때만 실적 월에 원자적으로 더한다. 지금은 BE3 결과가 인정액을 내보내지 않아 늘 0이다(임시 A3)
+ * card_monthly_performance  실적 인정액(BE3 계산, Task 5.2.11)이 0원보다 클 때만 실적 월에 원자적으로 더한다.
+ *                           제외 확정(0)·미확인(NULL)은 더하지 않는다
  * </pre>
  *
  * <ul>
@@ -225,9 +226,9 @@ public class JdbcApprovalLedger implements ApprovalLedger {
                 .stream().collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
     }
 
-    private void addPerformance(PaymentTransaction payment, long amount, LocalDate performanceMonth,
+    private void addPerformance(PaymentTransaction payment, Long amount, LocalDate performanceMonth,
             LocalDateTime now) {
-        if (amount <= 0) {
+        if (amount == null || amount <= 0) { // 제외(0)·미확인(null)은 월 합계에 더하지 않는다
             return;
         }
         jdbc.update("""

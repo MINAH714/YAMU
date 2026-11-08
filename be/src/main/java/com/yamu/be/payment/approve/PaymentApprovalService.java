@@ -35,6 +35,7 @@ import com.yamu.be.payment.recommend.RecommendationRequest.MerchantContext;
 import com.yamu.be.payment.recommend.RecommendationResult;
 import com.yamu.be.payment.recommend.RecommendationResult.Candidate;
 import com.yamu.be.payment.recommend.RecommendationResult.CardSummary;
+import com.yamu.be.payment.recommend.RecommendationResult.PerformanceRecognition;
 import com.yamu.be.payment.recommend.RecommendationResult.UnavailableReason;
 import com.yamu.be.payment.recommend.RecommendationSnapshotStore;
 import com.yamu.be.payment.request.MerchantContextSnapshot;
@@ -267,7 +268,8 @@ public class PaymentApprovalService {
         if (again.isEmpty()) {
             log.warn("승인 전 다시 계산하니 후보가 아님, 혜택 없이 승인(임시) paymentId={} card=****{} status={}", payment.getId(),
                     selection.card().last4(), fresh.cardStatus(cardId).map(Enum::name).orElse("MISSING"));
-            return new Selection(selection.card(), null, selection.recommendedRank(), selection.userSelected());
+            return new Selection(selection.card(), null, selection.recommendedRank(), selection.userSelected(),
+                    fresh.recognition(cardId).orElse(null));
         }
         Candidate candidate = again.get();
         Long before = instantDiscountOrNull(selection.candidate());
@@ -285,7 +287,8 @@ public class PaymentApprovalService {
             log.info("승인 때 다시 계산한 혜택이 추천과 다름(그대로 승인) paymentId={} instantDiscount {}→{} netBenefit {}→{}",
                     payment.getId(), before, now, selection.candidate().netBenefit(), candidate.netBenefit());
         }
-        return new Selection(selection.card(), candidate, selection.recommendedRank(), selection.userSelected());
+        return new Selection(selection.card(), candidate, selection.recommendedRank(), selection.userSelected(),
+                fresh.recognition(cardId).orElse(null));
     }
 
     private static Long instantDiscountOrNull(Candidate candidate) {
@@ -338,11 +341,11 @@ public class PaymentApprovalService {
         LocalDateTime nowUtc = LocalDateTime.ofInstant(now, ZoneOffset.UTC).truncatedTo(ChronoUnit.MICROS);
         // 시도 기록에 승인액을 정한 후보를 남긴다. 결과 불명 출금을 복구가 승인으로 확정할 때 이 값으로 원장을 적는다
         Attempt attempt = start(paymentId, selection, Attempt.start(key, fingerprint, selection.card(),
-                selection.recommendedRank(), selection.userSelected(), nowUtc, selection.candidate()));
+                selection.recommendedRank(), selection.userSelected(), nowUtc, selection.candidate(), selection.recognition()));
         log.info("결제 승인 시작 paymentId={} attempt={} card=****{}", paymentId, attempt.no(), selection.card().last4());
 
         ApprovalOutcome outcome = run(new ApprovalCommand(paymentId, userId, terms, selection.card(),
-                selection.candidate(), payment.getRequestedAt(), nowUtc, attempt.no()), attempt);
+                selection.candidate(), payment.getRequestedAt(), nowUtc, attempt.no(), selection.recognition()), attempt);
         Map<YearMonth, CardBill> bills = ensureBills(paymentId, userId, selection, outcome, attempt);
         PaymentApprovalResponse response = response(payment, selection, recommendation, outcome, attempt.no(),
                 nowUtc, List.of(), Map.of());
@@ -411,7 +414,7 @@ public class PaymentApprovalService {
     /** 저장된 POS 조건으로 만든 추천 요청. 스냅샷이 없을 때와 승인 전 재계산이 같은 입력을 쓴다. */
     private RecommendationRequest recommendationRequest(PaymentTransaction payment, PaymentTerms terms) {
         Optional<MerchantContextSnapshot> context = MerchantContextSnapshot.of(payment, objectMapper);
-        return new RecommendationRequest(payment.getId(), payment.getUserId(), terms,
+        return RecommendationRequest.posPurchase(payment.getId(), payment.getUserId(), terms,
                 new MerchantContext(payment.getMerchantId(),
                         context.map(MerchantContextSnapshot::categoryCode).orElse(null),
                         payment.getPaymentChannel().name(),
@@ -438,7 +441,8 @@ public class PaymentApprovalService {
             requireEligible(card, terms, recommendation);
             Optional<Candidate> candidate = recommendation.candidate(cardId);
             CardSummary summary = candidate.map(Candidate::card).orElseGet(() -> summary(card));
-            return new Selection(summary, candidate.orElse(null), candidate.map(Candidate::rank).orElse(null), true);
+            return new Selection(summary, candidate.orElse(null), candidate.map(Candidate::rank).orElse(null), true,
+                    recommendation.recognition(cardId).orElse(null));
         }
         if (!recommendation.isAvailable()) {
             if (recommendation.unavailableReason() == UnavailableReason.DATA_INSUFFICIENT) {
@@ -454,7 +458,8 @@ public class PaymentApprovalService {
         ActiveCard card = activeCard(userId, top.card().userCardId())
                 .orElseThrow(() -> notEligible("CARD_INACTIVE", "1순위 카드를 지금은 쓸 수 없어요. 결제할 카드를 직접 골라 주세요."));
         requireEligible(card, terms, recommendation);
-        return new Selection(top.card(), top, top.rank(), false);
+        return new Selection(top.card(), top, top.rank(), false,
+                recommendation.recognition(top.card().userCardId()).orElse(null));
     }
 
     private Optional<ActiveCard> activeCard(Long userId, Long cardId) {
@@ -825,12 +830,14 @@ public class PaymentApprovalService {
 
     /**
      * 이 승인의 실적 반영. 달성률은 최소 실적 기준을 BE3 결과가 내보내지 않아 null이다(임시).
-     * 실적 인정액도 지금은 0원이고 {@code recognized=false}다(임시 A3: BE3 결과 확장 전).
+     * 실적 인정액은 BE3 계산 값이다(Task 5.2.11). 응답 모양은 그대로 두어, 월 실적에 더해졌을 때만 {@code recognized=true}이고
+     * 제외(0)·미확인(null)은 {@code recognizedAmount=0, recognized=false}다(임시: 둘을 나눠 보일지는 실적 화면 담당과 정한다).
      */
     private static PaymentApprovalResponse.Performance performance(ApprovalOutcome.Approved approved) {
-        long amount = approved.recognizedPerformanceAmount();
-        return new PaymentApprovalResponse.Performance(YearMonth.from(approved.performanceMonth()).toString(), amount,
-                amount > 0, null);
+        Long amount = approved.recognizedPerformanceAmount();
+        long shown = amount == null ? 0 : amount;
+        return new PaymentApprovalResponse.Performance(YearMonth.from(approved.performanceMonth()).toString(), shown,
+                shown > 0, null);
     }
 
     /**
@@ -948,8 +955,10 @@ public class PaymentApprovalService {
      *
      * @param candidate       추천 후보였으면 그 후보. 추천 밖의 카드를 직접 골랐으면 null
      * @param recommendedRank 추천 순위. 후보가 아니면 null
+     * @param recognition     이 카드의 실적 인정 값(BE3 계산, Task 5.2.11). 혜택을 다시 계산했으면 그 결과의 값이다. 없으면 null
      */
-    private record Selection(CardSummary card, Candidate candidate, Integer recommendedRank, boolean userSelected) {}
+    private record Selection(CardSummary card, Candidate candidate, Integer recommendedRank, boolean userSelected,
+            PerformanceRecognition recognition) {}
 
     /** tx2가 저장한 것: 결제 행, 신용카드면 청구 회차, 원장에 적은 혜택 행 번호(혜택 번호 → payment_benefit 번호). */
     private record Settled(PaymentTransaction payment, List<BillItem> items, Map<Long, Long> paymentBenefitIds) {}

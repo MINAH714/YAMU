@@ -35,7 +35,7 @@ import org.springframework.stereotype.Component;
  * <p>원금은 결제 금액 − 즉시할인이다(S15P31E103-292). 할인 뒤 금액이 할부 최소 금액(5만 원)보다 작아져도 POS가 정한 할부 조건은
  * 그대로 둔다. 청구할인·캐시백·적립은 원금에서 빼지 않는다.
  *
- * <p>청구 회차는 결과 저장이 {@code CreditBillingWriter}로 적는다. 실적 인정액은 BE3 추천 결과가 내보내지 않아 0이다(임시, Task 5.2.5).
+ * <p>청구 회차는 결과 저장이 {@code CreditBillingWriter}로 적는다. 실적 인정액은 BE3가 계산한 값이다(Task 5.2.11, 미확인은 null).
  * 미납 해소 방법이 정해지지 않아(FR-069) 한 번 미납된 카드는 계속 거절된다(임시).
  */
 @Slf4j
@@ -90,13 +90,14 @@ public class YamuCreditCardApprover implements CreditCardApprover {
                     command.card().last4());
             return ApprovalOutcome.Declined.of(FailureCode.UNPAID_BILL);
         }
-        LocalDate performanceMonth = ApprovalDates.performanceMonth(command.now());
+        LocalDate performanceMonth = command.performanceMonth();
+        Long recognized = command.recognizedPerformanceAmount();
         Candidate basis = command.candidate();
         List<BenefitLine> applied = ApprovalOutcome.Approved.applied(basis);
         if (amount == 0) {
             // 전액 즉시할인: 청구할 원금이 없으므로 한도를 보지 않고 회차 없이 승인한다(체크카드 0원 승인과 같음)
             log.info("신용 0원 승인, 청구 회차 없음 paymentId={}", command.paymentId());
-            return new ApprovalOutcome.Approved(0, 0, 0, performanceMonth, applied, null, null, null, basis);
+            return new ApprovalOutcome.Approved(0, 0, recognized, performanceMonth, applied, null, null, null, basis);
         }
         LimitCheck limit = limits.check(command.userId(), command.card().userCardId(), amount);
         if (limit.result() == CreditLimitSource.Result.EXCEEDED) {
@@ -115,8 +116,8 @@ public class YamuCreditCardApprover implements CreditCardApprover {
         log.info("신용 승인 paymentId={} amount={} months={} firstBillingMonth={}", command.paymentId(), amount,
                 plan.months(), plan.installments().get(0).billingMonth());
         // 승인액 = 청구 원금(즉시할인 뒤). 혜택·한도 사용은 승인 때 다시 계산한 후보 그대로 원장에 적는다(Task 5.2.5).
-        // 임시: BE3 추천 결과가 실적 인정액을 내보내지 않아 실적 인정액은 0이다(BE3 결과 확장 뒤 바꾼다)
-        return new ApprovalOutcome.Approved(amount, amount, 0, performanceMonth, applied, null, null, plan, basis);
+        // 실적 인정액은 BE3가 계산한 값 그대로다(Task 5.2.11, 미확인은 null)
+        return new ApprovalOutcome.Approved(amount, amount, recognized, performanceMonth, applied, null, null, plan, basis);
     }
 
     private UserCardRef registered(Long userId, Long userCardId) {

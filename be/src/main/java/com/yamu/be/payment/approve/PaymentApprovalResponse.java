@@ -13,7 +13,8 @@ import java.util.Map;
  *
  * <p>{@code billItems}는 신용카드 승인의 청구 회차(Task 5.2.4). 체크카드·거절은 빈 목록이다.
  * {@code benefits}·{@code performance}·{@code limitImpacts}는 승인 때 다시 계산해 원장에 적은 값이다(Task 5.2.5).
- * 임시: 실적 인정액은 BE3 결과 확장 전이라 0원이고 달성률은 null, {@code accountBalanceAfter}(Task 5.2.3)는 null이다.
+ * 실적 인정액은 BE3 계산 값이다(Task 5.2.11). 임시: 제외(0)와 미확인(NULL)은 모두 {@code recognizedAmount=0, recognized=false}로
+ * 나가고, 달성률과 {@code accountBalanceAfter}(Task 5.2.3)는 null이다.
  * 복구로 확정된 결제의 응답은 혜택·실적·한도를 싣지 않는다.
  *
  * @param approvalNo        승인번호(임시 규칙 Q3). 거절이면 null

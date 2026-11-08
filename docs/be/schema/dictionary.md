@@ -427,7 +427,7 @@ fin_transaction_no는 상태 코드가 아니라 **이 결제로 발생한 계�
 | requested_amount | `BIGINT NOT NULL` | 최초 요청 금액; 양수 |
 | approved_amount | `BIGINT NULL` | 확정 모의 승인 금액 = requested_amount − 즉시할인(체크카드 출금액·신용카드 청구 원금 합계). 청구할인·캐시백·적립은 빼지 않음; 전액 할인 시 0 가능 |
 | installment_months | `SMALLINT NULL` | 일시불은 1, 할부는 총 개월 수(3개월 할부는 3); 현재 회차 번호가 아님. 지원 개월은 서비스 검증 |
-| recognized_performance_amount | `BIGINT NULL` | 승인 당시 실적 인정액; 미확정은 NULL |
+| recognized_performance_amount | `BIGINT NULL` | 승인 당시 실적 인정액(BE3 실적 인정 계산 값). 0은 약관상 실적 제외 확정, NULL은 미확인(승인된 결제도 가능, S15P31E103-310). 월 실적 합계에는 양수만 더함 |
 | performance_basis_amount | `BIGINT NULL` | 혜택 계산에 사용한 전월 실적 인정액(원). 실제 0원은 0, 계산 전·실적 조건 미사용은 NULL. 이번 결제로 새로 쌓이는 실적과 구분 |
 | performance_month | `DATE NULL` | 이 결제의 실적을 합산할 월(한국 기준). 2026년 10월이면 2026-10-01로 저장하며, 1일은 월 표시용이지 실제 결제일이 아님. 미확정은 NULL |
 | requested_at | `TIMESTAMP(6) NOT NULL` | UTC 요청 시각 |
@@ -465,7 +465,7 @@ CONSTRAINT ck_payment_fin_request_amount CHECK (fin_request_amount IS NULL OR fi
 CONSTRAINT ck_payment_performance_basis CHECK (performance_basis_amount IS NULL OR performance_basis_amount >= 0);
 CONSTRAINT ck_payment_month CHECK (performance_month IS NULL OR DAYOFMONTH(performance_month) = 1);
 CONSTRAINT ck_payment_source CHECK (source IN ('YAMU','SEED'));
-CONSTRAINT ck_payment_approval CHECK (approved_at IS NULL OR (user_card_id IS NOT NULL AND approved_amount IS NOT NULL AND recognized_performance_amount IS NOT NULL AND performance_month IS NOT NULL AND installment_months IS NOT NULL));
+CONSTRAINT ck_payment_approval CHECK (approved_at IS NULL OR (user_card_id IS NOT NULL AND approved_amount IS NOT NULL AND performance_month IS NOT NULL AND installment_months IS NOT NULL));
 CONSTRAINT ck_payment_cancellation CHECK (canceled_at IS NULL OR approved_at IS NOT NULL);
 CONSTRAINT ck_payment_transaction_version CHECK (version >= 0);
 UNIQUE KEY uk_payment_owner (payment_transaction_id, user_id);
