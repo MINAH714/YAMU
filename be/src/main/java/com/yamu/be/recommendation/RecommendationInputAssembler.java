@@ -270,6 +270,8 @@ class RecommendationInputAssembler {
         if (group.getPeriodType() == Period.MONTHLY) {
             // Loader의 월별 조회가 정상 완료된 결과다. 그 달 행이 없으면 아직 혜택을 쓰지 않은 0이다(S15P31E103-324).
             // 행은 첫 혜택 사용 승인 때 결제 원장이 만든다. 조회 실패는 Loader에서 예외로 전달되므로 이 경로에 빈 결과로 들어오지 않는다.
+            // 전제: 사용량 행은 한도 그룹 버전(limit_group_id)별이다. 새 버전은 다음 달부터 적용한다(schema/implementation.md 「정책」).
+            // 월 중간에 새 버전을 적용하면 새 버전에는 행이 없어 그 달 앞서 쓴 사용량이 빠진 0이 된다. 버전 등록 기능을 만들 때 이 전제를 지킨다.
             var rows = data.monthly().stream().filter(u -> u.getUserCardId().equals(card.getId())
                     && u.getLimitGroupId().equals(group.getId())).toList();
             if (rows.isEmpty()) {
