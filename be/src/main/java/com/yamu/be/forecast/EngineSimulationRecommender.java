@@ -60,16 +60,6 @@ class EngineSimulationRecommender implements SimulationRecommender {
     /** 신용한도 확인 생략은 응답의 creditLimit으로 따로 보이므로 빠진 정보로 다시 싣지 않는다. */
     private static final Set<String> SHOWN_ELSEWHERE = Set.of("CREDIT_LIMIT_CHECK_SKIPPED");
     private static final String UNCOMPARED_NOTE = "혜택 정보가 부족해 비교하지 못했어요.";
-    /**
-     * 이 업종의 브랜드면 POS 거래 사실(택시·후불교통·공과금·등록금 등이 "아니다")을 확정할 수 없어 넘기지 않는다. 지금 시드에는 이 업종의
-     * 가맹점이 없고, 카탈로그에 생기면 그 브랜드의 가상 구매는 사실 없이 계산한다(Codex 검토, 2026-11-08).
-     * 유치원은 학교 납입금({@code SCHOOL_PAYMENT})에 들어가는지 원문이 없어 넣었다: 넣고 틀리면 자료 부족, 빼고 틀리면 혜택이 커진다.
-     * 목록이 빠짐없는지는 테스트로 증명할 수 없다(업종별 약관 해석).
-     */
-    static final Set<String> FACTS_UNCONFIRMED_CATEGORIES = Set.of(
-            "TAXI", "CITY_BUS", "INTERCITY_BUS", "EXPRESS_BUS", "SUBWAY", "RAILWAY",
-            "ELECTRIC_UTILITY", "WATER_UTILITY", "CITY_GAS_UTILITY",
-            "UNIVERSITY", "PRIMARY_SECONDARY_SCHOOL", "KINDERGARTEN");
 
     private final RecommendationService engine;
 
@@ -151,13 +141,13 @@ class EngineSimulationRecommender implements SimulationRecommender {
      *
      * <p>브랜드를 골랐으면 POS 결제와 같은 거래 사실({@link PosPurchaseFacts})을 넘겨 거래 사실을 POS와 맞춘다. 구매 시각(낮 12시)과
      * 시설(일반 매장)은 가정이라, POS의 실제 요청 시각·단말 시설과 다르면 같은 브랜드에서도 결과가 다를 수 있다.
-     * 그 사실은 "모의 가맹점에 공과금·교통·교육 가맹점이 없다"에 기댄다. 그래서 업종만 고르거나, 고른 브랜드의 업종이
-     * {@link #FACTS_UNCONFIRMED_CATEGORIES}이면 넘기지 않는다(넘기면 제외 혜택이 계산돼 혜택이 커진다, 2026-11-08 결정).
+     * 그 사실은 "모의 가맹점에 공과금·교통·교육 가맹점이 없다"에 기댄다. 그래서 업종만 고르면 넘기지 않고, 고른 브랜드의 업종이 사실을
+     * 확정할 수 없는 업종이면 {@link PosPurchaseFacts#forCategory}가 빈 Map을 준다(넘기면 제외 혜택이 계산돼 혜택이 커진다, 2026-11-08 결정).
+     * 업종 목록은 POS와 한 곳에 두려고 {@link PosPurchaseFacts}에 있다(!180 리뷰).
      */
     private static RecommendationInput.Transaction transaction(Request request) {
-        boolean confirmable = request.merchantId() != null && request.merchantCategoryCode() != null
-                && !FACTS_UNCONFIRMED_CATEGORIES.contains(request.merchantCategoryCode());
-        Map<String, Boolean> facts = confirmable ? PosPurchaseFacts.verified() : Map.of();
+        Map<String, Boolean> facts = request.merchantId() != null
+                ? PosPurchaseFacts.forCategory(request.merchantCategoryCode()) : Map.of();
         RecommendationInput.Transaction plain = new RecommendationInput.Transaction(request.terms().amount(),
                 RecommendationInput.Plan.valueOf(request.terms().plan().name()), request.terms().installmentMonthsOrOne(),
                 request.purchaseDate().atTime(LocalTime.NOON).atZone(KOREA).toInstant(), request.merchantId(),

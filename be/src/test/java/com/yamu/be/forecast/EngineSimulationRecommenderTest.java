@@ -8,7 +8,6 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.yamu.be.card.domain.CardType;
-import com.yamu.be.merchant.MerchantCategories;
 import com.yamu.be.payment.PaymentTerms;
 import com.yamu.be.payment.recommend.PosPurchaseFacts;
 import com.yamu.be.recommendation.BenefitPolicy.BenefitType;
@@ -154,13 +153,6 @@ class EngineSimulationRecommenderTest {
         assertThat(transaction.getValue().merchantId()).isEqualTo(55L);
         assertThat(transaction.getValue().facts()).doesNotContainKeys(
                 PosPurchaseFacts.verified().keySet().toArray(String[]::new));
-    }
-
-    @Test
-    void 사실을_넘기지_않는_업종은_모두_지원하는_업종_코드다() {
-        // 오타가 있으면 그 업종 브랜드에 사실이 조용히 넘어간다
-        assertThat(MerchantCategories.list()).extracting(MerchantCategories.Category::merchantCategoryCode)
-                .containsAll(EngineSimulationRecommender.FACTS_UNCONFIRMED_CATEGORIES);
     }
 
     @Test
