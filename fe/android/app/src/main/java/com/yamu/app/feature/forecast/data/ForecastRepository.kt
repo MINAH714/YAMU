@@ -148,6 +148,7 @@ fun AccountDto.toOption() = ForecastAccountOption(
     last4 = maskedAccountNo.lastDigits(),
     balance = balance,
     isPrimary = isPrimary,
+    cardIds = linkedCards.map { it.userCardId }.toSet(),
 )
 
 @Singleton
@@ -163,9 +164,10 @@ class ForecastRepositoryImpl @Inject constructor(private val api: ForecastApi, p
             is ApiResult.Success -> a.data
         }
         if (accounts.isEmpty()) return ApiResult.Failure(ApiError.InvalidRequest(ForecastRepository.NO_ACCOUNT))
-        val period = current.period
-        return apiCall { api.forecast(current.accountIdsFrom(accounts), period?.until, period?.days) }
-            .map { it.toForecast() }
+        val selection = current   // 한 번만 읽어 기간 · 계좌 · 목록 범위가 같은 선택을 쓰게 한다
+        val period = selection.period
+        return apiCall { api.forecast(selection.accountIdsFrom(accounts), period?.until, period?.days) }
+            .map { it.toForecast().copy(scope = selection.scopeFrom(accounts)) }
             .also { r -> if (r is ApiResult.Success) last = r.data }
     }
 

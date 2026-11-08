@@ -38,8 +38,8 @@ val debugBaseUrl = localProps.getProperty("yamu.baseUrl").orEmpty().trim().ifEmp
         check(it.endsWith("/")) { "yamu.baseUrl은 /로 끝나야 해요: $it" }
     }
 val apiFeatures = listOf("auth", "link", "cashflow", "home", "payment", "performance", "forecast", "report", "my", "pos")   // ApiFeature와 같은 이름
-// yamu.realApi=all이 켜는 기능 — BE에 API가 있는 것만. home · performance · forecast · report는 이름을 직접 적어야 켜진다(지금 켜면 404)
-val connectedApiFeatures = listOf("auth", "link", "cashflow", "payment", "my", "pos")
+// yamu.realApi=all이 켜는 기능 — BE에 API가 있는 것만. home · performance · report는 이름을 직접 적어야 켜진다(지금 켜면 404)
+val connectedApiFeatures = listOf("auth", "link", "cashflow", "payment", "forecast", "my", "pos")
 val debugRealApi = localProps.getProperty("yamu.realApi").orEmpty()
     .split(',').map { it.trim() }.filter { it.isNotEmpty() }
     .also { names ->   // all을 펼치기 전에 봐야 all,cashflw 같은 오타도 걸린다
