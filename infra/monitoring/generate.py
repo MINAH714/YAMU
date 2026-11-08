@@ -7,23 +7,31 @@ HERE=Path(__file__).resolve().parent
 ROOT=HERE.parents[1]
 
 
+def extract_routes(source):
+    routes=set()
+    declaration=re.search(r'(?m)^\s*(?:(?:public|final|abstract)\s+)*class\s+\w+',source)
+    if not declaration:return routes
+    before,body=source[:declaration.start()],source[declaration.start():]
+    parent=re.search(r'@RequestMapping\(\s*"(/api[^"\s]*)"',before)
+    base=parent.group(1).rstrip('/') if parent else ''
+    for match in re.finditer(r'@(?:Get|Post|Put|Patch|Delete)Mapping(?:\((.*?)\))?',body,re.S):
+        children=[p for p in re.findall(r'"([^"\n]*)"',match.group(1) or '') if p.startswith('/')]
+        for child in children or ['']:
+            path=base+child
+            if re.fullmatch(r'/api/[A-Za-z0-9_/{}/.:-]+',path):routes.add(path)
+    return routes
+
+
 def main():
     routes={'/api/health'}
     for file in (ROOT/'be/src/main/java').rglob('*Controller.java'):
-        source=file.read_text(encoding='utf-8')
-        before,_,body=source.partition('public class ')
-        parent=re.search(r'@RequestMapping\(\s*"(/api[^"\s]*)"',before)
-        if not parent:continue
-        for match in re.finditer(r'@(?:Get|Post|Put|Patch|Delete)Mapping(?:\((.*?)\))?',body,re.S):
-            children=[p for p in re.findall(r'"([^"\n]*)"',match.group(1) or '') if p.startswith('/')]
-            for child in children or ['']:
-                path=parent.group(1).rstrip('/')+child
-                if re.fullmatch(r'/api/[A-Za-z0-9_/{}/.:-]+',path):routes.add(path)
+        routes.update(extract_routes(file.read_text(encoding='utf-8')))
     ordered=sorted(routes,key=lambda p:('{' in p,-len(p),p))
     (HERE/'routes.json').write_text(json.dumps(ordered,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
     mappings=[]
     for route in ordered:
-        expression='^'+re.sub(r'\{[^}]+\}', '[^/]+', route)+'$'
+        expression='^'+''.join('[^/]+' if part.startswith('{') else re.escape(part)
+            for part in re.split(r'(\{[^}]+\})',route))+'$'
         # Generated labels contain no request values, parameters, IPs or headers.
         mappings.append('    '+json.dumps('~'+expression)+' '+json.dumps(route)+';')
     config='''# http context only. Generated from route templates; no user values logged.
