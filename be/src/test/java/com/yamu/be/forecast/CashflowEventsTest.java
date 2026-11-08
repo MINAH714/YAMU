@@ -225,7 +225,7 @@ class CashflowEventsTest {
     }
 
     @Test
-    void 추천에서만_뺀_INACTIVE_카드의_예정_지출은_그대로_뺀다() {
+    void 사용자가_끈_INACTIVE_카드의_예정_지출은_승인이_거절돼도_그대로_뺀다() {
         CashflowEvents.Converted result = convert(Set.of(A),
                 entry(1L, null, INACTIVE_ON_A, CashflowItem.Direction.EXPENSE, 9_000L, TODAY.plusDays(2)));
 
