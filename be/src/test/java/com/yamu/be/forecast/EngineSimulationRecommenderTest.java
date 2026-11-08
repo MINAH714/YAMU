@@ -9,6 +9,7 @@ import static org.mockito.Mockito.when;
 
 import com.yamu.be.card.domain.CardType;
 import com.yamu.be.payment.PaymentTerms;
+import com.yamu.be.payment.recommend.PosPurchaseFacts;
 import com.yamu.be.recommendation.BenefitPolicy.BenefitType;
 import com.yamu.be.recommendation.BenefitPolicy.Unit;
 import com.yamu.be.recommendation.CalculationOptions;
@@ -117,7 +118,41 @@ class EngineSimulationRecommenderTest {
         assertThat(transaction.getValue().merchantCategoryCode()).isEqualTo("SUPERMARKET");
         assertThat(transaction.getValue().facts()).containsEntry("CHANNEL:OFFLINE", true)
                 .containsEntry("CHANNEL:ONLINE", false);
+        // 브랜드를 골랐으니 POS 결제와 같은 거래 사실을 싣는다(2026-11-08)
+        assertThat(transaction.getValue().facts()).containsAllEntriesOf(PosPurchaseFacts.verified());
         assertThat(options.getValue().excludeBrandDependentBenefits()).isFalse();
+    }
+
+    @Test
+    void 업종만_고르면_POS_거래_사실을_싣지_않는다() {
+        stub(selection(Status.READY, CARD, List.of(calculated(CARD, zero())), List.of(calculated(CARD, zero()))),
+                List.of(), List.of(), Map.of());
+
+        recommender.recommend(request(null, null));
+
+        ArgumentCaptor<RecommendationInput.Transaction> transaction =
+                ArgumentCaptor.forClass(RecommendationInput.Transaction.class);
+        verify(engine).recommendSimulation(eq(USER), transaction.capture(), any());
+        // 업종만으로는 택시·전기요금·대학 같은 업종도 고를 수 있어 "그런 거래가 아니다"를 확정할 수 없다
+        assertThat(transaction.getValue().facts()).doesNotContainKeys(
+                PosPurchaseFacts.verified().keySet().toArray(String[]::new));
+    }
+
+    @Test
+    void 교통_공과금_교육_업종_브랜드를_고르면_POS_거래_사실을_싣지_않는다() {
+        stub(selection(Status.READY, CARD, List.of(calculated(CARD, zero())), List.of(calculated(CARD, zero()))),
+                List.of(), List.of(), Map.of());
+
+        // 지금 시드에는 없지만 카탈로그에 전기요금 브랜드가 생기면: ELECTRICITY_BILL=false를 확정할 수 없다
+        recommender.recommend(new SimulationRecommender.Request(USER, null, PaymentTerms.lumpSum(300_000L), "OFFLINE", 55L,
+                "ELECTRIC_UTILITY", PURCHASE_DATE, TODAY));
+
+        ArgumentCaptor<RecommendationInput.Transaction> transaction =
+                ArgumentCaptor.forClass(RecommendationInput.Transaction.class);
+        verify(engine).recommendSimulation(eq(USER), transaction.capture(), any());
+        assertThat(transaction.getValue().merchantId()).isEqualTo(55L);
+        assertThat(transaction.getValue().facts()).doesNotContainKeys(
+                PosPurchaseFacts.verified().keySet().toArray(String[]::new));
     }
 
     @Test

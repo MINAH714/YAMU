@@ -1,5 +1,6 @@
 package com.yamu.be.forecast;
 
+import com.yamu.be.payment.recommend.PosPurchaseFacts;
 import com.yamu.be.recommendation.BasicPurchaseSimulation;
 import com.yamu.be.recommendation.CalculationOptions;
 import com.yamu.be.recommendation.CardBenefitCalculator.BenefitValue;
@@ -31,7 +32,8 @@ import org.springframework.stereotype.Component;
  *
  * <ul>
  *   <li>거래: 구매일 낮 12시(KST)에 결제한다고 가정하고, {@link BasicPurchaseSimulation}으로 일반 구매·일반 매장을 가정한다.
- *       브랜드를 고르지 않았으면 브랜드에 달린 혜택을 빼고 계산한다.</li>
+ *       브랜드를 고르면 POS 결제와 같은 거래 사실을 넘기고(교통·공과금·교육 업종 브랜드는 빼고), 고르지 않았으면 사실 없이
+ *       브랜드에 달린 혜택을 빼고 계산한다.</li>
  *   <li>혜택: 계산을 끝낸 카드만 순혜택(소수 그대로)·항목(결제 추천과 같은 모양)을 준다. 아니면 null이고 이유는 missingInformation이다.</li>
  *   <li>즉시할인 합계는 결제 추천과 같은 규칙이다: 적용 시점이 승인 때(AT_APPROVAL)인 혜택의 금액과, 배분이 안 정해진 즉시할인 묶음의
  *       원화 합계. 할인 혜택의 적용 시점을 모르면 즉시할인을 정할 수 없어 혜택을 null로 둔다.</li>
@@ -134,12 +136,22 @@ class EngineSimulationRecommender implements SimulationRecommender {
         return "BENEFIT_DATA_INSUFFICIENT";
     }
 
-    /** 구매일 낮 12시(KST), 요청한 결제 방식·개월 수, 확인된 가맹점·업종. 물품 코드는 넘기지 않는다(화면 표시용, 2026-11-05 결정). */
+    /**
+     * 구매일 낮 12시(KST), 요청한 결제 방식·개월 수, 확인된 가맹점·업종. 물품 코드는 넘기지 않는다(화면 표시용, 2026-11-05 결정).
+     *
+     * <p>브랜드를 골랐으면 POS 결제와 같은 거래 사실({@link PosPurchaseFacts})을 넘겨 거래 사실을 POS와 맞춘다. 구매 시각(낮 12시)과
+     * 시설(일반 매장)은 가정이라, POS의 실제 요청 시각·단말 시설과 다르면 같은 브랜드에서도 결과가 다를 수 있다.
+     * 그 사실은 "모의 가맹점에 공과금·교통·교육 가맹점이 없다"에 기댄다. 그래서 업종만 고르면 넘기지 않고, 고른 브랜드의 업종이 사실을
+     * 확정할 수 없는 업종이면 {@link PosPurchaseFacts#forCategory}가 빈 Map을 준다(넘기면 제외 혜택이 계산돼 혜택이 커진다, 2026-11-08 결정).
+     * 업종 목록은 POS와 한 곳에 두려고 {@link PosPurchaseFacts}에 있다(!180 리뷰).
+     */
     private static RecommendationInput.Transaction transaction(Request request) {
+        Map<String, Boolean> facts = request.merchantId() != null
+                ? PosPurchaseFacts.forCategory(request.merchantCategoryCode()) : Map.of();
         RecommendationInput.Transaction plain = new RecommendationInput.Transaction(request.terms().amount(),
                 RecommendationInput.Plan.valueOf(request.terms().plan().name()), request.terms().installmentMonthsOrOne(),
                 request.purchaseDate().atTime(LocalTime.NOON).atZone(KOREA).toInstant(), request.merchantId(),
-                request.merchantCategoryCode(), Map.of(), null);
+                request.merchantCategoryCode(), facts, null);
         return BasicPurchaseSimulation.apply(plain, request.paymentChannel(), null);
     }
 
