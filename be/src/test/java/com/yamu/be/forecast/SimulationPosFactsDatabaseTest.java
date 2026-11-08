@@ -44,6 +44,9 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
  * 카탈로그로 확인한다(2026-11-08 결정). 시드 LOCA LIKIT Play의 주유 60% 할인은 제외 조건 {@code TRANSACTION_KIND:LPG_STATION}을
  * 보므로, 사실이 없으면 "자료 부족"이고 있으면 10,000원 × 60% = 6,000원이다.
  *
+ * <p>SK에너지 한 곳의 사례다. 모든 브랜드에서 POS와 결과가 같다는 증명은 아니다: 가상 구매는 구매 시각(낮 12시)과 시설(일반 매장)을
+ * 가정하고 POS는 실제 요청 시각·단말 시설을 쓴다. 여기서는 POS도 낮 12시·일반 매장이라 두 입력이 같다.
+ *
  * <p>테스트 트랜잭션으로 감싸지 않는다. 추천 엔진이 DB 트랜잭션 안에서 부르면 거절하기 때문이다.
  */
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)

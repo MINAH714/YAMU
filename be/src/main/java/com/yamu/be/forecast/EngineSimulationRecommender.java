@@ -32,7 +32,8 @@ import org.springframework.stereotype.Component;
  *
  * <ul>
  *   <li>거래: 구매일 낮 12시(KST)에 결제한다고 가정하고, {@link BasicPurchaseSimulation}으로 일반 구매·일반 매장을 가정한다.
- *       브랜드를 고르면 POS 결제와 같은 거래 사실을 넘기고, 고르지 않았으면 사실 없이 브랜드에 달린 혜택을 빼고 계산한다.</li>
+ *       브랜드를 고르면 POS 결제와 같은 거래 사실을 넘기고(교통·공과금·교육 업종 브랜드는 빼고), 고르지 않았으면 사실 없이
+ *       브랜드에 달린 혜택을 빼고 계산한다.</li>
  *   <li>혜택: 계산을 끝낸 카드만 순혜택(소수 그대로)·항목(결제 추천과 같은 모양)을 준다. 아니면 null이고 이유는 missingInformation이다.</li>
  *   <li>즉시할인 합계는 결제 추천과 같은 규칙이다: 적용 시점이 승인 때(AT_APPROVAL)인 혜택의 금액과, 배분이 안 정해진 즉시할인 묶음의
  *       원화 합계. 할인 혜택의 적용 시점을 모르면 즉시할인을 정할 수 없어 혜택을 null로 둔다.</li>
@@ -59,6 +60,14 @@ class EngineSimulationRecommender implements SimulationRecommender {
     /** 신용한도 확인 생략은 응답의 creditLimit으로 따로 보이므로 빠진 정보로 다시 싣지 않는다. */
     private static final Set<String> SHOWN_ELSEWHERE = Set.of("CREDIT_LIMIT_CHECK_SKIPPED");
     private static final String UNCOMPARED_NOTE = "혜택 정보가 부족해 비교하지 못했어요.";
+    /**
+     * 이 업종의 브랜드면 POS 거래 사실(택시·후불교통·공과금·등록금 등이 "아니다")을 확정할 수 없어 넘기지 않는다. 지금 시드에는 이 업종의
+     * 가맹점이 없고, 카탈로그에 생기면 그 브랜드의 가상 구매는 사실 없이 계산한다(Codex 검토, 2026-11-08).
+     */
+    static final Set<String> FACTS_UNCONFIRMED_CATEGORIES = Set.of(
+            "TAXI", "CITY_BUS", "INTERCITY_BUS", "EXPRESS_BUS", "SUBWAY", "RAILWAY",
+            "ELECTRIC_UTILITY", "WATER_UTILITY", "CITY_GAS_UTILITY",
+            "UNIVERSITY", "PRIMARY_SECONDARY_SCHOOL");
 
     private final RecommendationService engine;
 
@@ -138,12 +147,15 @@ class EngineSimulationRecommender implements SimulationRecommender {
     /**
      * 구매일 낮 12시(KST), 요청한 결제 방식·개월 수, 확인된 가맹점·업종. 물품 코드는 넘기지 않는다(화면 표시용, 2026-11-05 결정).
      *
-     * <p>브랜드를 골랐으면 POS 결제와 같은 거래 사실({@link PosPurchaseFacts})을 넘겨 같은 가맹점에서 POS와 같은 카드를 고른다.
-     * 그 사실은 "모의 가맹점에 공과금·교통·교육 가맹점이 없다"에 기대는데, 업종만 고르면 택시·전기요금·대학 같은 업종도 고를 수 있어
-     * 넘기지 않는다(넘기면 제외 혜택이 계산돼 혜택이 커진다, 2026-11-08 결정).
+     * <p>브랜드를 골랐으면 POS 결제와 같은 거래 사실({@link PosPurchaseFacts})을 넘겨 거래 사실을 POS와 맞춘다. 구매 시각(낮 12시)과
+     * 시설(일반 매장)은 가정이라, POS의 실제 요청 시각·단말 시설과 다르면 같은 브랜드에서도 결과가 다를 수 있다.
+     * 그 사실은 "모의 가맹점에 공과금·교통·교육 가맹점이 없다"에 기댄다. 그래서 업종만 고르거나, 고른 브랜드의 업종이
+     * {@link #FACTS_UNCONFIRMED_CATEGORIES}이면 넘기지 않는다(넘기면 제외 혜택이 계산돼 혜택이 커진다, 2026-11-08 결정).
      */
     private static RecommendationInput.Transaction transaction(Request request) {
-        Map<String, Boolean> facts = request.merchantId() != null ? PosPurchaseFacts.verified() : Map.of();
+        boolean confirmable = request.merchantId() != null && request.merchantCategoryCode() != null
+                && !FACTS_UNCONFIRMED_CATEGORIES.contains(request.merchantCategoryCode());
+        Map<String, Boolean> facts = confirmable ? PosPurchaseFacts.verified() : Map.of();
         RecommendationInput.Transaction plain = new RecommendationInput.Transaction(request.terms().amount(),
                 RecommendationInput.Plan.valueOf(request.terms().plan().name()), request.terms().installmentMonthsOrOne(),
                 request.purchaseDate().atTime(LocalTime.NOON).atZone(KOREA).toInstant(), request.merchantId(),
