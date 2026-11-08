@@ -35,7 +35,7 @@ import org.springframework.stereotype.Component;
  * <p>원금은 결제 금액 − 즉시할인이다(S15P31E103-292). 할인 뒤 금액이 할부 최소 금액(5만 원)보다 작아져도 POS가 정한 할부 조건은
  * 그대로 둔다. 청구할인·캐시백·적립은 원금에서 빼지 않는다.
  *
- * <p>청구 회차는 결과 저장이 {@code CreditBillingWriter}로 적는다. 실적 인정액은 BE3 추천 결과가 내보내지 않아 0이다(임시, Task 5.2.5).
+ * <p>청구 회차는 결과 저장이 {@code CreditBillingWriter}로 적는다. 실적 인정액은 BE3가 계산한 값이다(Task 5.2.11, 미확인은 null).
  * 미납 해소 방법이 정해지지 않아(FR-069) 한 번 미납된 카드는 계속 거절된다(임시).
  */
 @Slf4j
