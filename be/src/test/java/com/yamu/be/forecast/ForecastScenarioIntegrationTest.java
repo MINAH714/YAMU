@@ -54,12 +54,14 @@ import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.ResultActions;
 
 /**
  * 잔고예보·가상 구매 통합 시나리오(Task 7.2.3, S15P31E103-133). 한 사용자에게 예정 수입·지출, 확정·진행 중 카드 청구,
  * 체크카드 생활비, 신용카드 마감 전 사용 추정을 함께 넣고 HTTP 요청부터 실제 MySQL까지 확인한다.
  *
- * <p>실제로 도는 것: 인증 필터, 잔고예보·가상 구매 서비스, BE 2 청구 원천(card_bill·bill_item), BE 1 카드 조회,
+ * <p>실제로 도는 것: 시큐리티 필터 체인(로그인 사용자는 {@link AuthUsers}로 넣는다. Bearer JWT 발급·검증은 이 테스트에서 하지 않고
+ * AuthIntegrationTest 등이 확인한다), 잔고예보·가상 구매 서비스, BE 2 청구 원천(card_bill·bill_item), BE 1 카드 조회,
  * 가계부, 소비 분류·생활비 원천, BE 3 추천 엔진(시드 카탈로그 01·02·03). 가짜로 두는 것: 금융망 잔액(BE 1
  * {@link AccountBalanceService})과, 부르지 않아야 하는 금융망 이체({@link SsafyTransferApi}). AI 서버 주소가 없어 생활비는 TSB다.
  *
@@ -218,21 +220,14 @@ class ForecastScenarioIntegrationTest extends MySqlTestSupport {
     void 매칭_API로_실제_결제와_연결한_카드_예정_지출은_예정_차감과_생활비에서_한_번만_빠지고_같은_시뮬레이션은_다시_불러도_같다()
             throws Exception {
         // 체크카드로 낼 헬스장 회비(11/10)를 예정 지출로 적어 두고, 11/5에 그 카드로 미리 결제했다.
-        // 가맹점은 시나리오 공통 GS25다. 예정 지출에 업종을 지정하지 않아 매칭 판정에는 영향이 없다.
-        long gymItem = cashflows.create(owner, new CashflowService.CreateCommand("헬스장 회비",
-                CashflowItem.Direction.EXPENSE, GYM_FEE, RENT_DAY, CashflowItem.RecurrenceType.NONE, null, null, null,
-                null, checkCard, null, null)).id();
+        long gymItem = gymItem();
         long gymPayment = payment(owner, checkCard, GYM_FEE, LocalDate.of(2026, 11, 5), "YAMU");
 
         // 연결 전: 예정 지출로 한 번, 생활비(체크카드 결제)로 한 번 빠진다
         String unmatched = forecast(accountA, 30);
         assertThat(lineOn(unmatched, RENT_DAY, "confirmed")).isEqualTo(BALANCE - RENT - CONFIRMED_BILL - GYM_FEE);
 
-        mockMvc.perform(post("/api/cashflow-payment-matches").with(AuthUsers.asUser(owner))
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"cashflowItemId\": %d, \"occurrenceDate\": \"%s\", \"paymentId\": %d}"
-                                .formatted(gymItem, RENT_DAY, gymPayment)))
-                .andExpect(status().isCreated())
+        confirmMatch(gymItem, RENT_DAY, gymPayment)
                 .andExpect(jsonPath("$.data.warnings").isEmpty())
                 .andExpect(jsonPath("$.data.forecastTreatment").value("ACTUAL_PAYMENT_ONLY"));
 
@@ -254,7 +249,9 @@ class ForecastScenarioIntegrationTest extends MySqlTestSupport {
     }
 
     @Test
-    void 가상_구매는_결제_청구_실적_한도_사용량을_바꾸지_않고_금융망_이체를_부르지_않는다() throws Exception {
+    void 가상_구매는_결제_청구_실적_한도_사용량_가계부_회차_매칭을_바꾸지_않고_금융망_이체를_부르지_않는다() throws Exception {
+        // 기존 연결을 지우거나 바꾸는지도 보려고 매칭을 하나 만들어 둔다
+        confirmMatch(gymItem(), RENT_DAY, payment(owner, checkCard, GYM_FEE, LocalDate.of(2026, 11, 5), "YAMU"));
         // 소비 분류는 조회할 때 미분류 결제를 채우므로 한 번 조회한 뒤의 상태와 비교한다
         forecast(accountA, 30);
         Map<String, Object> beforeSnapshot = snapshot(owner);
@@ -334,6 +331,24 @@ class ForecastScenarioIntegrationTest extends MySqlTestSupport {
                         .contentType(MediaType.APPLICATION_JSON).content(body))
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+    }
+
+    /** 예정 지출 회차와 결제를 매칭 API로 연결한다. */
+    private ResultActions confirmMatch(long cashflowItemId, LocalDate occurrenceDate, long paymentId) throws Exception {
+        return mockMvc.perform(post("/api/cashflow-payment-matches").with(AuthUsers.asUser(owner))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"cashflowItemId\": %d, \"occurrenceDate\": \"%s\", \"paymentId\": %d}"
+                                .formatted(cashflowItemId, occurrenceDate, paymentId)))
+                .andExpect(status().isCreated());
+    }
+
+    /**
+     * 체크카드로 낼 헬스장 회비(11/10, 일회) 예정 지출. 가맹점은 시나리오 공통 GS25다. 업종을 지정하지 않아 매칭 판정에는
+     * 영향이 없다.
+     */
+    private long gymItem() {
+        return cashflows.create(owner, new CashflowService.CreateCommand("헬스장 회비", CashflowItem.Direction.EXPENSE,
+                GYM_FEE, RENT_DAY, CashflowItem.RecurrenceType.NONE, null, null, null, null, checkCard, null, null)).id();
     }
 
     /**
@@ -457,6 +472,10 @@ class ForecastScenarioIntegrationTest extends MySqlTestSupport {
                 + "WHERE p.user_id = ? ORDER BY 1", user));
         tables.put("cashflow_item", jdbc.queryForList("SELECT cashflow_item_id, amount, updated_at "
                 + "FROM cashflow_item WHERE user_id = ? ORDER BY 1", user));
+        tables.put("cashflow_occurrence", jdbc.queryForList("SELECT * FROM cashflow_occurrence WHERE user_id = ? "
+                + "ORDER BY 1", user));
+        tables.put("cashflow_payment_match", jdbc.queryForList("SELECT * FROM cashflow_payment_match "
+                + "WHERE user_id = ? ORDER BY 1", user));
         return tables;
     }
 
