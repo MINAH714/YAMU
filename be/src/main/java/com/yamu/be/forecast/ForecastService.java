@@ -329,7 +329,6 @@ public class ForecastService {
         }
     }
 
-    /** 중복을 뺀 선택 계좌. 비었으면 명세의 ACCOUNT_SELECTION_REQUIRED다. */
     /**
      * 선택 계좌가 모두 이 사용자의 연결 계좌인지 확인한다. 남의·연결 해제 계좌는 404, 빈 선택은 400 ACCOUNT_SELECTION_REQUIRED다.
      * 잔액을 읽지 않는 생활비 상세와, 추천 엔진(체크카드 잔액을 금융망에서 읽음)을 부르기 전의 가상 구매가 쓴다(S15P31E103-333).
@@ -341,6 +340,7 @@ public class ForecastService {
         selectedAccounts(accountIds).forEach(accountId -> accounts.requireConnectedAccount(userId, accountId));
     }
 
+    /** 중복을 뺀 선택 계좌. 비었으면 명세의 ACCOUNT_SELECTION_REQUIRED다. */
     private static List<Long> selectedAccounts(List<Long> accountIds) {
         if (accountIds == null || accountIds.isEmpty()) {
             throw new BusinessException(ErrorCode.ACCOUNT_SELECTION_REQUIRED);
