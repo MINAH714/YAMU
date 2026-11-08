@@ -32,6 +32,7 @@ class FakePaymentEditsTest {
         val winnerKey = if (results[0] is ApiResult.Success) "key-a" else "key-b"
         assertEquals((results.first { it is ApiResult.Success } as ApiResult.Success).data, (fake.cancel(938, winnerKey) as ApiResult.Success).data)
         assertTrue(fake.isCanceled(938))
+        assertTrue(edits.isCanceled(938))
         assertEquals(PayStatus.CANCELED, (fake.detail(938) as ApiResult.Success).data.status)
     }
 

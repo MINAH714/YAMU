@@ -269,6 +269,7 @@ class FakePaymentRepository @Inject constructor(
         cancelResults[paymentId] = result
         cancelByKey[key] = result
         if (receipts.containsKey(paymentId)) receipt.cardId?.let { perf.addPayment(it, -receipt.amount, counted = receipt.perfCounted) }   // 실적 되돌림
+        edits.markCanceled(paymentId, now)
         edits.changed()
         return ApiResult.Success(result)
     }

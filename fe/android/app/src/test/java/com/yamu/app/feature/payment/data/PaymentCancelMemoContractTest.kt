@@ -62,6 +62,8 @@ class PaymentCancelMemoContractTest {
         assertEquals(listOf(RefundLine(30_000, "2026-12-05", false), RefundLine(30_000, null, false)), done.refunds)
         assertNull(done.balanceAfter)
         assertEquals(before + 1, edits.version.value)   // 결제 내역이 첫 쪽부터 다시 받게
+        assertTrue(edits.isCanceled(1024))               // 결제 완료(P-07)가 영수증에 취소만 반영하게
+        assertEquals("2026-12-02T06:02:00Z", edits.canceledAt(1024))
         val request = server.takeRequest()
         assertEquals("POST", request.method)
         assertEquals("/payments/1024/cancel", request.url.encodedPath)

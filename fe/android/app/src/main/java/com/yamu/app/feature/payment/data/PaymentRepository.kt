@@ -194,6 +194,7 @@ class PaymentRepositoryImpl @Inject constructor(private val api: PaymentApi, pri
         apiCall { api.cancel(paymentId, idempotencyKey, CancelRequest()) }.map { it.toResult() }.also {
             if (it is ApiResult.Success) {
                 receipts.remove(paymentId)   // 방금 승인한 영수증(P-07)이 승인 상태로 남지 않게
+                edits.markCanceled(paymentId, it.data.canceledAtIso)
                 edits.changed()
             }
         }

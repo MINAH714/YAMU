@@ -3,7 +3,6 @@ package com.yamu.app.feature.payment
 import androidx.lifecycle.SavedStateHandle
 import com.yamu.app.core.network.ApiResult
 import com.yamu.app.feature.link.data.brandOf
-import com.yamu.app.feature.payment.data.PayStatus
 import com.yamu.app.feature.payment.data.PaymentEdits
 import com.yamu.app.feature.payment.data.PaymentReceipt
 import com.yamu.app.feature.payment.data.PaymentRepository
@@ -25,7 +24,7 @@ import java.lang.reflect.Proxy
 class PayDoneViewModelTest {
     private val dispatcher = StandardTestDispatcher()
     private val edits = PaymentEdits()
-    private var detail = receipt()
+    private val detail = receipt()
     private var detailCalls = 0
 
     /** 방금 승인한 영수증(메모리) · 상세(#3)만 쓴다 */
@@ -44,29 +43,48 @@ class PayDoneViewModelTest {
 
     @After fun tearDown() = Dispatchers.resetMain()
 
-    @Test fun `돌아왔을 때 그사이 취소가 있었으면 다시 받아 취소 상태를 보인다`() = runTest(dispatcher) {
+    @Test fun `거래 상세에서 취소하고 돌아오면 보던 영수증에 취소만 반영한다 — 체크카드 남은 잔액은 그대로`() = runTest(dispatcher) {
         val vm = PayDoneViewModel(SavedStateHandle(mapOf("paymentId" to 77L)), payments, edits)
         advanceUntilIdle()
         vm.refreshIfChanged()
+        assertFalse(vm.state.value.receipt!!.canceled)   // 바뀐 게 없으면 그대로
+        edits.markCanceled(77, "2026-11-08T07:00:00Z")   // P-08에서 취소
+        edits.changed()
+        vm.refreshIfChanged()
         advanceUntilIdle()
-        assertEquals(0, detailCalls)                 // 바뀐 게 없으면 방금 승인한 영수증 그대로
+        val r = vm.state.value.receipt!!
+        assertTrue(r.canceled)
+        assertEquals("2026-11-08T07:00:00Z", r.canceledAtIso)
+        assertEquals(985_000L, r.balanceAfter)            // 상세(#3)에는 없는 값 — 영수증을 갈아 끼우지 않는다
+        assertEquals(0, detailCalls)                      // 다시 받지 않는다(실패해서 '결제를 마쳤어요'로 남을 일도 없다)
+    }
+
+    @Test fun `메모만 저장하고 돌아오면 아무것도 바꾸지 않는다`() = runTest(dispatcher) {
+        val vm = PayDoneViewModel(SavedStateHandle(mapOf("paymentId" to 77L)), payments, edits)
+        advanceUntilIdle()
+        edits.rememberMemo(77, "정산")
+        edits.changed()
+        vm.refreshIfChanged()
+        advanceUntilIdle()
+        assertEquals(0, detailCalls)
         assertFalse(vm.state.value.receipt!!.canceled)
-        detail = receipt().copy(status = PayStatus.CANCELED)
-        edits.changed()                              // P-08에서 취소
-        vm.refreshIfChanged()
+        assertEquals(985_000L, vm.state.value.receipt!!.balanceAfter)
+    }
+
+    @Test fun `다른 결제를 취소한 것은 반영하지 않는다`() = runTest(dispatcher) {
+        val vm = PayDoneViewModel(SavedStateHandle(mapOf("paymentId" to 77L)), payments, edits)
         advanceUntilIdle()
-        assertEquals(1, detailCalls)
-        assertTrue(vm.state.value.receipt!!.canceled)
+        edits.markCanceled(78, null)
+        edits.changed()
         vm.refreshIfChanged()
-        advanceUntilIdle()
-        assertEquals(1, detailCalls)                 // 한 번만
+        assertFalse(vm.state.value.receipt!!.canceled)
     }
 
     private fun receipt() = PaymentReceipt(
         paymentId = 77, merchantName = "스타벅스 역삼점", categoryName = "카페", amount = 15_000,
         paidAtIso = null, cardId = 1, cardBrand = brandOf("신한카드"), cardName = "카드", cardLast4 = "0001",
-        isCheck = false, approvalNo = null, installmentMonths = null, benefits = emptyList(), chargedAmount = null,
-        balanceAfter = null, billDateIso = null, billAmount = null, perfMonth = null, perfRecognized = null, perfCounted = true,
+        isCheck = true, approvalNo = null, installmentMonths = null, benefits = emptyList(), chargedAmount = null,
+        balanceAfter = 985_000, billDateIso = null, billAmount = null, perfMonth = null, perfRecognized = null, perfCounted = true,
         perfTotalAfter = null, perfTarget = null,
     )
 }

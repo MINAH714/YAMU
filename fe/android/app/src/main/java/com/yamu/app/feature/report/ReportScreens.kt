@@ -415,7 +415,10 @@ class PaymentsViewModel @Inject constructor(
 
     fun saveAsShown() = _state.update { it.copy(saveAs = null) }
 
-    /** 저장 창에서 고른 곳([uri], 닫았으면 null). 받기 · 쓰기에 실패하면 창이 만든 빈 파일을 지운다 */
+    /**
+     * 저장 창에서 고른 곳([uri], 닫았으면 null). 받기 · 쓰기에 실패하면 창이 새로 만든 빈 파일만 지운다 —
+     * 이미 있는 파일을 골라 덮어쓰기를 눌렀으면 그 파일은 남긴다([CsvDocuments.discardIfEmpty])
+     */
     fun saveCsvTo(uri: String?) {
         if (uri == null || _state.value.exporting) return
         _state.update { it.copy(exporting = true) }
@@ -424,11 +427,11 @@ class PaymentsViewModel @Inject constructor(
                 is ApiResult.Success -> if (documents.write(uri, r.data.bytes)) {
                     "CSV 파일을 저장했어요"
                 } else {
-                    documents.discard(uri)
+                    documents.discardIfEmpty(uri)
                     "파일을 저장하지 못했어요. 다시 저장해 주세요"
                 }
                 is ApiResult.Failure -> {
-                    documents.discard(uri)
+                    documents.discardIfEmpty(uri)
                     exportErrorMessage(r.error)
                 }
             }

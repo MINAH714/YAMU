@@ -124,7 +124,7 @@ class PaymentsViewModelTest {
             return writeOk
         }
 
-        override suspend fun discard(uri: String) {
+        override suspend fun discardIfEmpty(uri: String) {
             discarded += uri
         }
     }

@@ -47,6 +47,7 @@ import com.yamu.app.core.format.toWon
 import com.yamu.app.core.network.ApiResult
 import com.yamu.app.core.ui.userMessage
 import androidx.lifecycle.compose.LifecycleResumeEffect
+import com.yamu.app.feature.payment.data.PayStatus
 import com.yamu.app.feature.payment.data.PaymentEdits
 import com.yamu.app.feature.payment.data.PaymentReceipt
 import com.yamu.app.feature.payment.data.PaymentRepository
@@ -74,7 +75,7 @@ internal fun formatDay(iso: String?): String? = parseDate(iso)?.let { "${it.mont
 
 /**
  * 방금 승인한 결과(메모리)를 그리고, 앱이 다시 켜졌으면 #3으로 다시 받는다.
- * 거래 상세(P-08)에서 취소하고 돌아오면([PaymentEdits.version]이 바뀜) 다시 받아 '취소'를 보인다
+ * 거래 상세(P-08)에서 취소하고 돌아오면 보던 영수증에 취소만 반영한다([refreshIfChanged])
  */
 @HiltViewModel
 class PayDoneViewModel @Inject constructor(
@@ -100,12 +101,20 @@ class PayDoneViewModel @Inject constructor(
         }
     }
 
-    /** 화면으로 돌아올 때 — 그사이 취소 · 메모가 있었으면 다시 받는다 */
+    /**
+     * 화면으로 돌아올 때 — 거래 상세에서 이 결제를 취소했으면 보던 영수증에 취소만 반영한다. 다시 받지 않는 이유:
+     * 상세(#3) 응답에는 승인 응답에만 있는 체크카드 '남은 잔액'이 없어 영수증을 갈아 끼우면 그 줄이 사라지고,
+     * 다시 받기가 실패하면 취소한 결제가 '결제를 마쳤어요'로 남는다. 메모 저장으로 버전이 오른 것은 P-07과 상관없다
+     */
     fun refreshIfChanged() {
         val version = edits.version.value
         if (version == seenVersion) return
         seenVersion = version
-        load()
+        if (!edits.isCanceled(paymentId)) return
+        _state.update { s ->
+            val r = s.receipt?.takeIf { !it.canceled } ?: return@update s
+            s.copy(receipt = r.copy(status = PayStatus.CANCELED, canceledAtIso = edits.canceledAt(paymentId) ?: r.canceledAtIso))
+        }
     }
 }
 
