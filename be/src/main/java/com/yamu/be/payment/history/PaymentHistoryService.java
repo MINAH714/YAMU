@@ -82,6 +82,22 @@ class PaymentHistoryService {
     @Transactional(readOnly = true)
     public PaymentListResponse list(AuthUser me, YearMonth yearMonth, LocalDate from, LocalDate to, Long userCardId,
             PaymentStatus status, TransactionSource source, Conditions conditions, int page, int size) {
+        Filter filter = resolve(me, yearMonth, from, to, userCardId, status, source, conditions).filter();
+        Totals totals = reader.totals(filter);
+        List<PaymentListResponse.Item> items = totals.count() == 0 ? List.of()
+                : reader.findPage(filter, PageResponse.offset(page, size), size);
+        PaymentListResponse.Summary summary = new PaymentListResponse.Summary(totals.count(), totals.amount(),
+                totals.benefit(), totals.confirmedBenefit(), totals.byClass(), totals.yamuPickCount());
+        return new PaymentListResponse(summary, PageResponse.of(items, page, size, totals.count()));
+    }
+
+    /**
+     * 목록 조건을 검사해 조회 조건으로 바꾼다. 목록과 CSV 내려받기가 같은 규칙을 쓴다.
+     *
+     * @return 조회 조건과 한국 날짜 기간(시작·끝 포함). 한쪽만 주면 다른 쪽은 null(제한 없음)
+     */
+    Resolved resolve(AuthUser me, YearMonth yearMonth, LocalDate from, LocalDate to, Long userCardId,
+            PaymentStatus status, TransactionSource source, Conditions conditions) {
         if (yearMonth != null && (from != null || to != null)) {
             throw invalid("yearMonth", "yearMonth는 from·to와 함께 쓸 수 없습니다.");
         }
@@ -118,14 +134,11 @@ class PaymentHistoryService {
                 startOfKstDay(start), endInclusive == null ? null : startOfKstDay(endInclusive.plusDays(1)),
                 userCardId, source, q, amountOf(q), category, conditions.spendingClass(), conditions.channel(),
                 conditions.benefitStatus());
-
-        Totals totals = reader.totals(filter);
-        List<PaymentListResponse.Item> items = totals.count() == 0 ? List.of()
-                : reader.findPage(filter, PageResponse.offset(page, size), size);
-        PaymentListResponse.Summary summary = new PaymentListResponse.Summary(totals.count(), totals.amount(),
-                totals.benefit(), totals.confirmedBenefit(), totals.byClass(), totals.yamuPickCount());
-        return new PaymentListResponse(summary, PageResponse.of(items, page, size, totals.count()));
+        return new Resolved(filter, start, endInclusive);
     }
+
+    /** 검사를 마친 조회 조건과 한국 날짜 기간(포함). */
+    record Resolved(Filter filter, LocalDate start, LocalDate endInclusive) {}
 
     /** 결제 한 건의 상세. 없거나 남의 결제면 404 RESOURCE_NOT_FOUND. */
     @Transactional(readOnly = true)

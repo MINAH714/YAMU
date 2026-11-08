@@ -151,6 +151,10 @@ public enum ErrorCode {
     /* 공통 - 호출 횟수 제한. details.retryAfterSeconds. 명세서 1장에 추가 필요 */
     TOO_MANY_REQUESTS(HttpStatus.TOO_MANY_REQUESTS, "요청이 너무 많습니다. 잠시 후 다시 시도해 주세요."),
 
+    /* 결제 - 결제 내역 CSV 내려받기 (API 명세 「결제 내역 CSV 내려받기」) */
+    RANGE_TOO_LARGE(HttpStatus.BAD_REQUEST, "한 번에 내려받을 수 있는 기간은 12개월까지예요."),
+    RATE_LIMITED(HttpStatus.TOO_MANY_REQUESTS, "내려받기를 너무 자주 요청했어요. 잠시 후 다시 시도해 주세요."),
+
     /* 결제 바코드 (API 명세 「결제 바코드 발급」「바코드 상태·결제 요청 조회」「POS 결제 요청 생성」) */
     NO_ACTIVE_CARD(HttpStatus.CONFLICT, "결제에 사용할 수 있는 카드가 없습니다. 카드를 먼저 등록해 주세요."),
     BARCODE_NOT_FOUND(HttpStatus.NOT_FOUND, "바코드를 찾을 수 없습니다."),
