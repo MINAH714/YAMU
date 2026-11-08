@@ -92,6 +92,9 @@ public class PurchaseSimulationService {
             chosen = cards.requireRegisteredCard(authenticatedUserId, request.userCardId());
             usableCard(chosen, terms);
         }
+        // 선택 계좌도 추천을 부르기 전에 확인한다. 추천 엔진은 체크카드 잔액을 금융망에서 읽으므로, 남의·연결 해제 계좌가 섞인
+        // 요청은 금융망을 부르기 전에 404로 끝낸다(S15P31E103-333 Codex 검토). 잔액 서비스도 같은 확인을 다시 한다.
+        forecasts.requireOwnedAccounts(authenticatedUserId, request.accountIds());
         // 업종·브랜드가 있을 때만 확인한다(브랜드면 DB의 업종을 쓴다). 물품만 있으면 혜택을 계산할 수 없다(2026-11-05 결정).
         MerchantCatalogService.Selection selection = request.merchantId() != null || request.merchantCategoryCode() != null
                 ? catalog.resolveSelection(request.merchantId(), request.merchantCategoryCode()) : null;
