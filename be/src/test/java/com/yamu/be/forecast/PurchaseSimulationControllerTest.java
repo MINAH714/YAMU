@@ -329,6 +329,11 @@ class PurchaseSimulationControllerTest extends MySqlTestSupport {
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("INVALID_REQUEST"))
                 .andExpect(jsonPath("$.error.details.fieldErrors[0].field").value("purchaseDate"));
+        // 체크카드는 청구 주기 계산이 없어도 같은 상한을 받는다(!173 리뷰)
+        perform(body(accountA, checkOnA, "300000", "\"purchaseDate\": \"" + lastDay.plusDays(1) + "\""))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("INVALID_REQUEST"))
+                .andExpect(jsonPath("$.error.details.fieldErrors[0].field").value("purchaseDate"));
     }
 
     @Test
