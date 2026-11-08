@@ -1,5 +1,6 @@
 package com.yamu.be.payment.billing.refund;
 
+import com.yamu.be.account.AccountBalanceService;
 import com.yamu.be.global.finapi.FinApiException;
 import com.yamu.be.payment.approve.PaymentAccountReader;
 import com.yamu.be.payment.approve.PaymentAccountReader.BankAccess;
@@ -35,7 +36,8 @@ import org.springframework.transaction.support.TransactionTemplate;
  *    (입금 뒤 DB 저장 실패, 결과 불명 뒤 늦은 처리를 같이 막는다). 이 조회를 계좌 없음(A1003)으로 거절하면, 이 환급으로 보낸 적이
  *    없을 때(남긴 번호 없음)만 FAILED + 이벤트로 끝내고, 남긴 번호가 있으면 해지 전에 들어갔을 수 있어 대기로 두고 운영 로그를 남긴다
  * ④ 없으면 새 요청 번호를 환급 행에 먼저 커밋하고 입금한다
- * ⑤ 성공 → COMPLETED + 회차 REFUNDED + 이벤트 / 계좌 없음(A1003) → FAILED + 이벤트 / 그 밖의 거절 → 대기 그대로 + 운영 로그
+ * ⑤ 성공 → COMPLETED + 회차 REFUNDED + 이벤트 + 환급 계좌 잔액 캐시 삭제 / 계좌 없음(A1003) → FAILED + 이벤트
+ *    / 그 밖의 거절 → 대기 그대로 + 운영 로그
  *    / 결과 불명 → 그대로(다음 실행이 ①③으로 확정) / 요청 안 감 → 남긴 번호를 지운다
  * </pre>
  *
@@ -61,18 +63,20 @@ public class RefundDepositor {
     private final PaymentAccountReader accounts;
     private final SsafyTransferApi transfer;
     private final PaymentApprovalProperties properties;
+    private final AccountBalanceService balances;
     private final ApplicationEventPublisher events;
     private final TransactionTemplate transaction;
     private final Clock clock;
 
     public RefundDepositor(RefundRepository refunds, BillItemRepository items, PaymentAccountReader accounts,
-            SsafyTransferApi transfer, PaymentApprovalProperties properties, ApplicationEventPublisher events,
-            TransactionTemplate transaction, Clock clock) {
+            SsafyTransferApi transfer, PaymentApprovalProperties properties, AccountBalanceService balances,
+            ApplicationEventPublisher events, TransactionTemplate transaction, Clock clock) {
         this.refunds = refunds;
         this.items = items;
         this.accounts = accounts;
         this.transfer = transfer;
         this.properties = properties;
+        this.balances = balances;
         this.events = events;
         this.transaction = transaction;
         this.clock = clock;
@@ -122,7 +126,7 @@ public class RefundDepositor {
                         "환급 입금액 " + deposited.amount() + "원이 환급액 " + refund.amount() + "원과 다름"));
             }
             log.info("환급 입금을 거래내역에서 찾음, 다시 보내지 않음 refundId={} tag={}", refundId, tag);
-            return Result.of(complete(refundId, deposited.bankTransactionNo()));
+            return Result.of(complete(refund, deposited.bankTransactionNo()));
         }
 
         // 채번 실패는 금융망 예외(보내지 않음) 그대로
@@ -135,7 +139,7 @@ public class RefundDepositor {
         return switch (result.status()) {
             case SUCCESS -> {
                 log.info("환급 입금 성공 refundId={} tag={} amount={}", refundId, tag, refund.amount());
-                yield Result.of(complete(refundId, result.bankTransactionNo()));
+                yield Result.of(complete(refund, result.bankTransactionNo()));
             }
             case REJECTED -> {
                 if (result.rejectReason() == TransferResult.RejectReason.ACCOUNT_NOT_FOUND) {
@@ -173,7 +177,10 @@ public class RefundDepositor {
     }
 
     /** 입금을 확인한 환급을 완료로 바꾸고 회차를 환급 완료로 바꾼다. 그 사이 다른 실행이 끝냈으면 그대로 둔다. */
-    private Outcome complete(Long refundId, String bankTransactionNo) {
+    private Outcome complete(Snapshot refund, String bankTransactionNo) {
+        Long refundId = refund.refundId();
+        // 돈이 들어갔다. 계좌 목록·잔고예보가 쓰는 환급 계좌 잔액 캐시(10분)를 지운다(S15P31E103-329). 아래 저장이 실패해도 잔액은 이미 바뀌었다
+        balances.evict(refund.linkedAccountId());
         return transaction.execute(status -> {
             Refund locked = refunds.findByIdForUpdate(refundId).orElseThrow();
             if (!locked.isDepositTarget()) {

@@ -13,6 +13,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.yamu.be.account.AccountBalanceService;
 import com.yamu.be.card.domain.CardType;
 import com.yamu.be.global.exception.BusinessException;
 import com.yamu.be.global.exception.ErrorCode;
@@ -87,6 +88,7 @@ class WithdrawalRecoveryTest {
     @Mock PaymentExpiry expiry;
     @Mock RedisLocks locks;
     @Mock RedisLocks.Lock lock;
+    @Mock AccountBalanceService balances;
     @Mock TransactionTemplate transaction;
 
     final PaymentApprovalProperties properties = new PaymentApprovalProperties(Duration.ofHours(24),
@@ -100,7 +102,7 @@ class WithdrawalRecoveryTest {
     @BeforeEach
     void setUp() {
         clock = Clock.fixed(REQUEST_TIME.plusSeconds(40), ZoneOffset.UTC); // 유예(30초) 지남
-        recovery = new WithdrawalRecovery(payments, accounts, transfer, attempts, ledger, barcodes, expiry, locks,
+        recovery = new WithdrawalRecovery(payments, accounts, transfer, attempts, ledger, barcodes, expiry, locks, balances,
                 transaction, properties, clock);
         payment = processingWithRequestNo();
         when(locks.tryLock(anyString(), any())).thenReturn(Optional.of(lock));
@@ -161,6 +163,8 @@ class WithdrawalRecoveryTest {
         verify(ledger).recordApproval(eq(payment), any());
         verify(barcodes).markUsed(PAYMENT_ID);
         verify(attempts).recordResult(eq(PAYMENT_ID), eq(ATTEMPT), argThat(a -> Attempt.APPROVED.equals(a.outcome())));
+        // 돈이 나간 것을 확인했으니 출금 때 지우지 못한 연결 계좌(9) 잔액 캐시를 지운다
+        verify(balances).evict(9L);
     }
 
     @Test
@@ -198,6 +202,7 @@ class WithdrawalRecoveryTest {
         assertThat(recovery.recheckBeforeRetry(PAYMENT_ID)).isEqualTo(WithdrawalRecovery.LateCheck.CONFIRMED);
         assertThat(payment.getStatus()).isEqualTo(PaymentStatus.APPROVED);
         assertThat(payment.getApprovedAmount()).isEqualTo(14_000);
+        verify(balances).evict(9L);
     }
 
     // ───────── 복구 승인의 혜택 근거(시도 기록의 후보) ─────────
@@ -290,13 +295,13 @@ class WithdrawalRecoveryTest {
                 .thenReturn(new TagLookup(Result.NOT_FOUND, List.of()));
 
         clock = Clock.fixed(REQUEST_TIME.plusSeconds(10), ZoneOffset.UTC);
-        recovery = new WithdrawalRecovery(payments, accounts, transfer, attempts, ledger, barcodes, expiry, locks,
+        recovery = new WithdrawalRecovery(payments, accounts, transfer, attempts, ledger, barcodes, expiry, locks, balances,
                 transaction, properties, clock);
         assertThat(recovery.recover(PAYMENT_ID)).isEqualTo(PaymentStatus.PROCESSING);
         assertThat(payment.getStatus()).isEqualTo(PaymentStatus.PROCESSING);
 
         clock = Clock.fixed(REQUEST_TIME.plusSeconds(30), ZoneOffset.UTC);
-        recovery = new WithdrawalRecovery(payments, accounts, transfer, attempts, ledger, barcodes, expiry, locks,
+        recovery = new WithdrawalRecovery(payments, accounts, transfer, attempts, ledger, barcodes, expiry, locks, balances,
                 transaction, properties, clock);
         assertThat(recovery.recover(PAYMENT_ID)).isEqualTo(PaymentStatus.DECLINED);
         assertThat(payment.getStatus()).isEqualTo(PaymentStatus.DECLINED);
@@ -304,6 +309,8 @@ class WithdrawalRecoveryTest {
         verify(attempts).recordResult(eq(PAYMENT_ID), eq(ATTEMPT), argThat(a -> Attempt.DECLINED.equals(a.outcome())
                 && "WITHDRAWAL_NOT_CONFIRMED".equals(a.failureCode())));
         verify(ledger, never()).recordApproval(any(), any());
+        // 돈이 안 나간 것으로 봤으니 캐시는 그대로 둔다
+        verify(balances, never()).evict(any());
     }
 
     @Test
@@ -435,7 +442,7 @@ class WithdrawalRecoveryTest {
     void 대조_기간이_지났거나_출금_미확인_거절이_아니면_주기_작업은_다시_보지_않는다() {
         payment.decline("WITHDRAWAL_NOT_CONFIRMED");
         clock = Clock.fixed(REQUEST_TIME.plus(properties.lateWithdrawalWindow()), ZoneOffset.UTC);
-        recovery = new WithdrawalRecovery(payments, accounts, transfer, attempts, ledger, barcodes, expiry, locks,
+        recovery = new WithdrawalRecovery(payments, accounts, transfer, attempts, ledger, barcodes, expiry, locks, balances,
                 transaction, properties, clock);
         assertThat(recovery.recheckDeclined(PAYMENT_ID)).isEqualTo(WithdrawalRecovery.LateCheck.NOT_APPLICABLE);
 
@@ -449,7 +456,7 @@ class WithdrawalRecoveryTest {
     void 재승인_직전_확인은_대조_기간과_상관없이_보고_없으면_NOT_FOUND_조회_실패면_UNDECIDED다() {
         payment.decline("WITHDRAWAL_NOT_CONFIRMED");
         clock = Clock.fixed(REQUEST_TIME.plus(Duration.ofHours(1)), ZoneOffset.UTC);
-        recovery = new WithdrawalRecovery(payments, accounts, transfer, attempts, ledger, barcodes, expiry, locks,
+        recovery = new WithdrawalRecovery(payments, accounts, transfer, attempts, ledger, barcodes, expiry, locks, balances,
                 transaction, properties, clock);
         when(transfer.findByTag(anyString(), anyString(), any(), anyLong(), anyString()))
                 .thenReturn(new TagLookup(Result.NOT_FOUND, List.of()))

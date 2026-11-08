@@ -192,6 +192,7 @@ class BillWithdrawIntegrationTest extends MySqlTestSupport {
     @Test
     void 출금일이_지난_확정_청구서를_YAMU_B로_확정_당시_계좌에서_출금하고_PAID와_회차_PAID로_바꾼다() {
         Bill bill = confirmed(30_000, 12_000);
+        cacheBalance();
 
         JobRunReport report = runNow();
 
@@ -218,6 +219,8 @@ class BillWithdrawIntegrationTest extends MySqlTestSupport {
         verify(transfer).findAllByTag(anyString(), anyString(), eq(TransferTag.bill(bill.id())), from.capture(),
                 eq(today()));
         assertThat(from.getValue()).isEqualTo(withdrawalDate.minusDays(1));
+        // 돈이 나갔으니 잔고예보·계좌 목록이 다음 조회에서 금융망의 출금 뒤 잔액을 읽도록 캐시가 지워진다(S15P31E103-329)
+        assertThat(balanceCached()).isFalse();
     }
 
     @Test
@@ -264,6 +267,7 @@ class BillWithdrawIntegrationTest extends MySqlTestSupport {
     void 잔액이_부족하면_UNPAID로_바꾸고_다시_돌려도_자동으로_재출금하지_않으며_그_카드는_미납_카드가_된다() {
         Bill bill = confirmed(30_000);
         answers.add(() -> rejected(RejectReason.INSUFFICIENT_BALANCE, "A1014"));
+        cacheBalance();
 
         JobRunReport report = runNow();
 
@@ -281,6 +285,7 @@ class BillWithdrawIntegrationTest extends MySqlTestSupport {
                 new BillUnpaidEvent(bill.id(), user, card, 30_000, RejectReason.INSUFFICIENT_BALANCE));
         // 승인(YamuCreditCardApprover)·추천이 미납 카드를 거르는 조건
         assertThat(billRepository.existsByUserCardIdAndStatus(card, BillStatus.UNPAID)).isTrue();
+        assertThat(balanceCached()).isTrue();  // 잔액이 바뀌지 않았으니 캐시는 그대로
 
         clock.advance(Duration.ofDays(1));
         JobRunReport again = runNow();
@@ -329,12 +334,14 @@ class BillWithdrawIntegrationTest extends MySqlTestSupport {
                 .satisfies(item -> assertThat(item.result()).isEqualTo("IN_FLIGHT"));
 
         clock.advance(PAST_GRACE);
+        cacheBalance();  // 결과 불명이라 출금 때 지우지 못한 캐시
         JobRunReport recovered = job.recoverInFlight();
 
         assertThat(recovered.results()).singleElement().satisfies(item -> assertThat(item.result()).isEqualTo("PAID"));
         verify(transfer, times(1)).withdraw(anyString(), anyString(), anyLong(), any(), anyString());
         assertThat(billRow(bill.id()).get("status")).isEqualTo("PAID");
         assertThat(billRow(bill.id()).get("withdrawal_retried_at")).isNull();
+        assertThat(balanceCached()).isFalse();  // 거래내역에서 출금을 확인했으니 지운다
         assertThat(events.stream(BillWithdrawnEvent.class)).hasSize(1);
     }
 
@@ -858,5 +865,20 @@ class BillWithdrawIntegrationTest extends MySqlTestSupport {
         jdbc.update("UPDATE linked_account SET account_no_enc = ? WHERE linked_account_id = ?",
                 cipher.encrypt(ACCOUNT_NO, CipherField.LINKED_ACCOUNT_NO), id);
         return id;
+    }
+
+    // ───────── 잔액 캐시(S15P31E103-329) ─────────
+
+    /** 계좌 목록·잔고예보가 쓰는 연결 계좌 잔액 캐시(AccountBalanceService, 값은 "잔액|조회 시각")를 채워 둔다. 돈이 오간 뒤 지워져야 한다 */
+    private void cacheBalance() {
+        redis.opsForValue().set(balanceCacheKey(), "1000000|" + clock.instant().getEpochSecond());
+    }
+
+    private boolean balanceCached() {
+        return Boolean.TRUE.equals(redis.hasKey(balanceCacheKey()));
+    }
+
+    private String balanceCacheKey() {
+        return "account:balance:" + account;
     }
 }

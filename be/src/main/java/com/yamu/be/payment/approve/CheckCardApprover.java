@@ -1,5 +1,6 @@
 package com.yamu.be.payment.approve;
 
+import com.yamu.be.account.AccountBalanceService;
 import com.yamu.be.global.exception.BusinessException;
 import com.yamu.be.global.exception.ErrorCode;
 import com.yamu.be.global.finapi.FinApiException;
@@ -26,7 +27,7 @@ import org.springframework.transaction.support.TransactionTemplate;
  * ① 출금액(즉시할인 뒤 금액, 지금은 혜택 0원이라 요청액). 0원이면 출금 없이 승인(Q8)
  * ② 카드의 연결 계좌·userKey 복원. 없으면 거절(ACCOUNT_UNAVAILABLE, 임시)
  * ③ 기관거래고유번호 채번 → 번호·출금액을 결제 행에 먼저 저장(짧은 트랜잭션, 커밋이 출금보다 먼저)
- * ④ 출금(태그 YAMU-P{paymentId}) → 성공은 승인, 잔액 부족·계좌 없음·그 밖의 거절은 DECLINED,
+ * ④ 출금(태그 YAMU-P{paymentId}) → 성공은 승인(연결 계좌 잔액 캐시 삭제), 잔액 부족·계좌 없음·그 밖의 거절은 DECLINED,
  *    결과 불명은 금융망 예외(결제는 PROCESSING에 남아 WithdrawalRecovery가 확정), 못 보냄은 ApprovalNotSentException(결제를 되돌림)
  * </pre>
  *
@@ -41,14 +42,17 @@ public class CheckCardApprover {
     private final SsafyTransferApi transfer;
     private final PaymentTransactionRepository payments;
     private final ApprovalAttemptStore attempts;
+    private final AccountBalanceService balances;
     private final TransactionTemplate transaction;
 
     public CheckCardApprover(PaymentAccountReader accounts, SsafyTransferApi transfer,
-            PaymentTransactionRepository payments, ApprovalAttemptStore attempts, TransactionTemplate transaction) {
+            PaymentTransactionRepository payments, ApprovalAttemptStore attempts, AccountBalanceService balances,
+            TransactionTemplate transaction) {
         this.accounts = accounts;
         this.transfer = transfer;
         this.payments = payments;
         this.attempts = attempts;
+        this.balances = balances;
         this.transaction = transaction;
     }
 
@@ -79,7 +83,12 @@ public class CheckCardApprover {
         TransferResult result = transfer.withdraw(access.get().userKey(), access.get().accountNo(), charged, tag,
                 finRequestNo);
         return switch (result.status()) {
-            case SUCCESS -> approved(command, charged, performanceMonth, finRequestNo, result.bankTransactionNo());
+            case SUCCESS -> {
+                // 돈이 나갔다. 계좌 목록·잔고예보가 쓰는 연결 계좌 잔액 캐시(10분)를 지운다(S15P31E103-329).
+                // POS 추천이 결제 직전에 읽어 둔 출금 전 잔액이 결제 뒤에도 보이지 않게 한다
+                balances.evict(access.get().linkedAccountId());
+                yield approved(command, charged, performanceMonth, finRequestNo, result.bankTransactionNo());
+            }
             case REJECTED -> declined(paymentId, result);
             case UNKNOWN -> {
                 // 돈이 나갔을 수 있다. 결제는 PROCESSING에 두고 거래내역의 태그로 확정한다(WithdrawalRecovery)
