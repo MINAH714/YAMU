@@ -31,6 +31,7 @@ import com.yamu.be.payment.bank.TransferResult.Status;
 import com.yamu.be.payment.bank.TransferTag;
 import com.yamu.be.payment.billing.BillFixtures;
 import com.yamu.be.payment.billing.refund.RefundDepositor.Outcome;
+import com.yamu.be.support.AccountBalanceCache;
 import com.yamu.be.support.Concurrently;
 import com.yamu.be.support.MutableClock;
 import com.yamu.be.support.MySqlTestSupport;
@@ -159,6 +160,7 @@ class RefundDepositIntegrationTest extends MySqlTestSupport {
     @Test
     void 기한이_정해진_대기_환급을_YAMU_R로_저장된_계좌에_입금하고_완료와_회차_REFUNDED로_바꾼다() {
         Refund refund = refundAfterWithdrawal(15_000);
+        cacheBalance();
 
         JobRunReport report = run();
 
@@ -185,6 +187,8 @@ class RefundDepositIntegrationTest extends MySqlTestSupport {
         verify(transfer).findAllByTag(anyString(), anyString(), eq(TransferTag.refund(refund.id())), from.capture(),
                 any(LocalDate.class));
         assertThat(from.getValue()).isEqualTo(LocalDate.now(KST).minusDays(1));
+        // 돈이 들어왔으니 잔고예보·계좌 목록이 다음 조회에서 금융망의 입금 뒤 잔액을 읽도록 캐시가 지워진다(S15P31E103-329)
+        assertThat(balanceCached()).isFalse();
     }
 
     @Test
@@ -229,6 +233,7 @@ class RefundDepositIntegrationTest extends MySqlTestSupport {
     void 이미_들어간_YAMU_R_입금이_있으면_다시_보내지_않고_완료로_바꾼다() {
         Refund refund = refundAfterWithdrawal(15_000);
         land(TransferTag.refund(refund.id()), 15_000);
+        cacheBalance();
 
         assertThat(depositor.deposit(refund.id()).outcome()).isEqualTo(Outcome.COMPLETED);
 
@@ -236,6 +241,7 @@ class RefundDepositIntegrationTest extends MySqlTestSupport {
         verify(transfer, never()).deposit(anyString(), anyString(), anyLong(), any(), anyString());
         assertThat(refundRow(refund.id()).get("fin_transaction_no")).isEqualTo("B1");
         assertThat(itemStatus(refund.itemId())).isEqualTo("REFUNDED");
+        assertThat(balanceCached()).isFalse();  // 거래내역에서 입금을 확인했으니 지운다
     }
 
     @Test
@@ -328,6 +334,7 @@ class RefundDepositIntegrationTest extends MySqlTestSupport {
         Refund refund = refundAfterWithdrawal(15_000);
         doAnswer(inv -> rejected(RejectReason.ACCOUNT_NOT_FOUND)).when(transfer)
                 .deposit(anyString(), anyString(), anyLong(), any(), anyString());
+        cacheBalance();
 
         JobRunReport report = run();
         assertThat(report.results()).singleElement().satisfies(item -> {
@@ -338,6 +345,7 @@ class RefundDepositIntegrationTest extends MySqlTestSupport {
         assertThat(itemStatus(refund.itemId())).isEqualTo("REFUND_PENDING");
         assertThat(events.stream(RefundFailedEvent.class)).containsExactly(
                 new RefundFailedEvent(refund.id(), user, refund.paymentId(), 15_000, RejectReason.ACCOUNT_NOT_FOUND));
+        assertThat(balanceCached()).isTrue();  // 잔액이 바뀌지 않았으니 캐시는 그대로
 
         clock.advance(properties.recoveryGrace().plusSeconds(1));
         assertThat(run().results()).isEmpty();
@@ -738,5 +746,16 @@ class RefundDepositIntegrationTest extends MySqlTestSupport {
         jdbc.update("UPDATE linked_account SET account_no_enc = ? WHERE linked_account_id = ?",
                 cipher.encrypt(ACCOUNT_NO, CipherField.LINKED_ACCOUNT_NO), id);
         return id;
+    }
+
+    // ───────── 잔액 캐시(S15P31E103-329) ─────────
+
+    /** 계좌 목록·잔고예보가 쓰는 연결 계좌 잔액 캐시(AccountBalanceService, 값은 "잔액|조회 시각")를 채워 둔다. 돈이 오간 뒤 지워져야 한다 */
+    private void cacheBalance() {
+        AccountBalanceCache.put(redis, account, 1_000_000, clock.instant());
+    }
+
+    private boolean balanceCached() {
+        return AccountBalanceCache.has(redis, account);
     }
 }

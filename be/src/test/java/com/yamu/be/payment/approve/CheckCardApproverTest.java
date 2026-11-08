@@ -13,6 +13,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.yamu.be.account.AccountBalanceService;
 import com.yamu.be.card.domain.CardType;
 import com.yamu.be.global.exception.BusinessException;
 import com.yamu.be.global.exception.ErrorCode;
@@ -67,6 +68,7 @@ class CheckCardApproverTest {
     @Mock SsafyTransferApi transfer;
     @Mock PaymentTransactionRepository payments;
     @Mock ApprovalAttemptStore attempts;
+    @Mock AccountBalanceService balances;
     @Mock TransactionTemplate transaction;
 
     CheckCardApprover approver;
@@ -74,7 +76,7 @@ class CheckCardApproverTest {
 
     @BeforeEach
     void setUp() {
-        approver = new CheckCardApprover(accounts, transfer, payments, attempts, transaction);
+        approver = new CheckCardApprover(accounts, transfer, payments, attempts, balances, transaction);
         payment = processing();
         when(payments.findById(PAYMENT_ID)).thenAnswer(inv -> Optional.of(payment));
         when(payments.saveAndFlush(any())).thenAnswer(inv -> inv.getArgument(0));
@@ -101,6 +103,8 @@ class CheckCardApproverTest {
         assertThat(approved.recognizedPerformanceAmount()).isNull();
         verify(transfer).withdraw("user-key", "0012345678901234", 15_000, TransferTag.payment(PAYMENT_ID), TX_NO);
         verify(attempts).attachFinRequestNo(PAYMENT_ID, 1, TX_NO);
+        // 돈이 나갔으니 잔고예보·계좌 목록이 쓰는 연결 계좌(9) 잔액 캐시를 지운다
+        verify(balances).evict(9L);
     }
 
     @Test
@@ -186,6 +190,8 @@ class CheckCardApproverTest {
         payment = processing();
         assertThat(((ApprovalOutcome.Declined) approver.approve(command(null))).code())
                 .isEqualTo(FailureCode.ISSUER_DECLINED);
+        // 잔액이 바뀌지 않았으니 캐시는 그대로 둔다
+        verify(balances, never()).evict(any());
     }
 
     @Test
@@ -198,6 +204,8 @@ class CheckCardApproverTest {
                 .extracting(e -> ((BusinessException) e).getErrorCode()).isEqualTo(ErrorCode.FIN_API_UNAVAILABLE);
         assertThat(payment.getFinRequestNo()).isEqualTo(TX_NO);
         assertThat(payment.getStatus()).isEqualTo(PaymentStatus.PROCESSING);
+        // 돈이 나갔는지 모르니 캐시는 복구(WithdrawalRecovery)가 확정할 때 지운다
+        verify(balances, never()).evict(any());
     }
 
     @Test
@@ -211,6 +219,7 @@ class CheckCardApproverTest {
         assertThatThrownBy(() -> approver.approve(command(null))).isInstanceOf(ApprovalNotSentException.class);
         verify(transfer, never()).withdraw(anyString(), anyString(), anyLong(), any(), eq("issue"));
         assertThat(payment.getFinRequestNo()).isNull();
+        verify(balances, never()).evict(any());
     }
 
     @Test

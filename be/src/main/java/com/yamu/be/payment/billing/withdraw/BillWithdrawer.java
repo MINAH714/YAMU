@@ -1,5 +1,6 @@
 package com.yamu.be.payment.billing.withdraw;
 
+import com.yamu.be.account.AccountBalanceService;
 import com.yamu.be.global.calendar.BusinessDayCalendar;
 import com.yamu.be.global.exception.BusinessException;
 import com.yamu.be.payment.approve.PaymentApprovalProperties;
@@ -44,7 +45,7 @@ import org.springframework.transaction.support.TransactionTemplate;
  *    1건이고 금액이 확정액과 같으면 PAID로 바꾸고 보내지 않는다(출금 뒤 저장 실패, 결과 불명 뒤 늦은 처리를 같이 막는다)
  * ④ 없으면: 첫 출금이면 새 요청 번호를 청구서에 먼저 커밋하고 출금. 요청한 출금이 유예 뒤에도 없으면 새 번호로 한 번만 다시 보내고
  *    다시 보낸 시각을 남긴다. 다시 보낸 출금도 없으면 더 보내지 않고 CONFIRMED로 둔 채 운영 로그
- * ⑤ 성공 → PAID·회차 PAID·출금 전 취소 환급 확정(기한 = 출금일 + 3영업일)·이벤트
+ * ⑤ 성공 → PAID·회차 PAID·출금 전 취소 환급 확정(기한 = 출금일 + 3영업일)·이벤트·출금 계좌 잔액 캐시 삭제
  *    은행 거절(모든 REJECTED) → UNPAID·출금 전 취소 환급 무효·이벤트. 자동으로 다시 출금하지 않는다.
  *    다시 보낸 출금이 거절되면 앞 요청이 늦게 나갔는지 태그를 한 번 더 찾는다. 있으면 PAID, 확인하지 못하면 CONFIRMED·운영 확인
  *    결과 불명 → 그대로(다음 실행이 ①③으로 확정) / 요청 안 감 → 남긴 번호를 지운다
@@ -71,6 +72,7 @@ public class BillWithdrawer {
     private final SsafyTransferApi transfer;
     private final CanceledBillItemSettler settler;
     private final BusinessDayCalendar calendar;
+    private final AccountBalanceService balances;
     private final PaymentApprovalProperties approval;
     private final ApplicationEventPublisher events;
     private final TransactionTemplate transaction;
@@ -80,14 +82,15 @@ public class BillWithdrawer {
 
     public BillWithdrawer(CardBillRepository bills, BillItemRepository items, BillAccountReader accounts,
             SsafyTransferApi transfer, CanceledBillItemSettler settler, BusinessDayCalendar calendar,
-            PaymentApprovalProperties approval, ApplicationEventPublisher events, TransactionTemplate transaction,
-            Clock clock) {
+            AccountBalanceService balances, PaymentApprovalProperties approval, ApplicationEventPublisher events,
+            TransactionTemplate transaction, Clock clock) {
         this.bills = bills;
         this.items = items;
         this.accounts = accounts;
         this.transfer = transfer;
         this.settler = settler;
         this.calendar = calendar;
+        this.balances = balances;
         this.approval = approval;
         this.events = events;
         this.transaction = transaction;
@@ -176,7 +179,7 @@ public class BillWithdrawer {
         return switch (result.status()) {
             case SUCCESS -> {
                 log.info("청구 출금 성공 cardBillId={} tag={} amount={}", cardBillId, tag, bill.amount());
-                yield paid(cardBillId, result.bankTransactionNo(), result.transactionDate());
+                yield paid(bill, result.bankTransactionNo(), result.transactionDate());
             }
             case REJECTED -> {
                 if (retry) {
@@ -221,7 +224,7 @@ public class BillWithdrawer {
             return needsReview(bill, "출금액 " + withdrawn.amount() + "원이 확정액 " + bill.amount() + "원과 다름");
         }
         log.info("청구 출금을 거래내역에서 찾음, 다시 보내지 않음 cardBillId={} tag={}", bill.cardBillId(), tag);
-        return paid(bill.cardBillId(), withdrawn.bankTransactionNo(), withdrawn.date());
+        return paid(bill, withdrawn.bankTransactionNo(), withdrawn.date());
     }
 
     /**
@@ -268,7 +271,10 @@ public class BillWithdrawer {
      * 출금을 확인한 청구서를 PAID로 바꾸고, 확정 회차를 출금 완료로, 출금 전에 취소한 회차의 환급을 확정한다. 한 트랜잭션이라 환급
      * 확정이 실패하면 PAID도 롤백되고 다음 실행이 거래내역으로 다시 확인한다(다시 보내지 않는다).
      */
-    private Result paid(Long cardBillId, String bankTransactionNo, LocalDate withdrawnOn) {
+    private Result paid(Snapshot bill, String bankTransactionNo, LocalDate withdrawnOn) {
+        Long cardBillId = bill.cardBillId();
+        // 돈이 나갔다. 계좌 목록·잔고예보가 쓰는 출금 계좌 잔액 캐시(10분)를 지운다(S15P31E103-329). 아래 저장이 실패해도 잔액은 이미 바뀌었다
+        balances.evict(bill.linkedAccountId());
         return transaction.execute(status -> {
             CardBill locked = lock(cardBillId);
             if (locked.getStatus() != BillStatus.CONFIRMED) {

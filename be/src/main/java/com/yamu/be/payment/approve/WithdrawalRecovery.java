@@ -1,5 +1,6 @@
 package com.yamu.be.payment.approve;
 
+import com.yamu.be.account.AccountBalanceService;
 import com.yamu.be.card.domain.CardType;
 import com.yamu.be.global.exception.BusinessException;
 import com.yamu.be.global.exception.ErrorCode;
@@ -41,7 +42,7 @@ import org.springframework.transaction.support.TransactionTemplate;
  *
  * <ul>
  *   <li>요청 번호가 없음(선점 뒤 채번 전에 중단): 유예가 지났으면 REQUESTED로 되돌린다. 금융망에 간 적이 없다.</li>
- *   <li>태그 FOUND(금액 일치): 돈이 나갔다 → APPROVED(원장 반영·바코드 USED).</li>
+ *   <li>태그 FOUND(금액 일치): 돈이 나갔다 → APPROVED(원장 반영·바코드 USED·연결 계좌 잔액 캐시 삭제).</li>
  *   <li>태그 NOT_FOUND, 요청 번호 시각 + 유예 경과: 돈이 안 나갔다고 보고 DECLINED(WITHDRAWAL_NOT_CONFIRMED). 여기서는 다시 출금하지 않는다.</li>
  *   <li>금액 불일치·태그 둘 이상·조회 실패·신용카드 행: 자동 판정하지 않고 PROCESSING 유지, 로그로 운영 확인.</li>
  * </ul>
@@ -73,13 +74,14 @@ public class WithdrawalRecovery {
     private final BarcodeStore barcodes;
     private final PaymentExpiry expiry;
     private final RedisLocks locks;
+    private final AccountBalanceService balances;
     private final TransactionTemplate transaction;
     private final PaymentApprovalProperties properties;
     private final Clock clock;
 
     public WithdrawalRecovery(PaymentTransactionRepository payments, PaymentAccountReader accounts,
             SsafyTransferApi transfer, ApprovalAttemptStore attempts, ApprovalLedger ledger, BarcodeStore barcodes,
-            PaymentExpiry expiry, RedisLocks locks, TransactionTemplate transaction,
+            PaymentExpiry expiry, RedisLocks locks, AccountBalanceService balances, TransactionTemplate transaction,
             PaymentApprovalProperties properties, Clock clock) {
         this.payments = payments;
         this.accounts = accounts;
@@ -89,6 +91,7 @@ public class WithdrawalRecovery {
         this.barcodes = barcodes;
         this.expiry = expiry;
         this.locks = locks;
+        this.balances = balances;
         this.transaction = transaction;
         this.properties = properties;
         this.clock = clock;
@@ -169,12 +172,13 @@ public class WithdrawalRecovery {
         Long paymentId = payment.getId();
         String finRequestNo = payment.getFinRequestNo();
         long amount = requestedWithdrawal(payment);
-        Optional<TagLookup> lookup = lookup(payment);
+        Optional<Lookup> lookup = lookup(payment);
         if (lookup.isEmpty()) {
             return PaymentStatus.PROCESSING;
         }
-        return switch (lookup.get().result()) {
-            case FOUND -> confirmApproved(payment, finRequestNo, amount, lookup.get().found());
+        TagLookup tags = lookup.get().tags();
+        return switch (tags.result()) {
+            case FOUND -> confirmApproved(payment, finRequestNo, amount, tags.found(), lookup.get().linkedAccountId());
             case NOT_FOUND -> {
                 if (!pastGrace(requestTime(finRequestNo))) {
                     yield PaymentStatus.PROCESSING;
@@ -182,7 +186,7 @@ public class WithdrawalRecovery {
                 yield declineUnconfirmed(paymentId, finRequestNo);
             }
             default -> {
-                logUndecided(paymentId, amount, lookup.get());
+                logUndecided(paymentId, amount, tags);
                 yield PaymentStatus.PROCESSING;
             }
         };
@@ -193,16 +197,17 @@ public class WithdrawalRecovery {
         Long paymentId = payment.getId();
         String finRequestNo = payment.getFinRequestNo();
         long amount = requestedWithdrawal(payment);
-        Optional<TagLookup> lookup = lookup(payment);
+        Optional<Lookup> lookup = lookup(payment);
         if (lookup.isEmpty()) {
             return LateCheck.UNDECIDED;
         }
-        return switch (lookup.get().result()) {
-            case FOUND -> confirmLate(payment, finRequestNo, amount, lookup.get().found()) == PaymentStatus.APPROVED
-                    ? LateCheck.CONFIRMED : LateCheck.UNDECIDED;
+        TagLookup tags = lookup.get().tags();
+        return switch (tags.result()) {
+            case FOUND -> confirmLate(payment, finRequestNo, amount, tags.found(), lookup.get().linkedAccountId())
+                    == PaymentStatus.APPROVED ? LateCheck.CONFIRMED : LateCheck.UNDECIDED;
             case NOT_FOUND -> LateCheck.NOT_FOUND;
             default -> {
-                logUndecided(paymentId, amount, lookup.get());
+                logUndecided(paymentId, amount, tags);
                 yield LateCheck.UNDECIDED;
             }
         };
@@ -212,7 +217,7 @@ public class WithdrawalRecovery {
      * 요청 번호의 거래내역 조회. 계좌·키를 복원하지 못했거나, 신용카드 행이거나, 금융망 조회가 실패하면 비어 있다(판정 보류).
      * 계좌 복호화의 예외는 금융망 실패가 아니므로 그대로 던진다.
      */
-    private Optional<TagLookup> lookup(PaymentTransaction payment) {
+    private Optional<Lookup> lookup(PaymentTransaction payment) {
         Long paymentId = payment.getId();
         String finRequestNo = payment.getFinRequestNo();
         Optional<BankAccess> access = accounts.forCard(payment.getUserId(), payment.getUserCardId());
@@ -225,14 +230,18 @@ public class WithdrawalRecovery {
             return Optional.empty();
         }
         try {
-            return Optional.of(transfer.findByTag(access.get().userKey(), access.get().accountNo(),
-                    TransferTag.payment(paymentId), requestedWithdrawal(payment), finRequestNo));
+            return Optional.of(new Lookup(transfer.findByTag(access.get().userKey(), access.get().accountNo(),
+                    TransferTag.payment(paymentId), requestedWithdrawal(payment), finRequestNo),
+                    access.get().linkedAccountId()));
         } catch (BusinessException e) {
             // FinApiException(금융망 오류)과 응답을 읽지 못한 BusinessException. 그 밖의 예외(프로그래밍 오류)는 숨기지 않는다
             log.warn("출금 결과 확인용 거래내역 조회 실패, 다음에 다시 확인 paymentId={} code={}", paymentId, e.getErrorCode(), e);
             return Optional.empty();
         }
     }
+
+    /** 요청 번호의 거래내역 조회 결과와, 승인으로 확정할 때 잔액 캐시를 지울 연결 계좌. */
+    private record Lookup(TagLookup tags, Long linkedAccountId) { }
 
     /**
      * 이 시도가 금융망에 보낸 출금액. 요청 번호와 함께 저장한 값이고, 그 칸이 생기기 전에 출금한 행(null)은 결제 요청액이다.
@@ -258,7 +267,7 @@ public class WithdrawalRecovery {
 
     /** 거래내역에 출금이 있다: 돈이 나갔으므로 승인으로 확정한다. */
     private PaymentStatus confirmApproved(PaymentTransaction row, String finRequestNo, long amount,
-            BankTransaction found) {
+            BankTransaction found, Long linkedAccountId) {
         Long paymentId = row.getId();
         ApprovalOutcome.Approved approved = approvedOutcome(row, finRequestNo, amount, found);
         LocalDateTime now = nowUtc();
@@ -270,14 +279,15 @@ public class WithdrawalRecovery {
             return PaymentStatus.APPROVED;
         });
         if (after == PaymentStatus.APPROVED) {
-            afterApproved(paymentId, finRequestNo, amount, found);
+            afterApproved(paymentId, finRequestNo, amount, found, linkedAccountId);
             log.info("출금 결과 복구: 거래내역에서 찾아 승인 확정 paymentId={} finRequestNo={}", paymentId, finRequestNo);
         }
         return after;
     }
 
     /** 출금 미확인으로 거절·만료한 뒤 같은 요청 번호의 출금을 찾았다: 승인으로 바로잡는다. */
-    private PaymentStatus confirmLate(PaymentTransaction row, String finRequestNo, long amount, BankTransaction found) {
+    private PaymentStatus confirmLate(PaymentTransaction row, String finRequestNo, long amount, BankTransaction found,
+            Long linkedAccountId) {
         Long paymentId = row.getId();
         ApprovalOutcome.Approved approved = approvedOutcome(row, finRequestNo, amount, found);
         LocalDateTime now = nowUtc();
@@ -293,14 +303,17 @@ public class WithdrawalRecovery {
             return PaymentStatus.APPROVED;
         });
         if (after == PaymentStatus.APPROVED) {
-            afterApproved(paymentId, finRequestNo, amount, found);
+            afterApproved(paymentId, finRequestNo, amount, found, linkedAccountId);
             log.warn("늦게 처리된 출금을 거래내역에서 찾아 승인으로 바로잡음 paymentId={} finRequestNo={} bankTransactionNo={}",
                     paymentId, finRequestNo, found.bankTransactionNo());
         }
         return after;
     }
 
-    private void afterApproved(Long paymentId, String finRequestNo, long amount, BankTransaction found) {
+    private void afterApproved(Long paymentId, String finRequestNo, long amount, BankTransaction found,
+            Long linkedAccountId) {
+        // 돈이 나간 것을 확인했다. 출금 때(결과 불명) 지우지 못한 연결 계좌 잔액 캐시(10분)를 지운다(S15P31E103-329)
+        balances.evict(linkedAccountId);
         try {
             barcodes.markUsed(paymentId);
         } catch (RuntimeException e) {

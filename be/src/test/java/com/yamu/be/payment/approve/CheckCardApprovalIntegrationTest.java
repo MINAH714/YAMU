@@ -34,6 +34,7 @@ import com.yamu.be.payment.barcode.BarcodeStore;
 import com.yamu.be.payment.domain.PaymentStatus;
 import com.yamu.be.payment.domain.PaymentTransaction;
 import com.yamu.be.payment.domain.PaymentTransactionRepository;
+import com.yamu.be.support.AccountBalanceCache;
 import com.yamu.be.support.AuthUsers;
 import com.yamu.be.support.MutableClock;
 import com.yamu.be.support.MySqlTestSupport;
@@ -190,6 +191,7 @@ class CheckCardApprovalIntegrationTest extends MySqlTestSupport {
             seenAtWithdraw.add(row.get("status") + "/" + row.get("fin_request_no") + "/" + inv.getArgument(4));
             return success("1101");
         }).when(transfer).withdraw(anyString(), anyString(), anyLong(), any(), anyString());
+        cacheBalance();  // POS 추천이 결제 직전에 채운 출금 전 잔액
 
         approve(requested.paymentId(), UUID.randomUUID().toString(), body(checkCard))
                 .andExpect(status().isOk())
@@ -212,6 +214,8 @@ class CheckCardApprovalIntegrationTest extends MySqlTestSupport {
         assertThat(history).hasSize(1);
         assertThat(history.get(0).outcome()).isEqualTo("APPROVED");
         assertThat(history.get(0).finRequestNo()).isEqualTo(payment.getFinRequestNo());
+        // 돈이 나갔으니 잔고예보·계좌 목록이 다음 조회에서 금융망의 출금 뒤 잔액을 읽도록 캐시가 지워진다(S15P31E103-329)
+        assertThat(balanceCached()).isFalse();
     }
 
     @Test
@@ -237,6 +241,7 @@ class CheckCardApprovalIntegrationTest extends MySqlTestSupport {
         Requested requested = requested(15_000);
         doReturn(new TransferResult(Status.REJECTED, null, null, RejectReason.INSUFFICIENT_BALANCE, "A1014"))
                 .when(transfer).withdraw(anyString(), anyString(), anyLong(), any(), anyString());
+        cacheBalance();
 
         approve(requested.paymentId(), UUID.randomUUID().toString(), body(checkCard))
                 .andExpect(status().isOk())
@@ -250,6 +255,7 @@ class CheckCardApprovalIntegrationTest extends MySqlTestSupport {
         assertThat(declined.getFailureCode()).isEqualTo("INSUFFICIENT_BALANCE");
         assertThat(declined.getFinRequestNo()).isNotNull();
         assertThat(barcodes.find(requested.token()).orElseThrow().status()).isEqualTo(BarcodeStatus.SCANNED);
+        assertThat(balanceCached()).isTrue();  // 잔액이 바뀌지 않았으니 캐시는 그대로
 
         approve(requested.paymentId(), UUID.randomUUID().toString(), body(creditCard))
                 .andExpect(status().isOk())
@@ -426,11 +432,13 @@ class CheckCardApprovalIntegrationTest extends MySqlTestSupport {
         jdbc.update("UPDATE payment_transaction SET updated_at = DATE_SUB(updated_at, INTERVAL 2 MINUTE) "
                 + "WHERE payment_transaction_id = ?", requested.paymentId());
         clock.advance(properties.recoveryGrace().plusSeconds(1));
+        cacheBalance();  // 결과 불명이라 출금 때 지우지 못한 캐시
         job.run();
 
         PaymentTransaction approved = payments.findById(requested.paymentId()).orElseThrow();
         assertThat(approved.getStatus()).isEqualTo(PaymentStatus.APPROVED);
         assertThat(approved.getFinTransactionNo()).isEqualTo("1104");
+        assertThat(balanceCached()).isFalse();  // 돈이 나간 것을 확인했으니 지운다
         assertThat(barcodes.find(requested.token()).orElseThrow().status()).isEqualTo(BarcodeStatus.USED);
         assertThat(attempts.list(requested.paymentId()).get(0).outcome()).isEqualTo("APPROVED");
     }
@@ -682,4 +690,15 @@ class CheckCardApprovalIntegrationTest extends MySqlTestSupport {
     }
 
     private record Requested(long paymentId, String token) {}
+
+    // ───────── 잔액 캐시(S15P31E103-329) ─────────
+
+    /** 계좌 목록·잔고예보가 쓰는 연결 계좌 잔액 캐시(AccountBalanceService, 값은 "잔액|조회 시각")를 채워 둔다. 돈이 오간 뒤 지워져야 한다 */
+    private void cacheBalance() {
+        AccountBalanceCache.put(redis, account, 1_000_000, clock.instant());
+    }
+
+    private boolean balanceCached() {
+        return AccountBalanceCache.has(redis, account);
+    }
 }
