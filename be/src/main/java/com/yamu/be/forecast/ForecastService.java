@@ -38,6 +38,7 @@ import org.springframework.stereotype.Service;
  * BE 2 원천(진행 중·확정·미납 청구, {@code OutstandingCardBillReader})이고, 생활비({@link LivingCostReader})는 체크카드 LIVING 결제({@link PaymentLivingCostReader})다. 안전 잔액·기간 기본값은
  * 잔고예보 설정({@link ForecastSettingsStore})에서, 다음 월급일은 설정의 월급 항목({@link ForecastSettingsService})에서 읽는다.
  * 이번 이용기간 마감까지 쓸 신용카드 금액은 카드별 신용 LIVING 일평균으로 추정해 보수적 선에만 뺀다({@link CreditSpendingEstimator}).
+ * 잔고예보와 생활비 상세는 응답 직전에 계좌별 예상 생활비를 이력으로 남긴다({@link LivingCostPredictionLog}). 가상 구매 재료({@link #prepare})는 남기지 않는다.
  */
 @Service
 public class ForecastService {
@@ -67,13 +68,14 @@ public class ForecastService {
     private final CreditSpendingReader creditSpending;
     private final CardNameReader cardNames;
     private final CardBillRepository cardBills;
+    private final LivingCostPredictionLog predictionLog;
     private final Clock clock;
 
     ForecastService(CashflowService cashflows, AccountBalanceService balances, CardBillReader bills,
             CardQueryService cards, CreditWithdrawalSchedule creditSchedule, LivingCostReader livingCosts,
             AccountQueryService accounts, ForecastSettingsStore settings, ForecastSettingsService settingsService,
             LivingCostProjector projector, CreditSpendingReader creditSpending, CardNameReader cardNames, CardBillRepository cardBills,
-            Clock clock) {
+            LivingCostPredictionLog predictionLog, Clock clock) {
         this.cashflows = cashflows;
         this.balances = balances;
         this.bills = bills;
@@ -87,6 +89,7 @@ public class ForecastService {
         this.creditSpending = creditSpending;
         this.cardNames = cardNames;
         this.cardBills = cardBills;
+        this.predictionLog = predictionLog;
         this.clock = clock;
     }
 
@@ -139,6 +142,8 @@ public class ForecastService {
                 history.dailyAverage(), history.monthlyAverage(), projected.method(), projected.dataOrigin(),
                 projected.confidence());
         long currentTotal = startBalances.values().stream().reduce(0L, Math::addExact);
+        predictionLog.record(authenticatedUserId, horizon.from(), horizon.days(),
+                living.projection().byAccount().values());
         return new BalanceForecast(selected, selected.size(), currentTotal, horizon, alertThreshold, summary,
                 series(projection.total()), aggregate.windows(), livingCost, accountForecasts,
                 List.copyOf(prepared.excluded()), true, now());
@@ -233,6 +238,7 @@ public class ForecastService {
         LivingCostForecast.PaceCheck pace = total.pace() == null ? null
                 : new LivingCostForecast.PaceCheck(total.pace().thisMonthDaily(), total.pace().averageDaily(),
                         total.pace().overRatio(), total.pace().flagged(), now());
+        predictionLog.record(authenticatedUserId, horizon.from(), horizon.days(), projection.byAccount().values());
         return new LivingCostForecast(selected, projected.projectedAmount(), total.dailyAverage(),
                 total.monthlyAverage(), projected.method(), projected.dataOrigin(), projected.confidence(),
                 new LivingCostForecast.Period(horizon.from(), horizon.to(), horizon.days(), horizon.type()),

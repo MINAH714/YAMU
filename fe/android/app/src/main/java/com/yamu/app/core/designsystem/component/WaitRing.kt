@@ -7,6 +7,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.Stable
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
@@ -87,6 +88,9 @@ internal object Countdown {
 
     fun expired(nowMs: Long, deadlineMs: Long): Boolean = nowMs >= deadlineMs
 
+    /** 화면에 보일 남은 초. 올림이라 0.4초 남으면 1초, 마감부터 0 */
+    fun remainingSec(nowMs: Long, deadlineMs: Long): Long = ((deadlineMs - nowMs).coerceAtLeast(0L) + 999) / 1000
+
     /**
      * 이번 틱에 같은 속도로 줄여 갈 목표 비율과 길이. 보통은 다음 틱 시각의 비율까지 한 틱 동안,
      * 마감까지 한 틱이 안 남았으면 마감 시각에 0이 되도록 남은 시간만큼. 길이 0이면 이미 마감.
@@ -100,11 +104,96 @@ internal object Countdown {
 }
 
 /**
- * 확인 마감까지 남은 시간 링(모션 명세 M-WAIT-COUNTDOWN). 250ms마다 남은 비율을 다시 재고 그 사이를 같은 속도로 줄인다.
- * 전체 시간은 [key](결제 요청)마다 처음 그린 순간 남아 있던 시간으로 한 번만 잡아서 회전해도 다시 잡지 않는다.
- * 임박하면 색만 300ms에 바꾸고, 마감이 지나면 회색 트랙만 남는다. 백그라운드에서 돌아오면 지난 시간을 따라 그리지 않고
- * 한 번에 맞춘다. 모션 줄이기에서는 틱마다 계단으로 바뀐다(정보라서 남김).
+ * 남은 시간 링과 옆 숫자가 같이 읽는 상태([rememberCountdown]으로 만든다). 둘이 같은 틱에서 읽으니 숫자가 '00:10'이 되는
+ * 순간과 임박 색이 바뀌는 순간이 같다. 틱마다 바뀌는 시각 대신 바뀔 때만 바뀌는 값들을 내놓아 1초에 네 번 다시 조합하지 않는다.
  */
+@Stable
+class CountdownState internal constructor(
+    private val deadlineMs: Long,
+    internal val totalMs: Long,
+    private val urgentMs: Long,
+    startMs: Long,
+) {
+    internal val progress = Animatable(Countdown.ratio(startMs, deadlineMs, totalMs))
+    internal var tickAt by mutableLongStateOf(startMs)
+
+    /** 남은 초(올림 — 서버 시각까지 남은 초 secondsUntil과 같은 셈) */
+    val remainingSec: Long by derivedStateOf { Countdown.remainingSec(tickAt, deadlineMs) }
+    val urgent: Boolean by derivedStateOf { Countdown.urgent(tickAt, deadlineMs, urgentMs) }
+    val expired: Boolean by derivedStateOf { Countdown.expired(tickAt, deadlineMs) }
+
+    internal fun ratioAt(nowMs: Long) = Countdown.ratio(nowMs, deadlineMs, totalMs)
+    internal fun stepAt(nowMs: Long) = Countdown.step(nowMs, deadlineMs, totalMs)
+}
+
+/**
+ * 확인 마감까지 남은 시간(모션 명세 M-WAIT-COUNTDOWN). 250ms마다 다시 재고 링은 그 사이를 같은 속도로 줄인다.
+ * 전체 시간은 [key](결제 요청)마다 처음 그린 순간 남아 있던 시간으로 한 번만 잡아서 회전해도 다시 잡지 않는다.
+ * 백그라운드에서 돌아오면 지난 시간을 따라 그리지 않고 한 번에 맞춘다. 모션 줄이기에서는 틱마다 계단으로 바뀐다(정보라서 남김).
+ */
+@Composable
+fun rememberCountdown(
+    deadlineMs: Long,
+    key: String,
+    urgentMs: Long = 10_000L,
+    now: () -> Long = System::currentTimeMillis,
+): CountdownState {
+    val reduce = YamuTheme.reduceMotion
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    val totalMs = rememberSaveable(key) { (deadlineMs - now()).coerceAtLeast(0L) }
+    val state = remember(key, deadlineMs, totalMs, urgentMs) { CountdownState(deadlineMs, totalMs, urgentMs, now()) }
+    LaunchedEffect(state, reduce) {
+        lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            state.progress.snapTo(state.ratioAt(now()))
+            while (true) {
+                val t = now()
+                state.tickAt = t
+                val step = state.stepAt(t)
+                if (reduce || step.durationMs == 0) {
+                    state.progress.snapTo(state.ratioAt(t))
+                } else {
+                    // 다음 틱 시각에 있어야 할 비율까지 같은 속도로. 그래서 호가 실제 남은 시간보다 한 틱 늦지 않음
+                    launch { state.progress.animateTo(step.target, tween(step.durationMs, easing = LinearEasing)) }
+                }
+                if (state.expired) break
+                delay(YamuMotion.COUNTDOWN_TICK_MS.toLong())
+            }
+        }
+    }
+    return state
+}
+
+/** 남은 시간 색: 평소 브랜드색, 임박하면 주황으로 300ms에 걸쳐(결과 값이 아닌 숫자라 글자는 바로, 색만 보간). 링과 숫자가 같이 쓴다 */
+@Composable
+fun animateCountdownColor(state: CountdownState): Color {
+    val c = YamuTheme.colors
+    val reduce = YamuTheme.reduceMotion
+    val color by animateColorAsState(
+        targetValue = if (state.urgent) c.warning else c.primary,
+        animationSpec = tween(if (reduce) YamuMotion.SHORT_MS else YamuMotion.VALUE_COLOR_MS, easing = YamuMotion.standard),
+        label = "countdownColor",
+    )
+    return color
+}
+
+/** 남은 시간 링. 임박하면 주황, 마감이 지나면 회색 트랙만 남는다 */
+@Composable
+fun CountdownRing(
+    state: CountdownState,
+    modifier: Modifier = Modifier,
+    stroke: Dp = WaitRingDefaults.miniStroke,
+) {
+    val c = YamuTheme.colors
+    WaitRing(
+        progress = { state.progress.value },
+        color = animateCountdownColor(state),
+        modifier = modifier,
+        trackColor = if (state.expired) c.text3 else c.surfaceHigh,
+        stroke = stroke,
+    )
+}
+
+/** 숫자 없이 링만 쓸 때 */
 @Composable
 fun CountdownRing(
     deadlineMs: Long,
@@ -112,45 +201,4 @@ fun CountdownRing(
     modifier: Modifier = Modifier,
     urgentMs: Long = 10_000L,
     stroke: Dp = WaitRingDefaults.miniStroke,
-    now: () -> Long = System::currentTimeMillis,
-) {
-    val c = YamuTheme.colors
-    val reduce = YamuTheme.reduceMotion
-    val lifecycle = LocalLifecycleOwner.current.lifecycle
-    val totalMs = rememberSaveable(key) { (deadlineMs - now()).coerceAtLeast(0L) }
-    val progress = remember(key) { Animatable(Countdown.ratio(now(), deadlineMs, totalMs)) }
-    var tickAt by remember(key) { mutableLongStateOf(now()) }
-    LaunchedEffect(key, deadlineMs, totalMs, reduce) {
-        lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
-            progress.snapTo(Countdown.ratio(now(), deadlineMs, totalMs))
-            while (true) {
-                val t = now()
-                tickAt = t
-                val step = Countdown.step(t, deadlineMs, totalMs)
-                if (reduce || step.durationMs == 0) {
-                    progress.snapTo(Countdown.ratio(t, deadlineMs, totalMs))
-                } else {
-                    // 다음 틱 시각에 있어야 할 비율까지 같은 속도로. 그래서 호가 실제 남은 시간보다 한 틱 늦지 않음
-                    launch { progress.animateTo(step.target, tween(step.durationMs, easing = LinearEasing)) }
-                }
-                if (Countdown.expired(t, deadlineMs)) break
-                delay(YamuMotion.COUNTDOWN_TICK_MS.toLong())
-            }
-        }
-    }
-    // 틱마다 바뀌는 시각 대신 바뀔 때만 바뀌는 두 값을 읽어, 1초에 네 번 다시 조합하지 않는다
-    val urgent by remember(key, deadlineMs, urgentMs) { derivedStateOf { Countdown.urgent(tickAt, deadlineMs, urgentMs) } }
-    val expired by remember(key, deadlineMs) { derivedStateOf { Countdown.expired(tickAt, deadlineMs) } }
-    val arcColor by animateColorAsState(
-        targetValue = if (urgent) c.warning else c.primary,
-        animationSpec = tween(if (reduce) YamuMotion.SHORT_MS else YamuMotion.VALUE_COLOR_MS, easing = YamuMotion.standard),
-        label = "countdownColor",
-    )
-    WaitRing(
-        progress = { progress.value },
-        color = arcColor,
-        modifier = modifier,
-        trackColor = if (expired) c.text3 else c.surfaceHigh,
-        stroke = stroke,
-    )
-}
+) = CountdownRing(rememberCountdown(deadlineMs, key, urgentMs), modifier, stroke)

@@ -39,6 +39,7 @@ import java.time.YearMonth;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -96,6 +97,11 @@ class ForecastServiceTest {
     private ForecastService service;
     /** AI 서버. 기본은 주소 없음(TSB로 계산). */
     private AiLivingCostClient projectorAi = AiLivingCostClient.disabled();
+    /** 생활비 예측 이력 저장 호출. 실제 저장(그날 첫 값·자료 부족 제외·실패 무시)은 LivingCostPredictionLogTest가 확인한다. */
+    private final List<Recorded> recorded = new ArrayList<>();
+
+    private record Recorded(long userId, LocalDate predictedOn, int horizonDays,
+            List<LivingCostProjector.AccountProjection> accounts) {}
 
     @BeforeEach
     void setUp() {
@@ -134,9 +140,16 @@ class ForecastServiceTest {
             }
         };
         CreditWithdrawalSchedule schedule = (card, spendDate) -> creditSchedule.withdrawalDate(card, spendDate);
+        LivingCostPredictionLog predictionLog = new LivingCostPredictionLog(null, clock) {
+            @Override
+            void record(long userId, LocalDate predictedOn, int horizonDays,
+                    Collection<LivingCostProjector.AccountProjection> projections) {
+                recorded.add(new Recorded(userId, predictedOn, horizonDays, List.copyOf(projections)));
+            }
+        };
         return new ForecastService(cashflows, balanceService, billReader, cardService, schedule, livingReader,
                 accounts, settingsStore, settingsService, new LivingCostProjector(projectorAi), creditReader, names,
-                cardBillRepository, clock);
+                cardBillRepository, predictionLog, clock);
     }
 
     @Test
@@ -311,6 +324,56 @@ class ForecastServiceTest {
                         LivingCostForecast.AccountLivingCost::projectedAmount,
                         LivingCostForecast.AccountLivingCost::method)
                 .containsExactly(tuple(A, 5_000L, 150_000L, "TSB"), tuple(B, 2_000L, 60_000L, "TSB"));
+    }
+
+    @Test
+    void 잔고예보는_계좌별_예상_생활비를_예측_이력으로_넘긴다() {
+        givenEntries(TODAY, TODAY.plusDays(14));
+        // A는 기록이 있고 B는 없다(INSUFFICIENT). 자료 부족 계좌를 거르는 일은 저장 쪽이 한다.
+        spending = everyDay(A, JUL.atDay(1), TODAY, 5_000);
+
+        service.forecast(USER, List.of(A, B), Until.DAYS, 14, false, false);
+
+        assertThat(recorded).singleElement().satisfies(call -> {
+            assertThat(call.userId()).isEqualTo(USER);
+            assertThat(call.predictedOn()).isEqualTo(TODAY);
+            assertThat(call.horizonDays()).isEqualTo(14);
+            assertThat(call.accounts())
+                    .extracting(LivingCostProjector.AccountProjection::accountId,
+                            LivingCostProjector.AccountProjection::projectedAmount,
+                            LivingCostProjector.AccountProjection::dailyAmount,
+                            LivingCostProjector.AccountProjection::method)
+                    .containsExactly(tuple(A, 70_000L, 5_000L, "TSB"), tuple(B, null, null, null));
+        });
+    }
+
+    @Test
+    void 생활비_상세도_같은_기간의_예상_생활비를_예측_이력으로_넘긴다() {
+        userSettings = new ForecastSettings(Until.NEXT_INCOME, 30, THRESHOLD, 41L, null, true, true, null);
+        when(settingsService.nextIncomeDate(USER, 41L, TODAY)).thenReturn(Optional.of(NOV_5));
+        spending = everyDay(A, JUL.atDay(1), TODAY, 5_000);
+
+        service.livingCost(USER, List.of(A), null, null, false);
+
+        // 11/5 월급이면 내일부터 9일
+        assertThat(recorded).singleElement().satisfies(call -> {
+            assertThat(call.predictedOn()).isEqualTo(TODAY);
+            assertThat(call.horizonDays()).isEqualTo(9);
+            assertThat(call.accounts()).extracting(LivingCostProjector.AccountProjection::projectedAmount)
+                    .containsExactly(45_000L);
+        });
+    }
+
+    @Test
+    void 가상_구매_재료와_자료_없는_생활비_상세는_예측_이력을_남기지_않는다() {
+        givenEntries(TODAY, TODAY.plusDays(7));
+        spending = everyDay(A, JUL.atDay(1), TODAY, 5_000);
+
+        service.prepare(USER, List.of(A), Until.DAYS, 7, false, TODAY);
+        spending = List.of();
+        assertError(() -> service.livingCost(USER, List.of(A), Until.DAYS, 7, false), ErrorCode.DATA_INSUFFICIENT);
+
+        assertThat(recorded).isEmpty();
     }
 
     @Test

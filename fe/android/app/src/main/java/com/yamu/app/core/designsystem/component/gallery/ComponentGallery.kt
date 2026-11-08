@@ -190,6 +190,8 @@ private fun WaitMotionSamples() {
                     phase = if (unknown) WaitPhase.Unknown else WaitPhase.Processing,
                     title = if (unknown) "결제됐는지 확인하고 있어요" else "결제하고 있어요",
                     pill = if (unknown) "확인 중 · 응답을 받지 못했어요" else "신한카드 · 15,000원",
+                    entering = true,          // '판 다시 넣기'로 들어오는 모션을 다시 본다
+                    lightStatusBar = false,   // 갤러리는 위가 흰 화면이라 상태 표시줄을 바꾸지 않음
                     // 아래 버튼이 생겨도 원판이 그 자리에 있는지 보는 견본. 버튼 모양은 결과 불명 작업에서 정함
                     bottom = if (unknown) {
                         { NeutralButton("결과 다시 확인", onClick = {}) }

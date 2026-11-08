@@ -152,6 +152,31 @@ class PaymentHistoryReader {
                 """, params, (rs, i) -> item(rs));
     }
 
+    /** 결제의 청구할인 원화 합계(신용카드 청구예정액 = 승인액 − 청구할인). */
+    private static final String BILLING_DISCOUNT = "(select coalesce(sum(b.krw_amount), 0) from payment_benefit b"
+            + " join card_benefit cb on cb.card_benefit_id = b.card_benefit_id"
+            + " where b.payment_transaction_id = p.payment_transaction_id"
+            + " and cb.benefit_type = 'DISCOUNT' and cb.application_timing = 'AT_BILLING')";
+
+    /**
+     * CSV 내려받기(Task 5.3.6): 목록과 같은 조건·순서로 limit건까지. 목록 칸에 카드 끝자리·승인액·청구할인 합계를 더한다.
+     * 한 번의 쿼리로 읽는다.
+     */
+    List<ExportRow> findForExport(Filter filter, int limit) {
+        String columns = LIST_COLUMNS.replaceFirst("\nfrom payment_transaction p",
+                java.util.regex.Matcher.quoteReplacement(", cast(" + BILLING_DISCOUNT
+                        + " as signed) as billing_discount\nfrom payment_transaction p"));
+        return jdbc.query(columns + FILTER + """
+                order by p.requested_at desc, p.payment_transaction_id desc
+                limit :limit
+                """, filter.params().addValue("limit", limit),
+                (rs, i) -> new ExportRow(item(rs), rs.getString("card_last4"), rs.getObject("approved_amount", Long.class),
+                        rs.getLong("billing_discount")));
+    }
+
+    /** CSV 한 줄의 원천. */
+    record ExportRow(PaymentListResponse.Item item, String cardLast4, Long approvedAmount, long billingDiscount) {}
+
     /** 필터를 적용한 전체 개수와 승인 건의 금액·혜택·확정 혜택·소비 분류별 금액·야무픽 건수. */
     Totals totals(Filter filter) {
         return jdbc.queryForObject("""
