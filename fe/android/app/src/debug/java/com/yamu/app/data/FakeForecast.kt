@@ -6,11 +6,26 @@ import com.yamu.app.core.network.ApiResult
 import com.yamu.app.core.session.DevSession
 import com.yamu.app.core.session.FaultScenario
 import com.yamu.app.feature.forecast.data.BalanceForecastDto
-import com.yamu.app.feature.forecast.data.BuyCheck
-import com.yamu.app.feature.forecast.data.BuyMethod
-import com.yamu.app.feature.forecast.data.BuyOption
-import com.yamu.app.feature.forecast.data.BuyVerdict
 import com.yamu.app.feature.forecast.data.CashflowDeleteScope
+import com.yamu.app.feature.forecast.data.CatalogMerchant
+import com.yamu.app.feature.forecast.data.MerchantCategory
+import com.yamu.app.feature.forecast.data.PaymentChannel
+import com.yamu.app.feature.forecast.data.SimAlternativeDto
+import com.yamu.app.feature.forecast.data.SimAssumptionDto
+import com.yamu.app.feature.forecast.data.SimBenefitDto
+import com.yamu.app.feature.forecast.data.SimBenefitItemDto
+import com.yamu.app.feature.forecast.data.SimCardDto
+import com.yamu.app.feature.forecast.data.SimCardOption
+import com.yamu.app.feature.forecast.data.SimComparisonDto
+import com.yamu.app.feature.forecast.data.SimCreditLimitDto
+import com.yamu.app.feature.forecast.data.SimScheduleDto
+import com.yamu.app.feature.forecast.data.SimSeriesPointDto
+import com.yamu.app.feature.forecast.data.SimSnapshotDto
+import com.yamu.app.feature.forecast.data.Simulation
+import com.yamu.app.feature.forecast.data.SimulationQuery
+import com.yamu.app.feature.forecast.data.SimulationResponseDto
+import com.yamu.app.feature.forecast.data.toPlanRequest
+import com.yamu.app.feature.forecast.data.toSimulation
 import com.yamu.app.feature.forecast.data.CashflowEntry
 import com.yamu.app.feature.forecast.data.CashflowForm
 import com.yamu.app.feature.forecast.data.CashflowRepeat
@@ -36,6 +51,7 @@ import kotlinx.serialization.json.addJsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
+import java.math.BigDecimal
 import java.time.LocalDate
 import java.time.OffsetDateTime
 import java.time.YearMonth
@@ -267,67 +283,141 @@ class FakeForecastRepository @Inject constructor() : ForecastRepository {
         ApiResult.Success(options())
     }
 
-    /** 가장 나쁜 선의 날짜별 잔액 — [extra]는 아직 저장하지 않은 '사 보면' 출금(확정 선) */
-    private fun worst(extra: List<Pair<LocalDate, Long>> = emptyList()): List<Pair<LocalDate, Long>> =
-        build(current, extra.map { (d, a) -> Flow(2, d, -a, "SIMULATED_PURCHASE", "CONFIRMED", "가상 구매") }).series
-            .map { LocalDate.parse(it.date) to (it.conservative ?: it.expected ?: 0) }
+    // ── I-01b · I-02 가상 구매 — BE PurchaseSimulationService를 줄여 흉내 낸다 ──
+    // 시험값(상품명): CATEGORY → 422 업종 필요(카드 미선택) · NOCARD → 422 쓸 수 있는 카드 없음(카드 미선택) ·
+    // UNPAID → 400 미납 카드(카드 선택) · BANK → 502 금융망. 체크카드 할부 · 5만 원 미만 할부는 400 INVALID_INSTALLMENT
 
-    private fun min(points: List<Pair<LocalDate, Long>>) = points.minOf { it.second }
-    private fun shortfall(points: List<Pair<LocalDate, Long>>) = points.firstOrNull { it.second < 0 }?.first
+    /** 가짜 카드 — 혜택은 업종 · 채널마다 비율 하나(원화 환산, 소수가 나올 수 있다) */
+    private data class FakeCard(val id: Long, val name: String, val credit: Boolean, val paymentDay: Int?, val inactive: Boolean = false, val rate: (String, PaymentChannel) -> Pair<String, BigDecimal>)
 
-    /** 신용카드 청구일 — 월급 전에 사면 월급 4일 뒤, 그 뒤면 다음 달 14일 */
-    private fun billDate(d: LocalDate) = if (d.isBefore(income)) income.plusDays(4) else YearMonth.from(d).plusMonths(1).atDay(14)
+    private val fakeCards = listOf(
+        FakeCard(11, "생활카드", credit = true, paymentDay = 20) { cat, _ ->
+            if (cat in setOf("HYPERMARKET", "SUPERMARKET", "CONVENIENCE_STORE")) "생활 업종 1% 청구할인" to BigDecimal("0.01") else "기본 0.5% 포인트" to BigDecimal("0.005")
+        },
+        FakeCard(12, "여행카드", credit = true, paymentDay = 14) { _, ch ->
+            if (ch == PaymentChannel.ONLINE) "온라인 결제 5% 할인" to BigDecimal("0.05") else "기본 0.3% 포인트" to BigDecimal("0.003")
+        },
+        FakeCard(16, "알뜰체크", credit = false, paymentDay = null) { cat, _ ->
+            if (cat == "COFFEE_SHOP") "카페 10% 캐시백" to BigDecimal("0.1") else "기본 0.2% 캐시백" to BigDecimal("0.002")
+        },
+        FakeCard(17, "예전카드", credit = true, paymentDay = 25, inactive = true) { _, _ -> "없음" to BigDecimal.ZERO },
+    )
 
-    // ── #33 판단(I-02 · I-03) — S15P31E103-326에서 가상 구매 시뮬레이션으로 바꾼다 ──
+    private val fakeCategories = listOf(
+        "HOSPITAL" to "병원", "DENTAL_CLINIC" to "치과", "KOREAN_MEDICINE_CLINIC" to "한의원", "VETERINARY_CLINIC" to "동물병원",
+        "HYPERMARKET" to "대형마트", "SUPERMARKET" to "슈퍼마켓", "HEALTH_BEAUTY_STORE" to "헬스·뷰티 매장", "ACADEMY" to "학원",
+        "BAKERY" to "베이커리·제과점", "BOOKSTORE" to "서점", "BUFFET_RESTAURANT" to "뷔페", "CAR_REPAIR" to "자동차 정비",
+        "CHINESE_RESTAURANT" to "중식", "CITY_BUS" to "시내버스", "COFFEE_SHOP" to "카페", "CONVENIENCE_STORE" to "편의점",
+        "DELIVERY_APP" to "배달앱", "FAST_FOOD" to "패스트푸드", "GAS_STATION" to "주유소", "GENERAL_RESTAURANT" to "일반음식점",
+        "HAIR_SALON" to "미용실", "JAPANESE_RESTAURANT" to "일식", "KOREAN_RESTAURANT" to "한식", "LAUNDRY" to "세탁소",
+        "MEMBERSHIP_SUBSCRIPTION" to "유료 멤버십", "MOVIE_THEATER" to "영화관", "ONLINE_MARKETPLACE" to "온라인 쇼핑", "OTHER" to "기타",
+        "PHARMACY" to "약국", "STREAMING_SERVICE" to "스트리밍", "SUBWAY" to "지하철", "TAXI" to "택시", "TELECOMMUNICATION" to "통신",
+        "WESTERN_RESTAURANT" to "양식",
+    ).map { (code, name) -> MerchantCategory(code, name) }.sortedBy { it.name }
 
-    override suspend fun check(amount: Long, title: String?, purchaseDate: LocalDate): ApiResult<BuyCheck> = withFault {
-        delay(800)
-        if (amount <= 0) return@withFault ApiResult.Failure(ApiError.InvalidRequest("INVALID_AMOUNT"))
-        val withCheck = worst(listOf(purchaseDate to amount))
-        val creditBill = billDate(purchaseDate)
-        val withCredit = worst(listOf(creditBill to amount))
-        val monthly = (amount + 2) / 3
-        val withInstallment = worst(listOf(creditBill to monthly))
-        val minCheck = min(withCheck)
-        val verdict = when {
-            minCheck >= alert -> BuyVerdict.OK
-            min(withCredit) >= 0 -> BuyVerdict.CAUTION
-            else -> BuyVerdict.HOLD
-        }
-        fun option(method: BuyMethod, date: LocalDate, card: Long, name: String, months: Int?, points: List<Pair<LocalDate, Long>>, monthlyAmount: Long?) =
-            BuyOption(method, date, card, name, months, min(points), monthlyAmount, shortfall(points), recommended = false)
-        val options = listOf(
-            option(BuyMethod.CHECK_LUMP_SUM, purchaseDate, 16, "KB국민 노리2 체크카드(KB Pay)", null, withCheck, null),
-            option(BuyMethod.CREDIT_LUMP_SUM, purchaseDate, 11, "KB국민 청춘대로 톡톡카드", null, withCredit, null),
-            option(BuyMethod.CREDIT_INSTALLMENT, purchaseDate, 11, "KB국민 청춘대로 톡톡카드", 3, withInstallment, monthly),
-        ) + if (verdict == BuyVerdict.OK) emptyList() else listOf(BuyOption(BuyMethod.DELAY, income, 16, "KB국민 노리2 체크카드(KB Pay)", null, min(worst()), null, null, recommended = true))
-        val headline = when (verdict) {
-            BuyVerdict.OK -> "지금 사도 월급 전에 ${minCheck / 10_000}만 원 남아요"
-            else -> "지금 사면 월급 전에 ${(-minCheck + 9_999) / 10_000}만 원 모자라요"
-        }
-        ApiResult.Success(
-            BuyCheck(
-                title = title?.takeIf { it.isNotBlank() }, amount = amount, purchaseDate = purchaseDate, verdict = verdict, headline = headline,
-                firstMethodLabel = "체크카드", baselineRatio = null, baselineAverage = null, baselinePeriod = null,
-                reasons = shortfall(withCheck)?.let { listOf("${it.monthValue}월 ${it.dayOfMonth}일부터 잔액이 모자라요") }.orEmpty(),
-                options = options, isEstimate = true,
-            ),
-        )
+    private val fakeMerchants = mapOf(
+        "HYPERMARKET" to listOf(CatalogMerchant(201, "이마트"), CatalogMerchant(202, "홈플러스"), CatalogMerchant(203, "롯데마트")),
+        "COFFEE_SHOP" to listOf(CatalogMerchant(211, "스타벅스"), CatalogMerchant(212, "투썸플레이스")),
+        "ONLINE_MARKETPLACE" to listOf(CatalogMerchant(221, "쿠팡"), CatalogMerchant(222, "11번가")),
+    )
+
+    override suspend fun categories(): ApiResult<List<MerchantCategory>> = withFault {
+        delay(300)
+        ApiResult.Success(fakeCategories)
     }
 
-    override suspend fun savePlan(option: BuyOption, title: String?, amount: Long): ApiResult<SavedPlan> {
-        delay(600)
-        val before = min(worst())
-        val payDate = when (option.method) {
-            BuyMethod.CHECK_LUMP_SUM, BuyMethod.DELAY -> option.date
-            else -> billDate(option.date)
+    override suspend fun merchants(categoryCode: String): ApiResult<List<CatalogMerchant>> = withFault {
+        delay(300)
+        ApiResult.Success(fakeMerchants[categoryCode].orEmpty())
+    }
+
+    override suspend fun simulationCards(): ApiResult<List<SimCardOption>> = withFault {
+        delay(300)
+        ApiResult.Success(fakeCards.map { SimCardOption(it.id, it.name, it.name, it.credit, if (it.inactive) "꺼 둔 카드" else null) })
+    }
+
+    /** 신용카드 청구 — 결제일 기준 단순화: 사용일이 그달 5일 이하면 그달 결제일, 아니면 다음 달 결제일. 할부는 다음 달들로 */
+    private fun withdrawals(card: FakeCard, date: LocalDate, amount: Long, months: Int?): List<SimScheduleDto> {
+        if (!card.credit) return listOf(SimScheduleDto(date.toString(), -amount, "체크카드 즉시 출금"))
+        val first = YearMonth.from(date).plusMonths(if (date.dayOfMonth <= 5) 0 else 1)
+        val n = months ?: 1
+        val each = amount / n
+        return (0 until n).map { i ->
+            val ym = first.plusMonths(i.toLong())
+            val part = if (i == 0) amount - each * (n - 1) else each
+            val label = if (months == null) "일시불 (${ym.monthValue}월 청구)" else "${i + 1}/${n}회차 (${ym.monthValue}월 청구)"
+            SimScheduleDto(ym.atDay(card.paymentDay ?: 25).toString(), -part, label)
         }
-        val payAmount = if (option.method == BuyMethod.CREDIT_INSTALLMENT) option.monthlyAmount ?: amount else amount
+    }
+
+    override suspend fun simulate(query: SimulationQuery): ApiResult<Simulation> = withFault {
+        delay(700)
+        val name = query.productName.orEmpty().uppercase()
+        val chosen = query.userCardId?.let { id -> fakeCards.firstOrNull { it.id == id } ?: return@withFault ApiResult.Failure(ApiError.NotFound("RESOURCE_NOT_FOUND")) }
+        fun reason(status: Int, code: String, reason: String) = ApiResult.Failure(ApiError.from(status, code, buildJsonObject { put("reason", reason) }))
+        when {
+            name == "BANK" -> return@withFault ApiResult.Failure(ApiError.BankUnavailable("FIN_API_UNAVAILABLE"))
+            name == "CATEGORY" && chosen == null -> return@withFault reason(422, "DATA_INSUFFICIENT", "CATEGORY_REQUIRED")
+            name == "NOCARD" && chosen == null -> return@withFault reason(422, "DATA_INSUFFICIENT", "NO_ELIGIBLE_CARD")
+            name == "UNPAID" && chosen != null -> return@withFault reason(400, "CARD_NOT_ELIGIBLE", "UNPAID_BILL")
+            chosen?.inactive == true -> return@withFault reason(400, "CARD_NOT_ELIGIBLE", "CARD_INACTIVE")
+            query.installmentMonths != null && (query.amount < SimulationQuery.INSTALLMENT_MIN_AMOUNT || chosen?.credit == false) ->
+                return@withFault ApiResult.Failure(ApiError.from(400, "INVALID_INSTALLMENT"))
+            query.purchaseDate.isBefore(today) -> return@withFault invalid("purchaseDate", "구매일은 오늘 이후로 골라 주세요.")
+        }
+        val usable = fakeCards.filter { !it.inactive && (query.installmentMonths == null || it.credit) }
+        fun net(card: FakeCard) = card.rate(query.categoryCode, query.channel).let { (label, rate) -> label to (BigDecimal(query.amount) * rate).stripTrailingZeros() }
+        val top = usable.maxByOrNull { net(it).second } ?: return@withFault reason(422, "DATA_INSUFFICIENT", "NO_ELIGIBLE_CARD")
+        val card = chosen ?: top
+        val (benefitName, benefitAmount) = net(card)
+        val schedule = withdrawals(card, query.purchaseDate, query.amount, query.installmentMonths)
+        val before = build(current)
+        val after = build(current, schedule.map { Flow(2, LocalDate.parse(it.date), it.amount, "SIMULATED_PURCHASE", "CONFIRMED", it.label ?: "가상 구매") })
+        val to = LocalDate.parse(before.horizon!!.to)
+        fun snapshot(dto: BalanceForecastDto) = SimSnapshotDto(dto.summary?.minBalance, dto.summary?.minBalanceDate, dto.summary?.endBalance, dto.summary?.status)
+        val beyond = schedule.filter { LocalDate.parse(it.date).isAfter(to) }.sumOf { it.amount }
+        val afterMin = after.summary?.minBalance ?: 0
+        val afterDate = after.summary?.minBalanceDate?.let(LocalDate::parse)
+        val message = buildString {
+            val d = afterDate?.let { "${it.monthValue}월 ${it.dayOfMonth}일" } ?: "기간 중"
+            append(if (afterMin < 0) "$d 잔액이 ${"%,d".format(-afterMin)}원 모자라요." else "$d 잔액이 ${"%,d".format(afterMin)}원까지 내려가요.")
+            if (beyond < 0) append(" 예보 기간 밖에서 ${"%,d".format(-beyond)}원이 더 빠져요.")
+        }
+        val alternatives = fakeCards.filter { !it.inactive && it.id != card.id }.map { alt ->
+            val comparable = query.installmentMonths == null || alt.credit
+            SimAlternativeDto(
+                userCardId = alt.id, nickname = alt.name, cardType = if (alt.credit) "CREDIT" else "CHECK",
+                plan = if (query.installmentMonths != null && alt.credit) "INSTALLMENT" else "LUMP_SUM",
+                installmentMonths = query.installmentMonths.takeIf { alt.credit },
+                netBenefit = if (comparable) net(alt).second else null,
+                note = if (comparable) null else "체크카드는 할부를 쓸 수 없어요",
+                recommended = chosen != null && alt.id == top.id,
+            )
+        }.sortedByDescending { it.netBenefit ?: BigDecimal(-1) }
+        val dto = SimulationResponseDto(
+            card = SimCardDto(card.id, card.name, if (card.credit) "CREDIT" else "CHECK", recommended = chosen == null),
+            benefit = SimBenefitDto(benefitAmount, listOf(SimBenefitItemDto(name = benefitName, type = "DISCOUNT", amount = benefitAmount)), query.amount),
+            schedule = schedule,
+            comparison = SimComparisonDto(snapshot(before), snapshot(after), schedule.filter { !LocalDate.parse(it.date).isAfter(to) }.sumOf { it.amount }, beyond),
+            series = before.series.zip(after.series).map { (b, a) -> SimSeriesPointDto(b.date, b.conservative ?: b.expected, a.conservative ?: a.expected) },
+            alternatives = alternatives,
+            assumptions = listOfNotNull(
+                SimAssumptionDto("YAMU_PURCHASE_TIME_NOON", "구매일 낮 12시에 결제한다고 보고 계산했어요."),
+                SimAssumptionDto("YAMU_BRAND_NOT_SELECTED", "브랜드를 고르지 않아 브랜드 혜택은 빼고 계산했어요.").takeIf { query.merchantId == null },
+            ),
+            creditLimit = SimCreditLimitDto("SKIPPED", null).takeIf { card.credit },
+            message = message,
+        )
+        ApiResult.Success(dto.toSimulation(query))
+    }
+
+    override suspend fun savePlan(simulation: Simulation): ApiResult<SavedPlan> {
+        delay(600)
+        val body = simulation.toPlanRequest()
         val id = nextId++
-        val name = title?.takeIf { it.isNotBlank() } ?: "구매 계획"
-        plans += Plan(id, name, payAmount, payDate)
-        val after = worst()
-        val plan = SavedPlan(id, name, amount, option.date, before, min(after), shortfall(after))
+        // 가계부의 카드 예정 지출은 청구 출금일에 빠진다 — 일시불만 저장하므로 첫 회차 날짜
+        plans += Plan(id, body.title, body.amount, simulation.schedule.firstOrNull()?.date ?: simulation.query.purchaseDate)
+        val plan = SavedPlan(id, body.title, body.amount, simulation.query.purchaseDate, simulation.before?.minBalance, simulation.after?.minBalance, null)
         saved[id] = plan
         return ApiResult.Success(plan)
     }

@@ -41,6 +41,8 @@ import com.yamu.app.feature.payment.RecommendRoute
 import com.yamu.app.feature.forecast.BuyCheckInputRoute
 import com.yamu.app.feature.forecast.BuyCheckResultRoute
 import com.yamu.app.feature.forecast.BuyCheckSavedRoute
+import com.yamu.app.feature.forecast.BuyConditionsRoute
+import com.yamu.app.feature.forecast.toRoute
 import com.yamu.app.feature.forecast.CashflowCreateRoute
 import com.yamu.app.feature.forecast.CashflowListRoute
 import com.yamu.app.feature.forecast.ForecastRoute
@@ -271,12 +273,21 @@ fun YamuNavHost(navController: NavHostController, modifier: Modifier = Modifier)
                 composable<BuyCheckInput> {
                     BuyCheckInputRoute(
                         onBack = back,
-                        onCheck = { amount, title, date -> navController.navigate(BuyCheckResult(amount, title, date.toString())) },
+                        onNext = { amount, title -> navController.navigate(BuyCheckConditions(amount, title)) },
+                    )
+                }
+                composable<BuyCheckConditions> {
+                    BuyConditionsRoute(
+                        onBack = back,
+                        onCompare = { query -> navController.navigate(query.toRoute()) },
                     )
                 }
                 composable<BuyCheckResult> {
                     BuyCheckResultRoute(
                         onBack = back,
+                        onEditConditions = back,
+                        onEditAmount = { if (!navController.popBackStack<BuyCheckInput>(inclusive = false)) back() },
+                        onForecast = { if (!navController.popBackStack<Forecast>(inclusive = false)) back() },
                         onPay = { navController.navigate(PayCode) },
                         onSaved = { planId -> navController.toBuyCheckSaved(planId) },
                     )

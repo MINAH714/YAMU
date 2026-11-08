@@ -40,9 +40,25 @@ import kotlinx.serialization.Serializable
 @Serializable data object CashflowCreate     // F-02a 예정 수입·지출 추가(F-02의 +)
 /** F-02b 수정 · 삭제 — F-02 줄의 항목 ID와 원래 회차(서버에 그대로 돌려보내는 값) */
 @Serializable data class CashflowEdit(val itemId: Long, val occurrenceDate: String)
-@Serializable data object BuyCheckInput      // I-01 (F-04 사기 전에 확인을 합침)
-/** I-02 · I-03(상태) · I-04(시트) — 결과는 저장된 게 아니라 이 입력으로 #33을 부른 값이라 입력을 넘긴다 */
-@Serializable data class BuyCheckResult(val amount: Long, val title: String? = null, val purchaseDate: String)
+@Serializable data object BuyCheckInput      // I-01 금액 · 무엇(F-04 사기 전에 확인을 합침)
+/** I-01b 어디서 · 어떻게 — 업종 · 브랜드 · 매장/온라인 · 카드 · 할부 · 날짜 */
+@Serializable data class BuyCheckConditions(val amount: Long, val title: String? = null)
+/**
+ * I-02 · I-03(상태) — 결과는 저장된 게 아니라 이 조건으로 가상 구매 시뮬레이션을 부른 값이라 조건을 넘긴다.
+ * userCardId가 null이면 혜택이 가장 큰 카드, months가 null이면 일시불, channel은 PaymentChannel 이름
+ */
+@Serializable data class BuyCheckResult(
+    val amount: Long,
+    val title: String? = null,
+    val categoryCode: String,
+    val categoryName: String? = null,
+    val merchantId: Long? = null,
+    val merchantName: String? = null,
+    val channel: String,
+    val userCardId: Long? = null,
+    val months: Int? = null,
+    val purchaseDate: String,
+)
 @Serializable data class BuyCheckSaved(val planId: Long)            // I-05
 
 // ── 카드추천 탭 (PayGraph) ──

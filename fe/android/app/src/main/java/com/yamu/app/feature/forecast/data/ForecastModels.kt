@@ -306,6 +306,13 @@ fun ExcludedItemDto.toNote(): ExcludedNote {
     return ExcludedNote(reason, text)
 }
 
+/** 받침이 있으면 '이', 없으면 '가' — '알뜰카드가' · '신한 삼성카드 Ⅱ가' */
+internal fun String.subjectParticle(): String {
+    val last = trimEnd().lastOrNull() ?: return "가"
+    if (last !in '가'..'힣') return "가"
+    return if ((last - '가') % 28 != 0) "이" else "가"
+}
+
 /** 받침이 있으면 '은', 없으면 '는' — '관리비는' · '월세는' */
 internal fun String.topicParticle(): String {
     val last = trimEnd().lastOrNull() ?: return "는"

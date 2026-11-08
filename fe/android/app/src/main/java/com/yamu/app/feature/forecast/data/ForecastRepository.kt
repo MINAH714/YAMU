@@ -8,6 +8,7 @@ import com.yamu.app.core.network.apiCall
 import com.yamu.app.core.network.apiCallNoData
 import com.yamu.app.core.network.map
 import com.yamu.app.feature.link.data.AccountDto
+import com.yamu.app.feature.link.data.CardDto
 import com.yamu.app.feature.link.data.LinkApi
 import com.yamu.app.feature.link.data.lastDigits
 import dagger.Module
@@ -39,8 +40,17 @@ interface ForecastApi {
         @Query("days") days: Int?,
     ): Response<ApiEnvelope<BalanceForecastDto>>
 
-    @POST("spending-decisions")
-    suspend fun check(@Body body: SpendingDecisionRequest): Response<ApiEnvelope<SpendingDecisionDto>>
+    /** 가상 구매 전후 비교. 계산만 하고 결제 · 청구 · 실적 · 한도는 바꾸지 않아 다시 보내도 된다 */
+    @POST("forecasts/simulations")
+    suspend fun simulate(@Body body: SimulationRequest): Response<ApiEnvelope<SimulationResponseDto>>
+
+    /** 업종 49개(인증 없이 공개) — docs/be/merchant-catalog-api.md */
+    @GET("merchant-categories")
+    suspend fun categories(): Response<ApiEnvelope<List<MerchantCategoryDto>>>
+
+    /** 업종의 브랜드. 결제 쪽 GET merchants(channel · size)와 같은 주소지만 merchantCategoryCode로 거른다 */
+    @GET("merchants")
+    suspend fun merchants(@Query("merchantCategoryCode") merchantCategoryCode: String): Response<ApiEnvelope<List<CatalogMerchantDto>>>
 
     @POST("cashflow-items")
     suspend fun savePlan(@Body body: PurchasePlanRequest): Response<ApiEnvelope<CashflowCreatedDto>>
@@ -75,11 +85,18 @@ interface ForecastRepository {
     /** 계좌 고르기 시트 — 연결 계좌 전체 */
     suspend fun accounts(): ApiResult<List<ForecastAccountOption>>
 
-    /** I-02 · I-03 — #33 판정 그대로 */
-    suspend fun check(amount: Long, title: String?, purchaseDate: LocalDate): ApiResult<BuyCheck>
+    /** I-02 — 가상 구매. 잔고예보와 같은 기간 · 계좌로 불러 '사기 전'이 잔고예보 화면과 같다 */
+    suspend fun simulate(query: SimulationQuery): ApiResult<Simulation>
 
-    /** I-04 · I-02 [계획 저장] — #20 */
-    suspend fun savePlan(option: BuyOption, title: String?, amount: Long): ApiResult<SavedPlan>
+    /** I-01b 업종(한 번 받으면 기억) · 업종의 브랜드 · 내 카드 */
+    suspend fun categories(): ApiResult<List<MerchantCategory>>
+
+    suspend fun merchants(categoryCode: String): ApiResult<List<CatalogMerchant>>
+
+    suspend fun simulationCards(): ApiResult<List<SimCardOption>>
+
+    /** I-02 [계획 저장] — #20 일반 예정 지출. 일시불 결과만(할부는 화면에서 막는다). 재시도 키가 없어 실패해도 다시 보내지 않는다 */
+    suspend fun savePlan(simulation: Simulation): ApiResult<SavedPlan>
 
     /** 방금 저장한 계획(I-05) — 앱이 다시 켜졌으면 없음 */
     fun savedPlan(planId: Long): SavedPlan?
@@ -109,6 +126,19 @@ interface ForecastRepository {
 fun ForecastSelection.accountIdsFrom(accounts: List<ForecastAccountOption>): List<Long> {
     val all = accounts.map { it.accountId }
     return accountIds?.let { ids -> all.filter { it in ids } }.orEmpty().ifEmpty { all }
+}
+
+/** 등록 카드 → 카드 고르기 줄. 등록 중 · 해제 카드는 빼고, 결제할 수 없는 카드는 이유를 달아 둔다(BE CARD_NOT_ELIGIBLE과 같은 기준) */
+fun CardDto.toSimCardOption(): SimCardOption? {
+    val state = status?.uppercase()
+    if (state == "PENDING" || state == "UNREGISTERED") return null
+    val reason = when {
+        state == "INACTIVE" -> "꺼 둔 카드"
+        issuerStatus.equals("SUSPENDED", ignoreCase = true) -> "카드사에서 정지한 카드"
+        issuerStatus.equals("EXPIRED", ignoreCase = true) -> "유효기간이 지난 카드"
+        else -> null
+    }
+    return SimCardOption(userCardId, nickname?.takeIf { it.isNotBlank() } ?: productName, productName, cardType.equals("CREDIT", ignoreCase = true), reason)
 }
 
 fun AccountDto.toOption() = ForecastAccountOption(
@@ -150,25 +180,41 @@ class ForecastRepositoryImpl @Inject constructor(private val api: ForecastApi, p
     override suspend fun accounts(): ApiResult<List<ForecastAccountOption>> =
         apiCall { linkApi.accounts(null) }.map { r -> r.accounts.map { it.toOption() } }
 
-    override suspend fun check(amount: Long, title: String?, purchaseDate: LocalDate): ApiResult<BuyCheck> =
-        apiCall { api.check(SpendingDecisionRequest(amount, title?.takeIf { it.isNotBlank() }, purchaseDate.toString())) }
-            .map { it.toBuyCheck(title, amount, purchaseDate) }
-
-    override suspend fun savePlan(option: BuyOption, title: String?, amount: Long): ApiResult<SavedPlan> {
-        val accountId = if (option.userCardId != null) null else when (val a = apiCall { linkApi.accounts(null) }) {
+    override suspend fun simulate(query: SimulationQuery): ApiResult<Simulation> {
+        val accounts = when (val a = accounts()) {
             is ApiResult.Failure -> return a
-            is ApiResult.Success -> a.data.accounts.firstOrNull { it.isPrimary }?.accountId
-                ?: return ApiResult.Failure(ApiError.InvalidRequest("ACCOUNT_NOT_LINKED"))
+            is ApiResult.Success -> a.data
         }
-        val body = option.toPlanRequest(title, amount, accountId)
+        if (accounts.isEmpty()) return ApiResult.Failure(ApiError.InvalidRequest(ForecastRepository.NO_ACCOUNT))
+        val body = query.toRequest(current.accountIdsFrom(accounts), current.period)
+        return apiCall { api.simulate(body) }.map { it.toSimulation(query) }
+    }
+
+    @Volatile private var categoryCache: List<MerchantCategory>? = null
+
+    override suspend fun categories(): ApiResult<List<MerchantCategory>> {
+        categoryCache?.let { return ApiResult.Success(it) }
+        return apiCall { api.categories() }
+            .map { list -> list.map { MerchantCategory(it.merchantCategoryCode, it.merchantCategoryName) } }
+            .also { if (it is ApiResult.Success) categoryCache = it.data }
+    }
+
+    override suspend fun merchants(categoryCode: String): ApiResult<List<CatalogMerchant>> =
+        apiCall { api.merchants(categoryCode) }.map { list -> list.map { CatalogMerchant(it.merchantId, it.merchantName) } }
+
+    override suspend fun simulationCards(): ApiResult<List<SimCardOption>> =
+        apiCall { linkApi.cards() }.map { r -> r.cards.mapNotNull { it.toSimCardOption() } }
+
+    override suspend fun savePlan(simulation: Simulation): ApiResult<SavedPlan> {
+        val body = simulation.toPlanRequest()
         return apiCall { api.savePlan(body) }.map { r ->
             SavedPlan(
                 id = r.cashflowItemId,
                 title = body.title,
-                amount = amount,
-                date = parseDate(r.occurrenceDate) ?: option.date,
-                minBefore = null,
-                minAfter = null,
+                amount = body.amount,
+                date = parseDate(r.occurrenceDate) ?: simulation.query.purchaseDate,
+                minBefore = simulation.before?.minBalance,
+                minAfter = simulation.after?.minBalance,
                 shortfallFrom = null,
             ).also { plans[it.id] = it }
         }

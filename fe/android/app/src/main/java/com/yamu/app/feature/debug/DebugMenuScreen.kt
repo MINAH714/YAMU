@@ -197,7 +197,7 @@ fun DebugMenuScreen(navController: NavController, viewModel: DebugMenuViewModel 
                     "F-01 잔고예보" to Forecast,
                     "F-02 예정 수입 · 지출" to CashflowList,
                     "I-01 이거 사도 될까?" to BuyCheckInput,
-                    "I-02 결과(400,000원)" to BuyCheckResult(400_000, "태블릿", java.time.LocalDate.now().toString()),
+                    "I-02 결과(400,000원 · 대형마트)" to BuyCheckResult(400_000, "태블릿", categoryCode = "HYPERMARKET", categoryName = "대형마트", channel = "OFFLINE", purchaseDate = java.time.LocalDate.now().toString()),
                     "P-06 결제 코드" to PayCode,
                     "P-08 거래 상세" to PaymentDetail(938L),
                     "R-02 카드 실적 상세(신한)" to CardPerformance(userCardId = 2L),

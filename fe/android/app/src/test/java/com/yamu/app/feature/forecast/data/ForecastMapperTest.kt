@@ -168,25 +168,4 @@ class ForecastMapperTest {
     @Test fun `날짜 표기`() {
         assertEquals("10/20 (화)", LocalDate.parse("2026-10-20").toMonthDayWeek())
     }
-
-    // ── #33 판단 — S15P31E103-326에서 가상 구매 시뮬레이션으로 바꾸며 지운다 ──
-
-    private val decision = SpendingDecisionDto(
-        verdict = "CAUTION",
-        headline = "지금 사면 월급 전에 5만 원 모자라요",
-        methods = listOf(
-            MethodDto("CHECK_LUMP_SUM", 12, "F 체크카드", withdrawals = listOf(WithdrawalDto("2026-10-18", 400_000)), minBalance = -50_000, shortfallFrom = "2026-11-01", status = "DANGER"),
-            MethodDto("CREDIT_INSTALLMENT", 15, "A 생활 신용카드", months = 3, withdrawals = listOf(WithdrawalDto("2026-11-16", 133_400)), minBalance = 350_000),
-            MethodDto("SOMETHING_NEW", 1),
-        ),
-        alternatives = listOf(AlternativeDto("DELAY", until = "2026-11-10", minBalanceAfter = 350_000, message = "월급 뒤로 미루면 부족 없음")),
-    )
-
-    @Test fun `판단 — 모르는 방식은 빼고 미루기는 추천`() {
-        val c = decision.toBuyCheck("태블릿", 400_000, LocalDate.parse("2026-10-18"))
-        assertEquals(BuyVerdict.CAUTION, c.verdict)
-        assertEquals(3, c.options.size)
-        assertTrue(c.delay!!.recommended)
-        assertEquals("구매 계획", c.delay!!.toPlanRequest(null, 400_000).title)
-    }
 }
