@@ -4,13 +4,11 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.ui.platform.LocalContext
 import com.yamu.app.core.ui.LocalSnackbar
 import com.yamu.app.feature.payment.data.PaymentEdits
-import com.yamu.app.feature.report.data.CsvFile
+import com.yamu.app.feature.report.data.CsvDocuments
+import com.yamu.app.feature.report.data.defaultCsvName
 import com.yamu.app.feature.report.data.exportErrorMessage
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.ui.text.style.TextOverflow
@@ -368,12 +366,14 @@ data class PaymentsState(
  * 그사이 결제를 취소했거나 메모를 바꿨으면([PaymentEdits.version]) 펼친 쪽을 버리고 첫 쪽부터 다시 — 뒤쪽 줄이 옛 상태로 남지 않게.
  */
 @HiltViewModel
-class PaymentsViewModel @Inject constructor(private val repo: ReportRepository, private val edits: PaymentEdits) : ViewModel() {
+class PaymentsViewModel @Inject constructor(
+    private val repo: ReportRepository,
+    private val edits: PaymentEdits,
+    private val documents: CsvDocuments,
+) : ViewModel() {
     private val _state = MutableStateFlow(PaymentsState())
     val state: StateFlow<PaymentsState> = _state.asStateFlow()
     private var seenVersion = edits.version.value
-    /** 서버에서 받은 CSV — 저장 창에서 고른 곳에 쓴다 */
-    private var pendingCsv: CsvFile? = null
 
     fun refresh() {
         viewModelScope.launch {
@@ -403,28 +403,38 @@ class PaymentsViewModel @Inject constructor(private val repo: ReportRepository, 
         }
     }
 
-    /** '이 조건으로 CSV 저장' — 먼저 서버에서 받고(429 · 오류는 저장 창 전에 알림) 받으면 저장 창 */
-    fun exportCsv() {
+    /**
+     * '이 조건으로 CSV 저장' — 저장 창을 먼저 띄우고 고른 뒤에 서버에서 받는다.
+     * 창을 닫으면 받지 않아 분당 3번 한도를 쓰지 않고, 창이 열린 사이 앱이 정리돼도 돌아와서 이어 받는다.
+     * 이름은 화면과 같은 이번 달 파일 이름(서버가 붙이는 이름과 같다)
+     */
+    fun requestCsv() {
         if (_state.value.exporting) return
-        _state.update { it.copy(exporting = true) }
-        viewModelScope.launch {
-            when (val r = repo.exportCsv()) {
-                is ApiResult.Success -> {
-                    pendingCsv = r.data
-                    _state.update { it.copy(exporting = false, saveAs = r.data.name) }
-                }
-                is ApiResult.Failure -> _state.update { it.copy(exporting = false, message = exportErrorMessage(r.error)) }
-            }
-        }
+        _state.update { it.copy(saveAs = defaultCsvName()) }
     }
 
     fun saveAsShown() = _state.update { it.copy(saveAs = null) }
 
-    /** 저장 창이 닫히면 한 번 꺼낸다 — 다시 저장하려면 다시 받는다 */
-    fun takeCsv(): CsvFile? = pendingCsv.also { pendingCsv = null }
-
-    fun csvSaved(ok: Boolean) =
-        _state.update { it.copy(message = if (ok) "CSV 파일을 저장했어요" else "파일을 저장하지 못했어요. 다시 저장해 주세요") }
+    /** 저장 창에서 고른 곳([uri], 닫았으면 null). 받기 · 쓰기에 실패하면 창이 만든 빈 파일을 지운다 */
+    fun saveCsvTo(uri: String?) {
+        if (uri == null || _state.value.exporting) return
+        _state.update { it.copy(exporting = true) }
+        viewModelScope.launch {
+            val message = when (val r = repo.exportCsv()) {
+                is ApiResult.Success -> if (documents.write(uri, r.data.bytes)) {
+                    "CSV 파일을 저장했어요"
+                } else {
+                    documents.discard(uri)
+                    "파일을 저장하지 못했어요. 다시 저장해 주세요"
+                }
+                is ApiResult.Failure -> {
+                    documents.discard(uri)
+                    exportErrorMessage(r.error)
+                }
+            }
+            _state.update { it.copy(exporting = false, message = message) }
+        }
+    }
 
     fun messageShown() = _state.update { it.copy(message = null) }
 
@@ -457,7 +467,6 @@ fun PaymentsRoute(
         onPauseOrDispose { }
     }
     val c = YamuTheme.colors
-    val context = LocalContext.current
     val snackbar = LocalSnackbar.current
     val scope = rememberCoroutineScope()
     LaunchedEffect(s.message) {
@@ -465,16 +474,9 @@ fun PaymentsRoute(
         viewModel.messageShown()
         scope.launch { snackbar.showSnackbar(message) }
     }
-    // 저장 위치는 사용자가 고른다(SAF) — 저장소 권한이 필요 없다. 창을 닫으면 아무것도 쓰지 않는다
+    // 저장 위치는 사용자가 고른다(SAF) — 저장소 권한이 필요 없다. 창을 닫으면 아무것도 받지 · 쓰지 않는다
     val saveCsv = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/csv")) { uri ->
-        val csv = viewModel.takeCsv()
-        if (uri == null) return@rememberLauncherForActivityResult
-        scope.launch {
-            val ok = csv != null && withContext(Dispatchers.IO) {
-                runCatching { context.contentResolver.openOutputStream(uri, "w")?.use { it.write(csv.bytes) } != null }.getOrDefault(false)
-            }
-            viewModel.csvSaved(ok)
-        }
+        viewModel.saveCsvTo(uri?.toString())
     }
     LaunchedEffect(s.saveAs) {
         val name = s.saveAs ?: return@LaunchedEffect
@@ -487,7 +489,7 @@ fun PaymentsRoute(
         cards = true,
         actions = {
             if (s.items.isNotEmpty()) {
-                LinkButton(if (s.exporting) "준비 중…" else "CSV 저장", onClick = viewModel::exportCsv, modifier = Modifier.padding(end = 4.dp))
+                LinkButton(if (s.exporting) "저장하는 중…" else "CSV 저장", onClick = viewModel::requestCsv, modifier = Modifier.padding(end = 4.dp))
             }
         },
     ) { inner ->

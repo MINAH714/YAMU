@@ -43,8 +43,11 @@ fun ApiError.toCancelProblem(): CancelProblem = when {
         "REFUND_NEEDS_REVIEW" -> CancelProblem("자동으로 돌려드릴 수 없는 결제라 지금은 취소할 수 없어요", recheck = false)
         else -> CancelProblem("취소할 수 없는 결제예요", recheck = true)
     }
-    // 서버가 코드로 답한 금융망 실패 — 결제는 승인 상태로 남아 다시 취소할 수 있다
-    this is ApiError.BankUnavailable -> CancelProblem("은행 연결이 늦어 취소하지 못했어요. 결제는 그대로예요", recheck = false)
+    // FIN_API_UNAVAILABLE(502)은 BE CheckCardRefunder가 '보내지 못함'과 '입금 결과 불명'을 같이 쓴다 — 체크카드는 돈이 이미
+    // 들어갔을 수 있어 단정하지 않고 상태를 다시 본다. 같은 키로 다시 취소하면 BE가 거래내역에서 찾아 두 번 입금하지 않는다
+    code == "FIN_API_UNAVAILABLE" -> CancelProblem("은행 응답을 확인하지 못했어요. 잠시 뒤 다시 취소해 주세요", recheck = true)
+    // FIN_API_ERROR — 은행이 입금을 거절했다. 결제는 승인 상태로 남아 다시 취소할 수 있다
+    this is ApiError.BankUnavailable -> CancelProblem("은행이 처리하지 못해 취소하지 못했어요. 결제는 그대로예요", recheck = false)
     this is ApiError.NotFound -> CancelProblem("찾을 수 없는 결제예요", recheck = false)
     else -> CancelProblem(userMessage(), recheck = false)
 }

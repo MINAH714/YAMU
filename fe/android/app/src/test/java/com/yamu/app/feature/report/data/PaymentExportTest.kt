@@ -4,6 +4,7 @@ import com.yamu.app.core.network.ApiError
 import com.yamu.app.core.network.ApiResult
 import com.yamu.app.core.network.json
 import com.yamu.app.core.network.retrofit
+import com.yamu.app.feature.payment.data.KnownMemo
 import com.yamu.app.feature.payment.data.PaymentEdits
 import kotlinx.coroutines.test.runTest
 import mockwebserver3.MockResponse
@@ -75,8 +76,8 @@ class PaymentExportTest {
         )
         edits.rememberMemo(2, "지워진 메모")
         repository.payments(1)
-        assertEquals("정산 예정", edits.memo(1))
-        assertEquals(null, edits.memo(2))
+        assertEquals("정산 예정", edits.memo(1)?.text)
+        assertEquals(KnownMemo(null), edits.memo(2))   // 없음을 확인함(모름과 다르다)
     }
 
     @Test fun `파일 이름 — RFC 5987을 먼저, 없으면 따옴표 이름, 둘 다 못 쓰면 이번 달`() {

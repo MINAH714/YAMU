@@ -50,11 +50,17 @@ class CancelAndMemoRulesTest {
         assertTrue(ApiError.BankUnavailable("UPSTREAM_TIMEOUT").toCancelProblem().recheck)
     }
 
-    @Test fun `서버가 코드로 답한 금융망 실패는 실패 — 결제는 그대로라 다시 누르면 된다`() {
+    @Test fun `FIN_API_UNAVAILABLE은 체크카드 입금 결과 불명일 수 있다 — 단정하지 않고 상태를 다시 본다`() {
+        // BE CheckCardRefunder는 '보내지 못함'과 '입금 결과 불명'을 둘 다 FIN_API_UNAVAILABLE(502)로 던진다
         val p = ApiError.BankUnavailable("FIN_API_UNAVAILABLE").toCancelProblem()
+        assertTrue(p.recheck)
+        assertEquals("은행 응답을 확인하지 못했어요. 잠시 뒤 다시 취소해 주세요", p.message)
+    }
+
+    @Test fun `FIN_API_ERROR는 은행이 거절한 것 — 결제는 그대로라 다시 누르면 된다`() {
+        val p = ApiError.BankUnavailable("FIN_API_ERROR").toCancelProblem()
         assertFalse(p.recheck)
-        assertEquals("은행 연결이 늦어 취소하지 못했어요. 결제는 그대로예요", p.message)
-        assertFalse(ApiError.BankUnavailable("FIN_API_ERROR").toCancelProblem().recheck)
+        assertEquals("은행이 처리하지 못해 취소하지 못했어요. 결제는 그대로예요", p.message)
     }
 
     @Test fun `이미 취소 · 처리 중은 상태를 다시 불러 본다`() {
