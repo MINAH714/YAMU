@@ -1,5 +1,6 @@
 package com.yamu.be.forecast;
 
+import com.yamu.be.payment.recommend.PosPurchaseFacts;
 import com.yamu.be.recommendation.BasicPurchaseSimulation;
 import com.yamu.be.recommendation.CalculationOptions;
 import com.yamu.be.recommendation.CardBenefitCalculator.BenefitValue;
@@ -31,7 +32,7 @@ import org.springframework.stereotype.Component;
  *
  * <ul>
  *   <li>거래: 구매일 낮 12시(KST)에 결제한다고 가정하고, {@link BasicPurchaseSimulation}으로 일반 구매·일반 매장을 가정한다.
- *       브랜드를 고르지 않았으면 브랜드에 달린 혜택을 빼고 계산한다.</li>
+ *       브랜드를 고르면 POS 결제와 같은 거래 사실을 넘기고, 고르지 않았으면 사실 없이 브랜드에 달린 혜택을 빼고 계산한다.</li>
  *   <li>혜택: 계산을 끝낸 카드만 순혜택(소수 그대로)·항목(결제 추천과 같은 모양)을 준다. 아니면 null이고 이유는 missingInformation이다.</li>
  *   <li>즉시할인 합계는 결제 추천과 같은 규칙이다: 적용 시점이 승인 때(AT_APPROVAL)인 혜택의 금액과, 배분이 안 정해진 즉시할인 묶음의
  *       원화 합계. 할인 혜택의 적용 시점을 모르면 즉시할인을 정할 수 없어 혜택을 null로 둔다.</li>
@@ -134,12 +135,19 @@ class EngineSimulationRecommender implements SimulationRecommender {
         return "BENEFIT_DATA_INSUFFICIENT";
     }
 
-    /** 구매일 낮 12시(KST), 요청한 결제 방식·개월 수, 확인된 가맹점·업종. 물품 코드는 넘기지 않는다(화면 표시용, 2026-11-05 결정). */
+    /**
+     * 구매일 낮 12시(KST), 요청한 결제 방식·개월 수, 확인된 가맹점·업종. 물품 코드는 넘기지 않는다(화면 표시용, 2026-11-05 결정).
+     *
+     * <p>브랜드를 골랐으면 POS 결제와 같은 거래 사실({@link PosPurchaseFacts})을 넘겨 같은 가맹점에서 POS와 같은 카드를 고른다.
+     * 그 사실은 "모의 가맹점에 공과금·교통·교육 가맹점이 없다"에 기대는데, 업종만 고르면 택시·전기요금·대학 같은 업종도 고를 수 있어
+     * 넘기지 않는다(넘기면 제외 혜택이 계산돼 혜택이 커진다, 2026-11-08 결정).
+     */
     private static RecommendationInput.Transaction transaction(Request request) {
+        Map<String, Boolean> facts = request.merchantId() != null ? PosPurchaseFacts.verified() : Map.of();
         RecommendationInput.Transaction plain = new RecommendationInput.Transaction(request.terms().amount(),
                 RecommendationInput.Plan.valueOf(request.terms().plan().name()), request.terms().installmentMonthsOrOne(),
                 request.purchaseDate().atTime(LocalTime.NOON).atZone(KOREA).toInstant(), request.merchantId(),
-                request.merchantCategoryCode(), Map.of(), null);
+                request.merchantCategoryCode(), facts, null);
         return BasicPurchaseSimulation.apply(plain, request.paymentChannel(), null);
     }
 
