@@ -147,6 +147,61 @@ class ForecastMapperTest {
         assertEquals("월급날까지", periodLabel(f, ForecastSelection(ForecastPeriod.NEXT_INCOME)))
     }
 
+    @Test fun `계좌가 여럿인데 생활비가 빠졌으면 고르면 된다고 약속하지 않는다`() {
+        // 로컬 BE 확인: 두 계좌 모두 기록이 없을 때도 '기록이 있는 계좌만 고르면'이라고 했다
+        val f = parse(noConservative.replace("\"accountIds\":[3]", "\"accountIds\":[3,4]"))
+        val line = noticeLines(f, ForecastSelection()).single()
+        assertEquals("생활비 기록이 없는 계좌가 있어 생활비는 빼고 계산했어요. 계좌를 따로 골라 보면 기록이 있는 계좌는 생활비까지 넣어 계산해요.", line)
+        assertFalse("고르면 생활비까지 넣어 볼 수 있어요" in line)
+    }
+
+    @Test fun `예정 수입·지출 머리 — 금액과 건수는 같은 기준(예보가 있으면 기간 안 출금)`() {
+        val nov8 = LocalDate.of(2026, 11, 8)
+        // 카드 예정 지출(사용일 11/8)은 가계부 줄로 보이지만 출금은 기간 밖 청구일 — 예보에는 없다
+        val cardPlan = CashflowEntry(9, false, "구매 계획", 120_000, nov8, nov8, CashflowRepeat.NONE, null, null, null, 11)
+        val rows = cashflowRows(listOf(cardPlan), testForecast())
+        assertEquals(0L to 0, com.yamu.app.feature.forecast.cashflowOutflow(testForecast(), rows))   // 전에는 '0원 · 출금 1건'
+        assertEquals("카드 결제", rows.single().cardNote)
+        // 예보가 없으면 가계부 줄 기준
+        assertEquals(120_000L to 1, com.yamu.app.feature.forecast.cashflowOutflow(null, rows))
+        // 기간 안 출금은 예보 기준으로 세고, 보수적 선 전용 추정은 빼고 센다
+        val withBill = testForecast(
+            days = listOf(
+                day(
+                    nov8,
+                    ForecastEvent(nov8, FlowType.CARD_BILLING, "신한카드 청구", -150_000, FlowConfidence.EXPECTED),
+                    ForecastEvent(nov8, FlowType.CARD_SPENDING_ESTIMATE, "신한카드 · 추정", -36_000, FlowConfidence.CONSERVATIVE),
+                ),
+            ),
+        )
+        assertEquals(150_000L to 1, com.yamu.app.feature.forecast.cashflowOutflow(withBill, rows))
+    }
+
+    @Test fun `계좌를 일부만 고르면 예정 목록도 그 계좌 · 그 계좌 카드 줄만(!176 리뷰)`() {
+        val nov8 = LocalDate.of(2026, 11, 8)
+        val accounts = listOf(
+            ForecastAccountOption(1, "월급 통장", null, "", null, true, cardIds = setOf(16)),
+            ForecastAccountOption(2, "생활비 통장", null, "", null, false, cardIds = setOf(11)),
+        )
+        val scope = ForecastSelection(accountIds = setOf(2)).scopeFrom(accounts)
+        assertEquals(AccountScope(setOf(2), setOf(11)), scope)
+        fun entry(id: Long, account: Long?, card: Long?) = CashflowEntry(id, false, "줄$id", 1_000, nov8, nov8, CashflowRepeat.NONE, null, null, account, card)
+        val entries = listOf(entry(1, 1, null), entry(2, 2, null), entry(3, null, 16), entry(4, null, 11), entry(5, null, null))
+        val rows = cashflowRows(entries, testForecast(accountIds = listOf(2)).copy(scope = scope))
+        assertEquals(listOf("줄2", "줄4", "줄5"), rows.map { it.title })   // 계좌도 카드도 없는 줄은 어느 계좌인지 몰라 둔다
+        // 전체를 고르면(또는 고른 계좌가 모두 남아 있으면) 거르지 않는다
+        assertNull(ForecastSelection().scopeFrom(accounts))
+        assertNull(ForecastSelection(accountIds = setOf(1, 2)).scopeFrom(accounts))
+        assertEquals(5, cashflowRows(entries, testForecast()).size)
+    }
+
+    @Test fun `계좌 · 카드 없는 줄과 수입 줄에는 카드 결제 표시가 없다`() {
+        val nov8 = LocalDate.of(2026, 11, 8)
+        val byAccount = CashflowEntry(1, false, "월세", 500_000, nov8, nov8, CashflowRepeat.NONE, null, null, 3, null)
+        val income = CashflowEntry(2, true, "환급", 10_000, nov8, nov8, CashflowRepeat.NONE, null, null, null, 11)
+        assertEquals(listOf(null, null), cashflowRows(listOf(byAccount, income), null).map { it.cardNote })
+    }
+
     @Test fun `상태 태그 — 사실만, 처음 안전 잔액 아래인 날`() {
         assertEquals("11월 21일부터 안전 잔액 아래" to TagTone.Warning, statusTag(parse()))
         assertNull(statusTag(testForecast(status = RiskLevel.UNKNOWN)))

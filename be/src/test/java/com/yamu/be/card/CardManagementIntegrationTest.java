@@ -1,6 +1,8 @@
 package com.yamu.be.card;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.endsWith;
+import static org.hamcrest.Matchers.contains;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -694,6 +696,126 @@ class CardManagementIntegrationTest extends MySqlTestSupport {
                 Integer.class, member.userId())).containsExactly(0, 1, 2);
     }
 
+    // ───────── 결제 설정 ─────────
+
+    @Test
+    void 결제_설정_조회는_자동_선택_기본_카드_포함_제외_카드와_고정_순서를_보인다() throws Exception {
+        long first = card(member.userId(), checkProduct, "9410123456785678", "ACTIVE", null, account, 1);
+        long excluded = card(member.userId(), checkProduct, "9410123456780001", "INACTIVE", null, account, 2);
+        long third = card(member.userId(), creditProduct, "4570000011111234", "ACTIVE", 14, account, 3);
+        card(member.userId(), checkProduct, "9410123456780002", "PENDING", null, account, 4);
+        markDefault(third);
+        Member stranger = member("01099998888");
+        card(stranger.userId(), checkProduct, "9410000044445555", "ACTIVE", null, account(stranger.userId(), "8888"), 1);
+
+        get(member, SETTINGS)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.autoSelect").value(true))
+                .andExpect(jsonPath("$.data.defaultUserCardId").value(third))
+                .andExpect(jsonPath("$.data.includedUserCardIds", contains((int) first, (int) third)))
+                .andExpect(jsonPath("$.data.excludedUserCardIds", contains((int) excluded)))
+                .andExpect(jsonPath("$.data.fixedOrder", contains((int) first, (int) excluded, (int) third)))
+                .andExpect(jsonPath("$.data.updatedAt").value(endsWith("Z")));
+        mockMvc.perform(MockMvcRequestBuilders.get(SETTINGS)).andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void 기본_카드가_있으면_자동_선택을_끄고_켤_수_있고_내_정보에도_같은_값이_나온다() throws Exception {
+        long card = card(member.userId(), checkProduct, "9410123456785678", "ACTIVE", null, account, 1);
+        markDefault(card);
+
+        // defaultUserCardId 칸을 보내지 않으면 기본 카드는 그대로
+        patchSettings(member, "{\"autoSelect\":false}")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.autoSelect").value(false))
+                .andExpect(jsonPath("$.data.defaultUserCardId").value(card));
+        assertThat(autoSelect(member)).isFalse();
+        get(member, "/api/users/me").andExpect(jsonPath("$.data.paymentSettings.autoSelect").value(false));
+
+        patchSettings(member, "{\"autoSelect\":true}").andExpect(jsonPath("$.data.autoSelect").value(true));
+        assertThat(autoSelect(member)).isTrue();
+        // 빈 요청은 아무것도 바꾸지 않는다
+        patchSettings(member, "{}").andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.autoSelect").value(true))
+                .andExpect(jsonPath("$.data.defaultUserCardId").value(card));
+    }
+
+    @Test
+    void 기본_카드_없이_자동_선택을_끄면_409이고_같은_요청에서_기본_카드를_정하면_끌_수_있다() throws Exception {
+        long card = card(member.userId(), checkProduct, "9410123456785678", "ACTIVE", null, account, 1);
+
+        patchSettings(member, "{\"autoSelect\":false}").andExpect(errorCode(409, "DEFAULT_CARD_REQUIRED"));
+        assertThat(autoSelect(member)).isTrue();
+
+        patchSettings(member, "{\"autoSelect\":false,\"defaultUserCardId\":" + card + "}")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.autoSelect").value(false))
+                .andExpect(jsonPath("$.data.defaultUserCardId").value(card));
+
+        // 끈 채로 기본 카드만 풀려고 하면 409(직접 요청은 막고, 카드 수정·해제로 없어질 때만 다시 켠다)
+        patchSettings(member, "{\"defaultUserCardId\":null}").andExpect(errorCode(409, "DEFAULT_CARD_REQUIRED"));
+        assertThat(defaults()).containsExactly(card);
+        assertThat(autoSelect(member)).isFalse();
+    }
+
+    @Test
+    void 기본_카드는_내_ACTIVE_카드만_고를_수_있고_바꾸거나_풀_수_있다() throws Exception {
+        long first = card(member.userId(), checkProduct, "9410123456785678", "ACTIVE", null, account, 1);
+        long inactive = card(member.userId(), checkProduct, "9410123456780001", "INACTIVE", null, account, 2);
+        long third = card(member.userId(), creditProduct, "4570000011111234", "ACTIVE", 14, account, 3);
+        markDefault(first);
+        Member stranger = member("01099998888");
+        long theirs = card(stranger.userId(), checkProduct, "9410000044445555", "ACTIVE", null,
+                account(stranger.userId(), "8888"), 1);
+
+        for (long notMine : new long[] {inactive, theirs, 999_999L}) {
+            patchSettings(member, "{\"defaultUserCardId\":" + notMine + "}")
+                    .andExpect(errorCode(400, "CARD_NOT_ELIGIBLE"));
+        }
+        assertThat(defaults()).containsExactly(first);
+
+        patchSettings(member, "{\"defaultUserCardId\":" + third + "}")
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.defaultUserCardId").value(third));
+        assertThat(defaults()).containsExactly(third);
+        get(member, "/api/cards/" + third).andExpect(jsonPath("$.data.isDefault").value(true));
+
+        patchSettings(member, "{\"defaultUserCardId\":null}")
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.defaultUserCardId").doesNotExist());
+        assertThat(defaults()).isEmpty();
+        assertThat(jdbc.queryForObject("SELECT is_default FROM user_card WHERE user_card_id = ?", Boolean.class, theirs))
+                .isFalse();
+    }
+
+    @Test
+    void 자동_선택을_끈_채로_기본_카드를_추천에서_빼거나_지정을_풀거나_해제하면_자동_선택이_다시_켜진다() throws Exception {
+        long first = card(member.userId(), checkProduct, "9410123456785678", "ACTIVE", null, account, 1);
+        long second = card(member.userId(), creditProduct, "4570000011111234", "ACTIVE", 14, account, 2);
+        long third = card(member.userId(), checkProduct, "9410123456780001", "ACTIVE", null, account, 3);
+
+        turnOffWithDefault(first);
+        // 기본 카드가 아닌 카드를 고치면 그대로 꺼져 있다
+        patch(member, second, "{\"nickname\":\"생활비\"}").andExpect(status().isOk());
+        assertThat(autoSelect(member)).isFalse();
+        patch(member, first, "{\"status\":\"INACTIVE\"}").andExpect(status().isOk());
+        assertThat(defaults()).isEmpty();
+        assertThat(autoSelect(member)).isTrue();
+
+        turnOffWithDefault(second);
+        patch(member, second, "{\"isDefault\":false}").andExpect(status().isOk());
+        assertThat(autoSelect(member)).isTrue();
+
+        // 다른 카드로 기본 카드를 옮기면 기본 카드가 남아 있으니 꺼진 채로 둔다
+        turnOffWithDefault(second);
+        patch(member, third, "{\"isDefault\":true}").andExpect(status().isOk());
+        assertThat(defaults()).containsExactly(third);
+        assertThat(autoSelect(member)).isFalse();
+
+        delete(member, third, stepUp(member, StepUpPurpose.CARD_DELETE)).andExpect(status().isNoContent());
+        assertThat(defaults()).isEmpty();
+        assertThat(autoSelect(member)).isTrue();
+        get(member, SETTINGS).andExpect(jsonPath("$.data.autoSelect").value(true));
+    }
+
     // ───────── 준비 ─────────
 
     private record Member(long userId, long deviceId) {
@@ -826,6 +948,28 @@ class CardManagementIntegrationTest extends MySqlTestSupport {
             values.put("max_performance_amount", max);
         }
         insert("tier_limit", "tier_limit_id", values);
+    }
+
+    private static final String SETTINGS = "/api/users/me/payment-settings";
+
+    private ResultActions patchSettings(Member member, String json) throws Exception {
+        return perform(MockMvcRequestBuilders.patch(SETTINGS)
+                .with(AuthUsers.asUser(member.userId(), member.deviceId())), json);
+    }
+
+    private void markDefault(long card) {
+        jdbc.update("UPDATE user_card SET is_default = TRUE WHERE user_card_id = ?", card);
+    }
+
+    private void turnOffWithDefault(long card) throws Exception {
+        patchSettings(member, "{\"autoSelect\":false,\"defaultUserCardId\":" + card + "}")
+                .andExpect(status().isOk());
+        assertThat(autoSelect(member)).isFalse();
+    }
+
+    private boolean autoSelect(Member member) {
+        return Boolean.TRUE.equals(jdbc.queryForObject("SELECT payment_auto_select FROM app_user WHERE user_id = ?",
+                Boolean.class, member.userId()));
     }
 
     private List<Long> defaults() {

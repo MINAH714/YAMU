@@ -99,6 +99,9 @@ public enum ErrorCode {
     ORDER_INCOMPLETE(HttpStatus.BAD_REQUEST, "보유 카드 전체를 빠짐없이 한 번씩 보내 주세요."),
     CARD_HAS_OPEN_BILL(HttpStatus.CONFLICT, "출금되지 않은 청구서가 있어 카드를 해제할 수 없습니다."),
 
+    /* 사용자 - 결제 설정 수정 (API 명세 「결제 설정 수정」). 기본 카드가 내 ACTIVE 카드가 아니면 결제와 같은 CARD_NOT_ELIGIBLE */
+    DEFAULT_CARD_REQUIRED(HttpStatus.CONFLICT, "자동 선택을 끄려면 기본 카드를 먼저 정해 주세요."),
+
     /* 사용자 - 회원 탈퇴 (API 명세 「회원 탈퇴」). details.billIds·refundIds */
     BILL_OUTSTANDING(HttpStatus.CONFLICT, "출금되지 않은 청구서가 있어 탈퇴할 수 없습니다."),
     REFUND_PENDING(HttpStatus.CONFLICT, "아직 입금되지 않은 환급이 있어 탈퇴할 수 없습니다."),

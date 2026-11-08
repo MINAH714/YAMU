@@ -45,6 +45,7 @@ import com.yamu.app.feature.forecast.data.RiskWindowDto
 import com.yamu.app.feature.forecast.data.SavedPlan
 import com.yamu.app.feature.forecast.data.SeriesPointDto
 import com.yamu.app.feature.forecast.data.accountIdsFrom
+import com.yamu.app.feature.forecast.data.scopeFrom
 import com.yamu.app.feature.forecast.data.toForecast
 import kotlinx.coroutines.delay
 import kotlinx.serialization.json.addJsonObject
@@ -160,7 +161,10 @@ class FakeForecastRepository @Inject constructor() : ForecastRepository {
         return listOf(bill, estimate) + fromItems + salary + planFlows
     }
 
-    private fun options(): List<ForecastAccountOption> = accountList.map { ForecastAccountOption(it.id, it.name, it.bank, it.last4, it.balance, it.primary) }
+    /** 계좌마다 출금 카드 — 알뜰체크는 월급 통장, 생활 · 여행 · 예전카드는 생활비 통장(가상 구매 가짜 카드와 같은 번호) */
+    private fun options(): List<ForecastAccountOption> = accountList.map {
+        ForecastAccountOption(it.id, it.name, it.bank, it.last4, it.balance, it.primary, cardIds = if (it.id == 1L) setOf(16L) else setOf(11L, 12L, 17L))
+    }
 
     /** 날마다 세 선 · 위험 구간 · 요약 — BE ForecastCalculator · RiskDetector 규칙을 줄여 흉내 낸다 */
     private fun build(selection: ForecastSelection, extra: List<Flow> = emptyList(), noLiving: Boolean = false): BalanceForecastDto {
@@ -262,11 +266,11 @@ class FakeForecastRepository @Inject constructor() : ForecastRepository {
         // '데이터 부족'은 실패가 아니라 생활비 기록이 없는 응답 — 잔고예보는 이때도 실패하지 않는다(docs/be/forecast.md 「에러」)
         if (DevSession.faultScenario == FaultScenario.DATA_INSUFFICIENT) {
             delay(300)
-            return ApiResult.Success(build(current, noLiving = true).toForecast().also { last = it })
+            return ApiResult.Success(build(current, noLiving = true).toForecast().copy(scope = current.scopeFrom(options())).also { last = it })
         }
         return withFault(empty = { ApiResult.Failure(ApiError.InvalidRequest(ForecastRepository.NO_ACCOUNT)) }) {
             delay(500)
-            ApiResult.Success(build(current).toForecast().also { last = it })
+            ApiResult.Success(build(current).toForecast().copy(scope = current.scopeFrom(options())).also { last = it })
         }
     }
 

@@ -23,7 +23,7 @@
 | 5 계좌 · 카드 연결 + 첫 분석 | ✅ `feature/link` — 카드 번호로 확인 · 등록(가입 뒤 · 카드 추가 공통) · 결제 계좌 연결 · 월급 · 고정 지출 · 첫 분석 · 알림 권한, 공통 본인 인증(`feature/auth/StepUp` · 간편 비밀번호 화면), 단위 테스트 36개 |
 | 6 결제 + 모의 POS 단말 | ✅ `feature/payment` — 카드추천 탭 · 결제 코드(QR · 바코드 · 남은 시간 · 1초 확인) · 결제 요청 확인(60초 · 카드 · 할부 · 거절 · 재승인) · 완료 · 거래 상세, 모의 POS 단말 앱(`src/pos` — 가맹점 · 금액 · 카메라 찍기 · 결과), 단위 테스트 46개 |
 | 7 실적 · 유불리 | ✅ `feature/performance` — 실적관리 탭(돌아올 때마다 새로 · 결제 반영 표시) · 카드 실적 상세 · 유불리 분석(판정 3가지 · 판단 기록 · 되돌리기 · 예정 지출 옮기기) · 혜택 한도, 단위 테스트 55개 |
-| 8 잔고예보 · 이거 사도 될까? | ✅ `feature/forecast` — 잔고예보(이거 사도 될까? 입구 · 계단 그래프 · 자세히 · 계좌별) · 예정 수입 · 지출 · 이거 사도 될까?(금액 · 품목 · 날짜 → 판정 · 방법 비교 · 계획 저장 · 지우기), 단위 테스트 61개 |
+| 8 잔고예보 · 이거 사도 될까? | ✅ `feature/forecast` — 잔고예보(기간 · 계좌 고르기 · 확정 · 예상 · 보수적 세 선 그래프 · 낮아지는 때 · 선 계산 근거 · 빼고 계산한 것) · 예정 수입 · 지출 · 이거 사도 될까?(금액 → 업종 · 브랜드 · 매장/온라인 · 카드 · 할부 · 날짜 → 사기 전후 비교 · 혜택 · 다른 카드 · 계획 저장 · 지우기) |
 | 9 · 10 소비분석 · 마이 | ✅ `feature/report` — 소비분석 탭 · 혜택 리포트 · 결제 내역(쪽 넘김), `feature/my` — 마이 탭 · 카드 관리 · 알림 설정 · 회원 정보(다른 기기 로그아웃) · 보안 · 인증 · 홈 알림함 · 내 카드, `navigation/AutoLock`(앱 자동 잠금), 빈 화면 0장(58장 전부 실제 화면), 단위 테스트 78개 |
 | 디자인 맞추기 | ✅ 프로토타입 58장과 같은 크기로 나란히 찍어 맞춤(14 문서) — 공통 부품(목록 줄 56 · 72dp · 키–값 줄 · 상세 화면 회색 바탕 + 카드 · 탭 아이콘 Material Symbols · 마이 큰 제목 · 테두리형 입력칸 · 단계 막대 · 키패드 · 태그 · 칩 · 자간 · 한국어 어절 줄바꿈) → 화면별, 글자 위치를 재서 2dp 넘게 어긋난 간격 161곳 → 36곳(남은 건 줄 순서 · 서버 값 · 에뮬레이터 차이와 재기 잡음 — 14 문서 14-7), 라이트 · 다크 · 글자 1.3배 확인 |
 | 11 통합 확인 · 배포 | 진행 중 — 데이터 상태 확인표를 가짜 데이터로 끝(디버그 '모든 기능 상태' · 빈 상태 · 오류 · 새로고침 실패 때 마지막 값과 시각, 단위 테스트 80개) · release 정리(R8 · 리소스 줄이기 · 서명 자리 · POS 64비트만) 합침 + R8 release 기기 확인 9개 통과(고객 10.0MB · POS 21.1MB) · 캐릭터 임시 그림 합침. 남은 것: 실제 서버 확인 · 캐릭터 진짜 그림 · 서명 키 |
@@ -58,19 +58,19 @@ yamu.baseUrl=http://localhost:8080/api/
 
 - `yamu.baseUrl`은 `http://`나 `https://`로 시작하고 `/`로 끝나야 한다(아니면 빌드가 멈춘다). 로컬 BE는 `adb reverse tcp:8080 tcp:8080` 뒤 `localhost`, 에뮬레이터는 `http://10.0.2.2:8080/api/`도 된다.
 - http는 `network_security_config`가 `localhost`와 `10.0.2.2`만 허용한다. LAN IP(`http://192.168.…`)는 막히므로 실기기는 `adb reverse`로 `localhost`를 쓴다.
-- 기능을 진짜로 켤 때는 `yamu.realApi`에 이름을 쉼표로 적는다. 쓸 수 있는 이름은 `auth` · `link` · `cashflow` · `home` · `payment` · `performance` · `forecast` · `report` · `my` · `pos`이다. `all`은 BE에 API가 있는 `auth` · `link` · `cashflow` · `payment` · `my` · `pos`만 켠다. 나머지는 이름을 직접 적어야 켜지고 지금 켜면 404가 난다. `cashflow`나 `forecast`를 켜면 `link`도 같이 켜진다(가짜 계좌 · 카드 번호가 진짜 서버로 가지 않게).
+- 기능을 진짜로 켤 때는 `yamu.realApi`에 이름을 쉼표로 적는다. 쓸 수 있는 이름은 `auth` · `link` · `cashflow` · `home` · `payment` · `performance` · `forecast` · `report` · `my` · `pos`이다. `all`은 BE에 API가 있는 `auth` · `link` · `cashflow` · `payment` · `forecast` · `my` · `pos`만 켠다. 나머지는 이름을 직접 적어야 켜지고 지금 켜면 404가 난다. `cashflow`나 `forecast`를 켜면 `link`도 같이 켜진다(가짜 계좌 · 카드 번호가 진짜 서버로 가지 않게).
 - `payment` · `my` · `pos`는 debug에서 BE에 없는 메서드만 가짜로 메운다(`src/debug/.../RealWithFakes.kt`, `src/posDebug/.../FakePosRepository.kt`). release에는 가짜가 없어 그대로 404다.
 - 진짜 API는 로그인 토큰이 필요하다. `auth`를 가짜로 두고 다른 기능만 켜면 가짜 토큰이 실려 401이 나므로 다른 기능을 켤 때는 `auth`도 같이 켠다.
 - 모의 POS는 `yamu.posKey`(BE `yamu.pos.key`와 같은 값), `yamu.posMerchantId`(단말의 `brand_code`와 같은 가맹점 번호, 시드마다 다름), `yamu.posCode`(기본 `POS-YAMU-CAFE`)를 적는다.
 
-BE(develop, 2026-11-03)와 맞춰 본 결과는 이렇다.
+BE(develop, 2026-11-03 · 잔고예보는 2026-11-08)와 맞춰 본 결과는 이렇다.
 
 | 이름 | 진짜로 부르는 API | BE에 없어서 남은 것 |
 |---|---|---|
 | `auth` | 본인인증 · 가입 중 계좌 연결 · PIN · 기기 등록 · 로그인 · 본인 확인 · 재발급 · 로그아웃 | 없음 |
 | `link` | 카드 확인 · 등록 · 로그인 후 계좌 추가 · 계좌 · 카드 목록 · 계좌 별칭 · 기준 계좌 · 카드 상세 · 수정 · 해제 · 순서 | 없음 |
-| `cashflow` | `cashflow-items` 등록 · 조회 · 수정 · 삭제, `forecasts/settings` 조회 · 수정 | `forecasts/balance`(실패해도 화면은 진행, 하루 생활비 제안만 빠짐). 후보 항목을 만드는 곳이 없어 B-06은 늘 비어 있음 |
-| `forecast` | 켜지 않음. debug에서는 `cashflow`를 켜면 가계부 메서드만 진짜(`RealCashflowWithFakes`) | `forecasts/balance`, `spending-decisions`, 구매 계획 구분. F-01과 F-02 합계 · 카드대금 · 월급은 가짜라 가계부 줄과 숫자가 맞지 않음 |
+| `cashflow` | `cashflow-items` 등록 · 조회 · 수정 · 삭제, `forecasts/settings` 조회 · 수정 | 후보 항목을 만드는 곳이 없어 B-06은 늘 비어 있음 |
+| `forecast` | `forecasts/balance`(연결 계좌 `accountIds` · 기간), `forecasts/simulations`, `merchant-categories`, `merchants?merchantCategoryCode=`, 구매 계획 `cashflow-items` 등록 · 삭제(2026-11-08 로컬 BE로 확인) | 실적 영향(`performanceImpact`가 늘 null), 홈 잔고 카드(`home`) |
 | `payment` | 결제 코드 발급 · 상태 · 승인 | 가맹점 목록, 결제 전 추천, 거절(요청이 마감까지 남음), 결제 상세. 후보에 카드사 · 카테고리가 없어 별칭으로 보임 |
 | `my` | 기기 목록 · 해제(`APP_UNLOCK` 본인 확인), 회원 탈퇴(`WITHDRAW_MEMBER` 본인 확인) | 회원 정보, 결제 · 보안 설정, 알림. release는 회원 정보를 못 읽어 M-01에서 회원 정보 · 탈퇴로 들어갈 수 없음 |
 | `pos` | 결제 요청 | 가맹점 목록, 결과 조회(결과는 고객 앱에서 확인) |

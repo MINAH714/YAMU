@@ -10,7 +10,7 @@ import java.time.LocalDateTime;
  * @param name             본인인증 이름
  * @param onboarding       초기 설정 완료 여부
  * @param securitySettings 로그인·보안 설정 요약. 시간 규칙과 결제 코드 인증 방식은 임시 기본값
- * @param paymentSettings  결제 설정 요약. autoSelect는 임시 기본값
+ * @param paymentSettings  결제 설정 요약(자세한 값은 「결제 설정 조회」)
  * @param createdAt        가입 시각(UTC)
  */
 public record MyInfoResponse(Long userId, String maskedPhone, String name, Onboarding onboarding,
@@ -39,7 +39,7 @@ public record MyInfoResponse(Long userId, String maskedPhone, String name, Onboa
     public record CurrentDevice(Long userDeviceId, String deviceName) {}
 
     /**
-     * @param autoSelect        결제 카드 자동 선택(임시 true)
+     * @param autoSelect        결제 카드 자동 선택. 끄면 기본 카드로 결제(「결제 설정 수정」으로 바꿈)
      * @param defaultUserCardId 기본 카드. 없으면 null
      */
     public record PaymentSettings(boolean autoSelect, Long defaultUserCardId) {}

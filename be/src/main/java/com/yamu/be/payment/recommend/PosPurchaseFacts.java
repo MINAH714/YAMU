@@ -46,6 +46,17 @@ public final class PosPurchaseFacts {
     static final Set<String> NOT_POS_PERFORMANCE_FACTS = Set.of(
             "PERFORMANCE:POSTPAID_TRANSIT", "PERFORMANCE:MOBILE_POSTPAID_TRANSIT", "PERFORMANCE:TELECOM_AUTOPAY");
 
+    /**
+     * 이 업종의 가맹점이면 위 사실(택시·후불교통·공과금·등록금 등이 "아니다")을 확정할 수 없다. 지금 모의 가맹점(be/seed)·POS 단말에는
+     * 이 업종이 없다. 유치원·학원·운전학원은 학교 납입금({@code SCHOOL_PAYMENT})에 들어가는지 원문이 없어 넣었다: 넣고 틀리면 자료 부족,
+     * 빼고 틀리면 혜택이 커진다. 목록이 빠짐없는지는 테스트로 증명할 수 없다(업종별 약관 해석, 2026-11-08 !180 리뷰).
+     * 업종 단위라 막지 못하는 것: 주유소 업종 가맹점이 LPG 충전소면 {@code LPG_STATION=false}가 틀린다(POS도 같다).
+     */
+    static final Set<String> UNCONFIRMED_CATEGORIES = Set.of(
+            "TAXI", "CITY_BUS", "INTERCITY_BUS", "EXPRESS_BUS", "SUBWAY", "RAILWAY",
+            "ELECTRIC_UTILITY", "WATER_UTILITY", "CITY_GAS_UTILITY",
+            "UNIVERSITY", "PRIMARY_SECONDARY_SCHOOL", "KINDERGARTEN", "ACADEMY", "DRIVING_SCHOOL");
+
     private static final Map<String, Boolean> VERIFIED = build();
 
     private PosPurchaseFacts() {
@@ -53,6 +64,20 @@ public final class PosPurchaseFacts {
 
     /** POS 일반 구매에서 확인된 사실. 모두 false다. */
     public static Map<String, Boolean> verified() {
+        return VERIFIED;
+    }
+
+    /**
+     * 그 업종 가맹점의 일반 구매에서 확인된 사실. 업종을 모르거나 {@link #UNCONFIRMED_CATEGORIES}이면 빈 Map이다.
+     * 가상 구매(브랜드 선택)가 쓴다. POS 접수는 아직 {@link #verified()}를 쓴다(단말에 해당 업종이 없음, BE2 후속에서 옮김).
+     *
+     * @param merchantCategoryCode 가맹점의 업종 코드(DB 값). null이면 모름
+     * @return 확인된 사실(모두 false) 또는 빈 Map
+     */
+    public static Map<String, Boolean> forCategory(String merchantCategoryCode) {
+        if (merchantCategoryCode == null || UNCONFIRMED_CATEGORIES.contains(merchantCategoryCode)) {
+            return Map.of();
+        }
         return VERIFIED;
     }
 
