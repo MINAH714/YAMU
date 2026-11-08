@@ -128,6 +128,11 @@ class SimulationMapperTest {
         assertTrue(s.missing.none { "빼고 계산했어요" in it })
     }
 
+    @Test fun `추천 엔진 읽기 실패 · 고른 카드 미평가는 따로 문장(!176 리뷰)`() {
+        assertEquals("혜택 정보를 읽지 못했어요. 잠시 뒤 다시 시도해 주세요.", missingText("RECOMMENDATION_READ_FAILED", benefitComputed = false))
+        assertEquals("이 카드는 이번 계산에서 혜택을 비교하지 못했어요.", missingText("CARD_NOT_EVALUATED", benefitComputed = false))
+    }
+
     @Test fun `계획 저장 — 일시불만, 전액 즉시할인이면 저장할 것이 없다`() {
         val lump = parse(query.copy(userCardId = 11))
         assertTrue(lump.canSavePlan)

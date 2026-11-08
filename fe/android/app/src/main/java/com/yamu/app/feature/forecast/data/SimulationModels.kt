@@ -244,6 +244,10 @@ internal fun missingText(code: String?, benefitComputed: Boolean): String? = whe
     "BRAND_MISSING" -> "브랜드를 고르면 브랜드 혜택까지 계산할 수 있어요."
     "INSUFFICIENT_BALANCE" -> "오늘 잔액이 부족한 체크카드라 혜택을 판정하지 못했어요. 잔고 비교는 그대로 볼 수 있어요."
     "INSTANT_DISCOUNT_TIMING_UNKNOWN" -> "할인이 언제 적용되는지 몰라 혜택을 계산하지 못했어요."
+    // 고른 카드인데 추천 엔진이 DB를 읽다 실패 — 잠깐의 읽기 실패라 다시 시도하면 된다(BE EngineSimulationRecommender, !176 리뷰)
+    "RECOMMENDATION_READ_FAILED" -> "혜택 정보를 읽지 못했어요. 잠시 뒤 다시 시도해 주세요."
+    // 고른 카드가 추천 엔진의 계산 대상에 없었다
+    "CARD_NOT_EVALUATED" -> "이 카드는 이번 계산에서 혜택을 비교하지 못했어요."
     else -> if (benefitComputed) "혜택 조건 중 확인하지 못한 것이 있어 일부 혜택은 빼고 계산했어요." else "확인하지 못한 혜택 조건이 있어요."
 }
 
