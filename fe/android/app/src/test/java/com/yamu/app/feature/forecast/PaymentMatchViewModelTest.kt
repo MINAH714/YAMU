@@ -36,6 +36,7 @@ class PaymentMatchViewModelTest {
     private var deleteCalls = 0
     private var confirmResponse = CompletableDeferred<ApiResult<MatchConfirmed>>()
     private var deleteResult: ApiResult<Unit> = ApiResult.Success(Unit)
+    private var candidatesMatch: PaymentMatch? = null
 
     private val repo = object : ForecastRepository by unused() {
         override suspend fun matchStatus(itemId: Long, occurrenceDate: LocalDate): ApiResult<PaymentMatch?> {
@@ -45,7 +46,7 @@ class PaymentMatchViewModelTest {
         }
         override suspend fun matchCandidates(itemId: Long, occurrenceDate: LocalDate): ApiResult<MatchCandidates> {
             candidateCalls++
-            return ApiResult.Success(MatchCandidates(occurrenceDate, 55_000, null, emptyList()))
+            return ApiResult.Success(MatchCandidates(occurrenceDate, 55_000, candidatesMatch, emptyList()))
         }
         override suspend fun confirmMatch(itemId: Long, occurrenceDate: LocalDate, paymentId: Long): ApiResult<MatchConfirmed> {
             confirmCalls++
@@ -139,6 +140,37 @@ class PaymentMatchViewModelTest {
         assertFalse(vm.state.value.working)
     }
 
+    @Test fun `후보를 열었는데 그사이 다른 곳에서 연결됐으면 시트를 닫고 지금 연결을 보인다`() = runTest(dispatcher) {
+        val vm = PaymentMatchViewModel(key, repo)
+        advanceUntilIdle()
+        assertNull(vm.state.value.match)
+
+        candidatesMatch = MATCH
+        vm.openCandidates()
+        assertTrue(vm.state.value.sheet)
+        advanceUntilIdle()
+
+        assertFalse(vm.state.value.sheet)
+        assertEquals(MATCH, vm.state.value.match)
+        assertEquals("이미 다른 결제와 연결돼 있어요", vm.state.value.message)
+    }
+
+    @Test fun `409 뒤 후보를 다시 불러 연결이 보이면 409 문구를 그대로 두고 시트를 닫는다`() = runTest(dispatcher) {
+        val vm = PaymentMatchViewModel(key, repo)
+        advanceUntilIdle()
+        vm.openCandidates()
+        advanceUntilIdle()
+
+        candidatesMatch = MATCH                                   // 다른 기기에서 먼저 연결함
+        status = MATCH
+        vm.confirm(5101)
+        confirmResponse.complete(ApiResult.Failure(ApiError.from(409, "CASHFLOW_MATCH_CONFLICT")))
+        advanceUntilIdle()
+
+        assertFalse(vm.state.value.sheet)
+        assertEquals("이 회차나 결제가 이미 다른 것과 연결돼 있어요 · 목록을 새로 불러왔어요", vm.state.value.message)
+    }
+
     @Test fun `해제는 한 번 더 묻고, 끊으면 다시 예정 지출로 센다고 알린다`() = runTest(dispatcher) {
         status = MATCH
         val vm = PaymentMatchViewModel(key, repo)
@@ -191,8 +223,15 @@ class PaymentMatchViewModelTest {
         assertEquals("잠시 뒤 다시 시도해 주세요", vm.state.value.message)
     }
 
+    @Test fun `지난 회차 안내는 연결을 끊어도 고칠 수 있다고 말하지 않는다`() {
+        assertFalse(matchedNote(MatchState.REVIEW_REQUIRED, past = true).contains("고치"))
+        assertFalse(matchedNote(MatchState.ACTIVE, past = true).contains("고칠"))
+        assertTrue(matchedNote(MatchState.REVIEW_REQUIRED, past = false).contains("고치거나"))
+        assertTrue(matchedNote(MatchState.ACTIVE, past = false).contains("고칠 수 없어요"))
+    }
+
     private companion object {
-        val MATCH = PaymentMatch(801, 5101, "애플짐 역삼점", 55_000, 55_000, MatchState.ACTIVE)
+        val MATCH =PaymentMatch(801, 5101, "애플짐 역삼점", 55_000, 55_000, MatchState.ACTIVE)
 
         inline fun <reified T : Any> unused(): T = Proxy.newProxyInstance(
             T::class.java.classLoader,

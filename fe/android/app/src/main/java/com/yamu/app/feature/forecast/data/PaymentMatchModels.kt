@@ -6,6 +6,7 @@ import com.yamu.app.core.network.ApiError
 import kotlinx.serialization.Serializable
 import java.time.LocalDate
 import java.time.LocalDateTime
+import java.time.OffsetDateTime
 import java.time.ZoneOffset
 
 // ── 예정 지출 · 실제 결제 연결 — BE PaymentMatchController(-319), docs/be/cashflow.md 「결제 매칭」 ──
@@ -117,9 +118,13 @@ internal fun matchReasonText(code: String): String? = when (code.uppercase()) {
     else -> null
 }
 
-/** UTC 시각 → 한국 날짜(BE도 매칭 날짜를 승인 시각의 한국 날짜로 센다) */
+/**
+ * UTC 시각 → 한국 날짜(BE도 매칭 날짜를 승인 시각의 한국 날짜로 센다).
+ * BE UtcLocalDateTimeSerializer는 끝에 Z를 붙여 보낸다("2026-11-05T03:30:00Z"). Z가 없는 값도 UTC로 읽는다
+ */
 internal fun utcToKstDate(value: String?): LocalDate? = value?.let {
-    runCatching { LocalDateTime.parse(it).atOffset(ZoneOffset.UTC).atZoneSameInstant(KST).toLocalDate() }.getOrNull()
+    runCatching { OffsetDateTime.parse(it).atZoneSameInstant(KST).toLocalDate() }.getOrNull()
+        ?: runCatching { LocalDateTime.parse(it).atOffset(ZoneOffset.UTC).atZoneSameInstant(KST).toLocalDate() }.getOrNull()
 }
 
 fun MatchViewDto.toMatch() = PaymentMatch(

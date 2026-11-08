@@ -307,7 +307,7 @@ fun CashflowCreateRoute(onBack: () -> Unit, onDone: () -> Unit, viewModel: Cashf
             Spacer(Modifier.height(YamuSpacing.x2))
             if (pastOnly && editing != null) {
                 PastOccurrenceSummary(editing, s.cards.firstOrNull { it.userCardId == editing.userCardId }?.displayName)
-                if (matchable) PaymentMatchSection()
+                if (matchable) PaymentMatchSection(past = true)
                 Spacer(Modifier.height(YamuSpacing.x6))
                 return@Column
             }
@@ -418,7 +418,7 @@ fun CashflowCreateRoute(onBack: () -> Unit, onDone: () -> Unit, viewModel: Cashf
             }
             errorOf(CashflowField.PAYMENT)?.let { Text(it, style = YamuTheme.typography.bodyS, color = c.error) }
             // 카드 예정 지출 회차 — 실제 결제와 연결(-319). 저장된 회차 기준이라 고치는 중인 값과 상관없다
-            if (matchable) PaymentMatchSection()
+            if (matchable) PaymentMatchSection(past = false)
             Spacer(Modifier.height(YamuSpacing.x6))
         }
     }

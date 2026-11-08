@@ -127,8 +127,11 @@ class PaymentMatchViewModel internal constructor(private val key: Pair<Long, Loc
         viewModelScope.launch {
             _state.update { it.copy(candidates = null, candidatesError = null) }
             when (val r = repo.matchCandidates(itemId, occurrence)) {
-                // 그사이 다른 기기에서 연결했으면 후보 대신 지금 연결을 보인다
-                is ApiResult.Success -> _state.update { it.copy(candidates = r.data, match = r.data.match ?: it.match) }
+                // 그사이 다른 기기에서 연결했으면 시트를 닫고 후보 대신 지금 연결을 보인다
+                is ApiResult.Success -> _state.update {
+                    val now = r.data.match ?: return@update it.copy(candidates = r.data)
+                    it.copy(candidates = r.data, match = now, sheet = false, message = it.message ?: "이미 다른 결제와 연결돼 있어요")
+                }
                 is ApiResult.Failure -> _state.update { it.copy(candidatesError = r.error.userMessage()) }
             }
         }
@@ -184,9 +187,19 @@ class PaymentMatchViewModel internal constructor(private val key: Pair<Long, Loc
     fun messageShown() = _state.update { it.copy(message = null) }
 }
 
-/** 수정 화면 아래 '실제 결제와 연결' — 카드를 지정한 예정 지출 회차만 */
+/**
+ * 연결된 결제 아래 안내 — 지난 회차는 연결을 끊어도 고칠 수 없어(BE requireChangeable이 지난 회차를 거절) '고칠 수 있어요'를 말하지 않는다
+ */
+internal fun matchedNote(state: MatchState, past: Boolean): String = when {
+    state == MatchState.REVIEW_REQUIRED && past -> "연결한 결제가 취소돼 이 회차는 다시 예정 지출로 셉니다 · 연결을 끊으면 다른 결제와 다시 연결할 수 있어요"
+    state == MatchState.REVIEW_REQUIRED -> "연결한 결제가 취소돼 이 회차는 다시 예정 지출로 셉니다 · 연결을 끊으면 고치거나 다른 결제와 연결할 수 있어요"
+    past -> "잔고예보에서 이 회차는 예정 지출 대신 실제 결제로 셉니다"
+    else -> "잔고예보에서 이 회차는 예정 지출 대신 실제 결제로 셉니다 · 연결을 끊기 전에는 고칠 수 없어요"
+}
+
+/** 수정 화면 아래 '실제 결제와 연결' — 카드를 지정한 예정 지출 회차만. [past]면 지난 회차(고칠 수 없음) */
 @Composable
-internal fun PaymentMatchSection(viewModel: PaymentMatchViewModel = hiltViewModel()) {
+internal fun PaymentMatchSection(past: Boolean, viewModel: PaymentMatchViewModel = hiltViewModel()) {
     val s by viewModel.state.collectAsStateWithLifecycle()
     val snackbar = LocalSnackbar.current
     LaunchedEffect(s.message) {
@@ -204,7 +217,7 @@ internal fun PaymentMatchSection(viewModel: PaymentMatchViewModel = hiltViewMode
     when {
         s.loading -> SkeletonBlock(height = 56.dp)
         error != null && match == null -> ErrorState(error, onRetry = viewModel::refresh)
-        match != null -> MatchedPayment(match, s.warnings, working = s.working, onUnlink = viewModel::askUnlink)
+        match != null -> MatchedPayment(match, s.warnings, past = past, working = s.working, onUnlink = viewModel::askUnlink)
         else -> {
             Text("이 회차를 실제로 결제했다면 연결해 주세요 · 잔고예보에서 두 번 빠지지 않아요", style = YamuTheme.typography.bodyM, color = c.text2)
             Spacer(Modifier.height(YamuSpacing.x3))
@@ -225,7 +238,7 @@ internal fun PaymentMatchSection(viewModel: PaymentMatchViewModel = hiltViewMode
 
 /** 지금 연결된 결제 — 결제가 취소됐으면(REVIEW_REQUIRED) 다시 확인하라고 알린다 */
 @Composable
-private fun MatchedPayment(match: PaymentMatch, warnings: List<String>, working: Boolean, onUnlink: () -> Unit) {
+private fun MatchedPayment(match: PaymentMatch, warnings: List<String>, past: Boolean, working: Boolean, onUnlink: () -> Unit) {
     val c = YamuTheme.colors
     val reviewNeeded = match.state == MatchState.REVIEW_REQUIRED
     Column(
@@ -242,8 +255,7 @@ private fun MatchedPayment(match: PaymentMatch, warnings: List<String>, working:
         match.paidAmount?.let { Text("${it.toWon()}원", style = YamuTheme.typography.bodyM, color = c.text2, modifier = Modifier.padding(top = 2.dp)) }
         Spacer(Modifier.height(6.dp))
         Text(
-            if (reviewNeeded) "연결한 결제가 취소돼 이 회차는 다시 예정 지출로 셉니다 · 연결을 끊으면 고칠 수 있어요"
-            else "잔고예보에서 이 회차는 예정 지출 대신 실제 결제로 셉니다 · 연결을 끊기 전에는 고칠 수 없어요",
+            matchedNote(match.state, past),
             style = YamuTheme.typography.bodyS,
             color = if (reviewNeeded) c.onWarningContainer else c.text3,
         )

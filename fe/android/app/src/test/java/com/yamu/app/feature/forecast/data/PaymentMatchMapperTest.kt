@@ -19,11 +19,11 @@ class PaymentMatchMapperTest {
     private val candidatesJson = """
         {"cashflowItemId":7010,"occurrenceDate":"2026-11-05","scheduledDate":"2026-11-05","scheduledAmount":55000,
          "match":{"matchId":801,"paymentId":5106,"merchantName":"카카오T","amount":14000,"approvedAmount":14000,
-                  "paymentStatus":"CANCELED","matchStatus":"REVIEW_REQUIRED","matchedAt":"2026-11-04T04:00:00"},
+                  "paymentStatus":"CANCELED","matchStatus":"REVIEW_REQUIRED","matchedAt":"2026-11-04T04:00:00Z"},
          "candidates":[
-           {"paymentId":5101,"merchantName":"애플짐 역삼점","amount":55000,"approvedAmount":55000,"approvedAt":"2026-11-05T03:30:00",
+           {"paymentId":5101,"merchantName":"애플짐 역삼점","amount":55000,"approvedAmount":55000,"approvedAt":"2026-11-05T03:30:00Z",
             "userCardId":11,"cardType":"CREDIT","matchReasons":["AMOUNT_MATCH","CARD_MATCH","DATE_NEAR","NEW_REASON"],"warnings":[]},
-           {"paymentId":5102,"merchantName":" ","amount":4800,"approvedAmount":4500,"approvedAt":"2026-11-04T16:10:00",
+           {"paymentId":5102,"merchantName":" ","amount":4800,"approvedAmount":4500,"approvedAt":"2026-11-04T16:10:00Z",
             "userCardId":16,"cardType":"CHECK","matchReasons":[],"warnings":["AMOUNT_MISMATCH","CARD_MISMATCH","SOMETHING_ELSE"]},
            {"paymentId":5103,"amount":6500,"approvedAt":"bad","forecastTreatment":"ACTUAL_PAYMENT_ONLY"}
          ]}
@@ -53,14 +53,22 @@ class PaymentMatchMapperTest {
         assertEquals(6_500L, third.paidAmount)    // 승인 금액이 없으면 결제 금액
     }
 
-    @Test fun `승인 시각은 UTC라 한국 날짜로 바꾼다 — 오후 4시 10분(UTC)은 다음 날`() {
+    @Test fun `승인 시각은 UTC(끝에 Z)라 한국 날짜로 바꾼다 — 오후 4시 10분(UTC)은 다음 날`() {
         val c = YamuJson.decodeFromString<MatchCandidatesDto>(candidatesJson).toCandidates()
 
         assertEquals(LocalDate.of(2026, 11, 5), c.candidates[0].approvedDate)
         assertEquals(LocalDate.of(2026, 11, 5), c.candidates[1].approvedDate)
+        assertEquals(LocalDate.of(2026, 11, 8), utcToKstDate("2026-11-07T15:00:00Z"))
+        assertEquals(LocalDate.of(2026, 11, 7), utcToKstDate("2026-11-07T14:59:59Z"))
+        assertEquals(LocalDate.of(2026, 11, 8), utcToKstDate("2026-11-07T15:00:00.123Z"))
+        assertNull(utcToKstDate(null))
+    }
+
+    @Test fun `Z가 없는 값도 UTC로 읽는다`() {
         assertEquals(LocalDate.of(2026, 11, 8), utcToKstDate("2026-11-07T15:00:00"))
         assertEquals(LocalDate.of(2026, 11, 7), utcToKstDate("2026-11-07T14:59:59"))
-        assertNull(utcToKstDate(null))
+        assertEquals(LocalDate.of(2026, 11, 8), utcToKstDate("2026-11-07T18:00:00+03:00"))   // 오프셋이 오면 그 오프셋대로
+        assertNull(utcToKstDate("2026-11-07"))
     }
 
     @Test fun `지금 연결 — 결제가 취소되면 다시 확인할 상태, 모르는 상태 값은 UNKNOWN`() {

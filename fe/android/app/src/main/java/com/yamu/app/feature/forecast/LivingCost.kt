@@ -115,7 +115,8 @@ internal fun LivingCostEntry(f: Forecast, onOpen: () -> Unit) {
             title = "생활비는 어떻게 예측했나요?",
             sub = when {
                 !living.insufficient && living.projectedAmount != null -> listOfNotNull("${cashflowPeriod(f)} ${living.projectedAmount.toWon()}원", living.method.label).joinToString(" · ")
-                f.accountIds.size > 1 -> "생활비 기록이 없는 계좌가 있어요 · 계좌별로 보기"
+                // 잔고예보 응답만으로는 일부만 없는지 전부 없는지 몰라(전부면 상세가 422) 계좌별 값을 약속하지 않는다
+                f.accountIds.size > 1 -> "생활비 기록이 없는 계좌가 있어 합계를 내지 않았어요"
                 else -> "생활비 기록이 아직 없어요"
             },
             chevron = true,

@@ -594,12 +594,12 @@ class FakeForecastRepository @Inject constructor() : ForecastRepository {
     private var lastPast: List<CashflowEntry> = emptyList()
 
     private fun FakePayment.date(): LocalDate = today.minusDays(daysAgo)
-    private fun FakePayment.approvedAtUtc() = "${date()}T03:30:00"
+    private fun FakePayment.approvedAtUtc() = "${date()}T03:30:00Z"   // BE UtcLocalDateTimeSerializer처럼 Z를 붙인다
     private fun FakePayment.view(m: FakeMatch) = MatchViewDto(
         m.id, id, merchant, amount, approvedAmount,
         paymentStatus = if (canceled) "CANCELED" else "APPROVED",
         matchStatus = if (canceled) "REVIEW_REQUIRED" else "ACTIVE",
-        matchedAt = "${date()}T04:00:00",
+        matchedAt = "${date()}T04:00:00Z",
     )
 
     /** 연결돼 실제 결제로 센 회차 — 잔고예보의 예정 지출에서 뺀다(결제가 취소됐으면 다시 센다) */
