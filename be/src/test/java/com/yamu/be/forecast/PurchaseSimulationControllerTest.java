@@ -399,16 +399,20 @@ class PurchaseSimulationControllerTest extends MySqlTestSupport {
 
     @Test
     void until_값이_틀리면_400이다() throws Exception {
-        perform(body(accountA, checkOnA, "300000", "\"until\": \"WEEK\""))
+        // 업종이 있어 until 말고는 추천 엔진까지 가는 요청이다.
+        String category = ", \"merchantCategoryCode\": \"SUPERMARKET\"";
+        perform(body(accountA, checkOnA, "300000", "\"until\": \"WEEK\"" + category))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("INVALID_REQUEST"))
                 .andExpect(jsonPath("$.error.details.fieldErrors[0].field").value("until"));
         // 숫자는 enum 순번(0 = NEXT_INCOME)으로 읽지 않는다.
         for (String value : new String[] {"0", "1", "\"days\""}) {
-            perform(body(accountA, checkOnA, "300000", "\"until\": " + value + ", \"days\": 7"))
+            perform(body(accountA, checkOnA, "300000", "\"until\": " + value + ", \"days\": 7" + category))
                     .andExpect(status().isBadRequest())
                     .andExpect(jsonPath("$.error.details.fieldErrors[0].field").value("until"));
         }
+        // 요청만으로 알 수 있는 오류라 days처럼 추천 엔진을 부르기 전에 거절한다(!164 리뷰).
+        verify(recommender, never()).recommend(any());
     }
 
     private ResultActions perform(String json) throws Exception {
