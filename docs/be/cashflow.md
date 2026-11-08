@@ -158,6 +158,7 @@ Java record와 Jackson은 "보내지 않음"과 `null`을 구분하지 못해 �
 |---|---|
 | 입력 범위(금액·길이·날짜 등), 지난 회차·일정, 규칙의 회차가 아닌 날짜, 지운 회차 수정, 앞 구간 종료일 이전으로 당기기 | 400 `INVALID_REQUEST` + `details.fieldErrors` |
 | 정수 칸(`amount`·`accountId`·`userCardId`·`recurrence.dayOfMonth`)에 소수점 아래가 있는 값(예: `500000.9`). `500000.0`·`1e3`처럼 값이 정수면 받음 | 400 `INVALID_REQUEST`(본문 형식 오류, `fieldErrors` 없음). 전에는 Jackson 기본값으로 소수점 아래를 버리고 저장했음(2026-11-06, S15P31E103-318) |
+| enum 칸(`type`·`recurrence.frequency`·`recurrence.dayOfWeek`·`status`·`scope`)에 이름과 정확히 같지 않은 값: 숫자(`0`), 숫자 문자열(`"0"`), 소문자(`"income"`), 앞뒤 공백(`" INCOME "`) | 400 `INVALID_REQUEST`(본문 형식 오류, `fieldErrors` 없음, `StrictEnumDeserializer`). 전에는 Jackson 기본값으로 숫자를 순번으로 읽어 `"type": 0`이 `INCOME`, ISO 요일 번호 `"dayOfWeek": 1`(월요일)이 `TUESDAY`가 됐고, 앞뒤 공백은 잘라 받았음(2026-11-08, S15P31E103-339). 전역 Jackson 설정은 다른 API도 바뀌어 건드리지 않음 |
 | JSON 형식 오류(본문 없음, 없는 enum 값, 숫자 자리에 문자 등) | 400 `INVALID_REQUEST`, `details` 없음(공통 처리) |
 | 남의·없는 항목·계좌·카드 | 404 `RESOURCE_NOT_FOUND` |
 | 후보가 아닌 상태 전환 | 409 `INVALID_STATUS_CHANGE` |
@@ -219,14 +220,13 @@ Java record와 Jackson은 "보내지 않음"과 `null`을 구분하지 못해 �
 - **구매 계획 행**: 수정·삭제 API가 `item_kind`를 거르지 않습니다. 구매 계획을 만드는 기능이 아직 없어 지금은 생기지 않고, 그 기능에서 정합니다.
 - **이어받는 카드·계좌 재확인 없음**: 수정 때 새로 보낸 계좌·카드만 소유·정지 여부를 확인합니다. 정지된 카드가 붙은 규칙의 금액만 고치면 그 카드가 새 규칙에 그대로 남습니다.
 - **문서 차이**: [schema/implementation.md](schema/implementation.md) 104행은 카드·계좌 동시 지정을 "API 협의 사항"으로 두지만, API는 "둘 중 정확히 하나"로 구현돼 있습니다.
-- **enum 칸의 숫자**: 요청의 `type`·`frequency`·`status`·`scope`·`dayOfWeek`는 Jackson 기본 설정이 숫자를 enum 순번으로 읽어, 예를 들어 `"type": 0`이 `INCOME`이 됩니다. 가상 구매 `until`만 막았고(-318) 이 칸들은 후속으로 둡니다(2026-11-06 결정).
 
 ## 테스트 (2026-10-30, 7.1.6 브랜치)
 
 | 테스트 | 수 | 확인하는 것 |
 |---|---|---|
 | `CashflowServiceTest` | 44 | 입력 검증(금액 상한·말일 시작 반복일), 회차 계산(매주·월말 보정·기준일·종료일), 목록 병합, 이번 회차 수정·삭제, 한국 날짜 경계, 상태 전환 (Mockito) |
-| `CashflowControllerTest` | 17 | 인증 401, 남의 데이터 404, 응답 필드, 병합 결과, PATCH·DELETE, 409, 금액 상한 400 (MockMvc + 실제 MySQL) |
+| `CashflowControllerTest` | 21 | 인증 401, 남의 데이터 404, 응답 필드, 병합 결과, PATCH·DELETE, 409, 금액 상한 400, 금액·계좌 소수 400(-318), enum 칸 숫자·다른 문자열 400과 이름 문자열 유지(-339) (MockMvc + 실제 MySQL) |
 | `CashflowSeriesTest` | 17 | 나누기·제자리 수정, 시리즈 재수정, 전체 삭제, 결제 연결 거절, 오늘 시작 규칙 삭제, 1년 뒤 시작 규칙, 1회로 끝난 시리즈, 31일 기준일 유지·같은 날짜 재전송·날짜를 바꾸면 새 기준일 (실제 MySQL) |
 | `CashflowItemRepositoryTest` | 8 | 규칙 조회 쿼리와 스키마 제약, 기준일 CHECK (실제 MySQL) |
 | `CashflowConcurrencyTest` | 2 | 같은 회차 동시 첫 수정, 같은 시리즈 동시 수정·삭제(어느 쪽이 먼저든 404·400만 허용) (실제 MySQL, 트랜잭션 없이) |
