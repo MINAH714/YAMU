@@ -107,8 +107,36 @@ enum class ForecastPeriod(val until: String, val days: Int?, val label: String) 
 /** 화면에서 고른 기간 · 계좌. null은 '정하지 않음'(기간은 서버 설정, 계좌는 연결 계좌 전체). 앱을 켜 둔 동안만 기억한다 */
 data class ForecastSelection(val period: ForecastPeriod? = null, val accountIds: Set<Long>? = null)
 
-/** 계좌 고르기 시트의 한 줄 */
-data class ForecastAccountOption(val accountId: Long, val name: String, val bankName: String?, val last4: String, val balance: Long?, val isPrimary: Boolean)
+/** 계좌 고르기 시트의 한 줄. [cardIds]는 이 계좌에서 출금하는 등록 카드(GET /accounts의 linkedCards) */
+data class ForecastAccountOption(
+    val accountId: Long,
+    val name: String,
+    val bankName: String?,
+    val last4: String,
+    val balance: Long?,
+    val isPrimary: Boolean,
+    val cardIds: Set<Long> = emptySet(),
+)
+
+/**
+ * 계좌를 일부만 골랐을 때 예정 수입·지출 목록도 같은 계좌로 거르기 위한 범위(가계부 조회 API는 계좌를 거르지 않는다).
+ * 계좌 지정 줄은 그 계좌, 카드 줄은 그 카드의 출금 계좌로 본다 — BE CashflowEvents와 같은 귀속 규칙
+ */
+data class AccountScope(val accountIds: Set<Long>, val cardIds: Set<Long>) {
+    /** 계좌도 카드도 없는 줄은 어느 계좌인지 몰라(BE도 예보에서 빼고 알림) 그대로 보인다 */
+    fun includes(entry: CashflowEntry): Boolean = when {
+        entry.accountId != null -> entry.accountId in accountIds
+        entry.userCardId != null -> entry.userCardId in cardIds
+        else -> true
+    }
+}
+
+/** 고른 계좌가 연결 계좌 전체가 아닐 때만 범위가 있다(전체면 거를 것이 없다) */
+fun ForecastSelection.scopeFrom(accounts: List<ForecastAccountOption>): AccountScope? {
+    val chosen = accountIdsFrom(accounts).toSet()
+    if (chosen.size == accounts.size) return null
+    return AccountScope(chosen, accounts.filter { it.accountId in chosen }.flatMap { it.cardIds }.toSet())
+}
 
 data class ForecastEvent(val date: LocalDate, val type: FlowType, val title: String, val amount: Long, val confidence: FlowConfidence) {
     /** 보수적 선에만 넣은 추정(카드 사용 예상) — '추정' 태그 */
@@ -185,6 +213,7 @@ data class Forecast(
     val excluded: List<ExcludedNote>,
     val isEstimate: Boolean,
     val calculatedAtIso: String?,
+    val scope: AccountScope? = null,   // 계좌를 일부만 골랐을 때 — 응답에는 없고 저장소가 붙인다
 ) {
     /** 다음 월급일 — 기간 기준이 NEXT_INCOME일 때만(끝 날은 월급 전날). DAYS면 월급을 못 찾았거나 N일을 고른 것 */
     val incomeDate: LocalDate? get() = to?.takeIf { isNextIncome }?.plusDays(1)

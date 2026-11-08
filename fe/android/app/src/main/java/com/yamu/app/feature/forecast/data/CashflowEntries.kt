@@ -153,7 +153,9 @@ data class CashflowRow(val date: LocalDate?, val title: String, val amount: Long
  * 카드 사용 예상(보수적 선 전용 추정)은 예정된 돈이 아니라 넣지 않는다. 날짜는 서버가 준 값 그대로 쓰고 다시 계산하지 않는다
  */
 fun cashflowRows(entries: List<CashflowEntry>, forecast: Forecast?): List<CashflowRow> {
-    val fromItems = entries.map { e -> CashflowRow(e.date, e.title, e.signedAmount, e.repeatLabel(), e) }
+    // 계좌를 일부만 골랐으면 가계부 줄도 그 계좌 것만 — 머리(예보 기준)와 목록이 같은 계좌를 말하게 한다
+    val scope = forecast?.scope
+    val fromItems = entries.filter { scope?.includes(it) ?: true }.map { e -> CashflowRow(e.date, e.title, e.signedAmount, e.repeatLabel(), e) }
     val bills = forecast?.upcoming.orEmpty().filter { it.isCardBill }.map { CashflowRow(it.date, it.title, it.amount, null, null) }
     return (fromItems + bills).sortedWith(compareBy({ it.date }, { it.entry?.itemId ?: Long.MAX_VALUE }))
 }

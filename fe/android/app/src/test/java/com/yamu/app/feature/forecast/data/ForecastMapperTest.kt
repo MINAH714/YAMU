@@ -177,6 +177,24 @@ class ForecastMapperTest {
         assertEquals(150_000L to 1, com.yamu.app.feature.forecast.cashflowOutflow(withBill, rows))
     }
 
+    @Test fun `계좌를 일부만 고르면 예정 목록도 그 계좌 · 그 계좌 카드 줄만(!176 리뷰)`() {
+        val nov8 = LocalDate.of(2026, 11, 8)
+        val accounts = listOf(
+            ForecastAccountOption(1, "월급 통장", null, "", null, true, cardIds = setOf(16)),
+            ForecastAccountOption(2, "생활비 통장", null, "", null, false, cardIds = setOf(11)),
+        )
+        val scope = ForecastSelection(accountIds = setOf(2)).scopeFrom(accounts)
+        assertEquals(AccountScope(setOf(2), setOf(11)), scope)
+        fun entry(id: Long, account: Long?, card: Long?) = CashflowEntry(id, false, "줄$id", 1_000, nov8, nov8, CashflowRepeat.NONE, null, null, account, card)
+        val entries = listOf(entry(1, 1, null), entry(2, 2, null), entry(3, null, 16), entry(4, null, 11), entry(5, null, null))
+        val rows = cashflowRows(entries, testForecast(accountIds = listOf(2)).copy(scope = scope))
+        assertEquals(listOf("줄2", "줄4", "줄5"), rows.map { it.title })   // 계좌도 카드도 없는 줄은 어느 계좌인지 몰라 둔다
+        // 전체를 고르면(또는 고른 계좌가 모두 남아 있으면) 거르지 않는다
+        assertNull(ForecastSelection().scopeFrom(accounts))
+        assertNull(ForecastSelection(accountIds = setOf(1, 2)).scopeFrom(accounts))
+        assertEquals(5, cashflowRows(entries, testForecast()).size)
+    }
+
     @Test fun `계좌 · 카드 없는 줄과 수입 줄에는 카드 결제 표시가 없다`() {
         val nov8 = LocalDate.of(2026, 11, 8)
         val byAccount = CashflowEntry(1, false, "월세", 500_000, nov8, nov8, CashflowRepeat.NONE, null, null, 3, null)
