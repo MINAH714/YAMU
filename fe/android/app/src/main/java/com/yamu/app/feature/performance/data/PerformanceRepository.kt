@@ -6,7 +6,6 @@ import com.yamu.app.core.network.ApiResult
 import com.yamu.app.core.network.apiCall
 import com.yamu.app.core.network.apiCallNoData
 import com.yamu.app.core.network.map
-import com.yamu.app.core.security.SessionStore
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -33,8 +32,8 @@ import javax.inject.Singleton
 
 /** 실적 · 유불리 — #65 · #66 · #18 · #35 · #32 · #8. 11 문서 7-2 */
 interface PerformanceApi {
-    @GET("users/{userId}/card-performances")
-    suspend fun overview(@Path("userId") userId: String, @Query("yearMonth") yearMonth: String? = null): Response<ApiEnvelope<CardPerformancesDto>>
+    @GET("users/me/card-performances")
+    suspend fun overview(@Query("yearMonth") yearMonth: String? = null): Response<ApiEnvelope<CardPerformancesDto>>
 
     @GET("user-cards/{id}/performance")
     suspend fun detail(@Path("id") userCardId: Long): Response<ApiEnvelope<PerformanceDetailDto>>
@@ -84,14 +83,12 @@ fun decisionBody(decision: PerfDecision?, analysisVersion: String?): JsonObject 
 @Singleton
 class PerformanceRepositoryImpl @Inject constructor(
     private val api: PerformanceApi,
-    private val sessionStore: SessionStore,
 ) : PerformanceRepository {
 
     @Volatile private var last: PerfOverview? = null
 
     override suspend fun overview(): ApiResult<PerfOverview> = coroutineScope {
-        val userId = sessionStore.read().userId?.toString() ?: "me"
-        when (val r = apiCall { api.overview(userId) }) {
+        when (val r = apiCall { api.overview() }) {
             is ApiResult.Failure -> r
             is ApiResult.Success -> {
                 val cards = r.data.cards.map { it.toCardPerf() }

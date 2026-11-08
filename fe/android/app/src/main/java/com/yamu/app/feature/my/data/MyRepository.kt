@@ -31,8 +31,8 @@ interface MyApi {
     @GET("users/me")
     suspend fun me(): Response<ApiEnvelope<UserInfoDto>>
 
-    @PATCH("users/{userId}/payment-settings")
-    suspend fun paymentSettings(@Path("userId") userId: String, @Body body: PaymentSettingsPatch): Response<ApiEnvelope<JsonElement>>
+    @PATCH("users/me/payment-settings")
+    suspend fun paymentSettings(@Body body: PaymentSettingsPatch): Response<ApiEnvelope<JsonElement>>
 
     @PATCH("users/me/security-settings")
     suspend fun securitySettings(@Body body: SecurityPatch): Response<ApiEnvelope<JsonElement>>
@@ -85,14 +85,12 @@ interface MyRepository {
 @Singleton
 class MyRepositoryImpl @Inject constructor(private val api: MyApi, private val session: SessionStore) : MyRepository {
 
-    private suspend fun userId() = session.read().userId?.toString() ?: "me"
-
     override suspend fun me(): ApiResult<MyInfo> =
         apiCall { api.me() }.map { it.toMyInfo() }.also { r ->
             if (r is ApiResult.Success) session.setAutoLockSeconds(r.data.autoLockSeconds)
         }
 
-    override suspend fun setAutoSelect(on: Boolean): ApiResult<Unit> = apiCallNoData { api.paymentSettings(userId(), PaymentSettingsPatch(on)) }
+    override suspend fun setAutoSelect(on: Boolean): ApiResult<Unit> = apiCallNoData { api.paymentSettings(PaymentSettingsPatch(on)) }
 
     override suspend fun setAutoLock(seconds: Int): ApiResult<Unit> =
         apiCallNoData { api.securitySettings(SecurityPatch(autoLockSeconds = seconds)) }.also {
