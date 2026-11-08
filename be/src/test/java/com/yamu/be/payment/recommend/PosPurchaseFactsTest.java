@@ -19,6 +19,8 @@ class PosPurchaseFactsTest {
         // 지금 시드에는 없지만 전기요금 브랜드가 생기면 ELECTRICITY_BILL=false를 확정할 수 없다
         assertThat(PosPurchaseFacts.forCategory("ELECTRIC_UTILITY")).isEmpty();
         assertThat(PosPurchaseFacts.forCategory("TAXI")).isEmpty();
+        // 학원비가 학교 납입금(SCHOOL_PAYMENT)에 들어가는지 원문이 없어 확정하지 않는다
+        assertThat(PosPurchaseFacts.forCategory("ACADEMY")).isEmpty();
         assertThat(PosPurchaseFacts.forCategory(null)).isEmpty();
     }
 
