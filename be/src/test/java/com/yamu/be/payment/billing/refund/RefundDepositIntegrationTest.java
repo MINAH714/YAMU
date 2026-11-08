@@ -31,6 +31,7 @@ import com.yamu.be.payment.bank.TransferResult.Status;
 import com.yamu.be.payment.bank.TransferTag;
 import com.yamu.be.payment.billing.BillFixtures;
 import com.yamu.be.payment.billing.refund.RefundDepositor.Outcome;
+import com.yamu.be.support.AccountBalanceCache;
 import com.yamu.be.support.Concurrently;
 import com.yamu.be.support.MutableClock;
 import com.yamu.be.support.MySqlTestSupport;
@@ -751,14 +752,10 @@ class RefundDepositIntegrationTest extends MySqlTestSupport {
 
     /** 계좌 목록·잔고예보가 쓰는 연결 계좌 잔액 캐시(AccountBalanceService, 값은 "잔액|조회 시각")를 채워 둔다. 돈이 오간 뒤 지워져야 한다 */
     private void cacheBalance() {
-        redis.opsForValue().set(balanceCacheKey(), "1000000|" + clock.instant().getEpochSecond());
+        AccountBalanceCache.put(redis, account, 1_000_000, clock.instant());
     }
 
     private boolean balanceCached() {
-        return Boolean.TRUE.equals(redis.hasKey(balanceCacheKey()));
-    }
-
-    private String balanceCacheKey() {
-        return "account:balance:" + account;
+        return AccountBalanceCache.has(redis, account);
     }
 }
