@@ -48,6 +48,10 @@ public class AppUser extends BaseTimeEntity {
 
     private LocalDateTime pinUpdatedAt;
 
+    /** 결제 카드 자동 선택(명세 「결제 설정」). 끄면 기본 카드로 결제한다. 끄려면 기본 카드가 있어야 한다. */
+    @Column(name = "payment_auto_select", nullable = false)
+    private boolean paymentAutoSelect = true;
+
     private LocalDateTime identityVerifiedAt;
 
     private String ssafyMemberId;
@@ -97,6 +101,11 @@ public class AppUser extends BaseTimeEntity {
     public void changePin(String pinHash, LocalDateTime now) {
         this.pinHash = pinHash;
         this.pinUpdatedAt = now;
+    }
+
+    /** 결제 카드 자동 선택을 켜거나 끈다. 끌 때 기본 카드가 있는지는 부르는 쪽(PaymentSettingsService)이 확인한다. */
+    public void changePaymentAutoSelect(boolean on) {
+        this.paymentAutoSelect = on;
     }
 
     /** ck_user_active: 본인인증·휴대폰·PIN이 모두 있어야 ACTIVE가 된다. */

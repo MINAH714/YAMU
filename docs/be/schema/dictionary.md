@@ -19,6 +19,7 @@ SQL 원본: [초기 생성](../../../be/src/main/resources/db/migration/V2026102
 | phone_hash | `BINARY(32) NULL` | 휴대폰 조회용 keyed HMAC-SHA-256; 정규화 후 계산 |
 | pin_hash | `VARCHAR(255) NULL` | 솔트 포함 PIN 비밀번호 해시; 원문 금지 |
 | pin_updated_at | `TIMESTAMP(6) NULL` | UTC 마지막 PIN 설정·변경 시각 |
+| payment_auto_select | `BOOLEAN NOT NULL DEFAULT TRUE` | 결제 카드 자동 선택(「결제 설정」); 끄면 기본 카드(`user_card.is_default`)로 결제, 기본 카드가 있어야 끌 수 있음. 끈 상태에서 기본 카드가 없어지면 다시 켬(임시) |
 | identity_verified_at | `TIMESTAMP(6) NULL` | UTC 본인인증 완료 시각 |
 | ssafy_member_id | `VARCHAR(255) NULL` | 서버 생성 금융망 userId; `y{랜덤 9자리}@yamu.app`(19자, SSAFY 40자 제한), 최초 생성 후 재사용, 실제 이메일 입력·메일 인증 없음. 중복 오류 E4002 시 다른 계정에 연결하지 않고 새 ID로 재생성 |
 | ssafy_user_key | `VARBINARY(2048) NULL` | 금융망 userKey 암호화 봉투; 평문 금지 |
@@ -37,6 +38,7 @@ UNIQUE KEY uk_user_ssafy_member (ssafy_member_id);
 CONSTRAINT ck_user_status CHECK (status IN ('PENDING','ACTIVE','WITHDRAWN'));
 CONSTRAINT ck_user_active CHECK (status <> 'ACTIVE' OR (name IS NOT NULL AND birth_date IS NOT NULL AND phone_enc IS NOT NULL AND phone_hash IS NOT NULL AND pin_hash IS NOT NULL AND pin_updated_at IS NOT NULL AND identity_verified_at IS NOT NULL));
 CONSTRAINT ck_user_withdrawn CHECK ((status = 'WITHDRAWN' AND deleted_at IS NOT NULL) OR (status <> 'WITHDRAWN' AND deleted_at IS NULL));
+CONSTRAINT ck_user_payment_auto_select CHECK (payment_auto_select IN (0, 1));
 CONSTRAINT ck_app_user_version CHECK (version >= 0)
 ```
 
