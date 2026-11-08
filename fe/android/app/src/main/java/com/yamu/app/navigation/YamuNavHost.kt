@@ -46,6 +46,7 @@ import com.yamu.app.feature.forecast.toRoute
 import com.yamu.app.feature.forecast.CashflowCreateRoute
 import com.yamu.app.feature.forecast.CashflowListRoute
 import com.yamu.app.feature.forecast.ForecastRoute
+import com.yamu.app.feature.forecast.LivingCostRoute
 import com.yamu.app.feature.performance.BenefitLimitsRoute
 import com.yamu.app.feature.performance.CardPerformanceRoute
 import com.yamu.app.feature.performance.PerfAnalysisRoute
@@ -258,8 +259,10 @@ fun YamuNavHost(navController: NavHostController, modifier: Modifier = Modifier)
                         onCashflowList = { navController.navigate(CashflowList) },
                         onLink = { navController.navigate(LinkGraph) },
                         onAlertSettings = { navController.navigate(NotificationSettings) },
+                        onLivingCost = { navController.navigate(LivingCostDetail) },
                     )
                 }
+                composable<LivingCostDetail> { LivingCostRoute(onBack = back, onLink = { navController.navigate(LinkGraph) }) }
                 composable<CashflowList> {
                     CashflowListRoute(
                         onBack = back,

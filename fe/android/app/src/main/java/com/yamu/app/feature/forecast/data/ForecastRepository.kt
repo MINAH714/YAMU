@@ -52,6 +52,29 @@ interface ForecastApi {
     @GET("merchants")
     suspend fun merchants(@Query("merchantCategoryCode") merchantCategoryCode: String): Response<ApiEnvelope<List<CatalogMerchantDto>>>
 
+    /** 생활비 예측 상세 — 잔고예보와 같은 accountIds · until · days. 계좌별 값까지(includeAccountDetails) */
+    @GET("forecasts/living-cost")
+    suspend fun livingCost(
+        @Query("accountIds") accountIds: List<Long>,
+        @Query("until") until: String?,
+        @Query("days") days: Int?,
+        @Query("includeAccountDetails") includeAccountDetails: Boolean = true,
+    ): Response<ApiEnvelope<LivingCostDetailDto>>
+
+    /** 예정 지출 회차와 결제 연결 — 새로 연결하면 201, 같은 쌍을 다시 보내면 기존 연결을 200(다시 보내도 안전) */
+    @POST("cashflow-payment-matches")
+    suspend fun confirmMatch(@Body body: MatchConfirmRequest): Response<ApiEnvelope<MatchConfirmedDto>>
+
+    /** 연결 해제 — 204 */
+    @DELETE("cashflow-payment-matches/{matchId}")
+    suspend fun deleteMatch(@Path("matchId") matchId: Long): Response<ApiEnvelope<JsonElement>>
+
+    @GET("cashflow-payment-matches")
+    suspend fun matchStatus(@Query("cashflowItemId") cashflowItemId: Long, @Query("occurrenceDate") occurrenceDate: String): Response<ApiEnvelope<MatchStatusDto>>
+
+    @GET("cashflow-items/{id}/payment-match-candidates")
+    suspend fun matchCandidates(@Path("id") cashflowItemId: Long, @Query("occurrenceDate") occurrenceDate: String): Response<ApiEnvelope<MatchCandidatesDto>>
+
     @POST("cashflow-items")
     suspend fun savePlan(@Body body: PurchasePlanRequest): Response<ApiEnvelope<CashflowCreatedDto>>
 
@@ -115,6 +138,25 @@ interface ForecastRepository {
     suspend fun updateItem(itemId: Long, body: CashflowUpdateRequest): ApiResult<Unit>
 
     suspend fun deleteItem(itemId: Long, scope: CashflowDeleteScope, occurrenceDate: LocalDate?): ApiResult<Unit>
+
+    /**
+     * F-02 '지난 7일' — [from] ~ [to] 사이 지난 카드 예정 지출(결제와 연결만 할 수 있는 회차).
+     * 수정 화면이 [cachedEntry]로 찾을 수 있게 오늘부터의 목록과 따로 기억한다
+     */
+    suspend fun pastCardEntries(from: LocalDate, to: LocalDate): ApiResult<List<CashflowEntry>>
+
+    /** 회차의 결제 연결 — 없으면 null */
+    suspend fun matchStatus(itemId: Long, occurrenceDate: LocalDate): ApiResult<PaymentMatch?>
+
+    /** 연결할 만한 결제 후보와 지금 연결(있으면) */
+    suspend fun matchCandidates(itemId: Long, occurrenceDate: LocalDate): ApiResult<MatchCandidates>
+
+    suspend fun confirmMatch(itemId: Long, occurrenceDate: LocalDate, paymentId: Long): ApiResult<MatchConfirmed>
+
+    suspend fun deleteMatch(matchId: Long): ApiResult<Unit>
+
+    /** F-01b 생활비 예측 — 지금 고른 기간 · 계좌로(잔고예보와 같은 기간을 설명한다) */
+    suspend fun livingCost(): ApiResult<LivingCostDetail>
 
     companion object {
         /** 연결한 계좌가 없다 — BE가 accountIds 없이 부르면 내는 코드와 같게 둬 화면이 한 곳에서 빈 상태로 바꾼다 */
@@ -238,7 +280,37 @@ class ForecastRepositoryImpl @Inject constructor(private val api: ForecastApi, p
             .also { if (it is ApiResult.Success) entries = it.data }
 
     override fun cachedEntry(itemId: Long, occurrenceDate: LocalDate): CashflowEntry? =
-        entries.firstOrNull { it.itemId == itemId && it.occurrenceDate == occurrenceDate }
+        (entries + pastEntries).firstOrNull { it.itemId == itemId && it.occurrenceDate == occurrenceDate }
+
+    @Volatile private var pastEntries: List<CashflowEntry> = emptyList()
+
+    override suspend fun pastCardEntries(from: LocalDate, to: LocalDate): ApiResult<List<CashflowEntry>> =
+        apiCall { api.cashflowItems(from.toString(), to.toString()) }
+            .map { r -> r.items.mapNotNull { it.toEntry() }.filter { it.isMatchable } }
+            .also { if (it is ApiResult.Success) pastEntries = it.data }
+
+    override suspend fun matchStatus(itemId: Long, occurrenceDate: LocalDate): ApiResult<PaymentMatch?> =
+        apiCall { api.matchStatus(itemId, occurrenceDate.toString()) }.map { it.match?.toMatch() }
+
+    override suspend fun matchCandidates(itemId: Long, occurrenceDate: LocalDate): ApiResult<MatchCandidates> =
+        apiCall { api.matchCandidates(itemId, occurrenceDate.toString()) }.map { it.toCandidates() }
+
+    override suspend fun confirmMatch(itemId: Long, occurrenceDate: LocalDate, paymentId: Long): ApiResult<MatchConfirmed> =
+        apiCall { api.confirmMatch(MatchConfirmRequest(itemId, occurrenceDate.toString(), paymentId)) }.map { it.toConfirmed() }
+
+    override suspend fun deleteMatch(matchId: Long): ApiResult<Unit> = apiCallNoData { api.deleteMatch(matchId) }
+
+    override suspend fun livingCost(): ApiResult<LivingCostDetail> {
+        val accounts = when (val a = accounts()) {
+            is ApiResult.Failure -> return a
+            is ApiResult.Success -> a.data
+        }
+        if (accounts.isEmpty()) return ApiResult.Failure(ApiError.InvalidRequest(ForecastRepository.NO_ACCOUNT))
+        val selection = current
+        val names = accounts.associate { it.accountId to it.name }
+        return apiCall { api.livingCost(selection.accountIdsFrom(accounts), selection.period?.until, selection.period?.days) }
+            .map { it.toDetail(names) }
+    }
 
     override suspend fun updateItem(itemId: Long, body: CashflowUpdateRequest): ApiResult<Unit> =
         apiCallNoData { api.updateItem(itemId, body) }

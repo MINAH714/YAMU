@@ -7,6 +7,9 @@ import com.yamu.app.feature.forecast.data.CashflowForm
 import com.yamu.app.feature.forecast.data.CashflowUpdateRequest
 import com.yamu.app.feature.forecast.data.ForecastRepository
 import com.yamu.app.feature.forecast.data.ForecastRepositoryImpl
+import com.yamu.app.feature.forecast.data.MatchCandidates
+import com.yamu.app.feature.forecast.data.MatchConfirmed
+import com.yamu.app.feature.forecast.data.PaymentMatch
 import com.yamu.app.feature.my.data.Device
 import com.yamu.app.feature.my.data.MyInfo
 import com.yamu.app.feature.my.data.MyRepository
@@ -42,7 +45,7 @@ class RealPaymentWithFakes @Inject constructor(
 }
 
 /**
- * 진짜: 가계부 등록 · 목록 · 수정 · 삭제. 가짜: 잔고예보 · 구매 판단 · 구매 계획.
+ * 진짜: 가계부 등록 · 목록 · 수정 · 삭제 · 결제 연결. 가짜: 잔고예보 · 생활비 상세 · 구매 판단 · 구매 계획.
  * 계획 지우기는 가짜로 둔다 — 가짜 계획 번호로 진짜 DELETE를 부르면 같은 번호의 내 항목이 지워질 수 있다
  */
 class RealCashflowWithFakes @Inject constructor(
@@ -55,6 +58,14 @@ class RealCashflowWithFakes @Inject constructor(
     override suspend fun updateItem(itemId: Long, body: CashflowUpdateRequest): ApiResult<Unit> = real.updateItem(itemId, body)
     override suspend fun deleteItem(itemId: Long, scope: CashflowDeleteScope, occurrenceDate: LocalDate?): ApiResult<Unit> =
         real.deleteItem(itemId, scope, occurrenceDate)
+
+    // 지난 회차 · 결제 연결도 진짜 가계부 번호를 쓰므로 진짜로(가짜는 진짜 항목 번호를 모른다). 생활비 상세는 잔고예보라 가짜
+    override suspend fun pastCardEntries(from: LocalDate, to: LocalDate): ApiResult<List<CashflowEntry>> = real.pastCardEntries(from, to)
+    override suspend fun matchStatus(itemId: Long, occurrenceDate: LocalDate): ApiResult<PaymentMatch?> = real.matchStatus(itemId, occurrenceDate)
+    override suspend fun matchCandidates(itemId: Long, occurrenceDate: LocalDate): ApiResult<MatchCandidates> = real.matchCandidates(itemId, occurrenceDate)
+    override suspend fun confirmMatch(itemId: Long, occurrenceDate: LocalDate, paymentId: Long): ApiResult<MatchConfirmed> =
+        real.confirmMatch(itemId, occurrenceDate, paymentId)
+    override suspend fun deleteMatch(matchId: Long): ApiResult<Unit> = real.deleteMatch(matchId)
 }
 
 /** 진짜: 기기 목록 · 해제 · 회원 탈퇴. 가짜: 회원 정보 · 설정 · 알림 */

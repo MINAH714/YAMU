@@ -65,6 +65,7 @@ import com.yamu.app.core.ui.userMessage
 import com.yamu.app.feature.forecast.data.CASHFLOW_TITLE_MAX
 import com.yamu.app.feature.forecast.data.CashflowDeleteScope
 import com.yamu.app.feature.forecast.data.CashflowEntry
+import com.yamu.app.feature.forecast.data.isMatchable
 import com.yamu.app.feature.forecast.data.CashflowField
 import com.yamu.app.feature.forecast.data.CashflowForm
 import com.yamu.app.feature.forecast.data.CashflowRepeat
@@ -263,6 +264,9 @@ fun CashflowCreateRoute(onBack: () -> Unit, onDone: () -> Unit, viewModel: Cashf
     val editing = s.editing
     val movedTo = s.movedTo
     val paymentsError = s.paymentsError
+    // 지난 회차는 서버가 수정 · 삭제를 거절한다 — 내용만 보이고 결제 연결만(F-02 '지난 7일'에서 연다)
+    val pastOnly = editing != null && editing.date.isBefore(LocalDate.now(KST))
+    val matchable = editing?.isMatchable == true
     val c = YamuTheme.colors
     fun errorOf(field: CashflowField) = s.errors[field].takeIf { s.showErrors }
     FlowScreen(
@@ -270,7 +274,7 @@ fun CashflowCreateRoute(onBack: () -> Unit, onDone: () -> Unit, viewModel: Cashf
         onBack = onBack,
         modifier = Modifier.imePadding(),
         bottomBar = bottomBar@{
-            if (s.missing) return@bottomBar
+            if (s.missing || pastOnly) return@bottomBar
             // 결과 불명 · 사라진 항목이면 목록부터 보게, 수정 중이면 삭제
             val secondary: (@Composable () -> Unit)? = when {
                 s.unknownResult || s.gone -> ({ TextButtonGrey("목록에서 확인하기", onClick = onBack, modifier = Modifier.fillMaxWidth()) })
@@ -301,6 +305,12 @@ fun CashflowCreateRoute(onBack: () -> Unit, onDone: () -> Unit, viewModel: Cashf
                 .padding(horizontal = YamuSpacing.screen),
         ) {
             Spacer(Modifier.height(YamuSpacing.x2))
+            if (pastOnly && editing != null) {
+                PastOccurrenceSummary(editing, s.cards.firstOrNull { it.userCardId == editing.userCardId }?.displayName)
+                if (matchable) PaymentMatchSection()
+                Spacer(Modifier.height(YamuSpacing.x6))
+                return@Column
+            }
             if (editing == null) {
                 Segmented(listOf("지출", "수입"), selectedIndex = if (f.isIncome) 1 else 0, onSelect = { i -> viewModel.edit { it.withIncome(i == 1) } })
             } else {
@@ -407,6 +417,8 @@ fun CashflowCreateRoute(onBack: () -> Unit, onDone: () -> Unit, viewModel: Cashf
                 }
             }
             errorOf(CashflowField.PAYMENT)?.let { Text(it, style = YamuTheme.typography.bodyS, color = c.error) }
+            // 카드 예정 지출 회차 — 실제 결제와 연결(-319). 저장된 회차 기준이라 고치는 중인 값과 상관없다
+            if (matchable) PaymentMatchSection()
             Spacer(Modifier.height(YamuSpacing.x6))
         }
     }

@@ -60,6 +60,7 @@ import kotlinx.serialization.Serializable
     val purchaseDate: String,
 )
 @Serializable data class BuyCheckSaved(val planId: Long)            // I-05
+@Serializable data object LivingCostDetail   // F-01b 생활비 예측(GET forecasts/living-cost)
 
 // ── 카드추천 탭 (PayGraph) ──
 @Serializable data object Recommend          // P-01
