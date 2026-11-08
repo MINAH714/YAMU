@@ -24,6 +24,8 @@ import com.yamu.be.support.AuthUsers;
 import com.yamu.be.support.MySqlTestSupport;
 import com.yamu.be.support.OwnershipFixtures;
 import java.math.BigDecimal;
+import java.time.Clock;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
@@ -33,6 +35,10 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
+import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Import;
+import org.springframework.context.annotation.Primary;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.annotation.DirtiesContext;
@@ -45,15 +51,27 @@ import org.springframework.transaction.annotation.Transactional;
 /**
  * 가상 구매 시뮬레이션 API를 인증 필터·실제 MySQL까지 묶어 확인한다. 잔액(BE 1, 금융망)과 추천 엔진(연결 전)만 가짜로 둔다.
  * 추천 가짜는 따로 정하지 않으면 empty(Mockito 기본값)라 연결 전 임시 구현과 같다.
+ * 시계는 컨텍스트를 만들 때의 시각으로 고정해 테스트와 서비스가 같은 오늘을 본다(자정을 사이에 두고 어긋나지 않게, S15P31E103-327 Codex 검토).
  */
 @Transactional
+@Import(PurchaseSimulationControllerTest.FixedClock.class)
 @AutoConfigureMockMvc
 @TestPropertySource(properties = "spring.application.name=yamu-simulation-api-test")
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 class PurchaseSimulationControllerTest extends MySqlTestSupport {
     private static final ZoneId KOREA = ZoneId.of("Asia/Seoul");
 
+    @TestConfiguration
+    static class FixedClock {
+        @Bean
+        @Primary
+        Clock simulationTestClock() {
+            return Clock.fixed(Instant.now(), ZoneOffset.UTC);
+        }
+    }
+
     @Autowired MockMvc mockMvc;
+    @Autowired Clock clock;
     @Autowired JdbcTemplate jdbc;
     @MockitoBean AccountBalanceService balances;
     @Autowired CashflowService cashflows;
@@ -73,12 +91,12 @@ class PurchaseSimulationControllerTest extends MySqlTestSupport {
         owner = ownership.user();
         accountA = ownership.account(owner);
         accountB = ownership.account(owner);
-        today = LocalDate.now(KOREA);
+        today = LocalDate.now(clock.withZone(KOREA));
         checkOnA = spending.card(owner, spending.product("CHECK"), accountA, today.minusDays(1));
         creditOnB = spending.card(owner, spending.product("CREDIT"), accountB, today.minusDays(1));
         jdbc.update("UPDATE user_card SET payment_day = 25 WHERE user_card_id = ?", creditOnB);
         jdbc.update("UPDATE user_card SET card_alias = '생활비 체크' WHERE user_card_id = ?", checkOnA);
-        LocalDateTime fetchedAt = LocalDateTime.now(ZoneOffset.UTC);
+        LocalDateTime fetchedAt = LocalDateTime.now(clock);
         when(balances.getBalances(eq(owner), anyList(), anyBoolean())).thenAnswer(invocation -> {
             List<Long> ids = invocation.getArgument(1);
             return ids.stream().map(id -> new AccountBalance(id, 1_000_000L, fetchedAt)).toList();
@@ -346,7 +364,7 @@ class PurchaseSimulationControllerTest extends MySqlTestSupport {
 
     @Test
     void 미납_청구서가_있는_신용카드는_실제_승인처럼_400_CARD_NOT_ELIGIBLE_UNPAID_BILL이다() throws Exception {
-        LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
+        LocalDateTime now = LocalDateTime.now(clock);
         LocalDate lastMonth = today.minusMonths(1).withDayOfMonth(1);
         jdbc.update("""
                 INSERT INTO card_bill (user_id, user_card_id, linked_account_id, billing_month, period_start, period_end,
