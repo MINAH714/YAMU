@@ -143,7 +143,10 @@ fun CashflowEntryDto.toEntry(): CashflowEntry? {
 }
 
 /** F-02 한 줄 — [entry]가 있으면 눌러서 고친다. 카드대금 · 월급 미리보기처럼 가계부 항목이 아니면 null(읽기 전용) */
-data class CashflowRow(val date: LocalDate?, val title: String, val amount: Long, val repeatLabel: String?, val entry: CashflowEntry?)
+data class CashflowRow(val date: LocalDate?, val title: String, val amount: Long, val repeatLabel: String?, val entry: CashflowEntry?) {
+    /** 카드 예정 지출 — 줄의 날짜는 사용일이고 돈은 청구 출금일에 빠진다(머리의 '나갈 돈'과 기준이 다름을 줄에 밝힌다) */
+    val cardNote: String? get() = "카드 결제".takeIf { entry?.userCardId != null && amount < 0 }
+}
 
 /**
  * F-02 줄 합치기 — 가계부 회차(고칠 수 있음) + 예보의 카드 청구(읽기 전용).

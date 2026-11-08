@@ -123,6 +123,9 @@ class SimulationMapperTest {
         assertNull(s.betterCard)
         assertNull(s.betterBy)
         assertTrue(s.alternatives.isEmpty())
+        // '혜택은 계산하지 못했어요' 아래 이유로 읽혀야 한다 — '일부 혜택은 빼고 계산했어요'가 나오면 서로 어긋난다(로컬 BE 확인에서 찾음)
+        assertEquals(listOf("브랜드를 고르면 브랜드 혜택까지 계산할 수 있어요.", "확인하지 못한 혜택 조건이 있어요."), s.missing)
+        assertTrue(s.missing.none { "빼고 계산했어요" in it })
     }
 
     @Test fun `계획 저장 — 일시불만, 전액 즉시할인이면 저장할 것이 없다`() {

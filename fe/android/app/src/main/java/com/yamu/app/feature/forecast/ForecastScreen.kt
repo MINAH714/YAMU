@@ -210,6 +210,18 @@ internal fun periodLabel(f: Forecast?, selection: ForecastSelection): String =
         else -> "${f.horizonDays ?: 30}일"
     }
 
+/**
+ * F-02 머리의 '나갈 돈 · 출금 N건' — 금액과 건수를 같은 기준으로. 예보가 있으면 기간 안에 실제로 빠지는 날(카드는 청구 출금일) 기준,
+ * 없으면 가계부 줄 기준. 카드 예정 지출은 사용일 줄로 보이지만 출금은 청구일이라 기간 밖이면 둘 다에서 빠진다
+ */
+internal fun cashflowOutflow(f: Forecast?, rows: List<CashflowRow>): Pair<Long, Int> =
+    if (f != null) {
+        val out = f.upcoming.filter { it.amount < 0 && !it.isEstimate }
+        -out.sumOf { it.amount } to out.size
+    } else {
+        rows.filter { it.amount < 0 }.let { out -> -out.sumOf { it.amount } to out.size }
+    }
+
 /** F-01 · F-02 — 예정된 돈의 기간. 월급날 기준이 아니면 실제 일수(예보가 없으면 서버 기본값처럼 30일) */
 internal fun cashflowPeriod(f: Forecast?): String =
     if (f != null && f.incomeDate != null) "월급 전까지" else "${f?.horizonDays ?: 30}일 동안"
@@ -598,7 +610,8 @@ internal fun noticeLines(f: Forecast, selection: ForecastSelection): List<String
     val livingLine = when {
         living == null || !living.insufficient -> null
         f.hasConservative -> "생활비 기록이 없어 보수적 선에는 카드 사용 예상만 넣었어요."
-        f.accountIds.size > 1 -> "생활비 기록이 없는 계좌가 있어 생활비는 빼고 계산했어요. 기록이 있는 계좌만 고르면 생활비까지 넣어 볼 수 있어요."
+        // 어느 계좌에 기록이 있는지는 이 응답만으로 모른다 — 모든 계좌에 없을 수도 있어 '고르면 된다'고 약속하지 않는다
+        f.accountIds.size > 1 -> "생활비 기록이 없는 계좌가 있어 생활비는 빼고 계산했어요. 계좌를 따로 골라 보면 기록이 있는 계좌는 생활비까지 넣어 계산해요."
         else -> "생활비 기록이 아직 없어 생활비는 빼고 계산했어요. 체크카드로 결제하면 다음 예보부터 들어가요."
     }
     val fallback = if (selection.period == ForecastPeriod.NEXT_INCOME && !f.isNextIncome) "월급날을 찾지 못해 ${f.horizonDays ?: 30}일로 계산했어요." else null
@@ -670,7 +683,7 @@ private fun CashflowRowLine(row: CashflowRow, onClick: (() -> Unit)?) {
     val c = YamuTheme.colors
     ListRow(
         title = row.title,
-        sub = listOfNotNull(row.date?.toMonthDayWeek(), row.repeatLabel).joinToString(" · "),
+        sub = listOfNotNull(row.date?.toMonthDayWeek(), row.repeatLabel, row.cardNote).joinToString(" · "),
         value = "${row.amount.toWon(withPlusSign = true)}원",
         valueColor = if (row.amount > 0) c.primary else c.text1,
         dense = true,
@@ -724,9 +737,9 @@ fun CashflowListRoute(
                     YamuCard {
                         Text("$period 나갈 돈", style = YamuTheme.typography.titleS, color = c.text2)
                         Spacer(Modifier.height(4.dp))
-                        AmountText(f?.scheduledOutflow ?: rows.filter { it.amount < 0 }.sumOf { -it.amount })
+                        val (outAmount, outCount) = cashflowOutflow(f, rows)
+                        AmountText(outAmount)
                         Spacer(Modifier.height(4.dp))
-                        val outCount = rows.count { it.amount < 0 }
                         Text(
                             listOfNotNull(
                                 if (f?.from != null && f.to != null) "${f.from.toMonthDay()} ~ ${f.to.toMonthDay()}" else null,

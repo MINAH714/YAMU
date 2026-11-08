@@ -204,7 +204,7 @@ fun SimulationResponseDto.toSimulation(query: SimulationQuery): Simulation {
         benefit = benefit?.let { b ->
             SimBenefit(b.netBenefit, b.benefits.map { BenefitLine(it.name?.takeIf { n -> n.isNotBlank() } ?: "혜택", it.amount) }, b.chargedAmount)
         },
-        missing = missingInformation.mapNotNull { missingText(it.code) }.distinct(),
+        missing = missingInformation.mapNotNull { missingText(it.code, benefitComputed = benefit != null) }.distinct(),
         schedule = schedule.map {
             val date = parseDate(it.date)
             SimWithdrawal(date, it.amount, it.label?.takeIf { l -> l.isNotBlank() } ?: "출금", beyondPeriod = date != null && lastDay != null && date.isAfter(lastDay))
@@ -234,14 +234,17 @@ fun SimulationResponseDto.toSimulation(query: SimulationQuery): Simulation {
     )
 }
 
-/** 혜택을 끝까지 계산하지 못한 이유(missingInformation.code) → 한 줄. 모르는 코드는 일반 문장으로 */
-internal fun missingText(code: String?): String? = when (code?.uppercase()) {
+/**
+ * 혜택을 끝까지 계산하지 못한 이유(missingInformation.code) → 한 줄. 모르는 코드는 일반 문장인데,
+ * 혜택을 계산했으면(일부를 뺀 것) '빼고 계산했어요', 못 했으면(benefit null) 위 '혜택은 계산하지 못했어요'의 이유로 읽히게 쓴다
+ */
+internal fun missingText(code: String?, benefitComputed: Boolean): String? = when (code?.uppercase()) {
     null -> null
     "MERCHANT_CATEGORY_MISSING" -> "업종을 고르지 않아 혜택은 계산하지 않았어요."
     "BRAND_MISSING" -> "브랜드를 고르면 브랜드 혜택까지 계산할 수 있어요."
     "INSUFFICIENT_BALANCE" -> "오늘 잔액이 부족한 체크카드라 혜택을 판정하지 못했어요. 잔고 비교는 그대로 볼 수 있어요."
     "INSTANT_DISCOUNT_TIMING_UNKNOWN" -> "할인이 언제 적용되는지 몰라 혜택을 계산하지 못했어요."
-    else -> "혜택 조건 중 확인하지 못한 것이 있어 일부 혜택은 빼고 계산했어요."
+    else -> if (benefitComputed) "혜택 조건 중 확인하지 못한 것이 있어 일부 혜택은 빼고 계산했어요." else "확인하지 못한 혜택 조건이 있어요."
 }
 
 /** 오류 화면에서 고르는 다음 행동 */
