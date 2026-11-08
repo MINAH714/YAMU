@@ -45,6 +45,7 @@ class ForecastAccountOwnershipTest extends MySqlTestSupport {
     @MockitoBean SsafyAccountApi ssafy;
     @MockitoBean SimulationRecommender recommender;
 
+    OwnershipFixtures ownership;
     long owner;
     long myAccount;
     long myCheckCard;
@@ -52,7 +53,7 @@ class ForecastAccountOwnershipTest extends MySqlTestSupport {
 
     @BeforeEach
     void setUp() {
-        OwnershipFixtures ownership = new OwnershipFixtures(jdbc);
+        ownership = new OwnershipFixtures(jdbc);
         SpendingFixtures spending = new SpendingFixtures(jdbc);
         owner = ownership.user();
         myAccount = ownership.account(owner);
@@ -84,6 +85,18 @@ class ForecastAccountOwnershipTest extends MySqlTestSupport {
         expectNotFound(simulate("[" + strangerAccount + "]"));
         expectNotFound(simulate("[" + myAccount + ", " + strangerAccount + "]"));
         // 추천 엔진은 체크카드 잔액을 금융망에서 읽으므로 계좌 확인보다 먼저 불리면 안 된다(Codex 검토)
+        verify(recommender, never()).recommend(any());
+        verifyNoInteractions(ssafy);
+    }
+
+    @Test
+    void 가상_구매에_연결_해제한_내_계좌를_보내면_연결된_내_계좌와_섞여도_404이고_추천과_금융망을_부르지_않는다() throws Exception {
+        // 소유 확인은 본인 계좌이면서 CONNECTED일 때만 통과한다(BE 1 requireConnectedAccount, !181 리뷰)
+        long myDisconnectedAccount = ownership.account(owner);
+        jdbc.update("UPDATE linked_account SET status = 'DISCONNECTED', disconnected_at = NOW() WHERE linked_account_id = ?",
+                myDisconnectedAccount);
+
+        expectNotFound(simulate("[" + myAccount + ", " + myDisconnectedAccount + "]"));
         verify(recommender, never()).recommend(any());
         verifyNoInteractions(ssafy);
     }
