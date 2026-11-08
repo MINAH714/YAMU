@@ -41,6 +41,8 @@ enum class PayScenario(val label: String) {
     NO_SCAN("아무도 안 찍음(20초 코드)"),
     NO_CARD("가맹점이 찍었는데 쓸 수 있는 카드 없음"),
     CARDS_UNKNOWN("가맹점이 찍었는데 카드 정보 확인 못 함"),
+    APPROVE_SLOW("카페 15,000원 · 승인이 4초 걸림(대기 화면 촬영)"),
+    REQUEST_SHORT("카페 15,000원 · 확인 마감 15초(남은 시간 촬영)"),
 }
 
 /**

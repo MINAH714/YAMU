@@ -11,12 +11,15 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.yamu.be.account.AccountBalance;
 import com.yamu.be.account.AccountBalanceService;
+import com.yamu.be.cashflow.CashflowItem;
+import com.yamu.be.cashflow.CashflowService;
 import com.yamu.be.support.AuthUsers;
 import com.yamu.be.support.MySqlTestSupport;
 import com.yamu.be.support.OwnershipFixtures;
@@ -53,6 +56,7 @@ class PurchaseSimulationControllerTest extends MySqlTestSupport {
     @Autowired MockMvc mockMvc;
     @Autowired JdbcTemplate jdbc;
     @MockitoBean AccountBalanceService balances;
+    @Autowired CashflowService cashflows;
     @MockitoBean SimulationRecommender recommender;
 
     long owner;
@@ -90,7 +94,7 @@ class PurchaseSimulationControllerTest extends MySqlTestSupport {
 
     @Test
     void 체크카드는_구매일에_한_번_빠지고_구매_전후를_비교한다() throws Exception {
-        perform(body(accountA, checkOnA, "300000", "\"days\": 7, \"productName\": \"태블릿\""))
+        perform(body(accountA, checkOnA, "300000", "\"until\": \"DAYS\", \"days\": 7, \"productName\": \"태블릿\""))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.input.amount").value(300_000))
                 .andExpect(jsonPath("$.data.input.purchaseDate").value(today.toString()))
@@ -125,7 +129,7 @@ class PurchaseSimulationControllerTest extends MySqlTestSupport {
     @Test
     void 신용_할부는_회차마다_나뉘고_신용한도는_확인_생략이다() throws Exception {
         perform(body(accountB, creditOnB, "300000",
-                "\"plan\": \"INSTALLMENT\", \"installmentMonths\": 3, \"days\": 7, \"includeAccountDetails\": true"))
+                "\"plan\": \"INSTALLMENT\", \"installmentMonths\": 3, \"until\": \"DAYS\", \"days\": 7, \"includeAccountDetails\": true"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.card.cardType").value("CREDIT"))
                 .andExpect(jsonPath("$.data.input.installmentMonths").value(3))
@@ -141,7 +145,7 @@ class PurchaseSimulationControllerTest extends MySqlTestSupport {
 
     @Test
     void 카드_출금_계좌를_고르지_않았으면_비교는_같고_선택_밖_영향으로_알린다() throws Exception {
-        perform(body(accountA, creditOnB, "200000", "\"days\": 30"))
+        perform(body(accountA, creditOnB, "200000", "\"until\": \"DAYS\", \"days\": 30"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.comparison.before.endBalance").value(1_000_000))
                 .andExpect(jsonPath("$.data.comparison.after.endBalance").value(1_000_000))
@@ -161,7 +165,7 @@ class PurchaseSimulationControllerTest extends MySqlTestSupport {
                         List.of(), null, List.of(new SimulationRecommender.Assumption("YAMU_PURCHASE_TIME_NOON", "낮 12시")),
                         List.of())));
 
-        perform(bodyWithoutCard(accountA, "300000", "\"days\": 7, \"merchantCategoryCode\": \"SUPERMARKET\""))
+        perform(bodyWithoutCard(accountA, "300000", "\"until\": \"DAYS\", \"days\": 7, \"merchantCategoryCode\": \"SUPERMARKET\""))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.card.userCardId").value(checkOnA))
                 .andExpect(jsonPath("$.data.card.recommended").value(true))
@@ -186,7 +190,7 @@ class PurchaseSimulationControllerTest extends MySqlTestSupport {
                                         "AT_APPROVAL", new BigDecimal("300000"))), 300_000L),
                         List.of(), null, List.of(), List.of())));
 
-        perform(body(accountA, checkOnA, "300000", "\"days\": 7, \"merchantCategoryCode\": \"SUPERMARKET\""))
+        perform(body(accountA, checkOnA, "300000", "\"until\": \"DAYS\", \"days\": 7, \"merchantCategoryCode\": \"SUPERMARKET\""))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.benefit.chargedAmount").value(0))
                 .andExpect(jsonPath("$.data.schedule", hasSize(0)))
@@ -340,6 +344,75 @@ class PurchaseSimulationControllerTest extends MySqlTestSupport {
                 .formatted(checkOnA))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("ACCOUNT_SELECTION_REQUIRED"));
+    }
+
+    @Test
+    void 계좌_카드_가맹점_ID에_소수점_아래가_있으면_다른_ID로_계산하지_않고_400이다() throws Exception {
+        // S15P31E103-318: 전에는 merchantId 2.9를 2번 가맹점으로, 계좌 3.5를 3번 계좌로 계산했다
+        perform("{\"accountIds\": [" + accountA + ".5], \"userCardId\": " + checkOnA + ", \"amount\": 300000, "
+                + "\"productCategoryCode\": \"PRODUCT_ELECTRONICS\", \"paymentChannel\": \"OFFLINE\"}")
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("INVALID_REQUEST"));
+        perform(body(accountA, checkOnA, "300000", "\"merchantId\": 2.9"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("INVALID_REQUEST"));
+        perform(body(accountA, checkOnA, "300000", "").replace("\"userCardId\": " + checkOnA, "\"userCardId\": " + checkOnA + ".2"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("INVALID_REQUEST"));
+        // 값이 정수인 소수 표기는 받는다
+        perform(body(accountA, checkOnA, "300000", "\"until\": \"DAYS\", \"days\": 7").replace("\"userCardId\": " + checkOnA, "\"userCardId\": " + checkOnA + ".0"))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    void 같은_until_days로_부르면_가상_구매와_잔고예보의_기간이_같다() throws Exception {
+        // S15P31E103-318. 설정은 다음 월급일 기준이고 월급일은 5일 뒤
+        LocalDate payday = today.plusDays(5);
+        long salary = cashflows.create(owner, new CashflowService.CreateCommand("월급", CashflowItem.Direction.INCOME,
+                2_000_000L, payday, CashflowItem.RecurrenceType.MONTHLY, null, null, null, accountA, null, null,
+                null)).id();
+        jdbc.update("UPDATE app_user SET forecast_settings = ? WHERE user_id = ?", """
+                {"horizon":"NEXT_INCOME","defaultDays":30,"alertThreshold":100000,"incomeCashflowItemId":%d,
+                 "dailyLivingCostTarget":null,"includeCandidates":true,"conservativeLine":true,"updatedAt":null}"""
+                .formatted(salary), owner);
+
+        // until 없이 days만: 둘 다 설정(다음 월급일 전날까지)을 따르고 days는 쓰지 않는다
+        perform(body(accountA, checkOnA, "300000", "\"days\": 7"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.series", hasSize(5)))
+                .andExpect(jsonPath("$.data.series[4].date").value(payday.minusDays(1).toString()));
+        mockMvc.perform(get("/api/forecasts/balance").with(AuthUsers.asUser(owner))
+                        .param("accountIds", String.valueOf(accountA)).param("days", "7"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.series", hasSize(5)))
+                .andExpect(jsonPath("$.data.horizon.to").value(payday.minusDays(1).toString()));
+
+        // until=DAYS: 둘 다 7일(오늘 포함 8개 점)
+        perform(body(accountA, checkOnA, "300000", "\"until\": \"DAYS\", \"days\": 7"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.series", hasSize(8)));
+        mockMvc.perform(get("/api/forecasts/balance").with(AuthUsers.asUser(owner))
+                        .param("accountIds", String.valueOf(accountA)).param("until", "DAYS").param("days", "7"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.series", hasSize(8)));
+    }
+
+    @Test
+    void until_값이_틀리면_400이다() throws Exception {
+        // 업종이 있어 until 말고는 추천 엔진까지 가는 요청이다.
+        String category = ", \"merchantCategoryCode\": \"SUPERMARKET\"";
+        perform(body(accountA, checkOnA, "300000", "\"until\": \"WEEK\"" + category))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("INVALID_REQUEST"))
+                .andExpect(jsonPath("$.error.details.fieldErrors[0].field").value("until"));
+        // 숫자는 enum 순번(0 = NEXT_INCOME)으로 읽지 않는다.
+        for (String value : new String[] {"0", "1", "\"days\""}) {
+            perform(body(accountA, checkOnA, "300000", "\"until\": " + value + ", \"days\": 7" + category))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.error.details.fieldErrors[0].field").value("until"));
+        }
+        // 요청만으로 알 수 있는 오류라 days처럼 추천 엔진을 부르기 전에 거절한다(!164 리뷰).
+        verify(recommender, never()).recommend(any());
     }
 
     private ResultActions perform(String json) throws Exception {

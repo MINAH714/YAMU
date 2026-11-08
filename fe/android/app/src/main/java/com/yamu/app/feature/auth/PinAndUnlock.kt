@@ -27,9 +27,14 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
+import com.yamu.app.core.designsystem.theme.YamuMotion
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import com.yamu.app.core.designsystem.component.BottomCta
 import com.yamu.app.core.designsystem.component.CharacterImage
 import com.yamu.app.core.designsystem.component.CharacterSize
@@ -416,15 +421,29 @@ fun PinLoginRoute(
 // ───────────────────────── A-07 가입 완료 ─────────────────────────
 
 @HiltViewModel
-class SignupDoneViewModel @Inject constructor(private val auth: AuthRepository) : ViewModel() {
+class SignupDoneViewModel @Inject constructor(
+    private val auth: AuthRepository,
+    private val saved: SavedStateHandle,
+) : ViewModel() {
     private val _name = MutableStateFlow<String?>(null)
     val name: StateFlow<String?> = _name.asStateFlow()
+
+    /** 가입 축하 팝 키 — 한 번 돌면 이 화면 기록(back stack entry)에 저장해 두어 회전 · 프로세스 재시작 뒤에도 돌지 않는다 */
+    val celebrateKey: StateFlow<String?> = saved.getStateFlow(CELEBRATED, false)
+        .map { done -> if (done) null else "signup" }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, if (saved.get<Boolean>(CELEBRATED) == true) null else "signup")
+
     init { viewModelScope.launch { _name.value = auth.session().name } }
+
+    fun celebrated() { saved[CELEBRATED] = true }
+
+    private companion object { const val CELEBRATED = "signupCelebrated" }
 }
 
 @Composable
 fun SignupDoneRoute(onLinkNow: () -> Unit, onLater: () -> Unit, viewModel: SignupDoneViewModel = hiltViewModel()) {
     val name by viewModel.name.collectAsStateWithLifecycle()
+    val celebrateKey by viewModel.celebrateKey.collectAsStateWithLifecycle()
     Scaffold(
         bottomBar = {
             BottomCta(secondary = { TextButtonGrey("나중에 할게요", onClick = onLater, modifier = Modifier.fillMaxWidth(), small = true) }) {
@@ -434,7 +453,11 @@ fun SignupDoneRoute(onLinkNow: () -> Unit, onLater: () -> Unit, viewModel: Signu
         containerColor = YamuTheme.colors.surface,
         contentWindowInsets = WindowInsets.statusBars,
     ) { inner ->
-        CenteredMessage(inner, YamuPose.Joy, "${name ?: "야무"}님, 가입을 축하해요!", "계좌 · 카드 연결은 약 1분이면 끝나요", animate = true)
+        // 화면 교체 페이드 뒤 축하 팝 한 번. 이름이 늦게 와 다시 그려져도 키가 같아 다시 돌지 않는다
+        CenteredMessage(
+            inner, YamuPose.Joy, "${name ?: "야무"}님, 가입을 축하해요!", "계좌 · 카드 연결은 약 1분이면 끝나요",
+            celebrateKey = celebrateKey, onCelebrated = viewModel::celebrated,
+        )
     }
 }
 
@@ -479,6 +502,8 @@ private fun CenteredMessage(
     sub: String,
     animate: Boolean = false,
     isError: Boolean = false,
+    celebrateKey: Any? = null,
+    onCelebrated: () -> Unit = {},
 ) {
     val c = YamuTheme.colors
     // 위에서부터 — 상태 표시줄 아래 72dp에 캐릭터(프로토타입 A-07)
@@ -487,7 +512,10 @@ private fun CenteredMessage(
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Spacer(Modifier.height(72.dp))
-        CharacterImage(pose, size = CharacterSize.L, animate = animate)
+        CharacterImage(
+            pose, size = CharacterSize.L, animate = animate,
+            celebrateKey = celebrateKey, onCelebrated = onCelebrated, celebrateDelayMs = YamuMotion.CELEBRATE_AFTER_SWAP_MS,
+        )
         Spacer(Modifier.height(32.dp))
         Text(title, style = YamuTheme.typography.headlineS, color = c.text1, textAlign = TextAlign.Center)
         Spacer(Modifier.height(8.dp))

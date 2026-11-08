@@ -27,7 +27,7 @@ class BillQueryReader {
     /**
      * 청구서 한 줄 + 카드·계좌 표시값 + 회차 합계. 회차 합계는 청구에 들어간 회차만 센다. 확정 전 취소로 빠진 회차(EXCLUDED, 제외 시각
      * 없음)는 넣지 않고, 확정 뒤 취소로 EXCLUDED가 된 회차(미납 제외·0원 닫기, 제외 시각 있음)는 확정액에 들어 있으므로 넣는다
-     * ({@code BillItem.isInConfirmedAmount}와 같은 기준). 그래서 확정 뒤에는 회차 합계 − 청구할인 = 확정액이다.
+     * ({@code BillItem.isInConfirmedAmount}와 같은 기준). 그래서 확정 뒤에는 회차 합계 − 청구할인(배분 합계) = 확정액이다.
      */
     private static final String BILL_SELECT = """
             SELECT b.card_bill_id, b.user_card_id, c.card_alias, c.card_last4, p.product_name, p.billing_cutoff_days,
@@ -36,7 +36,7 @@ class BillQueryReader {
                    b.created_at, b.confirmed_at, b.paid_at, b.failed_at, b.fin_transaction_no,
                    a.linked_account_id AS account_id, a.bank_code, a.account_last4,
                    COALESCE(s.item_count, 0) AS item_count, COALESCE(s.item_amount, 0) AS item_amount,
-                   COALESCE(s.pending_amount, 0) AS pending_amount
+                   COALESCE(s.pending_amount, 0) AS pending_amount, COALESCE(d.discount_amount, 0) AS discount_amount
               FROM card_bill b
               JOIN user_card c ON c.user_card_id = b.user_card_id AND c.user_id = b.user_id
               JOIN card_product p ON p.card_product_id = c.card_product_id
@@ -52,6 +52,8 @@ class BillQueryReader {
                            FROM bill_item i
                           WHERE i.user_id = :userId
                           GROUP BY i.card_bill_id) s ON s.card_bill_id = b.card_bill_id
+              LEFT JOIN (SELECT card_bill_id, SUM(amount) AS discount_amount
+                           FROM bill_item_discount GROUP BY card_bill_id) d ON d.card_bill_id = b.card_bill_id
              WHERE b.user_id = :userId
             """;
 
@@ -170,7 +172,7 @@ class BillQueryReader {
                 rs.getObject("paid_at", LocalDateTime.class), rs.getObject("failed_at", LocalDateTime.class),
                 rs.getString("fin_transaction_no"), rs.getObject("account_id", Long.class), rs.getString("bank_code"),
                 rs.getString("account_last4"), rs.getInt("item_count"), rs.getLong("item_amount"),
-                rs.getLong("pending_amount"));
+                rs.getLong("pending_amount"), rs.getLong("discount_amount"));
     }
 
     /**
@@ -178,13 +180,14 @@ class BillQueryReader {
      * @param itemCount     청구에 들어간 회차 수(확정 전 취소로 빠진 회차만 뺀다)
      * @param itemAmount    청구에 들어간 회차 청구액(원금 + 수수료) 합계
      * @param pendingAmount 청구 전(PENDING) 회차 원금 합계. 진행 중 청구서의 예상 청구액 바탕
+     * @param discountAmount 청구 확정 때 회차에 나눈 청구할인 합계({@code bill_item_discount}). 확정 전이면 0
      */
     record BillRow(long billId, long userCardId, String cardAlias, String cardLast4, String productName,
             Integer cutoffDays, LocalDate billingMonth, LocalDate periodStart, LocalDate periodEnd,
             LocalDate withdrawalDate, BillStatus status, Long confirmedAmount, long paidAmount,
             long canceledUnpaidPrincipal, LocalDateTime createdAt, LocalDateTime confirmedAt, LocalDateTime paidAt,
             LocalDateTime failedAt, String finTransactionNo, Long accountId, String bankCode, String accountLast4,
-            int itemCount, long itemAmount, long pendingAmount) {}
+            int itemCount, long itemAmount, long pendingAmount, long discountAmount) {}
 
     /** @param installmentMonths 원결제의 개월 수(일시불 1) */
     record ItemRow(long billItemId, long paymentId, LocalDateTime approvedAt, String merchantName,

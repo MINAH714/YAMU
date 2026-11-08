@@ -3,6 +3,8 @@ package com.yamu.be.payment.billing.confirm;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.doThrow;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -11,6 +13,7 @@ import com.yamu.be.global.job.JobLocks;
 import com.yamu.be.global.job.JobRunCommand;
 import com.yamu.be.global.job.JobRunReport;
 import com.yamu.be.payment.bank.SsafyTransferApi;
+import com.yamu.be.support.AuthUsers;
 import com.yamu.be.support.Concurrently;
 import com.yamu.be.support.MySqlTestSupport;
 import com.yamu.be.support.OwnershipFixtures;
@@ -25,6 +28,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -88,6 +92,7 @@ class BillConfirmIntegrationTest extends MySqlTestSupport {
 
     @BeforeEach
     void setUp() {
+        deleteDiscountRows();
         jdbc.update("DELETE FROM refund");
         jdbc.update("DELETE FROM bill_item");
         jdbc.update("DELETE FROM card_bill");
@@ -238,24 +243,180 @@ class BillConfirmIntegrationTest extends MySqlTestSupport {
         assertThat(events.stream(BillConfirmedEvent.class)).allMatch(BillConfirmedEvent::settledWithoutWithdrawal);
     }
 
+    // ───────── 청구할인(Task 5.4.7) ─────────
+
     @Test
-    void 청구할인이_있으면_그_청구서만_확정하지_않고_실패로_남기고_다른_청구서는_계속한다() {
-        long discounted = accumulating(user, card, NOVEMBER, LocalDate.of(2026, 11, 1));
-        long pending = item(payment(user, card, 30_000), user, card, discounted, 1, 30_000, "PENDING");
+    void 청구할인을_회차_원금_비율로_나눠_저장하고_확정액에서_뺀다() {
+        long bill = accumulating(user, card, NOVEMBER, LocalDate.of(2026, 11, 1));
+        long lump = payment(user, card, 30_000);
+        long lumpItem = item(lump, user, card, bill, 1, 30_000, "PENDING");
+        // 90,000원 3개월 할부(30,000×3): 1회차만 이 청구서, 나머지는 다음 달 청구서에 붙을 회차
+        long installment = payment(user, card, 90_000);
+        long firstItem = item(installment, user, card, bill, 1, 30_000, "PENDING");
+        laterItem(installment, 2, 30_000);
+        laterItem(installment, 3, 30_000);
+        long lumpDiscount = billingDiscount(lump, 3_000, "AT_BILLING", "DISCOUNT");
+        long installmentDiscount = billingDiscount(installment, 9_000, "AT_BILLING", "DISCOUNT");
+        // 즉시할인·적립은 청구할인이 아니다
+        billingDiscount(lump, 1_000, "AT_APPROVAL", "DISCOUNT");
+        billingDiscount(installment, 500, "POINT_ACCRUAL", "POINT");
+
+        JobRunReport report = run(AS_OF, null, false);
+
+        assertThat(report.count(JobRunReport.Outcome.SUCCEEDED)).isEqualTo(1);
+        assertThat(billRow(bill).get("status")).isEqualTo("CONFIRMED");
+        assertThat(billRow(bill).get("confirmed_amount")).isEqualTo(54_000L);
+        assertThat(jdbc.queryForList("SELECT bill_item_id, payment_benefit_id, amount FROM bill_item_discount "
+                + "WHERE card_bill_id = ? ORDER BY bill_item_id", bill))
+                .containsExactly(
+                        Map.of("bill_item_id", lumpItem, "payment_benefit_id", lumpDiscount, "amount", 3_000L),
+                        Map.of("bill_item_id", firstItem, "payment_benefit_id", installmentDiscount, "amount", 3_000L));
+    }
+
+    @Test
+    void 할부_할인의_원_단위_나머지는_마지막_회차에_간다() {
+        long bill = accumulating(user, card, NOVEMBER, LocalDate.of(2026, 11, 1));
+        // 100,000원 3개월(33,333/33,333/33,334), 할인 1,000원 → 333 / 333 / 334. 마지막 회차가 이 청구서
+        long installment = payment(user, card, 100_000);
+        laterItem(installment, 1, 33_333);
+        laterItem(installment, 2, 33_333);
+        long last = item(installment, user, card, bill, 3, 33_334, "PENDING");
+        billingDiscount(installment, 1_000, "AT_BILLING", "DISCOUNT");
+
+        run(AS_OF, null, false);
+
+        assertThat(jdbc.queryForObject("SELECT amount FROM bill_item_discount WHERE bill_item_id = ?", Long.class, last))
+                .isEqualTo(334L);
+        assertThat(billRow(bill).get("confirmed_amount")).isEqualTo(33_000L);
+    }
+
+    @Test
+    void 나머지가_마지막_회차_원금을_넘으면_앞_회차로_넘겨_1원도_잃지_않는다() {
+        // 원금 3,333 / 3,333 / 3,334에 할인 9,999원: 예전 규칙은 마지막이 3,335원이라 1원이 잘렸다(!141 리뷰)
+        long bill = accumulating(user, card, NOVEMBER, LocalDate.of(2026, 11, 1));
+        long installment = payment(user, card, 10_000);
+        long first = item(installment, user, card, bill, 1, 3_333, "PENDING");
+        long second = item(installment, user, card, bill, 2, 3_333, "PENDING");
+        long third = item(installment, user, card, bill, 3, 3_334, "PENDING");
+        billingDiscount(installment, 9_999, "AT_BILLING", "DISCOUNT");
+
+        run(AS_OF, null, false);
+
+        assertThat(jdbc.queryForList("SELECT bill_item_id, amount FROM bill_item_discount WHERE card_bill_id = ? "
+                + "ORDER BY bill_item_id", bill)).containsExactly(
+                Map.of("bill_item_id", first, "amount", 3_332L),
+                Map.of("bill_item_id", second, "amount", 3_333L),
+                Map.of("bill_item_id", third, "amount", 3_334L));
+        assertThat(billRow(bill).get("confirmed_amount")).isEqualTo(1L);
+    }
+
+    @Test
+    void 회차_하나에_나눈_할인이_그_회차_청구액보다_크면_확정하지_않는다() {
+        long bill = accumulating(user, card, NOVEMBER, LocalDate.of(2026, 11, 1));
+        long payment = payment(user, card, 30_000);
+        long small = item(payment, user, card, bill, 1, 10_000, "PENDING");
+        long large = item(payment(user, card, 20_000), user, card, bill, 1, 20_000, "PENDING");
+        long benefit = billingDiscount(payment, 1_000, "AT_BILLING", "DISCOUNT");
+        // 합계(12,000)는 회차 합(30,000) 안이지만 회차 하나(10,000)를 넘는 깨진 배분
+        doReturn(List.of(new BillingDiscountSource.Allocation(small, payment, benefit, "깨진 배분", 12_000)))
+                .when(discounts).allocate(bill);
+
+        JobRunReport report = run(AS_OF, null, false);
+
+        assertThat(report.count(JobRunReport.Outcome.FAILED)).isEqualTo(1);
+        assertThat(billRow(bill).get("status")).isEqualTo("ACCUMULATING");
+        assertThat(itemStatus(small)).isEqualTo("PENDING");
+        assertThat(itemStatus(large)).isEqualTo("PENDING");
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM bill_item_discount WHERE card_bill_id = ?", Integer.class,
+                bill)).isZero();
+    }
+
+    @Test
+    void 다시_실행해도_할인_배분을_한_번만_저장한다() {
+        long bill = accumulating(user, card, NOVEMBER, LocalDate.of(2026, 11, 1));
+        long lump = payment(user, card, 30_000);
+        item(lump, user, card, bill, 1, 30_000, "PENDING");
+        billingDiscount(lump, 3_000, "AT_BILLING", "DISCOUNT");
+
+        run(AS_OF, null, false);
+        JobRunReport again = run(AS_OF, null, false);
+
+        assertThat(again.count(JobRunReport.Outcome.SUCCEEDED)).isZero();
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM bill_item_discount WHERE card_bill_id = ?", Integer.class,
+                bill)).isEqualTo(1);
+        assertThat(billRow(bill).get("confirmed_amount")).isEqualTo(27_000L);
+    }
+
+    @Test
+    void 할인_계산이_실패한_청구서만_실패로_남기고_다른_청구서는_계속한다() {
+        long failing = accumulating(user, card, NOVEMBER, LocalDate.of(2026, 11, 1));
+        long pending = item(payment(user, card, 30_000), user, card, failing, 1, 30_000, "PENDING");
         long otherCard = creditCard(user, account);
         long other = accumulating(user, otherCard, NOVEMBER, LocalDate.of(2026, 11, 1));
         item(payment(user, otherCard, 9_000), user, otherCard, other, 1, 9_000, "PENDING");
-        doReturn(3_000L).when(discounts).discount(org.mockito.ArgumentMatchers.argThat(b -> b.getId() == discounted),
-                any());
+        doThrow(new IllegalStateException("할인 원천 오류")).when(discounts).allocate(failing);
 
         JobRunReport report = run(AS_OF, null, false);
 
         assertThat(report.count(JobRunReport.Outcome.FAILED)).isEqualTo(1);
         assertThat(report.count(JobRunReport.Outcome.SUCCEEDED)).isEqualTo(1);
-        assertThat(billRow(discounted).get("status")).isEqualTo("ACCUMULATING");
-        assertThat(billRow(discounted).get("confirmed_amount")).isNull();
+        assertThat(billRow(failing).get("status")).isEqualTo("ACCUMULATING");
+        assertThat(billRow(failing).get("confirmed_amount")).isNull();
         assertThat(itemStatus(pending)).isEqualTo("PENDING");
         assertThat(billRow(other).get("status")).isEqualTo("CONFIRMED");
+    }
+
+    @Test
+    void 확정_뒤_취소하면_회차_청구액에서_배분_할인을_뺀_금액을_환급한다() throws Exception {
+        long bill = accumulating(user, card, NOVEMBER, LocalDate.of(2026, 11, 1));
+        long lump = payment(user, card, 30_000);
+        long lumpItem = item(lump, user, card, bill, 1, 30_000, "PENDING");
+        billingDiscount(lump, 3_000, "AT_BILLING", "DISCOUNT");
+        run(AS_OF, null, false);
+
+        mockMvc.perform(post("/api/payments/{paymentId}/cancel", lump).with(AuthUsers.asUser(user))
+                        .header("Idempotency-Key", UUID.randomUUID().toString()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.refunds[0].amount").value(27_000));
+
+        Map<String, Object> refund = jdbc.queryForMap("SELECT principal_amount, refund_amount FROM refund "
+                + "WHERE bill_item_id = ?", lumpItem);
+        assertThat(refund.get("principal_amount")).isEqualTo(27_000L);
+        assertThat(refund.get("refund_amount")).isEqualTo(27_000L);
+    }
+
+    @Test
+    void 청구서_조회는_확정_할인과_진행_중_예상_할인을_보여_준다() throws Exception {
+        long bill = accumulating(user, card, NOVEMBER, LocalDate.of(2026, 11, 1));
+        long lump = payment(user, card, 30_000);
+        item(lump, user, card, bill, 1, 30_000, "PENDING");
+        long discount = billingDiscount(lump, 3_000, "AT_BILLING", "DISCOUNT");
+
+        // 확정 전: 예상 청구할인과 예상 청구액. discounts[]도 같은 금액을 확정 시각 없이 보인다(!141 리뷰)
+        mockMvc.perform(get("/api/billings/{billId}", bill).with(AuthUsers.asUser(user)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.amounts.billingDiscount").value(3_000))
+                .andExpect(jsonPath("$.data.amounts.expectedAmount").value(27_000))
+                .andExpect(jsonPath("$.data.discounts.length()").value(1))
+                .andExpect(jsonPath("$.data.discounts[0].paymentBenefitId").value(discount))
+                .andExpect(jsonPath("$.data.discounts[0].amount").value(3_000))
+                .andExpect(jsonPath("$.data.discounts[0].confirmedAt").doesNotExist());
+
+        run(AS_OF, null, false);
+
+        mockMvc.perform(get("/api/billings/{billId}", bill).with(AuthUsers.asUser(user)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.amounts.itemAmount").value(30_000))
+                .andExpect(jsonPath("$.data.amounts.billingDiscount").value(3_000))
+                .andExpect(jsonPath("$.data.amounts.finalAmount").value(27_000))
+                .andExpect(jsonPath("$.data.discounts[0].paymentBenefitId").value(discount))
+                .andExpect(jsonPath("$.data.discounts[0].paymentId").value(lump))
+                .andExpect(jsonPath("$.data.discounts[0].amount").value(3_000))
+                .andExpect(jsonPath("$.data.discounts[0].confirmedAt").isString());
+        mockMvc.perform(get("/api/billings").with(AuthUsers.asUser(user)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.items[0].billingDiscount").value(3_000))
+                .andExpect(jsonPath("$.data.items[0].finalAmount").value(27_000));
     }
 
     @Test
@@ -363,6 +524,33 @@ class BillConfirmIntegrationTest extends MySqlTestSupport {
 
     // ───────── 도우미 ─────────
 
+    /** 할인 배분·혜택 행은 회차·결제·상품을 지울 수 없게 하므로 앞뒤로 지운다(다음 테스트 클래스도 같은 DB를 쓴다). */
+    @AfterEach
+    void deleteDiscountRows() {
+        jdbc.update("DELETE FROM bill_item_discount");
+        jdbc.update("DELETE FROM payment_benefit");
+        jdbc.update("DELETE FROM card_benefit");
+    }
+
+    /** 결제의 혜택 한 줄(승인 원장이 적는 payment_benefit)과 그 혜택 정책(card_benefit). 원화 금액으로 적는다. */
+    private long billingDiscount(long payment, long amount, String timing, String type) {
+        Long product = jdbc.queryForObject("SELECT card_product_id FROM payment_transaction WHERE payment_transaction_id = ?",
+                Long.class, payment);
+        LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
+        Map<String, Object> benefit = new HashMap<>(Map.of("card_product_id", product,
+                "benefit_code", "B_" + UUID.randomUUID().toString().substring(0, 8), "policy_version", 1,
+                "benefit_name", "카페 청구할인", "benefit_type", type, "calculation_type", "FIXED",
+                "fixed_value", java.math.BigDecimal.valueOf(amount), "value_unit", "POINT".equals(type) ? "POINT" : "KRW",
+                "application_timing", timing, "created_at", now));
+        long benefitId = new SimpleJdbcInsert(jdbc).withTableName("card_benefit").usingGeneratedKeyColumns("card_benefit_id")
+                .usingColumns(benefit.keySet().toArray(String[]::new)).executeAndReturnKey(benefit).longValue();
+        Map<String, Object> applied = new HashMap<>(Map.of("payment_transaction_id", payment, "card_product_id", product,
+                "card_benefit_id", benefitId, "benefit_value", java.math.BigDecimal.valueOf(amount),
+                "value_unit", "POINT".equals(type) ? "POINT" : "KRW", "krw_amount", amount, "created_at", now));
+        return new SimpleJdbcInsert(jdbc).withTableName("payment_benefit").usingGeneratedKeyColumns("payment_benefit_id")
+                .usingColumns(applied.keySet().toArray(String[]::new)).executeAndReturnKey(applied).longValue();
+    }
+
     /** 그 한국 날짜 00:30을 UTC 시각으로 */
     private static Instant koreanTime0030(LocalDate date) {
         return date.atTime(0, 30).atZone(KOREA).toInstant();
@@ -406,6 +594,13 @@ class BillConfirmIntegrationTest extends MySqlTestSupport {
                 "user_card_id", userCard, "card_bill_id", bill, "installment_no", no,
                 "billing_month", NOVEMBER.atDay(1), "principal_amount", principal, "fee_amount", 0L,
                 "billed_amount", principal, "status", status));
+    }
+
+    /** 아직 청구서에 붙지 않은 다른 달 회차(할부의 다른 회차). 할인 배분의 원금 비율에만 쓰인다. */
+    private void laterItem(long payment, int no, long principal) {
+        insert("bill_item", "bill_item_id", Map.of("payment_transaction_id", payment, "user_id", user,
+                "user_card_id", card, "installment_no", no, "billing_month", NOVEMBER.plusMonths(no).atDay(1),
+                "principal_amount", principal, "fee_amount", 0L, "billed_amount", principal, "status", "PENDING"));
     }
 
     private Map<String, Object> billRow(long id) {

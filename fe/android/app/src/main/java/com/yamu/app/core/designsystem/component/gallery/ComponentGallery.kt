@@ -2,6 +2,7 @@ package com.yamu.app.core.designsystem.component.gallery
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -10,8 +11,10 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Notifications
@@ -21,13 +24,16 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
@@ -37,7 +43,9 @@ import com.yamu.app.core.designsystem.card.CardImages
 import com.yamu.app.core.designsystem.component.CardArt
 import com.yamu.app.core.designsystem.component.CardThumb
 import com.yamu.app.core.designsystem.component.CharacterImage
+import com.yamu.app.core.designsystem.component.CharacterImageImpl
 import com.yamu.app.core.designsystem.component.CharacterSize
+import com.yamu.app.core.designsystem.component.CountdownRing
 import com.yamu.app.core.designsystem.component.EmptyState
 import com.yamu.app.core.designsystem.component.ErrorState
 import com.yamu.app.core.designsystem.component.GreyChip
@@ -58,6 +66,7 @@ import com.yamu.app.core.designsystem.component.StartStepper
 import com.yamu.app.core.designsystem.component.StatusTag
 import com.yamu.app.core.designsystem.component.TagTone
 import com.yamu.app.core.designsystem.component.TextButtonGrey
+import com.yamu.app.core.designsystem.component.WaitRingDefaults
 import com.yamu.app.core.designsystem.component.YamuBottomSheet
 import com.yamu.app.core.designsystem.component.YamuCard
 import com.yamu.app.core.designsystem.component.YamuDialog
@@ -67,8 +76,12 @@ import com.yamu.app.core.designsystem.component.YamuTabs
 import com.yamu.app.core.designsystem.component.YamuTopBar
 import com.yamu.app.core.designsystem.theme.BrandColor
 import com.yamu.app.core.designsystem.theme.Issuer
+import com.yamu.app.core.designsystem.theme.YamuMotionDebug
+import com.yamu.app.core.designsystem.theme.YamuRadius
 import com.yamu.app.core.designsystem.theme.YamuTheme
 import com.yamu.app.core.ui.LocalSnackbar
+import com.yamu.app.feature.payment.WaitPhase
+import com.yamu.app.feature.payment.WaitingSurface
 import kotlinx.coroutines.launch
 
 /**
@@ -101,6 +114,8 @@ fun ComponentGallery(onBack: (() -> Unit)? = null) {
                         ToggleRow("글자 1.3배", bigFont) { bigFont = it }
                         ToggleRow("브랜드 색 미리보기(청록 후보)", teal) { teal = it }
                     }
+                    CharacterMotionSamples()
+                    WaitMotionSamples()
                     GallerySections()
                     Spacer(Modifier.height(56.dp))
                 }
@@ -108,6 +123,108 @@ fun ComponentGallery(onBack: (() -> Unit)? = null) {
         }
     }
 }
+
+/**
+ * 캐릭터 등장 견본 — 녹화로 박자를 재는 자리(모션 명세 M-DONE-character).
+ * 다시 재생은 견본을 새로 그리거나(조용한 등장) 새 축하 키를 넘긴다(팝). '견본 다시 넣기'는 키를 비운 뒤
+ * 견본을 새로 그려, 이미 쓴 축하가 다시 돌지 않는지 본다. 팝 크기를 잴 때는 회전을 끈다.
+ */
+@Composable
+private fun CharacterMotionSamples() {
+    var enterRun by rememberSaveable { mutableIntStateOf(0) }
+    var popCount by rememberSaveable { mutableIntStateOf(0) }
+    var popKey by rememberSaveable { mutableStateOf<Int?>(null) }
+    var popMount by rememberSaveable { mutableIntStateOf(0) }
+    var tilt by rememberSaveable { mutableStateOf(true) }
+    YamuCard {
+        Text("캐릭터 등장", style = YamuTheme.typography.titleM, color = YamuTheme.colors.text1)
+        ToggleRow("모션 줄이기 강제", YamuMotionDebug.forceReduceMotion) { YamuMotionDebug.forceReduceMotion = it }
+        ToggleRow("팝 회전", tilt) { tilt = it }
+        Row(
+            Modifier.fillMaxWidth().padding(vertical = 24.dp),
+            horizontalArrangement = Arrangement.SpaceEvenly,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            key(enterRun) { CharacterImage(YamuPose.Pay, size = CharacterSize.M, animate = true) }
+            key(popMount) {
+                CharacterImageImpl(
+                    YamuPose.Card,
+                    modifier = Modifier,
+                    size = CharacterSize.M,
+                    animate = false,
+                    circle = false,
+                    celebrateKey = popKey,
+                    onCelebrated = { popKey = null },
+                    tilt = tilt,
+                )
+            }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            NeutralButton("조용한 등장", onClick = { enterRun++ }, modifier = Modifier.weight(1f))
+            NeutralButton("축하 팝", onClick = { popKey = ++popCount }, modifier = Modifier.weight(1f))
+        }
+        Spacer(Modifier.height(8.dp))
+        TextButtonGrey("견본 다시 넣기(팝이 다시 돌면 안 됨)", onClick = { popMount++ })
+    }
+}
+
+/**
+ * 결제 승인 대기 견본 — 녹화로 헤일로 숨과 남은 시간 링을 재는 자리(모션 명세 M-WAIT-HALO · M-WAIT-COUNTDOWN).
+ * 판은 실제 화면처럼 아래 터치를 막으니 견본 밖의 스위치 · 버튼으로 다룬다. 남은 시간 링은 실제 시계로 15초를 돌고
+ * 10초부터 임박 색, 0초에 회색 트랙만 남는다. 작은 링이 실제 크기, 큰 링은 재기 쉬운 크기다.
+ */
+@Composable
+private fun WaitMotionSamples() {
+    var unknown by rememberSaveable { mutableStateOf(false) }
+    var surfaceMount by rememberSaveable { mutableIntStateOf(0) }
+    var countdownRun by rememberSaveable { mutableIntStateOf(0) }
+    var deadline by rememberSaveable { mutableLongStateOf(System.currentTimeMillis() + COUNTDOWN_SAMPLE_MS) }
+    YamuCard {
+        Text("결제 승인 대기", style = YamuTheme.typography.titleM, color = YamuTheme.colors.text1)
+        ToggleRow("모션 줄이기 강제", YamuMotionDebug.forceReduceMotion) { YamuMotionDebug.forceReduceMotion = it }
+        ToggleRow("결과 불명", unknown) { unknown = it }
+        Spacer(Modifier.height(8.dp))
+        Box(Modifier.fillMaxWidth().height(580.dp).clip(RoundedCornerShape(YamuRadius.card))) {
+            key(surfaceMount) {
+                WaitingSurface(
+                    phase = if (unknown) WaitPhase.Unknown else WaitPhase.Processing,
+                    title = if (unknown) "결제됐는지 확인하고 있어요" else "결제하고 있어요",
+                    pill = if (unknown) "확인 중 · 응답을 받지 못했어요" else "신한카드 · 15,000원",
+                    entering = true,          // '판 다시 넣기'로 들어오는 모션을 다시 본다
+                    lightStatusBar = false,   // 갤러리는 위가 흰 화면이라 상태 표시줄을 바꾸지 않음
+                    // 아래 버튼이 생겨도 원판이 그 자리에 있는지 보는 견본. 버튼 모양은 결과 불명 작업에서 정함
+                    bottom = if (unknown) {
+                        { NeutralButton("결과 다시 확인", onClick = {}) }
+                    } else {
+                        null
+                    },
+                )
+            }
+        }
+        TextButtonGrey("판 다시 넣기", onClick = { surfaceMount++ })
+        Spacer(Modifier.height(8.dp))
+        Text("남은 시간 링", style = YamuTheme.typography.titleS, color = YamuTheme.colors.text2)
+        Row(
+            Modifier.fillMaxWidth().padding(vertical = 16.dp),
+            horizontalArrangement = Arrangement.SpaceEvenly,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            CountdownRing(deadline, key = "gallery-mini-$countdownRun", modifier = Modifier.size(WaitRingDefaults.miniSize))
+            CountdownRing(
+                deadline,
+                key = "gallery-big-$countdownRun",
+                modifier = Modifier.size(96.dp),
+                stroke = WaitRingDefaults.stroke,
+            )
+        }
+        NeutralButton("15초부터 다시", onClick = {
+            deadline = System.currentTimeMillis() + COUNTDOWN_SAMPLE_MS
+            countdownRun++
+        })
+    }
+}
+
+private const val COUNTDOWN_SAMPLE_MS = 15_000L
 
 @Composable
 private fun ToggleRow(label: String, checked: Boolean, onChange: (Boolean) -> Unit) {

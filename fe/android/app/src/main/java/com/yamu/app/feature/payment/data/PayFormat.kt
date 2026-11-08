@@ -14,6 +14,9 @@ fun formatRemaining(seconds: Long): String {
     return "%02d:%02d".format(s / 60, s % 60)
 }
 
+/** 서버 시각(ISO-8601) → epoch 밀리초. 못 읽으면 null */
+fun epochMillisOrNull(iso: String): Long? = runCatching { OffsetDateTime.parse(iso).toInstant().toEpochMilli() }.getOrNull()
+
 /** 서버 시각(ISO-8601)까지 남은 초. 못 읽으면 null */
 fun secondsUntil(iso: String?, now: Instant = Instant.now()): Long? {
     val at = iso?.let { runCatching { OffsetDateTime.parse(it).toInstant() }.getOrNull() } ?: return null

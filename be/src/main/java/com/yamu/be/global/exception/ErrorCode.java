@@ -109,6 +109,9 @@ public enum ErrorCode {
     /* 가계부 - 항목 수정·삭제. 실제 결제와 연결된 회차는 예정 수정으로 바꾸지 않는다. 명세서 「가계부 항목 수정」「삭제」에 추가 필요 */
     PAID_OCCURRENCE_LOCKED(HttpStatus.CONFLICT, "실제 결제와 연결된 회차가 있어 바꿀 수 없습니다."),
 
+    /* 가계부 - 결제 매칭 확정 (API 명세 「매칭 확정」). 회차나 결제가 이미 다른 상대와 연결됨 */
+    CASHFLOW_MATCH_CONFLICT(HttpStatus.CONFLICT, "이미 다른 결제나 예정 지출과 연결되어 있습니다."),
+
     /* 잔고예보 - 조회 (API 명세 「잔고예보 조회」). accountIds 누락 또는 빈 선택 */
     ACCOUNT_SELECTION_REQUIRED(HttpStatus.BAD_REQUEST, "잔고예보에 사용할 계좌를 하나 이상 선택해 주세요."),
 
@@ -147,6 +150,10 @@ public enum ErrorCode {
 
     /* 공통 - 호출 횟수 제한. details.retryAfterSeconds. 명세서 1장에 추가 필요 */
     TOO_MANY_REQUESTS(HttpStatus.TOO_MANY_REQUESTS, "요청이 너무 많습니다. 잠시 후 다시 시도해 주세요."),
+
+    /* 결제 - 결제 내역 CSV 내려받기 (API 명세 「결제 내역 CSV 내려받기」) */
+    RANGE_TOO_LARGE(HttpStatus.BAD_REQUEST, "한 번에 내려받을 수 있는 기간은 12개월까지예요."),
+    RATE_LIMITED(HttpStatus.TOO_MANY_REQUESTS, "내려받기를 너무 자주 요청했어요. 잠시 후 다시 시도해 주세요."),
 
     /* 결제 바코드 (API 명세 「결제 바코드 발급」「바코드 상태·결제 요청 조회」「POS 결제 요청 생성」) */
     NO_ACTIVE_CARD(HttpStatus.CONFLICT, "결제에 사용할 수 있는 카드가 없습니다. 카드를 먼저 등록해 주세요."),
