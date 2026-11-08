@@ -18,6 +18,7 @@ enum class ApiFeature(val key: String, val label: String) {
     REPORT("report", "리포트"),
     MY("my", "마이"),
     POS("pos", "모의 POS"),
+    BILLING("billing", "청구 · 환급"),
     ;
 
     val isReal: Boolean get() = this in real
