@@ -18,6 +18,7 @@ import com.yamu.be.card.domain.CardIssuerStatus;
 import com.yamu.be.card.domain.CardRegistrationStatus;
 import com.yamu.be.card.domain.CardType;
 import com.yamu.be.global.calendar.BusinessDayCalendar;
+import com.yamu.be.global.common.ApiResponse.FieldErrorResponse;
 import com.yamu.be.global.exception.BusinessException;
 import com.yamu.be.global.exception.ErrorCode;
 import com.yamu.be.merchant.MerchantCatalogService;
@@ -117,6 +118,34 @@ class PurchaseSimulationServiceTest {
                     assertThat(e.getDetails()).isEqualTo(Map.of("reason", "CARD_ACCOUNT_UNKNOWN"));
                 });
         verify(forecasts, never()).prepare(any(), anyList(), any(), any(), anyBoolean(), any());
+    }
+
+    @Test
+    void 오늘이_2월_29일이면_구매일_상한은_다음_해_2월_28일이고_3월_1일은_400이다() {
+        // plusYears(1)은 없는 날(2029-02-29) 대신 그달 말일로 맞춘다. 상한이 3/1로 밀리지 않는지 확인한다(!173 리뷰)
+        LocalDate leapDay = LocalDate.of(2028, 2, 29);
+        LocalDate lastDay = LocalDate.of(2029, 2, 28);
+        when(forecasts.today()).thenReturn(leapDay);
+        when(cards.requireRegisteredCard(USER, CARD)).thenReturn(new UserCardRef(CARD, 1L, ACCOUNT, "1234",
+                CardRegistrationStatus.ACTIVE, CardIssuerStatus.NORMAL, CardType.CHECK, null, null));
+        when(forecasts.prepare(eq(USER), anyList(), isNull(), isNull(), anyBoolean(), eq(leapDay)))
+                .thenReturn(new ForecastService.Prepared(List.of(ACCOUNT),
+                        new BalanceForecast.Horizon(BalanceForecast.Until.DAYS, leapDay, leapDay.plusDays(7), 7),
+                        100_000L, null, null, List.of(), List.of(), Map.of(ACCOUNT, 1_000_000L), Map.of()));
+        PurchaseSimulationService service = new PurchaseSimulationService(forecasts, cards, cardNames, recommender,
+                calendar, creditLimits, bills, catalog);
+        SimulationRequest lastDayRequest = request();
+        lastDayRequest.setPurchaseDate(lastDay);
+        SimulationRequest nextDayRequest = request();
+        nextDayRequest.setPurchaseDate(lastDay.plusDays(1));
+
+        assertThat(service.simulate(USER, lastDayRequest).input().purchaseDate()).isEqualTo(lastDay);
+        assertThatThrownBy(() -> service.simulate(USER, nextDayRequest))
+                .isInstanceOfSatisfying(BusinessException.class, e -> {
+                    assertThat(e.getErrorCode()).isEqualTo(ErrorCode.INVALID_REQUEST);
+                    assertThat(e.getDetails()).isEqualTo(Map.of("fieldErrors",
+                            List.of(new FieldErrorResponse("purchaseDate", "구매일은 오늘부터 1년 안으로 골라 주세요."))));
+                });
     }
 
     private static SimulationRequest request() {
