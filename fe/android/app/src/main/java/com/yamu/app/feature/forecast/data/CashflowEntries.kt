@@ -144,7 +144,10 @@ fun CashflowEntryDto.toEntry(): CashflowEntry? {
 
 /** F-02 한 줄 — [entry]가 있으면 눌러서 고친다. 카드대금 · 월급 미리보기처럼 가계부 항목이 아니면 null(읽기 전용) */
 data class CashflowRow(val date: LocalDate?, val title: String, val amount: Long, val repeatLabel: String?, val entry: CashflowEntry?) {
-    /** 카드 예정 지출 — 줄의 날짜는 사용일이고 돈은 청구 출금일에 빠진다(머리의 '나갈 돈'과 기준이 다름을 줄에 밝힌다) */
+    /**
+     * 카드 예정 지출 표시 — 줄의 날짜는 사용일이다. 신용카드는 돈이 청구 출금일에 빠져 머리의 '나갈 돈'(기간 안 출금)과 날짜가 다를 수 있고,
+     * 체크카드는 사용일에 빠진다(BE CashflowEvents). 줄에서는 카드 결제라는 것만 밝힌다
+     */
     val cardNote: String? get() = "카드 결제".takeIf { entry?.userCardId != null && amount < 0 }
 }
 

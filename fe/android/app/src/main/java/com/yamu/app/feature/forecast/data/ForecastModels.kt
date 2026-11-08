@@ -224,8 +224,14 @@ data class Forecast(
     /** 기간 안 입출금(0원 제외, 날짜순) */
     val upcoming: List<ForecastEvent> get() = days.flatMap { it.events }.filter { it.amount != 0L }
 
-    /** 예정 출금 합(양수) — 보수적 선에만 넣은 추정은 예정 출금이 아니라 세지 않는다(BE summary.largestOutflow와 같은 기준) */
-    val scheduledOutflow: Long get() = -upcoming.filter { it.amount < 0 && !it.isEstimate }.sumOf { it.amount }
+    /**
+     * 기간 안에 실제로 빠지는 예정 출금 — 보수적 선에만 넣은 추정은 예정 출금이 아니라 뺀다(BE summary.largestOutflow와 같은 기준).
+     * 합계([scheduledOutflow])와 F-02 머리의 건수가 이 목록 하나를 같이 쓴다
+     */
+    val scheduledOutflows: List<ForecastEvent> get() = upcoming.filter { it.amount < 0 && !it.isEstimate }
+
+    /** 예정 출금 합(양수) */
+    val scheduledOutflow: Long get() = -scheduledOutflows.sumOf { it.amount }
 
     /** 안전 잔액 아래로 처음 내려가는 날 */
     val riskFrom: LocalDate? get() = riskWindows.minOfOrNull { it.from }

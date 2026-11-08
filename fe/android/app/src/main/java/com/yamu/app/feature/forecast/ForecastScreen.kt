@@ -216,8 +216,7 @@ internal fun periodLabel(f: Forecast?, selection: ForecastSelection): String =
  */
 internal fun cashflowOutflow(f: Forecast?, rows: List<CashflowRow>): Pair<Long, Int> =
     if (f != null) {
-        val out = f.upcoming.filter { it.amount < 0 && !it.isEstimate }
-        -out.sumOf { it.amount } to out.size
+        f.scheduledOutflow to f.scheduledOutflows.size   // 합계와 건수가 같은 목록(Forecast.scheduledOutflows)
     } else {
         rows.filter { it.amount < 0 }.let { out -> -out.sumOf { it.amount } to out.size }
     }
