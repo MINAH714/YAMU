@@ -408,11 +408,15 @@ class CashflowServiceTest {
         CashflowOccurrence paid = occurrence(51L, weekly, LocalDate.of(2026, 11, 2));
         CashflowOccurrence moved = occurrence(52L, weekly, LocalDate.of(2026, 11, 9));
         moved.override(LocalDate.of(2026, 11, 10), "헬스장", 10000L, 11L, null, null, null);
+        CashflowOccurrence canceled = occurrence(53L, weekly, LocalDate.of(2026, 11, 16));
         rulesBetween(from, to, weekly);
-        when(occurrences.findForUserBetween(7L, from, to)).thenReturn(List.of(paid, moved));
-        when(occurrences.findMatchedIds(List.of(51L, 52L))).thenReturn(List.of(51L));
+        when(occurrences.findForUserBetween(7L, from, to)).thenReturn(List.of(paid, moved, canceled));
+        when(occurrences.findMatchedIds(List.of(51L, 52L, 53L))).thenReturn(List.of(51L, 53L));
+        // 53은 연결된 결제가 취소됐다(S15P31E103-319).
+        when(occurrences.findPaidIds(Set.of(51L, 53L))).thenReturn(List.of(51L));
 
-        // 결제 연결 회차만 paid다. 이번 회차만 고친 회차와 규칙 값으로 계산한 회차는 아니다.
+        // 취소되지 않은 결제와 연결된 회차만 paid다. 이번 회차만 고친 회차, 연결 결제가 취소된 회차,
+        // 규칙 값으로 계산한 회차는 아니다.
         assertThat(service.list(7L, from, to, null, null, true))
                 .extracting(CashflowService.Entry::occurrenceDate, CashflowService.Entry::paid)
                 .containsExactly(tuple(LocalDate.of(2026, 11, 2), true), tuple(LocalDate.of(2026, 11, 9), false),

@@ -31,6 +31,9 @@ import org.springframework.stereotype.Component;
  *       나오고, 그 6개월 중 두 번 이상 나온 달이 없으면(매달 한 번) 뺀다(분류·출처와 상관없이 셈, 취소 결제는 세지 않음).
  *       월세·구독료처럼 예정 지출로 따로 반영하는 정기 지출이 두 번 빠지지 않게 한다. 주 3회 4,500원 커피처럼 한 달에 여러 번 나오는
  *       같은 가격 소비는 생활비에 남긴다(S15P31E103-295).</li>
+ *   <li><b>예정 지출과 연결된 결제 빼기</b>: 사용자가 예정 지출 회차와 연결한 결제({@code cashflow_payment_match})는 더하지 않는다.
+ *       매주 반복 지출이나 금액이 바뀌는 정기 지출처럼 위 반복 판정에 걸리지 않는 결제가 예정 지출과 두 번 빠지지 않게 한다.
+ *       반복 판정에는 그대로 센다(S15P31E103-319).</li>
  *   <li><b>출처별 기간(계좌마다)</b>: REAL은 그 계좌 체크카드의 첫 YAMU 결제일(한국 날짜)부터 toDate까지, SEED는 그 계좌
  *       체크카드의 첫 SEED 결제일부터 가장 이른 등록일 전날(등록한 카드가 없으면 toDate)까지 매일 한 줄을 준다(2026-11-04 결정).
  *       등록만 하고 결제하지 않은 기간은 YAMU를 쓰지 않은 것인지 알 수 없어 줄을 주지 않는다(0원으로 확정하지 않음).
@@ -150,7 +153,9 @@ class PaymentLivingCostReader implements LivingCostReader, CreditSpendingReader 
         LocalDate readFrom = YearMonth.from(fromDate).minusMonths(RECURRING_WINDOW_MONTHS - 1).atDay(1);
         List<Payment> payments = jdbc.query("""
                 SELECT %s AS group_key, p.user_card_id, p.merchant_id, p.approved_amount, p.approved_at,
-                       p.source, p.spending_class
+                       p.source, p.spending_class,
+                       EXISTS (SELECT 1 FROM cashflow_payment_match m
+                                WHERE m.payment_transaction_id = p.payment_transaction_id) AS matched
                   FROM payment_transaction p
                   JOIN user_card uc ON uc.user_card_id = p.user_card_id AND uc.user_id = p.user_id
                   JOIN card_product cp ON cp.card_product_id = p.card_product_id
@@ -163,7 +168,7 @@ class PaymentLivingCostReader implements LivingCostReader, CreditSpendingReader 
                         rs.getLong("merchant_id"), rs.getLong("approved_amount"),
                         korean(rs.getObject("approved_at", LocalDateTime.class)),
                         "SEED".equals(rs.getString("source")) ? Origin.SEED : Origin.REAL,
-                        "LIVING".equals(rs.getString("spending_class"))));
+                        "LIVING".equals(rs.getString("spending_class")), rs.getBoolean("matched")));
 
         Map<RecurringKey, Map<YearMonth, Integer>> countsByKey = new HashMap<>();
         for (Payment payment : payments) {
@@ -178,7 +183,9 @@ class PaymentLivingCostReader implements LivingCostReader, CreditSpendingReader 
             Map<Origin, Map<LocalDate, Long>> sums = new EnumMap<>(Origin.class);
             for (Payment payment : payments) {
                 Range range = coverage.get(payment.origin());
-                if (payment.groupKey() != groupKey.longValue() || !payment.living() || range == null
+                // 예정 지출과 연결된 결제는 그 예정 지출로 이미 반영돼 더하지 않는다(반복 판정에는 센다).
+                if (payment.groupKey() != groupKey.longValue() || !payment.living() || payment.matched()
+                        || range == null
                         || !range.contains(payment.date())
                         || recurring(countsByKey.get(payment.recurringKey()), YearMonth.from(payment.date()))) {
                     continue;
@@ -274,7 +281,7 @@ class PaymentLivingCostReader implements LivingCostReader, CreditSpendingReader 
 
     /** @param groupKey 묶음 번호(체크카드는 카드의 출금 계좌, 신용카드는 카드 번호) */
     private record Payment(long groupKey, long userCardId, long merchantId, long amount, LocalDate date,
-            Origin origin, boolean living) {
+            Origin origin, boolean living, boolean matched) {
         RecurringKey recurringKey() {
             return new RecurringKey(userCardId, merchantId, amount);
         }
