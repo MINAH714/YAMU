@@ -407,6 +407,53 @@ public class CashflowService {
         }
     }
 
+    /**
+     * 결제와 연결할 회차를 시리즈를 잠근 채 찾고, 저장된 행이 없으면 규칙 값으로 만들어 저장한다.
+     * 같은 시리즈의 수정·삭제·다른 매칭과 차례로 처리된다. 호출자의 트랜잭션 안에서만 부른다.
+     * 없거나 다른 사용자의 규칙은 404, 카드를 지정한 확정 예정 지출 회차가 아니면 400이다.
+     */
+    MatchTarget lockOccurrenceForMatch(Long userId, Long itemId, LocalDate occurrenceDate) {
+        CashflowItem rule = lockSeries(userId, itemId).selected();
+        CashflowOccurrence row = occurrenceOf(rule, occurrenceDate);
+        requireMatchable(rule, row, occurrenceDate);
+        if (row == null) {
+            // 매칭 행이 회차 행을 FK로 가리키므로 ID가 필요하다.
+            row = occurrences.saveAndFlush(CashflowOccurrence.of(rule, occurrenceDate));
+        }
+        return MatchTarget.of(rule, row, occurrenceDate);
+    }
+
+    /**
+     * 매칭 상태·후보 조회용으로 회차를 잠그지 않고 읽는다. 저장된 행이 없으면 occurrenceId가 null이고 규칙 값을 쓴다.
+     * 없거나 다른 사용자의 규칙은 404다. matchableOnly면 결제와 연결할 수 없는 회차를 400으로 거절한다.
+     */
+    MatchTarget readOccurrenceForMatch(Long userId, Long itemId, LocalDate occurrenceDate, boolean matchableOnly) {
+        CashflowItem rule = items.findById(itemId).filter(found -> found.getUserId().equals(userId))
+                .orElseThrow(CashflowService::notFound);
+        CashflowOccurrence row = occurrenceOf(rule, occurrenceDate);
+        if (matchableOnly) {
+            requireMatchable(rule, row, occurrenceDate);
+        }
+        return MatchTarget.of(rule, row, occurrenceDate);
+    }
+
+    /** 카드를 지정한 확정 예정 지출의 빼지 않은 회차만 결제와 연결한다. 카드는 회차에 저장된 값이 있으면 그 값을 본다. */
+    private static void requireMatchable(CashflowItem rule, CashflowOccurrence row, LocalDate occurrenceDate) {
+        if (rule.getItemKind() != CashflowItem.ItemKind.SCHEDULED
+                || rule.getDirection() != CashflowItem.Direction.EXPENSE) {
+            throw invalid("cashflowItemId", "예정 지출만 결제와 연결할 수 있습니다.");
+        }
+        if (rule.getStatus() != CashflowItem.Status.CONFIRMED) {
+            throw invalid("cashflowItemId", "확정한 예정 지출만 결제와 연결할 수 있습니다.");
+        }
+        if (row != null && row.getStatus() == CashflowOccurrence.Status.EXCLUDED) {
+            throw invalid("occurrenceDate", "뺀 회차는 결제와 연결할 수 없습니다.");
+        }
+        if (MatchTarget.of(rule, row, occurrenceDate).userCardId() == null) {
+            throw invalid("cashflowItemId", "결제 카드를 지정한 예정 지출만 결제와 연결할 수 있습니다.");
+        }
+    }
+
     /** 보낸 필드만 바꾼다. 업종 코드·메모의 빈 문자열은 지우기다. 계좌나 카드를 보내면 다른 하나는 비운다. */
     private static Values merge(Values base, UpdateCommand change) {
         if (change.accountId() != null && change.userCardId() != null) {
@@ -487,6 +534,8 @@ public class CashflowService {
         List<CashflowOccurrence> rows = occurrences.findForUserBetween(userId, start, end);
         Set<Long> matched = rows.isEmpty() ? Set.of()
                 : new HashSet<>(occurrences.findMatchedIds(rows.stream().map(CashflowOccurrence::getId).toList()));
+        // 연결된 결제가 취소된 회차는 저장된 값을 그대로 쓰되(연결 해제 전까지 잠김) 다시 예정으로 센다.
+        Set<Long> paid = matched.isEmpty() ? Set.of() : new HashSet<>(occurrences.findPaidIds(matched));
         Map<Slot, CashflowOccurrence> rowBySlot = new HashMap<>();
         for (CashflowOccurrence row : rows) {
             rowBySlot.put(new Slot(row.getCashflowItemId(), row.getOccurrenceDate()), row);
@@ -529,7 +578,7 @@ public class CashflowService {
             Item rule = ruleById.get(row.getCashflowItemId());
             if (rule != null) {
                 entries.add(new Entry(rule.with(row), row.getOccurrenceDate(), row.getScheduledDate(),
-                        matched.contains(row.getId())));
+                        paid.contains(row.getId())));
             }
         }
         entries.sort(Comparator.comparing(Entry::date).thenComparing(entry -> entry.item().id())
@@ -685,16 +734,16 @@ public class CashflowService {
         }
     }
 
-    private static BusinessException invalid(String field, String reason) {
+    static BusinessException invalid(String field, String reason) {
         return new BusinessException(ErrorCode.INVALID_REQUEST,
                 Map.of("fieldErrors", List.of(new FieldErrorResponse(field, reason))));
     }
 
-    private static BusinessException notFound() {
+    static BusinessException notFound() {
         return new BusinessException(ErrorCode.RESOURCE_NOT_FOUND);
     }
 
-    private static void requireUser(Long authenticatedUserId) {
+    static void requireUser(Long authenticatedUserId) {
         if (authenticatedUserId == null || authenticatedUserId <= 0) {
             throw new BusinessException(ErrorCode.UNAUTHORIZED);
         }
@@ -753,11 +802,24 @@ public class CashflowService {
 
     /**
      * 목록의 한 줄. occurrenceDate는 규칙이 정한 원래 회차(이번 회차 수정·삭제 때 식별값), date는 실제 예정일이다.
-     * 이번 회차만 날짜를 옮기지 않았으면 둘이 같다. paid는 실제 결제와 연결된 회차라 잔고예보가 예정 차감에서 빼야 함을 뜻한다.
+     * 이번 회차만 날짜를 옮기지 않았으면 둘이 같다. paid는 취소되지 않은 실제 결제와 연결된 회차라 잔고예보가 예정 차감에서 빼야 함을 뜻한다.
      */
     public record Entry(Item item, LocalDate occurrenceDate, LocalDate date, boolean paid) {}
 
     private record Slot(Long cashflowItemId, LocalDate occurrenceDate) {}
+
+    /**
+     * 결제와 연결할(또는 연결된) 회차. occurrenceId는 저장된 회차 행이 없으면 null이다.
+     * 값은 저장된 행이 있으면 그 행의 값(이번 회차만 고친 값 포함), 없으면 규칙의 값이다.
+     */
+    record MatchTarget(Long cashflowItemId, Long occurrenceId, LocalDate occurrenceDate, LocalDate scheduledDate,
+            Long amount, Long userCardId, String merchantCategoryCode) {
+        static MatchTarget of(CashflowItem rule, CashflowOccurrence row, LocalDate occurrenceDate) {
+            Values values = row != null ? Values.of(row) : Values.of(rule, occurrenceDate);
+            return new MatchTarget(rule.getId(), row != null ? row.getId() : null, occurrenceDate, values.date(),
+                    values.amount(), values.userCardId(), values.merchantCategoryCode());
+        }
+    }
 
     /**
      * 예정 규칙. recurrenceDayOfMonth는 매월 반복의 기준일(그달에 없으면 말일)이고 매월이 아니면 null이다.

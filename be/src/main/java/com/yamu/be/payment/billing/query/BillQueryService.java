@@ -5,8 +5,11 @@ import com.yamu.be.card.domain.CardType;
 import com.yamu.be.global.exception.BusinessException;
 import com.yamu.be.global.exception.ErrorCode;
 import com.yamu.be.payment.PaymentPlan;
+import com.yamu.be.payment.billing.BillItemDiscountReader;
 import com.yamu.be.payment.billing.BillStatus;
 import com.yamu.be.payment.billing.BillingCycle;
+import com.yamu.be.payment.billing.confirm.BillingDiscountSource;
+import com.yamu.be.payment.billing.confirm.BillingDiscountSource.Allocation;
 import com.yamu.be.payment.billing.query.BillListResponse.NextWithdrawal;
 import com.yamu.be.payment.billing.query.BillListResponse.Summary;
 import com.yamu.be.payment.billing.query.BillListResponse.UsagePeriod;
@@ -19,7 +22,11 @@ import java.time.YearMonth;
 import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -39,10 +46,15 @@ public class BillQueryService {
     static final String WITHDRAWAL_SUCCESS = "SUCCESS";
 
     private final BillQueryReader reader;
+    private final BillingDiscountSource discounts;
+    private final BillItemDiscountReader confirmedDiscounts;
     private final Clock clock;
 
-    BillQueryService(BillQueryReader reader, Clock clock) {
+    BillQueryService(BillQueryReader reader, BillingDiscountSource discounts, BillItemDiscountReader confirmedDiscounts,
+            Clock clock) {
         this.reader = reader;
+        this.discounts = discounts;
+        this.confirmedDiscounts = confirmedDiscounts;
         this.clock = clock;
     }
 
@@ -61,14 +73,17 @@ public class BillQueryService {
             }
         }
         LocalDate recentFrom = YearMonth.from(today()).minusMonths(RECENT_MONTHS - 1).atDay(1);
-        List<BillListResponse.Item> items = reader.bills(userId, userCardId, status, billingMonth, recentFrom).stream()
-                .map(BillQueryService::item).toList();
-        return new BillListResponse(items, summary(reader.openBills(userId, userCardId)));
+        List<BillRow> bills = reader.bills(userId, userCardId, status, billingMonth, recentFrom);
+        List<BillRow> open = reader.openBills(userId, userCardId);
+        Map<Long, List<Allocation>> expected = expectedDiscounts(bills, open);
+        List<BillListResponse.Item> items = bills.stream().map(bill -> item(bill, expected)).toList();
+        return new BillListResponse(items, summary(open, expected));
     }
 
     /** 청구서 상세. 없는 청구서·남의 청구서는 404. */
     public BillDetailResponse detail(long userId, long billId) {
         BillRow bill = reader.bill(userId, billId).orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND));
+        Map<Long, List<Allocation>> expected = expectedDiscounts(List.of(bill), List.of());
         List<BillDetailResponse.Item> items = reader.items(userId, billId).stream().map(BillQueryService::item).toList();
         List<BillDetailResponse.Refund> refunds = reader.refunds(userId, billId).stream()
                 .map(r -> new BillDetailResponse.Refund(r.refundId(), r.billItemId(), r.paymentId(), r.amount(),
@@ -77,19 +92,33 @@ public class BillQueryService {
         return new BillDetailResponse(bill.billId(), bill.userCardId(), nickname(bill), maskedCard(bill.cardLast4()),
                 YearMonth.from(bill.billingMonth()), usagePeriod(bill), bill.periodEnd(), paymentDate(bill),
                 bill.withdrawalDate(), bill.status(),
-                new BillDetailResponse.Amounts(bill.itemAmount(), 0, expectedAmount(bill), finalAmount(bill),
-                        unpaidAmount(bill)),
-                withdrawalAccount(bill), items, List.of(), withdrawal(bill), refunds, history(bill));
+                new BillDetailResponse.Amounts(bill.itemAmount(), billingDiscount(bill, expected),
+                        expectedAmount(bill, expected), finalAmount(bill), unpaidAmount(bill)),
+                withdrawalAccount(bill), items, discounts(userId, bill, expected), withdrawal(bill), refunds,
+                history(bill));
     }
 
     private LocalDate today() {
         return LocalDate.ofInstant(clock.instant(), KOREA);
     }
 
-    private static BillListResponse.Item item(BillRow bill) {
+    /**
+     * 진행 중 청구서들의 예상 청구할인을 한 번에 계산한다(!141 리뷰). 한 요청 안에서 같은 청구서의 할인을 목록·합계·다음 출금이
+     * 여러 번 물어도 이 결과를 같이 써서 다시 계산하지 않는다.
+     */
+    private Map<Long, List<Allocation>> expectedDiscounts(List<BillRow> bills, List<BillRow> open) {
+        Set<Long> accumulating = new LinkedHashSet<>();
+        for (List<BillRow> rows : List.of(bills, open)) {
+            rows.stream().filter(b -> b.status() == BillStatus.ACCUMULATING).forEach(b -> accumulating.add(b.billId()));
+        }
+        return accumulating.isEmpty() ? Map.of() : discounts.allocateAll(accumulating);
+    }
+
+    private BillListResponse.Item item(BillRow bill, Map<Long, List<Allocation>> expected) {
         return new BillListResponse.Item(bill.billId(), bill.userCardId(), nickname(bill),
                 YearMonth.from(bill.billingMonth()), usagePeriod(bill), bill.periodEnd(), paymentDate(bill),
-                bill.withdrawalDate(), bill.status(), bill.itemCount(), bill.itemAmount(), 0, expectedAmount(bill),
+                bill.withdrawalDate(), bill.status(), bill.itemCount(), bill.itemAmount(),
+                billingDiscount(bill, expected), expectedAmount(bill, expected),
                 finalAmount(bill), unpaidAmount(bill), bill.confirmedAt(), bill.paidAt(), withdrawalAccount(bill));
     }
 
@@ -110,25 +139,58 @@ public class BillQueryService {
      * 다음 출금: 출금일이 가장 빠른 진행 중·확정 청구서(금액이 0원이면 출금이 없어 뺀다). 확정 청구서는 출금일이 지났어도
      * 아직 출금 결과가 없으면 넣는다(출금 처리 중).
      */
-    private static Summary summary(List<BillRow> open) {
+    private Summary summary(List<BillRow> open, Map<Long, List<Allocation>> expected) {
         NextWithdrawal next = open.stream()
                 .filter(b -> b.status() == BillStatus.ACCUMULATING || b.status() == BillStatus.CONFIRMED)
-                .filter(b -> withdrawalAmount(b) > 0)
+                .filter(b -> withdrawalAmount(b, expected) > 0)
                 .min(Comparator.comparing(BillRow::withdrawalDate).thenComparing(BillRow::billId))
-                .map(b -> new NextWithdrawal(b.billId(), b.withdrawalDate(), withdrawalAmount(b)))
+                .map(b -> new NextWithdrawal(b.billId(), b.withdrawalDate(), withdrawalAmount(b, expected)))
                 .orElse(null);
         int unpaid = (int) open.stream().filter(b -> b.status() == BillStatus.UNPAID).count();
         return new Summary(next, unpaid);
     }
 
-    private static long withdrawalAmount(BillRow bill) {
-        Long amount = bill.status() == BillStatus.ACCUMULATING ? expectedAmount(bill) : finalAmount(bill);
+    private long withdrawalAmount(BillRow bill, Map<Long, List<Allocation>> expected) {
+        Long amount = bill.status() == BillStatus.ACCUMULATING ? expectedAmount(bill, expected) : finalAmount(bill);
         return amount == null ? 0 : amount;
     }
 
-    /** 임시: 예상 청구할인 원천이 없어 회차 합계 그대로다. */
-    private static Long expectedAmount(BillRow bill) {
-        return bill.status() == BillStatus.ACCUMULATING ? bill.pendingAmount() : null;
+    /** 진행 중일 때만: 청구 전 회차 원금 합계 − 예상 청구할인(확정 때와 같은 배분, Task 5.4.7). */
+    private static Long expectedAmount(BillRow bill, Map<Long, List<Allocation>> expected) {
+        return bill.status() == BillStatus.ACCUMULATING ? bill.pendingAmount() - billingDiscount(bill, expected) : null;
+    }
+
+    /**
+     * 청구할인. 진행 중이면 지금 청구 전 회차로 계산한 예상값(저장하지 않음), 확정 뒤에는 확정 때 회차에 나눈 합계다.
+     */
+    private static long billingDiscount(BillRow bill, Map<Long, List<Allocation>> expected) {
+        if (bill.status() == BillStatus.ACCUMULATING) {
+            return Allocation.total(expected.getOrDefault(bill.billId(), List.of()));
+        }
+        return bill.discountAmount();
+    }
+
+    /**
+     * 청구할인(혜택별). 확정 뒤에는 확정 때 저장한 배분이고, 진행 중이면 같은 규칙으로 계산한 예상값을 혜택별로 묶어 {@code confirmedAt}
+     * 없이 보인다. 그래서 진행 중에도 {@code discounts[].amount}의 합이 {@code amounts.billingDiscount}와 같다(!141 리뷰).
+     * {@code confirmedAt == null}이면 아직 확정 전인 예상 할인이다.
+     */
+    private List<BillDetailResponse.Discount> discounts(long userId, BillRow bill, Map<Long, List<Allocation>> expected) {
+        if (bill.status() == BillStatus.ACCUMULATING) {
+            Map<Long, BillDetailResponse.Discount> byBenefit = new LinkedHashMap<>();
+            for (Allocation allocation : expected.getOrDefault(bill.billId(), List.of())) {
+                byBenefit.merge(allocation.paymentBenefitId(),
+                        new BillDetailResponse.Discount(allocation.paymentBenefitId(), allocation.paymentId(),
+                                allocation.name(), allocation.amount(), null),
+                        (a, b) -> new BillDetailResponse.Discount(a.paymentBenefitId(), a.paymentId(), a.name(),
+                                Math.addExact(a.amount(), b.amount()), null));
+            }
+            return List.copyOf(byBenefit.values());
+        }
+        return confirmedDiscounts.lines(userId, bill.billId()).stream()
+                .map(d -> new BillDetailResponse.Discount(d.paymentBenefitId(), d.paymentId(), d.name(), d.amount(),
+                        d.confirmedAt()))
+                .toList();
     }
 
     private static Long finalAmount(BillRow bill) {

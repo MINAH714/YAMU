@@ -8,15 +8,20 @@ import com.yamu.be.forecast.CardBillReader.OutstandingBill;
 import com.yamu.be.forecast.CardBillReader.Status;
 import com.yamu.be.support.MySqlTestSupport;
 import com.yamu.be.support.OwnershipFixtures;
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.YearMonth;
 import java.time.ZoneId;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.core.simple.SimpleJdbcInsert;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.transaction.annotation.Transactional;
@@ -132,6 +137,51 @@ class OutstandingCardBillReaderTest extends MySqlTestSupport {
         assertThat(reader.outstanding(user, List.of(accountA, accountB), today.plusDays(10)))
                 .extracting(OutstandingBill::cardBillId, OutstandingBill::accountId)
                 .containsExactly(tuple(confirmed, accountA), tuple(orphan, null));
+    }
+
+    @Test
+    void 진행_중_청구서들의_예상_청구할인을_한_번에_빼고_돌려준다() {
+        // 카드 두 장의 진행 중 청구서. 각각 청구할인이 있다(!141 리뷰: 할인이 있는 예보 테스트)
+        long otherCard = owners.card(user, owners.product(), accountB, "ACTIVE");
+        long first = bills.accumulating(user, card, month.plusMonths(1), today.plusDays(5));
+        long firstPayment = itemPayment(first, card, 30_000L);
+        billingDiscount(firstPayment, 3_000L);
+        long second = bills.accumulating(user, otherCard, month.plusMonths(1), today.plusDays(6));
+        long secondPayment = itemPayment(second, otherCard, 20_000L);
+        billingDiscount(secondPayment, 1_500L);
+        // 할인 없는 청구서는 회차 합계 그대로
+        long plain = bills.accumulating(user, card, month.plusMonths(2), today.plusDays(7));
+        item(plain, month.plusMonths(2), 10_000L, "PENDING");
+
+        List<OutstandingBill> result = reader.outstanding(user, List.of(accountB), today.plusDays(10));
+
+        assertThat(result).extracting(OutstandingBill::cardBillId, OutstandingBill::amount).containsExactly(
+                tuple(first, 27_000L), tuple(second, 18_500L), tuple(plain, 10_000L));
+    }
+
+    private long itemPayment(long bill, long userCard, long principal) {
+        long payment = bills.payment(user, userCard, merchant, principal, 1, LocalDateTime.now().minusDays(1));
+        bills.item(payment, user, userCard, bill, 1, month.plusMonths(1), principal, "PENDING");
+        return payment;
+    }
+
+    /** 승인 원장이 남긴 청구할인 한 줄(card_benefit DISCOUNT·AT_BILLING + payment_benefit). */
+    private void billingDiscount(long payment, long amount) {
+        long product = jdbc.queryForObject("SELECT card_product_id FROM payment_transaction WHERE payment_transaction_id = ?",
+                Long.class, payment);
+        LocalDateTime now = LocalDateTime.now(java.time.ZoneOffset.UTC);
+        Map<String, Object> benefit = new HashMap<>(Map.of("card_product_id", product,
+                "benefit_code", "B_" + UUID.randomUUID().toString().substring(0, 8), "policy_version", 1,
+                "benefit_name", "청구할인", "benefit_type", "DISCOUNT", "calculation_type", "FIXED",
+                "fixed_value", BigDecimal.valueOf(amount), "value_unit", "KRW", "application_timing", "AT_BILLING",
+                "created_at", now));
+        long benefitId = new SimpleJdbcInsert(jdbc).withTableName("card_benefit").usingGeneratedKeyColumns("card_benefit_id")
+                .usingColumns(benefit.keySet().toArray(String[]::new)).executeAndReturnKey(benefit).longValue();
+        Map<String, Object> applied = new HashMap<>(Map.of("payment_transaction_id", payment, "card_product_id", product,
+                "card_benefit_id", benefitId, "benefit_value", BigDecimal.valueOf(amount), "value_unit", "KRW",
+                "krw_amount", amount, "created_at", now));
+        new SimpleJdbcInsert(jdbc).withTableName("payment_benefit").usingGeneratedKeyColumns("payment_benefit_id")
+                .usingColumns(applied.keySet().toArray(String[]::new)).execute(applied);
     }
 
     private void item(long bill, YearMonth billMonth, long principal, String status) {

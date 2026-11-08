@@ -17,6 +17,7 @@ import org.springframework.stereotype.Component;
 /**
  * 결제의 소비 분류({@code payment_transaction.spending_class})를 자동으로 채운다(BE 4, 2026-11-04 BE 2 합의).
  * 승인 코드는 건드리지 않고, 생활비 원천({@link PaymentLivingCostReader})이 읽기 직전에 그 사용자의 미분류 결제만 분류한다.
+ * 결제 내역 목록·CSV(BE 2, S15P31E103-300·302)도 같은 방식으로 읽기 직전에 부른다(2026-11-06 BE 4 결정).
  *
  * <p>규칙(명세 「소비 분류 수정」의 자동 분류 가정 + 2026-11-03 큰 일회성 지출 기준). 신용·체크 모두 같다.
  * <ul>
@@ -35,7 +36,7 @@ import org.springframework.stereotype.Component;
  * <p>읽기 전용 트랜잭션({@code @Transactional(readOnly = true)}) 안에서 부르지 말 것. UPDATE를 해서 MySQL이 거부한다.
  */
 @Component
-class SpendingClassifier {
+public class SpendingClassifier {
     private static final ZoneId KOREA = ZoneId.of("Asia/Seoul");
     /** 한 건 이 금액을 넘으면 큰 일회성 지출이다(2026-11-03 결정, 생활비 원천과 같은 기준). */
     static final long LARGE_AMOUNT = 1_000_000L;
@@ -60,7 +61,7 @@ class SpendingClassifier {
      *
      * @return 이번에 새로 쓴 결제 수(다른 요청이 먼저 썼거나 그 사이 사용자가 고친 결제는 세지 않는다)
      */
-    int classify(Long userId) {
+    public int classify(Long userId) {
         MapSqlParameterSource user = new MapSqlParameterSource("userId", userId);
         List<Unclassified> targets = jdbc.query("""
                 SELECT payment_transaction_id, approved_amount, installment_months, approved_at

@@ -8,6 +8,7 @@ import com.yamu.be.global.security.AuthUser;
 import com.yamu.be.payment.PaymentPlan;
 import com.yamu.be.payment.approve.ApprovalNumbers;
 import com.yamu.be.payment.approve.FailureCode;
+import com.yamu.be.payment.domain.PaymentChannel;
 import com.yamu.be.payment.domain.PaymentStatus;
 import com.yamu.be.payment.domain.TransactionSource;
 import com.yamu.be.payment.history.PaymentHistoryReader.Filter;
@@ -25,6 +26,7 @@ import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.regex.Pattern;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -44,6 +46,10 @@ class PaymentHistoryService {
     static final Set<PaymentStatus> LISTED = EnumSet.of(PaymentStatus.APPROVED, PaymentStatus.DECLINED,
             PaymentStatus.CANCELED);
     static final List<PaymentStatus> DEFAULT_STATUSES = List.of(PaymentStatus.APPROVED, PaymentStatus.CANCELED);
+    static final Set<String> SPENDING_CLASSES = Set.of("LIVING", "LARGE", "EXCLUDED");
+    static final int MAX_QUERY_LENGTH = 50;
+    private static final Pattern CATEGORY_CODE = Pattern.compile("[A-Za-z0-9_-]{1,64}");
+    private static final Pattern AMOUNT = Pattern.compile("[0-9][0-9,]*");
 
     private final PaymentHistoryReader reader;
     private final Clock clock;
@@ -60,10 +66,22 @@ class PaymentHistoryService {
      * @param from      한국 날짜(포함)
      * @param to        한국 날짜(포함)
      * @param status    null이면 승인+취소
+     * @param q         가맹점명·메모 부분 일치. 숫자만(쉼표 허용)이면 결제 금액·승인액이 같은 결제도 찾는다. 앞뒤 공백은 지운다
      */
     @Transactional(readOnly = true)
     public PaymentListResponse list(AuthUser me, YearMonth yearMonth, LocalDate from, LocalDate to, Long userCardId,
             PaymentStatus status, TransactionSource source, int page, int size) {
+        return list(me, yearMonth, from, to, userCardId, status, source, new Conditions(null, null, null, null, null),
+                page, size);
+    }
+
+    /** v0.3.1 보완 조건(검색·업종·소비 분류·혜택 상태·채널). 없으면 null. */
+    record Conditions(String q, String categoryCode, String spendingClass, PaymentChannel channel,
+            BenefitStatus benefitStatus) {}
+
+    @Transactional(readOnly = true)
+    public PaymentListResponse list(AuthUser me, YearMonth yearMonth, LocalDate from, LocalDate to, Long userCardId,
+            PaymentStatus status, TransactionSource source, Conditions conditions, int page, int size) {
         if (yearMonth != null && (from != null || to != null)) {
             throw invalid("yearMonth", "yearMonth는 from·to와 함께 쓸 수 없습니다.");
         }
@@ -80,15 +98,32 @@ class PaymentHistoryService {
             start = month.atDay(1);
             endInclusive = month.atEndOfMonth();
         }
+        String q = conditions.q() == null || conditions.q().isBlank() ? null : conditions.q().strip();
+        // 글자 수는 코드포인트로 센다. String.length()는 이모지를 2로 세어 실제보다 빨리 400이 난다(메모 100자와 같은 기준)
+        if (q != null && q.codePointCount(0, q.length()) > MAX_QUERY_LENGTH) {
+            throw invalid("q", "검색어는 " + MAX_QUERY_LENGTH + "자 이하로 적어 주세요.");
+        }
+        String category = conditions.categoryCode() == null || conditions.categoryCode().isBlank() ? null
+                : conditions.categoryCode().strip();
+        if (category != null && !CATEGORY_CODE.matcher(category).matches()) {
+            throw invalid("categoryCode", "업종 코드는 영문·숫자·-·_ 64자 이하입니다.");
+        }
+        if (conditions.spendingClass() != null && !SPENDING_CLASSES.contains(conditions.spendingClass())) {
+            throw invalid("spendingClass", "spendingClass는 LIVING·LARGE·EXCLUDED 중 하나입니다.");
+        }
+        if (conditions.channel() == PaymentChannel.UNKNOWN) {
+            throw invalid("channel", "channel은 OFFLINE·ONLINE 중 하나입니다.");
+        }
         Filter filter = new Filter(me.userId(), status != null ? List.of(status) : DEFAULT_STATUSES,
                 startOfKstDay(start), endInclusive == null ? null : startOfKstDay(endInclusive.plusDays(1)),
-                userCardId, source);
+                userCardId, source, q, amountOf(q), category, conditions.spendingClass(), conditions.channel(),
+                conditions.benefitStatus());
 
         Totals totals = reader.totals(filter);
         List<PaymentListResponse.Item> items = totals.count() == 0 ? List.of()
                 : reader.findPage(filter, PageResponse.offset(page, size), size);
         PaymentListResponse.Summary summary = new PaymentListResponse.Summary(totals.count(), totals.amount(),
-                totals.benefit(), null);
+                totals.benefit(), totals.confirmedBenefit(), totals.byClass(), totals.yamuPickCount());
         return new PaymentListResponse(summary, PageResponse.of(items, page, size, totals.count()));
     }
 
@@ -173,6 +208,15 @@ class PaymentHistoryService {
                 && !billItems.isEmpty()
                 && billItems.stream().allMatch(b -> b.feeAmount() != null && b.feeAmount() == 0);
         return interestFree ? PaymentDetailResponse.YAMU_INTEREST_FREE : null;
+    }
+
+    /** 숫자만(쉼표 허용)인 검색어의 금액. 아니면 null. 너무 크면 금액 검색을 하지 않는다. */
+    static Long amountOf(String q) {
+        if (q == null || !AMOUNT.matcher(q).matches()) {
+            return null;
+        }
+        String digits = q.replace(",", "");
+        return digits.length() > 15 ? null : Long.parseLong(digits);
     }
 
     private static LocalDateTime startOfKstDay(LocalDate date) {

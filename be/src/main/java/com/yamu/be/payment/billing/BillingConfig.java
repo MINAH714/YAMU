@@ -8,8 +8,8 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 /**
- * 청구 정기 작업의 설정·포트 등록. 청구할인은 {@link BillingDiscountSource}(BE3 혜택 원장, Task 5.2.5)가 정하고, 실제 빈이 들어오면
- * 여기의 임시 구현은 만들지 않는다({@code PaymentApprovalConfig}와 같은 방식).
+ * 청구 정기 작업의 설정·포트 등록. 청구할인은 {@link BillingDiscountSource}(승인 원장의 청구할인, Task 5.4.7)가 정하고, 실제 빈
+ * ({@code JdbcBillingDiscountSource})이 있으면 여기의 할인 없음 구현은 만들지 않는다({@code PaymentApprovalConfig}와 같은 방식).
  */
 @Configuration
 @EnableConfigurationProperties(BillingProperties.class)
