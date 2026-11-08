@@ -90,7 +90,20 @@ class BillingViewModelTest {
         val s = vm.state.value
         assertEquals(1, s.bills?.bills?.size)
         assertNull(s.billsError)
-        assertEquals("청구서를 새로 불러오지 못했어요 · 잠시 뒤 다시 시도해 주세요", s.message)
+        assertEquals(listOf("청구서를 새로 불러오지 못했어요 · 잠시 뒤 다시 시도해 주세요"), s.messages)
+    }
+
+    @Test fun `청구서 · 환급 새로 고침이 둘 다 실패해도 스낵바 둘이 차례로 남는다`() = runTest(dispatcher) {
+        val vm = billing()
+        repo.bills = ApiResult.Failure(ApiError.Network)
+        repo.pages[1] = ApiResult.Failure(ApiError.Network)
+        vm.refresh()
+        advanceUntilIdle()
+        assertEquals(2, vm.state.value.messages.size)
+        assertTrue(vm.state.value.messages[0].startsWith("청구서를"))
+        vm.messageShown()
+        assertEquals(1, vm.state.value.messages.size)
+        assertTrue(vm.state.value.messages[0].startsWith("환급을"))
     }
 
     // ── 환급 ──
@@ -154,7 +167,53 @@ class BillingViewModelTest {
         vm.loadRefunds()
         advanceUntilIdle()
         assertEquals(listOf("r1"), vm.state.value.refunds.map { it.key })
-        assertTrue(vm.state.value.message!!.startsWith("환급을 새로 불러오지 못했어요"))
+        assertTrue(vm.state.value.messages.single().startsWith("환급을 새로 불러오지 못했어요"))
+    }
+
+    @Test fun `상세에 다녀와 새로 고쳐도 더 보기로 읽은 페이지까지 다시 읽는다`() = runTest(dispatcher) {
+        repo.pages[2] = ApiResult.Success(page(listOf(refund(3), refund(4)), hasNext = true))
+        repo.pages[3] = ApiResult.Success(page(listOf(refund(5)), hasNext = false))
+        val vm = billing()
+        vm.loadMore()
+        advanceUntilIdle()
+        vm.loadMore()
+        advanceUntilIdle()
+        repo.refundCalls.clear()
+
+        vm.refresh()   // 화면에 돌아옴
+        advanceUntilIdle()
+        assertEquals(listOf(1, 2, 3), repo.refundCalls)
+        assertEquals(listOf("r1", "r2", "r3", "r4", "r5"), vm.state.value.refunds.map { it.key })
+        assertEquals(3, vm.state.value.refundPage)
+        assertFalse(vm.state.value.refundsHasNext)
+    }
+
+    @Test fun `다시 읽다가 뒤 페이지가 실패하면 보던 목록을 그대로 둔다`() = runTest(dispatcher) {
+        val vm = billing()
+        vm.loadMore()
+        advanceUntilIdle()
+        repo.pages[1] = ApiResult.Success(page(listOf(refund(9), refund(1)), hasNext = true))
+        repo.pages[2] = ApiResult.Failure(ApiError.Network)
+        vm.loadRefunds()
+        advanceUntilIdle()
+        val s = vm.state.value
+        assertEquals(listOf("r1", "r2", "r3"), s.refunds.map { it.key })   // 1페이지만 바꿔 끼우지 않는다
+        assertEquals(2, s.refundPage)
+        assertFalse(s.refundsLoading)
+        assertEquals(1, s.messages.size)
+    }
+
+    @Test fun `목록이 줄어 앞 페이지에서 끝나면 거기서 멈춘다`() = runTest(dispatcher) {
+        val vm = billing()
+        vm.loadMore()
+        advanceUntilIdle()
+        repo.refundCalls.clear()
+        repo.pages[1] = ApiResult.Success(page(listOf(refund(1)), hasNext = false))
+        vm.loadRefunds()
+        advanceUntilIdle()
+        assertEquals(listOf(1), repo.refundCalls)
+        assertEquals(1, vm.state.value.refundPage)
+        assertEquals(listOf("r1"), vm.state.value.refunds.map { it.key })
     }
 
     // ── 청구서 상세 ──

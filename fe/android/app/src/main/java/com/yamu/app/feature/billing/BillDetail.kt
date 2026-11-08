@@ -46,6 +46,7 @@ import com.yamu.app.core.ui.userMessage
 import com.yamu.app.feature.billing.data.BillDetail
 import com.yamu.app.feature.billing.data.BillState
 import com.yamu.app.feature.billing.data.BillingRepository
+import com.yamu.app.feature.billing.data.RefundState
 import com.yamu.app.feature.billing.data.UsageState
 import com.yamu.app.feature.billing.data.koreanDay
 import com.yamu.app.feature.billing.data.refundStateLabel
@@ -246,6 +247,7 @@ private fun BillDetailBody(d: BillDetail, onPayment: (Long) -> Unit) {
                     amount = "${r.amount.toWon()}원",
                     tag = refundStateLabel(r.state),
                     tagTone = r.state.tone,
+                    dimmed = r.state == RefundState.CANCELED,      // 환급 탭의 무효 줄과 같게
                     divider = i > 0,
                     horizontalPadding = YamuSpacing.x5,
                     onClick = null,

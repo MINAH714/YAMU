@@ -314,7 +314,15 @@ fun BillDetailDto.toBillDetail(requestedId: Long): BillDetail {
         discounts = discounts.map { BillDiscount(it.name?.takeIf(String::isNotBlank) ?: "청구할인", it.amount) },
         discountsEstimated = discounts.any { it.confirmedAt == null },
         refunds = refunds.map { r ->
-            BillRefund(r.refundId, usages.firstOrNull { it.billItemId != null && it.billItemId == r.billItemId }?.merchant, r.amount, refundStateOf(r.status))
+            val state = refundStateOf(r.status)
+            BillRefund(
+                refundId = r.refundId,
+                merchant = usages.firstOrNull { it.billItemId != null && it.billItemId == r.billItemId }?.merchant,
+                // 무효는 돌려줄 돈이 없다. 환급 내역(RefundQueryReader)은 0원으로 주는데 청구서 상세(BillQueryReader)는 원래 금액을
+                // 그대로 줘서, 두 화면이 같게 보이도록 앱에서 0원으로 맞춘다(BE 불일치 — MR에 적음)
+                amount = if (state == RefundState.CANCELED) 0 else r.amount,
+                state = state,
+            )
         },
         withdrawalAttemptedAt = parseInstant(withdrawal?.attemptedAt),
     )

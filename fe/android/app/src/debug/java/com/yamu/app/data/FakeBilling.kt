@@ -36,7 +36,8 @@ import javax.inject.Singleton
 /**
  * debug 전용 청구 · 환급 — 서버 응답(DTO)을 만들어 진짜와 같은 바꾸기를 거친다. 카드 번호는 FakeBank(11 ~ 17)와 같다.
  * LOCA(13)의 확정 청구서는 카드 상세의 '다음 출금'(오늘 + 10일 · 320,000원)과 같은 값이다.
- * 없는 청구서 번호는 404(BE는 남의 청구서도 같은 404). 환급은 한 페이지 4건이라 '더 보기'까지 그려 볼 수 있다
+ * 없는 청구서 번호는 404(BE는 남의 청구서도 같은 404). 환급은 한 페이지 4건이라 '더 보기'까지 그려 볼 수 있다.
+ * 모르는 카드 번호는 청구서 없음 — link만 진짜(cashflow · forecast가 켬)일 때 진짜 카드 번호로 와도 '찾을 수 없는 카드'가 뜨지 않게
  */
 @Singleton
 class FakeBillingRepository @Inject constructor() : BillingRepository {
@@ -46,9 +47,7 @@ class FakeBillingRepository @Inject constructor() : BillingRepository {
             delay(400)
             when {
                 userCardId == null -> ApiResult.Success(billList(bills()))
-                userCardId in CHECK_CARDS -> ApiResult.Success(BillListDto().toBillList())   // 체크카드는 청구서가 없다
-                userCardId !in CARDS -> ApiResult.Failure(ApiError.NotFound("RESOURCE_NOT_FOUND"))
-                else -> ApiResult.Success(billList(bills().filter { it.card == userCardId }))
+                else -> ApiResult.Success(billList(bills().filter { it.card == userCardId }))   // 체크카드 · 모르는 카드는 빈 목록
             }
         }
 
@@ -169,7 +168,7 @@ class FakeBillingRepository @Inject constructor() : BillingRepository {
                     usage(7301, 9301, lastPay.minusDays(20), "무신사", 12_000),
                     usage(7302, 9302, lastPay.minusDays(25), "이마트 성수점", 30_000),
                 ),
-                refunds = listOf(BillRefundDto(304, 7301, 0, "CANCELED")),
+                refunds = listOf(BillRefundDto(304, 7301, 12_000, "CANCELED")),   // BE 청구서 상세는 무효도 원래 금액을 준다(환급 내역은 0원)
             ),
             FakeBill(
                 204, card = 11, status = "PAID", payment = lastPay, discount = 3_000,
@@ -227,7 +226,6 @@ class FakeBillingRepository @Inject constructor() : BillingRepository {
             15L to FakeCard("신한카드 Mr.Life", "신한은행", 2, "5678"),
         )
         val LAST4 = mapOf(11L to "1021", 12L to "3310", 13L to "7782", 14L to "4410", 15L to "5096")
-        val CHECK_CARDS = setOf(16L, 17L)
 
         fun usage(
             billItemId: Long, paymentId: Long, on: LocalDate, merchant: String, amount: Long, status: String = "BILLED",

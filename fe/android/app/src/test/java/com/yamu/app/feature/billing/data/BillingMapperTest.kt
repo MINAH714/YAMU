@@ -166,6 +166,14 @@ class BillingMapperTest {
         assertEquals(listOf("쿠팡", null), d.refunds.map { it.merchant })
     }
 
+    @Test fun `청구서 상세의 무효 환급은 0원 — 환급 내역과 같게(BE 상세는 원래 금액을 준다)`() {
+        val d = BillDetailDto(
+            billId = 1,
+            refunds = listOf(BillRefundDto(1, 7, 12_000, "CANCELED"), BillRefundDto(2, 8, 5_000, "PENDING")),
+        ).toBillDetail(1)
+        assertEquals(listOf(0L, 5_000L), d.refunds.map { it.amount })
+    }
+
     @Test fun `회차 상태 태그 — 청구 제외 · 환급 대기 · 환급 완료만`() {
         assertEquals("청구 제외", usageStateOf("EXCLUDED").tag)
         assertEquals("환급 완료", usageStateOf("REFUNDED").tag)

@@ -66,6 +66,7 @@ import com.yamu.app.feature.billing.data.BillList
 import com.yamu.app.feature.billing.data.BillState
 import com.yamu.app.feature.billing.data.BillingRepository
 import com.yamu.app.feature.billing.data.Refund
+import com.yamu.app.feature.billing.data.RefundPage
 import com.yamu.app.feature.billing.data.RefundState
 import com.yamu.app.feature.billing.data.RefundSummary
 import com.yamu.app.feature.billing.data.amountNote
@@ -102,8 +103,10 @@ data class BillingState(
     val refundsHasNext: Boolean = false,
     val loadingMore: Boolean = false,
     val moreError: String? = null,
-    val message: String? = null,                    // 스낵바 한 번
+    val messages: List<String> = emptyList(),       // 스낵바 차례 — 청구서 · 환급이 같이 실패해도 하나가 다른 하나를 덮지 않게
 )
+
+private fun BillingState.withMessage(text: String) = copy(messages = messages + text)
 
 @HiltViewModel
 class BillingViewModel @Inject constructor(
@@ -135,7 +138,7 @@ class BillingViewModel @Inject constructor(
                     is ApiResult.Success -> s.copy(billsLoading = false, bills = r.data, cardGone = false)
                     is ApiResult.Failure -> when {
                         r.error is ApiError.NotFound && userCardId != null -> s.copy(billsLoading = false, bills = null, cardGone = true)
-                        s.bills != null -> s.copy(billsLoading = false, message = "청구서를 새로 불러오지 못했어요 · ${r.error.userMessage()}")
+                        s.bills != null -> s.copy(billsLoading = false).withMessage("청구서를 새로 불러오지 못했어요 · ${r.error.userMessage()}")
                         else -> s.copy(billsLoading = false, billsError = r.error.userMessage())
                     }
                 }
@@ -143,26 +146,44 @@ class BillingViewModel @Inject constructor(
         }
     }
 
-    /** 첫 페이지부터 다시. 더 보기가 도는 중이면 그것도 취소한다 — 새 목록에 밀린 옛 2페이지가 섞이지 않게 */
+    /**
+     * 더 보기로 읽은 페이지까지 1페이지부터 다시 읽는다 — 상세에 다녀와도 줄 수 · 스크롤 자리가 그대로 남게.
+     * 다 받은 뒤에 한 번에 바꾸고, 중간에 실패하면 보던 목록을 둔다. 도는 더 보기는 취소한다(새 목록에 밀린 옛 페이지가 섞이지 않게)
+     */
     fun loadRefunds() {
         refundsJob?.cancel()
+        val pages = _state.value.refundPage.coerceAtLeast(1)
         refundsJob = viewModelScope.launch {
             _state.update { it.copy(refundsLoading = true, refundsError = null, loadingMore = false, moreError = null) }
-            val r = repo.refunds(page = 1)
-            _state.update { s ->
-                when (r) {
-                    is ApiResult.Success -> s.copy(
-                        refundsLoading = false,
-                        refundsLoaded = true,
-                        refunds = r.data.items.distinctBy { it.key },
-                        refundSummary = r.data.summary,
-                        refundPage = 1,
-                        refundsHasNext = r.data.hasNext,
-                    )
-                    is ApiResult.Failure ->
-                        if (s.refundsLoaded) s.copy(refundsLoading = false, message = "환급을 새로 불러오지 못했어요 · ${r.error.userMessage()}")
-                        else s.copy(refundsLoading = false, refundsError = r.error.userMessage())
+            val rows = mutableListOf<Refund>()
+            var read = 0
+            var last: RefundPage? = null
+            while (read < pages) {
+                when (val r = repo.refunds(page = read + 1)) {
+                    is ApiResult.Success -> {
+                        rows += r.data.items
+                        last = r.data
+                        read++
+                        if (!r.data.hasNext) break
+                    }
+                    is ApiResult.Failure -> {
+                        _state.update { s ->
+                            if (s.refundsLoaded) s.copy(refundsLoading = false).withMessage("환급을 새로 불러오지 못했어요 · ${r.error.userMessage()}")
+                            else s.copy(refundsLoading = false, refundsError = r.error.userMessage())
+                        }
+                        return@launch
+                    }
                 }
+            }
+            _state.update {
+                it.copy(
+                    refundsLoading = false,
+                    refundsLoaded = true,
+                    refunds = rows.distinctBy { r -> r.key },
+                    refundSummary = last?.summary,
+                    refundPage = read,
+                    refundsHasNext = last?.hasNext == true,
+                )
             }
         }
     }
@@ -190,7 +211,8 @@ class BillingViewModel @Inject constructor(
         }
     }
 
-    fun messageShown() = _state.update { it.copy(message = null) }
+    /** 맨 앞 스낵바를 띄웠다 — 다음 차례가 있으면 화면이 이어서 띄운다 */
+    fun messageShown() = _state.update { it.copy(messages = it.messages.drop(1)) }
 }
 
 @Composable
@@ -207,8 +229,9 @@ fun BillingRoute(
     }
     val snackbar = LocalSnackbar.current
     val scope = rememberCoroutineScope()
-    LaunchedEffect(s.message) {
-        val message = s.message ?: return@LaunchedEffect
+    // 차례대로 하나씩 — 띄우는 중이면 SnackbarHostState가 다음 것을 기다리게 한다
+    LaunchedEffect(s.messages) {
+        val message = s.messages.firstOrNull() ?: return@LaunchedEffect
         viewModel.messageShown()
         scope.launch { snackbar.showSnackbar(message) }
     }
