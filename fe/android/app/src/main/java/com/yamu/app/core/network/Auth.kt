@@ -2,6 +2,7 @@ package com.yamu.app.core.network
 
 import com.yamu.app.core.security.AuthTokens
 import com.yamu.app.core.security.SessionEnd
+import com.yamu.app.core.security.SessionEndEvent
 import com.yamu.app.core.security.TokenStore
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonElement
@@ -47,8 +48,9 @@ class AuthInterceptor(private val tokenStore: TokenStore) : Interceptor {
  *   (BE는 직전 Refresh 토큰이 유예 시간 안에 다시 오면 재사용으로 보지 않는다 — -352에서 60초).
  * - DEVICE_NOT_REGISTERED: 다른 폰에서 재등록해 이 기기가 서버에서 해제됐다. 토큰을 지우고 '기기 해제'를 알린다(세션 · 기기 키는 앱이 받아서 지운다).
  * - UNAUTHORIZED: 토큰을 실었는데 거절됐다(탈퇴, -351 전 BE의 해제된 기기). 토큰을 지우고 '세션 끝남'을 알린다.
- * 끝내는 일은 실패한 요청의 토큰이 아직 지금 토큰일 때만 한다. 여러 요청이 함께 401을 받아도 한 번만 알리고,
- * 로그아웃이나 다시 로그인한 뒤 늦게 도착한 401은 이번 요청만 실패로 끝난다.
+ * 끝내는 일은 실패한 요청의 토큰이 아직 지금 토큰일 때만 한다(비교와 삭제는 저장소가 로그인 저장과 같은 잠금 안에서 한 번에).
+ * 여러 요청이 함께 401을 받아도 한 번만 알리고, 로그아웃이나 다시 로그인한 뒤 늦게 도착한 401은 이번 요청만 실패로 끝난다.
+ * 재발급한 토큰으로 다시 보낸 요청이 DEVICE_NOT_REGISTERED · UNAUTHORIZED를 받아도 세션을 끝낸다(재발급은 한 번만).
  */
 class TokenAuthenticator(
     private val tokenStore: TokenStore,
@@ -58,10 +60,9 @@ class TokenAuthenticator(
     private val lock = Any()
 
     override fun authenticate(route: Route?, response: Response): Request? {
-        if (response.priorCount() >= 1) return null                     // 같은 요청이 또 401 → 그만
         val failedToken = response.request.header(YamuHeaders.AUTHORIZATION)?.removePrefix("Bearer ")
         return when (response.errorCode()) {
-            "TOKEN_EXPIRED" -> refresh(response, failedToken)
+            "TOKEN_EXPIRED" -> if (response.priorCount() >= 1) null else refresh(response, failedToken)   // 재발급한 토큰도 만료 → 그만
             "DEVICE_NOT_REGISTERED" -> endSession(failedToken, SessionEnd.DEVICE_REVOKED)
             "UNAUTHORIZED" -> endSession(failedToken, SessionEnd.EXPIRED)
             else -> null
@@ -77,7 +78,7 @@ class TokenAuthenticator(
         if (current != null && current != failedToken) return response.request.withBearer(current)
         if (current == null && failedToken != null) return null         // 다른 요청이 이미 세션을 끝냈거나 로그아웃했다
 
-        val refresh = tokenStore.refreshTokenBlocking() ?: return expire(SessionEnd.EXPIRED)
+        val refresh = tokenStore.refreshTokenBlocking() ?: return expire(current, SessionEnd.EXPIRED)
         val result = try {
             authApi.refresh(RefreshRequest(refresh)).execute()
         } catch (e: Exception) {
@@ -87,22 +88,20 @@ class TokenAuthenticator(
             throw IOException("토큰 재발급 응답을 받지 못함", e)
         }
         val tokens = result.body()?.takeIf { result.isSuccessful && it.success }?.data
-            ?: return expire(SessionEnd.EXPIRED)                        // 재발급 거절(INVALID_REFRESH_TOKEN 등)
+            ?: return expire(current, SessionEnd.EXPIRED)               // 재발급 거절(INVALID_REFRESH_TOKEN 등)
         tokenStore.saveBlocking(AuthTokens(tokens.accessToken, tokens.refreshToken))
         return response.request.withBearer(tokens.accessToken)
     }
 
     private fun endSession(failedToken: String?, reason: SessionEnd): Request? {
         if (failedToken == null) return null                            // 토큰 없이 보낸 요청 — 끝낼 로그인이 없다
-        synchronized(lock) {
-            if (tokenStore.accessToken != failedToken) return null
-            return expire(reason)
-        }
+        synchronized(lock) { return expire(failedToken, reason) }       // 재발급 중이면 끝난 뒤 새 토큰과 비교한다
     }
 
-    private fun expire(reason: SessionEnd): Request? {
-        tokenStore.clearBlocking()
-        tokenStore.notifySessionExpired(reason)
+    /** [token]이 아직 지금 토큰일 때만 지우고 알린다. 그사이 다시 로그인 · 로그아웃했으면 이번 요청만 실패 */
+    private fun expire(token: String?, reason: SessionEnd): Request? {
+        val version = tokenStore.clearIfCurrentBlocking(token) ?: return null
+        tokenStore.notifySessionEnd(SessionEndEvent(reason, version))
         return null
     }
 }

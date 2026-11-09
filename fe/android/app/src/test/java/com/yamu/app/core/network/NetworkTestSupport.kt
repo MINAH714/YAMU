@@ -2,9 +2,10 @@ package com.yamu.app.core.network
 
 import com.yamu.app.core.security.AuthTokens
 import com.yamu.app.core.security.SessionEnd
+import com.yamu.app.core.security.SessionEndEvent
+import com.yamu.app.core.security.SessionEndSignal
 import com.yamu.app.core.security.TokenStore
-import kotlinx.coroutines.flow.MutableSharedFlow
-import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.serialization.Serializable
 import mockwebserver3.MockResponse
 import mockwebserver3.MockWebServer
@@ -38,29 +39,55 @@ fun json(code: Int, body: String): MockResponse = MockResponse.Builder()
 fun errorJson(code: Int, errorCode: String): MockResponse =
     json(code, """{"success":false,"data":null,"error":{"code":"$errorCode","message":"m"}}""")
 
-/** 테스트용 토큰 저장소 — 메모리만 */
+/**
+ * 테스트용 토큰 저장소 — 메모리만. 저장 · 지우기 · 비교해서 지우기는 진짜처럼 한 잠금 안에서.
+ * [afterAccessTokenRead]는 누가 [accessToken]을 읽은 바로 뒤에 한 번 불린다 — '확인한 직후 새 로그인이 저장됨'을 흉내 낸다
+ */
 class FakeTokenStore(access: String?, private var refresh: String?) : TokenStore {
-    override var accessToken: String? = access
-        private set
-    /** 알린 '세션 끝남' 이유 차례대로 */
-    val ended = mutableListOf<SessionEnd>()
-    val expiredCount: Int get() = ended.size
-    private val expired = MutableSharedFlow<SessionEnd>(replay = 1)
-    override val sessionExpired: SharedFlow<SessionEnd> = expired
+    private val lock = Any()
+    private var access: String? = access
+    var afterAccessTokenRead: (() -> Unit)? = null
 
-    override fun refreshTokenBlocking(): String? = refresh
+    override val accessToken: String?
+        get() {
+            val value = synchronized(lock) { access }
+            afterAccessTokenRead?.also { afterAccessTokenRead = null }?.invoke()
+            return value
+        }
+    override var tokenVersion: Long = 0
+        private set
+
+    /** 알린 '세션 끝남' 차례대로 */
+    val events = mutableListOf<SessionEndEvent>()
+    val ended: List<SessionEnd> get() = events.map { it.reason }
+    val expiredCount: Int get() = events.size
+    private val signal = SessionEndSignal()
+    override val sessionEnd: StateFlow<SessionEndEvent?> = signal.pending
+
+    override fun refreshTokenBlocking(): String? = synchronized(lock) { refresh }
     override suspend fun save(tokens: AuthTokens) = saveBlocking(tokens)
     override fun saveBlocking(tokens: AuthTokens) {
-        accessToken = tokens.accessToken
-        refresh = tokens.refreshToken
+        synchronized(lock) {
+            access = tokens.accessToken
+            refresh = tokens.refreshToken
+            tokenVersion++
+        }
     }
     override suspend fun clear() = clearBlocking()
-    override fun clearBlocking() {
-        accessToken = null
+    override fun clearBlocking() = synchronized(lock) { clearLocked() }
+    override fun clearIfCurrentBlocking(accessToken: String?): Long? = synchronized(lock) {
+        if (access != accessToken) null else tokenVersion.also { clearLocked() }
+    }
+    override suspend fun clearIfVersion(tokenVersion: Long): Boolean = synchronized(lock) {
+        (this.tokenVersion == tokenVersion).also { same -> if (same) clearLocked() }
+    }
+    private fun clearLocked() {
+        access = null
         refresh = null
     }
-    override fun notifySessionExpired(reason: SessionEnd) {
-        ended += reason
-        expired.tryEmit(reason)
+    override fun notifySessionEnd(event: SessionEndEvent) {
+        events += event
+        signal.publish(event)
     }
+    override fun consumeSessionEnd(event: SessionEndEvent) = signal.consume(event)
 }

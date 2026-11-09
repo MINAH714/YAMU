@@ -16,7 +16,9 @@ import androidx.compose.runtime.rememberUpdatedState
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emptyFlow
+import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.launch
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.navigation.NavDestination
@@ -29,38 +31,44 @@ import com.yamu.app.core.designsystem.theme.YamuSize
 import com.yamu.app.core.designsystem.theme.YamuSpacing
 import com.yamu.app.core.designsystem.theme.YamuTheme
 import com.yamu.app.core.security.SessionEnd
+import com.yamu.app.core.security.SessionEndEvent
 import com.yamu.app.core.ui.LocalSnackbar
 
 /**
  * 바깥 틀 — 하단 탭(탭 첫 화면 5개에서만) · 스낵바.
  * 여백(insets)은 화면마다 자기 Scaffold가 처리하고, 여기서는 하단 탭 높이만 넘긴 뒤 소비(consume)한다 — 두 번 겹치지 않게.
- * [onDeviceRevoked]는 서버에서 이 기기가 해제됐을 때 이 폰의 세션 · 기기 키를 지운다(첫 화면으로 가기 전에)
+ * [sessionEnd]는 아직 처리하지 않은 '세션 끝남'이라 화면을 다시 만드는 중에 생겨도 남아 있다. 처리하기 전에 [settleSessionEnd]로
+ * 지난 알림(그 뒤 새로 로그인)인지 보고 기기 해제면 거기서 세션 · 기기 키를 지운다. 처리한 뒤에는 [onSessionEndHandled]로 지운다
  */
 @Composable
 fun YamuApp(
-    sessionExpired: Flow<SessionEnd> = emptyFlow(),
+    sessionEnd: Flow<SessionEndEvent?> = emptyFlow(),
     autoLockSeconds: Flow<Int> = flowOf(60),
-    onDeviceRevoked: suspend () -> Unit = {},
+    settleSessionEnd: suspend (SessionEndEvent) -> Boolean = { true },
+    onSessionEndHandled: (SessionEndEvent) -> Unit = {},
 ) {
     val navController = rememberNavController()
     val snackbar = remember { SnackbarHostState() }
     val entry by navController.currentBackStackEntryAsState()
-    val forgetDevice by rememberUpdatedState(onDeviceRevoked)
+    val settle by rememberUpdatedState(settleSessionEnd)
+    val handled by rememberUpdatedState(onSessionEndHandled)
 
     // 다시 로그인해야 함 → 이유에 따라 로그인 화면이나 첫 화면으로(07 문서 3-3)
-    LaunchedEffect(sessionExpired) {
-        sessionExpired.collect { reason ->
-            if (reason == SessionEnd.DEVICE_REVOKED) {
-                try {
-                    forgetDevice()
-                } catch (e: Exception) {
-                    if (e is CancellationException) throw e   // 지우지 못해도 다음 실행 때 로그인 단계에서 기기 없음으로 다시 지운다
-                }
+    LaunchedEffect(sessionEnd) {
+        sessionEnd.filterNotNull().collect { event ->
+            val stillCurrent = try {
+                settle(event)
+            } catch (e: Exception) {
+                if (e is CancellationException) throw e
+                true   // 기기 정보를 지우지 못해도 옮긴다 — 다음 실행 때 로그인 단계에서 기기 없음으로 다시 지운다
             }
-            val move = sessionEndMove(reason, navController.currentDestination.sessionPlace()) ?: return@collect
-            if (move.toWelcome) navController.toWelcome()
-            else navController.navigate(Login) { popUpTo(navController.graph.id) { inclusive = true } }
-            snackbar.showSnackbar(move.message)
+            val move = if (stillCurrent) sessionEndMove(event.reason, navController.currentDestination.sessionPlace()) else null
+            if (move != null) {
+                if (move.toWelcome) navController.toWelcome()
+                else navController.navigate(Login) { popUpTo(navController.graph.id) { inclusive = true } }
+                launch { snackbar.showSnackbar(move.message) }   // 스낵바가 떠 있는 동안에도 다음 알림을 받게
+            }
+            handled(event)   // 처리하다 화면이 다시 만들어지면 남아 있어 다음 수집기가 다시 본다(이미 옮겼으면 그대로 둔다)
         }
     }
     AutoLockEffect(navController, autoLockSeconds)

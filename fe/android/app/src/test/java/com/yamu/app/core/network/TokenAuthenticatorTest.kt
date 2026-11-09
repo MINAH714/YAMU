@@ -1,6 +1,8 @@
 package com.yamu.app.core.network
 
+import com.yamu.app.core.security.AuthTokens
 import com.yamu.app.core.security.SessionEnd
+import com.yamu.app.core.security.SessionEndEvent
 import kotlinx.coroutines.test.runTest
 import mockwebserver3.MockWebServer
 import okhttp3.MediaType.Companion.toMediaType
@@ -130,6 +132,67 @@ class TokenAuthenticatorTest {
         assertNull(store.accessToken)
         assertNull(store.refreshTokenBlocking())
         assertEquals(listOf(SessionEnd.DEVICE_REVOKED), store.ended)
+        assertEquals(SessionEndEvent(SessionEnd.DEVICE_REVOKED, tokenVersion = 0), store.sessionEnd.value)   // 받는 화면이 없어도 남는다
+    }
+
+    @Test
+    fun `재발급한 토큰으로 다시 보낸 요청이 기기 해제를 받으면 세션을 끝낸다`() = runTest {
+        val store = FakeTokenStore(access = "old", refresh = "r1")
+        server.enqueue(errorJson(401, "TOKEN_EXPIRED"))
+        server.enqueue(json(200, """{"success":true,"data":{"accessToken":"new","refreshToken":"r2","tokenType":"Bearer","expiresIn":1800}}"""))
+        server.enqueue(errorJson(401, "DEVICE_NOT_REGISTERED"))
+
+        val result = apiCall { api(store).sample() }
+
+        assertTrue(result is ApiResult.Failure && result.error.code == "DEVICE_NOT_REGISTERED")
+        assertEquals(3, server.requestCount)
+        assertNull(store.accessToken)                                // 재발급한 새 토큰도 지운다
+        assertNull(store.refreshTokenBlocking())
+        assertEquals(listOf(SessionEndEvent(SessionEnd.DEVICE_REVOKED, tokenVersion = 1)), store.events)
+    }
+
+    @Test
+    fun `재발급한 토큰도 만료면 다시 재발급하지 않는다`() = runTest {
+        val store = FakeTokenStore(access = "old", refresh = "r1")
+        server.enqueue(errorJson(401, "TOKEN_EXPIRED"))
+        server.enqueue(json(200, """{"success":true,"data":{"accessToken":"new","refreshToken":"r2","tokenType":"Bearer","expiresIn":1800}}"""))
+        server.enqueue(errorJson(401, "TOKEN_EXPIRED"))
+
+        val result = apiCall { api(store).sample() }
+
+        assertTrue(result is ApiResult.Failure && result.error.code == "TOKEN_EXPIRED")
+        assertEquals(3, server.requestCount)
+        assertEquals("new", store.accessToken)
+        assertEquals(0, store.expiredCount)
+    }
+
+    @Test
+    fun `늦은 401을 확인한 직후 새 로그인이 저장돼도 새 토큰을 지우지 않는다`() {
+        listOf("UNAUTHORIZED", "DEVICE_NOT_REGISTERED").forEach { code ->
+            val store = FakeTokenStore(access = "old", refresh = "r1")
+            store.afterAccessTokenRead = { store.saveBlocking(AuthTokens("new", "r2")) }   // 누가 지금 토큰을 읽자마자 PIN 로그인이 끝남
+            val authenticator = TokenAuthenticator(store, authApi())
+
+            assertNull(authenticator.authenticate(null, unauthorized(code, bearer = "old")))
+            store.accessToken                                        // 아직 안 불렸으면 여기서 로그인이 끝난다
+
+            assertEquals(code, "new", store.accessToken)
+            assertEquals(code, "r2", store.refreshTokenBlocking())
+            assertTrue(code, store.events.all { it.tokenVersion < store.tokenVersion })   // 알림이 남았어도 지난 세션 것이라 화면이 무시한다
+        }
+    }
+
+    @Test
+    fun `재발급이 거절되기 전에 새 로그인이 저장됐으면 새 토큰을 지우지 않는다`() {
+        val store = FakeTokenStore(access = "old", refresh = "r1")
+        store.afterAccessTokenRead = { store.saveBlocking(AuthTokens("new", "r2")) }
+        val authenticator = TokenAuthenticator(store, authApi())
+        server.enqueue(errorJson(401, "INVALID_REFRESH_TOKEN"))
+
+        assertNull(authenticator.authenticate(null, unauthorized("TOKEN_EXPIRED", bearer = "old")))
+
+        assertEquals("new", store.accessToken)
+        assertEquals(0, store.expiredCount)
     }
 
     @Test
