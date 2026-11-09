@@ -524,6 +524,26 @@ enum Origin { REAL, SEED }
   - `alternatives[]`: 계산한 다른 카드(순혜택 순, `netBenefit` 소수 그대로)와 비교하지 못한 카드(`netBenefit` null, `note`에 이유)입니다. 엔진이 결제 불가로 뺀 카드는 넣지 않습니다. 사용자가 다른 카드를 골랐으면 엔진의 1순위 카드에 `recommended: true`를 답니다(!155 리뷰).
   - 엔진은 구매일의 **전월 실적**을 읽습니다(`RecommendationService`, 거래일 −1달). 그래서 다음 달 이후 구매면 그 "전월"은 아직 진행 중인 이번 달이라 오늘까지 쌓인 실적으로 구간 한도·최소 실적을 판정합니다. 계산은 그대로 두고 `assumptions`에 `YAMU_PREVIOUS_PERFORMANCE_AS_OF_TODAY`로 알립니다(!155 리뷰). 구매일은 오늘부터 1년까지라(-327) 이 근사는 최대 1년 뒤 구매까지입니다.
   - 엔진은 체크카드를 **오늘 잔액**으로 거릅니다. 사용자가 고른 카드가 그래서 빠지면(`INSUFFICIENT_BALANCE`) 혜택만 비우고 잔고 비교는 그대로 합니다. 엔진 결과의 신용한도 확인 생략(`CREDIT_LIMIT_CHECK_SKIPPED`)은 `creditLimit`으로 보이므로 `missingInformation`에 다시 싣지 않습니다.
+  - **빠진 정보 코드(`missingInformation[]`, 2026-11-09, -346)**: 혜택(`benefit`)을 끝내지 못한 이유입니다. `code`·`field`가 같은 줄은 한 번만 싣습니다. 아래 두 표가 전부가 아니고 엔진 코드는 늘어날 수 있으므로, FE는 모르는 코드가 오면 일반 문장으로 보여 줍니다.
+    - 가상 구매가 직접 만드는 코드:
+
+      | `code` | `field` | 언제 | 그때 응답 |
+      |---|---|---|---|
+      | `MERCHANT_CATEGORY_MISSING` | `merchantCategoryCode` | 카드를 직접 골랐는데 업종·브랜드를 모두 고르지 않음 | 엔진을 부르지 않고 잔고만 비교. 카드를 고르지 않았으면 이 코드 대신 422 `DATA_INSUFFICIENT`(`reason=CATEGORY_REQUIRED`) |
+      | `RECOMMENDATION_READ_FAILED` | null | 카드를 직접 골랐는데 추천 엔진이 DB를 읽지 못함. 다시 시도하면 될 수 있음 | 혜택 null, 대안 null, 잔고 비교는 그대로. 카드를 고르지 않았으면 422 `DATA_INSUFFICIENT`(`reason=RECOMMENDATION_UNAVAILABLE`) |
+      | `CARD_NOT_EVALUATED` | null | 고른 카드가 엔진의 평가 결과에 없음 | 혜택 null, 잔고 비교는 그대로 |
+      | `INSTANT_DISCOUNT_TIMING_UNKNOWN` | null | 혜택은 계산했지만 할인 혜택의 적용 시점을 몰라 즉시할인·청구 금액을 정하지 못함 | 혜택 null(위 「청구 금액」) |
+
+    - 추천 엔진이 준 코드를 그대로 싣는 것(고른 카드 또는 추천 1순위 카드 기준):
+
+      | 엔진 출처 | `field` | 대표 코드 | 규칙 문서 |
+      |---|---|---|---|
+      | 카드 평가 사유(`CardEvaluation.reason`): 결제할 수 없어 빼거나 비교하지 못한 이유 | null | `INSUFFICIENT_BALANCE`(체크카드 오늘 잔액 부족), `CHECK_CARD_INSTALLMENT_NOT_SUPPORTED`, `PAYMENT_ACCOUNT_DISCONNECTED`, `UNPAID_BILL`, `CREDIT_LIMIT_EXCEEDED`, `PRODUCT_UNKNOWN` | [recommendation.md](recommendation.md) 결제 가능 상태 |
+      | 계산의 빠진 정보(`Calculation.missingInformation`) | 있음 | `BRAND_MISSING`(`merchantId`), `PURCHASE_ITEM_MISSING`, `CHANNEL_MISSING`, `FACILITY_MISSING`, `FACT_MISSING` | [brand-missing-simulation.md](brand-missing-simulation.md) |
+      | 계산의 문제(`Calculation.problems`) | null | `CONDITION_UNKNOWN`(판정할 수 없는 혜택 조건), `PERFORMANCE_OR_MINIMUM_UNKNOWN`, `LIMIT_UNKNOWN` | [brand-missing-simulation.md](brand-missing-simulation.md) |
+      | 데이터 문제(`RecommendationDataIssue`, 그 카드 것과 카드와 상관없는 것) | null | `DATABASE_READ_RETRYABLE`(다시 시도하면 될 수 있음), `PREVIOUS_PERFORMANCE_MISSING`, `POLICY_DATA_INVALID`, `PRODUCT_MISSING`. `CREDIT_LIMIT_CHECK_SKIPPED`는 빼고 `creditLimit`으로 보임 | [recommendation.md](recommendation.md) |
+
+    - 엔진 코드의 뜻과 생기는 조건은 BE 3 문서가 원본이라 여기서는 출처만 적습니다. 앱의 코드별 문구는 `fe/android/.../forecast/data/SimulationModels.kt`의 `missingText`에 있습니다.
   - 엔진이 돌려준 카드도 내 카드·결제 가능 카드인지 다시 확인하고, 대안 카드도 모두 내 등록 카드인지 확인합니다. 아니면 남의 카드 정보를 싣지 않도록 엔진 계약 위반(500)으로 실패합니다(코드 리뷰 반영, 2026-11-05).
   - `performanceImpact`는 엔진이 주지 않아 null입니다(후속).
   - 대안 카드 소유 확인은 카드마다 BE 1 `CardQueryService.findRegisteredCard`를 불러 카드당 DB 조회가 2번입니다(카드·상품). 보유 카드가 몇 장 수준이라 그대로 두고, 등록 상태 규칙을 이쪽에 복제하지 않습니다(2026-11-06 결정). 요청 지연을 잴 때 확인할 지점입니다.
