@@ -33,7 +33,7 @@ final class CashflowEvents {
      * 빼고 알린다(사용일이 기간 안일 때만).
      * 이미 확정된 카드 청구는 카드가 정지돼도 출금되므로 이 판단과 상관없다(청구는 {@link CardBillReader}).
      *
-     * @param entries          가계부 목록 회차(확정 항목)
+     * @param entries          가계부 목록 회차(확인한 항목과 확인 전 탐지 후보)
      * @param selectedAccounts 예보에 선택한 계좌
      * @param cards            BE 1 카드 조회. 없거나 해제된 카드는 empty다
      * @return 입출금과 뺀 항목
@@ -110,9 +110,12 @@ final class CashflowEvents {
                 excluded.add(ExcludedItem.of(entry, ExcludedItem.Reason.TODAY_INCOME_UNVERIFIED));
                 continue;
             }
+            // 확인 전 탐지 후보는 사용자가 확인하기 전이라 예상 선부터 넣는다(명세 「가계부 항목 목록」, S15P31E103-349).
+            FlowEvent.Confidence confidence = item.status() == CashflowItem.Status.CANDIDATE
+                    ? FlowEvent.Confidence.EXPECTED : FlowEvent.Confidence.CONFIRMED;
             events.add(new FlowEvent(accountId, date, income ? item.amount() : -item.amount(),
                     income ? FlowEvent.Type.SCHEDULED_INCOME : FlowEvent.Type.SCHEDULED_OUTFLOW,
-                    FlowEvent.Confidence.CONFIRMED, item.title(), item.id()));
+                    confidence, item.title(), item.id()));
         }
         return new Converted(List.copyOf(events), List.copyOf(excluded));
     }

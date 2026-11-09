@@ -587,6 +587,18 @@ public class CashflowService {
     }
 
     /** 이번 회차만 고쳤거나 실제 결제와 연결된 회차는 규칙 값이 바뀌어도 그 행의 값을 쓴다. */
+    /**
+     * 확인 전 탐지 후보 수(명세 candidateCount). 값을 고쳐 규칙이 나뉜 후보는 시리즈 마지막 규칙만 센다.
+     *
+     * @param authenticatedUserId 로그인 사용자
+     * @return 후보 수
+     */
+    @Transactional(readOnly = true)
+    public long candidateCount(Long authenticatedUserId) {
+        requireUser(authenticatedUserId);
+        return items.countSeries(authenticatedUserId, CashflowItem.ItemKind.SCHEDULED, CashflowItem.Status.CANDIDATE);
+    }
+
     private static boolean usesRowValues(CashflowOccurrence row, Set<Long> matched) {
         return row.isOverridden() || matched.contains(row.getId());
     }
@@ -828,7 +840,7 @@ public class CashflowService {
     public record Item(Long id, Long accountId, Long userCardId, String title,
             CashflowItem.Direction direction, Long amount, LocalDate scheduledDate,
             CashflowItem.RecurrenceType recurrenceType, LocalDate recurrenceEndDate, Integer recurrenceDayOfMonth,
-            String merchantCategoryCode, CashflowItem.Status status, String memo) {
+            String merchantCategoryCode, CashflowItem.Status status, String memo, CashflowItem.Source source) {
         static Item from(CashflowItem item) {
             Integer dayOfMonth = item.getRecurrenceType() != CashflowItem.RecurrenceType.MONTHLY ? null
                     : item.getRecurrenceDayOfMonth() != null ? item.getRecurrenceDayOfMonth()
@@ -836,14 +848,14 @@ public class CashflowService {
             return new Item(item.getId(), item.getAccountId(), item.getUserCardId(),
                     item.getTitle(), item.getDirection(), item.getAmount(),
                     item.getScheduledDate(), item.getRecurrenceType(), item.getRecurrenceEndDate(), dayOfMonth,
-                    item.getMerchantCategoryCode(), item.getStatus(), item.getMemo());
+                    item.getMerchantCategoryCode(), item.getStatus(), item.getMemo(), item.getSource());
         }
 
         /** 규칙의 ID·반복·상태는 두고 회차에 저장된 값으로 바꾼다. */
         Item with(CashflowOccurrence row) {
             return new Item(id, row.getAccountId(), row.getUserCardId(), row.getTitle(), direction,
                     row.getAmount(), scheduledDate, recurrenceType, recurrenceEndDate, recurrenceDayOfMonth,
-                    row.getMerchantCategoryCode(), status, row.getMemo());
+                    row.getMerchantCategoryCode(), status, row.getMemo(), source);
         }
     }
 }

@@ -4,6 +4,7 @@ import com.yamu.be.global.common.ApiResponse;
 import com.yamu.be.global.security.AuthUser;
 import jakarta.validation.Valid;
 import java.time.LocalDate;
+import java.util.Map;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -24,9 +25,11 @@ import org.springframework.web.bind.annotation.RestController;
 class CashflowController {
 
     private final CashflowService service;
+    private final RecurringExpenseDetector detector;
 
-    CashflowController(CashflowService service) {
+    CashflowController(CashflowService service, RecurringExpenseDetector detector) {
         this.service = service;
+        this.detector = detector;
     }
 
     /** 예정 수입·지출을 등록하고 201로 등록된 항목을 돌려준다. */
@@ -37,7 +40,10 @@ class CashflowController {
         return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.ok(body));
     }
 
-    /** 기간 안의 예정 항목을 돌려준다. expand(기본 true)면 반복 항목을 발생일마다 펼친다. */
+    /**
+     * 기간 안의 예정 항목을 돌려준다. expand(기본 true)면 반복 항목을 발생일마다 펼친다.
+     * 읽기 전에 결제 이력에서 반복 지출 후보를 맞추고(S15P31E103-349), 후보에는 탐지 근거를 붙인다.
+     */
     @GetMapping
     ApiResponse<CashflowItemResponse.ListResponse> list(@AuthenticationPrincipal AuthUser me,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
@@ -45,9 +51,10 @@ class CashflowController {
             @RequestParam(required = false) CashflowItem.Direction type,
             @RequestParam(required = false) CashflowItem.Status status,
             @RequestParam(defaultValue = "true") boolean expand) {
+        Map<Long, RecurringExpenseDetector.Detection> detections = detector.refresh(me.userId());
         var items = service.list(me.userId(), from, to, type, status, expand).stream()
-                .map(CashflowItemResponse::from).toList();
-        return ApiResponse.ok(new CashflowItemResponse.ListResponse(items, 0));
+                .map(entry -> CashflowItemResponse.from(entry, detections.get(entry.item().id()))).toList();
+        return ApiResponse.ok(new CashflowItemResponse.ListResponse(items, service.candidateCount(me.userId())));
     }
 
     /** 예정 항목을 고친다. THIS_ONLY는 고친 회차를, 그 외는 고친 규칙을 돌려준다. */
