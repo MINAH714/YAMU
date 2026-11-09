@@ -7,7 +7,6 @@ import com.yamu.app.feature.link.data.brandOf
 import com.yamu.app.feature.payment.data.ApproveOutcome
 import com.yamu.app.feature.payment.data.CancelResult
 import com.yamu.app.feature.payment.data.KnownMemo
-import com.yamu.app.feature.payment.data.Merchant
 import com.yamu.app.feature.payment.data.PayCard
 import com.yamu.app.feature.payment.data.PayCode
 import com.yamu.app.feature.payment.data.PayCodeStatus
@@ -15,7 +14,6 @@ import com.yamu.app.feature.payment.data.PayStatus
 import com.yamu.app.feature.payment.data.PaymentReceipt
 import com.yamu.app.feature.payment.data.PaymentRepository
 import com.yamu.app.feature.payment.data.PaymentRequest
-import com.yamu.app.feature.payment.data.Recommendation
 import com.yamu.app.feature.payment.data.RefundLine
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -329,8 +327,6 @@ class PaymentDetailViewModelTest {
             return found
         }
 
-        override suspend fun merchants(): ApiResult<List<Merchant>> = error("안 씀")
-        override suspend fun recommend(merchantId: Long, amount: Long): ApiResult<Recommendation> = error("안 씀")
         override suspend fun issueCode(stepUpToken: String): ApiResult<PayCode> = error("안 씀")
         override suspend fun codeStatus(token: String): ApiResult<PayCodeStatus> = error("안 씀")
         override suspend fun approve(request: PaymentRequest, card: PayCard, installmentMonths: Int?, idempotencyKey: String): ApiResult<ApproveOutcome> = error("안 씀")

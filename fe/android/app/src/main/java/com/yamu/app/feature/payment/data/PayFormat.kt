@@ -42,6 +42,8 @@ fun declineMessage(code: String?): String = when (code) {
     "CARD_SUSPENDED" -> "정지된 카드예요"
     "UNPAID_BILL" -> "미납된 청구가 있는 카드예요"
     "ISSUER_DECLINED" -> "카드사가 결제를 거절했어요"
+    "ACCOUNT_UNAVAILABLE" -> "출금 계좌를 쓸 수 없어요 · 계좌를 다시 연결해 주세요"    // BE 임시 코드(명세 8장 Q9)
+    "WITHDRAWAL_NOT_CONFIRMED" -> "출금이 확인되지 않았어요 · 다시 시도해 주세요"      // BE 임시 코드 — 돈은 나가지 않았다
     else -> "결제가 승인되지 않았어요"
 }
 
