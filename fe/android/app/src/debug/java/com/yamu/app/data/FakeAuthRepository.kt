@@ -165,6 +165,8 @@ class FakeAuthRepository @Inject constructor(
 
     override suspend fun completeOnboarding() = sessionStore.setOnboardingCompleted(true)
 
+    override suspend fun forgetRevokedDevice() = forgetDevice()
+
     /** 서버처럼 lockedUntil(UTC 초 단위) */
     private fun locked(): ApiResult.Failure {
         val until = Instant.now().plus(30, ChronoUnit.MINUTES).truncatedTo(ChronoUnit.SECONDS).toString()

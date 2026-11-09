@@ -43,8 +43,8 @@ class KeystoreTokenStore @Inject constructor(
 
     @Volatile private var refreshToken: String? = null
 
-    private val _sessionExpired = MutableSharedFlow<Unit>(extraBufferCapacity = 1, onBufferOverflow = BufferOverflow.DROP_OLDEST)
-    override val sessionExpired: SharedFlow<Unit> = _sessionExpired.asSharedFlow()
+    private val _sessionExpired = MutableSharedFlow<SessionEnd>(extraBufferCapacity = 1, onBufferOverflow = BufferOverflow.DROP_OLDEST)
+    override val sessionExpired: SharedFlow<SessionEnd> = _sessionExpired.asSharedFlow()
 
     override fun refreshTokenBlocking(): String? {
         refreshToken?.let { return it }
@@ -69,8 +69,8 @@ class KeystoreTokenStore @Inject constructor(
 
     override fun clearBlocking() = runBlocking { clear() }
 
-    override fun notifySessionExpired() {
-        _sessionExpired.tryEmit(Unit)
+    override fun notifySessionExpired(reason: SessionEnd) {
+        _sessionExpired.tryEmit(reason)
     }
 }
 
