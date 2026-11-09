@@ -8,6 +8,7 @@ import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -197,12 +198,20 @@ private fun indexAt(px: Float, width: Float, n: Int, incomeArrow: Boolean, densi
     return Math.round(f * (n - 1)).coerceIn(0, n - 1)
 }
 
-/** 범례 — 선 모양 + 이름. [missing]은 이번에 그리지 못한 선(취소선) */
+/**
+ * 범례 — 선 모양 + 이름. [missing]은 이번에 그리지 못한 선(취소선).
+ * 이름이 'AI 생활비 제외'처럼 길어져 큰 글씨에서는 한 줄에 다 들어가지 않는다 — 넘치면 다음 줄로 내려 이름이 글자 단위로 꺾이지 않게 한다
+ */
 @Composable
 fun ChartLegend(lines: List<ChartLine>, modifier: Modifier = Modifier, missing: List<String> = emptyList()) {
     val c = YamuTheme.colors
     val style = YamuTheme.typography.bodyS
-    Row(modifier, horizontalArrangement = Arrangement.spacedBy(14.dp), verticalAlignment = Alignment.CenterVertically) {
+    FlowRow(
+        modifier,
+        horizontalArrangement = Arrangement.spacedBy(14.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+        itemVerticalAlignment = Alignment.CenterVertically,
+    ) {
         lines.forEach { line ->
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Canvas(Modifier.size(width = 18.dp, height = 6.dp)) {
