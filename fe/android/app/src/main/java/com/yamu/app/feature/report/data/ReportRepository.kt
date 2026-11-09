@@ -3,13 +3,16 @@ package com.yamu.app.feature.report.data
 import com.yamu.app.core.network.ApiEnvelope
 import com.yamu.app.core.network.ApiResult
 import com.yamu.app.core.network.apiCall
+import com.yamu.app.core.network.apiCallFile
 import com.yamu.app.core.network.map
+import com.yamu.app.feature.payment.data.PaymentEdits
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
+import okhttp3.ResponseBody
 import retrofit2.Response
 import retrofit2.Retrofit
 import retrofit2.http.GET
@@ -18,7 +21,7 @@ import java.time.YearMonth
 import javax.inject.Inject
 import javax.inject.Singleton
 
-/** 소비분석 — #54 · #55 · #4. 13 문서 9·10-3 */
+/** 소비분석 — #54 · #55 · #4 · #63. 13 문서 9·10-3 */
 interface ReportApi {
     @GET("reports/monthly")
     suspend fun monthly(@Query("yearMonth") yearMonth: String? = null): Response<ApiEnvelope<MonthlyReportDto>>
@@ -29,6 +32,10 @@ interface ReportApi {
 
     @GET("payments")
     suspend fun payments(@Query("page") page: Int, @Query("size") size: Int, @Query("yearMonth") yearMonth: String? = null): Response<ApiEnvelope<PaymentsPageDto>>
+
+    /** 결제 내역과 같은 조건(page · size 빼고). 성공은 text/csv 파일, 실패는 공통 JSON */
+    @GET("payments/export")
+    suspend fun export(@Query("yearMonth") yearMonth: String? = null): Response<ResponseBody>
 }
 
 interface ReportRepository {
@@ -40,10 +47,16 @@ interface ReportRepository {
 
     /** S-05 — 이번 달 결제 내역(쪽마다 20건) */
     suspend fun payments(page: Int): ApiResult<PaymentsPage>
+
+    /**
+     * S-05 '이 조건으로 CSV 저장' — [month](한국 기준) 한 달. 분당 3번까지(429 RATE_LIMITED).
+     * 달을 넘기는 이유: 저장 창에 보인 이름의 달과 내용의 달이 말일 자정 무렵에도 같게
+     */
+    suspend fun exportCsv(month: YearMonth): ApiResult<CsvFile>
 }
 
 @Singleton
-class ReportRepositoryImpl @Inject constructor(private val api: ReportApi) : ReportRepository {
+class ReportRepositoryImpl @Inject constructor(private val api: ReportApi, private val edits: PaymentEdits) : ReportRepository {
 
     override suspend fun monthly(): ApiResult<MonthlySpend> = coroutineScope {
         val report = async { apiCall { api.monthly() } }
@@ -55,8 +68,15 @@ class ReportRepositoryImpl @Inject constructor(private val api: ReportApi) : Rep
     override suspend fun benefits(): ApiResult<BenefitReport> =
         apiCall { api.benefits(YearMonth.now().toString()) }.map { it.toReport() }
 
+    /** 목록의 메모를 받아 둔다 — 결제 상세 응답엔 memo가 없다 */
     override suspend fun payments(page: Int): ApiResult<PaymentsPage> =
-        apiCall { api.payments(page = page, size = PAGE_SIZE) }.map { it.toPage() }
+        apiCall { api.payments(page = page, size = PAGE_SIZE) }.map { dto ->
+            dto.items.forEach { edits.rememberMemo(it.paymentId, it.memo) }
+            dto.toPage()
+        }
+
+    override suspend fun exportCsv(month: YearMonth): ApiResult<CsvFile> =
+        apiCallFile { api.export(yearMonth = month.toString()) }.map { CsvFile(csvFileName(it.contentDisposition, fallback = defaultCsvName(month)), it.bytes) }
 
     companion object { const val PAGE_SIZE = 20 }
 }
