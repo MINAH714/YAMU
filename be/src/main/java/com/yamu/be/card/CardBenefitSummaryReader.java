@@ -37,10 +37,13 @@ import org.springframework.stereotype.Component;
  *       최대 {@value #MAX_MAIN_BENEFITS}개. 명세 예시처럼 비율·한도를 붙인 문장은 만들지 않는다.</li>
  *   <li>실적 기준: 혜택의 최소 전월 실적과, 그 혜택에 연결된 한도의 실적 구간 하한 중 0원보다 큰 값.</li>
  * </ul>
+ *
+ * <p>카드별 실적 화면(S15P31E103-373, {@code performance} 패키지)도 같은 기준·구간을 쓰도록 공개한다. 두 화면의 목표 실적이
+ * 달라지지 않게, 기준을 바꿀 때는 이 클래스만 고친다.
  */
 @Component
 @RequiredArgsConstructor
-class CardBenefitSummaryReader {
+public class CardBenefitSummaryReader {
 
     static final int MAX_MAIN_BENEFITS = 3;
 
@@ -55,7 +58,7 @@ class CardBenefitSummaryReader {
     private final TierLimitRepository tiers;
 
     /** @return 상품 번호별 요약. 오늘 유효한 혜택이 없는 상품은 빠진다 */
-    Map<Long, Summary> summaries(Collection<Long> productIds, LocalDate today) {
+    public Map<Long, Summary> summaries(Collection<Long> productIds, LocalDate today) {
         if (productIds.isEmpty()) {
             return Map.of();
         }
@@ -66,10 +69,11 @@ class CardBenefitSummaryReader {
         if (current.isEmpty()) {
             return Map.of();
         }
-        Set<Long> currentGroups = singleVersion(groups.findByCardProductIdIn(products).stream()
+        Map<Long, LimitGroup> currentGroupRows = singleVersion(groups.findByCardProductIdIn(products).stream()
                         .filter(g -> possiblyEffective(g.getValidFrom(), g.getValidUntil(), today)).toList(),
                 g -> g.getCardProductId() + ":" + g.getGroupCode())
-                .stream().map(LimitGroup::getId).collect(Collectors.toSet());
+                .stream().collect(Collectors.toMap(LimitGroup::getId, g -> g));
+        Set<Long> currentGroups = currentGroupRows.keySet();
         List<BenefitLimitLink> linkRows = links.findByCardProductIdInAndCardBenefitIdIn(products,
                 current.stream().map(CardBenefit::getId).toList());
         Map<Long, Long> groupProduct = linkRows.stream()
@@ -90,9 +94,46 @@ class CardBenefitSummaryReader {
             tierRows.stream().filter(t -> product.equals(groupProduct.get(t.getLimitGroupId())))
                     .map(TierLimit::getMinPerformanceAmount).filter(a -> a != null && a > 0)
                     .forEach(thresholds::add);
-            result.put(product, new Summary(names, List.copyOf(thresholds)));
+            List<Tier> tierList = thresholds.stream().map(threshold -> tier(threshold, rows, linkRows,
+                    currentGroupRows, tierRows)).toList();
+            result.put(product, new Summary(names, List.copyOf(thresholds), tierList));
         });
         return result;
+    }
+
+    /**
+     * 실적 기준 하나의 구간 정보(S15P31E103-373, 임시 2026-11-10). 혜택 이름은 그 기준에서 새로 열리는 혜택(최소 전월 실적이
+     * 기준과 같은 혜택), 월 한도 합은 실적이 기준과 같을 때 받을 수 있는 원화·월 한도의 합이다.
+     */
+    private static Tier tier(long threshold, List<CardBenefit> benefitRows, List<BenefitLimitLink> linkRows,
+            Map<Long, LimitGroup> groupRows, List<TierLimit> tierRows) {
+        List<String> opened = benefitRows.stream()
+                .filter(b -> b.getMinPerformanceAmount() != null && b.getMinPerformanceAmount() == threshold)
+                .sorted(MAIN_ORDER).map(CardBenefit::getBenefitName).filter(Objects::nonNull).distinct().toList();
+        // 기준 실적에서 쓸 수 있는 혜택(최소 전월 실적 ≤ 기준)에 연결된 원화·월 한도만 더한다
+        Set<Long> usable = benefitRows.stream()
+                .filter(b -> b.getMinPerformanceAmount() == null || b.getMinPerformanceAmount() <= threshold)
+                .map(CardBenefit::getId).collect(Collectors.toSet());
+        Long monthlyKrw = null;
+        Set<Long> counted = new java.util.HashSet<>();
+        for (BenefitLimitLink link : linkRows) {
+            LimitGroup group = groupRows.get(link.getLimitGroupId());
+            if (group == null || !usable.contains(link.getCardBenefitId()) || !counted.add(group.getId())
+                    || group.getPeriodType() != BenefitPolicy.Period.MONTHLY
+                    || group.getLimitUnit() != BenefitPolicy.Unit.KRW) {
+                continue;
+            }
+            List<TierLimit> groupTiers = tierRows.stream()
+                    .filter(t -> t.getLimitGroupId().equals(group.getId())).toList();
+            Long value = groupTiers.isEmpty() ? group.getBaseLimitValue() : groupTiers.stream()
+                    .filter(t -> t.getMinPerformanceAmount() <= threshold
+                            && (t.getMaxPerformanceAmount() == null || threshold < t.getMaxPerformanceAmount()))
+                    .map(TierLimit::getLimitValue).findFirst().orElse(null);
+            if (value != null) {
+                monthlyKrw = (monthlyKrw == null ? 0 : monthlyKrw) + value;
+            }
+        }
+        return new Tier(threshold, opened, monthlyKrw);
     }
 
     private static <T> List<T> singleVersion(List<T> rows, java.util.function.Function<T, String> code) {
@@ -113,16 +154,27 @@ class CardBenefitSummaryReader {
     /**
      * @param mainBenefits 주요 혜택 문구. 최대 {@value #MAX_MAIN_BENEFITS}개
      * @param thresholds   실적 기준(원), 작은 순. 없으면 빈 목록
+     * @param tiers        기준별 구간 정보. {@code thresholds}와 같은 순서·개수
      */
-    record Summary(List<String> mainBenefits, List<Long> thresholds) {
+    public record Summary(List<String> mainBenefits, List<Long> thresholds, List<Tier> tiers) {
 
         /** 이번 달 실적보다 큰 기준 중 가장 작은 값. 다 넘었으면 가장 큰 기준, 기준이 없으면 null. */
-        Long targetFor(long recognized) {
+        public Long targetFor(long recognized) {
             if (thresholds.isEmpty()) {
                 return null;
             }
             return thresholds.stream().filter(t -> t > recognized).findFirst()
                     .orElse(thresholds.get(thresholds.size() - 1));
         }
+    }
+
+    /**
+     * 실적 구간 하나.
+     *
+     * @param threshold       실적 기준(원, 포함)
+     * @param benefitNames    이 기준에서 새로 열리는 혜택 이름. 한도만 커지는 기준이면 빈 목록
+     * @param monthlyKrwLimit 실적이 기준과 같을 때 받을 수 있는 원화·월 한도의 합. 원화·월 한도가 없으면 null
+     */
+    public record Tier(long threshold, List<String> benefitNames, Long monthlyKrwLimit) {
     }
 }
