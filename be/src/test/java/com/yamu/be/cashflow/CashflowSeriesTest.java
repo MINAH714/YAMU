@@ -40,6 +40,7 @@ class CashflowSeriesTest extends MySqlTestSupport {
     @Autowired CashflowService service;
     @Autowired CashflowItemRepository items;
     @Autowired CashflowOccurrenceRepository occurrences;
+    @Autowired CashflowCreateRequestRepository createRequests;
     @Autowired AccountQueryService accounts;
     @Autowired CardQueryService cards;
 
@@ -327,7 +328,7 @@ class CashflowSeriesTest extends MySqlTestSupport {
      */
     private CashflowService serviceOn(LocalDate today) {
         Clock clock = Clock.fixed(today.atStartOfDay(ZoneId.of("Asia/Seoul")).toInstant(), ZoneOffset.UTC);
-        return new CashflowService(items, occurrences, accounts, cards, clock);
+        return new CashflowService(items, occurrences, createRequests, accounts, cards, clock);
     }
 
     private Integer dayOfMonthOf(long rule) {

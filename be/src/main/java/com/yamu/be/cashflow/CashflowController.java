@@ -15,6 +15,7 @@ import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -25,18 +26,25 @@ import org.springframework.web.bind.annotation.RestController;
 class CashflowController {
 
     private final CashflowService service;
+    private final CashflowCreator creator;
     private final RecurringExpenseDetector detector;
 
-    CashflowController(CashflowService service, RecurringExpenseDetector detector) {
+    CashflowController(CashflowService service, CashflowCreator creator, RecurringExpenseDetector detector) {
         this.service = service;
+        this.creator = creator;
         this.detector = detector;
     }
 
-    /** 예정 수입·지출을 등록하고 201로 등록된 항목을 돌려준다. */
+    /**
+     * 예정 수입·지출을 등록하고 201로 등록된 항목을 돌려준다. Idempotency-Key(UUID, 선택)를 보내면 같은 키 재요청은 처음 항목을
+     * 돌려준다(S15P31E103-358).
+     */
     @PostMapping
     ResponseEntity<ApiResponse<CashflowItemResponse>> create(@AuthenticationPrincipal AuthUser me,
+            @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
             @Valid @RequestBody CreateCashflowItemRequest request) {
-        CashflowItemResponse body = CashflowItemResponse.from(service.create(me.userId(), request.toCommand()));
+        CashflowItemResponse body = CashflowItemResponse.from(
+                creator.create(me.userId(), request.toCommand(), idempotencyKey));
         return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.ok(body));
     }
 

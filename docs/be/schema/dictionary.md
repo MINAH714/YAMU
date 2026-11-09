@@ -750,6 +750,25 @@ CONSTRAINT ck_refund_completed CHECK (completed_at IS NULL OR linked_account_id 
 CONSTRAINT ck_refund_version CHECK (version >= 0)
 ```
 
+### cashflow_create_request — 가계부 항목 등록 Idempotency-Key 기록 (S15P31E103-358, V20261109_3)
+
+| 컬럼 | SQL 정의 | 설명 |
+|---|---|---|
+| cashflow_create_request_id | `BIGINT NOT NULL AUTO_INCREMENT` | 등록 요청 기록 번호 |
+| user_id | `BIGINT NOT NULL` | 등록한 사용자 |
+| request_key | `CHAR(36) CHARACTER SET ascii COLLATE ascii_bin NOT NULL` | 등록 Idempotency-Key(UUID, 소문자) |
+| request_fingerprint | `BINARY(32) NOT NULL` | 처음 등록 요청 내용의 SHA-256; 같은 키 재요청 비교 |
+| cashflow_item_id | `BIGINT NOT NULL` | 그 요청으로 만든 규칙; 규칙을 지워도 번호는 남김(외래 키 없음) |
+| created_at | `TIMESTAMP(6) NOT NULL` | UTC 생성 시각 |
+
+```sql
+PRIMARY KEY (cashflow_create_request_id);
+UNIQUE KEY uk_cashflow_create_request (user_id, request_key);  -- 같은 키 재시도·동시 요청이 두 항목을 만들지 않게
+CONSTRAINT fk_cashflow_create_request_user FOREIGN KEY (user_id) REFERENCES app_user (user_id);
+```
+
+키를 보낸 등록만 한 줄 남깁니다. 항목을 지워도 남아 늦게 온 재시도가 지운 항목을 다시 만들지 않게 하고, 지운 항목의 내용은 남기지 않으려고 키·지문·항목 번호만 둡니다.
+
 ### cashflow_item — 반복 규칙·일회성 예정 항목의 기본값
 
 | 컬럼 | SQL 정의 | 설명 |
