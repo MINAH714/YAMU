@@ -237,6 +237,7 @@ fun MyRoute(
     onAccountManage: () -> Unit,
     onNotificationSettings: () -> Unit,
     onSecurity: () -> Unit,
+    onBilling: () -> Unit,
     onNotReady: (String) -> Unit,
     onLoggedOut: () -> Unit,
     onDebugMenu: (() -> Unit)?,
@@ -281,6 +282,7 @@ fun MyRoute(
             YamuCard(contentPadding = MenuPadding) {
                 ListRow(title = "카드 관리", valuePlain = s.cardCount?.let { "${it}장" }, chevron = true, onClick = onCardManage)
                 ListRow(title = "계좌 관리", valuePlain = s.accountCount?.let { "${it}개" }, chevron = true, onClick = onAccountManage)
+                ListRow(title = "청구 · 환급", chevron = true, onClick = onBilling)   // M-09
                 ListRow(
                     title = "알림 설정",
                     valuePlain = s.notificationsOn?.let { if (it) "켜짐" else "꺼짐" },
