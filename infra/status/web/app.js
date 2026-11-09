@@ -1,9 +1,11 @@
 'use strict';
 const $=id=>document.getElementById(id);
 const API='/monitoring/status-api/';
+const deploymentLogSources = new Set(['jenkins-cd', 'jenkins-verification', 'deployments']);
 const state={authenticated:false,window:'15m',source:'api',search:'',errors:false,build:'',overview:null,request:0,logRequest:0};
 const format=new Intl.NumberFormat('ko-KR',{maximumFractionDigits:1});
 const clock=value=>new Date(value*1000).toLocaleTimeString('ko-KR',{timeZone:'Asia/Seoul',hour12:false,hour:'2-digit',minute:'2-digit',second:'2-digit'});
+const logDate = new Intl.DateTimeFormat('sv-SE', {timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit'});
 const set=(id,value)=>$(id).textContent=value;
 const finite=value=>typeof value==='number'&&Number.isFinite(value);
 const fmt=value=>finite(value)?format.format(value):'—';
@@ -106,7 +108,14 @@ function renderLogs(data){
   if(!data.rows.length){box.append(node('p','log-empty','선택한 기간과 조건에 맞는 로그가 없어요.'));return;}
   for(const row of data.rows){
     const error=/error|exception|failure|failed|-> 5\d\d/i.test(row.message);const warn=/warn|-> 4\d\d/i.test(row.message);
-    const line=node('div','log-row'+(error?' error':warn?' warning':''));line.append(node('time','log-time',clock(Number(BigInt(row.time_ns)/1000000n)/1000)));
+    const line=node('div','log-row'+(error?' error':warn?' warning':''));
+    const milliseconds = Number(BigInt(row.time_ns) / 1000000n);
+    const timestamp = node('time', 'log-time');
+    if (deploymentLogSources.has(row.source)) {
+      timestamp.append(logDate.format(milliseconds), document.createElement('br'));
+    }
+    timestamp.append(clock(milliseconds / 1000));
+    line.append(timestamp);
     const message=node('div');const text=node('pre','log-message',row.message.length>800?row.message.slice(0,800)+'…':row.message);message.append(text);
     if(row.message.length>800){const button=node('button','log-expand','전체 보기');button.addEventListener('click',()=>{const expanded=button.textContent==='접기';text.textContent=expanded?row.message.slice(0,800)+'…':row.message;button.textContent=expanded?'전체 보기':'접기';});message.append(button);}
     line.append(message);box.append(line);
@@ -115,10 +124,18 @@ function renderLogs(data){
 async function refreshLogs(){
   if(!state.authenticated)return;const request=++state.logRequest;
   const filter=$('build-filter');filter.hidden=!state.build;filter.querySelector('span').textContent=state.build?`빌드 #${state.build}`:'';
-  try{const data=await api('logs',{window:state.window,source:state.source,search:state.search,errors:state.errors?'1':'0',build:state.build});if(request===state.logRequest)renderLogs(data);}
+  const deploymentWindow = $('deployment-log-window');
+  deploymentWindow.hidden = !deploymentLogSources.has(state.source);
+  const window = deploymentWindow.hidden ? state.window : deploymentWindow.value;
+  try{const data=await api('logs',{window,source:state.source,search:state.search,errors:state.errors?'1':'0',build:state.build});if(request===state.logRequest)renderLogs(data);}
   catch(error){if(request!==state.logRequest||error.message==='unauthorized')return;$('log-output').replaceChildren(node('p','log-empty','로그 서버에 연결하지 못했어요. 기간을 줄이거나 잠시 후 다시 확인해 주세요.'));set('log-count','로그 연결 확인 필요');}
 }
-$('window').addEventListener('change',()=>{state.window=$('window').value;refreshOverview();refreshLogs();});
+$('window').addEventListener('change', () => {
+  state.window = $('window').value;
+  refreshOverview();
+  if (!deploymentLogSources.has(state.source)) refreshLogs();
+});
+$('deployment-log-window').addEventListener('change', refreshLogs);
 $('refresh').addEventListener('click',()=>{refreshOverview();refreshLogs();});
 $('log-source').addEventListener('change',()=>{state.source=$('log-source').value;state.build='';refreshLogs();});
 $('log-search-form').addEventListener('submit',event=>{event.preventDefault();state.search=$('log-search').value.trim();refreshLogs();});

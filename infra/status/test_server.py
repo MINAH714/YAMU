@@ -10,6 +10,17 @@ from server import AuthRequired, BadInput, Grafana, Handler, ThreadingHTTPServer
 
 
 class Queries(unittest.TestCase):
+    def test_extended_windows_are_limited_to_deployment_logs(self):
+        for window in ('24h', '7d'):
+            for source in ('deployments', 'jenkins-cd', 'jenkins-verification'):
+                with self.subTest(window=window, source=source):
+                    self.assertEqual(parse_options(f'window={window}&source={source}', logs=True)['window'], window)
+            with self.subTest(window=window, endpoint='overview'), self.assertRaises(BadInput):
+                parse_options(f'window={window}')
+            for source in ('api', 'backend', 'ai', 'jenkins-ci'):
+                with self.subTest(window=window, source=source), self.assertRaises(BadInput):
+                    parse_options(f'window={window}&source={source}', logs=True)
+
     def test_unknown_upstream_or_unbounded_window_is_rejected(self):
         for value in ('url=https://untrusted.invalid','window=100y','window=15m&window=6h','source=unknown','source=api&build=5'):
             with self.subTest(query=value),self.assertRaises(BadInput):parse_options(value,logs=True)

@@ -20,6 +20,9 @@ WEB=Path(__file__).parent/'web'
 PREFIX='/monitoring/status-api/'
 SOURCES={'api','backend','ai','jenkins-ci','jenkins-cd','jenkins-verification','deployments'}
 WINDOWS={'15m':900,'1h':3600,'6h':21600}
+DEPLOYMENT_LOG_SOURCES = {'jenkins-cd', 'jenkins-verification', 'deployments'}
+LONG_LOG_WINDOWS = {'24h': 86400, '7d': 7 * 86400}
+LOG_WINDOWS = {**WINDOWS, **LONG_LOG_WINDOWS}
 COOKIE_NAMES={'grafana_session','grafana_session_expiry'}
 CAPACITY=threading.BoundedSemaphore(16)
 RAW_QUERY='{__name__=~"'+'|'.join(('yamu_service_up','yamu_service_info','yamu_host_cpu_busy_ratio',
@@ -50,7 +53,10 @@ def parse_options(query,logs=False):
     if set(values)-allowed or any(len(v)!=1 for v in values.values()):raise BadInput()
     result={key:value[0] for key,value in values.items()}
     result.setdefault('window','15m')
-    if result['window'] not in WINDOWS:raise BadInput()
+    if result['window'] not in WINDOWS:
+        if (not logs or result.get('source') not in DEPLOYMENT_LOG_SOURCES
+                or result['window'] not in LONG_LOG_WINDOWS):
+            raise BadInput()
     if logs:
         result.setdefault('source','api');result.setdefault('search','');result.setdefault('errors','0')
         if result['source'] not in SOURCES or len(result['search'])>100 or any(ord(c)<32 for c in result['search']):raise BadInput()
@@ -169,7 +175,7 @@ def overview(client,window):
 
 
 def logs(client,options):
-    now=time.time();params={'query':log_query(options),'start':str(int((now-WINDOWS[options['window']])*1e9)),
+    now=time.time();params={'query':log_query(options),'start':str(int((now-LOG_WINDOWS[options['window']])*1e9)),
                           'end':str(int(now*1e9)),'limit':'200','direction':'backward'}
     data=client.get('api/datasources/proxy/uid/yamu-loki/loki/api/v1/query_range?'+urllib.parse.urlencode(params))
     if data.get('status')!='success':raise Unavailable()
