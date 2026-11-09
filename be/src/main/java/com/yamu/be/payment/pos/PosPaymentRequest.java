@@ -3,7 +3,7 @@ package com.yamu.be.payment.pos;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonSetter;
 import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
-import com.yamu.be.cashflow.IntegralNumberDeserializers;
+import com.yamu.be.global.json.IntegralNumberDeserializers;
 import com.yamu.be.global.exception.ErrorCode;
 import com.yamu.be.payment.PaymentPlan;
 import com.yamu.be.payment.PaymentTerms;

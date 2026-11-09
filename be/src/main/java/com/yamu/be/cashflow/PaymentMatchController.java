@@ -2,6 +2,7 @@ package com.yamu.be.cashflow;
 
 import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
 import com.yamu.be.global.common.ApiResponse;
+import com.yamu.be.global.json.IntegralNumberDeserializers;
 import com.yamu.be.global.security.AuthUser;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotNull;

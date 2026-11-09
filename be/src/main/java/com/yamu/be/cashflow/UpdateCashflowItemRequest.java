@@ -1,6 +1,7 @@
 package com.yamu.be.cashflow;
 
 import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
+import com.yamu.be.global.json.IntegralNumberDeserializers;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Positive;
