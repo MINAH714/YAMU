@@ -115,6 +115,9 @@ public enum ErrorCode {
     /* 가계부 - 결제 매칭 확정 (API 명세 「매칭 확정」). 회차나 결제가 이미 다른 상대와 연결됨 */
     CASHFLOW_MATCH_CONFLICT(HttpStatus.CONFLICT, "이미 다른 결제나 예정 지출과 연결되어 있습니다."),
 
+    /* 실적 - 판단 기록 (API 명세 「실적 판단 결정 기록」). 지난 달이거나 지난 달 분석을 근거로 기록하려 함 */
+    MONTH_CLOSED(HttpStatus.CONFLICT, "이미 지난 달이라 판단을 기록할 수 없습니다. 이번 달 분석을 다시 확인해 주세요."),
+
     /* 잔고예보 - 조회 (API 명세 「잔고예보 조회」). accountIds 누락 또는 빈 선택 */
     ACCOUNT_SELECTION_REQUIRED(HttpStatus.BAD_REQUEST, "잔고예보에 사용할 계좌를 하나 이상 선택해 주세요."),
 
