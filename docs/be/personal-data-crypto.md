@@ -93,5 +93,6 @@ openssl rand -base64 32   # 키 하나 만들기. 네 값 모두 서로 다른 �
 
 - **바로 지움:** 이름, 휴대폰 암호문, PIN, 기기 키·이름, 계좌번호(무작위로 덮음), 본인 인증 기록의 IP·User-Agent, 잔고예보 설정, Redis의 토큰·캐시
 - **30일 보관 후 지움**(정기 작업 `withdrawn-key-purge`, 매일 03:30 KST): 재가입 열쇠인 phone_hash·birth_date·withdrawn_name_hash·ssafy_member_id·ssafy_user_key, 카드 행의 카드번호(무작위로 덮음)·카드사 계좌 해시. 30일 안에 같은 사람이 다시 가입하면 이어받고(`RejoinService`), 지난 뒤에는 새 회원이 된다. SSAFY 계정은 지우는 API가 없어 SSAFY 쪽에 남는다.
-- **남김:** 결제·청구·환급 이력(옛 user_id에 연결). 30일 뒤에는 행에 사람과 이어지는 값이 없다. 운영 로그(Loki)는 7일 뒤 자동 삭제.
+- **남김:** 결제·청구·환급 이력(옛 user_id에 연결). 운영 로그(Loki)는 7일 뒤 자동 삭제.
+  - **사용자가 직접 쓴 글은 탈퇴 때도 30일 뒤에도 지우지 않는다(한계):** 결제 메모(`payment_transaction.memo`), 예정 수입·지출의 제목·메모(`cashflow_item`), 회차 메모, 구매 계획 메모·상품명. 이 칸들은 "민감정보 입력 주의" 칸이라 사람을 알아볼 수 있는 내용이 들어 있을 수 있다. 지우려면 각 기능(BE 2·BE 4) 쪽과 정해야 한다.
 - 보관 기간은 `yamu.user.withdrawn-key-purge.retention`(기본 30d). 약관에 "탈퇴 후 재가입을 위해 30일 보관"을 적어야 한다(약관 문안 B-04).

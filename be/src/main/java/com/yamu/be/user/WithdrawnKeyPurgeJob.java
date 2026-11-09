@@ -36,7 +36,8 @@ import org.springframework.transaction.support.TransactionTemplate;
  * <ul>
  *   <li>사용자 행을 잠근 뒤 다시 확인하고 지운다. 같은 사람의 재가입({@link RejoinService})도 옛 행을 잠그므로 둘은 줄을 선다.
  *       재가입이 먼저면 열쇠가 이미 옮겨져 이 작업은 카드사 계좌 해시만 지우고, 이 작업이 먼저면 재가입은 옛 행을 찾지 못해 새 회원이 된다</li>
- *   <li>행은 지우지 않는다. 거래·청구·감사 로그가 가리키기 때문이다(FK RESTRICT). 지운 뒤에는 행에 사람과 이어지는 값이 남지 않는다</li>
+ *   <li>행은 지우지 않는다. 거래·청구·감사 로그가 가리키기 때문이다(FK RESTRICT). 사용자가 직접 쓴 메모·제목(결제 메모, 예정 수입·지출,
+ *       구매 계획)은 이 작업도 지우지 않는다(한계, {@code docs/be/personal-data-crypto.md})</li>
  *   <li>카드번호는 NOT NULL·UNIQUE(user_id, card_no_hash)라 비우지 않고 무작위 값으로 덮는다(재가입과 같은 방식). 끝 4자리는 표시용이라 둔다</li>
  *   <li>이미 지운 행은 대상 조건에서 빠지므로 여러 번 돌려도 같다(멱등)</li>
  * </ul>
