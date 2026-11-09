@@ -3,7 +3,7 @@
 --   auto_lock_seconds: 앱을 떠난 뒤 다시 잠그기까지(0 즉시 · 60 기본 · 300)
 --   barcode_auth_method: 결제 코드를 열 때 인증 방식(BIOMETRIC_OR_PIN 기본 · PIN_ONLY)
 -- 명세의 setupGraceSeconds(300)·barcodeAuthGraceSeconds(60)는 앱이 바꾸지 않아 저장하지 않는다(임시).
--- 다른 마이그레이션에 기대지 않는 칸 추가라 늦게 머지돼도 된다(docs/be/jpa-flyway.md).
+-- V20261106_3이 만든 payment_auto_select 뒤에 칸을 붙이므로 그 파일보다 뒤에 적용돼야 한다. 번호가 develop에서 가장 커서 그렇게 된다.
 ALTER TABLE app_user
     ADD COLUMN auto_lock_seconds INT NOT NULL DEFAULT 60
         COMMENT '앱을 떠난 뒤 다시 잠그기까지(초); 0·60·300' AFTER payment_auto_select,

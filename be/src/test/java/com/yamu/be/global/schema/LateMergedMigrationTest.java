@@ -36,6 +36,11 @@ import org.springframework.test.context.TestPropertySource;
 class LateMergedMigrationTest extends MySqlTestSupport {
 
     private static final String LATE_FILE_PREFIX = "V20261106_3__";
+    /**
+     * 11/8 운영 DB의 마지막 번호. 최신 번호까지 적용하면 나중 파일(예: 06_3의 칸 뒤에 붙는 {@code V20261109_1})이
+     * 06_3 없이 먼저 돌아 실패하므로, 운영에서 있었던 상황만 재현하도록 이 번호까지로 고정한다.
+     */
+    private static final MigrationVersion PROD_VERSION = MigrationVersion.fromVersion("20261108.1");
 
     @Autowired JdbcTemplate jdbc;
     @Autowired Flyway flyway;
@@ -48,16 +53,16 @@ class LateMergedMigrationTest extends MySqlTestSupport {
         copyMigrationsExceptLateFile();
         Flyway.configure().configuration(flyway.getConfiguration())
                 .locations("filesystem:" + withoutLateFile, "classpath:db/testmigration")
-                .target(MigrationVersion.LATEST).load().migrate();
+                .target(PROD_VERSION).load().migrate();
         assertThat(appliedVersions()).contains("20261107.1", "20261108.1").doesNotContain("20261106.3");
 
         // 수정 전 설정(Flyway 기본값)으로 최신 코드를 띄우면 멈춘다.
         Flyway strict = Flyway.configure().configuration(flyway.getConfiguration())
-                .target(MigrationVersion.LATEST).outOfOrder(false).load();
+                .target(PROD_VERSION).outOfOrder(false).load();
         assertThatThrownBy(strict::migrate).isInstanceOf(FlywayException.class).hasMessageContaining("20261106.3");
 
         // 앱 설정이면 늦게 들어온 파일만 적용하고, 다시 띄워도 더 할 일이 없다.
-        Flyway app = Flyway.configure().configuration(flyway.getConfiguration()).target(MigrationVersion.LATEST).load();
+        Flyway app = Flyway.configure().configuration(flyway.getConfiguration()).target(PROD_VERSION).load();
         assertThat(app.getConfiguration().isOutOfOrder()).isTrue();
         assertThat(app.migrate().migrationsExecuted).isEqualTo(1);
         assertThat(appliedVersions()).contains("20261106.3");
