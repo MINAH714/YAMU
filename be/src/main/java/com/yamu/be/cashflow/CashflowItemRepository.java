@@ -43,6 +43,18 @@ public interface CashflowItemRepository extends JpaRepository<CashflowItem, Long
     /** 바로 뒤 규칙. 시리즈는 한 줄로 이어지므로 정상이면 0건이나 1건이다. */
     List<CashflowItem> findByPreviousCashflowItemIdAndUserId(Long previousCashflowItemId, Long userId);
 
+    /** 결제 이력 탐지가 만든 시리즈의 첫 규칙(탐지 키가 있는 행). 상태와 상관없이 돌려준다(S15P31E103-349). */
+    List<CashflowItem> findByUserIdAndDetectedMerchantIdIsNotNull(Long userId);
+
+    /** 이어지는 규칙이 없는(시리즈 마지막) 예정 항목 수. 탐지 후보 수(candidateCount)에 쓴다. */
+    @Query("""
+            select count(item) from CashflowItem item
+            where item.userId = :userId and item.itemKind = :kind and item.status = :status
+              and not exists (select next.id from CashflowItem next where next.previousCashflowItemId = item.id)
+            """)
+    long countSeries(@Param("userId") Long userId, @Param("kind") CashflowItem.ItemKind kind,
+            @Param("status") CashflowItem.Status status);
+
     interface Link {
         Long getId();
 

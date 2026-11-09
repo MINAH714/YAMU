@@ -7,6 +7,7 @@ import com.yamu.be.card.CardQueryService;
 import com.yamu.be.card.UserCardRef;
 import com.yamu.be.cashflow.CashflowItem;
 import com.yamu.be.cashflow.CashflowService;
+import com.yamu.be.cashflow.RecurringExpenseDetector;
 import com.yamu.be.global.common.ApiResponse.FieldErrorResponse;
 import com.yamu.be.global.exception.BusinessException;
 import com.yamu.be.global.exception.ErrorCode;
@@ -69,13 +70,14 @@ public class ForecastService {
     private final CardNameReader cardNames;
     private final CardBillRepository cardBills;
     private final LivingCostPredictionLog predictionLog;
+    private final RecurringExpenseDetector recurringExpenses;
     private final Clock clock;
 
     ForecastService(CashflowService cashflows, AccountBalanceService balances, CardBillReader bills,
             CardQueryService cards, CreditWithdrawalSchedule creditSchedule, LivingCostReader livingCosts,
             AccountQueryService accounts, ForecastSettingsStore settings, ForecastSettingsService settingsService,
             LivingCostProjector projector, CreditSpendingReader creditSpending, CardNameReader cardNames, CardBillRepository cardBills,
-            LivingCostPredictionLog predictionLog, Clock clock) {
+            LivingCostPredictionLog predictionLog, RecurringExpenseDetector recurringExpenses, Clock clock) {
         this.cashflows = cashflows;
         this.balances = balances;
         this.bills = bills;
@@ -90,6 +92,7 @@ public class ForecastService {
         this.cardNames = cardNames;
         this.cardBills = cardBills;
         this.predictionLog = predictionLog;
+        this.recurringExpenses = recurringExpenses;
         this.clock = clock;
     }
 
@@ -167,8 +170,13 @@ public class ForecastService {
         // 잔액·생활비는 금융망을 부를 수 있어 DB를 읽기 전에 따로 읽는다. 남의·연결 해제 계좌는 BE 1이 404로 거절한다.
         Map<Long, AccountBalance> balanceById = readBalances(authenticatedUserId, selected, refresh);
         LivingCostRead living = estimateLivingCost(authenticatedUserId, selected, today, horizon);
-        List<CashflowService.Entry> entries = cashflows.list(authenticatedUserId, horizon.from(), horizon.to(),
-                null, CashflowItem.Status.CONFIRMED, true);
+        // 결제 이력의 반복 지출 후보를 맞춘 뒤, 확인한 항목과 확인 전 후보를 함께 읽는다. 후보는 예상 선부터 반영한다
+        // (명세 「가계부 항목 목록」, S15P31E103-349).
+        recurringExpenses.refresh(authenticatedUserId);
+        List<CashflowService.Entry> entries = new ArrayList<>(cashflows.list(authenticatedUserId, horizon.from(),
+                horizon.to(), null, CashflowItem.Status.CONFIRMED, true));
+        entries.addAll(cashflows.list(authenticatedUserId, horizon.from(), horizon.to(), null,
+                CashflowItem.Status.CANDIDATE, true));
         Set<Long> selectedSet = Set.copyOf(selected);
         CashflowEvents.Converted converted = CashflowEvents.convert(authenticatedUserId, entries, selectedSet, cards,
                 creditSchedule, horizon.from(), horizon.to());

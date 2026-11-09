@@ -15,6 +15,7 @@ import static org.mockito.Mockito.when;
 import com.yamu.be.account.AccountQueryService;
 import com.yamu.be.cashflow.CashflowItem;
 import com.yamu.be.cashflow.CashflowService;
+import com.yamu.be.cashflow.RecurringExpenseDetector;
 import com.yamu.be.account.AccountBalance;
 import com.yamu.be.account.AccountBalanceService;
 import com.yamu.be.card.CardQueryService;
@@ -76,6 +77,8 @@ class ForecastServiceTest {
     @Mock ForecastSettingsService settingsService;
     // 따로 정하지 않으면 미납 청구서는 없다(Mockito 기본값 false).
     @Mock CardBillRepository cardBillRepository;
+    // 반복 지출 후보 맞추기(-349)는 가계부 목록 목(cashflows)으로 대신한다. 따로 정하지 않으면 아무것도 하지 않는다.
+    @Mock RecurringExpenseDetector recurringExpenses;
 
     private final List<List<Long>> balanceRequests = new ArrayList<>();
     private final List<Boolean> refreshRequests = new ArrayList<>();
@@ -149,7 +152,7 @@ class ForecastServiceTest {
         };
         return new ForecastService(cashflows, balanceService, billReader, cardService, schedule, livingReader,
                 accounts, settingsStore, settingsService, new LivingCostProjector(projectorAi), creditReader, names,
-                cardBillRepository, predictionLog, clock);
+                cardBillRepository, predictionLog, recurringExpenses, clock);
     }
 
     @Test
@@ -468,7 +471,7 @@ class ForecastServiceTest {
         balances = List.of(new AccountBalance(A, 1_000_000L, FETCHED_AT));
         CashflowService.Item salary = new CashflowService.Item(9L, A, null, "월급", CashflowItem.Direction.INCOME,
                 1_000_000L, TODAY, CashflowItem.RecurrenceType.MONTHLY, null, TODAY.getDayOfMonth(), null,
-                CashflowItem.Status.CONFIRMED, null);
+                CashflowItem.Status.CONFIRMED, null, CashflowItem.Source.MANUAL);
         givenEntries(TODAY, TODAY.plusDays(7), new CashflowService.Entry(salary, TODAY, TODAY, false));
 
         BalanceForecast result = service.forecast(USER, List.of(A), Until.DAYS, 7, false, false);
@@ -497,7 +500,7 @@ class ForecastServiceTest {
                 CardType.CHECK, null, null)));
         CashflowService.Item subscription = new CashflowService.Item(9L, null, suspendedCard, "구독",
                 CashflowItem.Direction.EXPENSE, 20_000L, NOV_5, CashflowItem.RecurrenceType.NONE, null, null, null,
-                CashflowItem.Status.CONFIRMED, null);
+                CashflowItem.Status.CONFIRMED, null, CashflowItem.Source.MANUAL);
         givenEntries(TODAY, TODAY.plusDays(14), new CashflowService.Entry(subscription, NOV_5, NOV_5, false));
         bills = List.of(new OutstandingBill(88L, A, Status.CONFIRMED, NOV_5, 400_000L));
 
@@ -721,13 +724,32 @@ class ForecastServiceTest {
                 .containsExactly(tuple(1L, ExcludedItem.Reason.AMOUNT_UNKNOWN));
     }
 
+    @Test
+    void 확인_전_반복_지출_후보는_후보를_맞춘_뒤_예상_선부터_뺀다() {
+        // 명세 「가계부 항목 목록」: CANDIDATE는 확인 전이라 예상 선에만 반영한다(-349).
+        givenEntries(TODAY, TODAY.plusDays(14));
+        CashflowService.Item candidate = new CashflowService.Item(31L, A, null, "넷플릭스",
+                CashflowItem.Direction.EXPENSE, 17_000L, TODAY.plusDays(3), CashflowItem.RecurrenceType.NONE, null, null,
+                null, CashflowItem.Status.CANDIDATE, null, CashflowItem.Source.DETECTED);
+        when(cashflows.list(USER, TODAY, TODAY.plusDays(14), null, CashflowItem.Status.CANDIDATE, true))
+                .thenReturn(List.of(new CashflowService.Entry(candidate, TODAY.plusDays(3), TODAY.plusDays(3), false)));
+
+        BalanceForecast result = service.forecast(USER, List.of(A), Until.DAYS, 14, false, false);
+
+        verify(recurringExpenses).refresh(USER);
+        assertThat(day(result.series(), TODAY.plusDays(3)).confirmed()).isEqualTo(800_000L);
+        assertThat(day(result.series(), TODAY.plusDays(3)).expected()).isEqualTo(783_000L);
+        assertThat(day(result.series(), TODAY.plusDays(3)).events()).singleElement()
+                .satisfies(event -> assertThat(event.confidence()).isEqualTo(FlowEvent.Confidence.EXPECTED));
+    }
+
     private void givenEntries(LocalDate from, LocalDate to, CashflowService.Entry... entries) {
         when(cashflows.list(USER, from, to, null, CashflowItem.Status.CONFIRMED, true)).thenReturn(List.of(entries));
     }
 
     private static CashflowService.Entry entry(Long id, Long accountId, Long amount, LocalDate date, boolean paid) {
         CashflowService.Item item = new CashflowService.Item(id, accountId, null, "월세", CashflowItem.Direction.EXPENSE,
-                amount, date, CashflowItem.RecurrenceType.NONE, null, null, null, CashflowItem.Status.CONFIRMED, null);
+                amount, date, CashflowItem.RecurrenceType.NONE, null, null, null, CashflowItem.Status.CONFIRMED, null, CashflowItem.Source.MANUAL);
         return new CashflowService.Entry(item, date, date, paid);
     }
 
