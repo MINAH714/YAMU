@@ -1,5 +1,14 @@
 package com.yamu.app.feature.report
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.rememberCoroutineScope
+import com.yamu.app.core.ui.LocalSnackbar
+import com.yamu.app.feature.payment.data.PaymentEdits
+import com.yamu.app.feature.report.data.CsvDocuments
+import com.yamu.app.feature.report.data.defaultCsvName
+import com.yamu.app.feature.report.data.exportErrorMessage
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.ui.text.style.TextOverflow
@@ -46,6 +55,7 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -64,6 +74,7 @@ import com.yamu.app.core.designsystem.component.TabScreen
 import com.yamu.app.core.designsystem.component.YamuCard
 import com.yamu.app.core.designsystem.theme.YamuSpacing
 import com.yamu.app.core.designsystem.theme.YamuTheme
+import com.yamu.app.core.format.KST
 import com.yamu.app.core.format.toMonthDay
 import com.yamu.app.core.format.toWon
 import com.yamu.app.core.network.ApiResult
@@ -85,6 +96,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import java.time.YearMonth
 import javax.inject.Inject
 
 // ───────────────────────── S-01 소비분석(탭) ─────────────────────────
@@ -345,32 +357,98 @@ data class PaymentsState(
     val loadingMore: Boolean = false,
     val moreError: String? = null,
     val error: String? = null,
+    val exporting: Boolean = false,
+    /** 저장 창을 띄울 파일 이름 — 띄우면 비운다 */
+    val saveAs: String? = null,
+    /** 스낵바 한 번 */
+    val message: String? = null,
 )
 
-/** 쪽마다 20건. 돌아올 때마다 첫 쪽을 다시 받아 맨 위에 합친다(이미 펼친 쪽은 그대로) */
+/**
+ * 쪽마다 20건. 돌아올 때마다 첫 쪽을 다시 받아 맨 위에 합친다(이미 펼친 쪽은 그대로).
+ * 그사이 결제를 취소했거나 메모를 바꿨으면([PaymentEdits.version]) 펼친 쪽을 버리고 첫 쪽부터 다시 — 뒤쪽 줄이 옛 상태로 남지 않게.
+ */
 @HiltViewModel
-class PaymentsViewModel @Inject constructor(private val repo: ReportRepository) : ViewModel() {
+class PaymentsViewModel @Inject constructor(
+    private val savedStateHandle: SavedStateHandle,
+    private val repo: ReportRepository,
+    private val edits: PaymentEdits,
+    private val documents: CsvDocuments,
+) : ViewModel() {
     private val _state = MutableStateFlow(PaymentsState())
     val state: StateFlow<PaymentsState> = _state.asStateFlow()
+    private var seenVersion = edits.version.value
 
     fun refresh() {
         viewModelScope.launch {
+            val version = edits.version.value
+            val reset = version != seenVersion
             _state.update { it.copy(loading = it.items.isEmpty(), error = null) }
             when (val r = repo.payments(page = 1)) {
-                is ApiResult.Success -> _state.update {
-                    it.copy(
-                        loading = false,
-                        count = r.data.count,
-                        amount = r.data.amount,
-                        items = mergePayments(r.data.items, it.items),
-                        page = maxOf(it.page, 1),
-                        hasNext = if (it.page > 1) it.hasNext else r.data.hasNext,
-                    )
+                is ApiResult.Success -> {
+                    seenVersion = version
+                    _state.update {
+                        if (reset) {
+                            it.copy(loading = false, count = r.data.count, amount = r.data.amount, items = r.data.items, page = 1, hasNext = r.data.hasNext, moreError = null)
+                        } else {
+                            it.copy(
+                                loading = false,
+                                count = r.data.count,
+                                amount = r.data.amount,
+                                items = mergePayments(r.data.items, it.items),
+                                page = maxOf(it.page, 1),
+                                hasNext = if (it.page > 1) it.hasNext else r.data.hasNext,
+                            )
+                        }
+                    }
                 }
                 is ApiResult.Failure -> _state.update { it.copy(loading = false, error = r.error.userMessage()) }
             }
         }
     }
+
+    /**
+     * '이 조건으로 CSV 저장' — 저장 창을 먼저 띄우고 고른 뒤에 서버에서 받는다.
+     * 창을 닫으면 받지 않아 분당 3번 한도를 쓰지 않고, 창이 열린 사이 앱이 정리돼도 돌아와서 이어 받는다.
+     * 이름은 이번 달 파일 이름(서버가 붙이는 이름과 같다). 그 달을 [SavedStateHandle]에 두었다가 받을 때 넘긴다 —
+     * 말일 자정 무렵 창을 띄우고 다음 달에 골라도 이름과 내용의 달이 같게(앱이 정리됐다 돌아와도)
+     */
+    fun requestCsv() {
+        if (_state.value.exporting) return
+        val month = YearMonth.now(KST)
+        savedStateHandle[CSV_MONTH] = month.toString()
+        _state.update { it.copy(saveAs = defaultCsvName(month)) }
+    }
+
+    fun saveAsShown() = _state.update { it.copy(saveAs = null) }
+
+    /**
+     * 저장 창에서 고른 곳([uri], 닫았으면 null). 받기 · 쓰기에 실패하면 창이 새로 만든 빈 파일만 지운다 —
+     * 이미 있는 파일을 골라 덮어쓰기를 눌렀으면 그 파일은 남긴다([CsvDocuments.discardIfEmpty])
+     */
+    fun saveCsvTo(uri: String?) {
+        if (_state.value.exporting) return
+        val month = savedStateHandle.remove<String>(CSV_MONTH)?.let { runCatching { YearMonth.parse(it) }.getOrNull() } ?: YearMonth.now(KST)
+        if (uri == null) return
+        _state.update { it.copy(exporting = true) }
+        viewModelScope.launch {
+            val message = when (val r = repo.exportCsv(month)) {
+                is ApiResult.Success -> if (documents.write(uri, r.data.bytes)) {
+                    "CSV 파일을 저장했어요"
+                } else {
+                    documents.discardIfEmpty(uri)
+                    "파일을 저장하지 못했어요. 다시 저장해 주세요"
+                }
+                is ApiResult.Failure -> {
+                    documents.discardIfEmpty(uri)
+                    exportErrorMessage(r.error)
+                }
+            }
+            _state.update { it.copy(exporting = false, message = message) }
+        }
+    }
+
+    fun messageShown() = _state.update { it.copy(message = null) }
 
     fun loadMore() {
         val s = _state.value
@@ -384,6 +462,11 @@ class PaymentsViewModel @Inject constructor(private val repo: ReportRepository) 
                 is ApiResult.Failure -> _state.update { it.copy(loadingMore = false, moreError = r.error.userMessage()) }
             }
         }
+    }
+
+    companion object {
+        /** 저장 창을 띄울 때 정한 달(YYYY-MM) — 고른 뒤 받을 때 쓰고 지운다 */
+        const val CSV_MONTH = "csvMonth"
     }
 }
 
@@ -401,7 +484,32 @@ fun PaymentsRoute(
         onPauseOrDispose { }
     }
     val c = YamuTheme.colors
-    FlowScreen(title = "결제 내역", onBack = onBack, cards = true) { inner ->
+    val snackbar = LocalSnackbar.current
+    val scope = rememberCoroutineScope()
+    LaunchedEffect(s.message) {
+        val message = s.message ?: return@LaunchedEffect
+        viewModel.messageShown()
+        scope.launch { snackbar.showSnackbar(message) }
+    }
+    // 저장 위치는 사용자가 고른다(SAF) — 저장소 권한이 필요 없다. 창을 닫으면 아무것도 받지 · 쓰지 않는다
+    val saveCsv = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/csv")) { uri ->
+        viewModel.saveCsvTo(uri?.toString())
+    }
+    LaunchedEffect(s.saveAs) {
+        val name = s.saveAs ?: return@LaunchedEffect
+        viewModel.saveAsShown()
+        saveCsv.launch(name)
+    }
+    FlowScreen(
+        title = "결제 내역",
+        onBack = onBack,
+        cards = true,
+        actions = {
+            if (s.items.isNotEmpty()) {
+                LinkButton(if (s.exporting) "저장하는 중…" else "CSV 저장", onClick = viewModel::requestCsv, modifier = Modifier.padding(end = 4.dp))
+            }
+        },
+    ) { inner ->
         when {
             s.items.isEmpty() && s.loading -> Column(Modifier.padding(inner).padding(top = YamuSpacing.x2)) {
                 YamuCard {
