@@ -32,6 +32,9 @@ spring:
   flyway:
     # 마이그레이션 SQL 위치(기본값). 파일 규칙은 docs/be/jpa-flyway.md
     locations: classpath:db/migration
+    # 번호가 더 작은 파일이 늦게 머지돼도 적용한다(S15P31E103-345). 끄면 마지막 적용 번호보다 작은 새 파일을 만나
+    # 서버가 뜨지 않는다. 여러 명이 동시에 머지해서 번호 순서와 머지 순서가 어긋날 수 있기 때문이다.
+    out-of-order: true
 server:
   port: ${SERVER_PORT:8080}
   # Nginx 뒤에서 X-Forwarded-For의 실제 접속 IP를 쓴다(인증 기록의 ip_address). Tomcat은 내부망(127.0.0.1 등)에서 온 헤더만 믿는다.

@@ -111,6 +111,7 @@ data class ForecastState(
     val accounts: List<ForecastAccountOption>? = null,  // 계좌 고르기 시트 — 열 때 부른다
     val accountsError: String? = null,
     val entries: List<CashflowEntry>? = null,     // F-02 가계부 회차(고칠 수 있는 줄) — 못 받으면 예보 줄만(읽기 전용)
+    val pastEntries: List<CashflowEntry> = emptyList(),   // F-02 지난 7일 카드 예정 지출 — 결제와 연결만
     val entriesLoading: Boolean = false,
     val entriesError: String? = null,
 ) {
@@ -149,6 +150,12 @@ class ForecastViewModel @Inject constructor(private val repo: ForecastRepository
             when (val r = repo.cashflowEntries(from, to)) {
                 is ApiResult.Success -> _state.update { it.copy(entries = r.data, entriesLoading = false, entriesError = null) }
                 is ApiResult.Failure -> _state.update { it.copy(entriesLoading = false, entriesError = r.error.userMessage()) }
+            }
+            // 지난 7일 카드 예정 지출 — 결제와 연결할 회차. 못 받아도 위 목록은 그대로라 조용히 비운다
+            val today = LocalDate.now(KST)
+            when (val r = repo.pastCardEntries(today.minusDays(PAST_MATCH_DAYS), today.minusDays(1))) {
+                is ApiResult.Success -> _state.update { it.copy(pastEntries = r.data) }
+                is ApiResult.Failure -> _state.update { it.copy(pastEntries = emptyList()) }
             }
         }
     }
@@ -234,6 +241,7 @@ fun ForecastRoute(
     onCashflowList: () -> Unit,
     onLink: () -> Unit,
     onAlertSettings: () -> Unit = {},
+    onLivingCost: () -> Unit = {},
     viewModel: ForecastViewModel = hiltViewModel(),
 ) {
     val s by viewModel.state.collectAsStateWithLifecycle()
@@ -273,6 +281,7 @@ fun ForecastRoute(
                     HeroCard(f, s.error)
                     if (f.riskWindows.isNotEmpty()) RiskCard(f)
                     LinesCard(f)
+                    LivingCostEntry(f, onLivingCost)   // F-01b 생활비 예측 입구
                     UpcomingCard(f, onCashflowList)
                     NoticeCard(f, s.selection)
                 }
@@ -760,6 +769,9 @@ fun CashflowListRoute(
                             }
                         }
                     }
+                    // 지난 7일 카드 예정 지출 — 결제와 연결만(계좌를 일부만 골랐으면 그 계좌 카드만)
+                    val scope = f?.scope
+                    PastCardEntriesCard(s.pastEntries.filter { scope?.includes(it) ?: true }, onOpen = { onEdit(it.itemId, it.occurrenceDate) })
                 }
             }
             Spacer(Modifier.height(YamuSpacing.x6))
