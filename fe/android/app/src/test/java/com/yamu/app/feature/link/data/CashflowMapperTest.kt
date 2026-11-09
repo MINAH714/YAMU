@@ -70,14 +70,17 @@ class CashflowMapperTest {
         assertEquals("DAYS", settings.horizon)
     }
 
-    @Test fun `설정 응답 — 월급만 읽는다`() {
+    @Test fun `설정 응답 — 월급 · 하루 목표만 읽는다`() {
         val settings = YamuJson.decodeFromString<ForecastSettingsDto>(
             """{"baseAccountId":5,"horizon":"NEXT_INCOME","defaultDays":14,"alertThreshold":100000,
                 "income":{"cashflowItemId":301,"title":"월급","amount":null,"dayOfMonth":25,"accountId":5},
-                "dailyLivingCostTarget":null,"includeCandidates":false,"conservativeLine":false,"updatedAt":null}""",
+                "dailyLivingCostTarget":7000,"includeCandidates":false,"conservativeLine":false,"updatedAt":null}""",
         )
         assertEquals(301L, settings.income?.cashflowItemId)
-        assertNull(YamuJson.decodeFromString<ForecastSettingsDto>("""{"income":null}""").income)
+        assertEquals(7_000L, settings.dailyLivingCostTarget)
+        val none = YamuJson.decodeFromString<ForecastSettingsDto>("""{"income":null,"dailyLivingCostTarget":null}""")
+        assertNull(none.income)
+        assertNull(none.dailyLivingCostTarget)
     }
 
     @Test fun `날짜가 반복이 아니면 발생일에서 일자`() {
