@@ -29,6 +29,7 @@ public final class CardBenefitCalculator {
         final CalculationOptions options;
         final java.util.Set<MissingInformation> missing = new java.util.LinkedHashSet<>();
         final java.util.Set<Long> excluded = new java.util.LinkedHashSet<>();
+        final Map<Long, BenefitConditionEvaluator.Evaluation> evaluations = new HashMap<>();
         SimulationContext(CalculationOptions options) { this.options = options; }
     }
 
@@ -91,7 +92,8 @@ public final class CardBenefitCalculator {
     /** 시뮬레이션의 명시적 진입점. 기존 2인자 호출의 결과/직렬화 계약은 그대로 둔다. */
     public Calculation calculate(Transaction transaction, BenefitPolicy policy, CalculationOptions options) {
         var context = new SimulationContext(java.util.Objects.requireNonNull(options));
-        var result = new CardBenefitCalculator(context).calculate(transaction, policy);
+        var calculator = new CardBenefitCalculator(context);
+        var result = calculator.calculate(transaction, policy);
         var exclusions = context.excluded.stream().sorted().map(id -> new ExcludedBenefit(id, "BRAND_MISSING")).toList();
         var rules = new ArrayList<>(transaction.simulationRules());
         if (policy != null) {
@@ -120,7 +122,7 @@ public final class CardBenefitCalculator {
                         return java.util.stream.Stream.of(problem);
                     }
                     return policy.benefits().stream().filter(b -> b.id() == problem.benefitId())
-                            .flatMap(b -> blockingCauses(transaction, policy, b).stream());
+                            .flatMap(b -> calculator.blockingCauses(transaction, policy, b).stream());
                 }).distinct().toList(), result.unallocatedBenefitGroups(), context.missing.stream()
                         .sorted(Comparator.comparingLong(MissingInformation::benefitId).thenComparing(MissingInformation::field)).toList(),
                 exclusions, rules.stream().distinct().toList());
@@ -132,7 +134,10 @@ public final class CardBenefitCalculator {
 
     private Match conditionMatch(Transaction transaction, Benefit benefit, boolean allowExclusion, boolean recordEvidence) {
         if (simulation == null) return conditionEvaluator.evaluate(benefit.conditions(), transaction);
-        var evaluation = conditionEvaluator.explain(benefit.conditions(), transaction);
+        var evaluation = allowExclusion && simulation.options.excludeBrandDependentBenefits()
+                ? conditionEvaluator.explainWithoutBrandPaths(benefit.conditions(), transaction)
+                : conditionEvaluator.explain(benefit.conditions(), transaction);
+        if (recordEvidence) simulation.evaluations.put(benefit.id(), evaluation);
         if (recordEvidence) evaluation.missingInformation().forEach(m -> simulation.missing.add(new MissingInformation(benefit.id(), m.code(), m.field())));
         if (allowExclusion && simulation.options.excludeBrandDependentBenefits() && evaluation.brandOnlyUnknown()) {
             if (recordEvidence) simulation.excluded.add(benefit.id());
@@ -149,7 +154,8 @@ public final class CardBenefitCalculator {
     }
 
     private List<Problem> blockingCauses(Transaction transaction, BenefitPolicy policy, Benefit benefit) {
-        var evaluation = conditionEvaluator.explain(benefit.conditions(), transaction);
+        var evaluation = simulation == null ? conditionEvaluator.explain(benefit.conditions(), transaction)
+                : simulation.evaluations.getOrDefault(benefit.id(), conditionEvaluator.explain(benefit.conditions(), transaction));
         var problems = new ArrayList<Problem>();
         evaluation.missingInformation().forEach(m -> problems.add(new Problem(benefit.id(), m.code())));
         if (evaluation.policyUnknown()) problems.add(new Problem(benefit.id(), "CONDITION_UNKNOWN"));
