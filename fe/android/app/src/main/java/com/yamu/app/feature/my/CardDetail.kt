@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -44,6 +45,7 @@ import com.yamu.app.core.designsystem.component.SkeletonBlock
 import com.yamu.app.core.designsystem.component.StatusTag
 import com.yamu.app.core.designsystem.component.YamuBottomSheet
 import com.yamu.app.core.designsystem.component.YamuTextField
+import com.yamu.app.core.designsystem.icon.YamuIcons
 import com.yamu.app.core.designsystem.theme.YamuSpacing
 import com.yamu.app.core.designsystem.theme.YamuTheme
 import com.yamu.app.core.format.objectParticle
@@ -216,6 +218,7 @@ fun CardDetailRoute(
     onBack: () -> Unit,
     onUnregistered: (name: String) -> Unit,
     onOpenPinPad: (purpose: String) -> Unit,
+    onBills: (userCardId: Long) -> Unit,
     viewModel: CardDetailViewModel = hiltViewModel(),
 ) {
     val s by viewModel.state.collectAsStateWithLifecycle()
@@ -258,6 +261,7 @@ fun CardDetailRoute(
                     onRecommended = viewModel::setRecommended,
                     onDefault = viewModel::setDefault,
                     onUnregister = { sheet = CardDetailSheet.UNREGISTER },
+                    onBills = { onBills(card.userCardId) },
                 )
             }
             Spacer(Modifier.height(YamuSpacing.x6))
@@ -299,6 +303,7 @@ private fun CardDetailBody(
     onRecommended: (Boolean) -> Unit,
     onDefault: (Boolean) -> Unit,
     onUnregister: () -> Unit,
+    onBills: () -> Unit,
 ) {
     val c = YamuTheme.colors
     Spacer(Modifier.height(YamuSpacing.x2))
@@ -321,8 +326,18 @@ private fun CardDetailBody(
     } else {
         KeyValueRow("결제일", card.paymentDay?.let { "매월 ${it}일" } ?: "확인할 수 없어요", large = false)
         KeyValueRow("결제 계좌", settlementAccountLabel ?: "확인할 수 없어요", large = false)
-        card.nextWithdrawal?.let { n ->
-            KeyValueRow("다음 출금", "${n.date.monthValue}월 ${n.date.dayOfMonth}일 · ${n.amount.toWon()}원", large = false)
+        // 누르면 이 카드 청구서만(M-09). 출금 예정이 없어도 지난 청구서를 볼 수 있게 줄을 남긴다
+        val next = card.nextWithdrawal
+        if (next != null) {
+            KeyValueRow(
+                "다음 출금",
+                "${next.date.monthValue}월 ${next.date.dayOfMonth}일 · ${next.amount.toWon()}원",
+                large = false,
+                trailing = { Icon(YamuIcons.ChevronRight, contentDescription = null, tint = c.text3) },
+                onClick = onBills,
+            )
+        } else {
+            ListRow(title = "청구서", valuePlain = "보기", chevron = true, onClick = onBills)
         }
     }
 

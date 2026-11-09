@@ -96,3 +96,65 @@ MR !25가 develop의 `b40cb9d`로 Merge된 뒤 사용자의 승인을 받아 설
 - 인증 등록 스크립트와 파서 검증용 임시 파일을 삭제했다. 최종 점검에서도 운영 BE ID·이미지·시작 시각은 동일하고, 내부 health는 UP, 공개 API는 ok다.
 
 남은 릴리스 조건은 사람이 필요한 앱·CD 코드를 master에 반영한 뒤 master CI 성공, 실제 CD 승인 흐름, 검토된 후보의 BE 배포·health 확인을 수행하는 것이다. 실제 운영 배포와 RDS를 포함한 전체 경로는 미검증이므로 Task를 완료 처리하지 않는다. AI는 MR을 승인하거나 Merge하지 않았다.
+
+## 2026-11-08 후속 준비: master 승인형 CD (S15P31E103-337)
+
+아래 변경은 준비·격리 검증 단계다. 운영 배포와 Job 활성화는 하지 않았다.
+현재 master는 초기 커밋이므로, 사람이 릴리스 MR로 검토한 파일을 master에 반영해야 한다.
+
+### 실행 흐름과 승인
+
+`master 변경 → yamu/cd(최대 약 5분 주기 감지) → yamu/ci-master 전체 검사 → yamu 승인 대기(30분) → BE 교체 → health → 완료/자동 복구`.
+ci-master는 독립 polling을 하지 않는다. CD가 FULL_CI=true와 체크아웃한 40자리 RELEASE_REVISION을 전달한다.
+ci-master의 RELEASE_REVISION이 비어 있거나 체크아웃 커밋과 다르면 테스트 시작 전에 실패한다.
+성공 후보 산출물은 keepLog로 고정하며 승인 화면에 커밋과 빌드 번호를 표시한다.
+관리자는 배포·복구 검증이 끝나거나 승인 요청이 취소·만료된 뒤, 진행 중인 CD가 참조하지 않는 후보의 보관을 해제한다.
+대기 중 master가 바뀌면 호스트 검증에서 배포를 거절하므로 새 CD 후보를 검증·승인한다.
+취소·승인 시간 초과·CI 실패 시 배포 단계에 도달하지 않는다. Jenkins 관리자는 일반 input 권한의 예외이므로
+관리자 계정을 팀원에게 공유하지 않는다.
+
+### 운영 키와 AI 보존
+
+신규 호스트 도구는 active-image.json 전체를 깊은 복사하고 backend.image만 바꾼다.
+env_file 경로, AI_BASE_URL, 기타 backend 환경변수, ai 서비스의 기존 이미지·옵션과 내부 네트워크를 보존한다.
+키 원문은 JSON·로그·Git에 저장하지 않는다. 배포 전후 API·암호화·JWT 키와 AI 주소를 메모리 안에서만 비교하며
+차이가 있으면 실패 처리한다. 실패 복구도 같은 설정에 이전 backend 이미지를 적용한다.
+AI를 새로 빌드하거나 교체하지 않는다. AI 변경 배포는 별도 작업이다.
+현재 키 원본은 Secrets Manager이고, BE는 비공개 staged env 파일을 통해 받는다.
+Secrets Manager에서 키를 교체할 때 운영자가 staged env 파일을 갱신하고, 활성 override를 적용해 현재 BE를 먼저 재기동한다.
+헬스체크와 키를 사용하는 연동을 확인한 뒤 CD를 시작한다. CD는 배포 전 컨테이너의 값을 비교 기준으로 사용한다.
+
+active override가 없거나 잘못된 JSON이면 배포를 중단한다. 준비 도중 파일 내용이 달라져도 중단한다.
+정상 기동과 내부·외부 health를 모두 확인한 후에만 새 전체 override를 원자적으로 확정한다.
+DB 마이그레이션 파일 집합·내용이 현재 운영 JAR과 다르면 자동 CD를 거절한다.
+DB 변경을 함께 승인하는 버튼이 아니며, 별도 백업·마이그레이션 절차가 필요하다.
+
+### 사람 리뷰·머지 이후 최초 활성화 순서
+
+1. 이 MR을 develop에 반영하고, 필요한 릴리스 변경을 사람이 master에 머지한다.
+2. 검토·고정한 커밋의 infra/cd/deploy.py를 서버에서 확인한 후 기존 root 소유
+   /usr/local/sbin/yamu-cd에 `sudo install -o root -g root -m 0755`로 설치한다.
+   CI 작업 공간에서 root 도구를 자동 교체하지 않는다. 기존 도구 백업을 먼저 남긴다.
+   /etc/yamu-cd/config.json, 전체 active-image.json, 키 파일은 그대로 유지한다.
+3. 같은 검토 커밋의 infra/cd/activate-master.groovy를 Jenkins 관리자가 스크립트 콘솔에서 실행한다.
+   기본 실행은 사전 확인만 하며 Job 설정을 바꾸지 않는다. master에 필요한 Jenkinsfile이 없으면 거절한다.
+4. 사전 확인 후 콘솔에서 `binding.setVariable('APPLY_MASTER_CD', true)`를 먼저 설정하고
+   같은 스크립트를 실행하면 기존 ci-master와 cd만 활성화한다. cd에 SCM polling을 등록하며 빌드를 직접 예약하지 않는다.
+   다른 Job·자격정보·기존 SCM URL·브랜치는 바꾸지 않는다.
+5. 첫 후보의 전체 CI 성공과 승인 대기 표시를 확인한다. Deploy는 운영 배포를 수행하므로 사람이 배포 시점에만 누른다.
+
+스크립트는 master에 RELEASE_REVISION 연결 코드가 있는지, 두 Job의 경로·master 브랜치·진행/예약 여부를
+먼저 확인한다. 관리자 콘솔 실행은 샌드박스 외 관리 작업이다. 파이프라인의 input 승인과는 별개다.
+중간 설정 저장 실패 시 두 Job을 다시 비활성화하고 설정을 확인한 후 재실행한다.
+
+### 준비 단계 검증 기록
+
+- Python 배포 게이트 7개 통과: 후보 해시·커밋·경로, 마이그레이션 차이, 실패 복구,
+  전체 override 보존, 비정상 설정 거절, 보호 환경변수 비교.
+- 기존 변경 경로 CI 회귀 7개 통과.
+- EC2의 무작위 임시 Compose 프로젝트에서 정상 기동·강제 실패·복구 통과.
+  합성 키 3개와 AI 주소 유지, 내부 AI 연결 유지, 기존 AI·저장소 컨테이너 및 데이터 유지 확인.
+  테스트 자원은 종료·삭제했다. 실제 API 키·RDS는 사용하지 않았다.
+- Jenkins에 설치된 Groovy로 Jenkinsfile과 Jenkinsfile.cd 구문 검사 통과.
+  Declarative 실행·승인 권한·polling의 실제 Job 검증은 활성화 후 필요하다.
+- 운영 컨테이너 재시작, 운영 DB 변경, 운영 Job 활성화, 승인·머지는 실행하지 않았다.

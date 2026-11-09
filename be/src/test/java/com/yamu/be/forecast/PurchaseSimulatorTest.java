@@ -46,10 +46,11 @@ class PurchaseSimulatorTest {
         assertThat(result.comparison().withinPeriodImpact()).isEqualTo(-400_000L);
         assertThat(result.comparison().beyondPeriodImpact()).isEqualTo(-800_000L);
         assertThat(result.comparison().before())
-                .isEqualTo(new Snapshot(412_000L, LocalDate.of(2026, 11, 16), 412_000L, Level.SAFE));
+                .isEqualTo(new Snapshot(412_000L, LocalDate.of(2026, 11, 16), 412_000L, Level.SAFE, null));
         // 가상 구매는 확정 선에 넣으므로, 구매만으로 확정 선이 안전 잔액 아래면 DANGER다.
         assertThat(result.comparison().after())
-                .isEqualTo(new Snapshot(12_000L, LocalDate.of(2026, 11, 16), 12_000L, Level.DANGER));
+                .isEqualTo(new Snapshot(12_000L, LocalDate.of(2026, 11, 16), 12_000L, Level.DANGER,
+                        LocalDate.of(2026, 11, 16)));
         assertThat(seriesOn(result, from)).isEqualTo(new SeriesPoint(from, 1_250_000L, 1_250_000L));
         assertThat(seriesOn(result, LocalDate.of(2026, 11, 16)))
                 .isEqualTo(new SeriesPoint(LocalDate.of(2026, 11, 16), 412_000L, 12_000L));
@@ -199,12 +200,15 @@ class PurchaseSimulatorTest {
 
         // A는 보수적 선이 6일째 90,000원으로 안전 잔액 미만이라 WARNING. B에 생활비 자료가 없어도 숨기지 않는다(잔고예보와 같다).
         AccountComparison a = result.accountComparisons().get(0);
-        assertThat(a.before()).isEqualTo(new Snapshot(50_000L, today.plusDays(10), 50_000L, Level.WARNING));
+        assertThat(a.before()).isEqualTo(new Snapshot(50_000L, today.plusDays(10), 50_000L, Level.WARNING,
+                today.plusDays(6)));
         assertThat(a.after()).isEqualTo(a.before());
         assertThat(result.accountComparisons().get(1).after().endBalance()).isEqualTo(490_000L);
-        // 통합은 B 자료가 없어 예상 선이지만, 최종 수준은 계좌 위험을 반영한다.
-        assertThat(result.comparison().before()).isEqualTo(new Snapshot(650_000L, today, 650_000L, Level.WARNING));
-        assertThat(result.comparison().after()).isEqualTo(new Snapshot(640_000L, today, 640_000L, Level.WARNING));
+        // 통합은 B 자료가 없어 예상 선이지만, 최종 수준은 계좌 위험을 반영한다. 시작일도 같은 범위라 A 구간의 시작일이다(-347).
+        assertThat(result.comparison().before()).isEqualTo(new Snapshot(650_000L, today, 650_000L, Level.WARNING,
+                today.plusDays(6)));
+        assertThat(result.comparison().after()).isEqualTo(new Snapshot(640_000L, today, 640_000L, Level.WARNING,
+                today.plusDays(6)));
         assertThat(result.series()).allMatch(point -> point.before() == 650_000L && point.after() == 640_000L);
         // 한계: 통합은 예상 선, A는 보수적 선이라 계좌별 종료 잔액의 합(550,000원)이 통합(650,000원)과 다르다.
         assertThat(a.before().endBalance() + result.accountComparisons().get(1).before().endBalance())
@@ -226,6 +230,86 @@ class PurchaseSimulatorTest {
         assertThat(result.series().get(10)).isEqualTo(new SeriesPoint(today.plusDays(10), 770_000L, 720_000L));
         assertThat(result.accountComparisons().get(0).after().endBalance()).isEqualTo(440_000L);
         assertEndBalancesAddUp(result);
+    }
+
+    @Test
+    void 부족_시작일은_가장_낮은_날이_아니라_안전_잔액_아래로_처음_내려가는_날이다() {
+        // 점검 B-08: 오늘부터 모자라는데 가장 낮은 날(10일 뒤)을 부족 날짜로 보여 줬다.
+        LocalDate today = LocalDate.of(2026, 11, 1);
+        List<FlowEvent> before = List.of(outflow(A, today.plusDays(10), -30_000));
+
+        PurchaseSimulation result = PurchaseSimulator.simulate(input(Map.of(A, 200_000L), before, today,
+                today.plusDays(14), Map.of(), today, A, List.of(check(today, 150_000))));
+
+        Snapshot after = result.comparison().after();
+        assertThat(after.minBalanceDate()).isEqualTo(today.plusDays(10));
+        assertThat(after.riskStartDate()).isEqualTo(today);
+        assertThat(result.comparison().before().riskStartDate()).isNull();
+        assertThat(result.accountComparisons().get(0).after().riskStartDate()).isEqualTo(today);
+        // 잔액은 0원 위라 체크카드 결제는 된다.
+        assertThat(result.checkCardOverdrawn()).isFalse();
+    }
+
+    @Test
+    void 잔고예보_위험_구간_시작일과_같은_날이다() {
+        LocalDate today = LocalDate.of(2026, 11, 1);
+        List<FlowEvent> before = List.of(outflow(A, today.plusDays(3), -450_000), income(A, today.plusDays(5), 450_000),
+                outflow(A, today.plusDays(9), -480_000));
+        PurchaseSimulator.Input input = input(Map.of(A, 500_000L), before, today, today.plusDays(14), Map.of(), today,
+                A, List.of());
+
+        PurchaseSimulation result = PurchaseSimulator.simulate(input);
+        ForecastCalculator.Projection projection = ForecastCalculator.project(input.startBalances(), before, today,
+                today.plusDays(14), Map.of());
+
+        assertThat(result.comparison().before().riskStartDate())
+                .isEqualTo(RiskDetector.assess(projection.total(), THRESHOLD).windows().get(0).from())
+                .isEqualTo(today.plusDays(3));
+    }
+
+    @Test
+    void 체크카드_구매일_계좌_잔액이_0원_아래면_실제로는_결제되지_않는다고_표시한다() {
+        // 생활비 추정이 없는 계좌(Map.of())가 전제다. 생활비 추정이 있으면 가장 나쁜 선이 그날까지의 생활비를 빼서
+        // 잔액과 같은 금액에도 표시가 붙는다(forecast.md 「체크카드 잔액 초과」 한계, !198 리뷰).
+        LocalDate today = LocalDate.of(2026, 11, 1);
+
+        PurchaseSimulation overdrawn = PurchaseSimulator.simulate(input(Map.of(A, 100_000L), List.of(), today,
+                today.plusDays(7), Map.of(), today.plusDays(2), A, List.of(check(today.plusDays(2), 300_000))));
+        PurchaseSimulation exact = PurchaseSimulator.simulate(input(Map.of(A, 100_000L), List.of(), today,
+                today.plusDays(7), Map.of(), today, A, List.of(check(today, 100_000))));
+
+        assertThat(overdrawn.checkCardOverdrawn()).isTrue();
+        // 잔액과 같은 금액은 결제된다(0원 아래가 아님).
+        assertThat(exact.checkCardOverdrawn()).isFalse();
+    }
+
+    @Test
+    void 월급_뒤_체크카드_구매는_그날_잔액으로_본다() {
+        LocalDate today = LocalDate.of(2026, 11, 1);
+        List<FlowEvent> before = List.of(income(A, today.plusDays(3), 1_000_000));
+
+        PurchaseSimulation result = PurchaseSimulator.simulate(input(Map.of(A, 100_000L), before, today,
+                today.plusDays(7), Map.of(), today.plusDays(3), A, List.of(check(today.plusDays(3), 300_000))));
+
+        assertThat(result.checkCardOverdrawn()).isFalse();
+    }
+
+    @Test
+    void 신용카드나_기간_밖_선택_밖_구매는_그날_잔액으로_결제가_막히지_않아_표시하지_않는다() {
+        LocalDate today = LocalDate.of(2026, 11, 1);
+
+        PurchaseSimulation credit = PurchaseSimulator.simulate(input(Map.of(A, 100_000L), List.of(), today,
+                today.plusDays(30), Map.of(), today, A,
+                List.of(credit(1, 1, YearMonth.of(2026, 11), today.plusDays(15), 300_000))));
+        PurchaseSimulation beyond = PurchaseSimulator.simulate(input(Map.of(A, 100_000L), List.of(), today,
+                today.plusDays(7), Map.of(), today.plusDays(10), A, List.of(check(today.plusDays(10), 300_000))));
+        PurchaseSimulation outside = PurchaseSimulator.simulate(input(Map.of(A, 100_000L), List.of(), today,
+                today.plusDays(7), Map.of(), today, 9L, List.of(check(today, 300_000))));
+
+        assertThat(credit.comparison().after().minBalance()).isNegative();
+        assertThat(credit.checkCardOverdrawn()).isFalse();
+        assertThat(beyond.checkCardOverdrawn()).isFalse();
+        assertThat(outside.checkCardOverdrawn()).isFalse();
     }
 
     @Test

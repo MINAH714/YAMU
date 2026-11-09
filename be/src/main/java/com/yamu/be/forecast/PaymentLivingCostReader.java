@@ -1,5 +1,6 @@
 package com.yamu.be.forecast;
 
+import com.yamu.be.cashflow.RecurringPaymentRule;
 import java.time.Clock;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -53,10 +54,8 @@ import org.springframework.stereotype.Component;
 @Component
 class PaymentLivingCostReader implements LivingCostReader, CreditSpendingReader {
     private static final ZoneId KOREA = ZoneId.of("Asia/Seoul");
-    /** 반복 지출을 셀 기간(그 결제의 달 포함, 달 수). */
-    static final int RECURRING_WINDOW_MONTHS = 6;
-    /** 이 수 이상의 서로 다른 달에 나오면 반복 지출이다. */
-    static final int RECURRING_MIN_MONTHS = 3;
+    /** 반복 지출을 셀 기간(그 결제의 달 포함, 달 수). 반복 지출 탐지와 같은 규칙이다({@link RecurringPaymentRule}). */
+    static final int RECURRING_WINDOW_MONTHS = RecurringPaymentRule.WINDOW_MONTHS;
 
     private final NamedParameterJdbcTemplate jdbc;
     private final SpendingClassifier classifier;
@@ -187,7 +186,8 @@ class PaymentLivingCostReader implements LivingCostReader, CreditSpendingReader 
                 if (payment.groupKey() != groupKey.longValue() || !payment.living() || payment.matched()
                         || range == null
                         || !range.contains(payment.date())
-                        || recurring(countsByKey.get(payment.recurringKey()), YearMonth.from(payment.date()))) {
+                        || RecurringPaymentRule.recurring(countsByKey.get(payment.recurringKey()),
+                                YearMonth.from(payment.date()))) {
                     continue;
                 }
                 sums.computeIfAbsent(payment.origin(), k -> new TreeMap<>())
@@ -224,26 +224,6 @@ class PaymentLivingCostReader implements LivingCostReader, CreditSpendingReader 
             Range.of(max(realStart, fromDate), toDate).ifPresent(range -> coverage.put(Origin.REAL, range));
         }
         return coverage;
-    }
-
-    /**
-     * 그 달과 앞 5개 달 중 같은 카드·가맹점·금액이 나온 서로 다른 달이 3개 이상이고, 그중 두 번 이상 나온 달이 없는지.
-     *
-     * @param countsByMonth 같은 키의 달별 승인 결제 수
-     */
-    private static boolean recurring(Map<YearMonth, Integer> countsByMonth, YearMonth month) {
-        YearMonth first = month.minusMonths(RECURRING_WINDOW_MONTHS - 1);
-        int months = 0;
-        for (Map.Entry<YearMonth, Integer> entry : countsByMonth.entrySet()) {
-            if (entry.getKey().isBefore(first) || entry.getKey().isAfter(month)) {
-                continue;
-            }
-            if (entry.getValue() > 1) {
-                return false;
-            }
-            months++;
-        }
-        return months >= RECURRING_MIN_MONTHS;
     }
 
     private static LocalDate korean(LocalDateTime utc) {

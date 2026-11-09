@@ -42,12 +42,14 @@ import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
@@ -309,11 +311,101 @@ class AccountLinkIntegrationTest extends MySqlTestSupport {
         String token = read(oneWon(bearer, List.of(shinhan), shinhan)
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.deliveryUncertain").value(true))
+                // 1원이 나갔는지 모르면 거래내역에서 숫자를 찾지 않는다
+                .andExpect(jsonPath("$.data.demoCode").doesNotExist())
                 .andReturn(), "$.data.verificationToken");
+        verify(finApiClient, never()).post(eq(SsafyAccountApi.HISTORY_PATH), anyString(), any(),
+                eq(SsafyAccountApi.History.class));
         // 바로 다시 보내면 1원이 두 번 나갈 수 있어 1분 자리를 지킨다. 하루 횟수도 1번 쓴 것으로 센다.
         oneWon(bearer, List.of(shinhan), shinhan).andExpect(errorCode(429, "AUTH_REQUEST_TOO_FREQUENT"));
         assertThat(redis.opsForValue().get(dailyKey("sent"))).isEqualTo("1");
         link(bearer, token, CODE, key(), null).andExpect(status().isCreated());
+    }
+
+    @Test
+    void 시연_서버는_1원을_보낸_뒤_거래내역에서_찾은_인증_숫자를_demoCode로_준다() throws Exception {
+        String bearer = signupBearer(pendingUser(), SignupMode.SIGNUP);
+        String shinhan = candidateId(candidates(bearer).andReturn(), "6547");
+        // 최근 입금부터 온다. 다른 입금과 자리 수가 다른 적요는 건너뛰고 가장 최근 1원의 숫자를 쓴다.
+        when(finApiClient.post(eq(SsafyAccountApi.HISTORY_PATH), eq(USER_KEY), any(), eq(SsafyAccountApi.History.class)))
+                .thenReturn(new SsafyAccountApi.History(List.of(
+                        historyRow(Duration.ZERO, "급여"),
+                        historyRow(Duration.ZERO, "YAMU 12"),
+                        historyRow(Duration.ZERO, " YAMU 4821 "),
+                        historyRow(Duration.ZERO, "YAMU 1111"))));
+
+        MvcResult sent = oneWon(bearer, List.of(shinhan), shinhan)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.demoCode").value(CODE))
+                .andReturn();
+
+        ArgumentCaptor<Object> body = ArgumentCaptor.forClass(Object.class);
+        verify(finApiClient).post(eq(SsafyAccountApi.HISTORY_PATH), eq(USER_KEY), body.capture(),
+                eq(SsafyAccountApi.History.class));
+        java.time.LocalDate todayKst = java.time.LocalDate.now(java.time.ZoneId.of("Asia/Seoul"));
+        String today = todayKst.format(java.time.format.DateTimeFormatter.BASIC_ISO_DATE);
+        SsafyAccountApi.HistoryRequest request = (SsafyAccountApi.HistoryRequest) body.getValue();
+        assertThat(request).isEqualTo(new SsafyAccountApi.HistoryRequest(ACCOUNT_NO, request.startDate(), today, "M", "DESC"));
+        // 보통 오늘 하루. 자정 30초 안에 보냈으면 어제부터 본다
+        assertThat(request.startDate()).isIn(today, todayKst.minusDays(1).format(java.time.format.DateTimeFormatter.BASIC_ISO_DATE));
+        // 받은 숫자로 그대로 연결된다
+        link(bearer, read(sent, "$.data.verificationToken"), CODE, key(), null).andExpect(status().isCreated());
+    }
+
+    @Test
+    void 같은_날_앞서_보낸_1원의_숫자는_demoCode로_주지_않는다() throws Exception {
+        String bearer = signupBearer(pendingUser(), SignupMode.SIGNUP);
+        MvcResult listed = candidates(bearer).andReturn();
+        String shinhan = candidateId(listed, "6547");
+        String kookmin = candidateId(listed, "8810");
+        // 새 1원이 아직 거래내역에 안 보이고, 1분 전 1원과 시각이 없는 줄만 있다 → 옛 숫자를 주지 않는다
+        // 두 번째: 시계 차이(30초) 안의 줄은 이번 1원으로 본다
+        when(finApiClient.post(eq(SsafyAccountApi.HISTORY_PATH), eq(USER_KEY), any(), eq(SsafyAccountApi.History.class)))
+                .thenReturn(new SsafyAccountApi.History(List.of(
+                        new SsafyAccountApi.HistoryRow(null, null, "YAMU 2222", null),
+                        historyRow(Duration.ofMinutes(-1), "YAMU 1111"))))
+                .thenReturn(new SsafyAccountApi.History(List.of(
+                        historyRow(Duration.ofSeconds(-20), "YAMU " + CODE),
+                        historyRow(Duration.ofMinutes(-1), "YAMU 1111"))));
+
+        oneWon(bearer, List.of(shinhan), shinhan)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.verificationToken").exists())
+                .andExpect(jsonPath("$.data.demoCode").doesNotExist());
+        oneWon(bearer, List.of(kookmin), kookmin)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.demoCode").value(CODE));
+    }
+
+    /** 지금(한국 시각)에서 {@code offset}만큼 떨어진 입금 줄 */
+    private static SsafyAccountApi.HistoryRow historyRow(Duration offset, String summary) {
+        return historyRow(offset, summary, null);
+    }
+
+    private static SsafyAccountApi.HistoryRow historyRow(Duration offset, String summary, String memo) {
+        java.time.LocalDateTime at = java.time.LocalDateTime.now(java.time.ZoneId.of("Asia/Seoul")).plus(offset);
+        return new SsafyAccountApi.HistoryRow(at.format(java.time.format.DateTimeFormatter.BASIC_ISO_DATE),
+                at.format(java.time.format.DateTimeFormatter.ofPattern("HHmmss")), summary, memo);
+    }
+
+    @Test
+    void 인증_숫자를_못_찾거나_거래내역_조회가_실패해도_1원_요청은_성공하고_demoCode만_빠진다() throws Exception {
+        String bearer = signupBearer(pendingUser(), SignupMode.SIGNUP);
+        MvcResult listed = candidates(bearer).andReturn();
+        String shinhan = candidateId(listed, "6547");
+        String kookmin = candidateId(listed, "8810");
+        when(finApiClient.post(eq(SsafyAccountApi.HISTORY_PATH), eq(USER_KEY), any(), eq(SsafyAccountApi.History.class)))
+                .thenReturn(new SsafyAccountApi.History(List.of(historyRow(Duration.ZERO, "급여", "메모"))))
+                .thenThrow(FinApiFailures.timedOut("inquireTransactionHistoryList"));
+
+        oneWon(bearer, List.of(shinhan), shinhan)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.verificationToken").exists())
+                .andExpect(jsonPath("$.data.demoCode").doesNotExist());
+        oneWon(bearer, List.of(kookmin), kookmin)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.verificationToken").exists())
+                .andExpect(jsonPath("$.data.demoCode").doesNotExist());
     }
 
     @Test
