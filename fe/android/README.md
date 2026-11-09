@@ -73,22 +73,24 @@ BE(develop, 2026-11-03 · 잔고예보는 2026-11-08 · 경로 전체는 2026-11
 | `link` | 카드 확인 · 등록 · 로그인 후 계좌 추가 · 계좌 · 카드 목록 · 계좌 별칭 · 기준 계좌 · 카드 상세 · 수정 · 해제 · 순서 | 없음 |
 | `cashflow` | `cashflow-items` 등록 · 조회 · 수정 · 삭제, `forecasts/settings` 조회 · 수정, 결제 연결(`cashflow-payment-matches` · `cashflow-items/{id}/payment-match-candidates`) | 후보 항목을 만드는 곳이 없어 B-06은 늘 비어 있음. `forecast` 없이 켜면 잔고예보 · 생활비 상세 · 구매 판단 · 구매 계획은 가짜 |
 | `forecast` | `forecasts/balance`(연결 계좌 `accountIds` · 기간), `forecasts/simulations`, `merchant-categories`, `merchants?merchantCategoryCode=`, 구매 계획 `cashflow-items` 등록 · 삭제(2026-11-08 로컬 BE로 확인), 생활비 상세 `forecasts/living-cost`(S15P31E103-334) | 실적 영향(`performanceImpact`가 늘 null), 홈 잔고 카드(`home`) |
-| `payment` | 결제 코드 발급 · 상태 · 승인, 결제 상세 `payments/{id}` · 취소 `payments/{id}/cancel` · 메모 `payments/{id}/memo`(S15P31E103-336) | 가맹점 목록, 결제 전 추천, 거절(요청이 마감까지 남음). 후보에 카드사 · 카테고리가 없어 별칭으로 보임 |
+| `payment` | 결제 코드 발급 · 상태 · 승인, 결제 상세 `payments/{id}` · 취소 `payments/{id}/cancel` · 메모 `payments/{id}/memo`(S15P31E103-336) | 거절(요청이 마감까지 남음). 후보에 카드사 · 카테고리가 없어 별칭으로 보임 |
 | `my` | 기기 목록 · 해제(`APP_UNLOCK` 본인 확인), 회원 탈퇴(`WITHDRAW_MEMBER` 본인 확인) | 보안 설정 저장, 알림. 회원 정보 `users/me`와 자동 선택 저장 `users/me/payment-settings`는 BE에 생겼지만 debug는 아직 가짜로 메움(`RealWithFakes.kt`) |
 | `pos` | 가맹점 번호 찾기(`merchants?merchantCategoryCode=`) · 결제 요청 · 결과 조회(`?posCode=`, 거절 뒤 재시도 중에는 계속 기다림) | 없음 |
 | `billing` | `billings` 청구서 목록(카드 고르기) · `billings/{billId}` 상세, `refunds` 환급 내역(최근 3개월 · 페이지) | 없음. 앱이 기간 · 상태를 고르지 않아 3개월보다 이전 청구서 · 환급은 안 보임 |
 | `home` · `performance` | 켜지 않음 | 전부 |
 | `report` | `all`로는 켜지 않음. 이름을 적어 켜면 결제 내역 `payments` · CSV 내려받기 `payments/export`는 BE로 간다 | 월간 소비분석, 혜택 리포트 |
 
-앱 Retrofit 경로 73개 중 develop BE에 없는 것은 아래 17개다. release에서 부르면 404 `API_NOT_FOUND`가 와서 화면에는 '아직 준비 중인 기능이에요'만 뜨고 '다시 시도' 버튼은 숨는다(Task 8.2.37, S15P31E103-365).
+앱 Retrofit 경로 72개(main · pos, 메서드와 경로가 같으면 하나) 중 develop BE에 없는 것은 아래 15개다. release에서 부르면 404 `API_NOT_FOUND`가 와서 화면에는 '아직 준비 중인 기능이에요'만 뜨고 '다시 시도' 버튼은 숨는다(Task 8.2.37, S15P31E103-365).
 
 - 홈: `GET home`, `POST sync`
 - 실적: `GET users/me/card-performances`, `GET user-cards/{id}/performance` · `performance/analysis`, `POST user-cards/{id}/performance/decisions`, `GET benefit-limits`
 - 리포트: `GET reports/monthly`, `GET reports/monthly/benefits`(결제 내역 `GET payments`는 있다)
-- 마이: `PATCH users/me/security-settings`, `GET` · `PATCH notifications/settings`, `GET notifications`, `PATCH notifications/{id}/read`, `PATCH notifications/read-all`
-- 결제: `POST recommendations`, `POST payments/{id}/reject`
+- 마이: `GET` · `PATCH notifications/settings`, `GET notifications`, `PATCH notifications/{id}/read`, `PATCH notifications/read-all`
+- 결제: `POST payments/{id}/reject`
 
-경로는 같아도 내용이 다른 것도 있다. BE `GET merchants`는 업종 코드(`merchantCategoryCode`)를 꼭 받아 업종별 브랜드 배열을 주는 API라서 결제 · 모의 POS가 쓰는 가맹점 목록(`channel` · `size`, 응답 `items`)으로는 못 쓴다. 모의 POS 결과 조회 `GET pos/payment-requests/{id}`는 BE에 생겼지만 debug는 아직 가짜로 메운다(`RealPosWithFakes`).
+보안 설정 저장 `PATCH users/me/security-settings`는 BE에 생겼지만(S15P31E103-353) 앱이 보내는 본문과 맞는지는 아직 확인하지 않았다. 결제 전 단일 추천 `POST recommendations`는 명세 V2에서 빠져 앱에서도 지웠다.
+
+BE `GET merchants`는 업종 코드(`merchantCategoryCode`)를 꼭 받아 업종별 브랜드 배열을 주고, 앱은 가상 구매 조건과 모의 POS 단말 설정에서 이 모양 그대로 쓴다. `pos`를 켜면 모의 POS 결과 조회(`GET pos/payment-requests/{id}?posCode=`)도 debug에서 가짜로 메우지 않고 BE를 부른다.
 
 로그인은 Task 8.2.8(S15P31E103-235)에서 BE 방식으로 바꿨다. 이 폰에 기기 번호가 있으면 앱을 열 때와 자동 잠금 때 같은 PIN · 지문 로그인 화면이 뜨고(`login/challenge` → `login`, 매번 새 토큰), 로그아웃은 토큰만 지운다. 기기 키는 둘이다 — 기기 키(지문 없이, PIN 로그인 · PIN 본인 확인 서명)와 지문 키(지문을 통과해야 서명). 서명 대상은 challenge 문자열의 UTF-8 바이트다.
 
