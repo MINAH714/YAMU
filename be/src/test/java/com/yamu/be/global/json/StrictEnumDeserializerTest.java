@@ -1,4 +1,4 @@
-package com.yamu.be.cashflow;
+package com.yamu.be.global.json;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
