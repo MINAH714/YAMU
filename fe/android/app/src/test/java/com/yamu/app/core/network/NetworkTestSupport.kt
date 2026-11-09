@@ -1,6 +1,7 @@
 package com.yamu.app.core.network
 
 import com.yamu.app.core.security.AuthTokens
+import com.yamu.app.core.security.SessionEnd
 import com.yamu.app.core.security.TokenStore
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -41,10 +42,11 @@ fun errorJson(code: Int, errorCode: String): MockResponse =
 class FakeTokenStore(access: String?, private var refresh: String?) : TokenStore {
     override var accessToken: String? = access
         private set
-    var expiredCount = 0
-        private set
-    private val expired = MutableSharedFlow<Unit>(replay = 1)
-    override val sessionExpired: SharedFlow<Unit> = expired
+    /** 알린 '세션 끝남' 이유 차례대로 */
+    val ended = mutableListOf<SessionEnd>()
+    val expiredCount: Int get() = ended.size
+    private val expired = MutableSharedFlow<SessionEnd>(replay = 1)
+    override val sessionExpired: SharedFlow<SessionEnd> = expired
 
     override fun refreshTokenBlocking(): String? = refresh
     override suspend fun save(tokens: AuthTokens) = saveBlocking(tokens)
@@ -57,8 +59,8 @@ class FakeTokenStore(access: String?, private var refresh: String?) : TokenStore
         accessToken = null
         refresh = null
     }
-    override fun notifySessionExpired() {
-        expiredCount++
-        expired.tryEmit(Unit)
+    override fun notifySessionExpired(reason: SessionEnd) {
+        ended += reason
+        expired.tryEmit(reason)
     }
 }

@@ -10,6 +10,7 @@ import com.yamu.app.core.network.apiCallNoData
 import com.yamu.app.core.network.map
 import com.yamu.app.core.security.AuthTokens
 import com.yamu.app.core.security.DeviceKeyManager
+import com.yamu.app.core.security.SessionEnd
 import com.yamu.app.core.security.SessionInfo
 import com.yamu.app.core.security.SessionStore
 import com.yamu.app.core.security.TokenStore
@@ -78,6 +79,9 @@ interface AuthRepository {
 
     /** 회원 탈퇴가 끝났을 때 — 이 폰을 처음 상태로. 실패했을 때 부르면 계정은 남았는데 기기만 비게 된다 */
     suspend fun forgetAfterWithdrawal()
+
+    /** 로그인 중에 서버가 이 기기를 해제했을 때(401 DEVICE_NOT_REGISTERED, 다른 폰에서 재등록 등) — 이 폰을 처음 상태로 */
+    suspend fun forgetRevokedDevice()
 }
 
 /** 서버에서 이 기기가 없어졌다(해제 · 사용자 상태 변경) — 첫 화면에서 다시 시작 */
@@ -203,6 +207,8 @@ class AuthRepositoryImpl @Inject constructor(
 
     override suspend fun forgetAfterWithdrawal() = forgetDevice()
 
+    override suspend fun forgetRevokedDevice() = forgetDevice()
+
     /** 이 폰을 처음 상태로 — 토큰 · 세션 · 기기 키 */
     private suspend fun forgetDevice() {
         tokenStore.clear()
@@ -211,10 +217,10 @@ class AuthRepositoryImpl @Inject constructor(
         paymentEdits.clear()
     }
 
-    /** 로그인한 채로 기기가 없어졌을 때 — 지운 뒤 로그인 화면을 거쳐 첫 화면으로 */
+    /** 로그인한 채로 기기가 없어졌을 때 — 지운 뒤 바로 첫 화면으로 */
     private suspend fun forgetDeviceInSession() {
         forgetDevice()
-        tokenStore.notifySessionExpired()
+        tokenStore.notifySessionExpired(SessionEnd.DEVICE_REVOKED)
     }
 }
 
