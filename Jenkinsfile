@@ -36,12 +36,13 @@ pipeline {
                     def revision = checkout scm
                     env.GIT_COMMIT = revision.GIT_COMMIT
                     env.GIT_BRANCH = revision.GIT_BRANCH ?: ''
-                    if (params.RELEASE_REVISION) {
-                        if (env.JOB_NAME != 'yamu/ci-master' ||
-                                !(params.RELEASE_REVISION ==~ /[0-9a-f]{40}/) ||
+                    if (env.JOB_NAME == 'yamu/ci-master') {
+                        if (!params.RELEASE_REVISION || !(params.RELEASE_REVISION ==~ /[0-9a-f]{40}/) ||
                                 revision.GIT_COMMIT != params.RELEASE_REVISION) {
-                            error('Release checkout differs from the requested master candidate')
+                            error('ci-master requires RELEASE_REVISION to match the checked-out commit')
                         }
+                    } else if (params.RELEASE_REVISION) {
+                        error('RELEASE_REVISION is only accepted by ci-master')
                     }
                     withEnv([
                         "CI_CHECKOUT_BRANCH=${revision.GIT_BRANCH ?: ''}",

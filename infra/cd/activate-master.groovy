@@ -18,7 +18,7 @@ def ci = instance.getItemByFullName('yamu/ci-master')
         job.definition.scm.branches*.name != ['*/master']) {
         throw new IllegalStateException('Unexpected or busy master job; no settings changed')
     }
-    def fs = SCMFileSystem.of(job)
+    def fs = SCMFileSystem.of(job, job.definition.scm)
     try {
         if (fs == null || !fs.root.child(pair[1]).exists()) {
             throw new IllegalStateException('Reviewed pipeline must exist on master first')
@@ -41,8 +41,9 @@ def definitions = old == null ? [] : old.parameterDefinitions.findAll {
 }
 definitions += new BooleanParameterDefinition('FULL_CI', true, 'Run complete release checks')
 definitions += new StringParameterDefinition('RELEASE_REVISION', '', 'Exact master commit requested by CD')
+ci.getAllProperties().findAll { it instanceof ParametersDefinitionProperty }.each { ci.removeProperty(it) }
 ci.addProperty(new ParametersDefinitionProperty(definitions))
-ci.triggers.values().findAll { it instanceof SCMTrigger }.each { ci.removeTrigger(it) }
+ci.setTriggers(ci.triggers.values().findAll { !(it instanceof SCMTrigger) }.toList())
 ci.setDisabled(false)
 ci.save()
 cd.addTrigger(new SCMTrigger('H/5 * * * *'))
