@@ -460,10 +460,15 @@ class FakeForecastRepository @Inject constructor() : ForecastRepository {
         ApiResult.Success(dto.toSimulation(query))
     }
 
-    override suspend fun savePlan(simulation: Simulation): ApiResult<SavedPlan> {
+    /** 같은 Idempotency-Key는 처음 만든 번호(BE -358) — 등록 · 계획 저장이 같이 쓴다 */
+    private val createdByKey = mutableMapOf<String, Long>()
+
+    override suspend fun savePlan(simulation: Simulation, idempotencyKey: String): ApiResult<SavedPlan> {
         delay(600)
         val body = simulation.toPlanRequest()
+        createdByKey[idempotencyKey]?.let { id -> saved[id]?.let { return ApiResult.Success(it) } }
         val id = nextId++
+        createdByKey[idempotencyKey] = id
         // 가계부의 카드 예정 지출은 청구 출금일에 빠진다 — 일시불만 저장하므로 첫 회차 날짜
         plans += Plan(id, body.title, body.amount, simulation.schedule.firstOrNull()?.date ?: simulation.query.purchaseDate)
         val plan = SavedPlan(id, body.title, body.amount, simulation.query.purchaseDate, simulation.before?.minBalance, simulation.after?.minBalance, null)
@@ -481,18 +486,20 @@ class FakeForecastRepository @Inject constructor() : ForecastRepository {
     }
 
     /**
-     * F-02a 등록 — 시험값(모의 POS처럼 영문): 이름 TIMEOUT은 응답 못 받음(결과 불명, 실제로는 등록됨) · INVALID는 서버가 이름 칸을 거절(fieldErrors).
-     * 말일 반복은 시작일이 그달 말일이 아니면 서버처럼 거절한다
+     * F-02a 등록 — 시험값(모의 POS처럼 영문): 이름 TIMEOUT은 처음 한 번 응답 못 받음(결과 불명, 실제로는 등록됨) · INVALID는 서버가 이름 칸을 거절(fieldErrors).
+     * 말일 반복은 시작일이 그달 말일이 아니면 서버처럼 거절한다. 같은 키로 다시 보내면 처음 만든 번호를 돌려준다
      */
-    override suspend fun createItem(form: CashflowForm): ApiResult<Long> {
+    override suspend fun createItem(form: CashflowForm, idempotencyKey: String): ApiResult<Long> {
         delay(700)
         val body = form.toRequest()
+        createdByKey[idempotencyKey]?.let { return ApiResult.Success(it) }
         if (body.title == "INVALID") return invalid("title", "서버가 거절한 이름이에요(시험값)")
         val day = body.recurrence?.dayOfMonth
         if (day != null && day != form.date.dayOfMonth && form.date != YearMonth.from(form.date).atEndOfMonth()) {
             return invalid("recurrence.dayOfMonth", "매월 반복일은 첫 발생일의 날짜와 같아야 합니다(말일 시작이면 더 큰 날도 됩니다).")
         }
         val id = nextId++
+        createdByKey[idempotencyKey] = id
         items += Item(id, form.isIncome, body.title, body.amount, form.date, form.repeat, day, form.effectiveEndDate, body.accountId, body.userCardId)
         if (body.title == "TIMEOUT") return ApiResult.Failure(ApiError.Network)
         return ApiResult.Success(id)
