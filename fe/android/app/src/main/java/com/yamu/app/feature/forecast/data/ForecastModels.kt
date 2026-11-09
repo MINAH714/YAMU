@@ -200,10 +200,10 @@ data class ForecastLivingCost(val projectedAmount: Long?, val method: LivingMeth
 /** 계산에서 뺀 것 — 이유마다 문장 하나 */
 data class ExcludedNote(val reason: String?, val text: String)
 
-/** '세 선은 이렇게 계산했어요'의 한 줄 */
+/** '두 선은 이렇게 계산했어요'의 한 줄 */
 data class LineStep(val label: String, val amount: Long, val note: String? = null)
 
-/** 한 선의 설명 — 그 선에 더한 돈과 기간 끝 잔액. 보수적 선이 없으면 [end]가 null */
+/** 한 선의 설명 — [line]은 EXPECTED('AI 생활비 제외') · CONSERVATIVE('AI 생활비 반영'), 그 선에 더한 돈과 기간 끝 잔액. 생활비 선이 없으면 [end]가 null */
 data class LineGroup(val line: FlowConfidence, val steps: List<LineStep>, val end: Long?)
 
 data class Forecast(
@@ -250,37 +250,34 @@ data class Forecast(
     /** 안전 잔액 아래로 처음 내려가는 날 */
     val riskFrom: LocalDate? get() = riskWindows.minOfOrNull { it.from }
 
-    /** 선마다 무엇을 더했는지 — 확정 → 예상 → 보수적. 금액은 서버 이벤트 합, 끝 잔액은 서버 선의 마지막 날 그대로 */
+    /**
+     * 두 선마다 무엇을 더했는지 — 'AI 생활비 제외'(서버 expected) → 'AI 생활비 반영'(conservative). 금액은 서버 이벤트 합, 끝 잔액은 서버 선의 마지막 날 그대로.
+     * 첫 선은 확신도 CONFIRMED · EXPECTED 돈(확인 전 후보 · 진행 중 청구 포함)과 확신도를 모르는 돈('기타'). 그리지 않는 확정 선과 나누지 않으므로
+     * 같은 이름(예정 수입 · 예정 지출)은 확신도가 달라도 한 줄로 합친다. 둘째 선은 첫 선에서 예상 생활비와 CONSERVATIVE 돈을 더 뺀 것이다
+     */
     fun lineGroups(): List<LineGroup> {
         val events = upcoming
-        fun steps(of: List<ForecastEvent>, names: (FlowType) -> String) = of.groupBy { names(it.type) }.map { (label, list) ->
+        fun steps(of: List<ForecastEvent>, name: (ForecastEvent) -> String) = of.groupBy(name).map { (label, list) ->
             LineStep(if (list.size > 1) "$label ${list.size}건" else label, list.sumOf { it.amount })
         }.sortedBy { it.label.startsWith("기타") }   // 모르는 종류는 맨 끝
         val last = days.lastOrNull()
-        val confirmed = steps(events.filter { it.confidence == FlowConfidence.CONFIRMED }) {
-            when (it) {
-                FlowType.SCHEDULED_INCOME -> "예정 수입"
-                FlowType.SCHEDULED_OUTFLOW -> "예정 지출"
-                FlowType.CARD_BILLING -> "확정된 카드 청구"
-                else -> "기타"
-            }
-        }
-        val expected = steps(events.filter { it.confidence == FlowConfidence.EXPECTED || it.confidence == FlowConfidence.UNKNOWN }) {
-            when (it) {
-                FlowType.CARD_BILLING -> "진행 중인 카드 청구"
-                FlowType.SCHEDULED_INCOME -> "예정 수입"
-                FlowType.SCHEDULED_OUTFLOW -> "예정 지출"
+        val withoutLiving = steps(events.filter { it.confidence != FlowConfidence.CONSERVATIVE }) { e ->
+            when {
+                e.confidence == FlowConfidence.UNKNOWN -> "기타"
+                e.type == FlowType.SCHEDULED_INCOME -> "예정 수입"
+                e.type == FlowType.SCHEDULED_OUTFLOW -> "예정 지출"
+                e.type == FlowType.CARD_BILLING && e.confidence == FlowConfidence.CONFIRMED -> "확정된 카드 청구"
+                e.type == FlowType.CARD_BILLING -> "진행 중인 카드 청구"
                 else -> "기타"
             }
         }
         val living = livingCost?.takeIf { !it.insufficient }?.projectedAmount?.let { LineStep("예상 생활비", -it, livingCost.method.label) }
-        val conservative = listOfNotNull(living) + steps(events.filter { it.confidence == FlowConfidence.CONSERVATIVE }) {
-            if (it == FlowType.CARD_SPENDING_ESTIMATE) "앞으로 쓸 신용카드 금액" else "기타 추정"
+        val withLiving = listOfNotNull(living) + steps(events.filter { it.confidence == FlowConfidence.CONSERVATIVE }) {
+            if (it.type == FlowType.CARD_SPENDING_ESTIMATE) "앞으로 쓸 신용카드 금액" else "기타 추정"
         }
         return listOf(
-            LineGroup(FlowConfidence.CONFIRMED, confirmed, last?.confirmed),
-            LineGroup(FlowConfidence.EXPECTED, expected, last?.expected),
-            LineGroup(FlowConfidence.CONSERVATIVE, conservative, last?.conservative),
+            LineGroup(FlowConfidence.EXPECTED, withoutLiving, last?.expected),
+            LineGroup(FlowConfidence.CONSERVATIVE, withLiving, last?.conservative),
         )
     }
 }
