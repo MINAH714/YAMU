@@ -1,6 +1,7 @@
 package com.yamu.app.feature.forecast
 
 import com.yamu.app.navigation.BuyCheckResult
+import com.yamu.app.core.designsystem.component.TagTone
 import com.yamu.app.core.network.ApiError
 import com.yamu.app.core.network.ApiResult
 import com.yamu.app.feature.forecast.data.CatalogMerchant
@@ -163,6 +164,42 @@ class BuyCheckViewModelTest {
         vm.pickCard(16)
         assertNull(vm.query()?.installmentMonths)
         assertEquals(PaymentChannel.OFFLINE, vm.query()?.channel)   // 기본값은 매장
+    }
+
+    @Test fun `조건 화면 — 업종을 고르면 결제 방식을 그 업종의 기본값으로, 그 뒤 바꾼 것은 그대로(점검 B-14)`() = runTest(dispatcher) {
+        val vm = BuyConditionsViewModel(400_000L, "태블릿", repo)
+        advanceUntilIdle()
+
+        vm.pickCategory(MerchantCategory("ONLINE_MARKETPLACE", "온라인 쇼핑"))
+        assertEquals(PaymentChannel.ONLINE, vm.query()?.channel)
+
+        vm.setChannel(PaymentChannel.OFFLINE)
+        vm.retryMerchants()   // 브랜드 목록만 다시 — 고른 결제 방식이 기본값으로 돌아가면 안 된다
+        advanceUntilIdle()
+        assertEquals(PaymentChannel.OFFLINE, vm.query()?.channel)
+        assertEquals(listOf(CatalogMerchant(201, "이마트")), vm.state.value.merchants)
+
+        vm.pickCategory(MerchantCategory("ONLINE_MARKETPLACE", "온라인 쇼핑"))   // 같은 업종을 다시 눌러도 그대로
+        assertEquals(PaymentChannel.OFFLINE, vm.query()?.channel)
+
+        vm.pickCategory(MerchantCategory("DELIVERY_APP", "배달앱"))   // 업종을 바꾸면 새 업종의 기본값
+        assertEquals(PaymentChannel.ONLINE, vm.query()?.channel)
+        vm.pickCategory(MerchantCategory("HYPERMARKET", "대형마트"))
+        assertEquals(PaymentChannel.OFFLINE, vm.query()?.channel)
+    }
+
+    @Test fun `결과 태그 — 안전 잔액 아래로 처음 내려가는 날부터, 잔고예보 첫 화면과 같은 문구(점검 B-08)`() {
+        val today = LocalDate.of(2026, 11, 8)
+        // 오늘부터 모자라고 가장 낮은 날은 12/8 — 가장 낮은 날이 아니라 시작일을 쓴다
+        val short = SimSnapshot(-9_999_018_095, LocalDate.of(2026, 12, 8), RiskLevel.DANGER, riskStartDate = today)
+        assertEquals("11월 8일부터 안전 잔액 아래" to TagTone.Error, afterTag(short, today))
+        // 0원 아래인데 보수적 선에서만이라 WARNING이어도 빨간색
+        assertEquals("11월 20일부터 안전 잔액 아래" to TagTone.Error, afterTag(SimSnapshot(-1, DATE, RiskLevel.WARNING), DATE))
+        assertEquals("11월 20일부터 안전 잔액 아래" to TagTone.Warning, afterTag(SimSnapshot(60_000, DATE, RiskLevel.WARNING), DATE))
+        assertEquals("안전 잔액 아래로 내려가요" to TagTone.Warning, afterTag(SimSnapshot(60_000, DATE, RiskLevel.WARNING), null))   // 날짜를 모르면 빼고
+        assertEquals("가장 낮을 때도 안전 잔액 위" to TagTone.Success, afterTag(SimSnapshot(360_000, DATE, RiskLevel.SAFE), null))
+        assertNull(afterTag(SimSnapshot(360_000, DATE, RiskLevel.UNKNOWN), null))
+        assertNull(afterTag(null, null))
     }
 
     @Test fun `할부는 신용카드 · 5만 원 이상일 때만`() {

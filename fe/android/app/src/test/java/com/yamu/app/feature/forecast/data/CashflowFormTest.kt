@@ -96,6 +96,10 @@ class CashflowFormTest {
     @Test fun `보내기 전 검사 — 이름 · 금액 범위 · 지난 날짜`() {
         val bad = CashflowForm(title = "  ", amount = 0, date = LocalDate.of(2026, 10, 31), accountId = 3).validate(today)
         assertEquals(setOf(CashflowField.TITLE, CashflowField.AMOUNT, CashflowField.DATE), bad.keys)
+        // 빈 칸과 0원은 문구를 나눈다(점검 2026-11-08)
+        assertEquals("금액을 넣어 주세요", form().copy(amount = null).validate(today)[CashflowField.AMOUNT])
+        assertEquals("1원 이상 넣어 주세요", bad[CashflowField.AMOUNT])
+        assertTrue(form().copy(amount = 1).validate(today).isEmpty())
         assertEquals("1,000억 원까지 넣을 수 있어요", form().copy(amount = CASHFLOW_AMOUNT_MAX + 1).validate(today)[CashflowField.AMOUNT])
         assertTrue(form().copy(amount = CASHFLOW_AMOUNT_MAX).validate(today).isEmpty())
         assertTrue(form(today).validate(today).isEmpty())   // 오늘은 된다
