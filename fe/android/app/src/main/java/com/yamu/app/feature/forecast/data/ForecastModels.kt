@@ -158,7 +158,7 @@ data class ForecastEvent(val date: LocalDate, val type: FlowType, val title: Str
     /** 카드 청구 — 가계부 항목이 아니라 F-02에서 고칠 수 없다 */
     val isCardBill: Boolean get() = type == FlowType.CARD_BILLING
 
-    /** 진행 중인 청구처럼 예상 선부터 넣은 돈 — '예상' 태그 */
+    /** 진행 중인 청구처럼 예정 선(서버 expected)부터 넣은 돈 — 금액이 아직 정해지지 않아 '예상' 태그 */
     val isExpected: Boolean get() = confidence == FlowConfidence.EXPECTED
 
     /** 줄 이름. 카드 사용 예상은 title이 근거 문장이라 이름은 고정하고 title은 보조 줄에 그대로 둔다 */

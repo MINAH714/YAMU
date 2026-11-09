@@ -390,7 +390,7 @@ private fun ForecastLines(f: Forecast) {
     var selected by rememberSaveable(key.toString()) { mutableIntStateOf(initial) }
     val lines = buildList {
         add(ChartLine("확정", days.map { it.confirmed }, c.text3, width = 1.6.dp))
-        add(ChartLine("예상", days.map { it.expected }, c.primary, width = 2.2.dp))
+        add(ChartLine("예정", days.map { it.expected }, c.primary, width = 2.2.dp))
         if (f.hasConservative) add(ChartLine("보수적", days.map { it.conservative }, c.primary, dashed = true, width = 2.2.dp))
     }
     val ranges = f.riskWindows.mapNotNull { w ->
@@ -432,7 +432,7 @@ private fun DayPanel(day: ForecastDay, hasConservative: Boolean) {
         Spacer(Modifier.height(6.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             DayValue("확정", day.confirmed, c.text1, Modifier.weight(1f))
-            DayValue("예상", day.expected, c.onPrimaryContainer, Modifier.weight(1f))
+            DayValue("예정", day.expected, c.onPrimaryContainer, Modifier.weight(1f))
             if (hasConservative) DayValue("보수적", day.conservative, c.onWarningContainer, Modifier.weight(1f))
         }
         val events = day.events.filter { it.amount != 0L }
@@ -500,7 +500,7 @@ private fun RiskCard(f: Forecast) {
 internal fun riskLine(w: RiskWindow): String {
     val lead = when (w.line) {
         FlowConfidence.CONFIRMED -> "확정된 돈만으로도"
-        FlowConfidence.EXPECTED -> "예상대로라면"
+        FlowConfidence.EXPECTED -> "예정대로라면"
         FlowConfidence.CONSERVATIVE -> "보수적으로 보면"
         FlowConfidence.UNKNOWN -> null
     }
@@ -531,7 +531,7 @@ private fun LineGroupRow(g: LineGroup, hasConservative: Boolean) {
     val c = YamuTheme.colors
     val (name, color, dashed) = when (g.line) {
         FlowConfidence.CONFIRMED -> Triple("확정 선", c.text3, false)
-        FlowConfidence.EXPECTED -> Triple("예상 선", c.primary, false)
+        FlowConfidence.EXPECTED -> Triple("예정 선", c.primary, false)
         else -> Triple("보수적 선", c.primary, true)
     }
     Row {
