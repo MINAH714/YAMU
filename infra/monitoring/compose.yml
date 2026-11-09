@@ -1,0 +1,96 @@
+name: yamu-monitoring
+services:
+  grafana:
+    image: ${GRAFANA_IMAGE:?Use the resolved image digest}
+    restart: unless-stopped
+    user: '472:472'
+    environment:
+      GF_SERVER_ROOT_URL: https://yamu.it.kr/monitoring/
+      GF_SERVER_SERVE_FROM_SUB_PATH: 'true'
+      GF_SECURITY_ADMIN_USER: yamu-admin
+      GF_SECURITY_ADMIN_PASSWORD__FILE: /run/admin-password
+      GF_SECURITY_COOKIE_SECURE: 'true'
+      GF_AUTH_ANONYMOUS_ENABLED: 'false'
+      GF_USERS_ALLOW_SIGN_UP: 'false'
+      GF_USERS_ALLOW_ORG_CREATE: 'false'
+      GF_USERS_VIEWERS_CAN_EDIT: 'false'
+      GF_ANALYTICS_REPORTING_ENABLED: 'false'
+      GF_ANALYTICS_CHECK_FOR_UPDATES: 'false'
+      GF_PLUGINS_CHECK_FOR_UPDATES: 'false'
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /etc/yamu-dashboards/yamu.json
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/etc/yamu-dashboards:ro
+      - ${MONITORING_ADMIN_PASSWORD_FILE:?Private file}:/run/admin-password:ro
+    ports: ['127.0.0.1:${GRAFANA_PORT:-13000}:3000']
+    networks: [monitor, frontend]
+    mem_limit: 512m
+    cpus: 1
+    security_opt: ['no-new-privileges:true']
+    cap_drop: [ALL]
+    logging: &logging
+      driver: json-file
+      options: {max-size: '10m', max-file: '3'}
+  prometheus:
+    image: ${PROMETHEUS_IMAGE:?Use the resolved image digest}
+    restart: unless-stopped
+    command: ['--config.file=/etc/prometheus/prometheus.yml', '--storage.tsdb.path=/prometheus', '--storage.tsdb.retention.time=7d', '--storage.tsdb.retention.size=1GB']
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    networks: [monitor]
+    mem_limit: 384m
+    cpus: 1
+    security_opt: ['no-new-privileges:true']
+    cap_drop: [ALL]
+    logging: *logging
+  loki:
+    image: ${LOKI_IMAGE:?Use the resolved image digest}
+    restart: unless-stopped
+    command: ['-config.file=/etc/loki/config.yml']
+    volumes:
+      - ./loki.yml:/etc/loki/config.yml:ro
+      - loki_data:/loki
+    networks: [monitor]
+    mem_limit: 640m
+    cpus: 1
+    security_opt: ['no-new-privileges:true']
+    cap_drop: [ALL]
+    logging: *logging
+  alloy:
+    image: ${ALLOY_IMAGE:?Use the resolved image digest}
+    restart: unless-stopped
+    user: '473:473'
+    command: ['run', '--storage.path=/var/lib/alloy', '--server.http.listen-addr=127.0.0.1:12345', '/etc/alloy/config.alloy']
+    volumes:
+      - ./config.alloy:/etc/alloy/config.alloy:ro
+      - ${MONITORING_PUBLIC_DIR:?Sanitized spool}/logs:/var/log/yamu:ro
+      - alloy_data:/var/lib/alloy
+    networks: [monitor]
+    mem_limit: 192m
+    cpus: 0.5
+    security_opt: ['no-new-privileges:true']
+    cap_drop: [ALL]
+    logging: *logging
+  textfile:
+    image: ${NODE_EXPORTER_IMAGE:?Use the resolved image digest}
+    restart: unless-stopped
+    command: ['--collector.disable-defaults', '--collector.textfile', '--collector.textfile.directory=/textfiles']
+    volumes: ['${MONITORING_PUBLIC_DIR:?Sanitized spool}/metrics:/textfiles:ro']
+    networks: [monitor]
+    mem_limit: 64m
+    cpus: 0.25
+    security_opt: ['no-new-privileges:true']
+    cap_drop: [ALL]
+    logging: *logging
+networks:
+  monitor:
+    internal: true
+  frontend:
+    # Grafana alone needs a loopback-published port for the host HTTPS proxy.
+volumes:
+  grafana_data:
+  prometheus_data:
+  loki_data:
+  alloy_data:

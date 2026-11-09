@@ -1,0 +1,19 @@
+[Unit]
+Description=YAMU fixed-source sanitized monitoring collector
+After=docker.service
+Requires=docker.service
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /usr/local/lib/yamu-monitoring/collector.py
+Restart=on-failure
+RestartSec=5
+UMask=0077
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/yamu-monitoring /run/lock
+MemoryMax=128M
+CPUQuota=25%
+[Install]
+WantedBy=multi-user.target
