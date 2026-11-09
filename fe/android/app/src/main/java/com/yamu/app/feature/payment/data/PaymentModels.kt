@@ -8,7 +8,8 @@ import com.yamu.app.feature.link.data.lastDigits
 import kotlinx.serialization.Serializable
 import java.math.BigDecimal
 
-// ── 서버 요청 · 응답 — #5 가맹점 · #64 추천 · #77 코드 발급 · #12 코드 상태 · #1 승인 · #3 상세 · 추가 7 거절. 10 문서 6-2 ──
+// ── 서버 요청 · 응답 — #5 가맹점(모의 POS) · #77 코드 발급 · #12 코드 상태 · #1 승인 · #3 상세 · 추가 7 거절. 10 문서 6-2 ──
+// #64 결제 전 단일 추천은 명세 V2에서 빠졌다. 후보 모양(CandidateDto)은 #12 recommendation이 같이 쓴다
 
 @Serializable data class MerchantsResponse(val items: List<MerchantDto> = emptyList())
 
@@ -26,15 +27,6 @@ import java.math.BigDecimal
     val name: String = "가맹점",                // BE에서 null일 수 있다
     val categoryCode: String? = null,
     val categoryName: String? = null,
-)
-
-@Serializable data class RecommendRequest(val merchantId: Long, val amount: Long, val channel: String = "OFFLINE")
-
-@Serializable data class RecommendResponse(
-    val merchant: MerchantRefDto? = null,
-    val amount: Long = 0,
-    val candidates: List<CandidateDto> = emptyList(),
-    val isEstimate: Boolean = false,
 )
 
 @Serializable data class CandidateDto(
@@ -94,6 +86,19 @@ import java.math.BigDecimal
     val candidates: List<CandidateDto> = emptyList(),
     val excludedCount: Int = 0,
     val isEstimate: Boolean = false,
+    val uncomparedCards: List<UncomparedCardDto> = emptyList(),   // 임시(명세 반영 전) 혜택을 비교하지 못한 카드 — 순위 없음
+    val noBenefitNotice: String? = null,     // 임시 — 바로 결제할 수 있는 비교 못 한 카드가 있을 때만. 그 카드로 승인하기 전에 확인받는다
+)
+
+/** BE PaymentRequestView.UncomparedCard. reason: BENEFIT_DATA_INSUFFICIENT(혜택만 모름) · PAYMENT_AVAILABILITY_UNKNOWN(결제 가능 여부도 모름) */
+@Serializable data class UncomparedCardDto(
+    val userCardId: Long,
+    val nickname: String? = null,
+    val cardType: String = "CREDIT",
+    val maskedNumber: String? = null,
+    val reason: String? = null,
+    val message: String? = null,
+    val directPaymentAllowed: Boolean = false,   // BENEFIT_DATA_INSUFFICIENT만 true — 직접 고르면 혜택 없이 원금으로 결제
 )
 
 /** 결제 방식 · 할부 개월은 POS가 정한다 — BE는 이 칸들이 오면 400 INVALID_INSTALLMENT */
@@ -198,7 +203,7 @@ import java.math.BigDecimal
 
 data class Merchant(val id: Long, val name: String, val categoryName: String?, val isOnline: Boolean, val posCode: String?)
 
-/** 결제할 수 있는 카드 한 장 — 서버 추천 순서 그대로 */
+/** 결제할 수 있는 카드 한 장 — 서버 추천 순서 그대로, 혜택을 비교하지 못한 카드는 그 뒤에 */
 data class PayCard(
     val userCardId: Long,
     val brand: Brand,
@@ -211,9 +216,17 @@ data class PayCard(
     val installmentOptions: List<Int>,
     val reason: String?,
     val performanceNote: String?,
-)
+    /** 추천의 uncomparedCards에서 온 카드 — 순위 · 혜택이 없고 [reason]에 서버 문구. 미리 고르지 않고, 고르면 승인 전에 혜택 없음을 확인받는다 */
+    val benefitUnknown: Boolean = false,
+    /** false면 줄만 보이고 고를 수 없다(비교 못 한 카드 중 결제 가능 여부까지 모르는 카드 — directPaymentAllowed false) */
+    val selectable: Boolean = true,
+) {
+    /** 앱이 알아서 골라도 되는 카드 — 처음 1순위 · 거절 뒤 다음 카드. 비교 못 한 카드는 사용자가 직접 골라야 한다 */
+    val autoSelectable: Boolean get() = selectable && !benefitUnknown
+}
 
-data class Recommendation(val merchantName: String, val amount: Long, val cards: List<PayCard>, val isEstimate: Boolean)
+/** 비교 못 한 카드를 골라 승인할 때 확인받는 문구 — 서버가 noBenefitNotice를 안 보냈을 때(BE RecommendationResult.NO_BENEFIT_NOTICE와 같은 문장) */
+const val NO_BENEFIT_NOTICE = "혜택 정보를 확인할 수 없어 혜택 없이 결제됩니다."
 
 data class PayCode(val token: String, val barcodeValue: String, val qrValue: String, val expiresAtIso: String)
 
@@ -226,7 +239,8 @@ data class PaymentRequest(
     val amount: Long,
     val confirmDeadlineIso: String?,
     val cards: List<PayCard>,
-    val cardsUnknown: Boolean = false,       // 카드가 없는 게 아니라 확인하지 못했다(추천 스냅샷 없음 · 데이터 부족)
+    val cardsUnknown: Boolean = false,       // 카드가 없는 게 아니라 확인하지 못했다(추천 스냅샷 없음 · 데이터 부족인데 비교 못 한 카드도 안 옴)
+    val noBenefitNotice: String = NO_BENEFIT_NOTICE,
 )
 
 data class PayCodeStatus(val state: CodeState, val request: PaymentRequest?)
@@ -320,24 +334,54 @@ fun CandidateDto.toPayCard() = PayCard(
     last4 = maskedNumber?.lastDigits().orEmpty(),
     isCheck = cardType.equals("CHECK", ignoreCase = true),
     netBenefit = netBenefit,
-    benefitName = benefits.firstOrNull()?.name,
+    benefitName = benefitNameOf(benefits),
     chargedAmount = chargedAmount,
     installmentOptions = installmentOptions,
     reason = reason,
     performanceNote = performanceImpact?.note,
 )
 
+/**
+ * 카드 줄에 보일 혜택 이름 — 이번 결제에 금액이 붙은 혜택 중 가장 큰 것. 없으면 null(줄에는 서버 reason).
+ * 서버는 이번 결제에 맞지 않아 0원인 혜택(스타벅스 결제의 '교보문고 …')도 같이 보낸다. 금액은 혜택마다 자기 단위(원 · 포인트)이고,
+ * 공유 한도 배분이 안 정해진 혜택은 null로 와서 0으로 읽힌다(YamuJson coerceInputValues)
+ */
+internal fun benefitNameOf(benefits: List<BenefitDto>): String? =
+    benefits.filter { it.amount > 0 }.maxByOrNull { it.amount }?.name
+
+fun UncomparedCardDto.toPayCard() = PayCard(
+    userCardId = userCardId,
+    brand = cardBrand(null, null, nickname),
+    name = nickname ?: "카드",
+    last4 = maskedNumber?.lastDigits().orEmpty(),
+    isCheck = cardType.equals("CHECK", ignoreCase = true),
+    netBenefit = BigDecimal.ZERO,
+    benefitName = null,
+    chargedAmount = null,
+    installmentOptions = emptyList(),
+    reason = message ?: if (directPaymentAllowed) "혜택 정보를 확인하지 못해 비교하지 못했어요" else "결제할 수 있는지 확인하지 못했어요",
+    performanceNote = null,
+    benefitUnknown = true,
+    selectable = directPaymentAllowed,
+)
+
 fun BarcodeStatusResponse.toStatus(): PayCodeStatus {
     val state = runCatching { CodeState.valueOf(status.uppercase()) }.getOrDefault(CodeState.ISSUED)
     val request = payment?.takeIf { state == CodeState.SCANNED }?.let { p ->
+        val rec = p.recommendation
+        val ranked = rec?.candidates.orEmpty().sortedBy { it.rank }.map { it.toPayCard() }
+        // 비교 못 한 카드는 순위 없이 뒤에 — 앞 후보와 같은 카드가 오면(서버 규칙상 없음) 후보 쪽만 남긴다
+        val uncompared = rec?.uncomparedCards.orEmpty().filter { u -> ranked.none { it.userCardId == u.userCardId } }.map { it.toPayCard() }
         PaymentRequest(
             paymentId = p.paymentId,
             merchantName = p.merchant.name,
             categoryName = p.merchant.categoryName,
             amount = p.amount,
             confirmDeadlineIso = p.confirmDeadline,
-            cards = p.recommendation?.candidates.orEmpty().sortedBy { it.rank }.map { it.toPayCard() },
-            cardsUnknown = p.recommendation == null || p.recommendation.status == "DATA_INSUFFICIENT",
+            cards = ranked + uncompared,
+            // 데이터 부족이어도 비교 못 한 카드가 오면 그 카드들을 보인다. 둘 다 없으면 '확인하지 못함'(옛 응답 · 스냅샷 없음)
+            cardsUnknown = rec == null || (rec.status == "DATA_INSUFFICIENT" && ranked.isEmpty() && uncompared.isEmpty()),
+            noBenefitNotice = rec?.noBenefitNotice ?: NO_BENEFIT_NOTICE,
         )
     }
     // 찍혔는데 요청 내용이 없으면 아직 찍히기 전으로 본다(다음 확인에서 다시)
