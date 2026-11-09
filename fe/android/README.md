@@ -44,7 +44,7 @@
 - **가짜 잔고예보**: 잔액 950,000 · 예정 지출 4건 450,000 · 하루 생활비 6,000 → 월급 전 350,000(월급 = 오늘 + 25일). 이거 사도 될까? 400,000원은 '미루는 게 좋아요', 129,000원은 '괜찮아요'. 계획을 저장하면 예보에 같이 계산된다
 - **예정 수입·지출 추가(F-02 +)**: 등록하면 가짜 서버가 회차를 계산해 예보 · F-02에 더한다(매월 말일은 31일이 없는 달에 그달 마지막 날). 시험 이름 `TIMEOUT`은 응답을 못 받은 경우(실제로는 등록됨), `INVALID`는 서버가 이름 칸을 거절한 경우
 - **예정 수입·지출 수정 · 삭제(F-02 줄)**: 월세 · 통신비 · 구독료는 가짜 서버의 매월 반복 항목이라 눌러서 고칠 수 있다(카드대금 · 월급은 읽기 전용). 이번 회차만 · 이후 전부 · 삭제를 서버 규칙대로 흉내 낸다. 이름을 `PAID`로 바꿔 저장하면 결제된 회차(409)
-- **모의 POS 가짜 시험값**([번호로 넣기]): EXPIRED가 들어가면 만료 · USED는 이미 쓴 코드 · DECLINE은 거절 · REJECT는 고객 거절, 그 밖은 5초 뒤 승인
+- **모의 POS 가짜 시험값**([번호로 넣기]): EXPIRED가 들어가면 만료 · USED는 이미 쓴 코드 · LOST는 첫 응답이 끊김(다시 보내면 같은 결제) · DECLINEFINAL은 최종 거절 · DECLINE은 거절 뒤 고객이 다른 카드로 승인 · REJECT는 고객이 승인하지 않아 만료, 그 밖은 5초 뒤 승인. 한 번 쓴 코드는 다시 받지 않는다
 - **가짜 카드 등록 시험값**: 카드 번호는 `9410 0000 0000` + 끝 4자리, 유효기간은 지나지 않은 아무 달이다. 끝 4자리 1021 톡톡 · 3310 ZERO · 7782 LIKIT Shop · 4410 iD ON · 8823 노리2 체크 · 5527 트래블로그 체크 · 5096 Mr.Life(결제 계좌 신한 ·5678을 먼저 연결) · 0001 카드사 만료 · 0002 카드사 정지 · 0003 이미 등록 · 그 밖은 없는 카드. 시작 상태 '로그인 · 연결 끝'이면 트래블로그만 새로 등록할 수 있다
 - **화면 바로 열기**, **컴포넌트 갤러리**(다크 모드 · 글자 1.3배 · 청록 미리보기)
 - **서버 연결**: 지금 주소와 진짜로 쓰는 기능을 보여 주고, '서버 연결 확인'으로 `GET /api/health`를 불러 본다(10초 안에 응답이 없으면 실패)
@@ -59,9 +59,10 @@ yamu.baseUrl=http://localhost:8080/api/
 - `yamu.baseUrl`은 `http://`나 `https://`로 시작하고 `/`로 끝나야 한다(아니면 빌드가 멈춘다). 로컬 BE는 `adb reverse tcp:8080 tcp:8080` 뒤 `localhost`, 에뮬레이터는 `http://10.0.2.2:8080/api/`도 된다.
 - http는 `network_security_config`가 `localhost`와 `10.0.2.2`만 허용한다. LAN IP(`http://192.168.…`)는 막히므로 실기기는 `adb reverse`로 `localhost`를 쓴다.
 - 기능을 진짜로 켤 때는 `yamu.realApi`에 이름을 쉼표로 적는다. 쓸 수 있는 이름은 `auth` · `link` · `cashflow` · `home` · `payment` · `performance` · `forecast` · `report` · `my` · `pos` · `billing`이다. `all`은 BE에 API가 있는 `auth` · `link` · `cashflow` · `payment` · `forecast` · `my` · `pos` · `billing`만 켠다. 나머지는 이름을 직접 적어야 켜지고 지금 켜면 404가 난다. `cashflow` · `forecast` · `billing`을 켜면 `link`도 같이 켜진다(가짜 계좌 · 카드 번호가 진짜 서버로 가지 않게).
-- `payment` · `my` · `pos`는 debug에서 BE에 없는 메서드만 가짜로 메운다(`src/debug/.../RealWithFakes.kt`, `src/posDebug/.../FakePosRepository.kt`). release에는 가짜가 없어 그대로 404다.
+- `payment` · `my`는 debug에서 BE에 없는 메서드만 가짜로 메운다(`src/debug/.../RealWithFakes.kt`). release에는 가짜가 없어 그대로 404다. `pos`는 메울 것이 없어 켜면 전부 진짜를 부른다.
 - 진짜 API는 로그인 토큰이 필요하다. `auth`를 가짜로 두고 다른 기능만 켜면 가짜 토큰이 실려 401이 나므로 다른 기능을 켤 때는 `auth`도 같이 켠다.
-- 모의 POS는 `yamu.posKey`(BE `yamu.pos.key`와 같은 값), `yamu.posMerchantId`(단말의 `brand_code`와 같은 가맹점 번호, 시드마다 다름), `yamu.posCode`(기본 `POS-YAMU-CAFE`)를 적는다.
+- 모의 POS는 `yamu.posKey`(BE `yamu.pos.key`와 같은 값) 하나만 적는다. 단말은 첫 화면에서 BE `yamu.pos.terminals`의 네 개(`POS-YAMU-CAFE` · `POS-STARBUCKS-GENERAL` · `POS-STARBUCKS-DEPARTMENT_STORE` · `POS-GS25-GENERAL`) 가운데 고르고, 가맹점 번호는 고를 때 `GET /api/merchants?merchantCategoryCode=`에서 단말 브랜드(`brandCode`)로 찾아 저장한다. 시드를 다시 넣어 번호가 바뀌면 결제 요청이 '가맹점을 다시 골라 주세요'로 실패하니 [가맹점 바꾸기]로 다시 고른다. BE 단말 설정이 바뀌면 `src/pos/.../PosRepository.kt`의 `POS_TERMINALS`도 같이 고친다.
+- 결제 요청이 연결 끊김 · 시간 초과 · 5xx로 끝나면 접수됐는지 몰라서 [같은 요청 다시 보내기]가 뜬다. 같은 `Idempotency-Key` · 같은 본문(주문번호까지)으로 보내므로 서버가 처음 결제를 돌려준다. 서버가 거절한 뒤에는 새 키 · 새 주문번호로 간다.
 
 BE(develop, 2026-11-03 · 잔고예보는 2026-11-08)와 맞춰 본 결과는 이렇다.
 
@@ -73,7 +74,7 @@ BE(develop, 2026-11-03 · 잔고예보는 2026-11-08)와 맞춰 본 결과는 �
 | `forecast` | `forecasts/balance`(연결 계좌 `accountIds` · 기간), `forecasts/simulations`, `merchant-categories`, `merchants?merchantCategoryCode=`, 구매 계획 `cashflow-items` 등록 · 삭제(2026-11-08 로컬 BE로 확인) | 실적 영향(`performanceImpact`가 늘 null), 홈 잔고 카드(`home`) |
 | `payment` | 결제 코드 발급 · 상태 · 승인 | 가맹점 목록, 결제 전 추천, 거절(요청이 마감까지 남음), 결제 상세. 후보에 카드사 · 카테고리가 없어 별칭으로 보임 |
 | `my` | 기기 목록 · 해제(`APP_UNLOCK` 본인 확인), 회원 탈퇴(`WITHDRAW_MEMBER` 본인 확인) | 회원 정보, 결제 · 보안 설정, 알림. release는 회원 정보를 못 읽어 M-01에서 회원 정보 · 탈퇴로 들어갈 수 없음 |
-| `pos` | 결제 요청 | 가맹점 목록, 결과 조회(결과는 고객 앱에서 확인) |
+| `pos` | 가맹점 번호 찾기(`merchants?merchantCategoryCode=`) · 결제 요청 · 결과 조회(`?posCode=`, 거절 뒤 재시도 중에는 계속 기다림) | 없음 |
 | `billing` | `billings` 청구서 목록(카드 고르기) · `billings/{billId}` 상세, `refunds` 환급 내역(최근 3개월 · 페이지) | 없음. 앱이 기간 · 상태를 고르지 않아 3개월보다 이전 청구서 · 환급은 안 보임 |
 | `home` · `performance` · `report` | 켜지 않음 | 전부 |
 
