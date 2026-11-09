@@ -134,6 +134,46 @@ class StepUpIntegrationTest extends MySqlTestSupport {
     }
 
     @Test
+    void 결제_코드를_간편_비밀번호만으로_정하면_BARCODE는_생체를_받지_않고_다른_용도는_그대로다() throws Exception {
+        UserDevice device = saveDevice("01012345678", deviceKey, biometricKey);
+        jdbc.update("UPDATE app_user SET barcode_auth_method = 'PIN_ONLY' WHERE user_id = ?", device.getUser().getId());
+
+        challenge(device, "BARCODE").andExpect(jsonPath("$.data.allowedMethods.length()").value(1))
+                .andExpect(jsonPath("$.data.allowedMethods[0]").value("PIN"));
+        challenge(device, "CARD_REGISTER").andExpect(jsonPath("$.data.allowedMethods[0]").value("BIOMETRIC"));
+
+        // 생체로 보내면 서명 확인 전에 400. 인증 기록·실패 횟수는 남지 않는다
+        stepUp(device, "BARCODE", "BIOMETRIC", biometricKey, null)
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("INVALID_REQUEST"))
+                .andExpect(jsonPath("$.error.details.fieldErrors[0].field").value("method"));
+        assertThat(auditRepository.count()).isZero();
+        assertThat(jdbc.queryForObject("SELECT failed_count FROM user_device WHERE user_device_id = ?",
+                Integer.class, device.getId())).isZero();
+
+        String pinToken = read(stepUp(device, "BARCODE", "PIN", deviceKey, PIN).andExpect(status().isOk()).andReturn(),
+                "$.data.stepUpToken");
+        assertThat(stepUpService.requireStepUp(me(device), StepUpPurpose.BARCODE, pinToken).method())
+                .isEqualTo(AuthMethod.PIN);
+        stepUp(device, "CARD_REGISTER", "BIOMETRIC", biometricKey, null).andExpect(status().isOk());
+    }
+
+    @Test
+    void 생체로_받은_결제_코드_토큰은_간편_비밀번호만으로_바꾼_뒤에는_쓸_수_없다() throws Exception {
+        UserDevice device = saveDevice("01012345678", deviceKey, biometricKey);
+        String bioToken = read(stepUp(device, "BARCODE", "BIOMETRIC", biometricKey, null).andReturn(),
+                "$.data.stepUpToken");
+        String bioCardToken = read(stepUp(device, "CARD_REGISTER", "BIOMETRIC", biometricKey, null).andReturn(),
+                "$.data.stepUpToken");
+        jdbc.update("UPDATE app_user SET barcode_auth_method = 'PIN_ONLY' WHERE user_id = ?", device.getUser().getId());
+
+        assertStepUpRequired(() -> stepUpService.requireStepUp(me(device), StepUpPurpose.BARCODE, bioToken));
+        assertThat(redis.hasKey("auth:step-up:" + sha256Hex(bioToken))).isFalse();
+        assertThat(stepUpService.requireStepUp(me(device), StepUpPurpose.CARD_REGISTER, bioCardToken).method())
+                .isEqualTo(AuthMethod.BIOMETRIC);
+    }
+
+    @Test
     void 용도가_다르거나_다른_사람의_토큰이면_403이고_토큰은_버려진다() throws Exception {
         UserDevice mine = saveDevice("01012345678", deviceKey, null);
         UserDevice other = saveDevice("01099998888", DeviceKeys.generate(), null);
