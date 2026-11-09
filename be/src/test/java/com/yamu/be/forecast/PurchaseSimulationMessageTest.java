@@ -26,7 +26,7 @@ class PurchaseSimulationMessageTest {
     @Test
     void 체크카드_구매일_잔액이_0원_아래면_실제로는_결제되지_않는다고_덧붙인다() {
         assertThat(PurchaseSimulationService.message(simulation(-50_000L, 0L, true)))
-                .isEqualTo("11월 16일 잔액이 50,000원 모자라요. 체크카드는 그날 잔액보다 큰 금액은 결제되지 않을 수 있어요.");
+                .isEqualTo("11월 16일 잔액이 50,000원 모자라요. 체크카드는 구매일 잔액보다 큰 금액은 결제되지 않을 수 있어요.");
     }
 
     @Test

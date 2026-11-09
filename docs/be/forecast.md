@@ -532,7 +532,7 @@ enum Origin { REAL, SEED }
   - 대안 카드 소유 확인은 카드마다 BE 1 `CardQueryService.findRegisteredCard`를 불러 카드당 DB 조회가 2번입니다(카드·상품). 보유 카드가 몇 장 수준이라 그대로 두고, 등록 상태 규칙을 이쪽에 복제하지 않습니다(2026-11-06 결정). 요청 지연을 잴 때 확인할 지점입니다.
 - **신용한도**: 신용카드면 결제와 같은 한도 포트(`CreditLimitSource.check`, 읽기만 함)의 결과를 그대로 `creditLimit: { status, availableLimit }`로 옮기고, 체크카드면 null입니다. 지금 구현(`UnlimitedCreditLimitSource`)은 늘 `SKIPPED`·null이고, 실제 한도 구현이 생기면 따라 바뀝니다(2026-11-06 !126 리뷰). 명세에 없는 필드이고, 명세의 422 `CREDIT_LIMIT_EXCEEDED`·한도 미확인 `DATA_INSUFFICIENT`는 쓰지 않습니다(2026-11-05 결정, BE 2 안내).
 - **안내 문장(`message`)**: 구매 뒤 가장 낮은 잔액과 기간 밖 금액만 알립니다. 예: "11월 16일 잔액이 12,000원까지 내려가요. 예보 기간 밖에서 800,000원이 더 빠져요." 잔액이 마이너스면 "…원 모자라요", 출금 계좌가 선택 밖이면 "선택하지 않은 계좌에서 …원이 빠져 비교 결과는 같아요."입니다. 구매를 권하거나 말리는 말은 넣지 않습니다(FR-032).
-  - **체크카드 잔액 초과(2026-11-09, -347)**: 체크카드 구매가 기간 안 선택 계좌에서 빠지는 날 그 계좌의 구매 후 잔액(가장 나쁜 선)이 0원 아래면 " 체크카드는 그날 잔액보다 큰 금액은 결제되지 않을 수 있어요."를 덧붙입니다. 계산은 그대로 하고(422로 막지 않음) 실제 결제와 다른 점만 알립니다. 기준을 엔진의 오늘 잔액(`INSUFFICIENT_BALANCE`)이 아니라 구매일 잔액으로 정한 것은, 월급 뒤에 사는 구매를 막지 않으려는 것입니다. 가장 나쁜 선이라 추정 생활비까지 빼므로 실제로는 결제될 수도 있어, 단정하지 않고 "…결제되지 않을 수 있어요"로 씁니다(Codex 검토, 2026-11-09 결정). 구매일이 기간 밖이거나 출금 계좌가 선택 밖이면 그날 잔액을 몰라 붙이지 않습니다.
+  - **체크카드 잔액 초과(2026-11-09, -347)**: 체크카드 구매가 기간 안 선택 계좌에서 빠지는 날 그 계좌의 구매 후 잔액(가장 나쁜 선)이 0원 아래면 " 체크카드는 구매일 잔액보다 큰 금액은 결제되지 않을 수 있어요."를 덧붙입니다. 앞 문장이 최저 잔액 날짜라 "그날"로 쓰면 최저일로 읽혀 "구매일"이라고 씁니다(!198 리뷰 반영). 계산은 그대로 하고(422로 막지 않음) 실제 결제와 다른 점만 알립니다. 기준을 엔진의 오늘 잔액(`INSUFFICIENT_BALANCE`)이 아니라 구매일 잔액으로 정한 것은, 월급 뒤에 사는 구매를 막지 않으려는 것입니다. 가장 나쁜 선이라 추정 생활비까지 빼므로 실제로는 결제될 수도 있어, 단정하지 않고 "…결제되지 않을 수 있어요"로 씁니다(Codex 검토, 2026-11-09 결정). 구매일이 기간 밖이거나 출금 계좌가 선택 밖이면 그날 잔액을 몰라 붙이지 않습니다.
 - **오늘 날짜**: 요청마다 한 번만 정해 구매일 검사와 예보 시작일에 같이 씁니다(`ForecastService.prepare`의 `today` 인자). 두 번 읽으면 자정을 사이에 두고 어긋나 계산기가 500을 낼 수 있어서입니다(코드 리뷰 반영, 2026-11-05).
 - **트랜잭션**: 추천(체크카드 잔액 조회)과 잔고예보 재료(금융망 잔액, 소비 분류 쓰기)가 있어 트랜잭션을 붙이지 않습니다.
 
@@ -608,13 +608,14 @@ POST /api/forecasts/simulations
   "alternatives": [ { "nickname": "신한카드 Mr.Life", "cardType": "CREDIT", "netBenefit": 1000, "recommended": true },
                     { "nickname": "삼성 iD ON 카드", "cardType": "CREDIT", "netBenefit": 0, "recommended": false } ],
   "schedule": [ { "date": "2026-11-06", "amount": -300000, "label": "체크카드 즉시 출금" } ],
-  "comparison": { "before": { "minBalance": 359628, "minBalanceDate": "2026-11-24", "endBalance": 2695380, "status": "SAFE" },
+  "comparison": { "before": { "minBalance": 359628, "minBalanceDate": "2026-11-24", "endBalance": 2695380, "status": "SAFE",
+                              "riskStartDate": null },
                   "after": { "minBalance": 59628, "minBalanceDate": "2026-11-24", "endBalance": 2395380, "status": "WARNING" },
                   "withinPeriodImpact": -300000, "beyondPeriodImpact": 0 },
-                  // 2026-11-09(-347)부터 before·after에 "riskStartDate"(SAFE면 null)가 붙습니다. 이 예시는 그 전 응답입니다.
   "message": "11월 24일 잔액이 59,628원까지 내려가요."
 }
 ```
+2026-11-09(-347)부터 `before`·`after`에 `riskStartDate`가 붙습니다. 위험이 없는(SAFE) `before`는 null이고, 위험이 있는 `after`에는 안전 잔액 아래로 처음 내려가는 날이 들어갑니다. 이 예시는 칸을 더하기 전 실제 응답이라 `after`의 날짜는 적지 않았습니다(!198 리뷰 반영).
 `benefit.benefits[]`는 실제로는 그 카드의 모든 혜택(적용되지 않은 것은 `amount` 0)이 함께 오고, 위에는 적용된 것만 남겼습니다. 환급할인(`AFTER_BILLING`)은 즉시할인이 아니라 `chargedAmount`가 결제 금액 그대로입니다.
 
 **테스트하며 찾은 것**

@@ -269,6 +269,8 @@ class PurchaseSimulatorTest {
 
     @Test
     void 체크카드_구매일_계좌_잔액이_0원_아래면_실제로는_결제되지_않는다고_표시한다() {
+        // 생활비 추정이 없는 계좌(Map.of())가 전제다. 생활비 추정이 있으면 가장 나쁜 선이 그날까지의 생활비를 빼서
+        // 잔액과 같은 금액에도 표시가 붙는다(forecast.md 「체크카드 잔액 초과」 한계, !198 리뷰).
         LocalDate today = LocalDate.of(2026, 11, 1);
 
         PurchaseSimulation overdrawn = PurchaseSimulator.simulate(input(Map.of(A, 100_000L), List.of(), today,
