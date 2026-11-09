@@ -140,6 +140,13 @@ public enum ErrorCode {
     PAYMENT_NOT_CANCELABLE(HttpStatus.CONFLICT, "취소할 수 없는 결제입니다."),
     ALREADY_CANCELED(HttpStatus.CONFLICT, "이미 취소된 결제입니다."),
 
+    /*
+     * 결제 - 결제 요청 거절(S15P31E103-360). 임시: API 명세에 없는 API라 명세 추가 필요.
+     * 없는·남의 결제는 RESOURCE_NOT_FOUND, 마감 지남은 PAYMENT_EXPIRED, 승인·취소된 결제는 PAYMENT_ALREADY_PROCESSED,
+     * 승인 처리 중은 IDEMPOTENCY_IN_PROGRESS를 같이 쓴다
+     */
+    PAYMENT_NOT_REJECTABLE(HttpStatus.CONFLICT, "지금은 결제를 거절할 수 없어요. 잠시 후 결과를 확인해 주세요."),
+
     /* 결제 - 결제 메모 (API 명세 「결제 메모」). 없는·남의 결제는 공통 RESOURCE_NOT_FOUND */
     MEMO_TOO_LONG(HttpStatus.BAD_REQUEST, "메모는 100자까지 적을 수 있어요."),
 

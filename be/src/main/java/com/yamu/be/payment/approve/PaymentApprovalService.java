@@ -375,11 +375,14 @@ public class PaymentApprovalService {
         }
     }
 
-    /** 승인할 수 없는 상태를 응답 코드로. 선점 경쟁에서 진 뒤 다시 읽은 REQUESTED·DECLINED도 "처리 중"이다. */
+    /**
+     * 승인할 수 없는 상태를 응답 코드로. 선점 경쟁에서 진 뒤 다시 읽은 REQUESTED·DECLINED도 "처리 중"이다.
+     * 사용자가 거절한 REJECTED(S15P31E103-360)는 승인·취소처럼 이미 끝난 결제다.
+     */
     private static BusinessException byStatus(PaymentStatus status) {
         return switch (status) {
             case EXPIRED -> new BusinessException(ErrorCode.PAYMENT_EXPIRED);
-            case APPROVED, CANCELED -> new BusinessException(ErrorCode.PAYMENT_ALREADY_PROCESSED,
+            case APPROVED, CANCELED, REJECTED -> new BusinessException(ErrorCode.PAYMENT_ALREADY_PROCESSED,
                     Map.of("status", status.name()));
             default -> inProgress();
         };
@@ -922,14 +925,18 @@ public class PaymentApprovalService {
                 && attempt.card().userCardId().equals(payment.getUserCardId());
     }
 
-    /** 시도의 실행 결과가 DB에 저장됐는지. 승인은 지금 행이 승인(뒤 취소 포함)이고, 거절은 뒤 시도가 있거나 행이 거절·만료다. */
+    /**
+     * 시도의 실행 결과가 DB에 저장됐는지. 승인은 지금 행이 승인(뒤 취소 포함)이고, 거절은 뒤 시도가 있거나 행이 거절·만료다.
+     * 거절 뒤 사용자가 결제 요청을 거절(REJECTED, S15P31E103-360)한 행도 그 거절이 저장된 뒤다.
+     */
     private boolean isSaved(Attempt attempt, PaymentTransaction payment) {
         PaymentStatus status = payment.getStatus();
         if (Attempt.APPROVED.equals(attempt.outcome())) {
             return status == PaymentStatus.APPROVED || status == PaymentStatus.CANCELED;
         }
         return attempt.no() < attempts.count(payment.getId())
-                || status == PaymentStatus.DECLINED || status == PaymentStatus.EXPIRED;
+                || status == PaymentStatus.DECLINED || status == PaymentStatus.EXPIRED
+                || status == PaymentStatus.REJECTED;
     }
 
     /** 요청 내용: 결제 번호와 고른 카드(생략은 auto). 같은 키로 다른 결제·다른 카드를 보내면 409. */
