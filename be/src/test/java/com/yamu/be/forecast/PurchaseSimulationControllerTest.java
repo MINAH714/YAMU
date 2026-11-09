@@ -1,6 +1,7 @@
 package com.yamu.be.forecast;
 
 import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.endsWith;
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.not;
 import static org.hamcrest.Matchers.nullValue;
@@ -144,6 +145,16 @@ class PurchaseSimulationControllerTest extends MySqlTestSupport {
                 .andExpect(jsonPath("$.data.accountComparisons").value(nullValue()))
                 .andExpect(jsonPath("$.data.message").value(startsWith(today.getMonthValue() + "월 ")))
                 .andExpect(jsonPath("$.data.isEstimate").value(true));
+    }
+
+    @Test
+    void 체크카드_잔액보다_큰_구매는_부족_시작일과_결제되지_않는다는_안내를_준다() throws Exception {
+        // 점검 B-08(-347): 잔액 1,000,000원 계좌에서 체크카드로 1,200,000원. 계산은 그대로 하고 알리기만 한다.
+        perform(body(accountA, checkOnA, "1200000", "\"until\": \"DAYS\", \"days\": 7"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.comparison.after.endBalance").value(-200_000))
+                .andExpect(jsonPath("$.data.comparison.after.riskStartDate").value(today.toString()))
+                .andExpect(jsonPath("$.data.message").value(endsWith("체크카드는 그날 잔액보다 큰 금액은 결제되지 않아요.")));
     }
 
     @Test
