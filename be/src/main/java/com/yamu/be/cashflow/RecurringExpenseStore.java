@@ -1,12 +1,12 @@
 package com.yamu.be.cashflow;
 
 import jakarta.persistence.EntityManager;
-import jakarta.persistence.LockModeType;
 import java.time.LocalDate;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Isolation;
@@ -77,10 +77,17 @@ class RecurringExpenseStore {
 
     /**
      * 행을 잠그며 DB 값으로 다시 읽고, 아직 손대지 않은 확인 전 후보면 회차와 함께 지운다. 그사이 다른 요청이 확인·무시했으면
-     * (가계부 수정은 같은 첫 규칙 행을 잠근다) 그 커밋을 기다린 뒤 바뀐 상태를 보고 남긴다.
+     * (가계부 수정은 같은 첫 규칙 행을 잠근다) 그 커밋을 기다린 뒤 바뀐 상태를 보고 남긴다. 같은 끊긴 후보를 다른 요청이 먼저 지웠으면
+     * (잔고예보와 가계부 목록을 함께 여는 경우) 다시 읽을 행이 없으니 이미 지운 것으로 보고 넘어간다. 전에는 영속성 컨텍스트의
+     * 옛 객체를 refresh해 행이 없을 때 예외로 500이 났다(!200 리뷰).
      */
-    private void removeIfUntouched(Long userId, CashflowItem item) {
-        entityManager.refresh(item, LockModeType.PESSIMISTIC_WRITE);
+    private void removeIfUntouched(Long userId, CashflowItem stale) {
+        entityManager.detach(stale);
+        Optional<CashflowItem> locked = items.findForUpdate(stale.getId(), userId);
+        if (locked.isEmpty()) {
+            return;
+        }
+        CashflowItem item = locked.get();
         if (item.getStatus() != CashflowItem.Status.CANDIDATE || item.getVersion() != 0L) {
             return;
         }

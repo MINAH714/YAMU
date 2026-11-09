@@ -154,6 +154,38 @@ class RecurringExpenseDetectorTest extends MySqlTestSupport {
     }
 
     @Test
+    void 같은_끊긴_후보를_두_요청이_동시에_지워도_둘_다_성공하고_후보는_사라진다() throws Exception {
+        // !200 리뷰: 한쪽이 먼저 지우고 커밋하면 다른 쪽이 잠그며 다시 읽을 때 행이 없어 500이 났다(이윤서 님 8회 중 8회 재현).
+        // 경합이 매번 나지 않으므로 사용자를 바꿔 여러 번 돌린다.
+        for (int round = 0; round < 5; round++) {
+            long user = ownership.user();
+            long userCard = ownership.card(user, ownership.product(), ownership.account(user), "ACTIVE");
+            List<Long> payments = paidMonthly(user, userCard, merchant, 55_000L, 3, 3, "YAMU");
+            candidates(user).andExpect(jsonPath("$.data.candidateCount").value(1));
+            cancel(payments.get(payments.size() - 1));
+
+            ExecutorService pool = Executors.newFixedThreadPool(2);
+            CountDownLatch start = new CountDownLatch(1);
+            List<Future<Map<Long, RecurringExpenseDetector.Detection>>> results = new ArrayList<>();
+            try {
+                for (int i = 0; i < 2; i++) {
+                    results.add(pool.submit(() -> {
+                        start.await();
+                        return detector.refresh(user);
+                    }));
+                }
+                start.countDown();
+                for (Future<Map<Long, RecurringExpenseDetector.Detection>> result : results) {
+                    assertThat(result.get(30, TimeUnit.SECONDS)).isEmpty();
+                }
+            } finally {
+                pool.shutdownNow();
+            }
+            assertThat(detectedRows(user)).isZero();
+        }
+    }
+
+    @Test
     void 무시한_후보는_다시_만들지_않는다() throws Exception {
         paidMonthly(owner, card, merchant, 55_000L, 3, 3, "YAMU");
         long candidate = onlyDetectedRow(owner);
