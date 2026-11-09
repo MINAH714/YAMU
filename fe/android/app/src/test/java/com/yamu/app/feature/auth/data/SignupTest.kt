@@ -60,6 +60,40 @@ class SignupTest {
         assertEquals("KB국민은행", c.name)
     }
 
+    @Test fun `1원 유효 시간은 서버 두 시각의 차 · 못 읽으면 5분`() {
+        assertEquals(300, oneWonValidSeconds("2026-11-09T03:00:00Z", "2026-11-09T03:05:00Z"))
+        assertEquals(180, oneWonValidSeconds("2026-11-09T03:00:00Z", "2026-11-09T03:03:00Z"))
+        assertEquals(300, oneWonValidSeconds(null, "2026-11-09T03:05:00Z"))       // 요청 시각이 없으면 폰 시계와 비교하지 않는다
+        assertEquals(300, oneWonValidSeconds("2026-11-09T03:00:00", "2026-11-09T03:05:00Z"))   // Z 없음
+        assertEquals(300, oneWonValidSeconds("2026-11-09T03:05:00Z", "2026-11-09T03:00:00Z"))  // 거꾸로
+    }
+
+    @Test fun `1원 응답 — 시연용 숫자(BE -350)와 요청 · 만료 시각을 읽고 없으면 빠진 대로`() {
+        val withCode = YamuJson.decodeFromString(
+            OneWonAuthResponse.serializer(),
+            """{"verificationToken":"avt_1","bank":{"code":"088","name":"신한은행"},"maskedAccountNo":"****4450",""" +
+                """"authRequestedAt":"2026-11-09T03:00:00Z","authExpiresAt":"2026-11-09T03:05:00Z","depositorNamePrefix":"YAMU",""" +
+                """"codeLength":4,"deliveryUncertain":false,"demoCode":"1004"}""",
+        )
+        assertEquals("1004", withCode.demoCode)
+        assertEquals(300, oneWonValidSeconds(withCode.authRequestedAt, withCode.authExpiresAt))
+        // NON_NULL이라 시연 서버가 아니면 demoCode · hint 필드가 빠진다
+        val without = YamuJson.decodeFromString(
+            OneWonAuthResponse.serializer(),
+            """{"verificationToken":"avt_1","depositorNamePrefix":"YAMU","codeLength":4,"deliveryUncertain":false}""",
+        )
+        assertNull(without.demoCode)
+        assertNull(without.authRequestedAt)
+    }
+
+    @Test fun `가입 중 409 · 404 코드는 공통 문장으로 떨어지지 않는다`() {
+        assertEquals("이미 가입을 마쳤어요 · 처음 화면의 로그인으로 이 폰을 등록해 주세요", signupErrorMessage("ALREADY_REGISTERED"))
+        assertNotNull(signupErrorMessage("DEVICE_LIMIT_EXCEEDED"))
+        assertNotNull(signupErrorMessage("ACCOUNT_NOT_FOUND_AT_BANK"))
+        assertNotNull(signupErrorMessage("ACCOUNT_NOT_SUPPORTED"))
+        assertNotNull(signupErrorMessage("IDEMPOTENCY_KEY_REUSED"))
+    }
+
     @Test fun `본인인증 확인 응답 — 이미 가입이면 재등록`() {
         val r = YamuJson.decodeFromString(PhoneConfirmResponse.serializer(), """{"signupToken":"sgt_x","expiresIn":1800,"mode":"DEVICE_RECOVERY","nextStep":"ACCOUNT_LINK"}""")
         assertEquals("DEVICE_RECOVERY", r.mode)

@@ -9,10 +9,12 @@ import com.yamu.app.core.security.TokenStore
 import com.yamu.app.feature.auth.data.AccountCandidate
 import com.yamu.app.feature.auth.data.Carrier
 import com.yamu.app.feature.auth.data.CodeSent
+import com.yamu.app.feature.auth.data.IdentityInput
 import com.yamu.app.feature.auth.data.SIGNUP_TOKEN_INVALID
 import com.yamu.app.feature.auth.data.SignupMode
 import com.yamu.app.feature.auth.data.SignupOneWon
 import com.yamu.app.feature.auth.data.SignupRepository
+import com.yamu.app.feature.auth.data.SignupRestart
 import com.yamu.app.feature.link.data.brandOf
 import kotlinx.coroutines.delay
 import kotlinx.serialization.json.buildJsonObject
@@ -27,8 +29,8 @@ import kotlin.random.Random
  *
  * 시험용 값(이름은 아무거나, 번호로 나눈다):
  * - 01012345678 → 가입 전 시드 사용자(가입) · 01099998888 → 이미 가입(이 폰 다시 등록) · 그 밖 → 시연 사용자가 아님
- * - 인증번호: 문자 알림으로 오는 6자리 · 5번 틀리면 처음부터
- * - 1원 숫자 1004 · 0000은 시간 지남 · 그 밖은 틀림(3번)
+ * - 인증번호: 문자 알림으로 오는 6자리 · 5번 틀리면 처음부터 · 맞히면 바로 지운다(서버처럼 같은 번호로 다시 확인하면 시간 지남)
+ * - 1원 숫자 1004 · 0000은 시간 지남 · 9999는 가입 진행 토큰 만료(본인인증부터 다시) · 그 밖은 틀림(3번)
  */
 @Singleton
 class FakeSignupRepository @Inject constructor(
@@ -54,6 +56,9 @@ class FakeSignupRepository @Inject constructor(
     override var name: String? = null
         private set
     override var termsAgreed = false
+    override var lastInput: IdentityInput? = null
+        private set
+    private var restartReason: SignupRestart? = null
     override var recoveryBiometric = false
     override var pinStaged = false
         private set
@@ -61,6 +66,7 @@ class FakeSignupRepository @Inject constructor(
     override suspend fun requestCode(name: String, birthDate: LocalDate, carrier: Carrier, phoneNumber: String): ApiResult<CodeSent> {
         delay(500)
         pendingName = name.trim()
+        lastInput = IdentityInput(name.trim(), birthDate, carrier, phoneNumber)
         pendingMode = when (phoneNumber) {
             SIGNUP_PHONE -> SignupMode.SIGNUP
             RECOVERY_PHONE -> SignupMode.DEVICE_RECOVERY
@@ -141,6 +147,7 @@ class FakeSignupRepository @Inject constructor(
         if (!oneWonSent) return ApiResult.Failure(ApiError.InvalidRequest("VERIFICATION_TOKEN_EXPIRED"))
         when {
             code == "0000" -> return expired()
+            code == TOKEN_EXPIRED_CODE -> return tokenInvalid(SignupRestart.EXPIRED)
             code != ONE_WON_CODE -> {
                 oneWonTries++
                 if (oneWonTries >= 3) return expired()
@@ -179,19 +186,35 @@ class FakeSignupRepository @Inject constructor(
         return ApiResult.Success(Unit)
     }
 
+    override fun dropVerification() = forgetProgress()
+
+    override fun restart(reason: SignupRestart) {
+        forgetProgress()
+        restartReason = reason
+    }
+
+    override fun takeRestartReason(): SignupRestart? = restartReason.also { restartReason = null }
+
     override fun clear() {
+        forgetProgress()
+        pendingName = null
+        pendingMode = null
+        sentCode = null
+        lastInput = null
+        termsAgreed = false
+        restartReason = null
+    }
+
+    /** 본인인증으로 받은 것만 지운다 — 넣은 값 · 약관 동의는 남긴다 */
+    private fun forgetProgress() {
         token = null
         pinStaged = false
         mode = null
         name = null
-        pendingName = null
-        pendingMode = null
-        sentCode = null
         oneWonSent = false
         verified = false
         lastPrimary = null
         oneWon = null
-        termsAgreed = false
         recoveryBiometric = false
     }
 
@@ -200,8 +223,9 @@ class FakeSignupRepository @Inject constructor(
         return ApiResult.Failure(ApiError.InvalidRequest("AUTH_CODE_EXPIRED"))
     }
 
-    private fun tokenInvalid(): ApiResult.Failure {
-        clear()
+    /** 실제 저장소처럼 토큰이 없으면 LOST, 서버가 거절하면 EXPIRED로 본인인증부터 */
+    private fun tokenInvalid(reason: SignupRestart = SignupRestart.LOST): ApiResult.Failure {
+        restart(reason)
         return ApiResult.Failure(ApiError.Unauthorized(SIGNUP_TOKEN_INVALID))
     }
 
@@ -209,5 +233,6 @@ class FakeSignupRepository @Inject constructor(
         const val SIGNUP_PHONE = "01012345678"
         const val RECOVERY_PHONE = "01099998888"
         const val ONE_WON_CODE = "1004"
+        const val TOKEN_EXPIRED_CODE = "9999"
     }
 }
