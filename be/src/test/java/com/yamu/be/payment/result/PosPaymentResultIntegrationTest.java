@@ -36,6 +36,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
+import java.time.format.DateTimeFormatter;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -164,7 +165,8 @@ class PosPaymentResultIntegrationTest extends MySqlTestSupport {
                 .andExpect(jsonPath("$.data.instantDiscount").value((Object) null))
                 .andExpect(jsonPath("$.data.card").value((Object) null))
                 .andExpect(jsonPath("$.data.failure").value((Object) null))
-                .andExpect(jsonPath("$.data.retryable").value((Object) null));
+                .andExpect(jsonPath("$.data.retryable").value((Object) null))
+                .andExpect(jsonPath("$.data.lateConfirmPending").value((Object) null));
     }
 
     @Test
@@ -232,6 +234,7 @@ class PosPaymentResultIntegrationTest extends MySqlTestSupport {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.status").value("DECLINED"))
                 .andExpect(jsonPath("$.data.retryable").value(true))
+                .andExpect(jsonPath("$.data.lateConfirmPending").value(false))
                 .andExpect(jsonPath("$.data.failure.code").value("INSUFFICIENT_BALANCE"))
                 .andExpect(jsonPath("$.data.failure.message").value("잔액 부족으로 결제가 거절됐습니다."))
                 .andExpect(jsonPath("$.data.failure.details").doesNotExist())
@@ -320,6 +323,33 @@ class PosPaymentResultIntegrationTest extends MySqlTestSupport {
                 .andExpect(jsonPath("$.data.card.cardType").value("CREDIT"))
                 .andExpect(jsonPath("$.data.retryable").value((Object) null));
         assertThat(payments.findById(requested.paymentId()).orElseThrow().getStatus()).isEqualTo(PaymentStatus.EXPIRED);
+    }
+
+    @Test
+    void 출금_미확인_거절은_만료된_뒤에도_대조_기간과_잠금_시간_동안_lateConfirmPending_true다() throws Exception {
+        Requested requested = requested(15_000, null, null);
+        doReturn(ApprovalOutcome.Declined.of(FailureCode.WITHDRAWAL_NOT_CONFIRMED)).when(approver).approve(any());
+        approve(requested.paymentId(), checkCard).andExpect(status().isOk());
+        // 승인 실행은 목이라 요청 번호를 남기지 않는다. 실제 체크카드 출금처럼 지금 시각(한국)으로 채번한 번호를 넣는다
+        String finRequestNo = DateTimeFormatter.ofPattern("yyyyMMddHHmmss")
+                .format(clock.instant().atZone(KST)) + "000001";
+        jdbc.update("UPDATE payment_transaction SET fin_request_no = ?, fin_request_amount = ? "
+                + "WHERE payment_transaction_id = ?", finRequestNo, 15_000, requested.paymentId());
+
+        result(POS_KEY, requested.paymentId(), POS_CODE)
+                .andExpect(jsonPath("$.data.status").value("DECLINED"))
+                .andExpect(jsonPath("$.data.lateConfirmPending").value(true));
+
+        clock.advance(Duration.ofMinutes(10));
+        result(POS_KEY, requested.paymentId(), POS_CODE)
+                .andExpect(jsonPath("$.data.status").value("EXPIRED"))
+                .andExpect(jsonPath("$.data.failure.code").value("WITHDRAWAL_NOT_CONFIRMED"))
+                .andExpect(jsonPath("$.data.lateConfirmPending").value(true));
+
+        clock.advance(Duration.ofSeconds(61));
+        result(POS_KEY, requested.paymentId(), POS_CODE)
+                .andExpect(jsonPath("$.data.status").value("EXPIRED"))
+                .andExpect(jsonPath("$.data.lateConfirmPending").value(false));
     }
 
     @Test
