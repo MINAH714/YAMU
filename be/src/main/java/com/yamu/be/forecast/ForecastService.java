@@ -11,6 +11,7 @@ import com.yamu.be.global.common.ApiResponse.FieldErrorResponse;
 import com.yamu.be.global.exception.BusinessException;
 import com.yamu.be.global.exception.ErrorCode;
 import com.yamu.be.payment.billing.BillStatus;
+import com.yamu.be.payment.billing.CardBill;
 import com.yamu.be.payment.billing.CardBillRepository;
 import java.time.Clock;
 import java.time.LocalDate;
@@ -191,7 +192,7 @@ public class ForecastService {
             }
         }
         return new Prepared(selected, horizon, userSettings.alertThreshold(), balanceById, living, List.copyOf(events),
-                List.copyOf(excluded), startBalances, dailyLiving, beyondHorizon(beyond));
+                List.copyOf(excluded), startBalances, dailyLiving, beyondHorizon(authenticatedUserId, beyond));
     }
 
     /**
@@ -486,13 +487,30 @@ public class ForecastService {
         return result.events();
     }
 
-    /** 기간 밖 출금을 출금일·종류 순으로 응답 모양으로 바꾼다. 선에는 넣지 않는다. */
-    private static List<BalanceForecast.BeyondHorizonItem> beyondHorizon(List<FlowEvent> beyond) {
-        return beyond.stream()
-                .sorted(Comparator.comparing(FlowEvent::date).thenComparing(FlowEvent::type))
-                .map(event -> new BalanceForecast.BeyondHorizonItem(event.date(), event.type(), event.title(),
-                        event.amount(), event.confidence()))
-                .toList();
+    /**
+     * 기간 밖 출금을 출금일·종류 순으로 응답 모양으로 바꾼다. 선에는 넣지 않는다. 여러 계좌·카드를 구별하도록 출금 계좌와 카드를
+     * 담고, 청구는 제목을 "카드 이름 N월 청구"로 바꾼다(Codex 검토, 2026-11-09 결정). 청구서 읽기(BE 2)는 카드를 주지 않아
+     * 청구서마다 한 번 더 읽는다.
+     */
+    private List<BalanceForecast.BeyondHorizonItem> beyondHorizon(Long userId, List<FlowEvent> beyond) {
+        List<BalanceForecast.BeyondHorizonItem> items = new ArrayList<>();
+        for (FlowEvent event : beyond.stream()
+                .sorted(Comparator.comparing(FlowEvent::date).thenComparing(FlowEvent::type)).toList()) {
+            Long userCardId = event.refId();
+            String title = event.title();
+            if (event.type() == FlowEvent.Type.CARD_BILLING) {
+                // 리더가 그 사용자의 청구만 주지만, 남의 청구서 정보를 싣지 않도록 소유자를 다시 본다.
+                CardBill bill = cardBills.findById(event.refId())
+                        .filter(found -> found.getUserId().equals(userId))
+                        .orElseThrow(() -> new IllegalStateException("기간 밖 청구서를 읽지 못했다: " + event.refId()));
+                userCardId = bill.getUserCardId();
+                String name = cardNames.name(userId, userCardId);
+                title = (name == null ? "카드" : name) + " " + bill.getBillingMonth().getMonthValue() + "월 청구";
+            }
+            items.add(new BalanceForecast.BeyondHorizonItem(event.date(), event.type(), title, event.amount(),
+                    event.confidence(), event.accountId(), userCardId));
+        }
+        return List.copyOf(items);
     }
 
     private static FlowEvent billEvent(CardBillReader.OutstandingBill bill, LocalDate date,

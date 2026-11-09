@@ -30,6 +30,7 @@ import com.yamu.be.forecast.LivingCostReader.Origin;
 import com.yamu.be.global.exception.BusinessException;
 import com.yamu.be.global.exception.ErrorCode;
 import com.yamu.be.payment.billing.BillStatus;
+import com.yamu.be.payment.billing.CardBill;
 import com.yamu.be.payment.billing.CardBillRepository;
 import java.time.Clock;
 import java.time.Instant;
@@ -531,17 +532,24 @@ class ForecastServiceTest {
                 new OutstandingBill(89L, A, Status.CONFIRMED, TODAY.plusDays(15), 300_000L),
                 new OutstandingBill(88L, A, Status.CONFIRMED, TODAY.plusDays(14), 100_000L),
                 new OutstandingBill(87L, A, Status.UNPAID, TODAY.minusDays(10), 120_000L));
+        givenBill(89L, USER, 41L, LocalDate.of(2026, 11, 1));
+        givenBill(90L, USER, 42L, LocalDate.of(2026, 12, 1));
 
         BalanceForecast result = service.forecast(USER, List.of(A), Until.DAYS, 14, false, false);
 
         // 기간 마지막 날 출금은 기간 안이다
         assertThat(lastConfirmed(result.series())).isEqualTo(700_000L);
+        // 여러 계좌·카드를 구별하도록 출금 계좌·카드와 "카드 이름 N월 청구" 제목을 담는다(Codex 검토).
         assertThat(result.beyondHorizon())
                 .extracting(BalanceForecast.BeyondHorizonItem::date, BalanceForecast.BeyondHorizonItem::type,
-                        BalanceForecast.BeyondHorizonItem::amount, BalanceForecast.BeyondHorizonItem::confidence)
+                        BalanceForecast.BeyondHorizonItem::title, BalanceForecast.BeyondHorizonItem::amount,
+                        BalanceForecast.BeyondHorizonItem::confidence, BalanceForecast.BeyondHorizonItem::accountId,
+                        BalanceForecast.BeyondHorizonItem::userCardId)
                 .containsExactly(
-                        tuple(TODAY.plusDays(15), FlowEvent.Type.CARD_BILLING, -300_000L, FlowEvent.Confidence.CONFIRMED),
-                        tuple(TODAY.plusDays(30), FlowEvent.Type.CARD_BILLING, -70_000L, FlowEvent.Confidence.EXPECTED));
+                        tuple(TODAY.plusDays(15), FlowEvent.Type.CARD_BILLING, "카드41 11월 청구", -300_000L,
+                                FlowEvent.Confidence.CONFIRMED, A, 41L),
+                        tuple(TODAY.plusDays(30), FlowEvent.Type.CARD_BILLING, "카드42 12월 청구", -70_000L,
+                                FlowEvent.Confidence.EXPECTED, A, 42L));
         assertThat(result.excluded()).extracting(ExcludedItem::reason)
                 .containsExactly(ExcludedItem.Reason.UNPAID_BILL);
     }
@@ -744,6 +752,25 @@ class ForecastServiceTest {
         assertThat(lastConfirmed(result.series())).isEqualTo(800_000L);
         assertThat(result.excluded()).extracting(ExcludedItem::cashflowItemId, ExcludedItem::reason)
                 .containsExactly(tuple(1L, ExcludedItem.Reason.AMOUNT_UNKNOWN));
+    }
+
+    @Test
+    void 기간_밖_청구서가_남의_것이면_싣지_않고_실패한다() {
+        // 리더 계약상 오지 않지만, 남의 청구서의 카드·청구 월을 응답에 싣지 않는다.
+        givenEntries(TODAY, TODAY.plusDays(14));
+        bills = List.of(new OutstandingBill(89L, A, Status.CONFIRMED, TODAY.plusDays(15), 300_000L));
+        givenBill(89L, 999L, 41L, LocalDate.of(2026, 11, 1));
+
+        assertThatThrownBy(() -> service.forecast(USER, List.of(A), Until.DAYS, 14, false, false))
+                .isInstanceOf(IllegalStateException.class);
+    }
+
+    private void givenBill(long cardBillId, long owner, long userCardId, LocalDate billingMonth) {
+        CardBill bill = org.mockito.Mockito.mock(CardBill.class);
+        lenient().when(bill.getUserId()).thenReturn(owner);
+        lenient().when(bill.getUserCardId()).thenReturn(userCardId);
+        lenient().when(bill.getBillingMonth()).thenReturn(billingMonth);
+        when(cardBillRepository.findById(cardBillId)).thenReturn(Optional.of(bill));
     }
 
     private void givenEntries(LocalDate from, LocalDate to, CashflowService.Entry... entries) {

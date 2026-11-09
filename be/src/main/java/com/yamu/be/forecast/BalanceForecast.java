@@ -51,10 +51,13 @@ public record BalanceForecast(List<Long> accountIds, int selectionCount, long cu
      *
      * @param type       CARD_BILLING(확정·진행 중 청구) 또는 CARD_SPENDING_ESTIMATE(이번 이용기간 마감까지 쓸 신용카드 추정)
      * @param amount     출금(음수, 원)
+     * @param title      청구는 "카드 이름 N월 청구", 추정은 추정 근거 문장
      * @param confidence 확정 청구 CONFIRMED, 진행 중 청구 EXPECTED, 사용 추정 CONSERVATIVE
+     * @param accountId  출금 계좌(명세에 없음, 2026-11-09 Codex 검토로 추가)
+     * @param userCardId 그 카드(명세에 없음, 2026-11-09 Codex 검토로 추가)
      */
     public record BeyondHorizonItem(LocalDate date, FlowEvent.Type type, String title, long amount,
-            FlowEvent.Confidence confidence) {}
+            FlowEvent.Confidence confidence, Long accountId, Long userCardId) {}
 
     /**
      * 통합 위험 요약.

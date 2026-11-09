@@ -1,6 +1,7 @@
 package com.yamu.be.forecast;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.endsWith;
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.nullValue;
 import static org.mockito.ArgumentMatchers.anyBoolean;
@@ -152,6 +153,9 @@ class ForecastControllerTest extends MySqlTestSupport {
                 .andExpect(jsonPath("$.data.beyondHorizon[0].type").value("CARD_BILLING"))
                 .andExpect(jsonPath("$.data.beyondHorizon[0].amount").value(-45_000))
                 .andExpect(jsonPath("$.data.beyondHorizon[0].confidence").value("EXPECTED"))
+                .andExpect(jsonPath("$.data.beyondHorizon[0].accountId").value(accountA))
+                .andExpect(jsonPath("$.data.beyondHorizon[0].userCardId").value(cardOnA))
+                .andExpect(jsonPath("$.data.beyondHorizon[0].title").value(endsWith(today.getMonthValue() + "월 청구")))
                 .andExpect(jsonPath("$.data.riskWindows", hasSize(0)));
     }
 
