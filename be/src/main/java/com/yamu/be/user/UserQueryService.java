@@ -23,8 +23,8 @@ import org.springframework.transaction.annotation.Transactional;
  * <ul>
  *   <li>초기 설정(onboarding): 로그인 응답의 onboardingCompleted와 같은 {@link OnboardingStatusReader}로 판단한다
  *       (등록된 카드 ACTIVE·INACTIVE 1장 이상 + 연결된 기준 계좌)</li>
- *   <li>보안 설정: PIN 설정 여부·생체인증·지금 기기는 실제 값. 앱 잠금·결제 코드 인증 생략 시간과 결제 코드 인증 방식은
- *       <b>임시</b> 기본값이다. 저장할 칸과 수정 API(「보안 설정 수정」 P2)가 아직 없다</li>
+ *   <li>보안 설정: PIN 설정 여부·생체인증·지금 기기·앱 잠금 시간·결제 코드 인증 방식은 실제 값(「보안 설정 수정」으로 바꿈).
+ *       초기 설정 중 잠금 유예와 결제 코드 인증 생략 시간은 바꾸는 곳이 없어 <b>임시</b> 기본값이다</li>
  *   <li>결제 설정: 기본 카드는 user_card.is_default, 카드 자동 선택(autoSelect)은 app_user.payment_auto_select.
  *       바꾸는 곳은 「결제 설정 수정」({@code PaymentSettingsService})</li>
  *   <li>명세 v0.3.1의 onboarding.step·incomeSet·recurringCount(예정 수입·고정 지출, BE 4)는 넣지 않았다</li>
@@ -34,14 +34,10 @@ import org.springframework.transaction.annotation.Transactional;
 @RequiredArgsConstructor
 public class UserQueryService {
 
-    /** 임시: 앱을 떠난 뒤 다시 잠그기까지(명세 기본값). 저장 칸이 생기면 사용자 값으로 바꾼다. */
-    static final int DEFAULT_AUTO_LOCK_SECONDS = 60;
     /** 임시: 카드 등록·초기 설정 중 잠금 유예(명세 기본값). */
     static final int DEFAULT_SETUP_GRACE_SECONDS = 300;
     /** 임시: 잠금 해제 뒤 결제 코드를 열 때 다시 묻지 않는 시간(명세 기본값). */
     static final int DEFAULT_BARCODE_AUTH_GRACE_SECONDS = 60;
-    /** 임시: 결제 코드 인증 방식(명세 기본값). */
-    static final String DEFAULT_BARCODE_AUTH_METHOD = "BIOMETRIC_OR_PIN";
 
     private final AppUserRepository userRepository;
     private final UserCardRepository cardRepository;
@@ -69,8 +65,8 @@ public class UserQueryService {
                 user.getName(),
                 new MyInfoResponse.Onboarding(onboarding.cardRegistered(), onboarding.primaryAccountSet(),
                         onboarding.completed()),
-                new MyInfoResponse.SecuritySettings(DEFAULT_AUTO_LOCK_SECONDS, DEFAULT_SETUP_GRACE_SECONDS,
-                        DEFAULT_BARCODE_AUTH_GRACE_SECONDS, DEFAULT_BARCODE_AUTH_METHOD,
+                new MyInfoResponse.SecuritySettings(user.getAutoLockSeconds(), DEFAULT_SETUP_GRACE_SECONDS,
+                        DEFAULT_BARCODE_AUTH_GRACE_SECONDS, user.getBarcodeAuthMethod().name(),
                         device != null && device.isBiometricEnabled(), user.getPinHash() != null,
                         device == null ? null : new MyInfoResponse.CurrentDevice(device.getId(), device.getDeviceName())),
                 new MyInfoResponse.PaymentSettings(user.isPaymentAutoSelect(), defaultUserCardId),

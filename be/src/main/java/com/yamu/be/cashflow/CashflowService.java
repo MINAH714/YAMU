@@ -7,6 +7,9 @@ import com.yamu.be.card.domain.CardIssuerStatus;
 import com.yamu.be.global.common.ApiResponse.FieldErrorResponse;
 import com.yamu.be.global.exception.BusinessException;
 import com.yamu.be.global.exception.ErrorCode;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.time.Clock;
 import java.time.DayOfWeek;
 import java.time.LocalDate;
@@ -19,6 +22,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Isolation;
@@ -41,14 +45,17 @@ public class CashflowService {
 
     private final CashflowItemRepository items;
     private final CashflowOccurrenceRepository occurrences;
+    private final CashflowCreateRequestRepository createRequests;
     private final AccountQueryService accounts;
     private final CardQueryService cards;
     private final Clock clock;
 
     CashflowService(CashflowItemRepository items, CashflowOccurrenceRepository occurrences,
-            AccountQueryService accounts, CardQueryService cards, Clock clock) {
+            CashflowCreateRequestRepository createRequests, AccountQueryService accounts, CardQueryService cards,
+            Clock clock) {
         this.items = items;
         this.occurrences = occurrences;
+        this.createRequests = createRequests;
         this.accounts = accounts;
         this.cards = cards;
         this.clock = clock;
@@ -57,22 +64,81 @@ public class CashflowService {
     /** 예정 수입·지출 규칙과 첫 발생 건을 저장하고 저장된 규칙을 돌려준다. */
     @Transactional
     public Item create(Long authenticatedUserId, CreateCommand command) {
+        return create(authenticatedUserId, command, null);
+    }
+
+    /**
+     * {@link #create(Long, CreateCommand)}에 Idempotency-Key를 더한 등록(S15P31E103-358). 키가 있으면 이 사용자의 같은 키 기록을
+     * 먼저 찾는다(2026-11-09 결정, Codex 검토 반영).
+     * <ul>
+     *   <li>내용이 다르면 409 IDEMPOTENCY_KEY_REUSED.</li>
+     *   <li>내용이 같으면 새로 만들지 않고 그때 만든 규칙의 <b>지금 값</b>을 돌려준다(처음 응답의 복제가 아님). 그사이 고쳤으면 고친 값이다.</li>
+     *   <li>그 규칙을 지웠으면 다시 만들지 않고 404 RESOURCE_NOT_FOUND다. 기록은 항목을 지워도 남는다.</li>
+     * </ul>
+     * 같은 키의 첫 요청 둘이 동시에 오면 늦은 쪽이 UNIQUE(uk_cashflow_create_request)에 걸린다({@link CashflowCreator}가 다시 부른다).
+     *
+     * @param requestKey UUID 형식으로 검사한 소문자 키. null이면 키 없는 등록이다
+     */
+    @Transactional
+    public Item create(Long authenticatedUserId, CreateCommand command, String requestKey) {
         requireUser(authenticatedUserId);
         if (command == null) {
             throw new BusinessException(ErrorCode.INVALID_REQUEST);
         }
         command = normalize(command);
+        byte[] fingerprint = requestKey == null ? null : fingerprint(command);
+        if (requestKey != null) {
+            Optional<CashflowCreateRequest> previous =
+                    createRequests.findByUserIdAndRequestKey(authenticatedUserId, requestKey);
+            if (previous.isPresent()) {
+                if (!MessageDigest.isEqual(previous.get().getRequestFingerprint(), fingerprint)) {
+                    throw new BusinessException(ErrorCode.IDEMPOTENCY_KEY_REUSED);
+                }
+                return items.findById(previous.get().getCashflowItemId())
+                        .filter(item -> item.getUserId().equals(authenticatedUserId))
+                        .map(Item::from)
+                        .orElseThrow(CashflowService::notFound);
+            }
+        }
         CashflowItem.RecurrenceType recurrence = validate(command, today());
         requireOwned(authenticatedUserId, command.accountId(), command.userCardId());
 
-        CashflowItem item = items.save(new CashflowItem(authenticatedUserId,
+        CashflowItem item = new CashflowItem(authenticatedUserId,
                 command.accountId(), command.userCardId(), command.title(),
                 command.direction(), command.amount(), command.scheduledDate(), recurrence,
                 command.recurrenceEndDate(),
                 dayOfMonthOf(recurrence, command.scheduledDate(), command.dayOfMonth(), null),
-                command.merchantCategoryCode(), command.memo()));
+                command.merchantCategoryCode(), command.memo());
+        item = items.save(item);
         occurrences.save(CashflowOccurrence.firstOf(item));
+        if (requestKey != null) {
+            createRequests.save(new CashflowCreateRequest(authenticatedUserId, requestKey, fingerprint, item.getId()));
+        }
         return Item.from(item);
+    }
+
+    /**
+     * 앞뒤 공백 정리 뒤의 등록 내용 SHA-256. 같은 키 재요청이 같은 내용인지 가린다. 칸마다 "길이:값;"(null은 "N;")으로 이어 붙여
+     * 칸 경계가 값 안의 쉼표·등호와 섞이지 않게 한다(레코드 toString은 이스케이프하지 않아 서로 다른 요청이 같아질 수 있었음, Codex 검토).
+     */
+    static byte[] fingerprint(CreateCommand command) {
+        StringBuilder text = new StringBuilder();
+        for (Object value : new Object[] {command.title(), command.direction(), command.amount(),
+                command.scheduledDate(), command.recurrenceType(), command.dayOfMonth(), command.dayOfWeek(),
+                command.recurrenceEndDate(), command.accountId(), command.userCardId(),
+                command.merchantCategoryCode(), command.memo()}) {
+            if (value == null) {
+                text.append("N;");
+            } else {
+                String part = value.toString();
+                text.append(part.length()).append(':').append(part).append(';');
+            }
+        }
+        try {
+            return MessageDigest.getInstance("SHA-256").digest(text.toString().getBytes(StandardCharsets.UTF_8));
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException(e);
+        }
     }
 
     /**
@@ -587,6 +653,18 @@ public class CashflowService {
     }
 
     /** 이번 회차만 고쳤거나 실제 결제와 연결된 회차는 규칙 값이 바뀌어도 그 행의 값을 쓴다. */
+    /**
+     * 확인 전 탐지 후보 수(명세 candidateCount). 값을 고쳐 규칙이 나뉜 후보는 시리즈 마지막 규칙만 센다.
+     *
+     * @param authenticatedUserId 로그인 사용자
+     * @return 후보 수
+     */
+    @Transactional(readOnly = true)
+    public long candidateCount(Long authenticatedUserId) {
+        requireUser(authenticatedUserId);
+        return items.countSeries(authenticatedUserId, CashflowItem.ItemKind.SCHEDULED, CashflowItem.Status.CANDIDATE);
+    }
+
     private static boolean usesRowValues(CashflowOccurrence row, Set<Long> matched) {
         return row.isOverridden() || matched.contains(row.getId());
     }
@@ -828,7 +906,7 @@ public class CashflowService {
     public record Item(Long id, Long accountId, Long userCardId, String title,
             CashflowItem.Direction direction, Long amount, LocalDate scheduledDate,
             CashflowItem.RecurrenceType recurrenceType, LocalDate recurrenceEndDate, Integer recurrenceDayOfMonth,
-            String merchantCategoryCode, CashflowItem.Status status, String memo) {
+            String merchantCategoryCode, CashflowItem.Status status, String memo, CashflowItem.Source source) {
         static Item from(CashflowItem item) {
             Integer dayOfMonth = item.getRecurrenceType() != CashflowItem.RecurrenceType.MONTHLY ? null
                     : item.getRecurrenceDayOfMonth() != null ? item.getRecurrenceDayOfMonth()
@@ -836,14 +914,14 @@ public class CashflowService {
             return new Item(item.getId(), item.getAccountId(), item.getUserCardId(),
                     item.getTitle(), item.getDirection(), item.getAmount(),
                     item.getScheduledDate(), item.getRecurrenceType(), item.getRecurrenceEndDate(), dayOfMonth,
-                    item.getMerchantCategoryCode(), item.getStatus(), item.getMemo());
+                    item.getMerchantCategoryCode(), item.getStatus(), item.getMemo(), item.getSource());
         }
 
         /** 규칙의 ID·반복·상태는 두고 회차에 저장된 값으로 바꾼다. */
         Item with(CashflowOccurrence row) {
             return new Item(id, row.getAccountId(), row.getUserCardId(), row.getTitle(), direction,
                     row.getAmount(), scheduledDate, recurrenceType, recurrenceEndDate, recurrenceDayOfMonth,
-                    row.getMerchantCategoryCode(), status, row.getMemo());
+                    row.getMerchantCategoryCode(), status, row.getMemo(), source);
         }
     }
 }

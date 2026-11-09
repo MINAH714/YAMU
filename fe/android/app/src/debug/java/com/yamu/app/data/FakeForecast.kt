@@ -44,7 +44,26 @@ import com.yamu.app.feature.forecast.data.RiskCauseDto
 import com.yamu.app.feature.forecast.data.RiskWindowDto
 import com.yamu.app.feature.forecast.data.SavedPlan
 import com.yamu.app.feature.forecast.data.SeriesPointDto
+import com.yamu.app.feature.forecast.data.AccountLivingCostDto
+import com.yamu.app.feature.forecast.data.LivingCostDetail
+import com.yamu.app.feature.forecast.data.LivingCostDetailDto
+import com.yamu.app.feature.forecast.data.LivingExclusionDto
+import com.yamu.app.feature.forecast.data.LivingPeriodDto
+import com.yamu.app.feature.forecast.data.LivingSourceDto
+import com.yamu.app.feature.forecast.data.MatchCandidateDto
+import com.yamu.app.feature.forecast.data.MatchCandidates
+import com.yamu.app.feature.forecast.data.MatchCandidatesDto
+import com.yamu.app.feature.forecast.data.MatchConfirmed
+import com.yamu.app.feature.forecast.data.MatchConfirmedDto
+import com.yamu.app.feature.forecast.data.MatchViewDto
+import com.yamu.app.feature.forecast.data.PaceCheckDto
+import com.yamu.app.feature.forecast.data.PaymentMatch
 import com.yamu.app.feature.forecast.data.accountIdsFrom
+import com.yamu.app.feature.forecast.data.isMatchable
+import com.yamu.app.feature.forecast.data.toCandidates
+import com.yamu.app.feature.forecast.data.toConfirmed
+import com.yamu.app.feature.forecast.data.toDetail
+import com.yamu.app.feature.forecast.data.toMatch
 import com.yamu.app.feature.forecast.data.scopeFrom
 import com.yamu.app.feature.forecast.data.toForecast
 import kotlinx.coroutines.delay
@@ -60,11 +79,13 @@ import java.time.ZoneOffset
 import java.time.temporal.ChronoUnit
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlin.math.abs
 
 /**
  * debug 전용 가짜 잔고예보 서버 — BE BalanceForecast와 같은 모양을 만들어 앱의 매퍼를 그대로 거친다.
  * 계좌 둘(월급 통장 412,000 · 생활비 통장 268,000), 하루 생활비 6,000(계좌마다 3,000), +4 카드 청구(진행 중, 예상 선) · 카드 사용 예상(보수적 선만),
- * +9 월세 · +11 통신비 · +16 구독료(확정 선), +25 월급. 그래서 보수적 선만 월급 전에 안전 잔액(100,000) 아래로 내려간다.
+ * +2 미용실(생활카드 예정 지출) · +9 월세 · +11 통신비 · +16 구독료(확정 선), +25 월급. 그래서 보수적 선만 월급 전에 안전 잔액(100,000) 아래로 내려간다.
+ * 지난 7일에는 생활카드 예정 지출 셋(헬스장 · 병원 · 택시)이 있고, 병원은 결제와 연결됨 · 택시는 연결 뒤 결제가 취소된 상태로 시작한다.
  * 디버그 메뉴 '데이터 부족'이면 생활비 기록이 없는 응답(보수적 선 null · INSUFFICIENT)을 준다.
  * 계획을 저장하면 같이 계산 → 잔고예보 숫자가 바뀐다(12 문서 8-5).
  */
@@ -106,10 +127,18 @@ class FakeForecastRepository @Inject constructor() : ForecastRepository {
     private fun monthly(id: Long, title: String, amount: Long, date: LocalDate) =
         Item(id, isIncome = false, title, amount, date, CashflowRepeat.MONTHLY, date.dayOfMonth, null, accountId = 1, userCardId = null)
 
+    /** 생활카드(11, 생활비 통장 출금)로 낼 한 번짜리 예정 지출 — 결제와 연결할 수 있는 회차 */
+    private fun card(id: Long, title: String, amount: Long, date: LocalDate) =
+        Item(id, isIncome = false, title, amount, date, CashflowRepeat.NONE, null, null, accountId = null, userCardId = 11)
+
     private val items = mutableListOf(
         monthly(7001, "월세", 250_000, today.plusDays(9)),
         monthly(7002, "통신비", 35_000, today.plusDays(11)),
         monthly(7003, "구독료 (OTT·음악)", 15_000, today.plusDays(16)),
+        card(7010, "헬스장", 55_000, today.minusDays(3)),
+        card(7011, "병원", 18_000, today.minusDays(6)),
+        card(7013, "택시", 14_000, today.minusDays(4)),
+        card(7012, "미용실", 25_000, today.plusDays(2)),
     )
     private val overrides = mutableMapOf<Pair<Long, LocalDate>, Override>()
     private val excluded = mutableSetOf<Pair<Long, LocalDate>>()
@@ -155,7 +184,7 @@ class FakeForecastRepository @Inject constructor() : ForecastRepository {
     private fun flows(to: LocalDate): List<Flow> {
         val bill = Flow(2, today.plusDays(4), -150_000, "CARD_BILLING", "EXPECTED", "신한카드 청구")
         val estimate = Flow(2, today.plusDays(4), -36_000, "CARD_SPENDING_ESTIMATE", "CONSERVATIVE", "생활카드 · ${today.plusDays(1).md()}~${today.plusDays(3).md()} 3일 × 일평균 12,000원")
-        val fromItems = entriesBetween(today, to).map { Flow(it.accountId ?: 2, it.date, it.signedAmount, if (it.isIncome) "SCHEDULED_INCOME" else "SCHEDULED_OUTFLOW", "CONFIRMED", it.title) }
+        val fromItems = entriesBetween(today, to).filterNot(::paidOff).map { Flow(it.accountId ?: 2, it.date, it.signedAmount, if (it.isIncome) "SCHEDULED_INCOME" else "SCHEDULED_OUTFLOW", "CONFIRMED", it.title) }
         val salary = listOf(Flow(1, income, 2_800_000, "SCHEDULED_INCOME", "CONFIRMED", "월급"))
         val planFlows = plans.map { Flow(2, it.payDate, -it.amount, "SCHEDULED_OUTFLOW", "CONFIRMED", it.title) }
         return listOf(bill, estimate) + fromItems + salary + planFlows
@@ -375,17 +404,27 @@ class FakeForecastRepository @Inject constructor() : ForecastRepository {
         val card = chosen ?: top
         val (benefitName, benefitAmount) = net(card)
         val schedule = withdrawals(card, query.purchaseDate, query.amount, query.installmentMonths)
+        // 가짜는 가상 구매 출금을 저장한 계획과 같은 생활비 통장(2)에서 뺀다
+        val purchaseAccount = 2L
+        val purchaseFlows = schedule.map { Flow(purchaseAccount, LocalDate.parse(it.date), it.amount, "SIMULATED_PURCHASE", "CONFIRMED", it.label ?: "가상 구매") }
         val before = build(current)
-        val after = build(current, schedule.map { Flow(2, LocalDate.parse(it.date), it.amount, "SIMULATED_PURCHASE", "CONFIRMED", it.label ?: "가상 구매") })
+        val after = build(current, purchaseFlows)
         val to = LocalDate.parse(before.horizon!!.to)
-        fun snapshot(dto: BalanceForecastDto) = SimSnapshotDto(dto.summary?.minBalance, dto.summary?.minBalanceDate, dto.summary?.endBalance, dto.summary?.status)
+        // riskStartDate — 위험 구간 중 가장 이른 시작일(BE -347 !198). 가짜는 통합 선 구간만 본다
+        fun snapshot(dto: BalanceForecastDto) = SimSnapshotDto(dto.summary?.minBalance, dto.summary?.minBalanceDate, dto.summary?.endBalance, dto.summary?.status, dto.riskWindows.mapNotNull { it.from }.minOrNull())
         val beyond = schedule.filter { LocalDate.parse(it.date).isAfter(to) }.sumOf { it.amount }
         val afterMin = after.summary?.minBalance ?: 0
         val afterDate = after.summary?.minBalanceDate?.let(LocalDate::parse)
+        // 체크카드 구매일(기간 안) 출금 계좌의 구매 후 잔액(그 계좌의 가장 나쁜 선)이 0원 아래면 BE처럼 안내를 덧붙인다(-347).
+        // 통합 합계로 보면 다른 계좌 잔액이 출금 계좌의 마이너스를 가린다(!206 리뷰). 출금 계좌를 고르지 않았으면 그날 잔액을 몰라 붙이지 않는다
+        val checkOverdrawn = !card.credit && !query.purchaseDate.isAfter(to) && purchaseAccount in current.accountIdsFrom(options()) &&
+            build(current.copy(accountIds = setOf(purchaseAccount)), purchaseFlows).series
+                .firstOrNull { it.date == query.purchaseDate.toString() }?.let { (it.conservative ?: it.expected ?: 0) < 0 } == true
         val message = buildString {
             val d = afterDate?.let { "${it.monthValue}월 ${it.dayOfMonth}일" } ?: "기간 중"
             append(if (afterMin < 0) "$d 잔액이 ${"%,d".format(-afterMin)}원 모자라요." else "$d 잔액이 ${"%,d".format(afterMin)}원까지 내려가요.")
             if (beyond < 0) append(" 예보 기간 밖에서 ${"%,d".format(-beyond)}원이 더 빠져요.")
+            if (checkOverdrawn) append(" 체크카드는 구매일 잔액보다 큰 금액은 결제되지 않을 수 있어요.")
         }
         val alternatives = fakeCards.filter { !it.inactive && it.id != card.id }.map { alt ->
             val comparable = query.installmentMonths == null || alt.credit
@@ -465,7 +504,7 @@ class FakeForecastRepository @Inject constructor() : ForecastRepository {
     }
 
     override fun cachedEntry(itemId: Long, occurrenceDate: LocalDate): CashflowEntry? =
-        lastEntries.firstOrNull { it.itemId == itemId && it.occurrenceDate == occurrenceDate }
+        (lastEntries + lastPast).firstOrNull { it.itemId == itemId && it.occurrenceDate == occurrenceDate }
 
     /**
      * 수정 — 이번 회차만은 그 회차만 덮고, 이후 전부는 적용일부터 새 규칙(첫 회차면 제자리, 아니면 앞 규칙을 전날로 닫는다).
@@ -478,6 +517,7 @@ class FakeForecastRepository @Inject constructor() : ForecastRepository {
         val item = items[index]
         if (body.title == "PAID") return ApiResult.Failure(ApiError.Conflict("PAID_OCCURRENCE_LOCKED"))
         val occurrence = body.occurrenceDate?.let(LocalDate::parse)
+        if (occurrence != null && (itemId to occurrence) in matches) return ApiResult.Failure(ApiError.Conflict("PAID_OCCURRENCE_LOCKED"))
         val newDate = body.date?.let(LocalDate::parse)
         if (newDate != null && newDate.isBefore(today)) return invalid("date", "오늘 이후 날짜만 고를 수 있어요")
         if (body.scope == "THIS_ONLY" && item.repeat != CashflowRepeat.NONE) {
@@ -528,11 +568,161 @@ class FakeForecastRepository @Inject constructor() : ForecastRepository {
         val index = items.indexOfFirst { it.id == itemId }
         if (index < 0) return ApiResult.Failure(ApiError.NotFound("RESOURCE_NOT_FOUND"))
         val item = items[index]
+        if (occurrenceDate != null && (itemId to occurrenceDate) in matches) return ApiResult.Failure(ApiError.Conflict("PAID_OCCURRENCE_LOCKED"))
         if (scope == CashflowDeleteScope.THIS_ONLY && item.repeat != CashflowRepeat.NONE) {
             excluded += itemId to (occurrenceDate ?: return invalid("occurrenceDate", "지울 회차가 필요해요"))
             return ApiResult.Success(Unit)
         }
         if (!item.date.isBefore(today)) items.removeAt(index) else items[index] = item.copy(endDate = today.minusDays(1))
         return ApiResult.Success(Unit)
+    }
+
+    // ── 결제 연결 — BE PaymentMatchService를 줄여 흉내 낸다(앞뒤 7일 · 3일 안이면 예정일 근처 · 최대 10건) ──
+
+    /** 내 YAMU 승인 결제 — [daysAgo]일 전 낮 12시 30분(KST), 응답의 승인 시각은 BE처럼 UTC. [canceled]면 연결 뒤 취소된 결제 */
+    private data class FakePayment(val id: Long, val merchant: String, val amount: Long, val approvedAmount: Long, val daysAgo: Long, val cardId: Long, val canceled: Boolean = false)
+
+    private val payments = listOf(
+        FakePayment(5101, "애플짐 역삼점", 55_000, 55_000, 3, 11),
+        FakePayment(5102, "GS25 역삼점", 4_800, 4_800, 2, 16),
+        FakePayment(5103, "스타벅스 강남R점", 6_500, 6_500, 1, 11),
+        FakePayment(5104, "준오헤어 강남점", 25_000, 22_500, 1, 12),   // 즉시할인 — 결제 금액이 예정과 같아 같은 금액으로 본다
+        FakePayment(5105, "연세내과의원", 18_000, 18_000, 6, 11),
+        FakePayment(5106, "카카오T", 14_000, 14_000, 4, 11, canceled = true),
+        FakePayment(5107, "쿠팡", 32_000, 32_000, 9, 11),
+    )
+
+    private data class FakeMatch(val id: Long, val paymentId: Long)
+
+    /** (규칙, 원래 회차) → 연결. 병원은 연결됨, 택시는 연결 뒤 결제 취소로 시작 */
+    private val matches = mutableMapOf(
+        (7011L to today.minusDays(6)) to FakeMatch(801, 5105),
+        (7013L to today.minusDays(4)) to FakeMatch(802, 5106),
+    )
+    private var nextMatchId = 803L
+
+    private var lastPast: List<CashflowEntry> = emptyList()
+
+    private fun FakePayment.date(): LocalDate = today.minusDays(daysAgo)
+    private fun FakePayment.approvedAtUtc() = "${date()}T03:30:00Z"   // BE UtcLocalDateTimeSerializer처럼 Z를 붙인다
+    private fun FakePayment.view(m: FakeMatch) = MatchViewDto(
+        m.id, id, merchant, amount, approvedAmount,
+        paymentStatus = if (canceled) "CANCELED" else "APPROVED",
+        matchStatus = if (canceled) "REVIEW_REQUIRED" else "ACTIVE",
+        matchedAt = "${date()}T04:00:00Z",
+    )
+
+    /** 연결돼 실제 결제로 센 회차 — 잔고예보의 예정 지출에서 뺀다(결제가 취소됐으면 다시 센다) */
+    private fun paidOff(e: CashflowEntry): Boolean =
+        matches[e.itemId to e.occurrenceDate]?.let { m -> payments.firstOrNull { it.id == m.paymentId }?.canceled == false } == true
+
+    private fun entryOf(itemId: Long, occurrence: LocalDate): CashflowEntry? =
+        entriesBetween(occurrence.minusMonths(2), occurrence.plusMonths(2)).firstOrNull { it.itemId == itemId && it.occurrenceDate == occurrence }
+
+    private fun daysApart(e: CashflowEntry, p: FakePayment) = ChronoUnit.DAYS.between(e.date, p.date())
+    private fun sameAmount(e: CashflowEntry, p: FakePayment) = e.amount == p.amount || e.amount == p.approvedAmount
+    private fun score(e: CashflowEntry, p: FakePayment) = (if (sameAmount(e, p)) 3 else 0) + (if (e.userCardId == p.cardId) 2 else 0)
+    private fun reasons(e: CashflowEntry, p: FakePayment) = listOfNotNull(
+        "AMOUNT_MATCH".takeIf { sameAmount(e, p) },
+        "CARD_MATCH".takeIf { e.userCardId == p.cardId },
+        "DATE_NEAR".takeIf { abs(daysApart(e, p)) <= 3 },
+    )
+    private fun warnings(e: CashflowEntry, p: FakePayment) = listOfNotNull(
+        "AMOUNT_MISMATCH".takeUnless { sameAmount(e, p) },
+        "CARD_MISMATCH".takeUnless { e.userCardId == p.cardId },
+        "DATE_FAR".takeIf { abs(daysApart(e, p)) > 7 },
+    )
+
+    private fun notFound() = ApiResult.Failure(ApiError.NotFound("RESOURCE_NOT_FOUND"))
+
+    override suspend fun pastCardEntries(from: LocalDate, to: LocalDate): ApiResult<List<CashflowEntry>> = withFault {
+        delay(300)
+        ApiResult.Success(entriesBetween(from, to).filter { it.isMatchable }.also { lastPast = it })
+    }
+
+    override suspend fun matchStatus(itemId: Long, occurrenceDate: LocalDate): ApiResult<PaymentMatch?> = withFault {
+        delay(300)
+        val m = matches[itemId to occurrenceDate]
+        ApiResult.Success(m?.let { payments.firstOrNull { p -> p.id == it.paymentId }?.view(it)?.toMatch() })
+    }
+
+    override suspend fun matchCandidates(itemId: Long, occurrenceDate: LocalDate): ApiResult<MatchCandidates> = withFault {
+        delay(500)
+        val e = entryOf(itemId, occurrenceDate) ?: return@withFault notFound()
+        if (!e.isMatchable) return@withFault invalid("cashflowItemId", "카드를 지정한 예정 지출만 결제와 연결할 수 있어요")
+        val taken = matches.values.map { it.paymentId }.toSet()
+        val list = payments.filter { it.id !in taken && !it.canceled && abs(daysApart(e, it)) <= 7 }
+            .sortedWith(compareByDescending<FakePayment> { score(e, it) }.thenBy { abs(daysApart(e, it)) })
+            .take(10)
+        val now = matches[itemId to occurrenceDate]?.let { m -> payments.firstOrNull { it.id == m.paymentId }?.view(m) }
+        val dto = MatchCandidatesDto(
+            itemId, occurrenceDate.toString(), e.date.toString(), e.amount, now,
+            list.map { p ->
+                MatchCandidateDto(
+                    p.id, p.merchant, p.amount, p.approvedAmount, p.approvedAtUtc(), p.cardId,
+                    cardType = if (fakeCards.firstOrNull { it.id == p.cardId }?.credit == false) "CHECK" else "CREDIT",
+                    matchReasons = reasons(e, p), warnings = warnings(e, p),
+                )
+            },
+        )
+        ApiResult.Success(dto.toCandidates())
+    }
+
+    /** 확정 — 같은 짝이면 그대로 200(멱등), 회차나 결제가 다른 상대와 이미 연결이면 409 */
+    override suspend fun confirmMatch(itemId: Long, occurrenceDate: LocalDate, paymentId: Long): ApiResult<MatchConfirmed> {
+        delay(600)
+        val e = entryOf(itemId, occurrenceDate) ?: return notFound()
+        val p = payments.firstOrNull { it.id == paymentId } ?: return notFound()
+        if (!e.isMatchable || p.canceled) return invalid("paymentId", "승인된 카드 결제만 연결할 수 있어요")
+        val key = itemId to occurrenceDate
+        val existing = matches[key]
+        val m = when {
+            existing?.paymentId == paymentId -> existing
+            existing != null || matches.values.any { it.paymentId == paymentId } -> return ApiResult.Failure(ApiError.Conflict("CASHFLOW_MATCH_CONFLICT"))
+            else -> FakeMatch(nextMatchId++, paymentId).also { matches[key] = it }
+        }
+        return ApiResult.Success(MatchConfirmedDto(m.id, itemId, occurrenceDate.toString(), paymentId, "ACTIVE", p.approvedAtUtc(), warnings(e, p)).toConfirmed())
+    }
+
+    override suspend fun deleteMatch(matchId: Long): ApiResult<Unit> {
+        delay(400)
+        val key = matches.entries.firstOrNull { it.value.id == matchId }?.key ?: return notFound()
+        matches.remove(key)
+        return ApiResult.Success(Unit)
+    }
+
+    // ── F-01b 생활비 예측 — 잔고예보와 같은 계좌 · 기간. '데이터 부족'이면 BE처럼 422 ──
+
+    override suspend fun livingCost(): ApiResult<LivingCostDetail> = withFault(empty = { ApiResult.Failure(ApiError.InvalidRequest(ForecastRepository.NO_ACCOUNT)) }) {
+        delay(500)
+        val ids = current.accountIdsFrom(options()).toSet()
+        val accounts = accountList.filter { it.id in ids }
+        val to = horizonTo(current.period)
+        val days = ChronoUnit.DAYS.between(today, to).toInt()
+        val daily = accounts.sumOf { it.dailyLiving ?: 0L }
+        val month = YearMonth.from(today)
+        val dto = LivingCostDetailDto(
+            accountIds = accounts.map { it.id },
+            projectedAmount = daily * days,
+            dailyAverage = daily,
+            monthlyAverage = daily * 30,
+            method = "ML_V1",
+            dataOrigin = "REAL",
+            confidence = "HIGH",
+            period = LivingPeriodDto(today.toString(), to.toString(), days, if (current.period?.days == null) "NEXT_INCOME" else "DAYS"),
+            sources = listOf(3L to 93L, 2L to 108L, 1L to 99L).map { (n, pct) -> LivingSourceDto(month.minusMonths(n).toString(), daily * 30 * pct / 100) },
+            excluded = listOf(
+                LivingExclusionDto("RECURRING", "매달 같은 가맹점 · 같은 금액으로 나간 정기 결제는 뺐어요"),
+                LivingExclusionDto("CREDIT_PAYMENT", "신용카드 결제는 청구 출금으로 따로 세요"),
+                LivingExclusionDto("UNCLASSIFIED", "분류하지 못한 결제는 뺐어요"),
+                LivingExclusionDto("LARGE", "할부 · 100만 원 넘는 결제 · 평소보다 10배 넘게 큰 결제는 뺐어요"),
+            ),
+            dailyTarget = 5_000,
+            paceCheck = PaceCheckDto(thisMonthDaily = daily * 12 / 10, averageDaily = daily, overRatio = BigDecimal("0.2"), flagged = false),
+            accountLivingCosts = accounts.map { a ->
+                AccountLivingCostDto(a.id, a.dailyLiving, a.dailyLiving?.times(30), a.dailyLiving?.times(days), "ML_V1".takeIf { a.dailyLiving != null })
+            },
+        )
+        ApiResult.Success(dto.toDetail(accountList.associate { it.id to it.name }))
     }
 }

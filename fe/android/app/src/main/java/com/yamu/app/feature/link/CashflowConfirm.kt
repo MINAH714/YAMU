@@ -30,7 +30,6 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import com.yamu.app.core.designsystem.component.BottomCta
-import com.yamu.app.core.designsystem.component.EmptyState
 import com.yamu.app.core.designsystem.component.ErrorState
 import com.yamu.app.core.designsystem.component.FlowScreen
 import com.yamu.app.core.designsystem.component.ListRow
@@ -80,7 +79,18 @@ data class CashflowConfirmState(
     val saved: Boolean = false,
 ) {
     fun amountOf(c: CashflowCandidate): Long = amounts[c.id] ?: c.amount
+
+    /** 머리 글은 상태마다 따로 — 찾은 게 없거나 못 불러왔는데 "채워 뒀어요"가 보이지 않게(B-10) */
+    val headline: CashflowHeadline
+        get() = when {
+            loading -> CashflowHeadline("월급과 고정 지출을\n찾고 있어요", null)
+            loadError != null || draft == null -> CashflowHeadline("월급과 고정 지출을\n불러오지 못했어요", null)
+            draft.isEmpty -> CashflowHeadline("찾은 월급과 고정 지출이\n아직 없어요", "나중에 잔고예보에서 넣을 수 있어요")
+            else -> CashflowHeadline("월급과 고정 지출을\n채워 뒀어요", "다르면 눌러서 고쳐요")
+        }
 }
+
+data class CashflowHeadline(val title: String, val sub: String?)
 
 /** B-06 — 금융망 거래내역에서 찾은 월급 · 고정 지출(#19)을 확인하고 한 번에 확정(#8 × n · #17) */
 @HiltViewModel
@@ -133,7 +143,6 @@ class CashflowConfirmViewModel @Inject constructor(private val cashflow: Cashflo
             },
             incomeId = draft.income?.id,
             dailyLivingCost = s.dailyCost,
-            currentIncomeId = draft.currentIncomeId,
         )
         viewModelScope.launch {
             _state.update { it.copy(saving = true, saveError = null) }
@@ -192,9 +201,12 @@ fun CashflowConfirmRoute(onBack: () -> Unit, onSaved: () -> Unit, viewModel: Cas
         ) {
             // 단계 막대 아래 4 + 머리 위 20(프로토타입 B-06 .su · .hd) — 막대가 아래 8을 이미 두므로 16. 보조–첫 줄 12
             Spacer(Modifier.height(16.dp))
-            Text("월급과 고정 지출을\n채워 뒀어요", style = YamuTheme.typography.headlineS, color = c.text1)
-            Spacer(Modifier.height(6.dp))
-            Text("다르면 눌러서 고쳐요", style = YamuTheme.typography.bodyM, color = c.text3)
+            val headline = s.headline
+            Text(headline.title, style = YamuTheme.typography.headlineS, color = c.text1)
+            headline.sub?.let {
+                Spacer(Modifier.height(6.dp))
+                Text(it, style = YamuTheme.typography.bodyM, color = c.text3)
+            }
             Spacer(Modifier.height(12.dp))
             when {
                 s.loading -> repeat(4) {
@@ -202,7 +214,8 @@ fun CashflowConfirmRoute(onBack: () -> Unit, onSaved: () -> Unit, viewModel: Cas
                     Spacer(Modifier.height(YamuSpacing.x3))
                 }
                 s.loadError != null -> ErrorState(s.loadError.orEmpty(), onRetry = viewModel::load)
-                draft == null || draft.isEmpty -> EmptyState("찾은 월급 · 고정 지출이 없어요\n나중에 잔고예보에서 넣을 수 있어요")
+                draft == null -> Unit
+                // 찾은 게 없어도 하루 생활비 줄은 둔다 — 제안값이 화면에 없는 채로 저장되지 않게
                 else -> {
                     draft.income?.let { income ->
                         CandidateRow(income, s, onClick = { viewModel.edit(CashflowEdit.Item(income)) })
@@ -296,7 +309,8 @@ private fun EditAmountSheet(
             value = text,
             onValueChange = { v -> text = v.filter(Char::isDigit).take(10) },
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-            supporting = if (editing is CashflowEdit.DailyCost) "잔고예보가 날마다 이만큼 쓴다고 보고 계산해요" else null,
+            // 서버는 이 값을 하루 목표로 저장만 하고 잔고예보 예측에는 넣지 않는다(docs/be/forecast.md)
+            supporting = if (editing is CashflowEdit.DailyCost) "하루에 쓸 목표 금액이에요" else null,
         )
         Spacer(Modifier.height(YamuSpacing.x5))
         PrimaryButton("저장", onClick = { onSave(text.toLongOrNull()) })

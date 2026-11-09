@@ -20,6 +20,8 @@ import retrofit2.http.GET
 import retrofit2.http.Header
 import retrofit2.http.POST
 import retrofit2.http.Path
+import java.time.Duration
+import java.time.Instant
 import java.time.LocalDate
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -54,13 +56,15 @@ import javax.inject.Singleton
     val verificationToken: String,
     val bank: BankDto? = null,
     val maskedAccountNo: String? = null,
+    /** UTC(끝에 Z). authExpiresAt = 요청 시각 + 5분 — 둘의 차로 남은 시간을 센다 */
+    val authRequestedAt: String? = null,
     val authExpiresAt: String? = null,
     val depositorNamePrefix: String = "YAMU",
     val codeLength: Int = 4,
     val hint: String? = null,
     /** 금융망 응답이 늦었음 — 1원이 안 보이면 1분 뒤 다시 받기 */
     val deliveryUncertain: Boolean = false,
-    /** 시연용 1원 숫자 — BE에 요청해 둔 값(아직 없음). 오면 문자 알림으로 띄운다 */
+    /** 시연용 1원 숫자(BE S15P31E103-350, 시연 서버만 · 없으면 필드가 빠진다). 오면 문자 알림으로 띄운다 */
     val demoCode: String? = null,
 )
 
@@ -107,6 +111,14 @@ enum class Carrier(val code: String, val label: String) {
 
 data class CodeSent(val verificationId: String, val demoCode: String?)
 
+/** 본인인증 칸에 넣은 값(고치는 대로) — 본인인증 화면을 다시 열거나 본인인증부터 다시 할 때 채운다. [birth]는 8자리 그대로 */
+data class IdentityDraft(val name: String = "", val birth: String = "", val carrier: Carrier? = null, val phone: String = "") {
+    val isEmpty: Boolean get() = name.isEmpty() && birth.isEmpty() && carrier == null && phone.isEmpty()
+}
+
+/** 본인인증부터 다시 하게 된 까닭 — EXPIRED: 서버가 가입 진행 토큰을 거절(30분 지남 등) · LOST: 앱이 다시 켜져 진행 상태가 없음 */
+enum class SignupRestart { EXPIRED, LOST }
+
 data class AccountCandidate(val id: String, val brand: Brand, val name: String, val last4: String, val alreadyLinked: Boolean, val bankCode: String? = null)
 
 data class SignupOneWon(
@@ -117,7 +129,43 @@ data class SignupOneWon(
     val hint: String?,
     val deliveryUncertain: Boolean,
     val demoCode: String?,
+    /**
+     * 1원 숫자를 넣을 수 있는 시간(초)과 1원 요청을 보낸 이 폰 시각 — 남은 시간 표시용(최종 만료는 SSAFY가 판단).
+     * BE는 은행 송금이 끝난 뒤 authRequestedAt을 찍으니, 요청을 보낸 때부터 세면 응답이 늦어도 남은 시간이 실제보다 길게 보이지 않는다
+     */
+    val validSeconds: Int = ONE_WON_VALID_SECONDS,
+    val sentAtMillis: Long = System.currentTimeMillis(),
 )
+
+/** 지금 남은 시간(초). 0 이하면 지났다 */
+fun SignupOneWon.secondsLeft(nowMillis: Long): Int = validSeconds - ((nowMillis - sentAtMillis).coerceAtLeast(0) / 1_000).toInt()
+
+/** 1원 응답 → 화면 값. [sentAtMillis]는 요청을 보낸 이 폰 시각(응답을 받은 시각이 아니다) */
+fun OneWonAuthResponse.toOneWon(sentAtMillis: Long) = SignupOneWon(
+    bankName = bank?.name.orEmpty(),
+    last4 = maskedAccountNo.orEmpty().filter(Char::isDigit).takeLast(4),
+    prefix = depositorNamePrefix,
+    codeLength = codeLength,
+    hint = hint,
+    deliveryUncertain = deliveryUncertain,
+    demoCode = demoCode,
+    validSeconds = oneWonValidSeconds(authRequestedAt, authExpiresAt),
+    sentAtMillis = sentAtMillis,
+)
+
+/** 1원 인증 유효 시간 — BE 「1원 인증 요청」 authExpiresAt = 요청 시각 + 5분 */
+const val ONE_WON_VALID_SECONDS = 300
+
+/**
+ * 1원 숫자를 넣을 수 있는 시간(초). 서버가 준 두 시각의 차라 폰 시계가 틀려도 맞다.
+ * 하나라도 없거나 못 읽으면 5분
+ */
+fun oneWonValidSeconds(authRequestedAt: String?, authExpiresAt: String?): Int {
+    val from = authRequestedAt?.let { runCatching { Instant.parse(it) }.getOrNull() }
+    val to = authExpiresAt?.let { runCatching { Instant.parse(it) }.getOrNull() }
+    val seconds = if (from != null && to != null) Duration.between(from, to).seconds else null
+    return seconds?.takeIf { it in 1..3_600 }?.toInt() ?: ONE_WON_VALID_SECONDS
+}
 
 fun AccountCandidateDto.toCandidate() = AccountCandidate(
     id = candidateId,
@@ -141,8 +189,14 @@ interface SignupRepository {
     val mode: SignupMode?
     val name: String?
 
-    /** 약관(A-04)에 동의했나 — 첫 화면 '로그인'으로 들어와 가입이면 약관부터 */
+    /** 약관(A-04)에 동의했나 — 첫 화면 '로그인'으로 들어와 가입이면 약관부터. 서버에 저장하지 않아 본인인증부터 다시 해도 남긴다 */
     var termsAgreed: Boolean
+
+    /**
+     * 본인인증 칸에 넣은 값 — 화면이 칸을 고칠 때마다 적는다. 약관을 거쳐 본인인증 화면을 새로 열거나
+     * 본인인증부터 다시 할 때 이 값으로 칸을 채운다(인증번호를 받을 때의 값이 아니라 마지막으로 고친 값). 첫 화면으로 가면 지운다
+     */
+    var draft: IdentityDraft
 
     /** 재등록 때 지문 키를 같이 등록할지(A-08에서 고름) */
     var recoveryBiometric: Boolean
@@ -170,6 +224,19 @@ interface SignupRepository {
     /** 가입 마지막 단계 — 토큰을 받아 저장하고 진행 상태를 지운다 */
     suspend fun registerDevice(biometric: Boolean): ApiResult<Unit>
 
+    /** 받아 둔 본인인증을 버린다(칸을 고쳤다) — 넣은 값 · 약관 동의는 남긴다 */
+    fun dropVerification()
+
+    /**
+     * 진행을 버리고 본인인증부터 다시 — 넣은 값 · 약관 동의는 남기고 까닭을 적어 둔다.
+     * 가입 진행 토큰이 없거나 서버가 거절하면 저장소가 스스로 부른다
+     */
+    fun restart(reason: SignupRestart)
+
+    /** 본인인증부터 다시 하게 된 까닭 — 본인인증 화면이 한 번 읽고 지운다 */
+    fun takeRestartReason(): SignupRestart?
+
+    /** 처음 화면으로 — 넣은 값 · 약관 동의까지 모두 지운다 */
     fun clear()
 }
 
@@ -192,6 +259,8 @@ class SignupRepositoryImpl @Inject constructor(
     override var name: String? = null
         private set
     override var termsAgreed: Boolean = false
+    override var draft: IdentityDraft = IdentityDraft()
+    private var restartReason: SignupRestart? = null
     override var recoveryBiometric: Boolean = false
     override var pinStaged: Boolean = false
         private set
@@ -228,19 +297,12 @@ class SignupRepositoryImpl @Inject constructor(
 
     private suspend fun send(request: OneWonAuthRequest): ApiResult<SignupOneWon> =
         withToken { bearer ->
+            val sentAt = System.currentTimeMillis()   // 남은 시간은 요청을 보낸 때부터 — 응답이 늦어도 길게 보이지 않게
             apiCall { api.oneWon(bearer, request) }.map { r ->
                 lastRequest = request
                 verificationToken = r.verificationToken
                 linkKey = newIdempotencyKey()
-                SignupOneWon(
-                    bankName = r.bank?.name.orEmpty(),
-                    last4 = r.maskedAccountNo.orEmpty().filter(Char::isDigit).takeLast(4),
-                    prefix = r.depositorNamePrefix,
-                    codeLength = r.codeLength,
-                    hint = r.hint,
-                    deliveryUncertain = r.deliveryUncertain,
-                    demoCode = r.demoCode,
-                ).also { oneWon = it }
+                r.toOneWon(sentAt).also { oneWon = it }
             }
         }
 
@@ -274,25 +336,41 @@ class SignupRepositoryImpl @Inject constructor(
             r.map { }
         }
 
+    override fun dropVerification() = forgetProgress()
+
+    override fun restart(reason: SignupRestart) {
+        forgetProgress()
+        restartReason = reason
+    }
+
+    override fun takeRestartReason(): SignupRestart? = restartReason.also { restartReason = null }
+
     override fun clear() {
+        forgetProgress()
+        pendingName = null
+        draft = IdentityDraft()
+        termsAgreed = false
+        restartReason = null
+    }
+
+    /** 본인인증으로 받은 것(토큰 · 1원 · 맡긴 PIN)만 지운다 */
+    private fun forgetProgress() {
         token = null
         mode = null
         name = null
-        pendingName = null
         verificationToken = null
         linkKey = null
         lastRequest = null
         oneWon = null
-        termsAgreed = false
         recoveryBiometric = false
         pinStaged = false
     }
 
-    /** 가입 진행 토큰을 붙여 부른다. 토큰이 없거나 서버가 거절하면 진행 상태를 지운다 */
+    /** 가입 진행 토큰을 붙여 부른다. 토큰이 없거나 서버가 거절하면 진행을 버리고 본인인증부터(넣은 값 · 약관 동의는 남김) */
     private suspend fun <T> withToken(block: suspend (bearer: String) -> ApiResult<T>): ApiResult<T> {
-        val t = token ?: return ApiResult.Failure(ApiError.Unauthorized(SIGNUP_TOKEN_INVALID))
+        val t = token ?: return ApiResult.Failure(ApiError.Unauthorized(SIGNUP_TOKEN_INVALID)).also { restart(SignupRestart.LOST) }
         val r = block("Bearer $t")
-        if (r is ApiResult.Failure && r.error.code == SIGNUP_TOKEN_INVALID) clear()
+        if (r is ApiResult.Failure && r.error.code == SIGNUP_TOKEN_INVALID) restart(SignupRestart.EXPIRED)
         return r
     }
 }

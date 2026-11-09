@@ -58,23 +58,35 @@ yamu.baseUrl=http://localhost:8080/api/
 
 - `yamu.baseUrl`은 `http://`나 `https://`로 시작하고 `/`로 끝나야 한다(아니면 빌드가 멈춘다). 로컬 BE는 `adb reverse tcp:8080 tcp:8080` 뒤 `localhost`, 에뮬레이터는 `http://10.0.2.2:8080/api/`도 된다.
 - http는 `network_security_config`가 `localhost`와 `10.0.2.2`만 허용한다. LAN IP(`http://192.168.…`)는 막히므로 실기기는 `adb reverse`로 `localhost`를 쓴다.
-- 기능을 진짜로 켤 때는 `yamu.realApi`에 이름을 쉼표로 적는다. 쓸 수 있는 이름은 `auth` · `link` · `cashflow` · `home` · `payment` · `performance` · `forecast` · `report` · `my` · `pos`이다. `all`은 BE에 API가 있는 `auth` · `link` · `cashflow` · `payment` · `forecast` · `my` · `pos`만 켠다. 나머지는 이름을 직접 적어야 켜지고 지금 켜면 404가 난다. `cashflow`나 `forecast`를 켜면 `link`도 같이 켜진다(가짜 계좌 · 카드 번호가 진짜 서버로 가지 않게).
+- 기능을 진짜로 켤 때는 `yamu.realApi`에 이름을 쉼표로 적는다. 쓸 수 있는 이름은 `auth` · `link` · `cashflow` · `home` · `payment` · `performance` · `forecast` · `report` · `my` · `pos` · `billing`이다. `all`은 BE에 API가 있는 `auth` · `link` · `cashflow` · `payment` · `forecast` · `my` · `pos` · `billing`만 켠다. 나머지는 이름을 직접 적어야 켜지고 지금 켜면 404가 난다. `cashflow` · `forecast` · `billing`을 켜면 `link`도 같이 켜진다(가짜 계좌 · 카드 번호가 진짜 서버로 가지 않게).
 - `payment` · `my` · `pos`는 debug에서 BE에 없는 메서드만 가짜로 메운다(`src/debug/.../RealWithFakes.kt`, `src/posDebug/.../FakePosRepository.kt`). release에는 가짜가 없어 그대로 404다.
 - 진짜 API는 로그인 토큰이 필요하다. `auth`를 가짜로 두고 다른 기능만 켜면 가짜 토큰이 실려 401이 나므로 다른 기능을 켤 때는 `auth`도 같이 켠다.
 - 모의 POS는 `yamu.posKey`(BE `yamu.pos.key`와 같은 값), `yamu.posMerchantId`(단말의 `brand_code`와 같은 가맹점 번호, 시드마다 다름), `yamu.posCode`(기본 `POS-YAMU-CAFE`)를 적는다.
 
-BE(develop, 2026-11-03 · 잔고예보는 2026-11-08)와 맞춰 본 결과는 이렇다.
+BE(develop, 2026-11-03 · 잔고예보는 2026-11-08 · 경로 전체는 2026-11-09)와 맞춰 본 결과는 이렇다. 오른쪽 칸은 debug가 가짜로 메우거나 비어 있는 것이다.
 
 | 이름 | 진짜로 부르는 API | BE에 없어서 남은 것 |
 |---|---|---|
 | `auth` | 본인인증 · 가입 중 계좌 연결 · PIN · 기기 등록 · 로그인 · 본인 확인 · 재발급 · 로그아웃 | 없음 |
 | `link` | 카드 확인 · 등록 · 로그인 후 계좌 추가 · 계좌 · 카드 목록 · 계좌 별칭 · 기준 계좌 · 카드 상세 · 수정 · 해제 · 순서 | 없음 |
-| `cashflow` | `cashflow-items` 등록 · 조회 · 수정 · 삭제, `forecasts/settings` 조회 · 수정 | 후보 항목을 만드는 곳이 없어 B-06은 늘 비어 있음 |
-| `forecast` | `forecasts/balance`(연결 계좌 `accountIds` · 기간), `forecasts/simulations`, `merchant-categories`, `merchants?merchantCategoryCode=`, 구매 계획 `cashflow-items` 등록 · 삭제(2026-11-08 로컬 BE로 확인) | 실적 영향(`performanceImpact`가 늘 null), 홈 잔고 카드(`home`) |
-| `payment` | 결제 코드 발급 · 상태 · 승인 | 가맹점 목록, 결제 전 추천, 거절(요청이 마감까지 남음), 결제 상세. 후보에 카드사 · 카테고리가 없어 별칭으로 보임 |
-| `my` | 기기 목록 · 해제(`APP_UNLOCK` 본인 확인), 회원 탈퇴(`WITHDRAW_MEMBER` 본인 확인) | 회원 정보, 결제 · 보안 설정, 알림. release는 회원 정보를 못 읽어 M-01에서 회원 정보 · 탈퇴로 들어갈 수 없음 |
+| `cashflow` | `cashflow-items` 등록 · 조회 · 수정 · 삭제, `forecasts/settings` 조회 · 수정, 결제 연결(`cashflow-payment-matches` · `cashflow-items/{id}/payment-match-candidates`) | 후보 항목을 만드는 곳이 없어 B-06은 늘 비어 있음. `forecast` 없이 켜면 잔고예보 · 생활비 상세 · 구매 판단 · 구매 계획은 가짜 |
+| `forecast` | `forecasts/balance`(연결 계좌 `accountIds` · 기간), `forecasts/simulations`, `merchant-categories`, `merchants?merchantCategoryCode=`, 구매 계획 `cashflow-items` 등록 · 삭제(2026-11-08 로컬 BE로 확인), 생활비 상세 `forecasts/living-cost`(S15P31E103-334) | 실적 영향(`performanceImpact`가 늘 null), 홈 잔고 카드(`home`) |
+| `payment` | 결제 코드 발급 · 상태 · 승인, 결제 상세 `payments/{id}` · 취소 `payments/{id}/cancel` · 메모 `payments/{id}/memo`(S15P31E103-336) | 가맹점 목록, 결제 전 추천, 거절(요청이 마감까지 남음). 후보에 카드사 · 카테고리가 없어 별칭으로 보임 |
+| `my` | 기기 목록 · 해제(`APP_UNLOCK` 본인 확인), 회원 탈퇴(`WITHDRAW_MEMBER` 본인 확인) | 보안 설정 저장, 알림. 회원 정보 `users/me`와 자동 선택 저장 `users/me/payment-settings`는 BE에 생겼지만 debug는 아직 가짜로 메움(`RealWithFakes.kt`) |
 | `pos` | 결제 요청 | 가맹점 목록, 결과 조회(결과는 고객 앱에서 확인) |
-| `home` · `performance` · `report` | 켜지 않음 | 전부 |
+| `billing` | `billings` 청구서 목록(카드 고르기) · `billings/{billId}` 상세, `refunds` 환급 내역(최근 3개월 · 페이지) | 없음. 앱이 기간 · 상태를 고르지 않아 3개월보다 이전 청구서 · 환급은 안 보임 |
+| `home` · `performance` | 켜지 않음 | 전부 |
+| `report` | `all`로는 켜지 않음. 이름을 적어 켜면 결제 내역 `payments` · CSV 내려받기 `payments/export`는 BE로 간다 | 월간 소비분석, 혜택 리포트 |
+
+앱 Retrofit 경로 73개 중 develop BE에 없는 것은 아래 17개다. release에서 부르면 404 `API_NOT_FOUND`가 와서 화면에는 '아직 준비 중인 기능이에요'만 뜨고 '다시 시도' 버튼은 숨는다(Task 8.2.37, S15P31E103-365).
+
+- 홈: `GET home`, `POST sync`
+- 실적: `GET users/me/card-performances`, `GET user-cards/{id}/performance` · `performance/analysis`, `POST user-cards/{id}/performance/decisions`, `GET benefit-limits`
+- 리포트: `GET reports/monthly`, `GET reports/monthly/benefits`(결제 내역 `GET payments`는 있다)
+- 마이: `PATCH users/me/security-settings`, `GET` · `PATCH notifications/settings`, `GET notifications`, `PATCH notifications/{id}/read`, `PATCH notifications/read-all`
+- 결제: `POST recommendations`, `POST payments/{id}/reject`
+
+경로는 같아도 내용이 다른 것도 있다. BE `GET merchants`는 업종 코드(`merchantCategoryCode`)를 꼭 받아 업종별 브랜드 배열을 주는 API라서 결제 · 모의 POS가 쓰는 가맹점 목록(`channel` · `size`, 응답 `items`)으로는 못 쓴다. 모의 POS 결과 조회 `GET pos/payment-requests/{id}`는 BE에 생겼지만 debug는 아직 가짜로 메운다(`RealPosWithFakes`).
 
 로그인은 Task 8.2.8(S15P31E103-235)에서 BE 방식으로 바꿨다. 이 폰에 기기 번호가 있으면 앱을 열 때와 자동 잠금 때 같은 PIN · 지문 로그인 화면이 뜨고(`login/challenge` → `login`, 매번 새 토큰), 로그아웃은 토큰만 지운다. 기기 키는 둘이다 — 기기 키(지문 없이, PIN 로그인 · PIN 본인 확인 서명)와 지문 키(지문을 통과해야 서명). 서명 대상은 challenge 문자열의 UTF-8 바이트다.
 
@@ -84,7 +96,7 @@ BE(develop, 2026-11-03 · 잔고예보는 2026-11-08)와 맞춰 본 결과는 �
 
 회원 탈퇴는 Task 8.2.16(S15P31E103-266)에서 붙였다. 서버가 끝냈을 때만 이 폰의 토큰 · 세션 · 기기 키를 지운다. 응답을 못 받았을 때 먼저 지우면 계정은 남았는데 기기만 비어 다시 들어갈 수 없어서다. 같은 사람이 다시 가입하면 BE가 새 사용자를 만들고 SSAFY 계정을 옮긴다. 옛 이력은 옛 사용자에 남아 보이지 않는다.
 
-가입 · 기기 재등록은 Task 8.2.9(S15P31E103-236)에서 BE 방식으로 바꿨다. 이메일 · 비밀번호는 없다. 가입은 휴대폰 본인인증(이름 · 생년월일 · 통신사 · 번호 → 6자리)으로 가입 진행 토큰(`sgt_…`, 메모리에만)을 받고, 계좌 목록에서 골라 1원 인증(계좌 연결) → PIN → 기기 등록 순서로 가며 기기 등록 응답에 토큰이 온다. 본인인증 결과가 이미 가입한 사람이면 이 폰 재등록(비밀번호 그대로/새로 · 지문 고르기 → 연결된 계좌 하나로 1원 → 1원 숫자로 기기 등록 → 로그인)으로 간다. 가입은 BE 시드(`be/seed/PERSONA.md`)에 있는 사람만 할 수 있다. 1원 숫자는 SSAFY 거래내역에만 찍힌다. 1원 응답에 시연용 `demoCode`가 오면 문자 알림으로 띄우게 해 두었지만 BE에는 아직 이 값이 없어서 지금은 직접 입력한다. 쓸 수 있는 기기는 사용자당 1대라서(BE 11/02 결정) 재등록하면 BE가 다른 기기를 모두 해제한다.
+가입 · 기기 재등록은 Task 8.2.9(S15P31E103-236)에서 BE 방식으로 바꿨다. 이메일 · 비밀번호는 없다. 가입은 휴대폰 본인인증(이름 · 생년월일 · 통신사 · 번호 → 6자리)으로 가입 진행 토큰(`sgt_…`, 메모리에만)을 받고, 계좌 목록에서 골라 1원 인증(계좌 연결) → PIN → 기기 등록 순서로 가며 기기 등록 응답에 토큰이 온다. 본인인증 결과가 이미 가입한 사람이면 이 폰 재등록(비밀번호 그대로/새로 · 지문 고르기 → 연결된 계좌 하나로 1원 → 1원 숫자로 기기 등록 → 로그인)으로 간다. 가입은 BE 시드(`be/seed/PERSONA.md`)에 있는 사람만 할 수 있다. 1원 숫자는 SSAFY 거래내역에만 찍힌다. 1원 응답에 시연용 `demoCode`가 오면 문자 알림으로 띄우게 해 두었지만 BE에는 아직 이 값이 없어서 지금은 직접 입력한다. 쓸 수 있는 기기는 사용자당 1대라서(BE 11/02 결정) 재등록하면 BE가 다른 기기를 모두 해제한다. 해제된 폰은 다음 요청에서 401 `DEVICE_NOT_REGISTERED`를 받으면 토큰 · 세션 · 기기 키를 지우고 이유를 알리며 첫 화면으로 간다. 그 전 BE(S15P31E103-351 전)는 `UNAUTHORIZED`를 주므로 로그인 화면을 먼저 거친다(Task 8.2.37).
 
 ## 폴더
 ```

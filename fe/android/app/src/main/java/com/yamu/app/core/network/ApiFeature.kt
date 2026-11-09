@@ -18,6 +18,7 @@ enum class ApiFeature(val key: String, val label: String) {
     REPORT("report", "리포트"),
     MY("my", "마이"),
     POS("pos", "모의 POS"),
+    BILLING("billing", "청구 · 환급"),
     ;
 
     val isReal: Boolean get() = this in real
@@ -31,6 +32,8 @@ enum class ApiFeature(val key: String, val label: String) {
             val on = entries.filterTo(mutableSetOf()) { it.key in names }
             // 가계부의 계좌 · 카드 번호는 연결 목록에서 온다. 목록이 가짜면 가짜 번호가 진짜 POST · PATCH에 실려 같은 번호의 진짜 계좌에 붙는다
             if (CASHFLOW in on || FORECAST in on) on += LINK
+            // 카드 상세 '다음 출금' → 그 카드 청구서. 카드 목록이 가짜면 가짜 카드 번호로 진짜 청구서를 찾다가 '찾을 수 없는 카드'가 뜬다
+            if (BILLING in on) on += LINK
             return on
         }
     }

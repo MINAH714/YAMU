@@ -7,6 +7,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonPrimitive
+import okhttp3.ResponseBody
 import retrofit2.Response
 import java.io.IOException
 
@@ -34,8 +35,13 @@ sealed interface ApiError {
     data class StepUpRequired(override val code: String, override val details: JsonObject? = null) : ApiError
     data class NotFound(override val code: String, override val details: JsonObject? = null) : ApiError
     data class Conflict(override val code: String, override val details: JsonObject? = null) : ApiError
-    /** 423 — 본인 인증 5회 실패 등으로 잠김 */
+    /** 본인 인증 5회 실패 등으로 잠김 — BE는 403 DEVICE_LOCKED(details.lockedUntil), 423도 같이 본다 */
     data class Locked(override val code: String, override val details: JsonObject? = null) : ApiError
+    /**
+     * 서버에 아직 없는 API — 404 API_NOT_FOUND · 405 METHOD_NOT_ALLOWED. 앱이 먼저 만든 기능(준비 중)이라 다시 해도 같다.
+     * 데이터가 없는 404(RESOURCE_NOT_FOUND)는 [NotFound]
+     */
+    data class NotSupported(override val code: String, override val details: JsonObject? = null) : ApiError
     data class DataInsufficient(override val code: String, override val details: JsonObject? = null) : ApiError
     /** SSAFY 금융망이 늦거나 실패 — 마지막 값과 기준 시각을 보여 준다 */
     data class BankUnavailable(override val code: String, override val details: JsonObject? = null) : ApiError
@@ -74,7 +80,9 @@ sealed interface ApiError {
                 "INVALID_REQUEST" -> InvalidRequest(c, details)
                 "UNAUTHORIZED", "TOKEN_EXPIRED", "INVALID_REFRESH_TOKEN" -> Unauthorized(c, details)
                 "STEP_UP_REQUIRED" -> StepUpRequired(c, details)
+                "DEVICE_LOCKED" -> Locked(c, details)
                 "RESOURCE_NOT_FOUND" -> NotFound(c, details)
+                "API_NOT_FOUND", "METHOD_NOT_ALLOWED" -> NotSupported(c, details)
                 "IDEMPOTENCY_KEY_REUSED" -> Conflict(c, details)
                 "DATA_INSUFFICIENT" -> DataInsufficient(c, details)
                 "FIN_API_UNAVAILABLE", "FIN_API_ERROR", "UPSTREAM_TIMEOUT" -> BankUnavailable(c, details)
@@ -115,6 +123,20 @@ suspend fun apiCallNoData(block: suspend () -> Response<ApiEnvelope<JsonElement>
     val response = block()
     val body = response.body()
     if (response.isSuccessful && (body == null || body.success)) ApiResult.Success(Unit) else response.failure(body)
+}
+
+/** JSON으로 감싸지 않은 파일 응답(결제 내역 CSV). [contentDisposition]은 서버가 붙인 파일 이름 헤더 그대로 */
+class DownloadedFile(val bytes: ByteArray, val contentDisposition: String?)
+
+/** 성공하면 본문 바이트를 그대로 받고, 실패는 다른 API처럼 JSON 오류로 읽는다 */
+suspend fun apiCallFile(block: suspend () -> Response<ResponseBody>): ApiResult<DownloadedFile> = guarded {
+    val response = block()
+    val body = response.body()
+    when {
+        response.isSuccessful && body != null -> ApiResult.Success(DownloadedFile(body.bytes(), response.headers()["Content-Disposition"]))
+        response.isSuccessful -> ApiResult.Failure(ApiError.Unknown("EMPTY_DATA", response.code()))
+        else -> response.failure(null)
+    }
 }
 
 private inline fun <T> guarded(block: () -> ApiResult<T>): ApiResult<T> = try {

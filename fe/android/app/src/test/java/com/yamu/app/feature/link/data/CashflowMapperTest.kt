@@ -2,7 +2,6 @@ package com.yamu.app.feature.link.data
 
 import com.yamu.app.core.network.YamuJson
 import kotlinx.serialization.decodeFromString
-import kotlinx.serialization.json.JsonNull
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -37,47 +36,42 @@ class CashflowMapperTest {
         assertEquals("1일", monthlyDayLabel(1))
     }
 
-    @Test fun `지금 월급은 확정 항목이라 후보에 없다 — 번호만 들고 있고 줄은 후보에서 고른다`() {
-        val draft = listOf(item(305, "INCOME", "부수입", 30_000, 3)).toDraft(null, currentIncomeId = 301)
-        assertEquals(305L, draft.income?.id)
-        assertEquals(301L, draft.currentIncomeId)
+    @Test fun `후보가 하나도 없을 때 하루 생활비만 저장하면 그 필드 하나만 보낸다 — 기간 기준을 덮지 않는다(!205 리뷰)`() {
+        val (patches, settings) = CashflowPlan(emptyList(), incomeId = null, dailyLivingCost = 18_000).toPatches()
+        assertEquals(emptyList<Pair<Long, CashflowPatchRequest>>(), patches)
+        assertEquals("""{"dailyLivingCostTarget":18000}""", settings.toBody().toString())
     }
 
-    @Test fun `월급 후보가 없으면 정한 월급과 기간 기준을 보내지 않는다 — 사용자가 일수 기준으로 정해 뒀을 수 있다`() {
-        val (_, settings) = CashflowPlan(listOf(CashflowDecision(302, true, null)), incomeId = null, dailyLivingCost = null, currentIncomeId = 301).toPatches()
+    @Test fun `월급 후보가 없으면 고정 지출만 확정해도 기간 기준 · 월급을 보내지 않는다 — 사용자가 일수 기준으로 정해 뒀을 수 있다`() {
+        val (_, settings) = CashflowPlan(listOf(CashflowDecision(302, true, null)), incomeId = null, dailyLivingCost = null).toPatches()
         assertEquals(emptySet<String>(), settings.toBody().keys)
     }
 
-    @Test fun `새 후보를 빼도 정한 월급은 그대로`() {
-        val (_, settings) = CashflowPlan(listOf(CashflowDecision(305, false, null)), incomeId = 305, dailyLivingCost = null, currentIncomeId = 301).toPatches()
+    @Test fun `월급 후보를 빼면 기간 기준 · 월급을 보내지 않는다 — 정해 둔 월급과 기간이 그대로 남는다`() {
+        val (_, settings) = CashflowPlan(listOf(CashflowDecision(305, false, null)), incomeId = 305, dailyLivingCost = null).toPatches()
         assertEquals(emptySet<String>(), settings.toBody().keys)
     }
 
-    @Test fun `월급을 유지하면서 하루 생활비만 바꾸면 그것만 보낸다`() {
-        val (_, settings) = CashflowPlan(listOf(CashflowDecision(302, true, null)), incomeId = null, dailyLivingCost = 6_000, currentIncomeId = 301).toPatches()
+    @Test fun `고정 지출을 확정하며 하루 생활비만 바꾸면 그것만 보낸다`() {
+        val (_, settings) = CashflowPlan(listOf(CashflowDecision(302, true, null)), incomeId = null, dailyLivingCost = 6_000).toPatches()
         assertEquals(setOf("dailyLivingCostTarget"), settings.toBody().keys)
     }
 
-    @Test fun `다른 후보를 고르면 그 항목이 월급`() {
-        val (_, settings) = CashflowPlan(listOf(CashflowDecision(305, true, null)), incomeId = 305, dailyLivingCost = null, currentIncomeId = 301).toPatches()
+    @Test fun `월급 후보를 넣으면 그 항목이 월급이고 기간은 다음 월급까지`() {
+        val (_, settings) = CashflowPlan(listOf(CashflowDecision(305, true, null)), incomeId = 305, dailyLivingCost = null).toPatches()
         assertEquals(305L, settings.incomeCashflowItemId)
+        assertEquals("NEXT_INCOME", settings.horizon)
         assertEquals(setOf("horizon", "incomeCashflowItemId"), settings.toBody().keys)
     }
 
-    @Test fun `정한 월급이 없고 후보도 빼면 일수 기준으로 명시한다`() {
-        val (_, settings) = CashflowPlan(listOf(CashflowDecision(305, false, null)), incomeId = 305, dailyLivingCost = null).toPatches()
-        assertEquals(setOf("horizon", "incomeCashflowItemId"), settings.toBody().keys)
-        assertEquals("DAYS", settings.horizon)
-    }
-
-    @Test fun `설정 응답 — 월급만 읽는다`() {
+    @Test fun `설정 응답 — 하루 목표만 읽는다`() {
         val settings = YamuJson.decodeFromString<ForecastSettingsDto>(
             """{"baseAccountId":5,"horizon":"NEXT_INCOME","defaultDays":14,"alertThreshold":100000,
                 "income":{"cashflowItemId":301,"title":"월급","amount":null,"dayOfMonth":25,"accountId":5},
-                "dailyLivingCostTarget":null,"includeCandidates":false,"conservativeLine":false,"updatedAt":null}""",
+                "dailyLivingCostTarget":7000,"includeCandidates":false,"conservativeLine":false,"updatedAt":null}""",
         )
-        assertEquals(301L, settings.income?.cashflowItemId)
-        assertNull(YamuJson.decodeFromString<ForecastSettingsDto>("""{"income":null}""").income)
+        assertEquals(7_000L, settings.dailyLivingCostTarget)
+        assertNull(YamuJson.decodeFromString<ForecastSettingsDto>("""{"income":null,"dailyLivingCostTarget":null}""").dailyLivingCostTarget)
     }
 
     @Test fun `날짜가 반복이 아니면 발생일에서 일자`() {
@@ -102,16 +96,10 @@ class CashflowMapperTest {
         assertEquals(ForecastSettingsPatch("NEXT_INCOME", 301, 6_000), settings)
     }
 
-    @Test fun `월급을 빼면 다음 월급까지가 아니라 날짜 기준`() {
-        val (_, settings) = CashflowPlan(listOf(CashflowDecision(301, include = false, amount = null)), incomeId = 301, dailyLivingCost = null).toPatches()
-        assertEquals("DAYS", settings.horizon)
-        assertNull(settings.incomeCashflowItemId)
-    }
-
-    @Test fun `월급을 빼면 본문에 null을 명시해 서버가 지운다 · 생활비 목표는 없으면 안 보낸다`() {
-        val cleared = ForecastSettingsPatch("DAYS", null, null).toBody()
-        assertEquals(JsonNull, cleared["incomeCashflowItemId"])
-        assertFalse("dailyLivingCostTarget" in cleared)
+    @Test fun `월급은 기간 기준과 함께 보내고 생활비 목표는 없으면 안 보낸다`() {
+        val incomeOnly = ForecastSettingsPatch("NEXT_INCOME", 301, null).toBody()
+        assertEquals(setOf("horizon", "incomeCashflowItemId"), incomeOnly.keys)
+        assertFalse("dailyLivingCostTarget" in incomeOnly)
         val set = ForecastSettingsPatch("NEXT_INCOME", 301, 6_000).toBody()
         assertEquals("301", set["incomeCashflowItemId"].toString())
         assertEquals("6000", set["dailyLivingCostTarget"].toString())

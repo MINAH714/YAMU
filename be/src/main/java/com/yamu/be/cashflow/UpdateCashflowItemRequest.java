@@ -15,6 +15,8 @@ import java.time.LocalDate;
  */
 public record UpdateCashflowItemRequest(
         // 바꿀 수 없다. 보내면 서비스가 400으로 거절한다.
+        // enum 칸은 이름 문자열만 받는다. 숫자를 순번으로 읽지 않는다(StrictEnumDeserializer).
+        @JsonDeserialize(using = StrictEnumDeserializer.class)
         CashflowItem.Direction type,
 
         String title,
@@ -42,8 +44,10 @@ public record UpdateCashflowItemRequest(
         String memo,
 
         // 탐지 후보(CANDIDATE)를 CONFIRMED(확인)나 IGNORED(무시)로 바꿀 때만 쓴다.
+        @JsonDeserialize(using = StrictEnumDeserializer.class)
         CashflowItem.Status status,
 
+        @JsonDeserialize(using = StrictEnumDeserializer.class)
         CashflowService.UpdateScope scope,
 
         LocalDate occurrenceDate) {

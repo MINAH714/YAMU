@@ -5,6 +5,7 @@ import com.yamu.app.core.network.ApiError
 import com.yamu.app.core.network.ApiResult
 import com.yamu.app.core.security.SessionStore
 import com.yamu.app.core.session.DevSession
+import com.yamu.app.core.session.FaultScenario
 import com.yamu.app.core.session.HomeScenario
 import com.yamu.app.core.session.LinkScenario
 import com.yamu.app.feature.auth.data.AccountCandidate
@@ -393,21 +394,31 @@ class FakeCashflowRepository @Inject constructor() : CashflowRepository {
     var lastPlan: CashflowPlan? = null
         private set
 
+    /**
+     * 디버그 메뉴 '모든 기능 상태'를 따른다. 데이터 없음 = 새 사용자(후보 없음 · 생활비 기록 없음),
+     * 데이터 부족 = 생활비 기록만 없음(실제 저장소도 422면 제안만 비우고 화면은 연다)
+     */
     override suspend fun draft(): ApiResult<CashflowDraft> {
-        delay(600)
-        return ApiResult.Success(
-            CashflowDraft(
-                income = CashflowCandidate(301, isIncome = true, title = "월급", amount = 2_800_000, dayOfMonth = 10),
-                expenses = listOf(
-                    CashflowCandidate(302, false, "월세", 250_000, 31),   // 매월 말일(서버 기준일 31) — B-06 '월세 · 말일'
-                    CashflowCandidate(303, false, "통신비", 35_000, 27),
-                    CashflowCandidate(304, false, "구독료", 15_000, 1),
-                ),
-                bills = listOf(BillLine("신한카드 대금", 150_000, 20)),
-                dailyLivingCost = 6_000,
-            ),
-        )
+        if (DevSession.faultScenario == FaultScenario.DATA_INSUFFICIENT) {
+            delay(300)
+            return ApiResult.Success(sampleDraft(dailyLivingCost = null))
+        }
+        return withFault(empty = { ApiResult.Success(CashflowDraft(null, emptyList(), emptyList(), dailyLivingCost = null)) }) {
+            delay(600)
+            ApiResult.Success(sampleDraft(dailyLivingCost = 6_000))
+        }
     }
+
+    private fun sampleDraft(dailyLivingCost: Long?) = CashflowDraft(
+        income = CashflowCandidate(301, isIncome = true, title = "월급", amount = 2_800_000, dayOfMonth = 10),
+        expenses = listOf(
+            CashflowCandidate(302, false, "월세", 250_000, 31),   // 매월 말일(서버 기준일 31) — B-06 '월세 · 말일'
+            CashflowCandidate(303, false, "통신비", 35_000, 27),
+            CashflowCandidate(304, false, "구독료", 15_000, 1),
+        ),
+        bills = listOf(BillLine("신한카드 대금", 150_000, 20)),
+        dailyLivingCost = dailyLivingCost,
+    )
 
     override suspend fun confirm(plan: CashflowPlan): ApiResult<Unit> {
         delay(800)

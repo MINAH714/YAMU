@@ -188,7 +188,7 @@ data class ConditionsState(
     val merchants: List<CatalogMerchant>? = null,
     val merchantsError: String? = null,
     val merchant: CatalogMerchant? = null,
-    val channel: PaymentChannel = PaymentChannel.OFFLINE,   // 화면 기본값은 매장(BE 2026-11-05 결정)
+    val channel: PaymentChannel = PaymentChannel.OFFLINE,   // 업종을 고르기 전엔 매장(BE 2026-11-05 결정), 고르면 그 업종의 기본값(-363)
     val cards: List<SimCardOption>? = null,
     val cardsError: String? = null,
     val cardId: Long? = null,                               // null = 혜택이 가장 큰 카드(추천 1순위)
@@ -237,10 +237,27 @@ class BuyConditionsViewModel internal constructor(val amount: Long, val title: S
         }
     }
 
-    /** 업종을 바꾸면 브랜드는 비우고 그 업종의 브랜드를 새로(앞 업종 요청은 버린다) */
+    /**
+     * 업종을 바꾸면 결제 방식을 그 업종의 기본값으로 맞추고(온라인 쇼핑이면 온라인, 점검 B-14), 브랜드는 비우고 그 업종의 브랜드를 새로.
+     * 결제 방식은 그 뒤 사용자가 바꾼 대로 둔다
+     */
     fun pickCategory(category: MerchantCategory) {
         if (_state.value.category == category) return
-        _state.update { it.copy(category = category, merchant = null, merchants = null, merchantsError = null) }
+        _state.update {
+            it.copy(category = category, channel = PaymentChannel.forCategory(category.code), merchant = null, merchants = null, merchantsError = null)
+        }
+        loadMerchants(category)
+    }
+
+    /** 브랜드 목록만 다시 — 업종을 다시 고르지 않아 사용자가 바꾼 결제 방식이 기본값으로 돌아가지 않는다 */
+    fun retryMerchants() {
+        val category = _state.value.category ?: return
+        _state.update { it.copy(merchants = null, merchantsError = null) }
+        loadMerchants(category)
+    }
+
+    /** 앞 업종 요청은 버린다 */
+    private fun loadMerchants(category: MerchantCategory) {
         merchantsJob?.cancel()
         merchantsJob = viewModelScope.launch {
             when (val r = repo.merchants(category.code)) {
@@ -248,12 +265,6 @@ class BuyConditionsViewModel internal constructor(val amount: Long, val title: S
                 is ApiResult.Failure -> _state.update { it.copy(merchantsError = r.error.userMessage()) }
             }
         }
-    }
-
-    fun retryMerchants() {
-        val c = _state.value.category ?: return
-        _state.update { it.copy(category = null) }
-        pickCategory(c)
     }
 
     fun pickMerchant(merchant: CatalogMerchant?) = _state.update { it.copy(merchant = merchant) }

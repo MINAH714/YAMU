@@ -467,6 +467,26 @@ class AuthIntegrationTest extends MySqlTestSupport {
     }
 
     @Test
+    void 해제된_기기의_Access_Token은_DEVICE_NOT_REGISTERED_탈퇴한_사용자의_토큰은_UNAUTHORIZED다() throws Exception {
+        UserDevice device = activeDevice(false);
+        String access = read(login(device, "PIN", deviceKey, PIN).andReturn(), "$.data.accessToken");
+
+        // 다른 폰에서 재등록돼 이 기기가 해제되면 앱이 기기 재등록으로 안내하도록 DEVICE_NOT_REGISTERED(S15P31E103-351)
+        jdbc.update("UPDATE user_device SET status = 'REVOKED' WHERE user_device_id = ?", device.getId());
+        logout(access, "x")
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.error.code").value("DEVICE_NOT_REGISTERED"));
+
+        // 사용자가 탈퇴했으면 기기 상태와 상관없이 UNAUTHORIZED
+        jdbc.update("UPDATE user_device SET status = 'ACTIVE' WHERE user_device_id = ?", device.getId());
+        jdbc.update("UPDATE app_user SET status = 'WITHDRAWN', deleted_at = ? WHERE user_id = ?",
+                java.sql.Timestamp.valueOf(java.time.LocalDateTime.now(java.time.ZoneOffset.UTC)), device.getUser().getId());
+        logout(access, "x")
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.error.code").value("UNAUTHORIZED"));
+    }
+
+    @Test
     void Access_Token은_30분과_허용_오차가_지나면_만료된다() throws Exception {
         UserDevice device = activeDevice(false);
         MvcResult result = login(device, "PIN", deviceKey, PIN).andReturn();

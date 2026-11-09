@@ -60,7 +60,18 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
-data class FirstAnalysisState(val loading: Boolean = true, val summary: HomeSummary? = null, val failed: Boolean = false)
+data class FirstAnalysisState(val loading: Boolean = true, val summary: HomeSummary? = null, val failed: Boolean = false) {
+    /** 제목은 불러오는 중 · 실패 · 성공마다 따로 — 실패했는데 "나왔어요"가 보이지 않게(B-09) */
+    val title: String
+        get() = when {
+            loading -> "야무가 계산 중이에요"
+            failed || summary == null -> "첫 분석을 불러오지 못했어요"
+            else -> "첫 분석이 나왔어요"
+        }
+}
+
+/** 실패 본문 — 아래 두 버튼으로 홈에 갈 수 있다는 것까지. 404(홈 API 없음)도 같은 글을 쓴다 */
+internal const val FIRST_ANALYSIS_FAILED = "다시 시도하거나\n아래 버튼으로 먼저 시작해도 돼요"
 
 /** B-07 첫 분석 — 홈과 같은 서버 값(#58): 월급 전 예상 잔액 · 할 일 · 오늘 쓸 카드. 앱은 계산하지 않음 */
 @HiltViewModel
@@ -114,18 +125,14 @@ fun FirstAnalysisRoute(onFinish: () -> Unit, viewModel: FirstAnalysisViewModel =
             CharacterImage(YamuPose.Chart, size = CharacterSize.M, animate = true)
             Spacer(Modifier.height(12.dp))
             val summary = s.summary
-            Text(
-                if (s.loading) "야무가 계산 중이에요" else "첫 분석이 나왔어요",
-                style = YamuTheme.typography.headlineS,
-                color = c.text1,
-            )
+            Text(s.title, style = YamuTheme.typography.headlineS, color = c.text1)
             Spacer(Modifier.height(24.dp))
             when {
                 s.loading -> repeat(3) {
                     SkeletonBlock(height = 56.dp)
                     Spacer(Modifier.height(YamuSpacing.x3))
                 }
-                s.failed || summary == null -> ErrorState("첫 분석을 다시 시도할게요", onRetry = viewModel::load)
+                s.failed || summary == null -> ErrorState(FIRST_ANALYSIS_FAILED, onRetry = viewModel::load)
                 else -> AnalysisRows(summary)
             }
             Spacer(Modifier.height(YamuSpacing.x6))

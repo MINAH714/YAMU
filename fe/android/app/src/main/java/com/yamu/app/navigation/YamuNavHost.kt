@@ -46,6 +46,7 @@ import com.yamu.app.feature.forecast.toRoute
 import com.yamu.app.feature.forecast.CashflowCreateRoute
 import com.yamu.app.feature.forecast.CashflowListRoute
 import com.yamu.app.feature.forecast.ForecastRoute
+import com.yamu.app.feature.forecast.LivingCostRoute
 import com.yamu.app.feature.performance.BenefitLimitsRoute
 import com.yamu.app.feature.performance.CardPerformanceRoute
 import com.yamu.app.feature.performance.PerfAnalysisRoute
@@ -68,6 +69,8 @@ import com.yamu.app.feature.my.data.NotiTarget
 import com.yamu.app.feature.report.BenefitReportRoute
 import com.yamu.app.feature.report.PaymentsRoute
 import com.yamu.app.feature.report.ReportRoute
+import com.yamu.app.feature.billing.BillDetailRoute
+import com.yamu.app.feature.billing.BillingRoute
 
 /**
  * 앱 전체 화면 지도 — 2단계에서 빈 화면(PlaceholderScreen)으로 깔고, 3 ~ 10단계에서 모두 진짜 화면으로 바꿨다.
@@ -130,10 +133,10 @@ fun YamuNavHost(navController: NavHostController, modifier: Modifier = Modifier)
                     onOpenTerm = { showMessage("약관 전문은 준비 중이에요") },
                 )
             }
-            // 가입 진행 토큰 만료 · 앱이 다시 켜져 진행 상태가 없음 → 본인인증부터
+            // 가입 진행 토큰 만료 · 앱이 다시 켜져 진행 상태가 없음 → 본인인증부터.
+            // 까닭은 스낵바 대신 본인인증 화면 위에 띄우고, 넣었던 칸 · 약관 동의는 저장소가 남겨 둔다(SignupRepository.restart)
             val restartSignup: () -> Unit = {
                 navController.navigate(IdentityVerify) { popUpTo<Welcome> { inclusive = false } }
-                showMessage("시간이 지났어요 · 본인인증부터 다시 해 주세요")
             }
             composable<IdentityVerify> {
                 PhoneVerifyRoute(
@@ -258,8 +261,10 @@ fun YamuNavHost(navController: NavHostController, modifier: Modifier = Modifier)
                         onCashflowList = { navController.navigate(CashflowList) },
                         onLink = { navController.navigate(LinkGraph) },
                         onAlertSettings = { navController.navigate(NotificationSettings) },
+                        onLivingCost = { navController.navigate(LivingCostDetail) },
                     )
                 }
+                composable<LivingCostDetail> { LivingCostRoute(onBack = back, onLink = { navController.navigate(LinkGraph) }) }
                 composable<CashflowList> {
                     CashflowListRoute(
                         onBack = back,
@@ -359,6 +364,7 @@ fun YamuNavHost(navController: NavHostController, modifier: Modifier = Modifier)
                         onAccountManage = { navController.navigate(AccountManage) },
                         onNotificationSettings = { navController.navigate(NotificationSettings) },
                         onSecurity = { navController.navigate(Security) },
+                        onBilling = { navController.navigate(Billing) },
                         onNotReady = showMessage,
                         onLoggedOut = {
                             navController.restartFromSplash()
@@ -383,6 +389,7 @@ fun YamuNavHost(navController: NavHostController, modifier: Modifier = Modifier)
                             showMessage("${name}${name.objectParticle()} 해제했어요")
                         },
                         onOpenPinPad = openPinPad,
+                        onBills = { id -> navController.navigate(CardBills(id)) },
                     )
                 }
                 composable<CardOrder> {
@@ -417,6 +424,12 @@ fun YamuNavHost(navController: NavHostController, modifier: Modifier = Modifier)
                     )
                 }
                 composable<Security> { SecurityRoute(onBack = back, onOpenPinPad = openPinPad) }
+                // 청구 · 환급 — 마이 탭 전체와 카드 상세의 한 카드가 같은 화면(경로 값으로 구분)
+                val openBill: (Long) -> Unit = { billId -> navController.navigate(BillDetail(billId)) }
+                val openPayment: (Long) -> Unit = { paymentId -> navController.navigate(PaymentDetail(paymentId)) }
+                composable<Billing> { BillingRoute(onBack = back, onBill = openBill, onPayment = openPayment) }
+                composable<CardBills> { BillingRoute(onBack = back, onBill = openBill, onPayment = openPayment) }
+                composable<BillDetail> { BillDetailRoute(onBack = back, onPayment = openPayment) }
             }
 
             // 결제 — 탭 밖 전체 화면. 어느 탭에서 열든 그 탭 위에 쌓인다

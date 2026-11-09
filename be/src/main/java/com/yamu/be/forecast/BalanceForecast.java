@@ -5,8 +5,8 @@ import java.time.LocalDateTime;
 import java.util.List;
 
 /**
- * 잔고예보 결과. 명세 「잔고예보 조회」 응답의 확정·예상·보수적 선, 위험 요약·구간, 예상 생활비, 계좌별 결과를 담는다.
- * {@code beyondHorizon}(기간 밖 청구 미리보기)은 아직 없다.
+ * 잔고예보 결과. 명세 「잔고예보 조회」 응답의 확정·예상·보수적 선, 위험 요약·구간, 예상 생활비, 기간 밖 청구 미리보기,
+ * 계좌별 결과를 담는다.
  *
  * @param accountIds          중복을 뺀 선택 계좌(요청 순서)
  * @param currentTotalBalance 선택 계좌 현재 잔액 합계(원)
@@ -14,13 +14,15 @@ import java.util.List;
  * @param series              통합 날짜 선(기간의 모든 날짜)
  * @param riskWindows         통합 선의 위험 구간
  * @param livingCost          예상 생활비. 자료가 없으면 금액은 null이고 dataOrigin이 INSUFFICIENT
+ * @param beyondHorizon       출금일이 기간 뒤인 카드 청구와 신용카드 사용 추정(출금일 순). 선·위험에는 넣지 않는다(S15P31E103-348)
  * @param accountForecasts    계좌별 결과. 자세히 보기(includeAccountDetails)가 아니면 null
  * @param excluded            계산에서 뺀 예정 회차(명세에 없는 필드)
  * @param calculatedAt        계산한 UTC 시각
  */
 public record BalanceForecast(List<Long> accountIds, int selectionCount, long currentTotalBalance,
         Horizon horizon, long alertThreshold, Summary summary, List<SeriesPoint> series,
-        List<RiskDetector.RiskWindow> riskWindows, LivingCost livingCost, List<AccountForecast> accountForecasts,
+        List<RiskDetector.RiskWindow> riskWindows, LivingCost livingCost, List<BeyondHorizonItem> beyondHorizon,
+        List<AccountForecast> accountForecasts,
         List<ExcludedItem> excluded, boolean isEstimate, LocalDateTime calculatedAt) {
 
     /** 예보 기간 기준. NEXT_INCOME(다음 지정 수입일 전날까지)·DAYS(고정 일수). */
@@ -43,6 +45,19 @@ public record BalanceForecast(List<Long> accountIds, int selectionCount, long cu
 
     /** 그날 반영한 입출금 하나. amount는 입금 +, 출금 −. */
     public record Event(FlowEvent.Type type, String title, long amount, FlowEvent.Confidence confidence) {}
+
+    /**
+     * 기간 뒤에 빠질 카드 출금 하나(명세 beyondHorizon). 선택 계좌에서 빠지는 것만 담는다.
+     *
+     * @param type       CARD_BILLING(확정·진행 중 청구) 또는 CARD_SPENDING_ESTIMATE(이번 이용기간 마감까지 쓸 신용카드 추정)
+     * @param amount     출금(음수, 원)
+     * @param title      청구는 "카드 이름 N월 청구", 추정은 추정 근거 문장
+     * @param confidence 확정 청구 CONFIRMED, 진행 중 청구 EXPECTED, 사용 추정 CONSERVATIVE
+     * @param accountId  출금 계좌(명세에 없음, 2026-11-09 Codex 검토로 추가)
+     * @param userCardId 그 카드(명세에 없음, 2026-11-09 Codex 검토로 추가)
+     */
+    public record BeyondHorizonItem(LocalDate date, FlowEvent.Type type, String title, long amount,
+            FlowEvent.Confidence confidence, Long accountId, Long userCardId) {}
 
     /**
      * 통합 위험 요약.

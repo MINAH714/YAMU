@@ -8,6 +8,8 @@ import androidx.fragment.app.FragmentActivity
 import com.yamu.app.core.designsystem.theme.YamuTheme
 import com.yamu.app.core.security.SessionStore
 import com.yamu.app.core.security.TokenStore
+import com.yamu.app.core.security.settleSessionEnd
+import com.yamu.app.feature.auth.data.AuthRepository
 import com.yamu.app.navigation.YamuApp
 import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
@@ -17,6 +19,7 @@ class MainActivity : FragmentActivity() {   // 지문 창(BiometricPrompt)이 Fr
 
     @Inject lateinit var tokenStore: TokenStore
     @Inject lateinit var sessionStore: SessionStore
+    @Inject lateinit var auth: AuthRepository
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -26,7 +29,12 @@ class MainActivity : FragmentActivity() {   // 지문 창(BiometricPrompt)이 Fr
         }
         setContent {
             YamuTheme {
-                YamuApp(sessionExpired = tokenStore.sessionExpired, autoLockSeconds = sessionStore.autoLockSeconds)
+                YamuApp(
+                    sessionEnd = tokenStore.sessionEnd,
+                    autoLockSeconds = sessionStore.autoLockSeconds,
+                    settleSessionEnd = { event -> tokenStore.settleSessionEnd(event, auth::forgetRevokedDevice) },
+                    onSessionEndHandled = tokenStore::consumeSessionEnd,
+                )
             }
         }
     }

@@ -28,6 +28,9 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class AppUser extends BaseTimeEntity {
 
+    /** 명세 기본값: 앱을 떠나고 1분 뒤 잠금 */
+    public static final int DEFAULT_AUTO_LOCK_SECONDS = 60;
+
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     @Column(name = "user_id")
@@ -51,6 +54,15 @@ public class AppUser extends BaseTimeEntity {
     /** 결제 카드 자동 선택(명세 「결제 설정」). 끄면 기본 카드로 결제한다. 끄려면 기본 카드가 있어야 한다. */
     @Column(name = "payment_auto_select", nullable = false)
     private boolean paymentAutoSelect = true;
+
+    /** 앱을 떠난 뒤 다시 잠그기까지(초, 명세 「보안 설정」). 0·60·300 */
+    @Column(name = "auto_lock_seconds", nullable = false)
+    private int autoLockSeconds = DEFAULT_AUTO_LOCK_SECONDS;
+
+    /** 결제 코드를 열 때 인증 방식(명세 「보안 설정」). 저장만 하고, 결제 코드를 열 때 적용하는 것은 아직 없다(임시) */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "barcode_auth_method", nullable = false, length = 20)
+    private BarcodeAuthMethod barcodeAuthMethod = BarcodeAuthMethod.BIOMETRIC_OR_PIN;
 
     private LocalDateTime identityVerifiedAt;
 
@@ -101,6 +113,16 @@ public class AppUser extends BaseTimeEntity {
     public void changePin(String pinHash, LocalDateTime now) {
         this.pinHash = pinHash;
         this.pinUpdatedAt = now;
+    }
+
+    /** 보안 설정을 바꾼다. null인 칸은 그대로 둔다. 허용 값 검사는 부르는 쪽(SecuritySettingsService)이 한다. */
+    public void changeSecuritySettings(Integer autoLockSeconds, BarcodeAuthMethod barcodeAuthMethod) {
+        if (autoLockSeconds != null) {
+            this.autoLockSeconds = autoLockSeconds;
+        }
+        if (barcodeAuthMethod != null) {
+            this.barcodeAuthMethod = barcodeAuthMethod;
+        }
     }
 
     /** 결제 카드 자동 선택을 켜거나 끈다. 끌 때 기본 카드가 있는지는 부르는 쪽(PaymentSettingsService)이 확인한다. */
