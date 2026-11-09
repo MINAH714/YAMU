@@ -286,6 +286,7 @@ fun ForecastRoute(
                     LinesCard(f)
                     LivingCostEntry(f, onLivingCost)   // F-01b 생활비 예측 입구
                     UpcomingCard(f, onCashflowList)
+                    BeyondHorizonCard(f)
                     NoticeCard(f, s.selection)
                 }
             }
@@ -590,6 +591,36 @@ private fun UpcomingCard(f: Forecast, onCashflowList: () -> Unit) {
         }
     }
 }
+
+/**
+ * 기간 뒤에 빠질 카드값(BE beyondHorizon) — 30일 예보인데 카드값이 31일째에 빠지면 아무 안내 없이 빠져 있던 것(점검 2026-11-08).
+ * 선 · 위험에는 넣지 않은 돈이라 '예정된 돈'과 따로 두고 없으면 카드를 그리지 않는다
+ */
+@Composable
+private fun BeyondHorizonCard(f: Forecast) {
+    val items = f.beyondHorizon
+    if (items.isEmpty()) return
+    val c = YamuTheme.colors
+    YamuCard(contentPadding = PaddingValues(16.dp)) {
+        Row(Modifier.heightIn(min = 24.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text("기간 뒤에 빠질 카드값", style = YamuTheme.typography.cardTitle, color = c.text1, modifier = Modifier.weight(1f))
+            Text("${(items.sumOf { it.amount }).toWon(withPlusSign = true)}원", style = YamuTheme.typography.titleS, color = c.text1)
+        }
+        Text(beyondHorizonNote(f), style = YamuTheme.typography.bodyS, color = c.text3, modifier = Modifier.padding(top = 2.dp, bottom = 4.dp))
+        items.take(BEYOND_VISIBLE).forEachIndexed { i, e ->
+            if (i > 0) HorizontalDivider(color = c.outlineVariant)
+            EventRow(e)
+        }
+        val hidden = items.size - BEYOND_VISIBLE
+        if (hidden > 0) Text("외 ${hidden}건", style = YamuTheme.typography.bodyS, color = c.text3, modifier = Modifier.padding(top = 4.dp))
+    }
+}
+
+/** '11월 30일 뒤라 위 그래프에는 넣지 않았어요' — 기간 끝을 모르면 날짜 없이 */
+internal fun beyondHorizonNote(f: Forecast): String =
+    (f.to?.let { "${it.toKoreanDate()} 뒤에 빠져서" } ?: "예보 기간 뒤에 빠져서") + " 위 그래프에는 넣지 않았어요"
+
+private const val BEYOND_VISIBLE = 5
 
 @Composable
 private fun EventRow(e: ForecastEvent) {

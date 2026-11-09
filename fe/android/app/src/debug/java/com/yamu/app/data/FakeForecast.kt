@@ -6,6 +6,7 @@ import com.yamu.app.core.network.ApiResult
 import com.yamu.app.core.session.DevSession
 import com.yamu.app.core.session.FaultScenario
 import com.yamu.app.feature.forecast.data.BalanceForecastDto
+import com.yamu.app.feature.forecast.data.BeyondHorizonItemDto
 import com.yamu.app.feature.forecast.data.CashflowDeleteScope
 import com.yamu.app.feature.forecast.data.CatalogMerchant
 import com.yamu.app.feature.forecast.data.MerchantCategory
@@ -284,6 +285,11 @@ class FakeForecastRepository @Inject constructor() : ForecastRepository {
                 dailyAverage = if (living.all { it != null }) daily else null,
                 method = "ML_V1",
                 dataOrigin = if (living.all { it != null }) "REAL" else "INSUFFICIENT",
+            ),
+            // 기간 뒤 카드값(BE -348) — 생활비 통장(2)에서 빠지는 것만, 출금일순
+            beyondHorizon = if (2L !in ids) emptyList() else listOf(
+                BeyondHorizonItemDto(to.plusDays(5).toString(), "CARD_BILLING", "생활카드 ${to.plusDays(5).monthValue}월 청구", -320_000, "EXPECTED"),
+                BeyondHorizonItemDto(to.plusDays(5).toString(), "CARD_SPENDING_ESTIMATE", "생활카드 · 이용기간 마감까지 10일 × 일평균 12,000원", -120_000, "CONSERVATIVE"),
             ),
             excluded = excludedItems,
             isEstimate = true,

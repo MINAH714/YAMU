@@ -18,9 +18,22 @@ import kotlin.math.abs
     val series: List<SeriesPointDto> = emptyList(),
     val riskWindows: List<RiskWindowDto> = emptyList(),
     val livingCost: ForecastLivingCostDto? = null,
+    val beyondHorizon: List<BeyondHorizonItemDto> = emptyList(),
     val excluded: List<ExcludedItemDto> = emptyList(),
     val isEstimate: Boolean = true,
     val calculatedAt: String? = null,
+)
+
+/**
+ * 출금일이 예보 기간 뒤인 카드 청구 · 신용카드 사용 추정(BE -348 !199). 선과 위험에는 넣지 않았고 선택 계좌에서 빠지는 것만 온다.
+ * 청구는 title이 "카드 이름 N월 청구", 사용 추정은 근거 문장이다
+ */
+@Serializable data class BeyondHorizonItemDto(
+    val date: String? = null,
+    val type: String? = null,
+    val title: String? = null,
+    val amount: Long = 0,
+    val confidence: String? = null,
 )
 
 /** type은 실제로 계산한 기준 — NEXT_INCOME이면 to가 다음 월급일 전날, 월급을 못 찾으면 DAYS(30일) */
@@ -214,6 +227,7 @@ data class Forecast(
     val isEstimate: Boolean,
     val calculatedAtIso: String?,
     val scope: AccountScope? = null,   // 계좌를 일부만 골랐을 때 — 응답에는 없고 저장소가 붙인다
+    val beyondHorizon: List<ForecastEvent> = emptyList(),   // 기간 뒤에 빠질 카드값(출금일순, 0원 제외). 선에는 없다
 ) {
     /** 다음 월급일 — 기간 기준이 NEXT_INCOME일 때만(끝 날은 월급 전날). DAYS면 월급을 못 찾았거나 N일을 고른 것 */
     val incomeDate: LocalDate? get() = to?.takeIf { isNextIncome }?.plusDays(1)
@@ -320,6 +334,10 @@ fun BalanceForecastDto.toForecast(): Forecast {
         excluded = excluded.map { it.toNote() },
         isEstimate = isEstimate,
         calculatedAtIso = calculatedAt,
+        beyondHorizon = beyondHorizon.mapNotNull { b ->
+            val date = parseDate(b.date) ?: return@mapNotNull null
+            ForecastEvent(date, enumOf(b.type, FlowType.UNKNOWN), b.title?.takeIf { it.isNotBlank() } ?: "카드값", b.amount, enumOf(b.confidence, FlowConfidence.UNKNOWN))
+        }.filter { it.amount != 0L }.sortedBy { it.date },
     )
 }
 
