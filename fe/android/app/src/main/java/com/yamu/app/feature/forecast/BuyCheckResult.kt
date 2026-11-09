@@ -374,7 +374,7 @@ private fun HeroCard(sim: Simulation, threshold: Long?) {
             }
             AmountText(after?.minBalance ?: 0, shortage = (after?.minBalance ?: 0) < 0, color = c.primary)
         }
-        afterTag(after, sim.afterRiskStart(threshold))?.let { (text, tone) ->
+        afterTag(after)?.let { (text, tone) ->
             Spacer(Modifier.height(8.dp))
             StatusTag(text, tone = tone)
         }
@@ -412,12 +412,13 @@ private fun List<Int>.toRanges(): List<IntRange> = fold(mutableListOf<IntRange>(
 
 /**
  * 사고 난 뒤 상태 — 권하거나 말리지 않고 잔액 사실만(FR-032 · BE 안내 문장과 같은 원칙).
- * 날짜는 가장 낮은 날이 아니라 안전 잔액 아래로 처음 내려가는 날([riskStart])이고, 문구도 잔고예보 첫 화면 태그와 같다(점검 B-08).
- * 그 날이 0원 아래로 내려가는 날보다 이를 수 있어 '잔액 부족'이라 쓰지 않는다. 0원 아래면 빨간색으로만 구분한다
+ * 날짜는 가장 낮은 날이 아니라 BE가 준 안전 잔액 아래로 처음 내려가는 날(riskStartDate)이고, 문구도 잔고예보 첫 화면 태그와 같다(점검 B-08).
+ * 그 날이 0원 아래로 내려가는 날보다 이를 수 있어 '잔액 부족'이라 쓰지 않는다. 0원 아래면 빨간색으로만 구분한다.
+ * 그 칸이 없는 옛 응답이면 날짜를 빼고 보인다
  */
-internal fun afterTag(after: SimSnapshot?, riskStart: LocalDate?): Pair<String, TagTone>? {
+internal fun afterTag(after: SimSnapshot?): Pair<String, TagTone>? {
     after ?: return null
-    val below = riskStart?.let { "${it.toKoreanDate()}부터 안전 잔액 아래" } ?: "안전 잔액 아래로 내려가요"
+    val below = after.riskStartDate?.let { "${it.toKoreanDate()}부터 안전 잔액 아래" } ?: "안전 잔액 아래로 내려가요"
     return when {
         (after.minBalance ?: 0) < 0 || after.status == RiskLevel.DANGER -> below to TagTone.Error
         after.status == RiskLevel.WARNING -> below to TagTone.Warning

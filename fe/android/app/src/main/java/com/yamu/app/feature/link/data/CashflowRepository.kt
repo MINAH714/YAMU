@@ -4,12 +4,12 @@ import com.yamu.app.core.network.ApiEnvelope
 import com.yamu.app.core.network.ApiResult
 import com.yamu.app.core.network.apiCall
 import com.yamu.app.core.network.apiCallNoData
-import com.yamu.app.core.network.map
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
 import kotlinx.coroutines.async
+import kotlinx.coroutines.cancelChildren
 import kotlinx.coroutines.coroutineScope
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.Transient
@@ -50,16 +50,14 @@ import javax.inject.Singleton
     val horizon: String,
     val incomeCashflowItemId: Long? = null,
     val dailyLivingCostTarget: Long? = null,
-    @Transient val keepIncome: Boolean = false,   // 이미 정한 월급 · 기간 기준은 보내지 않아 그대로 둔다
+    @Transient val keepIncome: Boolean = false,   // 월급 후보를 넣지 않았으면 기간 기준 · 월급을 보내지 않아 서버 설정을 그대로 둔다
 )
 
 /**
- * `GET /forecasts/settings`에서 지금 정한 월급 · 하루 목표만. 월급은 확정 항목이라 B-06 후보 목록에는 없다.
- * 월급은 정한 적이 없거나 더는 받을 월급이 없으면 null, 하루 목표는 정한 적이 없으면 null
+ * `GET /forecasts/settings`에서 정해 둔 하루 목표만(정한 적이 없으면 null). 정해 둔 월급은 읽지 않는다 —
+ * 저장할 때 월급 후보를 넣은 경우에만 월급을 보내므로 지킬 값이 없다
  */
-@Serializable data class ForecastSettingsDto(val income: ForecastIncomeDto? = null, val dailyLivingCostTarget: Long? = null)
-
-@Serializable data class ForecastIncomeDto(val cashflowItemId: Long? = null)
+@Serializable data class ForecastSettingsDto(val dailyLivingCostTarget: Long? = null)
 
 /** `GET /forecasts/living-cost`에서 하루 평균만 — 최근 3개월 실제 소비의 하루 평균(예측 값이 아니다) */
 @Serializable data class LivingCostDto(val dailyAverage: Long? = null)
@@ -106,7 +104,6 @@ data class CashflowDraft(
     val expenses: List<CashflowCandidate>,
     val bills: List<BillLine>,
     val dailyLivingCost: Long?,
-    val currentIncomeId: Long? = null,      // 이미 정해 둔 월급 — 후보가 아니어도 온다
 ) {
     val isEmpty: Boolean get() = income == null && expenses.isEmpty() && bills.isEmpty()
 }
@@ -118,11 +115,10 @@ data class CashflowPlan(
     val decisions: List<CashflowDecision>,
     val incomeId: Long?,
     val dailyLivingCost: Long?,
-    val currentIncomeId: Long? = null,
 )
 
-/** #19 후보 → B-06 줄. 월급 = 매달 오는 수입 중 가장 큰 것, 고정 지출은 날짜순. [currentIncomeId]는 후보가 아니라 저장할 때 지키려고 들고 있는다 */
-fun List<CashflowItemDto>.toDraft(dailyLivingCost: Long?, currentIncomeId: Long? = null): CashflowDraft {
+/** #19 후보 → B-06 줄. 월급 = 매달 오는 수입 중 가장 큰 것, 고정 지출은 날짜순 */
+fun List<CashflowItemDto>.toDraft(dailyLivingCost: Long?): CashflowDraft {
     fun CashflowItemDto.day() = recurrence?.dayOfMonth ?: occurrenceDate?.takeLast(2)?.toIntOrNull()
     val bills = filter { it.kind.equals("CARD_BILL", ignoreCase = true) }
     val rest = this - bills.toSet()
@@ -134,7 +130,6 @@ fun List<CashflowItemDto>.toDraft(dailyLivingCost: Long?, currentIncomeId: Long?
         expenses = expenses.map { CashflowCandidate(it.cashflowItemId, false, it.title, it.amount, it.day()) },
         bills = bills.map { BillLine(it.title, it.amount, it.day()) },
         dailyLivingCost = dailyLivingCost,
-        currentIncomeId = currentIncomeId,
     )
 }
 
@@ -144,16 +139,18 @@ fun CashflowPlan.toPatches(): Pair<List<Pair<Long, CashflowPatchRequest>>, Forec
         d.id to if (d.include) CashflowPatchRequest("CONFIRMED", d.amount) else CashflowPatchRequest("IGNORED")
     }
     val income = incomeId?.takeIf { id -> decisions.any { it.id == id && it.include } }
+    // 기간 기준 · 월급은 월급 후보를 넣었을 때만 보낸다. 후보가 없거나 뺐는데 DAYS · null을 보내면 하루 생활비만 저장해도
+    // 사용자가 정한 기간 기준이 바뀐다(!205 리뷰). 서버는 보낸 필드만 바꾸고, 월급이 없으면 NEXT_INCOME이어도 30일로 계산한다
     val settings = ForecastSettingsPatch(
-        horizon = if (income != null) "NEXT_INCOME" else "DAYS",
+        horizon = "NEXT_INCOME",
         incomeCashflowItemId = income,
         dailyLivingCostTarget = dailyLivingCost,
-        keepIncome = income == null && currentIncomeId != null,
+        keepIncome = income == null,
     )
     return patches to settings
 }
 
-/** #17 본문은 직접 만든다 — 월급을 빼면 "incomeCashflowItemId": null이 있어야 서버가 지운다(앱 JSON 설정은 null을 뺀다) */
+/** #17 본문은 직접 만든다 — 서버는 보낸 필드만 바꾸므로 바꿀 필드만 담는다 */
 fun ForecastSettingsPatch.toBody(): JsonObject = buildJsonObject {
     if (!keepIncome) {
         put("horizon", horizon)
@@ -163,7 +160,7 @@ fun ForecastSettingsPatch.toBody(): JsonObject = buildJsonObject {
 }
 
 interface CashflowRepository {
-    /** B-06 미리 채울 값 — 후보(#19) · 지금 월급 · 하루 생활비(정해 둔 목표, 없으면 생활비 상세의 하루 평균. 실패해도 됨) */
+    /** B-06 미리 채울 값 — 후보(#19) · 하루 생활비(정해 둔 목표, 없으면 생활비 상세의 하루 평균. 평균은 실패해도 됨) */
     suspend fun draft(): ApiResult<CashflowDraft>
 
     /** 확정 — 항목마다 #8, 마지막에 #17. 다시 시도하면 처음부터(같은 값이라 결과가 같음) */
@@ -177,19 +174,32 @@ interface CashflowRepository {
 @Singleton
 class CashflowRepositoryImpl @Inject constructor(private val api: CashflowApi, private val linkApi: LinkApi) : CashflowRepository {
 
+    /**
+     * 셋을 함께 부르되, 쓰지 않게 된 호출은 바로 끊는다. coroutineScope는 시작한 자식이 모두 끝나야 돌아오므로
+     * 끊지 않으면 정해 둔 목표가 있거나 실패한 경우에도 생활비 상세 응답을 기다려 화면이 늦게 뜬다(!205 리뷰)
+     */
     override suspend fun draft(): ApiResult<CashflowDraft> = coroutineScope {
         val items = async { apiCall { api.items(status = "CANDIDATE", expand = false) } }
         val settings = async { apiCall { api.settings() } }
         val average = async { dailyAverage() }
-        // 지금 월급을 모른 채 저장하면 정해 둔 월급을 지울 수 있어 실패로 돌려 다시 읽게 한다
-        when (val s = settings.await()) {
-            is ApiResult.Failure -> s
-            is ApiResult.Success -> {
-                // 정해 둔 하루 목표가 먼저 — 평균으로 채우면 [등록하고 첫 분석 보기]만 눌러도 사용자가 정한 목표가 바뀐다
-                val daily = s.data.dailyLivingCostTarget ?: average.await()
-                items.await().map { it.items.toDraft(daily, s.data.income?.cashflowItemId) }
+        // 정해 둔 하루 목표를 모른 채 평균을 채우면 저장할 때 목표가 바뀌어서 실패로 돌려 다시 읽게 한다
+        val s = when (val r = settings.await()) {
+            is ApiResult.Failure -> {
+                coroutineContext.cancelChildren()
+                return@coroutineScope r
             }
+            is ApiResult.Success -> r.data
         }
+        val candidates = when (val r = items.await()) {
+            is ApiResult.Failure -> {
+                average.cancel()
+                return@coroutineScope r
+            }
+            is ApiResult.Success -> r.data
+        }
+        // 정해 둔 하루 목표가 먼저 — 평균으로 채우면 [등록하고 첫 분석 보기]만 눌러도 사용자가 정한 목표가 바뀐다
+        val daily = s.dailyLivingCostTarget?.also { average.cancel() } ?: average.await()
+        ApiResult.Success(candidates.items.toDraft(daily))
     }
 
     /**

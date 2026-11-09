@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Spring Boot 기본 콘솔 로그와 같은 모양(시각·레벨·스레드·로거·문장)이고, 문장(%m)만 개인정보를 가린다(S15P31E103-370).
+  - 기본 설정(base.xml)은 파일 로그(/tmp/spring.log)도 만들어서 쓰지 않고, 콘솔만 둔다. 운영은 컨테이너 표준 출력을 수집한다.
+  - 로그 레벨은 지금처럼 application.yml의 logging.level로 정한다.
+-->
+<configuration>
+    <conversionRule conversionWord="m" class="com.yamu.be.global.logging.PersonalDataMaskingConverter"/>
+    <conversionRule conversionWord="msg" class="com.yamu.be.global.logging.PersonalDataMaskingConverter"/>
+    <conversionRule conversionWord="message" class="com.yamu.be.global.logging.PersonalDataMaskingConverter"/>
+
+    <include resource="org/springframework/boot/logging/logback/defaults.xml"/>
+    <include resource="org/springframework/boot/logging/logback/console-appender.xml"/>
+
+    <root level="INFO">
+        <appender-ref ref="CONSOLE"/>
+    </root>
+</configuration>

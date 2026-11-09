@@ -136,7 +136,8 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         return super.handleExceptionInternal(ex, body, headers, status, request);
     }
 
-    private static ErrorCode toErrorCode(HttpStatusCode status) {
+    /** 상태 코드만 아는 실패의 ErrorCode. {@link ApiErrorController}도 같은 기준을 쓴다 */
+    static ErrorCode toErrorCode(HttpStatusCode status) {
         return switch (status.value()) {
             // MVC가 404를 내는 경우는 매핑된 API가 없을 때뿐이다. 데이터가 없는 404는 Service가 RESOURCE_NOT_FOUND로 던진다.
             case 404 -> ErrorCode.API_NOT_FOUND;

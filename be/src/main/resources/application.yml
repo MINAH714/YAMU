@@ -107,6 +107,13 @@ yamu:
     overall-timeout: 10s
     # 사용자별 refresh=true(캐시 건너뛰기) 1분 한도. 넘으면 429
     refresh-per-minute: 6
+  # 탈퇴 뒤 재가입 열쇠 정리(S15P31E103-380, 임시 정책 11/9): 탈퇴하고 30일이 지나면 휴대폰 해시·생년월일·이름 해시·SSAFY 회원 정보·
+  # 카드번호를 지운다. 그 뒤 같은 사람은 새 회원으로 가입한다. 수동 실행: POST /api/admin/jobs/withdrawn-key-purge/run
+  user:
+    withdrawn-key-purge:
+      enabled: true
+      retention: 30d
+      cron: "0 30 3 * * *"
   # 카드 이미지 공개 CDN. DB에는 전체 URL 대신 객체 키만 저장한다.
   card-image:
     base-url: ${YAMU_CARD_IMAGE_BASE_URL:https://d2yc4hwyx55emn.cloudfront.net}

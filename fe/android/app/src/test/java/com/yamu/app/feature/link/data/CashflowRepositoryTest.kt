@@ -5,7 +5,14 @@ import com.yamu.app.core.network.ApiResult
 import com.yamu.app.core.network.errorJson
 import com.yamu.app.core.network.json
 import com.yamu.app.core.network.retrofit
+import com.yamu.app.feature.link.CashflowConfirmViewModel
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.test.setMain
+import kotlinx.coroutines.withTimeout
 import mockwebserver3.Dispatcher
 import mockwebserver3.MockResponse
 import mockwebserver3.MockWebServer
@@ -18,41 +25,63 @@ import org.junit.Before
 import org.junit.Test
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 
 /**
- * B-06 미리 채울 값 — 후보 · 설정 · 계좌 → 생활비 상세를 한꺼번에 부르므로 순서 대신 경로마다 응답을 정해 둔다.
+ * B-06 미리 채울 값 · 저장 — 후보 · 설정 · 계좌 → 생활비 상세를 한꺼번에 부르므로 순서 대신 경로마다 응답을 정해 둔다.
  * 응답 모양은 BE CashflowItemResponse · ForecastSettingsResponse · AccountController · LivingCostForecast와 같다
  */
 class CashflowRepositoryTest {
     private lateinit var server: MockWebServer
     private lateinit var repository: CashflowRepositoryImpl
     private val requests = CopyOnWriteArrayList<RecordedRequest>()
-    private val responses = ConcurrentHashMap<String, MockResponse>()
+    private val responses = ConcurrentHashMap<String, MockResponse>()   // "GET /path" → 응답
+
+    /** 켜면 생활비 상세는 [release]까지 답하지 않고, 설정 조회는 생활비 상세가 서버에 닿은 뒤에 답한다(이미 시작한 호출) */
+    @Volatile private var slowLivingCost = false
+    private val livingCostArrived = CountDownLatch(1)
+    private val release = CountDownLatch(1)
 
     @Before fun setUp() {
         server = MockWebServer()
         server.dispatcher = object : Dispatcher() {
             override fun dispatch(request: RecordedRequest): MockResponse {
                 requests += request
-                return responses[request.url.encodedPath] ?: errorJson(404, "API_NOT_FOUND")
+                val path = request.url.encodedPath
+                if (slowLivingCost && path == "/forecasts/living-cost") {
+                    livingCostArrived.countDown()
+                    release.await(10, TimeUnit.SECONDS)
+                }
+                if (slowLivingCost && path == "/forecasts/settings" && request.method == "GET") livingCostArrived.await(5, TimeUnit.SECONDS)
+                return responses["${request.method} $path"] ?: errorJson(404, "API_NOT_FOUND")
             }
         }
         server.start()
         val retrofit = server.retrofit()
         repository = CashflowRepositoryImpl(retrofit.create(CashflowApi::class.java), retrofit.create(LinkApi::class.java))
         respond("/cashflow-items", ok(ITEMS))
-        respond("/forecasts/settings", ok("""{"income":null,"dailyLivingCostTarget":null}"""))
+        respond("/forecasts/settings", ok(settings()))
         respond("/accounts", ok(accounts(1, 2)))
         respond("/forecasts/living-cost", ok(LIVING_COST))
     }
 
-    @After fun tearDown() = server.close()
+    @After fun tearDown() {
+        release.countDown()
+        server.close()
+    }
 
-    private fun respond(path: String, response: MockResponse) {
-        responses[path] = response
+    private fun respond(path: String, response: MockResponse, method: String = "GET") {
+        responses["$method $path"] = response
     }
 
     private fun ok(data: String) = json(200, """{"success":true,"data":$data}""")
+
+    /** BE ForecastSettingsResponse — 기본값은 NEXT_INCOME · 30일 · 월급 · 하루 목표 없음 */
+    private fun settings(incomeId: Long? = null, target: Long? = null) =
+        """{"horizon":"NEXT_INCOME","defaultDays":30,"alertThreshold":100000,
+            "income":${incomeId?.let { """{"cashflowItemId":$it,"title":"월급","dayOfMonth":25}""" } ?: "null"},
+            "dailyLivingCostTarget":${target ?: "null"},"includeCandidates":true,"conservativeLine":true,"updatedAt":null}"""
 
     private fun accounts(vararg ids: Long) = ids.joinToString(prefix = """{"accounts":[""", postfix = "]}") { id ->
         """{"accountId":$id,"bank":{"code":"088","name":"신한은행"},"maskedAccountNo":"****-${1000 + id}","balance":500000,"isPrimary":${id == 1L}}"""
@@ -73,12 +102,19 @@ class CashflowRepositoryTest {
     }
 
     @Test fun `정해 둔 하루 목표가 있으면 평균보다 먼저 — 그대로 저장해도 목표가 바뀌지 않는다`() = runTest {
-        respond("/forecasts/settings", ok("""{"income":{"cashflowItemId":290},"dailyLivingCostTarget":7000}"""))
+        respond("/forecasts/settings", ok(settings(incomeId = 290, target = 7_000)))
 
-        val draft = draft()
+        assertEquals(7_000L, draft().dailyLivingCost)
+    }
+
+    @Test fun `정해 둔 목표가 있으면 이미 보낸 생활비 상세의 응답을 기다리지 않는다`() = runBlocking {
+        slowLivingCost = true
+        respond("/forecasts/settings", ok(settings(target = 7_000)))
+
+        val draft = withTimeout(3_000) { draft() }   // 고치기 전에는 생활비 상세가 답할 때까지(여기서는 10초) 기다렸다
 
         assertEquals(7_000L, draft.dailyLivingCost)
-        assertEquals(290L, draft.currentIncomeId)
+        assertEquals(1, livingCostRequests().size)
     }
 
     @Test fun `찾은 후보가 없으면 빈 목록 — 하루 평균은 그대로 받는다`() = runTest {
@@ -139,6 +175,37 @@ class CashflowRepositoryTest {
         val error = (repository.draft() as ApiResult.Failure).error
 
         assertTrue(error is ApiError.Server)
+    }
+
+    @Test fun `설정을 못 읽으면 생활비 상세 응답을 기다리지 않고 바로 실패를 보여 준다`() = runBlocking {
+        slowLivingCost = true
+        respond("/forecasts/settings", errorJson(500, "INTERNAL_ERROR"))
+
+        val result = withTimeout(3_000) { repository.draft() }
+
+        assertTrue(result is ApiResult.Failure)
+    }
+
+    @Test fun `후보가 없고 정한 월급도 없을 때 하루 생활비만 저장하면 PATCH 본문은 그 필드 하나 — 기간 기준을 덮지 않는다`() = runBlocking {
+        respond("/cashflow-items", ok("""{"items":[],"candidateCount":0}"""))
+        respond("/forecasts/settings", ok(settings()))
+        respond("/forecasts/settings", ok(settings(target = 18_000)), method = "PATCH")
+        // 화면이 만드는 저장 요청 그대로 — ViewModel이 실제 저장소로 진짜 HTTP를 보낸다
+        Dispatchers.setMain(Dispatchers.Unconfined)
+        try {
+            val vm = CashflowConfirmViewModel(repository)
+            withTimeout(5_000) { vm.state.first { !it.loading } }
+            assertEquals(18_000L, vm.state.value.dailyCost)
+
+            vm.confirm()
+            withTimeout(5_000) { vm.state.first { it.saved } }
+        } finally {
+            Dispatchers.resetMain()
+        }
+
+        val patch = requests.single { it.method == "PATCH" }
+        assertEquals("/forecasts/settings", patch.url.encodedPath)
+        assertEquals("""{"dailyLivingCostTarget":18000}""", patch.body?.utf8())
     }
 
     private companion object {
