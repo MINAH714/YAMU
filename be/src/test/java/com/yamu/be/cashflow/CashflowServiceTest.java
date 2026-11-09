@@ -41,6 +41,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 class CashflowServiceTest {
     @Mock CashflowItemRepository items;
     @Mock CashflowOccurrenceRepository occurrences;
+    @Mock CashflowCreateRequestRepository createRequests;
     @Mock AccountQueryService accounts;
     @Mock CardQueryService cards;
 
@@ -50,7 +51,7 @@ class CashflowServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new CashflowService(items, occurrences, accounts, cards, Clock.systemUTC());
+        service = new CashflowService(items, occurrences, createRequests, accounts, cards, Clock.systemUTC());
         today = LocalDate.now(ZoneId.of("Asia/Seoul"));
         tomorrow = today.plusDays(1);
     }
@@ -734,7 +735,7 @@ class CashflowServiceTest {
     }
 
     private CashflowService fixedService() {
-        return new CashflowService(items, occurrences, accounts, cards, NOV_1_KST);
+        return new CashflowService(items, occurrences, createRequests, accounts, cards, NOV_1_KST);
     }
 
     private static CashflowItem weeklyFrom(LocalDate first) {

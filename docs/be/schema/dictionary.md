@@ -746,6 +746,25 @@ CONSTRAINT ck_refund_completed CHECK (completed_at IS NULL OR linked_account_id 
 CONSTRAINT ck_refund_version CHECK (version >= 0)
 ```
 
+### cashflow_create_request — 가계부 항목 등록 Idempotency-Key 기록 (S15P31E103-358, V20261109_3)
+
+| 컬럼 | SQL 정의 | 설명 |
+|---|---|---|
+| cashflow_create_request_id | `BIGINT NOT NULL AUTO_INCREMENT` | 등록 요청 기록 번호 |
+| user_id | `BIGINT NOT NULL` | 등록한 사용자 |
+| request_key | `CHAR(36) CHARACTER SET ascii COLLATE ascii_bin NOT NULL` | 등록 Idempotency-Key(UUID, 소문자) |
+| request_fingerprint | `BINARY(32) NOT NULL` | 처음 등록 요청 내용의 SHA-256; 같은 키 재요청 비교 |
+| cashflow_item_id | `BIGINT NOT NULL` | 그 요청으로 만든 규칙; 규칙을 지워도 번호는 남김(외래 키 없음) |
+| created_at | `TIMESTAMP(6) NOT NULL` | UTC 생성 시각 |
+
+```sql
+PRIMARY KEY (cashflow_create_request_id);
+UNIQUE KEY uk_cashflow_create_request (user_id, request_key);  -- 같은 키 재시도·동시 요청이 두 항목을 만들지 않게
+CONSTRAINT fk_cashflow_create_request_user FOREIGN KEY (user_id) REFERENCES app_user (user_id);
+```
+
+키를 보낸 등록만 한 줄 남깁니다. 항목을 지워도 남아 늦게 온 재시도가 지운 항목을 다시 만들지 않게 하고, 지운 항목의 내용은 남기지 않으려고 키·지문·항목 번호만 둡니다.
+
 ### cashflow_item — 반복 규칙·일회성 예정 항목의 기본값
 
 | 컬럼 | SQL 정의 | 설명 |
@@ -774,8 +793,6 @@ CONSTRAINT ck_refund_version CHECK (version >= 0)
 | installment_months | `SMALLINT NULL` | 일시불 1, 할부 총 개월 수; 비카드 항목 NULL |
 | purchase_state | `VARCHAR(16) NULL` | 구매 계획만 ACTIVE / FULFILLED / CANCELED |
 | previous_cashflow_item_id | `BIGINT NULL` | 이후 일정 변경 시 이전 규칙; 기존 규칙과 이력은 보존 |
-| request_key | `CHAR(36) CHARACTER SET ascii COLLATE ascii_bin NULL` | 등록 Idempotency-Key(UUID); 키를 보낸 등록의 첫 규칙만(S15P31E103-358, V20261109_3) |
-| request_fingerprint | `BINARY(32) NULL` | 처음 등록 요청 내용의 SHA-256; 같은 키 재요청 비교 |
 
 ```sql
 PRIMARY KEY (cashflow_item_id);
@@ -792,8 +809,6 @@ UNIQUE KEY uk_cashflow_owner (cashflow_item_id, user_id);
 KEY ix_cashflow_card_owner (user_card_id, user_id);
 KEY ix_cashflow_previous_owner (previous_cashflow_item_id, user_id);
 CONSTRAINT fk_cashflow_card_owner FOREIGN KEY (user_card_id, user_id) REFERENCES user_card (user_card_id, user_id);
-UNIQUE KEY uk_cashflow_item_request (user_id, request_key);  -- 등록 재시도·동시 요청 중복 방지, 키 없는 등록은 NULL
-CONSTRAINT ck_cashflow_request CHECK ((request_key IS NULL) = (request_fingerprint IS NULL));
 CONSTRAINT fk_cashflow_previous_owner FOREIGN KEY (previous_cashflow_item_id, user_id) REFERENCES cashflow_item (cashflow_item_id, user_id);
 CONSTRAINT ck_cashflow_kind CHECK (item_kind IN ('SCHEDULED','PURCHASE_PLAN'));
 CONSTRAINT ck_cashflow_card_direction CHECK (user_card_id IS NULL OR direction = 'EXPENSE');

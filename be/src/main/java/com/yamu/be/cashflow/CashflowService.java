@@ -45,14 +45,17 @@ public class CashflowService {
 
     private final CashflowItemRepository items;
     private final CashflowOccurrenceRepository occurrences;
+    private final CashflowCreateRequestRepository createRequests;
     private final AccountQueryService accounts;
     private final CardQueryService cards;
     private final Clock clock;
 
     CashflowService(CashflowItemRepository items, CashflowOccurrenceRepository occurrences,
-            AccountQueryService accounts, CardQueryService cards, Clock clock) {
+            CashflowCreateRequestRepository createRequests, AccountQueryService accounts, CardQueryService cards,
+            Clock clock) {
         this.items = items;
         this.occurrences = occurrences;
+        this.createRequests = createRequests;
         this.accounts = accounts;
         this.cards = cards;
         this.clock = clock;
@@ -65,9 +68,14 @@ public class CashflowService {
     }
 
     /**
-     * {@link #create(Long, CreateCommand)}에 Idempotency-Key를 더한 등록(S15P31E103-358). 키가 있으면 이 사용자가 같은 키로
-     * 등록한 규칙을 먼저 찾아, 내용이 같으면 새로 만들지 않고 그 규칙을 돌려주고 다르면 409 IDEMPOTENCY_KEY_REUSED다.
-     * 같은 키의 첫 요청 둘이 동시에 오면 늦은 쪽이 UNIQUE(uk_cashflow_item_request)에 걸린다({@link CashflowCreator}가 다시 부른다).
+     * {@link #create(Long, CreateCommand)}에 Idempotency-Key를 더한 등록(S15P31E103-358). 키가 있으면 이 사용자의 같은 키 기록을
+     * 먼저 찾는다(2026-11-09 결정, Codex 검토 반영).
+     * <ul>
+     *   <li>내용이 다르면 409 IDEMPOTENCY_KEY_REUSED.</li>
+     *   <li>내용이 같으면 새로 만들지 않고 그때 만든 규칙의 <b>지금 값</b>을 돌려준다(처음 응답의 복제가 아님). 그사이 고쳤으면 고친 값이다.</li>
+     *   <li>그 규칙을 지웠으면 다시 만들지 않고 404 RESOURCE_NOT_FOUND다. 기록은 항목을 지워도 남는다.</li>
+     * </ul>
+     * 같은 키의 첫 요청 둘이 동시에 오면 늦은 쪽이 UNIQUE(uk_cashflow_create_request)에 걸린다({@link CashflowCreator}가 다시 부른다).
      *
      * @param requestKey UUID 형식으로 검사한 소문자 키. null이면 키 없는 등록이다
      */
@@ -80,12 +88,16 @@ public class CashflowService {
         command = normalize(command);
         byte[] fingerprint = requestKey == null ? null : fingerprint(command);
         if (requestKey != null) {
-            Optional<CashflowItem> previous = items.findByUserIdAndRequestKey(authenticatedUserId, requestKey);
+            Optional<CashflowCreateRequest> previous =
+                    createRequests.findByUserIdAndRequestKey(authenticatedUserId, requestKey);
             if (previous.isPresent()) {
                 if (!MessageDigest.isEqual(previous.get().getRequestFingerprint(), fingerprint)) {
                     throw new BusinessException(ErrorCode.IDEMPOTENCY_KEY_REUSED);
                 }
-                return Item.from(previous.get());
+                return items.findById(previous.get().getCashflowItemId())
+                        .filter(item -> item.getUserId().equals(authenticatedUserId))
+                        .map(Item::from)
+                        .orElseThrow(CashflowService::notFound);
             }
         }
         CashflowItem.RecurrenceType recurrence = validate(command, today());
@@ -97,18 +109,33 @@ public class CashflowService {
                 command.recurrenceEndDate(),
                 dayOfMonthOf(recurrence, command.scheduledDate(), command.dayOfMonth(), null),
                 command.merchantCategoryCode(), command.memo());
-        if (requestKey != null) {
-            item.rememberRequest(requestKey, fingerprint);
-        }
         item = items.save(item);
         occurrences.save(CashflowOccurrence.firstOf(item));
+        if (requestKey != null) {
+            createRequests.save(new CashflowCreateRequest(authenticatedUserId, requestKey, fingerprint, item.getId()));
+        }
         return Item.from(item);
     }
 
-    /** 앞뒤 공백 정리 뒤의 등록 내용 SHA-256. 같은 키 재요청이 같은 내용인지 가린다. */
-    private static byte[] fingerprint(CreateCommand command) {
+    /**
+     * 앞뒤 공백 정리 뒤의 등록 내용 SHA-256. 같은 키 재요청이 같은 내용인지 가린다. 칸마다 "길이:값;"(null은 "N;")으로 이어 붙여
+     * 칸 경계가 값 안의 쉼표·등호와 섞이지 않게 한다(레코드 toString은 이스케이프하지 않아 서로 다른 요청이 같아질 수 있었음, Codex 검토).
+     */
+    static byte[] fingerprint(CreateCommand command) {
+        StringBuilder text = new StringBuilder();
+        for (Object value : new Object[] {command.title(), command.direction(), command.amount(),
+                command.scheduledDate(), command.recurrenceType(), command.dayOfMonth(), command.dayOfWeek(),
+                command.recurrenceEndDate(), command.accountId(), command.userCardId(),
+                command.merchantCategoryCode(), command.memo()}) {
+            if (value == null) {
+                text.append("N;");
+            } else {
+                String part = value.toString();
+                text.append(part.length()).append(':').append(part).append(';');
+            }
+        }
         try {
-            return MessageDigest.getInstance("SHA-256").digest(command.toString().getBytes(StandardCharsets.UTF_8));
+            return MessageDigest.getInstance("SHA-256").digest(text.toString().getBytes(StandardCharsets.UTF_8));
         } catch (NoSuchAlgorithmException e) {
             throw new IllegalStateException(e);
         }

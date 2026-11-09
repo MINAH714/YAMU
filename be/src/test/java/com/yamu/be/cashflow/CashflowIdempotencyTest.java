@@ -1,6 +1,8 @@
 package com.yamu.be.cashflow;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -95,6 +97,52 @@ class CashflowIdempotencyTest extends MySqlTestSupport {
     }
 
     @Test
+    void 지운_항목의_키로_늦게_다시_보내면_다시_만들지_않고_404다() throws Exception {
+        // Codex 검토: 시작 전 항목을 지우면 규칙 행째 사라져, 키를 그 행에 두면 늦은 재시도가 항목을 다시 만들었다.
+        String key = UUID.randomUUID().toString();
+        long id = id(create(owner, key, body(10_000L)).andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString());
+        mockMvc.perform(delete("/api/cashflow-items/" + id).with(AuthUsers.asUser(owner)))
+                .andExpect(status().isNoContent());
+        assertThat(items(owner)).isZero();
+
+        create(owner, key, body(10_000L))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error.code").value("RESOURCE_NOT_FOUND"));
+
+        assertThat(items(owner)).isZero();
+    }
+
+    @Test
+    void 고친_뒤_같은_키로_다시_보내면_새로_만들지_않고_지금_값을_돌려준다() throws Exception {
+        // 계약(2026-11-09 결정): 처음 응답의 복제가 아니라 그때 만든 규칙의 지금 값이다.
+        String key = UUID.randomUUID().toString();
+        long id = id(create(owner, key, body(10_000L)).andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString());
+        mockMvc.perform(patch("/api/cashflow-items/" + id).with(AuthUsers.asUser(owner))
+                        .contentType(MediaType.APPLICATION_JSON).content("{ \"title\": \"요가\" }"))
+                .andExpect(status().isOk());
+
+        create(owner, key, body(10_000L))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.cashflowItemId").value(id))
+                .andExpect(jsonPath("$.data.title").value("요가"));
+
+        assertThat(items(owner)).isEqualTo(1L);
+    }
+
+    @Test
+    void 칸_경계를_흉내_낸_서로_다른_내용은_지문이_다르다() {
+        // Codex 검토: 레코드 toString은 쉼표·등호를 이스케이프하지 않아 아래 두 요청이 같은 문자열이 됐다.
+        CashflowService.CreateCommand first = command("a, memo=b", "c");
+        CashflowService.CreateCommand second = command("a", "b, memo=c");
+
+        assertThat(first.toString()).isEqualTo(second.toString());
+        assertThat(CashflowService.fingerprint(first)).isNotEqualTo(CashflowService.fingerprint(second));
+        assertThat(CashflowService.fingerprint(first)).isEqualTo(CashflowService.fingerprint(command("a, memo=b", "c")));
+    }
+
+    @Test
     void 키가_없으면_전처럼_매번_새로_만든다() throws Exception {
         create(owner, null, body(10_000L)).andExpect(status().isCreated());
         create(owner, null, body(10_000L)).andExpect(status().isCreated());
@@ -168,6 +216,11 @@ class CashflowIdempotencyTest extends MySqlTestSupport {
             request.header("Idempotency-Key", key);
         }
         return mockMvc.perform(request);
+    }
+
+    private CashflowService.CreateCommand command(String merchantCategoryCode, String memo) {
+        return new CashflowService.CreateCommand("헬스장", CashflowItem.Direction.EXPENSE, 10_000L, tomorrow,
+                CashflowItem.RecurrenceType.NONE, null, null, null, account, null, merchantCategoryCode, memo);
     }
 
     private String body(long amount) {

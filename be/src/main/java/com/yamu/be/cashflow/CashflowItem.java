@@ -86,14 +86,6 @@ public class CashflowItem extends BaseTimeEntity {
     @Column(nullable = false)
     private Long version;
 
-    /** 등록 때 받은 Idempotency-Key(UUID, 소문자). 키를 보낸 등록의 첫 규칙에만 있다(S15P31E103-358). */
-    @Column(name = "request_key", columnDefinition = "char(36)")
-    private String requestKey;
-
-    /** 처음 등록 요청 내용의 SHA-256. 같은 키로 다른 내용을 보냈는지 가린다. */
-    @Column(name = "request_fingerprint", columnDefinition = "binary(32)")
-    private byte[] requestFingerprint;
-
     CashflowItem(Long userId, Long accountId, Long userCardId, String title, Direction direction,
             Long amount, LocalDate scheduledDate, RecurrenceType recurrenceType,
             LocalDate recurrenceEndDate, Integer recurrenceDayOfMonth, String merchantCategoryCode, String memo) {
@@ -111,12 +103,6 @@ public class CashflowItem extends BaseTimeEntity {
         this.status = Status.CONFIRMED;
         this.memo = memo;
         this.itemKind = ItemKind.SCHEDULED;
-    }
-
-    /** 등록 요청의 Idempotency-Key와 내용 지문을 남긴다. 저장 전에만 부른다. */
-    void rememberRequest(String requestKey, byte[] requestFingerprint) {
-        this.requestKey = requestKey;
-        this.requestFingerprint = requestFingerprint;
     }
 
     /** 아직 시작하지 않은 규칙을 제자리에서 바꾼다. 유형(direction)은 바꾸지 않는다. */
