@@ -183,6 +183,23 @@ class ReportIntegrationTest extends MySqlTestSupport {
     }
 
     @Test
+    void yearMonth는_2000_01부터_2100_12까지만_받는다() throws Exception {
+        // 0000-01은 UTC로 바꾸면 음수 연도라 MySQL 비교가 실패해 500이 났다(2026-11-10)
+        for (String outside : new String[] {"0000-01", "1999-12", "2101-01", "9999-12"}) {
+            mockMvc.perform(monthly(outside)).andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.error.code").value("INVALID_REQUEST"))
+                    .andExpect(jsonPath("$.error.details.fieldErrors[0].field").value("yearMonth"));
+            mockMvc.perform(benefits(outside)).andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.error.details.fieldErrors[0].field").value("yearMonth"));
+        }
+        for (String edge : new String[] {"2000-01", "2100-12"}) {
+            mockMvc.perform(monthly(edge)).andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.totalSpent").value(0));
+            mockMvc.perform(benefits(edge)).andExpect(status().isOk());
+        }
+    }
+
+    @Test
     void 혜택은_승인_결제만_더하고_확정_전이_있으면_PARTIAL이다() throws Exception {
         long instant = approved(owner, card, cafe, OCT_10, 10_000);
         benefit(instant, 1_000, "AT_APPROVAL");

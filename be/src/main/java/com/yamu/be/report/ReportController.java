@@ -31,7 +31,7 @@ class ReportController {
                     + "결제 내역과 같이 POS 요청 시각으로 자른다. 취소·거절은 더하지 않는다. yearMonth가 없으면 이번 달.")
     @GetMapping
     ApiResponse<MonthlyReportResponse> monthly(@AuthenticationPrincipal AuthUser me,
-            @Parameter(description = "한국 기준 월(YYYY-MM)") @RequestParam(required = false) YearMonth yearMonth) {
+            @Parameter(description = "한국 기준 월(YYYY-MM), 2000-01~2100-12") @RequestParam(required = false) YearMonth yearMonth) {
         // 생활 소비 합계가 비지 않게 읽기 직전에 미분류 승인 결제를 분류한다(결제 내역 목록과 같은 방식).
         // 분류는 UPDATE라 읽기 전용 트랜잭션인 service 밖(여기)에서 부른다
         classifier.classify(me.userId());
@@ -43,7 +43,7 @@ class ReportController {
                     + "업종별 혜택. 확정 전 혜택이 있거나 이번 달이면 status는 PARTIAL. yearMonth가 없으면 지난달.")
     @GetMapping("/benefits")
     ApiResponse<BenefitReportResponse> benefits(@AuthenticationPrincipal AuthUser me,
-            @Parameter(description = "한국 기준 월(YYYY-MM)") @RequestParam(required = false) YearMonth yearMonth) {
+            @Parameter(description = "한국 기준 월(YYYY-MM), 2000-01~2100-12") @RequestParam(required = false) YearMonth yearMonth) {
         return ApiResponse.ok(service.benefits(me.userId(), yearMonth));
     }
 }

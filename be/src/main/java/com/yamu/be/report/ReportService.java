@@ -1,5 +1,8 @@
 package com.yamu.be.report;
 
+import com.yamu.be.global.common.ApiResponse;
+import com.yamu.be.global.exception.BusinessException;
+import com.yamu.be.global.exception.ErrorCode;
 import com.yamu.be.merchant.MerchantCategories;
 import com.yamu.be.report.ReportReader.PaymentRow;
 import java.math.BigDecimal;
@@ -31,6 +34,12 @@ class ReportService {
     static final ZoneId KST = ZoneId.of("Asia/Seoul");
     static final String USER_SELECTED = "USER_SELECTED";
     static final String LIMIT_PARTIAL = "LIMIT_PARTIAL";
+    /**
+     * 받는 월의 범위(임시, 2026-11-10 결정). 0000년대는 UTC로 바꾸면 음수 연도가 되어 MySQL이 비교하지 못해 500이 났다.
+     * 서비스 전·먼 미래의 달은 앱이 부를 일이 없어 범위 밖은 400으로 일찍 막는다.
+     */
+    static final YearMonth MIN_MONTH = YearMonth.of(2000, 1);
+    static final YearMonth MAX_MONTH = YearMonth.of(2100, 12);
 
     private final ReportReader reader;
     private final Clock clock;
@@ -44,7 +53,7 @@ class ReportService {
     @Transactional(readOnly = true)
     public MonthlyReportResponse monthly(long userId, YearMonth yearMonth) {
         LocalDate today = LocalDate.now(clock.withZone(KST));
-        YearMonth month = yearMonth != null ? yearMonth : YearMonth.from(today);
+        YearMonth month = yearMonth != null ? checked(yearMonth) : YearMonth.from(today);
         boolean partial = !month.isBefore(YearMonth.from(today));
         LocalDate periodTo = month.equals(YearMonth.from(today)) ? today : month.atEndOfMonth();
 
@@ -67,7 +76,7 @@ class ReportService {
     @Transactional(readOnly = true)
     public BenefitReportResponse benefits(long userId, YearMonth yearMonth) {
         YearMonth current = YearMonth.now(clock.withZone(KST));
-        YearMonth month = yearMonth != null ? yearMonth : current.minusMonths(1);
+        YearMonth month = yearMonth != null ? checked(yearMonth) : current.minusMonths(1);
         List<PaymentRow> rows = reader.approvedPayments(userId, start(month.atDay(1)), start(month.plusMonths(1).atDay(1)));
 
         boolean allConfirmed = rows.stream().allMatch(r -> r.confirmedLines() >= r.benefitLines());
@@ -149,6 +158,15 @@ class ReportService {
 
     private static long floor(BigDecimal value) {
         return value.setScale(0, RoundingMode.FLOOR).longValue();
+    }
+
+    /** 범위 밖 월은 400 INVALID_REQUEST(fieldErrors yearMonth). */
+    private static YearMonth checked(YearMonth yearMonth) {
+        if (yearMonth.isBefore(MIN_MONTH) || yearMonth.isAfter(MAX_MONTH)) {
+            throw new BusinessException(ErrorCode.INVALID_REQUEST, Map.of("fieldErrors",
+                    List.of(new ApiResponse.FieldErrorResponse("yearMonth", "yearMonth는 2000-01부터 2100-12 사이 월입니다."))));
+        }
+        return yearMonth;
     }
 
     /** 한국 날짜 0시를 UTC 시각으로. */
