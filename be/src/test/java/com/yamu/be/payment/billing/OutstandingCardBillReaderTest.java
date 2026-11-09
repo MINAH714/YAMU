@@ -85,6 +85,10 @@ class OutstandingCardBillReaderTest extends MySqlTestSupport {
                 tuple(unpaid, Status.UNPAID, accountA, today.minusDays(40), 25_000L),
                 tuple(confirmed, Status.CONFIRMED, accountA, today.minusDays(2), 50_000L),
                 tuple(accumulating, Status.ACCUMULATING, accountB, today.plusDays(5), 30_000L));
+        // 기간 밖 청구 미리보기가 카드 이름·청구 월로 제목을 만들도록 카드와 청구 월도 같이 준다(S15P31E103-348, !199 리뷰).
+        assertThat(result).extracting(OutstandingBill::userCardId, OutstandingBill::billingMonth).containsExactly(
+                tuple(card, month.minusMonths(2).atDay(1)), tuple(card, month.atDay(1)),
+                tuple(card, month.plusMonths(1).atDay(1)));
     }
 
     @Test
