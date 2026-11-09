@@ -45,7 +45,7 @@ fun declineMessage(code: String?): String = when (code) {
     else -> "결제가 승인되지 않았어요"
 }
 
-/** 모의 POS 결제 요청(#27) 오류 코드 → 가맹점 직원이 볼 문장 */
+/** 모의 POS 결제 요청(#27) · 결과 조회(#63) 오류 코드 → 가맹점 직원이 볼 문장 */
 fun posErrorMessage(code: String?): String = when (code) {
     "BARCODE_EXPIRED" -> "고객 코드 시간이 지났어요 · 새 코드를 받아 달라고 해 주세요"
     "BARCODE_ALREADY_USED" -> "이미 결제에 쓴 코드예요"
@@ -53,5 +53,8 @@ fun posErrorMessage(code: String?): String = when (code) {
     "INVALID_POS_KEY" -> "단말 키가 맞지 않아요 · 설정을 확인해 주세요"
     "INVALID_AMOUNT" -> "금액을 다시 넣어 주세요"
     "MERCHANT_NOT_FOUND" -> "가맹점을 다시 골라 주세요"
+    "IDEMPOTENCY_IN_PROGRESS" -> "서버가 같은 요청을 아직 처리하고 있어요 · 잠시 뒤 다시 보내 주세요"
+    "IDEMPOTENCY_KEY_REUSED" -> "앞 요청과 내용이 달라 보낼 수 없어요 · 코드를 다시 찍어 주세요"
+    "RESOURCE_NOT_FOUND" -> "결제를 찾을 수 없어요 · 이 단말에서 만든 결제인지 확인해 주세요"
     else -> "결제 요청을 보내지 못했어요 · 다시 시도해 주세요"
 }
