@@ -6,6 +6,7 @@ import com.yamu.app.core.network.ApiEnvelope
 import com.yamu.app.core.network.ApiError
 import com.yamu.app.core.network.ApiResult
 import com.yamu.app.core.network.YamuHeaders
+import com.yamu.app.core.network.YamuJson
 import com.yamu.app.core.network.apiCall
 import com.yamu.app.core.network.map
 import com.yamu.app.feature.link.data.lastDigits
@@ -119,7 +120,40 @@ interface PosApi {
  * 결제 요청 한 번. 다시 보낼 때는 키와 본문(주문번호까지)을 그대로 보낸다.
  * BE는 키와 본문 지문으로 같은 요청을 알아보고 처음 paymentId를 돌려준다. 본문이 하나라도 다르면 409 IDEMPOTENCY_KEY_REUSED
  */
-data class PosAttempt(val idempotencyKey: String, val body: PosPaymentRequest)
+@Serializable data class PosAttempt(val idempotencyKey: String, val body: PosPaymentRequest)
+
+/** 접수됐는지 모르는 시도와 처음 보낸 시각(기기 시계, ms) */
+@Serializable data class PosPending(val attempt: PosAttempt, val createdAtMs: Long)
+
+/** BE `yamu.pos.idempotency-ttl`(24시간). 이보다 오래된 시도는 서버가 키를 잊어 다시 보내도 처음 결제를 돌려받지 못하므로 버린다 */
+const val POS_PENDING_TTL_MS: Long = 24 * 60 * 60 * 1000L
+
+/**
+ * 접수됐는지 모르는 시도 하나를 화면보다 오래 둔다(MR !209 리뷰). 스캔 화면을 나갔다 오거나 앱이 다시 떠도
+ * 같은 코드를 찍으면 같은 키 · 같은 본문으로 다시 보내 처음 paymentId를 받는다. 단말 하나에 시도 하나만 둔다
+ */
+interface PosPendingStore {
+    fun load(): PosPending?
+    fun save(pending: PosPending?)
+}
+
+internal fun encodePosPending(pending: PosPending): String = YamuJson.encodeToString(PosPending.serializer(), pending)
+
+/** 못 읽는 값(옛 형식 · 깨진 값)은 없는 것으로 본다 */
+internal fun decodePosPending(raw: String?): PosPending? =
+    raw?.let { runCatching { YamuJson.decodeFromString(PosPending.serializer(), it) }.getOrNull() }
+
+/** 가맹점 설정(yamu_pos)과 따로 둔다 — 가맹점을 바꿔도 남은 시도는 지우지 않는다(본문에 처음 단말 · 가맹점이 들어 있다) */
+@Singleton
+class PosPendingPrefs @Inject constructor(@ApplicationContext context: Context) : PosPendingStore {
+    private val prefs = context.getSharedPreferences("yamu_pos_pending", Context.MODE_PRIVATE)
+    override fun load(): PosPending? = decodePosPending(prefs.getString(KEY, null))
+    override fun save(pending: PosPending?) {
+        prefs.edit().apply { if (pending == null) remove(KEY) else putString(KEY, encodePosPending(pending)) }.apply()
+    }
+
+    private companion object { const val KEY = "attempt" }
+}
 
 private val SEOUL: ZoneId = ZoneId.of("Asia/Seoul")
 private val ORDER_TIME = DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss")
@@ -128,8 +162,17 @@ private val ORDER_TIME = DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss")
 fun newPosOrderNo(now: ZonedDateTime = ZonedDateTime.now(SEOUL), random: Random = Random.Default): String =
     "POS-" + now.withZoneSameInstant(SEOUL).format(ORDER_TIME) + "-" + "%03d".format(random.nextInt(1000))
 
-/** 화면이 볼 결과 상태. [RETRYING]은 거절됐지만 고객이 마감 전에 다른 카드로 다시 승인할 수 있는 상태다 */
-enum class PosStatus { WAITING, PROCESSING, RETRYING, APPROVED, DECLINED, EXPIRED, CANCELED }
+/**
+ * 화면이 볼 결과 상태. [RETRYING]은 거절됐지만 고객이 마감 전에 다른 카드로 다시 승인할 수 있는 상태다.
+ * [CHECKING]은 출금 결과를 몰라 거절 · 만료로 끝났지만 BE가 늦은 출금을 찾으면 APPROVED로 바꿀 수 있는 상태다(MR !209 리뷰)
+ */
+enum class PosStatus { WAITING, PROCESSING, RETRYING, CHECKING, APPROVED, DECLINED, EXPIRED, CANCELED }
+
+/**
+ * BE `FailureCode.WITHDRAWAL_NOT_CONFIRMED`. 이 사유로 거절 · 만료된 결제는 BE 주기 작업이 요청 번호 시각부터
+ * `late-withdrawal-window`(임시 10분) 동안 같은 출금을 다시 찾고, 찾으면 APPROVED로 바로잡는다(WithdrawalRecovery)
+ */
+const val POS_WITHDRAWAL_NOT_CONFIRMED = "WITHDRAWAL_NOT_CONFIRMED"
 
 /** 더 기다려도 바뀌지 않는 상태 — 여기서 결과 조회를 멈추고 영수증 · 안내를 띄운다(웹 POS WaitingStep과 같은 규칙) */
 val PosStatus.isFinal: Boolean
@@ -148,25 +191,33 @@ data class PosResult(
     val failureMessage: String?,
 )
 
-fun PosResultDto.toResult() = PosResult(
-    status = when (status.uppercase()) {
-        "APPROVED" -> PosStatus.APPROVED
-        // BE는 DECLINED에 retryable을 늘 채운다. 비어 오면 기다리는 쪽으로 둔다(마감이 지나면 서버가 EXPIRED로 바꾼다)
-        "DECLINED" -> if (retryable == false) PosStatus.DECLINED else PosStatus.RETRYING
-        "EXPIRED" -> PosStatus.EXPIRED
-        "CANCELED" -> PosStatus.CANCELED
-        "PROCESSING" -> PosStatus.PROCESSING
-        else -> PosStatus.WAITING
-    },
-    approvalNo = approvalNo,
-    amount = amount,
-    chargedAmount = chargedAmount,
-    instantDiscount = instantDiscount?.takeIf { it > 0 },
-    cardIssuer = card?.issuerName,
-    cardLast4 = card?.maskedNumber?.lastDigits(),
-    installmentMonths = card?.installmentMonths?.takeIf { card.plan.equals("INSTALLMENT", ignoreCase = true) },
-    failureMessage = failure?.message,
-)
+fun PosResultDto.toResult(): PosResult {
+    // 출금 미확인으로 끝난 거절 · 만료는 늦게 승인될 수 있어 확정 실패로 보지 않는다
+    val lateConfirmable = failure?.code == POS_WITHDRAWAL_NOT_CONFIRMED
+    return PosResult(
+        status = when (status.uppercase()) {
+            "APPROVED" -> PosStatus.APPROVED
+            // BE는 DECLINED에 retryable을 늘 채운다. 비어 오면 기다리는 쪽으로 둔다(마감이 지나면 서버가 EXPIRED로 바꾼다)
+            "DECLINED" -> when {
+                retryable != false -> PosStatus.RETRYING
+                lateConfirmable -> PosStatus.CHECKING
+                else -> PosStatus.DECLINED
+            }
+            "EXPIRED" -> if (lateConfirmable) PosStatus.CHECKING else PosStatus.EXPIRED
+            "CANCELED" -> PosStatus.CANCELED
+            "PROCESSING" -> PosStatus.PROCESSING
+            else -> PosStatus.WAITING
+        },
+        approvalNo = approvalNo,
+        amount = amount,
+        chargedAmount = chargedAmount,
+        instantDiscount = instantDiscount?.takeIf { it > 0 },
+        cardIssuer = card?.issuerName,
+        cardLast4 = card?.maskedNumber?.lastDigits(),
+        installmentMonths = card?.installmentMonths?.takeIf { card.plan.equals("INSTALLMENT", ignoreCase = true) },
+        failureMessage = failure?.message,
+    )
+}
 
 interface PosRepository {
     /** 단말 키가 있나(없으면 첫 화면에 안내) */
@@ -224,4 +275,7 @@ object PosApiModule {
     @Provides
     @Singleton
     fun posApi(retrofit: Retrofit): PosApi = retrofit.create(PosApi::class.java)
+
+    @Provides
+    fun posPendingStore(prefs: PosPendingPrefs): PosPendingStore = prefs
 }

@@ -122,6 +122,19 @@ class PosRepositoryContractTest {
         assertEquals(PosStatus.RETRYING, declined(null).status)   // 비어 오면 마감까지 기다린다(서버가 EXPIRED로 바꿈)
     }
 
+    @Test fun `출금 미확인으로 끝난 거절 · 만료는 확정 실패가 아니라 출금 확인 중`() {
+        fun result(status: String, code: String, retryable: Boolean? = null) =
+            PosResultDto(paymentId = 9, status = status, failure = PosFailureDto(code, "결제 결과를 확인하지 못했습니다."), retryable = retryable).toResult()
+        assertEquals(PosStatus.CHECKING, result("DECLINED", POS_WITHDRAWAL_NOT_CONFIRMED, retryable = false).status)
+        assertEquals(PosStatus.CHECKING, result("EXPIRED", POS_WITHDRAWAL_NOT_CONFIRMED).status)
+        assertFalse(PosStatus.CHECKING.isFinal)
+        assertEquals("결제 결과를 확인하지 못했습니다.", result("EXPIRED", POS_WITHDRAWAL_NOT_CONFIRMED).failureMessage)
+        // 마감 전이면 고객이 다른 카드로 다시 고를 수 있어 지금처럼 RETRYING(BE는 재승인 직전에도 늦은 출금을 본다)
+        assertEquals(PosStatus.RETRYING, result("DECLINED", POS_WITHDRAWAL_NOT_CONFIRMED, retryable = true).status)
+        assertEquals(PosStatus.DECLINED, result("DECLINED", "INSUFFICIENT_BALANCE", retryable = false).status)
+        assertEquals(PosStatus.EXPIRED, result("EXPIRED", "INSUFFICIENT_BALANCE").status)
+    }
+
     @Test fun `상태 — 승인 · 만료 · 취소는 최종, 접수 · 처리 중은 기다림`() {
         fun status(s: String) = PosResultDto(paymentId = 9, status = s).toResult().status
         assertEquals(PosStatus.APPROVED, status("APPROVED"))

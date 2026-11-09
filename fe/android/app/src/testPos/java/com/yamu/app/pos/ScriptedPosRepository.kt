@@ -1,10 +1,14 @@
 package com.yamu.app.pos
 
 import com.yamu.app.core.network.ApiResult
+import kotlinx.coroutines.awaitCancellation
 
-/** 시험용 저장소 — 정해 둔 응답을 차례로 돌려주고, 보낸 시도와 물어본 결과를 적어 둔다 */
+/**
+ * 시험용 저장소 — 정해 둔 응답을 차례로 돌려주고, 보낸 시도와 물어본 결과를 적어 둔다.
+ * [requests]의 null은 응답이 오지 않는 요청이다(취소될 때까지 기다린다)
+ */
 class ScriptedPosRepository(
-    requests: List<ApiResult<Long>> = emptyList(),
+    requests: List<ApiResult<Long>?> = emptyList(),
     results: List<ApiResult<PosResult>> = emptyList(),
 ) : PosRepository {
     private val requestQueue = ArrayDeque(requests)
@@ -22,11 +26,19 @@ class ScriptedPosRepository(
 
     override suspend fun request(attempt: PosAttempt): ApiResult<Long> {
         sent += attempt
-        return requestQueue.removeFirst()
+        return requestQueue.removeFirst() ?: awaitCancellation()
     }
 
     override suspend fun result(paymentId: Long, posCode: String): ApiResult<PosResult> {
         asked += paymentId to posCode
         return resultQueue.removeFirst()
+    }
+}
+
+/** 기기에 남는 시도를 메모리로 흉내 낸다. 화면(sender)이 바뀌어도 같은 객체를 넘기면 앱이 다시 뜬 것과 같다 */
+class MemoryPosPendingStore(var value: PosPending? = null) : PosPendingStore {
+    override fun load(): PosPending? = value
+    override fun save(pending: PosPending?) {
+        value = pending
     }
 }

@@ -4,6 +4,7 @@ import com.yamu.app.core.network.ApiError
 import com.yamu.app.core.network.ApiResult
 import com.yamu.app.feature.payment.data.posErrorMessage
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.currentTime
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
@@ -15,20 +16,23 @@ import org.junit.Test
 /** 결과 기다리기(M-1). 웹 POS WaitingStep처럼 APPROVED · EXPIRED · CANCELED · retryable=false인 DECLINED에서 멈춘다 */
 @OptIn(ExperimentalCoroutinesApi::class)
 class PosResultPollTest {
-    private fun dto(status: String, retryable: Boolean? = null, failure: String? = null): ApiResult<PosResult> =
+    private fun dto(status: String, retryable: Boolean? = null, failure: String? = null, code: String = "INSUFFICIENT_BALANCE"): ApiResult<PosResult> =
         ApiResult.Success(
             PosResultDto(
                 paymentId = 9,
                 status = status,
                 amount = 15_000,
-                failure = failure?.let { PosFailureDto("INSUFFICIENT_BALANCE", it) },
+                failure = failure?.let { PosFailureDto(code, it) },
                 retryable = retryable,
             ).toResult(),
         )
 
-    private suspend fun poll(repo: ScriptedPosRepository): List<PosResultState> {
+    /** 출금 미확인으로 만료된 결과(BE가 늦은 출금을 찾으면 APPROVED로 바뀐다) */
+    private fun lateExpired() = dto("EXPIRED", failure = "결제 결과를 확인하지 못했습니다.", code = POS_WITHDRAWAL_NOT_CONFIRMED)
+
+    private suspend fun TestScope.poll(repo: ScriptedPosRepository): List<PosResultState> {
         val states = mutableListOf<PosResultState>()
-        pollPosResult(repo, 9, "POS-YAMU-CAFE") { states += it }
+        pollPosResult(repo, 9, "POS-YAMU-CAFE", now = { currentTime }) { states += it }
         return states
     }
 
@@ -87,6 +91,41 @@ class PosResultPollTest {
         assertEquals(posErrorMessage("INVALID_POS_KEY"), last.error)
         assertEquals(PosStatus.WAITING, last.result?.status)
         assertEquals(2, repo.asked.size)
+    }
+
+    @Test fun `출금 미확인으로 거절 · 만료돼도 멈추지 않고 늦은 승인을 받는다`() = runTest {
+        val repo = ScriptedPosRepository(
+            results = listOf(
+                dto("DECLINED", retryable = false, failure = "결제 결과를 확인하지 못했습니다.", code = POS_WITHDRAWAL_NOT_CONFIRMED),
+                lateExpired(),
+                dto("APPROVED"),
+            ),
+        )
+        val states = poll(repo)
+        assertEquals(listOf(PosStatus.CHECKING, PosStatus.CHECKING, PosStatus.APPROVED), states.map { it.result?.status })
+        assertTrue(states.none { it.stopped })
+    }
+
+    @Test fun `출금 확인 중이 11분을 넘기면 멈추고 고객 앱을 확인하라고 한다`() = runTest {
+        val repo = ScriptedPosRepository(results = List(400) { lateExpired() })
+        val start = currentTime
+        val last = poll(repo).last()
+        assertTrue(last.stopped)
+        assertEquals(POS_LATE_CHECK_OVER, last.error)
+        assertEquals(PosStatus.CHECKING, last.result?.status)
+        assertEquals(POS_LATE_CHECK_MS, currentTime - start)
+        assertEquals((POS_LATE_CHECK_MS / 2_000 + 1).toInt(), repo.asked.size)
+    }
+
+    @Test fun `출금 확인 중에 연결이 끊겨도 처음 본 때부터 잰다`() = runTest {
+        val repo = ScriptedPosRepository(
+            results = listOf(lateExpired()) + List(400) { ApiResult.Failure(ApiError.Network) },
+        )
+        val start = currentTime
+        val last = poll(repo).last()
+        assertTrue(last.stopped)
+        assertEquals(POS_LATE_CHECK_OVER, last.error)
+        assertEquals(POS_LATE_CHECK_MS, currentTime - start)
     }
 
     @Test fun `응답이 온 뒤 2초마다 묻는다`() = runTest {

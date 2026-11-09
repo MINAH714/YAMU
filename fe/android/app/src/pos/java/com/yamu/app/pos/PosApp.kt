@@ -265,6 +265,9 @@ private fun PosAmountScreen(onChangeMerchant: () -> Unit, onScan: (Long) -> Unit
 internal const val POS_OUTCOME_UNKNOWN = "결제가 접수됐는지 확인하지 못했어요 · 같은 요청을 다시 보내 주세요"
 internal const val POS_PENDING_FIRST = "앞 요청을 다시 보내거나 버린 뒤에 새 코드를 찍어 주세요"
 
+/** 스캔 화면에 들어왔는데 앞에서 접수 여부를 모르는 시도가 남아 있을 때. 금액은 그 시도의 금액이다 */
+internal fun posPendingHeld(amount: Long): String = "접수됐는지 모르는 앞 요청(${amount.toWon()}원)이 남아 있어요 · 다시 보내 확인하거나 버려 주세요"
+
 /**
  * 보낸 결제 요청이 서버에 접수됐는지 모르는 실패. 연결이 끊겼거나 시간이 지났거나, 5xx이거나, 같은 키를 서버가 아직 처리 중이다.
  * 이때 새 키로 보내면 첫 요청이 이미 코드를 써 버려 409 BARCODE_ALREADY_USED가 나므로 같은 키 · 같은 본문으로 다시 보낸다
@@ -273,7 +276,8 @@ val ApiError.isPosOutcomeUnknown: Boolean
     get() = isOutcomeUnknown || this is ApiError.Server || this is ApiError.BankUnavailable || code == "IDEMPOTENCY_IN_PROGRESS"
 
 sealed interface PosSendOutcome {
-    data class Requested(val paymentId: Long) : PosSendOutcome
+    /** 접수됐다. 금액 · 단말은 실제로 보낸 본문의 값이다(앞에서 남은 시도를 보냈다면 지금 화면의 금액과 다를 수 있다) */
+    data class Requested(val paymentId: Long, val amount: Long, val posCode: String) : PosSendOutcome
     /** 접수됐는지 모름. 시도를 그대로 남겨 두었다 */
     data class Unknown(val code: String) : PosSendOutcome
     /** 서버가 거절했다. 시도를 버렸으니 다음 코드는 새 키 · 새 주문번호로 간다 */
@@ -284,36 +288,48 @@ sealed interface PosSendOutcome {
 
 /**
  * 결제 요청 보내기와 다시 보내기. ViewModel 밖에 둬서 Android 없이 시험한다(PosRequestSenderTest).
- * 시도 하나는 (키, 본문) 묶음이고 주문번호도 본문에 들어 있어서, 다시 보낼 때 아무것도 새로 만들지 않는다
+ * 시도 하나는 (키, 본문) 묶음이고 주문번호도 본문에 들어 있어서, 다시 보낼 때 아무것도 새로 만들지 않는다.
+ *
+ * 시도는 화면이 아니라 [store]에 둔다(MR !209 리뷰). 보내기 전에 먼저 적어 두므로 응답을 기다리다 화면을 나가도 남고,
+ * 다음 화면의 sender가 같은 코드를 받으면 그 시도를 그대로 보낸다. 응답이 와서 접수 · 거절이 정해지면 지운다
  */
 class PosRequestSender(
     private val repo: PosRepository,
     private val merchant: PosMerchant,
     private val amount: Long,
+    private val store: PosPendingStore,
     private val newKey: () -> String = ::newIdempotencyKey,
     private val newOrderNo: () -> String = { newPosOrderNo() },
+    private val now: () -> Long = System::currentTimeMillis,
 ) {
-    /** 접수됐는지 모르는 시도. 있으면 이 시도만 다시 보낼 수 있다 */
-    var pending: PosAttempt? = null
-        private set
+    /** 접수됐는지 모르는 시도. 있으면 이 시도만 다시 보낼 수 있다. 서버가 키를 잊을 만큼([POS_PENDING_TTL_MS]) 오래되면 버린다 */
+    val pending: PosAttempt?
+        get() {
+            val held = store.load() ?: return null
+            if (now() - held.createdAtMs >= POS_PENDING_TTL_MS) {
+                store.save(null)
+                return null
+            }
+            return held.attempt
+        }
 
     suspend fun send(token: String): PosSendOutcome {
         val held = pending
         val attempt = when {
             held == null -> PosAttempt(newKey(), PosPaymentRequest(token, merchant.merchantId, merchant.posCode, amount, newOrderNo()))
+                .also { store.save(PosPending(it, now())) }   // 응답을 받기 전에 화면을 나가도 남게 먼저 적는다
             held.body.barcodeToken == token -> held
             else -> return PosSendOutcome.Blocked
         }
         return when (val r = repo.request(attempt)) {
             is ApiResult.Success -> {
-                pending = null
-                PosSendOutcome.Requested(r.data)
+                clear(attempt)
+                PosSendOutcome.Requested(r.data, attempt.body.amount, attempt.body.posCode)
             }
             is ApiResult.Failure -> if (r.error.isPosOutcomeUnknown) {
-                pending = attempt
                 PosSendOutcome.Unknown(r.error.code)
             } else {
-                pending = null
+                clear(attempt)
                 PosSendOutcome.Rejected(r.error.code)
             }
         }
@@ -323,17 +339,20 @@ class PosRequestSender(
     suspend fun resend(): PosSendOutcome? = pending?.let { send(it.body.barcodeToken) }
 
     /** 남은 시도를 버린다. 첫 요청이 접수됐다면 그 결제는 고객이 승인하지 않는 한 60초 뒤 만료된다 */
-    fun discard() {
-        pending = null
+    fun discard() = store.save(null)
+
+    /** 그 사이 다른 시도로 바뀌지 않았을 때만 지운다 */
+    private fun clear(attempt: PosAttempt) {
+        if (store.load()?.attempt == attempt) store.save(null)
     }
 }
 
-/** [pending]: 접수됐는지 모르는 요청이 남아 있다 — [같은 요청 다시 보내기] · [이 요청 버리기] */
+/** [pending]: 접수됐는지 모르는 요청이 남아 있다 — [같은 요청 다시 보내기] · [이 요청 버리기]. [requested]: 접수돼 결과 화면으로 간다 */
 data class PosScanState(
     val requesting: Boolean = false,
     val error: String? = null,
     val pending: Boolean = false,
-    val paymentId: Long? = null,
+    val requested: PosSendOutcome.Requested? = null,
 )
 
 @HiltViewModel
@@ -341,12 +360,14 @@ class PosScanViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
     repo: PosRepository,
     settings: PosSettings,
+    pendingStore: PosPendingStore,
 ) : ViewModel() {
     val amount: Long = savedStateHandle.toRoute<PosScan>().amount
     private val merchant = settings.merchant
-    val posCode: String = merchant?.posCode.orEmpty()
-    private val sender = merchant?.let { PosRequestSender(repo, it, amount) }
-    private val _state = MutableStateFlow(PosScanState())
+    private val sender = merchant?.let { PosRequestSender(repo, it, amount, pendingStore) }
+    private val _state = MutableStateFlow(
+        sender?.pending?.let { PosScanState(pending = true, error = posPendingHeld(it.body.amount)) } ?: PosScanState(),
+    )
     val state: StateFlow<PosScanState> = _state.asStateFlow()
     private var lastFailed: Pair<String, Long>? = null
 
@@ -354,7 +375,7 @@ class PosScanViewModel @Inject constructor(
     fun onCode(raw: String) {
         val token = parseScannedCode(raw) ?: return
         val s = _state.value
-        if (s.requesting || s.paymentId != null) return
+        if (s.requesting || s.requested != null) return
         lastFailed?.let { (t, at) -> if (t == token && System.currentTimeMillis() - at < 3_000) return }
         val sender = sender ?: return _state.update { it.copy(error = posErrorMessage("MERCHANT_NOT_FOUND")) }
         val held = sender.pending
@@ -383,7 +404,7 @@ class PosScanViewModel @Inject constructor(
             if (outcome is PosSendOutcome.Unknown || outcome is PosSendOutcome.Rejected) lastFailed = token to System.currentTimeMillis()
             _state.update { s ->
                 when (outcome) {
-                    is PosSendOutcome.Requested -> s.copy(requesting = false, error = null, pending = false, paymentId = outcome.paymentId)
+                    is PosSendOutcome.Requested -> s.copy(requesting = false, error = null, pending = false, requested = outcome)
                     is PosSendOutcome.Unknown -> s.copy(
                         requesting = false,
                         pending = true,
@@ -396,17 +417,17 @@ class PosScanViewModel @Inject constructor(
         }
     }
 
-    fun navigated() = _state.update { it.copy(paymentId = null) }
+    fun navigated() = _state.update { it.copy(requested = null) }
 }
 
 @Composable
 private fun PosScanScreen(onBack: () -> Unit, onRequested: (Long, Long, String) -> Unit, viewModel: PosScanViewModel = hiltViewModel()) {
     val s by viewModel.state.collectAsStateWithLifecycle()
     var typing by rememberSaveable { mutableStateOf(false) }
-    LaunchedEffect(s.paymentId) {
-        s.paymentId?.let {
+    LaunchedEffect(s.requested) {
+        s.requested?.let {
             viewModel.navigated()
-            onRequested(it, viewModel.amount, viewModel.posCode)
+            onRequested(it.paymentId, it.amount, it.posCode)
         }
     }
     val c = YamuTheme.colors
@@ -491,22 +512,39 @@ internal fun resultErrorMessage(error: ApiError): String = when {
 }
 
 /**
+ * 출금 확인 중([PosStatus.CHECKING])을 기다리는 시간. BE `late-withdrawal-window`(임시 10분) + 주기 작업 간격
+ * `recovery-interval`(60초)이다. 대조 기간은 요청 번호 시각부터 재므로 처음 본 때부터 이만큼 기다리면 넉넉하다.
+ * 임시: BE 설정을 베낀 값이라 결과 응답에 대조 마감 시각이 생기면 그 값으로 바꾼다(MR !209 리뷰)
+ */
+const val POS_LATE_CHECK_MS: Long = 11 * 60_000L
+
+internal const val POS_LATE_CHECK_OVER = "출금 결과를 끝내 확인하지 못했어요 · 고객 앱 결제 내역에서 결제됐는지 확인한 뒤에 다시 결제받아 주세요"
+
+/**
  * 결과 조회(#63) — 응답이 오고 나서 [intervalMs] 뒤에 다시 묻는다(느린 응답이 겹치지 않게). 매번 [onState]로 알린다.
  * 최종 상태([isFinal])나 다시 물어도 그대로인 오류에서 멈추고, 연결 오류 · 5xx는 마지막 결과를 둔 채 계속 묻는다.
- * 거절됐어도 고객이 다른 카드로 다시 승인할 수 있는 동안(RETRYING)은 계속 묻는다. 마감이 지나면 서버가 EXPIRED로 바꿔 준다
+ * 거절됐어도 고객이 다른 카드로 다시 승인할 수 있는 동안(RETRYING)은 계속 묻는다. 마감이 지나면 서버가 EXPIRED로 바꿔 준다.
+ * 출금 확인 중(CHECKING)은 처음 본 때부터 [lateCheckMs] 동안 묻고, 그때까지 승인되지 않으면 [POS_LATE_CHECK_OVER]로 멈춘다
  */
 suspend fun pollPosResult(
     repo: PosRepository,
     paymentId: Long,
     posCode: String,
     intervalMs: Long = 2_000,
+    lateCheckMs: Long = POS_LATE_CHECK_MS,
+    now: () -> Long = { System.nanoTime() / 1_000_000 },
     onState: (PosResultState) -> Unit,
 ) {
     var state = PosResultState()
+    var checkingSince: Long? = null
     while (true) {
         state = when (val r = repo.result(paymentId, posCode)) {
             is ApiResult.Success -> PosResultState(result = r.data)
             is ApiResult.Failure -> state.copy(error = resultErrorMessage(r.error), stopped = r.error.stopsPolling)
+        }
+        if (state.result?.status == PosStatus.CHECKING && !state.stopped) {
+            val since = checkingSince ?: now().also { checkingSince = it }
+            if (now() - since >= lateCheckMs) state = state.copy(error = POS_LATE_CHECK_OVER, stopped = true)
         }
         onState(state)
         if (state.stopped || state.result?.status?.isFinal == true) return
@@ -531,6 +569,7 @@ private fun PosResultState.headline(): String = when (result?.status) {
     PosStatus.DECLINED -> "결제가 거절됐어요"
     PosStatus.EXPIRED -> "결제되지 않았어요"
     PosStatus.CANCELED -> "결제가 취소됐어요"
+    PosStatus.CHECKING -> if (stopped) "결제 결과를 확인하지 못했어요" else "출금을 확인하고 있어요"
     else -> when {
         stopped -> "결제 결과를 확인하지 못했어요"
         result?.status == PosStatus.RETRYING -> "카드가 거절됐어요"
@@ -574,10 +613,11 @@ private fun PosResultScreen(onNewPayment: () -> Unit, viewModel: PosResultViewMo
                     val hint = when (r?.status) {
                         PosStatus.RETRYING -> "고객이 앱에서 다른 카드로 다시 결제할 수 있어요"
                         PosStatus.PROCESSING -> "카드사 결과를 기다리고 있어요"
+                        PosStatus.CHECKING -> "늦게 승인될 수 있어요 · 결과가 나오기 전에는 다시 결제받지 마세요"
                         else -> "고객이 60초 안에 카드를 확정하면 바로 바뀌어요"
                     }
                     Text(hint, style = YamuTheme.typography.bodyM, color = c.text3, textAlign = TextAlign.Center)
-                    r?.takeIf { it.status == PosStatus.RETRYING }?.failureMessage?.let {
+                    r?.takeIf { it.status == PosStatus.RETRYING || it.status == PosStatus.CHECKING }?.failureMessage?.let {
                         Text(it, style = YamuTheme.typography.bodyS, color = c.error, textAlign = TextAlign.Center)
                     }
                     s.error?.let { Text("$it · 다시 확인하고 있어요", style = YamuTheme.typography.bodyS, color = c.warning) }
