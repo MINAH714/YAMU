@@ -36,6 +36,7 @@ class CreditSpendingEstimatorTest {
                 NOV_25);
 
         assertThat(result.excluded()).isEmpty();
+        assertThat(result.beyond()).isEmpty();
         assertThat(result.events()).containsExactly(new FlowEvent(A, NOV_25, -60_000L,
                 FlowEvent.Type.CARD_SPENDING_ESTIMATE, FlowEvent.Confidence.CONSERVATIVE,
                 "카드41 · 11/7~11/11 5일 × 일평균 12,000원", 41L));
@@ -49,7 +50,7 @@ class CreditSpendingEstimatorTest {
     }
 
     @Test
-    void 마감_다음_날이면_다음_이용기간_마감까지_세고_그_출금일이_기간_밖이면_넣지_않는다() {
+    void 마감_다음_날이면_다음_이용기간_마감까지_세고_그_출금일이_기간_밖이면_선_대신_기간_밖_미리보기로_돌려준다() {
         // 11/12 기준 이용기간은 11/12~12/11, 출금일 12/25. 오늘(11/12)은 빼고 11/13~12/11 29일
         LocalDate nov12 = LocalDate.of(2026, 11, 12);
         LocalDate dec25 = LocalDate.of(2026, 12, 25);
@@ -57,8 +58,14 @@ class CreditSpendingEstimatorTest {
         assertThat(estimate(List.of(card(41L, A)), everyDay(41L, 1_000L), nov12, dec25).events())
                 .extracting(FlowEvent::date, FlowEvent::amount, FlowEvent::title)
                 .containsExactly(tuple(dec25, -29_000L, "카드41 · 11/13~12/11 29일 × 일평균 1,000원"));
-        assertThat(estimate(List.of(card(41L, A)), everyDay(41L, 1_000L), nov12, dec25.minusDays(1)).events())
-                .isEmpty();
+        CreditSpendingEstimator.Result beyond = estimate(List.of(card(41L, A)), everyDay(41L, 1_000L), nov12,
+                dec25.minusDays(1));
+        assertThat(beyond.events()).isEmpty();
+        // 점검 R-5(-348): 전에는 안내 없이 버렸다. 선에는 넣지 않고 같은 출금을 기간 밖 미리보기로 돌려준다.
+        assertThat(beyond.beyond()).containsExactly(new FlowEvent(A, dec25, -29_000L,
+                FlowEvent.Type.CARD_SPENDING_ESTIMATE, FlowEvent.Confidence.CONSERVATIVE,
+                "카드41 · 11/13~12/11 29일 × 일평균 1,000원", 41L));
+        assertThat(beyond.excluded()).isEmpty();
     }
 
     @Test
@@ -77,6 +84,7 @@ class CreditSpendingEstimatorTest {
         assertThat(inRange.excluded()).containsExactly(new ExcludedItem(null, null, null, NOV_25, "카드41", null,
                 ExcludedItem.Reason.CREDIT_SPENDING_UNKNOWN));
         assertThat(outOfRange.excluded()).isEmpty();
+        assertThat(outOfRange.beyond()).isEmpty();
     }
 
     @Test
@@ -121,6 +129,7 @@ class CreditSpendingEstimatorTest {
 
         assertThat(result.events()).isEmpty();
         assertThat(result.excluded()).isEmpty();
+        assertThat(result.beyond()).isEmpty();
     }
 
     private static CreditSpendingEstimator.Result estimate(List<UserCardRef> cards, List<CardDailySpending> days,

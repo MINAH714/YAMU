@@ -75,7 +75,8 @@ data class CashflowForm(
         }
         val a = amount
         when {
-            a == null || a <= 0 -> put(CashflowField.AMOUNT, "금액을 넣어 주세요")
+            a == null -> put(CashflowField.AMOUNT, "금액을 넣어 주세요")
+            a <= 0 -> put(CashflowField.AMOUNT, "1원 이상 넣어 주세요")
             a > CASHFLOW_AMOUNT_MAX -> put(CashflowField.AMOUNT, "1,000억 원까지 넣을 수 있어요")
         }
         if (date.isBefore(today)) put(CashflowField.DATE, "오늘이나 그 뒤 날짜를 골라 주세요")

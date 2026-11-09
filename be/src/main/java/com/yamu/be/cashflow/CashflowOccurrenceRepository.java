@@ -36,6 +36,9 @@ public interface CashflowOccurrenceRepository extends JpaRepository<CashflowOccu
             """, nativeQuery = true)
     List<Long> findPaidIds(@Param("ids") Collection<Long> ids);
 
+    /** 규칙 하나의 저장된 회차 행 전부. */
+    List<CashflowOccurrence> findByCashflowItemId(Long cashflowItemId);
+
     Optional<CashflowOccurrence> findByCashflowItemIdAndOccurrenceDate(Long cashflowItemId, LocalDate occurrenceDate);
 
     /** 원래 회차나 예정일이 from 이후인 회차 중 결제와 연결된 것의 수. 이 회차들은 이후 수정·전체 삭제로 바꾸지 않는다. */

@@ -133,10 +133,10 @@ fun YamuNavHost(navController: NavHostController, modifier: Modifier = Modifier)
                     onOpenTerm = { showMessage("약관 전문은 준비 중이에요") },
                 )
             }
-            // 가입 진행 토큰 만료 · 앱이 다시 켜져 진행 상태가 없음 → 본인인증부터
+            // 가입 진행 토큰 만료 · 앱이 다시 켜져 진행 상태가 없음 → 본인인증부터.
+            // 까닭은 스낵바 대신 본인인증 화면 위에 띄우고, 넣었던 칸 · 약관 동의는 저장소가 남겨 둔다(SignupRepository.restart)
             val restartSignup: () -> Unit = {
                 navController.navigate(IdentityVerify) { popUpTo<Welcome> { inclusive = false } }
-                showMessage("시간이 지났어요 · 본인인증부터 다시 해 주세요")
             }
             composable<IdentityVerify> {
                 PhoneVerifyRoute(

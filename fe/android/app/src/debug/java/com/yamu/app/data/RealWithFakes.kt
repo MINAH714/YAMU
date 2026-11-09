@@ -17,10 +17,8 @@ import com.yamu.app.feature.my.data.MyRepositoryImpl
 import com.yamu.app.feature.my.data.NotiKind
 import com.yamu.app.feature.my.data.NotiSettings
 import com.yamu.app.feature.my.data.NotificationsPage
-import com.yamu.app.feature.payment.data.Merchant
 import com.yamu.app.feature.payment.data.PaymentRepository
 import com.yamu.app.feature.payment.data.PaymentRepositoryImpl
-import com.yamu.app.feature.payment.data.Recommendation
 import java.time.LocalDate
 import javax.inject.Inject
 
@@ -29,16 +27,12 @@ import javax.inject.Inject
 // 기본 위임은 항상 real이다. 메서드가 늘면 진짜로 가서 BE에 없으면 404로 드러난다.
 
 /**
- * 진짜: 결제 코드 발급 · 상태 · 승인 · 결제 상세 · 취소 · 메모. 가짜: 가맹점 목록 · 결제 전 추천 · 거절.
+ * 진짜: 결제 코드 발급 · 상태 · 승인 · 결제 상세 · 취소 · 메모. 가짜: 거절.
  * 결제 상세는 진짜여야 한다 — 가짜 상세에서 본 번호로 진짜 취소 · 메모가 나가면 같은 번호의 내 실제 결제가 바뀐다
  */
 class RealPaymentWithFakes @Inject constructor(
     real: PaymentRepositoryImpl,
-    private val fake: FakePaymentRepository,
 ) : PaymentRepository by real {
-    override suspend fun merchants(): ApiResult<List<Merchant>> = fake.merchants()
-    override suspend fun recommend(merchantId: Long, amount: Long): ApiResult<Recommendation> = fake.recommend(merchantId, amount)
-
     /** 서버에 알리지 못해 결제는 확정 마감까지 요청 상태로 남는다 */
     override suspend fun reject(paymentId: Long, idempotencyKey: String): ApiResult<Unit> = ApiResult.Success(Unit)
 }

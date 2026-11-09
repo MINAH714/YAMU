@@ -21,7 +21,6 @@ import com.yamu.app.feature.payment.data.PaymentReceipt
 import com.yamu.app.feature.payment.data.PaymentRepository
 import com.yamu.app.feature.payment.data.PaymentRequest
 import com.yamu.app.feature.payment.data.ReceiptBenefit
-import com.yamu.app.feature.payment.data.Recommendation
 import com.yamu.app.feature.payment.data.declineMessage
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.Mutex
@@ -93,32 +92,20 @@ class FakePaymentRepository @Inject constructor(
             listOf(nori2(750, 15_000).copy(performanceNote = "할인받은 결제는 실적에서 빠져요"), zero),
         )
         PayScenario.NO_CARD -> PaymentRequest(paymentId, "스타벅스 역삼점", "카페", 15_000, deadline, emptyList())
-        PayScenario.CARDS_UNKNOWN -> PaymentRequest(paymentId, "스타벅스 역삼점", "카페", 15_000, deadline, emptyList(), cardsUnknown = true)
+        // 데이터 부족(DATA_INSUFFICIENT) — 1순위 없이 비교 못 한 카드만. 하나는 혜택 없이 바로 결제, 하나는 결제 가능 여부도 모름
+        PayScenario.CARDS_UNKNOWN -> PaymentRequest(
+            paymentId, "스타벅스 역삼점", "카페", 15_000, deadline,
+            listOf(uncompared(zero, direct = true), uncompared(nori2(0, 15_000), direct = false)),
+        )
         else -> PaymentRequest(paymentId, "스타벅스 역삼점", "카페", 15_000, deadline, listOf(toktok, zero))
     }
 
-    override suspend fun merchants(): ApiResult<List<Merchant>> = withFault { merchantsNow() }
-
-    private suspend fun merchantsNow(): ApiResult<List<Merchant>> {
-        delay(300)
-        return ApiResult.Success(FakeMerchants.all)
-    }
-
-    override suspend fun recommend(merchantId: Long, amount: Long): ApiResult<Recommendation> = withFault(empty = { ApiResult.Success(Recommendation(FakeMerchants.all.firstOrNull { it.id == merchantId }?.name.orEmpty(), amount, emptyList(), isEstimate = false)) }) { recommendNow(merchantId, amount) }
-
-    private suspend fun recommendNow(merchantId: Long, amount: Long): ApiResult<Recommendation> {
-        delay(500)
-        val m = FakeMerchants.all.firstOrNull { it.id == merchantId } ?: return ApiResult.Failure(ApiError.NotFound("MERCHANT_NOT_FOUND"))
-        fun withBenefit(c: PayCard, benefit: Long) = c.copy(netBenefit = benefit.toBigDecimal(), reason = c.benefitName?.let { "$it ${"%,d".format(benefit)}원" })
-        val point = withBenefit(zero, amount * 12 / 1_000)
-        val cards = when (m.categoryName) {
-            "카페" -> listOf(withBenefit(toktok, minOf(amount / 2, 10_000)), point)
-            "대형마트" -> listOf(withBenefit(mrLife(0), minOf(amount / 10, 3_000)), point)
-            "편의점" -> listOf(withBenefit(nori2(0, amount), minOf(amount / 20, 2_000)).let { it.copy(chargedAmount = amount - it.netBenefit.toLong()) }, point)
-            else -> listOf(point)
-        }
-        return ApiResult.Success(Recommendation(m.name, amount, cards, isEstimate = false))
-    }
+    /** BE uncomparedCards 한 장과 같은 모양 — 문구는 BE UncomparedReason 기본 문구 그대로 */
+    private fun uncompared(c: PayCard, direct: Boolean) = c.copy(
+        netBenefit = 0.toBigDecimal(), benefitName = null, chargedAmount = null, installmentOptions = emptyList(), performanceNote = null,
+        reason = if (direct) "혜택 정보를 확인하지 못해 비교에서 제외했어요." else "결제 가능 여부를 확인하지 못해 비교에서 제외했어요.",
+        benefitUnknown = true, selectable = direct,
+    )
 
     override suspend fun issueCode(stepUpToken: String): ApiResult<PayCode> {
         delay(400)

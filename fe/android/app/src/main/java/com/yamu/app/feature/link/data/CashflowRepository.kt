@@ -26,7 +26,7 @@ import retrofit2.http.Query
 import javax.inject.Inject
 import javax.inject.Singleton
 
-// B-06 월급 · 고정 지출 — #19 후보 · #8 확정 · #17 잔고예보 설정 · #10 하루 생활비 제안. 09 문서 5-2
+// B-06 월급 · 고정 지출 — #19 후보 · #8 확정 · #17 잔고예보 설정 · 생활비 예측 상세(하루 생활비 제안). 09 문서 5-2
 
 @Serializable data class CashflowItemsResponse(val items: List<CashflowItemDto> = emptyList(), val candidateCount: Int = 0)
 
@@ -53,15 +53,16 @@ import javax.inject.Singleton
     @Transient val keepIncome: Boolean = false,   // 이미 정한 월급 · 기간 기준은 보내지 않아 그대로 둔다
 )
 
-/** `GET /forecasts/settings`에서 지금 정한 월급만. 확정 항목이라 B-06 후보 목록에는 없다. 정한 적이 없거나 더는 받을 월급이 없으면 null */
-@Serializable data class ForecastSettingsDto(val income: ForecastIncomeDto? = null)
+/**
+ * `GET /forecasts/settings`에서 지금 정한 월급 · 하루 목표만. 월급은 확정 항목이라 B-06 후보 목록에는 없다.
+ * 월급은 정한 적이 없거나 더는 받을 월급이 없으면 null, 하루 목표는 정한 적이 없으면 null
+ */
+@Serializable data class ForecastSettingsDto(val income: ForecastIncomeDto? = null, val dailyLivingCostTarget: Long? = null)
 
 @Serializable data class ForecastIncomeDto(val cashflowItemId: Long? = null)
 
-/** #10에서 하루 생활비 제안값만 */
-@Serializable data class ForecastLivingCostDto(val livingCost: LivingCostDto? = null)
-
-@Serializable data class LivingCostDto(val projectedAmount: Long? = null, val dailyAverage: Long? = null)
+/** `GET /forecasts/living-cost`에서 하루 평균만 — 최근 3개월 실제 소비의 하루 평균(예측 값이 아니다) */
+@Serializable data class LivingCostDto(val dailyAverage: Long? = null)
 
 interface CashflowApi {
     @GET("cashflow-items")
@@ -76,8 +77,9 @@ interface CashflowApi {
     @PATCH("forecasts/settings")
     suspend fun patchSettings(@Body body: JsonObject): Response<ApiEnvelope<kotlinx.serialization.json.JsonElement>>
 
-    @GET("forecasts/balance")
-    suspend fun forecast(): Response<ApiEnvelope<ForecastLivingCostDto>>
+    /** 생활비 예측 상세. accountIds 필수(1~20개, 비면 400) · 남의 계좌 404 · 고른 계좌 모두 기록이 없으면 422 DATA_INSUFFICIENT */
+    @GET("forecasts/living-cost")
+    suspend fun livingCost(@Query("accountIds") accountIds: List<Long>): Response<ApiEnvelope<LivingCostDto>>
 }
 
 // ── 화면 값 ──
@@ -161,26 +163,46 @@ fun ForecastSettingsPatch.toBody(): JsonObject = buildJsonObject {
 }
 
 interface CashflowRepository {
-    /** B-06 미리 채울 값 — 후보(#19) · 지금 월급 · 하루 생활비 제안(#10, 실패해도 됨) */
+    /** B-06 미리 채울 값 — 후보(#19) · 지금 월급 · 하루 생활비(정해 둔 목표, 없으면 생활비 상세의 하루 평균. 실패해도 됨) */
     suspend fun draft(): ApiResult<CashflowDraft>
 
     /** 확정 — 항목마다 #8, 마지막에 #17. 다시 시도하면 처음부터(같은 값이라 결과가 같음) */
     suspend fun confirm(plan: CashflowPlan): ApiResult<Unit>
 }
 
+/**
+ * 연결 계좌는 [LinkApi]로 직접 읽는다(잔고예보 저장소와 같은 방식). LinkRepository를 받으면 debug에서 계좌만 가짜일 때
+ * 가짜 계좌 번호가 진짜 서버로 간다
+ */
 @Singleton
-class CashflowRepositoryImpl @Inject constructor(private val api: CashflowApi) : CashflowRepository {
+class CashflowRepositoryImpl @Inject constructor(private val api: CashflowApi, private val linkApi: LinkApi) : CashflowRepository {
 
     override suspend fun draft(): ApiResult<CashflowDraft> = coroutineScope {
         val items = async { apiCall { api.items(status = "CANDIDATE", expand = false) } }
-        val forecast = async { apiCall { api.forecast() } }
         val settings = async { apiCall { api.settings() } }
-        val daily = (forecast.await() as? ApiResult.Success)?.data?.livingCost?.dailyAverage
+        val average = async { dailyAverage() }
         // 지금 월급을 모른 채 저장하면 정해 둔 월급을 지울 수 있어 실패로 돌려 다시 읽게 한다
         when (val s = settings.await()) {
             is ApiResult.Failure -> s
-            is ApiResult.Success -> items.await().map { it.items.toDraft(daily, s.data.income?.cashflowItemId) }
+            is ApiResult.Success -> {
+                // 정해 둔 하루 목표가 먼저 — 평균으로 채우면 [등록하고 첫 분석 보기]만 눌러도 사용자가 정한 목표가 바뀐다
+                val daily = s.data.dailyLivingCostTarget ?: average.await()
+                items.await().map { it.items.toDraft(daily, s.data.income?.cashflowItemId) }
+            }
         }
+    }
+
+    /**
+     * 연결 계좌 전부의 최근 3개월 하루 평균(잔고예보도 고른 계좌가 없으면 전부를 쓴다). 기간 예측을 일수로 나누지 않는 것은
+     * 계좌 하나라도 기록이 없으면 null이고, 월급일이 내일이면 기간이 0일이 되기 때문이다.
+     * 계좌가 없으면 묻지 않고(빈 accountIds는 400), 기록이 없는 422를 포함해 어느 단계든 실패하면 제안 없음
+     */
+    private suspend fun dailyAverage(): Long? {
+        val accounts = apiCall { linkApi.accounts(null) } as? ApiResult.Success ?: return null
+        val ids = accounts.data.accounts.map { it.accountId }.distinct().take(MAX_LIVING_COST_ACCOUNTS)
+        if (ids.isEmpty()) return null
+        val livingCost = apiCall { api.livingCost(ids) } as? ApiResult.Success ?: return null
+        return livingCost.data.dailyAverage?.takeIf { it > 0 }
     }
 
     override suspend fun confirm(plan: CashflowPlan): ApiResult<Unit> {
@@ -191,6 +213,11 @@ class CashflowRepositoryImpl @Inject constructor(private val api: CashflowApi) :
         }
         val body = settings.toBody()
         return if (body.isEmpty()) ApiResult.Success(Unit) else apiCallNoData { api.patchSettings(body) }   // 빈 본문은 서버가 400으로 거절한다
+    }
+
+    private companion object {
+        /** 생활비 상세가 받는 계좌 수 상한(BE MAX_ACCOUNTS) */
+        const val MAX_LIVING_COST_ACCOUNTS = 20
     }
 }
 

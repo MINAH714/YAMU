@@ -15,14 +15,12 @@ import com.yamu.app.feature.link.data.brandOf
 import com.yamu.app.feature.payment.data.ApproveOutcome
 import com.yamu.app.feature.payment.data.CancelResult
 import com.yamu.app.feature.payment.data.CodeState
-import com.yamu.app.feature.payment.data.Merchant
 import com.yamu.app.feature.payment.data.PayCard
 import com.yamu.app.feature.payment.data.PayCode
 import com.yamu.app.feature.payment.data.PayCodeStatus
 import com.yamu.app.feature.payment.data.PaymentReceipt
 import com.yamu.app.feature.payment.data.PaymentRepository
 import com.yamu.app.feature.payment.data.PaymentRequest
-import com.yamu.app.feature.payment.data.Recommendation
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
@@ -207,6 +205,70 @@ class PayCodeViewModelTest {
         finish(vm)
     }
 
+    // ── 혜택을 비교하지 못한 카드(추천 uncomparedCards) ──
+
+    @Test fun `데이터 부족이면 미리 고르지 않고 결제 가능 여부를 모르는 카드는 고를 수 없다`() = runTest(dispatcher) {
+        payments.request = request(OffsetDateTime.now().plusHours(1), listOf(uncompared(3, direct = true), uncompared(4, direct = false)))
+        val vm = toRequest()
+        assertNull(vm.state.value.selectedCardId)
+        vm.approve()
+        runCurrent()
+        assertFalse(vm.state.value.waiting)
+        vm.selectCard(4)
+        assertNull(vm.state.value.selectedCardId)
+        vm.selectCard(3)
+        assertEquals(3L, vm.state.value.selectedCardId)
+        assertEquals(0, payments.approves)
+        finish(vm)
+    }
+
+    @Test fun `비교 못 한 카드는 혜택 없음을 확인한 뒤에만 결제한다`() = runTest(dispatcher) {
+        payments.request = request(OffsetDateTime.now().plusHours(1), listOf(uncompared(3, direct = true)))
+        val vm = toRequest()
+        vm.selectCard(3)
+        vm.approve()
+        runCurrent()
+        assertTrue(vm.state.value.askNoBenefit)
+        assertFalse(vm.state.value.waiting)
+        vm.dismissNoBenefit()
+        assertFalse(vm.state.value.askNoBenefit)
+        advanceTimeBy(APPROVE_MS + 1)
+        runCurrent()
+        assertEquals("닫으면 결제하지 않는다", 0, payments.approves)
+        vm.approve()
+        assertTrue("다시 누르면 또 묻는다", vm.state.value.askNoBenefit)
+        vm.confirmNoBenefit()
+        assertFalse(vm.state.value.askNoBenefit)
+        assertTrue(vm.state.value.approving)
+        advanceTimeBy(APPROVE_MS + 1)
+        runCurrent()
+        assertEquals(1, payments.approves)
+        assertEquals(3L, payments.approvedCardId)
+        finish(vm)
+    }
+
+    @Test fun `거절 뒤 다음 카드로 비교 못 한 카드를 저절로 고르지 않고, 확인한 카드는 다시 묻지 않는다`() = runTest(dispatcher) {
+        payments.request = request(OffsetDateTime.now().plusHours(1), listOf(card(1, check = false), uncompared(3, direct = true)))
+        payments.approveResult = ApiResult.Success(ApproveOutcome.Declined("잔액이 부족해요", retryable = true, remainingAttempts = 2, suggestedCardId = 3))
+        val vm = toRequest()
+        assertEquals("1순위만 미리 고른다", 1L, vm.state.value.selectedCardId)
+        vm.approve()
+        advanceTimeBy(APPROVE_MS + 1)
+        runCurrent()
+        assertEquals("서버가 권해도 비교 못 한 카드로 옮기지 않는다", 1L, vm.state.value.selectedCardId)
+        vm.selectCard(3)
+        vm.approve()
+        vm.confirmNoBenefit()
+        advanceTimeBy(APPROVE_MS + 1)
+        runCurrent()
+        assertEquals(2, payments.approves)
+        vm.selectCard(3)
+        vm.approve()
+        assertFalse("같은 결제에서 확인한 카드", vm.state.value.askNoBenefit)
+        assertTrue(vm.state.value.approving)
+        finish(vm)
+    }
+
     private class StubPayments : PaymentRepository {
         var approves = 0
         var rejects = 0
@@ -221,8 +283,11 @@ class PayCodeViewModelTest {
 
         override suspend fun codeStatus(token: String) = ApiResult.Success(PayCodeStatus(CodeState.SCANNED, request))
 
+        var approvedCardId: Long? = null
+
         override suspend fun approve(request: PaymentRequest, card: PayCard, installmentMonths: Int?, idempotencyKey: String): ApiResult<ApproveOutcome> {
             approves++
+            approvedCardId = card.userCardId
             delay(APPROVE_MS)
             return approveResult ?: ApiResult.Success(ApproveOutcome.Approved(receipt(card)))
         }
@@ -232,8 +297,6 @@ class PayCodeViewModelTest {
             return ApiResult.Success(Unit)
         }
 
-        override suspend fun merchants(): ApiResult<List<Merchant>> = error("안 씀")
-        override suspend fun recommend(merchantId: Long, amount: Long): ApiResult<Recommendation> = error("안 씀")
         override fun recentReceipt(paymentId: Long): PaymentReceipt? = null
         override suspend fun detail(paymentId: Long): ApiResult<PaymentReceipt> = error("안 씀")
         override suspend fun cancel(paymentId: Long, idempotencyKey: String): ApiResult<CancelResult> = error("안 씀")
@@ -251,9 +314,11 @@ class PayCodeViewModelTest {
             reason = null, performanceNote = null,
         )
 
-        fun request(deadline: OffsetDateTime) = PaymentRequest(
-            PAYMENT_ID, "스타벅스 역삼점", "카페", AMOUNT, deadline.toString(),
-            listOf(card(1, check = true), card(2, check = false)),
+        /** 비교 못 한 카드 — [direct]면 혜택 없이 바로 결제할 수 있고, 아니면 결제 가능 여부도 모른다 */
+        fun uncompared(id: Long, direct: Boolean) = card(id, check = false).copy(benefitUnknown = true, selectable = direct)
+
+        fun request(deadline: OffsetDateTime, cards: List<PayCard> = listOf(card(1, check = true), card(2, check = false))) = PaymentRequest(
+            PAYMENT_ID, "스타벅스 역삼점", "카페", AMOUNT, deadline.toString(), cards,
         )
 
         fun receipt(card: PayCard) = PaymentReceipt(

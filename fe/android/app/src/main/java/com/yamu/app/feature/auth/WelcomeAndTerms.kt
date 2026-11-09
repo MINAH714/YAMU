@@ -105,7 +105,7 @@ fun TermsScreen(onBack: () -> Unit, onAgree: () -> Unit, onOpenTerm: (String) ->
         topBar = {
             Column(Modifier.background(c.surface)) {
                 YamuTopBar("회원가입", onBack = onBack)
-                StartStepper(step = 1, total = 3, label = "약관 동의")
+                StartStepper(step = 1, total = SIGNUP_STEPS, label = "약관 동의")
             }
         },
         bottomBar = { BottomCta { PrimaryButton("동의하고 계속", onClick = onAgree, enabled = allRequired) } },

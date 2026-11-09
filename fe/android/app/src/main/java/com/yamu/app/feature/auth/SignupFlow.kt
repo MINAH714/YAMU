@@ -73,6 +73,7 @@ import com.yamu.app.feature.auth.data.SIGNUP_TOKEN_INVALID
 import com.yamu.app.feature.auth.data.SignupMode
 import com.yamu.app.feature.auth.data.SignupOneWon
 import com.yamu.app.feature.auth.data.SignupRepository
+import com.yamu.app.feature.auth.data.SignupRestart
 import com.yamu.app.feature.auth.data.SignupValidation
 import com.yamu.app.feature.auth.data.signupErrorMessage
 import com.yamu.app.feature.link.BankMark
@@ -87,6 +88,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import java.time.format.DateTimeFormatter
 import javax.inject.Inject
 
 /*
@@ -101,6 +103,12 @@ internal fun ApiError.signupMessage(): String =
 
 private const val CODE_VALID_SECONDS = 180      // 인증번호 3분
 private const val RESEND_AFTER_SECONDS = 60     // 다시 받기 1분 뒤
+
+/** 가입 단계 표시 — 약관 1 · 본인인증 2 · 계좌 연결(계좌 고르기 · 1원) 3 · 간편 비밀번호 4 */
+internal const val SIGNUP_STEPS = 4
+
+/** 남은 시간 '2:05' */
+private fun mmss(seconds: Int): String = "${seconds / 60}:${"%02d".format(seconds % 60)}"
 
 /** 1초마다 지금 시각 — 남은 시간 · 다시 받기 표시용 */
 @Composable
@@ -213,28 +221,78 @@ data class PhoneVerifyState(
     val next: SignupNext? = null,
     /** 약관을 보고 왔나(가입 단계 표시) — 첫 화면 '로그인'으로 오면 false */
     val fromTerms: Boolean = false,
+    /**
+     * 인증을 마쳤나(가입 · 재등록). 서버는 맞힌 인증번호를 바로 지워서 같은 번호로 다시 확인하면 VERIFICATION_EXPIRED다.
+     * 뒤로 돌아와도 서버를 부르지 않고 받아 둔 가입 진행 토큰으로 다음 단계로 잇는다(다시 확인하면 새 토큰이라 1원부터 다시)
+     */
+    val verified: SignupMode? = null,
+    /** 본인인증부터 다시 하게 된 까닭 — 새 인증번호를 받을 때까지 화면 위에 띄운다 */
+    val notice: String? = null,
 )
+
+/** 본인인증부터 다시 할 때 화면 위 안내. [keptInput] = 넣었던 칸을 채워 두었나 */
+internal fun restartNotice(reason: SignupRestart, keptInput: Boolean): String {
+    val why = when (reason) {
+        SignupRestart.EXPIRED -> "본인인증한 지 30분이 지나 다시 확인해야 해요"
+        SignupRestart.LOST -> "앱이 다시 켜져 본인인증부터 다시 해야 해요"
+    }
+    val todo = if (keptInput) "넣으신 정보는 그대로 두었어요 · 인증번호만 다시 받아 주세요" else "인증번호를 다시 받아 주세요"
+    return "$why\n$todo"
+}
 
 @HiltViewModel
 class PhoneVerifyViewModel @Inject constructor(private val signup: SignupRepository) : ViewModel() {
-    private val _state = MutableStateFlow(PhoneVerifyState(fromTerms = signup.termsAgreed))
+    private val _state = MutableStateFlow(initialState())
     val state: StateFlow<PhoneVerifyState> = _state.asStateFlow()
 
-    // 보낸 뒤 칸을 고치면 그 인증번호는 버린다(다른 사람 · 번호로 확인되지 않게)
+    /** 본인인증부터 다시 왔으면 넣었던 칸을 채우고 까닭을 띄운다. 인증을 마친 채 다시 열리면 마친 상태로 */
+    private fun initialState(): PhoneVerifyState {
+        val input = signup.lastInput
+        return PhoneVerifyState(
+            name = input?.name.orEmpty(),
+            birth = input?.birthDate?.format(DateTimeFormatter.BASIC_ISO_DATE).orEmpty(),
+            carrier = input?.carrier,
+            phone = input?.phoneNumber.orEmpty(),
+            fromTerms = signup.termsAgreed,
+            verified = signup.mode?.takeIf { input != null },
+            notice = signup.takeRestartReason()?.let { restartNotice(it, keptInput = input != null) },
+        )
+    }
+
+    // 보낸 뒤 · 인증을 마친 뒤 칸을 고치면 그 인증은 버린다(다른 사람 · 번호로 다음 단계에 가지 않게)
     fun onName(v: String) = edit { it.copy(name = v.take(20)) }
     fun onBirth(v: String) = edit { it.copy(birth = v.filter(Char::isDigit).take(8)) }
     fun onCarrier(v: Carrier) = edit { it.copy(carrier = v) }
     fun onPhone(v: String) = edit { it.copy(phone = v.filter(Char::isDigit).take(11)) }
 
-    private fun edit(change: (PhoneVerifyState) -> PhoneVerifyState) = _state.update {
-        val next = change(it)
-        if (next == it) it else next.copy(sent = null, code = "", codeError = false, error = null, banner = null)
+    private fun edit(change: (PhoneVerifyState) -> PhoneVerifyState) {
+        val before = _state.value
+        val changed = change(before)
+        if (changed == before) return
+        if (before.verified != null) signup.dropVerification()   // 약관으로 돌아가 '동의하고 계속'을 눌러도 옛 토큰으로 가지 않게
+        _state.value = changed.copy(sent = null, verified = null, code = "", codeError = false, error = null, banner = null)
+    }
+
+    private fun nextOf(mode: SignupMode): SignupNext = when (mode) {
+        SignupMode.DEVICE_RECOVERY -> SignupNext.RECOVERY
+        SignupMode.SIGNUP -> if (signup.termsAgreed) SignupNext.ACCOUNTS else SignupNext.TERMS
+    }
+
+    /** 인증을 마친 뒤 '다음' — 서버를 부르지 않는다 */
+    fun proceed() {
+        val mode = _state.value.verified ?: return
+        if (signup.mode != mode) {   // 그사이 저장소가 진행을 버렸다
+            return _state.update {
+                it.copy(verified = null, sent = null, code = "", error = "인증 시간이 지났어요 · 인증번호를 다시 받아 주세요")
+            }
+        }
+        _state.update { it.copy(next = nextOf(mode)) }
     }
 
     /** 인증번호 받기 · 다시 받기 */
     fun send() {
         val s = _state.value
-        if (s.sending || s.confirming) return   // 연타
+        if (s.sending || s.confirming || s.verified != null) return   // 연타 · 이미 마침
         val birth = SignupValidation.birthDate(s.birth)
         val carrier = s.carrier
         if (SignupValidation.name(s.name) != null || birth == null || carrier == null || SignupValidation.phone(s.phone) != null) {
@@ -246,7 +304,7 @@ class PhoneVerifyViewModel @Inject constructor(private val signup: SignupReposit
                 is ApiResult.Success -> _state.update {
                     it.copy(
                         sending = false, sent = r.data, sentAtMillis = System.currentTimeMillis(), code = "", codeError = false,
-                        banner = r.data.demoCode?.let { code -> "[YAMU] 인증번호 [$code]을 입력해 주세요" },
+                        banner = r.data.demoCode?.let { code -> "[YAMU] 인증번호 [$code]을 입력해 주세요" }, notice = null,
                     )
                 }
                 is ApiResult.Failure -> _state.update { it.copy(sending = false, error = r.error.signupMessage()) }
@@ -265,17 +323,19 @@ class PhoneVerifyViewModel @Inject constructor(private val signup: SignupReposit
 
     fun confirm() {
         val s = _state.value
+        if (s.verified != null) return proceed()   // 이미 마쳤으면 다시 확인하지 않는다
         val sent = s.sent ?: return
         if (s.confirming || s.code.length != 6) return
         viewModelScope.launch {
             _state.update { it.copy(confirming = true, error = null) }
             when (val r = signup.confirmCode(sent.verificationId, s.code)) {
-                is ApiResult.Success -> _state.update {
-                    val next = when (r.data) {
-                        SignupMode.DEVICE_RECOVERY -> SignupNext.RECOVERY
-                        SignupMode.SIGNUP -> if (signup.termsAgreed) SignupNext.ACCOUNTS else SignupNext.TERMS
+                is ApiResult.Success -> {
+                    if (_state.value.sent?.verificationId != sent.verificationId) {
+                        signup.dropVerification()   // 확인하는 사이 칸을 고쳤다 — 고친 값으로 다시 받게
+                        _state.update { it.copy(confirming = false) }
+                    } else {
+                        _state.update { it.copy(confirming = false, verified = r.data, next = nextOf(r.data)) }
                     }
-                    it.copy(confirming = false, next = next)
                 }
                 is ApiResult.Failure -> _state.update {
                     // 시간이 지났거나 시연 사용자가 아니면 칸을 고쳐 다시 받게 한다
@@ -310,15 +370,15 @@ fun PhoneVerifyRoute(onBack: () -> Unit, onNext: (SignupNext) -> Unit, viewModel
             topBar = {
                 Column(Modifier.background(c.surface)) {
                     YamuTopBar(if (s.fromTerms) "회원가입" else "본인 확인", onBack = onBack)
-                    if (s.fromTerms) StartStepper(step = 1, total = 3, label = "본인인증")
+                    if (s.fromTerms) StartStepper(step = 2, total = SIGNUP_STEPS, label = "본인인증")
                 }
             },
             bottomBar = {
                 BottomCta {
-                    if (s.sent == null) {
-                        PrimaryButton("인증번호 받기", onClick = viewModel::send, loading = s.sending)
-                    } else {
-                        PrimaryButton("확인", onClick = viewModel::confirm, enabled = s.code.length == 6, loading = s.confirming)
+                    when {
+                        s.verified != null -> PrimaryButton("다음", onClick = viewModel::proceed)
+                        s.sent == null -> PrimaryButton("인증번호 받기", onClick = viewModel::send, loading = s.sending)
+                        else -> PrimaryButton("확인", onClick = viewModel::confirm, enabled = s.code.length == 6, loading = s.confirming)
                     }
                 }
             },
@@ -328,6 +388,15 @@ fun PhoneVerifyRoute(onBack: () -> Unit, onNext: (SignupNext) -> Unit, viewModel
                 Modifier.padding(inner).consumeWindowInsets(inner).fillMaxSize().verticalScroll(rememberScrollState())
                     .padding(horizontal = YamuSpacing.screen),
             ) {
+                s.notice?.let {
+                    Spacer(Modifier.height(16.dp))
+                    Text(
+                        it,
+                        style = YamuTheme.typography.bodyM,
+                        color = c.onWarningContainer,
+                        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(c.warningContainer).padding(16.dp),
+                    )
+                }
                 Spacer(Modifier.height(20.dp))
                 Text("본인 확인을 할게요", style = YamuTheme.typography.headlineS, color = c.text1)
                 Spacer(Modifier.height(8.dp))
@@ -363,7 +432,12 @@ fun PhoneVerifyRoute(onBack: () -> Unit, onNext: (SignupNext) -> Unit, viewModel
                     error = if (s.showErrors) SignupValidation.phone(s.phone) else null,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone, imeAction = ImeAction.Done),
                 )
-                if (s.sent != null) {
+                if (s.verified != null) {
+                    Spacer(Modifier.height(28.dp))
+                    Text("본인인증을 마쳤어요", style = YamuTheme.typography.titleM, color = c.primary)
+                    Spacer(Modifier.height(4.dp))
+                    Text("칸을 고치면 인증번호를 다시 받아야 해요", style = YamuTheme.typography.sub, color = c.text3)
+                } else if (s.sent != null) {
                     Spacer(Modifier.height(28.dp))
                     Text("인증번호", style = YamuTheme.typography.bodyS, color = c.text2)
                     Spacer(Modifier.height(8.dp))
@@ -372,7 +446,7 @@ fun PhoneVerifyRoute(onBack: () -> Unit, onNext: (SignupNext) -> Unit, viewModel
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         val left = CODE_VALID_SECONDS - elapsed
                         Text(
-                            if (left > 0) "남은 시간 ${left / 60}:${"%02d".format(left % 60)}" else "시간이 지났어요 · 다시 받아 주세요",
+                            if (left > 0) "남은 시간 ${mmss(left)}" else "시간이 지났어요 · 다시 받아 주세요",
                             style = YamuTheme.typography.sub,
                             color = if (left > 0) c.text3 else c.error,
                             modifier = Modifier.weight(1f),
@@ -488,7 +562,7 @@ class SignupAccountsViewModel @Inject constructor(private val signup: SignupRepo
             _state.update { it.copy(loading = true, loadFailed = false, error = message) }
             when (val r = signup.candidates()) {
                 is ApiResult.Success -> _state.update {
-                    val only = r.data.singleOrNull()?.takeIf { _ -> it.recovery }?.id   // 재등록 계좌가 하나면 미리 골라 둔다
+                    val only = r.data.singleOrNull()?.id   // 계좌가 하나면(가입 · 재등록 모두) 미리 골라 둔다
                     it.copy(
                         loading = false, candidates = r.data,
                         selected = listOfNotNull(only), primary = only,
@@ -557,7 +631,7 @@ fun SignupAccountsRoute(
         topBar = {
             Column(Modifier.background(c.surface)) {
                 YamuTopBar(if (s.recovery) "이 폰 등록" else "회원가입", onBack = onBack)
-                if (!s.recovery) StartStepper(step = 2, total = 3, label = "계좌 연결")
+                if (!s.recovery) StartStepper(step = 3, total = SIGNUP_STEPS, label = "계좌 연결")
             }
         },
         bottomBar = { BottomCta { PrimaryButton("1원 보내기", onClick = viewModel::send, enabled = s.primary != null, loading = s.sending) } },
@@ -656,16 +730,26 @@ data class SignupOneWonState(
 
 private fun SignupOneWon.bannerText(): String? = demoCode?.let { "[$bankName] 입금 1원 $prefix$it" }
 
+/** '신한은행 ·4450 계좌로 / 1원을 보냈어요' — 끝자리 숫자에 조사를 붙이지 않게 '계좌로'로 받는다 */
+internal fun SignupOneWon.headline(): String {
+    val account = listOf(bankName.trim(), last4.takeIf { it.isNotEmpty() }?.let { "·$it" }.orEmpty())
+        .filter { it.isNotEmpty() }
+        .joinToString(" ")
+    return (if (account.isEmpty()) "계좌로" else "$account 계좌로") + "\n1원을 보냈어요"
+}
+
 /** 가입: 숫자로 계좌 연결(같은 멱등 키로 재시도) → 간편 비밀번호. 재등록: 숫자로 이 폰을 등록 → 로그인 */
 @HiltViewModel
 class SignupOneWonViewModel @Inject constructor(private val signup: SignupRepository) : ViewModel() {
     private val _state = MutableStateFlow(
         signup.oneWon.let { info ->
+            if (info == null) signup.restart(SignupRestart.LOST)   // 앱이 다시 켜져 진행 상태가 없으면 본인인증부터
             SignupOneWonState(
                 info = info,
                 recovery = signup.mode == SignupMode.DEVICE_RECOVERY,
+                sentAtMillis = info?.sentAtMillis ?: System.currentTimeMillis(),
                 banner = info?.bannerText(),
-                restart = info == null,                  // 앱이 다시 켜져 진행 상태가 없으면 처음부터
+                restart = info == null,
             )
         },
     )
@@ -688,7 +772,7 @@ class SignupOneWonViewModel @Inject constructor(private val signup: SignupReposi
             when (val r = signup.resendOneWon()) {
                 is ApiResult.Success -> _state.update {
                     it.copy(
-                        resending = false, info = r.data, sentAtMillis = System.currentTimeMillis(),
+                        resending = false, info = r.data, sentAtMillis = r.data.sentAtMillis,
                         code = "", codeError = false, needResend = false, banner = r.data.bannerText(),
                     )
                 }
@@ -748,7 +832,7 @@ fun SignupOneWonRoute(
             topBar = {
                 Column(Modifier.background(c.surface)) {
                     YamuTopBar(if (s.recovery) "이 폰 등록" else "회원가입", onBack = onBack)
-                    if (!s.recovery) StartStepper(step = 2, total = 3, label = "계좌 연결")
+                    if (!s.recovery) StartStepper(step = 3, total = SIGNUP_STEPS, label = "계좌 연결")
                 }
             },
             bottomBar = {
@@ -769,7 +853,7 @@ fun SignupOneWonRoute(
             ) {
                 if (info == null) return@Column
                 Spacer(Modifier.height(20.dp))
-                Text("${info.bankName} ·${info.last4}로\n1원을 보냈어요", style = YamuTheme.typography.headlineS, color = c.text1)
+                Text(info.headline(), style = YamuTheme.typography.headlineS, color = c.text1)
                 Spacer(Modifier.height(8.dp))
                 Text("입금자명 ${info.prefix} 뒤 숫자 ${info.codeLength}자리를 넣어 주세요", style = YamuTheme.typography.bodyM, color = c.text2)
                 info.hint?.let {
@@ -785,10 +869,24 @@ fun SignupOneWonRoute(
                     value = s.code, length = info.codeLength, onValueChange = viewModel::onCode,
                     label = "입금자명 숫자 ${info.codeLength}자리", error = s.codeError,
                 )
-                Spacer(Modifier.height(12.dp))
-                val wait = RESEND_AFTER_SECONDS - elapsed
-                if (wait > 0) Text("${wait}초 뒤 1원을 다시 받을 수 있어요", style = YamuTheme.typography.sub, color = c.text3)
-                else QuietLink(if (s.resending) "보내고 있어요…" else "1원 다시 받기", onClick = viewModel::resend)
+                Spacer(Modifier.height(8.dp))
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    // 남은 시간은 안내(최종 만료는 SSAFY) — 지나도 확인은 막지 않고 다시 받기로 이끈다. 서버가 끝났다고 하면 아래 오류 문장이 대신한다
+                    val left = info.validSeconds - elapsed
+                    Text(
+                        when {
+                            s.needResend -> ""
+                            left > 0 -> "남은 시간 ${mmss(left)}"
+                            else -> "시간이 지났어요 · 1원을 다시 받아 주세요"
+                        },
+                        style = YamuTheme.typography.sub,
+                        color = if (left > 0) c.text3 else c.error,
+                        modifier = Modifier.weight(1f),
+                    )
+                    val wait = RESEND_AFTER_SECONDS - elapsed
+                    if (wait > 0) Text("${wait}초 뒤 다시 받기", style = YamuTheme.typography.sub, color = c.text3)
+                    else QuietLink(if (s.resending) "보내고 있어요…" else "1원 다시 받기", onClick = viewModel::resend)
+                }
                 s.error?.let {
                     Spacer(Modifier.height(16.dp))
                     Text(it, style = YamuTheme.typography.bodyM, color = c.error)

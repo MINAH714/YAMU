@@ -157,6 +157,59 @@ class MyInfoIntegrationTest extends MySqlTestSupport {
         assertThat(result.andReturn().getResponse().getStatus()).isEqualTo(401);
     }
 
+    // ───────── 보안 설정 수정 ─────────
+
+    @Test
+    void 보안_설정을_바꾸면_보낸_칸만_저장되고_내_정보에도_나온다() throws Exception {
+        patchSecurity("{\"autoLockSeconds\":0}")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.autoLockSeconds").value(0))
+                .andExpect(jsonPath("$.data.barcodeAuthMethod").value("BIOMETRIC_OR_PIN"))
+                .andExpect(jsonPath("$.data.setupGraceSeconds").value(300))
+                .andExpect(jsonPath("$.data.barcodeAuthGraceSeconds").value(60))
+                .andExpect(jsonPath("$.data.updatedAt").value(Matchers.endsWith("Z")));
+        patchSecurity("{\"barcodeAuthMethod\":\"PIN_ONLY\"}")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.autoLockSeconds").value(0))
+                .andExpect(jsonPath("$.data.barcodeAuthMethod").value("PIN_ONLY"));
+
+        me().andExpect(jsonPath("$.data.securitySettings.autoLockSeconds").value(0))
+                .andExpect(jsonPath("$.data.securitySettings.barcodeAuthMethod").value("PIN_ONLY"));
+        assertThat(jdbc.queryForMap("SELECT auto_lock_seconds, barcode_auth_method FROM app_user WHERE user_id = ?", owner))
+                .containsEntry("auto_lock_seconds", 0).containsEntry("barcode_auth_method", "PIN_ONLY");
+
+        // 빈 요청은 아무것도 바꾸지 않는다
+        patchSecurity("{}").andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.autoLockSeconds").value(0))
+                .andExpect(jsonPath("$.data.barcodeAuthMethod").value("PIN_ONLY"));
+    }
+
+    @Test
+    void 허용_값_밖이면_400이고_아무것도_바뀌지_않으며_남의_설정에는_영향이_없다() throws Exception {
+        long stranger = user("01099998888", "ACTIVE");
+
+        patchSecurity("{\"autoLockSeconds\":30}").andExpect(errorCode(400, "INVALID_REQUEST"))
+                .andExpect(jsonPath("$.error.details.fieldErrors[0].field").value("autoLockSeconds"));
+        patchSecurity("{\"autoLockSeconds\":300,\"barcodeAuthMethod\":\"FACE\"}")
+                .andExpect(errorCode(400, "INVALID_REQUEST"))
+                .andExpect(jsonPath("$.error.details.fieldErrors[0].field").value("barcodeAuthMethod"));
+        assertThat(jdbc.queryForObject("SELECT auto_lock_seconds FROM app_user WHERE user_id = ?", Integer.class, owner))
+                .isEqualTo(60);
+
+        patchSecurity("{\"autoLockSeconds\":300}").andExpect(status().isOk());
+        assertThat(jdbc.queryForObject("SELECT auto_lock_seconds FROM app_user WHERE user_id = ?", Integer.class,
+                stranger)).isEqualTo(60);
+        mockMvc.perform(MockMvcRequestBuilders.patch("/api/users/me/security-settings")
+                        .contentType(org.springframework.http.MediaType.APPLICATION_JSON).content("{\"autoLockSeconds\":0}"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    private ResultActions patchSecurity(String json) throws Exception {
+        return mockMvc.perform(MockMvcRequestBuilders.patch("/api/users/me/security-settings")
+                .with(AuthUsers.asUser(owner, deviceId))
+                .contentType(org.springframework.http.MediaType.APPLICATION_JSON).content(json));
+    }
+
     // ───────── 준비 ─────────
 
     private ResultActions me() throws Exception {

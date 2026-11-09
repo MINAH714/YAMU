@@ -74,6 +74,7 @@ import com.yamu.app.R
 import com.yamu.app.core.designsystem.theme.YamuSpacing
 import com.yamu.app.core.designsystem.theme.YamuTheme
 import com.yamu.app.core.format.toWon
+import com.yamu.app.core.ui.isNotReadyMessage
 import kotlin.math.max
 
 /** '자세히 ⌄ / 접기 ⌃' — 화면에서 뺀 설명은 지우지 않고 여기로. 화면에 1개까지 */
@@ -470,7 +471,7 @@ fun EmptyState(
     }
 }
 
-/** 오류 — 한 문장 + '다시 시도' + 마지막 반영 시각(금융망 오류 때) */
+/** 오류 — 한 문장 + '다시 시도' + 마지막 반영 시각(금융망 오류 때). 서버에 아직 없는 기능(준비 중)은 다시 해도 같아서 버튼을 숨긴다 */
 @Composable
 fun ErrorState(
     message: String,
@@ -483,7 +484,9 @@ fun ErrorState(
         if (syncedAt != null) {
             Text("마지막 반영 $syncedAt", style = YamuTheme.typography.bodyS, color = YamuTheme.colors.text3)
         }
-        Spacer(Modifier.height(12.dp))
-        GreyChip("다시 시도", onClick = onRetry)
+        if (!isNotReadyMessage(message)) {
+            Spacer(Modifier.height(12.dp))
+            GreyChip("다시 시도", onClick = onRetry)
+        }
     }
 }
