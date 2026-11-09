@@ -42,6 +42,7 @@ import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -328,10 +329,10 @@ class AccountLinkIntegrationTest extends MySqlTestSupport {
         // 최근 입금부터 온다. 다른 입금과 자리 수가 다른 적요는 건너뛰고 가장 최근 1원의 숫자를 쓴다.
         when(finApiClient.post(eq(SsafyAccountApi.HISTORY_PATH), eq(USER_KEY), any(), eq(SsafyAccountApi.History.class)))
                 .thenReturn(new SsafyAccountApi.History(List.of(
-                        new SsafyAccountApi.HistoryRow("급여", null),
-                        new SsafyAccountApi.HistoryRow("YAMU 12", null),
-                        new SsafyAccountApi.HistoryRow(" YAMU 4821 ", null),
-                        new SsafyAccountApi.HistoryRow("YAMU 1111", null))));
+                        historyRow(Duration.ZERO, "급여"),
+                        historyRow(Duration.ZERO, "YAMU 12"),
+                        historyRow(Duration.ZERO, " YAMU 4821 "),
+                        historyRow(Duration.ZERO, "YAMU 1111"))));
 
         MvcResult sent = oneWon(bearer, List.of(shinhan), shinhan)
                 .andExpect(status().isOk())
@@ -341,11 +342,50 @@ class AccountLinkIntegrationTest extends MySqlTestSupport {
         ArgumentCaptor<Object> body = ArgumentCaptor.forClass(Object.class);
         verify(finApiClient).post(eq(SsafyAccountApi.HISTORY_PATH), eq(USER_KEY), body.capture(),
                 eq(SsafyAccountApi.History.class));
-        String today = java.time.LocalDate.now(java.time.ZoneId.of("Asia/Seoul"))
-                .format(java.time.format.DateTimeFormatter.BASIC_ISO_DATE);
-        assertThat(body.getValue()).isEqualTo(new SsafyAccountApi.HistoryRequest(ACCOUNT_NO, today, today, "M", "DESC"));
+        java.time.LocalDate todayKst = java.time.LocalDate.now(java.time.ZoneId.of("Asia/Seoul"));
+        String today = todayKst.format(java.time.format.DateTimeFormatter.BASIC_ISO_DATE);
+        SsafyAccountApi.HistoryRequest request = (SsafyAccountApi.HistoryRequest) body.getValue();
+        assertThat(request).isEqualTo(new SsafyAccountApi.HistoryRequest(ACCOUNT_NO, request.startDate(), today, "M", "DESC"));
+        // 보통 오늘 하루. 자정 30초 안에 보냈으면 어제부터 본다
+        assertThat(request.startDate()).isIn(today, todayKst.minusDays(1).format(java.time.format.DateTimeFormatter.BASIC_ISO_DATE));
         // 받은 숫자로 그대로 연결된다
         link(bearer, read(sent, "$.data.verificationToken"), CODE, key(), null).andExpect(status().isCreated());
+    }
+
+    @Test
+    void 같은_날_앞서_보낸_1원의_숫자는_demoCode로_주지_않는다() throws Exception {
+        String bearer = signupBearer(pendingUser(), SignupMode.SIGNUP);
+        MvcResult listed = candidates(bearer).andReturn();
+        String shinhan = candidateId(listed, "6547");
+        String kookmin = candidateId(listed, "8810");
+        // 새 1원이 아직 거래내역에 안 보이고, 1분 전 1원과 시각이 없는 줄만 있다 → 옛 숫자를 주지 않는다
+        // 두 번째: 시계 차이(30초) 안의 줄은 이번 1원으로 본다
+        when(finApiClient.post(eq(SsafyAccountApi.HISTORY_PATH), eq(USER_KEY), any(), eq(SsafyAccountApi.History.class)))
+                .thenReturn(new SsafyAccountApi.History(List.of(
+                        new SsafyAccountApi.HistoryRow(null, null, "YAMU 2222", null),
+                        historyRow(Duration.ofMinutes(-1), "YAMU 1111"))))
+                .thenReturn(new SsafyAccountApi.History(List.of(
+                        historyRow(Duration.ofSeconds(-20), "YAMU " + CODE),
+                        historyRow(Duration.ofMinutes(-1), "YAMU 1111"))));
+
+        oneWon(bearer, List.of(shinhan), shinhan)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.verificationToken").exists())
+                .andExpect(jsonPath("$.data.demoCode").doesNotExist());
+        oneWon(bearer, List.of(kookmin), kookmin)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.demoCode").value(CODE));
+    }
+
+    /** 지금(한국 시각)에서 {@code offset}만큼 떨어진 입금 줄 */
+    private static SsafyAccountApi.HistoryRow historyRow(Duration offset, String summary) {
+        return historyRow(offset, summary, null);
+    }
+
+    private static SsafyAccountApi.HistoryRow historyRow(Duration offset, String summary, String memo) {
+        java.time.LocalDateTime at = java.time.LocalDateTime.now(java.time.ZoneId.of("Asia/Seoul")).plus(offset);
+        return new SsafyAccountApi.HistoryRow(at.format(java.time.format.DateTimeFormatter.BASIC_ISO_DATE),
+                at.format(java.time.format.DateTimeFormatter.ofPattern("HHmmss")), summary, memo);
     }
 
     @Test
@@ -355,7 +395,7 @@ class AccountLinkIntegrationTest extends MySqlTestSupport {
         String shinhan = candidateId(listed, "6547");
         String kookmin = candidateId(listed, "8810");
         when(finApiClient.post(eq(SsafyAccountApi.HISTORY_PATH), eq(USER_KEY), any(), eq(SsafyAccountApi.History.class)))
-                .thenReturn(new SsafyAccountApi.History(List.of(new SsafyAccountApi.HistoryRow("급여", "메모"))))
+                .thenReturn(new SsafyAccountApi.History(List.of(historyRow(Duration.ZERO, "급여", "메모"))))
                 .thenThrow(FinApiFailures.timedOut("inquireTransactionHistoryList"));
 
         oneWon(bearer, List.of(shinhan), shinhan)

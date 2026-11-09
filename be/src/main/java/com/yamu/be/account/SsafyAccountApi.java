@@ -7,7 +7,9 @@ import com.yamu.be.global.finapi.FinApiException;
 import com.yamu.be.global.finapi.FinApiOutcome;
 import com.fasterxml.jackson.databind.JsonNode;
 import jakarta.validation.constraints.NotNull;
+import java.time.Duration;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
@@ -39,6 +41,9 @@ public class SsafyAccountApi {
     static final String HISTORY_PATH = "/edu/demandDeposit/inquireTransactionHistoryList";
 
     private static final DateTimeFormatter DATE = DateTimeFormatter.BASIC_ISO_DATE;
+    private static final DateTimeFormatter DATE_TIME = DateTimeFormatter.ofPattern("yyyyMMddHHmmss");
+    /** 우리 서버와 SSAFY 시계 차이를 봐주는 폭. 같은 계좌 1원 재발송 간격(1분)보다 짧아야 앞선 1원이 걸러진다 */
+    static final Duration CLOCK_SKEW = Duration.ofSeconds(30);
     /** 거래내역 조회의 입금만(transactionType M), 최근 거래부터 */
     private static final String DEPOSITS = "M";
     private static final String NEWEST_FIRST = "DESC";
@@ -110,19 +115,26 @@ public class SsafyAccountApi {
     }
 
     /**
-     * 시연용: 오늘(한국 날짜) 이 계좌에 들어온 1원의 인증 숫자를 거래내역에서 찾는다(S15P31E103-350).
+     * 시연용: 방금 이 계좌에 보낸 1원의 인증 숫자를 거래내역에서 찾는다(S15P31E103-350).
      * 1원 송금 응답에는 숫자가 없어서, 통장에 찍힌 적요 "{authText} {숫자}"를 최근 입금부터 본다.
+     *
+     * <p>같은 날 앞서 보낸 1원의 숫자를 주지 않도록 {@code sentFrom - CLOCK_SKEW}보다 이른 거래(또는 시각이 없는 거래)는 건너뛴다.
+     * 새 1원이 아직 거래내역에 안 보이면 옛 숫자 대신 empty가 된다.
      *
      * <p>찾지 못하거나 조회가 실패해도 1원 인증 자체는 계속되므로 예외를 던지지 않고 empty를 돌려준다.
      * 숫자는 로그에 남기지 않는다.
+     *
+     * @param sentFrom 1원 송금을 부르기 직전 시각(한국 시각)
+     * @param today    지금 한국 날짜. 자정을 넘겨도 찾도록 {@code sentFrom}의 날짜부터 오늘까지 조회한다
      */
     public Optional<String> findOneWonCode(String userKey, String accountNo, String authText, int codeLength,
-            LocalDate today) {
+            LocalDateTime sentFrom, LocalDate today) {
         Pattern code = Pattern.compile("^" + Pattern.quote(authText) + "\\s*(\\d{" + codeLength + "})$");
+        LocalDateTime notBefore = sentFrom.minus(CLOCK_SKEW);
         History history;
         try {
-            history = finApiClient.post(HISTORY_PATH, userKey, new HistoryRequest(accountNo, today.format(DATE),
-                    today.format(DATE), DEPOSITS, NEWEST_FIRST), History.class);
+            history = finApiClient.post(HISTORY_PATH, userKey, new HistoryRequest(accountNo,
+                    notBefore.toLocalDate().format(DATE), today.format(DATE), DEPOSITS, NEWEST_FIRST), History.class);
         } catch (RuntimeException e) {
             log.warn("1원 인증 숫자를 찾으려던 거래내역 조회 실패: {}", e.getClass().getSimpleName());
             return Optional.empty();
@@ -131,6 +143,10 @@ public class SsafyAccountApi {
             return Optional.empty();
         }
         for (HistoryRow row : history.list()) {
+            LocalDateTime at = row.at();
+            if (at == null || at.isBefore(notBefore)) {
+                continue;
+            }
             for (String text : new String[] {row.transactionSummary(), row.transactionMemo()}) {
                 if (text == null) {
                     continue;
@@ -197,7 +213,20 @@ public class SsafyAccountApi {
     }
 
     /** 적요·메모에 인증 숫자가 있으므로 로그에 남기지 않는다. */
-    record HistoryRow(String transactionSummary, String transactionMemo) {
+    record HistoryRow(String transactionDate, String transactionTime, String transactionSummary,
+            String transactionMemo) {
+
+        /** 거래 시각(한국 시각, yyyyMMdd + HHmmss). 없거나 형식이 다르면 null */
+        LocalDateTime at() {
+            if (transactionDate == null || transactionTime == null) {
+                return null;
+            }
+            try {
+                return LocalDateTime.parse(transactionDate + transactionTime, DATE_TIME);
+            } catch (java.time.format.DateTimeParseException e) {
+                return null;
+            }
+        }
 
         @Override
         public String toString() {

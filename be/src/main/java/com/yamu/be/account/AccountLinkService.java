@@ -183,6 +183,7 @@ public class AccountLinkService {
         VerifiedAccount pending = VerifiedAccount.of(primary, selected);
         String token = verificationStore.issue(pending);
         boolean uncertain = false;
+        LocalDateTime sentFrom = LocalDateTime.now(clock.withZone(KST));
         try {
             ssafy.sendOneWon(userKeyOf(user), accountNoOf(pending), properties.authText());
         } catch (FinApiException e) {
@@ -205,7 +206,7 @@ public class AccountLinkService {
         // 임시(S15P31E103-350): 시연 계좌는 사용자가 거래내역을 볼 수 없어 숫자를 응답으로 준다. 결과 불명이면 찾지 않는다.
         String demoCode = properties.exposeDemoCode() && !uncertain
                 ? ssafy.findOneWonCode(userKeyOf(user), accountNoOf(pending), properties.authText(), AUTH_CODE_LENGTH,
-                        LocalDate.now(clock.withZone(KST))).orElse(null)
+                        sentFrom, LocalDate.now(clock.withZone(KST))).orElse(null)
                 : null;
         return new OneWonAuthResponse(token, bank(primary.bankCode(), primary.bankName()), mask(primary.last4()),
                 requestedAt, requestedAt.plus(properties.authCodeValidity()), properties.authText(), AUTH_CODE_LENGTH,
