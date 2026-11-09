@@ -11,7 +11,6 @@ import com.yamu.be.global.common.ApiResponse.FieldErrorResponse;
 import com.yamu.be.global.exception.BusinessException;
 import com.yamu.be.global.exception.ErrorCode;
 import com.yamu.be.payment.billing.BillStatus;
-import com.yamu.be.payment.billing.CardBill;
 import com.yamu.be.payment.billing.CardBillRepository;
 import java.time.Clock;
 import java.time.LocalDate;
@@ -27,6 +26,7 @@ import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import org.springframework.stereotype.Service;
@@ -149,7 +149,8 @@ public class ForecastService {
         predictionLog.record(authenticatedUserId, horizon.from(), horizon.days(),
                 living.projection().byAccount().values());
         return new BalanceForecast(selected, selected.size(), currentTotal, horizon, alertThreshold, summary,
-                series(projection.total()), aggregate.windows(), livingCost, prepared.beyondHorizon(), accountForecasts,
+                series(projection.total()), aggregate.windows(), livingCost,
+                beyondHorizon(authenticatedUserId, prepared.beyondHorizon()), accountForecasts,
                 List.copyOf(prepared.excluded()), true, now());
     }
 
@@ -178,7 +179,7 @@ public class ForecastService {
                 creditSchedule, horizon.from(), horizon.to());
         List<FlowEvent> events = new ArrayList<>(converted.events());
         List<ExcludedItem> excluded = new ArrayList<>(converted.excluded());
-        List<FlowEvent> beyond = new ArrayList<>();
+        List<Beyond> beyond = new ArrayList<>();
         events.addAll(billEvents(authenticatedUserId, selected, selectedSet, horizon, excluded, beyond));
         events.addAll(creditSpendingEvents(authenticatedUserId, selected, selectedSet, horizon, excluded, beyond));
 
@@ -192,7 +193,7 @@ public class ForecastService {
             }
         }
         return new Prepared(selected, horizon, userSettings.alertThreshold(), balanceById, living, List.copyOf(events),
-                List.copyOf(excluded), startBalances, dailyLiving, beyondHorizon(authenticatedUserId, beyond));
+                List.copyOf(excluded), startBalances, dailyLiving, List.copyOf(beyond));
     }
 
     /**
@@ -413,7 +414,7 @@ public class ForecastService {
      * {@value #BEYOND_HORIZON_YEARS}년 뒤 출금분까지 읽는다(청구서는 이번·지난 이용기간 것만 있어 실제로는 두어 달 안이다).
      */
     private List<FlowEvent> billEvents(Long userId, List<Long> selected, Set<Long> selectedSet,
-            BalanceForecast.Horizon horizon, List<ExcludedItem> excluded, List<FlowEvent> beyond) {
+            BalanceForecast.Horizon horizon, List<ExcludedItem> excluded, List<Beyond> beyond) {
         List<FlowEvent> events = new ArrayList<>();
         LocalDate readUntil = horizon.to().plusYears(BEYOND_HORIZON_YEARS);
         for (CardBillReader.OutstandingBill bill : bills.outstanding(userId, selected, readUntil)) {
@@ -431,8 +432,10 @@ public class ForecastService {
             if (bill.status() != CardBillReader.Status.UNPAID && bill.withdrawalDate().isAfter(horizon.to())) {
                 // 0원 청구서(예: 승인 저장 실패로 남은 다음 달 빈 청구서)는 빠질 돈이 없어 미리보기에 넣지 않는다.
                 if (bill.amount() > 0) {
-                    beyond.add(billEvent(bill, bill.withdrawalDate(), bill.status() == CardBillReader.Status.CONFIRMED
-                            ? FlowEvent.Confidence.CONFIRMED : FlowEvent.Confidence.EXPECTED));
+                    beyond.add(new Beyond(billEvent(bill, bill.withdrawalDate(),
+                            bill.status() == CardBillReader.Status.CONFIRMED
+                                    ? FlowEvent.Confidence.CONFIRMED : FlowEvent.Confidence.EXPECTED),
+                            bill.userCardId(), bill.billingMonth()));
                 }
                 continue;
             }
@@ -462,7 +465,7 @@ public class ForecastService {
      * 미납 청구서가 있는 카드는 실제 승인처럼(UNPAID_BILL 거절) 앞으로 쓸 수 없어 뺀다(가상 구매와 같은 BE 2 조회).
      */
     private List<FlowEvent> creditSpendingEvents(Long userId, List<Long> selected, Set<Long> selectedSet,
-            BalanceForecast.Horizon horizon, List<ExcludedItem> excluded, List<FlowEvent> beyond) {
+            BalanceForecast.Horizon horizon, List<ExcludedItem> excluded, List<Beyond> beyond) {
         LocalDate today = horizon.from();
         LocalDate from = YearMonth.from(today).minusMonths(LivingCostEstimator.MONTHS).atDay(1);
         CreditSpendingReader.CreditSpending spending = creditSpending.creditDailySpending(userId, selected, from, today);
@@ -483,35 +486,41 @@ public class ForecastService {
         CreditSpendingEstimator.Result result = CreditSpendingEstimator.estimate(usable, names, spending.days(),
                 selectedSet, today, horizon.to(), creditSchedule);
         excluded.addAll(result.excluded());
-        beyond.addAll(result.beyond());
+        // 사용 추정 이벤트의 refId는 카드 번호다.
+        result.beyond().forEach(event -> beyond.add(new Beyond(event, event.refId(), null)));
         return result.events();
     }
 
     /**
      * 기간 밖 출금을 출금일·종류 순으로 응답 모양으로 바꾼다. 선에는 넣지 않는다. 여러 계좌·카드를 구별하도록 출금 계좌와 카드를
-     * 담고, 청구는 제목을 "카드 이름 N월 청구"로 바꾼다(Codex 검토, 2026-11-09 결정). 청구서 읽기(BE 2)는 카드를 주지 않아
-     * 청구서마다 한 번 더 읽는다.
+     * 담고, 청구는 제목을 "카드 이름 N월 청구"로 바꾼다(Codex 검토, 2026-11-09 결정). 카드·청구 월은 청구서 읽기가 같이 준다
+     * (!199 리뷰). 카드 이름 조회가 나가므로 잔고예보 조회에서만 부르고 가상 구매는 부르지 않는다(!199 리뷰, 2026-11-09 결정).
      */
-    private List<BalanceForecast.BeyondHorizonItem> beyondHorizon(Long userId, List<FlowEvent> beyond) {
+    private List<BalanceForecast.BeyondHorizonItem> beyondHorizon(Long userId, List<Beyond> beyond) {
+        Map<Long, String> names = new HashMap<>();
         List<BalanceForecast.BeyondHorizonItem> items = new ArrayList<>();
-        for (FlowEvent event : beyond.stream()
-                .sorted(Comparator.comparing(FlowEvent::date).thenComparing(FlowEvent::type)).toList()) {
-            Long userCardId = event.refId();
+        for (Beyond item : beyond.stream().sorted(Comparator.comparing((Beyond b) -> b.event().date())
+                .thenComparing(b -> b.event().type())).toList()) {
+            FlowEvent event = item.event();
             String title = event.title();
             if (event.type() == FlowEvent.Type.CARD_BILLING) {
-                // 리더가 그 사용자의 청구만 주지만, 남의 청구서 정보를 싣지 않도록 소유자를 다시 본다.
-                CardBill bill = cardBills.findById(event.refId())
-                        .filter(found -> found.getUserId().equals(userId))
-                        .orElseThrow(() -> new IllegalStateException("기간 밖 청구서를 읽지 못했다: " + event.refId()));
-                userCardId = bill.getUserCardId();
-                String name = cardNames.name(userId, userCardId);
-                title = (name == null ? "카드" : name) + " " + bill.getBillingMonth().getMonthValue() + "월 청구";
+                String name = names.computeIfAbsent(item.userCardId(),
+                        cardId -> Objects.requireNonNullElse(cardNames.name(userId, cardId), "카드"));
+                title = name + " " + item.billingMonth().getMonthValue() + "월 청구";
             }
             items.add(new BalanceForecast.BeyondHorizonItem(event.date(), event.type(), title, event.amount(),
-                    event.confidence(), event.accountId(), userCardId));
+                    event.confidence(), event.accountId(), item.userCardId()));
         }
         return List.copyOf(items);
     }
+
+    /**
+     * 기간 밖 출금 원재료. 응답 모양은 잔고예보 조회에서만 만든다.
+     *
+     * @param userCardId   그 출금의 카드
+     * @param billingMonth 청구 월. 사용 추정은 null
+     */
+    record Beyond(FlowEvent event, Long userCardId, LocalDate billingMonth) {}
 
     private static FlowEvent billEvent(CardBillReader.OutstandingBill bill, LocalDate date,
             FlowEvent.Confidence confidence) {
@@ -550,10 +559,11 @@ public class ForecastService {
      * @param events        기간 안 미래 입출금(예정 항목·카드 청구·보수적 선 전용 신용카드 사용 추정)
      * @param excluded      계산에서 뺀 항목과 이유
      * @param dailyLiving   생활비 자료가 있는 계좌의 하루 생활비(AI 또는 TSB 예상 생활비의 하루 값). 없는 계좌는 빠진다
-     * @param beyondHorizon 출금일이 기간 뒤인 카드 청구·신용카드 사용 추정(출금일 순). 선에는 넣지 않는다(S15P31E103-348)
+     * @param beyondHorizon 출금일이 기간 뒤인 카드 청구·신용카드 사용 추정의 원재료. 선에는 넣지 않고, 응답 모양은 잔고예보 조회에서만
+     *                      만든다(S15P31E103-348)
      */
     record Prepared(List<Long> selected, BalanceForecast.Horizon horizon, long alertThreshold,
             Map<Long, AccountBalance> balanceById, LivingCostRead living, List<FlowEvent> events,
             List<ExcludedItem> excluded, Map<Long, Long> startBalances, Map<Long, Long> dailyLiving,
-            List<BalanceForecast.BeyondHorizonItem> beyondHorizon) {}
+            List<Beyond> beyondHorizon) {}
 }
