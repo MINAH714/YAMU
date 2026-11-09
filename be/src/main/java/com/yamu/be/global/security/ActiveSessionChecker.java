@@ -23,10 +23,6 @@ public class ActiveSessionChecker {
 
     private final NamedParameterJdbcTemplate jdbc;
 
-    public boolean isActive(long userId, long userDeviceId) {
-        return status(userId, userDeviceId) == Status.ACTIVE;
-    }
-
     /** 사용자가 없거나 활성이 아니면 USER_INACTIVE가 먼저다. 사용자는 활성인데 기기가 없거나 해제됐으면 DEVICE_REVOKED. */
     public Status status(long userId, long userDeviceId) {
         List<Status> found = jdbc.query("""
