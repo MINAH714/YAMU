@@ -6,7 +6,7 @@ import type { PaymentRequestAccepted, PaymentRequestBody, PaymentResult } from '
  * 결제 요청 생성은 실제 BE가 처리하고, 앱에서 승인·거절한 결과만 화면의 Mock 버튼으로 흉내 낸다.
  * 마감이 지난 REQUESTED는 조회할 때 EXPIRED로 바꾼다(명세 Q4 제안과 같음).
  */
-export type MockAction = 'approve' | 'approveWithDiscount' | 'decline' | 'declineFinal' | 'disconnect'
+export type MockAction = 'approve' | 'approveWithDiscount' | 'decline' | 'declineFinal' | 'reject' | 'disconnect'
 
 type MockPayment = {
   accepted: PaymentRequestAccepted
@@ -47,6 +47,13 @@ export function applyMockAction(paymentId: number, action: MockAction) {
     return
   }
   const { body, result } = payment
+  // 고객 거절은 REQUESTED·DECLINED(마감 전)만 받는다. 승인된 결제는 그대로 둔다(BE 409와 같음)
+  if (action === 'reject') {
+    if (result.status === 'REQUESTED' || result.status === 'DECLINED') {
+      payment.result = { ...result, status: 'REJECTED', retryable: null }
+    }
+    return
+  }
   if (action === 'approve' || action === 'approveWithDiscount') {
     const discount = action === 'approveWithDiscount' ? Math.min(body.amount, Math.floor(body.amount * 0.1)) : 0
     const now = new Date()

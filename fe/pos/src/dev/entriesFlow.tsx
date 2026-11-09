@@ -15,6 +15,7 @@ import {
   DEMO_TOKEN,
   EXPIRED_RESULT,
   NOT_CONFIRMED_RESULT,
+  REJECTED_RESULT,
 } from './fixtures'
 import type { GalleryEntry } from './types'
 
@@ -109,6 +110,12 @@ export const flowEntries: GalleryEntry[] = [
     id: 'receipt-expired',
     label: '만료',
     render: () => <Receipt result={EXPIRED_RESULT} order={DEMO_ORDER} onNext={noop} onRetry={noop} />,
+  },
+  {
+    ...flow,
+    id: 'receipt-rejected',
+    label: '고객 거절',
+    render: () => <Receipt result={REJECTED_RESULT} order={DEMO_ORDER} onNext={noop} onRetry={noop} />,
   },
   {
     ...flow,
