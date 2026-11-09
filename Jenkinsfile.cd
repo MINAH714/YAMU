@@ -71,7 +71,9 @@ pipeline {
         stage('Test master') {
             steps {
                 script {
-                    def tested = build(job: 'yamu/ci-master', wait: true, propagate: true)
+                    def tested = build(job: 'yamu/ci-master', wait: true, propagate: true,
+                        parameters: [booleanParam(name: 'FULL_CI', value: true),
+                                     string(name: 'RELEASE_REVISION', value: env.GIT_COMMIT)])
                     env.TESTED_BUILD = tested.number.toString()
                     echo "Candidate: yamu/ci-master #${env.TESTED_BUILD}"
                 }
@@ -81,7 +83,7 @@ pipeline {
             steps {
                 script { notifyMattermost('APPROVAL_PENDING') }
                 timeout(time: 30, unit: 'MINUTES') {
-                    input message: "Deploy BE from ci-master #${env.TESTED_BUILD}? DB migration changes are rejected.",
+                    input message: "Deploy BE ${env.GIT_COMMIT} from ci-master #${env.TESTED_BUILD}? Existing API keys and AI configuration are retained. DB migration changes are rejected.",
                           ok: 'Deploy', submitter: 'yamu', submitterParameter: 'APPROVER'
                 }
             }

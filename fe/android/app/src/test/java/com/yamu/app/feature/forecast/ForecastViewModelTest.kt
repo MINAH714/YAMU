@@ -1,9 +1,11 @@
 package com.yamu.app.feature.forecast
 
+import com.yamu.app.core.format.KST
 import com.yamu.app.core.network.ApiError
 import com.yamu.app.core.network.ApiResult
 import com.yamu.app.core.ui.userMessage
 import com.yamu.app.feature.forecast.data.CashflowEntry
+import com.yamu.app.feature.forecast.data.CashflowRepeat
 import com.yamu.app.feature.forecast.data.Forecast
 import com.yamu.app.feature.forecast.data.ForecastAccountOption
 import com.yamu.app.feature.forecast.data.ForecastPeriod
@@ -53,7 +55,13 @@ class ForecastViewModelTest {
             entriesCalls++
             return entriesResponse.await()
         }
+        override suspend fun pastCardEntries(from: LocalDate, to: LocalDate): ApiResult<List<CashflowEntry>> {
+            pastRange = from to to
+            return pastResult
+        }
     }
+    private var pastResult: ApiResult<List<CashflowEntry>> = ApiResult.Success(emptyList())
+    private var pastRange: Pair<LocalDate, LocalDate>? = null
 
     @Before fun setUp() = Dispatchers.setMain(dispatcher)
 
@@ -177,6 +185,31 @@ class ForecastViewModelTest {
         assertEquals(14, vm.state.value.forecast?.horizonDays)
     }
 
+    @Test fun `지난 7일 카드 예정 지출은 어제까지 따로 부른다`() = runTest(dispatcher) {
+        val past = CashflowEntry(7010, false, "헬스장", 55_000, YESTERDAY, YESTERDAY, CashflowRepeat.NONE, null, null, null, 11)
+        pastResult = ApiResult.Success(listOf(past))
+        val vm = ForecastViewModel(repo)
+        vm.refreshWithEntries()
+        entriesResponse.complete(ApiResult.Success(emptyList()))
+        advanceUntilIdle()
+
+        val today = LocalDate.now(KST)
+        assertEquals(today.minusDays(PAST_MATCH_DAYS) to today.minusDays(1), pastRange)
+        assertEquals(listOf(past), vm.state.value.pastEntries)
+    }
+
+    @Test fun `지난 회차를 못 받아도 위 목록은 그대로고 지난 목록만 비운다`() = runTest(dispatcher) {
+        pastResult = ApiResult.Failure(ApiError.Network)
+        val vm = ForecastViewModel(repo)
+        vm.refreshWithEntries()
+        entriesResponse.complete(ApiResult.Success(emptyList()))
+        advanceUntilIdle()
+
+        assertEquals(emptyList<CashflowEntry>(), vm.state.value.entries)
+        assertNull(vm.state.value.entriesError)
+        assertEquals(emptyList<CashflowEntry>(), vm.state.value.pastEntries)
+    }
+
     @Test fun `예정된 돈의 기간 — 월급날 기준이면 월급 전까지, 아니면 실제 일수`() {
         assertEquals("월급 전까지", cashflowPeriod(testForecast()))
         assertEquals("30일 동안", cashflowPeriod(null))
@@ -187,6 +220,7 @@ class ForecastViewModelTest {
     private companion object {
         val FORECAST_ERROR = ApiError.from(404, "NOT_FOUND")
         val ENTRIES_ERROR: ApiError = ApiError.Network
+        val YESTERDAY: LocalDate = LocalDate.now(KST).minusDays(1)
         val ACCOUNTS = listOf(
             ForecastAccountOption(1, "월급 통장", "신한은행", "4021", 412_000, isPrimary = true),
             ForecastAccountOption(2, "생활비 통장", "KB국민은행", "7730", 268_000, isPrimary = false),

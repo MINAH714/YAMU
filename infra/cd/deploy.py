@@ -4,6 +4,7 @@
 Install root-owned, with root-owned config and forced SSH command. The caller
 supplies only a ci-master build number. No caller path, image or shell is accepted.
 """
+import copy
 import hashlib
 import io
 import json
@@ -49,6 +50,25 @@ def switch_backend(apply, verify, persist, rollback):
         raise
 
 
+def release_override(active, image):
+    """Change only the backend image, including on rollback; never drop keys/AI."""
+    if not isinstance(active, dict) or not isinstance(active.get('services'), dict):
+        raise ValueError('Invalid active override')
+    if not isinstance(active['services'].get('backend'), dict):
+        raise ValueError('Missing backend override')
+    result = copy.deepcopy(active)
+    result['services']['backend']['image'] = image
+    return result
+
+
+def protected_environment(container):
+    """Compare values in memory only; never serialize this result to logs/state."""
+    environment = dict(item.split('=', 1) for item in container['Config']['Env'] if '=' in item)
+    names = {'SSAFY_API_KEY', 'YAMU_POS_KEY', 'YAMU_ADMIN_KEY', 'AI_BASE_URL', 'YAMU_JWT_SECRET'}
+    names.update(key for key in environment if key.startswith('YAMU_CRYPTO_'))
+    return {key: environment[key] for key in names if key in environment}
+
+
 def main():
     import fcntl  # Host entry point is Linux; pure validation tests also run on Windows.
     build = os.environ.get('SSH_ORIGINAL_COMMAND', '')
@@ -59,6 +79,11 @@ def main():
     lock = open('/run/lock/yamu-cd.lock', 'w')
     fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
     cfg = json.loads(CONFIG.read_text())
+    state = Path(cfg['active_override'])
+    # Missing/malformed state is an operator error, not permission to discard it.
+    original_state = state.read_bytes()
+    active = json.loads(original_state)
+    release_override(active, 'validation-only')
     controller = cfg['jenkins_container']
     archive = f'/var/jenkins_home/jobs/yamu/jobs/ci-master/builds/{build}'
 
@@ -86,6 +111,7 @@ def main():
     if read_artifact('archive/ci-revision.txt').decode().strip() != revision:
         raise ValueError('Revision record mismatch')
     current = json.loads(run(['docker', 'inspect', 'yamu-prod-backend-1']))[0]
+    protected = protected_environment(current)
     old_image = current['Image']
     if current['State'].get('Health', {}).get('Status') != 'healthy':
         raise ValueError('Existing backend must be healthy')
@@ -110,21 +136,28 @@ def main():
 
         def compose(target, action):
             override = temp / 'image.json'
-            override.write_text(json.dumps({'services': {'backend': {'image': target}}}))
+            override.write_text(json.dumps(release_override(active, target)))
+            os.chmod(override, 0o600)
             return run(base + ['-f', str(override)] + action)
 
         compose(new_image, ['config', '--quiet'])
         if master() != revision:
             raise ValueError('master changed while preparing deployment')
-        state = Path(cfg['active_override'])
+        if state.read_bytes() != original_state:
+            raise ValueError('Active configuration changed while preparing deployment')
         pending = state.with_suffix('.pending')
-        pending.write_text(json.dumps({'services': {'backend': {'image': new_image}}}) + '\n')
-        os.chmod(pending, 0o600)
+        # Create privately, rather than briefly exposing contents before chmod.
+        with open(pending, 'w', opener=lambda path, flags: os.open(path, flags, 0o600)) as file:
+            os.chmod(pending, 0o600)
+            json.dump(release_override(active, new_image), file)
         def start(target):
             compose(target, ['up', '-d', '--no-deps', '--no-build', '--pull', 'never',
                              '--wait', '--wait-timeout', '180', 'backend'])
 
         def verify_health():
+            actual = json.loads(run(['docker', 'inspect', 'yamu-prod-backend-1']))[0]
+            if protected_environment(actual) != protected:
+                raise ValueError('Protected backend environment changed')
             health = json.loads(run(['curl', '--fail', '--silent', '--max-time', '15',
                                      'http://127.0.0.1:8080/actuator/health']))
             api = json.loads(run(['curl', '--fail', '--silent', '--max-time', '15',
@@ -136,8 +169,11 @@ def main():
             verify_health()
             print('Previous image restored; candidate deployment failed.', flush=True)
 
-        switch_backend(lambda: start(new_image), verify_health,
-                       lambda: os.replace(pending, state), rollback)
+        try:
+            switch_backend(lambda: start(new_image), verify_health,
+                           lambda: os.replace(pending, state), rollback)
+        finally:
+            pending.unlink(missing_ok=True)
         # Persist the selected image before claiming completion. A stable override
         # is required for subsequent operator restarts (do not use old APP_VERSION).
         print(json.dumps({'result': 'DEPLOYED', 'build': build, 'revision': revision,
