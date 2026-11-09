@@ -204,6 +204,53 @@ class RecurringExpenseDetectorTest extends MySqlTestSupport {
     }
 
     @Test
+    void 첫_예정일부터_값을_고친_후보는_반복이_끊겨도_남긴다() throws Exception {
+        // Codex 검토: 첫 예정일부터 고치면 규칙을 제자리에서 바꾸고 첫 회차를 다시 만들어, 회차·이어지는 규칙만 보면 손대지 않은 것처럼 보였다.
+        List<Long> payments = paidMonthly(owner, card, merchant, 55_000L, 3, 3, "YAMU");
+        long candidate = onlyDetectedRow(owner);
+        LocalDate first = jdbc.queryForObject("SELECT scheduled_date FROM cashflow_item WHERE cashflow_item_id = ?",
+                LocalDate.class, candidate);
+        mockMvc.perform(patch("/api/cashflow-items/" + candidate).with(AuthUsers.asUser(owner))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{ \"amount\": 50000, \"occurrenceDate\": \"%s\" }".formatted(first)))
+                .andExpect(status().isOk());
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM cashflow_item WHERE user_id = ?", Long.class, owner))
+                .isEqualTo(1L);
+
+        cancel(payments.get(payments.size() - 1));
+        candidates(owner);
+
+        assertThat(jdbc.queryForObject("SELECT amount FROM cashflow_item WHERE cashflow_item_id = ?", Long.class,
+                candidate)).isEqualTo(50_000L);
+    }
+
+    @Test
+    void 후보의_카드를_바꿔도_같은_반복_지출이라_새_후보를_만들지_않는다() throws Exception {
+        // Codex 검토: 탐지 키에 지금 카드 칸을 쓰면, 카드를 바꾼 뒤 원래 카드의 반복 결제로 후보가 또 생겼다.
+        paidMonthly(owner, card, merchant, 55_000L, 3, 3, "YAMU");
+        long candidate = onlyDetectedRow(owner);
+        long other = ownership.card(owner, ownership.product(), ownership.account(owner), "ACTIVE");
+        LocalDate first = jdbc.queryForObject("SELECT scheduled_date FROM cashflow_item WHERE cashflow_item_id = ?",
+                LocalDate.class, candidate);
+        mockMvc.perform(patch("/api/cashflow-items/" + candidate).with(AuthUsers.asUser(owner))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{ \"userCardId\": %d, \"occurrenceDate\": \"%s\" }".formatted(other, first)))
+                .andExpect(status().isOk());
+
+        candidates(owner).andExpect(jsonPath("$.data.candidateCount").value(1))
+                .andExpect(jsonPath("$.data.items[0].userCardId").value(other));
+        assertThat(detectedRows(owner)).isEqualTo(1);
+    }
+
+    @Test
+    void 마지막_결제가_지난달_전이면_끊긴_지출이라_후보가_아니다() throws Exception {
+        // 4·3·2달 전에 한 번씩(6개월 중 3개 달)이어도 지난달·이번 달에 결제가 없으면 해지한 구독 등으로 본다(Codex 검토).
+        paidMonthly(owner, card, merchant, 55_000L, 4, 3, "YAMU");
+
+        candidates(owner).andExpect(jsonPath("$.data.items", hasSize(0)));
+    }
+
+    @Test
     void 남의_반복_결제는_내_후보가_되지_않고_남의_후보도_내_목록에_없다() throws Exception {
         long stranger = ownership.user();
         long strangerCard = ownership.card(stranger, ownership.product(), ownership.account(stranger), "ACTIVE");

@@ -24,7 +24,8 @@ import org.springframework.stereotype.Component;
  * <ul>
  *   <li>규칙: 생활비에서 반복 지출을 빼는 규칙과 같다({@link RecurringPaymentRule}). 같은 카드·가맹점·승인 금액이 이번 달과 앞 5개 달 중
  *       서로 다른 3개 달 이상에 나오고, 두 번 이상 나온 달이 없으면 후보다(2026-11-09 결정). 그래서 생활비에서 빠진 반복 지출이 후보로
- *       채워지고 두 번 빠지지 않는다. 금액이 조금씩 다른 정기 지출은 잡지 않는다.</li>
+ *       채워지고 두 번 빠지지 않는다. 금액이 조금씩 다른 정기 지출은 잡지 않는다. 마지막 결제가 지난달 전이면 끊긴 지출이라 후보가
+ *       아니다(생활비 규칙에는 없는 조건, Codex 검토).</li>
  *   <li>대상: 그 사용자의 승인(APPROVED) 결제 중 지금 등록된 카드의 것. 취소·0원 결제는 세지 않는다.</li>
  *   <li>후보: 이름은 가맹점 이름, 금액은 승인 금액, 매월 마지막 결제일의 날(없는 달은 말일)에 그 카드로 나간다. 첫 예정일은 마지막
  *       결제 다음 달부터 오늘 이후 첫 날이다.</li>
@@ -86,13 +87,14 @@ public class RecurringExpenseDetector {
         for (Map.Entry<RecurringExpenseStore.Key, List<Payment>> entry : byKey.entrySet()) {
             Map<YearMonth, Integer> counts = new HashMap<>();
             entry.getValue().forEach(p -> counts.merge(YearMonth.from(korean(p.approvedAt())), 1, Integer::sum));
-            if (!RecurringPaymentRule.recurring(counts, month)
-                    || cards.findRegisteredCard(userId, entry.getKey().userCardId()).isEmpty()) {
-                continue;
-            }
             // 결제는 승인 시각 순이라 마지막 줄이 마지막 결제다.
             Payment last = entry.getValue().get(entry.getValue().size() - 1);
             LocalDate lastPaid = korean(last.approvedAt());
+            // 마지막 결제가 지난달 전이면 끊긴 지출(해지한 구독 등)로 보고 후보로 두지 않는다(Codex 검토, 2026-11-09 결정).
+            if (!RecurringPaymentRule.recurring(counts, month) || YearMonth.from(lastPaid).isBefore(month.minusMonths(1))
+                    || cards.findRegisteredCard(userId, entry.getKey().userCardId()).isEmpty()) {
+                continue;
+            }
             detected.add(new RecurringExpenseStore.Detected(entry.getKey(), last.merchantName(),
                     last.merchantCategoryCode(), nextOccurrence(lastPaid, today), lastPaid.getDayOfMonth()));
             long amount = entry.getKey().amount();

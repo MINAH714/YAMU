@@ -44,7 +44,7 @@ public interface CashflowItemRepository extends JpaRepository<CashflowItem, Long
     List<CashflowItem> findByPreviousCashflowItemIdAndUserId(Long previousCashflowItemId, Long userId);
 
     /** 결제 이력 탐지가 만든 시리즈의 첫 규칙(탐지 키가 있는 행). 상태와 상관없이 돌려준다(S15P31E103-349). */
-    List<CashflowItem> findByUserIdAndDetectedMerchantIdIsNotNull(Long userId);
+    List<CashflowItem> findByUserIdAndDetectedUserCardIdIsNotNull(Long userId);
 
     /** 이어지는 규칙이 없는(시리즈 마지막) 예정 항목 수. 탐지 후보 수(candidateCount)에 쓴다. */
     @Query("""

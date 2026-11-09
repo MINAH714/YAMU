@@ -18,8 +18,10 @@ import org.springframework.transaction.annotation.Transactional;
  *
  * <ul>
  *   <li>새 키: 후보 규칙과 첫 회차를 만든다. 같은 키가 이미 있으면(후보·확인·무시 모두) 만들지 않는다. 무시한 후보가 다시 생기지 않는다.</li>
- *   <li>이번에 안 잡힌 키: 확인 전 후보(CANDIDATE)이고 사용자가 손대지 않았으면 지운다(2026-11-09 결정). 손댄 후보(값을 고쳐
- *       이어지는 규칙이 생겼거나, 회차를 고치거나 뺀 것)는 사용자 것이라 남긴다. 확인·무시한 것은 그대로 둔다.</li>
+ *   <li>이번에 안 잡힌 키: 확인 전 후보(CANDIDATE)이고 사용자가 손대지 않았으면 지운다(2026-11-09 결정). 손댄 후보는 사용자
+ *       것이라 남긴다. 손댔는지는 규칙 행의 버전({@code @Version})과 회차 행으로 본다: 탐지는 규칙 행을 만들고 지우기만 하고
+ *       고치지 않으므로, 버전이 0이 아니면 사용자가 값을 고쳤거나(제자리 수정·규칙 나누기) 상태를 바꾼 것이다(Codex 검토, 2026-11-09
+ *       결정). 이번 회차만 고치거나 뺀 회차는 규칙 행을 바꾸지 않아 회차 행으로 본다. 확인·무시한 것은 그대로 둔다.</li>
  * </ul>
  */
 @Component
@@ -46,8 +48,10 @@ class RecurringExpenseStore {
     @Transactional(isolation = Isolation.READ_COMMITTED)
     public Map<Long, Key> apply(Long userId, List<Detected> detected) {
         Map<Key, CashflowItem> existing = new HashMap<>();
-        for (CashflowItem item : items.findByUserIdAndDetectedMerchantIdIsNotNull(userId)) {
-            existing.put(new Key(item.getUserCardId(), item.getDetectedMerchantId(), item.getDetectedAmount()), item);
+        // 키는 탐지 때 저장한 값이다. 사용자가 후보의 카드·금액을 고쳐도 같은 반복 지출로 알아본다(Codex 검토).
+        for (CashflowItem item : items.findByUserIdAndDetectedUserCardIdIsNotNull(userId)) {
+            existing.put(new Key(item.getDetectedUserCardId(), item.getDetectedMerchantId(), item.getDetectedAmount()),
+                    item);
         }
         Set<Key> found = new HashSet<>();
         Map<Long, Key> candidates = new HashMap<>();
@@ -77,8 +81,7 @@ class RecurringExpenseStore {
      */
     private void removeIfUntouched(Long userId, CashflowItem item) {
         entityManager.refresh(item, LockModeType.PESSIMISTIC_WRITE);
-        if (item.getStatus() != CashflowItem.Status.CANDIDATE
-                || !items.findByPreviousCashflowItemIdAndUserId(item.getId(), userId).isEmpty()) {
+        if (item.getStatus() != CashflowItem.Status.CANDIDATE || item.getVersion() != 0L) {
             return;
         }
         List<CashflowOccurrence> rows = occurrences.findByCashflowItemId(item.getId());

@@ -775,6 +775,7 @@ CONSTRAINT ck_refund_version CHECK (version >= 0)
 | purchase_state | `VARCHAR(16) NULL` | 구매 계획만 ACTIVE / FULFILLED / CANCELED |
 | previous_cashflow_item_id | `BIGINT NULL` | 이후 일정 변경 시 이전 규칙; 기존 규칙과 이력은 보존 |
 | source | `VARCHAR(16) NOT NULL DEFAULT 'MANUAL'` | MANUAL 사용자 입력 / DETECTED 결제 이력 탐지(S15P31E103-349, V20261109_1) |
+| detected_user_card_id | `BIGINT NULL` | 탐지 키: 반복 결제의 카드; 탐지가 만든 시리즈의 첫 규칙만. 사용자가 후보의 카드를 바꿔도 그대로 |
 | detected_merchant_id | `BIGINT NULL` | 탐지 키: 반복 결제의 가맹점; 탐지가 만든 시리즈의 첫 규칙만. 가맹점 카탈로그를 다시 넣을 때 막히지 않게 외래 키 없음 |
 | detected_amount | `BIGINT NULL` | 탐지 키: 반복 결제의 승인 금액; 탐지가 만든 시리즈의 첫 규칙만 |
 
@@ -793,9 +794,11 @@ UNIQUE KEY uk_cashflow_owner (cashflow_item_id, user_id);
 KEY ix_cashflow_card_owner (user_card_id, user_id);
 KEY ix_cashflow_previous_owner (previous_cashflow_item_id, user_id);
 CONSTRAINT fk_cashflow_card_owner FOREIGN KEY (user_card_id, user_id) REFERENCES user_card (user_card_id, user_id);
-UNIQUE KEY uk_cashflow_item_detection (user_id, user_card_id, detected_merchant_id, detected_amount);  -- 같은 후보 중복·무시한 후보 재생성 방지, 사용자 입력은 키가 NULL
+UNIQUE KEY uk_cashflow_item_detection (user_id, detected_user_card_id, detected_merchant_id, detected_amount);  -- 같은 후보 중복·무시한 후보 재생성 방지, 사용자 입력은 키가 NULL
+KEY ix_cashflow_detected_card_owner (detected_user_card_id, user_id);
+CONSTRAINT fk_cashflow_detected_card_owner FOREIGN KEY (detected_user_card_id, user_id) REFERENCES user_card (user_card_id, user_id);
 CONSTRAINT ck_cashflow_source CHECK (source IN ('MANUAL','DETECTED'));
-CONSTRAINT ck_cashflow_detection_key CHECK ((detected_merchant_id IS NULL AND detected_amount IS NULL) OR (source = 'DETECTED' AND user_card_id IS NOT NULL AND detected_merchant_id IS NOT NULL AND detected_amount > 0));
+CONSTRAINT ck_cashflow_detection_key CHECK ((detected_user_card_id IS NULL AND detected_merchant_id IS NULL AND detected_amount IS NULL) OR (source = 'DETECTED' AND detected_user_card_id IS NOT NULL AND detected_merchant_id IS NOT NULL AND detected_amount > 0));
 CONSTRAINT fk_cashflow_previous_owner FOREIGN KEY (previous_cashflow_item_id, user_id) REFERENCES cashflow_item (cashflow_item_id, user_id);
 CONSTRAINT ck_cashflow_kind CHECK (item_kind IN ('SCHEDULED','PURCHASE_PLAN'));
 CONSTRAINT ck_cashflow_card_direction CHECK (user_card_id IS NULL OR direction = 'EXPENSE');

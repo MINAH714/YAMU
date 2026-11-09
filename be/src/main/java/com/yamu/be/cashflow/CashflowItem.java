@@ -92,7 +92,11 @@ public class CashflowItem extends BaseTimeEntity {
     @Column(nullable = false, length = 16)
     private Source source;
 
-    /** 탐지 키(카드·가맹점·승인 금액)의 가맹점. 탐지가 만든 시리즈의 첫 규칙에만 있다. */
+    /** 탐지 키(카드·가맹점·승인 금액)의 카드. 사용자가 후보의 카드를 바꿔도 그대로다. 탐지가 만든 시리즈의 첫 규칙에만 있다. */
+    @Column(name = "detected_user_card_id")
+    private Long detectedUserCardId;
+
+    /** 탐지 키의 가맹점. 탐지가 만든 시리즈의 첫 규칙에만 있다. */
     @Column(name = "detected_merchant_id")
     private Long detectedMerchantId;
 
@@ -134,6 +138,7 @@ public class CashflowItem extends BaseTimeEntity {
                 RecurrenceType.MONTHLY, null, dayOfMonth, merchantCategoryCode, null);
         item.status = Status.CANDIDATE;
         item.source = Source.DETECTED;
+        item.detectedUserCardId = userCardId;
         item.detectedMerchantId = merchantId;
         item.detectedAmount = amount;
         return item;
