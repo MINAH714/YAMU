@@ -260,7 +260,7 @@ class CashflowServiceTest {
         // 31일 반복을 11/30에서 나눈 규칙. 첫 발생일만 보면 12/30·1/30이 되지만 기준일 31로 이어진다.
         CashflowService.Item rule = new CashflowService.Item(1L, 11L, null, "월세", CashflowItem.Direction.EXPENSE,
                 10000L, LocalDate.of(2026, 11, 30), CashflowItem.RecurrenceType.MONTHLY, null, 31, null,
-                CashflowItem.Status.CONFIRMED, null);
+                CashflowItem.Status.CONFIRMED, null, CashflowItem.Source.MANUAL);
 
         assertThat(CashflowService.occurrenceDates(rule, LocalDate.of(2026, 11, 1), LocalDate.of(2027, 4, 30)))
                 .containsExactly(LocalDate.of(2026, 11, 30), LocalDate.of(2026, 12, 31), LocalDate.of(2027, 1, 31),
@@ -922,7 +922,7 @@ class CashflowServiceTest {
         return new CashflowService.Item(1L, 11L, null, "규칙", CashflowItem.Direction.EXPENSE, 10000L,
                 first, recurrence, end,
                 recurrence == CashflowItem.RecurrenceType.MONTHLY ? Integer.valueOf(first.getDayOfMonth()) : null,
-                null, CashflowItem.Status.CONFIRMED, null);
+                null, CashflowItem.Status.CONFIRMED, null, CashflowItem.Source.MANUAL);
     }
 
     private CashflowService.CreateCommand command(Long amount, Long accountId, Long cardId) {

@@ -14,9 +14,12 @@ import java.util.List;
  * @param series                 통합 선의 날짜별 전후 잔액(기간의 모든 날짜)
  * @param outsideSelectionImpact 카드 출금 계좌가 선택 밖이면 그 영향. 선택 안이거나 빠지는 금액이 없으면 null
  * @param accountComparisons     선택 계좌별 전후 비교(선택 순서). 응답에 넣을지는 includeAccountDetails로 정한다
+ * @param checkCardOverdrawn     체크카드 구매가 기간 안 선택 계좌에서 빠지는데, 그날 그 계좌의 구매 후 잔액(가장 나쁜 선)이 0원 아래면
+ *                               true. 실제로는 잔액 부족으로 결제가 거절된다(S15P31E103-347, 2026-11-09 결정: 계산은 그대로 두고 알리기만)
  */
 public record PurchaseSimulation(List<ScheduledWithdrawal> schedule, Comparison comparison, List<SeriesPoint> series,
-        OutsideSelectionImpact outsideSelectionImpact, List<AccountComparison> accountComparisons) {
+        OutsideSelectionImpact outsideSelectionImpact, List<AccountComparison> accountComparisons,
+        boolean checkCardOverdrawn) {
 
     /**
      * 가상 구매 출금 한 회차.
@@ -42,9 +45,13 @@ public record PurchaseSimulation(List<ScheduledWithdrawal> schedule, Comparison 
     /**
      * 한쪽(구매 전 또는 후)의 요약. 금액은 가장 나쁜 선(보수적, 없으면 예상) 기준이다.
      *
-     * @param status 통합 비교는 통합·계좌별 중 가장 나쁜 수준, 계좌 비교는 그 계좌의 수준
+     * @param status        통합 비교는 통합·계좌별 중 가장 나쁜 수준, 계좌 비교는 그 계좌의 수준
+     * @param riskStartDate 안전 잔액 아래로 처음 내려가는 날. 잔고예보 위험 구간({@link RiskDetector.RiskWindow})의 시작일과 같은
+     *                      규칙이고, status와 같은 범위(통합 비교는 통합·계좌별 구간 중 가장 이른 날, 계좌 비교는 그 계좌)에서 고른다.
+     *                      SAFE면 null(S15P31E103-347, 2026-11-09 결정)
      */
-    public record Snapshot(long minBalance, LocalDate minBalanceDate, long endBalance, RiskDetector.Level status) {}
+    public record Snapshot(long minBalance, LocalDate minBalanceDate, long endBalance, RiskDetector.Level status,
+            LocalDate riskStartDate) {}
 
     /** 그날 일말 잔액(원). 가장 나쁜 선 기준이다. */
     public record SeriesPoint(LocalDate date, long before, long after) {}

@@ -5,6 +5,8 @@ import com.yamu.app.feature.auth.data.AuthRepository
 import com.yamu.app.feature.auth.data.AuthRepositoryImpl
 import com.yamu.app.feature.auth.data.SignupRepository
 import com.yamu.app.feature.auth.data.SignupRepositoryImpl
+import com.yamu.app.feature.billing.data.BillingRepository
+import com.yamu.app.feature.billing.data.BillingRepositoryImpl
 import com.yamu.app.feature.forecast.data.ForecastRepository
 import com.yamu.app.feature.forecast.data.ForecastRepositoryImpl
 import com.yamu.app.feature.home.data.HomeRepository
@@ -91,4 +93,9 @@ object DataModule {
     @Singleton
     fun myRepository(real: Provider<RealMyWithFakes>, fake: Provider<FakeMyRepository>): MyRepository =
         if (ApiFeature.MY.isReal) real.get() else fake.get()
+
+    @Provides
+    @Singleton
+    fun billingRepository(real: Provider<BillingRepositoryImpl>, fake: Provider<FakeBillingRepository>): BillingRepository =
+        if (ApiFeature.BILLING.isReal) real.get() else fake.get()
 }

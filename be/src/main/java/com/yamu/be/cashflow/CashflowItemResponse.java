@@ -24,30 +24,39 @@ public record CashflowItemResponse(
         String productName,
         Long accountId,
         Long userCardId,
-        String source,
+        CashflowItem.Source source,
         CashflowItem.Status status,
+        RecurringExpenseDetector.Detection detection,
         String memo) {
 
     public record Recurrence(CashflowItem.RecurrenceType frequency, Integer dayOfMonth,
             DayOfWeek dayOfWeek, LocalDate endDate) {
     }
 
-    /** 목록 응답. 반복 지출 탐지 구현 전이라 candidateCount는 0이다. */
-    public record ListResponse(List<CashflowItemResponse> items, int candidateCount) {
+    /** 목록 응답. candidateCount는 확인 전 탐지 후보 수다(S15P31E103-349). */
+    public record ListResponse(List<CashflowItemResponse> items, long candidateCount) {
     }
 
     static CashflowItemResponse from(CashflowService.Item item) {
-        return from(item, item.scheduledDate(), item.scheduledDate());
+        return from(item, item.scheduledDate(), item.scheduledDate(), null);
     }
 
     static CashflowItemResponse from(CashflowService.Entry entry) {
-        return from(entry.item(), entry.occurrenceDate(), entry.date());
+        return from(entry.item(), entry.occurrenceDate(), entry.date(), null);
     }
 
-    private static CashflowItemResponse from(CashflowService.Item item, LocalDate occurrenceDate, LocalDate date) {
+    /**
+     * @param detection 이번 요청에서 탐지한 후보의 근거. 확인 전 후보의 첫 규칙에만 있고, 그 밖에는 null
+     */
+    static CashflowItemResponse from(CashflowService.Entry entry, RecurringExpenseDetector.Detection detection) {
+        return from(entry.item(), entry.occurrenceDate(), entry.date(), detection);
+    }
+
+    private static CashflowItemResponse from(CashflowService.Item item, LocalDate occurrenceDate, LocalDate date,
+            RecurringExpenseDetector.Detection detection) {
         return new CashflowItemResponse(item.id(), item.direction(), item.title(), item.amount(),
                 occurrenceDate, date, recurrenceOf(item), item.merchantCategoryCode(), null, null,
-                item.accountId(), item.userCardId(), "MANUAL", item.status(), item.memo());
+                item.accountId(), item.userCardId(), item.source(), item.status(), detection, item.memo());
     }
 
     private static Recurrence recurrenceOf(CashflowService.Item item) {

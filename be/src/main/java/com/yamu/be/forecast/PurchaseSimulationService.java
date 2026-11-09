@@ -325,6 +325,10 @@ public class PurchaseSimulationService {
             text.append(" 예보 기간 밖에서 ").append(won(-simulation.comparison().beyondPeriodImpact()))
                     .append("이 더 빠져요.");
         }
+        // 계산은 그대로 두고 실제 결제와 다른 점만 알린다(S15P31E103-347, 2026-11-09 결정).
+        if (simulation.checkCardOverdrawn()) {
+            text.append(" 체크카드는 구매일 잔액보다 큰 금액은 결제되지 않을 수 있어요.");
+        }
         return text.toString();
     }
 

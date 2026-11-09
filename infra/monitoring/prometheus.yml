@@ -1,0 +1,11 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+scrape_configs:
+  - job_name: yamu
+    static_configs:
+      - targets: ['textfile:9100']
+    metric_relabel_configs:
+      - source_labels: [__name__]
+        regex: 'yamu_.*'
+        action: keep

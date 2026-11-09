@@ -16,6 +16,8 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  * @param dailySendLimit   한 계좌로 한국 날짜 하루에 1원을 보낼 수 있는 횟수(5회). 재요청 간격만으로는 무한히 보낼 수 있어서 둔다
  * @param dailyFailLimit   한 계좌로 하루에 인증코드를 틀릴 수 있는 횟수(10회). 넘으면 그날은 그 계좌로 인증할 수 없다
  * @param recoveryDailySendLimit 기기 재등록에서 한 계좌로 하루에 1원을 보낼 수 있는 횟수(3회). 일반보다 낮게 둔다
+ * @param exposeDemoCode   1원 응답에 인증 숫자(demoCode)를 내려줄지(임시). 시연 계좌는 사용자가 거래내역을 볼 수 없어 시연 서버는 켠다.
+ *                         켜면 1원 인증이 계좌 주인 확인이 되지 않으므로 실제 계좌를 쓰게 되면 끈다
  */
 @ConfigurationProperties(prefix = "yamu.account-link")
 public record AccountLinkProperties(
@@ -28,5 +30,6 @@ public record AccountLinkProperties(
         Duration idempotencyLockTtl,
         int dailySendLimit,
         int dailyFailLimit,
-        int recoveryDailySendLimit) {
+        int recoveryDailySendLimit,
+        boolean exposeDemoCode) {
 }

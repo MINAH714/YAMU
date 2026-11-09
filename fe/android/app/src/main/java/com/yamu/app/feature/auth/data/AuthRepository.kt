@@ -5,6 +5,7 @@ import com.yamu.app.core.network.ApiError
 import com.yamu.app.core.network.ApiResult
 import com.yamu.app.core.network.YamuHeaders
 import com.yamu.app.core.network.apiCall
+import com.yamu.app.feature.payment.data.PaymentEdits
 import com.yamu.app.core.network.apiCallNoData
 import com.yamu.app.core.network.map
 import com.yamu.app.core.security.AuthTokens
@@ -95,6 +96,7 @@ class AuthRepositoryImpl @Inject constructor(
     private val sessionStore: SessionStore,
     private val deviceKeys: DeviceKeyManager,
     private val devices: DeviceRegistration,
+    private val paymentEdits: PaymentEdits,
 ) : AuthRepository {
 
     override suspend fun sessionStart(): SessionStart {
@@ -155,6 +157,7 @@ class AuthRepositoryImpl @Inject constructor(
     override suspend fun logout() {
         tokenStore.refreshTokenBlocking()?.let { refresh -> apiCallNoData { api.logout(LogoutRequest(refresh)) } }
         tokenStore.clear()
+        paymentEdits.clear()   // 받아 둔 결제 메모 — 다음에 로그인하는 사람에게 보이지 않게
     }
 
     override fun canUseBiometric(): Boolean = deviceKeys.canUseBiometric()
@@ -205,6 +208,7 @@ class AuthRepositoryImpl @Inject constructor(
         tokenStore.clear()
         sessionStore.clear()
         deviceKeys.deleteAll()
+        paymentEdits.clear()
     }
 
     /** 로그인한 채로 기기가 없어졌을 때 — 지운 뒤 로그인 화면을 거쳐 첫 화면으로 */
