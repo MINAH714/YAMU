@@ -101,6 +101,16 @@ class PaymentMatchMapperTest {
 
         assertEquals(803L, confirmed.matchId)
         assertEquals(listOf("다른 카드로 결제했어요", "예정일과 7일 넘게 떨어져 있어요", "업종이 달라요"), confirmed.warnings)
+        assertEquals(MatchState.ACTIVE, confirmed.state)
+        assertEquals(MatchState.ACTIVE, YamuJson.decodeFromString<MatchConfirmedDto>("""{"matchId":804}""").toConfirmed().state)
+    }
+
+    @Test fun `확정 직후 연결 — 응답에 없는 가맹점 · 금액은 고른 후보에서, 후보를 못 찾으면 '결제'`() {
+        val picked = MatchCandidate(5101, "애플짐 역삼점", 55_000, 52_000, LocalDate.of(2026, 11, 5), true, emptyList(), emptyList())
+        val confirmed = MatchConfirmed(803, emptyList(), MatchState.ACTIVE)
+
+        assertEquals(PaymentMatch(803, 5101, "애플짐 역삼점", 55_000, 52_000, MatchState.ACTIVE), confirmed.toMatch(5101, picked))
+        assertEquals(PaymentMatch(803, 5104, "결제", null, null, MatchState.ACTIVE), confirmed.toMatch(5104, null))
     }
 
     @Test fun `확정 요청 본문 — 회차 날짜는 원래 회차(yyyy-MM-dd)`() {

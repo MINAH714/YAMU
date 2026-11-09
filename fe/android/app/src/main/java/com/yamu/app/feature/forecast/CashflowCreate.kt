@@ -72,6 +72,7 @@ import com.yamu.app.feature.forecast.data.CashflowRepeat
 import com.yamu.app.feature.forecast.data.CashflowScope
 import com.yamu.app.feature.forecast.data.CashflowUpdateRequest
 import com.yamu.app.feature.forecast.data.ForecastRepository
+import com.yamu.app.feature.forecast.data.PaymentMatch
 import com.yamu.app.feature.forecast.data.cashflowFieldOf
 import com.yamu.app.feature.link.SelectRow
 import com.yamu.app.feature.link.data.LinkRepository
@@ -250,6 +251,20 @@ class CashflowCreateViewModel @Inject constructor(
     }
 }
 
+/** 수정 화면을 잠그는 까닭 — 지난 회차와 결제와 연결된 회차는 BE requireChangeable이 수정 · 삭제를 거절한다 */
+internal enum class EditLock { NONE, PAST, MATCHED }
+
+/**
+ * 연결은 결제가 취소된 REVIEW_REQUIRED여도 잠근다(BE는 연결 행이 있는지만 본다). 끊으면 다시 고칠 수 있다.
+ * 연결 상태를 아직 못 불렀으면 잠그지 않는다 — 그 사이 저장해도 BE가 409 PAID_OCCURRENCE_LOCKED로 막는다
+ */
+internal fun editLockOf(editing: CashflowEntry?, today: LocalDate, match: PaymentMatch?): EditLock = when {
+    editing == null -> EditLock.NONE
+    editing.date.isBefore(today) -> EditLock.PAST
+    match != null -> EditLock.MATCHED
+    else -> EditLock.NONE
+}
+
 /** 보낼 값이 하나도 없는 수정 */
 private fun CashflowUpdateRequest.changesNothing() =
     title == null && amount == null && date == null && recurrence == null && accountId == null && userCardId == null
@@ -264,9 +279,12 @@ fun CashflowCreateRoute(onBack: () -> Unit, onDone: () -> Unit, viewModel: Cashf
     val editing = s.editing
     val movedTo = s.movedTo
     val paymentsError = s.paymentsError
-    // 지난 회차는 서버가 수정 · 삭제를 거절한다 — 내용만 보이고 결제 연결만(F-02 '지난 7일'에서 연다)
-    val pastOnly = editing != null && editing.date.isBefore(LocalDate.now(KST))
     val matchable = editing?.isMatchable == true
+    // 결제 연결 상태 — 아래 연결 칸과 같은 ViewModel을 같이 쓴다(카드 예정 지출 회차만 만든다)
+    val matchVm = if (matchable) hiltViewModel<PaymentMatchViewModel>() else null
+    val match = matchVm?.state?.collectAsStateWithLifecycle()?.value?.match
+    // 지난 회차와 결제와 연결된 회차는 서버가 수정 · 삭제를 거절한다 — 내용만 보이고 결제 연결만(지난 회차는 F-02 '지난 7일'에서 연다)
+    val lock = editLockOf(editing, LocalDate.now(KST), match)
     val c = YamuTheme.colors
     fun errorOf(field: CashflowField) = s.errors[field].takeIf { s.showErrors }
     FlowScreen(
@@ -274,7 +292,7 @@ fun CashflowCreateRoute(onBack: () -> Unit, onDone: () -> Unit, viewModel: Cashf
         onBack = onBack,
         modifier = Modifier.imePadding(),
         bottomBar = bottomBar@{
-            if (s.missing || pastOnly) return@bottomBar
+            if (s.missing || lock != EditLock.NONE) return@bottomBar
             // 결과 불명 · 사라진 항목이면 목록부터 보게, 수정 중이면 삭제
             val secondary: (@Composable () -> Unit)? = when {
                 s.unknownResult || s.gone -> ({ TextButtonGrey("목록에서 확인하기", onClick = onBack, modifier = Modifier.fillMaxWidth()) })
@@ -305,9 +323,14 @@ fun CashflowCreateRoute(onBack: () -> Unit, onDone: () -> Unit, viewModel: Cashf
                 .padding(horizontal = YamuSpacing.screen),
         ) {
             Spacer(Modifier.height(YamuSpacing.x2))
-            if (pastOnly && editing != null) {
-                PastOccurrenceSummary(editing, s.cards.firstOrNull { it.userCardId == editing.userCardId }?.displayName)
-                if (matchable) PaymentMatchSection(past = true)
+            if (lock != EditLock.NONE && editing != null) {
+                val cardName = s.cards.firstOrNull { it.userCardId == editing.userCardId }?.displayName
+                if (lock == EditLock.PAST) {
+                    PastOccurrenceSummary(editing, cardName)
+                } else {
+                    PastOccurrenceSummary(editing, cardName, heading = "예정 지출", note = "결제와 연결된 회차예요 · 연결을 끊으면 고칠 수 있어요")
+                }
+                matchVm?.let { PaymentMatchSection(past = lock == EditLock.PAST, viewModel = it) }
                 Spacer(Modifier.height(YamuSpacing.x6))
                 return@Column
             }
@@ -418,7 +441,7 @@ fun CashflowCreateRoute(onBack: () -> Unit, onDone: () -> Unit, viewModel: Cashf
             }
             errorOf(CashflowField.PAYMENT)?.let { Text(it, style = YamuTheme.typography.bodyS, color = c.error) }
             // 카드 예정 지출 회차 — 실제 결제와 연결(-319). 저장된 회차 기준이라 고치는 중인 값과 상관없다
-            if (matchable) PaymentMatchSection(past = false)
+            matchVm?.let { PaymentMatchSection(past = false, viewModel = it) }
             Spacer(Modifier.height(YamuSpacing.x6))
         }
     }

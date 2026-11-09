@@ -3,6 +3,7 @@ package com.yamu.app.feature.forecast
 import com.yamu.app.core.network.ApiError
 import com.yamu.app.core.network.ApiResult
 import com.yamu.app.feature.forecast.data.ForecastRepository
+import com.yamu.app.feature.forecast.data.MatchCandidate
 import com.yamu.app.feature.forecast.data.MatchCandidates
 import com.yamu.app.feature.forecast.data.MatchConfirmed
 import com.yamu.app.feature.forecast.data.MatchState
@@ -17,6 +18,7 @@ import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -37,16 +39,20 @@ class PaymentMatchViewModelTest {
     private var confirmResponse = CompletableDeferred<ApiResult<MatchConfirmed>>()
     private var deleteResult: ApiResult<Unit> = ApiResult.Success(Unit)
     private var candidatesMatch: PaymentMatch? = null
+    private var candidateList: List<MatchCandidate> = emptyList()
+    private var statusError: ApiError? = null
+    private val pendingCandidates = ArrayDeque<CompletableDeferred<ApiResult<MatchCandidates>>>()   // 차례로 늦게 올 후보 응답
 
     private val repo = object : ForecastRepository by unused() {
         override suspend fun matchStatus(itemId: Long, occurrenceDate: LocalDate): ApiResult<PaymentMatch?> {
             statusCalls++
             assertEquals(key, itemId to occurrenceDate)
-            return ApiResult.Success(status)
+            return statusError?.let { ApiResult.Failure(it) } ?: ApiResult.Success(status)
         }
         override suspend fun matchCandidates(itemId: Long, occurrenceDate: LocalDate): ApiResult<MatchCandidates> {
             candidateCalls++
-            return ApiResult.Success(MatchCandidates(occurrenceDate, 55_000, candidatesMatch, emptyList()))
+            pendingCandidates.removeFirstOrNull()?.let { return it.await() }
+            return ApiResult.Success(MatchCandidates(occurrenceDate, 55_000, candidatesMatch, candidateList))
         }
         override suspend fun confirmMatch(itemId: Long, occurrenceDate: LocalDate, paymentId: Long): ApiResult<MatchConfirmed> {
             confirmCalls++
@@ -104,6 +110,49 @@ class PaymentMatchViewModelTest {
         assertEquals(listOf("다른 카드로 결제했어요"), vm.state.value.warnings)
         assertEquals(MATCH, vm.state.value.match)                 // 연결 뒤 상태를 다시 읽는다
         assertEquals("결제와 연결했어요 · 잔고예보에서 이 회차는 실제 결제로 셉니다", vm.state.value.message)
+    }
+
+    @Test fun `연결은 됐는데 뒤이은 상태 조회가 실패해도 오류 화면 대신 고른 결제를 연결로 보인다`() = runTest(dispatcher) {
+        candidateList = listOf(CANDIDATE)
+        val vm = PaymentMatchViewModel(key, repo)
+        advanceUntilIdle()
+        vm.openCandidates()
+        advanceUntilIdle()
+
+        statusError = ApiError.Network
+        vm.confirm(5101)
+        confirmResponse.complete(ApiResult.Success(MatchConfirmed(801, emptyList())))
+        advanceUntilIdle()
+
+        assertEquals(2, statusCalls)
+        assertNotNull(vm.state.value.error)                       // 화면은 error가 있어도 match가 있으면 오류 대신 연결을 그린다
+        assertEquals(MATCH, vm.state.value.match)                 // 확정 응답의 matchId · 상태 + 고른 후보의 가맹점 · 금액
+        assertFalse(vm.state.value.loading)
+        assertEquals("결제와 연결했어요 · 잔고예보에서 이 회차는 실제 결제로 셉니다", vm.state.value.message)
+    }
+
+    @Test fun `시트를 닫았다 다시 열면 늦게 온 앞 후보 응답이 새 후보를 덮지 않는다`() = runTest(dispatcher) {
+        val vm = PaymentMatchViewModel(key, repo)
+        advanceUntilIdle()
+        val first = CompletableDeferred<ApiResult<MatchCandidates>>()
+        val second = CompletableDeferred<ApiResult<MatchCandidates>>()
+        pendingCandidates += first
+        pendingCandidates += second
+
+        vm.openCandidates()
+        advanceUntilIdle()
+        vm.closeCandidates()
+        vm.openCandidates()
+        advanceUntilIdle()
+        assertEquals(2, candidateCalls)
+
+        second.complete(ApiResult.Success(MatchCandidates(key.second, 55_000, null, listOf(CANDIDATE))))
+        advanceUntilIdle()
+        first.complete(ApiResult.Success(MatchCandidates(key.second, 55_000, null, emptyList())))
+        advanceUntilIdle()
+
+        assertEquals(listOf(CANDIDATE), vm.state.value.candidates?.candidates)
+        assertTrue(vm.state.value.sheet)
     }
 
     @Test fun `연결 응답을 못 받으면 실패로 단정하지 않고 상태를 다시 읽는다`() = runTest(dispatcher) {
@@ -232,6 +281,7 @@ class PaymentMatchViewModelTest {
 
     private companion object {
         val MATCH =PaymentMatch(801, 5101, "애플짐 역삼점", 55_000, 55_000, MatchState.ACTIVE)
+        val CANDIDATE = MatchCandidate(5101, "애플짐 역삼점", 55_000, 55_000, LocalDate.of(2026, 11, 5), true, listOf("금액 같음"), emptyList())
 
         inline fun <reified T : Any> unused(): T = Proxy.newProxyInstance(
             T::class.java.classLoader,

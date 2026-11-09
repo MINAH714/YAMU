@@ -57,6 +57,7 @@ import com.yamu.app.feature.forecast.data.MatchCandidate
 import com.yamu.app.feature.forecast.data.MatchCandidates
 import com.yamu.app.feature.forecast.data.MatchState
 import com.yamu.app.feature.forecast.data.PaymentMatch
+import com.yamu.app.feature.forecast.data.toMatch
 import com.yamu.app.feature.forecast.data.toMatchMessage
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
@@ -100,6 +101,7 @@ class PaymentMatchViewModel internal constructor(private val key: Pair<Long, Loc
     private val _state = MutableStateFlow(MatchUiState(loading = key != null))
     val state: StateFlow<MatchUiState> = _state.asStateFlow()
     private var statusJob: Job? = null
+    private var candidatesJob: Job? = null
 
     init { refresh() }
 
@@ -124,7 +126,9 @@ class PaymentMatchViewModel internal constructor(private val key: Pair<Long, Loc
 
     fun loadCandidates() {
         val (itemId, occurrence) = key ?: return
-        viewModelScope.launch {
+        // 시트를 닫았다 바로 열면 앞 요청이 늦게 와 새 후보를 덮을 수 있어 앞 요청은 버린다
+        candidatesJob?.cancel()
+        candidatesJob = viewModelScope.launch {
             _state.update { it.copy(candidates = null, candidatesError = null) }
             when (val r = repo.matchCandidates(itemId, occurrence)) {
                 // 그사이 다른 기기에서 연결했으면 시트를 닫고 후보 대신 지금 연결을 보인다
@@ -143,8 +147,16 @@ class PaymentMatchViewModel internal constructor(private val key: Pair<Long, Loc
         _state.update { it.copy(working = true) }
         viewModelScope.launch {
             when (val r = repo.confirmMatch(itemId, occurrence, paymentId)) {
+                // 고른 후보로 연결을 먼저 채운다 — 뒤이은 상태 조회가 실패해도 오류 화면 대신 연결이 보이게
                 is ApiResult.Success -> _state.update {
-                    it.copy(working = false, sheet = false, warnings = r.data.warnings, message = "결제와 연결했어요 · 잔고예보에서 이 회차는 실제 결제로 셉니다")
+                    val picked = it.candidates?.candidates?.firstOrNull { c -> c.paymentId == paymentId }
+                    it.copy(
+                        working = false,
+                        sheet = false,
+                        match = r.data.toMatch(paymentId, picked),
+                        warnings = r.data.warnings,
+                        message = "결제와 연결했어요 · 잔고예보에서 이 회차는 실제 결제로 셉니다",
+                    )
                 }
                 is ApiResult.Failure -> fail(r.error)
             }
@@ -321,12 +333,20 @@ private fun CandidateRow(cand: MatchCandidate, enabled: Boolean, onClick: () -> 
     }
 }
 
-/** 지난 회차 — 고칠 수 없어(BE가 지난 회차 수정을 거절) 내용만 보이고 결제 연결만 한다 */
+/**
+ * 고칠 수 없는 회차 — 내용만 보이고 결제 연결만 한다. 지난 회차와 결제와 연결된 회차는 BE가 수정 · 삭제를 거절한다.
+ * 기본 문구는 지난 회차용이고, 연결된 회차는 [heading] · [note]를 바꿔 쓴다
+ */
 @Composable
-internal fun PastOccurrenceSummary(entry: CashflowEntry, cardName: String?) {
+internal fun PastOccurrenceSummary(
+    entry: CashflowEntry,
+    cardName: String?,
+    heading: String = "지난 예정 지출",
+    note: String = "지난 회차는 고칠 수 없어요 · 실제 결제와 연결만 할 수 있어요",
+) {
     val c = YamuTheme.colors
-    Text("지난 예정 지출", style = YamuTheme.typography.titleM, color = c.text1)
-    Text("지난 회차는 고칠 수 없어요 · 실제 결제와 연결만 할 수 있어요", style = YamuTheme.typography.bodyS, color = c.text3)
+    Text(heading, style = YamuTheme.typography.titleM, color = c.text1)
+    Text(note, style = YamuTheme.typography.bodyS, color = c.text3)
     Spacer(Modifier.height(YamuSpacing.x3))
     KeyValueRow("이름", entry.title, large = false)
     KeyValueRow("금액", "${entry.amount.toWon()}원", large = false)

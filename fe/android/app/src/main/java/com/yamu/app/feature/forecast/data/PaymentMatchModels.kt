@@ -98,7 +98,7 @@ data class MatchCandidate(
 data class MatchCandidates(val scheduledDate: LocalDate?, val scheduledAmount: Long?, val match: PaymentMatch?, val candidates: List<MatchCandidate>)
 
 /** 방금 연결한 결과 — 경고는 연결을 막지 않고 알리기만 한다 */
-data class MatchConfirmed(val matchId: Long, val warnings: List<String>)
+data class MatchConfirmed(val matchId: Long, val warnings: List<String>, val state: MatchState = MatchState.ACTIVE)
 
 /** 연결해도 되지만 알릴 차이(BE Warning) — 모르는 값은 빼고 보인다 */
 internal fun matchWarningText(code: String): String? = when (code.uppercase()) {
@@ -154,7 +154,18 @@ fun MatchCandidatesDto.toCandidates() = MatchCandidates(
     },
 )
 
-fun MatchConfirmedDto.toConfirmed() = MatchConfirmed(matchId, warnings.mapNotNull(::matchWarningText).distinct())
+/** 승인된 결제만 연결할 수 있어 matchStatus가 없으면 ACTIVE로 본다 */
+fun MatchConfirmedDto.toConfirmed() = MatchConfirmed(matchId, warnings.mapNotNull(::matchWarningText).distinct(), enumOf(matchStatus, MatchState.ACTIVE))
+
+/** 확정 응답에는 가맹점 · 금액이 없어 고른 후보에서 채운다. 후보를 못 찾으면 이름만 '결제'로 두고 상태 조회가 채운다 */
+fun MatchConfirmed.toMatch(paymentId: Long, picked: MatchCandidate?) = PaymentMatch(
+    matchId = matchId,
+    paymentId = paymentId,
+    merchantName = picked?.merchantName ?: "결제",
+    amount = picked?.amount,
+    approvedAmount = picked?.approvedAmount,
+    state = state,
+)
 
 /** 연결 · 해제 실패 → 문장. 409는 회차나 결제가 이미 다른 상대와 연결됨(먼저 해제해야 함) */
 fun ApiError.toMatchMessage(): String = when {
