@@ -518,7 +518,32 @@ class ForecastServiceTest {
 
         assertThat(day(result.series(), TODAY).confirmed()).isEqualTo(500_000L);
         assertThat(lastConfirmed(result.series())).isEqualTo(500_000L);
-        assertThat(billRequestsTo).containsExactly(TODAY.plusDays(14));
+        // 기간 밖 청구 미리보기(-348)를 담으려고 기간 마지막 날 뒤 1년까지 읽는다. 선에는 기간 안 출금만 넣는다.
+        assertThat(billRequestsTo).containsExactly(TODAY.plusDays(14).plusYears(ForecastService.BEYOND_HORIZON_YEARS));
+        assertThat(result.beyondHorizon()).isEmpty();
+    }
+
+    @Test
+    void 출금일이_기간_뒤인_청구는_선에_넣지_않고_출금일_순으로_기간_밖_미리보기에_담는다() {
+        // 점검 R-5(-348). 진행 중은 EXPECTED, 확정은 CONFIRMED. 미납은 기간과 상관없이 excluded로만 알린다.
+        givenEntries(TODAY, TODAY.plusDays(14));
+        bills = List.of(new OutstandingBill(90L, A, Status.ACCUMULATING, TODAY.plusDays(30), 70_000L),
+                new OutstandingBill(89L, A, Status.CONFIRMED, TODAY.plusDays(15), 300_000L),
+                new OutstandingBill(88L, A, Status.CONFIRMED, TODAY.plusDays(14), 100_000L),
+                new OutstandingBill(87L, A, Status.UNPAID, TODAY.minusDays(10), 120_000L));
+
+        BalanceForecast result = service.forecast(USER, List.of(A), Until.DAYS, 14, false, false);
+
+        // 기간 마지막 날 출금은 기간 안이다
+        assertThat(lastConfirmed(result.series())).isEqualTo(700_000L);
+        assertThat(result.beyondHorizon())
+                .extracting(BalanceForecast.BeyondHorizonItem::date, BalanceForecast.BeyondHorizonItem::type,
+                        BalanceForecast.BeyondHorizonItem::amount, BalanceForecast.BeyondHorizonItem::confidence)
+                .containsExactly(
+                        tuple(TODAY.plusDays(15), FlowEvent.Type.CARD_BILLING, -300_000L, FlowEvent.Confidence.CONFIRMED),
+                        tuple(TODAY.plusDays(30), FlowEvent.Type.CARD_BILLING, -70_000L, FlowEvent.Confidence.EXPECTED));
+        assertThat(result.excluded()).extracting(ExcludedItem::reason)
+                .containsExactly(ExcludedItem.Reason.UNPAID_BILL);
     }
 
     @Test

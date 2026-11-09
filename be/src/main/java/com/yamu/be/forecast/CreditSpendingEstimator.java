@@ -27,7 +27,8 @@ import java.util.Set;
  *       계산한다. 카드 번호를 묶음 번호로 넣어 그대로 쓴다.</li>
  *   <li>금액: 일평균 × (이번 이용기간 마감일 − 오늘)일. 오늘 쓴 금액은 진행 중 청구서에 이미 들어 있어 내일부터 센다.
  *       마감일이 오늘이면 0일이라 넣지 않는다. 0원도 넣지 않는다.</li>
- *   <li>날짜: 이번 이용기간 청구서의 출금일({@link CreditWithdrawalSchedule}, 지금 결제일 기준). 예보 기간 뒤면 넣지 않는다.</li>
+ *   <li>날짜: 이번 이용기간 청구서의 출금일({@link CreditWithdrawalSchedule}, 지금 결제일 기준). 예보 기간 뒤면 선에 넣지 않고
+ *       기간 밖 미리보기로 따로 돌려준다(S15P31E103-348, 전에는 안내 없이 버렸음).</li>
  *   <li>완료한 달이 없어 일평균을 모르는 카드는 출금일이 예보 기간 안일 때만 {@code CREDIT_SPENDING_UNKNOWN}으로 알린다.</li>
  * </ul>
  */
@@ -59,6 +60,7 @@ final class CreditSpendingEstimator {
 
         List<FlowEvent> events = new ArrayList<>();
         List<ExcludedItem> excluded = new ArrayList<>();
+        List<FlowEvent> beyond = new ArrayList<>();
         for (UserCardRef card : cards) {
             if (card.cardType() != CardType.CREDIT || card.registrationStatus() != CardRegistrationStatus.ACTIVE
                     || card.issuerStatus() != CardIssuerStatus.NORMAL
@@ -67,9 +69,10 @@ final class CreditSpendingEstimator {
                 continue;
             }
             Optional<LocalDate> withdrawal = schedule.withdrawalDate(card, today);
-            if (withdrawal.isEmpty() || withdrawal.get().isAfter(to)) {
+            if (withdrawal.isEmpty()) {
                 continue;
             }
+            boolean beyondHorizon = withdrawal.get().isAfter(to);
             LocalDate periodEnd = BillingCycle.of(card.paymentDay(), card.billingCutoffDays()).cycleFor(today).periodEnd();
             long remainingDays = ChronoUnit.DAYS.between(today, periodEnd);
             if (remainingDays <= 0) {
@@ -78,19 +81,23 @@ final class CreditSpendingEstimator {
             String name = names.getOrDefault(card.userCardId(), "신용카드");
             Long dailyAverage = averages.get(card.userCardId()).dailyAverage();
             if (dailyAverage == null) {
-                excluded.add(new ExcludedItem(null, null, null, withdrawal.get(), name, null,
-                        ExcludedItem.Reason.CREDIT_SPENDING_UNKNOWN));
+                // 기간 밖 출금이면 예보에 영향이 없어 알리지 않는다(기존 규칙).
+                if (!beyondHorizon) {
+                    excluded.add(new ExcludedItem(null, null, null, withdrawal.get(), name, null,
+                            ExcludedItem.Reason.CREDIT_SPENDING_UNKNOWN));
+                }
                 continue;
             }
             long amount = Math.multiplyExact(dailyAverage.longValue(), remainingDays);
             if (amount == 0) {
                 continue;
             }
-            events.add(new FlowEvent(card.linkedAccountId(), withdrawal.get(), -amount,
+            FlowEvent event = new FlowEvent(card.linkedAccountId(), withdrawal.get(), -amount,
                     FlowEvent.Type.CARD_SPENDING_ESTIMATE, FlowEvent.Confidence.CONSERVATIVE,
-                    title(name, today.plusDays(1), periodEnd, remainingDays, dailyAverage), card.userCardId()));
+                    title(name, today.plusDays(1), periodEnd, remainingDays, dailyAverage), card.userCardId());
+            (beyondHorizon ? beyond : events).add(event);
         }
-        return new Result(List.copyOf(events), List.copyOf(excluded));
+        return new Result(List.copyOf(events), List.copyOf(excluded), List.copyOf(beyond));
     }
 
     /** 예: "생활카드 · 11/7~11/11 5일 × 일평균 12,000원". 응답에서 추정 근거로 보인다. */
@@ -102,6 +109,7 @@ final class CreditSpendingEstimator {
     /**
      * @param events   카드 출금 계좌·출금일의 보수적 선 전용 출금(CARD_SPENDING_ESTIMATE, CONSERVATIVE). refId는 카드 번호
      * @param excluded 일평균을 몰라 추정하지 못한 카드(CREDIT_SPENDING_UNKNOWN)
+     * @param beyond   출금일이 예보 기간 뒤인 추정. 선에는 넣지 않고 기간 밖 청구 미리보기(beyondHorizon)로만 보인다(S15P31E103-348)
      */
-    record Result(List<FlowEvent> events, List<ExcludedItem> excluded) {}
+    record Result(List<FlowEvent> events, List<ExcludedItem> excluded, List<FlowEvent> beyond) {}
 }
