@@ -108,6 +108,12 @@ data class BillingState(
 
 private fun BillingState.withMessage(text: String) = copy(messages = messages + text)
 
+/**
+ * 환급 탭 합계 카드에 쓸 값. 입금 전 환급이 남아 있으면 목록이 비어도 보인다 —
+ * BE 합계는 기간과 상관없이 지금 PENDING인 환급을 모두 세고(RefundQueryReader.pending), 목록은 최근 3개월에 생긴 것만 준다
+ */
+internal val BillingState.pendingSummary: RefundSummary? get() = refundSummary?.takeIf { it.pendingCount > 0 }
+
 @HiltViewModel
 class BillingViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
@@ -310,21 +316,14 @@ private fun RefundsTab(s: BillingState, onBill: (Long) -> Unit, onPayment: (Long
     when {
         !s.refundsLoaded && s.refundsError != null -> MessageCard { ErrorState(s.refundsError, onRetry = onRetry) }
         !s.refundsLoaded -> ListSkeleton()
-        s.refunds.isEmpty() -> MessageCard { EmptyState("최근 3개월 동안 환급이 없어요") }
+        s.refunds.isEmpty() -> Column(Modifier.padding(top = YamuSpacing.x2)) {
+            val sum = s.pendingSummary
+            sum?.let { PendingRefundCard(it) }
+            YamuCard { EmptyState(if (sum != null) "최근 3개월 동안 생긴 환급은 없어요" else "최근 3개월 동안 환급이 없어요") }
+        }
         else -> LazyColumn(Modifier.fillMaxSize()) {
             item(key = "top") { Spacer(Modifier.height(YamuSpacing.x2)) }
-            s.refundSummary?.takeIf { it.pendingCount > 0 }?.let { sum ->
-                item(key = "summary") {
-                    YamuCard {
-                        Text("입금 전 환급 ${sum.pendingCount}건", style = YamuTheme.typography.bodyM, color = c.text2)
-                        Spacer(Modifier.height(4.dp))
-                        AmountText(sum.pendingAmount)
-                        if (sum.estimatedAmount > 0) {
-                            Text("그중 ${sum.estimatedAmount.toWon()}원은 출금 뒤 금액이 정해져요", style = YamuTheme.typography.bodyS, color = c.text3)
-                        }
-                    }
-                }
-            }
+            s.pendingSummary?.let { sum -> item(key = "summary") { PendingRefundCard(sum) } }
             itemsIndexed(s.refunds, key = { _, r -> r.key }) { i, r ->
                 // 신용카드 환급은 그 청구서로, 체크카드 환불은 결제 상세로
                 val open: (() -> Unit)? = r.billId?.let { id -> { onBill(id) } } ?: r.paymentId?.let { id -> { onPayment(id) } }
@@ -357,6 +356,21 @@ private fun RefundsTab(s: BillingState, onBill: (Long) -> Unit, onPayment: (Long
     }
 }
 
+/** 입금 전 환급 합계 — 기간과 상관없이 세서 목록에 없는 건도 들어 있을 수 있다(마지막 줄) */
+@Composable
+private fun PendingRefundCard(sum: RefundSummary) {
+    val c = YamuTheme.colors
+    YamuCard {
+        Text("입금 전 환급 ${sum.pendingCount}건", style = YamuTheme.typography.bodyM, color = c.text2)
+        Spacer(Modifier.height(4.dp))
+        AmountText(sum.pendingAmount)
+        if (sum.estimatedAmount > 0) {
+            Text("그중 ${sum.estimatedAmount.toWon()}원은 출금 뒤 금액이 정해져요", style = YamuTheme.typography.bodyS, color = c.text3)
+        }
+        Text("기간과 상관없이 입금 전인 환급을 모두 셌어요", style = YamuTheme.typography.bodyS, color = c.text3)
+    }
+}
+
 // ───────────────────────── 같이 쓰는 조각 ─────────────────────────
 
 internal val BillState.tone: TagTone
@@ -380,7 +394,7 @@ private val Refund.tone: TagTone get() = if (state == RefundState.PENDING && est
 
 /**
  * 흰 줄 하나 — 제목 · 상태 태그 / 둘째 줄 · 금액 / 금액 아래 작은 줄. 줄 전체를 누른다(S-05 결제 줄과 같은 크기).
- * [dimmed] = 청구에서 빠진 회차 · 무효 환급처럼 셈에 들지 않는 줄
+ * [dimmed] = 청구 제외 회차 · 무효 환급처럼 취소로 더 오갈 돈이 없는 줄(청구 제외라도 이용 금액에 남는 회차가 있다 — UsageState.EXCLUDED)
  */
 @Composable
 internal fun BillingRow(

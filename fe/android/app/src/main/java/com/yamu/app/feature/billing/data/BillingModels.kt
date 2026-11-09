@@ -144,7 +144,13 @@ fun billStateOf(raw: String?): BillState =
 /** 청구 회차 상태(BE BillItemStatus) — 태그를 다는 것만 따로 */
 enum class UsageState(val tag: String?) {
     NORMAL(null),
-    EXCLUDED("청구 제외"),           // 확정 전 취소로 빠짐
+
+    /**
+     * 결제를 취소해 더 낼 돈이 없는 회차. BE는 세 경우를 같은 값으로 준다 — 확정 전 취소(청구에서 빠짐), 미납 청구서의 취소
+     * (미납액에서 뺌, BillItem.waiveUnpaid), 확정 뒤 몫이 0원인 회차 닫기(closeWithoutRefund). 뒤의 둘은 이용 금액에 남는데
+     * 응답에 가를 칸이 아직 없어 줄마다 고르지 못하고 상세에 안내 한 줄만 단다([excludedNote])
+     */
+    EXCLUDED("청구 제외"),
     REFUND_PENDING("환급 대기"),
     REFUNDED("환급 완료"),
 }
@@ -410,6 +416,17 @@ fun Bill.statusLine(): String? = when (state) {
     BillState.CANCELED -> "결제를 취소해 낼 돈이 없어요"
     BillState.UNKNOWN -> null
 }
+
+/**
+ * 상세 이용 내역 아래 한 줄. 확정된 청구서의 청구 제외는 이용 금액에 들어 있는지 응답만으로 가를 수 없어 알려 둔다.
+ * 쌓이는 중인 청구서의 청구 제외는 확정 전 취소뿐이라 달지 않는다
+ */
+fun BillDetail.excludedNote(): String? =
+    if (bill.state != BillState.ACCUMULATING && usages.any { it.state == UsageState.EXCLUDED }) {
+        "청구 제외 가운데 청구가 확정된 뒤 취소한 건은 이용 금액에 남아 있어요"
+    } else {
+        null
+    }
 
 /** 월 머리 — 올해면 '12월 청구', 아니면 '2025년 12월 청구' */
 fun billingMonthLabel(month: YearMonth?, today: LocalDate): String = when {

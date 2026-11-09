@@ -48,6 +48,7 @@ import com.yamu.app.feature.billing.data.BillState
 import com.yamu.app.feature.billing.data.BillingRepository
 import com.yamu.app.feature.billing.data.RefundState
 import com.yamu.app.feature.billing.data.UsageState
+import com.yamu.app.feature.billing.data.excludedNote
 import com.yamu.app.feature.billing.data.koreanDay
 import com.yamu.app.feature.billing.data.refundStateLabel
 import com.yamu.app.feature.billing.data.statusLine
@@ -233,6 +234,14 @@ private fun BillDetailBody(d: BillDetail, onPayment: (Long) -> Unit) {
                 divider = i > 0,
                 horizontalPadding = YamuSpacing.x5,
                 onClick = u.paymentId?.let { id -> { onPayment(id) } },
+            )
+        }
+        d.excludedNote()?.let {
+            Text(
+                it,
+                style = YamuTheme.typography.bodyS,
+                color = c.text3,
+                modifier = Modifier.padding(horizontal = YamuSpacing.x5).padding(top = YamuSpacing.x2),
             )
         }
     }

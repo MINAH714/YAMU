@@ -181,6 +181,22 @@ class BillingMapperTest {
         assertNull(usageStateOf("SOMETHING").tag)
     }
 
+    private fun detailWith(status: String, vararg usage: String?) =
+        BillDetailDto(billId = 1, status = status, items = usage.mapIndexed { i, s -> BillUsageDto(billItemId = i + 1L, status = s) }).toBillDetail(1)
+
+    @Test fun `확정된 청구서에 청구 제외가 있으면 이용 금액 안내 한 줄`() {
+        // 미납 제외 · 0원 닫기는 확정 뒤 EXCLUDED라 이용 금액에 남는다 — 응답으로는 확정 전 취소와 가를 수 없다
+        listOf("CONFIRMED", "PAID", "UNPAID", "CANCELED", "SOMETHING").forEach { status ->
+            assertEquals(status, "청구 제외 가운데 청구가 확정된 뒤 취소한 건은 이용 금액에 남아 있어요", detailWith(status, "BILLED", "EXCLUDED").excludedNote())
+        }
+    }
+
+    @Test fun `쌓이는 중인 청구서의 청구 제외 · 청구 제외가 없는 청구서는 안내를 달지 않는다`() {
+        assertNull(detailWith("ACCUMULATING", "PENDING", "EXCLUDED").excludedNote())   // 확정 전 취소뿐
+        assertNull(detailWith("UNPAID", "BILLED", "REFUND_PENDING").excludedNote())
+        assertNull(detailWith("PAID").excludedNote())
+    }
+
     // ── 환급 ──
 
     private fun refund(

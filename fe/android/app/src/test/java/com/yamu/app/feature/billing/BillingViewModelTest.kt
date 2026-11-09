@@ -203,6 +203,23 @@ class BillingViewModelTest {
         assertEquals(1, s.messages.size)
     }
 
+    @Test fun `환급 목록이 비어도 입금 전 합계는 남는다`() = runTest(dispatcher) {
+        // BE 합계는 기간과 상관없다 — 3개월보다 먼저 생겨 아직 입금 전인 환급은 합계에만 들어 있다
+        repo.pages[1] = ApiResult.Success(RefundPage(emptyList(), page = 1, hasNext = false, summary = RefundSummary(12_000, 1, 0)))
+        val s = billing().state.value
+        assertTrue(s.refundsLoaded)
+        assertTrue(s.refunds.isEmpty())
+        assertEquals(RefundSummary(12_000, 1, 0), s.pendingSummary)
+    }
+
+    @Test fun `입금 전 환급이 없으면 합계 카드를 띄우지 않는다`() = runTest(dispatcher) {
+        assertNull(billing().state.value.pendingSummary)
+        repo.pages[1] = ApiResult.Success(RefundPage(emptyList(), page = 1, hasNext = false, summary = RefundSummary(0, 0, 0)))
+        val vm = billing()
+        assertTrue(vm.state.value.refunds.isEmpty())
+        assertNull(vm.state.value.pendingSummary)
+    }
+
     @Test fun `목록이 줄어 앞 페이지에서 끝나면 거기서 멈춘다`() = runTest(dispatcher) {
         val vm = billing()
         vm.loadMore()
