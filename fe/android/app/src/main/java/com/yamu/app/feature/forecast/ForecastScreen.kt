@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.TextAutoSize
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
@@ -40,9 +41,11 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.LifecycleResumeEffect
@@ -450,7 +453,16 @@ private fun DayPanel(day: ForecastDay, hasConservative: Boolean) {
 private fun DayValue(label: String, value: Long?, color: androidx.compose.ui.graphics.Color, modifier: Modifier) {
     Column(modifier) {
         Text(label, style = YamuTheme.typography.bodyS, color = YamuTheme.colors.text3)
-        Text(value?.let { "${it.toWon()}원" } ?: "—", style = YamuTheme.typography.titleS, color = if ((value ?: 0) < 0) YamuTheme.colors.error else color)
+        // 세 칸이 좁아 아주 큰 금액이 숫자 중간에서 줄이 바뀌었다 — 한 줄로 두고 글자를 줄이며, 그래도 넘치면 말줄임(점검 2026-11-08)
+        val style = YamuTheme.typography.titleS
+        Text(
+            value?.let { "${it.toWon()}원" } ?: "—",
+            style = style,
+            color = if ((value ?: 0) < 0) YamuTheme.colors.error else color,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            autoSize = TextAutoSize.StepBased(minFontSize = 8.sp, maxFontSize = style.fontSize, stepSize = 0.5.sp),
+        )
     }
 }
 

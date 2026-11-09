@@ -65,7 +65,17 @@ import java.time.LocalDate
 
 @Serializable data class SimScheduleDto(val date: String? = null, val amount: Long = 0, val label: String? = null)
 
-@Serializable data class SimSnapshotDto(val minBalance: Long? = null, val minBalanceDate: String? = null, val endBalance: Long? = null, val status: String? = null)
+/**
+ * [riskStartDate] — 안전 잔액 아래로 처음 내려가는 날(BE -347 !198, 잔고예보 riskWindows[].from과 같은 규칙, SAFE면 null).
+ * 그 전 BE 응답에는 없어 선택 필드로 읽는다
+ */
+@Serializable data class SimSnapshotDto(
+    val minBalance: Long? = null,
+    val minBalanceDate: String? = null,
+    val endBalance: Long? = null,
+    val status: String? = null,
+    val riskStartDate: String? = null,
+)
 
 @Serializable data class SimComparisonDto(
     val before: SimSnapshotDto? = null,
@@ -106,7 +116,17 @@ import java.time.LocalDate
 
 // ── 앱 안에서 쓰는 값 ──
 
-enum class PaymentChannel(val label: String) { OFFLINE("매장"), ONLINE("온라인") }
+enum class PaymentChannel(val label: String) {
+    OFFLINE("매장"), ONLINE("온라인");
+
+    companion object {
+        /** 온라인으로 결제하는 업종 — BE 업종(MerchantCategories)에는 온라인 표시가 없어 앱이 정한다(S15P31E103-363, 점검 B-14) */
+        private val ONLINE_CATEGORIES = setOf("ONLINE_MARKETPLACE", "DELIVERY_APP", "STREAMING_SERVICE", "MEMBERSHIP_SUBSCRIPTION")
+
+        /** 업종을 고를 때 맞추는 결제 방식 기본값. 사용자가 그 뒤 바꾸는 것은 막지 않는다 */
+        fun forCategory(categoryCode: String): PaymentChannel = if (categoryCode in ONLINE_CATEGORIES) ONLINE else OFFLINE
+    }
+}
 
 data class MerchantCategory(val code: String, val name: String)
 
@@ -158,7 +178,7 @@ data class BenefitLine(val name: String, val amount: BigDecimal?)
 
 data class SimBenefit(val net: BigDecimal?, val lines: List<BenefitLine>, val charged: Long?)
 
-data class SimSnapshot(val minBalance: Long?, val minBalanceDate: LocalDate?, val status: RiskLevel)
+data class SimSnapshot(val minBalance: Long?, val minBalanceDate: LocalDate?, val status: RiskLevel, val riskStartDate: LocalDate? = null)
 
 data class SimWithdrawal(val date: LocalDate?, val amount: Long, val label: String, val beyondPeriod: Boolean)
 
@@ -188,11 +208,23 @@ data class Simulation(
 
     /** 1순위 카드가 지금 카드보다 얼마 더 주는지(둘 다 계산했을 때만) */
     val betterBy: BigDecimal? get() = betterCard?.net?.let { b -> benefit?.net?.let { b - it } }?.takeIf { it.signum() > 0 }
+
+    /**
+     * 사고 나면 안전 잔액 아래로 처음 내려가는 날 — 잔고예보의 '부족이 시작되는 날'과 같은 기준(점검 B-08, 가장 낮은 날이 아니다).
+     * BE riskStartDate가 있으면 그 날. 없는 응답(BE !198 전)이면 날짜별 잔액(가장 나쁜 선)이 [threshold] 아래로 처음 내려간 날.
+     * 안전 잔액을 모르거나, 통합 잔액은 안전하고 한 계좌만 모자라 날짜별 잔액으로 찾을 수 없으면 null
+     */
+    fun afterRiskStart(threshold: Long?): LocalDate? {
+        val a = after ?: return null
+        a.riskStartDate?.let { return it }
+        if (a.status == RiskLevel.SAFE || threshold == null) return null
+        return days.firstOrNull { d -> d.after?.let { it < threshold } == true }?.date
+    }
 }
 
 fun SimulationResponseDto.toSimulation(query: SimulationQuery): Simulation {
     val lastDay = series.mapNotNull { parseDate(it.date) }.maxOrNull()
-    fun snapshot(s: SimSnapshotDto?) = s?.let { SimSnapshot(it.minBalance, parseDate(it.minBalanceDate), enumOf(it.status, RiskLevel.UNKNOWN)) }
+    fun snapshot(s: SimSnapshotDto?) = s?.let { SimSnapshot(it.minBalance, parseDate(it.minBalanceDate), enumOf(it.status, RiskLevel.UNKNOWN), parseDate(it.riskStartDate)) }
     return Simulation(
         query = query,
         card = SimCard(
