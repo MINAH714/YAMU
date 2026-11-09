@@ -48,10 +48,11 @@ import java.math.BigDecimal
 
 @Serializable data class BenefitDto(
     val name: String = "혜택",                 // #3 상세에서 null일 수 있다
-    val type: String? = null,                // BILLING_DISCOUNT · INSTANT_DISCOUNT · POINT …
+    val type: String? = null,                // #12 후보: DISCOUNT · CASHBACK · POINT(BE 엔진 BenefitType)
     val amount: Long = 0,
     val expectedAmount: Long? = null,        // #3
     val actualAmount: Long? = null,
+    val realization: String? = null,         // #12 후보: AT_APPROVAL · AT_BILLING · AFTER_BILLING · POINT_ACCRUAL
 )
 
 @Serializable data class PerformanceImpactDto(val recognized: Boolean = true, val note: String? = null)
@@ -342,12 +343,20 @@ fun CandidateDto.toPayCard() = PayCard(
 )
 
 /**
- * 카드 줄에 보일 혜택 이름 — 이번 결제에 금액이 붙은 혜택 중 가장 큰 것. 없으면 null(줄에는 서버 reason).
- * 서버는 이번 결제에 맞지 않아 0원인 혜택(스타벅스 결제의 '교보문고 …')도 같이 보낸다. 금액은 혜택마다 자기 단위(원 · 포인트)이고,
- * 공유 한도 배분이 안 정해진 혜택은 null로 와서 0으로 읽힌다(YamuJson coerceInputValues)
+ * 카드 줄에 보일 혜택 이름 — 이번 결제에 금액이 붙은 혜택 중 원 단위(할인 · 캐시백)에서 가장 큰 것, 원 단위가 없을 때만 포인트에서 가장 큰 것.
+ * 없으면 null(줄에는 서버 reason).
+ * 서버는 이번 결제에 맞지 않아 0원인 혜택(스타벅스 결제의 '교보문고 …')도 같이 보낸다. 공유 한도 배분이 안 정해진 혜택은 amount가 null로 와서
+ * 0으로 읽힌다(YamuJson coerceInputValues).
+ * 임시: amount는 혜택마다 자기 단위(원 · 포인트)이고 응답에 원화 환산값이 없어 원과 포인트를 견줄 수 없다(포인트 가치가 더 커도 원 단위가 보인다).
+ * BE 엔진은 혜택별 krwValue를 계산하므로 결제 응답에 실리면 그 값으로 고른다
  */
-internal fun benefitNameOf(benefits: List<BenefitDto>): String? =
-    benefits.filter { it.amount > 0 }.maxByOrNull { it.amount }?.name
+internal fun benefitNameOf(benefits: List<BenefitDto>): String? {
+    val (points, won) = benefits.filter { it.amount > 0 }.partition { it.isPoint }
+    return (won.maxByOrNull { it.amount } ?: points.maxByOrNull { it.amount })?.name
+}
+
+private val BenefitDto.isPoint: Boolean
+    get() = type.equals("POINT", ignoreCase = true) || realization.equals("POINT_ACCRUAL", ignoreCase = true)
 
 fun UncomparedCardDto.toPayCard() = PayCard(
     userCardId = userCardId,
@@ -421,5 +430,21 @@ fun PaymentResultDto.toReceipt(request: PaymentRequest? = null, card: PayCard? =
         refunds = refunds.map { it.toLine() },
         memo = memo,
         memoKnown = memo != null || request != null,   // 방금 승인한 결제는 메모가 없다. 상세(#3)는 memo 칸이 없어 모른다
+    )
+}
+
+/**
+ * #1 승인 거절 응답 → 화면 값.
+ * 출금 미확인(WITHDRAWAL_NOT_CONFIRMED)은 서버가 retryable을 줘도 다시 결제하지 않게 한다 — 은행이 그 출금을 늦게 처리하면 BE 복구가
+ * 이 결제를 승인으로 바로잡는데(WithdrawalRecovery), 다시 승인을 시작하면 그 요청 번호가 지워져 바로잡지 못하고 돈이 두 번 나갈 수 있다.
+ * 새 코드로 다시 결제해도 같다. 그래서 다른 카드를 권하지 않고 결제 내역에서 결과를 보게 한다(BE POS 문구와 같은 안내)
+ */
+fun PaymentResultDto.toDeclined(): ApproveOutcome.Declined {
+    val resultUnknown = failure?.code == "WITHDRAWAL_NOT_CONFIRMED"
+    return ApproveOutcome.Declined(
+        message = declineMessage(failure?.code),
+        retryable = retryable && !resultUnknown,
+        remainingAttempts = remainingAttempts,
+        suggestedCardId = if (resultUnknown) null else suggestedCards.firstOrNull()?.userCardId,
     )
 }

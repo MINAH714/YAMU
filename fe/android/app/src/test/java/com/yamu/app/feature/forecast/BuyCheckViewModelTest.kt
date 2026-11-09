@@ -190,16 +190,17 @@ class BuyCheckViewModelTest {
 
     @Test fun `결과 태그 — 안전 잔액 아래로 처음 내려가는 날부터, 잔고예보 첫 화면과 같은 문구(점검 B-08)`() {
         val today = LocalDate.of(2026, 11, 8)
-        // 오늘부터 모자라고 가장 낮은 날은 12/8 — 가장 낮은 날이 아니라 시작일을 쓴다
+        // 오늘부터 모자라고 가장 낮은 날은 12/8 — 가장 낮은 날이 아니라 BE가 준 시작일을 쓴다
         val short = SimSnapshot(-9_999_018_095, LocalDate.of(2026, 12, 8), RiskLevel.DANGER, riskStartDate = today)
-        assertEquals("11월 8일부터 안전 잔액 아래" to TagTone.Error, afterTag(short, today))
+        assertEquals("11월 8일부터 안전 잔액 아래" to TagTone.Error, afterTag(short))
         // 0원 아래인데 보수적 선에서만이라 WARNING이어도 빨간색
-        assertEquals("11월 20일부터 안전 잔액 아래" to TagTone.Error, afterTag(SimSnapshot(-1, DATE, RiskLevel.WARNING), DATE))
-        assertEquals("11월 20일부터 안전 잔액 아래" to TagTone.Warning, afterTag(SimSnapshot(60_000, DATE, RiskLevel.WARNING), DATE))
-        assertEquals("안전 잔액 아래로 내려가요" to TagTone.Warning, afterTag(SimSnapshot(60_000, DATE, RiskLevel.WARNING), null))   // 날짜를 모르면 빼고
-        assertEquals("가장 낮을 때도 안전 잔액 위" to TagTone.Success, afterTag(SimSnapshot(360_000, DATE, RiskLevel.SAFE), null))
-        assertNull(afterTag(SimSnapshot(360_000, DATE, RiskLevel.UNKNOWN), null))
-        assertNull(afterTag(null, null))
+        assertEquals("11월 20일부터 안전 잔액 아래" to TagTone.Error, afterTag(SimSnapshot(-1, DATE, RiskLevel.WARNING, riskStartDate = DATE)))
+        assertEquals("11월 20일부터 안전 잔액 아래" to TagTone.Warning, afterTag(SimSnapshot(60_000, DATE, RiskLevel.WARNING, riskStartDate = DATE)))
+        // 시작일이 없는 옛 응답이면 날짜를 빼고(가장 낮은 날을 대신 쓰지 않는다)
+        assertEquals("안전 잔액 아래로 내려가요" to TagTone.Warning, afterTag(SimSnapshot(60_000, DATE, RiskLevel.WARNING)))
+        assertEquals("가장 낮을 때도 안전 잔액 위" to TagTone.Success, afterTag(SimSnapshot(360_000, DATE, RiskLevel.SAFE)))
+        assertNull(afterTag(SimSnapshot(360_000, DATE, RiskLevel.UNKNOWN)))
+        assertNull(afterTag(null))
     }
 
     @Test fun `할부는 신용카드 · 5만 원 이상일 때만`() {

@@ -124,12 +124,7 @@ class PaymentRepositoryImpl @Inject constructor(private val api: PaymentApi, pri
                 receipts[r.paymentId] = receipt
                 ApproveOutcome.Approved(receipt)
             } else {
-                ApproveOutcome.Declined(
-                    message = declineMessage(r.failure?.code),
-                    retryable = r.retryable,
-                    remainingAttempts = r.remainingAttempts,
-                    suggestedCardId = r.suggestedCards.firstOrNull()?.userCardId,
-                )
+                r.toDeclined()
             }
         }
     }

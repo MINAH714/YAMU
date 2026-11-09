@@ -67,7 +67,8 @@ import java.time.LocalDate
 
 /**
  * [riskStartDate] — 안전 잔액 아래로 처음 내려가는 날(BE -347 !198, 잔고예보 riskWindows[].from과 같은 규칙, SAFE면 null).
- * 그 전 BE 응답에는 없어 선택 필드로 읽는다
+ * 통합 · 계좌별 위험 구간 중 가장 이른 날이라 앱이 날짜별 통합 잔액(series)으로 대신 구하면 늦은 날이 나오거나 빠진다(!206 리뷰).
+ * 그래서 이 칸이 없는 옛 응답이면 앱은 날짜를 계산하지 않고 빼고 보인다
  */
 @Serializable data class SimSnapshotDto(
     val minBalance: Long? = null,
@@ -208,18 +209,6 @@ data class Simulation(
 
     /** 1순위 카드가 지금 카드보다 얼마 더 주는지(둘 다 계산했을 때만) */
     val betterBy: BigDecimal? get() = betterCard?.net?.let { b -> benefit?.net?.let { b - it } }?.takeIf { it.signum() > 0 }
-
-    /**
-     * 사고 나면 안전 잔액 아래로 처음 내려가는 날 — 잔고예보의 '부족이 시작되는 날'과 같은 기준(점검 B-08, 가장 낮은 날이 아니다).
-     * BE riskStartDate가 있으면 그 날. 없는 응답(BE !198 전)이면 날짜별 잔액(가장 나쁜 선)이 [threshold] 아래로 처음 내려간 날.
-     * 안전 잔액을 모르거나, 통합 잔액은 안전하고 한 계좌만 모자라 날짜별 잔액으로 찾을 수 없으면 null
-     */
-    fun afterRiskStart(threshold: Long?): LocalDate? {
-        val a = after ?: return null
-        a.riskStartDate?.let { return it }
-        if (a.status == RiskLevel.SAFE || threshold == null) return null
-        return days.firstOrNull { d -> d.after?.let { it < threshold } == true }?.date
-    }
 }
 
 fun SimulationResponseDto.toSimulation(query: SimulationQuery): Simulation {

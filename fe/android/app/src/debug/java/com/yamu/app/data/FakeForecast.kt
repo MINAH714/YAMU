@@ -404,22 +404,27 @@ class FakeForecastRepository @Inject constructor() : ForecastRepository {
         val card = chosen ?: top
         val (benefitName, benefitAmount) = net(card)
         val schedule = withdrawals(card, query.purchaseDate, query.amount, query.installmentMonths)
+        // 가짜는 가상 구매 출금을 저장한 계획과 같은 생활비 통장(2)에서 뺀다
+        val purchaseAccount = 2L
+        val purchaseFlows = schedule.map { Flow(purchaseAccount, LocalDate.parse(it.date), it.amount, "SIMULATED_PURCHASE", "CONFIRMED", it.label ?: "가상 구매") }
         val before = build(current)
-        val after = build(current, schedule.map { Flow(2, LocalDate.parse(it.date), it.amount, "SIMULATED_PURCHASE", "CONFIRMED", it.label ?: "가상 구매") })
+        val after = build(current, purchaseFlows)
         val to = LocalDate.parse(before.horizon!!.to)
         // riskStartDate — 위험 구간 중 가장 이른 시작일(BE -347 !198). 가짜는 통합 선 구간만 본다
         fun snapshot(dto: BalanceForecastDto) = SimSnapshotDto(dto.summary?.minBalance, dto.summary?.minBalanceDate, dto.summary?.endBalance, dto.summary?.status, dto.riskWindows.mapNotNull { it.from }.minOrNull())
         val beyond = schedule.filter { LocalDate.parse(it.date).isAfter(to) }.sumOf { it.amount }
         val afterMin = after.summary?.minBalance ?: 0
         val afterDate = after.summary?.minBalanceDate?.let(LocalDate::parse)
-        // 체크카드 구매일(기간 안) 구매 후 잔액(가장 나쁜 선)이 0원 아래면 BE처럼 안내를 덧붙인다(-347)
-        val checkOverdrawn = !card.credit && !query.purchaseDate.isAfter(to) &&
-            after.series.firstOrNull { it.date == query.purchaseDate.toString() }?.let { (it.conservative ?: it.expected ?: 0) < 0 } == true
+        // 체크카드 구매일(기간 안) 출금 계좌의 구매 후 잔액(그 계좌의 가장 나쁜 선)이 0원 아래면 BE처럼 안내를 덧붙인다(-347).
+        // 통합 합계로 보면 다른 계좌 잔액이 출금 계좌의 마이너스를 가린다(!206 리뷰). 출금 계좌를 고르지 않았으면 그날 잔액을 몰라 붙이지 않는다
+        val checkOverdrawn = !card.credit && !query.purchaseDate.isAfter(to) && purchaseAccount in current.accountIdsFrom(options()) &&
+            build(current.copy(accountIds = setOf(purchaseAccount)), purchaseFlows).series
+                .firstOrNull { it.date == query.purchaseDate.toString() }?.let { (it.conservative ?: it.expected ?: 0) < 0 } == true
         val message = buildString {
             val d = afterDate?.let { "${it.monthValue}월 ${it.dayOfMonth}일" } ?: "기간 중"
             append(if (afterMin < 0) "$d 잔액이 ${"%,d".format(-afterMin)}원 모자라요." else "$d 잔액이 ${"%,d".format(afterMin)}원까지 내려가요.")
             if (beyond < 0) append(" 예보 기간 밖에서 ${"%,d".format(-beyond)}원이 더 빠져요.")
-            if (checkOverdrawn) append(" 체크카드는 그날 잔액보다 큰 금액은 결제되지 않을 수 있어요.")
+            if (checkOverdrawn) append(" 체크카드는 구매일 잔액보다 큰 금액은 결제되지 않을 수 있어요.")
         }
         val alternatives = fakeCards.filter { !it.inactive && it.id != card.id }.map { alt ->
             val comparable = query.installmentMonths == null || alt.credit

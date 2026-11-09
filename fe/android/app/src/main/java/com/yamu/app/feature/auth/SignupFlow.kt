@@ -69,12 +69,14 @@ import com.yamu.app.feature.auth.data.AccountCandidate
 import com.yamu.app.feature.auth.data.AuthRepository
 import com.yamu.app.feature.auth.data.Carrier
 import com.yamu.app.feature.auth.data.CodeSent
+import com.yamu.app.feature.auth.data.IdentityDraft
 import com.yamu.app.feature.auth.data.SIGNUP_TOKEN_INVALID
 import com.yamu.app.feature.auth.data.SignupMode
 import com.yamu.app.feature.auth.data.SignupOneWon
 import com.yamu.app.feature.auth.data.SignupRepository
 import com.yamu.app.feature.auth.data.SignupRestart
 import com.yamu.app.feature.auth.data.SignupValidation
+import com.yamu.app.feature.auth.data.secondsLeft
 import com.yamu.app.feature.auth.data.signupErrorMessage
 import com.yamu.app.feature.link.BankMark
 import com.yamu.app.feature.link.CodeBoxes
@@ -88,7 +90,6 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import java.time.format.DateTimeFormatter
 import javax.inject.Inject
 
 /*
@@ -245,17 +246,20 @@ class PhoneVerifyViewModel @Inject constructor(private val signup: SignupReposit
     private val _state = MutableStateFlow(initialState())
     val state: StateFlow<PhoneVerifyState> = _state.asStateFlow()
 
-    /** 본인인증부터 다시 왔으면 넣었던 칸을 채우고 까닭을 띄운다. 인증을 마친 채 다시 열리면 마친 상태로 */
+    /**
+     * 화면을 새로 열면(약관을 거쳐 다시 들어옴 · 본인인증부터 다시) 마지막으로 고친 칸을 채우고, 다시 왔으면 까닭을 띄운다.
+     * 인증을 마친 채 다시 열리면 마친 상태로 — 칸을 고치면 저장소가 인증을 버리니 토큰이 있으면 지금 칸으로 받은 인증이다
+     */
     private fun initialState(): PhoneVerifyState {
-        val input = signup.lastInput
+        val draft = signup.draft
         return PhoneVerifyState(
-            name = input?.name.orEmpty(),
-            birth = input?.birthDate?.format(DateTimeFormatter.BASIC_ISO_DATE).orEmpty(),
-            carrier = input?.carrier,
-            phone = input?.phoneNumber.orEmpty(),
+            name = draft.name,
+            birth = draft.birth,
+            carrier = draft.carrier,
+            phone = draft.phone,
             fromTerms = signup.termsAgreed,
-            verified = signup.mode?.takeIf { input != null },
-            notice = signup.takeRestartReason()?.let { restartNotice(it, keptInput = input != null) },
+            verified = signup.mode,
+            notice = signup.takeRestartReason()?.let { restartNotice(it, keptInput = !draft.isEmpty) },
         )
     }
 
@@ -270,6 +274,8 @@ class PhoneVerifyViewModel @Inject constructor(private val signup: SignupReposit
         val changed = change(before)
         if (changed == before) return
         if (before.verified != null) signup.dropVerification()   // 약관으로 돌아가 '동의하고 계속'을 눌러도 옛 토큰으로 가지 않게
+        // 고친 값을 바로 적어 둔다 — 인증번호를 받기 전에 약관을 거쳐 다시 들어와도 옛 값으로 되돌아가지 않게
+        signup.draft = IdentityDraft(changed.name, changed.birth, changed.carrier, changed.phone)
         _state.value = changed.copy(sent = null, verified = null, code = "", codeError = false, error = null, banner = null)
     }
 
@@ -872,7 +878,7 @@ fun SignupOneWonRoute(
                 Spacer(Modifier.height(8.dp))
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     // 남은 시간은 안내(최종 만료는 SSAFY) — 지나도 확인은 막지 않고 다시 받기로 이끈다. 서버가 끝났다고 하면 아래 오류 문장이 대신한다
-                    val left = info.validSeconds - elapsed
+                    val left = info.secondsLeft(now)
                     Text(
                         when {
                             s.needResend -> ""

@@ -11,6 +11,7 @@ import com.yamu.app.core.network.map
 import com.yamu.app.core.security.AuthTokens
 import com.yamu.app.core.security.DeviceKeyManager
 import com.yamu.app.core.security.SessionEnd
+import com.yamu.app.core.security.SessionEndEvent
 import com.yamu.app.core.security.SessionInfo
 import com.yamu.app.core.security.SessionStore
 import com.yamu.app.core.security.TokenStore
@@ -219,8 +220,9 @@ class AuthRepositoryImpl @Inject constructor(
 
     /** 로그인한 채로 기기가 없어졌을 때 — 지운 뒤 바로 첫 화면으로 */
     private suspend fun forgetDeviceInSession() {
+        val version = tokenStore.tokenVersion
         forgetDevice()
-        tokenStore.notifySessionExpired(SessionEnd.DEVICE_REVOKED)
+        tokenStore.notifySessionEnd(SessionEndEvent(SessionEnd.DEVICE_REVOKED, version))
     }
 }
 

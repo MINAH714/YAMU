@@ -148,6 +148,8 @@ data class PayCodeState(
     val askNoBenefit: Boolean = false,
     /** 이 결제에서 혜택 없음을 확인한 카드(같은 카드로 다시 결제할 땐 묻지 않는다) */
     val noBenefitConfirmedIds: Set<Long> = emptySet(),
+    /** 이 결제에서 거절된 카드 전부 — BE도 같은 결제의 거절된 카드는 다시 받지 않는다(ALREADY_DECLINED) */
+    val declinedCardIds: Set<Long> = emptySet(),
 ) {
     val request: PaymentRequest? get() = (phase as? PayPhase.Request)?.request
     val selectedCard: PayCard? get() = request?.cards?.firstOrNull { it.userCardId == selectedCardId }
@@ -283,13 +285,16 @@ class PayCodeViewModel @Inject constructor(
                 remainingSec = secondsUntil(request.confirmDeadlineIso),
                 askNoBenefit = false,
                 noBenefitConfirmedIds = emptySet(),
+                declinedCardIds = emptySet(),
             )
         }
     }
 
-    /** 결제 가능 여부를 모르는 카드(selectable false)는 고르지 않는다 */
+    /** 결제 가능 여부를 모르는 카드(selectable false)와 이 결제에서 거절된 카드는 고르지 않는다 */
     fun selectCard(userCardId: Long) {
-        if (_state.value.request?.cards?.any { it.userCardId == userCardId && it.selectable } != true) return
+        val s = _state.value
+        if (userCardId in s.declinedCardIds) return
+        if (s.request?.cards?.any { it.userCardId == userCardId && it.selectable } != true) return
         _state.update { it.copy(selectedCardId = userCardId, installmentMonths = null) }
     }
 
@@ -306,7 +311,7 @@ class PayCodeViewModel @Inject constructor(
             _state.update { it.copy(requestExpired = true, remainingSec = 0) }
             return
         }
-        if (!card.selectable) return
+        if (!card.selectable || card.userCardId in s.declinedCardIds) return
         // 비교 못 한 카드는 혜택 없이 결제된다는 걸 확인받은 뒤에만(BE noBenefitNotice — 승인 API는 확인 여부를 받지 않는다)
         if (card.benefitUnknown && card.userCardId !in s.noBenefitConfirmedIds) {
             _state.update { it.copy(askNoBenefit = true) }
@@ -324,16 +329,21 @@ class PayCodeViewModel @Inject constructor(
                     }
                     is ApproveOutcome.Declined -> {
                         approveKeys.remove(keyName)          // 같은 카드로 다시 시도하면 새 시도
-                        // 다음 카드도 추천 후보 중에서만 — 비교 못 한 카드로 저절로 옮기지 않는다
-                        val next = o.suggestedCardId?.takeIf { id -> request.cards.any { it.userCardId == id && it.autoSelectable } }
-                            ?: request.cards.firstOrNull { it.userCardId != card.userCardId && it.autoSelectable }?.userCardId
+                        // 다음 카드는 아직 거절되지 않은 추천 후보 중에서만 — 비교 못 한 카드로 저절로 옮기지 않는다.
+                        // 이번 카드만 빼면 앞서 거절된 후보로 되돌아가 BE가 ALREADY_DECLINED로 막는다
+                        val declinedIds = _state.value.declinedCardIds + card.userCardId
+                        fun usable(c: PayCard) = c.autoSelectable && c.userCardId !in declinedIds
+                        val next = o.suggestedCardId?.takeIf { id -> request.cards.any { it.userCardId == id && usable(it) } }
+                            ?: request.cards.firstOrNull(::usable)?.userCardId
                         val left = o.remainingAttempts?.let { " · ${it}번 더 할 수 있어요" }.orEmpty()
                         _state.update {
                             it.copy(
                                 approving = false,
                                 declined = o.message + if (o.retryable) left else "",
                                 canRetry = o.retryable && (o.remainingAttempts ?: 1) > 0,
-                                selectedCardId = if (o.retryable && next != null) next else it.selectedCardId,
+                                declinedCardIds = declinedIds,
+                                // 다시 결제할 수 있는데 저절로 고를 카드가 없으면 비워 둔다(비교 못 한 카드는 사용자가 직접)
+                                selectedCardId = if (o.retryable) next else it.selectedCardId,
                                 installmentMonths = null,
                             )
                         }
@@ -611,7 +621,10 @@ private fun RequestBody(request: PaymentRequest, s: PayCodeState, onSelectCard: 
                 Spacer(Modifier.height(YamuSpacing.x3))
                 Text("혜택을 비교하지 못한 카드", style = YamuTheme.typography.sub, color = c.text3)
             }
-            PayCardRow(card, selected = card.userCardId == s.selectedCardId, enabled = !s.requestDone && !s.waiting, onClick = { onSelectCard(card.userCardId) })
+            PayCardRow(
+                card, selected = card.userCardId == s.selectedCardId, enabled = !s.requestDone && !s.waiting,
+                declined = card.userCardId in s.declinedCardIds, onClick = { onSelectCard(card.userCardId) },
+            )
         }
         if (s.selectedCard?.benefitUnknown == true) {
             Spacer(Modifier.height(YamuSpacing.x2))
@@ -633,16 +646,20 @@ private fun RequestBody(request: PaymentRequest, s: PayCodeState, onSelectCard: 
     }
 }
 
-/** 카드 한 줄 — 카드사 · 이름 · 혜택 · 순혜택(서버 값). 고를 수 없는 카드(결제 가능 여부 모름)는 흐리게, 체크 없이 */
+/**
+ * 카드 한 줄 — 카드사 · 이름 · 혜택 · 순혜택(서버 값).
+ * 고를 수 없는 카드(결제 가능 여부 모름 · 이 결제에서 [declined])는 흐리게, 체크 없이
+ */
 @Composable
-private fun PayCardRow(card: PayCard, selected: Boolean, enabled: Boolean, onClick: () -> Unit) {
+private fun PayCardRow(card: PayCard, selected: Boolean, enabled: Boolean, declined: Boolean, onClick: () -> Unit) {
     val c = YamuTheme.colors
+    val usable = card.selectable && !declined
     Row(
         Modifier
             .fillMaxWidth()
             .heightIn(min = 64.dp)
-            .selectable(selected = selected, enabled = enabled && card.selectable, role = Role.RadioButton, onClick = onClick)
-            .alpha(if (card.selectable) 1f else 0.5f)
+            .selectable(selected = selected, enabled = enabled && usable, role = Role.RadioButton, onClick = onClick)
+            .alpha(if (usable) 1f else 0.5f)
             .padding(vertical = YamuSpacing.x2),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(YamuSpacing.x3),
@@ -650,11 +667,15 @@ private fun PayCardRow(card: PayCard, selected: Boolean, enabled: Boolean, onCli
         CardThumb(CardImages.forProduct(card.name)) { BrandMark(card.brand, large = true) }
         Column(Modifier.weight(1f)) {
             Text(card.name, style = YamuTheme.typography.titleM, color = c.text1, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            val sub = if (card.isCheck && card.chargedAmount != null) "${card.benefitName ?: "체크카드"} · ${card.chargedAmount.toWon()}원 출금" else card.benefitName ?: card.reason
+            val sub = when {
+                declined -> "이 결제에서 거절된 카드예요"
+                card.isCheck && card.chargedAmount != null -> "${card.benefitName ?: "체크카드"} · ${card.chargedAmount.toWon()}원 출금"
+                else -> card.benefitName ?: card.reason
+            }
             sub?.let { Text(it, style = YamuTheme.typography.sub, color = c.text3) }
         }
-        if (card.netBenefit.signum() > 0) Text("−${card.netBenefit.toWon()}원", style = YamuTheme.typography.value, color = c.primary)
-        if (card.selectable) RoundCheckbox(checked = selected, onCheckedChange = null)
+        if (!declined && card.netBenefit.signum() > 0) Text("−${card.netBenefit.toWon()}원", style = YamuTheme.typography.value, color = c.primary)
+        if (usable) RoundCheckbox(checked = selected, onCheckedChange = null)
     }
 }
 
@@ -664,7 +685,8 @@ private fun RequestButtons(request: PaymentRequest, s: PayCodeState, onApprove: 
         BottomCta { PrimaryButton("닫기", onClick = onClose) }
         return
     }
-    if (request.cards.none { it.selectable }) {
+    // 고를 카드가 하나도 없으면(결제 가능 여부를 모르는 카드뿐 · 남은 카드가 모두 거절됨) 거절만
+    if (request.cards.none { it.selectable && it.userCardId !in s.declinedCardIds }) {
         BottomCta { PrimaryButton("거절", onClick = onReject, loading = s.rejecting) }
         return
     }
