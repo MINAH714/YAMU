@@ -38,6 +38,7 @@ import org.springframework.transaction.support.TransactionTemplate;
  * user_card PENDING, linked_account_id 없음. 카드사가 정한 계좌는 issuer_account_*(은행·조회 해시·끝 4자리)로,
  *           신용카드 결제일은 payment_day로 적는다. 카드 등록 때 연결 계좌와 대조해 linked_account_id가 채워진다(!47)
  * payment_transaction·card_monthly_performance  카드 등록 전 6개월 모의 소비(SEED)와 그 실적({@link PersonaSpendingHistory})
+ * card_bill·bill_item  그 신용카드 사용분 중 아직 출금되지 않았을 청구서(ACCUMULATING)와 회차({@link PersonaSeedBills})
  * 넣지 않음 linked_account(가입 중 계좌 목록에서 골라 연결), user_device(가입의 마지막 단계)
  * </pre>
  *
@@ -65,6 +66,7 @@ public class PersonaSeedService {
     private final Validator validator;
     private final Clock clock;
     private final PersonaSpendingHistory history;
+    private final PersonaSeedBills seedBills;
 
     public enum Result {
         CREATED, RESET, SKIPPED_EXISTS, SKIPPED_NOT_PENDING, FAILED
@@ -276,6 +278,18 @@ public class PersonaSeedService {
             throw new SeedFailure("초기화 중에 상태가 바뀌어 건너뜀");
         }
         try {
+            // 시드 청구서(S15P31E103-371)는 회차가 결제를 가리키므로 결제보다 먼저 지운다. SEED 결제의 회차만 지우고, 회차가
+            // 남지 않은 청구서만 지운다. 다른 결제의 회차가 남아 있으면 그 결제 삭제가 FK에 막혀 전체가 되돌아간다.
+            jdbc.update("""
+                    DELETE i FROM bill_item i
+                      JOIN payment_transaction p ON p.payment_transaction_id = i.payment_transaction_id
+                     WHERE p.user_id = ? AND p.source = 'SEED'
+                    """, userId);
+            jdbc.update("""
+                    DELETE b FROM card_bill b
+                     WHERE b.user_id = ?
+                       AND NOT EXISTS (SELECT 1 FROM bill_item i WHERE i.card_bill_id = b.card_bill_id)
+                    """, userId);
             // 시드가 넣은 결제(SEED)만 지운다. 다른 결제가 남아 있으면 카드 삭제가 FK에 막혀 전체가 되돌아간다.
             jdbc.update("DELETE FROM payment_transaction WHERE user_id = ? AND source = 'SEED'", userId);
             jdbc.update("DELETE p FROM card_monthly_performance p JOIN user_card c USING (user_card_id) WHERE c.user_id = ?",
@@ -318,7 +332,9 @@ public class PersonaSeedService {
                     Long.class, userId, lookup.card(cardNo));
             seeded.add(new PersonaSpendingHistory.SeededCard(cardId, resolved.productId(), resolved.cardType()));
         }
-        history.insert(userId, persona.ssafyMemberId(), seeded, LocalDate.now(clock.withZone(KOREA)), now);
+        LocalDate today = LocalDate.now(clock.withZone(KOREA));
+        history.insert(userId, persona.ssafyMemberId(), seeded, today, now);
+        seedBills.insert(userId, today);
     }
 
     private static void log(Outcome outcome) {
