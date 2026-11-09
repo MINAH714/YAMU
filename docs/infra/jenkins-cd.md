@@ -59,6 +59,32 @@ CI 에이전트의 Jenkins 계정은 원래 신뢰된 팀 코드만 실행한다
 
 위 운영 설치·Jenkins 설정·실패 복구 실증이 끝나기 전 Task를 완료로 표시하지 않는다. 자동 배포 시 DB 변경을 금지하는 초기 범위이며 무중단 배포·새 Java 런타임 업데이트·POS 원자적 교체는 후속 작업이다.
 
+## 시연 APK와 운영 BE 커밋 대조
+
+1. 시연 릴리스의 `master` 커밋을 확정하고 같은 커밋으로 실연동 APK와 `ci-master` JAR을 빌드한다.
+2. APK의 `build-manifest.json`에서 `variant=customerRelease`, `mock_only=false`, `source_revision`을 확인한다. 다운로드한 APK의 SHA-256과 크기를 매니페스트와 대조한다.
+3. `ci-master` 성공 빌드의 `ci-manifest.json`에 있는 `revision`과 `ci-revision.txt`, APK의 `source_revision`, 승인한 `master` SHA가 모두 같은지 확인한다. 값이 다르면 시연 후보 확정을 보류하고 승인 커밋에서 해당 산출물을 다시 만든다.
+4. 배포 후 운영 BE 이미지의 `org.opencontainers.image.revision`을 같은 SHA와 대조한다. 릴리스 기록에 APK 파일명과 SHA-256, `ci-master` 빌드 번호, 운영 BE 커밋을 남긴다.
+
+2026-11-09 점검에서 확인한 실연동 APK는 `YAMU-demo-live-customer-66d3e61a.apk`였다.
+S3 객체의 SHA-256과 크기가 매니페스트와 일치했다. APK 소스 `66d3e61`과 운영 BE `7251c16`은
+커밋이 다르며, 두 커밋 사이 `fe/android` 소스 차이는 없었다. 이 APK의 실기기 실행 검증은 매니페스트에 기록되어 있지 않다.
+
+## OPS-08 배포 후 회귀 검증 기록
+
+배포마다 운영 커밋, Jenkins 빌드 번호, 검증 시각과 각 결과를 남긴다. 결제 설정 저장까지 확인할 때는
+지정 테스트 계정의 기존 값을 기록하고, 허용된 값으로 변경한 뒤 조회 결과를 확인하고 원래 값으로 복원한다.
+인증 정보, 결제 식별자, 응답 전문은 기록에 포함하지 않는다.
+
+| 검증 | 2026-11-09 운영 결과 |
+| --- | --- |
+| 배포 출처 | `7251c16bd70f170036c2ed8034e2dd8ec3231d9d`, `ci-master` #1. 운영 BE 컨테이너 시작 시각 11:08:34 KST |
+| 내부·공개 헬스체크 | `/actuator/health` HTTP 200, `UP`. 공개 `/api/health` HTTP 200, `ok` |
+| Flyway 및 자동 선택 | `20261106.3` 성공 이력 1건, DB 기본값 켜짐, 배포 직후 기존 사용자 2명 모두 켜짐 |
+| 결제 설정 인증 경계 | 미인증 `GET /api/users/me/payment-settings` HTTP 401 |
+| POS 인증 경계 | 운영 BE에서 키 없는 조회는 HTTP 401. 운영 키를 넣고 존재하지 않는 시나리오로 조회하면 HTTP 404 |
+| 인증 사용자 결제 설정 | 테스트 계정의 인증된 조회 HTTP 200 및 `data.autoSelect` 확인, 저장 후 재조회는 검증 대기 |
+
 ## 2026-10-27 컨테이너 복구 검증
 
 `test_compose_recovery.py`를 EC2 Linux에서 실행했다. 임의 UUID를 붙인 별도 Compose 프로젝트에서 포트 공개 없이 기존 Redis 이미지만 사용했다. 정상 후보 기동과 상태 저장을 확인한 뒤 후보 프로세스를 의도적으로 exit 42로 종료시켰다. 같은 `switch_backend` 흐름이 이전 설정을 복원했고 PONG 확인에 성공했다. 실패한 후보의 상태 저장은 실행되지 않았으며, 별도 저장 서비스의 컨테이너 ID와 표식 데이터가 유지됐다. 생성한 임시 프로젝트와 그 볼륨만 정리했다.
