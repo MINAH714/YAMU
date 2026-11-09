@@ -54,7 +54,10 @@ class PerformanceIntegrationTest extends MySqlTestSupport {
     OwnershipFixtures fixtures;
     long owner;
     long other;
-    /** 기준 30만(생활 할인, 원화 월 한도 30만~50만 1만원·50만~ 2만원)·50만(카페 할인) 상품. */
+    /**
+     * 기준 30만(생활 할인)·50만(카페 할인) 상품. 두 혜택이 통합 원화 월 한도(30만~50만 1만원·50만~ 2만원)를 함께 쓰고,
+     * 카페 할인에는 그 안에 따로 월 5천원 한도와 포인트 한도가 더 있다(실제 시드 노리2 체크카드와 같은 모양).
+     */
     long tiered;
     /** 혜택에 실적 조건이 없는 상품. */
     long plain;
@@ -73,7 +76,12 @@ class PerformanceIntegrationTest extends MySqlTestSupport {
         link(tiered, life, group);
         tier(group, 300_000, 500_000L, 10_000);
         tier(group, 500_000, null, 20_000);
-        // 카페 할인에 걸린 포인트 한도는 원화 월 한도 합에 넣지 않는다
+        link(tiered, cafe, group);
+        // 통합 한도 안의 카페 전용 한도(기본 한도 5천원)는 통합 한도와 겹치므로 따로 더하지 않는다
+        long cafeOnly = limitGroup(tiered, "CAFE_MONTHLY", "MONTHLY", "KRW");
+        jdbc.update("UPDATE limit_group SET base_limit_value = 5000 WHERE limit_group_id = ?", cafeOnly);
+        link(tiered, cafe, cafeOnly);
+        // 포인트 한도는 원화 최대치에 넣지 않는다
         long points = limitGroup(tiered, "CAFE_POINT", "MONTHLY", "POINT");
         link(tiered, cafe, points);
         benefit(plain, "모든 가맹점 1% 할인", 0);
@@ -200,6 +208,23 @@ class PerformanceIntegrationTest extends MySqlTestSupport {
                 .andExpect(jsonPath("$.data.tiers[1].achieved").value(false))
                 .andExpect(jsonPath("$.data.nextMonthImpact.message")
                         .value("150,000원 더 쓰면 다음 달 50만원 이상 구간 혜택을 받아요"));
+    }
+
+    @Test
+    void 원화_월_한도가_없는_혜택이_열리는_구간은_금액을_말하지_않는다() throws Exception {
+        long product = fixtures.product();
+        long capped = benefit(product, "편의점 5% 할인", 300_000);
+        benefit(product, "해외 1% 적립", 500_000);   // 한도 없음 → 50만 구간부터는 원화 최대치가 없다
+        long group = limitGroup(product, "CVS_MONTHLY", "MONTHLY", "KRW");
+        jdbc.update("UPDATE limit_group SET base_limit_value = 3000 WHERE limit_group_id = ?", group);
+        link(product, capped, group);
+        long card = card(owner, product, "ACTIVE", null);
+        performance(card, THIS_MONTH, 0);
+
+        mockMvc.perform(get("/api/user-cards/{id}/performance", card).with(AuthUsers.asUser(owner)))
+                .andExpect(jsonPath("$.data.tiers[0].benefitAmount").value(3_000))
+                .andExpect(jsonPath("$.data.tiers[1].benefitSummary").value("해외 1% 적립"))
+                .andExpect(jsonPath("$.data.tiers[1].benefitAmount").value(nullValue()));
     }
 
     @Test

@@ -103,37 +103,59 @@ public class CardBenefitSummaryReader {
 
     /**
      * 실적 기준 하나의 구간 정보(S15P31E103-373, 임시 2026-11-10). 혜택 이름은 그 기준에서 새로 열리는 혜택(최소 전월 실적이
-     * 기준과 같은 혜택), 월 한도 합은 실적이 기준과 같을 때 받을 수 있는 원화·월 한도의 합이다.
+     * 기준과 같은 혜택), 월 최대치는 실적이 기준과 같을 때 한 달에 받을 수 있는 원화 혜택의 최대치({@link TierLimitCap})다.
+     *
+     * <p>그룹의 한도 값은 추천 엔진({@code RecommendationInputAssembler.maximum})과 같게 읽는다: 구간 행이 없으면 기본 한도,
+     * 있으면 기준이 속한 구간 하나의 값. 기본 한도와 구간이 함께 있거나, 구간이 겹치거나, 기준이 속한 구간이 없거나, 버전을 몰라
+     * 화면에서 뺀 그룹에 걸린 혜택이 있으면 모르는 값으로 본다.
      */
     private static Tier tier(long threshold, List<CardBenefit> benefitRows, List<BenefitLimitLink> linkRows,
             Map<Long, LimitGroup> groupRows, List<TierLimit> tierRows) {
         List<String> opened = benefitRows.stream()
                 .filter(b -> b.getMinPerformanceAmount() != null && b.getMinPerformanceAmount() == threshold)
                 .sorted(MAIN_ORDER).map(CardBenefit::getBenefitName).filter(Objects::nonNull).distinct().toList();
-        // 기준 실적에서 쓸 수 있는 혜택(최소 전월 실적 ≤ 기준)에 연결된 원화·월 한도만 더한다
-        Set<Long> usable = benefitRows.stream()
-                .filter(b -> b.getMinPerformanceAmount() == null || b.getMinPerformanceAmount() <= threshold)
-                .map(CardBenefit::getId).collect(Collectors.toSet());
-        Long monthlyKrw = null;
-        Set<Long> counted = new java.util.HashSet<>();
+        // 기준 실적에서 쓸 수 있는 혜택(최소 전월 실적 ≤ 기준)
+        Map<Long, Set<Long>> groupsOfBenefit = new HashMap<>();
+        benefitRows.stream().filter(b -> b.getMinPerformanceAmount() == null || b.getMinPerformanceAmount() <= threshold)
+                .forEach(b -> groupsOfBenefit.put(b.getId(), new java.util.HashSet<>()));
+        Map<Long, Long> groupValue = new HashMap<>();
         for (BenefitLimitLink link : linkRows) {
-            LimitGroup group = groupRows.get(link.getLimitGroupId());
-            if (group == null || !usable.contains(link.getCardBenefitId()) || !counted.add(group.getId())
-                    || group.getPeriodType() != BenefitPolicy.Period.MONTHLY
-                    || group.getLimitUnit() != BenefitPolicy.Unit.KRW) {
+            if (!groupsOfBenefit.containsKey(link.getCardBenefitId())) {
                 continue;
             }
-            List<TierLimit> groupTiers = tierRows.stream()
-                    .filter(t -> t.getLimitGroupId().equals(group.getId())).toList();
-            Long value = groupTiers.isEmpty() ? group.getBaseLimitValue() : groupTiers.stream()
-                    .filter(t -> t.getMinPerformanceAmount() <= threshold
-                            && (t.getMaxPerformanceAmount() == null || threshold < t.getMaxPerformanceAmount()))
-                    .map(TierLimit::getLimitValue).findFirst().orElse(null);
-            if (value != null) {
-                monthlyKrw = (monthlyKrw == null ? 0 : monthlyKrw) + value;
+            LimitGroup group = groupRows.get(link.getLimitGroupId());
+            if (group == null) {
+                // 버전을 모르거나 오늘 유효하지 않은 한도에 걸린 혜택: 상한을 모른다
+                return new Tier(threshold, opened, null);
+            }
+            if (group.getPeriodType() != BenefitPolicy.Period.MONTHLY || group.getLimitUnit() != BenefitPolicy.Unit.KRW) {
+                continue;
+            }
+            groupsOfBenefit.get(link.getCardBenefitId()).add(group.getId());
+            groupValue.put(group.getId(), limitAt(group, tierRows, threshold));
+        }
+        return new Tier(threshold, opened, TierLimitCap.monthlyMax(groupsOfBenefit, groupValue));
+    }
+
+    /** 실적이 기준과 같을 때 그룹의 한도 값. 모르면 null(추천 엔진과 같은 판단). */
+    private static Long limitAt(LimitGroup group, List<TierLimit> tierRows, long threshold) {
+        List<TierLimit> rows = tierRows.stream().filter(t -> t.getLimitGroupId().equals(group.getId()))
+                .sorted(Comparator.comparing(TierLimit::getMinPerformanceAmount)).toList();
+        if (rows.isEmpty()) {
+            return group.getBaseLimitValue();
+        }
+        if (group.getBaseLimitValue() != null) {
+            return null;
+        }
+        for (int i = 1; i < rows.size(); i++) {
+            Long end = rows.get(i - 1).getMaxPerformanceAmount();
+            if (end == null || end > rows.get(i).getMinPerformanceAmount()) {
+                return null;
             }
         }
-        return new Tier(threshold, opened, monthlyKrw);
+        List<TierLimit> matched = rows.stream().filter(t -> threshold >= t.getMinPerformanceAmount()
+                && (t.getMaxPerformanceAmount() == null || threshold < t.getMaxPerformanceAmount())).toList();
+        return matched.size() == 1 ? matched.get(0).getLimitValue() : null;
     }
 
     private static <T> List<T> singleVersion(List<T> rows, java.util.function.Function<T, String> code) {
@@ -173,7 +195,8 @@ public class CardBenefitSummaryReader {
      *
      * @param threshold       실적 기준(원, 포함)
      * @param benefitNames    이 기준에서 새로 열리는 혜택 이름. 한도만 커지는 기준이면 빈 목록
-     * @param monthlyKrwLimit 실적이 기준과 같을 때 받을 수 있는 원화·월 한도의 합. 원화·월 한도가 없으면 null
+     * @param monthlyKrwLimit 실적이 기준과 같을 때 한 달에 받을 수 있는 원화 혜택의 최대치({@link TierLimitCap}). 겹친 한도는
+     *                        한 번만 센다. 원화·월 한도가 없는 혜택이 있거나 한도 값을 모르면 null
      */
     public record Tier(long threshold, List<String> benefitNames, Long monthlyKrwLimit) {
     }
