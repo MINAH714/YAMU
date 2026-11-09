@@ -154,7 +154,7 @@ class PurchaseSimulationControllerTest extends MySqlTestSupport {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.comparison.after.endBalance").value(-200_000))
                 .andExpect(jsonPath("$.data.comparison.after.riskStartDate").value(today.toString()))
-                .andExpect(jsonPath("$.data.message").value(endsWith("체크카드는 그날 잔액보다 큰 금액은 결제되지 않아요.")));
+                .andExpect(jsonPath("$.data.message").value(endsWith("체크카드는 그날 잔액보다 큰 금액은 결제되지 않을 수 있어요.")));
     }
 
     @Test
