@@ -25,6 +25,8 @@ public class CashflowItem extends BaseTimeEntity {
     /** API 명세 「가계부 항목 목록」의 status. CANDIDATE·IGNORED는 반복 지출 탐지 후보용이다. */
     public enum Status { CONFIRMED, CANDIDATE, IGNORED }
     public enum ItemKind { SCHEDULED, PURCHASE_PLAN }
+    /** API 명세 「가계부 항목 목록」의 source. MANUAL 사용자 입력, DETECTED 결제 이력 탐지(S15P31E103-349). */
+    public enum Source { MANUAL, DETECTED }
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -86,6 +88,22 @@ public class CashflowItem extends BaseTimeEntity {
     @Column(nullable = false)
     private Long version;
 
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 16)
+    private Source source;
+
+    /** 탐지 키(카드·가맹점·승인 금액)의 카드. 사용자가 후보의 카드를 바꿔도 그대로다. 탐지가 만든 시리즈의 첫 규칙에만 있다. */
+    @Column(name = "detected_user_card_id")
+    private Long detectedUserCardId;
+
+    /** 탐지 키의 가맹점. 탐지가 만든 시리즈의 첫 규칙에만 있다. */
+    @Column(name = "detected_merchant_id")
+    private Long detectedMerchantId;
+
+    /** 탐지 키의 승인 금액(원). 탐지가 만든 시리즈의 첫 규칙에만 있다. */
+    @Column(name = "detected_amount")
+    private Long detectedAmount;
+
     CashflowItem(Long userId, Long accountId, Long userCardId, String title, Direction direction,
             Long amount, LocalDate scheduledDate, RecurrenceType recurrenceType,
             LocalDate recurrenceEndDate, Integer recurrenceDayOfMonth, String merchantCategoryCode, String memo) {
@@ -103,6 +121,27 @@ public class CashflowItem extends BaseTimeEntity {
         this.status = Status.CONFIRMED;
         this.memo = memo;
         this.itemKind = ItemKind.SCHEDULED;
+        this.source = Source.MANUAL;
+    }
+
+    /**
+     * 결제 이력에서 찾은 매월 반복 지출 후보(CANDIDATE, DETECTED). 출금은 카드로 정하므로 계좌는 비운다.
+     *
+     * @param merchantId 탐지 키의 가맹점
+     * @param amount     탐지 키의 승인 금액(원, 양수). 예정 금액도 이 값이다
+     * @param firstDate  첫 발생일(한국 날짜)
+     * @param dayOfMonth 매월 기준일(1~31, 없는 달은 말일). 31일 결제가 30일인 달에서 시작해도 31로 둔다
+     */
+    static CashflowItem detected(Long userId, Long userCardId, Long merchantId, String title, long amount,
+            LocalDate firstDate, int dayOfMonth, String merchantCategoryCode) {
+        CashflowItem item = new CashflowItem(userId, null, userCardId, title, Direction.EXPENSE, amount, firstDate,
+                RecurrenceType.MONTHLY, null, dayOfMonth, merchantCategoryCode, null);
+        item.status = Status.CANDIDATE;
+        item.source = Source.DETECTED;
+        item.detectedUserCardId = userCardId;
+        item.detectedMerchantId = merchantId;
+        item.detectedAmount = amount;
+        return item;
     }
 
     /** 아직 시작하지 않은 규칙을 제자리에서 바꾼다. 유형(direction)은 바꾸지 않는다. */
@@ -139,6 +178,8 @@ public class CashflowItem extends BaseTimeEntity {
                 recurrenceType, recurrenceEndDate, recurrenceDayOfMonth, merchantCategoryCode, memo);
         next.previousCashflowItemId = id;
         next.status = status;
+        // 출처는 이어받고, 탐지 키는 시리즈 첫 규칙에만 둔다(같은 키가 두 행이면 UNIQUE에 걸린다).
+        next.source = source;
         return next;
     }
 }

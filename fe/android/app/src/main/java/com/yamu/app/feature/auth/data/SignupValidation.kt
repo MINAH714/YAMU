@@ -26,6 +26,8 @@ object SignupValidation {
 
 /**
  * 가입 · 기기 재등록 서버 오류 코드 → 사용자 문장. 모르는 코드면 null(인증 · 공통 문장 사용).
+ * INVALID_PIN_FORMAT · INVALID_PUBLIC_KEY · FIN_API_UNAVAILABLE은 인증 문장([authErrorMessage])이 받는다.
+ * 409 · 404처럼 공통 문장으로 떨어지면 엉뚱해지는 코드와 가입 중엔 따를 수 없는 인증 문장(DEVICE_LIMIT_EXCEEDED)은 여기서 잡는다.
  * [remainingAttempts] · [retryAfterSeconds]는 서버 error.details
  */
 fun signupErrorMessage(code: String, remainingAttempts: Int? = null, retryAfterSeconds: Int? = null): String? {
@@ -45,6 +47,15 @@ fun signupErrorMessage(code: String, remainingAttempts: Int? = null, retryAfterS
         "AUTH_CODE_LOCKED" -> "오늘은 숫자를 너무 많이 틀렸어요 · 내일 다시 해 주세요"
         "IDEMPOTENCY_IN_PROGRESS" -> "처리하고 있어요 · 잠시 뒤 다시 눌러 주세요"
         "ACCOUNT_ALREADY_LINKED" -> "이미 연결된 계좌예요"
+        // 1원을 보낼 때 은행이 거절(BE SsafyAccountApi)
+        "ACCOUNT_NOT_FOUND_AT_BANK" -> "은행에서 이 계좌를 찾지 못했어요 · 다른 계좌를 골라 주세요"
+        "ACCOUNT_NOT_SUPPORTED" -> "입출금 계좌만 연결할 수 있어요 · 다른 계좌를 골라 주세요"
+        // 같은 키로 다른 숫자를 보냈다(계좌 연결은 성공한 결과만 키에 남아 거의 없다)
+        "IDEMPOTENCY_KEY_REUSED" -> "요청이 겹쳤어요 · 1원을 다시 받아 주세요"
+        // 가입 모드로 PIN · 기기를 등록하는 사이 가입이 끝났다 — 첫 화면 '로그인'으로 본인인증하면 재등록으로 이어진다
+        "ALREADY_REGISTERED" -> "이미 가입을 마쳤어요 · 처음 화면의 로그인으로 이 폰을 등록해 주세요"
+        // 재등록은 다른 기기를 먼저 해제해서 가입 중에만 나는 안전장치다. 가입 중엔 마이 화면에 갈 수 없다
+        "DEVICE_LIMIT_EXCEEDED" -> "이미 등록된 폰이 있어요 · 처음 화면의 로그인으로 이 폰을 다시 등록해 주세요"
         "TOO_MANY_REQUESTS" -> "요청이 너무 잦아요 · $wait 다시 시도해 주세요"
         else -> null
     }

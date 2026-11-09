@@ -28,15 +28,10 @@ import javax.inject.Singleton
 
 /** 결제(고객 앱) — #5 · #64 · #77 · #12 · #1 · #3 · 추가 7 · #31 취소 · #42 메모. 가맹점 단말 API(#27 · #63)는 모의 POS 앱에만 */
 interface PaymentApi {
-    @GET("merchants")
-    suspend fun merchants(@Query("channel") channel: String?, @Query("size") size: Int = 50): Response<ApiEnvelope<MerchantsResponse>>
-
-    @POST("recommendations")
-    suspend fun recommend(@Body body: RecommendRequest): Response<ApiEnvelope<RecommendResponse>>
-
     @POST("payments/barcodes")
     suspend fun issueCode(@Header(YamuHeaders.STEP_UP_TOKEN) stepUpToken: String): Response<ApiEnvelope<BarcodeResponse>>
 
+    /** 추천은 여기 recommendation으로만 받는다 — 결제 전 단일 추천(#64)은 명세 V2에서 빠졌고 가맹점 목록(#5)은 모의 POS만 쓴다 */
     @GET("payments/barcodes/{token}")
     suspend fun codeStatus(@Path("token") token: String): Response<ApiEnvelope<BarcodeStatusResponse>>
 
@@ -78,12 +73,6 @@ interface PaymentApi {
 }
 
 interface PaymentRepository {
-    /** P-01 가맹점 고르기 — 오프라인 · 온라인 모두 */
-    suspend fun merchants(): ApiResult<List<Merchant>>
-
-    /** P-01 — 서버 추천(#64) 그대로 */
-    suspend fun recommend(merchantId: Long, amount: Long): ApiResult<Recommendation>
-
     /** P-06 결제 코드 — 본인 인증 토큰(BARCODE) 필요 */
     suspend fun issueCode(stepUpToken: String): ApiResult<PayCode>
 
@@ -120,19 +109,6 @@ class PaymentRepositoryImpl @Inject constructor(private val api: PaymentApi, pri
 
     private val receipts = ConcurrentHashMap<Long, PaymentReceipt>()
 
-    override suspend fun merchants(): ApiResult<List<Merchant>> =
-        apiCall { api.merchants(channel = null) }.map { r -> r.items.map { it.toMerchant() } }
-
-    override suspend fun recommend(merchantId: Long, amount: Long): ApiResult<Recommendation> =
-        apiCall { api.recommend(RecommendRequest(merchantId, amount)) }.map { r ->
-            Recommendation(
-                merchantName = r.merchant?.name.orEmpty(),
-                amount = r.amount.takeIf { it > 0 } ?: amount,
-                cards = r.candidates.sortedBy { it.rank }.map { it.toPayCard() },
-                isEstimate = r.isEstimate,
-            )
-        }
-
     override suspend fun issueCode(stepUpToken: String): ApiResult<PayCode> =
         apiCall { api.issueCode(stepUpToken) }.map {
             PayCode(it.barcodeToken, it.barcodeValue ?: it.barcodeToken, it.qrValue ?: "yamu://pay/${it.barcodeToken}", it.expiresAt)
@@ -148,12 +124,7 @@ class PaymentRepositoryImpl @Inject constructor(private val api: PaymentApi, pri
                 receipts[r.paymentId] = receipt
                 ApproveOutcome.Approved(receipt)
             } else {
-                ApproveOutcome.Declined(
-                    message = declineMessage(r.failure?.code),
-                    retryable = r.retryable,
-                    remainingAttempts = r.remainingAttempts,
-                    suggestedCardId = r.suggestedCards.firstOrNull()?.userCardId,
-                )
+                r.toDeclined()
             }
         }
     }

@@ -3,7 +3,8 @@ import { request, type ApiResult } from './client'
 import { mockPaymentResult, registerMockPayment } from './mockResult'
 
 export type PaymentPlan = 'LUMP_SUM' | 'INSTALLMENT'
-export type PaymentStatus = 'REQUESTED' | 'PROCESSING' | 'APPROVED' | 'DECLINED' | 'EXPIRED' | 'CANCELED'
+/** REJECTED: 고객이 앱에서 결제 요청을 거절함(S15P31E103-360, 임시 이름). 바코드도 함께 닫혀 다시 쓸 수 없다 */
+export type PaymentStatus = 'REQUESTED' | 'PROCESSING' | 'APPROVED' | 'DECLINED' | 'EXPIRED' | 'CANCELED' | 'REJECTED'
 
 /** POST /api/pos/payment-requests 본문. 일시불이면 installmentMonths 칸 자체를 보내지 않는다(null도 400). */
 export type PaymentRequestBody = {

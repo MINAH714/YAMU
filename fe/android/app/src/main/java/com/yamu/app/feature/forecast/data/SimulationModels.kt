@@ -65,7 +65,18 @@ import java.time.LocalDate
 
 @Serializable data class SimScheduleDto(val date: String? = null, val amount: Long = 0, val label: String? = null)
 
-@Serializable data class SimSnapshotDto(val minBalance: Long? = null, val minBalanceDate: String? = null, val endBalance: Long? = null, val status: String? = null)
+/**
+ * [riskStartDate] — 안전 잔액 아래로 처음 내려가는 날(BE -347 !198, 잔고예보 riskWindows[].from과 같은 규칙, SAFE면 null).
+ * 통합 · 계좌별 위험 구간 중 가장 이른 날이라 앱이 날짜별 통합 잔액(series)으로 대신 구하면 늦은 날이 나오거나 빠진다(!206 리뷰).
+ * 그래서 이 칸이 없는 옛 응답이면 앱은 날짜를 계산하지 않고 빼고 보인다
+ */
+@Serializable data class SimSnapshotDto(
+    val minBalance: Long? = null,
+    val minBalanceDate: String? = null,
+    val endBalance: Long? = null,
+    val status: String? = null,
+    val riskStartDate: String? = null,
+)
 
 @Serializable data class SimComparisonDto(
     val before: SimSnapshotDto? = null,
@@ -106,7 +117,17 @@ import java.time.LocalDate
 
 // ── 앱 안에서 쓰는 값 ──
 
-enum class PaymentChannel(val label: String) { OFFLINE("매장"), ONLINE("온라인") }
+enum class PaymentChannel(val label: String) {
+    OFFLINE("매장"), ONLINE("온라인");
+
+    companion object {
+        /** 온라인으로 결제하는 업종 — BE 업종(MerchantCategories)에는 온라인 표시가 없어 앱이 정한다(S15P31E103-363, 점검 B-14) */
+        private val ONLINE_CATEGORIES = setOf("ONLINE_MARKETPLACE", "DELIVERY_APP", "STREAMING_SERVICE", "MEMBERSHIP_SUBSCRIPTION")
+
+        /** 업종을 고를 때 맞추는 결제 방식 기본값. 사용자가 그 뒤 바꾸는 것은 막지 않는다 */
+        fun forCategory(categoryCode: String): PaymentChannel = if (categoryCode in ONLINE_CATEGORIES) ONLINE else OFFLINE
+    }
+}
 
 data class MerchantCategory(val code: String, val name: String)
 
@@ -158,7 +179,7 @@ data class BenefitLine(val name: String, val amount: BigDecimal?)
 
 data class SimBenefit(val net: BigDecimal?, val lines: List<BenefitLine>, val charged: Long?)
 
-data class SimSnapshot(val minBalance: Long?, val minBalanceDate: LocalDate?, val status: RiskLevel)
+data class SimSnapshot(val minBalance: Long?, val minBalanceDate: LocalDate?, val status: RiskLevel, val riskStartDate: LocalDate? = null)
 
 data class SimWithdrawal(val date: LocalDate?, val amount: Long, val label: String, val beyondPeriod: Boolean)
 
@@ -192,7 +213,7 @@ data class Simulation(
 
 fun SimulationResponseDto.toSimulation(query: SimulationQuery): Simulation {
     val lastDay = series.mapNotNull { parseDate(it.date) }.maxOrNull()
-    fun snapshot(s: SimSnapshotDto?) = s?.let { SimSnapshot(it.minBalance, parseDate(it.minBalanceDate), enumOf(it.status, RiskLevel.UNKNOWN)) }
+    fun snapshot(s: SimSnapshotDto?) = s?.let { SimSnapshot(it.minBalance, parseDate(it.minBalanceDate), enumOf(it.status, RiskLevel.UNKNOWN), parseDate(it.riskStartDate)) }
     return Simulation(
         query = query,
         card = SimCard(

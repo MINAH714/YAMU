@@ -85,10 +85,107 @@ class PaymentMapperTest {
         assertFalse(status.request.cardsUnknown)
     }
 
-    @Test fun `데이터 부족이면 카드를 확인하지 못한 것으로`() {
+    @Test fun `데이터 부족인데 비교 못 한 카드도 안 오면(옛 응답) 카드를 확인하지 못한 것으로`() {
         val status = scanned(""","recommendation":{"status":"DATA_INSUFFICIENT","candidates":[]}""")
         assertTrue(status.request!!.cards.isEmpty())
         assertTrue(status.request.cardsUnknown)
+    }
+
+    private val direct = """{"userCardId":21,"nickname":"ZERO","cardType":"CREDIT","maskedNumber":"****-3310","reason":"BENEFIT_DATA_INSUFFICIENT","message":"혜택 정보를 확인하지 못해 비교에서 제외했어요.","directPaymentAllowed":true}"""
+    private val unknown = """{"userCardId":22,"nickname":"노리2","cardType":"CHECK","maskedNumber":"****-8823","reason":"PAYMENT_AVAILABILITY_UNKNOWN","message":"결제 가능 여부를 확인하지 못해 비교에서 제외했어요.","directPaymentAllowed":false}"""
+    private val ranked = """{"rank":2,"userCardId":12,"netBenefit":180},{"rank":1,"userCardId":11,"netBenefit":7500}"""
+
+    @Test fun `준비됨 — 추천 순위 카드만, 앱이 고를 수 있는 건 모두`() {
+        val request = scanned(""","recommendation":{"status":"READY","candidates":[$ranked],"uncomparedCards":[]}""").request!!
+        assertEquals(listOf(11L, 12L), request.cards.map { it.userCardId })
+        assertTrue(request.cards.all { it.autoSelectable && !it.benefitUnknown })
+        assertFalse(request.cardsUnknown)
+        assertEquals(NO_BENEFIT_NOTICE, request.noBenefitNotice)   // 서버가 안 보내면 BE 문구와 같은 기본값
+    }
+
+    @Test fun `일부 준비 — 추천 카드 뒤에 비교 못 한 카드, 결제 가능 여부를 모르는 카드는 고를 수 없다`() {
+        val request = scanned(
+            ""","recommendation":{"status":"PARTIAL_READY","candidates":[$ranked],"uncomparedCards":[$direct,$unknown],"noBenefitNotice":"혜택 없이 결제됩니다."}""",
+        ).request!!
+        assertEquals(listOf(11L, 12L, 21L, 22L), request.cards.map { it.userCardId })
+        assertEquals(listOf(true, true, false, false), request.cards.map { it.autoSelectable })
+        assertEquals(listOf(true, true, true, false), request.cards.map { it.selectable })
+        val zero = request.cards[2]
+        assertTrue(zero.benefitUnknown)
+        assertEquals(BigDecimal.ZERO, zero.netBenefit)
+        assertNull(zero.benefitName)
+        assertEquals("혜택 정보를 확인하지 못해 비교에서 제외했어요.", zero.reason)
+        assertEquals("혜택 없이 결제됩니다.", request.noBenefitNotice)
+    }
+
+    @Test fun `데이터 부족 — 1순위 없이 비교 못 한 카드를 보이고 확인하지 못한 것으로 두지 않는다`() {
+        val request = scanned(""","recommendation":{"status":"DATA_INSUFFICIENT","candidates":[],"uncomparedCards":[$direct,$unknown]}""").request!!
+        assertEquals(listOf(21L, 22L), request.cards.map { it.userCardId })
+        assertTrue(request.cards.none { it.autoSelectable })
+        assertFalse(request.cardsUnknown)
+    }
+
+    @Test fun `데이터 부족인데 결제 가능 여부를 모르는 카드만 — 보이되 고를 카드는 없다`() {
+        val request = scanned(""","recommendation":{"status":"DATA_INSUFFICIENT","candidates":[],"uncomparedCards":[$unknown]}""").request!!
+        assertEquals(listOf(22L), request.cards.map { it.userCardId })
+        assertTrue(request.cards.none { it.selectable })
+        assertFalse(request.cardsUnknown)
+    }
+
+    private fun nameShown(benefits: String) = YamuJson.decodeFromString(
+        CandidateDto.serializer(), """{"userCardId":1,"benefits":[$benefits]}""",
+    ).toPayCard().benefitName
+
+    @Test fun `혜택 이름은 금액이 붙은 혜택 중 가장 큰 것 — 0원 혜택이 앞에 와도`() {
+        assertEquals(
+            "스타벅스 50% 청구할인",
+            nameShown("""{"name":"교보문고 10% 할인","amount":0},{"name":"1.2% 적립","amount":180},{"name":"스타벅스 50% 청구할인","amount":7500}"""),
+        )
+    }
+
+    @Test fun `금액이 붙은 혜택이 없으면 혜택 이름을 비운다 — 0원 · 배분 미정(null)`() {
+        assertNull(nameShown("""{"name":"교보문고 10% 할인","amount":0},{"name":"영화 할인","amount":null}"""))
+        assertNull(nameShown(""))
+    }
+
+    /** 리뷰 P3 — 원과 포인트는 숫자를 견줄 수 없어(응답에 원화 환산값 없음) 원 단위를 먼저 본다 */
+    @Test fun `혜택 이름은 원 단위 혜택을 먼저 — 포인트 숫자가 더 커도`() {
+        assertEquals(
+            "카페 700원 할인",
+            nameShown("""{"name":"1,000P 적립","type":"POINT","amount":1000,"realization":"POINT_ACCRUAL"},{"name":"카페 700원 할인","type":"DISCOUNT","amount":700,"realization":"AT_BILLING"}"""),
+        )
+        assertEquals(
+            "캐시백",
+            nameShown("""{"name":"적립","type":null,"amount":5000,"realization":"POINT_ACCRUAL"},{"name":"캐시백","type":"CASHBACK","amount":100,"realization":"AFTER_BILLING"}"""),
+        )
+    }
+
+    @Test fun `원 단위 혜택이 없을 때만 포인트 중 가장 큰 것`() {
+        assertEquals(
+            "M포인트 1.2% 적립",
+            nameShown("""{"name":"교보문고 할인","type":"DISCOUNT","amount":0},{"name":"기본 적립","type":"POINT","amount":30},{"name":"M포인트 1.2% 적립","type":"POINT","amount":180}"""),
+        )
+    }
+
+    private fun declinedOf(code: String) = YamuJson.decodeFromString(
+        PaymentResultDto.serializer(),
+        """{"paymentId":1,"status":"DECLINED","failure":{"code":"$code","message":"서버 문구"},"retryable":true,"remainingAttempts":2,"suggestedCards":[{"userCardId":12}]}""",
+    ).toDeclined()
+
+    @Test fun `거절 응답 — 다시 결제할 수 있으면 서버가 권한 카드를 그대로`() {
+        val o = declinedOf("INSUFFICIENT_BALANCE")
+        assertTrue(o.retryable)
+        assertEquals(12L, o.suggestedCardId)
+        assertEquals(2, o.remainingAttempts)
+        assertEquals("연결 계좌 잔액이 부족해요", o.message)
+    }
+
+    /** 리뷰 P1 — 늦은 출금이면 BE 복구가 이 결제를 승인으로 바꿀 수 있어, 다시 결제(다른 카드 · 새 코드)를 권하지 않는다 */
+    @Test fun `출금 미확인 거절은 서버가 retryable이어도 다시 결제하지 않고 카드도 권하지 않는다`() {
+        val o = declinedOf("WITHDRAWAL_NOT_CONFIRMED")
+        assertFalse(o.retryable)
+        assertNull(o.suggestedCardId)
+        assertEquals("결제 결과를 확인하지 못했어요 · 결제 내역에서 결과를 확인해 주세요", o.message)
     }
 
     @Test fun `추천 스냅샷이 없어도 찍힌 것으로 두고 카드를 확인하지 못한 것으로`() {
