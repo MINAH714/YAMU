@@ -1,9 +1,5 @@
 package com.yamu.app.feature.payment
 
-import androidx.compose.ui.text.withStyle
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.buildAnnotatedString
-import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.Alignment
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Arrangement
@@ -32,7 +28,6 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
-import androidx.navigation.toRoute
 import com.yamu.app.core.designsystem.component.AmountText
 import com.yamu.app.core.designsystem.component.BottomCta
 import com.yamu.app.core.designsystem.component.CharacterImage
@@ -51,11 +46,11 @@ import com.yamu.app.core.format.parseDate
 import com.yamu.app.core.format.toWon
 import com.yamu.app.core.network.ApiResult
 import com.yamu.app.core.ui.userMessage
-import com.yamu.app.feature.link.BrandMark
+import androidx.lifecycle.compose.LifecycleResumeEffect
+import com.yamu.app.feature.payment.data.PayStatus
+import com.yamu.app.feature.payment.data.PaymentEdits
 import com.yamu.app.feature.payment.data.PaymentReceipt
 import com.yamu.app.feature.payment.data.PaymentRepository
-import com.yamu.app.navigation.PayDone
-import com.yamu.app.navigation.PaymentDetail
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -69,31 +64,56 @@ import javax.inject.Inject
 data class ReceiptState(val loading: Boolean = true, val receipt: PaymentReceipt? = null, val error: String? = null)
 
 /** '10월 26일 09:38' */
-private fun formatPaidAt(iso: String?): String? = iso?.let {
+internal fun formatPaidAt(iso: String?): String? = iso?.let {
     runCatching { OffsetDateTime.parse(it).atZoneSameInstant(KST).format(DateTimeFormatter.ofPattern("M월 d일 HH:mm")) }.getOrNull()
 }
 
 /** '2026-11-16' → '11월 16일' */
-private fun formatDay(iso: String?): String? = parseDate(iso)?.let { "${it.monthValue}월 ${it.dayOfMonth}일" }
+internal fun formatDay(iso: String?): String? = parseDate(iso)?.let { "${it.monthValue}월 ${it.dayOfMonth}일" }
 
 // ───────────────────────── P-07 결제 완료 ─────────────────────────
 
-/** 방금 승인한 결과(메모리)를 그리고, 앱이 다시 켜졌으면 #3으로 다시 받는다 */
+/**
+ * 방금 승인한 결과(메모리)를 그리고, 앱이 다시 켜졌으면 #3으로 다시 받는다.
+ * 거래 상세(P-08)에서 취소하고 돌아오면 보던 영수증에 취소만 반영한다([refreshIfChanged])
+ */
 @HiltViewModel
-class PayDoneViewModel @Inject constructor(savedStateHandle: SavedStateHandle, private val payments: PaymentRepository) : ViewModel() {
-    private val paymentId = savedStateHandle.toRoute<PayDone>().paymentId
+class PayDoneViewModel @Inject constructor(
+    savedStateHandle: SavedStateHandle,
+    private val payments: PaymentRepository,
+    private val edits: PaymentEdits,
+) : ViewModel() {
+    private val paymentId: Long = checkNotNull(savedStateHandle.get<Long>("paymentId"))   // 경로 PayDone.paymentId(toRoute는 단위 테스트에서 Bundle이 필요)
     private val _state = MutableStateFlow(payments.recentReceipt(paymentId)?.let { ReceiptState(loading = false, receipt = it) } ?: ReceiptState())
     val state: StateFlow<ReceiptState> = _state.asStateFlow()
+    private var seenVersion = edits.version.value
 
     init { if (_state.value.receipt == null) load() }
 
+    /** 실패해도 보던 영수증은 그대로 둔다 */
     fun load() {
         viewModelScope.launch {
             _state.update { it.copy(loading = true, error = null) }
             when (val r = payments.detail(paymentId)) {
                 is ApiResult.Success -> _state.update { ReceiptState(loading = false, receipt = r.data) }
-                is ApiResult.Failure -> _state.update { ReceiptState(loading = false, error = r.error.userMessage()) }
+                is ApiResult.Failure -> _state.update { it.copy(loading = false, error = r.error.userMessage()) }
             }
+        }
+    }
+
+    /**
+     * 화면으로 돌아올 때 — 거래 상세에서 이 결제를 취소했으면 보던 영수증에 취소만 반영한다. 다시 받지 않는 이유:
+     * 상세(#3) 응답에는 승인 응답에만 있는 체크카드 '남은 잔액'이 없어 영수증을 갈아 끼우면 그 줄이 사라지고,
+     * 다시 받기가 실패하면 취소한 결제가 '결제를 마쳤어요'로 남는다. 메모 저장으로 버전이 오른 것은 P-07과 상관없다
+     */
+    fun refreshIfChanged() {
+        val version = edits.version.value
+        if (version == seenVersion) return
+        seenVersion = version
+        if (!edits.isCanceled(paymentId)) return
+        _state.update { s ->
+            val r = s.receipt?.takeIf { !it.canceled } ?: return@update s
+            s.copy(receipt = r.copy(status = PayStatus.CANCELED, canceledAtIso = edits.canceledAt(paymentId) ?: r.canceledAtIso))
         }
     }
 }
@@ -106,6 +126,10 @@ fun PayDoneRoute(
     viewModel: PayDoneViewModel = hiltViewModel(),
 ) {
     val s by viewModel.state.collectAsStateWithLifecycle()
+    LifecycleResumeEffect(Unit) {
+        viewModel.refreshIfChanged()
+        onPauseOrDispose { }
+    }
     val c = YamuTheme.colors
     val r = s.receipt
     FlowScreen(
@@ -124,14 +148,14 @@ fun PayDoneRoute(
             ) {
                 CharacterImage(YamuPose.Pay, size = CharacterSize.M, animate = true)
                 Spacer(Modifier.height(6.dp))
-                Text("결제를 마쳤어요", style = YamuTheme.typography.headlineS, color = c.text1)
+                Text(if (r?.canceled == true) "결제를 취소했어요" else "결제를 마쳤어요", style = YamuTheme.typography.headlineS, color = c.text1)
                 if (r != null) {
                     AmountText(r.amount)
                     Text(listOfNotNull(r.merchantName, formatPaidAt(r.paidAtIso)).joinToString(" · "), style = YamuTheme.typography.bodyM, color = c.text3)
                 }
             }
             when {
-                s.loading -> Column(Modifier.padding(horizontal = YamuSpacing.screen)) {
+                r == null && s.loading -> Column(Modifier.padding(horizontal = YamuSpacing.screen)) {
                     repeat(3) {
                         SkeletonBlock(height = 44.dp)
                         Spacer(Modifier.height(YamuSpacing.x3))
@@ -140,7 +164,14 @@ fun PayDoneRoute(
                 r == null -> ErrorState(s.error ?: "결제 내역을 불러오지 못했어요", onRetry = viewModel::load, modifier = Modifier.padding(horizontal = YamuSpacing.screen))
                 else -> {
                     HorizontalDivider(color = c.outlineVariant, modifier = Modifier.padding(horizontal = YamuSpacing.screen))
-                    Column(Modifier.padding(start = YamuSpacing.screen, end = YamuSpacing.screen, top = 8.dp, bottom = 12.dp)) { ReceiptLines(r, onPerformance) }   // 선 아래 8(프로토타입 P-07 .rows)
+                    Column(Modifier.padding(start = YamuSpacing.screen, end = YamuSpacing.screen, top = 8.dp, bottom = 12.dp)) {   // 선 아래 8(프로토타입 P-07 .rows)
+                        if (r.canceled) {
+                            // 혜택 · 청구 · 실적 줄은 더 이상 맞지 않는다 — 돌려받는 돈은 거래 상세에
+                            Text("돌려받는 금액은 거래 상세에서 볼 수 있어요", style = YamuTheme.typography.bodyM, color = c.text2, modifier = Modifier.padding(vertical = 12.dp))
+                        } else {
+                            ReceiptLines(r, onPerformance)
+                        }
+                    }
                     // 거래 상세는 본문의 작은 회색 버튼(아래 고정 버튼은 '홈으로' 하나)
                     CompactButton(
                         "거래 상세",
@@ -193,98 +224,3 @@ private fun ReceiptLines(r: PaymentReceipt, onPerformance: ((Long) -> Unit)?) {
     }
 }
 
-// ───────────────────────── P-08 거래 상세 ─────────────────────────
-
-@HiltViewModel
-class PaymentDetailViewModel @Inject constructor(savedStateHandle: SavedStateHandle, private val payments: PaymentRepository) : ViewModel() {
-    private val paymentId = savedStateHandle.toRoute<PaymentDetail>().paymentId
-    private val _state = MutableStateFlow(ReceiptState())
-    val state: StateFlow<ReceiptState> = _state.asStateFlow()
-
-    init { load() }
-
-    fun load() {
-        viewModelScope.launch {
-            _state.update { it.copy(loading = true, error = null) }
-            when (val r = payments.detail(paymentId)) {
-                is ApiResult.Success -> _state.update { ReceiptState(loading = false, receipt = r.data) }
-                is ApiResult.Failure -> _state.update { ReceiptState(loading = false, error = r.error.userMessage()) }
-            }
-        }
-    }
-}
-
-@Composable
-fun PaymentDetailRoute(onBack: () -> Unit, viewModel: PaymentDetailViewModel = hiltViewModel()) {
-    val s by viewModel.state.collectAsStateWithLifecycle()
-    val c = YamuTheme.colors
-    val r = s.receipt
-    FlowScreen(title = "거래 상세", onBack = onBack, actions = { MockPayTag() }) { inner ->
-        Column(Modifier.padding(inner).consumeWindowInsets(inner).fillMaxSize().verticalScroll(rememberScrollState())) {
-            when {
-                s.loading -> Column(Modifier.padding(YamuSpacing.screen)) {
-                    repeat(4) {
-                        SkeletonBlock(height = 44.dp)
-                        Spacer(Modifier.height(YamuSpacing.x3))
-                    }
-                }
-                r == null -> ErrorState(s.error ?: "결제 내역을 불러오지 못했어요", onRetry = viewModel::load, modifier = Modifier.padding(YamuSpacing.screen))
-                else -> {
-                    // 가맹점 · 일시 → 금액 → 결과 한 줄('1,500원 할인받고 13,500원 청구 예정') — 위 12 · 사이 6(프로토타입 P-08 .hd)
-                    Column(Modifier.padding(start = YamuSpacing.screen, end = YamuSpacing.screen, top = 12.dp, bottom = 24.dp)) {
-                        Text(listOfNotNull(r.merchantName, formatPaidAt(r.paidAtIso)).joinToString(" · "), style = YamuTheme.typography.bodyL, color = c.text2)
-                        Spacer(Modifier.height(6.dp))
-                        AmountText(r.amount)
-                        val benefit = r.benefits.sumOf { it.amount }
-                        if (benefit > 0 && r.billAmount != null && !r.isCheck) {
-                            Spacer(Modifier.height(6.dp))
-                            Text(
-                                buildAnnotatedString {
-                                    append("${benefit.toWon()}원 할인받고 ")
-                                    withStyle(SpanStyle(fontWeight = FontWeight.Bold, color = c.text1)) { append("${r.billAmount.toWon()}원") }
-                                    append(" 청구 예정")
-                                },
-                                style = YamuTheme.typography.bodyM,
-                                color = c.text2,
-                            )
-                        }
-                    }
-                    HorizontalDivider(color = c.outlineVariant, modifier = Modifier.padding(horizontal = YamuSpacing.screen))
-                    Column(Modifier.padding(horizontal = YamuSpacing.screen, vertical = 12.dp)) {
-                        KeyValueRow(
-                            "결제 카드",
-                            listOfNotNull(r.cardName, r.cardLast4?.let { "•••• $it" }).joinToString(" "),
-                            large = false,
-                            valueLead = r.cardBrand?.let { b -> { BrandMark(b) } },
-                        )
-                        r.approvalNo?.let { KeyValueRow("승인번호", it, large = false) }
-                    }
-                    HorizontalDivider(color = c.outlineVariant, modifier = Modifier.padding(horizontal = YamuSpacing.screen))
-                    Column(Modifier.padding(horizontal = YamuSpacing.screen, vertical = 12.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(vertical = 8.dp)) {
-                            Text("혜택 · 실적", style = YamuTheme.typography.titleM, color = c.text1)
-                            EstimateTag(text = "추정치")
-                        }
-                        r.benefits.forEach { b -> KeyValueRow(b.name, "−${b.amount.toWon()}원", large = false, valueColor = c.primary) }
-                        if (r.perfRecognized != null) {
-                            val card = r.cardBrand?.name ?: "카드"
-                            val month = r.perfMonth?.let { "${it}월 " }.orEmpty()
-                            val total = r.perfTotalAfter
-                            val target = r.perfTarget
-                            KeyValueRow(
-                                "$card ${month}실적",
-                                when {
-                                    !r.perfCounted -> "이 결제는 빠져요"
-                                    total != null && target != null -> "${total.toWon()} / ${target.toWon()}원"
-                                    else -> "+${r.perfRecognized.toWon()}원"
-                                },
-                                large = false,
-                            )
-                        }
-                    }
-                }
-            }
-            Spacer(Modifier.height(YamuSpacing.x6))
-        }
-    }
-}

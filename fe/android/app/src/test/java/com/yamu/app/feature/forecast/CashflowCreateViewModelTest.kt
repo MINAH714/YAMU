@@ -9,6 +9,8 @@ import com.yamu.app.feature.forecast.data.CashflowForm
 import com.yamu.app.feature.forecast.data.CashflowRepeat
 import com.yamu.app.feature.forecast.data.CashflowUpdateRequest
 import com.yamu.app.feature.forecast.data.ForecastRepository
+import com.yamu.app.feature.forecast.data.MatchState
+import com.yamu.app.feature.forecast.data.PaymentMatch
 import com.yamu.app.feature.link.data.LinkRepository
 import com.yamu.app.feature.link.data.LinkedOverview
 import kotlinx.coroutines.Dispatchers
@@ -95,7 +97,27 @@ class CashflowCreateViewModelTest {
         assertEquals("고른 계좌나 카드를 찾을 수 없어요 · 다른 걸 고르거나 목록에서 다시 확인해 주세요", vm.state.value.errors[CashflowField.PAYMENT])
     }
 
+    @Test fun `결제와 연결된 앞으로의 회차도 지난 회차처럼 저장 · 삭제를 잠그고, 끊으면 다시 연다`() {
+        val today = LocalDate.of(2026, 11, 9)
+        val tomorrow = CARD.copy(occurrenceDate = today.plusDays(1), date = today.plusDays(1))
+        val yesterday = CARD.copy(occurrenceDate = today.minusDays(1), date = today.minusDays(1))
+        val matched = PaymentMatch(801, 5101, "애플짐 역삼점", 55_000, 55_000, MatchState.ACTIVE)
+
+        assertEquals(EditLock.MATCHED, editLockOf(tomorrow, today, matched))
+        // 결제가 취소돼도 연결을 끊기 전까지 BE는 잠근다
+        assertEquals(EditLock.MATCHED, editLockOf(tomorrow, today, matched.copy(state = MatchState.REVIEW_REQUIRED)))
+        assertEquals(EditLock.NONE, editLockOf(tomorrow, today, null))
+        assertEquals(EditLock.NONE, editLockOf(tomorrow.copy(date = today), today, null))    // 오늘 회차는 아직 고칠 수 있다
+        assertEquals(EditLock.PAST, editLockOf(yesterday, today, matched))
+        assertEquals(EditLock.PAST, editLockOf(yesterday, today, null))
+        assertEquals(EditLock.NONE, editLockOf(null, today, null))                            // 추가 화면
+    }
+
     private companion object {
+        val CARD = CashflowEntry(
+            itemId = 7010, isIncome = false, title = "헬스장", amount = 55_000, occurrenceDate = LocalDate.of(2026, 11, 10), date = LocalDate.of(2026, 11, 10),
+            repeat = CashflowRepeat.NONE, dayOfMonth = null, endDate = null, accountId = null, userCardId = 11,
+        )
         val ONCE = LocalDate.now().plusDays(1).let { day ->
             CashflowEntry(
                 itemId = 41, isIncome = false, title = "월세", amount = 500_000, occurrenceDate = day, date = day,

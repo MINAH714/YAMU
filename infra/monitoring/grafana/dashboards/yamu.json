@@ -1,0 +1,673 @@
+{
+  "uid": "yamu-team",
+  "title": "YAMU · API와 배포 모니터링",
+  "tags": [
+    "YAMU"
+  ],
+  "schemaVersion": 39,
+  "version": 1,
+  "timezone": "Asia/Seoul",
+  "refresh": "15s",
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "editable": false,
+  "panels": [
+    {
+      "id": 1,
+      "title": "수집 신선도 · 30초 이상이면 수집 확인",
+      "type": "stat",
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 6,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "yamu-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "time() - yamu_collector_last_success_timestamp_seconds",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "yamu-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "value",
+        "graphMode": "area"
+      }
+    },
+    {
+      "id": 2,
+      "title": "운영 BE 상태 · 1 정상 / 0 확인 필요",
+      "type": "stat",
+      "gridPos": {
+        "x": 6,
+        "y": 0,
+        "w": 6,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "yamu-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "yamu_service_up{service=\"backend\"}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "yamu-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "value",
+        "graphMode": "area"
+      }
+    },
+    {
+      "id": 3,
+      "title": "운영 AI 상태 · 1 정상 / 0 확인 필요",
+      "type": "stat",
+      "gridPos": {
+        "x": 12,
+        "y": 0,
+        "w": 6,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "yamu-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "yamu_service_up{service=\"ai\"}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "yamu-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "value",
+        "graphMode": "area"
+      }
+    },
+    {
+      "id": 4,
+      "title": "관측 API 요청 누계 · 설치 이후",
+      "type": "stat",
+      "gridPos": {
+        "x": 18,
+        "y": 0,
+        "w": 6,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "yamu-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(yamu_api_requests_total) or vector(0)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "yamu-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "value",
+        "graphMode": "area"
+      }
+    },
+    {
+      "id": 5,
+      "title": "API 요청 / 초",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 0,
+        "y": 4,
+        "w": 12,
+        "h": 7
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "yamu-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (route) (rate(yamu_api_requests_total[5m]))",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "yamu-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps"
+        },
+        "overrides": []
+      },
+      "options": {}
+    },
+    {
+      "id": 6,
+      "title": "HTTP 상태별 요청 / 초 · 4xx도 함께 확인",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 12,
+        "y": 4,
+        "w": 12,
+        "h": 7
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "yamu-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (status) (rate(yamu_api_requests_total[5m]))",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "yamu-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps"
+        },
+        "overrides": []
+      },
+      "options": {}
+    },
+    {
+      "id": 7,
+      "title": "API p95 응답시간 · Nginx 기준",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 0,
+        "y": 11,
+        "w": 12,
+        "h": 7
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "yamu-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.95, sum by (le, route) (rate(yamu_api_request_duration_seconds_bucket[5m])))",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "yamu-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "options": {}
+    },
+    {
+      "id": 8,
+      "title": "서버 CPU 사용률",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 12,
+        "y": 11,
+        "w": 12,
+        "h": 7
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "yamu-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "yamu_host_cpu_busy_ratio",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "yamu-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "options": {}
+    },
+    {
+      "id": 9,
+      "title": "서버 가용 메모리",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 0,
+        "y": 18,
+        "w": 8,
+        "h": 6
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "yamu-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "yamu_host_memory_available_bytes",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "yamu-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes"
+        },
+        "overrides": []
+      },
+      "options": {}
+    },
+    {
+      "id": 10,
+      "title": "서버 가용 디스크",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 8,
+        "y": 18,
+        "w": 8,
+        "h": 6
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "yamu-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "yamu_host_disk_available_bytes",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "yamu-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes"
+        },
+        "overrides": []
+      },
+      "options": {}
+    },
+    {
+      "id": 11,
+      "title": "로그 누락 감지 누계 · 증가 시 회전/폭주 확인",
+      "type": "stat",
+      "gridPos": {
+        "x": 16,
+        "y": 18,
+        "w": 8,
+        "h": 6
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "yamu-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "yamu_collector_log_gaps_total",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "yamu-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "value",
+        "graphMode": "area"
+      }
+    },
+    {
+      "id": 12,
+      "title": "현재 배포 이미지 / 커밋",
+      "type": "table",
+      "gridPos": {
+        "x": 0,
+        "y": 24,
+        "w": 24,
+        "h": 6
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "yamu-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "yamu_service_info",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "yamu-prometheus"
+          },
+          "format": "table",
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {}
+    },
+    {
+      "id": 13,
+      "title": "Jenkins 최근 빌드 결과 · ci / cd / verification",
+      "type": "table",
+      "gridPos": {
+        "x": 0,
+        "y": 30,
+        "w": 16,
+        "h": 7
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "yamu-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "yamu_jenkins_build_result",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "yamu-prometheus"
+          },
+          "format": "table",
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {}
+    },
+    {
+      "id": 14,
+      "title": "Jenkins 빌드 소요시간",
+      "type": "table",
+      "gridPos": {
+        "x": 16,
+        "y": 30,
+        "w": 8,
+        "h": 7
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "yamu-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "yamu_jenkins_build_duration_seconds",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "yamu-prometheus"
+          },
+          "format": "table",
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "options": {}
+    },
+    {
+      "id": 15,
+      "title": "API 요청 로그 · 값/헤더/본문 없이 경로 템플릿만",
+      "type": "logs",
+      "gridPos": {
+        "x": 0,
+        "y": 37,
+        "w": 24,
+        "h": 9
+      },
+      "datasource": {
+        "type": "loki",
+        "uid": "yamu-loki"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "{service=\"api\"}",
+          "datasource": {
+            "type": "loki",
+            "uid": "yamu-loki"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "showTime": true,
+        "wrapLogMessage": true,
+        "sortOrder": "Descending",
+        "enableLogDetails": true
+      }
+    },
+    {
+      "id": 16,
+      "title": "BE · AI 실행 로그 · 검색은 Explore에서도 가능",
+      "type": "logs",
+      "gridPos": {
+        "x": 0,
+        "y": 46,
+        "w": 24,
+        "h": 12
+      },
+      "datasource": {
+        "type": "loki",
+        "uid": "yamu-loki"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "{service=~\"backend|ai\"}",
+          "datasource": {
+            "type": "loki",
+            "uid": "yamu-loki"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "showTime": true,
+        "wrapLogMessage": true,
+        "sortOrder": "Descending",
+        "enableLogDetails": true
+      }
+    },
+    {
+      "id": 17,
+      "title": "Jenkins CI/CD 콘솔 로그 · 수집 시작 시 마지막 일부부터",
+      "type": "logs",
+      "gridPos": {
+        "x": 0,
+        "y": 58,
+        "w": 24,
+        "h": 12
+      },
+      "datasource": {
+        "type": "loki",
+        "uid": "yamu-loki"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "{service=~\"jenkins-.+\"}",
+          "datasource": {
+            "type": "loki",
+            "uid": "yamu-loki"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "showTime": true,
+        "wrapLogMessage": true,
+        "sortOrder": "Descending",
+        "enableLogDetails": true
+      }
+    },
+    {
+      "id": 18,
+      "title": "배포 관측 이벤트 · 최초 관측은 배포 성공 판정 아님",
+      "type": "logs",
+      "gridPos": {
+        "x": 0,
+        "y": 70,
+        "w": 24,
+        "h": 9
+      },
+      "datasource": {
+        "type": "loki",
+        "uid": "yamu-loki"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "{service=\"deployments\"}",
+          "datasource": {
+            "type": "loki",
+            "uid": "yamu-loki"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "showTime": true,
+        "wrapLogMessage": true,
+        "sortOrder": "Descending",
+        "enableLogDetails": true
+      }
+    }
+  ],
+  "annotations": {
+    "list": []
+  },
+  "templating": {
+    "list": []
+  },
+  "links": [
+    {
+      "title": "운영 API health",
+      "url": "https://yamu.it.kr/api/health",
+      "targetBlank": true
+    }
+  ]
+}

@@ -13,6 +13,7 @@ import com.yamu.app.feature.auth.data.StepUpPurpose
 import com.yamu.app.feature.auth.data.StepUpToken
 import com.yamu.app.feature.link.data.brandOf
 import com.yamu.app.feature.payment.data.ApproveOutcome
+import com.yamu.app.feature.payment.data.CancelResult
 import com.yamu.app.feature.payment.data.CodeState
 import com.yamu.app.feature.payment.data.Merchant
 import com.yamu.app.feature.payment.data.PayCard
@@ -235,6 +236,8 @@ class PayCodeViewModelTest {
         override suspend fun recommend(merchantId: Long, amount: Long): ApiResult<Recommendation> = error("안 씀")
         override fun recentReceipt(paymentId: Long): PaymentReceipt? = null
         override suspend fun detail(paymentId: Long): ApiResult<PaymentReceipt> = error("안 씀")
+        override suspend fun cancel(paymentId: Long, idempotencyKey: String): ApiResult<CancelResult> = error("안 씀")
+        override suspend fun saveMemo(paymentId: Long, memo: String?): ApiResult<String?> = error("안 씀")
     }
 
     private companion object {
