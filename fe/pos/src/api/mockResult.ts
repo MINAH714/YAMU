@@ -47,10 +47,14 @@ export function applyMockAction(paymentId: number, action: MockAction) {
     return
   }
   const { body, result } = payment
-  // 고객 거절은 REQUESTED·DECLINED(마감 전)만 받는다. 승인된 결제는 그대로 둔다(BE 409와 같음)
+  // 고객 거절은 REQUESTED·DECLINED만 받는다. 승인된 결제는 그대로 둔다(BE 409와 같음).
+  // 마감이 지났으면 BE처럼 거절 대신 EXPIRED로 바꾼다(BE는 EXPIRED를 저장하고 410을 준다)
   if (action === 'reject') {
     if (result.status === 'REQUESTED' || result.status === 'DECLINED') {
-      payment.result = { ...result, status: 'REJECTED', retryable: null }
+      const pastDeadline = Date.now() >= Date.parse(payment.accepted.confirmDeadline)
+      payment.result = pastDeadline
+        ? { ...result, status: 'EXPIRED' }
+        : { ...result, status: 'REJECTED', retryable: null }
     }
     return
   }
