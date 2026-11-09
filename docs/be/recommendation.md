@@ -1,5 +1,81 @@
 # 카드 추천 엔진 인계
 
+## 앱 안내용 이유 코드 (2026-11-09 대조)
+
+[MR !197](https://lab.ssafy.com/s15-final/S15P31E103/-/merge_requests/197)의 `docs/be/forecast.md` 표(`dadc363fc10141e8790afb99338149272477ab64`)를 엔진 `develop`의 `59abaf8e3611801a72e986284e241cbba15de971` 구현과 대조한 정의다. 아래는 해당 표의 코드와 관련 결제 가능 판정·데이터 사유를 정리한 것으로, 엔진의 모든 조합 계산 코드를 열거한 목록은 아니다. 계산 불가 혜택을 제외할지 여부 등 계산 정책은 이 문서 보강에서 변경하지 않는다.
+
+### 전달 위치와 해석
+
+- **평가 사유**: 카드 평가의 `reasonCode`. `BENEFIT_DATA_INSUFFICIENT`는 요약이므로 상세 계산 문제·빠진 정보도 함께 본다.
+- **계산 문제**: 계산 결과의 `problems`에 혜택 ID와 코드가 담긴다. **빠진 정보**는 조건 평가의 `missingInformation`에 `code`와 `field`로 담긴다. 가상 구매 API는 이 정보를 자체 응답으로 옮기므로 내부 객체와 API 응답 모양은 같지 않다.
+- **데이터 문제**: `RecommendationDataIssue`의 코드와 `retryable`. 데이터 문제가 있다고 항상 카드 혜택 계산 전체가 실패하는 것은 아니다(예: 동률 판단용 실적 조회 실패, 신용한도 확인 생략).
+- 코드는 HTTP 오류 코드가 아니다. 결제 불가(`UNAVAILABLE`), 판정 불가(`UNKNOWN`), 확인 생략을 구분한다. 계산하지 못한 혜택을 확정된 0원으로 안내하지 않는다. 알 수 없는 새 코드는 일반 안내 문구로 처리한다.
+
+### 결제 가능 여부와 카드 평가
+
+발생 위치: `RecommendationAvailabilityReader.prepare`와 잔액 조회 처리. 별도로 표시한 요약 사유는 `RecommendationSelector.evaluate`, 기본값은 `RecommendationService`에서 만든다.
+
+| 코드 | 뜻과 발생 조건 |
+|---|---|
+| `CARD_NOT_ACTIVE` | 카드 등록 상태가 ACTIVE가 아니어서 결제할 수 없음. |
+| `CARD_EXPIRED` | 카드사 상태가 만료여서 결제할 수 없음. |
+| `CARD_SUSPENDED` | 카드사 상태가 정상도 만료도 아니어서 결제할 수 없음. |
+| `CHECK_CARD_INSTALLMENT_NOT_SUPPORTED` | 체크카드로 할부를 요청해 결제할 수 없음. |
+| `INSUFFICIENT_BALANCE` | 체크카드 출금 계좌의 조회된 현재 잔액이 거래 금액보다 적음. 미래 구매일의 예상 잔액 부족이라는 뜻은 아님. |
+| `PAYMENT_ACCOUNT_DISCONNECTED` | 출금 계좌 연결이 해제되어 결제할 수 없음. |
+| `PAYMENT_ACCOUNT_UNKNOWN` | 연결된 출금 계좌를 사용자 소유 계좌 조회 결과에서 찾지 못해 결제 가능 여부를 모름. |
+| `UNPAID_BILL` | 신용카드에 미납 청구서가 있어 결제할 수 없음. 가상 구매의 사전 검증·HTTP 처리는 forecast 계약을 따른다. |
+| `BILLING_CYCLE_UNSUPPORTED` | 신용카드 결제일이 없거나 지원하는 청구 주기가 아니어서 판정할 수 없음. |
+| `CREDIT_LIMIT_EXCEEDED` | 한도 조회 결과가 초과여서 결제할 수 없음. |
+| `CREDIT_LIMIT_UNKNOWN` | 한도 조회 결과가 미확인이어서 결제 가능 여부를 모름. |
+| `CREDIT_LIMIT_CHECK_SKIPPED` | 한도 확인을 생략함. 엔진에서는 AVAILABLE이며 데이터 안내에도 남긴다. 한도가 충분하다고 확인한 뜻도, 결제 불가 사유도 아님. |
+| `BALANCE_READ_RETRYABLE` | 잔액 조회가 시간 초과·금융망 오류 등으로 실패함. 재시도로 복구될 수 있으나 성공을 보장하지 않음. |
+| `BALANCE_ACCESS_UNKNOWN` | 잔액 접근 오류 등으로 잔액을 확인하지 못함. 재시도 가능 오류로 분류되지 않은 경우. |
+| `PAYMENT_AVAILABILITY_UNKNOWN` | 서비스에 해당 카드의 결제 가능 판정이 공급되지 않아 UNKNOWN으로 처리함. |
+| `PRODUCT_UNKNOWN` | 상품 정보가 없어 결제 가능 여부를 모르거나, 선택기에 카드 종류가 없어 비교하지 못함. 선택기는 계산 문제에도 같은 코드를 남김. |
+| `BENEFIT_DATA_INSUFFICIENT` | 선택기가 카드 혜택 계산을 끝내지 못했다는 요약. 실제 원인은 상세 코드에서 확인해야 함. |
+| `BASE_AMOUNT_INVALID` | 혜택 계산 기준 금액이 거래 금액보다 큼. 계산기가 생성하며 선택기도 이 문제를 평가 사유로 전달함. |
+
+### 혜택 조건·한도를 판정하지 못한 이유
+
+발생 위치: `BenefitConditionEvaluator.explain`·`explainTarget`, `CardBenefitCalculator.blockingCauses`·`performanceUnknown` 및 한도 계산. 상세 원인은 호출 옵션과 판정 경로에 따라 일반 `CONDITION_UNKNOWN` 대신 여러 문제 코드로 전달될 수 있다.
+
+| 코드 | 뜻과 발생 조건 | 빠진 정보의 `field` |
+|---|---|---|
+| `BRAND_MISSING` | 브랜드 조건을 판정하는 데 브랜드가 없음. 브랜드 미선택 제외 옵션으로 해당 혜택이 제외된 경우와 계산을 막는 경우는 구분해야 함. | `merchantId` |
+| `MERCHANT_CATEGORY_MISSING` | 업종 조건을 판정하는 데 업종이 없음. | `merchantCategoryCode` |
+| `PURCHASE_ITEM_MISSING` | 구매 품목 조건을 판정하는 데 품목이 없음. | `purchaseItemCode` |
+| `CHANNEL_MISSING` | 필요한 결제 채널 사실을 모름. | `facts.CHANNEL:<키>` |
+| `FACILITY_MISSING` | 필요한 매장 시설 사실을 모름. | `facts.FACILITY:<키>` |
+| `FACT_MISSING` | 그 밖의 필수·제외 거래 사실을 모름. 사용자가 직접 입력할 수 있는 정보라는 뜻은 아님. | `facts.<사실 키>` |
+| `CONDITION_UNKNOWN` | 조건 정책·현재 버전·유효기간 등의 확인이 부족하거나, 조건을 판정하지 못한 구체적 이유를 특정하지 못함. 공과금 전용 코드가 아님. | 계산 문제 자체에는 없음 |
+| `PERFORMANCE_OR_MINIMUM_UNKNOWN` | 최소 실적 또는 최소 결제 금액이 없거나, 최소 실적이 양수인데 전월 실적을 모름. 실적이 기준에 미달한다고 확인한 뜻은 아님. | 계산 문제 자체에는 없음 |
+| `LIMIT_UNKNOWN` | 연결된 한도 정보가 없거나 최대값·사용량을 몰라 계산하지 못함. 건별 한도는 사용량이 없어도 이 사유로 막지 않음. | 계산 문제 자체에는 없음 |
+
+예를 들어 공과금 여부에 필요한 사실 값이 없다면 상세 설명 경로에서는 `FACT_MISSING`과 `facts.<해당 키>`로 식별한다. `CONDITION_UNKNOWN`만 보고 앱이 “공과금 여부를 몰라요”라고 단정하면 안 된다. 확인된 조건 불일치와 정보 부족도 다르다. 조건에 맞지 않아 혜택이 없는 경우를 “정보가 없어 계산하지 못함”으로 안내하지 않는다.
+
+### 데이터 조회·정책 조립 문제
+
+발생 위치: `RecommendationService`의 조회·정책 조립 및 `RecommendationAvailabilityReader`의 조회 처리.
+
+| 코드 | 뜻과 발생 조건 | `retryable` |
+|---|---|---|
+| `DATABASE_READ_RETRYABLE` | 일시적인 DB 조회 실패. 후보 카드 목록을 읽기 전이면 카드별 결과 대신 같은 코드를 가진 `RecommendationReadException`이 발생하고, 후보를 확보한 뒤에는 데이터 문제로 남길 수 있음. | true |
+| `PREVIOUS_PERFORMANCE_MISSING` | 전월 실적이 필요한 카드의 해당 월 실적 기록이 없음. 확인된 실적 0원과 구분함. | false |
+| `POLICY_DATA_INVALID` | 정책 조립 중 잘못된 데이터 조합으로 `IllegalArgumentException`이 발생해 카드 정책을 만들지 못함. | false |
+| `PRODUCT_MISSING` | 등록 카드에 대응하는 상품 행이 조회 결과에 없음. `PRODUCT_UNKNOWN`과 관련되지만 서비스 데이터 누락을 나타내는 별도 코드임. | false |
+| `RECOGNITION_BEFORE_AMOUNT_MISSING` | 동률 판단에 쓰는 실적의 거래 전 인정 금액을 확인하지 못함. | false |
+| `RECOGNITION_AGGREGATE_READ_RETRYABLE` | 동률 판단용 실적 집계를 일시적인 DB 오류로 읽지 못함. 이미 읽은 혜택 정책까지 폐기한다는 뜻은 아님. | true |
+
+`retryable=false`는 영구 복구 불가라는 뜻이 아니라 엔진이 일시적 조회 실패로 분류하지 않았다는 뜻이다. 원본 데이터 보완이나 계좌 재연결 등 별도 조치가 필요할 수 있다.
+
+### 가상 구매가 만드는 코드와의 경계
+
+MR !197의 `RECOMMENDATION_READ_FAILED`, `CARD_NOT_EVALUATED`는 가상 구매가 엔진 결과·예외를 해석해 만드는 코드이므로 엔진 발생 코드로 취급하지 않는다. `MERCHANT_CATEGORY_MISSING`은 엔진의 조건 평가에서도 생기고, 가상 구매가 업종·브랜드 미선택으로 엔진을 호출하지 않을 때도 생긴다. API 응답·사전 검증·앱 문구는 [forecast.md](forecast.md)의 가상 구매 계약을 함께 따른다.
+
+이유 코드 정의는 위 MR 문서와 명시한 엔진 커밋을 대조했다. 추가로 MR !201 수정본 `5be379cb`에서 `MrLifeUtilityReproductionDatabaseTest`를 실행했다. 토요일 12시(KST), 129,000원 일시불, 전월 실적 50만 원, 월 한도 사용 0원 조건에서 이마트는 5,000원 계산 완료, 대형마트 업종만 선택하면 브랜드 의존 혜택 제외 후 0원 계산 완료, KT 브랜드만 선택하면 월납 혜택의 `FACT_MISSING`(`facts.RULE:UTILITY_PAYMENT`)으로 비교 불가였다. `UTILITY_PAYMENT`를 임의로 공급하지 않았다. 세 사례와 브랜드 미선택 회귀 1건, 총 4건 통과(실패·오류·생략 0). 이 결과는 이전 develop이 아닌 해당 수정본 기준이다. 운영 코드·시드·계산 정책은 변경하지 않았다.
+
+
 2026-11-03 Docker 활성화 후 관련 테스트 253개 전부 통과(실제 MySQL 테스트 42개 포함), 실패·오류·생략 0을 확인했다. 보강한 JSON NULL/0 실제 저장 테스트도 별도 1개 통과했다. 트리거 생성에 필요한 테스트 컨테이너 설정과 배포 전제, 실행 범위는 [조합 연결 검증 기록](benefit-composition.md)에 구분한다. 개발/운영 DB 적용이나 상품 정책 전체 확인을 뜻하지 않는다.
 
 결제 조건과 확인된 카드 정보를 전달하면 카드별 예상 혜택을 계산하고, 이번 결제의 순혜택이 가장 큰 카드를 선택한다. 일부 카드의 정보를 확인하지 못해도 확인된 후보 중 추천하고, 비교하지 못한 카드와 사유를 함께 제공한다. 실제 POS HTTP 접수부터 앱 화면까지 연결한 기능은 아니다. 2026-11-03 승인 설계의 대상/적용 그룹·fallback·총액/미배분·실제 추천 포트·JSON 보존 호출 계약은 [조합 연결 문서](benefit-composition.md)를 따른다.
