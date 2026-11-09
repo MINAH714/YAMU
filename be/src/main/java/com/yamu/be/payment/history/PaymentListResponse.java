@@ -72,7 +72,7 @@ public record PaymentListResponse(
 
     /**
      * @param name         결제 당시 거래 조건 스냅샷의 가맹점 이름. 없으면 브랜드 이름
-     * @param categoryName 업종 코드표(POL-004)가 정해지기 전이라 null이다
+     * @param categoryName 업종 표시 이름({@code GET /api/merchant-categories}와 같은 이름). 목록에 없는 코드면 null
      */
     public record Merchant(Long merchantId, String name, String categoryCode, String categoryName) {}
 

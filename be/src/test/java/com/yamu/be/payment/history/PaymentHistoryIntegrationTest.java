@@ -273,6 +273,9 @@ class PaymentHistoryIntegrationTest extends MySqlTestSupport {
                 .andExpect(jsonPath("$.data.approvalNo").value("Y20261010" + String.format("%010d", id)))
                 .andExpect(jsonPath("$.data.selectedCard.maskedNumber").value("****-****-****-1234"))
                 .andExpect(jsonPath("$.data.selectedCard.recommendedRank").value(nullValue()))
+                .andExpect(jsonPath("$.data.selectedCard.userSelected").value(nullValue()))
+                .andExpect(jsonPath("$.data.merchant.categoryCode").value("F01-CAFE"))
+                .andExpect(jsonPath("$.data.merchant.categoryName").value(nullValue()))
                 .andExpect(jsonPath("$.data.benefits[0].paymentBenefitId").value(benefitRow))
                 .andExpect(jsonPath("$.data.benefits[0].name").value("카페 10% 청구할인"))
                 .andExpect(jsonPath("$.data.benefits[0].type").value("DISCOUNT"))
@@ -299,6 +302,24 @@ class PaymentHistoryIntegrationTest extends MySqlTestSupport {
                 .andExpect(jsonPath("$.data.statusHistory[*].status").value(contains("REQUESTED", "APPROVED")))
                 .andExpect(jsonPath("$.data.recommendationSnapshot").value(nullValue()))
                 .andExpect(jsonPath("$.data.failure").value(nullValue()));
+    }
+
+    @Test
+    void 상세와_목록은_저장된_추천_순위_직접_선택과_업종_이름을_보여준다() throws Exception {
+        long id = approved(owner, card, OCT_10, 10_000, 1);
+        jdbc.update("UPDATE payment_transaction SET recommended_rank = 2, user_selected = TRUE,"
+                + " merchant_context_snapshot = JSON_SET(merchant_context_snapshot, '$.categoryCode', 'COFFEE_SHOP')"
+                + " WHERE payment_transaction_id = ?", id);
+
+        mockMvc.perform(get("/api/payments/" + id).with(AuthUsers.asUser(owner)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.selectedCard.recommendedRank").value(2))
+                .andExpect(jsonPath("$.data.selectedCard.userSelected").value(true))
+                .andExpect(jsonPath("$.data.merchant.categoryCode").value("COFFEE_SHOP"))
+                .andExpect(jsonPath("$.data.merchant.categoryName").value("카페"));
+        mockMvc.perform(list().param("yearMonth", OCTOBER))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.items[0].merchant.categoryName").value("카페"));
     }
 
     @Test

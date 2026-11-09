@@ -9,6 +9,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -198,6 +199,46 @@ class PaymentApprovalIntegrationTest extends MySqlTestSupport {
                 .andExpect(jsonPath("$.data.selectedCard.userCardId").value(creditCard))
                 .andExpect(jsonPath("$.data.selectedCard.userSelected").value(false))
                 .andExpect(jsonPath("$.data.selectedCard.recommendedRank").value(1));
+    }
+
+    @Test
+    void 결제_상세는_승인_응답과_같은_추천_순위_직접_선택_업종_이름을_보여준다() throws Exception {
+        Requested requested = requested(15_000, null, null);
+        approve(user, requested.paymentId(), UUID.randomUUID().toString(), body(creditCard))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.selectedCard.recommendedRank").value(1))
+                .andExpect(jsonPath("$.data.selectedCard.userSelected").value(true));
+
+        detail(requested.paymentId())
+                .andExpect(jsonPath("$.data.selectedCard.userCardId").value(creditCard))
+                .andExpect(jsonPath("$.data.selectedCard.recommendedRank").value(1))
+                .andExpect(jsonPath("$.data.selectedCard.userSelected").value(true))
+                .andExpect(jsonPath("$.data.merchant.categoryCode").value("COFFEE_SHOP"))
+                .andExpect(jsonPath("$.data.merchant.categoryName").value("카페"));
+    }
+
+    @Test
+    void 거절_뒤_다른_카드로_재승인하면_상세의_순위와_직접_선택도_마지막_시도로_바뀐다() throws Exception {
+        Requested requested = requested(15_000, null, null);
+        doReturn(ApprovalOutcome.Declined.of(FailureCode.ISSUER_DECLINED))
+                .doAnswer(inv -> approvedLike(inv.getArgument(0)))
+                .when(approver).approve(any());
+        approve(user, requested.paymentId(), UUID.randomUUID().toString(), "{}")
+                .andExpect(jsonPath("$.data.status").value("DECLINED"));
+        detail(requested.paymentId())
+                .andExpect(jsonPath("$.data.status").value("DECLINED"))
+                .andExpect(jsonPath("$.data.selectedCard.userCardId").value(creditCard))
+                .andExpect(jsonPath("$.data.selectedCard.recommendedRank").value(1))
+                .andExpect(jsonPath("$.data.selectedCard.userSelected").value(false));
+
+        approve(user, requested.paymentId(), UUID.randomUUID().toString(), body(checkCard))
+                .andExpect(jsonPath("$.data.status").value("APPROVED"))
+                .andExpect(jsonPath("$.data.selectedCard.recommendedRank").value(2))
+                .andExpect(jsonPath("$.data.selectedCard.userSelected").value(true));
+        detail(requested.paymentId())
+                .andExpect(jsonPath("$.data.selectedCard.userCardId").value(checkCard))
+                .andExpect(jsonPath("$.data.selectedCard.recommendedRank").value(2))
+                .andExpect(jsonPath("$.data.selectedCard.userSelected").value(true));
     }
 
     @Test
@@ -648,6 +689,11 @@ class PaymentApprovalIntegrationTest extends MySqlTestSupport {
     }
 
     // ───────── 도우미 ─────────
+
+    private ResultActions detail(long paymentId) throws Exception {
+        return mockMvc.perform(get("/api/payments/" + paymentId).with(AuthUsers.asUser(user)))
+                .andExpect(status().isOk());
+    }
 
     private ResultActions approve(long userId, long paymentId, String idempotencyKey, String body) throws Exception {
         MockHttpServletRequestBuilder builder = post("/api/payments/{paymentId}/approve", paymentId)

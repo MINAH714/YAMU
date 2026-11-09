@@ -56,6 +56,14 @@ public class PaymentTransaction extends BaseTimeEntity {
     @Column(name = "card_product_id")
     private Long cardProductId;
 
+    /** 마지막 시도 카드의 추천 순위(1부터). 추천 밖 카드·기록 전 결제·SEED는 null */
+    @Column(name = "recommended_rank", columnDefinition = "smallint")
+    private Integer recommendedRank;
+
+    /** 마지막 시도의 카드를 사용자가 직접 골랐는지. 기록 전 결제·SEED는 null */
+    @Column(name = "user_selected")
+    private Boolean userSelected;
+
     /** 브랜드 단위 가맹점 */
     @Column(name = "merchant_id", nullable = false)
     private Long merchantId;
@@ -202,9 +210,25 @@ public class PaymentTransaction extends BaseTimeEntity {
      * 같은 행을 두 요청이 동시에 바꾸면 {@code version}이 어긋나 한 건만 저장된다. 재승인은 앞 시도의 카드·거절 사유를 덮어쓴다.
      */
     public void startApproval(Long userCardId, Long cardProductId) {
+        startApproval(userCardId, cardProductId, null, null);
+    }
+
+    /**
+     * {@link #startApproval(Long, Long)}에 이 시도의 추천 순위·직접 선택 여부를 함께 적는다. 결제 상세가 승인 응답과 같은 값을 보이도록
+     * 카드와 같이 남기고 재승인 때 같이 덮어쓴다.
+     *
+     * @param recommendedRank 고른 카드의 추천 순위(1부터). 추천 후보가 아니면 null
+     * @param userSelected    사용자가 카드를 직접 골랐는지
+     */
+    public void startApproval(Long userCardId, Long cardProductId, Integer recommendedRank, Boolean userSelected) {
         requireStatus("승인 시작", PaymentStatus.REQUESTED, PaymentStatus.DECLINED);
+        if (recommendedRank != null && recommendedRank < 1) {
+            throw new IllegalArgumentException("추천 순위는 1부터입니다: " + recommendedRank);
+        }
         this.userCardId = userCardId;
         this.cardProductId = cardProductId;
+        this.recommendedRank = recommendedRank;
+        this.userSelected = userSelected;
         this.failureCode = null;
         // 앞 시도의 금융망 요청·거래 번호는 지운다. 남겨 두면 복구가 옛 시도의 출금을 이번 시도로 오인한다(옛 번호는 Redis 시도 기록에 있다)
         this.finRequestNo = null;
