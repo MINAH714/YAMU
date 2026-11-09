@@ -36,7 +36,9 @@ public final class StrictEnumDeserializer extends StdDeserializer<Enum<?>> imple
 
     @Override
     public JsonDeserializer<?> createContextual(DeserializationContext ctxt, BeanProperty property) {
-        JavaType type = property != null ? property.getType() : ctxt.getContextualType();
+        // 칸에 붙이면 칸 타입, List<enum> 같은 묶음 원소에 붙이면(contentUsing) 원소 타입이다. property.getType()은 묶음 칸에서
+        // List 타입이라 쓰지 않는다(!186 리뷰).
+        JavaType type = ctxt.getContextualType();
         if (type == null || !type.isEnumType()) {
             throw new IllegalStateException("StrictEnumDeserializer는 enum 칸에만 붙인다: " + type);
         }
