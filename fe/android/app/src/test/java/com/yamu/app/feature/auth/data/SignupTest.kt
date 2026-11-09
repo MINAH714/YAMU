@@ -7,6 +7,7 @@ import kotlinx.serialization.json.jsonObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.time.LocalDate
 
@@ -84,6 +85,20 @@ class SignupTest {
         )
         assertNull(without.demoCode)
         assertNull(without.authRequestedAt)
+    }
+
+    @Test fun `1원 응답이 늦어도 남은 시간은 요청을 보낸 때부터 센다`() {
+        // 0초에 보냄 → 서버가 송금을 마치고 10초에 authRequestedAt을 찍음 → 앱은 10초 뒤에 응답을 받음
+        val response = OneWonAuthResponse(
+            verificationToken = "avt_1",
+            authRequestedAt = "2026-11-09T03:00:10Z",
+            authExpiresAt = "2026-11-09T03:05:10Z",
+        )
+        val sent = response.toOneWon(sentAtMillis = 0L)
+        assertEquals(0L, sent.sentAtMillis)
+        assertEquals(290, sent.secondsLeft(nowMillis = 10_000L))     // 응답을 받은 순간 5분이 아니라 4분 50초
+        assertTrue(sent.secondsLeft(nowMillis = 300_000L) <= 0)      // 보낸 지 5분이면 지남(실제 만료보다 늦게 보이지 않음)
+        assertEquals(300, sent.secondsLeft(nowMillis = -5_000L))     // 폰 시각이 거꾸로 가도 5분을 넘지 않는다
     }
 
     @Test fun `가입 중 409 · 404 코드는 공통 문장으로 떨어지지 않는다`() {

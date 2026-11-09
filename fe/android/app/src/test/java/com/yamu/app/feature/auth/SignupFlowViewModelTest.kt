@@ -5,7 +5,7 @@ import com.yamu.app.core.network.ApiResult
 import com.yamu.app.feature.auth.data.AccountCandidate
 import com.yamu.app.feature.auth.data.Carrier
 import com.yamu.app.feature.auth.data.CodeSent
-import com.yamu.app.feature.auth.data.IdentityInput
+import com.yamu.app.feature.auth.data.IdentityDraft
 import com.yamu.app.feature.auth.data.SignupMode
 import com.yamu.app.feature.auth.data.SignupOneWon
 import com.yamu.app.feature.auth.data.SignupRepository
@@ -115,6 +115,42 @@ class SignupFlowViewModelTest {
         assertEquals(1, signup.dropped)
     }
 
+    @Test fun `인증을 마친 뒤 번호를 고치고 약관을 거쳐 다시 들어와도 고친 번호가 남는다`() = runTest(dispatcher) {
+        val vm = PhoneVerifyViewModel(signup)
+        vm.fillAndSend()
+        advanceUntilIdle()
+        vm.onCode("123456")
+        vm.confirm()
+        advanceUntilIdle()
+        vm.navigated()
+        vm.onPhone("01011112222")                 // 인증번호를 다시 받기 전에 약관으로 뒤로 간다(이 화면 상태는 사라진다)
+
+        val again = PhoneVerifyViewModel(signup)  // 약관 '동의하고 계속'으로 새로 열린 본인인증 화면
+        assertEquals("01011112222", again.state.value.phone)
+        assertEquals("김야무", again.state.value.name)
+        assertNull(again.state.value.verified)
+        again.send()
+        advanceUntilIdle()
+        assertEquals("01011112222", signup.requestedPhone)   // 옛 번호로 보내지 않는다
+    }
+
+    @Test fun `인증을 마친 채 화면이 새로 열리면 마친 상태로 이어 간다`() = runTest(dispatcher) {
+        signup.termsAgreed = true
+        val vm = PhoneVerifyViewModel(signup)
+        vm.fillAndSend()
+        advanceUntilIdle()
+        vm.onCode("123456")
+        vm.confirm()
+        advanceUntilIdle()
+
+        val again = PhoneVerifyViewModel(signup)
+        assertEquals(SignupMode.SIGNUP, again.state.value.verified)
+        assertEquals("01012345678", again.state.value.phone)
+        again.proceed()
+        assertEquals(SignupNext.ACCOUNTS, again.state.value.next)
+        assertEquals(1, signup.confirmCalls)
+    }
+
     @Test fun `같은 값을 다시 넣는 건 고친 게 아니라 인증을 버리지 않는다`() = runTest(dispatcher) {
         val vm = PhoneVerifyViewModel(signup)
         vm.fillAndSend()
@@ -131,7 +167,7 @@ class SignupFlowViewModelTest {
 
     @Test fun `가입 진행 시간이 지나 다시 오면 넣었던 칸과 약관 동의를 남기고 까닭을 띄운다`() = runTest(dispatcher) {
         signup.termsAgreed = true
-        signup.lastInput = IdentityInput("김야무", LocalDate.of(1998, 1, 1), Carrier.LGU, "01012345678")
+        signup.draft = IdentityDraft("김야무", "19980101", Carrier.LGU, "01012345678")
         signup.restart(SignupRestart.EXPIRED)
 
         val vm = PhoneVerifyViewModel(signup)
@@ -168,7 +204,7 @@ class SignupFlowViewModelTest {
 
     // ── B-13 1원 남은 시간 · B-16 1원 문장 ──
 
-    @Test fun `1원 화면은 1원을 받은 시각부터 남은 시간을 센다`() = runTest(dispatcher) {
+    @Test fun `1원 화면은 저장소가 적은 1원 요청 시각부터 남은 시간을 센다`() = runTest(dispatcher) {
         signup.mode = SignupMode.SIGNUP
         signup.oneWon = oneWon(sentAtMillis = 1_000L, validSeconds = 300)
         val vm = SignupOneWonViewModel(signup)
@@ -235,19 +271,20 @@ class SignupFlowViewModelTest {
         var dropped = 0
         var confirmResult: ApiResult<SignupMode> = ApiResult.Success(SignupMode.SIGNUP)
         var candidatesResult: ApiResult<List<AccountCandidate>> = ApiResult.Success(emptyList())
+        var requestedPhone: String? = null
         private var restartReason: SignupRestart? = null
 
         override var mode: SignupMode? = null
         override var name: String? = null
         override var termsAgreed = false
-        override var lastInput: IdentityInput? = null
+        override var draft = IdentityDraft()
         override var recoveryBiometric = false
         override var pinStaged = false
         override var oneWon: SignupOneWon? = null
 
         override suspend fun requestCode(name: String, birthDate: LocalDate, carrier: Carrier, phoneNumber: String): ApiResult<CodeSent> {
-            lastInput = IdentityInput(name, birthDate, carrier, phoneNumber)
-            return ApiResult.Success(CodeSent("pv_${lastInput.hashCode()}", "123456"))
+            requestedPhone = phoneNumber
+            return ApiResult.Success(CodeSent("pv_$name$phoneNumber", "123456"))
         }
 
         override suspend fun confirmCode(verificationId: String, code: String): ApiResult<SignupMode> {
@@ -280,7 +317,7 @@ class SignupFlowViewModelTest {
         override fun clear() {
             restart(SignupRestart.LOST)
             restartReason = null
-            lastInput = null
+            draft = IdentityDraft()
             termsAgreed = false
         }
     }
