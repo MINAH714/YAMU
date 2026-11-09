@@ -200,20 +200,20 @@ class FakeReportRepository @Inject constructor(private val payments: FakePayment
     /** 분 단위 고정 창마다 내려받은 횟수(BE PaymentExportService와 같은 분당 3번) */
     private val exportsByMinute = mutableMapOf<Long, Int>()
 
-    override suspend fun exportCsv(): ApiResult<CsvFile> = withFault(empty = { ApiResult.Success(CsvFile(defaultCsvName(), FakeCsv.file(emptyList()))) }) { exportNow() }
+    override suspend fun exportCsv(month: YearMonth): ApiResult<CsvFile> =
+        withFault(empty = { ApiResult.Success(CsvFile(defaultCsvName(month), FakeCsv.file(emptyList()))) }) { exportNow(month) }
 
-    private suspend fun exportNow(): ApiResult<CsvFile> {
+    private suspend fun exportNow(month: YearMonth): ApiResult<CsvFile> {
         delay(600)
         val nowSec = System.currentTimeMillis() / 1_000
         val count = exportsByMinute.merge(nowSec / 60, 1, Int::plus) ?: 1
         if (count > 3) {
             return ApiResult.Failure(ApiError.from(429, "RATE_LIMITED", buildJsonObject { put("retryAfterSeconds", 60 - nowSec % 60) }))
         }
-        val month = YearMonth.now(KST)
         val rows = (sessionItems() + seed)
-            .filter { it.date?.let(YearMonth::from) == month }   // 이번 달만(BE: 조건이 없으면 이번 달)
+            .filter { it.date?.let(YearMonth::from) == month }   // 받은 달만(BE yearMonth)
             .map { item -> FakeCsv.row(item, payments.receiptOf(item.paymentId), canceled = payments.isCanceled(item.paymentId), memo = payments.memoOf(item.paymentId)) }
-        return ApiResult.Success(CsvFile(defaultCsvName(), FakeCsv.file(rows)))
+        return ApiResult.Success(CsvFile(defaultCsvName(month), FakeCsv.file(rows)))
     }
 }
 

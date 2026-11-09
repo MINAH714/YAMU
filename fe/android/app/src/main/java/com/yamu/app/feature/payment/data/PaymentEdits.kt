@@ -38,10 +38,14 @@ class PaymentEdits @Inject constructor() {
 
     /**
      * 결제 완료(P-07)는 승인 응답의 영수증(체크카드 '남은 잔액'처럼 상세에 없는 값이 있다)을 갈아 끼우지 않고
-     * 취소만 반영하려고 여기서 본다
+     * 취소만 반영하려고 여기서 본다. 처음 알게 된 취소면 true를 돌려주고 부르는 쪽은 그때만 [changed]를 부른다
+     * (취소 응답과 다시 읽은 상세가 같은 취소를 두 번 알리지 않게). 이미 아는 취소에 시각이 비어 있었으면 시각만 채운다
      */
-    fun markCanceled(paymentId: Long, canceledAtIso: String?) {
-        canceled[paymentId] = canceledAtIso.orEmpty()
+    fun markCanceled(paymentId: Long, canceledAtIso: String?): Boolean {
+        val at = canceledAtIso.orEmpty()
+        val before = canceled.putIfAbsent(paymentId, at) ?: return true
+        if (before.isEmpty() && at.isNotEmpty()) canceled.replace(paymentId, "", at)
+        return false
     }
 
     fun isCanceled(paymentId: Long): Boolean = canceled.containsKey(paymentId)   // ConcurrentHashMap의 in은 값을 찾는다

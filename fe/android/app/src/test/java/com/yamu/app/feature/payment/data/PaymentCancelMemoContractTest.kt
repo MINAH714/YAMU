@@ -6,6 +6,7 @@ import com.yamu.app.core.network.YamuHeaders
 import com.yamu.app.core.network.YamuJson
 import com.yamu.app.core.network.json
 import com.yamu.app.core.network.retrofit
+import com.yamu.app.feature.link.data.brandOf
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
@@ -13,10 +14,12 @@ import mockwebserver3.MockWebServer
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import java.math.BigDecimal
 
 /** 결제 취소 · 메모 · 상세를 BE 모양과 맞춘다 — PaymentCancelController · PaymentMemoController · PaymentDetailResponse */
 class PaymentCancelMemoContractTest {
@@ -139,6 +142,50 @@ class PaymentCancelMemoContractTest {
         assertEquals(90_000L, r.billAmount)                 // 수수료 미산정 → 원금
         assertEquals("혜택", r.benefits.single().name)
         assertEquals("정산 예정", r.memo)
+    }
+
+    // ── 상세에서 알게 된 취소 — 응답이 끊긴 뒤 다시 읽음 · 다른 기기에서 먼저 취소 ──
+
+    private fun canceledDetail(id: Long, canceledAt: String?) =
+        """{"success":true,"data":{"paymentId":$id,"source":"YAMU","status":"CANCELED","amount":15000,"approvedAt":"2026-11-08T03:00:00Z"""" +
+            (canceledAt?.let { ""","canceledAt":"$it"""" } ?: "") + "}}"
+
+    @Test fun `상세가 취소면 취소 응답 때처럼 알린다 — 결제 완료 · 결제 내역이 승인으로 남지 않게`() = runTest {
+        val approved = """{"success":true,"data":{"paymentId":50,"status":"APPROVED","amount":15000,"approvedAt":"2026-11-08T03:00:00Z","accountBalanceAfter":985000}}"""
+        server.enqueue(json(200, approved))
+        val request = PaymentRequest(50, "카페", null, 15_000, null, emptyList())
+        val card = PayCard(1, brandOf("신한카드"), "카드", "0001", true, BigDecimal.ZERO, null, null, emptyList(), null, null)
+        repository.approve(request, card, null, "k")
+        assertNotNull(repository.recentReceipt(50))
+        val before = edits.version.value
+
+        server.enqueue(json(200, canceledDetail(50, "2026-11-08T07:00:00Z")))
+        assertTrue((repository.detail(50) as ApiResult.Success).data.canceled)
+        assertTrue(edits.isCanceled(50))
+        assertEquals("2026-11-08T07:00:00Z", edits.canceledAt(50))
+        assertEquals(before + 1, edits.version.value)
+        assertNull(repository.recentReceipt(50))   // 결제 완료를 다시 열어도 승인 영수증이 나오지 않게
+    }
+
+    @Test fun `이미 알린 취소는 다시 알리지 않는다 — 상세를 또 읽거나 취소 응답이 늦게 와도`() = runTest {
+        server.enqueue(json(200, canceledDetail(51, null)))
+        server.enqueue(json(200, canceledDetail(51, "2026-11-08T07:00:00Z")))
+        server.enqueue(json(200, """{"success":true,"data":{"paymentId":51,"status":"CANCELED","canceledAt":"2026-11-08T07:00:00Z","billItems":[],"refunds":[]}}"""))
+        val before = edits.version.value
+        repository.detail(51)
+        assertNull(edits.canceledAt(51))           // 시각을 모르는 취소
+        repository.detail(51)
+        assertEquals("2026-11-08T07:00:00Z", edits.canceledAt(51))   // 시각만 채운다
+        assertTrue(repository.cancel(51, "k") is ApiResult.Success)   // 같은 키로 다시 보낸 취소(BE가 처음 결과를 준다)
+        assertEquals(before + 1, edits.version.value)
+    }
+
+    @Test fun `승인 상태 상세는 아무것도 알리지 않는다`() = runTest {
+        server.enqueue(json(200, detailWithoutMemo))
+        val before = edits.version.value
+        repository.detail(40)
+        assertFalse(edits.isCanceled(40))
+        assertEquals(before, edits.version.value)
     }
 
     @Test fun `가입 전 거래(SEED)는 승인 상태여도 취소 버튼을 보이지 않는다`() {

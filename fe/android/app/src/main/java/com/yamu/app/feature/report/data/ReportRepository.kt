@@ -48,8 +48,11 @@ interface ReportRepository {
     /** S-05 — 이번 달 결제 내역(쪽마다 20건) */
     suspend fun payments(page: Int): ApiResult<PaymentsPage>
 
-    /** S-05 '이 조건으로 CSV 저장' — 화면과 같은 이번 달. 분당 3번까지(429 RATE_LIMITED) */
-    suspend fun exportCsv(): ApiResult<CsvFile>
+    /**
+     * S-05 '이 조건으로 CSV 저장' — [month](한국 기준) 한 달. 분당 3번까지(429 RATE_LIMITED).
+     * 달을 넘기는 이유: 저장 창에 보인 이름의 달과 내용의 달이 말일 자정 무렵에도 같게
+     */
+    suspend fun exportCsv(month: YearMonth): ApiResult<CsvFile>
 }
 
 @Singleton
@@ -72,8 +75,8 @@ class ReportRepositoryImpl @Inject constructor(private val api: ReportApi, priva
             dto.toPage()
         }
 
-    override suspend fun exportCsv(): ApiResult<CsvFile> =
-        apiCallFile { api.export() }.map { CsvFile(csvFileName(it.contentDisposition, fallback = defaultCsvName()), it.bytes) }
+    override suspend fun exportCsv(month: YearMonth): ApiResult<CsvFile> =
+        apiCallFile { api.export(yearMonth = month.toString()) }.map { CsvFile(csvFileName(it.contentDisposition, fallback = defaultCsvName(month)), it.bytes) }
 
     companion object { const val PAGE_SIZE = 20 }
 }

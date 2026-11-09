@@ -248,8 +248,8 @@ fun csvFileName(contentDisposition: String?, fallback: String): String {
         ?: fallback
 }
 
-/** 서버가 이름을 주지 않았을 때 — 이번 달 */
-fun defaultCsvName(today: LocalDate = LocalDate.now(KST)): String = "yamu-payments-${YearMonth.from(today)}.csv"
+/** 저장 창에 처음 보일 이름 · 서버가 이름을 주지 않았을 때 — 서버가 한 달을 받으면 붙이는 이름과 같다 */
+fun defaultCsvName(month: YearMonth = YearMonth.now(KST)): String = "yamu-payments-$month.csv"
 
 /** CSV 내려받기 실패 → 사용자 문장. 429는 남은 초까지 */
 fun exportErrorMessage(error: ApiError): String = when (error.code) {

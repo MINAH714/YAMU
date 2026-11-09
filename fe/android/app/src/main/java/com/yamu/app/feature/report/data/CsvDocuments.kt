@@ -11,12 +11,13 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.io.OutputStream
 import javax.inject.Inject
 import javax.inject.Singleton
 
 /** 저장 창(SAF)에서 고른 문서(content:// 주소)에 쓰기 · 버리기 — 뷰모델이 Context를 들지 않게 */
 interface CsvDocuments {
-    /** 처음부터 다시 쓴다(원래 내용이 더 길어도 뒤가 남지 않게). 다 썼으면 true */
+    /** 처음부터 다시 쓴다(원래 내용이 더 길어도 뒤가 남지 않게, 그렇게 열 수 없는 저장소면 그냥 쓰기로 — [writeTruncating]). 다 썼으면 true */
     suspend fun write(uri: String, bytes: ByteArray): Boolean
 
     /**
@@ -29,8 +30,8 @@ interface CsvDocuments {
 @Singleton
 class ContentResolverCsvDocuments @Inject constructor(@ApplicationContext private val context: Context) : CsvDocuments {
     override suspend fun write(uri: String, bytes: ByteArray): Boolean = withContext(Dispatchers.IO) {
-        // "w"만 쓰면 원래 파일보다 짧게 쓸 때 뒤에 옛 내용이 남는 저장소 앱이 있다 — "wt"로 비우고 쓴다
-        runCatching { context.contentResolver.openOutputStream(Uri.parse(uri), "wt")?.use { it.write(bytes) } != null }.getOrDefault(false)
+        val document = Uri.parse(uri)
+        writeTruncating(bytes) { mode -> context.contentResolver.openOutputStream(document, mode) }
     }
 
     override suspend fun discardIfEmpty(uri: String) {
@@ -44,6 +45,18 @@ class ContentResolverCsvDocuments @Inject constructor(@ApplicationContext privat
             }
         }
     }
+}
+
+/**
+ * "w"만 쓰면 원래 파일보다 짧게 쓸 때 뒤에 옛 내용이 남는 저장소 앱이 있어 "wt"(비우고 쓰기)로 먼저 연다.
+ * "wt"를 받지 않는 저장소(일부 클라우드 제공자)도 있어 열지 못했을 때만 "w"로 한 번 더 연다.
+ * 연 뒤에 쓰다 실패하면 다시 열지 않고 false — 지우기는 부르는 쪽이 [CsvDocuments.discardIfEmpty]로 크기 0인 파일만 한다
+ */
+internal fun writeTruncating(bytes: ByteArray, open: (mode: String) -> OutputStream?): Boolean {
+    val out = runCatching { open("wt") }.getOrNull()
+        ?: runCatching { open("w") }.getOrNull()
+        ?: return false
+    return runCatching { out.use { it.write(bytes) } }.isSuccess
 }
 
 @Module

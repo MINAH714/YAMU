@@ -163,10 +163,15 @@ class PaymentRepositoryImpl @Inject constructor(private val api: PaymentApi, pri
 
     override fun recentReceipt(paymentId: Long): PaymentReceipt? = receipts[paymentId]
 
-    /** 상세 응답엔 memo가 없어 목록에서 받아 둔 메모로 채운다([PaymentEdits]). 받아 둔 게 없으면 '모름' */
+    /**
+     * 상세 응답엔 memo가 없어 목록에서 받아 둔 메모로 채운다([PaymentEdits]). 받아 둔 게 없으면 '모름'.
+     * 취소된 결제면 취소 응답 때처럼 알린다 — 응답이 끊겨 다시 읽어 보니 취소됐거나 다른 기기에서 취소한 경우에도
+     * 결제 완료(P-07) · 결제 내역이 승인으로 남지 않게
+     */
     override suspend fun detail(paymentId: Long): ApiResult<PaymentReceipt> =
         apiCall { api.detail(paymentId) }.map { dto ->
             val receipt = dto.toReceipt()
+            if (receipt.canceled) noteCanceled(paymentId, receipt.canceledAtIso)
             when {
                 receipt.memoKnown -> receipt.also { edits.rememberMemo(paymentId, it.memo) }
                 else -> edits.memo(paymentId)?.let { receipt.copy(memo = it.text, memoKnown = true) } ?: receipt
@@ -192,12 +197,14 @@ class PaymentRepositoryImpl @Inject constructor(private val api: PaymentApi, pri
 
     override suspend fun cancel(paymentId: Long, idempotencyKey: String): ApiResult<CancelResult> =
         apiCall { api.cancel(paymentId, idempotencyKey, CancelRequest()) }.map { it.toResult() }.also {
-            if (it is ApiResult.Success) {
-                receipts.remove(paymentId)   // 방금 승인한 영수증(P-07)이 승인 상태로 남지 않게
-                edits.markCanceled(paymentId, it.data.canceledAtIso)
-                edits.changed()
-            }
+            if (it is ApiResult.Success) noteCanceled(paymentId, it.data.canceledAtIso)
         }
+
+    /** 방금 승인한 영수증(P-07)이 승인 상태로 남지 않게 지우고, 처음 알게 된 취소일 때만 다른 화면에 알린다 */
+    private fun noteCanceled(paymentId: Long, canceledAtIso: String?) {
+        receipts.remove(paymentId)
+        if (edits.markCanceled(paymentId, canceledAtIso)) edits.changed()
+    }
 
     override suspend fun saveMemo(paymentId: Long, memo: String?): ApiResult<String?> =
         apiCall { api.memo(paymentId, MemoRequest(memo.orEmpty())) }.map { it.memo }.also {

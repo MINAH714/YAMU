@@ -1,5 +1,6 @@
 package com.yamu.app.feature.report
 
+import androidx.lifecycle.SavedStateHandle
 import com.yamu.app.core.network.ApiError
 import com.yamu.app.core.network.ApiResult
 import com.yamu.app.feature.payment.data.PaymentEdits
@@ -29,6 +30,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import java.time.LocalDate
+import java.time.YearMonth
 
 /** S-05 — 취소 · 메모 뒤 돌아오면 첫 쪽부터, CSV는 저장 창에서 고른 뒤에 받는다 */
 class PaymentsViewModelTest {
@@ -42,7 +44,7 @@ class PaymentsViewModelTest {
     @After fun tearDown() = Dispatchers.resetMain()
 
     @Test fun `그대로 돌아오면 펼친 쪽을 두고 첫 쪽만 합친다`() = runTest(dispatcher) {
-        val vm = PaymentsViewModel(repo, edits, docs)
+        val vm = PaymentsViewModel(SavedStateHandle(), repo, edits, docs)
         vm.refresh(); advanceUntilIdle()
         vm.loadMore(); advanceUntilIdle()
         assertEquals(40, vm.state.value.items.size)
@@ -52,7 +54,7 @@ class PaymentsViewModelTest {
     }
 
     @Test fun `그사이 취소 · 메모가 있었으면 첫 쪽부터 다시 — 뒤쪽 줄이 옛 상태로 남지 않게`() = runTest(dispatcher) {
-        val vm = PaymentsViewModel(repo, edits, docs)
+        val vm = PaymentsViewModel(SavedStateHandle(), repo, edits, docs)
         vm.refresh(); advanceUntilIdle()
         vm.loadMore(); advanceUntilIdle()
         repo.canceledIds += 25L      // 둘째 쪽 결제를 상세에서 취소
@@ -69,9 +71,9 @@ class PaymentsViewModelTest {
     }
 
     @Test fun `CSV — 저장 창을 먼저 띄우고 고른 곳에 받아 쓴다, 연타해도 한 번`() = runTest(dispatcher) {
-        val vm = PaymentsViewModel(repo, edits, docs)
+        val vm = PaymentsViewModel(SavedStateHandle(), repo, edits, docs)
         vm.requestCsv()
-        assertEquals(defaultCsvName(), vm.state.value.saveAs)   // 화면과 같은 이번 달 이름
+        assertEquals(defaultCsvName(), vm.state.value.saveAs)   // 이번 달 이름
         assertEquals(0, repo.exports)                           // 고르기 전에는 받지 않는다
         vm.saveAsShown()
         assertNull(vm.state.value.saveAs)
@@ -87,8 +89,28 @@ class PaymentsViewModelTest {
         assertFalse(vm.state.value.exporting)
     }
 
+    @Test fun `CSV — 저장 창을 띄울 때의 달을 받을 때까지 넘긴다`() = runTest(dispatcher) {
+        val saved = SavedStateHandle()
+        val vm = PaymentsViewModel(saved, repo, edits, docs)
+        vm.requestCsv()
+        val month = YearMonth.parse(saved.get<String>(PaymentsViewModel.CSV_MONTH)!!)
+        assertEquals(defaultCsvName(month), vm.state.value.saveAs)   // 이름과 같은 달
+        vm.saveAsShown()
+        vm.saveCsvTo("content://doc/1"); advanceUntilIdle()
+        assertEquals(listOf(month), repo.exportMonths)
+        assertNull(saved.get<String>(PaymentsViewModel.CSV_MONTH))   // 쓰고 지운다
+    }
+
+    @Test fun `CSV — 10월 말일 자정 직전에 창을 띄우고 11월에 골라도 10월로 받는다(앱이 정리됐다 돌아와도)`() = runTest(dispatcher) {
+        // 창이 열린 사이 앱이 정리되면 뷰모델은 새로 만들어지고 SavedStateHandle만 남는다
+        val restored = SavedStateHandle(mapOf(PaymentsViewModel.CSV_MONTH to "2026-10"))
+        val vm = PaymentsViewModel(restored, repo, edits, docs)
+        vm.saveCsvTo("content://doc/1"); advanceUntilIdle()
+        assertEquals(listOf(YearMonth.of(2026, 10)), repo.exportMonths)
+    }
+
     @Test fun `저장 창을 닫으면 받지 않는다 — 분당 3번 한도를 쓰지 않게`() = runTest(dispatcher) {
-        val vm = PaymentsViewModel(repo, edits, docs)
+        val vm = PaymentsViewModel(SavedStateHandle(), repo, edits, docs)
         vm.requestCsv(); vm.saveAsShown()
         vm.saveCsvTo(null)
         advanceUntilIdle()
@@ -98,7 +120,7 @@ class PaymentsViewModelTest {
 
     @Test fun `분당 3번 넘음 — 창이 만든 빈 파일을 지우고 남은 초를 알린다`() = runTest(dispatcher) {
         repo.exportResult = ApiResult.Failure(ApiError.from(429, "RATE_LIMITED", buildJsonObject { put("retryAfterSeconds", 42) }))
-        val vm = PaymentsViewModel(repo, edits, docs)
+        val vm = PaymentsViewModel(SavedStateHandle(), repo, edits, docs)
         vm.saveCsvTo("content://doc/2"); advanceUntilIdle()
         assertEquals(listOf("content://doc/2"), docs.discarded)
         assertFalse(vm.state.value.exporting)
@@ -107,7 +129,7 @@ class PaymentsViewModelTest {
 
     @Test fun `파일을 못 쓰면 빈 파일을 지우고 다시 저장하라고 알린다`() = runTest(dispatcher) {
         docs.writeOk = false
-        val vm = PaymentsViewModel(repo, edits, docs)
+        val vm = PaymentsViewModel(SavedStateHandle(), repo, edits, docs)
         vm.saveCsvTo("content://doc/3"); advanceUntilIdle()
         assertEquals(listOf("content://doc/3"), docs.discarded)
         assertEquals("파일을 저장하지 못했어요. 다시 저장해 주세요", vm.state.value.message)
@@ -143,8 +165,11 @@ class PaymentsViewModelTest {
             return ApiResult.Success(PaymentsPage(40, 40_000, ids.map(::item), page, hasNext = page < 2))
         }
 
-        override suspend fun exportCsv(): ApiResult<CsvFile> {
+        val exportMonths = mutableListOf<YearMonth>()
+
+        override suspend fun exportCsv(month: YearMonth): ApiResult<CsvFile> {
             exports++
+            exportMonths += month
             delay(300)
             return exportResult
         }

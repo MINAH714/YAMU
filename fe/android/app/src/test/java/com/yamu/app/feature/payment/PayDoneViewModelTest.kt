@@ -2,16 +2,21 @@ package com.yamu.app.feature.payment
 
 import androidx.lifecycle.SavedStateHandle
 import com.yamu.app.core.network.ApiResult
+import com.yamu.app.core.network.json
+import com.yamu.app.core.network.retrofit
 import com.yamu.app.feature.link.data.brandOf
+import com.yamu.app.feature.payment.data.PaymentApi
 import com.yamu.app.feature.payment.data.PaymentEdits
 import com.yamu.app.feature.payment.data.PaymentReceipt
 import com.yamu.app.feature.payment.data.PaymentRepository
+import com.yamu.app.feature.payment.data.PaymentRepositoryImpl
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
+import mockwebserver3.MockWebServer
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -20,7 +25,7 @@ import org.junit.Before
 import org.junit.Test
 import java.lang.reflect.Proxy
 
-/** P-07 → P-08에서 취소하고 돌아오면 '결제를 마쳤어요'로 남지 않는다 */
+/** P-07 → P-08에서 취소했거나 P-08이 다시 읽어 취소를 알게 됐으면 돌아왔을 때 '결제를 마쳤어요'로 남지 않는다 */
 class PayDoneViewModelTest {
     private val dispatcher = StandardTestDispatcher()
     private val edits = PaymentEdits()
@@ -69,6 +74,23 @@ class PayDoneViewModelTest {
         assertEquals(0, detailCalls)
         assertFalse(vm.state.value.receipt!!.canceled)
         assertEquals(985_000L, vm.state.value.receipt!!.balanceAfter)
+    }
+
+    @Test fun `상세를 다시 읽어 취소를 알게 돼도 반영한다 — 취소 응답이 끊겼거나 다른 기기에서 취소`() = runTest(dispatcher) {
+        val vm = PayDoneViewModel(SavedStateHandle(mapOf("paymentId" to 77L)), payments, edits)
+        advanceUntilIdle()
+        MockWebServer().use { server ->
+            server.start()
+            val real = PaymentRepositoryImpl(server.retrofit().create(PaymentApi::class.java), edits)   // 같은 PaymentEdits를 본다
+            server.enqueue(json(200, """{"success":true,"data":{"paymentId":77,"source":"YAMU","status":"CANCELED","amount":15000,"canceledAt":"2026-11-08T07:00:00Z"}}"""))
+            assertTrue((real.detail(77) as ApiResult.Success).data.canceled)   // P-08이 다시 읽은 상세
+        }
+        vm.refreshIfChanged()
+        val r = vm.state.value.receipt!!
+        assertTrue(r.canceled)                            // '결제를 취소했어요'
+        assertEquals("2026-11-08T07:00:00Z", r.canceledAtIso)
+        assertEquals(985_000L, r.balanceAfter)
+        assertEquals(0, detailCalls)
     }
 
     @Test fun `다른 결제를 취소한 것은 반영하지 않는다`() = runTest(dispatcher) {

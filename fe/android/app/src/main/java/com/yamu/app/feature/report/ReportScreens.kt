@@ -55,6 +55,7 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -73,6 +74,7 @@ import com.yamu.app.core.designsystem.component.TabScreen
 import com.yamu.app.core.designsystem.component.YamuCard
 import com.yamu.app.core.designsystem.theme.YamuSpacing
 import com.yamu.app.core.designsystem.theme.YamuTheme
+import com.yamu.app.core.format.KST
 import com.yamu.app.core.format.toMonthDay
 import com.yamu.app.core.format.toWon
 import com.yamu.app.core.network.ApiResult
@@ -94,6 +96,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import java.time.YearMonth
 import javax.inject.Inject
 
 // ───────────────────────── S-01 소비분석(탭) ─────────────────────────
@@ -367,6 +370,7 @@ data class PaymentsState(
  */
 @HiltViewModel
 class PaymentsViewModel @Inject constructor(
+    private val savedStateHandle: SavedStateHandle,
     private val repo: ReportRepository,
     private val edits: PaymentEdits,
     private val documents: CsvDocuments,
@@ -406,11 +410,14 @@ class PaymentsViewModel @Inject constructor(
     /**
      * '이 조건으로 CSV 저장' — 저장 창을 먼저 띄우고 고른 뒤에 서버에서 받는다.
      * 창을 닫으면 받지 않아 분당 3번 한도를 쓰지 않고, 창이 열린 사이 앱이 정리돼도 돌아와서 이어 받는다.
-     * 이름은 화면과 같은 이번 달 파일 이름(서버가 붙이는 이름과 같다)
+     * 이름은 이번 달 파일 이름(서버가 붙이는 이름과 같다). 그 달을 [SavedStateHandle]에 두었다가 받을 때 넘긴다 —
+     * 말일 자정 무렵 창을 띄우고 다음 달에 골라도 이름과 내용의 달이 같게(앱이 정리됐다 돌아와도)
      */
     fun requestCsv() {
         if (_state.value.exporting) return
-        _state.update { it.copy(saveAs = defaultCsvName()) }
+        val month = YearMonth.now(KST)
+        savedStateHandle[CSV_MONTH] = month.toString()
+        _state.update { it.copy(saveAs = defaultCsvName(month)) }
     }
 
     fun saveAsShown() = _state.update { it.copy(saveAs = null) }
@@ -420,10 +427,12 @@ class PaymentsViewModel @Inject constructor(
      * 이미 있는 파일을 골라 덮어쓰기를 눌렀으면 그 파일은 남긴다([CsvDocuments.discardIfEmpty])
      */
     fun saveCsvTo(uri: String?) {
-        if (uri == null || _state.value.exporting) return
+        if (_state.value.exporting) return
+        val month = savedStateHandle.remove<String>(CSV_MONTH)?.let { runCatching { YearMonth.parse(it) }.getOrNull() } ?: YearMonth.now(KST)
+        if (uri == null) return
         _state.update { it.copy(exporting = true) }
         viewModelScope.launch {
-            val message = when (val r = repo.exportCsv()) {
+            val message = when (val r = repo.exportCsv(month)) {
                 is ApiResult.Success -> if (documents.write(uri, r.data.bytes)) {
                     "CSV 파일을 저장했어요"
                 } else {
@@ -453,6 +462,11 @@ class PaymentsViewModel @Inject constructor(
                 is ApiResult.Failure -> _state.update { it.copy(loadingMore = false, moreError = r.error.userMessage()) }
             }
         }
+    }
+
+    companion object {
+        /** 저장 창을 띄울 때 정한 달(YYYY-MM) — 고른 뒤 받을 때 쓰고 지운다 */
+        const val CSV_MONTH = "csvMonth"
     }
 }
 

@@ -1,5 +1,6 @@
 package com.yamu.app.data
 
+import com.yamu.app.core.format.KST
 import com.yamu.app.core.network.ApiError
 import com.yamu.app.core.network.ApiResult
 import com.yamu.app.core.session.DevSession
@@ -13,6 +14,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.time.YearMonth
 
 /** debug 가짜 결제 서버의 취소 · 메모가 BE와 같은 규칙인지 — 시연 중에 진짜와 다르게 굴지 않게 */
 class FakePaymentEditsTest {
@@ -72,8 +74,9 @@ class FakePaymentEditsTest {
         assertTrue(after.items.first { it.paymentId == 938L }.canceled)
         assertNull(after.items.first { it.paymentId == 938L }.benefit)   // 받지 않은 혜택
         assertEquals(before.amount - 15_000, after.amount)
-        repeat(3) { assertTrue(report.exportCsv() is ApiResult.Success) }
-        val limited = report.exportCsv() as ApiResult.Failure
+        val month = YearMonth.now(KST)
+        repeat(3) { assertTrue(report.exportCsv(month) is ApiResult.Success) }
+        val limited = report.exportCsv(month) as ApiResult.Failure
         assertEquals("RATE_LIMITED", limited.error.code)
         assertTrue((limited.error.detailInt("retryAfterSeconds") ?: 0) in 1..60)
     }
