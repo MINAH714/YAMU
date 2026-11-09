@@ -774,7 +774,7 @@ CONSTRAINT ck_refund_version CHECK (version >= 0)
 | installment_months | `SMALLINT NULL` | 일시불 1, 할부 총 개월 수; 비카드 항목 NULL |
 | purchase_state | `VARCHAR(16) NULL` | 구매 계획만 ACTIVE / FULFILLED / CANCELED |
 | previous_cashflow_item_id | `BIGINT NULL` | 이후 일정 변경 시 이전 규칙; 기존 규칙과 이력은 보존 |
-| source | `VARCHAR(16) NOT NULL DEFAULT 'MANUAL'` | MANUAL 사용자 입력 / DETECTED 결제 이력 탐지(S15P31E103-349, V20261109_1) |
+| source | `VARCHAR(16) NOT NULL DEFAULT 'MANUAL'` | MANUAL 사용자 입력 / DETECTED 결제 이력 탐지(S15P31E103-349, V20261109_2) |
 | detected_user_card_id | `BIGINT NULL` | 탐지 키: 반복 결제의 카드; 탐지가 만든 시리즈의 첫 규칙만. 사용자가 후보의 카드를 바꿔도 그대로 |
 | detected_merchant_id | `BIGINT NULL` | 탐지 키: 반복 결제의 가맹점; 탐지가 만든 시리즈의 첫 규칙만. 가맹점 카탈로그를 다시 넣을 때 막히지 않게 외래 키 없음 |
 | detected_amount | `BIGINT NULL` | 탐지 키: 반복 결제의 승인 금액; 탐지가 만든 시리즈의 첫 규칙만 |

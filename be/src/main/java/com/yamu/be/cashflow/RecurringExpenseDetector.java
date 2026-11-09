@@ -38,7 +38,7 @@ import org.springframework.stereotype.Component;
 @Component
 public class RecurringExpenseDetector {
     private static final ZoneId KOREA = ZoneId.of("Asia/Seoul");
-    /** 탐지 키 UNIQUE 제약 이름(V20261109_1). */
+    /** 탐지 키 UNIQUE 제약 이름(V20261109_2). */
     private static final String DETECTION_KEY_CONSTRAINT = "uk_cashflow_item_detection";
 
     private final NamedParameterJdbcTemplate jdbc;
