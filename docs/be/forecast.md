@@ -25,7 +25,7 @@
 - 명세: 팀 노션 API 명세서 V2 「잔고예보 조회」 `GET /api/forecasts/balance`, 「생활비 예측 상세」 `GET /api/forecasts/living-cost`, 요구사항 정의서 V2 FR-033~041·045·046·064, DEC-008
 - 계산 원칙: 팀 노션 「YAMU 잔고예보 계산 원칙 설계 (Task 7.1.1)」, 「잔고예보 복수 계좌·통합→상세 변경 내역 (2026-10-26)」
 - 예정 항목: [cashflow.md](cashflow.md)
-- 시연 데이터: 시드에 카드 청구서가 없어 시연 계정 가계부에 카드값·월급을 넣는 방법은 [forecast-demo.md](forecast-demo.md)
+- 시연 데이터: 카드값은 페르소나 시드의 청구서로 보이고(S15P31E103-371), 시연 계정 가계부에 월급을 넣는 방법은 [forecast-demo.md](forecast-demo.md)
 
 ## 지금 상태
 
