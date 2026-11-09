@@ -774,6 +774,8 @@ CONSTRAINT ck_refund_version CHECK (version >= 0)
 | installment_months | `SMALLINT NULL` | 일시불 1, 할부 총 개월 수; 비카드 항목 NULL |
 | purchase_state | `VARCHAR(16) NULL` | 구매 계획만 ACTIVE / FULFILLED / CANCELED |
 | previous_cashflow_item_id | `BIGINT NULL` | 이후 일정 변경 시 이전 규칙; 기존 규칙과 이력은 보존 |
+| request_key | `CHAR(36) CHARACTER SET ascii COLLATE ascii_bin NULL` | 등록 Idempotency-Key(UUID); 키를 보낸 등록의 첫 규칙만(S15P31E103-358, V20261109_3) |
+| request_fingerprint | `BINARY(32) NULL` | 처음 등록 요청 내용의 SHA-256; 같은 키 재요청 비교 |
 
 ```sql
 PRIMARY KEY (cashflow_item_id);
@@ -790,6 +792,8 @@ UNIQUE KEY uk_cashflow_owner (cashflow_item_id, user_id);
 KEY ix_cashflow_card_owner (user_card_id, user_id);
 KEY ix_cashflow_previous_owner (previous_cashflow_item_id, user_id);
 CONSTRAINT fk_cashflow_card_owner FOREIGN KEY (user_card_id, user_id) REFERENCES user_card (user_card_id, user_id);
+UNIQUE KEY uk_cashflow_item_request (user_id, request_key);  -- 등록 재시도·동시 요청 중복 방지, 키 없는 등록은 NULL
+CONSTRAINT ck_cashflow_request CHECK ((request_key IS NULL) = (request_fingerprint IS NULL));
 CONSTRAINT fk_cashflow_previous_owner FOREIGN KEY (previous_cashflow_item_id, user_id) REFERENCES cashflow_item (cashflow_item_id, user_id);
 CONSTRAINT ck_cashflow_kind CHECK (item_kind IN ('SCHEDULED','PURCHASE_PLAN'));
 CONSTRAINT ck_cashflow_card_direction CHECK (user_card_id IS NULL OR direction = 'EXPENSE');

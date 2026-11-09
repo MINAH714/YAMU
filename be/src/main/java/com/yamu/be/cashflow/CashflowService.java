@@ -7,6 +7,9 @@ import com.yamu.be.card.domain.CardIssuerStatus;
 import com.yamu.be.global.common.ApiResponse.FieldErrorResponse;
 import com.yamu.be.global.exception.BusinessException;
 import com.yamu.be.global.exception.ErrorCode;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.time.Clock;
 import java.time.DayOfWeek;
 import java.time.LocalDate;
@@ -19,6 +22,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Isolation;
@@ -57,22 +61,57 @@ public class CashflowService {
     /** 예정 수입·지출 규칙과 첫 발생 건을 저장하고 저장된 규칙을 돌려준다. */
     @Transactional
     public Item create(Long authenticatedUserId, CreateCommand command) {
+        return create(authenticatedUserId, command, null);
+    }
+
+    /**
+     * {@link #create(Long, CreateCommand)}에 Idempotency-Key를 더한 등록(S15P31E103-358). 키가 있으면 이 사용자가 같은 키로
+     * 등록한 규칙을 먼저 찾아, 내용이 같으면 새로 만들지 않고 그 규칙을 돌려주고 다르면 409 IDEMPOTENCY_KEY_REUSED다.
+     * 같은 키의 첫 요청 둘이 동시에 오면 늦은 쪽이 UNIQUE(uk_cashflow_item_request)에 걸린다({@link CashflowCreator}가 다시 부른다).
+     *
+     * @param requestKey UUID 형식으로 검사한 소문자 키. null이면 키 없는 등록이다
+     */
+    @Transactional
+    public Item create(Long authenticatedUserId, CreateCommand command, String requestKey) {
         requireUser(authenticatedUserId);
         if (command == null) {
             throw new BusinessException(ErrorCode.INVALID_REQUEST);
         }
         command = normalize(command);
+        byte[] fingerprint = requestKey == null ? null : fingerprint(command);
+        if (requestKey != null) {
+            Optional<CashflowItem> previous = items.findByUserIdAndRequestKey(authenticatedUserId, requestKey);
+            if (previous.isPresent()) {
+                if (!MessageDigest.isEqual(previous.get().getRequestFingerprint(), fingerprint)) {
+                    throw new BusinessException(ErrorCode.IDEMPOTENCY_KEY_REUSED);
+                }
+                return Item.from(previous.get());
+            }
+        }
         CashflowItem.RecurrenceType recurrence = validate(command, today());
         requireOwned(authenticatedUserId, command.accountId(), command.userCardId());
 
-        CashflowItem item = items.save(new CashflowItem(authenticatedUserId,
+        CashflowItem item = new CashflowItem(authenticatedUserId,
                 command.accountId(), command.userCardId(), command.title(),
                 command.direction(), command.amount(), command.scheduledDate(), recurrence,
                 command.recurrenceEndDate(),
                 dayOfMonthOf(recurrence, command.scheduledDate(), command.dayOfMonth(), null),
-                command.merchantCategoryCode(), command.memo()));
+                command.merchantCategoryCode(), command.memo());
+        if (requestKey != null) {
+            item.rememberRequest(requestKey, fingerprint);
+        }
+        item = items.save(item);
         occurrences.save(CashflowOccurrence.firstOf(item));
         return Item.from(item);
+    }
+
+    /** 앞뒤 공백 정리 뒤의 등록 내용 SHA-256. 같은 키 재요청이 같은 내용인지 가린다. */
+    private static byte[] fingerprint(CreateCommand command) {
+        try {
+            return MessageDigest.getInstance("SHA-256").digest(command.toString().getBytes(StandardCharsets.UTF_8));
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException(e);
+        }
     }
 
     /**

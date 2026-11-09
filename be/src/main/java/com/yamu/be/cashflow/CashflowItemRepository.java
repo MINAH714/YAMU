@@ -43,6 +43,9 @@ public interface CashflowItemRepository extends JpaRepository<CashflowItem, Long
     /** 바로 뒤 규칙. 시리즈는 한 줄로 이어지므로 정상이면 0건이나 1건이다. */
     List<CashflowItem> findByPreviousCashflowItemIdAndUserId(Long previousCashflowItemId, Long userId);
 
+    /** 이 사용자가 그 Idempotency-Key로 등록한 규칙(S15P31E103-358). */
+    Optional<CashflowItem> findByUserIdAndRequestKey(Long userId, String requestKey);
+
     interface Link {
         Long getId();
 
