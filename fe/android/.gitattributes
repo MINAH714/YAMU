@@ -1,0 +1,3 @@
+# 줄 끝 — gradlew는 sh 스크립트라 늘 LF(Windows 체크아웃에서도), 배치 파일은 CRLF
+gradlew text eol=lf
+*.bat text eol=crlf

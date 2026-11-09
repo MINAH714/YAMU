@@ -1,0 +1,112 @@
+def notifyMattermost(String event) {
+    if (env.NOTIFY_READY != 'true') {
+        echo 'WARNING: Notification checkout unavailable; build result unchanged.'
+        return false
+    }
+    def delivered = false
+    def attempted = false
+    try {
+        // retry distinguishes timeout from user abort inside Jenkins, without a
+        // script-security exception. The second pass only warns; it NEVER sends.
+        retry(2) {
+            if (attempted) {
+                echo 'WARNING: Notification time limit exceeded; build result unchanged.'
+            } else {
+                attempted = true
+                // Includes agent queue wait; approval must not wait indefinitely.
+                timeout(time: 1, unit: 'MINUTES') {
+                    node('yamu-ci') {
+                        dir('.notifications') {
+                            try {
+                                unstash 'mattermost-notifier'
+                                def notifier = load 'infra/ci/mattermost.groovy'
+                                delivered = notifier.send('CD', event)
+                            } finally {
+                                deleteDir()
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    } catch (org.jenkinsci.plugins.workflow.steps.FlowInterruptedException interrupted) {
+        throw interrupted
+    } catch (Exception ignored) {
+        echo 'WARNING: Mattermost notification unavailable; build result unchanged.'
+    }
+    return delivered
+}
+
+pipeline {
+    agent none
+    options {
+        skipDefaultCheckout(true)
+        disableConcurrentBuilds()
+        timeout(time: 90, unit: 'MINUTES')
+        buildDiscarder(logRotator(numToKeepStr: '20'))
+        timestamps()
+    }
+    triggers {
+        pollSCM('H/5 * * * *')
+    }
+    stages {
+        stage('Prepare notifications') {
+            agent { label 'yamu-ci' }
+            steps {
+                script {
+                    if (env.JOB_NAME != 'yamu/cd') {
+                        error('Production CD must run only as yamu/cd configured for master')
+                    }
+                }
+                deleteDir()
+                script {
+                    def revision = checkout scm
+                    env.GIT_COMMIT = revision.GIT_COMMIT
+                }
+                stash name: 'mattermost-notifier', includes: 'infra/ci/mattermost.groovy,infra/ci/notify_mattermost.py'
+                script { env.NOTIFY_READY = 'true' }
+                deleteDir()
+            }
+        }
+        stage('Test master') {
+            steps {
+                script {
+                    def tested = build(job: 'yamu/ci-master', wait: true, propagate: true,
+                        parameters: [booleanParam(name: 'FULL_CI', value: true),
+                                     string(name: 'RELEASE_REVISION', value: env.GIT_COMMIT)])
+                    env.TESTED_BUILD = tested.number.toString()
+                    echo "Candidate: yamu/ci-master #${env.TESTED_BUILD}"
+                }
+            }
+        }
+        stage('Approve production') {
+            steps {
+                script { notifyMattermost('APPROVAL_PENDING') }
+                timeout(time: 30, unit: 'MINUTES') {
+                    input message: "Deploy BE ${env.GIT_COMMIT} from ci-master #${env.TESTED_BUILD}? Existing API keys and AI configuration are retained. DB migration changes are rejected.",
+                          ok: 'Deploy', submitter: 'yamu', submitterParameter: 'APPROVER'
+                }
+            }
+        }
+        stage('Deploy and verify') {
+            agent { label 'yamu-ci' }
+            steps {
+                withCredentials([sshUserPrivateKey(credentialsId: 'yamu-cd-trigger', keyFileVariable: 'CD_KEY')]) {
+                    // The key is restricted server-side to one root-owned command.
+                    sh '''set +x
+                        set -eu
+                        case "$TESTED_BUILD" in ''|*[!0-9]*) exit 2;; esac
+                        ssh -o BatchMode=yes -o StrictHostKeyChecking=yes \
+                          -o UserKnownHostsFile=/etc/yamu-cd/known_hosts \
+                          -i "$CD_KEY" yamu-deploy@100.102.125.41 "$TESTED_BUILD"
+                    '''
+                }
+            }
+        }
+    }
+    post {
+        always {
+            script { notifyMattermost(currentBuild.currentResult) }
+        }
+    }
+}

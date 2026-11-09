@@ -1,0 +1,12 @@
+# Paths are relative to the be/ build context.
+.git
+.gradle
+build
+.env
+.env.*
+**/application-local.yml
+**/application-local.yaml
+*.pem
+*.key
+.idea
+.vscode

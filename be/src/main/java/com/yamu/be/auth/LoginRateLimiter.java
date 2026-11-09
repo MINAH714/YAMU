@@ -1,0 +1,102 @@
+package com.yamu.be.auth;
+
+import com.yamu.be.global.exception.BusinessException;
+import com.yamu.be.global.exception.ErrorCode;
+import java.util.List;
+import java.util.Map;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.DataAccessException;
+import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.script.DefaultRedisScript;
+import org.springframework.data.redis.core.script.RedisScript;
+import org.springframework.stereotype.Component;
+
+/**
+ * 인증 없이 열린 로그인 준비·로그인 API의 호출 횟수를 기기 번호별·IP별로 제한한다. 가입 API도 같은 방식으로 IP별로 센다.
+ *
+ * <p>기기 번호는 순번이라 하나씩 넣어 보면 기기가 있는지·생체를 쓰는지·잠겼는지 알 수 있고, 엉터리 서명은 잠금 대신 인증 기록만 남기므로
+ * 제한이 없으면 기록이 끝없이 쌓인다. 둘 다 호출 횟수를 묶어 막는다.
+ *
+ * <pre>
+ * auth:rate:device:{userDeviceId} → 요청 수   TTL = 구간(1분)
+ * auth:rate:ip:{ip}               → 요청 수   TTL = 구간
+ * auth:rate:signup-ip:{ip}        → 요청 수   TTL = 구간   본인인증 요청·확인(인증 없이 열린 가입 API)
+ * auth:rate:card-lookup:{userId}  → 요청 수   TTL = 구간   카드 확인(카드번호 대입 막기)
+ * auth:rate:balance-refresh:{userId} → 요청 수 TTL = 구간  잔액 새로고침(금융망 보호, Redis 장애 때는 건너뜀)
+ * </pre>
+ *
+ * 고정 구간 방식이라 구간 경계에서 잠깐 두 배까지 허용될 수 있다. 목적이 대량 시도 차단이라 정확한 초당 제어는 하지 않는다.
+ */
+@Slf4j
+@Component
+@RequiredArgsConstructor
+public class LoginRateLimiter {
+
+    private static final String KEY_PREFIX = "auth:rate:";
+
+    /** 1을 더하고, 처음 만든 키면 구간 TTL을 건다. {요청 수, 남은 ms}를 돌려준다. */
+    private static final RedisScript<List> HIT = new DefaultRedisScript<>("""
+            local n = redis.call('INCR', KEYS[1])
+            if n == 1 then redis.call('PEXPIRE', KEYS[1], ARGV[1]) end
+            return {n, redis.call('PTTL', KEYS[1])}
+            """, List.class);
+
+    private final StringRedisTemplate redis;
+    private final LoginRateLimitProperties properties;
+
+    /** 한도를 넘으면 429 TOO_MANY_REQUESTS. details.retryAfterSeconds에 다시 시도할 수 있을 때까지 남은 초를 담는다. */
+    public void check(Long userDeviceId, String ipAddress) {
+        if (ipAddress != null) {
+            hit("ip:" + ipAddress, properties.perIp());
+        }
+        if (userDeviceId != null) {
+            hit("device:" + userDeviceId, properties.perDevice());
+        }
+    }
+
+    /**
+     * 휴대폰 본인인증 요청·확인을 합쳐 IP별로 센다. 로그인과 따로 세서 한쪽이 다른 쪽 한도를 깎지 않는다.
+     * 막지 않으면 인증번호(demoCode)로 시드 사용자의 이름·생년월일·번호 조합을 무작위로 맞춰 볼 수 있다.
+     */
+    public void checkSignup(String ipAddress, int limit) {
+        if (ipAddress != null) {
+            hit("signup-ip:" + ipAddress, limit);
+        }
+    }
+
+    /** 로그인한 사용자의 카드 확인 호출을 센다. 카드번호·유효기간을 바꿔 가며 남의 카드를 찾아보는 것을 막는다. */
+    public void checkCardLookup(Long userId, int limit) {
+        if (userId != null) {
+            hit("card-lookup:" + userId, limit);
+        }
+    }
+
+    /**
+     * 캐시를 건너뛰고 금융망 잔액을 새로 읽는 호출(refresh=true)을 사용자별로 센다. 새로 고침 연타로 금융망을 두드리지 않게.
+     *
+     * <p>Redis가 죽어 셀 수 없으면 경고만 남기고 통과시킨다(S15P31E103-238). 이 한도는 보안이 아니라 금융망 보호용이라,
+     * 잠깐의 장애 동안 호출이 늘더라도 잔액 조회를 살리는 쪽을 골랐다. 로그인·가입·카드 확인 한도는 대입 공격을 막는 보안용이라
+     * Redis가 죽으면 지금처럼 실패한다.
+     */
+    public void checkBalanceRefresh(Long userId, int limit) {
+        if (userId == null) {
+            return;
+        }
+        try {
+            hit("balance-refresh:" + userId, limit);
+        } catch (DataAccessException e) {
+            log.warn("잔액 새로고침 한도를 세지 못해 건너뜀({}) (userId={})", e.getClass().getSimpleName(), userId);
+        }
+    }
+
+    private void hit(String key, int limit) {
+        List<?> result = redis.execute(HIT, List.of(KEY_PREFIX + key), String.valueOf(properties.window().toMillis()));
+        long count = ((Number) result.get(0)).longValue();
+        if (count > limit) {
+            long ttlMillis = Math.max(((Number) result.get(1)).longValue(), 0);
+            long retryAfter = Math.max(1, (ttlMillis + 999) / 1000);
+            throw new BusinessException(ErrorCode.TOO_MANY_REQUESTS, Map.of("retryAfterSeconds", retryAfter));
+        }
+    }
+}

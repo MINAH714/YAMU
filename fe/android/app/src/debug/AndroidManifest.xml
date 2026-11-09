@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- debug 빌드에만 합쳐짐: 로컬 http 허용 -->
+    <application android:networkSecurityConfig="@xml/network_security_config" />
+</manifest>

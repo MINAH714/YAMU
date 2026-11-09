@@ -1,0 +1,280 @@
+package com.yamu.be.payment.approve;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.inOrder;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+
+import com.yamu.be.account.AccountBalanceService;
+import com.yamu.be.card.domain.CardType;
+import com.yamu.be.global.exception.BusinessException;
+import com.yamu.be.global.exception.ErrorCode;
+import com.yamu.be.global.finapi.FinApiException;
+import com.yamu.be.payment.PaymentTerms;
+import com.yamu.be.payment.approve.PaymentAccountReader.BankAccess;
+import com.yamu.be.payment.bank.SsafyTransferApi;
+import com.yamu.be.payment.bank.TransferResult;
+import com.yamu.be.payment.bank.TransferResult.RejectReason;
+import com.yamu.be.payment.bank.TransferResult.Status;
+import com.yamu.be.payment.bank.TransferTag;
+import com.yamu.be.payment.domain.FacilityType;
+import com.yamu.be.payment.domain.PaymentChannel;
+import com.yamu.be.payment.domain.PaymentStatus;
+import com.yamu.be.payment.domain.PaymentTransaction;
+import com.yamu.be.payment.domain.PaymentTransactionRepository;
+import com.yamu.be.payment.recommend.RecommendationResult.BenefitLine;
+import com.yamu.be.payment.recommend.RecommendationResult.Candidate;
+import com.yamu.be.payment.recommend.RecommendationResult.CardSummary;
+import com.yamu.be.payment.recommend.RecommendationResult.RuleVersion;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.Optional;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.InOrder;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+import org.mockito.junit.jupiter.MockitoSettings;
+import org.mockito.quality.Strictness;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
+import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.transaction.TransactionStatus;
+import org.springframework.transaction.support.TransactionCallback;
+import org.springframework.transaction.support.TransactionTemplate;
+
+/** 체크카드 출금 승인의 분기. 금융망은 가짜다. 실제 순서·DB 상태는 CheckCardApprovalIntegrationTest가 확인한다. */
+@ExtendWith(MockitoExtension.class)
+@MockitoSettings(strictness = Strictness.LENIENT)
+class CheckCardApproverTest {
+
+    static final long PAYMENT_ID = 1024L;
+    static final String TX_NO = "20261022143005000001";
+    static final LocalDateTime REQUESTED_AT = LocalDateTime.of(2026, 10, 22, 5, 30);
+    static final LocalDateTime NOW = REQUESTED_AT.plusSeconds(5);
+    static final CardSummary CHECK = new CardSummary(16L, 4L, CardType.CHECK, false, null, "5678", "TEST", "테스트 체크");
+    static final BankAccess ACCESS = new BankAccess("user-key", "0012345678901234", CardType.CHECK, 9L);
+
+    @Mock PaymentAccountReader accounts;
+    @Mock SsafyTransferApi transfer;
+    @Mock PaymentTransactionRepository payments;
+    @Mock ApprovalAttemptStore attempts;
+    @Mock AccountBalanceService balances;
+    @Mock TransactionTemplate transaction;
+
+    CheckCardApprover approver;
+    PaymentTransaction payment;
+
+    @BeforeEach
+    void setUp() {
+        approver = new CheckCardApprover(accounts, transfer, payments, attempts, balances, transaction);
+        payment = processing();
+        when(payments.findById(PAYMENT_ID)).thenAnswer(inv -> Optional.of(payment));
+        when(payments.saveAndFlush(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(transaction.execute(any())).thenAnswer(inv -> inv.<TransactionCallback<Object>>getArgument(0)
+                .doInTransaction(mock(TransactionStatus.class)));
+        when(accounts.forCard(7L, 16L)).thenReturn(Optional.of(ACCESS));
+        when(transfer.newTransactionNo()).thenReturn(TX_NO);
+    }
+
+    @Test
+    void 출금이_성공하면_요청_번호와_거래_번호를_담아_승인한다() {
+        when(transfer.withdraw(anyString(), anyString(), anyLong(), any(), anyString()))
+                .thenReturn(new TransferResult(Status.SUCCESS, "1101", LocalDate.of(2026, 10, 22), null, null));
+
+        ApprovalOutcome outcome = approver.approve(command(candidate(15_000)));
+
+        ApprovalOutcome.Approved approved = (ApprovalOutcome.Approved) outcome;
+        assertThat(approved.approvedAmount()).isEqualTo(15_000);
+        assertThat(approved.chargedAmount()).isEqualTo(15_000);
+        assertThat(approved.finRequestNo()).isEqualTo(TX_NO);
+        assertThat(approved.finTransactionNo()).isEqualTo("1101");
+        assertThat(approved.performanceMonth()).isEqualTo(LocalDate.of(2026, 10, 1));
+        // 실적 인정 값이 없는 명령: 인정액 미확인, 실적 월은 승인월(Task 5.2.11)
+        assertThat(approved.recognizedPerformanceAmount()).isNull();
+        verify(transfer).withdraw("user-key", "0012345678901234", 15_000, TransferTag.payment(PAYMENT_ID), TX_NO);
+        verify(attempts).attachFinRequestNo(PAYMENT_ID, 1, TX_NO);
+        // 돈이 나갔으니 잔고예보·계좌 목록이 쓰는 연결 계좌(9) 잔액 캐시를 지운다
+        verify(balances).evict(9L);
+    }
+
+    @Test
+    void 즉시할인이_있으면_할인_뒤_금액을_출금하고_승인액도_그_금액이다() {
+        when(transfer.withdraw(anyString(), anyString(), anyLong(), any(), anyString()))
+                .thenReturn(new TransferResult(Status.SUCCESS, "1101", LocalDate.of(2026, 10, 22), null, null));
+
+        ApprovalOutcome.Approved approved = (ApprovalOutcome.Approved) approver.approve(command(candidate(14_000)));
+
+        // POS 결과는 요청액 − 승인액으로 즉시할인을 보여 주므로 승인액이 출금액과 같아야 한다
+        assertThat(approved.approvedAmount()).isEqualTo(14_000);
+        assertThat(approved.chargedAmount()).isEqualTo(14_000);
+        verify(transfer).withdraw("user-key", "0012345678901234", 14_000, TransferTag.payment(PAYMENT_ID), TX_NO);
+    }
+
+    @Test
+    void 출금을_부르기_전에_요청_번호와_출금액을_결제_행에_먼저_저장한다() {
+        when(transfer.withdraw(anyString(), anyString(), anyLong(), any(), anyString())).thenAnswer(inv -> {
+            // 결과를 모를 때 복구가 이 금액으로 거래내역을 비교한다
+            assertThat(payment.getFinRequestNo()).isEqualTo(inv.getArgument(4));
+            assertThat(payment.getFinRequestAmount()).isEqualTo(inv.<Long>getArgument(2));
+            return new TransferResult(Status.SUCCESS, "1101", LocalDate.of(2026, 10, 22), null, null);
+        });
+
+        approver.approve(command(candidate(14_000)));
+
+        assertThat(payment.getFinRequestAmount()).isEqualTo(14_000L);
+    }
+
+    @Test
+    void 출금을_부르기_전에_요청_번호를_결제_행에_먼저_저장한다() {
+        when(transfer.withdraw(anyString(), anyString(), anyLong(), any(), anyString())).thenAnswer(inv -> {
+            // 출금 호출 시점에 행에는 이미 같은 번호가 있어야 한다
+            assertThat(payment.getFinRequestNo()).isEqualTo(inv.getArgument(4));
+            return new TransferResult(Status.SUCCESS, "1101", LocalDate.of(2026, 10, 22), null, null);
+        });
+
+        approver.approve(command(null));
+
+        InOrder order = inOrder(payments, transfer);
+        order.verify(payments).saveAndFlush(payment);
+        order.verify(transfer).withdraw(anyString(), anyString(), anyLong(), any(), eq(TX_NO));
+    }
+
+    @Test
+    void 후보의_출금액이_0원이면_채번도_출금도_하지_않고_승인한다() {
+        ApprovalOutcome outcome = approver.approve(command(candidate(0)));
+
+        ApprovalOutcome.Approved approved = (ApprovalOutcome.Approved) outcome;
+        assertThat(approved.approvedAmount()).isZero();
+        assertThat(approved.chargedAmount()).isZero();
+        assertThat(approved.finRequestNo()).isNull();
+        assertThat(approved.finTransactionNo()).isNull();
+        verify(transfer, never()).newTransactionNo();
+        verify(transfer, never()).withdraw(anyString(), anyString(), anyLong(), any(), anyString());
+        assertThat(payment.getFinRequestNo()).isNull();
+        assertThat(payment.getFinRequestAmount()).isNull();
+    }
+
+    @Test
+    void 출금할_계좌나_키가_없으면_ACCOUNT_UNAVAILABLE로_거절하고_출금하지_않는다() {
+        when(accounts.forCard(7L, 16L)).thenReturn(Optional.empty());
+
+        ApprovalOutcome outcome = approver.approve(command(null));
+
+        assertThat(((ApprovalOutcome.Declined) outcome).code()).isEqualTo(FailureCode.ACCOUNT_UNAVAILABLE);
+        verify(transfer, never()).newTransactionNo();
+        verify(transfer, never()).withdraw(anyString(), anyString(), anyLong(), any(), anyString());
+    }
+
+    @Test
+    void 잔액_부족_계좌_없음_그_밖의_거절은_각각의_사유로_DECLINED다() {
+        when(transfer.withdraw(anyString(), anyString(), anyLong(), any(), anyString()))
+                .thenReturn(new TransferResult(Status.REJECTED, null, null, RejectReason.INSUFFICIENT_BALANCE, "A1014"))
+                .thenReturn(new TransferResult(Status.REJECTED, null, null, RejectReason.ACCOUNT_NOT_FOUND, "A1003"))
+                .thenReturn(new TransferResult(Status.REJECTED, null, null, RejectReason.OTHER, "A9999"));
+
+        assertThat(((ApprovalOutcome.Declined) approver.approve(command(null))).code())
+                .isEqualTo(FailureCode.INSUFFICIENT_BALANCE);
+        payment = processing();
+        assertThat(((ApprovalOutcome.Declined) approver.approve(command(null))).code())
+                .isEqualTo(FailureCode.ACCOUNT_UNAVAILABLE);
+        payment = processing();
+        assertThat(((ApprovalOutcome.Declined) approver.approve(command(null))).code())
+                .isEqualTo(FailureCode.ISSUER_DECLINED);
+        // 잔액이 바뀌지 않았으니 캐시는 그대로 둔다
+        verify(balances, never()).evict(any());
+    }
+
+    @Test
+    void 결과를_모르면_FIN_API_UNAVAILABLE_예외이고_요청_번호는_행에_남는다() {
+        when(transfer.withdraw(anyString(), anyString(), anyLong(), any(), anyString()))
+                .thenReturn(new TransferResult(Status.UNKNOWN, null, null, null, "H1007"));
+
+        assertThatThrownBy(() -> approver.approve(command(null)))
+                .isInstanceOf(BusinessException.class)
+                .extracting(e -> ((BusinessException) e).getErrorCode()).isEqualTo(ErrorCode.FIN_API_UNAVAILABLE);
+        assertThat(payment.getFinRequestNo()).isEqualTo(TX_NO);
+        assertThat(payment.getStatus()).isEqualTo(PaymentStatus.PROCESSING);
+        // 돈이 나갔는지 모르니 캐시는 복구(WithdrawalRecovery)가 확정할 때 지운다
+        verify(balances, never()).evict(any());
+    }
+
+    @Test
+    void 금융망에_보내지_못했거나_채번에_실패하면_ApprovalNotSentException이다() {
+        when(transfer.withdraw(anyString(), anyString(), anyLong(), any(), anyString()))
+                .thenReturn(new TransferResult(Status.NOT_SENT, null, null, null, null));
+        assertThatThrownBy(() -> approver.approve(command(null))).isInstanceOf(ApprovalNotSentException.class);
+
+        payment = processing();
+        doThrow(FinApiException.timedOut("issue")).when(transfer).newTransactionNo();
+        assertThatThrownBy(() -> approver.approve(command(null))).isInstanceOf(ApprovalNotSentException.class);
+        verify(transfer, never()).withdraw(anyString(), anyString(), anyLong(), any(), eq("issue"));
+        assertThat(payment.getFinRequestNo()).isNull();
+        verify(balances, never()).evict(any());
+    }
+
+    @Test
+    void 결제_행이_PROCESSING이_아니거나_동시_수정이면_출금하지_않고_IDEMPOTENCY_IN_PROGRESS다() {
+        payment = requested();
+        assertThatThrownBy(() -> approver.approve(command(null)))
+                .extracting(e -> ((BusinessException) e).getErrorCode()).isEqualTo(ErrorCode.IDEMPOTENCY_IN_PROGRESS);
+
+        payment = processing();
+        doThrow(new ObjectOptimisticLockingFailureException("payment", null)).when(transaction).execute(any());
+        assertThatThrownBy(() -> approver.approve(command(null)))
+                .extracting(e -> ((BusinessException) e).getErrorCode()).isEqualTo(ErrorCode.IDEMPOTENCY_IN_PROGRESS);
+        verify(transfer, never()).withdraw(anyString(), anyString(), anyLong(), any(), anyString());
+    }
+
+    @Test
+    void BE3_실적_인정_값이_있으면_그_인정액과_인정월로_승인한다() {
+        // Task 5.2.11: 승인 시각은 10월이지만 BE3가 정한 11월을 쓴다(예: 다음 달 실적 규칙)
+        when(transfer.withdraw(anyString(), anyString(), anyLong(), any(), anyString()))
+                .thenReturn(new TransferResult(Status.SUCCESS, "1101", LocalDate.of(2026, 10, 22), null, null));
+        var recognition = new com.yamu.be.payment.recommend.RecommendationResult.PerformanceRecognition(
+                CHECK.userCardId(), java.time.YearMonth.of(2026, 11), 15_000L);
+
+        ApprovalOutcome.Approved approved = (ApprovalOutcome.Approved) approver.approve(new ApprovalCommand(PAYMENT_ID, 7L,
+                PaymentTerms.lumpSum(15_000), CHECK, candidate(15_000), REQUESTED_AT, NOW, 1, recognition));
+
+        assertThat(approved.recognizedPerformanceAmount()).isEqualTo(15_000L);
+        assertThat(approved.performanceMonth()).isEqualTo(LocalDate.of(2026, 11, 1));
+    }
+
+    // ───────── 도우미 ─────────
+
+    private static ApprovalCommand command(Candidate candidate) {
+        return new ApprovalCommand(PAYMENT_ID, 7L, PaymentTerms.lumpSum(15_000), CHECK, candidate, REQUESTED_AT, NOW, 1);
+    }
+
+    /** 출금액이 chargedAmount가 되도록 결제 금액(15,000원)과의 차이를 즉시할인으로 둔 후보. */
+    private static Candidate candidate(long chargedAmount) {
+        long instantDiscount = 15_000 - chargedAmount;
+        List<BenefitLine> benefits = instantDiscount == 0 ? List.of()
+                : List.of(new BenefitLine(1L, "즉시할인", "DISCOUNT", instantDiscount, instantDiscount,
+                        BenefitLine.AT_APPROVAL));
+        return new Candidate(1, CHECK, instantDiscount, benefits, "mock", null, new RuleVersion(4L, 0));
+    }
+
+    private static PaymentTransaction requested() {
+        PaymentTransaction payment = PaymentTransaction.request(7L, 1L, PaymentChannel.OFFLINE, FacilityType.GENERAL,
+                null, "4b4a1f4e-0d1e-4a1e-9b4e-5f7d2c1a0001", new byte[32], 15_000, 1, REQUESTED_AT);
+        ReflectionTestUtils.setField(payment, "id", PAYMENT_ID);
+        return payment;
+    }
+
+    private static PaymentTransaction processing() {
+        PaymentTransaction payment = requested();
+        payment.startApproval(16L, 4L);
+        return payment;
+    }
+}

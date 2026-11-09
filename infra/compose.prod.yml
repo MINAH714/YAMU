@@ -1,0 +1,103 @@
+name: yamu-prod
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  mysql:
+    image: mysql:8.0
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: ${DB_NAME:-yamu}
+      MYSQL_USER: ${DB_USERNAME:-yamu}
+      MYSQL_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD in the server env file}
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:?Set DB_ROOT_PASSWORD in the server env file}
+      TZ: UTC
+    volumes:
+      - mysql_data:/var/lib/mysql
+    networks:
+      - database
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - 'MYSQL_PWD="$${MYSQL_PASSWORD}" mysql --protocol=TCP -h 127.0.0.1 -u "$${MYSQL_USER}" "$${MYSQL_DATABASE}" -Nse "SELECT 1" >/dev/null'
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 40s
+    logging: *logging
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--appendfsync", "everysec"]
+    volumes:
+      - redis_data:/data
+    networks:
+      - database
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+    logging: *logging
+
+  backend:
+    image: yamu-backend:${APP_VERSION:-manual}
+    build:
+      context: ../be
+      dockerfile: ../infra/docker/backend.Dockerfile
+    restart: unless-stopped
+    init: true
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      SERVER_PORT: "8080"
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/${DB_NAME:-yamu}?serverTimezone=UTC&characterEncoding=UTF-8
+      SPRING_DATASOURCE_USERNAME: ${DB_USERNAME:-yamu}
+      SPRING_DATASOURCE_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD in the server env file}
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_DATA_REDIS_PORT: "6379"
+      YAMU_CRYPTO_DATA_KEY_1: ${YAMU_CRYPTO_DATA_KEY_1:?Set YAMU_CRYPTO_DATA_KEY_1}
+      YAMU_CRYPTO_HMAC_KEY: ${YAMU_CRYPTO_HMAC_KEY:?Set YAMU_CRYPTO_HMAC_KEY}
+      YAMU_CRYPTO_PIN_PEPPER: ${YAMU_CRYPTO_PIN_PEPPER:?Set YAMU_CRYPTO_PIN_PEPPER}
+      YAMU_JWT_SECRET: ${YAMU_JWT_SECRET:?Set YAMU_JWT_SECRET}
+      # Holiday sync key (data.go.kr decoded key). Optional: when empty the backend still starts and uses the bundled holiday files.
+      DATA_GO_KR_SERVICE_KEY: ${DATA_GO_KR_SERVICE_KEY:-}
+      # Recovery job for unknown-result payments (WithdrawalRecoveryJob). On by default in prod; set false only to pause it.
+      PAYMENT_RECOVERY_ENABLED: ${PAYMENT_RECOVERY_ENABLED:-true}
+      MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE: health
+      MANAGEMENT_ENDPOINT_HEALTH_SHOWDETAILS: never
+      # Temporary deployment choice: API docs are not publicly exposed.
+      SPRINGDOC_APIDOCS_ENABLED: "false"
+      SPRINGDOC_SWAGGERUI_ENABLED: "false"
+      JAVA_TOOL_OPTIONS: -XX:MaxRAMPercentage=70.0 -Duser.timezone=UTC
+    ports:
+      - "127.0.0.1:8080:8080"
+    networks:
+      - default
+      - database
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "--max-time", "5", "http://127.0.0.1:8080/actuator/health"]
+      interval: 15s
+      timeout: 6s
+      retries: 10
+      start_period: 90s
+    mem_limit: 2g
+    stop_grace_period: 30s
+    logging: *logging
+
+networks:
+  database:
+    internal: true
+
+volumes:
+  mysql_data:
+  redis_data:

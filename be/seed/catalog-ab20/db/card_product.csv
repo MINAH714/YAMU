@@ -1,0 +1,15 @@
+﻿issuer_code,product_name,card_type,terms_url,card_id
+LOTTE,LOCA LIKIT 2.0,CREDIT,https://www.lottecard.co.kr/app/LPCDADB_V100.lc?vtCdKndC=P15835-A15835,lotte-p15835-a15835
+SAMSUNG,삼성 iD SIMPLE,CREDIT,https://www.samsungcard.com/home/card/cardinfo/PGHPPCCCardCardinfoDetails001?code=AAP1767,samsung-aap1767
+LOTTE,LOCA LIKIT Eat,CREDIT,https://www.lottecard.co.kr/app/LPCDADB_V100.lc?vtCdKndC=P13943-A13943,lotte-p13943-a13943
+HYUNDAI,현대카드 M ME4,CREDIT,https://www.hyundaicard.com/cpc/cr/CPCCR0201_01.hc?cardWcd=ME4,hyundai-m
+KB,KB국민 노리 체크,CHECK,https://card.kbcard.com/CRD/DVIEW/HCAMCXPRICAC0076?mainCC=a&cooperationcode=01664,kb-01664
+SAMSUNG,삼성 taptap O,CREDIT,https://www.samsungcard.com/home/card/cardinfo/PGHPPCCCardCardinfoDetails001?code=AAP1483,samsung-taptap-o
+KAKAOBANK,카카오뱅크 프렌즈 체크,CHECK,https://www.kakaobank.com/products/checkcard,kakaobank-friends-check
+HYUNDAI,현대카드ZERO Edition3(포인트형),CREDIT,https://www.hyundaicard.com/cpc/cr/CPCCR0201_01.hc?cardWcd=MZROE3,hyundai-mzroe3
+SAMSUNG,삼성 iD ON 카드,CREDIT,https://www.samsungcard.com/home/card/cardinfo/PGHPPCCCardCardinfoDetails001?code=AAP1731,samsung-id-on
+KB,KB국민 청춘대로 톡톡카드,CREDIT,https://card.kbcard.com/CRD/DVIEW/HCAMCXPRICAC0076?mainCC=a&cooperationcode=09174,kb-toktok
+KB,KB국민 노리2 체크카드(KB Pay),CHECK,https://card.kbcard.com/CRD/DVIEW/HCAMCXPRICAC0076?mainCC=a&cooperationcode=07964,kb-07964
+HANA,하나카드 트래블로그 체크카드,CHECK,https://www.hanacard.co.kr/OPI41000000D.web?CD_PD_SEQ=15414,hana-travelog-check
+LOTTE,LOCA LIKIT Play,CREDIT,https://www.lottecard.co.kr/app/LPCDADB_V100.lc?vtCdKndC=P13949-A13949,lotte-p13949-a13949
+LOTTE,LOCA LIKIT Shop,CREDIT,https://www.lottecard.co.kr/app/LPCDADB_V100.lc?vtCdKndC=P13955-A13955,lotte-p13955-a13955

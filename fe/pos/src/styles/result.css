@@ -1,0 +1,311 @@
+/* 요청 중·승인 대기·결과 화면 */
+
+.status {
+  height: 100%;
+  min-height: 0;
+}
+
+/* 가운데 한 덩어리(요청 중) */
+
+.status[data-layout='center'] {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: var(--s-6);
+  overflow-y: auto;
+}
+
+/* 왼쪽 결과, 오른쪽 주문 내역 */
+
+.status[data-layout='split'] {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 352px;
+  grid-template-rows: minmax(0, 1fr);
+}
+
+.status-main {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s-5);
+  width: 100%;
+  min-width: 0;
+  text-align: center;
+}
+
+.status[data-layout='split'] .status-main {
+  padding: var(--s-6) var(--s-8);
+  overflow-y: auto;
+}
+
+.status-text {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--s-2);
+}
+
+.status-mark {
+  display: inline-flex;
+  flex: none;
+  vertical-align: middle;
+}
+
+.status-lead,
+.status-title {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s-2);
+}
+
+.status-lead {
+  font-size: var(--fs-card-title);
+  font-weight: var(--fw-semibold);
+}
+
+/* 완료 화면의 제목은 금액이다 */
+.status-amount {
+  font-size: var(--fs-amount-xl);
+  font-weight: var(--fw-bold);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+/* 실패 화면의 금액은 결제된 돈이 아니므로 한 단계 낮춘다 */
+.status-order-amount {
+  margin-top: var(--s-2);
+  color: var(--text2);
+}
+
+/* 출금 미확인은 설명대로 해야 두 번 결제되지 않는다. 상태색을 문구까지 쓴다 */
+.status[data-tone='unconfirmed'] .status-description {
+  color: var(--on-warning-container);
+  font-weight: var(--fw-medium);
+}
+
+/* 오른쪽 주문 내역 */
+
+.status-side {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-4);
+  min-height: 0;
+  padding: var(--s-6);
+  background: var(--surface-dim);
+}
+
+.status-side-title {
+  flex: none;
+  margin: 0;
+  font-size: var(--fs-card-title);
+  font-weight: var(--fw-semibold);
+}
+
+.status-items {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.status-items li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto 88px;
+  gap: var(--s-3);
+  align-items: baseline;
+  padding: var(--s-2) 0;
+  font-size: var(--fs-body);
+}
+
+.status-item-quantity {
+  color: var(--text3);
+  font-size: var(--fs-caption);
+  font-variant-numeric: tabular-nums;
+}
+
+.status-item-amount {
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.status-rows {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  gap: var(--s-2);
+  width: 100%;
+}
+
+.status-side .status-rows {
+  padding-top: var(--s-4);
+  border-top: 1px solid var(--outline-variant);
+}
+
+.status[data-layout='center'] .status-rows {
+  max-width: 400px;
+}
+
+.status-row {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--s-4);
+  font-size: var(--fs-body-sm);
+}
+
+.status-row dt {
+  color: var(--text2);
+}
+
+.status-row dd {
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.status-row dd.mono {
+  letter-spacing: 0.02em;
+}
+
+.status-action {
+  flex: none;
+  width: 100%;
+}
+
+.status[data-layout='center'] .status-action {
+  max-width: 400px;
+}
+
+/* 승인 대기 */
+
+.waiting {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--s-4);
+  height: 100%;
+  padding: var(--s-4) var(--s-6);
+  overflow-y: auto;
+  text-align: center;
+}
+
+.waiting-block {
+  display: flex;
+  flex: 1 0 auto;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s-3);
+  width: 100%;
+}
+
+.waiting-text {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--s-1);
+}
+
+.waiting-method {
+  margin-top: calc(var(--s-2) * -1);
+  color: var(--text3);
+  font-size: var(--fs-caption);
+}
+
+.waiting-timer {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s-2);
+  min-height: 28px;
+  color: var(--text2);
+  font-size: var(--fs-body);
+  font-variant-numeric: tabular-nums;
+}
+
+.waiting-timer strong {
+  color: var(--text1);
+  font-weight: var(--fw-semibold);
+}
+
+.waiting-timer[data-urgent='true'] strong {
+  color: var(--on-warning-container);
+}
+
+/* 마감까지 줄어드는 선. 값이 250ms마다 오므로 그 사이를 같은 시간으로 잇는다 */
+.waiting-countdown {
+  width: 360px;
+  max-width: 100%;
+  height: 4px;
+  overflow: hidden;
+  border-radius: var(--r-pill);
+  background: var(--surface-high);
+}
+
+/* 확인 중으로 바뀌어도 자리는 그대로 둔다 */
+.waiting-countdown[hidden] {
+  display: block;
+  visibility: hidden;
+}
+
+.waiting-countdown span {
+  display: block;
+  height: 100%;
+  background: var(--primary);
+  transform-origin: center;
+  transition: transform 250ms linear;
+}
+
+.waiting-countdown[data-urgent='true'] span {
+  background: var(--warning);
+}
+
+.waiting-recheck {
+  width: 100%;
+  max-width: 400px;
+  margin-top: var(--s-2);
+}
+
+.waiting-foot {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--s-1);
+  width: 100%;
+}
+
+/* Mock 패널. 개발용이라 눈에 띄지 않게 둔다 */
+
+.mock {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  max-width: 800px;
+  padding: var(--s-3) var(--s-4);
+  border-radius: var(--r-input);
+  background: var(--surface-dim);
+  color: var(--text3);
+  font-size: var(--fs-caption-sm);
+}
+
+.mock strong {
+  color: var(--text2);
+}
+
+.mock-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--s-2);
+}
+
+.mock-actions button {
+  padding: 0 var(--s-3);
+  border-radius: var(--r-input);
+  background: var(--surface-high);
+  font-size: var(--fs-caption);
+}
