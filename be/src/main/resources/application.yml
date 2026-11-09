@@ -56,8 +56,9 @@ yamu:
   auth:
     challenge-ttl: 60s
     refresh-token-ttl: 14d
-    # 재발급 직후 직전 토큰이 다시 와도 탈취로 보지 않는 시간(앱의 동시 재발급 대비)
-    refresh-reuse-grace: 10s
+    # 재발급 직후 직전 토큰이 다시 와도 탈취로 보지 않는 시간(앱의 동시 재발급, 응답이 끊긴 뒤 재시도 대비).
+    # 앱의 응답 대기 시간(read 15초)보다 길어야 응답을 못 받은 앱의 재시도가 탈취로 보이지 않는다(S15P31E103-352)
+    refresh-reuse-grace: 60s
     max-failed-attempts: 5
     lock-duration: 30m
     # 본인 인증(step-up) 토큰. 5분 안에 한 번만 쓸 수 있다(명세 5장)
