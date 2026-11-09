@@ -166,6 +166,85 @@ class SimulationBrandMissingDatabaseTest extends MySqlTestSupport {
         });
     }
 
+    /** 승인된 모의 대상: 마트 3종 + 기업형 슈퍼마켓 3종. */
+    @Test
+    void saturdayNamedBrandsCalculateAndWeekdayStillExcludesMartDiscount() {
+        long user = new OwnershipFixtures(jdbc).user();
+        long mrLife = card(user, "신한카드 Mr.Life");
+        card(user, "KB국민 노리 체크");
+        LocalDate saturday = LocalDate.of(2026, 11, 7);
+        var absent = simulation.recommend(new SimulationRecommender.Request(user, mrLife,
+                PaymentTerms.lumpSum(AMOUNT), "OFFLINE", null, "HYPERMARKET", saturday, saturday)).recommendation();
+        assertThat(absent.benefit().netBenefit()).isZero();
+        assertThat(absent.assumptions()).extracting(SimulationRecommender.Assumption::id)
+                .contains("YAMU_BRAND_NOT_SELECTED");
+        for (String brand : List.of("EMART", "LOTTE_MART", "HOMEPLUS", "EMART_EVERYDAY", "LOTTE_SUPER", "HOMEPLUS_EXPRESS")) {
+            long merchant = jdbc.queryForObject("SELECT merchant_id FROM merchant WHERE brand_code = ?", Long.class, brand);
+            String category = jdbc.queryForObject("SELECT merchant_category_code FROM merchant WHERE merchant_id = ?", String.class, merchant);
+            var selected = simulation.recommend(new SimulationRecommender.Request(user, mrLife,
+                    PaymentTerms.lumpSum(AMOUNT), "OFFLINE", merchant, category, saturday, saturday)).recommendation();
+            assertThat(selected.benefit()).as(brand).isNotNull();
+            assertThat(selected.benefit().netBenefit()).as(brand).isEqualByComparingTo("5000");
+            assertThat(selected.missingInformation()).extracting(SimulationRecommender.MissingInformation::field)
+                    .doesNotContain("facts.RULE:MR_LIFE_MART_FAMILY");
+            var automatic = simulation.recommend(new SimulationRecommender.Request(user, null,
+                    PaymentTerms.lumpSum(AMOUNT), "OFFLINE", merchant, category, saturday, saturday)).recommendation();
+            assertThat(automatic.userCardId()).as(brand).isEqualTo(mrLife);
+            var weekday = simulation.recommend(new SimulationRecommender.Request(user, mrLife,
+                    PaymentTerms.lumpSum(AMOUNT), "OFFLINE", merchant, category, TODAY, TODAY)).recommendation();
+            assertThat(weekday.benefit().netBenefit()).as(brand).isZero();
+            var paid = pos.recommend(RecommendationRequest.posPurchase(100L, user, PaymentTerms.lumpSum(AMOUNT),
+                    new RecommendationRequest.MerchantContext(merchant, category, "OFFLINE", "GENERAL"),
+                    LocalDateTime.of(2026, 11, 7, 3, 0)));
+            assertThat(paid.topCandidate().orElseThrow().card().userCardId()).isEqualTo(mrLife);
+            assertThat(paid.topCandidate().orElseThrow().netBenefit()).isEqualByComparingTo("5000");
+        }
+    }
+
+    @Test
+    void genericSupermarketAndUnselectedSupermarketDoNotReceiveMartDiscount() {
+        long user = new OwnershipFixtures(jdbc).user();
+        long mrLife = card(user, "신한카드 Mr.Life");
+        jdbc.update("INSERT INTO merchant(brand_code, merchant_name, merchant_category_code, created_at, updated_at) "
+                + "VALUES ('TEST_INDEPENDENT_SUPER', '일반 슈퍼', 'SUPERMARKET', UTC_TIMESTAMP(6), UTC_TIMESTAMP(6))");
+        long merchant = jdbc.queryForObject("SELECT merchant_id FROM merchant WHERE brand_code = 'TEST_INDEPENDENT_SUPER'", Long.class);
+        LocalDate saturday = LocalDate.of(2026, 11, 7);
+        for (Long selected : new Long[] {null, merchant}) {
+            var result = simulation.recommend(new SimulationRecommender.Request(user, mrLife,
+                    PaymentTerms.lumpSum(AMOUNT), "OFFLINE", selected, "SUPERMARKET", saturday, saturday));
+            assertThat(result.recommendation().benefit().netBenefit()).isZero();
+        }
+    }
+
+    @Test
+    void catalogRepairsLegacyTargetsAndCanBeAppliedTwice() throws Exception {
+        long benefit = jdbc.queryForObject("SELECT b.card_benefit_id FROM card_benefit b JOIN card_product p USING(card_product_id) "
+                + "WHERE p.product_name = '신한카드 Mr.Life' AND b.benefit_code = 'WEEKEND_MART' AND b.policy_version = 1", Long.class);
+        jdbc.update("INSERT INTO benefit_target(card_benefit_id,target_type,target_value,is_excluded,created_at) "
+                + "VALUES (?, 'CATEGORY', 'SUPERMARKET', FALSE, UTC_TIMESTAMP(6)), "
+                + "(?, 'CONDITION', 'RULE:MR_LIFE_MART_FAMILY', FALSE, UTC_TIMESTAMP(6))", benefit, benefit);
+        jdbc.update("INSERT INTO benefit_target_group(card_benefit_id,group_code,is_excluded,created_at) "
+                + "VALUES (?, CONCAT('LEGACY_0_',LEFT(SHA2('CATEGORY:SUPERMARKET',256),40)), FALSE, UTC_TIMESTAMP(6))", benefit);
+        jdbc.update("INSERT INTO benefit_target_group_member(benefit_target_group_id,benefit_target_id,card_benefit_id) "
+                + "SELECT g.benefit_target_group_id,t.benefit_target_id,? FROM benefit_target_group g "
+                + "JOIN benefit_target t ON t.card_benefit_id=g.card_benefit_id WHERE g.card_benefit_id=? "
+                + "AND g.group_code=CONCAT('LEGACY_0_',LEFT(SHA2('CATEGORY:SUPERMARKET',256),40)) "
+                + "AND t.target_type='CATEGORY' AND t.target_value='SUPERMARKET'", benefit, benefit);
+        for (int attempt = 0; attempt < 2; attempt++) {
+            seed();
+            assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM benefit_target WHERE card_benefit_id=? "
+                    + "AND target_value IN ('SUPERMARKET','RULE:MR_LIFE_MART_FAMILY')", Integer.class, benefit)).isZero();
+            assertThat(jdbc.queryForList("SELECT m.brand_code FROM benefit_target t JOIN merchant m USING(merchant_id) "
+                    + "WHERE t.card_benefit_id=? AND t.target_type='BRAND'", String.class, benefit))
+                    .containsExactlyInAnyOrder("EMART", "LOTTE_MART", "HOMEPLUS", "EMART_EVERYDAY", "LOTTE_SUPER", "HOMEPLUS_EXPRESS");
+            assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM benefit_target_group WHERE card_benefit_id=?", Integer.class, benefit))
+                    .isEqualTo(6);
+            assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM benefit_target WHERE card_benefit_id=? "
+                    + "AND target_type='CONDITION' AND target_value='TRANSACTION_KIND:GIFT_CERTIFICATE_PURCHASE' AND is_excluded=TRUE",
+                    Integer.class, benefit)).isEqualTo(1);
+        }
+    }
+
     private SimulationRecommender.Request request(long user, Long cardId, Long merchant) {
         return new SimulationRecommender.Request(user, cardId, PaymentTerms.lumpSum(AMOUNT),
                 "OFFLINE", merchant, "HYPERMARKET", TODAY, TODAY);
