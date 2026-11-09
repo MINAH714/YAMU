@@ -20,11 +20,13 @@ import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import org.springframework.stereotype.Service;
@@ -46,6 +48,8 @@ public class ForecastService {
     private static final Set<Integer> ALLOWED_DAYS = Set.of(7, 14, 30);
     /** 한 번에 예보할 수 있는 계좌 수. 계좌마다 금융망 잔액 조회가 나가므로 막는다. AI 생활비 API 입력 상한과 같다(2026-11-04 결정). */
     static final int MAX_ACCOUNTS = 20;
+    /** 기간 밖 청구 미리보기에 담을 청구를 읽는 범위(기간 마지막 날부터 년 수). */
+    static final int BEYOND_HORIZON_YEARS = 1;
     /** 월급을 설정하지 않았거나 두 달 안에 회차가 없으면 NEXT_INCOME 대신 쓰는 명세의 대체 기간. */
     private static final int NEXT_INCOME_FALLBACK_DAYS = 30;
     /** 명세 「생활비 예측 상세」의 제외 안내. 실제로 빼는 일은 생활비 원천({@link LivingCostReader})이 한다. */
@@ -145,7 +149,8 @@ public class ForecastService {
         predictionLog.record(authenticatedUserId, horizon.from(), horizon.days(),
                 living.projection().byAccount().values());
         return new BalanceForecast(selected, selected.size(), currentTotal, horizon, alertThreshold, summary,
-                series(projection.total()), aggregate.windows(), livingCost, accountForecasts,
+                series(projection.total()), aggregate.windows(), livingCost,
+                beyondHorizon(authenticatedUserId, prepared.beyondHorizon()), accountForecasts,
                 List.copyOf(prepared.excluded()), true, now());
     }
 
@@ -174,8 +179,9 @@ public class ForecastService {
                 creditSchedule, horizon.from(), horizon.to());
         List<FlowEvent> events = new ArrayList<>(converted.events());
         List<ExcludedItem> excluded = new ArrayList<>(converted.excluded());
-        events.addAll(billEvents(authenticatedUserId, selected, selectedSet, horizon, excluded));
-        events.addAll(creditSpendingEvents(authenticatedUserId, selected, selectedSet, horizon, excluded));
+        List<Beyond> beyond = new ArrayList<>();
+        events.addAll(billEvents(authenticatedUserId, selected, selectedSet, horizon, excluded, beyond));
+        events.addAll(creditSpendingEvents(authenticatedUserId, selected, selectedSet, horizon, excluded, beyond));
 
         Map<Long, Long> startBalances = new LinkedHashMap<>();
         Map<Long, Long> dailyLiving = new HashMap<>();
@@ -187,7 +193,7 @@ public class ForecastService {
             }
         }
         return new Prepared(selected, horizon, userSettings.alertThreshold(), balanceById, living, List.copyOf(events),
-                List.copyOf(excluded), startBalances, dailyLiving);
+                List.copyOf(excluded), startBalances, dailyLiving, List.copyOf(beyond));
     }
 
     /**
@@ -403,12 +409,15 @@ public class ForecastService {
     /**
      * 청구 출금을 출금 계좌의 출금일에 뺀다. 확정 청구는 확정 선부터, 진행 중 청구는 예상 선부터 반영한다.
      * 출금일이 지났는데 아직 확정 상태인 청구는 출금 결과를 기다리는 중이라 오늘 뺀다.
-     * 미납 청구는 재출금 일정이 없어 빼지 않고 excluded로 알린다.
+     * 미납 청구는 재출금 일정이 없어 빼지 않고 excluded로 알린다. 출금일이 기간 뒤인 확정·진행 중 청구는 선에 넣지 않고
+     * beyond에 담는다(기간 밖 청구 미리보기, S15P31E103-348). 아직 출금되지 않은 청구는 모두 읽으려고
+     * {@value #BEYOND_HORIZON_YEARS}년 뒤 출금분까지 읽는다(청구서는 이번·지난 이용기간 것만 있어 실제로는 두어 달 안이다).
      */
     private List<FlowEvent> billEvents(Long userId, List<Long> selected, Set<Long> selectedSet,
-            BalanceForecast.Horizon horizon, List<ExcludedItem> excluded) {
+            BalanceForecast.Horizon horizon, List<ExcludedItem> excluded, List<Beyond> beyond) {
         List<FlowEvent> events = new ArrayList<>();
-        for (CardBillReader.OutstandingBill bill : bills.outstanding(userId, selected, horizon.to())) {
+        LocalDate readUntil = horizon.to().plusYears(BEYOND_HORIZON_YEARS);
+        for (CardBillReader.OutstandingBill bill : bills.outstanding(userId, selected, readUntil)) {
             // BE 2 데이터 계약 위반이다. 출금 계좌를 임의로 정하거나 조용히 넘기지 않는다.
             if (bill.accountId() == null || bill.status() == null || bill.withdrawalDate() == null) {
                 throw new IllegalStateException("청구의 출금 계좌·상태·출금일이 비었다: " + bill.cardBillId());
@@ -418,6 +427,16 @@ public class ForecastService {
             }
             // 계약상 오지 않지만, 다른 계좌의 청구를 선택 계좌에 옮겨 담지 않는다.
             if (!selectedSet.contains(bill.accountId())) {
+                continue;
+            }
+            if (bill.status() != CardBillReader.Status.UNPAID && bill.withdrawalDate().isAfter(horizon.to())) {
+                // 0원 청구서(예: 승인 저장 실패로 남은 다음 달 빈 청구서)는 빠질 돈이 없어 미리보기에 넣지 않는다.
+                if (bill.amount() > 0) {
+                    beyond.add(new Beyond(billEvent(bill, bill.withdrawalDate(),
+                            bill.status() == CardBillReader.Status.CONFIRMED
+                                    ? FlowEvent.Confidence.CONFIRMED : FlowEvent.Confidence.EXPECTED),
+                            bill.userCardId(), bill.billingMonth()));
+                }
                 continue;
             }
             switch (bill.status()) {
@@ -446,7 +465,7 @@ public class ForecastService {
      * 미납 청구서가 있는 카드는 실제 승인처럼(UNPAID_BILL 거절) 앞으로 쓸 수 없어 뺀다(가상 구매와 같은 BE 2 조회).
      */
     private List<FlowEvent> creditSpendingEvents(Long userId, List<Long> selected, Set<Long> selectedSet,
-            BalanceForecast.Horizon horizon, List<ExcludedItem> excluded) {
+            BalanceForecast.Horizon horizon, List<ExcludedItem> excluded, List<Beyond> beyond) {
         LocalDate today = horizon.from();
         LocalDate from = YearMonth.from(today).minusMonths(LivingCostEstimator.MONTHS).atDay(1);
         CreditSpendingReader.CreditSpending spending = creditSpending.creditDailySpending(userId, selected, from, today);
@@ -467,8 +486,41 @@ public class ForecastService {
         CreditSpendingEstimator.Result result = CreditSpendingEstimator.estimate(usable, names, spending.days(),
                 selectedSet, today, horizon.to(), creditSchedule);
         excluded.addAll(result.excluded());
+        // 사용 추정 이벤트의 refId는 카드 번호다.
+        result.beyond().forEach(event -> beyond.add(new Beyond(event, event.refId(), null)));
         return result.events();
     }
+
+    /**
+     * 기간 밖 출금을 출금일·종류 순으로 응답 모양으로 바꾼다. 선에는 넣지 않는다. 여러 계좌·카드를 구별하도록 출금 계좌와 카드를
+     * 담고, 청구는 제목을 "카드 이름 N월 청구"로 바꾼다(Codex 검토, 2026-11-09 결정). 카드·청구 월은 청구서 읽기가 같이 준다
+     * (!199 리뷰). 카드 이름 조회가 나가므로 잔고예보 조회에서만 부르고 가상 구매는 부르지 않는다(!199 리뷰, 2026-11-09 결정).
+     */
+    private List<BalanceForecast.BeyondHorizonItem> beyondHorizon(Long userId, List<Beyond> beyond) {
+        Map<Long, String> names = new HashMap<>();
+        List<BalanceForecast.BeyondHorizonItem> items = new ArrayList<>();
+        for (Beyond item : beyond.stream().sorted(Comparator.comparing((Beyond b) -> b.event().date())
+                .thenComparing(b -> b.event().type())).toList()) {
+            FlowEvent event = item.event();
+            String title = event.title();
+            if (event.type() == FlowEvent.Type.CARD_BILLING) {
+                String name = names.computeIfAbsent(item.userCardId(),
+                        cardId -> Objects.requireNonNullElse(cardNames.name(userId, cardId), "카드"));
+                title = name + " " + item.billingMonth().getMonthValue() + "월 청구";
+            }
+            items.add(new BalanceForecast.BeyondHorizonItem(event.date(), event.type(), title, event.amount(),
+                    event.confidence(), event.accountId(), item.userCardId()));
+        }
+        return List.copyOf(items);
+    }
+
+    /**
+     * 기간 밖 출금 원재료. 응답 모양은 잔고예보 조회에서만 만든다.
+     *
+     * @param userCardId   그 출금의 카드
+     * @param billingMonth 청구 월. 사용 추정은 null
+     */
+    record Beyond(FlowEvent event, Long userCardId, LocalDate billingMonth) {}
 
     private static FlowEvent billEvent(CardBillReader.OutstandingBill bill, LocalDate date,
             FlowEvent.Confidence confidence) {
@@ -507,8 +559,11 @@ public class ForecastService {
      * @param events        기간 안 미래 입출금(예정 항목·카드 청구·보수적 선 전용 신용카드 사용 추정)
      * @param excluded      계산에서 뺀 항목과 이유
      * @param dailyLiving   생활비 자료가 있는 계좌의 하루 생활비(AI 또는 TSB 예상 생활비의 하루 값). 없는 계좌는 빠진다
+     * @param beyondHorizon 출금일이 기간 뒤인 카드 청구·신용카드 사용 추정의 원재료. 선에는 넣지 않고, 응답 모양은 잔고예보 조회에서만
+     *                      만든다(S15P31E103-348)
      */
     record Prepared(List<Long> selected, BalanceForecast.Horizon horizon, long alertThreshold,
             Map<Long, AccountBalance> balanceById, LivingCostRead living, List<FlowEvent> events,
-            List<ExcludedItem> excluded, Map<Long, Long> startBalances, Map<Long, Long> dailyLiving) {}
+            List<ExcludedItem> excluded, Map<Long, Long> startBalances, Map<Long, Long> dailyLiving,
+            List<Beyond> beyondHorizon) {}
 }

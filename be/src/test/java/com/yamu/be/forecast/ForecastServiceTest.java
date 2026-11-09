@@ -85,6 +85,7 @@ class ForecastServiceTest {
     private RuntimeException balanceFailure;
     private List<OutstandingBill> bills = List.of();
     private final List<LocalDate> billRequestsTo = new ArrayList<>();
+    private final List<Long> nameRequests = new ArrayList<>();
     private List<DailySpending> spending = List.of();
     /** 선택 계좌가 출금 계좌인 신용카드와 카드별 일별 소비. 기본은 없음. */
     private List<Long> creditCards = List.of();
@@ -136,6 +137,7 @@ class ForecastServiceTest {
         CardNameReader names = new CardNameReader(null) {
             @Override
             String name(long userId, long userCardId) {
+                nameRequests.add(userCardId);
                 return "카드" + userCardId;
             }
         };
@@ -156,7 +158,7 @@ class ForecastServiceTest {
     void 잔액에_예정_지출과_청구_출금을_계좌별로_더한_뒤_같은_날짜끼리_합친다() {
         // 명세 예시: A 800,000원에서 11/5 예정 출금 200,000원, B 300,000원에서 11/5 카드 청구 400,000원
         givenEntries(TODAY, TODAY.plusDays(14), entry(1L, A, 200_000L, NOV_5, false));
-        bills = List.of(new OutstandingBill(88L, B, Status.CONFIRMED, NOV_5, 400_000L));
+        bills = List.of(new OutstandingBill(88L, B, Status.CONFIRMED, NOV_5, 400_000L, 7L, LocalDate.of(2026, 11, 1)));
 
         BalanceForecast result = service.forecast(USER, List.of(A, B), Until.DAYS, 14, true, false);
 
@@ -176,7 +178,7 @@ class ForecastServiceTest {
     void 명세_예시대로_통합은_안전해도_B_계좌가_위험하면_최종_상태는_DANGER다() {
         // A 800,000원·하루 생활비 5,000원, 11/5 예정 출금 200,000원. B 300,000원·하루 2,000원, 11/5 카드 청구 400,000원
         givenEntries(TODAY, TODAY.plusDays(14), entry(1L, A, 200_000L, NOV_5, false));
-        bills = List.of(new OutstandingBill(88L, B, Status.CONFIRMED, NOV_5, 400_000L));
+        bills = List.of(new OutstandingBill(88L, B, Status.CONFIRMED, NOV_5, 400_000L, 7L, LocalDate.of(2026, 11, 1)));
         // 7/1부터 오늘까지 매일 같은 금액을 쓰면 지난 3개월 실적 하루 평균과 TSB 하루 예측이 같다
         spending = days(everyDay(A, JUL.atDay(1), TODAY, 5_000), everyDay(B, JUL.atDay(1), TODAY, 2_000));
 
@@ -439,8 +441,8 @@ class ForecastServiceTest {
     @Test
     void 확정_청구는_확정_선부터_진행_중_청구는_예상_선부터_반영한다() {
         givenEntries(TODAY, TODAY.plusDays(14));
-        bills = List.of(new OutstandingBill(88L, A, Status.CONFIRMED, NOV_5, 400_000L),
-                new OutstandingBill(89L, A, Status.ACCUMULATING, NOV_5.plusDays(2), 50_000L));
+        bills = List.of(new OutstandingBill(88L, A, Status.CONFIRMED, NOV_5, 400_000L, 7L, LocalDate.of(2026, 11, 1)),
+                new OutstandingBill(89L, A, Status.ACCUMULATING, NOV_5.plusDays(2), 50_000L, 7L, LocalDate.of(2026, 11, 1)));
 
         BalanceForecast result = service.forecast(USER, List.of(A), Until.DAYS, 14, false, false);
 
@@ -456,7 +458,7 @@ class ForecastServiceTest {
     @Test
     void 결제와_연결된_예정_지출은_빼고_청구로_한_번만_차감한다() {
         givenEntries(TODAY, TODAY.plusDays(14), entry(1L, A, 400_000L, NOV_5, true));
-        bills = List.of(new OutstandingBill(88L, A, Status.CONFIRMED, NOV_5, 400_000L));
+        bills = List.of(new OutstandingBill(88L, A, Status.CONFIRMED, NOV_5, 400_000L, 7L, LocalDate.of(2026, 11, 1)));
 
         BalanceForecast result = service.forecast(USER, List.of(A), Until.DAYS, 14, false, false);
 
@@ -481,7 +483,7 @@ class ForecastServiceTest {
     @Test
     void 다른_계좌의_청구를_선택_계좌에_옮겨_담지_않는다() {
         givenEntries(TODAY, TODAY.plusDays(14));
-        bills = List.of(new OutstandingBill(88L, B, Status.CONFIRMED, NOV_5, 400_000L));
+        bills = List.of(new OutstandingBill(88L, B, Status.CONFIRMED, NOV_5, 400_000L, 7L, LocalDate.of(2026, 11, 1)));
 
         BalanceForecast result = service.forecast(USER, List.of(A), Until.DAYS, 14, false, false);
 
@@ -499,7 +501,7 @@ class ForecastServiceTest {
                 CashflowItem.Direction.EXPENSE, 20_000L, NOV_5, CashflowItem.RecurrenceType.NONE, null, null, null,
                 CashflowItem.Status.CONFIRMED, null);
         givenEntries(TODAY, TODAY.plusDays(14), new CashflowService.Entry(subscription, NOV_5, NOV_5, false));
-        bills = List.of(new OutstandingBill(88L, A, Status.CONFIRMED, NOV_5, 400_000L));
+        bills = List.of(new OutstandingBill(88L, A, Status.CONFIRMED, NOV_5, 400_000L, 7L, LocalDate.of(2026, 11, 1)));
 
         BalanceForecast result = service.forecast(USER, List.of(A), Until.DAYS, 14, false, false);
 
@@ -512,19 +514,49 @@ class ForecastServiceTest {
     void 출금일이_지났는데_아직_확정인_청구는_오늘_확정_선에서_뺀다() {
         // 결제일 07:00 출금 요청 뒤 결과를 기다리는 청구. 예보 시작일 이전 날짜라도 버리지 않는다.
         givenEntries(TODAY, TODAY.plusDays(14));
-        bills = List.of(new OutstandingBill(88L, A, Status.CONFIRMED, TODAY.minusDays(1), 300_000L));
+        bills = List.of(new OutstandingBill(88L, A, Status.CONFIRMED, TODAY.minusDays(1), 300_000L, 7L, LocalDate.of(2026, 11, 1)));
 
         BalanceForecast result = service.forecast(USER, List.of(A), Until.DAYS, 14, false, false);
 
         assertThat(day(result.series(), TODAY).confirmed()).isEqualTo(500_000L);
         assertThat(lastConfirmed(result.series())).isEqualTo(500_000L);
-        assertThat(billRequestsTo).containsExactly(TODAY.plusDays(14));
+        // 기간 밖 청구 미리보기(-348)를 담으려고 기간 마지막 날 뒤 1년까지 읽는다. 선에는 기간 안 출금만 넣는다.
+        assertThat(billRequestsTo).containsExactly(TODAY.plusDays(14).plusYears(ForecastService.BEYOND_HORIZON_YEARS));
+        assertThat(result.beyondHorizon()).isEmpty();
+    }
+
+    @Test
+    void 출금일이_기간_뒤인_청구는_선에_넣지_않고_출금일_순으로_기간_밖_미리보기에_담는다() {
+        // 점검 R-5(-348). 진행 중은 EXPECTED, 확정은 CONFIRMED. 미납은 기간과 상관없이 excluded로만 알린다.
+        givenEntries(TODAY, TODAY.plusDays(14));
+        bills = List.of(new OutstandingBill(90L, A, Status.ACCUMULATING, TODAY.plusDays(30), 70_000L, 42L, LocalDate.of(2026, 12, 1)),
+                new OutstandingBill(89L, A, Status.CONFIRMED, TODAY.plusDays(15), 300_000L, 41L, LocalDate.of(2026, 11, 1)),
+                new OutstandingBill(88L, A, Status.CONFIRMED, TODAY.plusDays(14), 100_000L, 7L, LocalDate.of(2026, 11, 1)),
+                new OutstandingBill(87L, A, Status.UNPAID, TODAY.minusDays(10), 120_000L, 7L, LocalDate.of(2026, 11, 1)));
+
+        BalanceForecast result = service.forecast(USER, List.of(A), Until.DAYS, 14, false, false);
+
+        // 기간 마지막 날 출금은 기간 안이다
+        assertThat(lastConfirmed(result.series())).isEqualTo(700_000L);
+        // 여러 계좌·카드를 구별하도록 출금 계좌·카드와 "카드 이름 N월 청구" 제목을 담는다(Codex 검토).
+        assertThat(result.beyondHorizon())
+                .extracting(BalanceForecast.BeyondHorizonItem::date, BalanceForecast.BeyondHorizonItem::type,
+                        BalanceForecast.BeyondHorizonItem::title, BalanceForecast.BeyondHorizonItem::amount,
+                        BalanceForecast.BeyondHorizonItem::confidence, BalanceForecast.BeyondHorizonItem::accountId,
+                        BalanceForecast.BeyondHorizonItem::userCardId)
+                .containsExactly(
+                        tuple(TODAY.plusDays(15), FlowEvent.Type.CARD_BILLING, "카드41 11월 청구", -300_000L,
+                                FlowEvent.Confidence.CONFIRMED, A, 41L),
+                        tuple(TODAY.plusDays(30), FlowEvent.Type.CARD_BILLING, "카드42 12월 청구", -70_000L,
+                                FlowEvent.Confidence.EXPECTED, A, 42L));
+        assertThat(result.excluded()).extracting(ExcludedItem::reason)
+                .containsExactly(ExcludedItem.Reason.UNPAID_BILL);
     }
 
     @Test
     void 미납_청구는_빼지_않고_excluded로_알린다() {
         givenEntries(TODAY, TODAY.plusDays(14));
-        bills = List.of(new OutstandingBill(88L, A, Status.UNPAID, TODAY.minusDays(10), 120_000L));
+        bills = List.of(new OutstandingBill(88L, A, Status.UNPAID, TODAY.minusDays(10), 120_000L, 7L, LocalDate.of(2026, 11, 1)));
 
         BalanceForecast result = service.forecast(USER, List.of(A), Until.DAYS, 14, false, false);
 
@@ -538,9 +570,9 @@ class ForecastServiceTest {
     @Test
     void 출금_계좌_상태_출금일이_빈_청구는_계약_위반으로_실패한다() {
         givenEntries(TODAY, TODAY.plusDays(14));
-        for (OutstandingBill broken : List.of(new OutstandingBill(88L, null, Status.CONFIRMED, NOV_5, 1_000L),
-                new OutstandingBill(89L, A, null, NOV_5, 1_000L),
-                new OutstandingBill(90L, A, Status.CONFIRMED, null, 1_000L))) {
+        for (OutstandingBill broken : List.of(new OutstandingBill(88L, null, Status.CONFIRMED, NOV_5, 1_000L, 7L, LocalDate.of(2026, 11, 1)),
+                new OutstandingBill(89L, A, null, NOV_5, 1_000L, 7L, LocalDate.of(2026, 11, 1)),
+                new OutstandingBill(90L, A, Status.CONFIRMED, null, 1_000L, 7L, LocalDate.of(2026, 11, 1)))) {
             bills = List.of(broken);
 
             assertThatThrownBy(() -> service.forecast(USER, List.of(A), Until.DAYS, 14, false, false))
@@ -552,7 +584,7 @@ class ForecastServiceTest {
     void 출금일이_지났는데_진행_중인_청구는_오늘_빠질_돈으로_본다() {
         // 청구 확정·출금 배치가 없어 출금일이 지나도 진행 중으로 남는다(2026-11-04 BE 2 합의)
         givenEntries(TODAY, TODAY.plusDays(14));
-        bills = List.of(new OutstandingBill(88L, A, Status.ACCUMULATING, TODAY.minusDays(1), 50_000L));
+        bills = List.of(new OutstandingBill(88L, A, Status.ACCUMULATING, TODAY.minusDays(1), 50_000L, 7L, LocalDate.of(2026, 11, 1)));
 
         BalanceForecast result = service.forecast(USER, List.of(A), Until.DAYS, 14, false, false);
 
@@ -719,6 +751,23 @@ class ForecastServiceTest {
         assertThat(lastConfirmed(result.series())).isEqualTo(800_000L);
         assertThat(result.excluded()).extracting(ExcludedItem::cashflowItemId, ExcludedItem::reason)
                 .containsExactly(tuple(1L, ExcludedItem.Reason.AMOUNT_UNKNOWN));
+    }
+
+    @Test
+    void 가상_구매_재료는_기간_밖_청구의_카드_이름을_읽지_않는다() {
+        // !199 리뷰: 응답에 싣지 않는 기간 밖 미리보기 때문에 가상 구매가 카드마다 조회하지 않게, 이름은 잔고예보 조회에서만 읽는다.
+        givenEntries(TODAY, TODAY.plusDays(14));
+        bills = List.of(new OutstandingBill(89L, A, Status.CONFIRMED, TODAY.plusDays(15), 300_000L, 41L,
+                LocalDate.of(2026, 11, 1)), new OutstandingBill(90L, A, Status.CONFIRMED, TODAY.plusDays(20), 10_000L,
+                41L, LocalDate.of(2026, 12, 1)));
+
+        ForecastService.Prepared prepared = service.prepare(USER, List.of(A), Until.DAYS, 14, false, TODAY);
+        assertThat(prepared.beyondHorizon()).hasSize(2);
+        assertThat(nameRequests).isEmpty();
+
+        // 잔고예보 조회는 같은 카드의 이름을 한 번만 읽는다.
+        service.forecast(USER, List.of(A), Until.DAYS, 14, false, false);
+        assertThat(nameRequests).containsExactly(41L);
     }
 
     private void givenEntries(LocalDate from, LocalDate to, CashflowService.Entry... entries) {

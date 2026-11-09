@@ -33,6 +33,9 @@ public interface CardBillReader {
      * @param accountId      출금 계좌
      * @param withdrawalDate 한국 날짜 기준 출금 예정일(UNPAID는 원래 출금일)
      * @param amount         출금할 금액(원, 0 이상). UNPAID는 남은 미납액
+     * @param userCardId     그 청구서의 카드(기간 밖 청구 미리보기 제목·카드, S15P31E103-348 !199 리뷰)
+     * @param billingMonth   청구 월(그달 1일)
      */
-    record OutstandingBill(Long cardBillId, Long accountId, Status status, LocalDate withdrawalDate, long amount) {}
+    record OutstandingBill(Long cardBillId, Long accountId, Status status, LocalDate withdrawalDate, long amount,
+            Long userCardId, LocalDate billingMonth) {}
 }
