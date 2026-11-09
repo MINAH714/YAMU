@@ -391,7 +391,7 @@ internal fun missingLines(f: Forecast): List<String> = if (f.hasConservative) em
 
 /**
  * 그래프 접근성 설명 — 어떤 선이 있는지와 가장 낮을 때. 최저 잔액(summary.minBalance)은 가장 낮은 선 기준이라 그 선 이름을 붙인다.
- * 전에는 '예상 잔액 그래프'라 생활비까지 뺀 값으로 들렸다(점검 B-05)
+ * 전에는 '예상 잔액 그래프'라 어느 선을 말하는지 드러나지 않았다(점검 B-05)
  */
 internal fun chartDescription(f: Forecast): String {
     val min = "${(f.minBalance ?: 0).toWon()}원"

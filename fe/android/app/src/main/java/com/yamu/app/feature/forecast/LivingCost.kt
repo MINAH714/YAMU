@@ -157,7 +157,7 @@ fun LivingCostRoute(onBack: () -> Unit, onLink: () -> Unit = {}, viewModel: Livi
     }
 }
 
-/** 예상 생활비 — 잔고예보 보수적 선에서 날마다 뺀 값의 합. 평균 × 일수가 아니다(BE 11/5 안내) */
+/** 예상 생활비 — 잔고예보 'AI 생활비 반영' 선(conservative)에서 날마다 뺀 값의 합. 평균 × 일수가 아니다(BE 11/5 안내) */
 @Composable
 private fun ProjectedCard(d: LivingCostDetail) {
     val c = YamuTheme.colors
@@ -231,7 +231,7 @@ private fun PaceCard(p: PaceCheck) {
     }
 }
 
-/** 계좌별 — 기록이 없는 계좌가 있으면 잔고예보의 보수적 선이 빠진다 */
+/** 계좌별 — 기록이 없는 계좌가 있으면 잔고예보의 'AI 생활비 반영' 선이 빠진다 */
 @Composable
 private fun AccountsCard(d: LivingCostDetail) {
     val c = YamuTheme.colors

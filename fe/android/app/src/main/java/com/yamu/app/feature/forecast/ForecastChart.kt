@@ -49,7 +49,7 @@ import java.time.LocalDate
 data class ChartLine(val label: String, val values: List<Long?>, val color: Color, val dashed: Boolean = false, val width: Dp = 2.dp)
 
 /**
- * 잔액 그래프 — 잔고예보(확정 · 예상 · 보수적)와 가상 구매(사기 전 · 후)가 같이 쓴다.
+ * 잔액 그래프 — 잔고예보(AI 생활비 제외 · 반영)와 가상 구매(사기 전 · 후)가 같이 쓴다.
  * 0원 바닥선, 안전 잔액 점선, 위험 구간 음영, 고른 날 세로줄과 점. 누르거나 옆으로 끌면 [onSelect]로 그날을 알린다.
  * 고른 날이 옮겨 갈 때는 YamuMotion 짧은 곡선으로, 모션 줄이기면 바로 옮긴다
  */
@@ -147,7 +147,7 @@ fun BalanceChart(
                     ),
                 )
             }
-            // 시작 점 — 오늘. 실선 중 마지막(잔고예보의 예정 선 · 가상 구매의 사기 후 선) 색으로
+            // 시작 점 — 오늘. 실선 중 마지막(잔고예보의 AI 생활비 제외 선 · 가상 구매의 사기 후 선) 색으로
             val dotLine = lines.lastOrNull { !it.dashed } ?: lines.first()
             dotLine.values.firstOrNull()?.let { drawCircle(dotLine.color, radius = 4.5.dp.toPx(), center = Offset(x(0), y(it))) }
             if (selectedIndex != null) {

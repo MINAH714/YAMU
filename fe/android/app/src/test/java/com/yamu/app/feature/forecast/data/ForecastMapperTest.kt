@@ -194,7 +194,7 @@ class ForecastMapperTest {
         assertEquals("카드 결제", rows.single().cardNote)
         // 예보가 없으면 가계부 줄 기준
         assertEquals(120_000L to 1, com.yamu.app.feature.forecast.cashflowOutflow(null, rows))
-        // 기간 안 출금은 예보 기준으로 세고, 보수적 선 전용 추정은 빼고 센다
+        // 기간 안 출금은 예보 기준으로 세고, 'AI 생활비 반영' 선 전용 추정은 빼고 센다
         val withBill = testForecast(
             days = listOf(
                 day(

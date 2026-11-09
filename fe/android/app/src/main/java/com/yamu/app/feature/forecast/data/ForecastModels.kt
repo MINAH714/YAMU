@@ -39,7 +39,10 @@ import kotlin.math.abs
 /** type은 실제로 계산한 기준 — NEXT_INCOME이면 to가 다음 월급일 전날, 월급을 못 찾으면 DAYS(30일) */
 @Serializable data class HorizonDto(val type: String? = null, val from: String? = null, val to: String? = null, val days: Int? = null)
 
-/** 금액은 가장 나쁜 선(보수적, 없으면 예상) 기준 */
+/**
+ * 금액은 가장 낮은 선(conservative 'AI 생활비 반영', 없으면 expected 'AI 생활비 제외') 기준.
+ * status는 두 선 기준이다 — expected가 안전 잔액 미만이면 DANGER, conservative만 미만이면 WARNING(BE -356 !223)
+ */
 @Serializable data class ForecastSummaryDto(
     val status: String? = null,
     val aggregateStatus: String? = null,
@@ -50,7 +53,10 @@ import kotlin.math.abs
     val atRiskAccountCount: Int = 0,
 )
 
-/** conservative는 생활비 자료가 없는 계좌가 하나라도 있으면 null(BE는 일부만 더한 값을 주지 않는다) */
+/**
+ * 앱은 expected('AI 생활비 제외')와 conservative('AI 생활비 반영') 두 선만 그린다. confirmed는 응답에 남아 받기만 한다(BE -356).
+ * conservative는 생활비 자료가 없는 계좌가 하나라도 있으면 null(BE는 일부만 더한 값을 주지 않는다)
+ */
 @Serializable data class SeriesPointDto(
     val date: String,
     val confirmed: Long? = null,
@@ -94,13 +100,17 @@ import kotlin.math.abs
 
 // ── 앱 안에서 쓰는 값 ──
 
-/** 어느 선부터 반영한 돈인지. 모르는 값은 [UNKNOWN] — 목록에는 그대로 보이고 선 설명에서는 '기타'로 묶인다 */
+/**
+ * 입출금의 확신도. CONFIRMED · EXPECTED는 두 선 모두에, CONSERVATIVE는 'AI 생활비 반영' 선에만 들어간다.
+ * 위험 구간의 선([RiskWindow.line])도 이 값으로 받는다 — BE -356부터 EXPECTED · CONSERVATIVE만 오고, 옛 서버는 CONFIRMED를 보낼 수 있다.
+ * 모르는 값은 [UNKNOWN] — 목록에는 그대로 보이고 선 설명에서는 '기타'로 묶인다
+ */
 enum class FlowConfidence { CONFIRMED, EXPECTED, CONSERVATIVE, UNKNOWN }
 
 /** 입출금 종류. 위험 원인에만 LIVING_COST_ESTIMATE(누적 예상 생활비)가 더 있다 */
 enum class FlowType { SCHEDULED_INCOME, SCHEDULED_OUTFLOW, CARD_BILLING, SIMULATED_PURCHASE, CARD_SPENDING_ESTIMATE, LIVING_COST_ESTIMATE, UNKNOWN }
 
-/** 위험 수준 — 확정 선이 안전 잔액 아래면 DANGER, 예상 · 보수적 선만 아래면 WARNING */
+/** 위험 수준 — 'AI 생활비 제외' 선(expected)이 안전 잔액 아래면 DANGER, 'AI 생활비 반영' 선(conservative)만 아래면 WARNING(BE -356 !223) */
 enum class RiskLevel { SAFE, WARNING, DANGER, UNKNOWN }
 
 /** 예상 생활비 계산 방식 — AI(ML_V1) · 최근 소비(TSB) · 계좌마다 다름(MIXED) */
@@ -152,13 +162,13 @@ fun ForecastSelection.scopeFrom(accounts: List<ForecastAccountOption>): AccountS
 }
 
 data class ForecastEvent(val date: LocalDate, val type: FlowType, val title: String, val amount: Long, val confidence: FlowConfidence) {
-    /** 보수적 선에만 넣은 추정(카드 사용 예상) — '추정' 태그 */
+    /** 'AI 생활비 반영' 선에만 넣은 추정(카드 사용 예상) — '추정' 태그 */
     val isEstimate: Boolean get() = type == FlowType.CARD_SPENDING_ESTIMATE || confidence == FlowConfidence.CONSERVATIVE
 
     /** 카드 청구 — 가계부 항목이 아니라 F-02에서 고칠 수 없다 */
     val isCardBill: Boolean get() = type == FlowType.CARD_BILLING
 
-    /** 진행 중인 청구처럼 예정 선(서버 expected)부터 넣은 돈 — 금액이 아직 정해지지 않아 '예상' 태그 */
+    /** 진행 중인 청구처럼 확신도가 EXPECTED인 돈(두 선 모두에 들어감) — 금액이 아직 정해지지 않아 '예상' 태그 */
     val isExpected: Boolean get() = confidence == FlowConfidence.EXPECTED
 
     /** 줄 이름. 카드 사용 예상은 title이 근거 문장이라 이름은 고정하고 title은 보조 줄에 그대로 둔다 */
@@ -167,7 +177,7 @@ data class ForecastEvent(val date: LocalDate, val type: FlowType, val title: Str
     val basis: String? get() = title.takeIf { type == FlowType.CARD_SPENDING_ESTIMATE }
 }
 
-/** 하루 끝 잔액 — 선 하나가 없으면(보수적 선 null) 그 값만 null */
+/** 하루 끝 잔액 — 선 하나가 없으면('AI 생활비 반영' 선 null) 그 값만 null. [confirmed]는 받기만 하고 그리지 않는다 */
 data class ForecastDay(val date: LocalDate, val confirmed: Long?, val expected: Long?, val conservative: Long?, val events: List<ForecastEvent>)
 
 data class RiskCause(val type: FlowType, val title: String, val amount: Long, val date: LocalDate?) {
@@ -232,14 +242,14 @@ data class Forecast(
     /** 다음 월급일 — 기간 기준이 NEXT_INCOME일 때만(끝 날은 월급 전날). DAYS면 월급을 못 찾았거나 N일을 고른 것 */
     val incomeDate: LocalDate? get() = to?.takeIf { isNextIncome }?.plusDays(1)
 
-    /** 보수적 선이 있는지 — 날마다 같이 오거나 같이 빠진다 */
+    /** 'AI 생활비 반영' 선(conservative)이 있는지 — 날마다 같이 오거나 같이 빠진다 */
     val hasConservative: Boolean get() = days.any { it.conservative != null }
 
     /** 기간 안 입출금(0원 제외, 날짜순) */
     val upcoming: List<ForecastEvent> get() = days.flatMap { it.events }.filter { it.amount != 0L }
 
     /**
-     * 기간 안에 실제로 빠지는 예정 출금 — 보수적 선에만 넣은 추정은 예정 출금이 아니라 뺀다(BE summary.largestOutflow와 같은 기준).
+     * 기간 안에 실제로 빠지는 예정 출금 — 'AI 생활비 반영' 선에만 넣은 추정은 예정 출금이 아니라 뺀다(BE summary.largestOutflow와 같은 기준).
      * 합계([scheduledOutflow])와 F-02 머리의 건수가 이 목록 하나를 같이 쓴다
      */
     val scheduledOutflows: List<ForecastEvent> get() = upcoming.filter { it.amount < 0 && !it.isEstimate }
