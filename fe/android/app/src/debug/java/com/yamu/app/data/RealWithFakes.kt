@@ -74,6 +74,8 @@ class RealMyWithFakes @Inject constructor(
     override suspend fun setNotification(kind: NotiKind, enabled: Boolean): ApiResult<Unit> = fake.setNotification(kind, enabled)
     override suspend fun setNotificationTime(hhmm: String): ApiResult<Unit> = fake.setNotificationTime(hhmm)
     override suspend fun notifications(page: Int): ApiResult<NotificationsPage> = fake.notifications(page)
+    // 목록이 가짜인 동안 배지도 가짜 — 둘이 다른 숫자를 보이지 않게
+    override suspend fun unreadNotificationCount(): ApiResult<Int> = fake.unreadNotificationCount()
     override suspend fun markRead(id: Long): ApiResult<Unit> = fake.markRead(id)
     override suspend fun markAllRead(): ApiResult<Unit> = fake.markAllRead()
 }
