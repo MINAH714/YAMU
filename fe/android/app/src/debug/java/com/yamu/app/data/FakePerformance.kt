@@ -34,10 +34,11 @@ import javax.inject.Singleton
 @Singleton
 class FakePerformanceStore @Inject constructor() {
 
-    /** kind = 서버가 정했을 판정(기준을 넘으면 달성) */
+    /** kind = 서버가 정했을 판정(기준을 넘으면 달성), atRisk = 서버 status AT_RISK(지금 추세면 미달) */
     class Card(
         val id: Long, val issuer: String, val color: String, val name: String,
         val target: Long?, var recognized: Long, val kind: PerfGuide?, val nextMonthBenefit: String?,
+        val atRisk: Boolean = false,
     ) {
         var decision: PerfDecision? = null
         var recentChange: Long? = null
@@ -45,13 +46,14 @@ class FakePerformanceStore @Inject constructor() {
         var moved = false
     }
 
-    // 실적 기준 · 혜택은 BE 카드 시드 값(LIKIT Shop 40만 · 톡톡 · iD ON · Mr.Life 30만 · 노리2 20만 · ZERO 실적 조건 없음)
+    // 실적 기준 · 혜택은 BE 카드 시드 값(LIKIT Shop 40만 · 톡톡 · iD ON · Mr.Life 30만 · ZERO 실적 조건 없음).
+    // 노리2는 구간이 다섯(20만~80만)이라 서버처럼 목표가 '지금 실적보다 큰 가장 작은 기준'(21만 → 30만)이고, 판정 없이 AT_RISK
     val cards = listOf(
         Card(13, "롯데카드", "#E60012", "LOCA LIKIT Shop", 400_000, 320_000, PerfGuide.ACHIEVE_RECOMMENDED, "쿠팡·편의점 60%"),
         Card(11, "KB국민카드", "#FFBC00", "KB국민 청춘대로 톡톡카드", 300_000, 270_000, PerfGuide.KEEP_NATURAL, "스타벅스 50%"),
-        Card(14, "삼성카드", "#1428A0", "삼성 iD ON 카드", 300_000, 180_000, PerfGuide.EXTRA_SPENDING_NOT_RECOMMENDED, "교통 10%"),
+        Card(14, "삼성카드", "#1428A0", "삼성 iD ON 카드", 300_000, 180_000, PerfGuide.EXTRA_SPENDING_NOT_RECOMMENDED, "교통 10%", atRisk = true),
         Card(15, "신한카드", "#0046FF", "신한카드 Mr.Life", 300_000, 320_000, null, "편의점·마트 10%"),
-        Card(16, "KB국민카드", "#60584C", "KB국민 노리2 체크카드(KB Pay)", 200_000, 210_000, null, "GS25·CU 5%"),
+        Card(16, "KB국민카드", "#60584C", "KB국민 노리2 체크카드(KB Pay)", 300_000, 210_000, null, "GS25·CU 5%", atRisk = true),
         Card(12, "현대카드", "#1A1A1A", "현대카드ZERO Edition3(포인트형)", null, 150_000, null, null),
     )
 
@@ -86,6 +88,7 @@ class FakePerformanceRepository @Inject constructor(private val store: FakePerfo
             achieved = achieved, noTarget = target == null,
             guide = if (achieved) PerfGuide.ALREADY_ACHIEVED else kind, decision = decision,
             provisional = false, recentChange = recentChange, recentAtIso = recentAt, nickname = name,
+            atRisk = atRisk && !achieved,
         )
     }
 
@@ -105,21 +108,26 @@ class FakePerformanceRepository @Inject constructor(private val store: FakePerfo
     private suspend fun detailNow(userCardId: Long): ApiResult<PerfDetail> {
         delay(400)
         val c = store.card(userCardId) ?: return ApiResult.Failure(ApiError.NotFound("RESOURCE_NOT_FOUND"))
+        // 구간 금액은 서버(BE !227)처럼 그 실적일 때 한 달 최대 혜택(누적). 모르면 null
         val tiers = when (c.id) {
             13L -> listOf(PerfTier("40만 원 이상", "쿠팡·편의점·미용실 60% 할인", 13_000, c.recognized >= 400_000))   // LIKIT Shop 공유 월 한도 13,000
+            16L -> listOf(200_000L to 20_000L, 300_000L to 20_000L, 400_000L to 30_000L, 600_000L to 40_000L, 800_000L to 45_000L)   // 노리2
+                .map { (threshold, max) -> PerfTier("${threshold / 10_000}만 원 이상", c.nextMonthBenefit, max, c.recognized >= threshold) }
             else -> c.target?.let { listOf(PerfTier("${it / 10_000}만 원 이상", c.nextMonthBenefit, null, c.recognized >= it)) }.orEmpty()
         }
         val achieved = store.achieved(c)
+        val remaining = c.target?.let { (it - c.recognized).coerceAtLeast(0) } ?: 0
         return ApiResult.Success(
             PerfDetail(
                 userCardId = c.id, month = month.monthValue, target = c.target, targetLabel = c.target?.let { "${it / 10_000}만 원 이상" },
-                recognized = c.recognized, remaining = c.target?.let { (it - c.recognized).coerceAtLeast(0) } ?: 0,
+                recognized = c.recognized, remaining = remaining,
                 achieved = achieved, noTarget = c.target == null, tiers = tiers,
-                nextMonthMessage = when {
-                    c.target == null -> null
-                    achieved -> "${month.plusMonths(1).monthValue}월에도 ${c.nextMonthBenefit} 혜택을 받아요"
-                    else -> "이대로면 ${month.plusMonths(1).monthValue}월 ${c.nextMonthBenefit} 혜택을 못 받을 수 있어요"
+                // 서버 nextMonthImpact.message와 같은 말투
+                nextMonthMessage = c.target?.let { target ->
+                    if (achieved) "다음 달에 ${target / 10_000}만원 이상 구간 혜택을 받아요"
+                    else "${"%,d".format(remaining)}원 더 쓰면 다음 달 ${target / 10_000}만원 이상 구간 혜택을 받아요"
                 },
+                atRisk = c.atRisk && !achieved,
             ),
         )
     }
@@ -130,6 +138,8 @@ class FakePerformanceRepository @Inject constructor(private val store: FakePerfo
         delay(500)
         val c = store.card(userCardId) ?: return ApiResult.Failure(ApiError.NotFound("RESOURCE_NOT_FOUND"))
         val target = c.target ?: return ApiResult.Failure(ApiError.DataInsufficient("DATA_INSUFFICIENT"))
+        // 판정 없는 기준 전 카드(노리2) — 지금 실서버처럼 #18이 없다(BE 375 전)
+        if (!store.achieved(c) && c.kind == null) return ApiResult.Failure(ApiError.NotSupported("API_NOT_FOUND"))
         val next = month.plusMonths(1).monthValue
         val version = OffsetDateTime.now(KST).truncatedTo(ChronoUnit.MINUTES).toString()
         if (store.achieved(c) || c.kind == null) {
