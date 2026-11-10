@@ -146,7 +146,7 @@ fun BalanceChart(
                     ),
                 )
             }
-            // 시작 점 — 오늘. 실선 중 마지막(잔고예보의 예상 선 · 가상 구매의 사기 후 선) 색으로
+            // 시작 점 — 오늘. 실선 중 마지막(잔고예보의 예정 선 · 가상 구매의 사기 후 선) 색으로
             val dotLine = lines.lastOrNull { !it.dashed } ?: lines.first()
             dotLine.values.firstOrNull()?.let { drawCircle(dotLine.color, radius = 4.5.dp.toPx(), center = Offset(x(0), y(it))) }
             if (selectedIndex != null) {

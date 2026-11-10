@@ -61,6 +61,7 @@ import com.yamu.app.core.format.toWon
 import com.yamu.app.core.network.ApiError
 import com.yamu.app.core.network.ApiResult
 import com.yamu.app.core.network.map
+import com.yamu.app.core.network.newIdempotencyKey
 import com.yamu.app.core.ui.userMessage
 import com.yamu.app.feature.forecast.data.CASHFLOW_TITLE_MAX
 import com.yamu.app.feature.forecast.data.CashflowDeleteScope
@@ -132,6 +133,15 @@ class CashflowCreateViewModel @Inject constructor(
     }
     private val original: CashflowEntry? = editKey?.let { (id, occurrence) -> repo.cachedEntry(id, occurrence) }
 
+    /**
+     * 등록 재시도 키(BE -358 !202) — 화면에 들어올 때 하나 만들고 다시 보낼 때도 같은 값. 앱이 다시 켜져도 이 화면이면 같은 키다.
+     * 서버가 거절한 실패는 기록이 남지 않아 고쳐서 다시 보내도 같은 키로 새로 만든다
+     */
+    private val savedState = savedStateHandle
+    private var createKey: String
+        get() = savedState.get<String>(CREATE_KEY) ?: newIdempotencyKey().also { savedState[CREATE_KEY] = it }
+        set(value) { savedState[CREATE_KEY] = value }
+
     private val _state = MutableStateFlow(
         CashflowCreateState(
             form = original?.toForm() ?: CashflowForm(date = LocalDate.now(KST)),
@@ -181,12 +191,12 @@ class CashflowCreateViewModel @Inject constructor(
     /** 저장 — 추가는 바로, 반복 항목 수정은 범위부터 묻는다 */
     fun save() {
         val s = _state.value
-        if (s.saving) return   // 연타 — 서버에 재시도 키가 없어 두 번 가면 두 건이 생긴다
+        if (s.saving) return   // 연타 — 등록은 같은 키라 한 번만 들어가지만 수정 · 삭제는 키가 없다
         val errors = s.form.validate(today)
         if (errors.isNotEmpty()) return _state.update { it.copy(showErrors = true, errors = errors) }
         val editing = s.editing
         when {
-            editing == null -> submit { repo.createItem(s.form).map { } }
+            editing == null -> submit { repo.createItem(s.form, createKey).map { } }
             editing.isRecurring -> _state.update { it.copy(scopeAsk = ScopeAsk.SAVE) }
             else -> update(CashflowScope.THIS_AND_FUTURE)
         }
@@ -234,8 +244,12 @@ class CashflowCreateViewModel @Inject constructor(
         val others = reasons.filterKeys { cashflowFieldOf(it) == null }.values   // 원래 회차처럼 화면에 칸이 없는 이유
         _state.update { cur ->
             when {
-                // 실패가 아니라 결과 불명 — 반영됐을 수도 있어 자동으로 다시 보내지 않고 목록부터 보게 한다
+                // 등록 결과 불명 — 같은 키로 다시 보내면 서버가 한 번만 만든다(BE -358). 자동으로 보내지는 않고 사용자가 누르게 한다
+                e.isOutcomeUnknown && !editing -> cur.copy(saving = false, unknownResult = true, saveError = "응답을 받지 못했어요 · 다시 눌러도 한 번만 들어가요")
+                // 수정 · 삭제는 키가 없어 반영됐을 수도 있다 — 자동으로 다시 보내지 않고 목록부터 보게 한다
                 e.isOutcomeUnknown -> cur.copy(saving = false, unknownResult = true, saveError = "응답을 받지 못해 반영됐는지 확인하지 못했어요 · 목록에서 먼저 확인해 주세요")
+                // 결과를 모르는 사이 내용을 고쳐 같은 키로 보냈는데 앞 요청이 이미 들어갔다
+                e.code == "IDEMPOTENCY_KEY_REUSED" && !editing -> cur.copy(saving = false, gone = true, saveError = "앞서 보낸 내용이 이미 저장됐어요 · 목록에서 확인해 주세요")
                 e.code == "PAID_OCCURRENCE_LOCKED" -> cur.copy(saving = false, saveError = "이미 결제된 회차가 있어 바꿀 수 없어요")
                 fields.isNotEmpty() -> cur.copy(saving = false, showErrors = true, errors = fields, saveError = others.firstOrNull())
                 others.isNotEmpty() -> cur.copy(saving = false, saveError = others.joinToString(" · "))
@@ -247,7 +261,15 @@ class CashflowCreateViewModel @Inject constructor(
                 else -> cur.copy(saving = false, saveError = e.userMessage())
             }
         }
-        if (e is ApiError.NotFound) loadPayments()
+        if (e is ApiError.NotFound) {
+            // 등록 404는 고른 계좌 · 카드가 없거나, 이 키로 만든 항목을 그사이 지운 것 — 키를 바꿔야 다시 만들 수 있다
+            if (!editing) createKey = newIdempotencyKey()
+            loadPayments()
+        }
+    }
+
+    private companion object {
+        const val CREATE_KEY = "createIdempotencyKey"
     }
 }
 
@@ -308,8 +330,8 @@ fun CashflowCreateRoute(onBack: () -> Unit, onDone: () -> Unit, viewModel: Cashf
                     f.isIncome -> "예정 수입 추가"
                     else -> "예정 지출 추가"
                 }
-                // 응답을 못 받았으면 반영됐을 수 있다 — 등록은 두 번 들어가고, 나뉜 규칙의 수정은 400이 나서 목록부터 보게 한다
-                PrimaryButton(label, onClick = viewModel::save, loading = s.saving, enabled = !s.gone && !s.unknownResult)
+                // 응답을 못 받았으면 반영됐을 수 있다 — 등록은 같은 키라 다시 눌러도 되고 나뉜 규칙의 수정은 400이 나서 목록부터 보게 한다
+                PrimaryButton(label, onClick = viewModel::save, loading = s.saving, enabled = !s.gone && !(s.unknownResult && editing != null))
             }
         },
     ) { inner ->

@@ -208,6 +208,42 @@ class CashflowRepositoryTest {
         assertEquals("""{"dailyLivingCostTarget":18000}""", patch.body?.utf8())
     }
 
+    @Test fun `정해 둔 월급과 월급 받을 계좌(주 계좌 먼저)를 같이 채운다`() = runTest {
+        respond("/forecasts/settings", ok(settings(incomeId = 290)))
+
+        val draft = draft()
+
+        assertEquals(SavedIncome(290, "월급", null, 25), draft.savedIncome)
+        assertEquals(listOf("신한은행 입출금 ··1001", "신한은행 입출금 ··1002"), draft.incomeAccounts.map { it.label })
+        assertEquals(1L, draft.defaultIncomeAccount?.accountId)
+    }
+
+    @Test fun `월급 등록은 Idempotency-Key를 붙여 보내고 받은 ID를 설정의 월급으로 보낸다`() = runBlocking {
+        respond("/cashflow-items", ok("""{"items":[],"candidateCount":0}"""))
+        respond("/cashflow-items", json(201, """{"success":true,"data":{"cashflowItemId":901,"type":"INCOME","title":"월급","amount":2500000,"occurrenceDate":"2026-11-25"}}"""), method = "POST")
+        respond("/forecasts/settings", ok(settings(incomeId = 901)), method = "PATCH")
+        Dispatchers.setMain(Dispatchers.Unconfined)
+        try {
+            val vm = CashflowConfirmViewModel(repository)
+            withTimeout(5_000) { vm.state.first { !it.loading } }
+            assertTrue(vm.state.value.draft!!.canEnterIncome)
+
+            vm.saveIncome(IncomeInput(2_500_000, 25, 2))
+            vm.confirm()
+            withTimeout(5_000) { vm.state.first { it.saved } }
+        } finally {
+            Dispatchers.resetMain()
+        }
+
+        val post = requests.single { it.method == "POST" }
+        assertEquals("/cashflow-items", post.url.encodedPath)
+        val key = post.headers["Idempotency-Key"]
+        assertTrue(key != null && java.util.UUID.fromString(key).toString() == key)
+        assertTrue(post.body!!.utf8().contains(""""recurrence":{"frequency":"MONTHLY","dayOfMonth":25}"""))
+        val patch = requests.single { it.method == "PATCH" }
+        assertEquals("""{"horizon":"NEXT_INCOME","incomeCashflowItemId":901,"dailyLivingCostTarget":18000}""", patch.body?.utf8())
+    }
+
     private companion object {
         val ITEMS = """
             {"items":[

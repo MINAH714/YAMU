@@ -4,6 +4,7 @@ import com.yamu.app.core.format.parseDate
 import com.yamu.app.core.network.ApiEnvelope
 import com.yamu.app.core.network.ApiError
 import com.yamu.app.core.network.ApiResult
+import com.yamu.app.core.network.YamuHeaders
 import com.yamu.app.core.network.apiCall
 import com.yamu.app.core.network.apiCallNoData
 import com.yamu.app.core.network.map
@@ -21,6 +22,7 @@ import retrofit2.Retrofit
 import retrofit2.http.Body
 import retrofit2.http.DELETE
 import retrofit2.http.GET
+import retrofit2.http.Header
 import retrofit2.http.PATCH
 import retrofit2.http.POST
 import retrofit2.http.Path
@@ -75,11 +77,15 @@ interface ForecastApi {
     @GET("cashflow-items/{id}/payment-match-candidates")
     suspend fun matchCandidates(@Path("id") cashflowItemId: Long, @Query("occurrenceDate") occurrenceDate: String): Response<ApiEnvelope<MatchCandidatesDto>>
 
+    /**
+     * 등록 둘 다 Idempotency-Key(UUID)를 붙인다(BE -358 !202). 같은 키 · 같은 내용을 다시 보내면 처음 만든 항목을 201로,
+     * 같은 키에 다른 내용이면 409 IDEMPOTENCY_KEY_REUSED, 그 항목을 지웠으면 404
+     */
     @POST("cashflow-items")
-    suspend fun savePlan(@Body body: PurchasePlanRequest): Response<ApiEnvelope<CashflowCreatedDto>>
+    suspend fun savePlan(@Header(YamuHeaders.IDEMPOTENCY_KEY) idempotencyKey: String, @Body body: PurchasePlanRequest): Response<ApiEnvelope<CashflowCreatedDto>>
 
     @POST("cashflow-items")
-    suspend fun createItem(@Body body: CashflowCreateRequest): Response<ApiEnvelope<CashflowCreatedDto>>
+    suspend fun createItem(@Header(YamuHeaders.IDEMPOTENCY_KEY) idempotencyKey: String, @Body body: CashflowCreateRequest): Response<ApiEnvelope<CashflowCreatedDto>>
 
     @GET("cashflow-items")
     suspend fun cashflowItems(@Query("from") from: String, @Query("to") to: String, @Query("expand") expand: Boolean = true): Response<ApiEnvelope<CashflowListResponse>>
@@ -118,16 +124,16 @@ interface ForecastRepository {
 
     suspend fun simulationCards(): ApiResult<List<SimCardOption>>
 
-    /** I-02 [계획 저장] — #20 일반 예정 지출. 일시불 결과만(할부는 화면에서 막는다). 재시도 키가 없어 실패해도 다시 보내지 않는다 */
-    suspend fun savePlan(simulation: Simulation): ApiResult<SavedPlan>
+    /** I-02 [계획 저장] — #20 일반 예정 지출. 일시불 결과만(할부는 화면에서 막는다). 다시 보낼 때는 같은 [idempotencyKey] */
+    suspend fun savePlan(simulation: Simulation, idempotencyKey: String): ApiResult<SavedPlan>
 
     /** 방금 저장한 계획(I-05) — 앱이 다시 켜졌으면 없음 */
     fun savedPlan(planId: Long): SavedPlan?
 
     suspend fun deletePlan(planId: Long): ApiResult<Unit>
 
-    /** F-02a — #20 예정 수입·지출 등록(새 항목 ID). 서버에 재시도 키가 없어 실패해도 다시 보내지 않는다 */
-    suspend fun createItem(form: CashflowForm): ApiResult<Long>
+    /** F-02a — #20 예정 수입·지출 등록(새 항목 ID). 다시 보낼 때는 같은 [idempotencyKey] — 서버가 한 번만 만든다 */
+    suspend fun createItem(form: CashflowForm, idempotencyKey: String): ApiResult<Long>
 
     /** F-02 — 기간 안 가계부 회차(확정만, 회차마다 한 줄). 마지막 값은 수정 화면이 [cachedEntry]로 쓴다 */
     suspend fun cashflowEntries(from: LocalDate, to: LocalDate): ApiResult<List<CashflowEntry>>
@@ -249,9 +255,9 @@ class ForecastRepositoryImpl @Inject constructor(private val api: ForecastApi, p
     override suspend fun simulationCards(): ApiResult<List<SimCardOption>> =
         apiCall { linkApi.cards() }.map { r -> r.cards.mapNotNull { it.toSimCardOption() } }
 
-    override suspend fun savePlan(simulation: Simulation): ApiResult<SavedPlan> {
+    override suspend fun savePlan(simulation: Simulation, idempotencyKey: String): ApiResult<SavedPlan> {
         val body = simulation.toPlanRequest()
-        return apiCall { api.savePlan(body) }.map { r ->
+        return apiCall { api.savePlan(idempotencyKey, body) }.map { r ->
             SavedPlan(
                 id = r.cashflowItemId,
                 title = body.title,
@@ -269,8 +275,8 @@ class ForecastRepositoryImpl @Inject constructor(private val api: ForecastApi, p
     override suspend fun deletePlan(planId: Long): ApiResult<Unit> =
         apiCallNoData { api.deletePlan(planId) }.also { if (it is ApiResult.Success) plans.remove(planId) }
 
-    override suspend fun createItem(form: CashflowForm): ApiResult<Long> =
-        apiCall { api.createItem(form.toRequest()) }.map { it.cashflowItemId }
+    override suspend fun createItem(form: CashflowForm, idempotencyKey: String): ApiResult<Long> =
+        apiCall { api.createItem(idempotencyKey, form.toRequest()) }.map { it.cashflowItemId }
 
     @Volatile private var entries: List<CashflowEntry> = emptyList()
 

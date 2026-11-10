@@ -71,7 +71,9 @@ import com.yamu.app.core.format.KST
 import com.yamu.app.core.format.directionParticle
 import com.yamu.app.core.format.toKoreanDate
 import com.yamu.app.core.format.toWon
+import com.yamu.app.core.network.ApiError
 import com.yamu.app.core.network.ApiResult
+import com.yamu.app.core.network.newIdempotencyKey
 import com.yamu.app.core.ui.LocalSnackbar
 import com.yamu.app.core.ui.userMessage
 import com.yamu.app.feature.forecast.data.ForecastRepository
@@ -135,7 +137,8 @@ data class SimState(
     val cardsError: String? = null,
     val saving: Boolean = false,
     val savedPlanId: Long? = null,
-    val saveUncertain: Boolean = false,     // 저장 응답을 못 받았다 — 재시도 키가 없어 다시 보내지 않는다
+    val saveUncertain: Boolean = false,     // 저장 응답을 못 받았다 — 같은 키로만 다시 보낸다(서버가 한 번만 만든다)
+    val savedElsewhere: Boolean = false,    // 같은 키의 앞 저장이 이미 들어갔다(409) — 다시 저장하지 않고 잔고예보에서 보게 한다
     val message: String? = null,
 )
 
@@ -150,6 +153,12 @@ class BuyCheckViewModel internal constructor(initial: SimulationQuery, private v
     private val _state = MutableStateFlow(SimState(query = initial))
     val state: StateFlow<SimState> = _state.asStateFlow()
     private var job: Job? = null
+
+    /**
+     * 계획 저장 재시도 키(BE -358 !202). 같은 조건에서 다시 누르면 같은 키 — 응답을 못 받았어도 한 번만 저장된다.
+     * 조건을 바꾸면 다른 계획이라 새 키, 저장에 성공해도 다음 저장은 새 키
+     */
+    private var planKey = newIdempotencyKey()
 
     /** 잔고예보에서 쓰는 안전 잔액 — 시뮬레이션 응답에는 없어 지난 예보 값을 쓴다 */
     val alertThreshold: Long? get() = repo.cached()?.alertThreshold
@@ -171,7 +180,8 @@ class BuyCheckViewModel internal constructor(initial: SimulationQuery, private v
     private fun change(transform: (SimulationQuery) -> SimulationQuery) {
         val next = transform(_state.value.query)
         if (next == _state.value.query) return
-        _state.update { it.copy(query = next, saveUncertain = false) }
+        planKey = newIdempotencyKey()   // 조건이 바뀌면 다른 계획이다
+        _state.update { it.copy(query = next, saveUncertain = false, savedElsewhere = false) }
         load()
     }
 
@@ -203,18 +213,31 @@ class BuyCheckViewModel internal constructor(initial: SimulationQuery, private v
         loadCards()
     }
 
-    /** 일시불 결과만 저장. 응답을 못 받았으면 저장됐는지 모르므로 다시 보내지 않고 잔고예보에서 확인하게 한다 */
+    /**
+     * 일시불 결과만 저장. 응답을 못 받았으면 같은 키로 다시 누를 수 있게 둔다(서버가 한 번만 만든다).
+     * 같은 키에 다른 내용(409)이면 앞 저장이 이미 들어간 것이라 잔고예보에서 확인하게 한다
+     */
     fun save() {
         val s = _state.value
         val sim = s.simulation ?: return
-        if (s.saving || s.loading || s.saveUncertain || !sim.canSavePlan) return
+        if (s.saving || s.loading || s.savedElsewhere || !sim.canSavePlan) return
         _state.update { it.copy(saving = true) }   // 코루틴이 돌기 전에 막아야 연타가 두 번 나가지 않는다
+        val key = planKey
         viewModelScope.launch {
-            when (val r = repo.savePlan(sim)) {
-                is ApiResult.Success -> _state.update { it.copy(saving = false, savedPlanId = r.data.id) }
+            when (val r = repo.savePlan(sim, key)) {
+                is ApiResult.Success -> {
+                    planKey = newIdempotencyKey()
+                    _state.update { it.copy(saving = false, saveUncertain = false, savedPlanId = r.data.id) }
+                }
                 is ApiResult.Failure -> _state.update {
-                    if (r.error.isOutcomeUnknown) it.copy(saving = false, saveUncertain = true, message = "저장됐는지 확인하지 못했어요 · 잔고예보에서 확인해 주세요")
-                    else it.copy(saving = false, message = r.error.userMessage())
+                    when {
+                        r.error.isOutcomeUnknown -> it.copy(saving = false, saveUncertain = true, message = "응답을 받지 못했어요 · 다시 눌러도 한 번만 저장돼요")
+                        r.error.code == "IDEMPOTENCY_KEY_REUSED" -> it.copy(saving = false, savedElsewhere = true, message = "앞서 저장한 계획이 이미 들어갔어요 · 잔고예보에서 확인해 주세요")
+                        else -> {
+                            if (r.error is ApiError.NotFound) planKey = newIdempotencyKey()   // 이 키로 만든 계획을 지웠거나 카드 · 계좌가 없다
+                            it.copy(saving = false, saveUncertain = false, message = r.error.userMessage())
+                        }
+                    }
                 }
             }
         }
@@ -261,7 +284,11 @@ fun BuyCheckResultRoute(
         bottomBar = {
             when {
                 sim == null -> Unit
-                s.saveUncertain -> BottomCta { PrimaryButton("잔고예보에서 확인하기", onClick = onForecast) }
+                // 응답을 못 받은 저장 — 같은 키라 다시 눌러도 한 번만 들어간다. 잔고예보에서 먼저 확인해도 된다
+                s.saveUncertain && !s.savedElsewhere && sim.canSavePlan -> BottomCta(secondary = { TextButtonGrey("잔고예보에서 확인하기", onClick = onForecast, modifier = Modifier.fillMaxWidth(), small = true) }) {
+                    PrimaryButton("다시 저장하기", onClick = viewModel::save, loading = s.saving, enabled = !s.loading)
+                }
+                s.saveUncertain || s.savedElsewhere -> BottomCta { PrimaryButton("잔고예보에서 확인하기", onClick = onForecast) }
                 sim.query.isInstallment -> BottomCta {
                     Text("할부 구매는 가계부에 할부 칸이 없어 아직 계획으로 저장할 수 없어요", style = YamuTheme.typography.bodyS, color = YamuTheme.colors.text3, modifier = Modifier.padding(bottom = 8.dp))
                     PrimaryButton("일시불로 다시 보기", onClick = { viewModel.setMonths(null) }, enabled = !s.loading)
