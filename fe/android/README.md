@@ -58,14 +58,14 @@ yamu.baseUrl=http://localhost:8080/api/
 
 - `yamu.baseUrl`은 `http://`나 `https://`로 시작하고 `/`로 끝나야 한다(아니면 빌드가 멈춘다). 로컬 BE는 `adb reverse tcp:8080 tcp:8080` 뒤 `localhost`, 에뮬레이터는 `http://10.0.2.2:8080/api/`도 된다.
 - http는 `network_security_config`가 `localhost`와 `10.0.2.2`만 허용한다. LAN IP(`http://192.168.…`)는 막히므로 실기기는 `adb reverse`로 `localhost`를 쓴다.
-- 기능을 진짜로 켤 때는 `yamu.realApi`에 이름을 쉼표로 적는다. 쓸 수 있는 이름은 `auth` · `link` · `cashflow` · `home` · `payment` · `performance` · `forecast` · `report` · `my` · `pos` · `billing`이다. `all`은 BE에 API가 있는 `auth` · `link` · `cashflow` · `payment` · `forecast` · `my` · `pos` · `billing`만 켠다. 나머지는 이름을 직접 적어야 켜지고 지금 켜면 404가 난다. `cashflow` · `forecast` · `billing`을 켜면 `link`도 같이 켜진다(가짜 계좌 · 카드 번호가 진짜 서버로 가지 않게).
+- 기능을 진짜로 켤 때는 `yamu.realApi`에 이름을 쉼표로 적는다. 쓸 수 있는 이름은 `auth` · `link` · `cashflow` · `home` · `payment` · `performance` · `forecast` · `report` · `my` · `pos` · `billing`이다. `all`은 BE에 API가 있는 `auth` · `link` · `cashflow` · `home` · `payment` · `forecast` · `report` · `my` · `pos` · `billing`만 켠다. `performance`는 이름을 직접 적어야 켜지고 지금 켜면 404가 난다. `cashflow` · `forecast` · `billing`을 켜면 `link`도 같이 켜진다(가짜 계좌 · 카드 번호가 진짜 서버로 가지 않게).
 - `payment` · `my`는 debug에서 BE에 없는 메서드만 가짜로 메운다(`src/debug/.../RealWithFakes.kt`). release에는 가짜가 없어 그대로 404다. `pos`는 메울 것이 없어 켜면 전부 진짜를 부른다.
 - 진짜 API는 로그인 토큰이 필요하다. `auth`를 가짜로 두고 다른 기능만 켜면 가짜 토큰이 실려 401이 나므로 다른 기능을 켤 때는 `auth`도 같이 켠다.
 - 모의 POS는 `yamu.posKey`(BE `yamu.pos.key`와 같은 값) 하나만 적는다. 단말은 첫 화면에서 BE `yamu.pos.terminals`의 네 개(`POS-YAMU-CAFE` · `POS-STARBUCKS-GENERAL` · `POS-STARBUCKS-DEPARTMENT_STORE` · `POS-GS25-GENERAL`) 가운데 고르고, 가맹점 번호는 고를 때 `GET /api/merchants?merchantCategoryCode=`에서 단말 브랜드(`brandCode`)로 찾아 저장한다. 시드를 다시 넣어 번호가 바뀌면 결제 요청이 '가맹점을 다시 골라 주세요'로 실패하니 [가맹점 바꾸기]로 다시 고른다. BE 단말 설정이 바뀌면 `src/pos/.../PosRepository.kt`의 `POS_TERMINALS`도 같이 고친다.
 - 결제 요청이 연결 끊김 · 시간 초과 · 5xx로 끝나면 접수됐는지 몰라서 [같은 요청 다시 보내기]가 뜬다. 같은 `Idempotency-Key` · 같은 본문(주문번호까지)으로 보내므로 서버가 처음 결제를 돌려준다. 서버가 거절한 뒤에는 새 키 · 새 주문번호로 간다. 이 요청은 보내기 전에 기기(`yamu_pos_pending`)에 적어 두므로 스캔 화면을 나갔다 오거나 앱을 다시 켜도 같은 코드를 찍으면 같은 요청으로 가고, 접수 · 거절이 정해지거나 [이 요청 버리기]를 누르면 지운다(24시간 지나면 버림).
 - 결과가 `WITHDRAWAL_NOT_CONFIRMED`(출금 미확인)로 거절 · 만료되면 BE가 늦은 출금을 찾아 승인으로 바꿀 수 있어 '출금을 확인하고 있어요'로 11분 더 묻는다(BE `late-withdrawal-window` 10분 + 주기 작업 60초, 임시). 그동안 [새 결제]는 보이지 않는다.
 
-BE(develop, 2026-11-03 · 잔고예보는 2026-11-08 · 경로 전체는 2026-11-09)와 맞춰 본 결과는 이렇다. 오른쪽 칸은 debug가 가짜로 메우거나 비어 있는 것이다.
+BE(develop, 2026-11-03 · 잔고예보는 2026-11-08 · 경로 전체는 2026-11-09 · 홈 · 리포트는 2026-11-11)와 맞춰 본 결과는 이렇다. 오른쪽 칸은 debug가 가짜로 메우거나 비어 있는 것이다.
 
 | 이름 | 진짜로 부르는 API | BE에 없어서 남은 것 |
 |---|---|---|
@@ -77,14 +77,13 @@ BE(develop, 2026-11-03 · 잔고예보는 2026-11-08 · 경로 전체는 2026-11
 | `my` | 기기 목록 · 해제(`APP_UNLOCK` 본인 확인), 회원 탈퇴(`WITHDRAW_MEMBER` 본인 확인) | 보안 설정 저장, 알림. 회원 정보 `users/me`와 자동 선택 저장 `users/me/payment-settings`는 BE에 생겼지만 debug는 아직 가짜로 메움(`RealWithFakes.kt`) |
 | `pos` | 가맹점 번호 찾기(`merchants?merchantCategoryCode=`) · 결제 요청 · 결과 조회(`?posCode=`, 거절 뒤 재시도 중에는 계속 기다림) | 없음 |
 | `billing` | `billings` 청구서 목록(카드 고르기) · `billings/{billId}` 상세, `refunds` 환급 내역(최근 3개월 · 페이지) | 없음. 앱이 기간 · 상태를 고르지 않아 3개월보다 이전 청구서 · 환급은 안 보임 |
-| `home` · `performance` | 켜지 않음 | 전부 |
-| `report` | `all`로는 켜지 않음. 이름을 적어 켜면 결제 내역 `payments` · CSV 내려받기 `payments/export`는 BE로 간다 | 월간 소비분석, 혜택 리포트 |
+| `home` | 홈 요약 `home`, 당겨서 새로고침 `sync`(S15P31E103-413) | 없음. 할 일은 BE가 만든 목록을 그대로 그린다 |
+| `performance` | 켜지 않음 | 전부 |
+| `report` | 월간 소비 `reports/monthly`, 혜택 리포트 `reports/monthly/benefits`, 결제 내역 `payments`, CSV 내려받기 `payments/export`(S15P31E103-413) | 없음. 결제 내역에 혜택 종류(`benefitType`)가 없어 혜택은 늘 '혜택'으로 보임 |
 
-앱 Retrofit 경로 72개(main · pos, 메서드와 경로가 같으면 하나) 중 develop BE에 없는 것은 아래 14개다. release에서 부르면 404 `API_NOT_FOUND`가 와서 화면에는 '아직 준비 중인 기능이에요'만 뜨고 '다시 시도' 버튼은 숨는다(Task 8.2.37, S15P31E103-365).
+앱 Retrofit 경로 72개(main · pos, 메서드와 경로가 같으면 하나) 중 develop BE에 없는 것은 아래 10개다. release에서 부르면 404 `API_NOT_FOUND`가 와서 화면에는 '아직 준비 중인 기능이에요'만 뜨고 '다시 시도' 버튼은 숨는다(Task 8.2.37, S15P31E103-365).
 
-- 홈: `GET home`, `POST sync`
 - 실적: `GET users/me/card-performances`, `GET user-cards/{id}/performance` · `performance/analysis`, `POST user-cards/{id}/performance/decisions`, `GET benefit-limits`
-- 리포트: `GET reports/monthly`, `GET reports/monthly/benefits`(결제 내역 `GET payments`는 있다)
 - 마이: `GET` · `PATCH notifications/settings`, `GET notifications`, `PATCH notifications/{id}/read`, `PATCH notifications/read-all`
 
 보안 설정 저장 `PATCH users/me/security-settings`는 BE에 생겼지만(S15P31E103-353) 앱이 보내는 본문과 맞는지는 아직 확인하지 않았다. 결제 요청 거절 `POST payments/{id}/reject`도 BE에 생겼지만(S15P31E103-360) debug는 아직 가짜로 메우고(`RealWithFakes.kt`) 앱 본문과 맞는지 확인하지 않았다. 고객이 거절하면 모의 POS 결과 조회는 바로 `REJECTED`를 받고, 앱 POS는 이를 끝난 결과로 보고 '고객이 결제를 거절했어요'를 띄운다. 결제 전 단일 추천 `POST recommendations`는 명세 V2에서 빠져 앱에서도 지웠다.
