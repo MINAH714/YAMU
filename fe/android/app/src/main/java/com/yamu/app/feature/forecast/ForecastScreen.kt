@@ -573,6 +573,7 @@ private fun LineGroupRow(g: LineGroup, hasConservative: Boolean) {
                 Text("생활비 기록이 없어 이번에는 그리지 않았어요", style = YamuTheme.typography.bodyM, color = c.text3)
             } else {
                 StepRow("$name 선 끝", g.end?.let { "${it.toWon()}원" } ?: "—", muted = true)
+                g.note?.let { Text(it, style = YamuTheme.typography.bodyS, color = c.text3, modifier = Modifier.padding(top = 2.dp)) }
             }
         }
     }
@@ -688,6 +689,8 @@ internal fun noticeLines(f: Forecast, selection: ForecastSelection): List<String
     val living = f.livingCost
     val livingLine = when {
         living == null || !living.insufficient -> null
+        // 여러 계좌면 기록 있는 계좌의 생활비가 선에 들어 있을 수 있다(Forecast.hasPartialLiving) — 기록 없는 계좌 이야기로만 쓴다
+        f.hasConservative && f.accountIds.size > 1 -> "생활비 기록이 없는 계좌는 '$LINE_WITH_LIVING' 선에 앞으로 쓸 신용카드 금액만 넣었어요."
         f.hasConservative -> "생활비 기록이 없어 '$LINE_WITH_LIVING' 선에는 앞으로 쓸 신용카드 금액만 넣었어요."
         // 어느 계좌에 기록이 있는지는 이 응답만으로 모른다 — 모든 계좌에 없을 수도 있어 '고르면 된다'고 약속하지 않는다
         f.accountIds.size > 1 -> "생활비 기록이 없는 계좌가 있어 생활비는 빼고 계산했어요. 계좌를 따로 골라 보면 기록이 있는 계좌는 생활비까지 넣어 계산해요."

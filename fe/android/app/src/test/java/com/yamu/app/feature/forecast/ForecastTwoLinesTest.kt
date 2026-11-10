@@ -4,6 +4,7 @@ import com.yamu.app.feature.forecast.data.FlowConfidence
 import com.yamu.app.feature.forecast.data.FlowType
 import com.yamu.app.feature.forecast.data.ForecastEvent
 import com.yamu.app.feature.forecast.data.ForecastLivingCost
+import com.yamu.app.feature.forecast.data.ForecastSelection
 import com.yamu.app.feature.forecast.data.LineStep
 import com.yamu.app.feature.forecast.data.LivingMethod
 import com.yamu.app.feature.forecast.data.RiskLevel
@@ -11,6 +12,8 @@ import com.yamu.app.feature.forecast.data.RiskWindow
 import com.yamu.app.feature.forecast.data.day
 import com.yamu.app.feature.forecast.data.testForecast
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.time.LocalDate
@@ -109,5 +112,44 @@ class ForecastTwoLinesTest {
         assertTrue(withoutLiving.steps.isEmpty())
         assertEquals(listOf(LineStep("앞으로 쓸 신용카드 금액", -36_000)), withLiving.steps)
         assertEquals(464_000L, withLiving.end)
+        // 계좌 하나면 줄 합계(500,000 − 36,000)가 끝 잔액과 맞아 안내를 붙이지 않는다
+        assertFalse(f.hasPartialLiving)
+        assertNull(withLiving.note)
+        assertEquals(listOf("생활비 기록이 없어 'AI 생활비 반영' 선에는 앞으로 쓸 신용카드 금액만 넣었어요."), noticeLines(f, ForecastSelection()))
+    }
+
+    /**
+     * !223 리뷰 — 계좌 A(생활비 있음) + B(신용카드 추정만). BE는 통합 livingCost를 INSUFFICIENT로 주지만 conservative에는 A의 생활비 120,000이 들어 있다.
+     * 줄 합계(−36,000)로는 끝 잔액(344,000)이 나오지 않으니 앱이 금액을 만들지 말고 까닭만 적는다
+     */
+    @Test fun `여러 계좌에서 생활비 기록이 일부만 있으면 끝 잔액에만 들어 있다고 알린다`() {
+        val f = testForecast(
+            accountIds = listOf(1, 2),
+            days = listOf(
+                day(nov10),
+                day(nov20, ForecastEvent(nov20, FlowType.CARD_SPENDING_ESTIMATE, "생활카드 · 추정", -36_000, FlowConfidence.CONSERVATIVE), conservative = 344_000),
+            ),
+            livingCost = ForecastLivingCost(null, LivingMethod.UNKNOWN, insufficient = true),
+        )
+        assertTrue(f.hasPartialLiving)
+        val withLiving = f.lineGroups()[1]
+        assertEquals(listOf(LineStep("앞으로 쓸 신용카드 금액", -36_000)), withLiving.steps)   // 생활비 줄은 만들지 않는다
+        assertEquals(344_000L, withLiving.end)                                                  // 서버 끝 잔액 그대로
+        assertEquals("생활비 기록이 있는 계좌가 있으면 그 계좌의 예상 생활비는 금액을 따로 받지 못해 끝 잔액에만 들어 있어요", withLiving.note)
+        assertEquals(listOf("생활비 기록이 없는 계좌는 'AI 생활비 반영' 선에 앞으로 쓸 신용카드 금액만 넣었어요."), noticeLines(f, ForecastSelection()))
+    }
+
+    @Test fun `여러 계좌라도 생활비 금액을 받았거나 생활비 선이 없으면 안내를 붙이지 않는다`() {
+        val two = listOf(1L, 2L)
+        val withAmount = testForecast(accountIds = two, days = listOf(day(nov10), day(nov20)), livingCost = ForecastLivingCost(120_000, LivingMethod.TSB, insufficient = false))
+        assertFalse(withAmount.hasPartialLiving)
+        assertNull(withAmount.lineGroups()[1].note)
+        val noLine = testForecast(
+            accountIds = two,
+            days = listOf(day(nov10, conservative = null), day(nov20, conservative = null)),
+            livingCost = ForecastLivingCost(null, LivingMethod.UNKNOWN, insufficient = true),
+        )
+        assertFalse(noLine.hasPartialLiving)
+        assertNull(noLine.lineGroups()[1].note)
     }
 }

@@ -213,8 +213,11 @@ data class ExcludedNote(val reason: String?, val text: String)
 /** '두 선은 이렇게 계산했어요'의 한 줄 */
 data class LineStep(val label: String, val amount: Long, val note: String? = null)
 
-/** 한 선의 설명 — [line]은 EXPECTED('AI 생활비 제외') · CONSERVATIVE('AI 생활비 반영'), 그 선에 더한 돈과 기간 끝 잔액. 생활비 선이 없으면 [end]가 null */
-data class LineGroup(val line: FlowConfidence, val steps: List<LineStep>, val end: Long?)
+/**
+ * 한 선의 설명 — [line]은 EXPECTED('AI 생활비 제외') · CONSERVATIVE('AI 생활비 반영'), 그 선에 더한 돈과 기간 끝 잔액. 생활비 선이 없으면 [end]가 null.
+ * [note]는 줄을 더해도 끝 잔액이 되지 않을 때 그 까닭을 적은 한 줄이다
+ */
+data class LineGroup(val line: FlowConfidence, val steps: List<LineStep>, val end: Long?, val note: String? = null)
 
 data class Forecast(
     val accountIds: List<Long>,
@@ -287,10 +290,20 @@ data class Forecast(
         }
         return listOf(
             LineGroup(FlowConfidence.EXPECTED, withoutLiving, last?.expected),
-            LineGroup(FlowConfidence.CONSERVATIVE, withLiving, last?.conservative),
+            LineGroup(FlowConfidence.CONSERVATIVE, withLiving, last?.conservative, note = PARTIAL_LIVING_NOTE.takeIf { hasPartialLiving }),
         )
     }
+
+    /**
+     * 여러 계좌 중 일부만 생활비 기록이 있을 수 있는 경우. BE는 한 계좌라도 생활비가 없으면 통합 livingCost를 INSUFFICIENT(금액 null)로 주지만,
+     * conservative는 계좌마다 계산해 기록 없는 계좌도 카드 추정이 있으면 생활비 0원으로 낸다(LivingCostProjector.total · ForecastCalculator).
+     * 그래서 선에는 기록 있는 계좌의 생활비가 들어 있는데 금액은 받지 못한다 — 앱이 거꾸로 계산하지 않고 그 사실만 알린다
+     */
+    val hasPartialLiving: Boolean get() = livingCost?.insufficient == true && hasConservative && accountIds.size > 1
 }
+
+/** [Forecast.hasPartialLiving] — 기록 있는 계좌가 하나도 없을 때도 맞는 문장(어느 쪽인지 응답만으로는 모른다) */
+internal const val PARTIAL_LIVING_NOTE = "생활비 기록이 있는 계좌가 있으면 그 계좌의 예상 생활비는 금액을 따로 받지 못해 끝 잔액에만 들어 있어요"
 
 // ── 서버 값 → 화면 값 ──
 
