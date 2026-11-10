@@ -5,8 +5,10 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -17,16 +19,21 @@ import com.yamu.be.global.job.JobLocks;
 import com.yamu.be.global.job.JobRunCommand;
 import com.yamu.be.global.job.JobRunReport;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.ValueOperations;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 /** 잔고 위험 알림 작업(Task 9.3.2)의 대상 고르기·반복 규칙·실패 격리. 잔고예보 계산·DB·Redis는 대역이다. */
@@ -200,6 +207,51 @@ class BalanceRiskNotifyJobTest {
         JobRunReport report = job.run(new JobRunCommand(at(9, 0), null, false));
 
         assertThat(report.results()).singleElement().extracting(JobRunReport.Item::result).isEqualTo("DUPLICATE");
+        // 미래 구간은 "오늘부터 위험"으로 남기지 않는다(다음 날 오늘로 당겨지면 알려야 하므로)
+        verify(marks, never()).rememberRisk(anyLong(), any());
+    }
+
+    @Test
+    void 미래_구간을_알린_다음_날_위험이_오늘로_당겨지면_다시_알리고_그다음_날은_이어지는_구간이다() {
+        // 표시는 실제 BalanceRiskMarks로 남긴다(Redis만 메모리 대역). 판정한 날(Risk.today)을 하루씩 넘긴다
+        job = new BalanceRiskNotifyJob(jdbc, settings, contents, writer, riskCheck, memoryMarks(), mock(JobLocks.class),
+                new NotificationProperties("0 * * * * *", true), Clock.fixed(at(8, 30), ZoneOffset.UTC));
+        LocalDate dayBefore = TODAY.minusDays(1);
+        LocalDate nextDay = TODAY.plusDays(1);
+        when(riskCheck.firstRisk(eq(USER), eq(List.of(ACCOUNT))))
+                .thenReturn(Optional.of(riskOn(dayBefore, TODAY.plusDays(10))))   // 어제: 11/20부터 부족
+                .thenReturn(Optional.of(riskOn(TODAY, TODAY)))                    // 오늘: 큰 지출로 오늘부터 부족
+                .thenReturn(Optional.of(riskOn(nextDay, nextDay)));               // 내일: 그대로 부족
+
+        List<String> results = List.of(run(), run(), run());
+
+        assertThat(results).containsExactly("CREATED", "CREATED", "CONTINUING");
+        ArgumentCaptor<NotificationWriter.Draft> drafts = ArgumentCaptor.forClass(NotificationWriter.Draft.class);
+        verify(writer, times(2)).write(drafts.capture());
+        assertThat(drafts.getAllValues()).extracting(NotificationWriter.Draft::deduplicationKey)
+                .containsExactly("BALANCE_RISK:2026-11-20", "BALANCE_RISK:2026-11-10");
+    }
+
+    private String run() {
+        return job.run(new JobRunCommand(at(9, 0), null, false)).results().get(0).result();
+    }
+
+    private static BalanceRiskCheck.Risk riskOn(LocalDate today, LocalDate from) {
+        return new BalanceRiskCheck.Risk(today, null, from, from.plusDays(2), "WARNING", 58_000L, 42_000L, 100_000L);
+    }
+
+    /** Redis 값 읽기·쓰기·지우기만 메모리 맵으로 흉내 낸 실제 표시. */
+    @SuppressWarnings("unchecked")
+    private static BalanceRiskMarks memoryMarks() {
+        Map<String, String> values = new HashMap<>();
+        StringRedisTemplate redis = mock(StringRedisTemplate.class);
+        ValueOperations<String, String> ops = mock(ValueOperations.class);
+        when(redis.opsForValue()).thenReturn(ops);
+        when(ops.get(anyString())).thenAnswer(call -> values.get(call.<String>getArgument(0)));
+        doAnswer(call -> values.put(call.getArgument(0), call.getArgument(1)))
+                .when(ops).set(anyString(), anyString(), any(Duration.class));
+        when(redis.delete(anyString())).thenAnswer(call -> values.remove(call.<String>getArgument(0)) != null);
+        return new BalanceRiskMarks(redis);
     }
 
     @Test

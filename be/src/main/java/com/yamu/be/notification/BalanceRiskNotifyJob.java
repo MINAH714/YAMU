@@ -165,9 +165,12 @@ public class BalanceRiskNotifyJob implements ManualJob {
             return JobRunReport.Item.succeeded(REF_TYPE, userId, userId, "SAFE", null, null);
         }
         BalanceRiskCheck.Risk risk = found.get();
-        boolean continuing = risk.from().equals(risk.today())
-                && marks.riskSeenSince(userId, risk.today().minusDays(1));
-        marks.rememberRisk(userId, risk.today());
+        boolean startsToday = risk.from().equals(risk.today());
+        boolean continuing = startsToday && marks.riskSeenSince(userId, risk.today().minusDays(1));
+        if (startsToday) {
+            // 오늘부터 위험일 때만 남긴다. 미래 구간까지 남기면 그 위험이 다음 날 오늘로 당겨졌을 때 이어지는 것으로 보고 알리지 않는다
+            marks.rememberRisk(userId, risk.today());
+        }
         if (continuing) {
             return JobRunReport.Item.succeeded(REF_TYPE, userId, userId, "CONTINUING", risk.shortfall(), null);
         }

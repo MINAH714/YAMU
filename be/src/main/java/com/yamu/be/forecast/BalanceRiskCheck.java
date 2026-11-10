@@ -68,7 +68,8 @@ public class BalanceRiskCheck {
      * @param accountId     계좌 하나의 위험이면 그 계좌, 통합 잔액의 위험이면 null
      * @param from          구간 첫날(한국 날짜). 오늘이면 이미 안전 잔액 아래다
      * @param to            구간 마지막 날
-     * @param level         {@code WARNING}(예상·보수적 선) 또는 {@code DANGER}(확정 선)
+     * @param level         {@link RiskDetector}와 같다. {@code DANGER}(예상 선, AI 생활비 제외가 안전 잔액 미만) 또는
+     *                      {@code WARNING}(예상 선은 기준 이상이고 보수적 선만 미만)
      * @param lowestBalance 구간 최저 잔액(원)
      * @param shortfall     안전 잔액보다 모자란 최대 금액(원, 양수)
      * @param threshold     안전 잔액(원)
