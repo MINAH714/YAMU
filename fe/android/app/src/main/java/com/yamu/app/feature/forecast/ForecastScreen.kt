@@ -92,6 +92,7 @@ import com.yamu.app.feature.forecast.data.LineGroup
 import com.yamu.app.feature.forecast.data.RiskLevel
 import com.yamu.app.feature.forecast.data.RiskWindow
 import com.yamu.app.feature.forecast.data.cashflowRows
+import com.yamu.app.feature.forecast.data.toCashflowRow
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -782,7 +783,10 @@ private fun FilterSheet(
 
 // ───────────────────────── F-02 예정 수입 · 지출 ─────────────────────────
 
-/** F-02 한 줄 — 가계부 항목이면 눌러서 고치고(F-02b), 카드 청구는 읽기 전용. 반복이면 날짜 옆에 '매월 말일'처럼 */
+/**
+ * F-02 한 줄 — 가계부 항목이면 눌러서 고치고(F-02b), 카드 청구 · 확인 전 후보는 읽기 전용. 반복이면 날짜 옆에 '매월 말일'처럼.
+ * 확인 전 후보는 F-01 '예정된 돈'과 같은 '예상' 태그
+ */
 @Composable
 private fun CashflowRowLine(row: CashflowRow, onClick: (() -> Unit)?) {
     val c = YamuTheme.colors
@@ -791,6 +795,7 @@ private fun CashflowRowLine(row: CashflowRow, onClick: (() -> Unit)?) {
         sub = listOfNotNull(row.date?.toMonthDayWeek(), row.repeatLabel, row.cardNote).joinToString(" · "),
         value = "${row.amount.toWon(withPlusSign = true)}원",
         valueColor = if (row.amount > 0) c.primary else c.text1,
+        titleTag = if (row.candidate) ({ StatusTag("예상", tone = TagTone.Neutral) }) else null,
         dense = true,
         onClick = onClick,
     )
@@ -836,7 +841,7 @@ fun CashflowListRoute(
                     val entries = s.entries
                     val rows = if (entries != null) cashflowRows(entries, f) else {
                         requireNotNull(f)   // 둘 다 없으면 위에서 오류 화면
-                        f.upcoming.filter { !it.isEstimate }.map { CashflowRow(it.date, it.title, it.amount, null, null) }
+                        f.upcoming.filter { !it.isEstimate }.map { it.toCashflowRow() }
                     }
                     val period = cashflowPeriod(f)
                     YamuCard {

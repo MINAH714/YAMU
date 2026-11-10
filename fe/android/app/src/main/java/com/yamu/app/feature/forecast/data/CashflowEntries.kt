@@ -142,8 +142,18 @@ fun CashflowEntryDto.toEntry(): CashflowEntry? {
     )
 }
 
-/** F-02 한 줄 — [entry]가 있으면 눌러서 고친다. 카드대금 · 월급 미리보기처럼 가계부 항목이 아니면 null(읽기 전용) */
-data class CashflowRow(val date: LocalDate?, val title: String, val amount: Long, val repeatLabel: String?, val entry: CashflowEntry?) {
+/**
+ * F-02 한 줄 — [entry]가 있으면 눌러서 고친다. 카드대금 · 월급 미리보기처럼 가계부 항목이 아니면 null(읽기 전용).
+ * [candidate]는 확인 전 고정 지출 후보(예보에서 가져온 읽기 전용 줄, '예상' 태그)
+ */
+data class CashflowRow(
+    val date: LocalDate?,
+    val title: String,
+    val amount: Long,
+    val repeatLabel: String?,
+    val entry: CashflowEntry?,
+    val candidate: Boolean = false,
+) {
     /**
      * 카드 예정 지출 표시 — 줄의 날짜는 사용일이다. 신용카드는 돈이 청구 출금일에 빠져 머리의 '나갈 돈'(기간 안 출금)과 날짜가 다를 수 있고,
      * 체크카드는 사용일에 빠진다(BE CashflowEvents). 줄에서는 카드 결제라는 것만 밝힌다
@@ -152,13 +162,18 @@ data class CashflowRow(val date: LocalDate?, val title: String, val amount: Long
 }
 
 /**
- * F-02 줄 합치기 — 가계부 회차(고칠 수 있음) + 예보의 카드 청구(읽기 전용).
+ * F-02 줄 합치기 — 가계부 회차(고칠 수 있음) + 예보의 카드 청구와 확인 전 고정 지출 후보(읽기 전용).
+ * 가계부 목록은 확인한 항목만 받아(status 기본값 CONFIRMED) 후보는 예보에서 가져온다. 전에는 회차 응답이 오면 후보가 목록에서 빠지는데
+ * 머리 '나갈 돈'(예보 기준)은 계속 세어 둘이 어긋났다(11/10 QA, 넷플릭스). 확인한 후보는 예보에서 CONFIRMED로 바뀌어 두 번 나오지 않는다.
  * 카드 사용 예상('AI 생활비 반영' 선 전용 추정)은 예정된 돈이 아니라 넣지 않는다. 날짜는 서버가 준 값 그대로 쓰고 다시 계산하지 않는다
  */
 fun cashflowRows(entries: List<CashflowEntry>, forecast: Forecast?): List<CashflowRow> {
     // 계좌를 일부만 골랐으면 가계부 줄도 그 계좌 것만 — 머리(예보 기준)와 목록이 같은 계좌를 말하게 한다
     val scope = forecast?.scope
     val fromItems = entries.filter { scope?.includes(it) ?: true }.map { e -> CashflowRow(e.date, e.title, e.signedAmount, e.repeatLabel(), e) }
-    val bills = forecast?.upcoming.orEmpty().filter { it.isCardBill }.map { CashflowRow(it.date, it.title, it.amount, null, null) }
-    return (fromItems + bills).sortedWith(compareBy({ it.date }, { it.entry?.itemId ?: Long.MAX_VALUE }))
+    val fromForecast = forecast?.upcoming.orEmpty().filter { it.isCardBill || it.isCandidate }.map { it.toCashflowRow() }
+    return (fromItems + fromForecast).sortedWith(compareBy({ it.date }, { it.entry?.itemId ?: Long.MAX_VALUE }))
 }
+
+/** 예보 이벤트 → F-02 읽기 전용 줄(카드 청구 · 확인 전 후보). 회차를 못 받았을 때도 같은 모양으로 그린다 */
+fun ForecastEvent.toCashflowRow(): CashflowRow = CashflowRow(date, title, amount, null, null, candidate = isCandidate)

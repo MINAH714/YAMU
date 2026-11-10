@@ -271,6 +271,43 @@ class ForecastMapperTest {
         assertEquals(5, cashflowRows(entries, testForecast()).size)
     }
 
+    @Test fun `예정 목록 — 회차를 받은 뒤에도 확인 전 고정 지출 후보가 남고 머리 건수와 맞는다(11월 10일 QA 넷플릭스)`() {
+        val nov5 = LocalDate.of(2026, 11, 5)
+        val nov12 = LocalDate.of(2026, 11, 12)
+        val netflix = ForecastEvent(nov5, FlowType.SCHEDULED_OUTFLOW, "넷플릭스", -13_500, FlowConfidence.EXPECTED)
+        val snack = ForecastEvent(nov12, FlowType.SCHEDULED_OUTFLOW, "간식", -1_000, FlowConfidence.CONFIRMED)
+        val f = testForecast(days = listOf(day(nov5, netflix), day(nov12, snack)))
+        // 가계부 목록은 status를 빼고 불러 확인한 항목만 온다(BE 기본값 CONFIRMED) — 후보 넷플릭스는 없다
+        val confirmed = CashflowEntry(7, false, "간식", 1_000, nov12, nov12, CashflowRepeat.NONE, null, null, 1, null)
+        val rows = cashflowRows(listOf(confirmed), f)
+        assertEquals(listOf("넷플릭스", "간식"), rows.map { it.title })
+        assertEquals(listOf(true, false), rows.map { it.candidate })
+        assertNull(rows.first().entry)   // 후보는 고치는 화면으로 가지 않는다
+        // 머리 '나갈 돈 · 출금 N건'에 든 줄이 목록에 모두 있다
+        val (out, count) = com.yamu.app.feature.forecast.cashflowOutflow(f, rows)
+        assertEquals(14_500L to 2, out to count)
+        assertEquals(out, -rows.sumOf { it.amount })
+        // 회차를 받기 전(예보 줄만)에도 같은 줄 · 같은 태그
+        assertEquals(rows.map { it.title to it.candidate }, f.upcoming.filter { !it.isEstimate }.map { it.toCashflowRow() }.map { it.title to it.candidate })
+    }
+
+    @Test fun `예정 목록 — 확인한 고정 지출은 가계부 줄 하나로만, 진행 중 청구는 후보로 보지 않는다`() {
+        val nov5 = LocalDate.of(2026, 11, 5)
+        val nov8 = LocalDate.of(2026, 11, 8)
+        // 확인하면 서버가 예보에도 CONFIRMED로 넣는다
+        val f = testForecast(
+            days = listOf(
+                day(nov5, ForecastEvent(nov5, FlowType.SCHEDULED_OUTFLOW, "넷플릭스", -13_500, FlowConfidence.CONFIRMED)),
+                day(nov8, ForecastEvent(nov8, FlowType.CARD_BILLING, "신한카드 청구", -150_000, FlowConfidence.EXPECTED)),
+            ),
+        )
+        val netflix = CashflowEntry(31, false, "넷플릭스", 13_500, nov5, nov5, CashflowRepeat.MONTHLY, 5, null, null, 16)
+        val rows = cashflowRows(listOf(netflix), f)
+        assertEquals(listOf("넷플릭스", "신한카드 청구"), rows.map { it.title })
+        assertEquals(listOf(false, false), rows.map { it.candidate })
+        assertEquals(netflix, rows.first().entry)
+    }
+
     @Test fun `계좌 · 카드 없는 줄과 수입 줄에는 카드 결제 표시가 없다`() {
         val nov8 = LocalDate.of(2026, 11, 8)
         val byAccount = CashflowEntry(1, false, "월세", 500_000, nov8, nov8, CashflowRepeat.NONE, null, null, 3, null)
