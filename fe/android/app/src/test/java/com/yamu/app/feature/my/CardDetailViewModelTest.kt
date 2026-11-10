@@ -246,6 +246,7 @@ class CardDetailViewModelTest {
         val vm = detail()
         my.autoSelect = true   // 서버가 기본 카드가 없어져 자동 선택을 다시 켰다
         vm.setDefault(false)
+        vm.confirmDefault()
         advanceUntilIdle()
         assertEquals(false, link.updates.single().isDefault)
         assertFalse(vm.state.value.autoSelectOff)
@@ -262,6 +263,89 @@ class CardDetailViewModelTest {
         advanceUntilIdle()
         assertEquals(reads, my.reads)
         assertNull(vm.state.value.message)
+    }
+
+    // ── 기본 카드 바꾸기 확인(11/10 QA) ──
+
+    @Test fun `다른 카드가 기본 카드면 바꾸기 전에 묻고 확인하면 저장한다`() = runTest(dispatcher) {
+        link.cards = listOf(linkedCard(21), linkedCard(2).copy(isDefault = true, nickname = "노리2"))
+        link.updateResult = ApiResult.Success(CARD.copy(isDefault = true))
+        val vm = detail()
+        vm.setDefault(true)
+        advanceUntilIdle()
+        assertTrue(link.updates.isEmpty())
+        assertEquals(DefaultConfirm.Switch(to = "Mr.Life", from = "노리2"), vm.state.value.confirm)
+        vm.confirmDefault()
+        advanceUntilIdle()
+        assertEquals(true, link.updates.single().isDefault)
+        assertNull(vm.state.value.confirm)
+        assertNull(vm.state.value.otherDefaultName)   // 서버가 앞선 기본 카드를 풀었다
+    }
+
+    @Test fun `물은 뒤 닫으면 저장하지 않는다`() = runTest(dispatcher) {
+        link.cards = listOf(linkedCard(21), linkedCard(2).copy(isDefault = true))
+        val vm = detail()
+        vm.setDefault(true)
+        vm.dismissDefaultConfirm()
+        advanceUntilIdle()
+        assertTrue(link.updates.isEmpty())
+        assertNull(vm.state.value.confirm)
+        assertFalse(vm.state.value.card!!.isDefault)
+    }
+
+    @Test fun `확인창이 떠 있는 동안 다시 눌러도 한 번만 묻고 한 번만 저장한다`() = runTest(dispatcher) {
+        link.cards = listOf(linkedCard(21), linkedCard(2).copy(isDefault = true))
+        val vm = detail()
+        vm.setDefault(true)
+        vm.setDefault(true)
+        vm.confirmDefault()
+        vm.confirmDefault()
+        advanceUntilIdle()
+        assertEquals(1, link.updates.size)
+    }
+
+    @Test fun `기본 카드가 없으면 묻지 않고 바로 정한다`() = runTest(dispatcher) {
+        val vm = detail()
+        vm.setDefault(true)
+        advanceUntilIdle()
+        assertNull(vm.state.value.confirm)
+        assertEquals(true, link.updates.single().isDefault)
+    }
+
+    @Test fun `카드 목록을 못 읽으면 지금 기본 카드 이름 없이 묻는다`() = runTest(dispatcher) {
+        link.overviewResult = ApiResult.Failure(ApiError.Network)
+        val vm = detail()
+        vm.setDefault(true)
+        advanceUntilIdle()
+        assertTrue(link.updates.isEmpty())
+        assertEquals(DefaultConfirm.Switch(to = "Mr.Life", from = null), vm.state.value.confirm)
+    }
+
+    @Test fun `자동 선택이 켜진 채 기본 카드를 풀 때는 묻지 않는다`() = runTest(dispatcher) {
+        link.detailResult = ApiResult.Success(CARD.copy(isDefault = true))
+        val vm = detail()
+        vm.setDefault(false)
+        advanceUntilIdle()
+        assertNull(vm.state.value.confirm)
+        assertEquals(false, link.updates.single().isDefault)
+    }
+
+    @Test fun `자동 선택이 꺼진 채 기본 카드를 풀 때는 자동 선택이 다시 켜진다고 묻는다`() = runTest(dispatcher) {
+        my.autoSelect = false
+        link.detailResult = ApiResult.Success(CARD.copy(isDefault = true))
+        val vm = detail()
+        vm.setDefault(false)
+        advanceUntilIdle()
+        assertTrue(link.updates.isEmpty())
+        assertEquals(DefaultConfirm.Release, vm.state.value.confirm)
+    }
+
+    @Test fun `확인창 문장 끝 — 받침이 있으면 이에요`() {
+        assertEquals("예요", "KB국민 노리2 체크카드".copula())
+        assertEquals("이에요", "KB국민 적립".copula())
+        assertEquals("예요", "신한카드 Mr.Life".copula())
+        assertEquals("이에요", "카드1".copula())
+        assertEquals("예요", "카드2".copula())
     }
 
     // ── 해제 ──

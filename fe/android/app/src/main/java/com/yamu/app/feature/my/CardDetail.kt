@@ -44,10 +44,12 @@ import com.yamu.app.core.designsystem.component.PrimaryButton
 import com.yamu.app.core.designsystem.component.SkeletonBlock
 import com.yamu.app.core.designsystem.component.StatusTag
 import com.yamu.app.core.designsystem.component.YamuBottomSheet
+import com.yamu.app.core.designsystem.component.YamuDialog
 import com.yamu.app.core.designsystem.component.YamuTextField
 import com.yamu.app.core.designsystem.icon.YamuIcons
 import com.yamu.app.core.designsystem.theme.YamuSpacing
 import com.yamu.app.core.designsystem.theme.YamuTheme
+import com.yamu.app.core.format.directionParticle
 import com.yamu.app.core.format.objectParticle
 import com.yamu.app.core.format.toWon
 import com.yamu.app.core.network.ApiError
@@ -83,6 +85,9 @@ data class CardDetailState(
     val settlementAccountLabel: String? = null,    // 신용카드 결제 계좌 — 계좌 목록을 못 읽으면 null
     val otherActiveCards: Int? = null,             // 자동 선택에 포함된 다른 카드 수. 목록을 못 읽으면 null
     val autoSelect: Boolean? = null,               // 결제 카드 자동 선택(카드 관리 M-02). 못 읽으면 null — 켜진 것으로 본다
+    val cardsKnown: Boolean = false,               // 카드 목록을 읽었나 — 못 읽으면 다른 기본 카드가 있는지 모른다
+    val otherDefaultName: String? = null,          // 지금 기본 카드인 다른 카드 이름
+    val confirm: DefaultConfirm? = null,           // 기본 카드를 바꾸기 전 확인창
     val error: String? = null,
     val gone: Boolean = false,                     // 없거나 다른 기기에서 해제한 카드
     val saving: Boolean = false,
@@ -95,6 +100,26 @@ data class CardDetailState(
 
     /** 자동 선택을 끄면 기본 카드로만 결제해 카드별 '자동 선택에 포함'은 쓰이지 않는다 — 꺼진 채 막아 둔다(값은 그대로) */
     val autoSelectOff: Boolean get() = autoSelect == false
+}
+
+/** 기본 카드를 바꾸기 전에 한 번 묻는다(11/10 QA) — 실수로 눌러 결제 카드가 바뀌지 않게 */
+sealed interface DefaultConfirm {
+    /** 다른 카드에서 이 카드로. [from]은 지금 기본 카드 이름 — 카드 목록을 못 읽으면 null */
+    data class Switch(val to: String, val from: String?) : DefaultConfirm
+
+    /** 자동 선택이 꺼진 채 풀기 — 기본 카드가 없어지면 서버가 자동 선택을 다시 켠다 */
+    data object Release : DefaultConfirm
+}
+
+/** 받침이 있으면 '이에요', 없으면 '예요' — '체크카드예요' · '적립이에요'. 숫자는 읽는 소리로(0 · 1 · 3 · 6 · 7 · 8은 받침) */
+internal fun String.copula(): String {
+    val last = trimEnd().lastOrNull() ?: return "예요"
+    val batchim = when (last) {
+        in '가'..'힣' -> (last - '가') % 28 != 0
+        in "013678" -> true
+        else -> false
+    }
+    return if (batchim) "이에요" else "예요"
 }
 
 /** 없는 카드(404)와 해제한 카드(409)는 고칠 수 없다 — 줄을 되돌리는 대신 '이미 해제'로 */
@@ -135,6 +160,9 @@ class CardDetailViewModel @Inject constructor(
                             ?.let { "${it.brand.name} ·${it.last4}" } ?: s.settlementAccountLabel,
                         otherActiveCards = linked?.cards?.count { it.recommended && it.userCardId != userCardId } ?: s.otherActiveCards,
                         autoSelect = autoSelect ?: s.autoSelect,
+                        cardsKnown = linked != null || s.cardsKnown,
+                        otherDefaultName = if (linked == null) s.otherDefaultName
+                        else linked.cards.firstOrNull { it.isDefault && it.userCardId != userCardId }?.displayName,
                     )
                     is ApiResult.Failure ->
                         if (detail.error.isCardGone()) s.copy(loading = false, gone = true)
@@ -161,11 +189,38 @@ class CardDetailViewModel @Inject constructor(
         ) { link.updateCard(userCardId, recommended = on) }
     }
 
+    /**
+     * 다른 카드에서 바꿀 때와 자동 선택이 꺼진 채 풀 때는 먼저 묻는다([DefaultConfirm]).
+     * 처음 정할 때 · 자동 선택이 켜진 채 풀 때는 바로 저장한다. 카드 목록을 못 읽었으면 다른 기본 카드가 있을 수 있어 묻는다
+     */
     fun setDefault(on: Boolean) {
+        val s = _state.value
+        val card = s.card ?: return
+        if (s.saving || s.confirm != null) return
+        val ask = when {
+            on && (s.otherDefaultName != null || !s.cardsKnown) -> DefaultConfirm.Switch(card.displayName, s.otherDefaultName)
+            !on && s.autoSelectOff -> DefaultConfirm.Release
+            else -> null
+        }
+        if (ask != null) _state.update { it.copy(confirm = ask) } else saveDefault(on)
+    }
+
+    fun confirmDefault() {
+        val ask = _state.value.confirm ?: return
+        _state.update { it.copy(confirm = null) }
+        saveDefault(on = ask is DefaultConfirm.Switch)
+    }
+
+    fun dismissDefaultConfirm() = _state.update { it.copy(confirm = null) }
+
+    private fun saveDefault(on: Boolean) {
         val autoSelectOff = _state.value.autoSelectOff
         save(
             optimistic = { it.copy(isDefault = on) },
-            done = { if (!on && autoSelectOff) syncAutoSelect() else null },
+            done = {
+                if (on) _state.update { it.copy(otherDefaultName = null) }   // 서버가 앞선 기본 카드를 풀었다
+                if (!on && autoSelectOff) syncAutoSelect() else null
+            },
         ) { link.updateCard(userCardId, isDefault = on) }
     }
 
@@ -317,6 +372,24 @@ fun CardDetailRoute(
             )
             null -> Unit
         }
+    }
+    when (val ask = s.confirm) {
+        is DefaultConfirm.Switch -> YamuDialog(
+            title = if (ask.from != null) "${ask.to}${ask.to.directionParticle()} 바꿀까요?"
+            else "기본 카드를 ${ask.to}${ask.to.directionParticle()} 바꿀까요?",
+            text = ask.from?.let { "지금 기본 카드는 $it${it.copula()}" },
+            confirmText = "바꾸기",
+            onConfirm = viewModel::confirmDefault,
+            onDismiss = viewModel::dismissDefaultConfirm,
+        )
+        DefaultConfirm.Release -> YamuDialog(
+            title = "기본 카드를 풀까요?",
+            text = "기본 카드가 없으면 결제 카드 자동 선택이 다시 켜져요",
+            confirmText = "풀기",
+            onConfirm = viewModel::confirmDefault,
+            onDismiss = viewModel::dismissDefaultConfirm,
+        )
+        null -> Unit
     }
 }
 
