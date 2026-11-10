@@ -1,5 +1,6 @@
 package com.yamu.app.feature.payment.data
 
+import com.yamu.app.core.format.toWon
 import java.time.Instant
 import java.time.OffsetDateTime
 
@@ -34,6 +35,24 @@ fun parseScannedCode(raw: String?): String? {
     val body = if (text.startsWith(QR_PREFIX, ignoreCase = true)) text.substring(QR_PREFIX.length) else text
     return body.filter { it.isLetterOrDigit() }.uppercase().ifEmpty { null }
 }
+
+/**
+ * 결제 완료 · 상세 혜택 줄의 금액 — 부호 없이 반영되는 때를 붙인다('660원 할인' · '3,180원 청구할인' · '3,180원 환급' · '1,500원 적립').
+ * 실적 줄의 '+'와 헷갈리지 않게 마이너스는 쓰지 않는다(11/10 QA)
+ */
+fun ReceiptBenefit.amountText(): String {
+    val won = "${amount.toWon()}원"
+    return when (kind) {
+        BenefitKind.INSTANT, BenefitKind.UNKNOWN -> "$won 할인"
+        BenefitKind.BILLING -> "$won 청구할인"
+        BenefitKind.CASHBACK -> "$won 환급"
+        BenefitKind.POINT -> "$won 적립"
+    }
+}
+
+/** 즉시할인이 있을 때 큰 금액 아래 한 줄 — '6,600원에서 660원 바로 할인'. 없으면 null */
+fun PaymentReceipt.instantDiscountText(): String? =
+    instantDiscount.takeIf { it > 0 }?.let { "${amount.toWon()}원에서 ${it.toWon()}원 바로 할인" }
 
 /** 승인 거절 코드(#1 failure.code) → 사용자 문장 */
 fun declineMessage(code: String?): String = when (code) {

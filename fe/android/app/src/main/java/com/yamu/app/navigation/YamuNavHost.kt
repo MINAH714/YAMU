@@ -34,6 +34,7 @@ import com.yamu.app.feature.auth.data.SessionStart
 import kotlinx.coroutines.launch
 import com.yamu.app.feature.debug.DebugMenuScreen
 import com.yamu.app.feature.home.HomeRoute
+import com.yamu.app.feature.payment.CancelCodeRoute
 import com.yamu.app.feature.payment.PayCodeRoute
 import com.yamu.app.feature.payment.PayDoneRoute
 import com.yamu.app.feature.payment.PaymentDetailRoute
@@ -455,7 +456,20 @@ fun YamuNavHost(navController: NavHostController, modifier: Modifier = Modifier)
                     onPerformance = { userCardId -> navController.navigate(CardPerformance(userCardId)) },
                 )
             }
-            composable<PaymentDetail> { PaymentDetailRoute(onBack = back) }
+            composable<PaymentDetail> { PaymentDetailRoute(onBack = back, onCancel = { r -> navController.navigate(CancelCode(r.paymentId)) }) }
+            // 결제 취소 — 결제할 때와 같은 코드를 띄우고 매장 POS가 찍어 취소한다. 취소가 확인되면 닫고 상세로 돌아간다
+            composable<CancelCode> {
+                CancelCodeRoute(
+                    onClose = { message ->
+                        back()
+                        message?.let(showMessage)
+                    },
+                    // 가맹점이 취소 대신 결제로 찍었으면 결제 완료로 — 이 코드 화면은 빼고
+                    onPaid = { paymentId -> navController.navigate(PayDone(paymentId)) { popUpTo<CancelCode> { inclusive = true } } },
+                    onOpenPinPad = openPinPad,
+                    onAddCard = { navController.navigate(AddCard) { popUpTo<CancelCode> { inclusive = true } } },
+                )
+            }
         }
 
         // 간편 비밀번호로 본인 인증 — 그래프 밖이라 어느 흐름에서든 열린다(09 문서 5-3)

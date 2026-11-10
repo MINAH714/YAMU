@@ -383,12 +383,16 @@ class PayCodeViewModel @Inject constructor(
 }
 
 @Composable
-/** [onClose]의 문장은 닫힌 뒤 보여 줄 스낵바(이 화면이 닫히면 여기서 띄운 건 취소되므로 바깥에서) */
+/**
+ * [onClose]의 문장은 닫힌 뒤 보여 줄 스낵바(이 화면이 닫히면 여기서 띄운 건 취소되므로 바깥에서).
+ * [cancelHint]가 있으면 결제 상세에서 취소하러 연 것(CancelCodeRoute) — 코드는 같고 제목 · 코드 아래 안내만 바뀐다
+ */
 fun PayCodeRoute(
     onClose: (message: String?) -> Unit,
     onPaid: (paymentId: Long) -> Unit,
     onOpenPinPad: (purpose: String) -> Unit,
     onAddCard: () -> Unit,
+    cancelHint: String? = null,
     viewModel: PayCodeViewModel = hiltViewModel(),
 ) {
     val s by viewModel.state.collectAsStateWithLifecycle()
@@ -426,7 +430,11 @@ fun PayCodeRoute(
     val confirming = s.request != null && !s.requestDone
     Box(Modifier.fillMaxSize()) {
         FlowScreen(
-            title = if (s.request != null) "결제 확인" else "결제하기",
+            title = when {
+                s.request != null -> "결제 확인"
+                cancelHint != null -> "결제 취소"
+                else -> "결제하기"
+            },
             onBack = if (confirming) null else close,      // 확인 단계는 ✕ 없이 — 뒤로 누르면 거절을 묻는다
             // 대기 판이 떠 있는 동안 아래 화면은 터치뿐 아니라 TalkBack에서도 숨긴다('거절'에 닿지 않게)
             modifier = if (s.waiting) Modifier.clearAndSetSemantics {} else Modifier,
@@ -450,7 +458,7 @@ fun PayCodeRoute(
             ) {
                 when (val p = s.phase) {
                     PayPhase.Auth -> AuthBody(s.error)
-                    is PayPhase.Code -> CodeBody(p.code, s.remainingSec, s.unstable, onNewCode = viewModel::openCode)
+                    is PayPhase.Code -> CodeBody(p.code, s.remainingSec, s.unstable, onNewCode = viewModel::openCode, hint = cancelHint ?: "매장에서 스캔하면 바로 넘어가요")
                     PayPhase.CodeExpired -> MessageBody("시간이 지났어요", "새 코드를 받아 매장에 보여 주세요")
                     PayPhase.NoCard -> EmptyState("결제할 카드가 없어요", actionText = "카드 추가", onAction = onAddCard)
                     is PayPhase.Request -> RequestBody(p.request, s, onSelectCard = viewModel::selectCard, onInstallment = viewModel::selectInstallment)
@@ -525,7 +533,7 @@ private fun AuthBody(error: String?) {
 // ───────────────────────── P-06 결제 코드 ─────────────────────────
 
 @Composable
-private fun CodeBody(code: PayCode, remainingSec: Long?, unstable: Boolean, onNewCode: () -> Unit) {
+private fun CodeBody(code: PayCode, remainingSec: Long?, unstable: Boolean, onNewCode: () -> Unit, hint: String) {
     val c = YamuTheme.colors
     Spacer(Modifier.height(YamuSpacing.x5))
     Column(
@@ -553,7 +561,7 @@ private fun CodeBody(code: PayCode, remainingSec: Long?, unstable: Boolean, onNe
         CompactButton("새 코드", onClick = onNewCode, small = true)
     }
     Spacer(Modifier.height(16.dp))
-    Text("매장에서 스캔하면 바로 넘어가요", style = YamuTheme.typography.titleM, color = c.text1)
+    Text(hint, style = YamuTheme.typography.titleM, color = c.text1, textAlign = TextAlign.Center)
     if (unstable) {
         Spacer(Modifier.height(YamuSpacing.x2))
         Text("연결이 불안정해요 · 다시 확인하고 있어요", style = YamuTheme.typography.bodyS, color = c.warning)

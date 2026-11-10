@@ -30,15 +30,12 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.SpanStyle
-import androidx.compose.ui.text.buildAnnotatedString
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
-import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import com.yamu.app.core.designsystem.component.AmountText
@@ -52,23 +49,20 @@ import com.yamu.app.core.designsystem.component.SkeletonBlock
 import com.yamu.app.core.designsystem.component.StatusTag
 import com.yamu.app.core.designsystem.component.TextButtonGrey
 import com.yamu.app.core.designsystem.component.YamuBottomSheet
-import com.yamu.app.core.designsystem.component.YamuDialog
 import com.yamu.app.core.designsystem.component.YamuTextField
 import com.yamu.app.core.designsystem.icon.YamuIcons
 import com.yamu.app.core.designsystem.theme.YamuSpacing
 import com.yamu.app.core.designsystem.theme.YamuTheme
 import com.yamu.app.core.format.toWon
 import com.yamu.app.core.network.ApiResult
-import com.yamu.app.core.network.newIdempotencyKey
 import com.yamu.app.core.ui.LocalSnackbar
 import com.yamu.app.core.ui.userMessage
 import com.yamu.app.feature.link.BrandMark
-import com.yamu.app.feature.payment.data.CancelResult
 import com.yamu.app.feature.payment.data.MemoRules
-import com.yamu.app.feature.payment.data.PayStatus
 import com.yamu.app.feature.payment.data.PaymentReceipt
 import com.yamu.app.feature.payment.data.PaymentRepository
-import com.yamu.app.feature.payment.data.toCancelProblem
+import com.yamu.app.feature.payment.data.amountText
+import com.yamu.app.feature.payment.data.instantDiscountText
 import com.yamu.app.feature.payment.data.toMemoProblem
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -84,9 +78,6 @@ data class PaymentDetailState(
     val loading: Boolean = true,
     val receipt: PaymentReceipt? = null,
     val error: String? = null,
-    val canceling: Boolean = false,
-    /** 체크카드 환불 입금 뒤 잔액 — 취소 응답에만 있다 */
-    val balanceAfter: Long? = null,
     val memoOpen: Boolean = false,
     val savingMemo: Boolean = false,
     val memoError: String? = null,
@@ -97,15 +88,15 @@ data class PaymentDetailState(
 )
 
 /**
- * 결제 상세(#3) · 메모(#42) · 전체 취소(#31).
+ * 결제 상세(#3) · 메모(#42).
  *
- * 취소 멱등 키는 이 화면에서 처음 누를 때 한 번 만들고 성공할 때까지 다시 쓴다(SavedStateHandle이라 화면이 다시 만들어져도 같다).
- * BE는 끝난 요청의 응답만 기억하고 실패는 기억하지 않아서, 같은 키로 다시 보내면 처음 결과를 받거나 새로 처리된다.
- * 그래서 결과를 모르는 실패(응답 끊김) 뒤 다시 눌러도 두 번 취소되지 않는다.
+ * 취소는 앱이 바로 하지 않는다(11/10 QA). '결제 취소'는 결제 코드 화면(CancelCode)을 열고, 가맹점 POS가 결제 내역에서 고른 결제를
+ * 그 코드로 취소한다. 그래서 이 화면은 다시 보일 때마다 상세를 다시 받아 다른 곳에서 한 취소를 반영한다([resumed]).
+ * 취소를 알게 되면 저장소가 결제 내역 · 결제 완료에도 알린다(PaymentEdits)
  */
 @HiltViewModel
 class PaymentDetailViewModel @Inject constructor(
-    private val savedStateHandle: SavedStateHandle,
+    savedStateHandle: SavedStateHandle,
     private val payments: PaymentRepository,
 ) : ViewModel() {
     private val paymentId: Long = checkNotNull(savedStateHandle.get<Long>("paymentId"))   // 경로 PaymentDetail.paymentId
@@ -115,7 +106,19 @@ class PaymentDetailViewModel @Inject constructor(
     /** 메모 찾기는 화면마다 한 번 — 못 찾으면 '모름'으로 두고 저장 전에 알린다 */
     private var memoLookedUp = false
 
+    /** 처음 보일 때는 init에서 이미 받고 있다 — 그 뒤 다시 보일 때(결제 코드 화면에서 돌아옴 등)만 다시 받는다 */
+    private var shownOnce = false
+
     init { load() }
+
+    /** 화면이 다시 보일 때 — 다른 곳(POS)에서 취소됐을 수 있다. 받는 중이면 겹쳐 보내지 않는다 */
+    fun resumed() {
+        if (!shownOnce) {
+            shownOnce = true
+            return
+        }
+        if (!_state.value.loading) load()
+    }
 
     /** 다시 불러오는 동안에도 보던 내용은 그대로 둔다(실패해도 마지막 값). 이미 아는 메모는 '모름'으로 되돌리지 않는다 */
     fun load() {
@@ -152,37 +155,6 @@ class PaymentDetailViewModel @Inject constructor(
                     memoChecking = false,
                     receipt = if (found != null && current != null && !current.memoKnown) current.copy(memo = found.text, memoKnown = true) else current,
                 )
-            }
-        }
-    }
-
-    fun cancel() {
-        val s = _state.value
-        val receipt = s.receipt ?: return
-        if (s.canceling || !receipt.cancelable) return   // 연타 · 두 번째 확인 — 처리 중이면 보내지 않는다
-        val key = savedStateHandle.get<String>(CANCEL_KEY) ?: newIdempotencyKey().also { savedStateHandle[CANCEL_KEY] = it }
-        _state.update { it.copy(canceling = true) }
-        viewModelScope.launch {
-            when (val res = payments.cancel(paymentId, key)) {
-                is ApiResult.Success -> {
-                    val done = res.data
-                    _state.update {
-                        it.copy(
-                            canceling = false,
-                            balanceAfter = done.balanceAfter,
-                            receipt = it.receipt?.let { r ->
-                                r.copy(status = PayStatus.CANCELED, canceledAtIso = done.canceledAtIso ?: r.canceledAtIso, refunds = done.refunds)
-                            },
-                            message = canceledMessage(receipt, done),
-                        )
-                    }
-                    load()   // 환급 · 청구 회차를 서버 값으로
-                }
-                is ApiResult.Failure -> {
-                    val problem = res.error.toCancelProblem()
-                    _state.update { it.copy(canceling = false, message = problem.message) }
-                    if (problem.recheck) load()   // 취소됐을 수도 있다 — 상태로 판단
-                }
             }
         }
     }
@@ -228,32 +200,11 @@ class PaymentDetailViewModel @Inject constructor(
     }
 
     fun messageShown() = _state.update { it.copy(message = null) }
-
-    companion object {
-        const val CANCEL_KEY = "cancelIdempotencyKey"
-    }
 }
 
-/** 취소 뒤 스낵바 — 체크카드는 입금 뒤 잔액, 신용카드는 돌려받을 금액이나 청구 제외 */
-internal fun canceledMessage(receipt: PaymentReceipt, done: CancelResult): String = when {
-    receipt.isCheck -> done.balanceAfter?.let { "결제를 취소했어요 · 계좌 잔액 ${it.toWon()}원" } ?: "결제를 취소하고 계좌로 돌려드렸어요"
-    done.refunds.isNotEmpty() -> "결제를 취소했어요 · ${done.refunds.sumOf { it.amount }.toWon()}원을 돌려드려요"
-    else -> "결제를 취소했어요 · 청구에서 빠져요"
-}
-
-/** 취소 확인 다이얼로그 문장 — 전체 취소만 있다(POL-006) */
-internal fun cancelNotice(receipt: PaymentReceipt): String {
-    val whole = "${receipt.amount.toWon()}원 전체를 취소해요."
-    val money = if (receipt.isCheck) {
-        "출금된 금액은 연결 계좌로 바로 돌려드려요."
-    } else {
-        "아직 청구 전이면 청구에서 빠지고 이미 출금된 금액은 3영업일 안에 결제 계좌로 돌려드려요."
-    }
-    return "$whole $money 이 결제로 쌓인 실적과 혜택 한도도 되돌려요."
-}
-
+/** [onCancel]은 결제 코드 화면을 연다 — 취소는 매장 POS가 그 코드를 찍어 한다 */
 @Composable
-fun PaymentDetailRoute(onBack: () -> Unit, viewModel: PaymentDetailViewModel = hiltViewModel()) {
+fun PaymentDetailRoute(onBack: () -> Unit, onCancel: (PaymentReceipt) -> Unit, viewModel: PaymentDetailViewModel = hiltViewModel()) {
     val s by viewModel.state.collectAsStateWithLifecycle()
     val c = YamuTheme.colors
     val r = s.receipt
@@ -264,7 +215,10 @@ fun PaymentDetailRoute(onBack: () -> Unit, viewModel: PaymentDetailViewModel = h
         viewModel.messageShown()
         scope.launch { snackbar.showSnackbar(message) }
     }
-    var confirmCancel by rememberSaveable { mutableStateOf(false) }
+    LifecycleResumeEffect(Unit) {
+        viewModel.resumed()
+        onPauseOrDispose { }
+    }
 
     FlowScreen(title = "거래 상세", onBack = onBack, actions = { MockPayTag() }) { inner ->
         Column(Modifier.padding(inner).consumeWindowInsets(inner).fillMaxSize().verticalScroll(rememberScrollState())) {
@@ -277,26 +231,19 @@ fun PaymentDetailRoute(onBack: () -> Unit, viewModel: PaymentDetailViewModel = h
                 }
                 r == null -> ErrorState(s.error ?: "결제 내역을 불러오지 못했어요", onRetry = viewModel::load, modifier = Modifier.padding(YamuSpacing.screen))
                 else -> {
-                    // 가맹점 · 일시 → 금액 → 결과 한 줄('1,500원 할인받고 13,500원 청구 예정') — 위 12 · 사이 6(프로토타입 P-08 .hd)
+                    // 가맹점 · 일시 → 금액 → 즉시할인 한 줄('6,600원에서 660원 바로 할인') — 위 12 · 사이 6(프로토타입 P-08 .hd)
+                    // 즉시할인은 빠진 금액(실제 결제 금액)을 크게 보인다. 청구할인 · 캐시백 · 적립은 결제 금액 그대로(11/10 QA).
+                    // 예전 '○원 할인받고 ○원 청구 예정' 줄은 청구할인까지 더한 할인과 청구할인 전 원금을 나란히 놓아 지웠다
                     Column(Modifier.padding(start = YamuSpacing.screen, end = YamuSpacing.screen, top = 12.dp, bottom = 24.dp)) {
                         Text(listOfNotNull(r.merchantName, formatPaidAt(r.paidAtIso)).joinToString(" · "), style = YamuTheme.typography.bodyL, color = c.text2)
                         Spacer(Modifier.height(6.dp))
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            AmountText(r.amount)
+                            AmountText(r.paidAmount)
                             if (r.canceled) StatusTag("취소")
                         }
-                        val benefit = r.benefits.sumOf { it.amount }
-                        if (!r.canceled && benefit > 0 && r.billAmount != null && !r.isCheck) {
+                        r.instantDiscountText()?.let {
                             Spacer(Modifier.height(6.dp))
-                            Text(
-                                buildAnnotatedString {
-                                    append("${benefit.toWon()}원 할인받고 ")
-                                    withStyle(SpanStyle(fontWeight = FontWeight.Bold, color = c.text1)) { append("${r.billAmount.toWon()}원") }
-                                    append(" 청구 예정")
-                                },
-                                style = YamuTheme.typography.bodyM,
-                                color = c.text2,
-                            )
+                            Text(it, style = YamuTheme.typography.bodyM, color = c.text2)
                         }
                     }
                     HorizontalDivider(color = c.outlineVariant, modifier = Modifier.padding(horizontal = YamuSpacing.screen))
@@ -312,15 +259,15 @@ fun PaymentDetailRoute(onBack: () -> Unit, viewModel: PaymentDetailViewModel = h
                     }
                     HorizontalDivider(color = c.outlineVariant, modifier = Modifier.padding(horizontal = YamuSpacing.screen))
                     if (r.canceled) {
-                        CanceledLines(r, s.balanceAfter)
+                        CanceledLines(r)
                     } else {
                         BenefitLines(r)
                     }
                     if (r.cancelable) {
-                        // 되돌리기 어려운 일이라 주 버튼 대신 아래 회색 글자 버튼 → 확인 다이얼로그
+                        // 주 버튼 대신 아래 회색 글자 버튼 → 결제 코드 화면(매장 POS가 찍어 취소한다)
                         TextButtonGrey(
-                            if (s.canceling) "취소하는 중…" else "결제 취소",
-                            onClick = { if (!s.canceling) confirmCancel = true },
+                            "결제 취소",
+                            onClick = { onCancel(r) },
                             small = true,
                             modifier = Modifier.align(Alignment.CenterHorizontally).padding(top = 8.dp),
                         )
@@ -331,18 +278,6 @@ fun PaymentDetailRoute(onBack: () -> Unit, viewModel: PaymentDetailViewModel = h
         }
     }
 
-    if (confirmCancel && r != null) {
-        YamuDialog(
-            title = "결제를 취소할까요?",
-            text = cancelNotice(r),
-            confirmText = "결제 취소",
-            onConfirm = {
-                confirmCancel = false
-                viewModel.cancel()
-            },
-            onDismiss = { confirmCancel = false },
-        )
-    }
     if (s.memoOpen && r != null) {
         MemoSheet(
             initial = r.memo,
@@ -401,7 +336,7 @@ private fun BenefitLines(r: PaymentReceipt) {
             Text("혜택 · 실적", style = YamuTheme.typography.titleM, color = c.text1)
             EstimateTag(text = "추정치")
         }
-        r.benefits.forEach { b -> KeyValueRow(b.name, "−${b.amount.toWon()}원", large = false, valueColor = c.primary) }
+        r.benefits.forEach { b -> KeyValueRow(b.name, b.amountText(), large = false, valueColor = c.primary) }
         if (r.perfRecognized != null) {
             val card = r.cardBrand?.name ?: "카드"
             val month = r.perfMonth?.let { "${it}월 " }.orEmpty()
@@ -420,18 +355,18 @@ private fun BenefitLines(r: PaymentReceipt) {
     }
 }
 
-/** 취소된 결제 — 취소 시각 · 돌려받는 돈. 받지 않은 혜택 · 빠진 실적은 줄로 늘어놓지 않고 한 줄로 */
+/**
+ * 취소된 결제 — 취소 시각 · 돌려받는 돈. 받지 않은 혜택 · 빠진 실적은 줄로 늘어놓지 않고 한 줄로.
+ * 체크카드 입금 뒤 잔액은 취소 응답에만 있어(POS가 취소하면 앱은 못 받는다) 보이지 않는다
+ */
 @Composable
-private fun CanceledLines(r: PaymentReceipt, balanceAfter: Long?) {
+private fun CanceledLines(r: PaymentReceipt) {
     val c = YamuTheme.colors
     Column(Modifier.padding(horizontal = YamuSpacing.screen, vertical = 12.dp)) {
         Text("취소", style = YamuTheme.typography.titleM, color = c.text1, modifier = Modifier.padding(vertical = 8.dp))
         formatPaidAt(r.canceledAtIso)?.let { KeyValueRow("취소한 때", it, large = false) }
         when {
-            r.isCheck -> {
-                r.chargedAmount?.let { KeyValueRow("계좌로 돌려받음", "${it.toWon()}원", large = false) }
-                balanceAfter?.let { KeyValueRow("남은 잔액", "${it.toWon()}원", large = false) }
-            }
+            r.isCheck -> r.chargedAmount?.let { KeyValueRow("계좌로 돌려받음", "${it.toWon()}원", large = false) }
             r.refunds.isEmpty() -> KeyValueRow("청구", "청구에서 빠져요", large = false)
             else -> r.refunds.forEach { f ->
                 KeyValueRow(

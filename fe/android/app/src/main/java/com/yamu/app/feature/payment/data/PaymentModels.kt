@@ -246,7 +246,23 @@ data class PaymentRequest(
 
 data class PayCodeStatus(val state: CodeState, val request: PaymentRequest?)
 
-data class ReceiptBenefit(val name: String, val amount: Long)
+/** 혜택이 반영되는 때 — 금액 뒤에 붙는 말이 다르다([amountText]). 서버가 시점을 모르면(약관 미확인) [UNKNOWN] */
+enum class BenefitKind { INSTANT, BILLING, CASHBACK, POINT, UNKNOWN }
+
+data class ReceiptBenefit(val name: String, val amount: Long, val kind: BenefitKind = BenefitKind.UNKNOWN)
+
+/** #1 · #3 혜택의 realization(AT_APPROVAL · AT_BILLING · AFTER_BILLING · POINT_ACCRUAL), 없으면 type(CASHBACK · POINT)으로 */
+internal fun BenefitDto.kind(): BenefitKind = when (realization?.uppercase()) {
+    "AT_APPROVAL" -> BenefitKind.INSTANT
+    "AT_BILLING" -> BenefitKind.BILLING
+    "AFTER_BILLING" -> BenefitKind.CASHBACK
+    "POINT_ACCRUAL" -> BenefitKind.POINT
+    else -> when (type?.uppercase()) {
+        "POINT" -> BenefitKind.POINT
+        "CASHBACK" -> BenefitKind.CASHBACK
+        else -> BenefitKind.UNKNOWN
+    }
+}
 
 enum class PayStatus {
     APPROVED, CANCELED, DECLINED, OTHER;
@@ -295,6 +311,15 @@ data class PaymentReceipt(
     /** 승인된 야무 결제만 취소할 수 있다(BE PAYMENT_NOT_CANCELABLE의 NOT_APPROVED · SEED_TRANSACTION과 같은 기준) */
     val cancelable: Boolean get() = status == PayStatus.APPROVED && !isSeed
     val canceled: Boolean get() = status == PayStatus.CANCELED
+
+    /**
+     * 실제로 결제된 금액 — 서버 chargedAmount(결제 금액 − 즉시할인, 신용 · 체크 같음). 즉시할인이 없으면 결제 금액과 같고,
+     * 청구할인 · 캐시백 · 적립은 빼지 않는다. 승인 전 · 옛 응답처럼 칸이 없으면 결제 금액
+     */
+    val paidAmount: Long get() = chargedAmount?.takeIf { it in 0..amount } ?: amount
+
+    /** 승인할 때 바로 빠진 즉시할인. 없으면 0 */
+    val instantDiscount: Long get() = amount - paidAmount
 }
 
 /** 취소 결과 — [balanceAfter]는 체크카드 환불 입금 뒤 잔액(못 읽었거나 신용카드면 null) */
@@ -414,7 +439,7 @@ fun PaymentResultDto.toReceipt(request: PaymentRequest? = null, card: PayCard? =
         isCheck = isCheck,
         approvalNo = approvalNo,
         installmentMonths = installmentMonths?.takeIf { plan.equals("INSTALLMENT", ignoreCase = true) },
-        benefits = benefits.map { ReceiptBenefit(it.name, it.actualAmount ?: it.expectedAmount ?: it.amount) }.filter { it.amount > 0 },
+        benefits = benefits.map { ReceiptBenefit(it.name, it.actualAmount ?: it.expectedAmount ?: it.amount, it.kind()) }.filter { it.amount > 0 },
         chargedAmount = chargedAmount,
         balanceAfter = accountBalanceAfter,
         billDateIso = if (isCheck) null else bill?.let { it.expectedWithdrawalDate ?: it.withdrawalDate },
