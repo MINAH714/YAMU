@@ -60,7 +60,7 @@ public class NotificationSettingsService {
     }
 
     private NotificationSettingsResponse response(long userId, NotificationSettings settings) {
-        return NotificationSettingsResponse.of(settings, forecastSettings.get(userId).alertThreshold());
+        return NotificationSettingsResponse.of(settings, forecastSettings.alertThreshold(userId));
     }
 
     /** 형식을 모두 검사해 틀린 항목을 한 번에 알린다. DB를 건드리기 전에 부른다. */
