@@ -28,7 +28,8 @@ class ReportController {
 
     @Operation(summary = "월간 소비 리포트",
             description = "한 달의 승인 결제 합계·생활 소비·지난달 같은 기간 생활 소비·업종별 금액·혜택 합계. 월은 한국 기준이고 "
-                    + "결제 내역과 같이 POS 요청 시각으로 자른다. 취소·거절은 더하지 않는다. yearMonth가 없으면 이번 달.")
+                    + "결제 내역과 같이 POS 요청 시각으로 자른다. 취소·거절은 더하지 않는다. 금액은 즉시할인 전 결제 금액"
+                    + "(결제 내역 합계와 같은 기준)이고 즉시할인은 혜택에 들어간다. yearMonth가 없으면 이번 달.")
     @GetMapping
     ApiResponse<MonthlyReportResponse> monthly(@AuthenticationPrincipal AuthUser me,
             @Parameter(description = "한국 기준 월(YYYY-MM), 2000-01~2100-12") @RequestParam(required = false) YearMonth yearMonth) {

@@ -291,7 +291,38 @@ class ReportIntegrationTest extends MySqlTestSupport {
                 .andExpect(jsonPath("$.data.summary.yamuPickExtra").value(1_200));
     }
 
+    @Test
+    void 승인_때_적은_순위가_있으면_사유와_야무픽_추가_혜택은_저장된_추천_결과보다_그_순위를_따른다() throws Exception {
+        // 승인 때 다시 계산해 두 번째 카드가 1순위로 승인됨(저장된 결과는 첫 카드가 1순위) → 사용자가 고른 게 아니다
+        long recalculated = approved(owner, secondCard, cafe, OCT_10, 10_000);
+        benefit(recalculated, 1_000, "AT_APPROVAL");
+        recommend(recalculated, card, "3000", secondCard, "1000");
+        rank(recalculated, 1, false);
+        // 저장된 결과로는 1순위 카드지만 승인 때 2순위였고 직접 골랐다 → 1순위 승인이 아니다
+        long demoted = approved(owner, card, mart, OCT_10.plusHours(1), 10_000);
+        benefit(demoted, 500, "AT_APPROVAL");
+        recommend(demoted, card, "2000", secondCard, "500");
+        rank(demoted, 2, true);
+        // 1순위를 직접 골라 그대로 받음 → 놓친 혜택 아님, 야무픽 추가 1,200
+        long pickedFirst = approved(owner, card, cafe, OCT_10.plusHours(2), 10_000);
+        benefit(pickedFirst, 1_500, "AT_APPROVAL");
+        recommend(pickedFirst, card, "1500", secondCard, "300");
+        rank(pickedFirst, 1, true);
+
+        mockMvc.perform(benefits(OCTOBER))
+                .andExpect(jsonPath("$.data.differences[*].paymentId").value(contains((int) recalculated, (int) demoted)))
+                .andExpect(jsonPath("$.data.differences[0].reason").value("LIMIT_PARTIAL"))
+                .andExpect(jsonPath("$.data.differences[1].reason").value("USER_SELECTED"))
+                .andExpect(jsonPath("$.data.summary.yamuPickExtra").value(1_200));
+    }
+
     // ── 픽스처 ──
+
+    /** 승인 때 적은 추천 순위·직접 선택 여부(S15P31E103-381). */
+    private void rank(long paymentId, Integer rank, boolean userSelected) {
+        jdbc.update("UPDATE payment_transaction SET recommended_rank = ?, user_selected = ? WHERE payment_transaction_id = ?",
+                rank, userSelected, paymentId);
+    }
 
     private MockHttpServletRequestBuilder monthly(String yearMonth) {
         return get("/api/reports/monthly").param("yearMonth", yearMonth).with(AuthUsers.asUser(owner));

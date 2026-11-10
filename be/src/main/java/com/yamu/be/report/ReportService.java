@@ -111,18 +111,37 @@ class ReportService {
         if (best <= actual) {
             return Optional.empty();
         }
-        String reason = row.bestCardId().equals(row.userCardId()) ? LIMIT_PARTIAL : USER_SELECTED;
+        String reason = approvedAsFirst(row) ? LIMIT_PARTIAL : USER_SELECTED;
         return Optional.of(new BenefitReportResponse.Difference(row.paymentId(), row.approvedAt(),
                 row.merchantName(), row.userCardId(), best, actual, reason));
     }
 
-    /** 1순위 카드로 승인했을 때 1순위가 2순위보다 더 준 순혜택(원 단위 내림). 2순위가 없으면 0. */
+    /**
+     * 1순위 카드로 승인했을 때 1순위가 2순위보다 더 준 순혜택(원 단위 내림). 2순위가 없으면 0. 금액은 저장된 추천 결과에서 읽으므로,
+     * 승인 때 추천을 다시 계산해 저장된 결과의 1순위가 승인 카드와 다르면 그 결제는 세지 않는다(다른 카드의 차이를 더하지 않는다).
+     */
     static long pickExtra(PaymentRow row) {
-        if (row.bestCardId() == null || !row.bestCardId().equals(row.userCardId()) || row.bestNetBenefit() == null
+        if (!approvedAsFirst(row) || !row.userCardId().equals(row.bestCardId()) || row.bestNetBenefit() == null
                 || row.secondNetBenefit() == null) {
             return 0;
         }
         return Math.max(0, floor(row.bestNetBenefit().subtract(row.secondNetBenefit())));
+    }
+
+    /**
+     * 추천 1순위로 승인했는지. 결제 내역의 야무픽({@code PaymentSqlFragments.YAMU_PICK})·결제 상세의 {@code recommendedRank}와
+     * 같은 기준이다. 승인 때 순위를 적은 결제({@code user_selected}가 있음)는 그 순위가 1인지로 보고, 순위 칸이 생기기 전
+     * (V20261109_4) 결제만 저장된 추천 결과의 1순위 카드와 비교한다. 저장된 추천 결과는 POS 요청 때 값이라, 승인 때 추천을 다시
+     * 계산했으면 1순위가 다를 수 있다.
+     */
+    static boolean approvedAsFirst(PaymentRow row) {
+        if (row.userCardId() == null) {
+            return false;
+        }
+        if (row.userSelected() != null) {
+            return Integer.valueOf(1).equals(row.recommendedRank());
+        }
+        return row.userCardId().equals(row.bestCardId());
     }
 
     private static List<MonthlyReportResponse.CategoryAmount> byCategory(List<PaymentRow> rows,

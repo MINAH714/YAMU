@@ -26,7 +26,7 @@ class ReportReader {
 
     private static final String MONTH_ROWS = """
             select p.payment_transaction_id, p.source, p.requested_amount, p.spending_class, p.user_card_id,
-                   p.approved_at, %s as merchant_name, %s as category_code,
+                   p.recommended_rank, p.user_selected, p.approved_at, %s as merchant_name, %s as category_code,
                    cast(%s as signed) as benefit_amount, %s as confirmed_amount,
                    %s as benefit_lines, %s as confirmed_lines, %s as unconverted_lines,
                    %s as best_card_id, %s as best_net_benefit, %s as second_net_benefit
@@ -58,7 +58,7 @@ class ReportReader {
         return jdbc.query(MONTH_ROWS, period(userId, from, until), (rs, i) -> row(rs));
     }
 
-    /** 기간 안의 승인 결제 금액 합계와 그중 생활 소비(LIVING) 합계. */
+    /** 기간 안의 승인 결제 금액(즉시할인 전 요청 금액) 합계와 그중 생활 소비(LIVING) 합계. */
     Spent spent(long userId, LocalDateTime from, LocalDateTime until) {
         return jdbc.queryForObject("""
                 select coalesce(sum(p.requested_amount), 0) as total,
@@ -75,6 +75,9 @@ class ReportReader {
     /**
      * 승인 결제 한 건.
      *
+     * @param amount           POS가 요청한 결제 금액(즉시할인 전, 결제 내역 목록과 같은 기준)
+     * @param recommendedRank  승인한 카드의 추천 순위(승인 때 기록). 추천 밖 카드·기록 전 결제는 null
+     * @param userSelected     사용자가 카드를 직접 골랐는지(승인 때 기록). 순위 칸이 생기기 전(V20261109_4) 결제는 null
      * @param benefitAmount    혜택 원화 합계. 혜택 줄이 없으면 null
      * @param unconvertedLines 원화로 환산되지 않은 혜택 줄 수
      * @param bestCardId       저장된 추천 결과의 1순위 카드. 추천 결과가 없으면 null
@@ -82,7 +85,8 @@ class ReportReader {
      * @param secondNetBenefit 2순위 순혜택. 후보가 하나뿐이면 null
      */
     record PaymentRow(long paymentId, String source, long amount, String spendingClass, Long userCardId,
-            LocalDateTime approvedAt, String merchantName, String categoryCode, Long benefitAmount,
+            Integer recommendedRank, Boolean userSelected, LocalDateTime approvedAt, String merchantName,
+            String categoryCode, Long benefitAmount,
             long confirmedAmount, long benefitLines, long confirmedLines, long unconvertedLines, Long bestCardId,
             BigDecimal bestNetBenefit, BigDecimal secondNetBenefit) {}
 
@@ -93,7 +97,8 @@ class ReportReader {
     private static PaymentRow row(ResultSet rs) throws SQLException {
         return new PaymentRow(rs.getLong("payment_transaction_id"), rs.getString("source"),
                 rs.getLong("requested_amount"), rs.getString("spending_class"),
-                rs.getObject("user_card_id", Long.class), rs.getObject("approved_at", LocalDateTime.class),
+                rs.getObject("user_card_id", Long.class), rs.getObject("recommended_rank", Integer.class),
+                rs.getObject("user_selected", Boolean.class), rs.getObject("approved_at", LocalDateTime.class),
                 rs.getString("merchant_name"), rs.getString("category_code"),
                 rs.getObject("benefit_amount", Long.class), rs.getLong("confirmed_amount"),
                 rs.getLong("benefit_lines"), rs.getLong("confirmed_lines"), rs.getLong("unconverted_lines"),

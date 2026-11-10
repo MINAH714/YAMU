@@ -27,7 +27,8 @@ public record BenefitReportResponse(
     /**
      * @param expectedBenefit  승인 결제의 혜택 원화 합계(확정 전 포함)
      * @param confirmedBenefit 그중 확정된 혜택 합계
-     * @param yamuPickExtra    추천 1순위로 승인한 결제에서 1순위가 2순위보다 더 준 혜택의 합(원 단위 내림). 2순위가 없는 결제는 빼고 센다
+     * @param yamuPickExtra    추천 1순위로 승인한 결제에서 1순위가 2순위보다 더 준 혜택의 합(원 단위 내림). 2순위가 없는 결제와,
+     *                         승인 때 추천을 다시 계산해 저장된 추천 결과의 1순위가 승인 카드와 다른 결제는 빼고 센다
      * @param missedBenefit    {@code differences}의 놓친 금액 합계
      */
     public record Summary(long expectedBenefit, long confirmedBenefit, long yamuPickExtra, long missedBenefit) {}
@@ -37,7 +38,9 @@ public record BenefitReportResponse(
      *
      * @param expectedAmount 추천 1순위 순혜택(원 단위 내림)
      * @param actualAmount   실제 받은 혜택 원화 합계
-     * @param reason         USER_SELECTED: 1순위가 아닌 카드로 승인 · LIMIT_PARTIAL: 1순위 카드였지만 승인 때 혜택이 줄어듦
+     * @param reason         USER_SELECTED: 1순위가 아닌 카드로 승인 · LIMIT_PARTIAL: 1순위로 승인했지만 POS 요청 때 추천보다 혜택이
+     *                       줄어듦(한도 소진 등으로 승인 때 다시 계산). 1순위인지는 승인 때 적은 추천 순위로 본다(결제 상세의
+     *                       {@code recommendedRank}와 같은 기준, 순위 칸이 생기기 전 결제는 저장된 추천 결과의 1순위 카드와 비교)
      */
     public record Difference(long paymentId, LocalDateTime approvedAt, String merchantName, Long userCardId,
             long expectedAmount, long actualAmount, String reason) {}
