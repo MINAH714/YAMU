@@ -538,7 +538,8 @@ public class PaymentApprovalService {
                 if (expiry.isPastDeadline(payment)) {
                     throw new DeadlinePassed();
                 }
-                payment.startApproval(selection.card().userCardId(), selection.card().cardProductId());
+                payment.startApproval(selection.card().userCardId(), selection.card().cardProductId(),
+                        selection.recommendedRank(), selection.userSelected());
                 payments.saveAndFlush(payment);
                 return payment;
             });
@@ -705,7 +706,8 @@ public class PaymentApprovalService {
 
     /**
      * 복구가 확정한 결제의 응답을 결제 행에서 만든다(승인 또는 출금 미확인 거절). 카드는 행의 카드이고, 같은 키의 시도가 있으면
-     * 그 시도의 카드 표시·추천 순위·직접 선택 여부를 쓴다. 혜택 줄·실적·한도는 싣지 않는다(임시: 원장에는 적혀 있고 결제 상세로 본다).
+     * 그 시도의 카드 표시·추천 순위·직접 선택 여부를 쓴다. 시도가 없으면 행에 적힌 순위·직접 선택 여부를 쓰고, 행에도 없으면
+     * (칸이 생기기 전 시작한 결제) 추천 스냅샷의 순위를 쓴다. 혜택 줄·실적·한도는 싣지 않는다(임시: 원장에는 적혀 있고 결제 상세로 본다).
      *
      * @param attempt 이 요청 키가 만든 시도. 다른 키의 요청이면 null
      */
@@ -714,9 +716,11 @@ public class PaymentApprovalService {
         Long cardId = payment.getUserCardId();
         CardSummary card = attempt != null && attempt.card() != null ? attempt.card() : cardOf(payment);
         Integer rank = attempt != null ? attempt.recommendedRank()
+                : payment.getUserSelected() != null ? payment.getRecommendedRank()
                 : snapshots.find(paymentId).flatMap(r -> r.candidate(cardId)).map(Candidate::rank).orElse(null);
+        boolean userSelected = attempt != null ? attempt.userSelected() : Boolean.TRUE.equals(payment.getUserSelected());
         SelectedCard selected = new SelectedCard(card.userCardId(), nickname(card), masked(card.last4()),
-                card.cardType(), rank, attempt != null && attempt.userSelected());
+                card.cardType(), rank, userSelected);
         PaymentPlan plan = payment.isInstallment() ? PaymentPlan.INSTALLMENT : PaymentPlan.LUMP_SUM;
         Integer months = payment.isInstallment() ? payment.getInstallmentMonths() : null;
         if (payment.getStatus() == PaymentStatus.APPROVED || payment.getStatus() == PaymentStatus.CANCELED) {

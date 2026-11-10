@@ -422,6 +422,8 @@ fin_transaction_no는 상태 코드가 아니라 **이 결제로 발생한 계�
 | user_id | `BIGINT NOT NULL` | 결제 요청 사용자 |
 | user_card_id | `BIGINT NULL` | 승인 카드; 선택 전 요청에는 NULL |
 | card_product_id | `BIGINT NULL` | 선택 카드의 상품; 교차 상품 적용 방지 |
+| recommended_rank | `SMALLINT NULL` | 마지막 승인 시도 카드의 추천 순위(1부터). 승인 시작 때 카드와 함께 적고 재승인 때 덮어씀. 추천 밖 카드를 직접 골랐거나 V20261109_4 전 결제·SEED는 NULL; CHECK ≥ 1. 목록 요약의 야무픽 건수도 이 값이 1인지로 셈(user_selected가 NULL인 옛 결제만 recommendation_result_json의 첫 후보로) |
+| user_selected | `BOOLEAN NULL` | 마지막 승인 시도의 카드를 사용자가 직접 골랐는지. recommended_rank와 같은 때 적음. V20261109_4 전 결제·SEED는 NULL |
 | merchant_id | `BIGINT NOT NULL` | 결제한 브랜드 단위 가맹점 |
 | payment_channel | `VARCHAR(16) NOT NULL DEFAULT 'UNKNOWN'` | ONLINE / OFFLINE / UNKNOWN; 서버가 확인한 거래 채널 |
 | facility_type | `VARCHAR(32) NULL` | 위에서 확정한 입점 시설 코드 10종 중 하나; 미확인 NULL, GENERAL로 대체 금지 |
@@ -470,6 +472,7 @@ CONSTRAINT ck_payment_installment CHECK (installment_months IS NULL OR installme
 CONSTRAINT ck_payment_fin_request_amount CHECK (fin_request_amount IS NULL OR fin_request_amount > 0);
 CONSTRAINT ck_payment_performance_basis CHECK (performance_basis_amount IS NULL OR performance_basis_amount >= 0);
 CONSTRAINT ck_payment_month CHECK (performance_month IS NULL OR DAYOFMONTH(performance_month) = 1);
+CONSTRAINT ck_payment_recommended_rank CHECK (recommended_rank IS NULL OR recommended_rank >= 1);
 CONSTRAINT ck_payment_source CHECK (source IN ('YAMU','SEED'));
 CONSTRAINT ck_payment_approval CHECK (approved_at IS NULL OR (user_card_id IS NOT NULL AND approved_amount IS NOT NULL AND performance_month IS NOT NULL AND installment_months IS NOT NULL));
 CONSTRAINT ck_payment_cancellation CHECK (canceled_at IS NULL OR approved_at IS NOT NULL);

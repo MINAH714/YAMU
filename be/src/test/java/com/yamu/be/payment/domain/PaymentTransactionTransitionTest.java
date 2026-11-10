@@ -39,6 +39,30 @@ class PaymentTransactionTransitionTest {
     }
 
     @Test
+    void 승인을_시작하면_추천_순위와_직접_선택을_적고_재승인하면_함께_덮어쓴다() {
+        PaymentTransaction payment = requested();
+
+        payment.startApproval(15L, 3L, 1, false);
+        assertThat(payment.getRecommendedRank()).isEqualTo(1);
+        assertThat(payment.getUserSelected()).isFalse();
+
+        payment.decline("ISSUER_DECLINED");
+        payment.startApproval(16L, 4L, null, true);
+        assertThat(payment.getUserCardId()).isEqualTo(16L);
+        assertThat(payment.getRecommendedRank()).isNull();
+        assertThat(payment.getUserSelected()).isTrue();
+    }
+
+    @Test
+    void 추천_순위가_1보다_작으면_승인을_시작하지_않는다() {
+        PaymentTransaction payment = requested();
+
+        assertThatThrownBy(() -> payment.startApproval(15L, 3L, 0, false))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThat(payment.getStatus()).isEqualTo(PaymentStatus.REQUESTED);
+    }
+
+    @Test
     void PROCESSING에서_승인하면_APPROVED이고_CHECK에_필요한_칸이_모두_찬다() {
         PaymentTransaction payment = requested();
         payment.startApproval(15L, 3L);
