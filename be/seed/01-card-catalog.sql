@@ -199,6 +199,9 @@ INSERT INTO seed97_merchant VALUES
 ('TMON', '티켓몬스터', 'ONLINE_MARKETPLACE'),
 ('LOTTE_HOME_SHOPPING', '롯데홈쇼핑', 'ONLINE_MARKETPLACE'),
 ('COUPANG', '쿠팡', 'ONLINE_MARKETPLACE'),
+('EMART_EVERYDAY', '이마트 에브리데이', 'SUPERMARKET'),
+('LOTTE_SUPER', '롯데슈퍼', 'SUPERMARKET'),
+('HOMEPLUS_EXPRESS', '홈플러스 익스프레스', 'SUPERMARKET'),
 ('EMART', '이마트', 'HYPERMARKET'),
 ('LOTTE_MART', '롯데마트', 'HYPERMARKET'),
 ('HOMEPLUS', '홈플러스', 'HYPERMARKET'),
@@ -266,8 +269,9 @@ INSERT INTO seed97_target VALUES
 (@seed97_mr, 'WEEKEND_MART', 'BRAND', NULL, 'EMART', FALSE),
 (@seed97_mr, 'WEEKEND_MART', 'BRAND', NULL, 'LOTTE_MART', FALSE),
 (@seed97_mr, 'WEEKEND_MART', 'BRAND', NULL, 'HOMEPLUS', FALSE),
-(@seed97_mr, 'WEEKEND_MART', 'CATEGORY', 'SUPERMARKET', NULL, FALSE),
-(@seed97_mr, 'WEEKEND_MART', 'CONDITION', 'RULE:MR_LIFE_MART_FAMILY', NULL, FALSE),
+(@seed97_mr, 'WEEKEND_MART', 'BRAND', NULL, 'EMART_EVERYDAY', FALSE),
+(@seed97_mr, 'WEEKEND_MART', 'BRAND', NULL, 'LOTTE_SUPER', FALSE),
+(@seed97_mr, 'WEEKEND_MART', 'BRAND', NULL, 'HOMEPLUS_EXPRESS', FALSE),
 (@seed97_mr, 'WEEKEND_MART', 'CONDITION', 'TRANSACTION_KIND:GIFT_CERTIFICATE_PURCHASE', NULL, TRUE),
 (@seed97_zero, 'BASE_DISCOUNT', 'ALL', NULL, NULL, FALSE),
 (@seed97_zero, 'BASE_DISCOUNT', 'CONDITION', 'RULE:OVERSEAS_ELIGIBILITY', NULL, FALSE),
@@ -414,6 +418,21 @@ INSERT INTO seed97_target VALUES
 (@seed97_first, 'TODAY_ONLINE_SHOPPING', 'CONDITION', 'INSTALLMENT:INTEREST_FREE', NULL, TRUE),
 (@seed97_first, 'TODAY_ONLINE_SHOPPING', 'CONDITION', 'ISSUER_DISCOUNT:APPLIED', NULL, TRUE),
 (@seed97_first, 'TODAY_ONLINE_SHOPPING', 'CONDITION', 'TRANSACTION_KIND:MEMBERSHIP_FEE', NULL, TRUE);
+
+-- 2026-11-09 approved mock scope: six named brands; no additional online mall.
+-- Repair existing catalogs in the same transaction. Remove the obsolete legacy category path first.
+DELETE gm FROM benefit_target_group_member gm
+JOIN benefit_target_group g ON g.benefit_target_group_id = gm.benefit_target_group_id
+JOIN card_benefit b ON b.card_benefit_id = g.card_benefit_id
+WHERE b.card_product_id = @seed97_mr AND b.benefit_code = 'WEEKEND_MART' AND b.policy_version = 1
+ AND g.group_code = CONCAT('LEGACY_0_',LEFT(SHA2('CATEGORY:SUPERMARKET',256),40));
+DELETE g FROM benefit_target_group g JOIN card_benefit b ON b.card_benefit_id = g.card_benefit_id
+WHERE b.card_product_id = @seed97_mr AND b.benefit_code = 'WEEKEND_MART' AND b.policy_version = 1
+ AND g.group_code = CONCAT('LEGACY_0_',LEFT(SHA2('CATEGORY:SUPERMARKET',256),40));
+DELETE t FROM benefit_target t JOIN card_benefit b ON b.card_benefit_id = t.card_benefit_id
+WHERE b.card_product_id = @seed97_mr AND b.benefit_code = 'WEEKEND_MART' AND b.policy_version = 1 AND t.is_excluded = FALSE
+ AND ((t.target_type = 'CATEGORY' AND t.target_value = 'SUPERMARKET')
+   OR (t.target_type = 'CONDITION' AND t.target_value = 'RULE:MR_LIFE_MART_FAMILY'));
 
 -- Missing references are an error, not an invitation to silently omit a rule.
 INSERT INTO seed97_guard
