@@ -7,8 +7,9 @@ import java.util.List;
 /**
  * 날짜 선 하나(통합 또는 계좌)에서 안전 잔액 미달을 찾는다. DB·외부 호출 없이 계산한다.
  *
- * <p>날마다 기준 미만인 가장 확실한 선(확정 > 예상 > 보수적)을 찾는다. 확정 선이면 DANGER, 예상·보수적 선이면 WARNING,
- * 미만인 선이 없으면 SAFE다. 기준과 같은 금액은 미달이 아니다(FR-043 "임계값 아래").
+ * <p>앱이 그리는 두 선만 본다(S15P31E103-356). 날마다 예상 선(생활비 없이)이 기준 미만이면 DANGER, 예상 선은 기준 이상인데
+ * 보수적 선(예상 생활비·신용카드 사용 추정 반영)만 미만이면 WARNING, 둘 다 아니면 SAFE다. 확정 선은 응답에만 남고 판단에 쓰지 않는다.
+ * 기준과 같은 금액은 미달이 아니다(FR-043 "임계값 아래").
  * 그 선이 같은 날짜가 이어지면 한 구간으로 묶는다. 위험 수준이나 선이 바뀌면 구간을 나눠, 구간마다 부족액·최저일·원인이
  * 한 선을 기준으로 맞게 한다.
  */
@@ -77,11 +78,8 @@ final class RiskDetector {
         return status;
     }
 
-    /** 그날 기준 미만인 가장 확실한 선. 없으면 null(SAFE)이다. */
+    /** 그날 기준 미만인 선(예상 > 보수적 순). 없으면 null(SAFE)이다. */
     private static Line lineBelow(ForecastCalculator.BalancePoint point, long threshold) {
-        if (point.confirmed() < threshold) {
-            return Line.CONFIRMED;
-        }
         if (point.expected() < threshold) {
             return Line.EXPECTED;
         }
@@ -95,12 +93,12 @@ final class RiskDetector {
         if (line == null) {
             return Level.SAFE;
         }
-        return line == Line.CONFIRMED ? Level.DANGER : Level.WARNING;
+        return line == Line.EXPECTED ? Level.DANGER : Level.WARNING;
     }
 
     /**
      * 같은 선이 기준 미만인 날짜들을 구간 하나로 만든다. 원인은 그 선에 반영된 출금만 넣는다.
-     * 확정 선은 확정 출금만, 예상 선은 확정·예상 출금을, 보수적 선은 거기에 마감 전 신용카드 사용 추정과 추정 생활비를 더한다.
+     * 예상 선은 확정·예상 출금을, 보수적 선은 거기에 마감 전 신용카드 사용 추정과 추정 생활비를 더한다.
      */
     private static RiskWindow window(List<ForecastCalculator.BalancePoint> days, Line line, long threshold) {
         ForecastCalculator.BalancePoint lowest = days.get(0);
@@ -114,7 +112,7 @@ final class RiskDetector {
         List<Cause> causes = new ArrayList<>();
         for (ForecastCalculator.BalancePoint day : days) {
             for (FlowEvent event : day.events()) {
-                // 그 선에 반영되지 않은 출금은 원인에 넣지 않는다(확정 선의 진행 중 청구, 예상 선의 신용카드 사용 추정 등).
+                // 그 선에 반영되지 않은 출금은 원인에 넣지 않는다(예상 선의 신용카드 사용 추정).
                 if (event.amount() < 0 && onLine(event.confidence(), line)) {
                     causes.add(new Cause(CauseType.valueOf(event.type().name()), event.title(), event.amount(),
                             event.refId(), day.date()));
@@ -132,10 +130,9 @@ final class RiskDetector {
                 lowestBalance, Math.subtractExact(threshold, lowestBalance), List.copyOf(causes));
     }
 
-    /** 그 등급의 입출금이 그 선에 반영되는지. 확정 선 ⊂ 예상 선 ⊂ 보수적 선이다. */
+    /** 그 등급의 입출금이 그 선에 반영되는지. 예상 선 ⊂ 보수적 선이다. */
     private static boolean onLine(FlowEvent.Confidence confidence, Line line) {
         return switch (line) {
-            case CONFIRMED -> confidence == FlowEvent.Confidence.CONFIRMED;
             case EXPECTED -> confidence != FlowEvent.Confidence.CONSERVATIVE;
             case CONSERVATIVE -> true;
         };
@@ -143,7 +140,6 @@ final class RiskDetector {
 
     private static long balanceOn(ForecastCalculator.BalancePoint point, Line line) {
         return switch (line) {
-            case CONFIRMED -> point.confirmed();
             case EXPECTED -> point.expected();
             case CONSERVATIVE -> point.conservative();
         };
@@ -156,7 +152,8 @@ final class RiskDetector {
 
     enum Level { SAFE, WARNING, DANGER }
 
-    enum Line { CONFIRMED, EXPECTED, CONSERVATIVE }
+    /** 판단에 쓰는 선. 앱이 그리는 두 선(AI 생활비 제외 = 예상, AI 생활비 반영 = 보수적)과 같다. */
+    enum Line { EXPECTED, CONSERVATIVE }
 
     /** 잔액을 떨어뜨린 원인. 입출금 종류({@link FlowEvent.Type})에 추정 생활비를 더했다. 이름이 같아야 한다. */
     enum CauseType {
@@ -173,7 +170,7 @@ final class RiskDetector {
     /**
      * 같은 선이 기준 미만으로 이어지는 날짜 구간.
      *
-     * @param line          날마다 기준 미만인 가장 확실한 선. 구간 안에서 같다(확정이면 DANGER, 예상·보수적이면 WARNING)
+     * @param line          날마다 기준 미만인 선. 구간 안에서 같다(예상이면 DANGER, 보수적이면 WARNING)
      * @param lowestBalance 그 선의 구간 최저 잔액(원)
      * @param shortfall     안전 잔액까지 모자라는 금액(원)
      * @param causes        그 선에 반영된 구간 안 출금. 보수적 선 구간은 최저일까지 누적한 추정 생활비를 더한다
