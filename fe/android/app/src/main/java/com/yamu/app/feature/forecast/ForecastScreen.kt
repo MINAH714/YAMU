@@ -336,7 +336,7 @@ private fun FilterChip(text: String, contentDescription: String, onClick: () -> 
     }
 }
 
-/** 예상 잔액 — 가장 나쁜 선의 최저 잔액, 상태, 세 선 그래프, 고른 날 */
+/** 예상 잔액 — 가장 나쁜 선의 최저 잔액과 그 선 이름, 상태, 두 선 그래프, 고른 날 */
 @Composable
 private fun HeroCard(f: Forecast, error: String?) {
     val c = YamuTheme.colors
@@ -351,6 +351,14 @@ private fun HeroCard(f: Forecast, error: String?) {
         }
         Spacer(Modifier.height(4.dp))
         AmountText(f.minBalance ?: 0, shortage = short, color = c.primary)
+        // 어느 선의 최저인지 — 금액 바로 밑 한 줄(범례와 같은 선 견본). 날짜 줄과 나눠 둬 큰 글씨에서도 남은 폭에 눌려 꺾이지 않는다
+        minBalanceBasis(f)?.let { basis ->
+            Row(Modifier.padding(top = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+                LineGlyph(dashed = f.hasConservative)
+                Spacer(Modifier.width(6.dp))
+                Text(basis, style = YamuTheme.typography.bodyS, color = c.text3)
+            }
+        }
         Spacer(Modifier.height(8.dp))
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             statusTag(f)?.let { (text, tone) -> StatusTag(text, tone = tone) }
@@ -363,6 +371,22 @@ private fun HeroCard(f: Forecast, error: String?) {
         error?.let { Text(staleLine(it, f.calculatedAtIso), style = YamuTheme.typography.bodyS, color = c.warning, modifier = Modifier.padding(top = 4.dp)) }
         Spacer(Modifier.height(YamuSpacing.x5))
         ForecastLines(f)
+    }
+}
+
+/**
+ * 맨 위 '가장 낮을 때' 금액이 어느 선 기준인지(!223 답, 서버는 그대로). summary.minBalance는 'AI 생활비 반영' 선, 그 선이 없으면 'AI 생활비 제외' 선의 최저다.
+ * 날마다 값이 없으면 어느 선인지 몰라 null
+ */
+internal fun minBalanceBasis(f: Forecast): String? =
+    if (f.days.isEmpty()) null else "${if (f.hasConservative) LINE_WITH_LIVING else LINE_WITHOUT_LIVING} 선 기준"
+
+/** 선 모양 견본 — 범례와 같은 파란 실선('AI 생활비 제외') · 점선('AI 생활비 반영') */
+@Composable
+private fun LineGlyph(dashed: Boolean, modifier: Modifier = Modifier) {
+    val color = YamuTheme.colors.primary
+    Canvas(modifier.size(width = 18.dp, height = 4.dp)) {
+        drawLine(color, Offset(0f, size.height / 2), Offset(size.width, size.height / 2), strokeWidth = 2.6.dp.toPx(), pathEffect = if (dashed) PathEffect.dashPathEffect(floatArrayOf(4.dp.toPx(), 3.dp.toPx())) else null)
     }
 }
 
@@ -379,7 +403,31 @@ internal fun statusTag(f: Forecast): Pair<String, TagTone>? {
     }
 }
 
-/** 세 선 + 범례 + 고른 날. 보수적 선이 없으면 그 선만 빼고 범례에 취소선 */
+/**
+ * 그래프의 두 선 이름(점검 B-05, BE -356). 서버 expected는 생활비를 빼기 전, conservative는 AI 예상 생활비와 앞으로 쓸 신용카드 금액까지 뺀 선이다.
+ * confirmed는 응답에 남아 있어도 그리지 않는다. 범례 · 날짜 칸 · 선 설명 · 위험 문장 · 접근성 설명이 이 이름을 같이 쓴다
+ */
+internal const val LINE_WITHOUT_LIVING = "AI 생활비 제외"
+internal const val LINE_WITH_LIVING = "AI 생활비 반영"
+
+/** 이번에 그리지 못한 선 — 생활비 선(conservative)이 없으면 범례에 취소선으로 남긴다 */
+internal fun missingLines(f: Forecast): List<String> = if (f.hasConservative) emptyList() else listOf(LINE_WITH_LIVING)
+
+/**
+ * 그래프 접근성 설명 — 어떤 선이 있는지와 가장 낮을 때. 최저 잔액(summary.minBalance)은 가장 낮은 선 기준이라 그 선 이름을 붙인다.
+ * 전에는 '예상 잔액 그래프'라 어느 선을 말하는지 드러나지 않았다(점검 B-05)
+ */
+internal fun chartDescription(f: Forecast): String {
+    val min = "${(f.minBalance ?: 0).toWon()}원"
+    return listOfNotNull(
+        "잔액 그래프",
+        if (f.hasConservative) "$LINE_WITHOUT_LIVING 선과 $LINE_WITH_LIVING 선" else "$LINE_WITHOUT_LIVING 선만(생활비 기록이 없어 $LINE_WITH_LIVING 선은 그리지 않았어요)",
+        if (f.hasConservative) "$LINE_WITH_LIVING 선이 가장 낮을 때 $min" else "가장 낮을 때 $min",
+        f.riskFrom?.let { "${it.toKoreanDate()}부터 안전 잔액 아래" },
+    ).joinToString(", ")
+}
+
+/** 두 선 + 범례 + 고른 날. AI 생활비 반영 선이 없으면 그 선만 빼고 범례에 취소선 */
 @Composable
 private fun ForecastLines(f: Forecast) {
     val c = YamuTheme.colors
@@ -389,9 +437,8 @@ private fun ForecastLines(f: Forecast) {
     val initial = days.indexOfFirst { it.date == f.minBalanceDate }.takeIf { it >= 0 } ?: days.lastIndex
     var selected by rememberSaveable(key.toString()) { mutableIntStateOf(initial) }
     val lines = buildList {
-        add(ChartLine("확정", days.map { it.confirmed }, c.text3, width = 1.6.dp))
-        add(ChartLine("예정", days.map { it.expected }, c.primary, width = 2.2.dp))
-        if (f.hasConservative) add(ChartLine("보수적", days.map { it.conservative }, c.primary, dashed = true, width = 2.2.dp))
+        add(ChartLine(LINE_WITHOUT_LIVING, days.map { it.expected }, c.primary, width = 2.6.dp))
+        if (f.hasConservative) add(ChartLine(LINE_WITH_LIVING, days.map { it.conservative }, c.primary, dashed = true, width = 2.2.dp))
     }
     val ranges = f.riskWindows.mapNotNull { w ->
         val a = days.indexOfFirst { !it.date.isBefore(w.from) }
@@ -401,7 +448,7 @@ private fun ForecastLines(f: Forecast) {
     BalanceChart(
         dates = days.map { it.date },
         lines = lines,
-        description = "예상 잔액 그래프, 가장 낮을 때 ${(f.minBalance ?: 0).toWon()}원" + (f.riskFrom?.let { ", ${it.toKoreanDate()}부터 안전 잔액 아래" } ?: ""),
+        description = chartDescription(f),
         threshold = f.alertThreshold,
         riskRanges = ranges,
         selected = selected,
@@ -409,7 +456,7 @@ private fun ForecastLines(f: Forecast) {
         incomeArrow = f.incomeDate != null,
     )
     Spacer(Modifier.height(12.dp))
-    ChartLegend(lines, missing = if (f.hasConservative) emptyList() else listOf("보수적"))
+    ChartLegend(lines, missing = missingLines(f))
     Spacer(Modifier.height(14.dp))
     DayPanel(days[selected.coerceIn(0, days.lastIndex)], hasConservative = f.hasConservative)
 }
@@ -431,9 +478,8 @@ private fun DayPanel(day: ForecastDay, hasConservative: Boolean) {
         }
         Spacer(Modifier.height(6.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            DayValue("확정", day.confirmed, c.text1, Modifier.weight(1f))
-            DayValue("예정", day.expected, c.onPrimaryContainer, Modifier.weight(1f))
-            if (hasConservative) DayValue("보수적", day.conservative, c.onWarningContainer, Modifier.weight(1f))
+            DayValue(LINE_WITHOUT_LIVING, day.expected, c.onPrimaryContainer, Modifier.weight(1f))
+            if (hasConservative) DayValue(LINE_WITH_LIVING, day.conservative, c.onWarningContainer, Modifier.weight(1f))
         }
         val events = day.events.filter { it.amount != 0L }
         if (events.isNotEmpty()) {
@@ -454,7 +500,7 @@ private fun DayPanel(day: ForecastDay, hasConservative: Boolean) {
 private fun DayValue(label: String, value: Long?, color: androidx.compose.ui.graphics.Color, modifier: Modifier) {
     Column(modifier) {
         Text(label, style = YamuTheme.typography.bodyS, color = YamuTheme.colors.text3)
-        // 세 칸이 좁아 아주 큰 금액이 숫자 중간에서 줄이 바뀌었다 — 한 줄로 두고 글자를 줄이며, 그래도 넘치면 말줄임(점검 2026-11-08)
+        // 칸이 좁아 아주 큰 금액이 숫자 중간에서 줄이 바뀌었다 — 한 줄로 두고 글자를 줄이며, 그래도 넘치면 말줄임(점검 2026-11-08)
         val style = YamuTheme.typography.titleS
         Text(
             value?.let { "${it.toWon()}원" } ?: "—",
@@ -496,31 +542,36 @@ private fun RiskCard(f: Forecast) {
     }
 }
 
-/** '보수적으로 보면 안전 잔액보다 최대 70,000원 모자라요' */
+/**
+ * 'AI 생활비를 반영하면 안전 잔액보다 최대 70,000원 모자라요'. 구간의 선은 BE -356부터 EXPECTED · CONSERVATIVE만 온다.
+ * 옛 서버의 CONFIRMED(그리지 않는 확정 선)나 모르는 값이면 선을 말하지 않는다 — 앱과 서버 배포 순서가 어긋나도 없는 선 이름을 대지 않게
+ */
 internal fun riskLine(w: RiskWindow): String {
     val lead = when (w.line) {
-        FlowConfidence.CONFIRMED -> "확정된 돈만으로도"
-        FlowConfidence.EXPECTED -> "예정대로라면"
-        FlowConfidence.CONSERVATIVE -> "보수적으로 보면"
-        FlowConfidence.UNKNOWN -> null
+        FlowConfidence.EXPECTED -> "AI 생활비를 빼지 않아도"
+        FlowConfidence.CONSERVATIVE -> "AI 생활비를 반영하면"
+        FlowConfidence.CONFIRMED, FlowConfidence.UNKNOWN -> null
     }
     val gap = w.shortfall?.takeIf { it > 0 }?.let { "안전 잔액보다 최대 ${it.toWon()}원 모자라요" } ?: "안전 잔액 아래로 내려가요"
     return listOfNotNull(lead, gap).joinToString(" ")
 }
 
-/** 세 선은 이렇게 계산했어요 — 지금 잔액에서 선마다 무엇을 뺐는지(FR-047 확정 · 예측 구분) */
+/**
+ * 두 선은 이렇게 계산했어요 — 지금 잔액에서 'AI 생활비 제외' 선이 무엇을 뺐는지, 'AI 생활비 반영' 선은 거기서 무엇을 더 뺐는지(FR-047 확정 · 예측 구분).
+ * 서버 conservative는 expected에서 예상 생활비와 앞으로 쓸 신용카드 금액을 더 뺀 값이라 두 번째 묶음은 첫 묶음 끝에서 이어 읽는다
+ */
 @Composable
 private fun LinesCard(f: Forecast) {
     val c = YamuTheme.colors
     YamuCard(contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 18.dp, bottom = 18.dp)) {
-        Text("세 선은 이렇게 계산했어요", style = YamuTheme.typography.cardTitle, color = c.text1)
+        Text("두 선은 이렇게 계산했어요", style = YamuTheme.typography.cardTitle, color = c.text1)
         Spacer(Modifier.height(12.dp))
         f.currentBalance?.let { b ->
             StepRow("지금 잔액 · 계좌 ${f.accountIds.size}개", "${b.toWon()}원", strong = true)
             Spacer(Modifier.height(12.dp))
         }
         f.lineGroups().forEachIndexed { i, g ->
-            if (i > 0) Spacer(Modifier.height(10.dp))
+            if (i > 0) Spacer(Modifier.height(14.dp))
             LineGroupRow(g, hasConservative = f.hasConservative)
         }
     }
@@ -529,22 +580,22 @@ private fun LinesCard(f: Forecast) {
 @Composable
 private fun LineGroupRow(g: LineGroup, hasConservative: Boolean) {
     val c = YamuTheme.colors
-    val (name, color, dashed) = when (g.line) {
-        FlowConfidence.CONFIRMED -> Triple("확정 선", c.text3, false)
-        FlowConfidence.EXPECTED -> Triple("예정 선", c.primary, false)
-        else -> Triple("보수적 선", c.primary, true)
-    }
+    val withLiving = g.line == FlowConfidence.CONSERVATIVE
+    val name = if (withLiving) LINE_WITH_LIVING else LINE_WITHOUT_LIVING
     Row {
-        Canvas(Modifier.padding(top = 9.dp).size(width = 18.dp, height = 4.dp)) {
-            drawLine(color, Offset(0f, size.height / 2), Offset(size.width, size.height / 2), strokeWidth = 2.6.dp.toPx(), pathEffect = if (dashed) PathEffect.dashPathEffect(floatArrayOf(4.dp.toPx(), 3.dp.toPx())) else null)
-        }
+        LineGlyph(dashed = withLiving, modifier = Modifier.padding(top = 9.dp))
         Spacer(Modifier.width(10.dp))
         Column(Modifier.weight(1f)) {
+            // 선 이름(범례와 같은 이름). 두 번째 묶음은 첫 선에서 더 빼는 돈이라 그 사실을 이름 밑에 적는다
+            Text(name, style = YamuTheme.typography.titleS, color = c.text1)
+            if (withLiving) Text("$LINE_WITHOUT_LIVING 선에서 더 빼요", style = YamuTheme.typography.bodyS, color = c.text3)
+            Spacer(Modifier.height(4.dp))
             g.steps.forEach { s -> StepRow(listOfNotNull(s.label, s.note).joinToString(" · "), "${s.amount.toWon(withPlusSign = true)}원") }
-            if (g.line == FlowConfidence.CONSERVATIVE && !hasConservative) {
+            if (withLiving && !hasConservative) {
                 Text("생활비 기록이 없어 이번에는 그리지 않았어요", style = YamuTheme.typography.bodyM, color = c.text3)
             } else {
-                StepRow("$name 끝", g.end?.let { "${it.toWon()}원" } ?: "—", muted = true)
+                StepRow("$name 선 끝", g.end?.let { "${it.toWon()}원" } ?: "—", muted = true)
+                g.note?.let { Text(it, style = YamuTheme.typography.bodyS, color = c.text3, modifier = Modifier.padding(top = 2.dp)) }
             }
         }
     }
@@ -660,7 +711,9 @@ internal fun noticeLines(f: Forecast, selection: ForecastSelection): List<String
     val living = f.livingCost
     val livingLine = when {
         living == null || !living.insufficient -> null
-        f.hasConservative -> "생활비 기록이 없어 보수적 선에는 카드 사용 예상만 넣었어요."
+        // 여러 계좌면 기록 있는 계좌의 생활비가 선에 들어 있을 수 있다(Forecast.hasPartialLiving) — 기록 없는 계좌 이야기로만 쓴다
+        f.hasConservative && f.accountIds.size > 1 -> "생활비 기록이 없는 계좌는 '$LINE_WITH_LIVING' 선에 앞으로 쓸 신용카드 금액만 넣었어요."
+        f.hasConservative -> "생활비 기록이 없어 '$LINE_WITH_LIVING' 선에는 앞으로 쓸 신용카드 금액만 넣었어요."
         // 어느 계좌에 기록이 있는지는 이 응답만으로 모른다 — 모든 계좌에 없을 수도 있어 '고르면 된다'고 약속하지 않는다
         f.accountIds.size > 1 -> "생활비 기록이 없는 계좌가 있어 생활비는 빼고 계산했어요. 계좌를 따로 골라 보면 기록이 있는 계좌는 생활비까지 넣어 계산해요."
         else -> "생활비 기록이 아직 없어 생활비는 빼고 계산했어요. 체크카드로 결제하면 다음 예보부터 들어가요."

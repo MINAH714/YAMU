@@ -227,7 +227,7 @@ class BuyCheckViewModelTest {
         // 오늘부터 모자라고 가장 낮은 날은 12/8 — 가장 낮은 날이 아니라 BE가 준 시작일을 쓴다
         val short = SimSnapshot(-9_999_018_095, LocalDate.of(2026, 12, 8), RiskLevel.DANGER, riskStartDate = today)
         assertEquals("11월 8일부터 안전 잔액 아래" to TagTone.Error, afterTag(short))
-        // 0원 아래인데 보수적 선에서만이라 WARNING이어도 빨간색
+        // 0원 아래인데 'AI 생활비 반영' 선에서만이라 WARNING이어도 빨간색
         assertEquals("11월 20일부터 안전 잔액 아래" to TagTone.Error, afterTag(SimSnapshot(-1, DATE, RiskLevel.WARNING, riskStartDate = DATE)))
         assertEquals("11월 20일부터 안전 잔액 아래" to TagTone.Warning, afterTag(SimSnapshot(60_000, DATE, RiskLevel.WARNING, riskStartDate = DATE)))
         // 시작일이 없는 옛 응답이면 날짜를 빼고(가장 낮은 날을 대신 쓰지 않는다)

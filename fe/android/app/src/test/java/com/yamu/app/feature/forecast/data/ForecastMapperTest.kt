@@ -79,7 +79,7 @@ class ForecastMapperTest {
         assertEquals("새 종류", unknown.label)
     }
 
-    @Test fun `예정 출금 합 — 보수적 선 전용 추정은 세지 않는다`() {
+    @Test fun `예정 출금 합 — AI 생활비 반영 선 전용 추정은 세지 않는다`() {
         assertEquals(250_000L + 1_000L + 150_000L, parse().scheduledOutflow)
     }
 
@@ -89,19 +89,25 @@ class ForecastMapperTest {
         assertEquals(listOf(FlowType.CARD_SPENDING_ESTIMATE, FlowType.LIVING_COST_ESTIMATE), w.causes.map { it.type })
         assertEquals(listOf("카드 사용 예상", "예상 생활비"), w.causes.map { it.label })
         assertEquals("11월 24일까지 · AI 예측", w.causes[1].sub(LivingMethod.ML_V1))
-        assertEquals("보수적으로 보면 안전 잔액보다 최대 60,000원 모자라요", riskLine(w))
+        assertEquals("AI 생활비를 반영하면 안전 잔액보다 최대 60,000원 모자라요", riskLine(w))
         assertEquals(LocalDate.parse("2026-11-21"), parse().riskFrom)
     }
 
-    @Test fun `세 선 설명 — 예상 생활비는 projectedAmount만, 끝 잔액은 서버 선 그대로`() {
-        val (confirmed, expected, conservative) = parse().lineGroups()
-        assertEquals(listOf(LineStep("예정 지출", -250_000)), confirmed.steps)
-        assertEquals(430_000L, confirmed.end)
-        assertEquals(listOf("진행 중인 카드 청구", "기타"), expected.steps.map { it.label })   // 모르는 확신도는 예상 선의 기타로
-        assertEquals(280_000L, expected.end)
-        assertEquals(LineStep("예상 생활비", -180_000, "AI 예측"), conservative.steps.first())   // dailyAverage × 일수(126,000)가 아님
-        assertEquals(LineStep("앞으로 쓸 신용카드 금액", -60_000), conservative.steps[1])
-        assertEquals(40_000L, conservative.end)
+    @Test fun `두 선 설명 — 확정 묶음 없이 두 묶음, 예상 생활비는 projectedAmount만, 끝 잔액은 서버 선 그대로`() {
+        val groups = parse().lineGroups()
+        assertEquals(listOf(FlowConfidence.EXPECTED, FlowConfidence.CONSERVATIVE), groups.map { it.line })
+        val (withoutLiving, withLiving) = groups
+        // 확정(월세) · 진행 중 청구 · 모르는 확신도(기타, 맨 끝)가 한 묶음
+        assertEquals(
+            listOf(LineStep("예정 지출", -250_000), LineStep("진행 중인 카드 청구", -150_000), LineStep("기타", -1_000)),
+            withoutLiving.steps,
+        )
+        assertEquals(280_000L, withoutLiving.end)                                                  // last.expected — 확정 선 끝(430,000)이 아님
+        assertEquals(LineStep("예상 생활비", -180_000, "AI 예측"), withLiving.steps.first())       // dailyAverage × 일수(126,000)가 아님
+        assertEquals(LineStep("앞으로 쓸 신용카드 금액", -60_000), withLiving.steps[1])
+        assertEquals(40_000L, withLiving.end)
+        // 둘째 선은 첫 선에서 더 뺀 값 — 서버 숫자로도 맞는다
+        assertEquals(withoutLiving.end!! + withLiving.steps.sumOf { it.amount }, withLiving.end)
     }
 
     @Test fun `기간 뒤 카드값 — 출금일순으로 읽고 선 · 예정 출금 합에는 넣지 않는다(-348 !199)`() {
@@ -132,7 +138,7 @@ class ForecastMapperTest {
         assertEquals("모르는 항목 1건은 빼고 계산했어요.", notes[2])
     }
 
-    /** 신용카드만 쓰는 사람이 이번 달 처음 등록 — 보수적 선 null, 생활비 INSUFFICIENT */
+    /** 신용카드만 쓰는 사람이 이번 달 처음 등록 — conservative('AI 생활비 반영' 선) null, 생활비 INSUFFICIENT */
     private val noConservative = """
         {"accountIds":[3],"currentTotalBalance":300000,"horizon":{"type":"DAYS","from":"2026-11-06","to":"2026-12-06","days":30},
          "alertThreshold":100000,"summary":{"status":"SAFE","minBalance":250000,"minBalanceDate":"2026-12-06","endBalance":250000},
@@ -142,24 +148,27 @@ class ForecastMapperTest {
          "excluded":[],"isEstimate":true}
     """.trimIndent()
 
-    @Test fun `보수적 선이 null이어도 읽고, 생활비 미반영 안내는 dataOrigin 기준`() {
+    @Test fun `AI 생활비 반영 선이 null이어도 읽고, 생활비 미반영 안내는 dataOrigin 기준`() {
         val f = parse(noConservative)
         assertFalse(f.hasConservative)
         assertNull(f.days.first().conservative)
         assertNull(f.incomeDate)                                    // DAYS는 월급날이 없다
         assertTrue(f.livingCost!!.insufficient)
-        assertNull(f.lineGroups()[2].end)
+        val (withoutLiving, withLiving) = f.lineGroups()
+        assertEquals(250_000L, withoutLiving.end)
+        assertTrue(withLiving.steps.isEmpty())                      // 생활비 기록이 없으면 예상 생활비 줄도 없다
+        assertNull(withLiving.end)
         assertEquals(listOf("생활비 기록이 아직 없어 생활비는 빼고 계산했어요. 체크카드로 결제하면 다음 예보부터 들어가요."), noticeLines(f, ForecastSelection()))
         assertEquals("30일 동안 안전 잔액 위" to TagTone.Success, statusTag(f))
         assertEquals("30일", periodLabel(f, ForecastSelection()))
     }
 
-    @Test fun `신용카드만 쓰는 계좌 — 보수적 선은 숫자지만 생활비는 여전히 미반영`() {
+    @Test fun `신용카드만 쓰는 계좌 — AI 생활비 반영 선은 숫자지만 생활비는 여전히 미반영`() {
         val dto = YamuJson.decodeFromString(BalanceForecastDto.serializer(), noConservative)
         val f = dto.copy(series = dto.series.map { it.copy(conservative = (it.expected ?: 0) - 50_000) }).toForecast()
         assertTrue(f.hasConservative)
         assertTrue(f.livingCost!!.insufficient)
-        assertEquals(listOf("생활비 기록이 없어 보수적 선에는 카드 사용 예상만 넣었어요."), noticeLines(f, ForecastSelection()))
+        assertEquals(listOf("생활비 기록이 없어 'AI 생활비 반영' 선에는 앞으로 쓸 신용카드 금액만 넣었어요."), noticeLines(f, ForecastSelection()))
     }
 
     @Test fun `월급날까지를 골랐는데 서버가 30일로 계산했으면 알린다`() {
@@ -185,7 +194,7 @@ class ForecastMapperTest {
         assertEquals("카드 결제", rows.single().cardNote)
         // 예보가 없으면 가계부 줄 기준
         assertEquals(120_000L to 1, com.yamu.app.feature.forecast.cashflowOutflow(null, rows))
-        // 기간 안 출금은 예보 기준으로 세고, 보수적 선 전용 추정은 빼고 센다
+        // 기간 안 출금은 예보 기준으로 세고, 'AI 생활비 반영' 선 전용 추정은 빼고 센다
         val withBill = testForecast(
             days = listOf(
                 day(

@@ -84,10 +84,11 @@ import kotlin.math.abs
 
 /**
  * debug 전용 가짜 잔고예보 서버 — BE BalanceForecast와 같은 모양을 만들어 앱의 매퍼를 그대로 거친다.
- * 계좌 둘(월급 통장 412,000 · 생활비 통장 268,000), 하루 생활비 6,000(계좌마다 3,000), +4 카드 청구(진행 중, 예상 선) · 카드 사용 예상(보수적 선만),
- * +2 미용실(생활카드 예정 지출) · +9 월세 · +11 통신비 · +16 구독료(확정 선), +25 월급. 그래서 보수적 선만 월급 전에 안전 잔액(100,000) 아래로 내려간다.
+ * 계좌 둘(월급 통장 412,000 · 생활비 통장 268,000), 하루 생활비 6,000(계좌마다 3,000), +4 카드 청구(진행 중, EXPECTED) · 카드 사용 예상(CONSERVATIVE),
+ * +2 미용실(생활카드 예정 지출) · +9 월세 · +11 통신비 · +16 구독료(CONFIRMED), +25 월급.
+ * 그래서 'AI 생활비 반영' 선(conservative)만 월급 전에 안전 잔액(100,000) 아래로 내려가 WARNING이다. 위험 판정은 BE -356 !223의 두 선 기준을 따른다.
  * 지난 7일에는 생활카드 예정 지출 셋(헬스장 · 병원 · 택시)이 있고, 병원은 결제와 연결됨 · 택시는 연결 뒤 결제가 취소된 상태로 시작한다.
- * 디버그 메뉴 '데이터 부족'이면 생활비 기록이 없는 응답(보수적 선 null · INSUFFICIENT)을 준다.
+ * 디버그 메뉴 '데이터 부족'이면 생활비 기록이 없는 응답('AI 생활비 반영' 선 null · INSUFFICIENT)을 준다.
  * 계획을 저장하면 같이 계산 → 잔고예보 숫자가 바뀐다(12 문서 8-5).
  */
 @Singleton
@@ -196,14 +197,14 @@ class FakeForecastRepository @Inject constructor() : ForecastRepository {
         ForecastAccountOption(it.id, it.name, it.bank, it.last4, it.balance, it.primary, cardIds = if (it.id == 1L) setOf(16L) else setOf(11L, 12L, 17L))
     }
 
-    /** 날마다 세 선 · 위험 구간 · 요약 — BE ForecastCalculator · RiskDetector 규칙을 줄여 흉내 낸다 */
+    /** 날마다 세 선(confirmed는 응답 호환용으로만) · 위험 구간 · 요약 — BE ForecastCalculator · RiskDetector 규칙을 줄여 흉내 낸다 */
     private fun build(selection: ForecastSelection, extra: List<Flow> = emptyList(), noLiving: Boolean = false): BalanceForecastDto {
         val ids = selection.accountIdsFrom(options()).toSet()
         val accounts = accountList.filter { it.id in ids }
         val to = horizonTo(selection.period)
         val flows = (flows(to) + extra).filter { it.accountId in ids && !it.date.isBefore(today) && !it.date.isAfter(to) }
         val living = accounts.map { if (noLiving) null else it.dailyLiving }
-        // 생활비 기록이 없는 계좌도 카드 사용 추정이 있으면 생활비 0원으로 보수적 선을 낸다. 한 계좌라도 없으면 통합 보수적 선은 null
+        // 생활비 기록이 없는 계좌도 카드 사용 추정이 있으면 생활비 0원으로 conservative를 낸다. 한 계좌라도 없으면 통합 conservative는 null
         val consAvailable = accounts.zip(living).all { (a, l) -> l != null || flows.any { it.accountId == a.id && it.confidence == "CONSERVATIVE" } }
         val daily = living.sumOf { it ?: 0L }
         val start = accounts.sumOf { it.balance }
@@ -229,9 +230,9 @@ class FakeForecastRepository @Inject constructor() : ForecastRepository {
             )
         }
         val worst = series.map { it.conservative ?: it.expected!! }
-        // 날마다 기준 미만인 가장 확실한 선 → 같은 선이 이어지면 한 구간
+        // 날마다 기준 미만인 선(앱이 그리는 두 선만, BE -356 !223) → 같은 선이 이어지면 한 구간.
+        // expected('AI 생활비 제외')가 미만이면 DANGER, conservative('AI 생활비 반영')만 미만이면 WARNING. confirmed는 보지 않는다
         fun lineOf(p: SeriesPointDto) = when {
-            p.confirmed!! < alert -> "CONFIRMED"
             p.expected!! < alert -> "EXPECTED"
             p.conservative != null && p.conservative < alert -> "CONSERVATIVE"
             else -> null
@@ -243,22 +244,14 @@ class FakeForecastRepository @Inject constructor() : ForecastRepository {
             var j = i
             while (j + 1 < series.size && lineOf(series[j + 1]) == line) j++
             val part = series.subList(i, j + 1)
-            fun value(p: SeriesPointDto) = when (line) {
-                "CONFIRMED" -> p.confirmed!!
-                "EXPECTED" -> p.expected!!
-                else -> p.conservative!!
-            }
+            fun value(p: SeriesPointDto) = if (line == "EXPECTED") p.expected!! else p.conservative!!
             val lowest = part.minOf { value(it) }
             val lowestDate = part.first { value(it) == lowest }.date
-            val allowed = when (line) {
-                "CONFIRMED" -> setOf("CONFIRMED")
-                "EXPECTED" -> setOf("CONFIRMED", "EXPECTED")
-                else -> setOf("CONFIRMED", "EXPECTED", "CONSERVATIVE")
-            }
+            val allowed = if (line == "EXPECTED") setOf("CONFIRMED", "EXPECTED") else setOf("CONFIRMED", "EXPECTED", "CONSERVATIVE")
             val causes = flows.filter { f -> f.amount < 0 && f.confidence in allowed && !f.date.isBefore(dates[i]) && !f.date.isAfter(dates[j]) }
                 .map { RiskCauseDto(it.type, it.title, it.amount, it.date.toString()) } +
                 if (line == "CONSERVATIVE" && daily > 0) listOf(RiskCauseDto("LIVING_COST_ESTIMATE", "예상 생활비", -daily * dates.indexOf(LocalDate.parse(lowestDate)), lowestDate)) else emptyList()
-            windows += RiskWindowDto(dates[i].toString(), dates[j].toString(), if (line == "CONFIRMED") "DANGER" else "WARNING", line, lowest, alert - lowest, causes)
+            windows += RiskWindowDto(dates[i].toString(), dates[j].toString(), if (line == "EXPECTED") "DANGER" else "WARNING", line, lowest, alert - lowest, causes)
             i = j + 1
         }
         val min = worst.minOrNull() ?: start
