@@ -305,7 +305,7 @@ data class Forecast(
         // 선에 실제로 빠진 생활비(appliedAmount)라 일부 계좌만 기록이 있어도 줄 합계가 끝 잔액과 맞는다. 기록이 아무 데도 없어 0원이면 줄을 만들지 않는다
         val living = livingCost?.let { lc ->
             lc.lineAmount?.takeIf { it != 0L || !lc.insufficient }?.let {
-                LineStep("예상 생활비", -it, listOfNotNull(lc.method.label, "기록 있는 계좌만".takeIf { lc.isPartial }).joinToString(" · ").ifEmpty { null })
+                LineStep("예상 생활비", -it, listOfNotNull(lc.method.label, "기록 있는 계좌만".takeIf { lc.isPartial }).joinToString(", ").ifEmpty { null })
             }
         }
         val withLiving = listOfNotNull(living) + steps(events.filter { it.confidence == FlowConfidence.CONSERVATIVE }) {

@@ -89,6 +89,7 @@ import com.yamu.app.feature.forecast.data.ForecastPeriod
 import com.yamu.app.feature.forecast.data.ForecastRepository
 import com.yamu.app.feature.forecast.data.ForecastSelection
 import com.yamu.app.feature.forecast.data.LineGroup
+import com.yamu.app.feature.forecast.data.LineStep
 import com.yamu.app.feature.forecast.data.RiskLevel
 import com.yamu.app.feature.forecast.data.RiskWindow
 import com.yamu.app.feature.forecast.data.cashflowRows
@@ -203,8 +204,11 @@ class ForecastViewModel @Inject constructor(private val repo: ForecastRepository
 
 private fun LocalDate.daysFromToday(): Long = ChronoUnit.DAYS.between(LocalDate.now(KST), this)
 
-/** '11월 20일 (금)' */
-internal fun LocalDate.toKoreanDateWeek(): String = "${toKoreanDate()} (${dayOfWeek.getDisplayName(TextStyle.SHORT, Locale.KOREAN)})"
+/** '11월 20일 (금)'. [markToday]면 오늘은 '11월 20일 (금, 오늘)' — 전에는 '(금) · 오늘'이었다(가운데 점 대신 괄호, 11/10 QA) */
+internal fun LocalDate.toKoreanDateWeek(markToday: Boolean = false, today: LocalDate = LocalDate.now(KST)): String {
+    val week = dayOfWeek.getDisplayName(TextStyle.SHORT, Locale.KOREAN)
+    return if (markToday && this == today) "${toKoreanDate()} ($week, 오늘)" else "${toKoreanDate()} ($week)"
+}
 
 /** '11월 20일 ~ 24일' · 달이 다르면 '11월 28일 ~ 12월 2일' · 하루면 '11월 20일' */
 internal fun dateRange(from: LocalDate, to: LocalDate): String = when {
@@ -489,13 +493,23 @@ private fun DayPanel(day: ForecastDay, hasConservative: Boolean) {
             Spacer(Modifier.height(6.dp))
             events.forEach { e ->
                 Row(Modifier.fillMaxWidth().padding(vertical = 3.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text(e.label + if (e.isEstimate) " · 추정" else if (e.isExpected) " · 예상" else "", style = YamuTheme.typography.bodyM, color = c.text1, modifier = Modifier.weight(1f))
+                    Text(dayEventLabel(e), style = YamuTheme.typography.bodyM, color = c.text1, modifier = Modifier.weight(1f))
                     Text("${e.amount.toWon(withPlusSign = true)}원", style = YamuTheme.typography.bodyM, color = if (e.amount > 0) c.primary else c.text1)
                 }
             }
         }
     }
 }
+
+/** 날짜 칸 입출금 이름 — '넷플릭스 (예상)' · '카드 사용 예상 (추정)'. 가운데 점은 어색하다는 의견으로 괄호로 바꿨다(11/10 QA) */
+internal fun dayEventLabel(e: ForecastEvent): String = when {
+    e.isEstimate -> "${e.label} (추정)"
+    e.isExpected -> "${e.label} (예상)"
+    else -> e.label
+}
+
+/** 계산 카드 한 줄 — '예상 생활비 (AI 예측, 기록 있는 계좌만)'. 덧붙임은 괄호에 넣는다 */
+internal fun stepLabel(s: LineStep): String = s.note?.let { "${s.label} ($it)" } ?: s.label
 
 @Composable
 private fun DayValue(label: String, value: Long?, color: androidx.compose.ui.graphics.Color, modifier: Modifier) {
@@ -568,7 +582,7 @@ private fun LinesCard(f: Forecast) {
         Text("두 선은 이렇게 계산했어요", style = YamuTheme.typography.cardTitle, color = c.text1)
         Spacer(Modifier.height(12.dp))
         f.currentBalance?.let { b ->
-            StepRow("지금 잔액 · 계좌 ${f.accountIds.size}개", "${b.toWon()}원", strong = true)
+            StepRow("지금 잔액 (계좌 ${f.accountIds.size}개)", "${b.toWon()}원", strong = true)
             Spacer(Modifier.height(12.dp))
         }
         f.lineGroups().forEachIndexed { i, g ->
@@ -591,7 +605,7 @@ private fun LineGroupRow(g: LineGroup, hasConservative: Boolean) {
             Text(name, style = YamuTheme.typography.titleS, color = c.text1)
             if (withLiving) Text("$LINE_WITHOUT_LIVING 선에서 더 빼요", style = YamuTheme.typography.bodyS, color = c.text3)
             Spacer(Modifier.height(4.dp))
-            g.steps.forEach { s -> StepRow(listOfNotNull(s.label, s.note).joinToString(" · "), "${s.amount.toWon(withPlusSign = true)}원") }
+            g.steps.forEach { s -> StepRow(stepLabel(s), "${s.amount.toWon(withPlusSign = true)}원") }
             if (withLiving && !hasConservative) {
                 Text("생활비 기록이 없어 이번에는 그리지 않았어요", style = YamuTheme.typography.bodyM, color = c.text3)
             } else {

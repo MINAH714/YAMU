@@ -136,7 +136,7 @@ class ForecastMapperTest {
         val (withoutLiving, withLiving) = f.lineGroups()
         assertEquals(1_500_000L, withoutLiving.end)
         assertEquals(
-            listOf(LineStep("예상 생활비", -150_000, "최근 소비 기준 · 기록 있는 계좌만"), LineStep("앞으로 쓸 신용카드 금액", -48_000)),
+            listOf(LineStep("예상 생활비", -150_000, "최근 소비 기준, 기록 있는 계좌만"), LineStep("앞으로 쓸 신용카드 금액", -48_000)),
             withLiving.steps,
         )
         assertEquals(1_302_000L, withLiving.end)
