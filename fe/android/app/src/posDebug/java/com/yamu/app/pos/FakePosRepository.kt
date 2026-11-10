@@ -18,7 +18,7 @@ import javax.inject.Singleton
  * debug 전용 가짜 POS 서버 — 결제 요청 → 5초 뒤 '고객이 확정함'(승인). 고객 앱과 따로 돌아서 진짜 결제는 실제 서버로만.
  * 서버처럼 같은 키 · 같은 본문이면 처음 결제 번호를, 같은 키에 다른 본문이면 409를 돌려주고, 한 번 쓴 코드는 다시 받지 않는다.
  * 시험값(번호로 넣기): EXPIRED가 들어가면 만료 · USED는 이미 쓴 코드 · LOST는 첫 응답이 끊김(서버엔 접수, 다시 보내면 같은 결제) ·
- * DECLINEFINAL은 최종 거절 · DECLINE은 거절 뒤 고객이 다른 카드로 승인 · REJECT는 고객이 승인하지 않아 만료 ·
+ * DECLINEFINAL은 최종 거절 · DECLINE은 거절 뒤 고객이 다른 카드로 승인 · REJECT는 고객이 앱에서 거절(REJECTED) ·
  * LATE는 출금 미확인으로 거절됐다가 늦게 출금이 확인돼 승인(5~20초 '출금 확인 중')
  */
 @Singleton
@@ -66,7 +66,7 @@ class FakePosRepository @Inject constructor() : PosRepository {
             "LATE" in token && elapsed < 20_000 -> PosStatus.CHECKING
             "DECLINEFINAL" in token -> PosStatus.DECLINED
             "DECLINE" in token && elapsed < 10_000 -> PosStatus.RETRYING
-            "REJECT" in token -> if (elapsed < 15_000) PosStatus.WAITING else PosStatus.EXPIRED
+            "REJECT" in token -> PosStatus.REJECTED   // BE처럼 마감이 지나도 EXPIRED로 바꾸지 않는다
             else -> PosStatus.APPROVED
         }
         val result = if (status == PosStatus.APPROVED) {

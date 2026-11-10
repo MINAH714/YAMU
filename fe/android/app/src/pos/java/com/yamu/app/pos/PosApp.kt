@@ -518,6 +518,8 @@ internal fun resultErrorMessage(error: ApiError): String = when {
  */
 const val POS_LATE_CHECK_MS: Long = 11 * 60_000L
 
+internal const val POS_REJECTED_HINT = "다시 결제하려면 고객 앱에서 새 바코드를 받아 스캔해 주세요"
+
 internal const val POS_LATE_CHECK_OVER = "출금 결과를 끝내 확인하지 못했어요 · 고객 앱 결제 내역에서 결제됐는지 확인한 뒤에 다시 결제받아 주세요"
 
 /**
@@ -569,6 +571,7 @@ private fun PosResultState.headline(): String = when (result?.status) {
     PosStatus.DECLINED -> "결제가 거절됐어요"
     PosStatus.EXPIRED -> "결제되지 않았어요"
     PosStatus.CANCELED -> "결제가 취소됐어요"
+    PosStatus.REJECTED -> "고객이 결제를 거절했어요"
     PosStatus.CHECKING -> if (stopped) "결제 결과를 확인하지 못했어요" else "출금을 확인하고 있어요"
     else -> when {
         stopped -> "결제 결과를 확인하지 못했어요"
@@ -608,6 +611,9 @@ private fun PosResultScreen(onNewPayment: () -> Unit, viewModel: PosResultViewMo
                     Text("고객이 확인 시간 안에 승인하지 않았어요", style = YamuTheme.typography.bodyM, color = c.text3, textAlign = TextAlign.Center)
                 r?.status == PosStatus.CANCELED ->
                     Text("이 결제는 취소돼 돈이 나가지 않아요", style = YamuTheme.typography.bodyM, color = c.text3, textAlign = TextAlign.Center)
+                // 웹 POS Receipt와 같은 안내. 바코드가 닫혀서 같은 코드로는 다시 결제할 수 없다
+                r?.status == PosStatus.REJECTED ->
+                    Text(POS_REJECTED_HINT, style = YamuTheme.typography.bodyM, color = c.text3, textAlign = TextAlign.Center)
                 s.stopped -> Text(s.error.orEmpty(), style = YamuTheme.typography.bodyM, color = c.error, textAlign = TextAlign.Center)
                 else -> {
                     val hint = when (r?.status) {

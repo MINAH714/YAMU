@@ -135,15 +135,25 @@ class PosRepositoryContractTest {
         assertEquals(PosStatus.EXPIRED, result("EXPIRED", "INSUFFICIENT_BALANCE").status)
     }
 
-    @Test fun `상태 — 승인 · 만료 · 취소는 최종, 접수 · 처리 중은 기다림`() {
+    @Test fun `상태 — 승인 · 만료 · 취소 · 고객 거절은 최종, 접수 · 처리 중은 기다림`() {
         fun status(s: String) = PosResultDto(paymentId = 9, status = s).toResult().status
         assertEquals(PosStatus.APPROVED, status("APPROVED"))
         assertEquals(PosStatus.EXPIRED, status("EXPIRED"))
         assertEquals(PosStatus.CANCELED, status("CANCELED"))
+        assertEquals(PosStatus.REJECTED, status("REJECTED"))
         assertEquals(PosStatus.PROCESSING, status("PROCESSING"))
         assertEquals(PosStatus.WAITING, status("REQUESTED"))
-        assertTrue(listOf("APPROVED", "EXPIRED", "CANCELED").all { status(it).isFinal })
+        assertTrue(listOf("APPROVED", "EXPIRED", "CANCELED", "REJECTED").all { status(it).isFinal })
         assertFalse(listOf("REQUESTED", "PROCESSING").any { status(it).isFinal })
+    }
+
+    @Test fun `고객 거절 — 앞 카드의 거절 사유가 남아 와도 고객 거절로 본다`() {
+        // BE reject()는 DECLINED에서도 REJECTED가 되고 앞 시도의 카드 · 사유를 남긴다(PaymentTransaction)
+        val result = PosResultDto(
+            paymentId = 9, status = "REJECTED", failure = PosFailureDto("INSUFFICIENT_BALANCE", "잔액이 부족합니다."), retryable = null,
+        ).toResult()
+        assertEquals(PosStatus.REJECTED, result.status)
+        assertTrue(result.status.isFinal)
     }
 
     @Test fun `단말 목록 — BE yamu pos terminals 네 개와 같다`() {

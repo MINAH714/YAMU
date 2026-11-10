@@ -44,7 +44,7 @@
 - **가짜 잔고예보**: 잔액 950,000 · 예정 지출 4건 450,000 · 하루 생활비 6,000 → 월급 전 350,000(월급 = 오늘 + 25일). 이거 사도 될까? 400,000원은 '미루는 게 좋아요', 129,000원은 '괜찮아요'. 계획을 저장하면 예보에 같이 계산된다
 - **예정 수입·지출 추가(F-02 +)**: 등록하면 가짜 서버가 회차를 계산해 예보 · F-02에 더한다(매월 말일은 31일이 없는 달에 그달 마지막 날). 시험 이름 `TIMEOUT`은 응답을 못 받은 경우(실제로는 등록됨), `INVALID`는 서버가 이름 칸을 거절한 경우
 - **예정 수입·지출 수정 · 삭제(F-02 줄)**: 월세 · 통신비 · 구독료는 가짜 서버의 매월 반복 항목이라 눌러서 고칠 수 있다(카드대금 · 월급은 읽기 전용). 이번 회차만 · 이후 전부 · 삭제를 서버 규칙대로 흉내 낸다. 이름을 `PAID`로 바꿔 저장하면 결제된 회차(409)
-- **모의 POS 가짜 시험값**([번호로 넣기]): EXPIRED가 들어가면 만료 · USED는 이미 쓴 코드 · LOST는 첫 응답이 끊김(다시 보내면 같은 결제) · DECLINEFINAL은 최종 거절 · DECLINE은 거절 뒤 고객이 다른 카드로 승인 · REJECT는 고객이 승인하지 않아 만료 · LATE는 출금 미확인으로 '출금 확인 중'이었다가 늦게 승인, 그 밖은 5초 뒤 승인. 한 번 쓴 코드는 다시 받지 않는다
+- **모의 POS 가짜 시험값**([번호로 넣기]): EXPIRED가 들어가면 만료 · USED는 이미 쓴 코드 · LOST는 첫 응답이 끊김(다시 보내면 같은 결제) · DECLINEFINAL은 최종 거절 · DECLINE은 거절 뒤 고객이 다른 카드로 승인 · REJECT는 고객이 앱에서 거절(`REJECTED`, 마감이 지나도 그대로) · LATE는 출금 미확인으로 '출금 확인 중'이었다가 늦게 승인, 그 밖은 5초 뒤 승인. 한 번 쓴 코드는 다시 받지 않는다
 - **가짜 카드 등록 시험값**: 카드 번호는 `9410 0000 0000` + 끝 4자리, 유효기간은 지나지 않은 아무 달이다. 끝 4자리 1021 톡톡 · 3310 ZERO · 7782 LIKIT Shop · 4410 iD ON · 8823 노리2 체크 · 5527 트래블로그 체크 · 5096 Mr.Life(결제 계좌 신한 ·5678을 먼저 연결) · 0001 카드사 만료 · 0002 카드사 정지 · 0003 이미 등록 · 그 밖은 없는 카드. 시작 상태 '로그인 · 연결 끝'이면 트래블로그만 새로 등록할 수 있다
 - **화면 바로 열기**, **컴포넌트 갤러리**(다크 모드 · 글자 1.3배 · 청록 미리보기)
 - **서버 연결**: 지금 주소와 진짜로 쓰는 기능을 보여 주고, '서버 연결 확인'으로 `GET /api/health`를 불러 본다(10초 안에 응답이 없으면 실패)
@@ -73,22 +73,21 @@ BE(develop, 2026-11-03 · 잔고예보는 2026-11-08 · 경로 전체는 2026-11
 | `link` | 카드 확인 · 등록 · 로그인 후 계좌 추가 · 계좌 · 카드 목록 · 계좌 별칭 · 기준 계좌 · 카드 상세 · 수정 · 해제 · 순서 | 없음 |
 | `cashflow` | `cashflow-items` 등록 · 조회 · 수정 · 삭제, `forecasts/settings` 조회 · 수정, 결제 연결(`cashflow-payment-matches` · `cashflow-items/{id}/payment-match-candidates`) | 후보 항목을 만드는 곳이 없어 B-06은 늘 비어 있음. `forecast` 없이 켜면 잔고예보 · 생활비 상세 · 구매 판단 · 구매 계획은 가짜 |
 | `forecast` | `forecasts/balance`(연결 계좌 `accountIds` · 기간), `forecasts/simulations`, `merchant-categories`, `merchants?merchantCategoryCode=`, 구매 계획 `cashflow-items` 등록 · 삭제(2026-11-08 로컬 BE로 확인), 생활비 상세 `forecasts/living-cost`(S15P31E103-334) | 실적 영향(`performanceImpact`가 늘 null), 홈 잔고 카드(`home`) |
-| `payment` | 결제 코드 발급 · 상태 · 승인, 결제 상세 `payments/{id}` · 취소 `payments/{id}/cancel` · 메모 `payments/{id}/memo`(S15P31E103-336) | 거절(요청이 마감까지 남음). 후보에 카드사 · 카테고리가 없어 별칭으로 보임 |
+| `payment` | 결제 코드 발급 · 상태 · 승인, 결제 상세 `payments/{id}` · 취소 `payments/{id}/cancel` · 메모 `payments/{id}/memo`(S15P31E103-336) | 거절(BE에 생겼지만 debug는 아직 가짜로 메움). 후보에 카드사 · 카테고리가 없어 별칭으로 보임 |
 | `my` | 기기 목록 · 해제(`APP_UNLOCK` 본인 확인), 회원 탈퇴(`WITHDRAW_MEMBER` 본인 확인) | 보안 설정 저장, 알림. 회원 정보 `users/me`와 자동 선택 저장 `users/me/payment-settings`는 BE에 생겼지만 debug는 아직 가짜로 메움(`RealWithFakes.kt`) |
 | `pos` | 가맹점 번호 찾기(`merchants?merchantCategoryCode=`) · 결제 요청 · 결과 조회(`?posCode=`, 거절 뒤 재시도 중에는 계속 기다림) | 없음 |
 | `billing` | `billings` 청구서 목록(카드 고르기) · `billings/{billId}` 상세, `refunds` 환급 내역(최근 3개월 · 페이지) | 없음. 앱이 기간 · 상태를 고르지 않아 3개월보다 이전 청구서 · 환급은 안 보임 |
 | `home` · `performance` | 켜지 않음 | 전부 |
 | `report` | `all`로는 켜지 않음. 이름을 적어 켜면 결제 내역 `payments` · CSV 내려받기 `payments/export`는 BE로 간다 | 월간 소비분석, 혜택 리포트 |
 
-앱 Retrofit 경로 72개(main · pos, 메서드와 경로가 같으면 하나) 중 develop BE에 없는 것은 아래 15개다. release에서 부르면 404 `API_NOT_FOUND`가 와서 화면에는 '아직 준비 중인 기능이에요'만 뜨고 '다시 시도' 버튼은 숨는다(Task 8.2.37, S15P31E103-365).
+앱 Retrofit 경로 72개(main · pos, 메서드와 경로가 같으면 하나) 중 develop BE에 없는 것은 아래 14개다. release에서 부르면 404 `API_NOT_FOUND`가 와서 화면에는 '아직 준비 중인 기능이에요'만 뜨고 '다시 시도' 버튼은 숨는다(Task 8.2.37, S15P31E103-365).
 
 - 홈: `GET home`, `POST sync`
 - 실적: `GET users/me/card-performances`, `GET user-cards/{id}/performance` · `performance/analysis`, `POST user-cards/{id}/performance/decisions`, `GET benefit-limits`
 - 리포트: `GET reports/monthly`, `GET reports/monthly/benefits`(결제 내역 `GET payments`는 있다)
 - 마이: `GET` · `PATCH notifications/settings`, `GET notifications`, `PATCH notifications/{id}/read`, `PATCH notifications/read-all`
-- 결제: `POST payments/{id}/reject`
 
-보안 설정 저장 `PATCH users/me/security-settings`는 BE에 생겼지만(S15P31E103-353) 앱이 보내는 본문과 맞는지는 아직 확인하지 않았다. 결제 전 단일 추천 `POST recommendations`는 명세 V2에서 빠져 앱에서도 지웠다.
+보안 설정 저장 `PATCH users/me/security-settings`는 BE에 생겼지만(S15P31E103-353) 앱이 보내는 본문과 맞는지는 아직 확인하지 않았다. 결제 요청 거절 `POST payments/{id}/reject`도 BE에 생겼지만(S15P31E103-360) debug는 아직 가짜로 메우고(`RealWithFakes.kt`) 앱 본문과 맞는지 확인하지 않았다. 고객이 거절하면 모의 POS 결과 조회는 바로 `REJECTED`를 받고, 앱 POS는 이를 끝난 결과로 보고 '고객이 결제를 거절했어요'를 띄운다. 결제 전 단일 추천 `POST recommendations`는 명세 V2에서 빠져 앱에서도 지웠다.
 
 BE `GET merchants`는 업종 코드(`merchantCategoryCode`)를 꼭 받아 업종별 브랜드 배열을 주고, 앱은 가상 구매 조건과 모의 POS 단말 설정에서 이 모양 그대로 쓴다. `pos`를 켜면 모의 POS 결과 조회(`GET pos/payment-requests/{id}?posCode=`)도 debug에서 가짜로 메우지 않고 BE를 부른다.
 

@@ -164,9 +164,10 @@ fun newPosOrderNo(now: ZonedDateTime = ZonedDateTime.now(SEOUL), random: Random 
 
 /**
  * 화면이 볼 결과 상태. [RETRYING]은 거절됐지만 고객이 마감 전에 다른 카드로 다시 승인할 수 있는 상태다.
- * [CHECKING]은 출금 결과를 몰라 거절 · 만료로 끝났지만 BE가 늦은 출금을 찾으면 APPROVED로 바꿀 수 있는 상태다(MR !209 리뷰)
+ * [CHECKING]은 출금 결과를 몰라 거절 · 만료로 끝났지만 BE가 늦은 출금을 찾으면 APPROVED로 바꿀 수 있는 상태다(MR !209 리뷰).
+ * [REJECTED]는 고객이 앱에서 결제 요청을 거절한 끝 상태다(BE S15P31E103-360). 바코드도 닫히고 마감이 지나도 EXPIRED로 바뀌지 않는다
  */
-enum class PosStatus { WAITING, PROCESSING, RETRYING, CHECKING, APPROVED, DECLINED, EXPIRED, CANCELED }
+enum class PosStatus { WAITING, PROCESSING, RETRYING, CHECKING, APPROVED, DECLINED, EXPIRED, CANCELED, REJECTED }
 
 /**
  * BE `FailureCode.WITHDRAWAL_NOT_CONFIRMED`. 이 사유로 거절 · 만료된 결제는 BE 주기 작업이 요청 번호 시각부터
@@ -176,7 +177,8 @@ const val POS_WITHDRAWAL_NOT_CONFIRMED = "WITHDRAWAL_NOT_CONFIRMED"
 
 /** 더 기다려도 바뀌지 않는 상태 — 여기서 결과 조회를 멈추고 영수증 · 안내를 띄운다(웹 POS WaitingStep과 같은 규칙) */
 val PosStatus.isFinal: Boolean
-    get() = this == PosStatus.APPROVED || this == PosStatus.DECLINED || this == PosStatus.EXPIRED || this == PosStatus.CANCELED
+    get() = this == PosStatus.APPROVED || this == PosStatus.DECLINED || this == PosStatus.EXPIRED || this == PosStatus.CANCELED ||
+        this == PosStatus.REJECTED
 
 /** 영수증에 찍을 것 — 고객 이름 · 추천은 받지도 보여 주지도 않는다 */
 data class PosResult(
@@ -205,6 +207,8 @@ fun PosResultDto.toResult(): PosResult {
             }
             "EXPIRED" -> if (lateConfirmable) PosStatus.CHECKING else PosStatus.EXPIRED
             "CANCELED" -> PosStatus.CANCELED
+            // 고객 거절. 카드 거절 뒤 거절했으면 failure에 앞 카드 사유가 남지만 끝낸 건 고객이라 화면에는 띄우지 않는다(웹 POS Receipt와 같음)
+            "REJECTED" -> PosStatus.REJECTED
             "PROCESSING" -> PosStatus.PROCESSING
             else -> PosStatus.WAITING
         },

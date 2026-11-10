@@ -9,6 +9,7 @@ import kotlinx.coroutines.test.currentTime
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -60,6 +61,32 @@ class PosResultPollTest {
         val repo = ScriptedPosRepository(results = listOf(dto("REQUESTED"), dto("EXPIRED"), dto("APPROVED")))
         assertEquals(PosStatus.EXPIRED, poll(repo).last().result?.status)
         assertEquals(2, repo.asked.size)
+    }
+
+    @Test fun `고객이 앱에서 거절하면 마감을 기다리지 않고 바로 멈춘다`() = runTest {
+        val repo = ScriptedPosRepository(results = listOf(dto("REQUESTED"), dto("REJECTED"), dto("EXPIRED")))
+        val states = poll(repo)
+        assertEquals(PosStatus.REJECTED, states.last().result?.status)
+        assertEquals(2, repo.asked.size)
+        assertFalse(states.last().stopped)   // 오류로 멈춘 게 아니라 최종 결과라 영수증 쪽 화면이 뜬다
+    }
+
+    @Test fun `접수 여부를 몰라 다시 보낸 결제가 고객 거절이어도 대기 요청은 남지 않는다`() = runTest {
+        val store = MemoryPosPendingStore()
+        val repo = ScriptedPosRepository(
+            requests = listOf(ApiResult.Failure(ApiError.Network), ApiResult.Success(9)),
+            results = listOf(dto("REJECTED")),
+        )
+        val sender = PosRequestSender(repo, PosMerchant(12, "POS-YAMU-CAFE", "야무 테스트 카페"), 15_000, store)
+        sender.send("YAMU8F2A")
+        assertNotNull(store.value)
+        // 그 사이 고객이 앱에서 거절했다. BE는 같은 키 · 같은 본문에 처음 paymentId를 돌려주고, 결과 조회는 REJECTED다
+        val requested = sender.resend() as PosSendOutcome.Requested
+        assertNull(store.value)   // paymentId를 받는 순간 지운다
+        val states = mutableListOf<PosResultState>()
+        pollPosResult(repo, requested.paymentId, requested.posCode, now = { currentTime }) { states += it }
+        assertEquals(PosStatus.REJECTED, states.single().result?.status)
+        assertNull(store.value)
     }
 
     @Test fun `취소에서 멈춘다`() = runTest {
