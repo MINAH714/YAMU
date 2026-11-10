@@ -83,14 +83,15 @@ public record BalanceForecast(List<Long> accountIds, int selectionCount, long cu
      *                        통합은 한 계좌라도 자료가 없으면 null이다(일부만 더한 값을 주지 않음)
      * @param appliedAmount   보수적 선에 실제로 들어간 예상 생활비(원). 자료가 있는 계좌의 projectedAmount 합이라,
      *                        자료 없는 계좌가 신용카드 사용 추정만으로 보수적 선을 가질 때(생활비 0원)도 통합 선과
-     *                        맞는다. 자료 있는 계좌가 없으면 0이다(S15P31E103-395)
+     *                        맞는다. 자료 있는 계좌가 없으면 0이다. 그 보수적 선이 null이면 들어간 곳이 없어 null이다
+     *                        (S15P31E103-395, Codex 검토)
      * @param dailyAverage    지난 3개월 실적 요약의 하루 평균(예측 값이 아님)
      * @param monthlyAverage  지난 3개월 실적 요약의 한 달 평균(예측 값이 아님)
      * @param method          예상 생활비 계산 방식. ML_V1·TSB, 계좌마다 다르면 MIXED. 계좌는 자료가 없으면 null
      * @param dataOrigin      예측 입력에 모의 소비(SEED)가 있으면 SEED
      * @param confidence      기록 길이 기준(60일 이상 HIGH, 14~59일 MEDIUM, 1~13일 LOW)
      */
-    public record LivingCost(Long projectedAmount, long appliedAmount, Long dailyAverage, Long monthlyAverage,
+    public record LivingCost(Long projectedAmount, Long appliedAmount, Long dailyAverage, Long monthlyAverage,
             String method, LivingCostEstimator.DataOrigin dataOrigin, LivingCostEstimator.Confidence confidence) {}
 
     /**

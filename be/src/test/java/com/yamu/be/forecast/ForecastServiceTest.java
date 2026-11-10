@@ -919,6 +919,23 @@ class ForecastServiceTest {
         assertThat(lastB.conservative()).isEqualTo(lastB.expected() - 48_000L);
     }
 
+    @Test
+    void 통합_보수적_선이_없으면_보수적_선에_들어간_생활비는_null이다() {
+        // Codex 검토: A만 생활비 5,000원/일이고 B는 자료도 신용카드 추정도 없어 통합 보수적 선이 null이다
+        givenEntries(TODAY, TODAY.plusDays(30));
+        spending = days(everyDay(A, JUL.atDay(1), TODAY, 5_000));
+
+        BalanceForecast result = service.forecast(USER, List.of(A, B), Until.DAYS, 30, true, false);
+
+        assertThat(result.series()).extracting(BalanceForecast.SeriesPoint::conservative).containsOnlyNulls();
+        assertThat(result.livingCost().appliedAmount()).isNull();
+        // 계좌별로는 A의 보수적 선에 생활비가 들어 있고, B는 보수적 선이 없어 null이다
+        assertThat(result.accountForecasts())
+                .extracting(BalanceForecast.AccountForecast::accountId,
+                        account -> account.livingCost().appliedAmount())
+                .containsExactly(tuple(A, 150_000L), tuple(B, null));
+    }
+
     private static UserCardRef creditCard(long id, Long accountId) {
         return new UserCardRef(id, 1L, accountId, "1234", CardRegistrationStatus.ACTIVE, CardIssuerStatus.NORMAL,
                 CardType.CREDIT, 25, 14);
