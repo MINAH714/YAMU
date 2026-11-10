@@ -1,6 +1,6 @@
 # AI 서비스 개발 및 테스트 안내
 
-`ai/`는 소비 예측을 담당하는 독립 FastAPI 서비스입니다. 구현된 API는 상태 확인 `GET /health`와 잔고예보용 생활비 예측 `POST /forecast/living-cost`입니다. BE 잔고예보가 이 API를 부릅니다(2026-11-05, S15P31E103-255). LLM 연동은 아직 없습니다.
+`ai/`는 소비 예측을 담당하는 독립 FastAPI 서비스입니다. 구현된 API는 상태 확인 `GET /health`, 잔고예보용 생활비 예측 `POST /forecast/living-cost`, 신용카드 마감 전 사용 추정용 신용 생활 소비 예측 `POST /forecast/credit-spending`(2026-11-10, S15P31E103-404)입니다. BE 잔고예보가 이 API를 부릅니다(2026-11-05, S15P31E103-255). LLM 연동은 아직 없습니다.
 
 생활비 예측 모델은 한국지능정보사회진흥원의 사업결과인 AI-Hub 「이상 판별을 위한 금융거래 정보 및 사용자 패턴 합성데이터」를 이용해 학습했습니다. 자세한 내용은 [models/README.md](models/README.md)에 있습니다.
 
@@ -11,11 +11,12 @@
 | `app/main.py` | FastAPI 앱, 상태 확인·생활비 예측 API, 로컬 실행 진입점 |
 | `app/living_cost.py` | 생활비 예측 모델 읽기, 특징 계산, 예측 |
 | `models/living-cost/` | 생활비 예측 모델(7·14·30일)과 설명. 출처는 `models/README.md` |
-| `tests/` | 테스트와 학습 저장소가 만든 기대값(`golden_living_cost.json`) |
+| `models/credit-spending/` | 신용 생활 소비 예측 모델(7·14·30일)과 설명(S15P31E103-404) |
+| `tests/` | 테스트와 학습 저장소가 만든 기대값(`golden_living_cost.json`, `golden_credit_spending.json`) |
 | `requirements.txt` | 실행에 필요한 패키지 버전 고정 |
 | `requirements-dev.txt` | 테스트에 더 필요한 패키지(`httpx`) |
 | `Dockerfile`, `.dockerignore` | 운영 이미지(5절) |
-| `.env.example` | 선택적 `AI_PORT`·`AI_LIVING_COST_MODEL_DIR` 값의 예시 |
+| `.env.example` | 선택적 `AI_PORT`·`AI_LIVING_COST_MODEL_DIR`·`AI_CREDIT_SPENDING_MODEL_DIR` 값의 예시 |
 | `.venv/` | 개발자 PC에 생성되는 가상환경. Git 추적 대상 아님 |
 
 ## 1. 설치와 버전 확인
@@ -54,10 +55,10 @@
    (Invoke-RestMethod http://localhost:8001/health).status
    ```
 
-   `ok`가 출력되면 통과입니다. 브라우저에서 `http://localhost:8001/health`를 열면 아래 응답을 볼 수 있습니다. `livingCostModel.loaded`가 `false`면 모델을 읽지 못한 것이고, 서버 터미널에 이유가 찍힙니다(예측만 503, 서버는 동작).
+   `ok`가 출력되면 통과입니다. 브라우저에서 `http://localhost:8001/health`를 열면 아래 응답을 볼 수 있습니다. `livingCostModel.loaded`(체크 생활비)나 `creditSpendingModel.loaded`(신용)가 `false`면 그 모델을 읽지 못한 것이고, 서버 터미널에 이유가 찍힙니다(그 예측만 503, 서버와 다른 쪽 예측은 동작).
 
    ```json
-   {"status":"ok","livingCostModel":{"loaded":true,"horizons":[7,14,30],"modelVersion":{"7":"two-stage-tree-20261106-fraud-large1000000-recurring_once","14":"two-stage-tree-20261106-fraud-large1000000-recurring_once","30":"two-stage-tree-20261106-fraud-large1000000-recurring_once"}}}
+   {"status":"ok","livingCostModel":{"loaded":true,"horizons":[7,14,30],"modelVersion":{"7":"two-stage-tree-20261106-fraud-large1000000-recurring_once","14":"two-stage-tree-20261106-fraud-large1000000-recurring_once","30":"two-stage-tree-20261106-fraud-large1000000-recurring_once"}},"creditSpendingModel":{"loaded":true,"horizons":[7,14,30],"modelVersion":{"7":"two-stage-tree-credit-20261110-fraud-large1000000-recurring_once","14":"two-stage-tree-credit-20261110-fraud-large1000000-recurring_once","30":"two-stage-tree-credit-20261110-fraud-large1000000-recurring_once"}}}
    ```
 
 ## 3. 생활비 예측 API
@@ -106,7 +107,15 @@ BE의 잔고예보만 부르는 내부 API입니다. 계좌별 최근 90일의 �
 - **`asOf`는 어제입니다(2026-11-05 결정, 박강원 님 !97 리뷰)**: 학습은 하루가 끝난 날 기준이라, 덜 찬 오늘 칸을 넣지 않고 어제까지 90일을 보냅니다. 그러면 예측 구간이 오늘부터라, BE는 오늘을 포함한 N+1일 예측에서 오늘 이미 쓴 금액을 뺀 뒤 내일부터 N일로 나눕니다([잔고예보 문서](../docs/be/forecast.md) 「예상 생활비」).
 - 모델은 서버를 시작할 때 한 번 읽습니다. 로그에는 예측 일수·계좌 수·처리 시간만 남기고 요청 본문은 남기지 않습니다.
 - 읽기 전에 모델 파일의 SHA-256이 설명 파일의 `sha256`과 같은지 봅니다. 모델의 숫자 배열 부분이 바뀌면 joblib은 오류 없이 다른 가중치를 읽기 때문입니다(2026-11-04 측정: 가운데 64바이트를 바꾼 46가지 중 37가지가 오류 없이 읽힘). 읽다가 어떤 예외가 나도(망가진 파일은 `KeyError` 등도 냄) 서버는 뜨고 오류는 로그·`/health`·503으로 드러납니다.
-- **배포 조건**: 서비스 인증이 없으므로 BE만 닿는 내부 네트워크에만 엽니다(외부 공개 금지). 모델 폴더는 읽기 전용으로 두고, 감시는 `/health`의 `livingCostModel.loaded`로 합니다(`models/README.md`).
+- **배포 조건**: 서비스 인증이 없으므로 BE만 닿는 내부 네트워크에만 엽니다(외부 공개 금지). 모델 폴더는 읽기 전용으로 두고, 감시는 `/health`의 `livingCostModel.loaded`와 `creditSpendingModel.loaded`로 합니다(`models/README.md`).
+
+### 신용 생활 소비 예측 API (S15P31E103-404, 2026-11-10)
+
+`POST /forecast/credit-spending`. 잔고예보가 **이번 이용기간 마감 전 신용카드 사용**을 추정할 때 부릅니다(BE 연동은 S15P31E103-405). 신용카드별 최근 90일 일별 신용 생활 소비(BE `CreditSpendingReader`의 LIVING 결제)를 받아 다음 7·14·30일 중 하나의 합계를 예측합니다. 체크 생활비 모델과 같은 형식(TWO_STAGE_TREE, 특징 15개)이고 신용 거래로 따로 학습했습니다([models/README.md](models/README.md) 「`credit-spending/`」).
+
+- **요청·응답·오류 모양은 위 생활비 예측 API와 같습니다.** `accounts[].key`는 신용카드를 구분하는 임의 값입니다(카드 번호·사용자 ID는 넣지 않음). `asOf`도 어제입니다.
+- **체크 모델과 따로 읽습니다.** 신용 모델을 읽지 못하면 이 API만 503이고 `/forecast/living-cost`는 그대로 동작합니다. 반대도 같습니다.
+- BE는 체크 생활비와 같은 규칙으로 부릅니다(2026-11-10 BE 4 김용석 결정): 기록 14일 이상이고 90일 안에 신용 사용이 있는 카드만, 기록 60일 미만은 30일 점을 max(AI, TSB × 30)로, 나머지와 실패는 TSB.
 
 ## 4. 테스트
 
@@ -123,6 +132,8 @@ Python 3.12 가상환경이 있으면 AI 폴더에서 바로 돌립니다.
 .\.venv\Scripts\python.exe -m unittest -v
 ```
 
+`tests/test_credit_spending.py`가 확인하는 것: 커밋된 신용 모델의 예측이 학습 저장소와 같음(golden), 신용 골든의 특징이 체크 골든과 같음, 신용 API 응답·입력 검증·로그, 한쪽 모델이 없어도 다른 쪽 API는 동작.
+
 `tests/test_living_cost.py`가 확인하는 것: 특징 15개가 학습 코드와 마지막 자리까지 같음(golden), 커밋된 모델의 예측이 학습 저장소와 같음, 모델 파일·설명이 맞지 않으면 읽지 않음(1바이트만 바뀐 모델 파일·지문 없음 포함), 입력 검증 400과 입력값 미노출, 본문 64KB 초과 413(chunked 포함), 로그에 요청 값 없음, 모델이 없거나 읽다가 예상 밖 예외가 나도 서버는 뜨고 예측 503.
 
 ## 5. 운영 이미지
@@ -136,7 +147,7 @@ docker build -t yamu-ai:manual ai
 - 기반 이미지는 `python:3.12.16-slim`입니다. 빌드 안에서 위 테스트를 돌리고, **테스트가 하나라도 실패하면 이미지가 만들어지지 않습니다**(실행 단계가 테스트를 통과한 코드·모델을 복사). 지금 Jenkins CI는 `ai/` 테스트를 돌리지 않습니다.
 - `requirements.txt`는 직접 쓰는 패키지와 그 하위 패키지까지 버전을 고정합니다. 같은 커밋을 다시 빌드해도 같은 패키지가 깔리게 하려는 것입니다. 기반 이미지는 `3.12.16` 태그까지만 고정하고 digest(이미지 지문)는 고정하지 않으므로, 데비안 보안 패치는 바뀔 수 있습니다.
 - 서버는 root가 아닌 `app`(uid 10001)으로 돌고, 코드·모델 파일은 root 소유라 서버가 고칠 수 없습니다.
-- 이미지에 `HEALTHCHECK`가 있어 모델을 읽어야(`livingCostModel.loaded: true`) healthy가 됩니다. 모델을 못 읽으면 컨테이너는 돌지만 unhealthy입니다.
+- 이미지에 `HEALTHCHECK`가 있어 체크·신용 모델을 모두 읽어야(`livingCostModel.loaded`·`creditSpendingModel.loaded` 모두 `true`) healthy가 됩니다. 하나라도 못 읽으면 컨테이너는 돌지만 unhealthy입니다(신용 모델은 2026-11-10부터, S15P31E103-404). 모델은 이미지에 고정돼 있어 하나라도 깨졌다면 이미지를 다시 만들어야 하기 때문입니다. BE는 두 경우 모두 TSB로 대체합니다.
 - 운영에서 띄울 때는 호스트 포트를 열지 않고 BE와 같은 내부 전용 네트워크에만 붙입니다(3절 「배포 조건」). BE에는 `AI_BASE_URL=http://<서비스 이름>:8001`을 넣습니다.
 
 2026-11-05 이 PC(Docker 29.7.2)에서 확인한 것:
@@ -149,12 +160,15 @@ docker build -t yamu-ai:manual ai
 - 테스트 하나를 일부러 실패시키면 빌드가 멈추고 이미지가 만들어지지 않았습니다.
 - 운영 서버(EC2)에서는 아직 띄워 보지 않았습니다.
 
+2026-11-10(S15P31E103-404) 이 PC에서 확인한 것: 테스트 22개 통과, 실행 이미지의 `/health`에 두 모델이 모두 `loaded: true`, HEALTHCHECK 명령 종료 코드 0. `AI_CREDIT_SPENDING_MODEL_DIR`을 없는 폴더로 주면 종료 코드 1(unhealthy). `/app/models/credit-spending` 쓰기는 거부됩니다.
+
 ## 환경변수와 다른 서비스
 
 | 변수 | 기본값 | 용도 |
 |---|---|---|
 | `AI_PORT` | `8001` | AI 서버 포트 |
 | `AI_LIVING_COST_MODEL_DIR` | `ai/models/living-cost` | 생활비 예측 모델 폴더 |
+| `AI_CREDIT_SPENDING_MODEL_DIR` | `ai/models/credit-spending` | 신용 생활 소비 예측 모델 폴더(S15P31E103-404) |
 | `AI_DOCS_ENABLED` | 꺼짐 | `true`이면 FastAPI 기본 API 문서(`/docs`·`/redoc`·`/openapi.json`)를 엽니다. 운영에서는 넣지 않습니다(S15P31E103-355, 점검 Q-10). 로컬에서 볼 때만 켭니다 |
 
 `.env.example`은 값의 **예시**이며 현재 앱은 `.env` 파일을 자동으로 읽지 않습니다. 포트를 바꾸려면 서버를 실행할 **같은 PowerShell**에서 설정합니다.

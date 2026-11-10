@@ -1,0 +1,48 @@
+{
+  "model_version": "two-stage-tree-credit-20261110-fraud-large1000000-recurring_once",
+  "model": "TWO_STAGE_TREE",
+  "variant": "fraud+large1000000+recurring_once",
+  "exclusions": {
+    "fraud": "이상거래여부 1",
+    "large": "신용 거래 한 건 1,000,000원 초과",
+    "recurring": "그 결제의 달과 앞 5개 달 중 같은 카드·가맹점·금액이 3개 이상의 달에 나오고 그중 두 번 이상 나온 달이 없음(그 결제의 달은 달 전체 건수로 셈)"
+  },
+  "target": "다음 7일 신용(승인거래코드 00 국내일시불) 소비 합계(원)",
+  "training": {
+    "rows": 274543,
+    "people": 2351,
+    "from": "2021-04-01",
+    "to": "2024-12-19",
+    "trees": {
+      "classifier": 183,
+      "regressor": 142
+    }
+  },
+  "evaluated_in": [
+    "20261110-223844-credit-estimate",
+    "20261110-225733-short-history",
+    "20261110-232137-short-history"
+  ],
+  "trained_at": "2026-11-10T23:33:23",
+  "horizon": 7,
+  "features": [
+    "sum_7d",
+    "days_7d",
+    "sum_14d",
+    "days_14d",
+    "sum_28d",
+    "days_28d",
+    "sum_84d",
+    "days_84d",
+    "week_minus2",
+    "week_minus3",
+    "week_minus4",
+    "days_since_last",
+    "mean_active_84d",
+    "adi_84d",
+    "cv2_84d"
+  ],
+  "sklearn_version": "1.9.1",
+  "history_days": 90,
+  "sha256": "40ecd673b684b36fcd991f63e87ee6560959492fc0c19119c0aa846d65abd14f"
+}

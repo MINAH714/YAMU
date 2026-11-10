@@ -26,7 +26,7 @@ COPY --from=test /app/app ./app
 COPY --from=test /app/models ./models
 USER app
 EXPOSE 8001
-# status는 모델을 못 읽어도 ok라서 livingCostModel.loaded로 판정한다.
+# status는 모델을 못 읽어도 ok라서 체크·신용 모델을 모두 읽었는지(loaded)로 판정한다(신용은 S15P31E103-404).
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
-    CMD ["python", "-c", "import json,os,sys,urllib.request; b=json.load(urllib.request.urlopen('http://127.0.0.1:'+os.getenv('AI_PORT','8001')+'/health', timeout=3)); sys.exit(0 if b['livingCostModel']['loaded'] else 1)"]
+    CMD ["python", "-c", "import json,os,sys,urllib.request; b=json.load(urllib.request.urlopen('http://127.0.0.1:'+os.getenv('AI_PORT','8001')+'/health', timeout=3)); sys.exit(0 if b['livingCostModel']['loaded'] and b['creditSpendingModel']['loaded'] else 1)"]
 CMD ["python", "-m", "app.main"]
