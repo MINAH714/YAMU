@@ -560,6 +560,28 @@ class PosPaymentRequestIntegrationTest extends MySqlTestSupport {
                 .andExpect(jsonPath("$.data").value(nullValue()));
     }
 
+    @Test
+    void merchantId에_소수점_아래가_있으면_400_INVALID_REQUEST이고_결제가_생기지_않는다() throws Exception {
+        // S15P31E103-382: 전에는 Jackson 기본값으로 소수점 아래를 버리고 읽었다(301.9 → 301)
+        String token = issued(user);
+        Map<String, Object> body = body(token, cafe, "POS-TEST-CAFE", 15000, null, null, null);
+        body.put("merchantId", cafe + 0.9);
+
+        request(POS_KEY, UUID.randomUUID().toString(), body)
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("INVALID_REQUEST"))
+                // 본문 형식 오류라 칸별 사유는 없다(가계부·가상 구매의 소수 거절과 같은 경로)
+                .andExpect(jsonPath("$.error.details.fieldErrors").doesNotExist());
+        assertThat(payments.count()).isZero();
+        assertThat(barcodes.find(token).orElseThrow().status()).isEqualTo(BarcodeStatus.ISSUED);
+
+        // 값이 정수인 소수 표기는 그대로 받는다
+        body.put("merchantId", new java.math.BigDecimal(cafe + ".0"));
+        request(POS_KEY, UUID.randomUUID().toString(), body)
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.status").value("REQUESTED"));
+    }
+
     // ───────── 도우미 ─────────
 
     private static long paymentId(ResultActions result) throws Exception {

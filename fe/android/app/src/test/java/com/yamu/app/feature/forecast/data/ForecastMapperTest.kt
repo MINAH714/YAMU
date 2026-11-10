@@ -104,6 +104,27 @@ class ForecastMapperTest {
         assertEquals(40_000L, conservative.end)
     }
 
+    @Test fun `기간 뒤 카드값 — 출금일순으로 읽고 선 · 예정 출금 합에는 넣지 않는다(-348 !199)`() {
+        val withBeyond = json.replace(
+            """"accountForecasts":null,""",
+            """"beyondHorizon":[
+                 {"date":"2026-12-14","type":"CARD_SPENDING_ESTIMATE","title":"생활카드 · 11/12~12/13 이용분 추정","amount":-90000,"confidence":"CONSERVATIVE","accountId":4,"userCardId":7},
+                 {"date":"2026-11-25","type":"CARD_BILLING","title":"생활카드 11월 청구","amount":-150000,"confidence":"EXPECTED","accountId":4,"userCardId":7},
+                 {"date":"2026-12-01","type":"CARD_BILLING","title":"0원 청구","amount":0,"confidence":"CONFIRMED"},
+                 {"date":null,"type":"CARD_BILLING","title":"날짜 없음","amount":-1}],
+               "accountForecasts":null,""",
+        )
+        val f = parse(withBeyond)
+        assertEquals(listOf("생활카드 11월 청구", "카드 사용 예상"), f.beyondHorizon.map { it.label })   // 출금일순, 0원 · 날짜 없는 줄은 뺌
+        assertTrue(f.beyondHorizon[0].isExpected)
+        assertTrue(f.beyondHorizon[1].isEstimate)
+        assertEquals("생활카드 · 11/12~12/13 이용분 추정", f.beyondHorizon[1].basis)
+        assertEquals(parse().scheduledOutflow, f.scheduledOutflow)   // 기간 안 합은 그대로
+        assertEquals(parse().days, f.days)
+        assertEquals("11월 24일 뒤에 빠져서 위 그래프에는 넣지 않았어요", com.yamu.app.feature.forecast.beyondHorizonNote(f))
+        assertTrue(parse().beyondHorizon.isEmpty())   // 옛 서버 응답(칸 없음)
+    }
+
     @Test fun `빼고 계산한 것 — 새 이유 CREDIT_SPENDING_UNKNOWN과 모르는 이유`() {
         val notes = parse().excluded.map { it.text }
         assertEquals("여행카드는 사용 기록이 부족해 앞으로 쓸 금액을 반영하지 못했어요.", notes[0])

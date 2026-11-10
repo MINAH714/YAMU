@@ -23,7 +23,7 @@
 | 5 계좌 · 카드 연결 + 첫 분석 | ✅ `feature/link` — 카드 번호로 확인 · 등록(가입 뒤 · 카드 추가 공통) · 결제 계좌 연결 · 월급 · 고정 지출 · 첫 분석 · 알림 권한, 공통 본인 인증(`feature/auth/StepUp` · 간편 비밀번호 화면), 단위 테스트 36개 |
 | 6 결제 + 모의 POS 단말 | ✅ `feature/payment` — 카드추천 탭 · 결제 코드(QR · 바코드 · 남은 시간 · 1초 확인) · 결제 요청 확인(60초 · 카드 · 할부 · 거절 · 재승인) · 완료 · 거래 상세, 모의 POS 단말 앱(`src/pos` — 가맹점 · 금액 · 카메라 찍기 · 결과), 단위 테스트 46개 |
 | 7 실적 · 유불리 | ✅ `feature/performance` — 실적관리 탭(돌아올 때마다 새로 · 결제 반영 표시) · 카드 실적 상세 · 유불리 분석(판정 3가지 · 판단 기록 · 되돌리기 · 예정 지출 옮기기) · 혜택 한도, 단위 테스트 55개 |
-| 8 잔고예보 · 이거 사도 될까? | ✅ `feature/forecast` — 잔고예보(기간 · 계좌 고르기 · 확정 · 예상 · 보수적 세 선 그래프 · 낮아지는 때 · 선 계산 근거 · 빼고 계산한 것) · 예정 수입 · 지출 · 이거 사도 될까?(금액 → 업종 · 브랜드 · 매장/온라인 · 카드 · 할부 · 날짜 → 사기 전후 비교 · 혜택 · 다른 카드 · 계획 저장 · 지우기) |
+| 8 잔고예보 · 이거 사도 될까? | ✅ `feature/forecast` — 잔고예보(기간 · 계좌 고르기 · 확정 · 예정 · 보수적 세 선 그래프 · 낮아지는 때 · 선 계산 근거 · 빼고 계산한 것) · 예정 수입 · 지출 · 이거 사도 될까?(금액 → 업종 · 브랜드 · 매장/온라인 · 카드 · 할부 · 날짜 → 사기 전후 비교 · 혜택 · 다른 카드 · 계획 저장 · 지우기) |
 | 9 · 10 소비분석 · 마이 | ✅ `feature/report` — 소비분석 탭 · 혜택 리포트 · 결제 내역(쪽 넘김), `feature/my` — 마이 탭 · 카드 관리 · 알림 설정 · 회원 정보(다른 기기 로그아웃) · 보안 · 인증 · 홈 알림함 · 내 카드, `navigation/AutoLock`(앱 자동 잠금), 빈 화면 0장(58장 전부 실제 화면), 단위 테스트 78개 |
 | 디자인 맞추기 | ✅ 프로토타입 58장과 같은 크기로 나란히 찍어 맞춤(14 문서) — 공통 부품(목록 줄 56 · 72dp · 키–값 줄 · 상세 화면 회색 바탕 + 카드 · 탭 아이콘 Material Symbols · 마이 큰 제목 · 테두리형 입력칸 · 단계 막대 · 키패드 · 태그 · 칩 · 자간 · 한국어 어절 줄바꿈) → 화면별, 글자 위치를 재서 2dp 넘게 어긋난 간격 161곳 → 36곳(남은 건 줄 순서 · 서버 값 · 에뮬레이터 차이와 재기 잡음 — 14 문서 14-7), 라이트 · 다크 · 글자 1.3배 확인 |
 | 11 통합 확인 · 배포 | 진행 중 — 데이터 상태 확인표를 가짜 데이터로 끝(디버그 '모든 기능 상태' · 빈 상태 · 오류 · 새로고침 실패 때 마지막 값과 시각, 단위 테스트 80개) · release 정리(R8 · 리소스 줄이기 · 서명 자리 · POS 64비트만) 합침 + R8 release 기기 확인 9개 통과(고객 10.0MB · POS 21.1MB) · 캐릭터 임시 그림 합침. 남은 것: 실제 서버 확인 · 캐릭터 진짜 그림 · 서명 키 |
@@ -44,7 +44,7 @@
 - **가짜 잔고예보**: 잔액 950,000 · 예정 지출 4건 450,000 · 하루 생활비 6,000 → 월급 전 350,000(월급 = 오늘 + 25일). 이거 사도 될까? 400,000원은 '미루는 게 좋아요', 129,000원은 '괜찮아요'. 계획을 저장하면 예보에 같이 계산된다
 - **예정 수입·지출 추가(F-02 +)**: 등록하면 가짜 서버가 회차를 계산해 예보 · F-02에 더한다(매월 말일은 31일이 없는 달에 그달 마지막 날). 시험 이름 `TIMEOUT`은 응답을 못 받은 경우(실제로는 등록됨), `INVALID`는 서버가 이름 칸을 거절한 경우
 - **예정 수입·지출 수정 · 삭제(F-02 줄)**: 월세 · 통신비 · 구독료는 가짜 서버의 매월 반복 항목이라 눌러서 고칠 수 있다(카드대금 · 월급은 읽기 전용). 이번 회차만 · 이후 전부 · 삭제를 서버 규칙대로 흉내 낸다. 이름을 `PAID`로 바꿔 저장하면 결제된 회차(409)
-- **모의 POS 가짜 시험값**([번호로 넣기]): EXPIRED가 들어가면 만료 · USED는 이미 쓴 코드 · DECLINE은 거절 · REJECT는 고객 거절, 그 밖은 5초 뒤 승인
+- **모의 POS 가짜 시험값**([번호로 넣기]): EXPIRED가 들어가면 만료 · USED는 이미 쓴 코드 · LOST는 첫 응답이 끊김(다시 보내면 같은 결제) · DECLINEFINAL은 최종 거절 · DECLINE은 거절 뒤 고객이 다른 카드로 승인 · REJECT는 고객이 앱에서 거절(`REJECTED`, 마감이 지나도 그대로) · LATE는 출금 미확인으로 '출금 확인 중'이었다가 늦게 승인, 그 밖은 5초 뒤 승인. 한 번 쓴 코드는 다시 받지 않는다
 - **가짜 카드 등록 시험값**: 카드 번호는 `9410 0000 0000` + 끝 4자리, 유효기간은 지나지 않은 아무 달이다. 끝 4자리 1021 톡톡 · 3310 ZERO · 7782 LIKIT Shop · 4410 iD ON · 8823 노리2 체크 · 5527 트래블로그 체크 · 5096 Mr.Life(결제 계좌 신한 ·5678을 먼저 연결) · 0001 카드사 만료 · 0002 카드사 정지 · 0003 이미 등록 · 그 밖은 없는 카드. 시작 상태 '로그인 · 연결 끝'이면 트래블로그만 새로 등록할 수 있다
 - **화면 바로 열기**, **컴포넌트 갤러리**(다크 모드 · 글자 1.3배 · 청록 미리보기)
 - **서버 연결**: 지금 주소와 진짜로 쓰는 기능을 보여 주고, '서버 연결 확인'으로 `GET /api/health`를 불러 본다(10초 안에 응답이 없으면 실패)
@@ -59,9 +59,11 @@ yamu.baseUrl=http://localhost:8080/api/
 - `yamu.baseUrl`은 `http://`나 `https://`로 시작하고 `/`로 끝나야 한다(아니면 빌드가 멈춘다). 로컬 BE는 `adb reverse tcp:8080 tcp:8080` 뒤 `localhost`, 에뮬레이터는 `http://10.0.2.2:8080/api/`도 된다.
 - http는 `network_security_config`가 `localhost`와 `10.0.2.2`만 허용한다. LAN IP(`http://192.168.…`)는 막히므로 실기기는 `adb reverse`로 `localhost`를 쓴다.
 - 기능을 진짜로 켤 때는 `yamu.realApi`에 이름을 쉼표로 적는다. 쓸 수 있는 이름은 `auth` · `link` · `cashflow` · `home` · `payment` · `performance` · `forecast` · `report` · `my` · `pos` · `billing`이다. `all`은 BE에 API가 있는 `auth` · `link` · `cashflow` · `payment` · `forecast` · `my` · `pos` · `billing`만 켠다. 나머지는 이름을 직접 적어야 켜지고 지금 켜면 404가 난다. `cashflow` · `forecast` · `billing`을 켜면 `link`도 같이 켜진다(가짜 계좌 · 카드 번호가 진짜 서버로 가지 않게).
-- `payment` · `my` · `pos`는 debug에서 BE에 없는 메서드만 가짜로 메운다(`src/debug/.../RealWithFakes.kt`, `src/posDebug/.../FakePosRepository.kt`). release에는 가짜가 없어 그대로 404다.
+- `payment` · `my`는 debug에서 BE에 없는 메서드만 가짜로 메운다(`src/debug/.../RealWithFakes.kt`). release에는 가짜가 없어 그대로 404다. `pos`는 메울 것이 없어 켜면 전부 진짜를 부른다.
 - 진짜 API는 로그인 토큰이 필요하다. `auth`를 가짜로 두고 다른 기능만 켜면 가짜 토큰이 실려 401이 나므로 다른 기능을 켤 때는 `auth`도 같이 켠다.
-- 모의 POS는 `yamu.posKey`(BE `yamu.pos.key`와 같은 값), `yamu.posMerchantId`(단말의 `brand_code`와 같은 가맹점 번호, 시드마다 다름), `yamu.posCode`(기본 `POS-YAMU-CAFE`)를 적는다.
+- 모의 POS는 `yamu.posKey`(BE `yamu.pos.key`와 같은 값) 하나만 적는다. 단말은 첫 화면에서 BE `yamu.pos.terminals`의 네 개(`POS-YAMU-CAFE` · `POS-STARBUCKS-GENERAL` · `POS-STARBUCKS-DEPARTMENT_STORE` · `POS-GS25-GENERAL`) 가운데 고르고, 가맹점 번호는 고를 때 `GET /api/merchants?merchantCategoryCode=`에서 단말 브랜드(`brandCode`)로 찾아 저장한다. 시드를 다시 넣어 번호가 바뀌면 결제 요청이 '가맹점을 다시 골라 주세요'로 실패하니 [가맹점 바꾸기]로 다시 고른다. BE 단말 설정이 바뀌면 `src/pos/.../PosRepository.kt`의 `POS_TERMINALS`도 같이 고친다.
+- 결제 요청이 연결 끊김 · 시간 초과 · 5xx로 끝나면 접수됐는지 몰라서 [같은 요청 다시 보내기]가 뜬다. 같은 `Idempotency-Key` · 같은 본문(주문번호까지)으로 보내므로 서버가 처음 결제를 돌려준다. 서버가 거절한 뒤에는 새 키 · 새 주문번호로 간다. 이 요청은 보내기 전에 기기(`yamu_pos_pending`)에 적어 두므로 스캔 화면을 나갔다 오거나 앱을 다시 켜도 같은 코드를 찍으면 같은 요청으로 가고, 접수 · 거절이 정해지거나 [이 요청 버리기]를 누르면 지운다(24시간 지나면 버림).
+- 결과가 `WITHDRAWAL_NOT_CONFIRMED`(출금 미확인)로 거절 · 만료되면 BE가 늦은 출금을 찾아 승인으로 바꿀 수 있어 '출금을 확인하고 있어요'로 11분 더 묻는다(BE `late-withdrawal-window` 10분 + 주기 작업 60초, 임시). 그동안 [새 결제]는 보이지 않는다.
 
 BE(develop, 2026-11-03 · 잔고예보는 2026-11-08 · 경로 전체는 2026-11-09)와 맞춰 본 결과는 이렇다. 오른쪽 칸은 debug가 가짜로 메우거나 비어 있는 것이다.
 
@@ -71,22 +73,23 @@ BE(develop, 2026-11-03 · 잔고예보는 2026-11-08 · 경로 전체는 2026-11
 | `link` | 카드 확인 · 등록 · 로그인 후 계좌 추가 · 계좌 · 카드 목록 · 계좌 별칭 · 기준 계좌 · 카드 상세 · 수정 · 해제 · 순서 | 없음 |
 | `cashflow` | `cashflow-items` 등록 · 조회 · 수정 · 삭제, `forecasts/settings` 조회 · 수정, 결제 연결(`cashflow-payment-matches` · `cashflow-items/{id}/payment-match-candidates`) | 후보 항목을 만드는 곳이 없어 B-06은 늘 비어 있음. `forecast` 없이 켜면 잔고예보 · 생활비 상세 · 구매 판단 · 구매 계획은 가짜 |
 | `forecast` | `forecasts/balance`(연결 계좌 `accountIds` · 기간), `forecasts/simulations`, `merchant-categories`, `merchants?merchantCategoryCode=`, 구매 계획 `cashflow-items` 등록 · 삭제(2026-11-08 로컬 BE로 확인), 생활비 상세 `forecasts/living-cost`(S15P31E103-334) | 실적 영향(`performanceImpact`가 늘 null), 홈 잔고 카드(`home`) |
-| `payment` | 결제 코드 발급 · 상태 · 승인, 결제 상세 `payments/{id}` · 취소 `payments/{id}/cancel` · 메모 `payments/{id}/memo`(S15P31E103-336) | 가맹점 목록, 결제 전 추천, 거절(요청이 마감까지 남음). 후보에 카드사 · 카테고리가 없어 별칭으로 보임 |
+| `payment` | 결제 코드 발급 · 상태 · 승인, 결제 상세 `payments/{id}` · 취소 `payments/{id}/cancel` · 메모 `payments/{id}/memo`(S15P31E103-336) | 거절(BE에 생겼지만 debug는 아직 가짜로 메움). 후보에 카드사 · 카테고리가 없어 별칭으로 보임 |
 | `my` | 기기 목록 · 해제(`APP_UNLOCK` 본인 확인), 회원 탈퇴(`WITHDRAW_MEMBER` 본인 확인) | 보안 설정 저장, 알림. 회원 정보 `users/me`와 자동 선택 저장 `users/me/payment-settings`는 BE에 생겼지만 debug는 아직 가짜로 메움(`RealWithFakes.kt`) |
-| `pos` | 결제 요청 | 가맹점 목록, 결과 조회(결과는 고객 앱에서 확인) |
+| `pos` | 가맹점 번호 찾기(`merchants?merchantCategoryCode=`) · 결제 요청 · 결과 조회(`?posCode=`, 거절 뒤 재시도 중에는 계속 기다림) | 없음 |
 | `billing` | `billings` 청구서 목록(카드 고르기) · `billings/{billId}` 상세, `refunds` 환급 내역(최근 3개월 · 페이지) | 없음. 앱이 기간 · 상태를 고르지 않아 3개월보다 이전 청구서 · 환급은 안 보임 |
 | `home` · `performance` | 켜지 않음 | 전부 |
 | `report` | `all`로는 켜지 않음. 이름을 적어 켜면 결제 내역 `payments` · CSV 내려받기 `payments/export`는 BE로 간다 | 월간 소비분석, 혜택 리포트 |
 
-앱 Retrofit 경로 73개 중 develop BE에 없는 것은 아래 17개다. release에서 부르면 404 `API_NOT_FOUND`가 와서 화면에는 '아직 준비 중인 기능이에요'만 뜨고 '다시 시도' 버튼은 숨는다(Task 8.2.37, S15P31E103-365).
+앱 Retrofit 경로 72개(main · pos, 메서드와 경로가 같으면 하나) 중 develop BE에 없는 것은 아래 14개다. release에서 부르면 404 `API_NOT_FOUND`가 와서 화면에는 '아직 준비 중인 기능이에요'만 뜨고 '다시 시도' 버튼은 숨는다(Task 8.2.37, S15P31E103-365).
 
 - 홈: `GET home`, `POST sync`
 - 실적: `GET users/me/card-performances`, `GET user-cards/{id}/performance` · `performance/analysis`, `POST user-cards/{id}/performance/decisions`, `GET benefit-limits`
 - 리포트: `GET reports/monthly`, `GET reports/monthly/benefits`(결제 내역 `GET payments`는 있다)
-- 마이: `PATCH users/me/security-settings`, `GET` · `PATCH notifications/settings`, `GET notifications`, `PATCH notifications/{id}/read`, `PATCH notifications/read-all`
-- 결제: `POST recommendations`, `POST payments/{id}/reject`
+- 마이: `GET` · `PATCH notifications/settings`, `GET notifications`, `PATCH notifications/{id}/read`, `PATCH notifications/read-all`
 
-경로는 같아도 내용이 다른 것도 있다. BE `GET merchants`는 업종 코드(`merchantCategoryCode`)를 꼭 받아 업종별 브랜드 배열을 주는 API라서 결제 · 모의 POS가 쓰는 가맹점 목록(`channel` · `size`, 응답 `items`)으로는 못 쓴다. 모의 POS 결과 조회 `GET pos/payment-requests/{id}`는 BE에 생겼지만 debug는 아직 가짜로 메운다(`RealPosWithFakes`).
+보안 설정 저장 `PATCH users/me/security-settings`는 BE에 생겼지만(S15P31E103-353) 앱이 보내는 본문과 맞는지는 아직 확인하지 않았다. 결제 요청 거절 `POST payments/{id}/reject`도 BE에 생겼지만(S15P31E103-360) debug는 아직 가짜로 메우고(`RealWithFakes.kt`) 앱 본문과 맞는지 확인하지 않았다. 고객이 거절하면 모의 POS 결과 조회는 바로 `REJECTED`를 받고, 앱 POS는 이를 끝난 결과로 보고 '고객이 결제를 거절했어요'를 띄운다. 결제 전 단일 추천 `POST recommendations`는 명세 V2에서 빠져 앱에서도 지웠다.
+
+BE `GET merchants`는 업종 코드(`merchantCategoryCode`)를 꼭 받아 업종별 브랜드 배열을 주고, 앱은 가상 구매 조건과 모의 POS 단말 설정에서 이 모양 그대로 쓴다. `pos`를 켜면 모의 POS 결과 조회(`GET pos/payment-requests/{id}?posCode=`)도 debug에서 가짜로 메우지 않고 BE를 부른다.
 
 로그인은 Task 8.2.8(S15P31E103-235)에서 BE 방식으로 바꿨다. 이 폰에 기기 번호가 있으면 앱을 열 때와 자동 잠금 때 같은 PIN · 지문 로그인 화면이 뜨고(`login/challenge` → `login`, 매번 새 토큰), 로그아웃은 토큰만 지운다. 기기 키는 둘이다 — 기기 키(지문 없이, PIN 로그인 · PIN 본인 확인 서명)와 지문 키(지문을 통과해야 서명). 서명 대상은 challenge 문자열의 UTF-8 바이트다.
 

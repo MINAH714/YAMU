@@ -10,6 +10,10 @@ import java.util.List;
  * <p>occurrenceDate는 등록 응답과 expand=false 목록에서는 규칙의 첫 발생일, 펼친 목록에서는 규칙이 정한 원래 회차다.
  * 이번 회차 수정·삭제 요청에 그대로 돌려보내는 식별값이다. date는 실제 예정일로, 이번 회차만 날짜를 옮겼을 때만 다르다.
  * productCategoryCode·productName은 구매 계획용 필드라 구매 계획 구현 전까지 null이다.
+ * paymentMatchStatus는 그 줄의 회차와 결제의 연결 상태다(S15P31E103-393, 명세에 없음). 연결이 없으면 null,
+ * 연결한 결제가 승인 상태면 ACTIVE, 연결 뒤 결제가 취소됐으면 REVIEW_REQUIRED(연결을 풀기 전까지)로
+ * 「결제 연결 상태 조회」의 matchStatus와 같다. 펼친 목록과 값을 바꾸지 않은 수정 응답(규칙의 첫 회차)은 실제 연결 상태이고,
+ * 등록 응답·펼치지 않은 목록·값을 바꾼 수정 응답은 연결이 있을 수 없거나 회차가 아니라 null이다.
  */
 public record CashflowItemResponse(
         Long cashflowItemId,
@@ -27,7 +31,8 @@ public record CashflowItemResponse(
         CashflowItem.Source source,
         CashflowItem.Status status,
         RecurringExpenseDetector.Detection detection,
-        String memo) {
+        String memo,
+        PaymentMatchResponse.MatchStatus paymentMatchStatus) {
 
     public record Recurrence(CashflowItem.RecurrenceType frequency, Integer dayOfMonth,
             DayOfWeek dayOfWeek, LocalDate endDate) {
@@ -38,25 +43,37 @@ public record CashflowItemResponse(
     }
 
     static CashflowItemResponse from(CashflowService.Item item) {
-        return from(item, item.scheduledDate(), item.scheduledDate(), null);
+        return from(item, item.scheduledDate(), item.scheduledDate(), null, null);
     }
 
     static CashflowItemResponse from(CashflowService.Entry entry) {
-        return from(entry.item(), entry.occurrenceDate(), entry.date(), null);
+        return from(entry.item(), entry.occurrenceDate(), entry.date(), null, matchStatusOf(entry));
     }
 
     /**
      * @param detection 이번 요청에서 탐지한 후보의 근거. 확인 전 후보의 첫 규칙에만 있고, 그 밖에는 null
      */
     static CashflowItemResponse from(CashflowService.Entry entry, RecurringExpenseDetector.Detection detection) {
-        return from(entry.item(), entry.occurrenceDate(), entry.date(), detection);
+        return from(entry.item(), entry.occurrenceDate(), entry.date(), detection, matchStatusOf(entry));
     }
 
     private static CashflowItemResponse from(CashflowService.Item item, LocalDate occurrenceDate, LocalDate date,
-            RecurringExpenseDetector.Detection detection) {
+            RecurringExpenseDetector.Detection detection, PaymentMatchResponse.MatchStatus paymentMatchStatus) {
         return new CashflowItemResponse(item.id(), item.direction(), item.title(), item.amount(),
                 occurrenceDate, date, recurrenceOf(item), item.merchantCategoryCode(), null, null,
-                item.accountId(), item.userCardId(), item.source(), item.status(), detection, item.memo());
+                item.accountId(), item.userCardId(), item.source(), item.status(), detection, item.memo(),
+                paymentMatchStatus);
+    }
+
+    /**
+     * 연결이 있고 결제가 승인 상태(paid)면 ACTIVE, 연결은 있는데 승인 상태가 아니면 REVIEW_REQUIRED다.
+     * 매칭은 승인된 결제만 받고 승인 뒤에는 취소로만 바뀌므로 후자는 취소된 연결이다.
+     */
+    private static PaymentMatchResponse.MatchStatus matchStatusOf(CashflowService.Entry entry) {
+        if (!entry.matched()) {
+            return null;
+        }
+        return entry.paid() ? PaymentMatchResponse.MatchStatus.ACTIVE : PaymentMatchResponse.MatchStatus.REVIEW_REQUIRED;
     }
 
     private static Recurrence recurrenceOf(CashflowService.Item item) {

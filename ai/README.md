@@ -155,6 +155,7 @@ docker build -t yamu-ai:manual ai
 |---|---|---|
 | `AI_PORT` | `8001` | AI 서버 포트 |
 | `AI_LIVING_COST_MODEL_DIR` | `ai/models/living-cost` | 생활비 예측 모델 폴더 |
+| `AI_DOCS_ENABLED` | 꺼짐 | `true`이면 FastAPI 기본 API 문서(`/docs`·`/redoc`·`/openapi.json`)를 엽니다. 운영에서는 넣지 않습니다(S15P31E103-355, 점검 Q-10). 로컬에서 볼 때만 켭니다 |
 
 `.env.example`은 값의 **예시**이며 현재 앱은 `.env` 파일을 자동으로 읽지 않습니다. 포트를 바꾸려면 서버를 실행할 **같은 PowerShell**에서 설정합니다.
 

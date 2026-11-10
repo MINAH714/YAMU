@@ -214,7 +214,8 @@ class ForecastControllerTest extends MySqlTestSupport {
 
     @Test
     void 위험_구간과_원인과_계좌별_결과가_응답에_그대로_나간다() throws Exception {
-        // 안전 잔액 950,000원: 10일 뒤 청구 60,000원이 빠지면 940,000원으로 기준 아래(확정 선은 그대로라 예상 선 WARNING)
+        // 안전 잔액 950,000원: 10일 뒤 진행 중 청구 60,000원이 빠지면 940,000원으로 기준 아래.
+        // 확정 선은 그대로지만 앱이 그리는 예상 선(AI 생활비 제외)이 미달이라 DANGER(S15P31E103-356, 전에는 WARNING)
         jdbc.update("UPDATE app_user SET forecast_settings = ? WHERE user_id = ?", """
                 {"horizon":"DAYS","defaultDays":14,"alertThreshold":950000,"incomeCashflowItemId":null,
                  "dailyLivingCostTarget":null,"includeCandidates":true,"conservativeLine":true,"updatedAt":null}""",
@@ -225,10 +226,10 @@ class ForecastControllerTest extends MySqlTestSupport {
         mockMvc.perform(get("/api/forecasts/balance").with(AuthUsers.asUser(owner))
                         .param("accountIds", String.valueOf(accountA)).param("includeAccountDetails", "true"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.summary.status").value("WARNING"))
+                .andExpect(jsonPath("$.data.summary.status").value("DANGER"))
                 .andExpect(jsonPath("$.data.summary.largestOutflow.amount").value(-60_000))
                 .andExpect(jsonPath("$.data.riskWindows[0].from").value(today.plusDays(10).toString()))
-                .andExpect(jsonPath("$.data.riskWindows[0].level").value("WARNING"))
+                .andExpect(jsonPath("$.data.riskWindows[0].level").value("DANGER"))
                 .andExpect(jsonPath("$.data.riskWindows[0].line").value("EXPECTED"))
                 .andExpect(jsonPath("$.data.riskWindows[0].shortfall").value(10_000))
                 .andExpect(jsonPath("$.data.riskWindows[0].causes[0].type").value("CARD_BILLING"))
@@ -236,8 +237,8 @@ class ForecastControllerTest extends MySqlTestSupport {
                 .andExpect(jsonPath("$.data.series[10].events[0].type").value("CARD_BILLING"))
                 .andExpect(jsonPath("$.data.series[10].events[0].confidence").value("EXPECTED"))
                 .andExpect(jsonPath("$.data.accountForecasts[0].accountId").value(accountA))
-                .andExpect(jsonPath("$.data.accountForecasts[0].summary.status").value("WARNING"))
-                .andExpect(jsonPath("$.data.accountForecasts[0].riskWindows[0].level").value("WARNING"));
+                .andExpect(jsonPath("$.data.accountForecasts[0].summary.status").value("DANGER"))
+                .andExpect(jsonPath("$.data.accountForecasts[0].riskWindows[0].level").value("DANGER"));
     }
 
     @Test

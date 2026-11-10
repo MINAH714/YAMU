@@ -1,4 +1,4 @@
-package com.yamu.be.cashflow;
+package com.yamu.be.global.json;
 
 import com.fasterxml.jackson.core.JsonParser;
 import com.fasterxml.jackson.core.JsonToken;
@@ -16,6 +16,8 @@ import java.math.BigDecimal;
  * 저장하거나 계산했다. 이 읽기는 값이 정수인 소수({@code 1000.0}, {@code 1e3})만 받고 나머지는 형식 오류로 던져,
  * 전역 예외 처리가 400 INVALID_REQUEST로 돌려준다. 가상 구매 금액(BigDecimal)과 같은 기준이다.
  * 정수·문자열·null은 Jackson 기본 읽기 그대로다. 전역 설정은 다른 팀 API도 바뀌어 건드리지 않는다.
+ *
+ * <p>가계부·가상 구매·POS 결제 요청이 함께 쓰므로 global에 둔다(S15P31E103-382, 처음에는 cashflow에 있었다).
  */
 public final class IntegralNumberDeserializers {
 

@@ -20,6 +20,40 @@ import org.junit.jupiter.params.provider.CsvSource;
 class BenefitConditionEvaluatorTest {
     private final BenefitConditionEvaluator evaluator = new BenefitConditionEvaluator();
 
+    @Test
+    void scopedBrandPathKeepsExclusionsAndDoesNotMutateTransactionOrPolicy() {
+        var brand = new Target(TargetType.BRAND, 10L, null, false);
+        var category = new Target(TargetType.CATEGORY, null, "COFFEE_SHOP", false);
+        var excludedBrand = new Target(TargetType.BRAND, 20L, null, true);
+        var original = new Transaction(10000, Plan.LUMP_SUM, 1, transaction().occurredAt(),
+                null, "COFFEE_SHOP", Map.of());
+        var c = new Conditions(true, true, POLICY_START, BenefitPolicy.NO_END_DATE,
+                List.of(brand, category, excludedBrand), Set.of("RULE:OFFICIAL_MERCHANT_ROUTE"), Set.of(), Schedule.unrestricted());
+        var result = evaluator.explainWithoutBrandPaths(c, original);
+        assertThat(result.match()).isEqualTo(Match.UNKNOWN);
+        assertThat(result.missingInformation()).containsExactlyInAnyOrder(
+                new BenefitConditionEvaluator.Missing("BRAND_MISSING", "merchantId"),
+                new BenefitConditionEvaluator.Missing("FACT_MISSING", "facts.RULE:OFFICIAL_MERCHANT_ROUTE"));
+        assertThat(result.brandOnlyUnknown()).isFalse();
+        assertThat(original.merchantId()).isNull();
+        assertThat(original.facts()).isEmpty();
+        assertThat(c.targets()).containsExactly(brand, category, excludedBrand);
+    }
+
+    @Test
+    void scopedFlatBrandPathDropsUnusedFactsButPreservesKnownMismatch() {
+        var c = new Conditions(true, true, POLICY_START, BenefitPolicy.NO_END_DATE,
+                List.of(new Target(TargetType.BRAND, 10L, null, false)),
+                Set.of("RULE:UTILITY_PAYMENT"), Set.of(), Schedule.unrestricted());
+        var unknown = new Transaction(10000, Plan.LUMP_SUM, 1, transaction().occurredAt(), null, "COFFEE_SHOP", Map.of());
+        assertThat(evaluator.explainWithoutBrandPaths(c, unknown).brandOnlyUnknown()).isTrue();
+        assertThat(evaluator.explain(c, unknown).missingInformation()).hasSize(2);
+        var mismatch = new Transaction(10000, Plan.LUMP_SUM, 1, transaction().occurredAt(), null, "COFFEE_SHOP",
+                Map.of("RULE:UTILITY_PAYMENT", false));
+        assertThat(evaluator.explainWithoutBrandPaths(c, mismatch).match()).isEqualTo(Match.NOT_MATCHED);
+        assertThat(evaluator.explainWithoutBrandPaths(c, mismatch).missingInformation()).isEmpty();
+    }
+
     @ParameterizedTest
     @CsvSource({
             "2026-10-30T12:59:59Z,NOT_MATCHED",
