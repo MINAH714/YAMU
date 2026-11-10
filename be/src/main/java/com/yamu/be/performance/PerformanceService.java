@@ -35,7 +35,7 @@ import org.springframework.transaction.annotation.Transactional;
  * 그때의 정책 버전을 다시 고르지 않는다).
  */
 @Service
-class PerformanceService {
+public class PerformanceService {
 
     static final ZoneId KST = ZoneId.of("Asia/Seoul");
     /** 이번 달 이 날까지는 추세를 보지 않고 ON_TRACK(2026-11-10 결정). */

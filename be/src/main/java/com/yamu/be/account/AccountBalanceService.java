@@ -143,6 +143,14 @@ public class AccountBalanceService implements DisposableBean {
 
     /** 추천 참고 판정용 부분 결과. 실패 계좌를 0원으로 바꾸거나 정상 계좌의 결과를 버리지 않는다. */
     public Map<Long, BalanceRead> getBalanceResults(Long userId, List<Long> linkedAccountIds) {
+        return getBalanceResults(userId, linkedAccountIds, false);
+    }
+
+    /**
+     * {@link #getBalanceResults(Long, List)}에 새로 읽기를 더한 것. 홈 동기화(BE 2, {@code POST /api/sync})가 계좌별 성공·실패를
+     * 나눠 보여 주려고 쓴다. refresh=true여도 {@link #getBalances}의 사용자별 1분 한도는 세지 않는다. 부르는 쪽이 따로 연타를 막는다.
+     */
+    public Map<Long, BalanceRead> getBalanceResults(Long userId, List<Long> linkedAccountIds, boolean refresh) {
         var ids = new ArrayList<>(new LinkedHashSet<>(linkedAccountIds));
         if (ids.isEmpty()) return Map.of();
         if (userId == null || ids.contains(null)) throw new BusinessException(ErrorCode.RESOURCE_NOT_FOUND);
@@ -151,7 +159,7 @@ public class AccountBalanceService implements DisposableBean {
         ids.stream().filter(id->!owned.containsKey(id)).forEach(id->results.put(id,new BalanceRead(null,ErrorCode.RESOURCE_NOT_FOUND)));
         if (owned.isEmpty()) return Map.copyOf(results);
         var userKey = userKeyOf(userId).orElseThrow(() -> new BusinessException(ErrorCode.INVALID_REQUEST));
-        readAll(userKey, ids.stream().filter(owned::containsKey).map(owned::get).toList(), false, true).forEach((id, result) ->
+        readAll(userKey, ids.stream().filter(owned::containsKey).map(owned::get).toList(), refresh, true).forEach((id, result) ->
                 results.put(id, new BalanceRead(result.balance(), result.error() == null ? null : result.error().getErrorCode())));
         return Map.copyOf(results);
     }
