@@ -62,7 +62,7 @@ class ForecastTwoLinesTest {
         assertTrue(listOf(both, one).none { "예상" in chartDescription(it) })
     }
 
-    @Test fun `두 선 설명 — 같은 이름은 확신도가 달라도 한 줄, 카드 청구는 확정 · 진행 중으로 나눈다`() {
+    @Test fun `두 선 설명 — 같은 이름은 합치고(예정 지출은 확정 · 후보가 섞여도 한 줄), 카드 청구는 확정 · 진행 중으로 나눈다`() {
         val f = testForecast(
             days = listOf(
                 day(
@@ -73,8 +73,8 @@ class ForecastTwoLinesTest {
                 ),
                 day(
                     nov20,
-                    ForecastEvent(nov20, FlowType.SCHEDULED_INCOME, "환급 후보", 30_000, FlowConfidence.EXPECTED),   // 확인 전 후보
-                    ForecastEvent(nov20, FlowType.SCHEDULED_OUTFLOW, "관리비 후보", -40_000, FlowConfidence.EXPECTED),
+                    ForecastEvent(nov20, FlowType.SCHEDULED_INCOME, "환급", 30_000, FlowConfidence.CONFIRMED),
+                    ForecastEvent(nov20, FlowType.SCHEDULED_OUTFLOW, "관리비 후보", -40_000, FlowConfidence.EXPECTED),   // 확인 전 지출 후보 — BE는 수입 후보를 만들지 않는다
                     ForecastEvent(nov20, FlowType.CARD_BILLING, "생활카드 11월 청구", -150_000, FlowConfidence.EXPECTED),
                     ForecastEvent(nov20, FlowType.SCHEDULED_OUTFLOW, "새 확신도", -5_000, FlowConfidence.UNKNOWN),
                     ForecastEvent(nov20, FlowType.CARD_SPENDING_ESTIMATE, "생활카드 · 추정", -36_000, FlowConfidence.CONSERVATIVE),

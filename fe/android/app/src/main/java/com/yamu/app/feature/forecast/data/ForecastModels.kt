@@ -265,8 +265,8 @@ data class Forecast(
 
     /**
      * 두 선마다 무엇을 더했는지 — 'AI 생활비 제외'(서버 expected) → 'AI 생활비 반영'(conservative). 금액은 서버 이벤트 합, 끝 잔액은 서버 선의 마지막 날 그대로.
-     * 첫 선은 확신도 CONFIRMED · EXPECTED 돈(확인 전 후보 · 진행 중 청구 포함)과 확신도를 모르는 돈('기타'). 그리지 않는 확정 선과 나누지 않으므로
-     * 같은 이름(예정 수입 · 예정 지출)은 확신도가 달라도 한 줄로 합친다. 둘째 선은 첫 선에서 예상 생활비와 CONSERVATIVE 돈을 더 뺀 것이다
+     * 첫 선은 확신도 CONFIRMED · EXPECTED 돈(확인 전 지출 후보 · 진행 중 청구 포함)과 확신도를 모르는 돈('기타'). 그리지 않는 확정 선과 나누지 않으므로
+     * 같은 이름(예정 지출 등)은 확신도가 달라도 한 줄로 합친다. BE는 지출만 후보로 찾아 EXPECTED 수입은 없다(날마다 confirmed ≥ expected). 둘째 선은 첫 선에서 예상 생활비와 CONSERVATIVE 돈을 더 뺀 것이다
      */
     fun lineGroups(): List<LineGroup> {
         val events = upcoming
