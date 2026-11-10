@@ -29,7 +29,7 @@ import org.springframework.transaction.annotation.Transactional;
  * 금액은 승인 결제만 더한다(취소·거절 제외). 결정 사항(2026-11-09)은 응답 레코드 Javadoc에 있다.
  */
 @Service
-class ReportService {
+public class ReportService {
 
     static final ZoneId KST = ZoneId.of("Asia/Seoul");
     static final String USER_SELECTED = "USER_SELECTED";

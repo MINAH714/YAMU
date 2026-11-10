@@ -27,6 +27,7 @@ import com.yamu.be.support.OwnershipFixtures;
 import java.nio.ByteBuffer;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.YearMonth;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
@@ -121,7 +122,10 @@ class HomeIntegrationTest extends MySqlTestSupport {
                 .andExpect(jsonPath("$.data.cards.items[0].cardType").value("CREDIT"))
                 .andExpect(jsonPath("$.data.cards.items[0].maskedNumber").exists())
                 .andExpect(jsonPath("$.data.performanceAlerts").isEmpty())
-                .andExpect(jsonPath("$.data.monthSummary").doesNotExist())
+                .andExpect(jsonPath("$.data.monthSummary.yearMonth").value(YearMonth.now(KOREA).toString()))
+                .andExpect(jsonPath("$.data.monthSummary.totalSpent")
+                        .value(thisMonth(now.minusHours(2), 4_500) + thisMonth(now.minusHours(1), 15_000)))
+                .andExpect(jsonPath("$.data.monthSummary.totalBenefit").value(0))
                 .andExpect(jsonPath("$.data.balanceForecast.accountId").value(account))
                 .andExpect(jsonPath("$.data.balanceForecast.currentBalance").value(1_000_000))
                 .andExpect(jsonPath("$.data.balanceForecast.horizonDays").isNumber())
@@ -321,6 +325,12 @@ class HomeIntegrationTest extends MySqlTestSupport {
         ids.forEach(id -> results.put(id,
                 new AccountBalanceService.BalanceRead(new AccountBalance(id, 1_000L, fetchedAt), null)));
         return results;
+    }
+
+    /** 한국 기준 이번 달 결제면 금액, 아니면 0. 매달 1일 0~2시(한국)에 돌려도 월간 리포트와 같은 기준으로 맞춘다. */
+    private static long thisMonth(LocalDateTime requestedAtUtc, long amount) {
+        YearMonth month = YearMonth.from(requestedAtUtc.atZone(ZoneOffset.UTC).withZoneSameInstant(KOREA));
+        return month.equals(YearMonth.now(KOREA)) ? amount : 0;
     }
 
     private long primaryAccount(long owner) {

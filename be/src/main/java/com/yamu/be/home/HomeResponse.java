@@ -13,7 +13,7 @@ import java.util.List;
  * @param cards                   등록 카드(ACTIVE·INACTIVE, 카드 목록과 같은 순서)
  * @param performanceAlerts       실적 부족 카드. 임시: S15P31E103-373(카드별 실적) 머지 뒤 연결한다. 그 전에는 빈 목록
  * @param balanceForecast         기준 계좌의 잔고예보 요약. 기준 계좌가 없으면 null
- * @param monthSummary            이번 달 소비·혜택. 임시: S15P31E103-372(월간 리포트) 머지 뒤 연결한다. 그 전에는 null
+ * @param monthSummary            이번 달(한국 기준) 소비·혜택. 월간 리포트(S15P31E103-372)와 같은 값
  * @param unreadNotificationCount 읽지 않은 알림 수
  * @param partialErrors           실패한 영역. 실패가 없으면 빈 목록
  * @param dataSyncedAt            홈에 쓴 잔액을 금융망에서 읽은 UTC 시각. 잔액을 쓰지 않았으면 null
@@ -59,12 +59,17 @@ public record HomeResponse(Cards cards, List<PerformanceAlert> performanceAlerts
     /** @param amount 월급 금액(원). 금액 미정 항목이면 null */
     public record NextIncome(LocalDate date, Long amount, String label) {}
 
+    /**
+     * @param yearMonth    한국 기준 월(YYYY-MM)
+     * @param totalSpent   승인 결제 금액 합계(즉시할인 전, 리포트 {@code totalSpent})
+     * @param totalBenefit 혜택 원화 합계(확정 전 포함, 리포트 {@code benefitSummary.expected})
+     */
     public record MonthSummary(String yearMonth, Long totalSpent, Long totalBenefit) {}
 
     /**
      * 영역 하나의 실패.
      *
-     * @param area 응답 칸 이름(cards·balanceForecast·unreadNotificationCount·todos·recentPayment·todayCard·onboarding)
+     * @param area 응답 칸 이름(cards·balanceForecast·monthSummary·unreadNotificationCount·todos·recentPayment·todayCard·onboarding)
      * @param code 에러 코드(예: FIN_API_UNAVAILABLE). 예상하지 못한 오류는 INTERNAL_ERROR
      */
     public record PartialError(String area, String code) {}

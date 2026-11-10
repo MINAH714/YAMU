@@ -9,6 +9,8 @@ import com.yamu.be.forecast.ForecastSettingsService;
 import com.yamu.be.global.exception.BusinessException;
 import com.yamu.be.global.exception.ErrorCode;
 import com.yamu.be.global.security.AuthUser;
+import com.yamu.be.report.MonthlyReportResponse;
+import com.yamu.be.report.ReportService;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -42,14 +44,16 @@ public class HomeService {
     private final CardManagementService cards;
     private final ForecastService forecasts;
     private final ForecastSettingsService forecastSettings;
+    private final ReportService reports;
     private final HomeReader reader;
     private final Clock clock;
 
     HomeService(CardManagementService cards, ForecastService forecasts, ForecastSettingsService forecastSettings,
-            HomeReader reader, Clock clock) {
+            ReportService reports, HomeReader reader, Clock clock) {
         this.cards = cards;
         this.forecasts = forecasts;
         this.forecastSettings = forecastSettings;
+        this.reports = reports;
         this.reader = reader;
         this.clock = clock;
     }
@@ -60,6 +64,7 @@ public class HomeService {
 
         CardListResponse cardList = section("cards", errors, () -> cards.list(me, null));
         ForecastPart forecast = section("balanceForecast", errors, () -> forecast(userId));
+        HomeResponse.MonthSummary monthSummary = section("monthSummary", errors, () -> monthSummary(userId));
         Integer unread = section("unreadNotificationCount", errors, () -> reader.unreadNotificationCount(userId));
         List<HomeResponse.Todo> todos = cardList == null ? null : section("todos", errors, () -> todos(cardList));
         HomeResponse.RecentPayment recentPayment = section("recentPayment", errors,
@@ -73,7 +78,7 @@ public class HomeService {
                 cardList == null ? null : cards(cardList),
                 List.of(),
                 forecast == null ? null : forecast.summary(),
-                null,
+                monthSummary,
                 unread == null ? 0 : unread,
                 List.copyOf(errors),
                 forecast == null ? null : forecast.syncedAt(),
@@ -120,6 +125,15 @@ public class HomeService {
                         card.userCardId()))
                 .limit(MAX_TODOS)
                 .toList();
+    }
+
+    /**
+     * 이번 달(한국 기준) 소비·혜택. 월간 리포트({@code GET /api/reports/monthly}, S15P31E103-372)와 같은 값이다. 소비는 즉시할인 전
+     * 승인 금액, 혜택은 확정 전을 포함한 혜택 줄 원화 합(리포트 {@code benefitSummary.expected})이다.
+     */
+    private HomeResponse.MonthSummary monthSummary(long userId) {
+        MonthlyReportResponse report = reports.monthly(userId, null);
+        return new HomeResponse.MonthSummary(report.yearMonth(), report.totalSpent(), report.benefitSummary().expected());
     }
 
     /** 기준 계좌의 잔고예보. 기준 계좌가 없으면 null(실패가 아님). 기간은 잔고예보 설정을 따른다. */
