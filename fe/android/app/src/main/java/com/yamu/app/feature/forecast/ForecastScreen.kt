@@ -336,7 +336,7 @@ private fun FilterChip(text: String, contentDescription: String, onClick: () -> 
     }
 }
 
-/** 예상 잔액 — 가장 나쁜 선의 최저 잔액, 상태, 두 선 그래프, 고른 날 */
+/** 예상 잔액 — 가장 나쁜 선의 최저 잔액과 그 선 이름, 상태, 두 선 그래프, 고른 날 */
 @Composable
 private fun HeroCard(f: Forecast, error: String?) {
     val c = YamuTheme.colors
@@ -351,6 +351,14 @@ private fun HeroCard(f: Forecast, error: String?) {
         }
         Spacer(Modifier.height(4.dp))
         AmountText(f.minBalance ?: 0, shortage = short, color = c.primary)
+        // 어느 선의 최저인지 — 금액 바로 밑 한 줄(범례와 같은 선 견본). 날짜 줄과 나눠 둬 큰 글씨에서도 남은 폭에 눌려 꺾이지 않는다
+        minBalanceBasis(f)?.let { basis ->
+            Row(Modifier.padding(top = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+                LineGlyph(dashed = f.hasConservative)
+                Spacer(Modifier.width(6.dp))
+                Text(basis, style = YamuTheme.typography.bodyS, color = c.text3)
+            }
+        }
         Spacer(Modifier.height(8.dp))
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             statusTag(f)?.let { (text, tone) -> StatusTag(text, tone = tone) }
@@ -363,6 +371,22 @@ private fun HeroCard(f: Forecast, error: String?) {
         error?.let { Text(staleLine(it, f.calculatedAtIso), style = YamuTheme.typography.bodyS, color = c.warning, modifier = Modifier.padding(top = 4.dp)) }
         Spacer(Modifier.height(YamuSpacing.x5))
         ForecastLines(f)
+    }
+}
+
+/**
+ * 맨 위 '가장 낮을 때' 금액이 어느 선 기준인지(!223 답, 서버는 그대로). summary.minBalance는 'AI 생활비 반영' 선, 그 선이 없으면 'AI 생활비 제외' 선의 최저다.
+ * 날마다 값이 없으면 어느 선인지 몰라 null
+ */
+internal fun minBalanceBasis(f: Forecast): String? =
+    if (f.days.isEmpty()) null else "${if (f.hasConservative) LINE_WITH_LIVING else LINE_WITHOUT_LIVING} 선 기준"
+
+/** 선 모양 견본 — 범례와 같은 파란 실선('AI 생활비 제외') · 점선('AI 생활비 반영') */
+@Composable
+private fun LineGlyph(dashed: Boolean, modifier: Modifier = Modifier) {
+    val color = YamuTheme.colors.primary
+    Canvas(modifier.size(width = 18.dp, height = 4.dp)) {
+        drawLine(color, Offset(0f, size.height / 2), Offset(size.width, size.height / 2), strokeWidth = 2.6.dp.toPx(), pathEffect = if (dashed) PathEffect.dashPathEffect(floatArrayOf(4.dp.toPx(), 3.dp.toPx())) else null)
     }
 }
 
@@ -559,9 +583,7 @@ private fun LineGroupRow(g: LineGroup, hasConservative: Boolean) {
     val withLiving = g.line == FlowConfidence.CONSERVATIVE
     val name = if (withLiving) LINE_WITH_LIVING else LINE_WITHOUT_LIVING
     Row {
-        Canvas(Modifier.padding(top = 9.dp).size(width = 18.dp, height = 4.dp)) {
-            drawLine(c.primary, Offset(0f, size.height / 2), Offset(size.width, size.height / 2), strokeWidth = 2.6.dp.toPx(), pathEffect = if (withLiving) PathEffect.dashPathEffect(floatArrayOf(4.dp.toPx(), 3.dp.toPx())) else null)
-        }
+        LineGlyph(dashed = withLiving, modifier = Modifier.padding(top = 9.dp))
         Spacer(Modifier.width(10.dp))
         Column(Modifier.weight(1f)) {
             // 선 이름(범례와 같은 이름). 두 번째 묶음은 첫 선에서 더 빼는 돈이라 그 사실을 이름 밑에 적는다

@@ -45,6 +45,12 @@ class ForecastTwoLinesTest {
         assertEquals(listOf("AI 생활비 반영"), missingLines(testForecast(days = listOf(day(nov10, conservative = null), day(nov20, conservative = null)))))
     }
 
+    @Test fun `맨 위 가장 낮을 때 금액 — 생활비 선이 있으면 반영 선, 없으면 제외 선 기준(!223 답)`() {
+        assertEquals("AI 생활비 반영 선 기준", minBalanceBasis(testForecast(days = listOf(day(nov10), day(nov20)))))
+        assertEquals("AI 생활비 제외 선 기준", minBalanceBasis(testForecast(days = listOf(day(nov10, conservative = null), day(nov20, conservative = null)))))
+        assertNull(minBalanceBasis(testForecast(days = emptyList())))   // 날마다 값이 없으면 어느 선인지 모른다
+    }
+
     @Test fun `그래프 접근성 설명 — 두 선 이름과 가장 낮은 선, '예상 잔액'이라 부르지 않는다`() {
         val both = testForecast(
             days = listOf(day(nov10), day(nov20)),
