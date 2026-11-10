@@ -174,16 +174,21 @@ public class CashflowService {
     }
 
     /**
-     * 값을 바꾸지 않은 수정의 응답 줄(규칙의 첫 회차). 그 회차가 결제와 연결됐으면 목록과 같게 paid·matched를 채운다
-     * (S15P31E103-393, 연결된 지난 회차가 있는 반복 항목의 상태만 바꿔도 목록과 응답의 연결 여부가 같게).
+     * 값을 바꾸지 않은 수정의 응답 줄(규칙의 첫 회차). 목록({@link #expand})과 같게, 그 회차를 이번 회차만 고쳤거나
+     * 결제와 연결됐으면 그 행의 값·예정일과 paid·matched를 쓴다(S15P31E103-393, !238 리뷰).
      */
     private Entry firstOccurrence(CashflowItem rule) {
-        CashflowOccurrence row = occurrenceOf(rule, rule.getScheduledDate());
-        if (row == null || occurrences.findMatchedIds(List.of(row.getId())).isEmpty()) {
-            return new Entry(Item.from(rule), rule.getScheduledDate(), rule.getScheduledDate(), false);
+        LocalDate first = rule.getScheduledDate();
+        CashflowOccurrence row = occurrenceOf(rule, first);
+        if (row == null || row.getStatus() != CashflowOccurrence.Status.CONFIRMED) {
+            return new Entry(Item.from(rule), first, first, false);
         }
-        boolean paid = !occurrences.findPaidIds(List.of(row.getId())).isEmpty();
-        return new Entry(Item.from(rule), rule.getScheduledDate(), rule.getScheduledDate(), paid, true);
+        boolean matched = !occurrences.findMatchedIds(List.of(row.getId())).isEmpty();
+        if (!row.isOverridden() && !matched) {
+            return new Entry(Item.from(rule), first, first, false);
+        }
+        boolean paid = matched && !occurrences.findPaidIds(List.of(row.getId())).isEmpty();
+        return new Entry(Item.from(rule).with(row), row.getOccurrenceDate(), row.getScheduledDate(), paid, matched);
     }
 
     /** 탐지 후보(CANDIDATE)만 확인(CONFIRMED)이나 무시(IGNORED)로 바꿀 수 있다. 상태는 시리즈 전체가 같이 바뀐다. */
