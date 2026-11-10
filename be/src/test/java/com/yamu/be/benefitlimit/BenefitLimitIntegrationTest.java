@@ -159,6 +159,22 @@ class BenefitLimitIntegrationTest extends MySqlTestSupport {
     }
 
     @Test
+    void 받은_금액은_최대_한도까지만_더해_남은_한도와_합이_한도_합이다() throws Exception {
+        long over = card(owner, tiered, "ACTIVE", null);
+        long locked = card(owner, tiered, "ACTIVE", null);
+        performance(over, LAST_MONTH, 350_000);     // 최대 1만원인데 1만 2천원 사용
+        usage(over, shared, THIS_MONTH, 12_000);
+        performance(locked, LAST_MONTH, 100_000);   // 잠겼는데 사용량 행이 있음
+        usage(locked, shared, THIS_MONTH, 3_000);
+
+        mockMvc.perform(get(URL).with(AuthUsers.asUser(owner)))
+                .andExpect(jsonPath("$.data.cards[0].limits[0].status").value("EXHAUSTED"))
+                .andExpect(jsonPath("$.data.cards[1].limits[0].status").value("LOCKED"))
+                .andExpect(jsonPath("$.data.summary.receivedAmount").value(10_000))
+                .andExpect(jsonPath("$.data.summary.remainingAmount").value(0));
+    }
+
+    @Test
     void 지난달_실적이_모자라면_LOCKED이고_사유에_기준_실적이_나온다() throws Exception {
         long short1 = card(owner, tiered, "ACTIVE", null);
         long noRow = card(owner, tiered, "ACTIVE", null);

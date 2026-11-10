@@ -30,8 +30,21 @@ public record BenefitLimitsResponse(String yearMonth, Summary summary, List<Card
      * @param limits          월 한도 그룹당 한 줄. 여러 혜택이 같이 쓰는 공유 한도도 한 줄이다. 건별 한도·한도 없는 혜택은 없다.
      *                        비어 있으면 앱은 "한도 없음"으로 보인다
      */
-    public record Card(long userCardId, String nickname, CardIssuers.Issuer issuer, Long remainingAmount,
+    public record Card(long userCardId, String nickname, Issuer issuer, Long remainingAmount,
             List<Limit> limits) {
+    }
+
+    /**
+     * 카드사. 카드 목록({@code CardListResponse.Issuer})과 같은 값이지만, {@link CardIssuers.Issuer}에 칸이 늘어도 이 API의
+     * JSON이 같이 바뀌지 않게 따로 둔다.
+     *
+     * @param color 모르는 카드사면 null
+     */
+    public record Issuer(String code, String name, String color) {
+
+        static Issuer from(CardIssuers.Issuer issuer) {
+            return new Issuer(issuer.code(), issuer.name(), issuer.color());
+        }
     }
 
     /**

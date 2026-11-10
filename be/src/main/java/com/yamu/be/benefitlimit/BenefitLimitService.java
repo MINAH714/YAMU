@@ -123,7 +123,9 @@ class BenefitLimitService {
                 boolean krw = group.row().unit() == BenefitPolicy.Unit.KRW;
                 if (krw) {
                     cardRemaining = (cardRemaining == null ? 0 : cardRemaining) + judgement.remaining();
-                    receivedTotal += usedValue;
+                    // 최대 한도까지만 더해 received + remaining = 이번 달 원화 월 한도 합을 지킨다. 잠기면 최대 한도가 0이라
+                    // 사용량 행이 있어도 0, 사용량이 최대 한도보다 크면(정책·실적 해석 차이) 최대 한도만 더한다
+                    receivedTotal += Math.min(usedValue, judgement.maximum());
                     remainingTotal += judgement.remaining();
                 }
                 limits.add(new BenefitLimitsResponse.Limit(group.row().name(), krw ? judgement.remaining() : null,
@@ -131,7 +133,7 @@ class BenefitLimitService {
                                 : "지난달 실적이 " + won(judgement.unlockThreshold()) + "에 못 미쳐요"));
             }
             items.add(new BenefitLimitsResponse.Card(card.getId(), nickname(card, product),
-                    CardIssuers.of(product.getIssuerCode()), cardRemaining, limits));
+                    BenefitLimitsResponse.Issuer.from(CardIssuers.of(product.getIssuerCode())), cardRemaining, limits));
         }
         return new BenefitLimitsResponse(month.toString(),
                 new BenefitLimitsResponse.Summary(receivedTotal, remainingTotal), items, null);
