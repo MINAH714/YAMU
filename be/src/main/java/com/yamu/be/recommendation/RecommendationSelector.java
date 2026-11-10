@@ -27,14 +27,14 @@ public final class RecommendationSelector {
     public enum SelectionReason { MAXIMUM_NET_BENEFIT, DEFAULT_CARD, NEW_MINIMUM_PERFORMANCE, FIXED_ORDER }
 
     public record CardEvaluation(long userCardId, CardStatus status, String reason, Calculation calculation) {
-        /** 카드 표시명·문의 목적지는 기존 앱 계약으로 연결한다. 여기서는 URL을 만들지 않는다. */
+        /** 미비교 사유를 안내한다. 실제로 제공하지 않는 문의 경로는 안내하지 않는다. */
         public String message() {
             if (status != CardStatus.NOT_COMPARED) {
                 return null;
             }
             return calculation == null
-                    ? "결제 가능 여부를 확인하지 못해 비교에서 제외했어요. 관리자에게 문의해주세요."
-                    : "혜택 정보를 확인하지 못해 비교에서 제외했어요. 해당 카드의 혜택 정보는 관리자에게 문의해주세요.";
+                    ? "결제 가능 여부를 확인하지 못해 비교에서 제외했어요."
+                    : "혜택 정보를 확인하지 못해 비교에서 제외했어요.";
         }
     }
 
