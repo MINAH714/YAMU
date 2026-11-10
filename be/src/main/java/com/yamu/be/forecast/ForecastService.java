@@ -142,18 +142,15 @@ public class ForecastService {
                                 series(projection.byAccount().get(accountId)), assessment.windows(),
                                 accountLivingCost(living.estimate().byAccount().get(accountId),
                                         living.projection().byAccount().get(accountId),
-                                        hasConservative(projection.byAccount().get(accountId))));
+                                        appliedLivingCost(projection.byAccount().get(accountId))));
                     })
                     .toList();
         }
         LivingCostEstimator.Total history = living.estimate().total();
         LivingCostProjector.Total projected = living.projection().total();
-        // 보수적 선은 자료 있는 계좌의 생활비만 뺀다. 통합 projectedAmount는 한 계좌라도 없으면 null이라 따로 더한다(-395).
-        // 통합 보수적 선이 null이면 들어간 곳이 없어 null로 둔다(Codex 검토)
-        Long applied = !hasConservative(projection.total()) ? null : selected.stream()
-                .map(accountId -> living.projection().byAccount().get(accountId).projectedAmount())
-                .filter(Objects::nonNull)
-                .reduce(0L, Math::addExact);
+        // 보수적 선은 자료 있는 계좌의 생활비만 뺀다. 통합 projectedAmount는 한 계좌라도 없으면 null이라, 보수적 선에
+        // 실제로 들어간 생활비를 선 마지막 날 점에서 읽는다(-395, 김재성 님 !244 리뷰). 통합 보수적 선이 null이면 null이다
+        Long applied = appliedLivingCost(projection.total());
         BalanceForecast.LivingCost livingCost = new BalanceForecast.LivingCost(projected.projectedAmount(), applied,
                 history.dailyAverage(), history.monthlyAverage(), projected.method(), projected.dataOrigin(),
                 projected.confidence());
@@ -546,19 +543,21 @@ public class ForecastService {
     }
 
     /**
-     * 계좌 하나의 생활비(S15P31E103-395). 자료가 없으면 금액·방식은 null이고, 그 계좌의 보수적 선이 신용카드 사용
-     * 추정만으로 있으면 보수적 선에 들어간 생활비는 0원(생활비 0원으로 계산), 보수적 선이 없으면 null이다.
+     * 계좌 하나의 생활비(S15P31E103-395). 자료가 없으면 금액·방식은 null이다. 보수적 선에 들어간 생활비(applied)는 그 계좌
+     * 선에서 읽은 값이라, 신용카드 사용 추정만으로 보수적 선이 있으면 0원(생활비 0원으로 계산), 보수적 선이 없으면 null이다.
      */
     private static BalanceForecast.LivingCost accountLivingCost(LivingCostEstimator.AccountEstimate history,
-            LivingCostProjector.AccountProjection projected, boolean hasConservative) {
-        Long applied = !hasConservative ? null : projected.projectedAmount() == null ? 0L : projected.projectedAmount();
+            LivingCostProjector.AccountProjection projected, Long applied) {
         return new BalanceForecast.LivingCost(projected.projectedAmount(), applied, history.dailyAverage(),
                 history.monthlyAverage(), projected.method(), projected.dataOrigin(), projected.confidence());
     }
 
-    /** 보수적 선이 있는지. 선은 기간 전체에서 함께 있거나 함께 null이다(ForecastCalculator). */
-    private static boolean hasConservative(List<ForecastCalculator.BalancePoint> points) {
-        return !points.isEmpty() && points.get(points.size() - 1).conservative() != null;
+    /**
+     * 보수적 선이 기간 끝까지 뺀 생활비(원). 선 마지막 날 점의 livingCost를 그대로 읽어 위험 구간의 생활비 이벤트와 출처를
+     * 맞춘다(김재성 님 !244 리뷰). 보수적 선이 null이면 null이다. 선은 기간의 모든 날짜에 점이 있어 비어 있지 않다.
+     */
+    private static Long appliedLivingCost(List<ForecastCalculator.BalancePoint> points) {
+        return points.get(points.size() - 1).livingCost();
     }
 
     private static List<BalanceForecast.SeriesPoint> series(List<ForecastCalculator.BalancePoint> points) {
