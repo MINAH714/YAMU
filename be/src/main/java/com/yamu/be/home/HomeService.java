@@ -189,12 +189,13 @@ public class HomeService {
     }
 
     /**
-     * 잔액이 안전 잔액 밑으로 처음 내려가는 날. 잔고예보의 위험 구간과 같은 규칙(확정·예상·보수적 선 중 하나라도 기준 미만)이다.
-     * 위험 구간 타입(RiskDetector)이 forecast 패키지 밖에 열려 있지 않아 공개된 날짜 선에서 다시 찾는다.
+     * 잔액이 안전 잔액 밑으로 처음 내려가는 날. 잔고예보의 위험 구간과 같은 규칙으로, 앱이 그리는 두 선(예상·보수적) 중 하나라도
+     * 기준 미만인 첫날이다(S15P31E103-356). 확정 선은 화면에 없어 보지 않는다(운영 앱 점검 B-05).
+     * 위험 구간 타입(RiskDetector)이 forecast 패키지 밖에 열려 있지 않아 공개된 날짜 선에서 다시 찾는다. 위험 규칙이 바뀌면 같이 바꾼다.
      */
     static LocalDate firstRiskDate(List<BalanceForecast.SeriesPoint> series, long threshold) {
         for (BalanceForecast.SeriesPoint point : series) {
-            if (point.confirmed() < threshold || point.expected() < threshold
+            if (point.expected() < threshold
                     || (point.conservative() != null && point.conservative() < threshold)) {
                 return point.date();
             }

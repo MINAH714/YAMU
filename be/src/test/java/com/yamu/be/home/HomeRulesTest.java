@@ -16,7 +16,7 @@ class HomeRulesTest {
     private static final LocalDate D1 = LocalDate.of(2026, 11, 10);
 
     @Test
-    void 위험_시작일은_세_선_중_하나라도_안전_잔액_밑으로_처음_내려간_날이다() {
+    void 위험_시작일은_예상_보수적_두_선_중_하나라도_안전_잔액_밑으로_처음_내려간_날이다() {
         List<BalanceForecast.SeriesPoint> series = List.of(
                 point(D1, 200_000, 200_000, 150_000L),
                 point(D1.plusDays(1), 200_000, 200_000, 99_999L),
@@ -26,12 +26,23 @@ class HomeRulesTest {
     }
 
     @Test
-    void 보수적_선이_없으면_확정_예상_선만_본다() {
+    void 확정_선만_안전_잔액_밑이면_위험_날이_아니다() {
+        // 월급이 예상 항목이라 확정 선만 낮은 날. 잔고예보(S15P31E103-356)는 SAFE다(운영 앱 점검 B-05).
         List<BalanceForecast.SeriesPoint> series = List.of(
-                point(D1, 200_000, 200_000, null),
-                point(D1.plusDays(1), 200_000, 100_000, null));
+                point(D1, 50_000, 200_000, 150_000L),
+                point(D1.plusDays(1), 50_000, 200_000, null));
 
         assertThat(HomeService.firstRiskDate(series, 100_000)).isNull();
+    }
+
+    @Test
+    void 보수적_선이_없으면_예상_선만_본다() {
+        List<BalanceForecast.SeriesPoint> series = List.of(
+                point(D1, 0, 200_000, null),
+                point(D1.plusDays(1), 0, 100_000, null),
+                point(D1.plusDays(2), 0, 99_999, null));
+
+        assertThat(HomeService.firstRiskDate(series, 100_000)).isEqualTo(D1.plusDays(2));
     }
 
     @Test
