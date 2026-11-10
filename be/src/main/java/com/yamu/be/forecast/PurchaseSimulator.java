@@ -73,8 +73,8 @@ final class PurchaseSimulator {
         }
         List<PurchaseSimulation.AccountComparison> accounts = input.startBalances().keySet().stream()
                 .map(accountId -> new PurchaseSimulation.AccountComparison(accountId,
-                        snapshot(beforeSide.byAccount().get(accountId), beforeSide.byAccount().get(accountId).status()),
-                        snapshot(afterSide.byAccount().get(accountId), afterSide.byAccount().get(accountId).status())))
+                        snapshot(beforeSide.byAccount().get(accountId)),
+                        snapshot(afterSide.byAccount().get(accountId))))
                 .toList();
         // 빠지는 금액이 없으면(전액 즉시할인) 선택 밖 계좌 영향도 없다. "0원이 빠져" 같은 안내를 만들지 않는다(Codex 검토).
         PurchaseSimulation.OutsideSelectionImpact outside = selected || total == 0 ? null
@@ -83,7 +83,29 @@ final class PurchaseSimulator {
 
         return new PurchaseSimulation(List.copyOf(schedule),
                 new PurchaseSimulation.Comparison(beforeSide.summary(), afterSide.summary(), within, beyond),
-                List.copyOf(series), outside, accounts);
+                List.copyOf(series), outside, accounts, checkCardOverdrawn(input, selected, after));
+    }
+
+    /**
+     * 체크카드 구매(청구 월 없는 회차)가 기간 안 선택 계좌에서 빠지는 날, 그 계좌의 구매 후 잔액(가장 나쁜 선)이 0원 아래인지.
+     * 실제 체크카드 결제는 그날 잔액보다 크면 거절된다. 기간 밖이거나 선택 밖 계좌면 그날 잔액을 몰라 false다.
+     */
+    private static boolean checkCardOverdrawn(Input input, boolean selected, ForecastCalculator.Projection after) {
+        if (!selected) {
+            return false;
+        }
+        for (BillingSchedule.Withdrawal withdrawal : input.withdrawals()) {
+            if (withdrawal.billingMonth() != null || withdrawal.amount() == 0
+                    || withdrawal.withdrawalDate().isAfter(input.to())) {
+                continue;
+            }
+            for (ForecastCalculator.BalancePoint point : after.byAccount().get(input.withdrawalAccountId())) {
+                if (point.date().equals(withdrawal.withdrawalDate()) && RiskDetector.worstBalance(point) < 0) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     private static void validate(Input input) {
@@ -121,12 +143,30 @@ final class PurchaseSimulator {
         Map<Long, RiskDetector.Assessment> byAccount = new LinkedHashMap<>();
         projection.byAccount().forEach((accountId, points) ->
                 byAccount.put(accountId, RiskDetector.assess(points, threshold)));
-        return new Side(snapshot(aggregate, RiskDetector.overall(aggregate, byAccount.values())), byAccount);
+        // 통합 요약의 시작일은 status와 같은 범위(통합·계좌별 구간 중 가장 이른 날)에서 고른다(S15P31E103-347).
+        List<RiskDetector.Assessment> all = new ArrayList<>(byAccount.values());
+        all.add(aggregate);
+        return new Side(new PurchaseSimulation.Snapshot(aggregate.minBalance(), aggregate.minBalanceDate(),
+                aggregate.endBalance(), RiskDetector.overall(aggregate, byAccount.values()), riskStartDate(all)),
+                byAccount);
     }
 
-    private static PurchaseSimulation.Snapshot snapshot(RiskDetector.Assessment assessment, RiskDetector.Level status) {
+    private static PurchaseSimulation.Snapshot snapshot(RiskDetector.Assessment assessment) {
         return new PurchaseSimulation.Snapshot(assessment.minBalance(), assessment.minBalanceDate(),
-                assessment.endBalance(), status);
+                assessment.endBalance(), assessment.status(), riskStartDate(List.of(assessment)));
+    }
+
+    /** 위험 구간 시작일 중 가장 이른 날. 구간이 없으면 null. */
+    private static LocalDate riskStartDate(List<RiskDetector.Assessment> assessments) {
+        LocalDate earliest = null;
+        for (RiskDetector.Assessment assessment : assessments) {
+            for (RiskDetector.RiskWindow window : assessment.windows()) {
+                if (earliest == null || window.from().isBefore(earliest)) {
+                    earliest = window.from();
+                }
+            }
+        }
+        return earliest;
     }
 
     private record Side(PurchaseSimulation.Snapshot summary, Map<Long, RiskDetector.Assessment> byAccount) {}

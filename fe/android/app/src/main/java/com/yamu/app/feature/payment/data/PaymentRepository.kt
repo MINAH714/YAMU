@@ -1,5 +1,6 @@
 package com.yamu.app.feature.payment.data
 
+import com.yamu.app.core.format.KST
 import com.yamu.app.core.network.ApiEnvelope
 import com.yamu.app.core.network.ApiResult
 import com.yamu.app.core.network.YamuHeaders
@@ -16,24 +17,21 @@ import retrofit2.Retrofit
 import retrofit2.http.Body
 import retrofit2.http.GET
 import retrofit2.http.Header
+import retrofit2.http.PATCH
 import retrofit2.http.POST
 import retrofit2.http.Path
 import retrofit2.http.Query
+import java.time.OffsetDateTime
 import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 import javax.inject.Singleton
 
-/** 결제(고객 앱) — #5 · #64 · #77 · #12 · #1 · #3 · 추가 7. 가맹점 단말 API(#27 · #63)는 모의 POS 앱에만 */
+/** 결제(고객 앱) — #5 · #64 · #77 · #12 · #1 · #3 · 추가 7 · #31 취소 · #42 메모. 가맹점 단말 API(#27 · #63)는 모의 POS 앱에만 */
 interface PaymentApi {
-    @GET("merchants")
-    suspend fun merchants(@Query("channel") channel: String?, @Query("size") size: Int = 50): Response<ApiEnvelope<MerchantsResponse>>
-
-    @POST("recommendations")
-    suspend fun recommend(@Body body: RecommendRequest): Response<ApiEnvelope<RecommendResponse>>
-
     @POST("payments/barcodes")
     suspend fun issueCode(@Header(YamuHeaders.STEP_UP_TOKEN) stepUpToken: String): Response<ApiEnvelope<BarcodeResponse>>
 
+    /** 추천은 여기 recommendation으로만 받는다 — 결제 전 단일 추천(#64)은 명세 V2에서 빠졌고 가맹점 목록(#5)은 모의 POS만 쓴다 */
     @GET("payments/barcodes/{token}")
     suspend fun codeStatus(@Path("token") token: String): Response<ApiEnvelope<BarcodeStatusResponse>>
 
@@ -53,15 +51,28 @@ interface PaymentApi {
 
     @GET("payments/{id}")
     suspend fun detail(@Path("id") paymentId: Long): Response<ApiEnvelope<PaymentResultDto>>
+
+    @POST("payments/{id}/cancel")
+    suspend fun cancel(
+        @Path("id") paymentId: Long,
+        @Header(YamuHeaders.IDEMPOTENCY_KEY) idempotencyKey: String,
+        @Body body: CancelRequest,
+    ): Response<ApiEnvelope<CancelResponseDto>>
+
+    @PATCH("payments/{id}/memo")
+    suspend fun memo(@Path("id") paymentId: Long, @Body body: MemoRequest): Response<ApiEnvelope<MemoResponseDto>>
+
+    /** 메모 찾기 — 결제 내역(#4)을 한국 날짜 기간으로 */
+    @GET("payments")
+    suspend fun memoPage(
+        @Query("from") from: String,
+        @Query("to") to: String,
+        @Query("page") page: Int,
+        @Query("size") size: Int = 100,
+    ): Response<ApiEnvelope<MemoPageDto>>
 }
 
 interface PaymentRepository {
-    /** P-01 가맹점 고르기 — 오프라인 · 온라인 모두 */
-    suspend fun merchants(): ApiResult<List<Merchant>>
-
-    /** P-01 — 서버 추천(#64) 그대로 */
-    suspend fun recommend(merchantId: Long, amount: Long): ApiResult<Recommendation>
-
     /** P-06 결제 코드 — 본인 인증 토큰(BARCODE) 필요 */
     suspend fun issueCode(stepUpToken: String): ApiResult<PayCode>
 
@@ -79,25 +90,24 @@ interface PaymentRepository {
 
     /** #3 결제 상세(P-08 · 앱이 다시 켜진 P-07) */
     suspend fun detail(paymentId: Long): ApiResult<PaymentReceipt>
+
+    /** P-08 결제 전체 취소. 같은 결제를 다시 시도할 땐 같은 [idempotencyKey] — BE가 처음 결과를 그대로 준다 */
+    suspend fun cancel(paymentId: Long, idempotencyKey: String): ApiResult<CancelResult>
+
+    /** P-08 메모. [memo]가 null · 빈 문자열이면 지운다. 저장된 메모(지웠으면 null)를 돌려준다 */
+    suspend fun saveMemo(paymentId: Long, memo: String?): ApiResult<String?>
+
+    /**
+     * 상세에 memo가 없어 모를 때([PaymentReceipt.memoKnown] false) 결제 내역에서 찾는다. 못 찾거나 실패하면 null(여전히 모름).
+     * BE 상세 응답에 memo가 생기면 필요 없다
+     */
+    suspend fun findMemo(paymentId: Long, paidAtIso: String?): KnownMemo? = null
 }
 
 @Singleton
-class PaymentRepositoryImpl @Inject constructor(private val api: PaymentApi) : PaymentRepository {
+class PaymentRepositoryImpl @Inject constructor(private val api: PaymentApi, private val edits: PaymentEdits) : PaymentRepository {
 
     private val receipts = ConcurrentHashMap<Long, PaymentReceipt>()
-
-    override suspend fun merchants(): ApiResult<List<Merchant>> =
-        apiCall { api.merchants(channel = null) }.map { r -> r.items.map { it.toMerchant() } }
-
-    override suspend fun recommend(merchantId: Long, amount: Long): ApiResult<Recommendation> =
-        apiCall { api.recommend(RecommendRequest(merchantId, amount)) }.map { r ->
-            Recommendation(
-                merchantName = r.merchant?.name.orEmpty(),
-                amount = r.amount.takeIf { it > 0 } ?: amount,
-                cards = r.candidates.sortedBy { it.rank }.map { it.toPayCard() },
-                isEstimate = r.isEstimate,
-            )
-        }
 
     override suspend fun issueCode(stepUpToken: String): ApiResult<PayCode> =
         apiCall { api.issueCode(stepUpToken) }.map {
@@ -114,12 +124,7 @@ class PaymentRepositoryImpl @Inject constructor(private val api: PaymentApi) : P
                 receipts[r.paymentId] = receipt
                 ApproveOutcome.Approved(receipt)
             } else {
-                ApproveOutcome.Declined(
-                    message = declineMessage(r.failure?.code),
-                    retryable = r.retryable,
-                    remainingAttempts = r.remainingAttempts,
-                    suggestedCardId = r.suggestedCards.firstOrNull()?.userCardId,
-                )
+                r.toDeclined()
             }
         }
     }
@@ -129,7 +134,61 @@ class PaymentRepositoryImpl @Inject constructor(private val api: PaymentApi) : P
 
     override fun recentReceipt(paymentId: Long): PaymentReceipt? = receipts[paymentId]
 
-    override suspend fun detail(paymentId: Long): ApiResult<PaymentReceipt> = apiCall { api.detail(paymentId) }.map { it.toReceipt() }
+    /**
+     * 상세 응답엔 memo가 없어 목록에서 받아 둔 메모로 채운다([PaymentEdits]). 받아 둔 게 없으면 '모름'.
+     * 취소된 결제면 취소 응답 때처럼 알린다 — 응답이 끊겨 다시 읽어 보니 취소됐거나 다른 기기에서 취소한 경우에도
+     * 결제 완료(P-07) · 결제 내역이 승인으로 남지 않게
+     */
+    override suspend fun detail(paymentId: Long): ApiResult<PaymentReceipt> =
+        apiCall { api.detail(paymentId) }.map { dto ->
+            val receipt = dto.toReceipt()
+            if (receipt.canceled) noteCanceled(paymentId, receipt.canceledAtIso)
+            when {
+                receipt.memoKnown -> receipt.also { edits.rememberMemo(paymentId, it.memo) }
+                else -> edits.memo(paymentId)?.let { receipt.copy(memo = it.text, memoKnown = true) } ?: receipt
+            }
+        }
+
+    /**
+     * 결제일(한국 날짜)과 그 전날의 결제 내역에서 찾는다 — 목록은 요청 시각으로 거르므로 자정 직전 요청 · 직후 승인이면 전날에 있다.
+     * 받은 줄의 메모는 모두 기억한다. 기본 목록은 승인 · 취소만이라 거절된 결제는 못 찾는다(모름으로 남는다)
+     */
+    override suspend fun findMemo(paymentId: Long, paidAtIso: String?): KnownMemo? {
+        edits.memo(paymentId)?.let { return it }
+        val day = paidAtIso?.let { runCatching { OffsetDateTime.parse(it).atZoneSameInstant(KST).toLocalDate() }.getOrNull() } ?: return null
+        for (page in 1..MEMO_LOOKUP_PAGES) {
+            val result = apiCall { api.memoPage(from = day.minusDays(1).toString(), to = day.toString(), page = page) }
+            val data = (result as? ApiResult.Success)?.data ?: return null
+            data.items.forEach { edits.rememberMemo(it.paymentId, it.memo) }
+            data.items.firstOrNull { it.paymentId == paymentId }?.let { return KnownMemo(it.memo) }
+            if (!data.hasNext) return null
+        }
+        return null
+    }
+
+    override suspend fun cancel(paymentId: Long, idempotencyKey: String): ApiResult<CancelResult> =
+        apiCall { api.cancel(paymentId, idempotencyKey, CancelRequest()) }.map { it.toResult() }.also {
+            if (it is ApiResult.Success) noteCanceled(paymentId, it.data.canceledAtIso)
+        }
+
+    /** 방금 승인한 영수증(P-07)이 승인 상태로 남지 않게 지우고, 처음 알게 된 취소일 때만 다른 화면에 알린다 */
+    private fun noteCanceled(paymentId: Long, canceledAtIso: String?) {
+        receipts.remove(paymentId)
+        if (edits.markCanceled(paymentId, canceledAtIso)) edits.changed()
+    }
+
+    override suspend fun saveMemo(paymentId: Long, memo: String?): ApiResult<String?> =
+        apiCall { api.memo(paymentId, MemoRequest(memo.orEmpty())) }.map { it.memo }.also {
+            if (it is ApiResult.Success) {
+                edits.rememberMemo(paymentId, it.data)
+                edits.changed()
+            }
+        }
+
+    private companion object {
+        /** 하루 이틀 결제가 100건을 넘는 일은 드물다 — 3쪽(300건)까지만 보고 모름으로 둔다 */
+        const val MEMO_LOOKUP_PAGES = 3
+    }
 }
 
 @Module

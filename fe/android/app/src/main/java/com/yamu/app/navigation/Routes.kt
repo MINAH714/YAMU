@@ -60,6 +60,7 @@ import kotlinx.serialization.Serializable
     val purchaseDate: String,
 )
 @Serializable data class BuyCheckSaved(val planId: Long)            // I-05
+@Serializable data object LivingCostDetail   // F-01b 생활비 예측(GET forecasts/living-cost)
 
 // ── 카드추천 탭 (PayGraph) ──
 @Serializable data object Recommend          // P-01
@@ -91,6 +92,9 @@ import kotlinx.serialization.Serializable
 @Serializable data object Profile            // M-06
 @Serializable data object Withdraw           // M-07b 회원 탈퇴
 @Serializable data object Security           // M-08
+@Serializable data object Billing            // M-09 청구 · 환급(청구서 · 환급 탭)
+@Serializable data class CardBills(val userCardId: Long)    // M-09 한 카드 청구서만(M-03 다음 출금에서) — Billing과 같은 화면
+@Serializable data class BillDetail(val billId: Long)       // M-09b 청구서 상세
 
 // ── 공통 ──
 @Serializable data object Relock             // 앱 자동 잠금 — A-03b 화면을 보던 화면 위에(13 문서 9·10-2)

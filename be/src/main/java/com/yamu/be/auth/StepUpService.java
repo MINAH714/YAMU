@@ -17,6 +17,7 @@ import com.yamu.be.global.crypto.PinHasher;
 import com.yamu.be.global.exception.BusinessException;
 import com.yamu.be.global.exception.ErrorCode;
 import com.yamu.be.global.security.AuthUser;
+import com.yamu.be.user.domain.BarcodeAuthMethod;
 import java.time.Clock;
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
@@ -34,6 +35,10 @@ import org.springframework.stereotype.Service;
  * </pre>
  *
  * 기기는 요청 본문이 아니라 Access Token의 기기(did)로 정한다. 다른 기기의 키로 인증하는 경로를 아예 만들지 않기 위해서다.
+ *
+ * <p>사용자가 보안 설정에서 결제 코드 인증을 "간편 비밀번호만"({@link BarcodeAuthMethod#PIN_ONLY})으로 골랐으면, BARCODE 용도는
+ * 생체 인증을 받지 않는다(S15P31E103-367). challenge의 허용 방식에서 빼고, 생체로 검증을 보내면 거절하고, 설정을 바꾸기 전에
+ * 생체로 받아 둔 토큰도 결제 코드 발급에서 막는다.
  */
 @Service
 @RequiredArgsConstructor
@@ -54,7 +59,7 @@ public class StepUpService {
         UserDevice device = requireActiveDevice(me);
         LocalDateTime now = LocalDateTime.now(clock);
         IssuedChallenge challenge = challengeStore.issue(device.getId(), purpose);
-        List<AuthMethod> allowed = device.isBiometricEnabled()
+        List<AuthMethod> allowed = device.isBiometricEnabled() && !pinOnly(device, purpose)
                 ? List.of(AuthMethod.BIOMETRIC, AuthMethod.PIN) : List.of(AuthMethod.PIN);
         return new StepUpChallengeResponse(challenge.challengeId(), challenge.challenge(), purpose, allowed,
                 expiresAt(now, challenge.expiresIn()));
@@ -69,6 +74,12 @@ public class StepUpService {
         StoredChallenge challenge = challengeStore.consume(request.challengeId())
                 .filter(c -> c.userDeviceId().equals(me.userDeviceId()) && c.purpose() != StepUpPurpose.LOGIN)
                 .orElseThrow(() -> new BusinessException(ErrorCode.CHALLENGE_EXPIRED));
+
+        // 임시(S15P31E103-367): 명세에 따로 정한 코드가 없어 400 INVALID_REQUEST(method). 서명을 확인하기 전이라 실패 횟수는 늘지 않는다.
+        if (request.method() == AuthMethod.BIOMETRIC && pinOnly(requireActiveDevice(me), challenge.purpose())) {
+            throw new BusinessException(ErrorCode.INVALID_REQUEST, Map.of("fieldErrors", List.of(
+                    new FieldErrorResponse("method", "결제 코드는 간편 비밀번호로만 열도록 설정되어 있습니다."))));
+        }
 
         CredentialCommand command = new CredentialCommand(me.userDeviceId(), request.challengeId(), request.method(),
                 request.signature(), request.pin());
@@ -102,7 +113,11 @@ public class StepUpService {
                         && g.purpose() == purpose)
                 .orElseThrow(() -> new BusinessException(ErrorCode.STEP_UP_REQUIRED));
         // 토큰은 5분까지 살아 있으므로 그사이 해제·잠긴 기기는 여기서 다시 막는다.
-        requireActiveDevice(me);
+        UserDevice device = requireActiveDevice(me);
+        // 생체로 받은 뒤 "간편 비밀번호만"으로 바꿨으면 그 토큰으로는 결제 코드를 열지 않는다(토큰은 이미 지워짐).
+        if (grant.method() == AuthMethod.BIOMETRIC && pinOnly(device, purpose)) {
+            throw new BusinessException(ErrorCode.STEP_UP_REQUIRED);
+        }
         return grant;
     }
 
@@ -115,6 +130,12 @@ public class StepUpService {
             throw new BusinessException(ErrorCode.DEVICE_LOCKED, DeviceLockDetails.of(device));
         }
         return device;
+    }
+
+    /** 결제 코드(BARCODE) 용도이고 사용자가 "간편 비밀번호만"을 골랐는지. 다른 용도는 설정과 상관없다. */
+    private static boolean pinOnly(UserDevice device, StepUpPurpose purpose) {
+        return purpose == StepUpPurpose.BARCODE
+                && device.getUser().getBarcodeAuthMethod() == BarcodeAuthMethod.PIN_ONLY;
     }
 
     /** 로그인 기준 실패 코드를 본인 인증 명세 코드로 바꾼다. 서명·PIN 실패는 STEP_UP_FAILED(PIN이면 남은 횟수 포함). */

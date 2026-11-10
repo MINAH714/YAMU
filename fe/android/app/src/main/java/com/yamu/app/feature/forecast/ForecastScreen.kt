@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.TextAutoSize
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
@@ -40,9 +41,11 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.LifecycleResumeEffect
@@ -111,6 +114,7 @@ data class ForecastState(
     val accounts: List<ForecastAccountOption>? = null,  // 계좌 고르기 시트 — 열 때 부른다
     val accountsError: String? = null,
     val entries: List<CashflowEntry>? = null,     // F-02 가계부 회차(고칠 수 있는 줄) — 못 받으면 예보 줄만(읽기 전용)
+    val pastEntries: List<CashflowEntry> = emptyList(),   // F-02 지난 7일 카드 예정 지출 — 결제와 연결만
     val entriesLoading: Boolean = false,
     val entriesError: String? = null,
 ) {
@@ -149,6 +153,12 @@ class ForecastViewModel @Inject constructor(private val repo: ForecastRepository
             when (val r = repo.cashflowEntries(from, to)) {
                 is ApiResult.Success -> _state.update { it.copy(entries = r.data, entriesLoading = false, entriesError = null) }
                 is ApiResult.Failure -> _state.update { it.copy(entriesLoading = false, entriesError = r.error.userMessage()) }
+            }
+            // 지난 7일 카드 예정 지출 — 결제와 연결할 회차. 못 받아도 위 목록은 그대로라 조용히 비운다
+            val today = LocalDate.now(KST)
+            when (val r = repo.pastCardEntries(today.minusDays(PAST_MATCH_DAYS), today.minusDays(1))) {
+                is ApiResult.Success -> _state.update { it.copy(pastEntries = r.data) }
+                is ApiResult.Failure -> _state.update { it.copy(pastEntries = emptyList()) }
             }
         }
     }
@@ -234,6 +244,7 @@ fun ForecastRoute(
     onCashflowList: () -> Unit,
     onLink: () -> Unit,
     onAlertSettings: () -> Unit = {},
+    onLivingCost: () -> Unit = {},
     viewModel: ForecastViewModel = hiltViewModel(),
 ) {
     val s by viewModel.state.collectAsStateWithLifecycle()
@@ -273,6 +284,7 @@ fun ForecastRoute(
                     HeroCard(f, s.error)
                     if (f.riskWindows.isNotEmpty()) RiskCard(f)
                     LinesCard(f)
+                    LivingCostEntry(f, onLivingCost)   // F-01b 생활비 예측 입구
                     UpcomingCard(f, onCashflowList)
                     NoticeCard(f, s.selection)
                 }
@@ -441,7 +453,16 @@ private fun DayPanel(day: ForecastDay, hasConservative: Boolean) {
 private fun DayValue(label: String, value: Long?, color: androidx.compose.ui.graphics.Color, modifier: Modifier) {
     Column(modifier) {
         Text(label, style = YamuTheme.typography.bodyS, color = YamuTheme.colors.text3)
-        Text(value?.let { "${it.toWon()}원" } ?: "—", style = YamuTheme.typography.titleS, color = if ((value ?: 0) < 0) YamuTheme.colors.error else color)
+        // 세 칸이 좁아 아주 큰 금액이 숫자 중간에서 줄이 바뀌었다 — 한 줄로 두고 글자를 줄이며, 그래도 넘치면 말줄임(점검 2026-11-08)
+        val style = YamuTheme.typography.titleS
+        Text(
+            value?.let { "${it.toWon()}원" } ?: "—",
+            style = style,
+            color = if ((value ?: 0) < 0) YamuTheme.colors.error else color,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            autoSize = TextAutoSize.StepBased(minFontSize = 8.sp, maxFontSize = style.fontSize, stepSize = 0.5.sp),
+        )
     }
 }
 
@@ -760,6 +781,9 @@ fun CashflowListRoute(
                             }
                         }
                     }
+                    // 지난 7일 카드 예정 지출 — 결제와 연결만(계좌를 일부만 골랐으면 그 계좌 카드만)
+                    val scope = f?.scope
+                    PastCardEntriesCard(s.pastEntries.filter { scope?.includes(it) ?: true }, onOpen = { onEdit(it.itemId, it.occurrenceDate) })
                 }
             }
             Spacer(Modifier.height(YamuSpacing.x6))

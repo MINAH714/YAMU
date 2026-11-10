@@ -10,12 +10,11 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import dagger.hilt.android.qualifiers.ApplicationContext
-import kotlinx.coroutines.channels.BufferOverflow
-import kotlinx.coroutines.flow.MutableSharedFlow
-import kotlinx.coroutines.flow.SharedFlow
-import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.security.KeyStore
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
@@ -30,6 +29,8 @@ private val REFRESH_TOKEN = stringPreferencesKey("refresh_token_enc")
 /**
  * Refresh 토큰은 Android Keystore의 AES-GCM 키로 암호화해서 DataStore에 둔다.
  * (security-crypto의 EncryptedSharedPreferences는 지원 중단이라 쓰지 않음 — 03 문서)
+ * 저장 · 지우기 · 비교해서 지우기는 같은 [mutex] 안에서 한다. 늦게 도착한 401의 정리가 그사이 로그인한 새 토큰을 지우지 않게.
+ * *Blocking 함수는 OkHttp 스레드에서만 부른다 — 메인 스레드에서 부르면 메인에서 저장을 마무리하려는 쪽과 서로 기다린다
  */
 @Singleton
 class KeystoreTokenStore @Inject constructor(
@@ -37,14 +38,18 @@ class KeystoreTokenStore @Inject constructor(
 ) : TokenStore {
 
     private val cipher = KeystoreCipher()
+    private val mutex = Mutex()
 
     @Volatile override var accessToken: String? = null
         private set
 
     @Volatile private var refreshToken: String? = null
 
-    private val _sessionExpired = MutableSharedFlow<Unit>(extraBufferCapacity = 1, onBufferOverflow = BufferOverflow.DROP_OLDEST)
-    override val sessionExpired: SharedFlow<Unit> = _sessionExpired.asSharedFlow()
+    @Volatile override var tokenVersion: Long = 0
+        private set
+
+    private val signal = SessionEndSignal()
+    override val sessionEnd: StateFlow<SessionEndEvent?> = signal.pending
 
     override fun refreshTokenBlocking(): String? {
         refreshToken?.let { return it }
@@ -53,25 +58,40 @@ class KeystoreTokenStore @Inject constructor(
     }
 
     override suspend fun save(tokens: AuthTokens) {
-        accessToken = tokens.accessToken
-        refreshToken = tokens.refreshToken
-        val encrypted = cipher.encrypt(tokens.refreshToken)
-        context.tokenDataStore.edit { it[REFRESH_TOKEN] = encrypted }
+        mutex.withLock {
+            accessToken = tokens.accessToken
+            refreshToken = tokens.refreshToken
+            tokenVersion++
+            val encrypted = cipher.encrypt(tokens.refreshToken)
+            context.tokenDataStore.edit { it[REFRESH_TOKEN] = encrypted }
+        }
     }
 
     override fun saveBlocking(tokens: AuthTokens) = runBlocking { save(tokens) }
 
-    override suspend fun clear() {
+    override suspend fun clear() = mutex.withLock { clearLocked() }
+
+    override fun clearBlocking() = runBlocking { clear() }
+
+    override fun clearIfCurrentBlocking(accessToken: String?): Long? = runBlocking {
+        mutex.withLock {
+            if (this@KeystoreTokenStore.accessToken != accessToken) null else tokenVersion.also { clearLocked() }
+        }
+    }
+
+    override suspend fun clearIfVersion(tokenVersion: Long): Boolean = mutex.withLock {
+        (this.tokenVersion == tokenVersion).also { same -> if (same) clearLocked() }
+    }
+
+    private suspend fun clearLocked() {
         accessToken = null
         refreshToken = null
         context.tokenDataStore.edit { it.remove(REFRESH_TOKEN) }
     }
 
-    override fun clearBlocking() = runBlocking { clear() }
+    override fun notifySessionEnd(event: SessionEndEvent) = signal.publish(event)
 
-    override fun notifySessionExpired() {
-        _sessionExpired.tryEmit(Unit)
-    }
+    override fun consumeSessionEnd(event: SessionEndEvent) = signal.consume(event)
 }
 
 /** Android Keystore AES-256-GCM — 키는 기기 밖으로 나가지 않는다 */

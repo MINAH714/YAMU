@@ -7,6 +7,9 @@ import com.yamu.app.feature.forecast.data.CashflowForm
 import com.yamu.app.feature.forecast.data.CashflowUpdateRequest
 import com.yamu.app.feature.forecast.data.ForecastRepository
 import com.yamu.app.feature.forecast.data.ForecastRepositoryImpl
+import com.yamu.app.feature.forecast.data.MatchCandidates
+import com.yamu.app.feature.forecast.data.MatchConfirmed
+import com.yamu.app.feature.forecast.data.PaymentMatch
 import com.yamu.app.feature.my.data.Device
 import com.yamu.app.feature.my.data.MyInfo
 import com.yamu.app.feature.my.data.MyRepository
@@ -14,11 +17,8 @@ import com.yamu.app.feature.my.data.MyRepositoryImpl
 import com.yamu.app.feature.my.data.NotiKind
 import com.yamu.app.feature.my.data.NotiSettings
 import com.yamu.app.feature.my.data.NotificationsPage
-import com.yamu.app.feature.payment.data.Merchant
-import com.yamu.app.feature.payment.data.PaymentReceipt
 import com.yamu.app.feature.payment.data.PaymentRepository
 import com.yamu.app.feature.payment.data.PaymentRepositoryImpl
-import com.yamu.app.feature.payment.data.Recommendation
 import java.time.LocalDate
 import javax.inject.Inject
 
@@ -26,23 +26,19 @@ import javax.inject.Inject
 // BE에 API가 생기면 여기 줄을 지운다. 지울 게 없어지면 클래스째 지우고 DataModule이 Impl을 바로 쓰게 한다.
 // 기본 위임은 항상 real이다. 메서드가 늘면 진짜로 가서 BE에 없으면 404로 드러난다.
 
-/** 진짜: 결제 코드 발급 · 상태 · 승인. 가짜: 가맹점 목록 · 결제 전 추천 · 거절 · 결제 상세 */
+/**
+ * 진짜: 결제 코드 발급 · 상태 · 승인 · 결제 상세 · 취소 · 메모. 가짜: 거절.
+ * 결제 상세는 진짜여야 한다 — 가짜 상세에서 본 번호로 진짜 취소 · 메모가 나가면 같은 번호의 내 실제 결제가 바뀐다
+ */
 class RealPaymentWithFakes @Inject constructor(
-    private val real: PaymentRepositoryImpl,
-    private val fake: FakePaymentRepository,
+    real: PaymentRepositoryImpl,
 ) : PaymentRepository by real {
-    override suspend fun merchants(): ApiResult<List<Merchant>> = fake.merchants()
-    override suspend fun recommend(merchantId: Long, amount: Long): ApiResult<Recommendation> = fake.recommend(merchantId, amount)
-
     /** 서버에 알리지 못해 결제는 확정 마감까지 요청 상태로 남는다 */
     override suspend fun reject(paymentId: Long, idempotencyKey: String): ApiResult<Unit> = ApiResult.Success(Unit)
-    /** 방금 승인한 결제는 진짜 영수증 — 가짜 내역과 번호가 겹쳐도 남의 결제가 나오지 않게 먼저 본다 */
-    override suspend fun detail(paymentId: Long): ApiResult<PaymentReceipt> =
-        real.recentReceipt(paymentId)?.let { ApiResult.Success(it) } ?: fake.detail(paymentId)
 }
 
 /**
- * 진짜: 가계부 등록 · 목록 · 수정 · 삭제. 가짜: 잔고예보 · 구매 판단 · 구매 계획.
+ * 진짜: 가계부 등록 · 목록 · 수정 · 삭제 · 결제 연결. 가짜: 잔고예보 · 생활비 상세 · 구매 판단 · 구매 계획.
  * 계획 지우기는 가짜로 둔다 — 가짜 계획 번호로 진짜 DELETE를 부르면 같은 번호의 내 항목이 지워질 수 있다
  */
 class RealCashflowWithFakes @Inject constructor(
@@ -55,6 +51,14 @@ class RealCashflowWithFakes @Inject constructor(
     override suspend fun updateItem(itemId: Long, body: CashflowUpdateRequest): ApiResult<Unit> = real.updateItem(itemId, body)
     override suspend fun deleteItem(itemId: Long, scope: CashflowDeleteScope, occurrenceDate: LocalDate?): ApiResult<Unit> =
         real.deleteItem(itemId, scope, occurrenceDate)
+
+    // 지난 회차 · 결제 연결도 진짜 가계부 번호를 쓰므로 진짜로(가짜는 진짜 항목 번호를 모른다). 생활비 상세는 잔고예보라 가짜
+    override suspend fun pastCardEntries(from: LocalDate, to: LocalDate): ApiResult<List<CashflowEntry>> = real.pastCardEntries(from, to)
+    override suspend fun matchStatus(itemId: Long, occurrenceDate: LocalDate): ApiResult<PaymentMatch?> = real.matchStatus(itemId, occurrenceDate)
+    override suspend fun matchCandidates(itemId: Long, occurrenceDate: LocalDate): ApiResult<MatchCandidates> = real.matchCandidates(itemId, occurrenceDate)
+    override suspend fun confirmMatch(itemId: Long, occurrenceDate: LocalDate, paymentId: Long): ApiResult<MatchConfirmed> =
+        real.confirmMatch(itemId, occurrenceDate, paymentId)
+    override suspend fun deleteMatch(matchId: Long): ApiResult<Unit> = real.deleteMatch(matchId)
 }
 
 /** 진짜: 기기 목록 · 해제 · 회원 탈퇴. 가짜: 회원 정보 · 설정 · 알림 */

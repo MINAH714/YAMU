@@ -98,6 +98,35 @@ class SimulationMapperTest {
         assertEquals(2, s.days.size)
     }
 
+    @Test fun `부족 시작일 — BE riskStartDate를 그대로 읽고, 가장 낮은 날과 따로 둔다(-347 !198)`() {
+        val withField = response
+            .replace(""""status":"SAFE"}""", """"status":"SAFE","riskStartDate":null}""")
+            .replace(""""status":"WARNING"}""", """"status":"WARNING","riskStartDate":"2026-11-20"}""")
+            .replace("""296,666원이 더 빠져요.""", """296,666원이 더 빠져요. 체크카드는 구매일 잔액보다 큰 금액은 결제되지 않을 수 있어요.""")
+        val s = YamuJson.decodeFromString(SimulationResponseDto.serializer(), withField).toSimulation(query)
+        assertNull(s.before!!.riskStartDate)   // SAFE면 null
+        assertEquals(LocalDate.of(2026, 11, 20), s.after!!.riskStartDate)
+        assertEquals(LocalDate.of(2026, 12, 7), s.after!!.minBalanceDate)
+        // 체크카드 잔액 초과 안내는 BE 문장 끝에 붙어 오고(!198, 16b1791b), 결과 화면은 message를 그대로 보인다
+        assertTrue(s.message!!.endsWith("체크카드는 구매일 잔액보다 큰 금액은 결제되지 않을 수 있어요."))
+    }
+
+    @Test fun `부족 시작일 — 칸이 없는 옛 응답이면 날짜를 계산해 채우지 않는다(!206 리뷰)`() {
+        // 날짜별 잔액은 통합 선뿐이라, 계좌 하나가 먼저 모자라면 늦은 날이 나오거나 빠진다 — 지어내지 않고 비운다
+        val s = parse()
+        assertNull(s.after!!.riskStartDate)
+        assertNull(s.before!!.riskStartDate)
+    }
+
+    @Test fun `업종을 고르면 맞추는 결제 방식 — 온라인 업종 넷만 온라인(점검 B-14)`() {
+        listOf("ONLINE_MARKETPLACE", "DELIVERY_APP", "STREAMING_SERVICE", "MEMBERSHIP_SUBSCRIPTION").forEach {
+            assertEquals(it, PaymentChannel.ONLINE, PaymentChannel.forCategory(it))
+        }
+        listOf("HYPERMARKET", "CONVENIENCE_STORE", "COFFEE_SHOP", "TELECOMMUNICATION", "OTHER", "SOMETHING_NEW").forEach {
+            assertEquals(it, PaymentChannel.OFFLINE, PaymentChannel.forCategory(it))
+        }
+    }
+
     @Test fun `응답 — 고른 카드보다 1순위가 크면 그 카드와 차이, 비교 못 한 카드는 이유`() {
         val s = parse()
         assertEquals(12L, s.betterCard!!.userCardId)

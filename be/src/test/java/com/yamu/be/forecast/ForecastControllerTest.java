@@ -1,6 +1,7 @@
 package com.yamu.be.forecast;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.endsWith;
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.nullValue;
 import static org.mockito.ArgumentMatchers.anyBoolean;
@@ -132,7 +133,30 @@ class ForecastControllerTest extends MySqlTestSupport {
                 // 앱은 이 값으로 "생활비 미반영"을 안내한다(요약 상태만으로는 생활비가 빠졌는지 알 수 없음)
                 .andExpect(jsonPath("$.data.livingCost.dataOrigin").value("INSUFFICIENT"))
                 .andExpect(jsonPath("$.data.livingCost.confidence").value("INSUFFICIENT"))
-                .andExpect(jsonPath("$.data.excluded", hasSize(0)));
+                .andExpect(jsonPath("$.data.excluded", hasSize(0)))
+                // 다음 달 빈 청구서는 기간 밖이어도 빠질 돈이 없어 미리보기에 넣지 않는다(-348)
+                .andExpect(jsonPath("$.data.beyondHorizon", hasSize(0)));
+    }
+
+    @Test
+    void 출금일이_기간_뒤인_청구는_선에_넣지_않고_기간_밖_미리보기로_알린다() throws Exception {
+        // 점검 R-5(-348): 기간 밖 출금은 전에는 안내 없이 빠졌다. 선택 계좌의 청구만, 출금일 순으로 담는다.
+        item(bill(cardOnA, today.plusDays(20), 0), cardOnA, 45_000L, "PENDING");
+        item(bill(cardOnB, today.plusDays(18), 0), cardOnB, 70_000L, "PENDING");
+
+        mockMvc.perform(get("/api/forecasts/balance").with(AuthUsers.asUser(owner))
+                        .param("accountIds", String.valueOf(accountA)).param("until", "DAYS").param("days", "14"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.series[14].expected").value(1_000_000))
+                .andExpect(jsonPath("$.data.beyondHorizon", hasSize(1)))
+                .andExpect(jsonPath("$.data.beyondHorizon[0].date").value(today.plusDays(20).toString()))
+                .andExpect(jsonPath("$.data.beyondHorizon[0].type").value("CARD_BILLING"))
+                .andExpect(jsonPath("$.data.beyondHorizon[0].amount").value(-45_000))
+                .andExpect(jsonPath("$.data.beyondHorizon[0].confidence").value("EXPECTED"))
+                .andExpect(jsonPath("$.data.beyondHorizon[0].accountId").value(accountA))
+                .andExpect(jsonPath("$.data.beyondHorizon[0].userCardId").value(cardOnA))
+                .andExpect(jsonPath("$.data.beyondHorizon[0].title").value(endsWith(today.getMonthValue() + "월 청구")))
+                .andExpect(jsonPath("$.data.riskWindows", hasSize(0)));
     }
 
     @Test
@@ -255,11 +279,14 @@ class ForecastControllerTest extends MySqlTestSupport {
         long strangerCard = fixtures.card(stranger, fixtures.product(), fixtures.account(stranger), "ACTIVE");
         long strangerBill = billOf(stranger, strangerCard, today.plusDays(3), 0);
         itemOf(stranger, strangerBill, strangerCard, 40_000L, "PENDING");
+        // 기간 밖 청구도 남의 것은 미리보기에 섞이지 않는다(-348)
+        itemOf(stranger, billOf(stranger, strangerCard, today.plusDays(20), 1), strangerCard, 60_000L, "PENDING");
 
         mockMvc.perform(get("/api/forecasts/balance").with(AuthUsers.asUser(owner))
                         .param("accountIds", String.valueOf(accountA)).param("until", "DAYS").param("days", "7"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.series[7].expected").value(1_000_000));
+                .andExpect(jsonPath("$.data.series[7].expected").value(1_000_000))
+                .andExpect(jsonPath("$.data.beyondHorizon", hasSize(0)));
     }
 
     @Test

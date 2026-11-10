@@ -1,0 +1,27 @@
+name: yamu-status
+services:
+  portal:
+    image: yamu-status:${STATUS_VERSION:?Set reviewed source version}
+    build:
+      context: .
+      args:
+        PYTHON_IMAGE: python@sha256:1e1f6334529d1fb26a2ef619d7cffb30a7c7d7cc1cc7338ebee283a58d1aeaca
+    restart: unless-stopped
+    read_only: true
+    init: true
+    environment:
+      GRAFANA_URL: http://grafana:3000/monitoring/
+    ports: ['127.0.0.1:13010:8080']
+    networks: [monitor, frontend]
+    mem_limit: 192m
+    cpus: 0.5
+    cap_drop: [ALL]
+    security_opt: ['no-new-privileges:true']
+    logging:
+      driver: json-file
+      options: {max-size: '5m', max-file: '2'}
+networks:
+  monitor:
+    external: true
+    name: yamu-monitoring_monitor
+  frontend: {}

@@ -4,6 +4,8 @@ import com.yamu.app.feature.auth.data.AuthRepository
 import com.yamu.app.feature.auth.data.AuthRepositoryImpl
 import com.yamu.app.feature.auth.data.SignupRepository
 import com.yamu.app.feature.auth.data.SignupRepositoryImpl
+import com.yamu.app.feature.billing.data.BillingRepository
+import com.yamu.app.feature.billing.data.BillingRepositoryImpl
 import com.yamu.app.feature.forecast.data.ForecastRepository
 import com.yamu.app.feature.forecast.data.ForecastRepositoryImpl
 import com.yamu.app.feature.home.data.HomeRepository
@@ -58,4 +60,7 @@ abstract class DataModule {
 
     @Binds
     abstract fun myRepository(impl: MyRepositoryImpl): MyRepository
+
+    @Binds
+    abstract fun billingRepository(impl: BillingRepositoryImpl): BillingRepository
 }

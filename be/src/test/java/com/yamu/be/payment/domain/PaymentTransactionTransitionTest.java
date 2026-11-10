@@ -170,6 +170,60 @@ class PaymentTransactionTransitionTest {
         assertThatThrownBy(fresh::releaseApproval).isInstanceOf(IllegalStateException.class);
     }
 
+    // ───────── 사용자 거절(S15P31E103-360) ─────────
+
+    @Test
+    void REQUESTED를_사용자가_거절하면_REJECTED이고_다시_승인할_수_없다() {
+        PaymentTransaction payment = requested();
+
+        payment.reject();
+
+        assertThat(payment.getStatus()).isEqualTo(PaymentStatus.REJECTED);
+        assertThat(payment.isConfirmable()).isFalse();
+        assertThatThrownBy(() -> payment.startApproval(15L, 3L)).isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(payment::expire).isInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
+    void 카드_거절_뒤_사용자가_거절하면_REJECTED이고_앞_시도의_카드와_사유는_남는다() {
+        PaymentTransaction payment = requested();
+        payment.startApproval(15L, 3L);
+        payment.decline("INSUFFICIENT_BALANCE");
+
+        payment.reject();
+
+        assertThat(payment.getStatus()).isEqualTo(PaymentStatus.REJECTED);
+        assertThat(payment.getUserCardId()).isEqualTo(15L);
+        assertThat(payment.getFailureCode()).isEqualTo("INSUFFICIENT_BALANCE");
+    }
+
+    @Test
+    void 출금_미확인으로_거절한_결제는_사용자가_거절할_수_없다() {
+        PaymentTransaction payment = requested();
+        payment.startApproval(15L, 3L);
+        payment.assignFinRequestNo("20261022143005000001", 15_000);
+        payment.decline(PaymentTransaction.WITHDRAWAL_NOT_CONFIRMED);
+
+        assertThat(payment.isWithdrawalUnconfirmed()).isTrue();
+        assertThatThrownBy(payment::reject).isInstanceOf(IllegalStateException.class);
+        assertThat(payment.getStatus()).isEqualTo(PaymentStatus.DECLINED);
+    }
+
+    @Test
+    void 처리_중_승인_만료_거절된_결제는_사용자가_거절할_수_없다() {
+        PaymentTransaction processing = requested();
+        processing.startApproval(15L, 3L);
+        assertThatThrownBy(processing::reject).isInstanceOf(IllegalStateException.class);
+
+        PaymentTransaction expired = requested();
+        expired.expire();
+        assertThatThrownBy(expired::reject).isInstanceOf(IllegalStateException.class);
+
+        PaymentTransaction rejected = requested();
+        rejected.reject();
+        assertThatThrownBy(rejected::reject).isInstanceOf(IllegalStateException.class);
+    }
+
     private static PaymentTransaction requested() {
         return PaymentTransaction.request(7L, 1L, PaymentChannel.OFFLINE, FacilityType.GENERAL, null,
                 "4b4a1f4e-0d1e-4a1e-9b4e-5f7d2c1a0001", new byte[32], 15_000, 1, REQUESTED_AT);

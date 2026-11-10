@@ -7,6 +7,7 @@ import kotlinx.serialization.json.jsonObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.time.LocalDate
 
@@ -58,6 +59,54 @@ class SignupTest {
         val c = AccountCandidateDto("cand_1", BankDto("004", "KB국민은행"), "****-****-****-1234").toCandidate()
         assertEquals("1234", c.last4)
         assertEquals("KB국민은행", c.name)
+    }
+
+    @Test fun `1원 유효 시간은 서버 두 시각의 차 · 못 읽으면 5분`() {
+        assertEquals(300, oneWonValidSeconds("2026-11-09T03:00:00Z", "2026-11-09T03:05:00Z"))
+        assertEquals(180, oneWonValidSeconds("2026-11-09T03:00:00Z", "2026-11-09T03:03:00Z"))
+        assertEquals(300, oneWonValidSeconds(null, "2026-11-09T03:05:00Z"))       // 요청 시각이 없으면 폰 시계와 비교하지 않는다
+        assertEquals(300, oneWonValidSeconds("2026-11-09T03:00:00", "2026-11-09T03:05:00Z"))   // Z 없음
+        assertEquals(300, oneWonValidSeconds("2026-11-09T03:05:00Z", "2026-11-09T03:00:00Z"))  // 거꾸로
+    }
+
+    @Test fun `1원 응답 — 시연용 숫자(BE -350)와 요청 · 만료 시각을 읽고 없으면 빠진 대로`() {
+        val withCode = YamuJson.decodeFromString(
+            OneWonAuthResponse.serializer(),
+            """{"verificationToken":"avt_1","bank":{"code":"088","name":"신한은행"},"maskedAccountNo":"****4450",""" +
+                """"authRequestedAt":"2026-11-09T03:00:00Z","authExpiresAt":"2026-11-09T03:05:00Z","depositorNamePrefix":"YAMU",""" +
+                """"codeLength":4,"deliveryUncertain":false,"demoCode":"1004"}""",
+        )
+        assertEquals("1004", withCode.demoCode)
+        assertEquals(300, oneWonValidSeconds(withCode.authRequestedAt, withCode.authExpiresAt))
+        // NON_NULL이라 시연 서버가 아니면 demoCode · hint 필드가 빠진다
+        val without = YamuJson.decodeFromString(
+            OneWonAuthResponse.serializer(),
+            """{"verificationToken":"avt_1","depositorNamePrefix":"YAMU","codeLength":4,"deliveryUncertain":false}""",
+        )
+        assertNull(without.demoCode)
+        assertNull(without.authRequestedAt)
+    }
+
+    @Test fun `1원 응답이 늦어도 남은 시간은 요청을 보낸 때부터 센다`() {
+        // 0초에 보냄 → 서버가 송금을 마치고 10초에 authRequestedAt을 찍음 → 앱은 10초 뒤에 응답을 받음
+        val response = OneWonAuthResponse(
+            verificationToken = "avt_1",
+            authRequestedAt = "2026-11-09T03:00:10Z",
+            authExpiresAt = "2026-11-09T03:05:10Z",
+        )
+        val sent = response.toOneWon(sentAtMillis = 0L)
+        assertEquals(0L, sent.sentAtMillis)
+        assertEquals(290, sent.secondsLeft(nowMillis = 10_000L))     // 응답을 받은 순간 5분이 아니라 4분 50초
+        assertTrue(sent.secondsLeft(nowMillis = 300_000L) <= 0)      // 보낸 지 5분이면 지남(실제 만료보다 늦게 보이지 않음)
+        assertEquals(300, sent.secondsLeft(nowMillis = -5_000L))     // 폰 시각이 거꾸로 가도 5분을 넘지 않는다
+    }
+
+    @Test fun `가입 중 409 · 404 코드는 공통 문장으로 떨어지지 않는다`() {
+        assertEquals("이미 가입을 마쳤어요 · 처음 화면의 로그인으로 이 폰을 등록해 주세요", signupErrorMessage("ALREADY_REGISTERED"))
+        assertNotNull(signupErrorMessage("DEVICE_LIMIT_EXCEEDED"))
+        assertNotNull(signupErrorMessage("ACCOUNT_NOT_FOUND_AT_BANK"))
+        assertNotNull(signupErrorMessage("ACCOUNT_NOT_SUPPORTED"))
+        assertNotNull(signupErrorMessage("IDEMPOTENCY_KEY_REUSED"))
     }
 
     @Test fun `본인인증 확인 응답 — 이미 가입이면 재등록`() {

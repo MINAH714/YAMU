@@ -236,7 +236,7 @@ fun PinSetupRoute(
         topBar = {
             Column(Modifier.background(c.surface)) {
                 YamuTopBar(if (s.recovery) "이 폰 등록" else "회원가입", onBack = onBack)
-                if (!s.recovery) StartStepper(step = 3, total = 3, label = "간편 비밀번호")
+                if (!s.recovery) StartStepper(step = 4, total = SIGNUP_STEPS, label = "간편 비밀번호")
             }
         },
         bottomBar = { NumberKeypad(KeypadMode.Pin, onKey = viewModel::onKey, shuffleKey = s.shuffleKey, background = c.background, topDivider = true) },

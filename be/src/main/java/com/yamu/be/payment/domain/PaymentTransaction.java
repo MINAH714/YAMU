@@ -305,6 +305,26 @@ public class PaymentTransaction extends BaseTimeEntity {
     }
 
     /**
+     * 출금 미확인으로 거절한 결제인지. 복구 작업이 같은 요청 번호의 출금을 늦게 찾으면 APPROVED로 되돌리므로
+     * 사용자 거절로 닫지 않는다(S15P31E103-360).
+     */
+    public boolean isWithdrawalUnconfirmed() {
+        return status == PaymentStatus.DECLINED && WITHDRAWAL_NOT_CONFIRMED.equals(failureCode);
+    }
+
+    /**
+     * 사용자가 앱에서 결제 요청을 거절했다(S15P31E103-360, 임시: 명세 4-2에 없는 전이). 승인할 수 있는 REQUESTED·DECLINED에서만
+     * REJECTED가 된다. 출금 미확인 DECLINED는 돈이 나갔을 수 있어 막는다. 앞 시도의 카드·거절 사유는 남긴다.
+     */
+    public void reject() {
+        requireStatus("사용자 거절", PaymentStatus.REQUESTED, PaymentStatus.DECLINED);
+        if (isWithdrawalUnconfirmed()) {
+            throw new IllegalStateException("출금 미확인 결제는 거절할 수 없습니다 (결제 " + id + ")");
+        }
+        this.status = PaymentStatus.REJECTED;
+    }
+
+    /**
      * 전체 취소(POL-006, Task 5.3.2). APPROVED에서만 CANCELED가 된다. 승인 당시 값(승인액·실적 인정액·실적 월·출금 번호)은
      * 지우지 않는다. 실적·한도 복구는 원장 포트가 같은 트랜잭션에서 한다.
      */

@@ -38,6 +38,32 @@ class ApiCallTest {
     }
 
     @Test
+    fun `403 기기 잠금은 Locked - 본인 확인 필요와 나눈다`() = runTest {
+        server.enqueue(json(403, """{"success":false,"data":null,"error":{"code":"DEVICE_LOCKED","message":"m","details":{"lockedUntil":"2026-11-09T03:30:00Z"}}}"""))
+        val error = (apiCall { api.sample() } as ApiResult.Failure).error
+        assertTrue(error is ApiError.Locked)
+        assertEquals("2026-11-09T03:30:00Z", error.detailString("lockedUntil"))
+        assertTrue(ApiError.from(403, "STEP_UP_FAILED") is ApiError.StepUpRequired)
+    }
+
+    @Test
+    fun `서버에 없는 API는 NotSupported - 데이터가 없는 404와 나눈다`() = runTest {
+        server.enqueue(errorJson(404, "API_NOT_FOUND"))
+        server.enqueue(errorJson(405, "METHOD_NOT_ALLOWED"))
+        server.enqueue(errorJson(404, "RESOURCE_NOT_FOUND"))
+
+        assertEquals(ApiResult.Failure(ApiError.NotSupported("API_NOT_FOUND")), apiCall { api.sample() })
+        assertEquals(ApiResult.Failure(ApiError.NotSupported("METHOD_NOT_ALLOWED")), apiCall { api.sample() })
+        assertEquals(ApiResult.Failure(ApiError.NotFound("RESOURCE_NOT_FOUND")), apiCall { api.sample() })
+    }
+
+    @Test
+    fun `409는 코드와 상관없이 Conflict로 두고 코드를 그대로 넘긴다`() = runTest {
+        server.enqueue(errorJson(409, "CARD_HAS_OPEN_BILL"))
+        assertEquals(ApiResult.Failure(ApiError.Conflict("CARD_HAS_OPEN_BILL")), apiCall { api.sample() })
+    }
+
+    @Test
     fun `금융망 오류 502 · 504는 BankUnavailable`() = runTest {
         server.enqueue(errorJson(502, "FIN_API_UNAVAILABLE"))
         server.enqueue(errorJson(504, "UPSTREAM_TIMEOUT"))

@@ -1,0 +1,17 @@
+loki.source.file "yamu" {
+  targets = [
+    {__path__ = "/var/log/yamu/api.jsonl", service = "api"},
+    {__path__ = "/var/log/yamu/backend.jsonl", service = "backend"},
+    {__path__ = "/var/log/yamu/ai.jsonl", service = "ai"},
+    {__path__ = "/var/log/yamu/jenkins-ci.jsonl", service = "jenkins-ci"},
+    {__path__ = "/var/log/yamu/jenkins-cd.jsonl", service = "jenkins-cd"},
+    {__path__ = "/var/log/yamu/jenkins-verification.jsonl", service = "jenkins-verification"},
+    {__path__ = "/var/log/yamu/deployments.jsonl", service = "deployments"},
+  ]
+  forward_to = [loki.write.local.receiver]
+}
+loki.write "local" {
+  endpoint {
+    url = "http://loki:3100/loki/api/v1/push"
+  }
+}

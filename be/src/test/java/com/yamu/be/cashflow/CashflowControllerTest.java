@@ -423,6 +423,82 @@ class CashflowControllerTest extends MySqlTestSupport {
         }
     }
 
+    @Test
+    void 등록의_enum_칸에_숫자나_이름이_다른_문자열이_오면_순번으로_읽지_않고_400이다() throws Exception {
+        // S15P31E103-339: 전에는 "type": 0을 INCOME으로, 요일 순번을 그 요일로 저장했다
+        String recurrence = "\"recurrence\": { \"frequency\": %s, \"dayOfWeek\": %s }";
+        String weekly = "\"WEEKLY\"";
+        String day = '"' + tomorrow.getDayOfWeek().name() + '"';
+        String[] bodies = {
+                "\"type\": 0",
+                "\"type\": \"0\"",
+                "\"type\": \"income\"",
+                "\"type\": \" INCOME \"",
+                "\"type\": \"EXPENSE\", " + recurrence.formatted(CashflowItem.RecurrenceType.WEEKLY.ordinal(), day),
+                "\"type\": \"EXPENSE\", " + recurrence.formatted(weekly, tomorrow.getDayOfWeek().ordinal()),
+                "\"type\": \"EXPENSE\", " + recurrence.formatted(weekly, '"' + String.valueOf(tomorrow.getDayOfWeek().ordinal()) + '"'),
+        };
+        for (String body : bodies) {
+            mockMvc.perform(post("/api/cashflow-items").with(AuthUsers.asUser(owner))
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(("{ " + body + ", \"title\": \"월세\", \"amount\": 500000, \"date\": \"%s\", \"accountId\": %d }")
+                                    .formatted(tomorrow, account)))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.error.code").value("INVALID_REQUEST"))
+                    // 본문 형식 오류로 거절한다(금액 소수 거절과 같은 경로라 칸별 사유는 없다)
+                    .andExpect(jsonPath("$.error.details.fieldErrors").doesNotExist());
+        }
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM cashflow_item WHERE user_id = ?", Integer.class, owner))
+                .isZero();
+    }
+
+    @Test
+    void 수정의_enum_칸에_숫자가_오면_순번으로_읽지_않고_400이며_바꾸지_않는다() throws Exception {
+        long rule = new CashflowFixtures(jdbc).rule(owner, account, tomorrow, "NONE", null);
+        jdbc.update("UPDATE cashflow_item SET status = 'CANDIDATE' WHERE cashflow_item_id = ?", rule);
+        String[] bodies = {
+                // 0은 CONFIRMED 순번이다. 전에는 탐지 후보를 확인으로 바꿨다
+                "{ \"status\": 0 }",
+                "{ \"status\": \"0\" }",
+                // 1은 THIS_ONLY 순번이다. 전에는 이번 회차만 고쳤다
+                "{ \"scope\": 1, \"occurrenceDate\": \"%s\", \"amount\": 1000 }".formatted(tomorrow),
+                "{ \"type\": 1, \"amount\": 1000 }",
+                "{ \"recurrence\": { \"frequency\": 0 } }",
+        };
+        for (String body : bodies) {
+            mockMvc.perform(patch("/api/cashflow-items/{id}", rule).with(AuthUsers.asUser(owner))
+                            .contentType(MediaType.APPLICATION_JSON).content(body))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.error.code").value("INVALID_REQUEST"))
+                    .andExpect(jsonPath("$.error.details.fieldErrors").doesNotExist());
+        }
+        em.flush();
+        em.clear();
+        assertThat(jdbc.queryForObject("SELECT status FROM cashflow_item WHERE cashflow_item_id = ?", String.class, rule))
+                .isEqualTo("CANDIDATE");
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM cashflow_occurrence WHERE cashflow_item_id = ? AND amount <> 10000",
+                Integer.class, rule)).isZero();
+    }
+
+    @Test
+    void enum_칸의_이름_문자열은_그대로_받는다() throws Exception {
+        mockMvc.perform(post("/api/cashflow-items").with(AuthUsers.asUser(owner))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                { "type": "EXPENSE", "title": "헬스장", "amount": 89000, "date": "%s",
+                                  "recurrence": { "frequency": "WEEKLY", "dayOfWeek": "%s" }, "accountId": %d }
+                                """.formatted(tomorrow, tomorrow.getDayOfWeek(), account)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.recurrence.dayOfWeek").value(tomorrow.getDayOfWeek().name()));
+
+        long rule = new CashflowFixtures(jdbc).rule(owner, account, tomorrow, "NONE", null);
+        jdbc.update("UPDATE cashflow_item SET status = 'CANDIDATE' WHERE cashflow_item_id = ?", rule);
+        mockMvc.perform(patch("/api/cashflow-items/{id}", rule).with(AuthUsers.asUser(owner))
+                        .contentType(MediaType.APPLICATION_JSON).content("{ \"status\": \"CONFIRMED\", \"scope\": \"THIS_AND_FUTURE\" }"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.status").value("CONFIRMED"));
+    }
+
     /** 내일부터 매주 반복하는 계좌 지출을 등록하고 규칙 ID를 돌려준다. */
     private long weekly() throws Exception {
         mockMvc.perform(post("/api/cashflow-items").with(AuthUsers.asUser(owner))
