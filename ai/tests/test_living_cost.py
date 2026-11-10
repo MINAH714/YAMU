@@ -4,6 +4,8 @@ import hashlib
 import json
 import os
 import shutil
+import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -140,13 +142,24 @@ class Api(unittest.TestCase):
             with self.subTest(env):
                 self.assertEqual(docs_enabled(env), expected)
 
-    def test_real_app_follows_current_environment(self):
-        # 실행 환경에 AI_DOCS_ENABLED가 있든 없든, 실제 앱의 문서 주소가 그 값의 판정과 같다
-        expected = 200 if docs_enabled(os.environ) else 404
-        client = self.client()
-        for path in self.DOC_PATHS:
-            with self.subTest(path):
-                self.assertEqual(client.get(path).status_code, expected)
+    def test_real_app_opens_docs_only_when_enabled(self):
+        # 실제 앱(app.main:app)을 환경 변수 없음·true로 각각 새 프로세스에서 읽어 세 주소를 요청한다(!239 리뷰).
+        # 앱 초기화에서 문서 설정 연결이 빠지면 여기서 잡힌다. 실행 환경의 AI_DOCS_ENABLED 값과 무관하다.
+        script = (
+            "import json\n"
+            "from fastapi.testclient import TestClient\n"
+            "from app.main import app\n"
+            "client = TestClient(app)\n"
+            f"print(json.dumps([client.get(p).status_code for p in {list(self.DOC_PATHS)!r}]))\n"
+        )
+        base_env = {k: v for k, v in os.environ.items() if k != "AI_DOCS_ENABLED"}
+        for value, expected in ((None, 404), ("true", 200)):
+            env = base_env if value is None else {**base_env, "AI_DOCS_ENABLED": value}
+            with self.subTest(AI_DOCS_ENABLED=value):
+                result = subprocess.run([sys.executable, "-c", script], cwd=AI_DIR, env=env,
+                                        capture_output=True, text=True, timeout=60)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(json.loads(result.stdout.strip().splitlines()[-1]), [expected] * len(self.DOC_PATHS))
 
     def test_docs_paths_answer_200_when_enabled_and_404_when_disabled(self):
         # 켠 설정·끈 설정으로 만든 앱에 세 주소를 실제로 요청한다
