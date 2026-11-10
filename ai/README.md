@@ -58,7 +58,7 @@
    `ok`가 출력되면 통과입니다. 브라우저에서 `http://localhost:8001/health`를 열면 아래 응답을 볼 수 있습니다. `livingCostModel.loaded`(체크 생활비)나 `creditSpendingModel.loaded`(신용)가 `false`면 그 모델을 읽지 못한 것이고, 서버 터미널에 이유가 찍힙니다(그 예측만 503, 서버와 다른 쪽 예측은 동작).
 
    ```json
-   {"status":"ok","livingCostModel":{"loaded":true,"horizons":[7,14,30],"modelVersion":{"7":"two-stage-tree-20261106-fraud-large1000000-recurring_once","14":"two-stage-tree-20261106-fraud-large1000000-recurring_once","30":"two-stage-tree-20261106-fraud-large1000000-recurring_once"}},"creditSpendingModel":{"loaded":true,"horizons":[7,14,30],"modelVersion":{"7":"two-stage-tree-credit-20261110-fraud-large1000000-recurring_once","14":"two-stage-tree-credit-20261110-fraud-large1000000-recurring_once","30":"two-stage-tree-credit-20261110-fraud-large1000000-recurring_once"}}}
+   {"status":"ok","livingCostModel":{"loaded":true,"horizons":[7,14,30],"modelVersion":{"7":"two-stage-tree-20261106-fraud-large1000000-recurring_once","14":"two-stage-tree-20261106-fraud-large1000000-recurring_once","30":"two-stage-tree-20261106-fraud-large1000000-recurring_once"}},"creditSpendingModel":{"loaded":true,"horizons":[7,14,30],"modelVersion":{"7":"two-stage-tree-credit-20261111-fraud-large1000000-recurring_once-bemedian","14":"two-stage-tree-credit-20261111-fraud-large1000000-recurring_once-bemedian","30":"two-stage-tree-credit-20261111-fraud-large1000000-recurring_once-bemedian"}}}
    ```
 
 ## 3. 생활비 예측 API
@@ -111,7 +111,7 @@ BE의 잔고예보만 부르는 내부 API입니다. 계좌별 최근 90일의 �
 
 ### 신용 생활 소비 예측 API (S15P31E103-404, 2026-11-10)
 
-`POST /forecast/credit-spending`. 잔고예보가 **이번 이용기간 마감 전 신용카드 사용**을 추정할 때 부릅니다(BE 연동은 S15P31E103-405). 신용카드별 최근 90일 일별 신용 생활 소비(BE `CreditSpendingReader`의 LIVING 결제)를 받아 다음 7·14·30일 중 하나의 합계를 예측합니다. 체크 생활비 모델과 같은 형식(TWO_STAGE_TREE, 특징 15개)이고 신용 거래로 따로 학습했습니다([models/README.md](models/README.md) 「`credit-spending/`」).
+`POST /forecast/credit-spending`. 잔고예보가 **이번 이용기간 마감 전 신용카드 사용**을 추정할 때 부릅니다(BE 연동은 S15P31E103-405). 신용카드별 최근 90일 일별 신용 생활 소비(BE `CreditSpendingReader`의 LIVING 결제)를 받아 다음 7·14·30일 중 하나의 합계를 예측합니다. 체크 생활비 모델과 같은 형식(TWO_STAGE_TREE, 특징 15개)이고 신용 거래로 따로 학습했습니다. 학습 데이터에서 BE 큰 결제 규칙(직전 3개월 LIVING 중앙값의 10배 이상)에 걸린 결제도 뺐습니다(Codex 검토, 2026-11-11)([models/README.md](models/README.md) 「`credit-spending/`」).
 
 - **요청·응답·오류 모양은 위 생활비 예측 API와 같습니다.** `accounts[].key`는 신용카드를 구분하는 임의 값입니다(카드 번호·사용자 ID는 넣지 않음). `asOf`도 어제입니다.
 - **체크 모델과 따로 읽습니다.** 신용 모델을 읽지 못하면 이 API만 503이고 `/forecast/living-cost`는 그대로 동작합니다. 반대도 같습니다.
@@ -147,7 +147,7 @@ docker build -t yamu-ai:manual ai
 - 기반 이미지는 `python:3.12.16-slim`입니다. 빌드 안에서 위 테스트를 돌리고, **테스트가 하나라도 실패하면 이미지가 만들어지지 않습니다**(실행 단계가 테스트를 통과한 코드·모델을 복사). 지금 Jenkins CI는 `ai/` 테스트를 돌리지 않습니다.
 - `requirements.txt`는 직접 쓰는 패키지와 그 하위 패키지까지 버전을 고정합니다. 같은 커밋을 다시 빌드해도 같은 패키지가 깔리게 하려는 것입니다. 기반 이미지는 `3.12.16` 태그까지만 고정하고 digest(이미지 지문)는 고정하지 않으므로, 데비안 보안 패치는 바뀔 수 있습니다.
 - 서버는 root가 아닌 `app`(uid 10001)으로 돌고, 코드·모델 파일은 root 소유라 서버가 고칠 수 없습니다.
-- 이미지에 `HEALTHCHECK`가 있어 체크·신용 모델을 모두 읽어야(`livingCostModel.loaded`·`creditSpendingModel.loaded` 모두 `true`) healthy가 됩니다. 하나라도 못 읽으면 컨테이너는 돌지만 unhealthy입니다(신용 모델은 2026-11-10부터, S15P31E103-404). 모델은 이미지에 고정돼 있어 하나라도 깨졌다면 이미지를 다시 만들어야 하기 때문입니다. BE는 두 경우 모두 TSB로 대체합니다.
+- 이미지에 `HEALTHCHECK`가 있어 체크·신용 모델을 모두 읽어야(`livingCostModel.loaded`·`creditSpendingModel.loaded` 모두 `true`) healthy가 됩니다. 하나라도 못 읽으면 컨테이너는 돌지만 unhealthy입니다(신용 모델은 2026-11-10부터, S15P31E103-404). 모델은 이미지에 고정돼 있어 하나라도 깨졌다면 이미지를 다시 만들어야 하기 때문입니다. BE는 두 경우 모두 TSB로 대체합니다. **이 HEALTHCHECK를 트래픽 진입이나 다른 서비스의 시작 조건(`depends_on: condition: service_healthy`)으로 쓰면, 신용 모델만 깨져도 체크 생활비 예측까지 막힙니다.** 2026-11-10 기준 운영 compose(`infra/compose.prod.yml`)에는 AI 서비스가 없고 CD는 backend healthy만 확인해 이런 연결은 없습니다. 연결하게 되면 체크 모델만 보는 검사로 바꾸고 신용 모델은 `/health`로 따로 감시합니다(Codex 검토).
 - 운영에서 띄울 때는 호스트 포트를 열지 않고 BE와 같은 내부 전용 네트워크에만 붙입니다(3절 「배포 조건」). BE에는 `AI_BASE_URL=http://<서비스 이름>:8001`을 넣습니다.
 
 2026-11-05 이 PC(Docker 29.7.2)에서 확인한 것:
