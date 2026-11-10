@@ -106,6 +106,10 @@ class ForecastServiceTest {
 
     private record Recorded(long userId, LocalDate predictedOn, int horizonDays,
             List<LivingCostProjector.AccountProjection> accounts) {}
+    /** 신용 사용 추정 이력 저장 호출(S15P31E103-405). 실제 저장은 CreditSpendingPredictionLogTest가 확인한다. */
+    private final List<CreditRecorded> creditRecorded = new ArrayList<>();
+
+    private record CreditRecorded(long userId, LocalDate predictedOn, List<CreditSpendingEstimator.Prediction> predictions) {}
 
     @BeforeEach
     void setUp() {
@@ -152,9 +156,16 @@ class ForecastServiceTest {
                 recorded.add(new Recorded(userId, predictedOn, horizonDays, List.copyOf(projections)));
             }
         };
+        CreditSpendingPredictionLog creditPredictionLog = new CreditSpendingPredictionLog(null, clock) {
+            @Override
+            void record(long userId, LocalDate predictedOn,
+                    Collection<CreditSpendingEstimator.Prediction> predictions) {
+                creditRecorded.add(new CreditRecorded(userId, predictedOn, List.copyOf(predictions)));
+            }
+        };
         return new ForecastService(cashflows, balanceService, billReader, cardService, schedule, livingReader,
                 accounts, settingsStore, settingsService, new LivingCostProjector(projectorAi), creditReader, names,
-                cardBillRepository, predictionLog, recurringExpenses, clock);
+                cardBillRepository, predictionLog, creditPredictionLog, recurringExpenses, clock);
     }
 
     @Test
@@ -282,9 +293,12 @@ class ForecastServiceTest {
             }
 
             @Override
-            Optional<Map<String, Long>> predict(LocalDate asOf, int horizonDays, Map<String, long[]> histories) {
+            Optional<Answer> predict(Endpoint endpoint, LocalDate asOf, int horizonDays,
+                    Map<String, long[]> histories) {
+                assertThat(endpoint).isEqualTo(Endpoint.LIVING_COST);
                 assertThat(asOf).isEqualTo(TODAY.minusDays(1));
-                return Optional.of(Map.of("a0", horizonDays == 7 ? 42_000L : horizonDays == 14 ? 140_000L : 300_000L));
+                return Optional.of(new Answer("m", Map.of("a0",
+                        horizonDays == 7 ? 42_000L : horizonDays == 14 ? 140_000L : 300_000L)));
             }
         };
         ForecastService withAi = serviceAt(CLOCK);
@@ -829,11 +843,19 @@ class ForecastServiceTest {
                         BalanceForecast.SeriesPoint::conservative)
                 .containsExactly(800_000L, 800_000L, 800_000L - 150_000L - 48_000L);
         assertThat(withdrawal.events()).containsExactly(new BalanceForecast.Event(
-                FlowEvent.Type.CARD_SPENDING_ESTIMATE, "카드41 · 10/27~11/11 16일 × 일평균 3,000원", -48_000L,
+                FlowEvent.Type.CARD_SPENDING_ESTIMATE, "카드41 · 10/27~11/11 16일 × 하루 예상 3,000원", -48_000L,
                 FlowEvent.Confidence.CONSERVATIVE));
         assertThat(result.summary().largestOutflow()).isNull();
         assertThat(result.excluded()).extracting(ExcludedItem::title, ExcludedItem::date, ExcludedItem::reason)
                 .containsExactly(tuple("카드42", nov25, ExcludedItem.Reason.CREDIT_SPENDING_UNKNOWN));
+        // 잔고예보는 추정한 카드(41)만 이력으로 넘긴다. 기록 없는 카드 42는 남기지 않는다(S15P31E103-405)
+        assertThat(creditRecorded).singleElement().satisfies(call -> {
+            assertThat(call.userId()).isEqualTo(USER);
+            assertThat(call.predictedOn()).isEqualTo(TODAY);
+            assertThat(call.predictions()).extracting(CreditSpendingEstimator.Prediction::userCardId,
+                    CreditSpendingEstimator.Prediction::remainingDays, p -> p.projection().projectedAmount(),
+                    p -> p.projection().method()).containsExactly(tuple(41L, 16, 48_000L, "TSB"));
+        });
     }
 
     @Test
@@ -877,7 +899,7 @@ class ForecastServiceTest {
         assertThat(day(result.series(), nov25).conservative()).isEqualTo(800_000L - 48_000L);
         assertThat(day(result.series(), TODAY).conservative()).isEqualTo(800_000L);
         assertThat(day(result.series(), nov25).events()).extracting(BalanceForecast.Event::title)
-                .containsExactly("카드41 · 10/27~11/11 16일 × 일평균 3,000원");
+                .containsExactly("카드41 · 10/27~11/11 16일 × 하루 예상 3,000원");
         assertThat(result.livingCost().dataOrigin()).isEqualTo(LivingCostEstimator.DataOrigin.INSUFFICIENT);
     }
 
