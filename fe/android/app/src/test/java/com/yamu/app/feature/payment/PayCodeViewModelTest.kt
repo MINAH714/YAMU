@@ -247,7 +247,8 @@ class PayCodeViewModelTest {
         finish(vm)
     }
 
-    @Test fun `거절 뒤 다음 카드로 비교 못 한 카드를 저절로 고르지 않고, 확인한 카드는 다시 묻지 않는다`() = runTest(dispatcher) {
+    /** 정민아 님 리뷰 P2 — 추천 A 거절 → 비교 못 한 B로 다시 결제 → B도 거절이면 A로 되돌아가지 않는다(BE는 ALREADY_DECLINED) */
+    @Test fun `거절된 카드는 모두 기억해 저절로 고르지도 다시 고르지도 않는다`() = runTest(dispatcher) {
         payments.request = request(OffsetDateTime.now().plusHours(1), listOf(card(1, check = false), uncompared(3, direct = true)))
         payments.approveResult = ApiResult.Success(ApproveOutcome.Declined("잔액이 부족해요", retryable = true, remainingAttempts = 2, suggestedCardId = 3))
         val vm = toRequest()
@@ -255,17 +256,70 @@ class PayCodeViewModelTest {
         vm.approve()
         advanceTimeBy(APPROVE_MS + 1)
         runCurrent()
-        assertEquals("서버가 권해도 비교 못 한 카드로 옮기지 않는다", 1L, vm.state.value.selectedCardId)
+        assertNull("서버가 권해도 비교 못 한 카드로 옮기지 않고, 거절된 1순위에 머물지도 않는다", vm.state.value.selectedCardId)
+        vm.selectCard(1)
+        assertNull("거절된 카드는 고를 수 없다", vm.state.value.selectedCardId)
         vm.selectCard(3)
         vm.approve()
         vm.confirmNoBenefit()
         advanceTimeBy(APPROVE_MS + 1)
         runCurrent()
         assertEquals(2, payments.approves)
+        assertEquals(setOf(1L, 3L), vm.state.value.declinedCardIds)
+        assertNull("앞서 거절된 1로 되돌아가지 않는다", vm.state.value.selectedCardId)
+        vm.approve()
+        runCurrent()
+        assertEquals(2, payments.approves)
+        finish(vm)
+    }
+
+    @Test fun `후보가 연달아 거절되면 아직 시도하지 않은 후보로 옮긴다`() = runTest(dispatcher) {
+        payments.request = request(OffsetDateTime.now().plusHours(1), listOf(card(1, check = false), card(2, check = false), card(4, check = false)))
+        payments.approveResult = ApiResult.Success(ApproveOutcome.Declined("잔액이 부족해요", retryable = true, remainingAttempts = 2, suggestedCardId = null))
+        val vm = toRequest()
+        vm.approve()
+        advanceTimeBy(APPROVE_MS + 1)
+        runCurrent()
+        assertEquals(2L, vm.state.value.selectedCardId)
+        vm.approve()
+        advanceTimeBy(APPROVE_MS + 1)
+        runCurrent()
+        assertEquals("1로 되돌아가지 않는다", 4L, vm.state.value.selectedCardId)
+        finish(vm)
+    }
+
+    @Test fun `결과를 모르는 실패 뒤 같은 카드로 다시 누르면 혜택 없음을 다시 묻지 않는다`() = runTest(dispatcher) {
+        payments.request = request(OffsetDateTime.now().plusHours(1), listOf(uncompared(3, direct = true)))
+        payments.approveResult = ApiResult.Failure(ApiError.Network)
+        val vm = toRequest()
         vm.selectCard(3)
+        vm.approve()
+        vm.confirmNoBenefit()
+        advanceTimeBy(APPROVE_MS + 1)
+        runCurrent()
+        payments.approveResult = null
         vm.approve()
         assertFalse("같은 결제에서 확인한 카드", vm.state.value.askNoBenefit)
         assertTrue(vm.state.value.approving)
+        finish(vm)
+    }
+
+    /** 정민아 님 리뷰 P1 — 저장소가 출금 미확인을 retryable false로 넘기면 다른 카드로 옮기지 않고 요청을 닫는다 */
+    @Test fun `다시 결제할 수 없는 거절이면 카드를 옮기지 않고 닫기만 남긴다`() = runTest(dispatcher) {
+        payments.approveResult = ApiResult.Success(ApproveOutcome.Declined("결제 결과를 확인하지 못했어요", retryable = false, remainingAttempts = 2, suggestedCardId = null))
+        val vm = toRequest()
+        vm.approve()
+        advanceTimeBy(APPROVE_MS + 1)
+        runCurrent()
+        val s = vm.state.value
+        assertEquals(1L, s.selectedCardId)
+        assertFalse(s.canRetry)
+        assertTrue(s.requestDone)
+        assertEquals("남은 횟수를 붙이지 않는다", "결제 결과를 확인하지 못했어요", s.declined)
+        vm.selectCard(2)
+        vm.approve()
+        runCurrent()
+        assertEquals(1, payments.approves)
         finish(vm)
     }
 

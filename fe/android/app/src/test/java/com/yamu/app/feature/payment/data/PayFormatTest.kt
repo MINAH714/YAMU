@@ -48,7 +48,8 @@ class PayFormatTest {
 
     @Test fun `출금 계좌 · 출금 미확인 거절은 각자 할 일을 알려 준다`() {
         assertEquals("출금 계좌를 쓸 수 없어요 · 계좌를 다시 연결해 주세요", declineMessage("ACCOUNT_UNAVAILABLE"))
-        assertEquals("출금이 확인되지 않았어요 · 다시 시도해 주세요", declineMessage("WITHDRAWAL_NOT_CONFIRMED"))
+        // 출금이 늦게 처리되면 나중에 승인될 수 있어 다시 결제하라고 하지 않는다(리뷰 P1)
+        assertEquals("결제 결과를 확인하지 못했어요 · 결제 내역에서 결과를 확인해 주세요", declineMessage("WITHDRAWAL_NOT_CONFIRMED"))
     }
 
     @Test fun `버튼 조사 로 · 으로`() {

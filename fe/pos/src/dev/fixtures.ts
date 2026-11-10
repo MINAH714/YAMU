@@ -49,6 +49,9 @@ export const EXPIRED_RESULT = demoResult('EXPIRED')
 
 export const CANCELED_RESULT = demoResult('CANCELED')
 
+/** 고객이 앱에서 결제 요청을 거절함 */
+export const REJECTED_RESULT = demoResult('REJECTED')
+
 /** 은행 처리가 늦어 출금 결과를 아직 모르는 거절. 영수증이 "결과 미확인"으로 보인다 */
 export const NOT_CONFIRMED_RESULT = demoResult('DECLINED', {
   retryable: false,

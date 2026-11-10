@@ -148,6 +148,46 @@ class PaymentMapperTest {
         assertNull(nameShown(""))
     }
 
+    /** 리뷰 P3 — 원과 포인트는 숫자를 견줄 수 없어(응답에 원화 환산값 없음) 원 단위를 먼저 본다 */
+    @Test fun `혜택 이름은 원 단위 혜택을 먼저 — 포인트 숫자가 더 커도`() {
+        assertEquals(
+            "카페 700원 할인",
+            nameShown("""{"name":"1,000P 적립","type":"POINT","amount":1000,"realization":"POINT_ACCRUAL"},{"name":"카페 700원 할인","type":"DISCOUNT","amount":700,"realization":"AT_BILLING"}"""),
+        )
+        assertEquals(
+            "캐시백",
+            nameShown("""{"name":"적립","type":null,"amount":5000,"realization":"POINT_ACCRUAL"},{"name":"캐시백","type":"CASHBACK","amount":100,"realization":"AFTER_BILLING"}"""),
+        )
+    }
+
+    @Test fun `원 단위 혜택이 없을 때만 포인트 중 가장 큰 것`() {
+        assertEquals(
+            "M포인트 1.2% 적립",
+            nameShown("""{"name":"교보문고 할인","type":"DISCOUNT","amount":0},{"name":"기본 적립","type":"POINT","amount":30},{"name":"M포인트 1.2% 적립","type":"POINT","amount":180}"""),
+        )
+    }
+
+    private fun declinedOf(code: String) = YamuJson.decodeFromString(
+        PaymentResultDto.serializer(),
+        """{"paymentId":1,"status":"DECLINED","failure":{"code":"$code","message":"서버 문구"},"retryable":true,"remainingAttempts":2,"suggestedCards":[{"userCardId":12}]}""",
+    ).toDeclined()
+
+    @Test fun `거절 응답 — 다시 결제할 수 있으면 서버가 권한 카드를 그대로`() {
+        val o = declinedOf("INSUFFICIENT_BALANCE")
+        assertTrue(o.retryable)
+        assertEquals(12L, o.suggestedCardId)
+        assertEquals(2, o.remainingAttempts)
+        assertEquals("연결 계좌 잔액이 부족해요", o.message)
+    }
+
+    /** 리뷰 P1 — 늦은 출금이면 BE 복구가 이 결제를 승인으로 바꿀 수 있어, 다시 결제(다른 카드 · 새 코드)를 권하지 않는다 */
+    @Test fun `출금 미확인 거절은 서버가 retryable이어도 다시 결제하지 않고 카드도 권하지 않는다`() {
+        val o = declinedOf("WITHDRAWAL_NOT_CONFIRMED")
+        assertFalse(o.retryable)
+        assertNull(o.suggestedCardId)
+        assertEquals("결제 결과를 확인하지 못했어요 · 결제 내역에서 결과를 확인해 주세요", o.message)
+    }
+
     @Test fun `추천 스냅샷이 없어도 찍힌 것으로 두고 카드를 확인하지 못한 것으로`() {
         val status = scanned("")
         assertEquals(CodeState.SCANNED, status.state)

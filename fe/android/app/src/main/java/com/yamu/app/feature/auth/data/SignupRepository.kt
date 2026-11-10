@@ -111,8 +111,10 @@ enum class Carrier(val code: String, val label: String) {
 
 data class CodeSent(val verificationId: String, val demoCode: String?)
 
-/** 본인인증에 넣은 값 — 본인인증부터 다시 할 때 칸을 채운다 */
-data class IdentityInput(val name: String, val birthDate: LocalDate, val carrier: Carrier, val phoneNumber: String)
+/** 본인인증 칸에 넣은 값(고치는 대로) — 본인인증 화면을 다시 열거나 본인인증부터 다시 할 때 채운다. [birth]는 8자리 그대로 */
+data class IdentityDraft(val name: String = "", val birth: String = "", val carrier: Carrier? = null, val phone: String = "") {
+    val isEmpty: Boolean get() = name.isEmpty() && birth.isEmpty() && carrier == null && phone.isEmpty()
+}
 
 /** 본인인증부터 다시 하게 된 까닭 — EXPIRED: 서버가 가입 진행 토큰을 거절(30분 지남 등) · LOST: 앱이 다시 켜져 진행 상태가 없음 */
 enum class SignupRestart { EXPIRED, LOST }
@@ -127,9 +129,28 @@ data class SignupOneWon(
     val hint: String?,
     val deliveryUncertain: Boolean,
     val demoCode: String?,
-    /** 1원 숫자를 넣을 수 있는 시간(초)과 응답을 받은 이 폰 시각 — 남은 시간 표시용(최종 만료는 SSAFY가 판단) */
+    /**
+     * 1원 숫자를 넣을 수 있는 시간(초)과 1원 요청을 보낸 이 폰 시각 — 남은 시간 표시용(최종 만료는 SSAFY가 판단).
+     * BE는 은행 송금이 끝난 뒤 authRequestedAt을 찍으니, 요청을 보낸 때부터 세면 응답이 늦어도 남은 시간이 실제보다 길게 보이지 않는다
+     */
     val validSeconds: Int = ONE_WON_VALID_SECONDS,
     val sentAtMillis: Long = System.currentTimeMillis(),
+)
+
+/** 지금 남은 시간(초). 0 이하면 지났다 */
+fun SignupOneWon.secondsLeft(nowMillis: Long): Int = validSeconds - ((nowMillis - sentAtMillis).coerceAtLeast(0) / 1_000).toInt()
+
+/** 1원 응답 → 화면 값. [sentAtMillis]는 요청을 보낸 이 폰 시각(응답을 받은 시각이 아니다) */
+fun OneWonAuthResponse.toOneWon(sentAtMillis: Long) = SignupOneWon(
+    bankName = bank?.name.orEmpty(),
+    last4 = maskedAccountNo.orEmpty().filter(Char::isDigit).takeLast(4),
+    prefix = depositorNamePrefix,
+    codeLength = codeLength,
+    hint = hint,
+    deliveryUncertain = deliveryUncertain,
+    demoCode = demoCode,
+    validSeconds = oneWonValidSeconds(authRequestedAt, authExpiresAt),
+    sentAtMillis = sentAtMillis,
 )
 
 /** 1원 인증 유효 시간 — BE 「1원 인증 요청」 authExpiresAt = 요청 시각 + 5분 */
@@ -171,8 +192,11 @@ interface SignupRepository {
     /** 약관(A-04)에 동의했나 — 첫 화면 '로그인'으로 들어와 가입이면 약관부터. 서버에 저장하지 않아 본인인증부터 다시 해도 남긴다 */
     var termsAgreed: Boolean
 
-    /** 마지막으로 인증번호를 받은 값 — 본인인증부터 다시 할 때 칸을 채운다. 첫 화면으로 가면 지운다 */
-    val lastInput: IdentityInput?
+    /**
+     * 본인인증 칸에 넣은 값 — 화면이 칸을 고칠 때마다 적는다. 약관을 거쳐 본인인증 화면을 새로 열거나
+     * 본인인증부터 다시 할 때 이 값으로 칸을 채운다(인증번호를 받을 때의 값이 아니라 마지막으로 고친 값). 첫 화면으로 가면 지운다
+     */
+    var draft: IdentityDraft
 
     /** 재등록 때 지문 키를 같이 등록할지(A-08에서 고름) */
     var recoveryBiometric: Boolean
@@ -235,8 +259,7 @@ class SignupRepositoryImpl @Inject constructor(
     override var name: String? = null
         private set
     override var termsAgreed: Boolean = false
-    override var lastInput: IdentityInput? = null
-        private set
+    override var draft: IdentityDraft = IdentityDraft()
     private var restartReason: SignupRestart? = null
     override var recoveryBiometric: Boolean = false
     override var pinStaged: Boolean = false
@@ -244,7 +267,6 @@ class SignupRepositoryImpl @Inject constructor(
 
     override suspend fun requestCode(name: String, birthDate: LocalDate, carrier: Carrier, phoneNumber: String): ApiResult<CodeSent> {
         pendingName = name.trim()
-        lastInput = IdentityInput(name.trim(), birthDate, carrier, phoneNumber)
         return apiCall { api.requestCode(PhoneVerificationRequest(name.trim(), birthDate.toString(), carrier.code, phoneNumber)) }
             .map { CodeSent(it.verificationId, it.demoCode) }
     }
@@ -275,20 +297,12 @@ class SignupRepositoryImpl @Inject constructor(
 
     private suspend fun send(request: OneWonAuthRequest): ApiResult<SignupOneWon> =
         withToken { bearer ->
+            val sentAt = System.currentTimeMillis()   // 남은 시간은 요청을 보낸 때부터 — 응답이 늦어도 길게 보이지 않게
             apiCall { api.oneWon(bearer, request) }.map { r ->
                 lastRequest = request
                 verificationToken = r.verificationToken
                 linkKey = newIdempotencyKey()
-                SignupOneWon(
-                    bankName = r.bank?.name.orEmpty(),
-                    last4 = r.maskedAccountNo.orEmpty().filter(Char::isDigit).takeLast(4),
-                    prefix = r.depositorNamePrefix,
-                    codeLength = r.codeLength,
-                    hint = r.hint,
-                    deliveryUncertain = r.deliveryUncertain,
-                    demoCode = r.demoCode,
-                    validSeconds = oneWonValidSeconds(r.authRequestedAt, r.authExpiresAt),
-                ).also { oneWon = it }
+                r.toOneWon(sentAt).also { oneWon = it }
             }
         }
 
@@ -334,7 +348,7 @@ class SignupRepositoryImpl @Inject constructor(
     override fun clear() {
         forgetProgress()
         pendingName = null
-        lastInput = null
+        draft = IdentityDraft()
         termsAgreed = false
         restartReason = null
     }

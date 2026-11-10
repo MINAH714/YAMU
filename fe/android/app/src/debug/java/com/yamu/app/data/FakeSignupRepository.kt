@@ -9,7 +9,7 @@ import com.yamu.app.core.security.TokenStore
 import com.yamu.app.feature.auth.data.AccountCandidate
 import com.yamu.app.feature.auth.data.Carrier
 import com.yamu.app.feature.auth.data.CodeSent
-import com.yamu.app.feature.auth.data.IdentityInput
+import com.yamu.app.feature.auth.data.IdentityDraft
 import com.yamu.app.feature.auth.data.SIGNUP_TOKEN_INVALID
 import com.yamu.app.feature.auth.data.SignupMode
 import com.yamu.app.feature.auth.data.SignupOneWon
@@ -56,8 +56,7 @@ class FakeSignupRepository @Inject constructor(
     override var name: String? = null
         private set
     override var termsAgreed = false
-    override var lastInput: IdentityInput? = null
-        private set
+    override var draft = IdentityDraft()
     private var restartReason: SignupRestart? = null
     override var recoveryBiometric = false
     override var pinStaged = false
@@ -66,7 +65,6 @@ class FakeSignupRepository @Inject constructor(
     override suspend fun requestCode(name: String, birthDate: LocalDate, carrier: Carrier, phoneNumber: String): ApiResult<CodeSent> {
         delay(500)
         pendingName = name.trim()
-        lastInput = IdentityInput(name.trim(), birthDate, carrier, phoneNumber)
         pendingMode = when (phoneNumber) {
             SIGNUP_PHONE -> SignupMode.SIGNUP
             RECOVERY_PHONE -> SignupMode.DEVICE_RECOVERY
@@ -111,6 +109,7 @@ class FakeSignupRepository @Inject constructor(
     }
 
     override suspend fun sendOneWon(candidateIds: List<String>, primaryId: String): ApiResult<SignupOneWon> {
+        val sentAt = System.currentTimeMillis()   // 실제 저장소처럼 요청을 보낸 때부터 센다
         delay(500)
         if (token == null) return tokenInvalid()
         val waited = (System.currentTimeMillis() - lastOneWonAt) / 1000
@@ -129,7 +128,8 @@ class FakeSignupRepository @Inject constructor(
             codeLength = 4,
             hint = null,
             deliveryUncertain = false,
-            demoCode = ONE_WON_CODE,                   // BE에 요청해 둔 시연용 값을 흉내
+            demoCode = ONE_WON_CODE,                   // BE S15P31E103-350 시연용 값을 흉내
+            sentAtMillis = sentAt,
         )
         oneWon = sent
         return ApiResult.Success(sent)
@@ -200,7 +200,7 @@ class FakeSignupRepository @Inject constructor(
         pendingName = null
         pendingMode = null
         sentCode = null
-        lastInput = null
+        draft = IdentityDraft()
         termsAgreed = false
         restartReason = null
     }

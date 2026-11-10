@@ -97,6 +97,21 @@ export function Receipt({ result, order, onNext, onRetry }: Props) {
           action={{ label: '다시 결제', onClick: onRetry }}
         />
       )
+    // 고객이 앱에서 결제 요청을 거절했다. 카드 거절 뒤 거절하면 마지막 카드 거절 사유가 failure에 남아 있지만
+    // 결제를 끝낸 건 고객의 거절이라 그 사유는 띄우지 않는다. 바코드가 닫혔으므로 새 바코드로 다시 결제한다.
+    case 'REJECTED':
+      return (
+        <StatusScreen
+          tone="expired"
+          graphic={<Character pose="worry" size={128} />}
+          title="고객이 결제를 거절했어요"
+          description="다시 결제하려면 고객 앱에서 새 바코드를 받아 스캔해 주세요."
+          amount={orderAmount}
+          items={items}
+          rows={base}
+          action={{ label: '다시 결제', onClick: onRetry }}
+        />
+      )
     case 'CANCELED':
       return (
         <StatusScreen
