@@ -32,46 +32,18 @@ import org.springframework.stereotype.Component;
 @Component
 class PaymentHistoryReader {
 
-    private static final String MERCHANT_NAME =
-            "coalesce(nullif(p.merchant_context_snapshot ->> '$.merchantName', 'null'), m.merchant_name)";
-    private static final String CATEGORY_CODE =
-            "coalesce(nullif(p.merchant_context_snapshot ->> '$.categoryCode', 'null'), m.merchant_category_code)";
+    // 판정 조각은 소비 리포트와 함께 쓴다(PaymentSqlFragments). 설명은 그쪽에 있다
+    private static final String MERCHANT_NAME = PaymentSqlFragments.MERCHANT_NAME;
+    private static final String CATEGORY_CODE = PaymentSqlFragments.CATEGORY_CODE;
+    private static final String BENEFIT_LINES = PaymentSqlFragments.BENEFIT_LINES;
+    private static final String CONFIRMED_LINES = PaymentSqlFragments.CONFIRMED_LINES;
+    private static final String CONFIRMED_AMOUNT = PaymentSqlFragments.CONFIRMED_AMOUNT;
+    private static final String BENEFIT_AMOUNT = PaymentSqlFragments.BENEFIT_AMOUNT;
+    private static final String YAMU_PICK = PaymentSqlFragments.YAMU_PICK;
     /** 업종 코드 → 표시 이름(Task 297 업종 목록). 목록에 없는 코드는 이름이 없다 */
     private static final Map<String, String> CATEGORY_NAMES = MerchantCategories.list().stream()
             .collect(Collectors.toUnmodifiableMap(MerchantCategories.Category::merchantCategoryCode,
                     MerchantCategories.Category::merchantCategoryName));
-
-    /**
-     * 혜택 줄이 확정됐는지(2026-11-06 결정, {@link BenefitStatus}). 즉시할인은 승인 때, 청구할인은 결제의 회차가 모두 청구 확정되면
-     * (청구 전 PENDING 회차가 없으면) 확정이다. 캐시백·적립·시점 미확인은 지급 기록이 없어 확정되지 않는다.
-     * 임시: 할부 청구할인은 회차가 일부만 확정된 동안 확정으로 세지 않는다(회차별 배분은 S15P31E103-299의 bill_item_discount).
-     */
-    private static final String CONFIRMED_LINE = """
-            (cb.application_timing = 'AT_APPROVAL'
-             or (cb.application_timing = 'AT_BILLING'
-                 and exists (select 1 from bill_item i where i.payment_transaction_id = b.payment_transaction_id)
-                 and not exists (select 1 from bill_item i
-                                 where i.payment_transaction_id = b.payment_transaction_id and i.status = 'PENDING')))
-            """;
-    private static final String BENEFIT_LINES = "(select count(*) from payment_benefit b"
-            + " where b.payment_transaction_id = p.payment_transaction_id and b.benefit_value > 0)";
-    private static final String CONFIRMED_LINES = "(select count(*) from payment_benefit b"
-            + " join card_benefit cb on cb.card_benefit_id = b.card_benefit_id"
-            + " where b.payment_transaction_id = p.payment_transaction_id and b.benefit_value > 0 and " + CONFIRMED_LINE + ")";
-    private static final String CONFIRMED_AMOUNT = "(select coalesce(sum(b.krw_amount), 0) from payment_benefit b"
-            + " join card_benefit cb on cb.card_benefit_id = b.card_benefit_id"
-            + " where b.payment_transaction_id = p.payment_transaction_id and " + CONFIRMED_LINE + ")";
-    private static final String BENEFIT_AMOUNT = "(select sum(b.krw_amount) from payment_benefit b"
-            + " where b.payment_transaction_id = p.payment_transaction_id)";
-    /**
-     * 추천 1순위로 승인했는지. 승인 때 순위를 적은 결제({@code user_selected}가 있음)는 그 순위가 1인지로 본다. 결제 상세의
-     * {@code recommendedRank}와 같은 기준이다(추천 스냅샷이 만료돼 승인 때 다시 계산했으면 저장된 추천 결과와 1순위가 다를 수 있다).
-     * 순위 칸이 생기기 전(V20261109_4) 결제만 저장된 추천 결과의 첫 후보와 비교한다. 둘 다 없는 결제(SEED)는 아니다
-     */
-    private static final String YAMU_PICK = "(p.status = 'APPROVED' and p.user_card_id is not null"
-            + " and (p.recommended_rank = 1 or (p.user_selected is null"
-            + " and cast(json_unquote(json_extract(p.recommendation_result_json, '$.candidates[0].card.userCardId'))"
-            + " as unsigned) = p.user_card_id)))";
 
     private static final String LIST_COLUMNS = """
             select p.payment_transaction_id, p.source, p.status, p.requested_at, p.approved_at, p.canceled_at,
