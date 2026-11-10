@@ -11,7 +11,7 @@ import java.util.List;
  * <p>영역 하나가 실패해도 응답은 200이다. 실패한 영역은 null·빈 목록으로 두고 {@code partialErrors}에 적는다.
  *
  * @param cards                   등록 카드(ACTIVE·INACTIVE, 카드 목록과 같은 순서)
- * @param performanceAlerts       실적 부족 카드. 임시: S15P31E103-373(카드별 실적) 머지 뒤 연결한다. 그 전에는 빈 목록
+ * @param performanceAlerts       이번 달 실적 부족(373 AT_RISK) 카드. 카드 목록 순서. 없으면 빈 목록
  * @param balanceForecast         기준 계좌의 잔고예보 요약. 기준 계좌가 없으면 null
  * @param monthSummary            이번 달(한국 기준) 소비·혜택. 월간 리포트(S15P31E103-372)와 같은 값
  * @param unreadNotificationCount 읽지 않은 알림 수
@@ -37,6 +37,11 @@ public record HomeResponse(Cards cards, List<PerformanceAlert> performanceAlerts
     public record CardItem(Long userCardId, String nickname, String issuerColor, String maskedNumber,
             String cardType) {}
 
+    /**
+     * @param remainingAmount 목표까지 남은 금액(원)
+     * @param achievementRate 달성률(%), 카드 목록과 같은 규칙(소수 한 자리에서 버림, 최대 100). 목표가 없으면 null
+     * @param daysLeft        이번 달 말일까지 남은 날(오늘 제외)
+     */
     public record PerformanceAlert(Long userCardId, String nickname, long remainingAmount, Double achievementRate,
             Integer daysLeft) {}
 
@@ -69,7 +74,7 @@ public record HomeResponse(Cards cards, List<PerformanceAlert> performanceAlerts
     /**
      * 영역 하나의 실패.
      *
-     * @param area 응답 칸 이름(cards·balanceForecast·monthSummary·unreadNotificationCount·todos·recentPayment·todayCard·onboarding)
+     * @param area 응답 칸 이름(cards·performanceAlerts·balanceForecast·monthSummary·unreadNotificationCount·todos·recentPayment·todayCard·onboarding)
      * @param code 에러 코드(예: FIN_API_UNAVAILABLE). 예상하지 못한 오류는 INTERNAL_ERROR
      */
     public record PartialError(String area, String code) {}

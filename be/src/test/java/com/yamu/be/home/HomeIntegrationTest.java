@@ -5,6 +5,7 @@ import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -20,6 +21,9 @@ import com.yamu.be.account.AccountBalance;
 import com.yamu.be.account.AccountBalanceService;
 import com.yamu.be.global.exception.ErrorCode;
 import com.yamu.be.global.finapi.FinApiException;
+import com.yamu.be.performance.CardPerformancesResponse;
+import com.yamu.be.performance.PerformanceService;
+import com.yamu.be.performance.PerformanceStatus;
 import com.yamu.be.support.AuthUsers;
 import com.yamu.be.support.Concurrently;
 import com.yamu.be.support.MySqlTestSupport;
@@ -53,7 +57,8 @@ import org.testcontainers.utility.DockerImageName;
 
 /**
  * 홈 요약({@code GET /api/home})과 동기화({@code POST /api/sync})를 인증 필터·실제 MySQL·Redis까지 묶어 확인한다.
- * 잔액(BE 1, 금융망)만 가짜로 둔다. 요청을 여러 스레드에서 보내는 테스트가 있어 트랜잭션으로 감싸지 않고, 테스트마다 새 사용자를 만든다.
+ * 잔액(BE 1, 금융망)과 카드별 실적(373)은 가짜로 둔다. 실적 상태는 날짜(이번 달 첫 5일은 ON_TRACK)에 따라 달라 실제 값으로는
+ * AT_RISK를 늘 만들 수 없고, 실적 판정 자체는 PerformanceIntegrationTest가 확인한다. 요청을 여러 스레드에서 보내는 테스트가 있어 트랜잭션으로 감싸지 않고, 테스트마다 새 사용자를 만든다.
  */
 @AutoConfigureMockMvc
 @TestPropertySource(properties = "spring.application.name=yamu-home-integration-test")
@@ -72,6 +77,7 @@ class HomeIntegrationTest extends MySqlTestSupport {
     @Autowired ObjectMapper json;
     @Autowired StringRedisTemplate redis;
     @MockitoBean AccountBalanceService balances;
+    @MockitoBean PerformanceService performances;
 
     OwnershipFixtures fixtures;
     LocalDateTime fetchedAt;
@@ -84,6 +90,62 @@ class HomeIntegrationTest extends MySqlTestSupport {
             List<Long> ids = invocation.getArgument(1);
             return ids.stream().map(id -> new AccountBalance(id, 1_000_000L, fetchedAt)).toList();
         });
+        when(performances.overview(anyLong(), isNull()))
+                .thenReturn(new CardPerformancesResponse(YearMonth.now(KOREA).toString(), 11, List.of(), null));
+    }
+
+    @Test
+    void 실적_부족_카드는_performanceAlerts에_나오고_할_일에서_미납_다음이다() throws Exception {
+        long owner = fixtures.user();
+        long account = primaryAccount(owner);
+        long unpaidCard = creditCard(owner, account, "ACTIVE");
+        long onTrack = creditCard(owner, account, "ACTIVE");
+        long atRisk = creditCard(owner, account, "ACTIVE");
+        long atRiskToo = creditCard(owner, account, "ACTIVE");
+        unpaidBill(owner, unpaidCard);
+        when(performances.overview(eq(owner), isNull())).thenReturn(new CardPerformancesResponse(
+                YearMonth.now(KOREA).toString(), 11, List.of(
+                        performance(onTrack, "넉넉", PerformanceStatus.ON_TRACK, 300_000L, 290_000L),
+                        performance(atRisk, "딥드림", PerformanceStatus.AT_RISK, 300_000L, 120_000L),
+                        performance(atRiskToo, "탄탄대로", PerformanceStatus.AT_RISK, 500_000L, 0L)),
+                null));
+
+        mockMvc.perform(get("/api/home").with(AuthUsers.asUser(owner)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.partialErrors").isEmpty())
+                .andExpect(jsonPath("$.data.performanceAlerts.length()").value(2))
+                .andExpect(jsonPath("$.data.performanceAlerts[0].userCardId").value(atRisk))
+                .andExpect(jsonPath("$.data.performanceAlerts[0].nickname").value("딥드림"))
+                .andExpect(jsonPath("$.data.performanceAlerts[0].remainingAmount").value(180_000))
+                .andExpect(jsonPath("$.data.performanceAlerts[0].achievementRate").value(40.0))
+                .andExpect(jsonPath("$.data.performanceAlerts[0].daysLeft").value(11))
+                .andExpect(jsonPath("$.data.performanceAlerts[1].userCardId").value(atRiskToo))
+                .andExpect(jsonPath("$.data.todos.length()").value(2))
+                .andExpect(jsonPath("$.data.todos[0].userCardId").value(unpaidCard))
+                .andExpect(jsonPath("$.data.todos[0].tone").value("ERROR"))
+                .andExpect(jsonPath("$.data.todos[1].userCardId").value(atRisk))
+                .andExpect(jsonPath("$.data.todos[1].title").value("딥드림 실적까지 180,000원 남았어요"))
+                .andExpect(jsonPath("$.data.todos[1].tag").value("마감 D-11"))
+                .andExpect(jsonPath("$.data.todos[1].tone").value("WARNING"));
+    }
+
+    @Test
+    void 실적을_못_읽어도_미납_할_일과_나머지_영역은_나온다() throws Exception {
+        long owner = fixtures.user();
+        long account = primaryAccount(owner);
+        long card = creditCard(owner, account, "ACTIVE");
+        unpaidBill(owner, card);
+        when(performances.overview(eq(owner), isNull())).thenThrow(new IllegalStateException("boom"));
+
+        mockMvc.perform(get("/api/home").with(AuthUsers.asUser(owner)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.partialErrors.length()").value(1))
+                .andExpect(jsonPath("$.data.partialErrors[0].area").value("performanceAlerts"))
+                .andExpect(jsonPath("$.data.partialErrors[0].code").value("INTERNAL_ERROR"))
+                .andExpect(jsonPath("$.data.performanceAlerts").isEmpty())
+                .andExpect(jsonPath("$.data.todos.length()").value(1))
+                .andExpect(jsonPath("$.data.todos[0].userCardId").value(card))
+                .andExpect(jsonPath("$.data.cards.count").value(1));
     }
 
     @Test
@@ -325,6 +387,12 @@ class HomeIntegrationTest extends MySqlTestSupport {
         ids.forEach(id -> results.put(id,
                 new AccountBalanceService.BalanceRead(new AccountBalance(id, 1_000L, fetchedAt), null)));
         return results;
+    }
+
+    private static CardPerformancesResponse.Item performance(long card, String nickname, PerformanceStatus status,
+            long target, long recognized) {
+        return new CardPerformancesResponse.Item(card, nickname, null, null, "CREDIT", target, null, recognized,
+                Math.max(target - recognized, 0), status, null, null, false, null);
     }
 
     /** 한국 기준 이번 달 결제면 금액, 아니면 0. 매달 1일 0~2시(한국)에 돌려도 월간 리포트와 같은 기준으로 맞춘다. */
