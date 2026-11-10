@@ -9,6 +9,7 @@ import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.nullValue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -256,6 +257,26 @@ class PaymentMatchControllerTest extends MySqlTestSupport {
         mockMvc.perform(get("/api/cashflow-items").with(AuthUsers.asUser(owner)).param("expand", "false"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.items[*].paymentMatched").value(everyItem(is(false))));
+    }
+
+    @Test
+    void 값을_바꾸지_않는_수정_응답도_첫_회차의_연결_여부를_목록과_같게_준다() throws Exception {
+        // 규칙의 첫 회차(14일 전)를 결제와 연결한 뒤 상태만 그대로 보내면 응답 줄이 그 회차다(Codex 검토 반영)
+        LocalDate first = target.minusDays(7);
+        mockMvc.perform(patch("/api/cashflow-items/{id}", rule).with(AuthUsers.asUser(owner))
+                        .contentType(MediaType.APPLICATION_JSON).content("{ \"status\": \"CONFIRMED\" }"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.occurrenceDate").value(first.toString()))
+                .andExpect(jsonPath("$.data.paymentMatched").value(false));
+
+        long payment = cashflows.payment(owner, card, gym, 30000L, first, "YAMU", "APPROVED");
+        confirm(owner, rule, first, payment).andExpect(status().isCreated());
+
+        mockMvc.perform(patch("/api/cashflow-items/{id}", rule).with(AuthUsers.asUser(owner))
+                        .contentType(MediaType.APPLICATION_JSON).content("{ \"status\": \"CONFIRMED\" }"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.occurrenceDate").value(first.toString()))
+                .andExpect(jsonPath("$.data.paymentMatched").value(true));
     }
 
     @Test

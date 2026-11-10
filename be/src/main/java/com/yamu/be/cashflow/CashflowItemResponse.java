@@ -10,8 +10,9 @@ import java.util.List;
  * <p>occurrenceDate는 등록 응답과 expand=false 목록에서는 규칙의 첫 발생일, 펼친 목록에서는 규칙이 정한 원래 회차다.
  * 이번 회차 수정·삭제 요청에 그대로 돌려보내는 식별값이다. date는 실제 예정일로, 이번 회차만 날짜를 옮겼을 때만 다르다.
  * productCategoryCode·productName은 구매 계획용 필드라 구매 계획 구현 전까지 null이다.
- * paymentMatched는 펼친 목록의 회차가 실제 결제와 연결됐는지다(S15P31E103-393, 명세에 없음). 연결한 결제가 취소돼도
- * 연결을 풀기 전까지 true다. 등록 응답과 펼치지 않은 목록은 회차가 아니라 규칙이라 false다.
+ * paymentMatched는 그 줄의 회차가 실제 결제와 연결됐는지다(S15P31E103-393, 명세에 없음). 연결한 결제가 취소돼도
+ * 연결을 풀기 전까지 true다. 펼친 목록과 값을 바꾸지 않은 수정 응답(규칙의 첫 회차)은 실제 연결 여부이고,
+ * 등록 응답·펼치지 않은 목록·값을 바꾼 수정 응답은 연결이 있을 수 없거나 회차가 아니라 false다.
  */
 public record CashflowItemResponse(
         Long cashflowItemId,

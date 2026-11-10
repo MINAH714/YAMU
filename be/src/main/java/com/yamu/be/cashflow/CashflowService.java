@@ -168,9 +168,22 @@ public class CashflowService {
         }
         // 값을 하나도 보내지 않았으면(상태만 바꾸거나 빈 요청) 규칙을 나누지 않는다.
         if (!changesValues(command)) {
-            return new Entry(Item.from(rule), rule.getScheduledDate(), rule.getScheduledDate(), false);
+            return firstOccurrence(rule);
         }
         return updateFromHere(authenticatedUserId, series, command, today);
+    }
+
+    /**
+     * 값을 바꾸지 않은 수정의 응답 줄(규칙의 첫 회차). 그 회차가 결제와 연결됐으면 목록과 같게 paid·matched를 채운다
+     * (S15P31E103-393, 연결된 지난 회차가 있는 반복 항목의 상태만 바꿔도 목록과 응답의 연결 여부가 같게).
+     */
+    private Entry firstOccurrence(CashflowItem rule) {
+        CashflowOccurrence row = occurrenceOf(rule, rule.getScheduledDate());
+        if (row == null || occurrences.findMatchedIds(List.of(row.getId())).isEmpty()) {
+            return new Entry(Item.from(rule), rule.getScheduledDate(), rule.getScheduledDate(), false);
+        }
+        boolean paid = !occurrences.findPaidIds(List.of(row.getId())).isEmpty();
+        return new Entry(Item.from(rule), rule.getScheduledDate(), rule.getScheduledDate(), paid, true);
     }
 
     /** 탐지 후보(CANDIDATE)만 확인(CONFIRMED)이나 무시(IGNORED)로 바꿀 수 있다. 상태는 시리즈 전체가 같이 바뀐다. */
