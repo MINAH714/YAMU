@@ -76,6 +76,8 @@ import com.yamu.app.feature.auth.data.SignupOneWon
 import com.yamu.app.feature.auth.data.SignupRepository
 import com.yamu.app.feature.auth.data.SignupRestart
 import com.yamu.app.feature.auth.data.SignupValidation
+import com.yamu.app.feature.auth.data.demoUserNotFoundMessage
+import com.yamu.app.feature.auth.data.phoneVerifyGuide
 import com.yamu.app.feature.auth.data.secondsLeft
 import com.yamu.app.feature.auth.data.signupErrorMessage
 import com.yamu.app.feature.link.BankMark
@@ -344,10 +346,12 @@ class PhoneVerifyViewModel @Inject constructor(private val signup: SignupReposit
                     }
                 }
                 is ApiResult.Failure -> _state.update {
-                    // 시간이 지났거나 시연 사용자가 아니면 칸을 고쳐 다시 받게 한다
-                    val again = r.error.code == "VERIFICATION_EXPIRED" || r.error.code == "DEMO_USER_NOT_FOUND"
+                    // 시간이 지났거나 시연 사용자가 아니면 칸은 그대로 두고 인증번호만 다시 받게 한다(오타만 고치면 된다, B-03)
+                    val notFound = r.error.code == "DEMO_USER_NOT_FOUND"
+                    val again = r.error.code == "VERIFICATION_EXPIRED" || notFound
                     it.copy(
-                        confirming = false, code = "", codeError = !again, error = r.error.signupMessage(),
+                        confirming = false, code = "", codeError = !again,
+                        error = if (notFound) demoUserNotFoundMessage(signup = it.fromTerms) else r.error.signupMessage(),
                         sent = if (again) null else it.sent,
                     )
                 }
@@ -406,7 +410,7 @@ fun PhoneVerifyRoute(onBack: () -> Unit, onNext: (SignupNext) -> Unit, viewModel
                 Spacer(Modifier.height(20.dp))
                 Text("본인 확인을 할게요", style = YamuTheme.typography.headlineS, color = c.text1)
                 Spacer(Modifier.height(8.dp))
-                Text("시연에 등록된 이름 · 생년월일 · 휴대폰 번호를 넣어 주세요", style = YamuTheme.typography.bodyM, color = c.text2)
+                Text(phoneVerifyGuide(signup = s.fromTerms), style = YamuTheme.typography.bodyM, color = c.text2)
                 Spacer(Modifier.height(24.dp))
                 YamuTextField(
                     label = "이름", value = s.name, onValueChange = viewModel::onName, placeholder = "김야무",
