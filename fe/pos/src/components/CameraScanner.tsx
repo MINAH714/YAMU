@@ -50,7 +50,8 @@ export function CameraScanner({ onRead, onUnknownQr }: Props) {
           current.stop()
           onReadRef.current(token)
         },
-        { returnDetailedScanResult: true, preferredCamera: 'environment', maxScansPerSecond: 5 },
+        // 손님이 휴대폰을 POS 화면 앞에 내밀므로 전면 카메라를 쓴다. 전면이 없는 기기에서는 라이브러리가 다른 카메라로 넘어간다
+        { returnDetailedScanResult: true, preferredCamera: 'user', maxScansPerSecond: 5 },
       )
       scanner = current
       current
