@@ -14,7 +14,9 @@ import numpy as np
 from fastapi.testclient import TestClient
 
 from app import living_cost
-from app.main import MAX_BODY_BYTES, MAX_DAILY_AMOUNT, app, docs_urls
+from fastapi import FastAPI
+
+from app.main import MAX_BODY_BYTES, MAX_DAILY_AMOUNT, app, docs_enabled, docs_urls
 
 AI_DIR = Path(__file__).resolve().parents[1]
 MODEL_DIR = AI_DIR / "models" / "living-cost"
@@ -129,17 +131,30 @@ class Api(unittest.TestCase):
         self.addCleanup(client.__exit__, None, None, None)
         return client
 
-    def test_api_docs_are_off_by_default(self):
-        # S15P31E103-355: AI_DOCS_ENABLED가 없으면 기본 API 문서 세 주소를 열지 않는다
-        client = self.client()
-        for path in ("/docs", "/redoc", "/openapi.json"):
-            with self.subTest(path):
-                self.assertEqual(client.get(path).status_code, 404)
+    DOC_PATHS = ("/docs", "/redoc", "/openapi.json")
 
-    def test_docs_urls_open_all_three_only_when_enabled(self):
-        self.assertEqual(docs_urls(True),
-                         {"docs_url": "/docs", "redoc_url": "/redoc", "openapi_url": "/openapi.json"})
-        self.assertEqual(docs_urls(False), {"docs_url": None, "redoc_url": None, "openapi_url": None})
+    def test_docs_enabled_only_for_true(self):
+        # S15P31E103-355: 없거나 true가 아니면 끈다
+        for env, expected in (({}, False), ({"AI_DOCS_ENABLED": "false"}, False), ({"AI_DOCS_ENABLED": "1"}, False),
+                              ({"AI_DOCS_ENABLED": "true"}, True), ({"AI_DOCS_ENABLED": " TRUE "}, True)):
+            with self.subTest(env):
+                self.assertEqual(docs_enabled(env), expected)
+
+    def test_real_app_follows_current_environment(self):
+        # 실행 환경에 AI_DOCS_ENABLED가 있든 없든, 실제 앱의 문서 주소가 그 값의 판정과 같다
+        expected = 200 if docs_enabled(os.environ) else 404
+        client = self.client()
+        for path in self.DOC_PATHS:
+            with self.subTest(path):
+                self.assertEqual(client.get(path).status_code, expected)
+
+    def test_docs_paths_answer_200_when_enabled_and_404_when_disabled(self):
+        # 켠 설정·끈 설정으로 만든 앱에 세 주소를 실제로 요청한다
+        for enabled, expected in ((True, 200), (False, 404)):
+            with TestClient(FastAPI(**docs_urls(enabled))) as client:
+                for path in self.DOC_PATHS:
+                    with self.subTest(enabled=enabled, path=path):
+                        self.assertEqual(client.get(path).status_code, expected)
 
     def test_health_keeps_status_ok_and_reports_models(self):
         res = self.client().get("/health")
