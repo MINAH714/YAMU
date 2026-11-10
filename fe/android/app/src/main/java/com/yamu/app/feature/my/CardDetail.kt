@@ -301,6 +301,7 @@ fun CardDetailRoute(
     onUnregistered: (name: String) -> Unit,
     onOpenPinPad: (purpose: String) -> Unit,
     onBills: (userCardId: Long) -> Unit,
+    onPerformance: (userCardId: Long) -> Unit,
     viewModel: CardDetailViewModel = hiltViewModel(),
 ) {
     val s by viewModel.state.collectAsStateWithLifecycle()
@@ -345,6 +346,7 @@ fun CardDetailRoute(
                     onDefault = viewModel::setDefault,
                     onUnregister = { sheet = CardDetailSheet.UNREGISTER },
                     onBills = { onBills(card.userCardId) },
+                    onPerformance = { onPerformance(card.userCardId) },
                 )
             }
             Spacer(Modifier.height(YamuSpacing.x6))
@@ -406,6 +408,7 @@ private fun CardDetailBody(
     onDefault: (Boolean) -> Unit,
     onUnregister: () -> Unit,
     onBills: () -> Unit,
+    onPerformance: () -> Unit,
 ) {
     val c = YamuTheme.colors
     Spacer(Modifier.height(YamuSpacing.x2))
@@ -442,6 +445,10 @@ private fun CardDetailBody(
             ListRow(title = "청구서", valuePlain = "보기", chevron = true, onClick = onBills)
         }
     }
+
+    // 실적 내용은 여기서 다시 그리지 않고 실적관리의 카드 실적 상세(R-02)로 보낸다(11/10 QA)
+    SectionLabel("실적")
+    ListRow(title = "이번 달 실적", valuePlain = "자세히 보기", chevron = true, onClick = onPerformance)
 
     SectionLabel("결제")
     // 결제 카드 자동 선택이 꺼져 있으면 기본 카드로만 결제한다 — 카드의 포함 값은 두고 꺼진 채 막는다
