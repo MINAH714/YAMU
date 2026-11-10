@@ -1,29 +1,28 @@
 {
-  "model_version": "two-stage-tree-20261106-fraud-large1000000-recurring_once",
+  "model_version": "two-stage-tree-20261111-fraud-large1000000-recurring_once-bemedian",
   "model": "TWO_STAGE_TREE",
-  "variant": "fraud+large1000000+recurring_once",
+  "variant": "fraud+large1000000+recurring_once+bemedian",
   "exclusions": {
     "fraud": "이상거래여부 1",
     "large": "체크 거래 한 건 1,000,000원 초과",
-    "recurring": "그 결제의 달과 앞 5개 달 중 같은 카드·가맹점·금액이 3개 이상의 달에 나오고 그중 두 번 이상 나온 달이 없음(그 결제의 달은 달 전체 건수로 셈)"
+    "recurring": "그 결제의 달과 앞 5개 달 중 같은 카드·가맹점·금액이 3개 이상의 달에 나오고 그중 두 번 이상 나온 달이 없음(그 결제의 달은 달 전체 건수로 셈)",
+    "be_median_large": "사용자(카드KEY)의 모든 체크·신용 결제에서 직전 3개월 LIVING 5건 이상이고 그 중앙값의 10배 이상(BE SpendingClassifier, 승인 시각 대신 날짜·시간대·순번 순)"
   },
   "target": "다음 7일 체크(승인거래코드 10·11) 소비 합계(원)",
   "training": {
-    "rows": 107016,
-    "people": 1594,
+    "rows": 106117,
+    "people": 1588,
     "from": "2021-04-01",
     "to": "2024-12-19",
     "trees": {
       "classifier": 132,
-      "regressor": 82
+      "regressor": 72
     }
   },
   "evaluated_in": [
-    "20261106-092429-crossval",
-    "20261106-100126-tsb-fixed",
-    "20261106-100657-short-history"
+    "20261111-000234-be-large-eval"
   ],
-  "trained_at": "2026-11-06T10:08:42",
+  "trained_at": "2026-11-11T00:23:48",
   "horizon": 7,
   "features": [
     "sum_7d",
@@ -44,5 +43,5 @@
   ],
   "sklearn_version": "1.9.1",
   "history_days": 90,
-  "sha256": "ee501e6f87f3c23ce8daf4378f6b049ab04997a2b47acbefba8e74d6e189d28f"
+  "sha256": "fcf573a24df7ca3f5880b61f19b283caaab6f1331847332e49d4dae688ced7e0"
 }
