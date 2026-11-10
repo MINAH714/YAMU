@@ -275,6 +275,7 @@ class FakeForecastRepository @Inject constructor() : ForecastRepository {
             riskWindows = windows,
             livingCost = ForecastLivingCostDto(
                 projectedAmount = if (living.all { it != null }) daily * days else null,
+                appliedAmount = if (consAvailable) daily * days else null,   // conservative 마지막 날까지 뺀 생활비(BE -395)
                 dailyAverage = if (living.all { it != null }) daily else null,
                 method = "ML_V1",
                 dataOrigin = if (living.all { it != null }) "REAL" else "INSUFFICIENT",
