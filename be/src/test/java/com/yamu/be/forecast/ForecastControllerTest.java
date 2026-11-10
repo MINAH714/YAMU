@@ -184,6 +184,8 @@ class ForecastControllerTest extends MySqlTestSupport {
                 .isEqualTo(1_000_000 - perDay);
         assertThat(((Number) JsonPath.read(body, "$.data.series[7].conservative")).longValue())
                 .isEqualTo(1_000_000 - projected);
+        // 한 계좌라 보수적 선에 들어간 생활비(appliedAmount, -395)는 예상 생활비와 같다
+        assertThat(((Number) JsonPath.read(body, "$.data.livingCost.appliedAmount")).longValue()).isEqualTo(projected);
     }
 
     @Test

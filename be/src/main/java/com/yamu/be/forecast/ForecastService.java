@@ -139,13 +139,20 @@ public class ForecastService {
                                 balanceById.get(accountId).fetchedAt(),
                                 new BalanceForecast.AccountSummary(assessment.status(), assessment.minBalance(),
                                         assessment.minBalanceDate(), assessment.endBalance()),
-                                series(projection.byAccount().get(accountId)), assessment.windows());
+                                series(projection.byAccount().get(accountId)), assessment.windows(),
+                                accountLivingCost(living.estimate().byAccount().get(accountId),
+                                        living.projection().byAccount().get(accountId)));
                     })
                     .toList();
         }
         LivingCostEstimator.Total history = living.estimate().total();
         LivingCostProjector.Total projected = living.projection().total();
-        BalanceForecast.LivingCost livingCost = new BalanceForecast.LivingCost(projected.projectedAmount(),
+        // 보수적 선은 자료 있는 계좌의 생활비만 뺀다. 통합 projectedAmount는 한 계좌라도 없으면 null이라 따로 더한다(-395)
+        long applied = selected.stream()
+                .map(accountId -> living.projection().byAccount().get(accountId).projectedAmount())
+                .filter(Objects::nonNull)
+                .reduce(0L, Math::addExact);
+        BalanceForecast.LivingCost livingCost = new BalanceForecast.LivingCost(projected.projectedAmount(), applied,
                 history.dailyAverage(), history.monthlyAverage(), projected.method(), projected.dataOrigin(),
                 projected.confidence());
         long currentTotal = startBalances.values().stream().reduce(0L, Math::addExact);
@@ -534,6 +541,17 @@ public class ForecastService {
             FlowEvent.Confidence confidence) {
         return new FlowEvent(bill.accountId(), date, -bill.amount(), FlowEvent.Type.CARD_BILLING, confidence,
                 "카드 청구 출금", bill.cardBillId());
+    }
+
+    /**
+     * 계좌 하나의 생활비(S15P31E103-395). 자료가 없으면 금액·방식은 null이고 보수적 선에 들어간 생활비는 0원이다.
+     * 그 계좌의 보수적 선이 신용카드 사용 추정만으로 있을 때도 0원이 맞다(생활비 0원으로 계산).
+     */
+    private static BalanceForecast.LivingCost accountLivingCost(LivingCostEstimator.AccountEstimate history,
+            LivingCostProjector.AccountProjection projected) {
+        long applied = projected.projectedAmount() == null ? 0L : projected.projectedAmount();
+        return new BalanceForecast.LivingCost(projected.projectedAmount(), applied, history.dailyAverage(),
+                history.monthlyAverage(), projected.method(), projected.dataOrigin(), projected.confidence());
     }
 
     private static List<BalanceForecast.SeriesPoint> series(List<ForecastCalculator.BalancePoint> points) {

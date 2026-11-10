@@ -881,6 +881,44 @@ class ForecastServiceTest {
         assertThat(result.livingCost().dataOrigin()).isEqualTo(LivingCostEstimator.DataOrigin.INSUFFICIENT);
     }
 
+    @Test
+    void 일부_계좌만_생활비가_있으면_통합_예상_생활비는_null이어도_보수적_선에_들어간_생활비와_계좌별_값을_준다() {
+        // S15P31E103-395: A는 체크카드 생활비 5,000원/일, B는 기록이 없고 신용카드 41(B 출금)만 써서 보수적 선이 추정으로만 있다
+        LocalDate nov25 = LocalDate.of(2026, 11, 25);
+        creditSchedule = (card, spendDate) -> Optional.of(nov25);
+        givenEntries(TODAY, TODAY.plusDays(30));
+        creditCards = List.of(41L);
+        List<CreditSpendingReader.CardDailySpending> credit = new ArrayList<>();
+        for (LocalDate day = JUL.atDay(1); !day.isAfter(TODAY); day = day.plusDays(1)) {
+            credit.add(new CreditSpendingReader.CardDailySpending(41L, day, 3_000L, Origin.REAL));
+        }
+        creditDays = credit;
+        when(cardService.findRegisteredCard(USER, 41L)).thenReturn(Optional.of(creditCard(41L, B)));
+        when(cardBillRepository.existsByUserCardIdAndStatus(41L, BillStatus.UNPAID)).thenReturn(false);
+        spending = days(everyDay(A, JUL.atDay(1), TODAY, 5_000));
+
+        BalanceForecast result = service.forecast(USER, List.of(A, B), Until.DAYS, 30, true, false);
+
+        // 통합 예상 생활비는 B 자료가 없어 null이지만, 보수적 선에는 A 생활비 5,000원 × 30일이 들어 있다
+        assertThat(result.livingCost().projectedAmount()).isNull();
+        assertThat(result.livingCost().appliedAmount()).isEqualTo(150_000L);
+        BalanceForecast.SeriesPoint last = result.series().get(result.series().size() - 1);
+        assertThat(last.conservative()).isEqualTo(last.expected() - 150_000L - 48_000L);
+
+        assertThat(result.accountForecasts())
+                .extracting(BalanceForecast.AccountForecast::accountId,
+                        account -> account.livingCost().projectedAmount(),
+                        account -> account.livingCost().appliedAmount(),
+                        account -> account.livingCost().method(),
+                        account -> account.livingCost().dataOrigin())
+                .containsExactly(tuple(A, 150_000L, 150_000L, "TSB", LivingCostEstimator.DataOrigin.REAL),
+                        tuple(B, null, 0L, null, LivingCostEstimator.DataOrigin.INSUFFICIENT));
+        // B의 보수적 선은 생활비 0원에 추정만 뺀 값이라, 계좌별 선을 더하면 통합과 같다
+        BalanceForecast.SeriesPoint lastB = result.accountForecasts().get(1).series()
+                .get(result.accountForecasts().get(1).series().size() - 1);
+        assertThat(lastB.conservative()).isEqualTo(lastB.expected() - 48_000L);
+    }
+
     private static UserCardRef creditCard(long id, Long accountId) {
         return new UserCardRef(id, 1L, accountId, "1234", CardRegistrationStatus.ACTIVE, CardIssuerStatus.NORMAL,
                 CardType.CREDIT, 25, 14);
