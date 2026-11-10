@@ -23,8 +23,8 @@ public record PaymentListResponse(
      * @param expectedBenefit  승인 건의 혜택 원화 합계({@code payment_benefit.krw_amount}). 확정된 혜택도 포함한다
      * @param confirmedBenefit 그중 확정된 혜택 원화 합계({@link BenefitStatus}의 줄 기준)
      * @param byClass          승인 건의 소비 분류별 결제 금액 합계. 분류되지 않은 결제는 어느 분류에도 넣지 않는다
-     * @param yamuPickCount    승인 건 중 추천 1순위 카드로 승인한 건수(임시: 저장된 추천 결과의 1순위와 승인 카드가 같으면 센다.
-     *                         사용자가 1순위를 직접 고른 건도 들어간다)
+     * @param yamuPickCount    승인 건 중 추천 1순위 카드로 승인한 건수. 상세의 {@code recommendedRank}가 1인 건이고, 사용자가
+     *                         1순위를 직접 고른 건도 들어간다. 순위를 적기 전 결제는 저장된 추천 결과의 1순위와 승인 카드가 같으면 센다
      */
     public record Summary(long count, long amount, long expectedBenefit, Long confirmedBenefit, ByClass byClass,
             long yamuPickCount) {}

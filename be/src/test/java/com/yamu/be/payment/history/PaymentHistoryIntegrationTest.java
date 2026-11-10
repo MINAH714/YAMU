@@ -518,6 +518,27 @@ class PaymentHistoryIntegrationTest extends MySqlTestSupport {
     }
 
     @Test
+    void 야무픽은_승인_때_적은_순위가_있으면_저장된_추천_결과보다_그_순위를_따른다() throws Exception {
+        String result = "{\"schemaVersion\":1,\"candidates\":[{\"rank\":1,\"card\":{\"userCardId\":%d}},"
+                + "{\"rank\":2,\"card\":{\"userCardId\":%d}}]}";
+        // 추천 결과로는 2순위지만 승인 때 다시 계산해 1순위로 승인함 → 센다
+        long reRanked = approved(owner, card, OCT_10, 10_000, 1);
+        jdbc.update("UPDATE payment_transaction SET recommendation_result_json = ?, recommended_rank = 1,"
+                + " user_selected = FALSE WHERE payment_transaction_id = ?", result.formatted(otherCard, card), reRanked);
+        // 추천 결과로는 1순위지만 승인 때 순위가 2 → 세지 않는다
+        long demoted = approved(owner, card, OCT_10.plusHours(1), 10_000, 1);
+        jdbc.update("UPDATE payment_transaction SET recommendation_result_json = ?, recommended_rank = 2,"
+                + " user_selected = TRUE WHERE payment_transaction_id = ?", result.formatted(card, otherCard), demoted);
+        // 추천 밖 카드를 직접 고름(순위 없음) → 추천 결과가 1순위여도 세지 않는다
+        long outside = approved(owner, card, OCT_10.plusHours(2), 10_000, 1);
+        jdbc.update("UPDATE payment_transaction SET recommendation_result_json = ?, recommended_rank = NULL,"
+                + " user_selected = TRUE WHERE payment_transaction_id = ?", result.formatted(card, otherCard), outside);
+
+        mockMvc.perform(list().param("yearMonth", OCTOBER))
+                .andExpect(jsonPath("$.data.summary.yamuPickCount").value(1));
+    }
+
+    @Test
     void 새_필터의_잘못된_값은_400_INVALID_REQUEST다() throws Exception {
         expectInvalid(list().param("q", "가".repeat(51)), "q");
         expectInvalid(list().param("categoryCode", "F01;DROP"), "categoryCode");

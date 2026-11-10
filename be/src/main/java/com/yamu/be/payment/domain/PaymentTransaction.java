@@ -208,6 +208,9 @@ public class PaymentTransaction extends BaseTimeEntity {
     /**
      * 앱 승인 요청이 이 결제를 선점했다(명세 「결제 상태·예외 처리」 4-2). REQUESTED·DECLINED(재승인)에서만 PROCESSING이 된다.
      * 같은 행을 두 요청이 동시에 바꾸면 {@code version}이 어긋나 한 건만 저장된다. 재승인은 앞 시도의 카드·거절 사유를 덮어쓴다.
+     *
+     * <p>테스트에서 상태만 만들 때 쓴다. 이 메서드는 추천 순위·직접 선택 여부를 null로 덮으므로, 운영 코드는
+     * {@link #startApproval(Long, Long, Integer, Boolean)}을 쓴다(그래야 결제 상세가 승인 응답과 같은 값을 보인다).
      */
     public void startApproval(Long userCardId, Long cardProductId) {
         startApproval(userCardId, cardProductId, null, null);
