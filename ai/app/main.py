@@ -82,7 +82,16 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title="YAMU AI", lifespan=lifespan)
+def docs_urls(enabled: bool) -> dict[str, str | None]:
+    """FastAPI 기본 API 문서(/docs·/redoc·/openapi.json) 주소. 끄면 세 주소 모두 None(404)이다."""
+    if enabled:
+        return {"docs_url": "/docs", "redoc_url": "/redoc", "openapi_url": "/openapi.json"}
+    return {"docs_url": None, "redoc_url": None, "openapi_url": None}
+
+
+# 운영에서는 끈다(S15P31E103-355). 로컬에서 보려면 AI_DOCS_ENABLED=true로 띄운다.
+app = FastAPI(title="YAMU AI", lifespan=lifespan,
+              **docs_urls(os.getenv("AI_DOCS_ENABLED", "").strip().lower() == "true"))
 app.add_middleware(BodySizeLimit, max_bytes=MAX_BODY_BYTES)
 
 

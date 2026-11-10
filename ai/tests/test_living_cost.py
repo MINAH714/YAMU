@@ -14,7 +14,7 @@ import numpy as np
 from fastapi.testclient import TestClient
 
 from app import living_cost
-from app.main import MAX_BODY_BYTES, MAX_DAILY_AMOUNT, app
+from app.main import MAX_BODY_BYTES, MAX_DAILY_AMOUNT, app, docs_urls
 
 AI_DIR = Path(__file__).resolve().parents[1]
 MODEL_DIR = AI_DIR / "models" / "living-cost"
@@ -128,6 +128,18 @@ class Api(unittest.TestCase):
         client.__enter__()
         self.addCleanup(client.__exit__, None, None, None)
         return client
+
+    def test_api_docs_are_off_by_default(self):
+        # S15P31E103-355: AI_DOCS_ENABLED가 없으면 기본 API 문서 세 주소를 열지 않는다
+        client = self.client()
+        for path in ("/docs", "/redoc", "/openapi.json"):
+            with self.subTest(path):
+                self.assertEqual(client.get(path).status_code, 404)
+
+    def test_docs_urls_open_all_three_only_when_enabled(self):
+        self.assertEqual(docs_urls(True),
+                         {"docs_url": "/docs", "redoc_url": "/redoc", "openapi_url": "/openapi.json"})
+        self.assertEqual(docs_urls(False), {"docs_url": None, "redoc_url": None, "openapi_url": None})
 
     def test_health_keeps_status_ok_and_reports_models(self):
         res = self.client().get("/health")
