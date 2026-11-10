@@ -1,4 +1,4 @@
-package com.yamu.be.cashflow;
+package com.yamu.be.global.json;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -6,6 +6,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.exc.InvalidFormatException;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+import com.yamu.be.cashflow.CreateCashflowItemRequest;
+import com.yamu.be.cashflow.UpdateCashflowItemRequest;
 import org.junit.jupiter.api.Test;
 
 /** 정수 칸 읽기(S15P31E103-318): 소수점 아래가 있으면 잘라 쓰지 않고 거절한다. DB·스프링 없음. */
