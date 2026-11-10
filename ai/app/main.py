@@ -18,6 +18,8 @@ from app import living_cost
 
 log = logging.getLogger("app.main")
 DEFAULT_MODEL_DIR = Path(__file__).resolve().parents[1] / "models" / "living-cost"
+# 신용카드 마감 전 사용 추정용 신용 생활 소비 모델(S15P31E103-404). 체크 모델과 따로 읽어, 한쪽이 없어도 다른 쪽은 동작한다
+DEFAULT_CREDIT_MODEL_DIR = Path(__file__).resolve().parents[1] / "models" / "credit-spending"
 MAX_ACCOUNTS = 20
 MAX_DAILY_AMOUNT = 1_000_000_000_000  # 하루 1조 원. 이보다 크면 잘못된 입력으로 본다
 # 가장 큰 정상 요청(계좌 20개 × 90일 × 13자리)이 약 30KB라 넉넉히 두 배. 넘으면 JSON을 읽기 전에 413
@@ -72,15 +74,21 @@ class BodySizeLimit:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """생활비 예측 모델을 시작할 때 한 번 읽는다. 읽지 못해도 서버는 뜨고 예측만 503이다(BE가 TSB로 대체)."""
-    model_dir = Path(os.getenv("AI_LIVING_COST_MODEL_DIR") or DEFAULT_MODEL_DIR)
-    app.state.living_cost_models = {}
+    """체크·신용 생활 소비 모델을 시작할 때 한 번씩 따로 읽는다. 읽지 못해도 서버는 뜨고 그 예측만 503이다(BE가 TSB로 대체)."""
+    app.state.living_cost_models = _load("체크 생활비", os.getenv("AI_LIVING_COST_MODEL_DIR") or DEFAULT_MODEL_DIR)
+    app.state.credit_spending_models = _load("신용 생활 소비",
+                                             os.getenv("AI_CREDIT_SPENDING_MODEL_DIR") or DEFAULT_CREDIT_MODEL_DIR)
+    yield
+
+
+def _load(name: str, model_dir: str | Path) -> dict[int, living_cost.LoadedModel]:
+    """model_dir의 7·14·30일 모델. 읽지 못하면 로그를 남기고 빈 사전을 돌려준다."""
     try:
-        app.state.living_cost_models = living_cost.load_models(model_dir)
+        return living_cost.load_models(Path(model_dir))
     except Exception:
         # 망가진 joblib은 KeyError 등 종류를 다 셀 수 없는 예외를 낸다. 서버는 띄우고 오류는 로그·/health(loaded=false)·503으로 드러낸다
-        log.exception("생활비 예측 모델을 읽지 못했습니다")
-    yield
+        log.exception("%s 예측 모델을 읽지 못했습니다", name)
+        return {}
 
 
 def docs_enabled(env: Mapping[str, str]) -> bool:
@@ -101,7 +109,7 @@ app.add_middleware(BodySizeLimit, max_bytes=MAX_BODY_BYTES)
 
 
 class AccountHistory(BaseModel):
-    """계좌 하나의 최근 90일 일별 체크 생활 소비. 계좌는 BE가 정한 임의 key로만 구분한다."""
+    """계좌(체크) 또는 신용카드 하나의 최근 90일 일별 생활 소비. BE가 정한 임의 key로만 구분한다."""
 
     key: Annotated[str, Field(strict=True, min_length=1, max_length=64)]
     dailySpending: Annotated[
@@ -144,29 +152,48 @@ async def invalid_request(request: Request, exc: RequestValidationError) -> JSON
     return JSONResponse(status_code=400, content={"error": "INVALID_REQUEST", "fieldErrors": errors})
 
 
+def _model_state(models: dict[int, living_cost.LoadedModel]) -> dict[str, object]:
+    state: dict[str, object] = {"loaded": bool(models)}
+    if models:
+        state["horizons"] = sorted(models)
+        state["modelVersion"] = {str(h): m.version for h, m in sorted(models.items())}
+    return state
+
+
 @app.get("/health")
 def health() -> dict[str, object]:
-    models = app.state.living_cost_models
-    model_state: dict[str, object] = {"loaded": bool(models)}
-    if models:
-        model_state["horizons"] = sorted(models)
-        model_state["modelVersion"] = {str(h): m.version for h, m in sorted(models.items())}
-    return {"status": "ok", "livingCostModel": model_state}
+    return {"status": "ok", "livingCostModel": _model_state(app.state.living_cost_models),
+            "creditSpendingModel": _model_state(app.state.credit_spending_models)}
 
 
-@app.post("/forecast/living-cost", response_model=None)
-def forecast_living_cost(body: LivingCostRequest) -> dict[str, object] | JSONResponse:
-    """계좌별 최근 90일(마지막이 asOf 당일) 일별 체크 생활 소비 → 다음 horizonDays일 합계 예측."""
-    loaded = app.state.living_cost_models.get(body.horizonDays)
+def _forecast(models: dict[int, living_cost.LoadedModel], body: LivingCostRequest,
+              name: str) -> dict[str, object] | JSONResponse:
+    """key별 최근 90일 일별 소비 → 다음 horizonDays일 합계 예측. 그 기간 모델이 없으면 503."""
+    loaded = models.get(body.horizonDays)
     if loaded is None:
         return JSONResponse(status_code=503, content={"error": "MODEL_MISSING"})
     started = time.perf_counter()
     daily = np.array([account.dailySpending for account in body.accounts], dtype=np.int64)
     amounts = living_cost.predict(loaded, daily)
-    log.info("living-cost horizon=%s accounts=%s ms=%.1f", body.horizonDays, len(body.accounts),
+    log.info("%s horizon=%s accounts=%s ms=%.1f", name, body.horizonDays, len(body.accounts),
              (time.perf_counter() - started) * 1000)
     return {"modelVersion": loaded.version, "horizonDays": body.horizonDays,
             "predictions": [{"key": a.key, "amount": int(v)} for a, v in zip(body.accounts, amounts)]}
+
+
+@app.post("/forecast/living-cost", response_model=None)
+def forecast_living_cost(body: LivingCostRequest) -> dict[str, object] | JSONResponse:
+    """계좌별 최근 90일(마지막이 asOf 당일) 일별 체크 생활 소비 → 다음 horizonDays일 합계 예측."""
+    return _forecast(app.state.living_cost_models, body, "living-cost")
+
+
+@app.post("/forecast/credit-spending", response_model=None)
+def forecast_credit_spending(body: LivingCostRequest) -> dict[str, object] | JSONResponse:
+    """신용카드별 최근 90일(마지막이 asOf 당일) 일별 신용 생활 소비 → 다음 horizonDays일 합계 예측(S15P31E103-404).
+
+    잔고예보가 이번 이용기간 마감 전 신용카드 사용을 추정할 때 부른다. 요청·응답 모양은 생활비 예측과 같다.
+    """
+    return _forecast(app.state.credit_spending_models, body, "credit-spending")
 
 
 if __name__ == "__main__":
