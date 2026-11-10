@@ -9,10 +9,14 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.yamu.be.global.calendar.BusinessDayCalendar;
 import com.yamu.be.global.job.JobLocks;
 import com.yamu.be.global.job.JobRunCommand;
 import com.yamu.be.global.job.JobRunReport;
 import com.yamu.be.payment.bank.SsafyTransferApi;
+import com.yamu.be.payment.billing.BillingCycle;
+import com.yamu.be.payment.billing.CreditBillingWriter;
+import com.yamu.be.payment.billing.InstallmentPlan;
 import com.yamu.be.support.AuthUsers;
 import com.yamu.be.support.Concurrently;
 import com.yamu.be.support.MySqlTestSupport;
@@ -83,6 +87,8 @@ class BillConfirmIntegrationTest extends MySqlTestSupport {
     @Autowired BillConfirmJob job;
     @Autowired BillConfirmer confirmer;
     @Autowired ApplicationEvents events;
+    @Autowired CreditBillingWriter billingWriter;
+    @Autowired BusinessDayCalendar calendar;
 
     OwnershipFixtures fixtures;
     long user;
@@ -446,6 +452,88 @@ class BillConfirmIntegrationTest extends MySqlTestSupport {
         assertThat(billRow(others).get("status")).isEqualTo("ACCUMULATING");
     }
 
+    // ───────── 월말·윤년(Task 5.4.10) ─────────
+    // 결제일 14·마감 14일 카드는 이용기간이 전월 1일~말일이라 마감일이 2/28·2/29·1/31·12/31에 떨어진다.
+    // 청구서는 승인과 같은 길(InstallmentPlan → CreditBillingWriter.ensureBills)로 만들고, 확정 작업은 그 다음 날 00:30(한국)에
+    // 스케줄 실행처럼 job.run으로 돌린다(수동 실행 API는 미래 asOf를 막는다). 2028년은 내장 공휴일이 없어 주말만 쉬는 날로
+    // 보므로(BusinessDayCalendar) 출금일이 공휴일에 걸리지 않는 날로 고른다.
+
+    @Test
+    void 윤년_2월_29일_승인은_3월_청구서이고_2월_29일에는_남았다가_3월_1일에_확정된다() {
+        long monthly = monthlyCard();
+        long leapDay = approvedOn(monthly, LocalDate.of(2028, 2, 29), 29_000);
+        long marchFirst = approvedOn(monthly, LocalDate.of(2028, 3, 1), 3_000);
+
+        Map<String, Object> created = billRow(leapDay);
+        assertThat(((java.sql.Date) created.get("billing_month")).toLocalDate()).isEqualTo(LocalDate.of(2028, 3, 1));
+        assertThat(((java.sql.Date) created.get("period_start")).toLocalDate()).isEqualTo(LocalDate.of(2028, 2, 1));
+        assertThat(((java.sql.Date) created.get("period_end")).toLocalDate()).isEqualTo(LocalDate.of(2028, 2, 29));
+        assertThat(((java.sql.Date) billRow(marchFirst).get("billing_month")).toLocalDate())
+                .isEqualTo(LocalDate.of(2028, 4, 1));
+
+        // 2/29 00:30(한국) = 2/28 15:30 UTC. 마감일 당일이라 아직이다
+        assertThat(run(koreanTime0030(LocalDate.of(2028, 2, 29)), user, false).targets()).isZero();
+        assertThat(billRow(leapDay).get("status")).isEqualTo("ACCUMULATING");
+
+        // 3/1 00:30(한국) = 2/29 15:30 UTC. UTC 날짜(2/29)로 비교하면 하루 늦게 확정된다
+        JobRunReport report = run(koreanTime0030(LocalDate.of(2028, 3, 1)), user, false);
+
+        assertThat(report.results()).singleElement().satisfies(item -> {
+            assertThat(item.refId()).isEqualTo(leapDay);
+            assertThat(item.outcome()).isEqualTo(JobRunReport.Outcome.SUCCEEDED);
+            assertThat(item.amount()).isEqualTo(29_000L);
+        });
+        Map<String, Object> confirmed = billRow(leapDay);
+        assertThat(confirmed.get("status")).isEqualTo("CONFIRMED");
+        assertThat(((java.sql.Date) confirmed.get("withdrawal_date")).toLocalDate())
+                .isEqualTo(LocalDate.of(2028, 3, 14));
+        assertThat(billRow(marchFirst).get("status")).isEqualTo("ACCUMULATING");
+    }
+
+    @Test
+    void 평년_2월_28일_승인은_3월_1일에_확정되고_출금일은_주말을_넘긴다() {
+        long monthly = monthlyCard();
+        long february = approvedOn(monthly, LocalDate.of(2027, 2, 28), 28_000);
+
+        assertThat(((java.sql.Date) billRow(february).get("period_end")).toLocalDate())
+                .isEqualTo(LocalDate.of(2027, 2, 28));
+        assertThat(run(koreanTime0030(LocalDate.of(2027, 2, 28)), user, false).targets()).isZero();
+
+        run(koreanTime0030(LocalDate.of(2027, 3, 1)), user, false);
+
+        Map<String, Object> row = billRow(february);
+        assertThat(row.get("status")).isEqualTo("CONFIRMED");
+        assertThat(((Number) row.get("confirmed_amount")).longValue()).isEqualTo(28_000);
+        // 2027-03-14는 일요일 → 3/15(월)
+        assertThat(((java.sql.Date) row.get("withdrawal_date")).toLocalDate()).isEqualTo(LocalDate.of(2027, 3, 15));
+    }
+
+    @Test
+    void 말일이_31일인_달과_연말_청구서도_다음_날_확정된다() {
+        long monthly = monthlyCard();
+        long december = approvedOn(monthly, LocalDate.of(2026, 12, 31), 12_000);
+        long january = approvedOn(monthly, LocalDate.of(2027, 1, 31), 31_000);
+
+        assertThat(((java.sql.Date) billRow(december).get("billing_month")).toLocalDate())
+                .isEqualTo(LocalDate.of(2027, 1, 1));
+        assertThat(((java.sql.Date) billRow(january).get("billing_month")).toLocalDate())
+                .isEqualTo(LocalDate.of(2027, 2, 1));
+
+        // 1/1(공휴일)에도 작업은 돈다. 12/31 마감 청구서만 확정되고 1/31 마감 청구서는 남는다
+        JobRunReport newYear = run(koreanTime0030(LocalDate.of(2027, 1, 1)), user, false);
+        assertThat(newYear.results()).extracting(JobRunReport.Item::refId).containsExactly(december);
+        assertThat(run(koreanTime0030(LocalDate.of(2027, 1, 31)), user, false).targets()).isZero();
+
+        JobRunReport february = run(koreanTime0030(LocalDate.of(2027, 2, 1)), user, false);
+
+        assertThat(february.results()).extracting(JobRunReport.Item::refId).containsExactly(january);
+        // 2027-01-14(목) 그대로, 2027-02-14는 일요일 → 2/15(월)
+        assertThat(((java.sql.Date) billRow(december).get("withdrawal_date")).toLocalDate())
+                .isEqualTo(LocalDate.of(2027, 1, 14));
+        assertThat(((java.sql.Date) billRow(january).get("withdrawal_date")).toLocalDate())
+                .isEqualTo(LocalDate.of(2027, 2, 15));
+    }
+
     // ───────── 운영 API ─────────
 
     @Test
@@ -566,6 +654,28 @@ class BillConfirmIntegrationTest extends MySqlTestSupport {
         long id = fixtures.card(owner, product, linkedAccount, "ACTIVE");
         jdbc.update("UPDATE user_card SET payment_day = 15 WHERE user_card_id = ?", id);
         return id;
+    }
+
+    /** 결제일 14일·마감 14일 신용카드(이용기간 = 전월 1일~말일). 같은 사용자·계좌 */
+    private long monthlyCard() {
+        long id = fixtures.card(user, fixtures.product(), account, "ACTIVE");
+        jdbc.update("UPDATE user_card SET payment_day = 14 WHERE user_card_id = ?", id);
+        return id;
+    }
+
+    /**
+     * usageDate(한국 날짜)에 승인한 일시불 한 건을 승인과 같은 길로 청구서에 붙이고 그 청구서 번호를 돌려준다.
+     * 청구서는 {@link CreditBillingWriter#ensureBills}가 만들고, 회차는 그 청구 월로 넣는다.
+     */
+    private long approvedOn(long userCard, LocalDate usageDate, long amount) {
+        InstallmentPlan plan = InstallmentPlan.of(amount, 1, BillingCycle.of(14, 14), usageDate, calendar);
+        InstallmentPlan.Installment only = plan.installments().get(0);
+        long bill = billingWriter.ensureBills(user, userCard, plan).get(only.billingMonth()).getId();
+        insert("bill_item", "bill_item_id", Map.of("payment_transaction_id", payment(user, userCard, amount),
+                "user_id", user, "user_card_id", userCard, "card_bill_id", bill, "installment_no", 1,
+                "billing_month", only.billingMonth().atDay(1), "principal_amount", amount, "fee_amount", 0L,
+                "billed_amount", amount, "status", "PENDING"));
+        return bill;
     }
 
     private long accumulating(long owner, long userCard, YearMonth month, LocalDate periodEnd) {
