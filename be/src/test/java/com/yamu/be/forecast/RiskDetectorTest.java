@@ -34,7 +34,7 @@ class RiskDetectorTest {
     }
 
     @Test
-    void 확정_선이_기준_미만이면_DANGER이고_확정_선으로_부족액과_원인을_보여_준다() {
+    void 예상_선이_기준_미만이면_DANGER이고_예상_선으로_부족액과_원인을_보여_준다() {
         FlowEvent bill = new FlowEvent(5L, TODAY.plusDays(1), -400_000L, FlowEvent.Type.CARD_BILLING,
                 FlowEvent.Confidence.CONFIRMED, "카드 청구 출금", 88L);
         Assessment result = RiskDetector.assess(List.of(
@@ -47,7 +47,7 @@ class RiskDetectorTest {
             assertThat(window.from()).isEqualTo(TODAY.plusDays(1));
             assertThat(window.to()).isEqualTo(TODAY.plusDays(2));
             assertThat(window.level()).isEqualTo(Level.DANGER);
-            assertThat(window.line()).isEqualTo(Line.CONFIRMED);
+            assertThat(window.line()).isEqualTo(Line.EXPECTED);
             assertThat(window.lowestBalance()).isEqualTo(-100_000L);
             assertThat(window.shortfall()).isEqualTo(200_000L);
             assertThat(window.causes()).extracting(Cause::type, Cause::amount, Cause::refId)
@@ -59,7 +59,8 @@ class RiskDetectorTest {
     }
 
     @Test
-    void DANGER_구간_원인에는_확정_선에_반영되지_않은_예상_출금을_넣지_않는다() {
+    void DANGER_구간_원인에는_확정_출금과_진행_중_청구가_함께_들어간다() {
+        // S15P31E103-356: 앱은 확정 선을 그리지 않아 예상 선 구간 하나로 보고, 원인도 예상 선에 반영된 출금을 모두 넣는다.
         FlowEvent bill = new FlowEvent(5L, TODAY.plusDays(1), -400_000L, FlowEvent.Type.CARD_BILLING,
                 FlowEvent.Confidence.CONFIRMED, "카드 청구 출금", 88L);
         FlowEvent accumulating = new FlowEvent(5L, TODAY.plusDays(1), -50_000L, FlowEvent.Type.CARD_BILLING,
@@ -69,9 +70,22 @@ class RiskDetectorTest {
                 point(1, -100_000, -150_000, -150_000, bill, accumulating)), THRESHOLD);
 
         assertThat(result.windows()).singleElement().satisfies(window -> {
-            assertThat(window.line()).isEqualTo(Line.CONFIRMED);
-            assertThat(window.causes()).extracting(Cause::refId).containsExactly(88L);
+            assertThat(window.line()).isEqualTo(Line.EXPECTED);
+            assertThat(window.lowestBalance()).isEqualTo(-150_000L);
+            assertThat(window.causes()).extracting(Cause::refId).containsExactly(88L, 89L);
         });
+    }
+
+    @Test
+    void 확정_선만_기준_미만이고_두_선은_기준_이상이면_SAFE다() {
+        // 지금은 예상 선에만 들어오는 수입이 없어(후보는 지출만, -349) 날마다 확정 ≥ 예상 ≥ 보수적이라 생기지 않는 경우다.
+        // 나중에 수입 후보처럼 예상 선에만 들어오는 수입이 생겨도 앱이 그리지 않는 확정 선으로는 판단하지 않음을 지킨다(!223 리뷰).
+        Assessment result = RiskDetector.assess(List.of(
+                point(0, 300_000, 300_000, 300_000),
+                point(1, 50_000, 150_000, 120_000)), THRESHOLD);
+
+        assertThat(result.status()).isEqualTo(Level.SAFE);
+        assertThat(result.windows()).isEmpty();
     }
 
     @Test
@@ -90,7 +104,7 @@ class RiskDetectorTest {
                 .extracting(RiskWindow::from, RiskWindow::to, RiskWindow::level, RiskWindow::line,
                         RiskWindow::lowestBalance)
                 .containsExactly(
-                        tuple(TODAY.plusDays(1), TODAY.plusDays(2), Level.WARNING, Line.EXPECTED, 50_000L),
+                        tuple(TODAY.plusDays(1), TODAY.plusDays(2), Level.DANGER, Line.EXPECTED, 50_000L),
                         tuple(TODAY.plusDays(3), TODAY.plusDays(4), Level.WARNING, Line.CONSERVATIVE, 80_000L));
         // 예상 선 구간: 월세만. 생활비 원인 없음
         assertThat(result.windows().get(0).causes()).extracting(Cause::type)
@@ -101,12 +115,13 @@ class RiskDetectorTest {
     }
 
     @Test
-    void 예상_선만_기준_미만이면_WARNING이고_예상_선으로_본다() {
+    void 확정_선은_기준_이상이어도_예상_선이_미만이면_DANGER다() {
+        // S15P31E103-356 전에는 WARNING이었다(확정 선 미달만 DANGER).
         Assessment result = RiskDetector.assess(List.of(
                 point(0, 300_000, 300_000, 300_000),
                 point(1, 300_000, 50_000, 40_000, outflow(1, -250_000))), THRESHOLD);
 
-        assertThat(result.status()).isEqualTo(Level.WARNING);
+        assertThat(result.status()).isEqualTo(Level.DANGER);
         assertThat(result.windows()).singleElement().satisfies(window -> {
             assertThat(window.line()).isEqualTo(Line.EXPECTED);
             assertThat(window.lowestBalance()).isEqualTo(50_000L);
@@ -181,10 +196,10 @@ class RiskDetectorTest {
     void WARNING과_DANGER가_바뀌면_구간을_나눈다() {
         Assessment result = RiskDetector.assess(List.of(
                 point(0, 200_000, 200_000, 200_000),
-                point(1, 200_000, 90_000, 90_000),
-                point(2, 200_000, 80_000, 80_000),
+                point(1, 200_000, 120_000, 90_000),
+                point(2, 200_000, 110_000, 80_000),
                 point(3, 50_000, 50_000, 50_000),
-                point(4, 200_000, 70_000, 70_000),
+                point(4, 200_000, 130_000, 70_000),
                 point(5, 200_000, 200_000, 200_000)), THRESHOLD);
 
         assertThat(result.status()).isEqualTo(Level.DANGER);
@@ -196,7 +211,7 @@ class RiskDetectorTest {
     }
 
     @Test
-    void 보수적_선이_없으면_확정_예상_선으로만_판단하고_예상_선으로_최저를_낸다() {
+    void 보수적_선이_없으면_예상_선으로만_판단하고_예상_선으로_최저를_낸다() {
         Assessment result = RiskDetector.assess(List.of(
                 point(0, 150_000, 150_000, null),
                 point(1, 150_000, 120_000, null)), THRESHOLD);
@@ -231,7 +246,7 @@ class RiskDetectorTest {
     @Test
     void 최종_수준은_통합과_계좌별_중_가장_나쁜_수준이다() {
         Assessment safe = RiskDetector.assess(List.of(point(0, 300_000, 300_000, 300_000)), THRESHOLD);
-        Assessment warning = RiskDetector.assess(List.of(point(0, 300_000, 50_000, 50_000)), THRESHOLD);
+        Assessment warning = RiskDetector.assess(List.of(point(0, 300_000, 300_000, 50_000)), THRESHOLD);
         Assessment danger = RiskDetector.assess(List.of(point(0, 50_000, 50_000, 50_000)), THRESHOLD);
 
         assertThat(RiskDetector.overall(safe, List.of(safe, safe))).isEqualTo(Level.SAFE);

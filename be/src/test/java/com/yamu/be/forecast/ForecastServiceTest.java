@@ -211,7 +211,7 @@ class ForecastServiceTest {
         assertThat(day(b.series(), NOV_5).conservative()).isEqualTo(-120_000L);
         assertThat(b.riskWindows()).singleElement().satisfies(window -> {
             assertThat(window.from()).isEqualTo(NOV_5);
-            assertThat(window.line()).isEqualTo(RiskDetector.Line.CONFIRMED);
+            assertThat(window.line()).isEqualTo(RiskDetector.Line.EXPECTED);
             assertThat(window.lowestBalance()).isEqualTo(-100_000L);
             assertThat(window.shortfall()).isEqualTo(200_000L);
             assertThat(window.causes()).extracting(RiskDetector.Cause::type)
