@@ -3,10 +3,13 @@ package com.yamu.be.cashflow;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.contains;
 import static org.hamcrest.Matchers.empty;
+import static org.hamcrest.Matchers.everyItem;
 import static org.hamcrest.Matchers.hasSize;
+import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.nullValue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -15,8 +18,10 @@ import com.jayway.jsonpath.JsonPath;
 import com.yamu.be.support.AuthUsers;
 import com.yamu.be.support.MySqlTestSupport;
 import com.yamu.be.support.OwnershipFixtures;
+import jakarta.persistence.EntityManager;
 import java.time.LocalDate;
 import java.time.ZoneId;
+import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -39,6 +44,7 @@ class PaymentMatchControllerTest extends MySqlTestSupport {
     @Autowired MockMvc mockMvc;
     @Autowired JdbcTemplate jdbc;
     @Autowired CashflowService cashflowService;
+    @Autowired EntityManager em;
 
     OwnershipFixtures ownership;
     CashflowFixtures cashflows;
@@ -233,6 +239,75 @@ class PaymentMatchControllerTest extends MySqlTestSupport {
     }
 
     @Test
+    void 펼친_목록의_paymentMatchStatus는_연결이_없으면_null_승인이면_ACTIVE_결제가_취소되면_해제_전까지_REVIEW_REQUIRED다()
+            throws Exception {
+        // S15P31E103-393: 앱이 정상 연결한 회차는 다시 띄우지 않고, 결제가 취소된 연결은 다시 확인하라고 남기게 한다(!238 리뷰)
+        long payment = cashflows.payment(owner, card, gym, 30000L, target, "YAMU", "APPROVED");
+        assertThat(listedMatchStatus()).isNull();
+
+        long matchId = matchId(confirm(owner, rule, target, payment).andExpect(status().isCreated()));
+        assertThat(listedMatchStatus()).isEqualTo("ACTIVE");
+
+        jdbc.update("UPDATE payment_transaction SET status = 'CANCELED', canceled_at = approved_at "
+                + "WHERE payment_transaction_id = ?", payment);
+        assertThat(listedMatchStatus()).isEqualTo("REVIEW_REQUIRED");
+        assertThat(paid(target)).isFalse();
+
+        mockMvc.perform(delete("/api/cashflow-payment-matches/{id}", matchId).with(AuthUsers.asUser(owner)))
+                .andExpect(status().isNoContent());
+        assertThat(listedMatchStatus()).isNull();
+        // 펼치지 않은 목록은 규칙이라 연결 상태가 없다
+        mockMvc.perform(get("/api/cashflow-items").with(AuthUsers.asUser(owner)).param("expand", "false"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.items", hasSize(1)))
+                .andExpect(jsonPath("$.data.items[*].paymentMatchStatus").value(everyItem(nullValue())));
+    }
+
+    @Test
+    void 값을_바꾸지_않는_수정_응답도_첫_회차를_목록과_같은_값_날짜_연결_상태로_준다() throws Exception {
+        // 규칙의 첫 회차를 결제와 연결한 뒤 상태만 그대로 보내면 응답 줄이 그 회차다(Codex 검토 반영)
+        LocalDate first = target.minusDays(7);
+        patchStatusOnly()
+                .andExpect(jsonPath("$.data.occurrenceDate").value(first.toString()))
+                .andExpect(jsonPath("$.data.paymentMatchStatus").value(nullValue()));
+
+        long payment = cashflows.payment(owner, card, gym, 30000L, first, "YAMU", "APPROVED");
+        confirm(owner, rule, first, payment).andExpect(status().isCreated());
+        patchStatusOnly()
+                .andExpect(jsonPath("$.data.occurrenceDate").value(first.toString()))
+                .andExpect(jsonPath("$.data.paymentMatchStatus").value("ACTIVE"));
+
+        // 이번 회차만 고친 회차가 연결됐으면 목록처럼 그 행의 값·예정일을 쓴다(!238 리뷰). 전에는 규칙 값·첫 발생일이었다
+        LocalDate moved = first.plusDays(1);
+        assertThat(jdbc.update("UPDATE cashflow_occurrence SET is_overridden = TRUE, amount = 25000, scheduled_date = ? "
+                + "WHERE cashflow_item_id = ? AND occurrence_date = ?", moved, rule, first)).isEqualTo(1);
+        jdbc.update("UPDATE payment_transaction SET status = 'CANCELED', canceled_at = approved_at "
+                + "WHERE payment_transaction_id = ?", payment);
+        // 테스트 트랜잭션이 요청들의 영속성 컨텍스트를 같이 쓰므로, JDBC로 바꾼 회차 행을 다시 읽게 비운다
+        em.flush();
+        em.clear();
+        patchStatusOnly()
+                .andExpect(jsonPath("$.data.occurrenceDate").value(first.toString()))
+                .andExpect(jsonPath("$.data.date").value(moved.toString()))
+                .andExpect(jsonPath("$.data.amount").value(25000))
+                .andExpect(jsonPath("$.data.paymentMatchStatus").value("REVIEW_REQUIRED"));
+        mockMvc.perform(get("/api/cashflow-items").with(AuthUsers.asUser(owner))
+                        .param("from", moved.toString()).param("to", moved.toString()).param("expand", "true"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.items", hasSize(1)))
+                .andExpect(jsonPath("$.data.items[0].occurrenceDate").value(first.toString()))
+                .andExpect(jsonPath("$.data.items[0].date").value(moved.toString()))
+                .andExpect(jsonPath("$.data.items[0].amount").value(25000))
+                .andExpect(jsonPath("$.data.items[0].paymentMatchStatus").value("REVIEW_REQUIRED"));
+    }
+
+    private ResultActions patchStatusOnly() throws Exception {
+        return mockMvc.perform(patch("/api/cashflow-items/{id}", rule).with(AuthUsers.asUser(owner))
+                        .contentType(MediaType.APPLICATION_JSON).content("{ \"status\": \"CONFIRMED\" }"))
+                .andExpect(status().isOk());
+    }
+
+    @Test
     void 연결된_결제가_취소되면_REVIEW_REQUIRED이고_회차를_다시_예정으로_센다() throws Exception {
         long payment = cashflows.payment(owner, card, gym, 30000L, target, "YAMU", "APPROVED");
         confirm(owner, rule, target, payment).andExpect(status().isCreated());
@@ -361,6 +436,17 @@ class PaymentMatchControllerTest extends MySqlTestSupport {
     private static long matchId(ResultActions result) throws Exception {
         return ((Number) JsonPath.read(result.andReturn().getResponse().getContentAsString(), "$.data.matchId"))
                 .longValue();
+    }
+
+    /** GET /api/cashflow-items 펼친 목록에서 target 회차의 paymentMatchStatus(연결이 없으면 null). */
+    private String listedMatchStatus() throws Exception {
+        String json = mockMvc.perform(get("/api/cashflow-items").with(AuthUsers.asUser(owner))
+                        .param("from", target.toString()).param("to", target.toString()).param("expand", "true"))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+        List<String> values = JsonPath.read(json, "$.data.items[?(@.cashflowItemId == " + rule
+                + " && @.occurrenceDate == '" + target + "')].paymentMatchStatus");
+        assertThat(values).hasSize(1);
+        return values.get(0);
     }
 
     /** 목록 펼치기가 그 회차를 실제 결제로 보는지(잔고예보가 예정 차감에서 빼는지). */
