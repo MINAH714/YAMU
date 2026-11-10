@@ -44,10 +44,15 @@ public final class PaymentSqlFragments {
     /** 원화로 환산되지 않은 혜택 줄 수(0원 줄 제외). */
     public static final String UNCONVERTED_LINES = "(select count(*) from payment_benefit b"
             + " where b.payment_transaction_id = p.payment_transaction_id and b.benefit_value > 0 and b.krw_amount is null)";
-    /** 추천 1순위(저장된 추천 결과의 첫 후보)로 승인했는지. 결과가 없는 결제(SEED·옛 결제)는 아니다 */
+    /**
+     * 추천 1순위로 승인했는지. 승인 때 순위를 적은 결제({@code user_selected}가 있음)는 그 순위가 1인지로 본다. 결제 상세의
+     * {@code recommendedRank}와 같은 기준이다(추천 스냅샷이 만료돼 승인 때 다시 계산했으면 저장된 추천 결과와 1순위가 다를 수 있다).
+     * 순위 칸이 생기기 전(V20261109_4) 결제만 저장된 추천 결과의 첫 후보와 비교한다. 둘 다 없는 결제(SEED)는 아니다
+     */
     public static final String YAMU_PICK = "(p.status = 'APPROVED' and p.user_card_id is not null"
+            + " and (p.recommended_rank = 1 or (p.user_selected is null"
             + " and cast(json_unquote(json_extract(p.recommendation_result_json, '$.candidates[0].card.userCardId'))"
-            + " as unsigned) = p.user_card_id)";
+            + " as unsigned) = p.user_card_id)))";
 
     private PaymentSqlFragments() {
     }

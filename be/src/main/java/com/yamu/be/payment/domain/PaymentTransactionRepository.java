@@ -26,6 +26,14 @@ public interface PaymentTransactionRepository extends JpaRepository<PaymentTrans
     Optional<PaymentTransaction> findForCancel(@Param("id") Long id, @Param("userId") Long userId);
 
     /**
+     * 사용자 거절용 행 잠금과 소유 확인(S15P31E103-360). 같은 결제의 거절이 겹치면 뒤 요청은 앞 요청이 끝난 뒤 REJECTED를 읽는다.
+     * 동시에 온 승인은 version이 어긋나 한쪽만 저장된다.
+     */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT p FROM PaymentTransaction p WHERE p.id = :id AND p.userId = :userId")
+    Optional<PaymentTransaction> findForReject(@Param("id") Long id, @Param("userId") Long userId);
+
+    /**
      * 결과 불명 복구 대상: 한동안 바뀌지 않은 PROCESSING 결제를 결제 번호 순으로 50건씩. afterId보다 큰 번호부터 읽어
      * 판정하지 못한 행이 앞에 쌓여도 뒤의 결제까지 본다.
      */

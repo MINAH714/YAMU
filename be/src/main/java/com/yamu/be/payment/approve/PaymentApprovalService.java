@@ -375,11 +375,14 @@ public class PaymentApprovalService {
         }
     }
 
-    /** 승인할 수 없는 상태를 응답 코드로. 선점 경쟁에서 진 뒤 다시 읽은 REQUESTED·DECLINED도 "처리 중"이다. */
+    /**
+     * 승인할 수 없는 상태를 응답 코드로. 선점 경쟁에서 진 뒤 다시 읽은 REQUESTED·DECLINED도 "처리 중"이다.
+     * 사용자가 거절한 REJECTED(S15P31E103-360)는 승인·취소처럼 이미 끝난 결제다.
+     */
     private static BusinessException byStatus(PaymentStatus status) {
         return switch (status) {
             case EXPIRED -> new BusinessException(ErrorCode.PAYMENT_EXPIRED);
-            case APPROVED, CANCELED -> new BusinessException(ErrorCode.PAYMENT_ALREADY_PROCESSED,
+            case APPROVED, CANCELED, REJECTED -> new BusinessException(ErrorCode.PAYMENT_ALREADY_PROCESSED,
                     Map.of("status", status.name()));
             default -> inProgress();
         };
@@ -535,7 +538,8 @@ public class PaymentApprovalService {
                 if (expiry.isPastDeadline(payment)) {
                     throw new DeadlinePassed();
                 }
-                payment.startApproval(selection.card().userCardId(), selection.card().cardProductId());
+                payment.startApproval(selection.card().userCardId(), selection.card().cardProductId(),
+                        selection.recommendedRank(), selection.userSelected());
                 payments.saveAndFlush(payment);
                 return payment;
             });
@@ -702,7 +706,8 @@ public class PaymentApprovalService {
 
     /**
      * 복구가 확정한 결제의 응답을 결제 행에서 만든다(승인 또는 출금 미확인 거절). 카드는 행의 카드이고, 같은 키의 시도가 있으면
-     * 그 시도의 카드 표시·추천 순위·직접 선택 여부를 쓴다. 혜택 줄·실적·한도는 싣지 않는다(임시: 원장에는 적혀 있고 결제 상세로 본다).
+     * 그 시도의 카드 표시·추천 순위·직접 선택 여부를 쓴다. 시도가 없으면 행에 적힌 순위·직접 선택 여부를 쓰고, 행에도 없으면
+     * (칸이 생기기 전 시작한 결제) 추천 스냅샷의 순위를 쓴다. 혜택 줄·실적·한도는 싣지 않는다(임시: 원장에는 적혀 있고 결제 상세로 본다).
      *
      * @param attempt 이 요청 키가 만든 시도. 다른 키의 요청이면 null
      */
@@ -711,9 +716,11 @@ public class PaymentApprovalService {
         Long cardId = payment.getUserCardId();
         CardSummary card = attempt != null && attempt.card() != null ? attempt.card() : cardOf(payment);
         Integer rank = attempt != null ? attempt.recommendedRank()
+                : payment.getUserSelected() != null ? payment.getRecommendedRank()
                 : snapshots.find(paymentId).flatMap(r -> r.candidate(cardId)).map(Candidate::rank).orElse(null);
+        boolean userSelected = attempt != null ? attempt.userSelected() : Boolean.TRUE.equals(payment.getUserSelected());
         SelectedCard selected = new SelectedCard(card.userCardId(), nickname(card), masked(card.last4()),
-                card.cardType(), rank, attempt != null && attempt.userSelected());
+                card.cardType(), rank, userSelected);
         PaymentPlan plan = payment.isInstallment() ? PaymentPlan.INSTALLMENT : PaymentPlan.LUMP_SUM;
         Integer months = payment.isInstallment() ? payment.getInstallmentMonths() : null;
         if (payment.getStatus() == PaymentStatus.APPROVED || payment.getStatus() == PaymentStatus.CANCELED) {
@@ -922,14 +929,18 @@ public class PaymentApprovalService {
                 && attempt.card().userCardId().equals(payment.getUserCardId());
     }
 
-    /** 시도의 실행 결과가 DB에 저장됐는지. 승인은 지금 행이 승인(뒤 취소 포함)이고, 거절은 뒤 시도가 있거나 행이 거절·만료다. */
+    /**
+     * 시도의 실행 결과가 DB에 저장됐는지. 승인은 지금 행이 승인(뒤 취소 포함)이고, 거절은 뒤 시도가 있거나 행이 거절·만료다.
+     * 거절 뒤 사용자가 결제 요청을 거절(REJECTED, S15P31E103-360)한 행도 그 거절이 저장된 뒤다.
+     */
     private boolean isSaved(Attempt attempt, PaymentTransaction payment) {
         PaymentStatus status = payment.getStatus();
         if (Attempt.APPROVED.equals(attempt.outcome())) {
             return status == PaymentStatus.APPROVED || status == PaymentStatus.CANCELED;
         }
         return attempt.no() < attempts.count(payment.getId())
-                || status == PaymentStatus.DECLINED || status == PaymentStatus.EXPIRED;
+                || status == PaymentStatus.DECLINED || status == PaymentStatus.EXPIRED
+                || status == PaymentStatus.REJECTED;
     }
 
     /** 요청 내용: 결제 번호와 고른 카드(생략은 auto). 같은 키로 다른 결제·다른 카드를 보내면 409. */

@@ -2,6 +2,8 @@ package com.yamu.be.payment.pos;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonSetter;
+import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
+import com.yamu.be.global.json.IntegralNumberDeserializers;
 import com.yamu.be.global.exception.ErrorCode;
 import com.yamu.be.payment.PaymentPlan;
 import com.yamu.be.payment.PaymentTerms;
@@ -17,7 +19,8 @@ import lombok.Getter;
  * <p>record가 아니라 클래스인 이유: {@code plan}·{@code installmentMonths}는 "칸을 보냈는데 null"과 "칸을 안 보냄"을 구분해야 한다
  * (명세 「결제 방식·할부 요청 검증」: plan 생략은 일시불, null은 거절. 일시불에 개월 수 칸은 null이어도 거절).
  * 금액은 정수가 아닌 값을 400 INVALID_AMOUNT로 돌려주려고 BigDecimal로 받는다. 할부 개월 수도 2.9를 2로 바꿔 받지 않도록
- * BigDecimal로 받아 정수인지 직접 본다(Jackson은 기본으로 소수를 정수 칸에 잘라 넣는다).
+ * BigDecimal로 받아 정수인지 직접 본다(Jackson은 기본으로 소수를 정수 칸에 잘라 넣는다). 가맹점 번호도 같은 이유로 소수를
+ * 읽기 단계에서 거절한다({@link IntegralNumberDeserializers}, S15P31E103-382).
  */
 @Getter
 public class PosPaymentRequest {
@@ -52,7 +55,9 @@ public class PosPaymentRequest {
         this.barcodeToken = barcodeToken;
     }
 
+    /** 소수({@code 301.9})는 잘라 쓰지 않고 400 INVALID_REQUEST(본문 형식 오류)로 거절한다. 값이 정수인 소수 표기({@code 301.0})는 받는다. */
     @JsonSetter("merchantId")
+    @JsonDeserialize(using = IntegralNumberDeserializers.LongValue.class)
     public void setMerchantId(Long merchantId) {
         this.merchantId = merchantId;
     }

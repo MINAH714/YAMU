@@ -39,6 +39,30 @@ class PaymentTransactionTransitionTest {
     }
 
     @Test
+    void 승인을_시작하면_추천_순위와_직접_선택을_적고_재승인하면_함께_덮어쓴다() {
+        PaymentTransaction payment = requested();
+
+        payment.startApproval(15L, 3L, 1, false);
+        assertThat(payment.getRecommendedRank()).isEqualTo(1);
+        assertThat(payment.getUserSelected()).isFalse();
+
+        payment.decline("ISSUER_DECLINED");
+        payment.startApproval(16L, 4L, null, true);
+        assertThat(payment.getUserCardId()).isEqualTo(16L);
+        assertThat(payment.getRecommendedRank()).isNull();
+        assertThat(payment.getUserSelected()).isTrue();
+    }
+
+    @Test
+    void 추천_순위가_1보다_작으면_승인을_시작하지_않는다() {
+        PaymentTransaction payment = requested();
+
+        assertThatThrownBy(() -> payment.startApproval(15L, 3L, 0, false))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThat(payment.getStatus()).isEqualTo(PaymentStatus.REQUESTED);
+    }
+
+    @Test
     void PROCESSING에서_승인하면_APPROVED이고_CHECK에_필요한_칸이_모두_찬다() {
         PaymentTransaction payment = requested();
         payment.startApproval(15L, 3L);
@@ -168,6 +192,60 @@ class PaymentTransactionTransitionTest {
 
         PaymentTransaction fresh = requested();
         assertThatThrownBy(fresh::releaseApproval).isInstanceOf(IllegalStateException.class);
+    }
+
+    // ───────── 사용자 거절(S15P31E103-360) ─────────
+
+    @Test
+    void REQUESTED를_사용자가_거절하면_REJECTED이고_다시_승인할_수_없다() {
+        PaymentTransaction payment = requested();
+
+        payment.reject();
+
+        assertThat(payment.getStatus()).isEqualTo(PaymentStatus.REJECTED);
+        assertThat(payment.isConfirmable()).isFalse();
+        assertThatThrownBy(() -> payment.startApproval(15L, 3L)).isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(payment::expire).isInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
+    void 카드_거절_뒤_사용자가_거절하면_REJECTED이고_앞_시도의_카드와_사유는_남는다() {
+        PaymentTransaction payment = requested();
+        payment.startApproval(15L, 3L);
+        payment.decline("INSUFFICIENT_BALANCE");
+
+        payment.reject();
+
+        assertThat(payment.getStatus()).isEqualTo(PaymentStatus.REJECTED);
+        assertThat(payment.getUserCardId()).isEqualTo(15L);
+        assertThat(payment.getFailureCode()).isEqualTo("INSUFFICIENT_BALANCE");
+    }
+
+    @Test
+    void 출금_미확인으로_거절한_결제는_사용자가_거절할_수_없다() {
+        PaymentTransaction payment = requested();
+        payment.startApproval(15L, 3L);
+        payment.assignFinRequestNo("20261022143005000001", 15_000);
+        payment.decline(PaymentTransaction.WITHDRAWAL_NOT_CONFIRMED);
+
+        assertThat(payment.isWithdrawalUnconfirmed()).isTrue();
+        assertThatThrownBy(payment::reject).isInstanceOf(IllegalStateException.class);
+        assertThat(payment.getStatus()).isEqualTo(PaymentStatus.DECLINED);
+    }
+
+    @Test
+    void 처리_중_승인_만료_거절된_결제는_사용자가_거절할_수_없다() {
+        PaymentTransaction processing = requested();
+        processing.startApproval(15L, 3L);
+        assertThatThrownBy(processing::reject).isInstanceOf(IllegalStateException.class);
+
+        PaymentTransaction expired = requested();
+        expired.expire();
+        assertThatThrownBy(expired::reject).isInstanceOf(IllegalStateException.class);
+
+        PaymentTransaction rejected = requested();
+        rejected.reject();
+        assertThatThrownBy(rejected::reject).isInstanceOf(IllegalStateException.class);
     }
 
     private static PaymentTransaction requested() {

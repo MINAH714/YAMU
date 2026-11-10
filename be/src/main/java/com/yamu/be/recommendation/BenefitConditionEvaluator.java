@@ -22,6 +22,33 @@ public final class BenefitConditionEvaluator {
         }
     }
 
+    /** 브랜드 포함 경로 전체를 계산 범위에서 제외한다. 제외 조건과 원본 거래는 변경하지 않는다. */
+    public Evaluation explainWithoutBrandPaths(Conditions conditions, Transaction transaction) {
+        var original = explain(conditions, transaction);
+        if (transaction.merchantId() != null || original.match() != Match.UNKNOWN || original.policyUnknown()) {
+            return original;
+        }
+        var groups = conditions.targetGroups() == null
+                ? conditions.targets().stream().map(t -> new BenefitPolicy.TargetGroup(1, t.excluded(),
+                        java.util.List.of(new Target(t.type(), t.merchantId(), t.categoryCode(), false)))).toList()
+                : conditions.targetGroups();
+        boolean removed = groups.stream().anyMatch(g -> !g.excluded()
+                && g.members().stream().anyMatch(t -> t.type() == BenefitPolicy.TargetType.BRAND)
+                && and(g.members().stream().map(t -> targetMatch(t, transaction)).toList()) != Match.NOT_MATCHED);
+        if (!removed) return original;
+        var remaining = groups.stream().filter(g -> g.excluded()
+                || g.members().stream().noneMatch(t -> t.type() == BenefitPolicy.TargetType.BRAND)).toList();
+        boolean possible = remaining.stream().filter(g -> !g.excluded())
+                .anyMatch(g -> and(g.members().stream().map(t -> targetMatch(t, transaction)).toList()) != Match.NOT_MATCHED);
+        if (!possible) {
+            // 0원 확정이 아니다. 호출자가 BRAND_MISSING 근거로 혜택 전체를 제외한다.
+            return new Evaluation(Match.UNKNOWN, java.util.List.of(new Missing("BRAND_MISSING", "merchantId")), false);
+        }
+        return explain(new Conditions(conditions.verified(), conditions.currentVersionVerified(),
+                conditions.validFrom(), conditions.validUntil(), conditions.targets(), conditions.requiredFacts(),
+                conditions.excludedFacts(), conditions.schedule(), remaining), transaction);
+    }
+
     /** 기존 판정이 UNKNOWN인 경우에만, 결과에 남아 있는 미확인 입력의 근거를 수집한다. */
     public Evaluation explain(Conditions conditions, Transaction transaction) {
         Match match = evaluate(conditions, transaction);

@@ -1,6 +1,7 @@
 package com.yamu.be.payment.history;
 
 import com.yamu.be.card.domain.CardType;
+import com.yamu.be.merchant.MerchantCategories;
 import com.yamu.be.payment.PaymentPlan;
 import com.yamu.be.payment.domain.PaymentChannel;
 import com.yamu.be.payment.domain.PaymentStatus;
@@ -11,7 +12,9 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.YearMonth;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.stream.Collectors;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Component;
@@ -37,6 +40,10 @@ class PaymentHistoryReader {
     private static final String CONFIRMED_AMOUNT = PaymentSqlFragments.CONFIRMED_AMOUNT;
     private static final String BENEFIT_AMOUNT = PaymentSqlFragments.BENEFIT_AMOUNT;
     private static final String YAMU_PICK = PaymentSqlFragments.YAMU_PICK;
+    /** 업종 코드 → 표시 이름(Task 297 업종 목록). 목록에 없는 코드는 이름이 없다 */
+    private static final Map<String, String> CATEGORY_NAMES = MerchantCategories.list().stream()
+            .collect(Collectors.toUnmodifiableMap(MerchantCategories.Category::merchantCategoryCode,
+                    MerchantCategories.Category::merchantCategoryName));
 
     private static final String LIST_COLUMNS = """
             select p.payment_transaction_id, p.source, p.status, p.requested_at, p.approved_at, p.canceled_at,
@@ -45,6 +52,7 @@ class PaymentHistoryReader {
                    p.recognized_performance_amount, p.performance_month, p.failure_code,
                    p.spending_class, p.memo,
                    p.user_card_id, c.card_alias, c.card_last4, cp.product_name, cp.card_type,
+                   p.recommended_rank, p.user_selected,
                    cast(%s as signed) as benefit_amount, %s as benefit_lines, %s as confirmed_lines
             from payment_transaction p
             join merchant m on m.merchant_id = p.merchant_id
@@ -188,10 +196,15 @@ class PaymentHistoryReader {
         return rows.stream().findFirst();
     }
 
-    /** 상세 화면에 쓰는 결제 행. 목록 칸에 상세에서만 쓰는 칸을 더했다. */
+    /**
+     * 상세 화면에 쓰는 결제 행. 목록 칸에 상세에서만 쓰는 칸을 더했다.
+     *
+     * @param recommendedRank 마지막 시도 카드의 추천 순위. 추천 밖 카드·기록 전 결제·SEED는 null
+     * @param userSelected    마지막 시도의 카드를 직접 골랐는지. 기록 전 결제·SEED는 null
+     */
     record PaymentRow(PaymentListResponse.Item item, PaymentChannel channel, Long approvedAmount,
             Long recognizedPerformanceAmount, LocalDate performanceMonth, LocalDateTime canceledAt,
-            String failureCode, String cardLast4) {}
+            String failureCode, String cardLast4, Integer recommendedRank, Boolean userSelected) {}
 
     List<PaymentDetailResponse.Benefit> findBenefits(Long paymentId) {
         return jdbc.query("""
@@ -258,7 +271,8 @@ class PaymentHistoryReader {
                 rs.getObject("recognized_performance_amount", Long.class),
                 rs.getObject("performance_month", LocalDate.class),
                 rs.getObject("canceled_at", LocalDateTime.class),
-                rs.getString("failure_code"), rs.getString("card_last4"));
+                rs.getString("failure_code"), rs.getString("card_last4"),
+                rs.getObject("recommended_rank", Integer.class), rs.getObject("user_selected", Boolean.class));
     }
 
     private static PaymentListResponse.Item item(ResultSet rs) throws SQLException {
@@ -276,7 +290,7 @@ class PaymentHistoryReader {
                 rs.getObject("requested_at", LocalDateTime.class),
                 rs.getObject("approved_at", LocalDateTime.class),
                 new PaymentListResponse.Merchant(rs.getLong("merchant_id"), rs.getString("merchant_name"),
-                        categoryCode, null),
+                        categoryCode, categoryCode == null ? null : CATEGORY_NAMES.get(categoryCode)),
                 rs.getLong("requested_amount"),
                 installment ? PaymentPlan.INSTALLMENT : PaymentPlan.LUMP_SUM,
                 installment ? months : null,

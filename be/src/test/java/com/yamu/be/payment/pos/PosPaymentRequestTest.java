@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.exc.InvalidFormatException;
 import com.yamu.be.global.exception.BusinessException;
 import com.yamu.be.global.exception.ErrorCode;
 import com.yamu.be.payment.PaymentPlan;
@@ -122,6 +123,22 @@ class PosPaymentRequestTest {
                 """);
 
         assertThat(request.toTerms().installmentMonths()).isEqualTo(3);
+    }
+
+    @Test
+    void merchantId에_소수점_아래가_있으면_잘라_받지_않고_거절하며_값이_정수인_소수_표기는_받는다() throws Exception {
+        // S15P31E103-382: 전에는 Jackson 기본값으로 301.9를 301로 잘라 받았다
+        assertThatThrownBy(() -> parse("""
+                {"barcodeToken":"1234567890123456","merchantId":301.9,"posCode":"POS-TEST-CAFE","amount":15000}
+                """)).isInstanceOf(InvalidFormatException.class);
+
+        assertThatThrownBy(() -> parse("""
+                {"barcodeToken":"1234567890123456","merchantId":"301.9","posCode":"POS-TEST-CAFE","amount":15000}
+                """)).isInstanceOf(InvalidFormatException.class);
+
+        assertThat(parse("""
+                {"barcodeToken":"1234567890123456","merchantId":301.0,"posCode":"POS-TEST-CAFE","amount":15000}
+                """).getMerchantId()).isEqualTo(301L);
     }
 
     private PosPaymentRequest parse(String body) throws Exception {

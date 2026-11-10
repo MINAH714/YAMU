@@ -12,8 +12,10 @@ import java.util.List;
 /**
  * 결제 한 건의 상세(API 명세 V2 「결제 상세 조회」). 혜택·한도·청구 회차·환급은 각 테이블에 기록된 만큼만 보인다.
  *
- * <p>임시: 아래 값은 저장하는 곳이 없어 null이다. {@code recommendationSnapshot}(추천 결과는 Redis에만 잠시 있음),
- * {@code selectedCard.recommendedRank}·{@code userSelected}, {@code merchant.categoryName}(POL-004 업종 코드표 미정),
+ * <p>{@code selectedCard.recommendedRank}·{@code userSelected}는 승인 시작 때 결제 행에 적은 마지막 시도의 값이라 승인 응답과 같다.
+ * 이 칸이 생기기 전(V20261109_4)의 결제와 SEED는 null이다.
+ *
+ * <p>임시: 아래 값은 아직 null이다. {@code recommendationSnapshot},
  * 혜택의 {@code expectedAmount}·{@code confirmed}·{@code confirmedAt}(예상·확정 금액을 나눠 저장하는 칸 없음).
  *
  * @param amount            POS가 요청한 결제 금액
@@ -47,7 +49,11 @@ public record PaymentDetailResponse(
 
     public static final String YAMU_INTEREST_FREE = "YAMU_INTEREST_FREE";
 
-    /** @param maskedNumber 끝 4자리만 보이는 카드번호 */
+    /**
+     * @param maskedNumber    끝 4자리만 보이는 카드번호
+     * @param recommendedRank 마지막 시도 카드의 추천 순위(1부터). 추천 밖 카드를 직접 골랐거나 기록 전 결제면 null
+     * @param userSelected    마지막 시도의 카드를 사용자가 직접 골랐는지. 기록 전 결제·SEED는 null
+     */
     public record SelectedCard(Long userCardId, String nickname, String maskedNumber, CardType cardType,
             Integer recommendedRank, Boolean userSelected) {}
 

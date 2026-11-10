@@ -1,7 +1,7 @@
 package com.yamu.be.forecast;
 
 import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
-import com.yamu.be.cashflow.IntegralNumberDeserializers;
+import com.yamu.be.global.json.IntegralNumberDeserializers;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonSetter;
 import com.yamu.be.global.exception.ErrorCode;
