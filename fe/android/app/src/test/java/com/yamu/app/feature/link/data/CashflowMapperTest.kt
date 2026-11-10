@@ -6,6 +6,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Test
+import java.time.LocalDate
 
 /** B-06 — #19 후보 → 화면 줄, 사용자 고름 → #8 · #17 요청 */
 class CashflowMapperTest {
@@ -64,14 +65,51 @@ class CashflowMapperTest {
         assertEquals(setOf("horizon", "incomeCashflowItemId"), settings.toBody().keys)
     }
 
-    @Test fun `설정 응답 — 하루 목표만 읽는다`() {
+    @Test fun `설정 응답 — 하루 목표와 정해 둔 월급을 읽는다`() {
         val settings = YamuJson.decodeFromString<ForecastSettingsDto>(
             """{"baseAccountId":5,"horizon":"NEXT_INCOME","defaultDays":14,"alertThreshold":100000,
                 "income":{"cashflowItemId":301,"title":"월급","amount":null,"dayOfMonth":25,"accountId":5},
                 "dailyLivingCostTarget":7000,"includeCandidates":false,"conservativeLine":false,"updatedAt":null}""",
         )
         assertEquals(7_000L, settings.dailyLivingCostTarget)
-        assertNull(YamuJson.decodeFromString<ForecastSettingsDto>("""{"income":null,"dailyLivingCostTarget":null}""").dailyLivingCostTarget)
+        assertEquals(SettingsIncomeDto(301, "월급", null, 25), settings.income)
+        val none = YamuJson.decodeFromString<ForecastSettingsDto>("""{"income":null,"dailyLivingCostTarget":null}""")
+        assertNull(none.dailyLivingCostTarget)
+        assertNull(none.income)
+    }
+
+    @Test fun `새로 넣은 월급은 등록한 ID를 월급으로 · 기간은 다음 월급까지`() {
+        val (_, settings) = CashflowPlan(listOf(CashflowDecision(302, true, null)), incomeId = null, dailyLivingCost = null, createdIncomeId = 900).toPatches()
+        assertEquals(900L, settings.incomeCashflowItemId)
+        assertEquals("""{"horizon":"NEXT_INCOME","incomeCashflowItemId":900}""", settings.toBody().toString())
+    }
+
+    @Test fun `월급 첫 회차 — 오늘 뒤 첫 그날, 짧은 달은 말일(서버 기준일 규칙)`() {
+        val nov9 = LocalDate.of(2026, 11, 9)
+        assertEquals(LocalDate.of(2026, 11, 25), nextMonthlyDate(25, nov9))
+        assertEquals(LocalDate.of(2026, 12, 9), nextMonthlyDate(9, nov9))     // 오늘이 월급날이면 다음 달부터(이미 들어왔을 수 있다)
+        assertEquals(LocalDate.of(2026, 11, 30), nextMonthlyDate(31, nov9))   // 31 = 말일
+        assertEquals(LocalDate.of(2027, 2, 28), nextMonthlyDate(30, LocalDate.of(2027, 1, 31)))
+        assertEquals(LocalDate.of(2027, 1, 31), nextMonthlyDate(31, LocalDate.of(2026, 12, 31)))
+    }
+
+    @Test fun `월급 등록 본문 — 매월 반복 · 기준일은 넣은 날 그대로 · 수입은 계좌로`() {
+        val body = IncomeInput(2_500_000, 31, accountId = 5).toRequest(LocalDate.of(2027, 2, 3))
+        assertEquals(
+            """{"type":"INCOME","title":"월급","amount":2500000,"date":"2027-02-28","recurrence":{"frequency":"MONTHLY","dayOfMonth":31},"accountId":5}""",
+            YamuJson.encodeToString(com.yamu.app.feature.forecast.data.CashflowCreateRequest.serializer(), body),
+        )
+    }
+
+    @Test fun `후보 근거 — 몇 달에 나왔는지와 마지막 결제일(한국 날짜)`() {
+        assertEquals("최근 6개월 중 3달 · 마지막 11월 1일", DetectionDto("넷플릭스", 3, "2026-10-31T16:30:00Z").basisLine())   // UTC 10/31 16:30 = 한국 11/1
+        assertEquals("최근 6개월 중 4달", DetectionDto(sampleCount = 4, lastPaidAt = "엉뚱한 값").basisLine())
+        assertNull(DetectionDto().basisLine())
+        val draft = listOf(
+            CashflowItemDto(302, "EXPENSE", "넷플릭스", 17_000, recurrence = RecurrenceDto("MONTHLY", 5), source = "DETECTED", status = "CANDIDATE",
+                detection = DetectionDto("넷플릭스", 3, "2026-10-05T01:00:00Z")),
+        ).toDraft(null)
+        assertEquals("최근 6개월 중 3달 · 마지막 10월 5일", draft.expenses.single().basis)
     }
 
     @Test fun `날짜가 반복이 아니면 발생일에서 일자`() {

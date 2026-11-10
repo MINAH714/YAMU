@@ -153,7 +153,7 @@ data class CashflowRow(val date: LocalDate?, val title: String, val amount: Long
 
 /**
  * F-02 줄 합치기 — 가계부 회차(고칠 수 있음) + 예보의 카드 청구(읽기 전용).
- * 카드 사용 예상(보수적 선 전용 추정)은 예정된 돈이 아니라 넣지 않는다. 날짜는 서버가 준 값 그대로 쓰고 다시 계산하지 않는다
+ * 카드 사용 예상('AI 생활비 반영' 선 전용 추정)은 예정된 돈이 아니라 넣지 않는다. 날짜는 서버가 준 값 그대로 쓰고 다시 계산하지 않는다
  */
 fun cashflowRows(entries: List<CashflowEntry>, forecast: Forecast?): List<CashflowRow> {
     // 계좌를 일부만 골랐으면 가계부 줄도 그 계좌 것만 — 머리(예보 기준)와 목록이 같은 계좌를 말하게 한다

@@ -18,6 +18,8 @@ import com.yamu.app.feature.link.data.CashflowCandidate
 import com.yamu.app.feature.link.data.CashflowDraft
 import com.yamu.app.feature.link.data.CashflowPlan
 import com.yamu.app.feature.link.data.CashflowRepository
+import com.yamu.app.feature.forecast.data.CashflowCreateRequest
+import com.yamu.app.feature.link.data.IncomeAccount
 import com.yamu.app.feature.link.data.IssuerAccount
 import com.yamu.app.feature.link.data.LinkRepository
 import com.yamu.app.feature.link.data.LinkedAccount
@@ -409,16 +411,26 @@ class FakeCashflowRepository @Inject constructor() : CashflowRepository {
         }
     }
 
+    /** 서버는 결제 기록의 반복 지출만 후보로 만들고 월급은 만들지 않는다(BE -349 !200) — 월급은 화면에서 직접 넣는다 */
     private fun sampleDraft(dailyLivingCost: Long?) = CashflowDraft(
-        income = CashflowCandidate(301, isIncome = true, title = "월급", amount = 2_800_000, dayOfMonth = 10),
+        income = null,
         expenses = listOf(
-            CashflowCandidate(302, false, "월세", 250_000, 31),   // 매월 말일(서버 기준일 31) — B-06 '월세 · 말일'
-            CashflowCandidate(303, false, "통신비", 35_000, 27),
-            CashflowCandidate(304, false, "구독료", 15_000, 1),
+            CashflowCandidate(302, false, "월세", 250_000, 31, "최근 6개월 중 6달 · 마지막 10월 31일"),   // 매월 말일(서버 기준일 31) — B-06 '월세 · 말일'
+            CashflowCandidate(303, false, "통신비", 35_000, 27, "최근 6개월 중 4달 · 마지막 10월 27일"),
+            CashflowCandidate(304, false, "구독료", 15_000, 1, "최근 6개월 중 3달 · 마지막 11월 1일"),
         ),
         bills = listOf(BillLine("신한카드 대금", 150_000, 20)),
         dailyLivingCost = dailyLivingCost,
+        incomeAccounts = listOf(IncomeAccount(1, "월급 통장 ··1234", isPrimary = true), IncomeAccount(2, "생활비 통장 ··5678", isPrimary = false)),
     )
+
+    /** 같은 키는 처음 만든 번호 — 서버 Idempotency-Key 규칙(-358)을 흉내 낸다 */
+    private val createdIncomes = mutableMapOf<String, Long>()
+
+    override suspend fun createIncome(body: CashflowCreateRequest, idempotencyKey: String): ApiResult<Long> {
+        delay(400)
+        return ApiResult.Success(createdIncomes.getOrPut(idempotencyKey) { 900L + createdIncomes.size })
+    }
 
     override suspend fun confirm(plan: CashflowPlan): ApiResult<Unit> {
         delay(800)

@@ -829,6 +829,26 @@ class PaymentApprovalServiceTest {
     }
 
     @Test
+    void 복구_응답은_시도_기록이_없으면_행에_적힌_순위와_직접_선택을_쓴다() {
+        // 스냅샷에서 15번 카드는 1순위다. 행에는 다른 값(2순위·직접 선택)을 적어 두 분기를 구분한다
+        payment.startApproval(15L, 3L, 2, true);
+        payment.assignFinRequestNo(TX_NO, 15_000);
+        when(attempts.count(PAYMENT_ID)).thenReturn(1);
+        when(recovery.recover(PAYMENT_ID)).thenAnswer(inv -> {
+            payment.decline("WITHDRAWAL_NOT_CONFIRMED");
+            return PaymentStatus.DECLINED;
+        });
+
+        PaymentApprovalResponse response = service.approve(ME, PAYMENT_ID, request(16L), KEY);
+
+        assertThat(response.status()).isEqualTo(PaymentStatus.DECLINED);
+        assertThat(response.selectedCard().userCardId()).isEqualTo(15L);
+        assertThat(response.selectedCard().recommendedRank()).isEqualTo(2);
+        assertThat(response.selectedCard().userSelected()).isTrue();
+        verify(approver, never()).approve(any());
+    }
+
+    @Test
     void 출금_미확인으로_거절된_결제를_재승인하기_직전에_앞_출금을_다시_본다() {
         payment.startApproval(15L, 3L);
         payment.assignFinRequestNo(TX_NO, 15_000);

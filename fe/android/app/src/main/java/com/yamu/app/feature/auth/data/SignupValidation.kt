@@ -25,6 +25,19 @@ object SignupValidation {
 }
 
 /**
+ * 본인인증 입력 화면 안내 — 가입은 미리 등록된 사람만 된다는 것을 인증번호를 받기 전에 알린다(B-03). 누가 등록됐는지는 드러나지 않는다.
+ * 첫 화면 '로그인'으로 온 경우는 가입한 사람이 대부분이지만 서버가 가입으로 이어 줄 수도 있어 두 경우 모두 맞는 문장으로
+ */
+fun phoneVerifyGuide(signup: Boolean): String =
+    if (signup) "야무는 시연용으로 미리 등록된 분만 가입할 수 있어요.\n등록된 이름 · 생년월일 · 휴대폰 번호를 넣어 주세요"
+    else "시연에 등록된 이름 · 생년월일 · 휴대폰 번호를 넣어 주세요"
+
+/** 404 DEMO_USER_NOT_FOUND — 어느 경우인지 말하지 않고 칸은 그대로 두어 오타만 고쳐 다시 받게 한다(B-03) */
+fun demoUserNotFoundMessage(signup: Boolean): String =
+    if (signup) "입력한 정보로는 가입할 수 없어요 · 등록된 이름 · 생년월일 · 번호인지 확인해 주세요"
+    else "입력한 정보로는 본인 확인을 할 수 없어요 · 등록된 이름 · 생년월일 · 번호인지 확인해 주세요"
+
+/**
  * 가입 · 기기 재등록 서버 오류 코드 → 사용자 문장. 모르는 코드면 null(인증 · 공통 문장 사용).
  * INVALID_PIN_FORMAT · INVALID_PUBLIC_KEY · FIN_API_UNAVAILABLE은 인증 문장([authErrorMessage])이 받는다.
  * 409 · 404처럼 공통 문장으로 떨어지면 엉뚱해지는 코드와 가입 중엔 따를 수 없는 인증 문장(DEVICE_LIMIT_EXCEEDED)은 여기서 잡는다.
@@ -34,7 +47,9 @@ fun signupErrorMessage(code: String, remainingAttempts: Int? = null, retryAfterS
     val left = remainingAttempts?.let { " · ${it}번 남았어요" }.orEmpty()
     val wait = retryAfterSeconds?.let { "${it}초 뒤" } ?: "잠시 뒤"
     return when (code) {
-        "DEMO_USER_NOT_FOUND" -> "시연에 등록된 사용자가 아니에요 · 이름 · 생년월일 · 번호를 확인해 주세요"
+        // 명단에 없음 · 하나라도 다름 · 시험망 준비 전 · 탈퇴 후 이름 다름이 모두 같은 404다. 번호만으로 가입 여부를 알 수 없게
+        // 서버가 일부러 나누지 않으므로 문구도 어느 경우인지 말하지 않는다(B-03). '이 폰 등록'은 [demoUserNotFoundMessage]
+        "DEMO_USER_NOT_FOUND" -> demoUserNotFoundMessage(signup = true)
         "VERIFICATION_TOO_FREQUENT", "AUTH_REQUEST_TOO_FREQUENT" -> "방금 보냈어요 · $wait 다시 받아 주세요"
         "VERIFICATION_CODE_MISMATCH" -> "인증번호가 맞지 않아요$left"
         "VERIFICATION_EXPIRED" -> "인증번호 시간이 지났어요 · 다시 받아 주세요"

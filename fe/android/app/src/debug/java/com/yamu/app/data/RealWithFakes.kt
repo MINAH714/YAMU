@@ -45,7 +45,7 @@ class RealCashflowWithFakes @Inject constructor(
     private val real: ForecastRepositoryImpl,
     fake: FakeForecastRepository,
 ) : ForecastRepository by fake {
-    override suspend fun createItem(form: CashflowForm): ApiResult<Long> = real.createItem(form)
+    override suspend fun createItem(form: CashflowForm, idempotencyKey: String): ApiResult<Long> = real.createItem(form, idempotencyKey)
     override suspend fun cashflowEntries(from: LocalDate, to: LocalDate): ApiResult<List<CashflowEntry>> = real.cashflowEntries(from, to)
     override fun cachedEntry(itemId: Long, occurrenceDate: LocalDate): CashflowEntry? = real.cachedEntry(itemId, occurrenceDate)
     override suspend fun updateItem(itemId: Long, body: CashflowUpdateRequest): ApiResult<Unit> = real.updateItem(itemId, body)

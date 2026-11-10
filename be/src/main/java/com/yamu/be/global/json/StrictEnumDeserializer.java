@@ -1,4 +1,4 @@
-package com.yamu.be.cashflow;
+package com.yamu.be.global.json;
 
 import com.fasterxml.jackson.core.JsonParser;
 import com.fasterxml.jackson.core.JsonToken;
@@ -19,6 +19,8 @@ import java.io.IOException;
  * 모두 형식 오류로 던져 전역 예외 처리가 400 INVALID_REQUEST로 돌려준다(가상 구매 {@code until}과 같은 기준).
  * null은 Jackson이 이 읽기를 부르지 않고 null로 둔다. 붙인 칸의 enum 타입은 {@link #createContextual}에서 알아낸다.
  * 전역 설정은 다른 팀 API도 바뀌어 건드리지 않는다.
+ *
+ * <p>다른 패키지의 enum 칸에도 붙일 수 있게 global에 둔다(S15P31E103-382, 처음에는 cashflow에 있었다).
  */
 public final class StrictEnumDeserializer extends StdDeserializer<Enum<?>> implements ContextualDeserializer {
 
