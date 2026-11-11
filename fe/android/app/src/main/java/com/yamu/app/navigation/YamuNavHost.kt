@@ -391,6 +391,7 @@ fun YamuNavHost(navController: NavHostController, modifier: Modifier = Modifier)
                         },
                         onOpenPinPad = openPinPad,
                         onBills = { id -> navController.navigate(CardBills(id)) },
+                        onPerformance = { id -> navController.navigate(CardPerformance(id)) },
                     )
                 }
                 composable<CardOrder> {

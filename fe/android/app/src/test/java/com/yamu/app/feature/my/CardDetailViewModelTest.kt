@@ -21,6 +21,8 @@ import com.yamu.app.feature.link.data.LinkedCard
 import com.yamu.app.feature.link.data.LinkedOverview
 import com.yamu.app.feature.link.data.RegisteredCard
 import com.yamu.app.feature.link.data.brandOf
+import com.yamu.app.feature.my.data.MyInfo
+import com.yamu.app.feature.my.data.MyRepository
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.test.StandardTestDispatcher
@@ -43,6 +45,7 @@ class CardDetailViewModelTest {
     private val dispatcher = StandardTestDispatcher()
     private val results = StepUpResults()
     private val link = StubLink()
+    private val my = StubMy()
 
     private val auth = object : AuthRepository by unusedAuth() {
         override suspend fun biometricReady() = false
@@ -56,6 +59,7 @@ class CardDetailViewModelTest {
         val vm = CardDetailViewModel(
             SavedStateHandle(mapOf("userCardId" to 21L)),
             link,
+            my,
             StepUpFactory(auth, DeviceKeyManager(object : ContextWrapper(null) {}), results),
         )
         vm.load()
@@ -203,6 +207,160 @@ class CardDetailViewModelTest {
         assertTrue(vm.state.value.gone)
     }
 
+    // ── 결제 카드 자동 선택(카드 관리)이 꺼졌을 때 ──
+
+    @Test fun `자동 선택이 꺼져 있으면 자동 선택에 포함을 바꾸지 않는다`() = runTest(dispatcher) {
+        my.autoSelect = false
+        link.cards = listOf(linkedCard(21), linkedCard(2))
+        val vm = detail()
+        assertTrue(vm.state.value.autoSelectOff)
+        vm.setRecommended(false)
+        advanceUntilIdle()
+        assertTrue(link.updates.isEmpty())
+        assertTrue(vm.state.value.card!!.recommended)   // 카드의 포함 값은 그대로 둔다
+    }
+
+    @Test fun `사용자 정보를 못 읽으면 자동 선택이 켜진 것으로 본다`() = runTest(dispatcher) {
+        my.info = ApiResult.Failure(ApiError.Network)
+        link.cards = listOf(linkedCard(21), linkedCard(2))
+        val vm = detail()
+        assertFalse(vm.state.value.autoSelectOff)
+        vm.setRecommended(false)
+        advanceUntilIdle()
+        assertEquals(false, link.updates.single().recommended)
+    }
+
+    @Test fun `다시 읽을 때 사용자 정보를 못 읽으면 마지막 값을 둔다`() = runTest(dispatcher) {
+        my.autoSelect = false
+        val vm = detail()
+        my.info = ApiResult.Failure(ApiError.Network)
+        vm.load()
+        advanceUntilIdle()
+        assertTrue(vm.state.value.autoSelectOff)
+    }
+
+    @Test fun `자동 선택이 꺼진 채 기본 카드를 풀면 다시 읽어 자동 선택이 켜진 것을 알린다`() = runTest(dispatcher) {
+        my.autoSelect = false
+        link.detailResult = ApiResult.Success(CARD.copy(isDefault = true))
+        link.updateResult = ApiResult.Success(CARD.copy(isDefault = false))
+        val vm = detail()
+        my.autoSelect = true   // 서버가 기본 카드가 없어져 자동 선택을 다시 켰다
+        vm.setDefault(false)
+        vm.confirmDefault()
+        advanceUntilIdle()
+        assertEquals(false, link.updates.single().isDefault)
+        assertFalse(vm.state.value.autoSelectOff)
+        assertFalse(vm.state.value.saving)
+        assertEquals("기본 카드를 풀어서 결제 카드 자동 선택이 다시 켜졌어요", vm.state.value.message)
+    }
+
+    @Test fun `자동 선택이 켜진 채 기본 카드를 풀면 사용자 정보를 다시 읽지 않는다`() = runTest(dispatcher) {
+        link.detailResult = ApiResult.Success(CARD.copy(isDefault = true))
+        link.updateResult = ApiResult.Success(CARD.copy(isDefault = false))
+        val vm = detail()
+        val reads = my.reads
+        vm.setDefault(false)
+        advanceUntilIdle()
+        assertEquals(reads, my.reads)
+        assertNull(vm.state.value.message)
+    }
+
+    // ── 기본 카드 바꾸기 확인(11/10 QA) ──
+
+    @Test fun `다른 카드가 기본 카드면 바꾸기 전에 묻고 확인하면 저장한다`() = runTest(dispatcher) {
+        link.cards = listOf(linkedCard(21), linkedCard(2).copy(isDefault = true, nickname = "노리2"))
+        link.updateResult = ApiResult.Success(CARD.copy(isDefault = true))
+        val vm = detail()
+        vm.setDefault(true)
+        advanceUntilIdle()
+        assertTrue(link.updates.isEmpty())
+        assertEquals(DefaultConfirm.Switch(to = "Mr.Life", from = "노리2"), vm.state.value.confirm)
+        vm.confirmDefault()
+        advanceUntilIdle()
+        assertEquals(true, link.updates.single().isDefault)
+        assertNull(vm.state.value.confirm)
+        assertNull(vm.state.value.otherDefaultName)   // 서버가 앞선 기본 카드를 풀었다
+    }
+
+    @Test fun `물은 뒤 닫으면 저장하지 않는다`() = runTest(dispatcher) {
+        link.cards = listOf(linkedCard(21), linkedCard(2).copy(isDefault = true))
+        val vm = detail()
+        vm.setDefault(true)
+        vm.dismissDefaultConfirm()
+        advanceUntilIdle()
+        assertTrue(link.updates.isEmpty())
+        assertNull(vm.state.value.confirm)
+        assertFalse(vm.state.value.card!!.isDefault)
+    }
+
+    @Test fun `확인창이 떠 있는 동안 다시 눌러도 한 번만 묻고 한 번만 저장한다`() = runTest(dispatcher) {
+        link.cards = listOf(linkedCard(21), linkedCard(2).copy(isDefault = true))
+        val vm = detail()
+        vm.setDefault(true)
+        vm.setDefault(true)
+        vm.confirmDefault()
+        vm.confirmDefault()
+        advanceUntilIdle()
+        assertEquals(1, link.updates.size)
+    }
+
+    @Test fun `기본 카드가 없으면 묻지 않고 바로 정한다`() = runTest(dispatcher) {
+        val vm = detail()
+        vm.setDefault(true)
+        advanceUntilIdle()
+        assertNull(vm.state.value.confirm)
+        assertEquals(true, link.updates.single().isDefault)
+    }
+
+    @Test fun `카드 목록을 못 읽으면 지금 기본 카드 이름 없이 묻는다`() = runTest(dispatcher) {
+        link.overviewResult = ApiResult.Failure(ApiError.Network)
+        val vm = detail()
+        vm.setDefault(true)
+        advanceUntilIdle()
+        assertTrue(link.updates.isEmpty())
+        assertEquals(DefaultConfirm.Switch(to = "Mr.Life", from = null), vm.state.value.confirm)
+    }
+
+    @Test fun `자동 선택이 켜진 채 기본 카드를 풀 때는 묻지 않는다`() = runTest(dispatcher) {
+        link.detailResult = ApiResult.Success(CARD.copy(isDefault = true))
+        val vm = detail()
+        vm.setDefault(false)
+        advanceUntilIdle()
+        assertNull(vm.state.value.confirm)
+        assertEquals(false, link.updates.single().isDefault)
+    }
+
+    @Test fun `자동 선택이 꺼진 채 기본 카드를 풀 때는 자동 선택이 다시 켜진다고 묻는다`() = runTest(dispatcher) {
+        my.autoSelect = false
+        link.detailResult = ApiResult.Success(CARD.copy(isDefault = true))
+        val vm = detail()
+        vm.setDefault(false)
+        advanceUntilIdle()
+        assertTrue(link.updates.isEmpty())
+        assertEquals(DefaultConfirm.Release, vm.state.value.confirm)
+    }
+
+    @Test fun `확인창 문장 끝 — 받침이 있으면 이에요`() {
+        assertEquals("예요", "KB국민 노리2 체크카드".copula())
+        assertEquals("이에요", "KB국민 적립".copula())
+        assertEquals("예요", "신한카드 Mr.Life".copula())
+        assertEquals("이에요", "카드1".copula())
+        assertEquals("예요", "카드2".copula())
+    }
+
+    @Test fun `확인창 문장 끝 — 영문 L · M · N · R은 받침, 끝의 닫는 괄호는 건너뛴다`() {
+        assertEquals("이에요", "Deep Dream".copula())
+        assertEquals("이에요", "카드 L".copula())
+        assertEquals("이에요", "카드 n".copula())
+        assertEquals("이에요", "카드 R".copula())
+        assertEquals("예요", "LOCA LIKIT Play".copula())
+        assertEquals("이에요", "현대카드 ZERO Edition3 (할인형)".copula())
+        assertEquals("예요", "KB국민 노리2 체크카드(KB Pay)".copula())
+        assertEquals("예요", "()".copula())
+        // 한계: 단어로 읽는 'Shop'(샵)은 글자 규칙으로 못 본다
+        assertEquals("예요", "LOCA LIKIT Shop".copula())
+    }
+
     // ── 해제 ──
 
     @Test fun `본인 인증 토큰으로 해제하고 화면을 닫는다`() = runTest(dispatcher) {
@@ -337,6 +495,18 @@ class CardDetailViewModelTest {
         override suspend fun linkAccounts(candidateIds: List<String>, idempotencyKey: String, stepUpToken: String): ApiResult<AccountLinkResult> = error("안 씀")
     }
 
+    /** 카드 상세는 사용자 정보에서 결제 카드 자동 선택 값만 읽는다 */
+    private class StubMy : MyRepository by unusedMy() {
+        var autoSelect = true
+        var info: ApiResult<MyInfo>? = null
+        var reads = 0
+
+        override suspend fun me(): ApiResult<MyInfo> {
+            reads++
+            return info ?: ApiResult.Success(MyInfo("야무", null, 60, false, false, null, autoSelect))
+        }
+    }
+
     private companion object {
         val ACCOUNT = LinkedAccount(5, brandOf("신한은행"), "주거래", "5678", 100_000, null, isPrimary = true)
         val CARD = CardInfo(
@@ -362,5 +532,10 @@ class CardDetailViewModelTest {
             AuthRepository::class.java.classLoader,
             arrayOf(AuthRepository::class.java),
         ) { _, method, _ -> error("안 쓰는 메서드: ${method.name}") } as AuthRepository
+
+        fun unusedMy(): MyRepository = Proxy.newProxyInstance(
+            MyRepository::class.java.classLoader,
+            arrayOf(MyRepository::class.java),
+        ) { _, method, _ -> error("안 쓰는 메서드: ${method.name}") } as MyRepository
     }
 }
