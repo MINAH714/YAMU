@@ -28,7 +28,8 @@ import kotlinx.serialization.Serializable
 
 // ── 계좌 · 카드 연결 (LinkGraph) ──
 @Serializable data object CardRegister       // C-01 카드 번호 입력 · 확인 · 계좌 연결 · 완료(같은 화면의 단계 — 번호를 인자로 넘기지 않음)
-@Serializable data object CashflowConfirm    // B-06
+/** B-06 — 홈의 월급 등록 안내에서 열면 [fromHome]: 단계 막대 없이 저장하고 첫 분석 대신 홈으로(S15P31E103-429) */
+@Serializable data class CashflowConfirm(val fromHome: Boolean = false)
 @Serializable data object FirstAnalysis      // B-07 · B-07b(알림 권한은 시스템 창)
 
 // ── 홈 탭 (HomeGraph) ──

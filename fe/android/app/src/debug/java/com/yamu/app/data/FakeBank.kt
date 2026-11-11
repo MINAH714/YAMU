@@ -435,6 +435,9 @@ class FakeCashflowRepository @Inject constructor() : CashflowRepository {
     override suspend fun confirm(plan: CashflowPlan): ApiResult<Unit> {
         delay(800)
         lastPlan = plan
+        // 홈 '월급 등록 전'에서 월급을 넣고 오면 가짜 홈도 월급이 있는 모양으로(S15P31E103-429)
+        val incomeSet = plan.createdIncomeId != null || (plan.incomeId != null && plan.decisions.any { it.id == plan.incomeId && it.include })
+        if (incomeSet && DevSession.homeScenario == HomeScenario.BEFORE_INCOME) DevSession.homeScenario = HomeScenario.NORMAL
         return ApiResult.Success(Unit)
     }
 }

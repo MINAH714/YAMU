@@ -199,14 +199,20 @@ fun YamuNavHost(navController: NavHostController, modifier: Modifier = Modifier)
                 CardRegisterRoute(
                     onboarding = true,
                     onLeave = if (hasPrevious) back else ({ navController.finishOnboarding() }),
-                    onFinished = { navController.navigate(CashflowConfirm) },
+                    onFinished = { navController.navigate(CashflowConfirm()) },
                     onCloseDone = { navController.finishOnboarding() },
                     onOpenPinPad = openPinPad,
                     onSkip = { navController.finishOnboarding() },
                 )
             }
-            composable<CashflowConfirm> {
-                CashflowConfirmRoute(onBack = back, onSaved = { navController.navigate(FirstAnalysis) })
+            composable<CashflowConfirm> { entry ->
+                // 가입 끝에서는 첫 분석으로, 홈의 월급 안내에서 왔으면 저장 뒤 홈으로 돌아가 다시 불러온다
+                val fromHome = entry.toRoute<CashflowConfirm>().fromHome
+                CashflowConfirmRoute(
+                    fromHome = fromHome,
+                    onBack = back,
+                    onSaved = if (fromHome) back else ({ navController.navigate(FirstAnalysis) }),
+                )
             }
             composable<FirstAnalysis> {
                 FirstAnalysisRoute(onFinish = { navController.finishOnboarding() })
@@ -228,6 +234,7 @@ fun YamuNavHost(navController: NavHostController, modifier: Modifier = Modifier)
                         onStartLinking = { navController.navigate(LinkGraph) },
                         onTodo = { userCardId -> navController.navigate(PerfAnalysis(userCardId ?: 1L)) },
                         onRecentPayment = { paymentId -> navController.navigate(PaymentDetail(paymentId)) },
+                        onRegisterIncome = { navController.navigate(CashflowConfirm(fromHome = true)) },
                     )
                 }
                 // 9 · 10단계: 실제 화면(13 문서)

@@ -236,7 +236,12 @@ private fun upcomingOrder(today: Int): (FixedLine) -> Int = { line ->
 }
 
 @Composable
-fun CashflowConfirmRoute(onBack: () -> Unit, onSaved: () -> Unit, viewModel: CashflowConfirmViewModel = hiltViewModel()) {
+fun CashflowConfirmRoute(
+    onBack: () -> Unit,
+    onSaved: () -> Unit,
+    fromHome: Boolean = false,   // 홈 월급 안내에서 열었다 — 가입 단계가 아니라 단계 막대 · 첫 분석 문구를 뺀다(S15P31E103-429)
+    viewModel: CashflowConfirmViewModel = hiltViewModel(),
+) {
     val s by viewModel.state.collectAsStateWithLifecycle()
     LaunchedEffect(s.saved) {
         if (s.saved) {
@@ -250,14 +255,19 @@ fun CashflowConfirmRoute(onBack: () -> Unit, onSaved: () -> Unit, viewModel: Cas
     FlowScreen(
         title = "월급·고정 지출",
         onBack = onBack,
-        step = FlowStep(2, 2),
+        step = if (fromHome) null else FlowStep(2, 2),
         bottomBar = {
             if (draft != null) {
                 BottomCta {
                     s.saveError?.let {
                         Text(it, style = YamuTheme.typography.bodyS, color = c.error, modifier = Modifier.padding(bottom = YamuSpacing.x2))
                     }
-                    PrimaryButton(if (draft.isEmpty && s.newIncome == null) "첫 분석 보기" else "등록하고 첫 분석 보기", onClick = viewModel::confirm, loading = s.saving)
+                    val label = when {
+                        fromHome -> "등록하기"
+                        draft.isEmpty && s.newIncome == null -> "첫 분석 보기"
+                        else -> "등록하고 첫 분석 보기"
+                    }
+                    PrimaryButton(label, onClick = viewModel::confirm, loading = s.saving)
                 }
             }
         },

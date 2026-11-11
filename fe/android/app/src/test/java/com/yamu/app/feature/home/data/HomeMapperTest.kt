@@ -15,7 +15,7 @@ class HomeMapperTest {
     private fun parse(raw: String) = YamuJson.decodeFromString<HomeDto>(raw).toSummary(today)
 
     @Test
-    fun `지금 명세 예시 모양이면 30일 뒤 예상 잔액으로 그린다`() {
+    fun `지금 명세 예시 모양(월급 없음)이면 지금 잔액과 월급 안내로 그린다`() {
         val home = parse(
             """
             {"cards":{"count":4,"items":[{"userCardId":12,"nickname":"생활비 카드","issuerColor":"#0046FF","maskedNumber":"9410-****-****-5678","cardType":"CHECK"}]},
@@ -25,11 +25,13 @@ class HomeMapperTest {
              "unreadNotificationCount":3,"partialErrors":[],"dataSyncedAt":"2026-10-20T09:00:00+09:00"}
             """,
         )
+        // nextIncome이 없으면 월급을 정하기 전이다 — 수입 없이 본 30일 숫자 대신 지금 잔액(S15P31E103-429)
         val forecast = home.forecast!!
-        assertEquals("30일 뒤 예상 잔액", forecast.label)
-        assertEquals(2_214_500L, forecast.amount)
-        assertTrue(forecast.isEstimate)
-        assertEquals(LocalDate.of(2026, 10, 29), forecast.shortageFrom)
+        assertEquals("지금 잔액", forecast.label)
+        assertEquals(620_000L, forecast.amount)
+        assertFalse(forecast.isEstimate)
+        assertNull(forecast.shortageFrom)
+        assertTrue(forecast.needsIncome)
         assertEquals("메인 신용카드 실적까지 120,000원 남았어요", home.todos.single().title)
         assertEquals(3, home.unreadCount)
         assertFalse(home.needsLinking)
@@ -54,9 +56,46 @@ class HomeMapperTest {
         assertEquals(25L, forecast.daysToIncome)
         assertTrue(forecast.isProvisional)
         assertNull(forecast.shortageFrom)
+        assertFalse(forecast.needsIncome)                         // 월급이 있으면 안내 없음
         assertEquals(2, home.todos.size)                          // 최대 2줄
         assertEquals(TodoTone.Error, home.todos[1].tone)
         assertEquals("야무카페 역삼점", home.recentPayment!!.merchantName)
+    }
+
+    @Test
+    fun `월급 없이 지금 BE 모양이면 음수 30일 대신 지금 잔액을 쓴다`() {
+        // 11/12 실서버 김야무와 같은 모양 — 수입 없이 30일을 계산해 끝 · 최저 잔액이 음수
+        val home = parse(
+            """
+            {"cards":{"count":3},
+             "balanceForecast":{"accountId":3,"currentBalance":950000,"endBalancePredicted":-275622,"nextRiskDate":"2026-11-07","horizonDays":30,"minBalance":-275622,"isEstimate":true,"isProvisional":false},
+             "onboarding":{"step":"DONE"}}
+            """,
+        )
+        val forecast = home.forecast!!
+        assertEquals("지금 잔액", forecast.label)
+        assertEquals(950_000L, forecast.amount)
+        assertFalse(forecast.isEstimate)
+        assertNull(forecast.incomeDate)
+        assertNull(forecast.daysToIncome)
+        assertNull(forecast.shortageFrom)
+        assertTrue(forecast.needsIncome)
+    }
+
+    @Test
+    fun `월급 없고 지금 잔액도 0원 이하면 예전처럼 30일 뒤 카드 · 월급 안내는 둔다`() {
+        val home = parse(
+            """
+            {"cards":{"count":3},
+             "balanceForecast":{"currentBalance":0,"endBalancePredicted":-480000,"nextRiskDate":"2026-10-16","horizonDays":30,"minBalance":-480000,"isEstimate":true},
+             "onboarding":{"step":"DONE"}}
+            """,
+        )
+        val forecast = home.forecast!!
+        assertEquals("30일 뒤 예상 잔액", forecast.label)
+        assertEquals(-480_000L, forecast.amount)
+        assertEquals(LocalDate.of(2026, 10, 16), forecast.shortageFrom)
+        assertTrue(forecast.needsIncome)
     }
 
     @Test

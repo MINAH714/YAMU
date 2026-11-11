@@ -30,6 +30,8 @@ data class ForecastSummary(
     val incomeDate: LocalDate?,
     val daysToIncome: Long?,
     val shortageFrom: LocalDate?,
+    /** 잔고예보 월급을 아직 정하지 않았다(nextIncome 없음) — 홈이 월급 등록(B-06)으로 이끈다(S15P31E103-429) */
+    val needsIncome: Boolean = false,
 )
 
 enum class TodoTone { Neutral, Primary, Success, Warning, Error }
@@ -72,6 +74,21 @@ private const val MAX_TODOS = 2
 
 private fun BalanceForecastDto.toForecast(today: LocalDate): ForecastSummary? {
     val income = parseDate(nextIncome?.date)
+    // 월급을 정하기 전이면 BE는 수입 없이 30일을 계산해 끝 잔액이 줄기만 한다. 그 숫자 대신 지금 잔액을 주인공으로 두고
+    // 월급 등록으로 이끈다. 위험일도 수입 없이 본 날짜라 홈에서는 말하지 않는다(잔고예보 화면에는 남음).
+    // 지금 잔액이 0원 이하면 히어로를 쓸 수 없어 아래의 예전 카드로 간다(S15P31E103-429)
+    if (income == null && currentBalance != null && currentBalance > 0) {
+        return ForecastSummary(
+            label = "지금 잔액",
+            amount = currentBalance,
+            isEstimate = false,
+            isProvisional = isProvisional ?: false,
+            incomeDate = null,
+            daysToIncome = null,
+            shortageFrom = null,
+            needsIncome = true,
+        )
+    }
     val (label, amount) = when {
         // 월급 전까지 가장 낮아지는 잔액이라 잔고예보 첫 카드와 같은 이름 — '월급 전에 이만큼 남는다'로 읽히지 않게
         minBalance != null && income != null -> "월급 전 가장 낮을 때" to minBalance
@@ -87,6 +104,7 @@ private fun BalanceForecastDto.toForecast(today: LocalDate): ForecastSummary? {
         incomeDate = income,
         daysToIncome = income?.let { ChronoUnit.DAYS.between(today, it) },
         shortageFrom = parseDate(nextRiskDate),
+        needsIncome = income == null,
     )
 }
 
