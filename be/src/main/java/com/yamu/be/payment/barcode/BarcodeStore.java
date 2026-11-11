@@ -47,12 +47,13 @@ public interface BarcodeStore {
     boolean expireByPayment(Long paymentId);
 
     /**
-     * POS 결제 취소(S15P31E103-424)에 쓴 바코드를 닫는다. ISSUED일 때만 EXPIRED로 바꾼다.
-     * 그 사이 결제에 스캔됐으면(SCANNED) 그 결제를 막지 않게 그대로 둔다.
+     * POS 결제 취소(S15P31E103-424)에 쓴 바코드를 USED로 닫고 취소한 결제 번호를 붙인다. ISSUED일 때만 바꾼다.
+     * 앱 바코드 조회는 붙은 결제를 같이 돌려주므로 앱은 {@code payment.status = CANCELED}로 취소 완료를 안다.
+     * 그 사이 결제에 스캔됐으면(SCANNED) 그 결제를 막지 않게 그대로 둔다. 결제 번호 역색인은 만들지 않는다(승인·만료 반영 대상이 아니다).
      *
      * @return 바꿨으면 true. 없거나 다른 상태면 false
      */
-    boolean closeIssued(String token);
+    boolean useForCancel(String token, Long paymentId);
 
     enum ScanResult {
         SCANNED,

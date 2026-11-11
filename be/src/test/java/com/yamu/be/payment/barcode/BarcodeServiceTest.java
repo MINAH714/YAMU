@@ -320,13 +320,13 @@ class BarcodeServiceTest {
         }
 
         @Override
-        public synchronized boolean closeIssued(String token) {
+        public synchronized boolean useForCancel(String token, Long paymentId) {
             Barcode barcode = barcodes.get(token);
             if (barcode == null || barcode.status() != BarcodeStatus.ISSUED) {
                 return false;
             }
-            barcodes.put(token, new Barcode(token, barcode.userId(), BarcodeStatus.EXPIRED, barcode.issuedAt(),
-                    barcode.expiresAt()));
+            barcodes.put(token, new Barcode(token, barcode.userId(), BarcodeStatus.USED, barcode.issuedAt(),
+                    barcode.expiresAt(), paymentId));
             return true;
         }
 

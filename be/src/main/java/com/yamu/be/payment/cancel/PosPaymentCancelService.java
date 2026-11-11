@@ -25,11 +25,12 @@ import org.springframework.stereotype.Service;
  * ③ 앱 취소와 같은 {@link PaymentCancelService}로 취소한다. 같은 키의 처음 응답이 있으면 그대로 돌려준다
  *    새로 처리할 때만 멱등 잠금 안에서 먼저 본다:
  *    바코드가 만료 전 ISSUED인지(만료 410, 스캔·사용 409) → 결제가 그 고객의 것이고 이 posCode가 만든 것인지(아니면 404)
- * ④ 취소가 끝나면 바코드를 닫는다(ISSUED → EXPIRED). 닫기 실패는 로그만 남긴다(취소는 이미 끝남)
+ * ④ 취소가 끝나면 바코드를 USED로 닫고 취소한 결제를 붙인다. 앱 바코드 조회가 그 결제(status CANCELED)를 돌려주므로
+ *    앱은 '취소 완료'를 띄울 수 있다(2026-11-11 A안). 닫기 실패는 로그만 남긴다(취소는 이미 끝남)
  * ⑤ 응답은 POS 영수증 값만. 앱 응답의 실적·청구·잔액은 넣지 않는다
  * </pre>
  *
- * <p>결정(2026-11-11, 임시): 바코드는 ISSUED만 받고 취소가 성공한 뒤 닫는다. 금융망 실패·결과 불명이면 바코드를 그대로 두어
+ * <p>결정(2026-11-11, 임시): 바코드는 ISSUED만 받고 취소가 성공한 뒤 USED로 닫는다. 금융망 실패·결과 불명이면 바코드를 그대로 두어
  * 유효 시간(60초) 안에 같은 바코드로 다시 시도할 수 있다. 다른 고객의 바코드, 다른 POS는 모두 404(남의 결제는 없는 것과 같다).
  *
  * <p>깨질 수 있는 곳: 같은 결제를 앱과 POS가 동시에 취소하면 {@link PaymentCancelService}의 행 잠금·정산 잠금으로 한 번만 취소되고
@@ -72,7 +73,7 @@ public class PosPaymentCancelService {
 
         cancels.cancel(userId, paymentId, NO_REASON, key,
                 () -> verify(token, userId, paymentId, request.posCode()));
-        close(token, paymentId);
+        markUsed(token, paymentId);
         return result(paymentId, userId);
     }
 
@@ -102,11 +103,12 @@ public class PosPaymentCancelService {
         }
     }
 
-    private void close(String token, Long paymentId) {
+    /** 앱 바코드 화면이 취소 완료를 알 수 있게 바코드를 USED로 닫고 취소한 결제를 붙인다. 실패는 로그만 남긴다(취소는 이미 끝남). */
+    private void markUsed(String token, Long paymentId) {
         try {
-            barcodes.closeIssued(token);
+            barcodes.useForCancel(token, paymentId);
         } catch (RuntimeException e) {
-            log.warn("POS 취소 뒤 바코드 닫기 실패(취소는 완료) paymentId={}", paymentId, e);
+            log.warn("POS 취소 뒤 바코드 사용 처리 실패(취소는 완료, 앱 바코드 화면은 시간이 지나면 만료) paymentId={}", paymentId, e);
         }
     }
 

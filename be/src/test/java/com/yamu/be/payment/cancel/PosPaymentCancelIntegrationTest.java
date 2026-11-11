@@ -1,6 +1,7 @@
 package com.yamu.be.payment.cancel;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -112,7 +113,7 @@ class PosPaymentCancelIntegrationTest extends MySqlTestSupport {
     // ───────── 취소 성공 ─────────
 
     @Test
-    void 고객_바코드로_취소하면_CANCELED이고_실적이_되돌아가며_바코드는_닫힌다() throws Exception {
+    void 고객_바코드로_취소하면_CANCELED이고_실적이_되돌아가며_바코드는_USED로_닫힌다() throws Exception {
         long paymentId = approved(POS_CODE);
         performance(40_000);
         String token = issued(user);
@@ -133,7 +134,36 @@ class PosPaymentCancelIntegrationTest extends MySqlTestSupport {
         assertThat(payment.getStatus()).isEqualTo(PaymentStatus.CANCELED);
         assertThat(payment.getPerformanceReversedAt()).isNotNull();
         assertThat(recognized()).isEqualTo(25_000L);
-        assertThat(barcodeStatus(token)).isEqualTo(BarcodeStatus.EXPIRED);
+        assertThat(barcodeStatus(token)).isEqualTo(BarcodeStatus.USED);
+    }
+
+    @Test
+    void 취소_뒤_앱이_바코드를_조회하면_USED와_취소된_결제가_나온다() throws Exception {
+        long paymentId = approved(POS_CODE);
+        String token = issued(user);
+
+        cancel(paymentId, POS_CODE, token, UUID.randomUUID().toString()).andExpect(status().isOk());
+
+        // 앱 바코드 화면은 1초마다 이 API를 부른다. USED + payment.status CANCELED면 '취소 완료'를 띄운다(앱 몫)
+        mockMvc.perform(get("/api/payments/barcodes/{barcodeToken}", token).with(AuthUsers.asUser(user)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.status").value("USED"))
+                .andExpect(jsonPath("$.data.payment.paymentId").value(paymentId))
+                .andExpect(jsonPath("$.data.payment.status").value("CANCELED"))
+                .andExpect(jsonPath("$.data.payment.amount").value(15_000));
+    }
+
+    @Test
+    void 취소가_실패하면_바코드는_ISSUED_그대로고_앱에는_결제가_붙지_않는다() throws Exception {
+        long paymentId = approved(POS_CODE);
+        String token = issued(otherUser);
+
+        cancel(paymentId, POS_CODE, token, UUID.randomUUID().toString()).andExpect(status().isNotFound());
+
+        mockMvc.perform(get("/api/payments/barcodes/{barcodeToken}", token).with(AuthUsers.asUser(otherUser)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.status").value("ISSUED"))
+                .andExpect(jsonPath("$.data.payment").value((Object) null));
     }
 
     @Test
