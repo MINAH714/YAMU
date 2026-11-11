@@ -308,6 +308,37 @@ class ForecastMapperTest {
         assertEquals(netflix, rows.first().entry)
     }
 
+    @Test fun `예정 목록 — 후보 줄 날짜는 출금일이라 보조 줄에 밝히고, 확인한 카드 줄은 사용일 · 카드 결제 그대로(!254 리뷰)`() {
+        val nov5 = LocalDate.of(2026, 11, 5)     // 넷플릭스 사용일(매월 5일)
+        val nov25 = LocalDate.of(2026, 11, 25)   // 신용카드 후보는 예보에서 청구 출금일로 온다
+        fun sub(row: CashflowRow) = com.yamu.app.feature.forecast.cashflowRowSub(row)
+        val f = testForecast(
+            days = listOf(
+                day(nov5, ForecastEvent(nov5, FlowType.SCHEDULED_OUTFLOW, "월세", -500_000, FlowConfidence.CONFIRMED)),
+                day(
+                    nov25,
+                    ForecastEvent(nov25, FlowType.SCHEDULED_OUTFLOW, "넷플릭스", -13_500, FlowConfidence.EXPECTED),
+                    ForecastEvent(nov25, FlowType.CARD_BILLING, "카드 청구 출금", -150_000, FlowConfidence.CONFIRMED),
+                ),
+            ),
+        )
+        val rent = CashflowEntry(1, false, "월세", 500_000, nov5, nov5, CashflowRepeat.MONTHLY, 5, null, 3, null)
+        val rows = cashflowRows(listOf(rent), f).associateBy { it.title }
+        assertEquals("11/25 (수) · 출금일 기준", sub(rows.getValue("넷플릭스")))
+        assertEquals("11/25 (수)", sub(rows.getValue("카드 청구 출금")))   // 청구는 제목에 '출금'이 있다
+        assertEquals("11/5 (목) · 매월 5일", sub(rows.getValue("월세")))
+        // 회차를 받기 전(예보 줄만)에도 후보 줄은 같은 보조 줄
+        val beforeEntries = f.upcoming.filter { !it.isEstimate }.map { it.toCashflowRow() }.associateBy { it.title }
+        assertEquals("11/25 (수) · 출금일 기준", sub(beforeEntries.getValue("넷플릭스")))
+        assertNull(beforeEntries.getValue("월세").dateNote)
+        // 확인하면 예보에도 CONFIRMED로 오고 가계부 줄(사용일 · 카드 결제)로만 보인다 — 출금일 표시는 없다
+        val confirmedF = testForecast(days = listOf(day(nov25, ForecastEvent(nov25, FlowType.SCHEDULED_OUTFLOW, "넷플릭스", -13_500, FlowConfidence.CONFIRMED))))
+        val netflix = CashflowEntry(31, false, "넷플릭스", 13_500, nov5, nov5, CashflowRepeat.MONTHLY, 5, null, null, 16)
+        val confirmedRow = cashflowRows(listOf(netflix), confirmedF).single()
+        assertNull(confirmedRow.dateNote)
+        assertEquals("11/5 (목) · 매월 5일 · 카드 결제", sub(confirmedRow))
+    }
+
     @Test fun `계좌 · 카드 없는 줄과 수입 줄에는 카드 결제 표시가 없다`() {
         val nov8 = LocalDate.of(2026, 11, 8)
         val byAccount = CashflowEntry(1, false, "월세", 500_000, nov8, nov8, CashflowRepeat.NONE, null, null, 3, null)

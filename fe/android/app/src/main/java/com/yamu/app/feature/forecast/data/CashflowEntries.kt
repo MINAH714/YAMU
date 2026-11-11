@@ -159,6 +159,13 @@ data class CashflowRow(
      * 체크카드는 사용일에 빠진다(BE CashflowEvents). 줄에서는 카드 결제라는 것만 밝힌다
      */
     val cardNote: String? get() = "카드 결제".takeIf { entry?.userCardId != null && amount < 0 }
+
+    /**
+     * 확인 전 후보의 날짜 표시 — 후보는 결제 기록에서 찾은 카드 지출이라(BE CashflowItem.detected) 예보에서 가져온 날짜가 출금일이다.
+     * 신용카드는 청구 출금일이고 체크카드는 사용일과 같다. 확인하면 가계부 줄(사용일 · '카드 결제')로 바뀌어 신용카드 후보는 날짜가 옮겨 가므로
+     * 출금일이라는 것을 밝힌다(!254 리뷰). 예보 이벤트에는 카드 종류가 없어 신용카드만 가르지 않고 후보 줄에 모두 단다
+     */
+    val dateNote: String? get() = "출금일 기준".takeIf { candidate }
 }
 
 /**

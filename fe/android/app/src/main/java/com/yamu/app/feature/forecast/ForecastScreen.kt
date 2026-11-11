@@ -806,7 +806,7 @@ private fun CashflowRowLine(row: CashflowRow, onClick: (() -> Unit)?) {
     val c = YamuTheme.colors
     ListRow(
         title = row.title,
-        sub = listOfNotNull(row.date?.toMonthDayWeek(), row.repeatLabel, row.cardNote).joinToString(" · "),
+        sub = cashflowRowSub(row),
         value = "${row.amount.toWon(withPlusSign = true)}원",
         valueColor = if (row.amount > 0) c.primary else c.text1,
         titleTag = if (row.candidate) ({ StatusTag("예상", tone = TagTone.Neutral) }) else null,
@@ -814,6 +814,10 @@ private fun CashflowRowLine(row: CashflowRow, onClick: (() -> Unit)?) {
         onClick = onClick,
     )
 }
+
+/** F-02 보조 줄 — '11/5 (목) · 매월 5일 · 카드 결제', 확인 전 후보는 '11/25 (수) · 출금일 기준' */
+internal fun cashflowRowSub(row: CashflowRow): String =
+    listOfNotNull(row.date?.toMonthDayWeek(), row.repeatLabel, row.cardNote, row.dateNote).joinToString(" · ")
 
 @Composable
 fun CashflowListRoute(
