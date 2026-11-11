@@ -1,6 +1,7 @@
 package com.yamu.be.performance;
 
 import java.time.LocalDate;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -10,6 +11,9 @@ import org.springframework.data.repository.query.Param;
 public interface PerformanceDecisionRepository extends JpaRepository<PerformanceDecision, Long> {
 
     Optional<PerformanceDecision> findByUserIdAndUserCardIdAndPerformanceMonth(Long userId, Long userCardId,
+            LocalDate performanceMonth);
+
+    List<PerformanceDecision> findByUserIdAndUserCardIdInAndPerformanceMonth(Long userId, Collection<Long> userCardIds,
             LocalDate performanceMonth);
 
     /**

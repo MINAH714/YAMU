@@ -118,12 +118,29 @@ class PerformanceAnalyzerTest {
         assertThat(r.extraBenefit()).isNull();
         assertThat(r.guide()).isEqualTo(PerformanceGuide.EXTRA_SPENDING_NOT_RECOMMENDED);
         assertThat(r.lossIfForced()).isNull();
-        assertThat(r.steps().get(5).note()).isEqualTo("원 단위 한도가 없어 금액으로 셀 수 없어요");
+        assertThat(r.steps().get(5).note()).isEqualTo("원화 한도가 없거나 알 수 없어 금액으로 셀 수 없어요");
 
         // 옮기기로 채우면 혜택을 셀 수 없어도 추가 지출이 없으니 달성 추천
         Result move = analyze(points, 299_000, months(0), List.of(), List.of(movable(7, "통신비", 1_000, true)),
                 Set.of());
         assertThat(move.guide()).isEqualTo(PerformanceGuide.ACHIEVE_RECOMMENDED);
+    }
+
+    @Test
+    void 예상이_닿는_낮은_구간의_한도를_모르면_더_받는_혜택을_셀_수_없다() {
+        // 10만원 구간 한도를 모름(겹친 한도 등, 373이 null로 비움). 0원으로 보면 1만원 전부를 더 받는다고 잘못 센다
+        Target unknownLower = new Target(300_000, List.of(
+                new Tier(100_000, null, List.of("편의점 5% 할인")),
+                new Tier(300_000, 10_000L, List.of("생활 10% 할인"))));
+        Result r = analyze(unknownLower, 295_000, months(0), List.of(), List.of(), Set.of());
+
+        assertThat(r.extraBenefit()).isNull();
+        assertThat(r.guide()).isEqualTo(PerformanceGuide.EXTRA_SPENDING_NOT_RECOMMENDED);
+        assertThat(r.lossIfForced()).isNull();
+
+        // 예상이 그 구간에 닿지 않으면 뺄 것이 없어 목표 구간 한도 전부
+        Result below = analyze(unknownLower, 50_000, months(0), List.of(), List.of(), Set.of());
+        assertThat(below.extraBenefit()).isEqualTo(10_000);
     }
 
     @Test

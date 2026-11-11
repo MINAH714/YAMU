@@ -3,6 +3,7 @@ package com.yamu.be.home;
 import com.yamu.be.card.CardManagementService;
 import com.yamu.be.card.dto.CardListResponse;
 import com.yamu.be.performance.CardPerformancesResponse;
+import com.yamu.be.performance.PerformanceDecision;
 import com.yamu.be.performance.PerformanceService;
 import com.yamu.be.performance.PerformanceStatus;
 import com.yamu.be.forecast.BalanceForecast;
@@ -125,12 +126,15 @@ public class HomeService {
     /**
      * 실적 부족 카드(2026-11-10 결정). 이번 달(한국 기준) 카드별 실적({@code GET /api/users/me/card-performances}, S15P31E103-373)에서
      * {@link PerformanceStatus#AT_RISK}인 카드만, 카드 목록 순서로. 달성률은 카드 목록과 같은 규칙({@link CardListResponse.Performance#of})이다.
-     * 임시: 375(유불리 판단 기록)가 머지되면 "이번 달은 그대로 둘게요"로 판단한 카드를 뺀다.
+     * 이번 달 "채우지 않기"(SKIP)로 판단한 카드는 뺀다(S15P31E103-375, 2026-11-11 결정). 채우기·평소대로 쓰기는 남은 금액
+     * 알림이 여전히 쓸모 있어 둔다. 유불리 판정(guide)은 쓰지 않아 계산하지 않는다.
      */
     private List<HomeResponse.PerformanceAlert> performanceAlerts(long userId) {
-        CardPerformancesResponse overview = performances.overview(userId, null);
+        CardPerformancesResponse overview = performances.overview(userId, null, false);
         return overview.cards().stream()
                 .filter(card -> card.status() == PerformanceStatus.AT_RISK)
+                .filter(card -> card.decision() == null
+                        || card.decision().decision() != PerformanceDecision.Choice.SKIP)
                 .map(card -> new HomeResponse.PerformanceAlert(card.userCardId(), card.nickname(),
                         card.remainingAmount(),
                         CardListResponse.Performance.of(overview.yearMonth(), card.targetAmount(),

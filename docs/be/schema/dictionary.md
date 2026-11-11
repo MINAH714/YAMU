@@ -610,7 +610,7 @@ CONSTRAINT ck_performance_decision_muted CHECK (decision IS NOT NULL OR notifica
 CONSTRAINT ck_performance_decision_version CHECK (version >= 0)
 ```
 
-`POST /api/user-cards/{id}/performance/decisions`가 쓰고 유불리 분석의 `decision`이 읽습니다. 이력은 남기지 않고 지금 판단만 둡니다(2026-11-10 결정). 같은 카드의 기록은 `user_card` 행을 잠가 한 줄로 세웁니다. 알림 생성(S15P31E103-377)은 `notifications_muted`가 true인 카드·월에 실적 부족 알림을 만들지 않아야 합니다.
+`POST /api/user-cards/{id}/performance/decisions`가 쓰고 유불리 분석·카드별 실적 목록의 `decision`이 읽습니다. 홈(S15P31E103-378)은 이번 달 `SKIP`인 카드를 실적 부족 카드·할 일에서 뺍니다(2026-11-11 결정). 이력은 남기지 않고 지금 판단만 둡니다(2026-11-10 결정). 같은 카드의 기록은 `user_card` 행을 잠가 한 줄로 세웁니다. 알림 생성(S15P31E103-377)은 `notifications_muted`가 true인 카드·월에 실적 부족 알림을 만들지 않아야 합니다.
 
 - 외래키는 이 표만 `ON DELETE CASCADE`입니다(2026-11-10 결정). 다른 표는 삭제를 막지만(`bill_item_discount` 절 참고), 앱은 `user_card` 행을 지우지 않습니다(카드 해제는 `UNREGISTERED`로 상태만 바꿈). 행을 지우는 곳은 로컬 시드 초기화(`SeedUserData.deleteUserData`, `PersonaSeedService`)뿐입니다. 판단 기록은 카드가 없으면 의미가 없는 사용자 설정이라 거래·감사 기록과 달리 같이 지워도 잃는 것이 없고, 그러면 시드 초기화 코드를 고치지 않아도 초기화가 막히지 않습니다.
 

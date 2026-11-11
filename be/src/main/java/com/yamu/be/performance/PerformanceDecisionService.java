@@ -78,7 +78,9 @@ public class PerformanceDecisionService {
         }
         return new PerformanceDecisionResponse(userCardId, month.toString(), row.getDecision(), row.getGuide(),
                 row.getDecidedAt(), row.getAnalysisVersion(),
-                new PerformanceDecisionResponse.Effects(row.isNotificationsMuted()), row.getDecision() != null);
+                new PerformanceDecisionResponse.Effects(row.isNotificationsMuted(),
+                        row.getDecision() == PerformanceDecision.Choice.SKIP),
+                row.getDecision() != null);
     }
 
     /**

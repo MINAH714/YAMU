@@ -6,9 +6,8 @@ import java.util.Optional;
 /**
  * 유불리 분석이 쓰는 이번 달 목표 실적과 실적 구간(S15P31E103-375).
  *
- * <p>목표·구간 규칙은 카드별 실적 현황(S15P31E103-373)이 BE1 카드 목록 임시 규칙(-308)을 열어 쓰는 것과 같아야 한다. 373이
- * develop에 머지되기 전에 시작해서(2026-11-10 결정) 지금은 {@link PendingPerformanceTargets}가 목표 없음만 돌려주고, 373 머지
- * 뒤 그 규칙을 쓰는 구현으로 바꾼다.
+ * <p>목표·구간 규칙은 카드별 실적 현황(S15P31E103-373)과 같아야 해서 구현({@link BenefitSummaryPerformanceTargets})은 373과
+ * 같은 BE1 임시 규칙(-308)을 쓴다. 판정 테스트가 목표를 바꿔 끼울 수 있게 인터페이스로 둔다.
  */
 interface PerformanceTargets {
 

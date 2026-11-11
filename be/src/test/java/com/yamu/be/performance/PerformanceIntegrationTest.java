@@ -112,7 +112,8 @@ class PerformanceIntegrationTest extends MySqlTestSupport {
                 .andExpect(jsonPath("$.data.cards[0].issuer.code").value("TEST"))
                 .andExpect(jsonPath("$.data.cards[0].issuerName").value("TEST"))
                 .andExpect(jsonPath("$.data.cards[0].cardType").value("CREDIT"))
-                .andExpect(jsonPath("$.data.cards[0].guide").value(nullValue()))
+                .andExpect(jsonPath("$.data.cards[0].guide").value("INSUFFICIENT_DATA"))   // 실적 행 없음
+                .andExpect(jsonPath("$.data.cards[1].guide").value(nullValue()))           // 실적 조건 없음
                 .andExpect(jsonPath("$.data.dataSyncedAt").value(nullValue()));
     }
 

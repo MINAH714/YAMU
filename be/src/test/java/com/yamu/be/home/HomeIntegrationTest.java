@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.hamcrest.Matchers.contains;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.never;
@@ -22,6 +23,8 @@ import com.yamu.be.account.AccountBalanceService;
 import com.yamu.be.global.exception.ErrorCode;
 import com.yamu.be.global.finapi.FinApiException;
 import com.yamu.be.performance.CardPerformancesResponse;
+import com.yamu.be.performance.PerformanceAnalysisResponse;
+import com.yamu.be.performance.PerformanceDecision;
 import com.yamu.be.performance.PerformanceService;
 import com.yamu.be.performance.PerformanceStatus;
 import com.yamu.be.support.AuthUsers;
@@ -90,7 +93,7 @@ class HomeIntegrationTest extends MySqlTestSupport {
             List<Long> ids = invocation.getArgument(1);
             return ids.stream().map(id -> new AccountBalance(id, 1_000_000L, fetchedAt)).toList();
         });
-        when(performances.overview(anyLong(), isNull()))
+        when(performances.overview(anyLong(), isNull(), eq(false)))
                 .thenReturn(new CardPerformancesResponse(YearMonth.now(KOREA).toString(), 11, List.of(), null));
     }
 
@@ -103,7 +106,7 @@ class HomeIntegrationTest extends MySqlTestSupport {
         long atRisk = creditCard(owner, account, "ACTIVE");
         long atRiskToo = creditCard(owner, account, "ACTIVE");
         unpaidBill(owner, unpaidCard);
-        when(performances.overview(eq(owner), isNull())).thenReturn(new CardPerformancesResponse(
+        when(performances.overview(eq(owner), isNull(), eq(false))).thenReturn(new CardPerformancesResponse(
                 YearMonth.now(KOREA).toString(), 11, List.of(
                         performance(onTrack, "넉넉", PerformanceStatus.ON_TRACK, 300_000L, 290_000L),
                         performance(atRisk, "딥드림", PerformanceStatus.AT_RISK, 300_000L, 120_000L),
@@ -130,12 +133,38 @@ class HomeIntegrationTest extends MySqlTestSupport {
     }
 
     @Test
+    void 이번_달_채우지_않기로_판단한_카드는_실적_부족과_할_일에서_빠진다() throws Exception {
+        long owner = fixtures.user();
+        long account = primaryAccount(owner);
+        long skipped = creditCard(owner, account, "ACTIVE");
+        long keep = creditCard(owner, account, "ACTIVE");
+        long fill = creditCard(owner, account, "ACTIVE");
+        long undecided = creditCard(owner, account, "ACTIVE");
+        when(performances.overview(eq(owner), isNull(), eq(false))).thenReturn(new CardPerformancesResponse(
+                YearMonth.now(KOREA).toString(), 11, List.of(
+                        decided(performance(skipped, "안채움", PerformanceStatus.AT_RISK, 300_000L, 100_000L),
+                                PerformanceDecision.Choice.SKIP),
+                        decided(performance(keep, "평소대로", PerformanceStatus.AT_RISK, 300_000L, 100_000L),
+                                PerformanceDecision.Choice.KEEP),
+                        decided(performance(fill, "채움", PerformanceStatus.AT_RISK, 300_000L, 100_000L),
+                                PerformanceDecision.Choice.FILL),
+                        performance(undecided, "미정", PerformanceStatus.AT_RISK, 300_000L, 100_000L)),
+                null));
+
+        mockMvc.perform(get("/api/home").with(AuthUsers.asUser(owner)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.performanceAlerts[*].userCardId")
+                        .value(contains((int) keep, (int) fill, (int) undecided)))
+                .andExpect(jsonPath("$.data.todos[*].userCardId").value(contains((int) keep, (int) fill)));   // 최대 2개
+    }
+
+    @Test
     void 실적을_못_읽어도_미납_할_일과_나머지_영역은_나온다() throws Exception {
         long owner = fixtures.user();
         long account = primaryAccount(owner);
         long card = creditCard(owner, account, "ACTIVE");
         unpaidBill(owner, card);
-        when(performances.overview(eq(owner), isNull())).thenThrow(new IllegalStateException("boom"));
+        when(performances.overview(eq(owner), isNull(), eq(false))).thenThrow(new IllegalStateException("boom"));
 
         mockMvc.perform(get("/api/home").with(AuthUsers.asUser(owner)))
                 .andExpect(status().isOk())
@@ -393,6 +422,15 @@ class HomeIntegrationTest extends MySqlTestSupport {
             long target, long recognized) {
         return new CardPerformancesResponse.Item(card, nickname, null, null, "CREDIT", target, null, recognized,
                 Math.max(target - recognized, 0), status, null, null, false, null);
+    }
+
+    private static CardPerformancesResponse.Item decided(CardPerformancesResponse.Item item,
+            PerformanceDecision.Choice choice) {
+        return new CardPerformancesResponse.Item(item.userCardId(), item.nickname(), item.issuer(), item.issuerName(),
+                item.cardType(), item.targetAmount(), item.targetLabel(), item.recognizedAmount(),
+                item.remainingAmount(), item.status(), null,
+                new PerformanceAnalysisResponse.Decision(choice, LocalDateTime.now(ZoneOffset.UTC), null, false),
+                item.isProvisional(), item.recentChange());
     }
 
     /** 한국 기준 이번 달 결제면 금액, 아니면 0. 매달 1일 0~2시(한국)에 돌려도 월간 리포트와 같은 기준으로 맞춘다. */

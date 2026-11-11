@@ -8,7 +8,7 @@ import java.util.Collection;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
-import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -127,7 +127,7 @@ final class PerformanceAnalyzer {
                 movableNote(stillMovable)));
         steps.add(new Step(5, "그래도 모자라는 돈", shortfall, shortfall > 0 ? "더 써야 채우는 돈" : null));
         steps.add(new Step(6, "달성하면 더 받는 혜택", extra, extra == null
-                ? "원 단위 한도가 없어 금액으로 셀 수 없어요"
+                ? "원화 한도가 없거나 알 수 없어 금액으로 셀 수 없어요"
                 : nextMonth + "월 " + (atStake.isEmpty() ? label(target) + " 구간 혜택" : String.join(", ", atStake))
                         + " 한도까지 받을 때"));
         steps.add(new Step(7, "판단", null, judgement(guide, shortfall, extra, needed)));
@@ -139,16 +139,21 @@ final class PerformanceAnalyzer {
     }
 
     /**
-     * 목표 구간의 원화 월 한도 합 − 예상 실적이 닿는 낮은 구간의 원화 월 한도 합. 목표 구간 한도를 원화로 셀 수 없으면 null.
+     * 목표 구간의 원화 월 한도 합 − 예상 실적이 닿는 낮은 구간의 원화 월 한도 합. 예상이 어느 낮은 구간에도 닿지 않으면 0을 뺀다.
+     * 목표 구간이나 예상이 닿는 낮은 구간의 한도를 원화로 셀 수 없으면(모르는 한도 포함) null(2026-11-11 결정: 0으로 보면 더 받는
+     * 혜택을 실제보다 크게 잡는다).
      */
     static Long extraBenefit(Target target, Tier targetTier, long projected) {
         if (targetTier == null || targetTier.monthlyKrwLimit() == null) {
             return null;
         }
-        long base = target.tiers().stream()
+        Optional<Tier> reached = target.tiers().stream()
                 .filter(t -> t.threshold() < target.amount() && t.threshold() <= projected)
-                .max(Comparator.comparingLong(Tier::threshold))
-                .map(Tier::monthlyKrwLimit).filter(Objects::nonNull).orElse(0L);
+                .max(Comparator.comparingLong(Tier::threshold));
+        if (reached.isPresent() && reached.get().monthlyKrwLimit() == null) {
+            return null;
+        }
+        long base = reached.map(Tier::monthlyKrwLimit).orElse(0L);
         return Math.max(0, targetTier.monthlyKrwLimit() - base);
     }
 

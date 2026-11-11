@@ -72,16 +72,14 @@ public class PerformanceAnalysisService {
     @Transactional(readOnly = true)
     public PerformanceAnalysisResponse analyze(long userId, long userCardId, List<Long> scenarioItemIds) {
         UserCard card = registeredCard(userId, userCardId);
-        Calculation calc = calculate(userId, card, Set.copyOf(scenarioItemIds));
+        Calculation calc = calculate(userId, card, Set.copyOf(scenarioItemIds), null);
         LocalDate today = calc.today();
         PerformanceAnalyzer.Result r = calc.result();
         YearMonth month = YearMonth.from(today);
 
         PerformanceAnalysisResponse.Decision decision = decisions
                 .findByUserIdAndUserCardIdAndPerformanceMonth(userId, userCardId, month.atDay(1))
-                .filter(d -> d.getDecision() != null)
-                .map(d -> new PerformanceAnalysisResponse.Decision(d.getDecision(), d.getDecidedAt(),
-                        d.getAnalysisVersion(), d.isNotificationsMuted()))
+                .map(PerformanceAnalysisService::decisionOf)
                 .orElse(null);
         PerformanceAnalysisResponse.Scenario scenario = scenarioItemIds.isEmpty() ? null
                 : new PerformanceAnalysisResponse.Scenario(List.copyOf(scenarioItemIds), r.scenarioMovedTotal(),
@@ -108,14 +106,37 @@ public class PerformanceAnalysisService {
      * 판단 기록 때 저장할 지금 판정. 판정할 수 없는 카드(422가 날 상황)면 null.
      */
     PerformanceGuide currentGuide(long userId, UserCard card) {
+        return guideFor(userId, card, null).orElse(null);
+    }
+
+    /**
+     * 카드별 실적 목록(S15P31E103-373)에 보여 줄 이번 달 판정. 분석 API와 같은 계산이다. 판정할 수 없는 카드(분석이 422를 낼
+     * 상황)면 비어 있다.
+     *
+     * @param expenses {@link #scheduledExpenses}로 미리 읽은 이번 달 남은 예정 지출. 카드마다 다시 읽지 않게 받는다
+     */
+    Optional<PerformanceGuide> guideFor(long userId, UserCard card, List<CashflowService.Entry> expenses) {
         try {
-            return calculate(userId, card, Set.of()).result().guide();
+            return Optional.of(calculate(userId, card, Set.of(), expenses).result().guide());
         } catch (BusinessException e) {
             if (e.getErrorCode() == ErrorCode.DATA_INSUFFICIENT) {
-                return null;
+                return Optional.empty();
             }
             throw e;
         }
+    }
+
+    /** 오늘~말일 확인된 지출 예정(반복 펼침). 사용자의 모든 카드·계좌 것이다. */
+    List<CashflowService.Entry> scheduledExpenses(long userId) {
+        LocalDate today = today();
+        return cashflow.list(userId, today, YearMonth.from(today).atEndOfMonth(), CashflowItem.Direction.EXPENSE,
+                CashflowItem.Status.CONFIRMED, true);
+    }
+
+    /** 응답의 판단 기록. 되돌린 기록(decision NULL)이면 null. */
+    static PerformanceAnalysisResponse.Decision decisionOf(PerformanceDecision row) {
+        return row.getDecision() == null ? null : new PerformanceAnalysisResponse.Decision(row.getDecision(),
+                row.getDecidedAt(), row.getAnalysisVersion(), row.isNotificationsMuted());
     }
 
     /** 없는·남의·등록 전·등록 해제 카드는 404. */
@@ -129,7 +150,9 @@ public class PerformanceAnalysisService {
         return LocalDate.now(clock.withZone(KST));
     }
 
-    private Calculation calculate(long userId, UserCard card, Set<Long> scenarioItemIds) {
+    /** @param expenses 미리 읽은 남은 예정 지출. null이면 여기서 읽는다 */
+    private Calculation calculate(long userId, UserCard card, Set<Long> scenarioItemIds,
+            List<CashflowService.Entry> expenses) {
         LocalDate today = today();
         YearMonth month = YearMonth.from(today);
         CardProduct product = products.findById(card.getCardProductId())
@@ -149,8 +172,7 @@ public class PerformanceAnalysisService {
 
         Optional<PerformancePolicyCatalog.Policy> policy = policies.find(product.getIssuerCode(),
                 product.getProductName(), product.getCardType().name());
-        List<CashflowService.Entry> entries = cashflow.list(userId, today, month.atEndOfMonth(),
-                CashflowItem.Direction.EXPENSE, CashflowItem.Status.CONFIRMED, true);
+        List<CashflowService.Entry> entries = expenses != null ? expenses : scheduledExpenses(userId);
         ScheduledExpenses.Split split = ScheduledExpenses.split(entries, card.getId(),
                 card.getIssuerStatus() == CardIssuerStatus.NORMAL, policy, today);
         requireMovable(scenarioItemIds, split.movable());
