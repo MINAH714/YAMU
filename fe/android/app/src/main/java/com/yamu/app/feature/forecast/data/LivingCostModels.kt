@@ -89,7 +89,7 @@ data class LivingCostDetail(
     /** '월급 전까지' · '30일 동안' — 같은 기간의 잔고예보 문구와 맞춘다 */
     val periodLabel: String get() = if (isNextIncome) "월급 전까지" else "${days ?: 30}일 동안"
 
-    /** 기록이 없는 계좌 — 계좌가 여럿인데 일부만 기록이 있으면 잔고예보의 보수적 선이 빠진 이유 */
+    /** 기록이 없는 계좌 — 계좌가 여럿인데 일부만 기록이 있으면 잔고예보의 'AI 생활비 반영' 선이 빠진 이유 */
     val accountsWithoutRecord: List<AccountLivingCost> get() = accounts.filter { !it.hasRecord }
 }
 

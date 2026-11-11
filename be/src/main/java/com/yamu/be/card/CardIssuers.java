@@ -10,9 +10,9 @@ import java.util.Optional;
  * <p>카드 확인·등록은 {@link #find}로 모르는 카드사를 거절한다(ISSUER_NOT_SUPPORTED). 이미 등록된 카드를 보여 줄 때만
  * {@link #of}로 이름을 코드 그대로, 색을 null로 채운다.
  */
-final class CardIssuers {
+public final class CardIssuers {
 
-    record Issuer(String code, String name, String color) {
+    public record Issuer(String code, String name, String color) {
     }
 
     private static final Map<String, Issuer> KNOWN = Map.of(
@@ -33,7 +33,7 @@ final class CardIssuers {
         return Optional.ofNullable(code == null ? null : KNOWN.get(code));
     }
 
-    static Issuer of(String code) {
+    public static Issuer of(String code) {
         return KNOWN.getOrDefault(code, new Issuer(code, code, null));
     }
 }

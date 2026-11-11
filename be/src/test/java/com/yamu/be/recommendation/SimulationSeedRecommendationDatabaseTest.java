@@ -12,6 +12,8 @@ import java.time.LocalDateTime;
 import java.util.*;
 import javax.sql.DataSource;
 import org.junit.jupiter.api.*;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.io.FileSystemResource;
 import org.springframework.core.io.support.EncodedResource;
@@ -53,6 +55,8 @@ class SimulationSeedRecommendationDatabaseTest extends MySqlTestSupport {
     com.yamu.be.payment.billing.CardBillRepository billReads;
     @Autowired com.yamu.be.account.AccountBalanceService accountBalances;
     @Autowired RecommendationAvailabilityReader availabilityReader;
+    @org.springframework.test.context.bean.override.mockito.MockitoSpyBean
+    RecommendationInputAssembler inputAssembler;
     @Autowired com.yamu.be.payment.pos.PosPaymentRequestService pos;
     @Autowired com.yamu.be.payment.barcode.BarcodeStore barcodes;
     @Autowired com.yamu.be.payment.barcode.BarcodeService barcodeService;
@@ -87,6 +91,138 @@ class SimulationSeedRecommendationDatabaseTest extends MySqlTestSupport {
                 new RecommendationRequest.MerchantContext(((Number)merchant.get("merchant_id")).longValue(),(String)merchant.get("merchant_category_code"),brand.equals("APP_STORE")?"ONLINE":"OFFLINE","GENERAL"),
                 LocalDateTime.of(2026,11,3,3,0),item,availability,facts);
     }
+    @ParameterizedTest(name = "전월 실적 {0}원 → 편의점 혜택 {1}원")
+    @CsvSource({"299999,0", "300000,1000", "300001,1000"})
+    void previousMonthSeedBoundaryUsesTransactionMonthAndDoesNotAddPurchase(long previous, long expected) {
+        long user = new OwnershipFixtures(jdbc).user();
+        long p = product("신한카드 Mr.Life");
+        long id = card(user, p, previous, 0);
+        // UTC로는 10월이지만 한국 거래일은 11월 1일이다. 10월 실적만 혜택 조건에 사용한다.
+        jdbc.update("UPDATE card_monthly_performance SET recognized_amount=999999 WHERE user_card_id=? AND performance_month='2026-11-01'", id);
+        var base = request(user, List.of(id), "GS25", 10_000, null, Map.of());
+        var boundary = new RecommendationRequest(base.paymentId(), user, base.terms(), base.merchant(),
+                LocalDateTime.of(2026, 10, 31, 15, 30), base.purchaseItemCode(), base.availability(), base.verifiedFacts());
+        var before = boundarySnapshot(user, id);
+        var result = port.recommend(boundary);
+        assertThat(result.status()).isEqualTo(RecommendationResult.Status.READY);
+        var candidate = result.topCandidate().orElseThrow();
+        assertThat(candidate.netBenefit()).isEqualByComparingTo(Long.toString(expected));
+        long convenience = jdbc.queryForObject("SELECT card_benefit_id FROM card_benefit WHERE card_product_id=? AND benefit_code='CONVENIENCE'", Long.class, p);
+        assertThat(candidate.benefits()).filteredOn(b -> b.benefitId() == convenience).singleElement()
+                .satisfies(b -> assertThat(b.amount()).isEqualTo(expected));
+        assertThat(boundarySnapshot(user, id)).isEqualTo(before);
+    }
+
+    /** 서버 시계는 11월 3일로 유지한다. 한국 월 경계를 넘으면 전월 실적도 9월→10월로 바뀌어야 한다. */
+    @ParameterizedTest(name = "UTC 거래 {0} → 전월 실적 {1}원")
+    @CsvSource({"2026-10-31T14:30:00,299999", "2026-10-31T15:30:00,300000"})
+    void koreanMonthBoundaryReadsSeptemberThenOctoberRegardlessOfServerClock(String utcTime, long expected) {
+        long user = new OwnershipFixtures(jdbc).user();
+        long p = product("신한카드 Mr.Life");
+        long id = card(user, p, 300_000, 0);
+        jdbc.update("INSERT INTO card_monthly_performance(user_card_id,performance_month,recognized_amount,created_at,updated_at) "
+                + "VALUES(?,'2026-09-01',299999,UTC_TIMESTAMP(6),UTC_TIMESTAMP(6))", id);
+        jdbc.update("INSERT INTO monthly_limit_usage(user_card_id,card_product_id,limit_group_id,usage_month,used_value,created_at,updated_at) "
+                + "SELECT ?,card_product_id,limit_group_id,'2026-10-01',0,UTC_TIMESTAMP(6),UTC_TIMESTAMP(6) "
+                + "FROM limit_group WHERE card_product_id=? AND period_type='MONTHLY'", id, p);
+        var base = request(user, List.of(id), "GS25", 10_000, null, Map.of());
+        var boundary = new RecommendationRequest(base.paymentId(), user, base.terms(), base.merchant(),
+                LocalDateTime.parse(utcTime), base.purchaseItemCode(), base.availability(), base.verifiedFacts());
+        var before = boundarySnapshot(user, id);
+        var result = port.recommend(boundary);
+        // 반환값을 stub하지 않는다. 실제 조회·조립을 실행하고 조립기에 전달된 전월 실적을 검사한다.
+        var transactionDate = LocalDateTime.parse(utcTime).atOffset(java.time.ZoneOffset.UTC)
+                .atZoneSameInstant(java.time.ZoneId.of("Asia/Seoul")).toLocalDate();
+        org.mockito.Mockito.verify(inputAssembler).policy(
+                org.mockito.ArgumentMatchers.argThat(c -> c.getId().equals(id)),
+                org.mockito.ArgumentMatchers.any(RecommendationPolicyData.class),
+                org.mockito.ArgumentMatchers.eq(transactionDate), org.mockito.ArgumentMatchers.eq(expected),
+                org.mockito.ArgumentMatchers.anyList(), org.mockito.ArgumentMatchers.any(RecommendationInput.Transaction.class),
+                org.mockito.ArgumentMatchers.any(com.yamu.be.card.domain.CardProduct.class));
+        if (transactionDate.getMonthValue() == 10) {
+            // 모의 정책은 11월 한정이므로, 10월의 최종 할인액을 임의로 0원으로 확정하지 않는다.
+            assertThat(result.status()).isEqualTo(RecommendationResult.Status.DATA_INSUFFICIENT);
+            assertThat(result.issues()).extracting(RecommendationDataIssue::code).contains("POLICY_COMPLETENESS_UNVERIFIED");
+        } else {
+            assertThat(result.status()).isEqualTo(RecommendationResult.Status.READY);
+            assertThat(result.topCandidate().orElseThrow().netBenefit()).isEqualByComparingTo("1000");
+        }
+        assertThat(boundarySnapshot(user, id)).isEqualTo(before);
+    }
+
+    @ParameterizedTest(name = "노리2 통합 한도 사용 {0}원 → 혜택 {1}원")
+    @CsvSource({"17000,2500", "18200,1800", "20000,0"})
+    void noriSharedLimitBoundaryReturnsExpectedConsumptionWithoutWriting(long used, long expected) {
+        long user = new OwnershipFixtures(jdbc).user();
+        long p = product("KB국민 노리2 체크카드(KB Pay)");
+        long id = card(user, p, 200_000, used);
+        var facts = Map.of("TRANSACTION_KIND:GIFT_CERTIFICATE_PURCHASE", false, "TRANSACTION_KIND:PREPAID_TOPUP", false,
+                "TRANSACTION_KIND:PG_MERCHANT", false, "RULE:NON_PARTNER_EASY_PAY", false,
+                "RULE:AGENCY_SITE", false, "PAYMENT_METHOD:KB_PAY", false);
+        var before = boundarySnapshot(user, id);
+        var result = port.recommend(request(user, List.of(id), "APP_STORE", 15_000, "YOUTUBE_PREMIUM_SUBSCRIPTION", facts));
+        assertThat(result.status()).isEqualTo(RecommendationResult.Status.READY);
+        var candidate = result.topCandidate().orElseThrow();
+        assertThat(candidate.netBenefit()).isEqualByComparingTo(Long.toString(expected));
+        long integrated = jdbc.queryForObject("SELECT limit_group_id FROM limit_group WHERE card_product_id=? AND group_code='INTEGRATED'", Long.class, p);
+        assertThat(candidate.expectedLimitUses()).filteredOn(u -> u.limitGroupId() == integrated).singleElement().satisfies(u -> {
+            assertThat(u.remainingBefore()).isEqualByComparingTo(Long.toString(20_000 - used));
+            assertThat(u.consumed()).isEqualByComparingTo(Long.toString(expected));
+            assertThat(u.remainingBefore().subtract(u.consumed())).isEqualByComparingTo(Long.toString(20_000 - used - expected));
+        });
+        assertThat(boundarySnapshot(user, id)).isEqualTo(before);
+    }
+
+    /** 합성 반올림 설정: 실제 Mr.Life 약관 검증이 아니라 DB→조립→추천 전달 검증이다. */
+    @ParameterizedTest(name = "합성 {0}, 단위 {1}, 구매 {2}원 → 혜택 {3}원")
+    @CsvSource({"HALF_UP,1,104,10", "HALF_UP,1,105,11", "HALF_UP,1,106,11",
+            "DOWN,1,109,10", "DOWN,1,110,11", "DOWN,1,111,11",
+            "HALF_UP,10,1049,100", "HALF_UP,10,1050,110", "HALF_UP,10,1051,110",
+            "DOWN,10,1099,100", "DOWN,10,1100,110", "DOWN,10,1101,110"})
+    void syntheticStoredRoundingBoundaryFlowsThroughRealRecommendation(String mode, int unit, long amount, long expected) {
+        assertStoredRounding(mode, unit, amount, expected, null);
+    }
+
+    @Test void syntheticRemaining106IsLimitedBeforeRoundingToTenWithoutWriting() {
+        // 119.9 → 한도 106 → 10원 단위 절사 100. 반대 순서라면 110 → 106이므로 결과가 다르다.
+        assertStoredRounding("DOWN", 10, 1199, 100, 106L);
+    }
+
+    private void assertStoredRounding(String mode, int unit, long amount, long expected, Long remaining) {
+        long user = new OwnershipFixtures(jdbc).user();
+        long p = product("신한카드 Mr.Life");
+        long id = card(user, p, 300_000, 0);
+        long benefit = jdbc.queryForObject("SELECT card_benefit_id FROM card_benefit WHERE card_product_id=? AND benefit_code='CONVENIENCE'", Long.class, p);
+        var original = jdbc.queryForMap("SELECT rounding_mode,rounding_unit,rounding_stage FROM card_benefit WHERE card_benefit_id=?", benefit);
+        long group = jdbc.queryForObject("SELECT limit_group_id FROM limit_group WHERE card_product_id=? AND group_code='TIME_MONTHLY'", Long.class, p);
+        if (remaining != null) jdbc.update("UPDATE monthly_limit_usage SET used_value=? WHERE user_card_id=? AND limit_group_id=?", 10_000 - remaining, id, group);
+        try {
+            jdbc.update("UPDATE card_benefit SET rounding_mode=?,rounding_unit=?,rounding_stage='PER_TRANSACTION' WHERE card_benefit_id=?", mode, unit, benefit);
+            var before = boundarySnapshot(user, id);
+            var result = port.recommend(request(user, List.of(id), "GS25", amount, null, Map.of()));
+            assertThat(result.status()).isEqualTo(RecommendationResult.Status.READY);
+            var candidate = result.topCandidate().orElseThrow();
+            assertThat(candidate.netBenefit()).isEqualByComparingTo(Long.toString(expected));
+            assertThat(candidate.benefits()).filteredOn(b -> b.benefitId() == benefit).singleElement()
+                    .satisfies(b -> assertThat(b.amount()).isEqualTo(expected));
+            assertThat(candidate.expectedLimitUses()).filteredOn(u -> u.limitGroupId() == group).singleElement().satisfies(u -> {
+                assertThat(u.consumed()).isEqualByComparingTo(Long.toString(expected));
+                if (remaining != null) assertThat(u.remainingBefore()).isEqualByComparingTo(remaining.toString());
+            });
+            assertThat(result.simulationRules()).anyMatch(r -> r.appliedFields().contains("calculationOrder=LIMIT_THEN_ROUND"));
+            assertThat(boundarySnapshot(user, id)).isEqualTo(before);
+        } finally {
+            jdbc.update("UPDATE card_benefit SET rounding_mode=?,rounding_unit=?,rounding_stage=? WHERE card_benefit_id=?",
+                    original.get("rounding_mode"), original.get("rounding_unit"), original.get("rounding_stage"), benefit);
+        }
+    }
+
+    private Map<String, Object> boundarySnapshot(long user, long card) {
+        return Map.of("performance", jdbc.queryForList("SELECT * FROM card_monthly_performance WHERE user_card_id=? ORDER BY performance_month", card),
+                "usage", jdbc.queryForList("SELECT * FROM monthly_limit_usage WHERE user_card_id=? ORDER BY limit_group_id", card),
+                "payments", jdbc.queryForList("SELECT * FROM payment_transaction WHERE user_id=? ORDER BY payment_transaction_id", user));
+    }
+
     @Test void ordinarySeedPurchaseProducesPositiveRecommendationAndIsolatesUnknownProduct() {
         var fixtures=new OwnershipFixtures(jdbc);long user=fixtures.user();long p=product("신한카드 Mr.Life");long mr=card(user,p,400_000,0);
         long missing=fixtures.card(user,fixtures.product(),null,"ACTIVE");
@@ -139,7 +275,9 @@ class SimulationSeedRecommendationDatabaseTest extends MySqlTestSupport {
         assertThat(result.candidates()).isEmpty();
     }
 
-    @Test void realMSeedSplitsPrincipalAndKeepsKnownHalfUpRounding() {
+    @ParameterizedTest(name = "현대 M 구매 {0}원 → 기본 적립 {1}포인트")
+    @CsvSource({"100000,1200", "100099,1201", "100100,1202", "100101,1202"})
+    void realMSeedSplitsPrincipalAndKeepsKnownHalfUpRounding(long amount, long basePoints) {
         long user=new OwnershipFixtures(jdbc).user();long p=product("현대카드 M ME4");long id=card(user,p,1_000_000,9_000);
         // 이 음식점 거래에 관해 결제 담당이 확인해서 제공한 값이다. 모의 기본값을 확대하지 않는다.
         var facts=new HashMap<String,Boolean>();
@@ -150,11 +288,18 @@ class SimulationSeedRecommendationDatabaseTest extends MySqlTestSupport {
             facts.put("TRANSACTION_KIND:"+kind,false);
         }
         var merchant=jdbc.queryForMap("SELECT merchant_id,brand_code FROM merchant WHERE merchant_category_code='GENERAL_RESTAURANT' LIMIT 1");
-        var result=port.recommend(request(user,List.of(id),(String)merchant.get("brand_code"),100_000,null,facts));
+        var before = boundarySnapshot(user, id);
+        var result=port.recommend(request(user,List.of(id),(String)merchant.get("brand_code"),amount,null,facts));
         assertThat(result.status()).isEqualTo(RecommendationResult.Status.READY);
         var candidate=result.topCandidate().orElseThrow();
-        assertThat(candidate.netBenefit()).isEqualByComparingTo("2200");
-        assertThat(candidate.benefits()).extracting(RecommendationResult.BenefitLine::amount).contains(1_000L,1_200L);
+        assertThat(candidate.netBenefit()).isEqualByComparingTo(Long.toString(1000 + basePoints));
+        assertThat(candidate.benefits()).extracting(RecommendationResult.BenefitLine::amount).contains(1_000L,basePoints);
+        long baseBenefit = jdbc.queryForObject("SELECT card_benefit_id FROM card_benefit WHERE card_product_id=? AND benefit_code='BASE_15'", Long.class, p);
+        assertThat(candidate.benefits()).filteredOn(b -> b.benefitId() == baseBenefit).singleElement().satisfies(b -> {
+            assertThat(b.rawAmount()).isEqualByComparingTo(java.math.BigDecimal.valueOf(amount - 20_000).multiply(new java.math.BigDecimal("0.015")));
+            assertThat(b.amount()).isEqualTo(basePoints);
+        });
+        assertThat(boundarySnapshot(user, id)).isEqualTo(before);
         assertThat(result.simulationRules()).anyMatch(r->r.appliedFields().contains("pointKrwRate=1(MOCK_COMPARISON_ONLY)"));
         assertThat(result.simulationRules()).noneMatch(r->r.appliedFields().contains("roundingMode=DOWN"));
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM card_benefit WHERE card_product_id=? AND rounding_mode='HALF_UP'",Long.class,p)).isEqualTo(3);

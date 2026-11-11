@@ -168,9 +168,27 @@ public class CashflowService {
         }
         // 값을 하나도 보내지 않았으면(상태만 바꾸거나 빈 요청) 규칙을 나누지 않는다.
         if (!changesValues(command)) {
-            return new Entry(Item.from(rule), rule.getScheduledDate(), rule.getScheduledDate(), false);
+            return firstOccurrence(rule);
         }
         return updateFromHere(authenticatedUserId, series, command, today);
+    }
+
+    /**
+     * 값을 바꾸지 않은 수정의 응답 줄(규칙의 첫 회차). 목록({@link #expand})과 같게, 그 회차를 이번 회차만 고쳤거나
+     * 결제와 연결됐으면 그 행의 값·예정일과 paid·matched를 쓴다(S15P31E103-393, !238 리뷰).
+     */
+    private Entry firstOccurrence(CashflowItem rule) {
+        LocalDate first = rule.getScheduledDate();
+        CashflowOccurrence row = occurrenceOf(rule, first);
+        if (row == null || row.getStatus() != CashflowOccurrence.Status.CONFIRMED) {
+            return new Entry(Item.from(rule), first, first, false);
+        }
+        boolean matched = !occurrences.findMatchedIds(List.of(row.getId())).isEmpty();
+        if (!row.isOverridden() && !matched) {
+            return new Entry(Item.from(rule), first, first, false);
+        }
+        boolean paid = matched && !occurrences.findPaidIds(List.of(row.getId())).isEmpty();
+        return new Entry(Item.from(rule).with(row), row.getOccurrenceDate(), row.getScheduledDate(), paid, matched);
     }
 
     /** 탐지 후보(CANDIDATE)만 확인(CONFIRMED)이나 무시(IGNORED)로 바꿀 수 있다. 상태는 시리즈 전체가 같이 바뀐다. */
@@ -644,7 +662,7 @@ public class CashflowService {
             Item rule = ruleById.get(row.getCashflowItemId());
             if (rule != null) {
                 entries.add(new Entry(rule.with(row), row.getOccurrenceDate(), row.getScheduledDate(),
-                        paid.contains(row.getId())));
+                        paid.contains(row.getId()), matched.contains(row.getId())));
             }
         }
         entries.sort(Comparator.comparing(Entry::date).thenComparing(entry -> entry.item().id())
@@ -881,8 +899,15 @@ public class CashflowService {
     /**
      * 목록의 한 줄. occurrenceDate는 규칙이 정한 원래 회차(이번 회차 수정·삭제 때 식별값), date는 실제 예정일이다.
      * 이번 회차만 날짜를 옮기지 않았으면 둘이 같다. paid는 취소되지 않은 실제 결제와 연결된 회차라 잔고예보가 예정 차감에서 빼야 함을 뜻한다.
+     * matched는 결제와의 연결이 있는지다(S15P31E103-393). 연결한 결제가 취소돼도 연결을 풀기 전까지 true라 paid보다 넓다.
      */
-    public record Entry(Item item, LocalDate occurrenceDate, LocalDate date, boolean paid) {}
+    public record Entry(Item item, LocalDate occurrenceDate, LocalDate date, boolean paid, boolean matched) {
+
+        /** 연결 여부를 따로 주지 않으면 paid와 같다(취소 안 된 결제와 연결됐으면 연결도 있다). */
+        public Entry(Item item, LocalDate occurrenceDate, LocalDate date, boolean paid) {
+            this(item, occurrenceDate, date, paid, paid);
+        }
+    }
 
     private record Slot(Long cashflowItemId, LocalDate occurrenceDate) {}
 

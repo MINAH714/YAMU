@@ -4,6 +4,8 @@ import hashlib
 import json
 import os
 import shutil
+import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -14,7 +16,9 @@ import numpy as np
 from fastapi.testclient import TestClient
 
 from app import living_cost
-from app.main import MAX_BODY_BYTES, MAX_DAILY_AMOUNT, app
+from fastapi import FastAPI
+
+from app.main import MAX_BODY_BYTES, MAX_DAILY_AMOUNT, app, docs_enabled, docs_urls
 
 AI_DIR = Path(__file__).resolve().parents[1]
 MODEL_DIR = AI_DIR / "models" / "living-cost"
@@ -129,6 +133,42 @@ class Api(unittest.TestCase):
         self.addCleanup(client.__exit__, None, None, None)
         return client
 
+    DOC_PATHS = ("/docs", "/redoc", "/openapi.json")
+
+    def test_docs_enabled_only_for_true(self):
+        # S15P31E103-355: 없거나 true가 아니면 끈다
+        for env, expected in (({}, False), ({"AI_DOCS_ENABLED": "false"}, False), ({"AI_DOCS_ENABLED": "1"}, False),
+                              ({"AI_DOCS_ENABLED": "true"}, True), ({"AI_DOCS_ENABLED": " TRUE "}, True)):
+            with self.subTest(env):
+                self.assertEqual(docs_enabled(env), expected)
+
+    def test_real_app_opens_docs_only_when_enabled(self):
+        # 실제 앱(app.main:app)을 환경 변수 없음·true로 각각 새 프로세스에서 읽어 세 주소를 요청한다(!239 리뷰).
+        # 앱 초기화에서 문서 설정 연결이 빠지면 여기서 잡힌다. 실행 환경의 AI_DOCS_ENABLED 값과 무관하다.
+        script = (
+            "import json\n"
+            "from fastapi.testclient import TestClient\n"
+            "from app.main import app\n"
+            "client = TestClient(app)\n"
+            f"print(json.dumps([client.get(p).status_code for p in {list(self.DOC_PATHS)!r}]))\n"
+        )
+        base_env = {k: v for k, v in os.environ.items() if k != "AI_DOCS_ENABLED"}
+        for value, expected in ((None, 404), ("true", 200)):
+            env = base_env if value is None else {**base_env, "AI_DOCS_ENABLED": value}
+            with self.subTest(AI_DOCS_ENABLED=value):
+                result = subprocess.run([sys.executable, "-c", script], cwd=AI_DIR, env=env,
+                                        capture_output=True, text=True, timeout=60)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(json.loads(result.stdout.strip().splitlines()[-1]), [expected] * len(self.DOC_PATHS))
+
+    def test_docs_paths_answer_200_when_enabled_and_404_when_disabled(self):
+        # 켠 설정·끈 설정으로 만든 앱에 세 주소를 실제로 요청한다
+        for enabled, expected in ((True, 200), (False, 404)):
+            with TestClient(FastAPI(**docs_urls(enabled))) as client:
+                for path in self.DOC_PATHS:
+                    with self.subTest(enabled=enabled, path=path):
+                        self.assertEqual(client.get(path).status_code, expected)
+
     def test_health_keeps_status_ok_and_reports_models(self):
         res = self.client().get("/health")
 
@@ -220,7 +260,10 @@ class Api(unittest.TestCase):
 
         health = client.get("/health")
         self.assertEqual(health.status_code, 200)
-        self.assertEqual(health.json(), {"status": "ok", "livingCostModel": {"loaded": False}})
+        self.assertEqual(health.json()["status"], "ok")
+        self.assertEqual(health.json()["livingCostModel"], {"loaded": False})
+        # 신용 모델은 따로 읽으므로 체크 모델이 없어도 읽힌다(S15P31E103-404)
+        self.assertTrue(health.json()["creditSpendingModel"]["loaded"])
         res = client.post("/forecast/living-cost", json=body())
         self.assertEqual(res.status_code, 503)
         self.assertEqual(res.json(), {"error": "MODEL_MISSING"})
@@ -231,7 +274,8 @@ class Api(unittest.TestCase):
                 self.assertLogs("app.main", level="ERROR"):
             client = self.client()
 
-        self.assertEqual(client.get("/health").json(), {"status": "ok", "livingCostModel": {"loaded": False}})
+        self.assertEqual(client.get("/health").json(), {"status": "ok", "livingCostModel": {"loaded": False},
+                                                        "creditSpendingModel": {"loaded": False}})
         self.assertEqual(client.post("/forecast/living-cost", json=body()).status_code, 503)
 
 

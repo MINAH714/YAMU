@@ -35,9 +35,13 @@ class CashflowCreateViewModelTest {
     private val dispatcher = StandardTestDispatcher()
     private var createResult: ApiResult<Long> = ApiResult.Success(1)
     private var updateResult: ApiResult<Unit> = ApiResult.Success(Unit)
+    private val createKeys = mutableListOf<String>()
 
     private val repo = object : ForecastRepository by unused() {
-        override suspend fun createItem(form: CashflowForm) = createResult
+        override suspend fun createItem(form: CashflowForm, idempotencyKey: String): ApiResult<Long> {
+            createKeys += idempotencyKey
+            return createResult
+        }
         override fun cachedEntry(itemId: Long, occurrenceDate: LocalDate) = ONCE
         override suspend fun updateItem(itemId: Long, body: CashflowUpdateRequest) = updateResult
     }
@@ -57,14 +61,69 @@ class CashflowCreateViewModelTest {
     private fun TestScope.editing(): CashflowCreateViewModel =
         CashflowCreateViewModel(SavedStateHandle(mapOf("itemId" to ONCE.itemId, "occurrenceDate" to ONCE.occurrenceDate.toString())), repo, link).also { advanceUntilIdle() }
 
-    @Test fun `코드 없는 504 · 성공 응답 읽기 실패는 결과 불명이라 다시 보내지 못하게 한다`() = runTest(dispatcher) {
+    @Test fun `코드 없는 504 · 성공 응답 읽기 실패는 결과 불명 — 등록은 같은 키로 다시 보낸다(-358)`() = runTest(dispatcher) {
         listOf(ApiError.from(504, null), ApiError.from(502, null), ApiError.Unknown("PARSE_ERROR"), ApiError.Network).forEach { e ->
             createResult = ApiResult.Failure(e)
+            createKeys.clear()
             val vm = adding()
             vm.save()
             advanceUntilIdle()
             assertTrue("$e", vm.state.value.unknownResult)
+            assertEquals("응답을 받지 못했어요 · 다시 눌러도 한 번만 들어가요", vm.state.value.saveError)
+
+            createResult = ApiResult.Success(1)
+            vm.save()
+            advanceUntilIdle()
+            assertTrue("$e", vm.state.value.done)
+            assertEquals(2, createKeys.size)
+            assertEquals(createKeys[0], createKeys[1])
         }
+    }
+
+    @Test fun `앱이 다시 켜져도 같은 화면이면 같은 키 — SavedStateHandle에 둔다`() = runTest(dispatcher) {
+        createResult = ApiResult.Failure(ApiError.Network)
+        val handle = SavedStateHandle()
+        CashflowCreateViewModel(handle, repo, link).also { advanceUntilIdle() }.apply {
+            edit { f -> f.copy(title = "월세", amount = 500_000, date = LocalDate.now().plusDays(1)).withAccount(3) }
+            save()
+        }
+        advanceUntilIdle()
+        CashflowCreateViewModel(SavedStateHandle(handle.keys().associateWith { handle.get<Any>(it) }), repo, link).also { advanceUntilIdle() }.apply {
+            edit { f -> f.copy(title = "월세", amount = 500_000, date = LocalDate.now().plusDays(1)).withAccount(3) }
+            save()
+        }
+        advanceUntilIdle()
+        assertEquals(createKeys[0], createKeys[1])
+    }
+
+    @Test fun `결과를 모르는 사이 고쳐 보냈는데 앞 등록이 이미 들어갔으면(409) 목록부터 보게 한다`() = runTest(dispatcher) {
+        createResult = ApiResult.Failure(ApiError.from(409, "IDEMPOTENCY_KEY_REUSED"))
+        val vm = adding()
+        vm.save()
+        advanceUntilIdle()
+        assertTrue(vm.state.value.gone)
+        assertEquals("앞서 보낸 내용이 이미 저장됐어요 · 목록에서 확인해 주세요", vm.state.value.saveError)
+    }
+
+    @Test fun `등록 404면 키를 바꾼다 — 이 키로 만든 항목을 지웠으면 같은 키로는 다시 만들 수 없다`() = runTest(dispatcher) {
+        createResult = ApiResult.Failure(ApiError.NotFound("RESOURCE_NOT_FOUND"))
+        val vm = adding()
+        vm.save()
+        advanceUntilIdle()
+        createResult = ApiResult.Success(1)
+        vm.save()
+        advanceUntilIdle()
+        assertTrue(createKeys[0] != createKeys[1])
+    }
+
+    @Test fun `수정은 키가 없어 결과 불명이면 다시 보내지 못하게 한다`() = runTest(dispatcher) {
+        updateResult = ApiResult.Failure(ApiError.Network)
+        val vm = editing()
+        vm.edit { it.copy(amount = 550_000) }
+        vm.save()
+        advanceUntilIdle()
+        assertTrue(vm.state.value.unknownResult)
+        assertEquals("응답을 받지 못해 반영됐는지 확인하지 못했어요 · 목록에서 먼저 확인해 주세요", vm.state.value.saveError)
     }
 
     @Test fun `서버 코드가 있는 오류는 실패라 다시 보낼 수 있다`() = runTest(dispatcher) {

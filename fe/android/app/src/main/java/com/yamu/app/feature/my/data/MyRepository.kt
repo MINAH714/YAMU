@@ -78,6 +78,8 @@ interface MyRepository {
     /** 회원 탈퇴 — 본인 인증 토큰(WITHDRAW_MEMBER) 필요. 끝나지 않은 청구 · 환급이 있으면 409 */
     suspend fun withdraw(stepUpToken: String): ApiResult<Unit>
     suspend fun notifications(page: Int): ApiResult<NotificationsPage>
+    /** 종 배지용 안 읽은 알림 수(필터와 상관없는 unreadCount). 목록은 필요 없어 실서버는 page 1 · size 1로 부른다 */
+    suspend fun unreadNotificationCount(): ApiResult<Int> = notifications(page = 1).map { it.unread }
     suspend fun markRead(id: Long): ApiResult<Unit>
     suspend fun markAllRead(): ApiResult<Unit>
 }
@@ -120,6 +122,10 @@ class MyRepositoryImpl @Inject constructor(private val api: MyApi, private val s
 
     override suspend fun notifications(page: Int): ApiResult<NotificationsPage> =
         apiCall { api.notifications(page) }.map { r -> NotificationsPage(r.unreadCount, r.items.map { it.toNotification() }, r.hasNext) }
+
+    /** BE는 page를 1부터 받는다(0이면 400 INVALID_REQUEST) */
+    override suspend fun unreadNotificationCount(): ApiResult<Int> =
+        apiCall { api.notifications(page = 1, size = 1) }.map { it.unreadCount }
 
     override suspend fun markRead(id: Long): ApiResult<Unit> = apiCallNoData { api.read(id) }
 

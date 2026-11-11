@@ -40,8 +40,10 @@ import org.springframework.stereotype.Service;
  * <p>잔액·카드는 BE 1 서비스, 신용카드 출금일은 BE 2 청구 주기({@link CreditWithdrawalSchedule})를 쓴다. 청구({@link CardBillReader})는
  * BE 2 원천(진행 중·확정·미납 청구, {@code OutstandingCardBillReader})이고, 생활비({@link LivingCostReader})는 체크카드 LIVING 결제({@link PaymentLivingCostReader})다. 안전 잔액·기간 기본값은
  * 잔고예보 설정({@link ForecastSettingsStore})에서, 다음 월급일은 설정의 월급 항목({@link ForecastSettingsService})에서 읽는다.
- * 이번 이용기간 마감까지 쓸 신용카드 금액은 카드별 신용 LIVING 일평균으로 추정해 보수적 선에만 뺀다({@link CreditSpendingEstimator}).
- * 잔고예보와 생활비 상세는 응답 직전에 계좌별 예상 생활비를 이력으로 남긴다({@link LivingCostPredictionLog}). 가상 구매 재료({@link #prepare})는 남기지 않는다.
+ * 이번 이용기간 마감까지 쓸 신용카드 금액은 체크 생활비와 같은 규칙(신용 AI·TSB)으로 카드마다 추정해 보수적 선에만 뺀다
+ * ({@link CreditSpendingEstimator}, S15P31E103-405).
+ * 잔고예보와 생활비 상세는 응답 직전에 계좌별 예상 생활비를 이력으로 남긴다({@link LivingCostPredictionLog}). 잔고예보는 카드별 신용 사용
+ * 추정도 남긴다({@link CreditSpendingPredictionLog}). 가상 구매 재료({@link #prepare})는 남기지 않는다.
  */
 @Service
 public class ForecastService {
@@ -74,6 +76,7 @@ public class ForecastService {
     private final CardNameReader cardNames;
     private final CardBillRepository cardBills;
     private final LivingCostPredictionLog predictionLog;
+    private final CreditSpendingPredictionLog creditPredictionLog;
     private final RecurringExpenseDetector recurringExpenses;
     private final Clock clock;
 
@@ -81,7 +84,8 @@ public class ForecastService {
             CardQueryService cards, CreditWithdrawalSchedule creditSchedule, LivingCostReader livingCosts,
             AccountQueryService accounts, ForecastSettingsStore settings, ForecastSettingsService settingsService,
             LivingCostProjector projector, CreditSpendingReader creditSpending, CardNameReader cardNames, CardBillRepository cardBills,
-            LivingCostPredictionLog predictionLog, RecurringExpenseDetector recurringExpenses, Clock clock) {
+            LivingCostPredictionLog predictionLog, CreditSpendingPredictionLog creditPredictionLog,
+            RecurringExpenseDetector recurringExpenses, Clock clock) {
         this.cashflows = cashflows;
         this.balances = balances;
         this.bills = bills;
@@ -96,6 +100,7 @@ public class ForecastService {
         this.cardNames = cardNames;
         this.cardBills = cardBills;
         this.predictionLog = predictionLog;
+        this.creditPredictionLog = creditPredictionLog;
         this.recurringExpenses = recurringExpenses;
         this.clock = clock;
     }
@@ -103,7 +108,7 @@ public class ForecastService {
     /**
      * 선택 계좌의 통합 예보와, 자세히 보기면 계좌별 예보를 돌려준다.
      * 잔액을 하나라도 못 읽으면 일부만 합친 예보를 주지 않고 실패한다(FR-033). 생활비 자료가 없는 계좌가 있으면
-     * 보수적 선을 비우고 확정·예상 선으로만 위험을 판단한다.
+     * 보수적 선을 비우고 예상 선(AI 생활비 제외)으로만 위험을 판단한다(S15P31E103-356).
      *
      * @param accountIds            예보에 쓸 연결 계좌(중복을 빼고 최대 {@value #MAX_ACCOUNTS}개). 중복은 한 번만 쓴다
      * @param until                 기간 기준. null이면 잔고예보 설정의 기간 기준
@@ -139,18 +144,25 @@ public class ForecastService {
                                 balanceById.get(accountId).fetchedAt(),
                                 new BalanceForecast.AccountSummary(assessment.status(), assessment.minBalance(),
                                         assessment.minBalanceDate(), assessment.endBalance()),
-                                series(projection.byAccount().get(accountId)), assessment.windows());
+                                series(projection.byAccount().get(accountId)), assessment.windows(),
+                                accountLivingCost(living.estimate().byAccount().get(accountId),
+                                        living.projection().byAccount().get(accountId),
+                                        appliedLivingCost(projection.byAccount().get(accountId))));
                     })
                     .toList();
         }
         LivingCostEstimator.Total history = living.estimate().total();
         LivingCostProjector.Total projected = living.projection().total();
-        BalanceForecast.LivingCost livingCost = new BalanceForecast.LivingCost(projected.projectedAmount(),
+        // 보수적 선은 자료 있는 계좌의 생활비만 뺀다. 통합 projectedAmount는 한 계좌라도 없으면 null이라, 보수적 선에
+        // 실제로 들어간 생활비를 선 마지막 날 점에서 읽는다(-395, 김재성 님 !244 리뷰). 통합 보수적 선이 null이면 null이다
+        Long applied = appliedLivingCost(projection.total());
+        BalanceForecast.LivingCost livingCost = new BalanceForecast.LivingCost(projected.projectedAmount(), applied,
                 history.dailyAverage(), history.monthlyAverage(), projected.method(), projected.dataOrigin(),
                 projected.confidence());
         long currentTotal = startBalances.values().stream().reduce(0L, Math::addExact);
         predictionLog.record(authenticatedUserId, horizon.from(), horizon.days(),
                 living.projection().byAccount().values());
+        creditPredictionLog.record(authenticatedUserId, horizon.from(), prepared.creditPredictions());
         return new BalanceForecast(selected, selected.size(), currentTotal, horizon, alertThreshold, summary,
                 series(projection.total()), aggregate.windows(), livingCost,
                 beyondHorizon(authenticatedUserId, prepared.beyondHorizon()), accountForecasts,
@@ -188,8 +200,10 @@ public class ForecastService {
         List<FlowEvent> events = new ArrayList<>(converted.events());
         List<ExcludedItem> excluded = new ArrayList<>(converted.excluded());
         List<Beyond> beyond = new ArrayList<>();
+        List<CreditSpendingEstimator.Prediction> creditPredictions = new ArrayList<>();
         events.addAll(billEvents(authenticatedUserId, selected, selectedSet, horizon, excluded, beyond));
-        events.addAll(creditSpendingEvents(authenticatedUserId, selected, selectedSet, horizon, excluded, beyond));
+        events.addAll(creditSpendingEvents(authenticatedUserId, selected, selectedSet, horizon, excluded, beyond,
+                creditPredictions));
 
         Map<Long, Long> startBalances = new LinkedHashMap<>();
         Map<Long, Long> dailyLiving = new HashMap<>();
@@ -201,7 +215,7 @@ public class ForecastService {
             }
         }
         return new Prepared(selected, horizon, userSettings.alertThreshold(), balanceById, living, List.copyOf(events),
-                List.copyOf(excluded), startBalances, dailyLiving, List.copyOf(beyond));
+                List.copyOf(excluded), startBalances, dailyLiving, List.copyOf(beyond), List.copyOf(creditPredictions));
     }
 
     /**
@@ -469,13 +483,14 @@ public class ForecastService {
 
     /**
      * 내일부터 이번 이용기간 마감까지 쓸 신용카드 금액을 카드 출금일에 보수적 선에서만 뺀다(S15P31E103-286).
-     * 일평균은 지난 3개월 실적 요약과 같은 완료 3개월로 계산하므로 그만큼만 읽는다. 등록 해제한 카드는 BE 1 조회에서 빠지고,
+     * 체크 생활비와 같은 규칙(AI·TSB, S15P31E103-405)이라 어제까지 90일과 오늘을 읽는다. 등록 해제한 카드는 BE 1 조회에서 빠지고,
      * 미납 청구서가 있는 카드는 실제 승인처럼(UNPAID_BILL 거절) 앞으로 쓸 수 없어 뺀다(가상 구매와 같은 BE 2 조회).
      */
     private List<FlowEvent> creditSpendingEvents(Long userId, List<Long> selected, Set<Long> selectedSet,
-            BalanceForecast.Horizon horizon, List<ExcludedItem> excluded, List<Beyond> beyond) {
+            BalanceForecast.Horizon horizon, List<ExcludedItem> excluded, List<Beyond> beyond,
+            List<CreditSpendingEstimator.Prediction> predictions) {
         LocalDate today = horizon.from();
-        LocalDate from = YearMonth.from(today).minusMonths(LivingCostEstimator.MONTHS).atDay(1);
+        LocalDate from = today.minusDays(LivingCostProjector.HISTORY_DAYS);
         CreditSpendingReader.CreditSpending spending = creditSpending.creditDailySpending(userId, selected, from, today);
         List<UserCardRef> usable = new ArrayList<>();
         Map<Long, String> names = new HashMap<>();
@@ -492,8 +507,9 @@ public class ForecastService {
             });
         }
         CreditSpendingEstimator.Result result = CreditSpendingEstimator.estimate(usable, names, spending.days(),
-                selectedSet, today, horizon.to(), creditSchedule);
+                selectedSet, today, horizon.to(), creditSchedule, projector);
         excluded.addAll(result.excluded());
+        predictions.addAll(result.predictions());
         // 사용 추정 이벤트의 refId는 카드 번호다.
         result.beyond().forEach(event -> beyond.add(new Beyond(event, event.refId(), null)));
         return result.events();
@@ -536,6 +552,24 @@ public class ForecastService {
                 "카드 청구 출금", bill.cardBillId());
     }
 
+    /**
+     * 계좌 하나의 생활비(S15P31E103-395). 자료가 없으면 금액·방식은 null이다. 보수적 선에 들어간 생활비(applied)는 그 계좌
+     * 선에서 읽은 값이라, 신용카드 사용 추정만으로 보수적 선이 있으면 0원(생활비 0원으로 계산), 보수적 선이 없으면 null이다.
+     */
+    private static BalanceForecast.LivingCost accountLivingCost(LivingCostEstimator.AccountEstimate history,
+            LivingCostProjector.AccountProjection projected, Long applied) {
+        return new BalanceForecast.LivingCost(projected.projectedAmount(), applied, history.dailyAverage(),
+                history.monthlyAverage(), projected.method(), projected.dataOrigin(), projected.confidence());
+    }
+
+    /**
+     * 보수적 선이 기간 끝까지 뺀 생활비(원). 선 마지막 날 점의 livingCost를 그대로 읽어 위험 구간의 생활비 이벤트와 출처를
+     * 맞춘다(김재성 님 !244 리뷰). 보수적 선이 null이면 null이다. 선은 기간의 모든 날짜에 점이 있어 비어 있지 않다.
+     */
+    private static Long appliedLivingCost(List<ForecastCalculator.BalancePoint> points) {
+        return points.get(points.size() - 1).livingCost();
+    }
+
     private static List<BalanceForecast.SeriesPoint> series(List<ForecastCalculator.BalancePoint> points) {
         return points.stream()
                 .map(point -> new BalanceForecast.SeriesPoint(point.date(), point.confirmed(), point.expected(),
@@ -569,9 +603,10 @@ public class ForecastService {
      * @param dailyLiving   생활비 자료가 있는 계좌의 하루 생활비(AI 또는 TSB 예상 생활비의 하루 값). 없는 계좌는 빠진다
      * @param beyondHorizon 출금일이 기간 뒤인 카드 청구·신용카드 사용 추정의 원재료. 선에는 넣지 않고, 응답 모양은 잔고예보 조회에서만
      *                      만든다(S15P31E103-348)
+     * @param creditPredictions 카드별 마감 전 사용 추정. 잔고예보 조회만 이력으로 남긴다(가상 구매는 남기지 않음, S15P31E103-405)
      */
     record Prepared(List<Long> selected, BalanceForecast.Horizon horizon, long alertThreshold,
             Map<Long, AccountBalance> balanceById, LivingCostRead living, List<FlowEvent> events,
             List<ExcludedItem> excluded, Map<Long, Long> startBalances, Map<Long, Long> dailyLiving,
-            List<Beyond> beyondHorizon) {}
+            List<Beyond> beyondHorizon, List<CreditSpendingEstimator.Prediction> creditPredictions) {}
 }

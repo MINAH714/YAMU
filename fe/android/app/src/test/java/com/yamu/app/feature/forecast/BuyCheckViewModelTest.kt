@@ -37,13 +37,14 @@ import org.junit.Test
 import java.lang.reflect.Proxy
 import java.time.LocalDate
 
-/** I-01b · I-02 — 조건을 바꾸면 다시 계산하고 늦은 옛 결과는 버린다, 계획 저장은 일시불만 · 결과 불명이면 다시 보내지 않는다 */
+/** I-01b · I-02 — 조건을 바꾸면 다시 계산하고 늦은 옛 결과는 버린다, 계획 저장은 일시불만 · 결과 불명이면 같은 키로만 다시 보낸다 */
 class BuyCheckViewModelTest {
     private val dispatcher = StandardTestDispatcher()
     private val pending = ArrayDeque<CompletableDeferred<ApiResult<Simulation>>>()
     private val queries = mutableListOf<SimulationQuery>()
     private var saveResult: ApiResult<SavedPlan> = ApiResult.Success(SavedPlan(77, "태블릿", 400_000, DATE, 1, 0, null))
     private var saveCalls = 0
+    private val saveKeys = mutableListOf<String>()
 
     private val repo = object : ForecastRepository by unused() {
         override suspend fun simulate(query: SimulationQuery): ApiResult<Simulation> {
@@ -53,8 +54,9 @@ class BuyCheckViewModelTest {
         override suspend fun simulationCards(): ApiResult<List<SimCardOption>> = ApiResult.Success(CARDS)
         override suspend fun categories(): ApiResult<List<MerchantCategory>> = ApiResult.Success(listOf(MerchantCategory("HYPERMARKET", "대형마트")))
         override suspend fun merchants(categoryCode: String): ApiResult<List<CatalogMerchant>> = ApiResult.Success(listOf(CatalogMerchant(201, "이마트")))
-        override suspend fun savePlan(simulation: Simulation): ApiResult<SavedPlan> {
+        override suspend fun savePlan(simulation: Simulation, idempotencyKey: String): ApiResult<SavedPlan> {
             saveCalls++
+            saveKeys += idempotencyKey
             return saveResult
         }
         override fun cached(): Forecast? = null
@@ -139,13 +141,45 @@ class BuyCheckViewModelTest {
         assertEquals(77L, vm.state.value.savedPlanId)
     }
 
-    @Test fun `저장 결과를 모르면 다시 보내지 않고 잔고예보에서 확인하게 한다`() = runTest(dispatcher) {
+    @Test fun `저장 결과를 모르면 같은 키로 다시 저장한다 — 서버가 한 번만 만든다(-358)`() = runTest(dispatcher) {
         saveResult = ApiResult.Failure(ApiError.Network)
         val vm = result()
         advanceUntilIdle()
         vm.save()
         advanceUntilIdle()
         assertTrue(vm.state.value.saveUncertain)
+
+        saveResult = ApiResult.Success(SavedPlan(77, "태블릿", 400_000, DATE, 1, 0, null))
+        vm.save()
+        advanceUntilIdle()
+        assertEquals(2, saveCalls)
+        assertEquals(saveKeys[0], saveKeys[1])
+        assertEquals(77L, vm.state.value.savedPlanId)
+        assertFalse(vm.state.value.saveUncertain)
+    }
+
+    @Test fun `조건을 바꾸거나 저장에 성공하면 다음 저장은 새 키`() = runTest(dispatcher) {
+        val vm = result()
+        advanceUntilIdle()
+        vm.save()
+        advanceUntilIdle()
+        vm.navigated()
+        vm.save()   // I-05에서 돌아와 같은 조건으로 한 번 더 — 다른 계획이다
+        advanceUntilIdle()
+        vm.setDate(DATE.plusDays(1))
+        advanceUntilIdle()
+        vm.save()
+        advanceUntilIdle()
+        assertEquals(3, saveKeys.toSet().size)
+    }
+
+    @Test fun `같은 키의 앞 저장이 이미 들어갔으면(409) 다시 저장하지 않는다`() = runTest(dispatcher) {
+        saveResult = ApiResult.Failure(ApiError.from(409, "IDEMPOTENCY_KEY_REUSED"))
+        val vm = result()
+        advanceUntilIdle()
+        vm.save()
+        advanceUntilIdle()
+        assertTrue(vm.state.value.savedElsewhere)
         vm.save()
         advanceUntilIdle()
         assertEquals(1, saveCalls)
@@ -193,7 +227,7 @@ class BuyCheckViewModelTest {
         // 오늘부터 모자라고 가장 낮은 날은 12/8 — 가장 낮은 날이 아니라 BE가 준 시작일을 쓴다
         val short = SimSnapshot(-9_999_018_095, LocalDate.of(2026, 12, 8), RiskLevel.DANGER, riskStartDate = today)
         assertEquals("11월 8일부터 안전 잔액 아래" to TagTone.Error, afterTag(short))
-        // 0원 아래인데 보수적 선에서만이라 WARNING이어도 빨간색
+        // 0원 아래인데 'AI 생활비 반영' 선에서만이라 WARNING이어도 빨간색
         assertEquals("11월 20일부터 안전 잔액 아래" to TagTone.Error, afterTag(SimSnapshot(-1, DATE, RiskLevel.WARNING, riskStartDate = DATE)))
         assertEquals("11월 20일부터 안전 잔액 아래" to TagTone.Warning, afterTag(SimSnapshot(60_000, DATE, RiskLevel.WARNING, riskStartDate = DATE)))
         // 시작일이 없는 옛 응답이면 날짜를 빼고(가장 낮은 날을 대신 쓰지 않는다)

@@ -20,6 +20,7 @@ import com.yamu.be.payment.recommend.RecommendationResult.Candidate;
 import com.yamu.be.payment.recommend.RecommendationResult.PerformanceRecognition;
 import jakarta.persistence.OptimisticLockException;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
@@ -138,8 +139,8 @@ public class WithdrawalRecovery {
             PaymentTransaction payment = payments.findById(paymentId)
                     .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND));
             if (!payment.isLateConfirmable(payment.getFinRequestNo())
-                    || !clock.instant().isBefore(requestTime(payment.getFinRequestNo())
-                            .plus(properties.lateWithdrawalWindow()))) {
+                    || !clock.instant().isBefore(lateCheckEnd(payment.getFinRequestNo(),
+                            properties.lateWithdrawalWindow()))) {
                 return LateCheck.NOT_APPLICABLE;
             }
             return lateCheck(payment);
@@ -479,6 +480,14 @@ public class WithdrawalRecovery {
         } catch (DateTimeParseException | IndexOutOfBoundsException e) {
             throw new IllegalArgumentException("기관거래고유번호의 시각을 읽을 수 없습니다", e);
         }
+    }
+
+    /**
+     * 주기 작업이 늦은 출금 대조를 새로 시작할 수 있는 마지막 시각(요청 번호 시각 + 대조 기간). 이 시각 전에 시작한 대조만 승인으로 바로잡는다.
+     * POS 결과 조회의 {@code lateConfirmPending}도 이 시각을 기준으로 한다.
+     */
+    public static Instant lateCheckEnd(String finRequestNo, Duration lateWithdrawalWindow) {
+        return requestTime(finRequestNo).plus(lateWithdrawalWindow);
     }
 
     /** 늦은 출금 확인 결과. */

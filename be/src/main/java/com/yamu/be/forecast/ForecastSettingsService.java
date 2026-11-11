@@ -68,6 +68,15 @@ public class ForecastSettingsService {
     }
 
     /**
+     * 안전 잔액(원)만 읽는다. 저장값만 읽고 {@link #get}과 달리 기준 계좌·월급 항목은 조회하지 않는다(잔고 알림 설정용).
+     * 저장한 적이 없으면 기본값이고, 사용자가 없거나 저장값이 깨졌을 때는 {@link #get}과 같이 실패한다.
+     */
+    @Transactional(readOnly = true)
+    public long alertThreshold(long userId) {
+        return store.read(userId).alertThreshold();
+    }
+
+    /**
      * 보낸 필드만 바꾸고 바뀐 설정 전체를 돌려준다. {@code incomeCashflowItemId}·{@code dailyLivingCostTarget}은 null이면 해제한다.
      *
      * @param body PATCH 본문 그대로. 보내지 않은 필드와 null을 구분하려고 JSON 트리로 받는다
