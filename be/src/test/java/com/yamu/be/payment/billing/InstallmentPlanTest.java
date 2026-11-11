@@ -77,6 +77,43 @@ class InstallmentPlanTest {
     }
 
     @Test
+    void 윤년_2월을_지나는_12개월_할부도_회차_이용기간이_한_달씩_빈틈없이_이어진다() {
+        // 결제일 14·N 14(이용기간 = 전월 1일~말일), 2027-12-31 승인 → 2028-01 청구서부터 12회
+        BillingCycle monthly = new BillingCycle(14, 14);
+        InstallmentPlan plan = InstallmentPlan.of(120_000, 12, monthly, LocalDate.of(2027, 12, 31), calendar);
+
+        List<Installment> installments = plan.installments();
+        assertThat(installments).extracting(Installment::billingMonth)
+                .containsExactlyElementsOf(java.util.stream.IntStream.range(0, 12)
+                        .mapToObj(k -> YearMonth.of(2028, 1).plusMonths(k)).toList());
+        Installment march = installments.get(2);
+        assertThat(march.cycle().periodStart()).isEqualTo(LocalDate.of(2028, 2, 1));
+        assertThat(march.cycle().periodEnd()).isEqualTo(LocalDate.of(2028, 2, 29));
+        for (int k = 0; k < installments.size(); k++) {
+            Installment each = installments.get(k);
+            YearMonth used = each.billingMonth().minusMonths(1);
+            assertThat(each.cycle().periodStart()).isEqualTo(used.atDay(1));
+            assertThat(each.cycle().periodEnd()).isEqualTo(used.atEndOfMonth());
+            assertThat(each.withdrawalDate()).isEqualTo(calendar.businessDayOnOrAfter(each.billingMonth().atDay(14)));
+            if (k > 0) {
+                assertThat(each.cycle().periodStart())
+                        .isEqualTo(installments.get(k - 1).cycle().periodEnd().plusDays(1));
+            }
+        }
+    }
+
+    @Test
+    void 윤년_2월_29일_승인은_3월_청구서부터_회차가_붙는다() {
+        // 결제일 15·N 14: 3월 청구서 이용기간 2/2 ~ 3/1
+        InstallmentPlan plan = InstallmentPlan.of(90_000, 3, cycle, LocalDate.of(2028, 2, 29), calendar);
+
+        assertThat(plan.installments()).extracting(Installment::billingMonth)
+                .containsExactly(YearMonth.of(2028, 3), YearMonth.of(2028, 4), YearMonth.of(2028, 5));
+        assertThat(plan.installments().get(0).cycle().periodStart()).isEqualTo(LocalDate.of(2028, 2, 2));
+        assertThat(plan.installments().get(0).cycle().periodEnd()).isEqualTo(LocalDate.of(2028, 3, 1));
+    }
+
+    @Test
     void 개월_수_범위와_원금_최소_금액을_검사한다() {
         assertThatThrownBy(() -> InstallmentPlan.of(100_000, 0, cycle, usage, calendar))
                 .isInstanceOf(IllegalArgumentException.class);

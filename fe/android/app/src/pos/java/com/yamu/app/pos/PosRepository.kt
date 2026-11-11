@@ -6,12 +6,10 @@ import com.yamu.app.core.network.ApiEnvelope
 import com.yamu.app.core.network.ApiError
 import com.yamu.app.core.network.ApiResult
 import com.yamu.app.core.network.YamuHeaders
+import com.yamu.app.core.network.YamuJson
 import com.yamu.app.core.network.apiCall
 import com.yamu.app.core.network.map
 import com.yamu.app.feature.link.data.lastDigits
-import com.yamu.app.feature.payment.data.Merchant
-import com.yamu.app.feature.payment.data.MerchantsResponse
-import com.yamu.app.feature.payment.data.toMerchant
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -26,13 +24,50 @@ import retrofit2.http.Header
 import retrofit2.http.POST
 import retrofit2.http.Path
 import retrofit2.http.Query
+import java.time.ZoneId
+import java.time.ZonedDateTime
+import java.time.format.DateTimeFormatter
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlin.random.Random
 
-// 모의 POS 단말(가맹점 쪽) — #5 가맹점 · #27 결제 요청 · #63 결과. 가맹점 단말 키(X-POS-Key)로만 부른다(10 문서 6-5)
+// 모의 POS 단말(가맹점 쪽) — 단말 고르기 · #27 결제 요청 · #63 결과. POS API는 단말 키(X-POS-Key)로 부른다(10 문서 6-5)
+// 고객 앱 결제(feature/payment)의 가맹점 모델은 쓰지 않는다. POS가 보는 가맹점은 단말과 그 브랜드의 번호뿐이다
 
 const val POS_KEY_HEADER = "X-POS-Key"
 
+/**
+ * BE `yamu.pos.terminals`(be application.yml)에 있는 단말. BE 쪽이 바뀌면 여기도 같이 고친다.
+ * 결제 요청의 merchantId는 [brandCode]가 같은 가맹점이어야 한다(아니면 404 MERCHANT_NOT_FOUND).
+ * 가맹점 번호는 시드마다 달라서 적어 두지 않고, 고를 때 업종별 브랜드 목록에서 [brandCode]로 찾는다
+ */
+data class PosTerminal(
+    val posCode: String,
+    val brandCode: String,
+    val merchantCategoryCode: String,
+    val name: String,
+    val place: String,
+)
+
+val POS_TERMINALS = listOf(
+    PosTerminal("POS-YAMU-CAFE", "YAMU_TEST_CAFE", "COFFEE_SHOP", "야무 테스트 카페", "카페 · 일반 매장"),
+    PosTerminal("POS-STARBUCKS-GENERAL", "STARBUCKS", "COFFEE_SHOP", "스타벅스", "카페 · 일반 매장"),
+    PosTerminal("POS-STARBUCKS-DEPARTMENT_STORE", "STARBUCKS", "COFFEE_SHOP", "스타벅스 백화점점", "카페 · 백화점 입점"),
+    PosTerminal("POS-GS25-GENERAL", "GS25", "CONVENIENCE_STORE", "GS25", "편의점 · 일반 매장"),
+)
+
+/** 이 단말이 결제를 거는 가맹점 — 고른 단말의 posCode와 서버에서 찾은 가맹점 번호 */
+data class PosMerchant(val merchantId: Long, val posCode: String, val name: String)
+
+/** `GET /api/merchants?merchantCategoryCode=` 한 줄(인증 없음) */
+@Serializable data class PosMerchantDto(
+    val merchantId: Long,
+    val brandCode: String? = null,
+    val merchantName: String? = null,
+    val merchantCategoryCode: String? = null,
+)
+
+/** 결제 요청 본문. plan을 보내지 않으면 일시불이다(null을 보내면 400이라 칸을 두지 않는다) */
 @Serializable data class PosPaymentRequest(val barcodeToken: String, val merchantId: Long, val posCode: String, val amount: Long, val orderNo: String)
 
 @Serializable data class PosRequestResponse(val paymentId: Long, val orderNo: String? = null, val status: String = "REQUESTED", val confirmDeadline: String? = null)
@@ -50,19 +85,20 @@ const val POS_KEY_HEADER = "X-POS-Key"
 @Serializable data class PosResultDto(
     val paymentId: Long,
     val orderNo: String? = null,
-    val status: String,                       // REQUESTED · PROCESSING · APPROVED · DECLINED · EXPIRED · REJECTED
+    val status: String,                       // REQUESTED · PROCESSING · APPROVED · DECLINED · CANCELED · EXPIRED
     val approvalNo: String? = null,
     val approvedAt: String? = null,
     val amount: Long = 0,
     val chargedAmount: Long? = null,
     val instantDiscount: Long? = null,
-    val card: PosCardDto? = null,
+    val card: PosCardDto? = null,             // 승인 전에는 null
     val failure: PosFailureDto? = null,
+    val retryable: Boolean? = null,           // DECLINED일 때만 값. false면 마감 전이어도 최종
 )
 
 interface PosApi {
     @GET("merchants")
-    suspend fun merchants(@Header(POS_KEY_HEADER) posKey: String, @Query("channel") channel: String = "OFFLINE", @Query("size") size: Int = 50): Response<ApiEnvelope<MerchantsResponse>>
+    suspend fun merchants(@Query("merchantCategoryCode") merchantCategoryCode: String): Response<ApiEnvelope<List<PosMerchantDto>>>
 
     @POST("pos/payment-requests")
     suspend fun request(
@@ -71,12 +107,78 @@ interface PosApi {
         @Body body: PosPaymentRequest,
     ): Response<ApiEnvelope<PosRequestResponse>>
 
+    /** 결제를 만든 단말의 posCode가 있어야 한다(없으면 400, 다르면 404) */
     @GET("pos/payment-requests/{id}")
-    suspend fun result(@Header(POS_KEY_HEADER) posKey: String, @Path("id") paymentId: Long): Response<ApiEnvelope<PosResultDto>>
+    suspend fun result(
+        @Header(POS_KEY_HEADER) posKey: String,
+        @Path("id") paymentId: Long,
+        @Query("posCode") posCode: String,
+    ): Response<ApiEnvelope<PosResultDto>>
 }
 
-/** [SENT]: 요청은 갔지만 서버에서 결과를 읽을 수 없음(BE에 결과 조회가 생기면 지운다) */
-enum class PosStatus { WAITING, APPROVED, DECLINED, ENDED, SENT }
+/**
+ * 결제 요청 한 번. 다시 보낼 때는 키와 본문(주문번호까지)을 그대로 보낸다.
+ * BE는 키와 본문 지문으로 같은 요청을 알아보고 처음 paymentId를 돌려준다. 본문이 하나라도 다르면 409 IDEMPOTENCY_KEY_REUSED
+ */
+@Serializable data class PosAttempt(val idempotencyKey: String, val body: PosPaymentRequest)
+
+/** 접수됐는지 모르는 시도와 처음 보낸 시각(기기 시계, ms) */
+@Serializable data class PosPending(val attempt: PosAttempt, val createdAtMs: Long)
+
+/** BE `yamu.pos.idempotency-ttl`(24시간). 이보다 오래된 시도는 서버가 키를 잊어 다시 보내도 처음 결제를 돌려받지 못하므로 버린다 */
+const val POS_PENDING_TTL_MS: Long = 24 * 60 * 60 * 1000L
+
+/**
+ * 접수됐는지 모르는 시도 하나를 화면보다 오래 둔다(MR !209 리뷰). 스캔 화면을 나갔다 오거나 앱이 다시 떠도
+ * 같은 코드를 찍으면 같은 키 · 같은 본문으로 다시 보내 처음 paymentId를 받는다. 단말 하나에 시도 하나만 둔다
+ */
+interface PosPendingStore {
+    fun load(): PosPending?
+    fun save(pending: PosPending?)
+}
+
+internal fun encodePosPending(pending: PosPending): String = YamuJson.encodeToString(PosPending.serializer(), pending)
+
+/** 못 읽는 값(옛 형식 · 깨진 값)은 없는 것으로 본다 */
+internal fun decodePosPending(raw: String?): PosPending? =
+    raw?.let { runCatching { YamuJson.decodeFromString(PosPending.serializer(), it) }.getOrNull() }
+
+/** 가맹점 설정(yamu_pos)과 따로 둔다 — 가맹점을 바꿔도 남은 시도는 지우지 않는다(본문에 처음 단말 · 가맹점이 들어 있다) */
+@Singleton
+class PosPendingPrefs @Inject constructor(@ApplicationContext context: Context) : PosPendingStore {
+    private val prefs = context.getSharedPreferences("yamu_pos_pending", Context.MODE_PRIVATE)
+    override fun load(): PosPending? = decodePosPending(prefs.getString(KEY, null))
+    override fun save(pending: PosPending?) {
+        prefs.edit().apply { if (pending == null) remove(KEY) else putString(KEY, encodePosPending(pending)) }.apply()
+    }
+
+    private companion object { const val KEY = "attempt" }
+}
+
+private val SEOUL: ZoneId = ZoneId.of("Asia/Seoul")
+private val ORDER_TIME = DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss")
+
+/** POS 주문번호(서울 시각 + 난수 세 자리, 웹 POS와 같은 모양). 시도를 만들 때 한 번만 정한다 */
+fun newPosOrderNo(now: ZonedDateTime = ZonedDateTime.now(SEOUL), random: Random = Random.Default): String =
+    "POS-" + now.withZoneSameInstant(SEOUL).format(ORDER_TIME) + "-" + "%03d".format(random.nextInt(1000))
+
+/**
+ * 화면이 볼 결과 상태. [RETRYING]은 거절됐지만 고객이 마감 전에 다른 카드로 다시 승인할 수 있는 상태다.
+ * [CHECKING]은 출금 결과를 몰라 거절 · 만료로 끝났지만 BE가 늦은 출금을 찾으면 APPROVED로 바꿀 수 있는 상태다(MR !209 리뷰).
+ * [REJECTED]는 고객이 앱에서 결제 요청을 거절한 끝 상태다(BE S15P31E103-360). 바코드도 닫히고 마감이 지나도 EXPIRED로 바뀌지 않는다
+ */
+enum class PosStatus { WAITING, PROCESSING, RETRYING, CHECKING, APPROVED, DECLINED, EXPIRED, CANCELED, REJECTED }
+
+/**
+ * BE `FailureCode.WITHDRAWAL_NOT_CONFIRMED`. 이 사유로 거절 · 만료된 결제는 BE 주기 작업이 요청 번호 시각부터
+ * `late-withdrawal-window`(임시 10분) 동안 같은 출금을 다시 찾고, 찾으면 APPROVED로 바로잡는다(WithdrawalRecovery)
+ */
+const val POS_WITHDRAWAL_NOT_CONFIRMED = "WITHDRAWAL_NOT_CONFIRMED"
+
+/** 더 기다려도 바뀌지 않는 상태 — 여기서 결과 조회를 멈추고 영수증 · 안내를 띄운다(웹 POS WaitingStep과 같은 규칙) */
+val PosStatus.isFinal: Boolean
+    get() = this == PosStatus.APPROVED || this == PosStatus.DECLINED || this == PosStatus.EXPIRED || this == PosStatus.CANCELED ||
+        this == PosStatus.REJECTED
 
 /** 영수증에 찍을 것 — 고객 이름 · 추천은 받지도 보여 주지도 않는다 */
 data class PosResult(
@@ -91,59 +193,82 @@ data class PosResult(
     val failureMessage: String?,
 )
 
-fun PosResultDto.toResult() = PosResult(
-    status = when (status.uppercase()) {
-        "APPROVED" -> PosStatus.APPROVED
-        "DECLINED" -> PosStatus.DECLINED
-        "EXPIRED", "REJECTED", "CANCELED" -> PosStatus.ENDED
-        else -> PosStatus.WAITING
-    },
-    approvalNo = approvalNo,
-    amount = amount,
-    chargedAmount = chargedAmount,
-    instantDiscount = instantDiscount?.takeIf { it > 0 },
-    cardIssuer = card?.issuerName,
-    cardLast4 = card?.maskedNumber?.lastDigits(),
-    installmentMonths = card?.installmentMonths?.takeIf { card.plan.equals("INSTALLMENT", ignoreCase = true) },
-    failureMessage = failure?.message,
-)
+fun PosResultDto.toResult(): PosResult {
+    // 출금 미확인으로 끝난 거절 · 만료는 늦게 승인될 수 있어 확정 실패로 보지 않는다
+    val lateConfirmable = failure?.code == POS_WITHDRAWAL_NOT_CONFIRMED
+    return PosResult(
+        status = when (status.uppercase()) {
+            "APPROVED" -> PosStatus.APPROVED
+            // BE는 DECLINED에 retryable을 늘 채운다. 비어 오면 기다리는 쪽으로 둔다(마감이 지나면 서버가 EXPIRED로 바꾼다)
+            "DECLINED" -> when {
+                retryable != false -> PosStatus.RETRYING
+                lateConfirmable -> PosStatus.CHECKING
+                else -> PosStatus.DECLINED
+            }
+            "EXPIRED" -> if (lateConfirmable) PosStatus.CHECKING else PosStatus.EXPIRED
+            "CANCELED" -> PosStatus.CANCELED
+            // 고객 거절. 카드 거절 뒤 거절했으면 failure에 앞 카드 사유가 남지만 끝낸 건 고객이라 화면에는 띄우지 않는다(웹 POS Receipt와 같음)
+            "REJECTED" -> PosStatus.REJECTED
+            "PROCESSING" -> PosStatus.PROCESSING
+            else -> PosStatus.WAITING
+        },
+        approvalNo = approvalNo,
+        amount = amount,
+        chargedAmount = chargedAmount,
+        instantDiscount = instantDiscount?.takeIf { it > 0 },
+        cardIssuer = card?.issuerName,
+        cardLast4 = card?.maskedNumber?.lastDigits(),
+        installmentMonths = card?.installmentMonths?.takeIf { card.plan.equals("INSTALLMENT", ignoreCase = true) },
+        failureMessage = failure?.message,
+    )
+}
 
 interface PosRepository {
     /** 단말 키가 있나(없으면 첫 화면에 안내) */
     val hasKey: Boolean
-    suspend fun merchants(): ApiResult<List<Merchant>>
-    suspend fun request(barcodeToken: String, merchant: Merchant, amount: Long, orderNo: String, idempotencyKey: String): ApiResult<Long>
-    suspend fun result(paymentId: Long): ApiResult<PosResult>
+    /** 단말 브랜드의 가맹점. 서버에 그 브랜드가 없으면 NotFound(MERCHANT_NOT_FOUND) */
+    suspend fun merchantFor(terminal: PosTerminal): ApiResult<PosMerchant>
+    /** 결제 요청(#27) → paymentId */
+    suspend fun request(attempt: PosAttempt): ApiResult<Long>
+    /** 결제 결과(#63) — 결제를 만든 단말의 [posCode]로만 볼 수 있다 */
+    suspend fun result(paymentId: Long, posCode: String): ApiResult<PosResult>
 }
 
 @Singleton
-class PosRepositoryImpl @Inject constructor(private val api: PosApi) : PosRepository {
-    private val key = BuildConfig.POS_KEY
+class PosRepositoryImpl internal constructor(private val api: PosApi, private val key: String) : PosRepository {
+    @Inject constructor(api: PosApi) : this(api, BuildConfig.POS_KEY)
+
     override val hasKey: Boolean get() = key.isNotBlank()
 
-    override suspend fun merchants(): ApiResult<List<Merchant>> =
-        apiCall { api.merchants(key) }.map { r -> r.items.map { it.toMerchant() }.filter { !it.isOnline } }
+    override suspend fun merchantFor(terminal: PosTerminal): ApiResult<PosMerchant> =
+        when (val r = apiCall { api.merchants(terminal.merchantCategoryCode) }) {
+            is ApiResult.Success -> r.data.firstOrNull { it.brandCode == terminal.brandCode }
+                ?.let { ApiResult.Success(PosMerchant(it.merchantId, terminal.posCode, terminal.name)) }
+                ?: ApiResult.Failure(ApiError.NotFound("MERCHANT_NOT_FOUND"))
+            is ApiResult.Failure -> r
+        }
 
-    override suspend fun request(barcodeToken: String, merchant: Merchant, amount: Long, orderNo: String, idempotencyKey: String): ApiResult<Long> {
-        val posCode = merchant.posCode ?: return ApiResult.Failure(ApiError.NotFound("MERCHANT_NOT_FOUND"))   // 서버가 단말 시나리오를 posCode로 찾는다
-        return apiCall { api.request(key, idempotencyKey, PosPaymentRequest(barcodeToken, merchant.id, posCode, amount, orderNo)) }.map { it.paymentId }
-    }
+    override suspend fun request(attempt: PosAttempt): ApiResult<Long> =
+        apiCall { api.request(key, attempt.idempotencyKey, attempt.body) }.map { it.paymentId }
 
-    override suspend fun result(paymentId: Long): ApiResult<PosResult> = apiCall { api.result(key, paymentId) }.map { it.toResult() }
+    override suspend fun result(paymentId: Long, posCode: String): ApiResult<PosResult> =
+        apiCall { api.result(key, paymentId, posCode) }.map { it.toResult() }
 }
 
-/** 이 단말의 가맹점 — 한 번 고르면 다음에도 */
+/** 이 단말의 가맹점 — 한 번 고르면 다음에도. 예전 버전이 남긴 값(posCode 없음)은 버리고 다시 고르게 한다 */
 @Singleton
 class PosSettings @Inject constructor(@ApplicationContext context: Context) {
     private val prefs = context.getSharedPreferences("yamu_pos", Context.MODE_PRIVATE)
-    var merchant: Merchant?
+    var merchant: PosMerchant?
         get() {
             val id = prefs.getLong("merchantId", -1L).takeIf { it > 0 } ?: return null
-            return Merchant(id, prefs.getString("merchantName", null) ?: return null, prefs.getString("category", null), isOnline = false, posCode = prefs.getString("posCode", null))
+            val posCode = prefs.getString("posCode", null)?.takeIf { code -> POS_TERMINALS.any { it.posCode == code } } ?: return null
+            return PosMerchant(id, posCode, prefs.getString("merchantName", null) ?: return null)
         }
         set(value) {
             prefs.edit().apply {
-                if (value == null) clear() else putLong("merchantId", value.id).putString("merchantName", value.name).putString("posCode", value.posCode).putString("category", value.categoryName)
+                clear()
+                if (value != null) putLong("merchantId", value.merchantId).putString("posCode", value.posCode).putString("merchantName", value.name)
             }.apply()
         }
 }
@@ -154,4 +279,7 @@ object PosApiModule {
     @Provides
     @Singleton
     fun posApi(retrofit: Retrofit): PosApi = retrofit.create(PosApi::class.java)
+
+    @Provides
+    fun posPendingStore(prefs: PosPendingPrefs): PosPendingStore = prefs
 }

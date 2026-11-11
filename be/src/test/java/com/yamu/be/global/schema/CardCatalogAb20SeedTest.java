@@ -141,15 +141,15 @@ class CardCatalogAb20SeedTest extends MySqlTestSupport {
                 .isEqualTo("OTHER_INDUSTRY");
     }
 
-    /** 01(3 · 13 · 177 · 31 · 12 · 42 · 27) + 02(14 · 43 · 636 · 33 · 41 · 55 · 새 브랜드 32) */
+    /** 01(3 · 13 · 178 · 31 · 12 · 42 · 30) + 02(14 · 43 · 636 · 33 · 41 · 55 · 새 브랜드 32) */
     private void assertCatalogCounts() {
         assertThat(count("card_product")).isEqualTo(17);
         assertThat(count("card_benefit")).isEqualTo(56);
-        assertThat(count("benefit_target")).isEqualTo(813);
+        assertThat(count("benefit_target")).isEqualTo(814);
         assertThat(count("limit_group")).isEqualTo(64);
         assertThat(count("tier_limit")).isEqualTo(53);
         assertThat(count("benefit_limit_link")).isEqualTo(97);
-        assertThat(count("merchant")).isEqualTo(59);
+        assertThat(count("merchant")).isEqualTo(62);
     }
 
     private int count(String table) {

@@ -179,7 +179,7 @@ class RecommendationSelectorTest {
         assertThat(missing.calculation().netBenefit()).isNull();
         assertThat(missing.calculation().problems()).extracting(CardBenefitCalculator.Problem::code)
                 .containsExactly("POLICY_INCOMPLETE");
-        assertThat(missing.message()).contains("비교에서 제외", "관리자에게 문의");
+        assertThat(missing.message()).contains("비교에서 제외");
         assertThat(result.message()).contains("확인된 카드 중", "800원").doesNotContain("더 클 수");
         assertThat(missing.message()).doesNotContain("더 클 수");
         assertThatThrownBy(() -> result.uncomparedCards().clear()).isInstanceOf(UnsupportedOperationException.class);

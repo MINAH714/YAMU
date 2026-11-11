@@ -33,7 +33,7 @@ DB 스키마·업무 엔티티·서비스를 구현하는 개발자와 AI를 위
 - 별도 테이블의 행·합계·기간 겹침은 CHECK로 검사할 수 없다. 아래에 DB와 서비스의 책임을 구분했다.
 - 카드 별칭은 user_card.card_alias, 계좌 별칭은 linked_account.account_alias에 저장한다. 둘 다 VARCHAR(100) NULL로 미지정을 허용한다. 별칭은 상품명·금융망 계좌명과 별도로 관리하며 식별 키로 사용하지 않는다.
 - 각 컬럼 설명·타입·필수 여부·기본값과 모든 키 정의는 [컬럼 사전](dictionary.md)과 연결된 Flyway SQL을 따른다. NULL은 미확인·미배정인 경우와 실제 0을 구분한다.
-- notification_settings는 performanceEnabled·balanceRiskEnabled·transactionEnabled 세 boolean을 저장한다. 실적 부족, 잔고 위험, 거래(결제 결과·청구·출금·미납·환급)의 새 앱 내 알림 생성 여부를 제어한다. 반복 지출 후보·혜택 변경·월간 리포트 알림은 제외한다. 카드별·D-day·시각은 1차 사용자 설정에 넣지 않는다. 푸시 지원 여부는 별도 미정이다.
+- notification_settings는 performanceEnabled·balanceRiskEnabled·transactionEnabled 세 boolean을 저장한다. 실적 부족, 잔고 위험, 거래(결제 결과·청구·출금·미납·환급)의 새 앱 내 알림 생성 여부를 제어한다. 반복 지출 후보·혜택 변경·월간 리포트 알림은 제외한다. 2026-11-10(S15P31E103-376): 앱 알림 설정 화면이 받는 시각을 보내므로 performanceTime·balanceTime(한국 시각 "HH:mm")도 저장한다. 카드별·D-day는 1차 사용자 설정에 넣지 않는다. 푸시 지원 여부는 별도 미정이다.
 - forecast_settings는 horizon·alertThreshold·defaultDays·baseAccountId·incomeCashflowItemId·dailyLivingCostTarget 등의 잔고예보 설정을 담는다. 같은 안전잔액은 forecast_settings.alertThreshold 한 곳에서 관리한다. baseAccountId·incomeCashflowItemId가 사용자 소유 데이터인지 서비스에서 검사하며, 이 JSON 참조에 DB FK가 있는 것처럼 취급하지 않는다.
 
 ### 알림 설정의 초기값과 변경
@@ -44,14 +44,32 @@ DB 스키마·업무 엔티티·서비스를 구현하는 개발자와 AI를 위
 {
   "performanceEnabled": true,
   "balanceRiskEnabled": true,
-  "transactionEnabled": true
+  "transactionEnabled": true,
+  "performanceTime": "08:30",
+  "balanceTime": "08:30"
 }
 ```
 
-- SQL 컬럼 정의는 JSON NULL을 유지한다. 위 값은 DB DEFAULT가 아니라 가입 서비스가 넣어야 하는 초기값이다. 아직 가입 서비스는 구현되지 않았다.
-- NULL 또는 누락된 설정 항목은 서버에서 기본 켜짐(true)으로 해석한다. 명시적으로 저장한 false는 유지하며 true로 덮어쓰지 않는다.
-- PATCH /api/notifications/settings에는 변경할 boolean 항목만 보낸다. 생략한 값은 기존 값을 유지한다. 알림을 꺼도 이미 생성된 알림은 삭제하지 않는다.
+- SQL 컬럼 정의는 JSON NULL을 유지한다. 위 값은 DB DEFAULT가 아니다. 지금 가입 서비스는 이 칸을 NULL로 두며, 아래 규칙대로 NULL을 위 값으로 해석하므로 따로 넣지 않아도 된다.
+- NULL(SQL NULL·JSON null) 또는 누락된 설정 항목은 서버에서 기본 켜짐(true)·08:30으로 해석한다. 명시적으로 저장한 false는 유지하며 true로 덮어쓰지 않는다. 형식이 틀린 저장값은 기본값으로 덮지 않고 오류로 처리한다.
+- 시각은 날짜 없이 "매일 몇 시"만 담는 한국 시각이라 UTC로 바꾸지 않는다. 알림을 실제로 그 시각에 만드는 것은 알림 생성 작업(S15P31E103-377)이 맡는다.
+- 알림을 꺼도 이미 생성된 알림은 삭제하지 않는다.
 - 보안 알림은 이 JSON에 저장하지 않고 항상 제공한다. 조회 API의 securityEnabled는 읽기 전용 true다.
+
+#### API 모양과 저장 키의 대응 (S15P31E103-376)
+
+조회·수정 API는 앱(`fe/android` `MyModels.kt`의 `NotificationSettingsDto`) 모양을 쓴다. 저장은 위 JSON이다.
+
+| API 항목 | 저장 키 | 비고 |
+|---|---|---|
+| `performance.enabled` · `performance.time` | `performanceEnabled` · `performanceTime` | |
+| `balance.enabled` · `balance.time` | `balanceRiskEnabled` · `balanceTime` | |
+| `balance.alertThreshold` | (저장 안 함) | `forecast_settings.alertThreshold`를 읽기만 한다. 수정은 잔고예보 설정 API에서 하며, 알림 설정 PATCH로 보내면 400 |
+| `payment.result` | `transactionEnabled` | 결제 결과뿐 아니라 거래 알림 전체(청구 확정·출금 예정·출금·미납·환급)를 켜고 끈다 |
+| `securityEnabled` | (저장 안 함) | 항상 true. PATCH로 보내면 400 |
+
+- PATCH /api/notifications/settings에는 바꿀 항목만 보낸다. 생략한 값은 기존 값을 유지한다. 모르는 항목, 문자열 "true", null, "24:00"·"8:30" 같은 시각, 바꿀 항목이 없는 본문은 400 INVALID_REQUEST(fieldErrors)다.
+- 저장은 바꿀 키만 `JSON_SET` 한 번으로 쓴다. 같은 사용자가 다른 항목을 동시에 바꿔도 한쪽 변경이 사라지지 않는다.
 
 ## 관계·인덱스와 서비스 책임
 

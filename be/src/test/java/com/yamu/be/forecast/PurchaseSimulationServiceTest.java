@@ -61,7 +61,8 @@ class PurchaseSimulationServiceTest {
         when(forecasts.prepare(eq(USER), anyList(), isNull(), isNull(), anyBoolean(), eq(NOV_5)))
                 .thenReturn(new ForecastService.Prepared(List.of(ACCOUNT),
                         new BalanceForecast.Horizon(BalanceForecast.Until.DAYS, NOV_5, NOV_5.plusDays(7), 7),
-                        100_000L, null, null, List.of(), List.of(), Map.of(ACCOUNT, 1_000_000L), Map.of(), List.of()));
+                        100_000L, null, null, List.of(), List.of(), Map.of(ACCOUNT, 1_000_000L), Map.of(), List.of(),
+                        List.of()));
         PurchaseSimulationService service = new PurchaseSimulationService(forecasts, cards, cardNames, recommender,
                 calendar, creditLimits, bills, catalog);
 
@@ -86,7 +87,8 @@ class PurchaseSimulationServiceTest {
         when(forecasts.prepare(eq(USER), anyList(), isNull(), isNull(), anyBoolean(), eq(NOV_5)))
                 .thenReturn(new ForecastService.Prepared(List.of(ACCOUNT),
                         new BalanceForecast.Horizon(BalanceForecast.Until.DAYS, NOV_5, NOV_5.plusDays(30), 30),
-                        100_000L, null, null, List.of(), List.of(), Map.of(ACCOUNT, 1_000_000L), Map.of(), List.of()));
+                        100_000L, null, null, List.of(), List.of(), Map.of(ACCOUNT, 1_000_000L), Map.of(), List.of(),
+                        List.of()));
         PurchaseSimulationService service = new PurchaseSimulationService(forecasts, cards, cardNames, recommender,
                 calendar, creditLimits, bills, catalog);
 
@@ -131,7 +133,8 @@ class PurchaseSimulationServiceTest {
         when(forecasts.prepare(eq(USER), anyList(), isNull(), isNull(), anyBoolean(), eq(leapDay)))
                 .thenReturn(new ForecastService.Prepared(List.of(ACCOUNT),
                         new BalanceForecast.Horizon(BalanceForecast.Until.DAYS, leapDay, leapDay.plusDays(7), 7),
-                        100_000L, null, null, List.of(), List.of(), Map.of(ACCOUNT, 1_000_000L), Map.of(), List.of()));
+                        100_000L, null, null, List.of(), List.of(), Map.of(ACCOUNT, 1_000_000L), Map.of(), List.of(),
+                        List.of()));
         PurchaseSimulationService service = new PurchaseSimulationService(forecasts, cards, cardNames, recommender,
                 calendar, creditLimits, bills, catalog);
         SimulationRequest lastDayRequest = request();

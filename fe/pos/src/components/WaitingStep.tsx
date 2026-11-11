@@ -33,12 +33,14 @@ const URGENT_MS = 10_000
 /**
  * DECLINED는 마감 전이면 최종이 아니다. 사용자가 앱에서 다른 카드로 다시 승인할 수 있다(명세 Q1).
  * 서버가 retryable=false를 주면 그때는 바로 최종으로 본다.
+ * REJECTED(고객이 앱에서 거절)는 다른 상태로 바뀌지 않으므로 마감 전이라도 바로 최종이다.
  */
 function isFinal(result: PaymentResult, pastDeadline: boolean): boolean {
   switch (result.status) {
     case 'APPROVED':
     case 'EXPIRED':
     case 'CANCELED':
+    case 'REJECTED':
       return true
     case 'DECLINED':
       return pastDeadline || result.retryable === false
@@ -239,6 +241,7 @@ const MOCK_ACTIONS: { action: MockAction; label: string }[] = [
   { action: 'approveWithDiscount', label: '승인(즉시할인 10%)' },
   { action: 'decline', label: '거절(재시도 가능)' },
   { action: 'declineFinal', label: '거절(최종)' },
+  { action: 'reject', label: '고객 거절' },
   { action: 'disconnect', label: '연결 끊김 켜기/끄기' },
 ]
 

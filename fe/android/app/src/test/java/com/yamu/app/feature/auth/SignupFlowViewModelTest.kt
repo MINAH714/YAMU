@@ -10,6 +10,7 @@ import com.yamu.app.feature.auth.data.SignupMode
 import com.yamu.app.feature.auth.data.SignupOneWon
 import com.yamu.app.feature.auth.data.SignupRepository
 import com.yamu.app.feature.auth.data.SignupRestart
+import com.yamu.app.feature.auth.data.phoneVerifyGuide
 import com.yamu.app.feature.link.data.brandOf
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.test.StandardTestDispatcher
@@ -66,6 +67,45 @@ class SignupFlowViewModelTest {
         assertEquals(SignupNext.ACCOUNTS, vm.state.value.next)
         assertEquals(1, signup.confirmCalls)
         assertNull(vm.state.value.error)
+    }
+
+    // ── B-03 시연 등록자가 아닐 때 ──
+
+    @Test fun `시연 등록자가 아니면 어느 경우인지 말하지 않고 칸은 그대로 둔 채 인증번호만 다시 받게 한다`() = runTest(dispatcher) {
+        signup.termsAgreed = true
+        signup.confirmResult = ApiResult.Failure(ApiError.from(404, "DEMO_USER_NOT_FOUND"))
+        val vm = PhoneVerifyViewModel(signup)
+        vm.fillAndSend()
+        advanceUntilIdle()
+        vm.onCode("123456")
+        vm.confirm()
+        advanceUntilIdle()
+
+        val s = vm.state.value
+        assertEquals("입력한 정보로는 가입할 수 없어요 · 등록된 이름 · 생년월일 · 번호인지 확인해 주세요", s.error)
+        assertNull(s.sent)                         // '인증번호 받기'로 돌아간다
+        assertFalse(s.codeError)                   // 인증번호가 틀린 게 아니다
+        assertEquals("김야무", s.name)             // 오타만 고치면 되게 칸은 그대로
+        assertEquals("01012345678", s.phone)
+        assertNull(s.next)                         // 첫 화면으로 보내지 않는다
+    }
+
+    @Test fun `첫 화면 로그인으로 온 본인 확인은 가입이 아닌 문장으로`() = runTest(dispatcher) {
+        signup.termsAgreed = false
+        signup.confirmResult = ApiResult.Failure(ApiError.from(404, "DEMO_USER_NOT_FOUND"))
+        val vm = PhoneVerifyViewModel(signup)
+        vm.fillAndSend()
+        advanceUntilIdle()
+        vm.onCode("123456")
+        vm.confirm()
+        advanceUntilIdle()
+
+        assertEquals("입력한 정보로는 본인 확인을 할 수 없어요 · 등록된 이름 · 생년월일 · 번호인지 확인해 주세요", vm.state.value.error)
+    }
+
+    @Test fun `본인인증 안내 — 가입은 미리 등록된 분만 된다고 인증번호 받기 전에 알린다`() {
+        assertTrue(phoneVerifyGuide(signup = true).startsWith("야무는 시연용으로 미리 등록된 분만 가입할 수 있어요"))
+        assertEquals("시연에 등록된 이름 · 생년월일 · 휴대폰 번호를 넣어 주세요", phoneVerifyGuide(signup = false))
     }
 
     @Test fun `재등록도 다시 누르면 이 폰 등록으로 다시 간다`() = runTest(dispatcher) {

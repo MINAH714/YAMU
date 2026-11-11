@@ -42,7 +42,8 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 /**
  * 가상 구매 추천이 같은 가맹점에서 POS 결제 추천과 같은 거래 사실({@code PosPurchaseFacts})을 써서 같은 카드·혜택을 내는지 실제 시드
  * 카탈로그로 확인한다(2026-11-08 결정). 시드 LOCA LIKIT Play의 주유 60% 할인은 제외 조건 {@code TRANSACTION_KIND:LPG_STATION}을
- * 보므로, 사실이 없으면 "자료 부족"이고 있으면 10,000원 × 60% = 6,000원이다.
+ * 본다. 브랜드를 선택하면 POS 거래 사실을 사용해 10,000원 × 60% = 6,000원을 계산한다.
+ * 브랜드 미선택 시에는 B-07 기준으로 브랜드 전용 주유 혜택을 제외하고 나머지 혜택을 계산한다.
  *
  * <p>SK에너지 한 곳의 사례다. 모든 브랜드에서 POS와 결과가 같다는 증명은 아니다: 가상 구매는 구매 시각(낮 12시)과 시설(일반 매장)을
  * 가정하고 POS는 실제 요청 시각·단말 시설을 쓴다. 여기서는 POS도 낮 12시·일반 매장이라 두 입력이 같다.
@@ -112,7 +113,7 @@ class SimulationPosFactsDatabaseTest extends MySqlTestSupport {
     }
 
     @Test
-    void 업종만_고른_가상_구매는_거래_사실이_없어_LIKIT_Play_주유_할인을_계산하지_않는다() {
+    void 업종만_고른_가상_구매는_브랜드_전용_주유_혜택을_제외하고_순혜택을_계산한다() {
         long user = new OwnershipFixtures(jdbc).user();
         long likit = card(user, "LOCA LIKIT Play");
 
@@ -120,8 +121,12 @@ class SimulationPosFactsDatabaseTest extends MySqlTestSupport {
                 PaymentTerms.lumpSum(AMOUNT), "OFFLINE", null, "GAS_STATION", TODAY, TODAY)).recommendation();
 
         assertThat(simulated.userCardId()).isEqualTo(likit);
-        assertThat(simulated.benefit()).isNull();
-        assertThat(simulated.missingInformation()).isNotEmpty();
+        assertThat(simulated.benefit()).isNotNull();
+        assertThat(simulated.benefit().netBenefit()).isZero();
+        assertThat(simulated.assumptions()).extracting(SimulationRecommender.Assumption::id)
+                .contains("YAMU_BRAND_NOT_SELECTED");
+        assertThat(simulated.missingInformation()).extracting(SimulationRecommender.MissingInformation::field)
+                .doesNotContain("facts.TRANSACTION_KIND:LPG_STATION");
     }
 
     /** 전월 실적 50만 원·이번 달 한도 사용 0인 보유 카드(POS 쪽 PosPurchaseFactsBenefitDatabaseTest와 같은 조건). */

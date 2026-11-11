@@ -225,6 +225,45 @@ class ForecastSettingsServiceTest extends MySqlTestSupport {
                 .hasMessageNotContaining("10}");
     }
 
+    @Test
+    void 안전_잔액만_읽으면_저장값이고_저장한_적이_없으면_기본값이며_설정_조회와_같다() {
+        assertThat(service.alertThreshold(owner)).isEqualTo(100_000L).isEqualTo(service.get(owner).alertThreshold());
+
+        service.update(owner, json("{ \"alertThreshold\": 50000 }"));
+
+        assertThat(service.alertThreshold(owner)).isEqualTo(50_000L).isEqualTo(service.get(owner).alertThreshold());
+    }
+
+    @Test
+    void 안전_잔액만_읽을_때는_월급_시리즈를_따라가지_않는다() {
+        long salary = monthlyIncome(today.plusDays(1));
+        service.update(owner, json("{ \"incomeCashflowItemId\": %d, \"alertThreshold\": 70000 }".formatted(salary)));
+        // 월급 시리즈를 일부러 갈라 놓는다. 설정 조회는 월급 항목을 따라가다 실패한다.
+        for (int i = 0; i < 2; i++) {
+            long branch = startedMonthlyIncome(today.minusMonths(1), null, null);
+            jdbc.update("UPDATE cashflow_item SET previous_cashflow_item_id = ? WHERE cashflow_item_id = ?", salary,
+                    branch);
+        }
+        assertThatThrownBy(() -> service.get(owner))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("갈라져");
+
+        assertThat(service.alertThreshold(owner)).isEqualTo(70_000L);
+    }
+
+    @Test
+    void 안전_잔액만_읽어도_없는_사용자는_404이고_깨진_저장값은_실패한다() {
+        assertThatThrownBy(() -> service.alertThreshold(999_999_999L))
+                .isInstanceOf(BusinessException.class)
+                .satisfies(e -> assertThat(((BusinessException) e).getErrorCode()).isEqualTo(ErrorCode.RESOURCE_NOT_FOUND));
+
+        jdbc.update("UPDATE app_user SET forecast_settings = '{\"defaultDays\": 10}' WHERE user_id = ?", owner);
+
+        assertThatThrownBy(() -> service.alertThreshold(owner))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("userId=" + owner);
+    }
+
     private void assertInvalid(org.assertj.core.api.ThrowableAssert.ThrowingCallable call, String field) {
         assertThatThrownBy(call)
                 .isInstanceOf(BusinessException.class)

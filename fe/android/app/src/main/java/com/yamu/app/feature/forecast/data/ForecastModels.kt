@@ -18,15 +18,31 @@ import kotlin.math.abs
     val series: List<SeriesPointDto> = emptyList(),
     val riskWindows: List<RiskWindowDto> = emptyList(),
     val livingCost: ForecastLivingCostDto? = null,
+    val beyondHorizon: List<BeyondHorizonItemDto> = emptyList(),
     val excluded: List<ExcludedItemDto> = emptyList(),
     val isEstimate: Boolean = true,
     val calculatedAt: String? = null,
 )
 
+/**
+ * 출금일이 예보 기간 뒤인 카드 청구 · 신용카드 사용 추정(BE -348 !199). 선과 위험에는 넣지 않았고 선택 계좌에서 빠지는 것만 온다.
+ * 청구는 title이 "카드 이름 N월 청구", 사용 추정은 근거 문장이다
+ */
+@Serializable data class BeyondHorizonItemDto(
+    val date: String? = null,
+    val type: String? = null,
+    val title: String? = null,
+    val amount: Long = 0,
+    val confidence: String? = null,
+)
+
 /** type은 실제로 계산한 기준 — NEXT_INCOME이면 to가 다음 월급일 전날, 월급을 못 찾으면 DAYS(30일) */
 @Serializable data class HorizonDto(val type: String? = null, val from: String? = null, val to: String? = null, val days: Int? = null)
 
-/** 금액은 가장 나쁜 선(보수적, 없으면 예상) 기준 */
+/**
+ * 금액은 가장 낮은 선(conservative 'AI 생활비 반영', 없으면 expected 'AI 생활비 제외') 기준.
+ * status는 두 선 기준이다 — expected가 안전 잔액 미만이면 DANGER, conservative만 미만이면 WARNING(BE -356 !223)
+ */
 @Serializable data class ForecastSummaryDto(
     val status: String? = null,
     val aggregateStatus: String? = null,
@@ -37,7 +53,10 @@ import kotlin.math.abs
     val atRiskAccountCount: Int = 0,
 )
 
-/** conservative는 생활비 자료가 없는 계좌가 하나라도 있으면 null(BE는 일부만 더한 값을 주지 않는다) */
+/**
+ * 앱은 expected('AI 생활비 제외')와 conservative('AI 생활비 반영') 두 선만 그린다. confirmed는 응답에 남아 받기만 한다(BE -356).
+ * conservative는 생활비 자료가 없는 계좌가 하나라도 있으면 null(BE는 일부만 더한 값을 주지 않는다)
+ */
 @Serializable data class SeriesPointDto(
     val date: String,
     val confirmed: Long? = null,
@@ -60,9 +79,14 @@ import kotlin.math.abs
 
 @Serializable data class RiskCauseDto(val type: String? = null, val title: String? = null, val amount: Long = 0, val date: String? = null)
 
-/** 예상 생활비는 projectedAmount만 보인다. dailyAverage · monthlyAverage는 지난 3개월 실적이라 예측 값이 아니다(BE 11/5 안내) */
+/**
+ * 예상 생활비는 projectedAmount · appliedAmount만 보인다. dailyAverage · monthlyAverage는 지난 3개월 실적이라 예측 값이 아니다(BE 11/5 안내).
+ * projectedAmount는 한 계좌라도 기록이 없으면 null이고, appliedAmount는 'AI 생활비 반영' 선에 실제로 빠진 생활비(기록 있는 계좌의 합, 없으면 0)다.
+ * appliedAmount가 null이면 그 선 자체가 없다. 옛 서버는 이 칸을 보내지 않는다(BE -395 !244)
+ */
 @Serializable data class ForecastLivingCostDto(
     val projectedAmount: Long? = null,
+    val appliedAmount: Long? = null,
     val dailyAverage: Long? = null,
     val monthlyAverage: Long? = null,
     val method: String? = null,
@@ -81,13 +105,17 @@ import kotlin.math.abs
 
 // ── 앱 안에서 쓰는 값 ──
 
-/** 어느 선부터 반영한 돈인지. 모르는 값은 [UNKNOWN] — 목록에는 그대로 보이고 선 설명에서는 '기타'로 묶인다 */
+/**
+ * 입출금의 확신도. CONFIRMED · EXPECTED는 두 선 모두에, CONSERVATIVE는 'AI 생활비 반영' 선에만 들어간다.
+ * 위험 구간의 선([RiskWindow.line])도 이 값으로 받는다 — BE -356부터 EXPECTED · CONSERVATIVE만 오고, 옛 서버는 CONFIRMED를 보낼 수 있다.
+ * 모르는 값은 [UNKNOWN] — 목록에는 그대로 보이고 선 설명에서는 '기타'로 묶인다
+ */
 enum class FlowConfidence { CONFIRMED, EXPECTED, CONSERVATIVE, UNKNOWN }
 
 /** 입출금 종류. 위험 원인에만 LIVING_COST_ESTIMATE(누적 예상 생활비)가 더 있다 */
 enum class FlowType { SCHEDULED_INCOME, SCHEDULED_OUTFLOW, CARD_BILLING, SIMULATED_PURCHASE, CARD_SPENDING_ESTIMATE, LIVING_COST_ESTIMATE, UNKNOWN }
 
-/** 위험 수준 — 확정 선이 안전 잔액 아래면 DANGER, 예상 · 보수적 선만 아래면 WARNING */
+/** 위험 수준 — 'AI 생활비 제외' 선(expected)이 안전 잔액 아래면 DANGER, 'AI 생활비 반영' 선(conservative)만 아래면 WARNING(BE -356 !223) */
 enum class RiskLevel { SAFE, WARNING, DANGER, UNKNOWN }
 
 /** 예상 생활비 계산 방식 — AI(ML_V1) · 최근 소비(TSB) · 계좌마다 다름(MIXED) */
@@ -139,13 +167,13 @@ fun ForecastSelection.scopeFrom(accounts: List<ForecastAccountOption>): AccountS
 }
 
 data class ForecastEvent(val date: LocalDate, val type: FlowType, val title: String, val amount: Long, val confidence: FlowConfidence) {
-    /** 보수적 선에만 넣은 추정(카드 사용 예상) — '추정' 태그 */
+    /** 'AI 생활비 반영' 선에만 넣은 추정(카드 사용 예상) — '추정' 태그 */
     val isEstimate: Boolean get() = type == FlowType.CARD_SPENDING_ESTIMATE || confidence == FlowConfidence.CONSERVATIVE
 
     /** 카드 청구 — 가계부 항목이 아니라 F-02에서 고칠 수 없다 */
     val isCardBill: Boolean get() = type == FlowType.CARD_BILLING
 
-    /** 진행 중인 청구처럼 예상 선부터 넣은 돈 — '예상' 태그 */
+    /** 진행 중인 청구처럼 확신도가 EXPECTED인 돈(두 선 모두에 들어감) — 금액이 아직 정해지지 않아 '예상' 태그 */
     val isExpected: Boolean get() = confidence == FlowConfidence.EXPECTED
 
     /** 줄 이름. 카드 사용 예상은 title이 근거 문장이라 이름은 고정하고 title은 보조 줄에 그대로 둔다 */
@@ -154,7 +182,7 @@ data class ForecastEvent(val date: LocalDate, val type: FlowType, val title: Str
     val basis: String? get() = title.takeIf { type == FlowType.CARD_SPENDING_ESTIMATE }
 }
 
-/** 하루 끝 잔액 — 선 하나가 없으면(보수적 선 null) 그 값만 null */
+/** 하루 끝 잔액 — 선 하나가 없으면('AI 생활비 반영' 선 null) 그 값만 null. [confirmed]는 받기만 하고 그리지 않는다 */
 data class ForecastDay(val date: LocalDate, val confirmed: Long?, val expected: Long?, val conservative: Long?, val events: List<ForecastEvent>)
 
 data class RiskCause(val type: FlowType, val title: String, val amount: Long, val date: LocalDate?) {
@@ -182,16 +210,26 @@ data class RiskWindow(
     val causes: List<RiskCause>,
 )
 
-data class ForecastLivingCost(val projectedAmount: Long?, val method: LivingMethod, val insufficient: Boolean)
+/** [appliedAmount]는 서버 값 그대로(옛 서버면 null). 계산 카드는 [lineAmount]를 쓴다 */
+data class ForecastLivingCost(val projectedAmount: Long?, val method: LivingMethod, val insufficient: Boolean, val appliedAmount: Long? = null) {
+    /** 'AI 생활비 반영' 선에 빠진 생활비. 옛 서버는 모든 계좌에 기록이 있을 때만 projectedAmount로 알 수 있다 */
+    val lineAmount: Long? get() = appliedAmount ?: projectedAmount?.takeIf { !insufficient }
+
+    /** 일부 계좌에만 기록이 있어 선에 기록 있는 계좌의 생활비만 들어갔다 — 새 서버에서만 안다 */
+    val isPartial: Boolean get() = insufficient && (appliedAmount ?: 0) > 0
+}
 
 /** 계산에서 뺀 것 — 이유마다 문장 하나 */
 data class ExcludedNote(val reason: String?, val text: String)
 
-/** '세 선은 이렇게 계산했어요'의 한 줄 */
+/** '두 선은 이렇게 계산했어요'의 한 줄 */
 data class LineStep(val label: String, val amount: Long, val note: String? = null)
 
-/** 한 선의 설명 — 그 선에 더한 돈과 기간 끝 잔액. 보수적 선이 없으면 [end]가 null */
-data class LineGroup(val line: FlowConfidence, val steps: List<LineStep>, val end: Long?)
+/**
+ * 한 선의 설명 — [line]은 EXPECTED('AI 생활비 제외') · CONSERVATIVE('AI 생활비 반영'), 그 선에 더한 돈과 기간 끝 잔액. 생활비 선이 없으면 [end]가 null.
+ * [note]는 줄을 더해도 끝 잔액이 되지 않을 때 그 까닭을 적은 한 줄이다
+ */
+data class LineGroup(val line: FlowConfidence, val steps: List<LineStep>, val end: Long?, val note: String? = null)
 
 data class Forecast(
     val accountIds: List<Long>,
@@ -214,18 +252,19 @@ data class Forecast(
     val isEstimate: Boolean,
     val calculatedAtIso: String?,
     val scope: AccountScope? = null,   // 계좌를 일부만 골랐을 때 — 응답에는 없고 저장소가 붙인다
+    val beyondHorizon: List<ForecastEvent> = emptyList(),   // 기간 뒤에 빠질 카드값(출금일순, 0원 제외). 선에는 없다
 ) {
     /** 다음 월급일 — 기간 기준이 NEXT_INCOME일 때만(끝 날은 월급 전날). DAYS면 월급을 못 찾았거나 N일을 고른 것 */
     val incomeDate: LocalDate? get() = to?.takeIf { isNextIncome }?.plusDays(1)
 
-    /** 보수적 선이 있는지 — 날마다 같이 오거나 같이 빠진다 */
+    /** 'AI 생활비 반영' 선(conservative)이 있는지 — 날마다 같이 오거나 같이 빠진다 */
     val hasConservative: Boolean get() = days.any { it.conservative != null }
 
     /** 기간 안 입출금(0원 제외, 날짜순) */
     val upcoming: List<ForecastEvent> get() = days.flatMap { it.events }.filter { it.amount != 0L }
 
     /**
-     * 기간 안에 실제로 빠지는 예정 출금 — 보수적 선에만 넣은 추정은 예정 출금이 아니라 뺀다(BE summary.largestOutflow와 같은 기준).
+     * 기간 안에 실제로 빠지는 예정 출금 — 'AI 생활비 반영' 선에만 넣은 추정은 예정 출금이 아니라 뺀다(BE summary.largestOutflow와 같은 기준).
      * 합계([scheduledOutflow])와 F-02 머리의 건수가 이 목록 하나를 같이 쓴다
      */
     val scheduledOutflows: List<ForecastEvent> get() = upcoming.filter { it.amount < 0 && !it.isEstimate }
@@ -236,40 +275,52 @@ data class Forecast(
     /** 안전 잔액 아래로 처음 내려가는 날 */
     val riskFrom: LocalDate? get() = riskWindows.minOfOrNull { it.from }
 
-    /** 선마다 무엇을 더했는지 — 확정 → 예상 → 보수적. 금액은 서버 이벤트 합, 끝 잔액은 서버 선의 마지막 날 그대로 */
+    /**
+     * 두 선마다 무엇을 더했는지 — 'AI 생활비 제외'(서버 expected) → 'AI 생활비 반영'(conservative). 금액은 서버 이벤트 합, 끝 잔액은 서버 선의 마지막 날 그대로.
+     * 첫 선은 확신도 CONFIRMED · EXPECTED 돈(확인 전 지출 후보 · 진행 중 청구 포함)과 확신도를 모르는 돈('기타'). 그리지 않는 확정 선과 나누지 않으므로
+     * 같은 이름(예정 지출 등)은 확신도가 달라도 한 줄로 합친다. BE는 지출만 후보로 찾아 EXPECTED 수입은 없다(날마다 confirmed ≥ expected). 둘째 선은 첫 선에서 예상 생활비와 CONSERVATIVE 돈을 더 뺀 것이다
+     */
     fun lineGroups(): List<LineGroup> {
         val events = upcoming
-        fun steps(of: List<ForecastEvent>, names: (FlowType) -> String) = of.groupBy { names(it.type) }.map { (label, list) ->
+        fun steps(of: List<ForecastEvent>, name: (ForecastEvent) -> String) = of.groupBy(name).map { (label, list) ->
             LineStep(if (list.size > 1) "$label ${list.size}건" else label, list.sumOf { it.amount })
         }.sortedBy { it.label.startsWith("기타") }   // 모르는 종류는 맨 끝
         val last = days.lastOrNull()
-        val confirmed = steps(events.filter { it.confidence == FlowConfidence.CONFIRMED }) {
-            when (it) {
-                FlowType.SCHEDULED_INCOME -> "예정 수입"
-                FlowType.SCHEDULED_OUTFLOW -> "예정 지출"
-                FlowType.CARD_BILLING -> "확정된 카드 청구"
+        val withoutLiving = steps(events.filter { it.confidence != FlowConfidence.CONSERVATIVE }) { e ->
+            when {
+                e.confidence == FlowConfidence.UNKNOWN -> "기타"
+                e.type == FlowType.SCHEDULED_INCOME -> "예정 수입"
+                e.type == FlowType.SCHEDULED_OUTFLOW -> "예정 지출"
+                e.type == FlowType.CARD_BILLING && e.confidence == FlowConfidence.CONFIRMED -> "확정된 카드 청구"
+                e.type == FlowType.CARD_BILLING -> "진행 중인 카드 청구"
                 else -> "기타"
             }
         }
-        val expected = steps(events.filter { it.confidence == FlowConfidence.EXPECTED || it.confidence == FlowConfidence.UNKNOWN }) {
-            when (it) {
-                FlowType.CARD_BILLING -> "진행 중인 카드 청구"
-                FlowType.SCHEDULED_INCOME -> "예정 수입"
-                FlowType.SCHEDULED_OUTFLOW -> "예정 지출"
-                else -> "기타"
+        // 선에 실제로 빠진 생활비(appliedAmount)라 일부 계좌만 기록이 있어도 줄 합계가 끝 잔액과 맞는다. 기록이 아무 데도 없어 0원이면 줄을 만들지 않는다
+        val living = livingCost?.let { lc ->
+            lc.lineAmount?.takeIf { it != 0L || !lc.insufficient }?.let {
+                LineStep("예상 생활비", -it, listOfNotNull(lc.method.label, "기록 있는 계좌만".takeIf { lc.isPartial }).joinToString(" · ").ifEmpty { null })
             }
         }
-        val living = livingCost?.takeIf { !it.insufficient }?.projectedAmount?.let { LineStep("예상 생활비", -it, livingCost.method.label) }
-        val conservative = listOfNotNull(living) + steps(events.filter { it.confidence == FlowConfidence.CONSERVATIVE }) {
-            if (it == FlowType.CARD_SPENDING_ESTIMATE) "앞으로 쓸 신용카드 금액" else "기타 추정"
+        val withLiving = listOfNotNull(living) + steps(events.filter { it.confidence == FlowConfidence.CONSERVATIVE }) {
+            if (it.type == FlowType.CARD_SPENDING_ESTIMATE) "앞으로 쓸 신용카드 금액" else "기타 추정"
         }
         return listOf(
-            LineGroup(FlowConfidence.CONFIRMED, confirmed, last?.confirmed),
-            LineGroup(FlowConfidence.EXPECTED, expected, last?.expected),
-            LineGroup(FlowConfidence.CONSERVATIVE, conservative, last?.conservative),
+            LineGroup(FlowConfidence.EXPECTED, withoutLiving, last?.expected),
+            LineGroup(FlowConfidence.CONSERVATIVE, withLiving, last?.conservative, note = PARTIAL_LIVING_NOTE.takeIf { hasPartialLiving }),
         )
     }
+
+    /**
+     * 여러 계좌 중 일부만 생활비 기록이 있을 수 있는 경우. BE는 한 계좌라도 생활비가 없으면 통합 livingCost를 INSUFFICIENT(금액 null)로 주지만,
+     * conservative는 계좌마다 계산해 기록 없는 계좌도 카드 추정이 있으면 생활비 0원으로 낸다(LivingCostProjector.total · ForecastCalculator).
+     * 옛 서버는 선에 들어간 생활비 금액을 주지 않아 앱이 거꾸로 계산하지 않고 그 사실만 알린다. 새 서버는 appliedAmount로 금액을 줘서(-395 !244) 이 안내가 필요 없다
+     */
+    val hasPartialLiving: Boolean get() = livingCost?.insufficient == true && livingCost.appliedAmount == null && hasConservative && accountIds.size > 1
 }
+
+/** [Forecast.hasPartialLiving] — 기록 있는 계좌가 하나도 없을 때도 맞는 문장(어느 쪽인지 응답만으로는 모른다) */
+internal const val PARTIAL_LIVING_NOTE = "생활비 기록이 있는 계좌가 있으면 그 계좌의 예상 생활비는 금액을 따로 받지 못해 끝 잔액에만 들어 있어요"
 
 // ── 서버 값 → 화면 값 ──
 
@@ -287,7 +338,12 @@ fun BalanceForecastDto.toForecast(): Forecast {
         )
     }.sortedBy { it.date }
     val living = livingCost?.let {
-        ForecastLivingCost(it.projectedAmount, enumOf(it.method, LivingMethod.UNKNOWN), insufficient = it.dataOrigin.equals("INSUFFICIENT", ignoreCase = true) || it.projectedAmount == null)
+        ForecastLivingCost(
+            it.projectedAmount,
+            enumOf(it.method, LivingMethod.UNKNOWN),
+            insufficient = it.dataOrigin.equals("INSUFFICIENT", ignoreCase = true) || it.projectedAmount == null,
+            appliedAmount = it.appliedAmount,
+        )
     }
     return Forecast(
         accountIds = accountIds,
@@ -320,6 +376,10 @@ fun BalanceForecastDto.toForecast(): Forecast {
         excluded = excluded.map { it.toNote() },
         isEstimate = isEstimate,
         calculatedAtIso = calculatedAt,
+        beyondHorizon = beyondHorizon.mapNotNull { b ->
+            val date = parseDate(b.date) ?: return@mapNotNull null
+            ForecastEvent(date, enumOf(b.type, FlowType.UNKNOWN), b.title?.takeIf { it.isNotBlank() } ?: "카드값", b.amount, enumOf(b.confidence, FlowConfidence.UNKNOWN))
+        }.filter { it.amount != 0L }.sortedBy { it.date },
     )
 }
 

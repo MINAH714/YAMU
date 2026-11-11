@@ -157,16 +157,45 @@ class BrandMissingSimulationTest {
         assertThat(disabled.excludedBenefits()).isEmpty();
     }
 
-    @Test void channelFacilityAndPolicyUnknownAreNotResolvedByBrandOption() {
+    @Test void brandOnlyPathIsExcludedDespiteMissingFactsButUnknownPolicyIsPreserved() {
         var c = targets(List.of(new TargetGroup(1, false, List.of(brand))), Set.of("CHANNEL:ONLINE"), Set.of("FACILITY:DEPARTMENT_STORE"));
+        var result = calculator.calculate(tx, legacy(c), enabled);
+        assertThat(result.complete()).isTrue();
+        assertThat(result.netBenefit()).isEqualByComparingTo("500");
+        assertThat(result.excludedBenefits()).containsExactly(new CardBenefitCalculator.ExcludedBenefit(1, "BRAND_MISSING"));
+        assertThat(result.missingInformation()).extracting(CardBenefitCalculator.MissingInformation::code)
+                .containsExactly("BRAND_MISSING");
+        assertThat(result.problems()).isEmpty();
+        assertThat(calculator.calculate(tx, legacy(c), CalculationOptions.DEFAULT).complete()).isFalse();
+        assertThat(calculator.calculate(tx, legacy(c)).complete()).isFalse();
+        var noSchedule = new Conditions(true, true, POLICY_START, BenefitPolicy.NO_END_DATE, List.of(brand), Set.of(), Set.of(), null);
+        assertThat(calculator.calculate(tx, legacy(noSchedule), enabled).complete()).isFalse();
+    }
+
+    @Test void remainingCategoryPathStillRequiresItsFacts() {
+        var c = targets(List.of(new TargetGroup(1, false, List.of(brand)),
+                new TargetGroup(2, false, List.of(category))), Set.of("RULE:OFFICIAL_MERCHANT_ROUTE"), Set.of());
         var result = calculator.calculate(tx, legacy(c), enabled);
         assertThat(result.complete()).isFalse();
         assertThat(result.netBenefit()).isNull();
         assertThat(result.excludedBenefits()).isEmpty();
+        assertThat(result.problems()).containsExactly(new CardBenefitCalculator.Problem(1L, "FACT_MISSING"));
+        assertThat(result.missingInformation()).containsExactly(new CardBenefitCalculator.MissingInformation(
+                1, "FACT_MISSING", "facts.RULE:OFFICIAL_MERCHANT_ROUTE"));
+    }
+
+    @Test void brandAndUnknownCategoryPathIsExcludedButSeparateUnknownCategoryPathIsNot() {
+        var unknownCategory = new Transaction(tx.amount(), tx.plan(), tx.installmentMonths(), tx.occurredAt(),
+                null, null, tx.facts());
+        var and = targets(List.of(new TargetGroup(1, false, List.of(brand, category))), Set.of("RULE:UTILITY_PAYMENT"), Set.of());
+        assertThat(calculator.calculate(unknownCategory, legacy(and), enabled).excludedBenefits()).hasSize(1);
+        var or = targets(List.of(new TargetGroup(1, false, List.of(brand)), new TargetGroup(2, false, List.of(category))), Set.of(), Set.of());
+        var result = calculator.calculate(unknownCategory, legacy(or), enabled);
+        assertThat(result.netBenefit()).isNull();
+        assertThat(result.excludedBenefits()).isEmpty();
+        assertThat(result.problems()).containsExactly(new CardBenefitCalculator.Problem(1L, "MERCHANT_CATEGORY_MISSING"));
         assertThat(result.missingInformation()).extracting(CardBenefitCalculator.MissingInformation::code)
-                .containsExactlyInAnyOrder("BRAND_MISSING", "CHANNEL_MISSING", "FACILITY_MISSING");
-        var noSchedule = new Conditions(true, true, POLICY_START, BenefitPolicy.NO_END_DATE, List.of(brand), Set.of(), Set.of(), null);
-        assertThat(calculator.calculate(tx, legacy(noSchedule), enabled).complete()).isFalse();
+                .containsExactly("MERCHANT_CATEGORY_MISSING");
     }
 
     @ParameterizedTest @EnumSource(value = ApplicationMode.class, names = {"STACK", "MAX_ONE"})

@@ -85,7 +85,7 @@ import java.time.LocalDate
     val beyondPeriodImpact: Long = 0,
 )
 
-/** 가장 나쁜 선(보수적, 없으면 예상) 기준 전후 잔액 */
+/** 가장 낮은 선(conservative 'AI 생활비 반영', 없으면 expected 'AI 생활비 제외') 기준 전후 잔액 */
 @Serializable data class SimSeriesPointDto(val date: String, val before: Long? = null, val after: Long? = null)
 
 /** 비교하지 못한 카드는 netBenefit이 null이고 이유는 note. recommended는 사용자가 다른 카드를 골랐을 때 1순위 카드 */

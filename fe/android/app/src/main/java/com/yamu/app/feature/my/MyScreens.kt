@@ -537,7 +537,13 @@ fun NotificationSettingsRoute(onBack: () -> Unit, viewModel: NotificationSetting
                         onToggle = { viewModel.toggle(NotiKind.BALANCE, it, onFail) },
                         sub = st.balanceThreshold?.let { "기준 ${it.toManWon()}" },
                     )
-                    SwitchRow("결제 결과", checked = st.payment, onToggle = { viewModel.toggle(NotiKind.PAYMENT, it, onFail) })
+                    // 서버 payment.result(transactionEnabled)는 결제 결과뿐 아니라 거래 알림 전체를 켜고 끈다(BE !228)
+                    SwitchRow(
+                        "결제 · 청구 알림",
+                        checked = st.payment,
+                        onToggle = { viewModel.toggle(NotiKind.PAYMENT, it, onFail) },
+                        sub = "결제 결과 · 청구 확정 · 출금 · 미납 · 환급",
+                    )
                     // 보안 알림(새 기기 로그인)은 끌 수 없어 목록에 없다 — 프로토타입은 안내 문장도 뺐다
                     SectionLabel("받는 방식")
                     ListRow(title = "받는 시각", valuePlain = koreanTime(st.time), chevron = true, minHeight = TapRowHeight, onClick = { picking = true })

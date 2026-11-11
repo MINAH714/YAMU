@@ -56,6 +56,14 @@ public class PaymentTransaction extends BaseTimeEntity {
     @Column(name = "card_product_id")
     private Long cardProductId;
 
+    /** 마지막 시도 카드의 추천 순위(1부터). 추천 밖 카드·기록 전 결제·SEED는 null */
+    @Column(name = "recommended_rank", columnDefinition = "smallint")
+    private Integer recommendedRank;
+
+    /** 마지막 시도의 카드를 사용자가 직접 골랐는지. 기록 전 결제·SEED는 null */
+    @Column(name = "user_selected")
+    private Boolean userSelected;
+
     /** 브랜드 단위 가맹점 */
     @Column(name = "merchant_id", nullable = false)
     private Long merchantId;
@@ -200,11 +208,30 @@ public class PaymentTransaction extends BaseTimeEntity {
     /**
      * 앱 승인 요청이 이 결제를 선점했다(명세 「결제 상태·예외 처리」 4-2). REQUESTED·DECLINED(재승인)에서만 PROCESSING이 된다.
      * 같은 행을 두 요청이 동시에 바꾸면 {@code version}이 어긋나 한 건만 저장된다. 재승인은 앞 시도의 카드·거절 사유를 덮어쓴다.
+     *
+     * <p>테스트에서 상태만 만들 때 쓴다. 이 메서드는 추천 순위·직접 선택 여부를 null로 덮으므로, 운영 코드는
+     * {@link #startApproval(Long, Long, Integer, Boolean)}을 쓴다(그래야 결제 상세가 승인 응답과 같은 값을 보인다).
      */
     public void startApproval(Long userCardId, Long cardProductId) {
+        startApproval(userCardId, cardProductId, null, null);
+    }
+
+    /**
+     * {@link #startApproval(Long, Long)}에 이 시도의 추천 순위·직접 선택 여부를 함께 적는다. 결제 상세가 승인 응답과 같은 값을 보이도록
+     * 카드와 같이 남기고 재승인 때 같이 덮어쓴다.
+     *
+     * @param recommendedRank 고른 카드의 추천 순위(1부터). 추천 후보가 아니면 null
+     * @param userSelected    사용자가 카드를 직접 골랐는지
+     */
+    public void startApproval(Long userCardId, Long cardProductId, Integer recommendedRank, Boolean userSelected) {
         requireStatus("승인 시작", PaymentStatus.REQUESTED, PaymentStatus.DECLINED);
+        if (recommendedRank != null && recommendedRank < 1) {
+            throw new IllegalArgumentException("추천 순위는 1부터입니다: " + recommendedRank);
+        }
         this.userCardId = userCardId;
         this.cardProductId = cardProductId;
+        this.recommendedRank = recommendedRank;
+        this.userSelected = userSelected;
         this.failureCode = null;
         // 앞 시도의 금융망 요청·거래 번호는 지운다. 남겨 두면 복구가 옛 시도의 출금을 이번 시도로 오인한다(옛 번호는 Redis 시도 기록에 있다)
         this.finRequestNo = null;
@@ -302,6 +329,26 @@ public class PaymentTransaction extends BaseTimeEntity {
     public void expire() {
         requireStatus("만료", PaymentStatus.REQUESTED, PaymentStatus.DECLINED);
         this.status = PaymentStatus.EXPIRED;
+    }
+
+    /**
+     * 출금 미확인으로 거절한 결제인지. 복구 작업이 같은 요청 번호의 출금을 늦게 찾으면 APPROVED로 되돌리므로
+     * 사용자 거절로 닫지 않는다(S15P31E103-360).
+     */
+    public boolean isWithdrawalUnconfirmed() {
+        return status == PaymentStatus.DECLINED && WITHDRAWAL_NOT_CONFIRMED.equals(failureCode);
+    }
+
+    /**
+     * 사용자가 앱에서 결제 요청을 거절했다(S15P31E103-360, 임시: 명세 4-2에 없는 전이). 승인할 수 있는 REQUESTED·DECLINED에서만
+     * REJECTED가 된다. 출금 미확인 DECLINED는 돈이 나갔을 수 있어 막는다. 앞 시도의 카드·거절 사유는 남긴다.
+     */
+    public void reject() {
+        requireStatus("사용자 거절", PaymentStatus.REQUESTED, PaymentStatus.DECLINED);
+        if (isWithdrawalUnconfirmed()) {
+            throw new IllegalStateException("출금 미확인 결제는 거절할 수 없습니다 (결제 " + id + ")");
+        }
+        this.status = PaymentStatus.REJECTED;
     }
 
     /**

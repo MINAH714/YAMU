@@ -8,6 +8,7 @@ import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -48,7 +49,7 @@ import java.time.LocalDate
 data class ChartLine(val label: String, val values: List<Long?>, val color: Color, val dashed: Boolean = false, val width: Dp = 2.dp)
 
 /**
- * 잔액 그래프 — 잔고예보(확정 · 예상 · 보수적)와 가상 구매(사기 전 · 후)가 같이 쓴다.
+ * 잔액 그래프 — 잔고예보(AI 생활비 제외 · 반영)와 가상 구매(사기 전 · 후)가 같이 쓴다.
  * 0원 바닥선, 안전 잔액 점선, 위험 구간 음영, 고른 날 세로줄과 점. 누르거나 옆으로 끌면 [onSelect]로 그날을 알린다.
  * 고른 날이 옮겨 갈 때는 YamuMotion 짧은 곡선으로, 모션 줄이기면 바로 옮긴다
  */
@@ -146,7 +147,7 @@ fun BalanceChart(
                     ),
                 )
             }
-            // 시작 점 — 오늘. 실선 중 마지막(잔고예보의 예상 선 · 가상 구매의 사기 후 선) 색으로
+            // 시작 점 — 오늘. 실선 중 마지막(잔고예보의 AI 생활비 제외 선 · 가상 구매의 사기 후 선) 색으로
             val dotLine = lines.lastOrNull { !it.dashed } ?: lines.first()
             dotLine.values.firstOrNull()?.let { drawCircle(dotLine.color, radius = 4.5.dp.toPx(), center = Offset(x(0), y(it))) }
             if (selectedIndex != null) {
@@ -197,12 +198,20 @@ private fun indexAt(px: Float, width: Float, n: Int, incomeArrow: Boolean, densi
     return Math.round(f * (n - 1)).coerceIn(0, n - 1)
 }
 
-/** 범례 — 선 모양 + 이름. [missing]은 이번에 그리지 못한 선(취소선) */
+/**
+ * 범례 — 선 모양 + 이름. [missing]은 이번에 그리지 못한 선(취소선).
+ * 이름이 'AI 생활비 제외'처럼 길어져 큰 글씨에서는 한 줄에 다 들어가지 않는다 — 넘치면 다음 줄로 내려 이름이 글자 단위로 꺾이지 않게 한다
+ */
 @Composable
 fun ChartLegend(lines: List<ChartLine>, modifier: Modifier = Modifier, missing: List<String> = emptyList()) {
     val c = YamuTheme.colors
     val style = YamuTheme.typography.bodyS
-    Row(modifier, horizontalArrangement = Arrangement.spacedBy(14.dp), verticalAlignment = Alignment.CenterVertically) {
+    FlowRow(
+        modifier,
+        horizontalArrangement = Arrangement.spacedBy(14.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+        itemVerticalAlignment = Alignment.CenterVertically,
+    ) {
         lines.forEach { line ->
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Canvas(Modifier.size(width = 18.dp, height = 6.dp)) {

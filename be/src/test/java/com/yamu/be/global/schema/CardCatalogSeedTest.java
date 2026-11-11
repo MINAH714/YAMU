@@ -37,9 +37,9 @@ class CardCatalogSeedTest extends MySqlTestSupport {
         assertThat(count("limit_group")).isEqualTo(31);
         assertThat(count("benefit_limit_link")).isEqualTo(42);
         assertThat(count("tier_limit")).isEqualTo(12);
-        assertThat(count("benefit_target")).isEqualTo(177);
+        assertThat(count("benefit_target")).isEqualTo(178);
         assertThat(count("app_user")).isZero();
-        assertThat(count("merchant")).isEqualTo(27);
+        assertThat(count("merchant")).isEqualTo(30);
 
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM card_product WHERE product_name='다이소 신한카드'", Integer.class))
                 .isZero();
@@ -164,8 +164,8 @@ class CardCatalogSeedTest extends MySqlTestSupport {
         assertThat(count("limit_group")).isEqualTo(31);
         assertThat(count("benefit_limit_link")).isEqualTo(42);
         assertThat(count("tier_limit")).isEqualTo(12);
-        assertThat(count("merchant")).isEqualTo(27);
-        assertThat(count("benefit_target")).isEqualTo(177);
+        assertThat(count("merchant")).isEqualTo(30);
+        assertThat(count("benefit_target")).isEqualTo(178);
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM card_product WHERE issuer_code = 'OTHER'", Integer.class))
                 .isEqualTo(1);
 

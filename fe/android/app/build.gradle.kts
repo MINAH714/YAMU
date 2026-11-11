@@ -81,9 +81,7 @@ android {
             applicationIdSuffix = ".pos"
             versionNameSuffix = "-pos"
             buildConfigField("String", "POS_KEY", "\"${localProps.getProperty("yamu.posKey", "")}\"")
-            // BE에 가맹점 목록이 없는 동안 debug 단말 하나 — merchant.brand_code가 단말 시나리오와 같은 가맹점의 번호(시드마다 다르다)
-            buildConfigField("long", "POS_MERCHANT_ID", "${localProps.getProperty("yamu.posMerchantId", "0").trim().toLong()}L")
-            buildConfigField("String", "POS_CODE", "\"${localProps.getProperty("yamu.posCode", "POS-YAMU-CAFE").trim()}\"")
+            // 단말(posCode)은 앱 화면에서 고르고, 가맹점 번호는 GET /api/merchants에서 단말 브랜드로 찾는다(src/pos PosRepository.kt)
         }
     }
 

@@ -106,6 +106,10 @@ class ForecastServiceTest {
 
     private record Recorded(long userId, LocalDate predictedOn, int horizonDays,
             List<LivingCostProjector.AccountProjection> accounts) {}
+    /** 신용 사용 추정 이력 저장 호출(S15P31E103-405). 실제 저장은 CreditSpendingPredictionLogTest가 확인한다. */
+    private final List<CreditRecorded> creditRecorded = new ArrayList<>();
+
+    private record CreditRecorded(long userId, LocalDate predictedOn, List<CreditSpendingEstimator.Prediction> predictions) {}
 
     @BeforeEach
     void setUp() {
@@ -152,9 +156,16 @@ class ForecastServiceTest {
                 recorded.add(new Recorded(userId, predictedOn, horizonDays, List.copyOf(projections)));
             }
         };
+        CreditSpendingPredictionLog creditPredictionLog = new CreditSpendingPredictionLog(null, clock) {
+            @Override
+            void record(long userId, LocalDate predictedOn,
+                    Collection<CreditSpendingEstimator.Prediction> predictions) {
+                creditRecorded.add(new CreditRecorded(userId, predictedOn, List.copyOf(predictions)));
+            }
+        };
         return new ForecastService(cashflows, balanceService, billReader, cardService, schedule, livingReader,
                 accounts, settingsStore, settingsService, new LivingCostProjector(projectorAi), creditReader, names,
-                cardBillRepository, predictionLog, recurringExpenses, clock);
+                cardBillRepository, predictionLog, creditPredictionLog, recurringExpenses, clock);
     }
 
     @Test
@@ -211,7 +222,7 @@ class ForecastServiceTest {
         assertThat(day(b.series(), NOV_5).conservative()).isEqualTo(-120_000L);
         assertThat(b.riskWindows()).singleElement().satisfies(window -> {
             assertThat(window.from()).isEqualTo(NOV_5);
-            assertThat(window.line()).isEqualTo(RiskDetector.Line.CONFIRMED);
+            assertThat(window.line()).isEqualTo(RiskDetector.Line.EXPECTED);
             assertThat(window.lowestBalance()).isEqualTo(-100_000L);
             assertThat(window.shortfall()).isEqualTo(200_000L);
             assertThat(window.causes()).extracting(RiskDetector.Cause::type)
@@ -282,9 +293,12 @@ class ForecastServiceTest {
             }
 
             @Override
-            Optional<Map<String, Long>> predict(LocalDate asOf, int horizonDays, Map<String, long[]> histories) {
+            Optional<Answer> predict(Endpoint endpoint, LocalDate asOf, int horizonDays,
+                    Map<String, long[]> histories) {
+                assertThat(endpoint).isEqualTo(Endpoint.LIVING_COST);
                 assertThat(asOf).isEqualTo(TODAY.minusDays(1));
-                return Optional.of(Map.of("a0", horizonDays == 7 ? 42_000L : horizonDays == 14 ? 140_000L : 300_000L));
+                return Optional.of(new Answer("m", Map.of("a0",
+                        horizonDays == 7 ? 42_000L : horizonDays == 14 ? 140_000L : 300_000L)));
             }
         };
         ForecastService withAi = serviceAt(CLOCK);
@@ -829,11 +843,19 @@ class ForecastServiceTest {
                         BalanceForecast.SeriesPoint::conservative)
                 .containsExactly(800_000L, 800_000L, 800_000L - 150_000L - 48_000L);
         assertThat(withdrawal.events()).containsExactly(new BalanceForecast.Event(
-                FlowEvent.Type.CARD_SPENDING_ESTIMATE, "카드41 · 10/27~11/11 16일 × 일평균 3,000원", -48_000L,
+                FlowEvent.Type.CARD_SPENDING_ESTIMATE, "카드41 · 10/27~11/11 16일 × 하루 예상 3,000원", -48_000L,
                 FlowEvent.Confidence.CONSERVATIVE));
         assertThat(result.summary().largestOutflow()).isNull();
         assertThat(result.excluded()).extracting(ExcludedItem::title, ExcludedItem::date, ExcludedItem::reason)
                 .containsExactly(tuple("카드42", nov25, ExcludedItem.Reason.CREDIT_SPENDING_UNKNOWN));
+        // 잔고예보는 추정한 카드(41)만 이력으로 넘긴다. 기록 없는 카드 42는 남기지 않는다(S15P31E103-405)
+        assertThat(creditRecorded).singleElement().satisfies(call -> {
+            assertThat(call.userId()).isEqualTo(USER);
+            assertThat(call.predictedOn()).isEqualTo(TODAY);
+            assertThat(call.predictions()).extracting(CreditSpendingEstimator.Prediction::userCardId,
+                    CreditSpendingEstimator.Prediction::remainingDays, p -> p.projection().projectedAmount(),
+                    p -> p.projection().method()).containsExactly(tuple(41L, 16, 48_000L, "TSB"));
+        });
     }
 
     @Test
@@ -877,8 +899,63 @@ class ForecastServiceTest {
         assertThat(day(result.series(), nov25).conservative()).isEqualTo(800_000L - 48_000L);
         assertThat(day(result.series(), TODAY).conservative()).isEqualTo(800_000L);
         assertThat(day(result.series(), nov25).events()).extracting(BalanceForecast.Event::title)
-                .containsExactly("카드41 · 10/27~11/11 16일 × 일평균 3,000원");
+                .containsExactly("카드41 · 10/27~11/11 16일 × 하루 예상 3,000원");
         assertThat(result.livingCost().dataOrigin()).isEqualTo(LivingCostEstimator.DataOrigin.INSUFFICIENT);
+    }
+
+    @Test
+    void 일부_계좌만_생활비가_있으면_통합_예상_생활비는_null이어도_보수적_선에_들어간_생활비와_계좌별_값을_준다() {
+        // S15P31E103-395: A는 체크카드 생활비 5,000원/일, B는 기록이 없고 신용카드 41(B 출금)만 써서 보수적 선이 추정으로만 있다
+        LocalDate nov25 = LocalDate.of(2026, 11, 25);
+        creditSchedule = (card, spendDate) -> Optional.of(nov25);
+        givenEntries(TODAY, TODAY.plusDays(30));
+        creditCards = List.of(41L);
+        List<CreditSpendingReader.CardDailySpending> credit = new ArrayList<>();
+        for (LocalDate day = JUL.atDay(1); !day.isAfter(TODAY); day = day.plusDays(1)) {
+            credit.add(new CreditSpendingReader.CardDailySpending(41L, day, 3_000L, Origin.REAL));
+        }
+        creditDays = credit;
+        when(cardService.findRegisteredCard(USER, 41L)).thenReturn(Optional.of(creditCard(41L, B)));
+        when(cardBillRepository.existsByUserCardIdAndStatus(41L, BillStatus.UNPAID)).thenReturn(false);
+        spending = days(everyDay(A, JUL.atDay(1), TODAY, 5_000));
+
+        BalanceForecast result = service.forecast(USER, List.of(A, B), Until.DAYS, 30, true, false);
+
+        // 통합 예상 생활비는 B 자료가 없어 null이지만, 보수적 선에는 A 생활비 5,000원 × 30일이 들어 있다
+        assertThat(result.livingCost().projectedAmount()).isNull();
+        assertThat(result.livingCost().appliedAmount()).isEqualTo(150_000L);
+        BalanceForecast.SeriesPoint last = result.series().get(result.series().size() - 1);
+        assertThat(last.conservative()).isEqualTo(last.expected() - 150_000L - 48_000L);
+
+        assertThat(result.accountForecasts())
+                .extracting(BalanceForecast.AccountForecast::accountId,
+                        account -> account.livingCost().projectedAmount(),
+                        account -> account.livingCost().appliedAmount(),
+                        account -> account.livingCost().method(),
+                        account -> account.livingCost().dataOrigin())
+                .containsExactly(tuple(A, 150_000L, 150_000L, "TSB", LivingCostEstimator.DataOrigin.REAL),
+                        tuple(B, null, 0L, null, LivingCostEstimator.DataOrigin.INSUFFICIENT));
+        // B의 보수적 선은 생활비 0원에 추정만 뺀 값이라, 계좌별 선을 더하면 통합과 같다
+        BalanceForecast.SeriesPoint lastB = result.accountForecasts().get(1).series()
+                .get(result.accountForecasts().get(1).series().size() - 1);
+        assertThat(lastB.conservative()).isEqualTo(lastB.expected() - 48_000L);
+    }
+
+    @Test
+    void 통합_보수적_선이_없으면_보수적_선에_들어간_생활비는_null이다() {
+        // Codex 검토: A만 생활비 5,000원/일이고 B는 자료도 신용카드 추정도 없어 통합 보수적 선이 null이다
+        givenEntries(TODAY, TODAY.plusDays(30));
+        spending = days(everyDay(A, JUL.atDay(1), TODAY, 5_000));
+
+        BalanceForecast result = service.forecast(USER, List.of(A, B), Until.DAYS, 30, true, false);
+
+        assertThat(result.series()).extracting(BalanceForecast.SeriesPoint::conservative).containsOnlyNulls();
+        assertThat(result.livingCost().appliedAmount()).isNull();
+        // 계좌별로는 A의 보수적 선에 생활비가 들어 있고, B는 보수적 선이 없어 null이다
+        assertThat(result.accountForecasts())
+                .extracting(BalanceForecast.AccountForecast::accountId,
+                        account -> account.livingCost().appliedAmount())
+                .containsExactly(tuple(A, 150_000L), tuple(B, null));
     }
 
     private static UserCardRef creditCard(long id, Long accountId) {

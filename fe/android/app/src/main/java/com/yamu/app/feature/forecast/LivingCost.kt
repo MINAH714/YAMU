@@ -157,7 +157,7 @@ fun LivingCostRoute(onBack: () -> Unit, onLink: () -> Unit = {}, viewModel: Livi
     }
 }
 
-/** 예상 생활비 — 잔고예보 보수적 선에서 날마다 뺀 값의 합. 평균 × 일수가 아니다(BE 11/5 안내) */
+/** 예상 생활비 — 잔고예보 'AI 생활비 반영' 선(conservative)에서 날마다 뺀 값의 합. 평균 × 일수가 아니다(BE 11/5 안내) */
 @Composable
 private fun ProjectedCard(d: LivingCostDetail) {
     val c = YamuTheme.colors
@@ -231,14 +231,14 @@ private fun PaceCard(p: PaceCheck) {
     }
 }
 
-/** 계좌별 — 기록이 없는 계좌가 있으면 잔고예보의 보수적 선이 빠진다 */
+/** 계좌별 — 기록이 없는 계좌가 있으면 잔고예보의 'AI 생활비 반영' 선이 빠진다 */
 @Composable
 private fun AccountsCard(d: LivingCostDetail) {
     val c = YamuTheme.colors
     YamuCard(contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 18.dp, bottom = 8.dp)) {
         Text("계좌별", style = YamuTheme.typography.cardTitle, color = c.text1)
         if (d.accountsWithoutRecord.isNotEmpty()) {
-            Text("기록이 없는 계좌가 있으면 잔고예보의 보수적 선은 빼고 그려요 · 기록이 있는 계좌만 고르면 생활비까지 넣어 볼 수 있어요", style = YamuTheme.typography.bodyS, color = c.text3, modifier = Modifier.padding(top = 4.dp))
+            Text("기록이 없는 계좌가 있으면 잔고예보의 'AI 생활비 반영' 선은 빼고 그려요 · 기록이 있는 계좌만 고르면 생활비까지 넣어 볼 수 있어요", style = YamuTheme.typography.bodyS, color = c.text3, modifier = Modifier.padding(top = 4.dp))
         }
         d.accounts.forEachIndexed { i, a ->
             if (i > 0) HorizontalDivider(color = c.outlineVariant)
