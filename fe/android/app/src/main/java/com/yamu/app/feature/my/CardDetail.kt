@@ -111,16 +111,23 @@ sealed interface DefaultConfirm {
     data object Release : DefaultConfirm
 }
 
-/** 받침이 있으면 '이에요', 없으면 '예요' — '체크카드예요' · '적립이에요'. 숫자는 읽는 소리로(0 · 1 · 3 · 6 · 7 · 8은 받침) */
+/**
+ * 받침이 있으면 '이에요', 없으면 '예요' — '체크카드예요' · '적립이에요' · '(할인형)이에요'(끝의 닫는 괄호 · 따옴표 · 마침표는 건너뛴다).
+ * 숫자와 영문은 읽는 소리로 본다: 0 · 1 · 3 · 6 · 7 · 8(영 · 일 · 삼 · 육 · 칠 · 팔)과 L · M · N · R(엘 · 엠 · 엔 · 알)은 받침.
+ * 영문은 한 글자씩 읽는다고 봐서 'Shop' · 'SIMPLE'처럼 단어로 읽어 받침이 생기는 이름은 '예요'로 남는다
+ */
 internal fun String.copula(): String {
-    val last = trimEnd().lastOrNull() ?: return "예요"
+    val last = trimEnd { it.isWhitespace() || it in COPULA_SKIP }.lastOrNull() ?: return "예요"
     val batchim = when (last) {
         in '가'..'힣' -> (last - '가') % 28 != 0
         in "013678" -> true
+        in "LMNRlmnr" -> true
         else -> false
     }
     return if (batchim) "이에요" else "예요"
 }
+
+private const val COPULA_SKIP = ")]}」』〉》\"'."
 
 /** 없는 카드(404)와 해제한 카드(409)는 고칠 수 없다 — 줄을 되돌리는 대신 '이미 해제'로 */
 private fun ApiError.isCardGone(): Boolean = this is ApiError.NotFound || code == "CARD_UNREGISTERED"

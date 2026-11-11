@@ -348,6 +348,19 @@ class CardDetailViewModelTest {
         assertEquals("예요", "카드2".copula())
     }
 
+    @Test fun `확인창 문장 끝 — 영문 L · M · N · R은 받침, 끝의 닫는 괄호는 건너뛴다`() {
+        assertEquals("이에요", "Deep Dream".copula())
+        assertEquals("이에요", "카드 L".copula())
+        assertEquals("이에요", "카드 n".copula())
+        assertEquals("이에요", "카드 R".copula())
+        assertEquals("예요", "LOCA LIKIT Play".copula())
+        assertEquals("이에요", "현대카드 ZERO Edition3 (할인형)".copula())
+        assertEquals("예요", "KB국민 노리2 체크카드(KB Pay)".copula())
+        assertEquals("예요", "()".copula())
+        // 한계: 단어로 읽는 'Shop'(샵)은 글자 규칙으로 못 본다
+        assertEquals("예요", "LOCA LIKIT Shop".copula())
+    }
+
     // ── 해제 ──
 
     @Test fun `본인 인증 토큰으로 해제하고 화면을 닫는다`() = runTest(dispatcher) {
