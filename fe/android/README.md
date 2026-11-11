@@ -74,7 +74,7 @@ BE(develop, 2026-11-03 · 잔고예보는 2026-11-08 · 경로 전체는 2026-11
 | `cashflow` | `cashflow-items` 등록 · 조회 · 수정 · 삭제, `forecasts/settings` 조회 · 수정, 결제 연결(`cashflow-payment-matches` · `cashflow-items/{id}/payment-match-candidates`) | 후보 항목을 만드는 곳이 없어 B-06은 늘 비어 있음. `forecast` 없이 켜면 잔고예보 · 생활비 상세 · 구매 판단 · 구매 계획은 가짜 |
 | `forecast` | `forecasts/balance`(연결 계좌 `accountIds` · 기간), `forecasts/simulations`, `merchant-categories`, `merchants?merchantCategoryCode=`, 구매 계획 `cashflow-items` 등록 · 삭제(2026-11-08 로컬 BE로 확인), 생활비 상세 `forecasts/living-cost`(S15P31E103-334) | 실적 영향(`performanceImpact`가 늘 null), 홈 잔고 카드(`home`) |
 | `payment` | 결제 코드 발급 · 상태 · 승인, 결제 상세 `payments/{id}` · 취소 `payments/{id}/cancel` · 메모 `payments/{id}/memo`(S15P31E103-336) | 거절(BE에 생겼지만 debug는 아직 가짜로 메움). 후보에 카드사 · 카테고리가 없어 별칭으로 보임 |
-| `my` | 기기 목록 · 해제(`APP_UNLOCK` 본인 확인), 회원 탈퇴(`WITHDRAW_MEMBER` 본인 확인) | 보안 설정 저장, 알림. 회원 정보 `users/me`와 자동 선택 저장 `users/me/payment-settings`는 BE에 생겼지만 debug는 아직 가짜로 메움(`RealWithFakes.kt`) |
+| `my` | 기기 목록 · 해제(`APP_UNLOCK` 본인 확인), 회원 탈퇴(`WITHDRAW_MEMBER` 본인 확인), 알림 목록 · 읽음 · 모두 읽음 · 알림 설정(`notifications` · `notifications/settings`, S15P31E103-403) | 보안 설정 저장. 회원 정보 `users/me`와 자동 선택 저장 `users/me/payment-settings`는 BE에 생겼지만 debug는 아직 가짜로 메움(`RealWithFakes.kt`). 알림을 쌓는 BE 작업(S15P31E103-377) 전이라 알림함은 비어 있고, `home`을 켜지 않으면 홈 종 숫자는 가짜 값 |
 | `pos` | 가맹점 번호 찾기(`merchants?merchantCategoryCode=`) · 결제 요청 · 결과 조회(`?posCode=`, 거절 뒤 재시도 중에는 계속 기다림) | 없음 |
 | `billing` | `billings` 청구서 목록(카드 고르기) · `billings/{billId}` 상세, `refunds` 환급 내역(최근 3개월 · 페이지) | 없음. 앱이 기간 · 상태를 고르지 않아 3개월보다 이전 청구서 · 환급은 안 보임 |
 | `home` · `performance` | 켜지 않음 | 전부 |
