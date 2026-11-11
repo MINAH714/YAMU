@@ -220,12 +220,11 @@ fun spendDiffSentence(diff: Long): String = when {
     else -> "지난달 같은 기간과 같아요"
 }
 
-/** 결제 내역 날짜 머리 — '10월 16일 (금) · 오늘' */
+/** 결제 내역 날짜 머리 — '10월 16일 (금)', 오늘이면 '10월 16일 (금, 오늘)'(가운데 점 대신 괄호, 11/10 QA) */
 fun paymentDayLabel(date: LocalDate?, today: LocalDate = LocalDate.now(KST)): String {
     if (date == null) return "날짜 없음"
     val week = date.dayOfWeek.getDisplayName(TextStyle.SHORT, Locale.KOREAN)
-    val base = "${date.monthValue}월 ${date.dayOfMonth}일 ($week)"
-    return if (date == today) "$base · 오늘" else base
+    return "${date.monthValue}월 ${date.dayOfMonth}일 ($week${if (date == today) ", 오늘" else ""})"
 }
 
 /** 결제 내역 CSV(#63) — 서버가 정한 파일 이름과 내용(UTF-8 BOM 포함) 그대로 */

@@ -73,7 +73,8 @@ private const val MAX_TODOS = 2
 private fun BalanceForecastDto.toForecast(today: LocalDate): ForecastSummary? {
     val income = parseDate(nextIncome?.date)
     val (label, amount) = when {
-        minBalance != null && income != null -> "월급 전 예상 잔액" to minBalance
+        // 월급 전까지 가장 낮아지는 잔액이라 잔고예보 첫 카드와 같은 이름 — '월급 전에 이만큼 남는다'로 읽히지 않게
+        minBalance != null && income != null -> "월급 전 가장 낮을 때" to minBalance
         endBalancePredicted != null -> "${horizonDays ?: 30}일 뒤 예상 잔액" to endBalancePredicted
         currentBalance != null -> "지금 잔액" to currentBalance
         else -> return null

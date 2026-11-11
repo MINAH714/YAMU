@@ -167,7 +167,7 @@ fun BuyCheckInputRoute(onBack: () -> Unit, onNext: (amount: Long, title: String?
             AmountField(amount)
             Spacer(Modifier.height(16.dp))   // 칸 위 24(.tf margin-top) − 입력칸이 라벨 자리로 두는 8
             YamuTextField(
-                label = "무엇을 사나요 · 선택",
+                label = "무엇을 사나요 (선택)",
                 value = title,
                 onValueChange = { title = it.take(30) },
                 placeholder = "태블릿",
@@ -317,7 +317,7 @@ fun BuyConditionsRoute(onBack: () -> Unit, onCompare: (SimulationQuery) -> Unit,
             Text("어디서 어떻게 살지\n알려 주세요", style = YamuTheme.typography.headlineS, color = c.text1)
 
             Spacer(Modifier.height(24.dp))
-            SectionLabel("어디서 · 필수")
+            SectionLabel("어디서 (필수)")
             Spacer(Modifier.height(10.dp))
             val categories = s.categories
             when {
@@ -384,7 +384,7 @@ fun BuyConditionsRoute(onBack: () -> Unit, onCompare: (SimulationQuery) -> Unit,
             Row(Modifier.fillMaxWidth().heightIn(min = 52.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text("날짜", style = YamuTheme.typography.bodyM, color = c.text3, modifier = Modifier.width(48.dp))
                 Text(
-                    s.date.toKoreanDateWeek() + if (s.date == LocalDate.now(KST)) " · 오늘" else "",
+                    s.date.toKoreanDateWeek(markToday = true),
                     style = YamuTheme.typography.titleS,
                     color = c.text1,
                     modifier = Modifier.weight(1f),

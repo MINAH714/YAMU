@@ -77,6 +77,56 @@ class CashflowFormTest {
         assertEquals(30, off.toRequest().recurrence?.dayOfMonth)
     }
 
+    @Test fun `말일 칩 하나로 켜고 끈다 — 끄면 옮긴 날짜는 그대로 두고 그날을 기준일로`() {
+        val monthly = form().withRepeat(CashflowRepeat.MONTHLY)
+        val on = monthly.withMonthEnd(!monthly.isMonthEnd)          // 화면의 말일 칩 누르기
+        assertTrue(on.isMonthEnd)
+        assertEquals(LocalDate.of(2026, 11, 30), on.date)
+        val off = on.withMonthEnd(!on.isMonthEnd)
+        assertEquals(false, off.isMonthEnd)
+        assertEquals("매월 30일", off.repeatLabel())
+        assertEquals(RecurrenceRequest("MONTHLY", dayOfMonth = 30), off.toRequest().recurrence)
+    }
+
+    @Test fun `31일에 붙은 말일을 끄면 칩은 켜진 채로 보이지만 다음 날짜는 고른 날 그대로`() {
+        val dec = form(LocalDate.of(2026, 12, 10)).withRepeat(CashflowRepeat.MONTHLY)
+        val on = dec.withMonthEnd(true)
+        assertEquals(LocalDate.of(2026, 12, 31), on.date)
+        val off = on.withMonthEnd(!on.isMonthEnd)
+        assertTrue(off.isMonthEnd)                                   // 31일은 곧 말일
+        assertEquals(31, off.toRequest().recurrence?.dayOfMonth)
+        val picked = off.withDate(LocalDate.of(2027, 1, 15))         // 말일에 붙지 않는다
+        assertEquals(LocalDate.of(2027, 1, 15), picked.date)
+        assertEquals("매월 15일", picked.repeatLabel())
+        // 끄지 않았으면 고른 달의 말일로 붙는다
+        assertEquals(LocalDate.of(2027, 1, 31), on.withDate(LocalDate.of(2027, 1, 15)).date)
+    }
+
+    @Test fun `날짜 줄 이름 — 새 반복은 처음 나가는 날 · 1회와 고칠 때는 나가는 날 · 수입은 들어오는 날`() {
+        assertEquals("나가는 날", form().dateLabel(editing = false))
+        assertEquals("처음 나가는 날", form().withRepeat(CashflowRepeat.WEEKLY).dateLabel(editing = false))
+        assertEquals("처음 나가는 날", form().withRepeat(CashflowRepeat.MONTHLY).dateLabel(editing = false))
+        assertEquals("처음 들어오는 날", form().withIncome(true).withRepeat(CashflowRepeat.MONTHLY).dateLabel(editing = false))
+        assertEquals("들어오는 날", form().withIncome(true).dateLabel(editing = false))
+        // 고칠 때는 그 회차의 날짜다
+        assertEquals("나가는 날", form().withRepeat(CashflowRepeat.MONTHLY).dateLabel(editing = true))
+    }
+
+    @Test fun `끝나는 날이 앞이면 날짜 줄 이름으로 알린다(시작일이라 쓰지 않는다)`() {
+        val f = form().withRepeat(CashflowRepeat.WEEKLY).withEndDate(LocalDate.of(2026, 11, 14))
+        assertEquals("끝나는 날은 나가는 날과 같거나 그 뒤여야 해요", f.validate(today)[CashflowField.RECURRENCE])
+        assertEquals("끝나는 날은 들어오는 날과 같거나 그 뒤여야 해요", f.withIncome(true).validate(today)[CashflowField.RECURRENCE])
+        assertTrue(f.withEndDate(f.date).validate(today).isEmpty())  // 같은 날은 된다
+    }
+
+    @Test fun `매월 안내의 기준일은 넘긴 값 · 말일이면 넘긴 값과 상관없이 말일`() {
+        val feb = form(LocalDate.of(2027, 2, 28)).withRepeat(CashflowRepeat.MONTHLY)
+        assertEquals("매월 28일", feb.repeatLabel())
+        assertEquals("매월 30일", feb.repeatLabel(monthlyDay = 30))
+        assertEquals("매월 말일", feb.withMonthEnd(true).repeatLabel(monthlyDay = 30))
+        assertEquals("매주 일요일", feb.withRepeat(CashflowRepeat.WEEKLY).repeatLabel(monthlyDay = 30))
+    }
+
     @Test fun `매월에서 다른 반복으로 바꾸면 말일 선택이 풀린다`() {
         val f = form().withRepeat(CashflowRepeat.MONTHLY).withMonthEnd(true).withRepeat(CashflowRepeat.WEEKLY)
         assertEquals(false, f.monthEnd)

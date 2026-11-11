@@ -68,12 +68,16 @@ class CashflowEditTest {
         )
     }
 
-    @Test fun `수정 화면의 매월 칩은 규칙의 기준일 · 날짜를 옮기면 새 날짜`() {
+    @Test fun `수정 화면의 매월 안내는 규칙의 기준일 · 날짜를 옮기면 새 날짜`() {
         val feb = LocalDate.of(2027, 2, 28)
         val day30 = rent.copy(dayOfMonth = 30, occurrenceDate = feb, date = feb)
         assertEquals(30, day30.monthlyDayOn(day30.toForm()))
         assertEquals(20, day30.monthlyDayOn(day30.toForm().copy(date = LocalDate.of(2027, 2, 20))))
         assertEquals(30, rent.monthlyDayOn(rent.toForm().withMonthEnd(false)))   // 말일을 끈 11/30
+        // 화면 안내 '매월 N일마다 나가요' — 2/28 회차여도 28일로 보이지 않는다
+        assertEquals("매월 30일", day30.toForm().let { it.repeatLabel(day30.monthlyDayOn(it)) })
+        assertEquals("매월 말일", rent.toForm().repeatLabel())
+        assertEquals("나가는 날", day30.toForm().dateLabel(editing = true))
     }
 
     @Test fun `옮겨 둔 회차 — 원래 날짜가 지나면 이후 전부를 못 고르고 · 안 지났으면 원래 날짜로 돌아감을 알린다`() {

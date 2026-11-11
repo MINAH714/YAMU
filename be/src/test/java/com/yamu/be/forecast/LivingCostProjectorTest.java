@@ -41,12 +41,13 @@ class LivingCostProjectorTest {
         FakeAi ai = new FakeAi(Map.of(7, 35_000L, 14, 100_000L, 30, 200_000L));
         List<DailySpending> rows = everyDay(A, TODAY.minusDays(120), TODAY, 5_000, Origin.REAL);
 
-        LivingCostProjector.AccountProjection result = new LivingCostProjector(ai)
-                .project(List.of(A), rows, TODAY, 30).byAccount().get(A);
+        LivingCostProjector.Projection projection = new LivingCostProjector(ai).project(List.of(A), rows, TODAY, 30);
+        LivingCostProjector.AccountProjection result = projection.byAccount().get(A);
 
         // 31일 = 30일 하루 평균 × 31 = 206,667원. 오늘 5,000원을 빼 201,667원 ÷ 30 = 6,722원(반올림)
         assertThat(result.method()).isEqualTo("ML_V1");
         assertThat(result.dailyAmount()).isEqualTo(6_722L);
+        assertThat(projection.aiModelVersion()).isEqualTo("fake");
         assertThat(result.projectedAmount()).isEqualTo(6_722L * 30);
         assertThat(ai.calls).extracting(Call::horizon).containsExactly(7, 14, 30);
         assertThat(ai.calls).allSatisfy(call -> {
@@ -294,12 +295,29 @@ class LivingCostProjectorTest {
                 .map(date -> new DailySpending(accountId, date, amount, amount, origin, true)).toList();
     }
 
-    private record Call(LocalDate asOf, int horizon, Map<String, long[]> histories) {}
+    @Test
+    void 모델_버전은_기간마다_같으면_그_값_다르면_기간과_함께_남기고_TSB면_null이다() {
+        List<DailySpending> rows = everyDay(A, TODAY.minusDays(120), TODAY, 5_000, Origin.REAL);
+        FakeAi same = new FakeAi(Map.of(7, 35_000L, 14, 70_000L, 30, 150_000L));
+        FakeAi mixed = new FakeAi(Map.of(7, 35_000L, 14, 70_000L, 30, 150_000L));
+        mixed.versions.put(30, "new");
+
+        assertThat(new LivingCostProjector(same).project(List.of(A), rows, TODAY, 30).aiModelVersion())
+                .isEqualTo("fake");
+        assertThat(new LivingCostProjector(mixed).project(List.of(A), rows, TODAY, 30).aiModelVersion())
+                .isEqualTo("7:fake,14:fake,30:new");
+        assertThat(new LivingCostProjector(AiLivingCostClient.disabled()).project(List.of(A), rows, TODAY, 30)
+                .aiModelVersion()).isNull();
+    }
+
+    private record Call(AiLivingCostClient.Endpoint endpoint, LocalDate asOf, int horizon, Map<String, long[]> histories) {}
 
     /** 정한 예측 일수에만 같은 금액으로 답하는 AI. 없는 일수는 실패(empty). */
     private static final class FakeAi extends AiLivingCostClient {
         private final Map<Integer, Long> answers;
         private final List<Call> calls = new ArrayList<>();
+        /** 기간마다 답할 모델 버전. 없으면 "fake". */
+        private final Map<Integer, String> versions = new HashMap<>();
 
         FakeAi(Map<Integer, Long> answers) {
             super(null, Clock.systemUTC(), Duration.ZERO);
@@ -312,15 +330,16 @@ class LivingCostProjectorTest {
         }
 
         @Override
-        Optional<Map<String, Long>> predict(LocalDate asOf, int horizonDays, Map<String, long[]> histories) {
-            calls.add(new Call(asOf, horizonDays, Map.copyOf(histories)));
+        Optional<AiLivingCostClient.Answer> predict(AiLivingCostClient.Endpoint endpoint, LocalDate asOf,
+                int horizonDays, Map<String, long[]> histories) {
+            calls.add(new Call(endpoint, asOf, horizonDays, Map.copyOf(histories)));
             Long answer = answers.get(horizonDays);
             if (answer == null) {
                 return Optional.empty();
             }
             Map<String, Long> out = new HashMap<>();
             histories.keySet().forEach(key -> out.put(key, answer));
-            return Optional.of(out);
+            return Optional.of(new AiLivingCostClient.Answer(versions.getOrDefault(horizonDays, "fake"), out));
         }
     }
 }

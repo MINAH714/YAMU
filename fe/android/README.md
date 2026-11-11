@@ -58,7 +58,7 @@ yamu.baseUrl=http://localhost:8080/api/
 
 - `yamu.baseUrl`은 `http://`나 `https://`로 시작하고 `/`로 끝나야 한다(아니면 빌드가 멈춘다). 로컬 BE는 `adb reverse tcp:8080 tcp:8080` 뒤 `localhost`, 에뮬레이터는 `http://10.0.2.2:8080/api/`도 된다.
 - http는 `network_security_config`가 `localhost`와 `10.0.2.2`만 허용한다. LAN IP(`http://192.168.…`)는 막히므로 실기기는 `adb reverse`로 `localhost`를 쓴다.
-- 기능을 진짜로 켤 때는 `yamu.realApi`에 이름을 쉼표로 적는다. 쓸 수 있는 이름은 `auth` · `link` · `cashflow` · `home` · `payment` · `performance` · `forecast` · `report` · `my` · `pos` · `billing`이다. `all`은 BE에 API가 있는 `auth` · `link` · `cashflow` · `home` · `payment` · `forecast` · `report` · `my` · `pos` · `billing`만 켠다. `performance`는 이름을 직접 적어야 켜지고 켜면 유불리 분석 · 판단 기록만 404가 난다. `cashflow` · `forecast` · `billing`을 켜면 `link`도 같이 켜진다(가짜 계좌 · 카드 번호가 진짜 서버로 가지 않게).
+- 기능을 진짜로 켤 때는 `yamu.realApi`에 이름을 쉼표로 적는다. 쓸 수 있는 이름은 `auth` · `link` · `cashflow` · `home` · `payment` · `performance` · `forecast` · `report` · `my` · `pos` · `billing`이다. `all`은 이 11개를 모두 켠다. 이 가운데 `performance`는 유불리 분석 · 판단 기록이 아직 BE에 없어 그 화면만 404가 나고 `home` · `report`는 앱 응답 모양을 BE와 맞춰 본 뒤 넣었다(S15P31E103-413). `cashflow` · `forecast` · `billing`을 켜면 `link`도 같이 켜진다(가짜 계좌 · 카드 번호가 진짜 서버로 가지 않게).
 - `payment` · `my`는 debug에서 BE에 없는 메서드만 가짜로 메운다(`src/debug/.../RealWithFakes.kt`). release에는 가짜가 없어 그대로 404다. `pos`는 메울 것이 없어 켜면 전부 진짜를 부른다.
 - 진짜 API는 로그인 토큰이 필요하다. `auth`를 가짜로 두고 다른 기능만 켜면 가짜 토큰이 실려 401이 나므로 다른 기능을 켤 때는 `auth`도 같이 켠다.
 - 모의 POS는 `yamu.posKey`(BE `yamu.pos.key`와 같은 값) 하나만 적는다. 단말은 첫 화면에서 BE `yamu.pos.terminals`의 네 개(`POS-YAMU-CAFE` · `POS-STARBUCKS-GENERAL` · `POS-STARBUCKS-DEPARTMENT_STORE` · `POS-GS25-GENERAL`) 가운데 고르고, 가맹점 번호는 고를 때 `GET /api/merchants?merchantCategoryCode=`에서 단말 브랜드(`brandCode`)로 찾아 저장한다. 시드를 다시 넣어 번호가 바뀌면 결제 요청이 '가맹점을 다시 골라 주세요'로 실패하니 [가맹점 바꾸기]로 다시 고른다. BE 단말 설정이 바뀌면 `src/pos/.../PosRepository.kt`의 `POS_TERMINALS`도 같이 고친다.
@@ -74,11 +74,11 @@ BE(develop, 2026-11-03 · 잔고예보는 2026-11-08 · 홈 · 리포트와 경�
 | `cashflow` | `cashflow-items` 등록 · 조회 · 수정 · 삭제, `forecasts/settings` 조회 · 수정, 결제 연결(`cashflow-payment-matches` · `cashflow-items/{id}/payment-match-candidates`) | 후보 항목을 만드는 곳이 없어 B-06은 늘 비어 있음. `forecast` 없이 켜면 잔고예보 · 생활비 상세 · 구매 판단 · 구매 계획은 가짜 |
 | `forecast` | `forecasts/balance`(연결 계좌 `accountIds` · 기간), `forecasts/simulations`, `merchant-categories`, `merchants?merchantCategoryCode=`, 구매 계획 `cashflow-items` 등록 · 삭제(2026-11-08 로컬 BE로 확인), 생활비 상세 `forecasts/living-cost`(S15P31E103-334) | 실적 영향(`performanceImpact`가 늘 null), 홈 잔고 카드(`home`) |
 | `payment` | 결제 코드 발급 · 상태 · 승인, 결제 상세 `payments/{id}` · 취소 `payments/{id}/cancel` · 메모 `payments/{id}/memo`(S15P31E103-336) | 거절(BE에 생겼지만 debug는 아직 가짜로 메움). 후보에 카드사 · 카테고리가 없어 별칭으로 보임 |
-| `my` | 기기 목록 · 해제(`APP_UNLOCK` 본인 확인), 회원 탈퇴(`WITHDRAW_MEMBER` 본인 확인) | 보안 설정 저장, 알림. 회원 정보 `users/me`와 자동 선택 저장 `users/me/payment-settings`는 BE에 생겼지만 debug는 아직 가짜로 메움(`RealWithFakes.kt`) |
+| `my` | 기기 목록 · 해제(`APP_UNLOCK` 본인 확인), 회원 탈퇴(`WITHDRAW_MEMBER` 본인 확인), 알림 목록 · 읽음 · 모두 읽음 · 알림 설정(`notifications` · `notifications/settings`, S15P31E103-403) | 보안 설정 저장. 회원 정보 `users/me`와 자동 선택 저장 `users/me/payment-settings`는 BE에 생겼지만 debug는 아직 가짜로 메움(`RealWithFakes.kt`). 알림을 쌓는 BE 작업(S15P31E103-377) 전이라 알림함은 비어 있고, `home`을 켜지 않으면 홈 종 숫자는 가짜 값 |
 | `pos` | 가맹점 번호 찾기(`merchants?merchantCategoryCode=`) · 결제 요청 · 결과 조회(`?posCode=`, 거절 뒤 재시도 중에는 계속 기다림) | 없음 |
 | `billing` | `billings` 청구서 목록(카드 고르기) · `billings/{billId}` 상세, `refunds` 환급 내역(최근 3개월 · 페이지) | 없음. 앱이 기간 · 상태를 고르지 않아 3개월보다 이전 청구서 · 환급은 안 보임 |
 | `home` | 홈 요약 `home`, 당겨서 새로고침 `sync`(S15P31E103-413) | 없음. 할 일은 BE가 만든 목록을 그대로 그린다 |
-| `performance` | `all`로는 켜지 않음. 이름을 적어 켜면 카드별 실적 `users/me/card-performances` · 실적 상세 `user-cards/{id}/performance` · 혜택 한도 `benefit-limits`는 BE로 간다 | 유불리 분석 `performance/analysis` · 판단 기록 `performance/decisions` |
+| `performance` | 카드별 실적 `users/me/card-performances` · 실적 상세 `user-cards/{id}/performance` · 혜택 한도 `benefit-limits` | 유불리 분석 `performance/analysis` · 판단 기록 `performance/decisions`. 카드 목록은 판정이 빈 카드를 채울 때 유불리 분석을 한 장으로 먼저 불러 보고 404면 앱을 끌 때까지 목록에서는 다시 부르지 않는다(S15P31E103-400) |
 | `report` | 월간 소비 `reports/monthly`, 혜택 리포트 `reports/monthly/benefits`, 결제 내역 `payments`, CSV 내려받기 `payments/export`(S15P31E103-413) | 없음. 결제 내역에 혜택 종류(`benefitType`)가 없어 혜택은 늘 '혜택'으로 보임 |
 
 앱 Retrofit 경로 72개(main · pos, 메서드와 경로가 같으면 하나) 중 develop BE에 없는 것은 아래 2개다. release에서 부르면 404 `API_NOT_FOUND`가 와서 화면에는 '아직 준비 중인 기능이에요'만 뜨고 '다시 시도' 버튼은 숨는다(Task 8.2.37, S15P31E103-365).

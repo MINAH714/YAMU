@@ -156,6 +156,28 @@ class CashflowCreateViewModelTest {
         assertEquals("고른 계좌나 카드를 찾을 수 없어요 · 다른 걸 고르거나 목록에서 다시 확인해 주세요", vm.state.value.errors[CashflowField.PAYMENT])
     }
 
+    @Test fun `말일 칩을 켜면 날짜를 옮겼다고 알리고 · 다시 누르면 끄고 알림을 지운다(날짜는 그대로)`() = runTest(dispatcher) {
+        val vm = adding()
+        vm.edit { it.withRepeat(CashflowRepeat.MONTHLY) }
+        vm.setDate(LocalDate.of(2030, 11, 10))
+        assertNull(vm.state.value.movedTo)
+
+        vm.setMonthEnd(!vm.state.value.form.isMonthEnd)             // 화면의 말일 칩
+        assertEquals(LocalDate.of(2030, 11, 30), vm.state.value.form.date)
+        assertEquals(LocalDate.of(2030, 11, 30), vm.state.value.movedTo)
+        assertEquals(31, vm.state.value.form.toRequest().recurrence?.dayOfMonth)
+
+        vm.setMonthEnd(!vm.state.value.form.isMonthEnd)
+        assertFalse(vm.state.value.form.isMonthEnd)
+        assertNull(vm.state.value.movedTo)
+        assertEquals(LocalDate.of(2030, 11, 30), vm.state.value.form.date)
+        // 말일 반복 중 날짜를 고르면 그달 말일로 붙고 옮겼다고 알린다
+        vm.setMonthEnd(true)
+        vm.setDate(LocalDate.of(2031, 2, 3))
+        assertEquals(LocalDate.of(2031, 2, 28), vm.state.value.form.date)
+        assertEquals(LocalDate.of(2031, 2, 28), vm.state.value.movedTo)
+    }
+
     @Test fun `결제와 연결된 앞으로의 회차도 지난 회차처럼 저장 · 삭제를 잠그고, 끊으면 다시 연다`() {
         val today = LocalDate.of(2026, 11, 9)
         val tomorrow = CARD.copy(occurrenceDate = today.plusDays(1), date = today.plusDays(1))

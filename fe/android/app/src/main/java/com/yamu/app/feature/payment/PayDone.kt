@@ -51,6 +51,8 @@ import com.yamu.app.feature.payment.data.PayStatus
 import com.yamu.app.feature.payment.data.PaymentEdits
 import com.yamu.app.feature.payment.data.PaymentReceipt
 import com.yamu.app.feature.payment.data.PaymentRepository
+import com.yamu.app.feature.payment.data.amountText
+import com.yamu.app.feature.payment.data.instantDiscountText
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -150,7 +152,9 @@ fun PayDoneRoute(
                 Spacer(Modifier.height(6.dp))
                 Text(if (r?.canceled == true) "결제를 취소했어요" else "결제를 마쳤어요", style = YamuTheme.typography.headlineS, color = c.text1)
                 if (r != null) {
-                    AmountText(r.amount)
+                    // 즉시할인은 빠진 금액(실제 결제 금액)을 크게, 원래 금액은 아래 한 줄로. 청구할인 · 캐시백 · 적립은 결제 금액 그대로(11/10 QA)
+                    AmountText(r.paidAmount)
+                    r.instantDiscountText()?.let { Text(it, style = YamuTheme.typography.bodyM, color = c.text2) }
                     Text(listOfNotNull(r.merchantName, formatPaidAt(r.paidAtIso)).joinToString(" · "), style = YamuTheme.typography.bodyM, color = c.text3)
                 }
             }
@@ -192,7 +196,7 @@ private fun ReceiptLines(r: PaymentReceipt, onPerformance: ((Long) -> Unit)?) {
     val c = YamuTheme.colors
     val card = r.cardBrand?.name ?: r.cardName ?: "카드"
     val row = 48.dp   // 프로토타입 결제 완료 .kv.lg
-    r.benefits.forEach { b -> KeyValueRow("$card ${b.name}", "−${b.amount.toWon()}원", minHeight = row, valueColor = c.primary) }
+    r.benefits.forEach { b -> KeyValueRow("$card ${b.name}", b.amountText(), minHeight = row, valueColor = c.primary) }
     if (r.isCheck) {
         r.chargedAmount?.let { KeyValueRow("계좌에서 출금", "${it.toWon()}원", minHeight = row) }
         r.balanceAfter?.let { KeyValueRow("남은 잔액", "${it.toWon()}원", minHeight = row) }
