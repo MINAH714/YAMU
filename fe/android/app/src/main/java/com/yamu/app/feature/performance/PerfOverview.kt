@@ -53,6 +53,7 @@ import com.yamu.app.core.network.ApiResult
 import com.yamu.app.core.ui.staleLine
 import com.yamu.app.core.ui.userMessage
 import com.yamu.app.feature.link.BrandMark
+import com.yamu.app.feature.performance.data.AT_RISK_LABEL
 import com.yamu.app.feature.performance.data.CardPerf
 import com.yamu.app.feature.performance.data.PerfGuide
 import com.yamu.app.feature.performance.data.PerfOverview
@@ -150,7 +151,10 @@ fun PerfOverviewRoute(
     }
 }
 
-/** 기준 전 카드 — 위: 칩 · 이름 · '+15,000' · 판정 태그 · › / 아래: 게이지 + 'n원 남음'(프로토타입 R-01) */
+/**
+ * 기준 전 카드 — 위: 칩 · 이름 · '+15,000' · 태그 · › / 아래: 게이지 + 'n원 남음'(프로토타입 R-01).
+ * 태그는 하나만 — 판정이 있으면 판정, 없으면 서버 상태 AT_RISK일 때 '미달 예상'
+ */
 @Composable
 private fun PendingRow(card: CardPerf, last: Boolean, onClick: () -> Unit) {
     val c = YamuTheme.colors
@@ -158,14 +162,17 @@ private fun PendingRow(card: CardPerf, last: Boolean, onClick: () -> Unit) {
         Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick)
-            .semantics(mergeDescendants = true) { contentDescription = "${card.name} ${card.guide?.label ?: ""} ${card.remaining.toWon()}원 남음" }
+            .semantics(mergeDescendants = true) { contentDescription = "${card.name} ${card.tagLabel ?: ""} ${card.remaining.toWon()}원 남음" }
             .padding(top = 14.dp, bottom = if (last) 6.dp else 14.dp),   // 카드 마지막 줄은 아래 6(프로토타입 .cr:last-child)
     ) {
         Row(Modifier.heightIn(min = 28.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {   // 윗줄 28(.cr .l1)
             BrandMark(card.brand)
             Text(card.name, style = YamuTheme.typography.titleM, color = c.text1, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
             card.recentChange?.let { Text(it.toWon(withPlusSign = true), style = YamuTheme.typography.labelL.copy(fontWeight = FontWeight.Bold), color = c.primary, maxLines = 1) }
-            card.guide?.let { StatusTag(it.label, tone = it.tone(), guide = true) }
+            when {
+                card.guide != null -> StatusTag(card.guide.label, tone = card.guide.tone(), guide = true)
+                card.atRisk -> StatusTag(AT_RISK_LABEL, tone = TagTone.Warning, guide = true)
+            }
             Icon(YamuIcons.ChevronRight, contentDescription = null, tint = c.text3)
         }
         GaugeLine(card)
