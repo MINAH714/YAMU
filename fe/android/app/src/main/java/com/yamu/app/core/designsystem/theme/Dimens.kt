@@ -108,4 +108,18 @@ object YamuMotion {
 
     /** 남은 시간 링을 다시 재는 간격. 그 사이는 같은 속도로 줄어듦 */
     const val COUNTDOWN_TICK_MS = 250
+
+    /**
+     * 동전 무더기(홈 예상 잔액 카드 아래 무대): 화면 교체 페이드가 끝난 뒤 떨어지기 시작한다. 모두 떨어지기 시작하는 창은
+     * 개수 × COIN_STAGGER_MS(최대 COIN_WINDOW_MAX_MS)이고, 그 안에서 처음엔 촘촘하고 끝으로 갈수록 드문드문하다.
+     * 180dp 떨어지는 데 COIN_FALL_MS(중력처럼 거리의 제곱근에 비례), 같은 줄 위 동전은 아래 동전이 닿고
+     * COIN_STACK_GAP_MS 뒤에 닿는다. 들어올 때 한 번만 — 무한 반복 없음
+     */
+    const val COIN_START_DELAY_MS = SCREEN_SWAP_MS
+    const val COIN_STAGGER_MS = 40
+    const val COIN_WINDOW_MAX_MS = 1300
+    const val COIN_FALL_MS = 460
+    const val COIN_STACK_GAP_MS = 30
+    /** 홈 예상 잔액이 다 보인 뒤 바뀌면(결제하고 돌아옴 · 새로고침) 보이던 값에서 새 값으로 굴러가는 시간 */
+    const val AMOUNT_ROLL_MS = 700
 }
