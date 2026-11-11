@@ -79,9 +79,14 @@ import kotlin.math.abs
 
 @Serializable data class RiskCauseDto(val type: String? = null, val title: String? = null, val amount: Long = 0, val date: String? = null)
 
-/** 예상 생활비는 projectedAmount만 보인다. dailyAverage · monthlyAverage는 지난 3개월 실적이라 예측 값이 아니다(BE 11/5 안내) */
+/**
+ * 예상 생활비는 projectedAmount · appliedAmount만 보인다. dailyAverage · monthlyAverage는 지난 3개월 실적이라 예측 값이 아니다(BE 11/5 안내).
+ * projectedAmount는 한 계좌라도 기록이 없으면 null이고, appliedAmount는 'AI 생활비 반영' 선에 실제로 빠진 생활비(기록 있는 계좌의 합, 없으면 0)다.
+ * appliedAmount가 null이면 그 선 자체가 없다. 옛 서버는 이 칸을 보내지 않는다(BE -395 !244)
+ */
 @Serializable data class ForecastLivingCostDto(
     val projectedAmount: Long? = null,
+    val appliedAmount: Long? = null,
     val dailyAverage: Long? = null,
     val monthlyAverage: Long? = null,
     val method: String? = null,
@@ -205,7 +210,14 @@ data class RiskWindow(
     val causes: List<RiskCause>,
 )
 
-data class ForecastLivingCost(val projectedAmount: Long?, val method: LivingMethod, val insufficient: Boolean)
+/** [appliedAmount]는 서버 값 그대로(옛 서버면 null). 계산 카드는 [lineAmount]를 쓴다 */
+data class ForecastLivingCost(val projectedAmount: Long?, val method: LivingMethod, val insufficient: Boolean, val appliedAmount: Long? = null) {
+    /** 'AI 생활비 반영' 선에 빠진 생활비. 옛 서버는 모든 계좌에 기록이 있을 때만 projectedAmount로 알 수 있다 */
+    val lineAmount: Long? get() = appliedAmount ?: projectedAmount?.takeIf { !insufficient }
+
+    /** 일부 계좌에만 기록이 있어 선에 기록 있는 계좌의 생활비만 들어갔다 — 새 서버에서만 안다 */
+    val isPartial: Boolean get() = insufficient && (appliedAmount ?: 0) > 0
+}
 
 /** 계산에서 뺀 것 — 이유마다 문장 하나 */
 data class ExcludedNote(val reason: String?, val text: String)
@@ -284,7 +296,12 @@ data class Forecast(
                 else -> "기타"
             }
         }
-        val living = livingCost?.takeIf { !it.insufficient }?.projectedAmount?.let { LineStep("예상 생활비", -it, livingCost.method.label) }
+        // 선에 실제로 빠진 생활비(appliedAmount)라 일부 계좌만 기록이 있어도 줄 합계가 끝 잔액과 맞는다. 기록이 아무 데도 없어 0원이면 줄을 만들지 않는다
+        val living = livingCost?.let { lc ->
+            lc.lineAmount?.takeIf { it != 0L || !lc.insufficient }?.let {
+                LineStep("예상 생활비", -it, listOfNotNull(lc.method.label, "기록 있는 계좌만".takeIf { lc.isPartial }).joinToString(" · ").ifEmpty { null })
+            }
+        }
         val withLiving = listOfNotNull(living) + steps(events.filter { it.confidence == FlowConfidence.CONSERVATIVE }) {
             if (it.type == FlowType.CARD_SPENDING_ESTIMATE) "앞으로 쓸 신용카드 금액" else "기타 추정"
         }
@@ -297,9 +314,9 @@ data class Forecast(
     /**
      * 여러 계좌 중 일부만 생활비 기록이 있을 수 있는 경우. BE는 한 계좌라도 생활비가 없으면 통합 livingCost를 INSUFFICIENT(금액 null)로 주지만,
      * conservative는 계좌마다 계산해 기록 없는 계좌도 카드 추정이 있으면 생활비 0원으로 낸다(LivingCostProjector.total · ForecastCalculator).
-     * 그래서 선에는 기록 있는 계좌의 생활비가 들어 있는데 금액은 받지 못한다 — 앱이 거꾸로 계산하지 않고 그 사실만 알린다
+     * 옛 서버는 선에 들어간 생활비 금액을 주지 않아 앱이 거꾸로 계산하지 않고 그 사실만 알린다. 새 서버는 appliedAmount로 금액을 줘서(-395 !244) 이 안내가 필요 없다
      */
-    val hasPartialLiving: Boolean get() = livingCost?.insufficient == true && hasConservative && accountIds.size > 1
+    val hasPartialLiving: Boolean get() = livingCost?.insufficient == true && livingCost.appliedAmount == null && hasConservative && accountIds.size > 1
 }
 
 /** [Forecast.hasPartialLiving] — 기록 있는 계좌가 하나도 없을 때도 맞는 문장(어느 쪽인지 응답만으로는 모른다) */
@@ -321,7 +338,12 @@ fun BalanceForecastDto.toForecast(): Forecast {
         )
     }.sortedBy { it.date }
     val living = livingCost?.let {
-        ForecastLivingCost(it.projectedAmount, enumOf(it.method, LivingMethod.UNKNOWN), insufficient = it.dataOrigin.equals("INSUFFICIENT", ignoreCase = true) || it.projectedAmount == null)
+        ForecastLivingCost(
+            it.projectedAmount,
+            enumOf(it.method, LivingMethod.UNKNOWN),
+            insufficient = it.dataOrigin.equals("INSUFFICIENT", ignoreCase = true) || it.projectedAmount == null,
+            appliedAmount = it.appliedAmount,
+        )
     }
     return Forecast(
         accountIds = accountIds,

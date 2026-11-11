@@ -14,8 +14,8 @@ import org.springframework.stereotype.Component;
  * <p>통합 잔액 선과 계좌별 선을 모두 본다. 잔고예보 최종 상태와 같은 기준이다(명세 예시: 통합은 안전해도 한 계좌가 위험하면 DANGER).
  * 첫날이 같으면 통합 구간을 먼저 고른다.
  *
- * <p>잔고예보 조회({@link ForecastService#forecast})를 부르지 않는 이유: 조회는 응답 직전에 예상 생활비 이력({@link LivingCostPredictionLog})을
- * 남긴다. 알림 작업이 매일 사용자마다 이력을 쌓으면 "사용자가 본 예측"과 실제를 비교하는 이력이 흐려진다. 가상 구매처럼 재료만 쓴다.
+ * <p>잔고예보 조회({@link ForecastService#forecast})를 부르지 않는 이유: 조회는 응답 직전에 예상 생활비 이력({@link LivingCostPredictionLog})과
+ * 카드별 신용 사용 추정 이력({@link CreditSpendingPredictionLog})을 남긴다. 알림 작업이 매일 사용자마다 이력을 쌓으면 "사용자가 본 예측"과 실제를 비교하는 이력이 흐려진다. 가상 구매처럼 재료만 쓴다.
  *
  * <p>위험 수준·구간 타입({@link RiskDetector})이 패키지 밖에 공개되지 않아, 알림에 필요한 값만 담은 {@link Risk}로 바꿔 준다.
  * 판정 기준은 잔고예보 화면과 같다: 기간은 잔고예보 설정의 기간 기준, 안전 잔액은 설정의 {@code alertThreshold}, 잔액은 캐시(10분)를 쓴다.

@@ -110,6 +110,52 @@ class ForecastMapperTest {
         assertEquals(withoutLiving.end!! + withLiving.steps.sumOf { it.amount }, withLiving.end)
     }
 
+    /**
+     * !244 안내 예시 — 계좌 A(3)는 체크카드 생활비 150,000원, B(4)는 기록 없이 신용카드 추정 48,000원만.
+     * 통합 projectedAmount는 null이지만 appliedAmount(150,000)가 'AI 생활비 반영' 선에 실제로 빠진 생활비다
+     */
+    private val partialLiving = """
+        {"accountIds":[3,4],"currentTotalBalance":1500000,
+         "horizon":{"type":"DAYS","from":"2026-11-10","to":"2026-12-10","days":30},
+         "alertThreshold":100000,"summary":{"status":"SAFE","minBalance":1302000,"minBalanceDate":"2026-12-10","endBalance":1302000},
+         "series":[{"date":"2026-11-10","confirmed":1500000,"expected":1500000,"conservative":1500000,"events":[]},
+                   {"date":"2026-11-25","confirmed":1500000,"expected":1500000,"conservative":1377000,"events":[
+                      {"type":"CARD_SPENDING_ESTIMATE","title":"생활카드 · 추정","amount":-48000,"confidence":"CONSERVATIVE"}]},
+                   {"date":"2026-12-10","confirmed":1500000,"expected":1500000,"conservative":1302000,"events":[]}],
+         "riskWindows":[],
+         "livingCost":{"projectedAmount":null,"appliedAmount":150000,"dailyAverage":null,"monthlyAverage":null,"method":"TSB","dataOrigin":"INSUFFICIENT","confidence":"INSUFFICIENT"},
+         "accountForecasts":[{"accountId":3,"livingCost":{"projectedAmount":150000,"appliedAmount":150000,"method":"TSB","dataOrigin":"REAL","confidence":"HIGH"}},
+                             {"accountId":4,"livingCost":{"projectedAmount":null,"appliedAmount":0,"method":null,"dataOrigin":"INSUFFICIENT","confidence":"INSUFFICIENT"}}],
+         "excluded":[],"isEstimate":true}
+    """.trimIndent()
+
+    @Test fun `두 선 설명 — 일부 계좌만 생활비 기록이 있으면 appliedAmount로 생활비 줄을 그려 끝 잔액과 맞춘다(-395 !244)`() {
+        val f = parse(partialLiving)
+        assertTrue(f.livingCost!!.insufficient)
+        assertNull(f.livingCost!!.projectedAmount)
+        val (withoutLiving, withLiving) = f.lineGroups()
+        assertEquals(1_500_000L, withoutLiving.end)
+        assertEquals(
+            listOf(LineStep("예상 생활비", -150_000, "최근 소비 기준 · 기록 있는 계좌만"), LineStep("앞으로 쓸 신용카드 금액", -48_000)),
+            withLiving.steps,
+        )
+        assertEquals(1_302_000L, withLiving.end)
+        assertEquals(withoutLiving.end!! + withLiving.steps.sumOf { it.amount }, withLiving.end)   // 1,500,000 − 150,000 − 48,000
+        assertFalse(f.hasPartialLiving)                                                         // 금액을 받았으니 '끝 잔액에만 들어 있다' 안내는 없다
+        assertNull(withLiving.note)
+        assertEquals(listOf("생활비 기록이 없는 계좌는 'AI 생활비 반영' 선에 앞으로 쓸 신용카드 금액만 넣었어요."), noticeLines(f, ForecastSelection()))
+    }
+
+    @Test fun `두 선 설명 — 옛 서버(appliedAmount 없음)면 생활비 줄 없이 끝 잔액에만 들어 있다고 알린다`() {
+        val f = parse(partialLiving.replace(""""appliedAmount":150000,""", ""))
+        assertNull(f.livingCost!!.appliedAmount)
+        val withLiving = f.lineGroups()[1]
+        assertEquals(listOf(LineStep("앞으로 쓸 신용카드 금액", -48_000)), withLiving.steps)
+        assertEquals(1_302_000L, withLiving.end)
+        assertTrue(f.hasPartialLiving)
+        assertEquals(PARTIAL_LIVING_NOTE, withLiving.note)
+    }
+
     @Test fun `기간 뒤 카드값 — 출금일순으로 읽고 선 · 예정 출금 합에는 넣지 않는다(-348 !199)`() {
         val withBeyond = json.replace(
             """"accountForecasts":null,""",

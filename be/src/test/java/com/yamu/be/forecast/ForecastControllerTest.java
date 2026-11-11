@@ -165,7 +165,8 @@ class ForecastControllerTest extends MySqlTestSupport {
         long daily = seedThreeMonths(account);
 
         String body = mockMvc.perform(get("/api/forecasts/balance").with(AuthUsers.asUser(owner))
-                        .param("accountIds", String.valueOf(account)).param("until", "DAYS").param("days", "7"))
+                        .param("accountIds", String.valueOf(account)).param("until", "DAYS").param("days", "7")
+                        .param("includeAccountDetails", "true"))
                 .andExpect(status().isOk())
                 // AI 서버 주소가 없는 테스트 환경이라 TSB다(기록이 3개월 넘게 있어 HIGH)
                 .andExpect(jsonPath("$.data.livingCost.method").value("TSB"))
@@ -184,6 +185,18 @@ class ForecastControllerTest extends MySqlTestSupport {
                 .isEqualTo(1_000_000 - perDay);
         assertThat(((Number) JsonPath.read(body, "$.data.series[7].conservative")).longValue())
                 .isEqualTo(1_000_000 - projected);
+        // 한 계좌라 보수적 선에 들어간 생활비(appliedAmount, -395)는 예상 생활비와 같다
+        assertThat(((Number) JsonPath.read(body, "$.data.livingCost.appliedAmount")).longValue()).isEqualTo(projected);
+        // 계좌별 생활비(accountForecasts[].livingCost, -395)의 JSON 이름과 값
+        assertThat(((Number) JsonPath.read(body, "$.data.accountForecasts[0].livingCost.projectedAmount")).longValue())
+                .isEqualTo(projected);
+        assertThat(((Number) JsonPath.read(body, "$.data.accountForecasts[0].livingCost.appliedAmount")).longValue())
+                .isEqualTo(projected);
+        assertThat(((Number) JsonPath.read(body, "$.data.accountForecasts[0].livingCost.dailyAverage")).longValue())
+                .isEqualTo(daily);
+        assertThat((String) JsonPath.read(body, "$.data.accountForecasts[0].livingCost.method")).isEqualTo("TSB");
+        assertThat((String) JsonPath.read(body, "$.data.accountForecasts[0].livingCost.dataOrigin")).isEqualTo("SEED");
+        assertThat((String) JsonPath.read(body, "$.data.accountForecasts[0].livingCost.confidence")).isEqualTo("HIGH");
     }
 
     @Test

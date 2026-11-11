@@ -34,7 +34,7 @@ import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 data class RecommendState(
-    /** 앱바 종 배지 — 알림함 첫 쪽(GET notifications)의 안 읽은 수, 홈과 같은 값 */
+    /** 앱바 종 배지 — GET notifications의 unreadCount(필터와 상관없는 안 읽은 수), 홈과 같은 값 */
     val unread: Int = 0,
 )
 
@@ -49,7 +49,7 @@ class RecommendViewModel @Inject constructor(private val my: MyRepository) : Vie
 
     /** 탭에 돌아올 때마다(알림함을 보고 온 뒤 포함) — 실패하면 배지만 안 바뀐다 */
     fun refreshUnread() = viewModelScope.launch {
-        (my.notifications(page = 0) as? ApiResult.Success)?.let { r -> _state.value = RecommendState(unread = r.data.unread) }
+        (my.unreadNotificationCount() as? ApiResult.Success)?.let { r -> _state.value = RecommendState(unread = r.data) }
     }
 }
 

@@ -1057,3 +1057,40 @@ CONSTRAINT ck_prediction_origin CHECK (data_origin IN ('REAL','SEED'))
 ```
 
 계좌·날짜·기간마다 그날 첫 예측 한 행만 남기고, 같은 키가 다시 오면 아무 칸도 바꾸지 않는다. 이미 있는 키는 먼저 읽어 INSERT를 보내지 않는다(중복 INSERT도 자동 증가 번호를 쓰기 때문). 자료 부족(INSUFFICIENT) 계좌와 기간 0일은 남기지 않는다. 통합 값과 날짜별 잔액 선, 가상 구매 결과는 저장하지 않는다. 연결 해제·탈퇴는 계좌 행을 지우지 않으므로 이력도 남는다. 다른 이력과 같이 보존 기간·파기는 팀 보존·파기 정책이 정해지면 함께 처리한다(아직 미정).
+
+## 2026-11-11 신용카드 마감 전 사용 추정 이력
+
+아래 정의는 V20261111_1에서 추가한다(S15P31E103-405). 생성 SQL이 실행 기준이고 JPA 엔티티는 없다(잔고예보가 SQL로 쓴다). 저장 시점은 [잔고예보 문서](../forecast.md) 「마감 전 신용카드 사용 추정」을 따른다.
+
+### credit_spending_prediction — 신용카드별 마감 전 사용 추정 이력
+
+| 컬럼 | SQL 정의 | 설명 |
+|---|---|---|
+| credit_spending_prediction_id | `BIGINT NOT NULL AUTO_INCREMENT` | 신용 사용 추정 이력 번호 |
+| user_id | `BIGINT NOT NULL` | 카드 보유 사용자 |
+| user_card_id | `BIGINT NOT NULL` | 예측한 신용카드; 같은 사용자 소유 |
+| predicted_on | `DATE NOT NULL` | 예측한 한국 날짜; 예측 기간은 다음 날부터 horizon_days일(이번 이용기간 마감일까지) |
+| horizon_days | `SMALLINT NOT NULL` | 예측 기간 일수 R(1 이상) |
+| method | `VARCHAR(16) NOT NULL` | ML_V1 AI / TSB |
+| model_version | `VARCHAR(800) NULL` | AI 서버가 답한 모델 버전; TSB면 NULL. 기간(7·14·30일)마다 다르면 `7:버전,14:버전`처럼 기간과 함께 |
+| projected_amount | `BIGINT NOT NULL` | 예상 신용 생활 소비(원) = daily_amount × horizon_days; 보수적 선에서 출금일에 뺀 값 |
+| daily_amount | `BIGINT NOT NULL` | 하루 예상 신용 생활 소비(원) |
+| confidence | `VARCHAR(16) NOT NULL` | HIGH / MEDIUM / LOW; 기록 길이 기준 |
+| data_origin | `VARCHAR(16) NOT NULL` | REAL / SEED; 입력 90일에 모의 소비가 있으면 SEED |
+| created_at | `TIMESTAMP(6) NOT NULL` | UTC 저장 시각 |
+
+```sql
+PRIMARY KEY (credit_spending_prediction_id);
+UNIQUE KEY uk_credit_prediction_card_day (user_card_id, predicted_on, horizon_days);
+KEY ix_credit_prediction_card_owner (user_card_id, user_id);
+KEY ix_credit_prediction_owner_day (user_id, predicted_on);
+CONSTRAINT fk_credit_prediction_card_owner FOREIGN KEY (user_card_id, user_id) REFERENCES user_card (user_card_id, user_id);
+CONSTRAINT ck_credit_prediction_horizon CHECK (horizon_days >= 1);
+CONSTRAINT ck_credit_prediction_method CHECK (method IN ('ML_V1','TSB'));
+CONSTRAINT ck_credit_prediction_model_version CHECK ((method = 'ML_V1') = (model_version IS NOT NULL));
+CONSTRAINT ck_credit_prediction_amount CHECK (projected_amount >= 0 AND daily_amount >= 0);
+CONSTRAINT ck_credit_prediction_confidence CHECK (confidence IN ('HIGH','MEDIUM','LOW'));
+CONSTRAINT ck_credit_prediction_origin CHECK (data_origin IN ('REAL','SEED'))
+```
+
+규칙은 living_cost_prediction과 같다: 카드·날짜·R마다 그날 첫 예측 한 행, 같은 키가 다시 오면 아무 칸도 바꾸지 않고, 이미 있는 키는 먼저 읽어 INSERT를 보내지 않는다. 기간 밖 출금·0원 추정도 남기고, 신용 생활 소비 기록이 없어 추정하지 못한 카드(CREDIT_SPENDING_UNKNOWN)는 남기지 않는다. 잔고예보 조회만 남기고 가상 구매 결과는 저장하지 않는다. 카드 등록 해제는 카드 행을 지우지 않으므로 이력도 남는다. 보존 기간·파기는 다른 이력과 함께 팀 보존·파기 정책이 정해지면 처리한다(아직 미정).

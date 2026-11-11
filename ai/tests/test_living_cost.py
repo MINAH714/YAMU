@@ -260,7 +260,10 @@ class Api(unittest.TestCase):
 
         health = client.get("/health")
         self.assertEqual(health.status_code, 200)
-        self.assertEqual(health.json(), {"status": "ok", "livingCostModel": {"loaded": False}})
+        self.assertEqual(health.json()["status"], "ok")
+        self.assertEqual(health.json()["livingCostModel"], {"loaded": False})
+        # 신용 모델은 따로 읽으므로 체크 모델이 없어도 읽힌다(S15P31E103-404)
+        self.assertTrue(health.json()["creditSpendingModel"]["loaded"])
         res = client.post("/forecast/living-cost", json=body())
         self.assertEqual(res.status_code, 503)
         self.assertEqual(res.json(), {"error": "MODEL_MISSING"})
@@ -271,7 +274,8 @@ class Api(unittest.TestCase):
                 self.assertLogs("app.main", level="ERROR"):
             client = self.client()
 
-        self.assertEqual(client.get("/health").json(), {"status": "ok", "livingCostModel": {"loaded": False}})
+        self.assertEqual(client.get("/health").json(), {"status": "ok", "livingCostModel": {"loaded": False},
+                                                        "creditSpendingModel": {"loaded": False}})
         self.assertEqual(client.post("/forecast/living-cost", json=body()).status_code, 503)
 
 

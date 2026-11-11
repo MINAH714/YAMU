@@ -89,7 +89,7 @@ class ForecastScenarioIntegrationTest extends MySqlTestSupport {
     /** 신용카드 1의 하루 사용액. 이번 이용기간(10/12~11/6) 26일치가 진행 중 청구서에 있다. */
     static final long CREDIT_DAILY = 4_000L;
     static final long ACCUMULATING_BILL = CREDIT_DAILY * 26;
-    /** 마감 전 사용 추정: 11/7~11/11 5일 × 일평균 4,000원. */
+    /** 마감 전 사용 추정: 11/7~11/11 5일 × 하루 예상 4,000원(테스트는 AI 서버가 없어 TSB, S15P31E103-405). */
     static final long CREDIT_ESTIMATE = CREDIT_DAILY * 5;
 
     @TestConfiguration

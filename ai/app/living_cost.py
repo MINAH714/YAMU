@@ -1,5 +1,6 @@
 """생활비 예측 모델을 읽고, 계좌별 최근 90일 일별 체크 생활 소비로 다음 7·14·30일 합계를 예측한다.
-기간마다 따로 학습한 모델이다(models/README.md 「평가 결과」).
+기간마다 따로 학습한 모델이다(models/README.md 「평가 결과」). 신용카드별 신용 생활 소비 모델(models/credit-spending,
+S15P31E103-404)도 형식·특징이 같아 같은 함수로 읽고 예측한다.
 
 모델은 개인 저장소(YAMU, 학습 코드)에서 학습한 TWO_STAGE_TREE다. 1단계 분류 모델이 "다음 H일에 쓸 확률"을,
 2단계 회귀 모델이 "쓴다면 합계"를 내고, 예측은 둘의 곱이다. 특징 계산은 학습 때와 값이 같아야 하므로
@@ -127,6 +128,6 @@ def make_features(daily: np.ndarray) -> pd.DataFrame:
 
 
 def predict(loaded: LoadedModel, daily: np.ndarray) -> np.ndarray:
-    """계좌마다 다음 horizon일(기준일 다음 날부터) 체크 생활 소비 합계(원, 0 이상 정수, 반올림)."""
+    """key마다 다음 horizon일(기준일 다음 날부터) 생활 소비 합계(원, 0 이상 정수, 반올림). 체크·신용 모델 모두 같다."""
     pred = np.asarray(loaded.model.predict(make_features(daily)), dtype=np.float64)
     return np.maximum(np.floor(pred + 0.5), 0).astype(np.int64)

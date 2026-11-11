@@ -85,7 +85,7 @@ class BalanceRiskCheckTest {
         selected.forEach(id -> start.put(id, balances.get(id)));
         when(forecasts.prepare(eq(USER), eq(selected), any(), any(), anyBoolean(), eq(TODAY))).thenReturn(
                 new ForecastService.Prepared(selected, horizon, 100_000L, Map.of(), null, events, List.of(), start,
-                        Map.of(), List.of()));
+                        Map.of(), List.of(), List.of()));
     }
 
     private static FlowEvent event(long accountId, LocalDate date, long amount, FlowEvent.Type type) {

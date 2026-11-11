@@ -57,6 +57,19 @@ class LivingCostProjector {
      */
     Projection project(List<Long> accountIds, List<LivingCostReader.DailySpending> days, LocalDate today,
             int horizonDays) {
+        return project(accountIds, days, today, horizonDays, AiLivingCostClient.Endpoint.LIVING_COST);
+    }
+
+    /**
+     * {@link #project(List, List, LocalDate, int)}와 같은 규칙으로, 부를 AI API를 고른다. 신용카드 마감 전 사용 추정은 카드 번호를
+     * 계좌 자리에, 신용 생활 소비를 일별 소비 자리에 넣고 {@code CREDIT_SPENDING}을 부른다(S15P31E103-405, 2026-11-10 결정:
+     * 체크 생활비와 같은 규칙).
+     *
+     * @param accountIds 결과 순서. 신용이면 카드 번호
+     * @param endpoint   부를 AI API
+     */
+    Projection project(List<Long> accountIds, List<LivingCostReader.DailySpending> days, LocalDate today,
+            int horizonDays, AiLivingCostClient.Endpoint endpoint) {
         LocalDate asOf = today.minusDays(1);
         LocalDate windowStart = asOf.minusDays(HISTORY_DAYS - 1);
         int predictDays = horizonDays + 1;
@@ -78,29 +91,30 @@ class LivingCostProjector {
                 }
             });
         }
-        Map<Long, long[]> aiPoints = aiPoints(asOf, predictDays, keys, aiInputs);
+        AiPoints aiPoints = aiPoints(endpoint, asOf, predictDays, keys, aiInputs);
 
         Map<Long, AccountProjection> byAccount = new LinkedHashMap<>();
-        histories.forEach((accountId, history) ->
-                byAccount.put(accountId, account(accountId, history, aiPoints.get(accountId), predictDays, horizonDays)));
-        return new Projection(byAccount, total(byAccount.values()));
+        histories.forEach((accountId, history) -> byAccount.put(accountId,
+                account(accountId, history, aiPoints.byAccount().get(accountId), predictDays, horizonDays)));
+        return new Projection(byAccount, total(byAccount.values()), aiPoints.modelVersion());
     }
 
     /**
      * AI 예측을 계좌별 [7일, 14일, 30일]로 돌려준다. n일 값에 필요한 기간만 7 → 14 → 30일 순서로 부르고(7일 이하면 7일만,
      * 14일 이하면 7·14일), 부르지 않은 칸은 -1이다. 하나라도 실패하면 남은 기간은 부르지 않고 빈 값(모두 TSB)을 돌려준다.
+     * 모델 버전은 부른 기간이 모두 같으면 그 값, 다르면 "7:버전,14:버전"처럼 기간과 함께 남긴다(AI 서버는 기간끼리 버전을 검사하지 않음).
      */
-    private Map<Long, long[]> aiPoints(LocalDate asOf, int predictDays, Map<String, Long> keys,
-            Map<String, long[]> inputs) {
+    private AiPoints aiPoints(AiLivingCostClient.Endpoint endpoint, LocalDate asOf, int predictDays,
+            Map<String, Long> keys, Map<String, long[]> inputs) {
         if (inputs.isEmpty() || !ai.enabled()) {
-            return Map.of();
+            return AiPoints.NONE;
         }
         int[] horizons = predictDays <= 7 ? new int[] {7} : predictDays <= 14 ? new int[] {7, 14} : new int[] {7, 14, 30};
-        List<Map<String, Long>> answers = new ArrayList<>();
+        List<AiLivingCostClient.Answer> answers = new ArrayList<>();
         for (int horizon : horizons) {
-            Optional<Map<String, Long>> answer = ai.predict(asOf, horizon, inputs);
+            Optional<AiLivingCostClient.Answer> answer = ai.predict(endpoint, asOf, horizon, inputs);
             if (answer.isEmpty()) {
-                return Map.of();
+                return AiPoints.NONE;
             }
             answers.add(answer.get());
         }
@@ -108,11 +122,20 @@ class LivingCostProjector {
         for (Map.Entry<String, Long> key : keys.entrySet()) {
             long[] point = {-1, -1, -1};
             for (int i = 0; i < answers.size(); i++) {
-                point[i] = answers.get(i).get(key.getKey());
+                point[i] = answers.get(i).amounts().get(key.getKey());
             }
             out.put(key.getValue(), point);
         }
-        return out;
+        List<String> versions = answers.stream().map(AiLivingCostClient.Answer::modelVersion).distinct().toList();
+        String version = versions.size() == 1 ? versions.get(0) : java.util.stream.IntStream.range(0, answers.size())
+                .mapToObj(i -> horizons[i] + ":" + answers.get(i).modelVersion())
+                .collect(java.util.stream.Collectors.joining(","));
+        return new AiPoints(out, version);
+    }
+
+    /** AI 예측 점과 그 모델 버전. AI를 쓰지 않았거나 실패하면 비어 있고 버전은 null이다. */
+    private record AiPoints(Map<Long, long[]> byAccount, String modelVersion) {
+        static final AiPoints NONE = new AiPoints(Map.of(), null);
     }
 
     private static History history(Long accountId, List<LivingCostReader.DailySpending> days, LocalDate windowStart,
@@ -278,6 +301,10 @@ class LivingCostProjector {
     record Total(Long projectedAmount, Long dailyAmount, String method, LivingCostEstimator.Confidence confidence,
             LivingCostEstimator.DataOrigin dataOrigin) {}
 
-    /** 계좌별 예상 생활비(입력 계좌 순서)와 통합 값. */
-    record Projection(Map<Long, AccountProjection> byAccount, Total total) {}
+    /**
+     * 계좌별 예상 생활비(입력 계좌 순서)와 통합 값.
+     *
+     * @param aiModelVersion 이번 계산에서 AI(ML_V1) 계좌에 쓴 모델 버전. AI를 부르지 않았거나 실패해 모두 TSB면 null(-405)
+     */
+    record Projection(Map<Long, AccountProjection> byAccount, Total total, String aiModelVersion) {}
 }
