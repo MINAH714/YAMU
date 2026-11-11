@@ -107,8 +107,10 @@ import com.yamu.app.feature.home.data.ForecastSummary
 import com.yamu.app.feature.home.data.HomeSummary
 import com.yamu.app.feature.home.data.HomeTodo
 import com.yamu.app.feature.home.data.RecentPayment
+import com.yamu.app.feature.home.data.paidAtLabel
 import com.yamu.app.feature.home.data.TodoTone
 import java.time.LocalDate
+import java.time.OffsetDateTime
 
 /** H-01 홈 (H-01d 가입 첫날 · H-01c 결제 반영 직후는 같은 화면의 상태) */
 @Composable
@@ -544,14 +546,15 @@ private const val RECENT_ROW_MS = 300
 @Composable
 private fun RecentPaymentRow(payment: RecentPayment, onClick: () -> Unit) {
     val c = YamuTheme.colors
-    // '야무카페 역삼점 15,000원' / '방금 · 신한카드 1,500원 할인'(할인만 파랑) — 프로토타입 H-01c
+    // '야무카페 역삼점 15,000원' / '방금 · 신한카드 1,500원 할인'(할인만 파랑) — 프로토타입 H-01c. 시각은 paidAt으로(어제 결제면 '어제 17:05')
+    val time = paidAtLabel(payment.paidAtIso)
     YamuCard(onClick = onClick, contentPadding = PaddingValues(start = 20.dp, end = 16.dp, top = 4.dp, bottom = 4.dp)) {
         Row(Modifier.fillMaxWidth().heightIn(min = 64.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text("${payment.merchantName} ${payment.amount.toWon()}원", style = YamuTheme.typography.titleM, color = c.text1, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text(
                     buildAnnotatedString {
-                        append(listOfNotNull("방금", payment.cardName).joinToString(" · "))
+                        append(listOfNotNull(time, payment.cardName).joinToString(" · "))
                         payment.benefitAmount?.takeIf { it > 0 }?.let {
                             append(" ")
                             withStyle(SpanStyle(color = c.primary)) { append("${it.toWon()}원 할인") }
@@ -626,7 +629,7 @@ private fun HomeScreenPreview() = YamuTheme {
                     daysToIncome = 25,
                     shortageFrom = null,
                 ),
-                recentPayment = RecentPayment(1L, "야무카페 역삼점", 15_000, "신한카드", 1_500),
+                recentPayment = RecentPayment(1L, "야무카페 역삼점", 15_000, "신한카드", 1_500, OffsetDateTime.now().toString()),
                 todos = listOf(
                     HomeTodo("통신비만 우리카드로 옮기면, 더 안 써도 40만 원이 채워져요", "실적 달성 추천", TodoTone.Primary, 1),
                     HomeTodo("NH농협카드는 이번 달 실적을 채우지 않는 게 유리해요", "추가 소비 비추천", TodoTone.Error, 3),

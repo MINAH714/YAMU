@@ -93,7 +93,7 @@ class FakeHomeRepository @Inject constructor(private val my: FakeMyRepository) :
                 todos = listOf(TodoDto("롯데카드는 통신비만 옮기면 채워져요", "실적 달성 추천", "PRIMARY", 13)),   // 잠정은 카드 머리 '잠정 판단'이 말한다
             )
             HomeScenario.AFTER_PAYMENT -> base.copy(
-                recentPayment = RecentPaymentDto(938L, "스타벅스 역삼점", 15_000, "KB국민카드", 7_500),
+                recentPayment = RecentPaymentDto(938L, "스타벅스 역삼점", 15_000, "KB국민카드", 7_500, paidAt = now().toOffsetDateTime().toString()),   // 방금 결제
                 // 할인 뒤 낸 7,500원만큼 줄어든 예상 잔액 — 홈 금액이 350,000 → 342,500으로 굴러가는 걸 볼 수 있게
                 balanceForecast = forecast.copy(currentBalance = 950_000 - 7_500, minBalance = 350_000 - 7_500),
             )

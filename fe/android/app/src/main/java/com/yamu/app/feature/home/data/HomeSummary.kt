@@ -1,12 +1,16 @@
 package com.yamu.app.feature.home.data
 
+import com.yamu.app.core.format.KST
 import com.yamu.app.core.format.parseDate
 import com.yamu.app.core.format.toWon
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonPrimitive
+import java.time.Duration
 import java.time.LocalDate
+import java.time.OffsetDateTime
+import java.time.ZonedDateTime
 import java.time.temporal.ChronoUnit
 
 /** 홈 화면이 그릴 값만 — 서버 DTO를 화면에 그대로 쓰지 않는다 */
@@ -44,13 +48,36 @@ data class RecentPayment(
     val amount: Long,
     val cardName: String?,
     val benefitAmount: Long?,
+    val paidAtIso: String? = null,   // 승인 시각(서버 UTC) — 줄에는 paidAtLabel로
 )
+
+/**
+ * 최근 결제 줄 시각(H-01c) — 1분 안 '방금' · 1시간 안 '23분 전' · 오늘 '오늘 14:05' · 어제 '어제 17:05' · 그 전 '11/10 17:05'.
+ * 서버 시계가 5분까지 앞서 있으면 '방금'으로 본다. 시각이 없거나 못 읽으면 null(줄에는 카드 이름만)
+ */
+fun paidAtLabel(iso: String?, now: ZonedDateTime = ZonedDateTime.now(KST)): String? {
+    if (iso.isNullOrBlank()) return null
+    val at = runCatching { OffsetDateTime.parse(iso).atZoneSameInstant(KST) }.getOrNull() ?: return null
+    val nowKst = now.withZoneSameInstant(KST)
+    val minutes = Duration.between(at, nowKst).toMinutes()   // 0으로 잘라서 59초 전 · 30초 뒤는 0
+    if (minutes in -CLOCK_SKEW_MINUTES..0) return "방금"
+    if (minutes in 1..59) return "${minutes}분 전"
+    val hm = "%02d:%02d".format(at.hour, at.minute)
+    val today = nowKst.toLocalDate()
+    return when (at.toLocalDate()) {
+        today -> "오늘 $hm"
+        today.minusDays(1) -> "어제 $hm"
+        else -> "${at.monthValue}/${at.dayOfMonth} $hm"
+    }
+}
+
+private const val CLOCK_SKEW_MINUTES = 5L
 
 /** 서버 응답 → 화면 값. 보완안 필드가 있으면 그걸, 없으면 지금 명세 필드로 대신(07 문서 3-5 표) */
 fun HomeDto.toSummary(today: LocalDate): HomeSummary = HomeSummary(
     forecast = balanceForecast?.toForecast(today),
     recentPayment = recentPayment?.let {
-        RecentPayment(it.paymentId, it.merchantName, it.amount, it.cardName, it.benefitAmount)
+        RecentPayment(it.paymentId, it.merchantName, it.amount, it.cardName, it.benefitAmount, it.paidAt)
     },
     todos = todos?.take(MAX_TODOS)?.map { it.toTodo() }
         ?: performanceAlerts.take(MAX_TODOS).map { it.toTodo() },
