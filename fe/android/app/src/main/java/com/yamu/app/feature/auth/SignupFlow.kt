@@ -41,6 +41,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
@@ -131,6 +134,7 @@ private fun secondsSince(startMillis: Long, now: Long): Int = ((now - startMilli
 
 /**
  * 실제 문자는 오지 않아서 BE가 준 시연용 숫자를 화면 위에 문자처럼 잠깐 띄운다. 누르면 숫자를 채운다.
+ * 본인인증은 띄울 때 칸도 같이 채우고(누르면 지운 칸을 다시 채움), 1원은 계좌 확인이라 누를 때만 채운다.
  * 6초 뒤 저절로 닫힌다.
  */
 @Composable
@@ -310,9 +314,12 @@ class PhoneVerifyViewModel @Inject constructor(private val signup: SignupReposit
             _state.update { it.copy(sending = true, error = null) }
             when (val r = signup.requestCode(s.name, birth, carrier, s.phone)) {
                 is ApiResult.Success -> _state.update {
+                    val demo = r.data.demoCode
                     it.copy(
-                        sending = false, sent = r.data, sentAtMillis = System.currentTimeMillis(), code = "", codeError = false,
-                        banner = r.data.demoCode?.let { code -> "[YAMU] 인증번호 [$code]을 입력해 주세요" }, notice = null,
+                        sending = false, sent = r.data, sentAtMillis = System.currentTimeMillis(), codeError = false,
+                        // 시연 서버는 문자 대신 응답으로 번호를 준다 — 문자 알림을 띄우면서 칸도 바로 채운다(확인은 버튼으로, QA 11/10)
+                        code = demo?.filter(Char::isDigit)?.take(6).orEmpty(),
+                        banner = demo?.let { code -> "[YAMU] 인증번호 [$code]을 입력해 주세요" }, notice = null,
                     )
                 }
                 is ApiResult.Failure -> _state.update { it.copy(sending = false, error = r.error.signupMessage()) }
@@ -835,6 +842,8 @@ fun SignupOneWonRoute(
     val now = rememberNow(s.sentAtMillis)
     val elapsed = secondsSince(s.sentAtMillis, now)
     val info = s.info
+    val codeFocus = remember { FocusRequester() }
+    val keyboard = LocalSoftwareKeyboardController.current
     val c = YamuTheme.colors
     Box(Modifier.fillMaxSize()) {
         Scaffold(
@@ -878,7 +887,13 @@ fun SignupOneWonRoute(
                 CodeBoxes(
                     value = s.code, length = info.codeLength, onValueChange = viewModel::onCode,
                     label = "입금자명 숫자 ${info.codeLength}자리", error = s.codeError,
+                    modifier = Modifier.focusRequester(codeFocus),
                 )
+                // 1원 숫자는 계좌 확인이라 칸을 채우지 않는다 — 열리자마자 칸에 커서를 두고 숫자 키패드를 올려 바로 치게(QA 11/10)
+                LaunchedEffect(codeFocus) {
+                    runCatching { codeFocus.requestFocus() }
+                    keyboard?.show()
+                }
                 Spacer(Modifier.height(8.dp))
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     // 남은 시간은 안내(최종 만료는 SSAFY) — 지나도 확인은 막지 않고 다시 받기로 이끈다. 서버가 끝났다고 하면 아래 오류 문장이 대신한다
