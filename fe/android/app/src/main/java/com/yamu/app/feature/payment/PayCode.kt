@@ -385,7 +385,8 @@ class PayCodeViewModel @Inject constructor(
 @Composable
 /**
  * [onClose]의 문장은 닫힌 뒤 보여 줄 스낵바(이 화면이 닫히면 여기서 띄운 건 취소되므로 바깥에서).
- * [cancelHint]가 있으면 결제 상세에서 취소하러 연 것(CancelCodeRoute) — 코드는 같고 제목 · 코드 아래 안내만 바뀐다
+ * [cancelHint]가 있으면 결제 상세에서 취소하러 연 것(CancelCodeRoute) — 코드는 같고 제목 · 코드 아래 안내만 바뀐다.
+ * [cancelFooter]는 그때 본문 끝에 붙는 임시 '앱에서 바로 취소'(결제 요청 확인 중에는 숨긴다)
  */
 fun PayCodeRoute(
     onClose: (message: String?) -> Unit,
@@ -393,6 +394,7 @@ fun PayCodeRoute(
     onOpenPinPad: (purpose: String) -> Unit,
     onAddCard: () -> Unit,
     cancelHint: String? = null,
+    cancelFooter: (@Composable () -> Unit)? = null,
     viewModel: PayCodeViewModel = hiltViewModel(),
 ) {
     val s by viewModel.state.collectAsStateWithLifecycle()
@@ -463,6 +465,7 @@ fun PayCodeRoute(
                     PayPhase.NoCard -> EmptyState("결제할 카드가 없어요", actionText = "카드 추가", onAction = onAddCard)
                     is PayPhase.Request -> RequestBody(p.request, s, onSelectCard = viewModel::selectCard, onInstallment = viewModel::selectInstallment)
                 }
+                if (s.phase !is PayPhase.Request) cancelFooter?.invoke()
                 Spacer(Modifier.height(YamuSpacing.x6))
             }
         }
