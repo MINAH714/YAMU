@@ -3,6 +3,7 @@ package com.yamu.app.feature.payment.data
 import com.yamu.app.core.network.BigDecimalSerializer
 import com.yamu.app.feature.link.data.Brand
 import com.yamu.app.feature.link.data.IssuerDto
+import com.yamu.app.feature.link.data.LinkedCard
 import com.yamu.app.feature.link.data.brandOf
 import com.yamu.app.feature.link.data.lastDigits
 import kotlinx.serialization.Serializable
@@ -35,6 +36,7 @@ import java.math.BigDecimal
     val nickname: String? = null,
     val issuerName: String? = null,          // #64
     val issuer: IssuerDto? = null,           // 보완안(#12 후보에도 — 10 문서 6-8 ④)
+    val productName: String? = null,         // 임시(Q-19, BE 칸 확정 전) — nickname은 별명이 있으면 별명이라 그림은 이 이름으로 찾는다
     val cardType: String = "CREDIT",
     val maskedNumber: String? = null,
     @Serializable(with = BigDecimalSerializer::class)
@@ -95,6 +97,8 @@ import java.math.BigDecimal
 @Serializable data class UncomparedCardDto(
     val userCardId: Long,
     val nickname: String? = null,
+    val issuer: IssuerDto? = null,           // 임시(Q-19, BE 칸 확정 전) — 후보(CandidateDto)와 같은 모양
+    val productName: String? = null,         // 임시(Q-19, BE 칸 확정 전)
     val cardType: String = "CREDIT",
     val maskedNumber: String? = null,
     val reason: String? = null,
@@ -221,9 +225,16 @@ data class PayCard(
     val benefitUnknown: Boolean = false,
     /** false면 줄만 보이고 고를 수 없다(비교 못 한 카드 중 결제 가능 여부까지 모르는 카드 — directPaymentAllowed false) */
     val selectable: Boolean = true,
+    /** 카드 상품명 — [name]은 별명일 수 있어 그림은 이 이름으로 찾는다. 응답 · 카드 목록 어디에도 없으면 null */
+    val productName: String? = null,
+    /** 응답에 카드사 칸이 없어 [brand]를 별명 글자로 만들었다 — 카드 목록에서 찾으면 그 카드사로 바꾼다([withListedCards]) */
+    val issuerUnknown: Boolean = false,
 ) {
     /** 앱이 알아서 골라도 되는 카드 — 처음 1순위 · 거절 뒤 다음 카드. 비교 못 한 카드는 사용자가 직접 골라야 한다 */
     val autoSelectable: Boolean get() = selectable && !benefitUnknown
+
+    /** 카드 그림을 찾는 이름(CardImages) — 상품명을 모르면 화면 이름(별명이 없으면 서버가 상품명을 준다) */
+    val imageName: String get() = productName ?: name
 }
 
 /** 비교 못 한 카드를 골라 승인할 때 확인받는 문구 — 서버가 noBenefitNotice를 안 보냈을 때(BE RecommendationResult.NO_BENEFIT_NOTICE와 같은 문장) */
@@ -328,10 +339,24 @@ private fun cardBrand(issuer: IssuerDto?, issuerName: String?, nickname: String?
     return brandOf(name, color = issuer?.color)
 }
 
+/**
+ * 결제 완료 · 상세의 카드사 — 응답의 카드사 칸, 없으면 결제 요청 때 고른 같은 카드의 카드사(카드 목록으로 붙인 값), 그것도 없으면 별명 글자.
+ * 임시: 승인 · 상세 응답의 selectedCard에 아직 카드사 칸이 없다(S15P31E103-389에서 더함)
+ */
+private fun receiptBrand(selected: SelectedCardDto?, card: PayCard?): Brand? {
+    val sameCard = card?.takeIf { selected == null || it.userCardId == selected.userCardId }
+    return when {
+        selected != null && (selected.issuer != null || selected.issuerName != null) -> cardBrand(selected.issuer, selected.issuerName, selected.nickname)
+        sameCard != null -> sameCard.brand
+        selected != null -> cardBrand(null, null, selected.nickname)
+        else -> null
+    }
+}
+
 fun CandidateDto.toPayCard() = PayCard(
     userCardId = userCardId,
     brand = cardBrand(issuer, issuerName, nickname),
-    name = nickname ?: issuer?.name ?: issuerName ?: "카드",
+    name = nickname ?: productName ?: issuer?.name ?: issuerName ?: "카드",
     last4 = maskedNumber?.lastDigits().orEmpty(),
     isCheck = cardType.equals("CHECK", ignoreCase = true),
     netBenefit = netBenefit,
@@ -340,6 +365,8 @@ fun CandidateDto.toPayCard() = PayCard(
     installmentOptions = installmentOptions,
     reason = reason,
     performanceNote = performanceImpact?.note,
+    productName = productName,
+    issuerUnknown = issuer == null && issuerName == null,
 )
 
 /**
@@ -360,8 +387,8 @@ private val BenefitDto.isPoint: Boolean
 
 fun UncomparedCardDto.toPayCard() = PayCard(
     userCardId = userCardId,
-    brand = cardBrand(null, null, nickname),
-    name = nickname ?: "카드",
+    brand = cardBrand(issuer, null, nickname),
+    name = nickname ?: productName ?: issuer?.name ?: "카드",
     last4 = maskedNumber?.lastDigits().orEmpty(),
     isCheck = cardType.equals("CHECK", ignoreCase = true),
     netBenefit = BigDecimal.ZERO,
@@ -372,6 +399,8 @@ fun UncomparedCardDto.toPayCard() = PayCard(
     performanceNote = null,
     benefitUnknown = true,
     selectable = directPaymentAllowed,
+    productName = productName,
+    issuerUnknown = issuer == null,
 )
 
 fun BarcodeStatusResponse.toStatus(): PayCodeStatus {
@@ -400,6 +429,20 @@ fun BarcodeStatusResponse.toStatus(): PayCodeStatus {
     return PayCodeStatus(if (state == CodeState.SCANNED && request == null) CodeState.ISSUED else state, request)
 }
 
+/**
+ * 카드 목록(GET /api/cards)에서 userCardId가 같은 카드의 상품명 · 카드사를 결제 요청 카드에 붙인다(Q-19).
+ * 임시: 바코드 응답의 후보 · 비교 못 한 카드에는 카드사 · 상품명 칸이 없고 nickname은 별명이 있으면 별명이다. 그대로 두면 별명을 정한 카드는
+ * 그림을 못 찾고 카드사 칩에 별명 글자가 나온다. 응답에 칸이 있으면 응답 값을 먼저 쓰고, 목록에 없는 카드는 그대로 둔다
+ */
+fun PaymentRequest.withListedCards(listed: Map<Long, LinkedCard>): PaymentRequest =
+    if (listed.isEmpty()) this else copy(cards = cards.map { it.withListed(listed[it.userCardId]) })
+
+internal fun PayCard.withListed(card: LinkedCard?): PayCard = if (card == null) this else copy(
+    brand = if (issuerUnknown) card.brand else brand,
+    productName = productName ?: card.productName,
+    issuerUnknown = false,
+)
+
 /** #1 · #3 → P-07 · P-08 줄. [request]는 결제 요청 때 받은 가맹점 · 카드(승인 응답엔 가맹점이 없다) */
 fun PaymentResultDto.toReceipt(request: PaymentRequest? = null, card: PayCard? = null): PaymentReceipt {
     val bill = billItems.minByOrNull { it.seq }
@@ -411,7 +454,7 @@ fun PaymentResultDto.toReceipt(request: PaymentRequest? = null, card: PayCard? =
         amount = amount.takeIf { it > 0 } ?: request?.amount ?: 0,
         paidAtIso = approvedAt,
         cardId = selectedCard?.userCardId ?: card?.userCardId,
-        cardBrand = selectedCard?.let { cardBrand(it.issuer, it.issuerName, it.nickname) } ?: card?.brand,
+        cardBrand = receiptBrand(selectedCard, card),
         cardName = selectedCard?.nickname ?: card?.name,
         cardLast4 = selectedCard?.maskedNumber?.lastDigits() ?: card?.last4,
         isCheck = isCheck,

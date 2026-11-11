@@ -1,10 +1,14 @@
 package com.yamu.app.feature.payment.data
 
+import com.yamu.app.core.designsystem.card.CardImages
 import com.yamu.app.core.network.YamuJson
 import com.yamu.app.feature.link.data.IssuerDto
+import com.yamu.app.feature.link.data.LinkedCard
+import com.yamu.app.feature.link.data.brandOf
 import kotlinx.serialization.SerializationException
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
@@ -123,6 +127,52 @@ class PaymentMapperTest {
         assertEquals(listOf(21L, 22L), request.cards.map { it.userCardId })
         assertTrue(request.cards.none { it.autoSelectable })
         assertFalse(request.cardsUnknown)
+    }
+
+    private fun listed(id: Long, issuer: String, color: String, product: String, nickname: String? = null) = LinkedCard(
+        userCardId = id, brand = brandOf(issuer, color = color), productName = product, isCheck = false, last4 = "0000",
+        paymentDay = null, recognizedAmount = null, yearMonth = null, nickname = nickname,
+    )
+
+    /** Q-19 — 바코드 응답엔 카드사 · 상품명이 없고 nickname이 별명이라, 그대로는 그림을 못 찾고 카드사 칩에 별명 글자가 나왔다 */
+    @Test fun `별명 카드 — 카드 목록에서 같은 카드의 카드사 · 상품명을 붙이고 이름은 별명 그대로`() {
+        val request = scanned(
+            ""","recommendation":{"status":"PARTIAL_READY","candidates":[{"rank":1,"userCardId":11,"nickname":"점심 카드","netBenefit":7500}],"uncomparedCards":[$direct]}""",
+        ).request!!
+        val toktok = "KB국민 청춘대로 톡톡카드"
+        assertTrue(request.cards.all { it.issuerUnknown })
+        assertEquals("점심 카드", request.cards[0].brand.name)          // 붙이기 전 — 별명 글자
+        assertNull(CardImages.forProduct(request.cards[0].imageName))
+
+        val filled = request.withListedCards(
+            mapOf(11L to listed(11, "KB국민카드", "#FFBC00", toktok, nickname = "점심 카드"), 21L to listed(21, "현대카드", "#1A1A1A", "현대카드ZERO Edition3(포인트형)")),
+        )
+        val card = filled.cards[0]
+        assertEquals("점심 카드", card.name)
+        assertEquals("KB국민카드", card.brand.name)
+        assertEquals(toktok, card.imageName)
+        assertNotNull(CardImages.forProduct(card.imageName))
+        assertFalse(card.issuerUnknown)
+        assertEquals("현대카드", filled.cards[1].brand.name)              // 비교 못 한 카드도
+        assertEquals(listOf(true, false), filled.cards.map { it.autoSelectable })   // 고르기 규칙은 그대로
+    }
+
+    @Test fun `응답에 카드사 · 상품명이 있으면 목록 값으로 덮지 않는다`() {
+        val request = scanned(
+            ""","recommendation":{"candidates":[{"rank":1,"userCardId":15,"nickname":"메인","productName":"하나카드 트래블로그 체크카드","issuer":{"code":"HANA","name":"하나카드","color":"#009490"},"netBenefit":0}]}""",
+        ).request!!
+        val card = request.withListedCards(mapOf(15L to listed(15, "신한카드", "#0046FF", "신한카드 Mr.Life"))).cards.single()
+        assertEquals("하나카드", card.brand.name)
+        assertEquals("하나카드 트래블로그 체크카드", card.imageName)
+    }
+
+    @Test fun `목록에 없는 카드는 응답 값 그대로 — 목록을 못 받았을 때도`() {
+        val request = scanned(""","recommendation":{"candidates":[{"rank":1,"userCardId":11,"nickname":"점심 카드","netBenefit":0}]}""").request!!
+        assertEquals(request, request.withListedCards(emptyMap()))
+        val card = request.withListedCards(mapOf(99L to listed(99, "신한카드", "#0046FF", "신한카드 Mr.Life"))).cards.single()
+        assertEquals("점심 카드", card.brand.name)
+        assertEquals("점심 카드", card.imageName)
+        assertTrue(card.issuerUnknown)
     }
 
     @Test fun `데이터 부족인데 결제 가능 여부를 모르는 카드만 — 보이되 고를 카드는 없다`() {
@@ -252,5 +302,19 @@ class PaymentMapperTest {
         assertEquals(935_750L, r.balanceAfter)
         assertFalse(r.perfCounted)
         assertNull(r.installmentMonths)
+    }
+
+    /** 승인 응답 selectedCard엔 아직 카드사 칸이 없다(S15P31E103-389) — 결제 요청 때 붙인 카드사를 쓴다 */
+    @Test fun `승인 응답에 카드사가 없으면 결제 요청 때 고른 같은 카드의 카드사로`() {
+        val dto = PaymentResultDto(paymentId = 1031, status = "APPROVED", amount = 15_000, selectedCard = SelectedCardDto(11, "점심 카드"))
+        val picked = PayCard(
+            userCardId = 11, brand = brandOf("KB국민카드", color = "#FFBC00"), name = "점심 카드", last4 = "1021", isCheck = false,
+            netBenefit = BigDecimal.ZERO, benefitName = null, chargedAmount = null, installmentOptions = emptyList(), reason = null,
+            performanceNote = null, productName = "KB국민 청춘대로 톡톡카드",
+        )
+        assertEquals("KB국민카드", dto.toReceipt(card = picked).cardBrand?.name)
+        assertEquals("점심 카드", dto.toReceipt(card = picked).cardName)
+        // 다른 카드가 승인됐다면 그 카드사를 빌려 오지 않는다
+        assertEquals("점심 카드", dto.toReceipt(card = picked.copy(userCardId = 12)).cardBrand?.name)
     }
 }

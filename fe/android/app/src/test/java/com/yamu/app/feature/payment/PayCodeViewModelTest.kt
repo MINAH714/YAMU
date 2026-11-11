@@ -11,6 +11,8 @@ import com.yamu.app.feature.auth.StepUpResults
 import com.yamu.app.feature.auth.data.AuthRepository
 import com.yamu.app.feature.auth.data.StepUpPurpose
 import com.yamu.app.feature.auth.data.StepUpToken
+import com.yamu.app.feature.link.data.LinkRepository
+import com.yamu.app.feature.link.data.LinkedCard
 import com.yamu.app.feature.link.data.brandOf
 import com.yamu.app.feature.payment.data.ApproveOutcome
 import com.yamu.app.feature.payment.data.CancelResult
@@ -50,6 +52,7 @@ class PayCodeViewModelTest {
     private val dispatcher = StandardTestDispatcher()
     private val results = StepUpResults()
     private val payments = StubPayments()
+    private val link = StubLink()
     private val auth = object : AuthRepository by unusedAuth() {
         override suspend fun biometricReady() = false
     }
@@ -60,7 +63,7 @@ class PayCodeViewModelTest {
 
     /** 인증 → 코드 발급 → 가맹점이 찍어 결제 요청 화면(P-06c)까지 */
     private fun TestScope.toRequest(): PayCodeViewModel {
-        val vm = PayCodeViewModel(payments, auth, StepUpFactory(auth, DeviceKeyManager(object : ContextWrapper(null) {}), results))
+        val vm = PayCodeViewModel(payments, auth, StepUpFactory(auth, DeviceKeyManager(object : ContextWrapper(null) {}), results), link)
         runCurrent()
         vm.stepUp.onPinOpened()
         results.deliver(PinPadResult.Verified(StepUpPurpose.BARCODE, StepUpToken("su", StepUpPurpose.BARCODE)))
@@ -323,6 +326,64 @@ class PayCodeViewModelTest {
         finish(vm)
     }
 
+    /** Q-19 — 별명 카드는 응답만으로는 카드사 · 상품명을 몰라 카드 목록에서 붙인다 */
+    private fun aliasRequest() = request(
+        OffsetDateTime.now().plusHours(1),
+        cards = listOf(card(1, check = false).copy(name = "점심 카드", brand = brandOf("점심 카드"), issuerUnknown = true), card(2, check = true)),
+    )
+
+    @Test fun `코드를 띄운 동안 받은 카드 목록으로 별명 카드에 카드사 · 상품명을 붙인다`() = runTest(dispatcher) {
+        payments.request = aliasRequest()
+        link.cardsResult = ApiResult.Success(listOf(listedToktok))
+        val vm = toRequest()
+        val card = vm.state.value.selectedCard!!
+        assertEquals("점심 카드", card.name)
+        assertEquals("KB국민카드", card.brand.name)
+        assertEquals("KB국민 청춘대로 톡톡카드", card.imageName)
+        assertEquals("목록에 없는 카드는 그대로", "신한카드", vm.state.value.request!!.cards[1].brand.name)
+        assertEquals(1, link.cardsCalls)
+        finish(vm)
+    }
+
+    @Test fun `카드 목록이 찍힌 뒤에 오면 그때 붙이고 고른 카드는 그대로`() = runTest(dispatcher) {
+        payments.request = aliasRequest()
+        link.cardsResult = ApiResult.Success(listOf(listedToktok))
+        link.cardsDelayMs = 5_000
+        val vm = toRequest()
+        assertEquals("아직 응답 값", "점심 카드", vm.state.value.selectedCard!!.brand.name)
+        vm.selectCard(2)
+        advanceTimeBy(5_001)
+        runCurrent()
+        assertEquals("KB국민카드", vm.state.value.request!!.cards[0].brand.name)
+        assertEquals(2L, vm.state.value.selectedCardId)
+        finish(vm)
+    }
+
+    @Test fun `카드 목록을 못 받아도 요청 화면은 응답 값으로 뜨고 결제할 수 있다`() = runTest(dispatcher) {
+        payments.request = aliasRequest()
+        link.cardsResult = ApiResult.Failure(ApiError.Network)
+        val vm = toRequest()
+        assertEquals("점심 카드", vm.state.value.selectedCard!!.brand.name)
+        assertEquals("점심 카드", vm.state.value.selectedCard!!.imageName)
+        vm.approve()
+        advanceTimeBy(APPROVE_MS + 1)
+        runCurrent()
+        assertEquals(1, payments.approves)
+        finish(vm)
+    }
+
+    private class StubLink : LinkRepository by unusedLink() {
+        var cardsResult: ApiResult<List<LinkedCard>> = ApiResult.Success(emptyList())
+        var cardsDelayMs = 0L
+        var cardsCalls = 0
+
+        override suspend fun cards(): ApiResult<List<LinkedCard>> {
+            cardsCalls++
+            delay(cardsDelayMs)
+            return cardsResult
+        }
+    }
+
     private class StubPayments : PaymentRepository {
         var approves = 0
         var rejects = 0
@@ -387,5 +448,16 @@ class PayCodeViewModelTest {
             AuthRepository::class.java.classLoader,
             arrayOf(AuthRepository::class.java),
         ) { _, method, _ -> error("안 쓰는 메서드: ${method.name}") } as AuthRepository
+
+        fun unusedLink(): LinkRepository = Proxy.newProxyInstance(
+            LinkRepository::class.java.classLoader,
+            arrayOf(LinkRepository::class.java),
+        ) { _, method, _ -> error("안 쓰는 메서드: ${method.name}") } as LinkRepository
+
+        /** 카드 목록의 1번 카드 — 별명 '점심 카드'를 지은 톡톡 */
+        val listedToktok = LinkedCard(
+            userCardId = 1, brand = brandOf("KB국민카드", color = "#FFBC00"), productName = "KB국민 청춘대로 톡톡카드", isCheck = false,
+            last4 = "0001", paymentDay = 14, recognizedAmount = null, yearMonth = null, nickname = "점심 카드",
+        )
     }
 }
