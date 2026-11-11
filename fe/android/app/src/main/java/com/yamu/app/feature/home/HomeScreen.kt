@@ -326,11 +326,8 @@ private fun ForecastCard(forecast: ForecastSummary, onClick: () -> Unit) {
         AmountText(forecast.amount, shortage = forecast.amount < 0)
         Spacer(Modifier.height(8.dp))   // 금액 아래 4dp는 AmountText가 둔다
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            val shortage = forecast.shortageFrom
-            if (shortage != null) {
-                StatusTag("${shortage.toMonthDay()}부터 부족 예상", tone = TagTone.Error)
-            } else if (forecast.incomeDate != null) {
-                StatusTag("월급날(${forecast.incomeDate.toMonthDay()})까지 부족 없음", tone = TagTone.Success)
+            forecast.statusLine(hero = false)?.let {
+                StatusTag(it, tone = if (forecast.shortageFrom != null) TagTone.Error else TagTone.Success)
             }
             // 첫날은 판단 근거가 적다는 것만 — D-day는 인사 머리가, 계산 시각은 오류일 때 위 줄이 말한다
             if (forecast.isProvisional) Text("정확도 낮음", style = YamuTheme.typography.bodyS, color = c.text3)
@@ -429,11 +426,8 @@ private fun ForecastHero(forecast: ForecastSummary, onClick: () -> Unit) {
             verticalArrangement = Arrangement.spacedBy(6.dp),
             itemVerticalAlignment = Alignment.CenterVertically,
         ) {
-            val shortage = forecast.shortageFrom
-            if (shortage != null) {
-                HeroStatus("${shortage.toMonthDay()}부터 부족 예상", dot = c.error)
-            } else if (forecast.incomeDate != null) {
-                HeroStatus("월급날(${forecast.incomeDate.toMonthDay()})까지 부족 없음", dot = c.success)
+            forecast.statusLine(hero = true)?.let {
+                HeroStatus(it, dot = if (forecast.shortageFrom != null) c.error else c.success)
             }
             if (forecast.isProvisional) Text("정확도 낮음", style = YamuTheme.typography.bodyS, color = c.onHeroMuted)
         }
@@ -444,6 +438,17 @@ private fun ForecastHero(forecast: ForecastSummary, onClick: () -> Unit) {
             state = pile,
         )
     }
+}
+
+/**
+ * 예상 잔액 카드의 상태 알약 문구. 위험일(BE nextRiskDate)은 잔액이 안전 잔액 밑으로 처음 내려가는 날이다.
+ * 히어로는 0원보다 많을 때만 쓰므로 그날을 잔고예보와 같은 '안전 잔액 아래'로 말해 금색 동전과 '부족'이 부딪히지 않게 하고,
+ * 0원 이하 흰 카드만 '부족 예상'으로 둔다
+ */
+internal fun ForecastSummary.statusLine(hero: Boolean): String? = when {
+    shortageFrom != null -> "${shortageFrom.toMonthDay()}부터 ${if (hero) "안전 잔액 아래" else "부족 예상"}"
+    incomeDate != null -> "월급날(${incomeDate.toMonthDay()})까지 부족 없음"
+    else -> null
 }
 
 /** 히어로 위 작은 유리 칩('예측') */
@@ -461,7 +466,7 @@ private fun HeroChip(text: String) {
     )
 }
 
-/** 히어로 위 상태 알약 — 반투명 바탕 + 상태 색 점(부족 없음 초록 · 부족 예상 빨강) */
+/** 히어로 위 상태 알약 — 반투명 바탕 + 상태 색 점(부족 없음 초록 · 안전 잔액 아래 빨강) */
 @Composable
 private fun HeroStatus(text: String, dot: Color) {
     val c = YamuTheme.colors
