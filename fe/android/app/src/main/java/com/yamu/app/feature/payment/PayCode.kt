@@ -674,7 +674,11 @@ private fun PayCardRow(card: PayCard, selected: Boolean, enabled: Boolean, decli
             }
             sub?.let { Text(it, style = YamuTheme.typography.sub, color = c.text3) }
         }
-        if (!declined && card.netBenefit.signum() > 0) Text("−${card.netBenefit.toWon()}원", style = YamuTheme.typography.value, color = c.primary)
+        // 비교한 카드는 어느 카드를 골라도 예상 혜택이 보이게 — 없으면(0원 이하) '혜택 없음'. 비교 못 한 카드는 줄 아래 서버 문구로 대신한다
+        if (!declined && !card.benefitUnknown) {
+            if (card.netBenefit.signum() > 0) Text("−${card.netBenefit.toWon()}원", style = YamuTheme.typography.value, color = c.primary)
+            else Text("혜택 없음", style = YamuTheme.typography.sub, color = c.text3)
+        }
         if (usable) RoundCheckbox(checked = selected, onCheckedChange = null)
     }
 }

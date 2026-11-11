@@ -167,6 +167,31 @@ class PaymentMapperTest {
         )
     }
 
+    /** 11/10 QA — BE가 후보마다 같은 문장(1순위 선택 이유 · 최대 순혜택)을 reason으로 보낸다(S15P31E103-411) */
+    private val sameReason = "예상 순혜택은 3180원입니다. 이번 결제의 순혜택이 가장 큰 카드를 선택했습니다."
+    private val starbucks = """
+        {"rank":2,"userCardId":32,"nickname":"신한카드 Mr.Life","cardType":"CREDIT","netBenefit":0,
+         "benefits":[{"name":"편의점 10% 할인","type":"DISCOUNT","amount":0}],"reason":"$sameReason"},
+        {"rank":1,"userCardId":31,"nickname":"KB국민 노리 체크카드","cardType":"CHECK","netBenefit":3180,
+         "benefits":[{"name":"스타벅스 환급 할인","type":"CASHBACK","amount":3180}],"reason":"$sameReason","selectionReason":"MAXIMUM_NET_BENEFIT"}
+    """.trimIndent()
+
+    @Test fun `서버 사유는 1순위 카드에만 — 2순위 이하에는 1순위 금액 문장이 붙지 않는다`() {
+        val cards = scanned(""","recommendation":{"status":"READY","candidates":[$starbucks]}""").request!!.cards
+        assertEquals(listOf(31L, 32L), cards.map { it.userCardId })
+        assertEquals(sameReason, cards[0].reason)
+        assertNull(cards[1].reason)
+        // 2순위는 혜택 이름도 사유도 없어 줄 아래가 비고, 오른쪽에 '혜택 없음'이 보인다(순혜택 0원)
+        assertNull(cards[1].benefitName)
+        assertEquals(0, cards[1].netBenefit.signum())
+    }
+
+    @Test fun `비교 못 한 카드의 서버 문구는 순위와 상관없이 남는다`() {
+        val cards = scanned(""","recommendation":{"status":"PARTIAL_READY","candidates":[$starbucks],"uncomparedCards":[$direct]}""").request!!.cards
+        assertEquals(listOf(31L, 32L, 21L), cards.map { it.userCardId })
+        assertEquals("혜택 정보를 확인하지 못해 비교에서 제외했어요.", cards[2].reason)
+    }
+
     private fun declinedOf(code: String) = YamuJson.decodeFromString(
         PaymentResultDto.serializer(),
         """{"paymentId":1,"status":"DECLINED","failure":{"code":"$code","message":"서버 문구"},"retryable":true,"remainingAttempts":2,"suggestedCards":[{"userCardId":12}]}""",
