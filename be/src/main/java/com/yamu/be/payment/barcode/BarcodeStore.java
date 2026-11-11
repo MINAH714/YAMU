@@ -46,6 +46,14 @@ public interface BarcodeStore {
     /** 결제가 확정 시간 안에 승인되지 않아 EXPIRED가 됐다. 그 결제 번호로 SCANNED인 바코드만 EXPIRED로 바꾼다. */
     boolean expireByPayment(Long paymentId);
 
+    /**
+     * POS 결제 취소(S15P31E103-424)에 쓴 바코드를 닫는다. ISSUED일 때만 EXPIRED로 바꾼다.
+     * 그 사이 결제에 스캔됐으면(SCANNED) 그 결제를 막지 않게 그대로 둔다.
+     *
+     * @return 바꿨으면 true. 없거나 다른 상태면 false
+     */
+    boolean closeIssued(String token);
+
     enum ScanResult {
         SCANNED,
         /** 없는 토큰(보관 종료 포함) */

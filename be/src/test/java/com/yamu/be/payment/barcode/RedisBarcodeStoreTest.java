@@ -326,6 +326,24 @@ class RedisBarcodeStoreTest extends RedisTestSupport {
         assertThat(store.find(barcode.token()).orElseThrow().status()).isEqualTo(BarcodeStatus.ISSUED);
     }
 
+    @Test
+    void POS_취소에_쓴_바코드는_ISSUED일_때만_닫히고_스캔된_바코드는_그대로다() {
+        Barcode issued = live(7L);
+        store.issue(issued, RETENTION);
+        Barcode scanned = live(8L);
+        store.issue(scanned, RETENTION);
+        store.scan(scanned.token(), scanned.userId(), 1024L, Instant.now(), RETENTION);
+
+        assertThat(store.closeIssued(issued.token())).isTrue();
+        assertThat(store.closeIssued(issued.token())).isFalse();
+        assertThat(store.closeIssued(scanned.token())).isFalse();
+        assertThat(store.closeIssued("9999999999999999")).isFalse();
+        assertThat(store.closeIssued("user:7")).isFalse();
+
+        assertThat(store.find(issued.token()).orElseThrow().status()).isEqualTo(BarcodeStatus.EXPIRED);
+        assertThat(store.find(scanned.token()).orElseThrow().status()).isEqualTo(BarcodeStatus.SCANNED);
+    }
+
     private Barcode issued(Long userId) {
         return new Barcode(tokens.next(), userId, BarcodeStatus.ISSUED, ISSUED_AT, ISSUED_AT.plusSeconds(60));
     }

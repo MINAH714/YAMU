@@ -319,6 +319,17 @@ class BarcodeServiceTest {
             return settle(paymentId, BarcodeStatus.EXPIRED);
         }
 
+        @Override
+        public synchronized boolean closeIssued(String token) {
+            Barcode barcode = barcodes.get(token);
+            if (barcode == null || barcode.status() != BarcodeStatus.ISSUED) {
+                return false;
+            }
+            barcodes.put(token, new Barcode(token, barcode.userId(), BarcodeStatus.EXPIRED, barcode.issuedAt(),
+                    barcode.expiresAt()));
+            return true;
+        }
+
         private boolean settle(Long paymentId, BarcodeStatus status) {
             for (Barcode barcode : barcodes.values()) {
                 if (barcode.status() == BarcodeStatus.SCANNED && paymentId.equals(barcode.paymentId())) {
