@@ -289,6 +289,70 @@ class PaymentMapperTest {
         assertEquals(listOf(ReceiptBenefit("카페 10% 청구할인", 3_000)), r.benefits)
     }
 
+    // ── 즉시할인 · 혜택 시점(11/10 QA) — 실제 결제 금액은 서버 chargedAmount(결제 금액 − 즉시할인) ──
+
+    @Test fun `즉시할인 승인 — 실제 결제 금액은 할인 뒤, 즉시할인은 차이`() {
+        val dto = PaymentResultDto(
+            paymentId = 2001, status = "APPROVED", amount = 6_600, chargedAmount = 5_940,
+            benefits = listOf(BenefitDto("편의점 할인", type = "DISCOUNT", amount = 660, realization = "AT_APPROVAL")),
+            billItems = listOf(BillItemDto(1, 5_940, expectedWithdrawalDate = "2026-12-15")),
+        )
+        val r = dto.toReceipt()
+        assertEquals(6_600L, r.amount)
+        assertEquals(5_940L, r.paidAmount)
+        assertEquals(660L, r.instantDiscount)
+        assertEquals(listOf(ReceiptBenefit("편의점 할인", 660, BenefitKind.INSTANT)), r.benefits)
+    }
+
+    @Test fun `청구할인만 있으면 결제 금액 그대로 — 청구할인은 빼지 않는다`() {
+        val dto = PaymentResultDto(
+            paymentId = 2002, status = "APPROVED", amount = 31_800, chargedAmount = 31_800,
+            benefits = listOf(BenefitDto("스타벅스 10% 청구할인", type = "DISCOUNT", amount = 3_180, realization = "AT_BILLING")),
+        )
+        val r = dto.toReceipt()
+        assertEquals(31_800L, r.paidAmount)
+        assertEquals(0L, r.instantDiscount)
+        assertEquals(BenefitKind.BILLING, r.benefits.single().kind)
+    }
+
+    @Test fun `즉시할인과 청구할인이 같이 있으면 즉시할인만 빠진다`() {
+        val dto = PaymentResultDto(
+            paymentId = 2003, status = "APPROVED", amount = 20_000, chargedAmount = 19_000,
+            benefits = listOf(
+                BenefitDto("즉시 5%", amount = 1_000, realization = "AT_APPROVAL"),
+                BenefitDto("청구 3%", amount = 600, realization = "AT_BILLING"),
+            ),
+        )
+        val r = dto.toReceipt()
+        assertEquals(19_000L, r.paidAmount)
+        assertEquals(1_000L, r.instantDiscount)
+        assertEquals(listOf(BenefitKind.INSTANT, BenefitKind.BILLING), r.benefits.map { it.kind })
+    }
+
+    @Test fun `chargedAmount가 없거나 결제 금액보다 크면 결제 금액`() {
+        val none = PaymentResultDto(paymentId = 2004, status = "APPROVED", amount = 10_000).toReceipt()
+        assertEquals(10_000L, none.paidAmount)
+        assertEquals(0L, none.instantDiscount)
+        val odd = PaymentResultDto(paymentId = 2005, status = "APPROVED", amount = 10_000, chargedAmount = 12_000).toReceipt()
+        assertEquals(10_000L, odd.paidAmount)
+    }
+
+    @Test fun `상세(#3) 혜택 — 시점이 있으면 시점, 없으면 종류로 캐시백 · 적립을 가르고 모르면 UNKNOWN`() {
+        val dto = PaymentResultDto(
+            paymentId = 2006, status = "APPROVED", amount = 15_900, chargedAmount = 15_900,
+            benefits = listOf(
+                BenefitDto("스타벅스 환급", type = "CASHBACK", actualAmount = 3_180, realization = "AFTER_BILLING"),
+                BenefitDto("커피 적립", type = "POINT", actualAmount = 300, realization = "POINT_ACCRUAL"),
+                BenefitDto("영화 캐시백", type = "CASHBACK", actualAmount = 1_000),
+                BenefitDto("약관 미확인 할인", type = "DISCOUNT", actualAmount = 500),
+            ),
+        )
+        assertEquals(
+            listOf(BenefitKind.CASHBACK, BenefitKind.POINT, BenefitKind.CASHBACK, BenefitKind.UNKNOWN),
+            dto.toReceipt().benefits.map { it.kind },
+        )
+    }
+
     @Test fun `체크 승인 — 청구 줄 없이 출금 · 잔액, 실적 제외`() {
         val dto = PaymentResultDto(
             paymentId = 1030, status = "APPROVED", amount = 15_000, chargedAmount = 14_250, accountBalanceAfter = 935_750,
