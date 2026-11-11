@@ -42,7 +42,7 @@ data class YamuColors(
     val coinSide: Color,            // 동전 옆면
     val coinLine: Color,            // 동전 사이 홈 · 윗면 안쪽 고리
     val coinGlow: Color,            // 동전 무더기 뒤 은은한 빛(히어로 카드 위)
-    val heroStart: Color,           // 홈 히어로 카드(월급 전 예상 잔액) 바탕 — 왼쪽 위에서 오른쪽 아래로. 브랜드 색에서 만든다
+    val heroStart: Color,           // 홈 히어로 카드(예상 잔액) 바탕 — 왼쪽 위에서 오른쪽 아래로. 브랜드 색에서 만든다
     val heroEnd: Color,
     val onHero: Color,              // 히어로 카드 위 글자
     val onHeroMuted: Color,         // 히어로 카드 위 보조 글자 · 칩 바탕

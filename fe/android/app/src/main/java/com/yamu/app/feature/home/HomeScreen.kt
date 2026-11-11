@@ -302,7 +302,7 @@ private fun HomeEntries(onPay: (() -> Unit)?, onForecast: () -> Unit, onCashflow
 private fun ForecastSummary.hasCoinStage(): Boolean = coinCountFor(amount) > 0
 
 /**
- * 월급 전 예상 잔액 — 0원보다 많으면 [ForecastHero](홈의 남는 높이를 받는 큰 카드 + 동전 무더기),
+ * 예상 잔액 카드 — 0원보다 많으면 [ForecastHero](홈의 남는 높이를 받는 큰 카드 + 동전 무더기),
  * 0원 이하(부족)면 예전 흰 카드. 빨간 금액은 남색 바탕에서 잘 안 읽혀 부족은 흰 카드로 둔다
  */
 @Composable
@@ -339,7 +339,7 @@ private fun ForecastCard(forecast: ForecastSummary, onClick: () -> Unit) {
 }
 
 /**
- * 홈 히어로 — 월급 전 예상 잔액을 이 화면의 주인공으로. 브랜드 색 깊은 그러데이션 바탕에 흰 큰 금액(40sp),
+ * 홈 히어로 — 예상 잔액(월급 전이면 가장 낮을 때)을 이 화면의 주인공으로. 브랜드 색 깊은 그러데이션 바탕에 흰 큰 금액(40sp),
  * 아래 무대에 금색 동전이 금액만큼 떨어져 쌓인다(오른쪽 아래). 홈의 남는 높이를 이 카드가 받아 화면 아래 빈자리가 없다.
  *
  * 움직임: 금액 글자는 동전이 떨어지는 동안 0에서 올라가 마지막 동전과 함께 멈추고, 다 쌓이면 빛이 카드를 한 번 훑는다.
@@ -613,7 +613,7 @@ private fun HomeScreenPreview() = YamuTheme {
             isLoading = false,
             content = HomeSummary(
                 forecast = ForecastSummary(
-                    label = "월급 전 예상 잔액",
+                    label = "월급 전 가장 낮을 때",
                     amount = 350_000,
                     isEstimate = true,
                     isProvisional = false,

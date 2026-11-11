@@ -10,7 +10,7 @@ import org.junit.Test
 /** 잔고예보 · 예정 수입·지출 진입로를 언제 따로 보여 주나 */
 class HomeUiStateTest {
 
-    private val forecast = ForecastSummary("월급 전 예상 잔액", 350_000, isEstimate = true, isProvisional = false, incomeDate = null, daysToIncome = null, shortageFrom = null)
+    private val forecast = ForecastSummary("월급 전 가장 낮을 때", 350_000, isEstimate = true, isProvisional = false, incomeDate = null, daysToIncome = null, shortageFrom = null)
     private val failed = ApiError.NotFound("API_NOT_FOUND")
 
     private fun summary(forecast: ForecastSummary?, needsLinking: Boolean = false) =

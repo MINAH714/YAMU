@@ -341,7 +341,7 @@ private fun GallerySections() {
 
     SectionTitle("E. 표시")
     YamuCard {
-        Text("월급 전 예상 잔액", style = YamuTheme.typography.titleS, color = YamuTheme.colors.text2)
+        Text("월급 전 가장 낮을 때", style = YamuTheme.typography.titleS, color = YamuTheme.colors.text2)
         AmountText(350_000, estimate = true)
         AmountText(-50_000, size = AmountSize.M, shortage = true)
         AmountText(15_000, size = AmountSize.Value, withPlusSign = true)

@@ -45,7 +45,7 @@ private fun style(size: Int, line: Int, weight: FontWeight, tabularNumbers: Bool
 /** 글자 단계 — 색은 넣지 않는다(화면에서 color = YamuTheme.colors.text3 처럼). 11sp보다 작은 글자 금지 */
 @Immutable
 data class YamuTypography(
-    /** 홈 히어로(월급 전 예상 잔액) 금액 — 화면에서 가장 큰 숫자, 한 화면에 하나 */
+    /** 홈 히어로(예상 잔액) 금액 — 화면에서 가장 큰 숫자, 한 화면에 하나 */
     val amountHero: TextStyle = style(40, 48, FontWeight.ExtraBold, tabularNumbers = true, tracking = -0.035),
     val amountL: TextStyle = style(30, 38, FontWeight.Bold, tabularNumbers = true, tracking = -0.03),
     val amountM: TextStyle = style(22, 30, FontWeight.Bold, tabularNumbers = true, tracking = -0.02),

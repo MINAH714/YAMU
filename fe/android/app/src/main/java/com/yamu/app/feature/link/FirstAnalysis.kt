@@ -73,7 +73,7 @@ data class FirstAnalysisState(val loading: Boolean = true, val summary: HomeSumm
 /** 실패 본문 — 아래 두 버튼으로 홈에 갈 수 있다는 것까지. 404(홈 API 없음)도 같은 글을 쓴다 */
 internal const val FIRST_ANALYSIS_FAILED = "다시 시도하거나\n아래 버튼으로 먼저 시작해도 돼요"
 
-/** B-07 첫 분석 — 홈과 같은 서버 값(#58): 월급 전 예상 잔액 · 할 일 · 오늘 쓸 카드. 앱은 계산하지 않음 */
+/** B-07 첫 분석 — 홈과 같은 서버 값(#58): 예상 잔액(월급 전 가장 낮을 때) · 할 일 · 오늘 쓸 카드. 앱은 계산하지 않음 */
 @HiltViewModel
 class FirstAnalysisViewModel @Inject constructor(private val home: HomeRepository) : ViewModel() {
     private val _state = MutableStateFlow(FirstAnalysisState())
