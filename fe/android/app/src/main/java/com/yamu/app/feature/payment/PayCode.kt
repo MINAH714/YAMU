@@ -91,6 +91,8 @@ import com.yamu.app.feature.auth.data.AuthRepository
 import com.yamu.app.feature.auth.data.StepUpPurpose
 import com.yamu.app.feature.link.BrandCardArt
 import com.yamu.app.feature.link.BrandMark
+import com.yamu.app.feature.link.data.LinkRepository
+import com.yamu.app.feature.link.data.LinkedCard
 import com.yamu.app.feature.payment.data.ApproveOutcome
 import com.yamu.app.feature.payment.data.CodeState
 import com.yamu.app.feature.payment.data.NO_BENEFIT_NOTICE
@@ -101,6 +103,7 @@ import com.yamu.app.feature.payment.data.PaymentRequest
 import com.yamu.app.feature.payment.data.formatRemaining
 import com.yamu.app.feature.payment.data.groupCode
 import com.yamu.app.feature.payment.data.secondsUntil
+import com.yamu.app.feature.payment.data.withListedCards
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -163,11 +166,15 @@ class PayCodeViewModel @Inject constructor(
     private val payments: PaymentRepository,
     private val auth: AuthRepository,
     stepUpFactory: StepUpFactory,
+    private val link: LinkRepository,
 ) : ViewModel() {
     val stepUp = stepUpFactory.create(viewModelScope)
     private val _state = MutableStateFlow(PayCodeState())
     val state: StateFlow<PayCodeState> = _state.asStateFlow()
 
+    /** 카드 목록(userCardId별) — 결제 요청 카드에 카드사 · 상품명을 붙인다(Q-19). 못 받았으면 비어 있고 응답 값만 보인다 */
+    private var listedCards: Map<Long, LinkedCard> = emptyMap()
+    private var listedCardsJob: Job? = null
     private var pollJob: Job? = null
     private var visible = false
     private var pollFailures = 0
@@ -203,6 +210,7 @@ class PayCodeViewModel @Inject constructor(
                     _state.update { it.copy(issuing = false, phase = PayPhase.Code(r.data), unstable = false) }
                     tick()
                     restartPolling()
+                    loadListedCards()
                 }
                 is ApiResult.Failure -> _state.update {
                     if (r.error.code == "NO_ACTIVE_CARD") it.copy(issuing = false, phase = PayPhase.NoCard)
@@ -275,10 +283,28 @@ class PayCodeViewModel @Inject constructor(
         pollJob = null
     }
 
+    /**
+     * 코드를 띄운 동안 카드 목록을 받아 둔다. 보통 가맹점이 찍기 전에 끝나고, 늦게 오면 그때 요청 화면 카드에 붙인다.
+     * 실패하면 다음 코드 · 다음 찍힘에서 다시 받는다(그 사이엔 응답 값만으로 그린다)
+     */
+    private fun loadListedCards() {
+        if (listedCards.isNotEmpty() || listedCardsJob?.isActive == true) return
+        listedCardsJob = viewModelScope.launch {
+            val r = link.cards()
+            if (r !is ApiResult.Success) return@launch
+            listedCards = r.data.associateBy { it.userCardId }
+            _state.update { s ->
+                val p = s.phase as? PayPhase.Request ?: return@update s
+                s.copy(phase = PayPhase.Request(p.request.withListedCards(listedCards)))
+            }
+        }
+    }
+
     private fun onScanned(request: PaymentRequest) {
+        loadListedCards()
         _state.update {
             it.copy(
-                phase = PayPhase.Request(request),
+                phase = PayPhase.Request(request.withListedCards(listedCards)),
                 // 서버 1순위. 혜택을 비교하지 못한 카드는 미리 고르지 않는다(데이터 부족이면 사용자가 직접 고른다)
                 selectedCardId = request.cards.firstOrNull { c -> c.autoSelectable }?.userCardId,
                 installmentMonths = null,
@@ -604,7 +630,7 @@ private fun RequestBody(request: PaymentRequest, s: PayCodeState, onSelectCard: 
         s.selectedCard?.let { selected ->
             Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
                 Crossfade(selected, label = "selectedCard") { card ->
-                    BrandCardArt(card.brand, card.name, card.last4, Modifier.widthIn(max = 320.dp))
+                    BrandCardArt(card.brand, card.name, card.last4, Modifier.widthIn(max = 320.dp), productName = card.imageName)
                 }
             }
             Spacer(Modifier.height(YamuSpacing.x5))
@@ -664,7 +690,7 @@ private fun PayCardRow(card: PayCard, selected: Boolean, enabled: Boolean, decli
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(YamuSpacing.x3),
     ) {
-        CardThumb(CardImages.forProduct(card.name)) { BrandMark(card.brand, large = true) }
+        CardThumb(CardImages.forProduct(card.imageName)) { BrandMark(card.brand, large = true) }
         Column(Modifier.weight(1f)) {
             Text(card.name, style = YamuTheme.typography.titleM, color = c.text1, maxLines = 1, overflow = TextOverflow.Ellipsis)
             val sub = when {

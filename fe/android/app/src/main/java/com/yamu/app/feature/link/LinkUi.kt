@@ -107,11 +107,12 @@ fun BrandMark(brand: Brand, modifier: Modifier = Modifier, large: Boolean = fals
 
 /**
  * 큰 카드 — 실물 카드를 손에 든 크기(결제 요청 확인 P-06c · 카드추천 P-01). 폭은 부르는 쪽에서 widthIn(max = 320dp)으로 막는다.
- * 상품 그림(CardImages)이 있으면 그림, 없으면 카드사 색 카드에 짧은 이름 · 상품명 · 끝자리
+ * 상품 그림(CardImages)이 있으면 그림, 없으면 카드사 색 카드에 짧은 이름 · [name] · 끝자리.
+ * 그림은 [productName]으로 찾는다 — [name]이 별명이면 상품명을 따로 넘겨야 그림이 붙는다
  */
 @Composable
-fun BrandCardArt(brand: Brand, name: String, last4: String?, modifier: Modifier = Modifier) {
-    val image = CardImages.forProduct(name)
+fun BrandCardArt(brand: Brand, name: String, last4: String?, modifier: Modifier = Modifier, productName: String = name) {
+    val image = CardImages.forProduct(productName)
     if (image != null) return CardArt(image, name, modifier)
     val (bg, fg) = brand.colors()
     Column(
