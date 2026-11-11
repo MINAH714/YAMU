@@ -169,7 +169,7 @@ class ForecastTwoLinesTest {
             livingCost = ForecastLivingCost(null, LivingMethod.TSB, insufficient = true, appliedAmount = 120_000),
         )
         val (withoutLiving, withLiving) = f.lineGroups()
-        assertEquals(listOf(LineStep("예상 생활비", -120_000, "최근 소비 기준 · 기록 있는 계좌만"), LineStep("앞으로 쓸 신용카드 금액", -36_000)), withLiving.steps)
+        assertEquals(listOf(LineStep("예상 생활비", -120_000, "최근 소비 기준, 기록 있는 계좌만"), LineStep("앞으로 쓸 신용카드 금액", -36_000)), withLiving.steps)
         assertEquals(withLiving.end, withoutLiving.end!! + withLiving.steps.sumOf { it.amount })   // 500,000 − 120,000 − 36,000 = 344,000
         assertFalse(f.hasPartialLiving)
         assertNull(withLiving.note)
@@ -198,5 +198,16 @@ class ForecastTwoLinesTest {
             livingCost = ForecastLivingCost(0, LivingMethod.TSB, insufficient = false, appliedAmount = 0),
         )
         assertEquals(listOf(LineStep("예상 생활비", 0, "최근 소비 기준")), f.lineGroups()[1].steps)
+    }
+
+    @Test fun `이름 뒤 붙임말은 가운데 점 대신 괄호로(11월 10일 QA)`() {
+        assertEquals("넷플릭스 (예상)", dayEventLabel(ForecastEvent(nov20, FlowType.SCHEDULED_OUTFLOW, "넷플릭스", -13_500, FlowConfidence.EXPECTED)))
+        assertEquals("카드 사용 예상 (추정)", dayEventLabel(ForecastEvent(nov20, FlowType.CARD_SPENDING_ESTIMATE, "생활카드 사용 추정", -36_000, FlowConfidence.CONSERVATIVE)))
+        assertEquals("월세", dayEventLabel(ForecastEvent(nov20, FlowType.SCHEDULED_OUTFLOW, "월세", -500_000, FlowConfidence.CONFIRMED)))
+        assertEquals("예상 생활비 (최근 소비 기준, 기록 있는 계좌만)", stepLabel(LineStep("예상 생활비", -120_000, "최근 소비 기준, 기록 있는 계좌만")))
+        assertEquals("예정 지출", stepLabel(LineStep("예정 지출", -13_500)))
+        assertEquals("11월 20일 (금, 오늘)", nov20.toKoreanDateWeek(markToday = true, today = nov20))
+        assertEquals("11월 20일 (금)", nov20.toKoreanDateWeek(markToday = true, today = nov10))
+        assertEquals("11월 20일 (금)", nov20.toKoreanDateWeek())
     }
 }

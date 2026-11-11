@@ -87,8 +87,6 @@ import kotlinx.coroutines.launch
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneOffset
-import java.time.format.TextStyle
-import java.util.Locale
 import javax.inject.Inject
 
 /** 범위를 묻는 시트 — 저장인지 삭제인지 */
@@ -401,7 +399,7 @@ fun CashflowCreateRoute(onBack: () -> Unit, onDone: () -> Unit, viewModel: Cashf
                 Text(f.dateLabel(editing = editing != null), style = YamuTheme.typography.bodyM, color = c.text3, modifier = Modifier.width(DATE_LABEL_WIDTH))
                 Spacer(Modifier.width(YamuSpacing.x3))
                 Text(
-                    "${f.date.toKoreanDate()} (${f.date.dayOfWeek.getDisplayName(TextStyle.SHORT, Locale.KOREAN)})${if (f.date == LocalDate.now(KST)) " · 오늘" else ""}",
+                    f.date.toKoreanDateWeek(markToday = true),
                     style = YamuTheme.typography.titleS,
                     color = c.text1,
                     modifier = Modifier.weight(1f),
