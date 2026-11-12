@@ -50,6 +50,8 @@ public final class QaSeedService {
     public void run(String command, QaSeedSpec spec) throws Exception {
         spec.validate(LocalDate.now(clock.withZone(KST)));
         require(List.of("apply", "enrich", "verify", "inspect", "reset", "purge").contains(command), "Unknown operation");
+        require(!List.of("apply", "enrich", "reset").contains(command) || spec.version() == 2,
+                "Use version 2 for executable fixtures; purge version 1 using its original input first");
         for (var persona : spec.personas()) {
             require(!persona.ssafyUserKey().startsWith("REPLACE_"), "Replace financial binding placeholders");
         }
@@ -410,6 +412,14 @@ public final class QaSeedService {
                     "SELECT COUNT(*) FROM bill_item_discount d JOIN card_bill b USING(card_bill_id) WHERE b.user_id=?", user));
             System.out.println("  deviceIds=" + db.queryForList(
                     "SELECT user_device_id FROM user_device WHERE user_id=? ORDER BY user_device_id", Long.class, user));
+            System.out.println("  bills=" + db.queryForList("""
+                    SELECT card_bill_id,linked_account_id,status,withdrawal_date,confirmed_amount,paid_amount,
+                      fin_request_no,fin_transaction_no FROM card_bill WHERE user_id=? ORDER BY card_bill_id
+                    """, user));
+            System.out.println("  refunds=" + db.queryForList("""
+                    SELECT refund_id,bill_item_id,linked_account_id,status,due_date,refund_amount,
+                      fin_request_no,fin_transaction_no FROM refund WHERE user_id=? ORDER BY refund_id
+                    """, user));
         }
     }
 

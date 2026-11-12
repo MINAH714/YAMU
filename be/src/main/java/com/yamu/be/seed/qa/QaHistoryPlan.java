@@ -36,7 +36,7 @@ public final class QaHistoryPlan {
                 "APPROVED", 1, discount));
         if (scenario == QaSeedSpec.Scenario.STATES) {
             rows.add(new Payment(2, base.minusDays(1), 5, "COUPANG", 900000, "APPROVED", 3, 0));
-            rows.add(new Payment(2, base.minusDays(1), 6, "GS25", 12000, "CANCELED", 1, 0));
+            rows.add(new Payment(2, base.withDayOfMonth(1).minusMonths(1), 6, "GS25", 12000, "CANCELED", 1, 0));
             rows.add(new Payment(2, base.minusDays(1), 7, "GS25", 8000, "DECLINED", 1, 0));
         }
         return List.copyOf(rows);

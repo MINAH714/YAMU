@@ -14,7 +14,7 @@ import java.util.Optional;
 import java.util.Set;
 import org.springframework.jdbc.core.JdbcTemplate;
 
-/** Current display bills only; imported historic SEED purchases do not trigger bank withdrawals. */
+/** Executable QA bills bound to the persona's dedicated connected accounts. */
 final class QaBillingFixtures {
     @FunctionalInterface interface Insert { long row(String sql, Object... values) throws Exception; }
     private final JdbcTemplate db;
@@ -44,7 +44,7 @@ final class QaBillingFixtures {
                 JOIN card_product p ON p.card_product_id=c.card_product_id
                 WHERE t.user_id=? AND p.card_type='CREDIT' AND t.source='SEED'
                 AND t.status IN ('APPROVED','CANCELED')
-                AND (t.performance_month>=? OR t.installment_months>1)
+                AND (t.performance_month>=? OR t.installment_months>1 OR t.status='CANCELED')
                 ORDER BY t.payment_transaction_id
                 """, user, base.withDayOfMonth(1));
         for (var p : payments) {
@@ -70,13 +70,34 @@ final class QaBillingFixtures {
                         """, user, card, account, period.billingMonth().atDay(1), period.periodStart(), period.periodEnd(),
                         calendar.businessDayOnOrAfter(period.paymentDate()), now, now) : existing.get(0);
                 long principal = n == count ? total - total / count * (count - 1) : total / count;
-                // Fees intentionally NULL: no invented interest-free policy for imported history.
-                insert.row("""
+                boolean canceled = "CANCELED".equals(p.get("status"));
+                // Match BillItem.pending: the current engine starts with zero fees and principal billed.
+                long item = insert.row("""
                         INSERT INTO bill_item(payment_transaction_id,user_id,user_card_id,card_bill_id,
-                          installment_no,billing_month,principal_amount,status,created_at,updated_at)
-                        VALUES (?,?,?,?,?,?,?,?,?,?)
+                          installment_no,billing_month,principal_amount,fee_amount,billed_amount,status,created_at,updated_at)
+                        VALUES (?,?,?,?,?,?,?,0,?,?,?,?)
                         """, payment, user, card, bill, n, period.billingMonth().atDay(1), principal,
-                        "CANCELED".equals(p.get("status")) ? "EXCLUDED" : "PENDING", now, now);
+                        principal, canceled ? "REFUND_PENDING" : "PENDING", now, now);
+                if (canceled) {
+                    QaSeedSpec.require(existing.isEmpty() && count == 1, "Canceled fixture needs a separate bill");
+                    Timestamp confirmed = Timestamp.from(period.periodEnd().plusDays(1)
+                            .atStartOfDay(ZoneId.of("Asia/Seoul")).toInstant());
+                    Timestamp canceledAt = Timestamp.from(confirmed.toInstant().plusSeconds(3600));
+                    QaSeedSpec.require(!canceledAt.toInstant().isAfter(clock.instant()), "Future canceled fixture");
+                    db.update("""
+                            UPDATE card_bill SET status='CONFIRMED',confirmed_amount=?,confirmed_at=?
+                            WHERE card_bill_id=?
+                            """, principal, confirmed, bill);
+                    db.update("""
+                            UPDATE payment_transaction SET canceled_at=?,performance_reversed_at=?
+                            WHERE payment_transaction_id=?
+                            """, canceledAt, canceledAt, payment);
+                    insert.row("""
+                            INSERT INTO refund(payment_transaction_id,bill_item_id,user_id,linked_account_id,
+                              request_key,principal_amount,fee_amount,refund_amount,status,created_at,updated_at)
+                            VALUES (?,?,?,?,UUID(),?,0,?,'PENDING',?,?)
+                            """, payment, item, user, account, principal, principal, canceledAt, now);
+                }
             }
         }
     }

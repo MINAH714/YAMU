@@ -40,10 +40,6 @@ public final class QaSeedCli {
                 QaSeedSpec.require("true".equals(env("QA_SEED_MAINTENANCE")),
                         "Stop QA traffic and workers; set QA_SEED_MAINTENANCE=true");
             }
-            if ("enrich".equals(command)) {
-                QaSeedSpec.require("true".equals(env("QA_SEED_WORKERS_ISOLATED")),
-                        "Billing/withdrawal/refund workers must stay isolated while QA bills exist");
-            }
             int keyId = Integer.parseInt(env("YAMU_CRYPTO_DATA_KEY_ID"));
             CryptoKeys keys = new CryptoKeys(new CryptoProperties(keyId,
                     Map.of(keyId, env("YAMU_CRYPTO_DATA_KEY_" + keyId)),

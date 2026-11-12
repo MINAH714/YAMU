@@ -8,4 +8,3 @@ YAMU_CRYPTO_DATA_KEY_<ID>=<same current AES key as API server>
 YAMU_CRYPTO_HMAC_KEY=<same lookup key as API server>
 YAMU_CRYPTO_PIN_PEPPER=<same PIN pepper as API server>
 QA_SEED_MAINTENANCE=true
-QA_SEED_WORKERS_ISOLATED=true

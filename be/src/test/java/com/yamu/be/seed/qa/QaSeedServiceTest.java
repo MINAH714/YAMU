@@ -1,6 +1,14 @@
 package com.yamu.be.seed.qa;
 
 import static org.assertj.core.api.Assertions.*;
+import static org.mockito.Mockito.*;
+import static org.mockito.ArgumentMatchers.*;
+import com.yamu.be.payment.bank.SsafyTransferApi;
+import com.yamu.be.payment.bank.TransferResult;
+import com.yamu.be.payment.billing.confirm.BillConfirmer;
+import com.yamu.be.payment.billing.withdraw.BillWithdrawer;
+import com.yamu.be.payment.billing.refund.RefundDepositor;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import com.yamu.be.global.crypto.CipherField;
 import com.yamu.be.global.crypto.CryptoKeys;
 import com.yamu.be.global.crypto.CryptoProperties;
@@ -36,6 +44,12 @@ class QaSeedServiceTest extends MySqlTestSupport {
     @Autowired org.springframework.test.web.servlet.MockMvc mvc;
     @Autowired CryptoProperties cryptoProperties;
     @Autowired DataSource dataSource;
+    @Autowired BillConfirmer confirmer;
+    @Autowired BillWithdrawer withdrawer;
+    @Autowired RefundDepositor depositor;
+    @MockitoBean SsafyTransferApi transfer;
+    @MockitoBean com.yamu.be.account.AccountBalanceService balances;
+    @MockitoBean Clock runtimeClock;
     private Connection connection;
     private JdbcTemplate db;
     private QaSeedService service;
@@ -44,6 +58,10 @@ class QaSeedServiceTest extends MySqlTestSupport {
     private final List<QaSeedSpec> created = new ArrayList<>();
 
     @BeforeEach void setup() throws Exception {
+        when(runtimeClock.instant()).thenReturn(Instant.parse("2026-11-16T03:00:00Z"));
+        when(runtimeClock.getZone()).thenReturn(ZoneOffset.UTC);
+        when(runtimeClock.withZone(any())).thenAnswer(call -> Clock.fixed(runtimeClock.instant(),call.getArgument(0)));
+        when(transfer.newTransactionNo()).thenReturn("20261116120000000001", "20261116120000000002");
         connection = dataSource.getConnection();
         db = new JdbcTemplate(new SingleConnectionDataSource(connection,true));
         String hmac = cryptoProperties.hmacKey();
@@ -75,7 +93,7 @@ class QaSeedServiceTest extends MySqlTestSupport {
             persons.add(new QaSeedSpec.Persona("p"+i,scenarios[i],"큐에이",LocalDate.of(1995,1,1),
                     "0100000"+suffix,"qa"+suffix+"@example.invalid","test-financial-binding",accounts,cards));
         }
-        return new QaSeedSpec("qa-"+name,1,LocalDate.of(2026,11,12),persons);
+        return new QaSeedSpec("qa-"+name,2,LocalDate.of(2026,11,12),persons);
     }
     private void apply(QaSeedSpec spec) throws Exception { service.run("apply",spec); created.add(spec); }
     private long user(QaSeedSpec spec,int index) {
@@ -111,6 +129,104 @@ class QaSeedServiceTest extends MySqlTestSupport {
     }
     private long count(String table) { return db.queryForObject("SELECT COUNT(*) FROM "+table,Long.class); }
 
+    @Test void seededBillConfirmsWithdrawsAndDoesNotWithdrawTwice() throws Exception {
+        var spec=spec("billing",QaSeedSpec.Scenario.RICH);
+        apply(spec); signedUp(spec); service.run("enrich",spec);
+        long bill=db.queryForObject("SELECT MIN(card_bill_id) FROM card_bill",Long.class);
+        assertThat(confirmer.confirm(bill,java.time.LocalDateTime.of(2026,11,16,3,0)).kind())
+                .isEqualTo(BillConfirmer.Kind.CONFIRMED);
+        assertThat(db.queryForObject("SELECT confirmed_amount FROM card_bill WHERE card_bill_id=?",Long.class,bill))
+                .isEqualTo(13500);
+        when(transfer.withdraw(anyString(),anyString(),anyLong(),any(),anyString()))
+                .thenReturn(new TransferResult(TransferResult.Status.SUCCESS,"qa-withdraw",LocalDate.of(2026,11,16),null,null));
+        assertThat(withdrawer.withdraw(bill,LocalDate.of(2026,11,16),false).kind()).isEqualTo(BillWithdrawer.Kind.PAID);
+        assertThat(withdrawer.withdraw(bill,LocalDate.of(2026,11,16),false).kind()).isEqualTo(BillWithdrawer.Kind.SKIPPED);
+        verify(transfer,times(1)).withdraw(anyString(),eq(spec.personas().get(0).accounts().get(1).accountNo()),eq(13500L),any(),anyString());
+        service.run("reset",spec);
+        assertThat(count("card_bill")).isZero();
+    }
+
+    @Test void canceledSeedWaitsForWithdrawalThenRefundsExactlyOnce() throws Exception {
+        var spec=spec("refund",QaSeedSpec.Scenario.STATES);
+        apply(spec); signedUp(spec); service.run("enrich",spec);
+        long refund=db.queryForObject("SELECT refund_id FROM refund",Long.class);
+        long bill=db.queryForObject("SELECT card_bill_id FROM card_bill WHERE status='CONFIRMED'",Long.class);
+        assertThat(depositor.deposit(refund).outcome()).isEqualTo(RefundDepositor.Outcome.SKIPPED);
+        verify(transfer,never()).deposit(anyString(),anyString(),anyLong(),any(),anyString());
+        when(transfer.withdraw(anyString(),anyString(),anyLong(),any(),anyString()))
+                .thenReturn(new TransferResult(TransferResult.Status.SUCCESS,"qa-withdraw",LocalDate.of(2026,11,16),null,null));
+        when(transfer.deposit(anyString(),anyString(),anyLong(),any(),anyString()))
+                .thenReturn(new TransferResult(TransferResult.Status.SUCCESS,"qa-refund",LocalDate.of(2026,11,16),null,null));
+        assertThat(withdrawer.withdraw(bill,LocalDate.of(2026,11,16),false).kind()).isEqualTo(BillWithdrawer.Kind.PAID);
+        assertThat(db.queryForObject("SELECT due_date FROM refund",LocalDate.class)).isEqualTo(LocalDate.of(2026,11,19));
+        assertThat(depositor.deposit(refund).outcome()).isEqualTo(RefundDepositor.Outcome.COMPLETED);
+        assertThat(depositor.deposit(refund).outcome()).isEqualTo(RefundDepositor.Outcome.SKIPPED);
+        verify(transfer,times(1)).withdraw(anyString(),anyString(),eq(12000L),any(),anyString());
+        verify(transfer,times(1)).deposit(anyString(),eq(spec.personas().get(0).accounts().get(1).accountNo()),eq(12000L),any(),anyString());
+        assertThat(db.queryForObject("SELECT status FROM bill_item WHERE bill_item_id=(SELECT bill_item_id FROM refund)",String.class))
+                .isEqualTo("REFUNDED");
+        service.run("inspect",spec);
+        service.run("reset",spec);
+        assertThat(count("refund")).isZero();
+    }
+
+    @Test void rejectedWithdrawalCanResetButUnknownWithdrawalCannot() throws Exception {
+        var spec=spec("bill-failure",QaSeedSpec.Scenario.RICH);
+        apply(spec); signedUp(spec); service.run("enrich",spec);
+        long bill=db.queryForObject("SELECT MIN(card_bill_id) FROM card_bill",Long.class);
+        confirmer.confirm(bill,java.time.LocalDateTime.of(2026,11,16,3,0));
+        when(transfer.withdraw(anyString(),anyString(),anyLong(),any(),anyString()))
+                .thenReturn(new TransferResult(TransferResult.Status.UNKNOWN,null,null,null,null));
+        assertThat(withdrawer.withdraw(bill,LocalDate.of(2026,11,16),false).kind()).isEqualTo(BillWithdrawer.Kind.UNKNOWN);
+        try {
+            assertThatThrownBy(()->service.run("reset",spec)).isInstanceOf(IllegalArgumentException.class);
+            assertThat(count("card_bill")).isEqualTo(1);
+        } finally {
+            // Isolated test only: model the bank proving that no transfer occurred before the next case.
+            db.update("UPDATE card_bill SET fin_request_no=NULL WHERE card_bill_id=?",bill);
+        }
+        when(transfer.withdraw(anyString(),anyString(),anyLong(),any(),anyString()))
+                .thenReturn(new TransferResult(TransferResult.Status.REJECTED,null,null,TransferResult.RejectReason.INSUFFICIENT_BALANCE,"A1014"));
+        assertThat(withdrawer.withdraw(bill,LocalDate.of(2026,11,16),false).kind()).isEqualTo(BillWithdrawer.Kind.UNPAID);
+        service.run("reset",spec);
+        assertThat(count("card_bill")).isZero();
+    }
+
+    @Test void unknownRefundBlocksResetAndDefinitiveAccountFailureAllowsReset() throws Exception {
+        var spec=spec("refund-failure",QaSeedSpec.Scenario.STATES);
+        apply(spec); signedUp(spec); service.run("enrich",spec);
+        long refund=db.queryForObject("SELECT refund_id FROM refund",Long.class);
+        long bill=db.queryForObject("SELECT card_bill_id FROM card_bill WHERE status='CONFIRMED'",Long.class);
+        when(transfer.withdraw(anyString(),anyString(),anyLong(),any(),anyString()))
+                .thenReturn(new TransferResult(TransferResult.Status.SUCCESS,"qa-withdraw",LocalDate.of(2026,11,16),null,null));
+        withdrawer.withdraw(bill,LocalDate.of(2026,11,16),false);
+        when(transfer.deposit(anyString(),anyString(),anyLong(),any(),anyString()))
+                .thenReturn(new TransferResult(TransferResult.Status.UNKNOWN,null,null,null,null));
+        assertThat(depositor.deposit(refund).outcome()).isEqualTo(RefundDepositor.Outcome.UNKNOWN);
+        try {
+            assertThatThrownBy(()->service.run("reset",spec)).isInstanceOf(IllegalArgumentException.class);
+            assertThat(count("refund")).isEqualTo(1);
+        } finally {
+            // Only after simulated bank reconciliation in this isolated test.
+            db.update("UPDATE refund SET fin_request_no=NULL WHERE refund_id=?",refund);
+        }
+        when(transfer.deposit(anyString(),anyString(),anyLong(),any(),anyString()))
+                .thenReturn(new TransferResult(TransferResult.Status.REJECTED,null,null,TransferResult.RejectReason.ACCOUNT_NOT_FOUND,"A1003"));
+        assertThat(depositor.deposit(refund).outcome()).isEqualTo(RefundDepositor.Outcome.FAILED);
+        service.run("reset",spec);
+        assertThat(count("refund")).isZero();
+    }
+
+    @Test void versionOneCannotCreateDisplayOnlyFixturesButCanPurgeWithOriginalInput() throws Exception {
+        var current=spec("legacy",QaSeedSpec.Scenario.EMPTY);
+        var legacy=new QaSeedSpec(current.datasetKey(),1,current.baseDate(),current.personas());
+        for(String command:List.of("apply","enrich","reset")) {
+            assertThatThrownBy(()->service.run(command,legacy)).isInstanceOf(IllegalArgumentException.class);
+        }
+        service.run("purge",legacy);
+        assertThat(count("qa_seed_dataset")).isZero();
+    }
+
     @Test void allFivePersonasRemainConsistentAndRepeatedApplyDoesNotDuplicate() throws Exception {
         var spec=spec("all",QaSeedSpec.Scenario.values());
         apply(spec);
@@ -144,7 +260,7 @@ class QaSeedServiceTest extends MySqlTestSupport {
     }
     @Test void changedInputCannotResetOrDeleteAnExistingDataset() throws Exception {
         var spec=spec("changed",QaSeedSpec.Scenario.RICH); apply(spec);
-        var changed=new QaSeedSpec(spec.datasetKey(),1,spec.baseDate().minusDays(1),spec.personas());
+        var changed=new QaSeedSpec(spec.datasetKey(),2,spec.baseDate().minusDays(1),spec.personas());
         long before=count("payment_transaction");
         assertThatThrownBy(()->service.run("reset",changed)).isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(()->service.run("purge",changed)).isInstanceOf(IllegalArgumentException.class);

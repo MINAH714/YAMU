@@ -6,7 +6,7 @@ V20261112_1__add_qa_seed_ownership.sql이 추가한 두 테이블의 컬럼 사�
 | 테이블 | 컬럼 | 타입/제약 | 의미 |
 |---|---|---|---|
 | qa_seed_dataset | dataset_key | VARCHAR(64), ASCII binary, PK | QA 세트 식별자 |
-| qa_seed_dataset | seed_version | INT NOT NULL | 생성 규격 버전(현재 1) |
+| qa_seed_dataset | seed_version | INT NOT NULL | 생성 규격 버전(현재 2; 1은 원본 입력으로 삭제 후 재생성) |
 | qa_seed_dataset | base_date | DATE NOT NULL | 한국 기준일 |
 | qa_seed_dataset | input_hash | BINARY(32) NOT NULL | 전체 정규화 JSON 입력의 도메인 분리 HMAC; 비밀 원문 저장 안 함 |
 | qa_seed_dataset | run_id | CHAR(36) NOT NULL | 생성 실행 UUID, 재생성 시 변경 |

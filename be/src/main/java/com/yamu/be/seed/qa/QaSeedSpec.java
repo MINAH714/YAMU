@@ -24,7 +24,7 @@ public record QaSeedSpec(String datasetKey, int version, LocalDate baseDate, Lis
 
     public void validate(LocalDate today) {
         require(datasetKey != null && datasetKey.matches("qa-[a-z0-9-]{1,60}"), "Invalid dataset key");
-        require(version == 1, "Unsupported seed version");
+        require(version == 1 || version == 2, "Unsupported seed version");
         require(baseDate != null && !baseDate.isAfter(today), "Reference date must not be in the future");
         require(personas != null && !personas.isEmpty() && personas.size() <= 20, "Expected 1..20 personas");
         Set<String> keys = new HashSet<>(), people = new HashSet<>(), members = new HashSet<>(),

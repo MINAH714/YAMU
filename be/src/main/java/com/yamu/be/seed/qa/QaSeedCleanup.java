@@ -17,11 +17,11 @@ final class QaSeedCleanup {
                 """, Long.class, user) == 0, "Resolve in-flight/unknown payments first");
         require(db.queryForObject("""
                 SELECT COUNT(*) FROM card_bill WHERE user_id=? AND fin_request_no IS NOT NULL
-                AND fin_transaction_no IS NULL
+                AND fin_transaction_no IS NULL AND status NOT IN ('UNPAID','CANCELED')
                 """, Long.class, user) == 0, "Resolve unknown bill withdrawals first");
         require(db.queryForObject("""
                 SELECT COUNT(*) FROM refund WHERE user_id=? AND fin_request_no IS NOT NULL
-                AND fin_transaction_no IS NULL
+                AND fin_transaction_no IS NULL AND status <> 'FAILED'
                 """, Long.class, user) == 0, "Resolve unknown refunds first");
         // bill_item_discount has independent FKs, not a composite owner constraint.
         require(db.queryForObject("""
