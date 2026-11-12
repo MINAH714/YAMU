@@ -48,6 +48,12 @@ public interface CardBillRepository extends JpaRepository<CardBill, Long> {
             Pageable page);
 
     /**
+     * 이 사용자의 그 상태 청구서, 번호 순. 잠그지 않는다. card_bill에는 user_id 인덱스가 없어 이 조건으로 잠그면 훑은 행을 모두 잠그므로,
+     * 잠글 때는 여기서 얻은 번호로 {@link #findAllForUpdate}를 부른다(회원 탈퇴, S15P31E103-443).
+     */
+    List<CardBill> findByUserIdAndStatusInOrderByIdAsc(Long userId, Collection<BillStatus> statuses);
+
+    /**
      * 청구서 잠금(SELECT ... FOR UPDATE). 번호 순으로 잠가, 여러 청구서를 잠그는 작업끼리(취소, 청구 확정) 순서가 엇갈리지 않게 한다.
      * 빈 목록은 넘기지 않는다.
      */

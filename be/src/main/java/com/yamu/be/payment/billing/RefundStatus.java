@@ -15,5 +15,10 @@ public enum RefundStatus {
      * 무효. 출금 전에 취소한 회차의 청구서가 출금 실패(미납)로 끝나 돌려줄 돈이 없다. 입금하지 않는다.
      * 임시: API 명세 V2 {@code RefundStatus}에는 없는 값이라 명세에 추가해야 한다
      */
-    CANCELED
+    CANCELED,
+    /**
+     * 회원 탈퇴로 YAMU가 더 다루지 않는 환급(S15P31E103-443). 대기·입금 실패 환급을 입금 없이 닫는다. 환급 입금 작업은 이 상태를
+     * 건너뛴다. 임시: API 명세 V2 {@code RefundStatus}에는 없는 값이라 명세에 추가해야 한다
+     */
+    CLOSED_BY_WITHDRAWAL
 }
