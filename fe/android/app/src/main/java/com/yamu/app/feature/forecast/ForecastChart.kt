@@ -34,6 +34,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.CornerRadius
@@ -73,6 +74,8 @@ import com.yamu.app.core.format.toManWon
 import com.yamu.app.core.format.toMonthDay
 import com.yamu.app.core.format.toWon
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 import java.time.LocalDate
 import kotlin.math.PI
 import kotlin.math.abs
@@ -112,6 +115,9 @@ fun BalanceChart(
     dayState: (Int) -> String = dayLabel,
     incomeArrow: Boolean = false,
     height: Dp? = null,
+    interacted: Boolean = false,
+    onInteract: (() -> Unit)? = null,
+    onDragChange: ((Boolean) -> Unit)? = null,
 ) {
     val n = dates.size
     if (n < 2 || lines.isEmpty()) return
@@ -138,8 +144,29 @@ fun BalanceChart(
         introDone = true
     }
 
-    var touched by rememberSaveable(chartKey) { mutableStateOf(false) }
+    // 한 번이라도 사람이 만졌는지 — 그래프를 직접 만졌거나([touchedHere]) 화면의 다른 곳(띠 · 칸 · 목록)에서 날을 바꿨거나([interacted])
+    var touchedHere by rememberSaveable(chartKey) { mutableStateOf(false) }
+    val touched = touchedHere || interacted
+    val latestOnInteract by rememberUpdatedState(onInteract)
+    val latestOnDragChange by rememberUpdatedState(onDragChange)
+    fun markTouched() { if (!touchedHere) { touchedHere = true; latestOnInteract?.invoke() } }
     var dragging by remember { mutableStateOf(false) }
+    LaunchedEffect(dragging) { latestOnDragChange?.invoke(dragging) }
+
+    // 첫 안내 — 아무도 만지지 않았으면 들어오기가 끝난 뒤 손잡이를 좌우로 두 번 흔든다(모션 줄이기면 끔)
+    val nudge = remember(chartKey) { Animatable(0f) }
+    LaunchedEffect(chartKey, touched, interactive) {
+        if (touched || !interactive || reduce) { nudge.snapTo(0f); return@LaunchedEffect }
+        snapshotFlow { reveal.value }.first { it >= 1f }   // 들어오기가 끝날 때까지 기다린다(이미 끝났으면 바로)
+        delay(NUDGE_DELAY_MS)
+        nudge.animateTo(0f, keyframes {
+            durationMillis = NUDGE_MS
+            1f at NUDGE_MS / 8
+            -1f at NUDGE_MS * 3 / 8
+            0.6f at NUDGE_MS * 5 / 8
+            -0.4f at NUDGE_MS * 7 / 8
+        })
+    }
     val handle = remember(chartKey) { Animatable(fractionOf(sel ?: 0, n)) }
     // 밖에서(누르기 · 읽어 주기 동작 · 띠) 고른 날로 손잡이를 옮긴다. 끄는 중에는 손가락이 주인이라 건드리지 않는다
     LaunchedEffect(sel, n) {
@@ -226,8 +253,8 @@ fun BalanceChart(
                     if (interactive && sel != null) {
                         stateDescription = dayState(sel)
                         customActions = listOf(
-                            CustomAccessibilityAction("하루 앞") { if (sel > 0) { touched = true; onSelect?.invoke(sel - 1); true } else false },
-                            CustomAccessibilityAction("하루 뒤") { if (sel < n - 1) { touched = true; onSelect?.invoke(sel + 1); true } else false },
+                            CustomAccessibilityAction("하루 앞") { if (sel > 0) { markTouched(); onSelect?.invoke(sel - 1); true } else false },
+                            CustomAccessibilityAction("하루 뒤") { if (sel < n - 1) { markTouched(); onSelect?.invoke(sel + 1); true } else false },
                         )
                     }
                 }
@@ -235,13 +262,13 @@ fun BalanceChart(
                     if (!interactive) Modifier else Modifier
                         .pointerInput(chartKey, n, incomeArrow) {
                             detectTapGestures { o ->
-                                touched = true
+                                markTouched()
                                 pick(dayAt(fractionAt(o.x, size.width.toFloat()), n))
                             }
                         }
                         .pointerInput(chartKey, n, incomeArrow) {
                             detectHorizontalDragGestures(
-                                onDragStart = { o -> touched = true; dragging = true; follow(o.x, size.width.toFloat()) },
+                                onDragStart = { o -> markTouched(); dragging = true; follow(o.x, size.width.toFloat()) },
                                 onDragEnd = { dragging = false; settle() },
                                 onDragCancel = { dragging = false; settle() },
                             ) { change, _ ->
@@ -396,10 +423,11 @@ fun BalanceChart(
                 if (interactive) {
                     val a = handleAlpha()
                     if (a > 0f) {
-                        val hx = left + (right - left) * handle.value
+                        val hf = (handle.value + nudge.value * NUDGE_AMP.toPx() / (right - left)).coerceIn(0f, 1f)   // 첫 안내 흔들기는 보이는 자리만 옮긴다
+                        val hx = left + (right - left) * hf
                         drawLine(c.text2.copy(alpha = 0.35f * a), Offset(hx, top - 6.dp.toPx()), Offset(hx, bottom + 4.dp.toPx()), strokeWidth = 1.dp.toPx())
                         lines.dropLast(1).forEach { line ->
-                            val v = valueAt(line.values, handle.value) ?: return@forEach
+                            val v = valueAt(line.values, hf) ?: return@forEach
                             val center = Offset(hx, y(v))
                             if (line.dashed || !line.zoned) {
                                 drawCircle(c.surface, radius = 3.6.dp.toPx(), center = center, alpha = a)
@@ -409,7 +437,7 @@ fun BalanceChart(
                                 drawCircle(line.color, radius = 3.6.dp.toPx(), center = center, alpha = a)
                             }
                         }
-                        valueAt(ride.values, handle.value)?.let { v ->
+                        valueAt(ride.values, hf)?.let { v ->
                             val center = Offset(hx, y(v))
                             drawCircle(if (neg) c.error else c.primary, radius = 15.dp.toPx() * lift, center = center, alpha = 0.14f * a)
                             drawChartCoin(center, HANDLE_R.toPx() * lift, 0f, if (neg) negCoin else coin, alpha = a)
@@ -435,7 +463,7 @@ fun BalanceChart(
                         .offset {
                             val left = SIDE_PAD.roundToPx()
                             val right = boxWidth - sidePadRight.roundToPx()
-                            val hx = left + (right - left) * handle.value
+                            val hx = (left + (right - left) * handle.value + nudge.value * NUDGE_AMP.toPx()).coerceIn(left.toFloat(), right.toFloat())
                             IntOffset((hx - bubbleWidth / 2f).roundToInt().coerceIn(0, max(0, boxWidth - bubbleWidth)), 0)
                         }
                         .onSizeChanged { bubbleWidth = it.width }
@@ -509,6 +537,9 @@ private const val GLIDE_MS = 260     // 밖에서 고른 날로 손잡이가 옮
 private const val SETTLE_MS = 140    // 손을 떼면 가까운 날에 붙는 시간
 private const val SPIN_MS = 560
 private const val SHAKE_MS = 320
+private const val NUDGE_DELAY_MS = 380L
+private const val NUDGE_MS = 1500
+private val NUDGE_AMP = 13.dp
 
 /**
  * 범례 — 선 모양 + 이름. [missing]은 이번에 그리지 못한 선(취소선).

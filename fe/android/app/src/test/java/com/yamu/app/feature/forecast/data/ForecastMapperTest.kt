@@ -217,9 +217,13 @@ class ForecastMapperTest {
         assertEquals(listOf("생활비 기록이 없어 'AI 생활비 반영' 선에는 앞으로 쓸 신용카드 금액만 넣었어요."), noticeLines(f, ForecastSelection()))
     }
 
-    @Test fun `월급날까지를 골랐는데 서버가 30일로 계산했으면 알린다`() {
+    @Test fun `월급날까지를 골랐는데 서버가 30일로 계산했으면 위 카드에서 알린다(P1-08, 맨 아래 줄에서 옮김)`() {
         val f = parse(noConservative)
-        assertTrue(noticeLines(f, ForecastSelection(ForecastPeriod.NEXT_INCOME)).contains("월급날을 찾지 못해 30일로 계산했어요."))
+        assertEquals(
+            "월급을 찾지 못해 오늘부터 30일로 계산했어요. 월급을 등록하면 월급날까지로 바꿔 보여 드려요.",
+            com.yamu.app.feature.forecast.incomeMissingNote(f, ForecastSelection(ForecastPeriod.NEXT_INCOME)),
+        )
+        assertTrue(noticeLines(f, ForecastSelection(ForecastPeriod.NEXT_INCOME)).none { it.contains("월급") && it.contains("찾지 못해") })
         assertEquals("월급날까지", periodLabel(f, ForecastSelection(ForecastPeriod.NEXT_INCOME)))
     }
 
