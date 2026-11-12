@@ -126,6 +126,9 @@ function App() {
     setPhase({ step: 'home' })
   }
 
+  /** 현금·QR에서 결제수단으로 한 칸 돌아간다. 트레이 기록은 그대로 둔다 */
+  const backToMethod = (order: Order) => setPhase({ step: 'method', order, errors: {}, notice: null })
+
   /** 뒤로 가기가 아닌 길(매장 변경 버튼 등)로 나갈 때. 매장·트레이에서 쌓은 기록도 걷어 낸다 */
   const leaveStoreWithHistory = () => {
     leaveStore()
@@ -135,7 +138,8 @@ function App() {
 
   /**
    * 브라우저·태블릿 뒤로 가기.
-   * - 트레이(결제수단·현금·QR)가 열려 있으면 트레이만 닫고 주문 화면으로 돌아간다. 장바구니는 그대로 둔다.
+   * - 현금·QR 트레이면 결제수단으로 한 칸 돌아간다.
+   * - 결제수단 트레이면 트레이만 닫고 주문 화면으로 돌아간다. 장바구니는 그대로 둔다.
    * - 주문 화면이면 매장 선택으로 나가며 장바구니를 비운다.
    * - 결제를 보낸 뒤(요청 중·결과 불명·승인 대기·영수증·현금 완료·오류)에는 걷힌 기록을 다시 쌓아 화면을 지킨다.
    *   그 화면들은 '다음 주문'·'새 주문'으로만 넘어가고, 승인 대기 확인이 중간에 끊기지 않는다.
@@ -149,7 +153,12 @@ function App() {
     const landed = entryOf(history.state)
     if (sendingRef.current || !isBeforePayment(phase)) {
       history.pushState(landed === 'store' ? TRAY_ENTRY : STORE_ENTRY, '')
-    } else if (isTrayStep(phase)) {
+    } else if (phase.step === 'cash' || phase.step === 'scan') {
+      // 트레이 안 '뒤로' 아이콘과 같이 결제수단으로 한 칸 돌아간다. 트레이는 열려 있으니 걷힌 트레이 기록을 다시 쌓는다
+      backToMethod(phase.order)
+      if (landed !== 'store') history.pushState(STORE_ENTRY, '')
+      history.pushState(TRAY_ENTRY, '')
+    } else if (phase.step === 'method') {
       setPhase({ step: 'order' })
       if (landed !== 'store') history.pushState(STORE_ENTRY, '')
     } else {
@@ -387,7 +396,7 @@ function App() {
               onBack={
                 phase.step === 'method'
                   ? undefined
-                  : () => setPhase({ step: 'method', order: phase.order, errors: {}, notice: null })
+                  : () => backToMethod(phase.order)
               }
             >
               <Amount className="tray-amount" layoutId="order-total" value={phase.order.total} size="lg" />
