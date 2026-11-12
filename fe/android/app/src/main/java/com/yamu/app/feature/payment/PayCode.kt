@@ -114,6 +114,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import javax.inject.Inject
 
 /**
@@ -128,6 +129,9 @@ private fun ApiError.leavesOutcomeOpen(): Boolean =
 
 private const val OUTCOME_UNKNOWN = "결제됐는지 확인하지 못했어요"
 
+/** 처음 열 때 카드 목록을 기다리는 상한 — 넘기면 목록 없이 인증부터(평소 응답은 이보다 훨씬 빠르다) */
+internal const val CARD_CHECK_MS = 1_500L
+
 /** 결제 코드 화면의 단계 — P-06a 인증 → P-06 코드 → P-06c 결제 요청 확인(10 문서 6-3 · 6-4) */
 sealed interface PayPhase {
     data object Auth : PayPhase
@@ -139,6 +143,8 @@ sealed interface PayPhase {
 
 data class PayCodeState(
     val phase: PayPhase = PayPhase.Auth,
+    /** 처음 열 때 인증 전에 카드 목록을 보는 중 — 이 동안은 인증을 띄우지 않는다(S15P31E103-450) */
+    val checkingCards: Boolean = false,
     val biometricReady: Boolean = false,
     val issuing: Boolean = false,
     val error: String? = null,
@@ -189,7 +195,7 @@ class PayCodeViewModel @Inject constructor(
     private val link: LinkRepository,
 ) : ViewModel() {
     val stepUp = stepUpFactory.create(viewModelScope)
-    private val _state = MutableStateFlow(PayCodeState())
+    private val _state = MutableStateFlow(PayCodeState(checkingCards = true))
     val state: StateFlow<PayCodeState> = _state.asStateFlow()
 
     /** 카드 목록(userCardId별) — 결제 요청 카드에 카드사 · 상품명을 붙인다(Q-19). 못 받았으면 비어 있고 응답 값만 보인다 */
@@ -214,12 +220,26 @@ class PayCodeViewModel @Inject constructor(
                 delay(1_000)
             }
         }
-        openCode()
+        openFirstCode()
+    }
+
+    /**
+     * 처음 열 때만 인증보다 카드 목록을 먼저 본다. 결제에 쓸 수 있는 카드(status ACTIVE = recommended)가 0장이면
+     * 간편 비밀번호 없이 '결제할 카드가 없어요'로(S15P31E103-450). BE도 같은 기준으로 인증 토큰을 보기 전에 발급을 막는다(NO_ACTIVE_CARD).
+     * 목록을 못 받았거나 [CARD_CHECK_MS] 안에 오지 않으면 지금처럼 인증부터 하고, 그때 카드가 없으면 서버 NO_ACTIVE_CARD가 같은 화면을 띄운다.
+     * 받은 목록은 요청 화면 카드에 카드사 · 상품명을 붙일 때도 쓴다(Q-19). [새 코드]는 다시 보지 않고 바로 인증한다
+     */
+    private fun openFirstCode() = viewModelScope.launch {
+        val r = withTimeoutOrNull(CARD_CHECK_MS) { link.cards() }
+        if (r is ApiResult.Success) listedCards = r.data.associateBy { it.userCardId }
+        val noCard = r is ApiResult.Success && r.data.none { it.recommended }
+        _state.update { it.copy(checkingCards = false, phase = if (noCard) PayPhase.NoCard else it.phase) }
+        if (!noCard) openCode()
     }
 
     /** 본인 인증(BARCODE) → 코드 발급(#77). [새 코드]도 여기(1차: 매번 다시 인증) */
     fun openCode() {
-        if (stepUp.busy || _state.value.issuing) return
+        if (stepUp.busy || _state.value.issuing || _state.value.checkingCards) return
         stopPolling()
         _state.update { it.copy(phase = PayPhase.Auth, error = null, remainingSec = null) }
         stepUp.start(
@@ -311,7 +331,7 @@ class PayCodeViewModel @Inject constructor(
     }
 
     /**
-     * 코드를 띄운 동안 카드 목록을 받아 둔다. 보통 가맹점이 찍기 전에 끝나고, 늦게 오면 그때 요청 화면 카드에 붙인다.
+     * 처음 열 때 목록을 못 받았으면 코드를 띄운 동안 다시 받아 둔다. 보통 가맹점이 찍기 전에 끝나고, 늦게 오면 그때 요청 화면 카드에 붙인다.
      * 실패하면 다음 코드 · 다음 찍힘에서 다시 받는다(그 사이엔 응답 값만으로 그린다)
      */
     private fun loadListedCards() {
@@ -525,7 +545,7 @@ fun PayCodeRoute(
     BackHandler(onBack = close)
     val c = YamuTheme.colors
     val reduce = YamuTheme.reduceMotion
-    val busy = stepUpUi != StepUpUi.Idle || s.issuing
+    val busy = stepUpUi != StepUpUi.Idle || s.issuing || s.checkingCards
     val confirming = s.request != null && !s.requestDone
     Box(Modifier.fillMaxSize()) {
         FlowScreen(
