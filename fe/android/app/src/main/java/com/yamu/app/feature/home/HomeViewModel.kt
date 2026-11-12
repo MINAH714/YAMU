@@ -29,6 +29,13 @@ data class HomeUiState(
     /** 잔고예보 · 예정 수입·지출로 가는 길은 예상 잔액 카드뿐이라 카드가 없으면 따로 보여 준다(연결 전은 연결이 먼저) */
     val showsEntries: Boolean
         get() = if (content != null) content.forecast == null && !content.needsLinking else !isLoading && error != null
+
+    /**
+     * 맨 아래 소비분석 줄(2차 QA 19). 예상 잔액 카드가 있어도 둔다 — [showsEntries]면 그 카드 안 세 번째 줄로.
+     * 연결 전이면 결제가 없어 소비분석도 비어 있으니 연결이 먼저
+     */
+    val showsReportEntry: Boolean
+        get() = if (content != null) !content.needsLinking else !isLoading && error != null
 }
 
 @HiltViewModel
