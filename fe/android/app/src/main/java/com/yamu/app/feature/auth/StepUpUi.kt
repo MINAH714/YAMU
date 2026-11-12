@@ -167,7 +167,7 @@ fun PinPadRoute(onClose: () -> Unit, viewModel: PinPadViewModel = hiltViewModel(
             sub = when {
                 viewModel.purpose == StepUpPurpose.BARCODE -> "인증하면 결제 코드가 보여요"
                 viewModel.detail != null -> viewModel.detail
-                else -> "가입할 때 만든 6자리예요"
+                else -> "앱을 열 때 쓰는 6자리예요"   // 마이에서 바꿀 수 있어 '가입할 때 만든' 번호가 아닐 수 있다
             },
             filled = s.input.length,
             error = s.error,

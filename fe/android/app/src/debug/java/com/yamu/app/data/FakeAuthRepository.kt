@@ -163,6 +163,14 @@ class FakeAuthRepository @Inject constructor(
         )
     }
 
+    /** 본인 확인 토큰을 받은 경우만 바꾼다. 다음 로그인 · 본인 확인부터 새 비밀번호 */
+    override suspend fun changePin(pin: String, stepUpToken: String): ApiResult<Unit> {
+        delay(300)
+        if (stepUpToken != "sut_fake") return ApiResult.Failure(ApiError.StepUpRequired("STEP_UP_REQUIRED"))
+        FakePin.value = pin
+        return ApiResult.Success(Unit)
+    }
+
     override suspend fun completeOnboarding() = sessionStore.setOnboardingCompleted(true)
 
     override suspend fun forgetRevokedDevice() = forgetDevice()
