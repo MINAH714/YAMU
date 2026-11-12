@@ -53,26 +53,53 @@ const EMPTY_PLAN: PlanInput = { plan: 'LUMP_SUM', installmentMonths: '' }
 const EMPTY_CARTS: Record<StoreId, Cart> = { starbucks: {}, gs25: {} }
 const CONFIRM_WINDOW_MS = 60_000
 /**
- * 뒤로 가기가 POS 페이지를 떠나지 않게 쌓는 브라우저 기록. 매장에 들어갈 때 store, 트레이를 열 때 tray를 쌓는다.
- * 결제를 보낸 뒤 화면은 트레이에서 이어지므로 tray 기록 위에 있다.
+ * 뒤로 가기가 POS 페이지를 떠나지 않게 쌓는 브라우저 기록. 깊이 1 매장(주문 화면), 2 결제수단, 3 현금·QR.
+ *
+ * Chrome은 사용자 입력 없이 쌓은 기록을 뒤로·앞으로 버튼에서 건너뛴다(history manipulation intervention).
+ * 뒤로 가기는 입력으로 치지 않으므로 기록은 버튼을 누르는 순간에만 쌓고, popstate 안에서는 쌓지 않는다.
+ * 결제를 보낸 뒤 화면은 현금·QR(깊이 3)에서 이어지므로, 뒤로 가기를 받아도 아래 기록 3개가 남아 있는 동안은 화면을 지킨다.
  */
-const STORE_ENTRY = { yamuPos: 'store' } as const
-const TRAY_ENTRY = { yamuPos: 'tray' } as const
+const ENTRY_DEPTH = { store: 1, method: 2, pay: 3 } as const
+type EntryName = keyof typeof ENTRY_DEPTH
+const ENTRY_NAMES: EntryName[] = ['store', 'method', 'pay']
 
-function entryOf(state: unknown): 'store' | 'tray' | null {
-  if (typeof state !== 'object' || state === null) return null
-  const value = (state as { yamuPos?: unknown }).yamuPos
-  return value === 'store' || value === 'tray' ? value : null
+/** 지금 서 있는 기록의 깊이. POS가 쌓은 기록이 아니면 0 */
+function currentDepth(): number {
+  const state: unknown = history.state
+  if (typeof state !== 'object' || state === null) return 0
+  const name = (state as { yamuPos?: unknown }).yamuPos
+  return typeof name === 'string' && name in ENTRY_DEPTH ? ENTRY_DEPTH[name as EntryName] : 0
 }
 
-/** 트레이에서 결제수단·현금·QR을 고르는 단계. 결제는 아직 보내지 않았다 */
-function isTrayStep(phase: Phase): boolean {
-  return phase.step === 'method' || phase.step === 'cash' || phase.step === 'scan'
+function entryAt(depth: number) {
+  return { yamuPos: ENTRY_NAMES[depth - 1] }
+}
+
+/** 이 단계에 있어야 할 기록 깊이. 결제를 보낸 뒤 단계는 null(뒤로 가기를 받아도 움직이지 않는다) */
+function expectedDepth(phase: Phase): number | null {
+  switch (phase.step) {
+    case 'home':
+      return 0
+    case 'order':
+      return 1
+    case 'method':
+      return 2
+    case 'cash':
+    case 'scan':
+      return 3
+    default:
+      return null
+  }
 }
 
 /** 결제를 보내기 전 단계. 주문 화면이 보이고(트레이 포함) 장바구니가 아직 결제와 묶이지 않았다 */
 function isBeforePayment(phase: Phase): boolean {
-  return phase.step === 'order' || isTrayStep(phase)
+  return phase.step === 'order' || phase.step === 'method' || phase.step === 'cash' || phase.step === 'scan'
+}
+
+/** 결제를 보냈고 결과를 아직 모르는 단계. 이때 페이지를 떠나면 결과를 놓치므로 떠나기 전에 한 번 묻는다 */
+function isAwaitingResult(phase: Phase): boolean {
+  return phase.step === 'sending' || phase.step === 'unknown' || phase.step === 'waiting'
 }
 
 function App() {
@@ -98,14 +125,6 @@ function App() {
     setCarts((current) => ({ ...current, [storeId]: update(current[storeId]) }))
   }
 
-  const openStore = (id: StoreId) => {
-    setStoreId(id)
-    setPlanInput(EMPTY_PLAN)
-    setPhase({ step: 'order' })
-    if (entryOf(history.state) === 'store') history.replaceState(STORE_ENTRY, '')
-    else history.pushState(STORE_ENTRY, '')
-  }
-
   /** 기록을 n개 걷어 낸다. 화면은 이미 바꿨으므로 따라오는 popstate는 무시한다 */
   const dropEntries = (count: number) => {
     if (count <= 0) return
@@ -113,9 +132,29 @@ function App() {
     history.go(-count)
   }
 
-  /** 트레이·결제 화면에서 주문 화면으로 돌아갈 때 트레이 기록을 걷어 낸다 */
-  const dropTrayEntry = () => {
-    if (entryOf(history.state) === 'tray') dropEntries(1)
+  /** 기록이 target보다 깊으면 걷어 낸다. 쌓지는 않으므로 사용자 입력 밖(요청 실패 등)에서도 부를 수 있다 */
+  const trimHistory = (target: number) => dropEntries(currentDepth() - target)
+
+  /**
+   * 버튼을 누른 순간에 기록 깊이를 target에 맞춘다. 모자라면 쌓고 넘치면 걷어 낸다.
+   * 쌓는 일은 사용자 입력 안에서만 해야 Chrome이 건너뛰지 않으므로 클릭 처리기에서만 부른다.
+   */
+  const syncHistory = (target: number) => {
+    const depth = currentDepth()
+    if (depth > target) {
+      dropEntries(depth - target)
+      return
+    }
+    for (let next = depth + 1; next <= target; next += 1) history.pushState(entryAt(next), '')
+  }
+
+  const openStore = (id: StoreId) => {
+    setStoreId(id)
+    setPlanInput(EMPTY_PLAN)
+    setPhase({ step: 'order' })
+    // 새로고침·앞으로 가기로 남은 기록 위에 서 있으면 그 자리를 매장 기록으로 바꿔 더 쌓이지 않게 한다
+    if (currentDepth() > 0) history.replaceState(entryAt(ENTRY_DEPTH.store), '')
+    else history.pushState(entryAt(ENTRY_DEPTH.store), '')
   }
 
   /** 매장 선택으로 돌아간다. 다시 들어왔을 때 고르던 상품이 남지 않게 장바구니도 비운다 */
@@ -126,46 +165,43 @@ function App() {
     setPhase({ step: 'home' })
   }
 
-  /** 현금·QR에서 결제수단으로 한 칸 돌아간다. 트레이 기록은 그대로 둔다 */
+  /** 현금·QR에서 결제수단으로 한 칸 돌아간다 */
   const backToMethod = (order: Order) => setPhase({ step: 'method', order, errors: {}, notice: null })
 
   /** 뒤로 가기가 아닌 길(매장 변경 버튼 등)로 나갈 때. 매장·트레이에서 쌓은 기록도 걷어 낸다 */
   const leaveStoreWithHistory = () => {
     leaveStore()
-    const entry = entryOf(history.state)
-    dropEntries(entry === 'tray' ? 2 : entry === 'store' ? 1 : 0)
+    trimHistory(0)
   }
 
   /**
-   * 브라우저·태블릿 뒤로 가기.
-   * - 현금·QR 트레이면 결제수단으로 한 칸 돌아간다.
-   * - 결제수단 트레이면 트레이만 닫고 주문 화면으로 돌아간다. 장바구니는 그대로 둔다.
-   * - 주문 화면이면 매장 선택으로 나가며 장바구니를 비운다.
-   * - 결제를 보낸 뒤(요청 중·결과 불명·승인 대기·영수증·현금 완료·오류)에는 걷힌 기록을 다시 쌓아 화면을 지킨다.
+   * 브라우저·태블릿 뒤로·앞으로 가기. 여기서는 기록을 쌓지 않는다(위 ENTRY_DEPTH 설명).
+   * 내려앉은 기록 깊이가 지금 단계보다 깊으면 앞으로 가기로 보고 기록만 되돌린다(장바구니를 건드리지 않는다).
+   * 아니면 뒤로 가기로 보고 한 칸 올라간다.
+   * - 현금·QR → 결제수단 → 주문 화면(장바구니 유지) → 매장 선택(장바구니 비움)
+   * - 결제를 보낸 뒤(요청 중·결과 불명·승인 대기·영수증·현금 완료·오류)에는 아무것도 하지 않는다.
    *   그 화면들은 '다음 주문'·'새 주문'으로만 넘어가고, 승인 대기 확인이 중간에 끊기지 않는다.
+   *   아래 기록이 다 떨어져 페이지를 떠나려 하면 결과를 기다리는 동안은 beforeunload로 한 번 묻는다.
    */
-  const onHistoryBack = useEffectEvent(() => {
+  const onHistoryMove = useEffectEvent(() => {
     if (ignoreNextPop.current) {
       ignoreNextPop.current = false
       return
     }
     if (!storeId) return
-    const landed = entryOf(history.state)
-    if (sendingRef.current || !isBeforePayment(phase)) {
-      history.pushState(landed === 'store' ? TRAY_ENTRY : STORE_ENTRY, '')
-    } else if (phase.step === 'cash' || phase.step === 'scan') {
-      // 트레이 안 '뒤로' 아이콘과 같이 결제수단으로 한 칸 돌아간다. 트레이는 열려 있으니 걷힌 트레이 기록을 다시 쌓는다
-      backToMethod(phase.order)
-      if (landed !== 'store') history.pushState(STORE_ENTRY, '')
-      history.pushState(TRAY_ENTRY, '')
-    } else if (phase.step === 'method') {
-      setPhase({ step: 'order' })
-      if (landed !== 'store') history.pushState(STORE_ENTRY, '')
-    } else {
-      leaveStore()
-      // 걷히지 않은 매장 기록이 남아 있으면 마저 걷어 다음 뒤로 가기가 헛돌지 않게 한다
-      if (landed === 'store') dropEntries(1)
+    const expected = expectedDepth(phase)
+    if (expected === null || sendingRef.current) return
+    const landed = currentDepth()
+    if (landed > expected) {
+      dropEntries(landed - expected)
+      return
     }
+    const next = expected - 1
+    if (phase.step === 'cash' || phase.step === 'scan') backToMethod(phase.order)
+    else if (phase.step === 'method') setPhase({ step: 'order' })
+    else leaveStore()
+    // 새로고침 등으로 남은 기록 위에 내려앉았으면 마저 걷어 다음 뒤로 가기가 헛돌지 않게 한다
+    if (landed > next) dropEntries(landed - next)
   })
 
   /** 다른 페이지로 갔다가 돌아와 브라우저가 이 화면을 그대로 되살렸을 때(bfcache)도 결제 전이면 비운다 */
@@ -174,7 +210,18 @@ function App() {
   })
 
   useEffect(() => {
-    const onPopState = () => onHistoryBack()
+    if (!isAwaitingResult(phase)) return
+    const onBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault()
+      // 옛 브라우저는 returnValue가 있어야 묻는다
+      event.returnValue = ''
+    }
+    window.addEventListener('beforeunload', onBeforeUnload)
+    return () => window.removeEventListener('beforeunload', onBeforeUnload)
+  }, [phase])
+
+  useEffect(() => {
+    const onPopState = () => onHistoryMove()
     const onPageShow = (event: PageTransitionEvent) => {
       if (event.persisted) onPageRestored()
     }
@@ -191,13 +238,19 @@ function App() {
     updateCart(() => ({}))
     setPlanInput(EMPTY_PLAN)
     setPhase({ step: 'order' })
-    dropTrayEntry()
+    syncHistory(ENTRY_DEPTH.store)
   }
 
   /** 트레이 닫기 버튼. 장바구니는 그대로 두고 주문 화면으로 돌아간다 */
   const closeTray = () => {
     setPhase({ step: 'order' })
-    dropTrayEntry()
+    syncHistory(ENTRY_DEPTH.store)
+  }
+
+  /** 트레이 안 '뒤로' 아이콘 */
+  const backToMethodByButton = (order: Order) => {
+    backToMethod(order)
+    syncHistory(ENTRY_DEPTH.method)
   }
 
   const checkout = () => {
@@ -207,9 +260,7 @@ function App() {
     // 주문을 줄여 할부 최소 금액 아래로 내려가면 고르던 할부를 일시불로 되돌린다
     if (order.total < MIN_INSTALLMENT_AMOUNT) setPlanInput(EMPTY_PLAN)
     setPhase({ step: 'method', order, errors: {}, notice: null })
-    // 뒤로 가기가 트레이만 닫게 기록을 하나 더 쌓는다
-    if (entryOf(history.state) === 'tray') history.replaceState(TRAY_ENTRY, '')
-    else history.pushState(TRAY_ENTRY, '')
+    syncHistory(ENTRY_DEPTH.method)
   }
 
   /**
@@ -228,6 +279,7 @@ function App() {
       return
     }
     showScan(order, validated.terms)
+    syncHistory(ENTRY_DEPTH.pay)
   }
 
   const startAttempt = (order: Order, terms: Terms, barcodeToken: string) => {
@@ -264,6 +316,8 @@ function App() {
       switch (failure.kind) {
         case 'terms':
           setPhase({ step: 'method', order, errors: failure.errors, notice: failure.message })
+          // 응답을 기다린 뒤라 사용자 입력 밖이다. 걷어 내기만 한다
+          trimHistory(ENTRY_DEPTH.method)
           break
         case 'barcode':
           showScan(order, terms, `${failure.message} (${formatToken(attempt.body.barcodeToken)})`, attempt.body.barcodeToken)
@@ -371,7 +425,10 @@ function App() {
               result={phase.result}
               order={phase.attempt.order}
               onNext={newOrder}
-              onRetry={() => showScan(phase.attempt.order, phase.attempt.terms)}
+              onRetry={() => {
+                showScan(phase.attempt.order, phase.attempt.terms)
+                syncHistory(ENTRY_DEPTH.pay)
+              }}
             />
           )}
 
@@ -396,7 +453,7 @@ function App() {
               onBack={
                 phase.step === 'method'
                   ? undefined
-                  : () => backToMethod(phase.order)
+                  : () => backToMethodByButton(phase.order)
               }
             >
               <Amount className="tray-amount" layoutId="order-total" value={phase.order.total} size="lg" />
@@ -413,7 +470,10 @@ function App() {
                       setPhase({ ...phase, errors: {}, notice: null })
                     }}
                     onYamu={() => toScan(phase.order)}
-                    onCash={() => setPhase({ step: 'cash', order: phase.order })}
+                    onCash={() => {
+                      setPhase({ step: 'cash', order: phase.order })
+                      syncHistory(ENTRY_DEPTH.pay)
+                    }}
                   />
                 </TrayStep>
               )}
