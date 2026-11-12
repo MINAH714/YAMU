@@ -56,6 +56,8 @@ yamu:
     key: test-admin-key
   billing:
     jobs-enabled: false
+  notification:
+    jobs-enabled: false
   # PC·CI에 AI_BASE_URL이 있어도 테스트가 AI 서버를 부르지 않게 비워 둔다(생활비는 TSB)
   ai:
     base-url: ""

@@ -214,6 +214,12 @@ yamu:
     # 결과 불명 입금의 유예는 yamu.payment.approve.recovery-grace를 같이 쓴다
     refund-payout-cron: "0 0 9 * * *"
     jobs-enabled: ${BILLING_JOBS_ENABLED:false}
+  # 앱 내 알림(Task 9.3.2). 거래 알림은 결제·청구 사건 커밋 뒤에 바로 쌓고, 잔고 위험은 정기 작업이 판정한다.
+  # 기본은 끔이고 운영은 NOTIFICATION_JOBS_ENABLED=true로 켠다. 수동 실행(POST /api/admin/jobs/balance-risk-notify/run)은 이 값과 상관없이 돈다.
+  notification:
+    # 잔고 위험(balance-risk-notify): 매분 깨어 잔고 알림 시각(balanceTime, 기본 08:30)이 지났고 오늘 판정하지 않은 사용자를 판정한다
+    balance-risk-cron: "0 * * * * *"
+    jobs-enabled: ${NOTIFICATION_JOBS_ENABLED:false}
   # 운영 API(X-Admin-Key). 운영은 환경변수 YAMU_ADMIN_KEY, 로컬은 application-local.yml. 비어 있으면 운영 API는 모두 403
   admin:
     key: ${YAMU_ADMIN_KEY:}

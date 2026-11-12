@@ -9,18 +9,23 @@ import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import jakarta.persistence.Transient;
 import jakarta.persistence.Version;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
+import java.util.ArrayList;
+import java.util.List;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import org.hibernate.annotations.DynamicUpdate;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
+import org.springframework.data.domain.AfterDomainEventPublication;
+import org.springframework.data.domain.DomainEvents;
 
 /**
  * payment_transaction. 모의 결제 1건. POS 요청으로 REQUESTED로 생기고, 승인·거절·취소·만료가 같은 행을 고친다.
@@ -166,6 +171,16 @@ public class PaymentTransaction extends BaseTimeEntity {
     @Column(nullable = false)
     private Long version;
 
+    /**
+     * 저장할 때 발행할 사건(승인·취소). 리포지토리 {@code save}·{@code saveAndFlush}가 {@link #domainEvents()}를 발행하고 비운다.
+     * 승인·취소를 저장하는 곳(승인·복구·취소 서비스)이 여럿이라 상태를 바꾸는 메서드에서 한 번에 남긴다(Task 9.3.2 알림).
+     * 저장 트랜잭션 안에서 발행되므로 받는 쪽은 {@code @TransactionalEventListener(phase = AFTER_COMMIT)}로 받아
+     * 롤백된 승인·취소를 알리지 않는다. DB 칸이 아니다.
+     */
+    @Transient
+    @Getter(AccessLevel.NONE)
+    private final List<Object> domainEvents = new ArrayList<>();
+
     /** POS 결제 요청 접수. 카드는 아직 없고 상태는 REQUESTED다. */
     public static PaymentTransaction request(Long userId, Long merchantId, PaymentChannel channel, FacilityType facility,
             String merchantContextSnapshot, String requestKey, byte[] requestFingerprint, long requestedAmount,
@@ -288,6 +303,7 @@ public class PaymentTransaction extends BaseTimeEntity {
         this.finTransactionNo = finTransactionNo;
         this.failureCode = null;
         this.status = PaymentStatus.APPROVED;
+        domainEvents.add(new PaymentApprovedEvent(id, userId));
     }
 
     /**
@@ -316,6 +332,7 @@ public class PaymentTransaction extends BaseTimeEntity {
         this.finTransactionNo = finTransactionNo;
         this.failureCode = null;
         this.status = PaymentStatus.APPROVED;
+        domainEvents.add(new PaymentApprovedEvent(id, userId));
     }
 
     /** 확정 거절. 사유는 명세 failure.code와 같은 값이다. 어떤 카드로 거절됐는지 보이도록 카드는 남긴다. */
@@ -359,6 +376,7 @@ public class PaymentTransaction extends BaseTimeEntity {
         requireStatus("취소", PaymentStatus.APPROVED);
         this.canceledAt = canceledAt;
         this.status = PaymentStatus.CANCELED;
+        domainEvents.add(new PaymentCanceledEvent(id, userId));
     }
 
     /**
@@ -380,5 +398,17 @@ public class PaymentTransaction extends BaseTimeEntity {
             }
         }
         throw new IllegalStateException(action + "할 수 없는 상태입니다: " + status + " (결제 " + id + ")");
+    }
+
+    /** 저장할 때 발행할 사건. Spring Data가 부른다. */
+    @DomainEvents
+    List<Object> domainEvents() {
+        return List.copyOf(domainEvents);
+    }
+
+    /** 발행이 끝난 사건을 비운다. Spring Data가 부른다. */
+    @AfterDomainEventPublication
+    void clearDomainEvents() {
+        domainEvents.clear();
     }
 }
