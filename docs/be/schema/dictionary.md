@@ -1094,3 +1094,7 @@ CONSTRAINT ck_credit_prediction_origin CHECK (data_origin IN ('REAL','SEED'))
 ```
 
 규칙은 living_cost_prediction과 같다: 카드·날짜·R마다 그날 첫 예측 한 행, 같은 키가 다시 오면 아무 칸도 바꾸지 않고, 이미 있는 키는 먼저 읽어 INSERT를 보내지 않는다. 기간 밖 출금·0원 추정도 남기고, 신용 생활 소비 기록이 없어 추정하지 못한 카드(CREDIT_SPENDING_UNKNOWN)는 남기지 않는다. 잔고예보 조회만 남기고 가상 구매 결과는 저장하지 않는다. 카드 등록 해제는 카드 행을 지우지 않으므로 이력도 남는다. 보존 기간·파기는 다른 이력과 함께 팀 보존·파기 정책이 정해지면 처리한다(아직 미정).
+
+## QA 시드 소유권 (2026-11-12 추가)
+
+QA 전용 `qa_seed_dataset`·`qa_seed_member`의 컬럼·제약은 [QA 시드 소유권 사전](qa-seed.md)을 따른다. 기존 업무 테이블의 컬럼은 변경하지 않는다.

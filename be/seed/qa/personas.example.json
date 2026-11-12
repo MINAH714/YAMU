@@ -1,0 +1,232 @@
+{
+  "datasetKey": "qa-442-team-a",
+  "version": 1,
+  "baseDate": "2026-11-12",
+  "personas": [
+    {
+      "key": "rich",
+      "scenario": "RICH",
+      "name": "야무풍부",
+      "birthDate": "1995-01-01",
+      "phone": "01004420001",
+      "ssafyMemberId": "qa442-1@example.invalid",
+      "ssafyUserKey": "REPLACE_WITH_SSAFY_USER_KEY",
+      "accounts": [
+        {
+          "bankCode": "088",
+          "accountNo": "0000442000101"
+        },
+        {
+          "bankCode": "088",
+          "accountNo": "0000442000102"
+        }
+      ],
+      "cards": [
+        {
+          "issuerCode": "KB",
+          "productName": "KB국민 노리 체크",
+          "cardType": "CHECK",
+          "cardNo": "9442000000000101",
+          "accountIndex": 0,
+          "paymentDay": null
+        },
+        {
+          "issuerCode": "SHINHAN",
+          "productName": "신한카드 처음",
+          "cardType": "CREDIT",
+          "cardNo": "9442000000000102",
+          "accountIndex": 0,
+          "paymentDay": 15
+        },
+        {
+          "issuerCode": "SHINHAN",
+          "productName": "신한카드 Mr.Life",
+          "cardType": "CREDIT",
+          "cardNo": "9442000000000103",
+          "accountIndex": 1,
+          "paymentDay": 15
+        }
+      ]
+    },
+    {
+      "key": "empty",
+      "scenario": "EMPTY",
+      "name": "야무신규",
+      "birthDate": "1995-01-01",
+      "phone": "01004420002",
+      "ssafyMemberId": "qa442-2@example.invalid",
+      "ssafyUserKey": "REPLACE_WITH_SSAFY_USER_KEY",
+      "accounts": [
+        {
+          "bankCode": "088",
+          "accountNo": "0000442000201"
+        },
+        {
+          "bankCode": "088",
+          "accountNo": "0000442000202"
+        }
+      ],
+      "cards": [
+        {
+          "issuerCode": "KB",
+          "productName": "KB국민 노리 체크",
+          "cardType": "CHECK",
+          "cardNo": "9442000000000201",
+          "accountIndex": 0,
+          "paymentDay": null
+        },
+        {
+          "issuerCode": "SHINHAN",
+          "productName": "신한카드 처음",
+          "cardType": "CREDIT",
+          "cardNo": "9442000000000202",
+          "accountIndex": 0,
+          "paymentDay": 15
+        },
+        {
+          "issuerCode": "SHINHAN",
+          "productName": "신한카드 Mr.Life",
+          "cardType": "CREDIT",
+          "cardNo": "9442000000000203",
+          "accountIndex": 1,
+          "paymentDay": 15
+        }
+      ]
+    },
+    {
+      "key": "boundary",
+      "scenario": "BOUNDARY",
+      "name": "야무경계",
+      "birthDate": "1995-01-01",
+      "phone": "01004420003",
+      "ssafyMemberId": "qa442-3@example.invalid",
+      "ssafyUserKey": "REPLACE_WITH_SSAFY_USER_KEY",
+      "accounts": [
+        {
+          "bankCode": "088",
+          "accountNo": "0000442000301"
+        },
+        {
+          "bankCode": "088",
+          "accountNo": "0000442000302"
+        }
+      ],
+      "cards": [
+        {
+          "issuerCode": "KB",
+          "productName": "KB국민 노리 체크",
+          "cardType": "CHECK",
+          "cardNo": "9442000000000301",
+          "accountIndex": 0,
+          "paymentDay": null
+        },
+        {
+          "issuerCode": "SHINHAN",
+          "productName": "신한카드 처음",
+          "cardType": "CREDIT",
+          "cardNo": "9442000000000302",
+          "accountIndex": 0,
+          "paymentDay": 15
+        },
+        {
+          "issuerCode": "SHINHAN",
+          "productName": "신한카드 Mr.Life",
+          "cardType": "CREDIT",
+          "cardNo": "9442000000000303",
+          "accountIndex": 1,
+          "paymentDay": 15
+        }
+      ]
+    },
+    {
+      "key": "shortfall",
+      "scenario": "SHORTFALL",
+      "name": "야무부족",
+      "birthDate": "1995-01-01",
+      "phone": "01004420004",
+      "ssafyMemberId": "qa442-4@example.invalid",
+      "ssafyUserKey": "REPLACE_WITH_SSAFY_USER_KEY",
+      "accounts": [
+        {
+          "bankCode": "088",
+          "accountNo": "0000442000401"
+        },
+        {
+          "bankCode": "088",
+          "accountNo": "0000442000402"
+        }
+      ],
+      "cards": [
+        {
+          "issuerCode": "KB",
+          "productName": "KB국민 노리 체크",
+          "cardType": "CHECK",
+          "cardNo": "9442000000000401",
+          "accountIndex": 0,
+          "paymentDay": null
+        },
+        {
+          "issuerCode": "SHINHAN",
+          "productName": "신한카드 처음",
+          "cardType": "CREDIT",
+          "cardNo": "9442000000000402",
+          "accountIndex": 0,
+          "paymentDay": 15
+        },
+        {
+          "issuerCode": "SHINHAN",
+          "productName": "신한카드 Mr.Life",
+          "cardType": "CREDIT",
+          "cardNo": "9442000000000403",
+          "accountIndex": 1,
+          "paymentDay": 15
+        }
+      ]
+    },
+    {
+      "key": "states",
+      "scenario": "STATES",
+      "name": "야무거래",
+      "birthDate": "1995-01-01",
+      "phone": "01004420005",
+      "ssafyMemberId": "qa442-5@example.invalid",
+      "ssafyUserKey": "REPLACE_WITH_SSAFY_USER_KEY",
+      "accounts": [
+        {
+          "bankCode": "088",
+          "accountNo": "0000442000501"
+        },
+        {
+          "bankCode": "088",
+          "accountNo": "0000442000502"
+        }
+      ],
+      "cards": [
+        {
+          "issuerCode": "KB",
+          "productName": "KB국민 노리 체크",
+          "cardType": "CHECK",
+          "cardNo": "9442000000000501",
+          "accountIndex": 0,
+          "paymentDay": null
+        },
+        {
+          "issuerCode": "SHINHAN",
+          "productName": "신한카드 처음",
+          "cardType": "CREDIT",
+          "cardNo": "9442000000000502",
+          "accountIndex": 0,
+          "paymentDay": 15
+        },
+        {
+          "issuerCode": "SHINHAN",
+          "productName": "신한카드 Mr.Life",
+          "cardType": "CREDIT",
+          "cardNo": "9442000000000503",
+          "accountIndex": 1,
+          "paymentDay": 15
+        }
+      ]
+    }
+  ]
+}
