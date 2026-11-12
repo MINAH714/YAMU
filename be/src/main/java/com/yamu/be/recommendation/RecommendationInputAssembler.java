@@ -72,7 +72,17 @@ class RecommendationInputAssembler {
                     continue;
                 }
                 if (target.getTargetType() == BenefitTarget.Kind.CONDITION) {
-                    (target.isExcluded() ? excluded : required).add(target.getTargetValue());
+                    String key = target.getTargetValue();
+                    // ZERO 원문: 국내외겸용 제한은 해외 이용에만 적용된다.
+                    if (!target.isExcluded() && product != null && "HYUNDAI".equals(product.getIssuerCode())
+                            && (("현대카드 ZERO Edition3 (할인형)".equals(product.getProductName())
+                                && "BASE_DISCOUNT".equals(row.getBenefitCode()) && "RULE:OVERSEAS_ELIGIBILITY".equals(key))
+                            || ("현대카드ZERO Edition3(포인트형)".equals(product.getProductName())
+                                && "M_POINT_EARN_1_2".equals(row.getBenefitCode()) && "CARD_FORM:GLOBAL".equals(key)))) {
+                        applied.add("condition=" + key + "->RULE:ZERO_OVERSEAS_ELIGIBILITY");
+                        key = "RULE:ZERO_OVERSEAS_ELIGIBILITY";
+                    }
+                    (target.isExcluded() ? excluded : required).add(key);
                 } else {
                     targets.add(new Target(TargetType.valueOf(target.getTargetType().name()), target.getMerchantId(),
                             target.getTargetValue(), target.isExcluded()));

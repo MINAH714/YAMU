@@ -59,7 +59,8 @@ class RecommendationServiceTest {
         logger.addAppender(logs);
         when(transactions.getTransaction(any())).thenReturn(mock(TransactionStatus.class));
         service = new RecommendationService(cards, products, loader, assembler, activity, performance,
-                new RecommendationRecognitionResolver(new ObjectMapper()), mock(PurchaseItemReader.class), transactions, availabilityReader);
+                new RecommendationRecognitionResolver(new ObjectMapper()), mock(PurchaseItemReader.class), transactions, availabilityReader,
+                mock(com.yamu.be.merchant.MerchantCatalogRepository.class));
         when(cards.findOrdered(eq(1L), anyCollection())).thenReturn(List.of(card(1), card(2), card(3)));
         when(products.findAllById(List.of(10L))).thenReturn(List.of(product()));
         when(loader.load(eq(1L), anyList(), any())).thenReturn(empty());

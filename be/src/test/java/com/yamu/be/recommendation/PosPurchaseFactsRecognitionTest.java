@@ -83,7 +83,7 @@ class PosPurchaseFactsRecognitionTest {
     void 사실을_넘기지_않으면_모든_상품이_미확인이다() {
         for (var policy : policies()) {
             var recognition = resolver.resolve(1, product(policy.cardId(), 10),
-                    transaction(BasicPurchaseSimulation.apply(base(Map.of()), "OFFLINE", "GENERAL").facts()), null,
+                    transaction(Map.of()), null,
                     new ArrayList<>());
             assertThat(recognition.recognizedAmount()).as(policy.cardId()).isNull();
         }

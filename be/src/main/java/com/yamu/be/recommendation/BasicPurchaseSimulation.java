@@ -12,7 +12,20 @@ public final class BasicPurchaseSimulation {
             "ELECTRONIC_PREPAID_PURCHASE", "ELECTRONIC_PREPAID_TOPUP", "POINT_TOPUP", "POINT_CHARGE", "NATIONAL_TAX", "LOCAL_TAX",
             "CUSTOMS_TAX", "ANNUAL_FEE", "FEE", "INTEREST", "LONG_TERM_CARD_LOAN", "SHORT_TERM_CARD_LOAN",
             "AUTO_DEBIT_SERVICE_FEE", "OVERSEAS_SERVICE_FEE", "INTERNATIONAL_BRAND_FEE", "MEMBERSHIP_FEE", "ATM_WITHDRAWAL",
-            "ADMINISTRATIVE_FINE", "CRIMINAL_FINE", "LOCAL_NON_TAX_REVENUE", "NATIONAL_LOCAL_TAX_PUBLIC_BILL", "PUBLIC_DOCUMENT_FEE");
+            "ADMINISTRATIVE_FINE", "CRIMINAL_FINE", "LOCAL_NON_TAX_REVENUE", "NATIONAL_LOCAL_TAX_PUBLIC_BILL", "PUBLIC_DOCUMENT_FEE",
+            // 2026-11-12 승인: 일반 모의 구매는 아래 특수 거래에 해당하지 않는다.
+            // 상품별 RULE, 카드 구분, 구매 경로는 이 목록에 포함하지 않는다.
+            "PREPAID_PURCHASE", "OVERSEAS_FEE", "TAX_OR_PUBLIC_CHARGE", "PUBLIC_CHARGES",
+            "ELECTRICITY_BILL", "CITY_GAS_BILL", "WATER_BILL", "WATER_SEWAGE_BILL", "TV_LICENSE_FEE",
+            "APARTMENT_MAINTENANCE", "RENT_PAYMENT", "PUBLIC_RENT", "REAL_ESTATE_RENT",
+            "SOCIAL_INSURANCE", "EMPLOYMENT_INSURANCE", "HEALTH_INSURANCE", "INDUSTRIAL_ACCIDENT_INSURANCE", "NATIONAL_PENSION",
+            "EDUCATION_PAYMENT", "SCHOOL_PAYMENT", "PRIMARY_SECONDARY_SCHOOL_PAYMENT", "PRIVATE_KINDERGARTEN_EDUCATION_FEE",
+            "UNIVERSITY_TUITION", "GRADUATE_TUITION", "GOV_SUBSIDY", "GOVERNMENT_SUBSIDY",
+            "CITY_BUS", "METRO_BUS", "INTERCITY_BUS", "EXPRESS_BUS", "SUBWAY", "TAXI_PAYMENT",
+            "HIGHWAY_TOLL", "POSTPAID_HIPASS", "TMONEY_AUTHORIZATION", "TRANSIT_RF_PAYMENT",
+            "LATE_CHARGE", "SERVICE_OF_PROCESS_FEE", "STAMP_TAX", "PUBLIC_INSTITUTION_MERCHANT",
+            "AUTO_CASHBACK_TRANSACTION", "SMART_CASHBACK_TRANSACTION", "AUTO_INSTALLMENT",
+            "UNAPPROVED_VOUCHER", "CANCELED", "CANCELED_TRANSACTION", "NON_PURCHASE");
 
     public static RecommendationInput.Transaction apply(RecommendationInput.Transaction original, String channel, String facility) {
         if (channel != null && !Set.of("ONLINE", "OFFLINE", "UNKNOWN").contains(channel)) throw new IllegalArgumentException("결제 채널 형식 오류");
@@ -40,7 +53,10 @@ public final class BasicPurchaseSimulation {
             put(facts,applied,"RULE:AGENCY_SITE",false); put(facts,applied,"RULE:NON_PARTNER_EASY_PAY",false);
             put(facts,applied,"TRANSACTION_KIND:PG_MERCHANT",false); put(facts,applied,"TRANSACTION_KIND:PG_ONLY_MERCHANT",false);
         }
-        if (original.purchaseItemCode()==null && SPECIAL.stream().noneMatch(k->Boolean.TRUE.equals(facts.get("TRANSACTION_KIND:"+k)))) {
+        if (original.purchaseItemCode()==null
+                && facts.entrySet().stream().noneMatch(e -> e.getKey().startsWith("TRANSACTION_KIND:") && Boolean.TRUE.equals(e.getValue()))
+                && !Boolean.TRUE.equals(facts.get("BILLING:AUTO_DEBIT"))
+                && !Boolean.TRUE.equals(facts.get("BILLING:RECURRING_MEMBERSHIP"))) {
             SPECIAL.stream().sorted().forEach(k->put(facts,applied,"TRANSACTION_KIND:"+k,false));
         }
         // 선택한 구독 항목은 정기결제 여부의 증거가 아니다.
@@ -49,7 +65,7 @@ public final class BasicPurchaseSimulation {
                 "ISSUER_DISCOUNT:LOTTE_BILLING_DISCOUNT_LARGER","ISSUER_DISCOUNT:SAMSUNG_EVENT_BENEFIT_APPLIED",
                 "ISSUER_DISCOUNT:SAMSUNG_OTHER_BENEFIT","ISSUER_DISCOUNT:SAMSUNG_OTHER_EVENT")) put(facts,applied,key,false);
         var rules = new ArrayList<>(original.simulationRules());
-        if (!applied.isEmpty()) rules.add(new SimulationRule("YAMU_BASIC_PURCHASE",1,"YAMU 기본 모의 거래 기준",null,null,applied));
+        if (!applied.isEmpty()) rules.add(new SimulationRule("YAMU_BASIC_PURCHASE",2,"YAMU 기본 모의 거래 기준",null,null,applied));
         return new RecommendationInput.Transaction(original.amount(),original.plan(),original.installmentMonths(),original.occurredAt(),
                 original.merchantId(),original.merchantCategoryCode(),facts,original.purchaseItemCode(),rules);
     }

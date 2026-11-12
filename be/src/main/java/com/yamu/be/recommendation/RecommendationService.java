@@ -35,6 +35,7 @@ public class RecommendationService {
     private final RecommendationRecognitionResolver recognitionResolver;
     private final PurchaseItemReader purchaseItems;
     private final RecommendationAvailabilityReader availabilityReader;
+    private final com.yamu.be.merchant.MerchantCatalogRepository merchants;
     private final TransactionTemplate read;
     private final RecommendationSelector selector = new RecommendationSelector();
 
@@ -42,7 +43,8 @@ public class RecommendationService {
             RecommendationPolicyLoader policies, RecommendationInputAssembler assembler,
             CardActivityReader activity, RecommendationPerformanceAssembler performance,
             RecommendationRecognitionResolver recognitionResolver, PurchaseItemReader purchaseItems,
-            PlatformTransactionManager transactions, RecommendationAvailabilityReader availabilityReader) {
+            PlatformTransactionManager transactions, RecommendationAvailabilityReader availabilityReader,
+            com.yamu.be.merchant.MerchantCatalogRepository merchants) {
         this.cards = cards;
         this.products = products;
         this.policies = policies;
@@ -52,6 +54,7 @@ public class RecommendationService {
         this.recognitionResolver = recognitionResolver;
         this.purchaseItems = purchaseItems;
         this.availabilityReader=availabilityReader;
+        this.merchants = merchants;
         read = new TransactionTemplate(transactions);
         read.setReadOnly(true);
         // 호출 측 승인 트랜잭션을 읽기 실패로 rollback-only 상태로 만들지 않는다.
@@ -238,6 +241,10 @@ public class RecommendationService {
         loaded.stage = "PURCHASE_ITEM";
         loaded.affectedCardIds = loaded.cards.stream().map(UserCard::getId).toList();
         purchaseItems.validateStored(command.transaction().purchaseItemCode());
+        if (command.transaction().merchantId() != null) {
+            loaded.merchantBrand = merchants.findById(command.transaction().merchantId())
+                    .map(com.yamu.be.merchant.MerchantCatalogRepository.Merchant::brandCode).orElse(null);
+        }
         // 상품을 inner join해서 상품 누락 카드가 사라지지 않게 한다.
         var ids = loaded.cards.stream().map(UserCard::getCardProductId).distinct().toList();
         loaded.stage = "PRODUCT_BATCH";
@@ -287,7 +294,9 @@ public class RecommendationService {
                 issues.add(new RecommendationDataIssue(card.getId(), null, "POLICY_DATA_INVALID", false));
             }
             recognitions.add(recognitionResolver.resolve(card.getId(), loaded.products.get(card.getCardProductId()),
-                    command.transaction(), policyByCard.get(card.getId()), issues));
+                    CheoeumPurchaseSimulation.apply(command.transaction(), card.getId(),
+                            loaded.products.get(card.getCardProductId()), policyByCard.get(card.getId()), loaded.merchantBrand),
+                    policyByCard.get(card.getId()), issues));
         }
         loaded.recognitions = List.copyOf(recognitions);
         loaded.policies = Map.copyOf(policyByCard);
@@ -311,10 +320,14 @@ public class RecommendationService {
             }
             var product = loaded.products.get(card.getCardProductId());
             var available = availability(command, card);
+            var transaction = CheoeumPurchaseSimulation.apply(command.transaction(), card.getId(), product,
+                    loaded.policies.get(card.getId()), loaded.merchantBrand);
+            transaction.simulationRules().stream().filter(r -> !command.transaction().simulationRules().contains(r))
+                    .forEach(rules::add);
             candidates.add(new CardCandidate(card.getId(), card.getUserId(), product == null ? null
                     : RecommendationInput.CardType.valueOf(product.getCardType().name()), card.getRegistrationStatus(),
                     card.getIssuerStatus(), available.status(), available.reason(), loaded.policies.get(card.getId()),
-                    progress.get(card.getId()), card.getDisplayOrder(), card.getRegisteredAt()));
+                    progress.get(card.getId()), card.getDisplayOrder(), card.getRegisteredAt(), transaction));
         }
         return new Prepared(defaultId, List.copyOf(candidates), List.copyOf(issues), Map.copyOf(context(loaded)), List.copyOf(rules),
                 recognitionsByCard(loaded));
@@ -351,6 +364,7 @@ public class RecommendationService {
     }
 
     private static final class Loaded {
+        private String merchantBrand;
         private String stage = "CANDIDATE_BATCH";
         private List<Long> affectedCardIds = List.of();
         private List<UserCard> cards;
