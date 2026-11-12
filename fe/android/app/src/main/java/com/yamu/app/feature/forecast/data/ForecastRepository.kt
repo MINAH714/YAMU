@@ -10,6 +10,9 @@ import com.yamu.app.core.network.apiCallNoData
 import com.yamu.app.core.network.map
 import com.yamu.app.feature.link.data.AccountDto
 import com.yamu.app.feature.link.data.CardDto
+import com.yamu.app.feature.link.data.CashflowApi
+import com.yamu.app.feature.link.data.CashflowCandidate
+import com.yamu.app.feature.link.data.CashflowPatchRequest
 import com.yamu.app.feature.link.data.LinkApi
 import com.yamu.app.feature.link.data.brandOf
 import com.yamu.app.feature.link.data.lastDigits
@@ -147,6 +150,15 @@ interface ForecastRepository {
     suspend fun deleteItem(itemId: Long, scope: CashflowDeleteScope, occurrenceDate: LocalDate?): ApiResult<Unit>
 
     /**
+     * F-02 확인 전 고정 지출 후보 — 규칙마다 하나(B-06과 같은 GET cashflow-items?status=CANDIDATE&expand=false). 카드대금 줄은 뺀다.
+     * 예보 줄에는 항목 ID가 없어 화면이 이름 · 금액으로 맞춘다([matchCandidate])
+     */
+    suspend fun cashflowCandidates(): ApiResult<List<CashflowCandidate>>
+
+    /** 후보 넣기(CONFIRMED) · 빼기(IGNORED) — #8. 이미 바뀐 후보면 서버가 404 · 409로 거절한다 */
+    suspend fun decideCandidate(itemId: Long, confirm: Boolean): ApiResult<Unit>
+
+    /**
      * F-02 '지난 7일' — [from] ~ [to] 사이 지난 카드 예정 지출(결제와 연결만 할 수 있는 회차).
      * 수정 화면이 [cachedEntry]로 찾을 수 있게 오늘부터의 목록과 따로 기억한다
      */
@@ -204,7 +216,11 @@ fun AccountDto.toOption() = ForecastAccountOption(
 )
 
 @Singleton
-class ForecastRepositoryImpl @Inject constructor(private val api: ForecastApi, private val linkApi: LinkApi) : ForecastRepository {
+class ForecastRepositoryImpl @Inject constructor(
+    private val api: ForecastApi,
+    private val linkApi: LinkApi,
+    private val cashflowApi: CashflowApi,
+) : ForecastRepository {
 
     @Volatile private var last: Forecast? = null
     @Volatile private var current = ForecastSelection()
@@ -327,6 +343,12 @@ class ForecastRepositoryImpl @Inject constructor(private val api: ForecastApi, p
 
     override suspend fun deleteItem(itemId: Long, scope: CashflowDeleteScope, occurrenceDate: LocalDate?): ApiResult<Unit> =
         apiCallNoData { api.deleteItem(itemId, scope.name, occurrenceDate?.toString()) }
+
+    override suspend fun cashflowCandidates(): ApiResult<List<CashflowCandidate>> =
+        apiCall { cashflowApi.items(status = "CANDIDATE", expand = false) }.map { it.items.toFixedCandidates() }
+
+    override suspend fun decideCandidate(itemId: Long, confirm: Boolean): ApiResult<Unit> =
+        apiCall { cashflowApi.patch(itemId, CashflowPatchRequest(if (confirm) "CONFIRMED" else "IGNORED")) }.map { }
 }
 
 @Module

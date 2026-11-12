@@ -1,6 +1,9 @@
 package com.yamu.app.feature.forecast.data
 
 import com.yamu.app.core.format.parseDate
+import com.yamu.app.feature.link.data.CashflowCandidate
+import com.yamu.app.feature.link.data.CashflowItemDto
+import com.yamu.app.feature.link.data.basisLine
 import com.yamu.app.feature.link.data.monthlyDayLabel
 import kotlinx.serialization.Serializable
 import java.time.LocalDate
@@ -144,7 +147,8 @@ fun CashflowEntryDto.toEntry(): CashflowEntry? {
 
 /**
  * F-02 한 줄 — [entry]가 있으면 눌러서 고친다. 카드대금 · 월급 미리보기처럼 가계부 항목이 아니면 null(읽기 전용).
- * [candidate]는 확인 전 고정 지출 후보(예보에서 가져온 읽기 전용 줄, '예상' 태그)
+ * [candidate]는 확인 전 고정 지출 후보(예보에서 가져온 줄, '예상' 태그). 후보 목록에서 같은 후보를 찾았으면 [pending]이 있고
+ * 눌러서 넣거나 뺀다. 못 찾았으면 전처럼 읽기 전용
  */
 data class CashflowRow(
     val date: LocalDate?,
@@ -153,7 +157,14 @@ data class CashflowRow(
     val repeatLabel: String?,
     val entry: CashflowEntry?,
     val candidate: Boolean = false,
+    val pending: CashflowCandidate? = null,
 ) {
+    /**
+     * 줄 끝 휴지통 — 오늘부터의 가계부 회차(지난 회차는 서버가 지우지 못하게 한다)와 맞춘 후보('빼기')만.
+     * 카드 청구와 못 맞춘 후보는 지울 대상이 없다
+     */
+    fun deletable(today: LocalDate): Boolean = entry?.let { !it.date.isBefore(today) } ?: (pending != null)
+
     /**
      * 카드 예정 지출 표시 — 줄의 날짜는 사용일이다. 신용카드는 돈이 청구 출금일에 빠져 머리의 '나갈 돈'(기간 안 출금)과 날짜가 다를 수 있고,
      * 체크카드는 사용일에 빠진다(BE CashflowEvents). 줄에서는 카드 결제라는 것만 밝힌다
@@ -174,13 +185,46 @@ data class CashflowRow(
  * 머리 '나갈 돈'(예보 기준)은 계속 세어 둘이 어긋났다(11/10 QA, 넷플릭스). 확인한 후보는 예보에서 CONFIRMED로 바뀌어 두 번 나오지 않는다.
  * 카드 사용 예상('AI 생활비 반영' 선 전용 추정)은 예정된 돈이 아니라 넣지 않는다. 날짜는 서버가 준 값 그대로 쓰고 다시 계산하지 않는다
  */
-fun cashflowRows(entries: List<CashflowEntry>, forecast: Forecast?): List<CashflowRow> {
+fun cashflowRows(entries: List<CashflowEntry>, forecast: Forecast?, candidates: List<CashflowCandidate>? = null): List<CashflowRow> {
     // 계좌를 일부만 골랐으면 가계부 줄도 그 계좌 것만 — 머리(예보 기준)와 목록이 같은 계좌를 말하게 한다
     val scope = forecast?.scope
     val fromItems = entries.filter { scope?.includes(it) ?: true }.map { e -> CashflowRow(e.date, e.title, e.signedAmount, e.repeatLabel(), e) }
-    val fromForecast = forecast?.upcoming.orEmpty().filter { it.isCardBill || it.isCandidate }.map { it.toCashflowRow() }
+    val fromForecast = forecast?.upcoming.orEmpty().filter { it.isCardBill || it.isCandidate }.map { it.toCashflowRow(candidates) }
     return (fromItems + fromForecast).sortedWith(compareBy({ it.date }, { it.entry?.itemId ?: Long.MAX_VALUE }))
 }
 
-/** 예보 이벤트 → F-02 읽기 전용 줄(카드 청구 · 확인 전 후보). 회차를 못 받았을 때도 같은 모양으로 그린다 */
-fun ForecastEvent.toCashflowRow(): CashflowRow = CashflowRow(date, title, amount, null, null, candidate = isCandidate)
+/** 회차를 못 받았을 때의 F-02 — 예보 줄만(추정은 빼고). 후보는 후보 목록과 맞춰지면 넣기 · 빼기를 할 수 있다 */
+fun forecastOnlyRows(forecast: Forecast, candidates: List<CashflowCandidate>? = null): List<CashflowRow> =
+    forecast.upcoming.filter { !it.isEstimate }.map { it.toCashflowRow(candidates) }
+
+/** 예보 이벤트 → F-02 줄(카드 청구 · 확인 전 후보). 회차를 못 받았을 때도 같은 모양으로 그린다 */
+fun ForecastEvent.toCashflowRow(candidates: List<CashflowCandidate>? = null): CashflowRow =
+    CashflowRow(date, title, amount, null, null, candidate = isCandidate, pending = candidates?.let { matchCandidate(this, it) })
+
+/**
+ * 예보의 후보 줄 → 후보 규칙. 예보 줄에는 항목 ID가 없어 수입 · 지출, 이름, 금액이 같은 후보를 찾는다.
+ * 날짜는 맞추는 데 먼저 쓰지 않는다 — 신용카드 후보는 예보 날짜가 청구 출금일이라 규칙의 기준일과 다르다(CashflowRow.dateNote).
+ * 같은 이름 · 금액이 둘 이상이면 매월 기준일이 그 날(31은 말일)인 것이 하나일 때만 맞추고, 그래도 가르지 못하면 맞추지 않는다(읽기 전용)
+ */
+fun matchCandidate(event: ForecastEvent, candidates: List<CashflowCandidate>): CashflowCandidate? {
+    if (!event.isCandidate || event.amount == 0L) return null
+    val title = event.title.trim()
+    val same = candidates.filter { it.isIncome == (event.amount > 0) && it.title.trim() == title && it.amount == kotlin.math.abs(event.amount) }
+    if (same.size <= 1) return same.singleOrNull()
+    val day = event.date.dayOfMonth
+    return same.singleOrNull { c -> c.dayOfMonth?.let { minOf(it, event.date.lengthOfMonth()) } == day }
+}
+
+/** #19 후보 목록 → F-02 후보 규칙. 카드대금(CARD_BILL)은 청구서에서 오는 줄이라 넣고 빼지 않는다 */
+fun List<CashflowItemDto>.toFixedCandidates(): List<CashflowCandidate> =
+    filterNot { it.kind.equals("CARD_BILL", ignoreCase = true) }.map { it.toCandidate() }
+
+/** B-06 toDraft와 같은 값 — 기준일은 반복 규칙, 없으면 첫 회차의 날 */
+private fun CashflowItemDto.toCandidate() = CashflowCandidate(
+    id = cashflowItemId,
+    isIncome = type.equals("INCOME", ignoreCase = true),
+    title = title,
+    amount = amount,
+    dayOfMonth = recurrence?.dayOfMonth ?: occurrenceDate?.takeLast(2)?.toIntOrNull(),
+    basis = detection?.basisLine(),
+)

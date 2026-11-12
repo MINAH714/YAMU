@@ -584,6 +584,11 @@ class FakeForecastRepository @Inject constructor() : ForecastRepository {
         return ApiResult.Success(Unit)
     }
 
+    // 확인 전 후보(Task 8.2.73) — 가짜 예보에는 후보 줄이 없어 비워 둔다. 후보 시트는 실서버(realApi=all)에서 본다
+    override suspend fun cashflowCandidates(): ApiResult<List<com.yamu.app.feature.link.data.CashflowCandidate>> = withFault { ApiResult.Success(emptyList()) }
+
+    override suspend fun decideCandidate(itemId: Long, confirm: Boolean): ApiResult<Unit> = notFound()
+
     // ── 결제 연결 — BE PaymentMatchService를 줄여 흉내 낸다(앞뒤 7일 · 3일 안이면 예정일 근처 · 최대 10건) ──
 
     /** 내 YAMU 승인 결제 — [daysAgo]일 전 낮 12시 30분(KST), 응답의 승인 시각은 BE처럼 UTC. [canceled]면 연결 뒤 취소된 결제 */

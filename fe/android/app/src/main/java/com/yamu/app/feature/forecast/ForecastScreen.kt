@@ -46,6 +46,10 @@ import androidx.compose.foundation.text.TextAutoSize
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.Delete
+import com.yamu.app.core.designsystem.component.KeyValueRow
+import com.yamu.app.core.designsystem.component.NeutralButton
+import com.yamu.app.core.designsystem.component.YamuDialog
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -98,9 +102,13 @@ import com.yamu.app.core.format.toKoreanDate
 import com.yamu.app.core.format.toMonthDay
 import com.yamu.app.core.format.toMonthDayWeek
 import com.yamu.app.core.format.toWon
+import com.yamu.app.core.format.objectParticle
+import com.yamu.app.core.network.ApiError
 import com.yamu.app.core.network.ApiResult
+import com.yamu.app.core.ui.LocalSnackbar
 import com.yamu.app.core.ui.staleLine
 import com.yamu.app.core.ui.userMessage
+import com.yamu.app.feature.forecast.data.CashflowDeleteScope
 import com.yamu.app.feature.forecast.data.CashflowEntry
 import com.yamu.app.feature.forecast.data.CashflowRow
 import com.yamu.app.feature.forecast.data.FlowConfidence
@@ -116,7 +124,8 @@ import com.yamu.app.feature.forecast.data.LineStep
 import com.yamu.app.feature.forecast.data.RiskLevel
 import com.yamu.app.feature.forecast.data.RiskWindow
 import com.yamu.app.feature.forecast.data.cashflowRows
-import com.yamu.app.feature.forecast.data.toCashflowRow
+import com.yamu.app.feature.forecast.data.forecastOnlyRows
+import com.yamu.app.feature.link.data.CashflowCandidate
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -142,6 +151,10 @@ data class ForecastState(
     val pastEntries: List<CashflowEntry> = emptyList(),   // F-02 지난 7일 카드 예정 지출 — 결제와 연결만
     val entriesLoading: Boolean = false,
     val entriesError: String? = null,
+    val candidates: List<CashflowCandidate>? = null,   // F-02 확인 전 후보 규칙 — 못 받으면 후보 줄은 읽기 전용
+    val busy: Set<Long> = emptySet(),                   // 지우는 중 · 넣거나 빼는 중인 항목 ID — 줄마다 연타를 막는다
+    val ask: CashflowAsk? = null,                       // F-02 확인 시트 · 대화상자
+    val message: String? = null,                        // F-02 결과 한 줄(스낵바)
 ) {
     /** F-02 — 예보가 실패해도 회차만으로 목록을 그리므로 보여 줄 것이 없으면 회차 응답까지 기다린다 */
     val cashflowLoading: Boolean
@@ -151,6 +164,23 @@ data class ForecastState(
     val cashflowError: String?
         get() = entriesError ?: error
 }
+
+/** F-02에서 한 번 더 묻는 것 — 가계부 줄 지우기 · 후보 시트 · 후보 빼기. [itemId]로 보내는 중인 줄을 가린다 */
+sealed interface CashflowAsk {
+    val itemId: Long
+
+    /** 반복이면 범위 시트, 1회면 '○○을 지울까요?' */
+    data class Delete(val entry: CashflowEntry) : CashflowAsk { override val itemId get() = entry.itemId }
+
+    /** 맞춘 후보 줄 — [date] · [amount]는 그 줄(예보의 출금일 · 부호 있는 금액) 그대로 */
+    data class Candidate(val candidate: CashflowCandidate, val date: LocalDate?, val amount: Long) : CashflowAsk { override val itemId get() = candidate.id }
+
+    /** 후보 줄 휴지통 — 시트의 '빼기'와 같게 한 번 묻고 IGNORED */
+    data class Ignore(val candidate: CashflowCandidate) : CashflowAsk { override val itemId get() = candidate.id }
+}
+
+/** 후보를 넣으면 무엇이 되는지 — 서버는 지금 반복 지출만 후보로 만든다(BE -349). 옛 서버의 수입 후보는 예정 수입 */
+internal fun candidateKindTo(c: CashflowCandidate): String = if (c.isIncome) "예정 수입으로" else "고정 지출로"
 
 /** F-01 · F-02 — 돌아올 때마다 새로(결제 · 계획 저장 · 지우기 · 추가 · 수정 뒤 바뀌므로). 새로 부르면 앞 요청은 버린다 */
 @HiltViewModel
@@ -185,7 +215,99 @@ class ForecastViewModel @Inject constructor(private val repo: ForecastRepository
                 is ApiResult.Success -> _state.update { it.copy(pastEntries = r.data) }
                 is ApiResult.Failure -> _state.update { it.copy(pastEntries = emptyList()) }
             }
+            // 확인 전 후보 규칙 — 예보의 후보 줄과 맞춰 넣기 · 빼기를 연다. 못 받으면 후보 줄은 전처럼 읽기 전용
+            when (val r = repo.cashflowCandidates()) {
+                is ApiResult.Success -> _state.update { it.copy(candidates = r.data) }
+                is ApiResult.Failure -> _state.update { it.copy(candidates = null) }
+            }
         }
+    }
+
+    // ── F-02 줄 끝 휴지통 · 후보 시트(Task 8.2.73) ──
+
+    /** 휴지통 — 가계부 줄은 지울 범위(반복) · 한 번 더(1회)를, 후보 줄은 빼기를 한 번 묻는다. 보내는 중인 줄은 무시 */
+    fun askDelete(row: CashflowRow) {
+        val ask = row.entry?.let { CashflowAsk.Delete(it) } ?: row.pending?.let { CashflowAsk.Ignore(it) } ?: return
+        if (ask.itemId in _state.value.busy) return
+        _state.update { it.copy(ask = ask) }
+    }
+
+    /** 맞춘 후보 줄 누르기 — 금액 · 날짜 · 근거와 넣기 · 빼기 */
+    fun openCandidate(row: CashflowRow) {
+        val c = row.pending ?: return
+        _state.update { it.copy(ask = CashflowAsk.Candidate(c, row.date, row.amount)) }
+    }
+
+    fun dismissAsk() = _state.update { it.copy(ask = null) }
+
+    fun messageShown() = _state.update { it.copy(message = null) }
+
+    /**
+     * 지우기. 삭제에는 재시도 키가 없어 응답이 끊기면 다시 보내지 않고 목록을 새로 받아 알린다(수정 화면과 같은 원칙).
+     * 결제와 연결된 회차는 목록에서 알 수 없어 서버의 409 PAID_OCCURRENCE_LOCKED를 받아 까닭을 보인다
+     */
+    fun delete(entry: CashflowEntry, scope: CashflowDeleteScope) {
+        if (!claim(entry.itemId)) return
+        viewModelScope.launch {
+            val r = repo.deleteItem(entry.itemId, scope, entry.occurrenceDate.takeIf { scope == CashflowDeleteScope.THIS_ONLY })
+            val quoted = "'${entry.title}'${entry.title.objectParticle()}"
+            val (message, reload) = when (r) {
+                is ApiResult.Success -> {
+                    // 새 목록이 오기 전에 지운 줄을 먼저 뺀다 — 남아 있으면 다시 눌러 404를 받는다. 앞으로 전부는 그 항목의 오늘부터 회차 모두
+                    _state.update { s ->
+                        s.copy(entries = s.entries?.filterNot { it.itemId == entry.itemId && (scope == CashflowDeleteScope.ALL || it.occurrenceDate == entry.occurrenceDate) })
+                    }
+                    when {
+                        scope == CashflowDeleteScope.THIS_ONLY -> "'${entry.title}' ${entry.date.toKoreanDate()} 회차를 지웠어요"
+                        entry.isRecurring -> "$quoted 앞으로 전부 지웠어요"
+                        else -> "$quoted 지웠어요"
+                    } to true
+                }
+                is ApiResult.Failure -> deleteFailure(r.error)
+            }
+            finish(entry.itemId, message, reload)
+        }
+    }
+
+    /** 후보 넣기(CONFIRMED) · 빼기(IGNORED). 그사이 바뀐 후보(404 · 409)와 결과 불명은 목록을 새로 받는다 */
+    fun decide(candidate: CashflowCandidate, confirm: Boolean) {
+        if (!claim(candidate.id)) return
+        viewModelScope.launch {
+            val r = repo.decideCandidate(candidate.id, confirm)
+            val quoted = "'${candidate.title}'${candidate.title.objectParticle()}"
+            val (message, reload) = when (r) {
+                is ApiResult.Success -> {
+                    // 이 후보는 더 이상 후보가 아니다 — 새 예보가 올 때까지 그 줄은 읽기 전용으로
+                    _state.update { s -> s.copy(candidates = s.candidates?.filterNot { it.id == candidate.id }) }
+                    (if (confirm) "$quoted ${candidateKindTo(candidate)} 넣었어요" else "$quoted 뺐어요") to true
+                }
+                is ApiResult.Failure -> when {
+                    r.error.isOutcomeUnknown -> "응답을 받지 못해 반영됐는지 확인하지 못했어요 · 목록을 새로 받았어요" to true
+                    r.error is ApiError.NotFound || r.error is ApiError.Conflict -> "그사이 바뀐 후보예요 · 목록을 새로 받았어요" to true
+                    else -> r.error.userMessage() to false
+                }
+            }
+            finish(candidate.id, message, reload)
+        }
+    }
+
+    /** 보내는 중으로 표시 — 이미 보내는 중이면 거절(같은 줄 연타 · 시트와 휴지통을 겹쳐 누름) */
+    private fun claim(id: Long): Boolean {
+        if (id in _state.value.busy) return false
+        _state.update { it.copy(ask = null, busy = it.busy + id) }
+        return true
+    }
+
+    private fun finish(id: Long, message: String?, reload: Boolean) {
+        _state.update { it.copy(busy = it.busy - id, message = message) }
+        if (reload) refreshWithEntries()
+    }
+
+    private fun deleteFailure(e: ApiError): Pair<String, Boolean> = when {
+        e.isOutcomeUnknown -> "응답을 받지 못해 지워졌는지 확인하지 못했어요 · 목록을 새로 받았어요" to true
+        e.code == "PAID_OCCURRENCE_LOCKED" -> "결제와 연결된 회차가 있어 지울 수 없어요 · 줄을 눌러 결제 연결을 먼저 끊어 주세요" to false
+        e is ApiError.NotFound -> "그사이 바뀌었거나 지워진 항목이에요 · 목록을 새로 받았어요" to true
+        else -> e.userMessage() to false
     }
 
     /** 계좌 고르기 시트를 열 때 */
@@ -1146,11 +1268,12 @@ private fun FilterSheet(
 // ───────────────────────── F-02 예정 수입 · 지출 ─────────────────────────
 
 /**
- * F-02 한 줄 — 가계부 항목이면 눌러서 고치고(F-02b), 카드 청구 · 확인 전 후보는 읽기 전용. 반복이면 날짜 옆에 '매월 말일'처럼.
- * 확인 전 후보는 F-01 '예정된 돈'과 같은 '예상' 태그
+ * F-02 한 줄 — 가계부 항목이면 눌러서 고치고(F-02b), 맞춘 확인 전 후보는 눌러서 넣거나 빼고, 카드 청구와 못 맞춘 후보는 읽기 전용.
+ * 반복이면 날짜 옆에 '매월 말일'처럼. 확인 전 후보는 F-01 '예정된 돈'과 같은 '예상' 태그.
+ * [onDelete]가 있으면 줄 끝에 휴지통(터치 48dp) — 보내는 중([busy])이면 눌리지 않는다
  */
 @Composable
-private fun CashflowRowLine(row: CashflowRow, onClick: (() -> Unit)?) {
+private fun CashflowRowLine(row: CashflowRow, busy: Boolean, onClick: (() -> Unit)?, onDelete: (() -> Unit)?) {
     val c = YamuTheme.colors
     ListRow(
         title = row.title,
@@ -1158,10 +1281,52 @@ private fun CashflowRowLine(row: CashflowRow, onClick: (() -> Unit)?) {
         value = "${row.amount.toWon(withPlusSign = true)}원",
         valueColor = if (row.amount > 0) c.primary else c.text1,
         titleTag = if (row.candidate) ({ StatusTag("예상", tone = TagTone.Neutral) }) else null,
+        trailing = onDelete?.let { delete ->
+            {
+                IconButton(onClick = delete, enabled = !busy) {
+                    Icon(
+                        Icons.Rounded.Delete,
+                        contentDescription = deleteLabel(row),
+                        tint = if (busy) c.text3.copy(alpha = 0.4f) else c.text3,
+                        modifier = Modifier.size(20.dp),
+                    )
+                }
+            }
+        },
         dense = true,
         onClick = onClick,
     )
 }
+
+/** 휴지통 읽기 이름 — 가계부 줄은 '○○ 지우기', 후보 줄은 시트와 같은 '○○ 빼기' */
+internal fun deleteLabel(row: CashflowRow): String = if (row.entry == null && row.pending != null) "${row.title} 빼기" else "${row.title} 지우기"
+
+/** 맞춘 확인 전 후보 — 금액 · 날짜(출금일 기준) · 찾은 근거와 넣기 · 빼기 */
+@Composable
+private fun CandidateSheet(ask: CashflowAsk.Candidate, busy: Boolean, onDecide: (Boolean) -> Unit, onDismiss: () -> Unit) {
+    val c = YamuTheme.colors
+    val candidate = ask.candidate
+    YamuBottomSheet(onDismiss = onDismiss) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(candidate.title, style = YamuTheme.typography.titleL, color = c.text1, modifier = Modifier.weight(1f, fill = false))
+            StatusTag("예상", tone = TagTone.Neutral)
+        }
+        Spacer(Modifier.height(4.dp))
+        Text(candidateSheetNote(candidate), style = YamuTheme.typography.bodyM, color = c.text2)
+        Spacer(Modifier.height(YamuSpacing.x3))
+        KeyValueRow("금액", "${ask.amount.toWon(withPlusSign = true)}원", large = false)
+        ask.date?.let { KeyValueRow("날짜", "${it.toKoreanDateWeek()} · 출금일 기준", large = false) }
+        candidate.basis?.let { KeyValueRow("찾은 근거", it, large = false) }
+        Spacer(Modifier.height(YamuSpacing.x5))
+        PrimaryButton("${candidateKindTo(candidate)} 넣기", onClick = { onDecide(true) }, enabled = !busy)
+        Spacer(Modifier.height(YamuSpacing.x2))
+        NeutralButton("빼기", onClick = { onDecide(false) }, enabled = !busy)
+    }
+}
+
+/** 후보 시트 설명 — 넣으면 예정 목록에서 고칠 수 있고, 빼면 잔고예보에서도 빠진다 */
+internal fun candidateSheetNote(c: CashflowCandidate): String =
+    "기록에서 찾은 반복 ${if (c.isIncome) "수입" else "지출"}이라 아직 확인 전이에요. 넣으면 예정 목록에서 고칠 수 있고, 빼면 잔고예보에서도 빠져요."
 
 /** F-02 보조 줄 — '11/5 (목) · 매월 5일 · 카드 결제', 확인 전 후보는 '11/25 (수) · 출금일 기준' */
 internal fun cashflowRowSub(row: CashflowRow): String =
@@ -1180,6 +1345,12 @@ fun CashflowListRoute(
         viewModel.refreshWithEntries()   // 추가(F-02a) · 수정(F-02b)하고 돌아오면 새로
         onPauseOrDispose { }
     }
+    val snackbar = LocalSnackbar.current
+    LaunchedEffect(s.message) {
+        s.message?.let { snackbar.showSnackbar(it) }
+        viewModel.messageShown()
+    }
+    val today = LocalDate.now(KST)
     val c = YamuTheme.colors
     // 회색 바탕 + 카드: 요약 · 달마다 하나(프로토타입 F-02). 계좌를 이었을 때만 + (추가는 계좌 · 카드가 있어야 한다)
     FlowScreen(
@@ -1205,9 +1376,9 @@ fun CashflowListRoute(
                 else -> {
                     // 가계부 회차를 받았으면 그 줄(고칠 수 있음) + 카드 청구, 못 받았으면 예보 줄만(읽기 전용, 추정은 빼고)
                     val entries = s.entries
-                    val rows = if (entries != null) cashflowRows(entries, f) else {
+                    val rows = if (entries != null) cashflowRows(entries, f, s.candidates) else {
                         requireNotNull(f)   // 둘 다 없으면 위에서 오류 화면
-                        f.upcoming.filter { !it.isEstimate }.map { it.toCashflowRow() }
+                        forecastOnlyRows(f, s.candidates)
                     }
                     val period = cashflowPeriod(f)
                     YamuCard {
@@ -1233,7 +1404,17 @@ fun CashflowListRoute(
                             monthRows.forEachIndexed { i, row ->
                                 if (i > 0) HorizontalDivider(color = c.outlineVariant)
                                 val entry = row.entry
-                                CashflowRowLine(row, onClick = entry?.let { { onEdit(it.itemId, it.occurrenceDate) } })
+                                val id = entry?.itemId ?: row.pending?.id
+                                CashflowRowLine(
+                                    row,
+                                    busy = id != null && id in s.busy,
+                                    onClick = when {
+                                        entry != null -> ({ onEdit(entry.itemId, entry.occurrenceDate) })
+                                        row.pending != null -> ({ viewModel.openCandidate(row) })
+                                        else -> null
+                                    },
+                                    onDelete = if (row.deletable(today)) ({ viewModel.askDelete(row) }) else null,
+                                )
                             }
                         }
                     }
@@ -1244,6 +1425,28 @@ fun CashflowListRoute(
             }
             Spacer(Modifier.height(YamuSpacing.x6))
         }
+    }
+    // 휴지통 · 후보 줄에서 한 번 더 묻기 — 수정 화면과 같은 시트 · 문장(CashflowDelete.kt)
+    when (val ask = s.ask) {
+        null -> Unit
+        is CashflowAsk.Delete -> if (ask.entry.isRecurring) {
+            DeleteScopeSheet(ask.entry, onPick = { viewModel.delete(ask.entry, it) }, onDismiss = viewModel::dismissAsk)
+        } else {
+            DeleteOnceDialog(ask.entry.title, onConfirm = { viewModel.delete(ask.entry, CashflowDeleteScope.ALL) }, onDismiss = viewModel::dismissAsk)
+        }
+        is CashflowAsk.Candidate -> CandidateSheet(
+            ask,
+            busy = ask.itemId in s.busy,
+            onDecide = { confirm -> viewModel.decide(ask.candidate, confirm) },
+            onDismiss = viewModel::dismissAsk,
+        )
+        is CashflowAsk.Ignore -> YamuDialog(
+            title = "'${ask.candidate.title}'${ask.candidate.title.objectParticle()} 뺄까요?",
+            text = "확인 전 후보에서 빠지고 잔고예보에도 넣지 않아요",
+            confirmText = "빼기",
+            onConfirm = { viewModel.decide(ask.candidate, confirm = false) },
+            onDismiss = viewModel::dismissAsk,
+        )
     }
 }
 

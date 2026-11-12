@@ -59,6 +59,7 @@ class ForecastViewModelTest {
             pastRange = from to to
             return pastResult
         }
+        override suspend fun cashflowCandidates() = ApiResult.Success(emptyList<com.yamu.app.feature.link.data.CashflowCandidate>())
     }
     private var pastResult: ApiResult<List<CashflowEntry>> = ApiResult.Success(emptyList())
     private var pastRange: Pair<LocalDate, LocalDate>? = null
