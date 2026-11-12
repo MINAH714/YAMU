@@ -57,7 +57,8 @@ public class DatabaseCardRecommender implements CardRecommender {
             var reason = Objects.equals(evaluated.userCardId(), result.recommendation().selectedUserCardId())
                     ? SelectionReason.valueOf(result.recommendation().selectionReason().name()) : null;
             candidates.add(new Candidate(candidates.size()+1, summary(evaluated.userCardId(),context), calculation.netBenefit(),
-                    lines, result.recommendation().message(), reason,
+                    lines, reason != null ? result.recommendation().message()
+                            : "예상 순혜택은 " + calculation.netBenefit().stripTrailingZeros().toPlainString() + "원입니다.", reason,
                     new RuleVersion(context.cardProductId(), distinctVersions.size()==1 ? distinctVersions.get(0) : null, versions),groups,uses));
         }
         for (var evaluated : result.recommendation().evaluatedCards()) {

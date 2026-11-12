@@ -36,7 +36,7 @@ class HomeMapperTest {
     }
 
     @Test
-    fun `보완안 필드가 있으면 월급 전 예상 잔액 · 챙길 것 · 방금 결제를 쓴다`() {
+    fun `보완안 필드가 있으면 월급 전 가장 낮을 때 · 챙길 것 · 방금 결제를 쓴다`() {
         val home = parse(
             """
             {"cards":{"count":6},
@@ -49,7 +49,7 @@ class HomeMapperTest {
             """,
         )
         val forecast = home.forecast!!
-        assertEquals("월급 전 예상 잔액", forecast.label)
+        assertEquals("월급 전 가장 낮을 때", forecast.label)
         assertEquals(350_000L, forecast.amount)
         assertEquals(25L, forecast.daysToIncome)
         assertTrue(forecast.isProvisional)

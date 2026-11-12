@@ -40,6 +40,13 @@ public interface PaymentTransactionRepository extends JpaRepository<PaymentTrans
     List<PaymentTransaction> findTop50ByStatusAndUpdatedAtBeforeAndIdGreaterThanOrderByIdAsc(PaymentStatus status,
             LocalDateTime updatedBefore, Long afterId);
 
+    /**
+     * POS 결제 내역(S15P31E103-423): 그 가맹점의 상태가 맞는 결제를 결제 번호 내림차순으로 100건씩. beforeId보다 작은 번호부터 읽는다.
+     * posCode는 거래 조건 스냅샷(JSON)에만 있어 부르는 쪽이 거른다. merchant_id는 외래 키 인덱스를 탄다.
+     */
+    List<PaymentTransaction> findTop100ByMerchantIdAndStatusInAndRequestedAtGreaterThanEqualAndIdLessThanOrderByIdDesc(
+            Long merchantId, Collection<PaymentStatus> statuses, LocalDateTime requestedFrom, Long beforeId);
+
     /** 늦은 출금 대조 대상: 그 사유로 거절·만료한 뒤 얼마 안 된 결제를 결제 번호 순으로 50건씩. */
     List<PaymentTransaction> findTop50ByStatusInAndFailureCodeAndUpdatedAtAfterAndIdGreaterThanOrderByIdAsc(
             Collection<PaymentStatus> statuses, String failureCode, LocalDateTime updatedAfter, Long afterId);

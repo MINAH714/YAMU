@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.TextAutoSize
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -30,6 +31,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
 import com.yamu.app.core.designsystem.theme.Issuer
 import com.yamu.app.core.designsystem.theme.YamuRadius
@@ -95,7 +97,7 @@ fun GreyChip(
     }
 }
 
-enum class AmountSize { L, M, Value }
+enum class AmountSize { Hero, L, M, Value }
 
 /** 금액 — 숫자 + '원'(작게). 마이너스는 −, 부족일 때만 빨강, 추정이면 '예측' */
 @Composable
@@ -108,9 +110,11 @@ fun AmountText(
     withPlusSign: Boolean = false,
     color: Color? = null,                // 잔고예보 큰 숫자는 파랑(F-01) — 없으면 검정 · 부족이면 빨강
     unit: String = "원",
+    fitOneLine: Boolean = false,         // 홈 히어로처럼 글자가 커서 넘칠 수 있는 곳 — 한 줄에 맞게 줄인다(큰 글씨 · 천만 원대)
 ) {
     val c = YamuTheme.colors
     val style = when (size) {
+        AmountSize.Hero -> YamuTheme.typography.amountHero
         AmountSize.L -> YamuTheme.typography.amountL
         AmountSize.M -> YamuTheme.typography.amountM
         AmountSize.Value -> YamuTheme.typography.value
@@ -118,6 +122,7 @@ fun AmountText(
     // 프로토타입(CSS)은 작은 '원'이 큰 숫자의 줄 높이(38px)를 그대로 물려받아 줄 아래로 4dp(중간 크기 3dp) 더 내려간다 —
     // 그래서 큰 금액 덩어리가 42dp. 아래 글줄 간격을 화면마다 맞추지 않도록 여기서 같은 만큼 띄운다
     val hang = when (size) {
+        AmountSize.Hero -> 5.dp
         AmountSize.L -> 4.dp
         AmountSize.M -> 3.dp
         AmountSize.Value -> 0.dp
@@ -128,7 +133,8 @@ fun AmountText(
                 append(won.toWon(withPlusSign))
                 // 단위는 0.6배 · SemiBold(프로토타입 .amount-l .u). 목록 값 크기(16sp)는 같은 크기로 — 11sp 아래로 내려가지 않게
                 val small = size != AmountSize.Value
-                withStyle(SpanStyle(fontSize = if (small) style.fontSize * 0.6f else style.fontSize, fontWeight = FontWeight.SemiBold)) {
+                // 0.6em — 한 줄에 맞게 줄일 때 숫자와 같이 줄도록 숫자 크기 기준으로
+                withStyle(SpanStyle(fontSize = if (small) 0.6.em else style.fontSize, fontWeight = FontWeight.SemiBold)) {
                     append(if (small) "\u2009$unit" else unit)
                 }
             },
@@ -138,6 +144,8 @@ fun AmountText(
                 color != null -> color
                 else -> c.text1
             },
+            maxLines = if (fitOneLine) 1 else Int.MAX_VALUE,
+            autoSize = if (fitOneLine) TextAutoSize.StepBased(minFontSize = style.fontSize * 0.5f, maxFontSize = style.fontSize, stepSize = 1.sp) else null,
         )
         if (estimate) {
             Spacer(Modifier.width(6.dp))

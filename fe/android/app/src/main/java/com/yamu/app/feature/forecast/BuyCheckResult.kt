@@ -368,7 +368,7 @@ private fun Header(q: SimulationQuery, sim: Simulation?, onCard: () -> Unit, onH
         Text(listOfNotNull(q.productName, "${q.amount.toWon()}원").joinToString(" · "), style = YamuTheme.typography.headlineS, color = c.text1)
         Spacer(Modifier.height(10.dp))
         val cardName = when {
-            q.userCardId == null -> sim?.card?.name?.let { "$it · 추천" } ?: "혜택이 가장 큰 카드"
+            q.userCardId == null -> sim?.card?.name?.let { "$it (추천)" } ?: "혜택이 가장 큰 카드"
             else -> sim?.card?.name ?: "고른 카드"
         }
         val how = listOfNotNull(listOfNotNull(q.categoryName, q.merchantName).joinToString(" "), q.channel.label, q.installmentMonths?.let { "할부 ${it}개월" } ?: "일시불")

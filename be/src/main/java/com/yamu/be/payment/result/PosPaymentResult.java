@@ -17,6 +17,10 @@ import java.time.LocalDateTime;
  * @param failure         확정 거절 사유. 거절된 뒤 마감이 지나 EXPIRED가 된 결제도 마지막 거절 사유를 둔다. 없으면 null
  * @param retryable       명세 Q1(11/3 「POS 결제 결과 조회」에 반영): DECLINED일 때만. 마감 전이고 재승인 횟수가 남았으면 true.
  *                        false면 POS는 마감을 기다리지 않고 거절 영수증을 띄운다. 다른 상태는 null
+ * @param lateConfirmPending 출금 미확인({@code WITHDRAWAL_NOT_CONFIRMED})으로 거절·만료된 결제를 서버가 아직 늦은 출금과 대조할 수 있으면 true.
+ *                        true인 동안 이 결제는 APPROVED로 바뀔 수 있으므로 POS는 계속 조회한다. 서버 시계로 판단한다.
+ *                        DECLINED·EXPIRED에만 값이 있고(대조 대상이 아니거나 기간이 지났으면 false), 다른 상태는 null.
+ *                        기간이 지난 뒤 운영이 거래내역 태그로 대조해 승인하는 경우는 알리지 않는다(범위 밖)
  */
 public record PosPaymentResult(
         Long paymentId,
@@ -29,10 +33,11 @@ public record PosPaymentResult(
         Long instantDiscount,
         Card card,
         Failure failure,
-        Boolean retryable) {
+        Boolean retryable,
+        Boolean lateConfirmPending) {
 
     /**
-     * @param issuerName        임시: 카드사 코드(예: HANA) 그대로. 카드사 이름 표는 card 패키지(BE1)에 있어 열어 받은 뒤 이름으로 바꾼다
+     * @param issuerName        카드사 이름(예: 하나카드). 이름 표({@link com.yamu.be.card.CardIssuers})에 없는 카드사는 코드 그대로
      * @param maskedNumber      끝 4자리만 보이는 카드번호. 앞자리는 저장하지 않는다
      * @param installmentMonths 할부일 때만. 일시불은 null
      */

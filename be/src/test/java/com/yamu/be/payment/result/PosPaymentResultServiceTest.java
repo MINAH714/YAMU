@@ -25,15 +25,21 @@ import com.yamu.be.payment.domain.PaymentTransactionRepository;
 import com.yamu.be.payment.lookup.PaymentCardLookup;
 import com.yamu.be.payment.pos.PosTerminalResolver;
 import com.yamu.be.payment.request.MerchantContextSnapshot;
+import java.time.Clock;
 import java.time.Duration;
+import java.time.Instant;
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.data.redis.RedisConnectionFailureException;
 import org.springframework.test.util.ReflectionTestUtils;
 
-/** DB·Redis 없이 보는 경계: POS 요청이 아닌 거래, 시도 기록 장애, 모르는 거절 사유, 승인 되돌리기 뒤의 카드. 나머지는 통합 테스트가 본다. */
+/**
+ * DB·Redis 없이 보는 경계: POS 요청이 아닌 거래, 시도 기록 장애, 모르는 거절 사유, 승인 되돌리기 뒤의 카드,
+ * 늦은 출금 대조 기간의 시각 경계. 나머지는 통합 테스트가 본다.
+ */
 class PosPaymentResultServiceTest {
 
     static final long PAYMENT_ID = 1024L;
@@ -43,6 +49,10 @@ class PosPaymentResultServiceTest {
     PaymentTransactionRepository payments;
     PaymentExpiry expiry;
     ApprovalAttemptStore attempts;
+    /** 요청 번호 앞 14자리 = 한국 2026-10-22 14:30:05 = UTC 05:30:05. 대조 기간 10분, 정산 잠금 60초. */
+    static final String FIN_REQUEST_NO = "20261022143005000001";
+    static final Instant REQUEST_TIME = Instant.parse("2026-10-22T05:30:05Z");
+
     PaymentCardLookup cards;
     PosPaymentResultService service;
 
@@ -52,14 +62,18 @@ class PosPaymentResultServiceTest {
         expiry = mock(PaymentExpiry.class);
         attempts = mock(ApprovalAttemptStore.class);
         cards = mock(PaymentCardLookup.class);
-        service = new PosPaymentResultService(mock(PosTerminalResolver.class), payments, expiry,
+        service = serviceAt(REQUEST_TIME.plusSeconds(30));
+        when(cards.findReceiptCard(any())).thenReturn(
+                Optional.of(new PaymentCardLookup.ReceiptCard("HANA", CardType.CREDIT, "5678")));
+    }
+
+    private PosPaymentResultService serviceAt(Instant now) {
+        return new PosPaymentResultService(mock(PosTerminalResolver.class), payments, expiry,
                 mock(BarcodeStore.class), attempts, cards,
                 new PaymentApprovalProperties(Duration.ofHours(24), Duration.ofSeconds(30), Duration.ofSeconds(5), 3,
                         Duration.ofHours(24), Duration.ofSeconds(60), Duration.ofSeconds(30), Duration.ofSeconds(60),
                         Duration.ofMinutes(5), Duration.ofMinutes(10), false),
-                objectMapper);
-        when(cards.findReceiptCard(any())).thenReturn(
-                Optional.of(new PaymentCardLookup.ReceiptCard("HANA", CardType.CREDIT, "5678")));
+                objectMapper, Clock.fixed(now, ZoneOffset.UTC));
     }
 
     @Test
@@ -82,7 +96,7 @@ class PosPaymentResultServiceTest {
         PosPaymentResult result = service.get("key", POS_CODE, PAYMENT_ID);
 
         assertThat(result.retryable()).isTrue();
-        assertThat(result.card().issuerName()).isEqualTo("HANA");
+        assertThat(result.card().issuerName()).isEqualTo("하나카드");
         assertThat(result.card().maskedNumber()).isEqualTo("****-****-****-5678");
         assertThat(result.card().plan()).isEqualTo(PaymentPlan.LUMP_SUM);
     }
@@ -143,6 +157,72 @@ class PosPaymentResultServiceTest {
         assertThat(result.card()).isNull();
         assertThat(result.failure()).isNull();
         assertThat(result.retryable()).isNull();
+        assertThat(result.lateConfirmPending()).isNull();
+    }
+
+    // ───────── 늦은 출금 대조(lateConfirmPending) ─────────
+
+    @Test
+    void 출금_미확인_거절은_대조_기간_안이면_lateConfirmPending_true다() {
+        PaymentTransaction payment = withdrawalNotConfirmed();
+        when(payments.findById(PAYMENT_ID)).thenReturn(Optional.of(payment));
+
+        PosPaymentResult result = serviceAt(REQUEST_TIME.plus(Duration.ofMinutes(5))).get("key", POS_CODE, PAYMENT_ID);
+
+        assertThat(result.status()).isEqualTo(PaymentStatus.DECLINED);
+        assertThat(result.lateConfirmPending()).isTrue();
+    }
+
+    @Test
+    void 대조_기간이_끝나도_정산_잠금_시간까지는_true이고_그_뒤에는_false다() {
+        PaymentTransaction payment = withdrawalNotConfirmed();
+        when(payments.findById(PAYMENT_ID)).thenReturn(Optional.of(payment));
+        Instant lockEnd = REQUEST_TIME.plus(Duration.ofMinutes(10)).plusSeconds(60);
+
+        assertThat(serviceAt(REQUEST_TIME.plus(Duration.ofMinutes(10))).get("key", POS_CODE, PAYMENT_ID)
+                .lateConfirmPending()).isTrue();
+        assertThat(serviceAt(lockEnd.minusSeconds(1)).get("key", POS_CODE, PAYMENT_ID).lateConfirmPending()).isTrue();
+        assertThat(serviceAt(lockEnd).get("key", POS_CODE, PAYMENT_ID).lateConfirmPending()).isFalse();
+    }
+
+    @Test
+    void 출금_미확인으로_거절된_뒤_만료된_결제도_대조_기간_안이면_true다() {
+        PaymentTransaction payment = withdrawalNotConfirmed();
+        payment.expire();
+        when(payments.findById(PAYMENT_ID)).thenReturn(Optional.of(payment));
+
+        PosPaymentResult result = serviceAt(REQUEST_TIME.plus(Duration.ofMinutes(3))).get("key", POS_CODE, PAYMENT_ID);
+
+        assertThat(result.status()).isEqualTo(PaymentStatus.EXPIRED);
+        assertThat(result.retryable()).isNull();
+        assertThat(result.lateConfirmPending()).isTrue();
+    }
+
+    @Test
+    void 다른_사유의_거절은_요청_번호가_있어도_lateConfirmPending_false다() {
+        PaymentTransaction payment = posPayment();
+        payment.startApproval(7L, 3L);
+        payment.assignFinRequestNo(FIN_REQUEST_NO, 15_000);
+        payment.decline("INSUFFICIENT_BALANCE");
+        when(payments.findById(PAYMENT_ID)).thenReturn(Optional.of(payment));
+
+        assertThat(service.get("key", POS_CODE, PAYMENT_ID).lateConfirmPending()).isFalse();
+    }
+
+    @Test
+    void 요청_번호_없이_출금_미확인으로_거절된_결제는_대조할_수_없어_false다() {
+        PaymentTransaction payment = declined("WITHDRAWAL_NOT_CONFIRMED");
+        when(payments.findById(PAYMENT_ID)).thenReturn(Optional.of(payment));
+
+        assertThat(service.get("key", POS_CODE, PAYMENT_ID).lateConfirmPending()).isFalse();
+    }
+
+    private PaymentTransaction withdrawalNotConfirmed() {
+        PaymentTransaction payment = posPayment();
+        payment.startApproval(7L, 3L);
+        payment.assignFinRequestNo(FIN_REQUEST_NO, 15_000);
+        payment.decline("WITHDRAWAL_NOT_CONFIRMED");
+        return payment;
     }
 
     private PaymentTransaction declined(String failureCode) {

@@ -14,9 +14,6 @@ import com.yamu.app.feature.my.data.Device
 import com.yamu.app.feature.my.data.MyInfo
 import com.yamu.app.feature.my.data.MyRepository
 import com.yamu.app.feature.my.data.MyRepositoryImpl
-import com.yamu.app.feature.my.data.NotiKind
-import com.yamu.app.feature.my.data.NotiSettings
-import com.yamu.app.feature.my.data.NotificationsPage
 import com.yamu.app.feature.payment.data.PaymentRepository
 import com.yamu.app.feature.payment.data.PaymentRepositoryImpl
 import java.time.LocalDate
@@ -61,7 +58,10 @@ class RealCashflowWithFakes @Inject constructor(
     override suspend fun deleteMatch(matchId: Long): ApiResult<Unit> = real.deleteMatch(matchId)
 }
 
-/** 진짜: 기기 목록 · 해제 · 회원 탈퇴. 가짜: 회원 정보 · 설정 · 알림 */
+/**
+ * 진짜: 기기 목록 · 해제 · 회원 탈퇴, 알림 목록 · 읽음 · 설정(BE !228). 가짜: 회원 정보 · 자동 선택 · 보안 설정.
+ * home을 켜지 않으면 홈 종 숫자는 가짜 홈의 값이라 알림함 숫자와 다를 수 있다
+ */
 class RealMyWithFakes @Inject constructor(
     real: MyRepositoryImpl,
     private val fake: FakeMyRepository,
@@ -70,12 +70,4 @@ class RealMyWithFakes @Inject constructor(
     override suspend fun setAutoSelect(on: Boolean): ApiResult<Unit> = fake.setAutoSelect(on)
     override suspend fun setAutoLock(seconds: Int): ApiResult<Unit> = fake.setAutoLock(seconds)
     override suspend fun setPinOnlyForCode(pinOnly: Boolean): ApiResult<Unit> = fake.setPinOnlyForCode(pinOnly)
-    override suspend fun notificationSettings(): ApiResult<NotiSettings> = fake.notificationSettings()
-    override suspend fun setNotification(kind: NotiKind, enabled: Boolean): ApiResult<Unit> = fake.setNotification(kind, enabled)
-    override suspend fun setNotificationTime(hhmm: String): ApiResult<Unit> = fake.setNotificationTime(hhmm)
-    override suspend fun notifications(page: Int): ApiResult<NotificationsPage> = fake.notifications(page)
-    // 목록이 가짜인 동안 배지도 가짜 — 둘이 다른 숫자를 보이지 않게
-    override suspend fun unreadNotificationCount(): ApiResult<Int> = fake.unreadNotificationCount()
-    override suspend fun markRead(id: Long): ApiResult<Unit> = fake.markRead(id)
-    override suspend fun markAllRead(): ApiResult<Unit> = fake.markAllRead()
 }
