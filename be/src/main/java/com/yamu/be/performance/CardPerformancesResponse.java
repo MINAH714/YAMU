@@ -26,14 +26,15 @@ public record CardPerformancesResponse(String yearMonth, int daysLeft, List<Item
      * @param recognizedAmount 그달 인정 실적. 실적 행이 없으면 0
      * @param remainingAmount  목표 − 실적, 0 아래로 내려가지 않음. 목표가 없으면 0
      * @param status           {@link PerformanceStatus}
-     * @param guide            유불리 판정. 375(유불리 분석) 범위라 아직 null
-     * @param decision         사용자 판단 기록. 375 범위라 아직 null
+     * @param guide            이번 달 유불리 판정(S15P31E103-375 분석의 guide와 같은 계산). 판정할 수 없으면(분석이 422)
+     *                         "INSUFFICIENT_DATA", 실적 조건이 없는 카드·이번 달이 아닌 월은 null
+     * @param decision         그달 판단 기록(분석 응답의 decision과 같은 모양). 없거나 되돌렸으면 null
      * @param isProvisional    그달 실적 인정액이 미확인인 승인 결제가 있으면 true(실적이 나중에 늘 수 있음)
      * @param recentChange     그달 실적에 가장 최근 반영된 승인 결제. 없으면 null
      */
     public record Item(long userCardId, String nickname, CardIssuers.Issuer issuer, String issuerName, String cardType,
             Long targetAmount, String targetLabel, long recognizedAmount, long remainingAmount, PerformanceStatus status,
-            String guide, Object decision, @JsonProperty("isProvisional") boolean isProvisional,
+            String guide, PerformanceAnalysisResponse.Decision decision, @JsonProperty("isProvisional") boolean isProvisional,
             RecentChange recentChange) {
     }
 

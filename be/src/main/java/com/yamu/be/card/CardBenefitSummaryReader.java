@@ -96,7 +96,8 @@ public class CardBenefitSummaryReader {
                     .forEach(thresholds::add);
             List<Tier> tierList = thresholds.stream().map(threshold -> tier(threshold, rows, linkRows,
                     currentGroupRows, tierRows)).toList();
-            result.put(product, new Summary(names, List.copyOf(thresholds), tierList));
+            result.put(product, new Summary(names, List.copyOf(thresholds), tierList,
+                    baseMonthlyKrwLimit(rows, linkRows, currentGroupRows, tierRows)));
         });
         return result;
     }
@@ -135,6 +136,22 @@ public class CardBenefitSummaryReader {
             groupValue.put(group.getId(), limitAt(group, tierRows, threshold));
         }
         return new Tier(threshold, opened, TierLimitCap.monthlyMax(groupsOfBenefit, groupValue));
+    }
+
+    /**
+     * 전월 실적 0원일 때 한 달에 받을 수 있는 원화 혜택의 최대치(S15P31E103-375, 2026-11-12). 실적 조건이 없는 혜택(예: 노리2
+     * 스타벅스·커피빈 10%)은 실적을 채우지 않아도 받으므로, 유불리 분석이 "채우면 더 받는 혜택"에서 뺀다. 계산은 구간과 같은
+     * {@link #tier}다. 0원에서 쓸 수 있는 혜택이 없으면 0, 한도를 모르면 null.
+     */
+    private static Long baseMonthlyKrwLimit(List<CardBenefit> benefitRows, List<BenefitLimitLink> linkRows,
+            Map<Long, LimitGroup> groupRows, List<TierLimit> tierRows) {
+        boolean anyWithoutPerformance = benefitRows.stream()
+                .anyMatch(b -> b.getMinPerformanceAmount() == null || b.getMinPerformanceAmount() <= 0);
+        if (!anyWithoutPerformance) {
+            return 0L;
+        }
+        // 삼항 연산자로 0L과 섞으면 null 한도가 언박싱돼 NPE가 나므로 나눠 쓴다
+        return tier(0, benefitRows, linkRows, groupRows, tierRows).monthlyKrwLimit();
     }
 
     /** 실적이 기준과 같을 때 그룹의 한도 값. 모르면 null(추천 엔진과 같은 판단). */
@@ -177,8 +194,10 @@ public class CardBenefitSummaryReader {
      * @param mainBenefits 주요 혜택 문구. 최대 {@value #MAX_MAIN_BENEFITS}개
      * @param thresholds   실적 기준(원), 작은 순. 없으면 빈 목록
      * @param tiers        기준별 구간 정보. {@code thresholds}와 같은 순서·개수
+     * @param baseMonthlyKrwLimit 전월 실적 0원일 때 한 달 원화 혜택 최대치(실적 조건 없는 혜택). 그런 혜택이 없으면 0, 모르면 null
      */
-    public record Summary(List<String> mainBenefits, List<Long> thresholds, List<Tier> tiers) {
+    public record Summary(List<String> mainBenefits, List<Long> thresholds, List<Tier> tiers,
+            Long baseMonthlyKrwLimit) {
 
         /** 이번 달 실적보다 큰 기준 중 가장 작은 값. 다 넘었으면 가장 큰 기준, 기준이 없으면 null. */
         public Long targetFor(long recognized) {

@@ -18,11 +18,13 @@ import java.time.LocalDate;
 import java.time.YearMonth;
 import java.time.ZoneId;
 import java.util.EnumSet;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.function.Function;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -30,6 +32,8 @@ import org.springframework.transaction.annotation.Transactional;
 /**
  * 카드별 실적 현황·상세(S15P31E103-373). 실적은 결제 승인 때 쌓인 {@code card_monthly_performance}를 읽고, 목표 실적·구간은
  * 카드 목록과 같은 {@link CardBenefitSummaryReader}(BE1 -308 임시 규칙)를 쓴다. 상태 판정 규칙은 {@link PerformanceStatus}.
+ *
+ * <p>목록의 {@code guide}는 유불리 분석(S15P31E103-375)과 같은 판정이고 이번 달에만 채운다. {@code decision}은 그달 판단 기록이다.
  *
  * <p>카드의 실적은 다음 달 혜택의 "전월 실적"이 된다. 그래서 목표·구간은 오늘 유효한 혜택 정책 기준이다(지난 달을 볼 때도
  * 그때의 정책 버전을 다시 고르지 않는다).
@@ -43,6 +47,8 @@ public class PerformanceService {
     /** 받는 월의 범위(임시, 리포트 S15P31E103-372와 같음). */
     static final YearMonth MIN_MONTH = YearMonth.of(2000, 1);
     static final YearMonth MAX_MONTH = YearMonth.of(2100, 12);
+    /** 목록 guide: 판정할 수 없는 카드(분석이 422를 낼 상황). 앱 {@code PerfGuide}의 "판단 보류"(2026-11-11 결정). */
+    static final String GUIDE_INSUFFICIENT_DATA = "INSUFFICIENT_DATA";
     private static final Set<CardRegistrationStatus> REGISTERED =
             EnumSet.of(CardRegistrationStatus.ACTIVE, CardRegistrationStatus.INACTIVE);
 
@@ -51,21 +57,40 @@ public class PerformanceService {
     private final CardActivityReader activity;
     private final CardBenefitSummaryReader benefitSummaries;
     private final PerformanceReader reader;
+    private final PerformanceAnalysisService analysis;
+    private final PerformanceDecisionRepository decisions;
     private final Clock clock;
 
     PerformanceService(UserCardRepository cards, CardProductRepository products, CardActivityReader activity,
-            CardBenefitSummaryReader benefitSummaries, PerformanceReader reader, Clock clock) {
+            CardBenefitSummaryReader benefitSummaries, PerformanceReader reader, PerformanceAnalysisService analysis,
+            PerformanceDecisionRepository decisions, Clock clock) {
         this.cards = cards;
         this.products = products;
         this.activity = activity;
         this.benefitSummaries = benefitSummaries;
         this.reader = reader;
+        this.analysis = analysis;
+        this.decisions = decisions;
         this.clock = clock;
     }
 
-    /** @param yearMonth 한국 기준 실적 월. null이면 이번 달 */
+    /**
+     * 카드별 실적 목록 API. {@code guide}까지 채운다.
+     *
+     * @param yearMonth 한국 기준 실적 월. null이면 이번 달
+     */
     @Transactional(readOnly = true)
     public CardPerformancesResponse overview(long userId, YearMonth yearMonth) {
+        return overview(userId, yearMonth, true);
+    }
+
+    /**
+     * @param yearMonth 한국 기준 실적 월. null이면 이번 달
+     * @param withGuide false면 {@code guide}를 계산하지 않고 null로 둔다. 판정은 카드마다 예정 지출·지난 실적을 읽어 무거워서,
+     *                  판정을 쓰지 않는 홈(S15P31E103-378)이 쓴다
+     */
+    @Transactional(readOnly = true)
+    public CardPerformancesResponse overview(long userId, YearMonth yearMonth, boolean withGuide) {
         LocalDate today = LocalDate.now(clock.withZone(KST));
         YearMonth month = yearMonth != null ? checked(yearMonth) : YearMonth.from(today);
         List<UserCard> owned = cards.findOrdered(userId, REGISTERED);
@@ -75,17 +100,61 @@ public class PerformanceService {
         Set<Long> provisional = reader.cardsWithUnconfirmed(userId, ids, month);
         Map<Long, RecentChange> recent = reader.recentChanges(userId, ids, month);
         Map<Long, CardBenefitSummaryReader.Summary> summaries = benefitSummaries.summaries(productById.keySet(), today);
+        Map<Long, PerformanceAnalysisResponse.Decision> decided = new HashMap<>();
+        if (!ids.isEmpty()) {
+            decisions.findByUserIdAndUserCardIdInAndPerformanceMonth(userId, ids, month.atDay(1)).forEach(row -> {
+                PerformanceAnalysisResponse.Decision decision = PerformanceAnalysisService.decisionOf(row);
+                if (decision != null) {
+                    decided.put(row.getUserCardId(), decision);
+                }
+            });
+        }
+        boolean guides = withGuide && month.equals(YearMonth.from(today));
+        Supplier<PerformanceAnalysisService.Expenses> expenses = memoized(() -> analysis.scheduledExpenses(userId));
 
         List<CardPerformancesResponse.Item> items = owned.stream().map(card -> {
             CardProduct product = productById.get(card.getCardProductId());
             CardIssuers.Issuer issuer = CardIssuers.of(product.getIssuerCode());
             Progress progress = progress(summaries.get(product.getId()), recognized.get(card.getId()), month, today);
+            String guide = guides ? guide(userId, card, progress.status(), expenses) : null;
             return new CardPerformancesResponse.Item(card.getId(), nickname(card, product), issuer, issuer.name(),
                     product.getCardType().name(), progress.target(), label(progress.target()), progress.recognized(),
-                    progress.remaining(), progress.status(), null, null, provisional.contains(card.getId()),
-                    recent.get(card.getId()));
+                    progress.remaining(), progress.status(), guide, decided.get(card.getId()),
+                    provisional.contains(card.getId()), recent.get(card.getId()));
         }).toList();
         return new CardPerformancesResponse(month.toString(), daysLeft(month, today), items, null);
+    }
+
+    /**
+     * 이번 달 목록의 판정(2026-11-11 결정). 실적 조건이 없으면 null, 실적 행이 없으면 {@value #GUIDE_INSUFFICIENT_DATA}, 이미
+     * 채웠으면 ALREADY_ACHIEVED, 그 밖에는 유불리 분석과 같은 계산이고 분석이 422를 낼 카드면 {@value #GUIDE_INSUFFICIENT_DATA}.
+     */
+    private String guide(long userId, UserCard card, PerformanceStatus status,
+            Supplier<PerformanceAnalysisService.Expenses> expenses) {
+        return switch (status) {
+            case NO_TARGET -> null;
+            case INSUFFICIENT_DATA -> GUIDE_INSUFFICIENT_DATA;
+            case ACHIEVED -> PerformanceGuide.ALREADY_ACHIEVED.name();
+            case AT_RISK, ON_TRACK -> analysis.guideFor(userId, card, expenses.get())
+                    .map(PerformanceGuide::name).orElse(GUIDE_INSUFFICIENT_DATA);
+        };
+    }
+
+    /** 처음 부를 때 한 번만 읽는다(판정할 카드가 없으면 예정 지출을 읽지 않음). */
+    private static <T> Supplier<T> memoized(Supplier<T> source) {
+        return new Supplier<>() {
+            private T value;
+            private boolean loaded;
+
+            @Override
+            public T get() {
+                if (!loaded) {
+                    value = source.get();
+                    loaded = true;
+                }
+                return value;
+            }
+        };
     }
 
     /** 이번 달 실적 상세. 없는·남의·등록 전·등록 해제 카드는 404 RESOURCE_NOT_FOUND. */

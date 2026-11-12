@@ -14,13 +14,13 @@ class PerformanceProgressTest {
     static final YearMonth NOV = YearMonth.of(2026, 11);
     /** 기준 30만·50만원. */
     static final CardBenefitSummaryReader.Summary TWO_TIERS = new CardBenefitSummaryReader.Summary(List.of(),
-            List.of(300_000L, 500_000L), List.of());
+            List.of(300_000L, 500_000L), List.of(), 0L);
 
     @Test
     void 기준이_없으면_실적_행이_없어도_NO_TARGET이고_남은_금액은_0이다() {
         PerformanceService.Progress noSummary = PerformanceService.progress(null, null, NOV, NOV.atDay(20));
         PerformanceService.Progress empty = PerformanceService.progress(
-                new CardBenefitSummaryReader.Summary(List.of(), List.of(), List.of()), 120_000L, NOV, NOV.atDay(20));
+                new CardBenefitSummaryReader.Summary(List.of(), List.of(), List.of(), 0L), 120_000L, NOV, NOV.atDay(20));
 
         assertThat(noSummary).isEqualTo(new PerformanceService.Progress(null, 0, 0, PerformanceStatus.NO_TARGET));
         assertThat(empty).isEqualTo(new PerformanceService.Progress(null, 120_000, 0, PerformanceStatus.NO_TARGET));
