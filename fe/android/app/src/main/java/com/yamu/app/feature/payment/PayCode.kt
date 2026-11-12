@@ -91,6 +91,8 @@ import com.yamu.app.feature.auth.data.AuthRepository
 import com.yamu.app.feature.auth.data.StepUpPurpose
 import com.yamu.app.feature.link.BrandCardArt
 import com.yamu.app.feature.link.BrandMark
+import com.yamu.app.feature.link.data.LinkRepository
+import com.yamu.app.feature.link.data.LinkedCard
 import com.yamu.app.feature.payment.data.ApproveOutcome
 import com.yamu.app.feature.payment.data.CodeState
 import com.yamu.app.feature.payment.data.NO_BENEFIT_NOTICE
@@ -101,6 +103,7 @@ import com.yamu.app.feature.payment.data.PaymentRequest
 import com.yamu.app.feature.payment.data.formatRemaining
 import com.yamu.app.feature.payment.data.groupCode
 import com.yamu.app.feature.payment.data.secondsUntil
+import com.yamu.app.feature.payment.data.withListedCards
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -163,11 +166,15 @@ class PayCodeViewModel @Inject constructor(
     private val payments: PaymentRepository,
     private val auth: AuthRepository,
     stepUpFactory: StepUpFactory,
+    private val link: LinkRepository,
 ) : ViewModel() {
     val stepUp = stepUpFactory.create(viewModelScope)
     private val _state = MutableStateFlow(PayCodeState())
     val state: StateFlow<PayCodeState> = _state.asStateFlow()
 
+    /** 카드 목록(userCardId별) — 결제 요청 카드에 카드사 · 상품명을 붙인다(Q-19). 못 받았으면 비어 있고 응답 값만 보인다 */
+    private var listedCards: Map<Long, LinkedCard> = emptyMap()
+    private var listedCardsJob: Job? = null
     private var pollJob: Job? = null
     private var visible = false
     private var pollFailures = 0
@@ -203,6 +210,7 @@ class PayCodeViewModel @Inject constructor(
                     _state.update { it.copy(issuing = false, phase = PayPhase.Code(r.data), unstable = false) }
                     tick()
                     restartPolling()
+                    loadListedCards()
                 }
                 is ApiResult.Failure -> _state.update {
                     if (r.error.code == "NO_ACTIVE_CARD") it.copy(issuing = false, phase = PayPhase.NoCard)
@@ -275,10 +283,28 @@ class PayCodeViewModel @Inject constructor(
         pollJob = null
     }
 
+    /**
+     * 코드를 띄운 동안 카드 목록을 받아 둔다. 보통 가맹점이 찍기 전에 끝나고, 늦게 오면 그때 요청 화면 카드에 붙인다.
+     * 실패하면 다음 코드 · 다음 찍힘에서 다시 받는다(그 사이엔 응답 값만으로 그린다)
+     */
+    private fun loadListedCards() {
+        if (listedCards.isNotEmpty() || listedCardsJob?.isActive == true) return
+        listedCardsJob = viewModelScope.launch {
+            val r = link.cards()
+            if (r !is ApiResult.Success) return@launch
+            listedCards = r.data.associateBy { it.userCardId }
+            _state.update { s ->
+                val p = s.phase as? PayPhase.Request ?: return@update s
+                s.copy(phase = PayPhase.Request(p.request.withListedCards(listedCards)))
+            }
+        }
+    }
+
     private fun onScanned(request: PaymentRequest) {
+        loadListedCards()
         _state.update {
             it.copy(
-                phase = PayPhase.Request(request),
+                phase = PayPhase.Request(request.withListedCards(listedCards)),
                 // 서버 1순위. 혜택을 비교하지 못한 카드는 미리 고르지 않는다(데이터 부족이면 사용자가 직접 고른다)
                 selectedCardId = request.cards.firstOrNull { c -> c.autoSelectable }?.userCardId,
                 installmentMonths = null,
@@ -383,12 +409,18 @@ class PayCodeViewModel @Inject constructor(
 }
 
 @Composable
-/** [onClose]의 문장은 닫힌 뒤 보여 줄 스낵바(이 화면이 닫히면 여기서 띄운 건 취소되므로 바깥에서) */
+/**
+ * [onClose]의 문장은 닫힌 뒤 보여 줄 스낵바(이 화면이 닫히면 여기서 띄운 건 취소되므로 바깥에서).
+ * [cancelHint]가 있으면 결제 상세에서 취소하러 연 것(CancelCodeRoute) — 코드는 같고 제목 · 코드 아래 안내만 바뀐다.
+ * [cancelFooter]는 그때 본문 끝에 붙는 임시 '앱에서 바로 취소'(결제 요청 확인 중에는 숨긴다)
+ */
 fun PayCodeRoute(
     onClose: (message: String?) -> Unit,
     onPaid: (paymentId: Long) -> Unit,
     onOpenPinPad: (purpose: String) -> Unit,
     onAddCard: () -> Unit,
+    cancelHint: String? = null,
+    cancelFooter: (@Composable () -> Unit)? = null,
     viewModel: PayCodeViewModel = hiltViewModel(),
 ) {
     val s by viewModel.state.collectAsStateWithLifecycle()
@@ -426,7 +458,11 @@ fun PayCodeRoute(
     val confirming = s.request != null && !s.requestDone
     Box(Modifier.fillMaxSize()) {
         FlowScreen(
-            title = if (s.request != null) "결제 확인" else "결제하기",
+            title = when {
+                s.request != null -> "결제 확인"
+                cancelHint != null -> "결제 취소"
+                else -> "결제하기"
+            },
             onBack = if (confirming) null else close,      // 확인 단계는 ✕ 없이 — 뒤로 누르면 거절을 묻는다
             // 대기 판이 떠 있는 동안 아래 화면은 터치뿐 아니라 TalkBack에서도 숨긴다('거절'에 닿지 않게)
             modifier = if (s.waiting) Modifier.clearAndSetSemantics {} else Modifier,
@@ -450,11 +486,12 @@ fun PayCodeRoute(
             ) {
                 when (val p = s.phase) {
                     PayPhase.Auth -> AuthBody(s.error)
-                    is PayPhase.Code -> CodeBody(p.code, s.remainingSec, s.unstable, onNewCode = viewModel::openCode)
+                    is PayPhase.Code -> CodeBody(p.code, s.remainingSec, s.unstable, onNewCode = viewModel::openCode, hint = cancelHint ?: "매장에서 스캔하면 바로 넘어가요")
                     PayPhase.CodeExpired -> MessageBody("시간이 지났어요", "새 코드를 받아 매장에 보여 주세요")
                     PayPhase.NoCard -> EmptyState("결제할 카드가 없어요", actionText = "카드 추가", onAction = onAddCard)
                     is PayPhase.Request -> RequestBody(p.request, s, onSelectCard = viewModel::selectCard, onInstallment = viewModel::selectInstallment)
                 }
+                if (s.phase !is PayPhase.Request) cancelFooter?.invoke()
                 Spacer(Modifier.height(YamuSpacing.x6))
             }
         }
@@ -525,7 +562,7 @@ private fun AuthBody(error: String?) {
 // ───────────────────────── P-06 결제 코드 ─────────────────────────
 
 @Composable
-private fun CodeBody(code: PayCode, remainingSec: Long?, unstable: Boolean, onNewCode: () -> Unit) {
+private fun CodeBody(code: PayCode, remainingSec: Long?, unstable: Boolean, onNewCode: () -> Unit, hint: String) {
     val c = YamuTheme.colors
     Spacer(Modifier.height(YamuSpacing.x5))
     Column(
@@ -553,7 +590,7 @@ private fun CodeBody(code: PayCode, remainingSec: Long?, unstable: Boolean, onNe
         CompactButton("새 코드", onClick = onNewCode, small = true)
     }
     Spacer(Modifier.height(16.dp))
-    Text("매장에서 스캔하면 바로 넘어가요", style = YamuTheme.typography.titleM, color = c.text1)
+    Text(hint, style = YamuTheme.typography.titleM, color = c.text1, textAlign = TextAlign.Center)
     if (unstable) {
         Spacer(Modifier.height(YamuSpacing.x2))
         Text("연결이 불안정해요 · 다시 확인하고 있어요", style = YamuTheme.typography.bodyS, color = c.warning)
@@ -604,7 +641,7 @@ private fun RequestBody(request: PaymentRequest, s: PayCodeState, onSelectCard: 
         s.selectedCard?.let { selected ->
             Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
                 Crossfade(selected, label = "selectedCard") { card ->
-                    BrandCardArt(card.brand, card.name, card.last4, Modifier.widthIn(max = 320.dp))
+                    BrandCardArt(card.brand, card.name, card.last4, Modifier.widthIn(max = 320.dp), productName = card.imageName)
                 }
             }
             Spacer(Modifier.height(YamuSpacing.x5))
@@ -664,7 +701,7 @@ private fun PayCardRow(card: PayCard, selected: Boolean, enabled: Boolean, decli
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(YamuSpacing.x3),
     ) {
-        CardThumb(CardImages.forProduct(card.name)) { BrandMark(card.brand, large = true) }
+        CardThumb(CardImages.forProduct(card.imageName)) { BrandMark(card.brand, large = true) }
         Column(Modifier.weight(1f)) {
             Text(card.name, style = YamuTheme.typography.titleM, color = c.text1, maxLines = 1, overflow = TextOverflow.Ellipsis)
             val sub = when {
@@ -674,7 +711,11 @@ private fun PayCardRow(card: PayCard, selected: Boolean, enabled: Boolean, decli
             }
             sub?.let { Text(it, style = YamuTheme.typography.sub, color = c.text3) }
         }
-        if (!declined && card.netBenefit.signum() > 0) Text("−${card.netBenefit.toWon()}원", style = YamuTheme.typography.value, color = c.primary)
+        // 비교한 카드는 어느 카드를 골라도 예상 혜택이 보이게 — 없으면(0원 이하) '혜택 없음'. 비교 못 한 카드는 줄 아래 서버 문구로 대신한다
+        if (!declined && !card.benefitUnknown) {
+            if (card.netBenefit.signum() > 0) Text("−${card.netBenefit.toWon()}원", style = YamuTheme.typography.value, color = c.primary)
+            else Text("혜택 없음", style = YamuTheme.typography.sub, color = c.text3)
+        }
         if (usable) RoundCheckbox(checked = selected, onCheckedChange = null)
     }
 }

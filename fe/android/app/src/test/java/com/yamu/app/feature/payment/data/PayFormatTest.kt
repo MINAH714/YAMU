@@ -52,6 +52,27 @@ class PayFormatTest {
         assertEquals("결제 결과를 확인하지 못했어요 · 결제 내역에서 결과를 확인해 주세요", declineMessage("WITHDRAWAL_NOT_CONFIRMED"))
     }
 
+    @Test fun `혜택 금액은 부호 없이 반영되는 때를 붙인다`() {
+        assertEquals("660원 할인", ReceiptBenefit("편의점 할인", 660, BenefitKind.INSTANT).amountText())
+        assertEquals("3,180원 청구할인", ReceiptBenefit("스타벅스", 3_180, BenefitKind.BILLING).amountText())
+        assertEquals("3,180원 환급", ReceiptBenefit("스타벅스", 3_180, BenefitKind.CASHBACK).amountText())
+        assertEquals("1,500원 적립", ReceiptBenefit("커피", 1_500, BenefitKind.POINT).amountText())
+        assertEquals("500원 할인", ReceiptBenefit("약관 미확인", 500).amountText())
+    }
+
+    @Test fun `즉시할인 한 줄은 즉시할인이 있을 때만`() {
+        assertEquals("6,600원에서 660원 바로 할인", receipt(amount = 6_600, charged = 5_940).instantDiscountText())
+        assertNull(receipt(amount = 31_800, charged = 31_800).instantDiscountText())
+        assertNull(receipt(amount = 10_000, charged = null).instantDiscountText())
+    }
+
+    private fun receipt(amount: Long, charged: Long?) = PaymentReceipt(
+        paymentId = 1, merchantName = "GS25", categoryName = null, amount = amount, paidAtIso = null, cardId = null, cardBrand = null,
+        cardName = null, cardLast4 = null, isCheck = false, approvalNo = null, installmentMonths = null, benefits = emptyList(),
+        chargedAmount = charged, balanceAfter = null, billDateIso = null, billAmount = null, perfMonth = null, perfRecognized = null,
+        perfCounted = true, perfTotalAfter = null, perfTarget = null,
+    )
+
     @Test fun `버튼 조사 로 · 으로`() {
         assertEquals("로", "신한카드".directionParticle())
         assertEquals("로", "신한 생활".directionParticle())          // ㄹ 받침

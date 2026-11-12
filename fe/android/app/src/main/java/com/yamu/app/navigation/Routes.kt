@@ -69,6 +69,7 @@ import kotlinx.serialization.Serializable
 @Serializable data object PayCode            // P-06a(인증) · P-06 · P-06c(결제 요청 확인 — 같은 화면의 단계, 10 문서 6-7)
 @Serializable data class PayDone(val paymentId: Long)               // P-07
 @Serializable data class PaymentDetail(val paymentId: Long)         // P-08
+@Serializable data class CancelCode(val paymentId: Long)            // P-08 '결제 취소' → P-06과 같은 결제 코드(매장 POS가 찍어 취소)
 
 // ── 실적관리 탭 (PerfGraph) ──
 @Serializable data object PerfOverview       // R-01 · R-01d(상태)

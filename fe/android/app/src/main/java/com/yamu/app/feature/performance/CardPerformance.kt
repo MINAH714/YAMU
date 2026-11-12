@@ -46,6 +46,7 @@ import com.yamu.app.core.format.toWon
 import com.yamu.app.core.network.ApiResult
 import com.yamu.app.core.ui.userMessage
 import com.yamu.app.feature.link.BrandCardArt
+import com.yamu.app.feature.performance.data.AT_RISK_LABEL
 import com.yamu.app.feature.performance.data.CardPerf
 import com.yamu.app.feature.performance.data.PerfDetail
 import com.yamu.app.feature.performance.data.PerfGuide
@@ -114,7 +115,11 @@ fun CardPerformanceRoute(onBack: () -> Unit, onAnalysis: (userCardId: Long) -> U
                 d == null -> ErrorState(s.error ?: "실적을 불러오지 못했어요", onRetry = viewModel::load)
                 d.noTarget -> Text("이 카드는 실적 조건이 없어요 · 쓴 만큼 혜택을 받아요", style = YamuTheme.typography.bodyL, color = c.text2)
                 else -> {
-                    Text(d.month?.let { "${it}월 인정 실적" } ?: "이번 달 인정 실적", style = YamuTheme.typography.bodyM, color = c.text3)
+                    // 서버 상태 AT_RISK면 오른쪽에 '미달 예상'(목록 R-01과 같은 태그)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(d.month?.let { "${it}월 인정 실적" } ?: "이번 달 인정 실적", style = YamuTheme.typography.bodyM, color = c.text3, modifier = Modifier.weight(1f))
+                        if (d.atRisk) StatusTag(AT_RISK_LABEL, tone = TagTone.Warning, guide = true)
+                    }
                     Spacer(Modifier.height(YamuSpacing.x2))
                     // 큰 숫자와 '/ 400,000원'은 글자 바닥을 맞춘다(프로토타입 R-02 .big baseline)
                     Row {
@@ -126,25 +131,22 @@ fun CardPerformanceRoute(onBack: () -> Unit, onAnalysis: (userCardId: Long) -> U
                         Spacer(Modifier.height(16.dp))
                         PerformanceGauge(d.recognized, it, showCaption = false, height = 4.dp)
                         Spacer(Modifier.height(10.dp))
-                        val goal = d.targetLabel?.removeSuffix(" 이상") ?: it.toManWon()
-                        Text(
-                            if (d.achieved) "$goal 기준을 채웠어요" else "${goal}까지 ${d.remaining.toWon()}원 남았어요",
-                            style = YamuTheme.typography.titleM,
-                            color = if (d.achieved) c.success else c.primary,
-                        )
+                        d.headline()?.let { line ->
+                            Text(line, style = YamuTheme.typography.titleM, color = if (d.achieved) c.success else c.primary)
+                        }
                     }
                     Spacer(Modifier.height(20.dp))   // 덩어리 아래 20(.section) — 다음 덩어리 위 24는 SectionBlock이
                 }
             }
           }
             // 다음 달 혜택 구간 — 화면 폭 선 + 키–값(달성 구간엔 초록 태그). 키는 '30만 · 정수기 할인'(프로토타입 R-02)
-            // 구간 혜택은 구간마다 따로(정수기 · 통신비) — 아직 못 채운 구간은 더 받는 금액이라 '+'
+            // 금액은 실적이 그 구간일 때 한 달에 받을 수 있는 최대치(아래 구간까지 누적, BE !227)라 달성 여부와 상관없이 '최대 n원'
             if (d != null && !d.noTarget && d.tiers.isNotEmpty()) {
                 SectionBlock(title = d.month?.let { "${it % 12 + 1}월 혜택" } ?: "다음 달 혜택") {
                     d.tiers.forEach { t ->
                         KeyValueRow(
                             listOfNotNull(t.label.removeSuffix(" 이상").removeSuffix(" 원"), t.benefit).joinToString(" · "),
-                            t.benefitAmount?.let { "${if (t.achieved) "" else "+"}${it.toWon()}원" } ?: "",
+                            t.amountText,
                             keyTag = if (t.achieved) ({ StatusTag("달성", tone = TagTone.Success) }) else null,
                         )
                     }
@@ -153,6 +155,17 @@ fun CardPerformanceRoute(onBack: () -> Unit, onAnalysis: (userCardId: Long) -> U
             Spacer(Modifier.height(YamuSpacing.x6))
         }
     }
+}
+
+/**
+ * 게이지 아래 한 줄 — 서버 다음 달 문구('150,000원 더 쓰면 다음 달 50만원 이상 구간 혜택을 받아요')가 있으면 그대로,
+ * 없으면 앱이 만든 남은 금액 문구. 실적 기준이 없으면 null
+ */
+internal fun PerfDetail.headline(): String? {
+    val target = target ?: return null
+    nextMonthMessage?.let { return it }
+    val goal = targetLabel?.removeSuffix(" 이상") ?: target.toManWon()
+    return if (achieved) "$goal 기준을 채웠어요" else "${goal}까지 ${remaining.toWon()}원 남았어요"
 }
 
 /**
