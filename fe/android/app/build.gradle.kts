@@ -38,9 +38,9 @@ val debugBaseUrl = localProps.getProperty("yamu.baseUrl").orEmpty().trim().ifEmp
         check(it.endsWith("/")) { "yamu.baseUrl은 /로 끝나야 해요: $it" }
     }
 val apiFeatures = listOf("auth", "link", "cashflow", "home", "payment", "performance", "forecast", "report", "my", "pos", "billing")   // ApiFeature와 같은 이름
-// yamu.realApi=all이 켜는 기능 — BE에 API가 있는 것만. performance는 카드별 실적 · 실적 상세(-373)만 있어 유불리 분석 · 판단 기록은 아직 404.
-// home · report는 BE에 API가 생겼지만 앱 응답 모양을 맞춰 보기 전이라 이름을 직접 적어야 켜진다
-val connectedApiFeatures = listOf("auth", "link", "cashflow", "payment", "performance", "forecast", "my", "pos", "billing")
+// yamu.realApi=all이 켜는 기능 — BE에 API가 있는 것만. performance는 유불리 분석 · 판단 기록만 아직 404(실적 -373 · 혜택 한도 -374는 있음).
+// home(-378) · report(-372)는 앱 HomeDto · Report DTO와 BE 응답을 맞춰 보고 넣었다(-413)
+val connectedApiFeatures = listOf("auth", "link", "cashflow", "home", "payment", "performance", "forecast", "report", "my", "pos", "billing")
 val debugRealApi = localProps.getProperty("yamu.realApi").orEmpty()
     .split(',').map { it.trim() }.filter { it.isNotEmpty() }
     .also { names ->   // all을 펼치기 전에 봐야 all,cashflw 같은 오타도 걸린다
