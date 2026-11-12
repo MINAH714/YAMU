@@ -182,6 +182,38 @@ class PerformanceAnalysisIntegrationTest extends MySqlTestSupport {
     }
 
     @Test
+    void 자연_소비는_예정_지출과_연결한_결제와_확인한_탐지_항목의_결제를_빼고_센다() throws Exception {
+        // 9·10월의 같은 기간(11~30일) 결제. 통신비는 확인한 탐지 예정 지출, 9월 15일 결제는 사용자가 예정 지출과 연결함
+        long telecom = merchant("통신사");
+        long subscription = merchant("구독");
+        performance(card, YearMonth.of(2026, 9), 200_000);
+        performance(card, YearMonth.of(2026, 10), 200_000);
+        payment(owner, card, LocalDate.of(2026, 9, 20), "APPROVED", 55_000L, telecom, 55_000);
+        payment(owner, card, LocalDate.of(2026, 10, 20), "APPROVED", 55_000L, telecom, 55_000);
+        payment(owner, card, LocalDate.of(2026, 10, 22), "APPROVED", 56_000L, telecom, 56_000);   // 금액이 달라 남음
+        payment(owner, card, LocalDate.of(2026, 9, 25), "APPROVED", 13_000L, subscription, 13_000); // 후보라 남음
+        payment(owner, card, LocalDate.of(2026, 10, 25), "APPROVED", 13_000L, subscription, 13_000);
+        long linked = payment(owner, card, LocalDate.of(2026, 9, 15), "APPROVED", 30_000L, merchant, 30_000);
+        payment(owner, card, LocalDate.of(2026, 10, 15), "APPROVED", 40_000L, merchant, 40_000);     // 무시한 탐지라 남음
+        detected(card, telecom, 55_000, "CONFIRMED");
+        detected(card, subscription, 13_000, "CANDIDATE");
+        detected(card, merchant, 40_000, "IGNORED");
+        long matchedItem = cashflow(owner, "정기 결제", 30_000, TODAY.plusDays(3), account, null, null);
+        jdbc.update("""
+                INSERT INTO cashflow_payment_match (user_id, cashflow_occurrence_id, payment_transaction_id, matched_at, created_at)
+                SELECT ?, cashflow_occurrence_id, ?, ?, ? FROM cashflow_occurrence WHERE cashflow_item_id = ?
+                """, owner, linked, now(), now(), matchedItem);
+        performance(card, NOVEMBER, 100_000);
+
+        // 9월 13,000원 · 10월 56,000 + 13,000 + 40,000 = 109,000원 → 평균 61,000원(빼기 전이면 9월 98,000원 · 10월 164,000원)
+        analysis(owner, card)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.projection.naturalRecognizable").value(61_000))
+                .andExpect(jsonPath("$.data.steps[1].note").value(
+                        "최근 2개월 같은 기간(11일~말일) 평균 · 9월 13,000원 · 10월 109,000원 (예정 지출과 같은 결제 3건 제외)"));
+    }
+
+    @Test
     void 평소대로_쓰면_채우는_카드는_KEEP_NATURAL이고_이_카드로_낼_예정_지출을_더한다() throws Exception {
         history(card, 80_000);
         performance(card, NOVEMBER, 200_000);
@@ -567,16 +599,22 @@ class PerformanceAnalysisIntegrationTest extends MySqlTestSupport {
 
     /** 한국 날짜 day 정오 승인 결제. 인정액 null은 미확인. */
     private void payment(long user, long userCardId, LocalDate day, String status, Long recognized) {
+        payment(user, userCardId, day, status, recognized, merchant, 30_000);
+    }
+
+    /** 가맹점·승인 금액을 정한 결제. 결제 번호를 돌려준다. */
+    private long payment(long user, long userCardId, LocalDate day, String status, Long recognized, long merchantId,
+            long approvedAmount) {
         LocalDateTime approvedAt = day.atTime(12, 0).atZone(KST).withZoneSameInstant(ZoneOffset.UTC).toLocalDateTime();
-        Map<String, Object> row = new HashMap<>(timestamps(Map.of("user_id", user, "merchant_id", merchant,
+        Map<String, Object> row = new HashMap<>(timestamps(Map.of("user_id", user, "merchant_id", merchantId,
                 "payment_channel", "OFFLINE", "request_key", UUID.randomUUID().toString(),
                 "request_fingerprint", new byte[32], "source", "YAMU", "status", status,
-                "requested_amount", 30_000, "installment_months", 1, "requested_at", approvedAt.minusSeconds(2))));
+                "requested_amount", approvedAmount, "installment_months", 1, "requested_at", approvedAt.minusSeconds(2))));
         row.put("user_card_id", userCardId);
         row.put("card_product_id", jdbc.queryForObject(
                 "SELECT card_product_id FROM user_card WHERE user_card_id = ?", Long.class, userCardId));
         row.put("approved_at", approvedAt);
-        row.put("approved_amount", 30_000);
+        row.put("approved_amount", approvedAmount);
         row.put("performance_month", Date.valueOf(day.withDayOfMonth(1)));
         if (recognized != null) {
             row.put("recognized_performance_amount", recognized);
@@ -584,7 +622,7 @@ class PerformanceAnalysisIntegrationTest extends MySqlTestSupport {
         if (status.equals("CANCELED")) {
             row.put("canceled_at", approvedAt.plusMinutes(1));
         }
-        insert("payment_transaction", "payment_transaction_id", row);
+        return insert("payment_transaction", "payment_transaction_id", row);
     }
 
     /** 가계부 등록 API로 1회 지출 항목을 만든다. 계좌나 카드 중 하나. */
@@ -646,6 +684,21 @@ class PerformanceAnalysisIntegrationTest extends MySqlTestSupport {
         row.put("created_at", now());
         row.put("updated_at", now());
         return row;
+    }
+
+    private long merchant(String name) {
+        return insert("merchant", "merchant_id", timestamps(Map.of("merchant_name", name,
+                "brand_code", "BRAND-" + UUID.randomUUID(), "merchant_category_code", "CONVENIENCE_STORE")));
+    }
+
+    /** 결제 이력 탐지(S15P31E103-349)가 만든 예정 지출. 계좌로 내는 1회 항목을 만들고 탐지 키와 상태를 붙인다. */
+    private void detected(long userCardId, long merchantId, long amount, String status) throws Exception {
+        long item = cashflow(owner, "탐지 " + merchantId, amount, TODAY.plusDays(20), account, null, null);
+        jdbc.update("""
+                UPDATE cashflow_item SET source = 'DETECTED', detected_user_card_id = ?, detected_merchant_id = ?,
+                       detected_amount = ?, status = ?
+                 WHERE cashflow_item_id = ?
+                """, userCardId, merchantId, amount, status, item);
     }
 
     private long insert(String table, String idColumn, Map<String, Object> row) {

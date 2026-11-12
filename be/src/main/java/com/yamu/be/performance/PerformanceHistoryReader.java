@@ -7,6 +7,7 @@ import java.time.YearMonth;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -23,6 +24,11 @@ import org.springframework.stereotype.Component;
  *   <li>그달에 {@code card_monthly_performance} 행이 있는 달만 센다. 행이 없는 달(카드가 없던 달)은 0원이 아니라 모르는 달이다.</li>
  *   <li>결제는 승인(APPROVED) 상태이고 인정액이 0보다 큰 것만 더한다. 인정액 미확인(NULL)은 빼고, 취소된 결제는 상태가 바뀌어 빠진다.</li>
  *   <li>날짜는 승인 시각(UTC 저장)을 한국 날짜로 바꿔 고른다. 실적 월은 결제 행의 {@code performance_month}로 고른다.</li>
+ *   <li>예정 지출과 같은 결제는 뺀다(2026-11-12 결정). 그 지출의 앞날은 예정 지출이 따로 세므로(이 카드로 계속 나가면 예정 지출에
+ *       더하고, 다른 카드로 옮겼거나 끝났으면 이 카드에서 더 안 나감) 자연 소비에 다시 넣으면 두 번 센다. 같은 결제로 보는 것은
+ *       ① 사용자가 예정 지출 회차와 연결한 결제({@code cashflow_payment_match}, S15P31E103-319) ② 사용자가 확인(CONFIRMED)한 탐지
+ *       예정 지출의 키(같은 카드·가맹점·승인 금액, S15P31E103-349)와 같은 결제다. 후보(CANDIDATE)·무시(IGNORED)한 탐지 항목은 예정
+ *       지출에 없으니 빼지 않는다. 사용자가 직접 넣고 결제와 연결하지 않은 예정 지출은 어느 결제인지 몰라 남는다(한계).</li>
  * </ul>
  *
  * <p>모든 쿼리에 {@code user_id}를 넣어 남의 결제를 읽지 않는다.
@@ -72,8 +78,16 @@ class PerformanceHistoryReader {
             return List.of();
         }
         int fromDay = today.getDayOfMonth() + 1;
+        Map<YearMonth, Integer> skipped = new HashMap<>();
         jdbc.query("""
-                select p.performance_month, p.approved_at, p.recognized_performance_amount
+                select p.performance_month, p.approved_at, p.recognized_performance_amount,
+                       (exists (select 1 from cashflow_payment_match m
+                                 where m.payment_transaction_id = p.payment_transaction_id and m.user_id = :userId)
+                        or exists (select 1 from cashflow_item ci
+                                    where ci.user_id = :userId and ci.status = 'CONFIRMED'
+                                      and ci.detected_user_card_id = p.user_card_id
+                                      and ci.detected_merchant_id = p.merchant_id
+                                      and ci.detected_amount = p.approved_amount)) as scheduled
                 from payment_transaction p
                 where p.user_id = :userId and p.user_card_id = :cardId and p.status = 'APPROVED'
                   and p.performance_month in (:months) and p.recognized_performance_amount > 0
@@ -84,12 +98,18 @@ class PerformanceHistoryReader {
                         return;
                     }
                     LocalDate approvedKst = approvedUtc.atOffset(ZoneOffset.UTC).atZoneSameInstant(KST).toLocalDate();
-                    if (approvedKst.getDayOfMonth() >= fromDay) {
+                    if (approvedKst.getDayOfMonth() < fromDay) {
+                        return;
+                    }
+                    if (rs.getBoolean(4)) {
+                        skipped.merge(month, 1, Integer::sum);
+                    } else {
                         sums.merge(month, rs.getLong(3), Long::sum);
                     }
                 });
         return sums.entrySet().stream()
-                .map(e -> new PerformanceAnalyzer.MonthSample(e.getKey(), e.getValue()))
+                .map(e -> new PerformanceAnalyzer.MonthSample(e.getKey(), e.getValue(),
+                        skipped.getOrDefault(e.getKey(), 0)))
                 .toList();
     }
 }

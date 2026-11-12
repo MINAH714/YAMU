@@ -17,7 +17,8 @@ import java.util.stream.Collectors;
  *
  * <ol>
  *   <li>월말 예상 = 지금 인정 실적 + 이 카드로 낼 남은 예정 지출 + 자연 소비(+ what-if로 옮긴다고 가정한 예정 지출).</li>
- *   <li>자연 소비 = 최근 완료 3개월(데이터가 있는 달만)의 같은 기간(내일~말일) 인정 실적 평균.</li>
+ *   <li>자연 소비 = 최근 완료 3개월(데이터가 있는 달만)의 같은 기간(내일~말일) 인정 실적 평균. 예정 지출과 같은 결제는 뺀
+ *       합이다({@link PerformanceHistoryReader}).</li>
  *   <li>인정 ≥ 목표면 {@link PerformanceGuide#ALREADY_ACHIEVED}, 예상 ≥ 목표면 {@link PerformanceGuide#KEEP_NATURAL}.</li>
  *   <li>옮길 수 있는 예정 지출(eligible)로 모자라는 돈을 다 채우면 추가 지출 0원이라 {@link PerformanceGuide#ACHIEVE_RECOMMENDED}.</li>
  *   <li>그래도 모자라는 돈 ≤ 더 받는 혜택이면 {@link PerformanceGuide#ACHIEVE_RECOMMENDED}, 크거나 혜택을 금액으로 셀 수 없으면
@@ -48,8 +49,16 @@ final class PerformanceAnalyzer {
     record Target(long amount, List<Tier> tiers, Long baseMonthlyKrwLimit) {
     }
 
-    /** 지난 달 하나의 같은 기간 인정 실적 합. */
-    record MonthSample(YearMonth month, long amount) {
+    /**
+     * 지난 달 하나의 같은 기간 인정 실적 합.
+     *
+     * @param scheduledPayments 예정 지출과 같은 결제라 합에서 뺀 건수({@link PerformanceHistoryReader})
+     */
+    record MonthSample(YearMonth month, long amount, int scheduledPayments) {
+
+        MonthSample(YearMonth month, long amount) {
+            this(month, amount, 0);
+        }
     }
 
     /** 이 카드로 낼 남은 예정 지출(실적 인정 대상만). */
@@ -248,7 +257,10 @@ final class PerformanceAnalyzer {
                 .sorted(Comparator.comparing(MonthSample::month))
                 .map(s -> s.month().getMonthValue() + "월 " + won(s.amount()))
                 .collect(Collectors.joining(" · "));
-        return "최근 " + history.size() + "개월 같은 기간(" + (today.getDayOfMonth() + 1) + "일~말일) 평균 · " + months;
+        String note = "최근 " + history.size() + "개월 같은 기간(" + (today.getDayOfMonth() + 1) + "일~말일) 평균 · " + months;
+        int scheduled = history.stream().mapToInt(MonthSample::scheduledPayments).sum();
+        // 예정 지출과 같은 결제는 3단계(예정 지출)에서 세므로 여기서 뺐다는 것을 알린다
+        return scheduled == 0 ? note : note + " (예정 지출과 같은 결제 " + scheduled + "건 제외)";
     }
 
     private static String scheduledNote(int scheduled, int moved) {
