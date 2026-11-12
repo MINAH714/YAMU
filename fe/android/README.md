@@ -11,7 +11,7 @@
 5. 모의 POS 단말 키: `local.properties`에 `yamu.posKey=백엔드가 발급한 키` 한 줄(가짜 데이터일 땐 없어도 됨).
 6. 가짜 데이터: debug 빌드는 기본으로 전부 가짜이고, `local.properties`의 `yamu.realApi`에 적은 기능만 진짜 서버를 쓴다(아래 '실서버 연결'). release에는 가짜 코드가 들어가지 않는다(`src/debug`).
 7. release(R8로 줄인 것)를 기기에서 시험: `gradlew.bat assembleCustomerRelease assemblePosRelease -Pyamu.devSign` → debug 앱을 지우고 설치(패키지가 같음). 버전 끝에 `-devsign`이 붙은 시험본이라 밖에 나눠 주지 않는다. 진짜 서명 · 확인 순서는 설계 문서 17(release 정리).
-8. debug 앱 여러 벌을 한 기기에: `gradlew.bat installCustomerDebug -Pyamu.appIdSuffix=.qa2a`로 깔면 패키지 `com.yamu.app.qa2a`, 런처 이름 `YAMU qa2a`인 따로 된 앱이 되어 release 앱이나 다른 꼬리표의 debug 앱을 지우지 않는다. 고객 debug만 바뀌고 꼬리표를 빼면 `com.yamu.app` 그대로다.
+8. debug 앱 여러 벌을 한 기기에: `gradlew.bat installCustomerDebug -Pyamu.appIdSuffix=.qa2a`로 깔면 패키지 `com.yamu.app.qa2a`, 런처 이름 `YAMU qa2a`인 따로 된 앱이 되어 release 앱이나 다른 꼬리표의 debug 앱을 지우지 않는다. 고객 debug만 바뀌고 꼬리표를 빼면 `com.yamu.app` 그대로다. 에뮬레이터나 폰이 여럿 연결돼 있으면 `installCustomerDebug`가 모두에 깔고 기기를 고르지 않은 `adb`는 멈추므로 `assembleCustomerDebug` 뒤 `adb -s emulator-5554 install -r app\build\outputs\apk\customer\debug\app-customer-debug.apk`처럼 늘 `adb -s <기기 이름>`을 붙인다.
 
 ## 지금 상태 (2026-10-27)
 | 단계 | 상태 |
