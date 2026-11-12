@@ -54,6 +54,31 @@ class DatabaseCardRecommenderNetBenefitTest {
                 .containsExactly(new BigDecimal("1.5"), new BigDecimal("1"), new BigDecimal("0.5"));
         // 0.5원도 0원이 아니므로 혜택 없음이 아니다(POL-011: 모두 0원일 때만)
         assertThat(result.noBenefit()).isFalse();
+        assertThat(result.candidates()).extracting(Candidate::reason)
+                .containsExactly("추천", "예상 순혜택은 1원입니다.", "예상 순혜택은 0.5원입니다.");
+    }
+
+    @Test
+    void 후보별_금액을_설명하고_동률과_부분추천_선택설명은_선택카드에만_보존한다() {
+        for (var selectionReason : RecommendationSelector.SelectionReason.values()) {
+            var source = result(calculated(10L, "3180", 3), calculated(20L, "3180", 2),
+                    calculated(30L, "1590", 1));
+            String message = "확인된 카드 중 추천합니다. 예상 순혜택은 3180원입니다. " + selectionReason;
+            var selection = new RecommendationSelector.Result(1024L, RecommendationSelector.Status.PARTIAL_READY,
+                    10L, selectionReason, message, true, false,
+                    source.recommendation().rankedCards(), source.recommendation().evaluatedCards());
+            RecommendationService service = mock(RecommendationService.class);
+            when(service.recommend(any())).thenReturn(new RecommendationService.Result(selection, List.of(), source.cards()));
+            var recommender = new DatabaseCardRecommender(service, Clock.fixed(NOW, ZoneOffset.UTC));
+
+            var actual = recommender.recommend(new RecommendationRequest(1024L, 7L,
+                    PaymentTerms.lumpSum(15_900), CAFE, LocalDateTime.ofInstant(NOW, ZoneOffset.UTC)));
+
+            assertThat(actual.candidates()).extracting(Candidate::reason)
+                    .containsExactly(message, "예상 순혜택은 3180원입니다.", "예상 순혜택은 1590원입니다.");
+            assertThat(actual.candidates()).extracting(Candidate::selectionReason)
+                    .containsExactly(RecommendationResult.SelectionReason.valueOf(selectionReason.name()), null, null);
+        }
     }
 
     @Test
