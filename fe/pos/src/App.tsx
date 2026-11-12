@@ -1,5 +1,5 @@
 import { AnimatePresence, MotionConfig, useIsPresent } from 'motion/react'
-import { useRef, useState, type ComponentProps } from 'react'
+import { useEffect, useEffectEvent, useRef, useState, type ComponentProps } from 'react'
 import { newIdempotencyKey } from './api/client'
 import { createPaymentRequest, type PaymentRequestBody, type PaymentResult } from './api/pos'
 import { Amount } from './components/Amount'
@@ -52,6 +52,17 @@ type Phase =
 const EMPTY_PLAN: PlanInput = { plan: 'LUMP_SUM', installmentMonths: '' }
 const EMPTY_CARTS: Record<StoreId, Cart> = { starbucks: {}, gs25: {} }
 const CONFIRM_WINDOW_MS = 60_000
+/** 매장에 들어갈 때 쌓는 브라우저 기록 표시 */
+const STORE_ENTRY = { yamuPos: 'store' } as const
+
+function isStoreEntry(state: unknown): boolean {
+  return typeof state === 'object' && state !== null && (state as { yamuPos?: unknown }).yamuPos === 'store'
+}
+
+/** 결제를 보내기 전 단계. 주문 화면이 보이고(트레이 포함) 장바구니가 아직 결제와 묶이지 않았다 */
+function isBeforePayment(phase: Phase): boolean {
+  return phase.step === 'order' || phase.step === 'method' || phase.step === 'cash' || phase.step === 'scan'
+}
 
 function App() {
   const missing = missingConfig()
@@ -78,12 +89,53 @@ function App() {
     setStoreId(id)
     setPlanInput(EMPTY_PLAN)
     setPhase({ step: 'order' })
+    // 뒤로 가기가 POS 페이지를 떠나지 않고 매장 선택으로 돌아오게 기록을 하나 쌓는다
+    if (isStoreEntry(history.state)) history.replaceState(STORE_ENTRY, '')
+    else history.pushState(STORE_ENTRY, '')
   }
 
+  /** 매장 선택으로 돌아간다. 다시 들어왔을 때 고르던 상품이 남지 않게 장바구니도 비운다 */
   const leaveStore = () => {
     setStoreId(null)
+    setCarts(EMPTY_CARTS)
+    setPlanInput(EMPTY_PLAN)
     setPhase({ step: 'home' })
   }
+
+  /** 뒤로 가기가 아닌 길(매장 변경 버튼 등)로 나갈 때. 매장에 들어올 때 쌓은 기록도 걷어 낸다 */
+  const leaveStoreWithHistory = () => {
+    leaveStore()
+    if (isStoreEntry(history.state)) history.back()
+  }
+
+  /**
+   * 브라우저·태블릿 뒤로 가기. 결제를 보내기 전이면 매장 선택으로 나가며 장바구니를 비운다.
+   * 결제를 보낸 뒤(요청 중·결과 불명·승인 대기·영수증·현금 완료·오류)에는 기록을 다시 쌓아 화면을 지킨다.
+   * 그 화면들은 '다음 주문'·'새 주문'으로만 넘어가고, 승인 대기 확인이 중간에 끊기지 않는다.
+   */
+  const onHistoryBack = useEffectEvent(() => {
+    if (!storeId) return
+    if (isBeforePayment(phase) && !sendingRef.current) leaveStore()
+    else history.pushState(STORE_ENTRY, '')
+  })
+
+  /** 다른 페이지로 갔다가 돌아와 브라우저가 이 화면을 그대로 되살렸을 때(bfcache)도 결제 전이면 비운다 */
+  const onPageRestored = useEffectEvent(() => {
+    if (storeId && isBeforePayment(phase) && !sendingRef.current) leaveStoreWithHistory()
+  })
+
+  useEffect(() => {
+    const onPopState = () => onHistoryBack()
+    const onPageShow = (event: PageTransitionEvent) => {
+      if (event.persisted) onPageRestored()
+    }
+    window.addEventListener('popstate', onPopState)
+    window.addEventListener('pageshow', onPageShow)
+    return () => {
+      window.removeEventListener('popstate', onPopState)
+      window.removeEventListener('pageshow', onPageShow)
+    }
+  }, [])
 
   /** 결제가 끝났거나 결과를 기다리지 않기로 한 뒤. 그 주문은 끝났으므로 장바구니를 비운다 */
   const newOrder = () => {
@@ -172,7 +224,7 @@ function App() {
     }
   }
 
-  const showOrder = phase.step === 'order' || phase.step === 'method' || phase.step === 'cash' || phase.step === 'scan'
+  const showOrder = isBeforePayment(phase)
   const surface = phase.step === 'home' || showOrder ? 'canvas' : 'flow'
 
   return (
@@ -182,7 +234,7 @@ function App() {
           store={store}
           step={currentStep(phase)}
           mock={config.mockResult}
-          onChangeStore={phase.step === 'order' ? leaveStore : undefined}
+          onChangeStore={phase.step === 'order' ? leaveStoreWithHistory : undefined}
         />
 
         <main className="app-main" data-surface={surface}>
@@ -270,7 +322,7 @@ function App() {
               isConfig={phase.config}
               canLeaveStore={storeId !== null}
               onNewOrder={newOrder}
-              onLeaveStore={leaveStore}
+              onLeaveStore={leaveStoreWithHistory}
             />
           )}
         </main>
