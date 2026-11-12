@@ -470,7 +470,7 @@ private fun IncomeSheet(
             label = "매월 받는 날",
             value = day,
             onValueChange = { v -> day = v.filter(Char::isDigit).take(2) },
-            placeholder = "25",
+            placeholder = "예: 25",   // 숫자만 두면 들어간 값처럼 보여 비운 채 저장하다 막혔다(S15P31E103-431)
             supporting = "31을 넣으면 매월 말일이에요",
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
             error = dayError.takeIf { tried },
