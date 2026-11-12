@@ -104,6 +104,7 @@ class PosPaymentHistoryIntegrationTest extends MySqlTestSupport {
         jdbc.update("DELETE FROM linked_account");
         jdbc.update("DELETE FROM card_product");
         jdbc.update("DELETE FROM merchant");
+        jdbc.update("DELETE FROM notification");
         jdbc.update("DELETE FROM app_user");
         redis.getRequiredConnectionFactory().getConnection().serverCommands().flushAll();
         clock.reset();
