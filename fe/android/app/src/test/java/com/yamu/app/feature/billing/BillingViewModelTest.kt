@@ -14,6 +14,10 @@ import com.yamu.app.feature.billing.data.RefundSummary
 import com.yamu.app.feature.billing.data.toBill
 import com.yamu.app.feature.billing.data.toBillDetail
 import com.yamu.app.feature.billing.data.toRefund
+import com.yamu.app.core.designsystem.card.CardImages
+import com.yamu.app.feature.link.data.CardsOnlyLink
+import com.yamu.app.feature.link.data.LinkedCard
+import com.yamu.app.feature.link.data.brandOf
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.test.StandardTestDispatcher
@@ -35,13 +39,14 @@ import org.junit.Test
 class BillingViewModelTest {
     private val dispatcher = StandardTestDispatcher()
     private val repo = StubBilling()
+    private val link = CardsOnlyLink()
 
     @Before fun setUp() = Dispatchers.setMain(dispatcher)
 
     @After fun tearDown() = Dispatchers.resetMain()
 
     private fun TestScope.billing(userCardId: Long? = null): BillingViewModel {
-        val vm = BillingViewModel(SavedStateHandle(if (userCardId != null) mapOf("userCardId" to userCardId) else emptyMap()), repo)
+        val vm = BillingViewModel(SavedStateHandle(if (userCardId != null) mapOf("userCardId" to userCardId) else emptyMap()), repo, link)
         vm.refresh()
         advanceUntilIdle()
         return vm
@@ -55,6 +60,23 @@ class BillingViewModelTest {
         assertEquals(listOf(1), repo.refundCalls)
         assertEquals(1, vm.state.value.bills?.bills?.size)
         assertFalse(vm.state.value.cardFiltered)
+    }
+
+    @Test fun `별명 카드 청구서도 카드 목록의 상품명으로 그림을 찾고, 목록은 한 번만 받는다`() = runTest(dispatcher) {
+        repo.bills = ApiResult.Success(
+            BillList(listOfNotNull(BillDto(billId = 202, userCardId = 15, nickname = "생활비 카드", status = "CONFIRMED", finalAmount = 50_000).toBill()), next = null, unpaidCount = 0),
+        )
+        link.result = ApiResult.Success(
+            listOf(LinkedCard(15, brandOf("신한카드"), "신한카드 Mr.Life", isCheck = false, last4 = "0015", paymentDay = 25, recognizedAmount = null, yearMonth = null, nickname = "생활비 카드")),
+        )
+        val vm = billing()
+        assertEquals("생활비 카드", vm.state.value.bills?.bills?.single()?.cardName)
+        assertEquals("신한카드 Mr.Life", vm.arts.value.getValue(15).productName)
+        assertNotNull(CardImages.forProduct(vm.arts.value.getValue(15).productName))
+
+        vm.refresh()
+        advanceUntilIdle()
+        assertEquals(1, link.calls)
     }
 
     @Test fun `카드 상세에서 오면 그 카드만 · 환급은 부르지 않는다`() = runTest(dispatcher) {
@@ -236,7 +258,7 @@ class BillingViewModelTest {
     // ── 청구서 상세 ──
 
     private fun TestScope.detail(): BillDetailViewModel {
-        val vm = BillDetailViewModel(SavedStateHandle(mapOf("billId" to 201L)), repo)
+        val vm = BillDetailViewModel(SavedStateHandle(mapOf("billId" to 201L)), repo, link)
         vm.load()
         advanceUntilIdle()
         return vm

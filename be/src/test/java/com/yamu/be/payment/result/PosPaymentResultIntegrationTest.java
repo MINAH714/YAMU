@@ -125,7 +125,7 @@ class PosPaymentResultIntegrationTest extends MySqlTestSupport {
         clock.reset();
         fixtures = new OwnershipFixtures(jdbc);
         user = fixtures.user();
-        long creditProduct = fixtures.product();
+        long creditProduct = product("CREDIT");   // 카드사 SHINHAN: 응답이 이름(신한카드)으로 나오는지 본다
         long checkProduct = product("CHECK");
         long account = fixtures.account(user);
         creditCard = fixtures.card(user, creditProduct, account, "ACTIVE");
@@ -183,7 +183,7 @@ class PosPaymentResultIntegrationTest extends MySqlTestSupport {
                 .andExpect(jsonPath("$.data.amount").value(15_000))
                 .andExpect(jsonPath("$.data.chargedAmount").value(15_000))
                 .andExpect(jsonPath("$.data.instantDiscount").value(0))
-                .andExpect(jsonPath("$.data.card.issuerName").value("TEST"))
+                .andExpect(jsonPath("$.data.card.issuerName").value("신한카드"))
                 .andExpect(jsonPath("$.data.card.cardType").value("CREDIT"))
                 .andExpect(jsonPath("$.data.card.maskedNumber").value("****-****-****-1234"))
                 .andExpect(jsonPath("$.data.card.plan").value("LUMP_SUM"))
@@ -516,7 +516,7 @@ class PosPaymentResultIntegrationTest extends MySqlTestSupport {
         LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
         return new SimpleJdbcInsert(jdbc).withTableName("card_product").usingGeneratedKeyColumns("card_product_id")
                 .usingColumns("issuer_code", "product_name", "card_type", "billing_cutoff_days", "created_at", "updated_at")
-                .executeAndReturnKey(Map.of("issuer_code", "TEST", "product_name", UUID.randomUUID().toString(),
+                .executeAndReturnKey(Map.of("issuer_code", "SHINHAN", "product_name", UUID.randomUUID().toString(),
                         "card_type", cardType, "billing_cutoff_days", 14, "created_at", now, "updated_at", now))
                 .longValue();
     }

@@ -9,6 +9,7 @@ import android.content.Intent
 import android.provider.Settings
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -88,6 +89,7 @@ import com.yamu.app.core.designsystem.theme.YamuTheme
 import com.yamu.app.core.format.toManWon
 import com.yamu.app.core.network.ApiError
 import com.yamu.app.core.network.ApiResult
+import com.yamu.app.core.ui.DemoCapture
 import com.yamu.app.core.ui.LocalSnackbar
 import com.yamu.app.core.ui.userMessage
 import com.yamu.app.feature.auth.StepUpEffect
@@ -186,16 +188,60 @@ data class MyState(
     val accountCount: Int? = null,
     val notificationsOn: Boolean? = null,
     val error: String? = null,
+    /** 숨은 시연 모드 시트 — 버전 글자 7번 + 간편 비밀번호 본인 확인 뒤에만(S15P31E103-434) */
+    val demoSheet: Boolean = false,
+    /** 본인 확인 실패 · 취소 안내(스낵바 한 번) */
+    val message: String? = null,
 )
+
+/**
+ * 버전 글자 연속 누르기 — [GAP_MS] 안에 이어 눌러 [COUNT]번이 되면 true(안드로이드 개발자 옵션과 같은 손짓).
+ * 사이가 벌어지면 처음부터 다시 센다
+ */
+internal class VersionTaps {
+    private var count = 0
+    private var last = Long.MIN_VALUE
+
+    fun tap(now: Long): Boolean {
+        count = if (last != Long.MIN_VALUE && now - last <= GAP_MS) count + 1 else 1
+        last = now
+        if (count < COUNT) return false
+        count = 0
+        last = Long.MIN_VALUE
+        return true
+    }
+
+    companion object {
+        const val COUNT = 7
+        const val GAP_MS = 1_500L
+    }
+}
 
 @HiltViewModel
 class MyViewModel @Inject constructor(
     private val my: MyRepository,
     private val link: LinkRepository,
     private val auth: AuthRepository,
+    stepUpFactory: StepUpFactory,
 ) : ViewModel() {
     private val _state = MutableStateFlow(MyState())
     val state: StateFlow<MyState> = _state.asStateFlow()
+    val stepUp = stepUpFactory.create(viewModelScope)
+    private val versionTaps = VersionTaps()
+
+    /** 마이 맨 아래 버전 글자 — 7번 이어 누르면 간편 비밀번호로 본인 확인하고 시연 모드 시트를 연다 */
+    fun onVersionTap(now: Long = System.currentTimeMillis()) {
+        if (!versionTaps.tap(now) || stepUp.busy) return
+        stepUp.start(
+            purpose = StepUpPurpose.SECURITY_SETTINGS,
+            prompt = StepUpPrompt("시연 모드를 열어요", null),
+            onError = { e -> _state.update { it.copy(message = "시연 모드를 열지 못했어요 · ${e.userMessage()}") } },
+        ) { _ -> _state.update { it.copy(demoSheet = true) } }
+    }
+
+    fun closeDemoSheet() = _state.update { it.copy(demoSheet = false) }
+
+    fun messageShown() = _state.update { it.copy(message = null) }
 
     /** 탭에 돌아올 때마다 — 다른 화면에서 바꾼 설정 · 읽은 알림이 바로 보이게 */
     fun refresh() {
@@ -241,6 +287,7 @@ fun MyRoute(
     onNotReady: (String) -> Unit,
     onLoggedOut: () -> Unit,
     onDebugMenu: (() -> Unit)?,
+    onOpenPinPad: (purpose: String) -> Unit,
     viewModel: MyViewModel = hiltViewModel(),
 ) {
     val s by viewModel.state.collectAsStateWithLifecycle()
@@ -248,6 +295,13 @@ fun MyRoute(
         viewModel.refresh()
         onPauseOrDispose { }
     }
+    StepUpEffect(viewModel.stepUp, onOpenPinPad)
+    val snackbar = LocalSnackbar.current
+    LaunchedEffect(s.message) {
+        s.message?.let { snackbar.showSnackbar(it) }
+        viewModel.messageShown()
+    }
+    if (s.demoSheet) DemoModeSheet(onDismiss = viewModel::closeDemoSheet)
     val c = YamuTheme.colors
     TabScreen(
         title = "마이",
@@ -303,14 +357,36 @@ fun MyRoute(
                 ListRow(title = "로그아웃", onClick = { viewModel.logout(onLoggedOut) })
                 if (onDebugMenu != null) ListRow(title = "디버그 메뉴", chevron = true, onClick = onDebugMenu)
             }
+            // 숨은 입구 — 누른 티(물결 · 읽어 주기 동작)를 내지 않는다
             Text(
                 "YAMU v${BuildConfig.VERSION_NAME}",
                 style = YamuTheme.typography.bodyS,
                 color = c.text3,
                 textAlign = TextAlign.Center,
-                modifier = Modifier.fillMaxWidth().padding(vertical = YamuSpacing.x4),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { viewModel.onVersionTap() }
+                    .padding(vertical = YamuSpacing.x4),
             )
         }
+    }
+}
+
+/** 숨은 시연 모드(S15P31E103-434) — 발표 녹화 · 미러링용. 켜져 있다는 표시는 다른 화면에 띄우지 않는다 */
+@Composable
+private fun DemoModeSheet(onDismiss: () -> Unit) {
+    val c = YamuTheme.colors
+    val context = LocalContext.current
+    YamuBottomSheet(onDismiss = onDismiss) {
+        Text("시연 모드", style = YamuTheme.typography.titleL, color = c.text1)
+        Spacer(Modifier.height(YamuSpacing.x3))
+        SwitchRow(
+            title = "화면 캡처 허용",
+            checked = DemoCapture.allowedAt(),
+            onToggle = { DemoCapture.set(context, it) },
+            sub = "간편 비밀번호 · 결제 코드 · 카드 번호 화면도 녹화 · 미러링돼요 · 24시간 뒤 저절로 꺼져요",
+        )
+        Spacer(Modifier.height(YamuSpacing.x5))
     }
 }
 
@@ -785,8 +861,14 @@ private fun Context.openBiometricEnroll() {
     }
 }
 
+/** [onChangePin] 간편 비밀번호 바꾸기 화면으로 — 본인 확인은 그 화면이 한다(QA 07 · P1-16) */
 @Composable
-fun SecurityRoute(onBack: () -> Unit, onOpenPinPad: (purpose: String) -> Unit, viewModel: SecurityViewModel = hiltViewModel()) {
+fun SecurityRoute(
+    onBack: () -> Unit,
+    onOpenPinPad: (purpose: String) -> Unit,
+    onChangePin: () -> Unit,
+    viewModel: SecurityViewModel = hiltViewModel(),
+) {
     val s by viewModel.state.collectAsStateWithLifecycle()
     val stepUpUi by viewModel.stepUp.ui.collectAsStateWithLifecycle()
     StepUpEffect(viewModel.stepUp, onOpenPinPad)
@@ -815,6 +897,7 @@ fun SecurityRoute(onBack: () -> Unit, onOpenPinPad: (purpose: String) -> Unit, v
                 info == null -> ErrorState(s.error ?: "보안 설정을 불러오지 못했어요", onRetry = viewModel::load)
                 else -> {
                     SectionLabel("잠금 · 인증", first = true)
+                    ListRow(title = "간편 비밀번호 바꾸기", chevron = true, minHeight = TapRowHeight, onClick = onChangePin)
                     if (s.biometricAvailable) {
                         SwitchRow("지문 인증 사용", checked = s.biometricOn, onToggle = { viewModel.setBiometric(it, onFail) }, enabled = !s.busy)
                     } else {

@@ -16,12 +16,14 @@ enum class HomeScenario(val label: String) {
     NORMAL("정상"),
     FIRST_DAY("가입 첫날(잠정)"),
     AFTER_PAYMENT("결제 반영 직후"),
+    BEFORE_INCOME("월급 등록 전"),
     NOT_LINKED("연결 전"),
     LEGACY_SPEC("지금 명세 모양(보완 전)"),
     PARTIAL("예상 잔액만 실패"),
     BANK_ERROR("금융망 오류"),
     NETWORK_ERROR("네트워크 없음"),
     SLOW("느린 응답(3초)"),
+    NO_CARD("계좌만 연결 · 카드 0장"),
 }
 
 /** 가짜 데이터(debug)로 볼 연결 상태 — 09 문서 5-5 */

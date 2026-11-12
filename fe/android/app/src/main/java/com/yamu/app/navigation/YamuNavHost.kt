@@ -18,6 +18,8 @@ import com.yamu.app.core.ui.LocalSnackbar
 import com.yamu.app.core.ui.findActivity
 import androidx.activity.compose.BackHandler
 import androidx.compose.ui.platform.LocalContext
+import com.yamu.app.feature.auth.PinChangeEnd
+import com.yamu.app.feature.auth.PinChangeRoute
 import com.yamu.app.feature.auth.PinLoginRoute
 import com.yamu.app.feature.auth.PinPadRoute
 import com.yamu.app.feature.auth.PinSetupRoute
@@ -34,6 +36,7 @@ import com.yamu.app.feature.auth.data.SessionStart
 import kotlinx.coroutines.launch
 import com.yamu.app.feature.debug.DebugMenuScreen
 import com.yamu.app.feature.home.HomeRoute
+import com.yamu.app.feature.payment.CancelCodeRoute
 import com.yamu.app.feature.payment.PayCodeRoute
 import com.yamu.app.feature.payment.PayDoneRoute
 import com.yamu.app.feature.payment.PaymentDetailRoute
@@ -145,6 +148,7 @@ fun YamuNavHost(navController: NavHostController, modifier: Modifier = Modifier)
                         val target: Any = when (next) {
                             SignupNext.TERMS -> Terms
                             SignupNext.ACCOUNTS -> SignupAccounts
+                            SignupNext.PIN -> PinSetup   // 계좌 연결을 마치고 PIN 만들기에서 뒤로 왔다(1원 다시 안 받음)
                             SignupNext.RECOVERY -> RecoveryIntro
                         }
                         navController.navigate(target)
@@ -198,14 +202,20 @@ fun YamuNavHost(navController: NavHostController, modifier: Modifier = Modifier)
                 CardRegisterRoute(
                     onboarding = true,
                     onLeave = if (hasPrevious) back else ({ navController.finishOnboarding() }),
-                    onFinished = { navController.navigate(CashflowConfirm) },
+                    onFinished = { navController.navigate(CashflowConfirm()) },
                     onCloseDone = { navController.finishOnboarding() },
                     onOpenPinPad = openPinPad,
                     onSkip = { navController.finishOnboarding() },
                 )
             }
-            composable<CashflowConfirm> {
-                CashflowConfirmRoute(onBack = back, onSaved = { navController.navigate(FirstAnalysis) })
+            composable<CashflowConfirm> { entry ->
+                // 가입 끝에서는 첫 분석으로, 홈의 월급 안내에서 왔으면 저장 뒤 홈으로 돌아가 다시 불러온다
+                val fromHome = entry.toRoute<CashflowConfirm>().fromHome
+                CashflowConfirmRoute(
+                    fromHome = fromHome,
+                    onBack = back,
+                    onSaved = if (fromHome) back else ({ navController.navigate(FirstAnalysis) }),
+                )
             }
             composable<FirstAnalysis> {
                 FirstAnalysisRoute(onFinish = { navController.finishOnboarding() })
@@ -227,6 +237,8 @@ fun YamuNavHost(navController: NavHostController, modifier: Modifier = Modifier)
                         onStartLinking = { navController.navigate(LinkGraph) },
                         onTodo = { userCardId -> navController.navigate(PerfAnalysis(userCardId ?: 1L)) },
                         onRecentPayment = { paymentId -> navController.navigate(PaymentDetail(paymentId)) },
+                        onRegisterIncome = { navController.navigate(CashflowConfirm(fromHome = true)) },
+                        onAddCard = { navController.navigate(AddCard) },
                     )
                 }
                 // 9 · 10단계: 실제 화면(13 문서)
@@ -365,6 +377,7 @@ fun YamuNavHost(navController: NavHostController, modifier: Modifier = Modifier)
                         onNotificationSettings = { navController.navigate(NotificationSettings) },
                         onSecurity = { navController.navigate(Security) },
                         onBilling = { navController.navigate(Billing) },
+                        onOpenPinPad = openPinPad,   // 숨은 시연 모드 본인 확인(S15P31E103-434)
                         onNotReady = showMessage,
                         onLoggedOut = {
                             navController.restartFromSplash()
@@ -390,6 +403,7 @@ fun YamuNavHost(navController: NavHostController, modifier: Modifier = Modifier)
                         },
                         onOpenPinPad = openPinPad,
                         onBills = { id -> navController.navigate(CardBills(id)) },
+                        onPerformance = { id -> navController.navigate(CardPerformance(id)) },
                     )
                 }
                 composable<CardOrder> {
@@ -423,7 +437,21 @@ fun YamuNavHost(navController: NavHostController, modifier: Modifier = Modifier)
                         },
                     )
                 }
-                composable<Security> { SecurityRoute(onBack = back, onOpenPinPad = openPinPad) }
+                composable<Security> {
+                    SecurityRoute(onBack = back, onOpenPinPad = openPinPad, onChangePin = { navController.navigate(PinChange) })
+                }
+                composable<PinChange> {
+                    PinChangeRoute(
+                        onOpenPinPad = openPinPad,
+                        onEnd = { end ->
+                            back()
+                            when (end) {
+                                PinChangeEnd.Changed -> showMessage("간편 비밀번호를 바꿨어요")
+                                is PinChangeEnd.Closed -> end.message?.let(showMessage)
+                            }
+                        },
+                    )
+                }
                 // 청구 · 환급 — 마이 탭 전체와 카드 상세의 한 카드가 같은 화면(경로 값으로 구분)
                 val openBill: (Long) -> Unit = { billId -> navController.navigate(BillDetail(billId)) }
                 val openPayment: (Long) -> Unit = { paymentId -> navController.navigate(PaymentDetail(paymentId)) }
@@ -455,7 +483,20 @@ fun YamuNavHost(navController: NavHostController, modifier: Modifier = Modifier)
                     onPerformance = { userCardId -> navController.navigate(CardPerformance(userCardId)) },
                 )
             }
-            composable<PaymentDetail> { PaymentDetailRoute(onBack = back) }
+            composable<PaymentDetail> { PaymentDetailRoute(onBack = back, onCancel = { r -> navController.navigate(CancelCode(r.paymentId)) }) }
+            // 결제 취소 — 결제할 때와 같은 코드를 띄우고 매장 POS가 찍어 취소한다. 취소가 확인되면 닫고 상세로 돌아간다
+            composable<CancelCode> {
+                CancelCodeRoute(
+                    onClose = { message ->
+                        back()
+                        message?.let(showMessage)
+                    },
+                    // 가맹점이 취소 대신 결제로 찍었으면 결제 완료로 — 이 코드 화면은 빼고
+                    onPaid = { paymentId -> navController.navigate(PayDone(paymentId)) { popUpTo<CancelCode> { inclusive = true } } },
+                    onOpenPinPad = openPinPad,
+                    onAddCard = { navController.navigate(AddCard) { popUpTo<CancelCode> { inclusive = true } } },
+                )
+            }
         }
 
         // 간편 비밀번호로 본인 인증 — 그래프 밖이라 어느 흐름에서든 열린다(09 문서 5-3)

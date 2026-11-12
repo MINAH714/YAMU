@@ -3,6 +3,7 @@ package com.yamu.app.feature.forecast.data
 import com.yamu.app.core.format.parseDate
 import com.yamu.app.core.network.ApiError
 import com.yamu.app.core.network.BigDecimalSerializer
+import com.yamu.app.feature.link.data.Brand
 import kotlinx.serialization.Serializable
 import java.math.BigDecimal
 import java.time.LocalDate
@@ -133,8 +134,15 @@ data class MerchantCategory(val code: String, val name: String)
 
 data class CatalogMerchant(val id: Long, val name: String)
 
-/** 카드 고르기 줄 — 쓸 수 없는 카드는 [unusableReason]이 있고 고를 수 없다 */
-data class SimCardOption(val userCardId: Long, val name: String, val productName: String?, val isCredit: Boolean, val unusableReason: String?)
+/** 카드 고르기 줄 — 쓸 수 없는 카드는 [unusableReason]이 있고 고를 수 없다. [brand]는 그림이 없을 때 그리는 카드사 색 카드 */
+data class SimCardOption(
+    val userCardId: Long,
+    val name: String,
+    val productName: String?,
+    val isCredit: Boolean,
+    val unusableReason: String?,
+    val brand: Brand? = null,
+)
 
 /** 가상 구매 조건 — 결과 화면에서 카드 · 결제 방식 · 날짜를 바꾸면 이 값만 바꿔 다시 부른다. [installmentMonths]가 null이면 일시불 */
 data class SimulationQuery(

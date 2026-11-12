@@ -28,7 +28,8 @@ import kotlinx.serialization.Serializable
 
 // ── 계좌 · 카드 연결 (LinkGraph) ──
 @Serializable data object CardRegister       // C-01 카드 번호 입력 · 확인 · 계좌 연결 · 완료(같은 화면의 단계 — 번호를 인자로 넘기지 않음)
-@Serializable data object CashflowConfirm    // B-06
+/** B-06 — 홈의 월급 등록 안내에서 열면 [fromHome]: 단계 막대 없이 저장하고 첫 분석 대신 홈으로(S15P31E103-429) */
+@Serializable data class CashflowConfirm(val fromHome: Boolean = false)
 @Serializable data object FirstAnalysis      // B-07 · B-07b(알림 권한은 시스템 창)
 
 // ── 홈 탭 (HomeGraph) ──
@@ -69,6 +70,7 @@ import kotlinx.serialization.Serializable
 @Serializable data object PayCode            // P-06a(인증) · P-06 · P-06c(결제 요청 확인 — 같은 화면의 단계, 10 문서 6-7)
 @Serializable data class PayDone(val paymentId: Long)               // P-07
 @Serializable data class PaymentDetail(val paymentId: Long)         // P-08
+@Serializable data class CancelCode(val paymentId: Long)            // P-08 '결제 취소' → P-06과 같은 결제 코드(매장 POS가 찍어 취소)
 
 // ── 실적관리 탭 (PerfGraph) ──
 @Serializable data object PerfOverview       // R-01 · R-01d(상태)
@@ -92,6 +94,7 @@ import kotlinx.serialization.Serializable
 @Serializable data object Profile            // M-06
 @Serializable data object Withdraw           // M-07b 회원 탈퇴
 @Serializable data object Security           // M-08
+@Serializable data object PinChange          // M-08 간편 비밀번호 바꾸기(본인 확인 → 새 6자리 두 번)
 @Serializable data object Billing            // M-09 청구 · 환급(청구서 · 환급 탭)
 @Serializable data class CardBills(val userCardId: Long)    // M-09 한 카드 청구서만(M-03 다음 출금에서) — Billing과 같은 화면
 @Serializable data class BillDetail(val billId: Long)       // M-09b 청구서 상세

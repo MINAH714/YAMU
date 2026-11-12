@@ -1,5 +1,6 @@
 package com.yamu.app.feature.performance.data
 
+import com.yamu.app.core.format.toWon
 import com.yamu.app.feature.link.data.Brand
 import com.yamu.app.feature.link.data.IssuerDto
 import com.yamu.app.feature.link.data.brandOf
@@ -181,10 +182,21 @@ data class CardPerf(
     val recentChange: Long?,
     val recentAtIso: String?,
     val nickname: String? = null,
+    /** 서버 status AT_RISK — 지금 추세면 목표에 못 미친다 */
+    val atRisk: Boolean = false,
 ) {
     /** 기준 전 — 판정을 보여 줄 카드 */
     val pending: Boolean get() = !achieved && !noTarget
+
+    /** 목록 태그 — 판정이 있으면 판정, 없으면 AT_RISK만 '미달 예상' */
+    val tagLabel: String? get() = guide?.label ?: AT_RISK_LABEL.takeIf { atRisk }
 }
+
+/**
+ * 서버 status AT_RISK의 이름. ON_TRACK엔 태그를 붙이지 않는다 —
+ * 서버가 그달 첫 5일은 추세를 보지 않고 ON_TRACK으로 두므로 '달성 예상'이라 말할 수 없어서
+ */
+const val AT_RISK_LABEL = "미달 예상"
 
 data class PerfOverview(
     val yearMonth: String?,
@@ -197,7 +209,11 @@ data class PerfOverview(
     val all: List<CardPerf> get() = pending + others
 }
 
-data class PerfTier(val label: String, val benefit: String?, val benefitAmount: Long?, val achieved: Boolean)
+/** [benefitAmount]는 실적이 이 기준일 때 한 달에 받을 수 있는 원화 혜택의 최대치(아래 구간 혜택까지 누적). 모르거나 한도 없는 혜택이 끼면 null */
+data class PerfTier(val label: String, val benefit: String?, val benefitAmount: Long?, val achieved: Boolean) {
+    /** 금액 칸 — 구간마다 '최대 n원'. null은 0원이 아니라 금액을 모르는 것이라 비운다 */
+    val amountText: String get() = benefitAmount?.let { "최대 ${it.toWon()}원" } ?: ""
+}
 
 data class PerfDetail(
     val userCardId: Long,
@@ -209,7 +225,10 @@ data class PerfDetail(
     val achieved: Boolean,
     val noTarget: Boolean,
     val tiers: List<PerfTier>,
+    /** 서버 nextMonthImpact.message — 목표가 없거나 실적 행이 없으면 null */
     val nextMonthMessage: String?,
+    /** 서버 summary.status AT_RISK */
+    val atRisk: Boolean = false,
 )
 
 data class PerfStep(val label: String, val amount: Long?, val note: String?)
@@ -273,6 +292,7 @@ fun CardPerformanceItemDto.toCardPerf(): CardPerf {
         recentChange = recentChange?.amount?.takeIf { it != 0L },
         recentAtIso = recentChange?.approvedAt,
         nickname = nickname,
+        atRisk = status.equals("AT_RISK", ignoreCase = true),
     )
 }
 
@@ -305,7 +325,8 @@ fun PerformanceDetailDto.toDetail(): PerfDetail {
         noTarget = noTarget,
         // 구간 달성은 서버 값(achieved)을 쓰고, 없으면 인정 실적 ≥ 기준으로 표시만
         tiers = tiers.sortedBy { it.threshold }.map { PerfTier(it.label, it.benefitSummary, it.benefitAmount, it.achieved ?: (summary.recognizedAmount >= it.threshold)) },
-        nextMonthMessage = nextMonthImpact?.message,
+        nextMonthMessage = nextMonthImpact?.message?.takeIf { it.isNotBlank() },
+        atRisk = summary.status.equals("AT_RISK", ignoreCase = true),
     )
 }
 

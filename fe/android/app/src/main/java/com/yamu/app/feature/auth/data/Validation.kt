@@ -24,9 +24,11 @@ object AuthValidation {
  */
 fun authErrorMessage(code: String, remainingAttempts: Int? = null, unlockAt: String? = null): String? = when (code) {
     "INVALID_PIN_FORMAT" -> "쉬운 번호는 쓸 수 없어요"
-    // 로그인은 PIN_MISMATCH, 본인 확인은 STEP_UP_FAILED. 남은 횟수가 없으면 서명 실패(지문 등)
+    // 로그인은 PIN_MISMATCH, 본인 확인은 STEP_UP_FAILED. 남은 횟수가 없으면 서명 실패(지문 등).
+    // 남은 횟수가 0이 되는 시도는 서버가 DEVICE_LOCKED로 답해서 여기엔 1 이상만 온다(5번 · 30분, BE auth 설정)
     "PIN_MISMATCH", "STEP_UP_FAILED" ->
-        if (remainingAttempts != null) "간편 비밀번호가 맞지 않아요 · ${remainingAttempts}번 남았어요" else "본인 확인에 실패했어요. 다시 시도해 주세요"
+        if (remainingAttempts != null) "간편 비밀번호가 맞지 않아요 · ${remainingAttempts}번 더 틀리면 30분 동안 잠겨요"
+        else "본인 확인에 실패했어요. 다시 시도해 주세요"
     "SIGNATURE_INVALID" -> "본인 확인에 실패했어요. 다시 시도해 주세요"
     "DEVICE_LOCKED" -> "5번 틀려서 잠겼어요" + (unlockAt?.let { " · ${it}에 풀려요" } ?: " · 30분 뒤에 다시 시도해 주세요")
     "CHALLENGE_EXPIRED" -> "시간이 지났어요. 다시 시도해 주세요"

@@ -136,7 +136,7 @@ class ForecastMapperTest {
         val (withoutLiving, withLiving) = f.lineGroups()
         assertEquals(1_500_000L, withoutLiving.end)
         assertEquals(
-            listOf(LineStep("예상 생활비", -150_000, "최근 소비 기준 · 기록 있는 계좌만"), LineStep("앞으로 쓸 신용카드 금액", -48_000)),
+            listOf(LineStep("예상 생활비", -150_000, "최근 소비 기준, 기록 있는 계좌만"), LineStep("앞으로 쓸 신용카드 금액", -48_000)),
             withLiving.steps,
         )
         assertEquals(1_302_000L, withLiving.end)
@@ -217,9 +217,13 @@ class ForecastMapperTest {
         assertEquals(listOf("생활비 기록이 없어 'AI 생활비 반영' 선에는 앞으로 쓸 신용카드 금액만 넣었어요."), noticeLines(f, ForecastSelection()))
     }
 
-    @Test fun `월급날까지를 골랐는데 서버가 30일로 계산했으면 알린다`() {
+    @Test fun `월급날까지를 골랐는데 서버가 30일로 계산했으면 위 카드에서 알린다(P1-08, 맨 아래 줄에서 옮김)`() {
         val f = parse(noConservative)
-        assertTrue(noticeLines(f, ForecastSelection(ForecastPeriod.NEXT_INCOME)).contains("월급날을 찾지 못해 30일로 계산했어요."))
+        assertEquals(
+            "월급을 찾지 못해 오늘부터 30일로 계산했어요. 월급을 등록하면 월급날까지로 바꿔 보여 드려요.",
+            com.yamu.app.feature.forecast.incomeMissingNote(f, ForecastSelection(ForecastPeriod.NEXT_INCOME)),
+        )
+        assertTrue(noticeLines(f, ForecastSelection(ForecastPeriod.NEXT_INCOME)).none { it.contains("월급") && it.contains("찾지 못해") })
         assertEquals("월급날까지", periodLabel(f, ForecastSelection(ForecastPeriod.NEXT_INCOME)))
     }
 
@@ -269,6 +273,74 @@ class ForecastMapperTest {
         assertNull(ForecastSelection().scopeFrom(accounts))
         assertNull(ForecastSelection(accountIds = setOf(1, 2)).scopeFrom(accounts))
         assertEquals(5, cashflowRows(entries, testForecast()).size)
+    }
+
+    @Test fun `예정 목록 — 회차를 받은 뒤에도 확인 전 고정 지출 후보가 남고 머리 건수와 맞는다(11월 10일 QA 넷플릭스)`() {
+        val nov5 = LocalDate.of(2026, 11, 5)
+        val nov12 = LocalDate.of(2026, 11, 12)
+        val netflix = ForecastEvent(nov5, FlowType.SCHEDULED_OUTFLOW, "넷플릭스", -13_500, FlowConfidence.EXPECTED)
+        val snack = ForecastEvent(nov12, FlowType.SCHEDULED_OUTFLOW, "간식", -1_000, FlowConfidence.CONFIRMED)
+        val f = testForecast(days = listOf(day(nov5, netflix), day(nov12, snack)))
+        // 가계부 목록은 status를 빼고 불러 확인한 항목만 온다(BE 기본값 CONFIRMED) — 후보 넷플릭스는 없다
+        val confirmed = CashflowEntry(7, false, "간식", 1_000, nov12, nov12, CashflowRepeat.NONE, null, null, 1, null)
+        val rows = cashflowRows(listOf(confirmed), f)
+        assertEquals(listOf("넷플릭스", "간식"), rows.map { it.title })
+        assertEquals(listOf(true, false), rows.map { it.candidate })
+        assertNull(rows.first().entry)   // 후보는 고치는 화면으로 가지 않는다
+        // 머리 '나갈 돈 · 출금 N건'에 든 줄이 목록에 모두 있다
+        val (out, count) = com.yamu.app.feature.forecast.cashflowOutflow(f, rows)
+        assertEquals(14_500L to 2, out to count)
+        assertEquals(out, -rows.sumOf { it.amount })
+        // 회차를 받기 전(예보 줄만)에도 같은 줄 · 같은 태그
+        assertEquals(rows.map { it.title to it.candidate }, f.upcoming.filter { !it.isEstimate }.map { it.toCashflowRow() }.map { it.title to it.candidate })
+    }
+
+    @Test fun `예정 목록 — 확인한 고정 지출은 가계부 줄 하나로만, 진행 중 청구는 후보로 보지 않는다`() {
+        val nov5 = LocalDate.of(2026, 11, 5)
+        val nov8 = LocalDate.of(2026, 11, 8)
+        // 확인하면 서버가 예보에도 CONFIRMED로 넣는다
+        val f = testForecast(
+            days = listOf(
+                day(nov5, ForecastEvent(nov5, FlowType.SCHEDULED_OUTFLOW, "넷플릭스", -13_500, FlowConfidence.CONFIRMED)),
+                day(nov8, ForecastEvent(nov8, FlowType.CARD_BILLING, "신한카드 청구", -150_000, FlowConfidence.EXPECTED)),
+            ),
+        )
+        val netflix = CashflowEntry(31, false, "넷플릭스", 13_500, nov5, nov5, CashflowRepeat.MONTHLY, 5, null, null, 16)
+        val rows = cashflowRows(listOf(netflix), f)
+        assertEquals(listOf("넷플릭스", "신한카드 청구"), rows.map { it.title })
+        assertEquals(listOf(false, false), rows.map { it.candidate })
+        assertEquals(netflix, rows.first().entry)
+    }
+
+    @Test fun `예정 목록 — 후보 줄 날짜는 출금일이라 보조 줄에 밝히고, 확인한 카드 줄은 사용일 · 카드 결제 그대로(!254 리뷰)`() {
+        val nov5 = LocalDate.of(2026, 11, 5)     // 넷플릭스 사용일(매월 5일)
+        val nov25 = LocalDate.of(2026, 11, 25)   // 신용카드 후보는 예보에서 청구 출금일로 온다
+        fun sub(row: CashflowRow) = com.yamu.app.feature.forecast.cashflowRowSub(row)
+        val f = testForecast(
+            days = listOf(
+                day(nov5, ForecastEvent(nov5, FlowType.SCHEDULED_OUTFLOW, "월세", -500_000, FlowConfidence.CONFIRMED)),
+                day(
+                    nov25,
+                    ForecastEvent(nov25, FlowType.SCHEDULED_OUTFLOW, "넷플릭스", -13_500, FlowConfidence.EXPECTED),
+                    ForecastEvent(nov25, FlowType.CARD_BILLING, "카드 청구 출금", -150_000, FlowConfidence.CONFIRMED),
+                ),
+            ),
+        )
+        val rent = CashflowEntry(1, false, "월세", 500_000, nov5, nov5, CashflowRepeat.MONTHLY, 5, null, 3, null)
+        val rows = cashflowRows(listOf(rent), f).associateBy { it.title }
+        assertEquals("11/25 (수) · 출금일 기준", sub(rows.getValue("넷플릭스")))
+        assertEquals("11/25 (수)", sub(rows.getValue("카드 청구 출금")))   // 청구는 제목에 '출금'이 있다
+        assertEquals("11/5 (목) · 매월 5일", sub(rows.getValue("월세")))
+        // 회차를 받기 전(예보 줄만)에도 후보 줄은 같은 보조 줄
+        val beforeEntries = f.upcoming.filter { !it.isEstimate }.map { it.toCashflowRow() }.associateBy { it.title }
+        assertEquals("11/25 (수) · 출금일 기준", sub(beforeEntries.getValue("넷플릭스")))
+        assertNull(beforeEntries.getValue("월세").dateNote)
+        // 확인하면 예보에도 CONFIRMED로 오고 가계부 줄(사용일 · 카드 결제)로만 보인다 — 출금일 표시는 없다
+        val confirmedF = testForecast(days = listOf(day(nov25, ForecastEvent(nov25, FlowType.SCHEDULED_OUTFLOW, "넷플릭스", -13_500, FlowConfidence.CONFIRMED))))
+        val netflix = CashflowEntry(31, false, "넷플릭스", 13_500, nov5, nov5, CashflowRepeat.MONTHLY, 5, null, null, 16)
+        val confirmedRow = cashflowRows(listOf(netflix), confirmedF).single()
+        assertNull(confirmedRow.dateNote)
+        assertEquals("11/5 (목) · 매월 5일 · 카드 결제", sub(confirmedRow))
     }
 
     @Test fun `계좌 · 카드 없는 줄과 수입 줄에는 카드 결제 표시가 없다`() {

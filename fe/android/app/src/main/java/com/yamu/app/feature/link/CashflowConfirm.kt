@@ -236,7 +236,12 @@ private fun upcomingOrder(today: Int): (FixedLine) -> Int = { line ->
 }
 
 @Composable
-fun CashflowConfirmRoute(onBack: () -> Unit, onSaved: () -> Unit, viewModel: CashflowConfirmViewModel = hiltViewModel()) {
+fun CashflowConfirmRoute(
+    onBack: () -> Unit,
+    onSaved: () -> Unit,
+    fromHome: Boolean = false,   // 홈 월급 안내에서 열었다 — 가입 단계가 아니라 단계 막대 · 첫 분석 문구를 뺀다(S15P31E103-429)
+    viewModel: CashflowConfirmViewModel = hiltViewModel(),
+) {
     val s by viewModel.state.collectAsStateWithLifecycle()
     LaunchedEffect(s.saved) {
         if (s.saved) {
@@ -250,14 +255,19 @@ fun CashflowConfirmRoute(onBack: () -> Unit, onSaved: () -> Unit, viewModel: Cas
     FlowScreen(
         title = "월급·고정 지출",
         onBack = onBack,
-        step = FlowStep(2, 2),
+        step = if (fromHome) null else FlowStep(2, 2),
         bottomBar = {
             if (draft != null) {
                 BottomCta {
                     s.saveError?.let {
                         Text(it, style = YamuTheme.typography.bodyS, color = c.error, modifier = Modifier.padding(bottom = YamuSpacing.x2))
                     }
-                    PrimaryButton(if (draft.isEmpty && s.newIncome == null) "첫 분석 보기" else "등록하고 첫 분석 보기", onClick = viewModel::confirm, loading = s.saving)
+                    val label = when {
+                        fromHome -> "등록하기"
+                        draft.isEmpty && s.newIncome == null -> "첫 분석 보기"
+                        else -> "등록하고 첫 분석 보기"
+                    }
+                    PrimaryButton(label, onClick = viewModel::confirm, loading = s.saving)
                 }
             }
         },
@@ -298,7 +308,7 @@ fun CashflowConfirmRoute(onBack: () -> Unit, onSaved: () -> Unit, viewModel: Cas
                                 is FixedLine.Candidate -> CandidateRow(line.candidate, s, onClick = { viewModel.edit(CashflowEdit.Item(line.candidate)) })
                                 // 카드대금은 청구서에서 오는 값이라 고치지 않는다(설명은 읽어 주기에만)
                                 is FixedLine.Bill -> ListRow(
-                                    title = line.bill.title + (line.bill.dayOfMonth?.let { " · ${monthlyDayLabel(it)}" } ?: ""),
+                                    title = line.bill.title + (line.bill.dayOfMonth?.let { " (${monthlyDayLabel(it)})" } ?: ""),
                                     value = (-line.bill.amount).toWon(),
                                     modifier = Modifier.semantics { contentDescription = "${line.bill.title}, 카드사 청구서에서 자동으로 넣어요" },
                                 )
@@ -358,7 +368,7 @@ private fun IncomeSection(draft: CashflowDraft, s: CashflowConfirmState, onEdit:
     Text("월급", style = YamuTheme.typography.sub.copy(fontWeight = FontWeight.SemiBold), color = c.text3)
     when {
         saved != null -> ListRow(
-            title = saved.title + (saved.dayOfMonth?.let { " · ${monthlyDayLabel(it)}" } ?: ""),
+            title = saved.title + (saved.dayOfMonth?.let { " (${monthlyDayLabel(it)})" } ?: ""),
             sub = "정해 둔 월급이에요",
             value = saved.amount?.toWon(withPlusSign = true) ?: "금액 미정",
             valueColor = c.primary,
@@ -368,7 +378,7 @@ private fun IncomeSection(draft: CashflowDraft, s: CashflowConfirmState, onEdit:
             val input = s.newIncome
             val account = input?.let { i -> draft.incomeAccounts.firstOrNull { it.accountId == i.accountId } }
             ListRow(
-                title = input?.let { "${IncomeInput.INCOME_TITLE} · ${monthlyDayLabel(it.day)}" } ?: IncomeInput.INCOME_TITLE,
+                title = input?.let { "${IncomeInput.INCOME_TITLE} (${monthlyDayLabel(it.day)})" } ?: IncomeInput.INCOME_TITLE,
                 sub = when {
                     input == null -> "넣어 두면 월급날까지 예보해요"
                     s.incomeLocked -> "보낸 값 그대로 저장해요"
@@ -389,8 +399,8 @@ private fun CandidateRow(candidate: CashflowCandidate, s: CashflowConfirmState, 
     val excluded = candidate.id in s.excluded
     val amount = s.amountOf(candidate)
     ListRow(
-        title = candidate.title + (candidate.dayOfMonth?.let { " · ${monthlyDayLabel(it)}" } ?: ""),
-        sub = if (excluded) "빼 둠 · 눌러서 다시 넣기" else candidate.basis,
+        title = candidate.title + (candidate.dayOfMonth?.let { " (${monthlyDayLabel(it)})" } ?: ""),
+        sub = if (excluded) "빼 둠 (눌러서 다시 넣기)" else candidate.basis,
         value = if (candidate.isIncome) amount.toWon(withPlusSign = true) else (-amount).toWon(),
         valueColor = when {
             excluded -> c.text3
@@ -470,7 +480,7 @@ private fun IncomeSheet(
             label = "매월 받는 날",
             value = day,
             onValueChange = { v -> day = v.filter(Char::isDigit).take(2) },
-            placeholder = "25",
+            placeholder = "예: 25",   // 숫자만 두면 들어간 값처럼 보여 비운 채 저장하다 막혔다(S15P31E103-431)
             supporting = "31을 넣으면 매월 말일이에요",
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
             error = dayError.takeIf { tried },

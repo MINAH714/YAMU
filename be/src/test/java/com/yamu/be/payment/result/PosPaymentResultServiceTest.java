@@ -96,7 +96,7 @@ class PosPaymentResultServiceTest {
         PosPaymentResult result = service.get("key", POS_CODE, PAYMENT_ID);
 
         assertThat(result.retryable()).isTrue();
-        assertThat(result.card().issuerName()).isEqualTo("HANA");
+        assertThat(result.card().issuerName()).isEqualTo("하나카드");
         assertThat(result.card().maskedNumber()).isEqualTo("****-****-****-5678");
         assertThat(result.card().plan()).isEqualTo(PaymentPlan.LUMP_SUM);
     }

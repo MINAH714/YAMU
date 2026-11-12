@@ -77,6 +77,8 @@ data class PerfAnalysisState(
     val loading: Boolean = true,
     val analysis: PerfAnalysis? = null,
     val noData: Boolean = false,                 // 422 — 판단 보류(빨갛지 않게)
+    /** 서버에 분석 API가 아직 없다(404 API_NOT_FOUND · 405, BE 375 전) — 막다른 길 대신 R-02로 이어 준다(S15P31E103-432) */
+    val notReady: Boolean = false,
     val error: String? = null,
     val acting: Boolean = false,
     val message: String? = null,                 // 스낵바 한 번
@@ -86,11 +88,15 @@ data class PerfAnalysisState(
 
 /** R-03 유불리 분석 — 카드 탭(기준 전 카드) · 판정은 서버(#18) 그대로 · 판단 기록(#35) */
 @HiltViewModel
-class PerfAnalysisViewModel @Inject constructor(
-    savedStateHandle: SavedStateHandle,
+class PerfAnalysisViewModel internal constructor(
+    initialCardId: Long,
     private val perf: PerformanceRepository,
 ) : ViewModel() {
-    private val _state = MutableStateFlow(PerfAnalysisState(selectedId = savedStateHandle.toRoute<PerfAnalysisRoute>().userCardId))
+    // 경로 값만 꺼내 넘긴다 — 단위 테스트가 SavedStateHandle.toRoute(안드로이드 Bundle) 없이 만들 수 있게(BuyConditionsViewModel과 같은 방식)
+    @Inject constructor(savedStateHandle: SavedStateHandle, perf: PerformanceRepository) :
+        this(savedStateHandle.toRoute<PerfAnalysisRoute>().userCardId, perf)
+
+    private val _state = MutableStateFlow(PerfAnalysisState(selectedId = initialCardId))
     val state: StateFlow<PerfAnalysisState> = _state.asStateFlow()
 
     init {
@@ -114,12 +120,13 @@ class PerfAnalysisViewModel @Inject constructor(
     fun load() {
         val id = _state.value.selectedId
         viewModelScope.launch {
-            _state.update { it.copy(loading = true, error = null, noData = false, analysis = null) }
+            _state.update { it.copy(loading = true, error = null, noData = false, notReady = false, analysis = null) }
             when (val r = perf.analysis(id)) {
                 is ApiResult.Success -> _state.update { if (it.selectedId == id) it.copy(loading = false, analysis = r.data) else it }
                 is ApiResult.Failure -> _state.update {
                     if (it.selectedId != id) it
                     else if (r.error is ApiError.DataInsufficient) it.copy(loading = false, noData = true)
+                    else if (r.error is ApiError.NotSupported) it.copy(loading = false, notReady = true)
                     else it.copy(loading = false, error = r.error.userMessage())
                 }
             }
@@ -176,7 +183,7 @@ fun PerfAnalysisRoute(onBack: () -> Unit, onCardDetail: (userCardId: Long) -> Un
         bottomBar = {
             val a = s.analysis
             if (a != null) ActionButtons(a, cardName, s.acting, viewModel::decide, viewModel::moveAndFill, onDetail = { onCardDetail(a.userCardId) })
-            else if (s.noData) BottomCta { PrimaryButton("$cardName 실적 자세히 보기", onClick = { onCardDetail(s.selectedId) }) }
+            else if (s.noData || s.notReady) BottomCta { PrimaryButton("$cardName 실적 자세히 보기", onClick = { onCardDetail(s.selectedId) }) }
         },
     ) { inner ->
         Column(Modifier.padding(inner).consumeWindowInsets(inner).fillMaxSize()) {
@@ -228,6 +235,11 @@ private fun AnalysisPage(card: CardPerf?, current: PerfAnalysisState?, cardName:
                 Spacer(Modifier.height(YamuSpacing.x2))
                 Text("데이터가 더 모이면 판단해 드려요", style = YamuTheme.typography.titleL, color = c.text1)
                 Text("거래가 한 달쯤 쌓이면 이 카드의 유불리를 알려 드려요", style = YamuTheme.typography.bodyM, color = c.text3)
+            }
+            // 분석 API가 아직 없는 서버 — 다시 해도 같아서 다시 시도 대신 아래 버튼으로 R-02(S15P31E103-432)
+            current.notReady -> SectionBlock(divider = false) {
+                Text("유불리 분석은 곧 열려요", style = YamuTheme.typography.titleL, color = c.text1)
+                Text("지금은 이번 달 실적과 남은 금액을 먼저 볼 수 있어요", style = YamuTheme.typography.bodyM, color = c.text3)
             }
             a == null -> SectionBlock(divider = false) { ErrorState(current.error ?: "분석을 불러오지 못했어요", onRetry = onRetry) }
             else -> AnalysisBody(a, cardName, onDetail = { onCardDetail(a.userCardId) })

@@ -93,7 +93,22 @@ class FakeHomeRepository @Inject constructor(private val my: FakeMyRepository) :
                 todos = listOf(TodoDto("롯데카드는 통신비만 옮기면 채워져요", "실적 달성 추천", "PRIMARY", 13)),   // 잠정은 카드 머리 '잠정 판단'이 말한다
             )
             HomeScenario.AFTER_PAYMENT -> base.copy(
-                recentPayment = RecentPaymentDto(938L, "스타벅스 역삼점", 15_000, "KB국민카드", 7_500),
+                recentPayment = RecentPaymentDto(938L, "스타벅스 역삼점", 15_000, "KB국민카드", 7_500, paidAt = now().toOffsetDateTime().toString()),   // 방금 결제
+                // 할인 뒤 낸 7,500원만큼 줄어든 예상 잔액 — 홈 금액이 350,000 → 342,500으로 굴러가는 걸 볼 수 있게
+                balanceForecast = forecast.copy(currentBalance = 950_000 - 7_500, minBalance = 350_000 - 7_500),
+            )
+            // 잔고예보 월급을 정하기 전 — BE는 수입 없이 30일을 계산해 끝 잔액이 음수가 되기 쉽다(실서버 김야무 11/12 모양). 홈은 지금 잔액 히어로 + 월급 안내
+            HomeScenario.BEFORE_INCOME -> base.copy(
+                balanceForecast = BalanceForecastDto(
+                    accountId = 3,
+                    currentBalance = 950_000,
+                    endBalancePredicted = -275_622,
+                    nextRiskDate = LocalDate.now(KST).plusDays(21).toString(),
+                    horizonDays = 30,
+                    minBalance = -275_622,
+                    isEstimate = true,
+                    isProvisional = false,
+                ),
             )
             HomeScenario.NOT_LINKED -> HomeDto(
                 cards = CardsDto(count = 0),
@@ -114,6 +129,8 @@ class FakeHomeRepository @Inject constructor(private val my: FakeMyRepository) :
                 dataSyncedAt = synced,
             )
             HomeScenario.PARTIAL -> base.copy(balanceForecast = null, partialErrors = listOf(JsonPrimitive("balanceForecast")))
+            // 가입 때 1원 인증으로 계좌만 붙고 카드 등록은 미룸 — 실서버는 이때 onboarding DONE · cards 0장(S15P31E103-430)
+            HomeScenario.NO_CARD -> base.copy(cards = CardsDto(count = 0), todos = emptyList(), todayCard = null)
             else -> base
         }
     }

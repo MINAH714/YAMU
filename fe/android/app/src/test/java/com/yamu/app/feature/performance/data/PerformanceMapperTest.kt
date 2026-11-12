@@ -2,6 +2,7 @@ package com.yamu.app.feature.performance.data
 
 import com.yamu.app.core.format.toManWon
 import com.yamu.app.core.network.YamuJson
+import com.yamu.app.feature.performance.headline
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
@@ -109,6 +110,55 @@ class PerformanceMapperTest {
         ).map { it.toCardPerf() }.toOverview(null, null, null)
         assertEquals(listOf("KB국민 체크카드", "KB국민 적립 신용카드"), overview.others.map { it.name })
         assertEquals("신한카드", overview.pending.single().name)
+    }
+
+    @Test fun `AT_RISK만 미달 예상 — 판정이 있으면 판정이 먼저, ON_TRACK엔 태그 없음`() {
+        val atRisk = item(1, "AT_RISK", 90_000).toCardPerf()
+        assertTrue(atRisk.atRisk)
+        assertEquals("미달 예상", atRisk.tagLabel)
+        assertEquals("추가 소비 비추천", item(2, "AT_RISK", 90_000, "EXTRA_SPENDING_NOT_RECOMMENDED").toCardPerf().tagLabel)
+        val onTrack = item(3, "ON_TRACK", 90_000).toCardPerf()   // 그달 첫 5일도 서버는 ON_TRACK
+        assertFalse(onTrack.atRisk)
+        assertNull(onTrack.tagLabel)
+        assertFalse(item(4, "ACHIEVED", 0).toCardPerf().atRisk)
+    }
+
+    @Test fun `상세 — AT_RISK와 서버 다음 달 문구, 빈 문구는 없음`() {
+        fun detail(status: String, message: String?) = PerformanceDetailDto(
+            userCardId = 16, yearMonth = "2026-11",
+            summary = PerfSummaryDto(targetAmount = 300_000, recognizedAmount = 210_000, remainingAmount = 90_000, status = status),
+            nextMonthImpact = message?.let { NextMonthImpactDto(it) },
+        ).toDetail()
+        val risky = detail("AT_RISK", "90,000원 더 쓰면 다음 달 30만원 이상 구간 혜택을 받아요")
+        assertTrue(risky.atRisk)
+        assertEquals("90,000원 더 쓰면 다음 달 30만원 이상 구간 혜택을 받아요", risky.nextMonthMessage)
+        assertFalse(detail("ON_TRACK", null).atRisk)
+        assertNull(detail("ON_TRACK", " ").nextMonthMessage)
+    }
+
+    @Test fun `헤드라인 — 서버 문구가 있으면 그대로, 없으면 남은 금액, 기준이 없으면 없음`() {
+        val base = PerfDetail(16, 11, 300_000, "30만원 이상", 210_000, 90_000, achieved = false, noTarget = false, tiers = emptyList(), nextMonthMessage = null)
+        assertEquals("30만원까지 90,000원 남았어요", base.headline())
+        assertEquals("다음 달에 30만원 이상 구간 혜택을 받아요", base.copy(nextMonthMessage = "다음 달에 30만원 이상 구간 혜택을 받아요").headline())
+        assertEquals("30만원 기준을 채웠어요", base.copy(achieved = true, remaining = 0).headline())
+        assertNull(base.copy(target = null, noTarget = true).headline())
+    }
+
+    @Test fun `구간 금액은 한 달 최대치 — 노리2 30만 구간도 '+' 없이, 모르면 비움`() {
+        // 노리2: 20만 2만 · 30만 2만 · 40만 3만 · 60만 4만 · 80만 4만5천(실적 21만)
+        val d = PerformanceDetailDto(
+            userCardId = 16, yearMonth = "2026-11",
+            summary = PerfSummaryDto(targetAmount = 300_000, recognizedAmount = 210_000, remainingAmount = 90_000, status = "AT_RISK"),
+            tiers = listOf(
+                TierDto(200_000, "20만원 이상", benefitAmount = 20_000, achieved = true),
+                TierDto(300_000, "30만원 이상", benefitAmount = 20_000, achieved = false),
+                TierDto(400_000, "40만원 이상", benefitAmount = 30_000, achieved = false),
+                TierDto(600_000, "60만원 이상", benefitAmount = 40_000, achieved = false),
+                TierDto(800_000, "80만원 이상", benefitAmount = null, achieved = false),
+            ),
+        ).toDetail()
+        assertEquals(listOf("최대 20,000원", "최대 20,000원", "최대 30,000원", "최대 40,000원", ""), d.tiers.map { it.amountText })
+        assertEquals("30만원 이상", d.targetLabel)
     }
 
     @Test fun `기준 금액 만 원 표기`() {

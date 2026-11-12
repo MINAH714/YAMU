@@ -52,6 +52,9 @@ import com.yamu.app.feature.billing.data.excludedNote
 import com.yamu.app.feature.billing.data.koreanDay
 import com.yamu.app.feature.billing.data.refundStateLabel
 import com.yamu.app.feature.billing.data.statusLine
+import com.yamu.app.feature.link.data.CardArtRef
+import com.yamu.app.feature.link.data.CardArtRefsLoader
+import com.yamu.app.feature.link.data.LinkRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -77,6 +80,7 @@ data class BillDetailState(
 class BillDetailViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
     private val repo: BillingRepository,
+    link: LinkRepository,
 ) : ViewModel() {
     private val billId: Long = checkNotNull(savedStateHandle.get<Long>("billId"))
 
@@ -84,12 +88,18 @@ class BillDetailViewModel @Inject constructor(
     val state: StateFlow<BillDetailState> = _state.asStateFlow()
     private var loadJob: Job? = null
 
+    /** 머리의 카드 그림 — 청구서 응답엔 별명만 있어 카드 목록에서 상품명 · 카드사를 찾는다 */
+    private val artLoader = CardArtRefsLoader(link, viewModelScope)
+    val arts: StateFlow<Map<Long, CardArtRef>> = artLoader.refs
+
     /** 화면에 돌아올 때마다 — 결제 상세에서 취소하고 돌아오면 회차 · 환급이 바뀌어 있다 */
     fun load() {
+        artLoader.ensure(listOfNotNull(_state.value.detail?.bill?.userCardId))
         loadJob?.cancel()
         loadJob = viewModelScope.launch {
             _state.update { it.copy(loading = true, error = null) }
             val r = repo.bill(billId)
+            if (r is ApiResult.Success) artLoader.ensure(listOfNotNull(r.data.bill.userCardId))
             _state.update { s ->
                 when (r) {
                     is ApiResult.Success -> s.copy(loading = false, detail = r.data, gone = false)
@@ -114,6 +124,7 @@ fun BillDetailRoute(
     viewModel: BillDetailViewModel = hiltViewModel(),
 ) {
     val s by viewModel.state.collectAsStateWithLifecycle()
+    val arts by viewModel.arts.collectAsStateWithLifecycle()
     LifecycleResumeEffect(Unit) {
         viewModel.load()
         onPauseOrDispose { }
@@ -142,7 +153,7 @@ fun BillDetailRoute(
                     YamuCard { repeat(4) { SkeletonBlock(height = 40.dp); Spacer(Modifier.height(YamuSpacing.x2)) } }
                 }
                 d == null -> YamuCard { ErrorState(s.error ?: "청구서를 불러오지 못했어요", onRetry = viewModel::load) }
-                else -> BillDetailBody(d, onPayment)
+                else -> BillDetailBody(d, d.bill.userCardId?.let { arts[it] }, onPayment)
             }
             Spacer(Modifier.height(YamuSpacing.bottomSafe))
         }
@@ -152,12 +163,16 @@ fun BillDetailRoute(
 private val HM = DateTimeFormatter.ofPattern("HH:mm")
 
 @Composable
-private fun BillDetailBody(d: BillDetail, onPayment: (Long) -> Unit) {
+private fun BillDetailBody(d: BillDetail, art: CardArtRef?, onPayment: (Long) -> Unit) {
     val c = YamuTheme.colors
     val b = d.bill
 
     YamuCard {
-        Text(listOfNotNull(b.cardName, d.cardLast4?.let { "·$it" }).joinToString(" "), style = YamuTheme.typography.bodyM, color = c.text2)
+        // 카드 그림 44dp + 카드 이름 · 끝자리(청구서 목록 줄과 같은 그림)
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(YamuSpacing.x2)) {
+            BillCardThumb(art, b.cardName)
+            Text(listOfNotNull(b.cardName, d.cardLast4?.let { "·$it" }).joinToString(" "), style = YamuTheme.typography.bodyM, color = c.text2)
+        }
         Spacer(Modifier.height(YamuSpacing.x2))
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             AmountText(b.amount)

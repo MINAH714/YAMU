@@ -61,6 +61,7 @@ class FakeSignupRepository @Inject constructor(
     override var recoveryBiometric = false
     override var pinStaged = false
         private set
+    override val accountLinked: Boolean get() = verified && mode == SignupMode.SIGNUP
 
     override suspend fun requestCode(name: String, birthDate: LocalDate, carrier: Carrier, phoneNumber: String): ApiResult<CodeSent> {
         delay(500)
