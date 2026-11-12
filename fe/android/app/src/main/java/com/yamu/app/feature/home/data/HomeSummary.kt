@@ -24,7 +24,16 @@ data class HomeSummary(
     val syncedAtIso: String?,
     val failedAreas: Set<String>,
     val todayCard: TodayCard? = null,
-)
+) {
+    /**
+     * 계좌는 연결했는데 카드가 없다 — 가입 중 1원 인증에서 계좌가 붙어 BE는 onboarding을 DONE으로 준다.
+     * 홈은 결제 버튼 대신 카드 등록으로 이끈다. 카드 영역만 실패했으면(cards가 없어 0장으로 읽힘) 0장으로 보지 않는다(S15P31E103-430)
+     */
+    val needsCard: Boolean get() = !needsLinking && cardCount == 0 && CARDS_AREA !in failedAreas
+}
+
+/** BE partialErrors의 카드 영역 이름 */
+private const val CARDS_AREA = "cards"
 
 data class ForecastSummary(
     val label: String,

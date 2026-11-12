@@ -238,6 +238,7 @@ fun YamuNavHost(navController: NavHostController, modifier: Modifier = Modifier)
                         onTodo = { userCardId -> navController.navigate(PerfAnalysis(userCardId ?: 1L)) },
                         onRecentPayment = { paymentId -> navController.navigate(PaymentDetail(paymentId)) },
                         onRegisterIncome = { navController.navigate(CashflowConfirm(fromHome = true)) },
+                        onAddCard = { navController.navigate(AddCard) },
                     )
                 }
                 // 9 · 10단계: 실제 화면(13 문서)

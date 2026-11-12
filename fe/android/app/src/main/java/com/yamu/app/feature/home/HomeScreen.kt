@@ -124,6 +124,7 @@ fun HomeRoute(
     onTodo: (userCardId: Long?) -> Unit,
     onRecentPayment: (paymentId: Long) -> Unit,
     onRegisterIncome: () -> Unit,
+    onAddCard: () -> Unit,
     viewModel: HomeViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -144,6 +145,7 @@ fun HomeRoute(
         onTodo = onTodo,
         onRecentPayment = onRecentPayment,
         onRegisterIncome = onRegisterIncome,
+        onAddCard = onAddCard,
     )
 }
 
@@ -162,6 +164,7 @@ fun HomeScreen(
     onTodo: (Long?) -> Unit,
     onRecentPayment: (Long) -> Unit,
     onRegisterIncome: () -> Unit = {},
+    onAddCard: () -> Unit = {},
 ) {
     val c = YamuTheme.colors
     Scaffold(
@@ -183,7 +186,7 @@ fun HomeScreen(
             val content = state.content
             FillRestColumn(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
                 when {
-                    content != null -> HomeContent(content, state.userName, state.error, onPay, onForecast, onStartLinking, onTodo, onRecentPayment, onRegisterIncome)
+                    content != null -> HomeContent(content, state.userName, state.error, onPay, onForecast, onStartLinking, onTodo, onRecentPayment, onRegisterIncome, onAddCard)
                     state.isLoading -> HomeSkeleton()
                     state.error != null -> YamuCard { ErrorState(state.error.userMessage(), onRetry = onRetry) }
                 }
@@ -206,6 +209,7 @@ private fun HomeContent(
     onTodo: (Long?) -> Unit,
     onRecentPayment: (Long) -> Unit,
     onRegisterIncome: () -> Unit,
+    onAddCard: () -> Unit,
 ) {
     val c = YamuTheme.colors
     val synced = formatSyncedAt(home.syncedAtIso)
@@ -249,16 +253,18 @@ private fun HomeContent(
         }
     }
 
-    if (home.needsLinking) {
+    // 연결 전 · 카드만 없음 — 무엇을 하면 무엇이 되는지 한 장으로(아래 버튼과 짝)
+    val guide = when {
+        home.needsLinking -> "계좌 · 카드를 연결하면\n월급 전 예상 잔액을 알려 드려요"
+        home.needsCard -> "카드를 등록하면\n결제할 때 혜택이 가장 큰 카드를 골라 드려요"
+        else -> null
+    }
+    if (guide != null) {
         YamuCard {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 CharacterImage(YamuPose.Wave, size = CharacterSize.S)
                 Spacer(Modifier.width(12.dp))
-                Text(
-                    "계좌 · 카드를 연결하면\n월급 전 예상 잔액을 알려 드려요",
-                    style = YamuTheme.typography.titleM,
-                    color = c.text1,
-                )
+                Text(guide, style = YamuTheme.typography.titleM, color = c.text1)
             }
         }
     }
@@ -273,18 +279,12 @@ private fun HomeContent(
     }
 
     Column(Modifier.padding(horizontal = YamuSpacing.screen).padding(bottom = YamuSpacing.blockGap)) {
-        if (home.needsLinking) {
-            PrimaryButton("계좌 · 카드 연결하기", onClick = onStartLinking)
-        } else {
-            PrimaryButton("QR로 결제하기", onClick = onPay, enabled = home.cardCount > 0)
-            if (home.cardCount == 0) {
-                Text(
-                    "카드를 연결하면 쓸 수 있어요",
-                    style = YamuTheme.typography.bodyS,
-                    color = c.text3,
-                    modifier = Modifier.padding(top = 6.dp),
-                )
-            }
+        when {
+            home.needsLinking -> PrimaryButton("계좌 · 카드 연결하기", onClick = onStartLinking)
+            // 꺼진 결제 버튼 대신 다음 할 일 — 카드 추가(C-11)로(S15P31E103-430)
+            home.needsCard -> PrimaryButton("카드 등록하기", onClick = onAddCard)
+            // 카드 영역만 실패했으면 몇 장인지 몰라 켜 둔다 — 카드가 정말 없으면 결제 코드 화면이 알려 준다
+            else -> PrimaryButton("QR로 결제하기", onClick = onPay)
         }
     }
 
