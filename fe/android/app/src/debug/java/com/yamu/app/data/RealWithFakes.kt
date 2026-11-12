@@ -10,10 +10,6 @@ import com.yamu.app.feature.forecast.data.ForecastRepositoryImpl
 import com.yamu.app.feature.forecast.data.MatchCandidates
 import com.yamu.app.feature.forecast.data.MatchConfirmed
 import com.yamu.app.feature.forecast.data.PaymentMatch
-import com.yamu.app.feature.my.data.Device
-import com.yamu.app.feature.my.data.MyInfo
-import com.yamu.app.feature.my.data.MyRepository
-import com.yamu.app.feature.my.data.MyRepositoryImpl
 import com.yamu.app.feature.payment.data.PaymentRepository
 import com.yamu.app.feature.payment.data.PaymentRepositoryImpl
 import java.time.LocalDate
@@ -58,16 +54,5 @@ class RealCashflowWithFakes @Inject constructor(
     override suspend fun deleteMatch(matchId: Long): ApiResult<Unit> = real.deleteMatch(matchId)
 }
 
-/**
- * 진짜: 기기 목록 · 해제 · 회원 탈퇴, 알림 목록 · 읽음 · 설정(BE !228). 가짜: 회원 정보 · 자동 선택 · 보안 설정.
- * home을 켜지 않으면 홈 종 숫자는 가짜 홈의 값이라 알림함 숫자와 다를 수 있다
- */
-class RealMyWithFakes @Inject constructor(
-    real: MyRepositoryImpl,
-    private val fake: FakeMyRepository,
-) : MyRepository by real {
-    override suspend fun me(): ApiResult<MyInfo> = fake.me()
-    override suspend fun setAutoSelect(on: Boolean): ApiResult<Unit> = fake.setAutoSelect(on)
-    override suspend fun setAutoLock(seconds: Int): ApiResult<Unit> = fake.setAutoLock(seconds)
-    override suspend fun setPinOnlyForCode(pinOnly: Boolean): ApiResult<Unit> = fake.setPinOnlyForCode(pinOnly)
-}
+// 마이(RealMyWithFakes)는 회원 정보 · 결제 설정 · 보안 설정 API(BE UserController · PaymentSettingsController)가 생겨 지웠다 —
+// yamu.realApi=my면 MyRepositoryImpl을 그대로 쓴다(S15P31E103-453). home을 켜지 않으면 홈 종 숫자는 가짜 홈의 값이라 알림함 숫자와 다를 수 있다

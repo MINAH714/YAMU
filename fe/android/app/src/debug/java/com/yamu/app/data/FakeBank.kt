@@ -3,7 +3,6 @@ package com.yamu.app.data
 import com.yamu.app.core.format.KST
 import com.yamu.app.core.network.ApiError
 import com.yamu.app.core.network.ApiResult
-import com.yamu.app.core.security.SessionStore
 import com.yamu.app.core.session.DevSession
 import com.yamu.app.core.session.FaultScenario
 import com.yamu.app.core.session.HomeScenario
@@ -41,15 +40,15 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * debug 전용 가짜 은행 · 카드사 — 내 명의 계좌 · 카드와 등록 상태를 메모리에 둔다.
- * 앱을 다시 켜면 '초기 설정 끝' 여부로 다시 채운다.
+ * debug 전용 가짜 은행 · 카드사 — 내 명의 계좌 · 카드 목록. 무엇을 연결 · 등록했는지는 [FakeUser]에 두어
+ * 앱을 다시 켜도 남고 다른 가짜 저장소(홈 · 결제 …)도 같은 값을 읽는다(S15P31E103-453).
  *
  * 시험값(카드 번호 9410 0000 0000 + 끝 4자리): 아래 [cards]의 끝자리는 내 카드 · 0001 카드사 만료 · 0002 카드사 정지 ·
  * 0003 이미 등록 · 그 밖은 없는 카드. 5096 Mr.Life는 결제 계좌(신한 ·5678)를 먼저 연결해야 한다. 등록 단계 오류는 디버그 메뉴 '연결 상태'.
  * 7782 LOCA LIKIT은 출금 전 청구가 있어 해제할 수 없다.
  */
 @Singleton
-class FakeBank @Inject constructor(private val sessionStore: SessionStore) {
+class FakeBank @Inject constructor(private val user: FakeUser) {
 
     private data class Account(val assetId: String, val bankCode: String, val bank: String, val name: String, val last4: String, val balance: Long)
 
@@ -87,52 +86,64 @@ class FakeBank @Inject constructor(private val sessionStore: SessionStore) {
         Card("C7", "하나카드", "#008C8C", "하나카드 트래블로그 체크카드", "5527", null, check = true, newlyIssued = true),
     )
 
-    private val linked = linkedSetOf("A1")            // 연결된 계좌 · 등록된 카드 assetId. 가입 때 1원으로 계좌 하나는 연결돼 있다
     private val tokens = mutableMapOf<String, Issued>()
     private var tokenSeq = 0
     private var candidateGeneration = 0
     private var candidateExpiryServed = false
     private val linkResults = mutableMapOf<String, Pair<List<String>, AccountLinkResult>>()   // 멱등 키 → 처음 요청 · 결과
-    private val nicknames = mutableMapOf<String, String>()
-    private val accountAliases = mutableMapOf<String, String>()
-    private var primaryAccount = "A1"
-    private val excluded = mutableSetOf<String>()     // 자동 선택에서 뺀 카드
-    private var defaultCard: String? = "C2"
-    private var order: List<String> = emptyList()     // 저장한 카드 순서(assetId)
-    private var loaded = false
     private val linkedAt = OffsetDateTime.now(KST).truncatedTo(ChronoUnit.MINUTES).toString()
 
-    /** 앱을 다시 켰을 때: 초기 설정이 끝난 사용자면 6장 모두 연결된 상태로 */
-    private suspend fun ensureLoaded() {
-        if (loaded) return
-        loaded = true
-        if (sessionStore.read().onboardingCompleted) linkAll(updateHome = false)
+    // 가짜 사용자에 저장한 값 — 읽기만 여기서, 바꾸는 건 user.update
+    private val linked: Set<String> get() = user.state.let { it.accounts.toSet() + it.cards }   // 연결된 계좌 · 등록된 카드 assetId
+    private val nicknames get() = user.state.nicknames
+    private val accountAliases get() = user.state.accountAliases
+    private val primaryAccount get() = user.state.primaryAccount
+    private val excluded get() = user.state.excluded     // 자동 선택에서 뺀 카드
+    private val defaultCard get() = user.state.defaultCard
+    private val order get() = user.state.order           // 저장한 카드 순서(assetId)
+
+    /** 디버그 '카드 6장'(로그인 · 연결 끝) — 시드 사용자로. 가짜 홈도 '정상'으로 */
+    fun linkAll() {
+        if (DevSession.homeScenario in setOf(HomeScenario.NOT_LINKED, HomeScenario.FIRST_DAY)) DevSession.homeScenario = HomeScenario.NORMAL
+        user.update { FakeUser.SEED }
     }
 
-    /** 디버그 '로그인 · 연결 끝' · done… 로그인 — 가짜 홈도 '정상'으로 */
-    fun linkAll(updateHome: Boolean = true) {
-        if (updateHome && DevSession.homeScenario in setOf(HomeScenario.NOT_LINKED, HomeScenario.FIRST_DAY)) DevSession.homeScenario = HomeScenario.NORMAL
-        loaded = true
-        linked.clear()
-        linked += listOf("A1") + cards.filterNot { it.newlyIssued }.map { it.assetId }
-    }
-
-    /** 새로 가입 · 연결 전 — 가짜 홈도 '연결 전'으로(카드를 등록하면 '가입 첫날') */
-    fun reset() {
-        DevSession.homeScenario = HomeScenario.NOT_LINKED
-        loaded = true
-        linked.clear()
-        linked += "A1"
+    /**
+     * 방금 가입한 사용자 — 가입 때 1원으로 연결한 계좌만 있고 카드 0장. 실서버도 이때 홈 onboarding이 DONE이라
+     * 가짜 홈은 '정상'이 이 사용자를 따라 카드 0장 홈이 된다(카드를 등록하면 '가입 첫날')
+     */
+    fun reset(accounts: List<String> = listOf("A1"), primary: String? = accounts.firstOrNull()) {
+        DevSession.homeScenario = HomeScenario.NORMAL
+        user.update { FakeUser.newUser(accounts, primary) }
         tokens.clear()
         linkResults.clear()
         candidateExpiryServed = false
-        nicknames.clear()
-        accountAliases.clear()
-        primaryAccount = "A1"
-        excluded.clear()
-        defaultCard = "C2"
-        order = emptyList()
     }
+
+    /** 가입 1원 인증에서 고른 계좌(가입 화면 후보 번호) — BE AccountLinkService처럼 고른 계좌를 전부 연결하고 1원 받은 계좌가 기준 */
+    fun signedUp(candidateIds: List<String>, primaryCandidateId: String?) {
+        val ids = candidateIds.mapNotNull(::assetOfSignupCandidate).ifEmpty { listOf("A1") }
+        reset(ids, primaryCandidateId?.let(::assetOfSignupCandidate) ?: ids.first())
+    }
+
+    private fun assetOfSignupCandidate(candidateId: String): String? = when (candidateId) {
+        FakeSignupRepository.CANDIDATE_KB -> "A1"
+        FakeSignupRepository.CANDIDATE_SHINHAN -> "A2"
+        else -> null
+    }
+
+    // ── 다른 가짜 저장소가 읽는 것 ──
+
+    /** 시드 사용자(지난 결제 · 실적 기록이 있음)인지 — false면 방금 가입한 사용자 */
+    val seeded: Boolean get() = user.state.seeded
+
+    fun linkedAccountCount(): Int = linkedAccounts().size
+
+    /** 등록한 카드(저장한 순서) */
+    fun registeredCardIds(): List<Long> = linkedCards().map { it.userCardId() }
+
+    /** 결제에 쓸 수 있는 카드 — 자동 선택에서 뺀 카드(INACTIVE)는 빠진다(BE BarcodeService · countActiveCards) */
+    fun activeCardIds(): List<Long> = linkedCards().filterNot { it.assetId in excluded }.map { it.userCardId() }
 
     private fun account(id: String) = accounts.first { it.assetId == id }
 
@@ -142,7 +153,6 @@ class FakeBank @Inject constructor(private val sessionStore: SessionStore) {
 
     /** BE CardRegistrationService.lookup과 같은 순서 — 기간 → 없는 카드 → 이미 등록 → 카드사 정지 · 만료 */
     suspend fun lookup(number: String, month: String, year: String): ApiResult<CardLookup> {
-        ensureLoaded()
         delay(600)
         if (YearMonth.of(2000 + year.toInt(), month.toInt()).isBefore(YearMonth.now(KST))) return verificationFailed("EXPIRY_PASSED")
         when (number) {
@@ -196,8 +206,9 @@ class FakeBank @Inject constructor(private val sessionStore: SessionStore) {
             )
         }
         tokens.remove(verificationToken)
-        linked += card.assetId
-        if (DevSession.homeScenario == HomeScenario.NOT_LINKED) DevSession.homeScenario = HomeScenario.FIRST_DAY
+        val firstOfNewUser = !user.state.seeded && user.state.cards.isEmpty()
+        user.update { it.copy(cards = it.cards + card.assetId) }
+        if (firstOfNewUser && DevSession.homeScenario == HomeScenario.NORMAL) DevSession.homeScenario = HomeScenario.FIRST_DAY
         return ApiResult.Success(
             RegisteredCard(
                 userCardId = cards.indexOf(card) + 11L,
@@ -213,7 +224,6 @@ class FakeBank @Inject constructor(private val sessionStore: SessionStore) {
 
     /** 가입 후 목록 — 아직 연결 안 한 계좌만. 목록을 새로 받으면 이전 candidateId는 쓸 수 없다 */
     suspend fun candidates(): ApiResult<List<AccountCandidate>> {
-        ensureLoaded()
         delay(500)
         candidateGeneration++
         return ApiResult.Success(
@@ -238,14 +248,13 @@ class FakeBank @Inject constructor(private val sessionStore: SessionStore) {
         }
         val selected = accounts.filter { candidateId(it) in candidateIds }
         if (selected.size != candidateIds.size) return ApiResult.Failure(ApiError.InvalidRequest("ACCOUNT_CANDIDATE_EXPIRED"))
-        linked += selected.map { it.assetId }
+        user.update { s -> s.copy(accounts = (s.accounts + selected.map { it.assetId }).distinct()) }
         val result = AccountLinkResult(selected.map { AccountRef(it.bankCode, it.last4) })
         linkResults[idempotencyKey] = candidateIds to result
         return ApiResult.Success(result)
     }
 
     suspend fun overview(): ApiResult<LinkedOverview> {
-        ensureLoaded()
         delay(400)
         val acc = linkedAccounts().map { it.toLinked() }
         val crd = linkedCards().map { c ->
@@ -275,7 +284,6 @@ class FakeBank @Inject constructor(private val sessionStore: SessionStore) {
     )
 
     suspend fun linkedAccountList(): ApiResult<List<LinkedAccount>> {
-        ensureLoaded()
         delay(300)
         return ApiResult.Success(linkedAccounts().map { it.toLinked() })
     }
@@ -285,8 +293,12 @@ class FakeBank @Inject constructor(private val sessionStore: SessionStore) {
         delay(300)
         if (alias != null && alias.length > 20) return ApiResult.Failure(ApiError.InvalidRequest("INVALID_REQUEST"))
         val account = linkedAccounts().getOrNull((accountId - 1).toInt()) ?: return ApiResult.Failure(ApiError.NotFound("RESOURCE_NOT_FOUND"))
-        alias?.let { if (it.isBlank()) accountAliases.remove(account.assetId) else accountAliases[account.assetId] = it.trim() }
-        if (makePrimary) primaryAccount = account.assetId
+        user.update { s ->
+            s.copy(
+                accountAliases = alias?.let { if (it.isBlank()) s.accountAliases - account.assetId else s.accountAliases + (account.assetId to it.trim()) } ?: s.accountAliases,
+                primaryAccount = if (makePrimary) account.assetId else s.primaryAccount,
+            )
+        }
         return ApiResult.Success(account.toLinked())
     }
 
@@ -320,7 +332,6 @@ class FakeBank @Inject constructor(private val sessionStore: SessionStore) {
     }
 
     suspend fun cardDetail(userCardId: Long): ApiResult<CardInfo> {
-        ensureLoaded()
         delay(300)
         return linkedCard(userCardId)?.let { ApiResult.Success(it.toInfo()) } ?: ApiResult.Failure(ApiError.NotFound("RESOURCE_NOT_FOUND"))
     }
@@ -331,16 +342,20 @@ class FakeBank @Inject constructor(private val sessionStore: SessionStore) {
         val card = linkedCard(userCardId) ?: return ApiResult.Failure(ApiError.NotFound("RESOURCE_NOT_FOUND"))
         val staysExcluded = recommended?.not() ?: (card.assetId in excluded)
         if (isDefault == true && staysExcluded) return ApiResult.Failure(ApiError.InvalidRequest("INVALID_REQUEST"))
-        nickname?.let { if (it.isBlank()) nicknames.remove(card.assetId) else nicknames[card.assetId] = it.trim() }
-        recommended?.let {
-            if (it) {
-                excluded -= card.assetId
-            } else {
-                excluded += card.assetId
-                if (defaultCard == card.assetId) defaultCard = null
+        val id = card.assetId
+        user.update { s ->
+            var next = s
+            nickname?.let { next = next.copy(nicknames = if (it.isBlank()) next.nicknames - id else next.nicknames + (id to it.trim())) }
+            recommended?.let {
+                next = if (it) {
+                    next.copy(excluded = next.excluded - id)
+                } else {
+                    next.copy(excluded = next.excluded + id, defaultCard = next.defaultCard.takeUnless { d -> d == id })
+                }
             }
+            isDefault?.let { next = next.copy(defaultCard = if (it) id else next.defaultCard.takeUnless { d -> d == id }) }
+            next
         }
-        isDefault?.let { if (it) defaultCard = card.assetId else if (defaultCard == card.assetId) defaultCard = null }
         return ApiResult.Success(card.toInfo())
     }
 
@@ -351,7 +366,8 @@ class FakeBank @Inject constructor(private val sessionStore: SessionStore) {
         if (userCardIds.size != current.size || userCardIds.toSet() != current.map { it.userCardId() }.toSet()) {
             return ApiResult.Failure(ApiError.InvalidRequest("ORDER_INCOMPLETE"))
         }
-        order = userCardIds.map { id -> current.first { it.userCardId() == id }.assetId }
+        val order = userCardIds.map { id -> current.first { it.userCardId() == id }.assetId }
+        user.update { it.copy(order = order) }
         return ApiResult.Success(Unit)
     }
 
@@ -359,10 +375,10 @@ class FakeBank @Inject constructor(private val sessionStore: SessionStore) {
         delay(500)
         val card = linkedCard(userCardId) ?: return ApiResult.Failure(ApiError.NotFound("RESOURCE_NOT_FOUND"))
         if (card.assetId == "C3") return ApiResult.Failure(ApiError.Conflict("CARD_HAS_OPEN_BILL"))
-        linked -= card.assetId
-        if (defaultCard == card.assetId) defaultCard = null
-        nicknames.remove(card.assetId)
-        excluded -= card.assetId
+        val id = card.assetId
+        user.update { s ->
+            s.copy(cards = s.cards - id, defaultCard = s.defaultCard.takeUnless { it == id }, nicknames = s.nicknames - id, excluded = s.excluded - id)
+        }
         return ApiResult.Success(Unit)
     }
 

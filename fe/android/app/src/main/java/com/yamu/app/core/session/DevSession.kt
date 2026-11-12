@@ -7,23 +7,22 @@ import androidx.compose.runtime.setValue
 /** 앱을 켰을 때 갈 곳(06 문서 2-4) */
 enum class StartState(val label: String) {
     NEED_SIGNUP("처음 사용"),
-    NEED_LINK("로그인 · 연결 전"),
-    READY("로그인 · 연결 끝"),
+    NEED_LINK("카드 0장"),        // 실서버에서 가입 뒤 '나중에 할게요'를 고른 사용자 — 계좌 1 · 카드 0
+    READY("카드 6장"),           // 시드 사용자 — 계좌 2 · 카드 6장 · 지난 기록 있음
 }
 
 /** 가짜 데이터(debug)로 볼 홈 상태 — 07 문서 3-5 */
 enum class HomeScenario(val label: String) {
-    NORMAL("정상"),
+    NORMAL("정상(가짜 사용자대로)"),
     FIRST_DAY("가입 첫날(잠정)"),
     AFTER_PAYMENT("결제 반영 직후"),
     BEFORE_INCOME("월급 등록 전"),
-    NOT_LINKED("연결 전"),
+    NOT_LINKED("연결 전(계좌 0 · 카드 0)"),
     LEGACY_SPEC("지금 명세 모양(보완 전)"),
     PARTIAL("예상 잔액만 실패"),
     BANK_ERROR("금융망 오류"),
     NETWORK_ERROR("네트워크 없음"),
     SLOW("느린 응답(3초)"),
-    NO_CARD("계좌만 연결 · 카드 0장"),
 }
 
 /** 가짜 데이터(debug)로 볼 연결 상태 — 09 문서 5-5 */
@@ -53,7 +52,7 @@ enum class PayScenario(val label: String) {
  */
 enum class FaultScenario(val label: String) {
     NONE("정상"),
-    EMPTY("데이터 없음(새 사용자)"),
+    EMPTY("빈 응답(계좌 0 · 카드 0)"),
     BANK_ERROR("금융망 오류(502)"),
     NETWORK_ERROR("네트워크 없음"),
     DATA_INSUFFICIENT("데이터 부족(422)"),
@@ -64,6 +63,7 @@ enum class FaultScenario(val label: String) {
  * 개발용 상태 — 디버그 메뉴에서 바꾼다.
  * startState + applyOnNextStart: 디버그 메뉴 '이 상태로 처음부터' → 가짜 인증(FakeAuthRepository)이 다음 시작 때 저장소에 반영.
  * homeScenario · linkScenario: debug 빌드 가짜 홈 · 연결 데이터. 그 기능이 진짜 서버(yamu.realApi)면 쓰이지 않는다.
+ * debug 빌드는 applyOnNextStart 말고 모두 기기에 저장해 앱을 다시 켜도 남는다(src/debug DevSessionStore, S15P31E103-453).
  */
 object DevSession {
     var startState by mutableStateOf(StartState.NEED_SIGNUP)
