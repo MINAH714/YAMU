@@ -12,6 +12,7 @@ import com.yamu.be.payment.domain.PaymentTransactionRepository;
 import com.yamu.be.payment.pos.PosTerminalResolver;
 import com.yamu.be.payment.request.MerchantContextSnapshot;
 import java.time.Clock;
+import java.util.concurrent.atomic.AtomicBoolean;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
@@ -25,7 +26,7 @@ import org.springframework.stereotype.Service;
  * ③ 앱 취소와 같은 {@link PaymentCancelService}로 취소한다. 같은 키의 처음 응답이 있으면 그대로 돌려준다
  *    새로 처리할 때만 멱등 잠금 안에서 먼저 본다:
  *    바코드가 만료 전 ISSUED인지(만료 410, 스캔·사용 409) → 결제가 그 고객의 것이고 이 posCode가 만든 것인지(아니면 404)
- * ④ 취소가 끝나면 바코드를 USED로 닫고 취소한 결제를 붙인다. 앱 바코드 조회가 그 결제(status CANCELED)를 돌려주므로
+ * ④ 새로 처리한 취소가 끝나면 바코드를 USED로 닫고 취소한 결제를 붙인다(재전송이면 들고 온 바코드를 닫지 않는다). 앱 바코드 조회가 그 결제(status CANCELED)를 돌려주므로
  *    앱은 '취소 완료'를 띄울 수 있다(2026-11-11 A안). 닫기 실패는 로그만 남긴다(취소는 이미 끝남)
  * ⑤ 응답은 POS 영수증 값만. 앱 응답의 실적·청구·잔액은 넣지 않는다
  * </pre>
@@ -71,9 +72,16 @@ public class PosPaymentCancelService {
                 .orElseThrow(() -> new BusinessException(ErrorCode.BARCODE_NOT_FOUND))
                 .userId();
 
-        cancels.cancel(userId, paymentId, NO_REASON, key,
-                () -> verify(token, userId, paymentId, request.posCode()));
-        markUsed(token, paymentId);
+        // 같은 키 재전송은 검사를 건너뛰고 처음 응답을 받는다. 그때 들고 온 바코드는 이 취소에 쓰인 게 아니므로 닫지 않는다
+        // (같은 고객이 새로 띄운 바코드가 닫혀 다음 결제에 못 쓰게 되는 것을 막는다)
+        AtomicBoolean verified = new AtomicBoolean(false);
+        cancels.cancel(userId, paymentId, NO_REASON, key, () -> {
+            verify(token, userId, paymentId, request.posCode());
+            verified.set(true);
+        });
+        if (verified.get()) {
+            markUsed(token, paymentId);
+        }
         return result(paymentId, userId);
     }
 

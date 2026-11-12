@@ -184,6 +184,31 @@ class PosPaymentCancelIntegrationTest extends MySqlTestSupport {
         assertThat(recognized()).isEqualTo(25_000L);
     }
 
+    @Test
+    void 같은_키를_새_바코드로_다시_보내면_처음_응답을_돌려주고_새_바코드는_닫지_않는다() throws Exception {
+        long paymentId = approved(POS_CODE);
+        String first = issued(user);
+        String key = UUID.randomUUID().toString();
+
+        String firstBody = cancel(paymentId, POS_CODE, first, key)
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        // 고객이 다음 결제를 위해 새 바코드를 띄운다(새로 발급하면 앞 바코드는 닫히므로 취소 뒤에 발급한다)
+        String fresh = issued(user);
+        String replayBody = cancel(paymentId, POS_CODE, fresh, key)
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+
+        // 재전송은 검사를 건너뛰므로 새 바코드는 이 취소에 쓰인 게 아니다. 고객이 다음 결제에 그대로 쓸 수 있어야 한다
+        assertThat(replayBody).isEqualTo(firstBody);
+        assertThat(barcodeStatus(first)).isEqualTo(BarcodeStatus.USED);
+        assertThat(barcodeStatus(fresh)).isEqualTo(BarcodeStatus.ISSUED);
+        mockMvc.perform(get("/api/payments/barcodes/{barcodeToken}", fresh).with(AuthUsers.asUser(user)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.status").value("ISSUED"))
+                .andExpect(jsonPath("$.data.payment").value((Object) null));
+    }
+
     // ───────── 고객·POS 불일치 ─────────
 
     @Test
