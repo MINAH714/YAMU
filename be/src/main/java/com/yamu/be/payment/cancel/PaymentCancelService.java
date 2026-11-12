@@ -83,7 +83,17 @@ public class PaymentCancelService {
 
     public PaymentCancelResponse cancel(AuthUser me, Long paymentId, PaymentCancelRequest request,
             String idempotencyKey) {
-        Long userId = me.userId();
+        return cancel(me.userId(), paymentId, request, idempotencyKey, () -> {});
+    }
+
+    /**
+     * 사용자 번호로 취소한다. POS 취소(S15P31E103-424)는 고객 바코드로 찾은 사용자로 부른다.
+     *
+     * @param beforeProcess 같은 키의 처음 응답이 없어 새로 처리할 때만, 멱등 잠금 안에서 취소 전에 부른다.
+     *                      POS의 바코드·posCode 확인처럼 재전송에는 다시 보지 않을 검사를 넣는다. 예외를 던지면 아무것도 바꾸지 않는다
+     */
+    PaymentCancelResponse cancel(Long userId, Long paymentId, PaymentCancelRequest request, String idempotencyKey,
+            Runnable beforeProcess) {
         String key = IdempotencyKeys.require(idempotencyKey);
         String fingerprint = fingerprint(paymentId, request);
 
@@ -104,6 +114,7 @@ public class PaymentCancelService {
             if (done.isPresent()) {
                 return replay(done.get(), fingerprint);
             }
+            beforeProcess.run();
             PaymentCancelResponse response = process(userId, paymentId);
             remember(userId, key, new Previous(fingerprint, paymentId, response));
             return response;

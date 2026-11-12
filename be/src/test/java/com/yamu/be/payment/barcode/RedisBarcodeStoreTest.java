@@ -326,6 +326,31 @@ class RedisBarcodeStoreTest extends RedisTestSupport {
         assertThat(store.find(barcode.token()).orElseThrow().status()).isEqualTo(BarcodeStatus.ISSUED);
     }
 
+    @Test
+    void POS_취소에_쓴_바코드는_ISSUED일_때만_USED가_되고_취소한_결제가_붙으며_스캔된_바코드는_그대로다() {
+        Barcode issued = live(7L);
+        store.issue(issued, RETENTION);
+        Barcode scanned = live(8L);
+        store.issue(scanned, RETENTION);
+        store.scan(scanned.token(), scanned.userId(), 1024L, Instant.now(), RETENTION);
+
+        assertThat(store.useForCancel(issued.token(), 2048L)).isTrue();
+        assertThat(store.useForCancel(issued.token(), 4096L)).isFalse();
+        assertThat(store.useForCancel(scanned.token(), 2048L)).isFalse();
+        assertThat(store.useForCancel("9999999999999999", 2048L)).isFalse();
+        assertThat(store.useForCancel("user:7", 2048L)).isFalse();
+
+        Barcode used = store.find(issued.token()).orElseThrow();
+        assertThat(used.status()).isEqualTo(BarcodeStatus.USED);
+        assertThat(used.paymentId()).isEqualTo(2048L);
+        Barcode stillScanned = store.find(scanned.token()).orElseThrow();
+        assertThat(stillScanned.status()).isEqualTo(BarcodeStatus.SCANNED);
+        assertThat(stillScanned.paymentId()).isEqualTo(1024L);
+        // 취소에 쓴 바코드에는 결제 번호 역색인을 만들지 않아 승인·만료 반영이 건드리지 않는다
+        assertThat(store.markUsed(2048L)).isFalse();
+        assertThat(store.expireByPayment(2048L)).isFalse();
+    }
+
     private Barcode issued(Long userId) {
         return new Barcode(tokens.next(), userId, BarcodeStatus.ISSUED, ISSUED_AT, ISSUED_AT.plusSeconds(60));
     }

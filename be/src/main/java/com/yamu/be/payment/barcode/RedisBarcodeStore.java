@@ -118,6 +118,15 @@ class RedisBarcodeStore implements BarcodeStore {
             return 1
             """, Long.class);
 
+    /* ISSUED일 때만 USED로 바꾸고 취소한 결제 번호를 붙인다. KEYS[1] 바코드 키, ARGV[1] paymentId. 반환: 1 바꿈, 0 없음·다른 상태 */
+    private static final RedisScript<Long> USE_FOR_CANCEL_SCRIPT = RedisScript.of("""
+            if redis.call('HGET', KEYS[1], 'status') ~= 'ISSUED' then
+              return 0
+            end
+            redis.call('HSET', KEYS[1], 'status', 'USED', 'paymentId', ARGV[1])
+            return 1
+            """, Long.class);
+
     private final StringRedisTemplate redis;
 
     RedisBarcodeStore(StringRedisTemplate redis) {
@@ -196,6 +205,15 @@ class RedisBarcodeStore implements BarcodeStore {
     @Override
     public boolean expireByPayment(Long paymentId) {
         return settle(paymentId, BarcodeStatus.EXPIRED);
+    }
+
+    @Override
+    public boolean useForCancel(String token, Long paymentId) {
+        if (!BarcodeTokenGenerator.isWellFormed(token)) {
+            return false;
+        }
+        Long result = redis.execute(USE_FOR_CANCEL_SCRIPT, List.of(KEY_PREFIX + token), paymentId.toString());
+        return result != null && result == 1L;
     }
 
     private boolean settle(Long paymentId, BarcodeStatus status) {
