@@ -117,7 +117,7 @@ class ReportMapperTest {
     }
 
     @Test fun `날짜 머리 — 오늘만 표시`() {
-        assertEquals("10월 27일 (화) · 오늘", paymentDayLabel(today, today))
+        assertEquals("10월 27일 (화, 오늘)", paymentDayLabel(today, today))
         assertEquals("10월 26일 (월)", paymentDayLabel(today.minusDays(1), today))
         assertEquals("날짜 없음", paymentDayLabel(null, today))
     }

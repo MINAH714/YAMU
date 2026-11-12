@@ -176,6 +176,12 @@ data class ForecastEvent(val date: LocalDate, val type: FlowType, val title: Str
     /** 진행 중인 청구처럼 확신도가 EXPECTED인 돈(두 선 모두에 들어감) — 금액이 아직 정해지지 않아 '예상' 태그 */
     val isExpected: Boolean get() = confidence == FlowConfidence.EXPECTED
 
+    /**
+     * 결제 기록에서 찾은 확인 전 고정 지출 후보(BE -349). 서버는 후보 회차를 EXPECTED로, 확인한 가계부 항목은 CONFIRMED로 넣는다(CashflowEvents).
+     * 가계부 목록 API는 status를 빼면 확인한 항목만 줘서 F-02는 이 줄을 예보에서 가져온다
+     */
+    val isCandidate: Boolean get() = isExpected && (type == FlowType.SCHEDULED_OUTFLOW || type == FlowType.SCHEDULED_INCOME)
+
     /** 줄 이름. 카드 사용 예상은 title이 근거 문장이라 이름은 고정하고 title은 보조 줄에 그대로 둔다 */
     val label: String get() = if (type == FlowType.CARD_SPENDING_ESTIMATE) "카드 사용 예상" else title
 
@@ -299,7 +305,7 @@ data class Forecast(
         // 선에 실제로 빠진 생활비(appliedAmount)라 일부 계좌만 기록이 있어도 줄 합계가 끝 잔액과 맞는다. 기록이 아무 데도 없어 0원이면 줄을 만들지 않는다
         val living = livingCost?.let { lc ->
             lc.lineAmount?.takeIf { it != 0L || !lc.insufficient }?.let {
-                LineStep("예상 생활비", -it, listOfNotNull(lc.method.label, "기록 있는 계좌만".takeIf { lc.isPartial }).joinToString(" · ").ifEmpty { null })
+                LineStep("예상 생활비", -it, listOfNotNull(lc.method.label, "기록 있는 계좌만".takeIf { lc.isPartial }).joinToString(", ").ifEmpty { null })
             }
         }
         val withLiving = listOfNotNull(living) + steps(events.filter { it.confidence == FlowConfidence.CONSERVATIVE }) {

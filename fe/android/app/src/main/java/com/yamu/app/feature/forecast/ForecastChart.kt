@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -76,6 +77,10 @@ fun BalanceChart(
     val maxV = maxOf(values.maxOrNull() ?: 1L, threshold ?: 1L, 1L)
     val reduce = YamuTheme.reduceMotion
     val selectedIndex = selected?.coerceIn(0, n - 1)
+    // 손가락 처리(pointerInput)는 날짜 수(n)가 바뀔 때만 다시 시작한다. 그 안에서 처음 받은 onSelect를 그대로 쓰면, 기간은 두고 계좌만 바꿨을 때
+    // 화면이 새로 만든 '고른 날' 상태가 아니라 버린 상태를 바꿔 그래프를 눌러도 날짜가 그대로였다 — 늘 마지막 값을 읽는다
+    val latestOnSelect by rememberUpdatedState(onSelect)
+    val latestIncomeArrow by rememberUpdatedState(incomeArrow)
     val fraction by animateFloatAsState(
         targetValue = (selectedIndex ?: 0) / (n - 1f),
         animationSpec = if (reduce) snap() else tween(YamuMotion.SHORT_MS, easing = YamuMotion.standard),
@@ -98,8 +103,8 @@ fun BalanceChart(
                 }
                 .then(
                     if (onSelect == null) Modifier else Modifier
-                        .pointerInput(n) { detectTapGestures { o -> onSelect(indexAt(o.x, size.width.toFloat(), n, incomeArrow, density)) } }
-                        .pointerInput(n) { detectHorizontalDragGestures { change, _ -> onSelect(indexAt(change.position.x, size.width.toFloat(), n, incomeArrow, density)) } },
+                        .pointerInput(n) { detectTapGestures { o -> latestOnSelect?.invoke(indexAt(o.x, size.width.toFloat(), n, latestIncomeArrow, density)) } }
+                        .pointerInput(n) { detectHorizontalDragGestures { change, _ -> latestOnSelect?.invoke(indexAt(change.position.x, size.width.toFloat(), n, latestIncomeArrow, density)) } },
                 ),
         ) {
             val left = 6.dp.toPx()

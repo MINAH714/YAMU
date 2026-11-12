@@ -34,6 +34,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
@@ -45,6 +46,10 @@ import com.yamu.app.core.designsystem.component.CardThumb
 import com.yamu.app.core.designsystem.component.CharacterImage
 import com.yamu.app.core.designsystem.component.CharacterImageImpl
 import com.yamu.app.core.designsystem.component.CharacterSize
+import com.yamu.app.core.designsystem.component.CoinPile
+import com.yamu.app.core.designsystem.component.CoinPileDefaults
+import com.yamu.app.core.designsystem.component.rememberCoinPileState
+import com.yamu.app.core.designsystem.component.rememberRolledAmount
 import com.yamu.app.core.designsystem.component.CountdownRing
 import com.yamu.app.core.designsystem.component.EmptyState
 import com.yamu.app.core.designsystem.component.ErrorState
@@ -116,6 +121,7 @@ fun ComponentGallery(onBack: (() -> Unit)? = null) {
                     }
                     CharacterMotionSamples()
                     WaitMotionSamples()
+                    CoinPileSamples()
                     GallerySections()
                     Spacer(Modifier.height(56.dp))
                 }
@@ -226,6 +232,59 @@ private fun WaitMotionSamples() {
 
 private const val COUNTDOWN_SAMPLE_MS = 15_000L
 
+/**
+ * 동전 무더기 견본 — 홈 히어로 카드 아래 무대(같은 그러데이션 바탕). 금액 세 가지(3만 · 35만 · 500만 원 → 3 · 14 · 32개)를
+ * 가장 낮은 무대(112dp)와 지금 홈쯤 높이(220dp)에서 보고, '다시 떨어뜨리기'로 들어오는 모션을 다시 본다. 동전을 누르면 튀어 오른다.
+ */
+@Composable
+private fun CoinPileSamples() {
+    var run by rememberSaveable { mutableIntStateOf(0) }
+    val c = YamuTheme.colors
+    YamuCard {
+        Text("동전 무더기", style = YamuTheme.typography.titleM, color = c.text1)
+        ToggleRow("모션 줄이기 강제", YamuMotionDebug.forceReduceMotion) { YamuMotionDebug.forceReduceMotion = it }
+        listOf(30_000L to CoinPileDefaults.minHeight, 350_000L to 220.dp, 5_000_000L to 220.dp).forEach { (won, h) ->
+            Spacer(Modifier.height(8.dp))
+            Text("${won / 10_000}만 원 · 무대 ${h.value.toInt()}dp", style = YamuTheme.typography.bodyS, color = c.text3)
+            key(run) {
+                CoinPile(
+                    won,
+                    Modifier
+                        .fillMaxWidth()
+                        .height(h)
+                        .clip(RoundedCornerShape(YamuRadius.input))
+                        .background(Brush.linearGradient(listOf(c.heroStart, c.heroEnd)))
+                        .padding(12.dp),
+                )
+            }
+        }
+        // 다 쌓인 뒤 금액이 바뀔 때 — 글자는 보이던 값에서 굴러가고, 동전은 늘어난 만큼 떨어지거나 줄어든 만큼 떠난다
+        var won by rememberSaveable { mutableLongStateOf(350_000L) }
+        Spacer(Modifier.height(8.dp))
+        Text("금액 바꾸기 · 지금 ${won / 10_000}만 원", style = YamuTheme.typography.bodyS, color = c.text3)
+        key(run) {
+            val pile = rememberCoinPileState()
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(YamuRadius.input))
+                    .background(Brush.linearGradient(listOf(c.heroStart, c.heroEnd)))
+                    .padding(16.dp),
+            ) {
+                AmountText(rememberRolledAmount(won, pile), size = AmountSize.Hero, color = c.onHero, fitOneLine = true)
+                CoinPile(won, Modifier.fillMaxWidth().height(180.dp), state = pile)
+            }
+        }
+        Spacer(Modifier.height(8.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            NeutralButton("−10만 원", onClick = { won = (won - 100_000).coerceAtLeast(10_000) }, modifier = Modifier.weight(1f))
+            NeutralButton("+30만 원", onClick = { won += 300_000 }, modifier = Modifier.weight(1f))
+        }
+        Spacer(Modifier.height(8.dp))
+        NeutralButton("다시 떨어뜨리기", onClick = { run++ })
+    }
+}
+
 @Composable
 private fun ToggleRow(label: String, checked: Boolean, onChange: (Boolean) -> Unit) {
     Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -282,7 +341,7 @@ private fun GallerySections() {
 
     SectionTitle("E. 표시")
     YamuCard {
-        Text("월급 전 예상 잔액", style = YamuTheme.typography.titleS, color = YamuTheme.colors.text2)
+        Text("월급 전 가장 낮을 때", style = YamuTheme.typography.titleS, color = YamuTheme.colors.text2)
         AmountText(350_000, estimate = true)
         AmountText(-50_000, size = AmountSize.M, shortage = true)
         AmountText(15_000, size = AmountSize.Value, withPlusSign = true)

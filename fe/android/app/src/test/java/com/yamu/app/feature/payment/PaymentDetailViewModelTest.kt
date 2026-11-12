@@ -14,7 +14,6 @@ import com.yamu.app.feature.payment.data.PayStatus
 import com.yamu.app.feature.payment.data.PaymentReceipt
 import com.yamu.app.feature.payment.data.PaymentRepository
 import com.yamu.app.feature.payment.data.PaymentRequest
-import com.yamu.app.feature.payment.data.RefundLine
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.test.StandardTestDispatcher
@@ -22,11 +21,8 @@ import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
-import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
-import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.put
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -37,7 +33,7 @@ import org.junit.Before
 import org.junit.Test
 
 /**
- * P-08 취소 · 메모가 깨지기 쉬운 곳 — 연타, 결과를 모르는 실패 뒤 다시 시도(같은 키), 금융망 실패, 이미 취소, 잘못된 메모.
+ * P-08이 깨지기 쉬운 곳 — 다른 곳(매장 POS)에서 한 취소를 돌아와서 알아채기, 잘못된 메모, 모르는 메모 덮어쓰기.
  */
 class PaymentDetailViewModelTest {
     private val dispatcher = StandardTestDispatcher()
@@ -50,134 +46,37 @@ class PaymentDetailViewModelTest {
     private fun TestScope.open(saved: SavedStateHandle = SavedStateHandle(mapOf("paymentId" to ID))): PaymentDetailViewModel =
         PaymentDetailViewModel(saved, repo).also { advanceUntilIdle() }
 
-    // ── 취소 ──
+    // ── 다시 보일 때(결제 코드 화면에서 돌아옴) — 취소는 매장 POS가 하므로 상세가 서버에서 다시 받아 알아챈다 ──
 
-    @Test fun `연타해도 취소 요청은 한 번 — 처리 중이면 무시`() = runTest(dispatcher) {
+    @Test fun `처음 보일 때는 다시 받지 않고 돌아오면 다시 받아 다른 곳에서 한 취소를 보인다`() = runTest(dispatcher) {
         val vm = open()
-        vm.cancel()
-        vm.cancel()
-        runCurrent()
-        vm.cancel()
-        assertTrue(vm.state.value.canceling)
+        vm.resumed()   // 첫 화면 — init에서 이미 받았다
         advanceUntilIdle()
-        assertEquals(1, repo.cancelKeys.size)
+        assertEquals(1, repo.detailCalls)
+        repo.receipt = repo.receipt.copy(status = PayStatus.CANCELED, canceledAtIso = "2026-11-11T01:00:00Z")
+        vm.resumed()
+        advanceUntilIdle()
+        assertEquals(2, repo.detailCalls)
         assertTrue(vm.state.value.receipt!!.canceled)
-        assertFalse(vm.state.value.canceling)
-        vm.cancel()   // 이미 취소됨 — 버튼이 없어도 다시 부르지 않는다
-        advanceUntilIdle()
-        assertEquals(1, repo.cancelKeys.size)
+        assertFalse(vm.state.value.receipt!!.cancelable)   // '결제 취소' 버튼이 사라진다
     }
 
-    @Test fun `성공하면 취소 상태 · 잔액 · 스낵바, 그리고 서버 값으로 다시 불러온다`() = runTest(dispatcher) {
-        repo.receipt = receipt(check = true)
-        repo.cancelResult = ApiResult.Success(CancelResult(ID, "2026-11-08T07:00:00Z", 0, emptyList(), balanceAfter = 965_000))
+    @Test fun `받는 중에 다시 보이면 겹쳐 보내지 않는다`() = runTest(dispatcher) {
+        val vm = PaymentDetailViewModel(SavedStateHandle(mapOf("paymentId" to ID)), repo)
+        vm.resumed()
+        vm.resumed()   // 아직 첫 상세를 받는 중
+        advanceUntilIdle()
+        assertEquals(1, repo.detailCalls)
+    }
+
+    @Test fun `돌아와 다시 받다 실패해도 보던 내용은 그대로`() = runTest(dispatcher) {
         val vm = open()
-        val loadsBefore = repo.detailCalls
-        vm.cancel()
-        advanceUntilIdle()
-        val s = vm.state.value
-        assertEquals(965_000L, s.balanceAfter)
-        assertEquals("결제를 취소했어요 · 계좌 잔액 965,000원", s.message)
-        assertEquals(loadsBefore + 1, repo.detailCalls)
-        assertEquals(PayStatus.CANCELED, s.receipt!!.status)
-    }
-
-    @Test fun `응답이 끊기면 상태를 다시 보고, 다시 누르면 같은 키로 보낸다`() = runTest(dispatcher) {
-        repo.cancelResult = ApiResult.Failure(ApiError.Network)
-        val vm = open()
-        val loadsBefore = repo.detailCalls
-        vm.cancel()
-        advanceUntilIdle()
-        assertEquals("취소됐는지 확인하지 못했어요. 결제 상태를 다시 불러올게요", vm.state.value.message)
-        assertEquals(loadsBefore + 1, repo.detailCalls)   // 취소됐을 수 있다 — 상태로 판단
-        repo.cancelResult = ApiResult.Success(CancelResult(ID, null, 1, emptyList(), null))
-        vm.cancel()
-        advanceUntilIdle()
-        assertEquals(2, repo.cancelKeys.size)
-        assertEquals(repo.cancelKeys[0], repo.cancelKeys[1])
-        assertEquals("결제를 취소했어요 · 청구에서 빠져요", vm.state.value.message)
-    }
-
-    @Test fun `화면이 다시 만들어져도 같은 키 — SavedStateHandle`() = runTest(dispatcher) {
-        repo.cancelResult = ApiResult.Failure(ApiError.Network)
-        val saved = SavedStateHandle(mapOf("paymentId" to ID))
-        open(saved).cancel()
-        advanceUntilIdle()
-        val restored = SavedStateHandle(mapOf("paymentId" to ID, PaymentDetailViewModel.CANCEL_KEY to saved.get<String>(PaymentDetailViewModel.CANCEL_KEY)))
-        open(restored).cancel()
-        advanceUntilIdle()
-        assertEquals(2, repo.cancelKeys.size)
-        assertEquals(repo.cancelKeys[0], repo.cancelKeys[1])
-    }
-
-    @Test fun `은행이 거절(FIN_API_ERROR) — 결제는 그대로, 다시 불러오지 않는다`() = runTest(dispatcher) {
-        repo.cancelResult = ApiResult.Failure(ApiError.BankUnavailable("FIN_API_ERROR"))
-        val vm = open()
-        val loadsBefore = repo.detailCalls
-        vm.cancel()
-        advanceUntilIdle()
-        assertEquals("은행이 처리하지 못해 취소하지 못했어요. 결제는 그대로예요", vm.state.value.message)
-        assertEquals(loadsBefore, repo.detailCalls)
-        assertTrue(vm.state.value.receipt!!.cancelable)   // 다시 누를 수 있다
-    }
-
-    @Test fun `체크카드 입금 결과 불명(FIN_API_UNAVAILABLE) — 단정하지 않고 상태를 다시 읽고, 다시 누르면 같은 키`() = runTest(dispatcher) {
-        repo.receipt = receipt(check = true)
-        repo.cancelResult = ApiResult.Failure(ApiError.BankUnavailable("FIN_API_UNAVAILABLE"))
-        val vm = open()
-        val loadsBefore = repo.detailCalls
-        vm.cancel()
-        advanceUntilIdle()
-        assertEquals("은행 응답을 확인하지 못했어요. 잠시 뒤 다시 취소해 주세요", vm.state.value.message)
-        assertEquals(loadsBefore + 1, repo.detailCalls)
-        repo.cancelResult = ApiResult.Success(CancelResult(ID, null, 0, emptyList(), balanceAfter = 965_000))
-        vm.cancel()
-        advanceUntilIdle()
-        assertEquals(repo.cancelKeys[0], repo.cancelKeys[1])   // BE가 거래내역 태그로 찾아 두 번 입금하지 않는다
-    }
-
-    @Test fun `다른 기기에서 먼저 취소 — 409 ALREADY_CANCELED면 다시 불러 취소 상태를 보인다`() = runTest(dispatcher) {
-        repo.cancelResult = ApiResult.Failure(ApiError.Conflict("ALREADY_CANCELED"))
-        val vm = open()
-        repo.receipt = repo.receipt.copy(status = PayStatus.CANCELED)
-        vm.cancel()
-        advanceUntilIdle()
-        assertEquals("이미 취소된 결제예요", vm.state.value.message)
-        assertTrue(vm.state.value.receipt!!.canceled)
-    }
-
-    @Test fun `입금 계좌가 없어 취소 불가 — 사유 문장`() = runTest(dispatcher) {
-        repo.cancelResult = ApiResult.Failure(ApiError.Conflict("PAYMENT_NOT_CANCELABLE", buildJsonObject { put("reason", "ACCOUNT_UNAVAILABLE") }))
-        val vm = open()
-        vm.cancel()
-        advanceUntilIdle()
-        assertEquals("돌려받을 계좌가 연결돼 있지 않아 취소할 수 없어요", vm.state.value.message)
-    }
-
-    @Test fun `가입 전 거래 · 거절된 결제는 보내지 않는다`() = runTest(dispatcher) {
-        repo.receipt = receipt().copy(isSeed = true)
-        open().cancel()
-        repo.receipt = receipt().copy(status = PayStatus.DECLINED)
-        open().cancel()
-        advanceUntilIdle()
-        assertTrue(repo.cancelKeys.isEmpty())
-    }
-
-    @Test fun `상세를 못 불러왔으면 취소를 보내지 않는다`() = runTest(dispatcher) {
+        vm.resumed()
         repo.detailResult = ApiResult.Failure(ApiError.Network)
-        val vm = open()
-        vm.cancel()
+        vm.resumed()
         advanceUntilIdle()
-        assertNull(vm.state.value.receipt)
-        assertTrue(repo.cancelKeys.isEmpty())
-    }
-
-    @Test fun `신용카드 출금 뒤 취소 — 돌려받을 금액을 스낵바로`() = runTest(dispatcher) {
-        repo.cancelResult = ApiResult.Success(CancelResult(ID, null, 0, listOf(RefundLine(30_000, "2026-12-05", false), RefundLine(30_000, null, false)), null))
-        val vm = open()
-        vm.cancel()
-        advanceUntilIdle()
-        assertEquals("결제를 취소했어요 · 60,000원을 돌려드려요", vm.state.value.message)
+        assertEquals(ID, vm.state.value.receipt!!.paymentId)
+        assertNotNull(vm.state.value.error)
     }
 
     // ── 메모 ──
@@ -298,8 +197,6 @@ class PaymentDetailViewModelTest {
         var receipt = receipt()
         var detailResult: ApiResult<PaymentReceipt>? = null
         var detailCalls = 0
-        val cancelKeys = mutableListOf<String>()
-        var cancelResult: ApiResult<CancelResult> = ApiResult.Success(CancelResult(ID, "2026-11-08T07:00:00Z", 1, emptyList(), null))
         val memos = mutableListOf<String?>()
         var memoResult: (String?) -> ApiResult<String?> = { ApiResult.Success(it) }
 
@@ -309,11 +206,7 @@ class PaymentDetailViewModelTest {
             return detailResult ?: ApiResult.Success(receipt)
         }
 
-        override suspend fun cancel(paymentId: Long, idempotencyKey: String): ApiResult<CancelResult> {
-            cancelKeys += idempotencyKey
-            delay(900)
-            return cancelResult.also { if (it is ApiResult.Success) receipt = receipt.copy(status = PayStatus.CANCELED) }
-        }
+        override suspend fun cancel(paymentId: Long, idempotencyKey: String): ApiResult<CancelResult> = error("상세는 직접 취소하지 않는다")
 
         override suspend fun saveMemo(paymentId: Long, memo: String?): ApiResult<String?> {
             memos += memo

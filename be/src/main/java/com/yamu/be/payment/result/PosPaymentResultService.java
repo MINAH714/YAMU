@@ -7,6 +7,7 @@ import com.yamu.be.payment.PaymentExpiry;
 import com.yamu.be.payment.approve.ApprovalAttemptStore;
 import com.yamu.be.payment.approve.ApprovalNumbers;
 import com.yamu.be.payment.approve.PaymentApprovalProperties;
+import com.yamu.be.payment.approve.WithdrawalRecovery;
 import com.yamu.be.payment.barcode.BarcodeStore;
 import com.yamu.be.payment.domain.PaymentStatus;
 import com.yamu.be.payment.domain.PaymentTransaction;
@@ -14,6 +15,8 @@ import com.yamu.be.payment.domain.PaymentTransactionRepository;
 import com.yamu.be.payment.lookup.PaymentCardLookup;
 import com.yamu.be.payment.pos.PosTerminalResolver;
 import com.yamu.be.payment.request.MerchantContextSnapshot;
+import java.time.Clock;
+import java.time.Instant;
 import java.time.LocalDateTime;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -25,7 +28,8 @@ import org.springframework.stereotype.Service;
  * ① POS 키 확인({@code PosKeyInterceptor}가 먼저 본다)
  * ② 결제를 찾고, 결제 요청을 만든 posCode(merchant_context_snapshot)가 요청의 posCode와 같은지 본다. 없거나 다르면 404
  * ③ 마감이 지난 REQUESTED·DECLINED는 그 자리에서 EXPIRED로 저장하고 바코드도 EXPIRED(임시: 명세 Q4 제안, 승인·바코드 조회와 같은 규칙)
- * ④ 응답: 승인번호는 계산(Q3), 즉시할인은 요청액 − 승인액, DECLINED에는 retryable(Q1)
+ * ④ 응답: 승인번호는 계산(Q3), 즉시할인은 요청액 − 승인액, DECLINED에는 retryable(Q1),
+ *    DECLINED·EXPIRED에는 늦은 출금 대조가 남았는지(lateConfirmPending)
  * </pre>
  *
  * <p>다른 POS: POS 키는 하나라 키로는 어느 POS인지 가릴 수 없다. 그래서 posCode를 받아 결제를 만든 POS와 대조한다.
@@ -37,7 +41,12 @@ import org.springframework.stereotype.Service;
  *
  * <p>한계: 즉시할인은 {@code approved_amount}가 할인 뒤 금액이라는 스키마 정의를 따른다. 승인 쪽(체크카드·신용카드·출금 복구)은
  * 결제 금액 − 즉시할인({@code ApprovalCommand#chargedAmount})을 승인액으로 저장한다.
- * 출금 미확인으로 거절·만료된 결제가 늦게 출금이 확인되어 APPROVED로 바뀌면, 그 전에 폴링을 멈춘 POS에는 실패 영수증이 남는다.
+ *
+ * <p>늦은 출금: 출금 미확인으로 거절·만료된 결제는 주기 작업이 요청 번호 시각 + {@code late-withdrawal-window} 동안 다시 대조해
+ * APPROVED로 바꿀 수 있다. 그동안 {@code lateConfirmPending=true}로 POS가 조회를 멈추지 않게 한다.
+ * 기간 끝 직전에 시작한 대조는 정산 잠금을 잡은 채 은행 조회·저장을 하므로 저장이 기간 끝을 조금 넘길 수 있다.
+ * 그래서 기간 끝 + {@code settle-lock-ttl}까지 true로 둔다(임시). 대조가 잠금 시간보다 오래 걸리거나,
+ * 기간이 지난 뒤 운영이 거래내역 태그로 대조해 승인하면 POS는 알 수 없다.
  */
 @Slf4j
 @Service
@@ -51,10 +60,11 @@ public class PosPaymentResultService {
     private final PaymentCardLookup cards;
     private final PaymentApprovalProperties approveProperties;
     private final ObjectMapper objectMapper;
+    private final Clock clock;
 
     public PosPaymentResultService(PosTerminalResolver terminals, PaymentTransactionRepository payments,
             PaymentExpiry expiry, BarcodeStore barcodes, ApprovalAttemptStore attempts, PaymentCardLookup cards,
-            PaymentApprovalProperties approveProperties, ObjectMapper objectMapper) {
+            PaymentApprovalProperties approveProperties, ObjectMapper objectMapper, Clock clock) {
         this.terminals = terminals;
         this.payments = payments;
         this.expiry = expiry;
@@ -63,6 +73,7 @@ public class PosPaymentResultService {
         this.cards = cards;
         this.approveProperties = approveProperties;
         this.objectMapper = objectMapper;
+        this.clock = clock;
     }
 
     public PosPaymentResult get(String posKey, String posCode, Long paymentId) {
@@ -105,7 +116,7 @@ public class PosPaymentResultService {
         Long instantDiscount = charged == null ? null : payment.getRequestedAmount() - charged;
         return new PosPaymentResult(payment.getId(), orderNo, status, approvalNo, approvedAt,
                 payment.getRequestedAmount(), charged, instantDiscount, card(payment), failure(payment.getFailureCode()),
-                status == PaymentStatus.DECLINED ? retryable(payment) : null);
+                status == PaymentStatus.DECLINED ? retryable(payment) : null, lateConfirmPending(payment));
     }
 
     private PosPaymentResult.Card card(PaymentTransaction payment) {
@@ -133,6 +144,24 @@ public class PosPaymentResultService {
             log.warn("승인 시도 횟수를 읽지 못해 재승인 가능으로 응답 paymentId={}", payment.getId(), e);
             return true;
         }
+    }
+
+    /**
+     * 늦은 출금 대조가 남았는지. 주기 작업({@link WithdrawalRecovery#recheckDeclined})과 같은 조건(출금 미확인 거절·만료,
+     * 요청 번호 시각 + 대조 기간 전)에 정산 잠금 시간만큼 여유를 더한다. DECLINED·EXPIRED가 아니면 null.
+     */
+    private Boolean lateConfirmPending(PaymentTransaction payment) {
+        PaymentStatus status = payment.getStatus();
+        if (status != PaymentStatus.DECLINED && status != PaymentStatus.EXPIRED) {
+            return null;
+        }
+        String finRequestNo = payment.getFinRequestNo();
+        if (!payment.isLateConfirmable(finRequestNo)) {
+            return false;
+        }
+        Instant until = WithdrawalRecovery.lateCheckEnd(finRequestNo, approveProperties.lateWithdrawalWindow())
+                .plus(approveProperties.settleLockTtl());
+        return clock.instant().isBefore(until);
     }
 
     private static BusinessException notFound() {
