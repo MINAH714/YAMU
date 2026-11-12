@@ -30,6 +30,7 @@ import com.yamu.app.feature.auth.SignupAccountsRoute
 import com.yamu.app.feature.auth.SignupNext
 import com.yamu.app.feature.auth.SignupOneWonRoute
 import com.yamu.app.feature.auth.TermsRoute
+import com.yamu.app.feature.auth.TermDocRoute
 import com.yamu.app.feature.auth.WelcomeRoute
 import com.yamu.app.feature.auth.SplashRoute
 import com.yamu.app.feature.auth.data.SessionStart
@@ -117,7 +118,8 @@ fun YamuNavHost(navController: NavHostController, modifier: Modifier = Modifier)
             composable<Welcome> {
                 WelcomeRoute(
                     onStart = { navController.navigate(Terms) },
-                    onLogin = { navController.navigate(IdentityVerify) },   // 이 폰에 기기가 없을 때 = 본인인증 → 기기 재등록
+                    // 로그아웃 뒤처럼 이 폰에 기기가 있으면 간편 비밀번호, 없으면 본인인증 → 기기 재등록(2차 QA 14)
+                    onLogin = { to -> navController.navigate(welcomeLoginRoute(to)) { launchSingleTop = true } },
                     onDebugMenu = debugMenu,
                 )
             }
@@ -133,9 +135,10 @@ fun YamuNavHost(navController: NavHostController, modifier: Modifier = Modifier)
                     onBack = back,
                     onVerify = { navController.navigate(IdentityVerify) },
                     onAccounts = { navController.navigate(SignupAccounts) },   // 로그인으로 들어와 본인인증을 이미 마친 가입
-                    onOpenTerm = { showMessage("약관 전문은 준비 중이에요") },
+                    onOpenTerm = { doc -> navController.navigate(TermsDoc(doc.name)) { launchSingleTop = true } },
                 )
             }
+            composable<TermsDoc> { entry -> TermDocRoute(entry.toRoute<TermsDoc>().doc, onBack = back) }
             // 가입 진행 토큰 만료 · 앱이 다시 켜져 진행 상태가 없음 → 본인인증부터.
             // 까닭은 스낵바 대신 본인인증 화면 위에 띄우고, 넣었던 칸 · 약관 동의는 저장소가 남겨 둔다(SignupRepository.restart)
             val restartSignup: () -> Unit = {
@@ -380,7 +383,8 @@ fun YamuNavHost(navController: NavHostController, modifier: Modifier = Modifier)
                         onOpenPinPad = openPinPad,   // 숨은 시연 모드 본인 확인(S15P31E103-434)
                         onNotReady = showMessage,
                         onLoggedOut = {
-                            navController.restartFromSplash()
+                            // 첫 화면으로. 스플래시로 가면 이 폰에 남은 기기 때문에 곧바로 간편 비밀번호 화면이 열린다(2차 QA 14)
+                            navController.toWelcome()
                             showMessage("로그아웃했어요")
                         },
                         onDebugMenu = debugMenu,

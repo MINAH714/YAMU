@@ -3,6 +3,7 @@ package com.yamu.app.navigation
 import androidx.navigation.NavController
 import androidx.navigation.NavDestination.Companion.hasRoute
 import androidx.navigation.NavDestination.Companion.hierarchy
+import com.yamu.app.feature.auth.WelcomeLogin
 
 // 이동 도우미 — '뒤로 가면 어디로 가나'를 여기서 정한다(06 문서 2-5 확인 표)
 
@@ -20,7 +21,7 @@ fun NavController.navigateToTab(tab: TopTab) {
     }
 }
 
-/** 처음부터(스플래시) 다시 — 디버그 메뉴 · 로그아웃 */
+/** 처음부터(스플래시) 다시 — 디버그 메뉴 · 탈퇴. 로그아웃은 기기가 남아 스플래시가 간편 비밀번호로 보내므로 [toWelcome] */
 fun NavController.restartFromSplash() = navigate(Splash) {
     popUpTo(graph.id) { inclusive = true }
 }
@@ -60,7 +61,13 @@ fun NavController.toBuyCheckSaved(planId: Long) = navigate(BuyCheckSaved(planId)
     popUpTo<Forecast> { inclusive = false }
 }
 
-/** 이 폰에 등록된 기기가 없어짐 → 첫 화면(A-01). 스택을 모두 비운다 */
+/** 이 폰에 등록된 기기가 없어짐 · 로그아웃 → 첫 화면(A-01). 스택을 모두 비운다 */
 fun NavController.toWelcome() = navigate(AuthGraph) {
     popUpTo(graph.id) { inclusive = true }
+}
+
+/** 첫 화면 '로그인' → 기기가 있으면 간편 비밀번호(A-03), 없으면 본인인증(A-05)으로 이 폰을 다시 등록 */
+internal fun welcomeLoginRoute(to: WelcomeLogin): Any = when (to) {
+    WelcomeLogin.PIN -> Login
+    WelcomeLogin.VERIFY -> IdentityVerify
 }
