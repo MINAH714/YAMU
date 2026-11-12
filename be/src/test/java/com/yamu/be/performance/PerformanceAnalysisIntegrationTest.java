@@ -308,6 +308,32 @@ class PerformanceAnalysisIntegrationTest extends MySqlTestSupport {
                 .andExpect(jsonPath("$.data.guide").value("EXTRA_SPENDING_NOT_RECOMMENDED"));
     }
 
+    @Test
+    void 가장_낮은_구간에도_못_닿으면_실적_조건_없는_혜택_한도는_더_받는_혜택에서_뺀다() throws Exception {
+        // 시드 노리2 체크와 같은 모양: 실적 조건 없는 커피 할인(자기 한도 3천원)과 20만원부터 열리는 생활 할인이 통합 한도
+        // (0~20만 3천원·20만~ 2만원)를 함께 쓴다. 커피 3천원은 이번 달을 채우지 않아도 다음 달에 받는다
+        long nori = fixtures.product();
+        long coffee = benefit(nori, "커피 10% 할인", 0);
+        long life = benefit(nori, "생활 10% 할인", 200_000);
+        long coffeeMonthly = limitGroup(nori, "COFFEE_MONTH", 3_000L);
+        long integrated = limitGroup(nori, "INTEGRATED", null);
+        link(nori, coffee, coffeeMonthly);
+        link(nori, coffee, integrated);
+        link(nori, life, integrated);
+        tier(integrated, 0, 200_000L, 3_000);
+        tier(integrated, 200_000, null, 20_000);
+        long noriCard = card(owner, nori, "ACTIVE");
+        history(noriCard, 10_000);
+        performance(noriCard, NOVEMBER, 150_000);
+
+        analysis(owner, noriCard)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.targetAmount").value(200_000))
+                // 예상 16만은 20만원에 못 닿음: 2만원 − 0원 구간 3천원
+                .andExpect(jsonPath("$.data.extraBenefitIfMet").value(17_000))
+                .andExpect(jsonPath("$.data.steps[5].amount").value(17_000));
+    }
+
     // ── 카드별 실적 목록(S15P31E103-373)의 guide·decision ──
 
     @Test

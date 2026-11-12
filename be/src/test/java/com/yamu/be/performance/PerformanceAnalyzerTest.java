@@ -23,7 +23,7 @@ class PerformanceAnalyzerTest {
     /** 30만원 구간 원화 월 한도 1만원, 그 아래 10만원 구간 3천원. */
     static final Target TARGET = new Target(300_000, List.of(
             new Tier(100_000, 3_000L, List.of("편의점 5% 할인")),
-            new Tier(300_000, 10_000L, List.of("생활 10% 할인"))));
+            new Tier(300_000, 10_000L, List.of("생활 10% 할인"))), 0L);
 
     @Test
     void 인정_실적이_목표와_같으면_이미_달성이고_자연_소비를_보지_않는다() {
@@ -112,7 +112,7 @@ class PerformanceAnalyzerTest {
 
     @Test
     void 원화_한도가_없는_구간이면_혜택을_셀_수_없어_추가_소비를_권하지_않는다() {
-        Target points = new Target(300_000, List.of(new Tier(300_000, null, List.of("포인트 적립"))));
+        Target points = new Target(300_000, List.of(new Tier(300_000, null, List.of("포인트 적립"))), 0L);
         Result r = analyze(points, 299_000, months(0), List.of(), List.of(), Set.of());
 
         assertThat(r.extraBenefit()).isNull();
@@ -131,7 +131,7 @@ class PerformanceAnalyzerTest {
         // 10만원 구간 한도를 모름(겹친 한도 등, 373이 null로 비움). 0원으로 보면 1만원 전부를 더 받는다고 잘못 센다
         Target unknownLower = new Target(300_000, List.of(
                 new Tier(100_000, null, List.of("편의점 5% 할인")),
-                new Tier(300_000, 10_000L, List.of("생활 10% 할인"))));
+                new Tier(300_000, 10_000L, List.of("생활 10% 할인"))), 0L);
         Result r = analyze(unknownLower, 295_000, months(0), List.of(), List.of(), Set.of());
 
         assertThat(r.extraBenefit()).isNull();
@@ -141,6 +141,26 @@ class PerformanceAnalyzerTest {
         // 예상이 그 구간에 닿지 않으면 뺄 것이 없어 목표 구간 한도 전부
         Result below = analyze(unknownLower, 50_000, months(0), List.of(), List.of(), Set.of());
         assertThat(below.extraBenefit()).isEqualTo(10_000);
+    }
+
+    @Test
+    void 예상이_가장_낮은_구간에도_못_닿으면_실적_조건_없는_혜택_한도는_빼고_센다() {
+        // 노리2 체크처럼 실적 조건 없는 커피 할인(0원 구간 월 3천원)이 있고 20만원 구간 통합 한도가 2만원인 카드.
+        // 커피 3천원은 이번 달을 채우지 않아도 다음 달에 받으므로 더 받는 혜택은 2만 − 3천 = 1만 7천원
+        Target nori = new Target(200_000, List.of(new Tier(200_000, 20_000L, List.of("통신 10% 할인"))), 3_000L);
+        Result r = analyze(nori, 150_000, months(0), List.of(), List.of(), Set.of());
+
+        assertThat(r.extraBenefit()).isEqualTo(17_000);
+        assertThat(r.steps().get(5).amount()).isEqualTo(17_000);
+        // 1만 8천원 모자람: 0원을 빼면(2만원) 달성 추천이지만 실제로 더 받는 돈은 1만 7천원이라 비추천
+        Result over = analyze(nori, 182_000, months(0), List.of(), List.of(), Set.of());
+        assertThat(over.shortfall()).isEqualTo(18_000);
+        assertThat(over.guide()).isEqualTo(PerformanceGuide.EXTRA_SPENDING_NOT_RECOMMENDED);
+        assertThat(over.lossIfForced()).isEqualTo(1_000);
+
+        // 0원 구간 한도를 모르면 셀 수 없다
+        Target unknownBase = new Target(200_000, nori.tiers(), null);
+        assertThat(analyze(unknownBase, 150_000, months(0), List.of(), List.of(), Set.of()).extraBenefit()).isNull();
     }
 
     @Test

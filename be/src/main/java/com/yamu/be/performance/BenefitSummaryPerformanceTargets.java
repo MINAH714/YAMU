@@ -9,7 +9,8 @@ import org.springframework.stereotype.Component;
 /**
  * 유불리 분석의 목표 실적·구간을 카드별 실적 현황(S15P31E103-373)과 같은 {@link CardBenefitSummaryReader}(BE1 -308 임시 규칙)로
  * 읽는다. 목표는 {@link CardBenefitSummaryReader.Summary#targetFor}, 구간의 원화 월 한도는
- * {@link CardBenefitSummaryReader.Tier#monthlyKrwLimit}(모르면 null)라 실적 화면과 분석의 목표·구간이 달라지지 않는다.
+ * {@link CardBenefitSummaryReader.Tier#monthlyKrwLimit}(모르면 null)라 실적 화면과 분석의 목표·구간이 달라지지 않는다. 실적
+ * 0원일 때 받는 한도는 {@link CardBenefitSummaryReader.Summary#baseMonthlyKrwLimit}이다.
  */
 @Component
 class BenefitSummaryPerformanceTargets implements PerformanceTargets {
@@ -32,6 +33,6 @@ class BenefitSummaryPerformanceTargets implements PerformanceTargets {
         }
         return Optional.of(new PerformanceAnalyzer.Target(target, summary.tiers().stream()
                 .map(t -> new PerformanceAnalyzer.Tier(t.threshold(), t.monthlyKrwLimit(), t.benefitNames()))
-                .toList()));
+                .toList(), summary.baseMonthlyKrwLimit()));
     }
 }

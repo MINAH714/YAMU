@@ -24,8 +24,8 @@ import java.util.stream.Collectors;
  *       {@link PerformanceGuide#EXTRA_SPENDING_NOT_RECOMMENDED}(lossIfForced = 모자라는 돈 − 혜택).</li>
  * </ol>
  *
- * <p>더 받는 혜택 = 목표 구간의 원화 월 한도 합 − 예상 실적이 닿는 (목표보다 낮은) 구간의 원화 월 한도 합. 한도까지 다 받는다고
- * 본 최대치라 실제보다 클 수 있다(추정).
+ * <p>더 받는 혜택 = 목표 구간의 원화 월 한도 합 − 예상 실적이 닿는 (목표보다 낮은) 구간의 원화 월 한도 합. 닿는 구간이 없으면
+ * 실적 0원일 때의 한도(실적 조건 없는 혜택)를 뺀다. 한도까지 다 받는다고 본 최대치라 실제보다 클 수 있다(추정).
  */
 final class PerformanceAnalyzer {
 
@@ -39,8 +39,13 @@ final class PerformanceAnalyzer {
     record Tier(long threshold, Long monthlyKrwLimit, List<String> benefitNames) {
     }
 
-    /** 이번 달 목표 실적과 카드의 실적 구간. */
-    record Target(long amount, List<Tier> tiers) {
+    /**
+     * 이번 달 목표 실적과 카드의 실적 구간.
+     *
+     * @param baseMonthlyKrwLimit 이번 달 실적이 가장 낮은 구간에도 못 미칠 때 다음 달에 받는 원화 월 한도 합(실적 조건 없는
+     *                            혜택). 그런 혜택이 없으면 0, 모르면 null
+     */
+    record Target(long amount, List<Tier> tiers, Long baseMonthlyKrwLimit) {
     }
 
     /** 지난 달 하나의 같은 기간 인정 실적 합. */
@@ -139,8 +144,9 @@ final class PerformanceAnalyzer {
     }
 
     /**
-     * 목표 구간의 원화 월 한도 합 − 예상 실적이 닿는 낮은 구간의 원화 월 한도 합. 예상이 어느 낮은 구간에도 닿지 않으면 0을 뺀다.
-     * 목표 구간이나 예상이 닿는 낮은 구간의 한도를 원화로 셀 수 없으면(모르는 한도 포함) null(2026-11-11 결정: 0으로 보면 더 받는
+     * 목표 구간의 원화 월 한도 합 − 예상 실적이 닿는 낮은 구간의 원화 월 한도 합. 예상이 어느 낮은 구간에도 닿지 않으면 실적 0원일
+     * 때 받는 한도({@link Target#baseMonthlyKrwLimit}, 실적 조건 없는 혜택)를 뺀다(2026-11-12: 0을 빼면 그 혜택을 채워야 받는
+     * 것처럼 센다). 목표 구간이나 빼야 할 한도를 원화로 셀 수 없으면(모르는 한도 포함) null(2026-11-11 결정: 0으로 보면 더 받는
      * 혜택을 실제보다 크게 잡는다).
      */
     static Long extraBenefit(Target target, Tier targetTier, long projected) {
@@ -150,10 +156,11 @@ final class PerformanceAnalyzer {
         Optional<Tier> reached = target.tiers().stream()
                 .filter(t -> t.threshold() < target.amount() && t.threshold() <= projected)
                 .max(Comparator.comparingLong(Tier::threshold));
-        if (reached.isPresent() && reached.get().monthlyKrwLimit() == null) {
+        // Optional.map은 null 한도를 "닿은 구간 없음"으로 바꾸므로 쓰지 않는다
+        Long base = reached.isPresent() ? reached.get().monthlyKrwLimit() : target.baseMonthlyKrwLimit();
+        if (base == null) {
             return null;
         }
-        long base = reached.map(Tier::monthlyKrwLimit).orElse(0L);
         return Math.max(0, targetTier.monthlyKrwLimit() - base);
     }
 
