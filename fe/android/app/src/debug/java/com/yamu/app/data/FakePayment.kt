@@ -80,7 +80,21 @@ class FakePaymentRepository @Inject constructor(
     private fun mrLife(benefit: Long) = card(15, "신한카드", "#0046FF", "신한카드 Mr.Life", "5096", false, benefit, "주말 마트 10% 할인", months = listOf(2, 3, 6))
     private fun nori2(benefit: Long, amount: Long) = card(16, "KB국민카드", "#60584C", "KB국민 노리2 체크카드(KB Pay)", "8823", true, benefit, "GS25·CU 5% 할인", charged = amount - benefit)
 
-    private fun requestFor(scenario: PayScenario, paymentId: Long, deadline: String): PaymentRequest = when (scenario) {
+    /** 결제 요청 카드는 가짜 사용자가 쓸 수 있는(ACTIVE) 카드만(S15P31E103-454). 시나리오 카드가 하나도 없으면 등록한 카드를 혜택 없이 */
+    private fun requestFor(scenario: PayScenario, paymentId: Long, deadline: String): PaymentRequest {
+        val request = scenarioRequest(scenario, paymentId, deadline)
+        if (scenario == PayScenario.NO_CARD) return request
+        val active = bank.activeCardIds().toSet()
+        val cards = request.cards.filter { it.userCardId in active }.ifEmpty {
+            bank.cardViews().filter { it.userCardId in active }.map { v ->
+                val plain = card(v.userCardId, v.issuer, v.color, v.product, v.last4, v.check, 0, null)
+                if (scenario == PayScenario.CARDS_UNKNOWN) uncompared(plain, direct = true) else plain
+            }
+        }
+        return request.copy(cards = cards)
+    }
+
+    private fun scenarioRequest(scenario: PayScenario, paymentId: Long, deadline: String): PaymentRequest = when (scenario) {
         PayScenario.MART -> PaymentRequest(
             paymentId, "야무마트 강남점", "대형마트", 90_000, deadline,
             listOf(
@@ -172,7 +186,7 @@ class FakePaymentRepository @Inject constructor(
             installmentMonths = installmentMonths,
             benefits = listOfNotNull(card.benefitName?.let { ReceiptBenefit(it, card.netBenefit.toLong()) }),
             chargedAmount = card.chargedAmount ?: request.amount,
-            balanceAfter = if (card.isCheck) 950_000 - (card.chargedAmount ?: request.amount) else null,
+            balanceAfter = if (card.isCheck) (bank.balanceForCard(card.userCardId) ?: 0) - (card.chargedAmount ?: request.amount) else null,   // 출금 계좌 잔액(계좌 관리와 같은 값)
             billDateIso = if (card.isCheck) null else payDay.toString(),
             billAmount = if (card.isCheck) null else (request.amount - card.netBenefit.toLong()) / (installmentMonths ?: 1),
             perfMonth = LocalDate.now(KST).monthValue,
@@ -196,6 +210,9 @@ class FakePaymentRepository @Inject constructor(
 
     /** 이번 실행에서 승인한 가짜 결제 — 가짜 결제 내역 · 소비분석 맨 위에 */
     fun approved(): List<PaymentReceipt> = receipts.values.sortedByDescending { it.paidAtIso }
+
+    /** 지난 결제 기록(FakePaymentHistory)을 보일지 — 시드 사용자만. 새 사용자는 이번 실행에서 한 결제만(S15P31E103-454) */
+    val hasHistory: Boolean get() = bank.seeded
 
     override suspend fun detail(paymentId: Long): ApiResult<PaymentReceipt> = withFault { detailNow(paymentId) }
 

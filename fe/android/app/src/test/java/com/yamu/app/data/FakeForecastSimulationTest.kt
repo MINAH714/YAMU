@@ -16,7 +16,7 @@ import java.time.LocalDate
  * 가짜 계좌는 월급 통장 412,000 · 생활비 통장 268,000이고, 가상 구매는 생활비 통장에서 빠진다
  */
 class FakeForecastSimulationTest {
-    private val fake = FakeForecastRepository()
+    private val fake = FakeForecastRepository(FakeBank(FakeUser(storage = null)))   // 시드 사용자
     private val notice = "체크카드는 구매일 잔액보다 큰 금액은 결제되지 않을 수 있어요."
 
     private suspend fun simulate(amount: Long, cardId: Long): Simulation {

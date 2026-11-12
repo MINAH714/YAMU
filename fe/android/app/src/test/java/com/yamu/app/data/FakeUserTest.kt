@@ -36,7 +36,7 @@ class FakeUserTest {
         assertTrue(register(lookup.data.verificationToken) is ApiResult.Success)
     }
 
-    private fun issueCode(bank: FakeBank) = FakePaymentRepository(FakePerformanceStore(), PaymentEdits(), bank)
+    private fun issueCode(bank: FakeBank) = FakePaymentRepository(FakePerformanceStore(bank), PaymentEdits(), bank)
 
     @Test fun `저장한 값이 없으면 시드 사용자 — 계좌 2 · 카드 6장`() {
         assertTrue(bank.seeded)

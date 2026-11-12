@@ -31,7 +31,11 @@ import javax.inject.Singleton
  * 응답 모양은 API 명세(지금 명세 + 보완안). 진짜와 같은 변환(toSummary)을 거친다.
  */
 @Singleton
-class FakeHomeRepository @Inject constructor(private val my: FakeMyRepository, private val bank: FakeBank) : HomeRepository {
+class FakeHomeRepository @Inject constructor(
+    private val my: FakeMyRepository,
+    private val bank: FakeBank,
+    private val forecasts: FakeForecastRepository,
+) : HomeRepository {
 
     override suspend fun loadHome(): ApiResult<HomeSummary> {
         val scenario = scenario()
@@ -69,15 +73,21 @@ class FakeHomeRepository @Inject constructor(private val my: FakeMyRepository, p
 
     private fun dto(scenario: HomeScenario): HomeDto {
         val synced = now().minusMinutes(3).toOffsetDateTime().toString()
-        val payday = nextPayday()
-        val forecast = BalanceForecastDto(
-            accountId = 3,
-            currentBalance = 950_000,
-            minBalance = 350_000,
-            nextIncome = NextIncomeDto(date = payday.toString(), amount = 2_800_000, label = "월급"),
-            isEstimate = true,
-            isProvisional = scenario == HomeScenario.FIRST_DAY,
-        )
+        // 예상 잔액 · 다음 월급은 가짜 잔고예보와 같은 계산 — BE HomeService처럼 기준 계좌 하나로(S15P31E103-454). 월급이 없으면 다음 월급 없음
+        val f = forecasts.homeForecast()
+        val forecast = f?.let {
+            BalanceForecastDto(
+                accountId = it.accountId,
+                currentBalance = it.currentBalance,
+                endBalancePredicted = it.endBalance,
+                nextRiskDate = it.nextRiskDate?.toString(),
+                horizonDays = it.horizonDays,
+                minBalance = it.minBalance,
+                nextIncome = it.nextIncome?.let { (date, amount) -> NextIncomeDto(date = date.toString(), amount = amount, label = "월급") },
+                isEstimate = true,
+                isProvisional = scenario == HomeScenario.FIRST_DAY || it.provisional,
+            )
+        }
         // 카드 수 · 할 일 · 오늘의 카드는 가짜 사용자가 등록한 카드만(0장이면 실서버 새 사용자처럼 셋 다 없음)
         val registered = bank.registeredCardIds().toSet()
         val lotteTodo = TodoDto("롯데카드는 통신비만 옮기면 채워져요", "실적 달성 추천", "PRIMARY", 13)
@@ -99,14 +109,15 @@ class FakeHomeRepository @Inject constructor(private val my: FakeMyRepository, p
             )
             HomeScenario.AFTER_PAYMENT -> base.copy(
                 recentPayment = RecentPaymentDto(938L, "스타벅스 역삼점", 15_000, "KB국민카드", 7_500, paidAt = now().toOffsetDateTime().toString()),   // 방금 결제
-                // 할인 뒤 낸 7,500원만큼 줄어든 예상 잔액 — 홈 금액이 350,000 → 342,500으로 굴러가는 걸 볼 수 있게
-                balanceForecast = forecast.copy(currentBalance = 950_000 - 7_500, minBalance = 350_000 - 7_500),
+                // 할인 뒤 낸 7,500원만큼 줄어든 예상 잔액 — 홈 금액이 7,500원 내려가며 굴러가는 걸 볼 수 있게
+                balanceForecast = forecast?.let { it.copy(currentBalance = it.currentBalance?.minus(7_500), minBalance = it.minBalance?.minus(7_500)) },
             )
-            // 잔고예보 월급을 정하기 전 — BE는 수입 없이 30일을 계산해 끝 잔액이 음수가 되기 쉽다(실서버 김야무 11/12 모양). 홈은 지금 잔액 히어로 + 월급 안내
+            // 잔고예보 월급을 정하기 전 — BE는 수입 없이 30일을 계산해 끝 잔액이 음수가 되기 쉽다(실서버 김야무 11/12 모양). 홈은 지금 잔액 히어로 + 월급 안내.
+            // 가짜 사용자에 월급이 없으면 '정상'도 이 모양(다음 월급 없음)이 된다. 여기는 끝 잔액이 음수인 모양을 일부러 보는 칸
             HomeScenario.BEFORE_INCOME -> base.copy(
                 balanceForecast = BalanceForecastDto(
-                    accountId = 3,
-                    currentBalance = 950_000,
+                    accountId = f?.accountId ?: 1,
+                    currentBalance = f?.currentBalance ?: 0,
                     endBalancePredicted = -275_622,
                     nextRiskDate = LocalDate.now(KST).plusDays(21).toString(),
                     horizonDays = 30,
@@ -138,8 +149,4 @@ class FakeHomeRepository @Inject constructor(private val my: FakeMyRepository, p
             else -> base
         }
     }
-
-    /** 다음 10일(월급날 예시) */
-    /** 가짜 잔고예보(FakeForecastRepository)와 같은 월급날 — 오늘 + 25일 */
-    private fun nextPayday(): LocalDate = LocalDate.now(KST).plusDays(25)
 }

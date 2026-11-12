@@ -66,7 +66,10 @@ internal object DevSessionStore {
  */
 class DebugStateProvider : ContentProvider() {
     override fun onCreate(): Boolean {
-        context?.let(DevSessionStore::attach)
+        context?.let {
+            DevSessionStore.attach(it)
+            FakeUser.showSaved(it)   // 디버그 메뉴 '가짜 사용자' 칸 — 가짜 저장소가 아직 안 만들어졌어도 보이게
+        }
         return true
     }
 
