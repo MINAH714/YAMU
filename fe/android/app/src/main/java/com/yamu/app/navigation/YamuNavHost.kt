@@ -366,6 +366,7 @@ fun YamuNavHost(navController: NavHostController, modifier: Modifier = Modifier)
                         onNotificationSettings = { navController.navigate(NotificationSettings) },
                         onSecurity = { navController.navigate(Security) },
                         onBilling = { navController.navigate(Billing) },
+                        onOpenPinPad = openPinPad,   // 숨은 시연 모드 본인 확인(S15P31E103-434)
                         onNotReady = showMessage,
                         onLoggedOut = {
                             navController.restartFromSplash()
