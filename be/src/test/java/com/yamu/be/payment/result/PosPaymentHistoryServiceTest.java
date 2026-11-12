@@ -114,7 +114,7 @@ class PosPaymentHistoryServiceTest {
         PosPaymentHistory history = service.list("key", POS_CODE);
 
         assertThat(history.items()).allSatisfy(item -> {
-            assertThat(item.card().issuerName()).isEqualTo("HANA");
+            assertThat(item.card().issuerName()).isEqualTo("하나카드");
             assertThat(item.cancelable()).isTrue();
         });
         verify(cards, times(1)).findReceiptCard(7L);
