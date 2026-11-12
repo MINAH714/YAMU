@@ -44,7 +44,7 @@ class HomeMapperTest {
              "todos":[{"title":"통신비만 우리카드로","tag":"실적 달성 추천","tone":"PRIMARY","userCardId":1},
                       {"title":"NH농협은 채우지 않기","tag":"추가 소비 비추천","tone":"ERROR","userCardId":3},
                       {"title":"세 번째는 안 보임"}],
-             "recentPayment":{"paymentId":1,"merchantName":"야무카페 역삼점","amount":15000,"cardName":"신한카드","benefitAmount":1500},
+             "recentPayment":{"paymentId":1,"merchantName":"야무카페 역삼점","amount":15000,"cardName":"신한카드","benefitAmount":1500,"paidAt":"2026-10-16T05:30:00Z"},
              "onboarding":{"step":"DONE"}}
             """,
         )
@@ -57,6 +57,7 @@ class HomeMapperTest {
         assertEquals(2, home.todos.size)                          // 최대 2줄
         assertEquals(TodoTone.Error, home.todos[1].tone)
         assertEquals("야무카페 역삼점", home.recentPayment!!.merchantName)
+        assertEquals("2026-10-16T05:30:00Z", home.recentPayment!!.paidAtIso)   // 줄 시각은 paidAtLabel이 만든다
     }
 
     @Test
