@@ -37,7 +37,7 @@ public record PosPaymentResult(
         Boolean lateConfirmPending) {
 
     /**
-     * @param issuerName        임시: 카드사 코드(예: HANA) 그대로. 카드사 이름 표는 card 패키지(BE1)에 있어 열어 받은 뒤 이름으로 바꾼다
+     * @param issuerName        카드사 이름(예: 하나카드). 이름 표({@link com.yamu.be.card.CardIssuers})에 없는 카드사는 코드 그대로
      * @param maskedNumber      끝 4자리만 보이는 카드번호. 앞자리는 저장하지 않는다
      * @param installmentMonths 할부일 때만. 일시불은 null
      */
