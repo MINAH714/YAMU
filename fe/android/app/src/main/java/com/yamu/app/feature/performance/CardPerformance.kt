@@ -24,6 +24,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.SavedStateHandle
@@ -46,6 +47,10 @@ import com.yamu.app.core.format.toWon
 import com.yamu.app.core.network.ApiResult
 import com.yamu.app.core.ui.userMessage
 import com.yamu.app.feature.link.BrandCardArt
+import com.yamu.app.feature.link.DIMMED_CARD_ALPHA
+import com.yamu.app.feature.link.data.CardArtRef
+import com.yamu.app.feature.link.data.CardArtRefsLoader
+import com.yamu.app.feature.link.data.LinkRepository
 import com.yamu.app.feature.performance.data.AT_RISK_LABEL
 import com.yamu.app.feature.performance.data.CardPerf
 import com.yamu.app.feature.performance.data.PerfDetail
@@ -64,12 +69,23 @@ data class CardPerfState(val loading: Boolean = true, val card: CardPerf? = null
 
 /** R-02 카드 실적 상세(#66) — 카드 이름 · 판정은 실적관리 목록(#65)에서 */
 @HiltViewModel
-class CardPerformanceViewModel @Inject constructor(savedStateHandle: SavedStateHandle, private val perf: PerformanceRepository) : ViewModel() {
+class CardPerformanceViewModel @Inject constructor(
+    savedStateHandle: SavedStateHandle,
+    private val perf: PerformanceRepository,
+    link: LinkRepository,
+) : ViewModel() {
     private val userCardId = savedStateHandle.toRoute<CardPerformance>().userCardId
     private val _state = MutableStateFlow(CardPerfState())
     val state: StateFlow<CardPerfState> = _state.asStateFlow()
 
-    init { load() }
+    /** 별명 카드의 그림 — 실적 응답엔 상품명이 없어 카드 목록에서 찾는다 */
+    private val artLoader = CardArtRefsLoader(link, viewModelScope)
+    val arts: StateFlow<Map<Long, CardArtRef>> = artLoader.refs
+
+    init {
+        artLoader.ensure(listOf(userCardId))
+        load()
+    }
 
     fun load() {
         viewModelScope.launch {
@@ -87,6 +103,7 @@ class CardPerformanceViewModel @Inject constructor(savedStateHandle: SavedStateH
 @Composable
 fun CardPerformanceRoute(onBack: () -> Unit, onAnalysis: (userCardId: Long) -> Unit, viewModel: CardPerformanceViewModel = hiltViewModel()) {
     val s by viewModel.state.collectAsStateWithLifecycle()
+    val arts by viewModel.arts.collectAsStateWithLifecycle()
     val c = YamuTheme.colors
     val card = s.card
     val d = s.detail
@@ -104,7 +121,7 @@ fun CardPerformanceRoute(onBack: () -> Unit, onAnalysis: (userCardId: Long) -> U
           Column(Modifier.padding(horizontal = YamuSpacing.screen)) {
             Spacer(Modifier.height(YamuSpacing.x6))
             card?.let {
-                PerfCardArt(it)
+                PerfCardArt(it, art = arts[it.userCardId])
                 Spacer(Modifier.height(YamuSpacing.x6))
             }
             when {
@@ -170,13 +187,20 @@ internal fun PerfDetail.headline(): String? {
 
 /**
  * 실적 화면 머리의 카드 그림 — 어떤 카드인지 실물 카드로(R-02 · R-03). 폭은 최대 280dp, 탭을 바꾸면 같이 바뀐다.
- * name은 카드사 이름이라 그림은 상품명(nickname)으로 찾는다. 끝자리는 실적 응답에 없어 빼고 보인다
+ * name은 카드사 이름이라 그림은 [art](카드 목록)의 상품명으로, 모르면 nickname(별명이 없으면 상품명)으로 찾는다.
+ * 끝자리는 실적 응답에 없어 빼고 보인다. 정지 · 만료 카드는 흐리게
  */
 @Composable
-internal fun PerfCardArt(card: CardPerf, modifier: Modifier = Modifier) {
+internal fun PerfCardArt(card: CardPerf, modifier: Modifier = Modifier, art: CardArtRef? = null) {
     Box(modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
         Crossfade(card, label = "perfCard") { c ->
-            BrandCardArt(c.brand, c.nickname ?: c.name, last4 = null, modifier = Modifier.widthIn(max = 280.dp))
+            BrandCardArt(
+                c.brand,
+                c.nickname ?: c.name,
+                last4 = null,
+                modifier = Modifier.widthIn(max = 280.dp).alpha(if (art?.dimmed == true) DIMMED_CARD_ALPHA else 1f),
+                productName = art?.productName ?: c.nickname ?: c.name,
+            )
         }
     }
 }

@@ -676,7 +676,10 @@ private fun CardDoneStep(
             Text("${card.productName}${card.productName.objectParticle()}\n등록했어요", style = YamuTheme.typography.headlineS, color = c.text1)
             Spacer(Modifier.height(6.dp))
             Text("${card.brand.name} ·${card.last4}", style = YamuTheme.typography.sub, color = c.text3)
-            Spacer(Modifier.height(24.dp))
+            Spacer(Modifier.height(20.dp))
+            // 등록한 카드 실물 — 카드 상세(M-03)와 같은 최대 240dp. 그림이 없으면 카드사 색 카드
+            BrandCardArt(card.brand, card.productName, card.last4, Modifier.widthIn(max = 240.dp))
+            Spacer(Modifier.height(20.dp))
             KeyValueRow("결제일", card.paymentDay?.let { "매월 ${it}일" } ?: if (card.isCheck) "결제 즉시 출금" else "확인할 수 없어요", large = false, minHeight = 32.dp)
             // 서버가 NONE이면 0원이 아니라 모르는 값이다
             KeyValueRow("지난달 실적", card.prevMonthAmount?.let { "${it.toWon()}원" } ?: "확인할 수 없어요", large = false, minHeight = 32.dp)

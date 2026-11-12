@@ -33,6 +33,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
@@ -131,15 +132,22 @@ fun BrandCardArt(brand: Brand, name: String, last4: String?, modifier: Modifier 
     }
 }
 
-/** 카드 목록 줄 앞자리(M-02 · H-03) — 88dp 상품 그림, 없으면 같은 크기의 카드사 색 카드 */
+/**
+ * 카드 목록 줄 앞자리 — 상품 그림, 없으면 같은 크기의 카드사 색 카드. 카드 목록(M-02 · H-03)은 88dp, 실적 · 한도 · 청구서 줄은 44dp.
+ * [dimmed]는 카드사 정지 · 만료 카드 — 그림을 흐리게
+ */
 @Composable
-fun CardListThumb(brand: Brand, productName: String, width: Dp = 88.dp) {
-    CardThumb(CardImages.forProduct(productName), width = width) {
-        Box(Modifier.width(width).aspectRatio(1.586f).clip(RoundedCornerShape(8.dp))) {
+fun CardListThumb(brand: Brand, productName: String, width: Dp = 88.dp, dimmed: Boolean = false) {
+    val alpha = if (dimmed) DIMMED_CARD_ALPHA else 1f
+    CardThumb(CardImages.forProduct(productName), modifier = Modifier.alpha(alpha), width = width) {
+        Box(Modifier.width(width).aspectRatio(1.586f).alpha(alpha).clip(RoundedCornerShape(8.dp))) {
             BrandMark(brand, Modifier.fillMaxSize(), large = true)
         }
     }
 }
+
+/** 정지 · 만료 카드 그림의 불투명도 */
+const val DIMMED_CARD_ALPHA = 0.4f
 
 /** 고르는 줄 — 로고 + 이름 ·끝자리 + 오른쪽 체크(C-03 · C-12) */
 @Composable

@@ -95,6 +95,8 @@ import com.yamu.app.feature.forecast.data.PaymentChannel
 import com.yamu.app.feature.forecast.data.SavedPlan
 import com.yamu.app.feature.forecast.data.SimCardOption
 import com.yamu.app.feature.forecast.data.SimulationQuery
+import com.yamu.app.feature.link.CardListThumb
+import com.yamu.app.feature.link.data.brandOf
 import com.yamu.app.navigation.BuyCheckConditions
 import com.yamu.app.navigation.BuyCheckSaved
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -439,9 +441,17 @@ private fun ChoiceRow(label: String, value: String, enabled: Boolean, onClick: (
     }
 }
 
-/** 둘 중 하나 고르기 줄 — 둥근 표시 + 이름 · 보조 */
+/** 둘 중 하나 고르기 줄 — 둥근 표시 + 이름 · 보조 + [trailing](카드 그림) */
 @Composable
-internal fun RadioRow(title: String, sub: String?, selected: Boolean, onClick: () -> Unit, enabled: Boolean = true, chevron: Boolean = false) {
+internal fun RadioRow(
+    title: String,
+    sub: String?,
+    selected: Boolean,
+    onClick: () -> Unit,
+    enabled: Boolean = true,
+    chevron: Boolean = false,
+    trailing: (@Composable () -> Unit)? = null,
+) {
     val c = YamuTheme.colors
     Row(
         Modifier
@@ -458,6 +468,7 @@ internal fun RadioRow(title: String, sub: String?, selected: Boolean, onClick: (
             Text(title, style = YamuTheme.typography.titleS, color = c.text1)
             sub?.let { Text(it, style = YamuTheme.typography.bodyS, color = c.text3) }
         }
+        trailing?.invoke()
         if (chevron) Icon(YamuIcons.ChevronRight, contentDescription = null, tint = c.text3, modifier = Modifier.size(18.dp))
     }
 }
@@ -538,6 +549,8 @@ internal fun CardSheet(
                         selected = card.userCardId == selectedId,
                         enabled = card.unusableReason == null,
                         onClick = { onPick(card.userCardId) },
+                        // 카드 그림 44dp는 오른쪽 — 맨 위 '혜택이 가장 큰 카드' 줄과 이름 시작을 맞춘다. 고를 수 없는 카드는 줄째 흐리다
+                        trailing = { CardListThumb(card.brand ?: brandOf(card.name), card.productName ?: card.name, width = 44.dp) },
                     )
                 }
             }

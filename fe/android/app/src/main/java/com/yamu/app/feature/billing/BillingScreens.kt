@@ -75,6 +75,11 @@ import com.yamu.app.feature.billing.data.koreanDay
 import com.yamu.app.feature.billing.data.line
 import com.yamu.app.feature.billing.data.rowLine
 import com.yamu.app.feature.billing.data.tag
+import com.yamu.app.feature.link.CardListThumb
+import com.yamu.app.feature.link.data.CardArtRef
+import com.yamu.app.feature.link.data.CardArtRefsLoader
+import com.yamu.app.feature.link.data.LinkRepository
+import com.yamu.app.feature.link.data.brandOf
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -118,6 +123,7 @@ internal val BillingState.pendingSummary: RefundSummary? get() = refundSummary?.
 class BillingViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
     private val repo: BillingRepository,
+    link: LinkRepository,
 ) : ViewModel() {
     /** CardBills(userCardId)로 왔을 때만 있다 */
     private val userCardId: Long? = savedStateHandle.get<Long>("userCardId")
@@ -127,8 +133,13 @@ class BillingViewModel @Inject constructor(
     private var billsJob: Job? = null
     private var refundsJob: Job? = null
 
+    /** 청구서 줄의 카드 그림 — 청구서 응답엔 별명만 있어 카드 목록에서 상품명 · 카드사를 찾는다 */
+    private val artLoader = CardArtRefsLoader(link, viewModelScope)
+    val arts: StateFlow<Map<Long, CardArtRef>> = artLoader.refs
+
     /** 화면에 돌아올 때마다 — 출금 · 환급 정기 작업이나 결제 취소가 상태를 바꿨을 수 있다 */
     fun refresh() {
+        artLoader.ensure(_state.value.bills?.bills.orEmpty().mapNotNull { it.userCardId })
         loadBills()
         if (userCardId == null) loadRefunds()
     }
@@ -139,6 +150,7 @@ class BillingViewModel @Inject constructor(
         billsJob = viewModelScope.launch {
             _state.update { it.copy(billsLoading = true, billsError = null) }
             val r = repo.bills(userCardId)
+            if (r is ApiResult.Success) artLoader.ensure(r.data.bills.mapNotNull { it.userCardId })
             _state.update { s ->
                 when (r) {
                     is ApiResult.Success -> s.copy(billsLoading = false, bills = r.data, cardGone = false)
@@ -229,6 +241,7 @@ fun BillingRoute(
     viewModel: BillingViewModel = hiltViewModel(),
 ) {
     val s by viewModel.state.collectAsStateWithLifecycle()
+    val arts by viewModel.arts.collectAsStateWithLifecycle()
     LifecycleResumeEffect(Unit) {
         viewModel.refresh()
         onPauseOrDispose { }
@@ -246,7 +259,7 @@ fun BillingRoute(
         Column(Modifier.padding(inner).consumeWindowInsets(inner).fillMaxSize()) {
             if (!s.cardFiltered) YamuTabs(listOf("청구서", "환급"), selectedIndex = tab, onSelect = { tab = it })
             if (s.cardFiltered || tab == 0) {
-                BillsTab(s, onBack = onBack, onBill = onBill, onRetry = viewModel::loadBills)
+                BillsTab(s, arts, onBack = onBack, onBill = onBill, onRetry = viewModel::loadBills)
             } else {
                 RefundsTab(s, onBill = onBill, onPayment = onPayment, onRetry = viewModel::loadRefunds, onMore = viewModel::loadMore)
             }
@@ -256,7 +269,7 @@ fun BillingRoute(
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun BillsTab(s: BillingState, onBack: () -> Unit, onBill: (Long) -> Unit, onRetry: () -> Unit) {
+private fun BillsTab(s: BillingState, arts: Map<Long, CardArtRef>, onBack: () -> Unit, onBill: (Long) -> Unit, onRetry: () -> Unit) {
     val list = s.bills
     val today = remember { LocalDate.now(KST) }
     when {
@@ -275,6 +288,7 @@ private fun BillsTab(s: BillingState, onBack: () -> Unit, onBill: (Long) -> Unit
                 itemsIndexed(bills, key = { _, b -> b.billId }) { i, b ->
                     BillingRow(
                         title = b.cardName,
+                        lead = { BillCardThumb(b.userCardId?.let { arts[it] }, b.cardName) },
                         line = b.rowLine(),
                         amount = "${b.amount.toWon()}원",
                         amountNote = b.amountNote(),
@@ -408,6 +422,7 @@ internal fun BillingRow(
     amountNote: String? = null,
     dimmed: Boolean = false,
     horizontalPadding: Dp = YamuSpacing.screen,     // 흰 카드 안(청구서 상세)에서는 카드 안쪽 여백 20에 맞춘다
+    lead: (@Composable () -> Unit)? = null,         // 청구서 줄의 카드 그림
 ) {
     val c = YamuTheme.colors
     if (divider) HorizontalDivider(thickness = 1.dp, color = c.outlineVariant)
@@ -422,6 +437,7 @@ internal fun BillingRow(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(YamuSpacing.x3),
     ) {
+        lead?.invoke()
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text(
@@ -442,6 +458,19 @@ internal fun BillingRow(
         }
     }
 }
+
+/**
+ * 청구서의 카드 그림 44dp — 상품명 · 카드사는 카드 목록에서 찾는다([art]). 목록에 없으면(해제한 카드 · 목록 실패)
+ * 청구서의 카드 이름(별명이 없으면 상품명)으로 그림을 찾고, 그것도 없으면 회색 카드에 이름 첫 낱말
+ */
+@Composable
+internal fun BillCardThumb(art: CardArtRef?, cardName: String) =
+    CardListThumb(
+        art?.brand ?: brandOf(cardName, shortName = cardName.substringBefore(' ')),
+        art?.productName ?: cardName,
+        width = 44.dp,
+        dimmed = art?.dimmed == true,
+    )
 
 /** 회색 바탕 위 묶음 머리 — 스크롤해도 위에 붙어 있다 */
 @Composable
