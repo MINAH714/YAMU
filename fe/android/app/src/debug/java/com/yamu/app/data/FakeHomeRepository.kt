@@ -97,6 +97,19 @@ class FakeHomeRepository @Inject constructor(private val my: FakeMyRepository) :
                 // 할인 뒤 낸 7,500원만큼 줄어든 예상 잔액 — 홈 금액이 350,000 → 342,500으로 굴러가는 걸 볼 수 있게
                 balanceForecast = forecast.copy(currentBalance = 950_000 - 7_500, minBalance = 350_000 - 7_500),
             )
+            // 잔고예보 월급을 정하기 전 — BE는 수입 없이 30일을 계산해 끝 잔액이 음수가 되기 쉽다(실서버 김야무 11/12 모양). 홈은 지금 잔액 히어로 + 월급 안내
+            HomeScenario.BEFORE_INCOME -> base.copy(
+                balanceForecast = BalanceForecastDto(
+                    accountId = 3,
+                    currentBalance = 950_000,
+                    endBalancePredicted = -275_622,
+                    nextRiskDate = LocalDate.now(KST).plusDays(21).toString(),
+                    horizonDays = 30,
+                    minBalance = -275_622,
+                    isEstimate = true,
+                    isProvisional = false,
+                ),
+            )
             HomeScenario.NOT_LINKED -> HomeDto(
                 cards = CardsDto(count = 0),
                 onboarding = OnboardingDto("LINK"),

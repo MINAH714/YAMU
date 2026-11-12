@@ -16,6 +16,7 @@ enum class HomeScenario(val label: String) {
     NORMAL("정상"),
     FIRST_DAY("가입 첫날(잠정)"),
     AFTER_PAYMENT("결제 반영 직후"),
+    BEFORE_INCOME("월급 등록 전"),
     NOT_LINKED("연결 전"),
     LEGACY_SPEC("지금 명세 모양(보완 전)"),
     PARTIAL("예상 잔액만 실패"),

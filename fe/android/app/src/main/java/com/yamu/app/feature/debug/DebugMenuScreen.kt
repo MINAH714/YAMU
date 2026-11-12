@@ -193,7 +193,7 @@ fun DebugMenuScreen(navController: NavController, viewModel: DebugMenuViewModel 
                     "A-04 약관 동의" to Terms,
                     "A-07 가입 완료" to SignupDone,
                     "C-01 카드 등록" to CardRegister,
-                    "B-06 월급 · 고정 지출" to CashflowConfirm,
+                    "B-06 월급 · 고정 지출" to CashflowConfirm(),
                     "H-02 알림" to Notifications,
                     "H-03 내 카드" to MyCards,
                     "F-01 잔고예보" to Forecast,

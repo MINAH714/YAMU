@@ -121,6 +121,7 @@ fun HomeRoute(
     onStartLinking: () -> Unit,
     onTodo: (userCardId: Long?) -> Unit,
     onRecentPayment: (paymentId: Long) -> Unit,
+    onRegisterIncome: () -> Unit,
     onAddCard: () -> Unit,
     viewModel: HomeViewModel = hiltViewModel(),
 ) {
@@ -141,6 +142,7 @@ fun HomeRoute(
         onStartLinking = onStartLinking,
         onTodo = onTodo,
         onRecentPayment = onRecentPayment,
+        onRegisterIncome = onRegisterIncome,
         onAddCard = onAddCard,
     )
 }
@@ -159,6 +161,7 @@ fun HomeScreen(
     onStartLinking: () -> Unit,
     onTodo: (Long?) -> Unit,
     onRecentPayment: (Long) -> Unit,
+    onRegisterIncome: () -> Unit = {},
     onAddCard: () -> Unit = {},
 ) {
     val c = YamuTheme.colors
@@ -181,7 +184,7 @@ fun HomeScreen(
             val content = state.content
             FillRestColumn(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
                 when {
-                    content != null -> HomeContent(content, state.userName, state.error, onPay, onForecast, onStartLinking, onTodo, onRecentPayment, onAddCard)
+                    content != null -> HomeContent(content, state.userName, state.error, onPay, onForecast, onStartLinking, onTodo, onRecentPayment, onRegisterIncome, onAddCard)
                     state.isLoading -> HomeSkeleton()
                     state.error != null -> YamuCard { ErrorState(state.error.userMessage(), onRetry = onRetry) }
                 }
@@ -203,6 +206,7 @@ private fun HomeContent(
     onStartLinking: () -> Unit,
     onTodo: (Long?) -> Unit,
     onRecentPayment: (Long) -> Unit,
+    onRegisterIncome: () -> Unit,
     onAddCard: () -> Unit,
 ) {
     val c = YamuTheme.colors
@@ -224,11 +228,23 @@ private fun HomeContent(
         )
     }
 
-    // 인사 머리 — 월급까지 남은 날(첫날이면 아래에 '가입 첫날이에요')
-    home.forecast?.daysToIncome?.takeIf { !home.needsLinking }?.let { d ->
+    // 인사 머리 — 월급까지 남은 날(첫날이면 아래에 '가입 첫날이에요'). 월급을 정하기 전이면 같은 자리에서 월급 등록으로(S15P31E103-429)
+    val forecast = home.forecast?.takeIf { !home.needsLinking && (it.daysToIncome != null || it.needsIncome) }
+    if (forecast != null) {
         Column(Modifier.padding(start = YamuSpacing.screen, end = YamuSpacing.screen, top = 8.dp, bottom = 20.dp)) {
-            Text("${userName ?: "야무"}님, 월급까지 D-$d", style = YamuTheme.typography.headlineS, color = c.text1)
-            if (home.forecast.isProvisional) {
+            val name = "${userName ?: "야무"}님"
+            if (forecast.daysToIncome != null) {
+                Text("$name, 월급까지 D-${forecast.daysToIncome}", style = YamuTheme.typography.headlineS, color = c.text1)
+            } else {
+                Row(
+                    Modifier.clip(RoundedCornerShape(8.dp)).clickable(onClickLabel = "월급 등록하기", onClick = onRegisterIncome),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text("$name, 월급날을 알려 주세요", style = YamuTheme.typography.headlineS, color = c.text1, modifier = Modifier.weight(1f, fill = false))
+                    Icon(YamuIcons.ChevronRight, contentDescription = null, tint = c.text3)
+                }
+            }
+            if (forecast.isProvisional) {
                 Spacer(Modifier.height(4.dp))
                 Text("가입 첫날이에요", style = YamuTheme.typography.sub, color = c.text3)
             }
@@ -254,7 +270,7 @@ private fun HomeContent(
     RecentPaymentSlot(home.recentPayment, onRecentPayment)
 
     when {
-        home.forecast != null -> ForecastCard(home.forecast, onForecast)
+        home.forecast != null -> ForecastCard(home.forecast, onForecast, onRegisterIncome)
         "balanceForecast" in home.failedAreas -> YamuCard {
             Text("예상 잔액을 불러오지 못했어요", style = YamuTheme.typography.titleM, color = c.text2)
         }
@@ -306,9 +322,9 @@ private fun ForecastSummary.hasCoinStage(): Boolean = coinCountFor(amount) > 0
  * 0원 이하(부족)면 예전 흰 카드. 빨간 금액은 남색 바탕에서 잘 안 읽혀 부족은 흰 카드로 둔다
  */
 @Composable
-private fun ForecastCard(forecast: ForecastSummary, onClick: () -> Unit) {
+private fun ForecastCard(forecast: ForecastSummary, onClick: () -> Unit, onRegisterIncome: () -> Unit) {
     if (forecast.hasCoinStage()) {
-        ForecastHero(forecast, onClick)
+        ForecastHero(forecast, onClick, onRegisterIncome)
         return
     }
     val c = YamuTheme.colors
@@ -342,10 +358,11 @@ private fun ForecastCard(forecast: ForecastSummary, onClick: () -> Unit) {
  * 움직임: 금액 글자는 동전이 떨어지는 동안 0에서 올라가 마지막 동전과 함께 멈추고, 다 쌓이면 빛이 카드를 한 번 훑는다.
  * 그 뒤 금액이 바뀌면(결제하고 돌아옴) 보이던 값에서 새 값으로 굴러가고, 동전은 늘어난 만큼 떨어지거나 줄어든 만큼 떠난다.
  * 카드를 누르면 살짝 눌렸다가(0.97) 잔고예보로, 동전을 누르면 동전이 튀어 오르고 반짝인다(이동 없음).
- * 모션 줄이기면 금액은 처음부터 끝값, 눌림 · 빛 없음. 읽어 주기는 늘 끝 금액
+ * 모션 줄이기면 금액은 처음부터 끝값, 눌림 · 빛 없음. 읽어 주기는 늘 끝 금액.
+ * 월급을 정하기 전에는 '지금 잔액'을 그리고 상태 알약 자리에 월급 등록 알약을 둔다(누르면 B-06, 카드 누르기와 따로)
  */
 @Composable
-private fun ForecastHero(forecast: ForecastSummary, onClick: () -> Unit) {
+private fun ForecastHero(forecast: ForecastSummary, onClick: () -> Unit, onRegisterIncome: () -> Unit) {
     val c = YamuTheme.colors
     val reduce = YamuTheme.reduceMotion
     val pile = rememberCoinPileState()
@@ -429,6 +446,7 @@ private fun ForecastHero(forecast: ForecastSummary, onClick: () -> Unit) {
             forecast.statusLine(hero = true)?.let {
                 HeroStatus(it, dot = if (forecast.shortageFrom != null) c.error else c.success)
             }
+            if (forecast.needsIncome) HeroAction("월급을 등록하면 월급 전 잔액을 알려 드려요", onRegisterIncome)
             if (forecast.isProvisional) Text("정확도 낮음", style = YamuTheme.typography.bodyS, color = c.onHeroMuted)
         }
         Spacer(Modifier.height(YamuSpacing.x3))
@@ -480,6 +498,24 @@ private fun HeroStatus(text: String, dot: Color) {
         Box(Modifier.size(7.dp).clip(CircleShape).background(dot))
         Spacer(Modifier.width(6.dp))
         Text(text, style = YamuTheme.typography.labelL, color = c.onHero)
+    }
+}
+
+/** 히어로 위 누르는 알약 — 상태 알약과 같은 유리 바탕에 점 대신 '›'. 길면 알약 안에서 줄을 바꾼다 */
+@Composable
+private fun HeroAction(text: String, onClick: () -> Unit) {
+    val c = YamuTheme.colors
+    Row(
+        Modifier
+            .clip(RoundedCornerShape(YamuRadius.input))
+            .background(c.onHero.copy(alpha = HERO_GLASS_ALPHA))
+            .clickable(onClickLabel = "월급 등록하기", onClick = onClick)
+            .padding(start = 12.dp, end = 6.dp, top = 7.dp, bottom = 7.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(text, style = YamuTheme.typography.labelL, color = c.onHero, modifier = Modifier.weight(1f, fill = false))
+        Spacer(Modifier.width(2.dp))
+        Icon(YamuIcons.ChevronRight, contentDescription = null, tint = c.onHero, modifier = Modifier.size(18.dp))
     }
 }
 
