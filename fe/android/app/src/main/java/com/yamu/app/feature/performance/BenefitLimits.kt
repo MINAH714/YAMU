@@ -36,7 +36,10 @@ import com.yamu.app.core.designsystem.theme.YamuTheme
 import com.yamu.app.core.format.toWon
 import com.yamu.app.core.network.ApiResult
 import com.yamu.app.core.ui.userMessage
-import com.yamu.app.feature.link.BrandMark
+import com.yamu.app.feature.link.CardListThumb
+import com.yamu.app.feature.link.data.CardArtRef
+import com.yamu.app.feature.link.data.CardArtRefsLoader
+import com.yamu.app.feature.link.data.LinkRepository
 import com.yamu.app.feature.link.FoldToggle
 import com.yamu.app.feature.performance.data.BenefitLimits
 import com.yamu.app.feature.performance.data.LimitCard
@@ -54,17 +57,25 @@ data class LimitsState(val loading: Boolean = true, val limits: BenefitLimits? =
 
 /** R-06 혜택 한도(#32) — 아직 받을 수 있는 혜택 · 카드별 남은 한도 */
 @HiltViewModel
-class BenefitLimitsViewModel @Inject constructor(private val perf: PerformanceRepository) : ViewModel() {
+class BenefitLimitsViewModel @Inject constructor(private val perf: PerformanceRepository, link: LinkRepository) : ViewModel() {
     private val _state = MutableStateFlow(LimitsState())
     val state: StateFlow<LimitsState> = _state.asStateFlow()
+
+    /** 카드 그림 — 한도 응답엔 상품명이 없어 카드 목록에서 찾는다 */
+    private val artLoader = CardArtRefsLoader(link, viewModelScope)
+    val arts: StateFlow<Map<Long, CardArtRef>> = artLoader.refs
 
     init { load() }
 
     fun load() {
+        artLoader.ensure()
         viewModelScope.launch {
             _state.update { it.copy(loading = true, error = null) }
             when (val r = perf.limits()) {
-                is ApiResult.Success -> _state.update { LimitsState(loading = false, limits = r.data) }
+                is ApiResult.Success -> {
+                    _state.update { LimitsState(loading = false, limits = r.data) }
+                    artLoader.ensure(r.data.cards.map { it.userCardId })
+                }
                 is ApiResult.Failure -> _state.update { LimitsState(loading = false, error = r.error.userMessage()) }
             }
         }
@@ -74,6 +85,7 @@ class BenefitLimitsViewModel @Inject constructor(private val perf: PerformanceRe
 @Composable
 fun BenefitLimitsRoute(onBack: () -> Unit, onPay: () -> Unit, viewModel: BenefitLimitsViewModel = hiltViewModel()) {
     val s by viewModel.state.collectAsStateWithLifecycle()
+    val arts by viewModel.arts.collectAsStateWithLifecycle()
     var all by rememberSaveable { mutableStateOf(false) }
     val c = YamuTheme.colors
     FlowScreen(title = "혜택 한도", onBack = onBack, bottomBar = { BottomCta { PrimaryButton("QR 결제 열기", onClick = onPay) } }) { inner ->
@@ -96,7 +108,7 @@ fun BenefitLimitsRoute(onBack: () -> Unit, onPay: () -> Unit, viewModel: Benefit
                     SectionBlock(title = "카드별 남은 한도") {
                         if (l.cards.isEmpty()) EmptyState("한도가 있는 카드가 없어요")
                         val shown = if (all) l.cards else l.cards.take(VISIBLE)
-                        shown.forEach { LimitRow(it) }
+                        shown.forEach { LimitRow(it, arts[it.userCardId]) }
                         val hidden = l.cards.size - VISIBLE
                         if (hidden > 0) FoldToggle("모두 보기", expanded = all, onToggle = { all = !all })
                     }
@@ -108,12 +120,13 @@ fun BenefitLimitsRoute(onBack: () -> Unit, onPay: () -> Unit, viewModel: Benefit
 }
 
 @Composable
-private fun LimitRow(card: LimitCard) {
+private fun LimitRow(card: LimitCard, art: CardArtRef?) {
     val c = YamuTheme.colors
     // 태그는 이름 바로 뒤(임박 · 소진). 한도 게이지는 한도 총액이 오면 이름 아래에(14 문서 14-6)
     ListRow(
         title = card.name,
-        lead = { BrandMark(card.brand, large = true) },
+        // 카드 그림 44dp — 상품명은 카드 목록에서, 모르면 응답 이름(별명이 없으면 상품명)으로 찾는다
+        lead = { CardListThumb(card.brand, art?.productName ?: card.name, width = 44.dp, dimmed = art?.dimmed == true) },
         sub = card.lockedReason,
         titleTag = card.tag?.takeIf { it != LimitTag.UNLIMITED }?.let { tag ->
             { StatusTag(tag.label, tone = if (tag == LimitTag.NEAR_END) TagTone.Warning else TagTone.Neutral) }

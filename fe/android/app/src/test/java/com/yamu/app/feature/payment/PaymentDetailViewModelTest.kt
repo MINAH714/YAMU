@@ -3,6 +3,7 @@ package com.yamu.app.feature.payment
 import androidx.lifecycle.SavedStateHandle
 import com.yamu.app.core.network.ApiError
 import com.yamu.app.core.network.ApiResult
+import com.yamu.app.feature.link.data.CardsOnlyLink
 import com.yamu.app.feature.link.data.brandOf
 import com.yamu.app.feature.payment.data.ApproveOutcome
 import com.yamu.app.feature.payment.data.CancelResult
@@ -38,13 +39,14 @@ import org.junit.Test
 class PaymentDetailViewModelTest {
     private val dispatcher = StandardTestDispatcher()
     private val repo = StubRepo()
+    private val link = CardsOnlyLink()
 
     @Before fun setUp() = Dispatchers.setMain(dispatcher)
 
     @After fun tearDown() = Dispatchers.resetMain()
 
     private fun TestScope.open(saved: SavedStateHandle = SavedStateHandle(mapOf("paymentId" to ID))): PaymentDetailViewModel =
-        PaymentDetailViewModel(saved, repo).also { advanceUntilIdle() }
+        PaymentDetailViewModel(saved, repo, link).also { advanceUntilIdle() }
 
     // ── 다시 보일 때(결제 코드 화면에서 돌아옴) — 취소는 매장 POS가 하므로 상세가 서버에서 다시 받아 알아챈다 ──
 
@@ -62,7 +64,7 @@ class PaymentDetailViewModelTest {
     }
 
     @Test fun `받는 중에 다시 보이면 겹쳐 보내지 않는다`() = runTest(dispatcher) {
-        val vm = PaymentDetailViewModel(SavedStateHandle(mapOf("paymentId" to ID)), repo)
+        val vm = PaymentDetailViewModel(SavedStateHandle(mapOf("paymentId" to ID)), repo, link)
         vm.resumed()
         vm.resumed()   // 아직 첫 상세를 받는 중
         advanceUntilIdle()
@@ -149,7 +151,7 @@ class PaymentDetailViewModelTest {
     @Test fun `모르면 결제 내역에서 한 번 찾아 채운다 — 찾는 동안은 시트를 열지 않는다`() = runTest(dispatcher) {
         repo.receipt = receipt().copy(memoKnown = false)
         repo.found = KnownMemo("팀 회식")
-        val vm = PaymentDetailViewModel(SavedStateHandle(mapOf("paymentId" to ID)), repo)
+        val vm = PaymentDetailViewModel(SavedStateHandle(mapOf("paymentId" to ID)), repo, link)
         advanceTimeBy(150)   // 상세는 받았고 찾는 중
         assertTrue(vm.state.value.memoChecking)
         vm.openMemo()
@@ -183,7 +185,7 @@ class PaymentDetailViewModelTest {
         repo.receipt = receipt().copy(memoKnown = false)
         repo.found = KnownMemo("옛 메모")
         repo.findDelay = 2_000
-        val vm = PaymentDetailViewModel(SavedStateHandle(mapOf("paymentId" to ID)), repo)
+        val vm = PaymentDetailViewModel(SavedStateHandle(mapOf("paymentId" to ID)), repo, link)
         advanceTimeBy(150)
         vm.saveMemo("새 메모")
         advanceUntilIdle()

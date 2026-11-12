@@ -11,6 +11,7 @@ import com.yamu.app.core.network.map
 import com.yamu.app.feature.link.data.AccountDto
 import com.yamu.app.feature.link.data.CardDto
 import com.yamu.app.feature.link.data.LinkApi
+import com.yamu.app.feature.link.data.brandOf
 import com.yamu.app.feature.link.data.lastDigits
 import dagger.Module
 import dagger.Provides
@@ -186,7 +187,10 @@ fun CardDto.toSimCardOption(): SimCardOption? {
         issuerStatus.equals("EXPIRED", ignoreCase = true) -> "유효기간이 지난 카드"
         else -> null
     }
-    return SimCardOption(userCardId, nickname?.takeIf { it.isNotBlank() } ?: productName, productName, cardType.equals("CREDIT", ignoreCase = true), reason)
+    return SimCardOption(
+        userCardId, nickname?.takeIf { it.isNotBlank() } ?: productName, productName, cardType.equals("CREDIT", ignoreCase = true), reason,
+        brand = brandOf(issuer.name, color = issuer.color),
+    )
 }
 
 fun AccountDto.toOption() = ForecastAccountOption(

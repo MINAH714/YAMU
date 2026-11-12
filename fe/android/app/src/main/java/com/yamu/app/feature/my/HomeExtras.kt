@@ -69,6 +69,9 @@ import com.yamu.app.core.ui.staleLine
 import com.yamu.app.core.ui.LocalSnackbar
 import com.yamu.app.core.ui.userMessage
 import com.yamu.app.feature.link.CardListThumb
+import com.yamu.app.feature.link.data.CardArtRef
+import com.yamu.app.feature.link.data.CardArtRefsLoader
+import com.yamu.app.feature.link.data.LinkRepository
 import com.yamu.app.feature.my.data.AppNotification
 import com.yamu.app.feature.my.data.MyRepository
 import com.yamu.app.feature.my.data.NotiTarget
@@ -254,15 +257,23 @@ data class MyCardsState(val loading: Boolean = true, val overview: PerfOverview?
 
 /** 실적 관리(R-01)와 같은 값(#65) — 판정은 서버 값 그대로 */
 @HiltViewModel
-class MyCardsViewModel @Inject constructor(private val perf: PerformanceRepository) : ViewModel() {
+class MyCardsViewModel @Inject constructor(private val perf: PerformanceRepository, link: LinkRepository) : ViewModel() {
     private val _state = MutableStateFlow(MyCardsState(overview = perf.cachedOverview(), loading = perf.cachedOverview() == null))
     val state: StateFlow<MyCardsState> = _state.asStateFlow()
 
+    /** 별명 카드의 그림 — 실적 응답엔 상품명이 없어 카드 목록에서 찾는다 */
+    private val artLoader = CardArtRefsLoader(link, viewModelScope)
+    val arts: StateFlow<Map<Long, CardArtRef>> = artLoader.refs
+
     fun refresh() {
+        artLoader.ensure(_state.value.overview?.all.orEmpty().map { it.userCardId })
         viewModelScope.launch {
             _state.update { it.copy(loading = it.overview == null, error = null) }
             when (val r = perf.overview()) {
-                is ApiResult.Success -> _state.update { MyCardsState(loading = false, overview = r.data) }
+                is ApiResult.Success -> {
+                    _state.update { MyCardsState(loading = false, overview = r.data) }
+                    artLoader.ensure(r.data.all.map { it.userCardId })
+                }
                 is ApiResult.Failure -> _state.update { it.copy(loading = false, error = r.error.userMessage()) }
             }
         }
@@ -278,6 +289,7 @@ fun MyCardsRoute(
     viewModel: MyCardsViewModel = hiltViewModel(),
 ) {
     val s by viewModel.state.collectAsStateWithLifecycle()
+    val arts by viewModel.arts.collectAsStateWithLifecycle()
     LifecycleResumeEffect(Unit) {
         viewModel.refresh()
         onPauseOrDispose { }
@@ -312,7 +324,7 @@ fun MyCardsRoute(
                         val rows = o.pending.map { it to true } + (if (showOthers) o.others.map { it to false } else emptyList())
                         rows.forEachIndexed { i, (card, pending) ->
                             if (i > 0) HorizontalDivider(thickness = 1.dp, color = c.outlineVariant)
-                            CardLine(card, onClick = when {
+                            CardLine(card, arts[card.userCardId], onClick = when {
                                 pending -> ({ onAnalysis(card.userCardId) })
                                 card.noTarget -> null
                                 else -> ({ onCardDetail(card.userCardId) })
@@ -332,7 +344,7 @@ fun MyCardsRoute(
 
 /** 카드 1장 = 1줄(카드 그림 · 이름 · 상태 태그 · ›). 분석 화면이 없는 줄(실적 조건 없음)은 누를 수 없다 */
 @Composable
-private fun CardLine(card: CardPerf, onClick: (() -> Unit)?) {
+private fun CardLine(card: CardPerf, art: CardArtRef?, onClick: (() -> Unit)?) {
     val c = YamuTheme.colors
     val tag = when {
         card.noTarget -> "실적 조건 없음" to TagTone.Neutral
@@ -349,7 +361,8 @@ private fun CardLine(card: CardPerf, onClick: (() -> Unit)?) {
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(YamuSpacing.x3),
     ) {
-        CardListThumb(card.brand, card.nickname ?: card.name)   // name은 카드사 이름 — 그림은 상품명(nickname)으로 찾는다
+        // name은 카드사 이름 — 그림은 카드 목록의 상품명으로, 목록에 없으면 nickname(별명이 없으면 상품명)으로 찾는다
+        CardListThumb(card.brand, art?.productName ?: card.nickname ?: card.name, dimmed = art?.dimmed == true)
         Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(YamuSpacing.x2)) {
             Text(card.name, style = YamuTheme.typography.titleS, color = c.text1, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
             tag?.let { (label, tone) -> StatusTag(label, tone = tone, guide = true) }

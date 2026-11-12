@@ -52,7 +52,10 @@ import com.yamu.app.core.format.toWon
 import com.yamu.app.core.network.ApiResult
 import com.yamu.app.core.ui.staleLine
 import com.yamu.app.core.ui.userMessage
-import com.yamu.app.feature.link.BrandMark
+import com.yamu.app.feature.link.CardListThumb
+import com.yamu.app.feature.link.data.CardArtRef
+import com.yamu.app.feature.link.data.CardArtRefsLoader
+import com.yamu.app.feature.link.data.LinkRepository
 import com.yamu.app.feature.performance.data.AT_RISK_LABEL
 import com.yamu.app.feature.performance.data.CardPerf
 import com.yamu.app.feature.performance.data.PerfGuide
@@ -82,15 +85,23 @@ data class PerfOverviewState(val loading: Boolean = true, val overview: PerfOver
 
 /** R-01 실적 관리 — 탭에 돌아올 때마다 새로 받는다(결제 뒤 값 · 판정이 바뀌어야 하므로) */
 @HiltViewModel
-class PerfOverviewViewModel @Inject constructor(private val perf: PerformanceRepository) : ViewModel() {
+class PerfOverviewViewModel @Inject constructor(private val perf: PerformanceRepository, link: LinkRepository) : ViewModel() {
     private val _state = MutableStateFlow(PerfOverviewState(overview = perf.cachedOverview(), loading = perf.cachedOverview() == null))
     val state: StateFlow<PerfOverviewState> = _state.asStateFlow()
 
+    /** 카드 그림 — 실적 응답엔 상품명이 없어 카드 목록에서 찾는다 */
+    private val artLoader = CardArtRefsLoader(link, viewModelScope)
+    val arts: StateFlow<Map<Long, CardArtRef>> = artLoader.refs
+
     fun refresh() {
+        artLoader.ensure(_state.value.overview?.all.orEmpty().map { it.userCardId })
         viewModelScope.launch {
             _state.update { it.copy(loading = it.overview == null, error = null) }
             when (val r = perf.overview()) {
-                is ApiResult.Success -> _state.update { PerfOverviewState(loading = false, overview = r.data) }
+                is ApiResult.Success -> {
+                    _state.update { PerfOverviewState(loading = false, overview = r.data) }
+                    artLoader.ensure(r.data.all.map { it.userCardId })
+                }
                 is ApiResult.Failure -> _state.update { it.copy(loading = false, error = r.error.userMessage()) }   // 마지막 값은 그대로
             }
         }
@@ -107,6 +118,7 @@ fun PerfOverviewRoute(
     viewModel: PerfOverviewViewModel = hiltViewModel(),
 ) {
     val s by viewModel.state.collectAsStateWithLifecycle()
+    val arts by viewModel.arts.collectAsStateWithLifecycle()
     LifecycleResumeEffect(Unit) {
         viewModel.refresh()
         onPauseOrDispose { }
@@ -136,12 +148,12 @@ fun PerfOverviewRoute(
                         // 새로고침이 실패해도 마지막 값은 그대로 — 이유와 언제 값인지(홈과 같은 한 줄)
                         s.error?.let { Text(staleLine(it, o.syncedAtIso), style = YamuTheme.typography.bodyS, color = c.warning) }
                         Spacer(Modifier.height(YamuSpacing.x2))
-                        o.pending.forEachIndexed { i, card -> PendingRow(card, last = i == o.pending.lastIndex, onClick = { onAnalysis(card.userCardId) }) }
+                        o.pending.forEachIndexed { i, card -> PendingRow(card, arts[card.userCardId], last = i == o.pending.lastIndex, onClick = { onAnalysis(card.userCardId) }) }
                     }
                     if (o.others.isNotEmpty()) {
                         YamuCard {
                             Text("그 밖의 카드", style = YamuTheme.typography.cardTitle, color = c.text1)
-                            o.others.forEachIndexed { i, card -> OtherRow(card, last = i == o.others.lastIndex) }
+                            o.others.forEachIndexed { i, card -> OtherRow(card, arts[card.userCardId], last = i == o.others.lastIndex) }
                         }
                     }
                     // 혜택 한도(R-06)는 알림('카페 할인 한도가 … 남았어요')에서 연다 — 프로토타입 10/26 간략화
@@ -156,7 +168,7 @@ fun PerfOverviewRoute(
  * 태그는 하나만 — 판정이 있으면 판정, 없으면 서버 상태 AT_RISK일 때 '미달 예상'
  */
 @Composable
-private fun PendingRow(card: CardPerf, last: Boolean, onClick: () -> Unit) {
+private fun PendingRow(card: CardPerf, art: CardArtRef?, last: Boolean, onClick: () -> Unit) {
     val c = YamuTheme.colors
     Column(
         Modifier
@@ -166,7 +178,7 @@ private fun PendingRow(card: CardPerf, last: Boolean, onClick: () -> Unit) {
             .padding(top = 14.dp, bottom = if (last) 6.dp else 14.dp),   // 카드 마지막 줄은 아래 6(프로토타입 .cr:last-child)
     ) {
         Row(Modifier.heightIn(min = 28.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {   // 윗줄 28(.cr .l1)
-            BrandMark(card.brand)
+            PerfThumb(card, art)
             Text(card.name, style = YamuTheme.typography.titleM, color = c.text1, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
             card.recentChange?.let { Text(it.toWon(withPlusSign = true), style = YamuTheme.typography.labelL.copy(fontWeight = FontWeight.Bold), color = c.primary, maxLines = 1) }
             when {
@@ -181,11 +193,11 @@ private fun PendingRow(card: CardPerf, last: Boolean, onClick: () -> Unit) {
 
 /** 그 밖의 카드 — 달성(초록 태그 · 게이지) · 실적 조건 없음(오른쪽 글자). 이동하지 않는다 */
 @Composable
-private fun OtherRow(card: CardPerf, last: Boolean) {
+private fun OtherRow(card: CardPerf, art: CardArtRef?, last: Boolean) {
     val c = YamuTheme.colors
     Column(Modifier.fillMaxWidth().semantics(mergeDescendants = true) { }.padding(top = 14.dp, bottom = if (last) 6.dp else 14.dp)) {
         Row(Modifier.heightIn(min = 28.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {   // 윗줄 28(.cr .l1)
-            BrandMark(card.brand)
+            PerfThumb(card, art)
             Text(card.name, style = YamuTheme.typography.titleM, color = c.text1, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
             card.recentChange?.let { Text(it.toWon(withPlusSign = true), style = YamuTheme.typography.labelL.copy(fontWeight = FontWeight.Bold), color = c.primary) }
             if (card.noTarget) Text("실적 조건 없음", style = YamuTheme.typography.bodyM, color = c.text3)
@@ -194,6 +206,14 @@ private fun OtherRow(card: CardPerf, last: Boolean) {
         if (!card.noTarget) GaugeLine(card)
     }
 }
+
+/**
+ * 줄 앞 카드 그림 44dp(높이 28 — 윗줄 높이 그대로). 상품명은 카드 목록에서 찾고, 모르면 nickname(별명이 없으면 상품명)으로.
+ * 그림이 없으면 같은 크기의 카드사 색 카드
+ */
+@Composable
+private fun PerfThumb(card: CardPerf, art: CardArtRef?) =
+    CardListThumb(card.brand, art?.productName ?: card.nickname ?: card.name, width = 44.dp, dimmed = art?.dimmed == true)
 
 /** 6dp 게이지 + 'n원 남음'(방금 결제분은 연한 색 · 파란 글자) */
 @Composable

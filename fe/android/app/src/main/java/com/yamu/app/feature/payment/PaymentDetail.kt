@@ -57,7 +57,10 @@ import com.yamu.app.core.format.toWon
 import com.yamu.app.core.network.ApiResult
 import com.yamu.app.core.ui.LocalSnackbar
 import com.yamu.app.core.ui.userMessage
-import com.yamu.app.feature.link.BrandMark
+import com.yamu.app.feature.link.CardListThumb
+import com.yamu.app.feature.link.data.CardArtRef
+import com.yamu.app.feature.link.data.CardArtRefsLoader
+import com.yamu.app.feature.link.data.LinkRepository
 import com.yamu.app.feature.payment.data.MemoRules
 import com.yamu.app.feature.payment.data.PaymentReceipt
 import com.yamu.app.feature.payment.data.PaymentRepository
@@ -98,10 +101,15 @@ data class PaymentDetailState(
 class PaymentDetailViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
     private val payments: PaymentRepository,
+    link: LinkRepository,
 ) : ViewModel() {
     private val paymentId: Long = checkNotNull(savedStateHandle.get<Long>("paymentId"))   // 경로 PaymentDetail.paymentId
     private val _state = MutableStateFlow(PaymentDetailState())
     val state: StateFlow<PaymentDetailState> = _state.asStateFlow()
+
+    /** 결제 카드 그림 — 거래 응답의 카드 이름은 별명이라 카드 목록에서 상품명을 찾는다 */
+    private val artLoader = CardArtRefsLoader(link, viewModelScope)
+    val arts: StateFlow<Map<Long, CardArtRef>> = artLoader.refs
 
     /** 메모 찾기는 화면마다 한 번 — 못 찾으면 '모름'으로 두고 저장 전에 알린다 */
     private var memoLookedUp = false
@@ -122,10 +130,12 @@ class PaymentDetailViewModel @Inject constructor(
 
     /** 다시 불러오는 동안에도 보던 내용은 그대로 둔다(실패해도 마지막 값). 이미 아는 메모는 '모름'으로 되돌리지 않는다 */
     fun load() {
+        artLoader.ensure(listOfNotNull(_state.value.receipt?.cardId))
         viewModelScope.launch {
             _state.update { it.copy(loading = true, error = null) }
             when (val r = payments.detail(paymentId)) {
                 is ApiResult.Success -> {
+                    artLoader.ensure(listOfNotNull(r.data.cardId))
                     _state.update {
                         val known = it.receipt?.takeIf { old -> old.memoKnown }
                         val fresh = if (!r.data.memoKnown && known != null) r.data.copy(memo = known.memo, memoKnown = true) else r.data
@@ -206,6 +216,7 @@ class PaymentDetailViewModel @Inject constructor(
 @Composable
 fun PaymentDetailRoute(onBack: () -> Unit, onCancel: (PaymentReceipt) -> Unit, viewModel: PaymentDetailViewModel = hiltViewModel()) {
     val s by viewModel.state.collectAsStateWithLifecycle()
+    val arts by viewModel.arts.collectAsStateWithLifecycle()
     val c = YamuTheme.colors
     val r = s.receipt
     val snackbar = LocalSnackbar.current
@@ -248,11 +259,15 @@ fun PaymentDetailRoute(onBack: () -> Unit, onCancel: (PaymentReceipt) -> Unit, v
                     }
                     HorizontalDivider(color = c.outlineVariant, modifier = Modifier.padding(horizontal = YamuSpacing.screen))
                     Column(Modifier.padding(horizontal = YamuSpacing.screen, vertical = 12.dp)) {
+                        // 카드 그림 44dp(높이 28 — 줄 높이 40 그대로). 상품명은 카드 목록에서, 모르면 카드 이름(별명이 없으면 상품명)으로 찾는다
+                        val art = r.cardId?.let { arts[it] }
                         KeyValueRow(
                             "결제 카드",
                             listOfNotNull(r.cardName, r.cardLast4?.let { "•••• $it" }).joinToString(" "),
                             large = false,
-                            valueLead = r.cardBrand?.let { b -> { BrandMark(b) } },
+                            valueLead = (r.cardBrand ?: art?.brand)?.let { b ->
+                                { CardListThumb(b, art?.productName ?: r.cardName.orEmpty(), width = 44.dp, dimmed = art?.dimmed == true) }
+                            },
                         )
                         r.approvalNo?.let { KeyValueRow("승인번호", it, large = false) }
                         MemoRow(r.memo, known = r.memoKnown, checking = s.memoChecking, onClick = viewModel::openMemo)

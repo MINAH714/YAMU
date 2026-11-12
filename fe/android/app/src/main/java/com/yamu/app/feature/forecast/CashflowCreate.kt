@@ -38,6 +38,7 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
+import com.yamu.app.core.designsystem.card.CardImages
 import com.yamu.app.core.designsystem.component.BottomCta
 import com.yamu.app.core.designsystem.component.EmptyState
 import com.yamu.app.core.designsystem.component.ErrorState
@@ -462,7 +463,11 @@ fun CashflowCreateRoute(onBack: () -> Unit, onDone: () -> Unit, viewModel: Cashf
                         SelectRow(a.brand, a.name, checked = f.accountId == a.accountId, onToggle = { viewModel.edit { it.withAccount(a.accountId) } }, suffix = "·${a.last4}")
                     }
                     if (!f.isIncome) s.cards.forEach { card ->
-                        SelectRow(card.brand, card.displayName, checked = f.userCardId == card.userCardId, onToggle = { viewModel.edit { it.withCard(card.userCardId) } }, suffix = "·${card.last4}")
+                        SelectRow(
+                            card.brand, card.displayName, checked = f.userCardId == card.userCardId,
+                            onToggle = { viewModel.edit { it.withCard(card.userCardId) } }, suffix = "·${card.last4}",
+                            cardImage = CardImages.forProduct(card.productName),   // 그림이 없으면 카드사 칩
+                        )
                     }
                 }
             }
