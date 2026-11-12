@@ -95,6 +95,8 @@ import com.yamu.app.feature.forecast.data.PaymentChannel
 import com.yamu.app.feature.forecast.data.SavedPlan
 import com.yamu.app.feature.forecast.data.SimCardOption
 import com.yamu.app.feature.forecast.data.SimulationQuery
+import com.yamu.app.feature.link.CardListThumb
+import com.yamu.app.feature.link.data.brandOf
 import com.yamu.app.navigation.BuyCheckConditions
 import com.yamu.app.navigation.BuyCheckSaved
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -167,7 +169,7 @@ fun BuyCheckInputRoute(onBack: () -> Unit, onNext: (amount: Long, title: String?
             AmountField(amount)
             Spacer(Modifier.height(16.dp))   // 칸 위 24(.tf margin-top) − 입력칸이 라벨 자리로 두는 8
             YamuTextField(
-                label = "무엇을 사나요 · 선택",
+                label = "무엇을 사나요 (선택)",
                 value = title,
                 onValueChange = { title = it.take(30) },
                 placeholder = "태블릿",
@@ -317,7 +319,7 @@ fun BuyConditionsRoute(onBack: () -> Unit, onCompare: (SimulationQuery) -> Unit,
             Text("어디서 어떻게 살지\n알려 주세요", style = YamuTheme.typography.headlineS, color = c.text1)
 
             Spacer(Modifier.height(24.dp))
-            SectionLabel("어디서 · 필수")
+            SectionLabel("어디서 (필수)")
             Spacer(Modifier.height(10.dp))
             val categories = s.categories
             when {
@@ -384,7 +386,7 @@ fun BuyConditionsRoute(onBack: () -> Unit, onCompare: (SimulationQuery) -> Unit,
             Row(Modifier.fillMaxWidth().heightIn(min = 52.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text("날짜", style = YamuTheme.typography.bodyM, color = c.text3, modifier = Modifier.width(48.dp))
                 Text(
-                    s.date.toKoreanDateWeek() + if (s.date == LocalDate.now(KST)) " · 오늘" else "",
+                    s.date.toKoreanDateWeek(markToday = true),
                     style = YamuTheme.typography.titleS,
                     color = c.text1,
                     modifier = Modifier.weight(1f),
@@ -439,9 +441,17 @@ private fun ChoiceRow(label: String, value: String, enabled: Boolean, onClick: (
     }
 }
 
-/** 둘 중 하나 고르기 줄 — 둥근 표시 + 이름 · 보조 */
+/** 둘 중 하나 고르기 줄 — 둥근 표시 + 이름 · 보조 + [trailing](카드 그림) */
 @Composable
-internal fun RadioRow(title: String, sub: String?, selected: Boolean, onClick: () -> Unit, enabled: Boolean = true, chevron: Boolean = false) {
+internal fun RadioRow(
+    title: String,
+    sub: String?,
+    selected: Boolean,
+    onClick: () -> Unit,
+    enabled: Boolean = true,
+    chevron: Boolean = false,
+    trailing: (@Composable () -> Unit)? = null,
+) {
     val c = YamuTheme.colors
     Row(
         Modifier
@@ -458,6 +468,7 @@ internal fun RadioRow(title: String, sub: String?, selected: Boolean, onClick: (
             Text(title, style = YamuTheme.typography.titleS, color = c.text1)
             sub?.let { Text(it, style = YamuTheme.typography.bodyS, color = c.text3) }
         }
+        trailing?.invoke()
         if (chevron) Icon(YamuIcons.ChevronRight, contentDescription = null, tint = c.text3, modifier = Modifier.size(18.dp))
     }
 }
@@ -538,6 +549,8 @@ internal fun CardSheet(
                         selected = card.userCardId == selectedId,
                         enabled = card.unusableReason == null,
                         onClick = { onPick(card.userCardId) },
+                        // 카드 그림 44dp는 오른쪽 — 맨 위 '혜택이 가장 큰 카드' 줄과 이름 시작을 맞춘다. 고를 수 없는 카드는 줄째 흐리다
+                        trailing = { CardListThumb(card.brand ?: brandOf(card.name), card.productName ?: card.name, width = 44.dp) },
                     )
                 }
             }

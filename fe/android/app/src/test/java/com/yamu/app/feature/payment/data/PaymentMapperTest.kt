@@ -1,10 +1,14 @@
 package com.yamu.app.feature.payment.data
 
+import com.yamu.app.core.designsystem.card.CardImages
 import com.yamu.app.core.network.YamuJson
 import com.yamu.app.feature.link.data.IssuerDto
+import com.yamu.app.feature.link.data.LinkedCard
+import com.yamu.app.feature.link.data.brandOf
 import kotlinx.serialization.SerializationException
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
@@ -125,6 +129,52 @@ class PaymentMapperTest {
         assertFalse(request.cardsUnknown)
     }
 
+    private fun listed(id: Long, issuer: String, color: String, product: String, nickname: String? = null) = LinkedCard(
+        userCardId = id, brand = brandOf(issuer, color = color), productName = product, isCheck = false, last4 = "0000",
+        paymentDay = null, recognizedAmount = null, yearMonth = null, nickname = nickname,
+    )
+
+    /** Q-19 — 바코드 응답엔 카드사 · 상품명이 없고 nickname이 별명이라, 그대로는 그림을 못 찾고 카드사 칩에 별명 글자가 나왔다 */
+    @Test fun `별명 카드 — 카드 목록에서 같은 카드의 카드사 · 상품명을 붙이고 이름은 별명 그대로`() {
+        val request = scanned(
+            ""","recommendation":{"status":"PARTIAL_READY","candidates":[{"rank":1,"userCardId":11,"nickname":"점심 카드","netBenefit":7500}],"uncomparedCards":[$direct]}""",
+        ).request!!
+        val toktok = "KB국민 청춘대로 톡톡카드"
+        assertTrue(request.cards.all { it.issuerUnknown })
+        assertEquals("점심 카드", request.cards[0].brand.name)          // 붙이기 전 — 별명 글자
+        assertNull(CardImages.forProduct(request.cards[0].imageName))
+
+        val filled = request.withListedCards(
+            mapOf(11L to listed(11, "KB국민카드", "#FFBC00", toktok, nickname = "점심 카드"), 21L to listed(21, "현대카드", "#1A1A1A", "현대카드ZERO Edition3(포인트형)")),
+        )
+        val card = filled.cards[0]
+        assertEquals("점심 카드", card.name)
+        assertEquals("KB국민카드", card.brand.name)
+        assertEquals(toktok, card.imageName)
+        assertNotNull(CardImages.forProduct(card.imageName))
+        assertFalse(card.issuerUnknown)
+        assertEquals("현대카드", filled.cards[1].brand.name)              // 비교 못 한 카드도
+        assertEquals(listOf(true, false), filled.cards.map { it.autoSelectable })   // 고르기 규칙은 그대로
+    }
+
+    @Test fun `응답에 카드사 · 상품명이 있으면 목록 값으로 덮지 않는다`() {
+        val request = scanned(
+            ""","recommendation":{"candidates":[{"rank":1,"userCardId":15,"nickname":"메인","productName":"하나카드 트래블로그 체크카드","issuer":{"code":"HANA","name":"하나카드","color":"#009490"},"netBenefit":0}]}""",
+        ).request!!
+        val card = request.withListedCards(mapOf(15L to listed(15, "신한카드", "#0046FF", "신한카드 Mr.Life"))).cards.single()
+        assertEquals("하나카드", card.brand.name)
+        assertEquals("하나카드 트래블로그 체크카드", card.imageName)
+    }
+
+    @Test fun `목록에 없는 카드는 응답 값 그대로 — 목록을 못 받았을 때도`() {
+        val request = scanned(""","recommendation":{"candidates":[{"rank":1,"userCardId":11,"nickname":"점심 카드","netBenefit":0}]}""").request!!
+        assertEquals(request, request.withListedCards(emptyMap()))
+        val card = request.withListedCards(mapOf(99L to listed(99, "신한카드", "#0046FF", "신한카드 Mr.Life"))).cards.single()
+        assertEquals("점심 카드", card.brand.name)
+        assertEquals("점심 카드", card.imageName)
+        assertTrue(card.issuerUnknown)
+    }
+
     @Test fun `데이터 부족인데 결제 가능 여부를 모르는 카드만 — 보이되 고를 카드는 없다`() {
         val request = scanned(""","recommendation":{"status":"DATA_INSUFFICIENT","candidates":[],"uncomparedCards":[$unknown]}""").request!!
         assertEquals(listOf(22L), request.cards.map { it.userCardId })
@@ -165,6 +215,31 @@ class PaymentMapperTest {
             "M포인트 1.2% 적립",
             nameShown("""{"name":"교보문고 할인","type":"DISCOUNT","amount":0},{"name":"기본 적립","type":"POINT","amount":30},{"name":"M포인트 1.2% 적립","type":"POINT","amount":180}"""),
         )
+    }
+
+    /** 11/10 QA — BE가 후보마다 같은 문장(1순위 선택 이유 · 최대 순혜택)을 reason으로 보낸다(S15P31E103-411) */
+    private val sameReason = "예상 순혜택은 3180원입니다. 이번 결제의 순혜택이 가장 큰 카드를 선택했습니다."
+    private val starbucks = """
+        {"rank":2,"userCardId":32,"nickname":"신한카드 Mr.Life","cardType":"CREDIT","netBenefit":0,
+         "benefits":[{"name":"편의점 10% 할인","type":"DISCOUNT","amount":0}],"reason":"$sameReason"},
+        {"rank":1,"userCardId":31,"nickname":"KB국민 노리 체크카드","cardType":"CHECK","netBenefit":3180,
+         "benefits":[{"name":"스타벅스 환급 할인","type":"CASHBACK","amount":3180}],"reason":"$sameReason","selectionReason":"MAXIMUM_NET_BENEFIT"}
+    """.trimIndent()
+
+    @Test fun `서버 사유는 1순위 카드에만 — 2순위 이하에는 1순위 금액 문장이 붙지 않는다`() {
+        val cards = scanned(""","recommendation":{"status":"READY","candidates":[$starbucks]}""").request!!.cards
+        assertEquals(listOf(31L, 32L), cards.map { it.userCardId })
+        assertEquals(sameReason, cards[0].reason)
+        assertNull(cards[1].reason)
+        // 2순위는 혜택 이름도 사유도 없어 줄 아래가 비고, 오른쪽에 '혜택 없음'이 보인다(순혜택 0원)
+        assertNull(cards[1].benefitName)
+        assertEquals(0, cards[1].netBenefit.signum())
+    }
+
+    @Test fun `비교 못 한 카드의 서버 문구는 순위와 상관없이 남는다`() {
+        val cards = scanned(""","recommendation":{"status":"PARTIAL_READY","candidates":[$starbucks],"uncomparedCards":[$direct]}""").request!!.cards
+        assertEquals(listOf(31L, 32L, 21L), cards.map { it.userCardId })
+        assertEquals("혜택 정보를 확인하지 못해 비교에서 제외했어요.", cards[2].reason)
     }
 
     private fun declinedOf(code: String) = YamuJson.decodeFromString(
@@ -214,6 +289,70 @@ class PaymentMapperTest {
         assertEquals(listOf(ReceiptBenefit("카페 10% 청구할인", 3_000)), r.benefits)
     }
 
+    // ── 즉시할인 · 혜택 시점(11/10 QA) — 실제 결제 금액은 서버 chargedAmount(결제 금액 − 즉시할인) ──
+
+    @Test fun `즉시할인 승인 — 실제 결제 금액은 할인 뒤, 즉시할인은 차이`() {
+        val dto = PaymentResultDto(
+            paymentId = 2001, status = "APPROVED", amount = 6_600, chargedAmount = 5_940,
+            benefits = listOf(BenefitDto("편의점 할인", type = "DISCOUNT", amount = 660, realization = "AT_APPROVAL")),
+            billItems = listOf(BillItemDto(1, 5_940, expectedWithdrawalDate = "2026-12-15")),
+        )
+        val r = dto.toReceipt()
+        assertEquals(6_600L, r.amount)
+        assertEquals(5_940L, r.paidAmount)
+        assertEquals(660L, r.instantDiscount)
+        assertEquals(listOf(ReceiptBenefit("편의점 할인", 660, BenefitKind.INSTANT)), r.benefits)
+    }
+
+    @Test fun `청구할인만 있으면 결제 금액 그대로 — 청구할인은 빼지 않는다`() {
+        val dto = PaymentResultDto(
+            paymentId = 2002, status = "APPROVED", amount = 31_800, chargedAmount = 31_800,
+            benefits = listOf(BenefitDto("스타벅스 10% 청구할인", type = "DISCOUNT", amount = 3_180, realization = "AT_BILLING")),
+        )
+        val r = dto.toReceipt()
+        assertEquals(31_800L, r.paidAmount)
+        assertEquals(0L, r.instantDiscount)
+        assertEquals(BenefitKind.BILLING, r.benefits.single().kind)
+    }
+
+    @Test fun `즉시할인과 청구할인이 같이 있으면 즉시할인만 빠진다`() {
+        val dto = PaymentResultDto(
+            paymentId = 2003, status = "APPROVED", amount = 20_000, chargedAmount = 19_000,
+            benefits = listOf(
+                BenefitDto("즉시 5%", amount = 1_000, realization = "AT_APPROVAL"),
+                BenefitDto("청구 3%", amount = 600, realization = "AT_BILLING"),
+            ),
+        )
+        val r = dto.toReceipt()
+        assertEquals(19_000L, r.paidAmount)
+        assertEquals(1_000L, r.instantDiscount)
+        assertEquals(listOf(BenefitKind.INSTANT, BenefitKind.BILLING), r.benefits.map { it.kind })
+    }
+
+    @Test fun `chargedAmount가 없거나 결제 금액보다 크면 결제 금액`() {
+        val none = PaymentResultDto(paymentId = 2004, status = "APPROVED", amount = 10_000).toReceipt()
+        assertEquals(10_000L, none.paidAmount)
+        assertEquals(0L, none.instantDiscount)
+        val odd = PaymentResultDto(paymentId = 2005, status = "APPROVED", amount = 10_000, chargedAmount = 12_000).toReceipt()
+        assertEquals(10_000L, odd.paidAmount)
+    }
+
+    @Test fun `상세(#3) 혜택 — 시점이 있으면 시점, 없으면 종류로 캐시백 · 적립을 가르고 모르면 UNKNOWN`() {
+        val dto = PaymentResultDto(
+            paymentId = 2006, status = "APPROVED", amount = 15_900, chargedAmount = 15_900,
+            benefits = listOf(
+                BenefitDto("스타벅스 환급", type = "CASHBACK", actualAmount = 3_180, realization = "AFTER_BILLING"),
+                BenefitDto("커피 적립", type = "POINT", actualAmount = 300, realization = "POINT_ACCRUAL"),
+                BenefitDto("영화 캐시백", type = "CASHBACK", actualAmount = 1_000),
+                BenefitDto("약관 미확인 할인", type = "DISCOUNT", actualAmount = 500),
+            ),
+        )
+        assertEquals(
+            listOf(BenefitKind.CASHBACK, BenefitKind.POINT, BenefitKind.CASHBACK, BenefitKind.UNKNOWN),
+            dto.toReceipt().benefits.map { it.kind },
+        )
+    }
+
     @Test fun `체크 승인 — 청구 줄 없이 출금 · 잔액, 실적 제외`() {
         val dto = PaymentResultDto(
             paymentId = 1030, status = "APPROVED", amount = 15_000, chargedAmount = 14_250, accountBalanceAfter = 935_750,
@@ -227,5 +366,19 @@ class PaymentMapperTest {
         assertEquals(935_750L, r.balanceAfter)
         assertFalse(r.perfCounted)
         assertNull(r.installmentMonths)
+    }
+
+    /** 승인 응답 selectedCard엔 아직 카드사 칸이 없다(S15P31E103-389) — 결제 요청 때 붙인 카드사를 쓴다 */
+    @Test fun `승인 응답에 카드사가 없으면 결제 요청 때 고른 같은 카드의 카드사로`() {
+        val dto = PaymentResultDto(paymentId = 1031, status = "APPROVED", amount = 15_000, selectedCard = SelectedCardDto(11, "점심 카드"))
+        val picked = PayCard(
+            userCardId = 11, brand = brandOf("KB국민카드", color = "#FFBC00"), name = "점심 카드", last4 = "1021", isCheck = false,
+            netBenefit = BigDecimal.ZERO, benefitName = null, chargedAmount = null, installmentOptions = emptyList(), reason = null,
+            performanceNote = null, productName = "KB국민 청춘대로 톡톡카드",
+        )
+        assertEquals("KB국민카드", dto.toReceipt(card = picked).cardBrand?.name)
+        assertEquals("점심 카드", dto.toReceipt(card = picked).cardName)
+        // 다른 카드가 승인됐다면 그 카드사를 빌려 오지 않는다
+        assertEquals("점심 카드", dto.toReceipt(card = picked.copy(userCardId = 12)).cardBrand?.name)
     }
 }

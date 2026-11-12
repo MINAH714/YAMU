@@ -223,6 +223,7 @@ class SimulationMapperTest {
         assertEquals(listOf(null, "꺼 둔 카드", "카드사에서 정지한 카드", null), options.map { it.unusableReason })
         assertFalse(options.last().isCredit)
         assertEquals("카드1", options.first().name)                           // 별칭이 없으면 상품명
+        assertEquals("신한", options.first().brand?.name)                     // 그림이 없을 때 그리는 카드사 색 카드
     }
 
     @Test fun `받침 따라 이 · 가`() {

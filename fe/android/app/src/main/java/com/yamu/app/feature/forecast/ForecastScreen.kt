@@ -1,6 +1,29 @@
 package com.yamu.app.feature.forecast
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
+import androidx.compose.animation.core.snap
+import androidx.compose.animation.Crossfade
+import kotlin.math.roundToInt
+import kotlinx.coroutines.delay
+import com.yamu.app.core.designsystem.theme.YamuMotion
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.layout.positionInParent
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.layout.onPlaced
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.material3.minimumInteractiveComponentSize
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.Animatable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -89,9 +112,11 @@ import com.yamu.app.feature.forecast.data.ForecastPeriod
 import com.yamu.app.feature.forecast.data.ForecastRepository
 import com.yamu.app.feature.forecast.data.ForecastSelection
 import com.yamu.app.feature.forecast.data.LineGroup
+import com.yamu.app.feature.forecast.data.LineStep
 import com.yamu.app.feature.forecast.data.RiskLevel
 import com.yamu.app.feature.forecast.data.RiskWindow
 import com.yamu.app.feature.forecast.data.cashflowRows
+import com.yamu.app.feature.forecast.data.toCashflowRow
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -202,8 +227,11 @@ class ForecastViewModel @Inject constructor(private val repo: ForecastRepository
 
 private fun LocalDate.daysFromToday(): Long = ChronoUnit.DAYS.between(LocalDate.now(KST), this)
 
-/** '11월 20일 (금)' */
-internal fun LocalDate.toKoreanDateWeek(): String = "${toKoreanDate()} (${dayOfWeek.getDisplayName(TextStyle.SHORT, Locale.KOREAN)})"
+/** '11월 20일 (금)'. [markToday]면 오늘은 '11월 20일 (금, 오늘)' — 전에는 '(금) · 오늘'이었다(가운데 점 대신 괄호, 11/10 QA) */
+internal fun LocalDate.toKoreanDateWeek(markToday: Boolean = false, today: LocalDate = LocalDate.now(KST)): String {
+    val week = dayOfWeek.getDisplayName(TextStyle.SHORT, Locale.KOREAN)
+    return if (markToday && this == today) "${toKoreanDate()} ($week, 오늘)" else "${toKoreanDate()} ($week)"
+}
 
 /** '11월 20일 ~ 24일' · 달이 다르면 '11월 28일 ~ 12월 2일' · 하루면 '11월 20일' */
 internal fun dateRange(from: LocalDate, to: LocalDate): String = when {
@@ -266,7 +294,11 @@ fun ForecastRoute(
             if (!s.noAccount) BottomCta { PrimaryButton("이거 사면 잔고는? 비교해 보기", onClick = onBuyCheck) }
         },
     ) { inner ->
-        Column(Modifier.padding(inner).consumeWindowInsets(inner).fillMaxSize().verticalScroll(rememberScrollState())) {
+        val scroll = rememberScrollState()
+        val scope = rememberCoroutineScope()
+        val reduce = YamuTheme.reduceMotion
+        var heroTop by remember { mutableIntStateOf(0) }
+        Column(Modifier.padding(inner).consumeWindowInsets(inner).fillMaxSize().verticalScroll(scroll)) {
             val f = s.forecast
             when {
                 s.noAccount -> YamuCard { EmptyState("계좌를 연결하면 예보를 보여 드려요", actionText = "계좌 연결", onAction = onLink) }
@@ -281,11 +313,35 @@ fun ForecastRoute(
                         filtering = true
                         viewModel.loadAccounts()
                     })
-                    HeroCard(f, s.error)
-                    if (f.riskWindows.isNotEmpty()) RiskCard(f)
+                    // 고른 날은 화면에 하나 — 그래프 · 띠 · 고른 날 칸 · 목록이 같이 본다(Task 8.2.70)
+                    val day = rememberDaySelection(f)
+                    var chartDragging by remember { mutableStateOf(false) }
+                    var stripScrolling by remember { mutableStateOf(false) }
+                    var panelDragging by remember { mutableStateOf(false) }
+                    val select: (Int, DaySource) -> Unit = { i, from -> if (accepts(from, chartDragging)) day.select(i, from) }
+                    val selectedDate = f.days.getOrNull(day.day)?.date
+                    // 목록 줄 → 그날로. 그래프가 보이게 화면을 카드 위로 올린다
+                    val jump: (LocalDate?) -> Unit = { date ->
+                        val i = f.days.indexOfFirst { it.date == date }
+                        if (i >= 0) {
+                            select(i, DaySource.LIST)
+                            scope.launch { if (reduce) scroll.scrollTo(heroTop) else scroll.animateScrollTo(heroTop) }
+                        }
+                    }
+                    Box(Modifier.onPlaced { heroTop = it.positionInParent().y.roundToInt() }) {
+                        HeroCard(
+                            f, s.error, s.selection, day,
+                            interacting = chartDragging || stripScrolling || panelDragging,
+                            select = select,
+                            onChartDrag = { chartDragging = it },
+                            onStripScroll = { stripScrolling = it },
+                            onPanelDrag = { panelDragging = it },
+                        )
+                    }
+                    if (f.riskWindows.isNotEmpty()) RiskCard(f, selectedDate, onJump = jump)
                     LinesCard(f)
                     LivingCostEntry(f, onLivingCost)   // F-01b 생활비 예측 입구
-                    UpcomingCard(f, onCashflowList)
+                    UpcomingCard(f, onCashflowList, selectedDate, onJump = jump)
                     BeyondHorizonCard(f)
                     NoticeCard(f, s.selection)
                 }
@@ -336,21 +392,60 @@ private fun FilterChip(text: String, contentDescription: String, onClick: () -> 
     }
 }
 
-/** 예상 잔액 — 가장 나쁜 선의 최저 잔액과 그 선 이름, 상태, 두 선 그래프, 고른 날 */
+/** 고른 날 상태 — 기간 · 계좌가 바뀌면 처음 날로 새로 만든다. 화면을 돌려도 고른 날과 첫 안내 여부는 지킨다 */
 @Composable
-private fun HeroCard(f: Forecast, error: String?) {
+private fun rememberDaySelection(f: Forecast): DaySelection {
+    val n = f.days.size
+    return rememberSaveable(listOf(f.from, f.to, f.accountIds).toString(), n, saver = DaySelection.saver(n)) { DaySelection(initialChartDay(f), n) }
+}
+
+/**
+ * 예상 잔액 — 가장 나쁜 선의 최저 잔액과 그 선 이름, 상태, 두 선 그래프, 날짜 띠, 고른 날.
+ * 그래프 · 띠 · 칸을 미는 동안에는 제목이 '11월 27일 (금) 잔액'으로 바뀌고 금액이 그날 잔액으로 굴러가며, 손을 떼고 1.5초 뒤 가장 낮을 때로 돌아온다(Task 8.2.70)
+ */
+@Composable
+private fun HeroCard(
+    f: Forecast,
+    error: String?,
+    selection: ForecastSelection,
+    day: DaySelection,
+    interacting: Boolean,
+    select: (Int, DaySource) -> Unit,
+    onChartDrag: (Boolean) -> Unit,
+    onStripScroll: (Boolean) -> Unit,
+    onPanelDrag: (Boolean) -> Unit,
+) {
     val c = YamuTheme.colors
-    val short = (f.minBalance ?: 0) < 0
+    var live by remember { mutableStateOf(false) }
+    LaunchedEffect(day.version, interacting) {
+        if (day.version == 0) return@LaunchedEffect   // 사람이 바꾼 적이 없으면 가장 낮을 때 그대로
+        live = true
+        if (interacting) return@LaunchedEffect        // 손을 떼면 이 효과가 다시 돌며 1.5초를 센다
+        delay(HERO_HOLD_MS)
+        live = false
+    }
+    val liveDay = f.days.getOrNull(day.day)?.takeIf { live }
+    val amount = liveDay?.let { rideValue(it, f.hasConservative) } ?: f.minBalance ?: 0
+    // 그래프 · 달력 면 — 화면을 돌려도 지킨다(Task 8.2.71)
+    var view by rememberSaveable { mutableStateOf(ChartView.GRAPH) }
     YamuCard(contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 20.dp, bottom = 16.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(if (f.isNextIncome) "월급 전 가장 낮을 때" else "${f.horizonDays ?: 30}일 동안 가장 낮을 때", style = YamuTheme.typography.titleS, color = c.text2)
+            Text(
+                liveDay?.let { heroLiveTitle(it.date) } ?: if (f.isNextIncome) "월급 전 가장 낮을 때" else "${f.horizonDays ?: 30}일 동안 가장 낮을 때",
+                style = YamuTheme.typography.titleS,
+                color = if (liveDay != null) c.text1 else c.text2,
+            )
             if (f.isEstimate) {
                 Spacer(Modifier.width(6.dp))
                 EstimateTag()
             }
+            if (f.days.size >= 2) {
+                Spacer(Modifier.weight(1f))
+                ViewToggle(view, onChange = { view = it })
+            }
         }
         Spacer(Modifier.height(4.dp))
-        AmountText(f.minBalance ?: 0, shortage = short, color = c.primary)
+        RollingAmountText(amount, color = if (amount < 0) c.error else c.primary)
         // 어느 선의 최저인지 — 금액 바로 밑 한 줄(범례와 같은 선 견본). 날짜 줄과 나눠 둬 큰 글씨에서도 남은 폭에 눌려 꺾이지 않는다
         minBalanceBasis(f)?.let { basis ->
             Row(Modifier.padding(top = 2.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -369,10 +464,26 @@ private fun HeroCard(f: Forecast, error: String?) {
             )
         }
         error?.let { Text(staleLine(it, f.calculatedAtIso), style = YamuTheme.typography.bodyS, color = c.warning, modifier = Modifier.padding(top = 4.dp)) }
+        // 월급을 못 찾아 N일로 계산했다는 이유(P1-08) — 월급 등록 버튼(B-06)은 MR !270 머지 뒤
+        incomeMissingNote(f, selection)?.let {
+            Text(
+                it,
+                style = YamuTheme.typography.bodyS,
+                color = c.text2,
+                modifier = Modifier
+                    .padding(top = 10.dp)
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(YamuRadius.s))
+                    .background(c.surfaceVariant)
+                    .padding(horizontal = 10.dp, vertical = 8.dp),
+            )
+        }
         Spacer(Modifier.height(YamuSpacing.x5))
-        ForecastLines(f)
+        ForecastLines(f, day, view, select, onChartDrag, onStripScroll, onPanelDrag)
     }
 }
+
+private const val HERO_HOLD_MS = 1_500L
 
 /**
  * 맨 위 '가장 낮을 때' 금액이 어느 선 기준인지(!223 답, 서버는 그대로). summary.minBalance는 'AI 생활비 반영' 선, 그 선이 없으면 'AI 생활비 제외' 선의 최저다.
@@ -427,54 +538,252 @@ internal fun chartDescription(f: Forecast): String {
     ).joinToString(", ")
 }
 
-/** 두 선 + 범례 + 고른 날. AI 생활비 반영 선이 없으면 그 선만 빼고 범례에 취소선 */
+/**
+ * 처음 고른 날 — 안전 잔액 아래로 처음 내려가는 날(가장 이른 위험 구간의 시작), 없으면 가장 낮은 날, 그것도 모르면 마지막 날.
+ * 전에는 가장 낮은 날이라 월급 전날(맨 끝)에 손잡이가 붙어 밀 수 있다는 게 잘 안 보였다(Task 8.2.65)
+ */
+internal fun initialChartDay(f: Forecast): Int {
+    val days = f.days
+    f.riskFrom?.let { from -> days.indexOfFirst { !it.date.isBefore(from) }.takeIf { it >= 0 }?.let { return it } }
+    return days.indexOfFirst { it.date == f.minBalanceDate }.takeIf { it >= 0 } ?: days.lastIndex
+}
+
+/** 돈이 오가는 날(0원이 아닌 입출금이 있는 날) — 그래프에 동전을 얹는다 */
+internal fun eventDayIndices(days: List<ForecastDay>): Set<Int> =
+    days.indices.filter { i -> days[i].events.any { it.amount != 0L } }.toSet()
+
+/** 말풍선 윗줄 — 돈이 오가는 날은 '11/21 (토) · 월세'(여러 건이면 '외 N건'), 아니면 '11월 21일 (토)' */
+internal fun chartDayLabel(day: ForecastDay, today: LocalDate = LocalDate.now(KST)): String {
+    val events = day.events.filter { it.amount != 0L }
+    if (events.isEmpty()) return day.date.toKoreanDateWeek(markToday = true, today = today)
+    val more = if (events.size > 1) " 외 ${events.size - 1}건" else ""
+    return "${day.date.toMonthDayWeek()} · ${events.first().label}$more"
+}
+
+/**
+ * TalkBack이 고른 날을 바꾼 뒤 읽는 문장(P2-28) — 날짜, 선마다 끝 잔액, 그날 입출금.
+ * 전에는 '하루 뒤' 동작 뒤 아무것도 읽지 않아 몇 일 · 얼마인지 몰랐다
+ */
+internal fun chartDayState(day: ForecastDay, hasConservative: Boolean): String = listOfNotNull(
+    day.date.toKoreanDateWeek(),
+    day.conservative?.takeIf { hasConservative }?.let { "$LINE_WITH_LIVING ${it.toWon()}원" },
+    day.expected?.let { "$LINE_WITHOUT_LIVING ${it.toWon()}원" },
+    day.events.filter { it.amount != 0L }.takeIf { it.isNotEmpty() }?.joinToString(", ") { "${dayEventLabel(it)} ${it.amount.toWon(withPlusSign = true)}원" },
+).joinToString(", ")
+
+/**
+ * 두 선 + 범례 + 날짜 띠 + 고른 날 칸. AI 생활비 반영 선이 없으면 그 선만 빼고 범례에 취소선.
+ * 예보할 날이 하루뿐이면(월급 전날) 그래프 대신 그날 칸과 안내 한 줄(P2-24)
+ */
 @Composable
-private fun ForecastLines(f: Forecast) {
+private fun ForecastLines(
+    f: Forecast,
+    day: DaySelection,
+    view: ChartView,
+    select: (Int, DaySource) -> Unit,
+    onChartDrag: (Boolean) -> Unit,
+    onStripScroll: (Boolean) -> Unit,
+    onPanelDrag: (Boolean) -> Unit,
+) {
     val c = YamuTheme.colors
     val days = f.days
+    if (days.size == 1) {
+        Text(singleDayNote(f), style = YamuTheme.typography.bodyM, color = c.text2)
+        Spacer(Modifier.height(12.dp))
+        DayPanel(days[0], hasConservative = f.hasConservative, threshold = f.alertThreshold)
+        return
+    }
     if (days.size < 2) return
-    val key = listOf(f.from, f.to, f.accountIds)
-    val initial = days.indexOfFirst { it.date == f.minBalanceDate }.takeIf { it >= 0 } ?: days.lastIndex
-    var selected by rememberSaveable(key.toString()) { mutableIntStateOf(initial) }
+    // 마지막 선이 손잡이가 타는 선 — 'AI 생활비 반영'(없으면 'AI 생활비 제외')
     val lines = buildList {
         add(ChartLine(LINE_WITHOUT_LIVING, days.map { it.expected }, c.primary, width = 2.6.dp))
         if (f.hasConservative) add(ChartLine(LINE_WITH_LIVING, days.map { it.conservative }, c.primary, dashed = true, width = 2.2.dp))
     }
-    val ranges = f.riskWindows.mapNotNull { w ->
-        val a = days.indexOfFirst { !it.date.isBefore(w.from) }
-        val b = days.indexOfLast { !it.date.isAfter(w.to) }
-        if (a < 0 || b < a) null else a..b
+    val eventDays = remember(days) { eventDayIndices(days) }
+    val strip = remember(days, f.alertThreshold) { stripDays(days, f.hasConservative, f.alertThreshold) }
+    // 면을 바꿔도 각 면의 저장 상태(그래프 들어오기 · 첫 안내를 했는지)는 지킨다 — 다시 그래프로 와도 들어오기를 되풀이하지 않게
+    val saved = rememberSaveableStateHolder()
+    Crossfade(
+        targetState = view,
+        animationSpec = if (YamuTheme.reduceMotion) snap() else tween(YamuMotion.BASE_MS, easing = YamuMotion.standard),
+        label = "chartView",
+    ) { v ->
+        saved.SaveableStateProvider(v.name) {
+            when (v) {
+                ChartView.GRAPH -> Column {
+                    BalanceChart(
+                        dates = days.map { it.date },
+                        lines = lines,
+                        description = chartDescription(f),
+                        threshold = f.alertThreshold,
+                        eventDays = eventDays,
+                        selected = day.day,
+                        onSelect = { select(it, DaySource.CHART) },
+                        dayLabel = { chartDayLabel(days[it]) },
+                        dayState = { chartDayState(days[it], f.hasConservative) },
+                        incomeArrow = f.incomeDate != null,
+                        interacted = day.touched,
+                        onInteract = day::touch,
+                        onDragChange = onChartDrag,
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    ChartLegend(lines, missing = missingLines(f))
+                    Spacer(Modifier.height(8.dp))
+                    DateStrip(
+                        days = strip,
+                        selected = day.day,
+                        source = day.source,
+                        onSelect = select,
+                        income = f.incomeDate,
+                        hint = !day.touched,
+                        bleed = 20.dp,   // HeroCard 안쪽 여백만큼 카드 끝까지
+                        onScrollingChange = onStripScroll,
+                    )
+                }
+                ChartView.CALENDAR -> ForecastCalendar(f, strip, selected = day.day, source = day.source, onSelect = select)
+            }
+        }
     }
-    BalanceChart(
-        dates = days.map { it.date },
-        lines = lines,
-        description = chartDescription(f),
-        threshold = f.alertThreshold,
-        riskRanges = ranges,
-        selected = selected,
-        onSelect = { selected = it },
-        incomeArrow = f.incomeDate != null,
-    )
-    Spacer(Modifier.height(12.dp))
-    ChartLegend(lines, missing = missingLines(f))
-    Spacer(Modifier.height(14.dp))
-    DayPanel(days[selected.coerceIn(0, days.lastIndex)], hasConservative = f.hasConservative)
+    Spacer(Modifier.height(8.dp))
+    DayPager(f, day, select, onPanelDrag)
 }
 
-/** 고른 날 — 그날 끝 잔액(선마다)과 그날 입출금 */
+/**
+ * 그래프 · 달력 바꾸기 알약(Task 8.2.71) — 카드 오른쪽 위. 그래프를 가로로 끄는 것과 달력을 넘기는 것이 부딪히지 않게 면은 이 알약으로만 바꾼다
+ */
 @Composable
-private fun DayPanel(day: ForecastDay, hasConservative: Boolean) {
+private fun ViewToggle(view: ChartView, onChange: (ChartView) -> Unit) {
     val c = YamuTheme.colors
-    Column(
+    Row(
         Modifier
+            .clip(RoundedCornerShape(10.dp))
+            .background(c.surfaceVariant)
+            .padding(3.dp)
+            .semantics { contentDescription = "보기" },
+    ) {
+        listOf(ChartView.GRAPH to "그래프", ChartView.CALENDAR to "달력").forEach { (v, label) ->
+            val on = v == view
+            Text(
+                label,
+                style = YamuTheme.typography.labelM,
+                color = if (on) c.text1 else c.text3,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(if (on) c.surface else androidx.compose.ui.graphics.Color.Transparent)
+                    .selectable(selected = on, role = Role.Tab, onClick = { onChange(v) })
+                    .padding(horizontal = 11.dp, vertical = 5.dp),
+            )
+        }
+    }
+}
+
+/**
+ * 고른 날 칸(Task 8.2.70) — 옆으로 밀거나 머리의 ‹ ›를 누르면 하루씩 넘어간다([DaySource.PANEL]).
+ * 손가락을 따라 칸이 움직이고 48dp 넘게 밀고 놓으면 그 쪽으로 빠져나가며 다음 날이 반대편에서 들어온다. 끝 날에서는 덜 밀린다.
+ * 다른 곳(그래프 · 띠 · 목록)에서 날을 바꾸면 밀지 않고 바로 바꾼다 — 그래프를 빠르게 끌 때 칸이 쌓여 밀리지 않게. 모션 줄이기면 늘 바로
+ */
+@Composable
+private fun DayPager(f: Forecast, day: DaySelection, select: (Int, DaySource) -> Unit, onDragChange: (Boolean) -> Unit) {
+    val days = f.days
+    val n = days.size
+    val reduce = YamuTheme.reduceMotion
+    val density = LocalDensity.current
+    val scope = rememberCoroutineScope()
+    val offset = remember { Animatable(0f) }
+    var width by remember { mutableIntStateOf(0) }
+    var busy by remember { mutableStateOf(false) }
+    val latestDay by rememberUpdatedState(day.day)
+    // 한쪽으로 빠져나가고(dir 쪽 반대로) 새 날이 반대편에서 들어온다
+    fun go(dir: Int) {
+        val target = latestDay + dir
+        if (target !in 0 until n || busy) {
+            scope.launch { offset.animateTo(0f, tween(YamuMotion.BASE_MS, easing = YamuMotion.standard)) }
+            return
+        }
+        if (reduce || width == 0) { scope.launch { offset.snapTo(0f) }; select(target, DaySource.PANEL); return }
+        busy = true
+        scope.launch {
+            offset.animateTo(-dir * width.toFloat(), tween(PAGER_OUT_MS, easing = YamuMotion.standard))
+            select(target, DaySource.PANEL)
+            offset.snapTo(dir * width.toFloat())
+            offset.animateTo(0f, tween(PAGER_IN_MS, easing = YamuMotion.standard))
+            busy = false
+        }
+    }
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .onSizeChanged { width = it.width }
+            .clip(RoundedCornerShape(YamuRadius.input))
+            .pointerInput(n) {
+                detectHorizontalDragGestures(
+                    onDragStart = { onDragChange(true); day.touch() },
+                    onDragEnd = {
+                        onDragChange(false)
+                        val swipe = with(density) { PAGER_SWIPE.toPx() }
+                        when {
+                            offset.value < -swipe -> go(1)
+                            offset.value > swipe -> go(-1)
+                            else -> go(0)
+                        }
+                    },
+                    onDragCancel = { onDragChange(false); go(0) },
+                ) { change, dx ->
+                    change.consume()
+                    if (busy) return@detectHorizontalDragGestures
+                    val next = offset.value + dx
+                    val atEdge = (next > 0 && latestDay == 0) || (next < 0 && latestDay == n - 1)
+                    scope.launch { offset.snapTo(offset.value + dx * if (atEdge) 0.3f else 1f) }
+                }
+            },
+    ) {
+        DayPanel(
+            days[day.day.coerceIn(0, n - 1)],
+            hasConservative = f.hasConservative,
+            threshold = f.alertThreshold,
+            modifier = Modifier.graphicsLayer { translationX = offset.value },
+            onPrev = if (day.day > 0) ({ go(-1) }) else null,
+            onNext = if (day.day < n - 1) ({ go(1) }) else null,
+        )
+    }
+}
+
+private val PAGER_SWIPE = 48.dp
+private const val PAGER_OUT_MS = 140
+private const val PAGER_IN_MS = 220
+
+/** 고른 날 — 그날 끝 잔액(선마다), 안전 잔액 · 0원 아래면 태그, 그날 입출금. 칸 넘기기 화면에서는 머리에 ‹ › */
+@Composable
+private fun DayPanel(
+    day: ForecastDay,
+    hasConservative: Boolean,
+    threshold: Long?,
+    modifier: Modifier = Modifier,
+    onPrev: (() -> Unit)? = null,
+    onNext: (() -> Unit)? = null,
+) {
+    val c = YamuTheme.colors
+    val lowest = listOfNotNull(day.expected, day.conservative.takeIf { hasConservative }).minOrNull()
+    val paged = onPrev != null || onNext != null
+    Column(
+        modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(YamuRadius.input))
             .background(c.surfaceVariant)
-            .padding(horizontal = 14.dp, vertical = 12.dp),
+            .padding(start = 14.dp, end = 14.dp, top = if (paged) 2.dp else 12.dp, bottom = 12.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(day.date.toKoreanDateWeek(), style = YamuTheme.typography.titleS, color = c.text1, modifier = Modifier.weight(1f))
-            Text("그래프를 눌러 날짜 바꾸기", style = YamuTheme.typography.bodyS, color = c.text3)
+            Text(day.date.toKoreanDateWeek(markToday = true), style = YamuTheme.typography.titleS, color = c.text1, modifier = Modifier.weight(1f))
+            when (lowest?.let { zoneOf(it, threshold) }) {
+                BalanceZone.BELOW_ZERO -> StatusTag("0원 아래", tone = TagTone.Error)
+                BalanceZone.BELOW_SAFE -> StatusTag("안전 잔액 아래", tone = TagTone.Warning)
+                else -> Unit
+            }
+            if (paged) {
+                Spacer(Modifier.width(4.dp))
+                PagerArrow(back = true, enabled = onPrev != null, onClick = { onPrev?.invoke() })
+                PagerArrow(back = false, enabled = onNext != null, onClick = { onNext?.invoke() })
+            }
         }
         Spacer(Modifier.height(6.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -482,13 +791,15 @@ private fun DayPanel(day: ForecastDay, hasConservative: Boolean) {
             if (hasConservative) DayValue(LINE_WITH_LIVING, day.conservative, c.onWarningContainer, Modifier.weight(1f))
         }
         val events = day.events.filter { it.amount != 0L }
-        if (events.isNotEmpty()) {
+        if (events.isEmpty()) {
+            Text("이날은 오가는 돈이 없어요", style = YamuTheme.typography.bodyS, color = c.text3, modifier = Modifier.padding(top = 8.dp))
+        } else {
             Spacer(Modifier.height(10.dp))
             HorizontalDivider(color = c.outlineVariant)
             Spacer(Modifier.height(6.dp))
             events.forEach { e ->
                 Row(Modifier.fillMaxWidth().padding(vertical = 3.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text(e.label + if (e.isEstimate) " · 추정" else if (e.isExpected) " · 예상" else "", style = YamuTheme.typography.bodyM, color = c.text1, modifier = Modifier.weight(1f))
+                    Text(dayEventLabel(e), style = YamuTheme.typography.bodyM, color = c.text1, modifier = Modifier.weight(1f))
                     Text("${e.amount.toWon(withPlusSign = true)}원", style = YamuTheme.typography.bodyM, color = if (e.amount > 0) c.primary else c.text1)
                 }
             }
@@ -496,8 +807,40 @@ private fun DayPanel(day: ForecastDay, hasConservative: Boolean) {
     }
 }
 
+/** 고른 날 칸 머리의 ‹ › — 보이는 크기는 작게, 누르는 칸은 48dp */
 @Composable
-private fun DayValue(label: String, value: Long?, color: androidx.compose.ui.graphics.Color, modifier: Modifier) {
+private fun PagerArrow(back: Boolean, enabled: Boolean, onClick: () -> Unit) {
+    val c = YamuTheme.colors
+    Box(
+        Modifier
+            .minimumInteractiveComponentSize()
+            .clip(RoundedCornerShape(YamuRadius.s))
+            .clickable(enabled = enabled, role = Role.Button, onClickLabel = if (back) "하루 앞" else "하루 뒤", onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Box(Modifier.size(28.dp).clip(RoundedCornerShape(YamuRadius.s)).background(c.surface), contentAlignment = Alignment.Center) {
+            Icon(
+                YamuIcons.ChevronRight,
+                contentDescription = if (back) "하루 앞" else "하루 뒤",
+                tint = if (enabled) c.text2 else c.text3.copy(alpha = 0.4f),
+                modifier = Modifier.size(16.dp).graphicsLayer { if (back) scaleX = -1f },
+            )
+        }
+    }
+}
+
+/** 날짜 칸 입출금 이름 — '넷플릭스 (예상)' · '카드 사용 예상 (추정)'. 가운데 점은 어색하다는 의견으로 괄호로 바꿨다(11/10 QA) */
+internal fun dayEventLabel(e: ForecastEvent): String = when {
+    e.isEstimate -> "${e.label} (추정)"
+    e.isExpected -> "${e.label} (예상)"
+    else -> e.label
+}
+
+/** 계산 카드 한 줄 — '예상 생활비 (AI 예측, 기록 있는 계좌만)'. 덧붙임은 괄호에 넣는다 */
+internal fun stepLabel(s: LineStep): String = s.note?.let { "${s.label} ($it)" } ?: s.label
+
+@Composable
+internal fun DayValue(label: String, value: Long?, color: androidx.compose.ui.graphics.Color, modifier: Modifier) {
     Column(modifier) {
         Text(label, style = YamuTheme.typography.bodyS, color = YamuTheme.colors.text3)
         // 칸이 좁아 아주 큰 금액이 숫자 중간에서 줄이 바뀌었다 — 한 줄로 두고 글자를 줄이며, 그래도 넘치면 말줄임(점검 2026-11-08)
@@ -513,9 +856,24 @@ private fun DayValue(label: String, value: Long?, color: androidx.compose.ui.gra
     }
 }
 
-/** 잔액이 낮아지는 때 — 위험 구간마다 선 · 부족액 · 원인(서버 causes 그대로) */
+/**
+ * 목록 줄의 고른 날 표시 — 그래프에서 고른 날과 같은 날 줄은 연한 파랑 바탕(Task 8.2.70). 누르면 그날로 가는 줄만 [onClick]이 있다
+ */
+internal fun Modifier.dayRow(on: Boolean, highlight: androidx.compose.ui.graphics.Color): Modifier = this
+    // 바탕이 글자에 딱 붙지 않게 양옆 8dp씩 넓혀 칠하고 글자 자리는 그대로 둔다
+    .layout { m, cons ->
+        val e = 8.dp.roundToPx()
+        val w = cons.maxWidth + 2 * e
+        val p = m.measure(cons.copy(minWidth = w, maxWidth = w))
+        layout(cons.maxWidth, p.height) { p.place(-e, 0) }
+    }
+    .clip(RoundedCornerShape(YamuRadius.s))
+    .background(if (on) highlight else androidx.compose.ui.graphics.Color.Transparent)
+    .padding(horizontal = 8.dp)
+
+/** 잔액이 낮아지는 때 — 위험 구간마다 선 · 부족액 · 원인(서버 causes 그대로). 원인 줄을 누르면 그래프가 그날로(날짜를 아는 줄만) */
 @Composable
-private fun RiskCard(f: Forecast) {
+private fun RiskCard(f: Forecast, selectedDate: LocalDate?, onJump: (LocalDate?) -> Unit) {
     val c = YamuTheme.colors
     val worst = if (f.riskWindows.any { it.level == RiskLevel.DANGER }) RiskLevel.DANGER else RiskLevel.WARNING
     YamuCard(contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 18.dp, bottom = 8.dp)) {
@@ -530,12 +888,15 @@ private fun RiskCard(f: Forecast) {
             Spacer(Modifier.height(4.dp))
             w.causes.forEachIndexed { j, cause ->
                 HorizontalDivider(color = c.outlineVariant)
+                val inChart = cause.date != null && f.days.any { it.date == cause.date }
                 ListRow(
                     title = cause.label,
                     sub = cause.sub(f.livingCost?.method),
                     value = "${cause.amount.toWon(withPlusSign = true)}원",
                     valueColor = if (cause.amount > 0) c.primary else c.text1,
                     dense = true,
+                    modifier = Modifier.dayRow(inChart && cause.date == selectedDate, c.primaryContainer),
+                    onClick = if (inChart) ({ onJump(cause.date) }) else null,
                 )
             }
         }
@@ -567,7 +928,7 @@ private fun LinesCard(f: Forecast) {
         Text("두 선은 이렇게 계산했어요", style = YamuTheme.typography.cardTitle, color = c.text1)
         Spacer(Modifier.height(12.dp))
         f.currentBalance?.let { b ->
-            StepRow("지금 잔액 · 계좌 ${f.accountIds.size}개", "${b.toWon()}원", strong = true)
+            StepRow("지금 잔액 (계좌 ${f.accountIds.size}개)", "${b.toWon()}원", strong = true)
             Spacer(Modifier.height(12.dp))
         }
         f.lineGroups().forEachIndexed { i, g ->
@@ -590,7 +951,7 @@ private fun LineGroupRow(g: LineGroup, hasConservative: Boolean) {
             Text(name, style = YamuTheme.typography.titleS, color = c.text1)
             if (withLiving) Text("$LINE_WITHOUT_LIVING 선에서 더 빼요", style = YamuTheme.typography.bodyS, color = c.text3)
             Spacer(Modifier.height(4.dp))
-            g.steps.forEach { s -> StepRow(listOfNotNull(s.label, s.note).joinToString(" · "), "${s.amount.toWon(withPlusSign = true)}원") }
+            g.steps.forEach { s -> StepRow(stepLabel(s), "${s.amount.toWon(withPlusSign = true)}원") }
             if (withLiving && !hasConservative) {
                 Text("생활비 기록이 없어 이번에는 그리지 않았어요", style = YamuTheme.typography.bodyM, color = c.text3)
             } else {
@@ -611,9 +972,9 @@ private fun StepRow(label: String, value: String, strong: Boolean = false, muted
     }
 }
 
-/** 예정된 돈 — 위 5줄. 카드 사용 예상은 '추정' 태그와 근거 문장(서버 title 그대로) */
+/** 예정된 돈 — 위 5줄. 카드 사용 예상은 '추정' 태그와 근거 문장(서버 title 그대로). 줄을 누르면 그래프가 그날로 */
 @Composable
-private fun UpcomingCard(f: Forecast, onCashflowList: () -> Unit) {
+private fun UpcomingCard(f: Forecast, onCashflowList: () -> Unit, selectedDate: LocalDate?, onJump: (LocalDate?) -> Unit) {
     val c = YamuTheme.colors
     // 목록 카드는 안쪽 16(프로토타입 .card.tight) · 머리 줄 24dp. '전체 보기' 터치 칸(48)은 머리 줄 위아래로 넘친다(.card-hd .more 음수 여백)
     YamuCard(contentPadding = PaddingValues(16.dp)) {
@@ -638,7 +999,7 @@ private fun UpcomingCard(f: Forecast, onCashflowList: () -> Unit) {
         }
         rows.take(5).forEachIndexed { i, e ->
             if (i > 0) HorizontalDivider(color = c.outlineVariant)
-            EventRow(e)
+            EventRow(e, on = e.date == selectedDate, onClick = { onJump(e.date) })
         }
     }
 }
@@ -674,9 +1035,11 @@ internal fun beyondHorizonNote(f: Forecast): String =
 private const val BEYOND_VISIBLE = 5
 
 @Composable
-private fun EventRow(e: ForecastEvent) {
+private fun EventRow(e: ForecastEvent, on: Boolean = false, onClick: (() -> Unit)? = null) {
     val c = YamuTheme.colors
     ListRow(
+        modifier = Modifier.dayRow(on, c.primaryContainer),
+        onClick = onClick,
         title = e.label,
         sub = listOfNotNull(e.date.toMonthDayWeek(), e.basis).joinToString(" · "),
         value = "${e.amount.toWon(withPlusSign = true)}원",
@@ -719,8 +1082,8 @@ internal fun noticeLines(f: Forecast, selection: ForecastSelection): List<String
         f.accountIds.size > 1 -> "생활비 기록이 없는 계좌가 있어 생활비는 빼고 계산했어요. 계좌를 따로 골라 보면 기록이 있는 계좌는 생활비까지 넣어 계산해요."
         else -> "생활비 기록이 아직 없어 생활비는 빼고 계산했어요. 체크카드로 결제하면 다음 예보부터 들어가요."
     }
-    val fallback = if (selection.period == ForecastPeriod.NEXT_INCOME && !f.isNextIncome) "월급날을 찾지 못해 ${f.horizonDays ?: 30}일로 계산했어요." else null
-    return listOfNotNull(livingLine, fallback) + f.excluded.map { it.text }.distinct()
+    // 월급을 못 찾아 N일로 계산했다는 줄은 위 카드로 옮겼다(incomeMissingNote, P1-08) — 맨 아래에서는 놓치기 쉬웠다
+    return listOfNotNull(livingLine) + f.excluded.map { it.text }.distinct()
 }
 
 /** 기간 · 계좌 고르기 — 고른 값은 앱을 켜 둔 동안만 기억(서버 설정은 그대로) */
@@ -782,19 +1145,27 @@ private fun FilterSheet(
 
 // ───────────────────────── F-02 예정 수입 · 지출 ─────────────────────────
 
-/** F-02 한 줄 — 가계부 항목이면 눌러서 고치고(F-02b), 카드 청구는 읽기 전용. 반복이면 날짜 옆에 '매월 말일'처럼 */
+/**
+ * F-02 한 줄 — 가계부 항목이면 눌러서 고치고(F-02b), 카드 청구 · 확인 전 후보는 읽기 전용. 반복이면 날짜 옆에 '매월 말일'처럼.
+ * 확인 전 후보는 F-01 '예정된 돈'과 같은 '예상' 태그
+ */
 @Composable
 private fun CashflowRowLine(row: CashflowRow, onClick: (() -> Unit)?) {
     val c = YamuTheme.colors
     ListRow(
         title = row.title,
-        sub = listOfNotNull(row.date?.toMonthDayWeek(), row.repeatLabel, row.cardNote).joinToString(" · "),
+        sub = cashflowRowSub(row),
         value = "${row.amount.toWon(withPlusSign = true)}원",
         valueColor = if (row.amount > 0) c.primary else c.text1,
+        titleTag = if (row.candidate) ({ StatusTag("예상", tone = TagTone.Neutral) }) else null,
         dense = true,
         onClick = onClick,
     )
 }
+
+/** F-02 보조 줄 — '11/5 (목) · 매월 5일 · 카드 결제', 확인 전 후보는 '11/25 (수) · 출금일 기준' */
+internal fun cashflowRowSub(row: CashflowRow): String =
+    listOfNotNull(row.date?.toMonthDayWeek(), row.repeatLabel, row.cardNote, row.dateNote).joinToString(" · ")
 
 @Composable
 fun CashflowListRoute(
@@ -836,7 +1207,7 @@ fun CashflowListRoute(
                     val entries = s.entries
                     val rows = if (entries != null) cashflowRows(entries, f) else {
                         requireNotNull(f)   // 둘 다 없으면 위에서 오류 화면
-                        f.upcoming.filter { !it.isEstimate }.map { CashflowRow(it.date, it.title, it.amount, null, null) }
+                        f.upcoming.filter { !it.isEstimate }.map { it.toCashflowRow() }
                     }
                     val period = cashflowPeriod(f)
                     YamuCard {

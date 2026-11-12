@@ -28,13 +28,18 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.onPlaced
+import androidx.compose.ui.layout.positionInParent
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
@@ -76,6 +81,7 @@ import com.yamu.app.core.network.ApiResult
 import com.yamu.app.core.network.newIdempotencyKey
 import com.yamu.app.core.ui.LocalSnackbar
 import com.yamu.app.core.ui.userMessage
+import com.yamu.app.feature.forecast.data.Forecast
 import com.yamu.app.feature.forecast.data.ForecastRepository
 import com.yamu.app.feature.forecast.data.PaymentChannel
 import com.yamu.app.feature.forecast.data.RiskLevel
@@ -83,6 +89,7 @@ import com.yamu.app.feature.forecast.data.SimAction
 import com.yamu.app.feature.forecast.data.SimCardOption
 import com.yamu.app.feature.forecast.data.SimProblem
 import com.yamu.app.feature.forecast.data.SimSnapshot
+import com.yamu.app.feature.forecast.data.SimWithdrawal
 import com.yamu.app.feature.forecast.data.Simulation
 import com.yamu.app.feature.forecast.data.SimulationQuery
 import com.yamu.app.feature.forecast.data.canSavePlan
@@ -98,6 +105,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.time.LocalDate
 import javax.inject.Inject
+import kotlin.math.roundToInt
 
 /** 경로 값 ↔ 조건 — 결과는 저장된 게 아니라 이 조건으로 부른 값이다 */
 fun SimulationQuery.toRoute() = BuyCheckResult(
@@ -162,6 +170,9 @@ class BuyCheckViewModel internal constructor(initial: SimulationQuery, private v
 
     /** 잔고예보에서 쓰는 안전 잔액 — 시뮬레이션 응답에는 없어 지난 예보 값을 쓴다 */
     val alertThreshold: Long? get() = repo.cached()?.alertThreshold
+
+    /** 지난 잔고예보 — 고른 날 칸에 그날 입출금을 빌려 쓴다('사기 전' 선과 같을 때만, [matchingForecast]) */
+    val forecast: Forecast? get() = repo.cached()
 
     init { load() }
 
@@ -277,6 +288,27 @@ fun BuyCheckResultRoute(
     }
     val sim = s.simulation
     val today = LocalDate.now(KST)
+    val scroll = rememberScrollState()
+    val scope = rememberCoroutineScope()
+    val reduce = YamuTheme.reduceMotion
+    var heroTop by remember { mutableIntStateOf(0) }
+    // 그래프에서 고른 날 — 결과(조건 · 기간)가 바뀌면 그 결과의 구매일로 다시. 한 번 만졌으면 첫 안내(손잡이 흔들기)는 다시 하지 않는다
+    val simKey = sim?.let { "${it.query}|${it.days.firstOrNull()?.date}|${it.days.size}" }
+    var simDay by rememberSaveable(simKey) { mutableIntStateOf(sim?.let(::simInitialDay) ?: 0) }
+    var simTouched by rememberSaveable { mutableStateOf(false) }
+    var flash by remember(simKey) { mutableIntStateOf(0) }
+    // '빠져나가는 날' 줄 — 기간 안이면 그날로, 기간 밖이면 마지막 날로 가며 오른쪽 끝 표시를 깜빡인다. 그래프 위가 가려져 있으면 끌어올린다
+    val onWithdrawal: (SimWithdrawal) -> Unit = onWithdrawal@{ w ->
+        val days = sim?.days ?: return@onWithdrawal
+        val i = days.indexOfFirst { it.date == w.date }
+        if (!w.beyondPeriod && i < 0) return@onWithdrawal
+        simTouched = true
+        if (w.beyondPeriod) {
+            simDay = days.lastIndex
+            flash++
+        } else simDay = i
+        if (scroll.value > heroTop) scope.launch { if (reduce) scroll.scrollTo(heroTop) else scroll.animateScrollTo(heroTop) }
+    }
     FlowScreen(
         title = "이거 사도 될까?",
         onBack = onBack,
@@ -300,7 +332,7 @@ fun BuyCheckResultRoute(
             }
         },
     ) { inner ->
-        Column(Modifier.padding(inner).consumeWindowInsets(inner).fillMaxSize().verticalScroll(rememberScrollState())) {
+        Column(Modifier.padding(inner).consumeWindowInsets(inner).fillMaxSize().verticalScroll(scroll)) {
             Header(s.query, sim, onCard = openCards, onHow = { sheet = "how" }, onDate = { picking = true })
             val problem = s.problem
             when {
@@ -331,9 +363,18 @@ fun BuyCheckResultRoute(
                         animationSpec = if (YamuTheme.reduceMotion) snap() else tween(YamuMotion.SHORT_MS, easing = YamuMotion.standard),
                         label = "recalc",
                     )
-                    Column(Modifier.alpha(dim)) {
-                        HeroCard(sim, viewModel.alertThreshold)
-                        ScheduleCard(sim)
+                    Column(Modifier.alpha(dim).onPlaced { heroTop = it.positionInParent().y.roundToInt() }) {
+                        HeroCard(
+                            sim,
+                            viewModel.alertThreshold,
+                            forecast = viewModel.forecast,
+                            selected = simDay,
+                            onSelect = { simDay = it },
+                            interacted = simTouched,
+                            onInteract = { simTouched = true },
+                            flash = flash,
+                        )
+                        ScheduleCard(sim, selectedDate = sim.days.getOrNull(simDay)?.date, onWithdrawal = onWithdrawal)
                         BenefitCard(sim)
                         if (sim.alternatives.isNotEmpty()) AlternativesCard(sim, onPick = { if (!s.loading) viewModel.setCard(it) })
                         BasisCard(sim)
@@ -368,7 +409,7 @@ private fun Header(q: SimulationQuery, sim: Simulation?, onCard: () -> Unit, onH
         Text(listOfNotNull(q.productName, "${q.amount.toWon()}원").joinToString(" · "), style = YamuTheme.typography.headlineS, color = c.text1)
         Spacer(Modifier.height(10.dp))
         val cardName = when {
-            q.userCardId == null -> sim?.card?.name?.let { "$it · 추천" } ?: "혜택이 가장 큰 카드"
+            q.userCardId == null -> sim?.card?.name?.let { "$it (추천)" } ?: "혜택이 가장 큰 카드"
             else -> sim?.card?.name ?: "고른 카드"
         }
         val how = listOfNotNull(listOfNotNull(q.categoryName, q.merchantName).joinToString(" "), q.channel.label, q.installmentMonths?.let { "할부 ${it}개월" } ?: "일시불")
@@ -380,9 +421,18 @@ private fun Header(q: SimulationQuery, sim: Simulation?, onCard: () -> Unit, onH
     }
 }
 
-/** 사고 나면 가장 낮을 때 — 전(회색 취소선) → 후, 상태(사실만), BE 안내 문장, 전후 그래프 */
+/** 사고 나면 가장 낮을 때 — 전(회색 취소선) → 후, 상태(사실만), BE 안내 문장, 전후 그래프(손잡이 · 구매일 · 출금일, [SimGraph]) */
 @Composable
-private fun HeroCard(sim: Simulation, threshold: Long?) {
+private fun HeroCard(
+    sim: Simulation,
+    threshold: Long?,
+    forecast: Forecast?,
+    selected: Int,
+    onSelect: (Int) -> Unit,
+    interacted: Boolean,
+    onInteract: () -> Unit,
+    flash: Int,
+) {
     val c = YamuTheme.colors
     val after = sim.after
     YamuCard(contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 20.dp, bottom = 18.dp)) {
@@ -409,32 +459,11 @@ private fun HeroCard(sim: Simulation, threshold: Long?) {
             Spacer(Modifier.height(10.dp))
             Text(it, style = YamuTheme.typography.bodyM, color = c.text2)
         }
-        val days = sim.days
-        if (days.size >= 2) {
+        if (sim.days.size >= 2) {
             Spacer(Modifier.height(YamuSpacing.x5))
-            val lines = listOf(
-                ChartLine("사기 전", days.map { it.before }, c.text3, dashed = true, width = 1.8.dp),
-                ChartLine("사기 후", days.map { it.after }, c.primary, width = 2.4.dp),
-            )
-            val below = threshold?.let { t -> days.indices.filter { (days[it].after ?: Long.MAX_VALUE) < t } }.orEmpty()
-            BalanceChart(
-                dates = days.map { it.date },
-                lines = lines,
-                description = "사기 전과 후 잔액 그래프, 사고 나면 가장 낮을 때 ${(after?.minBalance ?: 0).toWon()}원",
-                threshold = threshold,
-                riskRanges = below.toRanges(),
-            )
-            Spacer(Modifier.height(10.dp))
-            ChartLegend(lines)
+            SimGraph(sim, threshold, forecast, selected, onSelect, interacted, onInteract, flash)
         }
     }
-}
-
-/** 이어진 날 번호 → 구간 */
-private fun List<Int>.toRanges(): List<IntRange> = fold(mutableListOf<IntRange>()) { acc, i ->
-    val last = acc.lastOrNull()
-    if (last != null && last.last + 1 == i) acc[acc.lastIndex] = last.first..i else acc += i..i
-    acc
 }
 
 /**
@@ -454,11 +483,15 @@ internal fun afterTag(after: SimSnapshot?): Pair<String, TagTone>? {
     }
 }
 
-/** 빠져나가는 날 — 회차마다, 예보 기간 밖이면 태그 */
+/**
+ * 빠져나가는 날 — 회차마다, 예보 기간 밖이면 태그. 줄을 누르면 그래프가 그날로 가고(기간 밖이면 오른쪽 끝 표시가 깜빡인다)
+ * 그래프에서 고른 날과 같은 날 줄은 연한 파랑 바탕이다
+ */
 @Composable
-private fun ScheduleCard(sim: Simulation) {
+private fun ScheduleCard(sim: Simulation, selectedDate: LocalDate?, onWithdrawal: (SimWithdrawal) -> Unit) {
     if (sim.schedule.isEmpty()) return
     val c = YamuTheme.colors
+    val chartDates = remember(sim) { sim.days.map { it.date }.toSet() }
     YamuCard(contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 18.dp, bottom = 8.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("빠져나가는 날", style = YamuTheme.typography.cardTitle, color = c.text1, modifier = Modifier.weight(1f))
@@ -467,6 +500,8 @@ private fun ScheduleCard(sim: Simulation) {
         Spacer(Modifier.height(4.dp))
         sim.schedule.forEachIndexed { i, w ->
             if (i > 0) HorizontalDivider(color = c.outlineVariant)
+            // 그래프로 갈 수 있는 줄만 누를 수 있다 — 기간 안이면 그날이 그래프에 있어야 하고, 기간 밖이면 그래프가 두 날 이상일 때
+            val reachable = sim.days.size >= 2 && (w.beyondPeriod || w.date in chartDates)
             ListRow(
                 title = w.label,
                 sub = w.date?.toKoreanDateWeek(),
@@ -474,6 +509,8 @@ private fun ScheduleCard(sim: Simulation) {
                 valueColor = if (w.beyondPeriod) c.text2 else c.text1,
                 titleTag = if (w.beyondPeriod) ({ StatusTag("기간 밖", tone = TagTone.Neutral) }) else null,
                 dense = true,
+                modifier = Modifier.dayRow(!w.beyondPeriod && w.date != null && w.date == selectedDate, c.primaryContainer),
+                onClick = if (reachable) ({ onWithdrawal(w) }) else null,
             )
         }
     }

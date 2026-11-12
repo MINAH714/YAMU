@@ -46,6 +46,11 @@ interface AccountApi {
     ): Response<ApiEnvelope<DeviceResponse>>
     @POST("auth/step-up/challenge") suspend fun challenge(@Body body: ChallengeRequest): Response<ApiEnvelope<ChallengeResponse>>
     @POST("auth/step-up/verify") suspend fun verify(@Body body: VerifyRequest): Response<ApiEnvelope<VerifyResponse>>
+    /** 가입 뒤 간편 비밀번호 바꾸기 — 204. 가입 중 저장은 같은 경로를 가입 진행 토큰으로 부른다(SignupApi) */
+    @POST("auth/pin") suspend fun changePin(
+        @Header(YamuHeaders.STEP_UP_TOKEN) stepUpToken: String,
+        @Body body: PinRequest,
+    ): Response<ApiEnvelope<JsonElement>>
 }
 
 interface AuthRepository {
@@ -74,6 +79,12 @@ interface AuthRepository {
     suspend fun challenge(purpose: String): ApiResult<StepUpChallenge>
     suspend fun verifyBiometric(challengeId: String, signatureBase64: String): ApiResult<StepUpToken>
     suspend fun verifyPin(challenge: StepUpChallenge, pin: String): ApiResult<StepUpToken>
+
+    /**
+     * 간편 비밀번호 바꾸기(M-08) — SECURITY_SETTINGS 본인 확인 토큰과 함께(POST /auth/pin).
+     * 서버는 토큰부터 확인하고(실패하면 STEP_UP_REQUIRED, 저장 안 함) 이 기기 말고 다른 기기의 로그인을 끊는다
+     */
+    suspend fun changePin(pin: String, stepUpToken: String): ApiResult<Unit>
 
     /** 초기 설정(계좌 · 카드 연결 · 첫 분석)이 끝났을 때 */
     suspend fun completeOnboarding()
@@ -203,6 +214,9 @@ class AuthRepositoryImpl @Inject constructor(
         if (r is ApiResult.Failure && r.error.code == DEVICE_NOT_REGISTERED) forgetDeviceInSession()
         return r.map { StepUpToken(it.stepUpToken, it.purpose) }
     }
+
+    override suspend fun changePin(pin: String, stepUpToken: String): ApiResult<Unit> =
+        apiCallNoData { api.changePin(stepUpToken, PinRequest(pin)) }
 
     override suspend fun completeOnboarding() = sessionStore.setOnboardingCompleted(true)
 

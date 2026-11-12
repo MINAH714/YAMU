@@ -69,6 +69,97 @@ class SignupFlowViewModelTest {
         assertNull(vm.state.value.error)
     }
 
+    // ── QA 07 · P1-17 PIN 만들기에서 뒤로 와도 1원을 다시 받지 않기 ──
+
+    @Test fun `계좌 연결을 마친 뒤 본인인증으로 돌아와 다음을 누르면 1원 없이 PIN 만들기로 간다`() = runTest(dispatcher) {
+        signup.termsAgreed = true
+        signup.mode = SignupMode.SIGNUP
+        signup.accountLinked = true                // 1원 인증을 마치고 PIN 만들기에서 뒤로 왔다
+        val vm = PhoneVerifyViewModel(signup)
+        assertEquals(SignupMode.SIGNUP, vm.state.value.verified)
+
+        vm.proceed()
+        assertEquals(SignupNext.PIN, vm.state.value.next)
+        assertEquals(0, signup.confirmCalls)
+    }
+
+    @Test fun `계좌 연결을 마친 뒤 약관까지 돌아가 동의하면 계좌 고르기 대신 본인인증 화면으로 보낸다`() {
+        signup.mode = SignupMode.SIGNUP
+        assertTrue(TermsViewModel(signup).agree())   // 계좌 연결 전 — 계좌 고르기로
+
+        signup.accountLinked = true
+        assertFalse(TermsViewModel(signup).agree())  // 본인인증 화면 '다음'이 PIN 만들기로 잇는다
+        assertTrue(signup.termsAgreed)
+    }
+
+    // ── QA 11/10 인증번호 자동 입력 ──
+
+    @Test fun `인증번호를 받으면 문자 알림과 함께 칸을 채우고 확인은 버튼을 누를 때만 보낸다`() = runTest(dispatcher) {
+        signup.termsAgreed = true
+        val vm = PhoneVerifyViewModel(signup)
+        vm.fillAndSend()
+        advanceUntilIdle()
+
+        val s = vm.state.value
+        assertEquals("123456", s.code)
+        assertTrue(s.banner.orEmpty().contains("123456"))
+        assertEquals(0, signup.confirmCalls)       // 채우기만 하고 서버에 확인을 보내지 않는다
+        assertNull(s.next)
+
+        vm.confirm()
+        advanceUntilIdle()
+        assertEquals(1, signup.confirmCalls)
+        assertEquals(SignupNext.ACCOUNTS, vm.state.value.next)
+    }
+
+    @Test fun `다시 받으면 새 번호로 바꿔 넣는다`() = runTest(dispatcher) {
+        val vm = PhoneVerifyViewModel(signup)
+        vm.fillAndSend()
+        advanceUntilIdle()
+        vm.onCode("12")                            // 지우다 말았다
+
+        signup.demoCode = "654321"
+        vm.send()                                  // 다시 받기
+        advanceUntilIdle()
+        assertEquals("654321", vm.state.value.code)
+        assertFalse(vm.state.value.codeError)
+    }
+
+    @Test fun `시연 번호가 없으면 칸을 비워 두고 알림도 띄우지 않는다`() = runTest(dispatcher) {
+        signup.demoCode = null
+        val vm = PhoneVerifyViewModel(signup)
+        vm.fillAndSend()
+        advanceUntilIdle()
+        assertEquals("", vm.state.value.code)
+        assertNull(vm.state.value.banner)
+        assertTrue(vm.state.value.sent != null)    // 받은 건 맞다 — 손으로 넣는다
+    }
+
+    @Test fun `손으로 고쳐 틀리면 칸을 비우고 알림을 누르면 받은 번호로 다시 채운다`() = runTest(dispatcher) {
+        signup.confirmResult = ApiResult.Failure(ApiError.from(400, "VERIFICATION_CODE_MISMATCH"))
+        val vm = PhoneVerifyViewModel(signup)
+        vm.fillAndSend()
+        advanceUntilIdle()
+        vm.onCode("111111")
+        vm.confirm()
+        advanceUntilIdle()
+        assertEquals("", vm.state.value.code)
+        assertTrue(vm.state.value.codeError)
+        assertTrue(vm.state.value.sent != null)    // 같은 번호로 다시 넣으면 된다
+
+        vm.fillFromBanner()
+        assertEquals("123456", vm.state.value.code)
+        assertFalse(vm.state.value.codeError)
+    }
+
+    @Test fun `1원 숫자는 계좌 확인이라 시연 숫자가 와도 칸을 채우지 않고 알림만 띄운다`() = runTest(dispatcher) {
+        signup.mode = SignupMode.SIGNUP
+        signup.oneWon = oneWon(demoCode = "1004")
+        val vm = SignupOneWonViewModel(signup)
+        assertEquals("", vm.state.value.code)
+        assertTrue(vm.state.value.banner.orEmpty().contains("1004"))
+    }
+
     // ── B-03 시연 등록자가 아닐 때 ──
 
     @Test fun `시연 등록자가 아니면 어느 경우인지 말하지 않고 칸은 그대로 둔 채 인증번호만 다시 받게 한다`() = runTest(dispatcher) {
@@ -300,8 +391,13 @@ class SignupFlowViewModelTest {
         assertFalse(ApiError.from(409, "DEVICE_LIMIT_EXCEEDED").signupMessage().contains("마이"))
     }
 
-    private fun oneWon(bankName: String = "신한은행", last4: String = "4450", sentAtMillis: Long = 0L, validSeconds: Int = 300) =
-        SignupOneWon(bankName, last4, "YAMU", 4, null, false, null, validSeconds = validSeconds, sentAtMillis = sentAtMillis)
+    private fun oneWon(
+        bankName: String = "신한은행",
+        last4: String = "4450",
+        sentAtMillis: Long = 0L,
+        validSeconds: Int = 300,
+        demoCode: String? = null,
+    ) = SignupOneWon(bankName, last4, "YAMU", 4, null, false, demoCode, validSeconds = validSeconds, sentAtMillis = sentAtMillis)
 
     private fun candidate(id: String) = AccountCandidate(id, brandOf("KB국민은행"), "KB국민 입출금", "1234", alreadyLinked = false)
 
@@ -312,6 +408,8 @@ class SignupFlowViewModelTest {
         var confirmResult: ApiResult<SignupMode> = ApiResult.Success(SignupMode.SIGNUP)
         var candidatesResult: ApiResult<List<AccountCandidate>> = ApiResult.Success(emptyList())
         var requestedPhone: String? = null
+        /** 시연 서버가 응답에 실어 주는 인증번호 — null이면 운영처럼 빠진다 */
+        var demoCode: String? = "123456"
         private var restartReason: SignupRestart? = null
 
         override var mode: SignupMode? = null
@@ -320,11 +418,12 @@ class SignupFlowViewModelTest {
         override var draft = IdentityDraft()
         override var recoveryBiometric = false
         override var pinStaged = false
+        override var accountLinked = false
         override var oneWon: SignupOneWon? = null
 
         override suspend fun requestCode(name: String, birthDate: LocalDate, carrier: Carrier, phoneNumber: String): ApiResult<CodeSent> {
             requestedPhone = phoneNumber
-            return ApiResult.Success(CodeSent("pv_$name$phoneNumber", "123456"))
+            return ApiResult.Success(CodeSent("pv_$name$phoneNumber", demoCode))
         }
 
         override suspend fun confirmCode(verificationId: String, code: String): ApiResult<SignupMode> {

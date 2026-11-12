@@ -1,0 +1,15 @@
+// Explicit CLI only: no application context, scheduler, or automatic migration.
+allprojects {
+    afterEvaluate {
+        if (plugins.hasPlugin('java')) {
+            tasks.register('seedQa', JavaExec) {
+                classpath = sourceSets.main.runtimeClasspath
+                mainClass = 'com.yamu.be.seed.qa.QaSeedCli'
+                systemProperty 'file.encoding', 'UTF-8'
+                systemProperty 'user.timezone', 'UTC'
+                args providers.gradleProperty('qaCommand').getOrElse('plan')
+                args providers.gradleProperty('qaFile').getOrElse('seed/qa/personas.local.json')
+            }
+        }
+    }
+}

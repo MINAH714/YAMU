@@ -87,25 +87,43 @@ class PerformanceRepositoryImpl @Inject constructor(
 
     @Volatile private var last: PerfOverview? = null
 
-    override suspend fun overview(): ApiResult<PerfOverview> = coroutineScope {
-        when (val r = apiCall { api.overview() }) {
-            is ApiResult.Failure -> r
-            is ApiResult.Success -> {
-                val cards = r.data.cards.map { it.toCardPerf() }
-                // #65에 판정이 아직 없으면(보완 전) 기준 전 카드만 #18로 채운다
-                val filled = cards.map { card ->
-                    async {
-                        if (!card.pending || card.guide != null) return@async card
-                        when (val a = apiCall { api.analysis(card.userCardId) }) {
-                            is ApiResult.Success -> card.copy(guide = PerfGuide.from(a.data.guide) ?: PerfGuide.INSUFFICIENT_DATA, decision = card.decision ?: readDecision(a.data.decision))
-                            is ApiResult.Failure -> card.copy(guide = if (a.error is ApiError.DataInsufficient) PerfGuide.INSUFFICIENT_DATA else null)
-                        }
-                    }
-                }.awaitAll()
-                val overview = filled.toOverview(r.data.yearMonth, r.data.daysLeft, r.data.dataSyncedAt)
-                last = overview
-                ApiResult.Success(overview)
-            }
+    /** #18이 서버에 있는지 — 모름(처음) · 있음 · 없음(API_NOT_FOUND · 405, BE 375 전) */
+    private enum class AnalysisApi { UNKNOWN, AVAILABLE, MISSING }
+
+    /** 한 번 MISSING이면 앱을 끌 때까지(이 객체가 싱글턴이라) 목록에서 #18을 부르지 않는다. R-03에서 직접 불러 성공하면 다시 AVAILABLE */
+    @Volatile private var analysisApi = AnalysisApi.UNKNOWN
+
+    override suspend fun overview(): ApiResult<PerfOverview> = when (val r = apiCall { api.overview() }) {
+        is ApiResult.Failure -> r
+        is ApiResult.Success -> {
+            val filled = fillGuides(r.data.cards.map { it.toCardPerf() })
+            val overview = filled.toOverview(r.data.yearMonth, r.data.daysLeft, r.data.dataSyncedAt)
+            last = overview
+            ApiResult.Success(overview)
+        }
+    }
+
+    /**
+     * #65에 판정이 아직 없으면(보완 전) 기준 전 카드만 #18로 채운다.
+     * #18이 있는지 모를 때는 한 장으로 먼저 보고, 없으면 나머지는 부르지 않는다(카드 수만큼 404가 나가지 않게)
+     */
+    private suspend fun fillGuides(cards: List<CardPerf>): List<CardPerf> = coroutineScope {
+        val need = cards.filter { it.pending && it.guide == null }
+        if (need.isEmpty() || analysisApi == AnalysisApi.MISSING) return@coroutineScope cards
+        val probed = if (analysisApi == AnalysisApi.UNKNOWN) listOf(withAnalysis(need.first())) else emptyList()
+        val rest = need.drop(probed.size).takeIf { analysisApi != AnalysisApi.MISSING }.orEmpty()
+        val filled = (probed + rest.map { async { withAnalysis(it) } }.awaitAll()).associateBy { it.userCardId }
+        cards.map { filled[it.userCardId] ?: it }
+    }
+
+    private suspend fun withAnalysis(card: CardPerf): CardPerf = when (val a = apiCall { api.analysis(card.userCardId) }) {
+        is ApiResult.Success -> {
+            analysisApi = AnalysisApi.AVAILABLE
+            card.copy(guide = PerfGuide.from(a.data.guide) ?: PerfGuide.INSUFFICIENT_DATA, decision = card.decision ?: readDecision(a.data.decision))
+        }
+        is ApiResult.Failure -> {
+            if (a.error is ApiError.NotSupported) analysisApi = AnalysisApi.MISSING
+            card.copy(guide = if (a.error is ApiError.DataInsufficient) PerfGuide.INSUFFICIENT_DATA else null)
         }
     }
 
@@ -115,6 +133,7 @@ class PerformanceRepositoryImpl @Inject constructor(
 
     override suspend fun analysis(userCardId: Long): ApiResult<PerfAnalysis> {
         val base = apiCall { api.analysis(userCardId) }.map { it.toAnalysis() }
+        if (base is ApiResult.Success) analysisApi = AnalysisApi.AVAILABLE
         val analysis = (base as? ApiResult.Success)?.data ?: return base
         val move = analysis.movable?.takeIf { analysis.guide == PerfGuide.ACHIEVE_RECOMMENDED } ?: return base
         // what-if: 옮겼다고 가정한 월말 예상(저장 안 함). 실패해도 화면은 그린다

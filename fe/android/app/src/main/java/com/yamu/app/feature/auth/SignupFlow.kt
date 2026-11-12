@@ -41,6 +41,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
@@ -131,6 +134,7 @@ private fun secondsSince(startMillis: Long, now: Long): Int = ((now - startMilli
 
 /**
  * 실제 문자는 오지 않아서 BE가 준 시연용 숫자를 화면 위에 문자처럼 잠깐 띄운다. 누르면 숫자를 채운다.
+ * 본인인증은 띄울 때 칸도 같이 채우고(누르면 지운 칸을 다시 채움), 1원은 계좌 확인이라 누를 때만 채운다.
  * 6초 뒤 저절로 닫힌다.
  */
 @Composable
@@ -184,10 +188,13 @@ fun WelcomeRoute(onStart: () -> Unit, onLogin: () -> Unit, onDebugMenu: (() -> U
 
 @HiltViewModel
 class TermsViewModel @Inject constructor(private val signup: SignupRepository) : ViewModel() {
-    /** 동의. 본인인증을 이미 마친 가입이면(첫 화면 '로그인'으로 들어온 사람) true — 계좌 고르기로 */
+    /**
+     * 동의. 본인인증을 이미 마친 가입이면(첫 화면 '로그인'으로 들어온 사람) true — 계좌 고르기로.
+     * 계좌 연결까지 마치고 PIN 만들기에서 돌아온 사람은 본인인증 화면('다음' → PIN 만들기)으로 보낸다(1원을 다시 받지 않게)
+     */
     fun agree(): Boolean {
         signup.termsAgreed = true
-        return signup.mode == SignupMode.SIGNUP
+        return signup.mode == SignupMode.SIGNUP && !signup.accountLinked
     }
 }
 
@@ -204,8 +211,8 @@ fun TermsRoute(
 
 // ───────────────────────── A-05 휴대폰 본인인증 ─────────────────────────
 
-/** 본인인증 다음 — 가입인데 약관 전이면 약관, 가입이면 계좌 고르기, 이미 가입했으면 이 폰 등록 */
-enum class SignupNext { TERMS, ACCOUNTS, RECOVERY }
+/** 본인인증 다음 — 가입인데 약관 전이면 약관, 가입이면 계좌 고르기(계좌 연결을 마쳤으면 PIN 만들기), 이미 가입했으면 이 폰 등록 */
+enum class SignupNext { TERMS, ACCOUNTS, PIN, RECOVERY }
 
 data class PhoneVerifyState(
     val name: String = "",
@@ -283,7 +290,11 @@ class PhoneVerifyViewModel @Inject constructor(private val signup: SignupReposit
 
     private fun nextOf(mode: SignupMode): SignupNext = when (mode) {
         SignupMode.DEVICE_RECOVERY -> SignupNext.RECOVERY
-        SignupMode.SIGNUP -> if (signup.termsAgreed) SignupNext.ACCOUNTS else SignupNext.TERMS
+        SignupMode.SIGNUP -> when {
+            signup.accountLinked -> SignupNext.PIN   // PIN 만들기에서 뒤로 왔다 — 1원은 이미 마쳤다
+            signup.termsAgreed -> SignupNext.ACCOUNTS
+            else -> SignupNext.TERMS
+        }
     }
 
     /** 인증을 마친 뒤 '다음' — 서버를 부르지 않는다 */
@@ -310,9 +321,12 @@ class PhoneVerifyViewModel @Inject constructor(private val signup: SignupReposit
             _state.update { it.copy(sending = true, error = null) }
             when (val r = signup.requestCode(s.name, birth, carrier, s.phone)) {
                 is ApiResult.Success -> _state.update {
+                    val demo = r.data.demoCode
                     it.copy(
-                        sending = false, sent = r.data, sentAtMillis = System.currentTimeMillis(), code = "", codeError = false,
-                        banner = r.data.demoCode?.let { code -> "[YAMU] 인증번호 [$code]을 입력해 주세요" }, notice = null,
+                        sending = false, sent = r.data, sentAtMillis = System.currentTimeMillis(), codeError = false,
+                        // 시연 서버는 문자 대신 응답으로 번호를 준다 — 문자 알림을 띄우면서 칸도 바로 채운다(확인은 버튼으로, QA 11/10)
+                        code = demo?.filter(Char::isDigit)?.take(6).orEmpty(),
+                        banner = demo?.let { code -> "[YAMU] 인증번호 [$code]을 입력해 주세요" }, notice = null,
                     )
                 }
                 is ApiResult.Failure -> _state.update { it.copy(sending = false, error = r.error.signupMessage()) }
@@ -373,6 +387,8 @@ fun PhoneVerifyRoute(onBack: () -> Unit, onNext: (SignupNext) -> Unit, viewModel
     }
     val now = rememberNow(s.sentAtMillis)
     val elapsed = secondsSince(s.sentAtMillis, now)
+    val codeFocus = remember { FocusRequester() }
+    val keyboard = LocalSoftwareKeyboardController.current
     val c = YamuTheme.colors
     Box(Modifier.fillMaxSize()) {
         Scaffold(
@@ -451,7 +467,16 @@ fun PhoneVerifyRoute(onBack: () -> Unit, onNext: (SignupNext) -> Unit, viewModel
                     Spacer(Modifier.height(28.dp))
                     Text("인증번호", style = YamuTheme.typography.bodyS, color = c.text2)
                     Spacer(Modifier.height(8.dp))
-                    CodeBoxes(value = s.code, length = 6, onValueChange = viewModel::onCode, label = "인증번호 6자리", error = s.codeError)
+                    CodeBoxes(
+                        value = s.code, length = 6, onValueChange = viewModel::onCode, label = "인증번호 6자리", error = s.codeError,
+                        modifier = Modifier.focusRequester(codeFocus),
+                    )
+                    // 받으면 커서를 인증번호 칸으로 — 휴대폰 번호 칸에 남으면 이 칸이 키보드 · 버튼 뒤에 숨는다(QA 04 · P2-39).
+                    // 칸에 포커스가 가면 스크롤이 이 칸을 키보드 위로 올린다. 다시 받을 때도 옮긴다
+                    LaunchedEffect(s.sent?.verificationId) {
+                        runCatching { codeFocus.requestFocus() }
+                        keyboard?.show()
+                    }
                     Spacer(Modifier.height(8.dp))
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         val left = CODE_VALID_SECONDS - elapsed
@@ -835,6 +860,8 @@ fun SignupOneWonRoute(
     val now = rememberNow(s.sentAtMillis)
     val elapsed = secondsSince(s.sentAtMillis, now)
     val info = s.info
+    val codeFocus = remember { FocusRequester() }
+    val keyboard = LocalSoftwareKeyboardController.current
     val c = YamuTheme.colors
     Box(Modifier.fillMaxSize()) {
         Scaffold(
@@ -878,7 +905,13 @@ fun SignupOneWonRoute(
                 CodeBoxes(
                     value = s.code, length = info.codeLength, onValueChange = viewModel::onCode,
                     label = "입금자명 숫자 ${info.codeLength}자리", error = s.codeError,
+                    modifier = Modifier.focusRequester(codeFocus),
                 )
+                // 1원 숫자는 계좌 확인이라 칸을 채우지 않는다 — 열리자마자 칸에 커서를 두고 숫자 키패드를 올려 바로 치게(QA 11/10)
+                LaunchedEffect(codeFocus) {
+                    runCatching { codeFocus.requestFocus() }
+                    keyboard?.show()
+                }
                 Spacer(Modifier.height(8.dp))
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     // 남은 시간은 안내(최종 만료는 SSAFY) — 지나도 확인은 막지 않고 다시 받기로 이끈다. 서버가 끝났다고 하면 아래 오류 문장이 대신한다

@@ -1,8 +1,17 @@
 package com.yamu.app.core.designsystem.component
 
 import androidx.compose.ui.graphics.Color
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.keyframes
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -123,12 +132,44 @@ fun YamuTextField(
     }
 }
 
-/** 간편 비밀번호 칸 — 채운 수만큼 진한 점 */
+/** 간편 비밀번호가 틀렸을 때 점이 흔들리는 시간 — 화면은 이 동안 누른 키를 버린다(PinSetup 등) */
+const val PIN_SHAKE_MS = 360
+
+/**
+ * 간편 비밀번호 칸 — 채운 수만큼 진한 점.
+ * [shakeKey]가 바뀔 때마다(틀릴 때마다 1씩 올림) 좌우로 흔들고 거절 진동을 한 번 낸다. 모션 줄이기면 진동만(QA 07 · P1-17).
+ * 처음 그릴 때와 화면이 다시 만들어질 때(회전 등)는 흔들지 않는다
+ */
 @Composable
-fun PinDots(filled: Int, modifier: Modifier = Modifier, length: Int = 6, error: Boolean = false) {
+fun PinDots(filled: Int, modifier: Modifier = Modifier, length: Int = 6, error: Boolean = false, shakeKey: Int = 0) {
     val c = YamuTheme.colors
+    val haptic = LocalHapticFeedback.current
+    val reduceMotion = YamuTheme.reduceMotion
+    val shake = remember { Animatable(0f) }
+    var shownKey by rememberSaveable { mutableIntStateOf(shakeKey) }
+    LaunchedEffect(shakeKey) {
+        if (shakeKey == shownKey) return@LaunchedEffect
+        shownKey = shakeKey
+        haptic.performHapticFeedback(HapticFeedbackType.Reject)
+        if (reduceMotion) return@LaunchedEffect
+        shake.snapTo(0f)
+        // 8dp로 세 번 왕복하며 줄어든다(dp 값)
+        shake.animateTo(
+            0f,
+            keyframes {
+                durationMillis = PIN_SHAKE_MS
+                -8f at 45
+                8f at 120
+                -6f at 195
+                6f at 255
+                -3f at 315
+            },
+        )
+    }
     Row(
-        modifier.semantics { contentDescription = "간편 비밀번호 $length 자리 중 $filled 자리 입력" },
+        modifier
+            .offset { IntOffset(shake.value.dp.roundToPx(), 0) }
+            .semantics { contentDescription = "간편 비밀번호 $length 자리 중 $filled 자리 입력" },
         horizontalArrangement = Arrangement.spacedBy(16.dp),   // 프로토타입 .pin gap 16
     ) {
         repeat(length) { i ->

@@ -20,15 +20,16 @@ class AuthValidationTest {
 
     @Test
     fun `인증 오류 문장`() {
-        assertEquals("간편 비밀번호가 맞지 않아요 · 3번 남았어요", authErrorMessage("STEP_UP_FAILED", remainingAttempts = 3))
+        assertEquals("간편 비밀번호가 맞지 않아요 · 3번 더 틀리면 30분 동안 잠겨요", authErrorMessage("STEP_UP_FAILED", remainingAttempts = 3))
         assertEquals("5번 틀려서 잠겼어요 · 14:30에 풀려요", authErrorMessage("DEVICE_LOCKED", unlockAt = "14:30"))
         assertEquals("쉬운 번호는 쓸 수 없어요", authErrorMessage("INVALID_PIN_FORMAT"))
         assertNull(authErrorMessage("SOMETHING_ELSE"))
     }
 
     @Test
-    fun `로그인 PIN 틀림은 남은 횟수 · 남은 횟수가 없으면 서명 실패 문장`() {
-        assertEquals("간편 비밀번호가 맞지 않아요 · 2번 남았어요", authErrorMessage("PIN_MISMATCH", remainingAttempts = 2))
+    fun `로그인 PIN 틀림은 몇 번 더 틀리면 잠기는지 · 남은 횟수가 없으면 서명 실패 문장`() {
+        assertEquals("간편 비밀번호가 맞지 않아요 · 2번 더 틀리면 30분 동안 잠겨요", authErrorMessage("PIN_MISMATCH", remainingAttempts = 2))
+        assertEquals("간편 비밀번호가 맞지 않아요 · 1번 더 틀리면 30분 동안 잠겨요", authErrorMessage("PIN_MISMATCH", remainingAttempts = 1))
         assertEquals("본인 확인에 실패했어요. 다시 시도해 주세요", authErrorMessage("STEP_UP_FAILED"))
         assertEquals("5번 틀려서 잠겼어요 · 30분 뒤에 다시 시도해 주세요", authErrorMessage("DEVICE_LOCKED"))
     }

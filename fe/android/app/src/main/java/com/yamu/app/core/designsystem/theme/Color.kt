@@ -5,6 +5,7 @@ import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Immutable
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
 
 /** 화면에서 쓰는 색은 전부 여기서 — 화면 코드에 Color(0xFF…)를 직접 쓰지 않는다. 값은 android-proto/src/tokens.css */
 @Immutable
@@ -37,8 +38,19 @@ data class YamuColors(
     val scrim: Color,
     val qrInk: Color,               // 결제 QR · 바코드 — 테마와 무관하게 흰 바탕 위 검정
     val qrBackground: Color,
+    val coinFace: Color,            // 동전 그림(홈 예상 잔액) 윗면 — 캐릭터처럼 그림 색이라 '브랜드 색 하나' 규칙 밖
+    val coinSide: Color,            // 동전 옆면
+    val coinLine: Color,            // 동전 사이 홈 · 윗면 안쪽 고리
+    val coinGlow: Color,            // 동전 무더기 뒤 은은한 빛(히어로 카드 위)
+    val heroStart: Color,           // 홈 히어로 카드(예상 잔액) 바탕 — 왼쪽 위에서 오른쪽 아래로. 브랜드 색에서 만든다
+    val heroEnd: Color,
+    val onHero: Color,              // 히어로 카드 위 글자
+    val onHeroMuted: Color,         // 히어로 카드 위 보조 글자 · 칩 바탕
     val isDark: Boolean,
 )
+
+/** 히어로 카드 바탕 — 브랜드 색을 깊은 남색 쪽으로 눌러 금색 동전이 잘 보이게. 메인 색을 바꾸면 같이 바뀐다 */
+private val HeroDeep = Color(0xFF0A1433)
 
 val LightYamuColors = YamuColors(
     primary = BrandColor.Light,
@@ -69,6 +81,14 @@ val LightYamuColors = YamuColors(
     scrim = Color(0x66000000),
     qrInk = Color(0xFF000000),
     qrBackground = Color(0xFFFFFFFF),
+    coinFace = Color(0xFFFFD43B),
+    coinSide = Color(0xFFF5A800),
+    coinLine = Color(0xFFD98C00),
+    coinGlow = Color(0xFFFFF1C9),
+    heroStart = lerp(BrandColor.Light, HeroDeep, 0.15f),
+    heroEnd = lerp(BrandColor.Light, HeroDeep, 0.7f),
+    onHero = Color(0xFFFFFFFF),
+    onHeroMuted = Color(0xB3FFFFFF),
     isDark = false,
 )
 
@@ -101,6 +121,14 @@ val DarkYamuColors = YamuColors(
     scrim = Color(0x99000000),
     qrInk = Color(0xFF000000),
     qrBackground = Color(0xFFFFFFFF),
+    coinFace = Color(0xFFF2C94C),
+    coinSide = Color(0xFFD99A0B),
+    coinLine = Color(0xFFA87400),
+    coinGlow = Color(0xFFFFEBB5),
+    heroStart = lerp(BrandColor.Dark, HeroDeep, 0.35f),
+    heroEnd = lerp(BrandColor.Dark, HeroDeep, 0.78f),
+    onHero = Color(0xFFFFFFFF),
+    onHeroMuted = Color(0xB3FFFFFF),
     isDark = true,
 )
 

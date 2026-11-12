@@ -1,6 +1,5 @@
 package com.yamu.app.feature.forecast
 
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -39,6 +38,7 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
+import com.yamu.app.core.designsystem.card.CardImages
 import com.yamu.app.core.designsystem.component.BottomCta
 import com.yamu.app.core.designsystem.component.EmptyState
 import com.yamu.app.core.designsystem.component.ErrorState
@@ -88,8 +88,6 @@ import kotlinx.coroutines.launch
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneOffset
-import java.time.format.TextStyle
-import java.util.Locale
 import javax.inject.Inject
 
 /** 범위를 묻는 시트 — 저장인지 삭제인지 */
@@ -287,6 +285,9 @@ internal fun editLockOf(editing: CashflowEntry?, today: LocalDate, match: Paymen
     else -> EditLock.NONE
 }
 
+/** 날짜 줄 · 끝나는 날 줄의 이름 칸 — '처음 들어오는 날'이 한 줄에 들어가고 두 줄의 값이 같은 자리에서 시작한다 */
+private val DATE_LABEL_WIDTH = 104.dp
+
 /** 보낼 값이 하나도 없는 수정 */
 private fun CashflowUpdateRequest.changesNothing() =
     title == null && amount == null && date == null && recurrence == null && accountId == null && userCardId == null
@@ -368,7 +369,7 @@ fun CashflowCreateRoute(onBack: () -> Unit, onDone: () -> Unit, viewModel: Cashf
                 label = "이름",
                 value = f.title,
                 onValueChange = { v -> viewModel.edit { it.copy(title = v.take(CASHFLOW_TITLE_MAX)) } },
-                placeholder = if (f.isIncome) "월급" else "월세",
+                placeholder = if (f.isIncome) "예: 월급" else "예: 월세",   // '예:'가 없으면 이미 넣은 값처럼 보인다(11/10 QA)
                 error = errorOf(CashflowField.TITLE),
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
             )
@@ -377,28 +378,13 @@ fun CashflowCreateRoute(onBack: () -> Unit, onDone: () -> Unit, viewModel: Cashf
                 label = "금액(원)",
                 value = f.amount?.toString().orEmpty(),
                 onValueChange = { v -> viewModel.edit { it.copy(amount = v.filter(Char::isDigit).take(12).toLongOrNull()) } },
-                placeholder = "250000",
+                placeholder = "예: 250000",
                 supporting = f.amount?.takeIf { it > 0 }?.let { "${it.toWon()}원" },
                 error = errorOf(CashflowField.AMOUNT),
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Done),
             )
 
-            // 시작일 — 이름 · 값을 나눈 한 줄(이거 사도 될까? I-01의 날짜 줄과 같은 모양)
-            Spacer(Modifier.height(YamuSpacing.x2))
-            Row(Modifier.fillMaxWidth().heightIn(min = 52.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text(if (f.repeat == CashflowRepeat.NONE) "날짜" else "시작일", style = YamuTheme.typography.bodyM, color = c.text3, modifier = Modifier.width(48.dp))
-                Spacer(Modifier.width(YamuSpacing.x3))
-                Text(
-                    "${f.date.toKoreanDate()} (${f.date.dayOfWeek.getDisplayName(TextStyle.SHORT, Locale.KOREAN)})${if (f.date == LocalDate.now(KST)) " · 오늘" else ""}",
-                    style = YamuTheme.typography.titleS,
-                    color = c.text1,
-                    modifier = Modifier.weight(1f),
-                )
-                LinkButton("바꾸기", onClick = { picking = "START" }, modifier = Modifier.offset(x = 12.dp))
-            }
-            errorOf(CashflowField.DATE)?.let { Text(it, style = YamuTheme.typography.bodyS, color = c.error) }
-
-            // 반복 — 매월이면 'N일' · '말일'. 말일을 고르면 시작일을 그달 말일로 옮긴다(서버는 말일 시작이 아니면 31을 거절)
+            // 반복 — 날짜 줄 위에 둔다. 반복을 고르면 바로 아래 날짜 줄이 '처음 나가는 날'이 되고 그 아래에 반복 규칙이 붙는다
             Spacer(Modifier.height(YamuSpacing.x4))
             Text("반복", style = YamuTheme.typography.sub, color = c.text3)
             Spacer(Modifier.height(YamuSpacing.x2))
@@ -407,33 +393,53 @@ fun CashflowCreateRoute(onBack: () -> Unit, onDone: () -> Unit, viewModel: Cashf
                 selectedIndex = f.repeat.ordinal,
                 onSelect = { i -> viewModel.edit { it.withRepeat(CashflowRepeat.entries[i]) } },
             )
+
+            // 날짜 — 이름 · 값을 나눈 한 줄(이거 사도 될까? I-01의 날짜 줄과 같은 모양). 날짜를 바꾸는 곳은 여기 한 곳
+            Spacer(Modifier.height(YamuSpacing.x2))
+            Row(Modifier.fillMaxWidth().heightIn(min = 52.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(f.dateLabel(editing = editing != null), style = YamuTheme.typography.bodyM, color = c.text3, modifier = Modifier.width(DATE_LABEL_WIDTH))
+                Spacer(Modifier.width(YamuSpacing.x3))
+                Text(
+                    f.date.toKoreanDateWeek(markToday = true),
+                    style = YamuTheme.typography.titleS,
+                    color = c.text1,
+                    modifier = Modifier.weight(1f),
+                )
+                LinkButton("바꾸기", onClick = { picking = "START" }, modifier = Modifier.offset(x = 12.dp))
+            }
+            errorOf(CashflowField.DATE)?.let { Text(it, style = YamuTheme.typography.bodyS, color = c.error) }
+
+            // 반복 규칙 — 날짜 줄에서 정해진다. 매월은 '매월 N일' 칩을 두지 않는다: 날짜를 바꾸는 칩으로 알고 눌렀는데 선택만 됐다(11/10 QA).
+            // 말일만 칩으로 따로 고른다. 켜면 날짜를 그달 말일로 옮긴다(서버는 말일 시작이 아니면 31을 거절)
+            val flows = if (f.isIncome) "들어와요" else "나가요"
             when (f.repeat) {
                 CashflowRepeat.NONE -> Unit
-                CashflowRepeat.WEEKLY -> {
-                    Spacer(Modifier.height(YamuSpacing.x2))
-                    Text("${f.repeatLabel()}마다 ${if (f.isIncome) "들어와요" else "나가요"}", style = YamuTheme.typography.bodyS, color = c.text3)
-                }
+                CashflowRepeat.WEEKLY -> Text("${f.repeatLabel()}마다 $flows", style = YamuTheme.typography.bodyS, color = c.text3)
                 CashflowRepeat.MONTHLY -> {
-                    Spacer(Modifier.height(YamuSpacing.x3))
-                    Row(horizontalArrangement = Arrangement.spacedBy(YamuSpacing.x2)) {
-                        // 31일에 시작하면 'N일'이 곧 말일이라 칩은 하나
-                        if (f.date.dayOfMonth < 31) GreyChip("매월 ${editing?.monthlyDayOn(f) ?: f.date.dayOfMonth}일", selected = !f.isMonthEnd, onClick = { viewModel.setMonthEnd(false) })
-                        GreyChip("매월 말일", selected = f.isMonthEnd, onClick = { viewModel.setMonthEnd(true) })
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        // 고치는 회차가 짧은 달(2/28)이어도 규칙의 기준일(30)로 보인다
+                        Text("${f.repeatLabel(editing?.monthlyDayOn(f) ?: f.date.dayOfMonth)}마다 $flows", style = YamuTheme.typography.bodyS, color = c.text3, modifier = Modifier.weight(1f))
+                        Spacer(Modifier.width(YamuSpacing.x2))
+                        // 켜진 칩을 누르면 끈다. 31일은 끄더라도 말일과 같은 날이라 켜진 채로 보이지만 다음 날짜 고르기부터 말일에 붙지 않는다
+                        GreyChip("매월 말일", selected = f.isMonthEnd, onClick = { viewModel.setMonthEnd(!f.isMonthEnd) })
                     }
-                    Spacer(Modifier.height(YamuSpacing.x2))
                     val note = when {
-                        movedTo != null -> "말일 반복이라 시작일을 ${movedTo.toKoreanDate()}로 옮겼어요"
-                        f.isMonthEnd -> "31일이 없는 달은 그달 마지막 날에 ${if (f.isIncome) "들어와요" else "나가요"}"
+                        movedTo != null -> "말일 반복이라 날짜를 ${movedTo.toKoreanDate()}로 옮겼어요"
+                        f.isMonthEnd -> "31일이 없는 달은 그달 마지막 날에 $flows"
                         else -> null
                     }
-                    note?.let { Text(it, style = YamuTheme.typography.bodyS, color = if (movedTo != null) c.primary else c.text3) }
+                    note?.let {
+                        Spacer(Modifier.height(YamuSpacing.x2))
+                        Text(it, style = YamuTheme.typography.bodyS, color = if (movedTo != null) c.primary else c.text3)
+                    }
                 }
             }
             // 끝나는 날(선택) — 반복일 때만. 없으면 끝없이
             if (f.repeat != CashflowRepeat.NONE) {
                 val end = f.endDate
+                Spacer(Modifier.height(YamuSpacing.x2))
                 Row(Modifier.fillMaxWidth().heightIn(min = 52.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text("끝나는 날", style = YamuTheme.typography.bodyM, color = c.text3, modifier = Modifier.width(72.dp))
+                    Text("끝나는 날", style = YamuTheme.typography.bodyM, color = c.text3, modifier = Modifier.width(DATE_LABEL_WIDTH))
                     Spacer(Modifier.width(YamuSpacing.x3))
                     Text(end?.toKoreanDate() ?: "없음 · 계속 반복", style = YamuTheme.typography.titleS, color = if (end != null) c.text1 else c.text3, modifier = Modifier.weight(1f))
                     if (end != null) LinkButton("없애기", onClick = { viewModel.setEndDate(null) })
@@ -457,7 +463,11 @@ fun CashflowCreateRoute(onBack: () -> Unit, onDone: () -> Unit, viewModel: Cashf
                         SelectRow(a.brand, a.name, checked = f.accountId == a.accountId, onToggle = { viewModel.edit { it.withAccount(a.accountId) } }, suffix = "·${a.last4}")
                     }
                     if (!f.isIncome) s.cards.forEach { card ->
-                        SelectRow(card.brand, card.displayName, checked = f.userCardId == card.userCardId, onToggle = { viewModel.edit { it.withCard(card.userCardId) } }, suffix = "·${card.last4}")
+                        SelectRow(
+                            card.brand, card.displayName, checked = f.userCardId == card.userCardId,
+                            onToggle = { viewModel.edit { it.withCard(card.userCardId) } }, suffix = "·${card.last4}",
+                            cardImage = CardImages.forProduct(card.productName),   // 그림이 없으면 카드사 칩
+                        )
                     }
                 }
             }

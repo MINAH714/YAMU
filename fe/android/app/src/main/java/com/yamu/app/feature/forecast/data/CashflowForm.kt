@@ -80,7 +80,7 @@ data class CashflowForm(
             a > CASHFLOW_AMOUNT_MAX -> put(CashflowField.AMOUNT, "1,000억 원까지 넣을 수 있어요")
         }
         if (date.isBefore(today)) put(CashflowField.DATE, "오늘이나 그 뒤 날짜를 골라 주세요")
-        if (effectiveEndDate?.isBefore(date) == true) put(CashflowField.RECURRENCE, "끝나는 날은 시작일과 같거나 그 뒤여야 해요")
+        if (effectiveEndDate?.isBefore(date) == true) put(CashflowField.RECURRENCE, "끝나는 날은 ${if (isIncome) "들어오는" else "나가는"} 날과 같거나 그 뒤여야 해요")
         when {
             accountId == null && userCardId == null -> put(CashflowField.PAYMENT, if (isIncome) "들어올 계좌를 골라 주세요" else "나갈 계좌나 카드를 골라 주세요")
             isIncome && userCardId != null -> put(CashflowField.PAYMENT, "수입은 계좌로만 받을 수 있어요")
@@ -104,12 +104,22 @@ data class CashflowForm(
         CashflowRepeat.MONTHLY -> RecurrenceRequest("MONTHLY", dayOfMonth = if (isMonthEnd) MONTH_END else date.dayOfMonth, endDate = effectiveEndDate?.toString())
     }
 
-    /** '매주 화요일' · '매월 25일' · '매월 말일' — 반복 안 함이면 null */
-    fun repeatLabel(): String? = when (repeat) {
+    /**
+     * '매주 화요일' · '매월 25일' · '매월 말일' — 반복 안 함이면 null.
+     * [monthlyDay]는 말일이 아닐 때의 매월 기준일. 고치는 회차가 짧은 달(2/28)이면 규칙의 기준일(30)을 넘긴다([CashflowEntry.monthlyDayOn])
+     */
+    fun repeatLabel(monthlyDay: Int = date.dayOfMonth): String? = when (repeat) {
         CashflowRepeat.NONE -> null
         CashflowRepeat.WEEKLY -> "매주 ${date.dayOfWeek.getDisplayName(TextStyle.FULL, Locale.KOREAN)}"
-        CashflowRepeat.MONTHLY -> "매월 ${monthlyDayLabel(if (isMonthEnd) MONTH_END else date.dayOfMonth)}"
+        CashflowRepeat.MONTHLY -> "매월 ${monthlyDayLabel(if (isMonthEnd) MONTH_END else monthlyDay)}"
     }
+
+    /**
+     * 날짜 줄 이름 — 새로 넣는 반복은 '처음 나가는 날', 1회는 '나가는 날'(수입은 '들어오는 날').
+     * 고칠 때는 그 회차의 날짜라 반복이어도 '처음'을 붙이지 않는다. 전에는 '시작일'이었는데 알아보기 어렵다는 의견(11/10 QA)
+     */
+    fun dateLabel(editing: Boolean): String =
+        (if (repeat != CashflowRepeat.NONE && !editing) "처음 " else "") + if (isIncome) "들어오는 날" else "나가는 날"
 }
 
 /** 서버 fieldErrors의 칸 이름 → 화면 칸('recurrence.dayOfMonth'처럼 반복 안쪽 칸은 반복 칸으로) */
