@@ -412,29 +412,21 @@ private fun HeroCard(sim: Simulation, threshold: Long?) {
         val days = sim.days
         if (days.size >= 2) {
             Spacer(Modifier.height(YamuSpacing.x5))
+            // 마지막 선('사기 후')이 면 · 구간 색을 따르고, '사기 전' 회색 점선은 비교용이라 색을 바꾸지 않는다
             val lines = listOf(
-                ChartLine("사기 전", days.map { it.before }, c.text3, dashed = true, width = 1.8.dp),
+                ChartLine("사기 전", days.map { it.before }, c.text3, dashed = true, width = 1.8.dp, zoned = false),
                 ChartLine("사기 후", days.map { it.after }, c.primary, width = 2.4.dp),
             )
-            val below = threshold?.let { t -> days.indices.filter { (days[it].after ?: Long.MAX_VALUE) < t } }.orEmpty()
             BalanceChart(
                 dates = days.map { it.date },
                 lines = lines,
                 description = "사기 전과 후 잔액 그래프, 사고 나면 가장 낮을 때 ${(after?.minBalance ?: 0).toWon()}원",
                 threshold = threshold,
-                riskRanges = below.toRanges(),
             )
             Spacer(Modifier.height(10.dp))
             ChartLegend(lines)
         }
     }
-}
-
-/** 이어진 날 번호 → 구간 */
-private fun List<Int>.toRanges(): List<IntRange> = fold(mutableListOf<IntRange>()) { acc, i ->
-    val last = acc.lastOrNull()
-    if (last != null && last.last + 1 == i) acc[acc.lastIndex] = last.first..i else acc += i..i
-    acc
 }
 
 /**

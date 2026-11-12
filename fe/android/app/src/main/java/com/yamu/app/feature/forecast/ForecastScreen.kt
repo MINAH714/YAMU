@@ -432,6 +432,39 @@ internal fun chartDescription(f: Forecast): String {
     ).joinToString(", ")
 }
 
+/**
+ * 처음 고른 날 — 안전 잔액 아래로 처음 내려가는 날(가장 이른 위험 구간의 시작), 없으면 가장 낮은 날, 그것도 모르면 마지막 날.
+ * 전에는 가장 낮은 날이라 월급 전날(맨 끝)에 손잡이가 붙어 밀 수 있다는 게 잘 안 보였다(Task 8.2.65)
+ */
+internal fun initialChartDay(f: Forecast): Int {
+    val days = f.days
+    f.riskFrom?.let { from -> days.indexOfFirst { !it.date.isBefore(from) }.takeIf { it >= 0 }?.let { return it } }
+    return days.indexOfFirst { it.date == f.minBalanceDate }.takeIf { it >= 0 } ?: days.lastIndex
+}
+
+/** 돈이 오가는 날(0원이 아닌 입출금이 있는 날) — 그래프에 동전을 얹는다 */
+internal fun eventDayIndices(days: List<ForecastDay>): Set<Int> =
+    days.indices.filter { i -> days[i].events.any { it.amount != 0L } }.toSet()
+
+/** 말풍선 윗줄 — 돈이 오가는 날은 '11/21 (토) · 월세'(여러 건이면 '외 N건'), 아니면 '11월 21일 (토)' */
+internal fun chartDayLabel(day: ForecastDay, today: LocalDate = LocalDate.now(KST)): String {
+    val events = day.events.filter { it.amount != 0L }
+    if (events.isEmpty()) return day.date.toKoreanDateWeek(markToday = true, today = today)
+    val more = if (events.size > 1) " 외 ${events.size - 1}건" else ""
+    return "${day.date.toMonthDayWeek()} · ${events.first().label}$more"
+}
+
+/**
+ * TalkBack이 고른 날을 바꾼 뒤 읽는 문장(P2-28) — 날짜, 선마다 끝 잔액, 그날 입출금.
+ * 전에는 '하루 뒤' 동작 뒤 아무것도 읽지 않아 몇 일 · 얼마인지 몰랐다
+ */
+internal fun chartDayState(day: ForecastDay, hasConservative: Boolean): String = listOfNotNull(
+    day.date.toKoreanDateWeek(),
+    day.conservative?.takeIf { hasConservative }?.let { "$LINE_WITH_LIVING ${it.toWon()}원" },
+    day.expected?.let { "$LINE_WITHOUT_LIVING ${it.toWon()}원" },
+    day.events.filter { it.amount != 0L }.takeIf { it.isNotEmpty() }?.joinToString(", ") { "${dayEventLabel(it)} ${it.amount.toWon(withPlusSign = true)}원" },
+).joinToString(", ")
+
 /** 두 선 + 범례 + 고른 날. AI 생활비 반영 선이 없으면 그 선만 빼고 범례에 취소선 */
 @Composable
 private fun ForecastLines(f: Forecast) {
@@ -439,37 +472,36 @@ private fun ForecastLines(f: Forecast) {
     val days = f.days
     if (days.size < 2) return
     val key = listOf(f.from, f.to, f.accountIds)
-    val initial = days.indexOfFirst { it.date == f.minBalanceDate }.takeIf { it >= 0 } ?: days.lastIndex
-    var selected by rememberSaveable(key.toString()) { mutableIntStateOf(initial) }
+    var selected by rememberSaveable(key.toString()) { mutableIntStateOf(initialChartDay(f)) }
+    // 마지막 선이 손잡이가 타는 선 — 'AI 생활비 반영'(없으면 'AI 생활비 제외')
     val lines = buildList {
         add(ChartLine(LINE_WITHOUT_LIVING, days.map { it.expected }, c.primary, width = 2.6.dp))
         if (f.hasConservative) add(ChartLine(LINE_WITH_LIVING, days.map { it.conservative }, c.primary, dashed = true, width = 2.2.dp))
     }
-    val ranges = f.riskWindows.mapNotNull { w ->
-        val a = days.indexOfFirst { !it.date.isBefore(w.from) }
-        val b = days.indexOfLast { !it.date.isAfter(w.to) }
-        if (a < 0 || b < a) null else a..b
-    }
+    val eventDays = remember(days) { eventDayIndices(days) }
     BalanceChart(
         dates = days.map { it.date },
         lines = lines,
         description = chartDescription(f),
         threshold = f.alertThreshold,
-        riskRanges = ranges,
+        eventDays = eventDays,
         selected = selected,
         onSelect = { selected = it },
+        dayLabel = { chartDayLabel(days[it]) },
+        dayState = { chartDayState(days[it], f.hasConservative) },
         incomeArrow = f.incomeDate != null,
     )
     Spacer(Modifier.height(12.dp))
     ChartLegend(lines, missing = missingLines(f))
     Spacer(Modifier.height(14.dp))
-    DayPanel(days[selected.coerceIn(0, days.lastIndex)], hasConservative = f.hasConservative)
+    DayPanel(days[selected.coerceIn(0, days.lastIndex)], hasConservative = f.hasConservative, threshold = f.alertThreshold)
 }
 
-/** 고른 날 — 그날 끝 잔액(선마다)과 그날 입출금 */
+/** 고른 날 — 그날 끝 잔액(선마다), 안전 잔액 · 0원 아래면 태그, 그날 입출금 */
 @Composable
-private fun DayPanel(day: ForecastDay, hasConservative: Boolean) {
+private fun DayPanel(day: ForecastDay, hasConservative: Boolean, threshold: Long?) {
     val c = YamuTheme.colors
+    val lowest = listOfNotNull(day.expected, day.conservative.takeIf { hasConservative }).minOrNull()
     Column(
         Modifier
             .fillMaxWidth()
@@ -478,8 +510,12 @@ private fun DayPanel(day: ForecastDay, hasConservative: Boolean) {
             .padding(horizontal = 14.dp, vertical = 12.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(day.date.toKoreanDateWeek(), style = YamuTheme.typography.titleS, color = c.text1, modifier = Modifier.weight(1f))
-            Text("그래프를 눌러 날짜 바꾸기", style = YamuTheme.typography.bodyS, color = c.text3)
+            Text(day.date.toKoreanDateWeek(markToday = true), style = YamuTheme.typography.titleS, color = c.text1, modifier = Modifier.weight(1f))
+            when (lowest?.let { zoneOf(it, threshold) }) {
+                BalanceZone.BELOW_ZERO -> StatusTag("0원 아래", tone = TagTone.Error)
+                BalanceZone.BELOW_SAFE -> StatusTag("안전 잔액 아래", tone = TagTone.Warning)
+                else -> Unit
+            }
         }
         Spacer(Modifier.height(6.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -487,7 +523,9 @@ private fun DayPanel(day: ForecastDay, hasConservative: Boolean) {
             if (hasConservative) DayValue(LINE_WITH_LIVING, day.conservative, c.onWarningContainer, Modifier.weight(1f))
         }
         val events = day.events.filter { it.amount != 0L }
-        if (events.isNotEmpty()) {
+        if (events.isEmpty()) {
+            Text("이날은 오가는 돈이 없어요", style = YamuTheme.typography.bodyS, color = c.text3, modifier = Modifier.padding(top = 8.dp))
+        } else {
             Spacer(Modifier.height(10.dp))
             HorizontalDivider(color = c.outlineVariant)
             Spacer(Modifier.height(6.dp))
