@@ -1,0 +1,10 @@
+# Inject these through the infrastructure secret store / process environment.
+# Do not paste real values in commands, documentation, Jira or committed files.
+QA_SEED_JDBC_URL=<target JDBC URL with serverTimezone=UTC&connectionTimeZone=UTC>
+QA_SEED_DB_USERNAME=<target database user>
+QA_SEED_DB_PASSWORD=<target database password>
+YAMU_CRYPTO_DATA_KEY_ID=<same current key ID as API server>
+YAMU_CRYPTO_DATA_KEY_<ID>=<same current AES key as API server>
+YAMU_CRYPTO_HMAC_KEY=<same lookup key as API server>
+YAMU_CRYPTO_PIN_PEPPER=<same PIN pepper as API server>
+QA_SEED_MAINTENANCE=true
