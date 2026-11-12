@@ -61,17 +61,28 @@ import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 data class FirstAnalysisState(val loading: Boolean = true, val summary: HomeSummary? = null, val failed: Boolean = false) {
-    /** 제목은 불러오는 중 · 실패 · 성공마다 따로 — 실패했는데 "나왔어요"가 보이지 않게(B-09) */
+    /**
+     * 받았지만 그릴 것이 하나도 없다 — 예상 잔액(기준 계좌가 없으면 null) · 할 일 · 오늘 쓸 카드가 모두 없음.
+     * 이때 "나왔어요" 제목 아래가 비지 않게 따로 말한다(S15P31E103-435)
+     */
+    val nothingToShow: Boolean
+        get() = summary != null && summary.forecast == null && summary.todos.isEmpty() && summary.todayCard == null
+
+    /** 제목은 불러오는 중 · 실패 · 빈 결과 · 성공마다 따로 — 실패했는데 "나왔어요"가 보이지 않게(B-09) */
     val title: String
         get() = when {
             loading -> "야무가 계산 중이에요"
             failed || summary == null -> "첫 분석을 불러오지 못했어요"
+            nothingToShow -> "아직 분석할 거래가 적어요"
             else -> "첫 분석이 나왔어요"
         }
 }
 
 /** 실패 본문 — 아래 두 버튼으로 홈에 갈 수 있다는 것까지. 404(홈 API 없음)도 같은 글을 쓴다 */
 internal const val FIRST_ANALYSIS_FAILED = "다시 시도하거나\n아래 버튼으로 먼저 시작해도 돼요"
+
+/** 빈 결과 본문 — 무엇을 하면 어디에 무엇이 보이는지 */
+internal const val FIRST_ANALYSIS_EMPTY = "결제하거나 예정 수입·지출을 넣으면\n홈에서 예상 잔액과 챙길 일을 알려 드려요"
 
 /** B-07 첫 분석 — 홈과 같은 서버 값(#58): 예상 잔액(월급 전 가장 낮을 때) · 할 일 · 오늘 쓸 카드. 앱은 계산하지 않음 */
 @HiltViewModel
@@ -133,6 +144,7 @@ fun FirstAnalysisRoute(onFinish: () -> Unit, viewModel: FirstAnalysisViewModel =
                     Spacer(Modifier.height(YamuSpacing.x3))
                 }
                 s.failed || summary == null -> ErrorState(FIRST_ANALYSIS_FAILED, onRetry = viewModel::load)
+                s.nothingToShow -> Text(FIRST_ANALYSIS_EMPTY, style = YamuTheme.typography.bodyL, color = c.text2)
                 else -> AnalysisRows(summary)
             }
             Spacer(Modifier.height(YamuSpacing.x6))
