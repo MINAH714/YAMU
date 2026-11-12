@@ -424,6 +424,12 @@ class FakeCashflowRepository @Inject constructor() : CashflowRepository {
         incomeAccounts = listOf(IncomeAccount(1, "월급 통장 ··1234", isPrimary = true), IncomeAccount(2, "생활비 통장 ··5678", isPrimary = false)),
     )
 
+    /** 월급 줄 [다시 시도](Task 8.2.74) — 위 가짜 B-06과 같은 계좌 둘 */
+    override suspend fun incomeAccounts(): ApiResult<List<IncomeAccount>> = withFault {
+        delay(300)
+        ApiResult.Success(sampleDraft(dailyLivingCost = null).incomeAccounts)
+    }
+
     /** 같은 키는 처음 만든 번호 — 서버 Idempotency-Key 규칙(-358)을 흉내 낸다 */
     private val createdIncomes = mutableMapOf<String, Long>()
 

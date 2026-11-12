@@ -273,6 +273,7 @@ fun ForecastRoute(
     onLink: () -> Unit,
     onAlertSettings: () -> Unit = {},
     onLivingCost: () -> Unit = {},
+    onRegisterIncome: () -> Unit = {},   // 월급을 못 찾았다는 안내의 '월급 등록하기' → B-06(Task 8.2.74)
     viewModel: ForecastViewModel = hiltViewModel(),
 ) {
     val s by viewModel.state.collectAsStateWithLifecycle()
@@ -336,6 +337,7 @@ fun ForecastRoute(
                             onChartDrag = { chartDragging = it },
                             onStripScroll = { stripScrolling = it },
                             onPanelDrag = { panelDragging = it },
+                            onRegisterIncome = onRegisterIncome,
                         )
                     }
                     if (f.riskWindows.isNotEmpty()) RiskCard(f, selectedDate, onJump = jump)
@@ -414,6 +416,7 @@ private fun HeroCard(
     onChartDrag: (Boolean) -> Unit,
     onStripScroll: (Boolean) -> Unit,
     onPanelDrag: (Boolean) -> Unit,
+    onRegisterIncome: () -> Unit,
 ) {
     val c = YamuTheme.colors
     var live by remember { mutableStateOf(false) }
@@ -464,19 +467,28 @@ private fun HeroCard(
             )
         }
         error?.let { Text(staleLine(it, f.calculatedAtIso), style = YamuTheme.typography.bodyS, color = c.warning, modifier = Modifier.padding(top = 4.dp)) }
-        // 월급을 못 찾아 N일로 계산했다는 이유(P1-08) — 월급 등록 버튼(B-06)은 MR !270 머지 뒤
+        // 월급을 못 찾아 N일로 계산했다는 이유(P1-08)와 월급 등록(B-06, 홈 월급 안내와 같은 모드). 등록하고 돌아오면 이 화면이 다시 부른다
         incomeMissingNote(f, selection)?.let {
-            Text(
-                it,
-                style = YamuTheme.typography.bodyS,
-                color = c.text2,
-                modifier = Modifier
+            Column(
+                Modifier
                     .padding(top = 10.dp)
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(YamuRadius.s))
                     .background(c.surfaceVariant)
-                    .padding(horizontal = 10.dp, vertical = 8.dp),
-            )
+                    .padding(start = 10.dp, end = 10.dp, top = 8.dp),
+            ) {
+                Text(it, style = YamuTheme.typography.bodyS, color = c.text2)
+                Row(
+                    Modifier
+                        .heightIn(min = 48.dp)
+                        .clip(RoundedCornerShape(YamuRadius.s))
+                        .clickable(role = Role.Button, onClick = onRegisterIncome),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text("월급 등록하기", style = YamuTheme.typography.labelL, color = c.primary)
+                    Icon(YamuIcons.ChevronRight, contentDescription = null, tint = c.primary, modifier = Modifier.size(18.dp))
+                }
+            }
         }
         Spacer(Modifier.height(YamuSpacing.x5))
         ForecastLines(f, day, view, select, onChartDrag, onStripScroll, onPanelDrag)

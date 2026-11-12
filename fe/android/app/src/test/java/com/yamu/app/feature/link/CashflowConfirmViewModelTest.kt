@@ -35,8 +35,17 @@ class CashflowConfirmViewModelTest {
         val incomeCalls = mutableListOf<Pair<CashflowCreateRequest, String>>()
         var incomeResults = ArrayDeque<ApiResult<Long>>()
         var confirmResults = ArrayDeque<ApiResult<Unit>>()
+        var accountsResult: ApiResult<List<IncomeAccount>> = ApiResult.Failure(ApiError.Network)
+        var accountsGate: kotlinx.coroutines.CompletableDeferred<Unit>? = null
+        var accountsCalls = 0
 
         override suspend fun draft() = result
+
+        override suspend fun incomeAccounts(): ApiResult<List<IncomeAccount>> {
+            accountsCalls++
+            accountsGate?.await()
+            return accountsResult
+        }
 
         override suspend fun createIncome(body: CashflowCreateRequest, idempotencyKey: String): ApiResult<Long> {
             incomeCalls += body to idempotencyKey
@@ -109,6 +118,52 @@ class CashflowConfirmViewModelTest {
 
         assertEquals(CashflowHeadline("찾은 고정 지출이\n아직 없어요", "나중에 잔고예보에서 넣을 수 있어요"), noAccount.state.value.headline)
         assertEquals(CashflowHeadline("찾은 고정 지출이\n아직 없어요", "월급을 넣어 두면 월급날까지 예보해 드려요"), withAccount.state.value.headline)
+    }
+
+    @Test fun `받을 계좌를 못 읽었으면 다시 시도는 계좌만 다시 받아 고친 금액 · 하루 생활비를 지킨다(QA P1-04)`() = runTest(dispatcher) {
+        val failed = expensesOnly.copy(incomeAccounts = emptyList(), incomeAccountsError = ApiError.Network)
+        val repo = Repo(ApiResult.Success(failed))
+        val vm = CashflowConfirmViewModel(repo)
+        advanceUntilIdle()
+        assertTrue(vm.state.value.draft!!.incomeAccountsFailed)
+        assertFalse(vm.state.value.draft!!.canEnterIncome)
+
+        vm.edit(CashflowEdit.Item(failed.expenses.single()))
+        vm.saveAmount(15_000)
+        vm.edit(CashflowEdit.DailyCost)
+        vm.saveAmount(20_000)
+
+        // 연타 — 부르는 중이면 한 번만
+        val gate = kotlinx.coroutines.CompletableDeferred<Unit>()
+        repo.accountsGate = gate
+        repo.accountsResult = ApiResult.Success(accounts)
+        vm.retryIncomeAccounts()
+        vm.retryIncomeAccounts()
+        advanceUntilIdle()
+        assertTrue(vm.state.value.retryingAccounts)
+        gate.complete(Unit)
+        advanceUntilIdle()
+
+        assertEquals(1, repo.accountsCalls)
+        val s = vm.state.value
+        assertFalse(s.retryingAccounts)
+        assertEquals(accounts, s.draft!!.incomeAccounts)
+        assertNull(s.draft!!.incomeAccountsError)
+        assertTrue(s.draft!!.canEnterIncome)
+        assertEquals(15_000L, s.amountOf(failed.expenses.single()))
+        assertEquals(20_000L, s.dailyCost)
+    }
+
+    @Test fun `계좌를 다시 못 읽으면 다시 시도 줄을 그대로 둔다`() = runTest(dispatcher) {
+        val repo = Repo(ApiResult.Success(expensesOnly.copy(incomeAccounts = emptyList(), incomeAccountsError = ApiError.Network)))
+        val vm = CashflowConfirmViewModel(repo)
+        advanceUntilIdle()
+
+        vm.retryIncomeAccounts()
+        advanceUntilIdle()
+
+        assertTrue(vm.state.value.draft!!.incomeAccountsFailed)
+        assertFalse(vm.state.value.retryingAccounts)
     }
 
     @Test fun `못 불러오면 실패 머리 — 이유와 다시 시도는 아래 오류 칸에`() = runTest(dispatcher) {
