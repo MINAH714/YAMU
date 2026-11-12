@@ -840,7 +840,7 @@ internal fun dayEventLabel(e: ForecastEvent): String = when {
 internal fun stepLabel(s: LineStep): String = s.note?.let { "${s.label} ($it)" } ?: s.label
 
 @Composable
-private fun DayValue(label: String, value: Long?, color: androidx.compose.ui.graphics.Color, modifier: Modifier) {
+internal fun DayValue(label: String, value: Long?, color: androidx.compose.ui.graphics.Color, modifier: Modifier) {
     Column(modifier) {
         Text(label, style = YamuTheme.typography.bodyS, color = YamuTheme.colors.text3)
         // 칸이 좁아 아주 큰 금액이 숫자 중간에서 줄이 바뀌었다 — 한 줄로 두고 글자를 줄이며, 그래도 넘치면 말줄임(점검 2026-11-08)
@@ -859,7 +859,7 @@ private fun DayValue(label: String, value: Long?, color: androidx.compose.ui.gra
 /**
  * 목록 줄의 고른 날 표시 — 그래프에서 고른 날과 같은 날 줄은 연한 파랑 바탕(Task 8.2.70). 누르면 그날로 가는 줄만 [onClick]이 있다
  */
-private fun Modifier.dayRow(on: Boolean, highlight: androidx.compose.ui.graphics.Color): Modifier = this
+internal fun Modifier.dayRow(on: Boolean, highlight: androidx.compose.ui.graphics.Color): Modifier = this
     // 바탕이 글자에 딱 붙지 않게 양옆 8dp씩 넓혀 칠하고 글자 자리는 그대로 둔다
     .layout { m, cons ->
         val e = 8.dp.roundToPx()

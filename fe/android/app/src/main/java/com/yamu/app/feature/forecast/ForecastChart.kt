@@ -37,6 +37,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -62,6 +63,7 @@ import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.drawText
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.Dp
@@ -92,6 +94,13 @@ import kotlin.math.sin
 data class ChartLine(val label: String, val values: List<Long?>, val color: Color, val dashed: Boolean = false, val width: Dp = 2.dp, val zoned: Boolean = true)
 
 /**
+ * 가상 구매(I-02) 표시(Task 8.2.72) — [purchase] 구매일은 회색 점선과 바닥 '구매', [withdrawals] 기간 안 출금일은 큰 동전과 '출금'.
+ * [beyond]가 있으면 출금이 예보 기간 밖이라 오른쪽 끝에 주황 점선 · 동전을 두고 날짜 축 끝에 그 글자('12/14 출금')를 붙인다.
+ * [flash]가 오를 때마다 그 표시를 두 번 깜빡인다('빠져나가는 날'의 기간 밖 줄을 눌렀을 때)
+ */
+data class ChartMarks(val purchase: Int? = null, val withdrawals: Set<Int> = emptySet(), val beyond: String? = null, val flash: Int = 0)
+
+/**
  * 잔액 그래프 — 잔고예보(AI 생활비 제외 · 반영)와 가상 구매(사기 전 · 후)가 같이 쓴다(Task 8.2.65에서 다시 그림).
  * 마지막 선이 손잡이가 타는 선이라 동전 · 선 아래 면 · 말풍선 금액이 그 선을 따른다(잔고예보는 'AI 생활비 반영', 가상 구매는 '사기 후').
  *
@@ -100,6 +109,7 @@ data class ChartLine(val label: String, val values: List<Long?>, val color: Colo
  * - [onSelect]가 있으면 동전 손잡이가 손가락을 바로 따라오고 놓으면 가까운 날에 붙는다. 동전을 지나면 그 동전이 한 바퀴 돌며 진동하고,
  *   손잡이가 0원 아래로 들어가면 동전 · 말풍선이 빨갛게 바뀌며 말풍선이 흔들린다
  * - 처음 열 때 선과 면이 왼쪽부터 그려지고 동전이 떨어져 앉는다. 모션 줄이기면 모두 끄고 바로 옮긴다
+ * - 가상 구매는 [marks]로 구매일 · 출금일 · 기간 밖 출금을 더 그린다
  */
 @Composable
 fun BalanceChart(
@@ -109,6 +119,7 @@ fun BalanceChart(
     modifier: Modifier = Modifier,
     threshold: Long? = null,
     eventDays: Set<Int> = emptySet(),
+    marks: ChartMarks? = null,
     selected: Int? = null,
     onSelect: ((Int) -> Unit)? = null,
     dayLabel: (Int) -> String = { dates[it].toKoreanDateWeek() },
@@ -134,7 +145,11 @@ fun BalanceChart(
     val interactive = onSelect != null && sel != null
     val chartKey = dates.first() to dates.last()
     val topPad = if (interactive) BUBBLE_ZONE else 12.dp
-    val sidePadRight = if (incomeArrow) ARROW_PAD else SIDE_PAD
+    val sidePadRight = when {
+        incomeArrow -> ARROW_PAD
+        marks?.beyond != null -> BEYOND_PAD
+        else -> SIDE_PAD
+    }
 
     // 들어오기 — 화면을 돌리거나 돌아와도 같은 기간이면 다시 하지 않는다
     var introDone by rememberSaveable(chartKey) { mutableStateOf(false) }
@@ -242,6 +257,20 @@ fun BalanceChart(
     val coin = CoinPaint(c.coinFace, c.coinSide, c.coinLine)
     val negCoin = CoinPaint(c.errorContainer, c.error, c.error)
 
+    // 가상 구매 기간 밖 출금 표시 깜빡이기 — 그 줄을 누를 때마다 두 번. 모션 줄이기면 깜빡이지 않고 잠깐 켜 둔다
+    val flash = remember { Animatable(0f) }
+    LaunchedEffect(marks?.flash) {
+        if ((marks?.flash ?: 0) <= 0 || marks?.beyond == null) return@LaunchedEffect
+        if (reduce) {
+            flash.snapTo(1f)
+            delay(FLASH_MS * 2L)
+            flash.snapTo(0f)
+        } else repeat(2) {
+            flash.animateTo(1f, tween(FLASH_MS / 2, easing = YamuMotion.standard))
+            flash.animateTo(0f, tween(FLASH_MS / 2, easing = YamuMotion.standard))
+        }
+    }
+
     Column(modifier) {
         Box(
             Modifier
@@ -340,6 +369,46 @@ fun BalanceChart(
                     if (yZero + 2.dp.toPx() + label.size.height < size.height) drawText(label, topLeft = Offset(right - label.size.width, yZero + 2.dp.toPx()))
                 }
 
+                // 가상 구매 구매일 — 회색 점선은 선보다 먼저 그려 선 · 동전을 가리지 않는다. '구매' 글자는 선을 그린 뒤 얹는다
+                var purchaseLabel: (() -> Unit)? = null
+                marks?.purchase?.takeIf { it in 0 until n }?.let { p ->
+                    val px = x(p)
+                    drawLine(
+                        c.text2.copy(alpha = 0.7f), Offset(px, top - 6.dp.toPx()), Offset(px, bottom + 4.dp.toPx()),
+                        strokeWidth = 1.3.dp.toPx(), pathEffect = PathEffect.dashPathEffect(floatArrayOf(2.dp.toPx(), 3.dp.toPx())),
+                    )
+                    val label = measurer.measure("구매", labelStyle.copy(color = c.text2, fontWeight = FontWeight.Bold))
+                    val w = label.size.width.toFloat()
+                    val h = label.size.height.toFloat()
+                    val gap = 2.dp.toPx()
+                    val lx = if (px + 5.dp.toPx() + w <= right) px + 5.dp.toPx() else px - 5.dp.toPx() - w
+                    // 선 · 동전 · 빨간 ↓가 지나가지 않는 자리 — 바닥, 안 되면 그래프 맨 위. 둘 다 겹치면 바닥에 바탕을 깔아 읽히게
+                    fun crossed(ly: Float): Boolean {
+                        val band = (ly - gap)..(ly + h + gap)
+                        var sx = lx
+                        while (sx <= lx + w) {
+                            val f = ((sx - left) / (right - left)).coerceIn(0f, 1f)
+                            if (lines.any { l -> valueAt(l.values, f)?.let { v -> y(v) in band } == true }) return true
+                            sx += 3.dp.toPx()
+                        }
+                        return (drops + eventDays).any { d ->
+                            val v = ride.values.getOrNull(d) ?: return@any false
+                            val cx = x(d)
+                            val cy = y(v.toDouble())
+                            cx + 8.dp.toPx() >= lx && cx - 8.dp.toPx() <= lx + w && cy - 8.dp.toPx() <= band.endInclusive && cy + 18.dp.toPx() >= band.start
+                        }
+                    }
+                    // 바닥 왼쪽 '안전 잔액 … 이 아래' 글자가 있으면 바닥 자리를 그 위로 한 줄 올린다
+                    val belowNote = threshold != null && !range.shows(threshold) && threshold <= range.bottom
+                    val floor = if (belowNote) size.height - 2f * h - gap else bottom - h - gap
+                    val spot = listOf(floor, top + gap).firstOrNull { !crossed(it) }
+                    purchaseLabel = {
+                        val at = Offset(lx, spot ?: floor)
+                        if (spot == null) drawRoundRect(c.surface.copy(alpha = 0.9f), topLeft = Offset(at.x - 3.dp.toPx(), at.y - 1.dp.toPx()), size = Size(w + 6.dp.toPx(), h + 2.dp.toPx()), cornerRadius = CornerRadius(4.dp.toPx()))
+                        drawText(label, topLeft = at)
+                    }
+                }
+
                 // 선 · 면 · 동전 — 들어오기 동안은 왼쪽부터 드러난다
                 clipRect(right = (size.width + 40.dp.toPx()) * reveal.value - 20.dp.toPx()) {
                     // 높이로 나눈 세 구간 — 위: 안전 잔액 위, 가운데: 안전 잔액과 0원 사이, 아래: 0원 아래
@@ -393,7 +462,16 @@ fun BalanceChart(
                         val p = ((reveal.value * 1.15f - fractionOf(i, n)) / 0.22f).coerceIn(0f, 1f)
                         if (p <= 0f) return@forEach
                         val dropY = (1f - easeOutBack(p)) * 26.dp.toPx()
-                        drawChartCoin(Offset(x(i), y(v.toDouble()) - dropY), COIN_R.toPx(), spins.getOrNull(i)?.value ?: 0f, if (v < 0) negCoin else coin, alpha = p)
+                        // 가상 구매 출금일은 조금 큰 동전에 '출금'(오른쪽 끝이면 왼쪽에)
+                        val withdrawal = marks?.withdrawals?.contains(i) == true
+                        val center = Offset(x(i), y(v.toDouble()) - dropY)
+                        val r = (if (withdrawal) WITHDRAW_R else COIN_R).toPx()
+                        drawChartCoin(center, r, spins.getOrNull(i)?.value ?: 0f, if (v < 0) negCoin else coin, alpha = p)
+                        if (withdrawal) {
+                            val label = measurer.measure("출금", labelStyle.copy(color = c.onWarningContainer, fontWeight = FontWeight.Bold))
+                            val lx = if (center.x + r + 3.dp.toPx() + label.size.width <= size.width) center.x + r + 3.dp.toPx() else center.x - r - 3.dp.toPx() - label.size.width
+                            drawText(label, topLeft = Offset(lx, center.y - label.size.height / 2f), alpha = p)
+                        }
                     }
                     // 급하게 빠지는 날 — 선 밑 빨간 ↓
                     drops.forEach { i ->
@@ -406,6 +484,22 @@ fun BalanceChart(
                 }
 
                 safeLabel?.invoke()
+                purchaseLabel?.invoke()
+
+                // 가상 구매 기간 밖 출금 — 오른쪽 끝 주황 점선과 동전. 사기 전 · 후 선이 겹치는 까닭을 보인다
+                if (marks?.beyond != null) {
+                    val a = handleAlpha()
+                    val ox = size.width - 14.dp.toPx()
+                    drawLine(
+                        c.warning, Offset(ox, top - 4.dp.toPx()), Offset(ox, bottom + 4.dp.toPx()),
+                        strokeWidth = 1.5.dp.toPx(), pathEffect = PathEffect.dashPathEffect(floatArrayOf(2.dp.toPx(), 3.dp.toPx())), alpha = a,
+                    )
+                    ride.values.lastOrNull { it != null }?.let { v ->
+                        val center = Offset(ox, y(v.toDouble()))
+                        if (flash.value > 0f) drawCircle(c.warning, radius = (8.dp + 8.dp * flash.value).toPx(), center = center, alpha = 0.35f * flash.value)
+                        drawChartCoin(center, WITHDRAW_R.toPx(), 0f, if (v < 0) negCoin else coin, alpha = a)
+                    }
+                }
 
                 if (incomeArrow) {
                     val ax = size.width - 4.dp.toPx()
@@ -494,6 +588,18 @@ fun BalanceChart(
                 Spacer(Modifier.width(8.dp))
                 Text("월급", style = axis, color = c.primary)
             }
+            marks?.beyond?.let { label ->
+                Spacer(Modifier.width(6.dp))
+                // 깜빡일 때만 연한 주황 바탕(그리는 단계에서 읽어 깜빡이는 동안 다시 짜지 않는다)
+                Text(
+                    "$label →",
+                    style = axis,
+                    color = c.onWarningContainer,
+                    modifier = Modifier
+                        .drawBehind { if (flash.value > 0f) drawRoundRect(c.warningContainer, cornerRadius = CornerRadius(4.dp.toPx()), alpha = flash.value) }
+                        .padding(horizontal = 2.dp),
+                )
+            }
         }
     }
 }
@@ -529,8 +635,10 @@ private fun easeOutBack(t: Float): Float {
 private val BUBBLE_ZONE = 44.dp      // 말풍선 자리(손잡이가 있을 때만)
 private val SIDE_PAD = 8.dp
 private val ARROW_PAD = 26.dp        // 월급 화살표 자리
+private val BEYOND_PAD = 34.dp       // 가상 구매 기간 밖 출금 표시 자리 — 마지막 날 손잡이와 겹치지 않게 월급 화살표보다 넓다
 private val BOTTOM_PAD = 10.dp
 private val COIN_R = 5.dp
+private val WITHDRAW_R = 6.5.dp      // 가상 구매 출금일 동전
 private val HANDLE_R = 9.5.dp
 private const val INTRO_MS = 820
 private const val GLIDE_MS = 260     // 밖에서 고른 날로 손잡이가 옮겨 가는 시간
@@ -540,6 +648,7 @@ private const val SHAKE_MS = 320
 private const val NUDGE_DELAY_MS = 380L
 private const val NUDGE_MS = 1500
 private val NUDGE_AMP = 13.dp
+private const val FLASH_MS = 900     // 기간 밖 출금 표시 한 번 깜빡이는 시간
 
 /**
  * 범례 — 선 모양 + 이름. [missing]은 이번에 그리지 못한 선(취소선).
