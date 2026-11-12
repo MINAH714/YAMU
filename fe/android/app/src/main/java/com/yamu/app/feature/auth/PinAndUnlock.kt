@@ -1,5 +1,6 @@
 package com.yamu.app.feature.auth
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.background
@@ -58,7 +59,6 @@ import com.yamu.app.core.ui.SecureScreen
 import com.yamu.app.core.ui.findActivity
 import com.yamu.app.core.ui.userMessage
 import com.yamu.app.feature.auth.data.AuthRepository
-import com.yamu.app.feature.auth.data.AuthValidation
 import com.yamu.app.feature.auth.data.StepUpChallenge
 import com.yamu.app.feature.auth.data.DEVICE_NOT_REGISTERED
 import com.yamu.app.feature.auth.data.SIGNUP_TOKEN_INVALID
@@ -92,15 +92,17 @@ internal fun String.applyKey(key: KeypadKey): String = when (key) {
 
 // ───────────────────────── A-06 간편 비밀번호 · 지문 ─────────────────────────
 
-/** Biometric = 지문을 같이 쓸지 묻기 · Device = 지문을 못 쓰는 폰에서 기기 키만 등록(실패하면 다시 시도) */
-enum class PinSetupStep { First, Confirm, Biometric, Device, Done }
+/**
+ * Create = 새 비밀번호 두 번(칸은 [PinSetupViewModel.pin]) · Biometric = 지문을 같이 쓸지 묻기 ·
+ * Device = 지문을 못 쓰는 폰에서 기기 키만 등록(실패하면 다시 시도)
+ */
+enum class PinSetupStep { Create, Biometric, Device, Done }
 
 data class PinSetupState(
-    val step: PinSetupStep = PinSetupStep.First,
-    val input: String = "",
+    val step: PinSetupStep = PinSetupStep.Create,
+    /** 지문 · 기기 등록 단계의 오류(비밀번호 칸 오류는 [NewPinState.error]) */
     val error: String? = null,
     val busy: Boolean = false,
-    val shuffleKey: Int = 0,
     /** 기기 재등록 중 새 비밀번호 — 서버가 맡아 뒀다가 1원 숫자로 이 폰을 등록할 때 바꾼다 */
     val recovery: Boolean = false,
     val restart: Boolean = false,               // 가입 진행 토큰 만료 → 본인인증부터
@@ -114,50 +116,44 @@ class PinSetupViewModel @Inject constructor(
 ) : ViewModel() {
     private val _state = MutableStateFlow(PinSetupState(recovery = signup.mode == SignupMode.DEVICE_RECOVERY))
     val state: StateFlow<PinSetupState> = _state.asStateFlow()
-    private var first: String = ""
+    private val entry = NewPinEntry(viewModelScope, onConfirmed = ::save)
+    val pin: StateFlow<NewPinState> = entry.state
 
     fun onKey(key: KeypadKey) {
-        val s = _state.value
-        if (s.busy || s.step != PinSetupStep.First && s.step != PinSetupStep.Confirm) return
-        val next = s.input.applyKey(key)
-        _state.update { it.copy(input = next, error = null) }
-        if (next.length == 6) onComplete(next)
+        if (_state.value.busy || _state.value.step != PinSetupStep.Create) return
+        entry.onKey(key)
     }
 
-    private fun onComplete(pin: String) {
-        when (_state.value.step) {
-            PinSetupStep.First -> {
-                val rule = AuthValidation.pin(pin)
-                if (rule != null) return reset(rule, PinSetupStep.First)
-                first = pin
-                _state.update { it.copy(step = PinSetupStep.Confirm, input = "", shuffleKey = it.shuffleKey + 1) }
-            }
-            PinSetupStep.Confirm -> {
-                if (pin != first) return reset("처음 입력과 달라요. 처음부터 다시 만들어 주세요", PinSetupStep.First)
-                viewModelScope.launch {
-                    _state.update { it.copy(busy = true) }
-                    when (val r = signup.setPin(pin)) {
-                        is ApiResult.Success -> when {
-                            _state.value.recovery -> _state.update { it.copy(busy = false, input = "", step = PinSetupStep.Done) }
-                            auth.canUseBiometric() -> _state.update { it.copy(busy = false, input = "", step = PinSetupStep.Biometric) }
-                            else -> {
-                                _state.update { it.copy(busy = false, input = "", step = PinSetupStep.Device) }
-                                register(biometric = false)
-                            }
-                        }
-                        is ApiResult.Failure ->
-                            if (r.error.code == SIGNUP_TOKEN_INVALID) _state.update { it.copy(busy = false, restart = true) }
-                            else reset(r.error.signupMessage(), PinSetupStep.First)
+    /**
+     * 뒤로(앱바 · 시스템) — 처리했으면 true. 확인 단계는 첫 입력으로, 저장 중 · PIN을 저장한 뒤(지문 · 기기 등록)는 막는다.
+     * false면 화면을 닫는다(가입은 본인인증 화면 — '다음'이 1원 없이 여기로 다시 잇는다)
+     */
+    fun back(): Boolean {
+        val s = _state.value
+        if (s.busy || s.step != PinSetupStep.Create) return true
+        return entry.back()
+    }
+
+    private fun save(pin: String) {
+        viewModelScope.launch {
+            _state.update { it.copy(busy = true) }
+            when (val r = signup.setPin(pin)) {
+                is ApiResult.Success -> when {
+                    _state.value.recovery -> _state.update { it.copy(busy = false, step = PinSetupStep.Done) }
+                    auth.canUseBiometric() -> _state.update { it.copy(busy = false, step = PinSetupStep.Biometric) }
+                    else -> {
+                        _state.update { it.copy(busy = false, step = PinSetupStep.Device) }
+                        register(biometric = false)
                     }
                 }
+                is ApiResult.Failure ->
+                    if (r.error.code == SIGNUP_TOKEN_INVALID) _state.update { it.copy(busy = false, restart = true) }
+                    else {
+                        _state.update { it.copy(busy = false) }
+                        entry.fail(r.error.signupMessage())
+                    }
             }
-            else -> Unit
         }
-    }
-
-    private fun reset(message: String, step: PinSetupStep) {
-        first = ""
-        _state.update { PinSetupState(step = step, error = message, shuffleKey = it.shuffleKey + 1, recovery = it.recovery) }
     }
 
     fun enableBiometric() = register(biometric = true)
@@ -197,6 +193,7 @@ fun PinSetupRoute(
     viewModel: PinSetupViewModel = hiltViewModel(),
 ) {
     val s by viewModel.state.collectAsStateWithLifecycle()
+    val pin by viewModel.pin.collectAsStateWithLifecycle()
     LaunchedEffect(s.step) { if (s.step == PinSetupStep.Done) if (s.recovery) onRecoveryPinSet() else onFinished() }
     LaunchedEffect(s.restart) {
         if (s.restart) {
@@ -204,6 +201,9 @@ fun PinSetupRoute(
             viewModel.restarted()
         }
     }
+    // 확인 단계의 뒤로는 첫 입력으로, PIN을 저장한 뒤(지문 · 기기 등록)는 막는다 — 본인인증까지 빠지지 않게(QA 07)
+    val back = { if (!viewModel.back()) onBack() }
+    BackHandler(onBack = back)
     SecureScreen()
     val c = YamuTheme.colors
     if (s.step == PinSetupStep.Biometric) {
@@ -235,23 +235,24 @@ fun PinSetupRoute(
     Scaffold(
         topBar = {
             Column(Modifier.background(c.surface)) {
-                YamuTopBar(if (s.recovery) "이 폰 등록" else "회원가입", onBack = onBack)
+                YamuTopBar(if (s.recovery) "이 폰 등록" else "회원가입", onBack = back)
                 if (!s.recovery) StartStepper(step = 4, total = SIGNUP_STEPS, label = "간편 비밀번호")
             }
         },
-        bottomBar = { NumberKeypad(KeypadMode.Pin, onKey = viewModel::onKey, shuffleKey = s.shuffleKey, background = c.background, topDivider = true) },
+        bottomBar = { NumberKeypad(KeypadMode.Pin, onKey = viewModel::onKey, shuffleKey = pin.shuffleKey, background = c.background, topDivider = true) },
         containerColor = c.surface,
     ) { inner ->
         PinBody(
             inner = inner,
             title = when {
-                s.step != PinSetupStep.First -> "한 번 더 입력해 주세요"
+                pin.confirming -> "한 번 더 입력해 주세요"
                 s.recovery -> "새 간편 비밀번호 6자리를\n만들어 주세요"
                 else -> "간편 비밀번호 6자리를\n만들어 주세요"
             },
             sub = if (s.recovery) "이 폰을 등록하면 새 비밀번호로 바뀌어요" else "앱을 열 때 써요",
-            filled = s.input.length,
-            error = s.error,
+            filled = pin.input.length,
+            error = pin.error,
+            shakeKey = pin.errorKey,
             alignStart = true,
             top = 20.dp,
         )
@@ -273,6 +274,7 @@ data class PinLoginState(
     val loggedIn: Boolean? = null,          // 끝나면 초기 설정 완료 여부
     val noDevice: Boolean = false,          // 이 폰에 등록된 기기가 없음(서버에서 해제 등) → 첫 화면
     val shuffleKey: Int = 0,
+    val errorKey: Int = 0,                  // 비밀번호가 틀릴 때마다 1씩 — 점 흔들기 · 진동
 )
 
 /**
@@ -362,6 +364,7 @@ class PinLoginViewModel @Inject constructor(
                 error = error.authMessage(),
                 locked = lockMillis != null,
                 shuffleKey = it.shuffleKey + 1,
+                errorKey = if (error.isPinRejected()) it.errorKey + 1 else it.errorKey,
             )
         }
         if (lockMillis != null) viewModelScope.launch {
@@ -370,6 +373,9 @@ class PinLoginViewModel @Inject constructor(
         }
     }
 }
+
+/** 넣은 비밀번호가 받아들여지지 않았다(틀림 · 그래서 잠김) — 점을 흔든다. 연결 실패 같은 건 흔들지 않는다 */
+internal fun ApiError.isPinRejected(): Boolean = code == "PIN_MISMATCH" || code == "STEP_UP_FAILED" || code == "DEVICE_LOCKED"
 
 /** [onNoDevice] — 이 폰에 등록된 기기가 없을 때(첫 화면으로). 기기 정보는 저장소가 이미 지웠다 */
 @Composable
@@ -408,6 +414,7 @@ fun PinLoginRoute(
             sub = "간편 비밀번호 6자리를 입력해 주세요",
             filled = s.input.length,
             error = s.error,
+            shakeKey = s.errorKey,
         ) {
             if (s.biometricReady) {
                 CompactButton("지문으로 로그인", onClick = viewModel::startBiometric, icon = YamuIcons.Fingerprint)
@@ -474,6 +481,8 @@ internal fun PinBody(
     sub: String,
     filled: Int,
     error: String?,
+    /** 틀릴 때마다 올리는 값 — 점이 흔들리고 진동이 한 번 온다 */
+    shakeKey: Int = 0,
     alignStart: Boolean = false,
     top: androidx.compose.ui.unit.Dp = 32.dp,
     below: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit = {},
@@ -489,7 +498,7 @@ internal fun PinBody(
         Spacer(Modifier.height(if (alignStart) 8.dp else 6.dp))   // 만들기(A-06)는 mt8, 잠금 해제 · 본인 인증(가운데)은 6
         Text(error ?: sub, style = YamuTheme.typography.bodyM, color = if (error != null) c.error else c.text2, textAlign = align, modifier = Modifier.fillMaxWidth())
         Spacer(Modifier.height(32.dp))
-        PinDots(filled = filled, error = error != null && filled == 0, modifier = Modifier.align(Alignment.CenterHorizontally))
+        PinDots(filled = filled, error = error != null && filled == 0, shakeKey = shakeKey, modifier = Modifier.align(Alignment.CenterHorizontally))
         Column(Modifier.fillMaxWidth().padding(top = 32.dp), horizontalAlignment = Alignment.CenterHorizontally, content = below)
     }
 }

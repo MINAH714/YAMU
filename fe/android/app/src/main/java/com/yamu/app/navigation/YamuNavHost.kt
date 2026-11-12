@@ -146,6 +146,7 @@ fun YamuNavHost(navController: NavHostController, modifier: Modifier = Modifier)
                         val target: Any = when (next) {
                             SignupNext.TERMS -> Terms
                             SignupNext.ACCOUNTS -> SignupAccounts
+                            SignupNext.PIN -> PinSetup   // 계좌 연결을 마치고 PIN 만들기에서 뒤로 왔다(1원 다시 안 받음)
                             SignupNext.RECOVERY -> RecoveryIntro
                         }
                         navController.navigate(target)

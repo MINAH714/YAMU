@@ -73,6 +73,7 @@ data class PinPadState(
     val locked: Boolean = false,
     val done: Boolean = false,
     val shuffleKey: Int = 0,
+    val errorKey: Int = 0,          // 비밀번호가 틀릴 때마다 1씩 — 점 흔들기 · 진동
 )
 
 /** #46 → 6자리 → #47. 성공하면 토큰을 [StepUpResults]로 부른 화면에 넘기고 닫힌다 */
@@ -124,6 +125,7 @@ class PinPadViewModel @Inject constructor(
                 error = error.authMessage(),
                 locked = lockMillis != null,
                 shuffleKey = it.shuffleKey + 1,
+                errorKey = if (error.isPinRejected()) it.errorKey + 1 else it.errorKey,
             )
         }
         if (lockMillis != null) viewModelScope.launch {
@@ -169,6 +171,7 @@ fun PinPadRoute(onClose: () -> Unit, viewModel: PinPadViewModel = hiltViewModel(
             },
             filled = s.input.length,
             error = s.error,
+            shakeKey = s.errorKey,
         )
     }
 }

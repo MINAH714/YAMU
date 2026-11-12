@@ -204,6 +204,12 @@ interface SignupRepository {
     /** 재등록에서 새 PIN을 서버에 맡겼나 — 이 본인인증 동안은 기기 등록 때 그 PIN이 적용된다 */
     val pinStaged: Boolean
 
+    /**
+     * 가입: 이 본인인증으로 1원 계좌 연결을 마쳤나. PIN 만들기에서 본인인증으로 돌아갔다 와도 1원을 다시 받지 않고
+     * PIN 만들기로 바로 잇는다(QA 07 · P1-17). 본인인증을 버리면 같이 지운다
+     */
+    val accountLinked: Boolean get() = false
+
     suspend fun requestCode(name: String, birthDate: LocalDate, carrier: Carrier, phoneNumber: String): ApiResult<CodeSent>
     suspend fun confirmCode(verificationId: String, code: String): ApiResult<SignupMode>
     suspend fun candidates(): ApiResult<List<AccountCandidate>>
@@ -264,6 +270,8 @@ class SignupRepositoryImpl @Inject constructor(
     override var recoveryBiometric: Boolean = false
     override var pinStaged: Boolean = false
         private set
+    override var accountLinked: Boolean = false
+        private set
 
     override suspend fun requestCode(name: String, birthDate: LocalDate, carrier: Carrier, phoneNumber: String): ApiResult<CodeSent> {
         pendingName = name.trim()
@@ -311,6 +319,7 @@ class SignupRepositoryImpl @Inject constructor(
         if (mode == SignupMode.DEVICE_RECOVERY) return register(recoveryBiometric, sent, code)
         val key = linkKey ?: newIdempotencyKey().also { linkKey = it }
         return withToken { bearer -> apiCallNoData { api.linkAccounts(bearer, key, SignupAccountLinkRequest(sent, code)) } }
+            .also { if (it is ApiResult.Success) accountLinked = true }
     }
 
     override suspend fun setPin(pin: String): ApiResult<Unit> =
@@ -364,6 +373,7 @@ class SignupRepositoryImpl @Inject constructor(
         oneWon = null
         recoveryBiometric = false
         pinStaged = false
+        accountLinked = false
     }
 
     /** 가입 진행 토큰을 붙여 부른다. 토큰이 없거나 서버가 거절하면 진행을 버리고 본인인증부터(넣은 값 · 약관 동의는 남김) */
