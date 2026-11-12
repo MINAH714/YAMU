@@ -223,7 +223,12 @@ class BuyConditionsViewModel internal constructor(val amount: Long, val title: S
         viewModelScope.launch {
             _state.update { it.copy(categoriesError = null) }
             when (val r = repo.categories()) {
-                is ApiResult.Success -> _state.update { it.copy(categories = r.data) }
+                is ApiResult.Success -> _state.update { state ->
+                    val supported = r.data.filter { it.simulationSupported }
+                    if (state.category != null && supported.none { it.code == state.category.code }) {
+                        state.copy(categories = supported, category = null, merchant = null, merchants = null)
+                    } else state.copy(categories = supported)
+                }
                 is ApiResult.Failure -> _state.update { it.copy(categoriesError = r.error.userMessage()) }
             }
         }
@@ -244,6 +249,9 @@ class BuyConditionsViewModel internal constructor(val amount: Long, val title: S
      * 결제 방식은 그 뒤 사용자가 바꾼 대로 둔다
      */
     fun pickCategory(category: MerchantCategory) {
+        if (!category.simulationSupported || _state.value.categories?.any {
+                it.code == category.code && it.simulationSupported
+            } != true) return
         if (_state.value.category == category) return
         _state.update {
             it.copy(category = category, channel = PaymentChannel.forCategory(category.code), merchant = null, merchants = null, merchantsError = null)
@@ -287,6 +295,7 @@ class BuyConditionsViewModel internal constructor(val amount: Long, val title: S
     fun query(): SimulationQuery? {
         val s = _state.value
         val category = s.category ?: return null
+        if (!category.simulationSupported) return null
         return SimulationQuery(amount, title, category.code, category.name, s.merchant?.id, s.merchant?.name, s.channel, s.cardId, s.months, s.date)
     }
 }
@@ -325,6 +334,7 @@ fun BuyConditionsRoute(onBack: () -> Unit, onCompare: (SimulationQuery) -> Unit,
             when {
                 categories == null && s.categoriesError != null -> ErrorState(s.categoriesError ?: "", onRetry = viewModel::loadCategories)
                 categories == null -> SkeletonBlock(height = 40.dp)
+                categories.isEmpty() -> ErrorState("지금 선택할 수 있는 업종이 없어요. 잠시 후 다시 시도해 주세요.", onRetry = viewModel::loadCategories)
                 else -> {
                     val popular = POPULAR_CATEGORIES.mapNotNull { code -> categories.firstOrNull { it.code == code } }
                     val shown = (popular + listOfNotNull(s.category)).distinct()

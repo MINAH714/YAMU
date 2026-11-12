@@ -30,6 +30,8 @@ public final class BasicPurchaseSimulation {
     public static RecommendationInput.Transaction apply(RecommendationInput.Transaction original, String channel, String facility) {
         if (channel != null && !Set.of("ONLINE", "OFFLINE", "UNKNOWN").contains(channel)) throw new IllegalArgumentException("결제 채널 형식 오류");
         if (facility != null && !FACILITIES.contains(facility)) throw new IllegalArgumentException("시설 형식 오류");
+        // 입력 경계를 우회한 호출도 제외 업종을 일반 구매로 바꾸지 않는다. 명시된 사실은 그대로 보존한다.
+        if (!com.yamu.be.merchant.PurchaseSimulationCategories.supports(original.merchantCategoryCode())) return original;
         var facts = new HashMap<>(original.facts());
         var applied = new ArrayList<String>();
         if (channel != null && !channel.equals("UNKNOWN")) {

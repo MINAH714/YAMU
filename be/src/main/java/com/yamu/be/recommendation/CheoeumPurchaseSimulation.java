@@ -21,7 +21,8 @@ final class CheoeumPurchaseSimulation {
 
     static RecommendationInput.Transaction apply(RecommendationInput.Transaction transaction, long cardId,
             com.yamu.be.card.domain.CardProduct product, BenefitPolicy policy, String merchantBrand) {
-        if (product == null || !"SHINHAN".equals(product.getIssuerCode())
+        if (!com.yamu.be.merchant.PurchaseSimulationCategories.supports(transaction.merchantCategoryCode())
+                || product == null || !"SHINHAN".equals(product.getIssuerCode())
                 || !"신한카드 처음".equals(product.getProductName()) || policy == null || !policy.complete()
                 || policy.simulationRules().stream().noneMatch(r -> r.id().equals("YAMU_SIM_CARD_POLICY"))) {
             return transaction;

@@ -52,6 +52,39 @@ class PurchaseSimulationServiceTest {
     @Mock CardBillRepository bills;
     @Mock MerchantCatalogService catalog;
 
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"TAXI", "CITY_BUS", "INTERCITY_BUS", "EXPRESS_BUS",
+            "SUBWAY", "RAILWAY", "ELECTRIC_UTILITY", "WATER_UTILITY", "CITY_GAS_UTILITY", "UNIVERSITY",
+            "PRIMARY_SECONDARY_SCHOOL", "KINDERGARTEN", "ACADEMY", "DRIVING_SCHOOL"})
+    void excludedCategoryIsRejectedBeforeReadsOrCalculation(String category) {
+        var input = request();
+        input.setMerchantCategoryCode(category);
+        var service = new PurchaseSimulationService(forecasts, cards, cardNames, recommender,
+                calendar, creditLimits, bills, catalog);
+        assertThatThrownBy(() -> service.simulate(USER, input)).isInstanceOfSatisfying(BusinessException.class, e -> {
+            assertThat(e.getErrorCode()).isEqualTo(ErrorCode.INVALID_REQUEST);
+            assertThat(e.getDetails()).isEqualTo(Map.of("fieldErrors", List.of(new FieldErrorResponse(
+                    "merchantCategoryCode", "이 업종은 모의 구매를 지원하지 않아요. 다른 업종을 선택해 주세요."))));
+        });
+        org.mockito.Mockito.verifyNoInteractions(forecasts, cards, recommender, creditLimits, bills, catalog);
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"ELECTRIC_UTILITY", "UNIVERSITY", "TAXI"})
+    void merchantOnlyCannotBypassExcludedIndustry(String category) {
+        var input = request();
+        input.setUserCardId(null);
+        input.setMerchantId(55L);
+        when(forecasts.today()).thenReturn(NOV_5);
+        when(catalog.resolveSelection(55L, null)).thenReturn(new MerchantCatalogService.Selection(55L, category));
+        var service = new PurchaseSimulationService(forecasts, cards, cardNames, recommender,
+                calendar, creditLimits, bills, catalog);
+        assertThatThrownBy(() -> service.simulate(USER, input)).isInstanceOfSatisfying(BusinessException.class,
+                e -> assertThat(e.getErrorCode()).isEqualTo(ErrorCode.INVALID_REQUEST));
+        org.mockito.Mockito.verifyNoInteractions(recommender, creditLimits, bills);
+        verify(forecasts, never()).prepare(any(), anyList(), any(), any(), anyBoolean(), any());
+    }
+
     @Test
     void 오늘은_요청마다_한_번만_정해_구매일_검사와_예보_시작일에_같이_쓴다() {
         // 구매일을 검사한 뒤 자정이 지나 시계가 11/6이 되어도, 예보는 검사한 날(11/5)부터 계산해야 한다

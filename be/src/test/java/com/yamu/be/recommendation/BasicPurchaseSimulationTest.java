@@ -6,6 +6,22 @@ import java.util.Map;
 import org.junit.jupiter.api.Test;
 
 class BasicPurchaseSimulationTest {
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"TAXI", "CITY_BUS", "INTERCITY_BUS", "EXPRESS_BUS",
+            "SUBWAY", "RAILWAY", "ELECTRIC_UTILITY", "WATER_UTILITY", "CITY_GAS_UTILITY", "UNIVERSITY",
+            "PRIMARY_SECONDARY_SCHOOL", "KINDERGARTEN", "ACADEMY", "DRIVING_SCHOOL"})
+    void excludedIndustriesNeverReceiveOrdinaryDefaults(String category) {
+        for (Long merchant : new Long[]{null, 1L}) {
+            var original = new RecommendationInput.Transaction(10_000, RecommendationInput.Plan.LUMP_SUM, 1,
+                    Instant.parse("2026-11-12T03:00:00Z"), merchant, category,
+                    Map.of("TRANSACTION_KIND:ELECTRICITY_BILL", true));
+            assertThat(BasicPurchaseSimulation.apply(original, "OFFLINE", "GENERAL")).isSameAs(original);
+            var empty = new RecommendationInput.Transaction(original.amount(), original.plan(), original.installmentMonths(),
+                    original.occurredAt(), merchant, category, Map.of());
+            assertThat(BasicPurchaseSimulation.apply(empty, "OFFLINE", "GENERAL")).isSameAs(empty);
+        }
+    }
+
     @Test void ordinaryPurchaseCompletesSpecialExclusionsButKeepsProductAndRouteFactsUnknown() {
         var result = BasicPurchaseSimulation.apply(tx(Map.of()), "OFFLINE", "GENERAL");
         assertThat(result.facts()).containsEntry("TRANSACTION_KIND:ELECTRICITY_BILL", false)

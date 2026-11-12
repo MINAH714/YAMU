@@ -70,6 +70,9 @@ public class PurchaseSimulationService {
         // 계좌·금융망을 읽기 전에 요청만으로 알 수 있는 오류부터 거절한다.
         PaymentTerms terms = request.toTerms();
         validateDescription(request);
+        if (request.merchantCategoryCode() != null) {
+            com.yamu.be.merchant.PurchaseSimulationCategories.requireSupported(request.merchantCategoryCode());
+        }
         String paymentChannel = request.paymentChannel();
         Integer days = request.days();
         BalanceForecast.Until until = request.until();
@@ -98,6 +101,9 @@ public class PurchaseSimulationService {
         // 업종·브랜드가 있을 때만 확인한다(브랜드면 DB의 업종을 쓴다). 물품만 있으면 혜택을 계산할 수 없다(2026-11-05 결정).
         MerchantCatalogService.Selection selection = request.merchantId() != null || request.merchantCategoryCode() != null
                 ? catalog.resolveSelection(request.merchantId(), request.merchantCategoryCode()) : null;
+        if (selection != null) {
+            com.yamu.be.merchant.PurchaseSimulationCategories.requireSupported(selection.merchantCategoryCode());
+        }
         SimulationRecommender.Recommendation recommendation = recommend(authenticatedUserId, request, terms,
                 paymentChannel, selection, purchaseDate, today);
         long cardId = recommendation.userCardId();
