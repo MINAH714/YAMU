@@ -1,6 +1,12 @@
 package com.yamu.app.feature.forecast
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
+import androidx.compose.animation.core.snap
+import androidx.compose.animation.Crossfade
 import kotlin.math.roundToInt
 import kotlinx.coroutines.delay
 import com.yamu.app.core.designsystem.theme.YamuMotion
@@ -420,6 +426,8 @@ private fun HeroCard(
     }
     val liveDay = f.days.getOrNull(day.day)?.takeIf { live }
     val amount = liveDay?.let { rideValue(it, f.hasConservative) } ?: f.minBalance ?: 0
+    // 그래프 · 달력 면 — 화면을 돌려도 지킨다(Task 8.2.71)
+    var view by rememberSaveable { mutableStateOf(ChartView.GRAPH) }
     YamuCard(contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 20.dp, bottom = 16.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
@@ -430,6 +438,10 @@ private fun HeroCard(
             if (f.isEstimate) {
                 Spacer(Modifier.width(6.dp))
                 EstimateTag()
+            }
+            if (f.days.size >= 2) {
+                Spacer(Modifier.weight(1f))
+                ViewToggle(view, onChange = { view = it })
             }
         }
         Spacer(Modifier.height(4.dp))
@@ -467,7 +479,7 @@ private fun HeroCard(
             )
         }
         Spacer(Modifier.height(YamuSpacing.x5))
-        ForecastLines(f, day, select, onChartDrag, onStripScroll, onPanelDrag)
+        ForecastLines(f, day, view, select, onChartDrag, onStripScroll, onPanelDrag)
     }
 }
 
@@ -567,6 +579,7 @@ internal fun chartDayState(day: ForecastDay, hasConservative: Boolean): String =
 private fun ForecastLines(
     f: Forecast,
     day: DaySelection,
+    view: ChartView,
     select: (Int, DaySource) -> Unit,
     onChartDrag: (Boolean) -> Unit,
     onStripScroll: (Boolean) -> Unit,
@@ -588,36 +601,80 @@ private fun ForecastLines(
     }
     val eventDays = remember(days) { eventDayIndices(days) }
     val strip = remember(days, f.alertThreshold) { stripDays(days, f.hasConservative, f.alertThreshold) }
-    BalanceChart(
-        dates = days.map { it.date },
-        lines = lines,
-        description = chartDescription(f),
-        threshold = f.alertThreshold,
-        eventDays = eventDays,
-        selected = day.day,
-        onSelect = { select(it, DaySource.CHART) },
-        dayLabel = { chartDayLabel(days[it]) },
-        dayState = { chartDayState(days[it], f.hasConservative) },
-        incomeArrow = f.incomeDate != null,
-        interacted = day.touched,
-        onInteract = day::touch,
-        onDragChange = onChartDrag,
-    )
-    Spacer(Modifier.height(12.dp))
-    ChartLegend(lines, missing = missingLines(f))
-    Spacer(Modifier.height(8.dp))
-    DateStrip(
-        days = strip,
-        selected = day.day,
-        source = day.source,
-        onSelect = select,
-        income = f.incomeDate,
-        hint = !day.touched,
-        bleed = 20.dp,   // HeroCard 안쪽 여백만큼 카드 끝까지
-        onScrollingChange = onStripScroll,
-    )
+    // 면을 바꿔도 각 면의 저장 상태(그래프 들어오기 · 첫 안내를 했는지)는 지킨다 — 다시 그래프로 와도 들어오기를 되풀이하지 않게
+    val saved = rememberSaveableStateHolder()
+    Crossfade(
+        targetState = view,
+        animationSpec = if (YamuTheme.reduceMotion) snap() else tween(YamuMotion.BASE_MS, easing = YamuMotion.standard),
+        label = "chartView",
+    ) { v ->
+        saved.SaveableStateProvider(v.name) {
+            when (v) {
+                ChartView.GRAPH -> Column {
+                    BalanceChart(
+                        dates = days.map { it.date },
+                        lines = lines,
+                        description = chartDescription(f),
+                        threshold = f.alertThreshold,
+                        eventDays = eventDays,
+                        selected = day.day,
+                        onSelect = { select(it, DaySource.CHART) },
+                        dayLabel = { chartDayLabel(days[it]) },
+                        dayState = { chartDayState(days[it], f.hasConservative) },
+                        incomeArrow = f.incomeDate != null,
+                        interacted = day.touched,
+                        onInteract = day::touch,
+                        onDragChange = onChartDrag,
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    ChartLegend(lines, missing = missingLines(f))
+                    Spacer(Modifier.height(8.dp))
+                    DateStrip(
+                        days = strip,
+                        selected = day.day,
+                        source = day.source,
+                        onSelect = select,
+                        income = f.incomeDate,
+                        hint = !day.touched,
+                        bleed = 20.dp,   // HeroCard 안쪽 여백만큼 카드 끝까지
+                        onScrollingChange = onStripScroll,
+                    )
+                }
+                ChartView.CALENDAR -> ForecastCalendar(f, strip, selected = day.day, source = day.source, onSelect = select)
+            }
+        }
+    }
     Spacer(Modifier.height(8.dp))
     DayPager(f, day, select, onPanelDrag)
+}
+
+/**
+ * 그래프 · 달력 바꾸기 알약(Task 8.2.71) — 카드 오른쪽 위. 그래프를 가로로 끄는 것과 달력을 넘기는 것이 부딪히지 않게 면은 이 알약으로만 바꾼다
+ */
+@Composable
+private fun ViewToggle(view: ChartView, onChange: (ChartView) -> Unit) {
+    val c = YamuTheme.colors
+    Row(
+        Modifier
+            .clip(RoundedCornerShape(10.dp))
+            .background(c.surfaceVariant)
+            .padding(3.dp)
+            .semantics { contentDescription = "보기" },
+    ) {
+        listOf(ChartView.GRAPH to "그래프", ChartView.CALENDAR to "달력").forEach { (v, label) ->
+            val on = v == view
+            Text(
+                label,
+                style = YamuTheme.typography.labelM,
+                color = if (on) c.text1 else c.text3,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(if (on) c.surface else androidx.compose.ui.graphics.Color.Transparent)
+                    .selectable(selected = on, role = Role.Tab, onClick = { onChange(v) })
+                    .padding(horizontal = 11.dp, vertical = 5.dp),
+            )
+        }
+    }
 }
 
 /**
