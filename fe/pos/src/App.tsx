@@ -52,16 +52,27 @@ type Phase =
 const EMPTY_PLAN: PlanInput = { plan: 'LUMP_SUM', installmentMonths: '' }
 const EMPTY_CARTS: Record<StoreId, Cart> = { starbucks: {}, gs25: {} }
 const CONFIRM_WINDOW_MS = 60_000
-/** 매장에 들어갈 때 쌓는 브라우저 기록 표시 */
+/**
+ * 뒤로 가기가 POS 페이지를 떠나지 않게 쌓는 브라우저 기록. 매장에 들어갈 때 store, 트레이를 열 때 tray를 쌓는다.
+ * 결제를 보낸 뒤 화면은 트레이에서 이어지므로 tray 기록 위에 있다.
+ */
 const STORE_ENTRY = { yamuPos: 'store' } as const
+const TRAY_ENTRY = { yamuPos: 'tray' } as const
 
-function isStoreEntry(state: unknown): boolean {
-  return typeof state === 'object' && state !== null && (state as { yamuPos?: unknown }).yamuPos === 'store'
+function entryOf(state: unknown): 'store' | 'tray' | null {
+  if (typeof state !== 'object' || state === null) return null
+  const value = (state as { yamuPos?: unknown }).yamuPos
+  return value === 'store' || value === 'tray' ? value : null
+}
+
+/** 트레이에서 결제수단·현금·QR을 고르는 단계. 결제는 아직 보내지 않았다 */
+function isTrayStep(phase: Phase): boolean {
+  return phase.step === 'method' || phase.step === 'cash' || phase.step === 'scan'
 }
 
 /** 결제를 보내기 전 단계. 주문 화면이 보이고(트레이 포함) 장바구니가 아직 결제와 묶이지 않았다 */
 function isBeforePayment(phase: Phase): boolean {
-  return phase.step === 'order' || phase.step === 'method' || phase.step === 'cash' || phase.step === 'scan'
+  return phase.step === 'order' || isTrayStep(phase)
 }
 
 function App() {
@@ -77,6 +88,8 @@ function App() {
   // 버튼 연타·스캔 콜백이 겹쳐도 요청은 하나만 나간다(상태 갱신 전에 막아야 해서 ref로 둔다)
   const sendingRef = useRef(false)
   const scanEntry = useRef(0)
+  // 화면을 먼저 바꾸고 기록만 걷어 낼 때(history.back) 따라오는 popstate는 사용자의 뒤로 가기가 아니다
+  const ignoreNextPop = useRef(false)
 
   const store = storeId ? STORES[storeId] : null
 
@@ -89,9 +102,20 @@ function App() {
     setStoreId(id)
     setPlanInput(EMPTY_PLAN)
     setPhase({ step: 'order' })
-    // 뒤로 가기가 POS 페이지를 떠나지 않고 매장 선택으로 돌아오게 기록을 하나 쌓는다
-    if (isStoreEntry(history.state)) history.replaceState(STORE_ENTRY, '')
+    if (entryOf(history.state) === 'store') history.replaceState(STORE_ENTRY, '')
     else history.pushState(STORE_ENTRY, '')
+  }
+
+  /** 기록을 n개 걷어 낸다. 화면은 이미 바꿨으므로 따라오는 popstate는 무시한다 */
+  const dropEntries = (count: number) => {
+    if (count <= 0) return
+    ignoreNextPop.current = true
+    history.go(-count)
+  }
+
+  /** 트레이·결제 화면에서 주문 화면으로 돌아갈 때 트레이 기록을 걷어 낸다 */
+  const dropTrayEntry = () => {
+    if (entryOf(history.state) === 'tray') dropEntries(1)
   }
 
   /** 매장 선택으로 돌아간다. 다시 들어왔을 때 고르던 상품이 남지 않게 장바구니도 비운다 */
@@ -102,21 +126,37 @@ function App() {
     setPhase({ step: 'home' })
   }
 
-  /** 뒤로 가기가 아닌 길(매장 변경 버튼 등)로 나갈 때. 매장에 들어올 때 쌓은 기록도 걷어 낸다 */
+  /** 뒤로 가기가 아닌 길(매장 변경 버튼 등)로 나갈 때. 매장·트레이에서 쌓은 기록도 걷어 낸다 */
   const leaveStoreWithHistory = () => {
     leaveStore()
-    if (isStoreEntry(history.state)) history.back()
+    const entry = entryOf(history.state)
+    dropEntries(entry === 'tray' ? 2 : entry === 'store' ? 1 : 0)
   }
 
   /**
-   * 브라우저·태블릿 뒤로 가기. 결제를 보내기 전이면 매장 선택으로 나가며 장바구니를 비운다.
-   * 결제를 보낸 뒤(요청 중·결과 불명·승인 대기·영수증·현금 완료·오류)에는 기록을 다시 쌓아 화면을 지킨다.
-   * 그 화면들은 '다음 주문'·'새 주문'으로만 넘어가고, 승인 대기 확인이 중간에 끊기지 않는다.
+   * 브라우저·태블릿 뒤로 가기.
+   * - 트레이(결제수단·현금·QR)가 열려 있으면 트레이만 닫고 주문 화면으로 돌아간다. 장바구니는 그대로 둔다.
+   * - 주문 화면이면 매장 선택으로 나가며 장바구니를 비운다.
+   * - 결제를 보낸 뒤(요청 중·결과 불명·승인 대기·영수증·현금 완료·오류)에는 걷힌 기록을 다시 쌓아 화면을 지킨다.
+   *   그 화면들은 '다음 주문'·'새 주문'으로만 넘어가고, 승인 대기 확인이 중간에 끊기지 않는다.
    */
   const onHistoryBack = useEffectEvent(() => {
+    if (ignoreNextPop.current) {
+      ignoreNextPop.current = false
+      return
+    }
     if (!storeId) return
-    if (isBeforePayment(phase) && !sendingRef.current) leaveStore()
-    else history.pushState(STORE_ENTRY, '')
+    const landed = entryOf(history.state)
+    if (sendingRef.current || !isBeforePayment(phase)) {
+      history.pushState(landed === 'store' ? TRAY_ENTRY : STORE_ENTRY, '')
+    } else if (isTrayStep(phase)) {
+      setPhase({ step: 'order' })
+      if (landed !== 'store') history.pushState(STORE_ENTRY, '')
+    } else {
+      leaveStore()
+      // 걷히지 않은 매장 기록이 남아 있으면 마저 걷어 다음 뒤로 가기가 헛돌지 않게 한다
+      if (landed === 'store') dropEntries(1)
+    }
   })
 
   /** 다른 페이지로 갔다가 돌아와 브라우저가 이 화면을 그대로 되살렸을 때(bfcache)도 결제 전이면 비운다 */
@@ -142,6 +182,13 @@ function App() {
     updateCart(() => ({}))
     setPlanInput(EMPTY_PLAN)
     setPhase({ step: 'order' })
+    dropTrayEntry()
+  }
+
+  /** 트레이 닫기 버튼. 장바구니는 그대로 두고 주문 화면으로 돌아간다 */
+  const closeTray = () => {
+    setPhase({ step: 'order' })
+    dropTrayEntry()
   }
 
   const checkout = () => {
@@ -151,6 +198,9 @@ function App() {
     // 주문을 줄여 할부 최소 금액 아래로 내려가면 고르던 할부를 일시불로 되돌린다
     if (order.total < MIN_INSTALLMENT_AMOUNT) setPlanInput(EMPTY_PLAN)
     setPhase({ step: 'method', order, errors: {}, notice: null })
+    // 뒤로 가기가 트레이만 닫게 기록을 하나 더 쌓는다
+    if (entryOf(history.state) === 'tray') history.replaceState(TRAY_ENTRY, '')
+    else history.pushState(TRAY_ENTRY, '')
   }
 
   /**
@@ -333,7 +383,7 @@ function App() {
               key="tray"
               title={TRAY_META[phase.step].title}
               width={TRAY_META[phase.step].width}
-              onClose={phase.step === 'method' ? () => setPhase({ step: 'order' }) : undefined}
+              onClose={phase.step === 'method' ? closeTray : undefined}
               onBack={
                 phase.step === 'method'
                   ? undefined
