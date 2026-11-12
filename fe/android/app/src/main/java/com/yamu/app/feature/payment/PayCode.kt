@@ -117,10 +117,14 @@ import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 /**
- * 보낸 승인이 서버에서 어떻게 됐는지 모르는 실패 — 응답이 끊김 · 읽지 못함(isOutcomeUnknown) · 같은 키가 아직 처리 중(BE IDEMPOTENCY_IN_PROGRESS).
+ * 보낸 승인이 서버에서 어떻게 됐는지 모르는 실패 — 응답이 끊김 · 읽지 못함(isOutcomeUnknown) · 같은 키가 아직 처리 중(BE IDEMPOTENCY_IN_PROGRESS) ·
+ * 서버나 금융망 오류(5xx). BE 승인은 출금 실행 예외(502 FIN_API_UNAVAILABLE)와 출금 뒤 결과 저장 실패(500 INTERNAL_ERROR)에서
+ * 결제를 PROCESSING에 둔 채 답하므로 코드가 붙어 있어도 돈이 빠졌을 수 있다. 금융망에 보내기 전 실패도 같은 502라 가르지 않고 열어 둔다
+ * (같은 키로 다시 보내면 BE가 복구 결과 · 처음 응답 · 409로 답하거나, 시도가 지워졌으면 그때 처음 승인하므로 두 번 결제되지 않는다).
  * 이때는 '결제되지 않았다'고 말하지 않고 같은 키로 다시 확인한다(S15P31E103-433)
  */
-private fun ApiError.leavesOutcomeOpen(): Boolean = isOutcomeUnknown || code == "IDEMPOTENCY_IN_PROGRESS"
+private fun ApiError.leavesOutcomeOpen(): Boolean =
+    isOutcomeUnknown || code == "IDEMPOTENCY_IN_PROGRESS" || this is ApiError.Server || this is ApiError.BankUnavailable
 
 private const val OUTCOME_UNKNOWN = "결제됐는지 확인하지 못했어요"
 
@@ -440,7 +444,7 @@ class PayCodeViewModel @Inject constructor(
                     r is ApiResult.Failure && r.error.code == "PAYMENT_EXPIRED" ->
                         it.copy(checkingOutcome = false, outcomeUnknown = false, declined = null, requestExpired = true)
                     r is ApiResult.Failure && r.error.leavesOutcomeOpen() -> it.copy(checkingOutcome = false)
-                    // 서버가 다른 이유로 거절했다 — 결제되지 않았다
+                    // 서버가 다른 이유로 거절했다(5xx는 위에서 열어 둔다) — 결제되지 않았다
                     r is ApiResult.Failure -> it.copy(checkingOutcome = false, outcomeUnknown = false, declined = r.error.userMessage(), canRetry = false)
                     else -> it.copy(checkingOutcome = false)
                 }

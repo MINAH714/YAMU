@@ -202,6 +202,71 @@ class PayCodeViewModelTest {
         finish(vm)
     }
 
+    @Test fun `출금 뒤 저장 실패 500도 결과를 모르는 것으로 두고 같은 키로만 확인한다`() = runTest(dispatcher) {
+        payments.approveResult = ApiResult.Failure(ApiError.from(500, "INTERNAL_ERROR"))
+        val vm = toRequest()
+        vm.approve()
+        advanceTimeBy(APPROVE_MS + 1)
+        runCurrent()
+        val s = vm.state.value
+        assertTrue("BE는 출금 뒤 결과 저장에 실패하면 PROCESSING에 둔 채 500을 준다", s.outcomeUnknown)
+        assertEquals("결제됐는지 확인하지 못했어요", s.declined)
+        vm.selectCard(2)
+        assertEquals("다른 카드로 바꾸면 새 키라 두 번 결제될 수 있다", 1L, vm.state.value.selectedCardId)
+        payments.approveResult = null
+        vm.confirmOutcome()
+        advanceTimeBy(APPROVE_MS + 1)
+        runCurrent()
+        assertEquals(PAYMENT_ID, vm.state.value.paidId)
+        assertEquals(payments.keys[0], payments.keys[1])
+        finish(vm)
+    }
+
+    @Test fun `금융망 502면 마감이 지나도 결제되지 않았다고 하지 않는다`() = runTest(dispatcher) {
+        payments.request = request(OffsetDateTime.now().plusSeconds(1))
+        payments.approveResult = ApiResult.Failure(ApiError.from(502, "FIN_API_UNAVAILABLE"))
+        val vm = toRequest()
+        vm.approve()
+        advanceTimeBy(APPROVE_MS + 1)
+        runCurrent()
+        assertTrue("BE는 출금 실행 예외에서 PROCESSING에 둔 채 502를 준다", vm.state.value.outcomeUnknown)
+        Thread.sleep(1_100)          // 마감은 서버 시각(실제 시계) 기준
+        advanceTimeBy(1_000)         // 1초 시계가 마감을 보고 같은 키로 한 번 확인한다
+        runCurrent()
+        advanceTimeBy(APPROVE_MS + 1)
+        runCurrent()
+        val s = vm.state.value
+        assertEquals(2, payments.approves)
+        assertEquals(payments.keys[0], payments.keys[1])
+        assertTrue(s.requestExpired)
+        assertTrue("확인도 502면 여전히 모른다", s.outcomeUnknown)
+        finish(vm)
+    }
+
+    @Test fun `끊긴 뒤 확인에서 500 · 502가 와도 상태와 키를 지우지 않는다`() = runTest(dispatcher) {
+        payments.approveResult = ApiResult.Failure(ApiError.Network)
+        val vm = toRequest()
+        vm.approve()
+        advanceTimeBy(APPROVE_MS + 1)
+        runCurrent()
+        for (e in listOf(ApiError.from(500, "INTERNAL_ERROR"), ApiError.from(502, "FIN_API_UNAVAILABLE"))) {
+            payments.approveResult = ApiResult.Failure(e)
+            vm.confirmOutcome()
+            advanceTimeBy(APPROVE_MS + 1)
+            runCurrent()
+            assertTrue("$e 뒤에도 결과를 모른다", vm.state.value.outcomeUnknown)
+            assertFalse(vm.state.value.checkingOutcome)
+        }
+        payments.approveResult = null
+        vm.confirmOutcome()
+        advanceTimeBy(APPROVE_MS + 1)
+        runCurrent()
+        assertEquals(4, payments.approves)
+        assertEquals(1, payments.keys.toSet().size)
+        assertEquals(PAYMENT_ID, vm.state.value.paidId)
+        finish(vm)
+    }
+
     @Test fun `결과 확인에서 처음 승인이 돌아오면 결제 완료로`() = runTest(dispatcher) {
         payments.approveResult = ApiResult.Failure(ApiError.Network)
         val vm = toRequest()
