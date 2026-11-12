@@ -96,6 +96,8 @@ data class MonthlySpend(
     val categories: List<CategoryShare>,
     val benefit: Long?,
     val paymentCount: Int?,
+    /** 끝난 달이면 비교한 앞 달(10월을 보면 9) — 서버가 앞 달 전체와 비교한다. 이번 달이면 null('지난달 같은 기간') */
+    val prevMonth: Int? = null,
 )
 
 data class MissedBenefit(val merchant: String, val date: LocalDate?, val reason: String, val amount: Long)
@@ -158,10 +160,12 @@ fun MonthlyReportDto.toSpend(paymentCount: Int?): MonthlySpend {
         categories = byCategory.sortedByDescending { it.amount }.take(3).map { CategoryShare(it.categoryName, it.ratio?.roundToInt(), it.amount) },
         benefit = benefitSummary?.let { it.expected ?: it.actual },
         paymentCount = paymentCount,
+        prevMonth = if (isPartialMonth) null else yearMonth?.let { runCatching { YearMonth.parse(it).minusMonths(1).monthValue }.getOrNull() },
     )
 }
 
-fun BenefitReportDto.toReport(): BenefitReport {
+/** 이번 달이면 '11월 1~12일', 지난 달이면 '10월' — 지난 달의 PARTIAL은 '확정 전'이라는 뜻이라 기간을 붙이지 않는다 */
+fun BenefitReportDto.toReport(today: LocalDate = LocalDate.now(KST)): BenefitReport {
     val missed = differences.filter { it.expectedAmount > it.actualAmount }.map {
         MissedBenefit(
             merchant = it.merchantName,
@@ -170,8 +174,10 @@ fun BenefitReportDto.toReport(): BenefitReport {
             amount = it.expectedAmount - it.actualAmount,
         )
     }
+    val month = yearMonth?.let { runCatching { YearMonth.parse(it) }.getOrNull() }
+    val partial = status.equals("PARTIAL", ignoreCase = true) && (month == null || month == YearMonth.from(today))
     return BenefitReport(
-        periodLabel = periodLabel(yearMonth, status.equals("PARTIAL", ignoreCase = true)),
+        periodLabel = periodLabel(yearMonth, partial, today = today),
         received = summary.expectedBenefit.takeIf { it > 0 } ?: summary.confirmedBenefit,
         yamuExtra = summary.yamuPickExtra?.takeIf { it > 0 },
         missedTotal = summary.missedBenefit ?: missed.sumOf { it.amount },
@@ -213,11 +219,14 @@ fun PaymentsPageDto.toPage() = PaymentsPage(
     hasNext = hasNext,
 )
 
-/** 지난달 같은 기간과 비교 — 서버 두 값의 차를 문장으로 */
-fun spendDiffSentence(diff: Long): String = when {
-    diff > 0 -> "지난달 같은 기간보다 ${diff.toWon()}원 더 썼어요"
-    diff < 0 -> "지난달 같은 기간보다 ${(-diff).toWon()}원 덜 썼어요"
-    else -> "지난달 같은 기간과 같아요"
+/** 앞 달과 비교 — 서버 두 값의 차를 문장으로. 이번 달은 '지난달 같은 기간', 끝난 달은 '9월'([prevMonth]) */
+fun spendDiffSentence(diff: Long, prevMonth: Int? = null): String {
+    val base = prevMonth?.let { "${it}월" } ?: "지난달 같은 기간"
+    return when {
+        diff > 0 -> "${base}보다 ${diff.toWon()}원 더 썼어요"
+        diff < 0 -> "${base}보다 ${(-diff).toWon()}원 덜 썼어요"
+        else -> "${base}과 같아요"
+    }
 }
 
 /** 결제 내역 날짜 머리 — '10월 16일 (금)', 오늘이면 '10월 16일 (금, 오늘)'(가운데 점 대신 괄호, 11/10 QA) */

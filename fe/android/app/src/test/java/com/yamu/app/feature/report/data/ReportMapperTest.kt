@@ -51,6 +51,28 @@ class ReportMapperTest {
         assertEquals("지난달 같은 기간과 같아요", spendDiffSentence(0))
     }
 
+    @Test fun `끝난 달 — 기간 없이 '10월', 비교는 앞 달 전체라 '9월보다'`() {
+        val past = YamuJson.decodeFromString(
+            MonthlyReportDto.serializer(),
+            """{"yearMonth":"2026-10","isPartialMonth":false,"totalSpent":900000,"livingSpent":800000,"prevSamePeriodSpent":850000,"periodTo":"2026-10-31"}""",
+        ).toSpend(paymentCount = 40)
+        assertEquals("10월", past.periodLabel)
+        assertEquals(9, past.prevMonth)
+        assertEquals("9월보다 50,000원 덜 썼어요", spendDiffSentence(past.diffFromPrev!!, past.prevMonth))
+        assertEquals("12월과 같아요", spendDiffSentence(0, 12))   // 1월을 보면 앞 달은 작년 12월
+        val january = YamuJson.decodeFromString(MonthlyReportDto.serializer(), """{"yearMonth":"2026-01","isPartialMonth":false}""").toSpend(null)
+        assertEquals(12, january.prevMonth)
+        val now = YamuJson.decodeFromString(MonthlyReportDto.serializer(), """{"yearMonth":"2026-10","isPartialMonth":true}""").toSpend(null)
+        assertNull(now.prevMonth)   // 이번 달은 '지난달 같은 기간'
+    }
+
+    @Test fun `혜택 리포트 기간 — 이번 달 PARTIAL은 오늘까지, 지난 달은 확정 전(PARTIAL)이어도 '9월'`() {
+        fun label(json: String) = YamuJson.decodeFromString(BenefitReportDto.serializer(), json).toReport(today).periodLabel
+        assertEquals("10월 1~27일", label("""{"yearMonth":"2026-10","status":"PARTIAL"}"""))
+        assertEquals("9월", label("""{"yearMonth":"2026-09","status":"PARTIAL"}"""))
+        assertEquals("9월", label("""{"yearMonth":"2026-09","status":"CONFIRMED"}"""))
+    }
+
     @Test fun `혜택 리포트 — 놓친 혜택은 예상보다 적게 받은 줄만, 합은 서버 값이 먼저`() {
         val dto = YamuJson.decodeFromString(
             BenefitReportDto.serializer(),

@@ -62,7 +62,6 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import com.yamu.app.core.designsystem.component.AmountText
 import com.yamu.app.core.designsystem.component.BottomCta
-import com.yamu.app.core.designsystem.component.EmptyState
 import com.yamu.app.core.designsystem.component.ErrorState
 import com.yamu.app.core.designsystem.component.FlowScreen
 import com.yamu.app.core.designsystem.component.ListRow
@@ -74,7 +73,6 @@ import com.yamu.app.core.designsystem.component.TabScreen
 import com.yamu.app.core.designsystem.component.YamuCard
 import com.yamu.app.core.designsystem.theme.YamuSpacing
 import com.yamu.app.core.designsystem.theme.YamuTheme
-import com.yamu.app.core.format.KST
 import com.yamu.app.core.format.toMonthDay
 import com.yamu.app.core.format.toWon
 import com.yamu.app.core.network.ApiResult
@@ -85,12 +83,17 @@ import com.yamu.app.feature.report.data.CategoryShare
 import com.yamu.app.feature.report.data.MissedBenefit
 import com.yamu.app.feature.report.data.MonthlySpend
 import com.yamu.app.feature.report.data.PaymentItem
+import com.yamu.app.feature.report.data.ReportMonth
 import com.yamu.app.feature.report.data.ReportRepository
+import com.yamu.app.feature.report.data.ShownMonth
+import com.yamu.app.feature.report.data.monthTitle
 import com.yamu.app.feature.report.data.mergePayments
 import com.yamu.app.feature.report.data.paymentDayLabel
 import com.yamu.app.feature.report.data.periodLabel
 import com.yamu.app.feature.report.data.spendDiffSentence
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -101,22 +104,42 @@ import javax.inject.Inject
 
 // ───────────────────────── S-01 소비분석(탭) ─────────────────────────
 
-data class ReportState(val loading: Boolean = true, val spend: MonthlySpend? = null, val error: String? = null)
+data class ReportState(val shown: ShownMonth, val loading: Boolean = true, val spend: MonthlySpend? = null, val error: String? = null)
 
-/** 탭에 돌아올 때마다 새로 받는다(방금 한 결제가 바로 보이게) — 실패하면 마지막 값을 그대로 */
+/**
+ * 탭에 돌아올 때마다 새로 받는다(방금 한 결제가 바로 보이게) — 같은 달이 실패하면 마지막 값을 그대로.
+ * 달은 [ReportMonth]에서 읽어 S-04 · S-05에서 바꾼 달도 돌아오면 이어 본다.
+ * 달을 빠르게 넘기면 앞 요청을 취소하고, 그래도 늦게 온 응답은 지금 보이는 달과 다르면 버린다.
+ */
 @HiltViewModel
-class ReportViewModel @Inject constructor(private val repo: ReportRepository) : ViewModel() {
-    private val _state = MutableStateFlow(ReportState())
+class ReportViewModel @Inject constructor(private val repo: ReportRepository, private val months: ReportMonth) : ViewModel() {
+    init { months.reset() }   // 새로 만들어질 때(로그인 · 앱 새로 켜기)는 이번 달부터 — 앞사람이 고른 달이 남지 않게
+
+    private val _state = MutableStateFlow(ReportState(months.current()))
     val state: StateFlow<ReportState> = _state.asStateFlow()
+    private var job: Job? = null
 
     fun refresh() {
-        viewModelScope.launch {
-            _state.update { it.copy(loading = it.spend == null, error = null) }
-            when (val r = repo.monthly()) {
-                is ApiResult.Success -> _state.update { ReportState(loading = false, spend = r.data) }
+        val shown = months.current()
+        job?.cancel()
+        _state.update {
+            if (it.shown.month == shown.month) it.copy(shown = shown, loading = it.spend == null, error = null)
+            else ReportState(shown)   // 다른 달 숫자를 새 달 머리 아래 두지 않는다
+        }
+        job = viewModelScope.launch {
+            val r = repo.monthly(shown.month)
+            ensureActive()
+            if (_state.value.shown.month != shown.month) return@launch
+            when (r) {
+                is ApiResult.Success -> _state.update { ReportState(shown, loading = false, spend = r.data) }
                 is ApiResult.Failure -> _state.update { it.copy(loading = false, error = r.error.userMessage()) }
             }
         }
+    }
+
+    fun select(month: YearMonth) {
+        months.select(month)
+        refresh()
     }
 }
 
@@ -124,7 +147,6 @@ class ReportViewModel @Inject constructor(private val repo: ReportRepository) : 
 fun ReportRoute(
     onBenefits: () -> Unit,
     onPayments: () -> Unit,
-    onPay: () -> Unit,
     viewModel: ReportViewModel = hiltViewModel(),
 ) {
     val s by viewModel.state.collectAsStateWithLifecycle()
@@ -134,50 +156,53 @@ fun ReportRoute(
     }
     val c = YamuTheme.colors
     TabScreen(title = "소비분석") { inner ->
-        Column(Modifier.padding(inner).consumeWindowInsets(inner).fillMaxSize().verticalScroll(rememberScrollState())) {
-            val sp = s.spend
-            when {
-                sp == null && s.loading -> YamuCard {
-                    SkeletonBlock(height = 20.dp, widthFraction = 0.5f)
-                    Spacer(Modifier.height(YamuSpacing.x2))
-                    SkeletonBlock(height = 38.dp, widthFraction = 0.6f)
-                    Spacer(Modifier.height(YamuSpacing.x5))
-                    repeat(3) { SkeletonBlock(height = 40.dp); Spacer(Modifier.height(YamuSpacing.x2)) }
-                }
-                sp == null -> YamuCard { ErrorState(s.error ?: "소비분석을 불러오지 못했어요", onRetry = viewModel::refresh) }
-                sp.paymentCount == 0 || (sp.spent == 0L && sp.categories.isEmpty()) ->
-                    YamuCard { EmptyState("이번 달 결제가 아직 없어요", actionText = "QR로 결제하기", onAction = onPay) }
-                else -> {
-                    YamuCard {
-                        Text("${sp.periodLabel} ${if (sp.isLiving) "생활 소비" else "카드 결제"}", style = YamuTheme.typography.bodyM, color = c.text2)
-                        Spacer(Modifier.height(4.dp))
-                        AmountText(sp.spent)
-                        sp.diffFromPrev?.let {
-                            Spacer(Modifier.height(4.dp))
-                            Text(boldAmount(spendDiffSentence(it)), style = YamuTheme.typography.bodyM, color = c.text2)
-                        }
-                        s.error?.let { Text("$it · 마지막 값을 보여 드려요", style = YamuTheme.typography.bodyS, color = c.warning) }
+        Column(Modifier.padding(inner).consumeWindowInsets(inner).fillMaxSize()) {
+            MonthSwitcher(s.shown, onSelect = viewModel::select)
+            Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
+                val sp = s.spend
+                when {
+                    sp == null && s.loading -> YamuCard {
+                        SkeletonBlock(height = 20.dp, widthFraction = 0.5f)
+                        Spacer(Modifier.height(YamuSpacing.x2))
+                        SkeletonBlock(height = 38.dp, widthFraction = 0.6f)
+                        Spacer(Modifier.height(YamuSpacing.x5))
+                        repeat(3) { SkeletonBlock(height = 40.dp); Spacer(Modifier.height(YamuSpacing.x2)) }
                     }
-                    if (sp.categories.isNotEmpty()) {
+                    sp == null -> YamuCard { ErrorState(s.error ?: "소비분석을 불러오지 못했어요", onRetry = viewModel::refresh) }
+                    sp.paymentCount == 0 || (sp.spent == 0L && sp.categories.isEmpty()) ->
+                        YamuCard { MonthEmpty(s.shown, onSelect = viewModel::select) }
+                    else -> {
                         YamuCard {
-                            Text("많이 쓴 곳", style = YamuTheme.typography.cardTitle, color = c.text1)
-                            Spacer(Modifier.height(YamuSpacing.x3))
-                            ShareBar(sp.categories, total = sp.spent)
-                            Spacer(Modifier.height(YamuSpacing.x2))
-                            sp.categories.forEachIndexed { i, cat -> CategoryRow(cat, chartColor(i)) }
+                            Text("${sp.periodLabel} ${if (sp.isLiving) "생활 소비" else "카드 결제"}", style = YamuTheme.typography.bodyM, color = c.text2)
+                            Spacer(Modifier.height(4.dp))
+                            AmountText(sp.spent)
+                            sp.diffFromPrev?.let {
+                                Spacer(Modifier.height(4.dp))
+                                Text(boldAmount(spendDiffSentence(it, sp.prevMonth)), style = YamuTheme.typography.bodyM, color = c.text2)
+                            }
+                            s.error?.let { Text("$it · 마지막 값을 보여 드려요", style = YamuTheme.typography.bodyS, color = c.warning) }
                         }
-                    }
-                    YamuCard(contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 4.dp)) {   // 링크 카드는 .card.tight(16)
-                        sp.benefit?.let {
-                            ListRow(
-                                title = sp.month?.let { m -> "${m}월에 받은 혜택" } ?: "이번 달 받은 혜택",
-                                value = "${it.toWon()}원",
-                                valueColor = c.primary,
-                                chevron = true,
-                                onClick = onBenefits,
-                            )
+                        if (sp.categories.isNotEmpty()) {
+                            YamuCard {
+                                Text("많이 쓴 곳", style = YamuTheme.typography.cardTitle, color = c.text1)
+                                Spacer(Modifier.height(YamuSpacing.x3))
+                                ShareBar(sp.categories, total = sp.spent)
+                                Spacer(Modifier.height(YamuSpacing.x2))
+                                sp.categories.forEachIndexed { i, cat -> CategoryRow(cat, chartColor(i)) }
+                            }
                         }
-                        ListRow(title = "결제 내역", value = sp.paymentCount?.let { "${it}건" }, chevron = true, onClick = onPayments)
+                        YamuCard(contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 4.dp)) {   // 링크 카드는 .card.tight(16)
+                            sp.benefit?.let {
+                                ListRow(
+                                    title = sp.month?.let { m -> "${m}월에 받은 혜택" } ?: "이번 달 받은 혜택",
+                                    value = "${it.toWon()}원",
+                                    valueColor = c.primary,
+                                    chevron = true,
+                                    onClick = onBenefits,
+                                )
+                            }
+                            ListRow(title = "결제 내역", value = sp.paymentCount?.let { "${it}건" }, chevron = true, onClick = onPayments)
+                        }
                     }
                 }
             }
@@ -238,23 +263,42 @@ private fun CategoryRow(cat: CategoryShare, color: Color) {
 
 // ───────────────────────── S-04 혜택 리포트 ─────────────────────────
 
-data class BenefitReportState(val loading: Boolean = true, val report: BenefitReport? = null, val error: String? = null)
+data class BenefitReportState(val shown: ShownMonth, val loading: Boolean = true, val report: BenefitReport? = null, val error: String? = null)
 
+/** S-01에서 고른 달로 연다. 결제 내역(S-05)에서 달을 바꾸고 돌아오면 그 달로 다시 받는다([resume]) */
 @HiltViewModel
-class BenefitReportViewModel @Inject constructor(private val repo: ReportRepository) : ViewModel() {
-    private val _state = MutableStateFlow(BenefitReportState())
+class BenefitReportViewModel @Inject constructor(private val repo: ReportRepository, private val months: ReportMonth) : ViewModel() {
+    private val _state = MutableStateFlow(BenefitReportState(months.current()))
     val state: StateFlow<BenefitReportState> = _state.asStateFlow()
+    private var job: Job? = null
 
     init { load() }
 
+    fun resume() {
+        if (months.current().month != _state.value.shown.month) load()
+    }
+
     fun load() {
-        viewModelScope.launch {
-            _state.update { it.copy(loading = true, error = null) }
-            when (val r = repo.benefits()) {
-                is ApiResult.Success -> _state.update { BenefitReportState(loading = false, report = r.data) }
+        val shown = months.current()
+        job?.cancel()
+        _state.update {
+            if (it.shown.month == shown.month) it.copy(shown = shown, loading = true, error = null)
+            else BenefitReportState(shown)
+        }
+        job = viewModelScope.launch {
+            val r = repo.benefits(shown.month)
+            ensureActive()
+            if (_state.value.shown.month != shown.month) return@launch   // 그사이 달을 넘겼으면 버린다
+            when (r) {
+                is ApiResult.Success -> _state.update { BenefitReportState(shown, loading = false, report = r.data) }
                 is ApiResult.Failure -> _state.update { it.copy(loading = false, error = r.error.userMessage()) }
             }
         }
+    }
+
+    fun select(month: YearMonth) {
+        months.select(month)
+        load()
     }
 }
 
@@ -262,10 +306,13 @@ class BenefitReportViewModel @Inject constructor(private val repo: ReportReposit
 fun BenefitReportRoute(
     onBack: () -> Unit,
     onPayments: () -> Unit,
-    onPay: () -> Unit,
     viewModel: BenefitReportViewModel = hiltViewModel(),
 ) {
     val s by viewModel.state.collectAsStateWithLifecycle()
+    LifecycleResumeEffect(Unit) {
+        viewModel.resume()
+        onPauseOrDispose { }
+    }
     val c = YamuTheme.colors
     val r = s.report
     val empty = r != null && r.received == 0L && r.missed.isEmpty() && r.byPlace.isEmpty()
@@ -276,56 +323,59 @@ fun BenefitReportRoute(
         bottomBar = { if (r != null && !empty) BottomCta { PrimaryButton("결제 내역 보기", onClick = onPayments) } },
     ) { inner ->
         // 회색 바탕 위 카드 3개: 받은 혜택 · 놓친 혜택 · 어디서 받았나요 — 프로토타입 S-04
-        Column(Modifier.padding(inner).consumeWindowInsets(inner).fillMaxSize().verticalScroll(rememberScrollState())) {
-            when {
-                r == null && s.loading -> {
-                    YamuCard {
-                        SkeletonBlock(height = 20.dp, widthFraction = 0.5f)
-                        Spacer(Modifier.height(YamuSpacing.x2))
-                        SkeletonBlock(height = 38.dp, widthFraction = 0.6f)
+        Column(Modifier.padding(inner).consumeWindowInsets(inner).fillMaxSize()) {
+            MonthSwitcher(s.shown, onSelect = viewModel::select)
+            Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
+                when {
+                    r == null && s.loading -> {
+                        YamuCard {
+                            SkeletonBlock(height = 20.dp, widthFraction = 0.5f)
+                            Spacer(Modifier.height(YamuSpacing.x2))
+                            SkeletonBlock(height = 38.dp, widthFraction = 0.6f)
+                        }
+                        YamuCard { repeat(3) { SkeletonBlock(height = 44.dp); Spacer(Modifier.height(YamuSpacing.x3)) } }
                     }
-                    YamuCard { repeat(3) { SkeletonBlock(height = 44.dp); Spacer(Modifier.height(YamuSpacing.x3)) } }
-                }
-                r == null -> YamuCard { ErrorState(s.error ?: "혜택 리포트를 불러오지 못했어요", onRetry = viewModel::load) }
-                empty -> YamuCard { EmptyState("이번 달 결제가 아직 없어요", actionText = "QR로 결제하기", onAction = onPay) }
-                else -> {
-                    YamuCard {
-                        Text("${r.periodLabel} 받은 혜택", style = YamuTheme.typography.bodyM, color = c.text2)
-                        Spacer(Modifier.height(4.dp))
-                        AmountText(r.received)
-                        r.yamuExtra?.let {
+                    r == null -> YamuCard { ErrorState(s.error ?: "혜택 리포트를 불러오지 못했어요", onRetry = viewModel::load) }
+                    empty -> YamuCard { MonthEmpty(s.shown, onSelect = viewModel::select, pastMessage = "${monthTitle(s.shown.month, s.shown.thisMonth)}에 받은 혜택이 없어요") }
+                    else -> {
+                        YamuCard {
+                            Text("${r.periodLabel} 받은 혜택", style = YamuTheme.typography.bodyM, color = c.text2)
                             Spacer(Modifier.height(4.dp))
-                            Text(
-                                buildAnnotatedString {
-                                    append("야무 추천으로 ")
-                                    withStyle(SpanStyle(color = c.primary, fontWeight = FontWeight.Bold)) { append("${it.toWon()}원 더") }
-                                    append(" 받았어요")
-                                },
-                                style = YamuTheme.typography.bodyM,
-                                color = c.text2,
-                            )
-                        }
-                    }
-                    if (r.missedTotal > 0) {
-                        YamuCard(contentPadding = PaddingValues(YamuSpacing.x4)) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text("놓친 혜택", style = YamuTheme.typography.cardTitle, color = c.text1, modifier = Modifier.weight(1f))
-                                Text("${r.missedTotal.toWon()}원", style = YamuTheme.typography.cardTitle, color = c.error)
+                            AmountText(r.received)
+                            r.yamuExtra?.let {
+                                Spacer(Modifier.height(4.dp))
+                                Text(
+                                    buildAnnotatedString {
+                                        append("야무 추천으로 ")
+                                        withStyle(SpanStyle(color = c.primary, fontWeight = FontWeight.Bold)) { append("${it.toWon()}원 더") }
+                                        append(" 받았어요")
+                                    },
+                                    style = YamuTheme.typography.bodyM,
+                                    color = c.text2,
+                                )
                             }
-                            Spacer(Modifier.height(YamuSpacing.x1))   // 머리 아래 4(프로토타입 S-04 .card-hd)
-                            r.missed.forEach { m -> MissedRow(m) }
                         }
-                    }
-                    if (r.byPlace.isNotEmpty()) {
-                        YamuCard(contentPadding = PaddingValues(YamuSpacing.x4)) {
-                            Text("어디서 받았나요", style = YamuTheme.typography.cardTitle, color = c.text1)
-                            Spacer(Modifier.height(YamuSpacing.x1))
-                            r.byPlace.forEach { (name, amount) -> ListRow(title = name, value = "${amount.toWon()}원", minHeight = 52.dp) }
+                        if (r.missedTotal > 0) {
+                            YamuCard(contentPadding = PaddingValues(YamuSpacing.x4)) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text("놓친 혜택", style = YamuTheme.typography.cardTitle, color = c.text1, modifier = Modifier.weight(1f))
+                                    Text("${r.missedTotal.toWon()}원", style = YamuTheme.typography.cardTitle, color = c.error)
+                                }
+                                Spacer(Modifier.height(YamuSpacing.x1))   // 머리 아래 4(프로토타입 S-04 .card-hd)
+                                r.missed.forEach { m -> MissedRow(m) }
+                            }
+                        }
+                        if (r.byPlace.isNotEmpty()) {
+                            YamuCard(contentPadding = PaddingValues(YamuSpacing.x4)) {
+                                Text("어디서 받았나요", style = YamuTheme.typography.cardTitle, color = c.text1)
+                                Spacer(Modifier.height(YamuSpacing.x1))
+                                r.byPlace.forEach { (name, amount) -> ListRow(title = name, value = "${amount.toWon()}원", minHeight = 52.dp) }
+                            }
                         }
                     }
                 }
+                Spacer(Modifier.height(YamuSpacing.x6))
             }
-            Spacer(Modifier.height(YamuSpacing.x6))
         }
     }
 }
@@ -347,8 +397,9 @@ private fun MissedRow(m: MissedBenefit) {
 // ───────────────────────── S-05 결제 내역 ─────────────────────────
 
 data class PaymentsState(
+    /** 보이는 달 — 목록 · 합계 · CSV가 모두 이 달이다 */
+    val shown: ShownMonth,
     val loading: Boolean = true,
-    val periodLabel: String = periodLabel(null, partial = true),
     val count: Int = 0,
     val amount: Long = 0,
     val items: List<PaymentItem> = emptyList(),
@@ -362,11 +413,16 @@ data class PaymentsState(
     val saveAs: String? = null,
     /** 스낵바 한 번 */
     val message: String? = null,
-)
+) {
+    /** '11월 1~12일'(이번 달) · '10월'(끝난 달) */
+    val periodLabel: String get() = periodLabel(shown.month.toString(), partial = shown.isThisMonth)
+}
 
 /**
  * 쪽마다 20건. 돌아올 때마다 첫 쪽을 다시 받아 맨 위에 합친다(이미 펼친 쪽은 그대로).
  * 그사이 결제를 취소했거나 메모를 바꿨으면([PaymentEdits.version]) 펼친 쪽을 버리고 첫 쪽부터 다시 — 뒤쪽 줄이 옛 상태로 남지 않게.
+ * 달([ReportMonth])이 바뀌면 쪽 번호 · 펼친 목록 · 합계를 비우고 그 달 첫 쪽부터. 앞 달 요청(첫 쪽 · 더 보기)은 취소하고,
+ * 그래도 늦게 온 응답은 지금 보이는 달과 다르면 버린다.
  */
 @HiltViewModel
 class PaymentsViewModel @Inject constructor(
@@ -374,17 +430,33 @@ class PaymentsViewModel @Inject constructor(
     private val repo: ReportRepository,
     private val edits: PaymentEdits,
     private val documents: CsvDocuments,
+    private val months: ReportMonth,
 ) : ViewModel() {
-    private val _state = MutableStateFlow(PaymentsState())
+    private val _state = MutableStateFlow(PaymentsState(months.current()))
     val state: StateFlow<PaymentsState> = _state.asStateFlow()
     private var seenVersion = edits.version.value
+    private var job: Job? = null
+    private var moreJob: Job? = null
 
     fun refresh() {
-        viewModelScope.launch {
-            val version = edits.version.value
-            val reset = version != seenVersion
-            _state.update { it.copy(loading = it.items.isEmpty(), error = null) }
-            when (val r = repo.payments(page = 1)) {
+        val shown = months.current()
+        val version = edits.version.value
+        val monthChanged = shown.month != _state.value.shown.month
+        val reset = monthChanged || version != seenVersion
+        job?.cancel()
+        if (monthChanged) {
+            moreJob?.cancel()
+            _state.update {
+                it.copy(shown = shown, loading = true, count = 0, amount = 0, items = emptyList(), page = 0, hasNext = false, loadingMore = false, moreError = null, error = null)
+            }
+        } else {
+            _state.update { it.copy(shown = shown, loading = it.items.isEmpty(), error = null) }
+        }
+        job = viewModelScope.launch {
+            val r = repo.payments(page = 1, month = shown.month)
+            ensureActive()
+            if (_state.value.shown.month != shown.month) return@launch
+            when (r) {
                 is ApiResult.Success -> {
                     seenVersion = version
                     _state.update {
@@ -407,15 +479,20 @@ class PaymentsViewModel @Inject constructor(
         }
     }
 
+    fun select(month: YearMonth) {
+        months.select(month)
+        refresh()
+    }
+
     /**
      * '이 조건으로 CSV 저장' — 저장 창을 먼저 띄우고 고른 뒤에 서버에서 받는다.
      * 창을 닫으면 받지 않아 분당 3번 한도를 쓰지 않고, 창이 열린 사이 앱이 정리돼도 돌아와서 이어 받는다.
-     * 이름은 이번 달 파일 이름(서버가 붙이는 이름과 같다). 그 달을 [SavedStateHandle]에 두었다가 받을 때 넘긴다 —
-     * 말일 자정 무렵 창을 띄우고 다음 달에 골라도 이름과 내용의 달이 같게(앱이 정리됐다 돌아와도)
+     * 이름은 화면에 보이는 달의 파일 이름(서버가 붙이는 이름과 같다). 그 달을 [SavedStateHandle]에 두었다가 받을 때 넘긴다 —
+     * 창이 열린 사이 달을 넘기거나 말일 자정이 지나도 이름과 내용의 달이 같게(앱이 정리됐다 돌아와도)
      */
     fun requestCsv() {
         if (_state.value.exporting) return
-        val month = YearMonth.now(KST)
+        val month = _state.value.shown.month
         savedStateHandle[CSV_MONTH] = month.toString()
         _state.update { it.copy(saveAs = defaultCsvName(month)) }
     }
@@ -428,7 +505,7 @@ class PaymentsViewModel @Inject constructor(
      */
     fun saveCsvTo(uri: String?) {
         if (_state.value.exporting) return
-        val month = savedStateHandle.remove<String>(CSV_MONTH)?.let { runCatching { YearMonth.parse(it) }.getOrNull() } ?: YearMonth.now(KST)
+        val month = savedStateHandle.remove<String>(CSV_MONTH)?.let { runCatching { YearMonth.parse(it) }.getOrNull() } ?: _state.value.shown.month
         if (uri == null) return
         _state.update { it.copy(exporting = true) }
         viewModelScope.launch {
@@ -453,9 +530,13 @@ class PaymentsViewModel @Inject constructor(
     fun loadMore() {
         val s = _state.value
         if (s.loadingMore || !s.hasNext) return
-        viewModelScope.launch {
-            _state.update { it.copy(loadingMore = true, moreError = null) }
-            when (val r = repo.payments(page = s.page + 1)) {
+        val month = s.shown.month
+        _state.update { it.copy(loadingMore = true, moreError = null) }   // 연타 — 다음 호출은 위에서 막힌다
+        moreJob = viewModelScope.launch {
+            val r = repo.payments(page = s.page + 1, month = month)
+            ensureActive()
+            if (_state.value.shown.month != month) return@launch   // 앞 달 둘째 쪽을 새 달 목록에 붙이지 않는다
+            when (r) {
                 is ApiResult.Success -> _state.update {
                     it.copy(loadingMore = false, items = mergePayments(it.items, r.data.items), page = r.data.page, hasNext = r.data.hasNext)
                 }
@@ -475,7 +556,6 @@ class PaymentsViewModel @Inject constructor(
 fun PaymentsRoute(
     onBack: () -> Unit,
     onDetail: (paymentId: Long) -> Unit,
-    onPay: () -> Unit,
     viewModel: PaymentsViewModel = hiltViewModel(),
 ) {
     val s by viewModel.state.collectAsStateWithLifecycle()
@@ -510,49 +590,48 @@ fun PaymentsRoute(
             }
         },
     ) { inner ->
-        when {
-            s.items.isEmpty() && s.loading -> Column(Modifier.padding(inner).padding(top = YamuSpacing.x2)) {
-                YamuCard {
-                    SkeletonBlock(height = 20.dp, widthFraction = 0.6f)
-                    Spacer(Modifier.height(YamuSpacing.x2))
-                    SkeletonBlock(height = 38.dp, widthFraction = 0.5f)
-                }
-                YamuCard { repeat(6) { SkeletonBlock(height = 52.dp); Spacer(Modifier.height(YamuSpacing.x3)) } }
-            }
-            s.items.isEmpty() && s.error != null -> Column(Modifier.padding(inner).padding(top = YamuSpacing.x2)) {
-                YamuCard { ErrorState(s.error.orEmpty(), onRetry = viewModel::refresh) }
-            }
-            s.items.isEmpty() -> Column(Modifier.padding(inner).padding(top = YamuSpacing.x2)) {
-                YamuCard { EmptyState("이번 달 결제가 아직 없어요", actionText = "QR로 결제하기", onAction = onPay) }
-            }
-            else -> LazyColumn(Modifier.padding(inner).consumeWindowInsets(inner).fillMaxSize()) {
-                // 회색 바탕: 합계 카드 → 날짜 머리(회색) → 그날 결제(흰 줄 · 사이 선) — 프로토타입 S-05
-                item(key = "head") {
+        Column(Modifier.padding(inner).consumeWindowInsets(inner).fillMaxSize()) {
+            MonthSwitcher(s.shown, onSelect = viewModel::select)
+            when {
+                s.items.isEmpty() && s.loading -> Column {
                     YamuCard {
-                        Text("${s.periodLabel} 카드 결제 · ${s.count}건", style = YamuTheme.typography.bodyM, color = c.text2)
-                        Spacer(Modifier.height(4.dp))
-                        AmountText(s.amount)
+                        SkeletonBlock(height = 20.dp, widthFraction = 0.6f)
+                        Spacer(Modifier.height(YamuSpacing.x2))
+                        SkeletonBlock(height = 38.dp, widthFraction = 0.5f)
                     }
+                    YamuCard { repeat(6) { SkeletonBlock(height = 52.dp); Spacer(Modifier.height(YamuSpacing.x3)) } }
                 }
-                s.items.groupBy { it.date }.forEach { (date, rows) ->
-                    stickyHeader(key = "day-$date") { DayHeader(paymentDayLabel(date), rows.filter { !it.canceled }.sumOf { it.amount }) }
-                    itemsIndexed(rows, key = { _, p -> p.paymentId }) { i, p ->
-                        PaymentRow(p, divider = i > 0, onClick = { onDetail(p.paymentId) })
+                s.items.isEmpty() && s.error != null -> YamuCard { ErrorState(s.error.orEmpty(), onRetry = viewModel::refresh) }
+                s.items.isEmpty() -> YamuCard { MonthEmpty(s.shown, onSelect = viewModel::select) }
+                else -> LazyColumn(Modifier.weight(1f).fillMaxWidth()) {
+                    // 회색 바탕: 합계 카드 → 날짜 머리(회색) → 그날 결제(흰 줄 · 사이 선) — 프로토타입 S-05
+                    item(key = "head") {
+                        YamuCard {
+                            Text("${s.periodLabel} 카드 결제 · ${s.count}건", style = YamuTheme.typography.bodyM, color = c.text2)
+                            Spacer(Modifier.height(4.dp))
+                            AmountText(s.amount)
+                        }
                     }
-                }
-                item(key = "more") {
-                    Column(Modifier.padding(YamuSpacing.screen)) {
-                        if (s.hasNext) {
-                            // 작은 파란 글자 버튼, 가운데(프로토타입 S-05)
-                            Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                                LinkButton(if (s.loadingMore) "불러오는 중…" else "이전 결제 더 보기", onClick = { if (!s.loadingMore) viewModel.loadMore() })
+                    s.items.groupBy { it.date }.forEach { (date, rows) ->
+                        stickyHeader(key = "day-$date") { DayHeader(paymentDayLabel(date), rows.filter { !it.canceled }.sumOf { it.amount }) }
+                        itemsIndexed(rows, key = { _, p -> p.paymentId }) { i, p ->
+                            PaymentRow(p, divider = i > 0, onClick = { onDetail(p.paymentId) })
+                        }
+                    }
+                    item(key = "more") {
+                        Column(Modifier.padding(YamuSpacing.screen)) {
+                            if (s.hasNext) {
+                                // 작은 파란 글자 버튼, 가운데(프로토타입 S-05)
+                                Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                                    LinkButton(if (s.loadingMore) "불러오는 중…" else "이전 결제 더 보기", onClick = { if (!s.loadingMore) viewModel.loadMore() })
+                                }
                             }
+                            s.moreError?.let {
+                                Spacer(Modifier.height(YamuSpacing.x2))
+                                Text("$it · 다시 눌러 주세요", style = YamuTheme.typography.bodyS, color = c.error)
+                            }
+                            Spacer(Modifier.height(YamuSpacing.bottomSafe))
                         }
-                        s.moreError?.let {
-                            Spacer(Modifier.height(YamuSpacing.x2))
-                            Text("$it · 다시 눌러 주세요", style = YamuTheme.typography.bodyS, color = c.error)
-                        }
-                        Spacer(Modifier.height(YamuSpacing.bottomSafe))
                     }
                 }
             }
