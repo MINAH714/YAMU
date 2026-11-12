@@ -1,12 +1,14 @@
 package com.yamu.be.performance;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.tuple;
 
 import com.yamu.be.cashflow.CashflowItem;
 import com.yamu.be.cashflow.CashflowService;
 import com.yamu.be.performance.PerformanceAnalyzer.Movable;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
 
@@ -111,6 +113,92 @@ class ScheduledExpensesTest {
                 entry(item(1, 1L, null, "다", 10_000L, null), TODAY.plusDays(12), false)), CARD, true, POLICY, TODAY);
 
         assertThat(split.movable()).extracting(Movable::cashflowItemId).containsExactly(2L, 3L, 1L);
+    }
+
+    @Test
+    void 같은_항목의_회차_값이_같으면_순서와_상관없이_가장_이른_회차_날짜와_회차_합이다() {
+        CashflowService.Item weekly = item(1, 1L, null, "학원 셔틀", 10_000L, null);
+
+        ScheduledExpenses.Split split = ScheduledExpenses.split(List.of(
+                entry(weekly, TODAY.plusDays(14), false),
+                entry(weekly, TODAY.plusDays(7), false)), CARD, true, POLICY, TODAY);
+
+        assertThat(split.movable()).singleElement().satisfies(m -> {
+            assertThat(m.eligible()).isTrue();
+            assertThat(m.date()).isEqualTo(TODAY.plusDays(7));
+            assertThat(m.amount()).isEqualTo(20_000);
+        });
+    }
+
+    @Test
+    void 회차마다_업종을_다르게_고쳤으면_순서와_상관없이_옮길_수_없다() {
+        // 리뷰(2026-11-12): 첫 회차 업종으로 전체를 판정해 실적 제외 회차까지 더하거나, 순서에 따라 결과가 달랐다.
+        // 옮기기는 고친 회차를 규칙 값으로 덮으므로 회차별로 더한 값도 옮긴 뒤와 다르다 → 옮길 수 없음(B안)
+        CashflowService.Entry normal = entry(item(1, 1L, null, "주간 이동", 10_000L, "BUS"), TODAY.plusDays(7), false);
+        CashflowService.Entry taxi = entry(item(1, 1L, null, "주간 이동", 10_000L, "TAXI"), TODAY.plusDays(14), false);
+
+        for (List<CashflowService.Entry> order : List.of(List.of(normal, taxi), List.of(taxi, normal))) {
+            assertThat(ScheduledExpenses.split(order, CARD, true, POLICY, TODAY).movable()).singleElement()
+                    .satisfies(m -> {
+                        assertThat(m.eligible()).isFalse();
+                        assertThat(m.reason()).isEqualTo(ScheduledExpenses.REASON_EDITED);
+                        assertThat(m.date()).isEqualTo(TODAY.plusDays(7));
+                    });
+        }
+    }
+
+    @Test
+    void 회차마다_금액_제목_결제_수단이_다르면_옮길_수_없다() {
+        CashflowService.Entry base = entry(item(1, 1L, null, "통신비", 10_000L, null), TODAY.plusDays(7), false);
+        for (CashflowService.Item changed : List.of(
+                item(1, 1L, null, "통신비", 12_000L, null),
+                item(1, 1L, null, "통신비 11월", 10_000L, null),
+                item(1, 2L, null, "통신비", 10_000L, null),
+                item(1, null, OTHER_CARD, "통신비", 10_000L, null))) {
+            ScheduledExpenses.Split split = ScheduledExpenses.split(List.of(base, entry(changed, TODAY.plusDays(14),
+                    false)), CARD, true, POLICY, TODAY);
+
+            assertThat(split.movable()).singleElement()
+                    .satisfies(m -> assertThat(m.reason()).isEqualTo(ScheduledExpenses.REASON_EDITED));
+        }
+    }
+
+    @Test
+    void 결제와_연결된_회차가_있으면_옮길_수_없다() {
+        CashflowService.Item weekly = item(1, 1L, null, "학원 셔틀", 10_000L, null);
+        CashflowService.Item monthly = item(2, 1L, null, "통신비", 30_000L, null);
+
+        ScheduledExpenses.Split split = ScheduledExpenses.split(List.of(
+                // 연결한 결제가 취소돼 paid는 아니지만 연결은 남은 회차. 옮기기는 409로 거절한다
+                new CashflowService.Entry(weekly, TODAY.plusDays(7), TODAY.plusDays(7), false, true),
+                entry(weekly, TODAY.plusDays(14), false),
+                // 결제까지 된 회차는 세지 않지만 같은 항목의 다른 회차도 옮길 수 없다
+                entry(monthly, TODAY.plusDays(3), true),
+                entry(monthly, TODAY.plusDays(17), false)), CARD, true, POLICY, TODAY);
+
+        assertThat(split.movable()).hasSize(2).allSatisfy(m -> {
+            assertThat(m.eligible()).isFalse();
+            assertThat(m.reason()).isEqualTo(ScheduledExpenses.REASON_MATCHED);
+        });
+    }
+
+    @Test
+    void 이번_달_밖이나_뒤_규칙의_잠금도_따르고_정지_카드가_먼저다() {
+        List<CashflowService.Entry> entries = List.of(
+                entry(item(1, 1L, null, "통신비", 30_000L, null), TODAY.plusDays(7), false),
+                entry(item(2, 1L, null, "구독", 10_000L, null), TODAY.plusDays(7), false),
+                entry(item(3, 1L, null, "보험", 20_000L, null), TODAY.plusDays(7), false));
+        Map<Long, ScheduledExpenses.MoveLock> locks = Map.of(1L, ScheduledExpenses.MoveLock.EDITED,
+                2L, ScheduledExpenses.MoveLock.MATCHED);
+
+        assertThat(ScheduledExpenses.split(entries, CARD, true, POLICY, TODAY, locks).movable())
+                .extracting(Movable::cashflowItemId, Movable::eligible, Movable::reason)
+                .containsExactly(
+                        tuple(1L, false, ScheduledExpenses.REASON_EDITED),
+                        tuple(3L, true, null),
+                        tuple(2L, false, ScheduledExpenses.REASON_MATCHED));
+        assertThat(ScheduledExpenses.split(entries, CARD, false, POLICY, TODAY, locks).movable())
+                .extracting(Movable::reason).containsOnly("정지되었거나 만료된 카드로는 옮길 수 없어요");
     }
 
     @Test

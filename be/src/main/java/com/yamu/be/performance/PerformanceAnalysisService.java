@@ -52,12 +52,13 @@ public class PerformanceAnalysisService {
     private final PerformanceHistoryReader history;
     private final PerformancePolicyCatalog policies;
     private final CashflowService cashflow;
+    private final MoveLockReader moveLocks;
     private final PerformanceDecisionRepository decisions;
     private final Clock clock;
 
     PerformanceAnalysisService(UserCardRepository cards, CardProductRepository products, CardActivityReader activity,
             PerformanceTargets targets, PerformanceHistoryReader history, PerformancePolicyCatalog policies,
-            CashflowService cashflow, PerformanceDecisionRepository decisions, Clock clock) {
+            CashflowService cashflow, MoveLockReader moveLocks, PerformanceDecisionRepository decisions, Clock clock) {
         this.cards = cards;
         this.products = products;
         this.activity = activity;
@@ -65,6 +66,7 @@ public class PerformanceAnalysisService {
         this.history = history;
         this.policies = policies;
         this.cashflow = cashflow;
+        this.moveLocks = moveLocks;
         this.decisions = decisions;
         this.clock = clock;
     }
@@ -115,7 +117,7 @@ public class PerformanceAnalysisService {
      *
      * @param expenses {@link #scheduledExpenses}로 미리 읽은 이번 달 남은 예정 지출. 카드마다 다시 읽지 않게 받는다
      */
-    Optional<PerformanceGuide> guideFor(long userId, UserCard card, List<CashflowService.Entry> expenses) {
+    Optional<PerformanceGuide> guideFor(long userId, UserCard card, Expenses expenses) {
         try {
             return Optional.of(calculate(userId, card, Set.of(), expenses).result().guide());
         } catch (BusinessException e) {
@@ -126,11 +128,18 @@ public class PerformanceAnalysisService {
         }
     }
 
-    /** 오늘~말일 확인된 지출 예정(반복 펼침). 사용자의 모든 카드·계좌 것이다. */
-    List<CashflowService.Entry> scheduledExpenses(long userId) {
+    /** 오늘~말일 확인된 지출 예정(반복 펼침)과 옮기기 잠금. 사용자의 모든 카드·계좌 것이다. */
+    Expenses scheduledExpenses(long userId) {
         LocalDate today = today();
-        return cashflow.list(userId, today, YearMonth.from(today).atEndOfMonth(), CashflowItem.Direction.EXPENSE,
-                CashflowItem.Status.CONFIRMED, true);
+        List<CashflowService.Entry> entries = cashflow.list(userId, today, YearMonth.from(today).atEndOfMonth(),
+                CashflowItem.Direction.EXPENSE, CashflowItem.Status.CONFIRMED, true);
+        Set<Long> itemIds = new LinkedHashSet<>();
+        entries.forEach(e -> itemIds.add(e.item().id()));
+        return new Expenses(entries, moveLocks.locks(userId, itemIds, today));
+    }
+
+    /** 이번 달 남은 예정 지출 회차와 항목별 옮기기 잠금({@link MoveLockReader}). */
+    record Expenses(List<CashflowService.Entry> entries, Map<Long, ScheduledExpenses.MoveLock> locks) {
     }
 
     /** 응답의 판단 기록. 되돌린 기록(decision NULL)이면 null. */
@@ -152,7 +161,7 @@ public class PerformanceAnalysisService {
 
     /** @param expenses 미리 읽은 남은 예정 지출. null이면 여기서 읽는다 */
     private Calculation calculate(long userId, UserCard card, Set<Long> scenarioItemIds,
-            List<CashflowService.Entry> expenses) {
+            Expenses expenses) {
         LocalDate today = today();
         YearMonth month = YearMonth.from(today);
         CardProduct product = products.findById(card.getCardProductId())
@@ -172,9 +181,9 @@ public class PerformanceAnalysisService {
 
         Optional<PerformancePolicyCatalog.Policy> policy = policies.find(product.getIssuerCode(),
                 product.getProductName(), product.getCardType().name());
-        List<CashflowService.Entry> entries = expenses != null ? expenses : scheduledExpenses(userId);
-        ScheduledExpenses.Split split = ScheduledExpenses.split(entries, card.getId(),
-                card.getIssuerStatus() == CardIssuerStatus.NORMAL, policy, today);
+        Expenses read = expenses != null ? expenses : scheduledExpenses(userId);
+        ScheduledExpenses.Split split = ScheduledExpenses.split(read.entries(), card.getId(),
+                card.getIssuerStatus() == CardIssuerStatus.NORMAL, policy, today, read.locks());
         requireMovable(scenarioItemIds, split.movable());
 
         PerformanceAnalyzer.Result result = PerformanceAnalyzer.analyze(new PerformanceAnalyzer.Input(today, target,

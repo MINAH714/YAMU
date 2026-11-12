@@ -5,6 +5,7 @@ import static org.hamcrest.Matchers.contains;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.nullValue;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -77,6 +78,7 @@ class PerformanceAnalysisIntegrationTest extends MySqlTestSupport {
     @Autowired MockMvc mockMvc;
     @Autowired JdbcTemplate jdbc;
     @Autowired ObjectMapper json;
+    @Autowired MoveLockReader moveLocks;
 
     OwnershipFixtures fixtures;
     long owner;
@@ -299,6 +301,62 @@ class PerformanceAnalysisIntegrationTest extends MySqlTestSupport {
                 .andExpect(jsonPath("$.data.guide").value("KEEP_NATURAL"))
                 .andExpect(jsonPath("$.data.projection.scheduledRecognizable").value(50_000))
                 .andExpect(jsonPath("$.data.movableItems", hasSize(0)));
+    }
+
+    @Test
+    void 옮기면_사라지는_수정이나_결제_연결이_있는_반복_지출은_옮길_수_없다() throws Exception {
+        // 리뷰(2026-11-12) 반영 B안: 옮기기(이후 전부 수정)가 덮거나 거절하는 항목은 eligible=false
+        history(card, 60_000);
+        performance(card, NOVEMBER, 200_000);
+        long weekly = recurring("주간 셔틀", 10_000, LocalDate.of(2026, 11, 14), "WEEKLY");   // 11/14·21·28
+        long excluded = recurring("보험", 50_000, LocalDate.of(2026, 11, 25), "MONTHLY");
+        long split = recurring("구독", 40_000, LocalDate.of(2026, 11, 20), "MONTHLY");
+        long plain = recurring("통신비", 20_000, LocalDate.of(2026, 11, 27), "MONTHLY");
+        long matchedLater = recurring("관리비", 70_000, LocalDate.of(2026, 12, 5), "MONTHLY");
+
+        // 이번 회차만 업종 수정 · 다음 달 회차만 삭제 · 다음 달부터 금액 변경(뒤 규칙) · 다음 달 회차를 결제와 연결
+        updateItem(weekly, "{\"scope\":\"THIS_ONLY\",\"occurrenceDate\":\"2026-11-21\","
+                + "\"merchantCategoryCode\":\"CONVENIENCE_STORE\"}");
+        mockMvc.perform(delete("/api/cashflow-items/" + excluded).param("scope", "THIS_ONLY")
+                        .param("occurrenceDate", "2026-12-25").with(AuthUsers.asUser(owner)))
+                .andExpect(status().is2xxSuccessful());
+        updateItem(split, "{\"scope\":\"THIS_AND_FUTURE\",\"occurrenceDate\":\"2026-12-20\",\"amount\":45000}");
+        long occurrence = jdbc.queryForObject(
+                "SELECT cashflow_occurrence_id FROM cashflow_occurrence WHERE cashflow_item_id = ?", Long.class,
+                matchedLater);
+        long paymentId = payment(owner, card, TODAY.minusDays(1), "APPROVED", 70_000L, merchant, 70_000);
+        insert("cashflow_payment_match", "cashflow_payment_match_id", Map.of("user_id", owner,
+                "cashflow_occurrence_id", occurrence, "payment_transaction_id", paymentId,
+                "matched_at", now(), "created_at", now()));
+
+        analysis(owner, card)
+                .andExpect(jsonPath("$.data.movableItems", hasSize(4)))
+                .andExpect(jsonPath(movable(weekly, "amount")).value(contains(30_000)))
+                .andExpect(jsonPath(movable(weekly, "eligible")).value(contains(false)))
+                .andExpect(jsonPath(movable(weekly, "reason")).value(contains(ScheduledExpenses.REASON_EDITED)))
+                .andExpect(jsonPath(movable(excluded, "reason")).value(contains(ScheduledExpenses.REASON_EDITED)))
+                .andExpect(jsonPath(movable(split, "reason")).value(contains(ScheduledExpenses.REASON_EDITED)))
+                .andExpect(jsonPath(movable(plain, "eligible")).value(contains(true)))
+                .andExpect(jsonPath(movable(plain, "recognizedAmount")).value(contains(20_000)))
+                .andExpect(jsonPath("$.data.steps[3].amount").value(20_000));
+        mockMvc.perform(get(analysisUrl(card)).param("scenarioMoveItemIds", String.valueOf(weekly))
+                        .with(AuthUsers.asUser(owner)))
+                .andExpect(status().isBadRequest());
+
+        // 이번 달 회차가 없는 항목도 다음 달 회차의 결제 연결을 찾고, 남의 항목은 읽지 않는다
+        LocalDate today = TODAY;
+        assertThat(moveLocks.locks(owner, List.of(matchedLater, plain), today))
+                .isEqualTo(Map.of(matchedLater, ScheduledExpenses.MoveLock.MATCHED));
+        assertThat(moveLocks.locks(other, List.of(weekly, excluded, split), today)).isEmpty();
+
+        // 막은 이유: 실제 옮기기는 고친 회차를 규칙 값으로 덮고, 결제와 연결된 회차가 있으면 거절한다
+        updateItem(weekly, "{\"userCardId\":" + card + "}");
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM cashflow_occurrence WHERE cashflow_item_id = ? "
+                + "AND is_overridden = TRUE", Long.class, weekly)).isZero();
+        mockMvc.perform(patch("/api/cashflow-items/" + matchedLater).with(AuthUsers.asUser(owner))
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"userCardId\":" + card + "}"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error.code").value("PAID_OCCURRENCE_LOCKED"));
     }
 
     @Test
@@ -645,6 +703,27 @@ class PerformanceAnalysisIntegrationTest extends MySqlTestSupport {
                 .andReturn().getResponse().getContentAsString();
         JsonNode node = json.readTree(response);
         return node.path("data").path("cashflowItemId").asLong();
+    }
+
+    /** 가계부 등록 API로 계좌로 내는 반복 지출 항목을 만든다. 요일·날짜는 첫 회차를 따른다. */
+    private long recurring(String title, long amount, LocalDate first, String frequency) throws Exception {
+        Map<String, Object> body = Map.of("type", "EXPENSE", "title", title, "amount", amount, "date", first.toString(),
+                "accountId", account, "recurrence", Map.of("frequency", frequency));
+        String response = mockMvc.perform(post("/api/cashflow-items").with(AuthUsers.asUser(owner))
+                        .contentType(MediaType.APPLICATION_JSON).content(json.writeValueAsString(body)))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        return json.readTree(response).path("data").path("cashflowItemId").asLong();
+    }
+
+    private void updateItem(long itemId, String body) throws Exception {
+        mockMvc.perform(patch("/api/cashflow-items/" + itemId).with(AuthUsers.asUser(owner))
+                        .contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isOk());
+    }
+
+    private static String movable(long cashflowItemId, String field) {
+        return "$.data.movableItems[?(@.cashflowItemId == " + cashflowItemId + ")]." + field;
     }
 
     private long benefit(long cardProduct, String name, long minPerformance) {

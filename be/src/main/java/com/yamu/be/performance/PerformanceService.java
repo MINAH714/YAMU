@@ -8,7 +8,6 @@ import com.yamu.be.card.domain.CardProductRepository;
 import com.yamu.be.card.domain.CardRegistrationStatus;
 import com.yamu.be.card.domain.UserCard;
 import com.yamu.be.card.domain.UserCardRepository;
-import com.yamu.be.cashflow.CashflowService;
 import com.yamu.be.global.common.ApiResponse;
 import com.yamu.be.global.exception.BusinessException;
 import com.yamu.be.global.exception.ErrorCode;
@@ -111,7 +110,7 @@ public class PerformanceService {
             });
         }
         boolean guides = withGuide && month.equals(YearMonth.from(today));
-        Supplier<List<CashflowService.Entry>> expenses = memoized(() -> analysis.scheduledExpenses(userId));
+        Supplier<PerformanceAnalysisService.Expenses> expenses = memoized(() -> analysis.scheduledExpenses(userId));
 
         List<CardPerformancesResponse.Item> items = owned.stream().map(card -> {
             CardProduct product = productById.get(card.getCardProductId());
@@ -131,7 +130,7 @@ public class PerformanceService {
      * 채웠으면 ALREADY_ACHIEVED, 그 밖에는 유불리 분석과 같은 계산이고 분석이 422를 낼 카드면 {@value #GUIDE_INSUFFICIENT_DATA}.
      */
     private String guide(long userId, UserCard card, PerformanceStatus status,
-            Supplier<List<CashflowService.Entry>> expenses) {
+            Supplier<PerformanceAnalysisService.Expenses> expenses) {
         return switch (status) {
             case NO_TARGET -> null;
             case INSUFFICIENT_DATA -> GUIDE_INSUFFICIENT_DATA;
