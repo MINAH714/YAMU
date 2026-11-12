@@ -160,7 +160,7 @@ import java.time.YearMonth
     val billing: CardDetailBillingDto? = null,
 )
 
-@Serializable data class CardLinkedAccountDto(val bankName: String? = null, val maskedAccountNo: String? = null)
+@Serializable data class CardLinkedAccountDto(val accountId: Long? = null, val bankName: String? = null, val maskedAccountNo: String? = null)
 
 @Serializable data class CardDetailBillingDto(
     val paymentDay: Int? = null,
@@ -235,7 +235,10 @@ data class LinkedAccount(
     val isPrimary: Boolean,
     val alias: String? = null,              // 사용자가 지은 별칭만. name은 없을 때 기본 이름까지 채운 값
     val cardCount: Int = 0,                 // 이 계좌에서 출금하는 카드 수
-)
+) {
+    /** '신한은행 ·1234' — 계좌 관리와 카드 상세가 같은 계좌를 같은 모양으로 보이게 한 곳에서 만든다 */
+    val numberLabel: String get() = "${brand.name} ·$last4"
+}
 
 data class LinkedCard(
     val userCardId: Long,
@@ -289,8 +292,8 @@ data class CardInfo(
     val issuerBlocked: Boolean,
     val isDefault: Boolean,
     val paymentDay: Int?,
-    val settlementAccountId: Long?,         // 신용카드 결제 계좌 — 이름은 계좌 목록에서 찾는다
-    val checkAccountLabel: String?,         // 체크카드 연결 계좌
+    val settlementAccountId: Long?,         // 출금 계좌 — 신용카드 결제 계좌 · 체크카드 연결 계좌(BE는 같은 칸). 이름은 계좌 목록에서 찾는다
+    val checkAccountLabel: String?,         // 체크카드 연결 계좌 — 계좌 목록을 못 읽었을 때 글자로만
     val nextWithdrawal: NextWithdrawal?,
     val hasOpenBill: Boolean = false,       // 확정 · 미납 청구가 있어 해제할 수 없다. 쌓이는 중인 청구는 여기 없어 해제 때 서버가 막는다
 ) {
@@ -495,7 +498,7 @@ fun CardDetailDto.toInfo() = CardInfo(
     issuerBlocked = issuerStatus == "SUSPENDED" || issuerStatus == "EXPIRED",
     isDefault = isDefault,
     paymentDay = billing?.paymentDay,
-    settlementAccountId = billing?.settlementAccountId,
+    settlementAccountId = linkedAccount?.accountId ?: billing?.settlementAccountId,
     checkAccountLabel = linkedAccount?.let { a -> listOfNotNull(a.bankName, a.maskedAccountNo?.lastDigits()?.let { "·$it" }).joinToString(" ").ifEmpty { null } },
     nextWithdrawal = billing?.nextWithdrawal?.let { n ->
         val amount = n.amount ?: return@let null

@@ -77,12 +77,16 @@ import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 // M-03 카드 상세 — 2026-10-26 범위 간략화에서 뺀 원본(2,000dp 넘는 혜택 · 실적 화면)을 API가 주는 값으로 줄였다.
-// 결제일 · 결제 계좌는 보여 주기만 한다. 바뀌는 시점이 BE 코드(바로)와 명세(다음 이용기간부터)에서 달라 안내 문장을 정할 수 없다.
+// 결제일 · 결제 계좌는 여기서 바꾸지 않는다. 바뀌는 시점이 BE 코드(바로)와 명세(다음 이용기간부터)에서 달라 안내 문장을 정할 수 없다.
+// 계좌 줄은 눌러서 계좌 관리(M-01b)로 간다(2차 QA 23). 계좌 상세 화면은 없다.
+
+/** 카드 상세의 출금 계좌 줄 — 체크카드 '연결 계좌' · 신용카드 '결제 계좌'. [openable]이면 눌러서 계좌 관리로 */
+data class CardAccountRow(val key: String, val value: String, val openable: Boolean)
 
 data class CardDetailState(
     val loading: Boolean = true,
     val card: CardInfo? = null,
-    val settlementAccountLabel: String? = null,    // 신용카드 결제 계좌 — 계좌 목록을 못 읽으면 null
+    val accountLabel: String? = null,              // 계좌 목록에서 찾은 출금 계좌 '신한은행 ·1234'. 계좌가 없거나 목록에 없으면 null
     val otherActiveCards: Int? = null,             // 자동 선택에 포함된 다른 카드 수. 목록을 못 읽으면 null
     val autoSelect: Boolean? = null,               // 결제 카드 자동 선택(카드 관리 M-02). 못 읽으면 null — 켜진 것으로 본다
     val cardsKnown: Boolean = false,               // 카드 목록을 읽었나 — 못 읽으면 다른 기본 카드가 있는지 모른다
@@ -100,6 +104,16 @@ data class CardDetailState(
 
     /** 자동 선택을 끄면 기본 카드로만 결제해 카드별 '자동 선택에 포함'은 쓰이지 않는다 — 꺼진 채 막아 둔다(값은 그대로) */
     val autoSelectOff: Boolean get() = autoSelect == false
+
+    /**
+     * 계좌 목록에서 찾은 계좌만 눌러서 계좌 관리로 보낸다. 계좌 관리와 같은 모양([com.yamu.app.feature.link.data.LinkedAccount.numberLabel])으로.
+     * 계좌가 없거나 목록을 못 읽었으면 글자만 — 체크카드는 카드 상세 응답의 연결 계좌를 그대로 보인다
+     */
+    fun accountRow(card: CardInfo): CardAccountRow = when {
+        accountLabel != null -> CardAccountRow(if (card.isCheck) "연결 계좌" else "결제 계좌", accountLabel, openable = true)
+        card.isCheck -> CardAccountRow("연결 계좌", card.checkAccountLabel ?: "연결된 계좌가 없어요", openable = false)
+        else -> CardAccountRow("결제 계좌", "확인할 수 없어요", openable = false)
+    }
 }
 
 /** 기본 카드를 바꾸기 전에 한 번 묻는다(11/10 QA) — 실수로 눌러 결제 카드가 바뀌지 않게 */
@@ -163,8 +177,9 @@ class CardDetailViewModel @Inject constructor(
                         loading = false,
                         card = detail.data,
                         gone = false,
-                        settlementAccountLabel = linked?.accounts?.firstOrNull { it.accountId == detail.data.settlementAccountId }
-                            ?.let { "${it.brand.name} ·${it.last4}" } ?: s.settlementAccountLabel,
+                        // 목록을 못 읽었으면 마지막 값을 둔다. 읽었는데 없으면 null — 눌러도 그 계좌를 찾을 수 없다
+                        accountLabel = if (linked == null) s.accountLabel
+                        else detail.data.settlementAccountId?.let { id -> linked.accounts.firstOrNull { it.accountId == id } }?.numberLabel,
                         otherActiveCards = linked?.cards?.count { it.recommended && it.userCardId != userCardId } ?: s.otherActiveCards,
                         autoSelect = autoSelect ?: s.autoSelect,
                         cardsKnown = linked != null || s.cardsKnown,
@@ -309,6 +324,7 @@ fun CardDetailRoute(
     onOpenPinPad: (purpose: String) -> Unit,
     onBills: (userCardId: Long) -> Unit,
     onPerformance: (userCardId: Long) -> Unit,
+    onAccounts: () -> Unit,
     viewModel: CardDetailViewModel = hiltViewModel(),
 ) {
     val s by viewModel.state.collectAsStateWithLifecycle()
@@ -343,7 +359,7 @@ fun CardDetailRoute(
                 card == null -> ErrorState(s.error ?: "카드를 불러오지 못했어요", onRetry = viewModel::load)
                 else -> CardDetailBody(
                     card = card,
-                    settlementAccountLabel = s.settlementAccountLabel,
+                    account = s.accountRow(card),
                     lastActive = s.isLastActive,
                     autoSelectOff = s.autoSelectOff,
                     saving = s.saving,
@@ -354,6 +370,7 @@ fun CardDetailRoute(
                     onUnregister = { sheet = CardDetailSheet.UNREGISTER },
                     onBills = { onBills(card.userCardId) },
                     onPerformance = { onPerformance(card.userCardId) },
+                    onAccount = onAccounts,
                 )
             }
             Spacer(Modifier.height(YamuSpacing.x6))
@@ -405,7 +422,7 @@ fun CardDetailRoute(
 @Composable
 private fun CardDetailBody(
     card: CardInfo,
-    settlementAccountLabel: String?,
+    account: CardAccountRow,
     lastActive: Boolean,
     autoSelectOff: Boolean,
     saving: Boolean,
@@ -416,6 +433,7 @@ private fun CardDetailBody(
     onUnregister: () -> Unit,
     onBills: () -> Unit,
     onPerformance: () -> Unit,
+    onAccount: () -> Unit,
 ) {
     val c = YamuTheme.colors
     Spacer(Modifier.height(YamuSpacing.x2))
@@ -434,10 +452,10 @@ private fun CardDetailBody(
     KeyValueRow("카드 번호", "•••• ${card.last4}", large = false)
     if (card.isCheck) {
         KeyValueRow("결제일", "결제 즉시 출금", large = false)
-        KeyValueRow("연결 계좌", card.checkAccountLabel ?: "연결된 계좌가 없어요", large = false)
+        AccountLine(account, onAccount)
     } else {
         KeyValueRow("결제일", card.paymentDay?.let { "매월 ${it}일" } ?: "확인할 수 없어요", large = false)
-        KeyValueRow("결제 계좌", settlementAccountLabel ?: "확인할 수 없어요", large = false)
+        AccountLine(account, onAccount)
         // 누르면 이 카드 청구서만(M-09). 출금 예정이 없어도 지난 청구서를 볼 수 있게 줄을 남긴다
         val next = card.nextWithdrawal
         if (next != null) {
@@ -492,6 +510,18 @@ private fun CardDetailBody(
             Text(if (unregistering) "해제하는 중" else "카드 해제", style = YamuTheme.typography.labelL, color = if (unregistering) c.text3 else c.error)
         }
     }
+}
+
+/** 계좌 목록에서 찾은 계좌만 화살표를 달고 누를 수 있다 — '다음 출금' 줄과 같은 모양 */
+@Composable
+private fun AccountLine(row: CardAccountRow, onOpen: () -> Unit) {
+    KeyValueRow(
+        row.key,
+        row.value,
+        large = false,
+        trailing = if (row.openable) ({ Icon(YamuIcons.ChevronRight, contentDescription = null, tint = YamuTheme.colors.text3) }) else null,
+        onClick = if (row.openable) onOpen else null,
+    )
 }
 
 @Composable
