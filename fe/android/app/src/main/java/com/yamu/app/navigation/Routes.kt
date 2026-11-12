@@ -94,6 +94,7 @@ import kotlinx.serialization.Serializable
 @Serializable data object Profile            // M-06
 @Serializable data object Withdraw           // M-07b 회원 탈퇴
 @Serializable data object Security           // M-08
+@Serializable data object PinChange          // M-08 간편 비밀번호 바꾸기(본인 확인 → 새 6자리 두 번)
 @Serializable data object Billing            // M-09 청구 · 환급(청구서 · 환급 탭)
 @Serializable data class CardBills(val userCardId: Long)    // M-09 한 카드 청구서만(M-03 다음 출금에서) — Billing과 같은 화면
 @Serializable data class BillDetail(val billId: Long)       // M-09b 청구서 상세

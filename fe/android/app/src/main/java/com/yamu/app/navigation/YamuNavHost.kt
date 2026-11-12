@@ -18,6 +18,8 @@ import com.yamu.app.core.ui.LocalSnackbar
 import com.yamu.app.core.ui.findActivity
 import androidx.activity.compose.BackHandler
 import androidx.compose.ui.platform.LocalContext
+import com.yamu.app.feature.auth.PinChangeEnd
+import com.yamu.app.feature.auth.PinChangeRoute
 import com.yamu.app.feature.auth.PinLoginRoute
 import com.yamu.app.feature.auth.PinPadRoute
 import com.yamu.app.feature.auth.PinSetupRoute
@@ -434,7 +436,21 @@ fun YamuNavHost(navController: NavHostController, modifier: Modifier = Modifier)
                         },
                     )
                 }
-                composable<Security> { SecurityRoute(onBack = back, onOpenPinPad = openPinPad) }
+                composable<Security> {
+                    SecurityRoute(onBack = back, onOpenPinPad = openPinPad, onChangePin = { navController.navigate(PinChange) })
+                }
+                composable<PinChange> {
+                    PinChangeRoute(
+                        onOpenPinPad = openPinPad,
+                        onEnd = { end ->
+                            back()
+                            when (end) {
+                                PinChangeEnd.Changed -> showMessage("간편 비밀번호를 바꿨어요")
+                                is PinChangeEnd.Closed -> end.message?.let(showMessage)
+                            }
+                        },
+                    )
+                }
                 // 청구 · 환급 — 마이 탭 전체와 카드 상세의 한 카드가 같은 화면(경로 값으로 구분)
                 val openBill: (Long) -> Unit = { billId -> navController.navigate(BillDetail(billId)) }
                 val openPayment: (Long) -> Unit = { paymentId -> navController.navigate(PaymentDetail(paymentId)) }

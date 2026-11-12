@@ -861,8 +861,14 @@ private fun Context.openBiometricEnroll() {
     }
 }
 
+/** [onChangePin] 간편 비밀번호 바꾸기 화면으로 — 본인 확인은 그 화면이 한다(QA 07 · P1-16) */
 @Composable
-fun SecurityRoute(onBack: () -> Unit, onOpenPinPad: (purpose: String) -> Unit, viewModel: SecurityViewModel = hiltViewModel()) {
+fun SecurityRoute(
+    onBack: () -> Unit,
+    onOpenPinPad: (purpose: String) -> Unit,
+    onChangePin: () -> Unit,
+    viewModel: SecurityViewModel = hiltViewModel(),
+) {
     val s by viewModel.state.collectAsStateWithLifecycle()
     val stepUpUi by viewModel.stepUp.ui.collectAsStateWithLifecycle()
     StepUpEffect(viewModel.stepUp, onOpenPinPad)
@@ -891,6 +897,7 @@ fun SecurityRoute(onBack: () -> Unit, onOpenPinPad: (purpose: String) -> Unit, v
                 info == null -> ErrorState(s.error ?: "보안 설정을 불러오지 못했어요", onRetry = viewModel::load)
                 else -> {
                     SectionLabel("잠금 · 인증", first = true)
+                    ListRow(title = "간편 비밀번호 바꾸기", chevron = true, minHeight = TapRowHeight, onClick = onChangePin)
                     if (s.biometricAvailable) {
                         SwitchRow("지문 인증 사용", checked = s.biometricOn, onToggle = { viewModel.setBiometric(it, onFail) }, enabled = !s.busy)
                     } else {
