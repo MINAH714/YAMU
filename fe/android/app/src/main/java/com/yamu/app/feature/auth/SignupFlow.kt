@@ -188,10 +188,13 @@ fun WelcomeRoute(onStart: () -> Unit, onLogin: () -> Unit, onDebugMenu: (() -> U
 
 @HiltViewModel
 class TermsViewModel @Inject constructor(private val signup: SignupRepository) : ViewModel() {
-    /** 동의. 본인인증을 이미 마친 가입이면(첫 화면 '로그인'으로 들어온 사람) true — 계좌 고르기로 */
+    /**
+     * 동의. 본인인증을 이미 마친 가입이면(첫 화면 '로그인'으로 들어온 사람) true — 계좌 고르기로.
+     * 계좌 연결까지 마치고 PIN 만들기에서 돌아온 사람은 본인인증 화면('다음' → PIN 만들기)으로 보낸다(1원을 다시 받지 않게)
+     */
     fun agree(): Boolean {
         signup.termsAgreed = true
-        return signup.mode == SignupMode.SIGNUP
+        return signup.mode == SignupMode.SIGNUP && !signup.accountLinked
     }
 }
 
@@ -208,8 +211,8 @@ fun TermsRoute(
 
 // ───────────────────────── A-05 휴대폰 본인인증 ─────────────────────────
 
-/** 본인인증 다음 — 가입인데 약관 전이면 약관, 가입이면 계좌 고르기, 이미 가입했으면 이 폰 등록 */
-enum class SignupNext { TERMS, ACCOUNTS, RECOVERY }
+/** 본인인증 다음 — 가입인데 약관 전이면 약관, 가입이면 계좌 고르기(계좌 연결을 마쳤으면 PIN 만들기), 이미 가입했으면 이 폰 등록 */
+enum class SignupNext { TERMS, ACCOUNTS, PIN, RECOVERY }
 
 data class PhoneVerifyState(
     val name: String = "",
@@ -287,7 +290,11 @@ class PhoneVerifyViewModel @Inject constructor(private val signup: SignupReposit
 
     private fun nextOf(mode: SignupMode): SignupNext = when (mode) {
         SignupMode.DEVICE_RECOVERY -> SignupNext.RECOVERY
-        SignupMode.SIGNUP -> if (signup.termsAgreed) SignupNext.ACCOUNTS else SignupNext.TERMS
+        SignupMode.SIGNUP -> when {
+            signup.accountLinked -> SignupNext.PIN   // PIN 만들기에서 뒤로 왔다 — 1원은 이미 마쳤다
+            signup.termsAgreed -> SignupNext.ACCOUNTS
+            else -> SignupNext.TERMS
+        }
     }
 
     /** 인증을 마친 뒤 '다음' — 서버를 부르지 않는다 */
@@ -380,6 +387,8 @@ fun PhoneVerifyRoute(onBack: () -> Unit, onNext: (SignupNext) -> Unit, viewModel
     }
     val now = rememberNow(s.sentAtMillis)
     val elapsed = secondsSince(s.sentAtMillis, now)
+    val codeFocus = remember { FocusRequester() }
+    val keyboard = LocalSoftwareKeyboardController.current
     val c = YamuTheme.colors
     Box(Modifier.fillMaxSize()) {
         Scaffold(
@@ -458,7 +467,16 @@ fun PhoneVerifyRoute(onBack: () -> Unit, onNext: (SignupNext) -> Unit, viewModel
                     Spacer(Modifier.height(28.dp))
                     Text("인증번호", style = YamuTheme.typography.bodyS, color = c.text2)
                     Spacer(Modifier.height(8.dp))
-                    CodeBoxes(value = s.code, length = 6, onValueChange = viewModel::onCode, label = "인증번호 6자리", error = s.codeError)
+                    CodeBoxes(
+                        value = s.code, length = 6, onValueChange = viewModel::onCode, label = "인증번호 6자리", error = s.codeError,
+                        modifier = Modifier.focusRequester(codeFocus),
+                    )
+                    // 받으면 커서를 인증번호 칸으로 — 휴대폰 번호 칸에 남으면 이 칸이 키보드 · 버튼 뒤에 숨는다(QA 04 · P2-39).
+                    // 칸에 포커스가 가면 스크롤이 이 칸을 키보드 위로 올린다. 다시 받을 때도 옮긴다
+                    LaunchedEffect(s.sent?.verificationId) {
+                        runCatching { codeFocus.requestFocus() }
+                        keyboard?.show()
+                    }
                     Spacer(Modifier.height(8.dp))
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         val left = CODE_VALID_SECONDS - elapsed

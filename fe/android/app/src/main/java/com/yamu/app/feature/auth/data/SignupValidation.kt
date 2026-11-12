@@ -44,20 +44,25 @@ fun demoUserNotFoundMessage(signup: Boolean): String =
  * [remainingAttempts] · [retryAfterSeconds]는 서버 error.details
  */
 fun signupErrorMessage(code: String, remainingAttempts: Int? = null, retryAfterSeconds: Int? = null): String? {
-    val left = remainingAttempts?.let { " · ${it}번 남았어요" }.orEmpty()
+    // 남은 횟수는 이번 시도를 센 뒤의 값이다. 0이면 같은 번호로는 더 넣을 수 없어 다시 받아야 한다(QA 06 · P1-18)
+    fun left(again: String) = when {
+        remainingAttempts == null -> ""
+        remainingAttempts > 0 -> " · ${remainingAttempts}번 더 넣어 볼 수 있어요"
+        else -> " · $again"
+    }
     val wait = retryAfterSeconds?.let { "${it}초 뒤" } ?: "잠시 뒤"
     return when (code) {
         // 명단에 없음 · 하나라도 다름 · 시험망 준비 전 · 탈퇴 후 이름 다름이 모두 같은 404다. 번호만으로 가입 여부를 알 수 없게
         // 서버가 일부러 나누지 않으므로 문구도 어느 경우인지 말하지 않는다(B-03). '이 폰 등록'은 [demoUserNotFoundMessage]
         "DEMO_USER_NOT_FOUND" -> demoUserNotFoundMessage(signup = true)
         "VERIFICATION_TOO_FREQUENT", "AUTH_REQUEST_TOO_FREQUENT" -> "방금 보냈어요 · $wait 다시 받아 주세요"
-        "VERIFICATION_CODE_MISMATCH" -> "인증번호가 맞지 않아요$left"
+        "VERIFICATION_CODE_MISMATCH" -> "인증번호가 맞지 않아요" + left("인증번호를 다시 받아 주세요")
         "VERIFICATION_EXPIRED" -> "인증번호 시간이 지났어요 · 다시 받아 주세요"
         SIGNUP_TOKEN_INVALID -> "시간이 지났어요 · 본인인증부터 다시 해 주세요"
         "SIGNUP_STEP_INCOMPLETE" -> "앞 단계를 먼저 마쳐 주세요"
         "ACCOUNT_CANDIDATE_EXPIRED" -> "계좌 목록이 오래됐어요 · 다시 불러왔어요"
         "ONE_WON_DAILY_LIMIT_EXCEEDED" -> "오늘은 1원을 더 보낼 수 없어요 · 내일 다시 해 주세요"
-        "AUTH_CODE_MISMATCH" -> "숫자가 맞지 않아요$left"
+        "AUTH_CODE_MISMATCH" -> "입금자명 뒤 숫자가 맞지 않아요" + left("1원을 다시 받아 주세요")
         "AUTH_CODE_EXPIRED", "VERIFICATION_TOKEN_EXPIRED" -> "시간이 지났어요 · 1원을 다시 받아 주세요"
         "AUTH_CODE_LOCKED" -> "오늘은 숫자를 너무 많이 틀렸어요 · 내일 다시 해 주세요"
         "IDEMPOTENCY_IN_PROGRESS" -> "처리하고 있어요 · 잠시 뒤 다시 눌러 주세요"

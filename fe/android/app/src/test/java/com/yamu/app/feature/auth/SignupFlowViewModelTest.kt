@@ -69,6 +69,29 @@ class SignupFlowViewModelTest {
         assertNull(vm.state.value.error)
     }
 
+    // ── QA 07 · P1-17 PIN 만들기에서 뒤로 와도 1원을 다시 받지 않기 ──
+
+    @Test fun `계좌 연결을 마친 뒤 본인인증으로 돌아와 다음을 누르면 1원 없이 PIN 만들기로 간다`() = runTest(dispatcher) {
+        signup.termsAgreed = true
+        signup.mode = SignupMode.SIGNUP
+        signup.accountLinked = true                // 1원 인증을 마치고 PIN 만들기에서 뒤로 왔다
+        val vm = PhoneVerifyViewModel(signup)
+        assertEquals(SignupMode.SIGNUP, vm.state.value.verified)
+
+        vm.proceed()
+        assertEquals(SignupNext.PIN, vm.state.value.next)
+        assertEquals(0, signup.confirmCalls)
+    }
+
+    @Test fun `계좌 연결을 마친 뒤 약관까지 돌아가 동의하면 계좌 고르기 대신 본인인증 화면으로 보낸다`() {
+        signup.mode = SignupMode.SIGNUP
+        assertTrue(TermsViewModel(signup).agree())   // 계좌 연결 전 — 계좌 고르기로
+
+        signup.accountLinked = true
+        assertFalse(TermsViewModel(signup).agree())  // 본인인증 화면 '다음'이 PIN 만들기로 잇는다
+        assertTrue(signup.termsAgreed)
+    }
+
     // ── QA 11/10 인증번호 자동 입력 ──
 
     @Test fun `인증번호를 받으면 문자 알림과 함께 칸을 채우고 확인은 버튼을 누를 때만 보낸다`() = runTest(dispatcher) {
@@ -395,6 +418,7 @@ class SignupFlowViewModelTest {
         override var draft = IdentityDraft()
         override var recoveryBiometric = false
         override var pinStaged = false
+        override var accountLinked = false
         override var oneWon: SignupOneWon? = null
 
         override suspend fun requestCode(name: String, birthDate: LocalDate, carrier: Carrier, phoneNumber: String): ApiResult<CodeSent> {

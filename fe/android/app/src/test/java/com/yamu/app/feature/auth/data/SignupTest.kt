@@ -39,8 +39,12 @@ class SignupTest {
     }
 
     @Test fun `가입 오류 문장 — 남은 횟수 · 기다릴 시간`() {
-        assertEquals("인증번호가 맞지 않아요 · 4번 남았어요", signupErrorMessage("VERIFICATION_CODE_MISMATCH", remainingAttempts = 4))
-        assertEquals("숫자가 맞지 않아요 · 2번 남았어요", signupErrorMessage("AUTH_CODE_MISMATCH", remainingAttempts = 2))
+        // 무엇이 틀렸는지 먼저, 남은 횟수는 '더 넣어 볼 수 있는' 횟수로. 다 썼으면 다시 받으라고(QA 06)
+        assertEquals("인증번호가 맞지 않아요 · 4번 더 넣어 볼 수 있어요", signupErrorMessage("VERIFICATION_CODE_MISMATCH", remainingAttempts = 4))
+        assertEquals("인증번호가 맞지 않아요 · 인증번호를 다시 받아 주세요", signupErrorMessage("VERIFICATION_CODE_MISMATCH", remainingAttempts = 0))
+        assertEquals("입금자명 뒤 숫자가 맞지 않아요 · 2번 더 넣어 볼 수 있어요", signupErrorMessage("AUTH_CODE_MISMATCH", remainingAttempts = 2))
+        assertEquals("입금자명 뒤 숫자가 맞지 않아요 · 1원을 다시 받아 주세요", signupErrorMessage("AUTH_CODE_MISMATCH", remainingAttempts = 0))
+        assertEquals("입금자명 뒤 숫자가 맞지 않아요", signupErrorMessage("AUTH_CODE_MISMATCH"))
         assertEquals("방금 보냈어요 · 40초 뒤 다시 받아 주세요", signupErrorMessage("AUTH_REQUEST_TOO_FREQUENT", retryAfterSeconds = 40))
         assertEquals("시간이 지났어요 · 1원을 다시 받아 주세요", signupErrorMessage("VERIFICATION_TOKEN_EXPIRED"))
         assertEquals("시간이 지났어요 · 본인인증부터 다시 해 주세요", signupErrorMessage(SIGNUP_TOKEN_INVALID))

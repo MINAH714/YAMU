@@ -28,9 +28,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -99,7 +97,8 @@ private val TERMS = listOf(
 @Composable
 fun TermsScreen(onBack: () -> Unit, onAgree: () -> Unit, onOpenTerm: (String) -> Unit = {}) {
     val c = YamuTheme.colors
-    val checked = remember { mutableStateListOf(*Array(TERMS.size) { false }) }
+    // 본인인증 화면에 갔다 돌아와도 남게 rememberSaveable(화면 기록에 저장) — remember면 다시 그릴 때 다 풀린다(QA 05 · P2-37)
+    var checked by rememberSaveable { mutableStateOf(List(TERMS.size) { false }) }
     val allRequired = TERMS.indices.filter { TERMS[it].required }.all { checked[it] }
     Scaffold(
         topBar = {
@@ -126,14 +125,16 @@ fun TermsScreen(onBack: () -> Unit, onAgree: () -> Unit, onOpenTerm: (String) ->
             Text("꼭 필요한 것만 받아요", style = YamuTheme.typography.bodyM, color = c.text2)
             Spacer(Modifier.height(12.dp))
             val all = checked.all { it }
-            CheckRow("모두 동의", all, bold = true, partial = !all && checked.any { it }) { v -> for (i in checked.indices) checked[i] = v }
+            CheckRow("모두 동의", all, bold = true, partial = !all && checked.any { it }) { v -> checked = List(TERMS.size) { v } }
             HorizontalDivider(Modifier.padding(top = 4.dp), color = c.outlineVariant)
             // 필수 · 선택 구역 — 줄마다 '[필수]'를 붙이지 않는다
             listOf(true to "필수", false to "선택").forEach { (required, name) ->
                 Text(name, style = YamuTheme.typography.sub.copy(fontWeight = FontWeight.SemiBold), color = c.text3, modifier = Modifier.padding(top = 16.dp, bottom = 4.dp))
                 TERMS.forEachIndexed { i, term ->
                     if (term.required == required) {
-                        CheckRow(term.title, checked[i], onDetail = if (term.detail) ({ onOpenTerm(term.title) }) else null) { checked[i] = it }
+                        CheckRow(term.title, checked[i], onDetail = if (term.detail) ({ onOpenTerm(term.title) }) else null) { v ->
+                            checked = checked.toMutableList().also { it[i] = v }
+                        }
                     }
                 }
             }
