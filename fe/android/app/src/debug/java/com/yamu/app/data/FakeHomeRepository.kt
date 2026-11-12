@@ -116,6 +116,8 @@ class FakeHomeRepository @Inject constructor(private val my: FakeMyRepository) :
                 dataSyncedAt = synced,
             )
             HomeScenario.PARTIAL -> base.copy(balanceForecast = null, partialErrors = listOf(JsonPrimitive("balanceForecast")))
+            // 가입 때 1원 인증으로 계좌만 붙고 카드 등록은 미룸 — 실서버는 이때 onboarding DONE · cards 0장(S15P31E103-430)
+            HomeScenario.NO_CARD -> base.copy(cards = CardsDto(count = 0), todos = emptyList(), todayCard = null)
             else -> base
         }
     }

@@ -22,6 +22,7 @@ enum class HomeScenario(val label: String) {
     BANK_ERROR("금융망 오류"),
     NETWORK_ERROR("네트워크 없음"),
     SLOW("느린 응답(3초)"),
+    NO_CARD("계좌만 연결 · 카드 0장"),
 }
 
 /** 가짜 데이터(debug)로 볼 연결 상태 — 09 문서 5-5 */

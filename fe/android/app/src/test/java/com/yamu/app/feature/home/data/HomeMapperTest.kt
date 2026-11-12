@@ -60,6 +60,34 @@ class HomeMapperTest {
     }
 
     @Test
+    fun `계좌만 연결하고 카드가 0장이면 카드 등록으로 이끈다`() {
+        // 가입 1원 인증으로 계좌가 붙어 BE는 DONE을 준다(S15P31E103-430)
+        val home = parse("""{"cards":{"count":0},"onboarding":{"step":"DONE"}}""")
+        assertFalse(home.needsLinking)
+        assertTrue(home.needsCard)
+    }
+
+    @Test
+    fun `연결 전이면 카드 등록이 아니라 연결로`() {
+        val home = parse("""{"cards":{"count":0},"onboarding":{"step":"LINK"}}""")
+        assertTrue(home.needsLinking)
+        assertFalse(home.needsCard)
+    }
+
+    @Test
+    fun `카드 영역만 실패했으면 0장으로 보지 않는다`() {
+        val home = parse("""{"onboarding":{"step":"DONE"},"partialErrors":[{"area":"cards","code":"INTERNAL_ERROR"}]}""")
+        assertEquals(0, home.cardCount)
+        assertFalse(home.needsCard)
+    }
+
+    @Test
+    fun `카드가 있으면 카드 등록 안내 없음`() {
+        val home = parse("""{"cards":{"count":2},"onboarding":{"step":"DONE"}}""")
+        assertFalse(home.needsCard)
+    }
+
+    @Test
     fun `카드가 0장이면 연결 전`() {
         val home = parse("""{"cards":{"count":0}}""")
         assertTrue(home.needsLinking)
