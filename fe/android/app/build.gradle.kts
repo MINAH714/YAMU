@@ -30,6 +30,11 @@ val releaseKey: Map<String, String>? = releaseKeyNames
 // 기기 시험용: -Pyamu.devSign → release를 debug 키로 서명하고 버전 끝에 -devsign(M-01에 보임). 배포 금지
 val devSign = providers.gradleProperty("yamu.devSign").map { it != "false" }.getOrElse(false)
 
+// debug 앱 여러 벌: -Pyamu.appIdSuffix=.qa2a → 고객 debug가 com.yamu.app.qa2a, 런처 이름 'YAMU qa2a'로 따로 깔린다.
+// 같은 기기의 release 앱(com.yamu.app)을 지우지 않아도 된다. 비우면 지금과 같고 release · POS는 그대로(아래 androidComponents)
+val debugAppIdSuffix = providers.gradleProperty("yamu.appIdSuffix").orNull.orEmpty().trim()
+    .also { check(it.isEmpty() || Regex("""(\.[a-z][a-z0-9_]*)+""").matches(it)) { "yamu.appIdSuffix는 .qa2a처럼 점 뒤에 영문 소문자로 시작해야 해요: $it" } }
+
 // 실서버 연결 시험(debug만) — local.properties의 yamu.baseUrl · yamu.realApi.
 // 비우면 로컬 BE(8080) 주소에 전부 가짜. yamu.realApi=cashflow,link처럼 적은 기능만 진짜 Repository, all이면 전부
 val debugBaseUrl = localProps.getProperty("yamu.baseUrl").orEmpty().trim().ifEmpty { "http://localhost:8080/api/" }
@@ -66,6 +71,7 @@ android {
         targetSdk = 37
         versionCode = 1
         versionName = "0.1.0"
+        manifestPlaceholders["appLabel"] = "@string/app_name"   // 앱 이름(main 매니페스트). yamu.appIdSuffix를 줄 때만 고객 debug에서 바뀐다
         buildConfigField("String", "POS_KEY", "\"\"")
         buildConfigField("String", "API_FEATURES", "\"${apiFeatures.joinToString(",")}\"")   // ApiFeatureTest가 ApiFeature와 같은지 본다
     }
@@ -139,6 +145,13 @@ android {
 androidComponents {
     onVariants(selector().withName("posRelease")) { variant ->
         variant.packaging.jniLibs.excludes.addAll("lib/armeabi-v7a/**", "lib/x86/**")
+    }
+    // yamu.appIdSuffix는 고객 debug에만. buildTypes.debug의 applicationIdSuffix로 하면 posDebug 이름에서 '가맹점'이 빠진다
+    if (debugAppIdSuffix.isNotEmpty()) {
+        onVariants(selector().withName("customerDebug")) { variant ->
+            variant.applicationId.set("${android.defaultConfig.applicationId}$debugAppIdSuffix")
+            variant.manifestPlaceholders.put("appLabel", "YAMU ${debugAppIdSuffix.removePrefix(".")}")
+        }
     }
 }
 
