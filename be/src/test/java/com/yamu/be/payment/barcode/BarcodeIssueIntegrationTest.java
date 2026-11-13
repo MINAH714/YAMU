@@ -99,6 +99,8 @@ class BarcodeIssueIntegrationTest extends MySqlTestSupport {
         jdbc.update("DELETE FROM step_up_audit_log");
         jdbc.update("DELETE FROM user_device_event");
         jdbc.update("DELETE FROM user_device");
+        // 승인·취소·청구 사건이 쌓은 알림(Task 9.3.2)이 사용자를 참조한다
+        jdbc.update("DELETE FROM notification");
         jdbc.update("DELETE FROM app_user");
         redis.getRequiredConnectionFactory().getConnection().serverCommands().flushAll();
         fixtures = new OwnershipFixtures(jdbc);

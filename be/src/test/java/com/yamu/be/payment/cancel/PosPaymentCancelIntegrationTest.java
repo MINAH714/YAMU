@@ -94,6 +94,8 @@ class PosPaymentCancelIntegrationTest extends MySqlTestSupport {
         jdbc.update("DELETE FROM linked_account");
         jdbc.update("DELETE FROM card_product");
         jdbc.update("DELETE FROM merchant");
+        // 취소 사건이 쌓은 알림(Task 9.3.2)이 사용자를 참조한다
+        jdbc.update("DELETE FROM notification");
         jdbc.update("DELETE FROM app_user");
         redis.getRequiredConnectionFactory().getConnection().serverCommands().flushAll();
         fixtures = new OwnershipFixtures(jdbc);
