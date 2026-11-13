@@ -2,7 +2,6 @@ package com.yamu.be.notification;
 
 import com.yamu.be.payment.billing.confirm.BillConfirmedEvent;
 import com.yamu.be.payment.billing.refund.RefundCompletedEvent;
-import com.yamu.be.payment.billing.withdraw.BillUnpaidEvent;
 import com.yamu.be.payment.billing.withdraw.BillWithdrawnEvent;
 import com.yamu.be.payment.domain.PaymentApprovedEvent;
 import com.yamu.be.payment.domain.PaymentCanceledEvent;
@@ -17,7 +16,10 @@ import org.springframework.transaction.event.TransactionalEventListener;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
- * 거래 알림(Task 9.3.2): 결제 승인·취소, 청구 확정, 출금 완료, 미납, 환급 입금. 결제·청구 모듈이 발행한 사건을 커밋 뒤에 받아 쌓는다.
+ * 거래 알림(Task 9.3.2): 결제 승인·취소, 청구 확정, 출금 완료, 환급 입금. 결제·청구 모듈이 발행한 사건을 커밋 뒤에 받아 쌓는다.
+ *
+ * <p>미납({@code BillUnpaidEvent})은 받지 않는다(Task 9.3.4, 2026-11-13 결정). 카드 대금 미납은 실제로는 카드사가 판단하는 일이고 YAMU는
+ * 모의 카드사 역할로만 알기 때문이다. 미납은 홈 '할 일'과 미납 카드의 신용 승인 거절로 보인다.
  *
  * <ul>
  *   <li>커밋 뒤({@code AFTER_COMMIT}): 롤백된 승인·확정·출금은 알리지 않는다.</li>
@@ -76,14 +78,6 @@ class TransactionNotificationListener {
                 .bill(event.userId(), event.cardBillId())
                 .map(bill -> NotificationMessages.billWithdrawn(event.userId(), event.cardBillId(), bill,
                         event.amount(), event.withdrawnOn())));
-    }
-
-    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
-    void on(BillUnpaidEvent event) {
-        notify("BILL_UNPAID", event.cardBillId(), event.userId(), () -> contents
-                .bill(event.userId(), event.cardBillId())
-                .map(bill -> NotificationMessages.billUnpaid(event.userId(), event.cardBillId(), bill,
-                        event.unpaidAmount(), event.reason() == null ? "" : event.reason().name())));
     }
 
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)

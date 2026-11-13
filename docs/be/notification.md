@@ -11,13 +11,13 @@
 | 결제 취소 | `PAYMENT_RESULT` | 결제가 CANCELED로 저장된 뒤(신용·체크) | `PAYMENT_RESULT:{결제}:CANCELED` | `PAYMENT_TRANSACTION`/결제 | 거래 |
 | 청구 확정 | `BILL_CONFIRMED` | 청구서 확정 뒤(0원이면 "출금 없이 마감") | `BILL_CONFIRMED:{청구서}` | `CARD_BILL`/청구서 | 거래 |
 | 출금 완료 | `BILL_WITHDRAWN` | 청구 출금 성공 뒤 | `BILL_WITHDRAWN:{청구서}` | `CARD_BILL`/청구서 | 거래 |
-| 미납 | `BILL_UNPAID` | 은행이 청구 출금을 거절해 UNPAID가 된 뒤 | `BILL_UNPAID:{청구서}` | `CARD_BILL`/청구서 | 거래 |
 | 환급 입금 | `REFUND_COMPLETED` | 신용카드 취소 환급 입금 확인 뒤 | `REFUND_COMPLETED:{환급}` | `PAYMENT_TRANSACTION`/원래 결제 | 거래 |
 | 잔고 부족 예상 | `BALANCE_RISK` | 매일 잔고 알림 시각(`balanceTime`, 기본 08:30)에 판정 | `BALANCE_RISK:{위험 구간 첫날}` | `BALANCE`/계좌 | 잔고 위험 |
 | 실적 부족 예상 | `PERFORMANCE_SHORTFALL` | 이번 달이 7일 이하로 남은 날, 매일 실적 알림 시각(`performanceTime`, 기본 08:30)에 판정 | `PERFORMANCE_SHORTFALL:{카드}:{yyyy-MM}` | `USER_CARD`/카드 | 실적 |
 
 - 앱은 `CARD_BILL`·`BALANCE`를 잔고예보 화면으로, `USER_CARD`를 그 카드의 실적 유불리 분석 화면으로 보냅니다(`MyModels.kt`). `BALANCE`의 번호는 위험한 계좌, 통합 위험이면 기준 계좌입니다.
-- 만들지 않는 것: 결제 거절(DECLINED, 다른 카드로 다시 시도할 수 있는 중간 상태이고 결제 화면에 바로 보임), 출금 예정(`BILL_DUE_SOON`), 실적 달성(요구사항에 없음, 2026-11-13 결정).
+- 만들지 않는 것: 결제 거절(DECLINED, 다른 카드로 다시 시도할 수 있는 중간 상태이고 결제 화면에 바로 보임), 출금 예정(`BILL_DUE_SOON`), 실적 달성(요구사항에 없음, 2026-11-13 결정), 미납(`BILL_UNPAID`, Task 9.3.4에서 뺌, 아래 결정 2026-11-13).
+- 만들지 않는 유형도 `NotificationType` 값은 남깁니다. 목록 API의 `type` 필터 값이라 지우면 그 값을 보내는 앱이 400을 받습니다.
 - 제목·내용은 만들 때의 값으로 고정됩니다. 가맹점·카드 이름이 길면 칸 길이(제목 150자, 내용 1000자)에 맞춰 자릅니다. 카드 이름은 별칭, 없으면 상품명입니다.
 
 ## 어떻게 쌓나
@@ -31,7 +31,7 @@
 ```
 
 - 결제 승인·취소 사건(`PaymentApprovedEvent`·`PaymentCanceledEvent`)은 `PaymentTransaction.approve()`·`confirmLateWithdrawal()`·`cancel()`이 남기고, 리포지토리 `save`/`saveAndFlush`가 발행합니다(Spring Data `@DomainEvents`). 승인·취소를 저장하는 곳이 승인·복구·취소 서비스 다섯 군데라 엔티티에서 한 번에 남깁니다.
-- 청구 사건(`BillConfirmedEvent`·`BillWithdrawnEvent`·`BillUnpaidEvent`·`RefundCompletedEvent`)은 Task 5.4.x에서 이미 발행하고 있었습니다(받는 곳이 없었음).
+- 청구 사건(`BillConfirmedEvent`·`BillWithdrawnEvent`·`BillUnpaidEvent`·`RefundCompletedEvent`)은 Task 5.4.x에서 이미 발행하고 있었습니다(받는 곳이 없었음). 이 중 `BillUnpaidEvent`는 Task 9.3.4부터 알림 리스너가 받지 않습니다(청구 쪽은 그대로 발행).
 
 ### 잔고 위험: 매분 깨는 정기 작업 `balance-risk-notify`
 
@@ -107,6 +107,15 @@
 | 실적 판단에서 알림을 멈춘 카드는 그달 건너뜀(MR !306 리뷰) | 판단 응답이 "알림을 멈췄다"고 알려 주므로 그대로 지켜야 함. 유불리 판정(`guide`)은 보지 않고 사용자가 남긴 판단만 봄 | 판단 종류(SKIP만)로 거르기 |
 | 수동 실행은 기간도 무시 | 수동 실행은 시연용이고 시연 날짜가 월말이 아닐 수 있음. 정기 실행에는 영향 없음 | 기간을 지킴(월말 아니면 시연 불가) |
 
+## 결정 (2026-11-13, 미납 알림 Task 9.3.4)
+
+| 결정 | 이유 | 고르지 않은 것 |
+|---|---|---|
+| 미납(`BILL_UNPAID`) 알림을 만들지 않음 | YAMU는 등록 카드로 결제하는 간편결제 + 잔고예보 서비스다. 카드 대금 미납은 실제로는 카드사가 판단하는 일이고, YAMU는 모의 카드사 역할(FR-067 결제일 출금)로만 안다. 미납은 홈 '할 일'의 미납 항목과 미납 카드의 신용 승인 거절로 계속 보인다 | 미납 알림 유지(FR-069 문구 그대로) |
+| 청구서 UNPAID 상태·`BillUnpaidEvent` 발행·미납 카드 승인 거절은 그대로 | 잔고예보(미납 청구 제외)·홈 할 일·승인이 미납 상태를 쓴다 | 미납 처리 자체를 없앰 |
+
+- 요구사항 FR-069 수용 기준("미납 상태와 알림을 생성")과 어긋납니다. 노션 요구사항 정의서 FR-069를 고치는 것은 팀 확인이 필요합니다(Jira S15P31E103-486).
+
 ## 한계
 
 - 커밋과 알림 저장 사이에 서버가 꺼지면 그 알림은 쌓이지 않습니다. 다시 만드는 작업은 없습니다(임시).
@@ -122,7 +131,7 @@
 | 테스트 | 수 | 보는 것 |
 |---|---|---|
 | `NotificationWriterTest` | 7 | DB. 쌓기·같은 키 다시 쌓지 않음·8개 동시 쓰기에서 하나만, 사용자별 키, 묶음별 설정, 없는 사용자 404, 긴 문구 자르기, 키·이동 대상 모양 검사 |
-| `TransactionNotificationIntegrationTest` | 10 | DB. 승인 커밋 뒤 한 건·롤백이면 없음·취소 알림, 같은 사건 두 번, 거래 알림 끔, 저장 실패해도 승인 커밋·예외 없음, 남의 결제 번호, 청구 확정·출금·미납 문구, 0원 청구, 환급 |
+| `TransactionNotificationIntegrationTest` | 11 | DB. 승인 커밋 뒤 한 건·롤백이면 없음·취소 알림, 같은 사건 두 번, 거래 알림 끔, 저장 실패해도 승인 커밋·예외 없음, 남의 결제 번호, 청구 확정·출금 문구, 미납 사건이 와도 알림 없음, 0원 청구, 환급 |
 | `BalanceRiskNotifyJobTest` | 17 | 시각 전·시각·따라잡기·하루 한 번·사용자 시각, 끈 사용자, 실패 격리, 깨진 설정, 위험 없음·이어지는 구간·오늘부터 새 구간·미래 구간(표시 안 함), 미래 구간이 다음 날 오늘로 당겨지면 다시 알림, 계좌 하나의 위험, 수동 실행·dryRun, 계좌 없음 |
 | `BalanceRiskCheckTest` | 4 | 명세 예시(통합 안전·B 계좌 DANGER), 첫날이 같으면 통합, 가장 이른 구간, 위험 없음 |
 | `PerformanceShortfallCheckTest` | 9 | 첫 구간 부족만 고름, 첫 구간을 넘은 AT_RISK 제외, ON_TRACK·ACHIEVED·NO_TARGET·실적 행 없음 제외, 첫 5일, 인정액 확인 중 표시, 알림 멈춤 표시(되돌린 판단은 아님), 카드 순서·말일 남은 날 0, ACTIVE만 읽기 |

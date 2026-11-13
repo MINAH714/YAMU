@@ -66,22 +66,6 @@ final class NotificationMessages {
     }
 
     /**
-     * @param reason 은행 거절 사유 이름(INSUFFICIENT_BALANCE·ACCOUNT_NOT_FOUND·그 밖)
-     */
-    static NotificationWriter.Draft billUnpaid(long userId, long cardBillId, NotificationContentReader.Bill bill,
-            long unpaidAmount, String reason) {
-        String why = switch (reason) {
-            case "INSUFFICIENT_BALANCE" -> "결제 계좌 잔액이 부족해";
-            case "ACCOUNT_NOT_FOUND" -> "결제 계좌를 찾을 수 없어";
-            default -> "은행에서 출금이 거절돼";
-        };
-        String body = why + " " + bill.cardName() + " " + bill.billingMonth().getMonthValue() + "월 청구액 "
-                + won(unpaidAmount) + "을 출금하지 못했어요";
-        return new NotificationWriter.Draft(userId, NotificationType.BILL_UNPAID, "BILL_UNPAID:" + cardBillId,
-                "카드 대금 미납", body, CARD_BILL, cardBillId);
-    }
-
-    /**
      * @param payment 환급의 원래 결제. 읽지 못했으면 null(가맹점 없이 쓴다)
      */
     static NotificationWriter.Draft refundCompleted(long userId, long refundId, long paymentId,

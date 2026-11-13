@@ -157,15 +157,14 @@ class TransactionNotificationIntegrationTest extends MySqlTestSupport {
                 user, other)).isZero();
     }
 
-    // ───────── 청구·출금·미납·환급 ─────────
+    // ───────── 청구·출금·환급 ─────────
 
     @Test
-    void 청구_확정_출금_미납_알림은_청구서로_이동한다() {
+    void 청구_확정_출금_알림은_청구서로_이동한다() {
         long billId = bill(LocalDate.of(2026, 12, 1));
 
         publish(new BillConfirmedEvent(billId, user, card, 52_300L, LocalDate.of(2026, 12, 15), false));
         publish(new BillWithdrawnEvent(billId, user, card, 52_300L, LocalDate.of(2026, 12, 15), "FIN-1"));
-        publish(new BillUnpaidEvent(billId, user, card, 52_300L, TransferResult.RejectReason.INSUFFICIENT_BALANCE));
 
         Map<String, Object> confirmed = notification("BILL_CONFIRMED:" + billId);
         assertThat(confirmed.get("title")).isEqualTo("생활비 카드 12월 청구 확정");
@@ -174,8 +173,17 @@ class TransactionNotificationIntegrationTest extends MySqlTestSupport {
         assertThat(((Number) confirmed.get("target_id")).longValue()).isEqualTo(billId);
         assertThat(notification("BILL_WITHDRAWN:" + billId).get("body"))
                 .isEqualTo("생활비 카드 12월 청구액 52,300원이 12월 15일에 출금됐어요");
-        assertThat(notification("BILL_UNPAID:" + billId).get("body"))
-                .isEqualTo("결제 계좌 잔액이 부족해 생활비 카드 12월 청구액 52,300원을 출금하지 못했어요");
+    }
+
+    @Test
+    void 미납_사건이_와도_알림은_쌓지_않는다() {
+        long billId = bill(LocalDate.of(2026, 12, 1));
+
+        // Task 9.3.4(2026-11-13): 미납은 홈 '할 일'과 승인 거절로 보이고 앱 알림은 만들지 않는다
+        publish(new BillUnpaidEvent(billId, user, card, 52_300L, TransferResult.RejectReason.INSUFFICIENT_BALANCE));
+
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM notification WHERE user_id = ?", Long.class, user))
+                .isZero();
     }
 
     @Test
