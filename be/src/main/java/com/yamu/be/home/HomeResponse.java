@@ -3,6 +3,8 @@ package com.yamu.be.home;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
+import com.yamu.be.report.BenefitReportResponse;
+import com.yamu.be.report.BenefitSource;
 
 /**
  * 홈 요약({@code GET /api/home}). 칸 이름과 모양은 앱 {@code HomeDto.kt}(fe/android)를 따른다. 앱은 모르는 칸을 무시하고
@@ -21,11 +23,25 @@ import java.util.List;
  * @param recentPayment           가장 최근 승인 결제. 없으면 null
  * @param onboarding              연결 단계
  * @param todayCard               오늘 쓸 카드. 고를 근거가 없으면 null
+ * @param benefitSummary          이번 한국월 YAMU 이용 혜택. 전체에 확정액 포함
+ * @param forecastPreview         기준 계좌 내일부터 30일간 표시선 최저 잔고
  */
 public record HomeResponse(Cards cards, List<PerformanceAlert> performanceAlerts, BalanceForecast balanceForecast,
         MonthSummary monthSummary, int unreadNotificationCount, List<PartialError> partialErrors,
         LocalDateTime dataSyncedAt, List<Todo> todos, RecentPayment recentPayment, Onboarding onboarding,
-        TodayCard todayCard) {
+        TodayCard todayCard, BenefitSummary benefitSummary, ForecastPreview forecastPreview) {
+
+    /** 이번 한국월 YAMU 이용으로 발생한 혜택. totalBenefit에 confirmedBenefit이 포함된다. */
+    public record BenefitSummary(String yearMonth, BenefitSource source, String status, long totalBenefit,
+            long confirmedBenefit, long unconfirmedBenefit, long unconvertedBenefitCount,
+            List<BenefitReportResponse.TypeAmount> byType) {
+        public BenefitSummary { byType = List.copyOf(byType); }
+    }
+
+    /** 내일부터 30일 표시선(보수적 우선, 없으면 예상)의 최저 잔고. 현재 잔고와 오늘 일말을 섞지 않는다. */
+    public record ForecastPreview(Long accountId, long currentBalance, LocalDate from, LocalDate to, int horizonDays,
+            long minBalance, LocalDate minBalanceDate, LocalDate nextRiskDate, long alertThreshold,
+            LocalDateTime balanceAsOf, LocalDateTime calculatedAt, boolean isEstimate, boolean isProvisional) {}
 
     public record Cards(int count, List<CardItem> items) {}
 
@@ -74,7 +90,7 @@ public record HomeResponse(Cards cards, List<PerformanceAlert> performanceAlerts
     /**
      * 영역 하나의 실패.
      *
-     * @param area 응답 칸 이름(cards·performanceAlerts·balanceForecast·monthSummary·unreadNotificationCount·todos·recentPayment·todayCard·onboarding)
+     * @param area 응답 칸 이름(cards·performanceAlerts·balanceForecast·monthSummary·benefitSummary·forecastPreview·unreadNotificationCount·todos·recentPayment·todayCard·onboarding)
      * @param code 에러 코드(예: FIN_API_UNAVAILABLE). 예상하지 못한 오류는 INTERNAL_ERROR
      */
     public record PartialError(String area, String code) {}
