@@ -17,7 +17,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.imeAnimationTarget
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -124,7 +126,7 @@ import javax.inject.Inject
 
 /**
  * 가격 칸 — 숫자 + 파란 커서 + 오른쪽 끝 '원', 아래 2dp 파란 밑줄(프로토타입 .amount-field).
- * 이름 칸에 커서가 있는 동안([active] = false)엔 입력칸처럼 커서를 빼고 밑줄을 1dp 회색으로, 누르면 [onClick]으로 숫자 패드를 다시 연다
+ * 이름 칸에 커서가 있는 동안([active] = false)엔 입력칸처럼 커서를 빼고 밑줄을 1dp 회색으로, 그때만 누르면 [onClick]으로 숫자 패드를 다시 연다
  */
 @Composable
 private fun AmountField(amount: Long, active: Boolean, onClick: () -> Unit) {
@@ -134,7 +136,8 @@ private fun AmountField(amount: Long, active: Boolean, onClick: () -> Unit) {
     Row(
         Modifier
             .fillMaxWidth()
-            .clickable(interactionSource = null, indication = null, onClickLabel = "숫자 패드로 가격 넣기", onClick = onClick)
+            // 숫자 패드가 이미 떠 있으면 누를 일이 없다 — 클릭(TalkBack 안내 포함)은 이름 칸에 커서가 있을 때만
+            .then(if (active) Modifier else Modifier.clickable(interactionSource = null, indication = null, onClickLabel = "숫자 패드로 가격 넣기", onClick = onClick))
             .drawBehind { drawLine(line, Offset(0f, size.height - stroke.toPx() / 2), Offset(size.width, size.height - stroke.toPx() / 2), strokeWidth = stroke.toPx()) }
             .padding(top = 8.dp, bottom = 12.dp)
             .semantics(mergeDescendants = true) { contentDescription = "가격 ${amount.toWon()}원" },
@@ -154,6 +157,7 @@ private fun String.applyAmountKey(key: KeypadKey): String = when (key) {
     KeypadKey.Delete -> dropLast(1)
 }
 
+@OptIn(ExperimentalLayoutApi::class)   // imeAnimationTarget · isImeVisible
 @Composable
 fun BuyCheckInputRoute(onBack: () -> Unit, onNext: (amount: Long, title: String?) -> Unit) {
     var digits by rememberSaveable { mutableStateOf("") }
@@ -165,15 +169,20 @@ fun BuyCheckInputRoute(onBack: () -> Unit, onNext: (amount: Long, title: String?
     // 키패드는 한 번에 하나(QA 73) — 이름 칸에 커서가 있으면 시스템 키보드만, 커서가 빠지고 키보드가 다 내려가면 숫자 패드
     var titleFocused by remember { mutableStateOf(false) }
     val ime = WindowInsets.ime
+    val imeTarget = WindowInsets.imeAnimationTarget
     val density = LocalDensity.current
     val imeShown by remember(ime, density) { derivedStateOf { ime.getBottom(density) > 0 } }
+    val imeRising by remember(imeTarget, density) { derivedStateOf { imeTarget.getBottom(density) > 0 } }
+    val imeVisible = WindowInsets.isImeVisible
+    // 키보드가 떠 있음 — 높이가 있으면 목표도 위일 때만(내려가는 앞 키보드의 꼬리는 빼고), 높이가 0이면 보임 여부(플로팅 · 분할 화면)
+    val imeUp = if (imeShown) imeRising else imeVisible
     val showKeypad = !titleFocused && !imeShown
-    // 뒤로 가기는 키보드만 내리고 커서를 칸에 남긴다 — 키보드가 올라왔다 다 내려가면 커서도 뺀다
+    // 뒤로 가기는 키보드만 내리고 커서를 칸에 남긴다 — 커서가 있는 동안 키보드가 떴다가 내려가기 시작하면 커서도 뺀다
     var imeSeen by remember { mutableStateOf(false) }
-    LaunchedEffect(titleFocused, imeShown) {
+    LaunchedEffect(titleFocused, imeUp) {
         when {
             !titleFocused -> imeSeen = false
-            imeShown -> imeSeen = true
+            imeUp -> imeSeen = true
             imeSeen -> focusManager.clearFocus()
         }
     }
