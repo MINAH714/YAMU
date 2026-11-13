@@ -83,8 +83,11 @@ import androidx.compose.ui.unit.IntSize
 import com.yamu.app.core.designsystem.component.rememberRolledAmount
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.layout.Placeable
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.layoutId
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.Constraints
+import androidx.compose.ui.unit.Dp
 import com.yamu.app.core.designsystem.component.ErrorState
 import com.yamu.app.core.designsystem.component.EstimateTag
 import com.yamu.app.core.designsystem.component.ListRow
@@ -124,6 +127,8 @@ fun HomeRoute(
     onStartLinking: () -> Unit,
     onTodo: (userCardId: Long?) -> Unit,
     onRecentPayment: (paymentId: Long) -> Unit,
+    onPayments: () -> Unit,
+    onReport: () -> Unit,
     onRegisterIncome: () -> Unit,
     onAddCard: () -> Unit,
     viewModel: HomeViewModel = hiltViewModel(),
@@ -147,6 +152,11 @@ fun HomeRoute(
         onStartLinking = onStartLinking,
         onTodo = onTodo,
         onRecentPayment = onRecentPayment,
+        onPayments = {
+            viewModel.openPayments()   // 결제 내역을 최근 결제가 있는 달로 — 월초엔 지난달 결제일 수 있다
+            onPayments()
+        },
+        onReport = onReport,
         onRegisterIncome = onRegisterIncome,
         onAddCard = onAddCard,
     )
@@ -166,6 +176,8 @@ fun HomeScreen(
     onStartLinking: () -> Unit,
     onTodo: (Long?) -> Unit,
     onRecentPayment: (Long) -> Unit,
+    onPayments: () -> Unit = {},
+    onReport: () -> Unit = {},
     onRegisterIncome: () -> Unit = {},
     onAddCard: () -> Unit = {},
 ) {
@@ -189,11 +201,14 @@ fun HomeScreen(
             val content = state.content
             FillRestColumn(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
                 when {
-                    content != null -> HomeContent(content, state.userName, state.error, onPay, onForecast, onStartLinking, onTodo, onRecentPayment, onRegisterIncome, onAddCard)
+                    content != null -> HomeContent(content, state.userName, state.error, onPay, onForecast, onStartLinking, onTodo, onRecentPayment, onPayments, onRegisterIncome, onAddCard)
                     state.isLoading -> HomeSkeleton()
                     state.error != null -> YamuCard { ErrorState(state.error.userMessage(), onRetry = onRetry) }
                 }
-                if (state.showsEntries) HomeEntries(onPay.takeIf { content == null }, onForecast, onCashflow)
+                when {
+                    state.showsEntries -> HomeEntries(onPay.takeIf { content == null }, onForecast, onCashflow, onReport)
+                    state.showsReportEntry -> ReportEntry(onReport)
+                }
                 // 예상 잔액 카드가 남는 높이를 받으면 아래 빈자리가 없으니 맨 아래 여백도 카드 사이 간격(카드가 둔 12dp)만
                 if (content?.forecast?.hasCoinStage() != true) Spacer(Modifier.height(YamuSpacing.bottomSafe))
             }
@@ -211,6 +226,7 @@ private fun HomeContent(
     onStartLinking: () -> Unit,
     onTodo: (Long?) -> Unit,
     onRecentPayment: (Long) -> Unit,
+    onPayments: () -> Unit,
     onRegisterIncome: () -> Unit,
     onAddCard: () -> Unit,
 ) {
@@ -272,7 +288,7 @@ private fun HomeContent(
         }
     }
 
-    RecentPaymentSlot(home.recentPayment, onRecentPayment)
+    RecentPaymentSlot(home.recentPayment, onRecentPayment, onPayments)
 
     when {
         home.forecast != null -> ForecastCard(home.forecast, onForecast, onRegisterIncome)
@@ -293,10 +309,7 @@ private fun HomeContent(
 
     if (home.todos.isNotEmpty()) {
         YamuCard(contentPadding = PaddingValues(start = 20.dp, end = 16.dp, top = 16.dp, bottom = 4.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("야무가 챙겨 봤어요", style = YamuTheme.typography.cardTitle, color = c.text1, modifier = Modifier.weight(1f))
-                if (home.forecast?.isProvisional == true) Text("잠정 판단", style = YamuTheme.typography.sub, color = c.text3)
-            }
+            Text("야무가 챙겨 봤어요", style = YamuTheme.typography.cardTitle, color = c.text1)
             home.todos.forEachIndexed { i, todo ->
                 if (i > 0) HorizontalDivider(color = c.outlineVariant)
                 TodoRow(todo, onClick = { onTodo(todo.userCardId) })
@@ -307,17 +320,28 @@ private fun HomeContent(
 
 /** 홈 요약 없이도 열 수 있는 화면 — 요약을 받았으면 결제 버튼은 위에 이미 있다 */
 @Composable
-private fun HomeEntries(onPay: (() -> Unit)?, onForecast: () -> Unit, onCashflow: () -> Unit) {
+private fun HomeEntries(onPay: (() -> Unit)?, onForecast: () -> Unit, onCashflow: () -> Unit, onReport: () -> Unit) {
     onPay?.let {
         Column(Modifier.padding(horizontal = YamuSpacing.screen).padding(bottom = YamuSpacing.blockGap)) {
             PrimaryButton("QR로 결제하기", onClick = it)
         }
     }
-    YamuCard(contentPadding = PaddingValues(start = 20.dp, end = 16.dp, top = 8.dp, bottom = 8.dp)) {
+    YamuCard(contentPadding = EntryCardPadding) {
         ListRow(title = "잔고예보", chevron = true, onClick = onForecast)
         ListRow(title = "예정 수입·지출", chevron = true, onClick = onCashflow)
+        ListRow(title = "소비분석", chevron = true, onClick = onReport)
     }
 }
+
+/** 예상 잔액 카드가 잔고예보 입구를 맡을 때 맨 아래 소비분석 줄만(누르면 소비분석 탭으로) */
+@Composable
+private fun ReportEntry(onReport: () -> Unit) {
+    YamuCard(contentPadding = EntryCardPadding) {
+        ListRow(title = "소비분석", chevron = true, onClick = onReport)
+    }
+}
+
+private val EntryCardPadding = PaddingValues(start = 20.dp, end = 16.dp, top = 8.dp, bottom = 8.dp)
 
 /** 예상 잔액이 0원보다 많으면 카드 아래에 동전 무대를 두고, 그 카드가 홈의 남는 높이를 받는다 */
 private fun ForecastSummary.hasCoinStage(): Boolean = coinCountFor(amount) > 0
@@ -346,12 +370,10 @@ private fun ForecastCard(forecast: ForecastSummary, onClick: () -> Unit, onRegis
         Spacer(Modifier.height(4.dp))
         AmountText(forecast.amount, shortage = forecast.amount < 0)
         Spacer(Modifier.height(8.dp))   // 금액 아래 4dp는 AmountText가 둔다
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            forecast.statusLine(hero = false)?.let {
-                StatusTag(it, tone = if (forecast.shortageFrom != null) TagTone.Error else TagTone.Success)
-            }
-            // 첫날은 판단 근거가 적다는 것만 — D-day는 인사 머리가, 계산 시각은 오류일 때 위 줄이 말한다
-            if (forecast.isProvisional) Text("정확도 낮음", style = YamuTheme.typography.bodyS, color = c.text3)
+        // '정확도 낮음'은 11/12 회의에서 뺐다. isProvisional은 서버에서 '생활비 자료가 없어 보수적 선 없이 계산함'이라는 뜻이고(HomeResponse),
+        // 홈에서 이 값을 쓰는 곳은 인사 머리 '가입 첫날이에요'만 남았다 — 첫날이 지나도 생활비 자료가 없으면 그 문구가 이어질 수 있다
+        forecast.statusLine(hero = false)?.let {
+            StatusTag(it, tone = if (forecast.shortageFrom != null) TagTone.Error else TagTone.Success)
         }
     }
 }
@@ -452,7 +474,6 @@ private fun ForecastHero(forecast: ForecastSummary, onClick: () -> Unit, onRegis
                 HeroStatus(it, dot = if (forecast.shortageFrom != null) c.error else c.success)
             }
             if (forecast.needsIncome) HeroAction("월급을 등록하면 월급 전 잔액을 알려 드려요", onRegisterIncome)
-            if (forecast.isProvisional) Text("정확도 낮음", style = YamuTheme.typography.bodyS, color = c.onHeroMuted)
         }
         Spacer(Modifier.height(YamuSpacing.x3))
         CoinPile(
@@ -561,12 +582,19 @@ private fun FillRestColumn(modifier: Modifier, content: @Composable () -> Unit) 
 
 private const val FILL_REST = "fillRest"
 
+/** 보이는 높이는 [visible]로 두고 터치 칸은 제 크기대로 위아래로 넘친다(ForecastScreen의 같은 이름 도우미와 같다) */
+private fun Modifier.overflowHeight(visible: Dp) = layout { measurable, constraints ->
+    val p = measurable.measure(constraints.copy(minHeight = 0, maxHeight = Constraints.Infinity))
+    val h = visible.roundToPx()
+    layout(p.width, h) { p.place(0, (h - p.height) / 2) }
+}
+
 /**
  * 결제하고 돌아오면 이 줄이 새로 생기고 아래 예상 잔액 카드가 그만큼 줄어든다 — 한 번에 튀지 않게 위에서부터 펼친다.
  * 처음부터 있으면 그냥 보인다. 모션 줄이기면 페이드만
  */
 @Composable
-private fun RecentPaymentSlot(payment: RecentPayment?, onClick: (Long) -> Unit) {
+private fun RecentPaymentSlot(payment: RecentPayment?, onClick: (Long) -> Unit, onAll: () -> Unit) {
     val reduce = YamuTheme.reduceMotion
     val kept = remember { mutableStateOf(payment) }      // 사라지는 동안에도 그릴 마지막 결제
     if (payment != null) kept.value = payment
@@ -576,19 +604,47 @@ private fun RecentPaymentSlot(payment: RecentPayment?, onClick: (Long) -> Unit) 
         enter = if (reduce) fadeIn(tween(YamuMotion.SHORT_MS)) else expandVertically(spec, expandFrom = Alignment.Top) + fadeIn(tween(RECENT_ROW_MS)),
         exit = if (reduce) fadeOut(tween(YamuMotion.SHORT_MS)) else shrinkVertically(spec, shrinkTowards = Alignment.Top) + fadeOut(tween(RECENT_ROW_MS)),
     ) {
-        kept.value?.let { RecentPaymentRow(it, onClick = { onClick(it.paymentId) }) }
+        kept.value?.let { RecentPaymentCard(it, onClick = { onClick(it.paymentId) }, onAll = onAll) }
     }
 }
 
 private const val RECENT_ROW_MS = 300
 
+/**
+ * 최근 결제 카드 — 머리 '최근 결제 · 전체 보기 ›'(결제 내역 S-05로, 2차 QA 39) 아래 결제 한 줄(누르면 결제 상세).
+ * 최근 결제 3건(2차 QA 44)이 나오면 이 머리 아래 줄만 늘린다
+ */
 @Composable
-private fun RecentPaymentRow(payment: RecentPayment, onClick: () -> Unit) {
+private fun RecentPaymentCard(payment: RecentPayment, onClick: () -> Unit, onAll: () -> Unit) {
     val c = YamuTheme.colors
     // '야무카페 역삼점 15,000원' / '방금 · 신한카드 1,500원 할인'(할인만 파랑) — 프로토타입 H-01c. 시각은 paidAt으로(어제 결제면 '어제 17:05')
     val time = paidAtLabel(payment.paidAtIso)
-    YamuCard(onClick = onClick, contentPadding = PaddingValues(start = 20.dp, end = 16.dp, top = 4.dp, bottom = 4.dp)) {
-        Row(Modifier.fillMaxWidth().heightIn(min = 64.dp), verticalAlignment = Alignment.CenterVertically) {
+    // 좌우 · 아래 여백은 줄마다 둔다 — 결제 줄은 카드 끝까지 눌리고 물결도 카드 모양대로(예전 카드 전체 누르기와 같은 범위)
+    YamuCard(contentPadding = PaddingValues(top = 16.dp)) {
+        // 머리 줄 24dp — '전체 보기' 터치 칸(48)은 위아래로 넘친다(잔고예보 '예정된 돈' 카드와 같은 모양)
+        Row(Modifier.padding(start = 20.dp, end = 16.dp).heightIn(min = 24.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text("최근 결제", style = YamuTheme.typography.cardTitle, color = c.text1, modifier = Modifier.weight(1f))
+            Row(
+                Modifier
+                    .overflowHeight(24.dp)
+                    .heightIn(min = 48.dp)
+                    .clip(RoundedCornerShape(YamuRadius.s))
+                    .clickable(role = Role.Button, onClickLabel = "결제 내역 보기", onClick = onAll)
+                    .padding(start = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("전체 보기", style = YamuTheme.typography.link, color = c.text3)
+                Icon(YamuIcons.ChevronRight, contentDescription = null, tint = c.text3, modifier = Modifier.size(18.dp))
+            }
+        }
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .clickable(role = Role.Button, onClickLabel = "결제 상세 보기", onClick = onClick)
+                .padding(start = 20.dp, end = 16.dp, bottom = 4.dp)
+                .heightIn(min = 64.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
             Column(Modifier.weight(1f)) {
                 Text("${payment.merchantName} ${payment.amount.toWon()}원", style = YamuTheme.typography.titleM, color = c.text1, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text(

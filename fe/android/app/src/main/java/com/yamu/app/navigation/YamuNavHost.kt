@@ -241,6 +241,9 @@ fun YamuNavHost(navController: NavHostController, modifier: Modifier = Modifier)
                         onStartLinking = { navController.navigate(LinkGraph) },
                         onTodo = { userCardId -> navController.navigate(PerfAnalysis(userCardId ?: 1L)) },
                         onRecentPayment = { paymentId -> navController.navigate(PaymentDetail(paymentId)) },
+                        // 결제 내역은 홈 위에 쌓고(뒤로 = 홈), 소비분석은 하단 탭을 누른 것과 같이 탭을 바꾼다(2차 QA 19 · 39)
+                        onPayments = { navController.navigate(Payments) },
+                        onReport = { navController.navigateToTab(TopTab.REPORT) },
                         onRegisterIncome = { navController.navigate(CashflowConfirm(fromHome = true)) },
                         onAddCard = { navController.navigate(AddCard) },
                     )
