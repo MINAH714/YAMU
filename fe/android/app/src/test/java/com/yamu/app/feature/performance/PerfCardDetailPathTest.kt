@@ -7,6 +7,7 @@ import com.yamu.app.feature.performance.data.PerfAnalysis
 import com.yamu.app.feature.performance.data.PerfDecision
 import com.yamu.app.feature.performance.data.PerfGuide
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -55,6 +56,16 @@ class PerfCardDetailPathTest {
         assertNotEquals(card(noTarget = false).otherRowLabel(), card(noTarget = true).otherRowLabel())
     }
 
+    @Test fun `그 밖의 카드 줄 읽기 이름에 방금 반영된 금액도 보이는 차례대로 넣는다`() {
+        assertEquals("우리카드 NU +15,000원 달성", card(noTarget = false, recentChange = 15_000).otherRowLabel())
+        assertEquals("우리카드 NU +15,000원 실적 조건 없음", card(noTarget = true, recentChange = 15_000).otherRowLabel())
+    }
+
+    @Test fun `그 밖의 카드 중 달성 카드만 R-02를 연다 — 실적 조건 없는 카드는 홈 내 카드처럼 누를 수 없다`() {
+        assertTrue(card(noTarget = false).opensCardDetail)
+        assertFalse(card(noTarget = true).opensCardDetail)
+    }
+
     private companion object {
         val MOVABLE = MovableItem(cashflowItemId = 3, title = "통신비", amount = 55_000, deadlineIso = "2026-11-25", note = null)
 
@@ -64,10 +75,10 @@ class PerfCardDetailPathTest {
             isEstimate = true, version = "v1",
         )
 
-        fun card(noTarget: Boolean) = CardPerf(
+        fun card(noTarget: Boolean, recentChange: Long? = null) = CardPerf(
             userCardId = 2, brand = brandOf("우리카드"), name = "우리카드 NU", target = if (noTarget) null else 300_000, targetLabel = null,
             recognized = 320_000, remaining = 0, achieved = !noTarget, noTarget = noTarget, guide = null, decision = null,
-            provisional = false, recentChange = null, recentAtIso = null,
+            provisional = false, recentChange = recentChange, recentAtIso = null,
         )
     }
 }

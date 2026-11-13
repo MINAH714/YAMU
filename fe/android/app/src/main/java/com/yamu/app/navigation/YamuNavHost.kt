@@ -2,6 +2,7 @@ package com.yamu.app.navigation
 
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.navigation.NavDestination.Companion.hasRoute
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -337,10 +338,10 @@ fun YamuNavHost(navController: NavHostController, modifier: Modifier = Modifier)
                     )
                 }
                 composable<CardPerformance> {
-                    CardPerformanceRoute(onBack = back, onAnalysis = { id -> navController.navigate(PerfAnalysis(id)) })
+                    CardPerformanceRoute(onBack = back, onAnalysis = { id -> navController.backOrNavigate(PerfAnalysis(id)) })
                 }
                 composable<PerfAnalysis> {
-                    PerfAnalysisRoute(onBack = back, onCardDetail = { id -> navController.navigate(CardPerformance(id)) })
+                    PerfAnalysisRoute(onBack = back, onCardDetail = { id -> navController.backOrNavigate(CardPerformance(id)) })
                 }
                 composable<BenefitLimits> { BenefitLimitsRoute(onBack = back, onPay = { navController.navigate(PayCode) }) }
             }
@@ -519,4 +520,15 @@ fun YamuNavHost(navController: NavHostController, modifier: Modifier = Modifier)
             composable<ComponentGallery> { ComponentGallery(onBack = back) }
         }
     }
+}
+
+/**
+ * 바로 앞 화면이 [route]와 같은 화면 · 같은 경로 값이면 그리로 돌아가고, 아니면 새로 연다.
+ * R-02(카드 실적 상세)와 R-03(실적 분석)은 서로를 여는 링크가 있어 오갈 때마다 두 화면이 쌓였다(S15P31E103-451 리뷰).
+ * R-03은 탭으로 카드가 바뀌므로 화면 종류만이 아니라 카드(경로 값)까지 같을 때만 돌아간다 — 다르면 새로 연다
+ */
+private inline fun <reified T : Any> NavHostController.backOrNavigate(route: T) {
+    val previous = previousBackStackEntry
+    if (previous != null && previous.destination.hasRoute<T>() && previous.toRoute<T>() == route) popBackStack()
+    else navigate(route)
 }
