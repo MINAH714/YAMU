@@ -34,6 +34,8 @@ enum class ApiFeature(val key: String, val label: String) {
             if (CASHFLOW in on || FORECAST in on) on += LINK
             // 카드 상세 '다음 출금' → 그 카드 청구서. 카드 목록이 가짜면 가짜 카드 번호로 진짜 청구서를 찾다가 '찾을 수 없는 카드'가 뜬다
             if (BILLING in on) on += LINK
+            // 결제 코드는 인증 전에 카드 목록으로 0장인지 본다(S15P31E103-450). 목록이 가짜(0장)면 진짜 카드가 있어도 '결제할 카드가 없어요'로 끝난다
+            if (PAYMENT in on) on += LINK
             return on
         }
     }

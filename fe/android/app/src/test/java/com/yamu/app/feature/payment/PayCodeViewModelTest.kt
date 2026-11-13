@@ -8,6 +8,7 @@ import com.yamu.app.core.security.DeviceKeyManager
 import com.yamu.app.feature.auth.PinPadResult
 import com.yamu.app.feature.auth.StepUpFactory
 import com.yamu.app.feature.auth.StepUpResults
+import com.yamu.app.feature.auth.StepUpUi
 import com.yamu.app.feature.auth.data.AuthRepository
 import com.yamu.app.feature.auth.data.StepUpPurpose
 import com.yamu.app.feature.auth.data.StepUpToken
@@ -61,13 +62,28 @@ class PayCodeViewModelTest {
 
     @After fun tearDown() = Dispatchers.resetMain()
 
-    /** 인증 → 코드 발급 → 가맹점이 찍어 결제 요청 화면(P-06c)까지 */
-    private fun TestScope.toRequest(): PayCodeViewModel {
+    /** 화면을 연다 — 처음엔 카드 목록부터 본다(S15P31E103-450) */
+    private fun TestScope.open(): PayCodeViewModel {
         val vm = PayCodeViewModel(payments, auth, StepUpFactory(auth, DeviceKeyManager(object : ContextWrapper(null) {}), results), link)
         runCurrent()
-        vm.stepUp.onPinOpened()
+        return vm
+    }
+
+    private fun TestScope.passPin() {
         results.deliver(PinPadResult.Verified(StepUpPurpose.BARCODE, StepUpToken("su", StepUpPurpose.BARCODE)))
         runCurrent()
+    }
+
+    /** 인증 → 코드 발급 → 가맹점이 찍어 결제 요청 화면(P-06c)까지 */
+    private fun TestScope.toRequest(): PayCodeViewModel {
+        val vm = open()
+        // 카드 목록이 늦으면 상한까지 기다린 뒤 인증이 뜬다
+        if (vm.state.value.checkingCards) {
+            advanceTimeBy(CARD_CHECK_MS)
+            runCurrent()
+        }
+        vm.stepUp.onPinOpened()
+        passPin()
         vm.setVisible(true)
         runCurrent()
         assertTrue(vm.state.value.phase is PayPhase.Request)
@@ -77,6 +93,103 @@ class PayCodeViewModelTest {
     private fun TestScope.finish(vm: PayCodeViewModel) {
         vm.viewModelScope.cancel()
         runCurrent()
+    }
+
+    /** 단언이 실패해도 viewModelScope를 닫는다 — 안 닫으면 1초 시계 때문에 runTest가 끝나지 않는다 */
+    private inline fun TestScope.closing(vm: PayCodeViewModel, block: () -> Unit) {
+        try {
+            block()
+        } finally {
+            finish(vm)
+        }
+    }
+
+    // ── 처음 열 때 카드 목록부터(S15P31E103-450) — 쓸 카드가 없으면 간편 비밀번호를 받지 않는다 ──
+
+    @Test fun `쓸 수 있는 카드가 0장이면 인증 없이 결제할 카드가 없어요`() = runTest(dispatcher) {
+        link.cardsResult = ApiResult.Success(emptyList())
+        val vm = open()
+        closing(vm) {
+            assertEquals(PayPhase.NoCard, vm.state.value.phase)
+            assertFalse(vm.state.value.checkingCards)
+            assertEquals("간편 비밀번호 · 지문을 띄우지 않는다", StepUpUi.Idle, vm.stepUp.ui.value)
+            assertEquals(0, payments.issues)
+        }
+    }
+
+    @Test fun `추천에서 뺀 카드만 있으면 0장으로 본다`() = runTest(dispatcher) {
+        // BE 바코드 발급도 status ACTIVE만 센다 — INACTIVE(추천 제외)만 있으면 NO_ACTIVE_CARD
+        link.cardsResult = ApiResult.Success(listOf(listedOther.copy(recommended = false)))
+        val vm = open()
+        closing(vm) {
+            assertEquals(PayPhase.NoCard, vm.state.value.phase)
+            assertEquals(StepUpUi.Idle, vm.stepUp.ui.value)
+        }
+    }
+
+    @Test fun `쓸 수 있는 카드가 1장이면 지금처럼 인증부터 하고 목록은 다시 받지 않는다`() = runTest(dispatcher) {
+        link.cardsResult = ApiResult.Success(listOf(listedOther))
+        val vm = open()
+        closing(vm) {
+            assertEquals(PayPhase.Auth, vm.state.value.phase)
+            assertEquals(StepUpUi.OpenPin(StepUpPurpose.BARCODE), vm.stepUp.ui.value)
+            vm.stepUp.onPinOpened()
+            passPin()
+            assertTrue(vm.state.value.phase is PayPhase.Code)
+            assertEquals(1, payments.issues)
+            assertEquals("처음 받은 목록을 요청 화면에도 쓴다", 1, link.cardsCalls)
+        }
+    }
+
+    @Test fun `카드 목록을 못 받으면 인증부터 하고 서버가 카드 없음을 주면 그때 안내한다`() = runTest(dispatcher) {
+        link.cardsResult = ApiResult.Failure(ApiError.Network)
+        payments.issueResult = ApiResult.Failure(ApiError.Conflict("NO_ACTIVE_CARD"))
+        val vm = open()
+        closing(vm) {
+            assertEquals(PayPhase.Auth, vm.state.value.phase)
+            assertEquals(StepUpUi.OpenPin(StepUpPurpose.BARCODE), vm.stepUp.ui.value)
+            vm.stepUp.onPinOpened()
+            passPin()
+            assertEquals(PayPhase.NoCard, vm.state.value.phase)
+        }
+    }
+
+    @Test fun `카드 목록이 늦으면 상한까지만 기다리고 인증부터 한다`() = runTest(dispatcher) {
+        link.cardsResult = ApiResult.Success(emptyList())
+        link.cardsDelayMs = 5_000
+        val vm = open()
+        closing(vm) {
+            assertTrue(vm.state.value.checkingCards)
+            vm.openCode()   // 기다리는 동안 [결제 코드 열기]를 눌러도 인증은 한 번만
+            runCurrent()
+            assertEquals(StepUpUi.Idle, vm.stepUp.ui.value)
+            advanceTimeBy(CARD_CHECK_MS - 1)
+            runCurrent()
+            assertEquals("상한 전에는 아직 기다린다", StepUpUi.Idle, vm.stepUp.ui.value)
+            advanceTimeBy(1)
+            runCurrent()
+            assertFalse(vm.state.value.checkingCards)
+            assertEquals(PayPhase.Auth, vm.state.value.phase)
+            assertEquals(StepUpUi.OpenPin(StepUpPurpose.BARCODE), vm.stepUp.ui.value)
+            advanceTimeBy(5_000)
+            runCurrent()
+            // 상한에서 목록 호출째 취소되므로 5초 뒤에 '늦게 오는' 0장 응답은 없다
+            assertEquals("시간 초과된 목록 호출은 취소된다", 1 to 0, link.cardsCalls to link.cardsReturned)
+            assertEquals(PayPhase.Auth, vm.state.value.phase)
+        }
+    }
+
+    @Test fun `새 코드는 카드 목록을 다시 보지 않고 바로 인증한다`() = runTest(dispatcher) {
+        val vm = open()
+        closing(vm) {
+            vm.stepUp.onPinOpened()
+            passPin()
+            assertTrue(vm.state.value.phase is PayPhase.Code)
+            vm.openCode()
+            runCurrent()
+            assertEquals(StepUpUi.OpenPin(StepUpPurpose.BARCODE), vm.stepUp.ui.value)
+            assertEquals(1, link.cardsCalls)
+        }
     }
 
     @Test fun `승인되면 화면이 바뀔 때까지 판을 붙여 두고 navigated 뒤에도 남는다`() = runTest(dispatcher) {
@@ -506,7 +619,7 @@ class PayCodeViewModelTest {
         cards = listOf(card(1, check = false).copy(name = "점심 카드", brand = brandOf("점심 카드"), issuerUnknown = true), card(2, check = true)),
     )
 
-    @Test fun `코드를 띄운 동안 받은 카드 목록으로 별명 카드에 카드사 · 상품명을 붙인다`() = runTest(dispatcher) {
+    @Test fun `처음 받은 카드 목록으로 별명 카드에 카드사 · 상품명을 붙인다`() = runTest(dispatcher) {
         payments.request = aliasRequest()
         link.cardsResult = ApiResult.Success(listOf(listedToktok))
         val vm = toRequest()
@@ -547,13 +660,17 @@ class PayCodeViewModelTest {
     }
 
     private class StubLink : LinkRepository by unusedLink() {
-        var cardsResult: ApiResult<List<LinkedCard>> = ApiResult.Success(emptyList())
+        /** 기본은 쓸 수 있는 카드 한 장 — 요청 카드와 번호가 달라 붙는 값은 없다 */
+        var cardsResult: ApiResult<List<LinkedCard>> = ApiResult.Success(listOf(listedOther))
         var cardsDelayMs = 0L
         var cardsCalls = 0
+        /** 기다림 끝까지 가서 응답을 돌려준 호출(도중에 취소되면 세지 않는다) */
+        var cardsReturned = 0
 
         override suspend fun cards(): ApiResult<List<LinkedCard>> {
             cardsCalls++
             delay(cardsDelayMs)
+            cardsReturned++
             return cardsResult
         }
     }
@@ -564,8 +681,14 @@ class PayCodeViewModelTest {
         /** null이면 승인 */
         var approveResult: ApiResult<ApproveOutcome>? = null
 
-        override suspend fun issueCode(stepUpToken: String) =
-            ApiResult.Success(PayCode("tok", "barcode", "qr", OffsetDateTime.now().plusMinutes(3).toString()))
+        var issues = 0
+        /** null이면 발급 */
+        var issueResult: ApiResult<PayCode>? = null
+
+        override suspend fun issueCode(stepUpToken: String): ApiResult<PayCode> {
+            issues++
+            return issueResult ?: ApiResult.Success(PayCode("tok", "barcode", "qr", OffsetDateTime.now().plusMinutes(3).toString()))
+        }
 
         /** 마감은 테스트마다 정한다. 기본은 한 시간 뒤라 느린 실행에도 만료되지 않음 */
         var request = request(OffsetDateTime.now().plusHours(1))
@@ -634,6 +757,12 @@ class PayCodeViewModelTest {
         val listedToktok = LinkedCard(
             userCardId = 1, brand = brandOf("KB국민카드", color = "#FFBC00"), productName = "KB국민 청춘대로 톡톡카드", isCheck = false,
             last4 = "0001", paymentDay = 14, recognizedAmount = null, yearMonth = null, nickname = "점심 카드",
+        )
+
+        /** 결제 요청에 오지 않는 쓸 수 있는(ACTIVE) 카드 */
+        val listedOther = LinkedCard(
+            userCardId = 9, brand = brandOf("신한카드"), productName = "신한카드 Deep Dream", isCheck = false,
+            last4 = "0009", paymentDay = 14, recognizedAmount = null, yearMonth = null,
         )
     }
 }
