@@ -2,6 +2,8 @@ package com.yamu.app.feature.home
 
 import com.yamu.app.core.network.ApiError
 import com.yamu.app.core.network.ApiResult
+import com.yamu.app.feature.home.data.ForecastSummary
+import com.yamu.app.feature.home.data.HomeSummary
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
@@ -31,5 +33,25 @@ class HomeSectionTest {
         assertEquals(5, HomeSection.Ready(5).dataOrNull)
         assertNull(HomeSection.Loading.dataOrNull)
         assertNull(HomeSection.Failed(failed).dataOrNull)
+    }
+
+    // ── 잔고예보 요약 칸(HOME-14 · 사용자 상태별 처리) ──
+
+    private fun home(accountId: Long?, needsLinking: Boolean = false, failed: Set<String> = emptySet()) = HomeSummary(
+        forecast = accountId?.let { ForecastSummary("지금 잔액", 412_000, false, false, null, null, null, accountId = it, currentBalance = 412_000) },
+        recentPayment = null, todos = emptyList(), cardCount = 6, unreadCount = 0, needsLinking = needsLinking, syncedAtIso = null, failedAreas = failed,
+    )
+
+    @Test fun `기준 계좌가 있으면 요약`() {
+        assertEquals(ForecastSlot.Brief, forecastSlot(home(accountId = 7)))
+    }
+
+    @Test fun `연결 전이면 위 안내가 맡아 숨긴다`() {
+        assertEquals(ForecastSlot.Hidden, forecastSlot(home(accountId = null, needsLinking = true)))
+    }
+
+    @Test fun `잔고 영역만 실패했으면 계좌를 몰라 실패 · 비어 있으면 계좌 연결 안내`() {
+        assertEquals(ForecastSlot.HomeFailed, forecastSlot(home(accountId = null, failed = setOf("balanceForecast"))))
+        assertEquals(ForecastSlot.NoAccount, forecastSlot(home(accountId = null)))
     }
 }

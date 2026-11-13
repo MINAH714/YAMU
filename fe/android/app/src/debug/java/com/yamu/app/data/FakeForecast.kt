@@ -340,6 +340,13 @@ class FakeForecastRepository @Inject constructor(private val bank: FakeBank) : F
      * BE HomeService.forecast처럼 기준 계좌 하나로 잔고예보 설정 기간(월급 전날까지, 월급이 없으면 30일)을 계산한다.
      * 그래서 계좌가 하나면 잔고예보 첫 화면과 같은 금액이고, 둘 이상이면 잔고예보에서 기준 계좌만 골랐을 때와 같다(실서버도 같음)
      */
+    /**
+     * 가짜 홈 잔고예보 요약(S15P31E103-481) — 홈은 기준 계좌 하나 · 30일로 다시 부른다. 잔고예보에서 같은 계좌 · 30일을 고르면 같은 응답이다.
+     * 연결된 계좌가 아니면 null
+     */
+    fun homeBrief(accountId: Long): BalanceForecastDto? =
+        accountList.firstOrNull { it.id == accountId }?.let { build(ForecastSelection(ForecastPeriod.DAYS_30, setOf(it.id))) }
+
     fun homeForecast(): HomeForecast? {
         val base = accountList.firstOrNull { it.primary } ?: accountList.firstOrNull() ?: return null
         val dto = build(ForecastSelection(accountIds = setOf(base.id)))

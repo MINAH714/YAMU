@@ -47,6 +47,10 @@ data class ForecastSummary(
     val shortageFrom: LocalDate?,
     /** 잔고예보 월급을 아직 정하지 않았다(nextIncome 없음) — 홈이 월급 등록(B-06)으로 이끈다(S15P31E103-429) */
     val needsIncome: Boolean = false,
+    /** 기준 계좌(BE가 is_primary 계좌로 채움) — 홈 잔고예보 요약이 이 계좌 · 30일로 예보를 다시 부른다(S15P31E103-481) */
+    val accountId: Long? = null,
+    /** 기준 계좌 지금 잔액 — 예보만 실패했을 때 요약 칸에 남긴다 */
+    val currentBalance: Long? = null,
 )
 
 enum class TodoTone { Neutral, Primary, Success, Warning, Error }
@@ -129,6 +133,8 @@ private fun BalanceForecastDto.toForecast(today: LocalDate): ForecastSummary? {
             daysToIncome = null,
             shortageFrom = null,
             needsIncome = true,
+            accountId = accountId,
+            currentBalance = currentBalance,
         )
     }
     val (label, amount) = when {
@@ -147,6 +153,8 @@ private fun BalanceForecastDto.toForecast(today: LocalDate): ForecastSummary? {
         daysToIncome = income?.let { ChronoUnit.DAYS.between(today, it) },
         shortageFrom = parseDate(nextRiskDate),
         needsIncome = income == null,
+        accountId = accountId,
+        currentBalance = currentBalance,
     )
 }
 

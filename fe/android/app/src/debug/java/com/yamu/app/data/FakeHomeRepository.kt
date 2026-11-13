@@ -11,6 +11,13 @@ import com.yamu.app.feature.home.data.CardItemDto
 import com.yamu.app.feature.home.data.CardsDto
 import com.yamu.app.feature.home.data.HomeBenefit
 import com.yamu.app.feature.home.data.HomeBenefitSummaryDto
+import com.yamu.app.feature.home.data.HomeCardsData
+import com.yamu.app.feature.home.data.HomeForecastBrief
+import com.yamu.app.feature.home.data.HomeForecastDto
+import com.yamu.app.feature.home.data.HomeForecastSummaryDto
+import com.yamu.app.feature.home.data.toBrief
+import com.yamu.app.feature.performance.data.LimitCardDto
+import com.yamu.app.feature.performance.data.LimitDto
 import com.yamu.app.feature.home.data.HomeDto
 import com.yamu.app.feature.home.data.HomeMonthlyDto
 import com.yamu.app.feature.home.data.HomeRepository
@@ -44,6 +51,7 @@ class FakeHomeRepository @Inject constructor(
     private val bank: FakeBank,
     private val forecasts: FakeForecastRepository,
     private val payments: FakePaymentRepository,
+    private val performance: FakePerformanceRepository,
 ) : HomeRepository {
 
     override suspend fun loadHome(): ApiResult<HomeSummary> {
@@ -107,6 +115,49 @@ class FakeHomeRepository @Inject constructor(
         return ApiResult.Success(
             if (scenario == HomeScenario.AUTO_SELECT_OFF) PaySettings(autoSelect = false, defaultUserCardId = default ?: cards.firstOrNull()?.userCardId)
             else PaySettings(auto, default),
+        )
+    }
+
+    /**
+     * 내 카드 혜택 현황 — 실적은 가짜 실적관리와 같은 값을 카드 목록 순서로(BE #65가 카드 목록 순서),
+     * 한도는 가짜 실적관리 R-06과 같은 남은 금액에 한도 이름을 붙였다. Mr.Life의 통신비 할인은 횟수 한도라 금액을 모른다(null)
+     */
+    override suspend fun loadCards(): ApiResult<HomeCardsData> {
+        val scenario = scenario()
+        if (scenario == HomeScenario.NETWORK_ERROR) return ApiResult.Failure(ApiError.Network)
+        val overview = when (val o = performance.overview()) {
+            is ApiResult.Failure -> return o
+            is ApiResult.Success -> o.data
+        }
+        val order = bank.registeredCardIds()
+        val cards = overview.all.sortedBy { order.indexOf(it.userCardId).takeIf { i -> i >= 0 } ?: Int.MAX_VALUE }
+        val registered = order.toSet()
+        fun limit(name: String, remaining: Long?, status: String = "AVAILABLE", reason: String? = null) = LimitDto(name, remaining, status, reason)
+        val limits = listOf(
+            LimitCardDto(16, "KB국민 노리2 체크카드(KB Pay)", remainingAmount = 1_100, limits = listOf(limit("GS25·CU 5% 할인", 1_100, "NEAR_END"))),
+            LimitCardDto(15, "신한카드 Mr.Life", remainingAmount = 6_700, limits = listOf(limit("TIME 서비스 10% 할인", 6_700), limit("통신비 할인(월 1회)", null))),
+            LimitCardDto(11, "KB국민 청춘대로 톡톡카드", remainingAmount = 5_800, limits = listOf(limit("스타벅스 50% 할인", 5_800))),
+            LimitCardDto(14, "삼성 iD ON 카드", remainingAmount = 2_600, limits = listOf(limit("생활 업종 공유 한도", 2_600))),
+            LimitCardDto(13, "LOCA LIKIT Shop", remainingAmount = 0, limits = listOf(limit("쿠팡·편의점 공유 한도", 0, "EXHAUSTED"))),
+            LimitCardDto(12, "현대카드ZERO Edition3(포인트형)", remainingAmount = null, limits = emptyList()),
+        ).filter { it.userCardId in registered }
+        return ApiResult.Success(HomeCardsData(cards, limits))
+    }
+
+    /** 잔고예보 요약 — 가짜 잔고예보와 같은 계산(기준 계좌 · 30일). '잔고예보만 실패'면 실패 */
+    override suspend fun loadForecastBrief(accountId: Long): ApiResult<HomeForecastBrief> {
+        val scenario = scenario()
+        delay(if (scenario == HomeScenario.SLOW) 3_000 else 500)
+        if (scenario == HomeScenario.FORECAST_ERROR) return ApiResult.Failure(ApiError.Server("INTERNAL_ERROR"))
+        if (scenario == HomeScenario.NETWORK_ERROR) return ApiResult.Failure(ApiError.Network)
+        val dto = forecasts.homeBrief(accountId) ?: return ApiResult.Failure(ApiError.InvalidRequest("ACCOUNT_SELECTION_REQUIRED"))
+        val label = bank.accountViews().firstOrNull { it.accountId == accountId }?.let { "${it.bank} ·${it.last4}" }
+        return ApiResult.Success(
+            HomeForecastDto(
+                currentTotalBalance = dto.currentTotalBalance,
+                summary = dto.summary?.let { HomeForecastSummaryDto(it.minBalance, it.minBalanceDate) },
+                calculatedAt = dto.calculatedAt,
+            ).toBrief(accountId, label),
         )
     }
 
@@ -199,6 +250,8 @@ class FakeHomeRepository @Inject constructor(
                 dataSyncedAt = synced,
             )
             HomeScenario.PARTIAL -> base.copy(balanceForecast = null, partialErrors = listOf(JsonPrimitive("balanceForecast")))
+            // BE는 기준 계좌가 없으면 balanceForecast를 null로 준다(실패 아님) — 홈 요약은 계좌 연결 안내
+            HomeScenario.NO_ACCOUNT -> base.copy(balanceForecast = null)
             // 가입 때 1원 인증으로 계좌만 붙고 카드 등록을 미룬 사용자(실서버는 onboarding DONE · cards 0장, -430)는 '정상'이 가짜 사용자를 따라 그린다
             else -> base
         }
