@@ -19,6 +19,7 @@ import mockwebserver3.MockWebServer
 import mockwebserver3.RecordedRequest
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -159,6 +160,44 @@ class CashflowRepositoryTest {
 
         assertNull(draft().dailyLivingCost)
         assertTrue(livingCostRequests().isEmpty())
+    }
+
+    @Test fun `계좌 목록을 못 읽으면 빈 목록과 실패를 따로 들고 와 월급 줄을 숨기지 않게 한다(QA P1-04)`() = runTest {
+        respond("/cashflow-items", ok("""{"items":[],"candidateCount":0}"""))
+        respond("/accounts", errorJson(502, "FIN_API_UNAVAILABLE"))
+
+        val draft = draft()
+
+        assertTrue(draft.incomeAccounts.isEmpty())
+        assertEquals("FIN_API_UNAVAILABLE", draft.incomeAccountsError?.code)
+        assertFalse(draft.canEnterIncome)
+        assertTrue(draft.incomeAccountsFailed)
+    }
+
+    @Test fun `계좌가 정말 0개면 실패가 아니라 지금처럼 월급 줄을 숨긴다`() = runTest {
+        respond("/cashflow-items", ok("""{"items":[],"candidateCount":0}"""))
+        respond("/accounts", ok(accounts()))
+
+        val draft = draft()
+
+        assertNull(draft.incomeAccountsError)
+        assertFalse(draft.incomeAccountsFailed)
+        assertFalse(draft.canEnterIncome)
+    }
+
+    @Test fun `정해 둔 월급이 있으면 계좌를 못 읽어도 다시 시도 줄을 두지 않는다`() = runTest {
+        respond("/forecasts/settings", ok(settings(incomeId = 290)))
+        respond("/accounts", errorJson(502, "FIN_API_UNAVAILABLE"))
+
+        assertFalse(draft().incomeAccountsFailed)
+    }
+
+    @Test fun `월급 줄 다시 시도 — 계좌만 다시 읽어 B-06과 같은 이름으로 준다`() = runTest {
+        val accounts = (repository.incomeAccounts() as ApiResult.Success).data
+
+        assertEquals(listOf("신한은행 입출금 ··1001", "신한은행 입출금 ··1002"), accounts.map { it.label })
+        assertEquals(listOf(true, false), accounts.map { it.isPrimary })
+        assertEquals(listOf("/accounts"), requests.map { it.url.encodedPath })
     }
 
     @Test fun `계좌가 20개를 넘으면 앞 20개만 보낸다 — 서버 상한`() = runTest {

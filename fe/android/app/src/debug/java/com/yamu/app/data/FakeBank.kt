@@ -479,6 +479,13 @@ class FakeCashflowRepository @Inject constructor(private val bank: FakeBank) : C
             delay(300)
             return ApiResult.Success(sampleDraft(dailyLivingCost = null))
         }
+        // 금융망 실패 — 실제 draft()처럼 후보 · 설정은 오고 월급 받을 계좌(금융망)만 못 읽는다. 월급 줄 [다시 시도]를 서버 없이 보는 길(!292 리뷰)
+        if (DevSession.faultScenario == FaultScenario.BANK_ERROR) {
+            delay(300)
+            return ApiResult.Success(
+                sampleDraft(dailyLivingCost = null).copy(incomeAccounts = emptyList(), incomeAccountsError = ApiError.BankUnavailable("FIN_API_UNAVAILABLE")),
+            )
+        }
         return withFault(empty = { ApiResult.Success(CashflowDraft(null, emptyList(), emptyList(), dailyLivingCost = null)) }) {
             delay(600)
             ApiResult.Success(sampleDraft(dailyLivingCost = 6_000))
@@ -500,6 +507,12 @@ class FakeCashflowRepository @Inject constructor(private val bank: FakeBank) : C
         dailyLivingCost = dailyLivingCost,
         incomeAccounts = bank.accountViews().map { IncomeAccount(it.accountId, "${it.name} ··${it.last4}", isPrimary = it.primary) },
     )
+
+    /** 월급 줄 [다시 시도](Task 8.2.74) — 위 가짜 B-06과 같은 계좌 둘 */
+    override suspend fun incomeAccounts(): ApiResult<List<IncomeAccount>> = withFault {
+        delay(300)
+        ApiResult.Success(sampleDraft(dailyLivingCost = null).incomeAccounts)
+    }
 
     /** 같은 키는 처음 만든 번호 — 서버 Idempotency-Key 규칙(-358)을 흉내 낸다 */
     private val createdIncomes = mutableMapOf<String, Long>()

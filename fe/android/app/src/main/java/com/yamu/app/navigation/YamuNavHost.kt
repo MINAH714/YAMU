@@ -209,7 +209,7 @@ fun YamuNavHost(navController: NavHostController, modifier: Modifier = Modifier)
                 )
             }
             composable<CashflowConfirm> { entry ->
-                // 가입 끝에서는 첫 분석으로, 홈의 월급 안내에서 왔으면 저장 뒤 홈으로 돌아가 다시 불러온다
+                // 가입 끝에서는 첫 분석으로, 홈 · 잔고예보의 월급 안내에서 왔으면 저장 뒤 그 화면으로 돌아가 다시 불러온다
                 val fromHome = entry.toRoute<CashflowConfirm>().fromHome
                 CashflowConfirmRoute(
                     fromHome = fromHome,
@@ -274,6 +274,7 @@ fun YamuNavHost(navController: NavHostController, modifier: Modifier = Modifier)
                         onLink = { navController.navigate(LinkGraph) },
                         onAlertSettings = { navController.navigate(NotificationSettings) },
                         onLivingCost = { navController.navigate(LivingCostDetail) },
+                        onRegisterIncome = { navController.navigate(CashflowConfirm(fromHome = true)) },   // 저장하면 잔고예보로 돌아온다(Task 8.2.74)
                     )
                 }
                 composable<LivingCostDetail> { LivingCostRoute(onBack = back, onLink = { navController.navigate(LinkGraph) }) }
