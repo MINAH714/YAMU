@@ -96,9 +96,15 @@ class CardDetailViewModelTest {
         assertEquals(CardAccountRow("연결 계좌", "연결된 계좌가 없어요", openable = false), detail().accountRow())
     }
 
-    @Test fun `계좌 목록에 없는 계좌면 누를 수 없다`() = runTest(dispatcher) {
+    @Test fun `신용카드 결제 계좌가 계좌 목록에 없으면 연결을 해제한 계좌라고 하고 누를 수 없다`() = runTest(dispatcher) {
+        // BE는 해제한 계좌도 결제 계좌 id로 주고, 계좌 목록은 연결 중인 계좌만 준다 — 목록을 못 읽은 경우와 나눈다
         link.detailResult = ApiResult.Success(CARD.copy(settlementAccountId = 99))
-        assertEquals(CardAccountRow("결제 계좌", "확인할 수 없어요", openable = false), detail().accountRow())
+        assertEquals(CardAccountRow("결제 계좌", "연결을 해제한 계좌예요", openable = false), detail().accountRow())
+    }
+
+    @Test fun `체크카드 연결 계좌가 계좌 목록에 없으면 상세 응답의 계좌를 글자로만 보인다`() = runTest(dispatcher) {
+        link.detailResult = ApiResult.Success(CHECK_CARD.copy(settlementAccountId = 99))
+        assertEquals(CardAccountRow("연결 계좌", "신한은행 ·5678", openable = false), detail().accountRow())
     }
 
     @Test fun `계좌 목록을 못 읽으면 체크카드는 상세 응답의 계좌를 글자로만 보인다`() = runTest(dispatcher) {
@@ -118,6 +124,25 @@ class CardDetailViewModelTest {
         vm.load()
         advanceUntilIdle()
         assertEquals(CardAccountRow("결제 계좌", "신한은행 ·5678", openable = true), vm.accountRow())
+    }
+
+    @Test fun `다시 읽을 때 계좌 목록을 못 읽었는데 결제 계좌가 바뀌었으면 예전 계좌를 두지 않는다`() = runTest(dispatcher) {
+        val vm = detail()
+        link.overviewResult = ApiResult.Failure(ApiError.Network)
+        link.detailResult = ApiResult.Success(CARD.copy(settlementAccountId = 7))
+        vm.load()
+        advanceUntilIdle()
+        assertEquals(CardAccountRow("결제 계좌", "확인할 수 없어요", openable = false), vm.accountRow())
+    }
+
+    @Test fun `다시 읽을 때 계좌 목록을 못 읽었는데 체크카드 연결 계좌가 없어졌으면 예전 계좌를 두지 않는다`() = runTest(dispatcher) {
+        link.detailResult = ApiResult.Success(CHECK_CARD)
+        val vm = detail()
+        link.overviewResult = ApiResult.Failure(ApiError.Network)
+        link.detailResult = ApiResult.Success(CHECK_CARD.copy(settlementAccountId = null, checkAccountLabel = null))   // 연결을 해제함
+        vm.load()
+        advanceUntilIdle()
+        assertEquals(CardAccountRow("연결 계좌", "연결된 계좌가 없어요", openable = false), vm.accountRow())
     }
 
     @Test fun `다른 카드가 자동 선택에 있으면 마지막 카드가 아니다`() = runTest(dispatcher) {

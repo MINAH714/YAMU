@@ -83,10 +83,17 @@ import javax.inject.Inject
 /** 카드 상세의 출금 계좌 줄 — 체크카드 '연결 계좌' · 신용카드 '결제 계좌'. [openable]이면 눌러서 계좌 관리로 */
 data class CardAccountRow(val key: String, val value: String, val openable: Boolean)
 
+/**
+ * 계좌 목록에서 카드의 출금 계좌([accountId])를 찾아본 결과 — 찾았으면 [label] '신한은행 ·1234'.
+ * [label]이 null이면 목록은 읽었는데 그 계좌가 없다. 계좌 목록은 연결 중인 계좌만 주므로 연결을 해제한 계좌다
+ * (신용카드는 해제해도 결제 계좌 id가 그대로 온다 — BE CardManagementService.toDetail)
+ */
+data class CardAccountLookup(val accountId: Long, val label: String?)
+
 data class CardDetailState(
     val loading: Boolean = true,
     val card: CardInfo? = null,
-    val accountLabel: String? = null,              // 계좌 목록에서 찾은 출금 계좌 '신한은행 ·1234'. 계좌가 없거나 목록에 없으면 null
+    val account: CardAccountLookup? = null,        // 출금 계좌를 계좌 목록에서 찾아본 결과. 아직 못 찾아봤거나 카드에 계좌가 없으면 null
     val otherActiveCards: Int? = null,             // 자동 선택에 포함된 다른 카드 수. 목록을 못 읽으면 null
     val autoSelect: Boolean? = null,               // 결제 카드 자동 선택(카드 관리 M-02). 못 읽으면 null — 켜진 것으로 본다
     val cardsKnown: Boolean = false,               // 카드 목록을 읽었나 — 못 읽으면 다른 기본 카드가 있는지 모른다
@@ -107,12 +114,18 @@ data class CardDetailState(
 
     /**
      * 계좌 목록에서 찾은 계좌만 눌러서 계좌 관리로 보낸다. 계좌 관리와 같은 모양([com.yamu.app.feature.link.data.LinkedAccount.numberLabel])으로.
-     * 계좌가 없거나 목록을 못 읽었으면 글자만 — 체크카드는 카드 상세 응답의 연결 계좌를 그대로 보인다
+     * 계좌가 없거나 목록을 못 읽었으면 글자만 — 체크카드는 카드 상세 응답의 연결 계좌를 그대로 보인다.
+     * 신용카드 결제 계좌가 목록에 없으면 연결을 해제한 계좌라고 말한다 — 목록을 못 읽은 '확인할 수 없어요'와 나눈다
      */
-    fun accountRow(card: CardInfo): CardAccountRow = when {
-        accountLabel != null -> CardAccountRow(if (card.isCheck) "연결 계좌" else "결제 계좌", accountLabel, openable = true)
-        card.isCheck -> CardAccountRow("연결 계좌", card.checkAccountLabel ?: "연결된 계좌가 없어요", openable = false)
-        else -> CardAccountRow("결제 계좌", "확인할 수 없어요", openable = false)
+    fun accountRow(card: CardInfo): CardAccountRow {
+        val key = if (card.isCheck) "연결 계좌" else "결제 계좌"
+        val label = account?.label
+        return when {
+            label != null -> CardAccountRow(key, label, openable = true)
+            card.isCheck -> CardAccountRow(key, card.checkAccountLabel ?: "연결된 계좌가 없어요", openable = false)
+            account != null -> CardAccountRow(key, "연결을 해제한 계좌예요", openable = false)
+            else -> CardAccountRow(key, "확인할 수 없어요", openable = false)
+        }
     }
 }
 
@@ -177,9 +190,12 @@ class CardDetailViewModel @Inject constructor(
                         loading = false,
                         card = detail.data,
                         gone = false,
-                        // 목록을 못 읽었으면 마지막 값을 둔다. 읽었는데 없으면 null — 눌러도 그 계좌를 찾을 수 없다
-                        accountLabel = if (linked == null) s.accountLabel
-                        else detail.data.settlementAccountId?.let { id -> linked.accounts.firstOrNull { it.accountId == id } }?.numberLabel,
+                        // 목록을 읽었는데 없으면 이름 없이(연결을 해제한 계좌). 목록을 못 읽었으면 같은 계좌일 때만 마지막 값을 둔다 —
+                        // 그사이 계좌가 바뀌었으면 예전 계좌 이름이 눌리는 줄로 남지 않게
+                        account = detail.data.settlementAccountId?.let { id ->
+                            if (linked != null) CardAccountLookup(id, linked.accounts.firstOrNull { it.accountId == id }?.numberLabel)
+                            else s.account?.takeIf { it.accountId == id }
+                        },
                         otherActiveCards = linked?.cards?.count { it.recommended && it.userCardId != userCardId } ?: s.otherActiveCards,
                         autoSelect = autoSelect ?: s.autoSelect,
                         cardsKnown = linked != null || s.cardsKnown,

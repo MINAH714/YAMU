@@ -292,7 +292,9 @@ data class CardInfo(
     val issuerBlocked: Boolean,
     val isDefault: Boolean,
     val paymentDay: Int?,
-    val settlementAccountId: Long?,         // 출금 계좌 — 신용카드 결제 계좌 · 체크카드 연결 계좌(BE는 같은 칸). 이름은 계좌 목록에서 찾는다
+    // 출금 계좌 — 신용카드 결제 계좌 · 체크카드 연결 계좌. 이름은 계좌 목록에서 찾는다.
+    // DB는 같은 칸(linked_account_id)이지만 연결을 해제한 계좌면 체크카드는 null, 신용카드는 그 id가 그대로 온다(계좌 목록엔 없다)
+    val settlementAccountId: Long?,
     val checkAccountLabel: String?,         // 체크카드 연결 계좌 — 계좌 목록을 못 읽었을 때 글자로만
     val nextWithdrawal: NextWithdrawal?,
     val hasOpenBill: Boolean = false,       // 확정 · 미납 청구가 있어 해제할 수 없다. 쌓이는 중인 청구는 여기 없어 해제 때 서버가 막는다
