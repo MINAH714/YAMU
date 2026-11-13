@@ -28,6 +28,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
@@ -153,7 +154,9 @@ fun PerfOverviewRoute(
                     if (o.others.isNotEmpty()) {
                         YamuCard {
                             Text("그 밖의 카드", style = YamuTheme.typography.cardTitle, color = c.text1)
-                            o.others.forEachIndexed { i, card -> OtherRow(card, arts[card.userCardId], last = i == o.others.lastIndex) }
+                            o.others.forEachIndexed { i, card ->
+                                OtherRow(card, arts[card.userCardId], last = i == o.others.lastIndex, onClick = if (card.opensCardDetail) ({ onCardDetail(card.userCardId) }) else null)
+                            }
                         }
                     }
                     // 혜택 한도(R-06)는 알림('카페 할인 한도가 … 남았어요')에서 연다 — 프로토타입 10/26 간략화
@@ -173,7 +176,7 @@ private fun PendingRow(card: CardPerf, art: CardArtRef?, last: Boolean, onClick:
     Column(
         Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick)
+            .clickable(role = Role.Button, onClick = onClick)
             .semantics(mergeDescendants = true) { contentDescription = "${card.name} ${card.tagLabel ?: ""} ${card.remaining.toWon()}원 남음" }
             .padding(top = 14.dp, bottom = if (last) 6.dp else 14.dp),   // 카드 마지막 줄은 아래 6(프로토타입 .cr:last-child)
     ) {
@@ -191,21 +194,42 @@ private fun PendingRow(card: CardPerf, art: CardArtRef?, last: Boolean, onClick:
     }
 }
 
-/** 그 밖의 카드 — 달성(초록 태그 · 게이지) · 실적 조건 없음(오른쪽 글자). 이동하지 않는다 */
+/**
+ * 그 밖의 카드 — 달성(초록 태그 · 게이지) · 실적 조건 없음(오른쪽 글자).
+ * 달성 카드는 누르면 카드 실적 상세(R-02, 홈 내 카드에서 여는 곳과 같은 화면) — 기준 전 카드처럼 ›를 붙인다(S15P31E103-451).
+ * [onClick]이 null이면(실적 조건 없음) 누를 수 없다
+ */
 @Composable
-private fun OtherRow(card: CardPerf, art: CardArtRef?, last: Boolean) {
+private fun OtherRow(card: CardPerf, art: CardArtRef?, last: Boolean, onClick: (() -> Unit)?) {
     val c = YamuTheme.colors
-    Column(Modifier.fillMaxWidth().semantics(mergeDescendants = true) { }.padding(top = 14.dp, bottom = if (last) 6.dp else 14.dp)) {
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .then(if (onClick != null) Modifier.clickable(role = Role.Button, onClick = onClick) else Modifier)
+            .semantics(mergeDescendants = true) { contentDescription = card.otherRowLabel() }
+            .padding(top = 14.dp, bottom = if (last) 6.dp else 14.dp),
+    ) {
         Row(Modifier.heightIn(min = 28.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {   // 윗줄 28(.cr .l1)
             PerfThumb(card, art)
             Text(card.name, style = YamuTheme.typography.titleM, color = c.text1, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
             card.recentChange?.let { Text(it.toWon(withPlusSign = true), style = YamuTheme.typography.labelL.copy(fontWeight = FontWeight.Bold), color = c.primary) }
-            if (card.noTarget) Text("실적 조건 없음", style = YamuTheme.typography.bodyM, color = c.text3)
-            else StatusTag("달성", tone = TagTone.Success, guide = true)
+            if (card.noTarget) Text(NO_TARGET_LABEL, style = YamuTheme.typography.bodyM, color = c.text3)
+            else StatusTag(ACHIEVED_LABEL, tone = TagTone.Success, guide = true)
+            if (onClick != null) Icon(YamuIcons.ChevronRight, contentDescription = null, tint = c.text3)
         }
         if (!card.noTarget) GaugeLine(card)
     }
 }
+
+private const val NO_TARGET_LABEL = "실적 조건 없음"
+private const val ACHIEVED_LABEL = "달성"
+
+/** 그 밖의 카드 줄을 눌러 R-02를 여나 — 실적 조건 없는 카드는 R-02에 보일 실적이 없어 열지 않는다(홈 내 카드와 같게) */
+internal val CardPerf.opensCardDetail: Boolean get() = !noTarget
+
+/** 그 밖의 카드 줄의 읽기 이름 — 보이는 차례대로 '카드 이름 +15,000원 달성' · '카드 이름 실적 조건 없음' */
+internal fun CardPerf.otherRowLabel(): String =
+    listOfNotNull(name, recentChange?.let { "${it.toWon(withPlusSign = true)}원" }, if (noTarget) NO_TARGET_LABEL else ACHIEVED_LABEL).joinToString(" ")
 
 /**
  * 줄 앞 카드 그림 44dp(높이 28 — 윗줄 높이 그대로). 상품명은 카드 목록에서 찾고, 모르면 nickname(별명이 없으면 상품명)으로.
