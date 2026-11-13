@@ -316,6 +316,95 @@ class ReportIntegrationTest extends MySqlTestSupport {
                 .andExpect(jsonPath("$.data.summary.yamuPickExtra").value(1_200));
     }
 
+    @Test
+    void 종류별_카드별_집계와_출처_필터는_같은_범위를_쓴다() throws Exception {
+        long instant=approved(owner,card,cafe,OCT_10,10_000);
+        benefit(instant,1000,"AT_APPROVAL");
+        long cashback=benefit(instant,500,"AFTER_BILLING");
+        type(cashback,"CASHBACK");
+        long points=benefit(instant,300,"POINT_ACCRUAL");
+        type(points,"POINT");
+        jdbc.update("UPDATE payment_benefit SET krw_amount=NULL WHERE payment_benefit_id=?",points);
+        long seed=payment(owner,secondCard,mart,"APPROVED",OCT_10.plusHours(1),10_000,"SEED");
+        benefit(seed,200,"AT_APPROVAL");
+        long others=approved(other,otherCard,mart,OCT_10,10_000);
+        benefit(others,9000,"AT_APPROVAL");
+        mockMvc.perform(benefits(OCTOBER))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.source").value("ALL"))
+                .andExpect(jsonPath("$.data.summary.expectedBenefit").value(1700))
+                .andExpect(jsonPath("$.data.summary.confirmedBenefit").value(1200))
+                .andExpect(jsonPath("$.data.summary.unconfirmedBenefit").value(500))
+                .andExpect(jsonPath("$.data.summary.unconvertedBenefitCount").value(1))
+                .andExpect(jsonPath("$.data.summary.byType[*].type").value(contains("DISCOUNT","CASHBACK","POINT")))
+                .andExpect(jsonPath("$.data.summary.byType[0].expectedBenefit").value(1200))
+                .andExpect(jsonPath("$.data.summary.byType[1].expectedBenefit").value(500))
+                .andExpect(jsonPath("$.data.summary.byType[2].unconvertedBenefitCount").value(1))
+                .andExpect(jsonPath("$.data.cards",hasSize(2)))
+                .andExpect(jsonPath("$.data.cards[0].userCardId").value(card))
+                .andExpect(jsonPath("$.data.cards[0].expectedBenefit").value(1500));
+        mockMvc.perform(benefits(OCTOBER).param("source","YAMU"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.source").value("YAMU"))
+                .andExpect(jsonPath("$.data.summary.expectedBenefit").value(1500))
+                .andExpect(jsonPath("$.data.summary.confirmedBenefit").value(1000))
+                .andExpect(jsonPath("$.data.summary.byType[0].expectedBenefit").value(1000))
+                .andExpect(jsonPath("$.data.cards",hasSize(1)))
+                .andExpect(jsonPath("$.data.cards[0].expectedBenefit").value(1500))
+                .andExpect(jsonPath("$.data.byCategory[0].amount").value(1500));
+    }
+
+    @Test
+    void 취소된_혜택은_모든_확장_집계에서_제외하고_혜택없는_승인카드는_남긴다() throws Exception {
+        long canceled=approved(owner,card,cafe,OCT_10,10_000);
+        benefit(canceled,3000,"AT_APPROVAL");
+        jdbc.update("UPDATE payment_transaction SET status='CANCELED',canceled_at=? WHERE payment_transaction_id=?",OCT_10.plusDays(1),canceled);
+        approved(owner,secondCard,cafe,OCT_10,10_000);
+        mockMvc.perform(benefits(OCTOBER))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.summary.expectedBenefit").value(0))
+                .andExpect(jsonPath("$.data.summary.byType[0].expectedBenefit").value(0))
+                .andExpect(jsonPath("$.data.cards",hasSize(1)))
+                .andExpect(jsonPath("$.data.cards[0].userCardId").value(secondCard))
+                .andExpect(jsonPath("$.data.cards[0].expectedBenefit").value(0));
+    }
+
+    @Test
+    void 출처를_지정해도_요청시각의_한국월_경계로_집계한다() throws Exception {
+        long before=approved(owner,card,cafe,LocalDateTime.of(2026,9,30,14,59,59),10_000);
+        benefit(before,100,"AT_APPROVAL");
+        long first=approved(owner,card,cafe,LocalDateTime.of(2026,9,30,15,0),10_000);
+        benefit(first,200,"AT_APPROVAL");
+        long last=approved(owner,card,cafe,LocalDateTime.of(2026,10,31,14,59,59),10_000);
+        benefit(last,300,"AT_APPROVAL");
+        long after=approved(owner,card,cafe,LocalDateTime.of(2026,10,31,15,0),10_000);
+        benefit(after,400,"AT_APPROVAL");
+        mockMvc.perform(benefits(OCTOBER).param("source","YAMU"))
+                .andExpect(jsonPath("$.data.summary.expectedBenefit").value(500))
+                .andExpect(jsonPath("$.data.summary.byType[0].expectedBenefit").value(500))
+                .andExpect(jsonPath("$.data.cards[0].expectedBenefit").value(500));
+    }
+
+    @Test
+    void 잘못된_출처는_400이고_기본_지난달_계약은_유지한다() throws Exception {
+        mockMvc.perform(benefits(OCTOBER).param("source","SEED"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("INVALID_REQUEST"));
+        mockMvc.perform(get("/api/reports/monthly/benefits").with(AuthUsers.asUser(owner)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.yearMonth").value(java.time.YearMonth.now(java.time.ZoneId.of("Asia/Seoul")).minusMonths(1).toString()))
+                .andExpect(jsonPath("$.data.source").value("ALL"))
+                .andExpect(jsonPath("$.data.summary.byType",hasSize(3)));
+    }
+
+    private void type(long benefitId,String type) {
+        jdbc.update("UPDATE card_benefit SET benefit_type=? WHERE card_benefit_id=(SELECT card_benefit_id FROM payment_benefit WHERE payment_benefit_id=?)",type,benefitId);
+        if (type.equals("POINT")) {
+            jdbc.update("UPDATE payment_benefit SET value_unit='POINT' WHERE payment_benefit_id=?",benefitId);
+            jdbc.update("UPDATE card_benefit SET value_unit='POINT' WHERE card_benefit_id=(SELECT card_benefit_id FROM payment_benefit WHERE payment_benefit_id=?)",benefitId);
+        }
+    }
+
     // ── 픽스처 ──
 
     /** 승인 때 적은 추천 순위·직접 선택 여부(S15P31E103-381). */

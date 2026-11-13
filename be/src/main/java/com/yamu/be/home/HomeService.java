@@ -15,12 +15,15 @@ import com.yamu.be.global.exception.ErrorCode;
 import com.yamu.be.global.security.AuthUser;
 import com.yamu.be.report.MonthlyReportResponse;
 import com.yamu.be.report.ReportService;
+import com.yamu.be.report.BenefitSource;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
+import java.time.ZoneId;
+import java.time.YearMonth;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Supplier;
@@ -67,6 +70,7 @@ public class HomeService {
 
     public HomeResponse home(AuthUser me) {
         long userId = me.userId();
+        LocalDate today = Instant.now(clock).atZone(ZoneId.of("Asia/Seoul")).toLocalDate();
         List<HomeResponse.PartialError> errors = new ArrayList<>();
 
         CardListResponse cardList = section("cards", errors, () -> cards.list(me, null));
@@ -74,6 +78,10 @@ public class HomeService {
                 () -> performanceAlerts(userId));
         ForecastPart forecast = section("balanceForecast", errors, () -> forecast(userId));
         HomeResponse.MonthSummary monthSummary = section("monthSummary", errors, () -> monthSummary(userId));
+        HomeResponse.BenefitSummary benefitSummary = section("benefitSummary", errors,
+                () -> benefitSummary(userId, YearMonth.from(today)));
+        HomeResponse.ForecastPreview forecastPreview = section("forecastPreview", errors,
+                () -> forecastPreview(userId, forecast, today));
         Integer unread = section("unreadNotificationCount", errors, () -> reader.unreadNotificationCount(userId));
         List<HomeResponse.Todo> todos = section("todos", errors, () -> todos(cardList, alerts));
         HomeResponse.RecentPayment recentPayment = section("recentPayment", errors,
@@ -94,7 +102,7 @@ public class HomeService {
                 todos == null ? List.of() : todos,
                 recentPayment,
                 onboarding,
-                todayCard);
+                todayCard, benefitSummary, forecastPreview);
     }
 
     /**
@@ -189,7 +197,26 @@ public class HomeService {
                 firstRiskDate(result.series(), result.alertThreshold()), horizon.days(),
                 result.summary().minBalance(), nextIncome, result.isEstimate(),
                 result.livingCost().projectedAmount() == null);
-        return new ForecastPart(summary, result.accountForecasts().get(0).syncedAt());
+        return new ForecastPart(summary, result.accountForecasts().get(0).syncedAt(), result);
+    }
+
+    private HomeResponse.BenefitSummary benefitSummary(long userId, YearMonth month) {
+        var report = reports.benefits(userId, month, BenefitSource.YAMU);
+        var summary = report.summary();
+        return new HomeResponse.BenefitSummary(report.yearMonth(), report.source(), report.status(),
+                summary.expectedBenefit(), summary.confirmedBenefit(), summary.unconfirmedBenefit(),
+                summary.unconvertedBenefitCount(), summary.byType());
+    }
+
+    private HomeResponse.ForecastPreview forecastPreview(long userId, ForecastPart existing, LocalDate today) {
+        Long accountId = existing == null ? forecastSettings.get(userId).baseAccountId() : existing.summary().accountId();
+        if (accountId == null) return null;
+        BalanceForecast result = existing == null ? null : existing.result();
+        if (!HomeForecastPreview.reusable(result, accountId, today)) {
+            result = forecasts.forecast(userId, List.of(accountId), BalanceForecast.Until.DAYS,
+                    HomeForecastPreview.DAYS, true, false);
+        }
+        return HomeForecastPreview.from(result, accountId, today);
     }
 
     /**
@@ -211,5 +238,5 @@ public class HomeService {
         return LocalDateTime.ofInstant(Instant.now(clock), ZoneOffset.UTC);
     }
 
-    private record ForecastPart(HomeResponse.BalanceForecast summary, LocalDateTime syncedAt) {}
+    private record ForecastPart(HomeResponse.BalanceForecast summary, LocalDateTime syncedAt, BalanceForecast result) {}
 }
