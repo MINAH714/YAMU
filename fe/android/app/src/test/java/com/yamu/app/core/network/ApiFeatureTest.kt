@@ -25,6 +25,10 @@ class ApiFeatureTest {
         assertEquals(setOf(ApiFeature.AUTH, ApiFeature.BILLING, ApiFeature.LINK), ApiFeature.parse("auth,billing"))
     }
 
+    @Test fun `결제를 켜면 연결도 같이 켜진다 · 가짜 카드 0장 때문에 결제 코드가 막히지 않게`() {
+        assertEquals(setOf(ApiFeature.AUTH, ApiFeature.PAYMENT, ApiFeature.LINK), ApiFeature.parse("auth,payment"))
+    }
+
     // 한쪽만 고치면 debug에서 그 이름을 못 켜고, release REAL_API에서도 빠져 isReal 분기가 꺼진다
     @Test fun `build gradle의 기능 목록과 ApiFeature 이름이 같다`() {
         assertEquals(BuildConfig.API_FEATURES.split(',').toSet(), ApiFeature.entries.map { it.key }.toSet())
