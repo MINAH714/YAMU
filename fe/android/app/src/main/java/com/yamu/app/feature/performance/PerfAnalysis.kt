@@ -267,9 +267,13 @@ private fun AnalysisBody(a: PerfAnalysis, cardName: String, onDetail: () -> Unit
             Spacer(Modifier.height(YamuSpacing.x3))
             Text("이번 달은 '${d.label}'로 정했어요 · $cardName 실적 알림을 멈췄어요", style = YamuTheme.typography.bodyM, color = c.text2)
         }
+        if (a.detailLinkPlace() == DetailLinkPlace.HEAD) {
+            Spacer(Modifier.height(YamuSpacing.x2))
+            DetailLink(cardName, onDetail)
+        }
     }
     // ② 이렇게 판단했어요 — 키–값(근거는 서버 값, '예측'은 키 뒤)
-    if (a.guide != PerfGuide.ALREADY_ACHIEVED) {
+    if (a.drawsReasons) {
         SectionBlock(title = "이렇게 판단했어요") {
             a.target?.let { KeyValueRow("실적 기준", "${it.toWon()}원") }
             a.projected?.let { KeyValueRow("월말 예상", "${it.toWon()}원", keyTag = if (a.isEstimate) ({ EstimateTag() }) else null) }
@@ -284,12 +288,36 @@ private fun AnalysisBody(a: PerfAnalysis, cardName: String, onDetail: () -> Unit
                 PerfGuide.KEEP_NATURAL -> if (a.benefitNames.isNotEmpty()) KeyValueRow("채우면 받는 혜택", a.benefitNames.joinToString(" · "))
                 else -> Unit
             }
-            // 카드 상세(R-02)가 있는 판정만 — 달성 추천
-            if (a.guide == PerfGuide.ACHIEVE_RECOMMENDED) {
-                QuietLink("$cardName 실적 자세히 보기", onClick = onDetail, modifier = Modifier.offset(x = (-4).dp))
-            }
+            if (a.detailLinkPlace() == DetailLinkPlace.REASONS) DetailLink(cardName, onDetail)
         }
     }
+}
+
+@Composable
+private fun DetailLink(cardName: String, onDetail: () -> Unit) =
+    QuietLink("$cardName 실적 자세히 보기", onClick = onDetail, modifier = Modifier.offset(x = (-4).dp))
+
+/** R-03 아래 버튼 하나 — 기록했으면 다시 판단, 아니면 판정별 행동, 행동이 없는 판정은 카드 실적 상세(R-02) */
+internal enum class PerfAction { REJUDGE, MOVE, SKIP, KEEP, DETAIL }
+
+internal fun PerfAnalysis.primaryAction(): PerfAction = when {
+    decision != null -> PerfAction.REJUDGE
+    guide == PerfGuide.ACHIEVE_RECOMMENDED && movable != null -> PerfAction.MOVE
+    guide == PerfGuide.EXTRA_SPENDING_NOT_RECOMMENDED -> PerfAction.SKIP
+    guide == PerfGuide.KEEP_NATURAL -> PerfAction.KEEP
+    else -> PerfAction.DETAIL
+}
+
+/** ② '이렇게 판단했어요'를 그리는 판정 — 달성은 근거를 보이지 않는다 */
+internal val PerfAnalysis.drawsReasons: Boolean get() = guide != PerfGuide.ALREADY_ACHIEVED
+
+/** 본문 'OO 실적 자세히 보기'를 둘 곳 — 판정 · 기록과 상관없이 R-02로 가는 길을 하나 둔다(S15P31E103-451) */
+internal enum class DetailLinkPlace { NONE, HEAD, REASONS }
+
+internal fun PerfAnalysis.detailLinkPlace(): DetailLinkPlace = when {
+    primaryAction() == PerfAction.DETAIL -> DetailLinkPlace.NONE   // 아래 버튼이 이미 R-02라 겹쳐 두지 않는다
+    drawsReasons -> DetailLinkPlace.REASONS
+    else -> DetailLinkPlace.HEAD                                     // ②가 없으면 ① 판정 아래
 }
 
 @Composable
@@ -312,19 +340,19 @@ private fun ActionButtons(
     onDetail: () -> Unit,
 ) {
     val detail = "$cardName 실적 자세히 보기"
-    when {
-        a.decision != null -> BottomCta {
+    when (a.primaryAction()) {
+        PerfAction.REJUDGE -> BottomCta {
             PrimaryButton("다시 판단하기", onClick = { onDecide(null) }, loading = acting)
         }
-        a.guide == PerfGuide.ACHIEVE_RECOMMENDED && a.movable != null -> BottomCta {
-            PrimaryButton("${a.movable.title} $cardName${cardName.directionParticle()} 옮기기", onClick = onMove, loading = acting)
+        PerfAction.MOVE -> a.movable?.let { m ->
+            BottomCta { PrimaryButton("${m.title} $cardName${cardName.directionParticle()} 옮기기", onClick = onMove, loading = acting) }
         }
-        a.guide == PerfGuide.EXTRA_SPENDING_NOT_RECOMMENDED -> BottomCta {
+        PerfAction.SKIP -> BottomCta {
             PrimaryButton("채우지 않을게요", onClick = { onDecide(PerfDecision.SKIP) }, loading = acting)
         }
-        a.guide == PerfGuide.KEEP_NATURAL -> BottomCta {
+        PerfAction.KEEP -> BottomCta {
             PrimaryButton("평소대로 쓸게요", onClick = { onDecide(PerfDecision.KEEP) }, loading = acting)
         }
-        else -> BottomCta { PrimaryButton(detail, onClick = onDetail) }
+        PerfAction.DETAIL -> BottomCta { PrimaryButton(detail, onClick = onDetail) }
     }
 }
