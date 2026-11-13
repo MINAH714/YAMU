@@ -27,12 +27,12 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * debug 전용 가짜 실적 장부 — 카드 6장(가짜 은행 FakeBank와 같은 userCardId 11~16).
+ * debug 전용 가짜 실적 장부 — 가짜 사용자가 등록한 카드만(가짜 은행 FakeBank와 같은 userCardId 11~17). 시드 사용자는 6장(11~16).
  * 가짜 결제(FakePaymentRepository)가 승인되면 여기에 더한다 → 실적관리로 돌아오면 값 · 판정이 바뀐다(11 문서 7-5).
  * 실적 숫자는 프로토타입 R-01 · R-03 그대로, 카드 · 실적 기준 · 혜택 · 한도는 BE 카드 시드 상품으로.
  */
 @Singleton
-class FakePerformanceStore @Inject constructor() {
+class FakePerformanceStore @Inject constructor(private val bank: FakeBank) {
 
     /** kind = 서버가 정했을 판정(기준을 넘으면 달성), atRisk = 서버 status AT_RISK(지금 추세면 미달) */
     class Card(
@@ -48,7 +48,7 @@ class FakePerformanceStore @Inject constructor() {
 
     // 실적 기준 · 혜택은 BE 카드 시드 값(LIKIT Shop 40만 · 톡톡 · iD ON · Mr.Life 30만 · ZERO 실적 조건 없음).
     // 노리2는 구간이 다섯(20만~80만)이라 서버처럼 목표가 '지금 실적보다 큰 가장 작은 기준'(21만 → 30만)이고, 판정 없이 AT_RISK
-    val cards = listOf(
+    private val seedCards = listOf(
         Card(13, "롯데카드", "#E60012", "LOCA LIKIT Shop", 400_000, 320_000, PerfGuide.ACHIEVE_RECOMMENDED, "쿠팡·편의점 60%"),
         Card(11, "KB국민카드", "#FFBC00", "KB국민 청춘대로 톡톡카드", 300_000, 270_000, PerfGuide.KEEP_NATURAL, "스타벅스 50%"),
         Card(14, "삼성카드", "#1428A0", "삼성 iD ON 카드", 300_000, 180_000, PerfGuide.EXTRA_SPENDING_NOT_RECOMMENDED, "교통 10%", atRisk = true),
@@ -56,6 +56,22 @@ class FakePerformanceStore @Inject constructor() {
         Card(16, "KB국민카드", "#60584C", "KB국민 노리2 체크카드(KB Pay)", 300_000, 210_000, null, "GS25·CU 5%", atRisk = true),
         Card(12, "현대카드", "#1A1A1A", "현대카드ZERO Edition3(포인트형)", null, 150_000, null, null),
     )
+
+    /** 위 목록에 없는 카드(새로 나온 트래블로그 17 등) — 실적 기준을 모르고 이번 달 실적 0원으로 시작 */
+    private val others = mutableMapOf<Long, Card>()
+
+    /**
+     * 가짜 사용자가 등록한 카드만(S15P31E103-454) — 내 카드 · 실적관리 · 결제가 카드 관리와 같은 장수를 보인다.
+     * 순서는 위 목록 순서, 그 뒤에 목록에 없는 카드
+     */
+    val cards: List<Card>
+        get() {
+            val registered = bank.cardViews()
+            val ids = registered.map { it.userCardId }.toSet()
+            return seedCards.filter { it.id in ids } + registered.filter { r -> seedCards.none { it.id == r.userCardId } }.map { r ->
+                others.getOrPut(r.userCardId) { Card(r.userCardId, r.issuer, r.color, r.product, target = null, recognized = 0, kind = null, nextMonthBenefit = null) }
+            }
+        }
 
     fun card(id: Long) = cards.firstOrNull { it.id == id }
 
@@ -73,7 +89,7 @@ class FakePerformanceStore @Inject constructor() {
 }
 
 @Singleton
-class FakePerformanceRepository @Inject constructor(private val store: FakePerformanceStore) : PerformanceRepository {
+class FakePerformanceRepository @Inject constructor(private val store: FakePerformanceStore, private val bank: FakeBank) : PerformanceRepository {
 
     private var last: PerfOverview? = null
     private val month = YearMonth.now(KST)
@@ -219,17 +235,20 @@ class FakePerformanceRepository @Inject constructor(private val store: FakePerfo
         delay(400)
         fun c(id: Long, issuer: String, color: String, name: String, remaining: Long?, tag: LimitTag?, reason: String? = null) =
             LimitCard(id, brandOf(issuer, color = color), name, remaining, tag, reason)
+        // 등록한 카드만(S15P31E103-454). 받은 혜택 30,900원은 시드 사용자의 이번 달 결제라 새 사용자는 0원
+        val registered = bank.registeredCardIds().toSet()
+        val cards = listOf(
+            c(16, "KB국민카드", "#60584C", "KB 노리2 KB Pay", 1_100, LimitTag.NEAR_END),   // GS25·CU 월 2,000
+            c(15, "신한카드", "#0046FF", "신한 Mr.Life", 6_700, null),                     // TIME 서비스 월 10,000
+            c(11, "KB국민카드", "#FFBC00", "KB 톡톡", 5_800, null),                        // 스타벅스 월 10,000
+            c(14, "삼성카드", "#1428A0", "삼성 iD ON", 2_600, null),                       // 생활 공유 월 10,000
+            c(13, "롯데카드", "#E60012", "LOCA LIKIT Shop", 0, LimitTag.EXHAUSTED),        // 공유 월 13,000
+            c(12, "현대카드", "#1A1A1A", "현대 ZERO 포인트형", null, LimitTag.UNLIMITED),
+        ).filter { it.userCardId in registered }
         return ApiResult.Success(
             BenefitLimits(
-                month.monthValue, remaining = 16_200, received = 30_900,
-                cards = listOf(
-                    c(16, "KB국민카드", "#60584C", "KB 노리2 KB Pay", 1_100, LimitTag.NEAR_END),   // GS25·CU 월 2,000
-                    c(15, "신한카드", "#0046FF", "신한 Mr.Life", 6_700, null),                     // TIME 서비스 월 10,000
-                    c(11, "KB국민카드", "#FFBC00", "KB 톡톡", 5_800, null),                        // 스타벅스 월 10,000
-                    c(14, "삼성카드", "#1428A0", "삼성 iD ON", 2_600, null),                       // 생활 공유 월 10,000
-                    c(13, "롯데카드", "#E60012", "LOCA LIKIT Shop", 0, LimitTag.EXHAUSTED),        // 공유 월 13,000
-                    c(12, "현대카드", "#1A1A1A", "현대 ZERO 포인트형", null, LimitTag.UNLIMITED),
-                ),
+                month.monthValue, remaining = cards.sumOf { it.remaining ?: 0 }, received = if (bank.seeded) 30_900 else 0,
+                cards = cards,
             ),
         )
     }

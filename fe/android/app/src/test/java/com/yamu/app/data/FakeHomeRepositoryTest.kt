@@ -30,8 +30,9 @@ class FakeHomeRepositoryTest {
     }
 
     private val bank = FakeBank(FakeUser(storage = null))
-    private val payments = FakePaymentRepository(FakePerformanceStore(), PaymentEdits(), bank)
-    private val home = FakeHomeRepository(FakeMyRepository(SessionStore(noFilesContext), payments), bank)
+    private val payments = FakePaymentRepository(FakePerformanceStore(bank), PaymentEdits(), bank)
+    private val forecast = FakeForecastRepository(bank)
+    private val home = FakeHomeRepository(FakeMyRepository(SessionStore(noFilesContext), payments), bank, forecast)
 
     @Before fun setUp() {
         DevSession.homeScenario = HomeScenario.NORMAL
@@ -66,5 +67,43 @@ class FakeHomeRepositoryTest {
     @Test fun `계좌도 없으면 정상이 연결 전 홈`() = runTest {
         bank.reset(accounts = emptyList())
         assertTrue(load().needsLinking)
+    }
+
+    // ── 예상 잔액은 가짜 잔고예보와 같은 계산(S15P31E103-454, !294 리뷰 4) ──
+
+    @Test fun `시드 사용자 정상 홈은 잔고예보 기준 계좌의 월급 전 가장 낮을 때`() = runTest {
+        val h = load().forecast!!
+        val f = forecast.homeForecast()!!
+        assertEquals("월급 전 가장 낮을 때", h.label)
+        assertEquals(f.minBalance, h.amount)
+        assertEquals(f.nextIncome!!.first, h.incomeDate)
+    }
+
+    @Test fun `결제 반영 직후는 정상보다 7,500원 낮다`() = runTest {
+        val normal = load().forecast!!.amount
+        DevSession.homeScenario = HomeScenario.AFTER_PAYMENT
+        val after = load()
+        assertEquals(normal - 7_500, after.forecast!!.amount)
+        assertNotNull(after.recentPayment)
+    }
+
+    @Test fun `월급 등록 전은 기준 계좌 지금 잔액 + 월급 안내`() = runTest {
+        DevSession.homeScenario = HomeScenario.BEFORE_INCOME
+        val h = load().forecast!!
+        assertTrue(h.needsIncome)
+        assertEquals(412_000L, h.amount)   // KB ·1234
+    }
+
+    @Test fun `월급을 넣기 전 새 사용자는 정상도 지금 잔액 + 월급 안내`() = runTest {
+        bank.reset()
+        val h = load().forecast!!
+        assertTrue(h.needsIncome)
+        assertEquals(412_000L, h.amount)
+    }
+
+    @Test fun `계좌가 없으면 예상 잔액 칸이 없다`() = runTest {
+        bank.reset(accounts = emptyList())
+        DevSession.homeScenario = HomeScenario.AFTER_PAYMENT   // 정상은 연결 전 홈이 되므로 다른 상태로 본다
+        assertNull(load().forecast)
     }
 }

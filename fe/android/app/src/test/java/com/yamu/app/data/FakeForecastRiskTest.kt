@@ -17,7 +17,7 @@ import java.time.LocalDate
  * conservative('AI 생활비 반영')만 미만이면 WARNING, 구간의 선에 CONFIRMED는 없다
  */
 class FakeForecastRiskTest {
-    private val fake = FakeForecastRepository()
+    private val fake = FakeForecastRepository(FakeBank(FakeUser(storage = null)))   // 시드 사용자
 
     @Test fun `기본 데이터 — 생활비 선만 내려가 WARNING, 구간 선은 두 선 중 하나`() = runTest {
         val f = (fake.forecast() as ApiResult.Success).data

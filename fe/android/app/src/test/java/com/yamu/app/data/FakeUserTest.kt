@@ -1,5 +1,6 @@
 package com.yamu.app.data
 
+import com.yamu.app.core.format.KST
 import com.yamu.app.core.network.ApiError
 import com.yamu.app.core.network.ApiResult
 import com.yamu.app.core.session.DevSession
@@ -9,8 +10,10 @@ import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.time.LocalDate
 
 /**
  * debug 가짜 사용자(S15P31E103-453) — 앱을 다시 켜도 같은 사용자이고, 새 사용자는 실서버처럼 계좌 1 · 카드 0,
@@ -36,7 +39,7 @@ class FakeUserTest {
         assertTrue(register(lookup.data.verificationToken) is ApiResult.Success)
     }
 
-    private fun issueCode(bank: FakeBank) = FakePaymentRepository(FakePerformanceStore(), PaymentEdits(), bank)
+    private fun issueCode(bank: FakeBank) = FakePaymentRepository(FakePerformanceStore(bank), PaymentEdits(), bank)
 
     @Test fun `저장한 값이 없으면 시드 사용자 — 계좌 2 · 카드 6장`() {
         assertTrue(bank.seeded)
@@ -96,5 +99,28 @@ class FakeUserTest {
     @Test fun `저장한 값을 못 읽으면 시드 사용자로`() {
         storage.json = "{망가진 값"
         assertTrue(FakeBank(FakeUser(storage)).seeded)
+    }
+
+    // ── 시드 사용자 월급은 저장하지 않고 늘 오늘 + 25일(!294 리뷰 2) ──
+
+    @Test fun `시드 사용자가 무엇을 바꿔 저장해도 월급날은 저장되지 않고 읽는 날 + 25일`() = runTest {
+        assertTrue(bank.updateCard(13, nickname = "생활카드", recommended = null, isDefault = null) is ApiResult.Success)   // 저장이 일어남
+        assertFalse(storage.json!!.contains("salary"))
+        val restarted = FakeUser(storage).state
+        val later = LocalDate.now(KST).plusDays(3)   // 며칠 뒤에 켠 것
+        assertEquals(later.plusDays(25), restarted.salaryOn(later)!!.nextAfter(later))
+    }
+
+    @Test fun `월급 칸이 없던 -453 저장값의 시드 사용자도 월급이 있다`() {
+        storage.json = """{"seeded":true,"accounts":["A1","A2"],"cards":["C1","C2","C3","C4","C5","C6"],"primaryAccount":"A1","defaultCard":"C2"}"""
+        val today = LocalDate.now(KST)
+        assertEquals(today.plusDays(25), FakeBank(FakeUser(storage)).salary!!.nextAfter(today))
+    }
+
+    @Test fun `새 사용자는 월급이 없고 B-06에서 넣은 월급은 저장된다`() {
+        bank.reset()
+        assertNull(bank.salary)
+        bank.setSalary(25, 2_500_000, accountId = 1)
+        assertEquals(FakeUser.Salary(25, 2_500_000, "A1"), FakeUser(storage).state.salaryOn(LocalDate.now(KST)))
     }
 }

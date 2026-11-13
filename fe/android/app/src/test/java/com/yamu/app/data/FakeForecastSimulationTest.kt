@@ -13,10 +13,10 @@ import java.time.LocalDate
 
 /**
  * debug 가짜 가상 구매가 체크카드 잔액 초과 안내를 BE(-347 !198)처럼 붙이는지.
- * 가짜 계좌는 월급 통장 412,000 · 생활비 통장 268,000이고, 가상 구매는 생활비 통장에서 빠진다
+ * 가짜 계좌는 KB ·1234 412,000 · 신한 ·5678 268,000이고, 가상 구매는 신한 ·5678(두 번째 계좌)에서 빠진다
  */
 class FakeForecastSimulationTest {
-    private val fake = FakeForecastRepository()
+    private val fake = FakeForecastRepository(FakeBank(FakeUser(storage = null)))   // 시드 사용자
     private val notice = "체크카드는 구매일 잔액보다 큰 금액은 결제되지 않을 수 있어요."
 
     private suspend fun simulate(amount: Long, cardId: Long): Simulation {
@@ -25,14 +25,14 @@ class FakeForecastSimulationTest {
     }
 
     @Test fun `출금 계좌가 마이너스면 다른 계좌 잔액이 있어도 안내한다(!206 리뷰)`() = runTest {
-        // 생활비 통장 268,000 − 300,000 = −32,000. 두 계좌를 합치면 380,000이라 합계로 보면 안내가 빠졌다
+        // 신한 ·5678 268,000 − 300,000 = −32,000. 두 계좌를 합치면 380,000이라 합계로 보면 안내가 빠졌다
         val s = simulate(300_000, cardId = 16)
         assertTrue(s.message!!.endsWith(notice))
         assertTrue(s.days.first().after!! > 0)
     }
 
     @Test fun `출금 계좌 잔액이 남거나 신용카드면 안내하지 않는다`() = runTest {
-        assertFalse(simulate(200_000, cardId = 16).message!!.contains(notice))   // 생활비 통장 68,000 남음
+        assertFalse(simulate(200_000, cardId = 16).message!!.contains(notice))   // 신한 ·5678 68,000 남음
         assertFalse(simulate(300_000, cardId = 11).message!!.contains(notice))   // 신용카드는 구매일에 빠지지 않는다
     }
 }

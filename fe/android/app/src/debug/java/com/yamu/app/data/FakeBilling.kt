@@ -40,7 +40,7 @@ import javax.inject.Singleton
  * 모르는 카드 번호는 청구서 없음 — link만 진짜(cashflow · forecast가 켬)일 때 진짜 카드 번호로 와도 '찾을 수 없는 카드'가 뜨지 않게
  */
 @Singleton
-class FakeBillingRepository @Inject constructor() : BillingRepository {
+class FakeBillingRepository @Inject constructor(private val bank: FakeBank) : BillingRepository {
 
     override suspend fun bills(userCardId: Long?): ApiResult<BillList> =
         withFault(empty = { ApiResult.Success(BillListDto().toBillList()) }) {
@@ -138,7 +138,10 @@ class FakeBillingRepository @Inject constructor() : BillingRepository {
     }
 
     /** 날짜는 오늘 기준으로 다시 만든다 — 언제 켜도 진행 중 · 확정 · 미납 · 출금 완료가 다 보이게 */
-    private fun bills(): List<FakeBill> {
+    /** 시드 사용자의 청구서 중 지금 등록한 카드 것만 — 새 사용자는 아직 청구가 없다(S15P31E103-454) */
+    private fun bills(): List<FakeBill> = if (!bank.seeded) emptyList() else bank.registeredCardIds().toSet().let { ids -> seedBills().filter { it.card in ids } }
+
+    private fun seedBills(): List<FakeBill> {
         val today = LocalDate.now(KST)
         val lastPay = if (today.dayOfMonth > 14) today.withDayOfMonth(14) else today.minusMonths(1).withDayOfMonth(14)
         val nextPay = YearMonth.from(today).plusMonths(1).atDay(14).let { if (it.minusDays(14) < today) it.plusMonths(1) else it }
@@ -197,8 +200,9 @@ class FakeBillingRepository @Inject constructor() : BillingRepository {
 
     /** 생성 최신순(BE와 같은 순서) */
     private fun refunds(): List<RefundDto> {
+        if (!bank.seeded) return emptyList()
         val today = LocalDate.now(KST)
-        val b = bills().associateBy { it.id }
+        val b = seedBills().associateBy { it.id }   // 등록을 해제한 카드의 청구서도 환급 날짜는 알아야 한다
         return listOf(
             RefundDto(301, 9101, 201, CARDS.getValue(13).name, "쿠팡", "CANCEL_AFTER_CONFIRM", 12_000, estimated = true, status = "PENDING",
                 createdAt = utc(today.minusDays(1), 10, 20), scheduledAfter = b.getValue(201).withdrawal.toString()),

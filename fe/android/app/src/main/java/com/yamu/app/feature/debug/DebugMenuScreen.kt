@@ -109,6 +109,7 @@ fun DebugMenuScreen(navController: NavController, viewModel: DebugMenuViewModel 
                     color = c.text3,
                 )
             }
+            FakeUserCard()
             ServerCard(check, onCheck = viewModel::checkServer)
             YamuCard {
                 Text("모든 기능 상태 (가짜 데이터)", style = YamuTheme.typography.titleM, color = c.text1)
@@ -246,6 +247,29 @@ fun DebugMenuScreen(navController: NavController, viewModel: DebugMenuViewModel 
             }
             Spacer(Modifier.height(56.dp))
         }
+    }
+}
+
+/** 지금 가짜 사용자(계좌 · 카드 · 월급) — 가짜 저장소들이 함께 읽는 값(S15P31E103-454). 앱을 다시 켜도 남는다 */
+@Composable
+private fun FakeUserCard() {
+    val c = YamuTheme.colors
+    val lines = DevSession.fakeUser
+    YamuCard {
+        Text("가짜 사용자 (지금 상태)", style = YamuTheme.typography.titleM, color = c.text1)
+        Spacer(Modifier.height(4.dp))
+        if (lines.isEmpty()) {
+            Text("아직 읽지 않았어요", style = YamuTheme.typography.bodyS, color = c.text2)
+        } else {
+            lines.forEach { Text(it, style = YamuTheme.typography.bodyS, color = c.text2) }
+        }
+        Spacer(Modifier.height(8.dp))
+        Text(
+            (if (ApiFeature.LINK.isReal) "연결이 진짜 서버라 계좌 · 카드는 서버 값이고, 이 칸은 가짜로 남은 기능(홈 · 실적 · 결제 …)만 따라요. " else "") +
+                "홈 · 내 카드 · 실적 · 결제 · 잔고예보 · 소비분석 · 알림이 이 값을 함께 써요. 바꾸려면 위 시작 상태로 처음부터, 카드는 카드 등록 · 해제, 월급은 B-06에서",
+            style = YamuTheme.typography.bodyS,
+            color = c.text3,
+        )
     }
 }
 
