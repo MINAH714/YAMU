@@ -198,16 +198,16 @@ fun AccountManageRoute(onBack: () -> Unit, viewModel: AccountManageViewModel = h
 private fun LinkedAccount.keepingBalanceOf(before: LinkedAccount) =
     if (balance != null) this else copy(balance = before.balance, balanceAsOfIso = before.balanceAsOfIso)
 
-/** '신한은행 ·1234 · 카드 2장' */
+/** '신한은행 ·1234 · 카드 2장' — 앞부분은 카드 상세의 계좌 줄과 같은 [LinkedAccount.numberLabel] */
 internal fun accountRowSub(account: LinkedAccount): String =
-    listOfNotNull("${account.brand.name} ·${account.last4}", "카드 ${account.cardCount}장".takeIf { account.cardCount > 0 }).joinToString(" · ")
+    listOfNotNull(account.numberLabel, "카드 ${account.cardCount}장".takeIf { account.cardCount > 0 }).joinToString(" · ")
 
 @Composable
 private fun AccountActionSheet(account: LinkedAccount, onRename: () -> Unit, onMakePrimary: () -> Unit, onDismiss: () -> Unit) {
     val c = YamuTheme.colors
     YamuBottomSheet(onDismiss = onDismiss) {
         Text(account.name, style = YamuTheme.typography.titleL, color = c.text1)
-        Text("${account.brand.name} ·${account.last4}", style = YamuTheme.typography.bodyM, color = c.text3)
+        Text(account.numberLabel, style = YamuTheme.typography.bodyM, color = c.text3)
         Spacer(Modifier.height(YamuSpacing.x2))
         ListRow(title = "별칭 바꾸기", valuePlain = account.alias ?: "없음", chevron = true, onClick = onRename)
         if (account.isPrimary) {
@@ -229,7 +229,7 @@ private fun AccountNameSheet(account: LinkedAccount, onSave: (String) -> Unit, o
             label = "별칭",
             value = text,
             onValueChange = { text = it.take(CardValidation.NICKNAME_MAX) },
-            placeholder = "${account.brand.name} ·${account.last4}",
+            placeholder = account.numberLabel,
             supporting = "${CardValidation.NICKNAME_MAX}자까지 · 비우면 기본 이름으로 보여요",
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
         )

@@ -76,8 +76,73 @@ class CardDetailViewModelTest {
 
     // ── 카드 상세 ──
 
-    @Test fun `결제 계좌 이름은 계좌 목록에서 찾는다`() = runTest(dispatcher) {
-        assertEquals("신한은행 ·5678", detail().state.value.settlementAccountLabel)
+    // ── 출금 계좌 줄(2차 QA 23) — 계좌 목록에서 찾으면 눌러서 계좌 관리로 ──
+
+    private fun CardDetailViewModel.accountRow(): CardAccountRow = state.value.let { it.accountRow(it.card!!) }
+
+    @Test fun `신용카드 결제 계좌는 계좌 목록에서 찾아 누를 수 있고 계좌 관리와 같은 모양이다`() = runTest(dispatcher) {
+        val row = detail().accountRow()
+        assertEquals(CardAccountRow("결제 계좌", "신한은행 ·5678", openable = true), row)
+        assertEquals("${row.value} · 카드 2장", accountRowSub(ACCOUNT.copy(cardCount = 2)))   // 계좌 관리 줄
+    }
+
+    @Test fun `체크카드 연결 계좌도 계좌 목록에서 찾아 누를 수 있다`() = runTest(dispatcher) {
+        link.detailResult = ApiResult.Success(CHECK_CARD)
+        assertEquals(CardAccountRow("연결 계좌", "신한은행 ·5678", openable = true), detail().accountRow())
+    }
+
+    @Test fun `연결 계좌가 없는 체크카드는 글자만 둔다`() = runTest(dispatcher) {
+        link.detailResult = ApiResult.Success(CHECK_CARD.copy(settlementAccountId = null, checkAccountLabel = null))
+        assertEquals(CardAccountRow("연결 계좌", "연결된 계좌가 없어요", openable = false), detail().accountRow())
+    }
+
+    @Test fun `신용카드 결제 계좌가 계좌 목록에 없으면 연결을 해제한 계좌라고 하고 누를 수 없다`() = runTest(dispatcher) {
+        // BE는 해제한 계좌도 결제 계좌 id로 주고, 계좌 목록은 연결 중인 계좌만 준다 — 목록을 못 읽은 경우와 나눈다
+        link.detailResult = ApiResult.Success(CARD.copy(settlementAccountId = 99))
+        assertEquals(CardAccountRow("결제 계좌", "연결을 해제한 계좌예요", openable = false), detail().accountRow())
+    }
+
+    @Test fun `체크카드 연결 계좌가 계좌 목록에 없으면 상세 응답의 계좌를 글자로만 보인다`() = runTest(dispatcher) {
+        link.detailResult = ApiResult.Success(CHECK_CARD.copy(settlementAccountId = 99))
+        assertEquals(CardAccountRow("연결 계좌", "신한은행 ·5678", openable = false), detail().accountRow())
+    }
+
+    @Test fun `계좌 목록을 못 읽으면 체크카드는 상세 응답의 계좌를 글자로만 보인다`() = runTest(dispatcher) {
+        link.overviewResult = ApiResult.Failure(ApiError.Network)
+        link.detailResult = ApiResult.Success(CHECK_CARD)
+        assertEquals(CardAccountRow("연결 계좌", "신한은행 ·5678", openable = false), detail().accountRow())
+    }
+
+    @Test fun `계좌 목록을 못 읽으면 신용카드 결제 계좌는 확인할 수 없다`() = runTest(dispatcher) {
+        link.overviewResult = ApiResult.Failure(ApiError.Network)
+        assertEquals(CardAccountRow("결제 계좌", "확인할 수 없어요", openable = false), detail().accountRow())
+    }
+
+    @Test fun `다시 읽을 때 계좌 목록을 못 읽으면 찾아 둔 계좌를 둔다`() = runTest(dispatcher) {
+        val vm = detail()
+        link.overviewResult = ApiResult.Failure(ApiError.Network)
+        vm.load()
+        advanceUntilIdle()
+        assertEquals(CardAccountRow("결제 계좌", "신한은행 ·5678", openable = true), vm.accountRow())
+    }
+
+    @Test fun `다시 읽을 때 계좌 목록을 못 읽었는데 결제 계좌가 바뀌었으면 예전 계좌를 두지 않는다`() = runTest(dispatcher) {
+        val vm = detail()
+        link.overviewResult = ApiResult.Failure(ApiError.Network)
+        link.detailResult = ApiResult.Success(CARD.copy(settlementAccountId = 7))
+        vm.load()
+        advanceUntilIdle()
+        assertEquals(CardAccountRow("결제 계좌", "확인할 수 없어요", openable = false), vm.accountRow())
+    }
+
+    @Test fun `다시 읽을 때 계좌 목록을 못 읽었는데 체크카드 연결 계좌가 없어졌으면 예전 계좌를 두지 않는다`() = runTest(dispatcher) {
+        link.detailResult = ApiResult.Success(CHECK_CARD)
+        val vm = detail()
+        link.overviewResult = ApiResult.Failure(ApiError.Network)
+        link.detailResult = ApiResult.Success(CHECK_CARD.copy(settlementAccountId = null, checkAccountLabel = null))   // 연결을 해제함
+        vm.load()
+        advanceUntilIdle()
+        assertEquals(CardAccountRow("연결 계좌", "연결된 계좌가 없어요", openable = false), vm.accountRow())
     }
 
     @Test fun `다른 카드가 자동 선택에 있으면 마지막 카드가 아니다`() = runTest(dispatcher) {
@@ -525,6 +590,9 @@ class CardDetailViewModelTest {
             checkAccountLabel = null,
             nextWithdrawal = null,
         )
+
+        /** 체크카드는 상세 응답에 연결 계좌 이름이 따로 온다 — 목록을 못 읽었을 때만 쓴다 */
+        val CHECK_CARD = CARD.copy(isCheck = true, paymentDay = null, checkAccountLabel = "신한은행 ·5678")
 
         fun linkedCard(id: Long) = LinkedCard(id, brandOf("신한카드"), "카드$id", false, "000$id", 14, null, null)
 

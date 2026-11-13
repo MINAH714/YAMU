@@ -77,6 +77,7 @@ class CardManageContractTest {
         assertTrue(card.isCheck)
         assertEquals("생활비", card.displayName)
         assertEquals("신한은행 ·1234", card.checkAccountLabel)
+        assertEquals(5L, card.settlementAccountId)   // 연결 계좌 id — 계좌 목록에서 찾아 계좌 관리로 보낸다
         assertNull(card.paymentDay)
         assertNull(card.nextWithdrawal)
         assertFalse(card.recommended)
