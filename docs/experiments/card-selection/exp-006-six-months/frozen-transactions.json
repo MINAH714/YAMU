@@ -1,0 +1,4169 @@
+[ {
+  "number" : 1,
+  "purpose" : "GROCERIES",
+  "brand" : "EMART",
+  "category" : "HYPERMARKET",
+  "channel" : "OFFLINE",
+  "amount" : 73000,
+  "at" : "2026-11-01T07:03:00Z"
+}, {
+  "number" : 2,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2026-11-01T23:15:00Z"
+}, {
+  "number" : 3,
+  "purpose" : "LUNCH",
+  "brand" : "YAMU_TEST_RESTAURANT",
+  "category" : "GENERAL_RESTAURANT",
+  "channel" : "OFFLINE",
+  "amount" : 14000,
+  "at" : "2026-11-02T03:00:00Z"
+}, {
+  "number" : 4,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2026-11-02T09:15:00Z"
+}, {
+  "number" : 5,
+  "purpose" : "CONVENIENCE",
+  "brand" : "CU",
+  "category" : "CONVENIENCE_STORE",
+  "channel" : "OFFLINE",
+  "amount" : 10000,
+  "at" : "2026-11-02T10:18:00Z"
+}, {
+  "number" : 6,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2026-11-02T23:15:00Z"
+}, {
+  "number" : 7,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2026-11-03T09:15:00Z"
+}, {
+  "number" : 8,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2026-11-03T23:15:00Z"
+}, {
+  "number" : 9,
+  "purpose" : "LUNCH",
+  "brand" : "YAMU_TEST_RESTAURANT",
+  "category" : "GENERAL_RESTAURANT",
+  "channel" : "OFFLINE",
+  "amount" : 14000,
+  "at" : "2026-11-04T03:10:00Z"
+}, {
+  "number" : 10,
+  "purpose" : "CAFE",
+  "brand" : "EDIYA",
+  "category" : "COFFEE_SHOP",
+  "channel" : "OFFLINE",
+  "amount" : 7000,
+  "at" : "2026-11-04T05:53:00Z"
+}, {
+  "number" : 11,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2026-11-04T09:15:00Z"
+}, {
+  "number" : 12,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2026-11-04T23:15:00Z"
+}, {
+  "number" : 13,
+  "purpose" : "LUNCH",
+  "brand" : "YAMU_TEST_RESTAURANT",
+  "category" : "GENERAL_RESTAURANT",
+  "channel" : "OFFLINE",
+  "amount" : 15000,
+  "at" : "2026-11-05T03:30:00Z"
+}, {
+  "number" : 14,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2026-11-05T09:15:00Z"
+}, {
+  "number" : 15,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2026-11-05T23:15:00Z"
+}, {
+  "number" : 16,
+  "purpose" : "LUNCH",
+  "brand" : "YAMU_TEST_RESTAURANT",
+  "category" : "GENERAL_RESTAURANT",
+  "channel" : "OFFLINE",
+  "amount" : 13000,
+  "at" : "2026-11-06T03:26:00Z"
+}, {
+  "number" : 17,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2026-11-06T09:15:00Z"
+}, {
+  "number" : 18,
+  "purpose" : "CONVENIENCE",
+  "brand" : "EMART24",
+  "category" : "CONVENIENCE_STORE",
+  "channel" : "OFFLINE",
+  "amount" : 5000,
+  "at" : "2026-11-06T10:41:00Z"
+}, {
+  "number" : 19,
+  "purpose" : "TAXI",
+  "brand" : "EXP006_TAXI",
+  "category" : "TAXI",
+  "channel" : "OFFLINE",
+  "amount" : 19000,
+  "at" : "2026-11-07T13:23:00Z"
+}, {
+  "number" : 20,
+  "purpose" : "CAFE",
+  "brand" : "EDIYA",
+  "category" : "COFFEE_SHOP",
+  "channel" : "OFFLINE",
+  "amount" : 4000,
+  "at" : "2026-11-08T05:19:00Z"
+}, {
+  "number" : 21,
+  "purpose" : "GROCERIES",
+  "brand" : "LOTTE_MART",
+  "category" : "HYPERMARKET",
+  "channel" : "OFFLINE",
+  "amount" : 86000,
+  "at" : "2026-11-08T07:41:00Z"
+}, {
+  "number" : 22,
+  "purpose" : "CONVENIENCE",
+  "brand" : "SEVEN_ELEVEN",
+  "category" : "CONVENIENCE_STORE",
+  "channel" : "OFFLINE",
+  "amount" : 7000,
+  "at" : "2026-11-08T10:58:00Z"
+}, {
+  "number" : 23,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2026-11-08T23:15:00Z"
+}, {
+  "number" : 24,
+  "purpose" : "LUNCH",
+  "brand" : "YAMU_TEST_RESTAURANT",
+  "category" : "GENERAL_RESTAURANT",
+  "channel" : "OFFLINE",
+  "amount" : 11000,
+  "at" : "2026-11-09T03:26:00Z"
+}, {
+  "number" : 25,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2026-11-09T09:15:00Z"
+}, {
+  "number" : 26,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2026-11-09T23:15:00Z"
+}, {
+  "number" : 27,
+  "purpose" : "SUBSCRIPTION",
+  "brand" : "NETFLIX",
+  "category" : "STREAMING_SERVICE",
+  "channel" : "ONLINE",
+  "amount" : 17000,
+  "at" : "2026-11-10T00:54:00Z"
+}, {
+  "number" : 28,
+  "purpose" : "LUNCH",
+  "brand" : "YAMU_TEST_RESTAURANT",
+  "category" : "GENERAL_RESTAURANT",
+  "channel" : "OFFLINE",
+  "amount" : 18000,
+  "at" : "2026-11-10T03:52:00Z"
+}, {
+  "number" : 29,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2026-11-10T09:15:00Z"
+}, {
+  "number" : 30,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2026-11-10T23:15:00Z"
+}, {
+  "number" : 31,
+  "purpose" : "LUNCH",
+  "brand" : "YAMU_TEST_RESTAURANT",
+  "category" : "GENERAL_RESTAURANT",
+  "channel" : "OFFLINE",
+  "amount" : 9000,
+  "at" : "2026-11-11T03:46:00Z"
+}, {
+  "number" : 32,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2026-11-11T09:15:00Z"
+}, {
+  "number" : 33,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2026-11-11T23:15:00Z"
+}, {
+  "number" : 34,
+  "purpose" : "LUNCH",
+  "brand" : "YAMU_TEST_RESTAURANT",
+  "category" : "GENERAL_RESTAURANT",
+  "channel" : "OFFLINE",
+  "amount" : 13000,
+  "at" : "2026-11-12T03:21:00Z"
+}, {
+  "number" : 35,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2026-11-12T09:15:00Z"
+}, {
+  "number" : 36,
+  "purpose" : "CONVENIENCE",
+  "brand" : "EMART24",
+  "category" : "CONVENIENCE_STORE",
+  "channel" : "OFFLINE",
+  "amount" : 9000,
+  "at" : "2026-11-12T10:10:00Z"
+}, {
+  "number" : 37,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2026-11-12T23:15:00Z"
+}, {
+  "number" : 38,
+  "purpose" : "LUNCH",
+  "brand" : "YAMU_TEST_RESTAURANT",
+  "category" : "GENERAL_RESTAURANT",
+  "channel" : "OFFLINE",
+  "amount" : 13000,
+  "at" : "2026-11-13T03:00:00Z"
+}, {
+  "number" : 39,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2026-11-13T09:15:00Z"
+}, {
+  "number" : 40,
+  "purpose" : "CAFE",
+  "brand" : "STARBUCKS",
+  "category" : "COFFEE_SHOP",
+  "channel" : "OFFLINE",
+  "amount" : 7000,
+  "at" : "2026-11-14T05:18:00Z"
+}, {
+  "number" : 41,
+  "purpose" : "CAFE",
+  "brand" : "STARBUCKS",
+  "category" : "COFFEE_SHOP",
+  "channel" : "OFFLINE",
+  "amount" : 7000,
+  "at" : "2026-11-15T05:41:00Z"
+}, {
+  "number" : 42,
+  "purpose" : "GROCERIES",
+  "brand" : "EMART",
+  "category" : "HYPERMARKET",
+  "channel" : "OFFLINE",
+  "amount" : 60000,
+  "at" : "2026-11-15T07:40:00Z"
+}, {
+  "number" : 43,
+  "purpose" : "HOUSEHOLD",
+  "brand" : "GMARKET",
+  "category" : "ONLINE_MARKETPLACE",
+  "channel" : "ONLINE",
+  "amount" : 75000,
+  "at" : "2026-11-15T12:06:00Z"
+}, {
+  "number" : 44,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2026-11-15T23:15:00Z"
+}, {
+  "number" : 45,
+  "purpose" : "LUNCH",
+  "brand" : "YAMU_TEST_RESTAURANT",
+  "category" : "GENERAL_RESTAURANT",
+  "channel" : "OFFLINE",
+  "amount" : 13000,
+  "at" : "2026-11-16T03:18:00Z"
+}, {
+  "number" : 46,
+  "purpose" : "CAFE",
+  "brand" : "EDIYA",
+  "category" : "COFFEE_SHOP",
+  "channel" : "OFFLINE",
+  "amount" : 3000,
+  "at" : "2026-11-16T05:01:00Z"
+}, {
+  "number" : 47,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2026-11-16T09:15:00Z"
+}, {
+  "number" : 48,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2026-11-16T23:15:00Z"
+}, {
+  "number" : 49,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2026-11-17T09:15:00Z"
+}, {
+  "number" : 50,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2026-11-17T23:15:00Z"
+}, {
+  "number" : 51,
+  "purpose" : "LUNCH",
+  "brand" : "YAMU_TEST_RESTAURANT",
+  "category" : "GENERAL_RESTAURANT",
+  "channel" : "OFFLINE",
+  "amount" : 12000,
+  "at" : "2026-11-18T03:37:00Z"
+}, {
+  "number" : 52,
+  "purpose" : "CAFE",
+  "brand" : "STARBUCKS",
+  "category" : "COFFEE_SHOP",
+  "channel" : "OFFLINE",
+  "amount" : 3000,
+  "at" : "2026-11-18T05:21:00Z"
+}, {
+  "number" : 53,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2026-11-18T09:15:00Z"
+}, {
+  "number" : 54,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2026-11-18T23:15:00Z"
+}, {
+  "number" : 55,
+  "purpose" : "LUNCH",
+  "brand" : "YAMU_TEST_RESTAURANT",
+  "category" : "GENERAL_RESTAURANT",
+  "channel" : "OFFLINE",
+  "amount" : 17000,
+  "at" : "2026-11-19T03:33:00Z"
+}, {
+  "number" : 56,
+  "purpose" : "CAFE",
+  "brand" : "STARBUCKS",
+  "category" : "COFFEE_SHOP",
+  "channel" : "OFFLINE",
+  "amount" : 5000,
+  "at" : "2026-11-19T05:30:00Z"
+}, {
+  "number" : 57,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2026-11-19T09:15:00Z"
+}, {
+  "number" : 58,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2026-11-19T23:15:00Z"
+}, {
+  "number" : 59,
+  "purpose" : "LUNCH",
+  "brand" : "YAMU_TEST_RESTAURANT",
+  "category" : "GENERAL_RESTAURANT",
+  "channel" : "OFFLINE",
+  "amount" : 11000,
+  "at" : "2026-11-20T03:58:00Z"
+}, {
+  "number" : 60,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2026-11-20T09:15:00Z"
+}, {
+  "number" : 61,
+  "purpose" : "CONVENIENCE",
+  "brand" : "SEVEN_ELEVEN",
+  "category" : "CONVENIENCE_STORE",
+  "channel" : "OFFLINE",
+  "amount" : 8000,
+  "at" : "2026-11-21T10:41:00Z"
+}, {
+  "number" : 62,
+  "purpose" : "TAXI",
+  "brand" : "EXP006_TAXI",
+  "category" : "TAXI",
+  "channel" : "OFFLINE",
+  "amount" : 25000,
+  "at" : "2026-11-21T13:18:00Z"
+}, {
+  "number" : 63,
+  "purpose" : "GROCERIES",
+  "brand" : "LOTTE_MART",
+  "category" : "HYPERMARKET",
+  "channel" : "OFFLINE",
+  "amount" : 60000,
+  "at" : "2026-11-22T07:09:00Z"
+}, {
+  "number" : 64,
+  "purpose" : "CONVENIENCE",
+  "brand" : "GS25",
+  "category" : "CONVENIENCE_STORE",
+  "channel" : "OFFLINE",
+  "amount" : 3000,
+  "at" : "2026-11-22T10:20:00Z"
+}, {
+  "number" : 65,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2026-11-22T23:15:00Z"
+}, {
+  "number" : 66,
+  "purpose" : "LUNCH",
+  "brand" : "YAMU_TEST_RESTAURANT",
+  "category" : "GENERAL_RESTAURANT",
+  "channel" : "OFFLINE",
+  "amount" : 15000,
+  "at" : "2026-11-23T03:44:00Z"
+}, {
+  "number" : 67,
+  "purpose" : "CAFE",
+  "brand" : "EDIYA",
+  "category" : "COFFEE_SHOP",
+  "channel" : "OFFLINE",
+  "amount" : 3000,
+  "at" : "2026-11-23T05:30:00Z"
+}, {
+  "number" : 68,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2026-11-23T09:15:00Z"
+}, {
+  "number" : 69,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2026-11-23T23:15:00Z"
+}, {
+  "number" : 70,
+  "purpose" : "LUNCH",
+  "brand" : "YAMU_TEST_RESTAURANT",
+  "category" : "GENERAL_RESTAURANT",
+  "channel" : "OFFLINE",
+  "amount" : 17000,
+  "at" : "2026-11-24T03:21:00Z"
+}, {
+  "number" : 71,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2026-11-24T09:15:00Z"
+}, {
+  "number" : 72,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2026-11-24T23:15:00Z"
+}, {
+  "number" : 73,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2026-11-25T09:15:00Z"
+}, {
+  "number" : 74,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2026-11-25T23:15:00Z"
+}, {
+  "number" : 75,
+  "purpose" : "LUNCH",
+  "brand" : "YAMU_TEST_RESTAURANT",
+  "category" : "GENERAL_RESTAURANT",
+  "channel" : "OFFLINE",
+  "amount" : 12000,
+  "at" : "2026-11-26T03:24:00Z"
+}, {
+  "number" : 76,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2026-11-26T09:15:00Z"
+}, {
+  "number" : 77,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2026-11-26T23:15:00Z"
+}, {
+  "number" : 78,
+  "purpose" : "LUNCH",
+  "brand" : "YAMU_TEST_RESTAURANT",
+  "category" : "GENERAL_RESTAURANT",
+  "channel" : "OFFLINE",
+  "amount" : 15000,
+  "at" : "2026-11-27T03:29:00Z"
+}, {
+  "number" : 79,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2026-11-27T09:15:00Z"
+}, {
+  "number" : 80,
+  "purpose" : "HOUSEHOLD",
+  "brand" : "COUPANG",
+  "category" : "ONLINE_MARKETPLACE",
+  "channel" : "ONLINE",
+  "amount" : 64000,
+  "at" : "2026-11-27T12:11:00Z"
+}, {
+  "number" : 81,
+  "purpose" : "CONVENIENCE",
+  "brand" : "GS25",
+  "category" : "CONVENIENCE_STORE",
+  "channel" : "OFFLINE",
+  "amount" : 3000,
+  "at" : "2026-11-28T10:10:00Z"
+}, {
+  "number" : 82,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2026-11-29T23:15:00Z"
+}, {
+  "number" : 83,
+  "purpose" : "LUNCH",
+  "brand" : "YAMU_TEST_RESTAURANT",
+  "category" : "GENERAL_RESTAURANT",
+  "channel" : "OFFLINE",
+  "amount" : 12000,
+  "at" : "2026-11-30T03:59:00Z"
+}, {
+  "number" : 84,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2026-11-30T09:15:00Z"
+}, {
+  "number" : 85,
+  "purpose" : "CONVENIENCE",
+  "brand" : "CU",
+  "category" : "CONVENIENCE_STORE",
+  "channel" : "OFFLINE",
+  "amount" : 6000,
+  "at" : "2026-11-30T10:39:00Z"
+}, {
+  "number" : 86,
+  "purpose" : "CLOTHING",
+  "brand" : "GMARKET",
+  "category" : "ONLINE_MARKETPLACE",
+  "channel" : "ONLINE",
+  "amount" : 124000,
+  "at" : "2026-11-30T11:30:00Z"
+}, {
+  "number" : 87,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2026-11-30T23:15:00Z"
+}, {
+  "number" : 88,
+  "purpose" : "LUNCH",
+  "brand" : "YAMU_TEST_RESTAURANT",
+  "category" : "GENERAL_RESTAURANT",
+  "channel" : "OFFLINE",
+  "amount" : 13000,
+  "at" : "2026-12-01T03:24:00Z"
+}, {
+  "number" : 89,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2026-12-01T09:15:00Z"
+}, {
+  "number" : 90,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2026-12-01T23:15:00Z"
+}, {
+  "number" : 91,
+  "purpose" : "LUNCH",
+  "brand" : "YAMU_TEST_RESTAURANT",
+  "category" : "GENERAL_RESTAURANT",
+  "channel" : "OFFLINE",
+  "amount" : 9000,
+  "at" : "2026-12-02T03:01:00Z"
+}, {
+  "number" : 92,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2026-12-02T09:15:00Z"
+}, {
+  "number" : 93,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2026-12-02T23:15:00Z"
+}, {
+  "number" : 94,
+  "purpose" : "LUNCH",
+  "brand" : "YAMU_TEST_RESTAURANT",
+  "category" : "GENERAL_RESTAURANT",
+  "channel" : "OFFLINE",
+  "amount" : 13000,
+  "at" : "2026-12-03T03:33:00Z"
+}, {
+  "number" : 95,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2026-12-03T09:15:00Z"
+}, {
+  "number" : 96,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2026-12-03T23:15:00Z"
+}, {
+  "number" : 97,
+  "purpose" : "LUNCH",
+  "brand" : "YAMU_TEST_RESTAURANT",
+  "category" : "GENERAL_RESTAURANT",
+  "channel" : "OFFLINE",
+  "amount" : 14000,
+  "at" : "2026-12-04T03:36:00Z"
+}, {
+  "number" : 98,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2026-12-04T09:15:00Z"
+}, {
+  "number" : 99,
+  "purpose" : "GROCERIES",
+  "brand" : "EMART",
+  "category" : "HYPERMARKET",
+  "channel" : "OFFLINE",
+  "amount" : 91000,
+  "at" : "2026-12-06T07:40:00Z"
+}, {
+  "number" : 100,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2026-12-06T23:15:00Z"
+}, {
+  "number" : 101,
+  "purpose" : "LUNCH",
+  "brand" : "YAMU_TEST_RESTAURANT",
+  "category" : "GENERAL_RESTAURANT",
+  "channel" : "OFFLINE",
+  "amount" : 10000,
+  "at" : "2026-12-07T03:24:00Z"
+}, {
+  "number" : 102,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2026-12-07T09:15:00Z"
+}, {
+  "number" : 103,
+  "purpose" : "CONVENIENCE",
+  "brand" : "SEVEN_ELEVEN",
+  "category" : "CONVENIENCE_STORE",
+  "channel" : "OFFLINE",
+  "amount" : 9000,
+  "at" : "2026-12-07T10:36:00Z"
+}, {
+  "number" : 104,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2026-12-07T23:15:00Z"
+}, {
+  "number" : 105,
+  "purpose" : "LUNCH",
+  "brand" : "YAMU_TEST_RESTAURANT",
+  "category" : "GENERAL_RESTAURANT",
+  "channel" : "OFFLINE",
+  "amount" : 15000,
+  "at" : "2026-12-08T03:16:00Z"
+}, {
+  "number" : 106,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2026-12-08T09:15:00Z"
+}, {
+  "number" : 107,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2026-12-08T23:15:00Z"
+}, {
+  "number" : 108,
+  "purpose" : "LUNCH",
+  "brand" : "YAMU_TEST_RESTAURANT",
+  "category" : "GENERAL_RESTAURANT",
+  "channel" : "OFFLINE",
+  "amount" : 13000,
+  "at" : "2026-12-09T03:26:00Z"
+}, {
+  "number" : 109,
+  "purpose" : "CAFE",
+  "brand" : "EDIYA",
+  "category" : "COFFEE_SHOP",
+  "channel" : "OFFLINE",
+  "amount" : 7000,
+  "at" : "2026-12-09T05:32:00Z"
+}, {
+  "number" : 110,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2026-12-09T09:15:00Z"
+}, {
+  "number" : 111,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2026-12-09T23:15:00Z"
+}, {
+  "number" : 112,
+  "purpose" : "SUBSCRIPTION",
+  "brand" : "NETFLIX",
+  "category" : "STREAMING_SERVICE",
+  "channel" : "ONLINE",
+  "amount" : 17000,
+  "at" : "2026-12-10T00:49:00Z"
+}, {
+  "number" : 113,
+  "purpose" : "LUNCH",
+  "brand" : "YAMU_TEST_RESTAURANT",
+  "category" : "GENERAL_RESTAURANT",
+  "channel" : "OFFLINE",
+  "amount" : 11000,
+  "at" : "2026-12-10T03:32:00Z"
+}, {
+  "number" : 114,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2026-12-10T09:15:00Z"
+}, {
+  "number" : 115,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2026-12-10T23:15:00Z"
+}, {
+  "number" : 116,
+  "purpose" : "LUNCH",
+  "brand" : "YAMU_TEST_RESTAURANT",
+  "category" : "GENERAL_RESTAURANT",
+  "channel" : "OFFLINE",
+  "amount" : 9000,
+  "at" : "2026-12-11T03:34:00Z"
+}, {
+  "number" : 117,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2026-12-11T09:15:00Z"
+}, {
+  "number" : 118,
+  "purpose" : "TAXI",
+  "brand" : "EXP006_TAXI",
+  "category" : "TAXI",
+  "channel" : "OFFLINE",
+  "amount" : 14000,
+  "at" : "2026-12-12T13:47:00Z"
+}, {
+  "number" : 119,
+  "purpose" : "CAFE",
+  "brand" : "EDIYA",
+  "category" : "COFFEE_SHOP",
+  "channel" : "OFFLINE",
+  "amount" : 5000,
+  "at" : "2026-12-13T05:20:00Z"
+}, {
+  "number" : 120,
+  "purpose" : "GROCERIES",
+  "brand" : "LOTTE_MART",
+  "category" : "HYPERMARKET",
+  "channel" : "OFFLINE",
+  "amount" : 72000,
+  "at" : "2026-12-13T07:23:00Z"
+}, {
+  "number" : 121,
+  "purpose" : "HOUSEHOLD",
+  "brand" : "COUPANG",
+  "category" : "ONLINE_MARKETPLACE",
+  "channel" : "ONLINE",
+  "amount" : 40000,
+  "at" : "2026-12-13T12:48:00Z"
+}, {
+  "number" : 122,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2026-12-13T23:15:00Z"
+}, {
+  "number" : 123,
+  "purpose" : "LUNCH",
+  "brand" : "YAMU_TEST_RESTAURANT",
+  "category" : "GENERAL_RESTAURANT",
+  "channel" : "OFFLINE",
+  "amount" : 17000,
+  "at" : "2026-12-14T03:02:00Z"
+}, {
+  "number" : 124,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2026-12-14T09:15:00Z"
+}, {
+  "number" : 125,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2026-12-14T23:15:00Z"
+}, {
+  "number" : 126,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2026-12-15T09:15:00Z"
+}, {
+  "number" : 127,
+  "purpose" : "CONVENIENCE",
+  "brand" : "GS25",
+  "category" : "CONVENIENCE_STORE",
+  "channel" : "OFFLINE",
+  "amount" : 8000,
+  "at" : "2026-12-15T10:13:00Z"
+}, {
+  "number" : 128,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2026-12-15T23:15:00Z"
+}, {
+  "number" : 129,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2026-12-16T09:15:00Z"
+}, {
+  "number" : 130,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2026-12-16T23:15:00Z"
+}, {
+  "number" : 131,
+  "purpose" : "LUNCH",
+  "brand" : "YAMU_TEST_RESTAURANT",
+  "category" : "GENERAL_RESTAURANT",
+  "channel" : "OFFLINE",
+  "amount" : 14000,
+  "at" : "2026-12-17T03:28:00Z"
+}, {
+  "number" : 132,
+  "purpose" : "CAFE",
+  "brand" : "STARBUCKS",
+  "category" : "COFFEE_SHOP",
+  "channel" : "OFFLINE",
+  "amount" : 5000,
+  "at" : "2026-12-17T05:57:00Z"
+}, {
+  "number" : 133,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2026-12-17T09:15:00Z"
+}, {
+  "number" : 134,
+  "purpose" : "CONVENIENCE",
+  "brand" : "EMART24",
+  "category" : "CONVENIENCE_STORE",
+  "channel" : "OFFLINE",
+  "amount" : 6000,
+  "at" : "2026-12-17T10:56:00Z"
+}, {
+  "number" : 135,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2026-12-17T23:15:00Z"
+}, {
+  "number" : 136,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2026-12-18T09:15:00Z"
+}, {
+  "number" : 137,
+  "purpose" : "CONVENIENCE",
+  "brand" : "CU",
+  "category" : "CONVENIENCE_STORE",
+  "channel" : "OFFLINE",
+  "amount" : 5000,
+  "at" : "2026-12-18T10:46:00Z"
+}, {
+  "number" : 138,
+  "purpose" : "CAFE",
+  "brand" : "EDIYA",
+  "category" : "COFFEE_SHOP",
+  "channel" : "OFFLINE",
+  "amount" : 4000,
+  "at" : "2026-12-19T05:37:00Z"
+}, {
+  "number" : 139,
+  "purpose" : "CONVENIENCE",
+  "brand" : "GS25",
+  "category" : "CONVENIENCE_STORE",
+  "channel" : "OFFLINE",
+  "amount" : 6000,
+  "at" : "2026-12-19T10:52:00Z"
+}, {
+  "number" : 140,
+  "purpose" : "TAXI",
+  "brand" : "EXP006_TAXI",
+  "category" : "TAXI",
+  "channel" : "OFFLINE",
+  "amount" : 19000,
+  "at" : "2026-12-19T13:35:00Z"
+}, {
+  "number" : 141,
+  "purpose" : "GROCERIES",
+  "brand" : "EMART",
+  "category" : "HYPERMARKET",
+  "channel" : "OFFLINE",
+  "amount" : 80000,
+  "at" : "2026-12-20T07:52:00Z"
+}, {
+  "number" : 142,
+  "purpose" : "HOUSEHOLD",
+  "brand" : "GMARKET",
+  "category" : "ONLINE_MARKETPLACE",
+  "channel" : "ONLINE",
+  "amount" : 45000,
+  "at" : "2026-12-20T12:13:00Z"
+}, {
+  "number" : 143,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2026-12-20T23:15:00Z"
+}, {
+  "number" : 144,
+  "purpose" : "LUNCH",
+  "brand" : "YAMU_TEST_RESTAURANT",
+  "category" : "GENERAL_RESTAURANT",
+  "channel" : "OFFLINE",
+  "amount" : 16000,
+  "at" : "2026-12-21T03:01:00Z"
+}, {
+  "number" : 145,
+  "purpose" : "CAFE",
+  "brand" : "STARBUCKS",
+  "category" : "COFFEE_SHOP",
+  "channel" : "OFFLINE",
+  "amount" : 3000,
+  "at" : "2026-12-21T05:19:00Z"
+}, {
+  "number" : 146,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2026-12-21T09:15:00Z"
+}, {
+  "number" : 147,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2026-12-21T23:15:00Z"
+}, {
+  "number" : 148,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2026-12-22T09:15:00Z"
+}, {
+  "number" : 149,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2026-12-22T23:15:00Z"
+}, {
+  "number" : 150,
+  "purpose" : "LUNCH",
+  "brand" : "YAMU_TEST_RESTAURANT",
+  "category" : "GENERAL_RESTAURANT",
+  "channel" : "OFFLINE",
+  "amount" : 16000,
+  "at" : "2026-12-23T03:21:00Z"
+}, {
+  "number" : 151,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2026-12-23T09:15:00Z"
+}, {
+  "number" : 152,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2026-12-23T23:15:00Z"
+}, {
+  "number" : 153,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2026-12-24T09:15:00Z"
+}, {
+  "number" : 154,
+  "purpose" : "CONVENIENCE",
+  "brand" : "EMART24",
+  "category" : "CONVENIENCE_STORE",
+  "channel" : "OFFLINE",
+  "amount" : 3000,
+  "at" : "2026-12-24T10:20:00Z"
+}, {
+  "number" : 155,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2026-12-24T23:15:00Z"
+}, {
+  "number" : 156,
+  "purpose" : "LUNCH",
+  "brand" : "YAMU_TEST_RESTAURANT",
+  "category" : "GENERAL_RESTAURANT",
+  "channel" : "OFFLINE",
+  "amount" : 10000,
+  "at" : "2026-12-25T03:22:00Z"
+}, {
+  "number" : 157,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2026-12-25T09:15:00Z"
+}, {
+  "number" : 158,
+  "purpose" : "CONVENIENCE",
+  "brand" : "CU",
+  "category" : "CONVENIENCE_STORE",
+  "channel" : "OFFLINE",
+  "amount" : 10000,
+  "at" : "2026-12-25T10:20:00Z"
+}, {
+  "number" : 159,
+  "purpose" : "CAFE",
+  "brand" : "STARBUCKS",
+  "category" : "COFFEE_SHOP",
+  "channel" : "OFFLINE",
+  "amount" : 6000,
+  "at" : "2026-12-27T05:13:00Z"
+}, {
+  "number" : 160,
+  "purpose" : "GROCERIES",
+  "brand" : "LOTTE_MART",
+  "category" : "HYPERMARKET",
+  "channel" : "OFFLINE",
+  "amount" : 80000,
+  "at" : "2026-12-27T07:53:00Z"
+}, {
+  "number" : 161,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2026-12-27T23:15:00Z"
+}, {
+  "number" : 162,
+  "purpose" : "LUNCH",
+  "brand" : "YAMU_TEST_RESTAURANT",
+  "category" : "GENERAL_RESTAURANT",
+  "channel" : "OFFLINE",
+  "amount" : 12000,
+  "at" : "2026-12-28T03:51:00Z"
+}, {
+  "number" : 163,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2026-12-28T09:15:00Z"
+}, {
+  "number" : 164,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2026-12-28T23:15:00Z"
+}, {
+  "number" : 165,
+  "purpose" : "LUNCH",
+  "brand" : "YAMU_TEST_RESTAURANT",
+  "category" : "GENERAL_RESTAURANT",
+  "channel" : "OFFLINE",
+  "amount" : 14000,
+  "at" : "2026-12-29T03:19:00Z"
+}, {
+  "number" : 166,
+  "purpose" : "CAFE",
+  "brand" : "STARBUCKS",
+  "category" : "COFFEE_SHOP",
+  "channel" : "OFFLINE",
+  "amount" : 4000,
+  "at" : "2026-12-29T05:51:00Z"
+}, {
+  "number" : 167,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2026-12-29T09:15:00Z"
+}, {
+  "number" : 168,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2026-12-29T23:15:00Z"
+}, {
+  "number" : 169,
+  "purpose" : "LUNCH",
+  "brand" : "YAMU_TEST_RESTAURANT",
+  "category" : "GENERAL_RESTAURANT",
+  "channel" : "OFFLINE",
+  "amount" : 9000,
+  "at" : "2026-12-30T03:20:00Z"
+}, {
+  "number" : 170,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2026-12-30T09:15:00Z"
+}, {
+  "number" : 171,
+  "purpose" : "CONVENIENCE",
+  "brand" : "SEVEN_ELEVEN",
+  "category" : "CONVENIENCE_STORE",
+  "channel" : "OFFLINE",
+  "amount" : 11000,
+  "at" : "2026-12-30T10:53:00Z"
+}, {
+  "number" : 172,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2026-12-30T23:15:00Z"
+}, {
+  "number" : 173,
+  "purpose" : "LUNCH",
+  "brand" : "YAMU_TEST_RESTAURANT",
+  "category" : "GENERAL_RESTAURANT",
+  "channel" : "OFFLINE",
+  "amount" : 13000,
+  "at" : "2026-12-31T03:05:00Z"
+}, {
+  "number" : 174,
+  "purpose" : "CAFE",
+  "brand" : "EDIYA",
+  "category" : "COFFEE_SHOP",
+  "channel" : "OFFLINE",
+  "amount" : 4000,
+  "at" : "2026-12-31T05:14:00Z"
+}, {
+  "number" : 175,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2026-12-31T09:15:00Z"
+}, {
+  "number" : 176,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2026-12-31T23:15:00Z"
+}, {
+  "number" : 177,
+  "purpose" : "LUNCH",
+  "brand" : "YAMU_TEST_RESTAURANT",
+  "category" : "GENERAL_RESTAURANT",
+  "channel" : "OFFLINE",
+  "amount" : 15000,
+  "at" : "2027-01-01T03:18:00Z"
+}, {
+  "number" : 178,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-01-01T09:15:00Z"
+}, {
+  "number" : 179,
+  "purpose" : "CLOTHING",
+  "brand" : "GMARKET",
+  "category" : "ONLINE_MARKETPLACE",
+  "channel" : "ONLINE",
+  "amount" : 91000,
+  "at" : "2027-01-01T11:06:00Z"
+}, {
+  "number" : 180,
+  "purpose" : "CAFE",
+  "brand" : "EDIYA",
+  "category" : "COFFEE_SHOP",
+  "channel" : "OFFLINE",
+  "amount" : 6000,
+  "at" : "2027-01-02T05:06:00Z"
+}, {
+  "number" : 181,
+  "purpose" : "CAFE",
+  "brand" : "EDIYA",
+  "category" : "COFFEE_SHOP",
+  "channel" : "OFFLINE",
+  "amount" : 7000,
+  "at" : "2027-01-03T05:17:00Z"
+}, {
+  "number" : 182,
+  "purpose" : "GROCERIES",
+  "brand" : "EMART",
+  "category" : "HYPERMARKET",
+  "channel" : "OFFLINE",
+  "amount" : 64000,
+  "at" : "2027-01-03T07:04:00Z"
+}, {
+  "number" : 183,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-01-03T23:15:00Z"
+}, {
+  "number" : 184,
+  "purpose" : "LUNCH",
+  "brand" : "YAMU_TEST_RESTAURANT",
+  "category" : "GENERAL_RESTAURANT",
+  "channel" : "OFFLINE",
+  "amount" : 10000,
+  "at" : "2027-01-04T03:59:00Z"
+}, {
+  "number" : 185,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-01-04T09:15:00Z"
+}, {
+  "number" : 186,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-01-04T23:15:00Z"
+}, {
+  "number" : 187,
+  "purpose" : "LUNCH",
+  "brand" : "YAMU_TEST_RESTAURANT",
+  "category" : "GENERAL_RESTAURANT",
+  "channel" : "OFFLINE",
+  "amount" : 11000,
+  "at" : "2027-01-05T03:03:00Z"
+}, {
+  "number" : 188,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-01-05T09:15:00Z"
+}, {
+  "number" : 189,
+  "purpose" : "CONVENIENCE",
+  "brand" : "SEVEN_ELEVEN",
+  "category" : "CONVENIENCE_STORE",
+  "channel" : "OFFLINE",
+  "amount" : 11000,
+  "at" : "2027-01-05T10:39:00Z"
+}, {
+  "number" : 190,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-01-05T23:15:00Z"
+}, {
+  "number" : 191,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-01-06T09:15:00Z"
+}, {
+  "number" : 192,
+  "purpose" : "CONVENIENCE",
+  "brand" : "EMART24",
+  "category" : "CONVENIENCE_STORE",
+  "channel" : "OFFLINE",
+  "amount" : 13000,
+  "at" : "2027-01-06T10:16:00Z"
+}, {
+  "number" : 193,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-01-06T23:15:00Z"
+}, {
+  "number" : 194,
+  "purpose" : "LUNCH",
+  "brand" : "YAMU_TEST_RESTAURANT",
+  "category" : "GENERAL_RESTAURANT",
+  "channel" : "OFFLINE",
+  "amount" : 12000,
+  "at" : "2027-01-07T03:46:00Z"
+}, {
+  "number" : 195,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-01-07T09:15:00Z"
+}, {
+  "number" : 196,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-01-07T23:15:00Z"
+}, {
+  "number" : 197,
+  "purpose" : "LUNCH",
+  "brand" : "YAMU_TEST_RESTAURANT",
+  "category" : "GENERAL_RESTAURANT",
+  "channel" : "OFFLINE",
+  "amount" : 14000,
+  "at" : "2027-01-08T03:12:00Z"
+}, {
+  "number" : 198,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-01-08T09:15:00Z"
+}, {
+  "number" : 199,
+  "purpose" : "CONVENIENCE",
+  "brand" : "CU",
+  "category" : "CONVENIENCE_STORE",
+  "channel" : "OFFLINE",
+  "amount" : 3000,
+  "at" : "2027-01-09T10:44:00Z"
+}, {
+  "number" : 200,
+  "purpose" : "SUBSCRIPTION",
+  "brand" : "NETFLIX",
+  "category" : "STREAMING_SERVICE",
+  "channel" : "ONLINE",
+  "amount" : 17000,
+  "at" : "2027-01-10T00:57:00Z"
+}, {
+  "number" : 201,
+  "purpose" : "GROCERIES",
+  "brand" : "LOTTE_MART",
+  "category" : "HYPERMARKET",
+  "channel" : "OFFLINE",
+  "amount" : 70000,
+  "at" : "2027-01-10T07:08:00Z"
+}, {
+  "number" : 202,
+  "purpose" : "CONVENIENCE",
+  "brand" : "GS25",
+  "category" : "CONVENIENCE_STORE",
+  "channel" : "OFFLINE",
+  "amount" : 11000,
+  "at" : "2027-01-10T10:22:00Z"
+}, {
+  "number" : 203,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-01-10T23:15:00Z"
+}, {
+  "number" : 204,
+  "purpose" : "LUNCH",
+  "brand" : "YAMU_TEST_RESTAURANT",
+  "category" : "GENERAL_RESTAURANT",
+  "channel" : "OFFLINE",
+  "amount" : 15000,
+  "at" : "2027-01-11T03:33:00Z"
+}, {
+  "number" : 205,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-01-11T09:15:00Z"
+}, {
+  "number" : 206,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-01-11T23:15:00Z"
+}, {
+  "number" : 207,
+  "purpose" : "LUNCH",
+  "brand" : "YAMU_TEST_RESTAURANT",
+  "category" : "GENERAL_RESTAURANT",
+  "channel" : "OFFLINE",
+  "amount" : 9000,
+  "at" : "2027-01-12T03:57:00Z"
+}, {
+  "number" : 208,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-01-12T09:15:00Z"
+}, {
+  "number" : 209,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-01-12T23:15:00Z"
+}, {
+  "number" : 210,
+  "purpose" : "LUNCH",
+  "brand" : "YAMU_TEST_RESTAURANT",
+  "category" : "GENERAL_RESTAURANT",
+  "channel" : "OFFLINE",
+  "amount" : 15000,
+  "at" : "2027-01-13T03:29:00Z"
+}, {
+  "number" : 211,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-01-13T09:15:00Z"
+}, {
+  "number" : 212,
+  "purpose" : "CONVENIENCE",
+  "brand" : "CU",
+  "category" : "CONVENIENCE_STORE",
+  "channel" : "OFFLINE",
+  "amount" : 6000,
+  "at" : "2027-01-13T10:34:00Z"
+}, {
+  "number" : 213,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-01-13T23:15:00Z"
+}, {
+  "number" : 214,
+  "purpose" : "LUNCH",
+  "brand" : "YAMU_TEST_RESTAURANT",
+  "category" : "GENERAL_RESTAURANT",
+  "channel" : "OFFLINE",
+  "amount" : 10000,
+  "at" : "2027-01-14T03:39:00Z"
+}, {
+  "number" : 215,
+  "purpose" : "CAFE",
+  "brand" : "STARBUCKS",
+  "category" : "COFFEE_SHOP",
+  "channel" : "OFFLINE",
+  "amount" : 4000,
+  "at" : "2027-01-14T05:02:00Z"
+}, {
+  "number" : 216,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-01-14T09:15:00Z"
+}, {
+  "number" : 217,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-01-14T23:15:00Z"
+}, {
+  "number" : 218,
+  "purpose" : "LUNCH",
+  "brand" : "YAMU_TEST_RESTAURANT",
+  "category" : "GENERAL_RESTAURANT",
+  "channel" : "OFFLINE",
+  "amount" : 10000,
+  "at" : "2027-01-15T03:17:00Z"
+}, {
+  "number" : 219,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-01-15T09:15:00Z"
+}, {
+  "number" : 220,
+  "purpose" : "HOUSEHOLD",
+  "brand" : "GMARKET",
+  "category" : "ONLINE_MARKETPLACE",
+  "channel" : "ONLINE",
+  "amount" : 72000,
+  "at" : "2027-01-15T12:08:00Z"
+}, {
+  "number" : 221,
+  "purpose" : "CONVENIENCE",
+  "brand" : "GS25",
+  "category" : "CONVENIENCE_STORE",
+  "channel" : "OFFLINE",
+  "amount" : 12000,
+  "at" : "2027-01-16T10:01:00Z"
+}, {
+  "number" : 222,
+  "purpose" : "GROCERIES",
+  "brand" : "EMART",
+  "category" : "HYPERMARKET",
+  "channel" : "OFFLINE",
+  "amount" : 90000,
+  "at" : "2027-01-17T07:23:00Z"
+}, {
+  "number" : 223,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-01-17T23:15:00Z"
+}, {
+  "number" : 224,
+  "purpose" : "LUNCH",
+  "brand" : "YAMU_TEST_RESTAURANT",
+  "category" : "GENERAL_RESTAURANT",
+  "channel" : "OFFLINE",
+  "amount" : 16000,
+  "at" : "2027-01-18T03:39:00Z"
+}, {
+  "number" : 225,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-01-18T09:15:00Z"
+}, {
+  "number" : 226,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-01-18T23:15:00Z"
+}, {
+  "number" : 227,
+  "purpose" : "LUNCH",
+  "brand" : "YAMU_TEST_RESTAURANT",
+  "category" : "GENERAL_RESTAURANT",
+  "channel" : "OFFLINE",
+  "amount" : 11000,
+  "at" : "2027-01-19T03:18:00Z"
+}, {
+  "number" : 228,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-01-19T09:15:00Z"
+}, {
+  "number" : 229,
+  "purpose" : "CONVENIENCE",
+  "brand" : "SEVEN_ELEVEN",
+  "category" : "CONVENIENCE_STORE",
+  "channel" : "OFFLINE",
+  "amount" : 4000,
+  "at" : "2027-01-19T10:21:00Z"
+}, {
+  "number" : 230,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-01-19T23:15:00Z"
+}, {
+  "number" : 231,
+  "purpose" : "LUNCH",
+  "brand" : "YAMU_TEST_RESTAURANT",
+  "category" : "GENERAL_RESTAURANT",
+  "channel" : "OFFLINE",
+  "amount" : 11000,
+  "at" : "2027-01-20T03:40:00Z"
+}, {
+  "number" : 232,
+  "purpose" : "CAFE",
+  "brand" : "STARBUCKS",
+  "category" : "COFFEE_SHOP",
+  "channel" : "OFFLINE",
+  "amount" : 7000,
+  "at" : "2027-01-20T05:04:00Z"
+}, {
+  "number" : 233,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-01-20T09:15:00Z"
+}, {
+  "number" : 234,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-01-20T23:15:00Z"
+}, {
+  "number" : 235,
+  "purpose" : "LUNCH",
+  "brand" : "YAMU_TEST_RESTAURANT",
+  "category" : "GENERAL_RESTAURANT",
+  "channel" : "OFFLINE",
+  "amount" : 17000,
+  "at" : "2027-01-21T03:50:00Z"
+}, {
+  "number" : 236,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-01-21T09:15:00Z"
+}, {
+  "number" : 237,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-01-21T23:15:00Z"
+}, {
+  "number" : 238,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-01-22T09:15:00Z"
+}, {
+  "number" : 239,
+  "purpose" : "CAFE",
+  "brand" : "STARBUCKS",
+  "category" : "COFFEE_SHOP",
+  "channel" : "OFFLINE",
+  "amount" : 7000,
+  "at" : "2027-01-23T05:12:00Z"
+}, {
+  "number" : 240,
+  "purpose" : "TAXI",
+  "brand" : "EXP006_TAXI",
+  "category" : "TAXI",
+  "channel" : "OFFLINE",
+  "amount" : 23000,
+  "at" : "2027-01-23T13:02:00Z"
+}, {
+  "number" : 241,
+  "purpose" : "CAFE",
+  "brand" : "EDIYA",
+  "category" : "COFFEE_SHOP",
+  "channel" : "OFFLINE",
+  "amount" : 3000,
+  "at" : "2027-01-24T05:09:00Z"
+}, {
+  "number" : 242,
+  "purpose" : "GROCERIES",
+  "brand" : "LOTTE_MART",
+  "category" : "HYPERMARKET",
+  "channel" : "OFFLINE",
+  "amount" : 55000,
+  "at" : "2027-01-24T07:11:00Z"
+}, {
+  "number" : 243,
+  "purpose" : "HOUSEHOLD",
+  "brand" : "COUPANG",
+  "category" : "ONLINE_MARKETPLACE",
+  "channel" : "ONLINE",
+  "amount" : 66000,
+  "at" : "2027-01-24T12:17:00Z"
+}, {
+  "number" : 244,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-01-24T23:15:00Z"
+}, {
+  "number" : 245,
+  "purpose" : "LUNCH",
+  "brand" : "YAMU_TEST_RESTAURANT",
+  "category" : "GENERAL_RESTAURANT",
+  "channel" : "OFFLINE",
+  "amount" : 10000,
+  "at" : "2027-01-25T03:51:00Z"
+}, {
+  "number" : 246,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-01-25T09:15:00Z"
+}, {
+  "number" : 247,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-01-25T23:15:00Z"
+}, {
+  "number" : 248,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-01-26T09:15:00Z"
+}, {
+  "number" : 249,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-01-26T23:15:00Z"
+}, {
+  "number" : 250,
+  "purpose" : "LUNCH",
+  "brand" : "YAMU_TEST_RESTAURANT",
+  "category" : "GENERAL_RESTAURANT",
+  "channel" : "OFFLINE",
+  "amount" : 9000,
+  "at" : "2027-01-27T03:48:00Z"
+}, {
+  "number" : 251,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-01-27T09:15:00Z"
+}, {
+  "number" : 252,
+  "purpose" : "CONVENIENCE",
+  "brand" : "EMART24",
+  "category" : "CONVENIENCE_STORE",
+  "channel" : "OFFLINE",
+  "amount" : 7000,
+  "at" : "2027-01-27T10:03:00Z"
+}, {
+  "number" : 253,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-01-27T23:15:00Z"
+}, {
+  "number" : 254,
+  "purpose" : "LUNCH",
+  "brand" : "YAMU_TEST_RESTAURANT",
+  "category" : "GENERAL_RESTAURANT",
+  "channel" : "OFFLINE",
+  "amount" : 11000,
+  "at" : "2027-01-28T03:49:00Z"
+}, {
+  "number" : 255,
+  "purpose" : "CAFE",
+  "brand" : "STARBUCKS",
+  "category" : "COFFEE_SHOP",
+  "channel" : "OFFLINE",
+  "amount" : 7000,
+  "at" : "2027-01-28T05:08:00Z"
+}, {
+  "number" : 256,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-01-28T09:15:00Z"
+}, {
+  "number" : 257,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-01-28T23:15:00Z"
+}, {
+  "number" : 258,
+  "purpose" : "LUNCH",
+  "brand" : "YAMU_TEST_RESTAURANT",
+  "category" : "GENERAL_RESTAURANT",
+  "channel" : "OFFLINE",
+  "amount" : 9000,
+  "at" : "2027-01-29T03:38:00Z"
+}, {
+  "number" : 259,
+  "purpose" : "CAFE",
+  "brand" : "EDIYA",
+  "category" : "COFFEE_SHOP",
+  "channel" : "OFFLINE",
+  "amount" : 3000,
+  "at" : "2027-01-29T05:26:00Z"
+}, {
+  "number" : 260,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-01-29T09:15:00Z"
+}, {
+  "number" : 261,
+  "purpose" : "TAXI",
+  "brand" : "EXP006_TAXI",
+  "category" : "TAXI",
+  "channel" : "OFFLINE",
+  "amount" : 13000,
+  "at" : "2027-01-30T13:50:00Z"
+}, {
+  "number" : 262,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-01-31T23:15:00Z"
+}, {
+  "number" : 263,
+  "purpose" : "LUNCH",
+  "brand" : "YAMU_TEST_RESTAURANT",
+  "category" : "GENERAL_RESTAURANT",
+  "channel" : "OFFLINE",
+  "amount" : 9000,
+  "at" : "2027-02-01T03:39:00Z"
+}, {
+  "number" : 264,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-02-01T09:15:00Z"
+}, {
+  "number" : 265,
+  "purpose" : "CONVENIENCE",
+  "brand" : "SEVEN_ELEVEN",
+  "category" : "CONVENIENCE_STORE",
+  "channel" : "OFFLINE",
+  "amount" : 11000,
+  "at" : "2027-02-01T10:35:00Z"
+}, {
+  "number" : 266,
+  "purpose" : "HOUSEHOLD",
+  "brand" : "COUPANG",
+  "category" : "ONLINE_MARKETPLACE",
+  "channel" : "ONLINE",
+  "amount" : 43000,
+  "at" : "2027-02-01T12:01:00Z"
+}, {
+  "number" : 267,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-02-01T23:15:00Z"
+}, {
+  "number" : 268,
+  "purpose" : "LUNCH",
+  "brand" : "YAMU_TEST_RESTAURANT",
+  "category" : "GENERAL_RESTAURANT",
+  "channel" : "OFFLINE",
+  "amount" : 18000,
+  "at" : "2027-02-02T03:34:00Z"
+}, {
+  "number" : 269,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-02-02T09:15:00Z"
+}, {
+  "number" : 270,
+  "purpose" : "CONVENIENCE",
+  "brand" : "GS25",
+  "category" : "CONVENIENCE_STORE",
+  "channel" : "OFFLINE",
+  "amount" : 4000,
+  "at" : "2027-02-02T10:12:00Z"
+}, {
+  "number" : 271,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-02-02T23:15:00Z"
+}, {
+  "number" : 272,
+  "purpose" : "LUNCH",
+  "brand" : "YAMU_TEST_RESTAURANT",
+  "category" : "GENERAL_RESTAURANT",
+  "channel" : "OFFLINE",
+  "amount" : 11000,
+  "at" : "2027-02-03T03:57:00Z"
+}, {
+  "number" : 273,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-02-03T09:15:00Z"
+}, {
+  "number" : 274,
+  "purpose" : "CONVENIENCE",
+  "brand" : "CU",
+  "category" : "CONVENIENCE_STORE",
+  "channel" : "OFFLINE",
+  "amount" : 9000,
+  "at" : "2027-02-03T10:48:00Z"
+}, {
+  "number" : 275,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-02-03T23:15:00Z"
+}, {
+  "number" : 276,
+  "purpose" : "LUNCH",
+  "brand" : "YAMU_TEST_RESTAURANT",
+  "category" : "GENERAL_RESTAURANT",
+  "channel" : "OFFLINE",
+  "amount" : 17000,
+  "at" : "2027-02-04T03:27:00Z"
+}, {
+  "number" : 277,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-02-04T09:15:00Z"
+}, {
+  "number" : 278,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-02-04T23:15:00Z"
+}, {
+  "number" : 279,
+  "purpose" : "LUNCH",
+  "brand" : "YAMU_TEST_RESTAURANT",
+  "category" : "GENERAL_RESTAURANT",
+  "channel" : "OFFLINE",
+  "amount" : 12000,
+  "at" : "2027-02-05T03:37:00Z"
+}, {
+  "number" : 280,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-02-05T09:15:00Z"
+}, {
+  "number" : 281,
+  "purpose" : "HOUSEHOLD",
+  "brand" : "GMARKET",
+  "category" : "ONLINE_MARKETPLACE",
+  "channel" : "ONLINE",
+  "amount" : 43000,
+  "at" : "2027-02-05T12:00:00Z"
+}, {
+  "number" : 282,
+  "purpose" : "GROCERIES",
+  "brand" : "EMART",
+  "category" : "HYPERMARKET",
+  "channel" : "OFFLINE",
+  "amount" : 84000,
+  "at" : "2027-02-07T07:52:00Z"
+}, {
+  "number" : 283,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-02-07T23:15:00Z"
+}, {
+  "number" : 284,
+  "purpose" : "CAFE",
+  "brand" : "STARBUCKS",
+  "category" : "COFFEE_SHOP",
+  "channel" : "OFFLINE",
+  "amount" : 7000,
+  "at" : "2027-02-08T05:56:00Z"
+}, {
+  "number" : 285,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-02-08T09:15:00Z"
+}, {
+  "number" : 286,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-02-08T23:15:00Z"
+}, {
+  "number" : 287,
+  "purpose" : "LUNCH",
+  "brand" : "YAMU_TEST_RESTAURANT",
+  "category" : "GENERAL_RESTAURANT",
+  "channel" : "OFFLINE",
+  "amount" : 14000,
+  "at" : "2027-02-09T03:19:00Z"
+}, {
+  "number" : 288,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-02-09T09:15:00Z"
+}, {
+  "number" : 289,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-02-09T23:15:00Z"
+}, {
+  "number" : 290,
+  "purpose" : "SUBSCRIPTION",
+  "brand" : "NETFLIX",
+  "category" : "STREAMING_SERVICE",
+  "channel" : "ONLINE",
+  "amount" : 17000,
+  "at" : "2027-02-10T00:37:00Z"
+}, {
+  "number" : 291,
+  "purpose" : "LUNCH",
+  "brand" : "YAMU_TEST_RESTAURANT",
+  "category" : "GENERAL_RESTAURANT",
+  "channel" : "OFFLINE",
+  "amount" : 16000,
+  "at" : "2027-02-10T03:04:00Z"
+}, {
+  "number" : 292,
+  "purpose" : "CAFE",
+  "brand" : "EDIYA",
+  "category" : "COFFEE_SHOP",
+  "channel" : "OFFLINE",
+  "amount" : 3000,
+  "at" : "2027-02-10T05:17:00Z"
+}, {
+  "number" : 293,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-02-10T09:15:00Z"
+}, {
+  "number" : 294,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-02-10T23:15:00Z"
+}, {
+  "number" : 295,
+  "purpose" : "LUNCH",
+  "brand" : "YAMU_TEST_RESTAURANT",
+  "category" : "GENERAL_RESTAURANT",
+  "channel" : "OFFLINE",
+  "amount" : 18000,
+  "at" : "2027-02-11T03:35:00Z"
+}, {
+  "number" : 296,
+  "purpose" : "CAFE",
+  "brand" : "EDIYA",
+  "category" : "COFFEE_SHOP",
+  "channel" : "OFFLINE",
+  "amount" : 4000,
+  "at" : "2027-02-11T05:12:00Z"
+}, {
+  "number" : 297,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-02-11T09:15:00Z"
+}, {
+  "number" : 298,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-02-11T23:15:00Z"
+}, {
+  "number" : 299,
+  "purpose" : "LUNCH",
+  "brand" : "YAMU_TEST_RESTAURANT",
+  "category" : "GENERAL_RESTAURANT",
+  "channel" : "OFFLINE",
+  "amount" : 11000,
+  "at" : "2027-02-12T03:44:00Z"
+}, {
+  "number" : 300,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-02-12T09:15:00Z"
+}, {
+  "number" : 301,
+  "purpose" : "CAFE",
+  "brand" : "STARBUCKS",
+  "category" : "COFFEE_SHOP",
+  "channel" : "OFFLINE",
+  "amount" : 7000,
+  "at" : "2027-02-13T05:09:00Z"
+}, {
+  "number" : 302,
+  "purpose" : "TAXI",
+  "brand" : "EXP006_TAXI",
+  "category" : "TAXI",
+  "channel" : "OFFLINE",
+  "amount" : 11000,
+  "at" : "2027-02-13T13:11:00Z"
+}, {
+  "number" : 303,
+  "purpose" : "GROCERIES",
+  "brand" : "LOTTE_MART",
+  "category" : "HYPERMARKET",
+  "channel" : "OFFLINE",
+  "amount" : 76000,
+  "at" : "2027-02-14T07:19:00Z"
+}, {
+  "number" : 304,
+  "purpose" : "CONVENIENCE",
+  "brand" : "SEVEN_ELEVEN",
+  "category" : "CONVENIENCE_STORE",
+  "channel" : "OFFLINE",
+  "amount" : 8000,
+  "at" : "2027-02-14T10:44:00Z"
+}, {
+  "number" : 305,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-02-14T23:15:00Z"
+}, {
+  "number" : 306,
+  "purpose" : "LUNCH",
+  "brand" : "YAMU_TEST_RESTAURANT",
+  "category" : "GENERAL_RESTAURANT",
+  "channel" : "OFFLINE",
+  "amount" : 15000,
+  "at" : "2027-02-15T03:47:00Z"
+}, {
+  "number" : 307,
+  "purpose" : "CAFE",
+  "brand" : "EDIYA",
+  "category" : "COFFEE_SHOP",
+  "channel" : "OFFLINE",
+  "amount" : 7000,
+  "at" : "2027-02-15T05:34:00Z"
+}, {
+  "number" : 308,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-02-15T09:15:00Z"
+}, {
+  "number" : 309,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-02-15T23:15:00Z"
+}, {
+  "number" : 310,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-02-16T09:15:00Z"
+}, {
+  "number" : 311,
+  "purpose" : "CONVENIENCE",
+  "brand" : "EMART24",
+  "category" : "CONVENIENCE_STORE",
+  "channel" : "OFFLINE",
+  "amount" : 11000,
+  "at" : "2027-02-16T10:22:00Z"
+}, {
+  "number" : 312,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-02-16T23:15:00Z"
+}, {
+  "number" : 313,
+  "purpose" : "LUNCH",
+  "brand" : "YAMU_TEST_RESTAURANT",
+  "category" : "GENERAL_RESTAURANT",
+  "channel" : "OFFLINE",
+  "amount" : 13000,
+  "at" : "2027-02-17T03:09:00Z"
+}, {
+  "number" : 314,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-02-17T09:15:00Z"
+}, {
+  "number" : 315,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-02-17T23:15:00Z"
+}, {
+  "number" : 316,
+  "purpose" : "LUNCH",
+  "brand" : "YAMU_TEST_RESTAURANT",
+  "category" : "GENERAL_RESTAURANT",
+  "channel" : "OFFLINE",
+  "amount" : 10000,
+  "at" : "2027-02-18T03:18:00Z"
+}, {
+  "number" : 317,
+  "purpose" : "CAFE",
+  "brand" : "STARBUCKS",
+  "category" : "COFFEE_SHOP",
+  "channel" : "OFFLINE",
+  "amount" : 5000,
+  "at" : "2027-02-18T05:06:00Z"
+}, {
+  "number" : 318,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-02-18T09:15:00Z"
+}, {
+  "number" : 319,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-02-18T23:15:00Z"
+}, {
+  "number" : 320,
+  "purpose" : "LUNCH",
+  "brand" : "YAMU_TEST_RESTAURANT",
+  "category" : "GENERAL_RESTAURANT",
+  "channel" : "OFFLINE",
+  "amount" : 15000,
+  "at" : "2027-02-19T03:32:00Z"
+}, {
+  "number" : 321,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-02-19T09:15:00Z"
+}, {
+  "number" : 322,
+  "purpose" : "CONVENIENCE",
+  "brand" : "EMART24",
+  "category" : "CONVENIENCE_STORE",
+  "channel" : "OFFLINE",
+  "amount" : 8000,
+  "at" : "2027-02-19T10:01:00Z"
+}, {
+  "number" : 323,
+  "purpose" : "GROCERIES",
+  "brand" : "EMART",
+  "category" : "HYPERMARKET",
+  "channel" : "OFFLINE",
+  "amount" : 88000,
+  "at" : "2027-02-21T07:01:00Z"
+}, {
+  "number" : 324,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-02-21T23:15:00Z"
+}, {
+  "number" : 325,
+  "purpose" : "LUNCH",
+  "brand" : "YAMU_TEST_RESTAURANT",
+  "category" : "GENERAL_RESTAURANT",
+  "channel" : "OFFLINE",
+  "amount" : 15000,
+  "at" : "2027-02-22T03:28:00Z"
+}, {
+  "number" : 326,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-02-22T09:15:00Z"
+}, {
+  "number" : 327,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-02-22T23:15:00Z"
+}, {
+  "number" : 328,
+  "purpose" : "LUNCH",
+  "brand" : "YAMU_TEST_RESTAURANT",
+  "category" : "GENERAL_RESTAURANT",
+  "channel" : "OFFLINE",
+  "amount" : 11000,
+  "at" : "2027-02-23T03:24:00Z"
+}, {
+  "number" : 329,
+  "purpose" : "CAFE",
+  "brand" : "EDIYA",
+  "category" : "COFFEE_SHOP",
+  "channel" : "OFFLINE",
+  "amount" : 6000,
+  "at" : "2027-02-23T05:28:00Z"
+}, {
+  "number" : 330,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-02-23T09:15:00Z"
+}, {
+  "number" : 331,
+  "purpose" : "CONVENIENCE",
+  "brand" : "GS25",
+  "category" : "CONVENIENCE_STORE",
+  "channel" : "OFFLINE",
+  "amount" : 5000,
+  "at" : "2027-02-23T10:46:00Z"
+}, {
+  "number" : 332,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-02-23T23:15:00Z"
+}, {
+  "number" : 333,
+  "purpose" : "LUNCH",
+  "brand" : "YAMU_TEST_RESTAURANT",
+  "category" : "GENERAL_RESTAURANT",
+  "channel" : "OFFLINE",
+  "amount" : 10000,
+  "at" : "2027-02-24T03:42:00Z"
+}, {
+  "number" : 334,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-02-24T09:15:00Z"
+}, {
+  "number" : 335,
+  "purpose" : "CONVENIENCE",
+  "brand" : "CU",
+  "category" : "CONVENIENCE_STORE",
+  "channel" : "OFFLINE",
+  "amount" : 3000,
+  "at" : "2027-02-24T10:27:00Z"
+}, {
+  "number" : 336,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-02-24T23:15:00Z"
+}, {
+  "number" : 337,
+  "purpose" : "LUNCH",
+  "brand" : "YAMU_TEST_RESTAURANT",
+  "category" : "GENERAL_RESTAURANT",
+  "channel" : "OFFLINE",
+  "amount" : 11000,
+  "at" : "2027-02-25T03:09:00Z"
+}, {
+  "number" : 338,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-02-25T09:15:00Z"
+}, {
+  "number" : 339,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-02-25T23:15:00Z"
+}, {
+  "number" : 340,
+  "purpose" : "LUNCH",
+  "brand" : "YAMU_TEST_RESTAURANT",
+  "category" : "GENERAL_RESTAURANT",
+  "channel" : "OFFLINE",
+  "amount" : 13000,
+  "at" : "2027-02-26T03:23:00Z"
+}, {
+  "number" : 341,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-02-26T09:15:00Z"
+}, {
+  "number" : 342,
+  "purpose" : "CAFE",
+  "brand" : "STARBUCKS",
+  "category" : "COFFEE_SHOP",
+  "channel" : "OFFLINE",
+  "amount" : 5000,
+  "at" : "2027-02-27T05:18:00Z"
+}, {
+  "number" : 343,
+  "purpose" : "TAXI",
+  "brand" : "EXP006_TAXI",
+  "category" : "TAXI",
+  "channel" : "OFFLINE",
+  "amount" : 11000,
+  "at" : "2027-02-27T13:43:00Z"
+}, {
+  "number" : 344,
+  "purpose" : "GROCERIES",
+  "brand" : "LOTTE_MART",
+  "category" : "HYPERMARKET",
+  "channel" : "OFFLINE",
+  "amount" : 89000,
+  "at" : "2027-02-28T07:30:00Z"
+}, {
+  "number" : 345,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-02-28T23:15:00Z"
+}, {
+  "number" : 346,
+  "purpose" : "LUNCH",
+  "brand" : "YAMU_TEST_RESTAURANT",
+  "category" : "GENERAL_RESTAURANT",
+  "channel" : "OFFLINE",
+  "amount" : 18000,
+  "at" : "2027-03-01T03:20:00Z"
+}, {
+  "number" : 347,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-03-01T09:15:00Z"
+}, {
+  "number" : 348,
+  "purpose" : "HOUSEHOLD",
+  "brand" : "COUPANG",
+  "category" : "ONLINE_MARKETPLACE",
+  "channel" : "ONLINE",
+  "amount" : 75000,
+  "at" : "2027-03-01T12:00:00Z"
+}, {
+  "number" : 349,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-03-01T23:15:00Z"
+}, {
+  "number" : 350,
+  "purpose" : "LUNCH",
+  "brand" : "YAMU_TEST_RESTAURANT",
+  "category" : "GENERAL_RESTAURANT",
+  "channel" : "OFFLINE",
+  "amount" : 12000,
+  "at" : "2027-03-02T03:15:00Z"
+}, {
+  "number" : 351,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-03-02T09:15:00Z"
+}, {
+  "number" : 352,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-03-02T23:15:00Z"
+}, {
+  "number" : 353,
+  "purpose" : "LUNCH",
+  "brand" : "YAMU_TEST_RESTAURANT",
+  "category" : "GENERAL_RESTAURANT",
+  "channel" : "OFFLINE",
+  "amount" : 17000,
+  "at" : "2027-03-03T03:20:00Z"
+}, {
+  "number" : 354,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-03-03T09:15:00Z"
+}, {
+  "number" : 355,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-03-03T23:15:00Z"
+}, {
+  "number" : 356,
+  "purpose" : "CAFE",
+  "brand" : "STARBUCKS",
+  "category" : "COFFEE_SHOP",
+  "channel" : "OFFLINE",
+  "amount" : 6000,
+  "at" : "2027-03-04T05:06:00Z"
+}, {
+  "number" : 357,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-03-04T09:15:00Z"
+}, {
+  "number" : 358,
+  "purpose" : "HOUSEHOLD",
+  "brand" : "GMARKET",
+  "category" : "ONLINE_MARKETPLACE",
+  "channel" : "ONLINE",
+  "amount" : 69000,
+  "at" : "2027-03-04T12:34:00Z"
+}, {
+  "number" : 359,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-03-04T23:15:00Z"
+}, {
+  "number" : 360,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-03-05T09:15:00Z"
+}, {
+  "number" : 361,
+  "purpose" : "CAFE",
+  "brand" : "STARBUCKS",
+  "category" : "COFFEE_SHOP",
+  "channel" : "OFFLINE",
+  "amount" : 3000,
+  "at" : "2027-03-06T05:26:00Z"
+}, {
+  "number" : 362,
+  "purpose" : "CONVENIENCE",
+  "brand" : "SEVEN_ELEVEN",
+  "category" : "CONVENIENCE_STORE",
+  "channel" : "OFFLINE",
+  "amount" : 13000,
+  "at" : "2027-03-06T10:09:00Z"
+}, {
+  "number" : 363,
+  "purpose" : "CAFE",
+  "brand" : "EDIYA",
+  "category" : "COFFEE_SHOP",
+  "channel" : "OFFLINE",
+  "amount" : 6000,
+  "at" : "2027-03-07T05:55:00Z"
+}, {
+  "number" : 364,
+  "purpose" : "GROCERIES",
+  "brand" : "EMART",
+  "category" : "HYPERMARKET",
+  "channel" : "OFFLINE",
+  "amount" : 82000,
+  "at" : "2027-03-07T07:31:00Z"
+}, {
+  "number" : 365,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-03-07T23:15:00Z"
+}, {
+  "number" : 366,
+  "purpose" : "LUNCH",
+  "brand" : "YAMU_TEST_RESTAURANT",
+  "category" : "GENERAL_RESTAURANT",
+  "channel" : "OFFLINE",
+  "amount" : 13000,
+  "at" : "2027-03-08T03:42:00Z"
+}, {
+  "number" : 367,
+  "purpose" : "CAFE",
+  "brand" : "EDIYA",
+  "category" : "COFFEE_SHOP",
+  "channel" : "OFFLINE",
+  "amount" : 4000,
+  "at" : "2027-03-08T05:02:00Z"
+}, {
+  "number" : 368,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-03-08T09:15:00Z"
+}, {
+  "number" : 369,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-03-08T23:15:00Z"
+}, {
+  "number" : 370,
+  "purpose" : "LUNCH",
+  "brand" : "YAMU_TEST_RESTAURANT",
+  "category" : "GENERAL_RESTAURANT",
+  "channel" : "OFFLINE",
+  "amount" : 10000,
+  "at" : "2027-03-09T03:08:00Z"
+}, {
+  "number" : 371,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-03-09T09:15:00Z"
+}, {
+  "number" : 372,
+  "purpose" : "CONVENIENCE",
+  "brand" : "GS25",
+  "category" : "CONVENIENCE_STORE",
+  "channel" : "OFFLINE",
+  "amount" : 11000,
+  "at" : "2027-03-09T10:15:00Z"
+}, {
+  "number" : 373,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-03-09T23:15:00Z"
+}, {
+  "number" : 374,
+  "purpose" : "SUBSCRIPTION",
+  "brand" : "NETFLIX",
+  "category" : "STREAMING_SERVICE",
+  "channel" : "ONLINE",
+  "amount" : 17000,
+  "at" : "2027-03-10T00:58:00Z"
+}, {
+  "number" : 375,
+  "purpose" : "LUNCH",
+  "brand" : "YAMU_TEST_RESTAURANT",
+  "category" : "GENERAL_RESTAURANT",
+  "channel" : "OFFLINE",
+  "amount" : 16000,
+  "at" : "2027-03-10T03:02:00Z"
+}, {
+  "number" : 376,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-03-10T09:15:00Z"
+}, {
+  "number" : 377,
+  "purpose" : "CONVENIENCE",
+  "brand" : "CU",
+  "category" : "CONVENIENCE_STORE",
+  "channel" : "OFFLINE",
+  "amount" : 11000,
+  "at" : "2027-03-10T10:42:00Z"
+}, {
+  "number" : 378,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-03-10T23:15:00Z"
+}, {
+  "number" : 379,
+  "purpose" : "LUNCH",
+  "brand" : "YAMU_TEST_RESTAURANT",
+  "category" : "GENERAL_RESTAURANT",
+  "channel" : "OFFLINE",
+  "amount" : 11000,
+  "at" : "2027-03-11T03:31:00Z"
+}, {
+  "number" : 380,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-03-11T09:15:00Z"
+}, {
+  "number" : 381,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-03-11T23:15:00Z"
+}, {
+  "number" : 382,
+  "purpose" : "LUNCH",
+  "brand" : "YAMU_TEST_RESTAURANT",
+  "category" : "GENERAL_RESTAURANT",
+  "channel" : "OFFLINE",
+  "amount" : 9000,
+  "at" : "2027-03-12T03:55:00Z"
+}, {
+  "number" : 383,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-03-12T09:15:00Z"
+}, {
+  "number" : 384,
+  "purpose" : "CLOTHING",
+  "brand" : "GMARKET",
+  "category" : "ONLINE_MARKETPLACE",
+  "channel" : "ONLINE",
+  "amount" : 113000,
+  "at" : "2027-03-12T11:30:00Z"
+}, {
+  "number" : 385,
+  "purpose" : "GROCERIES",
+  "brand" : "LOTTE_MART",
+  "category" : "HYPERMARKET",
+  "channel" : "OFFLINE",
+  "amount" : 69000,
+  "at" : "2027-03-14T07:42:00Z"
+}, {
+  "number" : 386,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-03-14T23:15:00Z"
+}, {
+  "number" : 387,
+  "purpose" : "LUNCH",
+  "brand" : "YAMU_TEST_RESTAURANT",
+  "category" : "GENERAL_RESTAURANT",
+  "channel" : "OFFLINE",
+  "amount" : 13000,
+  "at" : "2027-03-15T03:23:00Z"
+}, {
+  "number" : 388,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-03-15T09:15:00Z"
+}, {
+  "number" : 389,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-03-15T23:15:00Z"
+}, {
+  "number" : 390,
+  "purpose" : "LUNCH",
+  "brand" : "YAMU_TEST_RESTAURANT",
+  "category" : "GENERAL_RESTAURANT",
+  "channel" : "OFFLINE",
+  "amount" : 10000,
+  "at" : "2027-03-16T03:51:00Z"
+}, {
+  "number" : 391,
+  "purpose" : "CAFE",
+  "brand" : "STARBUCKS",
+  "category" : "COFFEE_SHOP",
+  "channel" : "OFFLINE",
+  "amount" : 6000,
+  "at" : "2027-03-16T05:48:00Z"
+}, {
+  "number" : 392,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-03-16T09:15:00Z"
+}, {
+  "number" : 393,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-03-16T23:15:00Z"
+}, {
+  "number" : 394,
+  "purpose" : "LUNCH",
+  "brand" : "YAMU_TEST_RESTAURANT",
+  "category" : "GENERAL_RESTAURANT",
+  "channel" : "OFFLINE",
+  "amount" : 16000,
+  "at" : "2027-03-17T03:11:00Z"
+}, {
+  "number" : 395,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-03-17T09:15:00Z"
+}, {
+  "number" : 396,
+  "purpose" : "CONVENIENCE",
+  "brand" : "CU",
+  "category" : "CONVENIENCE_STORE",
+  "channel" : "OFFLINE",
+  "amount" : 10000,
+  "at" : "2027-03-17T10:04:00Z"
+}, {
+  "number" : 397,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-03-17T23:15:00Z"
+}, {
+  "number" : 398,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-03-18T09:15:00Z"
+}, {
+  "number" : 399,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-03-18T23:15:00Z"
+}, {
+  "number" : 400,
+  "purpose" : "LUNCH",
+  "brand" : "YAMU_TEST_RESTAURANT",
+  "category" : "GENERAL_RESTAURANT",
+  "channel" : "OFFLINE",
+  "amount" : 16000,
+  "at" : "2027-03-19T03:20:00Z"
+}, {
+  "number" : 401,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-03-19T09:15:00Z"
+}, {
+  "number" : 402,
+  "purpose" : "CONVENIENCE",
+  "brand" : "EMART24",
+  "category" : "CONVENIENCE_STORE",
+  "channel" : "OFFLINE",
+  "amount" : 3000,
+  "at" : "2027-03-19T10:48:00Z"
+}, {
+  "number" : 403,
+  "purpose" : "CONVENIENCE",
+  "brand" : "SEVEN_ELEVEN",
+  "category" : "CONVENIENCE_STORE",
+  "channel" : "OFFLINE",
+  "amount" : 10000,
+  "at" : "2027-03-20T10:57:00Z"
+}, {
+  "number" : 404,
+  "purpose" : "TAXI",
+  "brand" : "EXP006_TAXI",
+  "category" : "TAXI",
+  "channel" : "OFFLINE",
+  "amount" : 11000,
+  "at" : "2027-03-20T13:05:00Z"
+}, {
+  "number" : 405,
+  "purpose" : "CAFE",
+  "brand" : "STARBUCKS",
+  "category" : "COFFEE_SHOP",
+  "channel" : "OFFLINE",
+  "amount" : 4000,
+  "at" : "2027-03-21T05:17:00Z"
+}, {
+  "number" : 406,
+  "purpose" : "GROCERIES",
+  "brand" : "EMART",
+  "category" : "HYPERMARKET",
+  "channel" : "OFFLINE",
+  "amount" : 74000,
+  "at" : "2027-03-21T07:27:00Z"
+}, {
+  "number" : 407,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-03-21T23:15:00Z"
+}, {
+  "number" : 408,
+  "purpose" : "LUNCH",
+  "brand" : "YAMU_TEST_RESTAURANT",
+  "category" : "GENERAL_RESTAURANT",
+  "channel" : "OFFLINE",
+  "amount" : 15000,
+  "at" : "2027-03-22T03:42:00Z"
+}, {
+  "number" : 409,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-03-22T09:15:00Z"
+}, {
+  "number" : 410,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-03-22T23:15:00Z"
+}, {
+  "number" : 411,
+  "purpose" : "LUNCH",
+  "brand" : "YAMU_TEST_RESTAURANT",
+  "category" : "GENERAL_RESTAURANT",
+  "channel" : "OFFLINE",
+  "amount" : 13000,
+  "at" : "2027-03-23T03:05:00Z"
+}, {
+  "number" : 412,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-03-23T09:15:00Z"
+}, {
+  "number" : 413,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-03-23T23:15:00Z"
+}, {
+  "number" : 414,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-03-24T09:15:00Z"
+}, {
+  "number" : 415,
+  "purpose" : "CONVENIENCE",
+  "brand" : "GS25",
+  "category" : "CONVENIENCE_STORE",
+  "channel" : "OFFLINE",
+  "amount" : 9000,
+  "at" : "2027-03-24T10:50:00Z"
+}, {
+  "number" : 416,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-03-24T23:15:00Z"
+}, {
+  "number" : 417,
+  "purpose" : "LUNCH",
+  "brand" : "YAMU_TEST_RESTAURANT",
+  "category" : "GENERAL_RESTAURANT",
+  "channel" : "OFFLINE",
+  "amount" : 16000,
+  "at" : "2027-03-25T03:47:00Z"
+}, {
+  "number" : 418,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-03-25T09:15:00Z"
+}, {
+  "number" : 419,
+  "purpose" : "CONVENIENCE",
+  "brand" : "EMART24",
+  "category" : "CONVENIENCE_STORE",
+  "channel" : "OFFLINE",
+  "amount" : 6000,
+  "at" : "2027-03-25T10:29:00Z"
+}, {
+  "number" : 420,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-03-25T23:15:00Z"
+}, {
+  "number" : 421,
+  "purpose" : "CAFE",
+  "brand" : "EDIYA",
+  "category" : "COFFEE_SHOP",
+  "channel" : "OFFLINE",
+  "amount" : 4000,
+  "at" : "2027-03-26T05:10:00Z"
+}, {
+  "number" : 422,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-03-26T09:15:00Z"
+}, {
+  "number" : 423,
+  "purpose" : "TAXI",
+  "brand" : "EXP006_TAXI",
+  "category" : "TAXI",
+  "channel" : "OFFLINE",
+  "amount" : 25000,
+  "at" : "2027-03-27T13:50:00Z"
+}, {
+  "number" : 424,
+  "purpose" : "GROCERIES",
+  "brand" : "LOTTE_MART",
+  "category" : "HYPERMARKET",
+  "channel" : "OFFLINE",
+  "amount" : 76000,
+  "at" : "2027-03-28T07:23:00Z"
+}, {
+  "number" : 425,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-03-28T23:15:00Z"
+}, {
+  "number" : 426,
+  "purpose" : "LUNCH",
+  "brand" : "YAMU_TEST_RESTAURANT",
+  "category" : "GENERAL_RESTAURANT",
+  "channel" : "OFFLINE",
+  "amount" : 11000,
+  "at" : "2027-03-29T03:16:00Z"
+}, {
+  "number" : 427,
+  "purpose" : "CAFE",
+  "brand" : "EDIYA",
+  "category" : "COFFEE_SHOP",
+  "channel" : "OFFLINE",
+  "amount" : 3000,
+  "at" : "2027-03-29T05:58:00Z"
+}, {
+  "number" : 428,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-03-29T09:15:00Z"
+}, {
+  "number" : 429,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-03-29T23:15:00Z"
+}, {
+  "number" : 430,
+  "purpose" : "LUNCH",
+  "brand" : "YAMU_TEST_RESTAURANT",
+  "category" : "GENERAL_RESTAURANT",
+  "channel" : "OFFLINE",
+  "amount" : 15000,
+  "at" : "2027-03-30T03:40:00Z"
+}, {
+  "number" : 431,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-03-30T09:15:00Z"
+}, {
+  "number" : 432,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-03-30T23:15:00Z"
+}, {
+  "number" : 433,
+  "purpose" : "LUNCH",
+  "brand" : "YAMU_TEST_RESTAURANT",
+  "category" : "GENERAL_RESTAURANT",
+  "channel" : "OFFLINE",
+  "amount" : 12000,
+  "at" : "2027-03-31T03:10:00Z"
+}, {
+  "number" : 434,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-03-31T09:15:00Z"
+}, {
+  "number" : 435,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-03-31T23:15:00Z"
+}, {
+  "number" : 436,
+  "purpose" : "LUNCH",
+  "brand" : "YAMU_TEST_RESTAURANT",
+  "category" : "GENERAL_RESTAURANT",
+  "channel" : "OFFLINE",
+  "amount" : 9000,
+  "at" : "2027-04-01T03:39:00Z"
+}, {
+  "number" : 437,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-04-01T09:15:00Z"
+}, {
+  "number" : 438,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-04-01T23:15:00Z"
+}, {
+  "number" : 439,
+  "purpose" : "LUNCH",
+  "brand" : "YAMU_TEST_RESTAURANT",
+  "category" : "GENERAL_RESTAURANT",
+  "channel" : "OFFLINE",
+  "amount" : 17000,
+  "at" : "2027-04-02T03:35:00Z"
+}, {
+  "number" : 440,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-04-02T09:15:00Z"
+}, {
+  "number" : 441,
+  "purpose" : "CONVENIENCE",
+  "brand" : "EMART24",
+  "category" : "CONVENIENCE_STORE",
+  "channel" : "OFFLINE",
+  "amount" : 10000,
+  "at" : "2027-04-03T10:19:00Z"
+}, {
+  "number" : 442,
+  "purpose" : "CAFE",
+  "brand" : "STARBUCKS",
+  "category" : "COFFEE_SHOP",
+  "channel" : "OFFLINE",
+  "amount" : 4000,
+  "at" : "2027-04-04T05:11:00Z"
+}, {
+  "number" : 443,
+  "purpose" : "GROCERIES",
+  "brand" : "EMART",
+  "category" : "HYPERMARKET",
+  "channel" : "OFFLINE",
+  "amount" : 61000,
+  "at" : "2027-04-04T07:04:00Z"
+}, {
+  "number" : 444,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-04-04T23:15:00Z"
+}, {
+  "number" : 445,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-04-05T09:15:00Z"
+}, {
+  "number" : 446,
+  "purpose" : "HOUSEHOLD",
+  "brand" : "COUPANG",
+  "category" : "ONLINE_MARKETPLACE",
+  "channel" : "ONLINE",
+  "amount" : 70000,
+  "at" : "2027-04-05T12:46:00Z"
+}, {
+  "number" : 447,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-04-05T23:15:00Z"
+}, {
+  "number" : 448,
+  "purpose" : "LUNCH",
+  "brand" : "YAMU_TEST_RESTAURANT",
+  "category" : "GENERAL_RESTAURANT",
+  "channel" : "OFFLINE",
+  "amount" : 15000,
+  "at" : "2027-04-06T03:26:00Z"
+}, {
+  "number" : 449,
+  "purpose" : "CAFE",
+  "brand" : "EDIYA",
+  "category" : "COFFEE_SHOP",
+  "channel" : "OFFLINE",
+  "amount" : 5000,
+  "at" : "2027-04-06T05:41:00Z"
+}, {
+  "number" : 450,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-04-06T09:15:00Z"
+}, {
+  "number" : 451,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-04-06T23:15:00Z"
+}, {
+  "number" : 452,
+  "purpose" : "LUNCH",
+  "brand" : "YAMU_TEST_RESTAURANT",
+  "category" : "GENERAL_RESTAURANT",
+  "channel" : "OFFLINE",
+  "amount" : 14000,
+  "at" : "2027-04-07T03:07:00Z"
+}, {
+  "number" : 453,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-04-07T09:15:00Z"
+}, {
+  "number" : 454,
+  "purpose" : "CONVENIENCE",
+  "brand" : "SEVEN_ELEVEN",
+  "category" : "CONVENIENCE_STORE",
+  "channel" : "OFFLINE",
+  "amount" : 13000,
+  "at" : "2027-04-07T10:40:00Z"
+}, {
+  "number" : 455,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-04-07T23:15:00Z"
+}, {
+  "number" : 456,
+  "purpose" : "LUNCH",
+  "brand" : "YAMU_TEST_RESTAURANT",
+  "category" : "GENERAL_RESTAURANT",
+  "channel" : "OFFLINE",
+  "amount" : 14000,
+  "at" : "2027-04-08T03:24:00Z"
+}, {
+  "number" : 457,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-04-08T09:15:00Z"
+}, {
+  "number" : 458,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-04-08T23:15:00Z"
+}, {
+  "number" : 459,
+  "purpose" : "LUNCH",
+  "brand" : "YAMU_TEST_RESTAURANT",
+  "category" : "GENERAL_RESTAURANT",
+  "channel" : "OFFLINE",
+  "amount" : 13000,
+  "at" : "2027-04-09T03:19:00Z"
+}, {
+  "number" : 460,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-04-09T09:15:00Z"
+}, {
+  "number" : 461,
+  "purpose" : "SUBSCRIPTION",
+  "brand" : "NETFLIX",
+  "category" : "STREAMING_SERVICE",
+  "channel" : "ONLINE",
+  "amount" : 17000,
+  "at" : "2027-04-10T00:13:00Z"
+}, {
+  "number" : 462,
+  "purpose" : "CONVENIENCE",
+  "brand" : "SEVEN_ELEVEN",
+  "category" : "CONVENIENCE_STORE",
+  "channel" : "OFFLINE",
+  "amount" : 11000,
+  "at" : "2027-04-10T10:46:00Z"
+}, {
+  "number" : 463,
+  "purpose" : "TAXI",
+  "brand" : "EXP006_TAXI",
+  "category" : "TAXI",
+  "channel" : "OFFLINE",
+  "amount" : 22000,
+  "at" : "2027-04-10T13:42:00Z"
+}, {
+  "number" : 464,
+  "purpose" : "GROCERIES",
+  "brand" : "LOTTE_MART",
+  "category" : "HYPERMARKET",
+  "channel" : "OFFLINE",
+  "amount" : 61000,
+  "at" : "2027-04-11T07:51:00Z"
+}, {
+  "number" : 465,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-04-11T23:15:00Z"
+}, {
+  "number" : 466,
+  "purpose" : "LUNCH",
+  "brand" : "YAMU_TEST_RESTAURANT",
+  "category" : "GENERAL_RESTAURANT",
+  "channel" : "OFFLINE",
+  "amount" : 16000,
+  "at" : "2027-04-12T03:13:00Z"
+}, {
+  "number" : 467,
+  "purpose" : "CAFE",
+  "brand" : "STARBUCKS",
+  "category" : "COFFEE_SHOP",
+  "channel" : "OFFLINE",
+  "amount" : 7000,
+  "at" : "2027-04-12T05:44:00Z"
+}, {
+  "number" : 468,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-04-12T09:15:00Z"
+}, {
+  "number" : 469,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-04-12T23:15:00Z"
+}, {
+  "number" : 470,
+  "purpose" : "LUNCH",
+  "brand" : "YAMU_TEST_RESTAURANT",
+  "category" : "GENERAL_RESTAURANT",
+  "channel" : "OFFLINE",
+  "amount" : 17000,
+  "at" : "2027-04-13T03:02:00Z"
+}, {
+  "number" : 471,
+  "purpose" : "CAFE",
+  "brand" : "EDIYA",
+  "category" : "COFFEE_SHOP",
+  "channel" : "OFFLINE",
+  "amount" : 3000,
+  "at" : "2027-04-13T05:56:00Z"
+}, {
+  "number" : 472,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-04-13T09:15:00Z"
+}, {
+  "number" : 473,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-04-13T23:15:00Z"
+}, {
+  "number" : 474,
+  "purpose" : "LUNCH",
+  "brand" : "YAMU_TEST_RESTAURANT",
+  "category" : "GENERAL_RESTAURANT",
+  "channel" : "OFFLINE",
+  "amount" : 10000,
+  "at" : "2027-04-14T03:17:00Z"
+}, {
+  "number" : 475,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-04-14T09:15:00Z"
+}, {
+  "number" : 476,
+  "purpose" : "CONVENIENCE",
+  "brand" : "EMART24",
+  "category" : "CONVENIENCE_STORE",
+  "channel" : "OFFLINE",
+  "amount" : 10000,
+  "at" : "2027-04-14T10:46:00Z"
+}, {
+  "number" : 477,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-04-14T23:15:00Z"
+}, {
+  "number" : 478,
+  "purpose" : "LUNCH",
+  "brand" : "YAMU_TEST_RESTAURANT",
+  "category" : "GENERAL_RESTAURANT",
+  "channel" : "OFFLINE",
+  "amount" : 10000,
+  "at" : "2027-04-15T03:44:00Z"
+}, {
+  "number" : 479,
+  "purpose" : "CAFE",
+  "brand" : "STARBUCKS",
+  "category" : "COFFEE_SHOP",
+  "channel" : "OFFLINE",
+  "amount" : 5000,
+  "at" : "2027-04-15T05:05:00Z"
+}, {
+  "number" : 480,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-04-15T09:15:00Z"
+}, {
+  "number" : 481,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-04-15T23:15:00Z"
+}, {
+  "number" : 482,
+  "purpose" : "LUNCH",
+  "brand" : "YAMU_TEST_RESTAURANT",
+  "category" : "GENERAL_RESTAURANT",
+  "channel" : "OFFLINE",
+  "amount" : 9000,
+  "at" : "2027-04-16T03:55:00Z"
+}, {
+  "number" : 483,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-04-16T09:15:00Z"
+}, {
+  "number" : 484,
+  "purpose" : "CONVENIENCE",
+  "brand" : "GS25",
+  "category" : "CONVENIENCE_STORE",
+  "channel" : "OFFLINE",
+  "amount" : 11000,
+  "at" : "2027-04-17T10:12:00Z"
+}, {
+  "number" : 485,
+  "purpose" : "TAXI",
+  "brand" : "EXP006_TAXI",
+  "category" : "TAXI",
+  "channel" : "OFFLINE",
+  "amount" : 20000,
+  "at" : "2027-04-17T13:15:00Z"
+}, {
+  "number" : 486,
+  "purpose" : "CAFE",
+  "brand" : "EDIYA",
+  "category" : "COFFEE_SHOP",
+  "channel" : "OFFLINE",
+  "amount" : 6000,
+  "at" : "2027-04-18T05:35:00Z"
+}, {
+  "number" : 487,
+  "purpose" : "GROCERIES",
+  "brand" : "EMART",
+  "category" : "HYPERMARKET",
+  "channel" : "OFFLINE",
+  "amount" : 59000,
+  "at" : "2027-04-18T07:21:00Z"
+}, {
+  "number" : 488,
+  "purpose" : "CONVENIENCE",
+  "brand" : "CU",
+  "category" : "CONVENIENCE_STORE",
+  "channel" : "OFFLINE",
+  "amount" : 4000,
+  "at" : "2027-04-18T10:01:00Z"
+}, {
+  "number" : 489,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-04-18T23:15:00Z"
+}, {
+  "number" : 490,
+  "purpose" : "LUNCH",
+  "brand" : "YAMU_TEST_RESTAURANT",
+  "category" : "GENERAL_RESTAURANT",
+  "channel" : "OFFLINE",
+  "amount" : 12000,
+  "at" : "2027-04-19T03:44:00Z"
+}, {
+  "number" : 491,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-04-19T09:15:00Z"
+}, {
+  "number" : 492,
+  "purpose" : "CONVENIENCE",
+  "brand" : "GS25",
+  "category" : "CONVENIENCE_STORE",
+  "channel" : "OFFLINE",
+  "amount" : 10000,
+  "at" : "2027-04-19T10:57:00Z"
+}, {
+  "number" : 493,
+  "purpose" : "HOUSEHOLD",
+  "brand" : "GMARKET",
+  "category" : "ONLINE_MARKETPLACE",
+  "channel" : "ONLINE",
+  "amount" : 68000,
+  "at" : "2027-04-19T12:23:00Z"
+}, {
+  "number" : 494,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-04-19T23:15:00Z"
+}, {
+  "number" : 495,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-04-20T09:15:00Z"
+}, {
+  "number" : 496,
+  "purpose" : "CONVENIENCE",
+  "brand" : "CU",
+  "category" : "CONVENIENCE_STORE",
+  "channel" : "OFFLINE",
+  "amount" : 5000,
+  "at" : "2027-04-20T10:52:00Z"
+}, {
+  "number" : 497,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-04-20T23:15:00Z"
+}, {
+  "number" : 498,
+  "purpose" : "LUNCH",
+  "brand" : "YAMU_TEST_RESTAURANT",
+  "category" : "GENERAL_RESTAURANT",
+  "channel" : "OFFLINE",
+  "amount" : 18000,
+  "at" : "2027-04-21T03:07:00Z"
+}, {
+  "number" : 499,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-04-21T09:15:00Z"
+}, {
+  "number" : 500,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-04-21T23:15:00Z"
+}, {
+  "number" : 501,
+  "purpose" : "LUNCH",
+  "brand" : "YAMU_TEST_RESTAURANT",
+  "category" : "GENERAL_RESTAURANT",
+  "channel" : "OFFLINE",
+  "amount" : 14000,
+  "at" : "2027-04-22T03:39:00Z"
+}, {
+  "number" : 502,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-04-22T09:15:00Z"
+}, {
+  "number" : 503,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-04-22T23:15:00Z"
+}, {
+  "number" : 504,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-04-23T09:15:00Z"
+}, {
+  "number" : 505,
+  "purpose" : "CAFE",
+  "brand" : "STARBUCKS",
+  "category" : "COFFEE_SHOP",
+  "channel" : "OFFLINE",
+  "amount" : 5000,
+  "at" : "2027-04-25T05:30:00Z"
+}, {
+  "number" : 506,
+  "purpose" : "GROCERIES",
+  "brand" : "LOTTE_MART",
+  "category" : "HYPERMARKET",
+  "channel" : "OFFLINE",
+  "amount" : 85000,
+  "at" : "2027-04-25T07:46:00Z"
+}, {
+  "number" : 507,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-04-25T23:15:00Z"
+}, {
+  "number" : 508,
+  "purpose" : "LUNCH",
+  "brand" : "YAMU_TEST_RESTAURANT",
+  "category" : "GENERAL_RESTAURANT",
+  "channel" : "OFFLINE",
+  "amount" : 13000,
+  "at" : "2027-04-26T03:23:00Z"
+}, {
+  "number" : 509,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-04-26T09:15:00Z"
+}, {
+  "number" : 510,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-04-26T23:15:00Z"
+}, {
+  "number" : 511,
+  "purpose" : "LUNCH",
+  "brand" : "YAMU_TEST_RESTAURANT",
+  "category" : "GENERAL_RESTAURANT",
+  "channel" : "OFFLINE",
+  "amount" : 15000,
+  "at" : "2027-04-27T03:29:00Z"
+}, {
+  "number" : 512,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-04-27T09:15:00Z"
+}, {
+  "number" : 513,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-04-27T23:15:00Z"
+}, {
+  "number" : 514,
+  "purpose" : "LUNCH",
+  "brand" : "YAMU_TEST_RESTAURANT",
+  "category" : "GENERAL_RESTAURANT",
+  "channel" : "OFFLINE",
+  "amount" : 10000,
+  "at" : "2027-04-28T03:17:00Z"
+}, {
+  "number" : 515,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-04-28T09:15:00Z"
+}, {
+  "number" : 516,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-04-28T23:15:00Z"
+}, {
+  "number" : 517,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-04-29T09:15:00Z"
+}, {
+  "number" : 518,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-04-29T23:15:00Z"
+}, {
+  "number" : 519,
+  "purpose" : "LUNCH",
+  "brand" : "YAMU_TEST_RESTAURANT",
+  "category" : "GENERAL_RESTAURANT",
+  "channel" : "OFFLINE",
+  "amount" : 18000,
+  "at" : "2027-04-30T03:10:00Z"
+}, {
+  "number" : 520,
+  "purpose" : "CAFE",
+  "brand" : "EDIYA",
+  "category" : "COFFEE_SHOP",
+  "channel" : "OFFLINE",
+  "amount" : 4000,
+  "at" : "2027-04-30T05:03:00Z"
+}, {
+  "number" : 521,
+  "purpose" : "COMMUTE",
+  "brand" : "EXP006_MOBILE_SUBWAY",
+  "category" : "SUBWAY",
+  "channel" : "OFFLINE",
+  "amount" : 1600,
+  "at" : "2027-04-30T09:15:00Z"
+} ]

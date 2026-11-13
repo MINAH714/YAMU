@@ -1,0 +1,417 @@
+[ {
+  "seed" : -1,
+  "totalKrw" : 63850.000000,
+  "strategy" : "FIXED_FIRST"
+}, {
+  "seed" : -1,
+  "totalKrw" : 58500,
+  "strategy" : "FIXED_TOKTOK"
+}, {
+  "seed" : -1,
+  "totalKrw" : 67850.000000,
+  "strategy" : "CATEGORY"
+}, {
+  "seed" : -1,
+  "totalKrw" : 69800.000000,
+  "strategy" : "YAMU"
+}, {
+  "seed" : 0,
+  "totalKrw" : 65600.000000,
+  "strategy" : "RANDOM"
+}, {
+  "seed" : 1,
+  "totalKrw" : 50600.000000,
+  "strategy" : "RANDOM"
+}, {
+  "seed" : 2,
+  "totalKrw" : 69300.000000,
+  "strategy" : "RANDOM"
+}, {
+  "seed" : 3,
+  "totalKrw" : 60550.000000,
+  "strategy" : "RANDOM"
+}, {
+  "seed" : 4,
+  "totalKrw" : 68500.000000,
+  "strategy" : "RANDOM"
+}, {
+  "seed" : 5,
+  "totalKrw" : 57250.000000,
+  "strategy" : "RANDOM"
+}, {
+  "seed" : 6,
+  "totalKrw" : 58650.000000,
+  "strategy" : "RANDOM"
+}, {
+  "seed" : 7,
+  "totalKrw" : 55850.000000,
+  "strategy" : "RANDOM"
+}, {
+  "seed" : 8,
+  "totalKrw" : 64850.000000,
+  "strategy" : "RANDOM"
+}, {
+  "seed" : 9,
+  "totalKrw" : 54500.000000,
+  "strategy" : "RANDOM"
+}, {
+  "seed" : 10,
+  "totalKrw" : 67800.000000,
+  "strategy" : "RANDOM"
+}, {
+  "seed" : 11,
+  "totalKrw" : 65500.000000,
+  "strategy" : "RANDOM"
+}, {
+  "seed" : 12,
+  "totalKrw" : 57550.000000,
+  "strategy" : "RANDOM"
+}, {
+  "seed" : 13,
+  "totalKrw" : 69400.000000,
+  "strategy" : "RANDOM"
+}, {
+  "seed" : 14,
+  "totalKrw" : 61400.000000,
+  "strategy" : "RANDOM"
+}, {
+  "seed" : 15,
+  "totalKrw" : 57550.000000,
+  "strategy" : "RANDOM"
+}, {
+  "seed" : 16,
+  "totalKrw" : 60350.000000,
+  "strategy" : "RANDOM"
+}, {
+  "seed" : 17,
+  "totalKrw" : 55900.000000,
+  "strategy" : "RANDOM"
+}, {
+  "seed" : 18,
+  "totalKrw" : 58200.000000,
+  "strategy" : "RANDOM"
+}, {
+  "seed" : 19,
+  "totalKrw" : 64600.000000,
+  "strategy" : "RANDOM"
+}, {
+  "seed" : 20,
+  "totalKrw" : 62500.000000,
+  "strategy" : "RANDOM"
+}, {
+  "seed" : 21,
+  "totalKrw" : 59850.000000,
+  "strategy" : "RANDOM"
+}, {
+  "seed" : 22,
+  "totalKrw" : 55950.000000,
+  "strategy" : "RANDOM"
+}, {
+  "seed" : 23,
+  "totalKrw" : 63250.000000,
+  "strategy" : "RANDOM"
+}, {
+  "seed" : 24,
+  "totalKrw" : 56300.000000,
+  "strategy" : "RANDOM"
+}, {
+  "seed" : 25,
+  "totalKrw" : 60200.000000,
+  "strategy" : "RANDOM"
+}, {
+  "seed" : 26,
+  "totalKrw" : 58550.000000,
+  "strategy" : "RANDOM"
+}, {
+  "seed" : 27,
+  "totalKrw" : 62800.000000,
+  "strategy" : "RANDOM"
+}, {
+  "seed" : 28,
+  "totalKrw" : 59400.000000,
+  "strategy" : "RANDOM"
+}, {
+  "seed" : 29,
+  "totalKrw" : 52200.000000,
+  "strategy" : "RANDOM"
+}, {
+  "seed" : 30,
+  "totalKrw" : 74350.000000,
+  "strategy" : "RANDOM"
+}, {
+  "seed" : 31,
+  "totalKrw" : 62100.000000,
+  "strategy" : "RANDOM"
+}, {
+  "seed" : 32,
+  "totalKrw" : 70750.000000,
+  "strategy" : "RANDOM"
+}, {
+  "seed" : 33,
+  "totalKrw" : 66450.000000,
+  "strategy" : "RANDOM"
+}, {
+  "seed" : 34,
+  "totalKrw" : 72850.000000,
+  "strategy" : "RANDOM"
+}, {
+  "seed" : 35,
+  "totalKrw" : 60850.000000,
+  "strategy" : "RANDOM"
+}, {
+  "seed" : 36,
+  "totalKrw" : 61650.000000,
+  "strategy" : "RANDOM"
+}, {
+  "seed" : 37,
+  "totalKrw" : 61750.000000,
+  "strategy" : "RANDOM"
+}, {
+  "seed" : 38,
+  "totalKrw" : 63450.000000,
+  "strategy" : "RANDOM"
+}, {
+  "seed" : 39,
+  "totalKrw" : 67300.000000,
+  "strategy" : "RANDOM"
+}, {
+  "seed" : 40,
+  "totalKrw" : 64000.000000,
+  "strategy" : "RANDOM"
+}, {
+  "seed" : 41,
+  "totalKrw" : 64950.000000,
+  "strategy" : "RANDOM"
+}, {
+  "seed" : 42,
+  "totalKrw" : 77250.000000,
+  "strategy" : "RANDOM"
+}, {
+  "seed" : 43,
+  "totalKrw" : 66700.000000,
+  "strategy" : "RANDOM"
+}, {
+  "seed" : 44,
+  "totalKrw" : 51900.000000,
+  "strategy" : "RANDOM"
+}, {
+  "seed" : 45,
+  "totalKrw" : 65850.000000,
+  "strategy" : "RANDOM"
+}, {
+  "seed" : 46,
+  "totalKrw" : 62300.000000,
+  "strategy" : "RANDOM"
+}, {
+  "seed" : 47,
+  "totalKrw" : 57050.000000,
+  "strategy" : "RANDOM"
+}, {
+  "seed" : 48,
+  "totalKrw" : 60950.000000,
+  "strategy" : "RANDOM"
+}, {
+  "seed" : 49,
+  "totalKrw" : 55850.000000,
+  "strategy" : "RANDOM"
+}, {
+  "seed" : 50,
+  "totalKrw" : 69550.000000,
+  "strategy" : "RANDOM"
+}, {
+  "seed" : 51,
+  "totalKrw" : 75850.000000,
+  "strategy" : "RANDOM"
+}, {
+  "seed" : 52,
+  "totalKrw" : 68500.000000,
+  "strategy" : "RANDOM"
+}, {
+  "seed" : 53,
+  "totalKrw" : 63500.000000,
+  "strategy" : "RANDOM"
+}, {
+  "seed" : 54,
+  "totalKrw" : 57600.000000,
+  "strategy" : "RANDOM"
+}, {
+  "seed" : 55,
+  "totalKrw" : 61800.000000,
+  "strategy" : "RANDOM"
+}, {
+  "seed" : 56,
+  "totalKrw" : 65000.000000,
+  "strategy" : "RANDOM"
+}, {
+  "seed" : 57,
+  "totalKrw" : 79100.000000,
+  "strategy" : "RANDOM"
+}, {
+  "seed" : 58,
+  "totalKrw" : 62350.000000,
+  "strategy" : "RANDOM"
+}, {
+  "seed" : 59,
+  "totalKrw" : 53500.000000,
+  "strategy" : "RANDOM"
+}, {
+  "seed" : 60,
+  "totalKrw" : 70600.000000,
+  "strategy" : "RANDOM"
+}, {
+  "seed" : 61,
+  "totalKrw" : 57500.000000,
+  "strategy" : "RANDOM"
+}, {
+  "seed" : 62,
+  "totalKrw" : 58100.000000,
+  "strategy" : "RANDOM"
+}, {
+  "seed" : 63,
+  "totalKrw" : 54650.000000,
+  "strategy" : "RANDOM"
+}, {
+  "seed" : 64,
+  "totalKrw" : 51600.000000,
+  "strategy" : "RANDOM"
+}, {
+  "seed" : 65,
+  "totalKrw" : 70500.000000,
+  "strategy" : "RANDOM"
+}, {
+  "seed" : 66,
+  "totalKrw" : 64150.000000,
+  "strategy" : "RANDOM"
+}, {
+  "seed" : 67,
+  "totalKrw" : 52800.000000,
+  "strategy" : "RANDOM"
+}, {
+  "seed" : 68,
+  "totalKrw" : 55250.000000,
+  "strategy" : "RANDOM"
+}, {
+  "seed" : 69,
+  "totalKrw" : 67400.000000,
+  "strategy" : "RANDOM"
+}, {
+  "seed" : 70,
+  "totalKrw" : 55600.000000,
+  "strategy" : "RANDOM"
+}, {
+  "seed" : 71,
+  "totalKrw" : 64950.000000,
+  "strategy" : "RANDOM"
+}, {
+  "seed" : 72,
+  "totalKrw" : 61450.000000,
+  "strategy" : "RANDOM"
+}, {
+  "seed" : 73,
+  "totalKrw" : 61200.000000,
+  "strategy" : "RANDOM"
+}, {
+  "seed" : 74,
+  "totalKrw" : 50050.000000,
+  "strategy" : "RANDOM"
+}, {
+  "seed" : 75,
+  "totalKrw" : 67500.000000,
+  "strategy" : "RANDOM"
+}, {
+  "seed" : 76,
+  "totalKrw" : 65850.000000,
+  "strategy" : "RANDOM"
+}, {
+  "seed" : 77,
+  "totalKrw" : 56750.000000,
+  "strategy" : "RANDOM"
+}, {
+  "seed" : 78,
+  "totalKrw" : 63200.000000,
+  "strategy" : "RANDOM"
+}, {
+  "seed" : 79,
+  "totalKrw" : 66500.000000,
+  "strategy" : "RANDOM"
+}, {
+  "seed" : 80,
+  "totalKrw" : 60650.000000,
+  "strategy" : "RANDOM"
+}, {
+  "seed" : 81,
+  "totalKrw" : 53700.000000,
+  "strategy" : "RANDOM"
+}, {
+  "seed" : 82,
+  "totalKrw" : 58750.000000,
+  "strategy" : "RANDOM"
+}, {
+  "seed" : 83,
+  "totalKrw" : 67600.000000,
+  "strategy" : "RANDOM"
+}, {
+  "seed" : 84,
+  "totalKrw" : 60250.000000,
+  "strategy" : "RANDOM"
+}, {
+  "seed" : 85,
+  "totalKrw" : 63350.000000,
+  "strategy" : "RANDOM"
+}, {
+  "seed" : 86,
+  "totalKrw" : 56300.000000,
+  "strategy" : "RANDOM"
+}, {
+  "seed" : 87,
+  "totalKrw" : 57050.000000,
+  "strategy" : "RANDOM"
+}, {
+  "seed" : 88,
+  "totalKrw" : 62200.000000,
+  "strategy" : "RANDOM"
+}, {
+  "seed" : 89,
+  "totalKrw" : 64800.000000,
+  "strategy" : "RANDOM"
+}, {
+  "seed" : 90,
+  "totalKrw" : 53650.000000,
+  "strategy" : "RANDOM"
+}, {
+  "seed" : 91,
+  "totalKrw" : 61600.000000,
+  "strategy" : "RANDOM"
+}, {
+  "seed" : 92,
+  "totalKrw" : 58900.000000,
+  "strategy" : "RANDOM"
+}, {
+  "seed" : 93,
+  "totalKrw" : 64200.000000,
+  "strategy" : "RANDOM"
+}, {
+  "seed" : 94,
+  "totalKrw" : 54550.000000,
+  "strategy" : "RANDOM"
+}, {
+  "seed" : 95,
+  "totalKrw" : 70200.000000,
+  "strategy" : "RANDOM"
+}, {
+  "seed" : 96,
+  "totalKrw" : 69350.000000,
+  "strategy" : "RANDOM"
+}, {
+  "seed" : 97,
+  "totalKrw" : 55050.000000,
+  "strategy" : "RANDOM"
+}, {
+  "seed" : 98,
+  "totalKrw" : 58900.000000,
+  "strategy" : "RANDOM"
+}, {
+  "seed" : 99,
+  "totalKrw" : 58500.000000,
+  "strategy" : "RANDOM"
+} ]
