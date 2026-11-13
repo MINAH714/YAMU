@@ -1,0 +1,21 @@
+{
+  "AuthorizedDocumentationUpdates": [
+    "docs/experiments/card-selection/README.md",
+    "docs/experiments/card-selection/record-audit.md"
+  ],
+  "ArchivedEntriesVerified": 199,
+  "RemotePublished": false,
+  "OriginalBuildResultsChecked": 14,
+  "ManualCandidateEstimates": 720,
+  "CommitCreated": false,
+  "ExistingFilesChecked": 241,
+  "MainCardEvaluations": 76032,
+  "EstimateErrors": 0,
+  "Cells": 12,
+  "OriginalBuildResultsChanged": 0,
+  "PolicyOrFactChanges": 0,
+  "MainRuns": 1266,
+  "ArchivedRunsReproduced": 1254,
+  "CheckedAtUtc": "2026-11-12T16:27:20.9817963Z",
+  "UnexpectedExistingFileChanges": 0
+}

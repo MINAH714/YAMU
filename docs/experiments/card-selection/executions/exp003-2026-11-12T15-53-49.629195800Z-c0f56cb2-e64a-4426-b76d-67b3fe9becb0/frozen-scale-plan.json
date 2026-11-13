@@ -1,0 +1,19 @@
+{
+  "experimentId": "exp-003-consumption-scale",
+  "purpose": "동일 거래의 금액만 일괄 축소해 소비 규모·한도 소진 여부에 따른 선택 방식 차이를 비교한다.",
+  "baseInput": "recommendation/monthly-card-selection.json",
+  "baseInputSha256": "6893d7f66d13c8010623b499a4d07a9a660336f1c91bd7961f53de9d8cbf850c",
+  "extensionInput": "recommendation/card-selection-exp-002.json",
+  "extensionInputSha256": "0a2812e158468c866f6dba43af82f1dec8bf2883d8b3e16eb9318b3ff0929f70",
+  "percentages": [10, 15, 25, 50, 75],
+  "cardCounts": [2, 3],
+  "expectedSpending": [30900, 46350, 77250, 154500, 231750],
+  "scaling": "Every original amount * percentage / 100; exact integer required; no rounding, filtering, reordering or resampling.",
+  "twoCardCategoryRule": {"COFFEE_SHOP": 1, "GENERAL_RESTAURANT": 0, "CONVENIENCE_STORE": 0, "ONLINE_MARKETPLACE": 0},
+  "threeCardCategoryRule": {"COFFEE_SHOP": 1, "GENERAL_RESTAURANT": 2, "CONVENIENCE_STORE": 0, "ONLINE_MARKETPLACE": 0},
+  "random": {"algorithm": "java.util.Random.nextInt(cardCount)", "firstSeed": 0, "lastSeed": 99, "mapping": "Same card count and seed have identical selected indexes across all scales; nextInt(2) and nextInt(3) differ."},
+  "initialState": "Each card: previous performance 400000; current performance and limit usage zero; available credit 10000000; ACTIVE/NORMAL; first card remains default. Success assumed.",
+  "facts": "Reuse EXP-001 facts for two cards, approved EXP-002 additional facts for three cards. No new facts or product policies.",
+  "publication": "Publish all five scales and both card counts, including ties and losses. 100% values are archived references, not new runs. Any later condition change requires a different experiment.",
+  "interpretation": "Low-spend, fixed-prior-performance synthetic sensitivity analysis; no population inference or next-month performance claim. Unconstrained immediate maximum is expected to dominate fixed choices; this alone is not proof of long-horizon optimization."
+}

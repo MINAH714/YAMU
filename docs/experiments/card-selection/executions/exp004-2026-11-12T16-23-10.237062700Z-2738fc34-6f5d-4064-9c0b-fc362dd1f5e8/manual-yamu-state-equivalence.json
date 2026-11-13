@@ -1,0 +1,74 @@
+[
+  {
+    "PerformanceEqual": true,
+    "Cell": "scale-10-cards-2",
+    "SpendingEqual": true,
+    "LimitHistoryEqual": true
+  },
+  {
+    "PerformanceEqual": true,
+    "Cell": "scale-10-cards-3",
+    "SpendingEqual": true,
+    "LimitHistoryEqual": true
+  },
+  {
+    "PerformanceEqual": true,
+    "Cell": "scale-100-cards-2",
+    "SpendingEqual": true,
+    "LimitHistoryEqual": true
+  },
+  {
+    "PerformanceEqual": true,
+    "Cell": "scale-100-cards-3",
+    "SpendingEqual": true,
+    "LimitHistoryEqual": true
+  },
+  {
+    "PerformanceEqual": true,
+    "Cell": "scale-15-cards-2",
+    "SpendingEqual": true,
+    "LimitHistoryEqual": true
+  },
+  {
+    "PerformanceEqual": true,
+    "Cell": "scale-15-cards-3",
+    "SpendingEqual": true,
+    "LimitHistoryEqual": true
+  },
+  {
+    "PerformanceEqual": true,
+    "Cell": "scale-25-cards-2",
+    "SpendingEqual": true,
+    "LimitHistoryEqual": true
+  },
+  {
+    "PerformanceEqual": true,
+    "Cell": "scale-25-cards-3",
+    "SpendingEqual": true,
+    "LimitHistoryEqual": true
+  },
+  {
+    "PerformanceEqual": true,
+    "Cell": "scale-50-cards-2",
+    "SpendingEqual": true,
+    "LimitHistoryEqual": true
+  },
+  {
+    "PerformanceEqual": true,
+    "Cell": "scale-50-cards-3",
+    "SpendingEqual": true,
+    "LimitHistoryEqual": true
+  },
+  {
+    "PerformanceEqual": true,
+    "Cell": "scale-75-cards-2",
+    "SpendingEqual": true,
+    "LimitHistoryEqual": true
+  },
+  {
+    "PerformanceEqual": true,
+    "Cell": "scale-75-cards-3",
+    "SpendingEqual": true,
+    "LimitHistoryEqual": true
+  }
+]

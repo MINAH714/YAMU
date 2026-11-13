@@ -1,0 +1,48 @@
+{
+  "version": 1,
+  "status": "INCOMPLETE_RESEARCH_POLICY_NOT_FOR_SERVICE",
+  "checkedAtKst": "2026-11-13",
+  "sources": {
+    "credit": "https://www.shinhancard.com/pconts/html/card/apply/credit/1188220_2207.html",
+    "check": "https://www.shinhancard.com/pconts/html/card/apply/check/1188313_2206.html",
+    "points": "https://www.shinhancard.com/pconts/html/benefit/my/point/pointExplain/CONFM50047/CONFM50047R01.html"
+  },
+  "pointKrwRate": "1",
+  "roundingMode": "DOWN",
+  "roundingUnit": 1,
+  "componentRoundingStage": null,
+  "calculationOrder": null,
+  "validFrom": null,
+  "validUntil": null,
+  "deferred": {
+    "selectionBasis": "CURRENT_CALENDAR_MONTH_DREAM_SPENDING",
+    "payment": "NEXT_MONTH_DAY_15",
+    "tieRule": null,
+    "roundingScope": null,
+    "sharedLimitSettlementOrder": null,
+    "excludedSpendingInAreaTotal": null
+  },
+  "cards": [
+    {
+      "kind": "CREDIT", "product": "신한카드 Deep Dream",
+      "baseRate": "0.007", "conditionalBonusRate": "0.001",
+      "dreamExtraRate": "0.014", "deferredExtraRate": "0.014", "minimumPerformance": 300000,
+      "bonusRule": "SHINHAN_SETTLEMENT_ACCOUNT_OR_ELIGIBLE_VISA_CONTACTLESS_NOT_BOTH",
+      "bonusWithDream": null,
+      "tiers": [[0,300000,0],[300000,600000,10000],[600000,1200000,30000],[1200000,null,50000]],
+      "special": {"weekendFuelPerReferenceLitre":80,"fuelMonthlySpendCeiling":200000,"taxiOrdinals":[3,6,9],"taxiDiscount":2000,"welcomePoints":5000}
+    },
+    {
+      "kind": "CHECK", "product": "신한카드 Deep Dream 체크",
+      "baseRate": "0.002", "conditionalBonusRate": "0",
+      "dreamExtraRate": "0.004", "deferredExtraRate": "0.004", "minimumPerformance": 200000,
+      "tiers": [[0,200000,0],[200000,400000,5000],[400000,800000,15000],[800000,null,30000]],
+      "special": {"weekendFuelPerReferenceLitre":40,"fuelMonthlySpendCeiling":200000,"taxiOrdinals":[3,6,9],"taxiDiscount":1000,"welcomePoints":3000}
+    }
+  ],
+  "dreamAreas": ["DISCOUNT_STORE","RETAIL_STORE","ENJOY_STORE","ABROAD","MOBILE"],
+  "targetEvidenceRequired": ["ISSUER_MERCHANT_CLASSIFICATION","PURCHASE_CHANNEL_AND_FACILITY","EXCLUSIONS_AND_DISCOUNT_OR_POINT_USE"],
+  "excludedPointFacts": ["LOAN","FEE_OR_INTEREST","CANCELED","GIFT_CARD_PURCHASE","PREPAID_TOPUP","POINT_USE","TAX_OR_WATER","APARTMENT_OR_GAS_OR_ELECTRICITY","SOCIAL_INSURANCE","ISSUER_DISCOUNT","CREDIT_INTEREST_FREE_OR_SLIM_INSTALLMENT"],
+  "implementationScope": "Normal purchases with evidence that fuel/taxi/welcome benefits do not apply. Special applicability unknown or true blocks replay; no fallback to base points.",
+  "notes": "Base is uncapped. DREAM extra and deferred extra share a cap. Rates are incremental, not total rates. Missing policies remain null. Unit tests explicitly use synthetic rules; they do not resolve these nulls."
+}

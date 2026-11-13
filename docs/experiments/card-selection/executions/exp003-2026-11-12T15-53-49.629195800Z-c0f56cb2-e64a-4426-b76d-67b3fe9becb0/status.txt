@@ -1,0 +1,1 @@
+PASS: all five frozen scales x two card sets; 1045 main runs; 62760 main card evaluations; no uncomputable evaluations; boundary/manual checks; deterministic replay and cross-scale random mappings verified

@@ -1,0 +1,42 @@
+{
+  "experimentId": "exp-004-manual-table",
+  "revision": "Earlier positive-benefit priority proposal withdrawn without execution. Compare all table estimates, including partial benefits, and choose the greatest.",
+  "percentages": [10, 15, 25, 50, 75, 100],
+  "cardCounts": [2, 3],
+  "decision": "MAX_TABLE_ESTIMATE; exact tie: default card first, then fixed order first/toktok/loca; all zero: default first; no future purchases or current performance optimization",
+  "rounding": "LIMIT_THEN_ROUND, DOWN, per transaction, unit 1; first points converted at 1 KRW/P; additional costs 0 as in existing mock policy",
+  "scope": {
+    "YAMU_TEST_RESTAURANT": {"category": "GENERAL_RESTAURANT", "channel": "OFFLINE", "meaning": "ordinary meal, direct purchase"},
+    "STARBUCKS": {"category": "COFFEE_SHOP", "channel": "OFFLINE", "meaning": "ordinary beverage, direct purchase"},
+    "GS25": {"category": "CONVENIENCE_STORE", "channel": "OFFLINE", "meaning": "ordinary goods, direct purchase"},
+    "COUPANG": {"category": "ONLINE_MARKETPLACE", "channel": "ONLINE", "meaning": "ordinary goods via official app, not membership or delivery"}
+  },
+  "factScope": "Reuse exact EXP-001 input and EXP-002 explicit facts, no redemption or excluded purchase, introductory waiver ended, normal cards. Unsupported or missing facts abort; never replace with zero.",
+  "cards": [
+    {
+      "product": "신한카드 처음", "minimumPerformance": 300000, "minimumPayment": 0,
+      "rate": "0.05", "krwPerUnit": "1", "unit": "POINT",
+      "brands": ["YAMU_TEST_RESTAURANT", "STARBUCKS", "GS25", "COUPANG"],
+      "transactionCap": 500,
+      "limits": [{"code": "TODAY_DAILY", "period": "DAILY", "maximum": 1000}, {"code": "TODAY_MONTHLY", "period": "MONTHLY", "maximum": 5000}],
+      "basis": "seed/01-card-catalog.sql: TODAY_FOOD/CAFE/CONVENIENCE/ONLINE_SHOPPING; 300000<=prior<500000 tier; no fallback or COUNT"
+    },
+    {
+      "product": "KB국민 청춘대로 톡톡카드", "minimumPerformance": 300000, "minimumPayment": 0,
+      "rate": "0.50", "krwPerUnit": "1", "unit": "KRW", "brands": ["STARBUCKS"],
+      "limits": [{"code": "STARBUCKS", "period": "MONTHLY", "maximum": 10000}],
+      "otherRegisteredBenefits": "BURGER_20: 20%, prior 300000, minimum 0, separate monthly cap 5000; none of frozen transactions is fast food/burger; unsupported outside this scope",
+      "basis": "seed/02-card-catalog-ab20.sql and catalog-ab20/db card_benefit, tier_limit, benefit_target; no fallback or COUNT"
+    },
+    {
+      "product": "LOCA LIKIT Eat", "minimumPerformance": 400000, "minimumPayment": 0,
+      "rate": "0.60", "krwPerUnit": "1", "unit": "KRW", "brands": ["YAMU_TEST_RESTAURANT", "STARBUCKS"],
+      "limits": [{"code": "ALL_MONTH", "period": "MONTHLY", "maximum": 13000}],
+      "otherRegisteredBenefits": "DELIVERY and MEMBERSHIP also 60%, same ALL_MONTH; frozen transactions are neither. No extra base accrual or COUNT",
+      "basis": "seed/02-card-catalog-ab20.sql and catalog-ab20/db card_benefit, tier_limit, benefit_limit_link, benefit_target"
+    }
+  ],
+  "boundaryRules": "Partial capacity: compare capped/rounded estimates, including 1 versus 1000. Zero only for known ineligibility or exhausted/rounded amount. Unsupported multiple-benefit/fallback policy abort. Shared limits updated from actual engine consumed values, not estimate.",
+  "actualSettlement": "Existing calculator and recognition resolver only after manual choice; independent strategy ledger. Audit all candidate actual values; never feed them into manual choice.",
+  "interpretation": "A specified manual rule with an accurate benefit table and current usage; not a measured human time, effort or error-rate study. Same choice as YAMU is acceptable. All outcomes retained."
+}
