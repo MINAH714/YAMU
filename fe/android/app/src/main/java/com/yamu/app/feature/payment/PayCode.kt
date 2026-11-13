@@ -582,10 +582,16 @@ fun PayCodeRoute(
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 when (val p = s.phase) {
-                    PayPhase.Auth -> AuthBody(s.error)
+                    // 카드 목록을 보는 동안은 본문을 비운다 — 0장이면 '인증하면 결제 코드가 열려요'를 잠깐 보였다가 카드 없음으로 바뀌지 않게
+                    PayPhase.Auth -> if (!s.checkingCards) AuthBody(s.error)
                     is PayPhase.Code -> CodeBody(p.code, s.remainingSec, s.unstable, onNewCode = viewModel::openCode, hint = cancelHint ?: "매장에서 스캔하면 바로 넘어가요")
                     PayPhase.CodeExpired -> MessageBody("시간이 지났어요", "새 코드를 받아 매장에 보여 주세요")
-                    PayPhase.NoCard -> EmptyState("결제할 카드가 없어요", actionText = "카드 추가", onAction = onAddCard)
+                    // 취소도 같은 결제 코드라 BE가 카드 0장이면 발급하지 않는다(NO_ACTIVE_CARD). 아래 임시 '앱에서 바로 취소'와 엇갈리지 않게 '매장에서'
+                    PayPhase.NoCard -> EmptyState(
+                        if (cancelHint != null) "매장에서 취소하려면 결제에 쓸 카드가 한 장 이상 있어야 해요" else "결제할 카드가 없어요",
+                        actionText = "카드 추가",
+                        onAction = onAddCard,
+                    )
                     is PayPhase.Request -> RequestBody(p.request, s, onSelectCard = viewModel::selectCard, onInstallment = viewModel::selectInstallment)
                 }
                 if (s.phase !is PayPhase.Request) cancelFooter?.invoke()

@@ -173,7 +173,9 @@ class PayCodeViewModelTest {
             assertEquals(StepUpUi.OpenPin(StepUpPurpose.BARCODE), vm.stepUp.ui.value)
             advanceTimeBy(5_000)
             runCurrent()
-            assertEquals("늦게 온 목록이 인증 중인 화면을 바꾸지 않는다", PayPhase.Auth, vm.state.value.phase)
+            // 상한에서 목록 호출째 취소되므로 5초 뒤에 '늦게 오는' 0장 응답은 없다
+            assertEquals("시간 초과된 목록 호출은 취소된다", 1 to 0, link.cardsCalls to link.cardsReturned)
+            assertEquals(PayPhase.Auth, vm.state.value.phase)
         }
     }
 
@@ -662,10 +664,13 @@ class PayCodeViewModelTest {
         var cardsResult: ApiResult<List<LinkedCard>> = ApiResult.Success(listOf(listedOther))
         var cardsDelayMs = 0L
         var cardsCalls = 0
+        /** 기다림 끝까지 가서 응답을 돌려준 호출(도중에 취소되면 세지 않는다) */
+        var cardsReturned = 0
 
         override suspend fun cards(): ApiResult<List<LinkedCard>> {
             cardsCalls++
             delay(cardsDelayMs)
+            cardsReturned++
             return cardsResult
         }
     }
