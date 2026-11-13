@@ -10,7 +10,7 @@
         android:allowBackup="false"
         android:icon="@drawable/yamu_happy"
         android:roundIcon="@drawable/yamu_happy"
-        android:label="@string/app_name"
+        android:label="${appLabel}"
         android:supportsRtl="true"
         android:theme="@style/Theme.YAMU" />
 
