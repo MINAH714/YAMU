@@ -62,7 +62,8 @@ fun signupErrorMessage(code: String, remainingAttempts: Int? = null, retryAfterS
         "SIGNUP_STEP_INCOMPLETE" -> "앞 단계를 먼저 마쳐 주세요"
         "ACCOUNT_CANDIDATE_EXPIRED" -> "계좌 목록이 오래됐어요 · 다시 불러왔어요"
         "ONE_WON_DAILY_LIMIT_EXCEEDED" -> "오늘은 1원을 더 보낼 수 없어요 · 내일 다시 해 주세요"
-        "AUTH_CODE_MISMATCH" -> "입금자명 뒤 숫자가 맞지 않아요" + left("1원을 다시 받아 주세요")
+        // 무엇과 무엇이 다른지 주어를 둔다(2차 QA 06)
+        "AUTH_CODE_MISMATCH" -> "입력한 숫자가 입금자명 뒤 숫자와 달라요" + left("1원을 다시 받아 주세요")
         "AUTH_CODE_EXPIRED", "VERIFICATION_TOKEN_EXPIRED" -> "시간이 지났어요 · 1원을 다시 받아 주세요"
         "AUTH_CODE_LOCKED" -> "오늘은 숫자를 너무 많이 틀렸어요 · 내일 다시 해 주세요"
         "IDEMPOTENCY_IN_PROGRESS" -> "처리하고 있어요 · 잠시 뒤 다시 눌러 주세요"

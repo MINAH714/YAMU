@@ -74,6 +74,7 @@ import com.yamu.app.feature.auth.data.Carrier
 import com.yamu.app.feature.auth.data.CodeSent
 import com.yamu.app.feature.auth.data.IdentityDraft
 import com.yamu.app.feature.auth.data.SIGNUP_TOKEN_INVALID
+import com.yamu.app.feature.auth.data.SessionStart
 import com.yamu.app.feature.auth.data.SignupMode
 import com.yamu.app.feature.auth.data.SignupOneWon
 import com.yamu.app.feature.auth.data.SignupRepository
@@ -89,6 +90,7 @@ import com.yamu.app.feature.link.SearchingState
 import com.yamu.app.feature.link.SelectRow
 import com.yamu.app.feature.my.SwitchRow
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -174,16 +176,69 @@ internal fun SmsBanner(message: String?, onFill: () -> Unit, onDismiss: () -> Un
 
 // ───────────────────────── A-01 · A-04 진입 ─────────────────────────
 
+/** 첫 화면 '로그인'이 갈 곳 — 이 폰에 기기가 있으면 간편 비밀번호, 없으면 본인인증으로 이 폰을 등록 */
+enum class WelcomeLogin { PIN, VERIFY }
+
 @HiltViewModel
-class WelcomeViewModel @Inject constructor(private val signup: SignupRepository) : ViewModel() {
+class WelcomeViewModel @Inject constructor(
+    private val signup: SignupRepository,
+    private val auth: AuthRepository,
+) : ViewModel() {
+    private val _loginTo = MutableStateFlow<WelcomeLogin?>(null)
+
+    /** '로그인'을 눌러 정한 곳 — 화면이 옮겨 가면 [loginHandled]로 비운다(돌아왔을 때 다시 옮기지 않게) */
+    val loginTo: StateFlow<WelcomeLogin?> = _loginTo.asStateFlow()
+    private var checking: Job? = null
+
     /** 첫 화면에 오면 이전 가입 진행은 버린다 */
     fun reset() = signup.clear()
+
+    /**
+     * 로그아웃은 토큰만 지우고 이 폰의 기기는 남긴다. 그때 본인인증으로 보내면 기기를 다시 등록하느라 1원 인증까지 다시 하게 되므로
+     * 기기가 있으면 간편 비밀번호로 보낸다(2차 QA 14). 기기 키를 잃었으면 [AuthRepository.sessionStart]가 기기 정보를 지우고 본인인증으로.
+     * 연타해도 한 번만 정한다
+     */
+    fun login() {
+        if (checking?.isActive == true || _loginTo.value != null) return
+        checking = viewModelScope.launch {
+            _loginTo.value = when (auth.sessionStart()) {
+                SessionStart.Login -> WelcomeLogin.PIN
+                SessionStart.Welcome -> WelcomeLogin.VERIFY
+            }
+        }
+    }
+
+    fun loginHandled() {
+        _loginTo.value = null
+    }
+
+    /**
+     * '시작하기' — '로그인' 갈 곳을 정하던 중이면 버린다. 남으면 약관 화면 위로(또는 첫 화면으로 돌아왔을 때) 간편 비밀번호가 열린다.
+     * 기기 정보를 지우다 멈춰도 다음 [AuthRepository.sessionStart]가 다시 지운다
+     */
+    fun cancelLogin() {
+        checking?.cancel()
+        _loginTo.value = null
+    }
 }
 
 @Composable
-fun WelcomeRoute(onStart: () -> Unit, onLogin: () -> Unit, onDebugMenu: (() -> Unit)?, viewModel: WelcomeViewModel = hiltViewModel()) {
+fun WelcomeRoute(onStart: () -> Unit, onLogin: (WelcomeLogin) -> Unit, onDebugMenu: (() -> Unit)?, viewModel: WelcomeViewModel = hiltViewModel()) {
+    val loginTo by viewModel.loginTo.collectAsStateWithLifecycle()
     LaunchedEffect(Unit) { viewModel.reset() }
-    WelcomeScreen(onStart = onStart, onLogin = onLogin, onDebugMenu = onDebugMenu)
+    LaunchedEffect(loginTo) {
+        val to = loginTo ?: return@LaunchedEffect
+        viewModel.loginHandled()
+        onLogin(to)
+    }
+    WelcomeScreen(
+        onStart = {
+            viewModel.cancelLogin()
+            onStart()
+        },
+        onLogin = viewModel::login,
+        onDebugMenu = onDebugMenu,
+    )
 }
 
 @HiltViewModel
@@ -203,7 +258,7 @@ fun TermsRoute(
     onBack: () -> Unit,
     onVerify: () -> Unit,
     onAccounts: () -> Unit,
-    onOpenTerm: (String) -> Unit,
+    onOpenTerm: (TermDoc) -> Unit,
     viewModel: TermsViewModel = hiltViewModel(),
 ) {
     TermsScreen(onBack = onBack, onAgree = { if (viewModel.agree()) onAccounts() else onVerify() }, onOpenTerm = onOpenTerm)
@@ -830,7 +885,11 @@ class SignupOneWonViewModel @Inject constructor(private val signup: SignupReposi
                 is ApiResult.Failure -> _state.update {
                     when (r.error.code) {
                         SIGNUP_TOKEN_INVALID -> it.copy(confirming = false, restart = true)
-                        "AUTH_CODE_MISMATCH" -> it.copy(confirming = false, code = "", codeError = true, error = r.error.signupMessage())
+                        // 남은 횟수가 0이면 다시 넣어도 BE가 AUTH_CODE_EXPIRED('시간이 지났어요')로 답한다 — 1원을 다시 받게만 둔다
+                        "AUTH_CODE_MISMATCH" -> it.copy(
+                            confirming = false, code = "", codeError = true, error = r.error.signupMessage(),
+                            needResend = r.error.detailInt("remainingAttempts") == 0,
+                        )
                         "AUTH_CODE_EXPIRED", "VERIFICATION_TOKEN_EXPIRED" ->
                             it.copy(confirming = false, code = "", needResend = true, error = r.error.signupMessage())
                         else -> it.copy(confirming = false, error = r.error.signupMessage())   // 네트워크면 같은 키로 다시 누르면 된다

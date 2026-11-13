@@ -18,6 +18,8 @@ import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -333,6 +335,48 @@ class SignupFlowViewModelTest {
         assertEquals(SignupRestart.LOST, signup.takeRestartReason())
     }
 
+    // ── 1원 숫자가 틀렸을 때(2차 QA 06) ──
+
+    @Test fun `1원 숫자를 남은 횟수 없이 틀리면 다시 넣지 못하고 1원을 다시 받게 한다`() = runTest(dispatcher) {
+        // 남은 횟수 0에서 또 넣으면 BE가 AUTH_CODE_EXPIRED를 줘 '시간이 지났어요'가 나왔다
+        signup.mode = SignupMode.SIGNUP
+        signup.oneWon = oneWon()
+        signup.oneWonConfirmResult = ApiResult.Failure(
+            ApiError.from(400, "AUTH_CODE_MISMATCH", JsonObject(mapOf("remainingAttempts" to JsonPrimitive(0)))),
+        )
+        val vm = SignupOneWonViewModel(signup)
+        vm.onCode("1234")
+        vm.confirm()
+        advanceUntilIdle()
+        assertTrue(vm.state.value.needResend)
+        assertTrue(vm.state.value.codeError)
+        assertEquals("입력한 숫자가 입금자명 뒤 숫자와 달라요 · 1원을 다시 받아 주세요", vm.state.value.error)
+
+        vm.onCode("5678")
+        vm.confirm()
+        advanceUntilIdle()
+        assertEquals(1, signup.oneWonConfirms)
+    }
+
+    @Test fun `1원 숫자를 틀려도 남은 횟수가 있으면 다시 넣을 수 있다`() = runTest(dispatcher) {
+        signup.mode = SignupMode.SIGNUP
+        signup.oneWon = oneWon()
+        signup.oneWonConfirmResult = ApiResult.Failure(
+            ApiError.from(400, "AUTH_CODE_MISMATCH", JsonObject(mapOf("remainingAttempts" to JsonPrimitive(2)))),
+        )
+        val vm = SignupOneWonViewModel(signup)
+        vm.onCode("1234")
+        vm.confirm()
+        advanceUntilIdle()
+        assertFalse(vm.state.value.needResend)
+        assertTrue(vm.state.value.codeError)
+
+        vm.onCode("5678")
+        vm.confirm()
+        advanceUntilIdle()
+        assertEquals(2, signup.oneWonConfirms)
+    }
+
     // ── B-13 1원 남은 시간 · B-16 1원 문장 ──
 
     @Test fun `1원 화면은 저장소가 적은 1원 요청 시각부터 남은 시간을 센다`() = runTest(dispatcher) {
@@ -435,7 +479,13 @@ class SignupFlowViewModelTest {
         override suspend fun candidates() = candidatesResult
         override suspend fun sendOneWon(candidateIds: List<String>, primaryId: String): ApiResult<SignupOneWon> = error("안 씀")
         override suspend fun resendOneWon(): ApiResult<SignupOneWon> = error("안 씀")
-        override suspend fun confirmOneWon(code: String): ApiResult<Unit> = error("안 씀")
+        var oneWonConfirmResult: ApiResult<Unit> = ApiResult.Success(Unit)
+        var oneWonConfirms = 0
+
+        override suspend fun confirmOneWon(code: String): ApiResult<Unit> {
+            oneWonConfirms++
+            return oneWonConfirmResult
+        }
         override suspend fun setPin(pin: String): ApiResult<Unit> = error("안 씀")
         override suspend fun registerDevice(biometric: Boolean): ApiResult<Unit> = error("안 씀")
 
