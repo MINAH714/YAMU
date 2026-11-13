@@ -44,14 +44,14 @@ class WelcomeViewModelTest {
         val vm = WelcomeViewModel(signup, FakeAuth(SessionStart.Login))
         vm.login()
         advanceUntilIdle()
-        assertEquals(WelcomeLogin.PIN, vm.login.value)
+        assertEquals(WelcomeLogin.PIN, vm.loginTo.value)
     }
 
     @Test fun `기기가 없으면 본인인증으로 이 폰을 등록한다`() = runTest(dispatcher) {
         val vm = WelcomeViewModel(signup, FakeAuth(SessionStart.Welcome))
         vm.login()
         advanceUntilIdle()
-        assertEquals(WelcomeLogin.VERIFY, vm.login.value)
+        assertEquals(WelcomeLogin.VERIFY, vm.loginTo.value)
     }
 
     @Test fun `연타해도 한 번만 정하고 옮긴 뒤 돌아오면 다시 옮기지 않는다`() = runTest(dispatcher) {
@@ -65,10 +65,10 @@ class WelcomeViewModelTest {
         vm.login()                       // 정해진 뒤 화면이 옮기기 전에 또 누름
         advanceUntilIdle()
         assertEquals(1, auth.calls)
-        assertEquals(WelcomeLogin.PIN, vm.login.value)
+        assertEquals(WelcomeLogin.PIN, vm.loginTo.value)
 
         vm.loginHandled()
-        assertNull(vm.login.value)       // 간편 비밀번호에서 뒤로 와도 그대로 첫 화면
+        assertNull(vm.loginTo.value)       // 간편 비밀번호에서 뒤로 와도 그대로 첫 화면
     }
 
     @Test fun `간편 비밀번호에서 돌아와 다시 누르면 그때 기기 상태로 다시 정한다`() = runTest(dispatcher) {
@@ -81,8 +81,23 @@ class WelcomeViewModelTest {
         auth.start = SessionStart.Welcome   // 그사이 기기 키를 잃어 저장소가 기기 정보를 지웠다
         vm.login()
         advanceUntilIdle()
-        assertEquals(WelcomeLogin.VERIFY, vm.login.value)
+        assertEquals(WelcomeLogin.VERIFY, vm.loginTo.value)
         assertEquals(2, auth.calls)
+    }
+
+    @Test fun `로그인 갈 곳을 정하는 중에 시작하기를 누르면 정한 값을 남기지 않는다`() = runTest(dispatcher) {
+        val auth = FakeAuth(SessionStart.Login).apply { gate = CompletableDeferred() }
+        val vm = WelcomeViewModel(signup, auth)
+        vm.login()
+        advanceUntilIdle()
+        vm.cancelLogin()                 // '시작하기' — 약관 화면 위로 간편 비밀번호가 열리면 안 된다
+        auth.gate!!.complete(Unit)
+        advanceUntilIdle()
+        assertNull(vm.loginTo.value)
+
+        vm.login()                       // 첫 화면으로 돌아와 다시 누르면 그때 정한다
+        advanceUntilIdle()
+        assertEquals(WelcomeLogin.PIN, vm.loginTo.value)
     }
 
     @Test fun `첫 화면에 오면 이전 가입 진행을 버린다`() {

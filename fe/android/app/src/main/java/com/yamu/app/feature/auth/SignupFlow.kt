@@ -184,10 +184,10 @@ class WelcomeViewModel @Inject constructor(
     private val signup: SignupRepository,
     private val auth: AuthRepository,
 ) : ViewModel() {
-    private val _login = MutableStateFlow<WelcomeLogin?>(null)
+    private val _loginTo = MutableStateFlow<WelcomeLogin?>(null)
 
     /** '로그인'을 눌러 정한 곳 — 화면이 옮겨 가면 [loginHandled]로 비운다(돌아왔을 때 다시 옮기지 않게) */
-    val login: StateFlow<WelcomeLogin?> = _login.asStateFlow()
+    val loginTo: StateFlow<WelcomeLogin?> = _loginTo.asStateFlow()
     private var checking: Job? = null
 
     /** 첫 화면에 오면 이전 가입 진행은 버린다 */
@@ -199,9 +199,9 @@ class WelcomeViewModel @Inject constructor(
      * 연타해도 한 번만 정한다
      */
     fun login() {
-        if (checking?.isActive == true || _login.value != null) return
+        if (checking?.isActive == true || _loginTo.value != null) return
         checking = viewModelScope.launch {
-            _login.value = when (auth.sessionStart()) {
+            _loginTo.value = when (auth.sessionStart()) {
                 SessionStart.Login -> WelcomeLogin.PIN
                 SessionStart.Welcome -> WelcomeLogin.VERIFY
             }
@@ -209,20 +209,36 @@ class WelcomeViewModel @Inject constructor(
     }
 
     fun loginHandled() {
-        _login.value = null
+        _loginTo.value = null
+    }
+
+    /**
+     * '시작하기' — '로그인' 갈 곳을 정하던 중이면 버린다. 남으면 약관 화면 위로(또는 첫 화면으로 돌아왔을 때) 간편 비밀번호가 열린다.
+     * 기기 정보를 지우다 멈춰도 다음 [AuthRepository.sessionStart]가 다시 지운다
+     */
+    fun cancelLogin() {
+        checking?.cancel()
+        _loginTo.value = null
     }
 }
 
 @Composable
 fun WelcomeRoute(onStart: () -> Unit, onLogin: (WelcomeLogin) -> Unit, onDebugMenu: (() -> Unit)?, viewModel: WelcomeViewModel = hiltViewModel()) {
-    val login by viewModel.login.collectAsStateWithLifecycle()
+    val loginTo by viewModel.loginTo.collectAsStateWithLifecycle()
     LaunchedEffect(Unit) { viewModel.reset() }
-    LaunchedEffect(login) {
-        val to = login ?: return@LaunchedEffect
+    LaunchedEffect(loginTo) {
+        val to = loginTo ?: return@LaunchedEffect
         viewModel.loginHandled()
         onLogin(to)
     }
-    WelcomeScreen(onStart = onStart, onLogin = viewModel::login, onDebugMenu = onDebugMenu)
+    WelcomeScreen(
+        onStart = {
+            viewModel.cancelLogin()
+            onStart()
+        },
+        onLogin = viewModel::login,
+        onDebugMenu = onDebugMenu,
+    )
 }
 
 @HiltViewModel
@@ -869,7 +885,11 @@ class SignupOneWonViewModel @Inject constructor(private val signup: SignupReposi
                 is ApiResult.Failure -> _state.update {
                     when (r.error.code) {
                         SIGNUP_TOKEN_INVALID -> it.copy(confirming = false, restart = true)
-                        "AUTH_CODE_MISMATCH" -> it.copy(confirming = false, code = "", codeError = true, error = r.error.signupMessage())
+                        // 남은 횟수가 0이면 다시 넣어도 BE가 AUTH_CODE_EXPIRED('시간이 지났어요')로 답한다 — 1원을 다시 받게만 둔다
+                        "AUTH_CODE_MISMATCH" -> it.copy(
+                            confirming = false, code = "", codeError = true, error = r.error.signupMessage(),
+                            needResend = r.error.detailInt("remainingAttempts") == 0,
+                        )
                         "AUTH_CODE_EXPIRED", "VERIFICATION_TOKEN_EXPIRED" ->
                             it.copy(confirming = false, code = "", needResend = true, error = r.error.signupMessage())
                         else -> it.copy(confirming = false, error = r.error.signupMessage())   // 네트워크면 같은 키로 다시 누르면 된다
