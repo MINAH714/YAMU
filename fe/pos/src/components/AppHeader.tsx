@@ -11,11 +11,13 @@ type Props = {
   mock: boolean
   /** 있으면 매장 변경 버튼을 보인다 */
   onChangeStore?: () => void
+  /** 있으면 결제 내역 버튼을 보인다(취소할 결제를 고르는 곳) */
+  onHistory?: () => void
 }
 
 const STEPS = ['주문', '결제수단', '결제']
 
-export function AppHeader({ store, step, mock, onChangeStore }: Props) {
+export function AppHeader({ store, step, mock, onChangeStore, onHistory }: Props) {
   return (
     <header className="app-header">
       <div className="app-brand">
@@ -46,6 +48,11 @@ export function AppHeader({ store, step, mock, onChangeStore }: Props) {
       <div className="app-meta">
         {mock && <span className="badge">결과 Mock</span>}
         <Clock />
+        {onHistory && (
+          <button type="button" className="text" onClick={onHistory}>
+            결제 내역
+          </button>
+        )}
         {onChangeStore && (
           <button type="button" className="text" onClick={onChangeStore}>
             매장 변경

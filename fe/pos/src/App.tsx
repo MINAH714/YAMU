@@ -1,13 +1,23 @@
 import { AnimatePresence, MotionConfig, useIsPresent } from 'motion/react'
 import { useEffect, useEffectEvent, useRef, useState, type ComponentProps } from 'react'
-import { newIdempotencyKey } from './api/client'
+import { ApiError, newIdempotencyKey } from './api/client'
 import { createPaymentRequest, type PaymentRequestBody, type PaymentResult } from './api/pos'
+import {
+  cancelPayment,
+  getPaymentHistory,
+  type PaymentCancelBody,
+  type PaymentCancelResult,
+  type PaymentHistoryItem,
+} from './api/posHistory'
 import { Amount } from './components/Amount'
 import { AppHeader } from './components/AppHeader'
+import { CancelDoneScreen, CancelFailedScreen, CancelingScreen, CancelUnknownScreen } from './components/CancelScreens'
+import { CancelScanStep } from './components/CancelScanStep'
 import { CashStep } from './components/CashStep'
 import { Character } from './components/Character'
 import { FatalScreen, UnknownScreen } from './components/FlowScreens'
 import { OrderStep } from './components/OrderStep'
+import { PaymentHistory } from './components/PaymentHistory'
 import { PaymentMethodStep, type PlanInput } from './components/PaymentMethodStep'
 import { PAYMENT_METHOD, Receipt } from './components/Receipt'
 import { ScanStep } from './components/ScanStep'
@@ -19,6 +29,8 @@ import { WaitingStep } from './components/WaitingStep'
 import { config, missingConfig } from './config'
 import { enterFullscreenOnFirstTouch } from './hooks/useFullscreen'
 import { formatToken } from './payment/barcode'
+import { chargedOf } from './payment/history'
+import { classifyCancelError } from './payment/cancelErrors'
 import { classifyCreateError } from './payment/errors'
 import { formatWon, MIN_INSTALLMENT_AMOUNT, validateTerms, type Terms, type TermsErrors } from './payment/terms'
 import { STORES, type StoreId } from './store/catalog'
@@ -31,6 +43,15 @@ import { FAST } from './styles/motion'
  * 금액·방식·바코드가 바뀌면 새 Attempt(새 키)를 만든다. 같은 키에 다른 본문은 서버가 409로 거절한다.
  */
 type Attempt = { idempotencyKey: string; body: PaymentRequestBody; terms: Terms; order: Order }
+
+/**
+ * 결제 취소 한 건의 요청. 결제 요청과 같이 멱등 키는 이 본문과 한 묶음이다.
+ * 결과를 모를 때는 같은 키·같은 본문으로 다시 보내고, 바코드를 다시 스캔하면 새 키를 만든다.
+ */
+type CancelAttempt = { idempotencyKey: string; paymentId: number; body: PaymentCancelBody; item: PaymentHistoryItem }
+
+/** 결제 내역 목록. items가 null이면 불러오는 중 */
+type HistoryList = { items: PaymentHistoryItem[] | null; error: string | null }
 
 /**
  * 장바구니는 'order' 단계에서만 바꿀 수 있다. 결제하기를 누르면 그때의 주문(Order)을 단계마다 넘기므로
@@ -47,6 +68,13 @@ type Phase =
   | { step: 'unknown'; attempt: Attempt; message: string }
   | { step: 'waiting'; attempt: Attempt; paymentId: number; orderNo: string | null; deadlineAt: number }
   | { step: 'receipt'; result: PaymentResult; attempt: Attempt }
+  // 결제 내역·취소. 장바구니는 건드리지 않으므로 주문 화면으로 돌아가면 고르던 상품이 그대로 있다
+  | { step: 'history'; selectedId: number | null }
+  | { step: 'cancelScan'; item: PaymentHistoryItem; entry: number }
+  | { step: 'canceling'; cancel: CancelAttempt }
+  | { step: 'cancelUnknown'; cancel: CancelAttempt; message: string }
+  | { step: 'cancelDone'; item: PaymentHistoryItem; result: PaymentCancelResult }
+  | { step: 'cancelFailed'; item: PaymentHistoryItem; message: string; already: boolean }
   | { step: 'fatal'; message: string; config: boolean }
 
 const EMPTY_PLAN: PlanInput = { plan: 'LUMP_SUM', installmentMonths: '' }
@@ -58,6 +86,7 @@ const CONFIRM_WINDOW_MS = 60_000
  * Chrome은 사용자 입력 없이 쌓은 기록을 뒤로·앞으로 버튼에서 건너뛴다(history manipulation intervention).
  * 뒤로 가기는 입력으로 치지 않으므로 기록은 버튼을 누르는 순간에만 쌓고, popstate 안에서는 쌓지 않는다.
  * 결제를 보낸 뒤 화면은 현금·QR(깊이 3)에서 이어지므로, 뒤로 가기를 받아도 아래 기록 3개가 남아 있는 동안은 화면을 지킨다.
+ * 결제 내역은 결제수단과 같은 깊이 2, 취소 스캔은 깊이 3을 쓴다. 취소를 보낸 뒤 화면도 뒤로 가기를 받지 않는다.
  */
 const ENTRY_DEPTH = { store: 1, method: 2, pay: 3 } as const
 type EntryName = keyof typeof ENTRY_DEPTH
@@ -83,9 +112,11 @@ function expectedDepth(phase: Phase): number | null {
     case 'order':
       return 1
     case 'method':
+    case 'history':
       return 2
     case 'cash':
     case 'scan':
+    case 'cancelScan':
       return 3
     default:
       return null
@@ -99,7 +130,13 @@ function isBeforePayment(phase: Phase): boolean {
 
 /** 결제를 보냈고 결과를 아직 모르는 단계. 이때 페이지를 떠나면 결과를 놓치므로 떠나기 전에 한 번 묻는다 */
 function isAwaitingResult(phase: Phase): boolean {
-  return phase.step === 'sending' || phase.step === 'unknown' || phase.step === 'waiting'
+  return (
+    phase.step === 'sending' ||
+    phase.step === 'unknown' ||
+    phase.step === 'waiting' ||
+    phase.step === 'canceling' ||
+    phase.step === 'cancelUnknown'
+  )
 }
 
 function App() {
@@ -114,7 +151,12 @@ function App() {
   )
   // 버튼 연타·스캔 콜백이 겹쳐도 요청은 하나만 나간다(상태 갱신 전에 막아야 해서 ref로 둔다)
   const sendingRef = useRef(false)
+  // 취소도 같은 이유로 하나만 나간다
+  const cancelingRef = useRef(false)
   const scanEntry = useRef(0)
+  const [historyList, setHistoryList] = useState<HistoryList>({ items: null, error: null })
+  // 다시 불러오기를 연달아 누르면 늦게 온 옛 응답이 새 목록을 덮지 않게 마지막 요청만 받는다
+  const historyRequest = useRef(0)
   // 화면을 먼저 바꾸고 기록만 걷어 낼 때(history.back) 따라오는 popstate는 사용자의 뒤로 가기가 아니다
   const ignoreNextPop = useRef(false)
 
@@ -190,7 +232,7 @@ function App() {
     }
     if (!storeId) return
     const expected = expectedDepth(phase)
-    if (expected === null || sendingRef.current) return
+    if (expected === null || sendingRef.current || cancelingRef.current) return
     const landed = currentDepth()
     if (landed > expected) {
       dropEntries(landed - expected)
@@ -198,7 +240,8 @@ function App() {
     }
     const next = expected - 1
     if (phase.step === 'cash' || phase.step === 'scan') backToMethod(phase.order)
-    else if (phase.step === 'method') setPhase({ step: 'order' })
+    else if (phase.step === 'cancelScan') setPhase({ step: 'history', selectedId: phase.item.paymentId })
+    else if (phase.step === 'method' || phase.step === 'history') setPhase({ step: 'order' })
     else leaveStore()
     // 새로고침 등으로 남은 기록 위에 내려앉았으면 마저 걷어 다음 뒤로 가기가 헛돌지 않게 한다
     if (landed > next) dropEntries(landed - next)
@@ -337,7 +380,80 @@ function App() {
     }
   }
 
+  /** 이 매장 POS의 결제 내역을 새로 불러온다. 결과 Mock이어도 실제 BE를 부른다 */
+  const loadHistory = async () => {
+    if (!storeId) return
+    const requestId = ++historyRequest.current
+    setHistoryList({ items: null, error: null })
+    try {
+      const items = await getPaymentHistory(config.stores[storeId].posCode)
+      if (requestId === historyRequest.current) setHistoryList({ items, error: null })
+    } catch (error) {
+      if (requestId !== historyRequest.current) return
+      if (error instanceof ApiError && error.code === 'INVALID_POS_KEY') {
+        setPhase({ step: 'fatal', message: 'POS 키가 없거나 올바르지 않아요. VITE_POS_KEY 설정을 확인해 주세요.', config: true })
+        return
+      }
+      const reason = error instanceof Error ? `${error.message} ` : ''
+      setHistoryList({ items: null, error: `${reason}결제 내역을 불러오지 못했어요.` })
+    }
+  }
+
+  /** 헤더의 결제 내역 버튼. 장바구니는 그대로 둔다 */
+  const openHistory = () => {
+    setPhase({ step: 'history', selectedId: null })
+    syncHistory(ENTRY_DEPTH.method)
+    void loadHistory()
+  }
+
+  /** 취소를 끝냈거나 그만두고 내역으로 돌아간다. 상태가 바뀌었을 수 있으므로 다시 불러온다 */
+  const returnToHistory = (selectedId: number) => {
+    setPhase({ step: 'history', selectedId })
+    syncHistory(ENTRY_DEPTH.method)
+    void loadHistory()
+  }
+
+  /** 스캔에 들어올 때마다 회차를 올려 카메라를 새로 켠다(showScan과 같은 이유) */
+  const toCancelScan = (item: PaymentHistoryItem) => {
+    scanEntry.current += 1
+    setPhase({ step: 'cancelScan', item, entry: scanEntry.current })
+    syncHistory(ENTRY_DEPTH.pay)
+  }
+
+  const startCancel = (item: PaymentHistoryItem, barcodeToken: string) => {
+    if (!storeId) return
+    const body: PaymentCancelBody = { posCode: config.stores[storeId].posCode, barcodeToken }
+    sendCancel({ idempotencyKey: newIdempotencyKey(), paymentId: item.paymentId, body, item })
+  }
+
+  const sendCancel = async (cancel: CancelAttempt) => {
+    if (cancelingRef.current) return
+    cancelingRef.current = true
+    setPhase({ step: 'canceling', cancel })
+    try {
+      const result = await cancelPayment(cancel.paymentId, cancel.body, cancel.idempotencyKey)
+      setPhase({ step: 'cancelDone', item: cancel.item, result })
+    } catch (error) {
+      const failure = classifyCancelError(error)
+      switch (failure.kind) {
+        case 'retry':
+          setPhase({ step: 'cancelUnknown', cancel, message: failure.message })
+          break
+        case 'rejected':
+        case 'already':
+          setPhase({ step: 'cancelFailed', item: cancel.item, message: failure.message, already: failure.kind === 'already' })
+          break
+        case 'config':
+          setPhase({ step: 'fatal', message: failure.message, config: true })
+          break
+      }
+    } finally {
+      cancelingRef.current = false
+    }
+  }
+
   const showOrder = isBeforePayment(phase)
+  const showHistory = phase.step === 'history' || phase.step === 'cancelScan'
   const surface = phase.step === 'home' || showOrder ? 'canvas' : 'flow'
 
   return (
@@ -348,6 +464,7 @@ function App() {
           step={currentStep(phase)}
           mock={config.mockResult}
           onChangeStore={phase.step === 'order' ? leaveStoreWithHistory : undefined}
+          onHistory={phase.step === 'order' ? openHistory : undefined}
         />
 
         <main className="app-main" data-surface={surface}>
@@ -432,6 +549,48 @@ function App() {
             />
           )}
 
+          {showHistory && (
+            <PaymentHistory
+              items={historyList.items}
+              error={historyList.error}
+              onReload={() => void loadHistory()}
+              selectedId={phase.step === 'history' ? phase.selectedId : phase.item.paymentId}
+              inert={phase.step !== 'history'}
+              onSelect={(paymentId) => setPhase({ step: 'history', selectedId: paymentId })}
+              onCancel={toCancelScan}
+              onBack={closeTray}
+            />
+          )}
+
+          {phase.step === 'canceling' && <CancelingScreen item={phase.cancel.item} />}
+
+          {phase.step === 'cancelUnknown' && (
+            <CancelUnknownScreen
+              item={phase.cancel.item}
+              message={phase.message}
+              onRetry={() => sendCancel(phase.cancel)}
+              onBack={() => returnToHistory(phase.cancel.paymentId)}
+            />
+          )}
+
+          {phase.step === 'cancelDone' && (
+            <CancelDoneScreen
+              item={phase.item}
+              result={phase.result}
+              onBack={() => returnToHistory(phase.item.paymentId)}
+            />
+          )}
+
+          {phase.step === 'cancelFailed' && (
+            <CancelFailedScreen
+              item={phase.item}
+              message={phase.message}
+              already={phase.already}
+              onRescan={() => toCancelScan(phase.item)}
+              onBack={() => returnToHistory(phase.item.paymentId)}
+            />
+          )}
+
           {phase.step === 'fatal' && (
             <FatalScreen
               message={phase.message}
@@ -499,6 +658,23 @@ function App() {
               )}
             </Tray>
           )}
+
+          {phase.step === 'cancelScan' && (
+            <Tray
+              key="cancel-tray"
+              title="고객 바코드를 스캔해 주세요"
+              width={720}
+              onBack={() => {
+                setPhase({ step: 'history', selectedId: phase.item.paymentId })
+                syncHistory(ENTRY_DEPTH.method)
+              }}
+            >
+              <Amount className="tray-amount" value={chargedOf(phase.item)} size="lg" />
+              <TrayStep key={`cancel-${phase.entry}`}>
+                <CancelScanInTray notice={null} onToken={(token) => startCancel(phase.item, token)} />
+              </TrayStep>
+            </Tray>
+          )}
         </AnimatePresence>
 
         <div className="portrait-guard" role="alert">
@@ -525,11 +701,30 @@ function ScanInTray({ onToken, ...props }: ComponentProps<typeof ScanStep>) {
   )
 }
 
+/** 닫히는 트레이의 카메라가 읽은 바코드로 취소가 나가지 않게 버린다(ScanInTray와 같은 이유) */
+function CancelScanInTray({ onToken, ...props }: ComponentProps<typeof CancelScanStep>) {
+  const isPresent = useIsPresent()
+  return (
+    <CancelScanStep
+      {...props}
+      onToken={(token) => {
+        if (isPresent) onToken(token)
+      }}
+    />
+  )
+}
+
 /** 헤더 단계 표시. 0이면 표시하지 않는다 */
 function currentStep(phase: Phase): number {
   switch (phase.step) {
     case 'home':
     case 'fatal':
+    case 'history':
+    case 'cancelScan':
+    case 'canceling':
+    case 'cancelUnknown':
+    case 'cancelDone':
+    case 'cancelFailed':
       return 0
     case 'order':
       return 1
