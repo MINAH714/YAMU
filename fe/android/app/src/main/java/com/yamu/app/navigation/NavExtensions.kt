@@ -14,6 +14,10 @@ fun NavController.navigateToTab(tab: TopTab) {
         popBackStack(tab.route, inclusive = false)
         return
     }
+    // 탭 첫 화면이 아닌 곳에서 홈으로(결제 완료 '홈으로'): 홈 위 화면을 저장 없이 내린다. 홈 '전체 보기'로 홈 위에 쌓은 결제 내역(ReportGraph)을
+    // 탭처럼 저장하면 popUpTo<Home>이 그 스택을 홈에도 이어 두어, 바로 뒤 restoreState가 방금 내린 결제 내역을 되살리거나 소비분석 탭에 남긴다
+    val onTabRoot = TopTab.entries.any { t -> currentDestination?.hasRoute(t.routeClass) == true }
+    if (tab == TopTab.HOME && !onTabRoot && popBackStack(tab.route, inclusive = false)) return
     navigate(tab.graph) {
         popUpTo<Home> { saveState = true }   // 홈 탭 첫 화면은 남김 → 다른 탭 첫 화면에서 뒤로 = 홈
         launchSingleTop = true
