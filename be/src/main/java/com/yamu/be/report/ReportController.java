@@ -41,10 +41,13 @@ class ReportController {
 
     @Operation(summary = "월간 혜택 리포트",
             description = "한 달의 예상·확정 혜택, 추천 1순위 대비 놓친 혜택(야무로 결제한 건만), 야무픽으로 더 받은 혜택, "
-                    + "업종별 혜택. 확정 전 혜택이 있거나 이번 달이면 status는 PARTIAL. yearMonth가 없으면 지난달.")
+                    + "업종별·종류별·카드별 혜택. expectedBenefit에는 확정액이 포함됨. 원화 미환산은 별도 건수로 표시. "
+                    + "이용월(requested_at 한국월) 기준이며 지급월이 아님. source는 ALL(기본)/YAMU. "
+                    + "확정 전 혜택이 있거나 이번 달이면 status는 PARTIAL. yearMonth가 없으면 지난달.")
     @GetMapping("/benefits")
     ApiResponse<BenefitReportResponse> benefits(@AuthenticationPrincipal AuthUser me,
-            @Parameter(description = "한국 기준 월(YYYY-MM), 2000-01~2100-12") @RequestParam(required = false) YearMonth yearMonth) {
-        return ApiResponse.ok(service.benefits(me.userId(), yearMonth));
+            @Parameter(description = "한국 기준 월(YYYY-MM), 2000-01~2100-12") @RequestParam(required = false) YearMonth yearMonth,
+            @RequestParam(defaultValue = "ALL") BenefitSource source) {
+        return ApiResponse.ok(service.benefits(me.userId(), yearMonth, source));
     }
 }
