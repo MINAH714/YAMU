@@ -581,6 +581,43 @@ class SsafyTransferApiTest {
         assertThat(SsafyTransferApi.maskAccount("123")).isEqualTo("****");
     }
 
+    @Test
+    void historySnapshotPreservesReportedCoverageAndQueryTime() {
+        respondHistory(history("3", row("1102", "20261101", "120000", "2", "5000", "95000", "")));
+        BankHistory snapshot=api.historySnapshot(USER_KEY,ACCOUNT_NO,LocalDate.of(2026,11,1),
+                LocalDate.of(2026,11,1),null);
+        assertThat(snapshot.reportedCount()).isEqualTo(3L);
+        assertThat(snapshot.complete()).isFalse();
+        assertThat(snapshot.integrity()).isEqualTo(BankHistory.Integrity.COUNT_MISMATCH);
+        assertThat(snapshot.queriedAt()).isEqualTo(CLOCK.instant());
+        assertThat(snapshot.transactions()).hasSize(1);
+        server.verify();
+    }
+
+    @Test
+    void legacyHistoryStillReturnsReceivedRowsWhenTruncated() {
+        respondHistory(history("3", row("1102", "20261101", "120000", "2", "5000", "95000", "")));
+        assertThat(api.history(USER_KEY,ACCOUNT_NO,LocalDate.of(2026,11,1),LocalDate.of(2026,11,1),null)).hasSize(1);
+        server.verify();
+    }
+
+    @Test
+    void snapshotDoesNotInterpretMissingCountAsAnEmptyCompleteDay() {
+        respondHistory(success("{\"list\":[]}"));
+        BankHistory snapshot=api.historySnapshot(USER_KEY,ACCOUNT_NO,LocalDate.of(2026,11,1),
+                LocalDate.of(2026,11,1),null);
+        assertThat(snapshot.integrity()).isEqualTo(BankHistory.Integrity.UNKNOWN_COUNT);
+        server.verify();
+    }
+
+    @Test
+    void snapshotVerifiedEmptyListCanRepresentNoTransactions() {
+        respondHistory(success("{\"totalCount\":\"0\",\"list\":null}"));
+        assertThat(api.historySnapshot(USER_KEY,ACCOUNT_NO,LocalDate.of(2026,11,1),
+                LocalDate.of(2026,11,1),null).complete()).isTrue();
+        server.verify();
+    }
+
     // ───────── 응답 만들기 ─────────
 
     private void respondWithdraw(HttpStatus status, String code) {

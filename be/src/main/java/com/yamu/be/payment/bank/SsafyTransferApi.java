@@ -109,6 +109,17 @@ public class SsafyTransferApi {
     }
 
     /**
+     * 과거 잔고 계산용 조회. 기존 history/태그 복구의 반환·실패 동작은 바꾸지 않는다.
+     * 완전성은 금융망이 보고한 건수와 목록의 무결성 기준이며 외부 원장의 진실성 자체를 보증하지 않는다.
+     * queriedAt은 수신 완료 시각이지 은행의 스냅샷 시각이 아니다. 현재 잔고와 연결하려면 별도 정합성 확인이 필요하다.
+     */
+    public BankHistory historySnapshot(String userKey, String accountNo, LocalDate from, LocalDate to,
+            BankDirection direction) {
+        History result = fetch(userKey, accountNo, from, to, direction);
+        return new BankHistory(from, to, direction, result.reportedCount(), result.transactions(), clock.instant());
+    }
+
+    /**
      * 결과를 모르는 출금·입금이 처리됐는지 거래내역에서 태그로 찾는다.
      *
      * <p>조회 기간은 요청한 날(번호 앞 8자리, 한국 날짜)의 전날부터 다음 날까지, 최대 3일로 고정한다.
@@ -299,7 +310,7 @@ public class SsafyTransferApi {
         if (!complete) {
             log.warn("금융망 거래내역 totalCount={}인데 {}건 옴", totalCount, transactions.size());
         }
-        return new History(transactions, complete);
+        return new History(transactions, complete, totalCount);
     }
 
     /** 형식은 {@link HistoryRow}의 검사를 통과했다. 날짜가 달력에 없는 값(20261399)이면 응답이 깨진 것으로 본다. */
@@ -428,6 +439,6 @@ public class SsafyTransferApi {
     }
 
     /** @param complete totalCount보다 적게 왔으면 false */
-    private record History(List<BankTransaction> transactions, boolean complete) {
+    private record History(List<BankTransaction> transactions, boolean complete, Long reportedCount) {
     }
 }
