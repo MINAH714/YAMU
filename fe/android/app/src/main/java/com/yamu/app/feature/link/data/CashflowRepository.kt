@@ -85,7 +85,12 @@ import javax.inject.Singleton
 
 interface CashflowApi {
     @GET("cashflow-items")
-    suspend fun items(@Query("status") status: String, @Query("expand") expand: Boolean): Response<ApiEnvelope<CashflowItemsResponse>>
+    suspend fun items(
+        @Query("status") status: String,
+        @Query("expand") expand: Boolean,
+        @Query("from") from: String? = null,   // 안 보내면 서버가 오늘 ~ 29일 뒤로 본다. F-02 후보는 회차 목록과 같은 기간을 보낸다(!291 리뷰)
+        @Query("to") to: String? = null,
+    ): Response<ApiEnvelope<CashflowItemsResponse>>
 
     @PATCH("cashflow-items/{id}")
     suspend fun patch(@Path("id") id: Long, @Body body: CashflowPatchRequest): Response<ApiEnvelope<CashflowItemDto>>

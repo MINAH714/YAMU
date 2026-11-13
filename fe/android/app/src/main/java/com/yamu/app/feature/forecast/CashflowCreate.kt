@@ -51,7 +51,6 @@ import com.yamu.app.core.designsystem.component.Segmented
 import com.yamu.app.core.designsystem.component.SkeletonBlock
 import com.yamu.app.core.designsystem.component.TextButtonGrey
 import com.yamu.app.core.designsystem.component.YamuBottomSheet
-import com.yamu.app.core.designsystem.component.YamuDialog
 import com.yamu.app.core.designsystem.component.YamuTextField
 import com.yamu.app.core.designsystem.theme.YamuSpacing
 import com.yamu.app.core.designsystem.theme.YamuTheme
@@ -508,7 +507,7 @@ fun CashflowCreateRoute(onBack: () -> Unit, onDone: () -> Unit, viewModel: Cashf
     val ask = s.scopeAsk
     if (ask != null && editing != null) {
         YamuBottomSheet(onDismiss = viewModel::dismissAsk) {
-            Text(if (ask == ScopeAsk.SAVE) "어디까지 바꿀까요?" else "어디까지 지울까요?", style = YamuTheme.typography.titleL, color = c.text1)
+            Text(if (ask == ScopeAsk.SAVE) "어디까지 바꿀까요?" else DELETE_SCOPE_TITLE, style = YamuTheme.typography.titleL, color = c.text1)
             Spacer(Modifier.height(YamuSpacing.x3))
             val day = editing.date.toKoreanDate()
             when (ask) {
@@ -528,21 +527,12 @@ fun CashflowCreateRoute(onBack: () -> Unit, onDone: () -> Unit, viewModel: Cashf
                         !thisOnly -> Text("반복 설정을 바꿔서 이후 전부에만 적용할 수 있어요", style = YamuTheme.typography.bodyS, color = c.text3)
                     }
                 }
-                ScopeAsk.DELETE -> {
-                    ListRow("이번 회차만", sub = "${day} 한 번만 지워요", chevron = true, onClick = { viewModel.delete(CashflowDeleteScope.THIS_ONLY) })
-                    ListRow("앞으로 전부", sub = "오늘부터 이 반복을 모두 지워요", chevron = true, onClick = { viewModel.delete(CashflowDeleteScope.ALL) })
-                }
+                ScopeAsk.DELETE -> DeleteScopeRows(editing, onPick = viewModel::delete)   // F-02 휴지통과 같은 줄(CashflowDelete.kt)
             }
             Spacer(Modifier.height(YamuSpacing.x4))
         }
     }
     if (s.confirmDelete && editing != null) {
-        YamuDialog(
-            title = "'${editing.title}'을 지울까요?",
-            text = "예정 목록과 잔고예보에서 빠져요",
-            confirmText = "지우기",
-            onConfirm = { viewModel.delete(CashflowDeleteScope.ALL) },
-            onDismiss = viewModel::dismissAsk,
-        )
+        DeleteOnceDialog(editing.title, onConfirm = { viewModel.delete(CashflowDeleteScope.ALL) }, onDismiss = viewModel::dismissAsk)
     }
 }
