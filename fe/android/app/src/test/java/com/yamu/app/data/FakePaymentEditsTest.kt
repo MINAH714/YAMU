@@ -68,9 +68,9 @@ class FakePaymentEditsTest {
 
     @Test fun `가짜 결제 내역 — 취소한 줄은 '취소'로 남고 합계에서 빠진다, CSV는 분당 3번`() = runTest {
         val report = FakeReportRepository(fake)
-        val before = (report.payments(1) as ApiResult.Success).data
+        val before = (report.payments(1, YearMonth.now(KST)) as ApiResult.Success).data
         fake.cancel(938, "k")
-        val after = (report.payments(1) as ApiResult.Success).data
+        val after = (report.payments(1, YearMonth.now(KST)) as ApiResult.Success).data
         assertTrue(after.items.first { it.paymentId == 938L }.canceled)
         assertNull(after.items.first { it.paymentId == 938L }.benefit)   // 받지 않은 혜택
         assertEquals(before.amount - 15_000, after.amount)

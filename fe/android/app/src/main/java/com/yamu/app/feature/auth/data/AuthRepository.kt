@@ -6,6 +6,7 @@ import com.yamu.app.core.network.ApiResult
 import com.yamu.app.core.network.YamuHeaders
 import com.yamu.app.core.network.apiCall
 import com.yamu.app.feature.payment.data.PaymentEdits
+import com.yamu.app.feature.report.data.ReportMonth
 import com.yamu.app.core.network.apiCallNoData
 import com.yamu.app.core.network.map
 import com.yamu.app.core.security.AuthTokens
@@ -113,6 +114,7 @@ class AuthRepositoryImpl @Inject constructor(
     private val deviceKeys: DeviceKeyManager,
     private val devices: DeviceRegistration,
     private val paymentEdits: PaymentEdits,
+    private val reportMonth: ReportMonth,
 ) : AuthRepository {
 
     override suspend fun sessionStart(): SessionStart {
@@ -174,6 +176,7 @@ class AuthRepositoryImpl @Inject constructor(
         tokenStore.refreshTokenBlocking()?.let { refresh -> apiCallNoData { api.logout(LogoutRequest(refresh)) } }
         tokenStore.clear()
         paymentEdits.clear()   // 받아 둔 결제 메모 — 다음에 로그인하는 사람에게 보이지 않게
+        reportMonth.reset()    // 소비분석에서 고른 달도. 저장된 탭 화면이 되살아나면 S-01 init의 reset이 다시 돌지 않는다
     }
 
     override fun canUseBiometric(): Boolean = deviceKeys.canUseBiometric()
@@ -230,6 +233,7 @@ class AuthRepositoryImpl @Inject constructor(
         sessionStore.clear()
         deviceKeys.deleteAll()
         paymentEdits.clear()
+        reportMonth.reset()
     }
 
     /** 로그인한 채로 기기가 없어졌을 때 — 지운 뒤 바로 첫 화면으로 */

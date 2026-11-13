@@ -354,17 +354,15 @@ fun YamuNavHost(navController: NavHostController, modifier: Modifier = Modifier)
                     ReportRoute(
                         onBenefits = { navController.navigate(BenefitReport) },
                         onPayments = { navController.navigate(Payments) },
-                        onPay = { navController.navigate(PayCode) },
                     )
                 }
                 composable<BenefitReport> {
-                    BenefitReportRoute(onBack = back, onPayments = { navController.navigate(Payments) }, onPay = { navController.navigate(PayCode) })
+                    BenefitReportRoute(onBack = back, onPayments = { navController.navigate(Payments) })
                 }
                 composable<Payments> {
                     PaymentsRoute(
                         onBack = back,
                         onDetail = { paymentId -> navController.navigate(PaymentDetail(paymentId)) },
-                        onPay = { navController.navigate(PayCode) },
                     )
                 }
             }

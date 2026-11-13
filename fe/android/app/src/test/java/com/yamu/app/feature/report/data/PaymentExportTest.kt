@@ -81,7 +81,7 @@ class PaymentExportTest {
             ),
         )
         edits.rememberMemo(2, "지워진 메모")
-        repository.payments(1)
+        repository.payments(1, YearMonth.of(2026, 10))
         assertEquals("정산 예정", edits.memo(1)?.text)
         assertEquals(KnownMemo(null), edits.memo(2))   // 없음을 확인함(모름과 다르다)
     }
