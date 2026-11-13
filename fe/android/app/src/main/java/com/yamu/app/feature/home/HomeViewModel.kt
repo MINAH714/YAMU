@@ -6,13 +6,17 @@ import androidx.lifecycle.viewModelScope
 import com.yamu.app.core.format.KST
 import com.yamu.app.core.network.ApiError
 import com.yamu.app.core.network.ApiResult
+import com.yamu.app.feature.home.data.HomeBenefit
 import com.yamu.app.feature.home.data.HomeRepository
 import com.yamu.app.feature.home.data.HomeSummary
+import com.yamu.app.feature.home.data.PaySettings
 import com.yamu.app.feature.report.data.ReportJump
 import com.yamu.app.feature.report.data.ReportMonth
 import com.yamu.app.feature.report.data.ReportSection
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -23,26 +27,36 @@ import java.time.YearMonth
 import javax.inject.Inject
 
 /**
+ * 홈 한 칸의 상태(v4 · COMMON-08). 한 칸이 실패해도 다른 칸은 그대로 그린다.
+ * 다시 불러오다 실패하면 마지막으로 받은 값([Ready])을 그대로 둔다 — 홈 요약([HomeUiState.content])과 같은 규칙
+ */
+sealed interface HomeSection<out T> {
+    data object Loading : HomeSection<Nothing>
+    data class Ready<T>(val data: T) : HomeSection<T>
+    data class Failed(val error: ApiError) : HomeSection<Nothing>
+}
+
+val <T> HomeSection<T>.dataOrNull: T? get() = (this as? HomeSection.Ready)?.data
+
+/** 새 결과를 받는다 — 실패면 마지막 값을 남긴다 */
+internal fun <T> HomeSection<T>.next(result: ApiResult<T>): HomeSection<T> = when (result) {
+    is ApiResult.Success -> HomeSection.Ready(result.data)
+    is ApiResult.Failure -> if (this is HomeSection.Ready) this else HomeSection.Failed(result.error)
+}
+
+/**
  * 홈 상태. [content]는 마지막으로 성공한 값 — 실패해도 지우지 않고 [error]로 위에 한 줄 알린다(07 문서 3-4).
+ * [benefit] · [pay]는 v4 혜택 히어로 · 결제 칸(S15P31E103-480)이 따로 받는 값
  */
 data class HomeUiState(
     val isLoading: Boolean = true,
     val isRefreshing: Boolean = false,
     val content: HomeSummary? = null,
     val error: ApiError? = null,
-    val userName: String? = null,        // 인사 머리 '○○님, 월급까지 D-25'
-) {
-    /** 잔고예보 · 예정 수입·지출로 가는 길은 예상 잔액 카드뿐이라 카드가 없으면 따로 보여 준다(연결 전은 연결이 먼저) */
-    val showsEntries: Boolean
-        get() = if (content != null) content.forecast == null && !content.needsLinking else !isLoading && error != null
-
-    /**
-     * 맨 아래 소비분석 줄(2차 QA 19). 예상 잔액 카드가 있어도 둔다 — [showsEntries]면 그 카드 안 세 번째 줄로.
-     * 연결 전이면 결제가 없어 소비분석도 비어 있으니 연결이 먼저
-     */
-    val showsReportEntry: Boolean
-        get() = if (content != null) !content.needsLinking else !isLoading && error != null
-}
+    val userName: String? = null,        // 인사 '○○님, 11월 혜택을 모아 봤어요'
+    val benefit: HomeSection<HomeBenefit> = HomeSection.Loading,
+    val pay: HomeSection<PaySettings> = HomeSection.Loading,
+)
 
 /** 결제 시각(서버 UTC)이 든 한국 기준 달 — 시각이 없거나 못 읽으면 null */
 internal fun paymentMonthOf(paidAtIso: String?): YearMonth? =
@@ -61,14 +75,13 @@ class HomeViewModel @Inject constructor(
 
     private var loadJob: Job? = null
 
-    /** 화면에 들어오거나 돌아올 때마다 — 이전 내용은 두고 새 값으로 바꾼다 */
+    /** 화면에 들어오거나 돌아올 때마다(결제 · 취소 뒤 반영, QA-03) — 이전 내용은 두고 새 값으로 바꾼다 */
     fun load() {
         if (loadJob?.isActive == true) return
         loadJob = viewModelScope.launch {
             _state.update { it.copy(isLoading = it.content == null) }
             val name = session.read().name
-            val result = repository.loadHome()
-            _state.update { it.applied(result).copy(userName = name) }
+            loadAll { home -> _state.update { it.applied(home).copy(userName = name) } }
         }
     }
 
@@ -78,12 +91,38 @@ class HomeViewModel @Inject constructor(
         viewModelScope.launch {
             _state.update { it.copy(isRefreshing = true) }
             val sync = repository.sync()
-            val home = repository.loadHome()
-            _state.update { current ->
-                val next = current.applied(home).copy(isRefreshing = false)
-                // 홈은 받았지만 동기화가 실패했으면(금융망 지연 등) 위에 한 줄 알림 — 숫자는 마지막 반영 시각 기준
-                if (home is ApiResult.Success && sync is ApiResult.Failure) next.copy(error = sync.error) else next
+            loadAll { home ->
+                _state.update { current ->
+                    val next = current.applied(home)
+                    // 홈은 받았지만 동기화가 실패했으면(금융망 지연 등) 위에 한 줄 알림 — 숫자는 마지막 반영 시각 기준
+                    if (home is ApiResult.Success && sync is ApiResult.Failure) next.copy(error = sync.error) else next
+                }
             }
+            _state.update { it.copy(isRefreshing = false) }
+        }
+    }
+
+    /**
+     * 홈 요약과 혜택 · 결제 설정을 같이 부른다. 홈 요약이 먼저 오면 먼저 그린다(가장 늦은 요청을 기다리지 않게).
+     * 혜택 달은 부르는 때의 이번 달(한국 기준) — 히어로를 누르면 같은 달 S-04로 간다([openBenefitReport])
+     */
+    private suspend fun loadAll(onHome: (ApiResult<HomeSummary>) -> Unit) = coroutineScope {
+        val month = YearMonth.now(KST)
+        val benefit = async { repository.loadBenefit(month) }
+        val pay = async { repository.loadPaySettings() }
+        onHome(repository.loadHome())
+        val b = benefit.await()
+        _state.update { it.copy(benefit = it.benefit.next(b)) }
+        val p = pay.await()
+        _state.update { it.copy(pay = it.pay.next(p)) }
+    }
+
+    /** 혜택 칸만 다시(실패 칸의 '다시 시도') */
+    fun retryBenefit() {
+        viewModelScope.launch {
+            _state.update { it.copy(benefit = HomeSection.Loading) }
+            val b = repository.loadBenefit(YearMonth.now(KST))
+            _state.update { it.copy(benefit = it.benefit.next(b)) }
         }
     }
 
@@ -94,6 +133,15 @@ class HomeViewModel @Inject constructor(
      */
     fun openPayments() {
         val month = paymentMonthOf(_state.value.content?.recentPayment?.paidAtIso)
+        if (month != null) months.select(month) else months.reset()
+    }
+
+    /**
+     * 혜택 히어로 → 혜택 리포트(S-04, HOME-06). S-04는 고른 달([ReportMonth])을 열므로 히어로가 보인 달을 먼저 고른다.
+     * 히어로를 받기 전이거나 달이 넘어갔으면 이번 달
+     */
+    fun openBenefitReport() {
+        val month = _state.value.benefit.dataOrNull?.month
         if (month != null) months.select(month) else months.reset()
     }
 

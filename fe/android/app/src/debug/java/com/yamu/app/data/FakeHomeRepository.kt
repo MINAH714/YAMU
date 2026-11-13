@@ -7,11 +7,19 @@ import com.yamu.app.core.session.DevSession
 import com.yamu.app.core.session.FaultScenario
 import com.yamu.app.core.session.HomeScenario
 import com.yamu.app.feature.home.data.BalanceForecastDto
+import com.yamu.app.feature.home.data.CardItemDto
 import com.yamu.app.feature.home.data.CardsDto
+import com.yamu.app.feature.home.data.HomeBenefit
+import com.yamu.app.feature.home.data.HomeBenefitSummaryDto
 import com.yamu.app.feature.home.data.HomeDto
+import com.yamu.app.feature.home.data.HomeMonthlyDto
 import com.yamu.app.feature.home.data.HomeRepository
 import com.yamu.app.feature.home.data.HomeSummary
 import com.yamu.app.feature.home.data.NextIncomeDto
+import com.yamu.app.feature.home.data.PaySettings
+import com.yamu.app.feature.home.data.toBenefit
+import com.yamu.app.feature.payment.data.BenefitKind
+import java.time.YearMonth
 import com.yamu.app.feature.home.data.OnboardingDto
 import com.yamu.app.feature.home.data.PerformanceAlertDto
 import com.yamu.app.feature.home.data.RecentPaymentDto
@@ -35,6 +43,7 @@ class FakeHomeRepository @Inject constructor(
     private val my: FakeMyRepository,
     private val bank: FakeBank,
     private val forecasts: FakeForecastRepository,
+    private val payments: FakePaymentRepository,
 ) : HomeRepository {
 
     override suspend fun loadHome(): ApiResult<HomeSummary> {
@@ -54,6 +63,51 @@ class FakeHomeRepository @Inject constructor(
             HomeScenario.NETWORK_ERROR -> ApiResult.Failure(ApiError.Network)
             else -> ApiResult.Success(SyncResult(now().toOffsetDateTime().toString(), failedCount = 0))
         }
+    }
+
+    /**
+     * v4 혜택 히어로 — 가짜 소비분석과 같은 숫자(시드 사용자 32,400원 + 이번 실행 결제 혜택). 시드 몫 중 19,300원은 확정,
+     * 이번 실행 결제는 즉시할인만 확정이고 청구할인 · 캐시백 · 적립은 확정 전(BE realization과 같은 구분). 응답은 진짜와 같은 변환(toBenefit)을 거친다
+     */
+    override suspend fun loadBenefit(month: YearMonth): ApiResult<HomeBenefit> {
+        val scenario = scenario()
+        delay(if (scenario == HomeScenario.SLOW) 3_000 else 600)
+        return when (scenario) {
+            HomeScenario.BANK_ERROR, HomeScenario.BENEFIT_ERROR -> ApiResult.Failure(ApiError.Server("INTERNAL_ERROR"))
+            HomeScenario.NETWORK_ERROR -> ApiResult.Failure(ApiError.Network)
+            else -> ApiResult.Success(monthlyDto(scenario, month).toBenefit(LocalDate.now(KST))!!)
+        }
+    }
+
+    private fun monthlyDto(scenario: HomeScenario, month: YearMonth): HomeMonthlyDto {
+        val thisMonth = month == YearMonth.now(KST)
+        val empty = !thisMonth || scenario == HomeScenario.NOT_LINKED || scenario == HomeScenario.NO_PAYMENT
+        if (empty) return HomeMonthlyDto(month.toString(), totalSpent = 0, benefitSummary = HomeBenefitSummaryDto(expected = 0, actual = 0))
+        val session = payments.approved()
+        val benefits = session.flatMap { it.benefits }
+        val past = bank.seeded
+        return HomeMonthlyDto(
+            yearMonth = month.toString(),
+            periodTo = LocalDate.now(KST).toString(),
+            totalSpent = (if (past) 842_000 else 0) + session.sumOf { it.amount },
+            benefitSummary = HomeBenefitSummaryDto(
+                expected = (if (past) 32_400 else 0) + benefits.sumOf { it.amount },
+                actual = (if (past) 19_300 else 0) + benefits.filter { it.kind == BenefitKind.INSTANT }.sumOf { it.amount },
+            ),
+        )
+    }
+
+    /** 결제 설정 — 가짜 마이(카드 관리에서 바꾼 자동 선택)와 가짜 카드의 기본 카드. '자동 선택 꺼짐' 상태면 꺼짐 + 기본 카드(없으면 첫 카드) */
+    override suspend fun loadPaySettings(): ApiResult<PaySettings> {
+        val scenario = scenario()
+        if (scenario == HomeScenario.NETWORK_ERROR) return ApiResult.Failure(ApiError.Network)
+        val auto = my.autoSelectOn
+        val cards = (bank.overview() as? ApiResult.Success)?.data?.cards.orEmpty()
+        val default = cards.firstOrNull { it.isDefault }?.userCardId
+        return ApiResult.Success(
+            if (scenario == HomeScenario.AUTO_SELECT_OFF) PaySettings(autoSelect = false, defaultUserCardId = default ?: cards.firstOrNull()?.userCardId)
+            else PaySettings(auto, default),
+        )
     }
 
     /**
@@ -94,7 +148,7 @@ class FakeHomeRepository @Inject constructor(
         val todos = listOf(lotteTodo, TodoDto("삼성카드는 안 채우는 게 유리해요", "추가 소비 비추천", "ERROR", 14))
             .filter { it.userCardId in registered }
         val base = HomeDto(
-            cards = CardsDto(count = registered.size),
+            cards = CardsDto(count = registered.size, items = bank.cardViews().map { CardItemDto(it.userCardId, nickname = it.product) }),
             balanceForecast = forecast,
             unreadNotificationCount = my.unreadCount(),   // 알림함(H-02)과 같은 수(13 문서 9·10-6 ⑥)
             dataSyncedAt = synced,

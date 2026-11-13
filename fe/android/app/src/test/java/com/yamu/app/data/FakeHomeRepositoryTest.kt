@@ -2,6 +2,7 @@ package com.yamu.app.data
 
 import android.content.Context
 import android.content.ContextWrapper
+import com.yamu.app.core.format.KST
 import com.yamu.app.core.network.ApiResult
 import com.yamu.app.core.security.SessionStore
 import com.yamu.app.core.session.DevSession
@@ -18,6 +19,7 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import java.time.YearMonth
 
 /**
  * debug 가짜 홈 '정상'이 가짜 사용자를 따르는지(S15P31E103-453) — 진짜와 같은 변환(toSummary)을 거친 화면 값으로 본다.
@@ -32,7 +34,7 @@ class FakeHomeRepositoryTest {
     private val bank = FakeBank(FakeUser(storage = null))
     private val payments = FakePaymentRepository(FakePerformanceStore(bank), PaymentEdits(), bank)
     private val forecast = FakeForecastRepository(bank)
-    private val home = FakeHomeRepository(FakeMyRepository(SessionStore(noFilesContext), payments), bank, forecast)
+    private val home = FakeHomeRepository(FakeMyRepository(SessionStore(noFilesContext), payments), bank, forecast, payments)
 
     @Before fun setUp() {
         DevSession.homeScenario = HomeScenario.NORMAL
@@ -105,5 +107,42 @@ class FakeHomeRepositoryTest {
         bank.reset(accounts = emptyList())
         DevSession.homeScenario = HomeScenario.AFTER_PAYMENT   // 정상은 연결 전 홈이 되므로 다른 상태로 본다
         assertNull(load().forecast)
+    }
+
+    // ── v4 혜택 히어로 · 결제 칸(S15P31E103-480) ──
+
+    private val thisMonth get() = YearMonth.now(KST)
+
+    @Test fun `시드 사용자 혜택은 확정과 확정 전이 나뉜다`() = runTest {
+        val b = (home.loadBenefit(thisMonth) as ApiResult.Success).data
+        assertEquals(19_300L, b.confirmed)
+        assertEquals(13_100L, b.pending)
+        assertTrue(b.hasPayments)
+    }
+
+    @Test fun `이번 달 결제 없음은 0원 · 결제 없음`() = runTest {
+        DevSession.homeScenario = HomeScenario.NO_PAYMENT
+        val b = (home.loadBenefit(thisMonth) as ApiResult.Success).data
+        assertEquals(0L, b.confirmed)
+        assertEquals(0L, b.pending)
+        assertFalse(b.hasPayments)
+    }
+
+    @Test fun `혜택만 실패는 혜택 칸만 실패하고 홈 요약은 받는다`() = runTest {
+        DevSession.homeScenario = HomeScenario.BENEFIT_ERROR
+        assertTrue(home.loadBenefit(thisMonth) is ApiResult.Failure)
+        assertTrue(home.loadHome() is ApiResult.Success)
+    }
+
+    @Test fun `자동 선택 꺼짐이면 꺼짐과 기본 카드(없으면 첫 카드)`() = runTest {
+        DevSession.homeScenario = HomeScenario.AUTO_SELECT_OFF
+        val s = (home.loadPaySettings() as ApiResult.Success).data
+        assertFalse(s.autoSelect)
+        assertNotNull(s.defaultUserCardId)
+        assertTrue(load().cards.any { it.userCardId == s.defaultUserCardId })   // 결제 칸이 이름을 찾을 수 있다
+    }
+
+    @Test fun `정상은 자동 선택이 켜져 있다`() = runTest {
+        assertTrue((home.loadPaySettings() as ApiResult.Success).data.autoSelect)
     }
 }
