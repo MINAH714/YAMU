@@ -19,7 +19,7 @@ import java.time.YearMonth
 /** debug 가짜 결제 서버의 취소 · 메모가 BE와 같은 규칙인지 — 시연 중에 진짜와 다르게 굴지 않게 */
 class FakePaymentEditsTest {
     private val edits = PaymentEdits()
-    private val fake = FakePaymentRepository(FakePerformanceStore(), edits)
+    private val fake = FakePaymentRepository(FakePerformanceStore(), edits, FakeBank(FakeUser(storage = null)))
 
     @After fun tearDown() {
         DevSession.faultScenario = FaultScenario.NONE

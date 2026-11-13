@@ -31,7 +31,7 @@ import javax.inject.Singleton
  * 응답 모양은 API 명세(지금 명세 + 보완안). 진짜와 같은 변환(toSummary)을 거친다.
  */
 @Singleton
-class FakeHomeRepository @Inject constructor(private val my: FakeMyRepository) : HomeRepository {
+class FakeHomeRepository @Inject constructor(private val my: FakeMyRepository, private val bank: FakeBank) : HomeRepository {
 
     override suspend fun loadHome(): ApiResult<HomeSummary> {
         val scenario = scenario()
@@ -52,13 +52,17 @@ class FakeHomeRepository @Inject constructor(private val my: FakeMyRepository) :
         }
     }
 
-    /** 홈 상태 — '모든 기능 상태'가 정상이 아니면 그쪽이 먼저(데이터 없음 = 연결 전). 데이터 부족은 홈 상태 '가입 첫날'로 본다 */
+    /**
+     * 홈 상태 — '모든 기능 상태'가 정상이 아니면 그쪽이 먼저(빈 응답 = 연결 전). 데이터 부족은 홈 상태 '가입 첫날'로 본다.
+     * '정상'은 가짜 사용자를 따른다: 연결한 계좌가 없으면 연결 전, 카드가 0장이면 카드 0장 홈(S15P31E103-453)
+     */
     private fun scenario(): HomeScenario = when (DevSession.faultScenario) {
         FaultScenario.EMPTY -> HomeScenario.NOT_LINKED
         FaultScenario.BANK_ERROR -> HomeScenario.BANK_ERROR
         FaultScenario.NETWORK_ERROR -> HomeScenario.NETWORK_ERROR
         FaultScenario.SLOW -> HomeScenario.SLOW
-        FaultScenario.NONE, FaultScenario.DATA_INSUFFICIENT -> DevSession.homeScenario
+        FaultScenario.NONE, FaultScenario.DATA_INSUFFICIENT ->
+            DevSession.homeScenario.takeUnless { it == HomeScenario.NORMAL && bank.linkedAccountCount() == 0 } ?: HomeScenario.NOT_LINKED
     }
 
     private fun now(): ZonedDateTime = ZonedDateTime.now(KST)
@@ -74,23 +78,24 @@ class FakeHomeRepository @Inject constructor(private val my: FakeMyRepository) :
             isEstimate = true,
             isProvisional = scenario == HomeScenario.FIRST_DAY,
         )
-        val todos = listOf(
-            TodoDto("롯데카드는 통신비만 옮기면 채워져요", "실적 달성 추천", "PRIMARY", 13),
-            TodoDto("삼성카드는 안 채우는 게 유리해요", "추가 소비 비추천", "ERROR", 14),
-        )
+        // 카드 수 · 할 일 · 오늘의 카드는 가짜 사용자가 등록한 카드만(0장이면 실서버 새 사용자처럼 셋 다 없음)
+        val registered = bank.registeredCardIds().toSet()
+        val lotteTodo = TodoDto("롯데카드는 통신비만 옮기면 채워져요", "실적 달성 추천", "PRIMARY", 13)
+        val todos = listOf(lotteTodo, TodoDto("삼성카드는 안 채우는 게 유리해요", "추가 소비 비추천", "ERROR", 14))
+            .filter { it.userCardId in registered }
         val base = HomeDto(
-            cards = CardsDto(count = 6),
+            cards = CardsDto(count = registered.size),
             balanceForecast = forecast,
             unreadNotificationCount = my.unreadCount(),   // 알림함(H-02)과 같은 수(13 문서 9·10-6 ⑥)
             dataSyncedAt = synced,
             todos = todos,
             onboarding = OnboardingDto("DONE"),
-            todayCard = TodayCardDto(2, "KB국민카드", "스타벅스 50% · 버거 20% 할인"),
+            todayCard = TodayCardDto(11, "KB국민카드", "스타벅스 50% · 버거 20% 할인").takeIf { 11L in registered },
         )
         return when (scenario) {
             HomeScenario.FIRST_DAY -> base.copy(
                 unreadNotificationCount = 0,
-                todos = listOf(TodoDto("롯데카드는 통신비만 옮기면 채워져요", "실적 달성 추천", "PRIMARY", 13)),   // 잠정은 카드 머리 '잠정 판단'이 말한다
+                todos = listOf(lotteTodo).filter { it.userCardId in registered },   // 잠정은 카드 머리 '잠정 판단'이 말한다
             )
             HomeScenario.AFTER_PAYMENT -> base.copy(
                 recentPayment = RecentPaymentDto(938L, "스타벅스 역삼점", 15_000, "KB국민카드", 7_500, paidAt = now().toOffsetDateTime().toString()),   // 방금 결제
@@ -129,8 +134,7 @@ class FakeHomeRepository @Inject constructor(private val my: FakeMyRepository) :
                 dataSyncedAt = synced,
             )
             HomeScenario.PARTIAL -> base.copy(balanceForecast = null, partialErrors = listOf(JsonPrimitive("balanceForecast")))
-            // 가입 때 1원 인증으로 계좌만 붙고 카드 등록은 미룸 — 실서버는 이때 onboarding DONE · cards 0장(S15P31E103-430)
-            HomeScenario.NO_CARD -> base.copy(cards = CardsDto(count = 0), todos = emptyList(), todayCard = null)
+            // 가입 때 1원 인증으로 계좌만 붙고 카드 등록을 미룬 사용자(실서버는 onboarding DONE · cards 0장, -430)는 '정상'이 가짜 사용자를 따라 그린다
             else -> base
         }
     }

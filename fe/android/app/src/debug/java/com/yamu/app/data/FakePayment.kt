@@ -58,6 +58,7 @@ object FakeMerchants {
 class FakePaymentRepository @Inject constructor(
     private val perf: FakePerformanceStore,
     private val edits: PaymentEdits,
+    private val bank: FakeBank,
 ) : PaymentRepository {
 
     private class Issued(val code: PayCode, val issuedAt: Long, val scenario: PayScenario) {
@@ -109,6 +110,8 @@ class FakePaymentRepository @Inject constructor(
 
     override suspend fun issueCode(stepUpToken: String): ApiResult<PayCode> {
         delay(400)
+        // BE BarcodeService처럼 결제에 쓸 ACTIVE 카드가 0장이면 발급하지 않는다(자동 선택에서 뺀 카드만 남아도 0장)
+        if (bank.activeCardIds().isEmpty()) return ApiResult.Failure(ApiError.Conflict("NO_ACTIVE_CARD"))
         val scenario = DevSession.payScenario
         val token = "YAMU" + List(12) { "0123456789ABCDEF"[Random.nextInt(16)] }.joinToString("")
         val life = if (scenario == PayScenario.NO_SCAN) 20L else 180L

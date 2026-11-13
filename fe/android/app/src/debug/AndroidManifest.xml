@@ -1,5 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
-    <!-- debug 빌드에만 합쳐짐: 로컬 http 허용 -->
-    <application android:networkSecurityConfig="@xml/network_security_config" />
+    <!-- debug 빌드에만 합쳐짐: 로컬 http 허용 · 디버그 메뉴 값을 앱 시작 때 읽기(DevSessionStore) -->
+    <application android:networkSecurityConfig="@xml/network_security_config">
+        <provider
+            android:name="com.yamu.app.data.DebugStateProvider"
+            android:authorities="${applicationId}.debugstate"
+            android:exported="false" />
+    </application>
 </manifest>

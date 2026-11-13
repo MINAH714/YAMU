@@ -91,7 +91,7 @@ object DataModule {
 
     @Provides
     @Singleton
-    fun myRepository(real: Provider<RealMyWithFakes>, fake: Provider<FakeMyRepository>): MyRepository =
+    fun myRepository(real: Provider<MyRepositoryImpl>, fake: Provider<FakeMyRepository>): MyRepository =
         if (ApiFeature.MY.isReal) real.get() else fake.get()
 
     @Provides

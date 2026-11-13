@@ -9,7 +9,8 @@ import kotlinx.coroutines.delay
 /**
  * 디버그 메뉴 '모든 기능 상태'(DevSession.faultScenario)를 가짜 저장소의 '화면이 불러오는 값'에 건다 —
  * 04 문서 '데이터 상태 확인표'를 서버 없이 화면마다 그려 보기 위한 것(release에는 들어가지 않음).
- * [empty]는 새 사용자(연결 전)일 때 서버가 줄 응답 — 없으면 '데이터 없음'에서도 평소 값.
+ * [empty]는 계좌 · 카드가 하나도 없을 때(연결 전) 서버가 줄 응답 — 없으면 '빈 응답'에서도 평소 값.
+ * 실서버 새 사용자(계좌 1 · 카드 0)는 이 스위치가 아니라 가짜 사용자(FakeUser, 디버그 '카드 0장')로 본다.
  */
 internal suspend fun <T> withFault(empty: (() -> ApiResult<T>)? = null, load: suspend () -> ApiResult<T>): ApiResult<T> =
     when (DevSession.faultScenario) {
