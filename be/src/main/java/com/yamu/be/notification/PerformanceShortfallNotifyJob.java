@@ -34,6 +34,8 @@ import org.springframework.stereotype.Component;
  *   <li>시각: 매분 깨어, 받을 시각이 지났고 오늘 아직 판정하지 않은 사용자만 판정한다({@link PerformanceShortfallMarks}). 하루 한 번이다.</li>
  *   <li>인정액 확인 중: 인정액이 정해지지 않은 결제가 있는 카드는 실적이 낮게 잡혔을 수 있어 그날은 쌓지 않는다. 키를 쓰지 않으므로 다음 날 다시
  *       판정한다.</li>
+ *   <li>알림 멈춤: 실적 판단(S15P31E103-375)에서 그달 이 카드의 실적 부족 알림을 멈췄으면 쌓지 않고 SKIPPED로 남긴다. 판단을 되돌리면
+ *       다음 판정부터 다시 쌓을 수 있다.</li>
  *   <li>실패 격리: 한 사용자의 실패는 그 사용자만 FAILED로 남기고 다음으로 간다. 그날은 다시 시도하지 않는다.</li>
  *   <li>수동 실행: 시각·"오늘 판정함"·기간과 상관없이 지금 판정한다(시연용). {@code userId}가 있으면 그 사용자만, {@code dryRun}이면 쌓을
  *       카드만 센다. {@code asOf}는 쓰지 않는다. 실적 추세가 실제 오늘 날짜로 계산되기 때문이다.</li>
@@ -172,7 +174,10 @@ public class PerformanceShortfallNotifyJob implements ManualJob {
         List<JobRunReport.Item> items = new ArrayList<>();
         for (PerformanceShortfallCheck.Shortfall shortfall : found) {
             long card = shortfall.userCardId();
-            if (shortfall.provisional()) {
+            if (shortfall.muted()) {
+                items.add(JobRunReport.Item.skipped(CARD_REF, card, userId,
+                        "실적 판단에서 이번 달 이 카드의 실적 부족 알림을 멈췄습니다"));
+            } else if (shortfall.provisional()) {
                 items.add(JobRunReport.Item.skipped(CARD_REF, card, userId,
                         "실적 인정액을 확인 중인 결제가 있어 다음 판정으로 미룹니다"));
             } else if (dryRun) {

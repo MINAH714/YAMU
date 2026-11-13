@@ -229,6 +229,20 @@ class PerformanceShortfallNotifyJobTest {
     }
 
     @Test
+    void 실적_판단에서_알림을_멈춘_카드는_쌓지_않고_다른_카드는_쌓는다() {
+        shortfalls(muted(1L), shortfall(2L, false));
+
+        JobRunReport report = job.runDue(at(TODAY, 9, 0));
+
+        assertThat(report.results()).extracting(JobRunReport.Item::refId, JobRunReport.Item::result)
+                .containsExactly(tuple(1L, "SKIPPED"), tuple(2L, "CREATED"));
+        assertThat(report.results().get(0).message()).isEqualTo("실적 판단에서 이번 달 이 카드의 실적 부족 알림을 멈췄습니다");
+        ArgumentCaptor<NotificationWriter.Draft> draft = ArgumentCaptor.forClass(NotificationWriter.Draft.class);
+        verify(writer).write(draft.capture());
+        assertThat(draft.getValue().targetId()).isEqualTo(2L);
+    }
+
+    @Test
     void 말일에는_오늘이_마지막_날이라고_쓴다() {
         NotificationWriter.Draft draft = NotificationMessages.performanceShortfall(USER, 1L,
                 YearMonth.of(2026, 11), "생활카드", "30만원 이상", 5_000L, 0);
@@ -316,7 +330,12 @@ class PerformanceShortfallNotifyJobTest {
 
     private static Shortfall shortfall(long userCardId, boolean provisional) {
         return new Shortfall(userCardId, "카드" + userCardId, 300_000L, "30만원 이상", 180_000L, 120_000L, 5,
-                provisional);
+                provisional, false);
+    }
+
+    private static Shortfall muted(long userCardId) {
+        return new Shortfall(userCardId, "카드" + userCardId, 300_000L, "30만원 이상", 180_000L, 120_000L, 5,
+                false, true);
     }
 
     private static NotificationSettings settingsAt(LocalTime time) {

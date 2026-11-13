@@ -44,20 +44,24 @@ class PerformanceShortfallCheckTest {
     CardActivityReader activity = mock(CardActivityReader.class);
     CardBenefitSummaryReader summaries = mock(CardBenefitSummaryReader.class);
     PerformanceReader reader = mock(PerformanceReader.class);
+    PerformanceDecisionRepository decisions = mock(PerformanceDecisionRepository.class);
 
     PerformanceShortfallCheck check;
     List<UserCard> owned = new ArrayList<>();
     Map<Long, Long> recognized = new HashMap<>();
     Set<Long> provisional = new HashSet<>();
+    List<PerformanceDecision> decided = new ArrayList<>();
 
     @BeforeEach
     void setUp() {
-        check = new PerformanceShortfallCheck(cards, products, activity, summaries, reader);
+        check = new PerformanceShortfallCheck(cards, products, activity, summaries, reader, decisions);
         when(cards.findOrdered(eq(USER), any())).thenReturn(owned);
         List<CardProduct> both = List.of(product(TIERED, "노리2"), product(PLAIN, "모두 1%"));
         when(products.findAllById(any())).thenReturn(both);
         when(activity.recognizedAmounts(anyCollection(), eq(MONTH))).thenReturn(recognized);
         when(reader.cardsWithUnconfirmed(eq(USER), anyCollection(), eq(MONTH))).thenReturn(provisional);
+        when(decisions.findByUserIdAndUserCardIdInAndPerformanceMonth(eq(USER), anyCollection(),
+                eq(MONTH.atDay(1)))).thenReturn(decided);
         // 기준 30만·50만 상품, 실적 조건이 없는 상품
         when(summaries.summaries(anyCollection(), any())).thenReturn(Map.of(
                 TIERED, new CardBenefitSummaryReader.Summary(List.of(), List.of(300_000L, 500_000L), List.of(), 0L),
@@ -79,6 +83,7 @@ class PerformanceShortfallCheckTest {
             assertThat(s.remaining()).isEqualTo(200_000L);
             assertThat(s.daysLeft()).isEqualTo(5);
             assertThat(s.provisional()).isFalse();
+            assertThat(s.muted()).isFalse();
         });
     }
 
@@ -128,6 +133,20 @@ class PerformanceShortfallCheckTest {
     }
 
     @Test
+    void 이번_달_실적_판단에서_알림을_멈춘_카드는_표시하고_되돌린_판단은_보지_않는다() {
+        card(1L, TIERED, null, 100_000L);
+        card(2L, TIERED, null, 100_000L);
+        card(3L, TIERED, null, 100_000L);
+        decision(2L, true);    // SKIP·알림 멈춤
+        decision(3L, false);   // 판단을 되돌렸거나 멈추지 않음
+
+        assertThat(check.shortfalls(USER, TODAY)).extracting(PerformanceShortfallCheck.Shortfall::muted)
+                .containsExactly(false, true, false);
+        verify(decisions).findByUserIdAndUserCardIdInAndPerformanceMonth(USER, List.of(1L, 2L, 3L),
+                MONTH.atDay(1));
+    }
+
+    @Test
     void 여러_장이면_카드_목록_순서대로_한_장씩이고_말일은_남은_날이_0이다() {
         card(2L, TIERED, "둘", 10_000L);
         card(1L, TIERED, "하나", 10_000L);
@@ -142,7 +161,7 @@ class PerformanceShortfallCheckTest {
         assertThat(check.shortfalls(USER, TODAY)).isEmpty();
 
         verify(cards).findOrdered(USER, EnumSet.of(CardRegistrationStatus.ACTIVE));
-        verifyNoInteractions(activity, summaries, reader, products);
+        verifyNoInteractions(activity, summaries, reader, products, decisions);
     }
 
     private void card(long id, long productId, String alias, Long amount) {
@@ -154,6 +173,13 @@ class PerformanceShortfallCheckTest {
         if (amount != null) {
             recognized.put(id, amount);
         }
+    }
+
+    private void decision(long userCardId, boolean muted) {
+        PerformanceDecision row = mock(PerformanceDecision.class);
+        when(row.getUserCardId()).thenReturn(userCardId);
+        when(row.isNotificationsMuted()).thenReturn(muted);
+        decided.add(row);
     }
 
     private static CardProduct product(long id, String name) {

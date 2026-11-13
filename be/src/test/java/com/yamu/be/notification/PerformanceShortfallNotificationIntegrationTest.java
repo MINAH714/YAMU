@@ -24,6 +24,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Primary;
 import org.springframework.http.MediaType;
@@ -33,10 +34,15 @@ import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
+import org.testcontainers.containers.GenericContainer;
+import org.testcontainers.junit.jupiter.Container;
+import org.testcontainers.utility.DockerImageName;
 
 /**
  * 실적 부족 알림(Task 9.3.3)을 실제 MySQL·운영 API·알림 목록 API까지 묶어 확인한다. 서버 시계는 2026-11-25 10:00(한국)으로 고정한다:
  * 30일인 달이라 5일 남았고, 추세 = 실적 × 30 ÷ 25다. 상품은 기준 30만·50만이다.
+ *
+ * <p>운영 API로 작업을 돌리면 {@code JobLocks}가 Redis 잠금을 잡으므로 Redis 컨테이너도 띄운다.
  */
 @AutoConfigureMockMvc
 @TestPropertySource(properties = "spring.application.name=yamu-performance-shortfall-test")
@@ -55,6 +61,11 @@ class PerformanceShortfallNotificationIntegrationTest extends MySqlTestSupport {
             return Clock.fixed(Instant.parse("2026-11-25T01:00:00Z"), ZoneOffset.UTC);
         }
     }
+
+    @Container
+    @ServiceConnection(name = "redis")
+    static final GenericContainer<?> REDIS = new GenericContainer<>(DockerImageName.parse("redis:7-alpine"))
+            .withExposedPorts(6379);
 
     @Autowired MockMvc mockMvc;
     @Autowired JdbcTemplate jdbc;
@@ -136,6 +147,25 @@ class PerformanceShortfallNotificationIntegrationTest extends MySqlTestSupport {
     }
 
     @Test
+    void 실적_판단에서_알림을_멈춘_카드는_건너뛰고_되돌리면_쌓는다() throws Exception {
+        long owner = activeUser();
+        long skipped = card(owner, "ACTIVE", null, 100_000L);
+        long decision = decide(owner, skipped, "SKIP", true);
+
+        run(owner)
+                .andExpect(jsonPath("$.data.results[0].refType").value("USER_CARD"))
+                .andExpect(jsonPath("$.data.results[0].refId").value(skipped))
+                .andExpect(jsonPath("$.data.results[0].result").value("SKIPPED"));
+        assertThat(notifications(owner)).isEmpty();
+
+        // "다시 판단하기": 판단을 비우면 알림 멈춤도 풀린다
+        jdbc.update("UPDATE performance_decision SET decision = NULL, notifications_muted = FALSE "
+                + "WHERE performance_decision_id = ?", decision);
+        run(owner).andExpect(jsonPath("$.data.results[0].result").value("CREATED"));
+        assertThat(notifications(owner)).hasSize(1);
+    }
+
+    @Test
     void 가입을_마치지_않은_사용자는_대상이_아니다() throws Exception {
         long pending = fixtures.user();
         card(pending, "ACTIVE", null, 0);
@@ -175,6 +205,16 @@ class PerformanceShortfallNotificationIntegrationTest extends MySqlTestSupport {
                 VALUES (?, ?, ?, ?, ?)
                 """, id, Date.valueOf(NOVEMBER.atDay(1)), recognized, now(), now());
         return id;
+    }
+
+    /** 11월 실적 판단 한 줄. */
+    private long decide(long user, long card, String decision, boolean muted) {
+        Map<String, Object> row = Map.of("user_id", user, "user_card_id", card, "performance_month",
+                Date.valueOf(NOVEMBER.atDay(1)), "decision", decision, "notifications_muted", muted,
+                "decided_at", now(), "created_at", now(), "updated_at", now());
+        return new SimpleJdbcInsert(jdbc).withTableName("performance_decision")
+                .usingGeneratedKeyColumns("performance_decision_id").usingColumns(row.keySet().toArray(String[]::new))
+                .executeAndReturnKey(row).longValue();
     }
 
     private void benefit(long product, String name, long minPerformance) {
