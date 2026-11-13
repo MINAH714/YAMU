@@ -2,6 +2,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- 끊겼던 연결이 돌아오면 홈 · 잔고예보를 다시 불러온다(ReloadOnReconnect, S15P31E103-464). 사용자에게 묻지 않는 권한 -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
     <!-- 금융 앱: 자동 백업 끔 · 세로 고정. 화면(Activity)은 빌드마다 따로 —
          고객 앱 src/customer, 모의 POS 단말 src/pos (10 문서 6-5) -->

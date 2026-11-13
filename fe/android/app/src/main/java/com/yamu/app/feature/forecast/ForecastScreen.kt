@@ -128,6 +128,7 @@ import java.time.LocalDate
 import java.time.format.TextStyle
 import java.time.temporal.ChronoUnit
 import java.util.Locale
+import com.yamu.app.core.ui.ReloadOnReconnect   // 여기 둔 까닭: 위 core.ui 줄은 열린 MR(-448)이 같은 자리에 줄을 더한다
 import javax.inject.Inject
 
 data class ForecastState(
@@ -280,6 +281,8 @@ fun ForecastRoute(
         viewModel.refresh()
         onPauseOrDispose { }
     }
+    // 마지막 값을 보이는 동안 끊겼던 연결이 돌아오면 저절로 다시 불러온다 — 연결과 상관없는 실패면 부르지 않는다(S15P31E103-464)
+    ReloadOnReconnect(waiting = s.error != null, onReconnect = viewModel::refresh)
     var filtering by rememberSaveable { mutableStateOf(false) }
     val c = YamuTheme.colors
     // 회색 바탕 + 카드: 고르기 칩 · 예상 잔액 · 낮아지는 때 · 선 설명 · 예정된 돈 · 빼고 계산한 것. 가상 구매 입구는 아래 버튼(2026-11-08 개편)

@@ -85,6 +85,7 @@ class PinPadViewModel @Inject constructor(
 ) : ViewModel() {
     val purpose: String = savedStateHandle.toRoute<PinPad>().purpose
     val detail: String? = results.detail
+    val pinTitle: String? = results.pinTitle
     private val _state = MutableStateFlow(PinPadState())
     val state: StateFlow<PinPadState> = _state.asStateFlow()
 
@@ -135,13 +136,24 @@ class PinPadViewModel @Inject constructor(
     }
 }
 
-private fun pinPadTitle(purpose: String) = when (purpose) {
+/** 부른 화면이 제목을 따로 주면([StepUpPrompt.pinTitle] — 결제 취소) 그것, 아니면 목적에 맞는 기본 제목 */
+internal fun pinPadTitle(purpose: String, override: String? = null) = override ?: when (purpose) {
     StepUpPurpose.ACCOUNT_LINK -> "간편 비밀번호로\n계좌를 연결해요"
     StepUpPurpose.CARD_REGISTER -> "간편 비밀번호로\n카드를 등록해요"
     StepUpPurpose.CARD_DELETE -> "간편 비밀번호로\n카드를 해제해요"
     StepUpPurpose.WITHDRAW_MEMBER -> "간편 비밀번호로\n탈퇴를 확인해요"
     StepUpPurpose.BARCODE -> "간편 비밀번호로\n결제 코드를 열어요"
     else -> "간편 비밀번호를\n넣어 주세요"
+}
+
+/**
+ * 보조 줄 — 무엇을 확인하는지 먼저(지문 창 부제와 같은 말). 결제 코드는 부른 화면이 준 말
+ * ('인증하면 결제 코드가 보여요' · 취소면 '인증하면 취소 코드가 보여요'), 못 받았으면 결제 코드 기본 문구
+ */
+internal fun pinPadSub(purpose: String, detail: String?) = when {
+    detail != null -> detail
+    purpose == StepUpPurpose.BARCODE -> "인증하면 결제 코드가 보여요"
+    else -> "앱을 열 때 쓰는 6자리예요"   // 마이에서 바꿀 수 있어 '가입할 때 만든' 번호가 아닐 수 있다
 }
 
 /** 지문 대신 간편 비밀번호 — A-06 키패드(배열 섞기) · 화면 캡처 막음 */
@@ -162,13 +174,8 @@ fun PinPadRoute(onClose: () -> Unit, viewModel: PinPadViewModel = hiltViewModel(
     ) { inner ->
         PinBody(
             inner = inner,
-            title = pinPadTitle(viewModel.purpose),
-            // 무엇을 확인하는지 먼저(지문 창 부제와 같은 말) — 결제 코드는 열리는 시간을 알려 준다
-            sub = when {
-                viewModel.purpose == StepUpPurpose.BARCODE -> "인증하면 결제 코드가 보여요"
-                viewModel.detail != null -> viewModel.detail
-                else -> "앱을 열 때 쓰는 6자리예요"   // 마이에서 바꿀 수 있어 '가입할 때 만든' 번호가 아닐 수 있다
-            },
+            title = pinPadTitle(viewModel.purpose, viewModel.pinTitle),
+            sub = pinPadSub(viewModel.purpose, viewModel.detail),
             filled = s.input.length,
             error = s.error,
             shakeKey = s.errorKey,
