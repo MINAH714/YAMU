@@ -146,7 +146,12 @@ class FakeReportRepository @Inject constructor(private val payments: FakePayment
         )
     }
 
-    override suspend fun monthly(): ApiResult<MonthlySpend> = withFault(empty = { ApiResult.Success(MonthlySpend(periodLabel(YearMonth.now(KST).toString(), partial = true), YearMonth.now(KST).monthValue, isLiving = true, spent = 0, diffFromPrev = null, categories = emptyList(), benefit = 0, paymentCount = 0)) }) { monthlyNow() }
+    /** 가짜 숫자는 이번 달에만 — 지난 달(8.2.77 달 바꾸기)은 빈 달로 */
+    private fun emptySpend(month: YearMonth) =
+        ApiResult.Success(MonthlySpend(periodLabel(month.toString(), partial = month == YearMonth.now(KST)), month.monthValue, isLiving = true, spent = 0, diffFromPrev = null, categories = emptyList(), benefit = 0, paymentCount = 0))
+
+    override suspend fun monthly(month: YearMonth): ApiResult<MonthlySpend> =
+        withFault(empty = { emptySpend(month) }) { if (month == YearMonth.now(KST)) monthlyNow() else { delay(500); emptySpend(month) } }
 
     private suspend fun monthlyNow(): ApiResult<MonthlySpend> {
         delay(500)
@@ -165,7 +170,11 @@ class FakeReportRepository @Inject constructor(private val payments: FakePayment
         )
     }
 
-    override suspend fun benefits(): ApiResult<BenefitReport> = withFault(empty = { ApiResult.Success(BenefitReport(periodLabel(YearMonth.now(KST).toString(), partial = true), received = 0, yamuExtra = null, missedTotal = 0, missed = emptyList(), byPlace = emptyList())) }) { benefitsNow() }
+    private fun emptyBenefits(month: YearMonth) =
+        ApiResult.Success(BenefitReport(periodLabel(month.toString(), partial = month == YearMonth.now(KST)), received = 0, yamuExtra = null, missedTotal = 0, missed = emptyList(), byPlace = emptyList()))
+
+    override suspend fun benefits(month: YearMonth): ApiResult<BenefitReport> =
+        withFault(empty = { emptyBenefits(month) }) { if (month == YearMonth.now(KST)) benefitsNow() else { delay(500); emptyBenefits(month) } }
 
     private suspend fun benefitsNow(): ApiResult<BenefitReport> {
         delay(500)
@@ -185,7 +194,10 @@ class FakeReportRepository @Inject constructor(private val payments: FakePayment
         )
     }
 
-    override suspend fun payments(page: Int): ApiResult<PaymentsPage> = withFault(empty = { ApiResult.Success(PaymentsPage(count = 0, amount = 0, items = emptyList(), page = page, hasNext = false)) }) { paymentsNow(page) }
+    override suspend fun payments(page: Int, month: YearMonth): ApiResult<PaymentsPage> {
+        val empty: () -> ApiResult<PaymentsPage> = { ApiResult.Success(PaymentsPage(count = 0, amount = 0, items = emptyList(), page = page, hasNext = false)) }
+        return withFault(empty = empty) { if (month == YearMonth.now(KST)) paymentsNow(page) else { delay(400); empty() } }
+    }
 
     /** 취소한 결제는 줄에 '취소'로 남고 합계에서 빠진다(BE: 합계는 승인 건만, 취소 건 혜택은 0원) */
     private suspend fun paymentsNow(page: Int): ApiResult<PaymentsPage> {
