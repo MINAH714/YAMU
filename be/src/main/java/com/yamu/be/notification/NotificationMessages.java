@@ -1,13 +1,15 @@
 package com.yamu.be.notification;
 
 import java.time.LocalDate;
+import java.time.YearMonth;
 import java.util.Locale;
 
 /**
  * 알림 제목·내용·중복 방지 키·앱 이동 대상(Task 9.3.2). 앱이 {@code refType}으로 화면을 고르는 값(앱 {@code MyModels.kt}):
- * {@code PAYMENT_TRANSACTION} → 결제 상세, {@code CARD_BILL}·{@code BALANCE} → 잔고예보.
+ * {@code PAYMENT_TRANSACTION} → 결제 상세, {@code CARD_BILL}·{@code BALANCE} → 잔고예보, {@code USER_CARD} → 그 카드의 실적 유불리 분석.
  *
- * <p>중복 방지 키는 "같은 사건이면 같은 값"이다. 결제는 결제 번호+결과, 청구는 청구서 번호, 환급은 환급 번호, 잔고 위험은 위험 구간 첫날이다.
+ * <p>중복 방지 키는 "같은 사건이면 같은 값"이다. 결제는 결제 번호+결과, 청구는 청구서 번호, 환급은 환급 번호, 잔고 위험은 위험 구간 첫날,
+ * 실적 부족은 카드+월이다.
  * 제목·내용은 만들 때의 값으로 고정된다(목록 API 문서와 같다).
  */
 final class NotificationMessages {
@@ -15,6 +17,7 @@ final class NotificationMessages {
     static final String PAYMENT_TRANSACTION = "PAYMENT_TRANSACTION";
     static final String CARD_BILL = "CARD_BILL";
     static final String BALANCE = "BALANCE";
+    static final String USER_CARD = "USER_CARD";
 
     private NotificationMessages() {
     }
@@ -108,6 +111,27 @@ final class NotificationMessages {
 
     static String balanceRiskKey(LocalDate from) {
         return "BALANCE_RISK:" + from;
+    }
+
+    /**
+     * 실적 부족(Task 9.3.3). 중복 방지 키는 카드+월이다(2026-11-13 결정: 같은 카드·같은 달 한 번). 더 쓰라고 권하지 않고 현황만 말한다(FR-032).
+     * 누르면 앱이 그 카드의 실적 유불리 분석 화면으로 간다({@code USER_CARD}).
+     *
+     * @param targetLabel 첫 구간 표기(예: "30만원 이상")
+     * @param remaining   첫 구간까지 남은 금액(원)
+     * @param daysLeft    이번 달 남은 날(오늘 뺌). 말일이면 0
+     */
+    static NotificationWriter.Draft performanceShortfall(long userId, long userCardId, YearMonth month,
+            String cardName, String targetLabel, long remaining, int daysLeft) {
+        String when = daysLeft == 0 ? "오늘이 이번 달 마지막 날이고" : "이번 달이 " + daysLeft + "일 남았고";
+        String body = cardName + " 이번 달 실적이 " + targetLabel + " 기준까지 " + won(remaining) + " 남았어요. " + when
+                + " 지금 추세면 기준에 못 미칠 수 있어요";
+        return new NotificationWriter.Draft(userId, NotificationType.PERFORMANCE_SHORTFALL,
+                performanceShortfallKey(userCardId, month), "실적 부족 예상", body, USER_CARD, userCardId);
+    }
+
+    static String performanceShortfallKey(long userCardId, YearMonth month) {
+        return "PERFORMANCE_SHORTFALL:" + userCardId + ":" + month;
     }
 
     /** 12,300원 */

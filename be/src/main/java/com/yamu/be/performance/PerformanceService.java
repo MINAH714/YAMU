@@ -272,8 +272,8 @@ public class PerformanceService {
         return products.findAllById(ids).stream().collect(Collectors.toMap(CardProduct::getId, Function.identity()));
     }
 
-    /** 카드 목록과 같다: 별칭이 없으면 상품명. */
-    private static String nickname(UserCard card, CardProduct product) {
+    /** 카드 목록과 같다: 별칭이 없으면 상품명. 실적 부족 알림({@link PerformanceShortfallCheck})도 쓴다. */
+    static String nickname(UserCard card, CardProduct product) {
         return card.getCardAlias() == null ? product.getProductName() : card.getCardAlias();
     }
 
