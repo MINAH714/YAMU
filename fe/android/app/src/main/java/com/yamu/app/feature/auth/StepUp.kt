@@ -32,6 +32,8 @@ sealed interface PinPadResult {
 class StepUpResults @Inject constructor() {
     /** 간편 비밀번호 화면 보조 줄 — 무엇을 확인하는지('KB국민은행 ·1234 · 약관 3건'). 화면 글자뿐이라 비밀이 아님 */
     @Volatile var detail: String? = null
+    /** 간편 비밀번호 화면 제목 — 목적(purpose)만으로 모자랄 때만 쓴다(결제 취소도 결제 코드와 같은 BARCODE 인증). null이면 목적에 맞는 기본 제목 */
+    @Volatile var pinTitle: String? = null
     private val _results = MutableSharedFlow<PinPadResult>(extraBufferCapacity = 1)
     val results: SharedFlow<PinPadResult> = _results.asSharedFlow()
     fun deliver(result: PinPadResult) {
@@ -39,8 +41,11 @@ class StepUpResults @Inject constructor() {
     }
 }
 
-/** 지문 창에 띄울 글자 — '지문으로 카드를 등록해요' · '지문으로 계좌를 연결해요' */
-data class StepUpPrompt(val title: String, val subtitle: String?)
+/**
+ * 지문 창에 띄울 글자 — '지문으로 카드를 등록해요' · '지문으로 계좌를 연결해요'.
+ * [subtitle]은 간편 비밀번호 화면 보조 줄로도 쓰고, [pinTitle]이 있으면 간편 비밀번호 화면 제목을 그것으로 바꾼다
+ */
+data class StepUpPrompt(val title: String, val subtitle: String?, val pinTitle: String? = null)
 
 sealed interface StepUpUi {
     data object Idle : StepUpUi
@@ -89,6 +94,7 @@ class StepUpController(
         if (busy) return
         this.purpose = purpose
         results.detail = prompt.subtitle
+        results.pinTitle = prompt.pinTitle
         this.onToken = onToken
         this.onError = onError
         _ui.value = StepUpUi.Working
@@ -151,6 +157,10 @@ class StepUpController(
     private fun clear() {
         onToken = null
         onError = null
+        // 간편 비밀번호 화면 글자도 이 인증이 끝나면 비운다(화면은 열릴 때 이미 읽었다). 안 비우면 start() 없이 연 간편 비밀번호 화면
+        // (디버그 메뉴)에 지난 인증의 제목 · 보조 줄('취소 코드를 열어요')이 남는다
+        results.detail = null
+        results.pinTitle = null
     }
 }
 

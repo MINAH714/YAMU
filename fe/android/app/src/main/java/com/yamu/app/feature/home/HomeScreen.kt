@@ -103,6 +103,7 @@ import com.yamu.app.core.format.toMonthDay
 import com.yamu.app.core.format.toWon
 import com.yamu.app.core.network.ApiError
 import com.yamu.app.core.ui.userMessage
+import com.yamu.app.core.ui.ReloadOnReconnect
 import com.yamu.app.feature.home.data.ForecastSummary
 import com.yamu.app.feature.home.data.HomeSummary
 import com.yamu.app.feature.home.data.HomeTodo
@@ -132,6 +133,8 @@ fun HomeRoute(
         viewModel.load()                 // 돌아올 때마다(결제 뒤 반영)
         onPauseOrDispose { }
     }
+    // 인터넷이 끊겨 마지막 값을 보이는 동안 연결이 돌아오면 저절로 다시 불러온다(S15P31E103-464)
+    ReloadOnReconnect(waiting = state.error == ApiError.Network, onReconnect = viewModel::load)
     HomeScreen(
         state = state,
         onRefresh = viewModel::refresh,

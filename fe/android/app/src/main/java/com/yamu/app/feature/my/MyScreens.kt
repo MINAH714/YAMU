@@ -172,9 +172,15 @@ private fun <T> ChoiceSheet(title: String, options: List<Pair<T, String>>, selec
     }
 }
 
+/** 기본 카드 없이 자동 선택을 끄려 할 때 — 앱이 먼저 막을 때와 서버가 DEFAULT_CARD_REQUIRED로 거절할 때 같은 말 */
+internal const val NEEDS_DEFAULT_CARD = "자동 선택을 끄려면 먼저 기본 카드를 정해 주세요 · 카드를 눌러 정할 수 있어요"
+
+/** 등록한 카드가 없을 때 — 카드를 등록해도 기본 카드로 저절로 정해지지 않는다(BE) */
+internal const val NEEDS_CARD_FIRST = "자동 선택을 끄려면 카드를 추가하고 기본 카드로 정해 주세요"
+
 /** 저장 실패 문장 — 서버 코드별 */
 private fun ApiError.settingMessage(): String = when (code) {
-    "DEFAULT_CARD_REQUIRED" -> "자동 선택을 끄려면 기본 카드가 있어야 해요"
+    "DEFAULT_CARD_REQUIRED" -> NEEDS_DEFAULT_CARD
     else -> "저장하지 못했어요 · ${userMessage()}"
 }
 
@@ -425,6 +431,14 @@ class CardManageViewModel @Inject constructor(private val my: MyRepository, priv
 
     /** 바로 반영 — 실패하면 원래대로 + 이유(onDone에 문장, 성공이면 null) */
     fun setAutoSelect(on: Boolean, onDone: (String?) -> Unit) {
+        // 끄면 기본 카드로 결제한다. 기본 카드가 없으면 서버가 DEFAULT_CARD_REQUIRED로 거절해 스위치가 꺼졌다 다시 켜지니,
+        // 받아 둔 카드 목록으로 먼저 막고 안내만 한다(S15P31E103-464). 목록을 못 받았으면 스위치 대신 오류 화면이 떠서 여기 오지 않으니,
+        // 목록이 비어 있으면 등록한 카드가 0장인 것이다(서버도 DEFAULT_CARD_REQUIRED)
+        val cards = _state.value.cards
+        if (!on && cards.none { it.isDefault }) {
+            onDone(if (cards.isEmpty()) NEEDS_CARD_FIRST else NEEDS_DEFAULT_CARD)
+            return
+        }
         val before = _state.value.autoSelect
         _state.update { it.copy(autoSelect = on) }
         viewModelScope.launch {

@@ -55,6 +55,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -187,12 +188,22 @@ data class PayCodeState(
     val waiting: Boolean get() = approving || approvedLeaving
 }
 
+/**
+ * 결제 코드 본인 확인 문구. 결제 상세의 '결제 취소'에서 열면(CancelCode) 취소라고 말한다(S15P31E103-464).
+ * 인증 목적은 둘 다 BARCODE — 취소 코드도 같은 결제 코드를 매장이 찍는 것이라 서버 인증은 같다
+ */
+internal fun payCodePrompt(forCancel: Boolean): StepUpPrompt =
+    if (forCancel) StepUpPrompt("결제 취소", "인증하면 취소 코드가 보여요", pinTitle = "간편 비밀번호로\n취소 코드를 열어요")
+    else StepUpPrompt("결제 코드 열기", "인증하면 결제 코드가 보여요")
+
 @HiltViewModel
 class PayCodeViewModel @Inject constructor(
     private val payments: PaymentRepository,
     private val auth: AuthRepository,
     stepUpFactory: StepUpFactory,
     private val link: LinkRepository,
+    /** 취소 코드 화면(CancelCode)에서 만들면 경로에 paymentId가 있다 — 본인 확인 문구만 취소로 바꾼다 */
+    private val savedStateHandle: SavedStateHandle = SavedStateHandle(),
 ) : ViewModel() {
     val stepUp = stepUpFactory.create(viewModelScope)
     private val _state = MutableStateFlow(PayCodeState(checkingCards = true))
@@ -244,7 +255,7 @@ class PayCodeViewModel @Inject constructor(
         _state.update { it.copy(phase = PayPhase.Auth, error = null, remainingSec = null) }
         stepUp.start(
             purpose = StepUpPurpose.BARCODE,
-            prompt = StepUpPrompt("결제 코드 열기", "인증하면 결제 코드가 보여요"),
+            prompt = payCodePrompt(forCancel = savedStateHandle.contains("paymentId")),
             onError = { e -> _state.update { it.copy(error = e.authMessage()) } },
         ) { token ->
             _state.update { it.copy(issuing = true) }
