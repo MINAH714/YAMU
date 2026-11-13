@@ -4,8 +4,13 @@ import com.yamu.app.core.format.KST
 import com.yamu.app.core.network.ApiResult
 import com.yamu.app.core.session.DevSession
 import com.yamu.app.core.session.HomeScenario
+import com.yamu.app.core.session.PayScenario
 import com.yamu.app.feature.forecast.data.CashflowCreateRequest
+import com.yamu.app.feature.forecast.data.PaymentChannel
 import com.yamu.app.feature.forecast.data.RecurrenceRequest
+import com.yamu.app.feature.forecast.data.Simulation
+import com.yamu.app.feature.forecast.data.SimulationQuery
+import com.yamu.app.feature.payment.data.PayCode
 import com.yamu.app.feature.payment.data.PaymentEdits
 import kotlinx.coroutines.test.runTest
 import org.junit.After
@@ -31,6 +36,59 @@ class FakeSharedStateTest {
 
     @After fun tearDown() {
         DevSession.homeScenario = HomeScenario.NORMAL
+        DevSession.payScenario = PayScenario.CAFE
+    }
+
+    private suspend fun simulate(amount: Long, cardId: Long): Simulation {
+        val query = SimulationQuery(amount, null, "HYPERMARKET", "대형마트", null, null, PaymentChannel.OFFLINE, cardId, null, today)
+        return (forecast.simulate(query) as ApiResult.Success).data
+    }
+
+    // ── !294 리뷰 1 · 3 — 계좌가 하나인 새 사용자 ──
+
+    @Test fun `계좌가 하나인 새 사용자도 가상 구매가 잔고예보 최저 잔액을 바꾼다`() = runTest {
+        bank.reset()
+        val s = simulate(300_000, cardId = 16)
+        assertTrue(s.after!!.minBalance!! < s.before!!.minBalance!!)
+    }
+
+    @Test fun `계좌가 하나인 새 사용자가 저장한 계획도 잔고예보에 나온다`() = runTest {
+        bank.reset()
+        val before = (forecast.forecast() as ApiResult.Success).data.minBalance!!
+        assertTrue(forecast.savePlan(simulate(300_000, cardId = 16), "plan-1") is ApiResult.Success)
+        val after = (forecast.forecast() as ApiResult.Success).data.minBalance!!
+        assertTrue(after < before)
+    }
+
+    @Test fun `월급이 없으면 생활비 상세 기간도 30일 기준이고 월급을 넣으면 다음 월급 전까지`() = runTest {
+        bank.reset()
+        assertFalse((forecast.livingCost() as ApiResult.Success).data.isNextIncome)
+        salary(25, 2_500_000, accountId = 1)
+        assertTrue((forecast.livingCost() as ApiResult.Success).data.isNextIncome)
+    }
+
+    // ── !294 리뷰 4 — 결제 요청 카드 거르기 ──
+
+    @Test fun `결제 요청 카드는 등록한 ACTIVE 카드만이고 시나리오 카드가 없으면 등록 카드를 혜택 없이`() = runTest {
+        bank.reset()
+        register("1021")   // 새 사용자 — 톡톡(11) 1장
+        val seedBank = FakeBank(FakeUser(storage = null))   // 시드 사용자 6장에서 ZERO(12)를 자동 선택에서 뺌
+        assertTrue(seedBank.updateCard(12, nickname = null, recommended = false, isDefault = null) is ApiResult.Success)
+        val seedPayments = FakePaymentRepository(FakePerformanceStore(seedBank), PaymentEdits(), seedBank)
+
+        DevSession.payScenario = PayScenario.CAFE        // 톡톡 · ZERO
+        val cafe = (payments.issueCode("sut") as ApiResult.Success).data
+        val seedCafe = (seedPayments.issueCode("sut") as ApiResult.Success).data
+        DevSession.payScenario = PayScenario.MART        // Mr.Life · ZERO — 새 사용자에게는 둘 다 없다
+        val mart = (payments.issueCode("sut") as ApiResult.Success).data
+        Thread.sleep(3_100)   // 가짜 가맹점은 실제 시계로 3초 뒤에 찍는다
+
+        suspend fun FakePaymentRepository.cardsOf(code: PayCode) = (codeStatus(code.token) as ApiResult.Success).data.request!!.cards
+        assertEquals(listOf(11L), payments.cardsOf(cafe).map { it.userCardId })
+        assertEquals(listOf(11L), seedPayments.cardsOf(seedCafe).map { it.userCardId })
+        val martCards = payments.cardsOf(mart)
+        assertEquals(listOf(11L), martCards.map { it.userCardId })
+        assertEquals(0, martCards.single().netBenefit.signum())
     }
 
     private suspend fun register(last4: String) {

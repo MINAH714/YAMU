@@ -1,7 +1,6 @@
 package com.yamu.app.data
 
 import android.content.Context
-import com.yamu.app.core.format.KST
 import com.yamu.app.core.session.DevSession
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.serialization.Serializable
@@ -25,7 +24,7 @@ class FakeUser internal constructor(private val storage: Storage?) {
     /**
      * [seeded]가 true면 시드 사용자(가입한 지 오래돼 지난 결제 · 실적 기록이 있음), false면 방금 가입한 새 사용자.
      * [accounts] · [cards]는 연결한 계좌 · 등록한 카드 assetId(넣은 순서). [excluded]는 자동 선택에서 뺀 카드(INACTIVE).
-     * [salary]는 B-06 월급 시트에서 넣은 월급 — 없으면 잔고예보는 BE처럼 30일
+     * [salary]는 B-06 월급 시트에서 넣은 월급 — 지금 월급은 [salaryOn]으로 읽는다(없으면 잔고예보는 BE처럼 30일)
      */
     @Serializable
     data class State(
@@ -39,7 +38,13 @@ class FakeUser internal constructor(private val storage: Storage?) {
         val defaultCard: String? = null,
         val order: List<String> = emptyList(),
         val salary: Salary? = null,
-    )
+    ) {
+        /**
+         * 지금 월급 — B-06에서 넣은 값. 넣은 적 없는 시드 사용자는 늘 [today] + 25일이다.
+         * 시드 월급은 저장하지 않아 며칠 뒤에 켜도 잔고예보 시연 숫자가 그대로고, 월급 칸이 없던 -453 저장값에도 붙는다(!294 리뷰)
+         */
+        fun salaryOn(today: LocalDate): Salary? = salary ?: seedSalary(today).takeIf { seeded }
+    }
 
     /** 매월 [day]일(그달에 없으면 말일) [amount]원이 [account](assetId)로 들어온다 */
     @Serializable
@@ -91,16 +96,18 @@ class FakeUser internal constructor(private val storage: Storage?) {
 
         /**
          * 디버그 '카드 6장' · 저장한 값이 없을 때 — 계좌 둘(KB ·1234 기준 · 신한 ·5678), 새로 나온 트래블로그(C7) 빼고 카드 6장,
-         * 월급은 기준 계좌로 오늘 + 25일(잔고예보 시연 숫자가 이 날짜에 맞춰져 있다)
+         * 월급은 저장하지 않고 읽을 때 [seedSalary]로 셈한다([State.salaryOn])
          */
-        fun seed(today: LocalDate = LocalDate.now(KST)) = State(
+        fun seed() = State(
             seeded = true,
             accounts = listOf("A1", "A2"),
             cards = listOf("C1", "C2", "C3", "C4", "C5", "C6"),
             primaryAccount = "A1",
             defaultCard = "C2",
-            salary = Salary(today.plusDays(25).dayOfMonth, 2_800_000, "A1"),
         )
+
+        /** 시드 사용자 월급 — 기준 계좌(KB ·1234)로 [today] + 25일(잔고예보 시연 숫자가 이 날짜에 맞춰져 있다) */
+        fun seedSalary(today: LocalDate) = Salary(today.plusDays(25).dayOfMonth, 2_800_000, "A1")
 
         /** 방금 가입한 사용자 — 가입 때 1원으로 연결한 계좌만 있고 카드 0장 · 월급 없음(실서버에서 '나중에 할게요'를 고른 사용자) */
         fun newUser(accounts: List<String> = listOf("A1"), primary: String? = accounts.firstOrNull()) =

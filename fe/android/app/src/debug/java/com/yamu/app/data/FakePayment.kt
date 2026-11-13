@@ -268,7 +268,10 @@ class FakePaymentRepository @Inject constructor(
         val now = OffsetDateTime.now(KST).truncatedTo(ChronoUnit.SECONDS).toString()
         val result = if (receipt.isCheck) {
             // 체크카드 — 출금액을 연결 계좌로 바로 입금하고 입금 뒤 잔액
-            CancelResult(paymentId, now, excludedBills = 0, refunds = emptyList(), balanceAfter = (receipt.balanceAfter ?: 950_000) + (receipt.chargedAmount ?: receipt.amount))
+            // 결제 뒤 잔액이 없으면(가짜 계좌 잔액은 결제로 줄지 않는다) 그 카드 출금 계좌의 지금 잔액 — 계좌 관리와 같은 값
+            val charged = receipt.chargedAmount ?: receipt.amount
+            val restored = receipt.balanceAfter?.plus(charged) ?: receipt.cardId?.let(bank::balanceForCard)
+            CancelResult(paymentId, now, excludedBills = 0, refunds = emptyList(), balanceAfter = restored)
         } else {
             // 신용카드 — 가짜 청구일은 다음 달이라 모두 청구 전 → 청구에서 빠진다
             CancelResult(paymentId, now, excludedBills = receipt.installmentMonths ?: 1, refunds = emptyList(), balanceAfter = null)

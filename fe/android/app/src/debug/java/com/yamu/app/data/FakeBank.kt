@@ -149,8 +149,8 @@ class FakeBank @Inject constructor(private val user: FakeUser) {
 
     private fun accountIdOf(assetId: String): Long? = linkedAccounts().indexOfFirst { it.assetId == assetId }.takeIf { it >= 0 }?.let { it + 1L }
 
-    /** B-06에서 넣은 월급 — 없으면 null */
-    val salary: FakeUser.Salary? get() = user.state.salary
+    /** B-06에서 넣은 월급(넣은 적 없는 시드 사용자는 오늘 + 25일) — 없으면 null */
+    val salary: FakeUser.Salary? get() = user.state.salaryOn(LocalDate.now(KST))
 
     /** 월급이 들어오는 계좌의 계좌 관리 번호 — 그 계좌를 끊었으면 null */
     fun salaryAccountId(): Long? = salary?.let { accountIdOf(it.account) }
@@ -439,8 +439,10 @@ class FakeBank @Inject constructor(private val user: FakeUser) {
                 if (s.seeded) "시드 사용자 · 지난 결제 · 실적 · 알림 기록 있음" else "새 사용자 · 지난 기록 없음(이번 실행에서 한 결제만)",
                 "계좌 ${acc.size}개" + acc.joinToString(" · ", prefix = ": ") { a -> label(a) + " " + won(a.balance) + if (a.assetId == s.primaryAccount) "(기준)" else "" }.takeIf { acc.isNotEmpty() }.orEmpty(),
                 "카드 ${crd.size}장" + crd.joinToString(" · ", prefix = ": ") { c -> (s.nicknames[c.assetId] ?: c.product) + if (c.assetId in s.excluded) "(자동 선택 뺌)" else "" }.takeIf { crd.isNotEmpty() }.orEmpty(),
-                s.salary?.let { sal -> "월급: 매월 ${sal.day}일 ${won(sal.amount)} · " + (ACCOUNTS.firstOrNull { it.assetId == sal.account }?.let(::label) ?: "계좌 없음") }
-                    ?: "월급: 없음(잔고예보는 30일)",
+                s.salaryOn(LocalDate.now(KST))?.let { sal ->
+                    "월급: 매월 ${sal.day}일 ${won(sal.amount)} · " + (ACCOUNTS.firstOrNull { it.assetId == sal.account }?.let(::label) ?: "계좌 없음") +
+                        if (s.salary == null) "(시드라 늘 오늘 + 25일)" else ""
+                } ?: "월급: 없음(잔고예보는 30일)",
             )
         }
     }

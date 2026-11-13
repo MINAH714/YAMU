@@ -131,7 +131,7 @@ class FakeForecastRepository @Inject constructor(private val bank: FakeBank) : F
     private fun monthly(id: Long, title: String, amount: Long, date: LocalDate) =
         Item(id, isIncome = false, title, amount, date, CashflowRepeat.MONTHLY, date.dayOfMonth, null, accountId = 1, userCardId = null)
 
-    /** 생활카드(11, 생활비 통장 출금)로 낼 한 번짜리 예정 지출 — 결제와 연결할 수 있는 회차 */
+    /** 생활카드(11)로 낼 한 번짜리 예정 지출 — 결제와 연결할 수 있는 회차. 출금 계좌는 카드 관리와 같은 11번 카드(KB 톡톡)의 출금 계좌(KB ·1234) */
     private fun card(id: Long, title: String, amount: Long, date: LocalDate) =
         Item(id, isIncome = false, title, amount, date, CashflowRepeat.NONE, null, null, accountId = null, userCardId = 11)
 
@@ -205,9 +205,17 @@ class FakeForecastRepository @Inject constructor(private val bank: FakeBank) : F
             generateSequence(s.nextAfter(today)) { s.nextAfter(it) }.takeWhile { !it.isAfter(to) }
                 .map { Flow(account, it, s.amount, "SCHEDULED_INCOME", "CONFIRMED", "월급") }.toList()
         }.orEmpty()
-        val planFlows = plans.map { Flow(2, it.payDate, -it.amount, "SCHEDULED_OUTFLOW", "CONFIRMED", it.title) }
+        val planAccount = spendAccount()
+        val planFlows = plans.map { Flow(planAccount, it.payDate, -it.amount, "SCHEDULED_OUTFLOW", "CONFIRMED", it.title) }
         return (if (bank.seeded) listOf(bill, estimate) else emptyList()) + fromItems + salary + planFlows
     }
+
+    /**
+     * 가상 구매 · 저장한 계획이 빠지는 계좌 — 두 번째 연결 계좌(시드 사용자는 신한 ·5678)가 있으면 그 계좌, 없으면 기준 계좌(그것도 없으면 첫 계좌).
+     * 계좌 번호가 연결 순서를 따라서, 계좌가 하나인 새 사용자에게 2번을 쓰면 없는 계좌라 잔고예보에서 걸러진다(!294 리뷰)
+     */
+    private fun spendAccount(): Long =
+        (accountList.firstOrNull { it.id == 2L } ?: accountList.firstOrNull { it.primary } ?: accountList.firstOrNull())?.id ?: 2L
 
     /** 계좌마다 출금 카드 — 가짜 은행의 등록 카드 출금 계좌(카드 관리와 같다) */
     private fun options(): List<ForecastAccountOption> = accountList.map { a ->
@@ -454,8 +462,8 @@ class FakeForecastRepository @Inject constructor(private val bank: FakeBank) : F
         val card = chosen ?: top
         val (benefitName, benefitAmount) = net(card)
         val schedule = withdrawals(card, query.purchaseDate, query.amount, query.installmentMonths)
-        // 가짜는 가상 구매 출금을 저장한 계획과 같은 생활비 통장(2)에서 뺀다
-        val purchaseAccount = 2L
+        // 가짜는 가상 구매 출금을 저장한 계획과 같은 계좌(시드 사용자는 신한 ·5678, 계좌가 하나면 기준 계좌)에서 뺀다
+        val purchaseAccount = spendAccount()
         val purchaseFlows = schedule.map { Flow(purchaseAccount, LocalDate.parse(it.date), it.amount, "SIMULATED_PURCHASE", "CONFIRMED", it.label ?: "가상 구매") }
         val before = build(current)
         val after = build(current, purchaseFlows)
@@ -766,7 +774,8 @@ class FakeForecastRepository @Inject constructor(private val bank: FakeBank) : F
             method = "ML_V1",
             dataOrigin = "REAL",
             confidence = "HIGH",
-            period = LivingPeriodDto(today.toString(), to.toString(), days, if (current.period?.days == null) "NEXT_INCOME" else "DAYS"),
+            // 잔고예보 기간과 같은 기준 — 월급이 없으면 NEXT_INCOME을 골랐어도 30일(DAYS)
+            period = LivingPeriodDto(today.toString(), to.toString(), days, if (current.period?.days == null && income != null) "NEXT_INCOME" else "DAYS"),
             sources = listOf(3L to 93L, 2L to 108L, 1L to 99L).map { (n, pct) -> LivingSourceDto(month.minusMonths(n).toString(), daily * 30 * pct / 100) },
             excluded = listOf(
                 LivingExclusionDto("RECURRING", "매달 같은 가맹점 · 같은 금액으로 나간 정기 결제는 뺐어요"),
