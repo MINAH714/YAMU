@@ -3,6 +3,7 @@ package com.yamu.app.feature.link.data
 import com.yamu.app.core.format.KST
 import com.yamu.app.core.format.toKoreanDate
 import com.yamu.app.core.network.ApiEnvelope
+import com.yamu.app.core.network.ApiError
 import com.yamu.app.core.network.ApiResult
 import com.yamu.app.core.network.YamuHeaders
 import com.yamu.app.core.network.apiCall
@@ -190,6 +191,7 @@ data class CashflowDraft(
     val dailyLivingCost: Long?,
     val savedIncome: SavedIncome? = null,
     val incomeAccounts: List<IncomeAccount> = emptyList(),
+    val incomeAccountsError: ApiError? = null,   // 받을 계좌를 못 읽음 — 계좌 0개(빈 목록)와 가른다(QA P1-04)
 ) {
     /** 찾은 고정 지출 · 카드대금이 없다(월급은 찾는 대상이 아니다) */
     val noFixed: Boolean get() = expenses.isEmpty() && bills.isEmpty()
@@ -198,6 +200,12 @@ data class CashflowDraft(
 
     /** 월급을 여기서 새로 넣을 수 있는지 — 정해 둔 월급 · 수입 후보가 없고 들어올 계좌가 있을 때 */
     val canEnterIncome: Boolean get() = savedIncome == null && income == null && incomeAccounts.isNotEmpty()
+
+    /**
+     * 월급을 여기서 넣어야 하는데 받을 계좌를 못 읽었다 — 월급 줄 자리에 '계좌를 불러오지 못했어요 [다시 시도]'.
+     * 전에는 실패를 빈 목록으로 삼켜 계좌가 없는 것처럼 월급 줄이 통째로 사라졌다(QA P1-04). 계좌가 정말 0개면 지금처럼 숨긴다
+     */
+    val incomeAccountsFailed: Boolean get() = savedIncome == null && income == null && incomeAccountsError != null
 
     val defaultIncomeAccount: IncomeAccount? get() = incomeAccounts.firstOrNull { it.isPrimary } ?: incomeAccounts.firstOrNull()
 }
@@ -258,9 +266,12 @@ fun ForecastSettingsPatch.toBody(): JsonObject = buildJsonObject {
 interface CashflowRepository {
     /**
      * B-06 미리 채울 값 — 후보(#19) · 정해 둔 월급 · 하루 생활비(정해 둔 목표, 없으면 생활비 상세의 하루 평균) · 월급 받을 계좌.
-     * 평균과 계좌는 실패해도 된다(계좌를 못 읽으면 월급만 여기서 못 넣는다)
+     * 평균과 계좌는 실패해도 화면은 연다. 계좌를 못 읽으면 [CashflowDraft.incomeAccountsError]에 담아 월급 줄에서 다시 시도하게 한다
      */
     suspend fun draft(): ApiResult<CashflowDraft>
+
+    /** 월급 받을 계좌만 다시 — B-06 월급 줄의 [다시 시도]. 고친 금액 · 하루 생활비는 화면에 그대로 둔다 */
+    suspend fun incomeAccounts(): ApiResult<List<IncomeAccount>>
 
     /** 월급 등록 → 새 항목 ID. 다시 보낼 때는 같은 키 · 같은 본문을 쓴다(서버가 한 번만 만든다) */
     suspend fun createIncome(body: CashflowCreateRequest, idempotencyKey: String): ApiResult<Long>
@@ -283,8 +294,8 @@ class CashflowRepositoryImpl @Inject constructor(private val api: CashflowApi, p
     override suspend fun draft(): ApiResult<CashflowDraft> = coroutineScope {
         val items = async { apiCall { api.items(status = "CANDIDATE", expand = false) } }
         val settings = async { apiCall { api.settings() } }
-        val accounts = async { (apiCall { linkApi.accounts(null) } as? ApiResult.Success)?.data?.accounts.orEmpty() }
-        val average = async { dailyAverage(accounts.await()) }
+        val accounts = async { apiCall { linkApi.accounts(null) } }
+        val average = async { dailyAverage((accounts.await() as? ApiResult.Success)?.data?.accounts.orEmpty()) }
         // 정해 둔 하루 목표를 모른 채 평균을 채우면 저장할 때 목표가 바뀌어서 실패로 돌려 다시 읽게 한다
         val s = when (val r = settings.await()) {
             is ApiResult.Failure -> {
@@ -303,11 +314,21 @@ class CashflowRepositoryImpl @Inject constructor(private val api: CashflowApi, p
         // 정해 둔 하루 목표가 먼저 — 평균으로 채우면 [등록하고 첫 분석 보기]만 눌러도 사용자가 정한 목표가 바뀐다
         val daily = s.dailyLivingCostTarget?.also { average.cancel() } ?: average.await()
         val saved = s.income?.let { SavedIncome(it.cashflowItemId, it.title, it.amount, it.dayOfMonth) }
-        val incomeAccounts = accounts.await().map { a ->
-            IncomeAccount(a.accountId, "${a.accountName?.takeIf { it.isNotBlank() } ?: "${a.bank.name} 입출금"} ··${a.maskedAccountNo.lastDigits()}", a.isPrimary)
-        }
-        ApiResult.Success(candidates.items.toDraft(daily).copy(savedIncome = saved, incomeAccounts = incomeAccounts))
+        val linked = accounts.await()
+        ApiResult.Success(
+            candidates.items.toDraft(daily).copy(
+                savedIncome = saved,
+                incomeAccounts = (linked as? ApiResult.Success)?.data?.accounts.orEmpty().map { it.toIncomeAccount() },
+                incomeAccountsError = (linked as? ApiResult.Failure)?.error,
+            ),
+        )
     }
+
+    override suspend fun incomeAccounts(): ApiResult<List<IncomeAccount>> =
+        apiCall { linkApi.accounts(null) }.map { r -> r.accounts.map { it.toIncomeAccount() } }
+
+    private fun AccountDto.toIncomeAccount() =
+        IncomeAccount(accountId, "${accountName?.takeIf { it.isNotBlank() } ?: "${bank.name} 입출금"} ··${maskedAccountNo.lastDigits()}", isPrimary)
 
     /**
      * 연결 계좌 전부의 최근 3개월 하루 평균(잔고예보도 고른 계좌가 없으면 전부를 쓴다). 기간 예측을 일수로 나누지 않는 것은

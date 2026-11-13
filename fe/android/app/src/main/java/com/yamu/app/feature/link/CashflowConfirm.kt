@@ -86,6 +86,7 @@ data class CashflowConfirmState(
     val saving: Boolean = false,
     val saveError: String? = null,
     val saved: Boolean = false,
+    val retryingAccounts: Boolean = false,         // 월급 받을 계좌를 다시 부르는 중
 ) {
     fun amountOf(c: CashflowCandidate): Long = amounts[c.id] ?: c.amount
 
@@ -103,6 +104,8 @@ data class CashflowConfirmState(
             loadError != null || draft == null -> CashflowHeadline("고정 지출을\n불러오지 못했어요", null)
             draft.income != null -> CashflowHeadline("월급과 고정 지출을\n채워 뒀어요", "다르면 눌러서 고쳐요")
             draft.noFixed && draft.canEnterIncome && newIncome == null -> CashflowHeadline("찾은 고정 지출이\n아직 없어요", "월급을 넣어 두면 월급날까지 예보해 드려요")
+            // 받을 계좌를 못 읽었으면 아래 월급 줄이 [다시 시도]라 '나중에 잔고예보에서'라고 하지 않는다(!292 리뷰, 잔고예보의 '월급 등록하기'로도 온다)
+            draft.noFixed && draft.incomeAccountsFailed -> CashflowHeadline("찾은 고정 지출이\n아직 없어요", "계좌를 다시 불러오면 월급을 넣을 수 있어요")
             draft.noFixed -> CashflowHeadline("찾은 고정 지출이\n아직 없어요", "나중에 잔고예보에서 넣을 수 있어요")
             draft.canEnterIncome && newIncome == null -> CashflowHeadline("고정 지출을\n채워 뒀어요", "다르면 눌러서 고치고 월급은 직접 넣어 주세요")
             else -> CashflowHeadline("고정 지출을\n채워 뒀어요", "다르면 눌러서 고쳐요")
@@ -134,6 +137,25 @@ class CashflowConfirmViewModel @Inject constructor(private val cashflow: Cashflo
             when (val r = cashflow.draft()) {
                 is ApiResult.Success -> _state.update { it.copy(loading = false, draft = r.data, dailyCost = r.data.dailyLivingCost) }
                 is ApiResult.Failure -> _state.update { it.copy(loading = false, loadError = r.error.userMessage()) }
+            }
+        }
+    }
+
+    /**
+     * 월급 줄의 [다시 시도] — 받을 계좌만 다시 부른다. 전체를 다시 부르면 고친 금액 · 하루 생활비가 처음 값으로 돌아간다.
+     * 연타는 부르는 중이면 무시
+     */
+    fun retryIncomeAccounts() {
+        if (_state.value.retryingAccounts || _state.value.draft == null) return
+        _state.update { it.copy(retryingAccounts = true) }
+        viewModelScope.launch {
+            val r = cashflow.incomeAccounts()
+            _state.update { s ->
+                val d = s.draft ?: return@update s.copy(retryingAccounts = false)
+                when (r) {
+                    is ApiResult.Success -> s.copy(retryingAccounts = false, draft = d.copy(incomeAccounts = r.data, incomeAccountsError = null))
+                    is ApiResult.Failure -> s.copy(retryingAccounts = false, draft = d.copy(incomeAccountsError = r.error))
+                }
             }
         }
     }
@@ -294,7 +316,7 @@ fun CashflowConfirmRoute(
                 draft == null -> Unit
                 // 찾은 게 없어도 하루 생활비 줄은 둔다 — 제안값이 화면에 없는 채로 저장되지 않게
                 else -> {
-                    IncomeSection(draft, s, onEdit = { viewModel.edit(it) })
+                    IncomeSection(draft, s, onEdit = { viewModel.edit(it) }, onRetryAccounts = viewModel::retryIncomeAccounts)
                     val today = remember { LocalDate.now(KST).dayOfMonth }
                     val lines = (draft.expenses.map { FixedLine.Candidate(it) } + draft.bills.map { FixedLine.Bill(it) })
                         .sortedBy(upcomingOrder(today))
@@ -357,14 +379,15 @@ fun CashflowConfirmRoute(
 
 /**
  * 월급 묶음 — 정해 둔 월급은 보여 주기만, 수입 후보(옛 서버)는 후보 줄, 그 밖에는 직접 넣는 줄.
- * 서버가 월급을 후보로 만들지 않아(BE -349 !200) 여기서 넣지 않으면 앱 어디서도 월급을 정할 곳이 없다
+ * 서버가 월급을 후보로 만들지 않아(BE -349 !200) 여기서 넣지 않으면 앱 어디서도 월급을 정할 곳이 없다.
+ * 받을 계좌를 못 읽었으면 같은 자리에 다시 시도 줄(QA P1-04)
  */
 @Composable
-private fun IncomeSection(draft: CashflowDraft, s: CashflowConfirmState, onEdit: (CashflowEdit) -> Unit) {
+private fun IncomeSection(draft: CashflowDraft, s: CashflowConfirmState, onEdit: (CashflowEdit) -> Unit, onRetryAccounts: () -> Unit) {
     val c = YamuTheme.colors
     val saved = draft.savedIncome
     val candidate = draft.income
-    if (saved == null && candidate == null && !draft.canEnterIncome) return
+    if (saved == null && candidate == null && !draft.canEnterIncome && !draft.incomeAccountsFailed) return
     Text("월급", style = YamuTheme.typography.sub.copy(fontWeight = FontWeight.SemiBold), color = c.text3)
     when {
         saved != null -> ListRow(
@@ -374,6 +397,13 @@ private fun IncomeSection(draft: CashflowDraft, s: CashflowConfirmState, onEdit:
             valueColor = c.primary,
         )
         candidate != null -> CandidateRow(candidate, s, onClick = { onEdit(CashflowEdit.Item(candidate)) })
+        draft.incomeAccountsFailed -> ListRow(
+            title = IncomeInput.INCOME_TITLE,
+            sub = "계좌를 불러오지 못했어요",
+            value = if (s.retryingAccounts) "불러오는 중" else "다시 시도",
+            valueColor = if (s.retryingAccounts) c.text3 else c.primary,
+            onClick = if (s.retryingAccounts) null else onRetryAccounts,
+        )
         else -> {
             val input = s.newIncome
             val account = input?.let { i -> draft.incomeAccounts.firstOrNull { it.accountId == i.accountId } }
