@@ -671,7 +671,7 @@ function App() {
             >
               <Amount className="tray-amount" value={chargedOf(phase.item)} size="lg" />
               <TrayStep key={`cancel-${phase.entry}`}>
-                <CancelScanInTray notice={null} onToken={(token) => startCancel(phase.item, token)} />
+                <CancelScanInTray onToken={(token) => startCancel(phase.item, token)} />
               </TrayStep>
             </Tray>
           )}

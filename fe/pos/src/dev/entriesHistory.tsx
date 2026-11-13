@@ -21,12 +21,12 @@ function HistoryDemo({ items = demoHistory(), initial }: { items?: PaymentHistor
   return <PaymentHistory items={items} selectedId={selectedId} onSelect={setSelectedId} onCancel={noop} onBack={noop} />
 }
 
-function CancelTray({ item, notice = null }: { item: PaymentHistoryItem; notice?: string | null }) {
+function CancelTray({ item }: { item: PaymentHistoryItem }) {
   return (
     <Tray key="tray" title="고객 바코드를 스캔해 주세요" width={720} onBack={noop}>
       <Amount className="tray-amount" value={chargedOf(item)} size="lg" />
       <TrayStep>
-        <CancelScanStep notice={notice} onToken={noop} />
+        <CancelScanStep onToken={noop} />
       </TrayStep>
     </Tray>
   )
@@ -65,13 +65,6 @@ export const historyEntries: GalleryEntry[] = [
     label: '취소 스캔',
     render: () => <HistoryDemo />,
     tray: () => <CancelTray item={first()} />,
-  },
-  {
-    ...base,
-    id: 'history-scan-rejected',
-    label: '취소 스캔(거절 뒤)',
-    render: () => <HistoryDemo />,
-    tray: () => <CancelTray item={first()} notice={CANCEL_NOT_FOUND_MESSAGE} />,
   },
   {
     ...base,

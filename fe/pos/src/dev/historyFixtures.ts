@@ -1,4 +1,6 @@
+import { ApiError } from '../api/client'
 import type { PaymentHistoryItem } from '../api/posHistory'
+import { classifyCancelError } from '../payment/cancelErrors'
 
 const kstDate = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' })
 
@@ -49,5 +51,7 @@ export function demoHistory(): PaymentHistoryItem[] {
   ]
 }
 
-/** BE 404 RESOURCE_NOT_FOUND의 기본 문구. 다른 고객 바코드·다른 POS면 이 문구가 온다 */
-export const CANCEL_NOT_FOUND_MESSAGE = '요청한 정보를 찾을 수 없습니다.'
+/** 다른 고객 바코드·다른 POS로 취소했을 때(BE 404 RESOURCE_NOT_FOUND) 화면에 보이는 문구. 실제 판정을 그대로 거친다 */
+export const CANCEL_NOT_FOUND_MESSAGE = classifyCancelError(
+  new ApiError(404, 'RESOURCE_NOT_FOUND', '요청한 정보를 찾을 수 없습니다.', []),
+).message
