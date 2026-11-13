@@ -1,0 +1,443 @@
+package com.yamu.app.feature.report
+
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.dp
+import com.yamu.app.core.designsystem.component.EmptyState
+import com.yamu.app.core.designsystem.component.ErrorState
+import com.yamu.app.core.designsystem.component.LinkButton
+import com.yamu.app.core.designsystem.component.NeutralButton
+import com.yamu.app.core.designsystem.component.SkeletonBlock
+import com.yamu.app.core.designsystem.component.StatusTag
+import com.yamu.app.core.designsystem.component.TagTone
+import com.yamu.app.core.designsystem.component.YamuCard
+import com.yamu.app.core.designsystem.theme.YamuSpacing
+import com.yamu.app.core.designsystem.theme.YamuTheme
+import com.yamu.app.core.format.toMonthDay
+import com.yamu.app.core.format.toMonthDayWeek
+import com.yamu.app.core.format.toWon
+import com.yamu.app.feature.forecast.BalanceChart
+import com.yamu.app.feature.forecast.BalanceZone
+import com.yamu.app.feature.forecast.ChartLine
+import com.yamu.app.feature.forecast.DayKind
+import com.yamu.app.feature.forecast.DaySelection
+import com.yamu.app.feature.forecast.DaySource
+import com.yamu.app.feature.forecast.DateStrip
+import com.yamu.app.feature.forecast.HATCH_LIGHT
+import com.yamu.app.feature.forecast.HATCH_STRONG
+import com.yamu.app.feature.forecast.LINE_WITHOUT_LIVING
+import com.yamu.app.feature.forecast.LINE_WITH_LIVING
+import com.yamu.app.feature.forecast.MonthChart
+import com.yamu.app.feature.forecast.StripDay
+import com.yamu.app.feature.forecast.StripJump
+import com.yamu.app.feature.forecast.accepts
+import com.yamu.app.feature.forecast.data.FlowType
+import com.yamu.app.feature.forecast.data.ForecastEvent
+import com.yamu.app.feature.forecast.drawHatch
+import com.yamu.app.feature.forecast.kindShortLabel
+import com.yamu.app.feature.forecast.splitByKind
+import com.yamu.app.feature.forecast.toKoreanDateWeek
+import com.yamu.app.feature.forecast.zoneOf
+import com.yamu.app.feature.report.data.ASSET_FLOW_AFTER
+import com.yamu.app.feature.report.data.AssetDay
+import com.yamu.app.feature.report.data.AssetFlow
+import com.yamu.app.feature.report.data.ShownMonth
+import com.yamu.app.feature.report.data.accountTag
+import com.yamu.app.feature.report.data.assetDays
+import com.yamu.app.feature.report.data.beyondInMonth
+import com.yamu.app.feature.report.data.forecastAfter
+import com.yamu.app.feature.report.data.monthTitle
+import java.time.LocalDate
+import java.time.YearMonth
+import java.time.ZonedDateTime
+import java.time.format.DateTimeFormatter
+
+/**
+ * S-01 자산 흐름 칸(v4 ANALYSIS-01~15, S15P31E103-483) — 사용금액 바로 아래.
+ * 머리(계좌 이름표 · 오늘로) → 지금 잔고(늘 오늘 기준) → 한 달 그래프 · 범례 · 날짜 띠 → 고른 날 칸 → 범위 밖 출금 → 7 · 14 · 30일 뒤 → 잔고예보로.
+ * 그래프 끌기 · 띠 밀기 · 알약 누르기가 같은 날을 고르고(잔고예보와 같은 [DaySelection]), 가로로 움직일 때만 날을 바꾼다(세로는 페이지 스크롤, ANALYSIS-15)
+ */
+@Composable
+internal fun AssetFlowCard(
+    s: ReportState,
+    onSelectDate: (LocalDate) -> Unit,
+    onMonth: (YearMonth) -> Unit,
+    onToday: () -> Unit,
+    onRetry: () -> Unit,
+    onForecast: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val c = YamuTheme.colors
+    val a = s.asset
+    val flow = a.flow
+    val atToday = s.shown.month == YearMonth.from(s.today) && s.assetDate == s.today
+    YamuCard(modifier, contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 12.dp, bottom = 16.dp)) {
+        Row(Modifier.heightIn(min = 48.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text("자산 흐름", style = YamuTheme.typography.cardTitle, color = c.text1)
+            flow?.let {
+                Spacer(Modifier.width(8.dp))
+                AccountTag(accountTag(it.accounts))
+            }
+            Spacer(Modifier.weight(1f))
+            if (flow != null && !atToday) LinkButton("오늘로", onClick = onToday)
+        }
+        when {
+            a.noAccount -> EmptyState("계좌를 연결하면 자산 흐름을 보여 드려요")
+            flow == null && a.loading -> {
+                SkeletonBlock(height = 20.dp, widthFraction = 0.6f)
+                Spacer(Modifier.height(YamuSpacing.x3))
+                SkeletonBlock(height = 184.dp)
+            }
+            flow == null -> ErrorState(a.error ?: "자산 흐름을 불러오지 못했어요", onRetry = onRetry)
+            else -> AssetFlowBody(s, flow, onSelectDate, onMonth, onRetry, onForecast)
+        }
+    }
+}
+
+@Composable
+private fun AssetFlowBody(
+    s: ReportState,
+    flow: AssetFlow,
+    onSelectDate: (LocalDate) -> Unit,
+    onMonth: (YearMonth) -> Unit,
+    onRetry: () -> Unit,
+    onForecast: () -> Unit,
+) {
+    val c = YamuTheme.colors
+    val f = flow.forecast
+    // 지금 잔고 — 지난달을 봐도 '오늘 기준'이라고 적는다(ANALYSIS-03)
+    Row(Modifier.fillMaxWidth().semantics(mergeDescendants = true) { }, verticalAlignment = Alignment.CenterVertically) {
+        Text(nowLine(flow.loadedAt, s.today), style = YamuTheme.typography.bodyS, color = c.text3, modifier = Modifier.weight(1f))
+        Text(flow.currentBalance?.let { "${it.toWon()}원" } ?: "확인할 수 없음", style = YamuTheme.typography.value, color = c.text1)
+    }
+    s.asset.error?.let { Text("$it · 마지막 값을 보여 드려요", style = YamuTheme.typography.bodyS, color = c.warning) }
+    if (f == null) {
+        // 계좌는 받았는데 예보만 실패 — 지금 잔고는 두고 예보 자리에만 다시 시도(명세 '예측 실패')
+        Row(Modifier.fillMaxWidth().heightIn(min = 48.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text("예보를 불러오지 못했어요", style = YamuTheme.typography.bodyS, color = c.warning, modifier = Modifier.weight(1f))
+            LinkButton("다시 시도", onClick = onRetry)
+        }
+    }
+    Spacer(Modifier.height(YamuSpacing.x3))
+    val month = s.shown.month
+    val days = remember(month, s.today, flow, s.asset.history) { assetDays(month, s.today, flow, s.asset.history) }
+    // 달마다 그래프 · 띠를 새로 — 띠 스크롤 · 손잡이 위치 · 첫 안내가 앞 달 것을 이어받지 않게
+    key(month) {
+        val target = days.indexOfFirst { it.date == s.assetDate }.coerceAtLeast(0)
+        val day = rememberSaveable(month.toString(), days.size, saver = DaySelection.saver(days.size)) { DaySelection(target, days.size) }
+        // 바깥(오늘로 · 홈에서 내려옴)에서 날을 바꿨을 때만 따라간다 — 여기서 고른 날이 ViewModel을 돌아 늦게 와도 손잡이를 되돌리지 않게
+        LaunchedEffect(s.assetReset) { if (target != day.day) day.select(target, DaySource.LIST) }
+        var chartDragging by remember { mutableStateOf(false) }
+        val select: (Int, DaySource) -> Unit = { i, from ->
+            if (accepts(from, chartDragging)) {
+                day.select(i, from)
+                days.getOrNull(day.day)?.let { onSelectDate(it.date) }
+            }
+        }
+        val kinds = remember(days) { days.map { it.kind } }
+        val (actual, expected) = remember(days) { splitByKind(days.map { it.value }, kinds) }
+        val lines = listOf(
+            ChartLine("실제", actual, c.primary, width = 2.6.dp),
+            ChartLine("예상", expected, c.primary, dashed = true, width = 2.2.dp),
+        )
+        BalanceChart(
+            dates = days.map { it.date },
+            lines = lines,
+            description = assetChartDescription(month, kinds, f?.hasConservative == true),
+            eventDays = remember(days) { days.indices.filter { days[it].events.isNotEmpty() }.toSet() },
+            selected = day.day,
+            onSelect = { select(it, DaySource.CHART) },
+            dayLabel = { assetDayLabel(days[it]) },
+            dayState = { assetDayState(days[it]) },
+            interacted = day.touched,
+            onInteract = day::touch,
+            onDragChange = { chartDragging = it },
+            month = MonthChart(kinds),
+        )
+        Spacer(Modifier.height(10.dp))
+        AssetLegend(kinds, hasConservative = f?.hasConservative == true)
+        Spacer(Modifier.height(6.dp))
+        val strip = remember(days) { days.map { StripDay(it.date, it.events.sumOf { e -> e.amount }, it.value?.let { v -> zoneOf(v, null) } ?: BalanceZone.OK, it.kind) } }
+        DateStrip(
+            days = strip,
+            selected = day.day,
+            source = day.source,
+            onSelect = select,
+            hint = !day.touched,
+            bleed = 20.dp,   // 카드 안쪽 여백만큼 카드 끝까지
+            leading = s.shown.takeIf { it.canPrev }?.let { sh -> monthTitle(sh.prev, sh.thisMonth).let { t -> StripJump("‹ $t 보기", "$t 보기", onClick = { onMonth(sh.prev) }) } },
+            trailing = s.shown.takeIf { it.canNext }?.let { sh -> monthTitle(sh.next, sh.thisMonth).let { t -> StripJump("$t 보기 ›", "$t 보기", onClick = { onMonth(sh.next) }) } },
+        )
+        Spacer(Modifier.height(10.dp))
+        days.getOrNull(day.day)?.let { AssetDayPanel(it, flow, s.today) }
+    }
+    // 범위 밖 큰 출금 — 그래프에 없다는 걸 한 줄로(FORECAST-06, 11/12 신용카드 계획이 안 보이던 자리)
+    val beyond = remember(f, month) { beyondInMonth(f, month) }
+    beyond.take(BEYOND_LINES).forEach { e ->
+        Text(
+            "${e.date.toMonthDay()} ${e.label} ${(-e.amount).toWon()}원은 예보 범위 밖이라 그래프에 없어요",
+            style = YamuTheme.typography.bodyS,
+            color = c.onWarningContainer,
+            modifier = Modifier
+                .padding(top = 8.dp)
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(12.dp))
+                .background(c.warningContainer)
+                .padding(horizontal = 12.dp, vertical = 10.dp),
+        )
+    }
+    if (beyond.size > BEYOND_LINES) Text("범위 밖 출금 ${beyond.size - BEYOND_LINES}건 더", style = YamuTheme.typography.bodyS, color = c.text3, modifier = Modifier.padding(top = 4.dp))
+    if (f != null) {
+        Spacer(Modifier.height(12.dp))
+        // 7 · 14 · 30일 뒤 — 보는 달과 상관없이 오늘부터(ANALYSIS-12)
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            ASSET_FLOW_AFTER.forEach { n ->
+                val (date, value) = forecastAfter(f, s.today, n)
+                AfterBox(n, date, value, Modifier.weight(1f))
+            }
+        }
+        Text(
+            listOfNotNull(
+                "예보는 보는 달과 상관없이 오늘(${s.today.toMonthDay()})부터 세요",
+                f.minBalance?.let { min -> "30일 안 가장 낮을 때 ${f.minBalanceDate?.let { "${it.toMonthDayWeek()} " }.orEmpty()}${min.toWon()}원" },
+            ).joinToString(" · "),
+            style = YamuTheme.typography.bodyS,
+            color = c.text3,
+            modifier = Modifier.padding(top = 8.dp),
+        )
+    }
+    Spacer(Modifier.height(12.dp))
+    NeutralButton("AI 잔고예보 자세히 보기", onClick = onForecast)
+}
+
+/** 계좌 이름표 — 회색 알약 '신한 ··5678'(COMMON-04: 어느 계좌 잔고인지) */
+@Composable
+private fun AccountTag(text: String) {
+    val c = YamuTheme.colors
+    Text(
+        text,
+        style = YamuTheme.typography.labelM,
+        color = c.text2,
+        maxLines = 1,
+        modifier = Modifier
+            .clip(RoundedCornerShape(8.dp))
+            .background(c.surfaceVariant)
+            .padding(horizontal = 8.dp, vertical = 3.dp)
+            .semantics { contentDescription = "계좌 $text" },
+    )
+}
+
+/** 범례 — 선 모양 · 빗금 견본 + 이름. 빗금은 그달에 그 구간이 있을 때만 */
+@Composable
+private fun AssetLegend(kinds: List<DayKind>, hasConservative: Boolean) {
+    val style = YamuTheme.typography.bodyS
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp), itemVerticalAlignment = Alignment.CenterVertically) {
+        LegendItem("실제", style) { LineSwatch(dashed = false) }
+        LegendItem("예상(${if (hasConservative) LINE_WITH_LIVING else LINE_WITHOUT_LIVING})", style) { LineSwatch(dashed = true) }
+        if (DayKind.NO_DATA in kinds) LegendItem("실제 잔고 없음", style) { HatchSwatch(strong = true) }
+        if (DayKind.OUT_OF_RANGE in kinds) LegendItem("예보 범위 밖", style) { HatchSwatch(strong = false) }
+    }
+}
+
+@Composable
+private fun LegendItem(label: String, style: androidx.compose.ui.text.TextStyle, swatch: @Composable () -> Unit) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        swatch()
+        Spacer(Modifier.width(5.dp))
+        Text(label, style = style, color = YamuTheme.colors.text2)
+    }
+}
+
+@Composable
+private fun LineSwatch(dashed: Boolean) {
+    val color = YamuTheme.colors.primary
+    Canvas(Modifier.size(width = 18.dp, height = 6.dp)) {
+        drawLine(
+            color, Offset(0f, size.height / 2), Offset(size.width, size.height / 2), strokeWidth = 2.4.dp.toPx(),
+            pathEffect = if (dashed) PathEffect.dashPathEffect(floatArrayOf(5.dp.toPx(), 3.dp.toPx())) else null,
+        )
+    }
+}
+
+@Composable
+private fun HatchSwatch(strong: Boolean) {
+    val ink = YamuTheme.colors.text3.copy(alpha = if (strong) HATCH_STRONG else HATCH_LIGHT)
+    Canvas(Modifier.size(width = 18.dp, height = 10.dp).clip(RoundedCornerShape(2.dp))) { drawHatch(Offset.Zero, size, ink) }
+}
+
+/** 고른 날 칸(ANALYSIS-09) — 날짜 · 종류 꼬리표 · 잔고 · 주요 입출금. 그래프 · 띠 · 알약 어느 쪽으로 골라도 같은 칸 */
+@Composable
+private fun AssetDayPanel(d: AssetDay, flow: AssetFlow, today: LocalDate) {
+    val c = YamuTheme.colors
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .background(c.surfaceVariant)
+            .padding(14.dp)
+            .semantics(mergeDescendants = true) { },
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(d.date.toKoreanDateWeek(), style = YamuTheme.typography.titleS, color = c.text1)
+            Spacer(Modifier.width(8.dp))
+            StatusTag(kindShortLabel(d.kind), tone = kindTone(d.kind))
+        }
+        val (main, key) = panelValue(d, flow, today)
+        main?.let {
+            Spacer(Modifier.height(4.dp))
+            Text(it, style = YamuTheme.typography.amountM, color = if ((d.value ?: 0) < 0) c.error else c.text1)
+        }
+        Text(key, style = YamuTheme.typography.bodyS, color = c.text3, modifier = Modifier.padding(top = if (main == null) 6.dp else 0.dp))
+        panelNote(d, flow)?.let { Text(it, style = YamuTheme.typography.bodyS, color = c.text2, modifier = Modifier.padding(top = 2.dp)) }
+        if (d.kind == DayKind.TODAY || d.kind == DayKind.EXPECTED || d.kind == DayKind.ACTUAL) {
+            Spacer(Modifier.height(8.dp))
+            if (d.events.isEmpty()) Text("이날 주요 입출금은 없어요", style = YamuTheme.typography.bodyS, color = c.text3)
+            d.events.forEach { e -> EventRow(e, today = d.kind == DayKind.TODAY) }
+        }
+    }
+}
+
+@Composable
+private fun EventRow(e: ForecastEvent, today: Boolean) {
+    val c = YamuTheme.colors
+    Row(Modifier.fillMaxWidth().heightIn(min = 40.dp), verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f)) {
+            Text(e.label, style = YamuTheme.typography.bodyM, color = c.text1, maxLines = 1)
+            Text(eventSub(e, today), style = YamuTheme.typography.bodyS, color = c.text3, maxLines = 1)
+        }
+        Text("${e.amount.toWon(withPlusSign = true)}원", style = YamuTheme.typography.value, color = if (e.amount > 0) c.primary else c.text1, textAlign = TextAlign.End)
+    }
+}
+
+/** 7 · 14 · 30일 뒤 칸 — 예보에 그날이 없으면 '—' */
+@Composable
+private fun AfterBox(days: Int, date: LocalDate, value: Long?, modifier: Modifier) {
+    val c = YamuTheme.colors
+    Column(
+        modifier
+            .clip(RoundedCornerShape(12.dp))
+            .background(c.surfaceVariant)
+            .padding(horizontal = 4.dp, vertical = 10.dp)
+            .semantics(mergeDescendants = true) { },
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Text("${days}일 뒤", style = YamuTheme.typography.bodyS, color = c.text3)
+        Text(date.toMonthDayWeek(), style = YamuTheme.typography.bodyS, color = c.text3)
+        Box(Modifier.height(2.dp))
+        Text(value?.let { "${it.toWon()}원" } ?: "—", style = YamuTheme.typography.titleS, color = if ((value ?: 0) < 0) c.error else c.text1, maxLines = 1)
+    }
+}
+
+private const val BEYOND_LINES = 2
+private val HM = DateTimeFormatter.ofPattern("HH:mm")
+
+// ── 글자(단위 테스트) ──
+
+/** '지금 잔고 · 오늘 14:05 기준' — 자정을 넘겨 다시 받기 전이면 그날 날짜로 */
+internal fun nowLine(loadedAt: ZonedDateTime, today: LocalDate): String =
+    "지금 잔고 · ${if (loadedAt.toLocalDate() == today) "오늘" else loadedAt.toLocalDate().toMonthDay()} ${loadedAt.format(HM)} 기준"
+
+/** 종류 꼬리표 색 — 글자가 먼저고 색은 거든다(COMMON-11) */
+internal fun kindTone(kind: DayKind): TagTone = when (kind) {
+    DayKind.TODAY -> TagTone.Primary
+    DayKind.ACTUAL, DayKind.EXPECTED -> TagTone.Neutral
+    DayKind.NO_DATA, DayKind.OUT_OF_RANGE -> TagTone.Neutral
+}
+
+/** 고른 날 칸의 큰 금액과 그 밑 설명 */
+internal fun panelValue(d: AssetDay, flow: AssetFlow, today: LocalDate): Pair<String?, String> = when (d.kind) {
+    DayKind.ACTUAL -> d.value?.let { "${it.toWon()}원" } to "그날 끝 실제 잔고"
+    DayKind.TODAY -> flow.currentBalance?.let { "${it.toWon()}원" } to nowLine(flow.loadedAt, today)
+    DayKind.EXPECTED -> d.value?.let { "${it.toWon()}원" } to "예상 잔고 · ${if (flow.forecast?.hasConservative == true) LINE_WITH_LIVING else LINE_WITHOUT_LIVING}"
+    DayKind.NO_DATA -> null to if (d.date.isAfter(today)) "예보를 불러오지 못해 비워 뒀어요." else "이날 잔고는 아직 받을 수 없어요. 쓴 돈으로 잔고를 만들어 보여 드리지 않아요."
+    DayKind.OUT_OF_RANGE -> null to "예보는 오늘부터 30일(${flow.forecastEnd?.toMonthDay() ?: "30일 뒤"})까지만 해요."
+}
+
+/** 오늘 칸 덧줄 — 오늘 입출금이 있어 하루 끝 예상이 지금 잔고와 다르면 */
+internal fun panelNote(d: AssetDay, flow: AssetFlow): String? {
+    if (d.kind != DayKind.TODAY) return null
+    val end = d.value ?: return null
+    if (end == flow.currentBalance) return null
+    return "오늘 끝 예상 ${end.toWon()}원"
+}
+
+/** 입출금 보조 줄 — '예정 · 카드 청구' · '오늘 · 수입' · '예정 · 추정' */
+internal fun eventSub(e: ForecastEvent, today: Boolean): String = listOf(
+    if (today) "오늘" else "예정",
+    when {
+        e.isCardBill -> if (e.isExpected) "카드 청구 · 금액 확정 전" else "카드 청구"
+        e.isEstimate -> "추정"
+        e.type == FlowType.SCHEDULED_INCOME || e.amount > 0 -> "수입"
+        else -> "지출"
+    },
+).joinToString(" · ")
+
+/**
+ * 말풍선 윗줄 — 입출금이 있으면 '11/21 (토) · 월세'(여러 건이면 '외 N건'), 아니면 '11월 21일 (토) · 예상'.
+ * 빈 날은 아랫줄이 '데이터 없음' · '범위 밖'이라 날짜만
+ */
+internal fun assetDayLabel(d: AssetDay): String {
+    if (d.value == null) return d.date.toKoreanDateWeek()
+    if (d.events.isEmpty()) return "${d.date.toKoreanDateWeek()} · ${kindShortLabel(d.kind)}"
+    val more = if (d.events.size > 1) " 외 ${d.events.size - 1}건" else ""
+    return "${d.date.toMonthDayWeek()} · ${d.events.first().label}$more"
+}
+
+/** TalkBack이 고른 날을 바꾼 뒤 읽는 문장 — 날짜, 종류, 잔고, 입출금 */
+internal fun assetDayState(d: AssetDay): String = listOfNotNull(
+    d.date.toKoreanDateWeek(),
+    kindShortLabel(d.kind),
+    d.value?.let { "${it.toWon()}원" },
+    d.events.takeIf { it.isNotEmpty() }?.joinToString(", ") { "${it.label} ${it.amount.toWon(withPlusSign = true)}원" },
+).joinToString(", ")
+
+/** 그래프 읽어 주기 — 어느 달, 어떤 구간이 있는지 */
+internal fun assetChartDescription(month: YearMonth, kinds: List<DayKind>, hasConservative: Boolean): String = listOfNotNull(
+    "${month.monthValue}월 잔고 그래프, 가로로 밀어 날짜 고르기",
+    "지난날 실선".takeIf { DayKind.ACTUAL in kinds },
+    "오늘 세로선".takeIf { DayKind.TODAY in kinds },
+    "앞날 점선, ${if (hasConservative) LINE_WITH_LIVING else LINE_WITHOUT_LIVING}".takeIf { DayKind.EXPECTED in kinds },
+    "실제 잔고 없는 날은 빗금".takeIf { DayKind.NO_DATA in kinds },
+    "예보 범위 밖은 옅은 빗금".takeIf { DayKind.OUT_OF_RANGE in kinds },
+).joinToString(", ")
+
+/** 다음 달 사용금액 자리 — 아직 쓴 돈이 없는 달(월 API는 부르지 않는다) */
+@Composable
+internal fun NextMonthSpend(shown: ShownMonth) {
+    val c = YamuTheme.colors
+    Text(monthTitle(shown.month, shown.thisMonth), style = YamuTheme.typography.bodyM, color = c.text2)
+    Spacer(Modifier.height(4.dp))
+    Text("아직 쓴 돈이 없는 달이에요", style = YamuTheme.typography.cardTitle, color = c.text1)
+    Text("아래 자산 흐름에서 예보만 볼 수 있어요", style = YamuTheme.typography.bodyS, color = c.text3, modifier = Modifier.padding(top = 4.dp))
+}

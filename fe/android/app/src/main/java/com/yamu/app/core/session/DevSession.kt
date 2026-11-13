@@ -73,6 +73,9 @@ object DevSession {
     var payScenario by mutableStateOf(PayScenario.CAFE)
     var faultScenario by mutableStateOf(FaultScenario.NONE)
 
+    /** debug 가짜 소비분석 자산 흐름에 지난 잔고를 줄지(S15P31E103-483) — 지금 BE에는 그런 API가 없어 기본은 없음(지난날 빗금) */
+    var pastBalances by mutableStateOf(false)
+
     /** debug 가짜 사용자(계좌 · 카드 · 월급) 요약 — 가짜 저장소가 채우고 디버그 메뉴가 보인다. release는 늘 비어 있다 */
     var fakeUser by mutableStateOf<List<String>>(emptyList())
 }
