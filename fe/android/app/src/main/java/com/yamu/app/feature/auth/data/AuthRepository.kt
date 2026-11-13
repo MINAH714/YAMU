@@ -176,7 +176,7 @@ class AuthRepositoryImpl @Inject constructor(
         tokenStore.refreshTokenBlocking()?.let { refresh -> apiCallNoData { api.logout(LogoutRequest(refresh)) } }
         tokenStore.clear()
         paymentEdits.clear()   // 받아 둔 결제 메모 — 다음에 로그인하는 사람에게 보이지 않게
-        reportMonth.reset()    // 소비분석에서 고른 달도. 저장된 탭 화면이 되살아나면 S-01 init의 reset이 다시 돌지 않는다
+        reportMonth.reset()    // 소비분석에서 고른 달도. 탭 화면은 이동 쪽(forgetSavedTabs)에서 버리고, 이건 S-01 init보다 먼저 달을 읽는 화면을 위한 겹
     }
 
     override fun canUseBiometric(): Boolean = deviceKeys.canUseBiometric()

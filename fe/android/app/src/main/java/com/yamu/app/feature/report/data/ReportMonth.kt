@@ -28,7 +28,8 @@ fun monthTitle(month: YearMonth, thisMonth: YearMonth): String =
  * 고른 달이 없으면(null) 이번 달을 따라간다 — 앱을 켜 둔 채 달이 바뀌면 다음에 불러올 때 새 달이다.
  * 이번 달을 고르면 null로 둔다. 범위 밖 달은 끝 달로 당긴다.
  * S-01이 새로 만들어질 때(로그인 · 앱 새로 켜기)와 로그아웃 · 이 폰 기기 지움 때(AuthRepositoryImpl) [reset] — 앞사람이 고른 달이 다음 사람에게 남지 않게.
- * 탭 화면은 로그아웃 뒤에도 저장된 채 되살아날 수 있어(S-01 init이 다시 안 돎) 로그아웃 쪽에서도 비운다.
+ * 세션이 끝나 처음 화면으로 갈 때 저장해 둔 탭 화면도 버려서(NavExtensions의 forgetSavedTabs) 다음 로그인에는 S-01 init이 다시 돈다.
+ * 로그아웃 쪽 reset은 S-01보다 먼저 이 달을 읽는 화면이 생겨도 앞사람 달이 남지 않게 겹으로 둔다.
  * 고른 달은 메모리에만 둔다 — 앱이 백그라운드에서 정리됐다 돌아오면 S-04 · S-05도 이번 달로 열린다(CSV 달은 따로 SavedStateHandle).
  */
 @Singleton
