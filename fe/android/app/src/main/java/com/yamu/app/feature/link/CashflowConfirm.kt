@@ -104,6 +104,8 @@ data class CashflowConfirmState(
             loadError != null || draft == null -> CashflowHeadline("고정 지출을\n불러오지 못했어요", null)
             draft.income != null -> CashflowHeadline("월급과 고정 지출을\n채워 뒀어요", "다르면 눌러서 고쳐요")
             draft.noFixed && draft.canEnterIncome && newIncome == null -> CashflowHeadline("찾은 고정 지출이\n아직 없어요", "월급을 넣어 두면 월급날까지 예보해 드려요")
+            // 받을 계좌를 못 읽었으면 아래 월급 줄이 [다시 시도]라 '나중에 잔고예보에서'라고 하지 않는다(!292 리뷰, 잔고예보의 '월급 등록하기'로도 온다)
+            draft.noFixed && draft.incomeAccountsFailed -> CashflowHeadline("찾은 고정 지출이\n아직 없어요", "계좌를 다시 불러오면 월급을 넣을 수 있어요")
             draft.noFixed -> CashflowHeadline("찾은 고정 지출이\n아직 없어요", "나중에 잔고예보에서 넣을 수 있어요")
             draft.canEnterIncome && newIncome == null -> CashflowHeadline("고정 지출을\n채워 뒀어요", "다르면 눌러서 고치고 월급은 직접 넣어 주세요")
             else -> CashflowHeadline("고정 지출을\n채워 뒀어요", "다르면 눌러서 고쳐요")

@@ -405,6 +405,13 @@ class FakeCashflowRepository @Inject constructor() : CashflowRepository {
             delay(300)
             return ApiResult.Success(sampleDraft(dailyLivingCost = null))
         }
+        // 금융망 실패 — 실제 draft()처럼 후보 · 설정은 오고 월급 받을 계좌(금융망)만 못 읽는다. 월급 줄 [다시 시도]를 서버 없이 보는 길(!292 리뷰)
+        if (DevSession.faultScenario == FaultScenario.BANK_ERROR) {
+            delay(300)
+            return ApiResult.Success(
+                sampleDraft(dailyLivingCost = null).copy(incomeAccounts = emptyList(), incomeAccountsError = ApiError.BankUnavailable("FIN_API_UNAVAILABLE")),
+            )
+        }
         return withFault(empty = { ApiResult.Success(CashflowDraft(null, emptyList(), emptyList(), dailyLivingCost = null)) }) {
             delay(600)
             ApiResult.Success(sampleDraft(dailyLivingCost = 6_000))

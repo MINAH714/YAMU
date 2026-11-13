@@ -120,6 +120,19 @@ class CashflowConfirmViewModelTest {
         assertEquals(CashflowHeadline("찾은 고정 지출이\n아직 없어요", "월급을 넣어 두면 월급날까지 예보해 드려요"), withAccount.state.value.headline)
     }
 
+    @Test fun `찾은 게 없고 받을 계좌를 못 읽었으면 '나중에 잔고예보에서' 대신 계좌를 다시 불러오라고 쓴다`() = runTest(dispatcher) {
+        val repo = Repo(ApiResult.Success(empty(dailyLivingCost = null).copy(incomeAccountsError = ApiError.BankUnavailable("FIN_API_UNAVAILABLE"))))
+        val vm = CashflowConfirmViewModel(repo)
+        advanceUntilIdle()
+        assertEquals(CashflowHeadline("찾은 고정 지출이\n아직 없어요", "계좌를 다시 불러오면 월급을 넣을 수 있어요"), vm.state.value.headline)
+
+        // 다시 시도에 성공하면 평소 머리 규칙으로 돌아간다
+        repo.accountsResult = ApiResult.Success(accounts)
+        vm.retryIncomeAccounts()
+        advanceUntilIdle()
+        assertEquals(CashflowHeadline("찾은 고정 지출이\n아직 없어요", "월급을 넣어 두면 월급날까지 예보해 드려요"), vm.state.value.headline)
+    }
+
     @Test fun `받을 계좌를 못 읽었으면 다시 시도는 계좌만 다시 받아 고친 금액 · 하루 생활비를 지킨다(QA P1-04)`() = runTest(dispatcher) {
         val failed = expensesOnly.copy(incomeAccounts = emptyList(), incomeAccountsError = ApiError.Network)
         val repo = Repo(ApiResult.Success(failed))
