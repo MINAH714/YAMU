@@ -1,8 +1,11 @@
 package com.yamu.app.feature.auth
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.io.File
 
 /** 약관 전문(A-04a) — 원문 글 파일을 문단과 조 제목으로 나눈다(2차 QA 02) */
 class TermDocTest {
@@ -36,5 +39,22 @@ class TermDocTest {
     @Test fun `경로 값은 약관 이름 - 모르는 이름이면 없음`() {
         TermDoc.entries.forEach { assertEquals(it, TermDoc.of(it.name)) }
         assertNull(TermDoc.of("REFUND"))
+    }
+
+    /** 원문 파일(B-04 문안) — 자리 문장 · '[배포일]' · 노션 표기(굵게 · 표 · 목록 표시)가 화면에 그대로 나오지 않게 */
+    @Test fun `원문 파일에는 자리 문장이나 노션 표기가 남지 않는다`() {
+        val files = File("src/main/res/raw").listFiles { f -> f.name.startsWith("terms_") }.orEmpty()
+        assertEquals(TermDoc.entries.size, files.size)
+        files.forEach { f ->
+            val text = f.readText()
+            assertTrue(f.name, text.isNotBlank())
+            listOf("넣을 자리", "[배포일]", "**", "|").forEach { assertFalse("${f.name}: $it", text.contains(it)) }
+            assertFalse(f.name, text.lines().any { it.startsWith("- ") || it.startsWith("#") })
+        }
+    }
+
+    @Test fun `서비스 이용약관은 제1조부터 제8조와 부칙이 제목으로 보인다`() {
+        val headings = termBlocks(File("src/main/res/raw/terms_service.txt").readText()).filter { it.heading }.map { it.text }
+        assertEquals((1..8).map { "제${it}조" } + "부칙", headings.map { it.substringBefore(' ') })
     }
 }
