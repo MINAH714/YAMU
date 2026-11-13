@@ -3,10 +3,12 @@ package com.yamu.app.feature.home
 import com.yamu.app.core.security.SessionStore
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.yamu.app.core.format.KST
 import com.yamu.app.core.network.ApiError
 import com.yamu.app.core.network.ApiResult
 import com.yamu.app.feature.home.data.HomeRepository
 import com.yamu.app.feature.home.data.HomeSummary
+import com.yamu.app.feature.report.data.ReportMonth
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -14,6 +16,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import java.time.OffsetDateTime
+import java.time.YearMonth
 import javax.inject.Inject
 
 /**
@@ -38,10 +42,15 @@ data class HomeUiState(
         get() = if (content != null) !content.needsLinking else !isLoading && error != null
 }
 
+/** 결제 시각(서버 UTC)이 든 한국 기준 달 — 시각이 없거나 못 읽으면 null */
+internal fun paymentMonthOf(paidAtIso: String?): YearMonth? =
+    paidAtIso?.let { runCatching { YearMonth.from(OffsetDateTime.parse(it).atZoneSameInstant(KST)) }.getOrNull() }
+
 @HiltViewModel
 class HomeViewModel @Inject constructor(
     private val repository: HomeRepository,
     private val session: SessionStore,
+    private val months: ReportMonth,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(HomeUiState())
@@ -73,6 +82,16 @@ class HomeViewModel @Inject constructor(
                 if (home is ApiResult.Success && sync is ApiResult.Failure) next.copy(error = sync.error) else next
             }
         }
+    }
+
+    /**
+     * 최근 결제 '전체 보기' — 결제 내역(S-05)은 고른 달([ReportMonth])을 여니 최근 결제가 든 달을 먼저 고른다.
+     * 홈 최근 결제는 기간 없이 가장 최근 한 건이라 월초엔 지난달 결제일 수 있다. 시각을 모르면 이번 달.
+     * 소비분석 · 혜택 리포트와 같은 달을 쓰므로 소비분석 탭이 저장된 채 남아 있으면 그 탭도 이 달로 다시 받는다
+     */
+    fun openPayments() {
+        val month = paymentMonthOf(_state.value.content?.recentPayment?.paidAtIso)
+        if (month != null) months.select(month) else months.reset()
     }
 
     private fun HomeUiState.applied(result: ApiResult<HomeSummary>): HomeUiState = when (result) {

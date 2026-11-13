@@ -83,11 +83,11 @@ import androidx.compose.ui.unit.IntSize
 import com.yamu.app.core.designsystem.component.rememberRolledAmount
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.layout.Placeable
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.layoutId
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
-import androidx.compose.ui.layout.layout
-import androidx.compose.ui.semantics.Role
 import com.yamu.app.core.designsystem.component.ErrorState
 import com.yamu.app.core.designsystem.component.EstimateTag
 import com.yamu.app.core.designsystem.component.ListRow
@@ -149,7 +149,10 @@ fun HomeRoute(
         onStartLinking = onStartLinking,
         onTodo = onTodo,
         onRecentPayment = onRecentPayment,
-        onPayments = onPayments,
+        onPayments = {
+            viewModel.openPayments()   // 결제 내역을 최근 결제가 있는 달로 — 월초엔 지난달 결제일 수 있다
+            onPayments()
+        },
         onReport = onReport,
         onRegisterIncome = onRegisterIncome,
         onAddCard = onAddCard,
@@ -364,7 +367,8 @@ private fun ForecastCard(forecast: ForecastSummary, onClick: () -> Unit, onRegis
         Spacer(Modifier.height(4.dp))
         AmountText(forecast.amount, shortage = forecast.amount < 0)
         Spacer(Modifier.height(8.dp))   // 금액 아래 4dp는 AmountText가 둔다
-        // 첫날(isProvisional)이라는 건 인사 머리 '가입 첫날이에요'만 — '정확도 낮음'은 11/12 회의에서 뺐다
+        // '정확도 낮음'은 11/12 회의에서 뺐다. isProvisional은 서버에서 '생활비 자료가 없어 보수적 선 없이 계산함'이라는 뜻이고(HomeResponse),
+        // 홈에서 이 값을 쓰는 곳은 인사 머리 '가입 첫날이에요'만 남았다 — 첫날이 지나도 생활비 자료가 없으면 그 문구가 이어질 수 있다
         forecast.statusLine(hero = false)?.let {
             StatusTag(it, tone = if (forecast.shortageFrom != null) TagTone.Error else TagTone.Success)
         }
@@ -612,9 +616,10 @@ private fun RecentPaymentCard(payment: RecentPayment, onClick: () -> Unit, onAll
     val c = YamuTheme.colors
     // '야무카페 역삼점 15,000원' / '방금 · 신한카드 1,500원 할인'(할인만 파랑) — 프로토타입 H-01c. 시각은 paidAt으로(어제 결제면 '어제 17:05')
     val time = paidAtLabel(payment.paidAtIso)
-    YamuCard(contentPadding = PaddingValues(start = 20.dp, end = 16.dp, top = 16.dp, bottom = 4.dp)) {
+    // 좌우 · 아래 여백은 줄마다 둔다 — 결제 줄은 카드 끝까지 눌리고 물결도 카드 모양대로(예전 카드 전체 누르기와 같은 범위)
+    YamuCard(contentPadding = PaddingValues(top = 16.dp)) {
         // 머리 줄 24dp — '전체 보기' 터치 칸(48)은 위아래로 넘친다(잔고예보 '예정된 돈' 카드와 같은 모양)
-        Row(Modifier.heightIn(min = 24.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.padding(start = 20.dp, end = 16.dp).heightIn(min = 24.dp), verticalAlignment = Alignment.CenterVertically) {
             Text("최근 결제", style = YamuTheme.typography.cardTitle, color = c.text1, modifier = Modifier.weight(1f))
             Row(
                 Modifier
@@ -629,7 +634,14 @@ private fun RecentPaymentCard(payment: RecentPayment, onClick: () -> Unit, onAll
                 Icon(YamuIcons.ChevronRight, contentDescription = null, tint = c.text3, modifier = Modifier.size(18.dp))
             }
         }
-        Row(Modifier.fillMaxWidth().heightIn(min = 64.dp).clickable(onClick = onClick), verticalAlignment = Alignment.CenterVertically) {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .clickable(role = Role.Button, onClickLabel = "결제 상세 보기", onClick = onClick)
+                .padding(start = 20.dp, end = 16.dp, bottom = 4.dp)
+                .heightIn(min = 64.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
             Column(Modifier.weight(1f)) {
                 Text("${payment.merchantName} ${payment.amount.toWon()}원", style = YamuTheme.typography.titleM, color = c.text1, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text(
