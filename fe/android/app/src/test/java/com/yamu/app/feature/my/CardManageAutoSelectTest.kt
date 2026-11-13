@@ -30,12 +30,15 @@ class CardManageAutoSelectTest {
 
     @After fun tearDown() = Dispatchers.resetMain()
 
-    private class StubMy : MyRepository by unused<MyRepository>() {
+    /** 처음엔 자동 선택이 켜져 있다 — 막았을 때 스위치가 켜진 채인지 본다 */
+    private class StubMy(private val saveResult: ApiResult<Unit> = ApiResult.Success(Unit)) : MyRepository by unused<MyRepository>() {
         val sent = mutableListOf<Boolean>()
-        override suspend fun me(): ApiResult<MyInfo> = ApiResult.Failure(ApiError.Network)
+        override suspend fun me(): ApiResult<MyInfo> = ApiResult.Success(
+            MyInfo("야무", null, autoLockSeconds = 60, pinOnlyForCode = false, biometricEnabled = false, currentDeviceId = null, autoSelect = true),
+        )
         override suspend fun setAutoSelect(on: Boolean): ApiResult<Unit> {
             sent += on
-            return ApiResult.Success(Unit)
+            return saveResult
         }
     }
 
@@ -58,7 +61,21 @@ class CardManageAutoSelectTest {
         advanceUntilIdle()
         assertEquals(NEEDS_DEFAULT_CARD, message)
         assertTrue(my.sent.isEmpty())
-        assertNull(vm.state.value.autoSelect)   // 스위치 상태를 바꾸지 않았다(이 시험에선 me 실패로 처음부터 모름)
+        assertEquals("켜져 있던 스위치가 꺼졌다 켜지지 않고 그대로", true, vm.state.value.autoSelect)
+    }
+
+    @Test fun `서버가 기본 카드 없음으로 거절하면 같은 문장 · 스위치는 원래대로`() = runTest(dispatcher) {
+        // 앱이 받은 목록엔 기본 카드가 있었지만 그 사이 다른 기기에서 풀었다
+        val my = StubMy(saveResult = ApiResult.Failure(ApiError.Conflict("DEFAULT_CARD_REQUIRED")))
+        val vm = CardManageViewModel(my, StubLink(cards(card(1, true))))
+        vm.load()
+        advanceUntilIdle()
+        var message: String? = "부르지 않음"
+        vm.setAutoSelect(false) { message = it }
+        advanceUntilIdle()
+        assertEquals(listOf(false), my.sent)
+        assertEquals(NEEDS_DEFAULT_CARD, message)
+        assertEquals(true, vm.state.value.autoSelect)
     }
 
     @Test fun `기본 카드가 있으면 그대로 끈다`() = runTest(dispatcher) {
@@ -84,14 +101,18 @@ class CardManageAutoSelectTest {
         assertEquals(listOf(true), my.sent)
     }
 
-    @Test fun `카드 목록을 못 받았으면 서버 판단에 맡긴다`() = runTest(dispatcher) {
+    // 목록을 못 받으면 화면은 스위치 대신 오류(다시 시도)를 그린다 — 스위치가 보이는데 목록이 비었으면 등록 카드 0장
+    @Test fun `카드가 0장이면 끄지 않고 카드 추가부터 안내 — 서버에 보내지 않는다`() = runTest(dispatcher) {
         val my = StubMy()
-        val vm = CardManageViewModel(my, StubLink(ApiResult.Failure(ApiError.Network)))
+        val vm = CardManageViewModel(my, StubLink(cards()))
         vm.load()
         advanceUntilIdle()
-        vm.setAutoSelect(false) {}
+        var message: String? = "부르지 않음"
+        vm.setAutoSelect(false) { message = it }
         advanceUntilIdle()
-        assertEquals(listOf(false), my.sent)
+        assertEquals(NEEDS_CARD_FIRST, message)
+        assertTrue(my.sent.isEmpty())
+        assertEquals(true, vm.state.value.autoSelect)
     }
 }
 

@@ -157,6 +157,10 @@ class StepUpController(
     private fun clear() {
         onToken = null
         onError = null
+        // 간편 비밀번호 화면 글자도 이 인증이 끝나면 비운다(화면은 열릴 때 이미 읽었다). 안 비우면 start() 없이 연 간편 비밀번호 화면
+        // (디버그 메뉴)에 지난 인증의 제목 · 보조 줄('취소 코드를 열어요')이 남는다
+        results.detail = null
+        results.pinTitle = null
     }
 }
 

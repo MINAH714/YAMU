@@ -187,7 +187,7 @@ data class PayCodeState(
  * 인증 목적은 둘 다 BARCODE — 취소 코드도 같은 결제 코드를 매장이 찍는 것이라 서버 인증은 같다
  */
 internal fun payCodePrompt(forCancel: Boolean): StepUpPrompt =
-    if (forCancel) StepUpPrompt("결제 취소", "인증하면 취소 코드가 보여요", pinTitle = "간편 비밀번호로\n결제를 취소해요")
+    if (forCancel) StepUpPrompt("결제 취소", "인증하면 취소 코드가 보여요", pinTitle = "간편 비밀번호로\n취소 코드를 열어요")
     else StepUpPrompt("결제 코드 열기", "인증하면 결제 코드가 보여요")
 
 @HiltViewModel
