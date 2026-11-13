@@ -37,6 +37,7 @@ class FakeSignupRepository @Inject constructor(
     private val tokenStore: TokenStore,
     private val sessionStore: SessionStore,
     private val deviceKeys: DeviceKeyManager,
+    private val bank: FakeBank,
 ) : SignupRepository {
     private var token: String? = null
     private var pendingName: String? = null
@@ -48,6 +49,7 @@ class FakeSignupRepository @Inject constructor(
     private var lastOneWonAt = 0L
     private var verified = false             // 가입: 1원으로 계좌 연결을 마쳤나
     private var lastPrimary: String? = null
+    private var chosen: List<String> = emptyList()   // 1원 때 고른 계좌 — 가입을 마치면 가짜 은행에 전부 연결
 
     override var oneWon: SignupOneWon? = null
         private set
@@ -102,8 +104,8 @@ class FakeSignupRepository @Inject constructor(
         delay(400)
         if (token == null) return tokenInvalid()
         val all = listOf(
-            AccountCandidate("cand_kb", brandOf("KB국민은행"), "KB국민 입출금", "1234", alreadyLinked = mode == SignupMode.DEVICE_RECOVERY),
-            AccountCandidate("cand_sh", brandOf("신한은행"), "신한 주거래 통장", "5678", alreadyLinked = false),
+            AccountCandidate(CANDIDATE_KB, brandOf("KB국민은행"), "KB국민 입출금", "1234", alreadyLinked = mode == SignupMode.DEVICE_RECOVERY),
+            AccountCandidate(CANDIDATE_SHINHAN, brandOf("신한은행"), "신한 주거래 통장", "5678", alreadyLinked = false),
         )
         // 재등록은 연결된 계좌만 나온다
         return ApiResult.Success(if (mode == SignupMode.DEVICE_RECOVERY) all.filter { it.alreadyLinked } else all)
@@ -121,7 +123,8 @@ class FakeSignupRepository @Inject constructor(
         oneWonSent = true
         oneWonTries = 0
         lastPrimary = primaryId
-        val kb = primaryId == "cand_kb"
+        chosen = candidateIds
+        val kb = primaryId == CANDIDATE_KB
         val sent = SignupOneWon(
             bankName = if (kb) "KB국민은행" else "신한은행",
             last4 = if (kb) "1234" else "5678",
@@ -139,7 +142,7 @@ class FakeSignupRepository @Inject constructor(
     override suspend fun resendOneWon(): ApiResult<SignupOneWon> {
         val primary = lastPrimary ?: return ApiResult.Failure(ApiError.InvalidRequest("VERIFICATION_TOKEN_EXPIRED"))
         oneWonSent = oneWon != null   // 시간이 지나 끊겼어도 1분 규칙은 마지막으로 보낸 시각 기준
-        return sendOneWon(listOf(primary), primary)
+        return sendOneWon(chosen.ifEmpty { listOf(primary) }, primary)
     }
 
     override suspend fun confirmOneWon(code: String): ApiResult<Unit> {
@@ -183,6 +186,7 @@ class FakeSignupRepository @Inject constructor(
         sessionStore.saveDevice(FakeAuthRepository.FAKE_DEVICE_ID, biometricEnabled = biometric)
         sessionStore.saveUser(1, name, null, onboardingCompleted = false)
         tokenStore.save(AuthTokens("fake-access-${Random.nextInt()}", "fake-refresh-${Random.nextInt()}"))
+        if (mode == SignupMode.SIGNUP) bank.signedUp(chosen, lastPrimary)   // 새 사용자: 고른 계좌 · 카드 0장. 재등록은 그대로
         clear()
         return ApiResult.Success(Unit)
     }
@@ -215,6 +219,7 @@ class FakeSignupRepository @Inject constructor(
         oneWonSent = false
         verified = false
         lastPrimary = null
+        chosen = emptyList()
         oneWon = null
         recoveryBiometric = false
     }
@@ -231,6 +236,8 @@ class FakeSignupRepository @Inject constructor(
     }
 
     companion object {
+        const val CANDIDATE_KB = "cand_kb"
+        const val CANDIDATE_SHINHAN = "cand_sh"
         const val SIGNUP_PHONE = "01012345678"
         const val RECOVERY_PHONE = "01099998888"
         const val ONE_WON_CODE = "1004"

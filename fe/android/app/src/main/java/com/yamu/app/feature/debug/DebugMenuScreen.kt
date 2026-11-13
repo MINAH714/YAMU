@@ -20,6 +20,7 @@ import androidx.navigation.NavController
 import com.yamu.app.BuildConfig
 import com.yamu.app.core.network.ApiFeature
 import com.yamu.app.core.designsystem.component.ListRow
+import com.yamu.app.core.designsystem.component.NeutralButton
 import com.yamu.app.core.designsystem.component.PrimaryButton
 import com.yamu.app.core.designsystem.component.Segmented
 import com.yamu.app.core.designsystem.component.YamuCard
@@ -102,7 +103,8 @@ fun DebugMenuScreen(navController: NavController, viewModel: DebugMenuViewModel 
                 Spacer(Modifier.height(8.dp))
                 Text(
                     if (ApiFeature.AUTH.isReal) "가입 · 로그인이 진짜 서버를 써서 시작 상태와 가짜 인증 시험값은 쓰이지 않아요(yamu.realApi)"
-                    else "가짜 인증 시험값: 본인인증 번호 01012345678은 가입 · 01099998888은 이미 가입(이 폰 재등록) · 그 밖은 시연 사용자 아님(이름 · 생년월일은 아무거나). 인증번호는 받으면 바로 채워지고 1원 숫자는 문자 알림을 누르면 채워짐(1원 1004 · 0000은 시간 지남). 간편 비밀번호 기본 135790(5번 틀리면 30분 잠김) · 로그인 때 000000은 서버에서 기기가 없어진 경우. 로그인 · 연결 전 · 끝은 이 폰을 기기 7번으로 등록해 둔 상태",
+                    else "카드 0장 = 실서버에서 가입 뒤 '나중에 할게요'를 고른 사용자(계좌 1 · 카드 0 · 지난 기록 없음) · 카드 6장 = 시드 사용자(계좌 2 · 지난 결제 · 실적 있음). 둘 다 로그인한 상태로 이 폰을 기기 7번으로 등록해 둬요. 처음 사용에서 가입하면 1원 때 고른 계좌만 연결된 새 사용자가 돼요. 이 메뉴에서 고른 값과 등록한 카드 · 계좌는 앱을 다시 켜도 남아요.\n" +
+                        "가짜 인증 시험값: 본인인증 번호 01012345678은 가입 · 01099998888은 이미 가입(이 폰 재등록) · 그 밖은 시연 사용자 아님(이름 · 생년월일은 아무거나). 인증번호는 받으면 바로 채워지고 1원 숫자는 문자 알림을 누르면 채워짐(1원 1004 · 0000은 시간 지남). 간편 비밀번호 기본 135790(5번 틀리면 30분 잠김, 앱을 다시 켜면 135790으로) · 로그인 때 000000은 서버에서 기기가 없어진 경우",
                     style = YamuTheme.typography.bodyS,
                     color = c.text3,
                 )
@@ -111,7 +113,8 @@ fun DebugMenuScreen(navController: NavController, viewModel: DebugMenuViewModel 
             YamuCard {
                 Text("모든 기능 상태 (가짜 데이터)", style = YamuTheme.typography.titleM, color = c.text1)
                 Text(
-                    "화면이 처음 불러오는 값에 걸려요(04 문서 데이터 상태 확인표). 고른 뒤 화면을 다시 열거나 당겨서 새로고침. 정상으로 두면 아래 기능별 상태대로" +
+                    "화면이 처음 불러오는 값에 걸려요(04 문서 데이터 상태 확인표). 고른 뒤 화면을 다시 열거나 당겨서 새로고침. 정상으로 두면 아래 기능별 상태대로. " +
+                        "빈 응답은 계좌까지 없는 응답이라 실서버 새 사용자와 달라요 — 새 사용자는 위 시작 상태 '카드 0장'으로 봐요" +
                         if (ApiFeature.real.isEmpty()) "" else ". 진짜 서버를 쓰는 기능에는 걸리지 않아요",
                     style = YamuTheme.typography.bodyS,
                     color = c.text3,
@@ -123,11 +126,30 @@ fun DebugMenuScreen(navController: NavController, viewModel: DebugMenuViewModel 
                         onClick = { DevSession.faultScenario = scenario },
                     )
                 }
+                // 모든 기능 · 홈 · 연결 · 결제 상태는 앱을 다시 켜도 남는다(S15P31E103-453) — 폰을 넘기기 전에 한 번에 되돌리는 버튼
+                Spacer(Modifier.height(8.dp))
+                NeutralButton(
+                    "기능 · 홈 · 연결 · 결제 상태 모두 정상으로",
+                    onClick = {
+                        DevSession.faultScenario = FaultScenario.NONE
+                        DevSession.homeScenario = HomeScenario.NORMAL
+                        DevSession.linkScenario = LinkScenario.NORMAL
+                        DevSession.payScenario = PayScenario.CAFE
+                    },
+                    enabled = DevSession.faultScenario != FaultScenario.NONE || DevSession.homeScenario != HomeScenario.NORMAL ||
+                        DevSession.linkScenario != LinkScenario.NORMAL || DevSession.payScenario != PayScenario.CAFE,
+                )
+                Text(
+                    "고른 상태는 앱을 다시 켜도 남아요. 폰을 넘기기 전에 눌러 두세요. 시작 상태와 등록한 카드 · 계좌는 그대로예요",
+                    style = YamuTheme.typography.bodyS,
+                    color = c.text3,
+                )
             }
             YamuCard {
                 Text("홈 상태 (가짜 데이터)", style = YamuTheme.typography.titleM, color = c.text1)
                 Text(
-                    if (ApiFeature.HOME.isReal) "홈이 진짜 서버를 써서 여기서 바꿀 수 없어요(yamu.realApi)" else "고른 뒤 홈으로 돌아가면 바로 바뀌어요",
+                    if (ApiFeature.HOME.isReal) "홈이 진짜 서버를 써서 여기서 바꿀 수 없어요(yamu.realApi)"
+                    else "고른 뒤 홈으로 돌아가면 바로 바뀌어요. 정상은 가짜 사용자가 연결한 계좌 · 등록한 카드를 따라가요(카드 0장이면 카드 0장 홈)",
                     style = YamuTheme.typography.bodyS,
                     color = c.text3,
                 )
