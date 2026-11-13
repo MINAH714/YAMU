@@ -81,21 +81,21 @@ fun WelcomeScreen(onStart: () -> Unit, onLogin: (() -> Unit)?, onDebugMenu: (() 
     }
 }
 
-/** [detail] = 전문을 볼 수 있는 약관(›). 금융 정보 조회 · 카드대금 자동이체는 계좌 · 카드 연결(C-02)에서 받는다 */
-private data class Term(val title: String, val required: Boolean, val detail: Boolean = true)
+/** [doc] = 전문을 볼 수 있는 약관(›). 금융 정보 조회 · 카드대금 자동이체는 계좌 · 카드 연결(C-02)에서 받는다 */
+private data class Term(val title: String, val required: Boolean, val doc: TermDoc? = null)
 
 private val TERMS = listOf(
-    Term("만 14세 이상이에요", true, detail = false),
-    Term("서비스 이용약관", true),
-    Term("개인정보 수집·이용", true),
-    Term("전자금융거래 이용약관", true),
-    Term("마케팅 정보 수신", false),
-    Term("위치기반서비스 이용약관", false),
+    Term("만 14세 이상이에요", true),
+    Term(TermDoc.SERVICE.title, true, TermDoc.SERVICE),
+    Term(TermDoc.PRIVACY.title, true, TermDoc.PRIVACY),
+    Term(TermDoc.E_FINANCE.title, true, TermDoc.E_FINANCE),
+    Term(TermDoc.MARKETING.title, false, TermDoc.MARKETING),
+    Term(TermDoc.LOCATION.title, false, TermDoc.LOCATION),
 )
 
 /** A-04 약관 동의 — 필수 4개를 모두 켜야 다음으로. (동의 저장 API는 아직 없음 — 08 문서 4-6) */
 @Composable
-fun TermsScreen(onBack: () -> Unit, onAgree: () -> Unit, onOpenTerm: (String) -> Unit = {}) {
+fun TermsScreen(onBack: () -> Unit, onAgree: () -> Unit, onOpenTerm: (TermDoc) -> Unit = {}) {
     val c = YamuTheme.colors
     // 본인인증 화면에 갔다 돌아와도 남게 rememberSaveable(화면 기록에 저장) — remember면 다시 그릴 때 다 풀린다(QA 05 · P2-37)
     var checked by rememberSaveable { mutableStateOf(List(TERMS.size) { false }) }
@@ -132,7 +132,7 @@ fun TermsScreen(onBack: () -> Unit, onAgree: () -> Unit, onOpenTerm: (String) ->
                 Text(name, style = YamuTheme.typography.sub.copy(fontWeight = FontWeight.SemiBold), color = c.text3, modifier = Modifier.padding(top = 16.dp, bottom = 4.dp))
                 TERMS.forEachIndexed { i, term ->
                     if (term.required == required) {
-                        CheckRow(term.title, checked[i], onDetail = if (term.detail) ({ onOpenTerm(term.title) }) else null) { v ->
+                        CheckRow(term.title, checked[i], onDetail = term.doc?.let { doc -> { onOpenTerm(doc) } }) { v ->
                             checked = checked.toMutableList().also { it[i] = v }
                         }
                     }
