@@ -14,7 +14,6 @@ import com.yamu.app.core.session.LinkScenario
 import com.yamu.app.core.session.PayScenario
 import com.yamu.app.core.session.StartState
 import kotlinx.coroutines.MainScope
-import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.launch
 
 /**
@@ -40,10 +39,10 @@ internal object DevSessionStore {
         prefs.enumOf<LinkScenario>("link")?.let { DevSession.linkScenario = it }
         prefs.enumOf<PayScenario>("pay")?.let { DevSession.payScenario = it }
         prefs.enumOf<FaultScenario>("fault")?.let { DevSession.faultScenario = it }
-        // 디버그 메뉴 · 가짜 저장소가 바꾸면 Compose 스냅숏 알림으로 받는다(같은 값이면 다시 쓰지 않음)
+        // 디버그 메뉴 · 가짜 저장소가 바꾸면 Compose 스냅숏 알림으로 받는다(같은 값이면 다시 쓰지 않음).
+        // 첫 값도 쓴다 — 모으기 시작하기 전에 바뀐 값이 있어도 빠지지 않게(읽은 값 그대로면 같은 값을 한 번 더 쓸 뿐)
         MainScope().launch {
             snapshotFlow { Values(DevSession.startState, DevSession.homeScenario, DevSession.linkScenario, DevSession.payScenario, DevSession.faultScenario) }
-                .drop(1)
                 .collect { v ->
                     prefs.edit()
                         .putString("start", v.start.name)
