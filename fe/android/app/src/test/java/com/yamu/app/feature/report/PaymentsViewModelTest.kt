@@ -127,6 +127,26 @@ class PaymentsViewModelTest {
         assertEquals(1, s.page)
     }
 
+    @Test fun `더 보기를 누르고 상세에서 취소한 뒤 돌아오면 그 둘째 쪽은 새 목록에 붙지 않는다`() = runTest(dispatcher) {
+        val vm = vm()
+        vm.refresh(); advanceUntilIdle()
+        repo.delays[NOV] = 1_000
+        vm.loadMore()                 // 둘째 쪽 — 느리다(취소 전 상태로 받는 줄)
+        advanceTimeBy(10)
+        repo.delays[NOV] = 100
+        repo.canceledIds += 3L        // 상세에서 첫 쪽 결제를 취소
+        edits.changed()
+        vm.refresh(); advanceUntilIdle()
+        val s = vm.state.value
+        assertEquals(20, s.items.size)
+        assertEquals(1, s.page)
+        assertTrue(s.hasNext)
+        assertFalse(s.loadingMore)
+        assertTrue(s.items.first { it.paymentId == 3L }.canceled)
+        vm.loadMore(); advanceUntilIdle()
+        assertEquals((1L..40L).toList(), vm.state.value.items.map { it.paymentId })   // 다시 누르면 둘째 쪽이 한 번만
+    }
+
     @Test fun `더 보기 연타는 한 번만 부른다`() = runTest(dispatcher) {
         val vm = vm()
         vm.refresh(); advanceUntilIdle()

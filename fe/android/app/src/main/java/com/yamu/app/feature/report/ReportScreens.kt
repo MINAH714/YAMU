@@ -178,7 +178,7 @@ fun ReportRoute(
                             AmountText(sp.spent)
                             sp.diffFromPrev?.let {
                                 Spacer(Modifier.height(4.dp))
-                                Text(boldAmount(spendDiffSentence(it, sp.prevMonth)), style = YamuTheme.typography.bodyM, color = c.text2)
+                                Text(boldAmount(spendDiffSentence(it, sp.prevPeriod)), style = YamuTheme.typography.bodyM, color = c.text2)
                             }
                             s.error?.let { Text("$it · 마지막 값을 보여 드려요", style = YamuTheme.typography.bodyS, color = c.warning) }
                         }
@@ -336,7 +336,15 @@ fun BenefitReportRoute(
                         YamuCard { repeat(3) { SkeletonBlock(height = 44.dp); Spacer(Modifier.height(YamuSpacing.x3)) } }
                     }
                     r == null -> YamuCard { ErrorState(s.error ?: "혜택 리포트를 불러오지 못했어요", onRetry = viewModel::load) }
-                    empty -> YamuCard { MonthEmpty(s.shown, onSelect = viewModel::select, pastMessage = "${monthTitle(s.shown.month, s.shown.thisMonth)}에 받은 혜택이 없어요") }
+                    // 결제는 있는데 혜택만 없는 달도 여기로 온다 — 이번 달 문구도 '혜택' 기준으로
+                    empty -> YamuCard {
+                        MonthEmpty(
+                            s.shown,
+                            onSelect = viewModel::select,
+                            thisMessage = "이번 달 받은 혜택이 아직 없어요",
+                            pastMessage = "${monthTitle(s.shown.month, s.shown.thisMonth)}에 받은 혜택이 없어요",
+                        )
+                    }
                     else -> {
                         YamuCard {
                             Text("${r.periodLabel} 받은 혜택", style = YamuTheme.typography.bodyM, color = c.text2)
@@ -444,13 +452,13 @@ class PaymentsViewModel @Inject constructor(
         val monthChanged = shown.month != _state.value.shown.month
         val reset = monthChanged || version != seenVersion
         job?.cancel()
+        if (reset) moreJob?.cancel()   // 첫 쪽부터 다시 받으면 앞 목록 뒤에 붙일 더 보기도 버린다(달 바뀜 · 취소 · 메모)
         if (monthChanged) {
-            moreJob?.cancel()
             _state.update {
                 it.copy(shown = shown, loading = true, count = 0, amount = 0, items = emptyList(), page = 0, hasNext = false, loadingMore = false, moreError = null, error = null)
             }
         } else {
-            _state.update { it.copy(shown = shown, loading = it.items.isEmpty(), error = null) }
+            _state.update { it.copy(shown = shown, loading = it.items.isEmpty(), error = null, loadingMore = it.loadingMore && !reset) }
         }
         job = viewModelScope.launch {
             val r = repo.payments(page = 1, month = shown.month)

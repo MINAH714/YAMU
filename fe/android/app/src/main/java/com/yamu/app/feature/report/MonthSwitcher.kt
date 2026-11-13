@@ -70,16 +70,17 @@ internal fun MonthSwitcher(shown: ShownMonth, onSelect: (YearMonth) -> Unit, mod
 
 /**
  * 그달 결제가 없을 때. 이번 달이면(매월 1일 등) '지난달 보기'로 바로 앞 달을 연다.
- * 지난 달이면 문장만 — 머리의 화살표로 옮겨 간다. [pastMessage]는 화면마다 다르게(혜택 리포트는 '혜택이 없어요')
+ * 지난 달이면 문장만 — 머리의 화살표로 옮겨 간다. [thisMessage] · [pastMessage]는 화면마다 다르게(혜택 리포트는 '혜택이 없어요')
  */
 @Composable
 internal fun MonthEmpty(
     shown: ShownMonth,
     onSelect: (YearMonth) -> Unit,
+    thisMessage: String = "이번 달 결제가 아직 없어요",
     pastMessage: String = "${monthTitle(shown.month, shown.thisMonth)}에는 결제가 없어요",
 ) {
     if (shown.isThisMonth && shown.canPrev) {
-        EmptyState("이번 달 결제가 아직 없어요", actionText = "지난달 보기", onAction = { onSelect(shown.prev) })
+        EmptyState(thisMessage, actionText = "지난달 보기", onAction = { onSelect(shown.prev) })
     } else {
         EmptyState(pastMessage)
     }

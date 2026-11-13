@@ -7,6 +7,7 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.time.LocalDate
+import java.time.YearMonth
 
 /** 소비분석 — 숫자는 서버 값, 앱은 기간 이름 · 문장 · 묶음만(13 문서 9·10-1) */
 class ReportMapperTest {
@@ -51,19 +52,37 @@ class ReportMapperTest {
         assertEquals("지난달 같은 기간과 같아요", spendDiffSentence(0))
     }
 
-    @Test fun `끝난 달 — 기간 없이 '10월', 비교는 앞 달 전체라 '9월보다'`() {
+    @Test fun `끝난 달 — 기간 없이 '10월', 앞 달이 통째로 들어가면 '9월보다'`() {
         val past = YamuJson.decodeFromString(
             MonthlyReportDto.serializer(),
             """{"yearMonth":"2026-10","isPartialMonth":false,"totalSpent":900000,"livingSpent":800000,"prevSamePeriodSpent":850000,"periodTo":"2026-10-31"}""",
         ).toSpend(paymentCount = 40)
         assertEquals("10월", past.periodLabel)
-        assertEquals(9, past.prevMonth)
-        assertEquals("9월보다 50,000원 덜 썼어요", spendDiffSentence(past.diffFromPrev!!, past.prevMonth))
-        assertEquals("12월과 같아요", spendDiffSentence(0, 12))   // 1월을 보면 앞 달은 작년 12월
+        assertEquals("9월", past.prevPeriod)
+        assertEquals("9월보다 50,000원 덜 썼어요", spendDiffSentence(past.diffFromPrev!!, past.prevPeriod))
         val january = YamuJson.decodeFromString(MonthlyReportDto.serializer(), """{"yearMonth":"2026-01","isPartialMonth":false}""").toSpend(null)
-        assertEquals(12, january.prevMonth)
+        assertEquals("12월", january.prevPeriod)   // 1월을 보면 앞 달은 작년 12월(31일 · 31일)
+        assertEquals("12월과 같아요", spendDiffSentence(0, january.prevPeriod))
         val now = YamuJson.decodeFromString(MonthlyReportDto.serializer(), """{"yearMonth":"2026-10","isPartialMonth":true}""").toSpend(null)
-        assertNull(now.prevMonth)   // 이번 달은 '지난달 같은 기간'
+        assertNull(now.prevPeriod)   // 이번 달은 '지난달 같은 기간'
+    }
+
+    @Test fun `끝난 달 — 앞 달이 더 길면 서버가 센 날까지만 '8월 1~30일보다'(!288 리뷰 1)`() {
+        // 서버는 앞 달 1일 ~ min(그달 끝 날짜, 앞 달 길이)일과 비교한다 — 9월(30일)을 열면 8/31은 빠진다
+        val september = YamuJson.decodeFromString(
+            MonthlyReportDto.serializer(),
+            """{"yearMonth":"2026-09","isPartialMonth":false,"livingSpent":700000,"prevSamePeriodSpent":712000,"periodTo":"2026-09-30"}""",
+        ).toSpend(null)
+        assertEquals("8월 1~30일", september.prevPeriod)
+        assertEquals("8월 1~30일보다 12,000원 덜 썼어요", spendDiffSentence(september.diffFromPrev!!, september.prevPeriod))
+        assertEquals("8월 1~30일과 같아요", spendDiffSentence(0, september.prevPeriod))
+        // 서버가 끝 날을 안 줘도 그달 길이로 같게
+        assertEquals("1월 1~28일", prevPeriodLabel(YearMonth.of(2026, 2)))
+        assertEquals("1월 1~29일", prevPeriodLabel(YearMonth.of(2028, 2)))   // 윤년 2월
+        assertEquals("3월 1~30일", prevPeriodLabel(YearMonth.of(2026, 4)))
+        // 앞 달이 같거나 짧으면 통째로 — 3월을 열면 2월 전체
+        assertEquals("2월", prevPeriodLabel(YearMonth.of(2026, 3), periodTo = "2026-03-31"))
+        assertEquals("7월", prevPeriodLabel(YearMonth.of(2026, 8)))
     }
 
     @Test fun `혜택 리포트 기간 — 이번 달 PARTIAL은 오늘까지, 지난 달은 확정 전(PARTIAL)이어도 '9월'`() {

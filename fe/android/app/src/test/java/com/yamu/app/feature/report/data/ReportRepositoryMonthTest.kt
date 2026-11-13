@@ -39,7 +39,7 @@ class ReportRepositoryMonthTest {
         assertEquals("1", requests.first { it.url.encodedPath == "/payments" }.url.queryParameter("size"))
         assertEquals(7, spend.paymentCount)
         assertEquals("10월", spend.periodLabel)
-        assertEquals(9, spend.prevMonth)   // 끝난 달은 '9월보다'
+        assertEquals("9월", spend.prevPeriod)   // 끝난 달은 '9월보다'
     }
 
     @Test fun `혜택 리포트 — 고른 달`() = runTest {
