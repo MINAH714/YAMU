@@ -132,8 +132,17 @@ enum class ForecastPeriod(val until: String, val days: Int?, val label: String) 
     DAYS_30("DAYS", 30, "30일"),
 }
 
-/** 화면에서 고른 기간 · 계좌. null은 '정하지 않음'(기간은 서버 설정, 계좌는 연결 계좌 전체). 앱을 켜 둔 동안만 기억한다 */
-data class ForecastSelection(val period: ForecastPeriod? = null, val accountIds: Set<Long>? = null)
+/**
+ * 화면에서 고른 기간 · 계좌. 앱을 켜 둔 동안만 기억한다.
+ * 기간 null은 서버 설정. 계좌는 [accountIds]가 null이면 기준 계좌 하나다 — 홈 요약 · 소비분석 자산 흐름과 같은 범위라 화면끼리 숫자가 맞는다
+ * (v4 FORECAST-03 · COMMON-04, S15P31E103-484 · 2026-11-13 결정). 전에는 null이 연결 계좌 전체였다.
+ * [all]은 시트에서 계좌를 모두 고른 것 — 목록 대신 표시만 두어 그 뒤 새로 연결한 계좌도 들어간다
+ */
+data class ForecastSelection(val period: ForecastPeriod? = null, val accountIds: Set<Long>? = null, val all: Boolean = false)
+
+/** 계좌 짧은 이름 — 'KB국민은행 ··1234'(은행 이름이 없으면 계좌 이름). 잔고예보 칩 · 소비분석 자산 흐름 · 예정 수입·지출 머리가 같이 쓴다 */
+fun ForecastAccountOption.shortName(): String =
+    listOfNotNull(bankName ?: name, "··$last4".takeIf { last4.isNotBlank() }).joinToString(" ")
 
 /** 계좌 고르기 시트의 한 줄. [cardIds]는 이 계좌에서 출금하는 등록 카드(GET /accounts의 linkedCards) */
 data class ForecastAccountOption(
@@ -259,7 +268,18 @@ data class Forecast(
     val calculatedAtIso: String?,
     val scope: AccountScope? = null,   // 계좌를 일부만 골랐을 때 — 응답에는 없고 저장소가 붙인다
     val beyondHorizon: List<ForecastEvent> = emptyList(),   // 기간 뒤에 빠질 카드값(출금일순, 0원 제외). 선에는 없다
+    val accounts: List<ForecastAccountOption> = emptyList(),   // 이 예보가 본 계좌(이름표용) — 응답에는 없고 저장소가 붙인다
 ) {
+    /**
+     * 계좌 이름표 — 하나면 'KB국민은행 ··1234', 여럿이면 '계좌 2개'([all]이면 '계좌 2개 전체').
+     * 저장소가 계좌를 붙이지 못했으면(옛 캐시 · 시험) 개수만
+     */
+    fun accountLabel(all: Boolean): String = when {
+        accounts.size == 1 -> accounts[0].shortName()
+        all && accountIds.size > 1 -> "계좌 ${accountIds.size}개 전체"
+        else -> "계좌 ${accountIds.size}개"
+    }
+
     /** 다음 월급일 — 기간 기준이 NEXT_INCOME일 때만(끝 날은 월급 전날). DAYS면 월급을 못 찾았거나 N일을 고른 것 */
     val incomeDate: LocalDate? get() = to?.takeIf { isNextIncome }?.plusDays(1)
 

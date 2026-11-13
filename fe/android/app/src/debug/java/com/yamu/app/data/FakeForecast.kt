@@ -323,14 +323,20 @@ class FakeForecastRepository @Inject constructor(private val bank: FakeBank) : F
         // '데이터 부족'은 실패가 아니라 생활비 기록이 없는 응답 — 잔고예보는 이때도 실패하지 않는다(docs/be/forecast.md 「에러」)
         if (DevSession.faultScenario == FaultScenario.DATA_INSUFFICIENT) {
             delay(300)
-            return ApiResult.Success(build(current, noLiving = true).toForecast().copy(scope = current.scopeFrom(options())).also { last = it })
+            return ApiResult.Success(build(current, noLiving = true).toForecast().withSelection(current).also { last = it })
         }
         return withFault(empty = { ApiResult.Failure(ApiError.InvalidRequest(ForecastRepository.NO_ACCOUNT)) }) {
             delay(500)
             // 연결한 계좌가 없으면 BE처럼 400 — 가짜 사용자 '연결 전'과 같은 빈 화면
             if (accountList.isEmpty()) return@withFault ApiResult.Failure(ApiError.InvalidRequest(ForecastRepository.NO_ACCOUNT))
-            ApiResult.Success(build(current).toForecast().copy(scope = current.scopeFrom(options())).also { last = it })
+            ApiResult.Success(build(current).toForecast().withSelection(current).also { last = it })
         }
+    }
+
+    /** 진짜 저장소처럼 예정 목록 범위와 본 계좌(이름표용)를 붙인다 — 고르지 않았으면 기준 계좌 하나(S15P31E103-484) */
+    private fun Forecast.withSelection(selection: ForecastSelection): Forecast {
+        val ids = selection.accountIdsFrom(options())
+        return copy(scope = selection.scopeFrom(options()), accounts = options().filter { it.accountId in ids })
     }
 
     /** 가짜 홈의 예상 잔액(S15P31E103-454) — 홈 금액이 잔고예보와 같은 계산에서 나오게 */
@@ -488,7 +494,7 @@ class FakeForecastRepository @Inject constructor(private val bank: FakeBank) : F
         // 체크카드 구매일(기간 안) 출금 계좌의 구매 후 잔액(그 계좌의 가장 나쁜 선)이 0원 아래면 BE처럼 안내를 덧붙인다(-347).
         // 통합 합계로 보면 다른 계좌 잔액이 출금 계좌의 마이너스를 가린다(!206 리뷰). 출금 계좌를 고르지 않았으면 그날 잔액을 몰라 붙이지 않는다
         val checkOverdrawn = !card.credit && !query.purchaseDate.isAfter(to) && purchaseAccount in current.accountIdsFrom(options()) &&
-            build(current.copy(accountIds = setOf(purchaseAccount)), purchaseFlows).series
+            build(current.copy(accountIds = setOf(purchaseAccount), all = false), purchaseFlows).series
                 .firstOrNull { it.date == query.purchaseDate.toString() }?.let { (it.conservative ?: it.expected ?: 0) < 0 } == true
         val message = buildString {
             val d = afterDate?.let { "${it.monthValue}월 ${it.dayOfMonth}일" } ?: "기간 중"

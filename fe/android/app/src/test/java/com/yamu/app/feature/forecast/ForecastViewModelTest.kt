@@ -152,7 +152,7 @@ class ForecastViewModelTest {
         assertTrue(vm.state.value.noAccount)
     }
 
-    @Test fun `기간 · 계좌를 고르면 기억하고 그 값으로 다시 부른다 — 모두 고르면 전체(null)`() = runTest(dispatcher) {
+    @Test fun `기간 · 계좌를 고르면 기억하고 그 값으로 다시 부른다 — 모두 고르면 전체(all)`() = runTest(dispatcher) {
         forecastResult = ApiResult.Success(testForecast())
         val vm = ForecastViewModel(repo)
         vm.loadAccounts()
@@ -167,7 +167,12 @@ class ForecastViewModelTest {
         vm.apply(null, setOf(1L, 2L))
         advanceUntilIdle()
         assertNull(selected.accountIds)
+        assertTrue("고르지 않은 기본(기준 계좌)과 나눈다(-484)", selected.all)
         assertEquals(2, forecastCalls)
+
+        vm.apply(null, setOf(1L))   // 하나만 고르면 그 계좌 — 전체 표시는 지운다
+        advanceUntilIdle()
+        assertEquals(ForecastSelection(null, setOf(1L)), selected)
     }
 
     @Test fun `다시 부르면 앞 요청의 늦은 결과는 버린다`() = runTest(dispatcher) {
