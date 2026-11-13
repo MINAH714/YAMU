@@ -45,6 +45,14 @@ class BuyCheckViewModelTest {
     private var saveResult: ApiResult<SavedPlan> = ApiResult.Success(SavedPlan(77, "태블릿", 400_000, DATE, 1, 0, null))
     private var saveCalls = 0
     private val saveKeys = mutableListOf<String>()
+    private var categoryList = listOf(
+        MerchantCategory("HYPERMARKET", "대형마트"),
+        MerchantCategory("ONLINE_MARKETPLACE", "온라인 쇼핑"),
+        MerchantCategory("DELIVERY_APP", "배달앱"),
+        MerchantCategory("ELECTRIC_UTILITY", "전기요금", false),
+        MerchantCategory("UNIVERSITY", "대학", false),
+        MerchantCategory("TAXI", "택시", false),
+    )
 
     private val repo = object : ForecastRepository by unused() {
         override suspend fun simulate(query: SimulationQuery): ApiResult<Simulation> {
@@ -52,7 +60,7 @@ class BuyCheckViewModelTest {
             return pending.removeFirstOrNull()?.await() ?: ApiResult.Success(sim(query))
         }
         override suspend fun simulationCards(): ApiResult<List<SimCardOption>> = ApiResult.Success(CARDS)
-        override suspend fun categories(): ApiResult<List<MerchantCategory>> = ApiResult.Success(listOf(MerchantCategory("HYPERMARKET", "대형마트")))
+        override suspend fun categories(): ApiResult<List<MerchantCategory>> = ApiResult.Success(categoryList)
         override suspend fun merchants(categoryCode: String): ApiResult<List<CatalogMerchant>> = ApiResult.Success(listOf(CatalogMerchant(201, "이마트")))
         override suspend fun savePlan(simulation: Simulation, idempotencyKey: String): ApiResult<SavedPlan> {
             saveCalls++
@@ -63,6 +71,26 @@ class BuyCheckViewModelTest {
     }
 
     @Before fun setUp() = Dispatchers.setMain(dispatcher)
+
+    @Test fun `제외 업종은 목록과 선택에서 막고 재조회시 제외되면 선택도 비운다`() = runTest(dispatcher) {
+        val vm = BuyConditionsViewModel(10_000, "모의 구매", repo)
+        advanceUntilIdle()
+        assertEquals(listOf("HYPERMARKET", "ONLINE_MARKETPLACE", "DELIVERY_APP"), vm.state.value.categories?.map { it.code })
+        for (code in listOf("ELECTRIC_UTILITY", "UNIVERSITY", "TAXI")) {
+            vm.pickCategory(MerchantCategory(code, code, false))
+            assertNull(vm.query())
+            vm.pickCategory(MerchantCategory(code, code, true)) // 목록 밖 업종을 직접 넘겨도 거절
+            assertNull(vm.query())
+        }
+        vm.pickCategory(categoryList.first())
+        advanceUntilIdle()
+        assertEquals("HYPERMARKET", vm.query()?.categoryCode)
+        categoryList = categoryList.map { it.copy(simulationSupported = false) }
+        vm.loadCategories()
+        advanceUntilIdle()
+        assertNull(vm.query())
+        assertNull(vm.state.value.merchant)
+    }
 
     @After fun tearDown() = Dispatchers.resetMain()
 

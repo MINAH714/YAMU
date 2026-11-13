@@ -143,7 +143,8 @@ class EngineSimulationRecommender implements SimulationRecommender {
      * 시설(일반 매장)은 가정이라, POS의 실제 요청 시각·단말 시설과 다르면 같은 브랜드에서도 결과가 다를 수 있다.
      * 그 사실은 "모의 가맹점에 공과금·교통·교육 가맹점이 없다"에 기댄다. 그래서 업종만 고르면 넘기지 않고, 고른 브랜드의 업종이 사실을
      * 확정할 수 없는 업종이면 {@link PosPurchaseFacts#forCategory}가 빈 Map을 준다(넘기면 제외 혜택이 계산돼 혜택이 커진다, 2026-11-08 결정).
-     * 업종 목록은 POS와 한 곳에 두려고 {@link PosPurchaseFacts}에 있다(!180 리뷰).
+     * 미지원 업종은 PurchaseSimulationCategories를 공유하고 API 입력에서 거절한다. 내부 직접 호출에도 기본값을 공급하지 않는다.
+     * 일반 업종만 고른 경우에는 POS 전용 사실 대신 승인된 BasicPurchaseSimulation의 일반 구매 가정만 적용한다.
      */
     private static RecommendationInput.Transaction transaction(Request request) {
         Map<String, Boolean> facts = request.merchantId() != null

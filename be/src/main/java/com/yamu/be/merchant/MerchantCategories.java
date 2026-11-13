@@ -10,7 +10,11 @@ import java.util.Map;
 /** Seed 코드 사전을 정규화한 평면 목록. 물품 분류/거래 조건/계층 추론을 포함하지 않는다. */
 public final class MerchantCategories {
     private MerchantCategories() { }
-    public record Category(String merchantCategoryCode, String merchantCategoryName) { }
+    public record Category(String merchantCategoryCode, String merchantCategoryName, boolean simulationSupported) {
+        public Category(String code, String name) {
+            this(code, name, PurchaseSimulationCategories.supports(code));
+        }
+    }
 
     private static final List<Category> CATEGORIES = List.of(
             // 2026-11-05 Task 297 구현 검토에서 표시명 승인. 코드/브랜드 배정은 기존 Seed 유지.

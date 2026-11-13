@@ -404,7 +404,10 @@ class FakeForecastRepository @Inject constructor(private val bank: FakeBank) : F
         "MEMBERSHIP_SUBSCRIPTION" to "유료 멤버십", "MOVIE_THEATER" to "영화관", "ONLINE_MARKETPLACE" to "온라인 쇼핑", "OTHER" to "기타",
         "PHARMACY" to "약국", "STREAMING_SERVICE" to "스트리밍", "SUBWAY" to "지하철", "TAXI" to "택시", "TELECOMMUNICATION" to "통신",
         "WESTERN_RESTAURANT" to "양식",
-    ).map { (code, name) -> MerchantCategory(code, name) }.sortedBy { it.name }
+    ).map { (code, name) ->
+        // 가짜 목록에 들어 있는 네 미지원 업종도 실서버의 지원 여부와 맞춘다.
+        MerchantCategory(code, name, simulationSupported = code !in setOf("ACADEMY", "CITY_BUS", "SUBWAY", "TAXI"))
+    }.sortedBy { it.name }
 
     private val fakeMerchants = mapOf(
         "HYPERMARKET" to listOf(CatalogMerchant(201, "이마트"), CatalogMerchant(202, "홈플러스"), CatalogMerchant(203, "롯데마트")),
@@ -442,6 +445,9 @@ class FakeForecastRepository @Inject constructor(private val bank: FakeBank) : F
     }
 
     override suspend fun simulate(query: SimulationQuery): ApiResult<Simulation> = withFault {
+        if (fakeCategories.none { it.code == query.categoryCode && it.simulationSupported }) {
+            return@withFault ApiResult.Failure(ApiError.InvalidRequest("이 업종은 모의 구매를 지원하지 않아요."))
+        }
         delay(700)
         val name = query.productName.orEmpty().uppercase()
         val chosen = query.userCardId?.let { id -> fakeCards.firstOrNull { it.id == id } ?: return@withFault ApiResult.Failure(ApiError.NotFound("RESOURCE_NOT_FOUND")) }

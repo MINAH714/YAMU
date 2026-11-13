@@ -88,7 +88,7 @@ class SimulationSeedRecommendationDatabaseTest extends MySqlTestSupport {
         var availability=new HashMap<Long,RecommendationCommand.PaymentAvailability>();
         cards.forEach(id->availability.put(id,new RecommendationCommand.PaymentAvailability(RecommendationInput.Availability.AVAILABLE,null)));
         return new RecommendationRequest(100L,user,new PaymentTerms(amount,PaymentPlan.LUMP_SUM,null),
-                new RecommendationRequest.MerchantContext(((Number)merchant.get("merchant_id")).longValue(),(String)merchant.get("merchant_category_code"),brand.equals("APP_STORE")?"ONLINE":"OFFLINE","GENERAL"),
+                new RecommendationRequest.MerchantContext(((Number)merchant.get("merchant_id")).longValue(),(String)merchant.get("merchant_category_code"),Set.of("APP_STORE", "COUPANG").contains(brand)?"ONLINE":"OFFLINE","GENERAL"),
                 LocalDateTime.of(2026,11,3,3,0),item,availability,facts);
     }
     @ParameterizedTest(name = "전월 실적 {0}원 → 편의점 혜택 {1}원")
@@ -267,10 +267,10 @@ class SimulationSeedRecommendationDatabaseTest extends MySqlTestSupport {
                 .allSatisfy(b->assertThat(b.amount()).isNull());
         assertThat(json.writeValueAsString(displayed)).contains("\"amount\":null","\"totalAmount\":1800");
     }
-    @Test void explicitOutsideScopeFactRemainsUnknownAndCannotTurnAllPoliciesComplete() {
+    @Test void overseasWithoutCardFormRemainsUnknown() {
         long user=new OwnershipFixtures(jdbc).user();long id=card(user,product("현대카드 ZERO Edition3 (할인형)"),0,0);
-        var result=port.recommend(request(user,List.of(id),"GS25",10_000,null,Map.of()));
-        // 국내 모의라는 이유만으로 별도 RULE:OVERSEAS_ELIGIBILITY를 충족시켜서는 안 된다.
+        var result=port.recommend(request(user,List.of(id),"GS25",10_000,null,Map.of("REGION:OVERSEAS", true)));
+        // 해외 거래에서는 국내외겸용 여부를 확인해야 한다.
         assertThat(result.status()).isEqualTo(RecommendationResult.Status.DATA_INSUFFICIENT);
         assertThat(result.candidates()).isEmpty();
     }

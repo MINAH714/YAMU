@@ -75,7 +75,14 @@ public record RecommendationInput(
                                 CardRegistrationStatus registrationStatus, CardIssuerStatus issuerStatus,
                                 Availability availability, String availabilityReason,
                                 BenefitPolicy policy, PerformanceProgress performance,
-                                Integer displayOrder, LocalDateTime registeredAt) {
+                                Integer displayOrder, LocalDateTime registeredAt, Transaction calculationTransaction) {
+        public CardCandidate(long userCardId, long userId, CardType cardType,
+                CardRegistrationStatus registrationStatus, CardIssuerStatus issuerStatus,
+                Availability availability, String availabilityReason, BenefitPolicy policy, PerformanceProgress performance,
+                Integer displayOrder, LocalDateTime registeredAt) {
+            this(userCardId, userId, cardType, registrationStatus, issuerStatus, availability, availabilityReason,
+                    policy, performance, displayOrder, registeredAt, null);
+        }
         public CardCandidate {
             if (userCardId <= 0 || userId <= 0) {
                 throw new IllegalArgumentException("카드·사용자 ID는 양수여야 합니다.");
