@@ -45,6 +45,10 @@ class RealCashflowWithFakes @Inject constructor(
     override suspend fun deleteItem(itemId: Long, scope: CashflowDeleteScope, occurrenceDate: LocalDate?): ApiResult<Unit> =
         real.deleteItem(itemId, scope, occurrenceDate)
 
+    // 확인 전 후보도 진짜 가계부 번호라 진짜로(가짜 예보에는 후보 줄이 없어 F-02에서는 맞춰지지 않는다)
+    override suspend fun cashflowCandidates(from: LocalDate, to: LocalDate) = real.cashflowCandidates(from, to)
+    override suspend fun decideCandidate(itemId: Long, confirm: Boolean): ApiResult<Unit> = real.decideCandidate(itemId, confirm)
+
     // 지난 회차 · 결제 연결도 진짜 가계부 번호를 쓰므로 진짜로(가짜는 진짜 항목 번호를 모른다). 생활비 상세는 잔고예보라 가짜
     override suspend fun pastCardEntries(from: LocalDate, to: LocalDate): ApiResult<List<CashflowEntry>> = real.pastCardEntries(from, to)
     override suspend fun matchStatus(itemId: Long, occurrenceDate: LocalDate): ApiResult<PaymentMatch?> = real.matchStatus(itemId, occurrenceDate)
