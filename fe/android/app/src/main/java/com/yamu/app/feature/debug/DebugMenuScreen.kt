@@ -20,6 +20,7 @@ import androidx.navigation.NavController
 import com.yamu.app.BuildConfig
 import com.yamu.app.core.network.ApiFeature
 import com.yamu.app.core.designsystem.component.ListRow
+import com.yamu.app.core.designsystem.component.NeutralButton
 import com.yamu.app.core.designsystem.component.PrimaryButton
 import com.yamu.app.core.designsystem.component.Segmented
 import com.yamu.app.core.designsystem.component.YamuCard
@@ -125,6 +126,24 @@ fun DebugMenuScreen(navController: NavController, viewModel: DebugMenuViewModel 
                         onClick = { DevSession.faultScenario = scenario },
                     )
                 }
+                // 모든 기능 · 홈 · 연결 · 결제 상태는 앱을 다시 켜도 남는다(S15P31E103-453) — 폰을 넘기기 전에 한 번에 되돌리는 버튼
+                Spacer(Modifier.height(8.dp))
+                NeutralButton(
+                    "기능 · 홈 · 연결 · 결제 상태 모두 정상으로",
+                    onClick = {
+                        DevSession.faultScenario = FaultScenario.NONE
+                        DevSession.homeScenario = HomeScenario.NORMAL
+                        DevSession.linkScenario = LinkScenario.NORMAL
+                        DevSession.payScenario = PayScenario.CAFE
+                    },
+                    enabled = DevSession.faultScenario != FaultScenario.NONE || DevSession.homeScenario != HomeScenario.NORMAL ||
+                        DevSession.linkScenario != LinkScenario.NORMAL || DevSession.payScenario != PayScenario.CAFE,
+                )
+                Text(
+                    "고른 상태는 앱을 다시 켜도 남아요. 폰을 넘기기 전에 눌러 두세요. 시작 상태와 등록한 카드 · 계좌는 그대로예요",
+                    style = YamuTheme.typography.bodyS,
+                    color = c.text3,
+                )
             }
             YamuCard {
                 Text("홈 상태 (가짜 데이터)", style = YamuTheme.typography.titleM, color = c.text1)
