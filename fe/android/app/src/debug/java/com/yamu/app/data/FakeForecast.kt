@@ -84,7 +84,9 @@ import kotlin.math.abs
 
 /**
  * debug 전용 가짜 잔고예보 서버 — BE BalanceForecast와 같은 모양을 만들어 앱의 매퍼를 그대로 거친다.
- * 계좌 둘(월급 통장 412,000 · 생활비 통장 268,000), 하루 생활비 6,000(계좌마다 3,000), +4 카드 청구(진행 중, EXPECTED) · 카드 사용 예상(CONSERVATIVE),
+ * 계좌 · 월급은 가짜 사용자(FakeBank · FakeUser)를 읽는다(S15P31E103-454). 아래 숫자는 시드 사용자('카드 6장') 기준이고,
+ * 새 사용자는 연결한 계좌와 하루 생활비만 있고 월급을 넣기 전까지는 30일이다.
+ * 계좌 둘(KB ·1234 412,000 · 신한 ·5678 268,000), 하루 생활비 6,000(계좌마다 3,000), +4 카드 청구(진행 중, EXPECTED) · 카드 사용 예상(CONSERVATIVE),
  * +2 미용실(생활카드 예정 지출) · +9 월세 · +11 통신비 · +16 구독료(CONFIRMED), +25 월급.
  * 그래서 'AI 생활비 반영' 선(conservative)만 월급 전에 안전 잔액(100,000) 아래로 내려가 WARNING이다. 위험 판정은 BE -356 !223의 두 선 기준을 따른다.
  * 지난 7일에는 생활카드 예정 지출 셋(헬스장 · 병원 · 택시)이 있고, 병원은 결제와 연결됨 · 택시는 연결 뒤 결제가 취소된 상태로 시작한다.
@@ -92,7 +94,7 @@ import kotlin.math.abs
  * 계획을 저장하면 같이 계산 → 잔고예보 숫자가 바뀐다(12 문서 8-5).
  */
 @Singleton
-class FakeForecastRepository @Inject constructor() : ForecastRepository {
+class FakeForecastRepository @Inject constructor(private val bank: FakeBank) : ForecastRepository {
 
     private class Plan(val id: Long, val title: String, val amount: Long, val payDate: LocalDate)
 
@@ -112,10 +114,9 @@ class FakeForecastRepository @Inject constructor() : ForecastRepository {
     /** 이번 회차만 고친 값 — (규칙, 원래 회차)마다 */
     private data class Override(val title: String?, val amount: Long?, val date: LocalDate?)
 
-    private val accountList = listOf(
-        Account(1, "월급 통장", "신한은행", "4021", 412_000, primary = true, dailyLiving = 3_000),
-        Account(2, "생활비 통장", "KB국민은행", "7730", 268_000, primary = false, dailyLiving = 3_000),
-    )
+    /** 가짜 사용자가 연결한 계좌 그대로(계좌 관리와 같은 번호 · 이름 · 잔액, S15P31E103-454). 시드 사용자는 KB ·1234 412,000 · 신한 ·5678 268,000 */
+    private val accountList: List<Account>
+        get() = bank.accountViews().map { Account(it.accountId, it.name, it.bank, it.last4, it.balance, it.primary, dailyLiving = 3_000) }
     private val plans = mutableListOf<Plan>()
     private val saved = mutableMapOf<Long, SavedPlan>()
     private var nextId = 901L
@@ -124,12 +125,13 @@ class FakeForecastRepository @Inject constructor() : ForecastRepository {
 
     private val alert = 100_000L
     private val today get() = LocalDate.now(KST)
-    private val income get() = today.plusDays(25)
+    /** 다음 월급날 — 가짜 사용자의 월급(B-06). 없으면 null이고 잔고예보는 BE처럼 30일(DAYS) */
+    private val income: LocalDate? get() = bank.salary?.nextAfter(today)
 
     private fun monthly(id: Long, title: String, amount: Long, date: LocalDate) =
         Item(id, isIncome = false, title, amount, date, CashflowRepeat.MONTHLY, date.dayOfMonth, null, accountId = 1, userCardId = null)
 
-    /** 생활카드(11, 생활비 통장 출금)로 낼 한 번짜리 예정 지출 — 결제와 연결할 수 있는 회차 */
+    /** 생활카드(11)로 낼 한 번짜리 예정 지출 — 결제와 연결할 수 있는 회차. 출금 계좌는 카드 관리와 같은 11번 카드(KB 톡톡)의 출금 계좌(KB ·1234) */
     private fun card(id: Long, title: String, amount: Long, date: LocalDate) =
         Item(id, isIncome = false, title, amount, date, CashflowRepeat.NONE, null, null, accountId = null, userCardId = 11)
 
@@ -142,6 +144,9 @@ class FakeForecastRepository @Inject constructor() : ForecastRepository {
         card(7013, "택시", 14_000, today.minusDays(4)),
         card(7012, "미용실", 25_000, today.plusDays(2)),
     )
+
+    /** 처음 넣어 둔 줄은 시드 사용자의 가계부 — 새 사용자에게는 보이지 않는다(F-02a로 등록한 줄만) */
+    private val seedItemIds = items.map { it.id }.toSet()
     private val overrides = mutableMapOf<Pair<Long, LocalDate>, Override>()
     private val excluded = mutableSetOf<Pair<Long, LocalDate>>()
 
@@ -164,7 +169,7 @@ class FakeForecastRepository @Inject constructor() : ForecastRepository {
     }
 
     /** 목록 — 계산한 회차에 이번 회차 수정 · 삭제를 덮는다(옮긴 회차는 옮긴 날짜로 기간을 가린다) */
-    private fun entriesBetween(from: LocalDate, to: LocalDate): List<CashflowEntry> = items.flatMap { item ->
+    private fun entriesBetween(from: LocalDate, to: LocalDate): List<CashflowEntry> = items.filter { bank.seeded || it.id !in seedItemIds }.flatMap { item ->
         occurrences(item, to.plusMonths(1)).mapNotNull { occurrence ->
             if ((item.id to occurrence) in excluded) return@mapNotNull null
             val o = overrides[item.id to occurrence]
@@ -179,22 +184,42 @@ class FakeForecastRepository @Inject constructor() : ForecastRepository {
 
     private fun LocalDate.md() = "$monthValue/$dayOfMonth"
 
-    /** 잔고예보 설정은 NEXT_INCOME(월급 +25) — 고르지 않으면 월급 전날까지, N일이면 오늘 + N */
-    private fun horizonTo(period: ForecastPeriod?): LocalDate = period?.days?.let { today.plusDays(it.toLong()) } ?: income.minusDays(1)
+    /** 잔고예보 설정은 NEXT_INCOME — 고르지 않으면 월급 전날까지(월급이 없으면 BE처럼 30일), N일이면 오늘 + N */
+    private fun horizonTo(period: ForecastPeriod?): LocalDate =
+        period?.days?.let { today.plusDays(it.toLong()) } ?: income?.minusDays(1) ?: today.plusDays(NO_INCOME_DAYS)
 
-    /** 기간 안 모든 입출금 — 가계부 회차는 계좌가 없으면(카드) 생활비 통장에서 나간다고 본다 */
+    /**
+     * 기간 안 모든 입출금 — 가계부 회차는 계좌가 없으면(카드) 그 카드의 출금 계좌에서 나간다고 본다.
+     * 카드 청구 · 카드 사용 예상은 시드 사용자의 지난 카드 사용이라 시드 사용자만, 월급은 가짜 사용자의 월급 회차
+     */
     private fun flows(to: LocalDate): List<Flow> {
         val bill = Flow(2, today.plusDays(4), -150_000, "CARD_BILLING", "EXPECTED", "신한카드 청구")
         val estimate = Flow(2, today.plusDays(4), -36_000, "CARD_SPENDING_ESTIMATE", "CONSERVATIVE", "생활카드 · ${today.plusDays(1).md()}~${today.plusDays(3).md()} 3일 × 일평균 12,000원")
-        val fromItems = entriesBetween(today, to).filterNot(::paidOff).map { Flow(it.accountId ?: 2, it.date, it.signedAmount, if (it.isIncome) "SCHEDULED_INCOME" else "SCHEDULED_OUTFLOW", "CONFIRMED", it.title) }
-        val salary = listOf(Flow(1, income, 2_800_000, "SCHEDULED_INCOME", "CONFIRMED", "월급"))
-        val planFlows = plans.map { Flow(2, it.payDate, -it.amount, "SCHEDULED_OUTFLOW", "CONFIRMED", it.title) }
-        return listOf(bill, estimate) + fromItems + salary + planFlows
+        val cardFallback = accountList.firstOrNull { it.primary }?.id ?: 2L
+        val fromItems = entriesBetween(today, to).filterNot(::paidOff).map {
+            val account = it.accountId ?: it.userCardId?.let { id -> bank.cardView(id)?.accountId } ?: cardFallback
+            Flow(account, it.date, it.signedAmount, if (it.isIncome) "SCHEDULED_INCOME" else "SCHEDULED_OUTFLOW", "CONFIRMED", it.title)
+        }
+        val salary = bank.salary?.let { s ->
+            val account = bank.salaryAccountId() ?: return@let emptyList()
+            generateSequence(s.nextAfter(today)) { s.nextAfter(it) }.takeWhile { !it.isAfter(to) }
+                .map { Flow(account, it, s.amount, "SCHEDULED_INCOME", "CONFIRMED", "월급") }.toList()
+        }.orEmpty()
+        val planAccount = spendAccount()
+        val planFlows = plans.map { Flow(planAccount, it.payDate, -it.amount, "SCHEDULED_OUTFLOW", "CONFIRMED", it.title) }
+        return (if (bank.seeded) listOf(bill, estimate) else emptyList()) + fromItems + salary + planFlows
     }
 
-    /** 계좌마다 출금 카드 — 알뜰체크는 월급 통장, 생활 · 여행 · 예전카드는 생활비 통장(가상 구매 가짜 카드와 같은 번호) */
-    private fun options(): List<ForecastAccountOption> = accountList.map {
-        ForecastAccountOption(it.id, it.name, it.bank, it.last4, it.balance, it.primary, cardIds = if (it.id == 1L) setOf(16L) else setOf(11L, 12L, 17L))
+    /**
+     * 가상 구매 · 저장한 계획이 빠지는 계좌 — 두 번째 연결 계좌(시드 사용자는 신한 ·5678)가 있으면 그 계좌, 없으면 기준 계좌(그것도 없으면 첫 계좌).
+     * 계좌 번호가 연결 순서를 따라서, 계좌가 하나인 새 사용자에게 2번을 쓰면 없는 계좌라 잔고예보에서 걸러진다(!294 리뷰)
+     */
+    private fun spendAccount(): Long =
+        (accountList.firstOrNull { it.id == 2L } ?: accountList.firstOrNull { it.primary } ?: accountList.firstOrNull())?.id ?: 2L
+
+    /** 계좌마다 출금 카드 — 가짜 은행의 등록 카드 출금 계좌(카드 관리와 같다) */
+    private fun options(): List<ForecastAccountOption> = accountList.map { a ->
+        ForecastAccountOption(a.id, a.name, a.bank, a.last4, a.balance, a.primary, cardIds = bank.accountViews().firstOrNull { it.accountId == a.id }?.cardIds.orEmpty())
     }
 
     /** 날마다 세 선(confirmed는 응답 호환용으로만) · 위험 구간 · 요약 — BE ForecastCalculator · RiskDetector 규칙을 줄여 흉내 낸다 */
@@ -261,14 +286,14 @@ class FakeForecastRepository @Inject constructor() : ForecastRepository {
             else -> "SAFE"
         }
         val days = dates.size - 1
-        val excludedItems = listOfNotNull(
+        val excludedItems = if (!bank.seeded) emptyList() else listOfNotNull(   // 시드 사용자의 카드 · 가계부 줄
             ExcludedItemDto(date = today.plusDays(14).toString(), title = "여행카드", reason = "CREDIT_SPENDING_UNKNOWN").takeIf { 2L in ids && !today.plusDays(14).isAfter(to) },
             ExcludedItemDto(cashflowItemId = 7009, date = today.plusDays(20).toString(), title = "관리비", reason = "AMOUNT_UNKNOWN").takeIf { 1L in ids && !today.plusDays(20).isAfter(to) },
         )
         return BalanceForecastDto(
             accountIds = accounts.map { it.id },
             currentTotalBalance = start,
-            horizon = HorizonDto(if (selection.period?.days == null) "NEXT_INCOME" else "DAYS", today.toString(), to.toString(), days),
+            horizon = HorizonDto(if (selection.period?.days == null && income != null) "NEXT_INCOME" else "DAYS", today.toString(), to.toString(), days),
             alertThreshold = alert,
             summary = ForecastSummaryDto(status, status, min, series[worst.indexOf(min)].date, worst.last()),
             series = series,
@@ -280,8 +305,8 @@ class FakeForecastRepository @Inject constructor() : ForecastRepository {
                 method = "ML_V1",
                 dataOrigin = if (living.all { it != null }) "REAL" else "INSUFFICIENT",
             ),
-            // 기간 뒤 카드값(BE -348) — 생활비 통장(2)에서 빠지는 것만, 출금일순
-            beyondHorizon = if (2L !in ids) emptyList() else listOf(
+            // 기간 뒤 카드값(BE -348) — 생활비 통장(2)에서 빠지는 것만, 출금일순. 시드 사용자의 지난 카드 사용이라 새 사용자는 없다
+            beyondHorizon = if (2L !in ids || !bank.seeded) emptyList() else listOf(
                 BeyondHorizonItemDto(to.plusDays(5).toString(), "CARD_BILLING", "생활카드 ${to.plusDays(5).monthValue}월 청구", -320_000, "EXPECTED"),
                 BeyondHorizonItemDto(to.plusDays(5).toString(), "CARD_SPENDING_ESTIMATE", "생활카드 · 이용기간 마감까지 10일 × 일평균 12,000원", -120_000, "CONSERVATIVE"),
             ),
@@ -299,11 +324,44 @@ class FakeForecastRepository @Inject constructor() : ForecastRepository {
         }
         return withFault(empty = { ApiResult.Failure(ApiError.InvalidRequest(ForecastRepository.NO_ACCOUNT)) }) {
             delay(500)
+            // 연결한 계좌가 없으면 BE처럼 400 — 가짜 사용자 '연결 전'과 같은 빈 화면
+            if (accountList.isEmpty()) return@withFault ApiResult.Failure(ApiError.InvalidRequest(ForecastRepository.NO_ACCOUNT))
             ApiResult.Success(build(current).toForecast().copy(scope = current.scopeFrom(options())).also { last = it })
         }
     }
 
+    /** 가짜 홈의 예상 잔액(S15P31E103-454) — 홈 금액이 잔고예보와 같은 계산에서 나오게 */
+    data class HomeForecast(
+        val accountId: Long, val currentBalance: Long, val endBalance: Long?, val nextRiskDate: LocalDate?, val horizonDays: Int?,
+        val minBalance: Long?, val nextIncome: Pair<LocalDate, Long>?, val provisional: Boolean,
+    )
+
+    /**
+     * BE HomeService.forecast처럼 기준 계좌 하나로 잔고예보 설정 기간(월급 전날까지, 월급이 없으면 30일)을 계산한다.
+     * 그래서 계좌가 하나면 잔고예보 첫 화면과 같은 금액이고, 둘 이상이면 잔고예보에서 기준 계좌만 골랐을 때와 같다(실서버도 같음)
+     */
+    fun homeForecast(): HomeForecast? {
+        val base = accountList.firstOrNull { it.primary } ?: accountList.firstOrNull() ?: return null
+        val dto = build(ForecastSelection(accountIds = setOf(base.id)))
+        val nextIncome = income?.takeIf { dto.horizon?.type == "NEXT_INCOME" }?.let { it to (bank.salary?.amount ?: 0L) }
+        return HomeForecast(
+            accountId = base.id,
+            currentBalance = dto.currentTotalBalance ?: base.balance,
+            endBalance = dto.summary?.endBalance,
+            nextRiskDate = dto.riskWindows.mapNotNull { it.from }.minOrNull()?.let(LocalDate::parse),
+            horizonDays = dto.horizon?.days,
+            minBalance = dto.summary?.minBalance,
+            nextIncome = nextIncome,
+            provisional = dto.livingCost?.projectedAmount == null,
+        )
+    }
+
     override fun cached(): Forecast? = last
+
+    private companion object {
+        /** 월급이 없을 때 기간 — BE ForecastService.NEXT_INCOME_FALLBACK_DAYS */
+        const val NO_INCOME_DAYS = 30L
+    }
 
     override fun selection(): ForecastSelection = current
 
@@ -404,8 +462,8 @@ class FakeForecastRepository @Inject constructor() : ForecastRepository {
         val card = chosen ?: top
         val (benefitName, benefitAmount) = net(card)
         val schedule = withdrawals(card, query.purchaseDate, query.amount, query.installmentMonths)
-        // 가짜는 가상 구매 출금을 저장한 계획과 같은 생활비 통장(2)에서 뺀다
-        val purchaseAccount = 2L
+        // 가짜는 가상 구매 출금을 저장한 계획과 같은 계좌(시드 사용자는 신한 ·5678, 계좌가 하나면 기준 계좌)에서 뺀다
+        val purchaseAccount = spendAccount()
         val purchaseFlows = schedule.map { Flow(purchaseAccount, LocalDate.parse(it.date), it.amount, "SIMULATED_PURCHASE", "CONFIRMED", it.label ?: "가상 구매") }
         val before = build(current)
         val after = build(current, purchaseFlows)
@@ -716,7 +774,8 @@ class FakeForecastRepository @Inject constructor() : ForecastRepository {
             method = "ML_V1",
             dataOrigin = "REAL",
             confidence = "HIGH",
-            period = LivingPeriodDto(today.toString(), to.toString(), days, if (current.period?.days == null) "NEXT_INCOME" else "DAYS"),
+            // 잔고예보 기간과 같은 기준 — 월급이 없으면 NEXT_INCOME을 골랐어도 30일(DAYS)
+            period = LivingPeriodDto(today.toString(), to.toString(), days, if (current.period?.days == null && income != null) "NEXT_INCOME" else "DAYS"),
             sources = listOf(3L to 93L, 2L to 108L, 1L to 99L).map { (n, pct) -> LivingSourceDto(month.minusMonths(n).toString(), daily * 30 * pct / 100) },
             excluded = listOf(
                 LivingExclusionDto("RECURRING", "매달 같은 가맹점 · 같은 금액으로 나간 정기 결제는 뺐어요"),

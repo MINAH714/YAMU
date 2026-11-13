@@ -70,21 +70,8 @@ class FakeBank @Inject constructor(private val user: FakeUser) {
 
     private class Issued(val cardId: String, val expiresAt: Instant)
 
-    private val accounts = listOf(
-        Account("A1", "004", "KB국민은행", "입출금", "1234", 950_000),
-        Account("A2", "088", "신한은행", "신한 주거래 통장", "5678", 320_000),
-    )
-
-    // BE 카드 시드(be/seed 01 · 02)에 있는 상품만 — 상품 그림(CardImages)이 있는 것 위주
-    private val cards = listOf(
-        Card("C1", "KB국민카드", "#FFBC00", "KB국민 청춘대로 톡톡카드", "1021", 14, recognized = 120_000),
-        Card("C2", "현대카드", "#1A1A1A", "현대카드ZERO Edition3(포인트형)", "3310", 14, recognized = 210_000),
-        Card("C3", "롯데카드", "#E60012", "LOCA LIKIT Shop", "7782", 14, recognized = 320_000),
-        Card("C4", "삼성카드", "#1428A0", "삼성 iD ON 카드", "4410", 15, recognized = 80_000),
-        Card("C5", "신한카드", "#0046FF", "신한카드 Mr.Life", "5096", 20, recognized = 150_000, accountId = "A2"),
-        Card("C6", "KB국민카드", "#FFBC00", "KB국민 노리2 체크카드(KB Pay)", "8823", null, check = true, recognized = 60_000, color = "#60584C"),
-        Card("C7", "하나카드", "#008C8C", "하나카드 트래블로그 체크카드", "5527", null, check = true, newlyIssued = true),
-    )
+    private val accounts = ACCOUNTS
+    private val cards = CARDS
 
     private val tokens = mutableMapOf<String, Issued>()
     private var tokenSeq = 0
@@ -105,7 +92,7 @@ class FakeBank @Inject constructor(private val user: FakeUser) {
     /** 디버그 '카드 6장'(로그인 · 연결 끝) — 시드 사용자로. 가짜 홈도 '정상'으로 */
     fun linkAll() {
         if (DevSession.homeScenario in setOf(HomeScenario.NOT_LINKED, HomeScenario.FIRST_DAY)) DevSession.homeScenario = HomeScenario.NORMAL
-        user.update { FakeUser.SEED }
+        user.update { FakeUser.seed() }
     }
 
     /**
@@ -132,10 +119,47 @@ class FakeBank @Inject constructor(private val user: FakeUser) {
         else -> null
     }
 
-    // ── 다른 가짜 저장소가 읽는 것 ──
+    // ── 다른 가짜 저장소가 읽는 것(S15P31E103-454) ──
+
+    /** 연결 계좌 — [accountId]는 계좌 관리(LinkedAccount)와 같은 번호, [cardIds]는 이 계좌에서 출금하는 등록 카드 */
+    data class AccountView(val accountId: Long, val name: String, val bank: String, val last4: String, val balance: Long, val primary: Boolean, val cardIds: Set<Long>)
+
+    /** 등록 카드 — [accountId]는 출금 계좌의 계좌 관리 번호(연결 전이면 null) */
+    data class CardView(val userCardId: Long, val issuer: String, val color: String, val product: String, val last4: String, val check: Boolean, val accountId: Long?)
 
     /** 시드 사용자(지난 결제 · 실적 기록이 있음)인지 — false면 방금 가입한 사용자 */
     val seeded: Boolean get() = user.state.seeded
+
+    fun accountViews(): List<AccountView> = linkedAccounts().map { a ->
+        AccountView(
+            accountId = accountIdOf(a.assetId)!!, name = accountAliases[a.assetId] ?: a.name, bank = a.bank, last4 = a.last4, balance = a.balance,
+            primary = a.assetId == primaryAccount, cardIds = linkedCards().filter { it.accountId == a.assetId }.map { it.userCardId() }.toSet(),
+        )
+    }
+
+    fun cardViews(): List<CardView> = linkedCards().map { c ->
+        CardView(c.userCardId(), c.issuer, c.color ?: c.issuerColor, c.product, c.last4, c.check, accountIdOf(c.accountId))
+    }
+
+    fun cardView(userCardId: Long): CardView? = cardViews().firstOrNull { it.userCardId == userCardId }
+
+    /** 체크카드 결제 뒤 잔액을 낼 때 — 그 카드 출금 계좌의 지금 잔액 */
+    fun balanceForCard(userCardId: Long): Long? =
+        cardView(userCardId)?.accountId?.let { id -> accountViews().firstOrNull { it.accountId == id }?.balance }
+
+    private fun accountIdOf(assetId: String): Long? = linkedAccounts().indexOfFirst { it.assetId == assetId }.takeIf { it >= 0 }?.let { it + 1L }
+
+    /** B-06에서 넣은 월급(넣은 적 없는 시드 사용자는 오늘 + 25일) — 없으면 null */
+    val salary: FakeUser.Salary? get() = user.state.salaryOn(LocalDate.now(KST))
+
+    /** 월급이 들어오는 계좌의 계좌 관리 번호 — 그 계좌를 끊었으면 null */
+    fun salaryAccountId(): Long? = salary?.let { accountIdOf(it.account) }
+
+    /** B-06 월급 시트 — [accountId]는 계좌 관리 번호. 없거나 모르는 번호면 기준 계좌 */
+    fun setSalary(day: Int, amount: Long, accountId: Long?) {
+        val asset = accountId?.let { linkedAccounts().getOrNull((it - 1).toInt())?.assetId } ?: primaryAccount ?: linkedAccounts().firstOrNull()?.assetId ?: return
+        user.update { it.copy(salary = FakeUser.Salary(day.coerceIn(1, 31), amount, asset)) }
+    }
 
     fun linkedAccountCount(): Int = linkedAccounts().size
 
@@ -385,8 +409,42 @@ class FakeBank @Inject constructor(private val user: FakeUser) {
     private fun verificationFailed(reason: String): ApiResult<Nothing> =
         ApiResult.Failure(ApiError.InvalidRequest("CARD_VERIFICATION_FAILED", buildJsonObject { put("reason", reason) }))
 
-    private companion object {
-        const val NUMBER_PREFIX = "941000000000"
+    companion object {
+        private const val NUMBER_PREFIX = "941000000000"
+
+        // 잔액은 가짜 잔고예보(FakeForecastRepository)의 위험 구간 시연 숫자와 같다(S15P31E103-454)
+        private val ACCOUNTS = listOf(
+            Account("A1", "004", "KB국민은행", "입출금", "1234", 412_000),
+            Account("A2", "088", "신한은행", "신한 주거래 통장", "5678", 268_000),
+        )
+
+        // BE 카드 시드(be/seed 01 · 02)에 있는 상품만 — 상품 그림(CardImages)이 있는 것 위주
+        private val CARDS = listOf(
+            Card("C1", "KB국민카드", "#FFBC00", "KB국민 청춘대로 톡톡카드", "1021", 14, recognized = 120_000),
+            Card("C2", "현대카드", "#1A1A1A", "현대카드ZERO Edition3(포인트형)", "3310", 14, recognized = 210_000),
+            Card("C3", "롯데카드", "#E60012", "LOCA LIKIT Shop", "7782", 14, recognized = 320_000),
+            Card("C4", "삼성카드", "#1428A0", "삼성 iD ON 카드", "4410", 15, recognized = 80_000),
+            Card("C5", "신한카드", "#0046FF", "신한카드 Mr.Life", "5096", 20, recognized = 150_000, accountId = "A2"),
+            Card("C6", "KB국민카드", "#FFBC00", "KB국민 노리2 체크카드(KB Pay)", "8823", null, check = true, recognized = 60_000, color = "#60584C"),
+            Card("C7", "하나카드", "#008C8C", "하나카드 트래블로그 체크카드", "5527", null, check = true, newlyIssued = true),
+        )
+
+        /** 디버그 메뉴 '가짜 사용자' 칸에 보일 글 — 줄마다 하나 */
+        fun describe(s: FakeUser.State): List<String> {
+            val acc = ACCOUNTS.filter { it.assetId in s.accounts }
+            val crd = CARDS.filter { it.assetId in s.cards }
+            fun won(v: Long) = "%,d원".format(v)
+            fun label(a: Account) = "${a.bank} ··${a.last4}"
+            return listOf(
+                if (s.seeded) "시드 사용자 · 지난 결제 · 실적 · 알림 기록 있음" else "새 사용자 · 지난 기록 없음(이번 실행에서 한 결제만)",
+                "계좌 ${acc.size}개" + acc.joinToString(" · ", prefix = ": ") { a -> label(a) + " " + won(a.balance) + if (a.assetId == s.primaryAccount) "(기준)" else "" }.takeIf { acc.isNotEmpty() }.orEmpty(),
+                "카드 ${crd.size}장" + crd.joinToString(" · ", prefix = ": ") { c -> (s.nicknames[c.assetId] ?: c.product) + if (c.assetId in s.excluded) "(자동 선택 뺌)" else "" }.takeIf { crd.isNotEmpty() }.orEmpty(),
+                s.salaryOn(LocalDate.now(KST))?.let { sal ->
+                    "월급: 매월 ${sal.day}일 ${won(sal.amount)} · " + (ACCOUNTS.firstOrNull { it.assetId == sal.account }?.let(::label) ?: "계좌 없음") +
+                        if (s.salary == null) "(시드라 늘 오늘 + 25일)" else ""
+                } ?: "월급: 없음(잔고예보는 30일)",
+            )
+        }
     }
 }
 
@@ -408,7 +466,7 @@ class FakeLinkRepository @Inject constructor(private val bank: FakeBank) : LinkR
 
 /** debug 전용 가짜 월급 · 고정 지출 — 프로토타입 B-06 숫자(월급 10일 2,800,000 · 월세 · 통신비 · 구독료 + 신한카드 대금) */
 @Singleton
-class FakeCashflowRepository @Inject constructor() : CashflowRepository {
+class FakeCashflowRepository @Inject constructor(private val bank: FakeBank) : CashflowRepository {
     var lastPlan: CashflowPlan? = null
         private set
 
@@ -427,17 +485,20 @@ class FakeCashflowRepository @Inject constructor() : CashflowRepository {
         }
     }
 
-    /** 서버는 결제 기록의 반복 지출만 후보로 만들고 월급은 만들지 않는다(BE -349 !200) — 월급은 화면에서 직접 넣는다 */
+    /**
+     * 서버는 결제 기록의 반복 지출만 후보로 만들고 월급은 만들지 않는다(BE -349 !200) — 월급은 화면에서 직접 넣는다.
+     * 반복 지출 후보는 시드 사용자만(새 사용자는 결제 기록이 없다), 카드 대금은 등록한 카드만, 월급 계좌는 연결한 계좌(S15P31E103-454)
+     */
     private fun sampleDraft(dailyLivingCost: Long?) = CashflowDraft(
         income = null,
-        expenses = listOf(
+        expenses = if (!bank.seeded) emptyList() else listOf(
             CashflowCandidate(302, false, "월세", 250_000, 31, "최근 6개월 중 6달 · 마지막 10월 31일"),   // 매월 말일(서버 기준일 31) — B-06 '월세 · 말일'
             CashflowCandidate(303, false, "통신비", 35_000, 27, "최근 6개월 중 4달 · 마지막 10월 27일"),
             CashflowCandidate(304, false, "구독료", 15_000, 1, "최근 6개월 중 3달 · 마지막 11월 1일"),
         ),
-        bills = listOf(BillLine("신한카드 대금", 150_000, 20)),
+        bills = listOf(BillLine("신한카드 대금", 150_000, 20)).takeIf { 15L in bank.registeredCardIds() }.orEmpty(),
         dailyLivingCost = dailyLivingCost,
-        incomeAccounts = listOf(IncomeAccount(1, "월급 통장 ··1234", isPrimary = true), IncomeAccount(2, "생활비 통장 ··5678", isPrimary = false)),
+        incomeAccounts = bank.accountViews().map { IncomeAccount(it.accountId, "${it.name} ··${it.last4}", isPrimary = it.primary) },
     )
 
     /** 같은 키는 처음 만든 번호 — 서버 Idempotency-Key 규칙(-358)을 흉내 낸다 */
@@ -445,6 +506,8 @@ class FakeCashflowRepository @Inject constructor() : CashflowRepository {
 
     override suspend fun createIncome(body: CashflowCreateRequest, idempotencyKey: String): ApiResult<Long> {
         delay(400)
+        // 가짜 사용자의 월급으로 — 홈 · 잔고예보가 같은 날 · 금액을 읽는다(S15P31E103-454)
+        if (body.type == "INCOME") bank.setSalary(body.recurrence?.dayOfMonth ?: LocalDate.parse(body.date).dayOfMonth, body.amount, body.accountId)
         return ApiResult.Success(createdIncomes.getOrPut(idempotencyKey) { 900L + createdIncomes.size })
     }
 

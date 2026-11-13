@@ -72,4 +72,7 @@ object DevSession {
     var linkScenario by mutableStateOf(LinkScenario.NORMAL)
     var payScenario by mutableStateOf(PayScenario.CAFE)
     var faultScenario by mutableStateOf(FaultScenario.NONE)
+
+    /** debug 가짜 사용자(계좌 · 카드 · 월급) 요약 — 가짜 저장소가 채우고 디버그 메뉴가 보인다. release는 늘 비어 있다 */
+    var fakeUser by mutableStateOf<List<String>>(emptyList())
 }

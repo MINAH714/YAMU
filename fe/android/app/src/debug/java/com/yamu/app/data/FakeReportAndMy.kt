@@ -134,7 +134,9 @@ object FakePaymentHistory {
 @Singleton
 class FakeReportRepository @Inject constructor(private val payments: FakePaymentRepository) : ReportRepository {
 
-    private val seed get() = FakePaymentHistory.seed
+    // 지난 결제 기록 · 합계는 시드 사용자만 — 새 사용자는 이번 실행에서 한 결제만(S15P31E103-454)
+    private val past get() = payments.hasHistory
+    private val seed get() = if (past) FakePaymentHistory.seed else emptyList()
 
     private fun sessionItems(): List<PaymentItem> = payments.approved().map { r ->
         val time = r.paidAtIso?.let { OffsetDateTime.parse(it).atZoneSameInstant(KST) }
@@ -154,10 +156,10 @@ class FakeReportRepository @Inject constructor(private val payments: FakePayment
                 periodLabel = periodLabel(YearMonth.now(KST).toString(), partial = true),
                 month = YearMonth.now(KST).monthValue,
                 isLiving = true,
-                spent = 842_000 + extra.sumOf { it.amount },
-                diffFromPrev = 48_000 + extra.sumOf { it.amount },
-                categories = listOf(CategoryShare("식비", 29, 248_000), CategoryShare("쇼핑", 20, 172_000), CategoryShare("주유·마트", 16, 138_000)),
-                benefit = 32_400 + extra.sumOf { it.benefit ?: 0 },
+                spent = (if (past) 842_000 else 0) + extra.sumOf { it.amount },
+                diffFromPrev = if (past) 48_000 + extra.sumOf { it.amount } else null,
+                categories = if (!past) emptyList() else listOf(CategoryShare("식비", 29, 248_000), CategoryShare("쇼핑", 20, 172_000), CategoryShare("주유·마트", 16, 138_000)),
+                benefit = (if (past) 32_400 else 0) + extra.sumOf { it.benefit ?: 0 },
                 paymentCount = seed.size + extra.size,
             ),
         )
@@ -171,14 +173,14 @@ class FakeReportRepository @Inject constructor(private val payments: FakePayment
         return ApiResult.Success(
             BenefitReport(
                 periodLabel = periodLabel(YearMonth.now(KST).toString(), partial = true),
-                received = 32_400 + extra,
-                yamuExtra = 5_200,
-                missedTotal = 2_980,
-                missed = listOf(
+                received = (if (past) 32_400 else 0) + extra,
+                yamuExtra = 5_200L.takeIf { past },
+                missedTotal = if (past) 2_980L else 0L,
+                missed = if (!past) emptyList() else listOf(
                     MissedBenefit("동네마트 역삼점", LocalDate.now(KST).minusDays(5), "자동 선택 꺼짐", 2_080),
                     MissedBenefit("편의점 테헤란점", LocalDate.now(KST).minusDays(8), "직접 고른 카드", 900),
                 ),
-                byPlace = listOf("생활·렌탈" to 10_000L, "마트·주유" to 8_300L, "카페" to 5_280L + extra),
+                byPlace = if (!past) listOfNotNull(("카페" to extra).takeIf { extra > 0 }) else listOf("생활·렌탈" to 10_000L, "마트·주유" to 8_300L, "카페" to 5_280L + extra),
             ),
         )
     }
@@ -194,7 +196,7 @@ class FakeReportRepository @Inject constructor(private val payments: FakePayment
         if (from > all.size) return ApiResult.Failure(ApiError.InvalidRequest("INVALID_PAGE"))
         val items = all.drop(from).take(size)
         val canceledAmount = all.filter { it.canceled }.sumOf { it.amount }
-        return ApiResult.Success(PaymentsPage(all.size, 2_164_200 + sessionItems().sumOf { it.amount } - canceledAmount, items, page, hasNext = from + size < all.size))
+        return ApiResult.Success(PaymentsPage(all.size, (if (past) 2_164_200 else 0) + sessionItems().sumOf { it.amount } - canceledAmount, items, page, hasNext = from + size < all.size))
     }
 
     /** 분 단위 고정 창마다 내려받은 횟수(BE PaymentExportService와 같은 분당 3번) */
@@ -330,7 +332,8 @@ class FakeMyRepository @Inject constructor(
         val paid = payments.approved().map {
             AppNotification(it.paymentId, "결제 완료 · ${it.merchantName}", "${"%,d".format(it.amount)}원 · ${it.cardName ?: "카드"}", false, it.paidAtIso, NotiTarget.Payment(it.paymentId))
         }
-        return (paid + seedNotifications).map { n -> if (n.id in readIds) n.copy(read = true) else n }
+        val seed = if (payments.hasHistory) seedNotifications else emptyList()   // 지난 알림은 시드 사용자만(S15P31E103-454)
+        return (paid + seed).map { n -> if (n.id in readIds) n.copy(read = true) else n }
     }
 
     /** 홈 종 숫자(가짜 홈)도 이 값 */
