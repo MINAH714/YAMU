@@ -33,6 +33,8 @@ import java.time.LocalDate
 class CashflowListActionsTest {
     private val dispatcher = StandardTestDispatcher()
     private var entriesCalls = 0
+    private var entriesRange: Pair<LocalDate, LocalDate>? = null
+    private var candidatesRange: Pair<LocalDate, LocalDate>? = null
     private var entriesGate: CompletableDeferred<Unit>? = null
     private var candidatesResult: ApiResult<List<CashflowCandidate>> = ApiResult.Success(listOf(NETFLIX))
     private var deleteResult: ApiResult<Unit> = ApiResult.Success(Unit)
@@ -48,11 +50,15 @@ class CashflowListActionsTest {
         override suspend fun accounts(): ApiResult<List<ForecastAccountOption>> = ApiResult.Success(emptyList())
         override suspend fun cashflowEntries(from: LocalDate, to: LocalDate): ApiResult<List<CashflowEntry>> {
             entriesCalls++
+            entriesRange = from to to
             entriesGate?.await()
             return ApiResult.Success(listOf(RENT, SNACK))
         }
         override suspend fun pastCardEntries(from: LocalDate, to: LocalDate): ApiResult<List<CashflowEntry>> = ApiResult.Success(emptyList())
-        override suspend fun cashflowCandidates() = candidatesResult
+        override suspend fun cashflowCandidates(from: LocalDate, to: LocalDate): ApiResult<List<CashflowCandidate>> {
+            candidatesRange = from to to
+            return candidatesResult
+        }
         override suspend fun deleteItem(itemId: Long, scope: CashflowDeleteScope, occurrenceDate: LocalDate?): ApiResult<Unit> {
             deletes += Triple(itemId, scope, occurrenceDate)
             return pendingDelete?.await() ?: deleteResult
@@ -79,6 +85,14 @@ class CashflowListActionsTest {
         advanceUntilIdle()
         assertNull(vm.state.value.candidates)
         assertEquals(listOf(RENT, SNACK), vm.state.value.entries)   // 위 목록은 그대로
+    }
+
+    @Test fun `후보 목록은 회차 목록과 같은 기간(오늘 ~ 다음 월급날)으로 받는다 — 서버 기본 30일이면 그 뒤 후보가 빠진다`() = runTest(dispatcher) {
+        loadedViewModel()
+        advanceUntilIdle()
+        val f = testForecast()
+        assertEquals(f.from to (f.incomeDate ?: f.to), candidatesRange)
+        assertEquals(entriesRange, candidatesRange)
     }
 
     @Test fun `휴지통 — 반복 · 1회 가계부 줄은 지우기를, 후보 줄은 빼기를 묻는다`() = runTest(dispatcher) {
@@ -169,23 +183,32 @@ class CashflowListActionsTest {
         assertEquals("응답을 받지 못해 지워졌는지 확인하지 못했어요 · 목록을 새로 받았어요", vm.state.value.message)
     }
 
-    @Test fun `결제와 연결된 회차 409는 까닭을 보이고, 지워진 항목 404는 목록을 새로 받는다`() = runTest(dispatcher) {
+    @Test fun `결제와 연결된 회차 409는 줄을 집지 않고 까닭을 보이며, 409 · 404 · 400 모두 목록을 새로 받는다`() = runTest(dispatcher) {
         deleteResult = ApiResult.Failure(ApiError.from(409, "PAID_OCCURRENCE_LOCKED"))
         val vm = loadedViewModel()
         advanceUntilIdle()
-        val before = entriesCalls
+        var before = entriesCalls
 
-        vm.delete(RENT, CashflowDeleteScope.THIS_ONLY)
+        // 앞으로 전부 — 누른 줄이 아니라 창 안의 다른 회차가 연결돼 있을 수 있다. 목록이 오래됐으면 새 목록이 휴지통을 숨긴다
+        vm.delete(RENT, CashflowDeleteScope.ALL)
         advanceUntilIdle()
-        assertEquals("결제와 연결된 회차가 있어 지울 수 없어요 · 줄을 눌러 결제 연결을 먼저 끊어 주세요", vm.state.value.message)
-        assertEquals(before, entriesCalls)
+        assertEquals("결제와 연결된 회차가 있어 지울 수 없어요 · 연결된 회차를 눌러 결제 연결을 먼저 끊어 주세요", vm.state.value.message)
+        assertEquals(++before, entriesCalls)
 
         vm.messageShown()
         deleteResult = ApiResult.Failure(ApiError.from(404, "RESOURCE_NOT_FOUND"))
         vm.delete(RENT, CashflowDeleteScope.THIS_ONLY)
         advanceUntilIdle()
         assertEquals("그사이 바뀌었거나 지워진 항목이에요 · 목록을 새로 받았어요", vm.state.value.message)
-        assertEquals(before + 1, entriesCalls)
+        assertEquals(++before, entriesCalls)
+
+        // 400 — 나뉜 규칙의 다른 줄이 앞으로 전부 지우기 뒤 남아 있다가 눌린 경우('이 일정의 회차 날짜가 아닙니다')
+        vm.messageShown()
+        deleteResult = ApiResult.Failure(ApiError.from(400, "INVALID_REQUEST"))
+        vm.delete(RENT, CashflowDeleteScope.THIS_ONLY)
+        advanceUntilIdle()
+        assertEquals("그사이 바뀌었거나 지워진 항목이에요 · 목록을 새로 받았어요", vm.state.value.message)
+        assertEquals(++before, entriesCalls)
     }
 
     @Test fun `후보 넣기는 CONFIRMED, 빼기는 IGNORED로 보내고 목록을 새로 받는다`() = runTest(dispatcher) {

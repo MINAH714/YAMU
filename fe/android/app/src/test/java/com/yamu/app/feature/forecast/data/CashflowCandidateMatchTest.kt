@@ -40,6 +40,23 @@ class CashflowCandidateMatchTest {
         assertSame(monthEnd, matchCandidate(nov30, listOf(netflix, monthEnd)))
     }
 
+    @Test fun `같은 날짜의 줄 둘이 한 후보에 맞춰지면 둘 다 읽기 전용 — 신용카드 후보의 출금일이 다른 후보의 기준일과 겹친 경우`() {
+        // 넷플릭스를 A(신용카드, 5일 사용 · 14일 출금)와 B(체크카드, 14일)로 결제 — 예보에는 14일에 같은 이름 · 금액 줄이 둘
+        val nov14 = LocalDate.of(2026, 11, 14)
+        val credit = netflix.copy(id = 601, dayOfMonth = 5)
+        val check = netflix.copy(id = 602, dayOfMonth = 14)
+        val f = testForecast(days = listOf(day(nov14, netflixEvent.copy(date = nov14), netflixEvent.copy(date = nov14))))
+        assertSame(check, matchCandidate(netflixEvent.copy(date = nov14), listOf(credit, check)))   // 줄 하나만 보면 B로 간다
+        assertEquals(listOf(null, null), cashflowRows(emptyList(), f, listOf(credit, check)).map { it.pending })
+        assertEquals(listOf(null, null), forecastOnlyRows(f, listOf(credit, check)).map { it.pending })
+        // 후보 목록에 한쪽만 있어도 같다
+        assertEquals(listOf(null, null), cashflowRows(emptyList(), f, listOf(credit)).map { it.pending })
+        // 같은 후보라도 날짜가 다른 줄(다음 달 회차)은 그대로 맞춘다
+        val dec14 = LocalDate.of(2026, 12, 14)
+        val twoMonths = testForecast(days = listOf(day(nov14, netflixEvent.copy(date = nov14)), day(dec14, netflixEvent.copy(date = dec14))))
+        assertEquals(listOf(check, check), cashflowRows(emptyList(), twoMonths, listOf(check)).map { it.pending })
+    }
+
     @Test fun `확인한 항목 · 카드 청구 줄은 후보와 맞추지 않는다`() {
         assertNull(matchCandidate(netflixEvent.copy(confidence = FlowConfidence.CONFIRMED), listOf(netflix)))
         assertNull(matchCandidate(netflixEvent.copy(type = FlowType.CARD_BILLING), listOf(netflix)))
@@ -66,6 +83,15 @@ class CashflowCandidateMatchTest {
         assertTrue(row(null, netflix, candidate = true).deletable(today))
         assertFalse(row(null, candidate = true).deletable(today))   // 못 맞춘 후보
         assertFalse(row(null).deletable(today))                     // 카드 청구
+        // 결제와 연결된 회차 — 이번 회차만 · 앞으로 전부 모두 서버가 409로 막는다
+        assertFalse(row(entry(nov25).copy(matched = true)).deletable(today))
+    }
+
+    @Test fun `회차 목록의 결제 연결 상태 — 승인 · 취소된 연결 모두 연결로, 없으면 연결 없음`() {
+        fun dto(status: String?) = CashflowEntryDto(7, "EXPENSE", "넷플릭스", 13_500, "2026-11-15", "2026-11-15", paymentMatchStatus = status)
+        assertTrue(dto("ACTIVE").toEntry()!!.matched)
+        assertTrue(dto("REVIEW_REQUIRED").toEntry()!!.matched)
+        assertFalse(dto(null).toEntry()!!.matched)
     }
 
     @Test fun `후보 목록 — 카드대금은 빼고 기준일 · 근거를 B-06과 같게 읽는다`() {

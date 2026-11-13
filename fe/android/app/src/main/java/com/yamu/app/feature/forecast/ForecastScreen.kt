@@ -216,7 +216,7 @@ class ForecastViewModel @Inject constructor(private val repo: ForecastRepository
                 is ApiResult.Failure -> _state.update { it.copy(pastEntries = emptyList()) }
             }
             // 확인 전 후보 규칙 — 예보의 후보 줄과 맞춰 넣기 · 빼기를 연다. 못 받으면 후보 줄은 전처럼 읽기 전용
-            when (val r = repo.cashflowCandidates()) {
+            when (val r = repo.cashflowCandidates(from, to)) {   // 회차와 같은 기간 — 안 보내면 서버 기본 30일이라 그 뒤 월급날까지의 후보가 빠진다
                 is ApiResult.Success -> _state.update { it.copy(candidates = r.data) }
                 is ApiResult.Failure -> _state.update { it.copy(candidates = null) }
             }
@@ -244,7 +244,8 @@ class ForecastViewModel @Inject constructor(private val repo: ForecastRepository
 
     /**
      * 지우기. 삭제에는 재시도 키가 없어 응답이 끊기면 다시 보내지 않고 목록을 새로 받아 알린다(수정 화면과 같은 원칙).
-     * 결제와 연결된 회차는 목록에서 알 수 없어 서버의 409 PAID_OCCURRENCE_LOCKED를 받아 까닭을 보인다
+     * 결제와 연결된 회차는 목록의 연결 상태로 휴지통을 숨긴다([CashflowRow.deletable]). 그래도 409 PAID_OCCURRENCE_LOCKED가 오는 건
+     * 앞으로 전부에 연결된 다른 회차가 있거나 목록이 오래된 경우라, 어느 줄인지 집지 않고 까닭만 보이고 새로 받는다
      */
     fun delete(entry: CashflowEntry, scope: CashflowDeleteScope) {
         if (!claim(entry.itemId)) return
@@ -303,10 +304,14 @@ class ForecastViewModel @Inject constructor(private val repo: ForecastRepository
         if (reload) refreshWithEntries()
     }
 
+    /**
+     * 400도 새로 받는다 — 그사이 회차가 지났거나, '이후 전부' 수정으로 나뉜 규칙의 다른 줄이 앞으로 전부 지우기 뒤 화면에 남아
+     * 그 줄을 다시 지운 경우다(먼저 빼기는 같은 항목 ID 줄만 한다, !291 리뷰)
+     */
     private fun deleteFailure(e: ApiError): Pair<String, Boolean> = when {
         e.isOutcomeUnknown -> "응답을 받지 못해 지워졌는지 확인하지 못했어요 · 목록을 새로 받았어요" to true
-        e.code == "PAID_OCCURRENCE_LOCKED" -> "결제와 연결된 회차가 있어 지울 수 없어요 · 줄을 눌러 결제 연결을 먼저 끊어 주세요" to false
-        e is ApiError.NotFound -> "그사이 바뀌었거나 지워진 항목이에요 · 목록을 새로 받았어요" to true
+        e.code == "PAID_OCCURRENCE_LOCKED" -> "결제와 연결된 회차가 있어 지울 수 없어요 · 연결된 회차를 눌러 결제 연결을 먼저 끊어 주세요" to true
+        e is ApiError.NotFound || e is ApiError.InvalidRequest -> "그사이 바뀌었거나 지워진 항목이에요 · 목록을 새로 받았어요" to true
         else -> e.userMessage() to false
     }
 
@@ -1270,7 +1275,7 @@ private fun FilterSheet(
 /**
  * F-02 한 줄 — 가계부 항목이면 눌러서 고치고(F-02b), 맞춘 확인 전 후보는 눌러서 넣거나 빼고, 카드 청구와 못 맞춘 후보는 읽기 전용.
  * 반복이면 날짜 옆에 '매월 말일'처럼. 확인 전 후보는 F-01 '예정된 돈'과 같은 '예상' 태그.
- * [onDelete]가 있으면 줄 끝에 휴지통(터치 48dp) — 보내는 중([busy])이면 눌리지 않는다
+ * [onDelete]가 있으면 줄 끝에 휴지통(터치 48dp). 보내는 중([busy])이면 휴지통도 줄도 눌리지 않는다(지우는 중에 수정 화면으로 들어가지 않게)
  */
 @Composable
 private fun CashflowRowLine(row: CashflowRow, busy: Boolean, onClick: (() -> Unit)?, onDelete: (() -> Unit)?) {
@@ -1294,7 +1299,7 @@ private fun CashflowRowLine(row: CashflowRow, busy: Boolean, onClick: (() -> Uni
             }
         },
         dense = true,
-        onClick = onClick,
+        onClick = onClick?.takeIf { !busy },
     )
 }
 

@@ -22,6 +22,7 @@ import java.time.LocalDate
     val recurrence: EntryRecurrenceDto? = null,
     val accountId: Long? = null,
     val userCardId: Long? = null,
+    val paymentMatchStatus: String? = null,       // 그 회차의 결제 연결 — ACTIVE · REVIEW_REQUIRED(연결 뒤 결제 취소) · 없으면 null(BE -393)
 )
 
 @Serializable data class EntryRecurrenceDto(val frequency: String? = null, val dayOfMonth: Int? = null, val dayOfWeek: String? = null, val endDate: String? = null)
@@ -57,6 +58,7 @@ data class CashflowEntry(
     val endDate: LocalDate?,
     val accountId: Long?,
     val userCardId: Long?,
+    val matched: Boolean = false,                 // 결제와 연결된 회차 — 연결을 끊기 전에는 서버가 지우지 못하게 한다(409 PAID_OCCURRENCE_LOCKED)
 ) {
     val isRecurring: Boolean get() = repeat != CashflowRepeat.NONE
     val signedAmount: Long get() = if (isIncome) amount else -amount
@@ -142,6 +144,7 @@ fun CashflowEntryDto.toEntry(): CashflowEntry? {
         endDate = parseDate(recurrence?.endDate),
         accountId = accountId,
         userCardId = userCardId,
+        matched = paymentMatchStatus != null,     // 취소된 연결(REVIEW_REQUIRED)도 풀기 전까지는 잠긴다
     )
 }
 
@@ -161,9 +164,10 @@ data class CashflowRow(
 ) {
     /**
      * 줄 끝 휴지통 — 오늘부터의 가계부 회차(지난 회차는 서버가 지우지 못하게 한다)와 맞춘 후보('빼기')만.
+     * 결제와 연결된 회차는 이번 회차만 · 앞으로 전부 모두 서버가 거절해서 두지 않는다(줄을 눌러 연결부터 끊는다).
      * 카드 청구와 못 맞춘 후보는 지울 대상이 없다
      */
-    fun deletable(today: LocalDate): Boolean = entry?.let { !it.date.isBefore(today) } ?: (pending != null)
+    fun deletable(today: LocalDate): Boolean = entry?.let { !it.date.isBefore(today) && !it.matched } ?: (pending != null)
 
     /**
      * 카드 예정 지출 표시 — 줄의 날짜는 사용일이다. 신용카드는 돈이 청구 출금일에 빠져 머리의 '나갈 돈'(기간 안 출금)과 날짜가 다를 수 있고,
@@ -189,13 +193,23 @@ fun cashflowRows(entries: List<CashflowEntry>, forecast: Forecast?, candidates: 
     // 계좌를 일부만 골랐으면 가계부 줄도 그 계좌 것만 — 머리(예보 기준)와 목록이 같은 계좌를 말하게 한다
     val scope = forecast?.scope
     val fromItems = entries.filter { scope?.includes(it) ?: true }.map { e -> CashflowRow(e.date, e.title, e.signedAmount, e.repeatLabel(), e) }
-    val fromForecast = forecast?.upcoming.orEmpty().filter { it.isCardBill || it.isCandidate }.map { it.toCashflowRow(candidates) }
+    val fromForecast = forecast?.upcoming.orEmpty().filter { it.isCardBill || it.isCandidate }.map { it.toCashflowRow(candidates) }.withoutAmbiguousPending()
     return (fromItems + fromForecast).sortedWith(compareBy({ it.date }, { it.entry?.itemId ?: Long.MAX_VALUE }))
 }
 
 /** 회차를 못 받았을 때의 F-02 — 예보 줄만(추정은 빼고). 후보는 후보 목록과 맞춰지면 넣기 · 빼기를 할 수 있다 */
 fun forecastOnlyRows(forecast: Forecast, candidates: List<CashflowCandidate>? = null): List<CashflowRow> =
-    forecast.upcoming.filter { !it.isEstimate }.map { it.toCashflowRow(candidates) }
+    forecast.upcoming.filter { !it.isEstimate }.map { it.toCashflowRow(candidates) }.withoutAmbiguousPending()
+
+/**
+ * 한 후보는 같은 날 두 번 나오지 않으니 같은 날짜의 줄 둘 이상이 한 후보에 맞춰졌으면 이름 · 금액이 같은 다른 후보의 줄이 섞인 것이다.
+ * 신용카드 후보는 예보 날짜가 청구 출금일이라 다른 후보의 기준일과 겹칠 수 있다(!291 리뷰). 어느 줄이 그 후보인지 몰라 모두 읽기 전용으로 둔다
+ */
+private fun List<CashflowRow>.withoutAmbiguousPending(): List<CashflowRow> {
+    val twice = mapNotNull { r -> r.pending?.let { it.id to r.date } }.groupingBy { it }.eachCount().filterValues { it > 1 }.keys
+    if (twice.isEmpty()) return this
+    return map { r -> if (r.pending != null && (r.pending.id to r.date) in twice) r.copy(pending = null) else r }
+}
 
 /** 예보 이벤트 → F-02 줄(카드 청구 · 확인 전 후보). 회차를 못 받았을 때도 같은 모양으로 그린다 */
 fun ForecastEvent.toCashflowRow(candidates: List<CashflowCandidate>? = null): CashflowRow =

@@ -151,9 +151,10 @@ interface ForecastRepository {
 
     /**
      * F-02 확인 전 고정 지출 후보 — 규칙마다 하나(B-06과 같은 GET cashflow-items?status=CANDIDATE&expand=false). 카드대금 줄은 뺀다.
+     * 기간은 회차 목록([cashflowEntries])과 같게 보낸다. 안 보내면 서버 기본(오늘 ~ 29일 뒤)이라 그 뒤 월급날까지 첫 회차가 오는 후보가 빠진다.
      * 예보 줄에는 항목 ID가 없어 화면이 이름 · 금액으로 맞춘다([matchCandidate])
      */
-    suspend fun cashflowCandidates(): ApiResult<List<CashflowCandidate>>
+    suspend fun cashflowCandidates(from: LocalDate, to: LocalDate): ApiResult<List<CashflowCandidate>>
 
     /** 후보 넣기(CONFIRMED) · 빼기(IGNORED) — #8. 이미 바뀐 후보면 서버가 404 · 409로 거절한다 */
     suspend fun decideCandidate(itemId: Long, confirm: Boolean): ApiResult<Unit>
@@ -344,8 +345,9 @@ class ForecastRepositoryImpl @Inject constructor(
     override suspend fun deleteItem(itemId: Long, scope: CashflowDeleteScope, occurrenceDate: LocalDate?): ApiResult<Unit> =
         apiCallNoData { api.deleteItem(itemId, scope.name, occurrenceDate?.toString()) }
 
-    override suspend fun cashflowCandidates(): ApiResult<List<CashflowCandidate>> =
-        apiCall { cashflowApi.items(status = "CANDIDATE", expand = false) }.map { it.items.toFixedCandidates() }
+    override suspend fun cashflowCandidates(from: LocalDate, to: LocalDate): ApiResult<List<CashflowCandidate>> =
+        apiCall { cashflowApi.items(status = "CANDIDATE", expand = false, from = from.toString(), to = to.toString()) }
+            .map { it.items.toFixedCandidates() }
 
     override suspend fun decideCandidate(itemId: Long, confirm: Boolean): ApiResult<Unit> =
         apiCall { cashflowApi.patch(itemId, CashflowPatchRequest(if (confirm) "CONFIRMED" else "IGNORED")) }.map { }

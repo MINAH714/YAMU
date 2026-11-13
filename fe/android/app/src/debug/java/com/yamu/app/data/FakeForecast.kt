@@ -585,7 +585,7 @@ class FakeForecastRepository @Inject constructor() : ForecastRepository {
     }
 
     // 확인 전 후보(Task 8.2.73) — 가짜 예보에는 후보 줄이 없어 비워 둔다. 후보 시트는 실서버(realApi=all)에서 본다
-    override suspend fun cashflowCandidates(): ApiResult<List<com.yamu.app.feature.link.data.CashflowCandidate>> = withFault { ApiResult.Success(emptyList()) }
+    override suspend fun cashflowCandidates(from: LocalDate, to: LocalDate): ApiResult<List<com.yamu.app.feature.link.data.CashflowCandidate>> = withFault { ApiResult.Success(emptyList()) }
 
     override suspend fun decideCandidate(itemId: Long, confirm: Boolean): ApiResult<Unit> = notFound()
 
