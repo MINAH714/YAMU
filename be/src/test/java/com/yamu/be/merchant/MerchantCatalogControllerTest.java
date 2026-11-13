@@ -33,6 +33,11 @@ class MerchantCatalogControllerTest {
                 .andExpect(status().isOk()).andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.error").value(nullValue()))
                 .andExpect(jsonPath("$.data[*].merchantCategoryCode").value(hasItems("COFFEE_SHOP", "OTHER", "DENTAL_CLINIC")))
+                .andExpect(jsonPath("$.data[?(@.simulationSupported == false)].merchantCategoryCode")
+                        .value(containsInAnyOrder("TAXI", "CITY_BUS", "INTERCITY_BUS", "EXPRESS_BUS", "SUBWAY", "RAILWAY",
+                                "ELECTRIC_UTILITY", "WATER_UTILITY", "CITY_GAS_UTILITY", "UNIVERSITY",
+                                "PRIMARY_SECONDARY_SCHOOL", "KINDERGARTEN", "ACADEMY", "DRIVING_SCHOOL")))
+                .andExpect(jsonPath("$.data[?(@.merchantCategoryCode == 'COFFEE_SHOP')].simulationSupported").value(contains(true)))
                 .andExpect(jsonPath("$.data[?(@.merchantCategoryCode == 'OTHER')].merchantCategoryName").value(contains("기타")));
         verifyNoInteractions(repository);
     }

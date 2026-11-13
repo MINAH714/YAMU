@@ -19,6 +19,16 @@ class FakeForecastSimulationTest {
     private val fake = FakeForecastRepository(FakeBank(FakeUser(storage = null)))   // 시드 사용자
     private val notice = "체크카드는 구매일 잔액보다 큰 금액은 결제되지 않을 수 있어요."
 
+    @Test fun `가짜 서버도 제외 업종을 지원하지 않는다`() = runTest {
+        val categories = (fake.categories() as ApiResult.Success).data
+        assertFalse(categories.single { it.code == "TAXI" }.simulationSupported)
+        for (category in listOf("ELECTRIC_UTILITY", "UNIVERSITY", "TAXI")) {
+            val query = SimulationQuery(10_000, null, category, category, null, null,
+                PaymentChannel.OFFLINE, null, null, LocalDate.now(KST))
+            assertTrue(fake.simulate(query) is ApiResult.Failure)
+        }
+    }
+
     private suspend fun simulate(amount: Long, cardId: Long): Simulation {
         val query = SimulationQuery(amount, null, "HYPERMARKET", "대형마트", null, null, PaymentChannel.OFFLINE, cardId, null, LocalDate.now(KST))
         return (fake.simulate(query) as ApiResult.Success).data

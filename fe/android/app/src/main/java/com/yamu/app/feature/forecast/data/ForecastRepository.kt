@@ -266,7 +266,7 @@ class ForecastRepositoryImpl @Inject constructor(
     override suspend fun categories(): ApiResult<List<MerchantCategory>> {
         categoryCache?.let { return ApiResult.Success(it) }
         return apiCall { api.categories() }
-            .map { list -> list.map { MerchantCategory(it.merchantCategoryCode, it.merchantCategoryName) } }
+            .map { list -> list.map { it.toCategory() } }
             .also { if (it is ApiResult.Success) categoryCache = it.data }
     }
 

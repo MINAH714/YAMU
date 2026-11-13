@@ -193,6 +193,14 @@ public final class BenefitConditionEvaluator {
     }
 
     private Boolean fact(Transaction transaction, String code) {
+        if (code.equals("RULE:ZERO_OVERSEAS_ELIGIBILITY")) {
+            var facts = transaction.facts();
+            boolean domestic = Boolean.TRUE.equals(facts.get("REGION:DOMESTIC"));
+            boolean overseas = Boolean.TRUE.equals(facts.get("REGION:OVERSEAS"));
+            if (domestic && !overseas) return true;
+            if (overseas && !domestic) return facts.get("CARD_FORM:GLOBAL");
+            return null; // 지역 미확인 또는 모순은 적격으로 추정하지 않는다.
+        }
         // 무이자 여부는 보존된 결제 방식에서 확정된다. 외부 map으로 덮어쓸 수 없다.
         if (code.equals("INSTALLMENT:INTEREST_FREE")) {
             return transaction.plan() == RecommendationInput.Plan.INSTALLMENT;

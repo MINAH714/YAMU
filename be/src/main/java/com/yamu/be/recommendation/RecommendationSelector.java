@@ -141,8 +141,9 @@ public final class RecommendationSelector {
                     new Calculation(false, null, List.of(), List.of(),
                             List.of(new CardBenefitCalculator.Problem(null, "PRODUCT_UNKNOWN"))));
         }
-        Calculation calculation = options == null ? calculator.calculate(input.transaction(), card.policy())
-                : calculator.calculate(input.transaction(), card.policy(), options);
+        var transaction = card.calculationTransaction() == null ? input.transaction() : card.calculationTransaction();
+        Calculation calculation = options == null ? calculator.calculate(transaction, card.policy())
+                : calculator.calculate(transaction, card.policy(), options);
         String problem = calculation.problems().stream().anyMatch(item -> item.code().equals("BASE_AMOUNT_INVALID"))
                 ? "BASE_AMOUNT_INVALID" : "BENEFIT_DATA_INSUFFICIENT";
         return new CardEvaluation(card.userCardId(), calculation.complete() ? CardStatus.CALCULATED

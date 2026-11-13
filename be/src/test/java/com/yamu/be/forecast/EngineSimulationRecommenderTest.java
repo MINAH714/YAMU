@@ -124,7 +124,7 @@ class EngineSimulationRecommenderTest {
     }
 
     @Test
-    void 업종만_고르면_POS_거래_사실을_싣지_않는다() {
+    void 일반_업종만_고르면_승인된_일반_구매_사실만_보완한다() {
         stub(selection(Status.READY, CARD, List.of(calculated(CARD, zero())), List.of(calculated(CARD, zero()))),
                 List.of(), List.of(), Map.of());
 
@@ -133,26 +133,28 @@ class EngineSimulationRecommenderTest {
         ArgumentCaptor<RecommendationInput.Transaction> transaction =
                 ArgumentCaptor.forClass(RecommendationInput.Transaction.class);
         verify(engine).recommendSimulation(eq(USER), transaction.capture(), any());
-        // 업종만으로는 택시·전기요금·대학 같은 업종도 고를 수 있어 "그런 거래가 아니다"를 확정할 수 없다
-        assertThat(transaction.getValue().facts()).doesNotContainKeys(
-                PosPurchaseFacts.verified().keySet().toArray(String[]::new));
+        // 일반 업종의 모의 가정은 적용하되 POS만 확인하는 사실까지 복사하지 않는다.
+        assertThat(transaction.getValue().facts()).containsEntry("TRANSACTION_KIND:ELECTRICITY_BILL", false)
+                .doesNotContainKeys("TRANSACTION_KIND:LPG_STATION", "PERFORMANCE:POSTPAID_TRANSIT");
     }
 
-    @Test
-    void 교통_공과금_교육_업종_브랜드를_고르면_POS_거래_사실을_싣지_않는다() {
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.CsvSource({"ELECTRIC_UTILITY,", "UNIVERSITY,", "TAXI,",
+            "ELECTRIC_UTILITY,55", "UNIVERSITY,55", "TAXI,55"})
+    void 제외_업종은_브랜드_유무와_관계없이_일반_구매_사실을_싣지_않는다(String category, Long merchant) {
         stub(selection(Status.READY, CARD, List.of(calculated(CARD, zero())), List.of(calculated(CARD, zero()))),
                 List.of(), List.of(), Map.of());
 
         // 지금 시드에는 없지만 카탈로그에 전기요금 브랜드가 생기면: ELECTRICITY_BILL=false를 확정할 수 없다
-        recommender.recommend(new SimulationRecommender.Request(USER, null, PaymentTerms.lumpSum(300_000L), "OFFLINE", 55L,
-                "ELECTRIC_UTILITY", PURCHASE_DATE, TODAY));
+        recommender.recommend(new SimulationRecommender.Request(USER, null, PaymentTerms.lumpSum(300_000L), "OFFLINE", merchant,
+                category, PURCHASE_DATE, TODAY));
 
         ArgumentCaptor<RecommendationInput.Transaction> transaction =
                 ArgumentCaptor.forClass(RecommendationInput.Transaction.class);
         verify(engine).recommendSimulation(eq(USER), transaction.capture(), any());
-        assertThat(transaction.getValue().merchantId()).isEqualTo(55L);
-        assertThat(transaction.getValue().facts()).doesNotContainKeys(
-                PosPurchaseFacts.verified().keySet().toArray(String[]::new));
+        assertThat(transaction.getValue().merchantId()).isEqualTo(merchant);
+        assertThat(transaction.getValue().facts()).isEmpty();
+        assertThat(transaction.getValue().simulationRules()).isEmpty();
     }
 
     @Test

@@ -206,6 +206,27 @@ class BenefitConditionEvaluatorTest {
         return new Conditions(true, true, POLICY_START, BenefitPolicy.NO_END_DATE, conditions().targets(), Set.of(), Set.of(), schedule);
     }
 
+    @Test void zeroOverseasConditionNeedsRegionAndOnlyChecksCardFormAbroad() {
+        var source = conditions();
+        var zero = new Conditions(true, true, POLICY_START, BenefitPolicy.NO_END_DATE, source.targets(),
+                Set.of("RULE:ZERO_OVERSEAS_ELIGIBILITY"), Set.of(), Schedule.unrestricted());
+        var time = transaction().occurredAt().toString();
+        assertThat(evaluator.evaluate(zero, at(time, Map.of("REGION:DOMESTIC", true, "CARD_FORM:GLOBAL", false))))
+                .isEqualTo(Match.MATCHED);
+        assertThat(evaluator.evaluate(zero, at(time, Map.of("REGION:OVERSEAS", true, "CARD_FORM:GLOBAL", true))))
+                .isEqualTo(Match.MATCHED);
+        assertThat(evaluator.evaluate(zero, at(time, Map.of("REGION:OVERSEAS", true, "CARD_FORM:GLOBAL", false))))
+                .isEqualTo(Match.NOT_MATCHED);
+        for (var facts : List.of(Map.<String, Boolean>of(), Map.of("CARD_FORM:GLOBAL", true),
+                Map.of("REGION:OVERSEAS", true), Map.of("REGION:OVERSEAS", true, "REGION:DOMESTIC", true))) {
+            assertThat(evaluator.evaluate(zero, at(time, facts))).isEqualTo(Match.UNKNOWN);
+            assertThat(evaluator.explain(zero, at(time, facts)).missingInformation()).isNotEmpty();
+        }
+        var other = new Conditions(true, true, POLICY_START, BenefitPolicy.NO_END_DATE, source.targets(),
+                Set.of("CARD_FORM:GLOBAL"), Set.of(), Schedule.unrestricted());
+        assertThat(evaluator.evaluate(other, at(time, Map.of("REGION:DOMESTIC", true)))).isEqualTo(Match.UNKNOWN);
+    }
+
     private Transaction at(String instant, Map<String, Boolean> facts) {
         var transaction = transaction();
         return new Transaction(transaction.amount(), transaction.plan(), transaction.installmentMonths(),

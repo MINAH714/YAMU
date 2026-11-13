@@ -21,6 +21,22 @@ import java.time.LocalDate
 
 /** 가상 구매 — BE POST /api/forecasts/simulations 요청 · 응답 · 오류(2026-11-06 develop) */
 class SimulationMapperTest {
+    @Test fun `업종의 모의 구매 지원 여부를 보존하고 누락된 응답은 허용하지 않는다`() {
+        for (code in listOf("ELECTRIC_UTILITY", "UNIVERSITY", "TAXI")) {
+            val dto = YamuJson.decodeFromString<MerchantCategoryDto>(
+                """{"merchantCategoryCode":"$code","merchantCategoryName":"제외 업종","simulationSupported":false}""",
+            )
+            assertFalse(dto.toCategory().simulationSupported)
+        }
+        val allowed = YamuJson.decodeFromString<MerchantCategoryDto>(
+            """{"merchantCategoryCode":"COFFEE_SHOP","merchantCategoryName":"카페","simulationSupported":true}""",
+        )
+        assertTrue(allowed.toCategory().simulationSupported)
+        val old = YamuJson.decodeFromString<MerchantCategoryDto>(
+            """{"merchantCategoryCode":"TAXI","merchantCategoryName":"택시"}""",
+        )
+        assertFalse(old.toCategory().simulationSupported)
+    }
     private val nov8 = LocalDate.of(2026, 11, 8)
     private val query = SimulationQuery(
         amount = 890_000, productName = "태블릿", categoryCode = "HYPERMARKET", categoryName = "대형마트",

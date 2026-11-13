@@ -27,7 +27,8 @@ class PosPurchaseFactsTest {
     @Test
     void 사실을_확정할_수_없는_업종은_모두_지원하는_업종_코드다() {
         // 오타가 있으면 그 업종 가맹점에 사실이 조용히 넘어간다
-        assertThat(MerchantCategories.list()).extracting(MerchantCategories.Category::merchantCategoryCode)
-                .containsAll(PosPurchaseFacts.UNCONFIRMED_CATEGORIES);
+        var excluded = MerchantCategories.list().stream().filter(c -> !c.simulationSupported()).toList();
+        assertThat(excluded).hasSize(14).allSatisfy(c ->
+                assertThat(PosPurchaseFacts.forCategory(c.merchantCategoryCode())).isEmpty());
     }
 }

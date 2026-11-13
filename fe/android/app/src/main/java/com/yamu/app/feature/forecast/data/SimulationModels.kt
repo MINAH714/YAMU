@@ -111,7 +111,14 @@ import java.time.LocalDate
 @Serializable data class SimOutsideDto(val accountId: Long? = null, val amount: Long = 0, val note: String? = null)
 
 /** GET /api/merchant-categories */
-@Serializable data class MerchantCategoryDto(val merchantCategoryCode: String, val merchantCategoryName: String)
+@Serializable data class MerchantCategoryDto(
+    val merchantCategoryCode: String,
+    val merchantCategoryName: String,
+    // 지원 여부가 없는 구버전 응답을 일반 구매로 추정하지 않는다.
+    val simulationSupported: Boolean = false,
+) {
+    fun toCategory() = MerchantCategory(merchantCategoryCode, merchantCategoryName, simulationSupported)
+}
 
 /** GET /api/merchants?merchantCategoryCode= */
 @Serializable data class CatalogMerchantDto(val merchantId: Long, val brandCode: String? = null, val merchantName: String, val merchantCategoryCode: String? = null)
@@ -130,7 +137,7 @@ enum class PaymentChannel(val label: String) {
     }
 }
 
-data class MerchantCategory(val code: String, val name: String)
+data class MerchantCategory(val code: String, val name: String, val simulationSupported: Boolean = true)
 
 data class CatalogMerchant(val id: Long, val name: String)
 
