@@ -1,0 +1,201 @@
+/* 결제 내역·취소. 왼쪽 목록(회색 바탕 위 흰 묶음), 오른쪽 352px 상세는 결과 화면의 주문 내역과 같은 자리 */
+
+.history {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 352px;
+  grid-template-rows: minmax(0, 1fr);
+  height: 100%;
+  min-height: 0;
+}
+
+.history-main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  background: var(--background);
+}
+
+.history-header {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-2);
+  min-height: 64px;
+  padding: var(--s-2) var(--s-4) var(--s-2) var(--s-6);
+}
+
+.history-header h2 {
+  font-size: var(--fs-card-title);
+  font-weight: var(--fw-semibold);
+}
+
+.history-header h2 span {
+  color: var(--text3);
+  font-size: var(--fs-body);
+  font-weight: var(--fw-medium);
+  font-variant-numeric: tabular-nums;
+}
+
+.history-list {
+  flex: 1;
+  min-height: 0;
+  padding: 0 var(--s-6) var(--s-6);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: none;
+}
+
+.history-list::-webkit-scrollbar {
+  display: none;
+}
+
+.history-group + .history-group {
+  margin-top: var(--s-5);
+}
+
+.history-group h3 {
+  margin: 0 0 var(--s-2) var(--s-1);
+  color: var(--text2);
+  font-size: var(--fs-caption);
+  font-weight: var(--fw-medium);
+}
+
+.history-group ul {
+  padding: var(--s-2);
+  border-radius: var(--r-card);
+  background: var(--surface);
+}
+
+.history-row {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr) auto 56px;
+  align-items: center;
+  gap: var(--s-4);
+  width: 100%;
+  min-height: 56px;
+  padding: 0 var(--s-4);
+  border-radius: var(--r-input);
+  font-size: var(--fs-body);
+  text-align: left;
+}
+
+.history-row[data-selected='true'] {
+  background: var(--primary-container);
+}
+
+.history-time {
+  color: var(--text2);
+  font-variant-numeric: tabular-nums;
+}
+
+.history-card {
+  overflow: hidden;
+  color: var(--text2);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.history-amount {
+  font-weight: var(--fw-semibold);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.history-row[data-canceled='true'] .history-amount {
+  color: var(--text3);
+  font-weight: var(--fw-regular);
+  text-decoration: line-through;
+}
+
+.history-tag {
+  justify-self: end;
+  padding: 2px var(--s-2);
+  border-radius: var(--r-tag-sm);
+  font-size: var(--fs-min);
+  font-weight: var(--fw-semibold);
+}
+
+.history-tag[data-status='approved'] {
+  background: var(--primary-container);
+  color: var(--on-primary-container);
+}
+
+.history-tag[data-status='canceled'] {
+  background: var(--surface-variant);
+  color: var(--text3);
+}
+
+.history-row[data-selected='true'] .history-tag[data-status='approved'] {
+  background: var(--surface);
+}
+
+.history-empty,
+.history-side-empty {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  padding: var(--s-6);
+  color: var(--text3);
+  font-size: var(--fs-body-sm);
+  text-align: center;
+}
+
+.history-error {
+  flex-direction: column;
+  gap: var(--s-4);
+}
+
+/* 오른쪽 상세 */
+
+.history-side {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-5);
+  min-height: 0;
+  padding: var(--s-6);
+  overflow-y: auto;
+  background: var(--surface-dim);
+}
+
+.history-detail-head p {
+  margin-bottom: var(--s-1);
+  color: var(--text2);
+  font-size: var(--fs-caption);
+  font-variant-numeric: tabular-nums;
+}
+
+.history-rows {
+  flex: 1;
+  align-content: flex-start;
+}
+
+.history-canceled {
+  flex: none;
+  padding: var(--s-4);
+  border-radius: var(--r-input);
+  background: var(--surface-variant);
+  color: var(--text2);
+  font-size: var(--fs-body-sm);
+  text-align: center;
+}
+
+.history-action {
+  flex: none;
+  width: 100%;
+}
+
+/* 취소 트레이: 결제 스캔 트레이(.pay-scan)의 틀을 그대로 쓰고 안내 문장만 다르다 */
+
+.cancel-scan-guide {
+  margin-top: calc(var(--s-3) * -1);
+  color: var(--text2);
+  font-size: var(--fs-caption);
+}
+
+.pay-scan[data-typing='true'] .cancel-scan-guide {
+  display: none;
+}

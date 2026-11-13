@@ -5,6 +5,7 @@ import { config } from '../config'
 import { STORES } from '../store/catalog'
 import { FAST } from '../styles/motion'
 import { flowEntries } from './entriesFlow'
+import { historyEntries } from './entriesHistory'
 import { orderEntries } from './entriesOrder'
 import { trayEntries } from './entriesTray'
 import './gallery.css'
@@ -15,7 +16,7 @@ import './gallery.css'
 // ?gallery=<id>&bare       목록 없이 창을 꽉 채운다(스크린샷용)
 // 항목은 entriesOrder·entriesTray·entriesFlow 배열에 추가한다.
 
-const ENTRIES = [...orderEntries, ...trayEntries, ...flowEntries]
+const ENTRIES = [...orderEntries, ...trayEntries, ...flowEntries, ...historyEntries]
 const GROUPS = [...new Set(ENTRIES.map((entry) => entry.group))]
 const SIZES = ['1333x800', '1333x690', '1024x768']
 
