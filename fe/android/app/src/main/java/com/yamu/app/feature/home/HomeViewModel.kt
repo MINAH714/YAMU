@@ -87,6 +87,14 @@ internal fun forecastSlot(home: HomeSummary): ForecastSlot = when {
 /** BE partialErrors의 잔고예보 영역 이름 */
 private const val BALANCE_AREA = "balanceForecast"
 
+/**
+ * 지금 기준 계좌([accountId])의 요약만 남긴다. 기준 계좌를 A에서 B로 바꾼 뒤 B 응답 전이거나 B가 실패하면 A의 칩 · 금액이 그대로 보이면서
+ * '잔고예보' 버튼은 B로 열리는 어긋남이 생긴다(셀프 리뷰 P2). 다른 계좌의 값이면 불러오는 중으로 되돌린다 —
+ * 그 뒤 실패하면 [next]가 지난 값 없이 Failed로 남긴다. 화면도 그리기 전에 같은 걸 거친다
+ */
+internal fun HomeSection<HomeForecastBrief>.forAccount(accountId: Long?): HomeSection<HomeForecastBrief> =
+    if (this is HomeSection.Ready && data.accountId != accountId) HomeSection.Loading else this
+
 /** 결제 시각(서버 UTC)이 든 한국 기준 달 — 시각이 없거나 못 읽으면 null */
 internal fun paymentMonthOf(paidAtIso: String?): YearMonth? =
     paidAtIso?.let { runCatching { YearMonth.from(OffsetDateTime.parse(it).atZoneSameInstant(KST)) }.getOrNull() }
@@ -149,6 +157,8 @@ class HomeViewModel @Inject constructor(
         onHome(repository.loadHome())
         // 잔고예보 요약은 홈 요약의 기준 계좌로 — 홈 요약을 받은 뒤에 부른다(마지막으로 받은 요약의 계좌)
         val accountId = _state.value.content?.let { home -> home.forecast?.accountId?.takeIf { forecastSlot(home) == ForecastSlot.Brief } }
+        // 기준 계좌가 바뀌었으면 지난 계좌의 요약부터 버린다 — 새 계좌가 늦거나 실패해도 지난 계좌 칩 · 금액이 남지 않게
+        _state.update { it.copy(forecast = it.forecast.forAccount(it.content?.forecast?.accountId)) }
         val forecast = accountId?.let { async { repository.loadForecastBrief(it) } }
         val b = benefit.await()
         _state.update { it.copy(benefit = it.benefit.next(b)) }
@@ -175,6 +185,8 @@ class HomeViewModel @Inject constructor(
             _state.update { it.copy(cards = HomeSection.Loading) }
             val c = repository.loadCards()
             _state.update { it.copy(cards = it.cards.next(c)) }
+            // 처음 불러오기가 실패했으면 카드 그림 목록도 아직 없다 — loadAll처럼 받은 카드로 그림을 찾는다(없으면 대체 그림으로 남음)
+            (c as? ApiResult.Success)?.data?.cards?.let { list -> artLoader.ensure(list.map { it.userCardId }) }
         }
     }
 

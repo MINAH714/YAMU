@@ -3,6 +3,7 @@ package com.yamu.app.feature.home
 import com.yamu.app.core.network.ApiError
 import com.yamu.app.core.network.ApiResult
 import com.yamu.app.feature.home.data.ForecastSummary
+import com.yamu.app.feature.home.data.HomeForecastBrief
 import com.yamu.app.feature.home.data.HomeSummary
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -53,5 +54,28 @@ class HomeSectionTest {
     @Test fun `잔고 영역만 실패했으면 계좌를 몰라 실패 · 비어 있으면 계좌 연결 안내`() {
         assertEquals(ForecastSlot.HomeFailed, forecastSlot(home(accountId = null, failed = setOf("balanceForecast"))))
         assertEquals(ForecastSlot.NoAccount, forecastSlot(home(accountId = null)))
+    }
+
+    // ── 기준 계좌를 바꾼 뒤(셀프 리뷰 P2) — 지난 계좌의 칩 · 금액을 새 계좌 것처럼 보이지 않는다 ──
+
+    private fun brief(accountId: Long) = HomeForecastBrief(accountId, "KB국민은행 ·1234", 412_000, 15_000, null, null)
+
+    @Test fun `같은 기준 계좌의 요약은 그대로`() {
+        assertEquals(HomeSection.Ready(brief(1)), HomeSection.Ready(brief(1)).forAccount(1))
+    }
+
+    @Test fun `기준 계좌가 바뀌었으면 지난 계좌 요약은 불러오는 중으로`() {
+        assertEquals(HomeSection.Loading, HomeSection.Ready(brief(1)).forAccount(2))
+        assertEquals(HomeSection.Loading, HomeSection.Ready(brief(1)).forAccount(null))   // 기준 계좌를 모르게 됐을 때도
+    }
+
+    @Test fun `바뀐 계좌가 실패하면 지난 계좌 값이 아니라 실패`() {
+        val after = HomeSection.Ready(brief(1)).forAccount(2).next(ApiResult.Failure(failed))
+        assertEquals(HomeSection.Failed(failed), after)
+    }
+
+    @Test fun `불러오는 중 · 실패는 그대로`() {
+        assertEquals(HomeSection.Loading, HomeSection.Loading.forAccount(2))
+        assertEquals(HomeSection.Failed(failed), HomeSection.Failed(failed).forAccount(2))
     }
 }

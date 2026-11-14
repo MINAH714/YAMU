@@ -7,6 +7,7 @@ import com.yamu.app.feature.link.data.brandOf
 import com.yamu.app.feature.performance.data.CardPerf
 import com.yamu.app.feature.performance.data.LimitCardDto
 import com.yamu.app.feature.performance.data.LimitDto
+import com.yamu.app.feature.performance.data.PerfDecision
 import com.yamu.app.feature.performance.data.PerfGuide
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -27,10 +28,11 @@ class HomeCardsTest {
         achieved: Boolean = false,
         guide: PerfGuide? = null,
         targetLabel: String? = target?.let { "${it / 10_000}만원 이상" },
+        decision: PerfDecision? = null,
     ) = CardPerf(
         userCardId = id, brand = brandOf("신한카드"), name = "신한카드", target = target, targetLabel = targetLabel,
         recognized = recognized, remaining = target?.let { (it - recognized).coerceAtLeast(0) } ?: 0,
-        achieved = achieved, noTarget = target == null, guide = guide, decision = null, provisional = false,
+        achieved = achieved, noTarget = target == null, guide = guide, decision = decision, provisional = false,
         recentChange = null, recentAtIso = null, nickname = nickname,
     )
 
@@ -121,6 +123,18 @@ class HomeCardsTest {
         val c = data.missed().conditions
         assertEquals(listOf("B", "F"), c.map { it.cardName })
         assertEquals("이번 달 실적이 30만원 이상이면 다음 달 혜택 조건을 채워요 (지금 255,000원)", c.first().text)
+    }
+
+    @Test fun `이번 달 채우지 않기(SKIP)를 고른 카드는 조건을 채우면에 넣지 않는다`() {
+        val data = HomeCardsData(
+            listOf(
+                card(1, nickname = "A", recognized = 290_000, decision = PerfDecision.SKIP),
+                card(2, nickname = "B", recognized = 255_000, decision = PerfDecision.FILL),
+                card(3, nickname = "C", recognized = 200_000, decision = PerfDecision.KEEP),
+            ),
+            limits = null,
+        )
+        assertEquals(listOf("B", "C"), data.missed().conditions.map { it.cardName })
     }
 
     @Test fun `더 쓰라는 말을 쓰지 않는다`() {

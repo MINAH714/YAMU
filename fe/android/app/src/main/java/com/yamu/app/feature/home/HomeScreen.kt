@@ -939,7 +939,8 @@ private fun ForecastSection(
         }
         else -> Unit
     }
-    val data = brief.dataOrNull
+    // 지난 기준 계좌의 요약이 남아 있으면 그리지 않는다(새 계좌를 불러오는 중으로) — '잔고예보' 버튼이 여는 계좌와 맞춘다
+    val data = brief.forAccount(home.forecast?.accountId).dataOrNull
     YamuCard {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("잔고예보", style = YamuTheme.typography.cardTitle, color = c.text1, modifier = Modifier.weight(1f))
