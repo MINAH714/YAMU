@@ -139,4 +139,31 @@ class HomeMapperTest {
         val home = parse("""{"cards":{"count":2},"partialErrors":["balanceForecast",{"area":"monthSummary","code":"DATA_INSUFFICIENT"}]}""")
         assertEquals(setOf("balanceForecast", "monthSummary"), home.failedAreas)
     }
+
+    // ── 결제 칸 밖 최근 결제(셀프 리뷰 P2: 카드를 모두 지운 사람도 최근 결제 · 결제 내역 입구가 남는다) ──
+
+    private val recent = """"recentPayment":{"paymentId":7,"merchantName":"스타벅스 역삼점","amount":15000,"paidAt":"2026-10-16T05:00:00Z"}"""
+
+    @Test
+    fun `카드를 모두 지웠어도 최근 결제는 안내 아래 따로 남는다`() {
+        val home = parse("""{"cards":{"count":0},"onboarding":{"step":"DONE"},$recent}""")
+        assertTrue(home.needsCard)
+        assertEquals(7L, home.recentPaymentOutsidePayCard()?.paymentId)
+    }
+
+    @Test
+    fun `연결 전이어도 최근 결제가 있으면 따로 남는다`() {
+        val home = parse("""{"cards":{"count":0},"onboarding":{"step":"LINK"},$recent}""")
+        assertEquals(7L, home.recentPaymentOutsidePayCard()?.paymentId)
+    }
+
+    @Test
+    fun `카드가 있으면 최근 결제는 결제 칸 안에만(따로 그리지 않는다)`() {
+        assertNull(parse("""{"cards":{"count":2},"onboarding":{"step":"DONE"},$recent}""").recentPaymentOutsidePayCard())
+    }
+
+    @Test
+    fun `최근 결제가 없으면 따로 칸도 없다`() {
+        assertNull(parse("""{"cards":{"count":0},"onboarding":{"step":"DONE"}}""").recentPaymentOutsidePayCard())
+    }
 }

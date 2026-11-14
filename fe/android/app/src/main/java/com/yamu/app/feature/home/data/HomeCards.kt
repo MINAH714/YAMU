@@ -10,6 +10,7 @@ import com.yamu.app.feature.link.data.lastDigits
 import com.yamu.app.feature.performance.data.CardPerf
 import com.yamu.app.feature.performance.data.LimitCardDto
 import com.yamu.app.feature.performance.data.LimitDto
+import com.yamu.app.feature.performance.data.PerfDecision
 import com.yamu.app.feature.performance.data.PerfGuide
 import kotlinx.serialization.Serializable
 import java.time.LocalDate
@@ -121,8 +122,9 @@ fun HomeCardsData.missed(): MissedBenefits {
             .filter { it.status.uppercase() in OPEN && (it.remainingAmount ?: 0) > 0 }
             .map { RemainingLimit(cardName, it.name, it.remainingAmount!!) }
     }.sortedByDescending { it.amount }.take(MISSED_REMAINING_ROWS)
+    // R-03에서 이번 달 '채우지 않을게요(SKIP)'를 고른 카드는 뺀다 — BE가 홈 할 일에서 SKIP 카드를 빼는 규칙과 같다(11/11 결정)
     val conditions = cards
-        .filter { it.pending && it.remaining > 0 && it.guide != PerfGuide.EXTRA_SPENDING_NOT_RECOMMENDED }
+        .filter { it.pending && it.remaining > 0 && it.guide != PerfGuide.EXTRA_SPENDING_NOT_RECOMMENDED && it.decision != PerfDecision.SKIP }
         .sortedBy { it.remaining }
         .take(MISSED_CONDITION_ROWS)
         .map { card -> ConditionLine(names.getValue(card.userCardId), conditionText(card)) }
