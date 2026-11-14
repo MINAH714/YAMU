@@ -8,7 +8,9 @@ import com.yamu.app.core.network.ApiError
 import com.yamu.app.core.network.ApiResult
 import com.yamu.app.feature.home.data.HomeRepository
 import com.yamu.app.feature.home.data.HomeSummary
+import com.yamu.app.feature.report.data.ReportJump
 import com.yamu.app.feature.report.data.ReportMonth
+import com.yamu.app.feature.report.data.ReportSection
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -51,6 +53,7 @@ class HomeViewModel @Inject constructor(
     private val repository: HomeRepository,
     private val session: SessionStore,
     private val months: ReportMonth,
+    private val reportJump: ReportJump,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(HomeUiState())
@@ -93,6 +96,12 @@ class HomeViewModel @Inject constructor(
         val month = paymentMonthOf(_state.value.content?.recentPayment?.paidAtIso)
         if (month != null) months.select(month) else months.reset()
     }
+
+    /**
+     * 잔고예보 요약 '자산 흐름 보기'(HOME-15) — 소비분석 탭으로 바꾸기 전에 부른다. 소비분석이 이번 달로 돌아가 자산 흐름 칸까지 내려간다.
+     * 버튼은 홈 아래쪽 개편(S15P31E103-481)에서 단다
+     */
+    fun openAssetFlow() = reportJump.request(ReportSection.ASSET_FLOW)
 
     private fun HomeUiState.applied(result: ApiResult<HomeSummary>): HomeUiState = when (result) {
         is ApiResult.Success -> copy(isLoading = false, content = result.data, error = null)

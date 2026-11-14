@@ -351,6 +351,8 @@ fun YamuNavHost(navController: NavHostController, modifier: Modifier = Modifier)
                     ReportRoute(
                         onBenefits = { navController.navigate(BenefitReport) },
                         onPayments = { navController.navigate(Payments) },
+                        // 잔고예보는 홈 그래프 안 화면이지만 소비분석 위에 쌓아 뒤로 = 소비분석(보던 달 · 스크롤 그대로)
+                        onForecast = { navController.navigate(Forecast) { launchSingleTop = true } },
                     )
                 }
                 composable<BenefitReport> {

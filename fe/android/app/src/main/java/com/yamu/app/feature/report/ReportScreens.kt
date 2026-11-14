@@ -39,9 +39,14 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.onPlaced
+import androidx.compose.ui.layout.positionInParent
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -71,6 +76,7 @@ import com.yamu.app.core.designsystem.component.SkeletonBlock
 import com.yamu.app.core.designsystem.component.StatusTag
 import com.yamu.app.core.designsystem.component.TabScreen
 import com.yamu.app.core.designsystem.component.YamuCard
+import com.yamu.app.core.designsystem.theme.LocalYamuReduceMotion
 import com.yamu.app.core.designsystem.theme.YamuSpacing
 import com.yamu.app.core.designsystem.theme.YamuTheme
 import com.yamu.app.core.format.toMonthDay
@@ -83,7 +89,9 @@ import com.yamu.app.feature.report.data.CategoryShare
 import com.yamu.app.feature.report.data.MissedBenefit
 import com.yamu.app.feature.report.data.MonthlySpend
 import com.yamu.app.feature.report.data.PaymentItem
+import com.yamu.app.feature.report.data.ReportJump
 import com.yamu.app.feature.report.data.ReportMonth
+import com.yamu.app.feature.report.data.ReportSection
 import com.yamu.app.feature.report.data.ReportRepository
 import com.yamu.app.feature.report.data.ShownMonth
 import com.yamu.app.feature.report.data.monthTitle
@@ -99,6 +107,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
 import java.time.YearMonth
 import javax.inject.Inject
 
@@ -112,12 +121,21 @@ data class ReportState(val shown: ShownMonth, val loading: Boolean = true, val s
  * 달을 빠르게 넘기면 앞 요청을 취소하고, 그래도 늦게 온 응답은 지금 보이는 달과 다르면 버린다.
  */
 @HiltViewModel
-class ReportViewModel @Inject constructor(private val repo: ReportRepository, private val months: ReportMonth) : ViewModel() {
+class ReportViewModel @Inject constructor(
+    private val repo: ReportRepository,
+    private val months: ReportMonth,
+    private val jumps: ReportJump = ReportJump(months),
+) : ViewModel() {
     init { months.reset() }   // 새로 만들어질 때(로그인 · 앱 새로 켜기)는 이번 달부터 — 앞사람이 고른 달이 남지 않게
 
     private val _state = MutableStateFlow(ReportState(months.current()))
     val state: StateFlow<ReportState> = _state.asStateFlow()
     private var job: Job? = null
+
+    /** 다른 화면이 보낸 '이 칸으로 내려가기'(홈 '자산 흐름 보기', S15P31E103-479) — 화면이 내려간 뒤 [jumped] */
+    val jump: StateFlow<ReportSection?> = jumps.pending
+
+    fun jumped(section: ReportSection) = jumps.consume(section)
 
     fun refresh() {
         val shown = months.current()
@@ -143,10 +161,16 @@ class ReportViewModel @Inject constructor(private val repo: ReportRepository, pr
     }
 }
 
+/**
+ * S-01 소비분석. 돌아올 때마다 다시 받는다(예정 수입·지출 · 결제가 바뀐 뒤에도 — 잔고예보 · 홈도 같은 규칙, FORECAST-04).
+ * [onForecast]는 자산 흐름 칸의 'AI 잔고예보 자세히 보기'(S15P31E103-483)가 쓴다. 잔고예보(F-01)를 이 화면 위에 쌓아서
+ * 뒤로 오면 보던 달(ReportMonth) · 스크롤(rememberScrollState)이 그대로다(ANALYSIS-14 · FORECAST-05).
+ */
 @Composable
 fun ReportRoute(
     onBenefits: () -> Unit,
     onPayments: () -> Unit,
+    @Suppress("UNUSED_PARAMETER") onForecast: () -> Unit = {},
     viewModel: ReportViewModel = hiltViewModel(),
 ) {
     val s by viewModel.state.collectAsStateWithLifecycle()
@@ -154,11 +178,22 @@ fun ReportRoute(
         viewModel.refresh()
         onPauseOrDispose { }
     }
+    val scroll = rememberScrollState()
+    // 자산 흐름 칸이 스크롤 안에서 시작하는 자리 — 홈 '자산 흐름 보기'로 들어오면 여기까지 내려간다
+    var assetFlowY by remember { mutableStateOf<Int?>(null) }
+    val jump by viewModel.jump.collectAsStateWithLifecycle()
+    val reduceMotion = LocalYamuReduceMotion.current
+    LaunchedEffect(jump, assetFlowY, s.loading) {
+        val target = jump ?: return@LaunchedEffect
+        if (s.loading) return@LaunchedEffect   // 그릴 내용이 오면 자리를 안다
+        assetFlowY?.let { y -> if (reduceMotion) scroll.scrollTo(y) else scroll.animateScrollTo(y) }
+        viewModel.jumped(target)   // 칸이 없는 상태(빈 달 · 오류)여도 요청은 버린다 — 나중에 엉뚱하게 내려가지 않게
+    }
     val c = YamuTheme.colors
     TabScreen(title = "소비분석") { inner ->
         Column(Modifier.padding(inner).consumeWindowInsets(inner).fillMaxSize()) {
             MonthSwitcher(s.shown, onSelect = viewModel::select)
-            Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
+            Column(Modifier.weight(1f).verticalScroll(scroll)) {
                 val sp = s.spend
                 when {
                     sp == null && s.loading -> YamuCard {
@@ -182,6 +217,8 @@ fun ReportRoute(
                             }
                             s.error?.let { Text("$it · 마지막 값을 보여 드려요", style = YamuTheme.typography.bodyS, color = c.warning) }
                         }
+                        // 자산 흐름 칸 자리(ANALYSIS-01: 사용금액 바로 아래) — 칸은 S15P31E103-483이 여기에 넣는다
+                        Spacer(Modifier.onPlaced { assetFlowY = it.positionInParent().y.roundToInt() })
                         if (sp.categories.isNotEmpty()) {
                             YamuCard {
                                 Text("많이 쓴 곳", style = YamuTheme.typography.cardTitle, color = c.text1)
