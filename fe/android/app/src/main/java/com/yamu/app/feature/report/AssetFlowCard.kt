@@ -316,7 +316,7 @@ private fun AssetDayPanel(d: AssetDay, flow: AssetFlow, today: LocalDate) {
         val (main, key) = panelValue(d, flow, today)
         main?.let {
             Spacer(Modifier.height(4.dp))
-            Text(it, style = YamuTheme.typography.amountM, color = if ((d.value ?: 0) < 0) c.error else c.text1)
+            Text(it, style = YamuTheme.typography.amountM, color = if ((panelAmount(d, flow.currentBalance) ?: 0) < 0) c.error else c.text1)
         }
         Text(key, style = YamuTheme.typography.bodyS, color = c.text3, modifier = Modifier.padding(top = if (main == null) 6.dp else 0.dp))
         panelNote(d, flow)?.let { Text(it, style = YamuTheme.typography.bodyS, color = c.text2, modifier = Modifier.padding(top = 2.dp)) }
@@ -383,6 +383,12 @@ internal fun panelValue(d: AssetDay, flow: AssetFlow, today: LocalDate): Pair<St
     DayKind.NO_DATA -> null to if (d.date.isAfter(today)) "예보를 불러오지 못해 비워 뒀어요." else "이날 잔고는 아직 받을 수 없어요. 쓴 돈으로 잔고를 만들어 보여 드리지 않아요."
     DayKind.OUT_OF_RANGE -> null to "예보는 오늘부터 30일(${flow.forecastEnd?.toMonthDay() ?: "30일 뒤"})까지만 해요."
 }
+
+/**
+ * 날짜 칸 큰 금액에 보이는 값 — 오늘은 지금 잔고([current]), 다른 날은 그날 값. 빨간 글자(0원 아래)는 이 값의 부호로 정한다
+ * (오늘 칸이 지금 잔고를 보이면서 오늘 끝 예상의 부호로 색을 정하던 것, !312 리뷰)
+ */
+internal fun panelAmount(d: AssetDay, current: Long?): Long? = if (d.kind == DayKind.TODAY) current else d.value
 
 /** 오늘 칸 덧줄 — 오늘 입출금이 있어 하루 끝 예상이 지금 잔고와 다르면 */
 internal fun panelNote(d: AssetDay, flow: AssetFlow): String? {

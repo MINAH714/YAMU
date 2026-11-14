@@ -61,6 +61,15 @@ class ReportMonthTest {
         assertEquals("두 달 뒤는 다음 달로 당긴다", now.plusMonths(1), months.currentWithNext().month)
     }
 
+    @Test fun `예보가 다음 달에 닿지 않으면 이번 달까지 — 골라 둔 다음 달도 이번 달로 읽고, 닿으면 다시 그 달(!312 리뷰)`() {
+        months.select(now.plusMonths(1))
+        val closed = months.currentWithNext(nextOpen = false)
+        assertEquals(now, closed.month)
+        assertFalse(closed.canNext)
+        assertEquals(REPORT_MONTHS, closed.choices.size)
+        assertEquals(now.plusMonths(1), months.currentWithNext(nextOpen = true).month)
+    }
+
     @Test fun `연 · 월 시트의 달 — 최근 12개월 + 다음 달`() {
         val choices = months.currentWithNext().choices
         assertEquals(REPORT_MONTHS + 1, choices.size)
