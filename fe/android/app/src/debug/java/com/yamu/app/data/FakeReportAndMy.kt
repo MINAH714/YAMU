@@ -201,8 +201,10 @@ class FakeReportRepository @Inject constructor(private val payments: FakePayment
         }
         val cards = if (past) {
             listOf(
-                CardBenefitLine(11, "생활카드", 16_000, 4_400 + extra, 1),
-                CardBenefitLine(16, "신한카드 Mr.Life", 8_000, 4_000, 0),
+                // userCardId는 가짜 카드(FakeBank — C1이 11, C5가 15)와 같게. 99는 해지해서 지금 목록에 없는 카드(누를 수 없음)
+                CardBenefitLine(11, "KB국민 청춘대로 톡톡카드", 14_000, 4_400 + extra, 1),
+                CardBenefitLine(15, "신한카드 Mr.Life", 8_000, 4_000, 0),
+                CardBenefitLine(99, "삼성카드 taptap O", 2_000, 0, 0),
             )
         } else {
             listOfNotNull(CardBenefitLine(null, "카드", 0, extra, 0).takeIf { extra > 0 })

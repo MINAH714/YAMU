@@ -86,6 +86,7 @@ import com.yamu.app.core.format.toWon
 import com.yamu.app.core.network.ApiResult
 import com.yamu.app.core.ui.userMessage
 import com.yamu.app.feature.link.BrandMark
+import com.yamu.app.feature.link.data.LinkRepository
 import androidx.compose.runtime.saveable.rememberSaveable
 import com.yamu.app.feature.forecast.data.ForecastRepository
 import com.yamu.app.feature.report.data.AssetFlow
@@ -95,6 +96,7 @@ import com.yamu.app.feature.report.data.MonthFlowResult
 import com.yamu.app.feature.report.data.assetDateIn
 import java.time.LocalDate
 import com.yamu.app.feature.report.data.BenefitReport
+import com.yamu.app.feature.report.data.CardBenefitLine
 import com.yamu.app.feature.report.data.CategoryShare
 import com.yamu.app.feature.report.data.MissedBenefit
 import com.yamu.app.feature.report.data.MonthlySpend
@@ -433,19 +435,38 @@ private fun CategoryRow(cat: CategoryShare, color: Color) {
 
 // ───────────────────────── S-04 혜택 리포트 ─────────────────────────
 
-data class BenefitReportState(val shown: ShownMonth, val loading: Boolean = true, val report: BenefitReport? = null, val error: String? = null)
+/** [cardIds] 지금 등록된 카드(userCardId). null이면 아직 모르거나 받지 못해 카드 줄을 누를 수 없다 */
+data class BenefitReportState(
+    val shown: ShownMonth,
+    val loading: Boolean = true,
+    val report: BenefitReport? = null,
+    val error: String? = null,
+    val cardIds: Set<Long>? = null,
+)
+
+/**
+ * 카드별 줄을 눌러 갈 카드(R-02). R-02는 이번 달 실적만 보여 지난달을 보는 중엔 누를 수 없고,
+ * 혜택 응답에는 해지한 카드도 있을 수 있어 지금 등록된 카드에 없는 userCardId(또는 null)도 누를 수 없다(404 막기)
+ */
+internal fun cardTarget(card: CardBenefitLine, shown: ShownMonth, cardIds: Set<Long>?): Long? =
+    card.userCardId?.takeIf { shown.isThisMonth && cardIds != null && it in cardIds }
 
 /** S-01에서 고른 달로 연다. 결제 내역(S-05)에서 달을 바꾸고 돌아오면 그 달로 다시 받는다([resume]) */
 @HiltViewModel
-class BenefitReportViewModel @Inject constructor(private val repo: ReportRepository, private val months: ReportMonth) : ViewModel() {
+class BenefitReportViewModel @Inject constructor(
+    private val repo: ReportRepository,
+    private val months: ReportMonth,
+    private val links: LinkRepository,
+) : ViewModel() {
     private val _state = MutableStateFlow(BenefitReportState(months.current()))
     val state: StateFlow<BenefitReportState> = _state.asStateFlow()
     private var job: Job? = null
+    private var cardsJob: Job? = null
 
     init { load() }
 
     fun resume() {
-        if (months.current().month != _state.value.shown.month) load()
+        if (months.current().month != _state.value.shown.month) load() else loadCards()
     }
 
     fun load() {
@@ -453,16 +474,28 @@ class BenefitReportViewModel @Inject constructor(private val repo: ReportReposit
         job?.cancel()
         _state.update {
             if (it.shown.month == shown.month) it.copy(shown = shown, loading = true, error = null)
-            else BenefitReportState(shown)
+            else BenefitReportState(shown, cardIds = it.cardIds)
         }
         job = viewModelScope.launch {
             val r = repo.benefits(shown.month)
             ensureActive()
             if (_state.value.shown.month != shown.month) return@launch   // 그사이 달을 넘겼으면 버린다
             when (r) {
-                is ApiResult.Success -> _state.update { BenefitReportState(shown, loading = false, report = r.data) }
+                is ApiResult.Success -> _state.update { it.copy(loading = false, report = r.data, error = null) }
                 is ApiResult.Failure -> _state.update { it.copy(loading = false, error = r.error.userMessage()) }
             }
+        }
+        loadCards()
+    }
+
+    /** 이번 달을 볼 때만 등록된 카드를 받는다(카드 상세에서 해지하고 돌아와도 다시 받게 [resume]에서도). 실패하면 누르기를 끈다 */
+    private fun loadCards() {
+        if (!_state.value.shown.isThisMonth) return
+        cardsJob?.cancel()
+        cardsJob = viewModelScope.launch {
+            val r = links.cards()
+            ensureActive()
+            _state.update { it.copy(cardIds = (r as? ApiResult.Success)?.data?.map { c -> c.userCardId }?.toSet()) }
         }
     }
 
@@ -475,7 +508,7 @@ class BenefitReportViewModel @Inject constructor(private val repo: ReportReposit
 /**
  * S-04 혜택 리포트 — 야무 결제만(source=YAMU, S15P31E103-493). 큰 숫자는 확정된 혜택(홈 히어로와 같은 기준, 11/14 결정)이고
  * 확정 전은 따로, 원화로 바꾸지 못한 혜택은 금액에 없다고 알린다. 그 아래 종류별 · 카드별 · 놓친 혜택 · 어디서 받았나요.
- * [onCard]를 주면 카드 줄을 눌러 그 카드로 간다(R-02, 연결은 내비게이션 쪽). userCardId가 없는 줄은 누를 수 없다
+ * [onCard]를 주면 카드 줄을 눌러 그 카드 실적(R-02)으로 간다. 지난달을 보는 중이거나 지금 등록된 카드가 아니면 누를 수 없다([cardTarget])
  */
 @Composable
 fun BenefitReportRoute(
@@ -553,13 +586,13 @@ fun BenefitReportRoute(
                                 r.byType.forEach { t -> BenefitAmountRow(t.label, t.confirmed, t.unconfirmed, t.unconverted) }
                             }
                         }
-                        // 카드별 — 별명이 먼저. 카드를 알 수 없는 줄(userCardId 없음)은 누를 수 없다
+                        // 카드별 — 별명이 먼저. 이번 달이고 지금 등록된 카드일 때만 눌러 R-02로([cardTarget])
                         if (r.cards.isNotEmpty()) {
                             YamuCard(contentPadding = PaddingValues(YamuSpacing.x4)) {
                                 Text("카드별", style = YamuTheme.typography.cardTitle, color = c.text1)
                                 Spacer(Modifier.height(YamuSpacing.x1))
                                 r.cards.forEach { card ->
-                                    val open = card.userCardId?.let { id -> onCard?.let { go -> { go(id) } } }
+                                    val open = cardTarget(card, s.shown, s.cardIds)?.let { id -> onCard?.let { go -> { go(id) } } }
                                     BenefitAmountRow(card.name, card.confirmed, card.unconfirmed, card.unconverted, onClick = open)
                                 }
                             }
