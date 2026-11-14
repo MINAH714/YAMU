@@ -62,6 +62,13 @@ interface HomeApi {
     /** 연결 계좌(금융망을 부르지 않는다) — 요약 칸의 계좌 칩 */
     @GET("accounts")
     suspend fun accounts(): Response<ApiEnvelope<AccountsResponse>>
+
+    /** #28 월간 혜택 리포트 — 홈은 YAMU 결제의 카드별 혜택(cards)만 쓴다(BE -489). 달 · 출처는 서버 기본값(지난달 · ALL)에 맡기지 않는다 */
+    @GET("reports/monthly/benefits")
+    suspend fun benefitReport(
+        @Query("yearMonth") yearMonth: String,
+        @Query("source") source: String,
+    ): Response<ApiEnvelope<HomeBenefitReportDto>>
 }
 
 data class SyncResult(val syncedAtIso: String?, val failedCount: Int)
@@ -72,7 +79,10 @@ interface HomeRepository {
     /** 당겨서 새로고침 — 30초 안에 다시 부르면 서버를 부르지 않고 마지막 결과를 준다(서버도 같은 규칙) */
     suspend fun sync(): ApiResult<SyncResult>
 
-    /** 혜택 히어로 — [month](한국 기준)의 확정 · 확정 전 혜택. 서버 기본값에 맡기지 않고 달을 넘긴다 */
+    /**
+     * 혜택 히어로(옛 서버, 홈 응답에 benefitSummary가 없을 때) — [month](한국 기준)의 확정 · 확정 전 혜택.
+     * reports/monthly는 출처를 가르지 않는다(시드 거래엔 혜택 줄이 없어 사실상 YAMU 결제뿐). 서버 기본값에 맡기지 않고 달을 넘긴다
+     */
     suspend fun loadBenefit(month: YearMonth): ApiResult<HomeBenefit>
 
     /** 결제 칸 — 자동 선택이 켜졌는지 · 기본 카드 */
@@ -81,8 +91,14 @@ interface HomeRepository {
     /** 내 카드 혜택 현황 · 놓치기 아까운 혜택 — 실적이 실패하면 실패, 한도만 실패하면 limits = null */
     suspend fun loadCards(): ApiResult<HomeCardsData>
 
-    /** 잔고예보 요약 — [accountId] 하나 · [HOME_FORECAST_DAYS]일. 계좌 목록을 못 받으면 계좌 칩만 비운다 */
+    /** 잔고예보 요약(옛 서버) — [accountId] 하나 · [HOME_FORECAST_DAYS]일. 계좌 목록을 못 받으면 계좌 칩만 비운다 */
     suspend fun loadForecastBrief(accountId: Long): ApiResult<HomeForecastBrief>
+
+    /** 요약 칸 계좌 칩 '신한은행 ·0275'(새 홈 칸은 계좌 번호만 준다). 못 받으면 null */
+    suspend fun loadAccountLabel(accountId: Long): String?
+
+    /** 카드별 [month] YAMU 결제 혜택(userCardId → 혜택). 응답에 cards가 없으면(옛 서버) 실패 */
+    suspend fun loadCardBenefits(month: YearMonth): ApiResult<Map<Long, CardBenefit>>
 }
 
 @Singleton
@@ -127,7 +143,17 @@ class HomeRepositoryImpl @Inject constructor(
         forecast.await().map { it.toBrief(accountId, label) }
     }
 
+    override suspend fun loadAccountLabel(accountId: Long): String? =
+        (apiCall { api.accounts() } as? ApiResult.Success)?.data?.accounts?.labelOf(accountId)
+
+    override suspend fun loadCardBenefits(month: YearMonth): ApiResult<Map<Long, CardBenefit>> =
+        apiCall { api.benefitReport(month.toString(), source = YAMU_SOURCE) }.andThen { dto ->
+            dto.toCardBenefits()?.let { ApiResult.Success(it) } ?: ApiResult.Failure(ApiError.Unknown(MISSING_CARD_BENEFITS))
+        }
+
     private companion object {
+        /** 혜택 리포트 출처 — 홈 benefitSummary와 같은 YAMU 결제만 */
+        const val YAMU_SOURCE = "YAMU"
         const val SYNC_COOLDOWN_MS = 30_000L
     }
 }
@@ -135,6 +161,10 @@ class HomeRepositoryImpl @Inject constructor(
 /** 응답은 왔지만 홈이 쓸 칸이 없을 때의 코드 — 0원 · 자동 선택으로 지어내지 않고 그 칸만 실패로 그린다 */
 const val MISSING_BENEFIT = "HOME_BENEFIT_MISSING"
 const val MISSING_PAY_SETTINGS = "HOME_PAY_SETTINGS_MISSING"
+const val MISSING_CARD_BENEFITS = "HOME_CARD_BENEFITS_MISSING"
+
+/** 홈 응답은 왔지만 새 칸(benefitSummary · forecastPreview)만 실패했을 때(partialErrors)의 코드 */
+const val HOME_AREA_FAILED = "HOME_AREA_FAILED"
 
 private inline fun <T, R> ApiResult<T>.andThen(next: (T) -> ApiResult<R>): ApiResult<R> = when (this) {
     is ApiResult.Success -> next(data)

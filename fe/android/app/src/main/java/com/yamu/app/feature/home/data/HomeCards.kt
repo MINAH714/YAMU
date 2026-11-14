@@ -137,6 +137,55 @@ fun conditionText(card: CardPerf): String {
 
 // ── 잔고예보 요약(HOME-14 · 15) ──
 
+// ── 카드별 이번 달 받은 혜택(BE -489 !316) — GET reports/monthly/benefits?yearMonth=&source=YAMU의 cards만 ──
+
+/** 혜택 리포트 중 cards. 옛 서버엔 cards가 없다(null → 카드 줄에 붙이지 않음) */
+@Serializable
+data class HomeBenefitReportDto(val cards: List<HomeCardBenefitDto>? = null)
+
+/** 카드 하나(userCardId별, 같은 상품 두 장도 따로). 드물게 카드를 알 수 없는 줄은 userCardId가 null */
+@Serializable
+data class HomeCardBenefitDto(
+    val userCardId: Long? = null,
+    val expectedBenefit: Long? = null,
+    val confirmedBenefit: Long? = null,
+    val unconfirmedBenefit: Long? = null,
+    val unconvertedBenefitCount: Long = 0,
+)
+
+/** 카드 줄에 붙일 이번 달 혜택 — 확정 · 확정 전 · 원화로 못 바꾼 줄 수 */
+data class CardBenefit(val confirmed: Long, val pending: Long, val unconvertedCount: Long)
+
+/**
+ * userCardId → 혜택. 카드를 알 수 없는 줄(userCardId null)은 홈 카드 줄과 이을 수 없어 뺀다(S-04 합계에는 남는다).
+ * 확정 금액이 없는 줄도 0원으로 채우지 않고 뺀다. cards가 없으면(옛 서버) null
+ */
+fun HomeBenefitReportDto.toCardBenefits(): Map<Long, CardBenefit>? = cards?.mapNotNull { c ->
+    val id = c.userCardId ?: return@mapNotNull null
+    val confirmed = (c.confirmedBenefit ?: return@mapNotNull null).coerceAtLeast(0)
+    id to CardBenefit(
+        confirmed = confirmed,
+        pending = (c.unconfirmedBenefit ?: ((c.expectedBenefit ?: confirmed) - confirmed)).coerceAtLeast(0),
+        unconvertedCount = c.unconvertedBenefitCount.coerceAtLeast(0),
+    )
+}?.toMap()
+
+/**
+ * 카드 줄 '받은 혜택 1,000원 · 확정 전 +500원'(11/14 결정: 히어로처럼 확정 전을 받은 혜택에 섞지 않는다).
+ * 원화로 못 바꾼 줄이 있으면 덧붙인다. 응답에 없는 카드(이번 달 YAMU 결제 없음)는 null — 0원으로 지어내지 않는다.
+ * 글자를 키워 두 줄이 되면 '·' 자리에서만 끊기게 마디 안은 줄바꿈 없는 공백으로 잇는다('확정 전' 따로 '+6,000원' 따로 갈라지지 않게)
+ */
+fun CardBenefit?.lineText(): String? {
+    this ?: return null
+    return listOfNotNull(
+        "받은 혜택 ${confirmed.toWon()}원",
+        "확정 전 +${pending.toWon()}원".takeIf { pending > 0 },
+        "원화로 못 바꾼 혜택 ${unconvertedCount}건".takeIf { unconvertedCount > 0 },
+    ).joinToString(" · ") { it.replace(' ', NO_BREAK) }
+}
+
+private const val NO_BREAK = ' '
+
 /** GET forecasts/balance — 홈은 기준 계좌 하나 · 30일로 부르고 지금 잔고 · 최저 잔고 · 날짜만 쓴다(FORECAST-02) */
 @Serializable
 data class HomeForecastDto(
@@ -155,8 +204,35 @@ data class HomeForecastBrief(
     val currentBalance: Long?,
     val minBalance: Long?,
     val minDate: LocalDate?,
-    val calculatedAtIso: String?,
+    /** '지금 잔고 · ○○ 기준' 시각 — 새 홈 칸은 잔액을 읽은 balanceAsOf, 옛 서버 forecasts/balance는 calculatedAt */
+    val asOfIso: String?,
+    /** 최저 잔고를 본 기간이 내일부터(새 홈 칸, 30점)인지 — 옛 서버 forecasts/balance는 오늘 포함 31점 */
+    val fromTomorrow: Boolean = false,
+    /** 생활비 자료가 부족해 어림한 예보(잠정) */
+    val provisional: Boolean = false,
 )
+
+/**
+ * 새 홈 칸 → 요약 값(BE -490). 계좌 칩 이름은 홈 응답에 없어 계좌 목록으로 따로 붙인다(처음엔 null).
+ * 기준 계좌를 모르면 null(그 칸만 실패로 본다)
+ */
+fun HomeForecastPreviewDto.toBrief(): HomeForecastBrief? {
+    val id = accountId ?: return null
+    return HomeForecastBrief(
+        accountId = id,
+        accountLabel = null,
+        currentBalance = currentBalance,
+        minBalance = minBalance,
+        minDate = parseDate(minBalanceDate),
+        asOfIso = balanceAsOf,
+        fromTomorrow = true,
+        provisional = isProvisional == true,
+    )
+}
+
+/** 요약 최저 잔고 줄 이름 — 새 홈 칸은 내일부터 30일, 옛 서버는 오늘 포함 30일 */
+val HomeForecastBrief.minLabel: String
+    get() = if (fromTomorrow) "내일부터 ${HOME_FORECAST_DAYS}일 중 가장 낮을 때" else "${HOME_FORECAST_DAYS}일 안 가장 낮을 때"
 
 /** 홈 요약 · 잔고예보가 같은 기간을 쓰게 — 30일(11/13 결정: 기준 계좌 하나 · 30일) */
 const val HOME_FORECAST_DAYS = 30
@@ -171,7 +247,7 @@ fun HomeForecastDto.toBrief(accountId: Long, accountLabel: String?) = HomeForeca
     currentBalance = currentTotalBalance,
     minBalance = summary?.minBalance,
     minDate = parseDate(summary?.minBalanceDate),
-    calculatedAtIso = calculatedAt,
+    asOfIso = calculatedAt,
 )
 
 /**

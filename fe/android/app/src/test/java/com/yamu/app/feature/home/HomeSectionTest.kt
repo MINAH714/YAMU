@@ -3,7 +3,9 @@ package com.yamu.app.feature.home
 import com.yamu.app.core.network.ApiError
 import com.yamu.app.core.network.ApiResult
 import com.yamu.app.feature.home.data.ForecastSummary
+import com.yamu.app.feature.home.data.HomeForecastBrief
 import com.yamu.app.feature.home.data.HomeSummary
+import com.yamu.app.feature.home.data.NewHomeArea
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
@@ -53,5 +55,27 @@ class HomeSectionTest {
     @Test fun `잔고 영역만 실패했으면 계좌를 몰라 실패 · 비어 있으면 계좌 연결 안내`() {
         assertEquals(ForecastSlot.HomeFailed, forecastSlot(home(accountId = null, failed = setOf("balanceForecast"))))
         assertEquals(ForecastSlot.NoAccount, forecastSlot(home(accountId = null)))
+    }
+
+    // ── 새 홈 칸 forecastPreview(BE -490, S15P31E103-491) ──
+
+    private val brief = HomeForecastBrief(9, null, 500_000, 120_000, null, null, fromTomorrow = true)
+
+    @Test fun `새 칸을 받았으면 옛 잔고 영역이 실패해도 요약`() {
+        val h = home(accountId = null, failed = setOf("balanceForecast")).copy(forecastPreview = NewHomeArea.Value(brief))
+        assertEquals(ForecastSlot.Brief, forecastSlot(h))
+        assertEquals(9L, h.baseAccountId)   // '잔고예보' 버튼도 새 칸의 계좌로
+    }
+
+    @Test fun `새 칸만 실패면 요약 칸 안에서 실패 · 다시 시도`() {
+        assertEquals(ForecastSlot.Brief, forecastSlot(home(accountId = 7).copy(forecastPreview = NewHomeArea.Failed)))
+    }
+
+    @Test fun `새 서버가 비워 보냈으면 계좌 연결 안내`() {
+        assertEquals(ForecastSlot.NoAccount, forecastSlot(home(accountId = null).copy(forecastPreview = NewHomeArea.None)))
+    }
+
+    @Test fun `연결 전이면 새 칸이 있어도 숨긴다`() {
+        assertEquals(ForecastSlot.Hidden, forecastSlot(home(accountId = null, needsLinking = true).copy(forecastPreview = NewHomeArea.Value(brief))))
     }
 }

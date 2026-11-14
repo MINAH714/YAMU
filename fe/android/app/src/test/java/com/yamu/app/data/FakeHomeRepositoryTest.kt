@@ -8,7 +8,9 @@ import com.yamu.app.core.security.SessionStore
 import com.yamu.app.core.session.DevSession
 import com.yamu.app.core.session.FaultScenario
 import com.yamu.app.core.session.HomeScenario
+import com.yamu.app.feature.home.data.HomeBenefitType
 import com.yamu.app.feature.home.data.HomeSummary
+import com.yamu.app.feature.home.data.NewHomeArea
 import com.yamu.app.feature.payment.data.PaymentEdits
 import kotlinx.coroutines.test.runTest
 import org.junit.After
@@ -119,7 +121,7 @@ class FakeHomeRepositoryTest {
         val b = (home.loadBenefit(thisMonth) as ApiResult.Success).data
         assertEquals(19_300L, b.confirmed)
         assertEquals(13_100L, b.pending)
-        assertTrue(b.hasPayments)
+        assertEquals(true, b.hasPayments)
     }
 
     @Test fun `이번 달 결제 없음은 0원 · 결제 없음`() = runTest {
@@ -127,7 +129,7 @@ class FakeHomeRepositoryTest {
         val b = (home.loadBenefit(thisMonth) as ApiResult.Success).data
         assertEquals(0L, b.confirmed)
         assertEquals(0L, b.pending)
-        assertFalse(b.hasPayments)
+        assertEquals(false, b.hasPayments)
     }
 
     @Test fun `혜택만 실패는 혜택 칸만 실패하고 홈 요약은 받는다`() = runTest {
@@ -176,5 +178,72 @@ class FakeHomeRepositoryTest {
         val h = load()
         assertNull(h.forecast)
         assertTrue(h.failedAreas.isEmpty())
+        assertEquals(NewHomeArea.None, h.forecastPreview)
+    }
+
+    // ── 새 홈 칸(BE -490) · 카드별 받은 혜택(BE -489, S15P31E103-491) ──
+
+    @Test fun `새 홈 칸 혜택은 옛 방식(reports-monthly)과 같은 숫자이고 종류 합이 확정과 같다`() = runTest {
+        val b = (load().yamuBenefit as NewHomeArea.Value).data
+        val old = (home.loadBenefit(thisMonth) as ApiResult.Success).data
+        assertEquals(old.confirmed, b.confirmed)
+        assertEquals(old.pending, b.pending)
+        assertEquals(b.confirmed, b.byType.sumOf { it.confirmed })
+        assertEquals(b.pending, b.byType.sumOf { it.pending })
+    }
+
+    @Test fun `카드별 받은 혜택을 다 더하면 히어로와 같다`() = runTest {
+        val b = (load().yamuBenefit as NewHomeArea.Value).data
+        val cards = (home.loadCardBenefits(thisMonth) as ApiResult.Success).data
+        assertEquals(b.confirmed, cards.values.sumOf { it.confirmed })
+        assertEquals(b.pending, cards.values.sumOf { it.pending })
+    }
+
+    @Test fun `새 홈 칸 잔고 요약은 기준 계좌 30일 예보에서 오늘을 뺀 최저`() = runTest {
+        val h = load()
+        val p = (h.forecastPreview as NewHomeArea.Value).data
+        val series = forecast.homeBrief(p.accountId)!!.series.drop(1)
+        val min = series.minOf { it.conservative ?: it.expected!! }
+        assertEquals(h.forecast!!.accountId, p.accountId)
+        assertEquals(min, p.minBalance)
+        assertEquals(series.first { (it.conservative ?: it.expected) == min }.date, p.minDate.toString())
+        assertTrue(p.fromTomorrow)
+    }
+
+    @Test fun `옛 서버 상태는 두 칸이 없어 옛 방식으로 돌아간다`() = runTest {
+        DevSession.homeScenario = HomeScenario.OLD_SERVER
+        val h = load()
+        assertEquals(NewHomeArea.OldServer, h.yamuBenefit)
+        assertEquals(NewHomeArea.OldServer, h.forecastPreview)
+        assertTrue(home.loadBenefit(thisMonth) is ApiResult.Success)
+    }
+
+    @Test fun `혜택만 실패 · 잔고예보만 실패는 그 새 칸만 실패`() = runTest {
+        DevSession.homeScenario = HomeScenario.BENEFIT_ERROR
+        load().let {
+            assertEquals(NewHomeArea.Failed, it.yamuBenefit)
+            assertTrue(it.forecastPreview is NewHomeArea.Value)
+        }
+        DevSession.homeScenario = HomeScenario.FORECAST_ERROR
+        load().let {
+            assertEquals(NewHomeArea.Failed, it.forecastPreview)
+            assertTrue(it.yamuBenefit is NewHomeArea.Value)
+        }
+    }
+
+    @Test fun `원화로 못 바꾼 혜택 상태는 적립 칸과 카드 한 장에 한 건`() = runTest {
+        DevSession.homeScenario = HomeScenario.UNCONVERTED
+        val b = (load().yamuBenefit as NewHomeArea.Value).data
+        assertEquals(1L, b.unconvertedCount)
+        assertEquals(1L, b.byType.first { it.type == HomeBenefitType.POINT }.unconvertedCount)
+        assertEquals(1L, (home.loadCardBenefits(thisMonth) as ApiResult.Success).data.values.sumOf { it.unconvertedCount })
+    }
+
+    @Test fun `이번 달 결제 없음은 새 칸도 0원`() = runTest {
+        DevSession.homeScenario = HomeScenario.NO_PAYMENT
+        val b = (load().yamuBenefit as NewHomeArea.Value).data
+        assertEquals(0L, b.confirmed)
+        assertEquals(0L, b.pending)
+        assertTrue((home.loadCardBenefits(thisMonth) as ApiResult.Success).data.isEmpty())
     }
 }
