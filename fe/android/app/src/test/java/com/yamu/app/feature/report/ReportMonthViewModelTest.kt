@@ -7,6 +7,8 @@ import com.yamu.app.feature.forecast.data.ForecastAccountOption
 import com.yamu.app.feature.forecast.data.ForecastRepository
 import com.yamu.app.feature.report.data.AssetFlow
 import com.yamu.app.feature.report.data.AssetFlowRepository
+import com.yamu.app.feature.report.data.MonthFlow
+import com.yamu.app.feature.report.data.MonthFlowResult
 import com.yamu.app.feature.report.data.ReportSection
 import com.yamu.app.feature.report.data.ReportJump
 import com.yamu.app.feature.report.data.JumpRequest
@@ -75,15 +77,42 @@ class ReportMonthViewModelTest {
         assertEquals(DEC, report.state.value.shown.month)   // 소비분석은 보던 다음 달 그대로
     }
 
-    @Test fun `예보는 돌아올 때만 받고, 달을 바꾸면 그달 지난 잔고만 다시 받는다`() = runTest(dispatcher) {
+    @Test fun `30일 예보는 돌아올 때만 받고, 달을 바꾸면 그달 자산 흐름만 다시 받는다`() = runTest(dispatcher) {
         val vm = ReportViewModel(repo, fixed, assets)
         vm.refresh(); advanceUntilIdle()
         vm.select(OCT); advanceUntilIdle()
-        vm.select(DEC); advanceUntilIdle()   // 다음 달은 지난날이 없어 부르지 않는다
+        vm.select(DEC); advanceUntilIdle()   // 다음 달도 asset-flows가 앞날 예보를 준다
         assertEquals(1, assets.loads)
-        assertEquals(listOf(NOV, OCT), assets.historyCalls)
+        assertEquals(listOf(NOV, OCT, DEC), assets.monthCalls)
+        assertEquals(DEC, vm.state.value.asset.month?.month)
         vm.refresh(); advanceUntilIdle()     // 잔고예보에서 돌아옴 — 예정 수입·지출이 바뀌었을 수 있다
         assertEquals(2, assets.loads)
+        assertEquals(listOf(NOV, OCT, DEC, DEC), assets.monthCalls)
+    }
+
+    @Test fun `달을 빠르게 넘기면 늦게 온 앞 달 자산 흐름이 새 달을 덮지 않는다`() = runTest(dispatcher) {
+        assets.monthDelays[OCT] = 1_000
+        assets.monthDelays[SEP] = 100
+        val vm = ReportViewModel(repo, fixed, assets)
+        vm.refresh(); advanceUntilIdle()
+        vm.select(OCT)
+        advanceTimeBy(10)
+        vm.select(SEP)
+        advanceUntilIdle()
+        assertEquals(SEP, vm.state.value.asset.month?.month)
+    }
+
+    @Test fun `옛 서버(asset-flows 404)면 오류 없이 비워 예보만으로, 실패면 다시 시도 문구`() = runTest(dispatcher) {
+        assets.monthResults[NOV] = MonthFlowResult.Unsupported
+        val vm = ReportViewModel(repo, fixed, assets)
+        vm.refresh(); advanceUntilIdle()
+        assertNull(vm.state.value.asset.month)
+        assertNull(vm.state.value.asset.monthError)
+        assets.monthResults[NOV] = MonthFlowResult.Failed(ApiError.Network)
+        vm.retryMonth(); advanceUntilIdle()
+        assertTrue(vm.state.value.asset.monthError != null)
+        assertTrue("자산 흐름의 30일 예보는 그대로", vm.state.value.asset.flow != null)
+        assertEquals(11, vm.state.value.spend?.month)
     }
 
     @Test fun `자산 흐름이 실패해도 사용금액은 그대로, 같은 실패면 마지막 예보 유지`() = runTest(dispatcher) {
@@ -320,11 +349,14 @@ class ReportMonthViewModelTest {
     private class StubAssets : AssetFlowRepository {
         var loads = 0
         var fail: ApiError? = null
+        val monthCalls = mutableListOf<YearMonth>()
+        /** 달마다 응답 — 없으면 그달 빈 응답(Loaded). [Unsupported]는 옛 서버 */
+        val monthResults = mutableMapOf<YearMonth, MonthFlowResult>()
+        val monthDelays = mutableMapOf<YearMonth, Long>()
         /** 계좌는 받고 예보만 실패 — 저장소가 Success(forecast = null, forecastError)로 준다 */
         var forecastFail: ApiError? = null
         /** 성공할 때 예보 — 11/13부터 30일(12/13까지, 다음 달 1일에 닿는다) */
         var forecast: Forecast? = forecastUntil(LocalDate.of(2026, 12, 13), balance = 500_000)
-        val historyCalls = mutableListOf<YearMonth>()
         private val account = ForecastAccountOption(2, "생활비 통장", "신한", "5678", 268_000, isPrimary = true)
 
         override suspend fun load(): ApiResult<AssetFlow> {
@@ -342,9 +374,10 @@ class ReportMonthViewModelTest {
             return testForecast(days = days, from = from, to = end, accountIds = listOf(2))
         }
 
-        override suspend fun history(accountIds: List<Long>, month: YearMonth): ApiResult<Map<LocalDate, Long>> {
-            historyCalls += month
-            return ApiResult.Success(emptyMap())
+        override suspend fun month(month: YearMonth): MonthFlowResult {
+            monthCalls += month
+            delay(monthDelays[month] ?: 30)
+            return monthResults[month] ?: MonthFlowResult.Loaded(MonthFlow(month, listOf(2), 268_000, null, emptyList(), null, null, emptyList()))
         }
     }
 

@@ -33,6 +33,7 @@ import com.yamu.app.core.session.DevSession
 import com.yamu.app.core.session.FaultScenario
 import com.yamu.app.core.session.LinkScenario
 import com.yamu.app.core.session.PayScenario
+import com.yamu.app.core.session.AssetFlowScenario
 import com.yamu.app.core.session.HomeScenario
 import com.yamu.app.core.session.StartState
 import com.yamu.app.navigation.AccountManage
@@ -166,15 +167,15 @@ fun DebugMenuScreen(navController: NavController, viewModel: DebugMenuViewModel 
                 Text("소비분석 자산 흐름 (가짜 데이터)", style = YamuTheme.typography.titleM, color = c.text1)
                 Text(
                     if (ApiFeature.FORECAST.isReal) "잔고예보가 진짜 서버를 써서 여기서 바꿀 수 없어요(yamu.realApi)"
-                    else "지난 잔고 API는 아직 BE에 없어요. '없음'이 지금 BE 모습이고, '있음'은 API가 생긴 뒤 모습이에요(오늘부터 45일 앞까지만 받아 그 앞은 빗금)",
+                    else "월별 자산 흐름 API(asset-flows)는 BE !315에 있고 11/14 운영 서버엔 아직 없어요. 옛 서버면 지난날이 빗금이고 예보만 그려요. 소비분석으로 돌아가면 바로 바뀌어요",
                     style = YamuTheme.typography.bodyS,
                     color = c.text3,
                 )
-                listOf(false to "지난 잔고 없음 (지금 BE)", true to "지난 잔고 있음 (API가 생긴 뒤)").forEach { (on, label) ->
+                AssetFlowScenario.entries.forEach { scenario ->
                     ListRow(
-                        label,
-                        trailing = { RoundCheckbox(checked = DevSession.pastBalances == on, onCheckedChange = null) },
-                        onClick = { DevSession.pastBalances = on },
+                        scenario.label,
+                        trailing = { RoundCheckbox(checked = DevSession.assetFlowScenario == scenario, onCheckedChange = null) },
+                        onClick = { DevSession.assetFlowScenario = scenario },
                     )
                 }
             }

@@ -108,6 +108,8 @@ internal fun pillKindLabel(kind: DayKind): String = when (kind) {
     DayKind.EXPECTED -> "예상 잔고"
     DayKind.NO_DATA -> "잔고 데이터 없음"
     DayKind.OUT_OF_RANGE -> "예보 범위 밖"
+    DayKind.ERROR -> "잔고 조회 실패"
+    DayKind.UNKNOWN -> "표시할 수 없음"
 }
 
 /** 띠 알약들 — 오가는 돈은 0원이 아닌 입출금 합, 구간은 'AI 생활비 반영' 선(없으면 '제외' 선)으로 정한다(그래프 손잡이 · 면과 같은 선) */
