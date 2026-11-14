@@ -21,6 +21,8 @@ import com.yamu.app.feature.payment.data.PaymentRepository
 import com.yamu.app.feature.payment.data.PaymentRepositoryImpl
 import com.yamu.app.feature.performance.data.PerformanceRepository
 import com.yamu.app.feature.performance.data.PerformanceRepositoryImpl
+import com.yamu.app.feature.report.data.AssetFlowRepository
+import com.yamu.app.feature.report.data.AssetFlowRepositoryImpl
 import com.yamu.app.feature.report.data.ReportRepository
 import com.yamu.app.feature.report.data.ReportRepositoryImpl
 import dagger.Module
@@ -88,6 +90,12 @@ object DataModule {
     @Singleton
     fun reportRepository(real: Provider<ReportRepositoryImpl>, fake: Provider<FakeReportRepository>): ReportRepository =
         if (ApiFeature.REPORT.isReal) real.get() else fake.get()
+
+    /** 소비분석 자산 흐름 — 잔고예보와 같은 예보 API라 잔고예보(FORECAST)가 진짜일 때만 진짜 */
+    @Provides
+    @Singleton
+    fun assetFlowRepository(real: Provider<AssetFlowRepositoryImpl>, fake: Provider<FakeAssetFlowRepository>): AssetFlowRepository =
+        if (ApiFeature.FORECAST.isReal) real.get() else fake.get()
 
     @Provides
     @Singleton

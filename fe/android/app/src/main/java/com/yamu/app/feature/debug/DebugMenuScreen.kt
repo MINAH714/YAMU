@@ -163,6 +163,22 @@ fun DebugMenuScreen(navController: NavController, viewModel: DebugMenuViewModel 
                 }
             }
             YamuCard {
+                Text("소비분석 자산 흐름 (가짜 데이터)", style = YamuTheme.typography.titleM, color = c.text1)
+                Text(
+                    if (ApiFeature.FORECAST.isReal) "잔고예보가 진짜 서버를 써서 여기서 바꿀 수 없어요(yamu.realApi)"
+                    else "지난 잔고 API는 아직 BE에 없어요. '없음'이 지금 BE 모습이고, '있음'은 API가 생긴 뒤 모습이에요(오늘부터 45일 앞까지만 받아 그 앞은 빗금)",
+                    style = YamuTheme.typography.bodyS,
+                    color = c.text3,
+                )
+                listOf(false to "지난 잔고 없음 (지금 BE)", true to "지난 잔고 있음 (API가 생긴 뒤)").forEach { (on, label) ->
+                    ListRow(
+                        label,
+                        trailing = { RoundCheckbox(checked = DevSession.pastBalances == on, onCheckedChange = null) },
+                        onClick = { DevSession.pastBalances = on },
+                    )
+                }
+            }
+            YamuCard {
                 Text("연결 상태 (가짜 데이터)", style = YamuTheme.typography.titleM, color = c.text1)
                 Text(
                     if (ApiFeature.LINK.isReal) "연결이 진짜 서버를 써서 여기서 바꿀 수 없어요(yamu.realApi)"
