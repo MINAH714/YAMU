@@ -3,6 +3,7 @@ package com.yamu.app.data
 import com.yamu.app.core.format.KST
 import com.yamu.app.core.network.ApiResult
 import com.yamu.app.feature.forecast.data.FlowConfidence
+import com.yamu.app.feature.forecast.data.ForecastSelection
 import com.yamu.app.feature.forecast.data.PaymentChannel
 import com.yamu.app.feature.forecast.data.RiskLevel
 import com.yamu.app.feature.forecast.data.SimulationQuery
@@ -17,7 +18,8 @@ import java.time.LocalDate
  * conservative('AI 생활비 반영')만 미만이면 WARNING, 구간의 선에 CONFIRMED는 없다
  */
 class FakeForecastRiskTest {
-    private val fake = FakeForecastRepository(FakeBank(FakeUser(storage = null)))   // 시드 사용자
+    // 시드 사용자, 두 계좌 모두 — 아래 판정은 두 계좌를 합친 시드 숫자 기준이다(잔고예보 기본은 기준 계좌 하나로 바뀜, S15P31E103-484)
+    private val fake = FakeForecastRepository(FakeBank(FakeUser(storage = null))).apply { select(ForecastSelection(all = true)) }
 
     @Test fun `기본 데이터 — 생활비 선만 내려가 WARNING, 구간 선은 두 선 중 하나`() = runTest {
         val f = (fake.forecast() as ApiResult.Success).data
