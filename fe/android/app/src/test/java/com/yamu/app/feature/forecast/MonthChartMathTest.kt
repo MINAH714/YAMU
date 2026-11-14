@@ -135,4 +135,17 @@ class MonthChartMathTest {
         assertEquals("범위 밖", kindShortLabel(DayKind.OUT_OF_RANGE))
         assertEquals("지금", kindShortLabel(DayKind.TODAY))
     }
+
+    @Test fun `말풍선 빈 값 — 오늘은 '지금' 대신 '확인할 수 없음', 다른 날은 날 종류 이름(!311 리뷰)`() {
+        assertEquals("확인할 수 없음", monthEmptyValue(DayKind.TODAY))
+        assertEquals("데이터 없음", monthEmptyValue(DayKind.NO_DATA))
+        assertEquals("범위 밖", monthEmptyValue(DayKind.OUT_OF_RANGE))
+        assertEquals("기본 빈 값도 같은 규칙", "확인할 수 없음", MonthChart(listOf(DayKind.TODAY)).emptyValue(DayKind.TODAY))
+    }
+
+    @Test fun `바닥 '오늘' 글자 — 덮이는 날짜 글자만 빼고, 여백만큼 떨어진 글자는 남긴다(!311 리뷰)`() {
+        val today = 100f..130f
+        val labels = listOf(0f..20f, 90f..110f, 128f..150f, 134f..156f, 133f..150f)
+        assertEquals(listOf(true, false, false, true, false), axisLabelsClearOf(labels, today, gap = 4f))
+    }
 }

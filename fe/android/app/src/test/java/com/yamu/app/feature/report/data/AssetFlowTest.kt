@@ -17,10 +17,13 @@ import com.yamu.app.feature.report.gapLines
 import com.yamu.app.feature.report.nowLine
 import com.yamu.app.feature.report.panelNote
 import com.yamu.app.feature.report.panelValue
+import com.yamu.app.feature.report.panelAmount
 import com.yamu.app.feature.report.showsDayEvents
+import com.yamu.app.feature.report.lineWithLiving
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.time.LocalDate
@@ -302,5 +305,61 @@ class AssetFlowTest {
         assertFalse("그사이 기준 계좌 해제 등", isMissingApi(ApiError.from(404, "RESOURCE_NOT_FOUND")))
         assertFalse(isMissingApi(ApiError.from(502, "FIN_API_UNAVAILABLE")))
         assertFalse(isMissingApi(ApiError.Network))
+    }
+
+    private val keepAccounts = listOf(ForecastAccountOption(2, "생활비 통장", "신한", "5678", 268_000, isPrimary = true))
+    private val keepAt = ZonedDateTime.of(2026, 11, 13, 9, 0, 0, 0, KST)
+
+    @Test fun `예보만 실패 — 같은 계좌면 지난 예보를 남기고, 계좌가 바뀌었거나 지난 예보가 없으면 새 응답 그대로(!312 리뷰)`() {
+        val prev = AssetFlow(keepAccounts, testForecast(days = listOf(day(LocalDate.of(2026, 11, 13)))), loadedAt = keepAt)
+        val failed = AssetFlow(keepAccounts, null, ApiError.Network, loadedAt = keepAt.plusHours(1))
+        val kept = keepLastForecast(prev, failed)
+        assertEquals(prev.forecast, kept.forecast)
+        assertEquals("기준 시각은 그 예보를 받은 때", keepAt, kept.loadedAt)
+        assertEquals(ApiError.Network, kept.forecastError)
+        assertSame(failed, keepLastForecast(null, failed))
+        val other = failed.copy(accounts = listOf(keepAccounts[0].copy(accountId = 3)))
+        assertSame("계좌가 바뀌면 남기지 않는다", other, keepLastForecast(prev, other))
+        val fresh = prev.copy(loadedAt = keepAt.plusHours(2))
+        assertSame(fresh, keepLastForecast(prev, fresh))
+    }
+
+    @Test fun `다음 달 열기 — 예보가 다음 달 1일에 닿을 때만(!312 리뷰)`() {
+        val today = LocalDate.of(2026, 10, 1)   // 31일인 달의 1일 — 30일 예보가 그달 말일에서 끝난다
+        fun until(end: LocalDate) = AssetFlow(keepAccounts, testForecast(days = listOf(day(today), day(end))), loadedAt = keepAt)
+        assertFalse(reachesNextMonth(until(LocalDate.of(2026, 10, 31)), today))
+        assertTrue(reachesNextMonth(until(LocalDate.of(2026, 11, 1)), today))
+        assertFalse("예보 실패", reachesNextMonth(AssetFlow(keepAccounts, null, ApiError.Network, loadedAt = keepAt), today))
+        assertFalse(reachesNextMonth(null, today))
+    }
+
+    @Test fun `날짜 칸 큰 금액 색 — 보이는 값의 부호로, 오늘은 지금 잔고(!312 리뷰)`() {
+        val todayDay = AssetDay(LocalDate.of(2026, 11, 13), DayKind.TODAY, value = -20_000, events = emptyList())
+        assertEquals("오늘 끝 예상이 0원 아래여도 지금 잔고가 보이면 그 부호", 15_000L, panelAmount(todayDay, current = 15_000))
+        assertEquals(-20_000L, panelAmount(todayDay.copy(kind = DayKind.EXPECTED), current = 15_000))
+        assertNull(panelAmount(todayDay, current = null))
+    }
+
+    @Test fun `점선 이름 — 30일 예보만 실패해도 asset-flows의 conservative로 'AI 생활비 반영'(!320 리뷰)`() {
+        fun dto(conservative: Long?) = AssetFlowDto(
+            yearMonth = "2026-11", accountIds = listOf(2),
+            series = listOf(
+                AssetFlowPointDto("2026-11-13", "CURRENT", "AVAILABLE", displayBalance = 268_000),
+                AssetFlowPointDto("2026-11-14", "FORECAST", "AVAILABLE", displayBalance = 250_000, forecast = AssetFlowForecastDto(260_000, 260_000, conservative)),
+            ),
+        )
+        val withLiving = dto(240_000).toMonthFlow(YearMonth.of(2026, 11))
+        val without = dto(null).toMonthFlow(YearMonth.of(2026, 11))
+        val past = AssetFlowDto(yearMonth = "2026-10", accountIds = listOf(2), series = listOf(AssetFlowPointDto("2026-10-01", "ACTUAL", "AVAILABLE", displayBalance = 1))).toMonthFlow(YearMonth.of(2026, 10))
+        assertEquals(true, withLiving.hasConservative)
+        assertEquals(false, without.hasConservative)
+        assertNull("예보 점이 없는 달", past.hasConservative)
+
+        val forecastFailed = AssetFlow(keepAccounts, null, ApiError.Network, loadedAt = keepAt)
+        assertTrue(lineWithLiving(forecastFailed, withLiving))
+        assertFalse(lineWithLiving(forecastFailed, without))
+        val forecastWithLiving = AssetFlow(keepAccounts, testForecast(days = listOf(day(LocalDate.of(2026, 11, 13)))), loadedAt = keepAt)
+        assertTrue("지난달은 30일 예보로", lineWithLiving(forecastWithLiving, past))
+        assertTrue(lineWithLiving(forecastWithLiving, null))
     }
 }

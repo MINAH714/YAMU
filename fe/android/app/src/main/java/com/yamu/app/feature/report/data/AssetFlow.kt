@@ -102,6 +102,11 @@ data class MonthFlow(
     val forecastFrom: LocalDate?,
     val forecastTo: LocalDate?,
     val gaps: List<HistoryGap>,
+    /**
+     * 앞날 점선이 'AI 생활비 반영' 선인가 — 서버 displayBalance는 conservative가 있으면 그 값이라, 예보 점에 conservative가 하나라도 있으면 true.
+     * 예보 점이 없으면(지난달) null. 30일 예보(forecasts/balance)만 실패해도 점선 이름을 이 응답으로 정한다(!320 리뷰)
+     */
+    val hasConservative: Boolean? = null,
 )
 
 /**
@@ -150,6 +155,8 @@ fun AssetFlowDto.toMonthFlow(requested: YearMonth): MonthFlow {
         forecastFrom = parseDate(forecastFrom),
         forecastTo = to,
         gaps = partialErrors.map { HistoryGap(it.accountId, parseDate(it.from), parseDate(it.to), it.reason) },
+        hasConservative = series.mapNotNull { p -> p.forecast?.takeIf { p.kind.equals("FORECAST", ignoreCase = true) } }
+            .takeIf { it.isNotEmpty() }?.any { it.conservative != null },
     )
 }
 
@@ -214,6 +221,22 @@ sealed interface MonthFlowResult {
     data class Loaded(val flow: MonthFlow) : MonthFlowResult
     data object Unsupported : MonthFlowResult
     data class Failed(val error: ApiError) : MonthFlowResult
+}
+
+/**
+ * 예보만 실패한 새로고침 — 같은 계좌의 지난 예보가 있으면 그 값(그 예보를 받은 때 기준)을 남기고 이번 실패만 [AssetFlow.forecastError]에 둔다.
+ * 지난 예보가 없거나 계좌가 바뀌었으면 새 응답 그대로(7 · 14 · 30일 칸과 앞날이 빈다). 돌려준 값이 [next]가 아니면 마지막 값을 보인 것
+ */
+fun keepLastForecast(prev: AssetFlow?, next: AssetFlow): AssetFlow {
+    if (next.forecast != null || prev?.forecast == null) return next
+    if (prev.accounts.map { it.accountId } != next.accounts.map { it.accountId }) return next
+    return prev.copy(forecastError = next.forecastError)
+}
+
+/** 소비분석에서 다음 달을 열 수 있나 — 예보가 다음 달 1일에 닿을 때만('다음 달은 예보가 닿는 날까지'). 예보가 없거나 말일에서 끝나면 닫는다 */
+fun reachesNextMonth(flow: AssetFlow?, today: LocalDate): Boolean {
+    val end = flow?.forecastEnd ?: return false
+    return !end.isBefore(YearMonth.from(today).plusMonths(1).atDay(1))
 }
 
 interface AssetFlowRepository {
