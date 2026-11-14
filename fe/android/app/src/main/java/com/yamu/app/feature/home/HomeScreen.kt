@@ -31,6 +31,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.TextAutoSize
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -69,6 +70,7 @@ import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -525,7 +527,16 @@ private fun BenefitTypeCells(types: List<BenefitByType>) {
                     .semantics(mergeDescendants = true) {},
             ) {
                 Text(t.type.label, style = YamuTheme.typography.bodyS, color = c.onHeroMuted)
-                Text(t.amountText(), style = YamuTheme.typography.labelL, color = c.onHero, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                // 칸이 좁아 큰 글자(1.3배)에서 '19,30…'으로 잘렸다 — 한 줄로 두고 글자를 줄이며, 그래도 넘치면 말줄임(-494와 같게)
+                val style = YamuTheme.typography.labelL
+                Text(
+                    t.amountText(),
+                    style = style,
+                    color = c.onHero,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    autoSize = TextAutoSize.StepBased(minFontSize = 8.sp, maxFontSize = style.fontSize, stepSize = 0.5.sp),
+                )
             }
         }
     }
