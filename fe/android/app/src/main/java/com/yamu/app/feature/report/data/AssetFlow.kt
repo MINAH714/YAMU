@@ -251,13 +251,23 @@ class AssetFlowRepositoryImpl @Inject constructor(
         )
     }
 
-    override suspend fun month(month: YearMonth): MonthFlowResult =
-        when (val r = apiCall { assetFlowApi.assetFlows(month.toString()) }) {
-            is ApiResult.Success -> MonthFlowResult.Loaded(r.data.toMonthFlow(month))
-            // 계좌를 적지 않으니(기준 계좌) 계좌 404는 없다 — 404는 이 경로가 없는 옛 서버(yamu.it.kr 11/14)
-            is ApiResult.Failure -> if (r.error is ApiError.NotFound) MonthFlowResult.Unsupported else MonthFlowResult.Failed(r.error)
-        }
+    override suspend fun month(month: YearMonth): MonthFlowResult = monthFlowResult(apiCall { assetFlowApi.assetFlows(month.toString()) }, month)
 }
+
+/**
+ * asset-flows 응답을 화면 결과로(가짜 저장소도 이 함수를 거친다). 이 경로가 없는 옛 서버는 [MonthFlowResult.Unsupported]로
+ * 오류 없이 예보만 그린다. 새 서버가 준 데이터 404(RESOURCE_NOT_FOUND — 그사이 기준 계좌 해제 등)는 옛 서버로 묻지 않고 실패로 알린다
+ */
+fun monthFlowResult(r: ApiResult<AssetFlowDto>, month: YearMonth): MonthFlowResult = when (r) {
+    is ApiResult.Success -> MonthFlowResult.Loaded(r.data.toMonthFlow(month))
+    is ApiResult.Failure -> if (isMissingApi(r.error)) MonthFlowResult.Unsupported else MonthFlowResult.Failed(r.error)
+}
+
+/**
+ * 서버에 이 API가 없다 — BE가 매핑 없는 경로에 주는 404 API_NOT_FOUND(앱은 [ApiError.NotSupported], 실적 · 분석 화면과 같은 판단)와
+ * 프록시가 JSON 없이 준 404(코드가 빈 [ApiError.NotFound]). 코드가 있는 404는 데이터 문제라 여기 들지 않는다
+ */
+internal fun isMissingApi(error: ApiError): Boolean = error is ApiError.NotSupported || (error is ApiError.NotFound && error.code.isBlank())
 
 @Module
 @InstallIn(SingletonComponent::class)

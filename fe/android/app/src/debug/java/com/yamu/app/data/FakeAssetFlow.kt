@@ -16,7 +16,7 @@ import com.yamu.app.feature.report.data.AssetFlowPointDto
 import com.yamu.app.feature.report.data.AssetFlowRepository
 import com.yamu.app.feature.report.data.MonthFlowResult
 import com.yamu.app.feature.report.data.assetFlowAccounts
-import com.yamu.app.feature.report.data.toMonthFlow
+import com.yamu.app.feature.report.data.monthFlowResult
 import kotlinx.coroutines.delay
 import java.time.Instant
 import java.time.LocalDate
@@ -47,12 +47,13 @@ class FakeAssetFlowRepository @Inject constructor(private val forecasts: FakeFor
     override suspend fun month(month: YearMonth): MonthFlowResult {
         val scenario = DevSession.assetFlowScenario
         when (DevSession.faultScenario) {
-            FaultScenario.NETWORK_ERROR -> { delay(300); return MonthFlowResult.Failed(ApiError.Network) }
-            FaultScenario.BANK_ERROR -> { delay(300); return MonthFlowResult.Failed(ApiError.BankUnavailable("FIN_API_UNAVAILABLE")) }
+            FaultScenario.NETWORK_ERROR -> { delay(300); return monthFlowResult(ApiResult.Failure(ApiError.Network), month) }
+            FaultScenario.BANK_ERROR -> { delay(300); return monthFlowResult(ApiResult.Failure(ApiError.from(502, "FIN_API_UNAVAILABLE")), month) }
             FaultScenario.SLOW -> delay(3_000)
             else -> Unit
         }
-        if (scenario == AssetFlowScenario.OLD_SERVER) { delay(150); return MonthFlowResult.Unsupported }
+        // 옛 서버 — 실제 서버처럼 404 API_NOT_FOUND를 만들어 실제 저장소와 같은 매핑([monthFlowResult])을 거친다
+        if (scenario == AssetFlowScenario.OLD_SERVER) { delay(150); return monthFlowResult(ApiResult.Failure(ApiError.from(404, "API_NOT_FOUND")), month) }
         delay(250)
         val all = forecasts.assetAccounts()
         val accounts = all.filter { it.isPrimary }.take(1)   // BE: accountIds를 빼면 기준 계좌 하나, 없으면 계좌 없이 모두 NO_DATA
@@ -99,7 +100,7 @@ class FakeAssetFlowRepository @Inject constructor(private val forecasts: FakeFor
             partialErrors = if (past.isEmpty() || ids.isEmpty()) emptyList() else listOf(AssetFlowPartialErrorDto(ids.first(), past.min().toString(), past.max().toString(), reason)),
             calculatedAt = Instant.now().truncatedTo(ChronoUnit.SECONDS).toString(),
         )
-        return MonthFlowResult.Loaded(dto.toMonthFlow(month))
+        return monthFlowResult(ApiResult.Success(dto), month)
     }
 
     private fun point(
