@@ -334,7 +334,9 @@ class ForecastViewModel @Inject constructor(private val repo: ForecastRepository
     fun apply(period: ForecastPeriod?, accountIds: Set<Long>?) {
         val all = _state.value.accounts?.map { it.accountId }?.toSet()
         val pickedAll = accountIds != null && accountIds == all
-        val selection = ForecastSelection(period, accountIds?.takeIf { it.isNotEmpty() && !pickedAll }, all = pickedAll)
+        // 계좌 목록이 오기 전(불러오는 중 · 실패)에 누르면 계좌는 고르지 않은 것 — 지금 선택(전체 · 일부)을 그대로 두고 기간만 바꾼다(!313 리뷰)
+        val selection = if (accountIds == null) _state.value.selection.copy(period = period)
+        else ForecastSelection(period, accountIds.takeIf { it.isNotEmpty() && !pickedAll }, all = pickedAll)
         repo.select(selection)
         _state.update { it.copy(selection = selection) }
         refresh()
