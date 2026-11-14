@@ -157,6 +157,10 @@ fun HomeRoute(
             onPayments()
         },
         onReport = onReport,
+        onAssetFlow = {
+            viewModel.openAssetFlow()   // 소비분석이 이번 달 · 자산 흐름 칸으로 내려가게 요청해 두고
+            onReport()                  // 하단 탭을 누른 것과 같이 소비분석 탭으로 바꾼다(뒤로 = 홈)
+        },
         onRegisterIncome = onRegisterIncome,
         onAddCard = onAddCard,
     )
@@ -178,6 +182,8 @@ fun HomeScreen(
     onRecentPayment: (Long) -> Unit,
     onPayments: () -> Unit = {},
     onReport: () -> Unit = {},
+    // 잔고예보 요약 '자산 흐름 보기'(HOME-15) — 버튼은 홈 아래쪽 개편(S15P31E103-481)에서 단다
+    @Suppress("UNUSED_PARAMETER") onAssetFlow: () -> Unit = {},
     onRegisterIncome: () -> Unit = {},
     onAddCard: () -> Unit = {},
 ) {
