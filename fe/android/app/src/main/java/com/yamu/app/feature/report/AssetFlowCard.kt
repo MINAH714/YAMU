@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.TextAutoSize
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -33,7 +34,9 @@ import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.yamu.app.core.designsystem.component.EmptyState
 import com.yamu.app.core.designsystem.component.ErrorState
 import com.yamu.app.core.designsystem.component.LinkButton
@@ -383,7 +386,16 @@ private fun AfterBox(days: Int, date: LocalDate, value: Long?, modifier: Modifie
         Text("${days}일 뒤", style = YamuTheme.typography.bodyS, color = c.text3)
         Text(date.toMonthDayWeek(), style = YamuTheme.typography.bodyS, color = c.text3)
         Box(Modifier.height(2.dp))
-        Text(value?.let { "${it.toWon()}원" } ?: "—", style = YamuTheme.typography.titleS, color = if ((value ?: 0) < 0) c.error else c.text1, maxLines = 1)
+        // 상자가 좁아 큰 글자(1.3배)에서 끝의 '원'이 잘렸다 — 잔고예보 DayValue처럼 한 줄로 두고 글자를 줄이며, 그래도 넘치면 말줄임
+        val style = YamuTheme.typography.titleS
+        Text(
+            value?.let { "${it.toWon()}원" } ?: "—",
+            style = style,
+            color = if ((value ?: 0) < 0) c.error else c.text1,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            autoSize = TextAutoSize.StepBased(minFontSize = 8.sp, maxFontSize = style.fontSize, stepSize = 0.5.sp),
+        )
     }
 }
 
