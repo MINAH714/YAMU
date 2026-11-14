@@ -88,6 +88,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import com.yamu.app.feature.forecast.data.ForecastRepository
 import com.yamu.app.feature.report.data.AssetFlow
 import com.yamu.app.feature.report.data.AssetFlowRepository
+import com.yamu.app.feature.report.data.MonthFlow
+import com.yamu.app.feature.report.data.MonthFlowResult
 import com.yamu.app.feature.report.data.assetDateIn
 import java.time.LocalDate
 import com.yamu.app.feature.report.data.BenefitReport
@@ -121,14 +123,17 @@ import javax.inject.Inject
 
 /**
  * 자산 흐름 칸 상태 — 사용금액과 따로 받아 한쪽이 실패해도 다른 쪽은 그대로 보인다(COMMON-08).
- * 예보는 달과 상관없어(늘 오늘부터 30일) 돌아올 때만 받고, 달을 바꾸면 그달 지난 잔고([history])만 다시 받는다
+ * 30일 예보([flow], 7 · 14 · 30일 뒤용)는 달과 상관없어 돌아올 때만 받고, 그달 자산 흐름([month], asset-flows)은 달마다 받는다.
+ * [month]가 없으면(옛 서버 404 · 실패) 예보만으로 그린다 — 지난날은 빈 날
  */
 data class AssetFlowUi(
     val loading: Boolean = true,
     val flow: AssetFlow? = null,
     val error: String? = null,
     val noAccount: Boolean = false,
-    val history: Map<LocalDate, Long> = emptyMap(),
+    val month: MonthFlow? = null,
+    /** 그달 자산 흐름을 받지 못함(은행 · 네트워크) — 옛 서버의 404는 오류가 아니라 null */
+    val monthError: String? = null,
 )
 
 data class ReportState(
@@ -170,7 +175,7 @@ class ReportViewModel @Inject constructor(
     val state: StateFlow<ReportState> = _state.asStateFlow()
     private var job: Job? = null
     private var assetJob: Job? = null
-    private var historyJob: Job? = null
+    private var monthJob: Job? = null
 
     /** 다른 화면이 보낸 '이 칸으로 내려가기'(홈 '자산 흐름 보기', S15P31E103-479) — 화면이 내려간 뒤 [jumped] */
     val jump: StateFlow<ReportSection?> = jumps.pending
@@ -185,13 +190,17 @@ class ReportViewModel @Inject constructor(
     fun refresh() {
         loadSpend()
         loadAsset()
+        loadMonth()
     }
 
     fun select(month: YearMonth) {
         months.select(month)
         loadSpend()
-        loadHistory()
+        loadMonth()
     }
+
+    /** 그달 자산 흐름만 다시(지난 잔고를 못 받았을 때 '다시 시도') */
+    fun retryMonth() = loadMonth()
 
     /** 자산 흐름에서 날을 고름(그래프 · 날짜 띠 · 알약) */
     fun selectDate(date: LocalDate) = _state.update { it.copy(pickedDate = date) }
@@ -210,7 +219,7 @@ class ReportViewModel @Inject constructor(
         _state.update {
             if (it.shown.month == shown.month) it.copy(shown = shown, today = today, loading = it.spend == null && !shown.isNextMonth, error = null)
             // 다른 달 숫자를 새 달 머리 아래 두지 않는다. 고른 날은 새 달의 처음 고를 날로, 예보는 달과 상관없어 그대로
-            else ReportState(shown, loading = !shown.isNextMonth, asset = it.asset.copy(history = emptyMap()), today = today, assetReset = it.assetReset)
+            else ReportState(shown, loading = !shown.isNextMonth, asset = it.asset.copy(month = null, monthError = null), today = today, assetReset = it.assetReset)
         }
         if (shown.isNextMonth) return   // 아직 쓴 돈이 없는 달 — 월 API를 부르지 않는다
         job = viewModelScope.launch {
@@ -231,10 +240,7 @@ class ReportViewModel @Inject constructor(
             val r = assets.load()
             ensureActive()
             when (r) {
-                is ApiResult.Success -> {
-                    _state.update { it.copy(asset = it.asset.copy(loading = false, flow = r.data, error = null, noAccount = false)) }
-                    loadHistory()
-                }
+                is ApiResult.Success -> _state.update { it.copy(asset = it.asset.copy(loading = false, flow = r.data, error = null, noAccount = false)) }
                 is ApiResult.Failure -> _state.update {
                     if (r.error.code in NO_ACCOUNT_CODES) it.copy(asset = AssetFlowUi(loading = false, noAccount = true))
                     else it.copy(asset = it.asset.copy(loading = false, error = r.error.userMessage()))   // 마지막 값은 그대로
@@ -243,17 +249,27 @@ class ReportViewModel @Inject constructor(
         }
     }
 
-    /** 그달 지난 잔고 — 지난날이 없는 달(다음 달 · 1일의 이번 달)은 부르지 않는다. 못 받으면 조용히 '데이터 없음' */
-    private fun loadHistory() {
-        val flow = _state.value.asset.flow ?: return
+    /**
+     * 그달 자산 흐름(asset-flows) — 달을 빠르게 넘기면 앞 요청을 취소하고, 그래도 늦게 온 응답은 지금 달과 다르면 버린다.
+     * 옛 서버(404)면 비워 두어 예보만으로 그리고, 실패면 같은 달의 마지막 값을 두고 '다시 시도'를 보인다
+     */
+    private fun loadMonth() {
         val month = _state.value.shown.month
-        historyJob?.cancel()
-        if (!month.atDay(1).isBefore(_state.value.today)) return
-        historyJob = viewModelScope.launch {
-            val r = assets.history(flow.accounts.map { it.accountId }, month)
+        monthJob?.cancel()
+        _state.update { it.copy(asset = it.asset.copy(month = it.asset.month?.takeIf { m -> m.month == month }, monthError = null)) }
+        monthJob = viewModelScope.launch {
+            val r = assets.month(month)
             ensureActive()
             if (_state.value.shown.month != month) return@launch
-            _state.update { it.copy(asset = it.asset.copy(history = (r as? ApiResult.Success)?.data.orEmpty())) }
+            _state.update {
+                it.copy(
+                    asset = when (r) {
+                        is MonthFlowResult.Loaded -> it.asset.copy(month = r.flow, monthError = null)
+                        MonthFlowResult.Unsupported -> it.asset.copy(month = null, monthError = null)
+                        is MonthFlowResult.Failed -> it.asset.copy(monthError = r.error.userMessage())
+                    },
+                )
+            }
         }
     }
 
@@ -328,6 +344,7 @@ fun ReportRoute(
                     onMonth = viewModel::select,
                     onToday = viewModel::goToday,
                     onRetry = viewModel::refresh,
+                    onRetryMonth = viewModel::retryMonth,
                     onForecast = onForecast,
                     modifier = Modifier.onPlaced { assetFlowY = it.positionInParent().y.roundToInt() },
                 )

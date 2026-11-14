@@ -208,7 +208,7 @@ private fun DatePill(day: StripDay, index: Int, selected: Boolean, onClick: () -
         kind == DayKind.TODAY -> c.text1
         else -> c.text3
     }
-    val hatchInk = c.text3.copy(alpha = if (kind == DayKind.NO_DATA) HATCH_STRONG else HATCH_LIGHT)
+    val pillInk = kind?.let { hatchInk(it, c.text3, c.warning) } ?: Color.Transparent
     Box(
         Modifier
             .size(PILL_W, PILL_H)
@@ -222,7 +222,7 @@ private fun DatePill(day: StripDay, index: Int, selected: Boolean, onClick: () -
             .padding(if (ring != null && selected) 4.dp else 0.dp)
             .clip(shape)
             .background(bg)
-            .then(if (hatched) Modifier.drawBehind { drawHatch(Offset.Zero, size, hatchInk) } else Modifier)
+            .then(if (hatched) Modifier.drawBehind { drawHatch(Offset.Zero, size, pillInk) } else Modifier)
             .clickable(role = Role.Tab, onClick = onClick)
             .semantics(mergeDescendants = true) {
                 this.selected = selected

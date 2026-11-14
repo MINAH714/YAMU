@@ -54,8 +54,8 @@ import com.yamu.app.feature.forecast.DayKind
 import com.yamu.app.feature.forecast.DaySelection
 import com.yamu.app.feature.forecast.DaySource
 import com.yamu.app.feature.forecast.DateStrip
-import com.yamu.app.feature.forecast.HATCH_LIGHT
-import com.yamu.app.feature.forecast.HATCH_STRONG
+import com.yamu.app.feature.forecast.hatchInk
+import com.yamu.app.feature.forecast.hatchLabel
 import com.yamu.app.feature.forecast.LINE_WITHOUT_LIVING
 import com.yamu.app.feature.forecast.LINE_WITH_LIVING
 import com.yamu.app.feature.forecast.MonthChart
@@ -72,6 +72,11 @@ import com.yamu.app.feature.forecast.zoneOf
 import com.yamu.app.feature.report.data.ASSET_FLOW_AFTER
 import com.yamu.app.feature.report.data.AssetDay
 import com.yamu.app.feature.report.data.AssetFlow
+import com.yamu.app.feature.report.data.HistoryGap
+import com.yamu.app.feature.report.data.MonthFlow
+import com.yamu.app.feature.report.data.currentBalanceOf
+import com.yamu.app.feature.report.data.gapReason
+import com.yamu.app.feature.report.data.isFetchFailure
 import com.yamu.app.feature.report.data.ShownMonth
 import com.yamu.app.feature.report.data.accountTag
 import com.yamu.app.feature.report.data.assetDays
@@ -97,6 +102,7 @@ internal fun AssetFlowCard(
     onRetry: () -> Unit,
     onForecast: () -> Unit,
     modifier: Modifier = Modifier,
+    onRetryMonth: () -> Unit = onRetry,
 ) {
     val c = YamuTheme.colors
     val a = s.asset
@@ -120,7 +126,7 @@ internal fun AssetFlowCard(
                 SkeletonBlock(height = 184.dp)
             }
             flow == null -> ErrorState(a.error ?: "자산 흐름을 불러오지 못했어요", onRetry = onRetry)
-            else -> AssetFlowBody(s, flow, onSelectDate, onMonth, onRetry, onForecast)
+            else -> AssetFlowBody(s, flow, onSelectDate, onMonth, onRetry, onRetryMonth, onForecast)
         }
     }
 }
@@ -132,14 +138,18 @@ private fun AssetFlowBody(
     onSelectDate: (LocalDate) -> Unit,
     onMonth: (YearMonth) -> Unit,
     onRetry: () -> Unit,
+    onRetryMonth: () -> Unit,
     onForecast: () -> Unit,
 ) {
     val c = YamuTheme.colors
     val f = flow.forecast
-    // 지금 잔고 — 지난달을 봐도 '오늘 기준'이라고 적는다(ANALYSIS-03)
+    // 한 달 응답(asset-flows)이 같은 계좌일 때만 쓴다 — 아니면 예보만으로(옛 서버 · 실패 · 계좌가 바뀐 사이)
+    val monthFlow = s.asset.month?.takeIf { it.month == s.shown.month && flow.matches(it) }
+    val (current, asOf) = currentBalanceOf(flow, monthFlow)
+    // 지금 잔고 — 지난달을 봐도 '오늘 기준'이라고 적는다(ANALYSIS-03). 기준 시각은 은행에서 잔액을 읽은 때(asset-flows balanceAsOf)
     Row(Modifier.fillMaxWidth().semantics(mergeDescendants = true) { }, verticalAlignment = Alignment.CenterVertically) {
-        Text(nowLine(flow.loadedAt, s.today), style = YamuTheme.typography.bodyS, color = c.text3, modifier = Modifier.weight(1f))
-        Text(flow.currentBalance?.let { "${it.toWon()}원" } ?: "확인할 수 없음", style = YamuTheme.typography.value, color = c.text1)
+        Text(nowLine(asOf, s.today), style = YamuTheme.typography.bodyS, color = c.text3, modifier = Modifier.weight(1f))
+        Text(current?.let { "${it.toWon()}원" } ?: "확인할 수 없음", style = YamuTheme.typography.value, color = c.text1)
     }
     s.asset.error?.let { Text("$it · 마지막 값을 보여 드려요", style = YamuTheme.typography.bodyS, color = c.warning) }
     if (f == null) {
@@ -151,7 +161,7 @@ private fun AssetFlowBody(
     }
     Spacer(Modifier.height(YamuSpacing.x3))
     val month = s.shown.month
-    val days = remember(month, s.today, flow, s.asset.history) { assetDays(month, s.today, flow, s.asset.history) }
+    val days = remember(month, s.today, flow, monthFlow) { assetDays(month, s.today, flow, monthFlow) }
     // 달마다 그래프 · 띠를 새로 — 띠 스크롤 · 손잡이 위치 · 첫 안내가 앞 달 것을 이어받지 않게
     key(month) {
         val target = days.indexOfFirst { it.date == s.assetDate }.coerceAtLeast(0)
@@ -200,7 +210,22 @@ private fun AssetFlowBody(
             trailing = s.shown.takeIf { it.canNext }?.let { sh -> monthTitle(sh.next, sh.thisMonth).let { t -> StripJump("$t 보기 ›", "$t 보기", onClick = { onMonth(sh.next) }) } },
         )
         Spacer(Modifier.height(10.dp))
-        days.getOrNull(day.day)?.let { AssetDayPanel(it, flow, s.today) }
+        days.getOrNull(day.day)?.let { AssetDayPanel(it, flow, monthFlow, s.today, current, asOf) }
+    }
+    // 지난 잔고를 못 받은 달 — 다시 시도(옛 서버 404는 오류가 아니라 여기 없다)
+    s.asset.monthError?.let { err ->
+        Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text("지난 잔고를 불러오지 못했어요 · $err", style = YamuTheme.typography.bodyS, color = c.warning, modifier = Modifier.weight(1f))
+            LinkButton("다시 시도", onClick = onRetryMonth)
+        }
+    }
+    // 지난 잔고를 확인하지 못한 구간과 까닭(asset-flows partialErrors) — 같은 까닭은 한 줄로
+    monthFlow?.let { m -> gapLines(m) }?.take(GAP_LINES)?.forEach { line ->
+        Text(line, style = YamuTheme.typography.bodyS, color = c.text2, modifier = Modifier.padding(top = 8.dp).fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(c.surfaceVariant).padding(horizontal = 12.dp, vertical = 10.dp))
+    }
+    // 은행 · 시간 초과로 못 받은 구간은 다시 하면 될 수 있다(자료 문제인 까닭은 다시 해도 같아 버튼을 두지 않는다)
+    if (s.asset.monthError == null && monthFlow?.gaps?.any { it.isFetchFailure() } == true) {
+        LinkButton("지난 잔고 다시 불러오기", onClick = onRetryMonth)
     }
     // 범위 밖 큰 출금 — 그래프에 없다는 걸 한 줄로(FORECAST-06, 11/12 신용카드 계획이 안 보이던 자리)
     val beyond = remember(f, month) { beyondInMonth(f, month) }
@@ -265,8 +290,10 @@ private fun AssetLegend(kinds: List<DayKind>, hasConservative: Boolean) {
     FlowRow(horizontalArrangement = Arrangement.spacedBy(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp), itemVerticalAlignment = Alignment.CenterVertically) {
         LegendItem("실제", style) { LineSwatch(dashed = false) }
         LegendItem("예상(${if (hasConservative) LINE_WITH_LIVING else LINE_WITHOUT_LIVING})", style) { LineSwatch(dashed = true) }
-        if (DayKind.NO_DATA in kinds) LegendItem("실제 잔고 없음", style) { HatchSwatch(strong = true) }
-        if (DayKind.OUT_OF_RANGE in kinds) LegendItem("예보 범위 밖", style) { HatchSwatch(strong = false) }
+        // 빗금은 그달에 그 구간이 있을 때만 — 이름은 그래프 빗금 위 글자와 같다
+        listOf(DayKind.NO_DATA, DayKind.ERROR, DayKind.UNKNOWN, DayKind.OUT_OF_RANGE).filter { it in kinds }.forEach { k ->
+            LegendItem(hatchLabel(k), style) { HatchSwatch(k) }
+        }
     }
 }
 
@@ -291,14 +318,15 @@ private fun LineSwatch(dashed: Boolean) {
 }
 
 @Composable
-private fun HatchSwatch(strong: Boolean) {
-    val ink = YamuTheme.colors.text3.copy(alpha = if (strong) HATCH_STRONG else HATCH_LIGHT)
+private fun HatchSwatch(kind: DayKind) {
+    val c = YamuTheme.colors
+    val ink = hatchInk(kind, c.text3, c.warning)
     Canvas(Modifier.size(width = 18.dp, height = 10.dp).clip(RoundedCornerShape(2.dp))) { drawHatch(Offset.Zero, size, ink) }
 }
 
 /** 고른 날 칸(ANALYSIS-09) — 날짜 · 종류 꼬리표 · 잔고 · 주요 입출금. 그래프 · 띠 · 알약 어느 쪽으로 골라도 같은 칸 */
 @Composable
-private fun AssetDayPanel(d: AssetDay, flow: AssetFlow, today: LocalDate) {
+private fun AssetDayPanel(d: AssetDay, flow: AssetFlow, monthFlow: MonthFlow?, today: LocalDate, current: Long?, asOf: ZonedDateTime) {
     val c = YamuTheme.colors
     Column(
         Modifier
@@ -313,13 +341,13 @@ private fun AssetDayPanel(d: AssetDay, flow: AssetFlow, today: LocalDate) {
             Spacer(Modifier.width(8.dp))
             StatusTag(kindShortLabel(d.kind), tone = kindTone(d.kind))
         }
-        val (main, key) = panelValue(d, flow, today)
+        val (main, key) = panelValue(d, flow, monthFlow, today, current, asOf)
         main?.let {
             Spacer(Modifier.height(4.dp))
             Text(it, style = YamuTheme.typography.amountM, color = if ((d.value ?: 0) < 0) c.error else c.text1)
         }
-        Text(key, style = YamuTheme.typography.bodyS, color = c.text3, modifier = Modifier.padding(top = if (main == null) 6.dp else 0.dp))
-        panelNote(d, flow)?.let { Text(it, style = YamuTheme.typography.bodyS, color = c.text2, modifier = Modifier.padding(top = 2.dp)) }
+        Text(key, style = YamuTheme.typography.bodyS, color = if (d.kind == DayKind.ERROR) c.warning else c.text3, modifier = Modifier.padding(top = if (main == null) 6.dp else 0.dp))
+        panelNote(d, current)?.let { Text(it, style = YamuTheme.typography.bodyS, color = c.text2, modifier = Modifier.padding(top = 2.dp)) }
         if (d.kind == DayKind.TODAY || d.kind == DayKind.EXPECTED || d.kind == DayKind.ACTUAL) {
             Spacer(Modifier.height(8.dp))
             if (d.events.isEmpty()) Text("이날 주요 입출금은 없어요", style = YamuTheme.typography.bodyS, color = c.text3)
@@ -360,6 +388,7 @@ private fun AfterBox(days: Int, date: LocalDate, value: Long?, modifier: Modifie
 }
 
 private const val BEYOND_LINES = 2
+private const val GAP_LINES = 2
 private val HM = DateTimeFormatter.ofPattern("HH:mm")
 
 // ── 글자(단위 테스트) ──
@@ -368,29 +397,49 @@ private val HM = DateTimeFormatter.ofPattern("HH:mm")
 internal fun nowLine(loadedAt: ZonedDateTime, today: LocalDate): String =
     "지금 잔고 · ${if (loadedAt.toLocalDate() == today) "오늘" else loadedAt.toLocalDate().toMonthDay()} ${loadedAt.format(HM)} 기준"
 
-/** 종류 꼬리표 색 — 글자가 먼저고 색은 거든다(COMMON-11) */
+/** 종류 꼬리표 색 — 글자가 먼저고 색은 거든다(COMMON-11). 조회 실패만 주황 */
 internal fun kindTone(kind: DayKind): TagTone = when (kind) {
     DayKind.TODAY -> TagTone.Primary
-    DayKind.ACTUAL, DayKind.EXPECTED -> TagTone.Neutral
-    DayKind.NO_DATA, DayKind.OUT_OF_RANGE -> TagTone.Neutral
+    DayKind.ERROR -> TagTone.Warning
+    else -> TagTone.Neutral
 }
 
-/** 고른 날 칸의 큰 금액과 그 밑 설명 */
-internal fun panelValue(d: AssetDay, flow: AssetFlow, today: LocalDate): Pair<String?, String> = when (d.kind) {
+/**
+ * 고른 날 칸의 큰 금액과 그 밑 설명. 오늘은 칸 머리와 같은 지금 잔고([current], [asOf]).
+ * 빈 날은 까닭을 나눠 적는다 — 조회 실패(다시 시도) · 자료 없음(그 구간의 partialErrors 까닭) · 범위 밖 · 표시 불가
+ */
+internal fun panelValue(d: AssetDay, flow: AssetFlow, monthFlow: MonthFlow?, today: LocalDate, current: Long?, asOf: ZonedDateTime): Pair<String?, String> = when (d.kind) {
     DayKind.ACTUAL -> d.value?.let { "${it.toWon()}원" } to "그날 끝 실제 잔고"
-    DayKind.TODAY -> flow.currentBalance?.let { "${it.toWon()}원" } to nowLine(flow.loadedAt, today)
+    DayKind.TODAY -> current?.let { "${it.toWon()}원" } to (if (current == null) "지금 잔고를 확인하지 못했어요" else nowLine(asOf, today))
     DayKind.EXPECTED -> d.value?.let { "${it.toWon()}원" } to "예상 잔고 · ${if (flow.forecast?.hasConservative == true) LINE_WITH_LIVING else LINE_WITHOUT_LIVING}"
-    DayKind.NO_DATA -> null to if (d.date.isAfter(today)) "예보를 불러오지 못해 비워 뒀어요." else "이날 잔고는 아직 받을 수 없어요. 쓴 돈으로 잔고를 만들어 보여 드리지 않아요."
-    DayKind.OUT_OF_RANGE -> null to "예보는 오늘부터 30일(${flow.forecastEnd?.toMonthDay() ?: "30일 뒤"})까지만 해요."
+    DayKind.NO_DATA -> null to when {
+        d.date.isAfter(today) -> "예보를 불러오지 못해 비워 뒀어요."
+        monthFlow == null -> "이날 잔고는 아직 받을 수 없어요. 쓴 돈으로 잔고를 만들어 보여 드리지 않아요."
+        else -> (gapOn(monthFlow, d.date)?.let { gapReason(it.reason) } ?: "이날 잔고를 확인할 자료가 없어요") + ". 쓴 돈으로 잔고를 만들어 보여 드리지 않아요."
+    }
+    DayKind.ERROR -> null to (gapOn(monthFlow, d.date)?.let { gapReason(it.reason) } ?: "이날 잔고를 은행에서 불러오지 못했어요") + ". 잠시 뒤 다시 시도해 주세요."
+    DayKind.UNKNOWN -> null to "이날 잔고는 지금 앱에서 표시할 수 없어요. 앱을 업데이트하면 보일 수 있어요."
+    DayKind.OUT_OF_RANGE -> null to "예보는 오늘부터 30일(${(monthFlow?.forecastTo ?: flow.forecastEnd)?.toMonthDay() ?: "30일 뒤"})까지만 해요."
 }
 
-/** 오늘 칸 덧줄 — 오늘 입출금이 있어 하루 끝 예상이 지금 잔고와 다르면 */
-internal fun panelNote(d: AssetDay, flow: AssetFlow): String? {
+/** 오늘 칸 덧줄 — 오늘 입출금이 있어 하루 끝 예상([AssetDay.endOfDay])이 지금 잔고와 다르면 */
+internal fun panelNote(d: AssetDay, current: Long?): String? {
     if (d.kind != DayKind.TODAY) return null
-    val end = d.value ?: return null
-    if (end == flow.currentBalance) return null
+    val end = d.endOfDay ?: return null
+    if (end == current) return null
     return "오늘 끝 예상 ${end.toWon()}원"
 }
+
+/** 그날을 덮는 '확인하지 못한 구간' — 날짜를 모르는 구간은 그달 전체로 본다 */
+internal fun gapOn(monthFlow: MonthFlow?, date: LocalDate): HistoryGap? =
+    monthFlow?.gaps?.firstOrNull { g -> (g.from == null || !date.isBefore(g.from)) && (g.to == null || !date.isAfter(g.to)) }
+
+/** 그래프 밑 안내 — '11/1~11/12 · 은행 연결이 안 돼 지난 잔고를 불러오지 못했어요'. 같은 까닭은 한 줄 */
+internal fun gapLines(monthFlow: MonthFlow): List<String> =
+    monthFlow.gaps.distinctBy { gapReason(it.reason) to (it.from to it.to) }.map { g ->
+        val range = listOfNotNull(g.from?.toMonthDay(), g.to?.toMonthDay()).distinct().joinToString("~")
+        listOf(range, gapReason(g.reason)).filter { it.isNotEmpty() }.joinToString(" · ")
+    }.distinct()
 
 /** 입출금 보조 줄 — '예정 · 카드 청구' · '오늘 · 수입' · '예정 · 추정' */
 internal fun eventSub(e: ForecastEvent, today: Boolean): String = listOf(
@@ -429,6 +478,8 @@ internal fun assetChartDescription(month: YearMonth, kinds: List<DayKind>, hasCo
     "오늘 세로선".takeIf { DayKind.TODAY in kinds },
     "앞날 점선, ${if (hasConservative) LINE_WITH_LIVING else LINE_WITHOUT_LIVING}".takeIf { DayKind.EXPECTED in kinds },
     "실제 잔고 없는 날은 빗금".takeIf { DayKind.NO_DATA in kinds },
+    "잔고 조회에 실패한 날은 주황 빗금".takeIf { DayKind.ERROR in kinds },
+    "표시할 수 없는 날은 빗금".takeIf { DayKind.UNKNOWN in kinds },
     "예보 범위 밖은 옅은 빗금".takeIf { DayKind.OUT_OF_RANGE in kinds },
 ).joinToString(", ")
 

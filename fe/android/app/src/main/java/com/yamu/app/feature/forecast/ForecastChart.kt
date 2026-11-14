@@ -387,9 +387,8 @@ fun BalanceChart(
                         val x1 = min(size.width, x(run.to) + half)
                         if (x1 <= x0) return@forEach
                         val y0 = top - 4.dp.toPx()
-                        val ink = c.text3.copy(alpha = if (run.kind == DayKind.NO_DATA) HATCH_STRONG else HATCH_LIGHT)
-                        drawHatch(Offset(x0, y0), Size(x1 - x0, bottom - y0), ink)
-                        val label = measurer.measure(if (run.kind == DayKind.NO_DATA) "실제 잔고 없음" else "예보 범위 밖", labelStyle.copy(color = c.text2, fontWeight = FontWeight.Bold))
+                        drawHatch(Offset(x0, y0), Size(x1 - x0, bottom - y0), hatchInk(run.kind, c.text3, c.warning))
+                        val label = measurer.measure(hatchLabel(run.kind), labelStyle.copy(color = if (run.kind == DayKind.ERROR) c.onWarningContainer else c.text2, fontWeight = FontWeight.Bold))
                         if (x1 - x0 >= label.size.width + 16.dp.toPx()) {
                             val at = Offset((x0 + x1 - label.size.width) / 2f, y0 + 6.dp.toPx())
                             drawRoundRect(c.surface.copy(alpha = 0.92f), topLeft = Offset(at.x - 5.dp.toPx(), at.y - 2.dp.toPx()), size = Size(label.size.width + 10.dp.toPx(), label.size.height + 4.dp.toPx()), cornerRadius = CornerRadius(6.dp.toPx()))
@@ -738,6 +737,13 @@ internal val HATCH_GAP = 6.dp
 internal val HATCH_STROKE = 1.5.dp
 internal const val HATCH_STRONG = 0.34f   // 데이터 없음
 internal const val HATCH_LIGHT = 0.17f    // 예보 범위 밖
+
+/** 빗금 색 — 조회 실패는 주황(글자도 '잔고 조회 실패'), 범위 밖은 옅게, 나머지는 회색 */
+internal fun hatchInk(kind: DayKind, gray: Color, warning: Color): Color = when {
+    kind == DayKind.ERROR -> warning.copy(alpha = 0.45f)
+    hatchStrong(kind) -> gray.copy(alpha = HATCH_STRONG)
+    else -> gray.copy(alpha = HATCH_LIGHT)
+}
 
 private val BUBBLE_ZONE = 44.dp      // 말풍선 자리(손잡이가 있을 때만)
 private val SIDE_PAD = 8.dp

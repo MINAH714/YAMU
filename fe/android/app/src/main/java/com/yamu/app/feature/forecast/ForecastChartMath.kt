@@ -113,10 +113,25 @@ enum class DayKind {
     NO_DATA,
     /** 예보가 닿지 않는 날(오늘부터 30일 뒤, FORECAST-06) — 옅은 빗금 */
     OUT_OF_RANGE,
+    /** 지난 잔고를 은행에서 읽지 못한 날(asset-flows dataStatus ERROR, S15P31E103-492) — 주황 빗금. 자료 없음과 나눠 안내한다 */
+    ERROR,
+    /** 서버가 앱이 모르는 종류 · 상태를 보낸 날 — 지어 그리지 않고 '표시 불가' */
+    UNKNOWN,
 }
 
-/** 빗금으로 비우는 날인지 */
-internal val DayKind.hatched: Boolean get() = this == DayKind.NO_DATA || this == DayKind.OUT_OF_RANGE
+/** 빗금으로 비우는 날인지 — 값이 없는 날은 모두 빗금이고 선을 잇지 않는다 */
+internal val DayKind.hatched: Boolean get() = this == DayKind.NO_DATA || this == DayKind.OUT_OF_RANGE || this == DayKind.ERROR || this == DayKind.UNKNOWN
+
+/** 그래프 빗금 위 글자 — 색만으로 나누지 않게(COMMON-11) */
+internal fun hatchLabel(kind: DayKind): String = when (kind) {
+    DayKind.OUT_OF_RANGE -> "예보 범위 밖"
+    DayKind.ERROR -> "잔고 조회 실패"
+    DayKind.UNKNOWN -> "표시할 수 없음"
+    else -> "실제 잔고 없음"
+}
+
+/** 빗금 진하기 — 범위 밖만 옅게(아직 오지 않은 날이라 '없다'보다 '아직'에 가깝다) */
+internal fun hatchStrong(kind: DayKind): Boolean = kind != DayKind.OUT_OF_RANGE
 
 /**
  * 한 달([month])의 날 종류 — 오늘([today], 한국 날짜) 앞은 실제 잔고를 받은 날([actualDates])이면 실제, 아니면 데이터 없음.
@@ -148,6 +163,8 @@ fun kindShortLabel(kind: DayKind): String = when (kind) {
     DayKind.EXPECTED -> "예상"
     DayKind.NO_DATA -> "데이터 없음"
     DayKind.OUT_OF_RANGE -> "범위 밖"
+    DayKind.ERROR -> "조회 실패"
+    DayKind.UNKNOWN -> "표시 불가"
 }
 
 /** 같은 빗금 종류가 이어지는 묶음 — [from]~[to]는 날 번호(둘 다 포함) */

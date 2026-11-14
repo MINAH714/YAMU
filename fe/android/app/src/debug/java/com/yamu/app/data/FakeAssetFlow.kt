@@ -3,26 +3,35 @@ package com.yamu.app.data
 import com.yamu.app.core.format.KST
 import com.yamu.app.core.network.ApiError
 import com.yamu.app.core.network.ApiResult
+import com.yamu.app.core.session.AssetFlowScenario
 import com.yamu.app.core.session.DevSession
 import com.yamu.app.core.session.FaultScenario
+import com.yamu.app.feature.forecast.data.ForecastEventDto
 import com.yamu.app.feature.forecast.data.ForecastRepository
 import com.yamu.app.feature.report.data.AssetFlow
+import com.yamu.app.feature.report.data.AssetFlowDto
+import com.yamu.app.feature.report.data.AssetFlowForecastDto
+import com.yamu.app.feature.report.data.AssetFlowPartialErrorDto
+import com.yamu.app.feature.report.data.AssetFlowPointDto
 import com.yamu.app.feature.report.data.AssetFlowRepository
-import com.yamu.app.feature.report.data.DailyBalanceDto
+import com.yamu.app.feature.report.data.MonthFlowResult
 import com.yamu.app.feature.report.data.assetFlowAccounts
-import com.yamu.app.feature.report.data.toBalances
+import com.yamu.app.feature.report.data.toMonthFlow
 import kotlinx.coroutines.delay
+import java.time.Instant
 import java.time.LocalDate
 import java.time.YearMonth
 import java.time.ZonedDateTime
+import java.time.temporal.ChronoUnit
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlin.math.abs
 
 /**
- * 가짜 소비분석 자산 흐름 — 예보는 가짜 잔고예보 계산(FakeForecastRepository) 그대로라 잔고예보에서 기준 계좌 · 30일을 고른 화면과 숫자가 같다.
- * 지난 잔고는 디버그 메뉴 '소비분석 자산 흐름'에서 고른다. 기본은 지금 BE처럼 없음(지난날 빗금),
- * '있음'이면 BE가 API를 만든 뒤 모습 — 가짜 서버가 오늘부터 [HISTORY_DAYS]일 앞까지만 날마다 끝 잔고를 준다(그보다 앞은 '데이터 없음', 명세 '과거 잔고 부족')
+ * 가짜 소비분석 자산 흐름 — 30일 예보는 가짜 잔고예보 계산(FakeForecastRepository) 그대로라 잔고예보에서 기준 계좌 · 30일을 고른 화면과 숫자가 같다.
+ * 한 달 응답(asset-flows)은 디버그 메뉴 '소비분석 자산 흐름'에서 고른다(S15P31E103-492):
+ * 새 서버는 지난 잔고를 오늘부터 [HISTORY_DAYS]일 앞까지만 주고 그 앞은 자료 없음(HISTORY_INCOMPLETE), 은행 조회 실패는 지난날이 모두 ERROR,
+ * 옛 서버는 404라 앱이 예보만으로 그린다. BE asset-flows처럼 오늘은 지금 잔고(CURRENT), 내일부터 30일은 예보, 그 뒤는 자료 없음
  */
 @Singleton
 class FakeAssetFlowRepository @Inject constructor(private val forecasts: FakeForecastRepository) : AssetFlowRepository {
@@ -35,16 +44,68 @@ class FakeAssetFlowRepository @Inject constructor(private val forecasts: FakeFor
         ApiResult.Success(AssetFlow(accounts, forecasts.assetForecast(accounts.map { it.accountId }.toSet()), loadedAt = ZonedDateTime.now(KST)))
     }
 
-    override suspend fun history(accountIds: List<Long>, month: YearMonth): ApiResult<Map<LocalDate, Long>> {
-        if (!DevSession.pastBalances || DevSession.faultScenario != FaultScenario.NONE) return ApiResult.Success(emptyMap())
-        delay(200)
+    override suspend fun month(month: YearMonth): MonthFlowResult {
+        val scenario = DevSession.assetFlowScenario
+        when (DevSession.faultScenario) {
+            FaultScenario.NETWORK_ERROR -> { delay(300); return MonthFlowResult.Failed(ApiError.Network) }
+            FaultScenario.BANK_ERROR -> { delay(300); return MonthFlowResult.Failed(ApiError.BankUnavailable("FIN_API_UNAVAILABLE")) }
+            FaultScenario.SLOW -> delay(3_000)
+            else -> Unit
+        }
+        if (scenario == AssetFlowScenario.OLD_SERVER) { delay(150); return MonthFlowResult.Unsupported }
+        delay(250)
+        val all = forecasts.assetAccounts()
+        val accounts = all.filter { it.isPrimary }.take(1)   // BE: accountIds를 빼면 기준 계좌 하나, 없으면 계좌 없이 모두 NO_DATA
+        val ids = accounts.map { it.accountId }
         val today = LocalDate.now(KST)
-        val start = forecasts.assetAccounts().filter { it.accountId in accountIds }.sumOf { it.balance ?: 0L }
-        val rows = (1..month.lengthOfMonth()).map { month.atDay(it) }
-            .filter { it.isBefore(today) && !it.isBefore(today.minusDays(HISTORY_DAYS)) }
-            .map { DailyBalanceDto(it.toString(), pastBalance(start, it, today)) }
-        return ApiResult.Success(rows.toBalances())
+        val forecast = ids.takeIf { it.isNotEmpty() }?.let { forecasts.assetForecast(it.toSet()) }
+        val byDate = forecast?.days?.associateBy { it.date }.orEmpty()
+        val forecastTo = today.plusDays(FORECAST_DAYS)
+        val start = accounts.sumOf { it.balance ?: 0L }
+        val past = mutableListOf<LocalDate>()
+        val series = (1..month.lengthOfMonth()).map { d ->
+            val date = month.atDay(d)
+            when {
+                ids.isEmpty() -> point(date, if (date.isBefore(today)) "ACTUAL" else if (date == today) "CURRENT" else "FORECAST", "NO_DATA")
+                date.isBefore(today) -> {
+                    val reachable = !date.isBefore(today.minusDays(HISTORY_DAYS))
+                    when {
+                        scenario == AssetFlowScenario.HISTORY_ERROR -> point(date, "ACTUAL", "ERROR").also { past += date }
+                        reachable -> pastBalance(start, date, today).let { v -> point(date, "ACTUAL", "AVAILABLE", display = v, actual = v) }
+                        else -> point(date, "ACTUAL", "NO_DATA").also { past += date }
+                    }
+                }
+                date == today -> point(date, "CURRENT", "AVAILABLE", display = forecast?.currentBalance, actual = forecast?.currentBalance)
+                !date.isAfter(forecastTo) -> byDate[date]?.let { day ->
+                    point(
+                        date, "FORECAST", "AVAILABLE",
+                        display = day.conservative ?: day.expected,
+                        forecast = AssetFlowForecastDto(day.confirmed, day.expected, day.conservative),
+                        events = day.events.map { ForecastEventDto(it.type.name, it.title, it.amount, it.confidence.name) },
+                    )
+                } ?: point(date, "FORECAST", "NO_DATA")
+                else -> point(date, "FORECAST", "NO_DATA")
+            }
+        }
+        val reason = if (scenario == AssetFlowScenario.HISTORY_ERROR) "FIN_API_UNAVAILABLE" else "HISTORY_INCOMPLETE"
+        val dto = AssetFlowDto(
+            yearMonth = month.toString(),
+            accountIds = ids,
+            currentTotalBalance = forecast?.currentBalance,
+            balanceAsOf = Instant.now().truncatedTo(ChronoUnit.SECONDS).toString(),
+            series = series,
+            forecastFrom = today.plusDays(1).toString().takeIf { month.atEndOfMonth().isAfter(today) && ids.isNotEmpty() },
+            forecastTo = forecastTo.toString().takeIf { month.atEndOfMonth().isAfter(today) && ids.isNotEmpty() },
+            partialErrors = if (past.isEmpty() || ids.isEmpty()) emptyList() else listOf(AssetFlowPartialErrorDto(ids.first(), past.min().toString(), past.max().toString(), reason)),
+            calculatedAt = Instant.now().truncatedTo(ChronoUnit.SECONDS).toString(),
+        )
+        return MonthFlowResult.Loaded(dto.toMonthFlow(month))
     }
+
+    private fun point(
+        date: LocalDate, kind: String, status: String,
+        display: Long? = null, actual: Long? = null, forecast: AssetFlowForecastDto? = null, events: List<ForecastEventDto> = emptyList(),
+    ) = AssetFlowPointDto(date.toString(), kind, status, display.takeIf { status == "AVAILABLE" }, actual.takeIf { status == "AVAILABLE" }, forecast, events)
 
     /** 지난 끝 잔고 — 날짜로만 정하는 그럴듯한 값(같은 날은 늘 같은 값). 25일 월급 뒤 오르고 그 뒤 조금씩 줄어든다 */
     private fun pastBalance(now: Long, date: LocalDate, today: LocalDate): Long {
@@ -56,6 +117,7 @@ class FakeAssetFlowRepository @Inject constructor(private val forecasts: FakeFor
 
     private companion object {
         const val HISTORY_DAYS = 45L
+        const val FORECAST_DAYS = 30L
         const val SALARY_DAY = 25
     }
 }
