@@ -8,6 +8,7 @@ import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -27,6 +28,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -64,16 +66,27 @@ import kotlin.math.sqrt
  * 장식이라 읽어 주기 없음 — 금액은 위 글자가 말한다.
  */
 @Composable
-fun CoinPile(amount: Long, modifier: Modifier = Modifier, state: CoinPileState = rememberCoinPileState()) {
+fun CoinPile(amount: Long, modifier: Modifier = Modifier, state: CoinPileState = rememberCoinPileState()) =
+    CoinPile(solidCoins = coinCountFor(amount), ghostCoins = 0, modifier = modifier, state = state)
+
+/**
+ * 꽉 찬 동전 [solidCoins]개 위에 점선 동전 [ghostCoins]개를 얹은 무더기 — 홈 혜택 히어로(S15P31E103-480)에서
+ * 꽉 찬 동전은 카드사가 확정한 혜택, 점선 동전은 확정 전 금액이다(HOME-04). 쌓는 순서가 같아 점선 동전은 늘 나중 자리(뒷줄 · 위)에 놓이고,
+ * 확정돼서 점선이 줄고 꽉 찬 동전이 늘면 같은 자리의 동전이 그대로 채워진다. 개수는 부르는 쪽이 정한다(둘 합 최대 32개)
+ */
+@Composable
+fun CoinPile(solidCoins: Int, ghostCoins: Int, modifier: Modifier = Modifier, state: CoinPileState = rememberCoinPileState()) {
     val c = YamuTheme.colors
     val reduce = YamuTheme.reduceMotion
     val density = LocalDensity.current.density
     val haptic = LocalHapticFeedback.current
-    val coins = coinCountFor(amount)
+    val solid = solidCoins.coerceIn(0, CoinPileSpec.FILL_ORDER.size)
+    val coins = (solid + ghostCoins.coerceAtLeast(0)).coerceAtMost(CoinPileSpec.FILL_ORDER.size)
     val motion = remember { PileMotion(state) }
+    SideEffect { motion.solid = solid }   // 그리기 때 읽는다 — 개수가 같고 확정만 바뀌어도 다시 그린다
     val path = remember { Path() }
     var size by remember { mutableStateOf(IntSize.Zero) }
-    val colors = CoinColors(face = c.coinFace, side = c.coinSide, line = c.coinLine, glow = c.coinGlow, sparkle = c.onHero, shadow = c.scrim)
+    val colors = CoinColors(face = c.coinFace, side = c.coinSide, line = c.coinLine, glow = c.coinGlow, sparkle = c.onHero, shadow = c.scrim, ghost = c.onHero)
 
     // 크기 · 개수가 정해지거나 바뀔 때만 다시 정한다. 들어오는 모션은 끝까지 한 번 — 도는 중에 바뀌면 같은 시계로 이어서 돈다
     LaunchedEffect(size, coins) {
@@ -112,18 +125,22 @@ fun CoinPile(amount: Long, modifier: Modifier = Modifier, state: CoinPileState =
         translate(left = motion.slidePx(layout, now)) {
             drawGlow(layout, motion, now, colors)
             // 뒷줄부터 — 앞줄이 뒷줄 아래쪽을 가린다. 같은 줄은 아래 동전부터(위 동전이 아래 동전 윗면을 덮음)
+            val solid = motion.solid
             CoinPileSpec.DRAW_ORDER.forEach { stack ->
                 val hop = motion.hopOffset(layout, stack, now)
-                motion.drops.forEach { d ->
+                // 쌓는 순서(drops 순서)로 [solid]번째부터는 점선 동전
+                motion.drops.forEachIndexed { i, d ->
                     if (d.stack == stack && now >= d.landMs) {
                         val alpha = if (reduce) ((now - d.startMs) / YamuMotion.SHORT_MS).coerceIn(0f, 1f) else 1f
-                        drawRestingCoin(layout, d, hop + motion.rebound(layout, d, now), colors, path, alpha)
+                        drawRestingCoin(layout, d, hop + motion.rebound(layout, d, now), colors, path, alpha, ghost = i >= solid)
                     }
                 }
                 // 줄어든 만큼 떠나는 동전은 그 줄 맨 위에 있었으므로 남은 동전 다음에
                 motion.leaving.forEach { g -> if (g.drop.stack == stack) drawLeavingCoin(layout, g, now, colors, path, reduce) }
                 if (!reduce) {
-                    motion.drops.forEach { d -> if (d.stack == stack && now >= d.startMs && now < d.landMs) drawFallingCoin(layout, d, now, colors, path) }
+                    motion.drops.forEachIndexed { i, d ->
+                        if (d.stack == stack && now >= d.startMs && now < d.landMs) drawFallingCoin(layout, d, now, colors, path, ghost = i >= solid)
+                    }
                 }
             }
         }
@@ -310,6 +327,13 @@ internal object CoinPileSpec {
     const val RING_SCALE = 0.64f
     const val RING_WIDTH = 1f
     const val GROOVE_WIDTH = 1f
+    /** 점선 동전 — 선 굵기 · 점 · 틈(dp), 속 · 옆면 · 윗면 진하기 */
+    const val GHOST_LINE = 1.3f
+    const val GHOST_DASH = 3f
+    const val GHOST_GAP = 2.4f
+    const val GHOST_FILL_ALPHA = 0.08f
+    const val GHOST_SIDE_ALPHA = 0.62f
+    const val GHOST_FACE_ALPHA = 0.75f
 }
 
 /**
@@ -450,14 +474,16 @@ private fun CoinLayout.drop(stack: Int, level: Int, earliest: Float, belowLandMs
 /** 매번 같은 -1 ~ 1(녹화끼리 비교할 수 있게) */
 private fun wobble(seed: Int): Float = Math.floorMod(seed * 7919 + 104_729, 997) / 498f - 1f
 
-/** 줄어든 만큼 떠나는 동전 — [startMs]부터 떠올라 사라진다 */
-internal class LeavingCoin(val drop: CoinDrop, val startMs: Float)
+/** 줄어든 만큼 떠나는 동전 — [startMs]부터 떠올라 사라진다. [ghost]는 떠날 때 점선 동전이었는지 */
+internal class LeavingCoin(val drop: CoinDrop, val startMs: Float, val ghost: Boolean = false)
 
 /** 그리기 상태 — 시계 · 동전 목록 · 누르기 물결. 바깥에 보이는 값은 [state]에 쓴다 */
 @Stable
 internal class PileMotion(private val state: CoinPileState) {
     var layout: CoinLayout? by mutableStateOf(null)
         private set
+    /** 꽉 찬 동전 수 — 쌓는 순서로 이 앞까지는 꽉 찬 동전, 뒤는 점선 동전 */
+    var solid by mutableIntStateOf(Int.MAX_VALUE)
     val drops = mutableStateListOf<CoinDrop>()
     val leaving = mutableStateListOf<LeavingCoin>()
     var clockMs by mutableFloatStateOf(0f)
@@ -510,7 +536,10 @@ internal class PileMotion(private val state: CoinPileState) {
             coins < before -> {
                 val gone = drops.subList(coins, before).toList()
                 drops.removeRange(coins, before)
-                leaving += gone.asReversed().mapIndexed { i, d -> LeavingCoin(d, now + if (reduce) 0f else i * LEAVE_STAGGER_MS) }
+                // 떠나는 동전의 원래 자리(coins + k)가 점선 자리였는지 — 거꾸로 떠나므로 뒤에서부터 센다
+                leaving += gone.asReversed().mapIndexed { i, d ->
+                    LeavingCoin(d, now + if (reduce) 0f else i * LEAVE_STAGGER_MS, ghost = before - 1 - i >= solid)
+                }
             }
         }
         runs++
@@ -611,7 +640,8 @@ internal class PileMotion(private val state: CoinPileState) {
     }
 }
 
-private class CoinColors(val face: Color, val side: Color, val line: Color, val glow: Color, val sparkle: Color, val shadow: Color)
+/** [ghost]는 점선 동전의 선 색(히어로 위 흰 글자 색) */
+private class CoinColors(val face: Color, val side: Color, val line: Color, val glow: Color, val sparkle: Color, val shadow: Color, val ghost: Color)
 
 /**
  * 무더기 뒤 은은한 빛과 바닥 그림자 — 쌓이는 만큼 짙어지고, 누르면 빛이 잠깐 더 밝다.
@@ -661,13 +691,13 @@ private fun DrawScope.drawSparkles(l: CoinLayout, motion: PileMotion, now: Float
     }
 }
 
-private fun DrawScope.drawRestingCoin(l: CoinLayout, d: CoinDrop, offsetY: Float, colors: CoinColors, path: Path, alpha: Float) {
+private fun DrawScope.drawRestingCoin(l: CoinLayout, d: CoinDrop, offsetY: Float, colors: CoinColors, path: Path, alpha: Float, ghost: Boolean = false) {
     val x = l.centerX(d.stack) + l.coinDx(d.stack, d.level)
     val y = l.restFaceY(d.stack, d.level) + offsetY
-    if (d.restTilt == 0f) {
-        drawCoin(x, y, l.radius, l.faceRy, l.step, colors, path, groove = d.level > 0, alpha = alpha, dp = l.dp)
-    } else {
-        rotate(d.restTilt, pivot = Offset(x, y)) {
+    rotate(d.restTilt, pivot = Offset(x, y)) {
+        if (ghost) {
+            drawGhostCoin(x, y, l.radius, l.faceRy, l.step, colors, path, alpha = alpha, dp = l.dp)
+        } else {
             drawCoin(x, y, l.radius, l.faceRy, l.step, colors, path, groove = d.level > 0, alpha = alpha, dp = l.dp)
         }
     }
@@ -678,11 +708,11 @@ private fun DrawScope.drawLeavingCoin(l: CoinLayout, g: LeavingCoin, now: Float,
     val q = ((now - g.startMs) / PileMotion.leaveMs(reduce)).coerceIn(0f, 1f)
     if (q >= 1f) return
     val rise = if (reduce) 0f else -l.diameter * CoinPileSpec.LEAVE_RISE * YamuMotion.out.transform(q)
-    drawRestingCoin(l, g.drop, rise, colors, path, alpha = 1f - q)
+    drawRestingCoin(l, g.drop, rise, colors, path, alpha = 1f - q, ghost = g.ghost)
 }
 
 /** 뒤집히며 떨어지다 닿는 순간 놓일 모양(윗면 세로 반지름 faceRy · 두께 step · 놓일 각도)이 된다. 처음에는 흐리게 */
-private fun DrawScope.drawFallingCoin(l: CoinLayout, d: CoinDrop, now: Float, colors: CoinColors, path: Path) {
+private fun DrawScope.drawFallingCoin(l: CoinLayout, d: CoinDrop, now: Float, colors: CoinColors, path: Path, ghost: Boolean = false) {
     val p = ((now - d.startMs) / d.fallMs).coerceIn(0f, 1f)
     val restY = l.restFaceY(d.stack, d.level)
     val y = d.startY + (restY - d.startY) * p * p
@@ -693,8 +723,45 @@ private fun DrawScope.drawFallingCoin(l: CoinLayout, d: CoinDrop, now: Float, co
     val thick = l.step * abs(sin(angle)) / sin(flat)
     val alpha = (p / CoinPileSpec.FADE_IN).coerceIn(0f, 1f)
     rotate(d.restTilt + (d.tilt - d.restTilt) * (1f - p), pivot = Offset(x, y)) {
-        drawCoin(x, y, l.radius, ry, thick, colors, path, groove = false, alpha = alpha, dp = l.dp)
+        if (ghost) {
+            drawGhostCoin(x, y, l.radius, ry, thick, colors, path, alpha = alpha, dp = l.dp)
+        } else {
+            drawCoin(x, y, l.radius, ry, thick, colors, path, groove = false, alpha = alpha, dp = l.dp)
+        }
     }
+}
+
+/**
+ * 점선 동전 — 확정 전 금액. 속은 거의 비우고(흰빛 6%) 옆면 · 윗면 테두리만 흰 점선으로 그린다(시안 .pile 점선 동전).
+ * 색이 아니라 선 모양으로도 꽉 찬 동전과 구분된다(COMMON-11)
+ */
+private fun DrawScope.drawGhostCoin(
+    cx: Float,
+    faceY: Float,
+    r: Float,
+    ry: Float,
+    thick: Float,
+    colors: CoinColors,
+    path: Path,
+    alpha: Float,
+    dp: Float,
+) {
+    val oy = ry.coerceAtLeast(0.5f)
+    val dash = Stroke(
+        width = CoinPileSpec.GHOST_LINE * dp,
+        pathEffect = PathEffect.dashPathEffect(floatArrayOf(CoinPileSpec.GHOST_DASH * dp, CoinPileSpec.GHOST_GAP * dp)),
+    )
+    if (thick > 0.5f) {
+        // 옆면 — 아래쪽 반원과 양옆 세로선만(윗면 테두리와 겹치지 않게)
+        path.reset()
+        path.moveTo(cx - r, faceY)
+        path.lineTo(cx - r, faceY + thick)
+        path.arcTo(Rect(cx - r, faceY + thick - oy, cx + r, faceY + thick + oy), 180f, -180f, false)
+        path.lineTo(cx + r, faceY)
+        drawPath(path, colors.ghost, alpha = alpha * CoinPileSpec.GHOST_SIDE_ALPHA, style = dash)
+    }
+    drawOval(colors.ghost, topLeft = Offset(cx - r, faceY - oy), size = Size(2 * r, 2 * oy), alpha = alpha * CoinPileSpec.GHOST_FILL_ALPHA)
+    drawOval(colors.ghost, topLeft = Offset(cx - r, faceY - oy), size = Size(2 * r, 2 * oy), alpha = alpha * CoinPileSpec.GHOST_FACE_ALPHA, style = dash)
 }
 
 /** 옆면 → 윗면 → 윗면 안쪽 고리. 쌓인 동전은 아래 동전과 닿는 곳에 진한 홈 */

@@ -277,6 +277,9 @@ class FakeMyRepository @Inject constructor(
 ) : MyRepository {
 
     private var autoSelect = true
+
+    /** 카드 관리에서 바꾼 자동 선택 — 가짜 홈 결제 칸이 세션을 읽지 않고 본다(S15P31E103-480) */
+    val autoSelectOn: Boolean get() = autoSelect
     private var settings = NotiSettings(performance = true, balance = true, balanceThreshold = 100_000, payment = true, time = "08:30")
     private val devices = mutableListOf(
         Device(7, Build.MODEL ?: "이 기기", current = true, lastUsedIso = at(0, "09:00")),

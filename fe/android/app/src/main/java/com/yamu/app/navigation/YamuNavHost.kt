@@ -230,21 +230,21 @@ fun YamuNavHost(navController: NavHostController, modifier: Modifier = Modifier)
 
             navigation<HomeGraph>(startDestination = Home) {
                 composable<Home> {
-                    // 3단계: 실제 화면(07 문서 3-5)
+                    // 3단계: 실제 화면(07 문서 3-5) · v4 홈(S15P31E103-480 · 481)
                     HomeRoute(
                         onPay = { navController.navigate(PayCode) },
                         onForecast = { navController.navigate(Forecast) },
-                        onCashflow = { navController.navigate(CashflowList) },
                         onNotifications = { navController.navigate(Notifications) },
                         onMyCards = { navController.navigate(MyCards) },
                         onStartLinking = { navController.navigate(LinkGraph) },
-                        onTodo = { userCardId -> navController.navigate(PerfAnalysis(userCardId ?: 1L)) },
                         onRecentPayment = { paymentId -> navController.navigate(PaymentDetail(paymentId)) },
                         // 결제 내역은 홈 위에 쌓고(뒤로 = 홈), 소비분석은 하단 탭을 누른 것과 같이 탭을 바꾼다(2차 QA 19 · 39)
                         onPayments = { navController.navigate(Payments) },
                         onReport = { navController.navigateToTab(TopTab.REPORT) },
                         onRegisterIncome = { navController.navigate(CashflowConfirm(fromHome = true)) },
                         onAddCard = { navController.navigate(AddCard) },
+                        // 혜택 히어로 → 혜택 리포트(S-04) — 홈 위에 쌓여 뒤로 = 홈. 달은 홈이 누르기 전에 고른다
+                        onBenefitReport = { navController.navigate(BenefitReport) },
                     )
                 }
                 // 9 · 10단계: 실제 화면(13 문서)

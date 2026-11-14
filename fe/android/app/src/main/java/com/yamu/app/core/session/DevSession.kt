@@ -20,6 +20,9 @@ enum class HomeScenario(val label: String) {
     NOT_LINKED("연결 전(계좌 0 · 카드 0)"),
     LEGACY_SPEC("지금 명세 모양(보완 전)"),
     PARTIAL("예상 잔액만 실패"),
+    NO_PAYMENT("이번 달 결제 없음"),       // v4 혜택 히어로 0원 · '결제 없음'(S15P31E103-480)
+    BENEFIT_ERROR("혜택만 실패"),          // 혜택 칸만 다시 시도, 나머지 칸은 그대로
+    AUTO_SELECT_OFF("자동 선택 꺼짐"),      // 결제 칸이 기본 카드로 결제한다고 말한다(HOME-09)
     BANK_ERROR("금융망 오류"),
     NETWORK_ERROR("네트워크 없음"),
     SLOW("느린 응답(3초)"),

@@ -24,6 +24,8 @@ data class HomeSummary(
     val syncedAtIso: String?,
     val failedAreas: Set<String>,
     val todayCard: TodayCard? = null,
+    /** 등록 카드(카드 목록 순서) — 결제 칸이 기본 카드 이름을 찾는다. 실패 · 옛 응답이면 비어 있다 */
+    val cards: List<HomeCardItem> = emptyList(),
 ) {
     /**
      * 계좌는 연결했는데 카드가 없다 — 가입 중 1원 인증에서 계좌가 붙어 BE는 onboarding을 DONE으로 준다.
@@ -31,6 +33,12 @@ data class HomeSummary(
      */
     val needsCard: Boolean get() = !needsLinking && cardCount == 0 && CARDS_AREA !in failedAreas
 }
+
+/**
+ * 결제 칸(YAMU로 결제하기) 밖에 따로 그릴 최근 결제 — 결제 칸이 없는 연결 전 · 카드 없음 홈에서만.
+ * 카드를 모두 지운 사람도 지난 결제와 결제 내역 입구는 남는다(예전 홈은 상태와 상관없이 그렸다). 그 밖은 결제 칸 안에 있다
+ */
+fun HomeSummary.recentPaymentOutsidePayCard(): RecentPayment? = recentPayment?.takeIf { needsLinking || needsCard }
 
 /** BE partialErrors의 카드 영역 이름 */
 private const val CARDS_AREA = "cards"
@@ -52,6 +60,9 @@ enum class TodoTone { Neutral, Primary, Success, Warning, Error }
 data class HomeTodo(val title: String, val tag: String?, val tone: TodoTone, val userCardId: Long?)
 
 data class TodayCard(val cardName: String, val benefit: String?)
+
+/** 홈 응답 cards.items 한 장 — 별명(없으면 BE가 상품명을 준다) */
+data class HomeCardItem(val userCardId: Long, val name: String?)
 
 data class RecentPayment(
     val paymentId: Long,
@@ -104,6 +115,7 @@ fun HomeDto.toSummary(today: LocalDate): HomeSummary = HomeSummary(
         }
     }.toSet(),
     todayCard = todayCard?.let { TodayCard(it.cardName, it.benefit) },
+    cards = cards?.items.orEmpty().map { HomeCardItem(it.userCardId, it.nickname) },
 )
 
 private const val MAX_TODOS = 2

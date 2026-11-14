@@ -1,34 +1,36 @@
 package com.yamu.app.feature.home
 
-import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.text.withStyle
-import androidx.compose.ui.text.buildAnnotatedString
-import androidx.compose.ui.text.SpanStyle
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.PaddingValues
-import com.yamu.app.core.designsystem.icon.YamuIcons
-import com.yamu.app.core.designsystem.component.NotificationBell
-import com.yamu.app.core.designsystem.component.TopBarLogo
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
-import androidx.compose.material.icons.rounded.AccountBox
-import androidx.compose.material.icons.rounded.Notifications
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -36,106 +38,104 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.layout.layout
+import androidx.compose.ui.unit.Constraints
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.yamu.app.core.designsystem.component.AmountSize
 import com.yamu.app.core.designsystem.component.AmountText
 import com.yamu.app.core.designsystem.component.CharacterImage
 import com.yamu.app.core.designsystem.component.CharacterSize
 import com.yamu.app.core.designsystem.component.CoinPile
-import com.yamu.app.core.designsystem.component.CoinPileDefaults
-import com.yamu.app.core.designsystem.component.coinCountFor
-import com.yamu.app.core.designsystem.component.rememberCoinPileState
-import com.yamu.app.core.designsystem.component.AmountSize
-import com.yamu.app.core.designsystem.theme.YamuMotion
-import com.yamu.app.core.designsystem.theme.YamuRadius
-import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.spring
-import androidx.compose.animation.core.tween
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.collectIsPressedAsState
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.remember
-import androidx.compose.ui.draw.drawWithContent
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.semantics.clearAndSetSemantics
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.expandVertically
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.shrinkVertically
-import androidx.compose.foundation.layout.FlowRow
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.ui.unit.IntSize
-import com.yamu.app.core.designsystem.component.rememberRolledAmount
-import androidx.compose.ui.layout.Layout
-import androidx.compose.ui.layout.Placeable
-import androidx.compose.ui.layout.layout
-import androidx.compose.ui.layout.layoutId
-import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.unit.Constraints
-import androidx.compose.ui.unit.Dp
 import com.yamu.app.core.designsystem.component.ErrorState
-import com.yamu.app.core.designsystem.component.EstimateTag
-import com.yamu.app.core.designsystem.component.ListRow
+import com.yamu.app.core.designsystem.component.NotificationBell
 import com.yamu.app.core.designsystem.component.PrimaryButton
 import com.yamu.app.core.designsystem.component.SkeletonBlock
-import com.yamu.app.core.designsystem.component.StatusTag
-import com.yamu.app.core.designsystem.component.TagTone
+import com.yamu.app.core.designsystem.component.TopBarLogo
 import com.yamu.app.core.designsystem.component.YamuCard
 import com.yamu.app.core.designsystem.component.YamuPose
 import com.yamu.app.core.designsystem.component.YamuPreviews
 import com.yamu.app.core.designsystem.component.YamuTopBar
+import com.yamu.app.core.designsystem.component.rememberCoinPileState
+import com.yamu.app.core.designsystem.component.rememberRolledAmount
+import com.yamu.app.core.designsystem.icon.YamuIcons
+import com.yamu.app.core.designsystem.icon.YamuTabIcons
+import com.yamu.app.core.designsystem.theme.YamuMotion
+import com.yamu.app.core.designsystem.theme.YamuRadius
+import com.yamu.app.core.designsystem.theme.YamuSize
 import com.yamu.app.core.designsystem.theme.YamuSpacing
 import com.yamu.app.core.designsystem.theme.YamuTheme
+import com.yamu.app.core.format.KST
 import com.yamu.app.core.format.formatSyncedAt
-import com.yamu.app.core.format.toMonthDay
 import com.yamu.app.core.format.toWon
 import com.yamu.app.core.network.ApiError
-import com.yamu.app.core.ui.userMessage
 import com.yamu.app.core.ui.ReloadOnReconnect
-import com.yamu.app.feature.home.data.ForecastSummary
+import com.yamu.app.core.ui.userMessage
+import com.yamu.app.feature.home.data.HomeBenefit
+import com.yamu.app.feature.home.data.HomeGreeting
 import com.yamu.app.feature.home.data.HomeSummary
-import com.yamu.app.feature.home.data.HomeTodo
+import com.yamu.app.feature.home.data.PaySettings
 import com.yamu.app.feature.home.data.RecentPayment
+import com.yamu.app.feature.home.data.benefitCoins
+import com.yamu.app.feature.home.data.emptyNote
+import com.yamu.app.feature.home.data.homeGreeting
 import com.yamu.app.feature.home.data.paidAtLabel
-import com.yamu.app.feature.home.data.TodoTone
+import com.yamu.app.feature.home.data.payNote
+import com.yamu.app.feature.home.data.paySubtitle
+import com.yamu.app.feature.home.data.recentPaymentOutsidePayCard
 import java.time.LocalDate
 import java.time.OffsetDateTime
+import java.time.YearMonth
 
-/** H-01 홈 (H-01d 가입 첫날 · H-01c 결제 반영 직후는 같은 화면의 상태) */
+/**
+ * H-01 홈 — v4(11/13 '홈 개편 및 소비 분석 확장 요구사항 명세서'). 위에서부터 인사 → 이번 달 혜택 → YAMU로 결제하기(S15P31E103-480)
+ * → 내 카드 혜택 현황 → 놓치기 아까운 혜택 → 잔고예보 요약(S15P31E103-481). 큰 자산 흐름 그래프는 홈에 두지 않는다(HOME-16)
+ */
 @Composable
 fun HomeRoute(
     onPay: () -> Unit,
     onForecast: () -> Unit,
-    onCashflow: () -> Unit,
     onNotifications: () -> Unit,
     onMyCards: () -> Unit,
     onStartLinking: () -> Unit,
-    onTodo: (userCardId: Long?) -> Unit,
     onRecentPayment: (paymentId: Long) -> Unit,
     onPayments: () -> Unit,
     onReport: () -> Unit,
     onRegisterIncome: () -> Unit,
     onAddCard: () -> Unit,
+    onBenefitReport: () -> Unit,
     viewModel: HomeViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     LifecycleResumeEffect(Unit) {
-        viewModel.load()                 // 돌아올 때마다(결제 뒤 반영)
+        viewModel.load()                 // 돌아올 때마다(결제 · 취소 뒤 혜택 · 카드 현황 반영, QA-03)
         onPauseOrDispose { }
     }
     // 인터넷이 끊겨 마지막 값을 보이는 동안 연결이 돌아오면 저절로 다시 불러온다(S15P31E103-464)
@@ -144,19 +144,21 @@ fun HomeRoute(
         state = state,
         onRefresh = viewModel::refresh,
         onRetry = viewModel::load,
+        onRetryBenefit = viewModel::retryBenefit,
         onPay = onPay,
         onForecast = onForecast,
-        onCashflow = onCashflow,
         onNotifications = onNotifications,
         onMyCards = onMyCards,
         onStartLinking = onStartLinking,
-        onTodo = onTodo,
         onRecentPayment = onRecentPayment,
         onPayments = {
             viewModel.openPayments()   // 결제 내역을 최근 결제가 있는 달로 — 월초엔 지난달 결제일 수 있다
             onPayments()
         },
-        onReport = onReport,
+        onBenefitReport = {
+            viewModel.openBenefitReport()   // 혜택 리포트를 히어로와 같은 달로
+            onBenefitReport()
+        },
         onAssetFlow = {
             viewModel.openAssetFlow()   // 소비분석이 이번 달 · 자산 흐름 칸으로 내려가게 요청해 두고
             onReport()                  // 하단 탭을 누른 것과 같이 소비분석 탭으로 바꾼다(뒤로 = 홈)
@@ -173,18 +175,17 @@ fun HomeScreen(
     onRefresh: () -> Unit,
     onRetry: () -> Unit,
     onPay: () -> Unit,
-    onForecast: () -> Unit,
-    onCashflow: () -> Unit,
     onNotifications: () -> Unit,
     onMyCards: () -> Unit,
     onStartLinking: () -> Unit,
-    onTodo: (Long?) -> Unit,
     onRecentPayment: (Long) -> Unit,
+    onRetryBenefit: () -> Unit = {},
     onPayments: () -> Unit = {},
-    onReport: () -> Unit = {},
-    // 잔고예보 요약 '자산 흐름 보기'(HOME-15) — 버튼은 홈 아래쪽 개편(S15P31E103-481)에서 단다
+    onBenefitReport: () -> Unit = {},
+    // 잔고예보 요약(HOME-14 · 15) — 홈 아래쪽 개편(S15P31E103-481)에서 단다
+    @Suppress("UNUSED_PARAMETER") onForecast: () -> Unit = {},
     @Suppress("UNUSED_PARAMETER") onAssetFlow: () -> Unit = {},
-    onRegisterIncome: () -> Unit = {},
+    @Suppress("UNUSED_PARAMETER") onRegisterIncome: () -> Unit = {},
     onAddCard: () -> Unit = {},
 ) {
     val c = YamuTheme.colors
@@ -205,18 +206,23 @@ fun HomeScreen(
             modifier = Modifier.padding(inner).consumeWindowInsets(inner).fillMaxSize(),
         ) {
             val content = state.content
-            FillRestColumn(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+            Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
                 when {
-                    content != null -> HomeContent(content, state.userName, state.error, onPay, onForecast, onStartLinking, onTodo, onRecentPayment, onPayments, onRegisterIncome, onAddCard)
+                    content != null -> HomeContent(
+                        home = content,
+                        state = state,
+                        onRetryBenefit = onRetryBenefit,
+                        onPay = onPay,
+                        onStartLinking = onStartLinking,
+                        onRecentPayment = onRecentPayment,
+                        onPayments = onPayments,
+                        onBenefitReport = onBenefitReport,
+                        onAddCard = onAddCard,
+                    )
                     state.isLoading -> HomeSkeleton()
                     state.error != null -> YamuCard { ErrorState(state.error.userMessage(), onRetry = onRetry) }
                 }
-                when {
-                    state.showsEntries -> HomeEntries(onPay.takeIf { content == null }, onForecast, onCashflow, onReport)
-                    state.showsReportEntry -> ReportEntry(onReport)
-                }
-                // 예상 잔액 카드가 남는 높이를 받으면 아래 빈자리가 없으니 맨 아래 여백도 카드 사이 간격(카드가 둔 12dp)만
-                if (content?.forecast?.hasCoinStage() != true) Spacer(Modifier.height(YamuSpacing.bottomSafe))
+                Spacer(Modifier.height(YamuSpacing.bottomSafe))
             }
         }
     }
@@ -225,22 +231,21 @@ fun HomeScreen(
 @Composable
 private fun HomeContent(
     home: HomeSummary,
-    userName: String?,
-    error: ApiError?,
+    state: HomeUiState,
+    onRetryBenefit: () -> Unit,
     onPay: () -> Unit,
-    onForecast: () -> Unit,
     onStartLinking: () -> Unit,
-    onTodo: (Long?) -> Unit,
     onRecentPayment: (Long) -> Unit,
     onPayments: () -> Unit,
-    onRegisterIncome: () -> Unit,
+    onBenefitReport: () -> Unit,
     onAddCard: () -> Unit,
 ) {
     val c = YamuTheme.colors
-    val synced = formatSyncedAt(home.syncedAtIso)
+    val error = state.error
 
     // 실패해도 마지막 값은 그대로 — 위에 한 줄
     if (error != null) {
+        val synced = formatSyncedAt(home.syncedAtIso)
         Text(
             listOfNotNull(error.userMessage(), synced?.let { "마지막 $it" }).joinToString(" · "),
             style = YamuTheme.typography.bodyS,
@@ -255,157 +260,124 @@ private fun HomeContent(
         )
     }
 
-    // 인사 머리 — 월급까지 남은 날(첫날이면 아래에 '가입 첫날이에요'). 월급을 정하기 전이면 같은 자리에서 월급 등록으로(S15P31E103-429)
-    val forecast = home.forecast?.takeIf { !home.needsLinking && (it.daysToIncome != null || it.needsIncome) }
-    if (forecast != null) {
-        Column(Modifier.padding(start = YamuSpacing.screen, end = YamuSpacing.screen, top = 8.dp, bottom = 20.dp)) {
-            val name = "${userName ?: "야무"}님"
-            if (forecast.daysToIncome != null) {
-                Text("$name, 월급까지 D-${forecast.daysToIncome}", style = YamuTheme.typography.headlineS, color = c.text1)
-            } else {
-                Row(
-                    Modifier.clip(RoundedCornerShape(8.dp)).clickable(onClickLabel = "월급 등록하기", onClick = onRegisterIncome),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text("$name, 월급날을 알려 주세요", style = YamuTheme.typography.headlineS, color = c.text1, modifier = Modifier.weight(1f, fill = false))
-                    Icon(YamuIcons.ChevronRight, contentDescription = null, tint = c.text3)
-                }
-            }
-            if (forecast.isProvisional) {
-                Spacer(Modifier.height(4.dp))
-                Text("가입 첫날이에요", style = YamuTheme.typography.sub, color = c.text3)
-            }
-        }
-    }
-
-    // 연결 전 · 카드만 없음 — 무엇을 하면 무엇이 되는지 한 장으로(아래 버튼과 짝)
-    val guide = when {
-        home.needsLinking -> "계좌 · 카드를 연결하면\n월급 전 예상 잔액을 알려 드려요"
-        home.needsCard -> "카드를 등록하면\n결제할 때 혜택이 가장 큰 카드를 골라 드려요"
-        else -> null
-    }
-    if (guide != null) {
-        YamuCard {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                CharacterImage(YamuPose.Wave, size = CharacterSize.S)
-                Spacer(Modifier.width(12.dp))
-                Text(guide, style = YamuTheme.typography.titleM, color = c.text1)
-            }
-        }
-    }
-
-    RecentPaymentSlot(home.recentPayment, onRecentPayment, onPayments)
+    // 인사 — 집계 범위는 혜택을 받았으면 서버 기간, 아직이면 오늘까지(한국 날짜)
+    val benefit = state.benefit.dataOrNull
+    val today = LocalDate.now(KST)
+    val month = benefit?.month ?: YearMonth.from(today)
+    Greeting(
+        homeGreeting(
+            name = state.userName,
+            needsLinking = home.needsLinking,
+            needsCard = home.needsCard,
+            month = month,
+            from = benefit?.from ?: month.atDay(1),
+            to = benefit?.to ?: today,
+        ),
+    )
 
     when {
-        home.forecast != null -> ForecastCard(home.forecast, onForecast, onRegisterIncome)
-        "balanceForecast" in home.failedAreas -> YamuCard {
-            Text("예상 잔액을 불러오지 못했어요", style = YamuTheme.typography.titleM, color = c.text2)
+        // 연결 전 · 카드 없음 — 혜택을 지어내지 않고 할 일을 안내한다(사용자 상태별 처리 '카드 미등록')
+        home.needsLinking -> {
+            SetupGuide(
+                title = "계좌 · 카드를 연결해 주세요",
+                body = "결제할 때 혜택이 큰 카드를 골라 드리고 받은 혜택과 잔고를 여기 모아 드려요",
+                button = "계좌 · 카드 연결하기",
+                onClick = onStartLinking,
+            )
+            RecentPaymentCard(home.recentPaymentOutsidePayCard(), onRecentPayment, onPayments)
         }
-    }
-
-    Column(Modifier.padding(horizontal = YamuSpacing.screen).padding(bottom = YamuSpacing.blockGap)) {
-        when {
-            home.needsLinking -> PrimaryButton("계좌 · 카드 연결하기", onClick = onStartLinking)
-            // 꺼진 결제 버튼 대신 다음 할 일 — 카드 추가(C-11)로(S15P31E103-430)
-            home.needsCard -> PrimaryButton("카드 등록하기", onClick = onAddCard)
-            // 카드 영역만 실패했으면 몇 장인지 몰라 켜 둔다 — 카드가 정말 없으면 결제 코드 화면이 알려 준다
-            else -> PrimaryButton("QR로 결제하기", onClick = onPay)
+        // 꺼진 결제 버튼 대신 다음 할 일 — 카드 추가(C-11)로(S15P31E103-430)
+        home.needsCard -> {
+            SetupGuide(
+                title = "카드를 등록해 주세요",
+                body = "결제할 때 혜택이 큰 카드를 골라 드리고 받은 혜택을 여기 모아 드려요",
+                button = "카드 등록하기",
+                onClick = onAddCard,
+            )
+            RecentPaymentCard(home.recentPaymentOutsidePayCard(), onRecentPayment, onPayments)
         }
-    }
-
-    if (home.todos.isNotEmpty()) {
-        YamuCard(contentPadding = PaddingValues(start = 20.dp, end = 16.dp, top = 16.dp, bottom = 4.dp)) {
-            Text("야무가 챙겨 봤어요", style = YamuTheme.typography.cardTitle, color = c.text1)
-            home.todos.forEachIndexed { i, todo ->
-                if (i > 0) HorizontalDivider(color = c.outlineVariant)
-                TodoRow(todo, onClick = { onTodo(todo.userCardId) })
-            }
+        // 카드 영역만 실패했으면 몇 장인지 몰라 혜택 · 결제 칸을 그린다 — 카드가 정말 없으면 결제 코드 화면이 알려 준다
+        else -> {
+            BenefitHero(state.benefit, onClick = onBenefitReport, onRetry = onRetryBenefit)
+            PayCard(
+                settings = state.pay.dataOrNull,
+                cardName = { id -> home.cards.firstOrNull { it.userCardId == id }?.name },
+                recentPayment = home.recentPayment,
+                onPay = onPay,
+                onRecentPayment = onRecentPayment,
+                onPayments = onPayments,
+            )
         }
     }
 }
 
-/** 홈 요약 없이도 열 수 있는 화면 — 요약을 받았으면 결제 버튼은 위에 이미 있다 */
+/** 인사 두 줄 — '○○님, 11월 혜택을 모아 봤어요' / 'YAMU로 결제한 것만 셌어요 · 11/1~11/13' */
 @Composable
-private fun HomeEntries(onPay: (() -> Unit)?, onForecast: () -> Unit, onCashflow: () -> Unit, onReport: () -> Unit) {
-    onPay?.let {
-        Column(Modifier.padding(horizontal = YamuSpacing.screen).padding(bottom = YamuSpacing.blockGap)) {
-            PrimaryButton("QR로 결제하기", onClick = it)
-        }
-    }
-    YamuCard(contentPadding = EntryCardPadding) {
-        ListRow(title = "잔고예보", chevron = true, onClick = onForecast)
-        ListRow(title = "예정 수입·지출", chevron = true, onClick = onCashflow)
-        ListRow(title = "소비분석", chevron = true, onClick = onReport)
-    }
-}
-
-/** 예상 잔액 카드가 잔고예보 입구를 맡을 때 맨 아래 소비분석 줄만(누르면 소비분석 탭으로) */
-@Composable
-private fun ReportEntry(onReport: () -> Unit) {
-    YamuCard(contentPadding = EntryCardPadding) {
-        ListRow(title = "소비분석", chevron = true, onClick = onReport)
-    }
-}
-
-private val EntryCardPadding = PaddingValues(start = 20.dp, end = 16.dp, top = 8.dp, bottom = 8.dp)
-
-/** 예상 잔액이 0원보다 많으면 카드 아래에 동전 무대를 두고, 그 카드가 홈의 남는 높이를 받는다 */
-private fun ForecastSummary.hasCoinStage(): Boolean = coinCountFor(amount) > 0
-
-/**
- * 예상 잔액 카드 — 0원보다 많으면 [ForecastHero](홈의 남는 높이를 받는 큰 카드 + 동전 무더기),
- * 0원 이하(부족)면 예전 흰 카드. 빨간 금액은 남색 바탕에서 잘 안 읽혀 부족은 흰 카드로 둔다
- */
-@Composable
-private fun ForecastCard(forecast: ForecastSummary, onClick: () -> Unit, onRegisterIncome: () -> Unit) {
-    if (forecast.hasCoinStage()) {
-        ForecastHero(forecast, onClick, onRegisterIncome)
-        return
-    }
+private fun Greeting(greeting: HomeGreeting) {
     val c = YamuTheme.colors
-    YamuCard(onClick = onClick) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(forecast.label, style = YamuTheme.typography.titleS, color = c.text2)
-            if (forecast.isEstimate) {
-                Spacer(Modifier.width(6.dp))
-                EstimateTag()
-            }
-            Spacer(Modifier.weight(1f))
-            Icon(YamuIcons.ChevronRight, contentDescription = null, tint = c.text3)
-        }
+    Column(Modifier.padding(start = YamuSpacing.screen + 4.dp, end = YamuSpacing.screen, top = 8.dp, bottom = 20.dp)) {
+        Text(greeting.title, style = YamuTheme.typography.headlineS, color = c.text1)
         Spacer(Modifier.height(4.dp))
-        AmountText(forecast.amount, shortage = forecast.amount < 0)
-        Spacer(Modifier.height(8.dp))   // 금액 아래 4dp는 AmountText가 둔다
-        // '정확도 낮음'은 11/12 회의에서 뺐다. isProvisional은 서버에서 '생활비 자료가 없어 보수적 선 없이 계산함'이라는 뜻이고(HomeResponse),
-        // 홈에서 이 값을 쓰는 곳은 인사 머리 '가입 첫날이에요'만 남았다 — 첫날이 지나도 생활비 자료가 없으면 그 문구가 이어질 수 있다
-        forecast.statusLine(hero = false)?.let {
-            StatusTag(it, tone = if (forecast.shortageFrom != null) TagTone.Error else TagTone.Success)
+        Text(greeting.sub, style = YamuTheme.typography.sub, color = c.text3)
+    }
+}
+
+/** 연결 전 · 카드 없음 안내 — 손 흔드는 야무 + 할 일 + 버튼 하나 */
+@Composable
+private fun SetupGuide(title: String, body: String, button: String, onClick: () -> Unit) {
+    val c = YamuTheme.colors
+    YamuCard {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            CharacterImage(YamuPose.Wave, size = CharacterSize.S)
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text(title, style = YamuTheme.typography.titleM, color = c.text1)
+                Spacer(Modifier.height(2.dp))
+                Text(body, style = YamuTheme.typography.sub, color = c.text2)
+            }
         }
+        Spacer(Modifier.height(16.dp))
+        PrimaryButton(button, onClick = onClick)
     }
 }
 
 /**
- * 홈 히어로 — 예상 잔액(월급 전이면 가장 낮을 때)을 이 화면의 주인공으로. 브랜드 색 깊은 그러데이션 바탕에 흰 큰 금액(40sp),
- * 아래 무대에 금색 동전이 금액만큼 떨어져 쌓인다(오른쪽 아래). 홈의 남는 높이를 이 카드가 받아 화면 아래 빈자리가 없다.
+ * 이번 달 혜택 히어로(HOME-02 ~ 06) — 예전 예상 잔액 히어로의 남색 그러데이션과 금색 동전 무더기를 옮겨 왔다(-406).
+ * 큰 숫자는 카드사가 확정한 혜택만, 확정 전 금액은 점선 테두리 칩과 점선 동전으로 떼어 놓는다(HOME-04, 11/13 시안에서 고름).
+ * 할인 · 캐시백 · 적립 세 칸(HOME-03)은 BE에 종류별 합계가 없어 그 필드가 올 때까지 그리지 않는다.
  *
- * 움직임: 금액 글자는 동전이 떨어지는 동안 0에서 올라가 마지막 동전과 함께 멈추고, 다 쌓이면 빛이 카드를 한 번 훑는다.
- * 그 뒤 금액이 바뀌면(결제하고 돌아옴) 보이던 값에서 새 값으로 굴러가고, 동전은 늘어난 만큼 떨어지거나 줄어든 만큼 떠난다.
- * 카드를 누르면 살짝 눌렸다가(0.97) 잔고예보로, 동전을 누르면 동전이 튀어 오르고 반짝인다(이동 없음).
- * 모션 줄이기면 금액은 처음부터 끝값, 눌림 · 빛 없음. 읽어 주기는 늘 끝 금액.
- * 월급을 정하기 전에는 '지금 잔액'을 그리고 상태 알약 자리에 월급 등록 알약을 둔다(누르면 B-06, 카드 누르기와 따로)
+ * 움직임: 동전이 떨어지는 동안 금액이 0에서 올라가 마지막 동전과 함께 멈추고, 다 쌓이면 빛이 카드를 한 번 훑는다.
+ * 카드를 누르면 살짝 눌렸다가(0.97) 혜택 리포트(S-04, 같은 달)로. 모션 줄이기면 금액은 처음부터 끝값, 눌림 · 빛 없음
  */
 @Composable
-private fun ForecastHero(forecast: ForecastSummary, onClick: () -> Unit, onRegisterIncome: () -> Unit) {
+private fun BenefitHero(section: HomeSection<HomeBenefit>, onClick: () -> Unit, onRetry: () -> Unit) {
+    val c = YamuTheme.colors
+    when (section) {
+        is HomeSection.Ready -> BenefitHeroReady(section.data, onClick)
+        HomeSection.Loading -> HeroFrame(onClick = null) {
+            HeroTitle("이번 달 받은 혜택", more = false)
+            Spacer(Modifier.height(YamuSpacing.x3))
+            Box(Modifier.width(150.dp).height(40.dp).clip(RoundedCornerShape(10.dp)).background(c.onHero.copy(alpha = HERO_GLASS_ALPHA)))
+            Spacer(Modifier.height(YamuSpacing.x3))
+            Box(Modifier.width(110.dp).height(22.dp).clip(RoundedCornerShape(YamuRadius.input)).background(c.onHero.copy(alpha = HERO_GLASS_ALPHA)))
+        }
+        // 혜택만 실패 — 홈의 다른 칸은 그대로 그리고 여기만 다시 시도(COMMON-08)
+        is HomeSection.Failed -> HeroFrame(onClick = null) {
+            HeroTitle("이번 달 받은 혜택", more = false)
+            Spacer(Modifier.height(YamuSpacing.x3))
+            Text("혜택을 불러오지 못했어요", style = YamuTheme.typography.titleM, color = c.onHero)
+            Spacer(Modifier.height(YamuSpacing.x3))
+            HeroButton("다시 시도", onClick = onRetry)
+        }
+    }
+}
+
+@Composable
+private fun BenefitHeroReady(b: HomeBenefit, onClick: () -> Unit) {
     val c = YamuTheme.colors
     val reduce = YamuTheme.reduceMotion
     val pile = rememberCoinPileState()
-    val interaction = remember { MutableInteractionSource() }
-    val pressed by interaction.collectIsPressedAsState()
-    val scale by animateFloatAsState(
-        targetValue = if (pressed && !reduce) HERO_PRESSED_SCALE else 1f,
-        animationSpec = spring(dampingRatio = 0.55f, stiffness = 700f),
-        label = "heroPress",
-    )
+    val (solid, ghost) = benefitCoins(b.confirmed, b.pending)
     // 다 쌓이는 순간 한 번 지나가는 빛 — 이미 쌓인 채 다시 그려질 때(탭을 오가도)는 없음
     val sheen = remember { Animatable(-1f) }
     val enteredAtStart = remember { pile.entered }
@@ -415,11 +387,75 @@ private fun ForecastHero(forecast: ForecastSummary, onClick: () -> Unit, onRegis
             sheen.animateTo(1f, tween(HERO_SHEEN_MS, easing = YamuMotion.inOut))
         }
     }
-    val shown = rememberRolledAmount(forecast.amount, pile)
+    // 동전이 없으면(0원) 금액도 굴리지 않는다 — 무더기가 없어 rolled가 오르지 않으므로
+    val shown = if (solid + ghost > 0) rememberRolledAmount(b.confirmed, pile) else b.confirmed
+    val described = buildString {
+        append("${b.month.monthValue}월에 받은 혜택 확정 ${b.confirmed.toWon()}원")
+        if (b.pending > 0) append(", 확정 전 ${b.pending.toWon()}원")
+    }
 
+    HeroFrame(onClick = onClick, onClickLabel = "혜택 리포트 보기", sheen = sheen.value) {
+        HeroTitle("${b.month.monthValue}월에 받은 혜택", more = true)
+        Row(verticalAlignment = Alignment.Bottom) {
+            Column(Modifier.weight(1f)) {
+                Spacer(Modifier.height(YamuSpacing.x2))
+                AmountText(
+                    shown,
+                    size = AmountSize.Hero,
+                    color = c.onHero,
+                    fitOneLine = true,
+                    modifier = Modifier.clearAndSetSemantics { contentDescription = described },
+                )
+                Spacer(Modifier.height(YamuSpacing.x2))
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                    itemVerticalAlignment = Alignment.CenterVertically,
+                ) {
+                    val empty = b.emptyNote()
+                    if (empty != null) {
+                        HeroChip(empty)
+                    } else {
+                        HeroChip("확정")
+                        if (b.pending > 0) HeroChip("확정 전 +${b.pending.toWon()}원", dashed = true)
+                    }
+                }
+            }
+            if (solid + ghost > 0) {
+                CoinPile(
+                    solidCoins = solid,
+                    ghostCoins = ghost,
+                    modifier = Modifier.padding(start = YamuSpacing.x2).width(HERO_PILE_WIDTH).height(HERO_PILE_HEIGHT),
+                    state = pile,
+                )
+            }
+        }
+        if (ghost > 0) {
+            Spacer(Modifier.height(YamuSpacing.x3))
+            Text("꽉 찬 동전은 확정, 점선 동전은 확정 전이에요", style = YamuTheme.typography.bodyS, color = c.onHeroMuted)
+        }
+    }
+}
+
+/** 히어로 바탕 — 브랜드 색 깊은 그러데이션, 누르면 0.97로 살짝 눌림(모션 줄이기면 없음), [sheen] 0~1이면 빛이 한 번 훑는다 */
+@Composable
+private fun HeroFrame(
+    onClick: (() -> Unit)?,
+    onClickLabel: String? = null,
+    sheen: Float = -1f,
+    content: @Composable () -> Unit,
+) {
+    val c = YamuTheme.colors
+    val reduce = YamuTheme.reduceMotion
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    val scale by animateFloatAsState(
+        targetValue = if (pressed && !reduce) HERO_PRESSED_SCALE else 1f,
+        animationSpec = spring(dampingRatio = 0.55f, stiffness = 700f),
+        label = "heroPress",
+    )
     Column(
         Modifier
-            .layoutId(FILL_REST)
             .padding(horizontal = YamuSpacing.screen)
             .padding(bottom = YamuSpacing.blockGap)
             .graphicsLayer {
@@ -431,10 +467,9 @@ private fun ForecastHero(forecast: ForecastSummary, onClick: () -> Unit, onRegis
             .background(Brush.linearGradient(listOf(c.heroStart, c.heroEnd)))
             .drawWithContent {
                 drawContent()
-                val p = sheen.value
-                if (p in 0f..1f) {
+                if (sheen in 0f..1f) {
                     val band = size.width * 0.45f
-                    val x = -band + (size.width + 2 * band) * p
+                    val x = -band + (size.width + 2 * band) * sheen
                     drawRect(
                         Brush.linearGradient(
                             listOf(Color.Transparent, c.onHero.copy(alpha = HERO_SHEEN_ALPHA), Color.Transparent),
@@ -444,159 +479,126 @@ private fun ForecastHero(forecast: ForecastSummary, onClick: () -> Unit, onRegis
                     )
                 }
             }
-            .clickable(interactionSource = interaction, indication = null, onClickLabel = "잔고예보 보기", onClick = onClick)
-            .padding(start = YamuSpacing.x6, end = YamuSpacing.x6, top = YamuSpacing.x6, bottom = YamuSpacing.x5),
-    ) {
-        // 글씨가 커서 한 줄에 다 안 들어가면 '예측' 칩이 다음 줄로 — '자세히 ›'는 늘 오른쪽 위
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            FlowRow(
-                Modifier.weight(1f),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalArrangement = Arrangement.spacedBy(4.dp),
-                itemVerticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(forecast.label, style = YamuTheme.typography.cardTitle, color = c.onHero.copy(alpha = 0.88f))
-                if (forecast.isEstimate) HeroChip("예측")
-            }
+            .then(
+                if (onClick != null) Modifier.clickable(interactionSource = interaction, indication = null, onClickLabel = onClickLabel, onClick = onClick)
+                else Modifier,
+            )
+            .padding(start = YamuSpacing.x5, end = YamuSpacing.x5, top = YamuSpacing.x5, bottom = YamuSpacing.x4),
+    ) { content() }
+}
+
+/** 히어로 머리 — 이름(왼쪽)과 '자세히 ›'(누를 수 있을 때만, 오른쪽 위) */
+@Composable
+private fun HeroTitle(text: String, more: Boolean) {
+    val c = YamuTheme.colors
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text(text, style = YamuTheme.typography.cardTitle, color = c.onHero.copy(alpha = 0.88f), modifier = Modifier.weight(1f))
+        if (more) {
             Spacer(Modifier.width(8.dp))
             Text("자세히", style = YamuTheme.typography.labelL, color = c.onHeroMuted)
             Icon(YamuIcons.ChevronRight, contentDescription = null, tint = c.onHeroMuted, modifier = Modifier.size(20.dp))
         }
-        Spacer(Modifier.height(YamuSpacing.x2))
-        AmountText(
-            shown,
-            size = AmountSize.Hero,
-            color = c.onHero,
-            fitOneLine = true,
-            modifier = Modifier.clearAndSetSemantics { contentDescription = "${forecast.amount.toWon()}원" },
-        )
-        Spacer(Modifier.height(YamuSpacing.x3))
-        FlowRow(
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
-            itemVerticalAlignment = Alignment.CenterVertically,
-        ) {
-            forecast.statusLine(hero = true)?.let {
-                HeroStatus(it, dot = if (forecast.shortageFrom != null) c.error else c.success)
-            }
-            if (forecast.needsIncome) HeroAction("월급을 등록하면 월급 전 잔액을 알려 드려요", onRegisterIncome)
-        }
-        Spacer(Modifier.height(YamuSpacing.x3))
-        CoinPile(
-            forecast.amount,
-            Modifier.fillMaxWidth().weight(1f).heightIn(min = CoinPileDefaults.minHeight),
-            state = pile,
-        )
     }
 }
 
-/**
- * 예상 잔액 카드의 상태 알약 문구. 위험일(BE nextRiskDate)은 잔액이 안전 잔액 밑으로 처음 내려가는 날이다.
- * 히어로는 0원보다 많을 때만 쓰므로 그날을 잔고예보와 같은 '안전 잔액 아래'로 말해 금색 동전과 '부족'이 부딪히지 않게 하고,
- * 0원 이하 흰 카드만 '부족 예상'으로 둔다
- */
-internal fun ForecastSummary.statusLine(hero: Boolean): String? = when {
-    shortageFrom != null -> "${shortageFrom.toMonthDay()}부터 ${if (hero) "안전 잔액 아래" else "부족 예상"}"
-    incomeDate != null -> "월급날(${incomeDate.toMonthDay()})까지 부족 없음"
-    else -> null
-}
-
-/** 히어로 위 작은 유리 칩('예측') */
+/** 히어로 위 작은 유리 칩. [dashed]면 바탕 없이 점선 테두리 — 확정 전 금액(점선 동전과 같은 모양) */
 @Composable
-private fun HeroChip(text: String) {
+private fun HeroChip(text: String, dashed: Boolean = false) {
     val c = YamuTheme.colors
+    val shape = RoundedCornerShape(YamuRadius.input)
     Text(
         text,
         style = YamuTheme.typography.labelM,
         color = c.onHero,
         modifier = Modifier
-            .clip(RoundedCornerShape(YamuRadius.tag))
-            .background(c.onHero.copy(alpha = HERO_GLASS_ALPHA))
-            .padding(horizontal = 8.dp, vertical = 2.dp),
+            .clip(shape)
+            .then(if (dashed) Modifier.dashedOutline(c.onHero.copy(alpha = 0.75f)) else Modifier.background(c.onHero.copy(alpha = HERO_GLASS_ALPHA)))
+            .padding(horizontal = 10.dp, vertical = 4.dp),
     )
 }
 
-/** 히어로 위 상태 알약 — 반투명 바탕 + 상태 색 점(부족 없음 초록 · 안전 잔액 아래 빨강) */
-@Composable
-private fun HeroStatus(text: String, dot: Color) {
-    val c = YamuTheme.colors
-    Row(
-        Modifier
-            .clip(RoundedCornerShape(YamuRadius.input))
-            .background(c.onHero.copy(alpha = HERO_GLASS_ALPHA))
-            .padding(horizontal = 10.dp, vertical = 5.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Box(Modifier.size(7.dp).clip(CircleShape).background(dot))
-        Spacer(Modifier.width(6.dp))
-        Text(text, style = YamuTheme.typography.labelL, color = c.onHero)
-    }
+/** 알약 모양 점선 테두리 */
+private fun Modifier.dashedOutline(color: Color) = drawBehind {
+    val w = 1.dp.toPx()
+    drawRoundRect(
+        color = color,
+        topLeft = Offset(w / 2, w / 2),
+        size = androidx.compose.ui.geometry.Size(size.width - w, size.height - w),
+        cornerRadius = CornerRadius(size.height / 2),
+        style = Stroke(width = w, pathEffect = PathEffect.dashPathEffect(floatArrayOf(3.dp.toPx(), 2.4.dp.toPx()))),
+    )
 }
 
-/** 히어로 위 누르는 알약 — 상태 알약과 같은 유리 바탕에 점 대신 '›'. 길면 알약 안에서 줄을 바꾼다 */
+/** 히어로 위 누르는 알약(다시 시도) — 유리 바탕 */
 @Composable
-private fun HeroAction(text: String, onClick: () -> Unit) {
+private fun HeroButton(text: String, onClick: () -> Unit) {
     val c = YamuTheme.colors
-    Row(
-        Modifier
+    Text(
+        text,
+        style = YamuTheme.typography.labelL,
+        color = c.onHero,
+        modifier = Modifier
+            .heightIn(min = YamuSize.touch)
             .clip(RoundedCornerShape(YamuRadius.input))
+            .clickable(role = Role.Button, onClick = onClick)
             .background(c.onHero.copy(alpha = HERO_GLASS_ALPHA))
-            .clickable(onClickLabel = "월급 등록하기", onClick = onClick)
-            .padding(start = 12.dp, end = 6.dp, top = 7.dp, bottom = 7.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(text, style = YamuTheme.typography.labelL, color = c.onHero, modifier = Modifier.weight(1f, fill = false))
-        Spacer(Modifier.width(2.dp))
-        Icon(YamuIcons.ChevronRight, contentDescription = null, tint = c.onHero, modifier = Modifier.size(18.dp))
-    }
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+    )
 }
-
-private const val HERO_PRESSED_SCALE = 0.97f
-private const val HERO_SHEEN_MS = 900
-private const val HERO_SHEEN_ALPHA = 0.16f
-private const val HERO_GLASS_ALPHA = 0.16f
 
 /**
- * 세로로 쌓되, 화면보다 짧으면 [FILL_REST] 표시한 자식 하나(예상 잔액 카드)가 남는 높이를 모두 받는다.
- * 화면보다 길면 그 자식도 제 높이(최소 크기)로 쌓이고 스크롤된다 — Column의 weight는 이때 0이 되어 카드가 사라진다.
- * 화면 높이는 fillMaxSize() 뒤 verticalScroll()이 넘기는 최소 높이다.
+ * 'YAMU로 결제하기'(HOME-07 ~ 09) — 혜택 바로 아래의 주된 행동. 바코드를 열기 전에 특정 카드를 최적이라고 하지 않고
+ * '결제할 곳과 금액이 정해지면' 고른다고 말한다. 자동 선택을 끈 사람에겐 기본 카드로 결제한다고 바꿔 보인다.
+ * 버튼은 하단 가운데 결제 버튼과 같은 결제 코드(P-06) — 인증 · 자동 선택 설정은 그 화면이 지금대로 따른다(QA-04).
+ * 최근 결제 한 줄(-428 · -460)은 결제하고 돌아왔을 때 바로 보이게 이 칸 안 버튼 위에 둔다(11/13 결정)
  */
 @Composable
-private fun FillRestColumn(modifier: Modifier, content: @Composable () -> Unit) {
-    Layout(content, modifier) { measurables, constraints ->
-        val width = constraints.maxWidth
-        val loose = Constraints(maxWidth = width)
-        val restIndex = measurables.indexOfFirst { it.layoutId == FILL_REST }
-        val placeables = arrayOfNulls<Placeable>(measurables.size)
-        measurables.forEachIndexed { i, m -> if (i != restIndex) placeables[i] = m.measure(loose) }
-        if (restIndex >= 0) {
-            val rest = measurables[restIndex]
-            val others = placeables.sumOf { it?.height ?: 0 }
-            val height = maxOf(rest.minIntrinsicHeight(width), constraints.minHeight - others)
-            placeables[restIndex] = rest.measure(Constraints(maxWidth = width, minHeight = height, maxHeight = height))
-        }
-        val total = placeables.sumOf { it!!.height }
-        layout(width, maxOf(total, constraints.minHeight)) {
-            var y = 0
-            placeables.forEach {
-                it!!.place(0, y)
-                y += it.height
+private fun PayCard(
+    settings: PaySettings?,
+    cardName: (Long) -> String?,
+    recentPayment: RecentPayment?,
+    onPay: () -> Unit,
+    onRecentPayment: (Long) -> Unit,
+    onPayments: () -> Unit,
+) {
+    val c = YamuTheme.colors
+    val note = payNote(settings, cardName)
+    YamuCard {
+        Row(verticalAlignment = Alignment.Top) {
+            Column(Modifier.weight(1f)) {
+                Text("YAMU로 결제하기", style = YamuTheme.typography.cardTitle, color = c.text1)
+                paySubtitle(settings)?.let {
+                    Spacer(Modifier.height(2.dp))
+                    Text(it, style = YamuTheme.typography.sub, color = c.text3)
+                }
+            }
+            Spacer(Modifier.width(12.dp))
+            Box(
+                Modifier.size(52.dp).clip(RoundedCornerShape(14.dp)).background(c.primaryContainer),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(YamuTabIcons.PayCode, contentDescription = null, tint = c.primary, modifier = Modifier.size(26.dp))
             }
         }
+        Spacer(Modifier.height(14.dp))
+        Row(verticalAlignment = Alignment.Top) {
+            Icon(
+                if (note.autoOff) YamuIcons.Info else YamuIcons.CheckCircle,
+                contentDescription = null,
+                tint = if (note.autoOff) c.warning else c.success,
+                modifier = Modifier.padding(top = 1.dp).size(18.dp),
+            )
+            Spacer(Modifier.width(8.dp))
+            Text(note.text, style = YamuTheme.typography.bodyM, color = if (note.autoOff) c.onWarningContainer else c.text2)
+        }
+        RecentPaymentSlot(recentPayment, onRecentPayment, onPayments)
+        Spacer(Modifier.height(16.dp))
+        PrimaryButton("통합 결제 바코드 열기", onClick = onPay, icon = YamuTabIcons.PayCode)
     }
 }
 
-private const val FILL_REST = "fillRest"
-
-/** 보이는 높이는 [visible]로 두고 터치 칸은 제 크기대로 위아래로 넘친다(ForecastScreen의 같은 이름 도우미와 같다) */
-private fun Modifier.overflowHeight(visible: Dp) = layout { measurable, constraints ->
-    val p = measurable.measure(constraints.copy(minHeight = 0, maxHeight = Constraints.Infinity))
-    val h = visible.roundToPx()
-    layout(p.width, h) { p.place(0, (h - p.height) / 2) }
-}
-
 /**
- * 결제하고 돌아오면 이 줄이 새로 생기고 아래 예상 잔액 카드가 그만큼 줄어든다 — 한 번에 튀지 않게 위에서부터 펼친다.
+ * 결제하고 돌아오면 이 줄이 새로 생긴다 — 한 번에 튀지 않게 위에서부터 펼친다.
  * 처음부터 있으면 그냥 보인다. 모션 줄이기면 페이드만
  */
 @Composable
@@ -610,49 +612,69 @@ private fun RecentPaymentSlot(payment: RecentPayment?, onClick: (Long) -> Unit, 
         enter = if (reduce) fadeIn(tween(YamuMotion.SHORT_MS)) else expandVertically(spec, expandFrom = Alignment.Top) + fadeIn(tween(RECENT_ROW_MS)),
         exit = if (reduce) fadeOut(tween(YamuMotion.SHORT_MS)) else shrinkVertically(spec, shrinkTowards = Alignment.Top) + fadeOut(tween(RECENT_ROW_MS)),
     ) {
-        kept.value?.let { RecentPaymentCard(it, onClick = { onClick(it.paymentId) }, onAll = onAll) }
+        kept.value?.let { RecentPaymentRow(it, onClick = { onClick(it.paymentId) }, onAll = onAll) }
     }
 }
 
 private const val RECENT_ROW_MS = 300
 
 /**
- * 최근 결제 카드 — 머리 '최근 결제 · 전체 보기 ›'(결제 내역 S-05로, 2차 QA 39) 아래 결제 한 줄(누르면 결제 상세).
- * 최근 결제 3건(2차 QA 44)이 나오면 이 머리 아래 줄만 늘린다
+ * 결제 칸이 없는 홈(연결 전 · 카드 없음)의 최근 결제 — 안내 카드 아래 따로 한 칸. 카드를 모두 지운 사람도
+ * 지난 결제와 결제 내역 입구를 잃지 않게(예전 홈은 상태와 상관없이 그렸다). 결제가 없으면 그리지 않는다
  */
 @Composable
-private fun RecentPaymentCard(payment: RecentPayment, onClick: () -> Unit, onAll: () -> Unit) {
+private fun RecentPaymentCard(payment: RecentPayment?, onClick: (Long) -> Unit, onAll: () -> Unit) {
+    payment ?: return
+    YamuCard(contentPadding = PaddingValues(start = YamuSpacing.x5, end = YamuSpacing.x5, top = YamuSpacing.x2, bottom = YamuSpacing.x5)) {
+        RecentPaymentRow(payment, onClick = { onClick(payment.paymentId) }, onAll = onAll, top = 0.dp)
+    }
+}
+
+/** 보이는 높이는 [visible]로 두고 터치 칸은 제 크기대로 위아래로 넘친다(잔고예보 화면의 같은 이름 도우미와 같다) */
+private fun Modifier.overflowHeight(visible: Dp) = layout { measurable, constraints ->
+    val p = measurable.measure(constraints.copy(minHeight = 0, maxHeight = Constraints.Infinity))
+    val h = visible.roundToPx()
+    layout(p.width, h) { p.place(0, (h - p.height) / 2) }
+}
+
+/**
+ * 최근 결제 — 머리 '최근 결제 · 결제 내역 ›'(S-05, 2차 QA 39) 아래 회색 칸에 결제 한 줄(누르면 결제 상세).
+ * '야무카페 역삼점 15,000원' / '방금 · 신한카드 1,500원 할인'(할인만 파랑). 시각은 paidAt으로(어제 결제면 '어제 17:05')
+ */
+@Composable
+private fun RecentPaymentRow(payment: RecentPayment, onClick: () -> Unit, onAll: () -> Unit, top: Dp = 14.dp) {
     val c = YamuTheme.colors
-    // '야무카페 역삼점 15,000원' / '방금 · 신한카드 1,500원 할인'(할인만 파랑) — 프로토타입 H-01c. 시각은 paidAt으로(어제 결제면 '어제 17:05')
     val time = paidAtLabel(payment.paidAtIso)
-    // 좌우 · 아래 여백은 줄마다 둔다 — 결제 줄은 카드 끝까지 눌리고 물결도 카드 모양대로(예전 카드 전체 누르기와 같은 범위)
-    YamuCard(contentPadding = PaddingValues(top = 16.dp)) {
-        // 머리 줄 24dp — '전체 보기' 터치 칸(48)은 위아래로 넘친다(잔고예보 '예정된 돈' 카드와 같은 모양)
-        Row(Modifier.padding(start = 20.dp, end = 16.dp).heightIn(min = 24.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text("최근 결제", style = YamuTheme.typography.cardTitle, color = c.text1, modifier = Modifier.weight(1f))
+    Column(Modifier.padding(top = top)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("최근 결제", style = YamuTheme.typography.labelM, color = c.text3, modifier = Modifier.weight(1f))
             Row(
                 Modifier
-                    .overflowHeight(24.dp)
+                    // 보이는 머리 줄은 32dp 그대로, '결제 내역' 터치 칸(48)만 위아래로 넘친다
+                    .overflowHeight(32.dp)
                     .heightIn(min = 48.dp)
                     .clip(RoundedCornerShape(YamuRadius.s))
                     .clickable(role = Role.Button, onClickLabel = "결제 내역 보기", onClick = onAll)
                     .padding(start = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text("전체 보기", style = YamuTheme.typography.link, color = c.text3)
+                Text("결제 내역", style = YamuTheme.typography.link, color = c.text3)
                 Icon(YamuIcons.ChevronRight, contentDescription = null, tint = c.text3, modifier = Modifier.size(18.dp))
             }
         }
+        Spacer(Modifier.height(4.dp))
         Row(
             Modifier
                 .fillMaxWidth()
+                .clip(RoundedCornerShape(YamuRadius.input))
+                .background(c.surfaceVariant)
                 .clickable(role = Role.Button, onClickLabel = "결제 상세 보기", onClick = onClick)
-                .padding(start = 20.dp, end = 16.dp, bottom = 4.dp)
-                .heightIn(min = 64.dp),
+                .heightIn(min = 56.dp)
+                .padding(start = 14.dp, end = 8.dp, top = 10.dp, bottom = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Column(Modifier.weight(1f)) {
-                Text("${payment.merchantName} ${payment.amount.toWon()}원", style = YamuTheme.typography.titleM, color = c.text1, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text("${payment.merchantName} ${payment.amount.toWon()}원", style = YamuTheme.typography.titleS, color = c.text1, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text(
                     buildAnnotatedString {
                         append(listOfNotNull(time, payment.cardName).joinToString(" · "))
@@ -670,33 +692,12 @@ private fun RecentPaymentCard(payment: RecentPayment, onClick: () -> Unit, onAll
     }
 }
 
-@Composable
-private fun TodoRow(todo: HomeTodo, onClick: () -> Unit) {
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick)
-            .padding(vertical = 14.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Column(Modifier.weight(1f)) {
-            todo.tag?.let {
-                StatusTag(it, tone = todo.tone.toTagTone(), guide = true)
-                Spacer(Modifier.height(8.dp))
-            }
-            Text(todo.title, style = YamuTheme.typography.titleM, color = YamuTheme.colors.text1)
-        }
-        Icon(YamuIcons.ChevronRight, contentDescription = null, tint = YamuTheme.colors.text3)
-    }
-}
-
-private fun TodoTone.toTagTone(): TagTone = when (this) {
-    TodoTone.Neutral -> TagTone.Neutral
-    TodoTone.Primary -> TagTone.Primary
-    TodoTone.Success -> TagTone.Success
-    TodoTone.Warning -> TagTone.Warning
-    TodoTone.Error -> TagTone.Error
-}
+private const val HERO_PRESSED_SCALE = 0.97f
+private const val HERO_SHEEN_MS = 900
+private const val HERO_SHEEN_ALPHA = 0.16f
+private const val HERO_GLASS_ALPHA = 0.16f
+private val HERO_PILE_WIDTH = 116.dp
+private val HERO_PILE_HEIGHT = 92.dp
 
 @Composable
 private fun HomeSkeleton() {
@@ -721,28 +722,22 @@ private fun HomeScreenPreview() = YamuTheme {
         state = HomeUiState(
             isLoading = false,
             content = HomeSummary(
-                forecast = ForecastSummary(
-                    label = "월급 전 가장 낮을 때",
-                    amount = 350_000,
-                    isEstimate = true,
-                    isProvisional = false,
-                    incomeDate = LocalDate.of(2026, 11, 10),
-                    daysToIncome = 25,
-                    shortageFrom = null,
-                ),
+                forecast = null,
                 recentPayment = RecentPayment(1L, "야무카페 역삼점", 15_000, "신한카드", 1_500, OffsetDateTime.now().toString()),
-                todos = listOf(
-                    HomeTodo("통신비만 우리카드로 옮기면, 더 안 써도 40만 원이 채워져요", "실적 달성 추천", TodoTone.Primary, 1),
-                    HomeTodo("NH농협카드는 이번 달 실적을 채우지 않는 게 유리해요", "추가 소비 비추천", TodoTone.Error, 3),
-                ),
+                todos = emptyList(),
                 cardCount = 6,
                 unreadCount = 3,
                 needsLinking = false,
                 syncedAtIso = null,
                 failedAreas = emptySet(),
             ),
+            userName = "김야무",
+            benefit = HomeSection.Ready(
+                HomeBenefit(YearMonth.of(2026, 11), LocalDate.of(2026, 11, 1), LocalDate.of(2026, 11, 13), confirmed = 12_400, pending = 13_100, hasPayments = true),
+            ),
+            pay = HomeSection.Ready(PaySettings(autoSelect = true, defaultUserCardId = null)),
         ),
-        onRefresh = {}, onRetry = {}, onPay = {}, onForecast = {}, onCashflow = {}, onNotifications = {}, onMyCards = {},
-        onStartLinking = {}, onTodo = {}, onRecentPayment = {},
+        onRefresh = {}, onRetry = {}, onPay = {}, onNotifications = {}, onMyCards = {},
+        onStartLinking = {}, onRecentPayment = {},
     )
 }
