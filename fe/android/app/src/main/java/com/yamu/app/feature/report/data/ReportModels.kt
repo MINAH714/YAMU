@@ -39,19 +39,53 @@ import kotlin.math.roundToInt
     val summary: BenefitReportSummaryDto = BenefitReportSummaryDto(),
     val differences: List<DifferenceDto> = emptyList(),
     val byCategory: List<CategoryAmountDto> = emptyList(),   // 보완안 ②
+    /** 집계 출처 ALL · YAMU(BE !316). 옛 서버는 없다 */
+    val source: String? = null,
+    /** 카드별 집계(BE !316). 옛 서버는 칸이 없어 null — 0원 카드 목록으로 바꾸지 않는다 */
+    val cards: List<CardBenefitDto>? = null,
 )
 
+/**
+ * 혜택 합계. expectedBenefit은 확정 전을 포함한 전체, confirmedBenefit은 그중 확정, unconfirmedBenefit = 전체 − 확정(둘을 더하지 않는다).
+ * 금액은 모두 원화로 바꾼 원이고, 원화로 바꾸지 못한 혜택 줄 수는 [unconvertedBenefitCount](금액에 없다). 아래 셋은 BE !316부터, 옛 서버는 null
+ */
 @Serializable data class BenefitReportSummaryDto(
     val expectedBenefit: Long = 0,
     val confirmedBenefit: Long = 0,
     val yamuPickExtra: Long? = null,            // 보완안 ②
     val missedBenefit: Long? = null,            // 보완안 ②
+    val unconfirmedBenefit: Long? = null,
+    val unconvertedBenefitCount: Long? = null,
+    val byType: List<BenefitTypeAmountDto>? = null,
+)
+
+/** 종류별 — type DISCOUNT(할인) · CASHBACK(캐시백) · POINT(적립). 금액은 원화로 바꾼 원(포인트 수량이 아니다) */
+@Serializable data class BenefitTypeAmountDto(
+    val type: String? = null,
+    val expectedBenefit: Long = 0,
+    val confirmedBenefit: Long = 0,
+    val unconfirmedBenefit: Long? = null,
+    val unconvertedBenefitCount: Long = 0,
+)
+
+/** 카드별 — userCardId별(같은 상품 둘도 따로). 드물게 카드를 알 수 없는 줄은 userCardId · cardProductId가 null */
+@Serializable data class CardBenefitDto(
+    val userCardId: Long? = null,
+    val cardProductId: Long? = null,
+    val cardName: String? = null,
+    val cardAlias: String? = null,
+    val expectedBenefit: Long = 0,
+    val confirmedBenefit: Long = 0,
+    val unconfirmedBenefit: Long? = null,
+    val unconvertedBenefitCount: Long = 0,
+    val byType: List<BenefitTypeAmountDto> = emptyList(),
 )
 
 @Serializable data class DifferenceDto(
     val paymentId: Long? = null,
     val approvedAt: String? = null,
     val merchantName: String,
+    val userCardId: Long? = null,               // BE !316
     val expectedAmount: Long = 0,
     val actualAmount: Long = 0,
     val reason: String? = null,
@@ -102,6 +136,10 @@ data class MonthlySpend(
 
 data class MissedBenefit(val merchant: String, val date: LocalDate?, val reason: String, val amount: Long)
 
+/**
+ * 혜택 리포트(S-04). [received]는 확정 전을 포함한 그달 이용 혜택 전체, [confirmed]는 그중 확정(큰 숫자 — 홈 히어로와 같은 기준, 11/14 결정),
+ * [unconfirmed]는 확정 전, [unconverted]는 원화로 바꾸지 못해 금액에 없는 혜택 줄 수. [byType] · [cards]는 옛 서버면 비어 칸을 숨긴다
+ */
 data class BenefitReport(
     val periodLabel: String,
     val received: Long,
@@ -109,7 +147,29 @@ data class BenefitReport(
     val missedTotal: Long,
     val missed: List<MissedBenefit>,
     val byPlace: List<Pair<String, Long>>,
+    val confirmed: Long = received,
+    val unconfirmed: Long = 0,
+    val unconverted: Long = 0,
+    val byType: List<BenefitTypeLine> = emptyList(),
+    val cards: List<CardBenefitLine> = emptyList(),
 )
+
+/** 종류별 한 줄 — [label]은 할인 · 캐시백 · 적립(모르는 종류는 '기타') */
+data class BenefitTypeLine(val type: String, val label: String, val confirmed: Long, val unconfirmed: Long, val unconverted: Long)
+
+/** 카드별 한 줄 — [userCardId]가 없으면(카드를 알 수 없는 줄) 누를 수 없다. [name]은 별명 → 상품명 → '카드' */
+data class CardBenefitLine(val userCardId: Long?, val name: String, val confirmed: Long, val unconfirmed: Long, val unconverted: Long)
+
+/** 혜택 종류 이름 */
+fun benefitTypeLabel(type: String?): String = when (type?.uppercase()) {
+    "DISCOUNT" -> "할인"
+    "CASHBACK" -> "캐시백"
+    "POINT" -> "적립"
+    else -> "기타"
+}
+
+/** 확정 전 금액 — 서버 값이 없으면(옛 서버) 전체 − 확정. 음수는 0 */
+private fun unconfirmedOf(server: Long?, expected: Long, confirmed: Long): Long = (server ?: (expected - confirmed)).coerceAtLeast(0)
 
 data class PaymentItem(
     val paymentId: Long,
@@ -193,6 +253,22 @@ fun BenefitReportDto.toReport(today: LocalDate = LocalDate.now(KST)): BenefitRep
         missedTotal = summary.missedBenefit ?: missed.sumOf { it.amount },
         missed = missed,
         byPlace = byCategory.sortedByDescending { it.amount }.map { it.categoryName to it.amount },
+        confirmed = summary.confirmedBenefit,
+        unconfirmed = unconfirmedOf(summary.unconfirmedBenefit, summary.expectedBenefit, summary.confirmedBenefit),
+        unconverted = summary.unconvertedBenefitCount ?: 0,
+        byType = summary.byType.orEmpty().map {
+            BenefitTypeLine(it.type.orEmpty(), benefitTypeLabel(it.type), it.confirmedBenefit, unconfirmedOf(it.unconfirmedBenefit, it.expectedBenefit, it.confirmedBenefit), it.unconvertedBenefitCount)
+        },
+        // 서버가 전체 혜택 순으로 준다. 이름은 별명이 먼저(cardAlias ?: cardName), 둘 다 없으면 '카드'
+        cards = cards.orEmpty().map {
+            CardBenefitLine(
+                it.userCardId,
+                it.cardAlias?.takeIf { a -> a.isNotBlank() } ?: it.cardName?.takeIf { n -> n.isNotBlank() } ?: "카드",
+                it.confirmedBenefit,
+                unconfirmedOf(it.unconfirmedBenefit, it.expectedBenefit, it.confirmedBenefit),
+                it.unconvertedBenefitCount,
+            )
+        },
     )
 }
 

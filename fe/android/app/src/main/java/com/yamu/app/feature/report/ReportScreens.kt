@@ -12,6 +12,8 @@ import com.yamu.app.feature.report.data.exportErrorMessage
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.material3.Icon
+import com.yamu.app.core.designsystem.icon.YamuIcons
 import com.yamu.app.core.designsystem.component.LinkButton
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -362,7 +364,7 @@ fun ReportRoute(
                     YamuCard(contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 4.dp)) {   // 링크 카드는 .card.tight(16)
                         sp.benefit?.let {
                             ListRow(
-                                title = sp.month?.let { m -> "${m}월에 받은 혜택" } ?: "이번 달 받은 혜택",
+                                title = sp.month?.let { m -> "${m}월 이용 혜택" } ?: "이번 달 이용 혜택",
                                 value = "${it.toWon()}원",
                                 valueColor = c.primary,
                                 chevron = true,
@@ -470,10 +472,16 @@ class BenefitReportViewModel @Inject constructor(private val repo: ReportReposit
     }
 }
 
+/**
+ * S-04 혜택 리포트 — 야무 결제만(source=YAMU, S15P31E103-493). 큰 숫자는 확정된 혜택(홈 히어로와 같은 기준, 11/14 결정)이고
+ * 확정 전은 따로, 원화로 바꾸지 못한 혜택은 금액에 없다고 알린다. 그 아래 종류별 · 카드별 · 놓친 혜택 · 어디서 받았나요.
+ * [onCard]를 주면 카드 줄을 눌러 그 카드로 간다(R-02, 연결은 내비게이션 쪽). userCardId가 없는 줄은 누를 수 없다
+ */
 @Composable
 fun BenefitReportRoute(
     onBack: () -> Unit,
     onPayments: () -> Unit,
+    onCard: ((Long) -> Unit)? = null,
     viewModel: BenefitReportViewModel = hiltViewModel(),
 ) {
     val s by viewModel.state.collectAsStateWithLifecycle()
@@ -483,7 +491,7 @@ fun BenefitReportRoute(
     }
     val c = YamuTheme.colors
     val r = s.report
-    val empty = r != null && r.received == 0L && r.missed.isEmpty() && r.byPlace.isEmpty()
+    val empty = r != null && r.received == 0L && r.unconverted == 0L && r.missed.isEmpty() && r.byPlace.isEmpty()
     FlowScreen(
         title = "혜택 리포트",
         onBack = onBack,
@@ -509,15 +517,21 @@ fun BenefitReportRoute(
                         MonthEmpty(
                             s.shown,
                             onSelect = viewModel::select,
-                            thisMessage = "이번 달 받은 혜택이 아직 없어요",
-                            pastMessage = "${monthTitle(s.shown.month, s.shown.thisMonth)}에 받은 혜택이 없어요",
+                            thisMessage = "이번 달 이용 혜택이 아직 없어요",
+                            pastMessage = "${monthTitle(s.shown.month, s.shown.thisMonth)} 이용 혜택이 없어요",
                         )
                     }
                     else -> {
                         YamuCard {
-                            Text("${r.periodLabel} 받은 혜택", style = YamuTheme.typography.bodyM, color = c.text2)
+                            // '○월 이용 혜택' — 지급월이 아니라 그달 이용으로 생긴 혜택(명세 v4 · 레인 1 홈과 같은 말)
+                            Text("${r.periodLabel} 이용 혜택", style = YamuTheme.typography.bodyM, color = c.text2)
                             Spacer(Modifier.height(4.dp))
-                            AmountText(r.received)
+                            AmountText(r.confirmed)
+                            Spacer(Modifier.height(4.dp))
+                            Text(confirmedLine(r), style = YamuTheme.typography.bodyM, color = c.text2)
+                            if (r.unconverted > 0) {
+                                Text(unconvertedLine(r.unconverted), style = YamuTheme.typography.bodyS, color = c.text3, modifier = Modifier.padding(top = 2.dp))
+                            }
                             r.yamuExtra?.let {
                                 Spacer(Modifier.height(4.dp))
                                 Text(
@@ -529,6 +543,25 @@ fun BenefitReportRoute(
                                     style = YamuTheme.typography.bodyM,
                                     color = c.text2,
                                 )
+                            }
+                        }
+                        // 종류별 — 할인 · 캐시백 · 적립(옛 서버는 칸이 없어 숨긴다)
+                        if (r.byType.isNotEmpty()) {
+                            YamuCard(contentPadding = PaddingValues(YamuSpacing.x4)) {
+                                Text("종류별", style = YamuTheme.typography.cardTitle, color = c.text1)
+                                Spacer(Modifier.height(YamuSpacing.x1))
+                                r.byType.forEach { t -> BenefitAmountRow(t.label, t.confirmed, t.unconfirmed, t.unconverted) }
+                            }
+                        }
+                        // 카드별 — 별명이 먼저. 카드를 알 수 없는 줄(userCardId 없음)은 누를 수 없다
+                        if (r.cards.isNotEmpty()) {
+                            YamuCard(contentPadding = PaddingValues(YamuSpacing.x4)) {
+                                Text("카드별", style = YamuTheme.typography.cardTitle, color = c.text1)
+                                Spacer(Modifier.height(YamuSpacing.x1))
+                                r.cards.forEach { card ->
+                                    val open = card.userCardId?.let { id -> onCard?.let { go -> { go(id) } } }
+                                    BenefitAmountRow(card.name, card.confirmed, card.unconfirmed, card.unconverted, onClick = open)
+                                }
                             }
                         }
                         if (r.missedTotal > 0) {
@@ -555,6 +588,42 @@ fun BenefitReportRoute(
         }
     }
 }
+
+/** 종류별 · 카드별 한 줄 — 이름 / 확정 금액, 밑에 확정 전 · 원화로 못 바꾼 건수. [onClick]이 있으면 줄 전체를 눌러 이동(꺾쇠) */
+@Composable
+private fun BenefitAmountRow(name: String, confirmed: Long, unconfirmed: Long, unconverted: Long, onClick: (() -> Unit)? = null) {
+    val c = YamuTheme.colors
+    val sub = amountSubLine(unconfirmed, unconverted)
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .heightIn(min = 52.dp)
+            .then(if (onClick != null) Modifier.clip(RoundedCornerShape(8.dp)).clickable(role = Role.Button, onClick = onClick) else Modifier)
+            .padding(vertical = 6.dp)
+            .semantics(mergeDescendants = true) { },
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(name, style = YamuTheme.typography.titleM, color = c.text1, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            sub?.let { Text(it, style = YamuTheme.typography.bodyS, color = c.text3, modifier = Modifier.padding(top = 2.dp)) }
+        }
+        Text("${confirmed.toWon()}원", style = YamuTheme.typography.value, color = c.text1)
+        if (onClick != null) Icon(YamuIcons.ChevronRight, contentDescription = null, tint = c.text3, modifier = Modifier.padding(start = 4.dp).size(18.dp))
+    }
+}
+
+/** 큰 숫자 밑 한 줄 — 확정 전이 있으면 '확정 전 500원 더 있어요(모두 1,500원)', 없으면 '모두 확정된 혜택이에요' */
+internal fun confirmedLine(r: BenefitReport): String =
+    if (r.unconfirmed > 0) "확정된 혜택이에요 · 확정 전 ${r.unconfirmed.toWon()}원 더 있어요(모두 ${r.received.toWon()}원)" else "모두 확정된 혜택이에요"
+
+/** 원화로 바꾸지 못한 혜택 — 적립이 없는 게 아니라 금액에 넣지 못한 것 */
+internal fun unconvertedLine(count: Long): String = "원화로 바꾸지 못한 혜택 ${count}건은 금액에 넣지 않았어요"
+
+/** 종류별 · 카드별 줄의 보조 줄 — 확정 전 · 원화로 못 바꾼 건수. 둘 다 없으면 null */
+internal fun amountSubLine(unconfirmed: Long, unconverted: Long): String? = listOfNotNull(
+    "확정 전 ${unconfirmed.toWon()}원".takeIf { unconfirmed > 0 },
+    "원화로 못 바꾼 ${unconverted}건".takeIf { unconverted > 0 },
+).joinToString(" · ").ifEmpty { null }
 
 /** 놓친 혜택 한 줄 — 가맹점 · 날짜 · 이유 / −금액(검정, 합만 빨강) */
 @Composable

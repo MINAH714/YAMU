@@ -48,6 +48,7 @@ class ReportRepositoryMonthTest {
         val request = server.takeRequest()
         assertEquals("/reports/monthly/benefits", request.url.encodedPath)
         assertEquals("2026-09", request.url.queryParameter("yearMonth"))
+        assertEquals("늘 야무 결제만 — 홈 '이번 달 혜택'과 같은 범위(S15P31E103-493)", "YAMU", request.url.queryParameter("source"))
     }
 
     @Test fun `결제 내역 — 쪽 · 크기 · 달`() = runTest {

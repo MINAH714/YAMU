@@ -26,9 +26,12 @@ interface ReportApi {
     @GET("reports/monthly")
     suspend fun monthly(@Query("yearMonth") yearMonth: String? = null): Response<ApiEnvelope<MonthlyReportDto>>
 
-    /** 서버 기본값이 지난달이라 늘 달을 넘긴다 */
+    /**
+     * 서버 기본값이 지난달이라 늘 달을 넘긴다. [source]는 YAMU — 시드 결제를 뺀 야무 결제만(BE !316, 홈 '이번 달 혜택'과 같은 범위, QA-02).
+     * 옛 서버는 source를 모르고 무시해 전체(ALL)로 답한다
+     */
     @GET("reports/monthly/benefits")
-    suspend fun benefits(@Query("yearMonth") yearMonth: String): Response<ApiEnvelope<BenefitReportDto>>
+    suspend fun benefits(@Query("yearMonth") yearMonth: String, @Query("source") source: String): Response<ApiEnvelope<BenefitReportDto>>
 
     @GET("payments")
     suspend fun payments(@Query("page") page: Int, @Query("size") size: Int, @Query("yearMonth") yearMonth: String? = null): Response<ApiEnvelope<PaymentsPageDto>>
@@ -68,7 +71,7 @@ class ReportRepositoryImpl @Inject constructor(private val api: ReportApi, priva
     }
 
     override suspend fun benefits(month: YearMonth): ApiResult<BenefitReport> =
-        apiCall { api.benefits(month.toString()) }.map { it.toReport() }
+        apiCall { api.benefits(month.toString(), BENEFIT_SOURCE) }.map { it.toReport() }
 
     /** 목록의 메모를 받아 둔다 — 결제 상세 응답엔 memo가 없다. 메모는 결제 번호로 묶여 있어 달이 바뀌어도 그대로 맞다 */
     override suspend fun payments(page: Int, month: YearMonth): ApiResult<PaymentsPage> =
@@ -80,7 +83,12 @@ class ReportRepositoryImpl @Inject constructor(private val api: ReportApi, priva
     override suspend fun exportCsv(month: YearMonth): ApiResult<CsvFile> =
         apiCallFile { api.export(yearMonth = month.toString()) }.map { CsvFile(csvFileName(it.contentDisposition, fallback = defaultCsvName(month)), it.bytes) }
 
-    companion object { const val PAGE_SIZE = 20 }
+    companion object {
+        const val PAGE_SIZE = 20
+
+        /** 혜택 리포트는 늘 야무 결제만(S15P31E103-493) */
+        const val BENEFIT_SOURCE = "YAMU"
+    }
 }
 
 @Module
