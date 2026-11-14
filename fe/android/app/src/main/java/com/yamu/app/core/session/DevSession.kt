@@ -41,6 +41,16 @@ enum class LinkScenario(val label: String) {
     BANK_ERROR("계좌 연결 때 금융망 오류"),
 }
 
+/**
+ * 가짜 데이터(debug)로 볼 소비분석 자산 흐름 — BE !315의 GET asset-flows(S15P31E103-492).
+ * 새 서버는 지난 잔고를 오늘부터 45일 앞까지만 주고 그 앞은 자료 없음, 옛 서버(11/14 yamu.it.kr)는 이 API가 없어 404다
+ */
+enum class AssetFlowScenario(val label: String) {
+    NORMAL("새 서버 · 지난 잔고 45일(그 앞은 자료 없음)"),
+    HISTORY_ERROR("새 서버 · 지난 잔고 은행 조회 실패"),
+    OLD_SERVER("옛 서버 · asset-flows 없음(404)"),
+}
+
 /** 가짜 데이터(debug)로 볼 결제 — 10 문서 6-7. 고객 앱 혼자 돌 때 '가맹점이 찍은 것처럼' */
 enum class PayScenario(val label: String) {
     CAFE("3초 뒤 가맹점이 찍음 · 카페 15,000원"),
@@ -80,8 +90,8 @@ object DevSession {
     var payScenario by mutableStateOf(PayScenario.CAFE)
     var faultScenario by mutableStateOf(FaultScenario.NONE)
 
-    /** debug 가짜 소비분석 자산 흐름에 지난 잔고를 줄지(S15P31E103-483) — 지금 BE에는 그런 API가 없어 기본은 없음(지난날 빗금) */
-    var pastBalances by mutableStateOf(false)
+    /** debug 가짜 소비분석 자산 흐름(asset-flows) 상태(S15P31E103-492) */
+    var assetFlowScenario by mutableStateOf(AssetFlowScenario.NORMAL)
 
     /** debug 가짜 사용자(계좌 · 카드 · 월급) 요약 — 가짜 저장소가 채우고 디버그 메뉴가 보인다. release는 늘 비어 있다 */
     var fakeUser by mutableStateOf<List<String>>(emptyList())
