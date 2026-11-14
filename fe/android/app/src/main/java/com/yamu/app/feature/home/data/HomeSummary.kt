@@ -34,6 +34,12 @@ data class HomeSummary(
     val needsCard: Boolean get() = !needsLinking && cardCount == 0 && CARDS_AREA !in failedAreas
 }
 
+/**
+ * 결제 칸(YAMU로 결제하기) 밖에 따로 그릴 최근 결제 — 결제 칸이 없는 연결 전 · 카드 없음 홈에서만.
+ * 카드를 모두 지운 사람도 지난 결제와 결제 내역 입구는 남는다(예전 홈은 상태와 상관없이 그렸다). 그 밖은 결제 칸 안에 있다
+ */
+fun HomeSummary.recentPaymentOutsidePayCard(): RecentPayment? = recentPayment?.takeIf { needsLinking || needsCard }
+
 /** BE partialErrors의 카드 영역 이름 */
 private const val CARDS_AREA = "cards"
 

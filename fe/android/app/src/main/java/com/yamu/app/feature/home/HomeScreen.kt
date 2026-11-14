@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.consumeWindowInsets
@@ -60,6 +61,9 @@ import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.layout.layout
+import androidx.compose.ui.unit.Constraints
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
@@ -105,6 +109,7 @@ import com.yamu.app.feature.home.data.homeGreeting
 import com.yamu.app.feature.home.data.paidAtLabel
 import com.yamu.app.feature.home.data.payNote
 import com.yamu.app.feature.home.data.paySubtitle
+import com.yamu.app.feature.home.data.recentPaymentOutsidePayCard
 import java.time.LocalDate
 import java.time.OffsetDateTime
 import java.time.YearMonth
@@ -272,19 +277,25 @@ private fun HomeContent(
 
     when {
         // 연결 전 · 카드 없음 — 혜택을 지어내지 않고 할 일을 안내한다(사용자 상태별 처리 '카드 미등록')
-        home.needsLinking -> SetupGuide(
-            title = "계좌 · 카드를 연결해 주세요",
-            body = "결제할 때 혜택이 큰 카드를 골라 드리고 받은 혜택과 잔고를 여기 모아 드려요",
-            button = "계좌 · 카드 연결하기",
-            onClick = onStartLinking,
-        )
+        home.needsLinking -> {
+            SetupGuide(
+                title = "계좌 · 카드를 연결해 주세요",
+                body = "결제할 때 혜택이 큰 카드를 골라 드리고 받은 혜택과 잔고를 여기 모아 드려요",
+                button = "계좌 · 카드 연결하기",
+                onClick = onStartLinking,
+            )
+            RecentPaymentCard(home.recentPaymentOutsidePayCard(), onRecentPayment, onPayments)
+        }
         // 꺼진 결제 버튼 대신 다음 할 일 — 카드 추가(C-11)로(S15P31E103-430)
-        home.needsCard -> SetupGuide(
-            title = "카드를 등록해 주세요",
-            body = "결제할 때 혜택이 큰 카드를 골라 드리고 받은 혜택을 여기 모아 드려요",
-            button = "카드 등록하기",
-            onClick = onAddCard,
-        )
+        home.needsCard -> {
+            SetupGuide(
+                title = "카드를 등록해 주세요",
+                body = "결제할 때 혜택이 큰 카드를 골라 드리고 받은 혜택을 여기 모아 드려요",
+                button = "카드 등록하기",
+                onClick = onAddCard,
+            )
+            RecentPaymentCard(home.recentPaymentOutsidePayCard(), onRecentPayment, onPayments)
+        }
         // 카드 영역만 실패했으면 몇 장인지 몰라 혜택 · 결제 칸을 그린다 — 카드가 정말 없으면 결제 코드 화면이 알려 준다
         else -> {
             BenefitHero(state.benefit, onClick = onBenefitReport, onRetry = onRetryBenefit)
@@ -608,19 +619,40 @@ private fun RecentPaymentSlot(payment: RecentPayment?, onClick: (Long) -> Unit, 
 private const val RECENT_ROW_MS = 300
 
 /**
+ * 결제 칸이 없는 홈(연결 전 · 카드 없음)의 최근 결제 — 안내 카드 아래 따로 한 칸. 카드를 모두 지운 사람도
+ * 지난 결제와 결제 내역 입구를 잃지 않게(예전 홈은 상태와 상관없이 그렸다). 결제가 없으면 그리지 않는다
+ */
+@Composable
+private fun RecentPaymentCard(payment: RecentPayment?, onClick: (Long) -> Unit, onAll: () -> Unit) {
+    payment ?: return
+    YamuCard(contentPadding = PaddingValues(start = YamuSpacing.x5, end = YamuSpacing.x5, top = YamuSpacing.x2, bottom = YamuSpacing.x5)) {
+        RecentPaymentRow(payment, onClick = { onClick(payment.paymentId) }, onAll = onAll, top = 0.dp)
+    }
+}
+
+/** 보이는 높이는 [visible]로 두고 터치 칸은 제 크기대로 위아래로 넘친다(잔고예보 화면의 같은 이름 도우미와 같다) */
+private fun Modifier.overflowHeight(visible: Dp) = layout { measurable, constraints ->
+    val p = measurable.measure(constraints.copy(minHeight = 0, maxHeight = Constraints.Infinity))
+    val h = visible.roundToPx()
+    layout(p.width, h) { p.place(0, (h - p.height) / 2) }
+}
+
+/**
  * 최근 결제 — 머리 '최근 결제 · 결제 내역 ›'(S-05, 2차 QA 39) 아래 회색 칸에 결제 한 줄(누르면 결제 상세).
  * '야무카페 역삼점 15,000원' / '방금 · 신한카드 1,500원 할인'(할인만 파랑). 시각은 paidAt으로(어제 결제면 '어제 17:05')
  */
 @Composable
-private fun RecentPaymentRow(payment: RecentPayment, onClick: () -> Unit, onAll: () -> Unit) {
+private fun RecentPaymentRow(payment: RecentPayment, onClick: () -> Unit, onAll: () -> Unit, top: Dp = 14.dp) {
     val c = YamuTheme.colors
     val time = paidAtLabel(payment.paidAtIso)
-    Column(Modifier.padding(top = 14.dp)) {
+    Column(Modifier.padding(top = top)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("최근 결제", style = YamuTheme.typography.labelM, color = c.text3, modifier = Modifier.weight(1f))
             Row(
                 Modifier
-                    .heightIn(min = 32.dp)
+                    // 보이는 머리 줄은 32dp 그대로, '결제 내역' 터치 칸(48)만 위아래로 넘친다
+                    .overflowHeight(32.dp)
+                    .heightIn(min = 48.dp)
                     .clip(RoundedCornerShape(YamuRadius.s))
                     .clickable(role = Role.Button, onClickLabel = "결제 내역 보기", onClick = onAll)
                     .padding(start = 8.dp),
