@@ -9,7 +9,6 @@ import kotlinx.serialization.Serializable
 @Serializable data object LinkGraph
 @Serializable data object MainGraph
 @Serializable data object HomeGraph
-@Serializable data object PayGraph
 @Serializable data object PerfGraph
 @Serializable data object ReportGraph
 @Serializable data object MyGraph
@@ -67,10 +66,7 @@ import kotlinx.serialization.Serializable
 @Serializable data class BuyCheckSaved(val planId: Long)            // I-05
 @Serializable data object LivingCostDetail   // F-01b 생활비 예측(GET forecasts/living-cost)
 
-// ── 카드추천 탭 (PayGraph) ──
-@Serializable data object Recommend          // P-01
-
-// ── 결제(탭 밖 전체 화면) ──
+// ── 결제(탭 밖 전체 화면) — 하단 막대 가운데 버튼 · 홈 결제 칸이 연다. 카드추천 탭(P-01)은 S15P31E103-478에서 뺐다 ──
 @Serializable data object PayCode            // P-06a(인증) · P-06 · P-06c(결제 요청 확인 — 같은 화면의 단계, 10 문서 6-7)
 @Serializable data class PayDone(val paymentId: Long)               // P-07
 @Serializable data class PaymentDetail(val paymentId: Long)         // P-08

@@ -42,7 +42,6 @@ import com.yamu.app.feature.payment.CancelCodeRoute
 import com.yamu.app.feature.payment.PayCodeRoute
 import com.yamu.app.feature.payment.PayDoneRoute
 import com.yamu.app.feature.payment.PaymentDetailRoute
-import com.yamu.app.feature.payment.RecommendRoute
 import com.yamu.app.feature.forecast.BuyCheckInputRoute
 import com.yamu.app.feature.forecast.BuyCheckResultRoute
 import com.yamu.app.feature.forecast.BuyCheckSavedRoute
@@ -325,13 +324,6 @@ fun YamuNavHost(navController: NavHostController, modifier: Modifier = Modifier)
                             showMessage(message)
                         },
                     )
-                }
-            }
-
-            navigation<PayGraph>(startDestination = Recommend) {
-                composable<Recommend> {
-                    // 6단계: 실제 화면(10 문서)
-                    RecommendRoute(onOpenPayCode = { navController.navigate(PayCode) }, onAddCard = { navController.navigate(AddCard) }, onNotifications = { navController.navigate(Notifications) })
                 }
             }
 
