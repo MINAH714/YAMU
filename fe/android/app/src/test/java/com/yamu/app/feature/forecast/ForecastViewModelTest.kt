@@ -175,6 +175,26 @@ class ForecastViewModelTest {
         assertEquals(ForecastSelection(null, setOf(1L)), selected)
     }
 
+    @Test fun `계좌 목록이 오기 전에 '이대로 보기' — 전체 · 일부 선택은 그대로, 기간만 바뀐다(!313 리뷰)`() = runTest(dispatcher) {
+        forecastResult = ApiResult.Success(testForecast())
+        val vm = ForecastViewModel(repo)
+        vm.loadAccounts()
+        advanceUntilIdle()
+        vm.apply(null, setOf(1L, 2L))   // 전체(all)
+        advanceUntilIdle()
+        assertTrue(selected.all)
+
+        vm.apply(ForecastPeriod.DAYS_7, null)   // 시트가 계좌를 모른 채(불러오는 중 · 실패) 닫힘
+        advanceUntilIdle()
+        assertEquals(ForecastSelection(ForecastPeriod.DAYS_7, null, all = true), selected)
+
+        vm.apply(null, setOf(2L))
+        advanceUntilIdle()
+        vm.apply(ForecastPeriod.DAYS_14, null)
+        advanceUntilIdle()
+        assertEquals("일부 선택도 기준 계좌로 바뀌지 않는다", ForecastSelection(ForecastPeriod.DAYS_14, setOf(2L)), selected)
+    }
+
     @Test fun `다시 부르면 앞 요청의 늦은 결과는 버린다`() = runTest(dispatcher) {
         val slow = CompletableDeferred<ApiResult<Forecast>>()
         pendingForecast = slow

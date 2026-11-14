@@ -233,7 +233,11 @@ class ForecastRepositoryImpl @Inject constructor(
     private val cashflowApi: CashflowApi,
 ) : ForecastRepository {
 
-    @Volatile private var last: Forecast? = null
+    /**
+     * 마지막 예보와 그 예보를 받은 선택. 선택이 바뀌면 [cached]는 null이다 — 홈에서 '30일 · 기준 계좌'로 바꿔 들어왔을 때
+     * 새 응답 전(실패하면 계속) 칩 밑에 앞 선택의 숫자가 보이지 않게(!319 리뷰)
+     */
+    @Volatile private var last: Pair<ForecastSelection, Forecast>? = null
     @Volatile private var current = ForecastSelection()
     private val plans = ConcurrentHashMap<Long, SavedPlan>()
 
@@ -248,10 +252,11 @@ class ForecastRepositoryImpl @Inject constructor(
         val ids = selection.accountIdsFrom(accounts)
         return apiCall { api.forecast(ids, period?.until, period?.days) }
             .map { it.toForecast().copy(scope = selection.scopeFrom(accounts), accounts = accounts.filter { a -> a.accountId in ids }) }
-            .also { r -> if (r is ApiResult.Success) last = r.data }
+            .also { r -> if (r is ApiResult.Success) last = selection to r.data }
     }
 
-    override fun cached(): Forecast? = last
+    /** 지금 선택으로 받은 마지막 예보만 — 늦게 온 앞 선택의 응답도 지금 선택과 다르면 쓰지 않는다 */
+    override fun cached(): Forecast? = last?.takeIf { it.first == current }?.second
 
     override fun selection(): ForecastSelection = current
 

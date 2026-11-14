@@ -216,6 +216,22 @@ sealed interface MonthFlowResult {
     data class Failed(val error: ApiError) : MonthFlowResult
 }
 
+/**
+ * 예보만 실패한 새로고침 — 같은 계좌의 지난 예보가 있으면 그 값(그 예보를 받은 때 기준)을 남기고 이번 실패만 [AssetFlow.forecastError]에 둔다.
+ * 지난 예보가 없거나 계좌가 바뀌었으면 새 응답 그대로(7 · 14 · 30일 칸과 앞날이 빈다). 돌려준 값이 [next]가 아니면 마지막 값을 보인 것
+ */
+fun keepLastForecast(prev: AssetFlow?, next: AssetFlow): AssetFlow {
+    if (next.forecast != null || prev?.forecast == null) return next
+    if (prev.accounts.map { it.accountId } != next.accounts.map { it.accountId }) return next
+    return prev.copy(forecastError = next.forecastError)
+}
+
+/** 소비분석에서 다음 달을 열 수 있나 — 예보가 다음 달 1일에 닿을 때만('다음 달은 예보가 닿는 날까지'). 예보가 없거나 말일에서 끝나면 닫는다 */
+fun reachesNextMonth(flow: AssetFlow?, today: LocalDate): Boolean {
+    val end = flow?.forecastEnd ?: return false
+    return !end.isBefore(YearMonth.from(today).plusMonths(1).atDay(1))
+}
+
 interface AssetFlowRepository {
     /** 기준 계좌(없으면 전체)와 그 계좌의 오늘부터 30일 예보(7 · 14 · 30일 뒤용). 계좌가 없으면 [ForecastRepository.NO_ACCOUNT] 실패 */
     suspend fun load(): ApiResult<AssetFlow>

@@ -344,7 +344,7 @@ private fun AssetDayPanel(d: AssetDay, flow: AssetFlow, monthFlow: MonthFlow?, t
         val (main, key) = panelValue(d, flow, monthFlow, today, current, asOf)
         main?.let {
             Spacer(Modifier.height(4.dp))
-            Text(it, style = YamuTheme.typography.amountM, color = if ((d.value ?: 0) < 0) c.error else c.text1)
+            Text(it, style = YamuTheme.typography.amountM, color = if ((panelAmount(d, current) ?: 0) < 0) c.error else c.text1)
         }
         Text(key, style = YamuTheme.typography.bodyS, color = if (d.kind == DayKind.ERROR) c.warning else c.text3, modifier = Modifier.padding(top = if (main == null) 6.dp else 0.dp))
         panelNote(d, current)?.let { Text(it, style = YamuTheme.typography.bodyS, color = c.text2, modifier = Modifier.padding(top = 2.dp)) }
@@ -422,13 +422,19 @@ internal fun panelValue(d: AssetDay, flow: AssetFlow, monthFlow: MonthFlow?, tod
     DayKind.OUT_OF_RANGE -> null to "예보는 오늘부터 30일(${(monthFlow?.forecastTo ?: flow.forecastEnd)?.toMonthDay() ?: "30일 뒤"})까지만 해요."
 }
 
-/** 오늘 칸 덧줄 — 오늘 입출금이 있어 하루 끝 예상([AssetDay.endOfDay])이 지금 잔고와 다르면 */
 /**
  * 날짜 칸에 그날 입출금 줄('없어요' 포함)을 둘지. 오늘 · 앞날은 예보의 입출금이 있다. 지난날(ACTUAL)은 asset-flows가 지난 거래 목록을
  * 주지 않아(events는 늘 빈 배열) 잔고가 줄어든 날에도 '입출금이 없다'고 단정하게 되므로 빼고 그날 끝 잔고만 보인다
  */
 internal fun showsDayEvents(kind: DayKind): Boolean = kind == DayKind.TODAY || kind == DayKind.EXPECTED
 
+/**
+ * 날짜 칸 큰 금액에 보이는 값 — 오늘은 지금 잔고([current]), 다른 날은 그날 값. 빨간 글자(0원 아래)는 이 값의 부호로 정한다
+ * (오늘 칸이 지금 잔고를 보이면서 오늘 끝 예상의 부호로 색을 정하던 것, !312 리뷰)
+ */
+internal fun panelAmount(d: AssetDay, current: Long?): Long? = if (d.kind == DayKind.TODAY) current else d.value
+
+/** 오늘 칸 덧줄 — 오늘 입출금이 있어 하루 끝 예상([AssetDay.endOfDay])이 지금 잔고와 다르면 */
 internal fun panelNote(d: AssetDay, current: Long?): String? {
     if (d.kind != DayKind.TODAY) return null
     val end = d.endOfDay ?: return null

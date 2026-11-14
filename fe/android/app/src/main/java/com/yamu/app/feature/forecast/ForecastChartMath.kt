@@ -152,9 +152,15 @@ internal fun monthDayKinds(month: YearMonth, today: LocalDate, actualDates: Set<
 
 /**
  * 한 달 그래프 표시 — [kinds]는 날짜와 같은 길이. 주면 [BalanceChart]가 실선 · 점선 · 빗금 · 오늘 기준선 · 바닥 날짜를 그린다.
- * [emptyValue]는 값이 없는 날 말풍선 아랫줄('데이터 없음' · '범위 밖')
+ * [emptyValue]는 값이 없는 날 말풍선 아랫줄([monthEmptyValue])
  */
-data class MonthChart(val kinds: List<DayKind>, val emptyValue: (DayKind) -> String = ::kindShortLabel)
+data class MonthChart(val kinds: List<DayKind>, val emptyValue: (DayKind) -> String = ::monthEmptyValue)
+
+/**
+ * 값이 없는 날 말풍선 아랫줄 — 금액 자리라 날 종류 이름('데이터 없음' · '범위 밖')을 쓰되, 오늘은 '지금'이 금액처럼 읽혀
+ * 자산 흐름 칸 머리의 빈 지금 잔고와 같은 '확인할 수 없음'(예보만 실패해 오늘 값이 없을 때)
+ */
+fun monthEmptyValue(kind: DayKind): String = if (kind == DayKind.TODAY) "확인할 수 없음" else kindShortLabel(kind)
 
 /** 날 종류 짧은 이름 — 날짜 칸 꼬리표 · 말풍선 · 읽어 주기가 같이 쓴다 */
 fun kindShortLabel(kind: DayKind): String = when (kind) {
@@ -194,6 +200,13 @@ internal fun splitByKind(values: List<Long?>, kinds: List<DayKind>): Pair<List<L
 
 /** 바닥에 적는 날 — 1 · 8 · 15 · 22 · 29일 중 그달에 있는 날(0부터 센 번호) */
 internal fun monthAxisIndices(days: Int): List<Int> = listOf(1, 8, 15, 22, 29).filter { it <= days }.map { it - 1 }
+
+/**
+ * 바닥 날짜 글자 중 '오늘' 글자와 겹치지 않는 것. 오늘 글자는 말풍선에 가리지 않게 기준선 발치(바닥)에 두고, 그 자리를 덮는 날짜 글자는 뺀다.
+ * 범위는 가로 좌표 [시작, 끝], [gap]은 사이에 둘 여백
+ */
+internal fun axisLabelsClearOf(labels: List<ClosedFloatingPointRange<Float>>, today: ClosedFloatingPointRange<Float>, gap: Float): List<Boolean> =
+    labels.map { r -> r.endInclusive + gap <= today.start || r.start >= today.endInclusive + gap }
 
 /**
  * 한 달 그래프 손잡이 값 — 두 날 모두 값이 있을 때만 곧게 잇고, 한쪽이 비면 가까운 날 값(그날도 비면 null).

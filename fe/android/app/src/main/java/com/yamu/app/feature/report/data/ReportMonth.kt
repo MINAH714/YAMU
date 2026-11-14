@@ -65,11 +65,14 @@ class ReportMonth(private val thisMonth: () -> YearMonth, private val todayDate:
         return ShownMonth(month, now)
     }
 
-    /** S-01 소비분석 — 다음 달 하나까지(자산 흐름의 예보만) */
-    fun currentWithNext(): ShownMonth {
+    /**
+     * S-01 소비분석 — 다음 달 하나까지(자산 흐름의 예보만). [nextOpen]이 false면(예보가 다음 달 1일에 닿지 않음) 이번 달까지이고,
+     * 다음 달을 골라 뒀어도 이번 달로 읽는다(고른 값은 남아 예보가 닿으면 다시 그 달)
+     */
+    fun currentWithNext(nextOpen: Boolean = true): ShownMonth {
         val now = thisMonth()
-        val month = (picked ?: now).coerceIn(now.minusMonths(REPORT_MONTHS - 1L), now.plusMonths(1))
-        return ShownMonth(month, now, allowNext = true)
+        val month = (picked ?: now).coerceIn(now.minusMonths(REPORT_MONTHS - 1L), if (nextOpen) now.plusMonths(1) else now)
+        return ShownMonth(month, now, allowNext = nextOpen)
     }
 
     /** 범위 밖 달은 끝 달로 당긴다. 다음 달은 기억만 하고, 이번 달까지인 화면은 [current]에서 이번 달로 읽는다 */

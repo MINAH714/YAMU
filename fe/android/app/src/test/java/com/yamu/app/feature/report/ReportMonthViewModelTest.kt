@@ -10,6 +10,11 @@ import com.yamu.app.feature.report.data.AssetFlowRepository
 import com.yamu.app.feature.report.data.MonthFlow
 import com.yamu.app.feature.report.data.MonthFlowResult
 import com.yamu.app.feature.report.data.ReportSection
+import com.yamu.app.feature.report.data.ReportJump
+import com.yamu.app.feature.report.data.JumpRequest
+import com.yamu.app.feature.forecast.data.Forecast
+import com.yamu.app.feature.forecast.data.day
+import com.yamu.app.feature.forecast.data.testForecast
 import java.time.LocalDate
 import java.time.ZonedDateTime
 import com.yamu.app.feature.report.data.BenefitReport
@@ -63,6 +68,7 @@ class ReportMonthViewModelTest {
 
     @Test fun `소비분석이 다음 달이어도 혜택 리포트는 이번 달로 연다`() = runTest(dispatcher) {
         val report = ReportViewModel(repo, fixed, assets)
+        report.refresh(); advanceUntilIdle()   // 예보가 다음 달에 닿아야 다음 달이 열린다
         report.select(DEC); advanceUntilIdle()
         val benefits = BenefitReportViewModel(repo, fixed)
         advanceUntilIdle()
@@ -112,13 +118,84 @@ class ReportMonthViewModelTest {
     @Test fun `자산 흐름이 실패해도 사용금액은 그대로, 같은 실패면 마지막 예보 유지`() = runTest(dispatcher) {
         val vm = ReportViewModel(repo, fixed, assets)
         vm.refresh(); advanceUntilIdle()
+        val first = vm.state.value.asset.flow
         assets.fail = ApiError.Network
         vm.refresh(); advanceUntilIdle()
         val s = vm.state.value
         assertEquals(11, s.spend?.month)
         assertTrue(s.asset.error != null)
-        assertTrue("마지막 값", s.asset.flow != null)
+        assertEquals("마지막 값", first, s.asset.flow)
     }
+
+    @Test fun `예보만 실패한 새로고침은 받아 둔 예보를 지우지 않고 마지막 값 안내를 붙인다(!312 리뷰)`() = runTest(dispatcher) {
+        val vm = ReportViewModel(repo, fixed, assets)
+        vm.refresh(); advanceUntilIdle()
+        val first = vm.state.value.asset.flow!!
+        assertTrue(first.forecast != null)
+        assets.forecastFail = ApiError.BankUnavailable("FIN_API_UNAVAILABLE")
+        vm.refresh(); advanceUntilIdle()
+        val a = vm.state.value.asset
+        assertEquals("7 · 14 · 30일 칸과 앞날은 지난 예보로", first.forecast, a.flow?.forecast)
+        assertEquals("기준 시각도 그 예보를 받은 때", first.loadedAt, a.flow?.loadedAt)
+        assertTrue("'… · 마지막 값을 보여 드려요' 안내", a.error != null)
+        assets.forecastFail = null
+        vm.refresh(); advanceUntilIdle()
+        assertNull("다시 받으면 안내를 거둔다", vm.state.value.asset.error)
+    }
+
+    @Test fun `처음부터 예보가 없으면 지어내지 않는다 — 안내 없이 예보 자리만 빈다`() = runTest(dispatcher) {
+        assets.forecastFail = ApiError.Network
+        val vm = ReportViewModel(repo, fixed, assets)
+        vm.refresh(); advanceUntilIdle()
+        assertNull(vm.state.value.asset.flow?.forecast)
+        assertNull(vm.state.value.asset.error)
+    }
+
+    @Test fun `다음 달은 예보가 다음 달 1일에 닿을 때만 연다(!312 리뷰)`() = runTest(dispatcher) {
+        assets.forecast = assets.forecastUntil(LocalDate.of(2026, 11, 30), balance = 500_000)   // 말일에서 끝나는 예보
+        val vm = ReportViewModel(repo, fixed, assets)
+        vm.refresh(); advanceUntilIdle()
+        assertEquals(false, vm.state.value.shown.canNext)
+        vm.select(DEC); advanceUntilIdle()
+        assertEquals("골라도 이번 달", NOV, vm.state.value.shown.month)
+        assets.forecast = assets.forecastUntil(LocalDate.of(2026, 12, 13), balance = 500_000)
+        vm.refresh(); advanceUntilIdle()
+        assertEquals(true, vm.state.value.shown.canNext)
+    }
+
+    @Test fun `다음 달을 보던 중 예보가 다음 달에 닿지 않게 되면 이번 달로 돌아간다`() = runTest(dispatcher) {
+        val vm = ReportViewModel(repo, fixed, assets)
+        vm.refresh(); advanceUntilIdle()
+        vm.select(DEC); advanceUntilIdle()
+        assertEquals(DEC, vm.state.value.shown.month)
+        assets.fail = ApiError.Network   // 통째로 실패하면 마지막 예보가 남아 다음 달도 남는다
+        vm.refresh(); advanceUntilIdle()
+        assertEquals(DEC, vm.state.value.shown.month)
+        assets.fail = null
+        assets.forecast = assets.forecastUntil(LocalDate.of(2026, 11, 30), balance = 500_000)
+        vm.refresh(); advanceUntilIdle()
+        assertEquals(NOV, vm.state.value.shown.month)
+        assertEquals(11, vm.state.value.spend?.month)
+    }
+
+    @Test fun `홈에서 내려오기 — 요청 뒤에 끝난 불러오기(이번 달)를 기다린다(!312 리뷰)`() = runTest(dispatcher) {
+        val jumps = ReportJump(fixed)
+        val vm = ReportViewModel(repo, fixed, assets, jumps)
+        vm.refresh(); advanceUntilIdle()
+        vm.select(OCT); advanceUntilIdle()            // 지난 방문 — 10월 배치로 끝나 있다
+        jumps.request(ReportSection.ASSET_FLOW)       // 홈 '자산 흐름 보기' — 달은 이번 달로
+        val request = vm.jump.value!!
+        assertEquals("지난 배치로는 내려가지 않는다", false, vm.state.value.readyForJump(request))
+        vm.refresh()                                  // 탭이 다시 보임
+        advanceTimeBy(10)
+        assertEquals("불러오는 중", false, vm.state.value.readyForJump(request))
+        advanceUntilIdle()
+        assertEquals(NOV, vm.state.value.shown.month)
+        assertEquals(true, vm.state.value.readyForJump(request))
+        vm.jumped(request)
+        assertNull("내려간 뒤 요청은 남지 않는다", vm.jump.value)
+    }
+
 
     @Test fun `계좌가 없으면 자산 흐름은 빈 상태, 사용금액은 그대로`() = runTest(dispatcher) {
         assets.fail = ApiError.InvalidRequest(ForecastRepository.NO_ACCOUNT)
@@ -146,7 +223,7 @@ class ReportMonthViewModelTest {
         val vm = ReportViewModel(repo, fixed, assets)
         vm.refresh(); advanceUntilIdle()
         vm.selectDate(LocalDate.of(2026, 11, 25))
-        vm.jumped(ReportSection.ASSET_FLOW)
+        vm.jumped(JumpRequest(ReportSection.ASSET_FLOW, 1))
         assertEquals(LocalDate.of(2026, 11, 13), vm.state.value.assetDate)
     }
 
@@ -276,13 +353,25 @@ class ReportMonthViewModelTest {
         /** 달마다 응답 — 없으면 그달 빈 응답(Loaded). [Unsupported]는 옛 서버 */
         val monthResults = mutableMapOf<YearMonth, MonthFlowResult>()
         val monthDelays = mutableMapOf<YearMonth, Long>()
+        /** 계좌는 받고 예보만 실패 — 저장소가 Success(forecast = null, forecastError)로 준다 */
+        var forecastFail: ApiError? = null
+        /** 성공할 때 예보 — 11/13부터 30일(12/13까지, 다음 달 1일에 닿는다) */
+        var forecast: Forecast? = forecastUntil(LocalDate.of(2026, 12, 13), balance = 500_000)
         private val account = ForecastAccountOption(2, "생활비 통장", "신한", "5678", 268_000, isPrimary = true)
 
         override suspend fun load(): ApiResult<AssetFlow> {
             loads++
             delay(50)
             fail?.let { return ApiResult.Failure(it) }
-            return ApiResult.Success(AssetFlow(listOf(account), forecast = null, loadedAt = ZonedDateTime.of(2026, 11, 13, 9, 0, 0, 0, KST)))
+            val at = ZonedDateTime.of(2026, 11, 13, 9, loads, 0, 0, KST)
+            forecastFail?.let { return ApiResult.Success(AssetFlow(listOf(account), forecast = null, forecastError = it, loadedAt = at)) }
+            return ApiResult.Success(AssetFlow(listOf(account), forecast = forecast, loadedAt = at))
+        }
+
+        fun forecastUntil(end: LocalDate, balance: Long): Forecast {
+            val from = LocalDate.of(2026, 11, 13)
+            val days = generateSequence(from) { it.plusDays(1) }.takeWhile { !it.isAfter(end) }.map { day(it, expected = balance, conservative = null) }.toList()
+            return testForecast(days = days, from = from, to = end, accountIds = listOf(2))
         }
 
         override suspend fun month(month: YearMonth): MonthFlowResult {
