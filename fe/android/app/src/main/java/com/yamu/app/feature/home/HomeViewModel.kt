@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.yamu.app.core.format.KST
 import com.yamu.app.core.network.ApiError
 import com.yamu.app.core.network.ApiResult
+import com.yamu.app.core.network.map
 import com.yamu.app.feature.forecast.data.ForecastPeriod
 import com.yamu.app.feature.forecast.data.ForecastRepository
 import com.yamu.app.feature.forecast.data.ForecastSelection
@@ -75,8 +76,28 @@ data class HomeUiState(
      */
     val forecast: HomeSection<HomeForecastBrief> = HomeSection.Loading,
     /** 카드별 이번 달 받은 혜택(userCardId → 혜택) — 새 홈 칸(benefitSummary)이 있을 때만 부른다. 없거나 실패면 카드 줄에 붙이지 않는다 */
-    val cardBenefits: HomeSection<Map<Long, CardBenefit>> = HomeSection.Loading,
+    val cardBenefits: HomeSection<MonthCardBenefits> = HomeSection.Loading,
 )
+
+/** 카드별 받은 혜택 한 달 치 — 받은 달을 같이 들고 있어야 달이 바뀐 뒤 지난달 금액을 이번 달 카드 줄에 붙이지 않는다(셀프 리뷰 P2) */
+data class MonthCardBenefits(val month: YearMonth, val byCard: Map<Long, CardBenefit>)
+
+/**
+ * [month]의 카드별 혜택 결과를 받는다. 실패하면 같은 달 값만 남기고(COMMON-08), 다른 달 값이면 버리고 실패로 둔다 —
+ * 12/1에 12월 호출만 실패했을 때 11월 금액이 12월 히어로 아래 카드 줄에 보이지 않게
+ */
+internal fun HomeSection<MonthCardBenefits>.nextFor(month: YearMonth, result: ApiResult<Map<Long, CardBenefit>>): HomeSection<MonthCardBenefits> {
+    val kept = if (this is HomeSection.Ready && data.month != month) HomeSection.Loading else this
+    return kept.next(result.map { MonthCardBenefits(month, it) })
+}
+
+/**
+ * 카드 줄에 붙일 받은 혜택 — 히어로와 같은 달(새 홈 칸의 달)일 때만. 새 홈 칸이 없거나(옛 서버 · 그 칸만 실패) 달이 다르면 null(줄을 숨긴다)
+ */
+internal fun HomeUiState.cardBenefitsShown(): Map<Long, CardBenefit>? {
+    val month = (content?.yamuBenefit as? NewHomeArea.Value)?.data?.month ?: return null
+    return cardBenefits.dataOrNull?.takeIf { it.month == month }?.byCard
+}
 
 /** 잔고예보 요약 칸이 그릴 것 */
 enum class ForecastSlot { Hidden, NoAccount, HomeFailed, Brief }
@@ -172,7 +193,7 @@ class HomeViewModel @Inject constructor(
         _state.update { it.copy(forecast = it.forecast.forAccount(it.content?.baseAccountId)) }
         val benefit = async { benefitOf(home, result) }
         // 카드별 받은 혜택은 새 홈 칸과 같은 달 · 출처(YAMU) — 옛 서버면 부르지 않는다(리포트에 cards가 없다)
-        val cardBenefits = (home?.yamuBenefit as? NewHomeArea.Value)?.let { v -> async { repository.loadCardBenefits(v.data.month) } }
+        val cardBenefits = (home?.yamuBenefit as? NewHomeArea.Value)?.data?.month?.let { m -> async { m to repository.loadCardBenefits(m) } }
         val label = when (val preview = home?.forecastPreview) {
             is NewHomeArea.Value -> {
                 showPreview(preview.data)
@@ -194,7 +215,7 @@ class HomeViewModel @Inject constructor(
         val c = cards.await()
         _state.update { it.copy(cards = it.cards.next(c)) }
         (c as? ApiResult.Success)?.data?.cards?.let { list -> artLoader.ensure(list.map { it.userCardId }) }
-        cardBenefits?.await()?.let { r -> _state.update { it.copy(cardBenefits = it.cardBenefits.next(r)) } }
+        cardBenefits?.await()?.let { (m, r) -> _state.update { it.copy(cardBenefits = it.cardBenefits.nextFor(m, r)) } }
         label?.await()?.let { (accountId, name) -> if (name != null) labelPreview(accountId, name) }
         oldBrief?.await()?.let { f -> _state.update { it.copy(forecast = it.forecast.next(f)) } }
     }

@@ -2,13 +2,16 @@ package com.yamu.app.feature.home
 
 import com.yamu.app.core.network.ApiError
 import com.yamu.app.core.network.ApiResult
+import com.yamu.app.feature.home.data.CardBenefit
 import com.yamu.app.feature.home.data.ForecastSummary
+import com.yamu.app.feature.home.data.HomeBenefit
 import com.yamu.app.feature.home.data.HomeForecastBrief
 import com.yamu.app.feature.home.data.HomeSummary
 import com.yamu.app.feature.home.data.NewHomeArea
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
+import java.time.YearMonth
 
 /** 홈 칸마다 따로 받는 값(v4 · COMMON-08) — 다시 불러오다 실패해도 마지막 값을 지우지 않는다 */
 class HomeSectionTest {
@@ -100,6 +103,41 @@ class HomeSectionTest {
     @Test fun `불러오는 중 · 실패는 그대로`() {
         assertEquals(HomeSection.Loading, HomeSection.Loading.forAccount(2))
         assertEquals(HomeSection.Failed(failed), HomeSection.Failed(failed).forAccount(2))
+    }
+
+    // ── 카드별 받은 혜택의 달(셀프 리뷰 P2) — 달이 바뀐 뒤 지난달 금액을 이번 달 카드 줄에 붙이지 않는다 ──
+
+    private val nov = YearMonth.of(2026, 11)
+    private val dec = YearMonth.of(2026, 12)
+    private val novBenefits = MonthCardBenefits(nov, mapOf(11L to CardBenefit(9_800, 6_000, 0)))
+
+    @Test fun `같은 달 호출이 실패하면 그 달 값은 남긴다`() {
+        assertEquals(HomeSection.Ready(novBenefits), HomeSection.Ready(novBenefits).nextFor(nov, ApiResult.Failure(failed)))
+    }
+
+    @Test fun `달이 바뀐 뒤 실패하면 지난달 값을 버리고 실패`() {
+        assertEquals(HomeSection.Failed(failed), HomeSection.Ready(novBenefits).nextFor(dec, ApiResult.Failure(failed)))
+    }
+
+    @Test fun `받으면 받은 달과 함께 둔다`() {
+        val map = mapOf(11L to CardBenefit(1_000, 0, 0))
+        assertEquals(HomeSection.Ready(MonthCardBenefits(dec, map)), HomeSection.Ready(novBenefits).nextFor(dec, ApiResult.Success(map)))
+    }
+
+    private fun benefitOf(month: YearMonth) = HomeBenefit(month, month.atDay(1), month.atDay(1), 0, 0, null)
+
+    @Test fun `카드 줄은 히어로와 같은 달의 혜택만`() {
+        val home = home(accountId = 1)
+        val dec1 = HomeUiState(content = home.copy(yamuBenefit = NewHomeArea.Value(benefitOf(dec))), cardBenefits = HomeSection.Ready(novBenefits))
+        assertNull(dec1.cardBenefitsShown())
+        val nov14 = dec1.copy(content = home.copy(yamuBenefit = NewHomeArea.Value(benefitOf(nov))))
+        assertEquals(novBenefits.byCard, nov14.cardBenefitsShown())
+    }
+
+    @Test fun `새 홈 칸이 없으면 카드 줄에 혜택을 붙이지 않는다`() {
+        val old = HomeUiState(content = home(accountId = 1), cardBenefits = HomeSection.Ready(novBenefits))
+        assertNull(old.cardBenefitsShown())   // 옛 서버(OldServer)
+        assertNull(old.copy(content = home(accountId = 1).copy(yamuBenefit = NewHomeArea.Failed)).cardBenefitsShown())
     }
 
     @Test fun `새 칸 요약도 새 칸의 기준 계좌로 맞춘다`() {

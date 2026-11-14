@@ -267,7 +267,7 @@ fun HomeScreen(
                         )
                         // 아래쪽(S15P31E103-481) — 카드가 있어야 보이는 두 칸, 그다음 잔고예보 요약
                         if (!content.needsLinking && !content.needsCard) {
-                            CardsSection(state.cards, arts, state.cardBenefits.dataOrNull, onCard = onCardPerformance, onAll = onPerfTab, onRetry = onRetryCards)
+                            CardsSection(state.cards, arts, state.cardBenefitsShown(), onCard = onCardPerformance, onAll = onPerfTab, onRetry = onRetryCards)
                             state.cards.dataOrNull?.missed()?.takeUnless { it.isEmpty }?.let { MissedSection(it, onAll = onBenefitLimits) }
                         }
                         ForecastSection(
