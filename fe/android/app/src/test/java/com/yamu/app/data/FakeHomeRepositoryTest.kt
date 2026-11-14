@@ -34,7 +34,9 @@ class FakeHomeRepositoryTest {
     private val bank = FakeBank(FakeUser(storage = null))
     private val payments = FakePaymentRepository(FakePerformanceStore(bank), PaymentEdits(), bank)
     private val forecast = FakeForecastRepository(bank)
-    private val home = FakeHomeRepository(FakeMyRepository(SessionStore(noFilesContext), payments), bank, forecast, payments)
+    private val home = FakeHomeRepository(
+        FakeMyRepository(SessionStore(noFilesContext), payments), bank, forecast, payments, FakePerformanceRepository(FakePerformanceStore(bank), bank),
+    )
 
     @Before fun setUp() {
         DevSession.homeScenario = HomeScenario.NORMAL
@@ -144,5 +146,35 @@ class FakeHomeRepositoryTest {
 
     @Test fun `정상은 자동 선택이 켜져 있다`() = runTest {
         assertTrue((home.loadPaySettings() as ApiResult.Success).data.autoSelect)
+    }
+
+    // ── v4 카드 현황 · 잔고예보 요약(S15P31E103-481) ──
+
+    @Test fun `카드 현황은 등록한 카드 순서이고 금액을 모르는 한도가 하나 있다`() = runTest {
+        val data = (home.loadCards() as ApiResult.Success).data
+        assertEquals(bank.registeredCardIds(), data.cards.map { it.userCardId })
+        assertTrue(data.limits!!.flatMap { it.limits }.any { it.remainingAmount == null })
+    }
+
+    @Test fun `잔고예보 요약은 기준 계좌 · 30일 예보와 같은 최저 잔고`() = runTest {
+        val accountId = load().forecast!!.accountId!!
+        val brief = (home.loadForecastBrief(accountId) as ApiResult.Success).data
+        val dto = forecast.homeBrief(accountId)!!
+        assertEquals(dto.summary?.minBalance, brief.minBalance)
+        assertEquals(dto.currentTotalBalance, brief.currentBalance)
+        assertNotNull(brief.accountLabel)
+    }
+
+    @Test fun `잔고예보만 실패면 요약만 실패하고 홈은 기준 계좌를 준다`() = runTest {
+        DevSession.homeScenario = HomeScenario.FORECAST_ERROR
+        val accountId = load().forecast!!.accountId!!
+        assertTrue(home.loadForecastBrief(accountId) is ApiResult.Failure)
+    }
+
+    @Test fun `기준 계좌 없음은 잔고 영역이 비었지만 실패는 아니다`() = runTest {
+        DevSession.homeScenario = HomeScenario.NO_ACCOUNT
+        val h = load()
+        assertNull(h.forecast)
+        assertTrue(h.failedAreas.isEmpty())
     }
 }
