@@ -110,6 +110,9 @@ data class ChartMarks(val purchase: Int? = null, val withdrawals: Set<Int> = emp
  *   손잡이가 0원 아래로 들어가면 동전 · 말풍선이 빨갛게 바뀌며 말풍선이 흔들린다
  * - 처음 열 때 선과 면이 왼쪽부터 그려지고 동전이 떨어져 앉는다. 모션 줄이기면 모두 끄고 바로 옮긴다
  * - 가상 구매는 [marks]로 구매일 · 출금일 · 기간 밖 출금을 더 그린다
+ * - [month]를 주면 한 달 그래프다(소비분석 자산 흐름, Task 8.2.99). [lines]는 실선(실제) · 점선(예상) 순으로 날을 나눠 갖고,
+ *   손잡이는 날마다 값이 있는 선을 탄다. 데이터 없음 · 범위 밖은 빗금, 오늘은 세로 점선, 바닥에 1 · 8 · 15 · 22 · 29일과 '오늘'(겹치는 날짜는 뺌).
+ *   값이 없는 날을 고르면 동전 대신 바닥에 빈 점선 동그라미를 둔다. 주지 않으면(잔고예보 · 가상 구매) 지금 모습 그대로
  */
 @Composable
 fun BalanceChart(
@@ -129,6 +132,7 @@ fun BalanceChart(
     interacted: Boolean = false,
     onInteract: (() -> Unit)? = null,
     onDragChange: ((Boolean) -> Unit)? = null,
+    month: MonthChart? = null,
 ) {
     val n = dates.size
     if (n < 2 || lines.isEmpty()) return
@@ -139,8 +143,11 @@ fun BalanceChart(
     val scope = rememberCoroutineScope()
     val measurer = rememberTextMeasurer()
     val ride = lines.last()
+    // 한 달 그래프면 날 종류(날짜와 길이가 다르면 쓰지 않는다). 손잡이 · 동전 · 말풍선이 타는 값은 그날 값이 있는 선
+    val kinds = month?.kinds?.takeIf { it.size == n }
+    val rideValues = remember(lines, kinds) { if (kinds != null) firstValues(lines.map { it.values }) else ride.values }
     val range = remember(lines, threshold) { chartRange(lines.flatMap { it.values.filterNotNull() }, threshold) }
-    val drops = remember(ride.values) { sharpDropDays(ride.values) }
+    val drops = remember(rideValues) { sharpDropDays(rideValues) }
     val sel = selected?.coerceIn(0, n - 1)
     val interactive = onSelect != null && sel != null
     val chartKey = dates.first() to dates.last()
@@ -206,7 +213,7 @@ fun BalanceChart(
     }
 
     // 0원 아래로 들어가는 순간 — 진동 한 번 더 세게, 말풍선 흔들기
-    val rideAt = sel?.let { ride.values.getOrNull(it) }
+    val rideAt = sel?.let { rideValues.getOrNull(it) }
     val neg = (rideAt ?: 0L) < 0
     val shake = remember { Animatable(0f) }
     var wasNeg by remember(chartKey) { mutableStateOf(neg) }
@@ -311,7 +318,13 @@ fun BalanceChart(
                 val left = SIDE_PAD.toPx()
                 val right = size.width - sidePadRight.toPx()
                 val top = topPad.toPx()
-                val bottom = size.height - BOTTOM_PAD.toPx()
+                // 한 달 그래프는 바닥에 날짜 글자 자리를 둔다 — 글자 크기를 키워도 선과 겹치지 않게 잰 높이로
+                val axisLabels = kinds?.let { monthAxisIndices(n).map { i -> i to measurer.measure("${i + 1}일", labelStyle.copy(color = c.text3)) } }.orEmpty()
+                // '오늘'은 기준선 발치(바닥 날짜 줄)에 — 위에 두면 처음 열 때 오늘을 고른 말풍선이 덮는다(!311 리뷰)
+                val todayAt = kinds?.indexOf(DayKind.TODAY)?.takeIf { it >= 0 }
+                val todayLabel = todayAt?.let { measurer.measure("오늘", labelStyle.copy(color = c.text2, fontWeight = FontWeight.Bold)) }
+                val axisHeight = (axisLabels.map { it.second.size.height } + listOfNotNull(todayLabel?.size?.height)).maxOrNull()
+                val bottom = size.height - (axisHeight?.let { it + 4.dp.toPx() } ?: BOTTOM_PAD.toPx())
                 fun x(i: Int) = left + (right - left) * fractionOf(i, n)
                 fun y(v: Double) = bottom - range.fraction(v) * (bottom - top)
                 val ySafe = threshold?.let { y(it.toDouble()).coerceIn(0f, size.height) } ?: size.height
@@ -369,6 +382,37 @@ fun BalanceChart(
                     if (yZero + 2.dp.toPx() + label.size.height < size.height) drawText(label, topLeft = Offset(right - label.size.width, yZero + 2.dp.toPx()))
                 }
 
+                // 한 달 그래프 빗금 — 데이터 없음은 진하게, 범위 밖은 옅게. 넓으면 무엇인지 글자로(색만으로 나누지 않게, COMMON-11).
+                // 들어오기와 상관없이 처음부터 보인다(값이 아니라 '여기는 없다'는 자리라서)
+                if (kinds != null) {
+                    val half = (right - left) / (n - 1) / 2f
+                    hatchRuns(kinds).forEach { run ->
+                        val x0 = max(0f, x(run.from) - half)
+                        val x1 = min(size.width, x(run.to) + half)
+                        if (x1 <= x0) return@forEach
+                        val y0 = top - 4.dp.toPx()
+                        val ink = c.text3.copy(alpha = if (run.kind == DayKind.NO_DATA) HATCH_STRONG else HATCH_LIGHT)
+                        drawHatch(Offset(x0, y0), Size(x1 - x0, bottom - y0), ink)
+                        val label = measurer.measure(if (run.kind == DayKind.NO_DATA) "실제 잔고 없음" else "예보 범위 밖", labelStyle.copy(color = c.text2, fontWeight = FontWeight.Bold))
+                        if (x1 - x0 >= label.size.width + 16.dp.toPx()) {
+                            val at = Offset((x0 + x1 - label.size.width) / 2f, y0 + 6.dp.toPx())
+                            drawRoundRect(c.surface.copy(alpha = 0.92f), topLeft = Offset(at.x - 5.dp.toPx(), at.y - 2.dp.toPx()), size = Size(label.size.width + 10.dp.toPx(), label.size.height + 4.dp.toPx()), cornerRadius = CornerRadius(6.dp.toPx()))
+                            drawText(label, topLeft = at)
+                        }
+                    }
+                    fun axisLeft(cx: Float, w: Int) = (cx - w / 2f).coerceIn(0f, max(0f, size.width - w))
+                    val todayLeft = todayAt?.let { t -> todayLabel?.let { axisLeft(x(t), it.size.width) } }
+                    val clear = if (todayLeft == null || todayLabel == null) axisLabels.map { true } else axisLabelsClearOf(
+                        axisLabels.map { (i, label) -> axisLeft(x(i), label.size.width).let { l -> l..(l + label.size.width) } },
+                        todayLeft..(todayLeft + todayLabel.size.width),
+                        gap = 4.dp.toPx(),
+                    )
+                    axisLabels.forEachIndexed { k, (i, label) ->
+                        if (clear[k]) drawText(label, topLeft = Offset(axisLeft(x(i), label.size.width), size.height - label.size.height))
+                    }
+                    if (todayLeft != null && todayLabel != null) drawText(todayLabel, topLeft = Offset(todayLeft, size.height - todayLabel.size.height))
+                }
+
                 // 가상 구매 구매일 — 회색 점선은 선보다 먼저 그려 선 · 동전을 가리지 않는다. '구매' 글자는 선을 그린 뒤 얹는다
                 var purchaseLabel: (() -> Unit)? = null
                 marks?.purchase?.takeIf { it in 0 until n }?.let { p ->
@@ -392,7 +436,7 @@ fun BalanceChart(
                             sx += 3.dp.toPx()
                         }
                         return (drops + eventDays).any { d ->
-                            val v = ride.values.getOrNull(d) ?: return@any false
+                            val v = rideValues.getOrNull(d) ?: return@any false
                             val cx = x(d)
                             val cy = y(v.toDouble())
                             cx + 8.dp.toPx() >= lx && cx - 8.dp.toPx() <= lx + w && cy - 8.dp.toPx() <= band.endInclusive && cy + 18.dp.toPx() >= band.start
@@ -416,19 +460,38 @@ fun BalanceChart(
                     val zoneSafe = ySafe to max(ySafe, if (zeroIn) yZero else size.height)
                     val zoneZero = (if (zeroIn) yZero else size.height) to size.height
 
-                    // 손잡이가 타는 선 아래 면 — 0원이 범위 안이면 0원까지(0원 아래는 선과 0원 사이), 아니면 바닥까지
+                    // 손잡이가 타는 선 아래 면 — 0원이 범위 안이면 0원까지(0원 아래는 선과 0원 사이), 아니면 바닥까지.
+                    // 한 달 그래프는 실선(실제) 아래만 칠하고, 빈 날로 끊긴 곳마다 따로 닫는다(빗금 위를 건너 칠하지 않게)
                     val baseY = if (zeroIn) yZero else bottom
                     val area = Path()
                     var firstX = Float.NaN
                     var lastX = Float.NaN
-                    ride.values.forEachIndexed { i, v ->
-                        if (v == null) return@forEachIndexed
-                        if (firstX.isNaN()) { area.moveTo(x(i), y(v.toDouble())); firstX = x(i) } else area.lineTo(x(i), y(v.toDouble()))
-                        lastX = x(i)
+                    val fillLine = if (kinds != null) lines.first() else ride
+                    var filled = false
+                    if (kinds == null) {
+                        ride.values.forEachIndexed { i, v ->
+                            if (v == null) return@forEachIndexed
+                            if (firstX.isNaN()) { area.moveTo(x(i), y(v.toDouble())); firstX = x(i) } else area.lineTo(x(i), y(v.toDouble()))
+                            lastX = x(i)
+                        }
+                        if (!firstX.isNaN()) { area.lineTo(lastX, baseY); area.lineTo(firstX, baseY); area.close(); filled = true }
+                    } else {
+                        var count = 0
+                        fun closeRun() {
+                            if (count >= 2) { area.lineTo(lastX, baseY); area.lineTo(firstX, baseY); area.close(); filled = true }
+                            firstX = Float.NaN
+                            count = 0
+                        }
+                        fillLine.values.forEachIndexed { i, v ->
+                            if (v == null) { closeRun(); return@forEachIndexed }
+                            if (firstX.isNaN()) { area.moveTo(x(i), y(v.toDouble())); firstX = x(i) } else area.lineTo(x(i), y(v.toDouble()))
+                            lastX = x(i)
+                            count++
+                        }
+                        closeRun()
                     }
-                    if (!firstX.isNaN()) {
-                        area.lineTo(lastX, baseY); area.lineTo(firstX, baseY); area.close()
-                        val okBrush = Brush.verticalGradient(listOf(ride.color.copy(alpha = 0.30f), ride.color.copy(alpha = 0.03f)), startY = top, endY = max(top + 1f, min(baseY, ySafe)))
+                    if (filled) {
+                        val okBrush = Brush.verticalGradient(listOf(fillLine.color.copy(alpha = 0.30f), fillLine.color.copy(alpha = 0.03f)), startY = top, endY = max(top + 1f, min(baseY, ySafe)))
                         val safeBrush = Brush.verticalGradient(listOf(c.warning.copy(alpha = 0.28f), c.warning.copy(alpha = 0.05f)), startY = ySafe, endY = max(ySafe + 1f, baseY))
                         val zeroBrush = Brush.verticalGradient(listOf(c.error.copy(alpha = 0.10f), c.error.copy(alpha = 0.40f)), startY = yZero, endY = max(yZero + 1f, bottom))
                         listOf(zoneOk to okBrush, zoneSafe to safeBrush, zoneZero to zeroBrush).forEach { (z, brush) ->
@@ -458,7 +521,7 @@ fun BalanceChart(
 
                     // 돈이 오가는 날 동전 — 들어올 때 선이 닿는 순서대로 떨어져 앉는다
                     eventDays.forEach { i ->
-                        val v = ride.values.getOrNull(i) ?: return@forEach
+                        val v = rideValues.getOrNull(i) ?: return@forEach
                         val p = ((reveal.value * 1.15f - fractionOf(i, n)) / 0.22f).coerceIn(0f, 1f)
                         if (p <= 0f) return@forEach
                         val dropY = (1f - easeOutBack(p)) * 26.dp.toPx()
@@ -475,7 +538,7 @@ fun BalanceChart(
                     }
                     // 급하게 빠지는 날 — 선 밑 빨간 ↓
                     drops.forEach { i ->
-                        val v = ride.values.getOrNull(i) ?: return@forEach
+                        val v = rideValues.getOrNull(i) ?: return@forEach
                         val cx = x(i)
                         val ty = y(v.toDouble()) + 11.dp.toPx()
                         val w = 4.5.dp.toPx()
@@ -494,7 +557,7 @@ fun BalanceChart(
                         c.warning, Offset(ox, top - 4.dp.toPx()), Offset(ox, bottom + 4.dp.toPx()),
                         strokeWidth = 1.5.dp.toPx(), pathEffect = PathEffect.dashPathEffect(floatArrayOf(2.dp.toPx(), 3.dp.toPx())), alpha = a,
                     )
-                    ride.values.lastOrNull { it != null }?.let { v ->
+                    rideValues.lastOrNull { it != null }?.let { v ->
                         val center = Offset(ox, y(v.toDouble()))
                         if (flash.value > 0f) drawCircle(c.warning, radius = (8.dp + 8.dp * flash.value).toPx(), center = center, alpha = 0.35f * flash.value)
                         drawChartCoin(center, WITHDRAW_R.toPx(), 0f, if (v < 0) negCoin else coin, alpha = a)
@@ -513,6 +576,19 @@ fun BalanceChart(
                     drawPath(head, c.primary)
                 }
 
+                // 한 달 그래프 오늘 기준선 — 세로 점선(실제 · 예상이 갈리는 자리, ANALYSIS-05)과 바닥의 '오늘'(위 날짜 줄에서 그림).
+                // 오늘 점은 선이 닿은 뒤 보인다
+                todayAt?.let { t ->
+                    val tx = x(t)
+                    drawLine(
+                        c.text2.copy(alpha = 0.7f), Offset(tx, top - 4.dp.toPx()), Offset(tx, bottom),
+                        strokeWidth = 1.dp.toPx(), pathEffect = PathEffect.dashPathEffect(floatArrayOf(2.dp.toPx(), 3.dp.toPx())),
+                    )
+                    rideValues.getOrNull(t)?.takeIf { reveal.value * (size.width + 40.dp.toPx()) - 20.dp.toPx() >= tx }?.let { v ->
+                        drawCircle(lines.first().color, radius = 3.4.dp.toPx(), center = Offset(tx, y(v.toDouble())))
+                    }
+                }
+
                 // 고른 날 — 세로줄, 다른 선의 점, 동전 손잡이
                 if (interactive) {
                     val a = handleAlpha()
@@ -520,7 +596,8 @@ fun BalanceChart(
                         val hf = (handle.value + nudge.value * NUDGE_AMP.toPx() / (right - left)).coerceIn(0f, 1f)   // 첫 안내 흔들기는 보이는 자리만 옮긴다
                         val hx = left + (right - left) * hf
                         drawLine(c.text2.copy(alpha = 0.35f * a), Offset(hx, top - 6.dp.toPx()), Offset(hx, bottom + 4.dp.toPx()), strokeWidth = 1.dp.toPx())
-                        lines.dropLast(1).forEach { line ->
+                        // 한 달 그래프는 실선 · 점선이 같은 값을 날로 나눠 가져 따로 점을 찍지 않는다
+                        if (kinds == null) lines.dropLast(1).forEach { line ->
                             val v = valueAt(line.values, hf) ?: return@forEach
                             val center = Offset(hx, y(v))
                             if (line.dashed || !line.zoned) {
@@ -531,10 +608,19 @@ fun BalanceChart(
                                 drawCircle(line.color, radius = 3.6.dp.toPx(), center = center, alpha = a)
                             }
                         }
-                        valueAt(ride.values, hf)?.let { v ->
-                            val center = Offset(hx, y(v))
+                        val hv = if (kinds != null) valueAtStrict(rideValues, hf) else valueAt(rideValues, hf)
+                        if (hv != null) {
+                            val center = Offset(hx, y(hv))
                             drawCircle(if (neg) c.error else c.primary, radius = 15.dp.toPx() * lift, center = center, alpha = 0.14f * a)
                             drawChartCoin(center, HANDLE_R.toPx() * lift, 0f, if (neg) negCoin else coin, alpha = a)
+                        } else if (kinds != null) {
+                            // 값이 없는 날 — 손잡이 대신 바닥에 빈 점선 동그라미(지어낸 값에 동전을 얹지 않는다)
+                            val center = Offset(hx, bottom - 7.dp.toPx())
+                            drawCircle(c.surface, radius = 6.dp.toPx() * lift, center = center, alpha = a)
+                            drawCircle(
+                                c.text3, radius = 6.dp.toPx() * lift, center = center, alpha = a,
+                                style = Stroke(1.6.dp.toPx(), pathEffect = PathEffect.dashPathEffect(floatArrayOf(2.dp.toPx(), 2.dp.toPx()))),
+                            )
                         }
                     }
                 }
@@ -571,7 +657,7 @@ fun BalanceChart(
                 ) {
                     Text(if (touched) dayLabel(sel) else "‹ 밀어서 날짜 보기 ›", style = labelStyle, color = onTip.copy(alpha = 0.82f), maxLines = 1)
                     Text(
-                        rideAt?.let { "${it.toWon()}원" } ?: "—",
+                        rideAt?.let { "${it.toWon()}원" } ?: kinds?.getOrNull(sel)?.let { k -> month?.emptyValue?.invoke(k) } ?: "—",
                         style = YamuTheme.typography.value.copy(fontSize = 14.sp, lineHeight = 18.sp),
                         color = onTip,
                         maxLines = 1,
@@ -579,16 +665,26 @@ fun BalanceChart(
                 }
             }
         }
+        // 한 달 그래프는 바닥 날짜를 그래프 안에 그렸다
+        if (kinds == null) AxisRow(dates.last(), incomeArrow, marks?.beyond, { flash.value })
+    }
+}
+
+/** 잔고예보 · 가상 구매 그래프 밑 '오늘 … 11/20 · 월급 · 12/14 출금 →' 한 줄 */
+@Composable
+private fun AxisRow(last: LocalDate, incomeArrow: Boolean, beyond: String?, flash: () -> Float) {
+    val c = YamuTheme.colors
+    Column {
         Spacer(Modifier.height(6.dp))
         val axis = YamuTheme.typography.labelS
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text("오늘", style = axis, color = c.text1, modifier = Modifier.weight(1f))
-            Text(dates.last().toMonthDay(), style = axis, color = c.text1)
+            Text(last.toMonthDay(), style = axis, color = c.text1)
             if (incomeArrow) {
                 Spacer(Modifier.width(8.dp))
                 Text("월급", style = axis, color = c.primary)
             }
-            marks?.beyond?.let { label ->
+            beyond?.let { label ->
                 Spacer(Modifier.width(6.dp))
                 // 깜빡일 때만 연한 주황 바탕(그리는 단계에서 읽어 깜빡이는 동안 다시 짜지 않는다)
                 Text(
@@ -596,7 +692,7 @@ fun BalanceChart(
                     style = axis,
                     color = c.onWarningContainer,
                     modifier = Modifier
-                        .drawBehind { if (flash.value > 0f) drawRoundRect(c.warningContainer, cornerRadius = CornerRadius(4.dp.toPx()), alpha = flash.value) }
+                        .drawBehind { val a = flash(); if (a > 0f) drawRoundRect(c.warningContainer, cornerRadius = CornerRadius(4.dp.toPx()), alpha = a) }
                         .padding(horizontal = 2.dp),
                 )
             }
@@ -631,6 +727,26 @@ private fun easeOutBack(t: Float): Float {
     val u = t - 1f
     return 1f + c3 * u * u * u + c1 * u * u
 }
+
+/**
+ * 빗금 — 오른쪽 위로 기운 줄을 [HATCH_GAP]마다. 그래프의 빈 구간과 날짜 띠의 빈 날 알약이 같이 쓴다(색이 아니라 무늬로 '없음'을 보인다)
+ */
+internal fun DrawScope.drawHatch(topLeft: Offset, size: Size, color: Color) {
+    val gap = HATCH_GAP.toPx()
+    val stroke = HATCH_STROKE.toPx()
+    clipRect(topLeft.x, topLeft.y, topLeft.x + size.width, topLeft.y + size.height) {
+        var d = -size.height
+        while (d < size.width) {
+            drawLine(color, Offset(topLeft.x + d, topLeft.y + size.height), Offset(topLeft.x + d + size.height, topLeft.y), strokeWidth = stroke)
+            d += gap
+        }
+    }
+}
+
+internal val HATCH_GAP = 6.dp
+internal val HATCH_STROKE = 1.5.dp
+internal const val HATCH_STRONG = 0.34f   // 데이터 없음
+internal const val HATCH_LIGHT = 0.17f    // 예보 범위 밖
 
 private val BUBBLE_ZONE = 44.dp      // 말풍선 자리(손잡이가 있을 때만)
 private val SIDE_PAD = 8.dp
