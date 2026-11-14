@@ -111,7 +111,7 @@ data class ChartMarks(val purchase: Int? = null, val withdrawals: Set<Int> = emp
  * - 처음 열 때 선과 면이 왼쪽부터 그려지고 동전이 떨어져 앉는다. 모션 줄이기면 모두 끄고 바로 옮긴다
  * - 가상 구매는 [marks]로 구매일 · 출금일 · 기간 밖 출금을 더 그린다
  * - [month]를 주면 한 달 그래프다(소비분석 자산 흐름, Task 8.2.99). [lines]는 실선(실제) · 점선(예상) 순으로 날을 나눠 갖고,
- *   손잡이는 날마다 값이 있는 선을 탄다. 데이터 없음 · 범위 밖은 빗금, 오늘은 세로 점선과 '오늘', 바닥에 1 · 8 · 15 · 22 · 29일.
+ *   손잡이는 날마다 값이 있는 선을 탄다. 데이터 없음 · 범위 밖은 빗금, 오늘은 세로 점선, 바닥에 1 · 8 · 15 · 22 · 29일과 '오늘'(겹치는 날짜는 뺌).
  *   값이 없는 날을 고르면 동전 대신 바닥에 빈 점선 동그라미를 둔다. 주지 않으면(잔고예보 · 가상 구매) 지금 모습 그대로
  */
 @Composable
@@ -320,7 +320,11 @@ fun BalanceChart(
                 val top = topPad.toPx()
                 // 한 달 그래프는 바닥에 날짜 글자 자리를 둔다 — 글자 크기를 키워도 선과 겹치지 않게 잰 높이로
                 val axisLabels = kinds?.let { monthAxisIndices(n).map { i -> i to measurer.measure("${i + 1}일", labelStyle.copy(color = c.text3)) } }.orEmpty()
-                val bottom = size.height - (axisLabels.maxOfOrNull { it.second.size.height.toFloat() + 4.dp.toPx() } ?: BOTTOM_PAD.toPx())
+                // '오늘'은 기준선 발치(바닥 날짜 줄)에 — 위에 두면 처음 열 때 오늘을 고른 말풍선이 덮는다(!311 리뷰)
+                val todayAt = kinds?.indexOf(DayKind.TODAY)?.takeIf { it >= 0 }
+                val todayLabel = todayAt?.let { measurer.measure("오늘", labelStyle.copy(color = c.text2, fontWeight = FontWeight.Bold)) }
+                val axisHeight = (axisLabels.map { it.second.size.height } + listOfNotNull(todayLabel?.size?.height)).maxOrNull()
+                val bottom = size.height - (axisHeight?.let { it + 4.dp.toPx() } ?: BOTTOM_PAD.toPx())
                 fun x(i: Int) = left + (right - left) * fractionOf(i, n)
                 fun y(v: Double) = bottom - range.fraction(v) * (bottom - top)
                 val ySafe = threshold?.let { y(it.toDouble()).coerceIn(0f, size.height) } ?: size.height
@@ -396,10 +400,17 @@ fun BalanceChart(
                             drawText(label, topLeft = at)
                         }
                     }
-                    axisLabels.forEach { (i, label) ->
-                        val lx = (x(i) - label.size.width / 2f).coerceIn(0f, max(0f, size.width - label.size.width))
-                        drawText(label, topLeft = Offset(lx, size.height - label.size.height))
+                    fun axisLeft(cx: Float, w: Int) = (cx - w / 2f).coerceIn(0f, max(0f, size.width - w))
+                    val todayLeft = todayAt?.let { t -> todayLabel?.let { axisLeft(x(t), it.size.width) } }
+                    val clear = if (todayLeft == null || todayLabel == null) axisLabels.map { true } else axisLabelsClearOf(
+                        axisLabels.map { (i, label) -> axisLeft(x(i), label.size.width).let { l -> l..(l + label.size.width) } },
+                        todayLeft..(todayLeft + todayLabel.size.width),
+                        gap = 4.dp.toPx(),
+                    )
+                    axisLabels.forEachIndexed { k, (i, label) ->
+                        if (clear[k]) drawText(label, topLeft = Offset(axisLeft(x(i), label.size.width), size.height - label.size.height))
                     }
+                    if (todayLeft != null && todayLabel != null) drawText(todayLabel, topLeft = Offset(todayLeft, size.height - todayLabel.size.height))
                 }
 
                 // 가상 구매 구매일 — 회색 점선은 선보다 먼저 그려 선 · 동전을 가리지 않는다. '구매' 글자는 선을 그린 뒤 얹는다
@@ -565,16 +576,14 @@ fun BalanceChart(
                     drawPath(head, c.primary)
                 }
 
-                // 한 달 그래프 오늘 기준선 — 세로 점선과 '오늘'(실제 · 예상이 갈리는 자리, ANALYSIS-05). 오늘 점은 선이 닿은 뒤 보인다
-                kinds?.indexOf(DayKind.TODAY)?.takeIf { it >= 0 }?.let { t ->
+                // 한 달 그래프 오늘 기준선 — 세로 점선(실제 · 예상이 갈리는 자리, ANALYSIS-05)과 바닥의 '오늘'(위 날짜 줄에서 그림).
+                // 오늘 점은 선이 닿은 뒤 보인다
+                todayAt?.let { t ->
                     val tx = x(t)
                     drawLine(
                         c.text2.copy(alpha = 0.7f), Offset(tx, top - 4.dp.toPx()), Offset(tx, bottom),
                         strokeWidth = 1.dp.toPx(), pathEffect = PathEffect.dashPathEffect(floatArrayOf(2.dp.toPx(), 3.dp.toPx())),
                     )
-                    val label = measurer.measure("오늘", labelStyle.copy(color = c.text2, fontWeight = FontWeight.Bold))
-                    val lx = (tx - label.size.width / 2f).coerceIn(0f, max(0f, size.width - label.size.width))
-                    drawText(label, topLeft = Offset(lx, top - 6.dp.toPx() - label.size.height))
                     rideValues.getOrNull(t)?.takeIf { reveal.value * (size.width + 40.dp.toPx()) - 20.dp.toPx() >= tx }?.let { v ->
                         drawCircle(lines.first().color, radius = 3.4.dp.toPx(), center = Offset(tx, y(v.toDouble())))
                     }
