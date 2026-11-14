@@ -12,6 +12,8 @@ import com.yamu.app.feature.report.data.exportErrorMessage
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.material3.Icon
+import com.yamu.app.core.designsystem.icon.YamuIcons
 import com.yamu.app.core.designsystem.component.LinkButton
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -84,6 +86,7 @@ import com.yamu.app.core.format.toWon
 import com.yamu.app.core.network.ApiResult
 import com.yamu.app.core.ui.userMessage
 import com.yamu.app.feature.link.BrandMark
+import com.yamu.app.feature.link.data.LinkRepository
 import androidx.compose.runtime.saveable.rememberSaveable
 import com.yamu.app.feature.forecast.data.ForecastRepository
 import com.yamu.app.feature.report.data.AssetFlow
@@ -97,6 +100,7 @@ import com.yamu.app.feature.report.data.reachesNextMonth
 import androidx.compose.runtime.withFrameNanos
 import java.time.LocalDate
 import com.yamu.app.feature.report.data.BenefitReport
+import com.yamu.app.feature.report.data.CardBenefitLine
 import com.yamu.app.feature.report.data.CategoryShare
 import com.yamu.app.feature.report.data.MissedBenefit
 import com.yamu.app.feature.report.data.MonthlySpend
@@ -428,7 +432,7 @@ fun ReportRoute(
                     YamuCard(contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 4.dp)) {   // 링크 카드는 .card.tight(16)
                         sp.benefit?.let {
                             ListRow(
-                                title = sp.month?.let { m -> "${m}월에 받은 혜택" } ?: "이번 달 받은 혜택",
+                                title = sp.month?.let { m -> "${m}월 이용 혜택" } ?: "이번 달 이용 혜택",
                                 value = "${it.toWon()}원",
                                 valueColor = c.primary,
                                 chevron = true,
@@ -497,19 +501,38 @@ private fun CategoryRow(cat: CategoryShare, color: Color) {
 
 // ───────────────────────── S-04 혜택 리포트 ─────────────────────────
 
-data class BenefitReportState(val shown: ShownMonth, val loading: Boolean = true, val report: BenefitReport? = null, val error: String? = null)
+/** [cardIds] 지금 등록된 카드(userCardId). null이면 아직 모르거나 받지 못해 카드 줄을 누를 수 없다 */
+data class BenefitReportState(
+    val shown: ShownMonth,
+    val loading: Boolean = true,
+    val report: BenefitReport? = null,
+    val error: String? = null,
+    val cardIds: Set<Long>? = null,
+)
+
+/**
+ * 카드별 줄을 눌러 갈 카드(R-02). R-02는 이번 달 실적만 보여 지난달을 보는 중엔 누를 수 없고,
+ * 혜택 응답에는 해지한 카드도 있을 수 있어 지금 등록된 카드에 없는 userCardId(또는 null)도 누를 수 없다(404 막기)
+ */
+internal fun cardTarget(card: CardBenefitLine, shown: ShownMonth, cardIds: Set<Long>?): Long? =
+    card.userCardId?.takeIf { shown.isThisMonth && cardIds != null && it in cardIds }
 
 /** S-01에서 고른 달로 연다. 결제 내역(S-05)에서 달을 바꾸고 돌아오면 그 달로 다시 받는다([resume]) */
 @HiltViewModel
-class BenefitReportViewModel @Inject constructor(private val repo: ReportRepository, private val months: ReportMonth) : ViewModel() {
+class BenefitReportViewModel @Inject constructor(
+    private val repo: ReportRepository,
+    private val months: ReportMonth,
+    private val links: LinkRepository,
+) : ViewModel() {
     private val _state = MutableStateFlow(BenefitReportState(months.current()))
     val state: StateFlow<BenefitReportState> = _state.asStateFlow()
     private var job: Job? = null
+    private var cardsJob: Job? = null
 
     init { load() }
 
     fun resume() {
-        if (months.current().month != _state.value.shown.month) load()
+        if (months.current().month != _state.value.shown.month) load() else loadCards()
     }
 
     fun load() {
@@ -517,16 +540,28 @@ class BenefitReportViewModel @Inject constructor(private val repo: ReportReposit
         job?.cancel()
         _state.update {
             if (it.shown.month == shown.month) it.copy(shown = shown, loading = true, error = null)
-            else BenefitReportState(shown)
+            else BenefitReportState(shown, cardIds = it.cardIds)
         }
         job = viewModelScope.launch {
             val r = repo.benefits(shown.month)
             ensureActive()
             if (_state.value.shown.month != shown.month) return@launch   // 그사이 달을 넘겼으면 버린다
             when (r) {
-                is ApiResult.Success -> _state.update { BenefitReportState(shown, loading = false, report = r.data) }
+                is ApiResult.Success -> _state.update { it.copy(loading = false, report = r.data, error = null) }
                 is ApiResult.Failure -> _state.update { it.copy(loading = false, error = r.error.userMessage()) }
             }
+        }
+        loadCards()
+    }
+
+    /** 이번 달을 볼 때만 등록된 카드를 받는다(카드 상세에서 해지하고 돌아와도 다시 받게 [resume]에서도). 실패하면 누르기를 끈다 */
+    private fun loadCards() {
+        if (!_state.value.shown.isThisMonth) return
+        cardsJob?.cancel()
+        cardsJob = viewModelScope.launch {
+            val r = links.cards()
+            ensureActive()
+            _state.update { it.copy(cardIds = (r as? ApiResult.Success)?.data?.map { c -> c.userCardId }?.toSet()) }
         }
     }
 
@@ -536,10 +571,16 @@ class BenefitReportViewModel @Inject constructor(private val repo: ReportReposit
     }
 }
 
+/**
+ * S-04 혜택 리포트 — 야무 결제만(source=YAMU, S15P31E103-493). 큰 숫자는 확정된 혜택(홈 히어로와 같은 기준, 11/14 결정)이고
+ * 확정 전은 따로, 원화로 바꾸지 못한 혜택은 금액에 없다고 알린다. 그 아래 종류별 · 카드별 · 놓친 혜택 · 어디서 받았나요.
+ * [onCard]를 주면 카드 줄을 눌러 그 카드 실적(R-02)으로 간다. 지난달을 보는 중이거나 지금 등록된 카드가 아니면 누를 수 없다([cardTarget])
+ */
 @Composable
 fun BenefitReportRoute(
     onBack: () -> Unit,
     onPayments: () -> Unit,
+    onCard: ((Long) -> Unit)? = null,
     viewModel: BenefitReportViewModel = hiltViewModel(),
 ) {
     val s by viewModel.state.collectAsStateWithLifecycle()
@@ -549,7 +590,7 @@ fun BenefitReportRoute(
     }
     val c = YamuTheme.colors
     val r = s.report
-    val empty = r != null && r.received == 0L && r.missed.isEmpty() && r.byPlace.isEmpty()
+    val empty = r != null && r.received == 0L && r.unconverted == 0L && r.missed.isEmpty() && r.byPlace.isEmpty()
     FlowScreen(
         title = "혜택 리포트",
         onBack = onBack,
@@ -575,15 +616,21 @@ fun BenefitReportRoute(
                         MonthEmpty(
                             s.shown,
                             onSelect = viewModel::select,
-                            thisMessage = "이번 달 받은 혜택이 아직 없어요",
-                            pastMessage = "${monthTitle(s.shown.month, s.shown.thisMonth)}에 받은 혜택이 없어요",
+                            thisMessage = "이번 달 이용 혜택이 아직 없어요",
+                            pastMessage = "${monthTitle(s.shown.month, s.shown.thisMonth)} 이용 혜택이 없어요",
                         )
                     }
                     else -> {
                         YamuCard {
-                            Text("${r.periodLabel} 받은 혜택", style = YamuTheme.typography.bodyM, color = c.text2)
+                            // '○월 이용 혜택' — 지급월이 아니라 그달 이용으로 생긴 혜택(명세 v4 · 레인 1 홈과 같은 말)
+                            Text("${r.periodLabel} 이용 혜택", style = YamuTheme.typography.bodyM, color = c.text2)
                             Spacer(Modifier.height(4.dp))
-                            AmountText(r.received)
+                            AmountText(r.confirmed)
+                            Spacer(Modifier.height(4.dp))
+                            Text(confirmedLine(r), style = YamuTheme.typography.bodyM, color = c.text2)
+                            if (r.unconverted > 0) {
+                                Text(unconvertedLine(r.unconverted), style = YamuTheme.typography.bodyS, color = c.text3, modifier = Modifier.padding(top = 2.dp))
+                            }
                             r.yamuExtra?.let {
                                 Spacer(Modifier.height(4.dp))
                                 Text(
@@ -595,6 +642,25 @@ fun BenefitReportRoute(
                                     style = YamuTheme.typography.bodyM,
                                     color = c.text2,
                                 )
+                            }
+                        }
+                        // 종류별 — 할인 · 캐시백 · 적립(옛 서버는 칸이 없어 숨긴다)
+                        if (r.byType.isNotEmpty()) {
+                            YamuCard(contentPadding = PaddingValues(YamuSpacing.x4)) {
+                                Text("종류별", style = YamuTheme.typography.cardTitle, color = c.text1)
+                                Spacer(Modifier.height(YamuSpacing.x1))
+                                r.byType.forEach { t -> BenefitAmountRow(t.label, t.confirmed, t.unconfirmed, t.unconverted) }
+                            }
+                        }
+                        // 카드별 — 별명이 먼저. 이번 달이고 지금 등록된 카드일 때만 눌러 R-02로([cardTarget])
+                        if (r.cards.isNotEmpty()) {
+                            YamuCard(contentPadding = PaddingValues(YamuSpacing.x4)) {
+                                Text("카드별", style = YamuTheme.typography.cardTitle, color = c.text1)
+                                Spacer(Modifier.height(YamuSpacing.x1))
+                                r.cards.forEach { card ->
+                                    val open = cardTarget(card, s.shown, s.cardIds)?.let { id -> onCard?.let { go -> { go(id) } } }
+                                    BenefitAmountRow(card.name, card.confirmed, card.unconfirmed, card.unconverted, onClick = open)
+                                }
                             }
                         }
                         if (r.missedTotal > 0) {
@@ -621,6 +687,42 @@ fun BenefitReportRoute(
         }
     }
 }
+
+/** 종류별 · 카드별 한 줄 — 이름 / 확정 금액, 밑에 확정 전 · 원화로 못 바꾼 건수. [onClick]이 있으면 줄 전체를 눌러 이동(꺾쇠) */
+@Composable
+private fun BenefitAmountRow(name: String, confirmed: Long, unconfirmed: Long, unconverted: Long, onClick: (() -> Unit)? = null) {
+    val c = YamuTheme.colors
+    val sub = amountSubLine(unconfirmed, unconverted)
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .heightIn(min = 52.dp)
+            .then(if (onClick != null) Modifier.clip(RoundedCornerShape(8.dp)).clickable(role = Role.Button, onClick = onClick) else Modifier)
+            .padding(vertical = 6.dp)
+            .semantics(mergeDescendants = true) { },
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(name, style = YamuTheme.typography.titleM, color = c.text1, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            sub?.let { Text(it, style = YamuTheme.typography.bodyS, color = c.text3, modifier = Modifier.padding(top = 2.dp)) }
+        }
+        Text("${confirmed.toWon()}원", style = YamuTheme.typography.value, color = c.text1)
+        if (onClick != null) Icon(YamuIcons.ChevronRight, contentDescription = null, tint = c.text3, modifier = Modifier.padding(start = 4.dp).size(18.dp))
+    }
+}
+
+/** 큰 숫자 밑 한 줄 — 확정 전이 있으면 '확정 전 500원 더 있어요(모두 1,500원)', 없으면 '모두 확정된 혜택이에요' */
+internal fun confirmedLine(r: BenefitReport): String =
+    if (r.unconfirmed > 0) "확정된 혜택이에요 · 확정 전 ${r.unconfirmed.toWon()}원 더 있어요(모두 ${r.received.toWon()}원)" else "모두 확정된 혜택이에요"
+
+/** 원화로 바꾸지 못한 혜택 — 적립이 없는 게 아니라 금액에 넣지 못한 것 */
+internal fun unconvertedLine(count: Long): String = "원화로 바꾸지 못한 혜택 ${count}건은 금액에 넣지 않았어요"
+
+/** 종류별 · 카드별 줄의 보조 줄 — 확정 전 · 원화로 못 바꾼 건수. 둘 다 없으면 null */
+internal fun amountSubLine(unconfirmed: Long, unconverted: Long): String? = listOfNotNull(
+    "확정 전 ${unconfirmed.toWon()}원".takeIf { unconfirmed > 0 },
+    "원화로 못 바꾼 ${unconverted}건".takeIf { unconverted > 0 },
+).joinToString(" · ").ifEmpty { null }
 
 /** 놓친 혜택 한 줄 — 가맹점 · 날짜 · 이유 / −금액(검정, 합만 빨강) */
 @Composable

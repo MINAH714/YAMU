@@ -5,6 +5,9 @@ import com.yamu.app.core.network.ApiError
 import com.yamu.app.core.network.ApiResult
 import com.yamu.app.feature.forecast.data.ForecastAccountOption
 import com.yamu.app.feature.forecast.data.ForecastRepository
+import com.yamu.app.feature.link.data.CardsOnlyLink
+import com.yamu.app.feature.link.data.LinkedCard
+import com.yamu.app.feature.link.data.brandOf
 import com.yamu.app.feature.report.data.AssetFlow
 import com.yamu.app.feature.report.data.AssetFlowRepository
 import com.yamu.app.feature.report.data.MonthFlow
@@ -44,6 +47,7 @@ class ReportMonthViewModelTest {
     private val dispatcher = StandardTestDispatcher()
     private val repo = StubReports()
     private val assets = StubAssets()
+    private val link = CardsOnlyLink()
     private var now = NOV
     private val months = ReportMonth { now }
 
@@ -70,7 +74,7 @@ class ReportMonthViewModelTest {
         val report = ReportViewModel(repo, fixed, assets)
         report.refresh(); advanceUntilIdle()   // 예보가 다음 달에 닿아야 다음 달이 열린다
         report.select(DEC); advanceUntilIdle()
-        val benefits = BenefitReportViewModel(repo, fixed)
+        val benefits = BenefitReportViewModel(repo, fixed, link)
         advanceUntilIdle()
         assertEquals(NOV, benefits.state.value.shown.month)
         assertEquals(listOf(NOV), repo.benefitCalls)
@@ -279,7 +283,7 @@ class ReportMonthViewModelTest {
         val report = ReportViewModel(repo, months, assets)
         report.refresh(); advanceUntilIdle()
         report.select(OCT); advanceUntilIdle()
-        val benefits = BenefitReportViewModel(repo, months)   // S-01 → S-04
+        val benefits = BenefitReportViewModel(repo, months, link)   // S-01 → S-04
         advanceUntilIdle()
         assertEquals(OCT, benefits.state.value.shown.month)
         assertEquals(listOf(OCT), repo.benefitCalls)
@@ -290,7 +294,7 @@ class ReportMonthViewModelTest {
     }
 
     @Test fun `S-04 — 돌아왔을 때 달이 같으면 다시 부르지 않고, 다르면 그 달로`() = runTest(dispatcher) {
-        val benefits = BenefitReportViewModel(repo, months)
+        val benefits = BenefitReportViewModel(repo, months, link)
         advanceUntilIdle()
         benefits.resume(); advanceUntilIdle()
         assertEquals(listOf(NOV), repo.benefitCalls)
@@ -300,10 +304,33 @@ class ReportMonthViewModelTest {
         assertEquals("10월", benefits.state.value.report?.periodLabel)
     }
 
+    @Test fun `S-04 카드 줄 — 이번 달이면 등록된 카드를 받고, 지난달이면 부르지 않는다`() = runTest(dispatcher) {
+        link.result = ApiResult.Success(listOf(LinkedCard(11, brandOf("신한카드"), "Mr.Life", false, "0011", 14, null, null)))
+        val benefits = BenefitReportViewModel(repo, months, link)
+        advanceUntilIdle()
+        assertEquals(setOf(11L), benefits.state.value.cardIds)
+        assertEquals(1, link.calls)
+        benefits.select(OCT); advanceUntilIdle()
+        assertEquals("지난달은 R-02로 가지 않으니 카드 목록도 받지 않는다", 1, link.calls)
+        benefits.select(NOV); advanceUntilIdle()
+        assertEquals(2, link.calls)
+    }
+
+    @Test fun `S-04 카드 줄 — 카드 상세에서 해지하고 돌아오면 다시 받고, 받지 못하면 누르기를 끈다`() = runTest(dispatcher) {
+        link.result = ApiResult.Success(listOf(LinkedCard(11, brandOf("신한카드"), "Mr.Life", false, "0011", 14, null, null)))
+        val benefits = BenefitReportViewModel(repo, months, link)
+        advanceUntilIdle()
+        link.result = ApiResult.Failure(ApiError.Network)
+        benefits.resume(); advanceUntilIdle()
+        assertEquals(listOf(NOV), repo.benefitCalls)   // 같은 달이면 혜택은 다시 안 부른다
+        assertEquals(2, link.calls)
+        assertNull(benefits.state.value.cardIds)
+    }
+
     @Test fun `S-04 — 달을 빠르게 넘기면 늦게 온 앞 달 응답이 덮어쓰지 않는다`() = runTest(dispatcher) {
         repo.delays[OCT] = 1_000
         repo.delays[SEP] = 100
-        val benefits = BenefitReportViewModel(repo, months)
+        val benefits = BenefitReportViewModel(repo, months, link)
         advanceUntilIdle()   // 처음 11월
         benefits.select(OCT)
         advanceTimeBy(10)   // 10월 요청이 나가 있는 동안
