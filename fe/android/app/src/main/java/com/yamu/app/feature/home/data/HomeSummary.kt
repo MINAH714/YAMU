@@ -26,7 +26,14 @@ data class HomeSummary(
     val todayCard: TodayCard? = null,
     /** 등록 카드(카드 목록 순서) — 결제 칸이 기본 카드 이름을 찾는다. 실패 · 옛 응답이면 비어 있다 */
     val cards: List<HomeCardItem> = emptyList(),
+    /** 이번 달 YAMU 이용 혜택(BE -490 benefitSummary) */
+    val yamuBenefit: NewHomeArea<HomeBenefit> = NewHomeArea.OldServer,
+    /** 기준 계좌 내일부터 30일 요약(BE -490 forecastPreview) */
+    val forecastPreview: NewHomeArea<HomeForecastBrief> = NewHomeArea.OldServer,
 ) {
+    /** 잔고예보 요약 · '잔고예보' 버튼이 쓰는 기준 계좌 — 새 홈 칸이 있으면 그 계좌, 없으면 balanceForecast의 계좌 */
+    val baseAccountId: Long? get() = (forecastPreview as? NewHomeArea.Value)?.data?.accountId ?: forecast?.accountId
+
     /**
      * 계좌는 연결했는데 카드가 없다 — 가입 중 1원 인증에서 계좌가 붙어 BE는 onboarding을 DONE으로 준다.
      * 홈은 결제 버튼 대신 카드 등록으로 이끈다. 카드 영역만 실패했으면(cards가 없어 0장으로 읽힘) 0장으로 보지 않는다(S15P31E103-430)
@@ -40,8 +47,29 @@ data class HomeSummary(
  */
 fun HomeSummary.recentPaymentOutsidePayCard(): RecentPayment? = recentPayment?.takeIf { needsLinking || needsCard }
 
-/** BE partialErrors의 카드 영역 이름 */
+/** BE partialErrors의 영역 이름 */
 private const val CARDS_AREA = "cards"
+private const val BALANCE_AREA = "balanceForecast"
+private const val BENEFIT_AREA = "benefitSummary"
+private const val PREVIEW_AREA = "forecastPreview"
+
+/**
+ * 새 홈 칸(BE -490) 하나를 어떻게 받았는지. 옛 서버(칸을 모름) · 비워 보냄(기준 계좌 없음) · 그 칸만 실패를 섞지 않는다 —
+ * 셋 다 0원으로 그리면 안 된다(487~490 명세 '구버전 서버의 필드 누락을 0원으로 처리하지 않는다').
+ *
+ * JSON에 키가 있었는지는 보지 않고 같은 응답의 다른 칸으로 가른다. BE HomeService는 두 칸을 늘 채우고 실패하면 partialErrors에 적으며,
+ * 기준 계좌가 있으면 balanceForecast와 같은 계좌로 forecastPreview도 만든다. 그래서
+ * - 칸이 있으면 [Value](모양이 깨졌으면 [Failed])
+ * - partialErrors에 그 칸이 있으면 [Failed]
+ * - 혜택이 없고 실패도 아니면 옛 서버([OldServer] — reports/monthly로 돌아감)
+ * - 잔고는 balanceForecast에 기준 계좌가 있거나 그 영역이 실패했으면 옛 서버(forecasts/balance로 돌아감), 그것도 비었으면 기준 계좌 없음([None])
+ */
+sealed interface NewHomeArea<out T> {
+    data object OldServer : NewHomeArea<Nothing>
+    data object None : NewHomeArea<Nothing>
+    data object Failed : NewHomeArea<Nothing>
+    data class Value<T>(val data: T) : NewHomeArea<T>
+}
 
 data class ForecastSummary(
     val label: String,
@@ -100,27 +128,42 @@ fun paidAtLabel(iso: String?, now: ZonedDateTime = ZonedDateTime.now(KST)): Stri
 private const val CLOCK_SKEW_MINUTES = 5L
 
 /** 서버 응답 → 화면 값. 보완안 필드가 있으면 그걸, 없으면 지금 명세 필드로 대신(07 문서 3-5 표) */
-fun HomeDto.toSummary(today: LocalDate): HomeSummary = HomeSummary(
-    forecast = balanceForecast?.toForecast(today),
-    recentPayment = recentPayment?.let {
-        RecentPayment(it.paymentId, it.merchantName, it.amount, it.cardName, it.benefitAmount, it.paidAt)
-    },
-    todos = todos?.take(MAX_TODOS)?.map { it.toTodo() }
-        ?: performanceAlerts.take(MAX_TODOS).map { it.toTodo() },
-    cardCount = cards?.count ?: 0,
-    unreadCount = unreadNotificationCount,
-    needsLinking = onboarding?.step == "LINK" || (onboarding == null && (cards?.count ?: 0) == 0),
-    syncedAtIso = dataSyncedAt,
-    failedAreas = partialErrors.mapNotNull { e ->
+fun HomeDto.toSummary(today: LocalDate): HomeSummary {
+    val failed = partialErrors.mapNotNull { e ->
         when (e) {
             is JsonPrimitive -> e.contentOrNull
             is JsonObject -> e["area"]?.jsonPrimitive?.contentOrNull
             else -> null
         }
-    }.toSet(),
-    todayCard = todayCard?.let { TodayCard(it.cardName, it.benefit) },
-    cards = cards?.items.orEmpty().map { HomeCardItem(it.userCardId, it.nickname) },
-)
+    }.toSet()
+    return HomeSummary(
+        forecast = balanceForecast?.toForecast(today),
+        recentPayment = recentPayment?.let {
+            RecentPayment(it.paymentId, it.merchantName, it.amount, it.cardName, it.benefitAmount, it.paidAt)
+        },
+        todos = todos?.take(MAX_TODOS)?.map { it.toTodo() }
+            ?: performanceAlerts.take(MAX_TODOS).map { it.toTodo() },
+        cardCount = cards?.count ?: 0,
+        unreadCount = unreadNotificationCount,
+        needsLinking = onboarding?.step == "LINK" || (onboarding == null && (cards?.count ?: 0) == 0),
+        syncedAtIso = dataSyncedAt,
+        failedAreas = failed,
+        todayCard = todayCard?.let { TodayCard(it.cardName, it.benefit) },
+        cards = cards?.items.orEmpty().map { HomeCardItem(it.userCardId, it.nickname) },
+        yamuBenefit = when {
+            benefitSummary != null -> benefitSummary.toBenefit(today)?.let { NewHomeArea.Value(it) } ?: NewHomeArea.Failed
+            BENEFIT_AREA in failed -> NewHomeArea.Failed
+            else -> NewHomeArea.OldServer
+        },
+        forecastPreview = when {
+            forecastPreview != null -> forecastPreview.toBrief()?.let { NewHomeArea.Value(it) } ?: NewHomeArea.Failed
+            PREVIEW_AREA in failed -> NewHomeArea.Failed
+            // 새 서버라면 같은 기준 계좌로 preview를 줬거나 partialErrors에 적었을 것 — 둘 다 아니면 옛 서버
+            balanceForecast?.accountId != null || BALANCE_AREA in failed -> NewHomeArea.OldServer
+            else -> NewHomeArea.None
+        },
+    )
+}
 
 private const val MAX_TODOS = 2
 
