@@ -305,10 +305,13 @@ class FakeForecastRepository @Inject constructor(private val bank: FakeBank) : F
                 method = "ML_V1",
                 dataOrigin = if (living.all { it != null }) "REAL" else "INSUFFICIENT",
             ),
-            // 기간 뒤 카드값(BE -348) — 생활비 통장(2)에서 빠지는 것만, 출금일순. 시드 사용자의 지난 카드 사용이라 새 사용자는 없다
-            beyondHorizon = if (2L !in ids || !bank.seeded) emptyList() else listOf(
-                BeyondHorizonItemDto(to.plusDays(5).toString(), "CARD_BILLING", "생활카드 ${to.plusDays(5).monthValue}월 청구", -320_000, "EXPECTED"),
-                BeyondHorizonItemDto(to.plusDays(5).toString(), "CARD_SPENDING_ESTIMATE", "생활카드 · 이용기간 마감까지 10일 × 일평균 12,000원", -120_000, "CONSERVATIVE"),
+            // 기간 뒤 카드값(BE -348) — 고른 계좌에서 빠지는 것만, 출금일순. 시드 사용자의 지난 카드 사용이라 새 사용자는 없다.
+            // 생활비 통장(2)의 생활카드에 더해, 기준 계좌(KB ·1234)에서 빠지는 톡톡카드 청구도 하나 둔다 — 소비분석 자산 흐름(기준 계좌)의
+            // '범위 밖 출금' 한 줄을 가짜 데이터로도 볼 수 있게(S15P31E103-483, 시안의 12/15 카드 대금)
+            beyondHorizon = if (!bank.seeded) emptyList() else listOfNotNull(
+                BeyondHorizonItemDto(to.plusDays(2).toString(), "CARD_BILLING", "톡톡카드 ${to.plusDays(2).monthValue}월 청구", -180_000, "EXPECTED").takeIf { 1L in ids },
+                BeyondHorizonItemDto(to.plusDays(5).toString(), "CARD_BILLING", "생활카드 ${to.plusDays(5).monthValue}월 청구", -320_000, "EXPECTED").takeIf { 2L in ids },
+                BeyondHorizonItemDto(to.plusDays(5).toString(), "CARD_SPENDING_ESTIMATE", "생활카드 · 이용기간 마감까지 10일 × 일평균 12,000원", -120_000, "CONSERVATIVE").takeIf { 2L in ids },
             ),
             excluded = excludedItems,
             isEstimate = true,
@@ -362,6 +365,15 @@ class FakeForecastRepository @Inject constructor(private val bank: FakeBank) : F
             provisional = dto.livingCost?.projectedAmount == null,
         )
     }
+
+    /**
+     * 소비분석 자산 흐름(S15P31E103-483) — 고른 계좌로 오늘부터 30일(BE until=DAYS&days=30과 같다).
+     * 잔고예보 화면의 고른 기간 · 마지막 값은 건드리지 않는다
+     */
+    fun assetForecast(accountIds: Set<Long>): Forecast = build(ForecastSelection(ForecastPeriod.DAYS_30, accountIds)).toForecast()
+
+    /** 자산 흐름이 고를 계좌 목록 — 잔고예보 계좌 시트와 같다 */
+    fun assetAccounts(): List<ForecastAccountOption> = options()
 
     override fun cached(): Forecast? = last
 
