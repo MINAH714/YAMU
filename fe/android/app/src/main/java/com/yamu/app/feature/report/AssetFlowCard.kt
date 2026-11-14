@@ -184,7 +184,7 @@ private fun AssetFlowBody(
         BalanceChart(
             dates = days.map { it.date },
             lines = lines,
-            description = assetChartDescription(month, kinds, f?.hasConservative == true),
+            description = assetChartDescription(month, kinds, lineWithLiving(flow, monthFlow)),
             eventDays = remember(days) { days.indices.filter { days[it].events.isNotEmpty() }.toSet() },
             selected = day.day,
             onSelect = { select(it, DaySource.CHART) },
@@ -196,7 +196,7 @@ private fun AssetFlowBody(
             month = MonthChart(kinds),
         )
         Spacer(Modifier.height(10.dp))
-        AssetLegend(kinds, hasConservative = f?.hasConservative == true)
+        AssetLegend(kinds, hasConservative = lineWithLiving(flow, monthFlow))
         Spacer(Modifier.height(6.dp))
         val strip = remember(days) { days.map { StripDay(it.date, it.events.sumOf { e -> e.amount }, it.value?.let { v -> zoneOf(v, null) } ?: BalanceZone.OK, it.kind) } }
         DateStrip(
@@ -411,7 +411,7 @@ internal fun kindTone(kind: DayKind): TagTone = when (kind) {
 internal fun panelValue(d: AssetDay, flow: AssetFlow, monthFlow: MonthFlow?, today: LocalDate, current: Long?, asOf: ZonedDateTime): Pair<String?, String> = when (d.kind) {
     DayKind.ACTUAL -> d.value?.let { "${it.toWon()}원" } to "그날 끝 실제 잔고"
     DayKind.TODAY -> current?.let { "${it.toWon()}원" } to (if (current == null) "지금 잔고를 확인하지 못했어요" else nowLine(asOf, today))
-    DayKind.EXPECTED -> d.value?.let { "${it.toWon()}원" } to "예상 잔고 · ${if (flow.forecast?.hasConservative == true) LINE_WITH_LIVING else LINE_WITHOUT_LIVING}"
+    DayKind.EXPECTED -> d.value?.let { "${it.toWon()}원" } to "예상 잔고 · ${if (lineWithLiving(flow, monthFlow)) LINE_WITH_LIVING else LINE_WITHOUT_LIVING}"
     DayKind.NO_DATA -> null to when {
         d.date.isAfter(today) -> "예보를 불러오지 못해 비워 뒀어요."
         monthFlow == null -> "이날 잔고는 아직 받을 수 없어요. 쓴 돈으로 잔고를 만들어 보여 드리지 않아요."
@@ -427,6 +427,12 @@ internal fun panelValue(d: AssetDay, flow: AssetFlow, monthFlow: MonthFlow?, tod
  * 주지 않아(events는 늘 빈 배열) 잔고가 줄어든 날에도 '입출금이 없다'고 단정하게 되므로 빼고 그날 끝 잔고만 보인다
  */
 internal fun showsDayEvents(kind: DayKind): Boolean = kind == DayKind.TODAY || kind == DayKind.EXPECTED
+
+/**
+ * 앞날 점선 이름('AI 생활비 반영' · '제외') — 점선을 그린 응답으로 정한다. 그달 자산 흐름([monthFlow], 같은 계좌일 때만 넘어온다)에
+ * 예보 점이 있으면 그 conservative로, 없으면 30일 예보로. 30일 예보만 실패하고 asset-flows는 받은 경우 '제외'로 붙던 것(!320 리뷰)
+ */
+internal fun lineWithLiving(flow: AssetFlow, monthFlow: MonthFlow?): Boolean = monthFlow?.hasConservative ?: (flow.forecast?.hasConservative == true)
 
 /**
  * 날짜 칸 큰 금액에 보이는 값 — 오늘은 지금 잔고([current]), 다른 날은 그날 값. 빨간 글자(0원 아래)는 이 값의 부호로 정한다

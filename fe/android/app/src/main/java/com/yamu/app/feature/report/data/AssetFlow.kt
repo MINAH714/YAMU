@@ -102,6 +102,11 @@ data class MonthFlow(
     val forecastFrom: LocalDate?,
     val forecastTo: LocalDate?,
     val gaps: List<HistoryGap>,
+    /**
+     * 앞날 점선이 'AI 생활비 반영' 선인가 — 서버 displayBalance는 conservative가 있으면 그 값이라, 예보 점에 conservative가 하나라도 있으면 true.
+     * 예보 점이 없으면(지난달) null. 30일 예보(forecasts/balance)만 실패해도 점선 이름을 이 응답으로 정한다(!320 리뷰)
+     */
+    val hasConservative: Boolean? = null,
 )
 
 /**
@@ -150,6 +155,8 @@ fun AssetFlowDto.toMonthFlow(requested: YearMonth): MonthFlow {
         forecastFrom = parseDate(forecastFrom),
         forecastTo = to,
         gaps = partialErrors.map { HistoryGap(it.accountId, parseDate(it.from), parseDate(it.to), it.reason) },
+        hasConservative = series.mapNotNull { p -> p.forecast?.takeIf { p.kind.equals("FORECAST", ignoreCase = true) } }
+            .takeIf { it.isNotEmpty() }?.any { it.conservative != null },
     )
 }
 

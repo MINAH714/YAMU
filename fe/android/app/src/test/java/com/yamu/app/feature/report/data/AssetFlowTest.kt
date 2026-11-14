@@ -19,6 +19,7 @@ import com.yamu.app.feature.report.panelNote
 import com.yamu.app.feature.report.panelValue
 import com.yamu.app.feature.report.panelAmount
 import com.yamu.app.feature.report.showsDayEvents
+import com.yamu.app.feature.report.lineWithLiving
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -337,5 +338,28 @@ class AssetFlowTest {
         assertEquals("오늘 끝 예상이 0원 아래여도 지금 잔고가 보이면 그 부호", 15_000L, panelAmount(todayDay, current = 15_000))
         assertEquals(-20_000L, panelAmount(todayDay.copy(kind = DayKind.EXPECTED), current = 15_000))
         assertNull(panelAmount(todayDay, current = null))
+    }
+
+    @Test fun `점선 이름 — 30일 예보만 실패해도 asset-flows의 conservative로 'AI 생활비 반영'(!320 리뷰)`() {
+        fun dto(conservative: Long?) = AssetFlowDto(
+            yearMonth = "2026-11", accountIds = listOf(2),
+            series = listOf(
+                AssetFlowPointDto("2026-11-13", "CURRENT", "AVAILABLE", displayBalance = 268_000),
+                AssetFlowPointDto("2026-11-14", "FORECAST", "AVAILABLE", displayBalance = 250_000, forecast = AssetFlowForecastDto(260_000, 260_000, conservative)),
+            ),
+        )
+        val withLiving = dto(240_000).toMonthFlow(YearMonth.of(2026, 11))
+        val without = dto(null).toMonthFlow(YearMonth.of(2026, 11))
+        val past = AssetFlowDto(yearMonth = "2026-10", accountIds = listOf(2), series = listOf(AssetFlowPointDto("2026-10-01", "ACTUAL", "AVAILABLE", displayBalance = 1))).toMonthFlow(YearMonth.of(2026, 10))
+        assertEquals(true, withLiving.hasConservative)
+        assertEquals(false, without.hasConservative)
+        assertNull("예보 점이 없는 달", past.hasConservative)
+
+        val forecastFailed = AssetFlow(keepAccounts, null, ApiError.Network, loadedAt = keepAt)
+        assertTrue(lineWithLiving(forecastFailed, withLiving))
+        assertFalse(lineWithLiving(forecastFailed, without))
+        val forecastWithLiving = AssetFlow(keepAccounts, testForecast(days = listOf(day(LocalDate.of(2026, 11, 13)))), loadedAt = keepAt)
+        assertTrue("지난달은 30일 예보로", lineWithLiving(forecastWithLiving, past))
+        assertTrue(lineWithLiving(forecastWithLiving, null))
     }
 }
