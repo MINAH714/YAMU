@@ -39,6 +39,11 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import com.yamu.app.core.designsystem.component.AmountSize
+import com.yamu.app.core.designsystem.component.BottomBarCenter
+import com.yamu.app.core.designsystem.component.BottomBarCenterRise
+import com.yamu.app.core.designsystem.component.BottomBarItem
+import com.yamu.app.core.designsystem.component.YamuBottomBar
+import com.yamu.app.core.designsystem.icon.YamuTabIcons
 import com.yamu.app.core.designsystem.component.AmountText
 import com.yamu.app.core.designsystem.card.CardImages
 import com.yamu.app.core.designsystem.component.CardArt
@@ -331,6 +336,19 @@ private fun GallerySections() {
     SectionTitle("B. 화면 틀")
     YamuCard { YamuTopBar("잔고예보", onBack = {}, actions = {}) }
 
+    SectionTitle("B-2. 하단 탭 · 가운데 결제")
+    var barTab by rememberSaveable { mutableIntStateOf(0) }
+    Box(Modifier.fillMaxWidth().padding(top = BottomBarCenterRise + 8.dp)) {
+        YamuBottomBar(
+            items = GalleryTabs,
+            selectedIndex = barTab,
+            onSelect = { barTab = it },
+            center = BottomBarCenter("결제", YamuTabIcons.PayCode, "결제 코드 열기") {
+                scope.launch { snackbar.showSnackbar("결제 코드를 열어요") }
+            },
+        )
+    }
+
     SectionTitle("C · D. 묶음 · 목록")
     YamuCard {
         ListRow("하나카드 대금", sub = "10/20 (화)", value = "−150,000원")
@@ -457,3 +475,11 @@ private fun GallerySections() {
     }
 }
 
+
+/** 하단 탭 견본 — 앱 TopTab과 같은 넷(navigation 패키지를 끌어오지 않으려고 따로 둠) */
+private val GalleryTabs = listOf(
+    BottomBarItem("홈", YamuTabIcons.Home, YamuTabIcons.HomeOn),
+    BottomBarItem("소비분석", YamuTabIcons.Report, YamuTabIcons.ReportOn),
+    BottomBarItem("실적관리", YamuTabIcons.Perf, YamuTabIcons.PerfOn),
+    BottomBarItem("마이", YamuTabIcons.Otter, YamuTabIcons.Otter),
+)

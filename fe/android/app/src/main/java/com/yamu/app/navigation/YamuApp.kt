@@ -21,11 +21,15 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import androidx.navigation.NavDestination
 import androidx.navigation.NavDestination.Companion.hasRoute
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import com.yamu.app.core.designsystem.component.BottomBarCenter
+import com.yamu.app.core.designsystem.component.BottomBarCenterRise
 import com.yamu.app.core.designsystem.component.YamuBottomBar
+import com.yamu.app.core.designsystem.icon.YamuTabIcons
 import com.yamu.app.core.designsystem.component.YamuSnackbar
 import com.yamu.app.core.designsystem.theme.YamuSize
 import com.yamu.app.core.designsystem.theme.YamuSpacing
@@ -35,7 +39,7 @@ import com.yamu.app.core.security.SessionEndEvent
 import com.yamu.app.core.ui.LocalSnackbar
 
 /**
- * 바깥 틀 — 하단 탭(탭 첫 화면 5개에서만) · 스낵바.
+ * 바깥 틀 — 하단 탭(탭 첫 화면 4개에서만, 가운데 결제 버튼 포함) · 스낵바.
  * 여백(insets)은 화면마다 자기 Scaffold가 처리하고, 여기서는 하단 탭 높이만 넘긴 뒤 소비(consume)한다 — 두 번 겹치지 않게.
  * [sessionEnd]는 아직 처리하지 않은 '세션 끝남'이라 화면을 다시 만드는 중에 생겨도 남아 있다. 처리하기 전에 [settleSessionEnd]로
  * 지난 알림(그 뒤 새로 로그인)인지 보고 기기 해제면 거기서 세션 · 기기 키를 지운다. 처리한 뒤에는 [onSessionEndHandled]로 지운다
@@ -86,20 +90,29 @@ fun YamuApp(
                         items = TopTab.items,
                         selectedIndex = currentTab.ordinal,
                         onSelect = { navController.navigateToTab(TopTab.entries[it]) },
+                        // 가운데 결제 — 탭이 아니라 결제 코드(P-06)를 연다. 카드가 0장이면 결제 코드 화면이 카드 추가로 보낸다(-450)
+                        center = BottomBarCenter("결제", YamuTabIcons.PayCode, "결제 코드 열기") {
+                            navController.navigate(PayCode) { launchSingleTop = true }
+                        },
                     )
                 }
             },
             snackbarHost = {
-                // 탭 밖 흐름 화면은 아래 고정 버튼(BottomCta)이 있어 그 위로 띄운다 — 주 버튼을 가리지 않게
+                // 탭 밖 흐름 화면은 아래 고정 버튼(BottomCta)이 있어 그 위로 띄운다 — 주 버튼을 가리지 않게.
+                // 탭 화면은 막대 가운데 원이 위로 올라와 있어 그만큼 올린다
                 val lift = if (currentTab == null) {
                     Modifier.windowInsetsPadding(WindowInsets.navigationBars).padding(bottom = YamuSize.button + YamuSpacing.x2 + YamuSpacing.x4)
-                } else Modifier
+                } else Modifier.padding(bottom = BottomBarCenterRise)
                 SnackbarHost(snackbar, modifier = lift) { data -> YamuSnackbar(data) }
             },
         ) { inner ->
             YamuNavHost(
                 navController = navController,
-                modifier = Modifier.padding(inner).consumeWindowInsets(inner),
+                // 탭 화면은 막대 가운데 원이 올라온 만큼 더 띄운다 — 맨 아래 글자(마이 버전 등)가 원에 가리지 않게
+                modifier = Modifier
+                    .padding(inner)
+                    .consumeWindowInsets(inner)
+                    .padding(bottom = if (currentTab != null) BottomBarCenterRise else 0.dp),
             )
         }
     }
