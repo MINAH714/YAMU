@@ -59,6 +59,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.style.TextOverflow
@@ -105,8 +106,9 @@ import com.yamu.app.core.format.toWon
 import com.yamu.app.core.network.ApiError
 import com.yamu.app.core.ui.ReloadOnReconnect
 import com.yamu.app.core.ui.userMessage
+import com.yamu.app.feature.home.data.BenefitByType
+import com.yamu.app.feature.home.data.CardBenefit
 import com.yamu.app.feature.home.data.HOME_CARD_ROWS
-import com.yamu.app.feature.home.data.HOME_FORECAST_DAYS
 import com.yamu.app.feature.home.data.HomeBenefit
 import com.yamu.app.feature.home.data.HomeCardRow
 import com.yamu.app.feature.home.data.HomeCardsData
@@ -117,16 +119,22 @@ import com.yamu.app.feature.home.data.MissedBenefits
 import com.yamu.app.feature.home.data.PaySettings
 import com.yamu.app.feature.home.data.PerfChipTone
 import com.yamu.app.feature.home.data.RecentPayment
+import com.yamu.app.feature.home.data.amountText
 import com.yamu.app.feature.home.data.asOfLabel
 import com.yamu.app.feature.home.data.benefitCoins
+import com.yamu.app.feature.home.data.benefitTitle
 import com.yamu.app.feature.home.data.emptyNote
 import com.yamu.app.feature.home.data.homeGreeting
+import com.yamu.app.feature.home.data.lineText
+import com.yamu.app.feature.home.data.minLabel
 import com.yamu.app.feature.home.data.missed
 import com.yamu.app.feature.home.data.paidAtLabel
 import com.yamu.app.feature.home.data.payNote
 import com.yamu.app.feature.home.data.paySubtitle
 import com.yamu.app.feature.home.data.recentPaymentOutsidePayCard
 import com.yamu.app.feature.home.data.rows
+import com.yamu.app.feature.home.data.showsTypes
+import com.yamu.app.feature.home.data.unconvertedNote
 import com.yamu.app.feature.link.CardListThumb
 import com.yamu.app.feature.link.data.CardArtRef
 import java.time.LocalDate
@@ -259,7 +267,7 @@ fun HomeScreen(
                         )
                         // 아래쪽(S15P31E103-481) — 카드가 있어야 보이는 두 칸, 그다음 잔고예보 요약
                         if (!content.needsLinking && !content.needsCard) {
-                            CardsSection(state.cards, arts, onCard = onCardPerformance, onAll = onPerfTab, onRetry = onRetryCards)
+                            CardsSection(state.cards, arts, state.cardBenefitsShown(), onCard = onCardPerformance, onAll = onPerfTab, onRetry = onRetryCards)
                             state.cards.dataOrNull?.missed()?.takeUnless { it.isEmpty }?.let { MissedSection(it, onAll = onBenefitLimits) }
                         }
                         ForecastSection(
@@ -334,7 +342,7 @@ private fun HomeContent(
         home.needsLinking -> {
             SetupGuide(
                 title = "계좌 · 카드를 연결해 주세요",
-                body = "결제할 때 혜택이 큰 카드를 골라 드리고 받은 혜택과 잔고를 여기 모아 드려요",
+                body = "결제할 때 혜택이 큰 카드를 골라 드리고 이용 혜택과 잔고를 여기 모아 드려요",
                 button = "계좌 · 카드 연결하기",
                 onClick = onStartLinking,
             )
@@ -344,7 +352,7 @@ private fun HomeContent(
         home.needsCard -> {
             SetupGuide(
                 title = "카드를 등록해 주세요",
-                body = "결제할 때 혜택이 큰 카드를 골라 드리고 받은 혜택을 여기 모아 드려요",
+                body = "결제할 때 혜택이 큰 카드를 골라 드리고 이용 혜택을 여기 모아 드려요",
                 button = "카드 등록하기",
                 onClick = onAddCard,
             )
@@ -409,7 +417,7 @@ private fun BenefitHero(section: HomeSection<HomeBenefit>, onClick: () -> Unit, 
     when (section) {
         is HomeSection.Ready -> BenefitHeroReady(section.data, onClick)
         HomeSection.Loading -> HeroFrame(onClick = null) {
-            HeroTitle("이번 달 받은 혜택", more = false)
+            HeroTitle(benefitTitle(null), more = false)
             Spacer(Modifier.height(YamuSpacing.x3))
             Box(Modifier.width(150.dp).height(40.dp).clip(RoundedCornerShape(10.dp)).background(c.onHero.copy(alpha = HERO_GLASS_ALPHA)))
             Spacer(Modifier.height(YamuSpacing.x3))
@@ -417,7 +425,7 @@ private fun BenefitHero(section: HomeSection<HomeBenefit>, onClick: () -> Unit, 
         }
         // 혜택만 실패 — 홈의 다른 칸은 그대로 그리고 여기만 다시 시도(COMMON-08)
         is HomeSection.Failed -> HeroFrame(onClick = null) {
-            HeroTitle("이번 달 받은 혜택", more = false)
+            HeroTitle(benefitTitle(null), more = false)
             Spacer(Modifier.height(YamuSpacing.x3))
             Text("혜택을 불러오지 못했어요", style = YamuTheme.typography.titleM, color = c.onHero)
             Spacer(Modifier.height(YamuSpacing.x3))
@@ -444,12 +452,12 @@ private fun BenefitHeroReady(b: HomeBenefit, onClick: () -> Unit) {
     // 동전이 없으면(0원) 금액도 굴리지 않는다 — 무더기가 없어 rolled가 오르지 않으므로
     val shown = if (solid + ghost > 0) rememberRolledAmount(b.confirmed, pile) else b.confirmed
     val described = buildString {
-        append("${b.month.monthValue}월에 받은 혜택 확정 ${b.confirmed.toWon()}원")
+        append("${benefitTitle(b.month)} 확정 ${b.confirmed.toWon()}원")
         if (b.pending > 0) append(", 확정 전 ${b.pending.toWon()}원")
     }
 
     HeroFrame(onClick = onClick, onClickLabel = "혜택 리포트 보기", sheen = sheen.value) {
-        HeroTitle("${b.month.monthValue}월에 받은 혜택", more = true)
+        HeroTitle(benefitTitle(b.month), more = true)
         Row(verticalAlignment = Alignment.Bottom) {
             Column(Modifier.weight(1f)) {
                 Spacer(Modifier.height(YamuSpacing.x2))
@@ -484,9 +492,41 @@ private fun BenefitHeroReady(b: HomeBenefit, onClick: () -> Unit) {
                 )
             }
         }
+        if (b.showsTypes) {
+            Spacer(Modifier.height(YamuSpacing.x3))
+            BenefitTypeCells(b.byType)
+        }
         if (ghost > 0) {
             Spacer(Modifier.height(YamuSpacing.x3))
             Text("꽉 찬 동전은 확정, 점선 동전은 확정 전이에요", style = YamuTheme.typography.bodyS, color = c.onHeroMuted)
+        }
+        b.unconvertedNote()?.let {
+            Spacer(Modifier.height(if (ghost > 0) YamuSpacing.x1 else YamuSpacing.x3))
+            Text(it, style = YamuTheme.typography.bodyS, color = c.onHeroMuted)
+        }
+    }
+}
+
+/**
+ * 종류별 세 칸(할인 · 캐시백 · 적립, BE 순서) — 확정 금액만(11/14 결정: 세 칸 합 = 큰 숫자).
+ * 확정 전만 있는 종류는 0원 대신 '확정 전', 원화로 못 바꾼 것만 있으면 '환산 전'
+ */
+@Composable
+private fun BenefitTypeCells(types: List<BenefitByType>) {
+    val c = YamuTheme.colors
+    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        types.forEach { t ->
+            Column(
+                Modifier
+                    .weight(1f)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(c.onHero.copy(alpha = HERO_GLASS_ALPHA))
+                    .padding(horizontal = 10.dp, vertical = 8.dp)
+                    .semantics(mergeDescendants = true) {},
+            ) {
+                Text(t.type.label, style = YamuTheme.typography.bodyS, color = c.onHeroMuted)
+                Text(t.amountText(), style = YamuTheme.typography.labelL, color = c.onHero, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
         }
     }
 }
@@ -794,10 +834,18 @@ private fun SectionFailure(text: String, onRetry: () -> Unit) {
 
 /**
  * 내 카드 혜택 현황(HOME-10 · 11) — 카드 목록 순서로 3장 + '전체보기 ›'(실적관리 탭). 줄을 누르면 그 카드 R-02.
- * 줄마다 남은 한도 한 줄과 실적 칩. 카드별 이번 달 받은 혜택은 BE 필드가 오면 넣는다(11/13 결정: 그 전엔 숨김)
+ * 줄마다 이번 달 받은 혜택 · 남은 한도 한 줄과 실적 칩. 받은 혜택은 새 서버(BE -489)의 카드별 혜택이 있을 때만 —
+ * 옛 서버이거나 그 호출만 실패했거나 이번 달 YAMU 결제가 없는 카드면 그 줄을 숨긴다(11/13 결정: 0원으로 지어내지 않음)
  */
 @Composable
-private fun CardsSection(section: HomeSection<HomeCardsData>, arts: Map<Long, CardArtRef>, onCard: (Long) -> Unit, onAll: () -> Unit, onRetry: () -> Unit) {
+private fun CardsSection(
+    section: HomeSection<HomeCardsData>,
+    arts: Map<Long, CardArtRef>,
+    benefits: Map<Long, CardBenefit>?,
+    onCard: (Long) -> Unit,
+    onAll: () -> Unit,
+    onRetry: () -> Unit,
+) {
     val rows = section.dataOrNull?.rows()
     if (rows != null && rows.isEmpty()) return   // 카드 영역만 실패해 0장으로 읽힌 홈 — 실적도 0장이면 그릴 것이 없다
     YamuCard(contentPadding = PaddingValues(start = 20.dp, end = 16.dp, top = 16.dp, bottom = if (rows != null) 6.dp else 16.dp)) {
@@ -805,7 +853,7 @@ private fun CardsSection(section: HomeSection<HomeCardsData>, arts: Map<Long, Ca
         when {
             rows != null -> rows.forEachIndexed { i, row ->
                 if (i > 0) HorizontalDivider(color = YamuTheme.colors.outlineVariant)
-                CardRowItem(row, arts[row.userCardId], onClick = { onCard(row.userCardId) })
+                CardRowItem(row, arts[row.userCardId], benefits?.get(row.userCardId).lineText(), onClick = { onCard(row.userCardId) })
             }
             section is HomeSection.Failed -> SectionFailure("카드 현황을 불러오지 못했어요", onRetry)
             else -> {
@@ -820,7 +868,7 @@ private fun CardsSection(section: HomeSection<HomeCardsData>, arts: Map<Long, Ca
 }
 
 @Composable
-private fun CardRowItem(row: HomeCardRow, art: CardArtRef?, onClick: () -> Unit) {
+private fun CardRowItem(row: HomeCardRow, art: CardArtRef?, benefitLine: String?, onClick: () -> Unit) {
     val c = YamuTheme.colors
     Row(
         Modifier
@@ -835,6 +883,7 @@ private fun CardRowItem(row: HomeCardRow, art: CardArtRef?, onClick: () -> Unit)
         // 이름 · 한도 · 실적 칩을 세로로 — 카드 이름이 길어도 남은 한도 금액이 잘리지 않게(칩을 오른쪽에 두면 한도 줄이 '…'로 끊긴다)
         Column(Modifier.weight(1f)) {
             Text(row.name, style = YamuTheme.typography.titleM, color = c.text1, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            benefitLine?.let { Text(it, style = YamuTheme.typography.sub, color = c.text1, maxLines = 2, overflow = TextOverflow.Ellipsis) }
             row.limitLine?.let { Text(it, style = YamuTheme.typography.sub, color = c.text2, maxLines = 2, overflow = TextOverflow.Ellipsis) }
             Spacer(Modifier.height(6.dp))
             StatusTag(
@@ -940,16 +989,18 @@ private fun ForecastSection(
         else -> Unit
     }
     // 지난 기준 계좌의 요약이 남아 있으면 그리지 않는다(새 계좌를 불러오는 중으로) — '잔고예보' 버튼이 여는 계좌와 맞춘다
-    val data = brief.forAccount(home.forecast?.accountId).dataOrNull
+    val data = brief.forAccount(home.baseAccountId).dataOrNull
     YamuCard {
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             Text("잔고예보", style = YamuTheme.typography.cardTitle, color = c.text1, modifier = Modifier.weight(1f))
+            // 생활비 자료가 부족해 어림한 예보 — 첫 분석 화면과 같은 '잠정'(확정 결과처럼 보이지 않게)
+            if (data?.provisional == true) StatusTag("잠정", tone = TagTone.Neutral, guide = true)
             data?.accountLabel?.let { StatusTag(it, tone = TagTone.Neutral, guide = true) }
         }
         when {
             data != null -> {
-                ForecastRow("지금 잔고", data.calculatedAtIso?.let(::asOfLabel), data.currentBalance, emphasize = false)
-                ForecastRow("${HOME_FORECAST_DAYS}일 안 가장 낮을 때", data.minDate?.toMonthDayWeek(), data.minBalance, emphasize = true)
+                ForecastRow("지금 잔고", data.asOfIso?.let(::asOfLabel), data.currentBalance, emphasize = false)
+                ForecastRow(data.minLabel, data.minDate?.toMonthDayWeek(), data.minBalance, emphasize = true)
             }
             slot == ForecastSlot.HomeFailed -> SectionFailure("잔고를 불러오지 못했어요", onRetry)
             brief is HomeSection.Failed -> {
@@ -999,11 +1050,14 @@ private fun ForecastRow(label: String, detail: String?, amount: Long?, emphasize
         itemVerticalAlignment = Alignment.CenterVertically,
     ) {
         Text(listOfNotNull(label, detail).joinToString(" · "), style = YamuTheme.typography.bodyM, color = c.text3)
-        // 금액을 모르면 0원이 아니라 '확인할 수 없음'(COMMON-07)
-        if (amount != null) {
-            AmountText(amount, size = AmountSize.Value, color = if (emphasize) c.primary else c.text1, shortage = amount < 0, modifier = Modifier.padding(start = 12.dp))
-        } else {
-            Text("확인할 수 없음", style = YamuTheme.typography.bodyM, color = c.text3, modifier = Modifier.padding(start = 12.dp))
+        // 남은 너비를 채우고 오른쪽에 붙인다 — 다음 줄로 넘어가도 왼쪽으로 가지 않게(SpaceBetween은 줄에 혼자면 왼쪽)
+        Box(Modifier.weight(1f).padding(start = 12.dp), contentAlignment = Alignment.CenterEnd) {
+            // 금액을 모르면 0원이 아니라 '확인할 수 없음'(COMMON-07)
+            if (amount != null) {
+                AmountText(amount, size = AmountSize.Value, color = if (emphasize) c.primary else c.text1, shortage = amount < 0)
+            } else {
+                Text("확인할 수 없음", style = YamuTheme.typography.bodyM, color = c.text3)
+            }
         }
     }
 }

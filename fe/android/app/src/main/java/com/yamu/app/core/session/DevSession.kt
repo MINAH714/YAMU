@@ -25,6 +25,8 @@ enum class HomeScenario(val label: String) {
     AUTO_SELECT_OFF("자동 선택 꺼짐"),      // 결제 칸이 기본 카드로 결제한다고 말한다(HOME-09)
     FORECAST_ERROR("잔고예보만 실패"),      // v4 잔고예보 요약 — 지금 잔고는 남고 예보만 다시 시도(S15P31E103-481)
     NO_ACCOUNT("기준 계좌 없음"),          // 카드는 있는데 홈 잔고 영역이 비었을 때 — 계좌 연결 안내
+    OLD_SERVER("옛 서버(새 홈 칸 없음)"),   // BE -490 전 — 홈이 reports/monthly · forecasts/balance로 돌아가는지(S15P31E103-491)
+    UNCONVERTED("원화로 못 바꾼 혜택"),     // 적립 한 줄이 원화로 안 바뀐 달 — 히어로 안내 · '환산 전' 칸
     BANK_ERROR("금융망 오류"),
     NETWORK_ERROR("네트워크 없음"),
     SLOW("느린 응답(3초)"),

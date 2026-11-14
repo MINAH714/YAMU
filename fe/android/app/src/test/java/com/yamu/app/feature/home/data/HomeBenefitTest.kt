@@ -52,7 +52,7 @@ class HomeBenefitTest {
 
     @Test fun `0원 안내는 결제가 없을 때와 혜택이 없을 때를 나눈다`() {
         assertEquals("이번 달 YAMU 결제가 아직 없어요", dto(0, 0, spent = 0).toBenefit(today)!!.emptyNote())
-        assertEquals("이번 달 결제에서 받은 혜택이 아직 없어요", dto(0, 0, spent = 15_000).toBenefit(today)!!.emptyNote())
+        assertEquals("이번 달 결제로 생긴 혜택이 아직 없어요", dto(0, 0, spent = 15_000).toBenefit(today)!!.emptyNote())
         assertNull(dto(3_000, 0).toBenefit(today)!!.emptyNote())   // 확정 전만 있어도 칩이 말한다
         assertNull(dto(3_000, 3_000).toBenefit(today)!!.emptyNote())
     }
