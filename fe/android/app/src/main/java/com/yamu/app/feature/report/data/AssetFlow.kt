@@ -13,6 +13,8 @@ import com.yamu.app.feature.forecast.data.ForecastApi
 import com.yamu.app.feature.forecast.data.ForecastEvent
 import com.yamu.app.feature.forecast.data.ForecastPeriod
 import com.yamu.app.feature.forecast.data.ForecastRepository
+import com.yamu.app.feature.forecast.data.primaryOrAll
+import com.yamu.app.feature.forecast.data.shortName
 import com.yamu.app.feature.forecast.data.toForecast
 import com.yamu.app.feature.forecast.data.toOption
 import com.yamu.app.feature.forecast.monthDayKinds
@@ -44,16 +46,15 @@ val ASSET_FLOW_PERIOD = ForecastPeriod.DAYS_30
 val ASSET_FLOW_AFTER = listOf(7, 14, 30)
 
 /**
- * 자산 흐름이 보는 계좌 — 기준 계좌 하나(11/13 결정, 홈 요약 · 잔고예보와 같은 범위 FORECAST-03 · COMMON-04).
- * 기준 계좌가 없는 옛 자료면 연결 계좌 전체
+ * 자산 흐름이 보는 계좌 — 기준 계좌 하나(11/13 결정). 잔고예보를 고르지 않고 열었을 때와 같은 규칙([primaryOrAll])이라
+ * 홈 요약 · 잔고예보와 숫자가 맞는다(FORECAST-03 · COMMON-04). 기준 계좌가 없는 옛 자료면 연결 계좌 전체
  */
-fun assetFlowAccounts(accounts: List<ForecastAccountOption>): List<ForecastAccountOption> =
-    accounts.filter { it.isPrimary }.take(1).ifEmpty { accounts }
+fun assetFlowAccounts(accounts: List<ForecastAccountOption>): List<ForecastAccountOption> = accounts.primaryOrAll()
 
-/** 계좌 이름표 — 하나면 'KB국민 ··1234', 여럿이면 '계좌 2개 전체' */
+/** 계좌 이름표 — 하나면 'KB국민 ··1234'(잔고예보 계좌 칩과 같은 [shortName]), 여럿이면 '계좌 2개 전체' */
 fun accountTag(accounts: List<ForecastAccountOption>): String = when (accounts.size) {
     0 -> "계좌 없음"
-    1 -> accounts[0].let { a -> listOfNotNull(a.bankName ?: a.name, "··${a.last4}".takeIf { a.last4.isNotBlank() }).joinToString(" ") }
+    1 -> accounts[0].shortName()
     else -> "계좌 ${accounts.size}개 전체"
 }
 

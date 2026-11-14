@@ -6,6 +6,7 @@ import com.yamu.app.core.session.DevSession
 import com.yamu.app.core.session.HomeScenario
 import com.yamu.app.core.session.PayScenario
 import com.yamu.app.feature.forecast.data.CashflowCreateRequest
+import com.yamu.app.feature.forecast.data.ForecastSelection
 import com.yamu.app.feature.forecast.data.PaymentChannel
 import com.yamu.app.feature.forecast.data.RecurrenceRequest
 import com.yamu.app.feature.forecast.data.Simulation
@@ -168,11 +169,17 @@ class FakeSharedStateTest {
         assertEquals(f.endBalance, home.endBalance)
     }
 
-    @Test fun `계좌가 둘이면 홈은 기준 계좌만 — 실서버 HomeService와 같다`() = runTest {
-        val all = (forecast.forecast() as ApiResult.Success).data
+    @Test fun `계좌가 둘이면 홈은 기준 계좌만 — 잔고예보도 고르지 않으면 같은 계좌라 지금 잔고 · 최저 잔고가 같다(-484)`() = runTest {
         val home = forecast.homeForecast()!!
-        assertEquals(680_000L, all.currentBalance)
+        val byDefault = (forecast.forecast() as ApiResult.Success).data
         assertEquals(412_000L, home.currentBalance)
+        assertEquals(home.currentBalance, byDefault.currentBalance)
+        assertEquals(home.minBalance, byDefault.minBalance)   // 같은 기간(설정 — 월급 전날까지)이라 최저도 같다(QA-11)
+        assertEquals("KB국민은행 ··1234", byDefault.accountLabel(all = false))
+        forecast.select(ForecastSelection(all = true))   // 시트에서 모두 고르면 전처럼 두 계좌 합
+        val all = (forecast.forecast() as ApiResult.Success).data
+        assertEquals(680_000L, all.currentBalance)
+        assertEquals("계좌 2개 전체", all.accountLabel(all = true))
     }
 
     @Test fun `B-06 월급 계좌 목록은 연결한 계좌, 카드 대금은 등록한 카드만`() = runTest {

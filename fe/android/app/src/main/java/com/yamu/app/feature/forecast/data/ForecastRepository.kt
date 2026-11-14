@@ -184,11 +184,21 @@ interface ForecastRepository {
     }
 }
 
-/** 고른 계좌 중 아직 연결된 것만. 고른 게 없거나 모두 해제됐으면 연결 계좌 전체 */
+/**
+ * 예보에 넣을 계좌 — 모두 골랐으면([ForecastSelection.all]) 연결 계좌 전체, 고른 계좌가 있으면 그중 아직 연결된 것만,
+ * 고르지 않았거나 고른 계좌가 모두 해제됐으면 기준 계좌 하나([primaryOrAll], S15P31E103-484)
+ */
 fun ForecastSelection.accountIdsFrom(accounts: List<ForecastAccountOption>): List<Long> {
-    val all = accounts.map { it.accountId }
-    return accountIds?.let { ids -> all.filter { it in ids } }.orEmpty().ifEmpty { all }
+    val ids = accounts.map { it.accountId }
+    if (all) return ids
+    return accountIds?.let { chosen -> ids.filter { it in chosen } }.orEmpty().ifEmpty { accounts.primaryOrAll().map { it.accountId } }
 }
+
+/**
+ * 고르지 않았을 때 볼 계좌 — 기준 계좌 하나. 홈 요약(BE도 기준 계좌) · 소비분석 자산 흐름과 같은 범위다.
+ * 기준 계좌는 풀 수 없지만(서버 PRIMARY_REQUIRED) 옛 자료처럼 없으면 전처럼 연결 계좌 전체
+ */
+fun List<ForecastAccountOption>.primaryOrAll(): List<ForecastAccountOption> = filter { it.isPrimary }.take(1).ifEmpty { this }
 
 /** 등록 카드 → 카드 고르기 줄. 등록 중 · 해제 카드는 빼고, 결제할 수 없는 카드는 이유를 달아 둔다(BE CARD_NOT_ELIGIBLE과 같은 기준) */
 fun CardDto.toSimCardOption(): SimCardOption? {
@@ -223,7 +233,11 @@ class ForecastRepositoryImpl @Inject constructor(
     private val cashflowApi: CashflowApi,
 ) : ForecastRepository {
 
-    @Volatile private var last: Forecast? = null
+    /**
+     * 마지막 예보와 그 예보를 받은 선택. 선택이 바뀌면 [cached]는 null이다 — 홈에서 '30일 · 기준 계좌'로 바꿔 들어왔을 때
+     * 새 응답 전(실패하면 계속) 칩 밑에 앞 선택의 숫자가 보이지 않게(!319 리뷰)
+     */
+    @Volatile private var last: Pair<ForecastSelection, Forecast>? = null
     @Volatile private var current = ForecastSelection()
     private val plans = ConcurrentHashMap<Long, SavedPlan>()
 
@@ -235,12 +249,14 @@ class ForecastRepositoryImpl @Inject constructor(
         if (accounts.isEmpty()) return ApiResult.Failure(ApiError.InvalidRequest(ForecastRepository.NO_ACCOUNT))
         val selection = current   // 한 번만 읽어 기간 · 계좌 · 목록 범위가 같은 선택을 쓰게 한다
         val period = selection.period
-        return apiCall { api.forecast(selection.accountIdsFrom(accounts), period?.until, period?.days) }
-            .map { it.toForecast().copy(scope = selection.scopeFrom(accounts)) }
-            .also { r -> if (r is ApiResult.Success) last = r.data }
+        val ids = selection.accountIdsFrom(accounts)
+        return apiCall { api.forecast(ids, period?.until, period?.days) }
+            .map { it.toForecast().copy(scope = selection.scopeFrom(accounts), accounts = accounts.filter { a -> a.accountId in ids }) }
+            .also { r -> if (r is ApiResult.Success) last = selection to r.data }
     }
 
-    override fun cached(): Forecast? = last
+    /** 지금 선택으로 받은 마지막 예보만 — 늦게 온 앞 선택의 응답도 지금 선택과 다르면 쓰지 않는다 */
+    override fun cached(): Forecast? = last?.takeIf { it.first == current }?.second
 
     override fun selection(): ForecastSelection = current
 

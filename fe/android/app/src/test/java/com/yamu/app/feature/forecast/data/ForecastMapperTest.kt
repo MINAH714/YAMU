@@ -270,8 +270,10 @@ class ForecastMapperTest {
         val rows = cashflowRows(entries, testForecast(accountIds = listOf(2)).copy(scope = scope))
         assertEquals(listOf("줄2", "줄4", "줄5"), rows.map { it.title })   // 계좌도 카드도 없는 줄은 어느 계좌인지 몰라 둔다
         // 전체를 고르면(또는 고른 계좌가 모두 남아 있으면) 거르지 않는다
-        assertNull(ForecastSelection().scopeFrom(accounts))
+        assertNull(ForecastSelection(all = true).scopeFrom(accounts))
         assertNull(ForecastSelection(accountIds = setOf(1, 2)).scopeFrom(accounts))
+        // 고르지 않으면 기준 계좌(월급 통장) — 예정 목록도 그 계좌 · 그 계좌 카드 줄만(S15P31E103-484, 11/13 결정)
+        assertEquals(AccountScope(setOf(1), setOf(16)), ForecastSelection().scopeFrom(accounts))
         assertEquals(5, cashflowRows(entries, testForecast()).size)
     }
 
@@ -355,11 +357,28 @@ class ForecastMapperTest {
         assertNull(statusTag(testForecast(status = RiskLevel.UNKNOWN)))
     }
 
-    @Test fun `계좌 고르기 — 해제된 계좌는 빼고, 남은 게 없으면 전체`() {
+    @Test fun `계좌 고르기 — 고르지 않으면 기준 계좌, 해제된 계좌는 빼고 남은 게 없으면 기준 계좌, 모두 고르면 전체(-484)`() {
         val accounts = listOf(ForecastAccountOption(1, "a", null, "", null, true), ForecastAccountOption(2, "b", null, "", null, false))
-        assertEquals(listOf(1L, 2L), ForecastSelection().accountIdsFrom(accounts))
+        assertEquals(listOf(1L), ForecastSelection().accountIdsFrom(accounts))
         assertEquals(listOf(2L), ForecastSelection(accountIds = setOf(2, 9)).accountIdsFrom(accounts))
-        assertEquals(listOf(1L, 2L), ForecastSelection(accountIds = setOf(9)).accountIdsFrom(accounts))
+        assertEquals(listOf(1L), ForecastSelection(accountIds = setOf(9)).accountIdsFrom(accounts))
+        assertEquals(listOf(1L, 2L), ForecastSelection(all = true).accountIdsFrom(accounts))
+    }
+
+    @Test fun `기준 계좌가 없는 옛 자료면 전처럼 전체, 계좌가 없으면 빈 목록`() {
+        val noPrimary = listOf(ForecastAccountOption(1, "a", null, "", null, false), ForecastAccountOption(2, "b", null, "", null, false))
+        assertEquals(listOf(1L, 2L), ForecastSelection().accountIdsFrom(noPrimary))
+        assertEquals(emptyList<Long>(), ForecastSelection().accountIdsFrom(emptyList()))
+    }
+
+    @Test fun `계좌 이름표 — 하나면 은행 · 끝 네 자리, 여럿이면 개수, 모두 고르면 전체`() {
+        val kb = ForecastAccountOption(1, "KB 입출금", "KB국민은행", "1234", 412_000, true)
+        val shinhan = ForecastAccountOption(2, "생활비 통장", "신한은행", "5678", 268_000, false)
+        assertEquals("KB국민은행 ··1234", testForecast(accountIds = listOf(1)).copy(accounts = listOf(kb)).accountLabel(all = false))
+        assertEquals("계좌 2개", testForecast(accountIds = listOf(1, 2)).copy(accounts = listOf(kb, shinhan)).accountLabel(all = false))
+        assertEquals("계좌 2개 전체", testForecast(accountIds = listOf(1, 2)).copy(accounts = listOf(kb, shinhan)).accountLabel(all = true))
+        assertEquals("저장소가 계좌를 못 붙였으면 개수만", "계좌 1개", testForecast(accountIds = listOf(1)).accountLabel(all = false))
+        assertEquals("은행 이름이 없으면 계좌 이름", "생활비 통장 ··5678", shinhan.copy(bankName = null).shortName())
     }
 
     @Test fun `받침 따라 은 · 는`() {
