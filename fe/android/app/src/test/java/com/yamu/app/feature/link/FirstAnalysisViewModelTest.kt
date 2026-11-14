@@ -3,6 +3,8 @@ package com.yamu.app.feature.link
 import com.yamu.app.core.network.ApiError
 import com.yamu.app.core.network.ApiResult
 import com.yamu.app.feature.home.data.HomeBenefit
+import com.yamu.app.feature.home.data.HomeCardsData
+import com.yamu.app.feature.home.data.HomeForecastBrief
 import com.yamu.app.feature.home.data.HomeRepository
 import com.yamu.app.feature.home.data.HomeSummary
 import com.yamu.app.feature.home.data.HomeTodo
@@ -33,6 +35,8 @@ class FirstAnalysisViewModelTest {
         override suspend fun sync(): ApiResult<SyncResult> = error("B-07은 새로고침하지 않는다")
         override suspend fun loadBenefit(month: YearMonth): ApiResult<HomeBenefit> = error("B-07은 홈 혜택을 부르지 않는다")
         override suspend fun loadPaySettings(): ApiResult<PaySettings> = error("B-07은 결제 설정을 부르지 않는다")
+        override suspend fun loadCards(): ApiResult<HomeCardsData> = error("B-07은 카드 현황을 부르지 않는다")
+        override suspend fun loadForecastBrief(accountId: Long): ApiResult<HomeForecastBrief> = error("B-07은 잔고예보 요약을 부르지 않는다")
     }
 
     private val summary = HomeSummary(

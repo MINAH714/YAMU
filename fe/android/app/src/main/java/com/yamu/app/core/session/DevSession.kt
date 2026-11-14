@@ -23,6 +23,8 @@ enum class HomeScenario(val label: String) {
     NO_PAYMENT("이번 달 결제 없음"),       // v4 혜택 히어로 0원 · '결제 없음'(S15P31E103-480)
     BENEFIT_ERROR("혜택만 실패"),          // 혜택 칸만 다시 시도, 나머지 칸은 그대로
     AUTO_SELECT_OFF("자동 선택 꺼짐"),      // 결제 칸이 기본 카드로 결제한다고 말한다(HOME-09)
+    FORECAST_ERROR("잔고예보만 실패"),      // v4 잔고예보 요약 — 지금 잔고는 남고 예보만 다시 시도(S15P31E103-481)
+    NO_ACCOUNT("기준 계좌 없음"),          // 카드는 있는데 홈 잔고 영역이 비었을 때 — 계좌 연결 안내
     BANK_ERROR("금융망 오류"),
     NETWORK_ERROR("네트워크 없음"),
     SLOW("느린 응답(3초)"),
