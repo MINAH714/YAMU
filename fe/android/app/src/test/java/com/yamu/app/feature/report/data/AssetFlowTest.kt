@@ -1,6 +1,7 @@
 package com.yamu.app.feature.report.data
 
 import com.yamu.app.core.format.KST
+import com.yamu.app.core.network.ApiError
 import com.yamu.app.feature.forecast.DayKind
 import com.yamu.app.feature.forecast.data.FlowConfidence
 import com.yamu.app.feature.forecast.data.FlowType
@@ -16,6 +17,7 @@ import com.yamu.app.feature.report.gapLines
 import com.yamu.app.feature.report.nowLine
 import com.yamu.app.feature.report.panelNote
 import com.yamu.app.feature.report.panelValue
+import com.yamu.app.feature.report.showsDayEvents
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -285,5 +287,20 @@ class AssetFlowTest {
         val pay = ForecastEvent(today, FlowType.SCHEDULED_INCOME, "월급", 2_800_000, FlowConfidence.CONFIRMED)
         assertEquals("예정 · 카드 청구 · 금액 확정 전", eventSub(bill, today = false))
         assertEquals("오늘 · 수입", eventSub(pay, today = true))
+    }
+
+    @Test fun `날짜 칸 입출금 줄 — 오늘 · 앞날만, 지난날은 거래 목록이 없어 '없어요'로 단정하지 않는다(!320 P1)`() {
+        assertTrue(showsDayEvents(DayKind.TODAY))
+        assertTrue(showsDayEvents(DayKind.EXPECTED))
+        listOf(DayKind.ACTUAL, DayKind.NO_DATA, DayKind.ERROR, DayKind.UNKNOWN, DayKind.OUT_OF_RANGE).forEach { assertFalse(it.name, showsDayEvents(it)) }
+    }
+
+    @Test fun `없는 API — API_NOT_FOUND · METHOD_NOT_ALLOWED와 본문 없는 404만, 코드가 있는 데이터 404는 아니다(!320 P1)`() {
+        assertTrue(isMissingApi(ApiError.from(404, "API_NOT_FOUND")))
+        assertTrue(isMissingApi(ApiError.from(405, "METHOD_NOT_ALLOWED")))
+        assertTrue("프록시가 JSON 없이 준 404", isMissingApi(ApiError.from(404, null)))
+        assertFalse("그사이 기준 계좌 해제 등", isMissingApi(ApiError.from(404, "RESOURCE_NOT_FOUND")))
+        assertFalse(isMissingApi(ApiError.from(502, "FIN_API_UNAVAILABLE")))
+        assertFalse(isMissingApi(ApiError.Network))
     }
 }

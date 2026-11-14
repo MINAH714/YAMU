@@ -348,7 +348,7 @@ private fun AssetDayPanel(d: AssetDay, flow: AssetFlow, monthFlow: MonthFlow?, t
         }
         Text(key, style = YamuTheme.typography.bodyS, color = if (d.kind == DayKind.ERROR) c.warning else c.text3, modifier = Modifier.padding(top = if (main == null) 6.dp else 0.dp))
         panelNote(d, current)?.let { Text(it, style = YamuTheme.typography.bodyS, color = c.text2, modifier = Modifier.padding(top = 2.dp)) }
-        if (d.kind == DayKind.TODAY || d.kind == DayKind.EXPECTED || d.kind == DayKind.ACTUAL) {
+        if (showsDayEvents(d.kind)) {
             Spacer(Modifier.height(8.dp))
             if (d.events.isEmpty()) Text("이날 주요 입출금은 없어요", style = YamuTheme.typography.bodyS, color = c.text3)
             d.events.forEach { e -> EventRow(e, today = d.kind == DayKind.TODAY) }
@@ -423,6 +423,12 @@ internal fun panelValue(d: AssetDay, flow: AssetFlow, monthFlow: MonthFlow?, tod
 }
 
 /** 오늘 칸 덧줄 — 오늘 입출금이 있어 하루 끝 예상([AssetDay.endOfDay])이 지금 잔고와 다르면 */
+/**
+ * 날짜 칸에 그날 입출금 줄('없어요' 포함)을 둘지. 오늘 · 앞날은 예보의 입출금이 있다. 지난날(ACTUAL)은 asset-flows가 지난 거래 목록을
+ * 주지 않아(events는 늘 빈 배열) 잔고가 줄어든 날에도 '입출금이 없다'고 단정하게 되므로 빼고 그날 끝 잔고만 보인다
+ */
+internal fun showsDayEvents(kind: DayKind): Boolean = kind == DayKind.TODAY || kind == DayKind.EXPECTED
+
 internal fun panelNote(d: AssetDay, current: Long?): String? {
     if (d.kind != DayKind.TODAY) return null
     val end = d.endOfDay ?: return null

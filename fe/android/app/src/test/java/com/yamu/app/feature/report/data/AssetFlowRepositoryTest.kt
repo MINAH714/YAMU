@@ -1,5 +1,6 @@
 package com.yamu.app.feature.report.data
 
+import com.yamu.app.core.network.ApiError
 import com.yamu.app.core.network.json
 import com.yamu.app.core.network.retrofit
 import com.yamu.app.feature.forecast.DayKind
@@ -15,7 +16,7 @@ import org.junit.Before
 import org.junit.Test
 import java.time.YearMonth
 
-/** GET asset-flows(S15P31E103-492) — 기준 계좌라 계좌를 적지 않고, 옛 서버의 404는 실패가 아니라 '없는 API' */
+/** GET asset-flows(S15P31E103-492) — 기준 계좌라 계좌를 적지 않고, 옛 서버의 404 API_NOT_FOUND는 실패가 아니라 없는 API(데이터 404는 실패) */
 class AssetFlowRepositoryTest {
 
     private lateinit var server: MockWebServer
@@ -55,9 +56,21 @@ class AssetFlowRepositoryTest {
         assertEquals(3_000_001L, flow.currentBalance)
     }
 
-    @Test fun `asset-flows가 없는 옛 서버(404)면 Unsupported — 예보만으로 그린다`() = runTest {
-        server.enqueue(json(404, """{"success":false,"data":null,"error":{"code":"RESOURCE_NOT_FOUND","message":"없음"}}"""))
+    @Test fun `asset-flows가 없는 옛 서버(404 API_NOT_FOUND)면 Unsupported — 예보만으로 그린다`() = runTest {
+        // BE GlobalExceptionHandler가 매핑 없는 경로에 주는 본문(yamu.it.kr 11/14)
+        server.enqueue(json(404, """{"success":false,"data":null,"error":{"code":"API_NOT_FOUND","message":"요청한 API를 찾을 수 없습니다."}}"""))
         assertEquals(MonthFlowResult.Unsupported, repository.month(YearMonth.of(2026, 11)))
+    }
+
+    @Test fun `프록시가 본문 없이 준 404도 없는 API로 본다`() = runTest {
+        server.enqueue(json(404, ""))
+        assertEquals(MonthFlowResult.Unsupported, repository.month(YearMonth.of(2026, 11)))
+    }
+
+    @Test fun `새 서버의 데이터 404(RESOURCE_NOT_FOUND)는 옛 서버로 묻지 않고 실패로`() = runTest {
+        server.enqueue(json(404, """{"success":false,"data":null,"error":{"code":"RESOURCE_NOT_FOUND","message":"없음"}}"""))
+        val r = repository.month(YearMonth.of(2026, 11))
+        assertEquals(ApiError.NotFound("RESOURCE_NOT_FOUND"), (r as MonthFlowResult.Failed).error)
     }
 
     @Test fun `은행 · 서버 오류는 실패로 — 다시 시도를 보인다`() = runTest {
