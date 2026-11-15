@@ -1,11 +1,40 @@
-import { motion, useAnimate, usePresence, type AnimationPlaybackControls, type Transition } from 'motion/react'
-import { useEffect, useEffectEvent, useId, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from 'react'
+import {
+  AnimatePresence,
+  motion,
+  useAnimate,
+  useIsPresent,
+  usePresence,
+  usePresenceData,
+  type AnimationPlaybackControls,
+  type Transition,
+} from 'motion/react'
+import {
+  useContext,
+  useEffect,
+  useEffectEvent,
+  useId,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ReactNode,
+  type RefObject,
+} from 'react'
 import { useReduceMotion } from '../hooks/useReduceMotion'
-import { COLOR_SHIFT_S, EASE, FAST, REDUCED, TRAY_CLOSE, TRAY_SPRING } from '../styles/motion'
+import { COLOR_SHIFT_S, EASE, FAST, REDUCED, SWAP, TRAY_CLOSE, TRAY_SPRING } from '../styles/motion'
+import { StepLiveContext } from './trayLive'
+
+/**
+ * 트레이가 사라지는 길. 바깥 AnimatePresence의 custom으로 넘긴다.
+ * origin은 버튼 자리로 줄어들고(닫기), fade는 제자리에서 사라진다(결제 요청이 나갈 때)
+ */
+export type TrayExit = 'origin' | 'fade'
+
+/** 트레이가 처음 나타나는 길. fade는 결제 요청이 실패해 트레이로 돌아올 때 */
+export type TrayAppear = 'origin' | 'fade'
 
 type Props = {
   title: string
-  /** 단계 이름. 바뀌면 같은 트레이의 높이·폭만 바뀌고 새 내용이 나타난다 */
+  /** 단계 이름. 바뀌면 같은 트레이의 높이·폭만 바뀌고 내용은 교차 페이드한다 */
   stepKey: string
   /** 첫 단계. 닫기 아이콘을 보이고 바깥을 눌러도 닫힌다 */
   onClose?: () => void
@@ -16,6 +45,7 @@ type Props = {
   width?: number
   /** 트레이가 커져 나오는 버튼. 닫히면 이 자리로 줄어든다. 없으면 아래에서 올라오고 내려간다 */
   origin?: RefObject<HTMLElement | null>
+  appear?: TrayAppear
 }
 
 type Box = { left: number; top: number; width: number; height: number }
@@ -26,6 +56,7 @@ const CLOSE_GUARD_MS = 350
 /** 버튼에서 커지는 동안 연타한 두 번째 탭이 트레이 안에 떨어지지 않게 막는다 */
 const OPEN_GUARD_MS = 350
 const REDUCED_MS = 150
+const SWAP_MS = 200
 /** 내용은 트레이가 조금 커진 뒤 나온다(60ms부터 200ms) */
 const CONTENT_DELAY_S = 0.06
 const CONTENT_FADE_S = 0.2
@@ -34,13 +65,14 @@ const CONTENT_OUT_S = 0.08
 const COLOR_BACK_DELAY_S = 0.04
 
 /**
- * 주문 화면 위에 뜨는 트레이(모션 명세 M-TRAY-pos-open · close).
+ * 주문 화면 위에 뜨는 트레이(모션 명세 M-TRAY-pos-open · close · step · exit).
  * 결제하기 버튼(origin) 사각형이 그대로 커져 트레이가 되고, 닫으면 같은 자리로 줄어든다.
  * 바깥 AnimatePresence에 key를 고정해 두면 단계가 바뀌어도 같은 트레이의 크기만 바뀐다.
  * 크기와 자리는 left·top·width·height로 직접 움직여 내용이 늘어나거나 찌그러지지 않는다.
  */
-export function Tray({ title, stepKey, onClose, onBack, children, width = 560, origin }: Props) {
+export function Tray({ title, stepKey, onClose, onBack, children, width = 560, origin, appear = 'origin' }: Props) {
   const [isPresent, safeToRemove] = usePresence()
+  const exit = usePresenceData() as TrayExit | undefined
   const reduce = useReduceMotion()
   const titleId = useId()
   const [scope, animate] = useAnimate<HTMLDivElement>()
@@ -121,7 +153,7 @@ export function Tray({ title, stepKey, onClose, onBack, children, width = 560, o
       animate(sheet, { opacity: [0, 1] }, REDUCED)
       animate(scrim, { opacity: [0, 1] }, REDUCED)
       guardMs = REDUCED_MS
-    } else if (button) {
+    } else if (button && appear === 'origin') {
       const from = boxOf(button, root)
       const radius = radiusOf(button)
       placeBox(sheet, from)
@@ -133,6 +165,14 @@ export function Tray({ title, stepKey, onClose, onBack, children, width = 560, o
       animate(panel, { opacity: [0, 1] }, { delay: CONTENT_DELAY_S, duration: CONTENT_FADE_S, ease: EASE })
       animate(scrim, { opacity: [0, 1] }, TRAY_SPRING)
       guardMs = OPEN_GUARD_MS
+    } else if (origin) {
+      // 결제 요청이 실패해 돌아왔다. 커지지 않고 제자리에서 나타난다
+      placeBox(sheet, to)
+      paint(sheet, TRAY_RADIUS, surface)
+      sheet.style.opacity = '0'
+      animate(sheet, { opacity: [0, 1] }, SWAP)
+      animate(scrim, { opacity: [0, 1] }, SWAP)
+      guardMs = SWAP_MS
     } else {
       // 버튼이 없는 트레이(결제 취소 스캔)는 아래에서 올라온다
       placeBox(sheet, { ...to, top: root.clientHeight })
@@ -149,7 +189,7 @@ export function Tray({ title, stepKey, onClose, onBack, children, width = 560, o
     return () => clearTimeout(timer)
   })
 
-  /** 사라질 때와, 사라지는 중에 다시 불렸을 때 */
+  /** 사라질 때와, 사라지는 중에 다시 불렸을 때(결제 요청이 곧바로 실패했다) */
   const onPresence = useEffectEvent((present: boolean) => {
     const root = scope.current
     const sheet = sheetRef.current
@@ -159,21 +199,21 @@ export function Tray({ title, stepKey, onClose, onBack, children, width = 560, o
 
     if (present) {
       if (!leaving.current) return
-      // 사라지던 자리에서 돌아온다
+      // 지금 그려진 상태에서 200ms에 다시 나타난다
       leaving.current = false
       leaveRun.current += 1
       const panel = panelRef.current
       const to = panel ? placeOf(root, panel.offsetWidth, panel.offsetHeight) : place.current
+      const back = reduce ? REDUCED : SWAP
       if (to) {
         place.current = to
-        move(to, reduce ? null : TRAY_SPRING)
+        move(to, reduce ? null : back)
       }
-      const back = reduce ? REDUCED : FAST
       animate(sheet, { opacity: [num(sheet.style.opacity, 1), 1] }, back)
       animate(sheet, { borderRadius: [num(sheet.style.borderRadius, TRAY_RADIUS), TRAY_RADIUS] }, back)
       animate(sheet, { backgroundColor: [sheet.style.backgroundColor || surface, surface] }, back)
       animate(scrim, { opacity: [num(scrim.style.opacity, 1), 1] }, back)
-      animate(sheet.querySelectorAll('.tray-panel'), { opacity: 1 }, back)
+      animate(sheet.querySelectorAll('.tray-panel:not([inert])'), { opacity: 1 }, back)
       return
     }
 
@@ -181,10 +221,16 @@ export function Tray({ title, stepKey, onClose, onBack, children, width = 560, o
     const run = ++leaveRun.current
     const button = origin?.current ?? null
     const runs: Promise<unknown>[] = []
+    const fadeOut = (transition: Transition) => {
+      runs.push(animate(sheet, { opacity: [num(sheet.style.opacity, 1), 0] }, transition).finished)
+      runs.push(animate(scrim, { opacity: [num(scrim.style.opacity, 1), 0] }, transition).finished)
+    }
 
     if (reduce) {
-      runs.push(animate(sheet, { opacity: [num(sheet.style.opacity, 1), 0] }, REDUCED).finished)
-      runs.push(animate(scrim, { opacity: [num(scrim.style.opacity, 1), 0] }, REDUCED).finished)
+      fadeOut(REDUCED)
+    } else if (exit === 'fade' || (origin && !button)) {
+      // 결제 요청이 나갔다. 버튼으로 돌아가지 않고 제자리에서 사라진다(주문 화면이 먼저 빠져 버튼이 없어도 같다)
+      fadeOut(SWAP)
     } else if (button) {
       // 버튼 자리로 줄어든다. 진짜 버튼은 트레이가 지워지는 순간 부르는 쪽이 다시 보인다
       const to = boxOf(button, root)
@@ -202,7 +248,6 @@ export function Tray({ title, stepKey, onClose, onBack, children, width = 560, o
       )
       runs.push(animate(scrim, { opacity: [num(scrim.style.opacity, 1), 0] }, TRAY_CLOSE).finished)
     } else {
-      // 버튼이 화면에 없으면(결제를 보내 주문 화면이 사라졌다) 아래로 내려간다
       const slide = move({ ...drawnBox(sheet), top: root.clientHeight }, TRAY_SPRING)
       if (slide) runs.push(slide.finished)
       runs.push(animate(scrim, { opacity: [num(scrim.style.opacity, 1), 0] }, FAST).finished)
@@ -258,33 +303,37 @@ export function Tray({ title, stepKey, onClose, onBack, children, width = 560, o
         tabIndex={-1}
         inert={guarded}
       >
-        <TrayPanel key={stepKey} width={width} onPresent={onPanel}>
-          <header className="tray-header">
-            <h2 className="tray-title" id={titleId}>
-              {title}
-            </h2>
-            {onBack ? (
-              <button type="button" className="icon-button" aria-label="뒤로" onClick={onBack}>
-                <BackIcon />
-              </button>
-            ) : (
-              onClose && (
-                <button type="button" className="icon-button" aria-label="닫기" onClick={close}>
-                  <CloseIcon />
-                </button>
-              )
-            )}
-          </header>
-          <div className="tray-body">{children}</div>
-        </TrayPanel>
+        <StepLiveContext.Provider value={isPresent}>
+          <AnimatePresence initial={false}>
+            <TrayPanel key={stepKey} width={width} onPresent={onPanel}>
+              <header className="tray-header">
+                <h2 className="tray-title" id={titleId}>
+                  {title}
+                </h2>
+                {onBack ? (
+                  <button type="button" className="icon-button" aria-label="뒤로" onClick={onBack}>
+                    <BackIcon />
+                  </button>
+                ) : (
+                  onClose && (
+                    <button type="button" className="icon-button" aria-label="닫기" onClick={close}>
+                      <CloseIcon />
+                    </button>
+                  )
+                )}
+              </header>
+              <div className="tray-body">{children}</div>
+            </TrayPanel>
+          </AnimatePresence>
+        </StepLiveContext.Provider>
       </section>
     </div>
   )
 }
 
 /**
- * 트레이 한 단계. 단계마다 key를 달리 주면 내용이 바로 바뀌고 새 내용만 살짝 나타난다.
- * 트레이 왼쪽 위에 놓고 크기를 재서 트레이에 알린다.
+ * 트레이 한 단계. 단계가 바뀌면 새 단계가 150ms에 나타나고 옛 단계는 150ms에 걷힌다(교차 페이드).
+ * 둘 다 트레이 왼쪽 위에 겹쳐 놓고 크기는 지금 단계만 잰다. 걷히는 단계는 눌리지 않는다.
  */
 function TrayPanel({
   width,
@@ -295,28 +344,33 @@ function TrayPanel({
   onPresent: (el: HTMLElement) => void
   children: ReactNode
 }) {
+  const isPresent = useIsPresent()
+  const trayLive = useContext(StepLiveContext)
   const ref = useRef<HTMLDivElement>(null)
   const report = useEffectEvent((el: HTMLElement) => onPresent(el))
 
+  // 지금 단계일 때만 크기를 알린다
   useLayoutEffect(() => {
     const el = ref.current
-    if (!el) return
+    if (!isPresent || !el) return
     report(el)
     const observer = new ResizeObserver(() => report(el))
     observer.observe(el)
     return () => observer.disconnect()
-  }, [])
+  }, [isPresent])
 
   return (
     <motion.div
       ref={ref}
       className="tray-panel"
       style={{ width: `min(${width}px, 100cqw)` }}
+      inert={!isPresent}
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
       transition={FAST}
     >
-      {children}
+      <StepLiveContext.Provider value={isPresent && trayLive}>{children}</StepLiveContext.Provider>
     </motion.div>
   )
 }
