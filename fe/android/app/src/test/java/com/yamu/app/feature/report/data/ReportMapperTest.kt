@@ -197,6 +197,18 @@ class ReportMapperTest {
         assertNull(canceled.date)
     }
 
+    @Test fun `결제 내역 줄 업종 이름 — 있으면 둘째 줄에, 없거나 빈 값이면 비운다(-394)`() {
+        val page = YamuJson.decodeFromString(
+            PaymentsPageDto.serializer(),
+            """{"summary":{"count":3,"amount":30000},"page":1,"hasNext":false,"items":[
+                 {"paymentId":1,"merchant":{"merchantId":3,"name":"스타벅스 역삼점","categoryCode":"COFFEE_SHOP","categoryName":"카페"},"amount":10000},
+                 {"paymentId":2,"merchant":{"merchantId":9,"name":"새 가맹점","categoryCode":"NEW_CODE","categoryName":null},"amount":10000},
+                 {"paymentId":3,"merchant":{"name":"이름만","categoryName":" "},"amount":10000}
+               ]}""",
+        ).toPage()
+        assertEquals(listOf("카페", null, null), page.items.map { it.category })
+    }
+
     @Test fun `날짜 머리 — 오늘만 표시`() {
         assertEquals("10월 27일 (화, 오늘)", paymentDayLabel(today, today))
         assertEquals("10월 26일 (월)", paymentDayLabel(today.minusDays(1), today))

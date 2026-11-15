@@ -70,7 +70,7 @@ object FakePaymentHistory {
 
     private fun item(id: Long, daysAgo: Long, hhmm: String, merchant: String, cardId: Long, amount: Long, benefit: Long? = null, label: String = "할인", excluded: Boolean = false): PaymentItem {
         cardOf[id] = cardId
-        return PaymentItem(id, LocalDate.now(KST).minusDays(daysAgo + dayShift), hhmm, merchant, CARDS.getValue(cardId).brand, amount, benefit, label, excluded, canceled = false)
+        return PaymentItem(id, LocalDate.now(KST).minusDays(daysAgo + dayShift), hhmm, merchant, CARDS.getValue(cardId).brand, amount, benefit, label, excluded, canceled = false, category = categoryOf(merchant))
     }
 
     // 혜택은 카드 시드 비율 — 톡톡 스타벅스 50% · iD ON 교통 10% · ZERO 1.2% 적립 · Mr.Life 주말 마트 10%(월 한도 3,000)
@@ -127,6 +127,9 @@ object FakePaymentHistory {
             billAmount = if (card.check) null else if (p.benefitLabel == "할인") p.amount - benefit else p.amount,
             perfMonth = day.monthValue, perfRecognized = if (p.excluded) 0 else p.amount, perfCounted = !p.excluded,
             perfTotalAfter = if (p.paymentId == 938L) 285_000 else null, perfTarget = if (p.paymentId == 938L) 300_000 else null,   // 938 = 홈 최근 결제(P-07 숫자)
+            // 결제 상세 '추천 N순위' · '직접 고른 카드'(-394) — 넷 중 하나는 비교 못 한 카드를 직접 고른 결제, 나머지는 1 · 2순위
+            recommendedRank = when (p.paymentId % 4) { 0L -> null; 1L -> 2; else -> 1 },
+            userSelected = true,
         )
     }
 }
@@ -145,7 +148,7 @@ class FakeReportRepository @Inject constructor(private val payments: FakePayment
         val time = r.paidAtIso?.let { OffsetDateTime.parse(it).atZoneSameInstant(KST) }
         PaymentItem(
             r.paymentId, time?.toLocalDate(), time?.toLocalTime()?.toString()?.take(5), r.merchantName ?: "결제", r.cardBrand, r.amount,
-            r.benefits.sumOf { it.amount }.takeIf { it > 0 }, "할인", excluded = !r.perfCounted, canceled = false,
+            r.benefits.sumOf { it.amount }.takeIf { it > 0 }, "할인", excluded = !r.perfCounted, canceled = false, category = r.categoryName,
         )
     }
 

@@ -246,7 +246,8 @@ fun PaymentDetailRoute(onBack: () -> Unit, onCancel: (PaymentReceipt) -> Unit, v
                     // 즉시할인은 빠진 금액(실제 결제 금액)을 크게 보인다. 청구할인 · 캐시백 · 적립은 결제 금액 그대로(11/10 QA).
                     // 예전 '○원 할인받고 ○원 청구 예정' 줄은 청구할인까지 더한 할인과 청구할인 전 원금을 나란히 놓아 지웠다
                     Column(Modifier.padding(start = YamuSpacing.screen, end = YamuSpacing.screen, top = 12.dp, bottom = 24.dp)) {
-                        Text(listOfNotNull(r.merchantName, formatPaidAt(r.paidAtIso)).joinToString(" · "), style = YamuTheme.typography.bodyL, color = c.text2)
+                        // 가맹점 · 업종 · 일시 — 업종을 모르면(목록에 없는 코드) 빼고 잇는다(-394)
+                        Text(listOfNotNull(r.merchantName, r.categoryName, formatPaidAt(r.paidAtIso)).joinToString(" · "), style = YamuTheme.typography.bodyL, color = c.text2)
                         Spacer(Modifier.height(6.dp))
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             AmountText(r.paidAmount)
@@ -269,6 +270,11 @@ fun PaymentDetailRoute(onBack: () -> Unit, onCancel: (PaymentReceipt) -> Unit, v
                                 { CardListThumb(b, art?.productName ?: r.cardName.orEmpty(), width = 44.dp, dimmed = art?.dimmed == true) }
                             },
                         )
+                        // 카드 줄 아래 오른쪽에 '추천 N순위' · '직접 고른 카드'(-394), 옛 결제 · SEED는 비운다.
+                        // 키 아래(keySub)에 두면 카드 이름이 긴 큰 글자에서 키 칸이 한 글자 폭으로 눌려 세로로 쌓인다
+                        r.cardPickLabel?.let {
+                            Text(it, style = YamuTheme.typography.sub, color = c.text3, textAlign = TextAlign.End, modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp))
+                        }
                         r.approvalNo?.let { KeyValueRow("승인번호", it, large = false) }
                         MemoRow(r.memo, known = r.memoKnown, checking = s.memoChecking, onClick = viewModel::openMemo)
                     }

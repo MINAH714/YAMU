@@ -182,6 +182,7 @@ data class PaymentItem(
     val benefitLabel: String,                   // 할인 · 적립 · 혜택
     val excluded: Boolean,                      // 실적 제외
     val canceled: Boolean,
+    val category: String? = null,               // 업종 이름(BE merchant.categoryName). 목록에 없는 코드면 null(-394)
 )
 
 data class PaymentsPage(val count: Int, val amount: Long, val items: List<PaymentItem>, val page: Int, val hasNext: Boolean)
@@ -294,6 +295,7 @@ fun PaymentItemDto.toItem(): PaymentItem {
         },
         excluded = !performanceRecognized,
         canceled = status.equals("CANCELED", ignoreCase = true),
+        category = merchant?.categoryName?.takeIf { it.isNotBlank() },
     )
 }
 
