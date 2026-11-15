@@ -2,7 +2,9 @@ package com.yamu.app.feature.my
 
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.style.TextAlign
 import com.yamu.app.core.designsystem.component.ExpandToggle
+import com.yamu.app.core.designsystem.component.LinkButton
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -75,6 +77,7 @@ import com.yamu.app.feature.link.data.LinkRepository
 import com.yamu.app.feature.my.data.AppNotification
 import com.yamu.app.feature.my.data.MyRepository
 import com.yamu.app.feature.my.data.NotiTarget
+import com.yamu.app.feature.my.data.NotificationsPage
 import com.yamu.app.feature.my.data.notificationGroup
 import com.yamu.app.feature.my.data.notificationTime
 import com.yamu.app.feature.performance.data.CardPerf
@@ -82,6 +85,7 @@ import com.yamu.app.feature.performance.data.PerfOverview
 import com.yamu.app.feature.performance.data.PerformanceRepository
 import com.yamu.app.feature.performance.tone
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -96,19 +100,73 @@ data class NotificationsState(
     val unread: Int = 0,
     val items: List<AppNotification> = emptyList(),
     val error: String? = null,
+    val page: Int = 0,                       // 지금까지 읽은 쪽(20개씩)
+    val hasNext: Boolean = false,
+    val loadingMore: Boolean = false,
+    val moreError: String? = null,
 )
 
 @HiltViewModel
 class NotificationsViewModel @Inject constructor(private val my: MyRepository) : ViewModel() {
     private val _state = MutableStateFlow(NotificationsState())
     val state: StateFlow<NotificationsState> = _state.asStateFlow()
+    /** 새로고침 · 더 보기가 함께 쓰는 자리 — 새로고침은 도는 더 보기를 취소하고, 무엇이든 도는 동안 더 보기는 무시한다 */
+    private var listJob: Job? = null
 
+    /**
+     * 화면에 돌아올 때마다 — 더 보기로 읽은 쪽까지 1쪽부터 다시 받는다(알림을 눌러 다녀와도 줄 수 · 스크롤 자리가 그대로).
+     * 다 받은 뒤 한 번에 바꾸고, 중간에 실패하면 보던 목록을 둔다(-497, 환급 목록과 같은 방식)
+     */
     fun refresh() {
-        viewModelScope.launch {
-            _state.update { it.copy(loading = it.items.isEmpty(), error = null) }
-            when (val r = my.notifications(page = 1)) {
-                is ApiResult.Success -> _state.update { NotificationsState(loading = false, unread = r.data.unread, items = r.data.items) }
-                is ApiResult.Failure -> _state.update { it.copy(loading = false, error = r.error.userMessage()) }
+        listJob?.cancel()
+        val pages = _state.value.page.coerceAtLeast(1)
+        listJob = viewModelScope.launch {
+            _state.update { it.copy(loading = it.items.isEmpty(), error = null, loadingMore = false, moreError = null) }
+            val rows = mutableListOf<AppNotification>()
+            var read = 0
+            var last: NotificationsPage? = null
+            while (read < pages) {
+                when (val r = my.notifications(page = read + 1)) {
+                    is ApiResult.Success -> {
+                        rows += r.data.items
+                        last = r.data
+                        read++
+                        if (!r.data.hasNext) break
+                    }
+                    is ApiResult.Failure -> {
+                        _state.update { it.copy(loading = false, error = r.error.userMessage()) }
+                        return@launch
+                    }
+                }
+            }
+            _state.update {
+                it.copy(loading = false, unread = last?.unread ?: 0, items = rows.distinctBy { n -> n.id }, page = read, hasNext = last?.hasNext == true)
+            }
+        }
+    }
+
+    /**
+     * 다음 쪽을 붙인다. 쪽 사이에 새 알림이 오면 서버 쪽이 밀려 같은 알림이 다시 오니 먼저 받은 쪽(읽음 표시가 반영된 줄)을 남긴다.
+     * 연타 · 새로고침 중이면 무시
+     */
+    fun loadMore() {
+        val s = _state.value
+        if (listJob?.isActive == true || !s.hasNext) return
+        val next = s.page + 1
+        _state.update { it.copy(loadingMore = true, moreError = null) }
+        listJob = viewModelScope.launch {
+            val r = my.notifications(page = next)
+            _state.update {
+                when (r) {
+                    is ApiResult.Success -> it.copy(
+                        loadingMore = false,
+                        unread = r.data.unread,
+                        items = (it.items + r.data.items).distinctBy { n -> n.id },
+                        page = next,
+                        hasNext = r.data.hasNext,
+                    )
+                    is ApiResult.Failure -> it.copy(loadingMore = false, moreError = r.error.userMessage())
+                }
             }
         }
     }
@@ -201,6 +259,25 @@ fun NotificationsRoute(
                                 viewModel.open(n)
                                 onOpen(n.target)
                             })
+                        }
+                    }
+                }
+                // 21번째부터(-497) — '이전'을 접어 두면 펼친 뒤에만 보인다. 새로 붙는 알림은 대개 '이전'이라 누르면 같이 펼친다
+                if ((s.hasNext || s.moreError != null) && (older.isEmpty() || showOlder)) {
+                    item(key = "more") {
+                        Column(Modifier.fillMaxWidth().padding(horizontal = YamuSpacing.screen)) {
+                            if (s.hasNext) {
+                                Spacer(Modifier.height(YamuSpacing.x2))
+                                Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                                    LinkButton(if (s.loadingMore) "불러오는 중…" else "더 보기", onClick = {
+                                        showOlder = true
+                                        viewModel.loadMore()
+                                    })
+                                }
+                            }
+                            s.moreError?.let {
+                                Text("$it · 다시 눌러 주세요", style = YamuTheme.typography.bodyS, color = c.error, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
+                            }
                         }
                     }
                 }
