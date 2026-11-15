@@ -6,6 +6,7 @@ import com.yamu.app.core.format.toManWon
 import com.yamu.app.core.format.toWon
 import com.yamu.app.feature.link.data.AccountDto
 import com.yamu.app.feature.link.data.Brand
+import com.yamu.app.feature.link.data.brandOf
 import com.yamu.app.feature.link.data.lastDigits
 import com.yamu.app.feature.performance.data.CardPerf
 import com.yamu.app.feature.performance.data.LimitCardDto
@@ -93,11 +94,32 @@ fun limitLine(card: LimitCardDto?): String? {
     return if (others > 0) "${pick.second} 외 ${others}곳" else pick.second
 }
 
-/** 놓치기 아까운 혜택 '남은 한도' 한 줄 — 카드 · 한도 이름과 확인된 남은 금액 */
-data class RemainingLimit(val cardName: String, val limitName: String, val amount: Long)
+/**
+ * 놓치기 아까운 혜택 '남은 한도' 카드 한 장 — 카드 그림을 찾을 카드 번호 · 카드사 · 그림 이름, 한도 이름과 확인된 남은 금액.
+ * 한도 API는 쓴 금액 · 전체 한도를 주지 않아 남은 비율 막대는 그리지 않는다
+ */
+data class RemainingLimit(
+    val userCardId: Long,
+    val cardName: String,
+    val brand: Brand,
+    val artName: String,
+    val limitName: String,
+    val amount: Long,
+)
 
-/** '조건을 채우면' 한 줄 */
-data class ConditionLine(val cardName: String, val text: String)
+/** '조건을 채우면' 카드 한 장 — 이번 달 인정 실적과 목표(목표 금액을 모르면 [progress]가 null이라 막대 없이 [targetText]만) */
+data class ConditionLine(
+    val userCardId: Long,
+    val cardName: String,
+    val brand: Brand,
+    val artName: String,
+    val recognized: Long,
+    val target: Long?,
+    val targetText: String,
+    val text: String,
+) {
+    val progress: Float? get() = target?.takeIf { it > 0 }?.let { (recognized.toFloat() / it).coerceIn(0f, 1f) }
+}
 
 data class MissedBenefits(val remaining: List<RemainingLimit>, val conditions: List<ConditionLine>) {
     /** 확인된 것이 하나도 없으면 칸을 숨긴다(HOME-12) */
@@ -115,27 +137,45 @@ const val MISSED_CONDITION_ROWS = 2
  *   이번 달 실적이 다음 달 혜택을 정한다(BE 한도 잠김은 지난달 실적 기준이라 이번 달엔 못 푼다). 더 쓰라는 말은 하지 않는다
  */
 fun HomeCardsData.missed(): MissedBenefits {
+    val byId = cards.associateBy { it.userCardId }
     val names = cards.associate { it.userCardId to (it.nickname?.takeIf { n -> n.isNotBlank() } ?: it.name) }
     val remaining = limits.orEmpty().flatMap { card ->
+        val perf = byId[card.userCardId]
         val cardName = names[card.userCardId] ?: card.nickname ?: "카드"
+        // 카드 그림은 화면이 카드 목록(arts)에서 먼저 찾고, 없으면 이 카드사 · 이름으로 찾는다(카드 줄과 같은 순서)
+        val brand = perf?.brand ?: card.issuer?.let { brandOf(it.name, color = it.color) } ?: brandOf(cardName)
+        val artName = perf?.nickname ?: perf?.name ?: cardName
         card.limits
             .filter { it.status.uppercase() in OPEN && (it.remainingAmount ?: 0) > 0 }
-            .map { RemainingLimit(cardName, it.name, it.remainingAmount!!) }
+            .map { RemainingLimit(card.userCardId, cardName, brand, artName, it.name, it.remainingAmount!!) }
     }.sortedByDescending { it.amount }.take(MISSED_REMAINING_ROWS)
     // R-03에서 이번 달 '채우지 않을게요(SKIP)'를 고른 카드는 뺀다 — BE가 홈 할 일에서 SKIP 카드를 빼는 규칙과 같다(11/11 결정)
     val conditions = cards
         .filter { it.pending && it.remaining > 0 && it.guide != PerfGuide.EXTRA_SPENDING_NOT_RECOMMENDED && it.decision != PerfDecision.SKIP }
         .sortedBy { it.remaining }
         .take(MISSED_CONDITION_ROWS)
-        .map { card -> ConditionLine(names.getValue(card.userCardId), conditionText(card)) }
+        .map { card ->
+            ConditionLine(
+                userCardId = card.userCardId,
+                cardName = names.getValue(card.userCardId),
+                brand = card.brand,
+                artName = card.nickname ?: card.name,
+                recognized = card.recognized,
+                target = card.target,
+                targetText = conditionTarget(card),
+                text = conditionText(card),
+            )
+        }
     return MissedBenefits(remaining, conditions)
 }
 
-/** '이번 달 실적이 30만원 이상이면 다음 달 혜택 조건을 채워요 (지금 255,000원)' — 목표 표시가 없으면 금액으로 */
-fun conditionText(card: CardPerf): String {
-    val target = card.targetLabel?.takeIf { it.isNotBlank() } ?: card.target?.let { "${it.toManWon()} 이상" } ?: "목표"
-    return "이번 달 실적이 ${target}이면 다음 달 혜택 조건을 채워요 (지금 ${card.recognized.toManWon()})"
-}
+/** 목표 표시 — 서버 문구('30만원 이상')가 먼저, 없으면 금액, 그것도 없으면 '목표' */
+private fun conditionTarget(card: CardPerf): String =
+    card.targetLabel?.takeIf { it.isNotBlank() } ?: card.target?.let { "${it.toManWon()} 이상" } ?: "목표"
+
+/** 읽어 주는 문장 '이번 달 실적이 30만원 이상이면 다음 달 혜택 조건을 채워요 (지금 255,000원)' — 화면은 카드 그림 · 막대로 보이고 이 문장은 TalkBack용 */
+fun conditionText(card: CardPerf): String =
+    "이번 달 실적이 ${conditionTarget(card)}이면 다음 달 혜택 조건을 채워요 (지금 ${card.recognized.toManWon()})"
 
 // ── 잔고예보 요약(HOME-14 · 15) ──
 

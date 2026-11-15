@@ -1,8 +1,10 @@
 package com.yamu.app.feature.home.data
 
 import com.yamu.app.core.format.KST
+import com.yamu.app.feature.home.manShort
 import com.yamu.app.feature.link.data.AccountDto
 import com.yamu.app.feature.link.data.BankDto
+import com.yamu.app.feature.link.data.IssuerDto
 import com.yamu.app.feature.link.data.brandOf
 import com.yamu.app.feature.performance.data.CardPerf
 import com.yamu.app.feature.performance.data.LimitCardDto
@@ -106,6 +108,21 @@ class HomeCardsTest {
         )
         val r = data.missed().remaining
         assertEquals(listOf("처음 · 마트 11800", "노리 · 카페 3000", "노리 · 편의점 1100"), r.map { "${it.cardName} · ${it.limitName} ${it.amount}" })
+        // 카드 그림을 찾을 재료 — 카드 번호 · 카드사 · 그림 이름(별명이 있으면 별명, 화면은 카드 목록 그림을 먼저 쓴다)
+        assertEquals(listOf(2L, 1L, 1L), r.map { it.userCardId })
+        assertEquals("처음", r.first().artName)
+        assertEquals("신한", r.first().brand.shortName)
+    }
+
+    @Test fun `실적 응답에 없는 카드의 한도도 한도 응답의 카드사로 카드 그림을 찾는다`() {
+        val data = HomeCardsData(
+            emptyList(),
+            listOf(LimitCardDto(9, "KB국민 노리", issuer = IssuerDto("KB", "KB국민카드", "#FFBC00"), limits = listOf(limit("카페", 2_000)))),
+        )
+        val r = data.missed().remaining.single()
+        assertEquals("KB국민 노리", r.cardName)
+        assertEquals("KB국민카드", r.brand.name)
+        assertEquals("KB국민 노리", r.artName)
     }
 
     @Test fun `조건을 채우면은 못 채운 카드 중 추가 소비 비추천이 아닌 것 · 남은 금액 적은 순 2줄`() {
@@ -123,6 +140,22 @@ class HomeCardsTest {
         val c = data.missed().conditions
         assertEquals(listOf("B", "F"), c.map { it.cardName })
         assertEquals("이번 달 실적이 30만원 이상이면 다음 달 혜택 조건을 채워요 (지금 255,000원)", c.first().text)
+        // 카드 막대 — 지금 실적 / 목표
+        assertEquals(255_000L, c.first().recognized)
+        assertEquals(300_000L, c.first().target)
+        assertEquals(0.85f, c.first().progress!!, 0.001f)
+        assertEquals("30만원 이상", c.first().targetText)
+    }
+
+    @Test fun `막대 아래 짧은 금액 — 만 단위 소수 한 자리(버림), 1만 원 아래는 그대로`() {
+        assertEquals(listOf("25.5만", "30만", "123.4만", "1만", "8,000", "0"), listOf(255_000L, 300_000L, 1_234_567L, 10_999L, 8_000L, 0L).map { it.manShort() })
+    }
+
+    @Test fun `목표 금액을 모르면 막대 없이 목표 표시만`() {
+        val line = ConditionLine(1, "A", brandOf("신한카드"), "A", recognized = 100_000, target = null, targetText = "30만원 이상", text = "")
+        assertNull(line.progress)
+        assertNull(line.copy(target = 0).progress)
+        assertEquals(1f, line.copy(target = 50_000).progress!!, 0f)   // 넘쳐도 막대는 끝까지만
     }
 
     @Test fun `이번 달 채우지 않기(SKIP)를 고른 카드는 조건을 채우면에 넣지 않는다`() {

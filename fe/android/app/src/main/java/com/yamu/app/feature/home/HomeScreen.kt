@@ -11,16 +11,19 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.consumeWindowInsets
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -117,7 +120,9 @@ import com.yamu.app.feature.home.data.HomeCardsData
 import com.yamu.app.feature.home.data.HomeForecastBrief
 import com.yamu.app.feature.home.data.HomeGreeting
 import com.yamu.app.feature.home.data.HomeSummary
+import com.yamu.app.feature.home.data.ConditionLine
 import com.yamu.app.feature.home.data.MissedBenefits
+import com.yamu.app.feature.home.data.RemainingLimit
 import com.yamu.app.feature.home.data.PaySettings
 import com.yamu.app.feature.home.data.PerfChipTone
 import com.yamu.app.feature.home.data.RecentPayment
@@ -132,12 +137,12 @@ import com.yamu.app.feature.home.data.minLabel
 import com.yamu.app.feature.home.data.missed
 import com.yamu.app.feature.home.data.paidAtLabel
 import com.yamu.app.feature.home.data.payNote
-import com.yamu.app.feature.home.data.paySubtitle
 import com.yamu.app.feature.home.data.recentPaymentOutsidePayCard
 import com.yamu.app.feature.home.data.rows
 import com.yamu.app.feature.home.data.showsTypes
 import com.yamu.app.feature.home.data.unconvertedNote
 import com.yamu.app.feature.link.CardListThumb
+import com.yamu.app.feature.link.data.Brand
 import com.yamu.app.feature.link.data.CardArtRef
 import java.time.LocalDate
 import java.time.OffsetDateTime
@@ -270,7 +275,7 @@ fun HomeScreen(
                         // 아래쪽(S15P31E103-481) — 카드가 있어야 보이는 두 칸, 그다음 잔고예보 요약
                         if (!content.needsLinking && !content.needsCard) {
                             CardsSection(state.cards, arts, state.cardBenefitsShown(), onCard = onCardPerformance, onAll = onPerfTab, onRetry = onRetryCards)
-                            state.cards.dataOrNull?.missed()?.takeUnless { it.isEmpty }?.let { MissedSection(it, onAll = onBenefitLimits) }
+                            state.cards.dataOrNull?.missed()?.takeUnless { it.isEmpty }?.let { MissedSection(it, arts, onCard = onCardPerformance, onAll = onBenefitLimits) }
                         }
                         ForecastSection(
                             slot = forecastSlot(content),
@@ -375,7 +380,7 @@ private fun HomeContent(
     }
 }
 
-/** 인사 두 줄 — '○○님, 11월 혜택을 모아 봤어요' / 'YAMU로 결제한 것만 셌어요 · 11/1~11/13' */
+/** 인사 두 줄 — '○○님, 11월 혜택을 모아 봤어요' / '11/1~11/13' */
 @Composable
 private fun Greeting(greeting: HomeGreeting) {
     val c = YamuTheme.colors
@@ -498,12 +503,9 @@ private fun BenefitHeroReady(b: HomeBenefit, onClick: () -> Unit) {
             Spacer(Modifier.height(YamuSpacing.x3))
             BenefitTypeCells(b.byType)
         }
-        if (ghost > 0) {
-            Spacer(Modifier.height(YamuSpacing.x3))
-            Text("꽉 찬 동전은 확정, 점선 동전은 확정 전이에요", style = YamuTheme.typography.bodyS, color = c.onHeroMuted)
-        }
+        // 동전 모양 풀이('꽉 찬 동전은 확정, 점선 동전은 확정 전이에요')는 그림을 글로 설명하는 줄이라 11/15에 뺐다 — 확정 · 확정 전 칩이 말한다
         b.unconvertedNote()?.let {
-            Spacer(Modifier.height(if (ghost > 0) YamuSpacing.x1 else YamuSpacing.x3))
+            Spacer(Modifier.height(YamuSpacing.x3))
             Text(it, style = YamuTheme.typography.bodyS, color = c.onHeroMuted)
         }
     }
@@ -672,10 +674,6 @@ private fun PayCard(
         Row(verticalAlignment = Alignment.Top) {
             Column(Modifier.weight(1f)) {
                 Text("YAMU로 결제하기", style = YamuTheme.typography.cardTitle, color = c.text1)
-                paySubtitle(settings)?.let {
-                    Spacer(Modifier.height(2.dp))
-                    Text(it, style = YamuTheme.typography.sub, color = c.text3)
-                }
             }
             Spacer(Modifier.width(12.dp))
             Box(
@@ -685,16 +683,19 @@ private fun PayCard(
                 Icon(YamuTabIcons.PayCode, contentDescription = null, tint = c.primary, modifier = Modifier.size(26.dp))
             }
         }
-        Spacer(Modifier.height(14.dp))
-        Row(verticalAlignment = Alignment.Top) {
-            Icon(
-                if (note.autoOff) YamuIcons.Info else YamuIcons.CheckCircle,
-                contentDescription = null,
-                tint = if (note.autoOff) c.warning else c.success,
-                modifier = Modifier.padding(top = 1.dp).size(18.dp),
-            )
-            Spacer(Modifier.width(8.dp))
-            Text(note.text, style = YamuTheme.typography.bodyM, color = if (note.autoOff) c.onWarningContainer else c.text2)
+        // 안내 줄은 자동 선택을 꺼 둔 사람에게만(기본 카드로 결제한다는 주의)
+        note?.let {
+            Spacer(Modifier.height(14.dp))
+            Row(verticalAlignment = Alignment.Top) {
+                Icon(
+                    if (it.autoOff) YamuIcons.Info else YamuIcons.CheckCircle,
+                    contentDescription = null,
+                    tint = if (it.autoOff) c.warning else c.success,
+                    modifier = Modifier.padding(top = 1.dp).size(18.dp),
+                )
+                Spacer(Modifier.width(8.dp))
+                Text(it.text, style = YamuTheme.typography.bodyM, color = if (it.autoOff) c.onWarningContainer else c.text2)
+            }
         }
         RecentPaymentSlot(recentPayment, onRecentPayment, onPayments)
         Spacer(Modifier.height(16.dp))
@@ -911,55 +912,86 @@ private fun CardRowItem(row: HomeCardRow, art: CardArtRef?, benefitLine: String?
 }
 
 /**
- * 놓치기 아까운 혜택(HOME-12 · 13) — 확인된 것이 있을 때만. '남은 한도'(금액을 아는 이번 달 한도)와 '조건을 채우면'(이번 달 실적 → 다음 달 혜택)을 나눈다.
- * 조건을 확인하라고 보여 주는 칸이라 더 쓰라는 말을 쓰지 않고, 아래에 그 뜻을 한 줄로 적는다. '남은 혜택 모두 보기 ›'는 R-06
+ * 놓치기 아까운 혜택(HOME-12 · 13) — 확인된 것이 있을 때만. 실물 카드 그림을 크게 둔 카드를 옆으로 넘긴다(11/15 결정, 글 목록 대신).
+ * 남은 한도(금액을 아는 이번 달 한도, 많은 순)가 먼저, 그다음 조건 카드(이번 달 실적 → 다음 달 혜택, 남은 금액 적은 순).
+ * 더 쓰라는 말은 쓰지 않는다 — 조건 카드는 지금 실적과 목표를 막대로만 보인다. 한도 카드를 누르면 R-06, 조건 카드를 누르면 그 카드 R-02,
+ * '남은 혜택 모두 보기 ›'는 R-06. 설명 두 줄('확인할 수 있는 것만 모았어요' · '더 쓰는 게 이득이라는 뜻은 아니에요')은 11/15에 뺐다
  */
 @Composable
-private fun MissedSection(missed: MissedBenefits, onAll: () -> Unit) {
-    val c = YamuTheme.colors
-    YamuCard(contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 16.dp, bottom = 8.dp)) {
-        SectionTitle("놓치기 아까운 혜택")
-        Spacer(Modifier.height(2.dp))
-        Text("이번 달 남은 혜택 중 확인할 수 있는 것만 모았어요", style = YamuTheme.typography.sub, color = c.text3)
-        if (missed.remaining.isNotEmpty()) {
-            MissedGroup("남은 한도") {
-                missed.remaining.forEach { r ->
-                    MissedRow("${r.cardName} · ${r.limitName}", amount = "${r.amount.toWon()}원")
-                }
-            }
+private fun MissedSection(missed: MissedBenefits, arts: Map<Long, CardArtRef>, onCard: (Long) -> Unit, onAll: () -> Unit) {
+    YamuCard(contentPadding = PaddingValues(top = 16.dp, bottom = 8.dp)) {
+        Box(Modifier.padding(horizontal = 20.dp)) { SectionTitle("놓치기 아까운 혜택") }
+        Spacer(Modifier.height(12.dp))
+        Row(
+            Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 20.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            missed.remaining.forEach { r -> LimitTile(r, arts[r.userCardId], onClick = onAll) }
+            missed.conditions.forEach { line -> ConditionTile(line, arts[line.userCardId], onClick = { onCard(line.userCardId) }) }
         }
-        if (missed.conditions.isNotEmpty()) {
-            MissedGroup("조건을 채우면") {
-                missed.conditions.forEach { line -> MissedRow("${line.cardName} · ${line.text}", amount = null) }
-            }
-        }
-        Spacer(Modifier.height(8.dp))
-        Text("조건을 확인하라고 보여 드리는 거예요. 더 쓰는 게 이득이라는 뜻은 아니에요.", style = YamuTheme.typography.bodyS, color = c.text3)
-        QuietLink("남은 혜택 모두 보기 ›", onClick = onAll)
+        Box(Modifier.padding(horizontal = 16.dp)) { QuietLink("남은 혜택 모두 보기 ›", onClick = onAll) }
     }
 }
 
-@Composable
-private fun MissedGroup(title: String, rows: @Composable () -> Unit) {
-    Column(Modifier.padding(top = 12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Text(title, style = YamuTheme.typography.labelM, color = YamuTheme.colors.text3)
-        rows()
-    }
-}
+/** 놓치기 아까운 혜택 카드 한 장의 폭 — 360dp 화면에서 두 장이 다 보이고 셋째가 조금 보인다 */
+private val MISSED_TILE_WIDTH = 148.dp
 
+/** 카드 그림(카드 목록의 상품 그림, 없으면 카드사 색 카드) + 아래 글 — 읽을 때는 [description] 한 문장 */
 @Composable
-private fun MissedRow(text: String, amount: String?) {
-    val c = YamuTheme.colors
-    Row(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(YamuRadius.input)).background(c.surfaceVariant).padding(horizontal = 12.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
+private fun MissedTile(art: CardArtRef?, brand: Brand, artName: String, description: String, onClickLabel: String, onClick: () -> Unit, body: @Composable ColumnScope.() -> Unit) {
+    Column(
+        Modifier
+            .width(MISSED_TILE_WIDTH)
+            .clip(RoundedCornerShape(YamuRadius.s))
+            .clickable(role = Role.Button, onClickLabel = onClickLabel, onClick = onClick)
+            .clearAndSetSemantics { contentDescription = description }
+            .padding(bottom = 8.dp),
     ) {
-        Text(text, style = YamuTheme.typography.bodyM, color = c.text1, modifier = Modifier.weight(1f))
-        if (amount != null) {
-            Spacer(Modifier.width(10.dp))
-            Text(amount, style = YamuTheme.typography.value, color = c.text1)
+        CardListThumb(art?.brand ?: brand, art?.productName ?: artName, width = MISSED_TILE_WIDTH, dimmed = art?.dimmed == true)
+        Spacer(Modifier.height(10.dp))
+        body()
+    }
+}
+
+/** 남은 한도 카드 — 카드 이름 · 한도 이름 · 남은 금액 */
+@Composable
+private fun LimitTile(r: RemainingLimit, art: CardArtRef?, onClick: () -> Unit) {
+    val c = YamuTheme.colors
+    MissedTile(art, r.brand, r.artName, "${r.cardName}, ${r.limitName} ${r.amount.toWon()}원 남음", onClickLabel = "혜택 한도 보기", onClick = onClick) {
+        Text(r.cardName, style = YamuTheme.typography.sub, color = c.text3, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text(r.limitName, style = YamuTheme.typography.bodyM, color = c.text1, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Spacer(Modifier.height(2.dp))
+        Text("${r.amount.toWon()}원 남음", style = YamuTheme.typography.value, color = c.primary, maxLines = 1)
+    }
+}
+
+/** 조건 카드 — 카드 이름 · '다음 달 혜택 조건' · 지금 실적 / 목표 막대. 목표 금액을 모르면 막대 없이 목표 표시와 지금 실적 */
+@Composable
+private fun ConditionTile(line: ConditionLine, art: CardArtRef?, onClick: () -> Unit) {
+    val c = YamuTheme.colors
+    MissedTile(art, line.brand, line.artName, "${line.cardName}, ${line.text}", onClickLabel = "카드 실적 보기", onClick = onClick) {
+        Text(line.cardName, style = YamuTheme.typography.sub, color = c.text3, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text("다음 달 혜택 조건", style = YamuTheme.typography.bodyM, color = c.text1, maxLines = 1)
+        Spacer(Modifier.height(6.dp))
+        val progress = line.progress
+        if (progress != null && line.target != null) {
+            Box(Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp)).background(c.surfaceVariant)) {
+                Box(Modifier.fillMaxWidth(progress).fillMaxHeight().clip(RoundedCornerShape(3.dp)).background(c.primary))
+            }
+            Spacer(Modifier.height(4.dp))
+            Text("${line.recognized.manShort()} / ${line.target.manShort()}원", style = YamuTheme.typography.sub, color = c.text2, maxLines = 1)
+        } else {
+            Text(line.targetText, style = YamuTheme.typography.sub, color = c.text2, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text("지금 ${line.recognized.toWon()}원", style = YamuTheme.typography.sub, color = c.text2, maxLines = 1)
         }
     }
+}
+
+/** 막대 아래 짧은 금액 — 25.5만 · 30만(0.1만 아래는 버림), 1만 원 아래는 그대로 8,000 */
+internal fun Long.manShort(): String {
+    if (this < 10_000) return toWon()
+    val tenths = this / 1_000
+    return if (tenths % 10 == 0L) "${tenths / 10}만" else "${tenths / 10}.${tenths % 10}만"
 }
 
 /**
