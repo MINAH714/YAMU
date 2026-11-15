@@ -1,6 +1,5 @@
 package com.yamu.app.feature.home.data
 
-import com.yamu.app.core.format.directionParticle
 import com.yamu.app.core.format.parseDate
 import com.yamu.app.core.format.toWon
 import kotlinx.serialization.Serializable
@@ -172,28 +171,6 @@ fun BenefitByType.amountText(): String = when {
 /** 원화로 못 바꾼 혜택이 있을 때 히어로 아래 한 줄 — 없으면 null */
 fun HomeBenefit.unconvertedNote(): String? =
     "원화로 확인되는 혜택만 더했어요. 금액에 넣지 못한 혜택이 ${unconvertedCount}건 있어요".takeIf { unconvertedCount > 0 }
-
-/** 결제 칸 안내 한 줄과 그 줄이 주의(자동 선택 꺼짐)인지 */
-data class PayNote(val text: String, val autoOff: Boolean)
-
-/**
- * 'YAMU로 결제하기' 안내(HOME-08 · 09). 바코드를 열기 전에 특정 카드가 최적이라고 말하지 않는다.
- * 자동 선택을 끈 사람에게만 기본 카드로 결제한다고 알린다. 자동 선택이 켜졌거나 설정을 못 읽었으면 안내 줄을 두지 않는다
- * ('실적과 남은 혜택 한도를 따져 카드를 골라요' · '카드는 YAMU가 알아서 골라요'는 기능을 설명하는 말투라 11/15에 뺐다)
- */
-fun payNote(settings: PaySettings?, cardName: (Long) -> String?): PayNote? = when {
-    settings == null || settings.autoSelect -> null
-    else -> {
-        val name = settings.defaultUserCardId?.let(cardName)?.takeIf { it.isNotBlank() }
-        PayNote(
-            if (name != null) "자동 선택이 꺼져 있어요. 기본 카드인 $name${name.cardParticle()} 결제해요" else "자동 선택이 꺼져 있어 기본 카드로 결제해요",
-            autoOff = true,
-        )
-    }
-}
-
-/** '로 · 으로' — 끝의 닫는 괄호 · 따옴표는 건너뛰고 본다('ZERO Edition3(포인트형)으로') */
-private fun String.cardParticle(): String = trimEnd(')', ']', '」', '"', '\'', '.', ' ').directionParticle()
 
 /**
  * 히어로 동전 수 — 확정은 꽉 찬 동전, 확정 전은 점선 동전(11/13 시안에서 고름). 약 [WON_PER_COIN]원에 한 개(올림),

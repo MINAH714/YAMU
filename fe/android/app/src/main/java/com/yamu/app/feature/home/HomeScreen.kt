@@ -1,14 +1,9 @@
 package com.yamu.app.feature.home
 
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.expandVertically
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -46,7 +41,6 @@ import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -71,7 +65,6 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
-import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
@@ -136,7 +129,6 @@ import com.yamu.app.feature.home.data.lineText
 import com.yamu.app.feature.home.data.minLabel
 import com.yamu.app.feature.home.data.missed
 import com.yamu.app.feature.home.data.paidAtLabel
-import com.yamu.app.feature.home.data.payNote
 import com.yamu.app.feature.home.data.recentPaymentOutsidePayCard
 import com.yamu.app.feature.home.data.rows
 import com.yamu.app.feature.home.data.showsTypes
@@ -368,14 +360,7 @@ private fun HomeContent(
         // 카드 영역만 실패했으면 몇 장인지 몰라 혜택 · 결제 칸을 그린다 — 카드가 정말 없으면 결제 코드 화면이 알려 준다
         else -> {
             BenefitHero(state.benefit, onClick = onBenefitReport, onRetry = onRetryBenefit)
-            PayCard(
-                settings = state.pay.dataOrNull,
-                cardName = { id -> home.cards.firstOrNull { it.userCardId == id }?.name },
-                recentPayment = home.recentPayment,
-                onPay = onPay,
-                onRecentPayment = onRecentPayment,
-                onPayments = onPayments,
-            )
+            PayButton(onPay)
         }
     }
 }
@@ -654,75 +639,45 @@ private fun HeroButton(text: String, onClick: () -> Unit) {
 }
 
 /**
- * 'YAMU로 결제하기'(HOME-07 ~ 09) — 혜택 바로 아래의 주된 행동. 바코드를 열기 전에 특정 카드를 최적이라고 하지 않고
- * '결제할 곳과 금액이 정해지면' 고른다고 말한다. 자동 선택을 끈 사람에겐 기본 카드로 결제한다고 바꿔 보인다.
- * 버튼은 하단 가운데 결제 버튼과 같은 결제 코드(P-06) — 인증 · 자동 선택 설정은 그 화면이 지금대로 따른다(QA-04).
- * 최근 결제 한 줄(-428 · -460)은 결제하고 돌아왔을 때 바로 보이게 이 칸 안 버튼 위에 둔다(11/13 결정)
+ * 'YAMU 결제 바코드 열기'(HOME-07) — 혜택 바로 아래의 주된 행동, 파란 버튼 하나(11/15 결정).
+ * 제목 · 아이콘 · 자동 선택 꺼짐 안내 · 최근 결제 줄은 뺐다(최근 결제와 결제 내역은 소비분석 탭에서 연다).
+ * 버튼은 하단 가운데 결제 버튼과 같은 결제 코드(P-06) — 인증 · 자동 선택 설정은 그 화면이 지금대로 따른다(QA-04)
  */
 @Composable
-private fun PayCard(
-    settings: PaySettings?,
-    cardName: (Long) -> String?,
-    recentPayment: RecentPayment?,
-    onPay: () -> Unit,
-    onRecentPayment: (Long) -> Unit,
-    onPayments: () -> Unit,
-) {
+private fun PayButton(onPay: () -> Unit) {
+    // 바탕은 위 혜택 히어로와 같은 브랜드 그러데이션(11/15 결정) — 공용 PrimaryButton은 단색이라 홈에서만 따로 그린다.
+    // 누르면 히어로처럼 살짝 줄어든다(모션 줄이기면 그대로)
     val c = YamuTheme.colors
-    val note = payNote(settings, cardName)
-    YamuCard {
-        Row(verticalAlignment = Alignment.Top) {
-            Column(Modifier.weight(1f)) {
-                Text("YAMU로 결제하기", style = YamuTheme.typography.cardTitle, color = c.text1)
-            }
-            Spacer(Modifier.width(12.dp))
-            Box(
-                Modifier.size(52.dp).clip(RoundedCornerShape(14.dp)).background(c.primaryContainer),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(YamuTabIcons.PayCode, contentDescription = null, tint = c.primary, modifier = Modifier.size(26.dp))
-            }
-        }
-        // 안내 줄은 자동 선택을 꺼 둔 사람에게만(기본 카드로 결제한다는 주의)
-        note?.let {
-            Spacer(Modifier.height(14.dp))
-            Row(verticalAlignment = Alignment.Top) {
-                Icon(
-                    if (it.autoOff) YamuIcons.Info else YamuIcons.CheckCircle,
-                    contentDescription = null,
-                    tint = if (it.autoOff) c.warning else c.success,
-                    modifier = Modifier.padding(top = 1.dp).size(18.dp),
-                )
-                Spacer(Modifier.width(8.dp))
-                Text(it.text, style = YamuTheme.typography.bodyM, color = if (it.autoOff) c.onWarningContainer else c.text2)
-            }
-        }
-        RecentPaymentSlot(recentPayment, onRecentPayment, onPayments)
-        Spacer(Modifier.height(16.dp))
-        PrimaryButton("통합 결제 바코드 열기", onClick = onPay, icon = YamuTabIcons.PayCode)
-    }
-}
-
-/**
- * 결제하고 돌아오면 이 줄이 새로 생긴다 — 한 번에 튀지 않게 위에서부터 펼친다.
- * 처음부터 있으면 그냥 보인다. 모션 줄이기면 페이드만
- */
-@Composable
-private fun RecentPaymentSlot(payment: RecentPayment?, onClick: (Long) -> Unit, onAll: () -> Unit) {
     val reduce = YamuTheme.reduceMotion
-    val kept = remember { mutableStateOf(payment) }      // 사라지는 동안에도 그릴 마지막 결제
-    if (payment != null) kept.value = payment
-    val spec = tween<IntSize>(RECENT_ROW_MS, easing = YamuMotion.standard)
-    AnimatedVisibility(
-        visible = payment != null,
-        enter = if (reduce) fadeIn(tween(YamuMotion.SHORT_MS)) else expandVertically(spec, expandFrom = Alignment.Top) + fadeIn(tween(RECENT_ROW_MS)),
-        exit = if (reduce) fadeOut(tween(YamuMotion.SHORT_MS)) else shrinkVertically(spec, shrinkTowards = Alignment.Top) + fadeOut(tween(RECENT_ROW_MS)),
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    val scale by animateFloatAsState(
+        targetValue = if (pressed && !reduce) HERO_PRESSED_SCALE else 1f,
+        animationSpec = spring(dampingRatio = 0.55f, stiffness = 700f),
+        label = "payPress",
+    )
+    Row(
+        Modifier
+            .padding(horizontal = YamuSpacing.screen)
+            .padding(bottom = YamuSpacing.blockGap)
+            .graphicsLayer {
+                scaleX = scale
+                scaleY = scale
+            }
+            .fillMaxWidth()
+            .height(YamuSize.button)
+            .clip(RoundedCornerShape(YamuRadius.button))
+            .background(Brush.linearGradient(listOf(c.heroStart, c.heroEnd)))
+            .clickable(interactionSource = interaction, indication = null, role = Role.Button, onClick = onPay)
+            .padding(horizontal = 20.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.Center,
     ) {
-        kept.value?.let { RecentPaymentRow(it, onClick = { onClick(it.paymentId) }, onAll = onAll) }
+        Icon(YamuTabIcons.PayCode, contentDescription = null, tint = c.onHero, modifier = Modifier.size(20.dp))
+        Spacer(Modifier.width(6.dp))
+        Text("YAMU 결제 바코드 열기", style = YamuTheme.typography.button, color = c.onHero, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
-
-private const val RECENT_ROW_MS = 300
 
 /**
  * 결제 칸이 없는 홈(연결 전 · 카드 없음)의 최근 결제 — 안내 카드 아래 따로 한 칸. 카드를 모두 지운 사람도
