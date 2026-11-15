@@ -43,7 +43,7 @@ import org.springframework.stereotype.Service;
  * 이번 이용기간 마감까지 쓸 신용카드 금액은 체크 생활비와 같은 규칙(신용 AI·TSB)으로 카드마다 추정해 보수적 선에만 뺀다
  * ({@link CreditSpendingEstimator}, S15P31E103-405).
  * 잔고예보와 생활비 상세는 응답 직전에 계좌별 예상 생활비를 이력으로 남긴다({@link LivingCostPredictionLog}). 잔고예보는 카드별 신용 사용
- * 추정도 남긴다({@link CreditSpendingPredictionLog}). 가상 구매 재료({@link #prepare})는 남기지 않는다.
+ * 추정도 남긴다({@link CreditSpendingPredictionLog}). 홈·자산 흐름용 preview와 가상 구매 재료({@link #prepare})는 남기지 않는다.
  */
 @Service
 public class ForecastService {
@@ -119,6 +119,20 @@ public class ForecastService {
      */
     public BalanceForecast forecast(Long authenticatedUserId, List<Long> accountIds, BalanceForecast.Until until,
             Integer days, boolean includeAccountDetails, boolean refresh) {
+        return forecast(authenticatedUserId, accountIds, until, days, includeAccountDetails, refresh, true);
+    }
+
+    /**
+     * 홈·월별 자산 흐름 미리보기. 계산·권한·원천 조회는 동일하되 예측 평가용 이력은 남기지 않는다.
+     * 반복 지출 후보 갱신은 기존 계산 준비 과정에 포함되므로 DB 읽기 전용 트랜잭션으로 감싸지 않는다.
+     */
+    public BalanceForecast preview(Long authenticatedUserId, List<Long> accountIds, BalanceForecast.Until until,
+            Integer days, boolean includeAccountDetails, boolean refresh) {
+        return forecast(authenticatedUserId, accountIds, until, days, includeAccountDetails, refresh, false);
+    }
+
+    private BalanceForecast forecast(Long authenticatedUserId, List<Long> accountIds, BalanceForecast.Until until,
+            Integer days, boolean includeAccountDetails, boolean refresh, boolean recordPredictions) {
         Prepared prepared = prepare(authenticatedUserId, accountIds, until, days, refresh, today());
         List<Long> selected = prepared.selected();
         long alertThreshold = prepared.alertThreshold();
@@ -160,9 +174,11 @@ public class ForecastService {
                 history.dailyAverage(), history.monthlyAverage(), projected.method(), projected.dataOrigin(),
                 projected.confidence());
         long currentTotal = startBalances.values().stream().reduce(0L, Math::addExact);
-        predictionLog.record(authenticatedUserId, horizon.from(), horizon.days(),
-                living.projection().byAccount().values());
-        creditPredictionLog.record(authenticatedUserId, horizon.from(), prepared.creditPredictions());
+        if (recordPredictions) {
+            predictionLog.record(authenticatedUserId, horizon.from(), horizon.days(),
+                    living.projection().byAccount().values());
+            creditPredictionLog.record(authenticatedUserId, horizon.from(), prepared.creditPredictions());
+        }
         return new BalanceForecast(selected, selected.size(), currentTotal, horizon, alertThreshold, summary,
                 series(projection.total()), aggregate.windows(), livingCost,
                 beyondHorizon(authenticatedUserId, prepared.beyondHorizon()), accountForecasts,

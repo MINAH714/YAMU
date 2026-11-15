@@ -61,11 +61,11 @@ public class AssetFlowService {
         if (!ids.isEmpty()) {
             if (!month.atEndOfMonth().isBefore(today)) {
                 // 현재와 미래는 별도로 잔액을 읽어 이어 붙이지 않고 같은 시작 잔액을 공유한다.
-                forecast = forecasts.forecast(userId, ids, BalanceForecast.Until.DAYS, 30, true, refresh);
+                forecast = forecasts.preview(userId, ids, BalanceForecast.Until.DAYS, 30, true, refresh);
                 current = forecast.currentTotalBalance();
                 asOf = forecast.accountForecasts().stream().map(a -> a.syncedAt().toInstant(ZoneOffset.UTC))
                         .min(Instant::compareTo).orElseThrow();
-                if (!forecast.horizon().from().equals(today)) throw new BusinessException(ErrorCode.INVALID_REQUEST);
+                if (!forecast.horizon().from().equals(today)) throw new BusinessException(ErrorCode.FORECAST_DATE_CHANGED);
             } else {
                 List<AccountBalance> read = balances.getBalances(userId, ids, refresh);
                 current = read.stream().map(AccountBalance::balance).reduce(0L, Math::addExact);
@@ -126,7 +126,7 @@ public class AssetFlowService {
             points.add(new Point(date, kind, status, value, kind == Kind.FORECAST ? null : value, prediction, events));
         }
         if (!clock.instant().atZone(KOREA).toLocalDate().equals(today)) {
-            throw new BusinessException(ErrorCode.INVALID_REQUEST, "날짜가 변경되어 다시 조회해 주세요.");
+            throw new BusinessException(ErrorCode.FORECAST_DATE_CHANGED);
         }
         return new AssetFlowResponse(month, ids, current, asOf, points,
                 forecast == null ? null : today.plusDays(1), forecast == null ? null : forecast.horizon().to(),

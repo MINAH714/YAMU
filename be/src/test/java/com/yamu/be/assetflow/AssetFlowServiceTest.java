@@ -41,11 +41,26 @@ class AssetFlowServiceTest {
         when(user.getSsafyUserKey()).thenReturn(new byte[]{1});
         when(users.findById(7L)).thenReturn(Optional.of(user));
         when(cipher.decrypt(any(),any())).thenReturn("test-only");
-        when(forecasts.forecast(eq(7L),anyList(),eq(BalanceForecast.Until.DAYS),eq(30),eq(true),anyBoolean()))
+        when(forecasts.preview(eq(7L),anyList(),eq(BalanceForecast.Until.DAYS),eq(30),eq(true),anyBoolean()))
                 .thenAnswer(i -> forecast(i.getArgument(1),true));
         when(history.read(anyString(),any(),any(),any(),anyLong())).thenAnswer(i ->
                 new BankHistory(i.getArgument(2),i.getArgument(3),null,1L,List.of(
                     new BankTransaction("x",i.getArgument(2),LocalTime.NOON,BankDirection.DEPOSIT,100,1000,"")),NOW));
+    }
+    @Test void midnightDuringRequestIsConflictRatherThanInvalidInput() {
+        Clock shifting=mock(Clock.class);
+        when(shifting.instant()).thenReturn(NOW,NOW.plusSeconds(86400));
+        when(accounts.findByUserIdAndPrimaryTrue(7L)).thenReturn(List.of());
+        var crossing=new AssetFlowService(accounts,users,cipher,balances,forecasts,history,shifting);
+        assertThatThrownBy(()->crossing.get(7L,MONTH,null,false)).isInstanceOf(BusinessException.class)
+                .extracting("errorCode").isEqualTo(ErrorCode.FORECAST_DATE_CHANGED);
+    }
+    @Test void forecastStartedOnDifferentDayIsConflict() {
+        var crossing=new AssetFlowService(accounts,users,cipher,balances,forecasts,history,
+                Clock.fixed(NOW.minusSeconds(86400),ZoneOffset.UTC));
+        assertThatThrownBy(()->crossing.get(7L,MONTH,null,false)).isInstanceOf(BusinessException.class)
+                .extracting("errorCode").isEqualTo(ErrorCode.FORECAST_DATE_CHANGED);
+        verifyNoInteractions(history);
     }
     LinkedAccount owned(Long id) {
         LinkedAccount a = mock(LinkedAccount.class);
@@ -76,7 +91,7 @@ class AssetFlowServiceTest {
         verifyNoInteractions(balances);
     }
     @Test void fallsBackToExpectedWhenConservativeMissing() {
-        when(forecasts.forecast(anyLong(),anyList(),any(),anyInt(),anyBoolean(),anyBoolean())).thenReturn(forecast(List.of(1L),false));
+        when(forecasts.preview(anyLong(),anyList(),any(),anyInt(),anyBoolean(),anyBoolean())).thenReturn(forecast(List.of(1L),false));
         assertThat(service.get(7L,MONTH,null,false).series().get(13).displayBalance()).isEqualTo(800);
     }
     @Test void nextMonthStopsAtTodayPlusThirtyDays() {
@@ -116,7 +131,7 @@ class AssetFlowServiceTest {
     @Test void deduplicatesAccountIdsAndForwardsRefresh() {
         var r=service.get(7L,MONTH,List.of(1L,1L),true);
         assertThat(r.accountIds()).containsExactly(1L);
-        verify(forecasts).forecast(7L,List.of(1L),BalanceForecast.Until.DAYS,30,true,true);
+        verify(forecasts).preview(7L,List.of(1L),BalanceForecast.Until.DAYS,30,true,true);
     }
     @Test void incompleteAccountDoesNotProducePartialTotal() {
         LinkedAccount second=owned(2L);
@@ -154,7 +169,7 @@ class AssetFlowServiceTest {
     }
     @Test void forecastFailureDoesNotReturnPartialCurrentOrReadHistory() {
         doThrow(new BusinessException(ErrorCode.UPSTREAM_TIMEOUT)).when(forecasts)
-                .forecast(anyLong(),anyList(),any(),anyInt(),anyBoolean(),anyBoolean());
+                .preview(anyLong(),anyList(),any(),anyInt(),anyBoolean(),anyBoolean());
         assertThatThrownBy(()->service.get(7L,MONTH,null,false)).isInstanceOf(BusinessException.class)
                 .extracting("errorCode").isEqualTo(ErrorCode.UPSTREAM_TIMEOUT);
         verifyNoInteractions(history);
@@ -166,7 +181,7 @@ class AssetFlowServiceTest {
                 LocalDateTime.ofInstant(NOW.minusSeconds(300),ZoneOffset.UTC),null,List.of(),List.of(),null));
         doReturn(new BalanceForecast(original.accountIds(),2,4000,original.horizon(),0,null,original.series(),
                 List.of(),null,List.of(),detail,List.of(),true,original.calculatedAt()))
-                .when(forecasts).forecast(anyLong(),anyList(),any(),anyInt(),anyBoolean(),anyBoolean());
+                .when(forecasts).preview(anyLong(),anyList(),any(),anyInt(),anyBoolean(),anyBoolean());
         assertThat(service.get(7L,MONTH,List.of(1L,2L),false).balanceAsOf()).isEqualTo(NOW.minusSeconds(300));
     }
 }

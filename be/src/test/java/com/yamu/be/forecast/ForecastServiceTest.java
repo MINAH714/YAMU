@@ -169,6 +169,17 @@ class ForecastServiceTest {
     }
 
     @Test
+    void 미리보기는_같은_예보를_반환하지만_두_예측이력을_기록하지_않는다() {
+        BalanceForecast preview = service.preview(USER, List.of(A), Until.DAYS, 30, true, false);
+        assertThat(recorded).isEmpty();
+        assertThat(creditRecorded).isEmpty();
+        BalanceForecast regular = service.forecast(USER, List.of(A), Until.DAYS, 30, true, false);
+        assertThat(preview).isEqualTo(regular);
+        assertThat(recorded).hasSize(1);
+        assertThat(creditRecorded).hasSize(1);
+    }
+
+    @Test
     void 잔액에_예정_지출과_청구_출금을_계좌별로_더한_뒤_같은_날짜끼리_합친다() {
         // 명세 예시: A 800,000원에서 11/5 예정 출금 200,000원, B 300,000원에서 11/5 카드 청구 400,000원
         givenEntries(TODAY, TODAY.plusDays(14), entry(1L, A, 200_000L, NOV_5, false));

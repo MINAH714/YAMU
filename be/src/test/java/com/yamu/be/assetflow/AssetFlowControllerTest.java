@@ -5,6 +5,9 @@ import static org.mockito.Mockito.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 import com.yamu.be.global.security.AuthUser;
+import com.yamu.be.global.exception.BusinessException;
+import com.yamu.be.global.exception.ErrorCode;
+import com.yamu.be.global.exception.GlobalExceptionHandler;
 import java.time.YearMonth;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -22,6 +25,7 @@ import org.springframework.web.bind.support.WebDataBinderFactory;
 class AssetFlowControllerTest {
     AssetFlowService service=mock(AssetFlowService.class);
     MockMvc mvc=MockMvcBuilders.standaloneSetup(new AssetFlowController(service))
+            .setControllerAdvice(new GlobalExceptionHandler())
             .setCustomArgumentResolvers(new HandlerMethodArgumentResolver() {
                 public boolean supportsParameter(MethodParameter p) { return p.getParameterType()==AuthUser.class; }
                 public Object resolveArgument(MethodParameter p, ModelAndViewContainer m, NativeWebRequest r, WebDataBinderFactory b) {
@@ -49,5 +53,11 @@ class AssetFlowControllerTest {
     @Test void malformedMonthIsRejectedBeforeService() throws Exception {
         mvc.perform(get("/api/asset-flows").param("yearMonth","2026-99")).andExpect(status().isBadRequest());
         verifyNoInteractions(service);
+    }
+    @Test void midnightConflictHasDedicated409Code() throws Exception {
+        when(service.get(7L,null,null,false)).thenThrow(new BusinessException(ErrorCode.FORECAST_DATE_CHANGED));
+        mvc.perform(get("/api/asset-flows")).andExpect(status().isConflict())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.error.code").value("FORECAST_DATE_CHANGED"));
     }
 }
