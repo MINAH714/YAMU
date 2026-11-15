@@ -3,6 +3,7 @@ package com.yamu.app.feature.my
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.consumeWindowInsets
@@ -37,6 +38,9 @@ import androidx.lifecycle.viewModelScope
 import com.yamu.app.core.designsystem.component.EmptyState
 import com.yamu.app.core.designsystem.component.ErrorState
 import com.yamu.app.core.designsystem.component.FlowScreen
+import com.yamu.app.core.designsystem.component.GrowTrayHost
+import com.yamu.app.core.designsystem.component.growTrayAnchor
+import com.yamu.app.core.designsystem.component.rememberGrowTrayState
 import com.yamu.app.core.designsystem.component.KeyValueRow
 import com.yamu.app.core.designsystem.component.ListRow
 import com.yamu.app.core.designsystem.component.NeutralButton
@@ -331,7 +335,10 @@ class CardDetailViewModel @Inject constructor(
     fun messageShown() = _state.update { it.copy(message = null) }
 }
 
-private enum class CardDetailSheet { NICKNAME, UNREGISTER }
+private enum class CardDetailSheet { NICKNAME }
+
+/** '카드 해제' 글자 버튼(Material TextButton 40dp 알약) 모서리 — 트레이가 이 모양에서 커진다 */
+private val UnregisterButtonRadius = 20.dp
 
 @Composable
 fun CardDetailRoute(
@@ -353,43 +360,68 @@ fun CardDetailRoute(
     }
     val snackbar = LocalSnackbar.current
     val scope = rememberCoroutineScope()
+    // 카드 해제 확인(M-03c) — '카드 해제' 버튼에서 커지는 트레이(M-TRAY-app-unregister). 해제하는 동안은 닫히지 않는다
+    val unregisterTray = rememberGrowTrayState()
+    val closeUnregister = { if (!s.unregistering) unregisterTray.close() }
     LaunchedEffect(s.message) {
         val message = s.message ?: return@LaunchedEffect
         viewModel.messageShown()
+        // 해제가 실패했으면 트레이를 걷고 이유를 보인다(간편 비밀번호를 취소한 것은 실패가 아니라 트레이가 남는다)
+        if (unregisterTray.isOpen && !s.unregistering) unregisterTray.close()
         scope.launch { snackbar.showSnackbar(message) }   // 스낵바가 떠 있는 동안 효과가 취소되지 않게 화면 범위에서
     }
     LaunchedEffect(s.unregisteredName) { s.unregisteredName?.let(onUnregistered) }
     var sheet by rememberSaveable { mutableStateOf<CardDetailSheet?>(null) }
-    FlowScreen(title = "카드 상세", onBack = onBack) { inner ->
-        Column(
-            Modifier.padding(inner).consumeWindowInsets(inner).fillMaxSize().verticalScroll(rememberScrollState())
-                .padding(horizontal = YamuSpacing.screen),
-        ) {
-            val card = s.card
-            when {
-                s.gone -> EmptyState("이미 해제했거나 찾을 수 없는 카드예요", actionText = "돌아가기", onAction = onBack)
-                card == null && s.loading -> repeat(4) {
-                    Spacer(Modifier.height(YamuSpacing.x3))
-                    SkeletonBlock(height = 52.dp)
-                }
-                card == null -> ErrorState(s.error ?: "카드를 불러오지 못했어요", onRetry = viewModel::load)
-                else -> CardDetailBody(
+    GrowTrayHost(
+        state = unregisterTray,
+        title = "카드 해제 확인",
+        onDismiss = closeUnregister,
+        fromColor = YamuTheme.colors.surface,
+        fromRadius = UnregisterButtonRadius,
+        tray = {
+            s.card?.let { card ->
+                UnregisterTrayContent(
                     card = card,
-                    account = s.accountRow(card),
                     lastActive = s.isLastActive,
-                    autoSelectOff = s.autoSelectOff,
-                    saving = s.saving,
                     unregistering = s.unregistering,
-                    onNickname = { sheet = CardDetailSheet.NICKNAME },
-                    onRecommended = viewModel::setRecommended,
-                    onDefault = viewModel::setDefault,
-                    onUnregister = { sheet = CardDetailSheet.UNREGISTER },
-                    onBills = { onBills(card.userCardId) },
-                    onPerformance = { onPerformance(card.userCardId) },
-                    onAccount = onAccounts,
+                    onConfirm = viewModel::unregister,
+                    onCancel = closeUnregister,
                 )
             }
-            Spacer(Modifier.height(YamuSpacing.x6))
+        },
+    ) {
+        FlowScreen(title = "카드 상세", onBack = onBack) { inner ->
+            Column(
+                Modifier.padding(inner).consumeWindowInsets(inner).fillMaxSize().verticalScroll(rememberScrollState())
+                    .padding(horizontal = YamuSpacing.screen),
+            ) {
+                val card = s.card
+                when {
+                    s.gone -> EmptyState("이미 해제했거나 찾을 수 없는 카드예요", actionText = "돌아가기", onAction = onBack)
+                    card == null && s.loading -> repeat(4) {
+                        Spacer(Modifier.height(YamuSpacing.x3))
+                        SkeletonBlock(height = 52.dp)
+                    }
+                    card == null -> ErrorState(s.error ?: "카드를 불러오지 못했어요", onRetry = viewModel::load)
+                    else -> CardDetailBody(
+                        card = card,
+                        account = s.accountRow(card),
+                        lastActive = s.isLastActive,
+                        autoSelectOff = s.autoSelectOff,
+                        saving = s.saving,
+                        unregistering = s.unregistering,
+                        onNickname = { sheet = CardDetailSheet.NICKNAME },
+                        onRecommended = viewModel::setRecommended,
+                        onDefault = viewModel::setDefault,
+                        onUnregister = unregisterTray::open,
+                        unregisterAnchor = Modifier.growTrayAnchor(unregisterTray),
+                        onBills = { onBills(card.userCardId) },
+                        onPerformance = { onPerformance(card.userCardId) },
+                        onAccount = onAccounts,
+                    )
+                }
+                Spacer(Modifier.height(YamuSpacing.x6))
+            }
         }
     }
     val card = s.card
@@ -400,15 +432,6 @@ fun CardDetailRoute(
                 onSave = { value ->
                     sheet = null
                     viewModel.rename(value)
-                },
-                onDismiss = { sheet = null },
-            )
-            CardDetailSheet.UNREGISTER -> UnregisterSheet(
-                card = card,
-                lastActive = s.isLastActive,
-                onConfirm = {
-                    sheet = null
-                    viewModel.unregister()
                 },
                 onDismiss = { sheet = null },
             )
@@ -450,6 +473,8 @@ private fun CardDetailBody(
     onBills: () -> Unit,
     onPerformance: () -> Unit,
     onAccount: () -> Unit,
+    /** '카드 해제' 버튼에 다는 트레이 출발 자리 */
+    unregisterAnchor: Modifier = Modifier,
 ) {
     val c = YamuTheme.colors
     Spacer(Modifier.height(YamuSpacing.x2))
@@ -522,7 +547,7 @@ private fun CardDetailBody(
 
     Spacer(Modifier.height(YamuSpacing.x4))
     Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-        TextButton(onClick = onUnregister, enabled = !unregistering) {
+        TextButton(onClick = onUnregister, enabled = !unregistering, modifier = unregisterAnchor) {
             Text(if (unregistering) "해제하는 중" else "카드 해제", style = YamuTheme.typography.labelL, color = if (unregistering) c.text3 else c.error)
         }
     }
@@ -560,33 +585,33 @@ private fun NicknameSheet(card: CardInfo, onSave: (String) -> Unit, onDismiss: (
     }
 }
 
-/** M-03c — 실제 카드 해지로 오해하지 않게 첫 줄에 적는다. BE가 바로 해제해 실행 취소는 없다 */
+/**
+ * M-03c 트레이 내용 — 실제 카드 해지로 오해하지 않게 첫 줄에 적는다. BE가 바로 해제해 실행 취소는 없다.
+ * 확인하면 버튼 자리에 진행 표시를 띄운 채 간편 비밀번호를 받고, 비밀번호를 취소하면 트레이가 그대로 남는다(11/16 결정)
+ */
 @Composable
-private fun UnregisterSheet(card: CardInfo, lastActive: Boolean, onConfirm: () -> Unit, onDismiss: () -> Unit) {
+private fun ColumnScope.UnregisterTrayContent(card: CardInfo, lastActive: Boolean, unregistering: Boolean, onConfirm: () -> Unit, onCancel: () -> Unit) {
     val c = YamuTheme.colors
     val name = card.displayName
-    YamuBottomSheet(onDismiss = onDismiss) {
-        Text("$name${name.objectParticle()} 해제할까요?", style = YamuTheme.typography.titleL, color = c.text1)
-        Spacer(Modifier.height(YamuSpacing.x3))
-        Text("카드사 카드는 해지되지 않아요", style = YamuTheme.typography.titleS, color = c.text1)
-        Spacer(Modifier.height(YamuSpacing.x2))
-        Text("결제 카드 추천과 목록에서 빠지고, 결제 내역은 남아요", style = YamuTheme.typography.bodyM, color = c.text2)
-        Spacer(Modifier.height(YamuSpacing.x1))
-        Text("다시 쓰려면 카드를 다시 등록해야 해요", style = YamuTheme.typography.bodyM, color = c.text2)
-        Spacer(Modifier.height(YamuSpacing.x1))
-        if (card.hasOpenBill) {
-            Text("출금이 끝나지 않은 청구가 있어 지금은 해제할 수 없어요", style = YamuTheme.typography.bodyM, color = c.warning)
-        } else {
-            Text("출금이 끝나지 않은 청구가 있으면 해제할 수 없어요", style = YamuTheme.typography.bodyM, color = c.text2)
-        }
-        if (lastActive) {
-            Spacer(Modifier.height(YamuSpacing.x1))
-            Text("자동 선택에 포함된 마지막 카드예요 · 해제하면 결제 코드를 열 수 없어요", style = YamuTheme.typography.bodyM, color = c.warning)
-        }
-        Spacer(Modifier.height(YamuSpacing.x5))
-        PrimaryButton("카드 해제하기", onClick = onConfirm, enabled = !card.hasOpenBill)
-        Spacer(Modifier.height(YamuSpacing.x2))
-        NeutralButton("취소", onClick = onDismiss)
-        Spacer(Modifier.height(YamuSpacing.x2))
+    Text("$name${name.objectParticle()} 해제할까요?", style = YamuTheme.typography.titleL, color = c.text1)
+    Spacer(Modifier.height(YamuSpacing.x3))
+    Text("카드사 카드는 해지되지 않아요", style = YamuTheme.typography.titleS, color = c.text1)
+    Spacer(Modifier.height(YamuSpacing.x2))
+    Text("결제 카드 추천과 목록에서 빠지고, 결제 내역은 남아요", style = YamuTheme.typography.bodyM, color = c.text2)
+    Spacer(Modifier.height(YamuSpacing.x1))
+    Text("다시 쓰려면 카드를 다시 등록해야 해요", style = YamuTheme.typography.bodyM, color = c.text2)
+    Spacer(Modifier.height(YamuSpacing.x1))
+    if (card.hasOpenBill) {
+        Text("출금이 끝나지 않은 청구가 있어 지금은 해제할 수 없어요", style = YamuTheme.typography.bodyM, color = c.warning)
+    } else {
+        Text("출금이 끝나지 않은 청구가 있으면 해제할 수 없어요", style = YamuTheme.typography.bodyM, color = c.text2)
     }
+    if (lastActive) {
+        Spacer(Modifier.height(YamuSpacing.x1))
+        Text("자동 선택에 포함된 마지막 카드예요 · 해제하면 결제 코드를 열 수 없어요", style = YamuTheme.typography.bodyM, color = c.warning)
+    }
+    Spacer(Modifier.height(YamuSpacing.x5))
+    PrimaryButton("카드 해제하기", onClick = onConfirm, enabled = !card.hasOpenBill, loading = unregistering)
+    Spacer(Modifier.height(YamuSpacing.x2))
+    NeutralButton("취소", onClick = onCancel, enabled = !unregistering)
 }

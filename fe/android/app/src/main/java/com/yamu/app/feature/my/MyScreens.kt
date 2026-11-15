@@ -47,9 +47,12 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TimePicker
 import androidx.compose.material3.TimePickerDefaults
 import androidx.compose.material3.rememberTimePickerState
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.tween
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -58,6 +61,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextAlign
@@ -84,6 +88,7 @@ import com.yamu.app.core.designsystem.component.YamuCard
 import com.yamu.app.core.designsystem.component.YamuSwitch
 import com.yamu.app.core.designsystem.component.YamuTopBar
 import com.yamu.app.core.designsystem.icon.YamuIcons
+import com.yamu.app.core.designsystem.theme.YamuMotion
 import com.yamu.app.core.designsystem.theme.YamuSpacing
 import com.yamu.app.core.designsystem.theme.YamuTheme
 import com.yamu.app.core.format.toManWon
@@ -407,7 +412,31 @@ private fun ExternalMark() {
 
 // ───────────────────────── M-02 카드 관리 ─────────────────────────
 
-data class CardManageState(val loading: Boolean = true, val autoSelect: Boolean? = null, val cards: List<LinkedCard> = emptyList(), val error: String? = null)
+/** [removingId] = 카드 상세에서 방금 해제한 카드 — 목록에서 제자리에 사라질 때까지 줄을 남겨 둔다(M-TRAY-app-unregister-close) */
+data class CardManageState(
+    val loading: Boolean = true,
+    val autoSelect: Boolean? = null,
+    val cards: List<LinkedCard> = emptyList(),
+    val error: String? = null,
+    val removingId: Long? = null,
+)
+
+/** 카드 상세가 해제를 마치고 돌아올 때 카드 관리 화면 기록(savedStateHandle)에 남기는 카드 번호 */
+const val REMOVED_CARD_ID = "removedCardId"
+
+/**
+ * 새로 받은 목록에 사라지는 중인 카드가 이미 없으면 옛 자리에 다시 끼워 둔다 — 사라지는 모션이 끝나기 전에 줄이 먼저 빠져
+ * 아래 줄이 튀어 오르지 않게. 사라지는 카드가 없거나 새 목록에 아직 있으면 새 목록 그대로
+ */
+internal fun keepRemoving(fresh: List<LinkedCard>, old: List<LinkedCard>, removingId: Long?): List<LinkedCard> {
+    if (removingId == null || fresh.any { it.userCardId == removingId }) return fresh
+    val index = old.indexOfFirst { it.userCardId == removingId }
+    if (index < 0) return fresh
+    // 옛 목록에서 그 카드 앞에 있던 카드 중 새 목록에도 있는 마지막 카드 바로 뒤
+    val before = old.take(index).lastOrNull { prev -> fresh.any { it.userCardId == prev.userCardId } }
+    val at = before?.let { b -> fresh.indexOfFirst { it.userCardId == b.userCardId } + 1 } ?: 0
+    return fresh.toMutableList().apply { add(at, old[index]) }
+}
 
 @HiltViewModel
 class CardManageViewModel @Inject constructor(private val my: MyRepository, private val link: LinkRepository) : ViewModel() {
@@ -422,11 +451,25 @@ class CardManageViewModel @Inject constructor(private val my: MyRepository, priv
             val i = info.await()
             _state.update { s ->
                 when (overview) {
-                    is ApiResult.Success -> s.copy(loading = false, cards = overview.data.cards, autoSelect = (i as? ApiResult.Success)?.data?.autoSelect ?: s.autoSelect)
+                    is ApiResult.Success -> s.copy(
+                        loading = false,
+                        cards = keepRemoving(overview.data.cards, s.cards, s.removingId),
+                        autoSelect = (i as? ApiResult.Success)?.data?.autoSelect ?: s.autoSelect,
+                    )
                     is ApiResult.Failure -> s.copy(loading = false, error = overview.error.userMessage())
                 }
             }
         }
+    }
+
+    /** 방금 해제한 카드를 사라지는 중으로 — 지금 목록에 없으면(이미 새로 받음) 할 일이 없다 */
+    fun markRemoving(userCardId: Long) = _state.update { s ->
+        if (s.cards.any { it.userCardId == userCardId }) s.copy(removingId = userCardId) else s
+    }
+
+    /** 사라지는 모션이 끝났다 — 이제 줄을 뺀다(아래 줄은 옮겨지는 모션 없이 올라온다) */
+    fun removed(userCardId: Long) = _state.update { s ->
+        if (s.removingId != userCardId) s else s.copy(removingId = null, cards = s.cards.filterNot { it.userCardId == userCardId })
     }
 
     /** 바로 반영 — 실패하면 원래대로 + 이유(onDone에 문장, 성공이면 null) */
@@ -459,12 +502,20 @@ fun CardManageRoute(
     onAddCard: () -> Unit,
     onCardDetail: (userCardId: Long) -> Unit,
     onCardOrder: () -> Unit,
+    /** 카드 상세에서 방금 해제한 카드(없으면 null). 받으면 [onRemovedHandled]로 비운다 */
+    removedCardId: Long? = null,
+    onRemovedHandled: () -> Unit = {},
     viewModel: CardManageViewModel = hiltViewModel(),
 ) {
     val s by viewModel.state.collectAsStateWithLifecycle()
     LifecycleResumeEffect(Unit) {
         viewModel.load()   // 카드 추가에서 돌아오면 새 카드가 보이게
         onPauseOrDispose { }
+    }
+    LaunchedEffect(removedCardId) {
+        val id = removedCardId ?: return@LaunchedEffect
+        viewModel.markRemoving(id)
+        onRemovedHandled()
     }
     val c = YamuTheme.colors
     val snackbar = LocalSnackbar.current
@@ -512,16 +563,27 @@ fun CardManageRoute(
                     }
                     if (s.cards.isEmpty()) EmptyState("연결한 카드가 없어요", actionText = "카드 추가", onAction = onAddCard)
                     s.cards.forEach { card ->
-                        ListRow(
-                            title = card.displayName,
-                            // 실적 줄 · 혜택 줄 중 있는 것만(BE !150)
-                            sub = listOfNotNull(card.performanceLine(), card.benefitsLine()).takeIf { it.isNotEmpty() }?.joinToString("\n"),
-                            lead = { CardListThumb(card.brand, card.productName) },
-                            titleTag = if (card.stateLabel != null || card.isDefault) ({ StatusTag(card.stateLabel ?: "기본") }) else null,
-                            minHeight = 72.dp,
-                            chevron = true,
-                            onClick = { onCardDetail(card.userCardId) },
-                        )
+                        key(card.userCardId) {
+                            // 방금 해제한 카드는 화면 교체가 끝난 뒤 150ms에 제자리에서 사라지고, 그다음 줄이 빠진다(M-TRAY-app-unregister-close)
+                            val removing = card.userCardId == s.removingId
+                            val fade = remember { Animatable(1f) }
+                            LaunchedEffect(removing) {
+                                if (!removing) return@LaunchedEffect
+                                fade.animateTo(0f, tween(YamuMotion.SHORT_MS, delayMillis = YamuMotion.SCREEN_SWAP_MS, easing = YamuMotion.standard))
+                                viewModel.removed(card.userCardId)
+                            }
+                            ListRow(
+                                title = card.displayName,
+                                modifier = Modifier.graphicsLayer { alpha = fade.value },
+                                // 실적 줄 · 혜택 줄 중 있는 것만(BE !150)
+                                sub = listOfNotNull(card.performanceLine(), card.benefitsLine()).takeIf { it.isNotEmpty() }?.joinToString("\n"),
+                                lead = { CardListThumb(card.brand, card.productName) },
+                                titleTag = if (card.stateLabel != null || card.isDefault) ({ StatusTag(card.stateLabel ?: "기본") }) else null,
+                                minHeight = 72.dp,
+                                chevron = true,
+                                onClick = if (removing) null else ({ onCardDetail(card.userCardId) }),
+                            )
+                        }
                     }
                 }
             }
