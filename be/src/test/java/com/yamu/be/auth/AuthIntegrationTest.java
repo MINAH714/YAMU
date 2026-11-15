@@ -486,6 +486,84 @@ class AuthIntegrationTest extends MySqlTestSupport {
                 .andExpect(jsonPath("$.error.code").value("UNAUTHORIZED"));
     }
 
+    // ───────── 로그아웃한 기기의 Access Token (S15P31E103-466) ─────────
+
+    @Test
+    void 로그아웃하면_그_기기의_남은_Access_Token은_바로_UNAUTHORIZED다() throws Exception {
+        UserDevice device = activeDevice(false);
+        MvcResult result = login(device, "PIN", deviceKey, PIN).andReturn();
+        String access = read(result, "$.data.accessToken");
+        myDevices(access).andExpect(status().isOk());
+
+        logout(access, read(result, "$.data.refreshToken")).andExpect(status().isNoContent());
+
+        myDevices(access).andExpect(status().isUnauthorized()).andExpect(jsonPath("$.error.code").value("UNAUTHORIZED"));
+    }
+
+    @Test
+    void 로그아웃한_기기로_다시_로그인해도_로그아웃_전_토큰은_되살아나지_않는다() throws Exception {
+        UserDevice device = activeDevice(false);
+        MvcResult first = login(device, "PIN", deviceKey, PIN).andReturn();
+        String before = read(first, "$.data.accessToken");
+        clock.advance(Duration.ofMinutes(1));
+        logout(before, read(first, "$.data.refreshToken")).andExpect(status().isNoContent());
+
+        String after = read(login(device, "PIN", deviceKey, PIN).andReturn(), "$.data.accessToken");
+
+        myDevices(before).andExpect(status().isUnauthorized()).andExpect(jsonPath("$.error.code").value("UNAUTHORIZED"));
+        myDevices(after).andExpect(status().isOk());
+    }
+
+    @Test
+    void 같은_세션에서_재발급한_토큰과_재발급_전_토큰은_모두_통과한다() throws Exception {
+        UserDevice device = activeDevice(false);
+        MvcResult result = login(device, "PIN", deviceKey, PIN).andReturn();
+        String original = read(result, "$.data.accessToken");
+        clock.advance(Duration.ofMinutes(10));
+
+        String refreshed = read(refresh(read(result, "$.data.refreshToken")).andExpect(status().isOk()).andReturn(),
+                "$.data.accessToken");
+
+        myDevices(original).andExpect(status().isOk());
+        myDevices(refreshed).andExpect(status().isOk());
+    }
+
+    @Test
+    void 다른_기기가_로그아웃해도_내_토큰은_그대로다() throws Exception {
+        UserDevice mine = activeDevice(false);
+        String myAccess = read(login(mine, "PIN", deviceKey, PIN).andReturn(), "$.data.accessToken");
+        DeviceKeys otherKey = DeviceKeys.generate();
+        UserDevice other = saveDevice("01099998888", otherKey, null);
+        MvcResult otherLogin = login(other, "PIN", otherKey, PIN).andReturn();
+
+        logout(read(otherLogin, "$.data.accessToken"), read(otherLogin, "$.data.refreshToken"))
+                .andExpect(status().isNoContent());
+
+        myDevices(myAccess).andExpect(status().isOk());
+    }
+
+    @Test
+    void Refresh_Token_재사용이_감지돼_세션이_지워지면_남은_Access_Token도_UNAUTHORIZED다() throws Exception {
+        UserDevice device = activeDevice(false);
+        MvcResult result = login(device, "PIN", deviceKey, PIN).andReturn();
+        String access = read(result, "$.data.accessToken");
+        String stolen = read(result, "$.data.refreshToken");
+        refresh(stolen).andExpect(status().isOk());
+
+        refresh(stolen).andExpect(status().isUnauthorized());
+
+        myDevices(access).andExpect(status().isUnauthorized()).andExpect(jsonPath("$.error.code").value("UNAUTHORIZED"));
+    }
+
+    @Test
+    void 배포_전에_만든_세션_시작_시각_없는_세션의_토큰은_통과한다() throws Exception {
+        UserDevice device = activeDevice(false);
+        String access = read(login(device, "PIN", deviceKey, PIN).andReturn(), "$.data.accessToken");
+        redis.opsForHash().delete("auth:refresh:" + device.getId(), "since");
+
+        myDevices(access).andExpect(status().isOk());
+    }
+
     @Test
     void Access_Token은_30분과_허용_오차가_지나면_만료된다() throws Exception {
         UserDevice device = activeDevice(false);
@@ -576,6 +654,11 @@ class AuthIntegrationTest extends MySqlTestSupport {
         return mockMvc.perform(post("/api/auth/refresh")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"refreshToken\":\"" + refreshToken + "\"}"));
+    }
+
+    /** Access Token이 통하는지 보는 인증 API. */
+    private ResultActions myDevices(String accessToken) throws Exception {
+        return mockMvc.perform(get("/api/auth/devices").header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken));
     }
 
     private ResultActions logout(String accessToken, String refreshToken) throws Exception {

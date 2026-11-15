@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.yamu.be.support.MutableClock;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.Properties;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -111,6 +112,32 @@ class RefreshTokenStoreTest {
 
         assertThat(store.rotate(first)).isNull();
         assertThat(store.rotate(second)).isNull();
+    }
+
+    // ───────── 세션 시작 시각 (S15P31E103-466) ─────────
+
+    @Test
+    void 세션_시작_시각은_로그인_시각이고_재발급해도_그대로다() {
+        Instant loggedInAt = clock.instant();
+        String first = store.issue(DEVICE_ID);
+
+        clock.advance(Duration.ofMinutes(10));
+        store.rotate(first);
+
+        assertThat(store.sessionStartedAt(DEVICE_ID)).contains(Instant.ofEpochMilli(loggedInAt.toEpochMilli()));
+    }
+
+    @Test
+    void 다시_로그인하면_세션_시작_시각이_새로_잡히고_로그아웃하면_세션이_없다() {
+        store.issue(DEVICE_ID);
+        clock.advance(Duration.ofMinutes(1));
+        Instant reloggedAt = clock.instant();
+        store.issue(DEVICE_ID);
+
+        assertThat(store.sessionStartedAt(DEVICE_ID)).contains(Instant.ofEpochMilli(reloggedAt.toEpochMilli()));
+
+        store.revoke(DEVICE_ID);
+        assertThat(store.sessionStartedAt(DEVICE_ID)).isEmpty();
     }
 
     private static Duration configuredGrace() {

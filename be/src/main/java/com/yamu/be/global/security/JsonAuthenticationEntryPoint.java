@@ -23,7 +23,7 @@ import org.springframework.stereotype.Component;
  *   <li>Access Token 만료 → 401 {@code TOKEN_EXPIRED}: 앱은 /api/auth/refresh로 재발급한다.</li>
  *   <li>해제된 기기(다른 폰에서 재등록 등)의 토큰 → 401 {@code DEVICE_NOT_REGISTERED}: 앱은 기기 재등록으로 안내한다
  *       (S15P31E103-351). 로그인·재발급의 해제된 기기 응답과 같은 코드다.</li>
- *   <li>토큰 없음·위조·형식 오류·탈퇴한 사용자 → 401 {@code UNAUTHORIZED}: 앱은 다시 로그인한다.</li>
+ *   <li>토큰 없음·위조·형식 오류·탈퇴한 사용자·로그아웃한 기기 → 401 {@code UNAUTHORIZED}: 앱은 다시 로그인한다.</li>
  * </ul>
  */
 @Component

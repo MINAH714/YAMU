@@ -112,7 +112,7 @@ public class AuthService {
 
     /**
      * 이 기기의 세션(Refresh Token)을 지운다. Access Token이 기기를 증명하므로 본문 토큰과 상관없이 요청한 기기의 세션을 지운다.
-     * 이미 발급된 Access Token은 만료(최대 30분)까지 쓸 수 있다.
+     * 이미 발급된 이 기기의 Access Token도 세션이 없어져 다음 요청부터 401이다({@code ActiveSessionChecker}, S15P31E103-466).
      */
     public void logout(AuthUser me) {
         refreshTokenStore.revoke(me.userDeviceId());

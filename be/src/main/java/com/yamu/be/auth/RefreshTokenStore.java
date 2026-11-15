@@ -5,9 +5,11 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
 import java.time.Clock;
+import java.time.Instant;
 import java.util.Base64;
 import java.util.HexFormat;
 import java.util.List;
+import java.util.Optional;
 import java.util.OptionalLong;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -21,7 +23,8 @@ import org.springframework.stereotype.Component;
  *
  * <pre>
  * 토큰: "{userDeviceId}.{32바이트 랜덤 Base64URL}"      예) 7.Kq8vN2xR5tYb9WmC3dLp0sHfJ6gAeZ1uOiTn4rVwXy
- * auth:refresh:{userDeviceId} → { cur: 지금 토큰 해시, prev: 직전 토큰 해시, rotatedAt: 교체 시각(ms), alt: 동시 재발급 때만 }   TTL 14일
+ * auth:refresh:{userDeviceId} → { cur: 지금 토큰 해시, prev: 직전 토큰 해시, rotatedAt: 교체 시각(ms), alt: 동시 재발급 때만,
+ *                               since: 세션 시작(로그인) 시각(ms) }   TTL 14일
  * </pre>
  *
  * <p>재발급할 때마다 토큰을 바꾼다(rotation). 이미 쓴 직전 토큰이 다시 오면 탈취로 보고 그 기기 세션을 지운다.
@@ -69,10 +72,10 @@ public class RefreshTokenStore {
     private final Clock clock;
     private final SecureRandom random = new SecureRandom();
 
-    /** 새 세션을 만든다. 저장과 TTL을 한 번에 걸어 TTL 없는 키가 남지 않게 한다. */
+    /** 새 세션을 만든다. 저장과 TTL을 한 번에 걸어 TTL 없는 키가 남지 않게 한다. since는 세션 시작 시각(ms)이고 재발급해도 그대로다. */
     private static final RedisScript<Long> ISSUE = new DefaultRedisScript<>("""
             redis.call('DEL', KEYS[1])
-            redis.call('HSET', KEYS[1], 'cur', ARGV[1], 'rotatedAt', '0')
+            redis.call('HSET', KEYS[1], 'cur', ARGV[1], 'rotatedAt', '0', 'since', ARGV[3])
             redis.call('PEXPIRE', KEYS[1], ARGV[2])
             return 1
             """, Long.class);
@@ -81,7 +84,7 @@ public class RefreshTokenStore {
     public String issue(Long userDeviceId) {
         String token = newToken(userDeviceId);
         redis.execute(ISSUE, List.of(key(userDeviceId)), sha256(token),
-                String.valueOf(properties.refreshTokenTtl().toMillis()));
+                String.valueOf(properties.refreshTokenTtl().toMillis()), String.valueOf(clock.millis()));
         return token;
     }
 
@@ -120,6 +123,21 @@ public class RefreshTokenStore {
 
     public void revoke(Long userDeviceId) {
         redis.delete(key(userDeviceId));
+    }
+
+    /**
+     * 이 기기 세션이 시작된(로그인·기기 등록) 시각. 로그아웃·기기 해제·탈퇴·재사용 감지로 지워졌거나 14일 동안 재발급이 없어
+     * 만료됐으면 empty. Access Token 검사({@code ActiveSessionChecker})가 요청마다 부른다.
+     *
+     * <p>since를 저장하기 전(S15P31E103-466 배포 전)에 만든 세션은 {@link Instant#EPOCH}로 돌려준다. 그 세션의 토큰은 모두 통과한다.
+     */
+    public Optional<Instant> sessionStartedAt(long userDeviceId) {
+        List<Object> values = redis.opsForHash().multiGet(key(userDeviceId), List.of("cur", "since"));
+        if (values == null || values.get(0) == null) {
+            return Optional.empty();
+        }
+        Object since = values.get(1);
+        return Optional.of(since == null ? Instant.EPOCH : Instant.ofEpochMilli(Long.parseLong(since.toString())));
     }
 
     private String newToken(long userDeviceId) {
