@@ -122,4 +122,18 @@ object YamuMotion {
     const val COIN_STACK_GAP_MS = 30
     /** 홈 예상 잔액이 다 보인 뒤 바뀌면(결제하고 돌아옴 · 새로고침) 보이던 값에서 새 값으로 굴러가는 시간 */
     const val AMOUNT_ROLL_MS = 700
+
+    /**
+     * 결제 완료(M-DONE-pay)의 조용한 박자. 실적 칩이 CHIP_APPEAR_AT_MS에 나타나 CHIP_FLY_AT_MS부터 CHIP_FLY_MS 동안 실적 합계로 날아가고,
+     * ROLL_AT_MS부터 합계의 바뀐 자리만 굴러간다. 모두 화면이 들어온 순간부터 잰 값이다
+     */
+    const val CHIP_APPEAR_AT_MS = 200
+    const val CHIP_FLY_AT_MS = 350
+    const val CHIP_FLY_MS = 650
+    const val ROLL_AT_MS = 1300
+
+    /** 굴러가는 숫자: 자리 하나 620ms, 자리마다 45ms씩 늦게 출발, 한 번에 4자리까지(넘으면 아랫자리는 굴리지 않고 바로 바뀜) */
+    const val ROLL_DIGIT_MS = 620
+    const val ROLL_STAGGER_MS = 45
+    const val ROLL_MAX_DIGITS = 4
 }

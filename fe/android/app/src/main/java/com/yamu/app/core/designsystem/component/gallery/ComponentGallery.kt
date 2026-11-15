@@ -52,6 +52,11 @@ import com.yamu.app.core.designsystem.component.CharacterImage
 import com.yamu.app.core.designsystem.component.CharacterImageImpl
 import com.yamu.app.core.designsystem.component.CharacterSize
 import com.yamu.app.core.designsystem.component.CoinPile
+import com.yamu.app.core.designsystem.component.FlyingChipLayer
+import com.yamu.app.core.designsystem.component.RollingNumber
+import com.yamu.app.core.designsystem.component.chipFrom
+import com.yamu.app.core.designsystem.component.chipTo
+import com.yamu.app.core.designsystem.component.rememberFlyingChipAnchors
 import com.yamu.app.core.designsystem.component.CoinPileDefaults
 import com.yamu.app.core.designsystem.component.rememberCoinPileState
 import com.yamu.app.core.designsystem.component.rememberRolledAmount
@@ -86,9 +91,11 @@ import com.yamu.app.core.designsystem.component.YamuTabs
 import com.yamu.app.core.designsystem.component.YamuTopBar
 import com.yamu.app.core.designsystem.theme.BrandColor
 import com.yamu.app.core.designsystem.theme.Issuer
+import com.yamu.app.core.designsystem.theme.YamuMotion
 import com.yamu.app.core.designsystem.theme.YamuMotionDebug
 import com.yamu.app.core.designsystem.theme.YamuRadius
 import com.yamu.app.core.designsystem.theme.YamuTheme
+import com.yamu.app.core.format.toWon
 import com.yamu.app.core.ui.LocalSnackbar
 import com.yamu.app.feature.payment.WaitPhase
 import com.yamu.app.feature.payment.WaitingSurface
@@ -127,6 +134,7 @@ fun ComponentGallery(onBack: (() -> Unit)? = null) {
                     CharacterMotionSamples()
                     WaitMotionSamples()
                     CoinPileSamples()
+                    RollChipSamples()
                     GallerySections()
                     Spacer(Modifier.height(56.dp))
                 }
@@ -287,6 +295,48 @@ private fun CoinPileSamples() {
         }
         Spacer(Modifier.height(8.dp))
         NeutralButton("다시 떨어뜨리기", onClick = { run++ })
+    }
+}
+
+/**
+ * 굴러가는 숫자 · 날아가는 칩 견본(M-DONE-pay). 결제 완료처럼 금액에서 칩이 나와 실적 합계로 날아가고, 1.3초부터 합계의 바뀐 자리만 굴러간다.
+ * '여섯 자리가 바뀜'이면 위 네 자리만 굴러가고 아래 두 자리는 굴림이 시작될 때 바로 바뀌는지 본다. '다시'로 처음부터
+ */
+@Composable
+private fun RollChipSamples() {
+    var run by rememberSaveable { mutableIntStateOf(0) }
+    var many by rememberSaveable { mutableStateOf(false) }
+    val c = YamuTheme.colors
+    val (before, add) = if (many) 123_456L to 111_111L else 285_000L to 15_000L
+    YamuCard {
+        Text("굴러가는 숫자 · 날아가는 칩", style = YamuTheme.typography.titleM, color = c.text1)
+        ToggleRow("모션 줄이기 강제", YamuMotionDebug.forceReduceMotion) { YamuMotionDebug.forceReduceMotion = it }
+        ToggleRow("여섯 자리가 바뀜", many) {
+            many = it
+            run++
+        }
+        key(run) {
+            val anchors = rememberFlyingChipAnchors()
+            Box(Modifier.fillMaxWidth()) {
+                Column(Modifier.fillMaxWidth().padding(vertical = 8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                    AmountText(add, modifier = Modifier.chipFrom(anchors))
+                    Spacer(Modifier.height(48.dp))
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Text("11월 실적", style = YamuTheme.typography.bodyL, color = c.text2, modifier = Modifier.weight(1f))
+                        RollingNumber(
+                            before + add,
+                            style = YamuTheme.typography.titleM,
+                            color = c.text1,
+                            initial = before,
+                            delayMillis = YamuMotion.ROLL_AT_MS,
+                            modifier = Modifier.chipTo(anchors),
+                        )
+                    }
+                }
+                FlyingChipLayer("+${add.toWon()}원", anchors, Modifier.matchParentSize())
+            }
+        }
+        NeutralButton("다시", onClick = { run++ })
     }
 }
 
