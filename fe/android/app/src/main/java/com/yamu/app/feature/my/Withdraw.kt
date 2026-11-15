@@ -3,6 +3,7 @@ package com.yamu.app.feature.my
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.consumeWindowInsets
@@ -27,9 +28,14 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import com.yamu.app.core.designsystem.component.BottomCta
 import com.yamu.app.core.designsystem.component.FlowScreen
+import com.yamu.app.core.designsystem.component.GrowTrayHost
 import com.yamu.app.core.designsystem.component.KeyValueRow
+import com.yamu.app.core.designsystem.component.NeutralButton
 import com.yamu.app.core.designsystem.component.PrimaryButton
 import com.yamu.app.core.designsystem.component.RoundCheckbox
+import com.yamu.app.core.designsystem.component.growTrayAnchor
+import com.yamu.app.core.designsystem.component.rememberGrowTrayState
+import com.yamu.app.core.designsystem.theme.YamuRadius
 import com.yamu.app.core.designsystem.theme.YamuSize
 import com.yamu.app.core.designsystem.theme.YamuSpacing
 import com.yamu.app.core.designsystem.theme.YamuTheme
@@ -137,47 +143,71 @@ fun WithdrawRoute(
     // 요청 중에 나가면 ViewModel과 함께 요청이 취소돼 탈퇴가 끝났는지 알 수 없다
     BackHandler(enabled = s.working) { }
     val c = YamuTheme.colors
-    FlowScreen(
-        title = "회원 탈퇴",
-        onBack = { if (!s.working) onBack() },
-        bottomBar = {
-            BottomCta {
-                PrimaryButton("탈퇴하기", onClick = viewModel::withdraw, enabled = s.confirmed, loading = s.working)
-            }
-        },
-    ) { inner ->
-        Column(
-            Modifier.padding(inner).consumeWindowInsets(inner).fillMaxSize().verticalScroll(rememberScrollState())
-                .padding(horizontal = YamuSpacing.screen),
-        ) {
-            Spacer(Modifier.height(YamuSpacing.x2))
-            Text("탈퇴하면 되돌릴 수 없어요", style = YamuTheme.typography.headlineS, color = c.text1)
-            SectionLabel("탈퇴하면 이렇게 돼요")
-            KeyValueRow("카드 · 계좌 연결", "모두 풀려요", large = false)
-            KeyValueRow("이름 · 휴대폰 · 기기 정보", "지워져요", large = false)
-            KeyValueRow("결제 · 청구 기록", "볼 수 없어요", large = false)
-            KeyValueRow("카드사 카드 · 은행 계좌", "그대로예요", large = false)
-            Spacer(Modifier.height(YamuSpacing.x4))
-            Text("다시 가입할 수 있지만 지금 기록은 이어지지 않아요", style = YamuTheme.typography.bodyM, color = c.text2)
-            Spacer(Modifier.height(YamuSpacing.x1))
-            Text("출금이 끝나지 않은 청구나 입금되지 않은 환급이 있으면 탈퇴할 수 없어요", style = YamuTheme.typography.bodyM, color = c.text2)
-            Spacer(Modifier.height(YamuSpacing.x4))
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .heightIn(min = YamuSize.touch)
-                    .toggleable(value = s.confirmed, enabled = !s.working, role = Role.Checkbox, onValueChange = viewModel::setConfirmed),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(YamuSpacing.x3),
+    // 탈퇴 확인 — '탈퇴하기' 버튼에서 커지는 트레이(M-TRAY-app-withdraw). 확인 체크박스를 트레이 안으로 옮겨 누르는 횟수는 그대로다.
+    // 탈퇴하는 동안(간편 비밀번호 · 요청)은 닫히지 않고, 비밀번호를 취소하면 트레이가 그대로 남는다
+    val tray = rememberGrowTrayState()
+    val close = { if (!s.working) tray.close() }
+    GrowTrayHost(
+        state = tray,
+        title = "탈퇴 확인",
+        onDismiss = close,
+        fromColor = c.primary,
+        fromRadius = YamuRadius.button,
+        tray = { WithdrawTrayContent(s, onConfirmed = viewModel::setConfirmed, onWithdraw = viewModel::withdraw, onCancel = close) },
+    ) {
+        FlowScreen(
+            title = "회원 탈퇴",
+            onBack = { if (!s.working) onBack() },
+            bottomBar = {
+                BottomCta {
+                    PrimaryButton("탈퇴하기", onClick = tray::open, enabled = !s.working, modifier = Modifier.growTrayAnchor(tray))
+                }
+            },
+        ) { inner ->
+            Column(
+                Modifier.padding(inner).consumeWindowInsets(inner).fillMaxSize().verticalScroll(rememberScrollState())
+                    .padding(horizontal = YamuSpacing.screen),
             ) {
-                RoundCheckbox(checked = s.confirmed, onCheckedChange = null)
-                Text("위 내용을 확인했어요", style = YamuTheme.typography.titleS, color = c.text1)
-            }
-            s.error?.let {
                 Spacer(Modifier.height(YamuSpacing.x2))
-                Text(it, style = YamuTheme.typography.bodyM, color = c.error)
+                Text("탈퇴하면 되돌릴 수 없어요", style = YamuTheme.typography.headlineS, color = c.text1)
+                SectionLabel("탈퇴하면 이렇게 돼요")
+                KeyValueRow("카드 · 계좌 연결", "모두 풀려요", large = false)
+                KeyValueRow("이름 · 휴대폰 · 기기 정보", "지워져요", large = false)
+                KeyValueRow("결제 · 청구 기록", "볼 수 없어요", large = false)
+                KeyValueRow("카드사 카드 · 은행 계좌", "그대로예요", large = false)
+                Spacer(Modifier.height(YamuSpacing.x4))
+                Text("다시 가입할 수 있지만 지금 기록은 이어지지 않아요", style = YamuTheme.typography.bodyM, color = c.text2)
+                Spacer(Modifier.height(YamuSpacing.x6))
             }
-            Spacer(Modifier.height(YamuSpacing.x6))
         }
     }
+}
+
+/** 탈퇴 확인 트레이 — 탈퇴할 수 없는 경우 안내, 확인 체크박스, 실패 이유, 탈퇴하기(진행 표시) · 취소 */
+@Composable
+private fun ColumnScope.WithdrawTrayContent(s: WithdrawState, onConfirmed: (Boolean) -> Unit, onWithdraw: () -> Unit, onCancel: () -> Unit) {
+    val c = YamuTheme.colors
+    Text("탈퇴할까요?", style = YamuTheme.typography.titleL, color = c.text1)
+    Spacer(Modifier.height(YamuSpacing.x2))
+    Text("출금이 끝나지 않은 청구나 입금되지 않은 환급이 있으면 탈퇴할 수 없어요", style = YamuTheme.typography.bodyM, color = c.text2)
+    Spacer(Modifier.height(YamuSpacing.x3))
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .heightIn(min = YamuSize.touch)
+            .toggleable(value = s.confirmed, enabled = !s.working, role = Role.Checkbox, onValueChange = onConfirmed),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(YamuSpacing.x3),
+    ) {
+        RoundCheckbox(checked = s.confirmed, onCheckedChange = null)
+        Text("위 내용을 확인했어요", style = YamuTheme.typography.titleS, color = c.text1)
+    }
+    s.error?.let {
+        Spacer(Modifier.height(YamuSpacing.x2))
+        Text(it, style = YamuTheme.typography.bodyM, color = c.error)
+    }
+    Spacer(Modifier.height(YamuSpacing.x5))
+    PrimaryButton("탈퇴하기", onClick = onWithdraw, enabled = s.confirmed, loading = s.working)
+    Spacer(Modifier.height(YamuSpacing.x2))
+    NeutralButton("취소", onClick = onCancel, enabled = !s.working)
 }
