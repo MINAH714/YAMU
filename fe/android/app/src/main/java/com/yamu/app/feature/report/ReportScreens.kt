@@ -1029,9 +1029,9 @@ private fun PaymentRow(p: PaymentItem, divider: Boolean, onClick: () -> Unit) {
                 p.brand?.let { BrandMark(it) }
                 p.category?.let {
                     Text(it, style = YamuTheme.typography.bodyS, color = c.text3, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
-                    if (p.time != null) Text("·", style = YamuTheme.typography.bodyS, color = c.text3)
                 }
-                p.time?.let { Text(it, style = YamuTheme.typography.bodyS, color = c.text3, maxLines = 1) }
+                // 점을 시각 쪽에 붙여 '카페 · 09:38' 간격을 상세 맨 위 줄과 비슷하게(줄 사이 6dp가 점 양쪽에 다 들어가면 벌어진다)
+                p.time?.let { Text(if (p.category != null) "· $it" else it, style = YamuTheme.typography.bodyS, color = c.text3, maxLines = 1) }
             }
         }
         // 금액 / 혜택 두 줄 사이 4dp — 왼쪽 가맹점 / 칩 · 시각 줄과 높이를 맞춘다(프로토타입 .txr .end small)
