@@ -1,0 +1,204 @@
+/* 결제 승인 대기 판(WaitBoard). 앱 WaitingSurface와 같은 판·원판·링·헤일로 */
+
+.board {
+  --board-disc: 160px;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--primary);
+  color: var(--on-primary);
+  text-align: center;
+}
+
+.board-stage {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+/* 원판 가운데를 판 높이의 40%에 둔다. 글자 줄 수·아래 버튼과 상관없이 같은 자리 */
+.board-center {
+  position: absolute;
+  top: max(var(--s-6), calc(40% - var(--board-disc) / 2));
+  right: 0;
+  left: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 0 var(--s-6) var(--s-6);
+}
+
+.board-disc-wrap {
+  position: relative;
+  flex: none;
+  width: var(--board-disc);
+  height: var(--board-disc);
+}
+
+/* 지름은 원판의 2배. 원판은 멈춰 있고 헤일로만 0.96 ↔ 1.04로 숨 쉰다 */
+.board-halo {
+  position: absolute;
+  inset: -50%;
+  border-radius: 50%;
+  background: var(--halo);
+  transform: scale(var(--halo-min));
+  animation: board-breathe var(--dur-halo-half) var(--ease-in-out) infinite alternate;
+}
+
+@keyframes board-breathe {
+  from {
+    transform: scale(var(--halo-min));
+  }
+  to {
+    transform: scale(var(--halo-max));
+  }
+}
+
+.board-disc {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: var(--surface);
+}
+
+.board-ring {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  fill: none;
+  stroke-width: 4;
+}
+
+.board-ring-track {
+  stroke: var(--surface-high);
+}
+
+.board-ring-line {
+  stroke: var(--primary);
+  stroke-linecap: round;
+}
+
+/* 제목은 가장 크게 숨 쉰 헤일로 바깥에 둔다. 원판 아래 끝에서 헤일로 최대 반지름 − 원판 반지름 + 8px */
+.board-title {
+  margin-top: calc(var(--board-disc) / 2 * (2 * var(--halo-max) - 1) + var(--s-2));
+  font-size: var(--fs-title);
+  font-weight: var(--fw-bold);
+  line-height: 1.35;
+}
+
+.board-pills {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s-2);
+  max-width: 720px;
+  margin-top: var(--s-3);
+}
+
+.board-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
+  min-height: 40px;
+  padding: var(--s-2) var(--s-4);
+  border-radius: var(--r-pill);
+  background: var(--surface);
+  color: var(--text1);
+  font-size: var(--fs-body);
+  font-variant-numeric: tabular-nums;
+}
+
+.board-pill[data-tone='error'] {
+  background: var(--error-container);
+  color: var(--on-error-container);
+  font-weight: var(--fw-medium);
+}
+
+/* 남은 시간. 값이 250ms마다 오므로 그 사이를 같은 시간으로 잇는다. 10초 이하면 300ms에 주황 */
+
+.board-mini-ring {
+  flex: none;
+  fill: none;
+  stroke-width: 2;
+}
+
+.board-mini-track {
+  stroke: var(--surface-high);
+}
+
+.board-mini-line {
+  stroke: var(--primary);
+  transition:
+    stroke-dashoffset var(--dur-countdown-tick) linear,
+    stroke var(--dur-value-color) var(--ease);
+}
+
+.board-countdown strong {
+  font-weight: var(--fw-semibold);
+  transition: color var(--dur-value-color) var(--ease);
+}
+
+.board-countdown[data-urgent='true'] .board-mini-line {
+  stroke: var(--warning);
+}
+
+.board-countdown[data-urgent='true'] strong {
+  color: var(--on-warning-container);
+}
+
+/* 판 위 버튼. 공용 버튼은 흰 화면용이라 판 위에서는 대비가 맞지 않는다 */
+
+.board .primary {
+  width: 100%;
+  max-width: 400px;
+  margin-top: var(--s-5);
+  background: var(--surface);
+  color: var(--primary);
+}
+
+.board .primary:active:not(:disabled) {
+  background: var(--surface-variant);
+}
+
+.board-foot {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--s-1);
+  padding: var(--s-2) var(--s-6) var(--s-4);
+}
+
+.board-foot .text {
+  color: var(--on-primary);
+}
+
+.board-foot .text[data-armed='true'] {
+  background: var(--surface);
+  color: var(--on-error-container);
+}
+
+/* Mock 패널(개발용)은 판 위에서도 읽히게 흰 바탕에 둔다 */
+.board-foot .mock {
+  background: var(--surface);
+}
+
+/* 모션 줄이기: 헤일로는 1.0에 멈춘 원 */
+@media (prefers-reduced-motion: reduce) {
+  .board-halo {
+    animation: none;
+    transform: none;
+  }
+}
+
+:root[data-reduce-motion] .board-halo {
+  animation: none;
+  transform: none;
+}
