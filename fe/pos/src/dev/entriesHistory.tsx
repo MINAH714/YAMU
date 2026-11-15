@@ -7,7 +7,7 @@ import { CancelScanStep } from '../components/CancelScanStep'
 import { CancelDoneScreen, CancelFailedScreen, CancelingScreen, CancelUnknownScreen } from '../components/CancelScreens'
 import { PaymentHistory } from '../components/PaymentHistory'
 import { chargedOf } from '../payment/history'
-import { Tray, TrayStep } from '../components/Tray'
+import { Tray } from '../components/Tray'
 import { CANCEL_NOT_FOUND_MESSAGE, demoHistory } from './historyFixtures'
 import type { GalleryEntry } from './types'
 
@@ -23,11 +23,9 @@ function HistoryDemo({ items = demoHistory(), initial }: { items?: PaymentHistor
 
 function CancelTray({ item }: { item: PaymentHistoryItem }) {
   return (
-    <Tray key="tray" title="고객 바코드를 스캔해 주세요" width={720} onBack={noop}>
+    <Tray key="tray" stepKey="cancel" title="고객 바코드를 스캔해 주세요" width={720} onBack={noop}>
       <Amount className="tray-amount" value={chargedOf(item)} size="lg" />
-      <TrayStep>
-        <CancelScanStep onToken={noop} />
-      </TrayStep>
+      <CancelScanStep onToken={noop} />
     </Tray>
   )
 }

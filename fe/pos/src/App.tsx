@@ -23,11 +23,12 @@ import { PAYMENT_METHOD, Receipt } from './components/Receipt'
 import { ScanStep } from './components/ScanStep'
 import { StatusScreen } from './components/StatusScreen'
 import { StoreSelect } from './components/StoreSelect'
-import { Tray, TrayStep } from './components/Tray'
+import { Tray } from './components/Tray'
 import { TRAY_META } from './components/trayMeta'
 import { WaitingStep } from './components/WaitingStep'
 import { config, missingConfig } from './config'
 import { enterFullscreenOnFirstTouch } from './hooks/useFullscreen'
+import { FORCE_REDUCE_MOTION } from './hooks/useReduceMotion'
 import { formatToken } from './payment/barcode'
 import { chargedOf } from './payment/history'
 import { classifyCancelError } from './payment/cancelErrors'
@@ -159,6 +160,12 @@ function App() {
   const historyRequest = useRef(0)
   // 화면을 먼저 바꾸고 기록만 걷어 낼 때(history.back) 따라오는 popstate는 사용자의 뒤로 가기가 아니다
   const ignoreNextPop = useRef(false)
+  // 결제수단 트레이가 커져 나오고 닫히면 줄어드는 '결제하기' 버튼
+  const checkoutRef = useRef<HTMLButtonElement>(null)
+  // 결제 트레이가 화면에 있는 동안(닫혀 줄어드는 중 포함). 그동안 주문 화면은 눌리지 않고 진짜 버튼은 숨는다
+  const trayOpen = phase.step === 'method' || phase.step === 'cash' || phase.step === 'scan'
+  const [trayPresent, setTrayPresent] = useState(false)
+  if (trayOpen && !trayPresent) setTrayPresent(true)
 
   const store = storeId ? STORES[storeId] : null
 
@@ -457,7 +464,7 @@ function App() {
   const surface = phase.step === 'home' || showOrder ? 'canvas' : 'flow'
 
   return (
-    <MotionConfig reducedMotion="user" transition={FAST}>
+    <MotionConfig reducedMotion={FORCE_REDUCE_MOTION ? 'always' : 'user'} transition={FAST}>
       <div className="app">
         <AppHeader
           store={store}
@@ -483,7 +490,9 @@ function App() {
             <OrderStep
               store={store}
               cart={carts[storeId]}
-              locked={phase.step !== 'order'}
+              locked={phase.step !== 'order' || trayPresent}
+              checkoutRef={checkoutRef}
+              checkoutHidden={trayPresent}
               onChange={(itemId, delta) => updateCart((cart) => changeQuantity(cart, itemId, delta))}
               onRemove={(itemId) => updateCart((cart) => removeItem(cart, itemId))}
               onClear={() => updateCart(() => ({}))}
@@ -602,12 +611,15 @@ function App() {
           )}
         </main>
 
-        <AnimatePresence>
-          {(phase.step === 'method' || phase.step === 'cash' || phase.step === 'scan') && (
+        {/* 주문 화면으로 돌아가면 버튼 자리로 줄어든다. 다 줄어들면 진짜 버튼이 보이고 주문 화면이 풀린다 */}
+        <AnimatePresence onExitComplete={() => setTrayPresent(false)}>
+          {trayOpen && (
             <Tray
               key="tray"
+              stepKey={phase.step === 'scan' ? `scan-${phase.entry}` : phase.step}
               title={TRAY_META[phase.step].title}
               width={TRAY_META[phase.step].width}
+              origin={checkoutRef}
               onClose={phase.step === 'method' ? closeTray : undefined}
               onBack={
                 phase.step === 'method'
@@ -615,53 +627,50 @@ function App() {
                   : () => backToMethodByButton(phase.order)
               }
             >
-              <Amount className="tray-amount" layoutId="order-total" value={phase.order.total} size="lg" />
+              <Amount className="tray-amount" value={phase.order.total} size="lg" />
 
               {phase.step === 'method' && (
-                <TrayStep key="method">
-                  <PaymentMethodStep
-                    order={phase.order}
-                    planInput={planInput}
-                    errors={phase.errors}
-                    notice={phase.notice}
-                    onPlanChange={(input) => {
-                      setPlanInput(input)
-                      setPhase({ ...phase, errors: {}, notice: null })
-                    }}
-                    onYamu={() => toScan(phase.order)}
-                    onCash={() => {
-                      setPhase({ step: 'cash', order: phase.order })
-                      syncHistory(ENTRY_DEPTH.pay)
-                    }}
-                  />
-                </TrayStep>
+                <PaymentMethodStep
+                  order={phase.order}
+                  planInput={planInput}
+                  errors={phase.errors}
+                  notice={phase.notice}
+                  onPlanChange={(input) => {
+                    setPlanInput(input)
+                    setPhase({ ...phase, errors: {}, notice: null })
+                  }}
+                  onYamu={() => toScan(phase.order)}
+                  onCash={() => {
+                    setPhase({ step: 'cash', order: phase.order })
+                    syncHistory(ENTRY_DEPTH.pay)
+                  }}
+                />
               )}
 
               {phase.step === 'cash' && (
-                <TrayStep key="cash">
-                  <CashStep
-                    order={phase.order}
-                    onDone={(received) => setPhase({ step: 'cashDone', order: phase.order, received })}
-                  />
-                </TrayStep>
+                <CashStep
+                  order={phase.order}
+                  onDone={(received) => setPhase({ step: 'cashDone', order: phase.order, received })}
+                />
               )}
 
               {phase.step === 'scan' && (
-                <TrayStep key={`scan-${phase.entry}`}>
-                  <ScanInTray
-                    terms={phase.terms}
-                    notice={phase.notice}
-                    rejectedToken={phase.rejectedToken}
-                    onToken={(token) => startAttempt(phase.order, phase.terms, token)}
-                  />
-                </TrayStep>
+                <ScanInTray
+                  terms={phase.terms}
+                  notice={phase.notice}
+                  rejectedToken={phase.rejectedToken}
+                  onToken={(token) => startAttempt(phase.order, phase.terms, token)}
+                />
               )}
             </Tray>
           )}
+        </AnimatePresence>
 
+        <AnimatePresence>
           {phase.step === 'cancelScan' && (
             <Tray
               key="cancel-tray"
+              stepKey={`cancel-${phase.entry}`}
               title="고객 바코드를 스캔해 주세요"
               width={720}
               onBack={() => {
@@ -670,9 +679,7 @@ function App() {
               }}
             >
               <Amount className="tray-amount" value={chargedOf(phase.item)} size="lg" />
-              <TrayStep key={`cancel-${phase.entry}`}>
-                <CancelScanInTray onToken={(token) => startCancel(phase.item, token)} />
-              </TrayStep>
+              <CancelScanInTray onToken={(token) => startCancel(phase.item, token)} />
             </Tray>
           )}
         </AnimatePresence>
