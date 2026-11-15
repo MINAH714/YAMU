@@ -364,16 +364,16 @@ input::placeholder {
   }
 }
 
-/* 트레이. 주문 화면을 그대로 둔 채 위에 뜬다 */
+/* 트레이. 주문 화면을 그대로 둔 채 위에 뜬다.
+   자리와 크기는 Tray가 left·top·width·height로 직접 움직이고, 단계 내용(.tray-panel)은 그 안 왼쪽 위에 겹쳐 놓는다.
+   단계 폭·높이는 여백 안쪽(100cqw·100cqh)을 넘지 않는다 */
 
 .tray-root {
   position: absolute;
   inset: 0;
   z-index: 10;
-  display: flex;
-  align-items: flex-end;
-  justify-content: center;
   padding: var(--s-4);
+  container-type: size;
 }
 
 .tray-scrim {
@@ -383,14 +383,20 @@ input::placeholder {
 }
 
 .tray {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  width: 100%;
-  max-height: calc(var(--app-height) - 32px);
+  position: absolute;
   overflow: hidden;
+  border-radius: var(--r-tray);
   background: var(--surface);
   box-shadow: var(--shadow-tray);
+}
+
+.tray-panel {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: flex;
+  flex-direction: column;
+  max-height: 100cqh;
 }
 
 .tray:focus {

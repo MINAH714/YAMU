@@ -1,9 +1,9 @@
 import { AnimatePresence, motion } from 'motion/react'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type RefObject } from 'react'
 import { menuImage, type Store } from '../store/catalog'
 import { MAX_QUANTITY, toOrder, type Cart } from '../store/cart'
 import { formatWon } from '../payment/terms'
-import { EASE, FAST, TRAY_SPRING } from '../styles/motion'
+import { EASE, FAST } from '../styles/motion'
 import '../styles/order.css'
 import { ConfirmButton } from './ConfirmButton'
 
@@ -16,6 +16,10 @@ type Props = {
   onCheckout: () => void
   /** 트레이가 떠 있는 동안 주문을 고치지 못하게 막는다 */
   locked?: boolean
+  /** 결제수단 트레이가 커져 나오는 버튼 */
+  checkoutRef?: RefObject<HTMLButtonElement | null>
+  /** 트레이가 버튼 자리를 덮는 동안 진짜 버튼을 숨긴다. 트레이가 줄어든 마지막 프레임에 다시 보인다 */
+  checkoutHidden?: boolean
 }
 
 const ALL = '전체'
@@ -24,7 +28,17 @@ const MOUNT_GUARD_MS = 300
 const SLIDE = { duration: 0.18, ease: EASE }
 
 /** 카테고리 레일(왼쪽), 메뉴판(가운데), 주문 내역(오른쪽). 결제하기를 누르면 그때의 주문으로 결제가 진행된다 */
-export function OrderStep({ store, cart, onChange, onRemove, onClear, onCheckout, locked = false }: Props) {
+export function OrderStep({
+  store,
+  cart,
+  onChange,
+  onRemove,
+  onClear,
+  onCheckout,
+  locked = false,
+  checkoutRef,
+  checkoutHidden = false,
+}: Props) {
   // direction은 메뉴판이 밀려 들어오는 쪽. 처음 그릴 때는 0이라 움직이지 않는다
   const [view, setView] = useState({ category: ALL, direction: 0 })
   const order = toOrder(store, cart)
@@ -196,9 +210,16 @@ export function OrderStep({ store, cart, onChange, onRemove, onClear, onCheckout
         <footer className="cart-footer">
           <div className="cart-total">
             <span>총 결제금액</span>
-            <CartTotal value={order.total} locked={locked} />
+            <CartTotal value={order.total} />
           </div>
-          <button type="button" className="primary checkout" disabled={order.total <= 0} onClick={onCheckout}>
+          <button
+            ref={checkoutRef}
+            type="button"
+            className="primary checkout"
+            style={checkoutHidden ? { visibility: 'hidden' } : undefined}
+            disabled={order.total <= 0}
+            onClick={onCheckout}
+          >
             <CheckoutLabel total={order.total} />
           </button>
         </footer>
@@ -208,22 +229,16 @@ export function OrderStep({ store, cart, onChange, onRemove, onClear, onCheckout
 }
 
 /**
- * 트레이 머리의 Amount와 이어지는 합계. Amount를 그대로 쓰면 자릿수가 늘 때마다 글자가 늘어나 보여서,
- * 트레이가 열리고 닫힐 때만(locked가 바뀔 때만) 자리를 재도록 layoutDependency를 건다. 금액이 바뀌면 숫자만 번진다.
+ * 주문 합계. 금액이 바뀌면 숫자만 번진다.
+ * 트레이 머리 금액으로 날아가지 않는다(모션 명세 결정: 금액은 화면 사이를 날아오지 않는다)
  */
-function CartTotal({ value, locked }: { value: number; locked: boolean }) {
+function CartTotal({ value }: { value: number }) {
   return (
-    <motion.span
-      className="amount amount-lg cart-total-amount"
-      data-empty={value <= 0}
-      layoutId="order-total"
-      layoutDependency={locked}
-      transition={TRAY_SPRING}
-    >
+    <span className="amount amount-lg cart-total-amount" data-empty={value <= 0}>
       <span key={value} className="cart-total-value">
         {formatWon(value)}
       </span>
-    </motion.span>
+    </span>
   )
 }
 

@@ -3,6 +3,7 @@ import { useState, type CSSProperties } from 'react'
 import { AppHeader } from '../components/AppHeader'
 import { config } from '../config'
 import { STORES } from '../store/catalog'
+import { FORCE_REDUCE_MOTION } from '../hooks/useReduceMotion'
 import { FAST } from '../styles/motion'
 import { flowEntries } from './entriesFlow'
 import { historyEntries } from './entriesHistory'
@@ -55,7 +56,7 @@ export function Gallery() {
   )
 
   return (
-    <MotionConfig reducedMotion="user" transition={FAST}>
+    <MotionConfig reducedMotion={FORCE_REDUCE_MOTION ? 'always' : 'user'} transition={FAST}>
       {bare ? (
         frame
       ) : (

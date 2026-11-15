@@ -95,9 +95,17 @@
 
   /* 움직임. 자바스크립트 쪽 값은 src/styles/motion.ts에 같은 값으로 둔다 */
   --ease: cubic-bezier(0.2, 0, 0, 1);
+  --ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
   --dur-fast: 150ms;
   --dur-base: 200ms;
+  --dur-countdown-tick: 250ms;
+  --dur-value-color: 300ms;
+  --dur-halo-half: 500ms;
   --press-scale: 0.97;
+  --halo-min: 0.96;
+  --halo-max: 1.04;
+  /* 대기 판 헤일로. 브랜드색 판 위에 흰색을 얇게 얹는다 */
+  --halo: rgba(255, 255, 255, 0.16);
 }
 
 /* 검정과 섞으면 채도까지 빠져 탁해진다. 지원하는 브라우저(Chrome 119 이상)는 밝기만 낮춘다 */
