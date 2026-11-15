@@ -5,10 +5,17 @@ import androidx.compose.ui.unit.em
 import com.yamu.app.core.designsystem.component.CompactButton
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.EnterExitState
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.keyframes
+import androidx.compose.foundation.layout.offset
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.unit.IntOffset
 import com.yamu.app.core.designsystem.component.CountdownRing
+import com.yamu.app.core.designsystem.component.WaitRing
 import com.yamu.app.core.designsystem.component.WaitRingDefaults
+import com.yamu.app.core.designsystem.theme.YamuMotion
 import com.yamu.app.core.designsystem.component.animateCountdownColor
 import com.yamu.app.core.designsystem.component.rememberCountdown
 import com.yamu.app.core.designsystem.theme.screenSwapEnter
@@ -130,6 +137,13 @@ private fun ApiError.leavesOutcomeOpen(): Boolean =
 
 private const val OUTCOME_UNKNOWN = "결제됐는지 확인하지 못했어요"
 
+/**
+ * 결과를 모를 때 판에 남아 같은 키로 저절로 다시 묻는 횟수와 간격(M-WAIT-UNKNOWN). 다 묻고도 모르면 판에 [결과 다시 확인]을 둔다.
+ * 마감 뒤에는 저절로 묻지 않고 1초 시계가 한 번만 확인한다
+ */
+internal const val AUTO_RECHECKS = 2
+internal const val RECHECK_DELAY_MS = 2_000L
+
 /** 처음 열 때 카드 목록을 기다리는 상한 — 넘기면 목록 없이 인증부터(평소 응답은 이보다 훨씬 빠르다) */
 internal const val CARD_CHECK_MS = 1_500L
 
@@ -180,12 +194,43 @@ data class PayCodeState(
     val outcomeUnknown: Boolean = false,
     /** 마감 뒤 같은 키로 결과를 다시 확인하는 중 */
     val checkingOutcome: Boolean = false,
+    /** 결과를 모를 때 같은 키로 저절로 다시 물을 차례를 기다리는 중 — 판은 '확인하고 있어요'에 머문다 */
+    val recheckScheduled: Boolean = false,
+    /** 판이 걷힌 뒤 한 번 흔들 거절된 카드 줄(M-WAIT-DECLINED) — 다시 고를 수 있는 거절만. [shakeSeq]가 오를 때마다 흔든다 */
+    val shakeCardId: Long? = null,
+    val shakeSeq: Int = 0,
 ) {
     val request: PaymentRequest? get() = (phase as? PayPhase.Request)?.request
     val selectedCard: PayCard? get() = request?.cards?.firstOrNull { it.userCardId == selectedCardId }
     val requestDone: Boolean get() = requestExpired || !canRetry
-    /** 대기 판이 떠 있음 — 승인을 기다리거나 승인 뒤 화면을 떠나는 중. 이 동안 결제 · 거절 · 뒤로가기는 받지 않는다 */
+    /** 승인 응답을 기다리거나 승인 뒤 화면을 떠나는 중. 이 동안 결제 · 거절 · 뒤로가기는 받지 않는다(판은 결과 불명일 때도 떠 있다 — [waitPanel]) */
     val waiting: Boolean get() = approving || approvedLeaving
+}
+
+/** 대기 판에 그릴 것. [actions]면 판 아래에 [결과 다시 확인] · [닫기](결과를 모르는데 지금 묻고 있지 않을 때) */
+internal data class WaitPanel(val phase: WaitPhase, val title: String, val pill: String?, val actions: Boolean = false)
+
+/**
+ * 대기 판(M-WAIT-*). 승인을 기다리는 동안은 처리 중이고, 결과를 모르면 같은 판에 남아 결과 불명으로 바뀐다(링은 주황 점선, 헤일로는 사라짐).
+ * 거절 · 만료 · 결과 확정이면 null이라 판이 걷힌다. 승인 뒤 화면을 떠나는 동안은 부르는 쪽이 마지막 모습을 붙여 둔다
+ */
+internal fun PayCodeState.waitPanel(): WaitPanel? {
+    val request = request ?: return null
+    if (outcomeUnknown) {
+        return if (approving || checkingOutcome || recheckScheduled) {
+            WaitPanel(WaitPhase.Unknown, "결제됐는지 확인하고 있어요", "확인 중 · 응답을 받지 못했어요")
+        } else {
+            WaitPanel(
+                WaitPhase.Unknown,
+                "결제됐는지 확인하지 못했어요",
+                if (requestExpired) "새로 결제하기 전에 결제 내역을 먼저 봐 주세요" else "다시 확인해도 두 번 결제되지 않아요",
+                actions = true,
+            )
+        }
+    }
+    if (!waiting) return null
+    val card = request.cards.firstOrNull { it.userCardId == approvingCardId }
+    return WaitPanel(WaitPhase.Processing, "결제하고 있어요", card?.let { "${it.brand.name} · ${request.amount.toWon()}원" })
 }
 
 /**
@@ -222,6 +267,9 @@ class PayCodeViewModel @Inject constructor(
     /** 결과를 모르는 채 끝난 승인 — 마감 뒤에도 이 카드 · 할부 · 키 그대로 다시 보내 결과를 받는다(BE는 같은 키에 처음 결과를 돌려준다) */
     private data class OpenAttempt(val card: PayCard, val installmentMonths: Int?, val key: String)
     private var openAttempt: OpenAttempt? = null
+    /** 결과를 모를 때 같은 키로 저절로 다시 묻기 — 이 결제에서 [AUTO_RECHECKS]번까지, 손으로 다시 물으면 기다리던 것은 지운다 */
+    private var recheckJob: Job? = null
+    private var autoRechecks = 0
 
     init {
         viewModelScope.launch { _state.update { it.copy(biometricReady = auth.biometricReady()) } }
@@ -408,6 +456,8 @@ class PayCodeViewModel @Inject constructor(
         }
         val keyName = "${request.paymentId}:${card.userCardId}:${s.installmentMonths}"
         val key = approveKeys.getOrPut(keyName) { newIdempotencyKey() }
+        cancelRecheck()
+        if (!s.outcomeUnknown) autoRechecks = 0   // 새 시도 — 결과를 모르는 동안 다시 보내는 건 같은 시도
         // 코루틴이 돌기 전에 켜 둬야 같은 프레임의 두 번째 누름이 위에서 걸린다
         _state.update { it.copy(approving = true, approvingCardId = card.userCardId, declined = null) }
         viewModelScope.launch {
@@ -428,15 +478,19 @@ class PayCodeViewModel @Inject constructor(
                         val next = o.suggestedCardId?.takeIf { id -> request.cards.any { it.userCardId == id && usable(it) } }
                             ?: request.cards.firstOrNull(::usable)?.userCardId
                         val left = o.remainingAttempts?.let { " · ${it}번 더 할 수 있어요" }.orEmpty()
+                        val canRetry = o.retryable && (o.remainingAttempts ?: 1) > 0
                         _state.update {
                             it.copy(
                                 approving = false,
                                 declined = o.message + if (o.retryable) left else "",
-                                canRetry = o.retryable && (o.remainingAttempts ?: 1) > 0,
+                                canRetry = canRetry,
                                 declinedCardIds = declinedIds,
                                 // 다시 결제할 수 있는데 저절로 고를 카드가 없으면 비워 둔다(비교 못 한 카드는 사용자가 직접)
                                 selectedCardId = if (o.retryable) next else it.selectedCardId,
                                 installmentMonths = null,
+                                // 다시 고를 수 있을 때만 거절된 줄을 흔든다(마지막 거절은 닫기만 남아 흔들지 않음)
+                                shakeCardId = if (canRetry) card.userCardId else it.shakeCardId,
+                                shakeSeq = if (canRetry) it.shakeSeq + 1 else it.shakeSeq,
                             )
                         }
                     }
@@ -450,7 +504,36 @@ class PayCodeViewModel @Inject constructor(
                     }
                 }
             }
+            scheduleRecheck()
         }
+    }
+
+    /**
+     * 결과를 모르면 판에 남은 채 [RECHECK_DELAY_MS] 뒤 같은 카드 · 할부 · 키로 다시 보낸다(M-WAIT-UNKNOWN). 이 결제에서 [AUTO_RECHECKS]번까지이고,
+     * 마감 뒤에는 묻지 않는다(마감은 1초 시계가 한 번 확인한다). 같은 키라 BE는 처음 결과를 돌려주고, 처음 시도가 닿지 않았으면 그때 처음 승인한다
+     */
+    private fun scheduleRecheck() {
+        val s = _state.value
+        if (!s.outcomeUnknown || s.requestExpired || s.waiting || openAttempt == null || autoRechecks >= AUTO_RECHECKS) return
+        autoRechecks++
+        _state.update { it.copy(recheckScheduled = true) }
+        recheckJob = viewModelScope.launch {
+            delay(RECHECK_DELAY_MS)
+            recheckJob = null
+            _state.update { it.copy(recheckScheduled = false) }
+            approve()
+        }
+    }
+
+    private fun cancelRecheck() {
+        recheckJob?.cancel()
+        recheckJob = null
+        if (_state.value.recheckScheduled) _state.update { it.copy(recheckScheduled = false) }
+    }
+
+    /** 결과 불명 판의 [결과 다시 확인] — 마감 전에는 같은 카드 · 키로 승인을 다시 보내고, 마감 뒤에는 결과만 확인한다 */
+    fun recheckOutcome() {
+        if (_state.value.requestExpired) confirmOutcome() else approve()
     }
 
     /**
@@ -462,6 +545,7 @@ class PayCodeViewModel @Inject constructor(
         val attempt = openAttempt ?: return
         val request = s.request ?: return
         if (s.checkingOutcome || s.waiting) return
+        cancelRecheck()
         _state.update { it.copy(checkingOutcome = true) }
         viewModelScope.launch {
             val r = payments.approve(request, attempt.card, attempt.installmentMonths, attempt.key)
@@ -480,6 +564,7 @@ class PayCodeViewModel @Inject constructor(
                     else -> it.copy(checkingOutcome = false)
                 }
             }
+            scheduleRecheck()   // 마감 전에 확인했는데 또 모르면(마감 뒤에는 묻지 않음)
         }
     }
 
@@ -556,6 +641,11 @@ fun PayCodeRoute(
     val reduce = YamuTheme.reduceMotion
     val busy = stepUpUi != StepUpUi.Idle || s.issuing || s.checkingCards
     val confirming = s.request != null && !s.requestDone
+    val livePanel = s.waitPanel()
+    // 판이 걷히는 동안(거절 · 만료)과 승인 뒤 화면을 떠나는 동안은 마지막 모습 그대로 — 결과 불명에서 승인돼도 점선이 실선으로 돌아가 보이지 않게
+    var heldPanel by remember { mutableStateOf<WaitPanel?>(null) }
+    val panel = if (livePanel == null || s.approvedLeaving) heldPanel ?: livePanel else livePanel
+    SideEffect { if (livePanel != null && !s.approvedLeaving) heldPanel = livePanel }
     Box(Modifier.fillMaxSize()) {
         FlowScreen(
             title = when {
@@ -565,7 +655,7 @@ fun PayCodeRoute(
             },
             onBack = if (confirming) null else close,      // 확인 단계는 ✕ 없이 — 뒤로 누르면 거절을 묻는다
             // 대기 판이 떠 있는 동안 아래 화면은 터치뿐 아니라 TalkBack에서도 숨긴다('거절'에 닿지 않게)
-            modifier = if (s.waiting) Modifier.clearAndSetSemantics {} else Modifier,
+            modifier = if (livePanel != null) Modifier.clearAndSetSemantics {} else Modifier,
             closeIcon = true,
             actions = { MockPayTag() },
             bottomBar = {
@@ -606,25 +696,31 @@ fun PayCodeRoute(
                 Spacer(Modifier.height(YamuSpacing.x6))
             }
         }
-        // 결제 승인 대기 판(M-WAIT-ENTER · APPROVED). 누르자마자 덮고, 승인되면 판째로 P-07에 화면 교체 페이드
+        // 결제 승인 대기 판(M-WAIT-ENTER · APPROVED). 누르자마자 덮고, 승인되면 판째로 P-07에 화면 교체 페이드.
+        // 결과를 모르면 판에 남아 결과 불명으로 바뀌고(M-WAIT-UNKNOWN), 거절 · 만료면 0.2초에 걷힌다(M-WAIT-DECLINED · EXPIRED)
         AnimatedVisibility(
-            visible = s.waiting,
+            visible = livePanel != null,
             enter = screenSwapEnter(reduce),
             exit = screenSwapExit(reduce),
         ) {
+            val shown = panel ?: return@AnimatedVisibility
             // 다시 그려질 때(회전 등)는 들어오는 모션 없이 끝 상태로
             val entering = remember { transition.currentState == EnterExitState.PreEnter }
             val leaving = transition.targetState == EnterExitState.PostExit
             WaitingSurface(
-                phase = WaitPhase.Processing,
-                title = "결제하고 있어요",
-                pill = s.request?.let { request ->
-                    request.cards.firstOrNull { it.userCardId == s.approvingCardId }?.let { "${it.brand.name} · ${request.amount.toWon()}원" }
-                },
+                phase = shown.phase,
+                title = shown.title,
+                pill = shown.pill,
                 entering = entering,
                 // 승인 뒤 화면을 떠나기 시작하면 아이콘은 되돌리되 터치는 계속 막는다(같은 결제를 또 누르지 않게)
                 lightStatusBar = !leaving && !s.approvedLeaving,
                 blockTouches = !leaving,
+                // 걷히는 동안은 판에 누를 것을 두지 않는다(아래 화면이 바로 눌리게)
+                bottom = if (shown.actions && !leaving) {
+                    { WaitPanelActions("결과 다시 확인", onPrimary = viewModel::recheckOutcome, secondary = "닫기", onSecondary = close) }
+                } else {
+                    null
+                },
             )
         }
     }
@@ -739,7 +835,22 @@ private fun RequestBody(request: PaymentRequest, s: PayCodeState, onSelectCard: 
                         color = c.warning,
                         textAlign = TextAlign.Center,
                     )
-                    else -> Text("확인 시간이 지났어요 · 결제되지 않았어요", style = YamuTheme.typography.titleS, color = c.error)
+                    // 마감되면 바로 회색(M-WAIT-EXPIRED) — 남은 시간 링은 빈 회색 원으로 남는다
+                    else -> Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        WaitRing(
+                            progress = { 0f },
+                            color = c.text3,
+                            modifier = Modifier.size(WaitRingDefaults.miniSize),
+                            trackColor = c.text3,
+                            stroke = WaitRingDefaults.miniStroke,
+                        )
+                        Text(
+                            "확인 시간이 지났어요 · 결제되지 않았어요",
+                            style = YamuTheme.typography.titleS,
+                            color = c.text2,
+                            modifier = Modifier.weight(1f, fill = false),
+                        )
+                    }
                 }
             } else if (deadlineMs != null) {
                 // 링과 숫자가 같은 틱을 읽어 '00:10'이 되는 순간 둘 다 주황으로(M-WAIT-COUNTDOWN)
@@ -782,6 +893,7 @@ private fun RequestBody(request: PaymentRequest, s: PayCodeState, onSelectCard: 
             PayCardRow(
                 card, selected = card.userCardId == s.selectedCardId, enabled = !s.requestDone && !s.waiting && !s.outcomeUnknown,
                 declined = card.userCardId in s.declinedCardIds, onClick = { onSelectCard(card.userCardId) },
+                shakeKey = s.shakeSeq.takeIf { card.userCardId == s.shakeCardId },
             )
         }
         if (s.selectedCard?.benefitUnknown == true) {
@@ -807,15 +919,37 @@ private fun RequestBody(request: PaymentRequest, s: PayCodeState, onSelectCard: 
 
 /**
  * 카드 한 줄 — 카드사 · 이름 · 혜택 · 순혜택(서버 값).
- * 고를 수 없는 카드(결제 가능 여부 모름 · 이 결제에서 [declined])는 흐리게, 체크 없이
+ * 고를 수 없는 카드(결제 가능 여부 모름 · 이 결제에서 [declined])는 흐리게, 체크 없이.
+ * [shakeKey]가 새 값으로 바뀌면 판이 걷힌 뒤 좌우로 한 번 흔든다(M-WAIT-DECLINED). 처음 그릴 때 · 회전 뒤에는 흔들지 않고, 모션 줄이기면 흐려지기만 한다
  */
 @Composable
-private fun PayCardRow(card: PayCard, selected: Boolean, enabled: Boolean, declined: Boolean, onClick: () -> Unit) {
+private fun PayCardRow(card: PayCard, selected: Boolean, enabled: Boolean, declined: Boolean, onClick: () -> Unit, shakeKey: Int? = null) {
     val c = YamuTheme.colors
+    val reduce = YamuTheme.reduceMotion
     val usable = card.selectable && !declined
+    val shake = remember { Animatable(0f) }
+    var shownShake by rememberSaveable { mutableStateOf(shakeKey) }
+    LaunchedEffect(shakeKey) {
+        if (shakeKey == null || shakeKey == shownShake) return@LaunchedEffect
+        shownShake = shakeKey
+        if (reduce) return@LaunchedEffect
+        shake.snapTo(0f)
+        shake.animateTo(
+            0f,
+            keyframes {
+                durationMillis = YamuMotion.SHAKE_MS
+                delayMillis = YamuMotion.SCREEN_SWAP_MS   // 판 걷힘(200ms)이 끝난 뒤
+                YamuMotion.SHAKE_DP at 50
+                -YamuMotion.SHAKE_DP at 110
+                YamuMotion.SHAKE_SETTLE_DP at 170
+                -YamuMotion.SHAKE_SETTLE_DP at 220
+            },
+        )
+    }
     Row(
         Modifier
             .fillMaxWidth()
+            .offset { IntOffset(shake.value.dp.roundToPx(), 0) }
             .heightIn(min = 64.dp)
             .selectable(selected = selected, enabled = enabled && usable, role = Role.RadioButton, onClick = onClick)
             .alpha(if (usable) 1f else 0.5f)

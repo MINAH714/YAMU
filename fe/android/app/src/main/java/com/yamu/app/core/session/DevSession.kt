@@ -61,6 +61,9 @@ enum class PayScenario(val label: String) {
     CARDS_UNKNOWN("가맹점이 찍었는데 카드 정보 확인 못 함"),
     APPROVE_SLOW("카페 15,000원 · 승인이 4초 걸림(대기 화면 촬영)"),
     REQUEST_SHORT("카페 15,000원 · 확인 마감 15초(남은 시간 촬영)"),
+    OUTCOME_UNKNOWN("카페 15,000원 · 응답이 끊겨 결과 불명 → 다시 물으면 승인"),
+    OUTCOME_LOST("카페 15,000원 · 결과 불명이 이어지다 마감(20초) 뒤 결제 안 됨"),
+    EXPIRE_WHILE_APPROVING("카페 15,000원 · 승인 중에 확인 마감(12초)이 지나 만료"),
 }
 
 /**

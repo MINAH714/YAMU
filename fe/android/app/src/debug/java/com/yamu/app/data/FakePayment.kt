@@ -65,6 +65,8 @@ class FakePaymentRepository @Inject constructor(
         var request: PaymentRequest? = null
         var closed = false
         var declines = 0
+        /** 마감 전 승인 시도 수(같은 키로 다시 물은 것 포함) — 결과 불명 시나리오가 몇 번째에 답할지 정한다 */
+        var attempts = 0
     }
 
     private val codes = mutableMapOf<String, Issued>()
@@ -145,7 +147,13 @@ class FakePaymentRepository @Inject constructor(
             return ApiResult.Success(PayCodeStatus(CodeState.EXPIRED, null))
         }
         if (issued.scenario != PayScenario.NO_SCAN && now - issued.issuedAt >= 3_000) {
-            val deadline = OffsetDateTime.now(KST).plusSeconds(if (issued.scenario == PayScenario.REQUEST_SHORT) 15 else 60).toString()
+            val life = when (issued.scenario) {
+                PayScenario.REQUEST_SHORT -> 15L
+                PayScenario.OUTCOME_LOST -> 20L
+                PayScenario.EXPIRE_WHILE_APPROVING -> 12L
+                else -> 60L
+            }
+            val deadline = OffsetDateTime.now(KST).plusSeconds(life).toString()
             issued.request = requestFor(issued.scenario, nextPaymentId++, deadline)
             return ApiResult.Success(PayCodeStatus(CodeState.SCANNED, issued.request))
         }
@@ -153,13 +161,32 @@ class FakePaymentRepository @Inject constructor(
     }
 
     override suspend fun approve(request: PaymentRequest, card: PayCard, installmentMonths: Int?, idempotencyKey: String): ApiResult<ApproveOutcome> {
-        val slow = codes.values.firstOrNull { it.request?.paymentId == request.paymentId }?.scenario == PayScenario.APPROVE_SLOW
-        delay(if (slow) 4_000 else 900)
+        val scenario = codes.values.firstOrNull { it.request?.paymentId == request.paymentId }?.scenario
+        val deadline = request.confirmDeadlineIso?.let { OffsetDateTime.parse(it).toInstant().toEpochMilli() }
+        delay(
+            when (scenario) {
+                PayScenario.APPROVE_SLOW -> 4_000L
+                // 마감 1초 뒤에야 답한다 — 누른 때와 상관없이 승인 중에 마감이 지난다
+                PayScenario.EXPIRE_WHILE_APPROVING -> deadline?.let { (it - System.currentTimeMillis() + 1_000).coerceAtLeast(900L) } ?: 900L
+                else -> 900L
+            },
+        )
         receipts[request.paymentId]?.let { return ApiResult.Success(ApproveOutcome.Approved(it)) }   // 같은 결제 두 번 — 처음 결과
         val issued = codes.values.firstOrNull { it.request?.paymentId == request.paymentId }
             ?: return ApiResult.Failure(ApiError.NotFound("RESOURCE_NOT_FOUND"))
-        val deadline = request.confirmDeadlineIso?.let { OffsetDateTime.parse(it).toInstant().toEpochMilli() }
         if (deadline != null && deadline < System.currentTimeMillis()) return ApiResult.Failure(ApiError.Unknown("PAYMENT_EXPIRED", 410))
+        issued.attempts++
+        when (issued.scenario) {
+            // 첫 응답은 끊기고 다시 물으면 아직 처리 중, 세 번째에 승인(같은 키라 한 번만 결제된다)
+            PayScenario.OUTCOME_UNKNOWN -> when (issued.attempts) {
+                1 -> return ApiResult.Failure(ApiError.Network)
+                2 -> return ApiResult.Failure(ApiError.Conflict("IDEMPOTENCY_IN_PROGRESS"))
+                else -> Unit
+            }
+            // 마감 전에는 계속 끊긴다 — 마감 뒤 확인은 위에서 만료(처음 시도가 서버에 닿지 않은 것과 같다)
+            PayScenario.OUTCOME_LOST -> return ApiResult.Failure(ApiError.Network)
+            else -> Unit
+        }
         if (issued.scenario == PayScenario.CHECK_DECLINED && card.isCheck) {
             issued.declines++
             return ApiResult.Success(
