@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 시작 스플래시 아이콘 — 시스템이 아이콘 칸(240dp)을 원으로 잘라 채우므로 앱 아이콘을 안쪽으로 줄여
+     예전(시스템 기본 스플래시가 앱 아이콘을 작게 그리던 때)과 같은 크기로 보이게 한다(S15P31E103-512) -->
+<inset xmlns:android="http://schemas.android.com/apk/res/android"
+    android:drawable="@drawable/yamu_happy"
+    android:inset="33%" />

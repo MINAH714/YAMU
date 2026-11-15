@@ -1,5 +1,6 @@
 package com.yamu.app.feature.auth
 
+import androidx.activity.compose.ReportDrawn
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -225,6 +226,7 @@ class WelcomeViewModel @Inject constructor(
 @Composable
 fun WelcomeRoute(onStart: () -> Unit, onLogin: (WelcomeLogin) -> Unit, onDebugMenu: (() -> Unit)?, viewModel: WelcomeViewModel = hiltViewModel()) {
     val loginTo by viewModel.loginTo.collectAsStateWithLifecycle()
+    ReportDrawn()   // 첫 화면은 그리면 바로 누를 수 있다 — 앱을 열 때 다 그린 시각(TTFD, S15P31E103-512)
     LaunchedEffect(Unit) { viewModel.reset() }
     LaunchedEffect(loginTo) {
         val to = loginTo ?: return@LaunchedEffect

@@ -1,6 +1,9 @@
 package com.yamu.app.navigation
 
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.Modifier
 import androidx.navigation.NavDestination.Companion.hasRoute
 import androidx.navigation.NavHostController
@@ -83,7 +86,7 @@ import com.yamu.app.feature.billing.BillingRoute
  * 화면 사이 이동만 여기서 정하고, 화면 안 내용은 feature/ 아래 각 Route가 맡는다.
  */
 @Composable
-fun YamuNavHost(navController: NavHostController, modifier: Modifier = Modifier) {
+fun YamuNavHost(navController: NavHostController, modifier: Modifier = Modifier, onStartDecided: () -> Unit = {}) {
     val back: () -> Unit = { navController.popBackStack() }
     val debugMenu: (() -> Unit)? = if (BuildConfig.DEBUG) ({ navController.navigate(DebugMenu) }) else null
     val snackbar = LocalSnackbar.current
@@ -97,8 +100,9 @@ fun YamuNavHost(navController: NavHostController, modifier: Modifier = Modifier)
         navController = navController,
         startDestination = Splash,
         modifier = modifier,
-        enterTransition = { screenSwapEnter(reduce) },
-        exitTransition = { screenSwapExit(reduce) },
+        // 스플래시 → 첫 화면만 페이드 없이 — 시스템 스플래시를 걷는 프레임에 첫 화면이 다 보이게(S15P31E103-512)
+        enterTransition = { if (initialState.destination.hasRoute<Splash>()) EnterTransition.None else screenSwapEnter(reduce) },
+        exitTransition = { if (initialState.destination.hasRoute<Splash>()) ExitTransition.None else screenSwapExit(reduce) },
         popEnterTransition = { screenSwapEnter(reduce) },
         popExitTransition = { screenSwapExit(reduce) },
     ) {
@@ -116,8 +120,11 @@ fun YamuNavHost(navController: NavHostController, modifier: Modifier = Modifier)
         }
 
         // ── 시작 · 가입 · 로그인 (4단계: 실제 화면 — 08 문서) ──
+        // 앱을 열 때 첫 화면은 A-01 · A-03 둘 중 하나 — 그 화면이 구성된 프레임에 시스템 스플래시를 걷는다(S15P31E103-512).
+        // 갈 곳을 정한 순간에 걷으면 화면 교체가 한두 프레임 늦게 붙어 빈 스플래시 상자가 그 사이에 그려진다. 두 번째부터는 아무 일도 없다
         navigation<AuthGraph>(startDestination = Welcome) {
             composable<Welcome> {
+                SideEffect(onStartDecided)
                 WelcomeRoute(
                     onStart = { navController.navigate(Terms) },
                     // 로그아웃 뒤처럼 이 폰에 기기가 있으면 간편 비밀번호, 없으면 본인인증 → 기기 재등록(2차 QA 14)
@@ -126,6 +133,7 @@ fun YamuNavHost(navController: NavHostController, modifier: Modifier = Modifier)
                 )
             }
             composable<Login> {
+                SideEffect(onStartDecided)
                 PinLoginRoute(
                     onLoggedIn = { done -> navController.finishAuth(done) },
                     onNoDevice = { navController.toWelcome() },
