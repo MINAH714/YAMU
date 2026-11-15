@@ -425,7 +425,8 @@ fun ForecastRoute(
         onBack = onBack,
         cards = true,
         actions = {
-            IconButton(onClick = onAlertSettings) { Icon(YamuIcons.Notifications, contentDescription = "잔액 알림 설정", tint = c.text1) }
+            // 알림 설정은 톱니 — 종은 앱 어디서나 알림 목록(홈 · 마이), 톱니는 알림 설정(알림 화면)으로 뜻을 맞춘다(docs/fe/ui-ux-rationale.md V-02)
+            IconButton(onClick = onAlertSettings) { Icon(YamuIcons.Settings, contentDescription = "잔액 알림 설정", tint = c.text1) }
         },
         bottomBar = {
             if (!s.noAccount) BottomCta { PrimaryButton("이거 사면 잔고는? 비교해 보기", onClick = onBuyCheck) }

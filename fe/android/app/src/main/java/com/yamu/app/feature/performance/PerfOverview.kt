@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
@@ -116,6 +117,7 @@ fun PerfOverviewRoute(
     onAnalysis: (userCardId: Long) -> Unit,
     onCardDetail: (userCardId: Long) -> Unit,
     onAddCard: () -> Unit,
+    onBenefitLimits: () -> Unit = {},
     viewModel: PerfOverviewViewModel = hiltViewModel(),
 ) {
     val s by viewModel.state.collectAsStateWithLifecycle()
@@ -159,7 +161,11 @@ fun PerfOverviewRoute(
                             }
                         }
                     }
-                    // 혜택 한도(R-06)는 알림('카페 할인 한도가 … 남았어요')에서 연다 — 프로토타입 10/26 간략화
+                    // 혜택 한도(R-06)는 10/26 간략화 때 알림 · 홈에서만 열었는데, 실적을 보러 온 탭에서 찾지 못해 여기에도 둔다(docs/fe/ui-ux-rationale.md V-01).
+                    // 소비분석 아래 혜택 · 결제 내역 줄과 같은 링크 카드(.card.tight 16)
+                    YamuCard(contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 4.dp)) {
+                        ListRow(title = "남은 혜택 한도", chevron = true, onClick = onBenefitLimits)
+                    }
                 }
             }
         }
