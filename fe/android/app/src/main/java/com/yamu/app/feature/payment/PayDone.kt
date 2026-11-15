@@ -7,6 +7,7 @@ import com.yamu.app.core.designsystem.component.EstimateTag
 import com.yamu.app.core.designsystem.component.CompactButton
 import com.yamu.app.core.designsystem.component.KeyValueRow
 import com.yamu.app.core.designsystem.icon.YamuIcons
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.consumeWindowInsets
@@ -34,11 +35,18 @@ import com.yamu.app.core.designsystem.component.CharacterImage
 import com.yamu.app.core.designsystem.component.CharacterSize
 import com.yamu.app.core.designsystem.component.ErrorState
 import com.yamu.app.core.designsystem.component.FlowScreen
+import com.yamu.app.core.designsystem.component.FlyingChipAnchors
+import com.yamu.app.core.designsystem.component.FlyingChipLayer
+import com.yamu.app.core.designsystem.component.RollingNumber
+import com.yamu.app.core.designsystem.component.chipFrom
+import com.yamu.app.core.designsystem.component.chipTo
+import com.yamu.app.core.designsystem.component.rememberFlyingChipAnchors
 import com.yamu.app.core.designsystem.component.PrimaryButton
 import com.yamu.app.core.designsystem.component.SkeletonBlock
 import com.yamu.app.core.designsystem.component.StatusTag
 import com.yamu.app.core.designsystem.component.TextButtonGrey
 import com.yamu.app.core.designsystem.component.YamuPose
+import com.yamu.app.core.designsystem.theme.YamuMotion
 import com.yamu.app.core.designsystem.theme.YamuSpacing
 import com.yamu.app.core.designsystem.theme.YamuTheme
 import com.yamu.app.core.format.KST
@@ -63,7 +71,22 @@ import java.time.OffsetDateTime
 import java.time.format.DateTimeFormatter
 import javax.inject.Inject
 
-data class ReceiptState(val loading: Boolean = true, val receipt: PaymentReceipt? = null, val error: String? = null)
+/** [justPaid] = 방금 승인한 영수증(메모리)을 그림 — 이때만 실적 칩 · 굴림을 보인다. 앱이 다시 켜져 상세(#3)로 받았으면 조용히 그대로 */
+data class ReceiptState(val loading: Boolean = true, val receipt: PaymentReceipt? = null, val error: String? = null, val justPaid: Boolean = false)
+
+/**
+ * 결제 완료 실적 줄 연출(M-DONE-pay) — 칩 글자와 굴러갈 앞 · 뒤 합계. 앞 합계는 서버의 결제 뒤 누적에서 이번 인정액을 뺀 값이다.
+ * 누적이 없거나(BE -390 전) 실적에서 빠지는 결제 · 취소 · 0원 · 앞 합계가 0 아래면 null이라 지금처럼 글자만 보인다
+ */
+internal data class PerfRoll(val chip: String, val before: Long, val after: Long)
+
+internal fun PaymentReceipt.perfRoll(): PerfRoll? {
+    if (canceled || !perfCounted) return null
+    val add = perfRecognized?.takeIf { it > 0 } ?: return null
+    val total = perfTotalAfter ?: return null
+    val before = (total - add).takeIf { it >= 0 } ?: return null
+    return PerfRoll("+${add.toWon()}원", before, total)
+}
 
 /** '10월 26일 09:38' */
 internal fun formatPaidAt(iso: String?): String? = iso?.let {
@@ -86,7 +109,7 @@ class PayDoneViewModel @Inject constructor(
     private val edits: PaymentEdits,
 ) : ViewModel() {
     private val paymentId: Long = checkNotNull(savedStateHandle.get<Long>("paymentId"))   // 경로 PayDone.paymentId(toRoute는 단위 테스트에서 Bundle이 필요)
-    private val _state = MutableStateFlow(payments.recentReceipt(paymentId)?.let { ReceiptState(loading = false, receipt = it) } ?: ReceiptState())
+    private val _state = MutableStateFlow(payments.recentReceipt(paymentId)?.let { ReceiptState(loading = false, receipt = it, justPaid = true) } ?: ReceiptState())
     val state: StateFlow<ReceiptState> = _state.asStateFlow()
     private var seenVersion = edits.version.value
 
@@ -134,6 +157,9 @@ fun PayDoneRoute(
     }
     val c = YamuTheme.colors
     val r = s.receipt
+    // 방금 결제했을 때만 실적 칩이 금액에서 실적 합계로 날아가고 합계의 바뀐 자리가 굴러간다(M-DONE-pay)
+    val roll = r?.takeIf { s.justPaid }?.perfRoll()
+    val anchors = rememberFlyingChipAnchors()
     FlowScreen(
         title = "",
         onBack = onHome,
@@ -141,58 +167,68 @@ fun PayDoneRoute(
         actions = { MockPayTag() },
         bottomBar = { BottomCta { PrimaryButton("홈으로", onClick = onHome) } },
     ) { inner ->
-        Column(Modifier.padding(inner).consumeWindowInsets(inner).fillMaxSize().verticalScroll(rememberScrollState())) {
-            // 결과 — 가운데 묶음(캐릭터 pay · 머리 · 금액 · 가맹점)
-            Column(
-                Modifier.fillMaxWidth().padding(start = YamuSpacing.screen, end = YamuSpacing.screen, top = 16.dp, bottom = 24.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                CharacterImage(YamuPose.Pay, size = CharacterSize.M, animate = true)
-                Spacer(Modifier.height(6.dp))
-                Text(if (r?.canceled == true) "결제를 취소했어요" else "결제를 마쳤어요", style = YamuTheme.typography.headlineS, color = c.text1)
-                if (r != null) {
-                    // 즉시할인은 빠진 금액(실제 결제 금액)을 크게, 원래 금액은 아래 한 줄로. 청구할인 · 캐시백 · 적립은 결제 금액 그대로(11/10 QA)
-                    AmountText(r.paidAmount)
-                    r.instantDiscountText()?.let { Text(it, style = YamuTheme.typography.bodyM, color = c.text2) }
-                    Text(listOfNotNull(r.merchantName, formatPaidAt(r.paidAtIso)).joinToString(" · "), style = YamuTheme.typography.bodyM, color = c.text3)
-                }
-            }
-            when {
-                r == null && s.loading -> Column(Modifier.padding(horizontal = YamuSpacing.screen)) {
-                    repeat(3) {
-                        SkeletonBlock(height = 44.dp)
-                        Spacer(Modifier.height(YamuSpacing.x3))
+        Box(Modifier.padding(inner).consumeWindowInsets(inner).fillMaxSize()) {
+            Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+                // 결과 — 가운데 묶음(캐릭터 pay · 머리 · 금액 · 가맹점)
+                Column(
+                    Modifier.fillMaxWidth().padding(start = YamuSpacing.screen, end = YamuSpacing.screen, top = 16.dp, bottom = 24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    CharacterImage(YamuPose.Pay, size = CharacterSize.M, animate = true)
+                    Spacer(Modifier.height(6.dp))
+                    Text(if (r?.canceled == true) "결제를 취소했어요" else "결제를 마쳤어요", style = YamuTheme.typography.headlineS, color = c.text1)
+                    if (r != null) {
+                        // 즉시할인은 빠진 금액(실제 결제 금액)을 크게, 원래 금액은 아래 한 줄로. 청구할인 · 캐시백 · 적립은 결제 금액 그대로(11/10 QA)
+                        AmountText(r.paidAmount)
+                        r.instantDiscountText()?.let { Text(it, style = YamuTheme.typography.bodyM, color = c.text2) }
+                        // 칩은 금액 바로 아래 가맹점 줄에서 나온다 — 금액은 처음부터 가리지 않고 그대로 둔다
+                        Text(
+                            listOfNotNull(r.merchantName, formatPaidAt(r.paidAtIso)).joinToString(" · "),
+                            style = YamuTheme.typography.bodyM,
+                            color = c.text3,
+                            modifier = if (roll != null) Modifier.chipFrom(anchors) else Modifier,
+                        )
                     }
                 }
-                r == null -> ErrorState(s.error ?: "결제 내역을 불러오지 못했어요", onRetry = viewModel::load, modifier = Modifier.padding(horizontal = YamuSpacing.screen))
-                else -> {
-                    HorizontalDivider(color = c.outlineVariant, modifier = Modifier.padding(horizontal = YamuSpacing.screen))
-                    Column(Modifier.padding(start = YamuSpacing.screen, end = YamuSpacing.screen, top = 8.dp, bottom = 12.dp)) {   // 선 아래 8(프로토타입 P-07 .rows)
-                        if (r.canceled) {
-                            // 혜택 · 청구 · 실적 줄은 더 이상 맞지 않는다 — 돌려받는 돈은 거래 상세에
-                            Text("돌려받는 금액은 거래 상세에서 볼 수 있어요", style = YamuTheme.typography.bodyM, color = c.text2, modifier = Modifier.padding(vertical = 12.dp))
-                        } else {
-                            ReceiptLines(r, onPerformance)
+                when {
+                    r == null && s.loading -> Column(Modifier.padding(horizontal = YamuSpacing.screen)) {
+                        repeat(3) {
+                            SkeletonBlock(height = 44.dp)
+                            Spacer(Modifier.height(YamuSpacing.x3))
                         }
                     }
-                    // 거래 상세는 본문의 작은 회색 버튼(아래 고정 버튼은 '홈으로' 하나)
-                    CompactButton(
-                        "거래 상세",
-                        onClick = { onDetail(r.paymentId) },
-                        horizontalPadding = 24.dp,
-                        modifier = Modifier.align(Alignment.CenterHorizontally).padding(top = 4.dp),
-                    )
+                    r == null -> ErrorState(s.error ?: "결제 내역을 불러오지 못했어요", onRetry = viewModel::load, modifier = Modifier.padding(horizontal = YamuSpacing.screen))
+                    else -> {
+                        HorizontalDivider(color = c.outlineVariant, modifier = Modifier.padding(horizontal = YamuSpacing.screen))
+                        Column(Modifier.padding(start = YamuSpacing.screen, end = YamuSpacing.screen, top = 8.dp, bottom = 12.dp)) {   // 선 아래 8(프로토타입 P-07 .rows)
+                            if (r.canceled) {
+                                // 혜택 · 청구 · 실적 줄은 더 이상 맞지 않는다 — 돌려받는 돈은 거래 상세에
+                                Text("돌려받는 금액은 거래 상세에서 볼 수 있어요", style = YamuTheme.typography.bodyM, color = c.text2, modifier = Modifier.padding(vertical = 12.dp))
+                            } else {
+                                ReceiptLines(r, onPerformance, roll, anchors)
+                            }
+                        }
+                        // 거래 상세는 본문의 작은 회색 버튼(아래 고정 버튼은 '홈으로' 하나)
+                        CompactButton(
+                            "거래 상세",
+                            onClick = { onDetail(r.paymentId) },
+                            horizontalPadding = 24.dp,
+                            modifier = Modifier.align(Alignment.CenterHorizontally).padding(top = 4.dp),
+                        )
+                    }
                 }
+                Spacer(Modifier.height(YamuSpacing.x6))
             }
-            Spacer(Modifier.height(YamuSpacing.x6))
+            // 칩은 스크롤 영역 위층에 그려 줄 사이를 건너가도 잘리지 않는다
+            if (roll != null) FlyingChipLayer(roll.chip, anchors, Modifier.matchParentSize())
         }
     }
 }
 
 /** 혜택 · 청구(또는 출금) · 실적 — 서버 값 그대로(앱이 빼고 더하지 않음) */
 @Composable
-private fun ReceiptLines(r: PaymentReceipt, onPerformance: ((Long) -> Unit)?) {
+private fun ReceiptLines(r: PaymentReceipt, onPerformance: ((Long) -> Unit)?, roll: PerfRoll? = null, anchors: FlyingChipAnchors? = null) {
     val c = YamuTheme.colors
     val card = r.cardBrand?.name ?: r.cardName ?: "카드"
     val row = 48.dp   // 프로토타입 결제 완료 .kv.lg
@@ -223,6 +259,21 @@ private fun ReceiptLines(r: PaymentReceipt, onPerformance: ((Long) -> Unit)?) {
                 } else null,
                 trailing = if (openPerf != null) ({ Icon(YamuIcons.ChevronRight, contentDescription = null, tint = c.text3) }) else null,
                 onClick = openPerf,
+                // 칩이 닿은 뒤 1.3초부터 앞 합계에서 바뀐 자리만 굴러간다. 앞 합계를 모르면 지금처럼 글자로
+                valueContent = if (roll != null && anchors != null) {
+                    { style, color ->
+                        RollingNumber(
+                            roll.after,
+                            style = style,
+                            color = color,
+                            initial = roll.before,
+                            delayMillis = YamuMotion.ROLL_AT_MS,
+                            modifier = Modifier.chipTo(anchors),
+                        )
+                    }
+                } else {
+                    null
+                },
             )
         }
     }

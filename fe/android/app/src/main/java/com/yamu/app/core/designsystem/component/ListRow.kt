@@ -2,6 +2,7 @@ package com.yamu.app.core.designsystem.component
 
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.foundation.layout.width
 import androidx.compose.ui.unit.Dp
@@ -95,6 +96,7 @@ fun ListRow(
  * 키–값 줄 — '결제일 · 매월 14일', '실적 기준 · 400,000원'. 키는 회색 보통, 값은 검정 굵게(프로토타입 .kv).
  * [large] 16sp · 44dp(분석 근거 · 결제 완료) / 14sp · 40dp(거래 상세 · 계획 저장), [minHeight]로 바꿀 수 있다.
  * [keySub] = 키 아래 작은 회색 줄(결제 완료의 실적 줄). [keyWidth]를 주면 14sp 키 열 + 16dp 뒤에 16sp 값이 왼쪽에 붙고 [trailing]은 줄 끝(회원 정보).
+ * [valueContent]를 주면 값 글자 대신 그린다(결제 완료의 굴러가는 실적 합계). 줄의 값 글자 모양 · 색을 넘겨 받는다
  */
 @Composable
 fun KeyValueRow(
@@ -110,6 +112,7 @@ fun KeyValueRow(
     valueColor: Color = Color.Unspecified,
     trailing: (@Composable () -> Unit)? = null,
     onClick: (() -> Unit)? = null,
+    valueContent: (@Composable (style: TextStyle, color: Color) -> Unit)? = null,
 ) {
     val c = YamuTheme.colors
     val t = YamuTheme.typography
@@ -142,14 +145,19 @@ fun KeyValueRow(
             horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             valueLead?.invoke()
-            Text(
-                value,
-                style = valueStyle,
-                color = if (valueColor == Color.Unspecified) c.text1 else valueColor,
-                textAlign = if (fixedKey) TextAlign.Start else TextAlign.End,
-                // 값 열이 남은 폭을 다 써야 trailing(자물쇠 · 로그아웃)이 줄 끝에 선다
-                modifier = if (fixedKey) Modifier.weight(1f) else Modifier,
-            )
+            val ink = if (valueColor == Color.Unspecified) c.text1 else valueColor
+            if (valueContent != null) {
+                valueContent(valueStyle, ink)
+            } else {
+                Text(
+                    value,
+                    style = valueStyle,
+                    color = ink,
+                    textAlign = if (fixedKey) TextAlign.Start else TextAlign.End,
+                    // 값 열이 남은 폭을 다 써야 trailing(자물쇠 · 로그아웃)이 줄 끝에 선다
+                    modifier = if (fixedKey) Modifier.weight(1f) else Modifier,
+                )
+            }
             trailing?.invoke()
         }
     }
