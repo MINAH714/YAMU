@@ -247,9 +247,12 @@ class HomeIntegrationTest extends MySqlTestSupport {
         mockMvc.perform(get("/api/home").with(AuthUsers.asUser(owner)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))
-                .andExpect(jsonPath("$.data.partialErrors.length()").value(1))
+                .andExpect(jsonPath("$.data.partialErrors.length()").value(2))
                 .andExpect(jsonPath("$.data.partialErrors[0].area").value("balanceForecast"))
                 .andExpect(jsonPath("$.data.partialErrors[0].code").value("UPSTREAM_TIMEOUT"))
+                .andExpect(jsonPath("$.data.partialErrors[1].area").value("forecastPreview"))
+                .andExpect(jsonPath("$.data.forecastPreview").doesNotExist())
+                .andExpect(jsonPath("$.data.benefitSummary").exists())
                 .andExpect(jsonPath("$.data.balanceForecast").doesNotExist())
                 .andExpect(jsonPath("$.data.dataSyncedAt").doesNotExist())
                 .andExpect(jsonPath("$.data.cards.items[0].userCardId").value(card))
@@ -266,6 +269,7 @@ class HomeIntegrationTest extends MySqlTestSupport {
                 .andExpect(jsonPath("$.data.partialErrors").isEmpty())
                 .andExpect(jsonPath("$.data.cards.count").value(0))
                 .andExpect(jsonPath("$.data.balanceForecast").doesNotExist())
+                .andExpect(jsonPath("$.data.forecastPreview").doesNotExist())
                 .andExpect(jsonPath("$.data.onboarding.step").value("LINK"))
                 .andExpect(jsonPath("$.data.todos").isEmpty())
                 .andExpect(jsonPath("$.data.recentPayment").doesNotExist())
@@ -437,6 +441,84 @@ class HomeIntegrationTest extends MySqlTestSupport {
     private static long thisMonth(LocalDateTime requestedAtUtc, long amount) {
         YearMonth month = YearMonth.from(requestedAtUtc.atZone(ZoneOffset.UTC).withZoneSameInstant(KOREA));
         return month.equals(YearMonth.now(KOREA)) ? amount : 0;
+    }
+
+    @Test
+    void 신규_혜택_요약은_이번달_YAMU_리포트와_일치하고_기존_ALL_합계를_유지한다() throws Exception {
+        long owner=fixtures.user();
+        long account=primaryAccount(owner);
+        long card=creditCard(owner,account,"ACTIVE");
+        long merchant=merchant("COFFEE_SHOP","홈 혜택 카페");
+        LocalDateTime at=LocalDate.now(KOREA).atTime(12,0).atZone(KOREA).withZoneSameInstant(ZoneOffset.UTC).toLocalDateTime();
+        long approved=payment(owner,card,merchant,"APPROVED",10000,at,null);
+        homeBenefit(approved,1000,"DISCOUNT","AT_APPROVAL");
+        homeBenefit(approved,500,"CASHBACK","AFTER_BILLING");
+        long seed=payment(owner,card,merchant,"APPROVED",10000,at,null);
+        jdbc.update("UPDATE payment_transaction SET source='SEED' WHERE payment_transaction_id=?",seed);
+        homeBenefit(seed,200,"DISCOUNT","AT_APPROVAL");
+        long canceled=payment(owner,card,merchant,"CANCELED",10000,at,null);
+        homeBenefit(canceled,9000,"DISCOUNT","AT_APPROVAL");
+        JsonNode home=json.readTree(mockMvc.perform(get("/api/home").with(AuthUsers.asUser(owner)))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.partialErrors").isEmpty())
+                .andExpect(jsonPath("$.data.monthSummary.totalBenefit").value(1700))
+                .andExpect(jsonPath("$.data.benefitSummary.totalBenefit").value(1500))
+                .andExpect(jsonPath("$.data.benefitSummary.confirmedBenefit").value(1000))
+                .andExpect(jsonPath("$.data.benefitSummary.unconfirmedBenefit").value(500))
+                .andReturn().getResponse().getContentAsString()).path("data").path("benefitSummary");
+        JsonNode report=json.readTree(mockMvc.perform(get("/api/reports/monthly/benefits")
+                .param("yearMonth",YearMonth.now(KOREA).toString()).param("source","YAMU").with(AuthUsers.asUser(owner)))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString()).path("data");
+        assertThat(home.path("yearMonth")).isEqualTo(report.path("yearMonth"));
+        assertThat(home.path("source")).isEqualTo(report.path("source"));
+        assertThat(home.path("byType")).isEqualTo(report.path("summary").path("byType"));
+    }
+
+    @Test
+    void 신규_30일_최저잔고는_같은_계좌_예보의_내일부터_표시선과_일치한다() throws Exception {
+        long owner=fixtures.user();
+        long account=primaryAccount(owner);
+        // 기존 홈은 7일 설정을 유지하고 새 요약만 30일을 요청해야 한다.
+        jdbc.update("UPDATE app_user SET forecast_settings=? WHERE user_id=?",
+                "{\"horizon\":\"DAYS\",\"defaultDays\":7,\"alertThreshold\":100000}",owner);
+        JsonNode home=json.readTree(mockMvc.perform(get("/api/home").with(AuthUsers.asUser(owner)))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.partialErrors").isEmpty())
+                .andExpect(jsonPath("$.data.balanceForecast.horizonDays").value(7))
+                .andExpect(jsonPath("$.data.forecastPreview.horizonDays").value(30))
+                .andExpect(jsonPath("$.data.forecastPreview.accountId").value(account))
+                .andReturn().getResponse().getContentAsString()).path("data").path("forecastPreview");
+        JsonNode forecast=json.readTree(mockMvc.perform(get("/api/forecasts/balance")
+                .param("accountIds",Long.toString(account)).param("until","DAYS").param("days","30")
+                .param("includeAccountDetails","true").with(AuthUsers.asUser(owner)))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString()).path("data");
+        LocalDate today=LocalDate.now(KOREA);
+        long minimum=Long.MAX_VALUE;
+        String minDate=null;
+        for(JsonNode point:forecast.path("series")) {
+            if(!LocalDate.parse(point.path("date").asText()).isAfter(today)) continue;
+            long display=point.path("conservative").isNumber()?point.path("conservative").asLong():point.path("expected").asLong();
+            if(display<minimum) { minimum=display; minDate=point.path("date").asText(); }
+        }
+        assertThat(home.path("minBalance").asLong()).isEqualTo(minimum);
+        assertThat(home.path("minBalanceDate").asText()).isEqualTo(minDate);
+        assertThat(home.path("from").asText()).isEqualTo(today.plusDays(1).toString());
+        assertThat(home.path("to").asText()).isEqualTo(today.plusDays(30).toString());
+        assertThat(home.path("balanceAsOf").asText()).endsWith("Z");
+        assertThat(home.path("balanceAsOf")).isEqualTo(forecast.path("accountForecasts").get(0).path("syncedAt"));
+    }
+
+    private void homeBenefit(long payment,long amount,String type,String timing) {
+        long product=jdbc.queryForObject("SELECT card_product_id FROM payment_transaction WHERE payment_transaction_id=?",Long.class,payment);
+        LocalDateTime at=LocalDateTime.now(ZoneOffset.UTC);
+        var fields=new LinkedHashMap<String,Object>();
+        fields.put("card_product_id",product); fields.put("benefit_code","HOME-"+UUID.randomUUID());
+        fields.put("policy_version",1); fields.put("benefit_name","홈 혜택"); fields.put("benefit_type",type);
+        fields.put("calculation_type","FIXED"); fields.put("fixed_value",amount); fields.put("value_unit","KRW");
+        fields.put("application_timing",timing); fields.put("created_at",at);
+        long benefit=new SimpleJdbcInsert(jdbc).withTableName("card_benefit").usingGeneratedKeyColumns("card_benefit_id")
+                .usingColumns(fields.keySet().toArray(String[]::new)).executeAndReturnKey(fields).longValue();
+        var row=Map.<String,Object>of("payment_transaction_id",payment,"card_product_id",product,"card_benefit_id",benefit,
+                "benefit_value",amount,"value_unit","KRW","krw_amount",amount,"created_at",at);
+        new SimpleJdbcInsert(jdbc).withTableName("payment_benefit").usingColumns(row.keySet().toArray(String[]::new)).execute(row);
     }
 
     private long primaryAccount(long owner) {
