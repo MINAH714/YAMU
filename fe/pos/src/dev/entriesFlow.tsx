@@ -2,14 +2,13 @@
 // oxlint-disable react/only-export-components
 import type { ReactNode } from 'react'
 import { Character } from '../components/Character'
-import { FatalScreen, UnknownScreen } from '../components/FlowScreens'
+import { FatalScreen } from '../components/FlowScreens'
 import { Receipt } from '../components/Receipt'
+import { RequestBoard } from '../components/RequestBoard'
 import { ScreenLayer } from '../components/ScreenLayer'
 import { StatusScreen } from '../components/StatusScreen'
-import { BoardPill, TermsPill, WaitBoard } from '../components/WaitBoard'
 import { WaitingView } from '../components/WaitingStep'
 import { useReduceMotion } from '../hooks/useReduceMotion'
-import { formatToken } from '../payment/barcode'
 import { formatWon } from '../payment/terms'
 import { orderItems } from '../store/cart'
 import {
@@ -68,15 +67,7 @@ export const flowEntries: GalleryEntry[] = [
     label: '요청 중',
     render: () => (
       <Entering>
-        <WaitBoard
-          title="결제를 요청하고 있어요"
-          pills={
-            <>
-              <TermsPill terms={DEMO_TERMS} />
-              <BoardPill>결제 코드 {formatToken(DEMO_TOKEN)}</BoardPill>
-            </>
-          }
-        />
+        <RequestBoard terms={DEMO_TERMS} barcodeToken={DEMO_TOKEN} unknownMessage={null} onRetry={noop} onNewOrder={noop} />
       </Entering>
     ),
   },
@@ -85,7 +76,13 @@ export const flowEntries: GalleryEntry[] = [
     id: 'unknown',
     label: '결과 미확인(요청)',
     render: () => (
-      <UnknownScreen message="서버 응답이 늦어요. 잠시 후 다시 시도해 주세요." onRetry={noop} onNewOrder={noop} />
+      <RequestBoard
+        terms={DEMO_TERMS}
+        barcodeToken={DEMO_TOKEN}
+        unknownMessage="서버 응답이 늦어요. 결제가 접수됐는지 알 수 없어요."
+        onRetry={noop}
+        onNewOrder={noop}
+      />
     ),
   },
   {

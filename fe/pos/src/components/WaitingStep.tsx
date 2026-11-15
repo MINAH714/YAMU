@@ -174,22 +174,32 @@ export function WaitingView({
     : checking
       ? '결제 결과를 확인하고 있어요'
       : '고객 앱에서 승인을 기다리고 있어요'
+  // 결과 조회가 끊겼으면 결과 불명이다. 승인 처리 중(PROCESSING)·마감 직후는 응답을 받고 있으니 그대로 대기다
+  const unknown = stopped || connectionError !== null
+  // 다시 할 수 있는 거절. 마감 뒤 확인 중에는 거절 알약을 걷는다
+  const retryableDecline = declined && !checking
 
   return (
     <WaitBoard
       title={title}
+      unknown={unknown}
+      declined={retryableDecline}
       pills={
         <>
           <TermsPill terms={terms} />
           {stopped ? (
-            <BoardPill>{connectionError ?? '결과 다시 확인을 눌러 주세요.'}</BoardPill>
+            <BoardPill key="stopped">{connectionError ?? '결과 다시 확인을 눌러 주세요.'}</BoardPill>
+          ) : connectionError !== null ? (
+            <BoardPill key="unknown">확인 중 · 응답을 받지 못했어요</BoardPill>
           ) : checking ? (
-            <BoardPill>결과가 확인될 때까지 잠시 기다려 주세요</BoardPill>
+            <BoardPill key="checking">결과가 확인될 때까지 잠시 기다려 주세요</BoardPill>
           ) : (
-            <CountdownPill remainingMs={remainingMs} totalMs={totalMs} />
+            <CountdownPill key="countdown" remainingMs={remainingMs} totalMs={totalMs} />
           )}
-          {declined && !checking && (
-            <BoardPill tone="error">카드가 거절됐어요. 고객이 앱에서 다른 카드로 다시 결제할 수 있어요</BoardPill>
+          {retryableDecline && (
+            <BoardPill key="declined" tone="error">
+              카드가 거절됐어요. 고객이 앱에서 다른 카드로 다시 결제할 수 있어요
+            </BoardPill>
           )}
         </>
       }

@@ -15,11 +15,12 @@ import { CancelDoneScreen, CancelFailedScreen, CancelingScreen, CancelUnknownScr
 import { CancelScanStep } from './components/CancelScanStep'
 import { CashStep } from './components/CashStep'
 import { Character } from './components/Character'
-import { FatalScreen, UnknownScreen } from './components/FlowScreens'
+import { FatalScreen } from './components/FlowScreens'
 import { OrderStep } from './components/OrderStep'
 import { PaymentHistory } from './components/PaymentHistory'
 import { PaymentMethodStep, type PlanInput } from './components/PaymentMethodStep'
 import { Receipt } from './components/Receipt'
+import { RequestBoard } from './components/RequestBoard'
 import { ScanStep } from './components/ScanStep'
 import { ScreenLayer, type SwapPlan } from './components/ScreenLayer'
 import { StatusScreen } from './components/StatusScreen'
@@ -27,7 +28,6 @@ import { StoreSelect } from './components/StoreSelect'
 import { Tray, type TrayAppear, type TrayExit } from './components/Tray'
 import { useTrayStepLive } from './components/trayLive'
 import { TRAY_META } from './components/trayMeta'
-import { BoardPill, TermsPill, WaitBoard } from './components/WaitBoard'
 import { WaitingStep } from './components/WaitingStep'
 import { config, missingConfig } from './config'
 import { enterFullscreenOnFirstTouch } from './hooks/useFullscreen'
@@ -559,21 +559,18 @@ function App() {
                   />
                 )}
 
-                {/* 요청 중과 승인 대기는 같은 판이다(같은 화면 층이라 다시 들어오지 않는다) */}
-                {phase.step === 'sending' && (
-                  <WaitBoard
-                    title="결제를 요청하고 있어요"
-                    pills={
-                      <>
-                        <TermsPill terms={phase.attempt.terms} />
-                        <BoardPill>결제 코드 {formatToken(phase.attempt.body.barcodeToken)}</BoardPill>
-                      </>
-                    }
+                {/*
+                  요청 중·요청 결과 불명·승인 대기는 같은 판이다(같은 화면 층이라 다시 들어오지 않는다).
+                  결과를 모르면 판에 남아 같은 멱등 키로 다시 보낸다. 요청 중과 결과 불명은 같은 판 하나를 고쳐 그린다
+                */}
+                {(phase.step === 'sending' || phase.step === 'unknown') && (
+                  <RequestBoard
+                    terms={phase.attempt.terms}
+                    barcodeToken={phase.attempt.body.barcodeToken}
+                    unknownMessage={phase.step === 'unknown' ? phase.message : null}
+                    onRetry={() => send(phase.attempt)}
+                    onNewOrder={newOrder}
                   />
-                )}
-
-                {phase.step === 'unknown' && (
-                  <UnknownScreen message={phase.message} onRetry={() => send(phase.attempt)} onNewOrder={newOrder} />
                 )}
 
                 {phase.step === 'waiting' && (
@@ -784,6 +781,7 @@ function screenKey(phase: Phase): string {
     case 'scan':
       return 'order'
     case 'sending':
+    case 'unknown':
     case 'waiting':
       return 'board'
     case 'history':
