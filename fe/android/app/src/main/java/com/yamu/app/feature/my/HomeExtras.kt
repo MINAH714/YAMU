@@ -112,13 +112,28 @@ class NotificationsViewModel @Inject constructor(private val my: MyRepository) :
     val state: StateFlow<NotificationsState> = _state.asStateFlow()
     /** 새로고침 · 더 보기가 함께 쓰는 자리 — 새로고침은 도는 더 보기를 취소하고, 무엇이든 도는 동안 더 보기는 무시한다 */
     private var listJob: Job? = null
+    /** [listJob]이 새로고침인지(모두 읽음이 끊었을 때 끝나고 다시 받을지 정한다) */
+    private var listJobIsRefresh = false
+
+    /**
+     * '모두 읽음'을 서버에 보내는 중 — 이 사이엔 쪽을 받지 않는다(!327 리뷰). 겹치면 모두 읽음 전에 보낸 쪽 응답의 unread가
+     * 성공한 읽음 처리를 뒤집거나, 실패 되돌리기가 그사이 붙은 쪽을 지운다. viewModelScope는 메인 스레드 하나라 Boolean으로 충분하다
+     */
+    private var readingAll = false
+    /** 모두 읽음 중에 미루거나 끊은 새로고침 — 끝나면 한 번 받는다 */
+    private var refreshAfterReadAll = false
 
     /**
      * 화면에 돌아올 때마다 — 더 보기로 읽은 쪽까지 1쪽부터 다시 받는다(알림을 눌러 다녀와도 줄 수 · 스크롤 자리가 그대로).
-     * 다 받은 뒤 한 번에 바꾸고, 중간에 실패하면 보던 목록을 둔다(-497, 환급 목록과 같은 방식)
+     * 다 받은 뒤 한 번에 바꾸고, 중간에 실패하면 보던 목록을 둔다(-497, 환급 목록과 같은 방식). 모두 읽음 중이면 끝난 뒤로 미룬다
      */
     fun refresh() {
+        if (readingAll) {
+            refreshAfterReadAll = true
+            return
+        }
         listJob?.cancel()
+        listJobIsRefresh = true
         val pages = _state.value.page.coerceAtLeast(1)
         listJob = viewModelScope.launch {
             _state.update { it.copy(loading = it.items.isEmpty(), error = null, loadingMore = false, moreError = null) }
@@ -147,13 +162,14 @@ class NotificationsViewModel @Inject constructor(private val my: MyRepository) :
 
     /**
      * 다음 쪽을 붙인다. 쪽 사이에 새 알림이 오면 서버 쪽이 밀려 같은 알림이 다시 오니 먼저 받은 쪽(읽음 표시가 반영된 줄)을 남긴다.
-     * 연타 · 새로고침 중이면 무시
+     * 연타 · 새로고침 중 · 모두 읽음 중이면 무시
      */
     fun loadMore() {
         val s = _state.value
-        if (listJob?.isActive == true || !s.hasNext) return
+        if (readingAll || listJob?.isActive == true || !s.hasNext) return
         val next = s.page + 1
         _state.update { it.copy(loadingMore = true, moreError = null) }
+        listJobIsRefresh = false
         listJob = viewModelScope.launch {
             val r = my.notifications(page = next)
             _state.update {
@@ -178,14 +194,30 @@ class NotificationsViewModel @Inject constructor(private val my: MyRepository) :
         viewModelScope.launch { my.markRead(n.id) }
     }
 
+    /**
+     * 화면은 바로 모두 읽음으로 바꾸고 서버에 보낸다. 도는 쪽 받기는 끊는다 — 모두 읽음 전에 보낸 요청이라 그 응답의 unread · 읽음 표시는 옛 값이다.
+     * 끊은 게 새로고침이었으면 끝난 뒤 다시 받는다(끊은 더 보기는 다시 누르면 된다). 실패하면 읽음 표시와 안 읽은 수만 되돌리고 목록 · 쪽은 지금 것을 둔다
+     */
     fun readAll(onFail: (String) -> Unit) {
-        val before = _state.value
-        _state.update { s -> s.copy(unread = 0, items = s.items.map { it.copy(read = true) }) }
+        if (readingAll) return
+        if (listJob?.isActive == true) {
+            listJob?.cancel()
+            if (listJobIsRefresh) refreshAfterReadAll = true
+        }
+        val wasRead = _state.value.items.associate { it.id to it.read }
+        val unreadBefore = _state.value.unread
+        readingAll = true
+        _state.update { s -> s.copy(unread = 0, items = s.items.map { it.copy(read = true) }, loadingMore = false) }
         viewModelScope.launch {
             val r = my.markAllRead()
             if (r is ApiResult.Failure) {
-                _state.value = before
+                _state.update { s -> s.copy(unread = unreadBefore, items = s.items.map { n -> wasRead[n.id]?.let { n.copy(read = it) } ?: n }) }
                 onFail("모두 읽음으로 바꾸지 못했어요 · ${r.error.userMessage()}")
+            }
+            readingAll = false
+            if (refreshAfterReadAll) {
+                refreshAfterReadAll = false
+                refresh()
             }
         }
     }

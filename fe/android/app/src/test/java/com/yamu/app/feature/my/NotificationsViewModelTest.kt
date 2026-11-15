@@ -151,6 +151,69 @@ class NotificationsViewModelTest {
         assertFalse(vm.state.value.loading)
     }
 
+    // ── 모두 읽음과 쪽 받기가 겹칠 때(!327 리뷰) ──
+
+    @Test fun `모두 읽음을 보내는 동안 더 보기는 받지 않고, 실패하면 읽음 표시만 되돌린다`() = runTest(dispatcher) {
+        repo.all = (1L..4L).map(::noti).reversed()
+        val vm = NotificationsViewModel(repo)
+        vm.refresh()
+        advanceUntilIdle()
+        repo.markAllFails = true
+        var failed: String? = null
+        vm.readAll { failed = it }
+        runCurrent()
+        assertEquals(0, vm.state.value.unread)
+        vm.loadMore()   // 모두 읽음 중 — 보내지 않는다
+        advanceUntilIdle()
+        assertEquals(listOf(1), repo.pages)
+        assertNotNull(failed)
+        assertEquals(4, vm.state.value.unread)                       // 안 읽은 수와
+        assertTrue(vm.state.value.items.none { it.read })            // 읽음 표시만 되돌리고
+        assertEquals(1, vm.state.value.page)                         // 목록 · 쪽은 그대로
+        assertTrue(vm.state.value.hasNext)
+        vm.loadMore()   // 끝났으니 이제 받는다
+        advanceUntilIdle()
+        assertEquals(listOf(4L, 3L, 2L, 1L), vm.state.value.items.map { it.id })
+        assertTrue(vm.state.value.items.none { it.read })
+    }
+
+    @Test fun `더 보기 응답을 기다리는 중 모두 읽음이 성공하면 옛 응답이 안 읽은 수를 되돌리지 않는다`() = runTest(dispatcher) {
+        repo.all = (1L..4L).map(::noti).reversed()
+        val vm = NotificationsViewModel(repo)
+        vm.refresh()
+        advanceUntilIdle()
+        vm.loadMore()
+        runCurrent()                                  // 2쪽 요청이 나갔다(응답 unread=4 예정)
+        vm.readAll { error("실패하면 안 된다") }       // 그 사이 모두 읽음
+        advanceUntilIdle()
+        assertEquals(1, repo.markAllCalls)
+        assertEquals(0, vm.state.value.unread)
+        assertTrue(vm.state.value.items.all { it.read })
+        assertFalse(vm.state.value.loadingMore)
+        assertEquals(1, vm.state.value.page)          // 끊긴 더 보기는 다시 누르면 된다
+        vm.loadMore()
+        advanceUntilIdle()
+        assertEquals(0, vm.state.value.unread)
+        assertEquals(4, vm.state.value.items.size)
+        assertTrue(vm.state.value.items.all { it.read })
+    }
+
+    @Test fun `모두 읽음 중 화면에 돌아오면 새로고침을 미뤘다가 끝난 뒤 한 번 받는다`() = runTest(dispatcher) {
+        repo.all = (1L..2L).map(::noti).reversed()
+        val vm = NotificationsViewModel(repo)
+        vm.refresh()
+        advanceUntilIdle()
+        vm.readAll { }
+        runCurrent()
+        vm.refresh()
+        vm.refresh()
+        runCurrent()
+        assertEquals(listOf(1), repo.pages)           // 모두 읽음 중엔 보내지 않는다
+        advanceUntilIdle()
+        assertEquals(listOf(1, 1), repo.pages)        // 끝나고 한 번
+        assertEquals(0, vm.state.value.unread)
+    }
+
     private fun noti(id: Long) = AppNotification(id, "알림 $id", null, read = false, createdIso = "2026-11-15T09:00:00+09:00", target = NotiTarget.None)
 
     /** 2개씩 나누는 가짜 저장소 — 서버처럼 최신순 목록을 쪽 번호로 자른다 */
@@ -167,8 +230,19 @@ class NotificationsViewModelTest {
             return ApiResult.Success(NotificationsPage(all.count { !it.read }, all.drop(from).take(SIZE), hasNext = all.size > from + SIZE))
         }
 
+        var markAllFails = false
+        var markAllCalls = 0
+
         override suspend fun markRead(id: Long): ApiResult<Unit> = ApiResult.Success(Unit)
-        override suspend fun markAllRead(): ApiResult<Unit> = ApiResult.Success(Unit)
+
+        /** 서버처럼 성공하면 전부 읽음 — 300ms 걸린다 */
+        override suspend fun markAllRead(): ApiResult<Unit> {
+            markAllCalls++
+            delay(300)
+            if (markAllFails) return ApiResult.Failure(ApiError.Network)
+            all = all.map { it.copy(read = true) }
+            return ApiResult.Success(Unit)
+        }
         override suspend fun me(): ApiResult<MyInfo> = error("안 씀")
         override suspend fun setAutoSelect(on: Boolean): ApiResult<Unit> = error("안 씀")
         override suspend fun setAutoLock(seconds: Int): ApiResult<Unit> = error("안 씀")
