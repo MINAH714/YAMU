@@ -144,4 +144,21 @@ object YamuMotion {
     const val ROLL_DIGIT_MS = 620
     const val ROLL_STAGGER_MS = 45
     const val ROLL_MAX_DIGITS = 4
+
+    /**
+     * 버튼에서 커지는 확인 트레이(M-TRAY-app). 열림은 넘침 없이 230ms에 99%까지 가는 임계 감쇠 spring이다
+     * (강성 = (6.638 / 0.23초)², 질량 1). 닫힘은 TRAY_CLOSE_MS 동안 inOut으로 버튼 자리에 되감긴다.
+     * 바탕 · 위 띠 색은 COLOR_SHIFT_MS, 내용은 TRAY_CONTENT_DELAY_MS부터 TRAY_CONTENT_MS, 처음 TRAY_BLOCK_MS는 누름을 막는다.
+     * 닫힐 때 내용은 TRAY_CONTENT_OUT_MS에 걷히고 바탕은 TRAY_CLOSE_COLOR_DELAY_MS 뒤 버튼색으로 돌아간다. 뒤 화면은 BACKDROP_SCALE로 물러난다
+     */
+    const val TRAY_STIFFNESS = 833f
+    const val TRAY_OPEN_MS = 230
+    const val TRAY_CLOSE_MS = 160
+    const val COLOR_SHIFT_MS = 120
+    const val TRAY_CONTENT_DELAY_MS = 60
+    const val TRAY_CONTENT_MS = 200
+    const val TRAY_CONTENT_OUT_MS = 80
+    const val TRAY_CLOSE_COLOR_DELAY_MS = 40
+    const val TRAY_BLOCK_MS = 350
+    const val BACKDROP_SCALE = 0.92f
 }
