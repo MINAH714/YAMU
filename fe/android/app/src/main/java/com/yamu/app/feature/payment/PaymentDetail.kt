@@ -260,18 +260,21 @@ fun PaymentDetailRoute(onBack: () -> Unit, onCancel: (PaymentReceipt) -> Unit, v
                     }
                     HorizontalDivider(color = c.outlineVariant, modifier = Modifier.padding(horizontal = YamuSpacing.screen))
                     Column(Modifier.padding(horizontal = YamuSpacing.screen, vertical = 12.dp)) {
-                        // 카드 그림 44dp(높이 28 — 줄 높이 40 그대로). 상품명은 카드 목록에서, 모르면 카드 이름(별명이 없으면 상품명)으로 찾는다.
-                        // 키 아래 '추천 N순위' · '직접 고른 카드'(-394) — 옛 결제 · SEED는 비운다
+                        // 카드 그림 44dp(높이 28 — 줄 높이 40 그대로). 상품명은 카드 목록에서, 모르면 카드 이름(별명이 없으면 상품명)으로 찾는다
                         val art = r.cardId?.let { arts[it] }
                         KeyValueRow(
                             "결제 카드",
                             listOfNotNull(r.cardName, r.cardLast4?.let { "•••• $it" }).joinToString(" "),
                             large = false,
-                            keySub = r.cardPickLabel,
                             valueLead = (r.cardBrand ?: art?.brand)?.let { b ->
                                 { CardListThumb(b, art?.productName ?: r.cardName.orEmpty(), width = 44.dp, dimmed = art?.dimmed == true) }
                             },
                         )
+                        // 카드 줄 아래 오른쪽에 '추천 N순위' · '직접 고른 카드'(-394), 옛 결제 · SEED는 비운다.
+                        // 키 아래(keySub)에 두면 카드 이름이 긴 큰 글자에서 키 칸이 한 글자 폭으로 눌려 세로로 쌓인다
+                        r.cardPickLabel?.let {
+                            Text(it, style = YamuTheme.typography.sub, color = c.text3, textAlign = TextAlign.End, modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp))
+                        }
                         r.approvalNo?.let { KeyValueRow("승인번호", it, large = false) }
                         MemoRow(r.memo, known = r.memoKnown, checking = s.memoChecking, onClick = viewModel::openMemo)
                     }
