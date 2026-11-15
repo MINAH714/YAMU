@@ -77,11 +77,13 @@ public class HomeService {
         List<HomeResponse.PerformanceAlert> alerts = section("performanceAlerts", errors,
                 () -> performanceAlerts(userId));
         ForecastPart forecast = section("balanceForecast", errors, () -> forecast(userId));
+        HomeResponse.PartialError forecastError = errors.stream()
+                .filter(error -> error.area().equals("balanceForecast")).findFirst().orElse(null);
         HomeResponse.MonthSummary monthSummary = section("monthSummary", errors, () -> monthSummary(userId));
         HomeResponse.BenefitSummary benefitSummary = section("benefitSummary", errors,
                 () -> benefitSummary(userId, YearMonth.from(today)));
         HomeResponse.ForecastPreview forecastPreview = section("forecastPreview", errors,
-                () -> forecastPreview(userId, forecast, today));
+                () -> forecastPreview(userId, forecast, forecastError, today));
         Integer unread = section("unreadNotificationCount", errors, () -> reader.unreadNotificationCount(userId));
         List<HomeResponse.Todo> todos = section("todos", errors, () -> todos(cardList, alerts));
         HomeResponse.RecentPayment recentPayment = section("recentPayment", errors,
@@ -185,7 +187,7 @@ public class HomeService {
         if (accountId == null) {
             return null;
         }
-        BalanceForecast result = forecasts.forecast(userId, List.of(accountId), null, null, true, false);
+        BalanceForecast result = forecasts.preview(userId, List.of(accountId), null, null, true, false);
         BalanceForecast.Horizon horizon = result.horizon();
         HomeResponse.NextIncome nextIncome = horizon.type() == BalanceForecast.Until.NEXT_INCOME
                 && settings.income() != null
@@ -208,12 +210,18 @@ public class HomeService {
                 summary.unconvertedBenefitCount(), summary.byType());
     }
 
-    private HomeResponse.ForecastPreview forecastPreview(long userId, ForecastPart existing, LocalDate today) {
+    private HomeResponse.ForecastPreview forecastPreview(long userId, ForecastPart existing,
+            HomeResponse.PartialError sourceError, LocalDate today) {
+        if (sourceError != null && List.of("FIN_API_UNAVAILABLE", "FIN_API_ERROR", "UPSTREAM_TIMEOUT")
+                .contains(sourceError.code())) {
+            // 같은 금융망 장애를 한 홈 요청에서 두 번 기다리지 않는다. 두 영역에는 각각 같은 실패를 표시한다.
+            throw new BusinessException(ErrorCode.valueOf(sourceError.code()));
+        }
         Long accountId = existing == null ? forecastSettings.get(userId).baseAccountId() : existing.summary().accountId();
         if (accountId == null) return null;
         BalanceForecast result = existing == null ? null : existing.result();
         if (!HomeForecastPreview.reusable(result, accountId, today)) {
-            result = forecasts.forecast(userId, List.of(accountId), BalanceForecast.Until.DAYS,
+            result = forecasts.preview(userId, List.of(accountId), BalanceForecast.Until.DAYS,
                     HomeForecastPreview.DAYS, true, false);
         }
         return HomeForecastPreview.from(result, accountId, today);
