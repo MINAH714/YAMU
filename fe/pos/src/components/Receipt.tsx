@@ -17,9 +17,6 @@ type Props = {
 
 export const PAYMENT_METHOD = 'YAMU페이'
 
-/** 승인 대기의 금액이 결과 화면의 금액 자리로 이어진다 */
-export const PAYMENT_AMOUNT_ID = 'payment-amount'
-
 /** BE FailureCode. 은행 처리가 늦어 출금 결과를 아직 모르는 거절 */
 const WITHDRAWAL_NOT_CONFIRMED = 'WITHDRAWAL_NOT_CONFIRMED'
 
@@ -38,7 +35,7 @@ export function Receipt({ result, order, onNext, onRetry }: Props) {
   // 주문 금액은 왼쪽에 크게 보이므로 목록에는 다시 적지 않는다
   const base: StatusRow[] = [{ label: '결제 수단', value: PAYMENT_METHOD }]
   const orderAmount = (
-    <Amount className="status-order-amount" value={result.amount} size="md" layoutId={PAYMENT_AMOUNT_ID} />
+    <Amount className="status-order-amount" value={result.amount} size="md" />
   )
 
   // 출금 미확인은 확정된 실패가 아니다. BE 복구 작업이 늦게 출금을 확인하면 DECLINED·EXPIRED가 APPROVED로 바뀌므로
@@ -77,7 +74,7 @@ export function Receipt({ result, order, onNext, onRetry }: Props) {
           tone="approved"
           graphic={<Character pose="pay" size={160} />}
           lead="결제를 완료했어요"
-          title={<Amount value={charged} size="xl" layoutId={PAYMENT_AMOUNT_ID} />}
+          title={<Amount value={charged} size="xl" />}
           items={items}
           rows={rows}
           action={{ label: '다음 주문', onClick: onNext }}

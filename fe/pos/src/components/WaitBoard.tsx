@@ -1,7 +1,10 @@
-import type { ReactNode } from 'react'
+import { useState, type CSSProperties, type ReactNode } from 'react'
 import { useReduceMotion } from '../hooks/useReduceMotion'
+import { planLabel, formatWon, type Terms } from '../payment/terms'
 import { COUNTDOWN_TICK_MS } from '../styles/motion'
 import '../styles/board.css'
+import { PAYMENT_METHOD } from './Receipt'
+import { useScreenEnter } from './screenEnter'
 
 type Props = {
   title: string
@@ -17,14 +20,28 @@ type Props = {
  * 결제 승인 대기 판(모션 명세 M-WAIT-HALO의 POS 쪽). 앱 WaitingSurface와 같은 구성이다.
  * 주문 화면 자리를 브랜드색으로 덮고 흰 원판 둘레에 링, 뒤에 숨 쉬는 헤일로를 둔다.
  * 원판은 판 높이의 40% 자리에 고정해 아래 글자·버튼이 바뀌어도 움직이지 않는다.
+ *
+ * 등장(M-WAIT-ENTER): 판은 화면 층과 함께 200ms에 덮이고, 원판이 0.92 → 1(400ms)로 자리를 잡는다.
+ * 판 페이드가 끝나는 200ms에 링이 한 바퀴(220ms) 그려지고 헤일로가 숨을 시작한다.
+ * 박자는 화면 층이 들어온 시각에 맞춘 CSS 애니메이션이라, 요청 중 → 승인 대기처럼 판 내용이 바뀌어 다시 그려져도
+ * 이어서 움직이고 헤일로 숨이 끊기지 않는다. 화면 층 밖에서는 끝 상태로 보인다.
  */
 export function WaitBoard({ title, pills, children, foot }: Props) {
+  const enter = useScreenEnter()
+  const [since] = useState(() => (enter ? performance.now() - enter.startedAt : null))
+  const timing =
+    enter && since !== null
+      ? ({ '--board-delay': `${enter.delayMs}ms`, '--board-since': `${Math.round(since)}ms` } as CSSProperties)
+      : undefined
+
   return (
-    <section className="board" aria-live="polite">
+    <section className="board" aria-live="polite" style={timing}>
       <div className="board-stage">
         <div className="board-center">
           <div className="board-disc-wrap">
-            <span className="board-halo" aria-hidden="true" />
+            <span className="board-halo-wrap" aria-hidden="true">
+              <span className="board-halo" />
+            </span>
             <div className="board-disc">
               <CardGlyph />
               <svg className="board-ring" viewBox="0 0 160 160" aria-hidden="true">
@@ -98,6 +115,16 @@ export function CountdownPill({ remainingMs, totalMs }: { remainingMs: number; t
         남은 시간 <strong>{clock}</strong>
       </span>
     </span>
+  )
+}
+
+/** 결제 금액·수단 알약. 할부면 개월 수를 붙인다 */
+export function TermsPill({ terms }: { terms: Terms }) {
+  return (
+    <BoardPill>
+      {formatWon(terms.amount)} · {PAYMENT_METHOD}
+      {terms.plan === 'INSTALLMENT' && ` · ${planLabel(terms.plan, terms.installmentMonths)}`}
+    </BoardPill>
   )
 }
 

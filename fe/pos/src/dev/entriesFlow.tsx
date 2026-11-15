@@ -1,8 +1,14 @@
+// 확인 페이지 전용이라 빠른 새로 고침이 안 돼도 괜찮다
+// oxlint-disable react/only-export-components
+import type { ReactNode } from 'react'
 import { Character } from '../components/Character'
 import { FatalScreen, UnknownScreen } from '../components/FlowScreens'
-import { PAYMENT_METHOD, Receipt } from '../components/Receipt'
+import { Receipt } from '../components/Receipt'
+import { ScreenLayer } from '../components/ScreenLayer'
 import { StatusScreen } from '../components/StatusScreen'
+import { BoardPill, TermsPill, WaitBoard } from '../components/WaitBoard'
 import { WaitingView } from '../components/WaitingStep'
+import { useReduceMotion } from '../hooks/useReduceMotion'
 import { formatToken } from '../payment/barcode'
 import { formatWon } from '../payment/terms'
 import { orderItems } from '../store/cart'
@@ -20,6 +26,18 @@ import {
 import type { GalleryEntry } from './types'
 
 const noop = () => {}
+
+/** 화면 층에 넣어 등장 박자를 재생한다. 위 '다시 그리기'를 누르면 처음부터 다시 나온다 */
+function Entering({ children }: { children: ReactNode }) {
+  const reduce = useReduceMotion()
+  return (
+    <div className="screens">
+      <ScreenLayer plan={{ key: 'entry', delayMs: 0, reveal: false, reduce }} surface="flow">
+        {children}
+      </ScreenLayer>
+    </div>
+  )
+}
 
 const GROUP = '결제 흐름'
 const flow = { group: GROUP, store: 'starbucks', step: 3, surface: 'flow' } as const
@@ -49,15 +67,17 @@ export const flowEntries: GalleryEntry[] = [
     id: 'sending',
     label: '요청 중',
     render: () => (
-      <StatusScreen
-        tone="checking"
-        title="결제를 요청하고 있어요"
-        description={`결제 코드 ${formatToken(DEMO_TOKEN)}`}
-        rows={[
-          { label: '주문 금액', value: formatWon(DEMO_TERMS.amount) },
-          { label: '결제 수단', value: PAYMENT_METHOD },
-        ]}
-      />
+      <Entering>
+        <WaitBoard
+          title="결제를 요청하고 있어요"
+          pills={
+            <>
+              <TermsPill terms={DEMO_TERMS} />
+              <BoardPill>결제 코드 {formatToken(DEMO_TOKEN)}</BoardPill>
+            </>
+          }
+        />
+      </Entering>
     ),
   },
   {

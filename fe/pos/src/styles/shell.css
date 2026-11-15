@@ -26,6 +26,25 @@
   background: var(--surface);
 }
 
+/* 화면 층(ScreenLayer). 바뀔 때 새 층이 옛 층 위에서 0.2초에 나타나므로 층마다 바탕을 칠한다 */
+.screens {
+  position: relative;
+  height: 100%;
+}
+
+.screen {
+  position: absolute;
+  inset: 0;
+}
+
+.screen[data-surface='canvas'] {
+  background: var(--background);
+}
+
+.screen[data-surface='flow'] {
+  background: var(--surface);
+}
+
 /* 헤더 */
 
 .app-header {
