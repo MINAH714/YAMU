@@ -20,6 +20,8 @@ import com.yamu.app.feature.payment.data.PaymentRepository
 import com.yamu.app.feature.payment.data.PaymentRepositoryImpl
 import com.yamu.app.feature.performance.data.PerformanceRepository
 import com.yamu.app.feature.performance.data.PerformanceRepositoryImpl
+import com.yamu.app.feature.report.data.AssetFlowRepository
+import com.yamu.app.feature.report.data.AssetFlowRepositoryImpl
 import com.yamu.app.feature.report.data.ReportRepository
 import com.yamu.app.feature.report.data.ReportRepositoryImpl
 import dagger.Binds
@@ -57,6 +59,9 @@ abstract class DataModule {
 
     @Binds
     abstract fun reportRepository(impl: ReportRepositoryImpl): ReportRepository
+
+    @Binds
+    abstract fun assetFlowRepository(impl: AssetFlowRepositoryImpl): AssetFlowRepository
 
     @Binds
     abstract fun myRepository(impl: MyRepositoryImpl): MyRepository

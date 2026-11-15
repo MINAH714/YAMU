@@ -119,6 +119,46 @@ class ReportMapperTest {
         assertNull(dto.copy(summary = dto.summary.copy(yamuPickExtra = 0)).toReport().yamuExtra)
     }
 
+    @Test fun `혜택 리포트 BE !316 — 확정 · 확정 전 · 종류별 · 카드별(별명 먼저, 카드 모르는 줄은 누르기 없음)`() {
+        val r = YamuJson.decodeFromString(
+            BenefitReportDto.serializer(),
+            """{"yearMonth":"2026-11","status":"PARTIAL","source":"YAMU",
+               "summary":{"expectedBenefit":1500,"confirmedBenefit":1000,"unconfirmedBenefit":500,"unconvertedBenefitCount":1,"yamuPickExtra":0,"missedBenefit":0,
+                 "byType":[{"type":"DISCOUNT","expectedBenefit":1000,"confirmedBenefit":1000,"unconfirmedBenefit":0,"unconvertedBenefitCount":0},
+                           {"type":"CASHBACK","expectedBenefit":500,"confirmedBenefit":0,"unconfirmedBenefit":500,"unconvertedBenefitCount":0},
+                           {"type":"POINT","expectedBenefit":0,"confirmedBenefit":0,"unconfirmedBenefit":0,"unconvertedBenefitCount":1}]},
+               "cards":[{"userCardId":1,"cardProductId":10,"cardName":"생활비 카드","cardAlias":"내 생활카드","expectedBenefit":1200,"confirmedBenefit":1000,"unconfirmedBenefit":200,"unconvertedBenefitCount":1,"byType":[]},
+                        {"userCardId":null,"cardProductId":null,"cardName":null,"cardAlias":null,"expectedBenefit":300,"confirmedBenefit":0,"unconfirmedBenefit":300,"unconvertedBenefitCount":0,"byType":[]}],
+               "differences":[{"paymentId":9,"approvedAt":"2026-11-03T03:00:00Z","merchantName":"카페","userCardId":1,"expectedAmount":300,"actualAmount":100,"reason":"USER_SELECTED"}],
+               "byCategory":[{"categoryCode":"COFFEE_SHOP","categoryName":"카페","amount":1500,"ratio":100.0}]}""",
+        ).toReport(LocalDate.of(2026, 11, 14))
+        assertEquals("전체(확정 전 포함)", 1_500L, r.received)
+        assertEquals("큰 숫자는 확정", 1_000L, r.confirmed)
+        assertEquals(500L, r.unconfirmed)
+        assertEquals(1L, r.unconverted)
+        assertEquals(listOf("할인", "캐시백", "적립"), r.byType.map { it.label })
+        assertEquals(listOf(1_000L, 0L, 0L), r.byType.map { it.confirmed })
+        assertEquals(listOf(0L, 500L, 0L), r.byType.map { it.unconfirmed })
+        assertEquals("적립 0원이라도 원화로 못 바꾼 1건은 따로", 1L, r.byType[2].unconverted)
+        assertEquals(listOf("내 생활카드", "카드"), r.cards.map { it.name })
+        assertEquals(listOf(1L, null), r.cards.map { it.userCardId })
+        assertEquals(listOf(200L, 300L), r.cards.map { it.unconfirmed })
+        assertEquals(listOf(200L), r.missed.map { it.amount })
+    }
+
+    @Test fun `혜택 리포트 옛 서버 — 새 칸이 없으면 종류별 · 카드별을 0원으로 지어내지 않고 확정 전은 전체 − 확정`() {
+        val r = YamuJson.decodeFromString(
+            BenefitReportDto.serializer(),
+            """{"yearMonth":"2026-11","status":"PARTIAL","summary":{"expectedBenefit":32400,"confirmedBenefit":30000}}""",
+        ).toReport(LocalDate.of(2026, 11, 14))
+        assertTrue(r.byType.isEmpty())
+        assertTrue(r.cards.isEmpty())
+        assertEquals(30_000L, r.confirmed)
+        assertEquals(2_400L, r.unconfirmed)
+        assertEquals(0L, r.unconverted)
+        assertEquals("모르는 종류는 '기타'", "기타", benefitTypeLabel("VOUCHER"))
+    }
+
     @Test fun `놓친 이유 — 모르는 코드는 혜택 안 됨`() {
         assertEquals("한도 소진", missedReason("LIMIT_EXHAUSTED"))
         assertEquals("실적 미달", missedReason("tier_not_met"))

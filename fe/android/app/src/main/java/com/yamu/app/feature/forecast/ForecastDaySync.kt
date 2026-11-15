@@ -88,8 +88,29 @@ internal fun accepts(from: DaySource, chartDragging: Boolean): Boolean = !(chart
 
 // ── 날짜 띠 ──
 
-/** 띠 알약 하나 — 그날 오가는 돈 합과 구간(손잡이가 타는 선 기준) */
-internal data class StripDay(val date: LocalDate, val net: Long, val zone: BalanceZone)
+/**
+ * 띠 알약 하나 — 그날 오가는 돈 합과 구간(손잡이가 타는 선 기준).
+ * [kind]가 있으면 한 달 띠(소비분석 자산 흐름, Task 8.2.99)라 색 말고 테두리 · 빗금으로 날 종류를 보인다
+ */
+internal data class StripDay(val date: LocalDate, val net: Long, val zone: BalanceZone, val kind: DayKind? = null)
+
+/** 한 달 띠 끝 '‹ 10월 보기' · '12월 보기 ›' 칸 — 띠를 끝까지 밀어도 달은 저절로 넘어가지 않고 이 칸을 눌러야 넘어간다 */
+internal data class StripJump(val label: String, val description: String, val onClick: () -> Unit)
+
+/** 한 달 띠 알약 윗줄 — 오늘은 '오늘', 나머지는 요일(한 달 안이라 '12월' 같은 달 표시는 없다) */
+internal fun monthPillTopLabel(day: StripDay): String =
+    if (day.kind == DayKind.TODAY) "오늘" else day.date.dayOfWeek.getDisplayName(TextStyle.SHORT, Locale.KOREAN)
+
+/** 알약 읽어 주기의 날 종류 — 오늘은 '오늘'로 읽는다(꼬리표의 '지금'은 잔고 이야기라서) */
+internal fun pillKindLabel(kind: DayKind): String = when (kind) {
+    DayKind.ACTUAL -> "실제 잔고"
+    DayKind.TODAY -> "오늘"
+    DayKind.EXPECTED -> "예상 잔고"
+    DayKind.NO_DATA -> "잔고 데이터 없음"
+    DayKind.OUT_OF_RANGE -> "예보 범위 밖"
+    DayKind.ERROR -> "잔고 조회 실패"
+    DayKind.UNKNOWN -> "표시할 수 없음"
+}
 
 /** 띠 알약들 — 오가는 돈은 0원이 아닌 입출금 합, 구간은 'AI 생활비 반영' 선(없으면 '제외' 선)으로 정한다(그래프 손잡이 · 면과 같은 선) */
 internal fun stripDays(days: List<ForecastDay>, hasConservative: Boolean, threshold: Long?): List<StripDay> = days.map { d ->
@@ -121,6 +142,7 @@ internal fun pillAmount(net: Long): String? {
 /** 알약 읽어 주기 — '11월 21일 (토), −250,000원, 안전 잔액 아래' */
 internal fun pillDescription(day: StripDay): String = listOfNotNull(
     day.date.toKoreanDateWeek(),
+    day.kind?.let(::pillKindLabel),
     day.net.takeIf { it != 0L }?.let { "${it.toWon(withPlusSign = true)}원" },
     when (day.zone) { BalanceZone.BELOW_ZERO -> "0원 아래"; BalanceZone.BELOW_SAFE -> "안전 잔액 아래"; BalanceZone.OK -> null },
 ).joinToString(", ")

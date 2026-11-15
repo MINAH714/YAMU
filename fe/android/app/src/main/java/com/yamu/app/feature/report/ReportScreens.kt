@@ -12,6 +12,8 @@ import com.yamu.app.feature.report.data.exportErrorMessage
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.material3.Icon
+import com.yamu.app.core.designsystem.icon.YamuIcons
 import com.yamu.app.core.designsystem.component.LinkButton
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -39,9 +41,14 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.onPlaced
+import androidx.compose.ui.layout.positionInParent
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -71,6 +78,7 @@ import com.yamu.app.core.designsystem.component.SkeletonBlock
 import com.yamu.app.core.designsystem.component.StatusTag
 import com.yamu.app.core.designsystem.component.TabScreen
 import com.yamu.app.core.designsystem.component.YamuCard
+import com.yamu.app.core.designsystem.theme.LocalYamuReduceMotion
 import com.yamu.app.core.designsystem.theme.YamuSpacing
 import com.yamu.app.core.designsystem.theme.YamuTheme
 import com.yamu.app.core.format.toMonthDay
@@ -78,12 +86,28 @@ import com.yamu.app.core.format.toWon
 import com.yamu.app.core.network.ApiResult
 import com.yamu.app.core.ui.userMessage
 import com.yamu.app.feature.link.BrandMark
+import com.yamu.app.feature.link.data.LinkRepository
+import androidx.compose.runtime.saveable.rememberSaveable
+import com.yamu.app.feature.forecast.data.ForecastRepository
+import com.yamu.app.feature.report.data.AssetFlow
+import com.yamu.app.feature.report.data.AssetFlowRepository
+import com.yamu.app.feature.report.data.MonthFlow
+import com.yamu.app.feature.report.data.MonthFlowResult
+import com.yamu.app.feature.report.data.assetDateIn
+import com.yamu.app.feature.report.data.JumpRequest
+import com.yamu.app.feature.report.data.keepLastForecast
+import com.yamu.app.feature.report.data.reachesNextMonth
+import androidx.compose.runtime.withFrameNanos
+import java.time.LocalDate
 import com.yamu.app.feature.report.data.BenefitReport
+import com.yamu.app.feature.report.data.CardBenefitLine
 import com.yamu.app.feature.report.data.CategoryShare
 import com.yamu.app.feature.report.data.MissedBenefit
 import com.yamu.app.feature.report.data.MonthlySpend
 import com.yamu.app.feature.report.data.PaymentItem
+import com.yamu.app.feature.report.data.ReportJump
 import com.yamu.app.feature.report.data.ReportMonth
+import com.yamu.app.feature.report.data.ReportSection
 import com.yamu.app.feature.report.data.ReportRepository
 import com.yamu.app.feature.report.data.ShownMonth
 import com.yamu.app.feature.report.data.monthTitle
@@ -97,56 +121,240 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
 import java.time.YearMonth
 import javax.inject.Inject
 
 // ───────────────────────── S-01 소비분석(탭) ─────────────────────────
 
-data class ReportState(val shown: ShownMonth, val loading: Boolean = true, val spend: MonthlySpend? = null, val error: String? = null)
+/**
+ * 자산 흐름 칸 상태 — 사용금액과 따로 받아 한쪽이 실패해도 다른 쪽은 그대로 보인다(COMMON-08).
+ * 30일 예보([flow], 7 · 14 · 30일 뒤용)는 달과 상관없어 돌아올 때만 받고, 그달 자산 흐름([month], asset-flows)은 달마다 받는다.
+ * [month]가 없으면(옛 서버 404 · 실패) 예보만으로 그린다 — 지난날은 빈 날
+ */
+data class AssetFlowUi(
+    val loading: Boolean = true,
+    val flow: AssetFlow? = null,
+    val error: String? = null,
+    val noAccount: Boolean = false,
+    val month: MonthFlow? = null,
+    /** 그달 자산 흐름을 받지 못함(은행 · 네트워크) — 옛 서버의 404는 오류가 아니라 null */
+    val monthError: String? = null,
+)
+
+data class ReportState(
+    val shown: ShownMonth,
+    val loading: Boolean = true,
+    val spend: MonthlySpend? = null,
+    val error: String? = null,
+    val asset: AssetFlowUi = AssetFlowUi(),
+    /** 오늘(한국 날짜) — 자산 흐름의 오늘 기준선 · '오늘로' */
+    val today: LocalDate = shown.thisMonth.atDay(1),
+    /** 자산 흐름에서 고른 날 — null이면 그달 처음 고를 날(이번 달 오늘 · 지난달 말일 · 다음 달 1일) */
+    val pickedDate: LocalDate? = null,
+    /**
+     * 바깥에서 날을 바꾼 횟수('오늘로' · 홈에서 내려옴) — 칸이 이 값이 바뀔 때만 그 날로 따라간다.
+     * 칸이 고른 날은 ViewModel을 거쳐 한 박자 늦게 돌아와서, 그 값을 따라가면 빠르게 끄는 동안 손잡이가 앞 날로 되돌아간다
+     */
+    val assetReset: Int = 0,
+    /** 사용금액 · 자산 흐름 불러오기가 마지막으로 끝난 번호([ReportJump.stamp]) — 홈에서 내려올 때 요청 뒤의 배치인지 본다 */
+    val spendDone: Long = 0,
+    val assetDone: Long = 0,
+) {
+    /** 자산 흐름이 보여 줄 날 — 늘 보이는 달 안 */
+    val assetDate: LocalDate get() = assetDateIn(shown.month, today, pickedDate)
+
+    /**
+     * 홈 '자산 흐름 보기'로 내려갈 때가 됐나 — 요청 뒤에 사용금액 · 자산 흐름 불러오기가 모두 끝났고, 이번 달을 보고 있다.
+     * 되살아난 화면의 지난 배치(다른 달 · 오류 · 빈 달)로 먼저 내려가거나 칸 자리를 모른 채 요청을 버리지 않게(!312 리뷰)
+     */
+    fun readyForJump(request: JumpRequest): Boolean =
+        !loading && !asset.loading && minOf(spendDone, assetDone) > request.id && shown.isThisMonth
+}
 
 /**
- * 탭에 돌아올 때마다 새로 받는다(방금 한 결제가 바로 보이게) — 같은 달이 실패하면 마지막 값을 그대로.
- * 달은 [ReportMonth]에서 읽어 S-04 · S-05에서 바꾼 달도 돌아오면 이어 본다.
+ * 탭에 돌아올 때마다 새로 받는다(방금 한 결제 · 바꾼 예정 수입·지출이 바로 보이게) — 같은 달이 실패하면 마지막 값을 그대로.
+ * 달은 [ReportMonth]에서 읽어 S-04 · S-05에서 바꾼 달도 돌아오면 이어 본다. S-01만 다음 달(예보만)까지 간다.
  * 달을 빠르게 넘기면 앞 요청을 취소하고, 그래도 늦게 온 응답은 지금 보이는 달과 다르면 버린다.
+ * 자산 흐름에서 고른 날은 여기 남아 잔고예보에 다녀와도 그대로다(ANALYSIS-14)
  */
 @HiltViewModel
-class ReportViewModel @Inject constructor(private val repo: ReportRepository, private val months: ReportMonth) : ViewModel() {
+class ReportViewModel @Inject constructor(
+    private val repo: ReportRepository,
+    private val months: ReportMonth,
+    private val assets: AssetFlowRepository,
+    private val jumps: ReportJump = ReportJump(months),
+) : ViewModel() {
     init { months.reset() }   // 새로 만들어질 때(로그인 · 앱 새로 켜기)는 이번 달부터 — 앞사람이 고른 달이 남지 않게
 
-    private val _state = MutableStateFlow(ReportState(months.current()))
+    private val _state = MutableStateFlow(ReportState(months.currentWithNext(nextOpen = false), today = months.today()))
     val state: StateFlow<ReportState> = _state.asStateFlow()
     private var job: Job? = null
+    private var assetJob: Job? = null
+    private var monthJob: Job? = null
 
+    /** 다른 화면이 보낸 '이 칸으로 내려가기'(홈 '자산 흐름 보기', S15P31E103-479) — 화면이 내려간 뒤 [jumped] */
+    val jump: StateFlow<JumpRequest?> = jumps.pending
+
+    /**
+     * 내려간 뒤(끊기거나 화면을 떠나도 — 요청이 남아 나중에 혼자 내려가지 않게). 자산 흐름으로 왔으면 오늘을 고른다
+     * (홈 '자산 흐름 보기'는 이번 달 · 오늘, ReportJump가 달을 이번 달로 돌려 둠)
+     */
+    fun jumped(request: JumpRequest) {
+        jumps.consume(request)
+        if (request.section == ReportSection.ASSET_FLOW) _state.update { it.copy(pickedDate = null, assetReset = it.assetReset + 1) }
+    }
+
+    /**
+     * 보일 달 — 다음 달은 예보가 다음 달 1일에 닿을 때만 연다([reachesNextMonth]). 닫히면 골라 둔 다음 달도 버린다
+     * (나중에 예보가 다시 닿았다고 혼자 다음 달로 넘어가지 않게)
+     */
+    private fun shownMonth(): ShownMonth {
+        val open = reachesNextMonth(_state.value.asset.flow, months.today())
+        val shown = months.currentWithNext(nextOpen = open)
+        if (!open && months.currentWithNext().isNextMonth) months.select(shown.thisMonth)
+        return shown
+    }
+
+    /** 탭에 돌아올 때 — 사용금액 · 자산 흐름을 같이 새로(FORECAST-04 · COMMON-09) */
     fun refresh() {
-        val shown = months.current()
+        loadSpend()
+        loadAsset()
+        loadMonth()
+    }
+
+    fun select(month: YearMonth) {
+        months.select(month)
+        loadSpend()
+        loadMonth()
+    }
+
+    /** 그달 자산 흐름만 다시(지난 잔고를 못 받았을 때 '다시 시도') */
+    fun retryMonth() = loadMonth()
+
+    /** 자산 흐름에서 날을 고름(그래프 · 날짜 띠 · 알약) */
+    fun selectDate(date: LocalDate) = _state.update { it.copy(pickedDate = date) }
+
+    /** '오늘로' — 이번 달 · 오늘(ANALYSIS-11) */
+    fun goToday() {
+        _state.update { it.copy(pickedDate = null, assetReset = it.assetReset + 1) }
+        val thisMonth = YearMonth.from(months.today())
+        if (_state.value.shown.month != thisMonth) select(thisMonth)
+    }
+
+    private fun loadSpend() {
+        val shown = shownMonth()
+        val today = months.today()
         job?.cancel()
         _state.update {
-            if (it.shown.month == shown.month) it.copy(shown = shown, loading = it.spend == null, error = null)
-            else ReportState(shown)   // 다른 달 숫자를 새 달 머리 아래 두지 않는다
+            if (it.shown.month == shown.month) it.copy(shown = shown, today = today, loading = it.spend == null && !shown.isNextMonth, error = null)
+            // 다른 달 숫자를 새 달 머리 아래 두지 않는다. 고른 날은 새 달의 처음 고를 날로, 예보는 달과 상관없어 그대로
+            else ReportState(
+                shown, loading = !shown.isNextMonth, asset = it.asset.copy(month = null, monthError = null), today = today, assetReset = it.assetReset,
+                spendDone = it.spendDone, assetDone = it.assetDone,
+            )
+        }
+        if (shown.isNextMonth) {   // 아직 쓴 돈이 없는 달 — 월 API를 부르지 않는다
+            _state.update { it.copy(spendDone = jumps.stamp()) }
+            return
         }
         job = viewModelScope.launch {
             val r = repo.monthly(shown.month)
             ensureActive()
             if (_state.value.shown.month != shown.month) return@launch
             when (r) {
-                is ApiResult.Success -> _state.update { ReportState(shown, loading = false, spend = r.data) }
-                is ApiResult.Failure -> _state.update { it.copy(loading = false, error = r.error.userMessage()) }
+                is ApiResult.Success -> _state.update { it.copy(loading = false, spend = r.data, error = null, spendDone = jumps.stamp()) }
+                is ApiResult.Failure -> _state.update { it.copy(loading = false, error = r.error.userMessage(), spendDone = jumps.stamp()) }
             }
         }
     }
 
-    fun select(month: YearMonth) {
-        months.select(month)
-        refresh()
+    private fun loadAsset() {
+        assetJob?.cancel()
+        _state.update { it.copy(asset = it.asset.copy(loading = it.asset.flow == null, error = null)) }
+        assetJob = viewModelScope.launch {
+            val r = assets.load()
+            ensureActive()
+            when (r) {
+                is ApiResult.Success -> {
+                    // 예보만 실패했으면 같은 계좌의 지난 예보를 남기고 '마지막 값' 안내를 붙인다(!312 리뷰 — 빗금으로 지우지 않게)
+                    val kept = keepLastForecast(_state.value.asset.flow, r.data)
+                    val stale = kept !== r.data
+                    _state.update {
+                        it.copy(
+                            asset = it.asset.copy(loading = false, flow = kept, error = if (stale) r.data.forecastError?.userMessage() else null, noAccount = false),
+                            assetDone = jumps.stamp(),
+                        )
+                    }
+                    syncShown()
+                }
+                is ApiResult.Failure -> _state.update {
+                    if (r.error.code in NO_ACCOUNT_CODES) it.copy(asset = AssetFlowUi(loading = false, noAccount = true), assetDone = jumps.stamp())
+                    else it.copy(asset = it.asset.copy(loading = false, error = r.error.userMessage()), assetDone = jumps.stamp())   // 마지막 값은 그대로
+                }
+            }
+        }
+    }
+
+    /**
+     * 예보가 바뀌면 다음 달을 열 수 있는지도 바뀐다 — 다음 달을 보던 중 예보가 다음 달에 닿지 않게 되면 이번 달로 돌아간다
+     * ('다음 달은 예보가 닿는 날까지', !312 리뷰)
+     */
+    private fun syncShown() {
+        val shown = shownMonth()
+        val now = _state.value.shown
+        if (shown == now) return
+        if (shown.month != now.month) {
+            loadSpend()
+            loadMonth()
+        } else _state.update { it.copy(shown = shown) }
+    }
+
+    /**
+     * 그달 자산 흐름(asset-flows) — 달을 빠르게 넘기면 앞 요청을 취소하고, 그래도 늦게 온 응답은 지금 달과 다르면 버린다.
+     * 옛 서버(404)면 비워 두어 예보만으로 그리고, 실패면 같은 달의 마지막 값을 두고 '다시 시도'를 보인다
+     */
+    private fun loadMonth() {
+        val month = _state.value.shown.month
+        monthJob?.cancel()
+        _state.update { it.copy(asset = it.asset.copy(month = it.asset.month?.takeIf { m -> m.month == month }, monthError = null)) }
+        monthJob = viewModelScope.launch {
+            val r = assets.month(month)
+            ensureActive()
+            if (_state.value.shown.month != month) return@launch
+            _state.update {
+                it.copy(
+                    asset = when (r) {
+                        is MonthFlowResult.Loaded -> it.asset.copy(month = r.flow, monthError = null)
+                        MonthFlowResult.Unsupported -> it.asset.copy(month = null, monthError = null)
+                        is MonthFlowResult.Failed -> it.asset.copy(monthError = r.error.userMessage())
+                    },
+                )
+            }
+        }
+    }
+
+    private companion object {
+        /** 계좌를 잇지 않았다 — 잔고예보와 같은 코드(옛 서버 코드 포함) */
+        val NO_ACCOUNT_CODES = setOf(ForecastRepository.NO_ACCOUNT, "BASE_ACCOUNT_NOT_SET")
     }
 }
 
+/**
+ * S-01 소비분석 — 사용금액 → 자산 흐름(ANALYSIS-01) → 많이 쓴 곳 · 혜택 · 결제 내역. 돌아올 때마다 다시 받는다
+ * (예정 수입·지출 · 결제가 바뀐 뒤에도 — 잔고예보 · 홈도 같은 규칙, FORECAST-04).
+ * [onForecast]는 자산 흐름 칸의 'AI 잔고예보 자세히 보기'(S15P31E103-483). 잔고예보(F-01)를 이 화면 위에 쌓아서
+ * 뒤로 오면 보던 달(ReportMonth) · 고른 날(ViewModel) · 스크롤(rememberScrollState)이 그대로다(ANALYSIS-14 · FORECAST-05).
+ * 달 이름을 누르면 연 · 월 시트(ANALYSIS-06)
+ */
 @Composable
 fun ReportRoute(
     onBenefits: () -> Unit,
     onPayments: () -> Unit,
+    onForecast: () -> Unit = {},
     viewModel: ReportViewModel = hiltViewModel(),
 ) {
     val s by viewModel.state.collectAsStateWithLifecycle()
@@ -154,60 +362,90 @@ fun ReportRoute(
         viewModel.refresh()
         onPauseOrDispose { }
     }
+    val scroll = rememberScrollState()
+    // 자산 흐름 칸이 스크롤 안에서 시작하는 자리 — 홈 '자산 흐름 보기'로 들어오면 여기까지 내려간다
+    var assetFlowY by remember { mutableStateOf<Int?>(null) }
+    val jump by viewModel.jump.collectAsStateWithLifecycle()
+    val reduceMotion = LocalYamuReduceMotion.current
+    // 요청 하나만 키로 — 요청 뒤에 끝난 불러오기(이번 달)를 기다려 한 프레임 뒤의 칸 자리로 내려간다.
+    // 내려가다 손가락으로 끊거나 화면을 떠나도 finally에서 요청을 버린다(나중에 혼자 내려가지 않게, !312 리뷰)
+    LaunchedEffect(jump) {
+        val target = jump ?: return@LaunchedEffect
+        try {
+            viewModel.state.first { it.readyForJump(target) }
+            withFrameNanos { }   // 새 배치가 자리를 잡은 뒤의 assetFlowY
+            assetFlowY?.let { y -> if (reduceMotion) scroll.scrollTo(y) else scroll.animateScrollTo(y) }
+        } finally {
+            viewModel.jumped(target)
+        }
+    }
+    var picking by rememberSaveable { mutableStateOf(false) }
     val c = YamuTheme.colors
     TabScreen(title = "소비분석") { inner ->
         Column(Modifier.padding(inner).consumeWindowInsets(inner).fillMaxSize()) {
-            MonthSwitcher(s.shown, onSelect = viewModel::select)
-            Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
+            MonthSwitcher(s.shown, onSelect = viewModel::select, onPick = { picking = true })
+            Column(Modifier.weight(1f).verticalScroll(scroll)) {
                 val sp = s.spend
+                val spendShown = sp != null && !(sp.paymentCount == 0 || (sp.spent == 0L && sp.categories.isEmpty()))
                 when {
+                    s.shown.isNextMonth -> YamuCard { NextMonthSpend(s.shown) }
                     sp == null && s.loading -> YamuCard {
                         SkeletonBlock(height = 20.dp, widthFraction = 0.5f)
                         Spacer(Modifier.height(YamuSpacing.x2))
                         SkeletonBlock(height = 38.dp, widthFraction = 0.6f)
-                        Spacer(Modifier.height(YamuSpacing.x5))
-                        repeat(3) { SkeletonBlock(height = 40.dp); Spacer(Modifier.height(YamuSpacing.x2)) }
                     }
                     sp == null -> YamuCard { ErrorState(s.error ?: "소비분석을 불러오지 못했어요", onRetry = viewModel::refresh) }
-                    sp.paymentCount == 0 || (sp.spent == 0L && sp.categories.isEmpty()) ->
-                        YamuCard { MonthEmpty(s.shown, onSelect = viewModel::select) }
-                    else -> {
-                        YamuCard {
-                            Text("${sp.periodLabel} ${if (sp.isLiving) "생활 소비" else "카드 결제"}", style = YamuTheme.typography.bodyM, color = c.text2)
+                    !spendShown -> YamuCard { MonthEmpty(s.shown, onSelect = viewModel::select) }
+                    else -> YamuCard {
+                        Text("${sp.periodLabel} ${if (sp.isLiving) "생활 소비" else "카드 결제"}", style = YamuTheme.typography.bodyM, color = c.text2)
+                        Spacer(Modifier.height(4.dp))
+                        AmountText(sp.spent)
+                        sp.diffFromPrev?.let {
                             Spacer(Modifier.height(4.dp))
-                            AmountText(sp.spent)
-                            sp.diffFromPrev?.let {
-                                Spacer(Modifier.height(4.dp))
-                                Text(boldAmount(spendDiffSentence(it, sp.prevPeriod)), style = YamuTheme.typography.bodyM, color = c.text2)
-                            }
-                            s.error?.let { Text("$it · 마지막 값을 보여 드려요", style = YamuTheme.typography.bodyS, color = c.warning) }
+                            Text(boldAmount(spendDiffSentence(it, sp.prevPeriod)), style = YamuTheme.typography.bodyM, color = c.text2)
                         }
-                        if (sp.categories.isNotEmpty()) {
-                            YamuCard {
-                                Text("많이 쓴 곳", style = YamuTheme.typography.cardTitle, color = c.text1)
-                                Spacer(Modifier.height(YamuSpacing.x3))
-                                ShareBar(sp.categories, total = sp.spent)
-                                Spacer(Modifier.height(YamuSpacing.x2))
-                                sp.categories.forEachIndexed { i, cat -> CategoryRow(cat, chartColor(i)) }
-                            }
+                        s.error?.let { Text("$it · 마지막 값을 보여 드려요", style = YamuTheme.typography.bodyS, color = c.warning) }
+                    }
+                }
+                // 자산 흐름(ANALYSIS-01: 사용금액 바로 아래) — 사용금액이 비거나 실패해도 따로 보인다. 홈 '자산 흐름 보기'는 이 칸 위까지 내려온다
+                AssetFlowCard(
+                    s,
+                    onSelectDate = viewModel::selectDate,
+                    onMonth = viewModel::select,
+                    onToday = viewModel::goToday,
+                    onRetry = viewModel::refresh,
+                    onRetryMonth = viewModel::retryMonth,
+                    onForecast = onForecast,
+                    modifier = Modifier.onPlaced { assetFlowY = it.positionInParent().y.roundToInt() },
+                )
+                // 많이 쓴 곳 · 혜택 · 결제 내역은 그대로(ANALYSIS-02). 다음 달은 쓴 돈이 없어 두 화면으로 가는 줄도 없다
+                if (sp != null && spendShown && !s.shown.isNextMonth) {
+                    if (sp.categories.isNotEmpty()) {
+                        YamuCard {
+                            Text("많이 쓴 곳", style = YamuTheme.typography.cardTitle, color = c.text1)
+                            Spacer(Modifier.height(YamuSpacing.x3))
+                            ShareBar(sp.categories, total = sp.spent)
+                            Spacer(Modifier.height(YamuSpacing.x2))
+                            sp.categories.forEachIndexed { i, cat -> CategoryRow(cat, chartColor(i)) }
                         }
-                        YamuCard(contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 4.dp)) {   // 링크 카드는 .card.tight(16)
-                            sp.benefit?.let {
-                                ListRow(
-                                    title = sp.month?.let { m -> "${m}월에 받은 혜택" } ?: "이번 달 받은 혜택",
-                                    value = "${it.toWon()}원",
-                                    valueColor = c.primary,
-                                    chevron = true,
-                                    onClick = onBenefits,
-                                )
-                            }
-                            ListRow(title = "결제 내역", value = sp.paymentCount?.let { "${it}건" }, chevron = true, onClick = onPayments)
+                    }
+                    YamuCard(contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 4.dp)) {   // 링크 카드는 .card.tight(16)
+                        sp.benefit?.let {
+                            ListRow(
+                                title = sp.month?.let { m -> "${m}월 이용 혜택" } ?: "이번 달 이용 혜택",
+                                value = "${it.toWon()}원",
+                                valueColor = c.primary,
+                                chevron = true,
+                                onClick = onBenefits,
+                            )
                         }
+                        ListRow(title = "결제 내역", value = sp.paymentCount?.let { "${it}건" }, chevron = true, onClick = onPayments)
                     }
                 }
             }
         }
     }
+    if (picking) MonthSheet(s.shown, onPick = { m -> picking = false; viewModel.select(m) }, onDismiss = { picking = false })
 }
 
 /** 문장 속 'n원 더 · 덜'만 굵게 */
@@ -263,19 +501,38 @@ private fun CategoryRow(cat: CategoryShare, color: Color) {
 
 // ───────────────────────── S-04 혜택 리포트 ─────────────────────────
 
-data class BenefitReportState(val shown: ShownMonth, val loading: Boolean = true, val report: BenefitReport? = null, val error: String? = null)
+/** [cardIds] 지금 등록된 카드(userCardId). null이면 아직 모르거나 받지 못해 카드 줄을 누를 수 없다 */
+data class BenefitReportState(
+    val shown: ShownMonth,
+    val loading: Boolean = true,
+    val report: BenefitReport? = null,
+    val error: String? = null,
+    val cardIds: Set<Long>? = null,
+)
+
+/**
+ * 카드별 줄을 눌러 갈 카드(R-02). R-02는 이번 달 실적만 보여 지난달을 보는 중엔 누를 수 없고,
+ * 혜택 응답에는 해지한 카드도 있을 수 있어 지금 등록된 카드에 없는 userCardId(또는 null)도 누를 수 없다(404 막기)
+ */
+internal fun cardTarget(card: CardBenefitLine, shown: ShownMonth, cardIds: Set<Long>?): Long? =
+    card.userCardId?.takeIf { shown.isThisMonth && cardIds != null && it in cardIds }
 
 /** S-01에서 고른 달로 연다. 결제 내역(S-05)에서 달을 바꾸고 돌아오면 그 달로 다시 받는다([resume]) */
 @HiltViewModel
-class BenefitReportViewModel @Inject constructor(private val repo: ReportRepository, private val months: ReportMonth) : ViewModel() {
+class BenefitReportViewModel @Inject constructor(
+    private val repo: ReportRepository,
+    private val months: ReportMonth,
+    private val links: LinkRepository,
+) : ViewModel() {
     private val _state = MutableStateFlow(BenefitReportState(months.current()))
     val state: StateFlow<BenefitReportState> = _state.asStateFlow()
     private var job: Job? = null
+    private var cardsJob: Job? = null
 
     init { load() }
 
     fun resume() {
-        if (months.current().month != _state.value.shown.month) load()
+        if (months.current().month != _state.value.shown.month) load() else loadCards()
     }
 
     fun load() {
@@ -283,16 +540,28 @@ class BenefitReportViewModel @Inject constructor(private val repo: ReportReposit
         job?.cancel()
         _state.update {
             if (it.shown.month == shown.month) it.copy(shown = shown, loading = true, error = null)
-            else BenefitReportState(shown)
+            else BenefitReportState(shown, cardIds = it.cardIds)
         }
         job = viewModelScope.launch {
             val r = repo.benefits(shown.month)
             ensureActive()
             if (_state.value.shown.month != shown.month) return@launch   // 그사이 달을 넘겼으면 버린다
             when (r) {
-                is ApiResult.Success -> _state.update { BenefitReportState(shown, loading = false, report = r.data) }
+                is ApiResult.Success -> _state.update { it.copy(loading = false, report = r.data, error = null) }
                 is ApiResult.Failure -> _state.update { it.copy(loading = false, error = r.error.userMessage()) }
             }
+        }
+        loadCards()
+    }
+
+    /** 이번 달을 볼 때만 등록된 카드를 받는다(카드 상세에서 해지하고 돌아와도 다시 받게 [resume]에서도). 실패하면 누르기를 끈다 */
+    private fun loadCards() {
+        if (!_state.value.shown.isThisMonth) return
+        cardsJob?.cancel()
+        cardsJob = viewModelScope.launch {
+            val r = links.cards()
+            ensureActive()
+            _state.update { it.copy(cardIds = (r as? ApiResult.Success)?.data?.map { c -> c.userCardId }?.toSet()) }
         }
     }
 
@@ -302,10 +571,16 @@ class BenefitReportViewModel @Inject constructor(private val repo: ReportReposit
     }
 }
 
+/**
+ * S-04 혜택 리포트 — 야무 결제만(source=YAMU, S15P31E103-493). 큰 숫자는 확정된 혜택(홈 히어로와 같은 기준, 11/14 결정)이고
+ * 확정 전은 따로, 원화로 바꾸지 못한 혜택은 금액에 없다고 알린다. 그 아래 종류별 · 카드별 · 놓친 혜택 · 어디서 받았나요.
+ * [onCard]를 주면 카드 줄을 눌러 그 카드 실적(R-02)으로 간다. 지난달을 보는 중이거나 지금 등록된 카드가 아니면 누를 수 없다([cardTarget])
+ */
 @Composable
 fun BenefitReportRoute(
     onBack: () -> Unit,
     onPayments: () -> Unit,
+    onCard: ((Long) -> Unit)? = null,
     viewModel: BenefitReportViewModel = hiltViewModel(),
 ) {
     val s by viewModel.state.collectAsStateWithLifecycle()
@@ -315,7 +590,7 @@ fun BenefitReportRoute(
     }
     val c = YamuTheme.colors
     val r = s.report
-    val empty = r != null && r.received == 0L && r.missed.isEmpty() && r.byPlace.isEmpty()
+    val empty = r != null && r.received == 0L && r.unconverted == 0L && r.missed.isEmpty() && r.byPlace.isEmpty()
     FlowScreen(
         title = "혜택 리포트",
         onBack = onBack,
@@ -341,15 +616,21 @@ fun BenefitReportRoute(
                         MonthEmpty(
                             s.shown,
                             onSelect = viewModel::select,
-                            thisMessage = "이번 달 받은 혜택이 아직 없어요",
-                            pastMessage = "${monthTitle(s.shown.month, s.shown.thisMonth)}에 받은 혜택이 없어요",
+                            thisMessage = "이번 달 이용 혜택이 아직 없어요",
+                            pastMessage = "${monthTitle(s.shown.month, s.shown.thisMonth)} 이용 혜택이 없어요",
                         )
                     }
                     else -> {
                         YamuCard {
-                            Text("${r.periodLabel} 받은 혜택", style = YamuTheme.typography.bodyM, color = c.text2)
+                            // '○월 이용 혜택' — 지급월이 아니라 그달 이용으로 생긴 혜택(명세 v4 · 레인 1 홈과 같은 말)
+                            Text("${r.periodLabel} 이용 혜택", style = YamuTheme.typography.bodyM, color = c.text2)
                             Spacer(Modifier.height(4.dp))
-                            AmountText(r.received)
+                            AmountText(r.confirmed)
+                            Spacer(Modifier.height(4.dp))
+                            Text(confirmedLine(r), style = YamuTheme.typography.bodyM, color = c.text2)
+                            if (r.unconverted > 0) {
+                                Text(unconvertedLine(r.unconverted), style = YamuTheme.typography.bodyS, color = c.text3, modifier = Modifier.padding(top = 2.dp))
+                            }
                             r.yamuExtra?.let {
                                 Spacer(Modifier.height(4.dp))
                                 Text(
@@ -361,6 +642,25 @@ fun BenefitReportRoute(
                                     style = YamuTheme.typography.bodyM,
                                     color = c.text2,
                                 )
+                            }
+                        }
+                        // 종류별 — 할인 · 캐시백 · 적립(옛 서버는 칸이 없어 숨긴다)
+                        if (r.byType.isNotEmpty()) {
+                            YamuCard(contentPadding = PaddingValues(YamuSpacing.x4)) {
+                                Text("종류별", style = YamuTheme.typography.cardTitle, color = c.text1)
+                                Spacer(Modifier.height(YamuSpacing.x1))
+                                r.byType.forEach { t -> BenefitAmountRow(t.label, t.confirmed, t.unconfirmed, t.unconverted) }
+                            }
+                        }
+                        // 카드별 — 별명이 먼저. 이번 달이고 지금 등록된 카드일 때만 눌러 R-02로([cardTarget])
+                        if (r.cards.isNotEmpty()) {
+                            YamuCard(contentPadding = PaddingValues(YamuSpacing.x4)) {
+                                Text("카드별", style = YamuTheme.typography.cardTitle, color = c.text1)
+                                Spacer(Modifier.height(YamuSpacing.x1))
+                                r.cards.forEach { card ->
+                                    val open = cardTarget(card, s.shown, s.cardIds)?.let { id -> onCard?.let { go -> { go(id) } } }
+                                    BenefitAmountRow(card.name, card.confirmed, card.unconfirmed, card.unconverted, onClick = open)
+                                }
                             }
                         }
                         if (r.missedTotal > 0) {
@@ -387,6 +687,42 @@ fun BenefitReportRoute(
         }
     }
 }
+
+/** 종류별 · 카드별 한 줄 — 이름 / 확정 금액, 밑에 확정 전 · 원화로 못 바꾼 건수. [onClick]이 있으면 줄 전체를 눌러 이동(꺾쇠) */
+@Composable
+private fun BenefitAmountRow(name: String, confirmed: Long, unconfirmed: Long, unconverted: Long, onClick: (() -> Unit)? = null) {
+    val c = YamuTheme.colors
+    val sub = amountSubLine(unconfirmed, unconverted)
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .heightIn(min = 52.dp)
+            .then(if (onClick != null) Modifier.clip(RoundedCornerShape(8.dp)).clickable(role = Role.Button, onClick = onClick) else Modifier)
+            .padding(vertical = 6.dp)
+            .semantics(mergeDescendants = true) { },
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(name, style = YamuTheme.typography.titleM, color = c.text1, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            sub?.let { Text(it, style = YamuTheme.typography.bodyS, color = c.text3, modifier = Modifier.padding(top = 2.dp)) }
+        }
+        Text("${confirmed.toWon()}원", style = YamuTheme.typography.value, color = c.text1)
+        if (onClick != null) Icon(YamuIcons.ChevronRight, contentDescription = null, tint = c.text3, modifier = Modifier.padding(start = 4.dp).size(18.dp))
+    }
+}
+
+/** 큰 숫자 밑 한 줄 — 확정 전이 있으면 '확정 전 500원 더 있어요(모두 1,500원)', 없으면 '모두 확정된 혜택이에요' */
+internal fun confirmedLine(r: BenefitReport): String =
+    if (r.unconfirmed > 0) "확정된 혜택이에요 · 확정 전 ${r.unconfirmed.toWon()}원 더 있어요(모두 ${r.received.toWon()}원)" else "모두 확정된 혜택이에요"
+
+/** 원화로 바꾸지 못한 혜택 — 적립이 없는 게 아니라 금액에 넣지 못한 것 */
+internal fun unconvertedLine(count: Long): String = "원화로 바꾸지 못한 혜택 ${count}건은 금액에 넣지 않았어요"
+
+/** 종류별 · 카드별 줄의 보조 줄 — 확정 전 · 원화로 못 바꾼 건수. 둘 다 없으면 null */
+internal fun amountSubLine(unconfirmed: Long, unconverted: Long): String? = listOfNotNull(
+    "확정 전 ${unconfirmed.toWon()}원".takeIf { unconfirmed > 0 },
+    "원화로 못 바꾼 ${unconverted}건".takeIf { unconverted > 0 },
+).joinToString(" · ").ifEmpty { null }
 
 /** 놓친 혜택 한 줄 — 가맹점 · 날짜 · 이유 / −금액(검정, 합만 빨강) */
 @Composable

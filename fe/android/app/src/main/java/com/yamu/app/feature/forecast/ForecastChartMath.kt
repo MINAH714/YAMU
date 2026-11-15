@@ -1,5 +1,7 @@
 package com.yamu.app.feature.forecast
 
+import java.time.LocalDate
+import java.time.YearMonth
 import kotlin.math.abs
 import kotlin.math.floor
 import kotlin.math.max
@@ -92,4 +94,138 @@ internal fun valueAt(values: List<Long?>, fraction: Float): Double? {
     val b = values[i1]
     if (a == null || b == null) return (a ?: b)?.toDouble()
     return a + (b - a) * (f - i0).toDouble()
+}
+
+// ── 한 달 그래프(소비분석 자산 흐름, Task 8.2.99) ──
+
+/**
+ * 한 달 그래프의 날 종류 — 색만으로 나누지 않고 선 모양 · 빗금 · 글자로도 나눈다(COMMON-11).
+ * 지난 실제 잔고는 아직 BE에 없어 지금은 지난날이 모두 [NO_DATA]다(COMMON-03: 지출액으로 잔고를 만들지 않음)
+ */
+enum class DayKind {
+    /** 지난날 실제 잔고 — 실선 */
+    ACTUAL,
+    /** 오늘 — 실선과 점선이 만나는 자리, 세로 기준선 */
+    TODAY,
+    /** 앞날 예상 잔고 — 점선 */
+    EXPECTED,
+    /** 잔고를 받을 수 없는 날 — 진한 빗금 */
+    NO_DATA,
+    /** 예보가 닿지 않는 날(오늘부터 30일 뒤, FORECAST-06) — 옅은 빗금 */
+    OUT_OF_RANGE,
+    /** 지난 잔고를 은행에서 읽지 못한 날(asset-flows dataStatus ERROR, S15P31E103-492) — 주황 빗금. 자료 없음과 나눠 안내한다 */
+    ERROR,
+    /** 서버가 앱이 모르는 종류 · 상태를 보낸 날 — 지어 그리지 않고 '표시 불가' */
+    UNKNOWN,
+}
+
+/** 빗금으로 비우는 날인지 — 값이 없는 날은 모두 빗금이고 선을 잇지 않는다 */
+internal val DayKind.hatched: Boolean get() = this == DayKind.NO_DATA || this == DayKind.OUT_OF_RANGE || this == DayKind.ERROR || this == DayKind.UNKNOWN
+
+/** 그래프 빗금 위 글자 — 색만으로 나누지 않게(COMMON-11) */
+internal fun hatchLabel(kind: DayKind): String = when (kind) {
+    DayKind.OUT_OF_RANGE -> "예보 범위 밖"
+    DayKind.ERROR -> "잔고 조회 실패"
+    DayKind.UNKNOWN -> "표시할 수 없음"
+    else -> "실제 잔고 없음"
+}
+
+/** 빗금 진하기 — 범위 밖만 옅게(아직 오지 않은 날이라 '없다'보다 '아직'에 가깝다) */
+internal fun hatchStrong(kind: DayKind): Boolean = kind != DayKind.OUT_OF_RANGE
+
+/**
+ * 한 달([month])의 날 종류 — 오늘([today], 한국 날짜) 앞은 실제 잔고를 받은 날([actualDates])이면 실제, 아니면 데이터 없음.
+ * 오늘 뒤는 예보 마지막 날([expectedUntil])까지 예상, 그 뒤는 범위 밖(FORECAST-06: 예보를 늘려 그리지 않음).
+ * 예보를 못 받았으면(null) 오늘 뒤도 데이터 없음이다
+ */
+internal fun monthDayKinds(month: YearMonth, today: LocalDate, actualDates: Set<LocalDate>, expectedUntil: LocalDate?): List<DayKind> =
+    (1..month.lengthOfMonth()).map { d ->
+        val date = month.atDay(d)
+        when {
+            date.isBefore(today) -> if (date in actualDates) DayKind.ACTUAL else DayKind.NO_DATA
+            date == today -> DayKind.TODAY
+            expectedUntil == null -> DayKind.NO_DATA
+            !date.isAfter(expectedUntil) -> DayKind.EXPECTED
+            else -> DayKind.OUT_OF_RANGE
+        }
+    }
+
+/**
+ * 한 달 그래프 표시 — [kinds]는 날짜와 같은 길이. 주면 [BalanceChart]가 실선 · 점선 · 빗금 · 오늘 기준선 · 바닥 날짜를 그린다.
+ * [emptyValue]는 값이 없는 날 말풍선 아랫줄([monthEmptyValue])
+ */
+data class MonthChart(val kinds: List<DayKind>, val emptyValue: (DayKind) -> String = ::monthEmptyValue)
+
+/**
+ * 값이 없는 날 말풍선 아랫줄 — 금액 자리라 날 종류 이름('데이터 없음' · '범위 밖')을 쓰되, 오늘은 '지금'이 금액처럼 읽혀
+ * 자산 흐름 칸 머리의 빈 지금 잔고와 같은 '확인할 수 없음'(예보만 실패해 오늘 값이 없을 때)
+ */
+fun monthEmptyValue(kind: DayKind): String = if (kind == DayKind.TODAY) "확인할 수 없음" else kindShortLabel(kind)
+
+/** 날 종류 짧은 이름 — 날짜 칸 꼬리표 · 말풍선 · 읽어 주기가 같이 쓴다 */
+fun kindShortLabel(kind: DayKind): String = when (kind) {
+    DayKind.ACTUAL -> "실제"
+    DayKind.TODAY -> "지금"
+    DayKind.EXPECTED -> "예상"
+    DayKind.NO_DATA -> "데이터 없음"
+    DayKind.OUT_OF_RANGE -> "범위 밖"
+    DayKind.ERROR -> "조회 실패"
+    DayKind.UNKNOWN -> "표시 불가"
+}
+
+/** 같은 빗금 종류가 이어지는 묶음 — [from]~[to]는 날 번호(둘 다 포함) */
+internal data class KindRun(val kind: DayKind, val from: Int, val to: Int)
+
+/** 빗금으로 칠할 묶음들 — 데이터 없음 · 범위 밖이 이어지는 곳마다 하나. 종류가 바뀌면 나눈다 */
+internal fun hatchRuns(kinds: List<DayKind>): List<KindRun> = buildList {
+    var start = -1
+    for (i in kinds.indices) {
+        val k = kinds[i]
+        if (start >= 0 && kinds[start] != k) { add(KindRun(kinds[start], start, i - 1)); start = -1 }
+        if (start < 0 && k.hatched) start = i
+    }
+    if (start >= 0) add(KindRun(kinds[start], start, kinds.lastIndex))
+}
+
+/**
+ * 실선(실제)과 점선(예상)으로 나눈 값 — 오늘은 두 선에 다 넣어 이어지게 한다. 빗금 날은 둘 다 비운다.
+ * 날짜와 길이가 다르면 짧은 쪽에 맞춘다
+ */
+internal fun splitByKind(values: List<Long?>, kinds: List<DayKind>): Pair<List<Long?>, List<Long?>> {
+    val n = minOf(values.size, kinds.size)
+    val actual = List(n) { i -> values[i].takeIf { kinds[i] == DayKind.ACTUAL || kinds[i] == DayKind.TODAY } }
+    val expected = List(n) { i -> values[i].takeIf { kinds[i] == DayKind.TODAY || kinds[i] == DayKind.EXPECTED } }
+    return actual to expected
+}
+
+/** 바닥에 적는 날 — 1 · 8 · 15 · 22 · 29일 중 그달에 있는 날(0부터 센 번호) */
+internal fun monthAxisIndices(days: Int): List<Int> = listOf(1, 8, 15, 22, 29).filter { it <= days }.map { it - 1 }
+
+/**
+ * 바닥 날짜 글자 중 '오늘' 글자와 겹치지 않는 것. 오늘 글자는 말풍선에 가리지 않게 기준선 발치(바닥)에 두고, 그 자리를 덮는 날짜 글자는 뺀다.
+ * 범위는 가로 좌표 [시작, 끝], [gap]은 사이에 둘 여백
+ */
+internal fun axisLabelsClearOf(labels: List<ClosedFloatingPointRange<Float>>, today: ClosedFloatingPointRange<Float>, gap: Float): List<Boolean> =
+    labels.map { r -> r.endInclusive + gap <= today.start || r.start >= today.endInclusive + gap }
+
+/**
+ * 한 달 그래프 손잡이 값 — 두 날 모두 값이 있을 때만 곧게 잇고, 한쪽이 비면 가까운 날 값(그날도 비면 null).
+ * [valueAt]은 빈 날 위에서 옆 날 값을 끌어와 빗금 위에 동전이 뜬다
+ */
+internal fun valueAtStrict(values: List<Long?>, fraction: Float): Double? {
+    if (values.isEmpty()) return null
+    if (values.size == 1) return values[0]?.toDouble()
+    val f = fraction.coerceIn(0f, 1f) * (values.size - 1)
+    val i0 = floor(f).toInt().coerceIn(0, values.size - 1)
+    val i1 = (i0 + 1).coerceAtMost(values.size - 1)
+    val a = values[i0]
+    val b = values[i1]
+    if (a != null && b != null) return a + (b - a) * (f - i0).toDouble()
+    return values[if (f - i0 < 0.5f) i0 else i1]?.toDouble()
+}
+
+/** 날마다 처음으로 값이 있는 선의 값 — 한 달 그래프는 실선 · 점선이 날을 나눠 가져 손잡이가 이 값을 탄다 */
+internal fun firstValues(lines: List<List<Long?>>): List<Long?> {
+    val n = lines.maxOfOrNull { it.size } ?: 0
+    return List(n) { i -> lines.firstNotNullOfOrNull { it.getOrNull(i) } }
 }

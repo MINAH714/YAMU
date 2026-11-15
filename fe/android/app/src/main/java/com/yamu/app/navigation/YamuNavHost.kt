@@ -42,7 +42,6 @@ import com.yamu.app.feature.payment.CancelCodeRoute
 import com.yamu.app.feature.payment.PayCodeRoute
 import com.yamu.app.feature.payment.PayDoneRoute
 import com.yamu.app.feature.payment.PaymentDetailRoute
-import com.yamu.app.feature.payment.RecommendRoute
 import com.yamu.app.feature.forecast.BuyCheckInputRoute
 import com.yamu.app.feature.forecast.BuyCheckResultRoute
 import com.yamu.app.feature.forecast.BuyCheckSavedRoute
@@ -231,21 +230,26 @@ fun YamuNavHost(navController: NavHostController, modifier: Modifier = Modifier)
 
             navigation<HomeGraph>(startDestination = Home) {
                 composable<Home> {
-                    // 3단계: 실제 화면(07 문서 3-5)
+                    // 3단계: 실제 화면(07 문서 3-5) · v4 홈(S15P31E103-480 · 481)
                     HomeRoute(
                         onPay = { navController.navigate(PayCode) },
                         onForecast = { navController.navigate(Forecast) },
-                        onCashflow = { navController.navigate(CashflowList) },
                         onNotifications = { navController.navigate(Notifications) },
                         onMyCards = { navController.navigate(MyCards) },
                         onStartLinking = { navController.navigate(LinkGraph) },
-                        onTodo = { userCardId -> navController.navigate(PerfAnalysis(userCardId ?: 1L)) },
                         onRecentPayment = { paymentId -> navController.navigate(PaymentDetail(paymentId)) },
                         // 결제 내역은 홈 위에 쌓고(뒤로 = 홈), 소비분석은 하단 탭을 누른 것과 같이 탭을 바꾼다(2차 QA 19 · 39)
                         onPayments = { navController.navigate(Payments) },
                         onReport = { navController.navigateToTab(TopTab.REPORT) },
                         onRegisterIncome = { navController.navigate(CashflowConfirm(fromHome = true)) },
                         onAddCard = { navController.navigate(AddCard) },
+                        // 혜택 히어로 → 혜택 리포트(S-04) — 홈 위에 쌓여 뒤로 = 홈. 달은 홈이 누르기 전에 고른다
+                        onBenefitReport = { navController.navigate(BenefitReport) },
+                        // 내 카드 혜택 현황 줄 → 그 카드 R-02, 남은 혜택 모두 보기 → R-06 — 홈 위에 쌓여 뒤로 = 홈
+                        onCardPerformance = { userCardId -> navController.navigate(CardPerformance(userCardId)) },
+                        onBenefitLimits = { navController.navigate(BenefitLimits) },
+                        // 전체보기 → 실적관리 탭(R-01) — 하단 탭을 누른 것과 같이 탭을 바꾼다
+                        onPerfTab = { navController.navigateToTab(TopTab.PERF) },
                     )
                 }
                 // 9 · 10단계: 실제 화면(13 문서)
@@ -328,13 +332,6 @@ fun YamuNavHost(navController: NavHostController, modifier: Modifier = Modifier)
                 }
             }
 
-            navigation<PayGraph>(startDestination = Recommend) {
-                composable<Recommend> {
-                    // 6단계: 실제 화면(10 문서)
-                    RecommendRoute(onOpenPayCode = { navController.navigate(PayCode) }, onAddCard = { navController.navigate(AddCard) }, onNotifications = { navController.navigate(Notifications) })
-                }
-            }
-
             navigation<PerfGraph>(startDestination = PerfOverview) {
                 // 7단계: 실제 화면(11 문서)
                 composable<PerfOverview> {
@@ -359,10 +356,16 @@ fun YamuNavHost(navController: NavHostController, modifier: Modifier = Modifier)
                     ReportRoute(
                         onBenefits = { navController.navigate(BenefitReport) },
                         onPayments = { navController.navigate(Payments) },
+                        // 잔고예보는 홈 그래프 안 화면이지만 소비분석 위에 쌓아 뒤로 = 소비분석(보던 달 · 스크롤 그대로)
+                        onForecast = { navController.navigate(Forecast) { launchSingleTop = true } },
                     )
                 }
                 composable<BenefitReport> {
-                    BenefitReportRoute(onBack = back, onPayments = { navController.navigate(Payments) })
+                    BenefitReportRoute(
+                        onBack = back,
+                        onPayments = { navController.navigate(Payments) },
+                        onCard = { id -> navController.navigate(CardPerformance(id)) },
+                    )
                 }
                 composable<Payments> {
                     PaymentsRoute(

@@ -7,6 +7,7 @@ import android.content.SharedPreferences
 import android.database.Cursor
 import android.net.Uri
 import androidx.compose.runtime.snapshotFlow
+import com.yamu.app.core.session.AssetFlowScenario
 import com.yamu.app.core.session.DevSession
 import com.yamu.app.core.session.FaultScenario
 import com.yamu.app.core.session.HomeScenario
@@ -29,6 +30,7 @@ internal object DevSessionStore {
         val link: LinkScenario,
         val pay: PayScenario,
         val fault: FaultScenario,
+        val assetFlow: AssetFlowScenario,
     )
 
     /** 저장한 값을 DevSession에 넣고, 그 뒤로 바뀔 때마다 저장한다. 이름이 바뀌어 못 읽는 값은 기본값 그대로 */
@@ -39,10 +41,11 @@ internal object DevSessionStore {
         prefs.enumOf<LinkScenario>("link")?.let { DevSession.linkScenario = it }
         prefs.enumOf<PayScenario>("pay")?.let { DevSession.payScenario = it }
         prefs.enumOf<FaultScenario>("fault")?.let { DevSession.faultScenario = it }
+        prefs.enumOf<AssetFlowScenario>("assetFlow")?.let { DevSession.assetFlowScenario = it }
         // 디버그 메뉴 · 가짜 저장소가 바꾸면 Compose 스냅숏 알림으로 받는다(같은 값이면 다시 쓰지 않음).
         // 첫 값도 쓴다 — 모으기 시작하기 전에 바뀐 값이 있어도 빠지지 않게(읽은 값 그대로면 같은 값을 한 번 더 쓸 뿐)
         MainScope().launch {
-            snapshotFlow { Values(DevSession.startState, DevSession.homeScenario, DevSession.linkScenario, DevSession.payScenario, DevSession.faultScenario) }
+            snapshotFlow { Values(DevSession.startState, DevSession.homeScenario, DevSession.linkScenario, DevSession.payScenario, DevSession.faultScenario, DevSession.assetFlowScenario) }
                 .collect { v ->
                     prefs.edit()
                         .putString("start", v.start.name)
@@ -50,6 +53,7 @@ internal object DevSessionStore {
                         .putString("link", v.link.name)
                         .putString("pay", v.pay.name)
                         .putString("fault", v.fault.name)
+                        .putString("assetFlow", v.assetFlow.name)
                         .apply()
                 }
         }

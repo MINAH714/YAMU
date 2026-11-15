@@ -2,9 +2,14 @@ package com.yamu.app.feature.link
 
 import com.yamu.app.core.network.ApiError
 import com.yamu.app.core.network.ApiResult
+import com.yamu.app.feature.home.data.CardBenefit
+import com.yamu.app.feature.home.data.HomeBenefit
+import com.yamu.app.feature.home.data.HomeCardsData
+import com.yamu.app.feature.home.data.HomeForecastBrief
 import com.yamu.app.feature.home.data.HomeRepository
 import com.yamu.app.feature.home.data.HomeSummary
 import com.yamu.app.feature.home.data.HomeTodo
+import com.yamu.app.feature.home.data.PaySettings
 import com.yamu.app.feature.home.data.SyncResult
 import com.yamu.app.feature.home.data.TodayCard
 import com.yamu.app.feature.home.data.TodoTone
@@ -20,6 +25,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import java.time.YearMonth
 
 /** B-07 — 실패했는데 "첫 분석이 나왔어요"가 보이지 않는다(B-09). `GET /api/home`이 아직 없어 release에선 404가 온다 */
 class FirstAnalysisViewModelTest {
@@ -28,6 +34,12 @@ class FirstAnalysisViewModelTest {
     private class Home(private val result: ApiResult<HomeSummary>) : HomeRepository {
         override suspend fun loadHome() = result
         override suspend fun sync(): ApiResult<SyncResult> = error("B-07은 새로고침하지 않는다")
+        override suspend fun loadBenefit(month: YearMonth): ApiResult<HomeBenefit> = error("B-07은 홈 혜택을 부르지 않는다")
+        override suspend fun loadPaySettings(): ApiResult<PaySettings> = error("B-07은 결제 설정을 부르지 않는다")
+        override suspend fun loadCards(): ApiResult<HomeCardsData> = error("B-07은 카드 현황을 부르지 않는다")
+        override suspend fun loadForecastBrief(accountId: Long): ApiResult<HomeForecastBrief> = error("B-07은 잔고예보 요약을 부르지 않는다")
+        override suspend fun loadAccountLabel(accountId: Long): String? = error("B-07은 계좌 칩을 부르지 않는다")
+        override suspend fun loadCardBenefits(month: YearMonth): ApiResult<Map<Long, CardBenefit>> = error("B-07은 카드별 혜택을 부르지 않는다")
     }
 
     private val summary = HomeSummary(

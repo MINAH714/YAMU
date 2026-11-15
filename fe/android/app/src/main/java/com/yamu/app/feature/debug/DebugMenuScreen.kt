@@ -33,6 +33,7 @@ import com.yamu.app.core.session.DevSession
 import com.yamu.app.core.session.FaultScenario
 import com.yamu.app.core.session.LinkScenario
 import com.yamu.app.core.session.PayScenario
+import com.yamu.app.core.session.AssetFlowScenario
 import com.yamu.app.core.session.HomeScenario
 import com.yamu.app.core.session.StartState
 import com.yamu.app.navigation.AccountManage
@@ -159,6 +160,22 @@ fun DebugMenuScreen(navController: NavController, viewModel: DebugMenuViewModel 
                         scenario.label,
                         trailing = { RoundCheckbox(checked = DevSession.homeScenario == scenario, onCheckedChange = null) },
                         onClick = { DevSession.homeScenario = scenario },
+                    )
+                }
+            }
+            YamuCard {
+                Text("소비분석 자산 흐름 (가짜 데이터)", style = YamuTheme.typography.titleM, color = c.text1)
+                Text(
+                    if (ApiFeature.FORECAST.isReal) "잔고예보가 진짜 서버를 써서 여기서 바꿀 수 없어요(yamu.realApi)"
+                    else "월별 자산 흐름 API(asset-flows)는 BE !315에 있고 11/14 운영 서버엔 아직 없어요. 옛 서버면 지난날이 빗금이고 예보만 그려요. 소비분석으로 돌아가면 바로 바뀌어요",
+                    style = YamuTheme.typography.bodyS,
+                    color = c.text3,
+                )
+                AssetFlowScenario.entries.forEach { scenario ->
+                    ListRow(
+                        scenario.label,
+                        trailing = { RoundCheckbox(checked = DevSession.assetFlowScenario == scenario, onCheckedChange = null) },
+                        onClick = { DevSession.assetFlowScenario = scenario },
                     )
                 }
             }

@@ -20,6 +20,13 @@ enum class HomeScenario(val label: String) {
     NOT_LINKED("연결 전(계좌 0 · 카드 0)"),
     LEGACY_SPEC("지금 명세 모양(보완 전)"),
     PARTIAL("예상 잔액만 실패"),
+    NO_PAYMENT("이번 달 결제 없음"),       // v4 혜택 히어로 0원 · '결제 없음'(S15P31E103-480)
+    BENEFIT_ERROR("혜택만 실패"),          // 혜택 칸만 다시 시도, 나머지 칸은 그대로
+    AUTO_SELECT_OFF("자동 선택 꺼짐"),      // 결제 칸이 기본 카드로 결제한다고 말한다(HOME-09)
+    FORECAST_ERROR("잔고예보만 실패"),      // v4 잔고예보 요약 — 지금 잔고는 남고 예보만 다시 시도(S15P31E103-481)
+    NO_ACCOUNT("기준 계좌 없음"),          // 카드는 있는데 홈 잔고 영역이 비었을 때 — 계좌 연결 안내
+    OLD_SERVER("옛 서버(새 홈 칸 없음)"),   // BE -490 전 — 홈이 reports/monthly · forecasts/balance로 돌아가는지(S15P31E103-491)
+    UNCONVERTED("원화로 못 바꾼 혜택"),     // 적립 한 줄이 원화로 안 바뀐 달 — 히어로 안내 · '환산 전' 칸
     BANK_ERROR("금융망 오류"),
     NETWORK_ERROR("네트워크 없음"),
     SLOW("느린 응답(3초)"),
@@ -32,6 +39,16 @@ enum class LinkScenario(val label: String) {
     ACCOUNT_NOT_LINKED("Mr.Life 등록 때 결제 계좌 미연결(409)"),
     CANDIDATE_EXPIRED("계좌 연결 때 목록 만료(한 번)"),
     BANK_ERROR("계좌 연결 때 금융망 오류"),
+}
+
+/**
+ * 가짜 데이터(debug)로 볼 소비분석 자산 흐름 — BE !315의 GET asset-flows(S15P31E103-492).
+ * 새 서버는 지난 잔고를 오늘부터 45일 앞까지만 주고 그 앞은 자료 없음, 옛 서버(11/14 yamu.it.kr)는 이 API가 없어 404다
+ */
+enum class AssetFlowScenario(val label: String) {
+    NORMAL("새 서버 · 지난 잔고 45일(그 앞은 자료 없음)"),
+    HISTORY_ERROR("새 서버 · 지난 잔고 은행 조회 실패"),
+    OLD_SERVER("옛 서버 · asset-flows 없음(404)"),
 }
 
 /** 가짜 데이터(debug)로 볼 결제 — 10 문서 6-7. 고객 앱 혼자 돌 때 '가맹점이 찍은 것처럼' */
@@ -72,6 +89,9 @@ object DevSession {
     var linkScenario by mutableStateOf(LinkScenario.NORMAL)
     var payScenario by mutableStateOf(PayScenario.CAFE)
     var faultScenario by mutableStateOf(FaultScenario.NONE)
+
+    /** debug 가짜 소비분석 자산 흐름(asset-flows) 상태(S15P31E103-492) */
+    var assetFlowScenario by mutableStateOf(AssetFlowScenario.NORMAL)
 
     /** debug 가짜 사용자(계좌 · 카드 · 월급) 요약 — 가짜 저장소가 채우고 디버그 메뉴가 보인다. release는 늘 비어 있다 */
     var fakeUser by mutableStateOf<List<String>>(emptyList())

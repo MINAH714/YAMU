@@ -17,6 +17,9 @@ import com.yamu.app.feature.my.data.NotificationsPage
 import com.yamu.app.feature.payment.data.PaymentReceipt
 import com.yamu.app.feature.payment.data.ReceiptBenefit
 import com.yamu.app.feature.report.data.BenefitReport
+import com.yamu.app.feature.report.data.BenefitTypeLine
+import com.yamu.app.feature.report.data.CardBenefitLine
+import com.yamu.app.feature.report.data.benefitTypeLabel
 import com.yamu.app.feature.report.data.CategoryShare
 import com.yamu.app.feature.report.data.CsvFile
 import com.yamu.app.feature.report.data.defaultCsvName
@@ -176,9 +179,36 @@ class FakeReportRepository @Inject constructor(private val payments: FakePayment
     override suspend fun benefits(month: YearMonth): ApiResult<BenefitReport> =
         withFault(empty = { emptyBenefits(month) }) { if (month == YearMonth.now(KST)) benefitsNow() else { delay(500); emptyBenefits(month) } }
 
+    /**
+     * 이번 달 혜택(BE !316 모양, source=YAMU) — 시드 사용자는 전체 32,400원 중 확정 24,000원, 적립 1건은 원화로 못 바꿈.
+     * 이번 세션에 낸 결제의 혜택(extra)은 확정 전 적립으로 더한다(캐시백 · 적립은 늘 확정 전이라)
+     */
     private suspend fun benefitsNow(): ApiResult<BenefitReport> {
         delay(500)
         val extra = sessionItems().sumOf { it.benefit ?: 0 }
+        val byType = if (past) {
+            listOf(
+                BenefitTypeLine("DISCOUNT", benefitTypeLabel("DISCOUNT"), 18_000, 2_400, 0),
+                BenefitTypeLine("CASHBACK", benefitTypeLabel("CASHBACK"), 6_000, 1_000, 0),
+                BenefitTypeLine("POINT", benefitTypeLabel("POINT"), 0, 5_000 + extra, 1),
+            )
+        } else {
+            listOf(
+                BenefitTypeLine("DISCOUNT", benefitTypeLabel("DISCOUNT"), 0, 0, 0),
+                BenefitTypeLine("CASHBACK", benefitTypeLabel("CASHBACK"), 0, 0, 0),
+                BenefitTypeLine("POINT", benefitTypeLabel("POINT"), 0, extra, 0),
+            )
+        }
+        val cards = if (past) {
+            listOf(
+                // userCardId는 가짜 카드(FakeBank — C1이 11, C5가 15)와 같게. 99는 해지해서 지금 목록에 없는 카드(누를 수 없음)
+                CardBenefitLine(11, "KB국민 청춘대로 톡톡카드", 14_000, 4_400 + extra, 1),
+                CardBenefitLine(15, "신한카드 Mr.Life", 8_000, 4_000, 0),
+                CardBenefitLine(99, "삼성카드 taptap O", 2_000, 0, 0),
+            )
+        } else {
+            listOfNotNull(CardBenefitLine(null, "카드", 0, extra, 0).takeIf { extra > 0 })
+        }
         return ApiResult.Success(
             BenefitReport(
                 periodLabel = periodLabel(YearMonth.now(KST).toString(), partial = true),
@@ -190,6 +220,11 @@ class FakeReportRepository @Inject constructor(private val payments: FakePayment
                     MissedBenefit("편의점 테헤란점", LocalDate.now(KST).minusDays(8), "직접 고른 카드", 900),
                 ),
                 byPlace = if (!past) listOfNotNull(("카페" to extra).takeIf { extra > 0 }) else listOf("생활·렌탈" to 10_000L, "마트·주유" to 8_300L, "카페" to 5_280L + extra),
+                confirmed = byType.sumOf { it.confirmed },
+                unconfirmed = byType.sumOf { it.unconfirmed },
+                unconverted = byType.sumOf { it.unconverted },
+                byType = byType,
+                cards = cards,
             ),
         )
     }
@@ -277,6 +312,9 @@ class FakeMyRepository @Inject constructor(
 ) : MyRepository {
 
     private var autoSelect = true
+
+    /** 카드 관리에서 바꾼 자동 선택 — 가짜 홈 결제 칸이 세션을 읽지 않고 본다(S15P31E103-480) */
+    val autoSelectOn: Boolean get() = autoSelect
     private var settings = NotiSettings(performance = true, balance = true, balanceThreshold = 100_000, payment = true, time = "08:30")
     private val devices = mutableListOf(
         Device(7, Build.MODEL ?: "이 기기", current = true, lastUsedIso = at(0, "09:00")),

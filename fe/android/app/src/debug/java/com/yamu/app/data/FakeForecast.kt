@@ -305,10 +305,13 @@ class FakeForecastRepository @Inject constructor(private val bank: FakeBank) : F
                 method = "ML_V1",
                 dataOrigin = if (living.all { it != null }) "REAL" else "INSUFFICIENT",
             ),
-            // 기간 뒤 카드값(BE -348) — 생활비 통장(2)에서 빠지는 것만, 출금일순. 시드 사용자의 지난 카드 사용이라 새 사용자는 없다
-            beyondHorizon = if (2L !in ids || !bank.seeded) emptyList() else listOf(
-                BeyondHorizonItemDto(to.plusDays(5).toString(), "CARD_BILLING", "생활카드 ${to.plusDays(5).monthValue}월 청구", -320_000, "EXPECTED"),
-                BeyondHorizonItemDto(to.plusDays(5).toString(), "CARD_SPENDING_ESTIMATE", "생활카드 · 이용기간 마감까지 10일 × 일평균 12,000원", -120_000, "CONSERVATIVE"),
+            // 기간 뒤 카드값(BE -348) — 고른 계좌에서 빠지는 것만, 출금일순. 시드 사용자의 지난 카드 사용이라 새 사용자는 없다.
+            // 생활비 통장(2)의 생활카드에 더해, 기준 계좌(KB ·1234)에서 빠지는 톡톡카드 청구도 하나 둔다 — 소비분석 자산 흐름(기준 계좌)의
+            // '범위 밖 출금' 한 줄을 가짜 데이터로도 볼 수 있게(S15P31E103-483, 시안의 12/15 카드 대금)
+            beyondHorizon = if (!bank.seeded) emptyList() else listOfNotNull(
+                BeyondHorizonItemDto(to.plusDays(2).toString(), "CARD_BILLING", "톡톡카드 ${to.plusDays(2).monthValue}월 청구", -180_000, "EXPECTED").takeIf { 1L in ids },
+                BeyondHorizonItemDto(to.plusDays(5).toString(), "CARD_BILLING", "생활카드 ${to.plusDays(5).monthValue}월 청구", -320_000, "EXPECTED").takeIf { 2L in ids },
+                BeyondHorizonItemDto(to.plusDays(5).toString(), "CARD_SPENDING_ESTIMATE", "생활카드 · 이용기간 마감까지 10일 × 일평균 12,000원", -120_000, "CONSERVATIVE").takeIf { 2L in ids },
             ),
             excluded = excludedItems,
             isEstimate = true,
@@ -320,14 +323,20 @@ class FakeForecastRepository @Inject constructor(private val bank: FakeBank) : F
         // '데이터 부족'은 실패가 아니라 생활비 기록이 없는 응답 — 잔고예보는 이때도 실패하지 않는다(docs/be/forecast.md 「에러」)
         if (DevSession.faultScenario == FaultScenario.DATA_INSUFFICIENT) {
             delay(300)
-            return ApiResult.Success(build(current, noLiving = true).toForecast().copy(scope = current.scopeFrom(options())).also { last = it })
+            return ApiResult.Success(build(current, noLiving = true).toForecast().withSelection(current).also { last = it })
         }
         return withFault(empty = { ApiResult.Failure(ApiError.InvalidRequest(ForecastRepository.NO_ACCOUNT)) }) {
             delay(500)
             // 연결한 계좌가 없으면 BE처럼 400 — 가짜 사용자 '연결 전'과 같은 빈 화면
             if (accountList.isEmpty()) return@withFault ApiResult.Failure(ApiError.InvalidRequest(ForecastRepository.NO_ACCOUNT))
-            ApiResult.Success(build(current).toForecast().copy(scope = current.scopeFrom(options())).also { last = it })
+            ApiResult.Success(build(current).toForecast().withSelection(current).also { last = it })
         }
+    }
+
+    /** 진짜 저장소처럼 예정 목록 범위와 본 계좌(이름표용)를 붙인다 — 고르지 않았으면 기준 계좌 하나(S15P31E103-484) */
+    private fun Forecast.withSelection(selection: ForecastSelection): Forecast {
+        val ids = selection.accountIdsFrom(options())
+        return copy(scope = selection.scopeFrom(options()), accounts = options().filter { it.accountId in ids })
     }
 
     /** 가짜 홈의 예상 잔액(S15P31E103-454) — 홈 금액이 잔고예보와 같은 계산에서 나오게 */
@@ -340,6 +349,13 @@ class FakeForecastRepository @Inject constructor(private val bank: FakeBank) : F
      * BE HomeService.forecast처럼 기준 계좌 하나로 잔고예보 설정 기간(월급 전날까지, 월급이 없으면 30일)을 계산한다.
      * 그래서 계좌가 하나면 잔고예보 첫 화면과 같은 금액이고, 둘 이상이면 잔고예보에서 기준 계좌만 골랐을 때와 같다(실서버도 같음)
      */
+    /**
+     * 가짜 홈 잔고예보 요약(S15P31E103-481) — 홈은 기준 계좌 하나 · 30일로 다시 부른다. 잔고예보에서 같은 계좌 · 30일을 고르면 같은 응답이다.
+     * 연결된 계좌가 아니면 null
+     */
+    fun homeBrief(accountId: Long): BalanceForecastDto? =
+        accountList.firstOrNull { it.id == accountId }?.let { build(ForecastSelection(ForecastPeriod.DAYS_30, setOf(it.id))) }
+
     fun homeForecast(): HomeForecast? {
         val base = accountList.firstOrNull { it.primary } ?: accountList.firstOrNull() ?: return null
         val dto = build(ForecastSelection(accountIds = setOf(base.id)))
@@ -355,6 +371,15 @@ class FakeForecastRepository @Inject constructor(private val bank: FakeBank) : F
             provisional = dto.livingCost?.projectedAmount == null,
         )
     }
+
+    /**
+     * 소비분석 자산 흐름(S15P31E103-483) — 고른 계좌로 오늘부터 30일(BE until=DAYS&days=30과 같다).
+     * 잔고예보 화면의 고른 기간 · 마지막 값은 건드리지 않는다
+     */
+    fun assetForecast(accountIds: Set<Long>): Forecast = build(ForecastSelection(ForecastPeriod.DAYS_30, accountIds)).toForecast()
+
+    /** 자산 흐름이 고를 계좌 목록 — 잔고예보 계좌 시트와 같다 */
+    fun assetAccounts(): List<ForecastAccountOption> = options()
 
     override fun cached(): Forecast? = last
 
@@ -482,7 +507,7 @@ class FakeForecastRepository @Inject constructor(private val bank: FakeBank) : F
         // 체크카드 구매일(기간 안) 출금 계좌의 구매 후 잔액(그 계좌의 가장 나쁜 선)이 0원 아래면 BE처럼 안내를 덧붙인다(-347).
         // 통합 합계로 보면 다른 계좌 잔액이 출금 계좌의 마이너스를 가린다(!206 리뷰). 출금 계좌를 고르지 않았으면 그날 잔액을 몰라 붙이지 않는다
         val checkOverdrawn = !card.credit && !query.purchaseDate.isAfter(to) && purchaseAccount in current.accountIdsFrom(options()) &&
-            build(current.copy(accountIds = setOf(purchaseAccount)), purchaseFlows).series
+            build(current.copy(accountIds = setOf(purchaseAccount), all = false), purchaseFlows).series
                 .firstOrNull { it.date == query.purchaseDate.toString() }?.let { (it.conservative ?: it.expected ?: 0) < 0 } == true
         val message = buildString {
             val d = afterDate?.let { "${it.monthValue}월 ${it.dayOfMonth}일" } ?: "기간 중"

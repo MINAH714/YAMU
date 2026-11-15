@@ -2,6 +2,7 @@ package com.yamu.app.data
 
 import com.yamu.app.core.format.KST
 import com.yamu.app.core.network.ApiResult
+import com.yamu.app.feature.forecast.data.ForecastSelection
 import com.yamu.app.feature.forecast.data.PaymentChannel
 import com.yamu.app.feature.forecast.data.Simulation
 import com.yamu.app.feature.forecast.data.SimulationQuery
@@ -16,7 +17,8 @@ import java.time.LocalDate
  * 가짜 계좌는 KB ·1234 412,000 · 신한 ·5678 268,000이고, 가상 구매는 신한 ·5678(두 번째 계좌)에서 빠진다
  */
 class FakeForecastSimulationTest {
-    private val fake = FakeForecastRepository(FakeBank(FakeUser(storage = null)))   // 시드 사용자
+    // 시드 사용자, 두 계좌 모두 — 가상 구매가 빠지는 신한 ·5678이 보는 계좌 안에 있어야 안내가 붙는다(잔고예보 기본은 기준 계좌 KB ·1234, S15P31E103-484)
+    private val fake = FakeForecastRepository(FakeBank(FakeUser(storage = null))).apply { select(ForecastSelection(all = true)) }
     private val notice = "체크카드는 구매일 잔액보다 큰 금액은 결제되지 않을 수 있어요."
 
     @Test fun `가짜 서버도 제외 업종을 지원하지 않는다`() = runTest {
