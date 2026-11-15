@@ -394,10 +394,18 @@ class FakeMyRepository @Inject constructor(
 
     override suspend fun notifications(page: Int): ApiResult<NotificationsPage> = withFault(empty = { ApiResult.Success(NotificationsPage(unread = 0, items = emptyList(), hasNext = false)) }) { notificationsNow(page) }
 
+    /** 실서버는 20개씩이지만 가짜 알림은 몇 개뿐이라 4개씩 나눠 '더 보기'(-497)를 볼 수 있게 한다. 안 읽은 수는 쪽과 상관없이 전체 */
     private suspend fun notificationsNow(page: Int): ApiResult<NotificationsPage> {
         delay(400)
         val list = all()
-        return ApiResult.Success(NotificationsPage(list.count { !it.read }, if (page == 1) list else emptyList(), hasNext = false))
+        val from = (page - 1).coerceAtLeast(0) * FAKE_NOTIFICATION_PAGE
+        return ApiResult.Success(
+            NotificationsPage(list.count { !it.read }, list.drop(from).take(FAKE_NOTIFICATION_PAGE), hasNext = list.size > from + FAKE_NOTIFICATION_PAGE),
+        )
+    }
+
+    private companion object {
+        const val FAKE_NOTIFICATION_PAGE = 4
     }
 
     override suspend fun markRead(id: Long): ApiResult<Unit> { readIds += id; return ApiResult.Success(Unit) }
