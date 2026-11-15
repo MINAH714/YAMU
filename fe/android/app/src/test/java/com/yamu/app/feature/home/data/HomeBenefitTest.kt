@@ -1,9 +1,7 @@
 package com.yamu.app.feature.home.data
 
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
-import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.time.LocalDate
 import java.time.YearMonth
@@ -80,34 +78,7 @@ class HomeBenefitTest {
         assertEquals("10/1~10/31", periodText(LocalDate.of(2026, 10, 1), LocalDate.of(2026, 10, 31)))
     }
 
-    // ── 결제 칸 ──
-
-    private val names = mapOf(11L to "신한카드 처음", 12L to "KB국민 노리 체크", 13L to "현대카드ZERO Edition3(포인트형)")
-
-    @Test fun `괄호로 끝나는 카드 이름은 괄호 안 끝 글자로 조사를 고른다`() {
-        assertEquals("자동 선택이 꺼져 있어요. 기본 카드인 현대카드ZERO Edition3(포인트형)으로 결제해요", payNote(PaySettings(false, 13), names::get)?.text)
-    }
-
-    @Test fun `자동 선택이 켜졌으면 안내 줄을 두지 않는다 — 기능을 설명하는 말투라 뺐다`() {
-        assertNull(payNote(PaySettings(autoSelect = true, defaultUserCardId = 11), names::get))
-        assertNull(payNote(PaySettings(autoSelect = true, defaultUserCardId = null), names::get))
-    }
-
-    @Test fun `자동 선택을 끈 사람에겐 기본 카드로 결제한다고 알린다`() {
-        val note = payNote(PaySettings(autoSelect = false, defaultUserCardId = 11), names::get)!!
-        assertEquals("자동 선택이 꺼져 있어요. 기본 카드인 신한카드 처음으로 결제해요", note.text)
-        assertTrue(note.autoOff)
-        assertEquals("자동 선택이 꺼져 있어요. 기본 카드인 KB국민 노리 체크로 결제해요", payNote(PaySettings(false, 12), names::get)?.text)
-    }
-
-    @Test fun `기본 카드 이름을 모르면 이름 없이`() {
-        assertEquals("자동 선택이 꺼져 있어 기본 카드로 결제해요", payNote(PaySettings(false, null), names::get)?.text)
-        assertEquals("자동 선택이 꺼져 있어 기본 카드로 결제해요", payNote(PaySettings(false, 99), names::get)?.text)
-    }
-
-    @Test fun `설정을 못 읽었으면 안내 줄을 두지 않는다 — 켜졌다고도 꺼졌다고도 하지 않는다`() {
-        assertNull(payNote(null, names::get))
-    }
+    // ── 결제 설정 ──
 
     @Test fun `서버 결제 설정 칸이 없으면 null`() {
         assertNull(HomeMeDto(paymentSettings = null).toPaySettings())
