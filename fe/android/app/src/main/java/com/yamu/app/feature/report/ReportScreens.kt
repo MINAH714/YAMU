@@ -1010,7 +1010,7 @@ private fun PaymentRow(p: PaymentItem, divider: Boolean, onClick: () -> Unit) {
             .clickable(role = Role.Button, onClick = onClick)
             .semantics {
                 contentDescription = listOfNotNull(
-                    p.merchant, p.brand?.shortName, p.time, "${p.amount.toWon()}원", benefitText,
+                    p.merchant, p.brand?.shortName, p.category, p.time, "${p.amount.toWon()}원", benefitText,
                     "실적 제외".takeIf { p.excluded }, "취소".takeIf { p.canceled },
                 ).joinToString(", ")
             }
@@ -1024,9 +1024,14 @@ private fun PaymentRow(p: PaymentItem, divider: Boolean, onClick: () -> Unit) {
                 if (p.excluded) StatusTag("실적 제외")
                 if (p.canceled) StatusTag("취소")
             }
+            // 카드 표시 · 업종 · 시각(-394). 업종 이름이 길면 시각이 밀리지 않게 업종 쪽을 말줄임
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 p.brand?.let { BrandMark(it) }
-                p.time?.let { Text(it, style = YamuTheme.typography.bodyS, color = c.text3) }
+                p.category?.let {
+                    Text(it, style = YamuTheme.typography.bodyS, color = c.text3, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+                    if (p.time != null) Text("·", style = YamuTheme.typography.bodyS, color = c.text3)
+                }
+                p.time?.let { Text(it, style = YamuTheme.typography.bodyS, color = c.text3, maxLines = 1) }
             }
         }
         // 금액 / 혜택 두 줄 사이 4dp — 왼쪽 가맹점 / 칩 · 시각 줄과 높이를 맞춘다(프로토타입 .txr .end small)

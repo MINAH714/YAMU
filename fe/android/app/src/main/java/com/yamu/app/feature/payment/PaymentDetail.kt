@@ -246,7 +246,8 @@ fun PaymentDetailRoute(onBack: () -> Unit, onCancel: (PaymentReceipt) -> Unit, v
                     // 즉시할인은 빠진 금액(실제 결제 금액)을 크게 보인다. 청구할인 · 캐시백 · 적립은 결제 금액 그대로(11/10 QA).
                     // 예전 '○원 할인받고 ○원 청구 예정' 줄은 청구할인까지 더한 할인과 청구할인 전 원금을 나란히 놓아 지웠다
                     Column(Modifier.padding(start = YamuSpacing.screen, end = YamuSpacing.screen, top = 12.dp, bottom = 24.dp)) {
-                        Text(listOfNotNull(r.merchantName, formatPaidAt(r.paidAtIso)).joinToString(" · "), style = YamuTheme.typography.bodyL, color = c.text2)
+                        // 가맹점 · 업종 · 일시 — 업종을 모르면(목록에 없는 코드) 빼고 잇는다(-394)
+                        Text(listOfNotNull(r.merchantName, r.categoryName, formatPaidAt(r.paidAtIso)).joinToString(" · "), style = YamuTheme.typography.bodyL, color = c.text2)
                         Spacer(Modifier.height(6.dp))
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             AmountText(r.paidAmount)
@@ -259,12 +260,14 @@ fun PaymentDetailRoute(onBack: () -> Unit, onCancel: (PaymentReceipt) -> Unit, v
                     }
                     HorizontalDivider(color = c.outlineVariant, modifier = Modifier.padding(horizontal = YamuSpacing.screen))
                     Column(Modifier.padding(horizontal = YamuSpacing.screen, vertical = 12.dp)) {
-                        // 카드 그림 44dp(높이 28 — 줄 높이 40 그대로). 상품명은 카드 목록에서, 모르면 카드 이름(별명이 없으면 상품명)으로 찾는다
+                        // 카드 그림 44dp(높이 28 — 줄 높이 40 그대로). 상품명은 카드 목록에서, 모르면 카드 이름(별명이 없으면 상품명)으로 찾는다.
+                        // 키 아래 '추천 N순위' · '직접 고른 카드'(-394) — 옛 결제 · SEED는 비운다
                         val art = r.cardId?.let { arts[it] }
                         KeyValueRow(
                             "결제 카드",
                             listOfNotNull(r.cardName, r.cardLast4?.let { "•••• $it" }).joinToString(" "),
                             large = false,
+                            keySub = r.cardPickLabel,
                             valueLead = (r.cardBrand ?: art?.brand)?.let { b ->
                                 { CardListThumb(b, art?.productName ?: r.cardName.orEmpty(), width = 44.dp, dimmed = art?.dimmed == true) }
                             },

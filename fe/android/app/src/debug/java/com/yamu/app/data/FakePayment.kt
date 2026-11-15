@@ -194,6 +194,9 @@ class FakePaymentRepository @Inject constructor(
             perfCounted = !card.isCheck,
             perfTotalAfter = perfCard?.recognized,
             perfTarget = perfCard?.target,
+            // BE와 같게 — 앱은 카드 번호를 늘 보내 userSelected는 true, 순위는 비교한 후보 안의 자리(비교 못 한 카드는 null)
+            recommendedRank = request.cards.filterNot { it.benefitUnknown }.indexOfFirst { it.userCardId == card.userCardId }.takeIf { it >= 0 }?.plus(1),
+            userSelected = true,
         )
         receipts[request.paymentId] = receipt
         DevSession.homeScenario = HomeScenario.AFTER_PAYMENT    // 가짜 홈: '결제 반영 직후'
@@ -229,6 +232,7 @@ class FakePaymentRepository @Inject constructor(
         approvalNo = "Y20261026093800938", installmentMonths = null, benefits = listOf(ReceiptBenefit("스타벅스 50% 청구할인", 7_500)),
         chargedAmount = 15_000, balanceAfter = null, billDateIso = YearMonth.now(KST).plusMonths(1).atDay(14).toString(), billAmount = 7_500,
         perfMonth = LocalDate.now(KST).monthValue, perfRecognized = 15_000, perfCounted = true, perfTotalAfter = 285_000, perfTarget = 300_000,
+        recommendedRank = 1, userSelected = true,
     )
 
     // ── 취소 · 메모 — BE PaymentCancelService · PaymentMemoRequest와 같은 규칙 ──

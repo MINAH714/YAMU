@@ -337,6 +337,42 @@ class PaymentMapperTest {
         assertEquals(10_000L, odd.paidAmount)
     }
 
+    // ── 결제 상세 추천 순위 · 직접 고른 카드 · 업종(-394, BE -381 selectedCard.recommendedRank · userSelected) ──
+
+    private fun detailOf(selectedCard: String, merchant: String = """{"merchantId":3,"name":"스타벅스 역삼점","categoryCode":"COFFEE_SHOP","categoryName":"카페"}""") =
+        YamuJson.decodeFromString(
+            PaymentResultDto.serializer(),
+            """{"paymentId":3001,"source":"YAMU","status":"APPROVED","merchant":$merchant,"amount":15900,"selectedCard":$selectedCard}""",
+        ).toReceipt()
+
+    @Test fun `결제 카드 표시 — 순위가 있으면 추천 N순위(앱은 늘 카드를 보내 userSelected가 true여도)`() {
+        val r = detailOf("""{"userCardId":31,"nickname":"KB국민 노리 체크카드","maskedNumber":"****-****-****-8823","cardType":"CHECK","recommendedRank":1,"userSelected":true}""")
+        assertEquals(1, r.recommendedRank)
+        assertEquals(true, r.userSelected)
+        assertEquals("추천 1순위", r.cardPickLabel)
+        assertEquals("추천 2순위", detailOf("""{"userCardId":32,"recommendedRank":2,"userSelected":true}""").cardPickLabel)
+    }
+
+    @Test fun `순위 없이 직접 골랐으면(비교 못 한 카드) 직접 고른 카드`() {
+        assertEquals("직접 고른 카드", detailOf("""{"userCardId":21,"recommendedRank":null,"userSelected":true}""").cardPickLabel)
+    }
+
+    @Test fun `칸이 생기기 전 결제 · SEED(둘 다 null) · 칸이 없는 옛 응답은 비운다`() {
+        assertNull(detailOf("""{"userCardId":21,"recommendedRank":null,"userSelected":null}""").cardPickLabel)
+        val old = detailOf("""{"userCardId":21,"nickname":"생활비 카드"}""")
+        assertNull(old.recommendedRank)
+        assertNull(old.userSelected)
+        assertNull(old.cardPickLabel)
+        assertNull(detailOf("""{"userCardId":21,"recommendedRank":0,"userSelected":false}""").cardPickLabel)   // 0 이하는 순위가 아니다
+    }
+
+    @Test fun `상세 업종 이름 — 있으면 받고 목록에 없는 코드(null)면 비운다`() {
+        val r = detailOf("""{"userCardId":31,"recommendedRank":1,"userSelected":true}""")
+        assertEquals("카페", r.categoryName)
+        val unknown = detailOf("""{"userCardId":31}""", merchant = """{"merchantId":9,"name":"새 가맹점","categoryCode":"NEW_CODE","categoryName":null}""")
+        assertNull(unknown.categoryName)
+    }
+
     @Test fun `상세(#3) 혜택 — 시점이 있으면 시점, 없으면 종류로 캐시백 · 적립을 가르고 모르면 UNKNOWN`() {
         val dto = PaymentResultDto(
             paymentId = 2006, status = "APPROVED", amount = 15_900, chargedAmount = 15_900,

@@ -144,6 +144,8 @@ import java.math.BigDecimal
     val issuer: IssuerDto? = null,
     val maskedNumber: String? = null,
     val cardType: String = "CREDIT",
+    val recommendedRank: Int? = null,        // BE -381 — 추천 순위(1부터). 추천 밖 카드 · 칸이 생기기 전 결제 · SEED는 null
+    val userSelected: Boolean? = null,       // BE -381 — 승인 요청에 카드 번호가 오면 true(앱은 늘 보낸다). 옛 결제 · SEED는 null
 )
 
 @Serializable data class BillItemDto(
@@ -318,7 +320,19 @@ data class PaymentReceipt(
     val memo: String? = null,
     /** false면 [memo]가 null이어도 '없음'이 아니라 '모름'(상세 응답에 memo가 없다) — 저장하면 서버 메모를 덮어쓸 수 있다 */
     val memoKnown: Boolean = true,
+    val recommendedRank: Int? = null,
+    val userSelected: Boolean? = null,
 ) {
+    /**
+     * 결제 카드 줄 아래 표시 — 순위가 있으면 '추천 N순위', 순위 없이 직접 골랐으면(비교 못 한 카드) '직접 고른 카드', 그 밖(옛 결제 · SEED)은 null.
+     * 앱은 승인할 때 카드 번호를 늘 보내 BE가 userSelected를 true로 적으므로 순위가 있으면 순위를 먼저 본다(-394, 11/10 결정)
+     */
+    val cardPickLabel: String? get() = when {
+        recommendedRank != null && recommendedRank > 0 -> "추천 ${recommendedRank}순위"
+        userSelected == true -> "직접 고른 카드"
+        else -> null
+    }
+
     /** 승인된 야무 결제만 취소할 수 있다(BE PAYMENT_NOT_CANCELABLE의 NOT_APPROVED · SEED_TRANSACTION과 같은 기준) */
     val cancelable: Boolean get() = status == PayStatus.APPROVED && !isSeed
     val canceled: Boolean get() = status == PayStatus.CANCELED
@@ -501,6 +515,8 @@ fun PaymentResultDto.toReceipt(request: PaymentRequest? = null, card: PayCard? =
         refunds = refunds.map { it.toLine() },
         memo = memo,
         memoKnown = memo != null || request != null,   // 방금 승인한 결제는 메모가 없다. 상세(#3)는 memo 칸이 없어 모른다
+        recommendedRank = selectedCard?.recommendedRank,
+        userSelected = selectedCard?.userSelected,
     )
 }
 
