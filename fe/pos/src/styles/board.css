@@ -2,6 +2,10 @@
 
 .board {
   --board-disc: 160px;
+  /* 등장 박자. WaitBoard가 화면 층이 들어온 시각에 맞춰 덮어쓴다. 화면 층 밖이면 끝난 상태로 보인다 */
+  --board-delay: 0ms;
+  --board-since: 100000ms;
+  --board-ring-at: calc(var(--board-delay) + var(--dur-base) - var(--board-since));
   display: flex;
   flex-direction: column;
   height: 100%;
@@ -37,14 +41,29 @@
   height: var(--board-disc);
 }
 
-/* 지름은 원판의 2배. 원판은 멈춰 있고 헤일로만 0.96 ↔ 1.04로 숨 쉰다 */
-.board-halo {
+/* 지름은 원판의 2배. 원판은 멈춰 있고 헤일로만 0.96 ↔ 1.04로 숨 쉰다.
+   판 페이드가 끝나는 200ms에 150ms로 나타나며 숨을 시작한다 */
+.board-halo-wrap {
   position: absolute;
   inset: -50%;
+  animation: board-fade-in var(--dur-fast) var(--ease) both;
+  animation-delay: var(--board-ring-at);
+}
+
+.board-halo {
+  position: absolute;
+  inset: 0;
   border-radius: 50%;
   background: var(--halo);
   transform: scale(var(--halo-min));
   animation: board-breathe var(--dur-halo-half) var(--ease-in-out) infinite alternate;
+  animation-delay: var(--board-ring-at);
+}
+
+@keyframes board-fade-in {
+  from {
+    opacity: 0;
+  }
 }
 
 @keyframes board-breathe {
@@ -56,6 +75,7 @@
   }
 }
 
+/* 원판은 판과 함께 0.92 → 1로 400ms에 자리를 잡는다(넘침 없음) */
 .board-disc {
   position: absolute;
   inset: 0;
@@ -64,6 +84,15 @@
   justify-content: center;
   border-radius: 50%;
   background: var(--surface);
+  animation: board-disc-in 400ms var(--ease) both;
+  animation-delay: calc(var(--board-delay) - var(--board-since));
+}
+
+@keyframes board-disc-in {
+  from {
+    opacity: 0;
+    transform: scale(0.92);
+  }
 }
 
 .board-ring {
@@ -79,9 +108,21 @@
   stroke: var(--surface-high);
 }
 
+/* 판 페이드가 끝나는 200ms부터 220ms에 12시에서 한 바퀴 그려진다 */
 .board-ring-line {
   stroke: var(--primary);
   stroke-linecap: round;
+  animation: board-ring-in 220ms var(--ease-in-out) both;
+  animation-delay: var(--board-ring-at);
+}
+
+@keyframes board-ring-in {
+  from {
+    stroke-dashoffset: 1;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
 }
 
 /* 제목은 가장 크게 숨 쉰 헤일로 바깥에 둔다. 원판 아래 끝에서 헤일로 최대 반지름 − 원판 반지름 + 8px */
@@ -190,12 +231,24 @@
   background: var(--surface);
 }
 
-/* 모션 줄이기: 헤일로는 1.0에 멈춘 원 */
+/* 모션 줄이기: 판 페이드(150ms)만 남긴다. 원판·링은 끝 상태, 헤일로는 1.0에 멈춘 원 */
 @media (prefers-reduced-motion: reduce) {
+  .board-disc,
+  .board-ring-line,
+  .board-halo-wrap {
+    animation: none;
+  }
+
   .board-halo {
     animation: none;
     transform: none;
   }
+}
+
+:root[data-reduce-motion] .board-disc,
+:root[data-reduce-motion] .board-ring-line,
+:root[data-reduce-motion] .board-halo-wrap {
+  animation: none;
 }
 
 :root[data-reduce-motion] .board-halo {

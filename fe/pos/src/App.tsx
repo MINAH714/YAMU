@@ -19,17 +19,19 @@ import { FatalScreen, UnknownScreen } from './components/FlowScreens'
 import { OrderStep } from './components/OrderStep'
 import { PaymentHistory } from './components/PaymentHistory'
 import { PaymentMethodStep, type PlanInput } from './components/PaymentMethodStep'
-import { PAYMENT_METHOD, Receipt } from './components/Receipt'
+import { Receipt } from './components/Receipt'
 import { ScanStep } from './components/ScanStep'
+import { ScreenLayer, type SwapPlan } from './components/ScreenLayer'
 import { StatusScreen } from './components/StatusScreen'
 import { StoreSelect } from './components/StoreSelect'
 import { Tray, type TrayAppear, type TrayExit } from './components/Tray'
 import { useTrayStepLive } from './components/trayLive'
 import { TRAY_META } from './components/trayMeta'
+import { BoardPill, TermsPill, WaitBoard } from './components/WaitBoard'
 import { WaitingStep } from './components/WaitingStep'
 import { config, missingConfig } from './config'
 import { enterFullscreenOnFirstTouch } from './hooks/useFullscreen'
-import { FORCE_REDUCE_MOTION } from './hooks/useReduceMotion'
+import { FORCE_REDUCE_MOTION, useReduceMotion } from './hooks/useReduceMotion'
 import { formatToken } from './payment/barcode'
 import { chargedOf } from './payment/history'
 import { classifyCancelError } from './payment/cancelErrors'
@@ -174,6 +176,21 @@ function App() {
   const trayOpen = phase.step === 'method' || phase.step === 'cash' || phase.step === 'scan'
   const [trayPresent, setTrayPresent] = useState(false)
   if (trayOpen && !trayPresent) setTrayPresent(true)
+
+  // 화면 통째 교체(0.2초 페이드). 트레이가 제자리에서 사라진 뒤 들어오는 화면은 그만큼 기다린다
+  const reduce = useReduceMotion()
+  const key = screenKey(phase)
+  const [swap, setSwap] = useState<SwapPlan>({ key, delayMs: 0, reveal: false, reduce })
+  if (swap.key !== key) {
+    const fromTray = swap.key === 'order' && (key === 'board' || key === 'cashDone')
+    setSwap({
+      key,
+      delayMs: fromTray ? (reduce ? 150 : 200) : 0,
+      // 결제 요청이 실패해 주문 화면(트레이)으로 돌아가면 판이 위에서 걷힌다
+      reveal: swap.key === 'board' && key === 'order',
+      reduce,
+    })
+  }
 
   const store = storeId ? STORES[storeId] : null
 
@@ -497,140 +514,148 @@ function App() {
         />
 
         <main className="app-main" data-surface={surface}>
-          {phase.step === 'home' && (
-            <StoreSelect
-              onSelect={(id) => {
-                // 전체화면은 사용자 입력 안에서만 요청할 수 있다
-                enterFullscreenOnFirstTouch()
-                openStore(id)
-              }}
-            />
-          )}
+          {/* 화면 통째 교체. 같은 이름의 화면 층 안에서는 페이드하지 않는다 */}
+          <div className="screens">
+            <AnimatePresence initial={false} custom={swap}>
+              <ScreenLayer key={key} plan={swap} surface={surface}>
+                {phase.step === 'home' && (
+                  <StoreSelect
+                    onSelect={(id) => {
+                      // 전체화면은 사용자 입력 안에서만 요청할 수 있다
+                      enterFullscreenOnFirstTouch()
+                      openStore(id)
+                    }}
+                  />
+                )}
 
-          {/* 결제수단·현금·스캔은 주문 화면을 그대로 둔 채 트레이로 띄운다. 그동안 주문은 고칠 수 없다 */}
-          {showOrder && store && storeId && (
-            <OrderStep
-              store={store}
-              cart={carts[storeId]}
-              locked={phase.step !== 'order' || trayPresent}
-              checkoutRef={checkoutRef}
-              checkoutHidden={trayPresent}
-              onChange={(itemId, delta) => updateCart((cart) => changeQuantity(cart, itemId, delta))}
-              onRemove={(itemId) => updateCart((cart) => removeItem(cart, itemId))}
-              onClear={() => updateCart(() => ({}))}
-              onCheckout={checkout}
-            />
-          )}
+                {/* 결제수단·현금·스캔은 주문 화면을 그대로 둔 채 트레이로 띄운다. 그동안 주문은 고칠 수 없다 */}
+                {showOrder && store && storeId && (
+                  <OrderStep
+                    store={store}
+                    cart={carts[storeId]}
+                    locked={phase.step !== 'order' || trayPresent}
+                    checkoutRef={checkoutRef}
+                    checkoutHidden={trayPresent}
+                    onChange={(itemId, delta) => updateCart((cart) => changeQuantity(cart, itemId, delta))}
+                    onRemove={(itemId) => updateCart((cart) => removeItem(cart, itemId))}
+                    onClear={() => updateCart(() => ({}))}
+                    onCheckout={checkout}
+                  />
+                )}
 
-          {phase.step === 'cashDone' && (
-            <StatusScreen
-              tone="approved"
-              graphic={<Character pose="pay" size={160} />}
-              lead="현금 결제를 완료했어요"
-              title={formatWon(phase.order.total)}
-              items={orderItems(phase.order)}
-              rows={[
-                { label: '결제 수단', value: '현금' },
-                { label: '받은 금액', value: formatWon(phase.received) },
-                { label: '거스름돈', value: formatWon(phase.received - phase.order.total) },
-              ]}
-              action={{ label: '다음 주문', onClick: newOrder }}
-            />
-          )}
+                {phase.step === 'cashDone' && (
+                  <StatusScreen
+                    tone="approved"
+                    graphic={<Character pose="pay" size={160} />}
+                    lead="현금 결제를 완료했어요"
+                    title={formatWon(phase.order.total)}
+                    items={orderItems(phase.order)}
+                    rows={[
+                      { label: '결제 수단', value: '현금' },
+                      { label: '받은 금액', value: formatWon(phase.received) },
+                      { label: '거스름돈', value: formatWon(phase.received - phase.order.total) },
+                    ]}
+                    action={{ label: '다음 주문', onClick: newOrder }}
+                  />
+                )}
 
-          {phase.step === 'sending' && (
-            <StatusScreen
-              tone="checking"
-              title="결제를 요청하고 있어요"
-              description={`결제 코드 ${formatToken(phase.attempt.body.barcodeToken)}`}
-              rows={[
-                { label: '주문 금액', value: formatWon(phase.attempt.terms.amount) },
-                { label: '결제 수단', value: PAYMENT_METHOD },
-              ]}
-            />
-          )}
+                {/* 요청 중과 승인 대기는 같은 판이다(같은 화면 층이라 다시 들어오지 않는다) */}
+                {phase.step === 'sending' && (
+                  <WaitBoard
+                    title="결제를 요청하고 있어요"
+                    pills={
+                      <>
+                        <TermsPill terms={phase.attempt.terms} />
+                        <BoardPill>결제 코드 {formatToken(phase.attempt.body.barcodeToken)}</BoardPill>
+                      </>
+                    }
+                  />
+                )}
 
-          {phase.step === 'unknown' && (
-            <UnknownScreen message={phase.message} onRetry={() => send(phase.attempt)} onNewOrder={newOrder} />
-          )}
+                {phase.step === 'unknown' && (
+                  <UnknownScreen message={phase.message} onRetry={() => send(phase.attempt)} onNewOrder={newOrder} />
+                )}
 
-          {phase.step === 'waiting' && (
-            <WaitingStep
-              key={phase.paymentId}
-              paymentId={phase.paymentId}
-              posCode={phase.attempt.body.posCode}
-              orderNo={phase.orderNo}
-              terms={phase.attempt.terms}
-              deadlineAt={phase.deadlineAt}
-              onFinal={(result) => setPhase({ step: 'receipt', result, attempt: phase.attempt })}
-              onFatal={(message, isConfig) => setPhase({ step: 'fatal', message, config: isConfig })}
-              onAbandon={newOrder}
-            />
-          )}
+                {phase.step === 'waiting' && (
+                  <WaitingStep
+                    key={phase.paymentId}
+                    paymentId={phase.paymentId}
+                    posCode={phase.attempt.body.posCode}
+                    orderNo={phase.orderNo}
+                    terms={phase.attempt.terms}
+                    deadlineAt={phase.deadlineAt}
+                    onFinal={(result) => setPhase({ step: 'receipt', result, attempt: phase.attempt })}
+                    onFatal={(message, isConfig) => setPhase({ step: 'fatal', message, config: isConfig })}
+                    onAbandon={newOrder}
+                  />
+                )}
 
-          {phase.step === 'receipt' && (
-            <Receipt
-              result={phase.result}
-              order={phase.attempt.order}
-              onNext={newOrder}
-              onRetry={() => {
-                showScan(phase.attempt.order, phase.attempt.terms)
-                syncHistory(ENTRY_DEPTH.pay)
-              }}
-            />
-          )}
+                {phase.step === 'receipt' && (
+                  <Receipt
+                    result={phase.result}
+                    order={phase.attempt.order}
+                    onNext={newOrder}
+                    onRetry={() => {
+                      showScan(phase.attempt.order, phase.attempt.terms)
+                      syncHistory(ENTRY_DEPTH.pay)
+                    }}
+                  />
+                )}
 
-          {showHistory && (
-            <PaymentHistory
-              items={historyList.items}
-              error={historyList.error}
-              onReload={() => void loadHistory()}
-              selectedId={phase.step === 'history' ? phase.selectedId : phase.item.paymentId}
-              inert={phase.step !== 'history'}
-              onSelect={(paymentId) => setPhase({ step: 'history', selectedId: paymentId })}
-              onCancel={toCancelScan}
-              onBack={closeTray}
-            />
-          )}
+                {showHistory && (
+                  <PaymentHistory
+                    items={historyList.items}
+                    error={historyList.error}
+                    onReload={() => void loadHistory()}
+                    selectedId={phase.step === 'history' ? phase.selectedId : phase.item.paymentId}
+                    inert={phase.step !== 'history'}
+                    onSelect={(paymentId) => setPhase({ step: 'history', selectedId: paymentId })}
+                    onCancel={toCancelScan}
+                    onBack={closeTray}
+                  />
+                )}
 
-          {phase.step === 'canceling' && <CancelingScreen item={phase.cancel.item} />}
+                {phase.step === 'canceling' && <CancelingScreen item={phase.cancel.item} />}
 
-          {phase.step === 'cancelUnknown' && (
-            <CancelUnknownScreen
-              item={phase.cancel.item}
-              message={phase.message}
-              onRetry={() => sendCancel(phase.cancel)}
-              onBack={() => returnToHistory(phase.cancel.paymentId)}
-            />
-          )}
+                {phase.step === 'cancelUnknown' && (
+                  <CancelUnknownScreen
+                    item={phase.cancel.item}
+                    message={phase.message}
+                    onRetry={() => sendCancel(phase.cancel)}
+                    onBack={() => returnToHistory(phase.cancel.paymentId)}
+                  />
+                )}
 
-          {phase.step === 'cancelDone' && (
-            <CancelDoneScreen
-              item={phase.item}
-              result={phase.result}
-              onBack={() => returnToHistory(phase.item.paymentId)}
-            />
-          )}
+                {phase.step === 'cancelDone' && (
+                  <CancelDoneScreen
+                    item={phase.item}
+                    result={phase.result}
+                    onBack={() => returnToHistory(phase.item.paymentId)}
+                  />
+                )}
 
-          {phase.step === 'cancelFailed' && (
-            <CancelFailedScreen
-              item={phase.item}
-              message={phase.message}
-              already={phase.already}
-              onRescan={() => toCancelScan(phase.item)}
-              onBack={() => returnToHistory(phase.item.paymentId)}
-            />
-          )}
+                {phase.step === 'cancelFailed' && (
+                  <CancelFailedScreen
+                    item={phase.item}
+                    message={phase.message}
+                    already={phase.already}
+                    onRescan={() => toCancelScan(phase.item)}
+                    onBack={() => returnToHistory(phase.item.paymentId)}
+                  />
+                )}
 
-          {phase.step === 'fatal' && (
-            <FatalScreen
-              message={phase.message}
-              isConfig={phase.config}
-              canLeaveStore={storeId !== null}
-              onNewOrder={newOrder}
-              onLeaveStore={leaveStoreWithHistory}
-            />
-          )}
+                {phase.step === 'fatal' && (
+                  <FatalScreen
+                    message={phase.message}
+                    isConfig={phase.config}
+                    canLeaveStore={storeId !== null}
+                    onNewOrder={newOrder}
+                    onLeaveStore={leaveStoreWithHistory}
+                  />
+                )}
+              </ScreenLayer>
+            </AnimatePresence>
+          </div>
         </main>
 
         {/* 주문 화면으로 돌아가면 버튼 자리로 줄어들고, 결제가 나가면(요청 중·현금 완료) 제자리에서 사라진다 */}
@@ -745,6 +770,28 @@ function CancelScanInTray({ onToken, ...props }: ComponentProps<typeof CancelSca
       }}
     />
   )
+}
+
+/**
+ * 화면 층의 이름. 같은 이름이면 화면이 바뀌어도 페이드하지 않는다.
+ * 주문 화면 위 트레이 단계들은 주문 화면 하나, 요청 중과 승인 대기는 대기 판 하나다.
+ */
+function screenKey(phase: Phase): string {
+  switch (phase.step) {
+    case 'order':
+    case 'method':
+    case 'cash':
+    case 'scan':
+      return 'order'
+    case 'sending':
+    case 'waiting':
+      return 'board'
+    case 'history':
+    case 'cancelScan':
+      return 'history'
+    default:
+      return phase.step
+  }
 }
 
 /** 헤더 단계 표시. 0이면 표시하지 않는다 */

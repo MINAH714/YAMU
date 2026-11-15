@@ -1,6 +1,4 @@
-import { motion } from 'motion/react'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { TRAY_SPRING } from '../styles/motion'
 import '../styles/result.css'
 import { StatusIcon, type StatusIconState } from './StatusIcon'
 
@@ -44,11 +42,8 @@ const MORPH_DELAY_MS = 200
 /** 앞 화면 버튼을 연달아 누른 두 번째 탭이 이 화면의 주 버튼에 맞지 않게 잠깐 무시한다 */
 const ACTION_GUARD_MS = 350
 
-/** 승인 대기의 스피너가 결과 화면의 아이콘으로 이어진다 */
-export const PAYMENT_STATUS_MARK_ID = 'payment-status-mark'
-
 /** 스피너로 시작해 결과 아이콘으로 바뀐다. 금액이 자리를 잡는 동안 잠깐 기다렸다가 바꾼다 */
-export function StatusMark({ state, size, layoutId }: { state: StatusIconState; size: number; layoutId?: string }) {
+export function StatusMark({ state, size }: { state: StatusIconState; size: number }) {
   const [shown, setShown] = useState<StatusIconState>('pending')
 
   useEffect(() => {
@@ -57,9 +52,9 @@ export function StatusMark({ state, size, layoutId }: { state: StatusIconState; 
   }, [state])
 
   return (
-    <motion.span className="status-mark" layoutId={layoutId} transition={TRAY_SPRING}>
+    <span className="status-mark">
       <StatusIcon state={shown} size={size} />
-    </motion.span>
+    </span>
   )
 }
 
@@ -70,7 +65,7 @@ export function StatusScreen({ tone, title, lead, description, amount, graphic, 
   useEffect(() => {
     shownAt.current = performance.now()
   }, [])
-  const mark = graphic ? <StatusMark state={state} size={28} layoutId={PAYMENT_STATUS_MARK_ID} /> : null
+  const mark = graphic ? <StatusMark state={state} size={28} /> : null
 
   const rowList = (
     <dl className="status-rows">

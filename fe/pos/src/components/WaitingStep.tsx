@@ -1,13 +1,13 @@
+import { useIsPresent } from 'motion/react'
 import { useEffect, useRef, useState } from 'react'
 import { ApiError } from '../api/client'
 import { applyMockAction, type MockAction } from '../api/mockResult'
 import { getPaymentResult, type PaymentResult } from '../api/pos'
 import { config } from '../config'
-import { formatWon, planLabel, type Terms } from '../payment/terms'
+import type { Terms } from '../payment/terms'
 import '../styles/result.css'
 import { ConfirmButton } from './ConfirmButton'
-import { PAYMENT_METHOD } from './Receipt'
-import { BoardPill, CountdownPill, WaitBoard } from './WaitBoard'
+import { BoardPill, CountdownPill, TermsPill, WaitBoard } from './WaitBoard'
 
 type Props = {
   paymentId: number
@@ -54,6 +54,8 @@ export function WaitingStep({ paymentId, posCode, orderNo, terms, deadlineAt, on
   const [stopped, setStopped] = useState(false)
   const [generation, setGeneration] = useState(0)
   const callbacks = useRef({ onFinal, onFatal })
+  // 결과 화면으로 바뀌어 이 판이 걷히는 동안(0.2초)에는 더 묻지 않는다. 같은 결과를 두 번 넘기지 않게 한다
+  const isPresent = useIsPresent()
 
   useEffect(() => {
     callbacks.current = { onFinal, onFatal }
@@ -66,6 +68,7 @@ export function WaitingStep({ paymentId, posCode, orderNo, terms, deadlineAt, on
 
   // 응답이 오고 나서 2초 뒤에 다음 조회를 한다(setInterval이면 느린 응답이 겹친다)
   useEffect(() => {
+    if (!isPresent) return
     let cancelled = false
     let timer: ReturnType<typeof setTimeout> | undefined
 
@@ -109,7 +112,7 @@ export function WaitingStep({ paymentId, posCode, orderNo, terms, deadlineAt, on
       cancelled = true
       clearTimeout(timer)
     }
-  }, [paymentId, posCode, deadlineAt, generation])
+  }, [paymentId, posCode, deadlineAt, generation, isPresent])
 
   const pastDeadline = now > deadlineAt
 
@@ -177,10 +180,7 @@ export function WaitingView({
       title={title}
       pills={
         <>
-          <BoardPill>
-            {formatWon(terms.amount)} · {PAYMENT_METHOD}
-            {terms.plan === 'INSTALLMENT' && ` · ${planLabel(terms.plan, terms.installmentMonths)}`}
-          </BoardPill>
+          <TermsPill terms={terms} />
           {stopped ? (
             <BoardPill>{connectionError ?? '결과 다시 확인을 눌러 주세요.'}</BoardPill>
           ) : checking ? (
