@@ -23,6 +23,7 @@ import java.util.function.ToLongFunction;
 import java.util.stream.Collectors;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.annotation.Isolation;
 
 /**
  * 월간 소비·혜택 리포트(S15P31E103-372). 월은 한국 기준이고, 결제 내역 목록과 같이 POS 요청 시각으로 자른다.
@@ -73,11 +74,20 @@ public class ReportService {
     }
 
     /** @param yearMonth 한국 기준 월. null이면 지난달(명세 기본값: 확정이 끝난 달) */
-    @Transactional(readOnly = true)
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public BenefitReportResponse benefits(long userId, YearMonth yearMonth) {
+        return benefits(userId, yearMonth, BenefitSource.ALL);
+    }
+
+    /** 출처 범위만 추가한다. 이용월·확정·놓친 혜택의 기존 정책은 유지한다. */
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
+    public BenefitReportResponse benefits(long userId, YearMonth yearMonth, BenefitSource source) {
+        if (source == null) source = BenefitSource.ALL;
         YearMonth current = YearMonth.now(clock.withZone(KST));
         YearMonth month = yearMonth != null ? checked(yearMonth) : current.minusMonths(1);
-        List<PaymentRow> rows = reader.approvedPayments(userId, start(month.atDay(1)), start(month.plusMonths(1).atDay(1)));
+        List<PaymentRow> rows = reader.approvedPayments(userId, start(month.atDay(1)), start(month.plusMonths(1).atDay(1)), source);
+        var breakdown = BenefitBreakdown.aggregate(reader.benefitLines(userId, start(month.atDay(1)),
+                start(month.plusMonths(1).atDay(1)), source));
 
         boolean allConfirmed = rows.stream().allMatch(r -> r.confirmedLines() >= r.benefitLines());
         String status = month.isBefore(current) && allConfirmed ? "CONFIRMED" : "PARTIAL";
@@ -92,9 +102,11 @@ public class ReportService {
         List<MonthlyReportResponse.CategoryAmount> categories = byCategory(rows, ReportService::benefit).stream()
                 .filter(c -> c.amount() > 0).toList();
         return new BenefitReportResponse(month.toString(), status,
-                new BenefitReportResponse.Summary(sum(rows, ReportService::benefit), sum(rows, PaymentRow::confirmedAmount),
-                        yamuPickExtra, missedTotal),
-                differences, categories);
+                new BenefitReportResponse.Summary(breakdown.expectedBenefit(), breakdown.confirmedBenefit(),
+                        yamuPickExtra, missedTotal,
+                        Math.subtractExact(breakdown.expectedBenefit(), breakdown.confirmedBenefit()),
+                        breakdown.unconvertedBenefitCount(), breakdown.byType()),
+                differences, categories, source, breakdown.cards());
     }
 
     /**
