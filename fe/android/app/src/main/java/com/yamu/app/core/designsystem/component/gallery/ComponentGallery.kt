@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -21,6 +22,7 @@ import androidx.compose.material.icons.rounded.Notifications
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
@@ -70,7 +72,10 @@ import com.yamu.app.core.designsystem.component.LinkButton
 import com.yamu.app.core.designsystem.component.ListLeadIcon
 import com.yamu.app.core.designsystem.component.ListRow
 import com.yamu.app.core.designsystem.component.MoreDetails
+import com.yamu.app.core.designsystem.component.GrowTrayHost
 import com.yamu.app.core.designsystem.component.NeutralButton
+import com.yamu.app.core.designsystem.component.growTrayAnchor
+import com.yamu.app.core.designsystem.component.rememberGrowTrayState
 import com.yamu.app.core.designsystem.component.NumberKeypad
 import com.yamu.app.core.designsystem.component.PerformanceGauge
 import com.yamu.app.core.designsystem.component.PrimaryButton
@@ -136,6 +141,7 @@ fun ComponentGallery(onBack: (() -> Unit)? = null) {
                     WaitMotionSamples()
                     CoinPileSamples()
                     RollChipSamples()
+                    GrowTraySamples()
                     GallerySections()
                     Spacer(Modifier.height(56.dp))
                 }
@@ -339,6 +345,61 @@ private fun RollChipSamples() {
             }
         }
         NeutralButton("다시", onClick = { run++ })
+    }
+}
+
+/**
+ * 버튼에서 커지는 확인 트레이 견본(M-TRAY-app). 기본은 카드 해제처럼 빨간 글자 버튼에서, '채운 버튼에서'를 켜면 탈퇴처럼
+ * 파란 버튼에서 커져 바탕이 흰색으로 바뀐다. 견본 상자는 화면 일부라 시스템 바를 피하지 않는다
+ */
+@Composable
+private fun GrowTraySamples() {
+    var filled by rememberSaveable { mutableStateOf(false) }
+    val c = YamuTheme.colors
+    YamuCard {
+        Text("버튼에서 커지는 확인 트레이", style = YamuTheme.typography.titleM, color = c.text1)
+        ToggleRow("모션 줄이기 강제", YamuMotionDebug.forceReduceMotion) { YamuMotionDebug.forceReduceMotion = it }
+        ToggleRow("채운 버튼에서(탈퇴)", filled) { filled = it }
+        Spacer(Modifier.height(8.dp))
+        Box(Modifier.fillMaxWidth().height(520.dp).clip(RoundedCornerShape(YamuRadius.card))) {
+            key(filled) {
+                val tray = rememberGrowTrayState()
+                GrowTrayHost(
+                    state = tray,
+                    title = if (filled) "탈퇴 확인" else "카드 해제 확인",
+                    onDismiss = tray::close,
+                    fromColor = if (filled) c.primary else c.surface,
+                    fromRadius = if (filled) YamuRadius.button else 20.dp,
+                    bottomInsets = WindowInsets(0),
+                    topInsets = WindowInsets(0),
+                    tray = {
+                        Text(if (filled) "탈퇴할까요?" else "점심 카드를 해제할까요?", style = YamuTheme.typography.titleL, color = c.text1)
+                        Spacer(Modifier.height(12.dp))
+                        Text("카드사 카드는 해지되지 않아요", style = YamuTheme.typography.titleS, color = c.text1)
+                        Spacer(Modifier.height(4.dp))
+                        Text("결제 카드 추천과 목록에서 빠지고, 결제 내역은 남아요", style = YamuTheme.typography.bodyM, color = c.text2)
+                        Spacer(Modifier.height(20.dp))
+                        PrimaryButton(if (filled) "탈퇴하기" else "카드 해제하기", onClick = tray::close)
+                        Spacer(Modifier.height(8.dp))
+                        NeutralButton("취소", onClick = tray::close)
+                    },
+                ) {
+                    Column(Modifier.fillMaxSize().background(c.surface).padding(20.dp)) {
+                        Text("카드 상세", style = YamuTheme.typography.titleL, color = c.text1)
+                        Spacer(Modifier.height(8.dp))
+                        Text("버튼을 누르면 그 자리에서 트레이가 커지고 바깥 · 취소 · 뒤로가기로 되감겨요", style = YamuTheme.typography.bodyM, color = c.text2)
+                        Spacer(Modifier.weight(1f))
+                        if (filled) {
+                            PrimaryButton("탈퇴하기", onClick = tray::open, modifier = Modifier.growTrayAnchor(tray))
+                        } else {
+                            TextButton(onClick = tray::open, modifier = Modifier.align(Alignment.CenterHorizontally).growTrayAnchor(tray)) {
+                                Text("카드 해제", style = YamuTheme.typography.labelL, color = c.error)
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
