@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useRef, type ReactNode } from 'react'
 import '../styles/result.css'
 import { StatusIcon, type StatusIconState } from './StatusIcon'
 
@@ -33,27 +33,19 @@ const ICON_STATE: Record<StatusTone, StatusIconState> = {
   waiting: 'pending',
   checking: 'pending',
   failed: 'error',
-  expired: 'warning',
-  unconfirmed: 'warning',
+  expired: 'expired',
+  unconfirmed: 'unconfirmed',
   approved: 'success',
 }
 
-const MORPH_DELAY_MS = 200
 /** 앞 화면 버튼을 연달아 누른 두 번째 탭이 이 화면의 주 버튼에 맞지 않게 잠깐 무시한다 */
 const ACTION_GUARD_MS = 350
 
-/** 스피너로 시작해 결과 아이콘으로 바뀐다. 금액이 자리를 잡는 동안 잠깐 기다렸다가 바꾼다 */
+/** 결과 아이콘. 화면 교체가 끝난 뒤 승인·실패만 그려진다(StatusIcon) */
 export function StatusMark({ state, size }: { state: StatusIconState; size: number }) {
-  const [shown, setShown] = useState<StatusIconState>('pending')
-
-  useEffect(() => {
-    const timer = setTimeout(() => setShown(state), MORPH_DELAY_MS)
-    return () => clearTimeout(timer)
-  }, [state])
-
   return (
     <span className="status-mark">
-      <StatusIcon state={shown} size={size} />
+      <StatusIcon state={state} size={size} />
     </span>
   )
 }

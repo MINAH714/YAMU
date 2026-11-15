@@ -114,56 +114,82 @@ export const flowEntries: GalleryEntry[] = [
     ...flow,
     id: 'receipt-approved',
     label: '승인 완료',
-    render: () => <Receipt result={APPROVED_RESULT} order={DEMO_ORDER} onNext={noop} onRetry={noop} />,
+    render: () => (
+      <Entering>
+        <Receipt result={APPROVED_RESULT} order={DEMO_ORDER} onNext={noop} onRetry={noop} />
+      </Entering>
+    ),
   },
   {
     ...flow,
     id: 'receipt-declined',
     label: '거절',
-    render: () => <Receipt result={DECLINED_RESULT} order={DEMO_ORDER} onNext={noop} onRetry={noop} />,
+    render: () => (
+      <Entering>
+        <Receipt result={DECLINED_RESULT} order={DEMO_ORDER} onNext={noop} onRetry={noop} />
+      </Entering>
+    ),
   },
   {
     ...flow,
     id: 'receipt-expired',
     label: '만료',
-    render: () => <Receipt result={EXPIRED_RESULT} order={DEMO_ORDER} onNext={noop} onRetry={noop} />,
+    render: () => (
+      <Entering>
+        <Receipt result={EXPIRED_RESULT} order={DEMO_ORDER} onNext={noop} onRetry={noop} />
+      </Entering>
+    ),
   },
   {
     ...flow,
     id: 'receipt-rejected',
     label: '고객 거절',
-    render: () => <Receipt result={REJECTED_RESULT} order={DEMO_ORDER} onNext={noop} onRetry={noop} />,
+    render: () => (
+      <Entering>
+        <Receipt result={REJECTED_RESULT} order={DEMO_ORDER} onNext={noop} onRetry={noop} />
+      </Entering>
+    ),
   },
   {
     ...flow,
     id: 'receipt-canceled',
     label: '취소',
-    render: () => <Receipt result={CANCELED_RESULT} order={DEMO_ORDER} onNext={noop} onRetry={noop} />,
+    render: () => (
+      <Entering>
+        <Receipt result={CANCELED_RESULT} order={DEMO_ORDER} onNext={noop} onRetry={noop} />
+      </Entering>
+    ),
   },
   {
     ...flow,
     id: 'receipt-not-confirmed',
     label: '결과 미확인(영수증)',
-    render: () => <Receipt result={NOT_CONFIRMED_RESULT} order={DEMO_ORDER} onNext={noop} onRetry={noop} />,
+    render: () => (
+      <Entering>
+        <Receipt result={NOT_CONFIRMED_RESULT} order={DEMO_ORDER} onNext={noop} onRetry={noop} />
+      </Entering>
+    ),
   },
   {
     ...flow,
     id: 'cash-done',
     label: '현금 완료',
     render: () => (
-      <StatusScreen
-        tone="approved"
-        graphic={<Character pose="pay" size={160} />}
-        lead="현금 결제를 완료했어요"
-        title={formatWon(DEMO_ORDER.total)}
-        items={orderItems(DEMO_ORDER)}
-        rows={[
-          { label: '결제 수단', value: '현금' },
-          { label: '받은 금액', value: formatWon(30_000) },
-          { label: '거스름돈', value: formatWon(30_000 - DEMO_ORDER.total) },
-        ]}
-        action={{ label: '다음 주문', onClick: noop }}
-      />
+      <Entering>
+        <StatusScreen
+          tone="approved"
+          graphic={<Character pose="pay" size={160} />}
+          lead="현금 결제를 완료했어요"
+          title={formatWon(DEMO_ORDER.total)}
+          items={orderItems(DEMO_ORDER)}
+          rows={[
+            { label: '결제 수단', value: '현금' },
+            { label: '받은 금액', value: formatWon(30_000) },
+            { label: '거스름돈', value: formatWon(30_000 - DEMO_ORDER.total) },
+          ]}
+          action={{ label: '다음 주문', onClick: noop }}
+        />
+      </Entering>
     ),
   },
   {
