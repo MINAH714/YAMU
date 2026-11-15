@@ -1,15 +1,13 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { ApiError } from '../api/client'
 import { applyMockAction, type MockAction } from '../api/mockResult'
 import { getPaymentResult, type PaymentResult } from '../api/pos'
 import { config } from '../config'
-import { planLabel, type Terms } from '../payment/terms'
+import { formatWon, planLabel, type Terms } from '../payment/terms'
 import '../styles/result.css'
-import { Amount } from './Amount'
-import { Character } from './Character'
 import { ConfirmButton } from './ConfirmButton'
-import { PAYMENT_AMOUNT_ID, PAYMENT_METHOD } from './Receipt'
-import { PAYMENT_STATUS_MARK_ID, StatusMark } from './StatusScreen'
+import { PAYMENT_METHOD } from './Receipt'
+import { BoardPill, CountdownPill, WaitBoard } from './WaitBoard'
 
 type Props = {
   paymentId: number
@@ -27,8 +25,6 @@ type Props = {
 const POLL_INTERVAL_MS = 2_000
 // 마감 직후에는 서버가 아직 EXPIRED로 바꾸지 않았을 수 있다. 이만큼 더 물어본 뒤 멈춘다
 const AFTER_DEADLINE_GRACE_MS = 10_000
-// 마감이 이만큼 남으면 카운트다운이 주의 색으로 바뀐다
-const URGENT_MS = 10_000
 
 /**
  * DECLINED는 마감 전이면 최종이 아니다. 사용자가 앱에서 다른 카드로 다시 승인할 수 있다(명세 Q1).
@@ -156,7 +152,7 @@ type WaitingViewProps = {
   onAbandon: () => void
 }
 
-/** 승인 대기 화면. 폴링과 판정은 WaitingStep에 있고 여기서는 받은 값만 그린다 */
+/** 승인 대기 화면(대기 판). 폴링과 판정은 WaitingStep에 있고 여기서는 받은 값만 그린다 */
 export function WaitingView({
   paymentId,
   orderNo,
@@ -170,69 +166,52 @@ export function WaitingView({
   onRecheck,
   onAbandon,
 }: WaitingViewProps) {
-  const remainingSeconds = Math.max(Math.ceil(remainingMs / 1000), 0)
-  const ratio = Math.min(Math.max(remainingMs / totalMs, 0), 1)
-  const urgent = !checking && remainingMs <= URGENT_MS
-  // layoutId가 있는 요소는 다시 그려질 때마다 자리를 잰다. 250ms마다 오는 타이머에 끌려가지 않게 묶어 둔다
-  const amount = useMemo(() => <Amount value={terms.amount} size="xl" layoutId={PAYMENT_AMOUNT_ID} />, [terms.amount])
-  const mark = useMemo(
-    () => <StatusMark state={stopped ? 'warning' : 'pending'} size={24} layoutId={PAYMENT_STATUS_MARK_ID} />,
-    [stopped],
-  )
+  const title = stopped
+    ? '결제 결과를 확인하지 못했어요'
+    : checking
+      ? '결제 결과를 확인하고 있어요'
+      : '고객 앱에서 승인을 기다리고 있어요'
 
   return (
-    <section className="waiting">
-      <div className="waiting-block">
-        <Character pose="thinking" size={128} />
-        <div className="waiting-text" aria-live="polite">
-          <h2 className="flow-title">{stopped ? '결제 결과를 확인하지 못했어요' : checking ? '결제 결과를 확인하고 있어요' : '고객 앱에서 승인을 기다리고 있어요'}</h2>
-          <p className="flow-description">
-            {stopped
-              ? connectionError ?? '결과 다시 확인을 눌러 주세요.'
-              : checking
-                ? '결과가 확인될 때까지 잠시 기다려 주세요.'
-                : declined
-                  ? '카드가 거절됐어요. 고객이 앱에서 다른 카드로 다시 결제할 수 있어요.'
-                  : '고객의 YAMU 앱에서 결제를 승인해 주세요.'}
-          </p>
-        </div>
-
-        {amount}
-        <p className="waiting-method">
-          {PAYMENT_METHOD}
-          {terms.plan === 'INSTALLMENT' && ` · ${planLabel(terms.plan, terms.installmentMonths)}`}
-        </p>
-
-        <div className="waiting-timer" data-urgent={urgent}>
-          {mark}
-          {!checking && (
-            <span role="timer">
-              남은 시간 <strong>{remainingSeconds}초</strong>
-            </span>
+    <WaitBoard
+      title={title}
+      pills={
+        <>
+          <BoardPill>
+            {formatWon(terms.amount)} · {PAYMENT_METHOD}
+            {terms.plan === 'INSTALLMENT' && ` · ${planLabel(terms.plan, terms.installmentMonths)}`}
+          </BoardPill>
+          {stopped ? (
+            <BoardPill>{connectionError ?? '결과 다시 확인을 눌러 주세요.'}</BoardPill>
+          ) : checking ? (
+            <BoardPill>결과가 확인될 때까지 잠시 기다려 주세요</BoardPill>
+          ) : (
+            <CountdownPill remainingMs={remainingMs} totalMs={totalMs} />
           )}
-        </div>
-        <div className="waiting-countdown" data-urgent={urgent} hidden={checking} aria-hidden="true">
-          <span style={{ transform: `scaleX(${ratio})` }} />
-        </div>
-
-        {stopped && (
-          <button type="button" className="primary waiting-recheck" onClick={onRecheck}>
-            결과 다시 확인
-          </button>
-        )}
-      </div>
-
-      <div className="waiting-foot">
-        {config.mockResult && <MockPanel paymentId={paymentId} />}
-        <span title={orderNo ? `결제 번호 ${paymentId} · 주문 번호 ${orderNo}` : `결제 번호 ${paymentId}`}>
-          <ConfirmButton
-            label="기다리지 않고 새 결제"
-            confirmLabel="고객이 승인하면 이 결제는 그대로 진행돼요. 한 번 더 누르면 새 결제를 시작해요"
-            onConfirm={onAbandon}
-          />
-        </span>
-      </div>
-    </section>
+          {declined && !checking && (
+            <BoardPill tone="error">카드가 거절됐어요. 고객이 앱에서 다른 카드로 다시 결제할 수 있어요</BoardPill>
+          )}
+        </>
+      }
+      foot={
+        <>
+          {config.mockResult && <MockPanel paymentId={paymentId} />}
+          <span title={orderNo ? `결제 번호 ${paymentId} · 주문 번호 ${orderNo}` : `결제 번호 ${paymentId}`}>
+            <ConfirmButton
+              label="기다리지 않고 새 결제"
+              confirmLabel="고객이 승인하면 이 결제는 그대로 진행돼요. 한 번 더 누르면 새 결제를 시작해요"
+              onConfirm={onAbandon}
+            />
+          </span>
+        </>
+      }
+    >
+      {stopped && (
+        <button type="button" className="primary" onClick={onRecheck}>
+          결과 다시 확인
+        </button>
+      )}
+    </WaitBoard>
   )
 }
 
