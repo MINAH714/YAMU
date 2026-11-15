@@ -58,6 +58,12 @@
   transform: scale(var(--halo-min));
   animation: board-breathe var(--dur-halo-half) var(--ease-in-out) infinite alternate;
   animation-delay: var(--board-ring-at);
+  transition: opacity var(--dur-fast) var(--ease);
+}
+
+/* 결과 불명: 멈춘 원을 남기면 숨 쉬는 헤일로와 구분되지 않아 150ms에 아예 지운다 */
+.board[data-unknown] .board-halo {
+  opacity: 0;
 }
 
 @keyframes board-fade-in {
@@ -73,6 +79,12 @@
   to {
     transform: scale(var(--halo-max));
   }
+}
+
+/* 다시 할 수 있는 거절에 원판만 흔든다. 원판의 등장 애니메이션과 겹치지 않게 감싸는 층을 움직인다 */
+.board-shaker {
+  position: absolute;
+  inset: 0;
 }
 
 /* 원판은 판과 함께 0.92 → 1로 400ms에 자리를 잡는다(넘침 없음) */
@@ -116,6 +128,13 @@
   animation-delay: var(--board-ring-at);
 }
 
+/* 결과 불명: 같은 프레임에 주황 점선. 둘레를 선·간격 4px 쌍의 정수 배(57쌍)로 맞춰 12시에서 선이 붙어 보이지 않는다 */
+.board[data-unknown] .board-ring-line {
+  stroke: var(--warning);
+  stroke-dasharray: 0.00877 0.00877;
+  stroke-linecap: butt;
+}
+
 @keyframes board-ring-in {
   from {
     stroke-dashoffset: 1;
@@ -156,6 +175,11 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* 판이 뜬 뒤에 붙은 알약(확인 중, 거절)은 150ms에 나타난다 */
+.board-pill[data-late] {
+  animation: board-fade-in var(--dur-fast) var(--ease) both;
+}
+
 .board-pill[data-tone='error'] {
   background: var(--error-container);
   color: var(--on-error-container);
@@ -192,6 +216,17 @@
 
 .board-countdown[data-urgent='true'] strong {
   color: var(--on-warning-container);
+}
+
+/* 알약에 다 담기 어려운 안내(결과를 모를 때 할 일) */
+.board-note {
+  max-width: 560px;
+  margin-top: var(--s-3);
+  padding: var(--s-3) var(--s-4);
+  border-radius: var(--r-input);
+  background: var(--surface);
+  color: var(--text2);
+  font-size: var(--fs-body-sm);
 }
 
 /* 판 위 버튼. 공용 버튼은 흰 화면용이라 판 위에서는 대비가 맞지 않는다 */
