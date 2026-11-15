@@ -35,6 +35,7 @@ class ReportReader {
             where p.user_id = :userId
               and p.status = 'APPROVED'
               and p.requested_at >= :from and p.requested_at < :until
+              and (:source = 'ALL' or p.source = :source)
             order by p.requested_at, p.payment_transaction_id
             """.formatted(PaymentSqlFragments.MERCHANT_NAME, PaymentSqlFragments.CATEGORY_CODE,
             PaymentSqlFragments.BENEFIT_AMOUNT, PaymentSqlFragments.CONFIRMED_AMOUNT,
@@ -55,8 +56,37 @@ class ReportReader {
      * @param until 요청 시각 상한(UTC, 미포함)
      */
     List<PaymentRow> approvedPayments(long userId, LocalDateTime from, LocalDateTime until) {
-        return jdbc.query(MONTH_ROWS, period(userId, from, until), (rs, i) -> row(rs));
+        return approvedPayments(userId, from, until, BenefitSource.ALL);
     }
+
+    List<PaymentRow> approvedPayments(long userId, LocalDateTime from, LocalDateTime until, BenefitSource source) {
+        return jdbc.query(MONTH_ROWS, period(userId, from, until).addValue("source", source.name()), (rs, i) -> row(rs));
+    }
+
+    /** 혜택 없는 승인 카드도 남긴다. 청구/한도 행을 조인하지 않아 혜택 줄이 중복되지 않는다. */
+    List<BenefitLine> benefitLines(long userId, LocalDateTime from, LocalDateTime until, BenefitSource source) {
+        return jdbc.query("""
+                select p.user_card_id, p.card_product_id, cp.product_name, uc.card_alias,
+                       cb.benefit_type, b.benefit_value, b.krw_amount, %s as confirmed
+                from payment_transaction p
+                left join payment_benefit b on b.payment_transaction_id = p.payment_transaction_id
+                left join card_benefit cb on cb.card_benefit_id = b.card_benefit_id
+                left join user_card uc on uc.user_card_id = p.user_card_id and uc.user_id = p.user_id
+                left join card_product cp on cp.card_product_id = p.card_product_id
+                where p.user_id = :userId and p.status = 'APPROVED'
+                  and p.requested_at >= :from and p.requested_at < :until
+                  and (:source = 'ALL' or p.source = :source)
+                order by p.payment_transaction_id, b.payment_benefit_id
+                """.formatted(PaymentSqlFragments.CONFIRMED_LINE),
+                period(userId, from, until).addValue("source", source.name()),
+                (rs, i) -> new BenefitLine(rs.getObject("user_card_id", Long.class),
+                        rs.getObject("card_product_id", Long.class), rs.getString("product_name"),
+                        rs.getString("card_alias"), rs.getString("benefit_type"), rs.getBigDecimal("benefit_value"),
+                        rs.getObject("krw_amount", Long.class), rs.getBoolean("confirmed")));
+    }
+
+    record BenefitLine(Long userCardId, Long cardProductId, String cardName, String cardAlias,
+            String type, BigDecimal benefitValue, Long krwAmount, boolean confirmed) {}
 
     /** 기간 안의 승인 결제 금액(즉시할인 전 요청 금액) 합계와 그중 생활 소비(LIVING) 합계. */
     Spent spent(long userId, LocalDateTime from, LocalDateTime until) {
