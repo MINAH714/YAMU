@@ -512,7 +512,6 @@ class PayCodeViewModel @Inject constructor(
 /**
  * [onClose]의 문장은 닫힌 뒤 보여 줄 스낵바(이 화면이 닫히면 여기서 띄운 건 취소되므로 바깥에서).
  * [cancelHint]가 있으면 결제 상세에서 취소하러 연 것(CancelCodeRoute) — 코드는 같고 제목 · 코드 아래 안내만 바뀐다.
- * [cancelFooter]는 그때 본문 끝에 붙는 임시 '앱에서 바로 취소'(결제 요청 확인 중에는 숨긴다)
  */
 fun PayCodeRoute(
     onClose: (message: String?) -> Unit,
@@ -520,7 +519,6 @@ fun PayCodeRoute(
     onOpenPinPad: (purpose: String) -> Unit,
     onAddCard: () -> Unit,
     cancelHint: String? = null,
-    cancelFooter: (@Composable () -> Unit)? = null,
     viewModel: PayCodeViewModel = hiltViewModel(),
 ) {
     val s by viewModel.state.collectAsStateWithLifecycle()
@@ -597,7 +595,7 @@ fun PayCodeRoute(
                     PayPhase.Auth -> if (!s.checkingCards) AuthBody(s.error)
                     is PayPhase.Code -> CodeBody(p.code, s.remainingSec, s.unstable, onNewCode = viewModel::openCode, hint = cancelHint ?: "매장에서 스캔하면 바로 넘어가요")
                     PayPhase.CodeExpired -> MessageBody("시간이 지났어요", "새 코드를 받아 매장에 보여 주세요")
-                    // 취소도 같은 결제 코드라 BE가 카드 0장이면 발급하지 않는다(NO_ACTIVE_CARD). 아래 임시 '앱에서 바로 취소'와 엇갈리지 않게 '매장에서'
+                    // 취소도 같은 결제 코드라 BE가 카드 0장이면 발급하지 않는다(NO_ACTIVE_CARD) — 카드를 다시 넣어야 매장에서 취소할 수 있다
                     PayPhase.NoCard -> EmptyState(
                         if (cancelHint != null) "매장에서 취소하려면 결제에 쓸 카드가 한 장 이상 있어야 해요" else "결제할 카드가 없어요",
                         actionText = "카드 추가",
@@ -605,7 +603,6 @@ fun PayCodeRoute(
                     )
                     is PayPhase.Request -> RequestBody(p.request, s, onSelectCard = viewModel::selectCard, onInstallment = viewModel::selectInstallment)
                 }
-                if (s.phase !is PayPhase.Request) cancelFooter?.invoke()
                 Spacer(Modifier.height(YamuSpacing.x6))
             }
         }
