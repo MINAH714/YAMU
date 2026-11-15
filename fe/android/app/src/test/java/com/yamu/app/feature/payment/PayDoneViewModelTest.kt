@@ -7,6 +7,7 @@ import com.yamu.app.core.network.retrofit
 import com.yamu.app.feature.link.data.brandOf
 import com.yamu.app.feature.payment.data.PaymentApi
 import com.yamu.app.feature.payment.data.PaymentEdits
+import com.yamu.app.feature.payment.data.PayStatus
 import com.yamu.app.feature.payment.data.PaymentReceipt
 import com.yamu.app.feature.payment.data.PaymentRepository
 import com.yamu.app.feature.payment.data.PaymentRepositoryImpl
@@ -20,6 +21,7 @@ import mockwebserver3.MockWebServer
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -101,6 +103,43 @@ class PayDoneViewModelTest {
         vm.refreshIfChanged()
         assertFalse(vm.state.value.receipt!!.canceled)
     }
+
+    // ── 결제 완료 실적 칩 · 굴림(M-DONE-pay, S15P31E103-502) ──
+
+    @Test fun `방금 승인한 영수증이면 연출하고 상세로 다시 받았으면 하지 않는다`() = runTest(dispatcher) {
+        assertTrue(PayDoneViewModel(SavedStateHandle(mapOf("paymentId" to 77L)), payments, edits).state.value.justPaid)
+        val noRecent = Proxy.newProxyInstance(PaymentRepository::class.java.classLoader, arrayOf(PaymentRepository::class.java)) { _, method, _ ->
+            when (method.name) {
+                "recentReceipt" -> null
+                "detail" -> ApiResult.Success(detail)
+                else -> error("안 쓰는 메서드: ${method.name}")
+            }
+        } as PaymentRepository
+        val vm = PayDoneViewModel(SavedStateHandle(mapOf("paymentId" to 77L)), noRecent, edits)
+        advanceUntilIdle()
+        assertEquals(77L, vm.state.value.receipt?.paymentId)
+        assertFalse(vm.state.value.justPaid)
+    }
+
+    @Test fun `실적 칩은 인정액 · 굴림은 결제 뒤 누적에서 인정액을 뺀 값부터`() {
+        val roll = credit(recognized = 15_000, total = 300_000).perfRoll()!!
+        assertEquals("+15,000원", roll.chip)
+        assertEquals(285_000L, roll.before)
+        assertEquals(300_000L, roll.after)
+    }
+
+    @Test fun `누적이 없거나 실적에서 빠지거나 취소 · 0원이면 칩 · 굴림 없이 지금처럼`() {
+        assertNull("BE -390 전 — 누적 없음", credit(recognized = 15_000, total = null).perfRoll())
+        assertNull("실적에서 빠지는 결제", credit(recognized = 15_000, total = 300_000).copy(perfCounted = false).perfRoll())
+        assertNull("인정액 0원", credit(recognized = 0, total = 300_000).perfRoll())
+        assertNull("인정액 없음", credit(recognized = null, total = 300_000).perfRoll())
+        assertNull("누적이 인정액보다 작으면 앞 값이 0 아래", credit(recognized = 15_000, total = 10_000).perfRoll())
+        assertNull("취소된 결제", credit(recognized = 15_000, total = 300_000).copy(status = PayStatus.CANCELED).perfRoll())
+        assertEquals("이번 결제가 첫 실적이면 0원부터", 0L, credit(recognized = 15_000, total = 15_000).perfRoll()?.before)
+    }
+
+    private fun credit(recognized: Long?, total: Long?) =
+        receipt().copy(isCheck = false, balanceAfter = null, perfMonth = 11, perfRecognized = recognized, perfTotalAfter = total, perfTarget = 300_000)
 
     private fun receipt() = PaymentReceipt(
         paymentId = 77, merchantName = "스타벅스 역삼점", categoryName = "카페", amount = 15_000,
