@@ -1,6 +1,7 @@
 package com.yamu.be.global.exception;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.when;
 
@@ -40,7 +41,7 @@ class FilterErrorResponseIntegrationTest extends MySqlTestSupport {
 
     @Test
     void 로그인_검사에서_DB가_끊기면_500_INTERNAL_ERROR_공통_응답이고_원인은_응답에_없다() throws Exception {
-        when(sessionChecker.status(anyLong(), anyLong()))
+        when(sessionChecker.status(anyLong(), anyLong(), any()))
                 .thenThrow(new CannotGetJdbcConnectionException("Failed to obtain JDBC Connection: secret-host:3306"));
         String token = accessTokenIssuer.issue(1L, 1L).token();
 
