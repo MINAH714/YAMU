@@ -110,6 +110,14 @@ object YamuMotion {
     const val COUNTDOWN_TICK_MS = 250
 
     /**
+     * 다시 고를 수 있는 거절(결제 요청의 거절된 카드 줄, M-WAIT-DECLINED): 판이 걷힌 뒤(SCREEN_SWAP_MS) 좌우로 ±3 → ±2dp.
+     * 모션 줄이기에서는 흔들지 않고 줄이 흐려지는 것만 남는다
+     */
+    const val SHAKE_MS = 250
+    const val SHAKE_DP = 3f
+    const val SHAKE_SETTLE_DP = 2f
+
+    /**
      * 동전 무더기(홈 예상 잔액 카드 아래 무대): 화면 교체 페이드가 끝난 뒤 떨어지기 시작한다. 모두 떨어지기 시작하는 창은
      * 개수 × COIN_STAGGER_MS(최대 COIN_WINDOW_MAX_MS)이고, 그 안에서 처음엔 촘촘하고 끝으로 갈수록 드문드문하다.
      * 180dp 떨어지는 데 COIN_FALL_MS(중력처럼 거리의 제곱근에 비례), 같은 줄 위 동전은 아래 동전이 닿고

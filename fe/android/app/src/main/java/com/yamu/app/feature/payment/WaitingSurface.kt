@@ -24,7 +24,14 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.ui.text.style.TextOverflow
+import com.yamu.app.core.designsystem.theme.YamuRadius
+import com.yamu.app.core.designsystem.theme.YamuSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -272,6 +279,27 @@ private fun HaloDisc(phase: WaitPhase, entering: Boolean) {
                 dashed = unknown,
             )
         }
+    }
+}
+
+/**
+ * 대기 판 아래 버튼 두 개(결과 불명 — 결과 다시 확인 · 닫기). 판이 브랜드색이라 주 버튼은 흰 바탕에 브랜드색 글자,
+ * 보조는 흰 글자로 둔다(앱 공용 버튼은 흰 화면용이라 판 위에서는 대비가 맞지 않는다)
+ */
+@Composable
+fun ColumnScope.WaitPanelActions(primary: String, onPrimary: () -> Unit, secondary: String, onSecondary: () -> Unit) {
+    val c = YamuTheme.colors
+    Button(
+        onClick = onPrimary,
+        modifier = Modifier.fillMaxWidth().height(YamuSize.button),
+        shape = RoundedCornerShape(YamuRadius.button),
+        colors = ButtonDefaults.buttonColors(containerColor = c.surface, contentColor = c.primary),
+        contentPadding = PaddingValues(horizontal = 20.dp),
+    ) {
+        Text(primary, style = YamuTheme.typography.button, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    }
+    TextButton(onClick = onSecondary, modifier = Modifier.align(Alignment.CenterHorizontally).height(YamuSize.touch)) {
+        Text(secondary, style = YamuTheme.typography.button, color = c.onPrimary)
     }
 }
 

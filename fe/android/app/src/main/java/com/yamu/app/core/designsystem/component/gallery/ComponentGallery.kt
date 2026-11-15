@@ -90,6 +90,7 @@ import com.yamu.app.core.designsystem.theme.YamuMotionDebug
 import com.yamu.app.core.designsystem.theme.YamuRadius
 import com.yamu.app.core.designsystem.theme.YamuTheme
 import com.yamu.app.core.ui.LocalSnackbar
+import com.yamu.app.feature.payment.WaitPanelActions
 import com.yamu.app.feature.payment.WaitPhase
 import com.yamu.app.feature.payment.WaitingSurface
 import kotlinx.coroutines.launch
@@ -199,13 +200,14 @@ private fun WaitMotionSamples() {
             key(surfaceMount) {
                 WaitingSurface(
                     phase = if (unknown) WaitPhase.Unknown else WaitPhase.Processing,
-                    title = if (unknown) "결제됐는지 확인하고 있어요" else "결제하고 있어요",
-                    pill = if (unknown) "확인 중 · 응답을 받지 못했어요" else "신한카드 · 15,000원",
+                    // 결과 불명은 저절로 다시 묻기를 다 하고도 모를 때의 모습(결제 화면 waitPanel과 같은 문구)
+                    title = if (unknown) "결제됐는지 확인하지 못했어요" else "결제하고 있어요",
+                    pill = if (unknown) "다시 확인해도 두 번 결제되지 않아요" else "신한카드 · 15,000원",
                     entering = true,          // '판 다시 넣기'로 들어오는 모션을 다시 본다
                     lightStatusBar = false,   // 갤러리는 위가 흰 화면이라 상태 표시줄을 바꾸지 않음
-                    // 아래 버튼이 생겨도 원판이 그 자리에 있는지 보는 견본. 버튼 모양은 결과 불명 작업에서 정함
+                    // 아래 버튼이 생겨도 원판이 그 자리에 있는지 보는 견본
                     bottom = if (unknown) {
-                        { NeutralButton("결과 다시 확인", onClick = {}) }
+                        { WaitPanelActions("결과 다시 확인", onPrimary = {}, secondary = "닫기", onSecondary = {}) }
                     } else {
                         null
                     },
