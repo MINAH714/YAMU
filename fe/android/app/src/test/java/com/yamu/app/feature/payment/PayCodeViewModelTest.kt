@@ -268,20 +268,84 @@ class PayCodeViewModelTest {
         finish(vm)
     }
 
-    @Test fun `결과 불명 같은 실패면 판이 걷히고 다시 누를 수 있다`() = runTest(dispatcher) {
+    @Test fun `결과 불명이면 판에 남아 결과 불명으로 바뀌고 다시 누를 수 있다`() = runTest(dispatcher) {
         payments.approveResult = ApiResult.Failure(ApiError.Network)
         val vm = toRequest()
         vm.approve()
+        val processing = vm.state.value.waitPanel()!!
+        assertEquals(WaitPhase.Processing, processing.phase)
+        assertEquals("결제하고 있어요", processing.title)
+        assertTrue(processing.pill!!.endsWith("15,000원"))
         advanceTimeBy(APPROVE_MS + 1)
         runCurrent()
         val s = vm.state.value
         assertFalse(s.waiting)
         assertTrue(s.outcomeUnknown)
         assertEquals("결제됐는지 확인하지 못했어요", s.declined)
+        val panel = s.waitPanel()!!
+        assertEquals("판은 걷히지 않고 결과 불명으로(M-WAIT-UNKNOWN)", WaitPhase.Unknown, panel.phase)
+        assertEquals("저절로 다시 물을 차례라 확인하고 있다고 한다", "결제됐는지 확인하고 있어요", panel.title)
+        assertFalse(panel.actions)
         payments.approveResult = null
         vm.approve()
         assertTrue(vm.state.value.approving)
+        assertFalse("손으로 다시 물으면 기다리던 것은 지운다", vm.state.value.recheckScheduled)
+        assertEquals(WaitPhase.Unknown, vm.state.value.waitPanel()?.phase)
         finish(vm)
+    }
+
+    @Test fun `결과를 모르면 같은 키로 두 번까지 저절로 다시 묻고 그래도 모르면 판에 버튼을 둔다`() = runTest(dispatcher) {
+        payments.approveResult = ApiResult.Failure(ApiError.Network)
+        val vm = toRequest()
+        closing(vm) {
+            vm.approve()
+            advanceTimeBy(APPROVE_MS + 1)
+            runCurrent()
+            assertTrue(vm.state.value.recheckScheduled)
+            repeat(AUTO_RECHECKS) {
+                advanceTimeBy(RECHECK_DELAY_MS)
+                runCurrent()
+                assertTrue(vm.state.value.approving)
+                assertEquals(WaitPhase.Unknown, vm.state.value.waitPanel()?.phase)
+                advanceTimeBy(APPROVE_MS + 1)
+                runCurrent()
+            }
+            assertEquals(1 + AUTO_RECHECKS, payments.approves)
+            assertEquals(1, payments.keys.toSet().size)
+            val panel = vm.state.value.waitPanel()!!
+            assertFalse(vm.state.value.recheckScheduled)
+            assertTrue(panel.actions)
+            assertEquals("결제됐는지 확인하지 못했어요", panel.title)
+            assertEquals("다시 확인해도 두 번 결제되지 않아요", panel.pill)
+            advanceTimeBy(RECHECK_DELAY_MS * 3)
+            runCurrent()
+            assertEquals("더는 저절로 묻지 않는다", 1 + AUTO_RECHECKS, payments.approves)
+            payments.approveResult = null
+            vm.recheckOutcome()
+            advanceTimeBy(APPROVE_MS + 1)
+            runCurrent()
+            assertEquals(PAYMENT_ID, vm.state.value.paidId)
+            assertEquals(1, payments.keys.toSet().size)
+        }
+    }
+
+    @Test fun `저절로 다시 물어 거절이 오면 판이 걷히고 다음 카드로`() = runTest(dispatcher) {
+        payments.approveResult = ApiResult.Failure(ApiError.Conflict("IDEMPOTENCY_IN_PROGRESS"))
+        val vm = toRequest()
+        closing(vm) {
+            vm.approve()
+            advanceTimeBy(APPROVE_MS + 1)
+            runCurrent()
+            payments.approveResult = ApiResult.Success(ApproveOutcome.Declined("잔액이 부족해요", retryable = true, remainingAttempts = 2, suggestedCardId = 2))
+            advanceTimeBy(RECHECK_DELAY_MS + APPROVE_MS + 1)
+            runCurrent()
+            val s = vm.state.value
+            assertEquals(2, payments.approves)
+            assertFalse(s.outcomeUnknown)
+            assertNull(s.waitPanel())
+            assertEquals("거절되면 다음 카드로", 2L, s.selectedCardId)
+            assertFalse(s.recheckScheduled)
+        }
     }
 
     // ── 결과를 모르는 승인(S15P31E103-433) — '결제되지 않았어요'로 단정하지 않고 같은 키로만 확인한다 ──
@@ -353,6 +417,18 @@ class PayCodeViewModelTest {
         assertEquals(payments.keys[0], payments.keys[1])
         assertTrue(s.requestExpired)
         assertTrue("확인도 502면 여전히 모른다", s.outcomeUnknown)
+        val panel = s.waitPanel()!!
+        assertTrue("마감 뒤에도 판에 남아 다시 확인할 길을 둔다", panel.actions)
+        assertEquals("새로 결제하기 전에 결제 내역을 먼저 봐 주세요", panel.pill)
+        advanceTimeBy(RECHECK_DELAY_MS * 2)
+        runCurrent()
+        assertEquals("마감 뒤에는 저절로 다시 묻지 않는다", 2, payments.approves)
+        vm.recheckOutcome()
+        assertTrue("마감 뒤 [결과 다시 확인]은 결과만 확인한다", vm.state.value.checkingOutcome)
+        advanceTimeBy(APPROVE_MS + 1)
+        runCurrent()
+        assertEquals(3, payments.approves)
+        assertEquals(1, payments.keys.toSet().size)
         finish(vm)
     }
 
@@ -466,10 +542,32 @@ class PayCodeViewModelTest {
         val s = vm.state.value
         assertFalse(s.waiting)
         assertTrue(s.requestExpired)
+        assertNull("만료면 판이 걷힌다(M-WAIT-EXPIRED)", s.waitPanel())
         vm.approve()
         runCurrent()
         assertEquals("만료 뒤에는 다시 부르지 않음", 1, payments.approves)
         finish(vm)
+    }
+
+    @Test fun `다시 고를 수 있는 거절이면 거절된 카드 줄을 흔들고 마지막 거절은 흔들지 않는다`() = runTest(dispatcher) {
+        payments.approveResult = ApiResult.Success(ApproveOutcome.Declined("잔액이 부족해요", retryable = true, remainingAttempts = 2, suggestedCardId = 2))
+        val vm = toRequest()
+        closing(vm) {
+            assertNull(vm.state.value.shakeCardId)
+            vm.approve()
+            advanceTimeBy(APPROVE_MS + 1)
+            runCurrent()
+            assertEquals(1L, vm.state.value.shakeCardId)
+            assertEquals(1, vm.state.value.shakeSeq)
+            assertNull("거절이면 판이 걷힌다", vm.state.value.waitPanel())
+            payments.approveResult = ApiResult.Success(ApproveOutcome.Declined("결제할 수 없어요", retryable = false, remainingAttempts = 0, suggestedCardId = null))
+            vm.approve()
+            advanceTimeBy(APPROVE_MS + 1)
+            runCurrent()
+            assertEquals(2L, payments.approvedCardId)
+            assertEquals("마지막 거절은 닫기만 남아 흔들지 않는다", 1, vm.state.value.shakeSeq)
+            assertEquals(1L, vm.state.value.shakeCardId)
+        }
     }
 
     @Test fun `1초 시계보다 먼저 마감이 지났으면 판을 띄우지 않고 만료로`() = runTest(dispatcher) {
