@@ -446,8 +446,8 @@ fun BarcodeStatusResponse.toStatus(): PayCodeStatus {
     val state = runCatching { CodeState.valueOf(status.uppercase()) }.getOrDefault(CodeState.ISSUED)
     val request = payment?.takeIf { state == CodeState.SCANNED }?.let { p ->
         val rec = p.recommendation
-        // 임시(S15P31E103-411): 서버 reason은 지금 후보마다 같은 문장(1순위를 고른 이유 · 최대 순혜택)이라 1순위에만 둔다.
-        // 2순위 이하에 두면 혜택 없는 카드에도 1순위 금액이 보인다. BE가 카드별 사유를 보내면 이 줄을 걷는다
+        // 서버 reason은 1순위에만 둔다(-411에서 넣고 -496에서 규칙으로 굳힘). 1순위는 고른 이유 전체이고, 2순위 이하는 BE -440부터
+        // '예상 순혜택은 N원입니다.'뿐이다. 줄 오른쪽의 예상 혜택 · '혜택 없음'과 같은 말이고 금액에 쉼표도 없어 보이지 않는다
         val ranked = rec?.candidates.orEmpty().sortedBy { it.rank }
             .mapIndexed { i, c -> c.toPayCard().let { card -> if (i == 0) card else card.copy(reason = null) } }
         // 비교 못 한 카드는 순위 없이 뒤에 — 앞 후보와 같은 카드가 오면(서버 규칙상 없음) 후보 쪽만 남긴다
