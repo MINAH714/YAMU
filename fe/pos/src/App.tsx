@@ -1,5 +1,5 @@
-import { AnimatePresence, MotionConfig, useIsPresent } from 'motion/react'
-import { useEffect, useEffectEvent, useRef, useState, type ComponentProps } from 'react'
+import { AnimatePresence, MotionConfig } from 'motion/react'
+import { useEffect, useEffectEvent, useLayoutEffect, useRef, useState, type ComponentProps } from 'react'
 import { ApiError, newIdempotencyKey } from './api/client'
 import { createPaymentRequest, type PaymentRequestBody, type PaymentResult } from './api/pos'
 import {
@@ -23,7 +23,8 @@ import { PAYMENT_METHOD, Receipt } from './components/Receipt'
 import { ScanStep } from './components/ScanStep'
 import { StatusScreen } from './components/StatusScreen'
 import { StoreSelect } from './components/StoreSelect'
-import { Tray } from './components/Tray'
+import { Tray, type TrayAppear, type TrayExit } from './components/Tray'
+import { useTrayStepLive } from './components/trayLive'
 import { TRAY_META } from './components/trayMeta'
 import { WaitingStep } from './components/WaitingStep'
 import { config, missingConfig } from './config'
@@ -155,6 +156,11 @@ function App() {
   // 취소도 같은 이유로 하나만 나간다
   const cancelingRef = useRef(false)
   const scanEntry = useRef(0)
+  // 지금 그려진 단계. 걷히는 트레이·옛 단계에 남은 콜백이 지난 단계를 보고 결제를 보내지 않게 비교한다
+  const phaseRef = useRef(phase)
+  useLayoutEffect(() => {
+    phaseRef.current = phase
+  })
   const [historyList, setHistoryList] = useState<HistoryList>({ items: null, error: null })
   // 다시 불러오기를 연달아 누르면 늦게 온 옛 응답이 새 목록을 덮지 않게 마지막 요청만 받는다
   const historyRequest = useRef(0)
@@ -162,6 +168,8 @@ function App() {
   const ignoreNextPop = useRef(false)
   // 결제수단 트레이가 커져 나오고 닫히면 줄어드는 '결제하기' 버튼
   const checkoutRef = useRef<HTMLButtonElement>(null)
+  // 다음에 뜰 트레이가 버튼에서 커질지(결제하기), 제자리에서 나타날지(결제 요청 실패·다시 결제)
+  const [trayAppear, setTrayAppear] = useState<TrayAppear>('fade')
   // 결제 트레이가 화면에 있는 동안(닫혀 줄어드는 중 포함). 그동안 주문 화면은 눌리지 않고 진짜 버튼은 숨는다
   const trayOpen = phase.step === 'method' || phase.step === 'cash' || phase.step === 'scan'
   const [trayPresent, setTrayPresent] = useState(false)
@@ -309,6 +317,7 @@ function App() {
     if (order.total <= 0) return
     // 주문을 줄여 할부 최소 금액 아래로 내려가면 고르던 할부를 일시불로 되돌린다
     if (order.total < MIN_INSTALLMENT_AMOUNT) setPlanInput(EMPTY_PLAN)
+    setTrayAppear('origin')
     setPhase({ step: 'method', order, errors: {}, notice: null })
     syncHistory(ENTRY_DEPTH.method)
   }
@@ -316,9 +325,11 @@ function App() {
   /**
    * 요청이 트레이가 닫히기 전에 실패하면 트레이가 언마운트되지 않고 되살아나, 한 번 읽고 멈춘 카메라가 그대로 남는다.
    * 스캔에 들어올 때마다 회차를 올려 ScanStep을 새로 만든다.
+   * 결제수단에서 넘어올 때가 아니면(요청 실패·다시 결제) 트레이가 새로 뜨므로 버튼에서 커지지 않고 제자리에서 나타난다.
    */
   const showScan = (order: Order, terms: Terms, notice: string | null = null, rejectedToken: string | null = null) => {
     scanEntry.current += 1
+    setTrayAppear('fade')
     setPhase({ step: 'scan', order, terms, notice, rejectedToken, entry: scanEntry.current })
   }
 
@@ -330,6 +341,16 @@ function App() {
     }
     showScan(order, validated.terms)
     syncHistory(ENTRY_DEPTH.pay)
+  }
+
+  /**
+   * 지금 보이는 스캔 단계(같은 회차)에서 읽은 바코드만 결제로 보낸다. 같은 QR이 두 번 결제되지 않게,
+   * 걷히는 옛 단계나 사라지는 트레이의 카메라·입력칸에서 온 것은 버린다(트레이 쪽 useTrayStepLive와 겹쳐 막는다).
+   */
+  const onScanToken = (entry: number, order: Order, terms: Terms, token: string) => {
+    const now = phaseRef.current
+    if (now.step !== 'scan' || now.entry !== entry) return
+    startAttempt(order, terms, token)
   }
 
   const startAttempt = (order: Order, terms: Terms, barcodeToken: string) => {
@@ -365,6 +386,7 @@ function App() {
       const { order, terms } = attempt
       switch (failure.kind) {
         case 'terms':
+          setTrayAppear('fade')
           setPhase({ step: 'method', order, errors: failure.errors, notice: failure.message })
           // 응답을 기다린 뒤라 사용자 입력 밖이다. 걷어 내기만 한다
           trimHistory(ENTRY_DEPTH.method)
@@ -611,8 +633,11 @@ function App() {
           )}
         </main>
 
-        {/* 주문 화면으로 돌아가면 버튼 자리로 줄어든다. 다 줄어들면 진짜 버튼이 보이고 주문 화면이 풀린다 */}
-        <AnimatePresence onExitComplete={() => setTrayPresent(false)}>
+        {/* 주문 화면으로 돌아가면 버튼 자리로 줄어들고, 결제가 나가면(요청 중·현금 완료) 제자리에서 사라진다 */}
+        <AnimatePresence
+          custom={(phase.step === 'order' ? 'origin' : 'fade') satisfies TrayExit}
+          onExitComplete={() => setTrayPresent(false)}
+        >
           {trayOpen && (
             <Tray
               key="tray"
@@ -620,6 +645,7 @@ function App() {
               title={TRAY_META[phase.step].title}
               width={TRAY_META[phase.step].width}
               origin={checkoutRef}
+              appear={trayAppear}
               onClose={phase.step === 'method' ? closeTray : undefined}
               onBack={
                 phase.step === 'method'
@@ -659,7 +685,7 @@ function App() {
                   terms={phase.terms}
                   notice={phase.notice}
                   rejectedToken={phase.rejectedToken}
-                  onToken={(token) => startAttempt(phase.order, phase.terms, token)}
+                  onToken={(token) => onScanToken(phase.entry, phase.order, phase.terms, token)}
                 />
               )}
             </Tray>
@@ -693,16 +719,16 @@ function App() {
 }
 
 /**
- * 트레이가 닫히는 동안에도 스캔 화면은 잠깐 남아 있고 카메라도 켜져 있다.
+ * 트레이가 사라지는 동안에도, 단계가 바뀌어 옛 단계가 걷히는 동안에도 스캔 화면은 잠깐 남아 있고 카메라도 켜져 있다.
  * 그 사이에 읽힌 QR이 두 번째 결제가 되지 않게 버린다.
  */
 function ScanInTray({ onToken, ...props }: ComponentProps<typeof ScanStep>) {
-  const isPresent = useIsPresent()
+  const live = useTrayStepLive()
   return (
     <ScanStep
       {...props}
       onToken={(token) => {
-        if (isPresent) onToken(token)
+        if (live) onToken(token)
       }}
     />
   )
@@ -710,12 +736,12 @@ function ScanInTray({ onToken, ...props }: ComponentProps<typeof ScanStep>) {
 
 /** 닫히는 트레이의 카메라가 읽은 바코드로 취소가 나가지 않게 버린다(ScanInTray와 같은 이유) */
 function CancelScanInTray({ onToken, ...props }: ComponentProps<typeof CancelScanStep>) {
-  const isPresent = useIsPresent()
+  const live = useTrayStepLive()
   return (
     <CancelScanStep
       {...props}
       onToken={(token) => {
-        if (isPresent) onToken(token)
+        if (live) onToken(token)
       }}
     />
   )
