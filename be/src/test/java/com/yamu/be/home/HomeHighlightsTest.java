@@ -38,7 +38,7 @@ class HomeHighlightsTest {
         when(reports.monthly(7L,null)).thenReturn(monthly);
         when(reports.benefits(7L,YearMonth.of(2026,11),BenefitSource.YAMU)).thenReturn(new BenefitReportResponse("2026-11","PARTIAL",
                 new BenefitReportResponse.Summary(1500,1000,0,0,500,1,List.of()),List.of(),List.of(),BenefitSource.YAMU,List.of()));
-        when(forecasts.forecast(eq(7L),anyList(),any(),any(),eq(true),eq(false))).thenAnswer(i->
+        when(forecasts.preview(eq(7L),anyList(),any(),any(),eq(true),eq(false))).thenAnswer(i->
                 HomeForecastPreviewTest.fixture(30,d->HomeForecastPreviewTest.point(d,500,300L)));
     }
     @Test void usesExplicitCurrentMonthYamuBenefitsAndReusesThirtyDayForecast() {
@@ -51,21 +51,21 @@ class HomeHighlightsTest {
         assertThat(r.benefitSummary().unconvertedBenefitCount()).isEqualTo(1);
         assertThat(r.benefitSummary().source()).isEqualTo(BenefitSource.YAMU);
         assertThat(r.forecastPreview().minBalance()).isEqualTo(300);
-        verify(forecasts,times(1)).forecast(anyLong(),anyList(),any(),any(),anyBoolean(),anyBoolean());
+        verify(forecasts,times(1)).preview(anyLong(),anyList(),any(),any(),anyBoolean(),anyBoolean());
     }
     @Test void sevenDayLegacyRemainsSevenDaysButNewPreviewRequestsThirty() {
         doAnswer(i->HomeForecastPreviewTest.fixture(i.getArgument(3)==null?7:30,d->HomeForecastPreviewTest.point(d,500,300L)))
-                .when(forecasts).forecast(anyLong(),anyList(),any(),any(),anyBoolean(),anyBoolean());
+                .when(forecasts).preview(anyLong(),anyList(),any(),any(),anyBoolean(),anyBoolean());
         var r=home.home(me);
         assertThat(r.balanceForecast().horizonDays()).isEqualTo(7);
         assertThat(r.forecastPreview().horizonDays()).isEqualTo(30);
-        verify(forecasts).forecast(7L,List.of(1L),BalanceForecast.Until.DAYS,30,true,false);
+        verify(forecasts).preview(7L,List.of(1L),BalanceForecast.Until.DAYS,30,true,false);
     }
     @Test void previewFailurePreservesLegacyAndBenefits() {
         doAnswer(i->{
             if(i.getArgument(3)!=null) throw new BusinessException(ErrorCode.UPSTREAM_TIMEOUT);
             return HomeForecastPreviewTest.fixture(7,d->HomeForecastPreviewTest.point(d,500,null));
-        }).when(forecasts).forecast(anyLong(),anyList(),any(),any(),anyBoolean(),anyBoolean());
+        }).when(forecasts).preview(anyLong(),anyList(),any(),any(),anyBoolean(),anyBoolean());
         var r=home.home(me);
         assertThat(r.forecastPreview()).isNull();
         assertThat(r.balanceForecast()).isNotNull();
@@ -74,15 +74,15 @@ class HomeHighlightsTest {
     }
     @Test void legacyFailureCanStillReturnIndependentThirtyDayPreview() {
         doAnswer(i->{
-            if(i.getArgument(3)==null) throw new BusinessException(ErrorCode.UPSTREAM_TIMEOUT);
+            if(i.getArgument(3)==null) throw new BusinessException(ErrorCode.INTERNAL_ERROR);
             return HomeForecastPreviewTest.fixture(30,d->HomeForecastPreviewTest.point(d,500,300L));
-        }).when(forecasts).forecast(anyLong(),anyList(),any(),any(),anyBoolean(),anyBoolean());
+        }).when(forecasts).preview(anyLong(),anyList(),any(),any(),anyBoolean(),anyBoolean());
         var r=home.home(me);
         assertThat(r.balanceForecast()).isNull();
         assertThat(r.dataSyncedAt()).isNull();
         assertThat(r.forecastPreview().balanceAsOf()).isEqualTo(HomeForecastPreviewTest.AS_OF);
         assertThat(r.benefitSummary()).isNotNull();
-        assertThat(r.partialErrors()).containsExactly(new HomeResponse.PartialError("balanceForecast","UPSTREAM_TIMEOUT"));
+        assertThat(r.partialErrors()).containsExactly(new HomeResponse.PartialError("balanceForecast","INTERNAL_ERROR"));
     }
     @Test void reportFailureDoesNotFabricateZeroAndKeepsForecast() {
         doThrow(new BusinessException(ErrorCode.INTERNAL_ERROR)).when(reports).benefits(anyLong(),any(),any());
@@ -100,6 +100,25 @@ class HomeHighlightsTest {
         assertThat(r.benefitSummary()).isNotNull();
         assertThat(r.partialErrors()).isEmpty();
         verifyNoInteractions(forecasts);
+    }
+    @Test void externalFailureIsSharedWithoutRepeatingFinanceLookup() {
+        for (ErrorCode code: List.of(ErrorCode.UPSTREAM_TIMEOUT, ErrorCode.FIN_API_ERROR, ErrorCode.FIN_API_UNAVAILABLE)) {
+            clearInvocations(forecasts);
+            doThrow(new BusinessException(code)).when(forecasts).preview(anyLong(),anyList(),any(),any(),anyBoolean(),anyBoolean());
+            var r=home.home(me);
+            assertThat(r.balanceForecast()).isNull();
+            assertThat(r.forecastPreview()).isNull();
+            assertThat(r.benefitSummary()).isNotNull();
+            assertThat(r.partialErrors()).containsExactly(new HomeResponse.PartialError("balanceForecast",code.name()),
+                    new HomeResponse.PartialError("forecastPreview",code.name()));
+            verify(forecasts,times(1)).preview(anyLong(),anyList(),any(),any(),anyBoolean(),anyBoolean());
+        }
+    }
+    @Test void nextIncomeWithActualThirtyDaysDoesNotTriggerAnotherCalculation() {
+        doReturn(HomeForecastPreviewTest.fixture(30,d->HomeForecastPreviewTest.point(d,500,null),BalanceForecast.Until.NEXT_INCOME))
+                .when(forecasts).preview(anyLong(),anyList(),any(),any(),anyBoolean(),anyBoolean());
+        assertThat(home.home(me).forecastPreview()).isNotNull();
+        verify(forecasts,times(1)).preview(anyLong(),anyList(),any(),any(),anyBoolean(),anyBoolean());
     }
     @Test void benefitMonthUsesKoreanDateRatherThanUtcDate() {
         var endOfMonth=new HomeService(cards,forecasts,settings,reports,performances,reader,

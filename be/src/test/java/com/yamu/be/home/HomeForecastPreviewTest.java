@@ -12,6 +12,10 @@ class HomeForecastPreviewTest {
     static final LocalDateTime AS_OF=LocalDateTime.of(2026,11,13,3,0);
 
     static BalanceForecast fixture(int days, java.util.function.IntFunction<BalanceForecast.SeriesPoint> points) {
+        return fixture(days, points, BalanceForecast.Until.DAYS);
+    }
+    static BalanceForecast fixture(int days, java.util.function.IntFunction<BalanceForecast.SeriesPoint> points,
+            BalanceForecast.Until until) {
         var summary=mock(BalanceForecast.Summary.class);
         when(summary.endBalance()).thenReturn(900L);
         when(summary.minBalance()).thenReturn(-999L); // 오늘 일말 최저점은 새 요약에서 제외되어야 한다.
@@ -19,7 +23,7 @@ class HomeForecastPreviewTest {
         when(living.projectedAmount()).thenReturn(100L);
         var series=new ArrayList<BalanceForecast.SeriesPoint>();
         for(int d=0;d<=days;d++) series.add(points.apply(d));
-        return new BalanceForecast(List.of(1L),1,1000,new BalanceForecast.Horizon(BalanceForecast.Until.DAYS,TODAY,TODAY.plusDays(days),days),
+        return new BalanceForecast(List.of(1L),1,1000,new BalanceForecast.Horizon(until,TODAY,TODAY.plusDays(days),days),
                 100,summary,series,List.of(),living,List.of(),
                 List.of(new BalanceForecast.AccountForecast(1L,1000,AS_OF,null,List.of(),List.of(),living)),List.of(),true,AS_OF.plusSeconds(1));
     }
@@ -69,5 +73,10 @@ class HomeForecastPreviewTest {
         var input=fixture(30,d->point(d,500,null));
         when(input.livingCost().projectedAmount()).thenReturn(null);
         assertThat(HomeForecastPreview.from(input,1L,TODAY).isProvisional()).isTrue();
+    }
+    @Test void nextIncomeWithSameActualThirtyDayRangeIsReusable() {
+        var input=fixture(30,d->point(d,500,null),BalanceForecast.Until.NEXT_INCOME);
+        assertThat(HomeForecastPreview.reusable(input,1L,TODAY)).isTrue();
+        assertThat(HomeForecastPreview.from(input,1L,TODAY).horizonDays()).isEqualTo(30);
     }
 }

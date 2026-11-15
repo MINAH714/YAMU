@@ -11,7 +11,6 @@ final class HomeForecastPreview {
 
     static boolean reusable(BalanceForecast result, Long accountId, LocalDate today) {
         return result != null && result.accountIds().equals(List.of(accountId))
-                && result.horizon().type() == BalanceForecast.Until.DAYS
                 && result.horizon().days() == DAYS && result.horizon().from().equals(today)
                 && result.horizon().to().equals(today.plusDays(DAYS));
     }
