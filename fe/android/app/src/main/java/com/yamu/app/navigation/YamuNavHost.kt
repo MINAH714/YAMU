@@ -8,6 +8,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.navigation
 import androidx.navigation.toRoute
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.yamu.app.BuildConfig
 import com.yamu.app.core.designsystem.component.gallery.ComponentGallery
 import com.yamu.app.core.designsystem.theme.YamuTheme
@@ -67,6 +68,7 @@ import com.yamu.app.feature.my.MyRoute
 import com.yamu.app.feature.my.NotificationSettingsRoute
 import com.yamu.app.feature.my.NotificationsRoute
 import com.yamu.app.feature.my.ProfileRoute
+import com.yamu.app.feature.my.REMOVED_CARD_ID
 import com.yamu.app.feature.my.SecurityRoute
 import com.yamu.app.feature.my.WithdrawRoute
 import com.yamu.app.feature.my.data.NotiTarget
@@ -396,18 +398,23 @@ fun YamuNavHost(navController: NavHostController, modifier: Modifier = Modifier)
                         onDebugMenu = debugMenu,
                     )
                 }
-                composable<CardManage> {
+                composable<CardManage> { entry ->
+                    // 카드 상세에서 해제하고 돌아오면 그 카드를 제자리에서 지운다
+                    val removed = entry.savedStateHandle.getStateFlow<Long?>(REMOVED_CARD_ID, null).collectAsStateWithLifecycle().value
                     CardManageRoute(
                         onBack = back,
                         onAddCard = { navController.navigate(AddCard) },
                         onCardDetail = { id -> navController.navigate(CardDetail(id)) },
                         onCardOrder = { navController.navigate(CardOrder) },
+                        removedCardId = removed,
+                        onRemovedHandled = { entry.savedStateHandle[REMOVED_CARD_ID] = null },
                     )
                 }
-                composable<CardDetail> {
+                composable<CardDetail> { entry ->
                     CardDetailRoute(
                         onBack = back,
                         onUnregistered = { name ->
+                            navController.previousBackStackEntry?.savedStateHandle?.set(REMOVED_CARD_ID, entry.toRoute<CardDetail>().userCardId)
                             back()
                             showMessage("${name}${name.objectParticle()} 해제했어요")
                         },
