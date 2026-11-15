@@ -359,8 +359,18 @@ input::placeholder {
   color: var(--error);
 }
 
-.status-icon[data-state='warning'] {
+.status-icon[data-state='expired'] {
+  color: var(--text3);
+}
+
+.status-icon[data-state='unconfirmed'] {
   color: var(--warning);
+}
+
+/* 흔들림·모션 줄이기 페이드를 맡는 감싸개 */
+.status-icon-wrap {
+  display: inline-flex;
+  flex: none;
 }
 
 .status-icon-track {
@@ -372,7 +382,6 @@ input::placeholder {
   transform-origin: center;
 }
 
-/* 결과가 나오면 원은 투명해진다. 보이지 않는 회전이 남지 않게 대기 중에만 돌린다 */
 .status-icon[data-state='pending'] .status-icon-spin {
   animation: status-icon-spin 0.9s linear infinite;
 }
