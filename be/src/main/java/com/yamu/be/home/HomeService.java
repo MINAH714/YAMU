@@ -15,12 +15,15 @@ import com.yamu.be.global.exception.ErrorCode;
 import com.yamu.be.global.security.AuthUser;
 import com.yamu.be.report.MonthlyReportResponse;
 import com.yamu.be.report.ReportService;
+import com.yamu.be.report.BenefitSource;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
+import java.time.ZoneId;
+import java.time.YearMonth;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Supplier;
@@ -67,13 +70,20 @@ public class HomeService {
 
     public HomeResponse home(AuthUser me) {
         long userId = me.userId();
+        LocalDate today = Instant.now(clock).atZone(ZoneId.of("Asia/Seoul")).toLocalDate();
         List<HomeResponse.PartialError> errors = new ArrayList<>();
 
         CardListResponse cardList = section("cards", errors, () -> cards.list(me, null));
         List<HomeResponse.PerformanceAlert> alerts = section("performanceAlerts", errors,
                 () -> performanceAlerts(userId));
         ForecastPart forecast = section("balanceForecast", errors, () -> forecast(userId));
+        HomeResponse.PartialError forecastError = errors.stream()
+                .filter(error -> error.area().equals("balanceForecast")).findFirst().orElse(null);
         HomeResponse.MonthSummary monthSummary = section("monthSummary", errors, () -> monthSummary(userId));
+        HomeResponse.BenefitSummary benefitSummary = section("benefitSummary", errors,
+                () -> benefitSummary(userId, YearMonth.from(today)));
+        HomeResponse.ForecastPreview forecastPreview = section("forecastPreview", errors,
+                () -> forecastPreview(userId, forecast, forecastError, today));
         Integer unread = section("unreadNotificationCount", errors, () -> reader.unreadNotificationCount(userId));
         List<HomeResponse.Todo> todos = section("todos", errors, () -> todos(cardList, alerts));
         HomeResponse.RecentPayment recentPayment = section("recentPayment", errors,
@@ -94,7 +104,7 @@ public class HomeService {
                 todos == null ? List.of() : todos,
                 recentPayment,
                 onboarding,
-                todayCard);
+                todayCard, benefitSummary, forecastPreview);
     }
 
     /**
@@ -177,7 +187,7 @@ public class HomeService {
         if (accountId == null) {
             return null;
         }
-        BalanceForecast result = forecasts.forecast(userId, List.of(accountId), null, null, true, false);
+        BalanceForecast result = forecasts.preview(userId, List.of(accountId), null, null, true, false);
         BalanceForecast.Horizon horizon = result.horizon();
         HomeResponse.NextIncome nextIncome = horizon.type() == BalanceForecast.Until.NEXT_INCOME
                 && settings.income() != null
@@ -189,7 +199,32 @@ public class HomeService {
                 firstRiskDate(result.series(), result.alertThreshold()), horizon.days(),
                 result.summary().minBalance(), nextIncome, result.isEstimate(),
                 result.livingCost().projectedAmount() == null);
-        return new ForecastPart(summary, result.accountForecasts().get(0).syncedAt());
+        return new ForecastPart(summary, result.accountForecasts().get(0).syncedAt(), result);
+    }
+
+    private HomeResponse.BenefitSummary benefitSummary(long userId, YearMonth month) {
+        var report = reports.benefits(userId, month, BenefitSource.YAMU);
+        var summary = report.summary();
+        return new HomeResponse.BenefitSummary(report.yearMonth(), report.source(), report.status(),
+                summary.expectedBenefit(), summary.confirmedBenefit(), summary.unconfirmedBenefit(),
+                summary.unconvertedBenefitCount(), summary.byType());
+    }
+
+    private HomeResponse.ForecastPreview forecastPreview(long userId, ForecastPart existing,
+            HomeResponse.PartialError sourceError, LocalDate today) {
+        if (sourceError != null && List.of("FIN_API_UNAVAILABLE", "FIN_API_ERROR", "UPSTREAM_TIMEOUT")
+                .contains(sourceError.code())) {
+            // 같은 금융망 장애를 한 홈 요청에서 두 번 기다리지 않는다. 두 영역에는 각각 같은 실패를 표시한다.
+            throw new BusinessException(ErrorCode.valueOf(sourceError.code()));
+        }
+        Long accountId = existing == null ? forecastSettings.get(userId).baseAccountId() : existing.summary().accountId();
+        if (accountId == null) return null;
+        BalanceForecast result = existing == null ? null : existing.result();
+        if (!HomeForecastPreview.reusable(result, accountId, today)) {
+            result = forecasts.preview(userId, List.of(accountId), BalanceForecast.Until.DAYS,
+                    HomeForecastPreview.DAYS, true, false);
+        }
+        return HomeForecastPreview.from(result, accountId, today);
     }
 
     /**
@@ -211,5 +246,5 @@ public class HomeService {
         return LocalDateTime.ofInstant(Instant.now(clock), ZoneOffset.UTC);
     }
 
-    private record ForecastPart(HomeResponse.BalanceForecast summary, LocalDateTime syncedAt) {}
+    private record ForecastPart(HomeResponse.BalanceForecast summary, LocalDateTime syncedAt, BalanceForecast result) {}
 }
