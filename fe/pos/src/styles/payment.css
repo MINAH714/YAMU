@@ -216,19 +216,13 @@
 
 /* 스캔. 카메라가 남는 높이를 다 쓰도록 트레이부터 높이를 정해 내려준다 */
 
-.tray:has(.pay-scan) {
-  height: min(calc(var(--app-height) - 32px), 720px);
+.tray-panel:has(.pay-scan) {
+  height: min(100cqh, 720px);
 }
 
 .tray-body:has(.pay-scan) {
   display: flex;
   flex-direction: column;
-}
-
-.tray-body:has(.pay-scan) > .tray-step {
-  display: flex;
-  flex: 1;
-  min-height: 0;
 }
 
 .pay-scan {
@@ -331,9 +325,9 @@
   padding-bottom: calc(var(--s-4) + var(--keyboard-inset, 0px));
 }
 
-.tray:has(.pay-scan[data-typing='true']) {
+/* 단계 최대 높이(100cqh)는 위 아래 여백만큼 같이 줄어든다 */
+.tray-panel:has(.pay-scan[data-typing='true']) {
   height: auto;
-  max-height: calc(var(--app-height) - 32px - var(--keyboard-inset, 0px));
 }
 
 .pay-scan[data-typing='true'] .pay-scan-terms {

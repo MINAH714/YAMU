@@ -6,7 +6,7 @@ import { CashStep } from '../components/CashStep'
 import { OrderStep } from '../components/OrderStep'
 import { PaymentMethodStep, type PlanInput } from '../components/PaymentMethodStep'
 import { ScanStep } from '../components/ScanStep'
-import { Tray, TrayStep } from '../components/Tray'
+import { Tray } from '../components/Tray'
 import { TRAY_META } from '../components/trayMeta'
 import type { Cart, Order } from '../store/cart'
 import { STORES } from '../store/catalog'
@@ -35,13 +35,14 @@ type TrayFrameProps = { step: keyof typeof TRAY_META; first?: boolean; order?: O
 function TrayFrame({ step, first, order = DEMO_ORDER, children }: TrayFrameProps) {
   return (
     <Tray
+      stepKey={step}
       title={TRAY_META[step].title}
       width={TRAY_META[step].width}
       onClose={first ? noop : undefined}
       onBack={first ? undefined : noop}
     >
-      <Amount className="tray-amount" layoutId="order-total" value={order.total} size="lg" />
-      <TrayStep>{children}</TrayStep>
+      <Amount className="tray-amount" value={order.total} size="lg" />
+      {children}
     </Tray>
   )
 }
