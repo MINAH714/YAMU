@@ -122,14 +122,14 @@ data class HomeGreeting(val title: String, val sub: String)
 
 /**
  * 인사(HOME-02 앞). 연결 전 · 카드 없음은 혜택을 모을 수 없어 '반가워요'로 맞고 무엇을 하면 되는지 말한다(시안 그대로).
- * 그 밖은 '○○님, ○월 혜택을 모아 봤어요'와 집계 범위(YAMU 결제만 · 기간, COMMON-01)
+ * 그 밖은 '○○님, ○월 혜택을 모아 봤어요'와 기간만. 'YAMU로 결제한 것만 셌어요'는 설명하는 말투라 11/15에 뺐다
  */
 fun homeGreeting(name: String?, needsLinking: Boolean, needsCard: Boolean, month: YearMonth, from: LocalDate, to: LocalDate): HomeGreeting {
     val who = "${name?.takeIf { it.isNotBlank() } ?: "야무"}님"
     return when {
         needsLinking -> HomeGreeting("$who, 반가워요", "계좌와 카드를 연결하면 혜택과 잔고를 모아 보여 드려요")
         needsCard -> HomeGreeting("$who, 반가워요", "카드를 등록하면 혜택을 모아 보여 드려요")
-        else -> HomeGreeting("$who, ${month.monthValue}월 혜택을 모아 봤어요", "YAMU로 결제한 것만 셌어요 · ${periodText(from, to)}")
+        else -> HomeGreeting("$who, ${month.monthValue}월 혜택을 모아 봤어요", periodText(from, to))
     }
 }
 
@@ -178,11 +178,11 @@ data class PayNote(val text: String, val autoOff: Boolean)
 
 /**
  * 'YAMU로 결제하기' 안내(HOME-08 · 09). 바코드를 열기 전에 특정 카드가 최적이라고 말하지 않는다.
- * 자동 선택을 끈 사람에게는 기본 카드로 결제한다고 바꿔 보이고, 설정을 못 읽었으면 어느 쪽인지 단정하지 않는다
+ * 자동 선택을 끈 사람에게만 기본 카드로 결제한다고 알린다. 자동 선택이 켜졌거나 설정을 못 읽었으면 안내 줄을 두지 않는다
+ * ('실적과 남은 혜택 한도를 따져 카드를 골라요' · '카드는 YAMU가 알아서 골라요'는 기능을 설명하는 말투라 11/15에 뺐다)
  */
-fun payNote(settings: PaySettings?, cardName: (Long) -> String?): PayNote = when {
-    settings == null -> PayNote("결제 코드를 열면 결제 설정대로 카드를 골라요", autoOff = false)
-    settings.autoSelect -> PayNote("결제할 곳과 금액이 정해지면 실적과 남은 혜택 한도를 따져 카드를 골라요", autoOff = false)
+fun payNote(settings: PaySettings?, cardName: (Long) -> String?): PayNote? = when {
+    settings == null || settings.autoSelect -> null
     else -> {
         val name = settings.defaultUserCardId?.let(cardName)?.takeIf { it.isNotBlank() }
         PayNote(
@@ -194,9 +194,6 @@ fun payNote(settings: PaySettings?, cardName: (Long) -> String?): PayNote = when
 
 /** '로 · 으로' — 끝의 닫는 괄호 · 따옴표는 건너뛰고 본다('ZERO Edition3(포인트형)으로') */
 private fun String.cardParticle(): String = trimEnd(')', ']', '」', '"', '\'', '.', ' ').directionParticle()
-
-/** 결제 칸 제목 아래 한 줄 — 자동 선택이 켜졌을 때만(꺼졌거나 모르면 안내 줄이 말한다) */
-fun paySubtitle(settings: PaySettings?): String? = "카드는 YAMU가 알아서 골라요".takeIf { settings?.autoSelect == true }
 
 /**
  * 히어로 동전 수 — 확정은 꽉 찬 동전, 확정 전은 점선 동전(11/13 시안에서 고름). 약 [WON_PER_COIN]원에 한 개(올림),

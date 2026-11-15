@@ -59,10 +59,10 @@ class HomeBenefitTest {
 
     // ── 인사 ──
 
-    @Test fun `인사는 혜택 달과 집계 범위를 말한다`() {
+    @Test fun `인사는 혜택 달과 기간만 — 집계 범위를 설명하는 문장은 두지 않는다`() {
         val g = homeGreeting("김야무", needsLinking = false, needsCard = false, YearMonth.of(2026, 11), LocalDate.of(2026, 11, 1), today)
         assertEquals("김야무님, 11월 혜택을 모아 봤어요", g.title)
-        assertEquals("YAMU로 결제한 것만 셌어요 · 11/1~11/13", g.sub)
+        assertEquals("11/1~11/13", g.sub)
     }
 
     @Test fun `연결 전 · 카드 없음은 반가워요와 할 일`() {
@@ -85,34 +85,28 @@ class HomeBenefitTest {
     private val names = mapOf(11L to "신한카드 처음", 12L to "KB국민 노리 체크", 13L to "현대카드ZERO Edition3(포인트형)")
 
     @Test fun `괄호로 끝나는 카드 이름은 괄호 안 끝 글자로 조사를 고른다`() {
-        assertEquals("자동 선택이 꺼져 있어요. 기본 카드인 현대카드ZERO Edition3(포인트형)으로 결제해요", payNote(PaySettings(false, 13), names::get).text)
+        assertEquals("자동 선택이 꺼져 있어요. 기본 카드인 현대카드ZERO Edition3(포인트형)으로 결제해요", payNote(PaySettings(false, 13), names::get)?.text)
     }
 
-    @Test fun `자동 선택이 켜졌으면 결제할 곳과 금액이 정해진 뒤 고른다고 말한다`() {
-        val note = payNote(PaySettings(autoSelect = true, defaultUserCardId = 11), names::get)
-        assertEquals("결제할 곳과 금액이 정해지면 실적과 남은 혜택 한도를 따져 카드를 골라요", note.text)
-        assertFalse(note.autoOff)
-        assertEquals("카드는 YAMU가 알아서 골라요", paySubtitle(PaySettings(true, null)))
+    @Test fun `자동 선택이 켜졌으면 안내 줄을 두지 않는다 — 기능을 설명하는 말투라 뺐다`() {
+        assertNull(payNote(PaySettings(autoSelect = true, defaultUserCardId = 11), names::get))
+        assertNull(payNote(PaySettings(autoSelect = true, defaultUserCardId = null), names::get))
     }
 
-    @Test fun `자동 선택을 끈 사람에겐 기본 카드로 결제한다고 바꿔 보인다`() {
-        val note = payNote(PaySettings(autoSelect = false, defaultUserCardId = 11), names::get)
+    @Test fun `자동 선택을 끈 사람에겐 기본 카드로 결제한다고 알린다`() {
+        val note = payNote(PaySettings(autoSelect = false, defaultUserCardId = 11), names::get)!!
         assertEquals("자동 선택이 꺼져 있어요. 기본 카드인 신한카드 처음으로 결제해요", note.text)
         assertTrue(note.autoOff)
-        assertEquals("자동 선택이 꺼져 있어요. 기본 카드인 KB국민 노리 체크로 결제해요", payNote(PaySettings(false, 12), names::get).text)
-        assertNull(paySubtitle(PaySettings(false, 11)))   // '알아서 골라요'라고 하지 않는다
+        assertEquals("자동 선택이 꺼져 있어요. 기본 카드인 KB국민 노리 체크로 결제해요", payNote(PaySettings(false, 12), names::get)?.text)
     }
 
     @Test fun `기본 카드 이름을 모르면 이름 없이`() {
-        assertEquals("자동 선택이 꺼져 있어 기본 카드로 결제해요", payNote(PaySettings(false, null), names::get).text)
-        assertEquals("자동 선택이 꺼져 있어 기본 카드로 결제해요", payNote(PaySettings(false, 99), names::get).text)
+        assertEquals("자동 선택이 꺼져 있어 기본 카드로 결제해요", payNote(PaySettings(false, null), names::get)?.text)
+        assertEquals("자동 선택이 꺼져 있어 기본 카드로 결제해요", payNote(PaySettings(false, 99), names::get)?.text)
     }
 
-    @Test fun `설정을 못 읽었으면 자동 선택이 켜졌다고도 꺼졌다고도 하지 않는다`() {
-        val note = payNote(null, names::get)
-        assertFalse("자동" in note.text)
-        assertFalse(note.autoOff)
-        assertNull(paySubtitle(null))
+    @Test fun `설정을 못 읽었으면 안내 줄을 두지 않는다 — 켜졌다고도 꺼졌다고도 하지 않는다`() {
+        assertNull(payNote(null, names::get))
     }
 
     @Test fun `서버 결제 설정 칸이 없으면 null`() {
