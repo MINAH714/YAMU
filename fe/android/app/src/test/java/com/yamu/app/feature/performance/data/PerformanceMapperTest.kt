@@ -191,6 +191,23 @@ class PerformanceMapperTest {
         assertEquals(emptyList<PerfTier>(), emptyList<PerfTier>().visibleTiers())
     }
 
+    @Test fun `혜택 이름도 금액도 없는 구간은 뺀다`() {
+        // IBK나라사랑: 8만 · 20만 · 25만에 새 혜택(원화 월 한도 없는 혜택이 있어 금액 모름), 50만 · 100만은 통합 한도만 커짐
+        val ibk = listOf(
+            PerfTier("8만원 이상", "나라 편의점 청구할인(계좌환급 예상)", null, true),
+            PerfTier("20만원 이상", "아웃백 매장 20% 현장할인", null, true),
+            PerfTier("25만원 이상", "All in One 편의점 청구할인(계좌환급 예상)", null, false),
+            PerfTier("50만원 이상", null, null, false),
+            PerfTier("100만원 이상", " ", null, false),
+        )
+        assertEquals(ibk.take(3), ibk.visibleTiers())
+        // 이름은 없어도 금액이 있으면 남긴다
+        val amountOnly = listOf(PerfTier("30만원 이상", null, 10_000, false), PerfTier("60만원 이상", null, null, false))
+        assertEquals(amountOnly.take(1), amountOnly.visibleTiers())
+        // 다 비면 빈 목록(화면은 구간 덩어리를 숨긴다)
+        assertEquals(emptyList<PerfTier>(), listOf(PerfTier("50만원 이상", null, null, false)).visibleTiers())
+    }
+
     @Test fun `기준 금액 만 원 표기`() {
         assertEquals("40만 원", 400_000L.toManWon())
         assertEquals("125,000원", 125_000L.toManWon())
