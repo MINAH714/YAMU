@@ -20,7 +20,7 @@ import org.junit.Assert.assertSame
 import org.junit.Test
 import java.time.LocalDate
 
-/** 가상 구매 결과 그래프(Task 8.2.72) — 처음 고른 날, 구매 · 출금 표시, 잔고예보 입출금 빌려 오기, 말풍선 · 읽어 주기 */
+/** 가상 구매 결과 그래프(Task 8.2.72) — 처음 고른 날, 구매 · 출금 표시, 잔고예보 입출금 빌려 오기, 말풍선 · 읽어 주기, 범례 색(Task 8.2.178) */
 class BuyCheckChartTest {
 
     @Test fun `처음 고른 날은 구매일, 구매일이 기간 밖이면 사고 나서 가장 낮은 날, 그것도 모르면 마지막 날`() {
@@ -104,17 +104,31 @@ class BuyCheckChartTest {
         assertEquals("11/15 (일) · 출금", simDayLabel(NOV15, events.drop(1), today = NOV12))
         assertEquals("11월 12일 (목, 오늘)", simDayLabel(NOV12, emptyList(), today = NOV12))
         assertEquals(
-            "11월 15일 (일), 사기 전 400,000원, 사기 후 −50,000원, 구매 (알뜰체크) 카드 결제, 체크카드 즉시 출금 −450,000원",
+            "11월 15일 (일), 구매 전 400,000원, 구매 후 −50,000원, 구매 (알뜰체크) 카드 결제, 체크카드 즉시 출금 −450,000원",
             simDayState(SimDay(NOV15, 400_000, -50_000), events),
         )
     }
 
     @Test fun `그래프 읽어 주기에 기간 밖 출금을 붙인다`() {
-        assertEquals("사기 전과 후 잔액 그래프, 사고 나면 가장 낮을 때 25,000원", simChartDescription(sim(schedule = listOf(CHECK_WD))))
+        assertEquals("구매 전과 후 잔액 그래프, 구매 후 가장 낮을 때 25,000원", simChartDescription(sim(schedule = listOf(CHECK_WD))))
         assertEquals(
-            "사기 전과 후 잔액 그래프, 사고 나면 가장 낮을 때 25,000원, 12월 14일 출금은 예보 기간 밖이라 선에 넣지 않았어요",
+            "구매 전과 후 잔액 그래프, 구매 후 가장 낮을 때 25,000원, 12월 14일 출금은 예보 기간 밖이라 선에 넣지 않았어요",
             simChartDescription(sim(schedule = listOf(CREDIT_WD))),
         )
+    }
+
+    @Test fun `범례 — 안전 잔액을 알면 주황, 구매 후 선이 0원 아래로 내려갈 때만 빨강`() {
+        val above = listOf(400_000L, null, 25_000L)
+        val belowZero = listOf(400_000L, null, -50_000L)
+        assertEquals(listOf(BalanceZone.BELOW_SAFE), simLegendZones(above, threshold = 100_000))
+        assertEquals(listOf(BalanceZone.BELOW_SAFE, BalanceZone.BELOW_ZERO), simLegendZones(belowZero, threshold = 100_000))
+        // 잔고예보를 아직 못 받아 안전 잔액을 모르면 주황은 그리지 않으니 범례에도 없다
+        assertEquals(emptyList<BalanceZone>(), simLegendZones(above, threshold = null))
+        assertEquals(listOf(BalanceZone.BELOW_ZERO), simLegendZones(belowZero, threshold = null))
+        // 안전 잔액이 0원이면 그 아래는 곧 0원 아래라 주황 구간이 없다
+        assertEquals(emptyList<BalanceZone>(), simLegendZones(above, threshold = 0))
+        // 0원은 0원 아래가 아니다
+        assertEquals(emptyList<BalanceZone>(), simLegendZones(listOf(0L), threshold = null))
     }
 
     private companion object {
