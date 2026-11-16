@@ -40,9 +40,11 @@ fun parseScannedCode(raw: String?): String? {
 
 /**
  * 결제 완료 · 상세 혜택 줄의 금액 — 부호 없이 반영되는 때를 붙인다('660원 할인' · '3,180원 청구할인' · '3,180원 환급' · '1,500원 적립').
+ * 원화로 못 바꾼 적립은 포인트 수에 P를 붙인다('1,500P 적립', S15P31E103-580).
  * 실적 줄의 '+'와 헷갈리지 않게 마이너스는 쓰지 않는다(11/10 QA)
  */
 fun ReceiptBenefit.amountText(): String {
+    points?.let { return "${it.toWon()}P 적립" }
     val won = "${amount.toWon()}원"
     return when (kind) {
         BenefitKind.INSTANT, BenefitKind.UNKNOWN -> "$won 할인"

@@ -61,6 +61,7 @@ class PayFormatTest {
         assertEquals("3,180원 청구할인", ReceiptBenefit("스타벅스", 3_180, BenefitKind.BILLING).amountText())
         assertEquals("3,180원 환급", ReceiptBenefit("스타벅스", 3_180, BenefitKind.CASHBACK).amountText())
         assertEquals("1,500원 적립", ReceiptBenefit("커피", 1_500, BenefitKind.POINT).amountText())
+        assertEquals("1,500P 적립", ReceiptBenefit("커피", 0, BenefitKind.POINT, java.math.BigDecimal("1500")).amountText())
         assertEquals("500원 할인", ReceiptBenefit("약관 미확인", 500).amountText())
     }
 
