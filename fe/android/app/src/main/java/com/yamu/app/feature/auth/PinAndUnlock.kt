@@ -1,6 +1,7 @@
 package com.yamu.app.feature.auth
 
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.ReportDrawn
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.background
@@ -388,6 +389,7 @@ fun PinLoginRoute(
     val s by viewModel.state.collectAsStateWithLifecycle()
     val activity = LocalContext.current.findActivity()
     SecureScreen()
+    ReportDrawn()   // 키패드가 그려지면 바로 누를 수 있다 — 앱을 열 때 다 그린 시각(TTFD, S15P31E103-512). 두 번째부터는 시스템이 무시
     LaunchedEffect(s.loggedIn) { s.loggedIn?.let(onLoggedIn) }
     LaunchedEffect(s.noDevice) { if (s.noDevice) onNoDevice() }
     LaunchedEffect(s.pendingBiometric) {

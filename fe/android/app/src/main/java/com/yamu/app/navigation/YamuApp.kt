@@ -42,7 +42,8 @@ import com.yamu.app.core.ui.LocalSnackbar
  * 바깥 틀 — 하단 탭(탭 첫 화면 4개에서만, 가운데 결제 버튼 포함) · 스낵바.
  * 여백(insets)은 화면마다 자기 Scaffold가 처리하고, 여기서는 하단 탭 높이만 넘긴 뒤 소비(consume)한다 — 두 번 겹치지 않게.
  * [sessionEnd]는 아직 처리하지 않은 '세션 끝남'이라 화면을 다시 만드는 중에 생겨도 남아 있다. 처리하기 전에 [settleSessionEnd]로
- * 지난 알림(그 뒤 새로 로그인)인지 보고 기기 해제면 거기서 세션 · 기기 키를 지운다. 처리한 뒤에는 [onSessionEndHandled]로 지운다
+ * 지난 알림(그 뒤 새로 로그인)인지 보고 기기 해제면 거기서 세션 · 기기 키를 지운다. 처리한 뒤에는 [onSessionEndHandled]로 지운다.
+ * [onStartDecided]는 앱을 열고 첫 화면(A-01 · A-03)이 구성된 때 — MainActivity가 시스템 스플래시를 걷는다(S15P31E103-512)
  */
 @Composable
 fun YamuApp(
@@ -50,6 +51,7 @@ fun YamuApp(
     autoLockSeconds: Flow<Int> = flowOf(60),
     settleSessionEnd: suspend (SessionEndEvent) -> Boolean = { true },
     onSessionEndHandled: (SessionEndEvent) -> Unit = {},
+    onStartDecided: () -> Unit = {},
 ) {
     val navController = rememberNavController()
     val snackbar = remember { SnackbarHostState() }
@@ -108,6 +110,7 @@ fun YamuApp(
         ) { inner ->
             YamuNavHost(
                 navController = navController,
+                onStartDecided = onStartDecided,
                 // 탭 화면은 막대 가운데 원이 올라온 만큼 더 띄운다 — 맨 아래 글자(마이 버전 등)가 원에 가리지 않게
                 modifier = Modifier
                     .padding(inner)
