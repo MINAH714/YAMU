@@ -213,15 +213,15 @@ fun HomeBenefitReportDto.toCardBenefits(): Map<Long, CardBenefit>? = cards?.mapN
 }?.toMap()
 
 /**
- * 카드 줄 '받은 혜택 1,000원 · 확정 전 +500원'(11/14 결정: 히어로처럼 확정 전을 받은 혜택에 섞지 않는다).
+ * 카드 줄 '받은 혜택 1,000원 · 500원 혜택 예정'(11/14 결정: 히어로처럼 확정 전을 받은 혜택에 섞지 않는다, 11/16 히어로 칩과 같은 문구로).
  * 원화로 못 바꾼 줄이 있으면 덧붙인다. 응답에 없는 카드(이번 달 YAMU 결제 없음)는 null — 0원으로 지어내지 않는다.
- * 글자를 키워 두 줄이 되면 '·' 자리에서만 끊기게 마디 안은 줄바꿈 없는 공백으로 잇는다('확정 전' 따로 '+6,000원' 따로 갈라지지 않게)
+ * 글자를 키워 두 줄이 되면 '·' 자리에서만 끊기게 마디 안은 줄바꿈 없는 공백으로 잇는다('6,000원' 따로 '혜택 예정' 따로 갈라지지 않게)
  */
 fun CardBenefit?.lineText(): String? {
     this ?: return null
     return listOfNotNull(
         "받은 혜택 ${confirmed.toWon()}원",
-        "확정 전 +${pending.toWon()}원".takeIf { pending > 0 },
+        "${pending.toWon()}원 혜택 예정".takeIf { pending > 0 },
         "원화로 못 바꾼 혜택 ${unconvertedCount}건".takeIf { unconvertedCount > 0 },
     ).joinToString(" · ") { it.replace(' ', NO_BREAK) }
 }

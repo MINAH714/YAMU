@@ -397,7 +397,8 @@ private fun SetupGuide(title: String, body: String, button: String, onClick: () 
 
 /**
  * 이번 달 혜택 히어로(HOME-02 ~ 06) — 예전 예상 잔액 히어로의 남색 그러데이션과 금색 동전 무더기를 옮겨 왔다(-406).
- * 큰 숫자는 카드사가 확정한 혜택만, 확정 전 금액은 점선 테두리 칩과 점선 동전으로 떼어 놓는다(HOME-04, 11/13 시안에서 고름).
+ * 큰 숫자와 동전은 카드사가 확정한 혜택만, 아직 확정 전인 금액은 '1,500원 혜택 예정' 칩으로만 떼어 놓는다(HOME-04).
+ * 11/13 시안의 점선 동전과 '확정 전 +' 문구는 11/16에 뺐다 — 비어 보이고 캐시백 · 적립은 YAMU에서 확정되지 않아 '확정 전'에서 벗어나지 못한다.
  * 할인 · 캐시백 · 적립 세 칸(HOME-03)은 BE에 종류별 합계가 없어 그 필드가 올 때까지 그리지 않는다.
  *
  * 움직임: 동전이 떨어지는 동안 금액이 0에서 올라가 마지막 동전과 함께 멈추고, 다 쌓이면 빛이 카드를 한 번 훑는다.
@@ -431,7 +432,7 @@ private fun BenefitHeroReady(b: HomeBenefit, onClick: () -> Unit) {
     val c = YamuTheme.colors
     val reduce = YamuTheme.reduceMotion
     val pile = rememberCoinPileState()
-    val (solid, ghost) = benefitCoins(b.confirmed, b.pending)
+    val coins = benefitCoins(b.confirmed)
     // 다 쌓이는 순간 한 번 지나가는 빛 — 이미 쌓인 채 다시 그려질 때(탭을 오가도)는 없음
     val sheen = remember { Animatable(-1f) }
     val enteredAtStart = remember { pile.entered }
@@ -442,10 +443,10 @@ private fun BenefitHeroReady(b: HomeBenefit, onClick: () -> Unit) {
         }
     }
     // 동전이 없으면(0원) 금액도 굴리지 않는다 — 무더기가 없어 rolled가 오르지 않으므로
-    val shown = if (solid + ghost > 0) rememberRolledAmount(b.confirmed, pile) else b.confirmed
+    val shown = if (coins > 0) rememberRolledAmount(b.confirmed, pile) else b.confirmed
     val described = buildString {
         append("${benefitTitle(b.month)} 확정 ${b.confirmed.toWon()}원")
-        if (b.pending > 0) append(", 확정 전 ${b.pending.toWon()}원")
+        if (b.pending > 0) append(", ${b.pending.toWon()}원 혜택 예정")
     }
 
     HeroFrame(onClick = onClick, onClickLabel = "혜택 리포트 보기", sheen = sheen.value) {
@@ -471,14 +472,14 @@ private fun BenefitHeroReady(b: HomeBenefit, onClick: () -> Unit) {
                         HeroChip(empty)
                     } else {
                         HeroChip("확정")
-                        if (b.pending > 0) HeroChip("확정 전 +${b.pending.toWon()}원", dashed = true)
+                        if (b.pending > 0) HeroChip("${b.pending.toWon()}원 혜택 예정", dashed = true)
                     }
                 }
             }
-            if (solid + ghost > 0) {
+            if (coins > 0) {
                 CoinPile(
-                    solidCoins = solid,
-                    ghostCoins = ghost,
+                    solidCoins = coins,
+                    ghostCoins = 0,
                     modifier = Modifier.padding(start = YamuSpacing.x2).width(HERO_PILE_WIDTH).height(HERO_PILE_HEIGHT),
                     state = pile,
                 )
@@ -488,7 +489,7 @@ private fun BenefitHeroReady(b: HomeBenefit, onClick: () -> Unit) {
             Spacer(Modifier.height(YamuSpacing.x3))
             BenefitTypeCells(b.byType)
         }
-        // 동전 모양 풀이('꽉 찬 동전은 확정, 점선 동전은 확정 전이에요')는 그림을 글로 설명하는 줄이라 11/15에 뺐다 — 확정 · 확정 전 칩이 말한다
+        // 동전 모양 풀이 줄은 11/15에 뺐다 — 확정 · 혜택 예정 칩이 말한다
         b.unconvertedNote()?.let {
             Spacer(Modifier.height(YamuSpacing.x3))
             Text(it, style = YamuTheme.typography.bodyS, color = c.onHeroMuted)
@@ -600,7 +601,7 @@ private fun HeroTitle(text: String, more: Boolean) {
     }
 }
 
-/** 히어로 위 작은 유리 칩. [dashed]면 바탕 없이 점선 테두리 — 확정 전 금액(점선 동전과 같은 모양) */
+/** 히어로 위 작은 유리 칩. [dashed]면 바탕 없이 점선 테두리 — 아직 확정 전인 '혜택 예정' 금액 */
 @Composable
 private fun HeroChip(text: String, dashed: Boolean = false) {
     val c = YamuTheme.colors
