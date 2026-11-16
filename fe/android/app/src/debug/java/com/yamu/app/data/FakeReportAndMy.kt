@@ -383,7 +383,10 @@ class FakeMyRepository @Inject constructor(
 
     private fun all(): List<AppNotification> {
         val paid = payments.approved().map {
-            AppNotification(it.paymentId, "결제 완료 · ${it.merchantName}", "${"%,d".format(it.amount)}원 · ${it.cardName ?: "카드"}", false, it.paidAtIso, NotiTarget.Payment(it.paymentId))
+            // 서버 문구(BE NotificationMessages.paymentApproved)와 같게 — 제목 '결제 승인', 내용에 가맹점 · 금액 · 카드
+            val won = "%,d원".format(it.amount)
+            val body = it.cardName?.let { card -> "${it.merchantName} ${won}을 ${card}(으)로 결제했어요" } ?: "${it.merchantName} $won 결제가 승인됐어요"
+            AppNotification(it.paymentId, "결제 승인", body, false, it.paidAtIso, NotiTarget.Payment(it.paymentId))
         }
         val seed = if (payments.hasHistory) seedNotifications else emptyList()   // 지난 알림은 시드 사용자만(S15P31E103-454)
         return (paid + seed).map { n -> if (n.id in readIds) n.copy(read = true) else n }
