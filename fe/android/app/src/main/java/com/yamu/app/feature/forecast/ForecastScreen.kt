@@ -148,6 +148,13 @@ import java.time.temporal.ChronoUnit
 import java.util.Locale
 import com.yamu.app.core.ui.ReloadOnReconnect   // 여기 둔 까닭: 위 core.ui 줄은 열린 MR(-448)이 같은 자리에 줄을 더한다
 import javax.inject.Inject
+// 안전 잔액 시트(S15P31E103-593) — 위 import 줄은 잔고예보 다른 MR들이 고치고 있어 끝에 따로 둔다
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
+import com.yamu.app.core.designsystem.component.YamuTextField
+import com.yamu.app.core.format.AmountLimit
+import com.yamu.app.core.format.toWonUnit
 
 data class ForecastState(
     val loading: Boolean = true,
@@ -165,7 +172,10 @@ data class ForecastState(
     val candidates: List<CashflowCandidate>? = null,   // F-02 확인 전 후보 규칙 — 못 받으면 후보 줄은 읽기 전용
     val busy: Set<Long> = emptySet(),                   // 지우는 중 · 넣거나 빼는 중인 항목 ID — 줄마다 연타를 막는다
     val ask: CashflowAsk? = null,                       // F-02 확인 시트 · 대화상자
-    val message: String? = null,                        // F-02 결과 한 줄(스낵바)
+    val message: String? = null,                        // F-02 결과 한 줄(스낵바) · F-01 안전 잔액 저장 결과
+    val thresholdOpen: Boolean = false,                 // F-01 안전 잔액 시트(S15P31E103-593)
+    val thresholdSaving: Boolean = false,               // 안전 잔액 보내는 중 — 연타 · 시트를 닫았다 다시 열어 누른 것도 막는다
+    val thresholdError: String? = null,                 // 시트 금액 칸 밑 한 줄(서버 거절 · 결과 불명)
 ) {
     /**
      * F-02 — 회차 응답이 올 때까지 기다린다. 받아 둔 예보가 있어도 그 예보 줄(읽기 전용)을 먼저 그리면 회차가 온 뒤
@@ -329,6 +339,40 @@ class ForecastViewModel @Inject constructor(private val repo: ForecastRepository
         else -> e.userMessage() to false
     }
 
+    // ── F-01 안전 잔액(S15P31E103-593) ──
+
+    fun openThreshold() = _state.update { it.copy(thresholdOpen = true, thresholdError = null) }
+
+    /** 저장 중에 닫아도 보내던 요청은 그대로 두고 결과는 스낵바로 알린다 */
+    fun closeThreshold() = _state.update { it.copy(thresholdOpen = false, thresholdError = null) }
+
+    /**
+     * 안전 잔액 저장. 보낸 값으로 덮어쓰는 요청이라 같은 값을 다시 보내도 결과가 같고, 보내는 중에 다시 누른 것은 버린다(연타).
+     * 성공하면 시트를 닫고 예보를 다시 받아 그래프 점선 · 달력 칸 색 · 위험 태그 · '잔액이 낮아지는 때'를 서버가 새로 계산한 값으로 그린다.
+     * 응답을 못 받았으면 반영됐는지 모르니 예보를 다시 받아 지금 값을 보이고, 시트는 열어 둬 다시 누를 수 있게 한다
+     */
+    fun saveThreshold(amount: Long) {
+        if (_state.value.thresholdSaving || AmountLimit.ALERT_THRESHOLD.error(amount) != null) return
+        _state.update { it.copy(thresholdSaving = true, thresholdError = null) }
+        viewModelScope.launch {
+            when (val r = repo.saveAlertThreshold(amount)) {
+                is ApiResult.Success -> {
+                    _state.update { it.copy(thresholdSaving = false, thresholdOpen = false, message = "안전 잔액을 ${amount.toWon()}원으로 바꿨어요") }
+                    refresh()
+                }
+                is ApiResult.Failure -> {
+                    val unknown = r.error.isOutcomeUnknown
+                    // 시트가 열려 있으면 금액 칸 밑에, 저장 중에 닫았으면 스낵바로
+                    _state.update {
+                        if (it.thresholdOpen) it.copy(thresholdSaving = false, thresholdError = if (unknown) THRESHOLD_UNKNOWN_SHEET else r.error.userMessage())
+                        else it.copy(thresholdSaving = false, message = if (unknown) THRESHOLD_UNKNOWN else r.error.userMessage())
+                    }
+                    if (unknown) refresh()
+                }
+            }
+        }
+    }
+
     /** 계좌 고르기 시트를 열 때 */
     fun loadAccounts() {
         viewModelScope.launch {
@@ -377,6 +421,10 @@ class ForecastViewModel @Inject constructor(private val repo: ForecastRepository
     private companion object {
         /** 계좌를 잇지 않았다 — 앱이 먼저 알아챈 경우 · 서버가 accountIds 없음으로 거절한 경우 · 옛 서버 코드 */
         val NO_ACCOUNT_CODES = setOf(ForecastRepository.NO_ACCOUNT, "BASE_ACCOUNT_NOT_SET")
+
+        /** 안전 잔액 결과 불명 — 예보를 다시 받으니 시트 설명의 '지금은 ○' · 그래프 위 줄이 실제 저장된 값이다 */
+        const val THRESHOLD_UNKNOWN_SHEET = "응답을 받지 못해 저장됐는지 확인하지 못했어요 · 위 설명의 금액이 지금 저장된 값이에요"
+        const val THRESHOLD_UNKNOWN = "응답을 받지 못해 안전 잔액이 바뀌었는지 확인하지 못했어요 · 그래프 위 금액을 확인해 주세요"
     }
 }
 
@@ -443,6 +491,12 @@ fun ForecastRoute(
     }
     // 마지막 값을 보이는 동안 끊겼던 연결이 돌아오면 저절로 다시 불러온다 — 연결과 상관없는 실패면 부르지 않는다(S15P31E103-464)
     ReloadOnReconnect(waiting = s.error != null, onReconnect = viewModel::refresh)
+    // 안전 잔액 저장 결과(S15P31E103-593)
+    val snackbar = LocalSnackbar.current
+    LaunchedEffect(s.message) {
+        s.message?.let { snackbar.showSnackbar(it) }
+        viewModel.messageShown()
+    }
     var filtering by rememberSaveable { mutableStateOf(false) }
     val c = YamuTheme.colors
     // 회색 바탕 + 카드: 고르기 칩 · 예상 잔액 · 낮아지는 때 · 선 설명 · 예정된 돈 · 기간 뒤 카드값. 가상 구매 입구는 아래 버튼(2026-11-08 개편)
@@ -500,6 +554,7 @@ fun ForecastRoute(
                             onStripScroll = { stripScrolling = it },
                             onPanelDrag = { panelDragging = it },
                             onRegisterIncome = onRegisterIncome,
+                            onThreshold = viewModel::openThreshold,
                         )
                     }
                     if (f.riskWindows.isNotEmpty()) RiskCard(f, selectedDate, onJump = jump)
@@ -525,6 +580,15 @@ fun ForecastRoute(
                 filtering = false
                 viewModel.apply(period, ids)
             },
+        )
+    }
+    if (s.thresholdOpen) {
+        SafeBalanceSheet(
+            current = s.forecast?.alertThreshold,
+            saving = s.thresholdSaving,
+            error = s.thresholdError,
+            onSave = viewModel::saveThreshold,
+            onDismiss = viewModel::closeThreshold,
         )
     }
 }
@@ -582,6 +646,7 @@ private fun HeroCard(
     onStripScroll: (Boolean) -> Unit,
     onPanelDrag: (Boolean) -> Unit,
     onRegisterIncome: () -> Unit,
+    onThreshold: () -> Unit,
 ) {
     val c = YamuTheme.colors
     var live by remember { mutableStateOf(false) }
@@ -631,6 +696,7 @@ private fun HeroCard(
                 color = c.text3,
             )
         }
+        SafeBalanceRow(f.alertThreshold, onClick = onThreshold)
         error?.let { Text(staleLine(it, f.calculatedAtIso), style = YamuTheme.typography.bodyS, color = c.warning, modifier = Modifier.padding(top = 4.dp)) }
         // 월급을 못 찾아 N일로 계산했다는 이유(P1-08)와 월급 등록(B-06, 홈 월급 안내와 같은 모드). 등록하고 돌아오면 이 화면이 다시 부른다
         incomeMissingNote(f, selection)?.let {
@@ -661,6 +727,75 @@ private fun HeroCard(
 }
 
 private const val HERO_HOLD_MS = 1_500L
+
+/**
+ * 안전 잔액 줄(S15P31E103-593) — 그래프 점선 · 달력 칸 색 · 위험 태그가 쓰는 기준이라 상태 줄 바로 밑에 두고 눌러서 바꾼다.
+ * 보이는 줄은 24dp로 낮게, 누르는 칸만 위아래로 12dp씩 넘쳐 48dp(S15P31E103-513과 같은 방식). 옛 서버라 값이 없으면 금액 없이
+ */
+@Composable
+private fun SafeBalanceRow(threshold: Long?, onClick: () -> Unit) {
+    val c = YamuTheme.colors
+    val interaction = remember { MutableInteractionSource() }
+    Row(
+        Modifier
+            .padding(top = 8.dp)
+            .overflowTouch(12.dp, Modifier.clickable(interaction, indication = null, role = Role.Button, onClickLabel = "안전 잔액 바꾸기", onClick = onClick))
+            .heightIn(min = 24.dp)
+            .clip(RoundedCornerShape(YamuRadius.s))
+            .indication(interaction, LocalIndication.current),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(threshold?.let { "안전 잔액 ${it.toWon()}원" } ?: "안전 잔액", style = YamuTheme.typography.bodyS, color = c.text2)
+        Spacer(Modifier.width(8.dp))
+        Text("바꾸기", style = YamuTheme.typography.labelM, color = c.primary)
+        Icon(YamuIcons.ChevronRight, contentDescription = null, tint = c.primary, modifier = Modifier.size(16.dp))
+    }
+}
+
+/**
+ * 안전 잔액 바꾸기 시트(S15P31E103-593). 금액 칸은 공용 규칙(AmountLimit.ALERT_THRESHOLD) — 숫자만 10자리까지 쳐지고 0원도 받는다.
+ * 비었거나 지금 값과 같거나 20억 원을 넘으면 저장 버튼을 끄고, 보내는 중에는 버튼이 진행 표시로 바뀌어 다시 눌리지 않는다
+ */
+@Composable
+private fun SafeBalanceSheet(current: Long?, saving: Boolean, error: String?, onSave: (Long) -> Unit, onDismiss: () -> Unit) {
+    val c = YamuTheme.colors
+    val limit = AmountLimit.ALERT_THRESHOLD
+    var text by rememberSaveable { mutableStateOf(current?.let { limit.clampInput(it.toString()) }.orEmpty()) }
+    val amount = text.toLongOrNull()
+    val inputError = amount?.let { limit.error(it) }
+    // 서버가 거절한 문구는 다시 고치기 시작하면 내린다
+    var serverError by remember(error) { mutableStateOf(error) }
+    YamuBottomSheet(onDismiss = onDismiss) {
+        Text("안전 잔액", style = YamuTheme.typography.titleL, color = c.text1)
+        Spacer(Modifier.height(4.dp))
+        Text(safeBalanceNote(current), style = YamuTheme.typography.bodyM, color = c.text2)
+        Spacer(Modifier.height(YamuSpacing.x4))
+        YamuTextField(
+            label = "금액(원)",
+            value = text,
+            onValueChange = {
+                text = limit.clampInput(it)
+                serverError = null
+            },
+            placeholder = "예: 100000",
+            supporting = amount?.toWonUnit(),
+            error = inputError ?: serverError,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Done),
+        )
+        Spacer(Modifier.height(YamuSpacing.x5))
+        PrimaryButton(
+            "저장",
+            onClick = { amount?.let(onSave) },
+            enabled = amount != null && inputError == null && amount != current,
+            loading = saving,
+        )
+    }
+}
+
+/** 시트 설명 — 무엇의 기준인지와 지금 값. 잔액 알림(마이 알림 설정의 '기준 ○만 원')도 같은 값이다 */
+internal fun safeBalanceNote(current: Long?): String =
+    "잔액이 이 금액 아래로 내려가는 날을 미리 보여 드려요. 잔액 부족 알림도 이 금액이 기준이에요." +
+        (current?.let { " 지금은 ${it.toWonUnit()}이에요." } ?: "")
 
 /**
  * 맨 위 '가장 낮을 때' 금액이 어느 선 기준인지(!223 답, 서버는 그대로). summary.minBalance는 'AI 생활비 반영' 선, 그 선이 없으면 'AI 생활비 제외' 선의 최저다.

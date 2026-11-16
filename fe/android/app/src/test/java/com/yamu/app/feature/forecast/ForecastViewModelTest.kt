@@ -62,7 +62,14 @@ class ForecastViewModelTest {
             return pastResult
         }
         override suspend fun cashflowCandidates(from: LocalDate, to: LocalDate) = ApiResult.Success(emptyList<com.yamu.app.feature.link.data.CashflowCandidate>())
+        override suspend fun saveAlertThreshold(amount: Long): ApiResult<Unit> {
+            savedThresholds += amount
+            return pendingSave?.also { pendingSave = null }?.await() ?: saveResult
+        }
     }
+    private val savedThresholds = mutableListOf<Long>()
+    private var saveResult: ApiResult<Unit> = ApiResult.Success(Unit)
+    private var pendingSave: CompletableDeferred<ApiResult<Unit>>? = null
     private var pastResult: ApiResult<List<CashflowEntry>> = ApiResult.Success(emptyList())
     private var pastRange: Pair<LocalDate, LocalDate>? = null
     private var ruleResult: ApiResult<IncomeRule?> = ApiResult.Success(null)
@@ -286,6 +293,110 @@ class ForecastViewModelTest {
         assertEquals("30일 동안", cashflowPeriod(null))
         assertEquals("14일 동안", cashflowPeriod(testForecast(isNextIncome = false, horizonDays = 14)))
         assertEquals("30일 동안", cashflowPeriod(testForecast(isNextIncome = false, horizonDays = null)))
+    }
+
+    // ── 안전 잔액(S15P31E103-593) ──
+
+    @Test fun `안전 잔액을 저장하면 시트를 닫고 알린 뒤 예보를 다시 받는다 — 0원도 보낸다`() = runTest(dispatcher) {
+        forecastResult = ApiResult.Success(testForecast())
+        val vm = ForecastViewModel(repo)
+        vm.refresh()
+        advanceUntilIdle()
+        val before = forecastCalls
+
+        vm.openThreshold()
+        vm.saveThreshold(0)
+        advanceUntilIdle()
+
+        assertEquals(listOf(0L), savedThresholds)
+        val s = vm.state.value
+        assertFalse(s.thresholdOpen)
+        assertFalse(s.thresholdSaving)
+        assertEquals("안전 잔액을 0원으로 바꿨어요", s.message)
+        assertEquals(before + 1, forecastCalls)
+    }
+
+    @Test fun `보내는 중에 다시 눌러도 한 번만 보낸다`() = runTest(dispatcher) {
+        val gate = CompletableDeferred<ApiResult<Unit>>()
+        pendingSave = gate
+        val vm = ForecastViewModel(repo)
+        vm.openThreshold()
+        vm.saveThreshold(200_000)
+        vm.saveThreshold(200_000)
+        advanceUntilIdle()
+        vm.saveThreshold(300_000)
+        advanceUntilIdle()
+        assertEquals(listOf(200_000L), savedThresholds)
+        assertTrue(vm.state.value.thresholdSaving)
+
+        gate.complete(ApiResult.Success(Unit))
+        advanceUntilIdle()
+        assertFalse(vm.state.value.thresholdSaving)
+        assertEquals(listOf(200_000L), savedThresholds)
+    }
+
+    @Test fun `서버가 거절하면 시트를 열어 둔 채 까닭을 보이고 예보는 다시 받지 않는다`() = runTest(dispatcher) {
+        val rejected = ApiError.from(400, "INVALID_REQUEST")
+        saveResult = ApiResult.Failure(rejected)
+        val vm = ForecastViewModel(repo)
+        vm.openThreshold()
+        vm.saveThreshold(100_000)
+        advanceUntilIdle()
+
+        val s = vm.state.value
+        assertTrue(s.thresholdOpen)
+        assertFalse(s.thresholdSaving)
+        assertEquals(rejected.userMessage(), s.thresholdError)
+        assertNull(s.message)
+        assertEquals(0, forecastCalls)
+    }
+
+    @Test fun `응답을 못 받으면 결과를 모른다고 알리고 예보를 다시 받아 지금 값을 보인다`() = runTest(dispatcher) {
+        saveResult = ApiResult.Failure(ApiError.Network)
+        val vm = ForecastViewModel(repo)
+        vm.openThreshold()
+        vm.saveThreshold(100_000)
+        advanceUntilIdle()
+
+        val s = vm.state.value
+        assertTrue(s.thresholdOpen)
+        assertTrue(s.thresholdError!!.startsWith("응답을 받지 못해 저장됐는지 확인하지 못했어요"))
+        assertEquals(1, forecastCalls)
+    }
+
+    @Test fun `저장 중에 시트를 닫았다가 거절되면 스낵바로 알린다`() = runTest(dispatcher) {
+        val gate = CompletableDeferred<ApiResult<Unit>>()
+        pendingSave = gate
+        val vm = ForecastViewModel(repo)
+        vm.openThreshold()
+        vm.saveThreshold(100_000)
+        advanceUntilIdle()
+        vm.closeThreshold()
+        val rejected = ApiError.from(400, "INVALID_REQUEST")
+        gate.complete(ApiResult.Failure(rejected))
+        advanceUntilIdle()
+
+        val s = vm.state.value
+        assertFalse(s.thresholdOpen)
+        assertNull(s.thresholdError)
+        assertEquals(rejected.userMessage(), s.message)
+    }
+
+    @Test fun `0원 아래 · 20억 원 넘는 값은 보내지 않는다`() = runTest(dispatcher) {
+        val vm = ForecastViewModel(repo)
+        vm.openThreshold()
+        vm.saveThreshold(-1)
+        vm.saveThreshold(2_000_000_001)
+        advanceUntilIdle()
+        assertTrue(savedThresholds.isEmpty())
+        assertFalse(vm.state.value.thresholdSaving)
+    }
+
+    @Test fun `시트 설명은 지금 값을 만 · 억 단위로 덧붙인다`() {
+        val lead = "잔액이 이 금액 아래로 내려가는 날을 미리 보여 드려요. 잔액 부족 알림도 이 금액이 기준이에요."
+        assertEquals("$lead 지금은 30만 원이에요.", safeBalanceNote(300_000))
+        assertEquals("$lead 지금은 0원이에요.", safeBalanceNote(0))
+        assertEquals(lead, safeBalanceNote(null))
     }
 
     private companion object {

@@ -124,7 +124,7 @@ class FakeForecastRepository @Inject constructor(private val bank: FakeBank) : F
     @Volatile private var last: Forecast? = null
     @Volatile private var current = ForecastSelection()
 
-    private val alert = 100_000L
+    @Volatile private var alert = 100_000L   // 안전 잔액 — 잔고예보에서 바꾸면 다음 예보부터 그 값(S15P31E103-593)
     private val today get() = LocalDate.now(KST)
     /** 다음 월급날 — 가짜 사용자의 월급(B-06). 없으면 null이고 잔고예보는 BE처럼 30일(DAYS) */
     private val income: LocalDate? get() = bank.salary?.nextAfter(today)
@@ -383,6 +383,12 @@ class FakeForecastRepository @Inject constructor(private val bank: FakeBank) : F
     fun assetAccounts(): List<ForecastAccountOption> = options()
 
     override fun cached(): Forecast? = last
+
+    override suspend fun saveAlertThreshold(amount: Long): ApiResult<Unit> {
+        alert = amount
+        last = null
+        return ApiResult.Success(Unit)
+    }
 
     private companion object {
         /** 월급이 없을 때 기간 — BE ForecastService.NEXT_INCOME_FALLBACK_DAYS */
