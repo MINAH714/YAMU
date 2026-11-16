@@ -57,10 +57,14 @@ public record PaymentApprovalResponse(
 
     /**
      * @param paymentBenefitId {@code payment_benefit} 행 번호. 원장 저장 전에 만든 응답(저장 실패 뒤 재전송 등)은 null
+     * @param amount           혜택 자기 단위의 값({@code unit}). 적립({@code POINT})이면 원이 아니라 포인트 수다
      * @param confirmed        승인과 함께 반영된 즉시할인이면 true. 청구할인·캐시백·적립은 청구·지급 때 확정되므로 false
+     * @param unit             {@code amount}의 단위(KRW·POINT, {@code payment_benefit.value_unit}). 원장 저장 전에 만든 응답은 null
+     * @param krwAmount        원화 금액({@code payment_benefit.krw_amount}, 결제 상세의 {@code actualAmount}와 같은 값).
+     *                         포인트 환산율이 없어 원화로 바꾸지 못했거나 원장 저장 전에 만든 응답이면 null(S15P31E103-580)
      */
     public record Benefit(Long paymentBenefitId, Long benefitId, String name, String type, long amount,
-            String realization, boolean confirmed) {}
+            String realization, boolean confirmed, String unit, Long krwAmount) {}
 
     /** 신용카드 청구 회차(Task 5.2.4). */
     public record BillItem(Long billItemId, int seq, long amount, String billingMonth,

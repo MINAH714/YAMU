@@ -353,7 +353,7 @@ public class PaymentApprovalService {
                 selection.candidate(), payment.getRequestedAt(), nowUtc, attempt.no(), selection.recognition()), attempt);
         Map<YearMonth, CardBill> bills = ensureBills(paymentId, userId, selection, outcome, attempt);
         PaymentApprovalResponse response = response(payment, selection, recommendation, outcome, attempt.no(),
-                nowUtc, List.of(), Map.of(), null);
+                nowUtc, List.of(), ApprovalLedger.Recorded.none(), null);
         Attempt recorded = record(paymentId, attempt, outcome, response);
         Settled settled = settle(paymentId, attempt, outcome, nowUtc, bills);
         PaymentPerformanceTotals.Total total = null;
@@ -361,11 +361,11 @@ public class PaymentApprovalService {
             markBarcodeUsed(paymentId);
             total = performanceTotal(selection.card(), approved);
         }
-        if (!settled.items().isEmpty() || !settled.paymentBenefitIds().isEmpty() || total != null) {
+        if (!settled.items().isEmpty() || !settled.recorded().paymentBenefitIds().isEmpty() || total != null) {
             // 회차 번호·혜택 행 번호·월 실적 누적(S15P31E103-390)은 tx2가 저장해야 정해지므로, 그 값을 채운 응답으로 시도 기록을
             // 다시 적는다. 같은 키 재전송은 이 응답(승인 직후의 누적)을 돌려준다
             response = response(payment, selection, recommendation, outcome, attempt.no(), nowUtc,
-                    billItems(settled.items(), bills), settled.paymentBenefitIds(), total);
+                    billItems(settled.items(), bills), settled.recorded(), total);
             recordSavedNumbers(paymentId, attempt, recorded, response);
         }
         log.info("결제 승인 결과 저장 paymentId={} attempt={} status={} failure={} billItems={}", paymentId, attempt.no(),
@@ -677,13 +677,12 @@ public class PaymentApprovalService {
                     List<BillItem> items = approved.hasInstallments()
                             ? billing.writeItems(payment, approved.installments(), bills)
                             : List.of();
-                    return new Settled(payment, items,
-                            recorded == null ? Map.of() : recorded.paymentBenefitIds());
+                    return new Settled(payment, items, recorded == null ? ApprovalLedger.Recorded.none() : recorded);
                 }
                 ApprovalOutcome.Declined declined = (ApprovalOutcome.Declined) outcome;
                 payment.decline(declined.code().name());
                 payments.saveAndFlush(payment);
-                return new Settled(payment, List.of(), Map.of());
+                return new Settled(payment, List.of(), ApprovalLedger.Recorded.none());
             });
         } catch (RuntimeException e) {
             String finTransactionNo = outcome instanceof ApprovalOutcome.Approved approved
@@ -808,11 +807,11 @@ public class PaymentApprovalService {
      * tx2 전에 만든다. 저장될 값(상태·승인 시각)은 실행 결과와 처리 시각으로 정해지므로 저장 뒤의 행과 같다.
      * 혜택 행 번호와 청구 회차 번호는 tx2 뒤에 다시 만들 때 채운다.
      *
-     * @param paymentBenefitIds 혜택 번호 → payment_benefit 행 번호. tx2 전이면 빈 맵(번호 null)
+     * @param recorded 원장에 적은 혜택 행(번호·단위·원화 환산액). tx2 전이면 비어 있어 세 값 모두 null이다
      */
     private PaymentApprovalResponse response(PaymentTransaction payment, Selection selection,
             RecommendationResult recommendation, ApprovalOutcome outcome, int attemptNo, LocalDateTime now,
-            List<PaymentApprovalResponse.BillItem> billItems, Map<Long, Long> paymentBenefitIds,
+            List<PaymentApprovalResponse.BillItem> billItems, ApprovalLedger.Recorded recorded,
             PaymentPerformanceTotals.Total total) {
         CardSummary card = selection.card();
         SelectedCard selected = new SelectedCard(card.userCardId(), nickname(card), masked(card.last4()),
@@ -823,8 +822,12 @@ public class PaymentApprovalService {
         if (outcome instanceof ApprovalOutcome.Approved approved) {
             // confirmed: 승인과 함께 반영된 즉시할인만 확정이다. 청구할인·캐시백·적립은 청구·지급 때 확정된다
             List<Benefit> benefits = approved.benefits().stream()
-                    .map(b -> new Benefit(paymentBenefitIds.get(b.benefitId()), b.benefitId(), b.name(), b.type(),
-                            b.amount(), b.realization(), b.isInstant()))
+                    .map(b -> {
+                        ApprovalLedger.Recorded.Value value = recorded.values().get(b.benefitId());
+                        return new Benefit(recorded.paymentBenefitIds().get(b.benefitId()), b.benefitId(), b.name(),
+                                b.type(), b.amount(), b.realization(), b.isInstant(),
+                                value == null ? null : value.unit(), value == null ? null : value.krwAmount());
+                    })
                     .toList();
             return new PaymentApprovalResponse(payment.getId(), PaymentStatus.APPROVED,
                     ApprovalNumbers.of(now, payment.getId()), now, selected, payment.getRequestedAmount(), plan,
@@ -1007,8 +1010,8 @@ public class PaymentApprovalService {
     private record Selection(CardSummary card, Candidate candidate, Integer recommendedRank, boolean userSelected,
             PerformanceRecognition recognition) {}
 
-    /** tx2가 저장한 것: 결제 행, 신용카드면 청구 회차, 원장에 적은 혜택 행 번호(혜택 번호 → payment_benefit 번호). */
-    private record Settled(PaymentTransaction payment, List<BillItem> items, Map<Long, Long> paymentBenefitIds) {}
+    /** tx2가 저장한 것: 결제 행, 신용카드면 청구 회차, 원장에 적은 혜택 행(혜택 번호 → payment_benefit 번호·단위·원화 환산액). */
+    private record Settled(PaymentTransaction payment, List<BillItem> items, ApprovalLedger.Recorded recorded) {}
 
     /** 선점 트랜잭션 안에서 마감을 발견했을 때 롤백하고 밖에서 만료 처리하기 위한 신호. */
     private static final class DeadlinePassed extends RuntimeException {

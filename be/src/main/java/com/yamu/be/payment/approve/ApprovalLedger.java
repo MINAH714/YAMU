@@ -20,15 +20,27 @@ public interface ApprovalLedger {
      * 원장에 적은 것.
      *
      * @param paymentBenefitIds 혜택 번호({@code card_benefit_id}) → 적은 {@code payment_benefit} 행 번호
+     * @param values            혜택 번호 → 그 행에 적은 단위와 원화 환산액(S15P31E103-580). 승인 응답이 결제 상세와 같은 원화 값을 싣는 데 쓴다
      */
-    record Recorded(Map<Long, Long> paymentBenefitIds) {
+    record Recorded(Map<Long, Long> paymentBenefitIds, Map<Long, Value> values) {
 
         public Recorded {
             paymentBenefitIds = paymentBenefitIds == null ? Map.of() : Map.copyOf(paymentBenefitIds);
+            values = values == null ? Map.of() : Map.copyOf(values);
+        }
+
+        public Recorded(Map<Long, Long> paymentBenefitIds) {
+            this(paymentBenefitIds, Map.of());
         }
 
         public static Recorded none() {
             return new Recorded(Map.of());
         }
+
+        /**
+         * @param unit      {@code payment_benefit.value_unit}(KRW·POINT)
+         * @param krwAmount {@code payment_benefit.krw_amount}. 포인트 환산율이 없거나 소수가 나와 원화로 바꾸지 못했으면 null
+         */
+        public record Value(String unit, Long krwAmount) {}
     }
 }

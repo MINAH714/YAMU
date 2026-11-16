@@ -282,6 +282,8 @@ class PaymentHistoryIntegrationTest extends MySqlTestSupport {
                 .andExpect(jsonPath("$.data.benefits[0].name").value("카페 10% 청구할인"))
                 .andExpect(jsonPath("$.data.benefits[0].type").value("DISCOUNT"))
                 .andExpect(jsonPath("$.data.benefits[0].actualAmount").value(3_000))
+                .andExpect(jsonPath("$.data.benefits[0].rawAmount").value(3_000))
+                .andExpect(jsonPath("$.data.benefits[0].unit").value("KRW"))
                 .andExpect(jsonPath("$.data.benefits[0].realization").value("AT_BILLING"))
                 .andExpect(jsonPath("$.data.benefits[0].confirmed").value(nullValue()))
                 .andExpect(jsonPath("$.data.performance.yearMonth").value(OCTOBER))
@@ -304,6 +306,28 @@ class PaymentHistoryIntegrationTest extends MySqlTestSupport {
                 .andExpect(jsonPath("$.data.statusHistory[*].status").value(contains("REQUESTED", "APPROVED")))
                 .andExpect(jsonPath("$.data.recommendationSnapshot").value(nullValue()))
                 .andExpect(jsonPath("$.data.failure").value(nullValue()));
+    }
+
+    @Test
+    void 상세의_적립은_포인트_수와_단위를_함께_주고_원화로_못_바꾼_줄은_actualAmount만_비운다() throws Exception {
+        long id = approved(owner, card, OCT_10, 10_000, 1);
+        pointBenefit(id, "1500.000000", 1_500L);
+        pointBenefit(id, "3.000000", null);
+        pointBenefit(id, "1.500000", null);
+
+        mockMvc.perform(get("/api/payments/" + id).with(AuthUsers.asUser(owner)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.benefits[*].unit").value(contains("POINT", "POINT", "POINT")))
+                .andExpect(jsonPath("$.data.benefits[0].rawAmount").value(1_500))
+                .andExpect(jsonPath("$.data.benefits[0].actualAmount").value(1_500))
+                .andExpect(jsonPath("$.data.benefits[1].rawAmount").value(3))
+                .andExpect(jsonPath("$.data.benefits[1].actualAmount").value(nullValue()))
+                .andExpect(jsonPath("$.data.benefits[2].rawAmount").value(1.5))
+                .andExpect(jsonPath("$.data.benefits[2].realization").value("POINT_ACCRUAL"));
+        // 지수 표기(1.5E+3)가 아니라 정수 그대로 나간다
+        String body = mockMvc.perform(get("/api/payments/" + id).with(AuthUsers.asUser(owner)))
+                .andReturn().getResponse().getContentAsString();
+        assertThat(body).contains("\"rawAmount\":1500,").contains("\"rawAmount\":1.5,").doesNotContain("E+");
     }
 
     @Test
@@ -742,6 +766,19 @@ class PaymentHistoryIntegrationTest extends MySqlTestSupport {
                 "created_at", now()));
         pb.put("krw_amount", krw);
         return insert("payment_benefit", "payment_benefit_id", pb);
+    }
+
+    /** 적립 혜택 줄. {@code krw}가 null이면 원화로 바꾸지 못한 줄이다. */
+    private long pointBenefit(long paymentId, String points, Long krw) {
+        long cardBenefit = insert("card_benefit", "card_benefit_id", Map.of("card_product_id", product,
+                "benefit_code", "POINT-" + UUID.randomUUID(), "policy_version", 1, "benefit_name", "카페 5% 적립",
+                "benefit_type", "POINT", "calculation_type", "RATE", "rate", new java.math.BigDecimal("0.05"),
+                "value_unit", "POINT", "application_timing", "POINT_ACCRUAL", "created_at", now()));
+        Map<String, Object> row = new HashMap<>(Map.of("payment_transaction_id", paymentId, "card_product_id", product,
+                "card_benefit_id", cardBenefit, "benefit_value", new java.math.BigDecimal(points), "value_unit", "POINT",
+                "created_at", now()));
+        row.put("krw_amount", krw);
+        return insert("payment_benefit", "payment_benefit_id", row);
     }
 
     private long billItem(long paymentId, Long bill, int seq, LocalDate billingMonth, long principal, String status) {
