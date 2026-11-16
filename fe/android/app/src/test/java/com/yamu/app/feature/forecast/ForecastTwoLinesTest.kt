@@ -39,9 +39,11 @@ class ForecastTwoLinesTest {
         assertEquals("안전 잔액 아래로 내려가요", riskLine(window(FlowConfidence.CONFIRMED, shortfall = null)))
     }
 
-    @Test fun `범례 — 생활비 선이 없을 때만 'AI 생활비 반영'을 취소선으로`() {
+    @Test fun `그래프 아래 범례 — 실선 'AI 제외' · 점선 'AI 예측', 생활비 선이 없을 때만 'AI 예측'을 취소선으로`() {
+        assertEquals("AI 제외", LEGEND_WITHOUT_LIVING)
+        assertEquals("AI 예측", LEGEND_WITH_LIVING)
         assertEquals(emptyList<String>(), missingLines(testForecast(days = listOf(day(nov10), day(nov20)))))
-        assertEquals(listOf("AI 생활비 반영"), missingLines(testForecast(days = listOf(day(nov10, conservative = null), day(nov20, conservative = null)))))
+        assertEquals(listOf("AI 예측"), missingLines(testForecast(days = listOf(day(nov10, conservative = null), day(nov20, conservative = null)))))
     }
 
     @Test fun `맨 위 가장 낮을 때 금액 — 생활비 선이 있으면 반영 선, 없으면 제외 선 기준(!223 답)`() {

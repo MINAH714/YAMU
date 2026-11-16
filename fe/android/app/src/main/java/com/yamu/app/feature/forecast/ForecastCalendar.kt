@@ -171,17 +171,16 @@ internal fun ForecastCalendar(
                 }
             }
         }
-        // 색 풀이 — 칸 색이 무엇을 뜻하는지
+        // 색 풀이 — 여유(안전 잔액 위) · 불안(안전 잔액 아래) · 경고(0원 아래). 읽어 줄 때는 기준도 같이 읽는다
         FlowRow(
             Modifier.padding(top = 10.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp),
             itemVerticalAlignment = Alignment.CenterVertically,
         ) {
-            Swatch(c.primary.copy(alpha = 0.24f), "여유가 많을수록 진하게")
-            Swatch(c.warningContainer, "안전 잔액 아래")
-            Swatch(c.errorContainer, "0원 아래")
-            Text("칸 색은 $LINE_WITH_LIVING 선 기준", style = YamuTheme.typography.bodyS, color = c.text3)
+            Swatch(c.primary.copy(alpha = OK_ALPHA[2]), "여유", "안전 잔액 위")
+            Swatch(c.warningContainer, "불안", "안전 잔액 아래")
+            Swatch(c.errorContainer, "경고", "0원 아래")
         }
     }
 }
@@ -191,10 +190,10 @@ private fun DayCell(date: LocalDate, index: Int, day: StripDay, end: Long?, max:
     val c = YamuTheme.colors
     val tone = end?.let { cellTone(it, threshold, max) } ?: CellTone.OK1
     val bg = when (tone) {
-        CellTone.OK1 -> c.primary.copy(alpha = 0.07f)
-        CellTone.OK2 -> c.primary.copy(alpha = 0.13f)
-        CellTone.OK3 -> c.primary.copy(alpha = 0.20f)
-        CellTone.OK4 -> c.primary.copy(alpha = 0.28f)
+        CellTone.OK1 -> c.primary.copy(alpha = OK_ALPHA[0])
+        CellTone.OK2 -> c.primary.copy(alpha = OK_ALPHA[1])
+        CellTone.OK3 -> c.primary.copy(alpha = OK_ALPHA[2])
+        CellTone.OK4 -> c.primary.copy(alpha = OK_ALPHA[3])
         CellTone.BELOW_SAFE -> c.warningContainer
         CellTone.BELOW_ZERO -> c.errorContainer
     }
@@ -247,13 +246,17 @@ private fun IncomeCell(date: LocalDate) {
     }
 }
 
+/** 색 견본 한 칸 — 화면엔 [label]만, 읽어 줄 때는 칸 설명과 같은 기준([meaning])을 붙인다. 글씨는 text2(전에는 text3라 흐렸다) */
 @Composable
-private fun Swatch(color: Color, label: String) {
+private fun Swatch(color: Color, label: String, meaning: String) {
     val c = YamuTheme.colors
-    Row(verticalAlignment = Alignment.CenterVertically) {
+    Row(
+        Modifier.semantics(mergeDescendants = true) { contentDescription = "$label, $meaning" },
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
         Box(Modifier.size(10.dp).clip(RoundedCornerShape(3.dp)).background(color))
         Spacer(Modifier.width(4.dp))
-        Text(label, style = YamuTheme.typography.bodyS, color = c.text3)
+        Text(label, style = YamuTheme.typography.bodyS, color = c.text2)
     }
 }
 
@@ -282,3 +285,5 @@ private val WEEK = listOf(DayOfWeek.SUNDAY, DayOfWeek.MONDAY, DayOfWeek.TUESDAY,
     .map { it.getDisplayName(java.time.format.TextStyle.SHORT, java.util.Locale.KOREAN) }
 private val CELL_H = 48.dp
 private val CELL_GAP = 3.dp
+/** 안전 잔액 위 칸의 파랑 투명도(OK1~OK4) — 전에는 7 · 13 · 20 · 28%라 단계 차이가 잘 안 보여 넓혔다 */
+private val OK_ALPHA = floatArrayOf(0.08f, 0.18f, 0.28f, 0.40f)
