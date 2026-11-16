@@ -256,6 +256,14 @@ class QaSeedServiceTest extends MySqlTestSupport {
                     .flatMap(r->java.util.stream.StreamSupport.stream(r.path("benefits").spliterator(),false))
                     .mapToLong(b->b.path("krw").asLong()).sum();
                 assertThat(benefits.path("summary").path("expectedBenefit").asLong()).isEqualTo(expectedBenefit);
+                if(!ym.isBefore(java.time.YearMonth.of(2026,4)) && ym.isBefore(java.time.YearMonth.of(2026,11))) {
+                    assertThat(benefits.path("summary").path("unconfirmedBenefit").asLong()).isZero();
+                    assertThat(benefits.path("summary").path("confirmedBenefit").asLong()).isEqualTo(expectedBenefit);
+                }
+                if(ym.equals(java.time.YearMonth.of(2026,11))) {
+                    assertThat(benefits.path("summary").path("confirmedBenefit").asLong()).isEqualTo(2200);
+                    assertThat(benefits.path("summary").path("unconfirmedBenefit").asLong()).isEqualTo(1000);
+                }
                 if(!ym.isBefore(java.time.YearMonth.of(2026,4))) assertThat(expectedBenefit).isPositive();
                 else assertThat(expectedBenefit).isZero();
                 assertThat(benefits.path("summary").path("yamuPickExtra").asLong()).isZero();
@@ -654,6 +662,52 @@ class QaSeedServiceTest extends MySqlTestSupport {
         var spec=spec("verify",QaSeedSpec.Scenario.RICH); apply(spec);
         db.update("UPDATE card_monthly_performance SET recognized_amount=recognized_amount+1");
         assertThatThrownBy(()->service.run("verify",spec)).isInstanceOf(IllegalArgumentException.class);
+    }
+    @Test void benefitRevisionPreservesPendingUsersAndRejectsChangedInput() throws Exception {
+        ScriptUtils.executeSqlScript(connection,new FileSystemResource(Path.of("seed/05-ibk-narasarang.sql")));
+        service=new QaSeedService(connection,keys,Clock.fixed(Instant.parse("2026-11-16T03:00:00Z"),ZoneOffset.UTC),cryptoProperties.hmacKey());
+        var mapper=new com.fasterxml.jackson.databind.ObjectMapper().registerModule(new com.fasterxml.jackson.datatype.jsr310.JavaTimeModule());
+        for(int n=1;n<=3;n++) {
+            var input=mapper.readValue(Path.of("seed/qa/life-persona-"+n+".example.json").toFile(),QaSeedSpec.class);
+            var p=input.personas().get(0);
+            var person=new QaSeedSpec.Persona("p0",p.scenario(),p.name(),p.birthDate(),p.phone(),p.ssafyMemberId(),"revision-test-only",p.accounts(),p.cards(),p.issuanceEligibility());
+            var spec=new QaSeedSpec("qa-benefit-revision-"+n,3,input.baseDate(),List.of(person));
+            apply(spec);
+            long owner=user(spec,0);
+            long target=db.queryForObject("SELECT t.payment_transaction_id FROM payment_transaction t JOIN card_product c USING(card_product_id) WHERE t.user_id=? AND c.issuer_code='IBK' AND t.approved_at='2026-11-07 15:00:00'",Long.class,owner);
+            // Emulate the previous revision without deleting the user's purchases or authentication state.
+            db.update("DELETE FROM payment_limit_usage WHERE payment_transaction_id=?",target);
+            db.update("DELETE FROM payment_benefit WHERE payment_transaction_id=?",target);
+            db.update("UPDATE payment_benefit b JOIN payment_transaction t USING(payment_transaction_id) SET b.confirmed_at=NULL,b.confirmation_source=NULL WHERE t.user_id=?",owner);
+            db.update("UPDATE payment_transaction SET approved_amount=22000,merchant_id=(SELECT merchant_id FROM merchant WHERE brand_code='YAMU_TEST_RESTAURANT') WHERE payment_transaction_id=?",target);
+            String hash=db.queryForObject("SELECT HEX(input_hash) FROM qa_seed_dataset WHERE dataset_key=?",String.class,spec.datasetKey());
+            assertThatThrownBy(()->service.reviseBenefits(spec,"00".repeat(32))).isInstanceOf(IllegalArgumentException.class);
+            assertThat(db.queryForObject("SELECT approved_amount FROM payment_transaction WHERE payment_transaction_id=?",Long.class,target)).isEqualTo(22000);
+            long later=db.queryForObject("SELECT payment_transaction_id FROM payment_transaction WHERE user_id=? ORDER BY approved_at DESC LIMIT 1",Long.class,owner);
+            db.update("UPDATE payment_transaction SET approved_amount=approved_amount+1 WHERE payment_transaction_id=?",later);
+            assertThatThrownBy(()->service.reviseBenefits(spec,hash)).isInstanceOf(IllegalArgumentException.class);
+            assertThat(db.queryForObject("SELECT approved_amount FROM payment_transaction WHERE payment_transaction_id=?",Long.class,target)).isEqualTo(22000);
+            assertThat(db.queryForObject("SELECT COUNT(*) FROM payment_benefit WHERE payment_transaction_id=?",Long.class,target)).isZero();
+            db.update("UPDATE payment_transaction SET approved_amount=approved_amount-1 WHERE payment_transaction_id=?",later);
+            service.reviseBenefits(spec,hash);
+            String updated=db.queryForObject("SELECT HEX(input_hash) FROM qa_seed_dataset WHERE dataset_key=?",String.class,spec.datasetKey());
+            service.reviseBenefits(spec,updated);
+            assertThat(db.queryForObject("SELECT approved_amount FROM payment_transaction WHERE payment_transaction_id=?",Long.class,target)).isEqualTo(19800);
+            assertThat(db.queryForObject("SELECT COUNT(*) FROM payment_benefit WHERE payment_transaction_id=?",Long.class,target)).isEqualTo(1);
+            assertThat(db.queryForObject("SELECT status FROM app_user WHERE user_id=?",String.class,owner)).isEqualTo("PENDING");
+            assertThat(db.queryForObject("SELECT COUNT(*) FROM linked_account WHERE user_id=?",Long.class,owner)).isZero();
+            assertThat(db.queryForObject("SELECT COUNT(*) FROM payment_transaction WHERE user_id=?",Long.class,owner)).isEqualTo(395);
+            // Explicit QA evidence must not turn a normal payment into a confirmed point award.
+            long point=db.queryForObject("SELECT b.payment_transaction_id FROM payment_benefit b JOIN payment_transaction t USING(payment_transaction_id) WHERE t.user_id=? AND b.value_unit='POINT' AND b.confirmed_at IS NOT NULL LIMIT 1",Long.class,owner);
+            String query="SELECT "+com.yamu.be.payment.history.PaymentSqlFragments.CONFIRMED_LINE+" FROM payment_benefit b JOIN card_benefit cb USING(card_benefit_id) WHERE b.payment_transaction_id=?";
+            assertThat(db.queryForObject(query,Boolean.class,point)).isTrue();
+            assertThatThrownBy(()->db.update("UPDATE payment_benefit SET confirmation_source=NULL WHERE payment_transaction_id=?",point))
+                .isInstanceOf(org.springframework.dao.DataAccessException.class)
+                .hasMessageContaining("ck_benefit_confirmation_pair");
+            db.update("UPDATE payment_transaction SET merchant_context_snapshot=JSON_SET(merchant_context_snapshot,'$.source','NORMAL') WHERE payment_transaction_id=?",point);
+            assertThat(db.queryForObject(query,Boolean.class,point)).isFalse();
+        }
+        verifyNoInteractions(transfer);
     }
     @Test void lifeNotificationsUseProductionMessagesAndEventTimes() throws Exception {
         ScriptUtils.executeSqlScript(connection,new FileSystemResource(Path.of("seed/05-ibk-narasarang.sql")));

@@ -3346,9 +3346,31 @@
     "key" : "3:2026-11-08:0",
     "gross" : 22000,
     "channel" : "OFFLINE",
-    "benefits" : [ ],
-    "limits" : [ ],
-    "approvalDiscount" : 0,
+    "calculationScope" : "GS25_INSTANT_10_ONLY",
+    "basket" : {
+      "version" : 1,
+      "brandCode" : "GS25",
+      "items" : [ {
+        "productCode" : "gs-jeyuk-dosirak",
+        "quantity" : 4,
+        "unitPrice" : 5500,
+        "ibkEligible" : true
+      } ],
+      "total" : 22000,
+      "ibkEligibleAmount" : 22000
+    },
+    "benefits" : [ {
+      "code" : "GS25_INSTANT_10",
+      "value" : 2200,
+      "unit" : "KRW",
+      "krw" : 2200
+    } ],
+    "limits" : [ {
+      "code" : "GS25_INSTANT_DAILY",
+      "before" : 1,
+      "used" : 1
+    } ],
+    "approvalDiscount" : 2200,
     "billingDiscount" : 0,
     "recognized" : 22000,
     "complete" : true,

@@ -39,6 +39,13 @@ public final class QaLifePolicyReplay {
                 ((Number)merchant.get("merchant_id")).longValue(),(String)merchant.get("merchant_category_code"),Map.of()),
                 "COUPANG".equals(p.brand()) ? "ONLINE" : "OFFLINE", "GENERAL");
             var issues = new ArrayList<RecommendationDataIssue>();
+            boolean instantFixture=p.card()==3 && p.date().equals(LocalDate.of(2026,11,8));
+            if(instantFixture) {
+                var basket=com.yamu.be.payment.pos.PosBasket.validate("GS25",List.of(
+                    new com.yamu.be.payment.pos.PosBasket.Line("gs-jeyuk-dosirak",java.math.BigDecimal.valueOf(4))),p.amount());
+                tx=new RecommendationInput.Transaction(tx.amount(),tx.plan(),tx.installmentMonths(),tx.occurredAt(),
+                    tx.merchantId(),tx.merchantCategoryCode(),tx.facts(),tx.purchaseItemCode(),tx.simulationRules(),basket);
+            }
             var policy = assembler.policy(card,data,QaLifeScenario.BASE,
                 performance.getOrDefault(p.card()+":"+month.minusMonths(1),0L),issues,tx,product,p.brand());
             var benefits = policy.benefits().stream().map(b -> {
@@ -54,11 +61,24 @@ public final class QaLifePolicyReplay {
                 l.countMode(),l.consumeOnZero())).toList();
             policy = new BenefitPolicy(policy.complete(),policy.previousMonthPerformance(),policy.additionalCost(),benefits,limits,
                 policy.allowedCombinations(),policy.applicationGroups(),policy.fallbacks(),policy.simulationRules());
+            if(instantFixture) {
+                // Replay only the independently verified instant-discount service. Cashback remains unmodelled;
+                // do not turn incomplete stacking rules into a fictitious cashback payment.
+                long instantId=data.benefits().stream().filter(b->b.getCardProductId().equals(card.getCardProductId())
+                    && "GS25_INSTANT_10".equals(b.getBenefitCode())).findFirst().orElseThrow().getId();
+                var instant=benefits.stream().filter(b->b.id()==instantId).findFirst().orElseThrow();
+                policy=new BenefitPolicy(true,policy.previousMonthPerformance(),java.math.BigDecimal.ZERO,List.of(instant),
+                    limits.stream().filter(l->instant.limitIds().contains(l.id())).toList(),List.of(List.of(instantId)));
+            }
             tx = CheoeumPurchaseSimulation.apply(tx,card.getId(),product,policy,p.brand());
             var calculation = new CardBenefitCalculator().calculate(tx,policy,CalculationOptions.DEFAULT);
             var row = entries.addObject();
             row.put("key",p.card()+":"+p.date()+":"+p.slot()); row.put("gross",p.amount());
             row.put("channel","COUPANG".equals(p.brand())?"ONLINE":"OFFLINE");
+            if(instantFixture) {
+                row.put("calculationScope","GS25_INSTANT_10_ONLY");
+                row.set("basket",json.valueToTree(tx.basket()));
+            }
             var lines = row.putArray("benefits"); var uses = row.putArray("limits");
             long approvalDiscount=0, billingDiscount=0;
             // Only complete allocated calculations become monetary ledger entries.

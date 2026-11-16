@@ -16,6 +16,13 @@ public final class SeedNotificationReplay {
     private record Event(NotificationWriter.Draft draft, java.time.LocalDateTime at) {}
 
     private SeedNotificationReplay() {}
+    /** Refresh an already existing fixture notification without changing identity/time/read state. */
+    public static void refreshPayment(JdbcTemplate db,long user,long payment) {
+        var contents=new NotificationContentReader(new NamedParameterJdbcTemplate(db));
+        var draft=NotificationMessages.paymentApproved(user,payment,contents.payment(user,payment).orElseThrow());
+        db.update("UPDATE notification SET title=?,body=? WHERE user_id=? AND deduplication_key=?",
+            draft.title(),draft.body(),user,draft.deduplicationKey());
+    }
 
     /** Caller owns the transaction. Only the named seed user's fixture events are replayed. */
     public static int replay(JdbcTemplate db, String dataset, long user, Instant since, Instant until) {
