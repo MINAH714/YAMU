@@ -13,6 +13,7 @@ import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -110,6 +111,7 @@ class PaymentApprovalServiceTest {
     @Mock PaymentApprover approver;
     @Mock ApprovalLedger ledger;
     @Mock PaymentPerformanceTotals performanceTotals;
+    @Mock CheckCardBalanceReader balanceReader;
     @Mock CreditBillingWriter billing;
     @Mock ApprovalIdempotencyStore idempotency;
     @Mock ApprovalAttemptStore attempts;
@@ -136,7 +138,9 @@ class PaymentApprovalServiceTest {
     void setUp() {
         service = new PaymentApprovalService(payments, cardQuery, cards, snapshots, recommender, approver, ledger,
                 billing, idempotency, attempts, expiry, recovery, barcodes, locks, transaction, new ObjectMapper(),
-                posProperties, properties, clock, performanceTotals);
+                posProperties, properties, clock, performanceTotals, balanceReader);
+        // Mockito는 Long 반환에 0을 준다. 기본은 "잔액을 읽지 못함"이어야 다른 테스트의 시도 기록 횟수가 그대로다
+        when(balanceReader.balanceAfter(any(), any(), any(), any())).thenReturn(null);
         payment = requested(15_000, 1);
         recommendation = recommendation(List.of(candidate(1, CREDIT), candidate(2, CHECK)));
         attemptNo = 1;
@@ -894,6 +898,61 @@ class PaymentApprovalServiceTest {
         assertThat(payment.getFailureCode()).isNull();
         assertThat(payment.getFinTransactionNo()).isEqualTo("1101");
         verify(ledger).recordApproval(eq(payment), any());
+    }
+
+    @Test
+    void 체크카드_승인_뒤_읽은_출금_뒤_잔액을_응답과_다시_적은_시도_기록에_담는다() {
+        // S15P31E103-569
+        ApprovalOutcome.Approved approved = new ApprovalOutcome.Approved(15_000, 15_000, 0, LocalDate.of(2026, 10, 1),
+                List.of(), TX_NO, "1101", null);
+        doAnswer(inv -> {
+            payment.assignFinRequestNo(TX_NO, 15_000);
+            return approved;
+        }).when(approver).approve(any());
+        when(balanceReader.balanceAfter(PAYMENT_ID, ME.userId(), 16L, approved)).thenReturn(985_000L);
+
+        PaymentApprovalResponse response = service.approve(ME, PAYMENT_ID, request(16L), KEY);
+
+        assertThat(response.accountBalanceAfter()).isEqualTo(985_000L);
+        InOrder order = inOrder(ledger, balanceReader);
+        order.verify(ledger).recordApproval(eq(payment), any());
+        order.verify(balanceReader).balanceAfter(PAYMENT_ID, ME.userId(), 16L, approved);
+        ArgumentCaptor<Attempt> recorded = ArgumentCaptor.forClass(Attempt.class);
+        verify(attempts, times(2)).recordResult(eq(PAYMENT_ID), any(), recorded.capture());
+        // 원장 저장 전 기록에는 잔액이 없고, 같은 키 재전송이 돌려줄 다시 적은 기록에는 있다
+        assertThat(recorded.getAllValues().get(0).response().accountBalanceAfter()).isNull();
+        assertThat(recorded.getAllValues().get(1).response().accountBalanceAfter()).isEqualTo(985_000L);
+        ArgumentCaptor<Previous> remembered = ArgumentCaptor.forClass(Previous.class);
+        verify(idempotency).remember(eq(ME.userId()), eq(KEY), remembered.capture());
+        assertThat(remembered.getValue().response().accountBalanceAfter()).isEqualTo(985_000L);
+    }
+
+    @Test
+    void 출금_뒤_잔액을_읽지_못해도_승인은_그대로이고_잔액은_null이다() {
+        doAnswer(inv -> {
+            payment.assignFinRequestNo(TX_NO, 15_000);
+            return new ApprovalOutcome.Approved(15_000, 15_000, 0, LocalDate.of(2026, 10, 1), List.of(), TX_NO,
+                    "1101", null);
+        }).when(approver).approve(any());
+        when(balanceReader.balanceAfter(anyLong(), anyLong(), anyLong(), any())).thenReturn(null);
+
+        PaymentApprovalResponse response = service.approve(ME, PAYMENT_ID, request(16L), KEY);
+
+        assertThat(response.status()).isEqualTo(PaymentStatus.APPROVED);
+        assertThat(response.accountBalanceAfter()).isNull();
+        assertThat(payment.getStatus()).isEqualTo(PaymentStatus.APPROVED);
+        verify(barcodes).markUsed(PAYMENT_ID);
+    }
+
+    @Test
+    void 거절이면_출금_뒤_잔액을_읽지_않는다() {
+        doReturn(ApprovalOutcome.Declined.of(FailureCode.INSUFFICIENT_BALANCE)).when(approver).approve(any());
+
+        PaymentApprovalResponse response = service.approve(ME, PAYMENT_ID, request(16L), KEY);
+
+        assertThat(response.status()).isEqualTo(PaymentStatus.DECLINED);
+        assertThat(response.accountBalanceAfter()).isNull();
+        verify(balanceReader, never()).balanceAfter(anyLong(), anyLong(), anyLong(), any());
     }
 
     @Test
