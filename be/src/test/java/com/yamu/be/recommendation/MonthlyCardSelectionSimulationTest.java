@@ -16,6 +16,7 @@ import java.time.*;
 import java.util.*;
 import javax.sql.DataSource;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Tag;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.core.io.*;
@@ -30,6 +31,7 @@ import org.testcontainers.junit.jupiter.Container;
 
 /** Isolated registered-policy experiment, not a payment approval integration test. */
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
+@Tag("experiment")
 class MonthlyCardSelectionSimulationTest extends MySqlTestSupport {
     @Container @ServiceConnection(name = "redis")
     static final GenericContainer<?> REDIS = new GenericContainer<>("redis:7-alpine").withExposedPorts(6379);
