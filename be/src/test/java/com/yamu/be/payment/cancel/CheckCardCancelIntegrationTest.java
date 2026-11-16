@@ -180,6 +180,7 @@ class CheckCardCancelIntegrationTest extends MySqlTestSupport {
         verify(transfer).deposit(eq("user-key-" + user), eq(ACCOUNT_NO), eq(15_000L),
                 eq(TransferTag.checkRefund(paymentId)), anyString());
         assertThat(paymentStatus(paymentId)).isEqualTo(PaymentStatus.CANCELED);
+        assertThat(refundAccount(paymentId)).isEqualTo(account);
         // 환불 태그는 승인일(한국) 전날부터 오늘까지 찾는다
         ArgumentCaptor<LocalDate> from = ArgumentCaptor.forClass(LocalDate.class);
         verify(transfer).findAllByTag(anyString(), anyString(), eq(TransferTag.checkRefund(paymentId)), from.capture(),
@@ -209,6 +210,25 @@ class CheckCardCancelIntegrationTest extends MySqlTestSupport {
 
         verify(transfer, never()).deposit(anyString(), anyString(), anyLong(), any(), anyString());
         verify(transfer, never()).newTransactionNo();
+        assertThat(refundAccount(paymentId)).isNull();
+    }
+
+    @Test
+    void 입금_뒤_저장_전에_카드_계좌를_바꿔도_환불을_넣은_계좌를_적는다() throws Exception {
+        long paymentId = approvedWithWithdrawal(15_000, 15_000);
+        long newAccount = account(user);
+        doAnswer(inv -> {
+            land(inv.getArgument(3), inv.getArgument(2));
+            // 입금이 끝난 직후, 취소를 저장하기 전에 사용자가 결제 계좌를 바꿨다
+            jdbc.update("UPDATE user_card SET linked_account_id = ? WHERE user_card_id = ?", newAccount, checkCard);
+            return success();
+        }).when(transfer).deposit(anyString(), anyString(), anyLong(), any(), anyString());
+
+        cancel(paymentId, UUID.randomUUID().toString())
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.status").value("CANCELED"));
+
+        assertThat(refundAccount(paymentId)).isEqualTo(account);
     }
 
     @Test
@@ -236,6 +256,8 @@ class CheckCardCancelIntegrationTest extends MySqlTestSupport {
                 .andExpect(jsonPath("$.data.accountBalanceAfter").value(BALANCE + 15_000));
 
         verify(transfer, never()).deposit(anyString(), anyString(), anyLong(), any(), anyString());
+        // 거래내역에서 찾은 입금도 그 계좌를 적는다
+        assertThat(refundAccount(paymentId)).isEqualTo(account);
     }
 
     @Test
@@ -520,6 +542,13 @@ class CheckCardCancelIntegrationTest extends MySqlTestSupport {
 
     private PaymentStatus paymentStatus(long paymentId) {
         return payments.findById(paymentId).orElseThrow().getStatus();
+    }
+
+    /** 결제 행에 적힌 체크카드 환불 계좌(S15P31E103-323). */
+    private Long refundAccount(long paymentId) {
+        return jdbc.queryForObject(
+                "SELECT refund_linked_account_id FROM payment_transaction WHERE payment_transaction_id = ?", Long.class,
+                paymentId);
     }
 
     /** 승인된 체크카드 결제와 그 원 출금(YAMU-P) 한 줄. */

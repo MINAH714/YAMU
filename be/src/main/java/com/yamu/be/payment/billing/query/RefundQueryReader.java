@@ -51,7 +51,7 @@ class RefundQueryReader {
               join card_product p on p.card_product_id = t.card_product_id and p.card_type = 'CHECK'
               join merchant m on m.merchant_id = t.merchant_id
               left join user_card c on c.user_card_id = t.user_card_id
-              left join linked_account a on a.linked_account_id = c.linked_account_id and a.user_id = t.user_id
+              left join linked_account a on a.linked_account_id = t.refund_linked_account_id and a.user_id = t.user_id
              where t.user_id = :userId and t.status = 'CANCELED' and t.source = 'YAMU' and t.approved_amount > 0
             """.formatted(MERCHANT_NAME);
 
