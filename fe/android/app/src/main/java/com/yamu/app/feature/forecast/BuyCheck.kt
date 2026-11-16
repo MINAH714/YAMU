@@ -93,6 +93,7 @@ import com.yamu.app.core.designsystem.theme.YamuRadius
 import com.yamu.app.core.designsystem.theme.YamuSpacing
 import com.yamu.app.core.designsystem.theme.YamuTheme
 import com.yamu.app.core.format.KST
+import com.yamu.app.core.format.amountDigits
 import com.yamu.app.core.format.objectParticle
 import com.yamu.app.core.format.toKoreanDate
 import com.yamu.app.core.format.toWon
@@ -151,9 +152,9 @@ private fun AmountField(amount: Long, active: Boolean, onClick: () -> Unit) {
 }
 
 /** 금액 키 — 0으로 시작하지 않고 10자리까지(BE 상한 1,000억 원보다 작다) */
-private fun String.applyAmountKey(key: KeypadKey): String = when (key) {
-    is KeypadKey.Digit -> if (isEmpty() && key.value == 0) this else (this + key.value).take(10)
-    KeypadKey.DoubleZero -> if (isEmpty()) this else (this + "00").take(10)
+internal fun String.applyAmountKey(key: KeypadKey): String = when (key) {
+    is KeypadKey.Digit -> amountDigits(this + key.value, 10)
+    KeypadKey.DoubleZero -> amountDigits(this + "00", 10)
     KeypadKey.Delete -> dropLast(1)
 }
 

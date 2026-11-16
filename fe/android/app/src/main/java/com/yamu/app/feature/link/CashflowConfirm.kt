@@ -41,6 +41,7 @@ import com.yamu.app.core.designsystem.component.YamuTextField
 import com.yamu.app.core.designsystem.theme.YamuSpacing
 import com.yamu.app.core.designsystem.theme.YamuTheme
 import com.yamu.app.core.format.KST
+import com.yamu.app.core.format.amountDigits
 import com.yamu.app.core.format.toWon
 import com.yamu.app.core.network.ApiError
 import com.yamu.app.core.network.ApiResult
@@ -454,14 +455,14 @@ private fun EditAmountSheet(
         CashflowEdit.DailyCost -> "하루 생활비" to state.dailyCost
         CashflowEdit.Income -> IncomeInput.INCOME_TITLE to state.newIncome?.amount   // 월급은 IncomeSheet가 맡는다
     }
-    var text by remember(editing) { mutableStateOf(initial?.toString().orEmpty()) }
+    var text by remember(editing) { mutableStateOf(amountDigits(initial?.toString().orEmpty(), 10)) }
     YamuBottomSheet(onDismiss = onDismiss) {
         Text(title, style = YamuTheme.typography.titleL, color = YamuTheme.colors.text1)
         Spacer(Modifier.height(YamuSpacing.x4))
         YamuTextField(
             label = "금액(원)",
             value = text,
-            onValueChange = { v -> text = v.filter(Char::isDigit).take(10) },
+            onValueChange = { v -> text = amountDigits(v, 10) },
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
             // 서버는 이 값을 하루 목표로 저장만 하고 잔고예보 예측에는 넣지 않는다(docs/be/forecast.md)
             supporting = if (editing is CashflowEdit.DailyCost) "하루에 쓸 목표 금액이에요" else null,
@@ -489,7 +490,7 @@ private fun IncomeSheet(
     onSave: (IncomeInput?) -> Unit,
 ) {
     val c = YamuTheme.colors
-    var amount by remember { mutableStateOf(current?.amount?.toString().orEmpty()) }
+    var amount by remember { mutableStateOf(amountDigits(current?.amount?.toString().orEmpty(), 12)) }
     var day by remember { mutableStateOf(current?.day?.toString().orEmpty()) }
     var accountId by remember { mutableStateOf(current?.accountId ?: defaultAccount?.accountId) }
     var tried by remember { mutableStateOf(false) }
@@ -501,7 +502,7 @@ private fun IncomeSheet(
         YamuTextField(
             label = "금액(원)",
             value = amount,
-            onValueChange = { v -> amount = v.filter(Char::isDigit).take(12) },
+            onValueChange = { v -> amount = amountDigits(v, 12) },
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
             error = amountError.takeIf { tried },
         )
