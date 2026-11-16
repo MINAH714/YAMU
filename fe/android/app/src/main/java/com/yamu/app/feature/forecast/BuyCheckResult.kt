@@ -3,7 +3,6 @@ package com.yamu.app.feature.forecast
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -20,7 +19,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -37,7 +35,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.onPlaced
 import androidx.compose.ui.layout.positionInParent
 import androidx.compose.ui.semantics.Role
@@ -55,7 +52,6 @@ import com.yamu.app.core.designsystem.component.AmountText
 import com.yamu.app.core.designsystem.component.BottomCta
 import com.yamu.app.core.designsystem.component.CharacterImage
 import com.yamu.app.core.designsystem.component.CharacterSize
-import com.yamu.app.core.designsystem.component.CompactButton
 import com.yamu.app.core.designsystem.component.EstimateTag
 import com.yamu.app.core.designsystem.component.FlowScreen
 import com.yamu.app.core.designsystem.component.ListRow
@@ -70,7 +66,6 @@ import com.yamu.app.core.designsystem.component.YamuCard
 import com.yamu.app.core.designsystem.component.YamuPose
 import com.yamu.app.core.designsystem.icon.YamuIcons
 import com.yamu.app.core.designsystem.theme.YamuMotion
-import com.yamu.app.core.designsystem.theme.YamuRadius
 import com.yamu.app.core.designsystem.theme.YamuSpacing
 import com.yamu.app.core.designsystem.theme.YamuTheme
 import com.yamu.app.core.format.directionParticle
@@ -86,6 +81,7 @@ import com.yamu.app.feature.forecast.data.ForecastRepository
 import com.yamu.app.feature.forecast.data.PaymentChannel
 import com.yamu.app.feature.forecast.data.RiskLevel
 import com.yamu.app.feature.forecast.data.SimAction
+import com.yamu.app.feature.forecast.data.SimBenefit
 import com.yamu.app.feature.forecast.data.SimCardOption
 import com.yamu.app.feature.forecast.data.SimProblem
 import com.yamu.app.feature.forecast.data.SimSnapshot
@@ -94,7 +90,6 @@ import com.yamu.app.feature.forecast.data.Simulation
 import com.yamu.app.feature.forecast.data.shortName
 import com.yamu.app.feature.forecast.data.SimulationQuery
 import com.yamu.app.feature.forecast.data.canSavePlan
-import com.yamu.app.feature.forecast.data.subjectParticle
 import com.yamu.app.feature.forecast.data.toSimProblem
 import com.yamu.app.navigation.BuyCheckResult
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -380,8 +375,6 @@ fun BuyCheckResultRoute(
                         )
                         ScheduleCard(sim, selectedDate = sim.days.getOrNull(simDay)?.date, onWithdrawal = onWithdrawal)
                         BenefitCard(sim)
-                        if (sim.alternatives.isNotEmpty()) AlternativesCard(sim, onPick = { if (!s.loading) viewModel.setCard(it) })
-                        BasisCard(sim)
                     }
                 }
             }
@@ -545,18 +538,25 @@ private fun ScheduleCard(sim: Simulation, selectedDate: LocalDate?, onWithdrawal
     }
 }
 
-/** 이 카드로 사면 — 혜택 합계 · 줄(원화), 청구 금액. 계산하지 못했으면 이유 */
+/** 이 카드로 사면 — 혜택 합계 · 줄(원화), 청구 금액. 받을 혜택이 없으면 '1순위' 태그 없이 [NO_BENEFIT], 계산하지 못했으면 이유 */
 @Composable
 private fun BenefitCard(sim: Simulation) {
     val c = YamuTheme.colors
     val b = sim.benefit
+    val none = hasNoBenefit(b)
     YamuCard(contentPadding = PaddingValues(horizontal = 20.dp, vertical = 18.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("${sim.card.name}${sim.card.name.directionParticle()} 사면", style = YamuTheme.typography.cardTitle, color = c.text1, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-            if (sim.card.recommendedTop) StatusTag("혜택 1순위", tone = TagTone.Primary)
+            if (sim.card.recommendedTop && !none) StatusTag("혜택 1순위", tone = TagTone.Primary)
         }
         Spacer(Modifier.height(8.dp))
-        if (b?.net != null) {
+        if (none) {
+            Text(NO_BENEFIT, style = YamuTheme.typography.titleS, color = c.text2)
+            b?.charged?.let {
+                Spacer(Modifier.height(8.dp))
+                StepLine("청구 금액", "${it.toWon()}원")
+            }
+        } else if (b?.net != null) {
             Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text("받는 혜택", style = YamuTheme.typography.bodyM, color = c.text2)
                 Text("${b.net.toWon()}원", style = YamuTheme.typography.titleL, color = c.primary)
@@ -572,68 +572,25 @@ private fun BenefitCard(sim: Simulation) {
     }
 }
 
+internal const val NO_BENEFIT = "받을 수 있는 혜택이 없어요"
+
+/**
+ * 받을 혜택이 없는지 — 순혜택을 계산했고 0원이며, 0원이 아닌 줄이나 금액을 모르는 줄('금액 미정')도 없을 때.
+ * 혜택이 모두 같으면(0원 포함) BE가 기본 카드 → 이번에 실적을 처음 채우는 카드 → 카드 순서로 고르는데 시뮬레이션 응답에는
+ * 그 이유가 없다. 그래서 '혜택 1순위'나 '기본 카드로' 대신 이유 없는 문구를 쓴다(S15P31E103-591).
+ * 계산하지 못했으면(benefit · net null) 여기 들지 않고 '혜택은 계산하지 못했어요'로 따로 보인다
+ */
+internal fun hasNoBenefit(benefit: SimBenefit?): Boolean {
+    val net = benefit?.net ?: return false
+    return net.signum() == 0 && benefit.lines.all { it.amount != null && it.amount.signum() == 0 }
+}
+
 @Composable
 private fun StepLine(label: String, value: String) {
     val c = YamuTheme.colors
     Row(Modifier.fillMaxWidth().padding(vertical = 3.dp)) {
         Text(label, style = YamuTheme.typography.bodyM, color = c.text2, modifier = Modifier.weight(1f))
         Text(value, style = YamuTheme.typography.bodyM, color = c.text1)
-    }
-}
-
-/** 다른 카드였다면 — 누르면 그 카드로 다시 계산. 고른 카드보다 1순위 카드가 크면 위에 안내 */
-@Composable
-private fun AlternativesCard(sim: Simulation, onPick: (Long) -> Unit) {
-    val c = YamuTheme.colors
-    YamuCard(contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 18.dp, bottom = 8.dp)) {
-        Text("다른 카드였다면", style = YamuTheme.typography.cardTitle, color = c.text1)
-        sim.betterCard?.let { better ->
-            Spacer(Modifier.height(12.dp))
-            Column(
-                Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(YamuRadius.input))
-                    .background(c.primaryContainer)
-                    .padding(horizontal = 14.dp, vertical = 12.dp),
-            ) {
-                Text("${better.name}${better.name.subjectParticle()} 혜택이 더 커요", style = YamuTheme.typography.titleS, color = c.onPrimaryContainer, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                listOfNotNull(better.net?.let { "${it.toWon()}원" }, sim.betterBy?.let { "지금 카드보다 ${it.toWon()}원 더" }).joinToString(" · ").takeIf { it.isNotEmpty() }?.let {
-                    Text(it, style = YamuTheme.typography.bodyS, color = c.onPrimaryContainer, modifier = Modifier.padding(top = 2.dp))
-                }
-                Spacer(Modifier.height(10.dp))
-                // 카드 이름은 위 줄에 있다 — 버튼(CompactButton은 말줄임 없이 잘린다)에는 넣지 않는다
-                CompactButton("이 카드로 다시 보기", onClick = { onPick(better.userCardId) }, small = true)
-            }
-        }
-        Spacer(Modifier.height(4.dp))
-        sim.alternatives.forEachIndexed { i, alt ->
-            if (i > 0) HorizontalDivider(color = c.outlineVariant)
-            ListRow(
-                title = alt.name,
-                sub = listOfNotNull(alt.detail, alt.note?.let { "비교하지 못했어요 · $it" }).joinToString(" · "),
-                value = alt.net?.let { "${it.toWon()}원" },
-                valuePlain = if (alt.net == null) "—" else null,
-                titleTag = if (alt.recommended) ({ StatusTag("1순위", tone = TagTone.Primary) }) else null,
-                chevron = true,
-                dense = true,
-                onClick = { onPick(alt.userCardId) },
-            )
-        }
-        Text("카드를 누르면 그 카드로 다시 계산해요", style = YamuTheme.typography.bodyS, color = c.text3, modifier = Modifier.padding(top = 4.dp, bottom = 10.dp))
-    }
-}
-
-/** 계산 기준 — BE 가정 문장 그대로 + 신용한도 미확인 + 실제 결제와 무관 */
-@Composable
-private fun BasisCard(sim: Simulation) {
-    val c = YamuTheme.colors
-    val lines = sim.assumptions +
-        listOfNotNull(if (sim.creditLimitSkipped) "신용한도는 확인하지 않았어요." else null) +
-        "실제 결제나 실적에는 반영되지 않아요."
-    YamuCard(contentPadding = PaddingValues(horizontal = 20.dp, vertical = 16.dp)) {
-        Text("계산 기준", style = YamuTheme.typography.titleS, color = c.text1)
-        Spacer(Modifier.height(6.dp))
-        lines.forEach { Text("· $it", style = YamuTheme.typography.bodyM, color = c.text2, modifier = Modifier.padding(vertical = 2.dp)) }
     }
 }
 

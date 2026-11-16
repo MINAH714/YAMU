@@ -143,10 +143,9 @@ class SimulationMapperTest {
         }
     }
 
-    @Test fun `응답 — 고른 카드보다 1순위가 크면 그 카드와 차이, 비교 못 한 카드는 이유`() {
+    @Test fun `응답 — 다른 카드는 1순위 표시 · 비교 못 한 카드는 이유`() {
         val s = parse()
-        assertEquals(12L, s.betterCard!!.userCardId)
-        assertEquals(BigDecimal("3099.5"), s.betterBy)
+        assertTrue(s.alternatives.single { it.userCardId == 12L }.recommended)
         val check = s.alternatives.single { it.userCardId == 16L }
         assertNull(check.net)
         assertEquals("체크카드는 할부를 쓸 수 없어요", check.note)
@@ -165,8 +164,6 @@ class SimulationMapperTest {
         val s = dto.copy(benefit = null, card = dto.card!!.copy(recommended = true), alternatives = null).toSimulation(query)
         assertNull(s.benefit)
         assertTrue(s.card.recommendedTop)
-        assertNull(s.betterCard)
-        assertNull(s.betterBy)
         assertTrue(s.alternatives.isEmpty())
         // '혜택은 계산하지 못했어요' 아래 이유로 읽혀야 한다 — '일부 혜택은 빼고 계산했어요'가 나오면 서로 어긋난다(로컬 BE 확인에서 찾음)
         assertEquals(listOf("브랜드를 고르면 브랜드 혜택까지 계산할 수 있어요.", "확인하지 못한 혜택 조건이 있어요."), s.missing)
