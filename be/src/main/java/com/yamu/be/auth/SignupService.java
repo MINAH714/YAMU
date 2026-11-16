@@ -41,6 +41,8 @@ import org.springframework.transaction.support.TransactionTemplate;
  *
  * <p>무엇이 드러나는가: 이름이 다르면 시드에 없는 사람과 똑같은 404 DEMO_USER_NOT_FOUND를 준다. 그래서 번호·생년월일만으로는
  * 가입·탈퇴 여부를 알 수 없다. 이름·생년월일·번호 세 값을 모두 아는 사람에게만 가입 여부(모드 SIGNUP·DEVICE_RECOVERY)가 드러난다.
+ * 인증번호를 응답으로 주는 동안은 시드에 있는지를 요청 단계에서 같은 404로 먼저 알려 준다(S15P31E103-532). 가입 중·가입 완료의
+ * 구분은 지금처럼 확인 단계에서만 드러난다.
  *
  * <p>탈퇴한 사람(11번, 10/30 결정 (B)): 탈퇴 때 이름 원문은 지우고 이름 해시만 남긴다(임시, !55 리뷰 반영). 번호·생년월일·이름이
  * 모두 맞는 탈퇴 행이면 새 PENDING 사용자를 만들어 다시 가입시킨다({@link RejoinService}). 예전 이력은 옛 계정에 남는다.
@@ -68,15 +70,23 @@ public class SignupService {
 
     /**
      * 인증번호를 만든다(문자는 보내지 않음). 휴대폰 번호는 여기서 DB에 저장하지 않고 암호문으로 Redis에만 둔다.
-     * 시드에 있는 사람인지는 여기서 보지 않는다. 요청만으로 등록 여부를 알 수 없게, 인증번호를 확인한 뒤에 본다.
+     *
+     * <p>인증번호를 응답(demoCode)으로 줄 때는 시드에 있는 사람인지 여기서 먼저 보고, 없으면 인증번호를 만들지 않고 확인 단계와
+     * 같은 404 DEMO_USER_NOT_FOUND를 준다(S15P31E103-532, 운영 점검 B-03). 인증번호를 누구에게나 응답으로 주는 동안은 확인 단계로
+     * 미뤄도 바로 확인을 불러 같은 것을 알 수 있어 숨기는 효과가 없고, 등록 안 된 번호에 인증번호가 오는 것만 이상하게 보이기 때문이다.
+     * 문자를 실제로 보내게 되면(demoCode 끔) 예전처럼 확인 단계에서만 본다. 그때는 인증번호를 받은 폰 주인만 결과를 알 수 있다.
+     * 재요청 간격(1분)은 대조를 통과한 뒤에 잡는다. 이름 오타로 404를 받은 사람이 고쳐서 바로 다시 받을 수 있게.
      */
     public PhoneVerificationResponse requestVerification(PhoneVerificationRequest request, ClientInfo client) {
         rateLimiter.checkSignup(client.ipAddress(), properties.perIp());
         String phone = PersonalDataNormalizer.phone(request.phoneNumber());
         byte[] phoneHash = lookupHasher.phone(phone);
-        verificationStore.claimResendSlot(phoneHash);
         VerifiedIdentity identity = new VerifiedIdentity(request.name(), request.birthDate(),
                 cipher.encrypt(phone, CipherField.APP_USER_PHONE), phoneHash);
+        if (properties.exposeDemoCode() && !canStartSignup(identity)) {
+            throw new BusinessException(ErrorCode.DEMO_USER_NOT_FOUND);
+        }
+        verificationStore.claimResendSlot(phoneHash);
         IssuedVerification issued = verificationStore.issue(identity);
         LocalDateTime expiresAt = LocalDateTime.now(clock).plus(properties.verificationTtl()).truncatedTo(ChronoUnit.SECONDS);
         return new PhoneVerificationResponse(issued.verificationId(), expiresAt,
@@ -104,6 +114,20 @@ public class SignupService {
 
         IssuedSignupToken token = tokenStore.issue(new SignupSession(decision.mode(), identity, verifiedAt, found.getId()));
         return new PhoneVerificationConfirmResponse(token.token(), token.expiresIn(), decision.mode(), decision.nextStep());
+    }
+
+    /**
+     * 인증번호 요청 단계의 대조. {@link #findSeededUser}가 확인 단계에서 찾을 수 있는 사람인지 읽기만 해서 본다.
+     * 탈퇴 행은 재가입할 수 있는지(이름 해시·SSAFY 회원)만 보고, 실제로 옮기는 건 확인 단계에서 한다(되돌릴 수 없어서).
+     * 요청과 확인 사이에 상태가 바뀔 수 있으므로 확인 단계는 그대로 다시 본다.
+     */
+    private boolean canStartSignup(VerifiedIdentity identity) {
+        return userRepository.findByPhoneHashAndBirthDate(identity.phoneHash(), identity.birthDate())
+                .filter(found -> found.isWithdrawn()
+                        ? found.isWithdrawnWithName(lookupHasher.name(identity.name())) && found.getSsafyMemberId() != null
+                        : identity.sameNameAs(found.getName()))
+                .filter(found -> found.getSsafyUserKey() != null)
+                .isPresent();
     }
 
     /**
