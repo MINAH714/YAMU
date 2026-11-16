@@ -449,6 +449,8 @@ private fun BenefitHeroReady(b: HomeBenefit, onClick: () -> Unit) {
                 )
                 Spacer(Modifier.height(YamuSpacing.x2))
                 FlowRow(
+                    // 동전 무더기가 왼쪽으로 넘쳐 들어오는 자리는 비운다 — 좁은 폰에서는 칩이 다음 줄로 내려간다
+                    modifier = Modifier.padding(end = if (coins > 0) HERO_PILE_OVERFLOW else 0.dp),
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                     verticalArrangement = Arrangement.spacedBy(6.dp),
                     itemVerticalAlignment = Alignment.CenterVertically,
@@ -1059,6 +1061,11 @@ private const val HERO_SHEEN_ALPHA = 0.16f
 private const val HERO_GLASS_ALPHA = 0.16f
 private val HERO_PILE_WIDTH = 116.dp
 private val HERO_PILE_HEIGHT = 92.dp
+/**
+ * 동전이 많으면 무더기가 자리보다 넓다(지름은 최소 28dp, 무더기 폭은 지름 5.4개 ≈ 151dp). 남는 35dp에서 앞 간격 8dp를 빼면
+ * 약 28dp가 금액 칸으로 넘쳐 360dp 폰에서 '혜택 예정' 칩을 가렸다(S15P31E103-573). 칩 줄은 4dp를 더 띄운 만큼 오른쪽을 비운다
+ */
+private val HERO_PILE_OVERFLOW = 32.dp
 
 @Composable
 private fun HomeSkeleton() {
