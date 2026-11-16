@@ -41,8 +41,9 @@ class BenefitReportTextTest {
     }
 
     @Test fun `종류별 · 카드별 보조 줄 — 있는 것만, 둘 다 없으면 줄 없음`() {
-        assertEquals("확정 전 1,000원 · 원화로 못 바꾼 1건", amountSubLine(1_000, 1))
-        assertEquals("확정 전 1,000원", amountSubLine(1_000, 0))
+        // 예정 금액은 '(예정) ○원' — '확정 전'이라는 말은 쓰지 않는다(S15P31E103-576)
+        assertEquals("(예정) 1,000원 · 원화로 못 바꾼 1건", amountSubLine(1_000, 1))
+        assertEquals("(예정) 1,000원", amountSubLine(1_000, 0))
         assertEquals("원화로 못 바꾼 3건", amountSubLine(0, 3))
         assertNull(amountSubLine(0, 0))
     }
