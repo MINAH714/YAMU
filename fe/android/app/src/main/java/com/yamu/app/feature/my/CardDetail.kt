@@ -301,12 +301,12 @@ class CardDetailViewModel @Inject constructor(
 
     /**
      * 본인 확인 뒤 해제. 응답을 못 받았으면 서버가 끝냈을 수 있어 카드가 남아 있는지 본다 — 다시 누르게 하면 본인 인증을 한 번 더 받아야 한다.
-     * 다시 눌렀을 때 서버가 404를 줘도 처음 요청이 끝난 것이라 해제로 본다. 청구가 남아 막히면(409) 서버는 본인 인증 토큰을 쓰지 않는다.
-     * 상세에서 이미 아는 청구는 간편 비밀번호를 받기 전에 막는다
+     * 다시 눌렀을 때 서버가 404를 줘도 처음 요청이 끝난 것이라 해제로 본다.
+     * 출금이 끝나지 않은 청구가 있어도 해제된다(S15P31E103-562) — 남은 청구는 결제일에 그대로 출금된다
      */
     fun unregister() {
         val card = _state.value.card ?: return
-        if (card.hasOpenBill || _state.value.unregistering || stepUp.busy) return
+        if (_state.value.unregistering || stepUp.busy) return
         _state.update { it.copy(unregistering = true) }
         stepUp.start(
             purpose = StepUpPurpose.CARD_DELETE,
@@ -645,16 +645,15 @@ private fun ColumnScope.UnregisterTrayContent(card: CardInfo, lastActive: Boolea
     Text("다시 쓰려면 카드를 다시 등록해야 해요", style = YamuTheme.typography.bodyM, color = c.text2)
     Spacer(Modifier.height(YamuSpacing.x1))
     if (card.hasOpenBill) {
-        Text("출금이 끝나지 않은 청구가 있어 지금은 해제할 수 없어요", style = YamuTheme.typography.bodyM, color = c.warning)
-    } else {
-        Text("출금이 끝나지 않은 청구가 있으면 해제할 수 없어요", style = YamuTheme.typography.bodyM, color = c.text2)
+        // 해제해도 남은 청구는 닫히지 않는다(S15P31E103-562) — 돈이 계속 나간다는 것을 알리고 막지는 않는다
+        Text("출금이 끝나지 않은 청구는 해제해도 결제일에 그대로 출금돼요", style = YamuTheme.typography.bodyM, color = c.warning)
     }
     if (lastActive) {
         Spacer(Modifier.height(YamuSpacing.x1))
         Text("자동 선택에 포함된 마지막 카드예요 · 해제하면 결제 코드를 열 수 없어요", style = YamuTheme.typography.bodyM, color = c.warning)
     }
     Spacer(Modifier.height(YamuSpacing.x5))
-    PrimaryButton("카드 해제하기", onClick = onConfirm, enabled = !card.hasOpenBill, loading = unregistering)
+    PrimaryButton("카드 해제하기", onClick = onConfirm, loading = unregistering)
     Spacer(Modifier.height(YamuSpacing.x2))
     NeutralButton("취소", onClick = onCancel, enabled = !unregistering)
 }
