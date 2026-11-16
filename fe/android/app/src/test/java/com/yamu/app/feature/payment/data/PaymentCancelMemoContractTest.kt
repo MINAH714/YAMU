@@ -131,8 +131,7 @@ class PaymentCancelMemoContractTest {
         assertEquals("메모는 100자까지 적을 수 있어요", error.toMemoProblem())
     }
 
-    @Test fun `상세 — BE 모양(회차 금액 null · 혜택 이름 null · 취소 · 환급)을 읽고 목록에서 받은 메모를 붙인다`() = runTest {
-        edits.rememberMemo(31, "정산 예정")
+    @Test fun `상세 — BE 모양(회차 금액 null · 혜택 이름 null · 취소 · 환급 · 메모)을 읽는다`() = runTest {
         server.enqueue(
             json(
                 200,
@@ -146,7 +145,7 @@ class PaymentCancelMemoContractTest {
                   "limitImpacts":[],
                   "billItems":[{"billItemId":1,"seq":1,"amount":null,"billId":null,"billingMonth":"2026-12","withdrawalDate":null,"status":"EXCLUDED","principalAmount":90000,"feeAmount":null}],
                   "refunds":[{"refundId":5,"billItemId":1,"principalAmount":90000,"feeAmount":0,"refundAmount":87000,"dueDate":"2026-11-13","status":"PENDING","completedAt":null}],
-                  "recommendationSnapshot":null,"statusHistory":[],"failure":null,"installmentPolicy":null}}""",
+                  "recommendationSnapshot":null,"statusHistory":[],"failure":null,"installmentPolicy":null,"memo":"정산 예정"}}""",
             ),
         )
         val r = (repository.detail(31) as ApiResult.Success).data
@@ -197,7 +196,7 @@ class PaymentCancelMemoContractTest {
     }
 
     @Test fun `승인 상태 상세는 아무것도 알리지 않는다`() = runTest {
-        server.enqueue(json(200, detailWithoutMemo))
+        server.enqueue(json(200, detail(memo = null)))
         val before = edits.version.value
         repository.detail(40)
         assertFalse(edits.isCanceled(40))
@@ -211,51 +210,28 @@ class PaymentCancelMemoContractTest {
         assertTrue(yamu.toReceipt().cancelable)
     }
 
-    // ── 메모를 모를 때 — 상세 응답엔 memo가 없다 ──
+    // ── 상세의 메모 — BE가 memo 칸을 늘 내려준다(없으면 null, S15P31E103-579) ──
 
-    private val detailWithoutMemo =
-        """{"success":true,"data":{"paymentId":40,"source":"YAMU","status":"APPROVED","amount":15000,"approvedAt":"2026-11-07T15:30:00Z"}}"""
+    private fun detail(memo: String?): String {
+        val memoJson = if (memo == null) "null" else "\"$memo\""
+        return """{"success":true,"data":{"paymentId":40,"source":"YAMU","status":"APPROVED","amount":15000,"approvedAt":"2026-11-07T15:30:00Z","memo":$memoJson}}"""
+    }
 
-    @Test fun `목록을 거치지 않은 상세는 메모를 '모름'으로 — '메모 없음'으로 보이지 않는다`() = runTest {
-        server.enqueue(json(200, detailWithoutMemo))
+    @Test fun `상세의 메모를 그대로 보이고 결제 내역에도 기억한다 — 결제 내역을 다시 부르지 않는다`() = runTest {
+        server.enqueue(json(200, detail(memo = "정산 예정")))
+        val r = (repository.detail(40) as ApiResult.Success).data
+        assertEquals("정산 예정", r.memo)
+        assertEquals(KnownMemo("정산 예정"), edits.memo(40))
+        assertEquals(1, server.requestCount)
+        assertEquals("/payments/40", server.takeRequest().url.encodedPath)
+    }
+
+    @Test fun `상세의 memo가 null이면 '메모 없음'이고 전에 기억한 메모보다 상세 값을 쓴다`() = runTest {
+        edits.rememberMemo(40, "다른 기기에서 지운 메모")
+        server.enqueue(json(200, detail(memo = null)))
         val r = (repository.detail(40) as ApiResult.Success).data
         assertNull(r.memo)
-        assertFalse(r.memoKnown)
-    }
-
-    @Test fun `방금 승인한 영수증은 메모가 없다고 안다`() {
-        val dto = YamuJson.decodeFromString<PaymentResultDto>("""{"paymentId":40,"status":"APPROVED","amount":15000}""")
-        val request = PaymentRequest(40, "카페", null, 15_000, null, emptyList())
-        assertTrue(dto.toReceipt(request).memoKnown)
-        assertFalse(dto.toReceipt().memoKnown)
-    }
-
-    @Test fun `메모 찾기 — 결제일(한국 날짜)과 전날의 결제 내역에서 찾고 받은 줄은 모두 기억한다`() = runTest {
-        server.enqueue(
-            json(200, """{"success":true,"data":{"items":[{"paymentId":39,"memo":null},{"paymentId":40,"memo":"정산 예정"}],"page":1,"hasNext":false}}"""),
-        )
-        assertEquals(KnownMemo("정산 예정"), repository.findMemo(40, "2026-11-07T15:30:00Z"))   // 한국 11/8 00:30
-        val request = server.takeRequest()
-        assertEquals("/payments", request.url.encodedPath)
-        assertEquals("2026-11-07", request.url.queryParameter("from"))
-        assertEquals("2026-11-08", request.url.queryParameter("to"))
-        assertEquals(KnownMemo(null), edits.memo(39))
-        // 다음 상세는 기억한 값으로 '앎'
-        server.enqueue(json(200, detailWithoutMemo))
-        val r = (repository.detail(40) as ApiResult.Success).data
-        assertTrue(r.memoKnown)
-        assertEquals("정산 예정", r.memo)
-    }
-
-    @Test fun `메모 찾기 — 못 찾거나 실패하면 null(여전히 모름), 이미 알면 묻지 않는다`() = runTest {
-        server.enqueue(json(200, """{"success":true,"data":{"items":[{"paymentId":39,"memo":"x"}],"page":1,"hasNext":false}}"""))
-        assertNull(repository.findMemo(40, "2026-11-07T15:30:00Z"))
-        server.enqueue(json(500, ""))
-        assertNull(repository.findMemo(41, "2026-11-07T15:30:00Z"))
-        assertNull(repository.findMemo(42, null))   // 결제 시각을 모르면 찾지 않는다
-        edits.rememberMemo(43, "앎")
-        assertEquals(KnownMemo("앎"), repository.findMemo(43, "2026-11-07T15:30:00Z"))
-        assertEquals(2, server.requestCount)
+        assertEquals(KnownMemo(null), edits.memo(40))
     }
 
     @Test fun `로그아웃하면 받아 둔 메모를 비운다`() {

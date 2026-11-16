@@ -7,7 +7,6 @@ import com.yamu.app.feature.link.data.CardsOnlyLink
 import com.yamu.app.feature.link.data.brandOf
 import com.yamu.app.feature.payment.data.ApproveOutcome
 import com.yamu.app.feature.payment.data.CancelResult
-import com.yamu.app.feature.payment.data.KnownMemo
 import com.yamu.app.feature.payment.data.PayCard
 import com.yamu.app.feature.payment.data.PayCode
 import com.yamu.app.feature.payment.data.PayCodeStatus
@@ -19,7 +18,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
-import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
@@ -146,56 +144,31 @@ class PaymentDetailViewModelTest {
         assertNotNull(vm.state.value.message)
     }
 
-    // ── 메모를 모를 때(홈 · 알림 · 결제 완료에서 바로 들어옴, 앱 다시 켬) ──
+    // ── 상세의 메모 — 목록을 거치지 않고 들어와도(홈 · 알림 · 결제 완료 · 앱 다시 켬) 상세 값을 쓴다 ──
 
-    @Test fun `모르면 결제 내역에서 한 번 찾아 채운다 — 찾는 동안은 시트를 열지 않는다`() = runTest(dispatcher) {
-        repo.receipt = receipt().copy(memoKnown = false)
-        repo.found = KnownMemo("팀 회식")
-        val vm = PaymentDetailViewModel(SavedStateHandle(mapOf("paymentId" to ID)), repo, link)
-        advanceTimeBy(150)   // 상세는 받았고 찾는 중
-        assertTrue(vm.state.value.memoChecking)
-        vm.openMemo()
-        assertFalse(vm.state.value.memoOpen)
-        advanceUntilIdle()
+    @Test fun `상세에 온 메모를 보이고 다시 불러오면 서버 값으로 바꾼다`() = runTest(dispatcher) {
+        repo.receipt = receipt().copy(memo = "팀 회식")
+        val vm = open()
         assertEquals("팀 회식", vm.state.value.receipt!!.memo)
-        assertTrue(vm.state.value.receipt!!.memoKnown)
-        assertFalse(vm.state.value.memoChecking)
+        repo.receipt = receipt().copy(memo = null)   // 다른 기기에서 지움
         vm.load()
         advanceUntilIdle()
-        assertEquals(1, repo.findCalls)                       // 화면마다 한 번
-        assertEquals("팀 회식", vm.state.value.receipt!!.memo)   // 다시 불러와도 '모름'으로 되돌리지 않는다
+        assertNull(vm.state.value.receipt!!.memo)
+        assertEquals(2, repo.detailCalls)
     }
 
-    @Test fun `못 찾으면 '모름'으로 두고 지우기는 막는다 — 새로 적으면 저장되고 그때부터 안다`() = runTest(dispatcher) {
-        repo.receipt = receipt().copy(memoKnown = false)
+    @Test fun `받은 메모가 있으면 지우기를 보낸다`() = runTest(dispatcher) {
+        repo.receipt = receipt().copy(memo = "팀 회식")
         val vm = open()
-        assertFalse(vm.state.value.receipt!!.memoKnown)
         vm.openMemo()
-        vm.saveMemo("  ")
-        assertEquals("전에 남긴 메모를 불러오지 못해 지울 수 없어요", vm.state.value.memoError)
+        assertTrue(vm.state.value.memoOpen)
+        vm.saveMemo("")
         advanceUntilIdle()
-        assertTrue(repo.memos.isEmpty())
-        vm.saveMemo("새 메모")
-        advanceUntilIdle()
-        assertEquals(listOf<String?>("새 메모"), repo.memos)
-        assertTrue(vm.state.value.receipt!!.memoKnown)
-    }
-
-    @Test fun `찾는 사이 저장했으면 찾은 값으로 덮지 않는다`() = runTest(dispatcher) {
-        repo.receipt = receipt().copy(memoKnown = false)
-        repo.found = KnownMemo("옛 메모")
-        repo.findDelay = 2_000
-        val vm = PaymentDetailViewModel(SavedStateHandle(mapOf("paymentId" to ID)), repo, link)
-        advanceTimeBy(150)
-        vm.saveMemo("새 메모")
-        advanceUntilIdle()
-        assertEquals("새 메모", vm.state.value.receipt!!.memo)
+        assertEquals(listOf<String?>(null), repo.memos)
+        assertNull(vm.state.value.receipt!!.memo)
     }
 
     private class StubRepo : PaymentRepository {
-        var found: KnownMemo? = null
-        var findCalls = 0
-        var findDelay = 500L
         var receipt = receipt()
         var detailResult: ApiResult<PaymentReceipt>? = null
         var detailCalls = 0
@@ -213,13 +186,7 @@ class PaymentDetailViewModelTest {
         override suspend fun saveMemo(paymentId: Long, memo: String?): ApiResult<String?> {
             memos += memo
             delay(300)
-            return memoResult(memo).also { if (it is ApiResult.Success) receipt = receipt.copy(memo = it.data, memoKnown = true) }
-        }
-
-        override suspend fun findMemo(paymentId: Long, paidAtIso: String?): KnownMemo? {
-            findCalls++
-            delay(findDelay)
-            return found
+            return memoResult(memo).also { if (it is ApiResult.Success) receipt = receipt.copy(memo = it.data) }
         }
 
         override suspend fun issueCode(stepUpToken: String): ApiResult<PayCode> = error("안 씀")
