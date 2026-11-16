@@ -181,6 +181,22 @@ public class Refund extends BaseTimeEntity {
         }
     }
 
+    /** 입금 요청을 보내고 결과를 기다리는 환급인지(입금 대상 + 요청 번호 있음). */
+    public boolean isDepositRequested() {
+        return isDepositTarget() && finRequestNo != null;
+    }
+
+    /**
+     * 회원 탈퇴로 닫는다(S15P31E103-443, 임시). 대기·입금 실패 환급을 입금 없이 {@link RefundStatus#CLOSED_BY_WITHDRAWAL}로 바꾼다.
+     * 금액·요청 번호는 그대로 둔다. 입금을 요청한 환급을 닫을지는 부르는 쪽이 유예로 정한다.
+     */
+    public void closeForWithdrawal() {
+        if (status != RefundStatus.PENDING && status != RefundStatus.FAILED) {
+            throw new IllegalStateException("끝나지 않은 환급만 탈퇴로 닫을 수 있습니다 (환급 " + id + ", 상태 " + status + ")");
+        }
+        this.status = RefundStatus.CLOSED_BY_WITHDRAWAL;
+    }
+
     /** 원 청구서가 출금 실패(미납)로 끝나 돌려줄 돈이 없다. 출금을 기다리던 환급만 무효로 바꾼다. */
     public void voidForUnpaid() {
         if (!isAwaitingWithdrawal()) {

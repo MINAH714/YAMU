@@ -23,6 +23,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
 import java.util.stream.Collectors;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
 /**
@@ -35,6 +36,7 @@ import org.springframework.stereotype.Component;
  * PAID / PAID                   → REFUND_PENDING PENDING, 취소일 + 3영업일. 금액은 실제 출금된 몫
  * UNPAID / BILLED               → EXCLUDED       없음. 청구서에 미납 제외액을 쌓는다(남은 미납액이 0원이 되면 청구서 CANCELED)
  * CANCELED / BILLED(0원)        → EXCLUDED       없음. 미납이 정리된 청구서에 남은 0원 회차
+ * CLOSED_BY_WITHDRAWAL / 모두    → 그대로         없음. 회원 탈퇴로 닫힌 청구서(S15P31E103-443)
  * </pre>
  *
  * <p>확정된 청구액은 취소해도 그대로 출금한다. 출금 결과 불명은 청구서가 CONFIRMED로 남으므로 출금 대기 환급이 되고, 결과가 확정되면
@@ -48,6 +50,7 @@ import org.springframework.stereotype.Component;
  * <p>잠금 순서는 청구서(번호 순) → 회차다. 청구 확정·출금 결과 저장도 청구서부터 잠그면 서로 엇갈리지 않는다. 같은 결제의 동시 취소는
  * 그보다 앞서 결제 행 잠금으로 줄을 서므로 회차·환급은 한 번만 바뀐다(환급은 {@code uk_refund_item}도 막는다).
  */
+@Slf4j
 @Component
 public class BillItemCreditBillingCanceler implements CreditBillingCanceler {
 
@@ -117,6 +120,11 @@ public class BillItemCreditBillingCanceler implements CreditBillingCanceler {
                     throw mismatch(payment, item, bill, "미납이 정리된 청구서에 금액이 남은 회차가 있습니다");
                 }
                 item.waiveUnpaid(canceledAt);
+            } else if (billStatus == BillStatus.CLOSED_BY_WITHDRAWAL) {
+                // 회원 탈퇴로 YAMU가 더 다루지 않는 청구서(S15P31E103-443). 회차·환급을 건드리지 않는다. 출금을 기다리지 않으므로
+                // 환급을 만들면 영원히 대기로 남는다
+                log.info("탈퇴로 닫힌 청구서의 회차라 취소의 청구 처리를 건너뜀 paymentId={} billItemId={} cardBillId={}",
+                        payment.getId(), item.getId(), bill.getId());
             } else {
                 throw mismatch(payment, item, bill, "청구서와 회차 상태가 맞지 않습니다");
             }

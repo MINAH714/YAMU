@@ -102,9 +102,12 @@ public enum ErrorCode {
     /* 사용자 - 결제 설정 수정 (API 명세 「결제 설정 수정」). 기본 카드가 내 ACTIVE 카드가 아니면 결제와 같은 CARD_NOT_ELIGIBLE */
     DEFAULT_CARD_REQUIRED(HttpStatus.CONFLICT, "자동 선택을 끄려면 기본 카드를 먼저 정해 주세요."),
 
-    /* 사용자 - 회원 탈퇴 (API 명세 「회원 탈퇴」). details.billIds·refundIds */
-    BILL_OUTSTANDING(HttpStatus.CONFLICT, "출금되지 않은 청구서가 있어 탈퇴할 수 없습니다."),
-    REFUND_PENDING(HttpStatus.CONFLICT, "아직 입금되지 않은 환급이 있어 탈퇴할 수 없습니다."),
+    /*
+     * 사용자 - 회원 탈퇴 (API 명세 「회원 탈퇴」). details.billIds·refundIds. 남은 청구·환급은 탈퇴 때 닫으므로(S15P31E103-443)
+     * 금융망에 출금·입금을 요청하고 결과를 기다리는 동안(유예 30초 안팎)만 난다. 코드 이름은 FE가 쓰므로 그대로 두고 문구만 바꿨다
+     */
+    BILL_OUTSTANDING(HttpStatus.CONFLICT, "카드 대금 출금을 처리하고 있습니다. 잠시 뒤 다시 시도해 주세요."),
+    REFUND_PENDING(HttpStatus.CONFLICT, "환급 입금을 처리하고 있습니다. 잠시 뒤 다시 시도해 주세요."),
 
     /* 가계부 - 항목 수정 (API 명세 「가계부 항목 수정」). 탐지 후보는 CONFIRMED·IGNORED로만 바꿀 수 있다 */
     INVALID_STATUS_CHANGE(HttpStatus.CONFLICT, "바꿀 수 없는 상태입니다."),
