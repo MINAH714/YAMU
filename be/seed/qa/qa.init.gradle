@@ -13,3 +13,18 @@ allprojects {
         }
     }
 }
+
+allprojects {
+    afterEvaluate {
+        if (plugins.hasPlugin('java')) {
+            tasks.register('seedQaAssets', JavaExec) {
+                classpath = sourceSets.main.runtimeClasspath
+                mainClass = 'com.yamu.be.seed.qa.QaAssetHistoryCli'
+                systemProperty 'file.encoding', 'UTF-8'
+                systemProperty 'user.timezone', 'UTC'
+                args providers.gradleProperty('qaCommand').getOrElse('plan')
+                args providers.gradleProperty('qaFile').getOrElse('seed/qa/assets.local.json')
+            }
+        }
+    }
+}
