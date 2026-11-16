@@ -72,7 +72,7 @@ class CashflowMapperTest {
                 "dailyLivingCostTarget":7000,"includeCandidates":false,"conservativeLine":false,"updatedAt":null}""",
         )
         assertEquals(7_000L, settings.dailyLivingCostTarget)
-        assertEquals(SettingsIncomeDto(301, "월급", null, 25), settings.income)
+        assertEquals(SettingsIncomeDto(301, "월급", null, 25, accountId = 5), settings.income)
         val none = YamuJson.decodeFromString<ForecastSettingsDto>("""{"income":null,"dailyLivingCostTarget":null}""")
         assertNull(none.dailyLivingCostTarget)
         assertNull(none.income)
