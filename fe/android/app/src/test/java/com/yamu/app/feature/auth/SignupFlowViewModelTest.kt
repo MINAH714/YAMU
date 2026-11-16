@@ -404,6 +404,36 @@ class SignupFlowViewModelTest {
         assertEquals(2, signup.oneWonConfirms)
     }
 
+    @Test fun `1원 시연 알림은 눌러 채우면 닫히고 틀리면 다시 뜬다`() = runTest(dispatcher) {
+        signup.mode = SignupMode.SIGNUP
+        signup.oneWon = oneWon(demoCode = "1004")
+        signup.oneWonConfirmResult = ApiResult.Failure(
+            ApiError.from(400, "AUTH_CODE_MISMATCH", JsonObject(mapOf("remainingAttempts" to JsonPrimitive(2)))),
+        )
+        val vm = SignupOneWonViewModel(signup)
+        vm.fillFromBanner()
+        assertEquals("1004", vm.state.value.code)
+        assertNull(vm.state.value.banner)
+
+        vm.confirm()
+        advanceUntilIdle()
+        assertTrue(vm.state.value.banner.orEmpty().contains("1004"))   // 틀려도 숫자를 다시 볼 수 있게
+    }
+
+    @Test fun `1원 숫자를 다시 받아야 하면 옛 숫자 알림은 띄우지 않는다`() = runTest(dispatcher) {
+        signup.mode = SignupMode.SIGNUP
+        signup.oneWon = oneWon(demoCode = "1004")
+        signup.oneWonConfirmResult = ApiResult.Failure(
+            ApiError.from(400, "AUTH_CODE_MISMATCH", JsonObject(mapOf("remainingAttempts" to JsonPrimitive(0)))),
+        )
+        val vm = SignupOneWonViewModel(signup)
+        vm.onCode("1234")
+        vm.confirm()
+        advanceUntilIdle()
+        assertTrue(vm.state.value.needResend)
+        assertNull(vm.state.value.banner)
+    }
+
     // ── B-13 1원 남은 시간 · B-16 1원 문장 ──
 
     @Test fun `1원 화면은 저장소가 적은 1원 요청 시각부터 남은 시간을 센다`() = runTest(dispatcher) {
