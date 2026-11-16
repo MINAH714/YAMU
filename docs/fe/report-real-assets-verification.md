@@ -8,7 +8,7 @@
 
 ## 📌 연관된 Jira 이슈
 
-[S15P31E103-560](https://ssafy.atlassian.net/browse/S15P31E103-560) — 정민아, 6주차 스프린트 개발, 4pt. 선행 계좌 이력 저장 MR !360은 develop에 병합된 상태다.
+[S15P31E103-560](https://ssafy.atlassian.net/browse/S15P31E103-560) — 김경린, 6주차 스프린트 개발, 4pt. 선행 계좌 이력 저장 MR !360은 develop에 병합된 상태다.
 
 ## 📝 작업 내용 요약
 
