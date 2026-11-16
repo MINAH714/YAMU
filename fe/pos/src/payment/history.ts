@@ -16,3 +16,12 @@ export function cardLabel(card: PaymentHistoryItem['card']) {
 export function formatKstTime(iso: string | null) {
   return iso ? kstTime.format(new Date(iso)) : '-'
 }
+
+/**
+ * 결제 내역을 불러오지 못했을 때의 문구. 직원 화면이라 HTTP 상태 같은 기술 정보는 넣지 않는다.
+ * 연결 실패·시간 초과·5xx는 직원이 할 일(다시 불러오기)이 같아서 나누지 않는다.
+ */
+export const HISTORY_LOAD_FAILED = '결제 내역을 불러오지 못했어요. 잠시 뒤 다시 불러와 주세요.'
+
+/** 이 매장의 posCode가 서버 설정에 없음(404 MERCHANT_NOT_FOUND). 다시 불러와도 같으므로 설정을 보게 한다 */
+export const HISTORY_CONFIG_MISMATCH = '이 매장의 POS 설정이 서버와 맞지 않아 결제 내역을 불러오지 못했어요.'
