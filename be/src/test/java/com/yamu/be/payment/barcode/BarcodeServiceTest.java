@@ -327,7 +327,7 @@ class BarcodeServiceTest {
 
         clock.advance(Duration.ofSeconds(1)); // 정확히 10분
         String last = token;
-        assertError(() -> service.reissue(ME, last), ErrorCode.REAUTH_REQUIRED);
+        assertError(() -> service.reissue(ME, last), ErrorCode.STEP_UP_REQUIRED);
         assertThat(service.get(7L, last).status()).isEqualTo(BarcodeStatus.ISSUED);
     }
 
@@ -347,7 +347,7 @@ class BarcodeServiceTest {
         when(cards.countActiveCards(7L)).thenReturn(1L);
         String token = service.issue(ME, "step-up").barcodeToken();
 
-        assertError(() -> service.reissue(new AuthUser(7L, 2L), token), ErrorCode.REAUTH_REQUIRED);
+        assertError(() -> service.reissue(new AuthUser(7L, 2L), token), ErrorCode.STEP_UP_REQUIRED);
         assertThat(service.get(7L, token).status()).isEqualTo(BarcodeStatus.ISSUED);
     }
 
@@ -357,7 +357,7 @@ class BarcodeServiceTest {
         String token = service.issue(ME, "step-up").barcodeToken();
         store.scan(token, 7L, 1024L, NOW, Duration.ofMinutes(10));
 
-        assertError(() -> service.reissue(ME, token), ErrorCode.REAUTH_REQUIRED);
+        assertError(() -> service.reissue(ME, token), ErrorCode.STEP_UP_REQUIRED);
         assertThat(store.find(token).orElseThrow().status()).isEqualTo(BarcodeStatus.SCANNED);
         assertThat(store.size()).isEqualTo(1);
     }
@@ -369,7 +369,7 @@ class BarcodeServiceTest {
         store.scan(token, 7L, 1024L, NOW, Duration.ofMinutes(10));
         store.expireByPayment(1024L); // 결제 확정 시간 초과로 EXPIRED지만 결제에 쓰인 코드다
 
-        assertError(() -> service.reissue(ME, token), ErrorCode.REAUTH_REQUIRED);
+        assertError(() -> service.reissue(ME, token), ErrorCode.STEP_UP_REQUIRED);
     }
 
     @Test
@@ -378,7 +378,7 @@ class BarcodeServiceTest {
         String first = service.issue(ME, "step-up-1").barcodeToken();
         String second = service.issue(ME, "step-up-2").barcodeToken();
 
-        assertError(() -> service.reissue(ME, first), ErrorCode.REAUTH_REQUIRED);
+        assertError(() -> service.reissue(ME, first), ErrorCode.STEP_UP_REQUIRED);
         assertThat(service.get(7L, second).status()).isEqualTo(BarcodeStatus.ISSUED);
     }
 
@@ -396,7 +396,7 @@ class BarcodeServiceTest {
         store.issue(new Barcode(legacy, 7L, BarcodeStatus.ISSUED, NOW, NOW.plusSeconds(60)), Duration.ofMinutes(10));
         when(cards.countActiveCards(7L)).thenReturn(1L);
 
-        assertError(() -> service.reissue(ME, legacy), ErrorCode.REAUTH_REQUIRED);
+        assertError(() -> service.reissue(ME, legacy), ErrorCode.STEP_UP_REQUIRED);
     }
 
     @Test
@@ -433,7 +433,7 @@ class BarcodeServiceTest {
         assertThat(store.size()).isEqualTo(2);
         // 새 코드가 만료됐거나 그 뒤 또 바뀌었으면 이전 코드로는 받을 수 없다
         clock.advance(Duration.ofSeconds(60));
-        assertError(() -> service.reissue(ME, first), ErrorCode.REAUTH_REQUIRED);
+        assertError(() -> service.reissue(ME, first), ErrorCode.STEP_UP_REQUIRED);
     }
 
     @Test

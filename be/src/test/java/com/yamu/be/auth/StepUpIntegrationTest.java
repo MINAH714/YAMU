@@ -219,7 +219,7 @@ class StepUpIntegrationTest extends MySqlTestSupport {
 
         jdbc.update("UPDATE app_user SET barcode_auth_method = 'PIN_ONLY' WHERE user_id = ?", device.getUser().getId());
         assertErrorCode(() -> stepUpService.requireReusable(me(device), StepUpPurpose.BARCODE, AuthMethod.BIOMETRIC),
-                ErrorCode.REAUTH_REQUIRED);
+                ErrorCode.STEP_UP_REQUIRED);
         stepUpService.requireReusable(me(device), StepUpPurpose.BARCODE, AuthMethod.PIN);
 
         jdbc.update("UPDATE user_device SET status = 'LOCKED', locked_until = ? WHERE user_device_id = ?",

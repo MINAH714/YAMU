@@ -174,8 +174,6 @@ public enum ErrorCode {
     BARCODE_NOT_FOUND(HttpStatus.NOT_FOUND, "바코드를 찾을 수 없습니다."),
     BARCODE_EXPIRED(HttpStatus.GONE, "만료된 바코드입니다. 앱에서 바코드를 다시 발급해 주세요."),
     BARCODE_ALREADY_USED(HttpStatus.CONFLICT, "이미 결제에 사용한 바코드입니다."),
-    // 임시(S15P31E103-530): 명세에 없는 코드. 재인증 없는 새 코드를 낼 수 없으니(인증 10분 지남 · 다른 기기 · 스캔됨 등) 앱은 본인 인증으로 돌아간다
-    REAUTH_REQUIRED(HttpStatus.FORBIDDEN, "본인 인증을 다시 해 주세요."),
 
     /* 모의 POS - 결제 요청 생성 (API 명세 「POS 결제 요청 생성」). 금액·할부 오류는 위 INVALID_AMOUNT·INVALID_INSTALLMENT */
     INVALID_POS_KEY(HttpStatus.UNAUTHORIZED, "POS 키가 없거나 올바르지 않습니다."),

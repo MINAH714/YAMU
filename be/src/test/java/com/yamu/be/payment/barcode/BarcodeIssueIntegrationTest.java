@@ -245,7 +245,7 @@ class BarcodeIssueIntegrationTest extends MySqlTestSupport {
                 UUID.randomUUID().toString(), "Galaxy Tab", DevicePlatform.ANDROID, DeviceKeys.generate().publicKey(),
                 DeviceSignatureVerifier.EC_P256, null));
         reissue(secondPhone, next).andExpect(status().isForbidden())
-                .andExpect(jsonPath("$.error.code").value("REAUTH_REQUIRED"));
+                .andExpect(jsonPath("$.error.code").value("STEP_UP_REQUIRED"));
         fetch(device, next).andExpect(jsonPath("$.data.status").value("ISSUED"));
     }
 

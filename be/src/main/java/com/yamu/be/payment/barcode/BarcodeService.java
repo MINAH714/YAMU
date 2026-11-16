@@ -90,9 +90,9 @@ public class BarcodeService {
      * <ul>
      *   <li>형식이 다르거나, 없거나(보관 종료 포함), 다른 사용자의 코드면 조회와 같이 404 BARCODE_NOT_FOUND</li>
      *   <li>결제에 쓸 ACTIVE 카드가 없으면 발급과 같이 NO_ACTIVE_CARD</li>
-     *   <li>다른 기기에서 불렀거나, 처음 인증한 지 {@code reissueWindow}가 지났거나, 인증 정보가 없는 코드(이 기능 전 발급)면 403 REAUTH_REQUIRED</li>
-     *   <li>기기가 잠겼으면 DEVICE_LOCKED, 생체로 연 뒤 "간편 비밀번호만"으로 바꿨으면 REAUTH_REQUIRED</li>
-     *   <li>현재 코드가 아니거나 스캔 · 결제 · 취소에 쓰인 코드면 REAUTH_REQUIRED(저장소가 한 번에 확인)</li>
+     *   <li>다른 기기에서 불렀거나, 처음 인증한 지 {@code reissueWindow}가 지났거나, 인증 정보가 없는 코드(이 기능 전 발급)면 403 STEP_UP_REQUIRED</li>
+     *   <li>기기가 잠겼으면 DEVICE_LOCKED, 생체로 연 뒤 "간편 비밀번호만"으로 바꿨으면 STEP_UP_REQUIRED</li>
+     *   <li>현재 코드가 아니거나 스캔 · 결제 · 취소에 쓰인 코드면 STEP_UP_REQUIRED(저장소가 한 번에 확인)</li>
      * </ul>
      * 시간이 지나 만료된 코드는 받는다. 같은 코드로 다시 오면(연타 · 응답이 끊긴 재시도) 앞서 낸 새 코드가 아직 쓸 수 있을 때 그 코드를 돌려준다.
      * 새 코드는 처음 인증 시각을 물려받으므로 재발급을 이어 붙여도 창이 늘지 않는다. 새 인증이 아니라 step_up_audit_log에 남기지 않고,
@@ -113,7 +113,7 @@ public class BarcodeService {
         IssueAuth auth = previous.auth();
         if (auth == null || !auth.userDeviceId().equals(me.userDeviceId())
                 || !now.isBefore(auth.authAt().plus(reissueWindow))) {
-            throw new BusinessException(ErrorCode.REAUTH_REQUIRED);
+            throw new BusinessException(ErrorCode.STEP_UP_REQUIRED);
         }
         stepUp.requireReusable(me, StepUpPurpose.BARCODE, auth.method());
         for (int attempt = 0; attempt < MAX_TOKEN_ATTEMPTS; attempt++) {
@@ -130,10 +130,10 @@ public class BarcodeService {
                 return store.find(reissue.token())
                         .filter(found -> found.statusAt(now) == BarcodeStatus.ISSUED)
                         .map(found -> Issued.of(found, activeCardCount))
-                        .orElseThrow(() -> new BusinessException(ErrorCode.REAUTH_REQUIRED));
+                        .orElseThrow(() -> new BusinessException(ErrorCode.STEP_UP_REQUIRED));
             }
             if (reissue.result() == ReissueResult.DENIED) {
-                throw new BusinessException(ErrorCode.REAUTH_REQUIRED);
+                throw new BusinessException(ErrorCode.STEP_UP_REQUIRED);
             }
         }
         throw new IllegalStateException("바코드 토큰을 만들지 못했습니다.");

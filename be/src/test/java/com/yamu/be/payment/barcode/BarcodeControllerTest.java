@@ -78,13 +78,13 @@ class BarcodeControllerTest {
     }
 
     @Test
-    void 재발급할_수_없으면_403_REAUTH_REQUIRED이고_로그인하지_않으면_401이다() throws Exception {
-        when(barcodes.reissue(ME, TOKEN)).thenThrow(new BusinessException(ErrorCode.REAUTH_REQUIRED));
+    void 재발급할_수_없으면_403_STEP_UP_REQUIRED이고_로그인하지_않으면_401이다() throws Exception {
+        when(barcodes.reissue(ME, TOKEN)).thenThrow(new BusinessException(ErrorCode.STEP_UP_REQUIRED));
 
         mockMvc.perform(post("/api/payments/barcodes/{token}/reissue", TOKEN).with(loggedIn()))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.success").value(false))
-                .andExpect(jsonPath("$.error.code").value("REAUTH_REQUIRED"));
+                .andExpect(jsonPath("$.error.code").value("STEP_UP_REQUIRED"));
         mockMvc.perform(post("/api/payments/barcodes/{token}/reissue", TOKEN))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.error.code").value("UNAUTHORIZED"));
