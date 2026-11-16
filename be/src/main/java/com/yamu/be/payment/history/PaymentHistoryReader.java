@@ -51,7 +51,7 @@ class PaymentHistoryReader {
                    p.payment_channel, p.requested_amount, p.approved_amount, p.installment_months,
                    p.recognized_performance_amount, p.performance_month, p.failure_code,
                    p.spending_class, p.memo,
-                   p.user_card_id, c.card_alias, c.card_last4, cp.product_name, cp.card_type,
+                   p.user_card_id, p.card_product_id, c.card_alias, c.card_last4, cp.product_name, cp.card_type,
                    p.recommended_rank, p.user_selected,
                    cast(%s as signed) as benefit_amount, %s as benefit_lines, %s as confirmed_lines
             from payment_transaction p
@@ -201,10 +201,11 @@ class PaymentHistoryReader {
      *
      * @param recommendedRank 마지막 시도 카드의 추천 순위. 추천 밖 카드·기록 전 결제·SEED는 null
      * @param userSelected    마지막 시도의 카드를 직접 골랐는지. 기록 전 결제·SEED는 null
+     * @param cardProductId   결제 카드의 상품(목표 실적을 읽는 데 쓴다). 카드를 고르기 전 결제는 null
      */
     record PaymentRow(PaymentListResponse.Item item, PaymentChannel channel, Long approvedAmount,
             Long recognizedPerformanceAmount, LocalDate performanceMonth, LocalDateTime canceledAt,
-            String failureCode, String cardLast4, Integer recommendedRank, Boolean userSelected) {}
+            String failureCode, String cardLast4, Integer recommendedRank, Boolean userSelected, Long cardProductId) {}
 
     List<PaymentDetailResponse.Benefit> findBenefits(Long paymentId) {
         return jdbc.query("""
@@ -272,7 +273,8 @@ class PaymentHistoryReader {
                 rs.getObject("performance_month", LocalDate.class),
                 rs.getObject("canceled_at", LocalDateTime.class),
                 rs.getString("failure_code"), rs.getString("card_last4"),
-                rs.getObject("recommended_rank", Integer.class), rs.getObject("user_selected", Boolean.class));
+                rs.getObject("recommended_rank", Integer.class), rs.getObject("user_selected", Boolean.class),
+                rs.getObject("card_product_id", Long.class));
     }
 
     private static PaymentListResponse.Item item(ResultSet rs) throws SQLException {

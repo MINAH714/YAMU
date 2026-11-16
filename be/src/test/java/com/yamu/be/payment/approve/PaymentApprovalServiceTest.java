@@ -39,6 +39,7 @@ import com.yamu.be.payment.domain.PaymentChannel;
 import com.yamu.be.payment.domain.PaymentStatus;
 import com.yamu.be.payment.domain.PaymentTransaction;
 import com.yamu.be.payment.domain.PaymentTransactionRepository;
+import com.yamu.be.payment.performance.PaymentPerformanceTotals;
 import com.yamu.be.payment.lookup.PaymentCardLookup;
 import com.yamu.be.payment.lookup.PaymentCardLookup.ActiveCard;
 import com.yamu.be.payment.pos.PosProperties;
@@ -108,6 +109,7 @@ class PaymentApprovalServiceTest {
     @Mock CardRecommender recommender;
     @Mock PaymentApprover approver;
     @Mock ApprovalLedger ledger;
+    @Mock PaymentPerformanceTotals performanceTotals;
     @Mock CreditBillingWriter billing;
     @Mock ApprovalIdempotencyStore idempotency;
     @Mock ApprovalAttemptStore attempts;
@@ -134,7 +136,7 @@ class PaymentApprovalServiceTest {
     void setUp() {
         service = new PaymentApprovalService(payments, cardQuery, cards, snapshots, recommender, approver, ledger,
                 billing, idempotency, attempts, expiry, recovery, barcodes, locks, transaction, new ObjectMapper(),
-                posProperties, properties, clock);
+                posProperties, properties, clock, performanceTotals);
         payment = requested(15_000, 1);
         recommendation = recommendation(List.of(candidate(1, CREDIT), candidate(2, CHECK)));
         attemptNo = 1;

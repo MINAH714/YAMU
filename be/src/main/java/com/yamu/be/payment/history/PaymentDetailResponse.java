@@ -69,8 +69,12 @@ public record PaymentDetailResponse(
     /**
      * @param yearMonth  실적을 합산하는 월(한국 기준, YYYY-MM)
      * @param recognized 승인 상태이고 인정액이 0원보다 큰지
+     * @param recognizedTotalAfter 그 카드·그 실적 월의 지금 누적 실적(앱 칸, S15P31E103-390). 카드 목록 API의 실적과 같은 값이다.
+     *                             결제 당시 값이 아니라 지금 값이라 그 뒤의 결제·취소가 반영된다. 승인 상태가 아니면 null
+     * @param targetAmount         목표 실적. 카드 목록 API와 같은 규칙. 실적 조건이 없는 카드·승인 상태가 아니면 null
      */
-    public record Performance(String yearMonth, long recognizedAmount, boolean recognized, String exclusionReason) {}
+    public record Performance(String yearMonth, long recognizedAmount, boolean recognized, String exclusionReason,
+            Long recognizedTotalAfter, Long targetAmount) {}
 
     /**
      * @param period         PER_TRANSACTION · DAILY · MONTHLY
