@@ -4,7 +4,7 @@ import com.yamu.app.BuildConfig
 
 /**
  * 진짜 서버를 쓸지 고르는 단위 — Repository 하나가 한 칸.
- * debug는 local.properties의 yamu.realApi(쉼표로 구분)에 적은 것만 진짜, release는 전부 진짜.
+ * debug와 release 모두 실제 API를 사용한다. 이 목록은 디버그 안내와 POS 키 필요 여부에도 사용한다.
  * 이름(key)은 app/build.gradle.kts의 apiFeatures와 같아야 한다.
  */
 enum class ApiFeature(val key: String, val label: String) {
