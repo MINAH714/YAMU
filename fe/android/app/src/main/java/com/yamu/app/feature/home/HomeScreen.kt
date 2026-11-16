@@ -868,8 +868,18 @@ private fun MissedSection(missed: MissedBenefits, arts: Map<Long, CardArtRef>, o
             missed.remaining.forEach { r -> LimitTile(r, arts[r.userCardId], onClick = onAll) }
             missed.conditions.forEach { line -> ConditionTile(line, arts[line.userCardId], onClick = { onCard(line.userCardId) }) }
         }
-        Box(Modifier.padding(horizontal = 16.dp)) { QuietLink("남은 혜택 모두 보기 ›", onClick = onAll) }
+        RemainingBenefitsButton(onClick = onAll)
     }
+}
+
+/**
+ * '남은 혜택 모두 보기' — R-06(혜택 한도)을 연다. 회색 글자 링크('… ›')였던 것을 11/17 사용자 요청(S15P31E103-572)으로
+ * 실적 화면 '실적 유불리 분석 보기'와 같은 브랜드 색 주 버튼으로 바꿨고, 위 잔고예보 카드의 그라데이션 버튼과는 색으로 나뉜다.
+ * 위아래 여백도 여기서 맡으니 놓치기 아까운 혜택 칸을 다시 배치할 때는 이 호출 한 줄만 옮기면 된다
+ */
+@Composable
+private fun RemainingBenefitsButton(onClick: () -> Unit) {
+    PrimaryButton("남은 혜택 모두 보기", onClick = onClick, modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 12.dp))
 }
 
 /** 놓치기 아까운 혜택 카드 한 장의 폭 — 360dp 화면에서 두 장이 다 보이고 셋째가 조금 보인다 */
