@@ -87,23 +87,17 @@ class HomeBenefitTest {
 
     // ── 동전 ──
 
-    @Test fun `동전은 약 2,500원에 한 개 · 올림`() {
-        assertEquals(5 to 6, benefitCoins(12_400, 13_100))
-        assertEquals(0 to 0, benefitCoins(0, 0))
-        assertEquals(1 to 0, benefitCoins(1, 0))
-        assertEquals(0 to 1, benefitCoins(0, 2_500))
-        assertEquals(0 to 0, benefitCoins(-500, -1))
+    @Test fun `동전은 확정 금액만 약 2,500원에 한 개 · 올림`() {
+        assertEquals(5, benefitCoins(12_400))
+        assertEquals(0, benefitCoins(0))
+        assertEquals(1, benefitCoins(1))
+        assertEquals(1, benefitCoins(2_500))
+        assertEquals(0, benefitCoins(-500))
     }
 
-    @Test fun `많으면 둘 합이 최대에 맞춰 줄고 0원이 아닌 쪽은 한 개 이상 남는다`() {
-        val (s, g) = benefitCoins(1_000_000, 1)
-        assertEquals(MAX_BENEFIT_COINS, s + g)
-        assertEquals(1, g)
-        val (s2, g2) = benefitCoins(1, 1_000_000)
-        assertEquals(1, s2)
-        assertEquals(MAX_BENEFIT_COINS - 1, g2)
-        val (s3, g3) = benefitCoins(60_000, 60_000)
-        assertEquals(MAX_BENEFIT_COINS / 2, s3)
-        assertEquals(MAX_BENEFIT_COINS / 2, g3)
+    @Test fun `많아도 최대 개수까지만 쌓는다`() {
+        assertEquals(MAX_BENEFIT_COINS, benefitCoins(1_000_000))
+        assertEquals(MAX_BENEFIT_COINS, benefitCoins(MAX_BENEFIT_COINS * WON_PER_COIN))
+        assertEquals(MAX_BENEFIT_COINS, benefitCoins(MAX_BENEFIT_COINS * WON_PER_COIN + 1))
     }
 }
