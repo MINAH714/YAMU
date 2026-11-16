@@ -323,7 +323,6 @@ fun YamuNavHost(navController: NavHostController, modifier: Modifier = Modifier,
                         onEditConditions = back,
                         onEditAmount = { if (!navController.popBackStack<BuyCheckInput>(inclusive = false)) back() },
                         onForecast = { if (!navController.popBackStack<Forecast>(inclusive = false)) back() },
-                        onPay = { navController.navigate(PayCode) },
                         onSaved = { planId -> navController.toBuyCheckSaved(planId) },
                     )
                 }
