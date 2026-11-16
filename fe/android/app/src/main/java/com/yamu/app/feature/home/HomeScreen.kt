@@ -1,5 +1,6 @@
 package com.yamu.app.feature.home
 
+import android.view.accessibility.AccessibilityManager
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
@@ -9,6 +10,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.foundation.interaction.collectIsDraggedAsState
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -31,6 +34,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.TextAutoSize
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Scaffold
@@ -40,6 +45,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -61,6 +70,7 @@ import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.layout.layout
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -87,6 +97,7 @@ import com.yamu.app.core.designsystem.component.YamuTopBar
 import com.yamu.app.core.designsystem.component.rememberCoinPileState
 import com.yamu.app.core.designsystem.component.rememberRolledAmount
 import com.yamu.app.core.designsystem.icon.YamuIcons
+import com.yamu.app.core.designsystem.theme.LocalYamuReduceMotion
 import com.yamu.app.core.designsystem.theme.YamuMotion
 import com.yamu.app.core.designsystem.theme.YamuRadius
 import com.yamu.app.core.designsystem.theme.YamuSize
@@ -134,6 +145,7 @@ import com.yamu.app.feature.link.data.CardArtRef
 import java.time.LocalDate
 import java.time.OffsetDateTime
 import java.time.YearMonth
+import kotlinx.coroutines.delay
 
 /**
  * H-01 홈 — v4(11/13 '홈 개편 및 소비 분석 확장 요구사항 명세서'). 위에서부터 인사 → 이번 달 혜택 → 잔고예보 보기 버튼(S15P31E103-520)
@@ -851,22 +863,19 @@ private fun CardTile(row: HomeCardRow, art: CardArtRef?, benefit: CardBenefit?, 
 }
 
 /**
- * 놓치기 아까운 혜택(HOME-12 · 13) — 확인된 것이 있을 때만. 실물 카드 그림을 크게 둔 카드를 옆으로 넘긴다(11/15 결정, 글 목록 대신).
+ * 놓치기 아까운 혜택(HOME-12 · 13) — 확인된 것이 있을 때만. 11/17 사용자 요청(S15P31E103-575)으로 흰 카드 칸을 빼고
+ * 홈 맨 아래 광고 배너처럼 회색 바탕 위에 제목 한 줄과 배너 한 칸([MissedBanner])을 둔다. 11/15의 카드 그림 타일 줄은 이걸로 바뀌었다.
  * 남은 한도(금액을 아는 이번 달 한도, 많은 순)가 먼저, 그다음 조건 카드(이번 달 실적 → 다음 달 혜택, 남은 금액 적은 순).
- * 더 쓰라는 말은 쓰지 않는다 — 조건 카드는 지금 실적과 목표를 막대로만 보인다. 한도 카드를 누르면 R-06, 조건 카드를 누르면 그 카드 R-02,
- * '남은 혜택 모두 보기 ›'는 R-06. 설명 두 줄('확인할 수 있는 것만 모았어요' · '더 쓰는 게 이득이라는 뜻은 아니에요')은 11/15에 뺐다
+ * 더 쓰라는 말은 쓰지 않는다 — 조건 배너는 지금 실적과 목표를 막대로만 보인다. 한도 배너를 누르면 R-06, 조건 배너를 누르면 그 카드 R-02,
+ * '남은 혜택 모두 보기'는 R-06. 설명 두 줄('확인할 수 있는 것만 모았어요' · '더 쓰는 게 이득이라는 뜻은 아니에요')은 11/15에 뺐다
  */
 @Composable
 private fun MissedSection(missed: MissedBenefits, arts: Map<Long, CardArtRef>, onCard: (Long) -> Unit, onAll: () -> Unit) {
-    YamuCard(contentPadding = PaddingValues(top = 16.dp, bottom = 8.dp)) {
-        Box(Modifier.padding(horizontal = 20.dp)) { SectionTitle("놓치기 아까운 혜택") }
-        Spacer(Modifier.height(12.dp))
-        Row(
-            Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 20.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            missed.remaining.forEach { r -> LimitTile(r, arts[r.userCardId], onClick = onAll) }
-            missed.conditions.forEach { line -> ConditionTile(line, arts[line.userCardId], onClick = { onCard(line.userCardId) }) }
+    Column(Modifier.fillMaxWidth().padding(top = 4.dp, bottom = YamuSpacing.blockGap)) {
+        Box(Modifier.padding(horizontal = YamuSpacing.screen + 4.dp)) { SectionTitle("놓치기 아까운 혜택") }
+        Spacer(Modifier.height(10.dp))
+        Box(Modifier.padding(horizontal = YamuSpacing.screen)) {
+            MissedBanner(missed, arts, onLimit = onAll, onCondition = onCard)
         }
         Box(Modifier.padding(horizontal = 16.dp)) { QuietLink("남은 혜택 모두 보기 ›", onClick = onAll) }
     }
@@ -904,38 +913,155 @@ private fun CardArtTile(
     }
 }
 
-/** 남은 한도 카드 — 카드 이름 · 한도 이름 · 남은 금액 */
+/** 배너가 저절로 다음 장으로 넘어가는 간격 */
+private const val MISSED_BANNER_INTERVAL_MS = 4_000L
+
+/** 끝에서 처음으로 되감기지 않게 같은 배너 줄을 이만큼 이어 붙인다 — 5장이면 5,000쪽, 가운데에서 시작 */
+private const val MISSED_BANNER_LOOPS = 1_000
+
+/** 배너 한 칸의 최소 높이 — 한도 배너(세 줄)와 조건 배너(두 줄 + 막대)가 같은 높이로 보이게 */
+private val MISSED_BANNER_MIN_HEIGHT = 96.dp
+
+/** 배너 오른쪽 카드 그림 폭(1.586:1이라 높이 약 40dp) */
+private val MISSED_BANNER_ART_WIDTH = 64.dp
+
+/**
+ * 놓치기 아까운 혜택 배너 한 칸 — 남은 한도 배너 다음에 조건 배너. 여러 장이면 오른쪽 아래 '1/5'와 함께 [MISSED_BANNER_INTERVAL_MS]마다
+ * 다음 장으로 넘어가고 손으로도 넘긴다. 마지막 장 다음은 첫 장(되감기 없이 이어서). 손가락이 닿아 있거나 끄는 동안,
+ * 모션 줄이기 · TalkBack이 켜져 있으면 저절로 넘기지 않는다 — TalkBack에서는 넘기기 동작으로 한 장씩 본다
+ */
 @Composable
-private fun LimitTile(r: RemainingLimit, art: CardArtRef?, onClick: () -> Unit) {
-    val c = YamuTheme.colors
-    CardArtTile(art, r.brand, r.artName, "${r.cardName}, ${r.limitName} ${r.amount.toWon()}원 남음", onClickLabel = "혜택 한도 보기", onClick = onClick) {
-        Text(r.cardName, style = YamuTheme.typography.sub, color = c.text3, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        Text(r.limitName, style = YamuTheme.typography.bodyM, color = c.text1, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        Spacer(Modifier.height(2.dp))
-        Text("${r.amount.toWon()}원 남음", style = YamuTheme.typography.value, color = c.primary, maxLines = 1)
+private fun MissedBanner(missed: MissedBenefits, arts: Map<Long, CardArtRef>, onLimit: () -> Unit, onCondition: (Long) -> Unit) {
+    val count = missed.remaining.size + missed.conditions.size
+    if (count == 0) return
+    val autoplay = count > 1 && !LocalYamuReduceMotion.current && !rememberTouchExploration()
+    val press = remember { MutableInteractionSource() }
+    key(count) {
+        val pager = rememberPagerState(initialPage = if (count > 1) count * (MISSED_BANNER_LOOPS / 2) else 0) {
+            if (count > 1) count * MISSED_BANNER_LOOPS else 1
+        }
+        val dragged by pager.interactionSource.collectIsDraggedAsState()
+        val pressed by press.collectIsPressedAsState()
+        // 넘긴 장(settledPage)이 바뀌거나 손을 떼면 시간을 처음부터 다시 잰다
+        LaunchedEffect(pager.settledPage, autoplay, dragged, pressed) {
+            if (!autoplay || dragged || pressed) return@LaunchedEffect
+            delay(MISSED_BANNER_INTERVAL_MS)
+            pager.animateScrollToPage(pager.currentPage + 1)
+        }
+        HorizontalPager(pager, Modifier.fillMaxWidth(), pageSpacing = 12.dp, verticalAlignment = Alignment.Top) { page ->
+            val i = page % count
+            val position = if (count > 1) "${i + 1}/$count" else null
+            if (i < missed.remaining.size) {
+                val r = missed.remaining[i]
+                MissedBannerFrame(
+                    art = arts[r.userCardId], brand = r.brand, artName = r.artName,
+                    description = missedBannerDescription("${r.cardName}, ${r.limitName} ${r.amount.toWon()}원 남음", i, count),
+                    onClickLabel = "혜택 한도 보기", onClick = onLimit, position = position, press = press,
+                ) { LimitBannerBody(r) }
+            } else {
+                val line = missed.conditions[i - missed.remaining.size]
+                MissedBannerFrame(
+                    art = arts[line.userCardId], brand = line.brand, artName = line.artName,
+                    description = missedBannerDescription("${line.cardName}, ${line.text}", i, count),
+                    onClickLabel = "카드 실적 보기", onClick = { onCondition(line.userCardId) }, position = position, press = press,
+                ) { ConditionBannerBody(line) }
+            }
+        }
     }
 }
 
-/** 조건 카드 — 카드 이름 · '다음 달 혜택 조건' · 지금 실적 / 목표 막대. 목표 금액을 모르면 막대 없이 목표 표시와 지금 실적 */
+/** 배너 한 장의 화면 읽기 문장 — 여러 장이면 뒤에 '5개 중 1번째'를 붙인다(화면의 '1/5'는 읽지 않는다) */
+internal fun missedBannerDescription(body: String, index: Int, count: Int): String =
+    if (count > 1) "$body, ${count}개 중 ${index + 1}번째" else body
+
+/** 배너 틀 — 연한 브랜드 색 바탕, 왼쪽 글 · 오른쪽 작은 카드 그림(카드 목록 상품 그림, 없으면 카드사 색 카드), 오른쪽 아래 '1/5' */
 @Composable
-private fun ConditionTile(line: ConditionLine, art: CardArtRef?, onClick: () -> Unit) {
+private fun MissedBannerFrame(
+    art: CardArtRef?,
+    brand: Brand,
+    artName: String,
+    description: String,
+    onClickLabel: String,
+    onClick: () -> Unit,
+    position: String?,
+    press: MutableInteractionSource,
+    body: @Composable ColumnScope.() -> Unit,
+) {
     val c = YamuTheme.colors
-    CardArtTile(art, line.brand, line.artName, "${line.cardName}, ${line.text}", onClickLabel = "카드 실적 보기", onClick = onClick) {
-        Text(line.cardName, style = YamuTheme.typography.sub, color = c.text3, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        Text("다음 달 혜택 조건", style = YamuTheme.typography.bodyM, color = c.text1, maxLines = 1)
-        Spacer(Modifier.height(6.dp))
-        val progress = line.progress
-        if (progress != null && line.target != null) {
-            Box(Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp)).background(c.surfaceVariant)) {
-                Box(Modifier.fillMaxWidth(progress).fillMaxHeight().clip(RoundedCornerShape(3.dp)).background(c.primary))
-            }
-            Spacer(Modifier.height(4.dp))
-            Text("${line.recognized.manShort()} / ${line.target.manShort()}원", style = YamuTheme.typography.sub, color = c.text2, maxLines = 1)
-        } else {
-            Text(line.targetText, style = YamuTheme.typography.sub, color = c.text2, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text("지금 ${line.recognized.toWon()}원", style = YamuTheme.typography.sub, color = c.text2, maxLines = 1)
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .heightIn(min = MISSED_BANNER_MIN_HEIGHT)
+            .clip(RoundedCornerShape(YamuRadius.card))
+            .background(c.primaryContainer)
+            .clickable(press, LocalIndication.current, role = Role.Button, onClickLabel = onClickLabel, onClick = onClick)
+            .clearAndSetSemantics { contentDescription = description },
+        contentAlignment = Alignment.CenterStart,
+    ) {
+        Row(Modifier.fillMaxWidth().padding(start = 18.dp, end = 16.dp, top = 14.dp, bottom = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f), content = body)
+            Spacer(Modifier.width(12.dp))
+            CardListThumb(art?.brand ?: brand, art?.productName ?: artName, width = MISSED_BANNER_ART_WIDTH, dimmed = art?.dimmed == true)
+        }
+        if (position != null) {
+            Text(
+                position,
+                style = YamuTheme.typography.labelS,
+                color = c.text2,
+                maxLines = 1,
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(end = 10.dp, bottom = 8.dp)
+                    .clip(RoundedCornerShape(50))
+                    .background(c.surface.copy(alpha = 0.72f))
+                    .padding(horizontal = 7.dp),
+            )
         }
     }
+}
+
+/** 남은 한도 배너 글 — 카드 이름 · 한도 이름 · 남은 금액 */
+@Composable
+private fun ColumnScope.LimitBannerBody(r: RemainingLimit) {
+    val c = YamuTheme.colors
+    Text(r.cardName, style = YamuTheme.typography.sub, color = c.text2, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    Text(r.limitName, style = YamuTheme.typography.titleM, color = c.text1, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    Text("${r.amount.toWon()}원 남음", style = YamuTheme.typography.value, color = c.onPrimaryContainer, maxLines = 1, overflow = TextOverflow.Ellipsis)
+}
+
+/** 조건 배너 글 — 카드 이름 · '다음 달 혜택 조건' · 지금 실적 / 목표 막대 한 줄. 목표 금액을 모르면 막대 없이 '30만원 이상 (지금 255,000원)' */
+@Composable
+private fun ColumnScope.ConditionBannerBody(line: ConditionLine) {
+    val c = YamuTheme.colors
+    Text(line.cardName, style = YamuTheme.typography.sub, color = c.text2, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    Text("다음 달 혜택 조건", style = YamuTheme.typography.titleM, color = c.text1, maxLines = 1)
+    Spacer(Modifier.height(4.dp))
+    val progress = line.progress
+    if (progress != null && line.target != null) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.weight(1f).height(6.dp).clip(RoundedCornerShape(3.dp)).background(c.surface)) {
+                Box(Modifier.fillMaxWidth(progress).fillMaxHeight().clip(RoundedCornerShape(3.dp)).background(c.primary))
+            }
+            Spacer(Modifier.width(8.dp))
+            Text("${line.recognized.manShort()} / ${line.target.manShort()}원", style = YamuTheme.typography.sub, color = c.text2, maxLines = 1)
+        }
+    } else {
+        Text("${line.targetText} (지금 ${line.recognized.toWon()}원)", style = YamuTheme.typography.sub, color = c.text2, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    }
+}
+
+/** TalkBack(터치 탐색)이 켜져 있는지 — 켜고 끄면 바로 따라간다 */
+@Composable
+private fun rememberTouchExploration(): Boolean {
+    val context = LocalContext.current
+    val manager = remember(context) { context.getSystemService(AccessibilityManager::class.java) }
+    var on by remember(manager) { mutableStateOf(manager?.isTouchExplorationEnabled == true) }
+    DisposableEffect(manager) {
+        val listener = AccessibilityManager.TouchExplorationStateChangeListener { on = it }
+        manager?.addTouchExplorationStateChangeListener(listener)
+        onDispose { manager?.removeTouchExplorationStateChangeListener(listener) }
+    }
+    return on
 }
 
 /** 막대 아래 짧은 금액 — 25.5만 · 30만(0.1만 아래는 버림), 1만 원 아래는 그대로 8,000 */
