@@ -221,12 +221,52 @@ class CheckCardApprovalIntegrationTest extends MySqlTestSupport {
     }
 
     @Test
+    void 체크카드_승인_응답에_거래내역에서_읽은_출금_뒤_잔액이_나가고_같은_키_재전송도_같다() throws Exception {
+        // S15P31E103-569: SSAFY 출금 응답에는 잔액이 없어 그 출금의 거래 후 잔액을 거래내역에서 읽는다
+        Requested requested = requested(15_000);
+        doAnswer(inv -> List.of(new BankTransaction("1101", LocalDate.now(KST), LocalTime.NOON,
+                BankDirection.WITHDRAWAL, 15_000, 985_000, "YAMU-P" + requested.paymentId())))
+                .when(transfer).findAllByTag(anyString(), anyString(), any(TransferTag.class), anyString());
+        String key = UUID.randomUUID().toString();
+
+        approve(requested.paymentId(), key, body(checkCard))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.status").value("APPROVED"))
+                .andExpect(jsonPath("$.data.accountBalanceAfter").value(985_000));
+
+        PaymentTransaction payment = payments.findById(requested.paymentId()).orElseThrow();
+        verify(transfer).findAllByTag("user-key-" + user, ACCOUNT_NO, TransferTag.payment(requested.paymentId()),
+                payment.getFinRequestNo());
+        approve(requested.paymentId(), key, body(checkCard))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.accountBalanceAfter").value(985_000));
+        verify(transfer, times(1)).withdraw(anyString(), anyString(), anyLong(), any(), anyString());
+    }
+
+    @Test
+    void 출금_뒤_잔액을_거래내역에서_읽지_못해도_승인되고_잔액만_빠진다() throws Exception {
+        Requested requested = requested(15_000);
+        doAnswer(inv -> {
+            throw new BusinessException(ErrorCode.FIN_API_UNAVAILABLE);
+        }).when(transfer).findAllByTag(anyString(), anyString(), any(TransferTag.class), anyString());
+
+        approve(requested.paymentId(), UUID.randomUUID().toString(), body(checkCard))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.status").value("APPROVED"))
+                .andExpect(jsonPath("$.data.accountBalanceAfter").doesNotExist());
+
+        assertThat(payments.findById(requested.paymentId()).orElseThrow().getStatus())
+                .isEqualTo(PaymentStatus.APPROVED);
+    }
+
+    @Test
     void 신용카드는_출금하지_않고_승인된다() throws Exception {
         Requested requested = requested(15_000);
 
         approve(requested.paymentId(), UUID.randomUUID().toString(), body(creditCard))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.status").value("APPROVED"));
+                .andExpect(jsonPath("$.data.status").value("APPROVED"))
+                .andExpect(jsonPath("$.data.accountBalanceAfter").doesNotExist());
 
         PaymentTransaction payment = payments.findById(requested.paymentId()).orElseThrow();
         assertThat(payment.getFinRequestNo()).isNull();

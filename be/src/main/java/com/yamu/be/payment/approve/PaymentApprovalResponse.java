@@ -15,14 +15,17 @@ import java.util.Map;
  * <p>{@code billItems}는 신용카드 승인의 청구 회차(Task 5.2.4). 체크카드·거절은 빈 목록이다.
  * {@code benefits}·{@code performance}·{@code limitImpacts}는 승인 때 다시 계산해 원장에 적은 값이다(Task 5.2.5).
  * 실적 인정액은 BE3 계산 값이다(Task 5.2.11). 제외(0)는 {@code recognizedAmount=0, recognized=false}이고, 미확인(NULL)은
- * 결제 상세처럼 {@code performance}가 null이다(S15P31E103-568). 달성률과 {@code accountBalanceAfter}(Task 5.2.3)는 null이다.
- * 복구로 확정된 결제의 응답은 혜택·실적·한도를 싣지 않는다.
+ * 결제 상세처럼 {@code performance}가 null이다(S15P31E103-568). 달성률은 null이다.
+ * 복구로 확정된 결제의 응답은 혜택·실적·한도·출금 뒤 잔액을 싣지 않는다.
  *
- * @param approvalNo        승인번호(임시 규칙 Q3). 거절이면 null
- * @param chargedAmount     체크카드는 즉시할인을 뺀 출금액, 신용카드는 승인 원금. 거절이면 null
- * @param retryable         거절일 때만. 마감 전이고 시도 횟수가 남았으면 true
- * @param remainingAttempts 거절일 때만. 남은 재승인 횟수
- * @param suggestedCards    거절일 때만. 아직 시도하지 않은 추천 후보(최대 2장)
+ * @param approvalNo          승인번호(임시 규칙 Q3). 거절이면 null
+ * @param chargedAmount       체크카드는 즉시할인을 뺀 출금액, 신용카드는 승인 원금. 거절이면 null
+ * @param accountBalanceAfter 체크카드 출금 직후 연결 계좌 잔액(원, S15P31E103-569). 승인 뒤 거래내역에서 그 출금의 거래 후 잔액을
+ *                            읽는다. 신용카드·0원 승인(출금 없음)·거절·복구로 확정된 결제, 그리고 내역에서 찾지 못하거나 조회가
+ *                            실패하면 null
+ * @param retryable           거절일 때만. 마감 전이고 시도 횟수가 남았으면 true
+ * @param remainingAttempts   거절일 때만. 남은 재승인 횟수
+ * @param suggestedCards      거절일 때만. 아직 시도하지 않은 추천 후보(최대 2장)
  */
 public record PaymentApprovalResponse(
         Long paymentId,
