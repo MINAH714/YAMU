@@ -1,5 +1,5 @@
 import type { PaymentCancelResult, PaymentHistoryItem } from '../api/posHistory'
-import { cardLabel, chargedOf, formatKstTime } from '../payment/history'
+import { cardLabel, chargedOf, formatKstDateTime } from '../payment/history'
 import { Amount } from './Amount'
 import { Character } from './Character'
 import { StatusScreen, type StatusRow } from './StatusScreen'
@@ -8,9 +8,9 @@ import { StatusScreen, type StatusRow } from './StatusScreen'
 function cancelRows(item: PaymentHistoryItem, canceledAt?: string | null): StatusRow[] {
   const rows: StatusRow[] = [
     { label: '카드', value: cardLabel(item.card) },
-    { label: '결제 시각', value: formatKstTime(item.approvedAt) },
+    { label: '결제 시각', value: formatKstDateTime(item.approvedAt) },
   ]
-  if (canceledAt) rows.push({ label: '취소 시각', value: formatKstTime(canceledAt) })
+  if (canceledAt) rows.push({ label: '취소 시각', value: formatKstDateTime(canceledAt) })
   if (item.approvalNo) rows.push({ label: '승인 번호', value: item.approvalNo, mono: true })
   return rows
 }
