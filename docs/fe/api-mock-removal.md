@@ -10,7 +10,7 @@
 
 [S15P31E103-561](https://ssafy.atlassian.net/browse/S15P31E103-561) — 김경린 / 6주차 스프린트 개발 / 4pt.
 
-Task 560 및 MR !385와 분리한 전용 작업이다. 최신 develop 17fa14fc에서 fix/fe/S15P31E103-561-remove-api-mocks 브랜치를 만들었다.
+Task 560 및 MR !385와 분리한 전용 작업이다. develop 17fa14fc에서 분기했고, !385 병합 후 최신 develop c6cadd52를 반영했다. README·Debug DataModule·ApiFeatureTest 충돌을 해결했으며 실제 API 전용 연결과 !385의 리포트·QA 이력 검증을 모두 유지했다.
 
 ## 📝 작업 내용 요약
 
@@ -22,14 +22,14 @@ Debug에서도 고객 앱과 POS의 저장소를 기존 실제 API 구현에 직
 
 ## 📸 테스트 결과
 
-Task 561 전용 브랜치에서 고객 앱 1,295개·POS 1,334개 전체 단위 테스트 통과. 실패·오류·건너뜀 0건. Hilt 연결 컴파일 포함 BUILD SUCCESSFUL(1분 9초).
+최신 develop 반영 및 충돌 해결 후 고객 앱 1,299개·POS 1,338개 전체 단위 테스트 통과. 실패·오류·건너뜀 0건. Hilt 연결 컴파일 확인 후 테스트 작업을 --rerun으로 새로 실행해 BUILD SUCCESSFUL(34초)을 확인했다.
 
 ```powershell
 # fe/android에서 ANDROID_HOME을 설치된 SDK 경로로 지정
-.\gradlew.bat :app:testCustomerDebugUnitTest :app:testPosDebugUnitTest --parallel --console=plain
+.\gradlew.bat :app:testCustomerDebugUnitTest --rerun :app:testPosDebugUnitTest --rerun --parallel --console=plain
 ```
 
-추가 테스트는 모든 기능의 실제 API 활성 상태, 결제 거절 POST 경로·멱등 키 전달, 서버 오류를 성공으로 바꾸지 않는 처리를 확인한다. 기존 자산 흐름 SIMULATED 표시 검증도 전체 회귀에 포함한다. 실제 서버 금융 거래·QA 재적재·실기기 설치는 실행하지 않았다.
+추가 테스트는 모든 기능의 실제 API 활성 상태, 결제 거절 POST 경로·멱등 키 전달, 서버 오류를 성공으로 바꾸지 않는 처리를 확인한다. 기존 자산 흐름 SIMULATED 표시 검증도 전체 회귀에 포함한다. 실제 서버 금융 거래·QA 재적재·실기기 설치는 실행하지 않았다. 2026-11-16 실제 서버 https://yamu.it.kr/api/health 의 status=ok와 accounts·asset-flows·reports/monthly의 미인증 HTTP 401 응답을 확인했다. 인증된 계정으로 실제 계좌·잔액·QA 이력이 조회되는지는 미검증이다. 401만으로 해당 기능의 정상 동작이나 데이터 적재를 입증할 수 없다.
 
 ## 💬 리뷰 요구사항
 

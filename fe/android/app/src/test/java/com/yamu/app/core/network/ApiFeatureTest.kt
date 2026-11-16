@@ -11,6 +11,10 @@ class ApiFeatureTest {
         assertEquals(ApiFeature.entries.toSet(), ApiFeature.real)
         assertEquals(BuildConfig.API_FEATURES.split(',').toSet(), BuildConfig.REAL_API.split(',').toSet())
     }
+    @Test fun `소비 리포트 실 API는 자산 흐름과 계좌도 함께 켠다`() {
+        assertEquals(setOf(ApiFeature.REPORT, ApiFeature.FORECAST, ApiFeature.LINK), ApiFeature.parse("report"))
+        assertEquals(setOf(ApiFeature.AUTH, ApiFeature.REPORT, ApiFeature.FORECAST, ApiFeature.LINK), ApiFeature.parse("auth,report"))
+    }
     @Test fun `비어 있으면 전부 가짜`() {
         assertTrue(ApiFeature.parse("").isEmpty())
     }
