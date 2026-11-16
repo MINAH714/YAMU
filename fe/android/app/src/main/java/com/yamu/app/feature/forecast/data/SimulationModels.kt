@@ -218,6 +218,8 @@ data class Simulation(
     val outsideNote: String?,
     val message: String?,
     val isEstimate: Boolean,
+    /** 계산한 계좌 — 카드를 알면 그 카드의 출금 계좌 하나(저장소가 채운다, S15P31E103-548) */
+    val accounts: List<ForecastAccountOption> = emptyList(),
 ) {
     /** 사용자가 고른 카드보다 혜택이 큰 1순위 카드 — '○○카드가 혜택이 더 커요' */
     val betterCard: AltCard? get() = alternatives.firstOrNull { it.recommended }

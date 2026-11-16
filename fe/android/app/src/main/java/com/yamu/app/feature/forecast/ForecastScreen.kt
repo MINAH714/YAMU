@@ -333,7 +333,7 @@ class ForecastViewModel @Inject constructor(private val repo: ForecastRepository
 
     /**
      * 시트에서 고른 기간 · 계좌 — 계좌를 모두 골랐으면 '전체'(all)로 둬 새로 연결한 계좌도 들어가게 한다.
-     * 고르지 않은 기본은 기준 계좌 하나다(S15P31E103-484) — 전에는 기본이 전체라 모두 고르면 null로 돌렸다
+     * 고르지 않은 기본도 연결 계좌 전체다(S15P31E103-548, -484 때는 기준 계좌 하나였다)
      */
     fun apply(period: ForecastPeriod?, accountIds: Set<Long>?) {
         val all = _state.value.accounts?.map { it.accountId }?.toSet()
@@ -507,7 +507,7 @@ fun ForecastRoute(
 /** 기간 · 계좌 칩 — 회색 바탕 위 흰 알약, 누르면 시트. 계좌 칩은 계좌 이름표('KB국민은행 ··1234' · '계좌 2개 전체', COMMON-04) */
 @Composable
 private fun FilterChips(f: Forecast, selection: ForecastSelection, onOpen: () -> Unit) {
-    val account = f.accountLabel(selection.all)
+    val account = f.accountLabel(selection.coversAll)
     Row(Modifier.padding(horizontal = YamuSpacing.screen).padding(bottom = YamuSpacing.blockGap), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         FilterChip(periodLabel(f, selection), contentDescription = "예보 기간 ${periodLabel(f, selection)}, 바꾸기", onClick = onOpen)
         FilterChip(account, contentDescription = "보는 계좌 $account, 바꾸기", onClick = onOpen)
@@ -1424,7 +1424,7 @@ fun CashflowListRoute(
                             listOfNotNull(
                                 if (f?.from != null && f.to != null) "${f.from.toMonthDay()} ~ ${f.to.toMonthDay()}" else null,
                                 "출금 ${outCount}건",
-                                f?.accountLabel(s.selection.all),   // 잔고예보에서 고른 계좌로 걸렀다는 표시(기본은 기준 계좌, -484)
+                                f?.accountLabel(s.selection.coversAll),   // 잔고예보에서 고른 계좌로 걸렀다는 표시(기본은 전체, -548)
                             ).joinToString(" · "),
                             style = YamuTheme.typography.bodyM,
                             color = c.text2,

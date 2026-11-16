@@ -98,9 +98,8 @@ class AssetFlowTest {
 
     // ── 계좌 ──
 
-    @Test fun `기준 계좌 하나만 본다 — 없으면 전체(옛 자료)`() {
-        assertEquals(listOf(shinhan), assetFlowAccounts(listOf(kb, shinhan)))
-        assertEquals(listOf(kb, shinhan.copy(isPrimary = false)), assetFlowAccounts(listOf(kb, shinhan.copy(isPrimary = false))))
+    @Test fun `연결 계좌 전체를 본다(-548)`() {
+        assertEquals(listOf(kb, shinhan), assetFlowAccounts(listOf(kb, shinhan)))
         assertTrue(assetFlowAccounts(emptyList()).isEmpty())
     }
 

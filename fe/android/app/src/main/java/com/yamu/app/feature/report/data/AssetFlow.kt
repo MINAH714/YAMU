@@ -18,7 +18,6 @@ import com.yamu.app.feature.forecast.data.ForecastEventDto
 import com.yamu.app.feature.forecast.data.ForecastPeriod
 import com.yamu.app.feature.forecast.data.ForecastRepository
 import com.yamu.app.feature.forecast.data.enumOf
-import com.yamu.app.feature.forecast.data.primaryOrAll
 import com.yamu.app.feature.forecast.data.shortName
 import com.yamu.app.feature.forecast.data.toForecast
 import com.yamu.app.feature.forecast.data.toOption
@@ -46,7 +45,7 @@ import javax.inject.Singleton
 // ── 서버 응답 — GET /api/asset-flows(BE !315, S15P31E103-488) ──
 // 종류 · 상태는 문자열로 받는다. BE가 새 값을 더해도 읽기는 깨지지 않고, 모르는 값은 '표시 불가'로 둔다
 
-/** 월별 자산 흐름 API — yearMonth는 이번 달 11개월 전~다음 달. accountIds를 빼면 기준 계좌 하나(늘 뺀다) */
+/** 월별 자산 흐름 API — yearMonth는 이번 달 11개월 전~다음 달. accountIds를 빼면 기준 계좌 하나라 연결 계좌 전체를 넘긴다(-548) */
 interface AssetFlowApi {
     @GET("asset-flows")
     suspend fun assetFlows(
@@ -185,10 +184,10 @@ val ASSET_FLOW_PERIOD = ForecastPeriod.DAYS_30
 val ASSET_FLOW_AFTER = listOf(7, 14, 30)
 
 /**
- * 자산 흐름이 보는 계좌 — 기준 계좌 하나(11/13 결정). 잔고예보를 고르지 않고 열었을 때와 같은 규칙([primaryOrAll])이라
- * 홈 요약 · 잔고예보와 숫자가 맞는다(FORECAST-03 · COMMON-04). 기준 계좌가 없는 옛 자료면 연결 계좌 전체
+ * 자산 흐름이 보는 계좌 — 연결 계좌 전체(S15P31E103-548). 잔고예보를 고르지 않고 열었을 때와 같은 범위라 두 화면 숫자가 맞는다.
+ * -484(11/13)에는 홈 요약과 맞춰 기준 계좌 하나였다
  */
-fun assetFlowAccounts(accounts: List<ForecastAccountOption>): List<ForecastAccountOption> = accounts.primaryOrAll()
+fun assetFlowAccounts(accounts: List<ForecastAccountOption>): List<ForecastAccountOption> = accounts
 
 /** 계좌 이름표 — 하나면 'KB국민 ··1234'(잔고예보 계좌 칩과 같은 [shortName]), 여럿이면 '계좌 2개 전체' */
 fun accountTag(accounts: List<ForecastAccountOption>): String = when (accounts.size) {
@@ -243,10 +242,10 @@ fun reachesNextMonth(flow: AssetFlow?, today: LocalDate): Boolean {
 }
 
 interface AssetFlowRepository {
-    /** 기준 계좌(없으면 전체)와 그 계좌의 오늘부터 30일 예보(7 · 14 · 30일 뒤용). 계좌가 없으면 [ForecastRepository.NO_ACCOUNT] 실패 */
+    /** 연결 계좌 전체와 그 계좌들의 오늘부터 30일 예보(7 · 14 · 30일 뒤용). 계좌가 없으면 [ForecastRepository.NO_ACCOUNT] 실패 */
     suspend fun load(): ApiResult<AssetFlow>
 
-    /** 그달 자산 흐름(지난 실제 잔고 · 오늘 · 예상) — 기준 계좌. 서버에 API가 없으면 [MonthFlowResult.Unsupported] */
+    /** 그달 자산 흐름(지난 실제 잔고 · 오늘 · 예상) — 연결 계좌 전체. 서버에 API가 없으면 [MonthFlowResult.Unsupported] */
     suspend fun month(month: YearMonth): MonthFlowResult
 }
 
@@ -260,6 +259,9 @@ class AssetFlowRepositoryImpl @Inject constructor(
     private val linkApi: LinkApi,
     private val assetFlowApi: AssetFlowApi,
 ) : AssetFlowRepository {
+    /** 마지막으로 받은 계좌 — 한 달 응답도 같은 계좌로 부른다(asset-flows는 accountIds를 빼면 기준 계좌 하나만 준다) */
+    @Volatile private var accountIds: List<Long>? = null
+
     override suspend fun load(): ApiResult<AssetFlow> {
         val all = when (val a = apiCall { linkApi.accounts(null) }.map { r -> r.accounts.map { it.toOption() } }) {
             is ApiResult.Failure -> return a
@@ -267,6 +269,7 @@ class AssetFlowRepositoryImpl @Inject constructor(
         }
         if (all.isEmpty()) return ApiResult.Failure(ApiError.InvalidRequest(ForecastRepository.NO_ACCOUNT))
         val accounts = assetFlowAccounts(all)
+        accountIds = accounts.map { it.accountId }
         val r = apiCall { forecastApi.forecast(accounts.map { it.accountId }, ASSET_FLOW_PERIOD.until, ASSET_FLOW_PERIOD.days) }.map { it.toForecast() }
         val now = ZonedDateTime.now(KST)
         return ApiResult.Success(
@@ -277,7 +280,14 @@ class AssetFlowRepositoryImpl @Inject constructor(
         )
     }
 
-    override suspend fun month(month: YearMonth): MonthFlowResult = monthFlowResult(apiCall { assetFlowApi.assetFlows(month.toString()) }, month)
+    /** 계좌를 아직 모르면(달 요청이 먼저 끝난 경우) 계좌 목록부터 받는다. 계좌가 없으면 accountIds 없이 불러 서버 판단에 맡긴다 */
+    override suspend fun month(month: YearMonth): MonthFlowResult {
+        val ids = accountIds ?: when (val a = apiCall { linkApi.accounts(null) }) {
+            is ApiResult.Failure -> return MonthFlowResult.Failed(a.error)
+            is ApiResult.Success -> assetFlowAccounts(a.data.accounts.map { it.toOption() }).map { it.accountId }.also { accountIds = it }
+        }
+        return monthFlowResult(apiCall { assetFlowApi.assetFlows(month.toString(), ids.takeIf { it.isNotEmpty() }) }, month)
+    }
 }
 
 /**

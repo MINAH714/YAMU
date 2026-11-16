@@ -43,6 +43,7 @@ import androidx.compose.ui.layout.positionInParent
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.SavedStateHandle
@@ -90,6 +91,7 @@ import com.yamu.app.feature.forecast.data.SimProblem
 import com.yamu.app.feature.forecast.data.SimSnapshot
 import com.yamu.app.feature.forecast.data.SimWithdrawal
 import com.yamu.app.feature.forecast.data.Simulation
+import com.yamu.app.feature.forecast.data.shortName
 import com.yamu.app.feature.forecast.data.SimulationQuery
 import com.yamu.app.feature.forecast.data.canSavePlan
 import com.yamu.app.feature.forecast.data.subjectParticle
@@ -439,6 +441,11 @@ private fun HeroCard(
                 Spacer(Modifier.width(6.dp))
                 EstimateTag()
             }
+            // 어느 계좌 잔액인지 — 카드 출금 계좌 하나로 계산한다(S15P31E103-548)
+            sim.accounts.singleOrNull()?.let {
+                Spacer(Modifier.weight(1f))
+                Text(it.shortName(), style = YamuTheme.typography.bodyS, color = c.text3, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(start = 8.dp))
+            }
         }
         Spacer(Modifier.height(6.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -492,7 +499,7 @@ private fun ScheduleCard(sim: Simulation, selectedDate: LocalDate?, onWithdrawal
     YamuCard(contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 18.dp, bottom = 8.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("빠져나가는 날", style = YamuTheme.typography.cardTitle, color = c.text1, modifier = Modifier.weight(1f))
-            Text("${sim.card.name} 출금 계좌", style = YamuTheme.typography.bodyS, color = c.text3)
+            Text(sim.accounts.singleOrNull()?.shortName() ?: "${sim.card.name} 출금 계좌", style = YamuTheme.typography.bodyS, color = c.text3)
         }
         Spacer(Modifier.height(4.dp))
         sim.schedule.forEachIndexed { i, w ->
