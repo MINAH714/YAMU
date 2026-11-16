@@ -99,6 +99,7 @@ class PerfAnalysisViewModel internal constructor(
 
     private val _state = MutableStateFlow(PerfAnalysisState(selectedId = initialCardId))
     val state: StateFlow<PerfAnalysisState> = _state.asStateFlow()
+    private var analysisRequest = 0L
 
     init {
         viewModelScope.launch {
@@ -114,18 +115,19 @@ class PerfAnalysisViewModel internal constructor(
 
     fun select(userCardId: Long) {
         if (userCardId == _state.value.selectedId) return
-        _state.update { it.copy(selectedId = userCardId) }
+        _state.update { it.copy(selectedId = userCardId, message = null) }
         load()
     }
 
     fun load() {
         val id = _state.value.selectedId
+        val request = ++analysisRequest
+        _state.update { it.copy(loading = true, error = null, noData = false, notReady = false, analysis = null) }
         viewModelScope.launch {
-            _state.update { it.copy(loading = true, error = null, noData = false, notReady = false, analysis = null) }
             when (val r = perf.analysis(id)) {
-                is ApiResult.Success -> _state.update { if (it.selectedId == id) it.copy(loading = false, analysis = r.data) else it }
+                is ApiResult.Success -> _state.update { if (analysisRequest == request && it.selectedId == id) it.copy(loading = false, analysis = r.data) else it }
                 is ApiResult.Failure -> _state.update {
-                    if (it.selectedId != id) it
+                    if (analysisRequest != request || it.selectedId != id) it
                     else if (r.error is ApiError.DataInsufficient) it.copy(loading = false, noData = true)
                     else if (r.error is ApiError.NotSupported) it.copy(loading = false, notReady = true)
                     else it.copy(loading = false, error = r.error.userMessage())
@@ -138,13 +140,14 @@ class PerfAnalysisViewModel internal constructor(
     fun decide(decision: PerfDecision?) {
         val a = _state.value.analysis ?: return
         if (_state.value.acting) return
+        val request = analysisRequest
+        _state.update { it.copy(acting = true) }
         viewModelScope.launch {
-            _state.update { it.copy(acting = true) }
             when (val r = perf.decide(a.userCardId, decision, a.version)) {
                 is ApiResult.Success -> {
-                    _state.update { it.copy(acting = false, analysis = a.copy(decision = decision), message = if (decision == null) "다시 판단할 수 있어요 · 알림도 다시 받아요" else "이번 달 판단을 기록했어요") }
+                    finishAction(a.userCardId, request) { it.copy(analysis = a.copy(decision = decision), message = if (decision == null) "다시 판단할 수 있어요 · 알림도 다시 받아요" else "이번 달 판단을 기록했어요") }
                 }
-                is ApiResult.Failure -> _state.update { it.copy(acting = false, message = r.error.userMessage()) }
+                is ApiResult.Failure -> finishAction(a.userCardId, request) { it.copy(message = r.error.userMessage()) }
             }
         }
     }
@@ -155,15 +158,28 @@ class PerfAnalysisViewModel internal constructor(
         val item = a.movable ?: return
         val card = _state.value.selected?.name ?: "이 카드"
         if (_state.value.acting) return
+        val request = analysisRequest
+        _state.update { it.copy(acting = true) }
         viewModelScope.launch {
-            _state.update { it.copy(acting = true) }
             val moved = perf.moveCashflow(item.cashflowItemId, a.userCardId)
-            if (moved is ApiResult.Failure) return@launch _state.update { it.copy(acting = false, message = moved.error.userMessage()) }
+            if (moved is ApiResult.Failure) {
+                finishAction(a.userCardId, request) { it.copy(message = moved.error.userMessage()) }
+                return@launch
+            }
             perf.decide(a.userCardId, PerfDecision.FILL, a.version)
             val deadline = parseDate(item.deadlineIso)?.toMonthDay()?.let { "${it}까지 " }.orEmpty()
-            _state.update { it.copy(acting = false, message = "${item.title} 결제 카드를 $card${card.directionParticle()} 바꿔 뒀어요 · ${deadline}${item.title}${item.title.objectParticle()} 내는 곳에서도 카드를 바꿔 주세요") }
-            load()
+            finishAction(a.userCardId, request, refresh = true) { it.copy(message = "${item.title} 결제 카드를 $card${card.directionParticle()} 바꿔 뒀어요 · ${deadline}${item.title}${item.title.objectParticle()} 내는 곳에서도 카드를 바꿔 주세요") }
         }
+    }
+
+    /** 쓰기는 끝까지 기다리되, 그사이 바뀐 카드/요청의 본문과 안내는 덮지 않는다. */
+    private fun finishAction(id: Long, request: Long, refresh: Boolean = false, update: (PerfAnalysisState) -> PerfAnalysisState) {
+        _state.update {
+            val idle = it.copy(acting = false)
+            if (it.selectedId == id && analysisRequest == request) update(idle) else idle
+        }
+        // A→B→A로 돌아왔다면 저장 전에 받은 A의 분석도 낡았을 수 있다.
+        if (_state.value.selectedId == id && (refresh || analysisRequest != request)) load()
     }
 
     fun messageShown() = _state.update { it.copy(message = null) }
