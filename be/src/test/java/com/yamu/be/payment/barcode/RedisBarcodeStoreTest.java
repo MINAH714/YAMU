@@ -2,9 +2,14 @@ package com.yamu.be.payment.barcode;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.yamu.be.auth.domain.AuthMethod;
+import com.yamu.be.payment.barcode.Barcode.IssueAuth;
+import com.yamu.be.payment.barcode.BarcodeStore.Reissue;
+import com.yamu.be.payment.barcode.BarcodeStore.ReissueResult;
 import com.yamu.be.support.RedisTestSupport;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -349,6 +354,187 @@ class RedisBarcodeStoreTest extends RedisTestSupport {
         // 취소에 쓴 바코드에는 결제 번호 역색인을 만들지 않아 승인·만료 반영이 건드리지 않는다
         assertThat(store.markUsed(2048L)).isFalse();
         assertThat(store.expireByPayment(2048L)).isFalse();
+    }
+
+    // ───────── 인증 정보 · 재발급 ─────────
+
+    @Test
+    void 인증_정보와_재발급한_토큰을_그대로_읽고_해시_칸_이름은_정해진_대로다() {
+        // Redis에는 밀리초까지 저장한다
+        Instant now = Instant.now().truncatedTo(ChronoUnit.MILLIS);
+        Barcode first = authed(7L, now);
+        store.issue(first, RETENTION);
+        assertThat(store.find(first.token())).contains(first);
+
+        Barcode next = successorOf(first, now);
+        assertThat(store.reissue(first.token(), next, RETENTION, now).result())
+                .isEqualTo(ReissueResult.REISSUED);
+
+        assertThat(redis.opsForHash().entries("barcode:code:" + next.token())).containsOnlyKeys("userId", "status",
+                "issuedAt", "expiresAt", "userDeviceId", "authAt", "authMethod", "authAuditLogId");
+        assertThat(store.find(next.token())).contains(next);
+        Barcode closed = store.find(first.token()).orElseThrow();
+        assertThat(closed.status()).isEqualTo(BarcodeStatus.EXPIRED);
+        assertThat(closed.reissuedTo()).isEqualTo(next.token());
+        assertThat(closed.auth()).isEqualTo(first.auth());
+        assertThat(redis.opsForValue().get("barcode:user:7")).isEqualTo(next.token());
+        Long nextTtl = redis.getExpire("barcode:code:" + next.token(), TimeUnit.MILLISECONDS);
+        assertThat(nextTtl).isBetween(RETENTION.minusSeconds(5).toMillis(), RETENTION.toMillis());
+    }
+
+    @Test
+    void 시간이_지나_만료된_현재_코드는_재발급하고_스캔_결제_취소에_쓰인_코드는_거절한다() {
+        Instant now = Instant.now();
+        Barcode stale = authed(7L, now.minusSeconds(120));
+        store.issue(stale, RETENTION);
+        assertThat(store.reissue(stale.token(), successorOf(stale, now), RETENTION, now).result())
+                .isEqualTo(ReissueResult.REISSUED);
+
+        Barcode scanned = authed(8L, now);
+        store.issue(scanned, RETENTION);
+        store.scan(scanned.token(), 8L, 1024L, now, RETENTION);
+        assertThat(store.reissue(scanned.token(), successorOf(scanned, now), RETENTION, now).result())
+                .isEqualTo(ReissueResult.DENIED);
+        store.expireByPayment(1024L); // 결제 확정 시간 초과로 닫혀도 결제에 쓰인 코드다
+        assertThat(store.reissue(scanned.token(), successorOf(scanned, now), RETENTION, now).result())
+                .isEqualTo(ReissueResult.DENIED);
+
+        Barcode canceled = authed(9L, now);
+        store.issue(canceled, RETENTION);
+        store.useForCancel(canceled.token(), 2048L);
+        assertThat(store.reissue(canceled.token(), successorOf(canceled, now), RETENTION, now).result())
+                .isEqualTo(ReissueResult.DENIED);
+        assertThat(redis.opsForValue().get("barcode:user:8")).isEqualTo(scanned.token());
+        assertThat(redis.opsForValue().get("barcode:user:9")).isEqualTo(canceled.token());
+    }
+
+    @Test
+    void 현재_코드가_아니거나_없거나_형식이_다르면_거절한다() {
+        Instant now = Instant.now();
+        Barcode first = authed(7L, now);
+        Barcode second = authed(7L, now);
+        store.issue(first, RETENTION);
+        store.issue(second, RETENTION);
+
+        assertThat(store.reissue(first.token(), successorOf(first, now), RETENTION, now).result())
+                .isEqualTo(ReissueResult.DENIED);
+        assertThat(store.reissue("9999999999999999", successorOf(first, now), RETENTION, now).result())
+                .isEqualTo(ReissueResult.DENIED);
+        assertThat(store.reissue("user:7", successorOf(first, now), RETENTION, now).result())
+                .isEqualTo(ReissueResult.DENIED);
+        assertThat(redis.opsForValue().get("barcode:user:7")).isEqualTo(second.token());
+    }
+
+    @Test
+    void 새_토큰이_이미_있으면_아무것도_바꾸지_않고_TOKEN_TAKEN이다() {
+        Instant now = Instant.now();
+        Barcode first = authed(7L, now);
+        Barcode someone = authed(8L, now);
+        store.issue(first, RETENTION);
+        store.issue(someone, RETENTION);
+        Barcode clash = new Barcode(someone.token(), 7L, BarcodeStatus.ISSUED, now, now.plusSeconds(60), null,
+                first.auth(), null);
+
+        assertThat(store.reissue(first.token(), clash, RETENTION, now).result()).isEqualTo(ReissueResult.TOKEN_TAKEN);
+        assertThat(store.find(first.token()).orElseThrow().status()).isEqualTo(BarcodeStatus.ISSUED);
+        assertThat(store.find(someone.token()).orElseThrow().userId()).isEqualTo(8L);
+    }
+
+    @Test
+    void 같은_이전_코드로_다시_오면_새_코드가_쓸_수_있을_때만_그_토큰을_돌려준다() {
+        Instant now = Instant.now();
+        Barcode first = authed(7L, now);
+        store.issue(first, RETENTION);
+        Barcode next = successorOf(first, now);
+        store.reissue(first.token(), next, RETENTION, now);
+
+        Reissue again = store.reissue(first.token(), successorOf(first, now), RETENTION, now);
+        assertThat(again).isEqualTo(new Reissue(ReissueResult.ALREADY_REISSUED, next.token()));
+        // 새 코드가 만료되면 이전 코드로는 받을 수 없다
+        assertThat(store.reissue(first.token(), successorOf(first, now), RETENTION, now.plusSeconds(61)).result())
+                .isEqualTo(ReissueResult.DENIED);
+        // 새 코드가 스캔되면 마찬가지다
+        store.scan(next.token(), 7L, 1024L, now, RETENTION);
+        assertThat(store.reissue(first.token(), successorOf(first, now), RETENTION, now).result())
+                .isEqualTo(ReissueResult.DENIED);
+    }
+
+    @Test
+    void 같은_코드를_동시에_재발급하면_하나만_저장되고_나머지는_그_토큰을_받는다() throws Exception {
+        Instant now = Instant.now();
+        Barcode first = authed(7L, now);
+        store.issue(first, RETENTION);
+        int threads = 8;
+        CountDownLatch start = new CountDownLatch(1);
+        ExecutorService pool = Executors.newFixedThreadPool(threads);
+        List<Future<Reissue>> results = new ArrayList<>();
+        try {
+            for (int i = 0; i < threads; i++) {
+                Barcode next = successorOf(first, now);
+                Callable<Reissue> call = () -> {
+                    start.await();
+                    return store.reissue(first.token(), next, RETENTION, now);
+                };
+                results.add(pool.submit(call));
+            }
+            start.countDown();
+            List<Reissue> done = new ArrayList<>();
+            for (Future<Reissue> f : results) {
+                done.add(f.get(5, TimeUnit.SECONDS));
+            }
+
+            assertThat(done).filteredOn(r -> r.result() == ReissueResult.REISSUED).hasSize(1);
+            String winner = done.stream().filter(r -> r.result() == ReissueResult.REISSUED).findFirst().orElseThrow()
+                    .token();
+            assertThat(done).filteredOn(r -> r.result() != ReissueResult.REISSUED)
+                    .allSatisfy(r -> assertThat(r).isEqualTo(new Reissue(ReissueResult.ALREADY_REISSUED, winner)));
+            assertThat(redis.keys("barcode:code:*")).hasSize(2);
+            assertThat(redis.opsForValue().get("barcode:user:7")).isEqualTo(winner);
+        } finally {
+            pool.shutdownNow();
+        }
+    }
+
+    @Test
+    void 재발급과_스캔이_겹치면_둘_중_하나만_된다() throws Exception {
+        for (int round = 0; round < 20; round++) {
+            long paymentId = 5000L + round;
+            Instant now = Instant.now();
+            Barcode first = authed(7L, now);
+            store.issue(first, RETENTION);
+            Barcode next = successorOf(first, now);
+            CountDownLatch start = new CountDownLatch(1);
+            ExecutorService pool = Executors.newFixedThreadPool(2);
+            try {
+                Future<Reissue> reissue = pool.submit(() -> {
+                    start.await();
+                    return store.reissue(first.token(), next, RETENTION, now);
+                });
+                Future<BarcodeStore.ScanResult> scan = pool.submit(() -> {
+                    start.await();
+                    return store.scan(first.token(), 7L, paymentId, now, RETENTION);
+                });
+                start.countDown();
+                boolean reissued = reissue.get(5, TimeUnit.SECONDS).result() == ReissueResult.REISSUED;
+                boolean scanned = scan.get(5, TimeUnit.SECONDS) == BarcodeStore.ScanResult.SCANNED;
+
+                assertThat(reissued).isNotEqualTo(scanned);
+            } finally {
+                pool.shutdownNow();
+            }
+        }
+    }
+
+    /** 지금 PIN으로 인증해 연 코드 */
+    private Barcode authed(Long userId, Instant issuedAt) {
+        return new Barcode(tokens.next(), userId, BarcodeStatus.ISSUED, issuedAt, issuedAt.plusSeconds(60), null,
+                new IssueAuth(userId * 10, issuedAt, AuthMethod.PIN, 900L), null);
+    }
+
+    /** 이전 코드의 인증 정보를 물려받은 새 코드 */
+    private Barcode successorOf(Barcode previous, Instant issuedAt) {
+        return new Barcode(tokens.next(), previous.userId(), BarcodeStatus.ISSUED, issuedAt, issuedAt.plusSeconds(60),
+                null, previous.auth(), null);
     }
 
     private Barcode issued(Long userId) {

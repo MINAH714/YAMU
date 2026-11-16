@@ -121,6 +121,20 @@ public class StepUpService {
         return grant;
     }
 
+    /**
+     * 앞서 받은 본인 인증을 다시 써도 되는지 본다(결제 코드 재발급, S15P31E103-530). 토큰은 받지 않고 {@link #requireStepUp}이 토큰을
+     * 쓴 뒤 하는 확인만 다시 한다. 기기가 해제됐으면 DEVICE_NOT_REGISTERED, 잠겼으면 DEVICE_LOCKED,
+     * 생체로 인증한 뒤 "간편 비밀번호만"으로 바꿨으면 STEP_UP_REQUIRED.
+     *
+     * @param method 앞서 인증한 방식
+     */
+    public void requireReusable(AuthUser me, StepUpPurpose purpose, AuthMethod method) {
+        UserDevice device = requireActiveDevice(me);
+        if (method == AuthMethod.BIOMETRIC && pinOnly(device, purpose)) {
+            throw new BusinessException(ErrorCode.STEP_UP_REQUIRED);
+        }
+    }
+
     /** 요청 기기가 이 사용자의 쓸 수 있는 기기이고 지금 잠겨 있지 않은지. */
     private UserDevice requireActiveDevice(AuthUser me) {
         UserDevice device = deviceRepository.findWithUserById(me.userDeviceId())
