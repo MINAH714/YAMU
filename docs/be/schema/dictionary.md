@@ -450,7 +450,7 @@ fin_transaction_no는 상태 코드가 아니라 **이 결제로 발생한 계�
 | fin_request_no | `CHAR(20) CHARACTER SET ascii COLLATE ascii_bin NULL` | SSAFY 요청 Header.institutionTransactionUniqueNo. 서버가 YYYYMMDD + HHMMSS + 일련번호 6자리로 생성; 아래 채번 규칙 참조. 요청 전 NULL |
 | fin_request_amount | `BIGINT NULL` | 이번 시도의 체크카드 출금 요청액(결제 금액 − 즉시할인). fin_request_no와 같은 트랜잭션에서 저장하고 재승인·되돌리기 때 함께 지운다. 출금 결과 불명 시 거래내역 금액과 비교한다. 출금 요청 전·신용카드·0원 승인은 NULL; S15P31E103-292 이전 행도 NULL이라 requested_amount로 비교 |
 | fin_transaction_no | `VARCHAR(128) CHARACTER SET ascii COLLATE ascii_bin NULL` | 체크카드 출금 성공 시 금융망이 반환한 거래 번호; 상태 코드가 아님. 신용카드는 승인 시 NULL이며 결제일 출금 번호는 CARD_BILL에 저장 |
-| refund_linked_account_id | `BIGINT NULL` | 체크카드 취소 환불을 입금한 연결 계좌(같은 사용자 소유). 취소를 저장할 때 실제로 넣은(또는 거래내역에서 이미 들어간 것을 찾은) 계좌를 한 번 적고 바꾸지 않는다. 0원 승인·신용카드(환급 계좌는 REFUND)·취소 전은 NULL. 칸 추가 전 취소된 체크카드 결제는 마이그레이션 때 카드의 연결 계좌로 채웠고, 카드에 연결 계좌가 없던 결제는 NULL (S15P31E103-323, V20261116_3) |
+| refund_linked_account_id | `BIGINT NULL` | 체크카드 취소 환불을 입금한 연결 계좌(같은 사용자 소유). 취소를 저장할 때 실제로 넣은(또는 거래내역에서 이미 들어간 것을 찾은) 계좌를 한 번 적고 바꾸지 않는다. 0원 승인·신용카드(환급 계좌는 REFUND)·취소 전은 NULL. 칸 추가 전 취소된 체크카드 결제는 마이그레이션 때 카드의 연결 계좌로 채웠고, 카드에 연결 계좌가 없던 결제는 NULL (S15P31E103-323, V20261116_4) |
 | created_at | `TIMESTAMP(6) NOT NULL` | UTC 생성 시각 |
 | updated_at | `TIMESTAMP(6) NOT NULL` | UTC 수정 시각 |
 | version | `BIGINT NOT NULL DEFAULT 0` | JPA 낙관적 락 버전 |
