@@ -39,7 +39,8 @@ import com.yamu.app.core.security.SessionEndEvent
 import com.yamu.app.core.ui.LocalSnackbar
 
 /**
- * 바깥 틀 — 하단 탭(탭 첫 화면 4개에서만, 가운데 결제 버튼 포함) · 스낵바.
+ * 바깥 틀 — 하단 탭(가운데 결제 버튼 포함) · 스낵바. 하단 탭은 메인 그래프의 보는 화면 모두에 보이고 입력 · 확정 흐름에서만 숨는다
+ * ([showsBottomBar], S15P31E103-521). 하위 화면에서는 그 화면이 쌓인 탭이 골라져 보인다([selectedTab]).
  * 여백(insets)은 화면마다 자기 Scaffold가 처리하고, 여기서는 하단 탭 높이만 넘긴 뒤 소비(consume)한다 — 두 번 겹치지 않게.
  * [sessionEnd]는 아직 처리하지 않은 '세션 끝남'이라 화면을 다시 만드는 중에 생겨도 남아 있다. 처리하기 전에 [settleSessionEnd]로
  * 지난 알림(그 뒤 새로 로그인)인지 보고 기기 해제면 거기서 세션 · 기기 키를 지운다. 처리한 뒤에는 [onSessionEndHandled]로 지운다.
@@ -80,18 +81,21 @@ fun YamuApp(
     AutoLockEffect(navController, autoLockSeconds)
 
     val destination = entry?.destination
-    val currentTab = TopTab.entries.firstOrNull { tab -> destination?.hasRoute(tab.routeClass) == true }
+    val showBar = destination.showsBottomBar()
+    val currentTab = remember(entry, showBar) { if (showBar) navController.selectedTab() else null }
+    val onTabRoot = currentTab != null && destination?.hasRoute(currentTab.routeClass) == true
 
     CompositionLocalProvider(LocalSnackbar provides snackbar) {
         Scaffold(
             contentWindowInsets = WindowInsets(0, 0, 0, 0),
-            containerColor = YamuTheme.colors.background,
+            // 막대 위 가운데 원이 올라온 틈은 이 바탕이 보인다 — 하위 화면은 대개 흰 바탕이거나 아래 고정 버튼이 흰색이라 흰색으로 맞춘다
+            containerColor = if (currentTab != null && !onTabRoot) YamuTheme.colors.surface else YamuTheme.colors.background,
             bottomBar = {
                 if (currentTab != null) {
                     YamuBottomBar(
                         items = TopTab.items,
                         selectedIndex = currentTab.ordinal,
-                        onSelect = { navController.navigateToTab(TopTab.entries[it]) },
+                        onSelect = { navController.selectTab(TopTab.entries[it], currentTab) },
                         // 가운데 결제 — 탭이 아니라 결제 코드(P-06)를 연다. 카드가 0장이면 결제 코드 화면이 카드 추가로 보낸다(-450)
                         center = BottomBarCenter("결제", YamuTabIcons.PayCode, "결제 코드 열기") {
                             navController.navigate(PayCode) { launchSingleTop = true }
@@ -100,18 +104,21 @@ fun YamuApp(
                 }
             },
             snackbarHost = {
-                // 탭 밖 흐름 화면은 아래 고정 버튼(BottomCta)이 있어 그 위로 띄운다 — 주 버튼을 가리지 않게.
-                // 탭 화면은 막대 가운데 원이 위로 올라와 있어 그만큼 올린다
-                val lift = if (currentTab == null) {
-                    Modifier.windowInsetsPadding(WindowInsets.navigationBars).padding(bottom = YamuSize.button + YamuSpacing.x2 + YamuSpacing.x4)
-                } else Modifier.padding(bottom = BottomBarCenterRise)
+                // 하단 탭이 없는 흐름 화면은 아래 고정 버튼(BottomCta)이 있어 그 위로 띄운다 — 주 버튼을 가리지 않게.
+                // 하단 탭이 있으면 막대 가운데 원이 올라온 만큼 올리고, 하위 화면은 고정 버튼(잔고예보 · 혜택 한도 등)이 있을 수 있어 그만큼 더 올린다
+                val lift = when {
+                    currentTab == null ->
+                        Modifier.windowInsetsPadding(WindowInsets.navigationBars).padding(bottom = YamuSize.button + YamuSpacing.x2 + YamuSpacing.x4)
+                    onTabRoot -> Modifier.padding(bottom = BottomBarCenterRise)
+                    else -> Modifier.padding(bottom = BottomBarCenterRise + YamuSize.button + YamuSpacing.x3 + YamuSpacing.x2)
+                }
                 SnackbarHost(snackbar, modifier = lift) { data -> YamuSnackbar(data) }
             },
         ) { inner ->
             YamuNavHost(
                 navController = navController,
                 onStartDecided = onStartDecided,
-                // 탭 화면은 막대 가운데 원이 올라온 만큼 더 띄운다 — 맨 아래 글자(마이 버전 등)가 원에 가리지 않게
+                // 하단 탭이 있으면 막대 가운데 원이 올라온 만큼 더 띄운다 — 맨 아래 글자(마이 버전 등)와 고정 버튼이 원에 가리지 않게
                 modifier = Modifier
                     .padding(inner)
                     .consumeWindowInsets(inner)

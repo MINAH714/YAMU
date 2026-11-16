@@ -33,7 +33,6 @@ import androidx.compose.foundation.text.TextAutoSize
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
@@ -146,7 +145,6 @@ import java.time.YearMonth
 fun HomeRoute(
     onForecast: () -> Unit,
     onNotifications: () -> Unit,
-    onMyCards: () -> Unit,
     onStartLinking: () -> Unit,
     onRecentPayment: (paymentId: Long) -> Unit,
     onPayments: () -> Unit,
@@ -182,7 +180,6 @@ fun HomeRoute(
         onPerfTab = onPerfTab,
         onBenefitLimits = onBenefitLimits,
         onNotifications = onNotifications,
-        onMyCards = onMyCards,
         onStartLinking = onStartLinking,
         onRecentPayment = onRecentPayment,
         onPayments = {
@@ -205,7 +202,6 @@ fun HomeScreen(
     onRefresh: () -> Unit,
     onRetry: () -> Unit,
     onNotifications: () -> Unit,
-    onMyCards: () -> Unit,
     onStartLinking: () -> Unit,
     onRecentPayment: (Long) -> Unit,
     onRetryBenefit: () -> Unit = {},
@@ -224,10 +220,9 @@ fun HomeScreen(
     val c = YamuTheme.colors
     Scaffold(
         topBar = {
+            // 탭 첫 화면 앱바는 넷 다 왼쪽 제목(홈은 로고) + 오른쪽 알림 종 하나(S15P31E103-521). 내 카드(H-03) 아이콘은 뺐다 —
+            // 카드는 홈 '내 카드 혜택 현황' · 실적관리 탭 · 마이 '카드 관리'에서 본다
             YamuTopBar("홈", containerColor = c.background, logo = TopBarLogo.Start) {
-                IconButton(onClick = onMyCards) {
-                    Icon(YamuIcons.CreditCard, contentDescription = "내 카드", tint = c.text1)
-                }
                 NotificationBell(unread = state.content?.unreadCount ?: 0, onClick = onNotifications)
             }
         },
@@ -1078,7 +1073,7 @@ private fun HomeScreenPreview() = YamuTheme {
             ),
             pay = HomeSection.Ready(PaySettings(autoSelect = true, defaultUserCardId = null)),
         ),
-        onRefresh = {}, onRetry = {}, onNotifications = {}, onMyCards = {},
+        onRefresh = {}, onRetry = {}, onNotifications = {},
         onStartLinking = {}, onRecentPayment = {},
     )
 }
