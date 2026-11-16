@@ -60,9 +60,31 @@ dependencies {
 }
 
 tasks.named('test') {
-    useJUnitPlatform()
+    useJUnitPlatform {
+        // 승인형 본 실험은 별도 태스크에서만 선택한다. 사전 경계 검사는 그대로 실행한다.
+        excludeTags 'six-month-approved-experiment'
+    }
     // 테스트는 개인 로컬 설정(application-local.yml) 대신 src/test/resources/application-test.yml을 쓴다.
     systemProperty 'spring.profiles.active', 'test'
+}
+
+tasks.register('sixMonthExperiment', Test) {
+    group = 'verification'
+    description = 'Run the explicitly approved EXP-006 six-month comparison.'
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    useJUnitPlatform {
+        includeTags 'six-month-approved-experiment'
+    }
+    systemProperty 'spring.profiles.active', 'test'
+    // 승인된 재실행은 매번 새 결과를 만든다. 이전 성공으로 승인 검사를 우회하지 않는다.
+    outputs.upToDateWhen { false }
+    outputs.doNotCacheIf('An approved experiment must execute on every invocation') { true }
+    doFirst {
+        if (System.getenv('YAMU_EXP006_EXECUTE') != 'APPROVED_6_MONTHS_V1') {
+            throw new GradleException('sixMonthExperiment requires YAMU_EXP006_EXECUTE=APPROVED_6_MONTHS_V1; no experiment was started.')
+        }
+    }
 }
 
 tasks.register('seedLocal', JavaExec) {

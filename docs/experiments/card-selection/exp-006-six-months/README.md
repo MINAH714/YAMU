@@ -77,11 +77,17 @@ YAMU의 소비액 대비 혜택은 **1.24%**다. 연회비·이자·외부 지�
 구현: [생성·상태·선택](../../../../be/src/test/java/com/yamu/be/recommendation/CardSelectionSixMonthSupport.java), [실행·사전 검증](../../../../be/src/test/java/com/yamu/be/recommendation/CardSelectionSixMonthTest.java), [설정](../../../../be/src/test/resources/recommendation/card-selection-exp-006.json). 최초 고정 거래와 새 생성값이 다르면 본 실행은 중단한다.
 
 ```powershell
-# 저장소 be/에서. 재실행은 새 고유 실행 폴더를 만든다.
+# 저장소 be/에서. 일반 테스트는 사전 경계 검사를 포함하고 승인형 본 실험은 제외한다.
+.\gradlew.bat clean test
+python ..\infra\ci\check-test-results.py build\test-results\test
+
+# 사전 경계 검사만 재실행할 때
 .\gradlew.bat test --rerun-tasks --tests 'com.yamu.be.recommendation.CardSelectionSixMonthTest.preflightSixMonthBoundaries'
+
+# 명시적으로 승인한 본 실험. 재실행은 새 고유 실행 폴더를 만든다.
 $env:YAMU_EXP006_EXECUTE='APPROVED_6_MONTHS_V1'
 try {
-  .\gradlew.bat test --rerun-tasks --tests 'com.yamu.be.recommendation.CardSelectionSixMonthTest.approvedSixMonthComparison'
+  .\gradlew.bat sixMonthExperiment
 } finally { Remove-Item Env:YAMU_EXP006_EXECUTE }
 
 # 저장소 루트에서. 재실행 결과를 검산할 때는 그 실행 폴더를 지정한다.
@@ -92,4 +98,10 @@ $run='docs/experiments/card-selection/exp-006-six-months/runs/main-2026-11-13T08
 & docs/experiments/card-selection/Verify-Archives.ps1
 ```
 
-결과는 `build/`가 아닌 이 문서 폴더에 저장된다. [검산 결과](runs/main-2026-11-13T08-12-30.835208800Z-001549c3-9328-424e-b65b-38762aadac1e/independent-verification.json)와 [실행 검증](runs/main-2026-11-13T08-12-30.835208800Z-001549c3-9328-424e-b65b-38762aadac1e/validation.json)도 함께 확인할 수 있다.
+`test`·`check`·`build`는 승인 환경변수가 있어도 본 실험을 선택하지 않는다. 일반 CI의 실패·스킵 0건 검사는 그대로 유지한다. `sixMonthExperiment`는 승인값이 없거나 다르면 테스트 실행 전에 실패하며, 승인 조건은 IDE에서 직접 실행할 때도 적용된다. 이 태스크는 이전 실행 결과나 빌드 캐시로 성공을 대신하지 않는다.
+
+일반 테스트 보고서는 `be/build/test-results/test`와 `be/build/reports/tests/test`, 본 실험 보고서는 `be/build/test-results/sixMonthExperiment`와 `be/build/reports/tests/sixMonthExperiment`에 각각 생성된다. Docker로 일회용 MySQL·Redis 컨테이너를 실행할 수 있어야 한다.
+
+Windows JDK 17의 기본 인코딩이 MS949라면 한글 SQL을 읽는 기존 QA 시드 테스트가 실패할 수 있다. 일반 전체 테스트를 검증할 때는 실행 터미널에서 `$env:JAVA_TOOL_OPTIONS='-Dfile.encoding=UTF-8'`로 UTF-8을 지정한다. 이 설정은 본 실험 승인과 별개다.
+
+실험 산출물은 `build/`가 아닌 이 문서 폴더에 저장된다. [검산 결과](runs/main-2026-11-13T08-12-30.835208800Z-001549c3-9328-424e-b65b-38762aadac1e/independent-verification.json)와 [실행 검증](runs/main-2026-11-13T08-12-30.835208800Z-001549c3-9328-424e-b65b-38762aadac1e/validation.json)도 함께 확인할 수 있다.
