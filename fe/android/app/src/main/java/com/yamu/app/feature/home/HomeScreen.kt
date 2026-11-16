@@ -99,11 +99,7 @@ import com.yamu.app.core.network.ApiError
 import com.yamu.app.core.ui.ReloadOnReconnect
 import com.yamu.app.core.ui.userMessage
 import com.yamu.app.feature.home.data.BenefitByType
-import com.yamu.app.feature.home.data.CardBenefit
-import com.yamu.app.feature.home.data.HOME_CARD_ROWS
 import com.yamu.app.feature.home.data.HomeBenefit
-import com.yamu.app.feature.home.data.HomeCardRow
-import com.yamu.app.feature.home.data.HomeCardsData
 import com.yamu.app.feature.home.data.HomeForecastBrief
 import com.yamu.app.feature.home.data.HomeGreeting
 import com.yamu.app.feature.home.data.HomeSummary
@@ -111,21 +107,17 @@ import com.yamu.app.feature.home.data.ConditionLine
 import com.yamu.app.feature.home.data.MissedBenefits
 import com.yamu.app.feature.home.data.RemainingLimit
 import com.yamu.app.feature.home.data.PaySettings
-import com.yamu.app.feature.home.data.PerfChipTone
 import com.yamu.app.feature.home.data.RecentPayment
 import com.yamu.app.feature.home.data.amountText
 import com.yamu.app.feature.home.data.benefitCoins
 import com.yamu.app.feature.home.data.benefitTitle
-import com.yamu.app.feature.home.data.cardTileDescription
 import com.yamu.app.feature.home.data.emptyNote
 import com.yamu.app.feature.home.data.homeGreeting
 import com.yamu.app.feature.home.data.minLabel
 import com.yamu.app.feature.home.data.missed
-import com.yamu.app.feature.home.data.noBenefitThisMonth
 import com.yamu.app.feature.home.data.paidAtLabel
 import com.yamu.app.feature.home.data.pendingOnly
 import com.yamu.app.feature.home.data.recentPaymentOutsidePayCard
-import com.yamu.app.feature.home.data.rows
 import com.yamu.app.feature.home.data.showsTypes
 import com.yamu.app.feature.home.data.unconvertedNote
 import com.yamu.app.feature.link.CardListThumb
@@ -136,9 +128,10 @@ import java.time.OffsetDateTime
 import java.time.YearMonth
 
 /**
- * H-01 홈 — v4(11/13 '홈 개편 및 소비 분석 확장 요구사항 명세서'). 위에서부터 인사 → 이번 달 혜택 → 잔고예보 보기 버튼(S15P31E103-520)
- * → 내 카드 혜택 현황 → 놓치기 아까운 혜택 → 잔고예보 요약(S15P31E103-481). 큰 자산 흐름 그래프는 홈에 두지 않는다(HOME-16).
- * 혜택 아래 결제 버튼(-480 · -499)은 11/16에 뺐다(-519) — 결제는 하단 가운데 버튼
+ * H-01 홈 — v4(11/13 '홈 개편 및 소비 분석 확장 요구사항 명세서'). 위에서부터 인사 → 이번 달 혜택 → 잔고예보 요약(S15P31E103-520)
+ * → 놓치기 아까운 혜택(S15P31E103-481). 큰 자산 흐름 그래프는 홈에 두지 않는다(HOME-16).
+ * 혜택 아래 결제 버튼(-480 · -499)은 11/16에 뺐다(-519) — 결제는 하단 가운데 버튼.
+ * 내 카드 혜택 현황(카드 타일 3장 + 전체보기)은 11/17 사용자 요청으로 뺐다(S15P31E103-574)
  */
 @Composable
 fun HomeRoute(
@@ -151,7 +144,6 @@ fun HomeRoute(
     onAddCard: () -> Unit,
     onBenefitReport: () -> Unit,
     onCardPerformance: (userCardId: Long) -> Unit,
-    onPerfTab: () -> Unit,
     onBenefitLimits: () -> Unit,
     viewModel: HomeViewModel = hiltViewModel(),
 ) {
@@ -168,7 +160,6 @@ fun HomeRoute(
         onRefresh = viewModel::refresh,
         onRetry = viewModel::load,
         onRetryBenefit = viewModel::retryBenefit,
-        onRetryCards = viewModel::retryCards,
         onRetryForecast = viewModel::retryForecast,
         arts = arts,
         onForecast = {
@@ -176,7 +167,6 @@ fun HomeRoute(
             onForecast()
         },
         onCardPerformance = onCardPerformance,
-        onPerfTab = onPerfTab,
         onBenefitLimits = onBenefitLimits,
         onNotifications = onNotifications,
         onStartLinking = onStartLinking,
@@ -204,13 +194,11 @@ fun HomeScreen(
     onStartLinking: () -> Unit,
     onRecentPayment: (Long) -> Unit,
     onRetryBenefit: () -> Unit = {},
-    onRetryCards: () -> Unit = {},
     onRetryForecast: () -> Unit = {},
     arts: Map<Long, CardArtRef> = emptyMap(),
     onPayments: () -> Unit = {},
     onBenefitReport: () -> Unit = {},
     onCardPerformance: (Long) -> Unit = {},
-    onPerfTab: () -> Unit = {},
     onBenefitLimits: () -> Unit = {},
     onForecast: () -> Unit = {},
     onRegisterIncome: () -> Unit = {},
@@ -220,7 +208,7 @@ fun HomeScreen(
     Scaffold(
         topBar = {
             // 탭 첫 화면 앱바는 넷 다 왼쪽 제목(홈은 로고) + 오른쪽 알림 종 하나(S15P31E103-521). 내 카드(H-03) 아이콘은 뺐다 —
-            // 카드는 홈 '내 카드 혜택 현황' · 실적관리 탭 · 마이 '카드 관리'에서 본다
+            // 카드는 실적관리 탭 · 마이 '카드 관리'에서 본다
             YamuTopBar("홈", containerColor = c.background, logo = TopBarLogo.Start) {
                 NotificationBell(unread = state.content?.unreadCount ?: 0, onClick = onNotifications)
             }
@@ -249,9 +237,9 @@ fun HomeScreen(
                             onRegisterIncome = onRegisterIncome,
                             onRetryForecast = onRetryForecast,
                         )
-                        // 아래쪽(S15P31E103-481) — 카드가 있어야 보이는 두 칸. 잔고예보 요약은 위(혜택 히어로 아래)로 올렸다
+                        // 아래쪽(S15P31E103-481) — 카드가 있어야 보이는 칸. 잔고예보 요약은 위(혜택 히어로 아래)로 올렸고
+                        // 그 위에 있던 내 카드 혜택 현황은 11/17에 뺐다(S15P31E103-574)
                         if (!content.needsLinking && !content.needsCard) {
-                            CardsSection(state.cards, arts, state.cardBenefitsShown(), onCard = onCardPerformance, onAll = onPerfTab, onRetry = onRetryCards)
                             state.cards.dataOrNull?.missed()?.takeUnless { it.isEmpty }?.let { MissedSection(it, arts, onCard = onCardPerformance, onAll = onBenefitLimits) }
                         }
                     }
@@ -760,97 +748,6 @@ private fun SectionFailure(text: String, onRetry: () -> Unit) {
 }
 
 /**
- * 내 카드 혜택 현황(HOME-10 · 11) — 받은 혜택이 큰 카드부터 3장 + '전체보기 ›'(실적관리 탭). 카드별 혜택을 모르면 카드 목록 순서.
- * 11/16 사용자 요청으로 세로 줄 대신 놓치기 아까운 혜택과 같은 카드 그림 가로 타일로 바꿨다(S15P31E103-519, 한눈에 보이게).
- * 타일은 카드 이름 → 받은 혜택 → 실적 막대(-520에서 글자를 줄임). 받은 혜택은 새 서버(BE -489)의 카드별 혜택이 있을 때만 —
- * 옛 서버이거나 그 호출만 실패했으면 그 줄을 숨긴다(11/13 결정: 0원으로 지어내지 않음). 받아 왔는데 이번 달 YAMU 혜택이 없는 카드는
- * 11/16부터 회색 '이번 달 혜택 없음'으로 말한다.
- * 누르면 그 카드 R-02(실적 조건 없는 카드는 R-02에 보일 실적이 없어 열지 않는다)
- */
-@Composable
-private fun CardsSection(
-    section: HomeSection<HomeCardsData>,
-    arts: Map<Long, CardArtRef>,
-    benefits: Map<Long, CardBenefit>?,
-    onCard: (Long) -> Unit,
-    onAll: () -> Unit,
-    onRetry: () -> Unit,
-) {
-    val rows = section.dataOrNull?.rows(benefits)
-    if (rows != null && rows.isEmpty()) return   // 카드 영역만 실패해 0장으로 읽힌 홈 — 실적도 0장이면 그릴 것이 없다
-    YamuCard(contentPadding = PaddingValues(top = 16.dp, bottom = 16.dp)) {
-        Box(Modifier.padding(horizontal = 20.dp)) { SectionTitle("내 카드 혜택 현황", link = "전체보기", onLink = onAll) }
-        Spacer(Modifier.height(12.dp))
-        when {
-            rows != null -> Row(
-                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 20.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                rows.forEach { row ->
-                    CardTile(
-                        row, arts[row.userCardId], benefits?.get(row.userCardId),
-                        noBenefit = noBenefitThisMonth(benefits, row.userCardId),
-                        onClick = if (row.opens) ({ onCard(row.userCardId) }) else null,
-                    )
-                }
-            }
-            section is HomeSection.Failed -> Box(Modifier.padding(horizontal = 20.dp)) { SectionFailure("카드 현황을 불러오지 못했어요", onRetry) }
-            else -> Row(Modifier.padding(horizontal = 20.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                repeat(HOME_CARD_ROWS) {
-                    Column(Modifier.width(CARD_TILE_WIDTH)) {
-                        SkeletonBlock(height = CARD_TILE_ART_HEIGHT)
-                        Spacer(Modifier.height(10.dp))
-                        SkeletonBlock(height = 16.dp, widthFraction = 0.7f)
-                        Spacer(Modifier.height(6.dp))
-                        SkeletonBlock(height = 16.dp, widthFraction = 0.5f)
-                    }
-                }
-            }
-        }
-    }
-}
-
-/**
- * 내 카드 타일 폭 — 11/16 사용자 요청으로 148에서 줄였다. 잔고예보를 히어로 아래로 올린 뒤 홈을 열자마자 이 칸이 보이게,
- * 411dp 화면에서는 3장이 다 들어가고 360dp에서는 셋째가 조금 보인다. 놓치기 아까운 혜택은 [MISSED_TILE_WIDTH] 그대로
- */
-private val CARD_TILE_WIDTH = 104.dp
-
-/** 카드 타일 그림 높이(폭 104dp 카드의 1.586:1) — 불러오는 중 회색 막대 크기 */
-private val CARD_TILE_ART_HEIGHT = 66.dp
-
-/** 내 카드 타일 한 장 — 읽을 때는 [cardTileDescription] 한 문장 */
-@Composable
-private fun CardTile(row: HomeCardRow, art: CardArtRef?, benefit: CardBenefit?, noBenefit: Boolean, onClick: (() -> Unit)?) {
-    val c = YamuTheme.colors
-    CardArtTile(
-        art, row.brand, art?.productName ?: row.productName ?: row.name,
-        description = cardTileDescription(row, benefit, noBenefit),
-        onClickLabel = "카드 실적 보기",
-        onClick = onClick,
-        width = CARD_TILE_WIDTH,
-    ) {
-        // 11/16 사용자 요청(S15P31E103-520): 글자는 이름과 받은 혜택만, 나머지는 그림(실적 막대). 혜택 예정 · 남은 한도 · 실적 글자는
-        // 카드를 눌러 여는 R-02에서 보고, 화면 읽기는 [cardTileDescription]으로 다 읽는다
-        Text(row.name, style = YamuTheme.typography.sub, color = c.text3, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        // 타일이 좁아져(104dp) 큰 금액이 넘치면 끝을 말줄임으로 — 화면 읽기는 설명 문장이 전부 읽는다.
-        // 이번 달 YAMU 혜택이 없다고 확인된 카드는 빈칸 대신 회색 '이번 달 혜택 없음'(11/16 사용자 요청). 혜택을 모르면 지금처럼 줄을 숨긴다
-        when {
-            noBenefit -> Text("이번 달 혜택 없음", style = YamuTheme.typography.bodyM, color = c.text3, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            // 금액만(11/16 사용자 요청으로 '받음'을 뺐다) — 칸 제목이 '혜택 현황'이라 받은 혜택인 줄 알 수 있고, 화면 읽기는 '받은 혜택 ○원'으로 읽는다
-            benefit != null -> Text("${benefit.confirmed.toWon()}원", style = YamuTheme.typography.value, color = c.primary, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        }
-        row.progress?.let { p ->
-            Spacer(Modifier.height(8.dp))
-            val done = row.chip.tone == PerfChipTone.Done
-            Box(Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp)).background(c.surfaceVariant)) {
-                Box(Modifier.fillMaxWidth(p).fillMaxHeight().clip(RoundedCornerShape(3.dp)).background(if (done) c.success else c.primary))
-            }
-        }
-    }
-}
-
-/**
  * 놓치기 아까운 혜택(HOME-12 · 13) — 확인된 것이 있을 때만. 실물 카드 그림을 크게 둔 카드를 옆으로 넘긴다(11/15 결정, 글 목록 대신).
  * 남은 한도(금액을 아는 이번 달 한도, 많은 순)가 먼저, 그다음 조건 카드(이번 달 실적 → 다음 달 혜택, 남은 금액 적은 순).
  * 더 쓰라는 말은 쓰지 않는다 — 조건 카드는 지금 실적과 목표를 막대로만 보인다. 한도 카드를 누르면 R-06, 조건 카드를 누르면 그 카드 R-02,
@@ -877,7 +774,7 @@ private val MISSED_TILE_WIDTH = 148.dp
 
 /**
  * 카드 그림(카드 목록의 상품 그림, 없으면 카드사 색 카드) + 아래 글 — 읽을 때는 [description] 한 문장.
- * 놓치기 아까운 혜택과 내 카드 혜택 현황이 같이 쓴다. [onClick]이 null이면 누를 수 없는 타일(실적 조건 없는 카드)
+ * 놓치기 아까운 혜택의 한도 · 조건 카드가 쓴다(같이 쓰던 내 카드 혜택 현황은 11/17에 뺐다). [onClick]이 null이면 누를 수 없는 타일
  */
 @Composable
 private fun CardArtTile(
