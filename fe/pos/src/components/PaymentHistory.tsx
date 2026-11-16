@@ -45,8 +45,6 @@ function groupByDay(items: PaymentHistoryItem[]) {
 /** POS 결제 내역. 왼쪽 목록, 오른쪽 352px 상세(결과 화면의 주문 내역 자리)와 주 버튼 하나 */
 export function PaymentHistory({ items, error = null, onReload, selectedId, inert, onSelect, onCancel, onBack }: Props) {
   const selected = items?.find((item) => item.paymentId === selectedId) ?? null
-  // 고를 결제가 있을 때만 고르라고 안내한다. 불러오는 중·실패·빈 목록은 왼쪽에 이미 안내가 있어 오른쪽은 비워 둔다
-  const hasChoices = !error && items !== null && items.length > 0
 
   return (
     <section className="history" inert={inert}>
@@ -107,13 +105,8 @@ export function PaymentHistory({ items, error = null, onReload, selectedId, iner
         )}
       </div>
 
-      <aside className="history-side">
-        {selected ? (
-          <HistoryDetail item={selected} onCancel={onCancel} />
-        ) : (
-          hasChoices && <p className="history-side-empty">취소할 결제를 골라 주세요</p>
-        )}
-      </aside>
+      {/* 고른 결제가 없으면 비워 둔다. 고르라는 안내는 두지 않는다(목록이 바로 옆에 있다) */}
+      <aside className="history-side">{selected && <HistoryDetail item={selected} onCancel={onCancel} />}</aside>
     </section>
   )
 }
