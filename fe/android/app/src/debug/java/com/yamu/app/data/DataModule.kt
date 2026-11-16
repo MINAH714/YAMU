@@ -91,7 +91,7 @@ object DataModule {
     fun reportRepository(real: Provider<ReportRepositoryImpl>, fake: Provider<FakeReportRepository>): ReportRepository =
         if (ApiFeature.REPORT.isReal) real.get() else fake.get()
 
-    /** 소비분석 자산 흐름 — 잔고예보와 같은 예보 API라 잔고예보(FORECAST)가 진짜일 때만 진짜 */
+    /** 소비분석 자산 흐름 — REPORT를 켜면 ApiFeature가 FORECAST와 LINK도 켜므로 계좌·예보까지 실제 API를 쓴다. */
     @Provides
     @Singleton
     fun assetFlowRepository(real: Provider<AssetFlowRepositoryImpl>, fake: Provider<FakeAssetFlowRepository>): AssetFlowRepository =

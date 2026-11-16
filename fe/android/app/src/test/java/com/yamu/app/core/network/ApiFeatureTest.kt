@@ -7,6 +7,10 @@ import org.junit.Test
 
 /** yamu.realApi(BuildConfig.REAL_API) → 진짜 서버를 쓰는 기능 */
 class ApiFeatureTest {
+    @Test fun `소비 리포트 실 API는 자산 흐름과 계좌도 함께 켠다`() {
+        assertEquals(setOf(ApiFeature.REPORT, ApiFeature.FORECAST, ApiFeature.LINK), ApiFeature.parse("report"))
+        assertEquals(setOf(ApiFeature.AUTH, ApiFeature.REPORT, ApiFeature.FORECAST, ApiFeature.LINK), ApiFeature.parse("auth,report"))
+    }
     @Test fun `비어 있으면 전부 가짜`() {
         assertTrue(ApiFeature.parse("").isEmpty())
     }
