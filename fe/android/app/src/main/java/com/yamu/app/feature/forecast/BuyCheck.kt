@@ -59,6 +59,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.ImeAction
@@ -100,6 +101,7 @@ import com.yamu.app.core.format.amountDigits
 import com.yamu.app.core.format.objectParticle
 import com.yamu.app.core.format.toKoreanDate
 import com.yamu.app.core.format.toWon
+import com.yamu.app.core.format.toWonUnit
 import com.yamu.app.core.network.ApiResult
 import com.yamu.app.core.ui.LocalSnackbar
 import com.yamu.app.core.ui.userMessage
@@ -163,6 +165,9 @@ private fun AmountField(amount: Long, active: Boolean, onClick: () -> Unit) {
         Text("원", style = YamuTheme.typography.titleL, color = c.text2, modifier = Modifier.padding(start = 8.dp).alignByBaseline())
     }
 }
+
+/** 가격 칸 아래 단위를 보이기 시작하는 금액 — 1만 원 아래는 "5,000원"처럼 칸의 숫자와 같다 */
+private const val UNIT_HINT_MIN = 10_000L
 
 /** 가격 자리 수 — 상한 1,000억 원이 12자리 */
 private val AMOUNT_DIGITS = SimulationQuery.AMOUNT_MAX.toString().length
@@ -232,6 +237,15 @@ fun BuyCheckInputRoute(onBack: () -> Unit, onNext: (amount: Long, title: String?
             Spacer(Modifier.height(24.dp))
             Text("가격", style = YamuTheme.typography.bodyS, color = if (titleFocused) c.text2 else c.primary)
             AmountField(amount, active = !titleFocused, onClick = { focusManager.clearFocus() })
+            // 읽기 쉬운 단위(S15P31E103-587) — 1만 원부터 "20만 원"처럼. 그 아래는 칸에 친 숫자와 같아 비운다.
+            // 줄은 늘 둬서 단위가 생기고 없어져도 아래 칸이 움직이지 않는다. 가격 칸이 이미 금액을 읽어 TalkBack에선 뺀다
+            Text(
+                if (amount >= UNIT_HINT_MIN) amount.toWonUnit() else "",
+                style = YamuTheme.typography.bodyS,
+                color = c.text3,
+                maxLines = 1,
+                modifier = Modifier.padding(top = 8.dp).clearAndSetSemantics {},
+            )
             Spacer(Modifier.height(16.dp))   // 칸 위 24(.tf margin-top) − 입력칸이 라벨 자리로 두는 8
             YamuTextField(
                 label = "무엇을 사나요 (선택)",
@@ -244,8 +258,6 @@ fun BuyCheckInputRoute(onBack: () -> Unit, onNext: (amount: Long, title: String?
                 // 기본 완료는 키보드만 내리고 커서를 남긴다 — 커서를 빼야 숫자 패드가 돌아온다
                 keyboardActions = KeyboardActions(onDone = { focusManager.clearFocus() }),
             )
-            Spacer(Modifier.height(8.dp))
-            Text("어디서 · 어떤 카드로 살지는 다음 화면에서 골라요", style = YamuTheme.typography.bodyS, color = c.text3)
         }
     }
 }
