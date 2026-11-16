@@ -52,7 +52,7 @@ class CheoeumStorePurchaseDatabaseTest extends SimulationSeedRecommendationDatab
             return policy;
         }).when(assembler).policy(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
                 org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.nullable(Long.class),
-                org.mockito.ArgumentMatchers.anyList(), org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
+                org.mockito.ArgumentMatchers.anyList(), org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.eq("STARBUCKS"));
         var result = port.recommend(request(user, List.of(card), "STARBUCKS", 21600, null, Map.of()));
         var cafe = originalPolicy.get().benefits().stream().filter(b -> b.name().contains("카페")).findFirst().orElseThrow();
         assertThat(cafe.conditions().requiredFacts()).contains("RULE:CHEOEUM_CAFE_ROUTE", "RULE:EXCLUDE_REDEEMED_POINTS_FROM_BASE");

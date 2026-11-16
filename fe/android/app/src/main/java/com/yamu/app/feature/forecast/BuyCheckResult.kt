@@ -447,13 +447,23 @@ private fun HeroCard(
                 Text(it.shortName(), style = YamuTheme.typography.bodyS, color = c.text3, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(start = 8.dp))
             }
         }
-        Spacer(Modifier.height(6.dp))
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            sim.before?.minBalance?.takeIf { it != after?.minBalance }?.let { b ->
-                Text("${b.toWon()}원", style = YamuTheme.typography.titleM.copy(textDecoration = TextDecoration.LineThrough), color = c.text3)
-                Icon(YamuIcons.ChevronRight, contentDescription = "에서", tint = c.text3, modifier = Modifier.padding(horizontal = 4.dp).size(18.dp))
+        // 전 → 후. 같으면(출금이 예보 기간 밖 · 고르지 않은 계좌 · 전액 즉시할인) 숫자 하나에 '사기 전과 같아요'를 붙여
+        // 구매 때문에 내려가는 값으로 읽히지 않게 한다(QA). 후 값이 없으면 0원으로 채우지 않고 숫자를 뺀다
+        val minAfter = after?.minBalance
+        val minBefore = sim.before?.minBalance
+        if (minAfter != null) {
+            Spacer(Modifier.height(6.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (minBefore != null && minBefore != minAfter) {
+                    Text("${minBefore.toWon()}원", style = YamuTheme.typography.titleM.copy(textDecoration = TextDecoration.LineThrough), color = c.text3, maxLines = 1)
+                    Icon(YamuIcons.ChevronRight, contentDescription = "에서", tint = c.text3, modifier = Modifier.padding(horizontal = 4.dp).size(18.dp))
+                }
+                AmountText(minAfter, shortage = minAfter < 0, color = c.primary, fitOneLine = true, modifier = Modifier.weight(1f, fill = false))
+                if (minBefore == minAfter) {
+                    Spacer(Modifier.width(8.dp))
+                    Text(SAME_AS_BEFORE, style = YamuTheme.typography.bodyM, color = c.text3, maxLines = 1)
+                }
             }
-            AmountText(after?.minBalance ?: 0, shortage = (after?.minBalance ?: 0) < 0, color = c.primary)
         }
         afterTag(after)?.let { (text, tone) ->
             Spacer(Modifier.height(8.dp))
@@ -469,6 +479,8 @@ private fun HeroCard(
         }
     }
 }
+
+internal const val SAME_AS_BEFORE = "사기 전과 같아요"
 
 /**
  * 사고 난 뒤 상태 — 권하거나 말리지 않고 잔액 사실만(FR-032 · BE 안내 문장과 같은 원칙).
@@ -499,7 +511,15 @@ private fun ScheduleCard(sim: Simulation, selectedDate: LocalDate?, onWithdrawal
     YamuCard(contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 18.dp, bottom = 8.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("빠져나가는 날", style = YamuTheme.typography.cardTitle, color = c.text1, modifier = Modifier.weight(1f))
-            Text(sim.accounts.singleOrNull()?.shortName() ?: "${sim.card.name} 출금 계좌", style = YamuTheme.typography.bodyS, color = c.text3)
+            Text(
+                sim.accounts.singleOrNull()?.shortName() ?: "${sim.card.name} 출금 계좌",
+                style = YamuTheme.typography.bodyS,
+                color = c.text3,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                textAlign = TextAlign.End,
+                modifier = Modifier.padding(start = 8.dp).weight(1f, fill = false),
+            )
         }
         Spacer(Modifier.height(4.dp))
         sim.schedule.forEachIndexed { i, w ->
@@ -527,7 +547,7 @@ private fun BenefitCard(sim: Simulation) {
     val b = sim.benefit
     YamuCard(contentPadding = PaddingValues(horizontal = 20.dp, vertical = 18.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("${sim.card.name}${sim.card.name.directionParticle()} 사면", style = YamuTheme.typography.cardTitle, color = c.text1, modifier = Modifier.weight(1f))
+            Text("${sim.card.name}${sim.card.name.directionParticle()} 사면", style = YamuTheme.typography.cardTitle, color = c.text1, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
             if (sim.card.recommendedTop) StatusTag("혜택 1순위", tone = TagTone.Primary)
         }
         Spacer(Modifier.height(8.dp))
@@ -571,12 +591,13 @@ private fun AlternativesCard(sim: Simulation, onPick: (Long) -> Unit) {
                     .background(c.primaryContainer)
                     .padding(horizontal = 14.dp, vertical = 12.dp),
             ) {
-                Text("${better.name}${better.name.subjectParticle()} 혜택이 더 커요", style = YamuTheme.typography.titleS, color = c.onPrimaryContainer)
+                Text("${better.name}${better.name.subjectParticle()} 혜택이 더 커요", style = YamuTheme.typography.titleS, color = c.onPrimaryContainer, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 listOfNotNull(better.net?.let { "${it.toWon()}원" }, sim.betterBy?.let { "지금 카드보다 ${it.toWon()}원 더" }).joinToString(" · ").takeIf { it.isNotEmpty() }?.let {
                     Text(it, style = YamuTheme.typography.bodyS, color = c.onPrimaryContainer, modifier = Modifier.padding(top = 2.dp))
                 }
                 Spacer(Modifier.height(10.dp))
-                CompactButton("${better.name}${better.name.directionParticle()} 다시 보기", onClick = { onPick(better.userCardId) }, small = true)
+                // 카드 이름은 위 줄에 있다 — 버튼(CompactButton은 말줄임 없이 잘린다)에는 넣지 않는다
+                CompactButton("이 카드로 다시 보기", onClick = { onPick(better.userCardId) }, small = true)
             }
         }
         Spacer(Modifier.height(4.dp))

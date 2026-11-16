@@ -422,7 +422,7 @@ public class PaymentApprovalService {
                         context.map(MerchantContextSnapshot::categoryCode).orElse(null),
                         payment.getPaymentChannel().name(),
                         payment.getFacilityType() == null ? null : payment.getFacilityType().name()),
-                payment.getRequestedAt());
+                payment.getRequestedAt(), context.map(MerchantContextSnapshot::basket).orElse(null));
     }
 
     /**

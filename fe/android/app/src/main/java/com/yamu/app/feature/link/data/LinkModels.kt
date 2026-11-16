@@ -297,7 +297,7 @@ data class CardInfo(
     val settlementAccountId: Long?,
     val checkAccountLabel: String?,         // 체크카드 연결 계좌 — 계좌 목록을 못 읽었을 때 글자로만
     val nextWithdrawal: NextWithdrawal?,
-    val hasOpenBill: Boolean = false,       // 확정 · 미납 청구가 있어 해제할 수 없다. 쌓이는 중인 청구는 여기 없어 해제 때 서버가 막는다
+    val hasOpenBill: Boolean = false,       // 확정 · 미납 청구가 있다. 해제는 되고 이 청구는 결제일에 그대로 출금된다(S15P31E103-562)
 ) {
     val displayName: String get() = nickname ?: productName
 }

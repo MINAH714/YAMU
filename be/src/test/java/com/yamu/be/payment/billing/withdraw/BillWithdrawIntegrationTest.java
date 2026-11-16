@@ -264,6 +264,25 @@ class BillWithdrawIntegrationTest extends MySqlTestSupport {
         verify(transfer).withdraw(anyString(), eq(ACCOUNT_NO), eq(20_000L), any(), anyString());
     }
 
+    @Test
+    void 카드_등록을_해제해도_확정_당시_계좌에서_출금한다() {
+        // S15P31E103-562: 해제는 YAMU 등록만 푼다. 출금 대상·출금 계좌는 카드 등록 상태를 보지 않는다
+        Bill bill = confirmed(20_000);
+        jdbc.update("UPDATE user_card SET status = 'UNREGISTERED', is_default = 0, display_order = NULL"
+                + " WHERE user_card_id = ?", card);
+
+        JobRunReport report = runNow();
+
+        assertThat(report.results()).singleElement().satisfies(item -> {
+            assertThat(item.outcome()).isEqualTo(JobRunReport.Outcome.SUCCEEDED);
+            assertThat(item.result()).isEqualTo("PAID");
+        });
+        verify(transfer).withdraw(anyString(), eq(ACCOUNT_NO), eq(20_000L), eq(TransferTag.bill(bill.id())),
+                anyString());
+        assertThat(billRow(bill.id()).get("status")).isEqualTo("PAID");
+        assertThat(bill.items()).allSatisfy(item -> assertThat(itemStatus(item)).isEqualTo("PAID"));
+    }
+
     // ───────── 미납 ─────────
 
     @Test

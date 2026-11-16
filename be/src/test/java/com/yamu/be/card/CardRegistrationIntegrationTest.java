@@ -99,6 +99,23 @@ class CardRegistrationIntegrationTest extends MySqlTestSupport {
         creditProduct = product("신한카드 Mr.Life", "CREDIT", 14);
     }
 
+    @Test
+    void ibkCheckCardRegistersWithItsCorporateBankAccount() throws Exception {
+        jdbc.update("UPDATE card_product SET issuer_code='IBK',product_name='IBK나라사랑카드' WHERE card_product_id=?",checkProduct);
+        Member member=member(StepUpPurpose.CARD_REGISTER);
+        long account=account(member.userId(),"5934");
+        long card=pendingCard(member.userId(),checkProduct,CHECK_NO,"5934",null);
+        byte[] hash=lookupHasher.account("003",accountNo("5934"));
+        jdbc.update("UPDATE linked_account SET bank_code='003',account_no_hash=? WHERE linked_account_id=?",hash,account);
+        jdbc.update("UPDATE user_card SET issuer_account_bank_code='003',issuer_account_hash=? WHERE user_card_id=?",hash,card);
+        String token=read(lookup(member,CHECK_NO,"12","29").andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.issuer.code").value("IBK"))
+                .andExpect(jsonPath("$.data.issuerAccount.bankCode").value("003"))
+                .andExpect(jsonPath("$.data.issuerAccount.linkedAccountId").value(account)).andReturn(),"$.data.verificationToken");
+        register(member,member.stepUpToken(),"{\"verificationToken\":\""+token+"\"}")
+                .andExpect(status().isCreated()).andExpect(jsonPath("$.data.linkedAccountId").value(account));
+    }
+
     // ───────── 성공 흐름 ─────────
 
     @Test

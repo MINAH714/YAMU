@@ -116,7 +116,7 @@ export const flowEntries: GalleryEntry[] = [
     label: '승인 완료',
     render: () => (
       <Entering>
-        <Receipt result={APPROVED_RESULT} order={DEMO_ORDER} onNext={noop} onRetry={noop} />
+        <Receipt result={APPROVED_RESULT} order={DEMO_ORDER} onNext={noop} onRetry={noop} onBackToOrder={noop} />
       </Entering>
     ),
   },
@@ -126,7 +126,7 @@ export const flowEntries: GalleryEntry[] = [
     label: '거절',
     render: () => (
       <Entering>
-        <Receipt result={DECLINED_RESULT} order={DEMO_ORDER} onNext={noop} onRetry={noop} />
+        <Receipt result={DECLINED_RESULT} order={DEMO_ORDER} onNext={noop} onRetry={noop} onBackToOrder={noop} />
       </Entering>
     ),
   },
@@ -136,7 +136,7 @@ export const flowEntries: GalleryEntry[] = [
     label: '만료',
     render: () => (
       <Entering>
-        <Receipt result={EXPIRED_RESULT} order={DEMO_ORDER} onNext={noop} onRetry={noop} />
+        <Receipt result={EXPIRED_RESULT} order={DEMO_ORDER} onNext={noop} onRetry={noop} onBackToOrder={noop} />
       </Entering>
     ),
   },
@@ -146,7 +146,7 @@ export const flowEntries: GalleryEntry[] = [
     label: '고객 거절',
     render: () => (
       <Entering>
-        <Receipt result={REJECTED_RESULT} order={DEMO_ORDER} onNext={noop} onRetry={noop} />
+        <Receipt result={REJECTED_RESULT} order={DEMO_ORDER} onNext={noop} onRetry={noop} onBackToOrder={noop} />
       </Entering>
     ),
   },
@@ -156,7 +156,7 @@ export const flowEntries: GalleryEntry[] = [
     label: '취소',
     render: () => (
       <Entering>
-        <Receipt result={CANCELED_RESULT} order={DEMO_ORDER} onNext={noop} onRetry={noop} />
+        <Receipt result={CANCELED_RESULT} order={DEMO_ORDER} onNext={noop} onRetry={noop} onBackToOrder={noop} />
       </Entering>
     ),
   },
@@ -166,7 +166,7 @@ export const flowEntries: GalleryEntry[] = [
     label: '결과 미확인(영수증)',
     render: () => (
       <Entering>
-        <Receipt result={NOT_CONFIRMED_RESULT} order={DEMO_ORDER} onNext={noop} onRetry={noop} />
+        <Receipt result={NOT_CONFIRMED_RESULT} order={DEMO_ORDER} onNext={noop} onRetry={noop} onBackToOrder={noop} />
       </Entering>
     ),
   },

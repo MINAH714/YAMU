@@ -9,12 +9,16 @@
 3. 위쪽 기기 목록에서 에뮬레이터(Medium Phone API 37) 또는 연결한 폰을 고르고 ▶ Run.
 4. 명령으로 빌드: `gradlew.bat assembleCustomerDebug assemblePosDebug` · 테스트: `gradlew.bat testCustomerDebugUnitTest` (JDK는 Android Studio 내장 `jbr`).
 5. 모의 POS 단말 키: `local.properties`에 `yamu.posKey=백엔드가 발급한 키` 한 줄(가짜 데이터일 땐 없어도 됨).
-6. 가짜 데이터: debug 빌드는 기본으로 전부 가짜이고, `local.properties`의 `yamu.realApi`에 적은 기능만 진짜 서버를 쓴다(아래 '실서버 연결'). release에는 가짜 코드가 들어가지 않는다(`src/debug`).
+6. Debug와 release 모두 실제 API 저장소를 사용한다. `yamu.realApi` 설정은 더 이상 MOCK 전환에 사용하지 않는다. Debug 서버 주소는 `yamu.baseUrl`로 지정한다.
 7. release(R8로 줄인 것)를 기기에서 시험: `gradlew.bat assembleCustomerRelease assemblePosRelease -Pyamu.devSign` → debug 앱을 지우고 설치(패키지가 같음). 버전 끝에 `-devsign`이 붙은 시험본이라 밖에 나눠 주지 않는다. 진짜 서명 · 확인 순서는 설계 문서 17(release 정리).
 8. debug 앱 여러 벌을 한 기기에: `gradlew.bat installCustomerDebug -Pyamu.appIdSuffix=.qa2a`로 깔면 패키지 `com.yamu.app.qa2a`, 런처 이름 `YAMU qa2a`인 따로 된 앱이 되어 release 앱이나 다른 꼬리표의 debug 앱을 지우지 않는다. 고객 debug만 바뀌고 꼬리표를 빼면 `com.yamu.app` 그대로다.
    - 에뮬레이터나 폰이 여럿 연결돼 있으면 `installCustomerDebug`가 모두에 깔고 기기를 고르지 않은 `adb`는 `more than one device/emulator` 오류로 끝나므로 `assembleCustomerDebug` 뒤 `adb -s emulator-5554 install -r app\build\outputs\apk\customer\debug\app-customer-debug.apk`처럼 늘 `adb -s <기기 이름>`을 붙인다.
    - APK 파일 이름은 꼬리표와 상관없이 같아서 한 폴더에서 꼬리표를 바꿔 다시 빌드하면 앞 APK를 덮어쓴다. 꼬리표마다 빌드한 바로 뒤에 깔면 된다.
    - 꼬리표 앱을 실서버(`yamu.realApi`)에 붙일 때는 demo-live(꼬리표 없는 `com.yamu.app`)와 다른 계정으로 들어간다. 꼬리표 앱은 설치마다 기기 ID를 새로 만들어서 BE에겐 새 기기다. 같은 계정으로 들어가면 기기 재등록(1원 인증)을 거치고 이때 BE가 다른 기기를 모두 해제하므로 demo-live가 끊긴다(사용자당 기기 한 대, `MAX_DEVICES = 1`). 꼬리표 앱끼리도 같은 계정이면 마지막에 등록한 앱만 남는다.
+
+소비 리포트의 계좌·현재 잔액·자산 흐름·잔고예보는 모두 실제 API를 사용한다. Debug도 실제 로그인과 접근 가능한 서버가 필요하다. 테스트용 Fake 클래스는 실행 앱의 저장소에 연결되지 않는다.
+
+서버가 반환한 QA 합성 과거 이력(`SIMULATED`, `actualBalance=null`)은 자산 흐름에서 **QA 합성**으로 표시한다. 금융망 실제 이력(`ACTUAL`)과 구분하며, API 실패를 가짜 잔액으로 메우지 않는다. 실제 QA 이력은 서버에 적재되고 유효한 경계가 검증되어 있어야 한다.
 
 ## 지금 상태 (2026-10-27)
 | 단계 | 상태 |
@@ -54,7 +58,7 @@
 - **서버 연결**: 지금 주소와 진짜로 쓰는 기능을 보여 주고, '서버 연결 확인'으로 `GET /api/health`를 불러 본다(10초 안에 응답이 없으면 실패)
 
 ## 실서버 연결 (debug)
-`local.properties`에 주소를 적고 다시 빌드한 뒤 디버그 메뉴의 '서버 연결 확인'까지 본다. 비워 두면 로컬 BE 주소에 전부 가짜라서 지금까지와 같다.
+`local.properties`에 주소를 적고 다시 빌드한 뒤 디버그 메뉴의 서버 연결 확인까지 본다. 비워 두면 로컬 BE 주소로 실제 API를 요청한다.
 
 ```properties
 yamu.baseUrl=http://localhost:8080/api/
@@ -62,14 +66,14 @@ yamu.baseUrl=http://localhost:8080/api/
 
 - `yamu.baseUrl`은 `http://`나 `https://`로 시작하고 `/`로 끝나야 한다(아니면 빌드가 멈춘다). 로컬 BE는 `adb reverse tcp:8080 tcp:8080` 뒤 `localhost`, 에뮬레이터는 `http://10.0.2.2:8080/api/`도 된다.
 - http는 `network_security_config`가 `localhost`와 `10.0.2.2`만 허용한다. LAN IP(`http://192.168.…`)는 막히므로 실기기는 `adb reverse`로 `localhost`를 쓴다.
-- 기능을 진짜로 켤 때는 `yamu.realApi`에 이름을 쉼표로 적는다. 쓸 수 있는 이름은 `auth` · `link` · `cashflow` · `home` · `payment` · `performance` · `forecast` · `report` · `my` · `pos` · `billing`이다. `all`은 이 11개를 모두 켠다. 이 가운데 `performance`는 유불리 분석 · 판단 기록이 아직 BE에 없어 그 화면만 404가 나고 `home` · `report`는 앱 응답 모양을 BE와 맞춰 본 뒤 넣었다(S15P31E103-413). `cashflow` · `forecast` · `billing` · `payment`를 켜면 `link`도 같이 켜진다(가짜 계좌 · 카드 번호가 진짜 서버로 가지 않게, 결제 코드가 가짜 카드 0장을 보고 막히지 않게).
-- `payment` · `my`는 debug에서 BE에 없는 메서드만 가짜로 메운다(`src/debug/.../RealWithFakes.kt`). release에는 가짜가 없어 그대로 404다. `pos`는 메울 것이 없어 켜면 전부 진짜를 부른다.
-- 진짜 API는 로그인 토큰이 필요하다. `auth`를 가짜로 두고 다른 기능만 켜면 가짜 토큰이 실려 401이 나므로 다른 기능을 켤 때는 `auth`도 같이 켠다.
+- `auth` · `link` · `cashflow` · `home` · `payment` · `performance` · `forecast` · `report` · `my` · `pos` · `billing` 모두 실제 API를 사용한다. 예전 `yamu.realApi` 값은 무시한다.
+- 결제 거절도 실제 API를 호출한다. 가짜 성공 및 가계부의 혼합 MOCK 래퍼는 제거했다. 서버에 없는 API나 오류는 기존 오류 처리로 전달하며 가짜 성공으로 대체하지 않는다.
+- 실제 API는 로그인 토큰이 필요하므로 서버 계정으로 로그인한다.
 - 모의 POS는 `yamu.posKey`(BE `yamu.pos.key`와 같은 값) 하나만 적는다. 단말은 첫 화면에서 BE `yamu.pos.terminals`의 네 개(`POS-YAMU-CAFE` · `POS-STARBUCKS-GENERAL` · `POS-STARBUCKS-DEPARTMENT_STORE` · `POS-GS25-GENERAL`) 가운데 고르고, 가맹점 번호는 고를 때 `GET /api/merchants?merchantCategoryCode=`에서 단말 브랜드(`brandCode`)로 찾아 저장한다. 시드를 다시 넣어 번호가 바뀌면 결제 요청이 '가맹점을 다시 골라 주세요'로 실패하니 [가맹점 바꾸기]로 다시 고른다. BE 단말 설정이 바뀌면 `src/pos/.../PosRepository.kt`의 `POS_TERMINALS`도 같이 고친다.
 - 결제 요청이 연결 끊김 · 시간 초과 · 5xx로 끝나면 접수됐는지 몰라서 [같은 요청 다시 보내기]가 뜬다. 같은 `Idempotency-Key` · 같은 본문(주문번호까지)으로 보내므로 서버가 처음 결제를 돌려준다. 서버가 거절한 뒤에는 새 키 · 새 주문번호로 간다. 이 요청은 보내기 전에 기기(`yamu_pos_pending`)에 적어 두므로 스캔 화면을 나갔다 오거나 앱을 다시 켜도 같은 코드를 찍으면 같은 요청으로 가고, 접수 · 거절이 정해지거나 [이 요청 버리기]를 누르면 지운다(24시간 지나면 버림).
 - 결과가 `WITHDRAWAL_NOT_CONFIRMED`(출금 미확인)로 거절 · 만료되면 BE가 늦은 출금을 찾아 승인으로 바꿀 수 있어 '출금을 확인하고 있어요'로 11분 더 묻는다(BE `late-withdrawal-window` 10분 + 주기 작업 60초, 임시). 그동안 [새 결제]는 보이지 않는다.
 
-BE(develop, 2026-11-03 · 잔고예보는 2026-11-08 · 홈 · 리포트와 경로 전체는 2026-11-11)와 맞춰 본 결과는 이렇다. 오른쪽 칸은 debug가 가짜로 메우거나 비어 있는 것이다.
+아래 표는 2026-11-11까지의 과거 연동 기록이다. 현재 MOCK 연결 여부는 위의 실제 API 전환 정책을 따른다. 당시 미구현·가짜 보완 표기는 현행 상태가 아니다.
 
 | 이름 | 진짜로 부르는 API | BE에 없어서 남은 것 |
 |---|---|---|

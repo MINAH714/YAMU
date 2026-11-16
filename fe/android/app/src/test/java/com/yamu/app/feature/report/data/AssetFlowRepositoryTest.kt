@@ -1,19 +1,27 @@
 package com.yamu.app.feature.report.data
 
 import com.yamu.app.core.network.ApiError
+import com.yamu.app.core.network.ApiResult
+import com.yamu.app.core.format.KST
 import com.yamu.app.core.network.json
 import com.yamu.app.core.network.retrofit
 import com.yamu.app.feature.forecast.DayKind
+import com.yamu.app.feature.forecast.splitByKind
+import com.yamu.app.feature.report.assetDayLabel
+import com.yamu.app.feature.report.panelValue
 import com.yamu.app.feature.forecast.data.ForecastApi
 import com.yamu.app.feature.link.data.LinkApi
 import kotlinx.coroutines.test.runTest
 import mockwebserver3.MockWebServer
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import java.time.YearMonth
+import java.time.LocalDate
+import java.time.ZonedDateTime
 
 /** GET asset-flows(S15P31E103-492) — 연결 계좌 전체를 적고(-548), 옛 서버의 404 API_NOT_FOUND는 실패가 아니라 없는 API(데이터 404는 실패) */
 class AssetFlowRepositoryTest {
@@ -32,6 +40,56 @@ class AssetFlowRepositoryTest {
 
     /** 계좌 목록 — month()가 load() 전이면 먼저 부른다 */
     private fun enqueueAccounts() = server.enqueue(json(200, """{"success":true,"data":{"accounts":[{"accountId":1,"bank":{"code":"004","name":"KB국민은행"},"maskedAccountNo":"****-1234","balance":300000,"isPrimary":true}]}}"""))
+
+    @Test fun `실제 계좌 API의 연결 계좌 전체로 예보를 요청하고 받은 잔액을 사용한다(-548)`() = runTest {
+        server.enqueue(json(200, """{"success":true,"data":{"accounts":[
+            {"accountId":41,"bank":{"code":"088","name":"신한"},"maskedAccountNo":"***1234","balance":777777,"isPrimary":true},
+            {"accountId":42,"bank":{"code":"004","name":"국민"},"maskedAccountNo":"***5678","balance":999999,"isPrimary":false}]}}"""))
+        server.enqueue(json(200, """{"success":true,"data":{"accountIds":[41,42],"currentTotalBalance":1777776,"series":[]}}"""))
+        val flow = (repository.load() as ApiResult.Success).data
+        assertEquals(listOf(41L, 42L), flow.accounts.map { it.accountId })
+        assertEquals(1_777_776L, flow.currentBalance)
+        assertEquals("/accounts", server.takeRequest().url.encodedPath)
+        val request = server.takeRequest()
+        assertEquals("/forecasts/balance", request.url.encodedPath)
+        assertEquals(listOf("41", "42"), request.url.queryParameterValues("accountIds"))
+        assertEquals("30", request.url.queryParameter("days"))
+    }
+
+    @Test fun `계좌 조회 실패를 가짜 계좌나 잔액으로 대체하지 않는다`() = runTest {
+        server.enqueue(json(502, """{"success":false,"error":{"code":"FIN_API_UNAVAILABLE","message":"은행"}}"""))
+        assertTrue(repository.load() is ApiResult.Failure)
+        assertEquals(1, server.requestCount)
+    }
+
+    @Test fun `서버 QA 합성 0원과 실제 경계가 그래프와 선택 날짜에 구분되어 전달된다`() = runTest {
+        enqueueAccounts()
+        server.enqueue(json(200, """{"success":true,"data":{"yearMonth":"2026-11","accountIds":[41],
+            "series":[{"date":"2026-11-11","kind":"SIMULATED","dataStatus":"AVAILABLE","displayBalance":0,"actualBalance":null},
+                      {"date":"2026-11-12","kind":"ACTUAL","dataStatus":"AVAILABLE","displayBalance":300000,"actualBalance":300000}],
+            "partialErrors":[]}}"""))
+        val month = (repository.month(YearMonth.of(2026, 11)) as MonthFlowResult.Loaded).flow
+        val today = LocalDate.of(2026, 11, 16)
+        val days = assetDays(month.month, today, null, month)
+        val synthetic = days[10]
+        val actual = days[11]
+        assertEquals(DayKind.SIMULATED, synthetic.kind)
+        assertEquals(0L, synthetic.value)
+        assertTrue(synthetic.simulated)
+        assertTrue(assetDayLabel(synthetic).contains("QA 합성"))
+        assertEquals(DayKind.ACTUAL, actual.kind)
+        assertFalse(actual.simulated)
+        assertEquals(300000L, actual.value)
+        val graph = splitByKind(days.map { it.value }, days.map { it.kind })
+        assertEquals(0L, graph.first[10])
+        assertEquals(300000L, graph.first[11])
+        val at = ZonedDateTime.of(2026, 11, 16, 12, 0, 0, 0, KST)
+        val flow = AssetFlow(emptyList(), null, loadedAt = at)
+        val panel = panelValue(synthetic, flow, month, today, null, at)
+        assertEquals("0원", panel.first)
+        assertTrue(panel.second.contains("QA 합성"))
+        assertTrue(panelValue(actual, flow, month, today, null, at).second.contains("실제 잔고"))
+    }
 
     @Test fun `그달을 yearMonth로 묻고 연결 계좌 전체를 적는다(-548, 빼면 서버가 기준 계좌 하나만 준다)`() = runTest {
         server.enqueue(

@@ -233,6 +233,27 @@ class BillConfirmIntegrationTest extends MySqlTestSupport {
     }
 
     @Test
+    void 카드_등록을_해제해도_남은_청구서는_그대로_확정한다() {
+        // S15P31E103-562: 해제는 YAMU 등록만 푼다. 확정은 카드 등록 상태를 보지 않고, 카드 행에 남은 연결 계좌로 한다
+        long bill = accumulating(user, card, NOVEMBER, LocalDate.of(2026, 11, 1));
+        long pending = item(payment(user, card, 30_000), user, card, bill, 1, 30_000, "PENDING");
+        jdbc.update("UPDATE user_card SET status = 'UNREGISTERED', is_default = 0, display_order = NULL"
+                + " WHERE user_card_id = ?", card);
+
+        JobRunReport report = run(AS_OF, null, false);
+
+        assertThat(report.results()).singleElement().satisfies(item -> {
+            assertThat(item.outcome()).isEqualTo(JobRunReport.Outcome.SUCCEEDED);
+            assertThat(item.refId()).isEqualTo(bill);
+        });
+        Map<String, Object> row = billRow(bill);
+        assertThat(row.get("status")).isEqualTo("CONFIRMED");
+        assertThat(((Number) row.get("confirmed_amount")).longValue()).isEqualTo(30_000);
+        assertThat(((Number) row.get("linked_account_id")).longValue()).isEqualTo(account);
+        assertThat(itemStatus(pending)).isEqualTo("BILLED");
+    }
+
+    @Test
     void 회차가_모두_빠진_청구서는_0원으로_확정하고_출금_없이_닫는다() {
         long bill = accumulating(user, card, NOVEMBER, LocalDate.of(2026, 11, 1));
         item(payment(user, card, 8_000), user, card, bill, 1, 8_000, "EXCLUDED");

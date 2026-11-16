@@ -22,12 +22,10 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import com.yamu.app.core.designsystem.component.AmountText
-import com.yamu.app.core.designsystem.component.BottomCta
 import com.yamu.app.core.designsystem.component.EmptyState
 import com.yamu.app.core.designsystem.component.ErrorState
 import com.yamu.app.core.designsystem.component.FlowScreen
 import com.yamu.app.core.designsystem.component.ListRow
-import com.yamu.app.core.designsystem.component.PrimaryButton
 import com.yamu.app.core.designsystem.component.SkeletonBlock
 import com.yamu.app.core.designsystem.component.StatusTag
 import com.yamu.app.core.designsystem.component.TagTone
@@ -83,12 +81,12 @@ class BenefitLimitsViewModel @Inject constructor(private val perf: PerformanceRe
 }
 
 @Composable
-fun BenefitLimitsRoute(onBack: () -> Unit, onPay: () -> Unit, viewModel: BenefitLimitsViewModel = hiltViewModel()) {
+fun BenefitLimitsRoute(onBack: () -> Unit, viewModel: BenefitLimitsViewModel = hiltViewModel()) {
     val s by viewModel.state.collectAsStateWithLifecycle()
     val arts by viewModel.arts.collectAsStateWithLifecycle()
     var all by rememberSaveable { mutableStateOf(false) }
     val c = YamuTheme.colors
-    FlowScreen(title = "혜택 한도", onBack = onBack, bottomBar = { BottomCta { PrimaryButton("QR 결제 열기", onClick = onPay) } }) { inner ->
+    FlowScreen(title = "혜택 한도", onBack = onBack) { inner ->
         Column(Modifier.padding(inner).consumeWindowInsets(inner).fillMaxSize().verticalScroll(rememberScrollState())) {
             val l = s.limits
             when {

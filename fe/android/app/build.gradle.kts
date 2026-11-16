@@ -35,24 +35,15 @@ val devSign = providers.gradleProperty("yamu.devSign").map { it != "false" }.get
 val debugAppIdSuffix = providers.gradleProperty("yamu.appIdSuffix").orNull.orEmpty().trim()
     .also { check(it.isEmpty() || Regex("""(\.[a-z][a-z0-9_]*)+""").matches(it)) { "yamu.appIdSuffix는 .qa2a처럼 점 뒤에 영문 소문자로 시작해야 해요: $it" } }
 
-// 실서버 연결 시험(debug만) — local.properties의 yamu.baseUrl · yamu.realApi.
-// 비우면 로컬 BE(8080) 주소에 전부 가짜. yamu.realApi=cashflow,link처럼 적은 기능만 진짜 Repository, all이면 전부
+// Debug도 실제 API만 사용한다. 서버 주소는 local.properties의 yamu.baseUrl, 미지정 시 로컬 BE.
 val debugBaseUrl = localProps.getProperty("yamu.baseUrl").orEmpty().trim().ifEmpty { "http://localhost:8080/api/" }
     .also {
         check(it.startsWith("http://") || it.startsWith("https://")) { "yamu.baseUrl은 http:// 또는 https://로 시작해야 해요: $it" }
         check(it.endsWith("/")) { "yamu.baseUrl은 /로 끝나야 해요: $it" }
     }
 val apiFeatures = listOf("auth", "link", "cashflow", "home", "payment", "performance", "forecast", "report", "my", "pos", "billing")   // ApiFeature와 같은 이름
-// yamu.realApi=all이 켜는 기능 — BE에 API가 있는 것만. performance는 유불리 분석 · 판단 기록만 아직 404(실적 -373 · 혜택 한도 -374는 있음).
-// home(-378) · report(-372)는 앱 HomeDto · Report DTO와 BE 응답을 맞춰 보고 넣었다(-413)
-val connectedApiFeatures = listOf("auth", "link", "cashflow", "home", "payment", "performance", "forecast", "report", "my", "pos", "billing")
-val debugRealApi = localProps.getProperty("yamu.realApi").orEmpty()
-    .split(',').map { it.trim() }.filter { it.isNotEmpty() }
-    .also { names ->   // all을 펼치기 전에 봐야 all,cashflw 같은 오타도 걸린다
-        val unknown = names.filterNot { it == "all" || it in apiFeatures }
-        check(unknown.isEmpty()) { "yamu.realApi에 모르는 이름: ${unknown.joinToString()} (쓸 수 있는 이름: all, ${apiFeatures.joinToString()})" }
-    }
-    .let { names -> if ("all" in names) (connectedApiFeatures + names - "all").distinct() else names }
+// 기존 yamu.realApi 부분 설정으로 MOCK이 되살아나지 않게 모든 기능을 실제 API로 고정한다.
+val debugRealApi = apiFeatures
 
 // release 서버 주소 — -Pyamu.releaseBaseUrl(CI)가 먼저, 다음 local.properties. 둘 다 없으면 어디에도 붙지 않는 자리표시자
 val releaseBaseUrl = (providers.gradleProperty("yamu.releaseBaseUrl").orNull ?: localProps.getProperty("yamu.releaseBaseUrl")).orEmpty().trim().ifEmpty { "https://example.invalid/api/" }

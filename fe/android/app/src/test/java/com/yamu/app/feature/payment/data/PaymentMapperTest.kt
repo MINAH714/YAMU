@@ -210,6 +210,30 @@ class PaymentMapperTest {
         )
     }
 
+    private fun shown(benefits: String, rank: Int = 0) = YamuJson.decodeFromString(
+        CandidateDto.serializer(), """{"rank":$rank,"userCardId":1,"benefits":[$benefits]}""",
+    ).toPayCard()
+
+    /** S15P31E103-555 — 카드 칸의 혜택 방식은 혜택 이름과 같은 혜택에서 */
+    @Test fun `혜택 방식은 혜택 이름과 같은 혜택의 realization — 포인트 숫자가 더 커도 원 단위`() {
+        val card = shown("""{"name":"1,000P 적립","type":"POINT","amount":1000,"realization":"POINT_ACCRUAL"},{"name":"카페 700원 할인","type":"DISCOUNT","amount":700,"realization":"AT_BILLING"}""")
+        assertEquals("카페 700원 할인", card.benefitName)
+        assertEquals(BenefitKind.BILLING, card.benefitKind)
+    }
+
+    @Test fun `혜택 방식 — realization이 없으면 type으로, 금액이 붙은 혜택이 없으면 모름`() {
+        assertEquals(BenefitKind.CASHBACK, shown("""{"name":"환급","type":"CASHBACK","amount":660}""").benefitKind)
+        assertEquals(BenefitKind.INSTANT, shown("""{"name":"즉시","type":"DISCOUNT","amount":660,"realization":"AT_APPROVAL"}""").benefitKind)
+        assertEquals(BenefitKind.UNKNOWN, shown("""{"name":"교보문고 할인","type":"DISCOUNT","amount":0,"realization":"AT_BILLING"}""").benefitKind)
+    }
+
+    @Test fun `후보의 순위를 카드에 옮긴다 — 비교 못 한 카드는 0`() {
+        assertEquals(2, shown("", rank = 2).rank)
+        val uncompared = YamuJson.decodeFromString(UncomparedCardDto.serializer(), """{"userCardId":9}""").toPayCard()
+        assertEquals(0, uncompared.rank)
+        assertFalse(uncompared.isYamuPick)
+    }
+
     @Test fun `원 단위 혜택이 없을 때만 포인트 중 가장 큰 것`() {
         assertEquals(
             "M포인트 1.2% 적립",

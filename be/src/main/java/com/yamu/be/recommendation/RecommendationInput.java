@@ -35,7 +35,11 @@ public record RecommendationInput(
     /** facts는 서버가 검증한 CONDITION 코드별 사실. 키 부재는 false가 아니라 미확인이다. */
     public record Transaction(long amount, Plan plan, int installmentMonths, Instant occurredAt,
                               Long merchantId, String merchantCategoryCode, Map<String, Boolean> facts,
-                              String purchaseItemCode, List<SimulationRule> simulationRules) {
+                              String purchaseItemCode, List<SimulationRule> simulationRules, com.yamu.be.payment.pos.PosBasket.Snapshot basket) {
+        public Transaction(long amount, Plan plan, int installmentMonths, Instant occurredAt,
+                Long merchantId, String merchantCategoryCode, Map<String, Boolean> facts, String purchaseItemCode, List<SimulationRule> simulationRules) {
+            this(amount,plan,installmentMonths,occurredAt,merchantId,merchantCategoryCode,facts,purchaseItemCode,simulationRules,null);
+        }
         public Transaction(long amount, Plan plan, int installmentMonths, Instant occurredAt,
                 Long merchantId, String merchantCategoryCode, Map<String, Boolean> facts, String purchaseItemCode) {
             this(amount,plan,installmentMonths,occurredAt,merchantId,merchantCategoryCode,facts,purchaseItemCode,List.of());

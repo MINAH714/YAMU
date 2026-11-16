@@ -63,6 +63,34 @@ class BarcodeControllerTest {
     }
 
     @Test
+    void 재발급은_인증_토큰_헤더_없이_201과_새_바코드를_돌려준다() throws Exception {
+        String next = "7730158826140092";
+        when(barcodes.reissue(ME, TOKEN)).thenReturn(new BarcodeService.Issued(
+                next, next, "yamu://pay/" + next, BarcodeStatus.ISSUED,
+                LocalDateTime.parse("2026-10-28T05:31:00"), LocalDateTime.parse("2026-10-28T05:32:00"), 3));
+
+        mockMvc.perform(post("/api/payments/barcodes/{token}/reissue", TOKEN).with(loggedIn()))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.barcodeToken").value(next))
+                .andExpect(jsonPath("$.data.qrValue").value("yamu://pay/" + next))
+                .andExpect(jsonPath("$.data.expiresAt").value("2026-10-28T05:32:00Z"));
+    }
+
+    @Test
+    void 재발급할_수_없으면_403_STEP_UP_REQUIRED이고_로그인하지_않으면_401이다() throws Exception {
+        when(barcodes.reissue(ME, TOKEN)).thenThrow(new BusinessException(ErrorCode.STEP_UP_REQUIRED));
+
+        mockMvc.perform(post("/api/payments/barcodes/{token}/reissue", TOKEN).with(loggedIn()))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.error.code").value("STEP_UP_REQUIRED"));
+        mockMvc.perform(post("/api/payments/barcodes/{token}/reissue", TOKEN))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.error.code").value("UNAUTHORIZED"));
+    }
+
+    @Test
     void 로그인하지_않으면_예전_임시_X_User_Id_헤더가_있어도_401_UNAUTHORIZED() throws Exception {
         mockMvc.perform(post("/api/payments/barcodes")
                         .header("X-User-Id", "7")

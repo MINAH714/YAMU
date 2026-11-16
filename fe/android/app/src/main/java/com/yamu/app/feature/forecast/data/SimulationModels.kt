@@ -182,6 +182,9 @@ data class SimulationQuery(
     )
 
     companion object {
+        /** 가격 상한 1,000억 원 — BE SimulationRequest와 같고, 예정 수입·지출 상한과도 같다 */
+        const val AMOUNT_MAX = 100_000_000_000L
+
         /** 할부 — BE PaymentTerms: 신용카드 · 50,000원 이상 · 2~12개월 */
         const val INSTALLMENT_MIN_AMOUNT = 50_000L
         val INSTALLMENT_MONTHS = 2..12

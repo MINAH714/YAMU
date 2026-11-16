@@ -1,6 +1,5 @@
 package com.yamu.app.data
 
-import com.yamu.app.core.network.ApiFeature
 import com.yamu.app.feature.auth.data.AuthRepository
 import com.yamu.app.feature.auth.data.AuthRepositoryImpl
 import com.yamu.app.feature.auth.data.SignupRepository
@@ -25,85 +24,48 @@ import com.yamu.app.feature.report.data.AssetFlowRepository
 import com.yamu.app.feature.report.data.AssetFlowRepositoryImpl
 import com.yamu.app.feature.report.data.ReportRepository
 import com.yamu.app.feature.report.data.ReportRepositoryImpl
+import dagger.Binds
 import dagger.Module
-import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
-import javax.inject.Provider
-import javax.inject.Singleton
 
-/**
- * debug 빌드: local.properties의 yamu.realApi에 적은 기능만 진짜, 나머지는 가짜 Repository(ApiFeature).
- * release는 src/release의 DataModule — 진짜만.
- */
+/** Debug도 실제 API 저장소만 연결한다. 가짜 데이터 클래스는 기존 단위 테스트용으로만 남긴다. */
 @Module
 @InstallIn(SingletonComponent::class)
-object DataModule {
-    @Provides
-    @Singleton
-    fun homeRepository(real: Provider<HomeRepositoryImpl>, fake: Provider<FakeHomeRepository>): HomeRepository =
-        if (ApiFeature.HOME.isReal) real.get() else fake.get()
+abstract class DataModule {
+    @Binds
+    abstract fun homeRepository(impl: HomeRepositoryImpl): HomeRepository
 
-    @Provides
-    @Singleton
-    fun authRepository(real: Provider<AuthRepositoryImpl>, fake: Provider<FakeAuthRepository>): AuthRepository =
-        if (ApiFeature.AUTH.isReal) real.get() else fake.get()
+    @Binds
+    abstract fun authRepository(impl: AuthRepositoryImpl): AuthRepository
 
-    @Provides
-    @Singleton
-    fun signupRepository(real: Provider<SignupRepositoryImpl>, fake: Provider<FakeSignupRepository>): SignupRepository =
-        if (ApiFeature.AUTH.isReal) real.get() else fake.get()
+    @Binds
+    abstract fun signupRepository(impl: SignupRepositoryImpl): SignupRepository
 
-    @Provides
-    @Singleton
-    fun linkRepository(real: Provider<LinkRepositoryImpl>, fake: Provider<FakeLinkRepository>): LinkRepository =
-        if (ApiFeature.LINK.isReal) real.get() else fake.get()
+    @Binds
+    abstract fun linkRepository(impl: LinkRepositoryImpl): LinkRepository
 
-    @Provides
-    @Singleton
-    fun cashflowRepository(real: Provider<CashflowRepositoryImpl>, fake: Provider<FakeCashflowRepository>): CashflowRepository =
-        if (ApiFeature.CASHFLOW.isReal) real.get() else fake.get()
+    @Binds
+    abstract fun cashflowRepository(impl: CashflowRepositoryImpl): CashflowRepository
 
-    @Provides
-    @Singleton
-    fun paymentRepository(real: Provider<RealPaymentWithFakes>, fake: Provider<FakePaymentRepository>): PaymentRepository =
-        if (ApiFeature.PAYMENT.isReal) real.get() else fake.get()
+    @Binds
+    abstract fun paymentRepository(impl: PaymentRepositoryImpl): PaymentRepository
 
-    @Provides
-    @Singleton
-    fun performanceRepository(real: Provider<PerformanceRepositoryImpl>, fake: Provider<FakePerformanceRepository>): PerformanceRepository =
-        if (ApiFeature.PERFORMANCE.isReal) real.get() else fake.get()
+    @Binds
+    abstract fun performanceRepository(impl: PerformanceRepositoryImpl): PerformanceRepository
 
-    @Provides
-    @Singleton
-    fun forecastRepository(
-        real: Provider<ForecastRepositoryImpl>,
-        cashflowOnly: Provider<RealCashflowWithFakes>,
-        fake: Provider<FakeForecastRepository>,
-    ): ForecastRepository = when {
-        ApiFeature.FORECAST.isReal -> real.get()
-        ApiFeature.CASHFLOW.isReal -> cashflowOnly.get()
-        else -> fake.get()
-    }
+    @Binds
+    abstract fun forecastRepository(impl: ForecastRepositoryImpl): ForecastRepository
 
-    @Provides
-    @Singleton
-    fun reportRepository(real: Provider<ReportRepositoryImpl>, fake: Provider<FakeReportRepository>): ReportRepository =
-        if (ApiFeature.REPORT.isReal) real.get() else fake.get()
+    @Binds
+    abstract fun reportRepository(impl: ReportRepositoryImpl): ReportRepository
 
-    /** 소비분석 자산 흐름 — 잔고예보와 같은 예보 API라 잔고예보(FORECAST)가 진짜일 때만 진짜 */
-    @Provides
-    @Singleton
-    fun assetFlowRepository(real: Provider<AssetFlowRepositoryImpl>, fake: Provider<FakeAssetFlowRepository>): AssetFlowRepository =
-        if (ApiFeature.FORECAST.isReal) real.get() else fake.get()
+    @Binds
+    abstract fun assetFlowRepository(impl: AssetFlowRepositoryImpl): AssetFlowRepository
 
-    @Provides
-    @Singleton
-    fun myRepository(real: Provider<MyRepositoryImpl>, fake: Provider<FakeMyRepository>): MyRepository =
-        if (ApiFeature.MY.isReal) real.get() else fake.get()
+    @Binds
+    abstract fun myRepository(impl: MyRepositoryImpl): MyRepository
 
-    @Provides
-    @Singleton
-    fun billingRepository(real: Provider<BillingRepositoryImpl>, fake: Provider<FakeBillingRepository>): BillingRepository =
-        if (ApiFeature.BILLING.isReal) real.get() else fake.get()
+    @Binds
+    abstract fun billingRepository(impl: BillingRepositoryImpl): BillingRepository
 }
