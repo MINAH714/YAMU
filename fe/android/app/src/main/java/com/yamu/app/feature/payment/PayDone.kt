@@ -23,6 +23,9 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.paneTitle
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.SavedStateHandle
@@ -161,7 +164,9 @@ fun PayDoneRoute(
     val roll = r?.takeIf { s.justPaid }?.perfRoll()
     val anchors = rememberFlyingChipAnchors()
     FlowScreen(
+        // 앱바 제목은 비워 두고(가운데 머리가 말한다) 화면 읽기에만 화면 이름을 알린다(S15P31E103-513)
         title = "",
+        modifier = Modifier.semantics { paneTitle = if (r?.canceled == true) "결제 취소" else "결제 완료" },
         onBack = onHome,
         closeIcon = true,
         actions = { MockPayTag() },
@@ -177,7 +182,12 @@ fun PayDoneRoute(
                 ) {
                     CharacterImage(YamuPose.Pay, size = CharacterSize.M, animate = true)
                     Spacer(Modifier.height(6.dp))
-                    Text(if (r?.canceled == true) "결제를 취소했어요" else "결제를 마쳤어요", style = YamuTheme.typography.headlineS, color = c.text1)
+                    Text(
+                        if (r?.canceled == true) "결제를 취소했어요" else "결제를 마쳤어요",
+                        style = YamuTheme.typography.headlineS,
+                        color = c.text1,
+                        modifier = Modifier.semantics { heading() },
+                    )
                     if (r != null) {
                         // 즉시할인은 빠진 금액(실제 결제 금액)을 크게, 원래 금액은 아래 한 줄로. 청구할인 · 캐시백 · 적립은 결제 금액 그대로(11/10 QA)
                         AmountText(r.paidAmount)

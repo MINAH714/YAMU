@@ -126,7 +126,8 @@ fun KeyValueRow(
     Row(
         modifier
             .fillMaxWidth()
-            .heightIn(min = minHeight)
+            // 누르는 줄은 48dp 아래로 줄이지 않는다 — 누르는 줄끼리 붙어 쌓이는 곳(카드 상세 계좌 · 다음 출금)이라 넘치게 하지 않고 줄을 키운다(S15P31E103-513)
+            .heightIn(min = if (onClick != null) maxOf(minHeight, YamuSize.touch) else minHeight)
             .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
             .semantics(mergeDescendants = true) { },
         verticalAlignment = Alignment.CenterVertically,

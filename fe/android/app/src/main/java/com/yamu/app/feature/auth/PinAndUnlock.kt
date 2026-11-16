@@ -26,6 +26,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
@@ -498,7 +501,14 @@ internal fun PinBody(
         Spacer(Modifier.height(top))
         Text(title, style = YamuTheme.typography.headlineS, color = c.text1, textAlign = align, modifier = Modifier.fillMaxWidth())
         Spacer(Modifier.height(if (alignStart) 8.dp else 6.dp))   // 만들기(A-06)는 mt8, 잠금 해제 · 본인 인증(가운데)은 6
-        Text(error ?: sub, style = YamuTheme.typography.bodyM, color = if (error != null) c.error else c.text2, textAlign = align, modifier = Modifier.fillMaxWidth())
+        // 틀린 비밀번호 · 잠김 문장은 화면 읽기가 저절로 읽는다(S15P31E103-513). 안내 문장으로 돌아갈 때는 읽지 않는다
+        Text(
+            error ?: sub,
+            style = YamuTheme.typography.bodyM,
+            color = if (error != null) c.error else c.text2,
+            textAlign = align,
+            modifier = Modifier.fillMaxWidth().semantics { if (error != null) liveRegion = LiveRegionMode.Polite },
+        )
         Spacer(Modifier.height(32.dp))
         PinDots(filled = filled, error = error != null && filled == 0, shakeKey = shakeKey, modifier = Modifier.align(Alignment.CenterHorizontally))
         Column(Modifier.fillMaxWidth().padding(top = 32.dp), horizontalAlignment = Alignment.CenterHorizontally, content = below)

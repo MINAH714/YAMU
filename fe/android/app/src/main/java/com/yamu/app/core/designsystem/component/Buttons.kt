@@ -8,6 +8,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.LocalIndication
+import androidx.compose.foundation.indication
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.runtime.remember
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.Icon
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -129,7 +133,10 @@ fun LinkButton(
     }
 }
 
-/** 글자 크기만큼의 회색 버튼 — 48dp(반경 12) · 36dp(반경 10). 앞 아이콘 선택(프로토타입 .btn.md · .btn.sm) */
+/**
+ * 글자 크기만큼의 회색 버튼 — 48dp(반경 12) · 36dp(반경 10). 앞 아이콘 선택(프로토타입 .btn.md · .btn.sm).
+ * 작은 버튼도 터치 칸은 48dp — 보이는 36dp 위아래로 6dp씩 넘친다(S15P31E103-513)
+ */
 @Composable
 fun CompactButton(
     text: String,
@@ -140,12 +147,15 @@ fun CompactButton(
     horizontalPadding: Dp = if (small) 14.dp else 16.dp,
 ) {
     val c = YamuTheme.colors
+    val height = if (small) 36.dp else YamuSize.touch
+    val interaction = remember { MutableInteractionSource() }
     Row(
         modifier
-            .height(if (small) 36.dp else 48.dp)
+            .overflowTouch((YamuSize.touch - height) / 2, Modifier.clickable(interaction, indication = null, role = Role.Button, onClick = onClick))
+            .height(height)
             .clip(RoundedCornerShape(if (small) 10.dp else 12.dp))
             .background(c.surfaceVariant)
-            .clickable(role = Role.Button, onClick = onClick)
+            .indication(interaction, LocalIndication.current)
             .padding(horizontal = horizontalPadding),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp),

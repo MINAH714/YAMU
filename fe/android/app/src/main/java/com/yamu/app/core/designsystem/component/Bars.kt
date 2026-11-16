@@ -117,8 +117,13 @@ fun YamuTopBar(
         } else {
             Spacer(Modifier.width(8.dp))   // 제목이 카드 끝(16dp)과 맞게
         }
+        // 제목은 화면 읽기의 제목(heading)으로 — 제목 사이를 건너뛰며 읽을 수 있게(S15P31E103-513). 빈 제목은 읽을 것이 없어 두지 않는다
         if (logo == TopBarLogo.Start) {
-            Image(painterResource(R.drawable.yamu_logo), contentDescription = title, modifier = Modifier.padding(start = 4.dp).height(20.dp))
+            Image(
+                painterResource(R.drawable.yamu_logo),
+                contentDescription = title,
+                modifier = Modifier.padding(start = 4.dp).height(20.dp).then(if (title.isNotBlank()) Modifier.semantics { heading() } else Modifier),
+            )
             Spacer(Modifier.weight(1f))
         } else {
             Text(
@@ -127,7 +132,10 @@ fun YamuTopBar(
                 color = c.text1,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f).padding(start = if (onBack != null) 8.dp else 4.dp),
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(start = if (onBack != null) 8.dp else 4.dp)
+                    .then(if (title.isNotBlank()) Modifier.semantics { heading() } else Modifier),
             )
         }
         actions()
@@ -165,7 +173,7 @@ fun YamuLargeTopBar(
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
             // 아이콘 줄(56) 아래 12 — 프로토타입 .appbar.medium(위 8 + 아이콘 48 + 제목 위 8)과 제목 자리가 같다
-            modifier = Modifier.padding(start = YamuSpacing.screen, end = YamuSpacing.screen, top = 12.dp),
+            modifier = Modifier.padding(start = YamuSpacing.screen, end = YamuSpacing.screen, top = 12.dp).semantics { heading() },
         )
     }
 }
@@ -295,6 +303,8 @@ private fun CenterSlot(center: BottomBarCenter, reduceMotion: Boolean, modifier:
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
     val scale by animateFloatAsState(if (pressed && !reduceMotion) 0.94f else 1f, tween(YamuMotion.SHORT_MS), label = "payPress")
+    // 모션 줄이기면 줄어드는 대신 옅어져 누른 것을 보인다(물결은 원 모양이 아니라 꺼 두었다)
+    val pressAlpha by animateFloatAsState(if (pressed && reduceMotion) YamuMotion.REDUCED_PRESS_ALPHA else 1f, tween(YamuMotion.SHORT_MS), label = "payPressAlpha")
     Column(
         modifier
             .fillMaxHeight()
@@ -306,7 +316,7 @@ private fun CenterSlot(center: BottomBarCenter, reduceMotion: Boolean, modifier:
             Modifier
                 .riseAbove(BottomBarCenterRise)
                 .size(CenterSize)
-                .graphicsLayer { scaleX = scale; scaleY = scale }
+                .graphicsLayer { scaleX = scale; scaleY = scale; alpha = pressAlpha }
                 .shadow(6.dp, CircleShape, ambientColor = c.primary, spotColor = c.primary)
                 .clip(CircleShape)
                 .background(c.primary)

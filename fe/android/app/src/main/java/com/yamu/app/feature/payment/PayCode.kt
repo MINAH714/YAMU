@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.semantics.clearAndSetSemantics
+import com.yamu.app.core.designsystem.component.LiveText
 import androidx.compose.ui.unit.IntOffset
 import com.yamu.app.core.designsystem.component.CountdownRing
 import com.yamu.app.core.designsystem.component.WaitRing
@@ -798,10 +799,13 @@ private fun CodeBody(code: PayCode, remainingSec: Long?, unstable: Boolean, onNe
     }
     Spacer(Modifier.height(16.dp))
     Text(hint, style = YamuTheme.typography.titleM, color = c.text1, textAlign = TextAlign.Center)
-    if (unstable) {
-        Spacer(Modifier.height(YamuSpacing.x2))
-        Text("연결이 불안정해요 · 다시 확인하고 있어요", style = YamuTheme.typography.bodyS, color = c.warning)
-    }
+    // 화면 읽기가 저절로 읽게 줄은 늘 두고 글자만 바꾼다(LiveText, S15P31E103-513)
+    LiveText(
+        if (unstable) "연결이 불안정해요 · 다시 확인하고 있어요" else null,
+        style = YamuTheme.typography.bodyS,
+        color = c.warning,
+        top = YamuSpacing.x2,
+    )
 }
 
 @Composable
@@ -818,6 +822,9 @@ private fun MessageBody(title: String, sub: String) {
 @Composable
 private fun RequestBody(request: PaymentRequest, s: PayCodeState, onSelectCard: (Long) -> Unit, onInstallment: (Int?) -> Unit) {
     val c = YamuTheme.colors
+    // 결제 대기 판이 덮고 있으면 아래 화면은 화면 읽기에서 숨겨진다(PayCodeRoute의 clearAndSetSemantics).
+    // 그동안 결과 · 거절 문장은 화면 읽기 쪽만 비워 두었다가 판이 걷힌 뒤 채워 읽게 한다(LiveText speakable)
+    val underPanel = s.waitPanel() != null
     Column(Modifier.fillMaxWidth()) {
         // 무엇을 얼마 결제하는지 — 가운데 묶음(프로토타입 P-06c)
         Column(Modifier.fillMaxWidth().padding(top = 24.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -825,18 +832,36 @@ private fun RequestBody(request: PaymentRequest, s: PayCodeState, onSelectCard: 
             AmountText(request.amount)
             Text(listOfNotNull(request.merchantName, request.categoryName).joinToString(" · "), style = YamuTheme.typography.bodyL, color = c.text2)
             val deadlineMs = remember(request.confirmDeadlineIso) { request.confirmDeadlineIso?.let(::epochMillisOrNull) }
-            if (s.requestExpired) {
-                // 결과를 모르면 '결제되지 않았어요'로 단정하지 않는다 — 다시 결제하면 두 번 결제될 수 있다(S15P31E103-433)
-                when {
-                    s.checkingOutcome -> Text("결제됐는지 확인하고 있어요", style = YamuTheme.typography.titleS, color = c.text2)
-                    s.outcomeUnknown -> Text(
-                        "결제됐는지 아직 몰라요 · 새로 결제하기 전에 결제 내역을 먼저 봐 주세요",
-                        style = YamuTheme.typography.titleS,
-                        color = c.warning,
-                        textAlign = TextAlign.Center,
-                    )
+            // 결과를 모르면 '결제되지 않았어요'로 단정하지 않는다 — 다시 결제하면 두 번 결제될 수 있다(S15P31E103-433)
+            val outcome = when {
+                !s.requestExpired -> null
+                s.checkingOutcome -> "결제됐는지 확인하고 있어요"
+                s.outcomeUnknown -> "결제됐는지 아직 몰라요 · 새로 결제하기 전에 결제 내역을 먼저 봐 주세요"
+                else -> "확인 시간이 지났어요 · 결제되지 않았어요"
+            }
+            // 남은 시간 줄과 마감 뒤 결과 문장은 한 자리에 겹쳐 둔다. 결과 문장 줄은 마감 전에도 빈 줄로 남아 있어야
+            // 문장이 들어올 때 화면 읽기가 저절로 읽는다(LiveText, S15P31E103-513)
+            Box(contentAlignment = Alignment.Center) {
+                if (!s.requestExpired) {
+                    if (deadlineMs != null) {
+                        // 링과 숫자가 같은 틱을 읽어 '00:10'이 되는 순간 둘 다 주황으로(M-WAIT-COUNTDOWN)
+                        val countdown = rememberCountdown(deadlineMs, key = "pay-${request.paymentId}")
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            CountdownRing(countdown, Modifier.size(WaitRingDefaults.miniSize))
+                            Text("남은 시간", style = YamuTheme.typography.sub, color = c.text3)
+                            Text(formatRemaining(countdown.remainingSec), style = YamuTheme.typography.value, color = animateCountdownColor(countdown))
+                        }
+                    } else {
+                        val left = s.remainingSec ?: 0
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text("남은 시간", style = YamuTheme.typography.sub, color = c.text3)
+                            Text(formatRemaining(left), style = YamuTheme.typography.value, color = if (left <= 10) c.warning else c.primary)
+                        }
+                    }
+                }
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     // 마감되면 바로 회색(M-WAIT-EXPIRED) — 남은 시간 링은 빈 회색 원으로 남는다
-                    else -> Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    if (s.requestExpired && !s.checkingOutcome && !s.outcomeUnknown) {
                         WaitRing(
                             progress = { 0f },
                             color = c.text3,
@@ -844,27 +869,15 @@ private fun RequestBody(request: PaymentRequest, s: PayCodeState, onSelectCard: 
                             trackColor = c.text3,
                             stroke = WaitRingDefaults.miniStroke,
                         )
-                        Text(
-                            "확인 시간이 지났어요 · 결제되지 않았어요",
-                            style = YamuTheme.typography.titleS,
-                            color = c.text2,
-                            modifier = Modifier.weight(1f, fill = false),
-                        )
                     }
-                }
-            } else if (deadlineMs != null) {
-                // 링과 숫자가 같은 틱을 읽어 '00:10'이 되는 순간 둘 다 주황으로(M-WAIT-COUNTDOWN)
-                val countdown = rememberCountdown(deadlineMs, key = "pay-${request.paymentId}")
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    CountdownRing(countdown, Modifier.size(WaitRingDefaults.miniSize))
-                    Text("남은 시간", style = YamuTheme.typography.sub, color = c.text3)
-                    Text(formatRemaining(countdown.remainingSec), style = YamuTheme.typography.value, color = animateCountdownColor(countdown))
-                }
-            } else {
-                val left = s.remainingSec ?: 0
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text("남은 시간", style = YamuTheme.typography.sub, color = c.text3)
-                    Text(formatRemaining(left), style = YamuTheme.typography.value, color = if (left <= 10) c.warning else c.primary)
+                    LiveText(
+                        outcome,
+                        style = YamuTheme.typography.titleS,
+                        color = if (s.outcomeUnknown) c.warning else c.text2,
+                        textAlign = if (s.outcomeUnknown) TextAlign.Center else null,
+                        modifier = Modifier.weight(1f, fill = false),
+                        speakable = !underPanel,
+                    )
                 }
             }
         }
@@ -910,10 +923,14 @@ private fun RequestBody(request: PaymentRequest, s: PayCodeState, onSelectCard: 
             )
         }
         // 마감 뒤 결과를 모르면 위 머리 문장이 말한다(같은 말을 두 번 하지 않게)
-        s.declined?.takeUnless { s.requestExpired && s.outcomeUnknown }?.let {
-            Spacer(Modifier.height(YamuSpacing.x3))
-            Text(it, style = YamuTheme.typography.bodyM, color = if (s.outcomeUnknown) c.warning else c.error)
-        }
+        // 거절 · 결과 불명 문장은 화면 읽기가 저절로 읽게 줄은 늘 두고 글자만 바꾼다(LiveText, S15P31E103-513)
+        LiveText(
+            s.declined?.takeUnless { s.requestExpired && s.outcomeUnknown },
+            style = YamuTheme.typography.bodyM,
+            color = if (s.outcomeUnknown) c.warning else c.error,
+            top = YamuSpacing.x3,
+            speakable = !underPanel,
+        )
     }
 }
 
