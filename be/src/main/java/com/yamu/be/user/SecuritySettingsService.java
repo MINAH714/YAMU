@@ -23,7 +23,7 @@ import org.springframework.transaction.annotation.Transactional;
  * <p>임시로 정한 것(명세와 다름):
  * <ul>
  *   <li>명세는 본인 인증(X-Step-Up-Token, 가정)을 적었지만 앱이 보내지 않아 받지 않는다. 앱 안의 잠금 시간이라 위험이 작다</li>
- *   <li>{@code PIN_ONLY}는 저장만 한다. 결제 코드를 열 때 지문을 막는 것은 결제 코드 쪽에서 아직 읽지 않는다</li>
+ *   <li>{@code PIN_ONLY}를 고르면 결제 코드를 열 때(BARCODE) 지문 인증을 받지 않는다. 막는 곳은 {@code StepUpService}다(S15P31E103-367)</li>
  *   <li>{@code setupGraceSeconds}·{@code barcodeAuthGraceSeconds}는 앱이 바꾸지 않아 받지 않고 명세 기본값을 돌려준다</li>
  * </ul>
  */
