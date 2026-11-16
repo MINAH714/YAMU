@@ -19,6 +19,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import com.yamu.app.core.designsystem.component.AmountText
@@ -27,6 +28,7 @@ import com.yamu.app.core.designsystem.component.EmptyState
 import com.yamu.app.core.designsystem.component.ErrorState
 import com.yamu.app.core.designsystem.component.FlowScreen
 import com.yamu.app.core.designsystem.component.ListRow
+import com.yamu.app.core.designsystem.component.LinkButton
 import com.yamu.app.core.designsystem.component.PrimaryButton
 import com.yamu.app.core.designsystem.component.SkeletonBlock
 import com.yamu.app.core.designsystem.component.StatusTag
@@ -47,6 +49,8 @@ import com.yamu.app.feature.performance.data.LimitTag
 import com.yamu.app.feature.performance.data.PerformanceRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
@@ -60,23 +64,25 @@ data class LimitsState(val loading: Boolean = true, val limits: BenefitLimits? =
 class BenefitLimitsViewModel @Inject constructor(private val perf: PerformanceRepository, link: LinkRepository) : ViewModel() {
     private val _state = MutableStateFlow(LimitsState())
     val state: StateFlow<LimitsState> = _state.asStateFlow()
+    private var loadJob: Job? = null
 
     /** 카드 그림 — 한도 응답엔 상품명이 없어 카드 목록에서 찾는다 */
     private val artLoader = CardArtRefsLoader(link, viewModelScope)
     val arts: StateFlow<Map<Long, CardArtRef>> = artLoader.refs
 
-    init { load() }
-
     fun load() {
         artLoader.ensure()
-        viewModelScope.launch {
-            _state.update { it.copy(loading = true, error = null) }
-            when (val r = perf.limits()) {
+        loadJob?.cancel()
+        _state.update { it.copy(loading = it.limits == null, error = null) }
+        loadJob = viewModelScope.launch {
+            val r = perf.limits()
+            ensureActive()
+            when (r) {
                 is ApiResult.Success -> {
                     _state.update { LimitsState(loading = false, limits = r.data) }
                     artLoader.ensure(r.data.cards.map { it.userCardId })
                 }
-                is ApiResult.Failure -> _state.update { LimitsState(loading = false, error = r.error.userMessage()) }
+                is ApiResult.Failure -> _state.update { it.copy(loading = false, error = r.error.userMessage()) }
             }
         }
     }
@@ -86,6 +92,10 @@ class BenefitLimitsViewModel @Inject constructor(private val perf: PerformanceRe
 fun BenefitLimitsRoute(onBack: () -> Unit, onPay: () -> Unit, viewModel: BenefitLimitsViewModel = hiltViewModel()) {
     val s by viewModel.state.collectAsStateWithLifecycle()
     val arts by viewModel.arts.collectAsStateWithLifecycle()
+    LifecycleResumeEffect(Unit) {
+        viewModel.load()
+        onPauseOrDispose { }
+    }
     var all by rememberSaveable { mutableStateOf(false) }
     val c = YamuTheme.colors
     FlowScreen(title = "혜택 한도", onBack = onBack, bottomBar = { BottomCta { PrimaryButton("QR 결제 열기", onClick = onPay) } }) { inner ->
@@ -104,6 +114,10 @@ fun BenefitLimitsRoute(onBack: () -> Unit, onPay: () -> Unit, viewModel: Benefit
                         Text(l.month?.let { "${it}월에 아직 받을 수 있는 혜택" } ?: "아직 받을 수 있는 혜택", style = YamuTheme.typography.bodyM, color = c.text2)
                         Spacer(Modifier.height(4.dp))
                         AmountText(l.remaining, color = c.primary)
+                        s.error?.let {
+                            Text("$it · 마지막 값을 보여 드려요", style = YamuTheme.typography.bodyS, color = c.warning)
+                            LinkButton("다시 시도", onClick = viewModel::load)
+                        }
                     }
                     SectionBlock(title = "카드별 남은 한도") {
                         if (l.cards.isEmpty()) EmptyState("한도가 있는 카드가 없어요")
