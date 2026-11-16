@@ -27,6 +27,18 @@ EXP-006은 사용자 요청에 따라 이전 EXP-006을 생활비 거래로 교�
 일반 CI·MR 검증·배포 전 검사에서 제외하며, 일반 테스트의 실패·스킵 차단 기준은 유지한다.
 추천 계산·카탈로그·결제·DB 회귀 테스트는 계속 일반 `test`에서 실행한다.
 
+분리 대상은 아래 클래스뿐이다. 이름이 비슷한 추천·카탈로그 회귀 테스트를 패턴으로
+제외하지 않고, 각 실험 클래스에 붙은 태그로 구분한다.
+
+| 클래스 | 실행 태스크 |
+|---|---|
+| `MonthlyCardSelectionSimulationTest` | `experimentTest` |
+| `CardSelectionExperimentTest` | `experimentTest` |
+| `CardSelectionConsumptionScaleTest` | `experimentTest` |
+| `CardSelectionManualTableTest` | `experimentTest` |
+| `CardSelectionSixMonthTest` 사전 검증 | `experimentTest` |
+| `CardSelectionSixMonthTest` 승인용 본실험 | `sixMonthExperimentTest` |
+
 `be` 폴더에서 Java 17과 Docker를 준비한 뒤 실행한다.
 
 ```powershell
