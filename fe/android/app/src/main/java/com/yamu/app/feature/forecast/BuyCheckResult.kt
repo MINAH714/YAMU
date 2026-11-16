@@ -91,6 +91,7 @@ import com.yamu.app.feature.forecast.data.SimProblem
 import com.yamu.app.feature.forecast.data.SimSnapshot
 import com.yamu.app.feature.forecast.data.SimWithdrawal
 import com.yamu.app.feature.forecast.data.Simulation
+import com.yamu.app.feature.forecast.data.shortName
 import com.yamu.app.feature.forecast.data.SimulationQuery
 import com.yamu.app.feature.forecast.data.canSavePlan
 import com.yamu.app.feature.forecast.data.subjectParticle
@@ -440,6 +441,11 @@ private fun HeroCard(
                 Spacer(Modifier.width(6.dp))
                 EstimateTag()
             }
+            // 어느 계좌 잔액인지 — 카드 출금 계좌 하나로 계산한다(S15P31E103-548)
+            sim.accounts.singleOrNull()?.let {
+                Spacer(Modifier.weight(1f))
+                Text(it.shortName(), style = YamuTheme.typography.bodyS, color = c.text3, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(start = 8.dp))
+            }
         }
         // 전 → 후. 같으면(출금이 예보 기간 밖 · 고르지 않은 계좌 · 전액 즉시할인) 숫자 하나에 '사기 전과 같아요'를 붙여
         // 구매 때문에 내려가는 값으로 읽히지 않게 한다(QA). 후 값이 없으면 0원으로 채우지 않고 숫자를 뺀다
@@ -506,7 +512,7 @@ private fun ScheduleCard(sim: Simulation, selectedDate: LocalDate?, onWithdrawal
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("빠져나가는 날", style = YamuTheme.typography.cardTitle, color = c.text1, modifier = Modifier.weight(1f))
             Text(
-                "${sim.card.name} 출금 계좌",
+                sim.accounts.singleOrNull()?.shortName() ?: "${sim.card.name} 출금 계좌",
                 style = YamuTheme.typography.bodyS,
                 color = c.text3,
                 maxLines = 1,

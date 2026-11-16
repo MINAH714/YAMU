@@ -60,6 +60,7 @@ import com.yamu.app.feature.forecast.data.MatchViewDto
 import com.yamu.app.feature.forecast.data.PaceCheckDto
 import com.yamu.app.feature.forecast.data.PaymentMatch
 import com.yamu.app.feature.forecast.data.accountIdsFrom
+import com.yamu.app.feature.forecast.data.cardAccountIds
 import com.yamu.app.feature.forecast.data.isMatchable
 import com.yamu.app.feature.forecast.data.toCandidates
 import com.yamu.app.feature.forecast.data.toConfirmed
@@ -493,11 +494,13 @@ class FakeForecastRepository @Inject constructor(private val bank: FakeBank) : F
         val card = chosen ?: top
         val (benefitName, benefitAmount) = net(card)
         val schedule = withdrawals(card, query.purchaseDate, query.amount, query.installmentMonths)
-        // 가짜는 가상 구매 출금을 저장한 계획과 같은 계좌(시드 사용자는 신한 ·5678, 계좌가 하나면 기준 계좌)에서 뺀다
-        val purchaseAccount = spendAccount()
+        // 실제 저장소처럼 카드의 출금 계좌 하나로 계산한다(-548). 그 계좌를 모르면 저장한 계획과 같은 계좌(시드 사용자는 신한 ·5678)에서 뺀다
+        val cardAccounts = cardAccountIds(card.id, options())
+        val purchaseAccount = cardAccounts?.single() ?: spendAccount()
+        val scope = cardAccounts?.let { current.copy(accountIds = it.toSet(), all = false) } ?: current
         val purchaseFlows = schedule.map { Flow(purchaseAccount, LocalDate.parse(it.date), it.amount, "SIMULATED_PURCHASE", "CONFIRMED", it.label ?: "가상 구매") }
-        val before = build(current)
-        val after = build(current, purchaseFlows)
+        val before = build(scope)
+        val after = build(scope, purchaseFlows)
         val to = LocalDate.parse(before.horizon!!.to)
         // riskStartDate — 위험 구간 중 가장 이른 시작일(BE -347 !198). 가짜는 통합 선 구간만 본다
         fun snapshot(dto: BalanceForecastDto) = SimSnapshotDto(dto.summary?.minBalance, dto.summary?.minBalanceDate, dto.summary?.endBalance, dto.summary?.status, dto.riskWindows.mapNotNull { it.from }.minOrNull())
@@ -506,7 +509,7 @@ class FakeForecastRepository @Inject constructor(private val bank: FakeBank) : F
         val afterDate = after.summary?.minBalanceDate?.let(LocalDate::parse)
         // 체크카드 구매일(기간 안) 출금 계좌의 구매 후 잔액(그 계좌의 가장 나쁜 선)이 0원 아래면 BE처럼 안내를 덧붙인다(-347).
         // 통합 합계로 보면 다른 계좌 잔액이 출금 계좌의 마이너스를 가린다(!206 리뷰). 출금 계좌를 고르지 않았으면 그날 잔액을 몰라 붙이지 않는다
-        val checkOverdrawn = !card.credit && !query.purchaseDate.isAfter(to) && purchaseAccount in current.accountIdsFrom(options()) &&
+        val checkOverdrawn = !card.credit && !query.purchaseDate.isAfter(to) && purchaseAccount in scope.accountIdsFrom(options()) &&
             build(current.copy(accountIds = setOf(purchaseAccount), all = false), purchaseFlows).series
                 .firstOrNull { it.date == query.purchaseDate.toString() }?.let { (it.conservative ?: it.expected ?: 0) < 0 } == true
         val message = buildString {
@@ -540,7 +543,8 @@ class FakeForecastRepository @Inject constructor(private val bank: FakeBank) : F
             creditLimit = SimCreditLimitDto("SKIPPED", null).takeIf { card.credit },
             message = message,
         )
-        ApiResult.Success(dto.toSimulation(query))
+        val ids = scope.accountIdsFrom(options())
+        ApiResult.Success(dto.toSimulation(query).copy(accounts = options().filter { it.accountId in ids }))
     }
 
     /** 같은 Idempotency-Key는 처음 만든 번호(BE -358) — 등록 · 계획 저장이 같이 쓴다 */

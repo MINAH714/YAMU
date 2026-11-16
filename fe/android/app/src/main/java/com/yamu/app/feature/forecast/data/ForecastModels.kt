@@ -134,11 +134,14 @@ enum class ForecastPeriod(val until: String, val days: Int?, val label: String) 
 
 /**
  * 화면에서 고른 기간 · 계좌. 앱을 켜 둔 동안만 기억한다.
- * 기간 null은 서버 설정. 계좌는 [accountIds]가 null이면 기준 계좌 하나다 — 홈 요약 · 소비분석 자산 흐름과 같은 범위라 화면끼리 숫자가 맞는다
- * (v4 FORECAST-03 · COMMON-04, S15P31E103-484 · 2026-11-13 결정). 전에는 null이 연결 계좌 전체였다.
+ * 기간 null은 서버 설정. 계좌는 [accountIds]가 null이면 연결 계좌 전체다(S15P31E103-548). 소비분석 자산 흐름도 전체라 숫자가 맞고,
+ * 홈 요약(기준 계좌)과 같은 숫자는 홈 '잔고예보' 버튼이 기준 계좌 · 30일을 골라 연다. -484(11/13)에는 null이 기준 계좌 하나였다.
  * [all]은 시트에서 계좌를 모두 고른 것 — 목록 대신 표시만 두어 그 뒤 새로 연결한 계좌도 들어간다
  */
-data class ForecastSelection(val period: ForecastPeriod? = null, val accountIds: Set<Long>? = null, val all: Boolean = false)
+data class ForecastSelection(val period: ForecastPeriod? = null, val accountIds: Set<Long>? = null, val all: Boolean = false) {
+    /** 연결 계좌 전체를 보는지 — 모두 골랐거나 고르지 않았다 */
+    val coversAll: Boolean get() = all || accountIds == null
+}
 
 /** 계좌 짧은 이름 — 'KB국민은행 ··1234'(은행 이름이 없으면 계좌 이름). 잔고예보 칩 · 소비분석 자산 흐름 · 예정 수입·지출 머리가 같이 쓴다 */
 fun ForecastAccountOption.shortName(): String =
