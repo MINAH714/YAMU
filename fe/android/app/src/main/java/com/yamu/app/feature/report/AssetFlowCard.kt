@@ -40,7 +40,7 @@ import androidx.compose.ui.unit.sp
 import com.yamu.app.core.designsystem.component.EmptyState
 import com.yamu.app.core.designsystem.component.ErrorState
 import com.yamu.app.core.designsystem.component.LinkButton
-import com.yamu.app.core.designsystem.component.NeutralButton
+import com.yamu.app.core.designsystem.component.PrimaryButton
 import com.yamu.app.core.designsystem.component.SkeletonBlock
 import com.yamu.app.core.designsystem.component.StatusTag
 import com.yamu.app.core.designsystem.component.TagTone
@@ -264,7 +264,8 @@ private fun AssetFlowBody(
         // 상자마다 날짜가 붙어 있고 30일 최저는 홈 잔고예보 요약 · 잔고예보 화면이 말한다
     }
     Spacer(Modifier.height(12.dp))
-    NeutralButton("AI 잔고예보 자세히 보기", onClick = onForecast)
+    // 회색이라 눈에 안 띄던 자리를 브랜드 색으로 — 홈 잔고예보 칸의 '잔고예보 보기'와 같은 버튼(소비분석 탭에 다른 주 버튼은 없다)
+    PrimaryButton("AI 잔고예보 자세히 보기", onClick = onForecast)
 }
 
 /** 계좌 이름표 — 회색 알약 '신한 ··5678'(COMMON-04: 어느 계좌 잔고인지) */
