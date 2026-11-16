@@ -690,7 +690,7 @@ fun BenefitReportRoute(
     }
 }
 
-/** 종류별 · 카드별 한 줄 — 이름 / 확정 금액, 밑에 확정 전 · 원화로 못 바꾼 건수. [onClick]이 있으면 줄 전체를 눌러 이동(꺾쇠) */
+/** 종류별 · 카드별 한 줄 — 이름 / 확정+예정 합계(맨 위 총액과 같은 기준), 밑에 예정 금액 · 원화로 못 바꾼 건수. [onClick]이 있으면 줄 전체를 눌러 이동(꺾쇠) */
 @Composable
 private fun BenefitAmountRow(name: String, confirmed: Long, unconfirmed: Long, unconverted: Long, onClick: (() -> Unit)? = null) {
     val c = YamuTheme.colors
@@ -708,7 +708,7 @@ private fun BenefitAmountRow(name: String, confirmed: Long, unconfirmed: Long, u
             Text(name, style = YamuTheme.typography.titleM, color = c.text1, maxLines = 1, overflow = TextOverflow.Ellipsis)
             sub?.let { Text(it, style = YamuTheme.typography.bodyS, color = c.text3, modifier = Modifier.padding(top = 2.dp)) }
         }
-        Text("${confirmed.toWon()}원", style = YamuTheme.typography.value, color = c.text1)
+        Text("${(confirmed + unconfirmed).toWon()}원", style = YamuTheme.typography.value, color = c.text1)
         if (onClick != null) Icon(YamuIcons.ChevronRight, contentDescription = null, tint = c.text3, modifier = Modifier.padding(start = 4.dp).size(18.dp))
     }
 }
@@ -720,9 +720,9 @@ internal fun confirmedLine(r: BenefitReport): String =
 /** 원화로 바꾸지 못한 혜택 — 적립이 없는 게 아니라 금액에 넣지 못한 것 */
 internal fun unconvertedLine(count: Long): String = "원화로 바꾸지 못한 혜택 ${count}건은 금액에 넣지 않았어요"
 
-/** 종류별 · 카드별 줄의 보조 줄 — 확정 전 · 원화로 못 바꾼 건수. 둘 다 없으면 null */
+/** 종류별 · 카드별 줄의 보조 줄 — 아직 들어오지 않은 금액은 '(예정) 1,000원', 원화로 못 바꾼 건수. 둘 다 없으면 null */
 internal fun amountSubLine(unconfirmed: Long, unconverted: Long): String? = listOfNotNull(
-    "확정 전 ${unconfirmed.toWon()}원".takeIf { unconfirmed > 0 },
+    "(예정) ${unconfirmed.toWon()}원".takeIf { unconfirmed > 0 },
     "원화로 못 바꾼 ${unconverted}건".takeIf { unconverted > 0 },
 ).joinToString(" · ").ifEmpty { null }
 
