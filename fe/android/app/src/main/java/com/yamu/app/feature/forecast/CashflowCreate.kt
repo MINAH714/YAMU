@@ -376,7 +376,7 @@ fun CashflowCreateRoute(onBack: () -> Unit, onDone: () -> Unit, viewModel: Cashf
             Spacer(Modifier.height(YamuSpacing.x2))
             YamuTextField(
                 label = "금액(원)",
-                value = f.amount?.toString().orEmpty(),
+                value = AmountLimit.CASHFLOW.clampInput(f.amount?.toString().orEmpty()),
                 onValueChange = { v -> viewModel.edit { it.copy(amount = AmountLimit.CASHFLOW.clampInput(v).toLongOrNull()) } },
                 placeholder = "예: 250000",
                 supporting = f.amount?.takeIf { it > 0 }?.let { "${it.toWon()}원" },

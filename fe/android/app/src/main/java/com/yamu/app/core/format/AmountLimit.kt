@@ -18,8 +18,8 @@ enum class AmountLimit(val max: Long, private val label: String) {
     /** 칸이 받는 자릿수 */
     val digits: Int get() = max.toString().length
 
-    /** 입력 칸에 친 글자 → 숫자만, 상한 자릿수까지 */
-    fun clampInput(text: String): String = text.filter(Char::isDigit).take(digits)
+    /** 입력 칸에 친 글자 → 숫자만, 앞자리 0은 버리고(amountDigits, S15P31E103-525) 상한 자릿수까지 */
+    fun clampInput(text: String): String = amountDigits(text, digits)
 
     /** 보내기 전 검사. 비어 있으면 보내도 된다 */
     fun error(amount: Long?): String? = when {

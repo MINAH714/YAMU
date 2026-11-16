@@ -68,6 +68,24 @@ class HomeCardsTest {
         assertEquals("이번 달 한도를 다 썼어요", limitLine(limits(1, limit("쿠팡", 0, "EXHAUSTED"), limit("생활", null, "LOCKED"))))
     }
 
+    // ── 내 카드 타일(S15P31E103-519) ──
+
+    @Test fun `실적 막대 비율 — 조건 없음은 막대 없음, 달성은 꽉 참, 나머지는 인정 실적 나누기 목표`() {
+        assertNull(card(1, target = null).perfProgress())
+        assertEquals(1f, card(1, recognized = 320_000, achieved = true).perfProgress())
+        assertEquals(0.85f, card(1, recognized = 255_000).perfProgress()!!, 0.0001f)
+        assertEquals(1f, card(1, recognized = 400_000).perfProgress())   // 넘쳐도 막대는 1까지
+    }
+
+    @Test fun `타일 한 문장 — 카드별 혜택을 모르면 받은 혜택을 0원으로 말하지 않는다`() {
+        val row = HomeCardsData(listOf(card(1, recognized = 255_000)), limits = listOf(limits(1, limit("카페 10% 할인", 3_000)))).rows().single()
+        assertEquals("카드 1, 카페 10% 할인 남은 한도 3,000원, 실적까지 45,000원", cardTileDescription(row, null))
+        assertEquals(
+            "카드 1, 받은 혜택 9,800원, 6,000원 혜택 예정, 카페 10% 할인 남은 한도 3,000원, 실적까지 45,000원",
+            cardTileDescription(row, CardBenefit(confirmed = 9_800, pending = 6_000, unconvertedCount = 0)),
+        )
+    }
+
     // ── 실적 칩 · 줄 ──
 
     @Test fun `실적 칩은 달성 · 실적까지 · 실적 조건 없음`() {

@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -269,6 +270,13 @@ fun PaymentDetailRoute(onBack: () -> Unit, onCancel: (PaymentReceipt) -> Unit, v
                             large = false,
                             valueLead = (r.cardBrand ?: art?.brand)?.let { b ->
                                 { CardListThumb(b, art?.productName ?: r.cardName.orEmpty(), width = 44.dp, dimmed = art?.dimmed == true) }
+                            },
+                            // 긴 카드 이름(옛 20자 별칭 · 긴 상품명)이 키 칸을 밀어내지 않게 폭 상한 · 이름만 한 줄 말줄임, 끝 4자리는 남긴다(S15P31E103-522)
+                            valueContent = { style, color ->
+                                Row(Modifier.widthIn(max = 200.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    r.cardName?.let { Text(it, style = style, color = color, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false)) }
+                                    r.cardLast4?.let { Text("•••• $it", style = style, color = color, maxLines = 1) }
+                                }
                             },
                         )
                         // 카드 줄 아래 오른쪽에 '추천 N순위' · '직접 고른 카드'(-394), 옛 결제 · SEED는 비운다.

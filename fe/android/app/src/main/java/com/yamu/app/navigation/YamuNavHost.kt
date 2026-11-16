@@ -243,15 +243,12 @@ fun YamuNavHost(navController: NavHostController, modifier: Modifier = Modifier,
                 composable<Home> {
                     // 3단계: 실제 화면(07 문서 3-5) · v4 홈(S15P31E103-480 · 481)
                     HomeRoute(
-                        onPay = { navController.navigate(PayCode) },
                         onForecast = { navController.navigate(Forecast) },
                         onNotifications = { navController.navigate(Notifications) },
-                        onMyCards = { navController.navigate(MyCards) },
                         onStartLinking = { navController.navigate(LinkGraph) },
                         onRecentPayment = { paymentId -> navController.navigate(PaymentDetail(paymentId)) },
                         // 결제 내역은 홈 위에 쌓고(뒤로 = 홈), 소비분석은 하단 탭을 누른 것과 같이 탭을 바꾼다(2차 QA 19 · 39)
                         onPayments = { navController.navigate(Payments) },
-                        onReport = { navController.navigateToTab(TopTab.REPORT) },
                         onRegisterIncome = { navController.navigate(CashflowConfirm(fromHome = true)) },
                         onAddCard = { navController.navigate(AddCard) },
                         // 혜택 히어로 → 혜택 리포트(S-04) — 홈 위에 쌓여 뒤로 = 홈. 달은 홈이 누르기 전에 고른다
@@ -267,7 +264,6 @@ fun YamuNavHost(navController: NavHostController, modifier: Modifier = Modifier,
                 composable<Notifications> {
                     NotificationsRoute(
                         onBack = back,
-                        onSettings = { navController.navigate(NotificationSettings) },
                         onOpen = { target ->
                             when (target) {
                                 is NotiTarget.Card -> navController.navigate(PerfAnalysis(target.userCardId))
@@ -294,7 +290,6 @@ fun YamuNavHost(navController: NavHostController, modifier: Modifier = Modifier,
                         onBuyCheck = { navController.navigate(BuyCheckInput) },
                         onCashflowList = { navController.navigate(CashflowList) },
                         onLink = { navController.navigate(LinkGraph) },
-                        onAlertSettings = { navController.navigate(NotificationSettings) },
                         onLivingCost = { navController.navigate(LivingCostDetail) },
                         onRegisterIncome = { navController.navigate(CashflowConfirm(fromHome = true)) },   // 저장하면 잔고예보로 돌아온다(Task 8.2.74)
                     )
@@ -351,6 +346,7 @@ fun YamuNavHost(navController: NavHostController, modifier: Modifier = Modifier,
                         onCardDetail = { id -> navController.navigate(CardPerformance(id)) },
                         onAddCard = { navController.navigate(AddCard) },
                         onBenefitLimits = { navController.navigate(BenefitLimits) { launchSingleTop = true } },
+                        onNotifications = { navController.navigate(Notifications) { launchSingleTop = true } },
                     )
                 }
                 composable<CardPerformance> {
@@ -370,6 +366,7 @@ fun YamuNavHost(navController: NavHostController, modifier: Modifier = Modifier,
                         onPayments = { navController.navigate(Payments) },
                         // 잔고예보는 홈 그래프 안 화면이지만 소비분석 위에 쌓아 뒤로 = 소비분석(보던 달 · 스크롤 그대로)
                         onForecast = { navController.navigate(Forecast) { launchSingleTop = true } },
+                        onNotifications = { navController.navigate(Notifications) { launchSingleTop = true } },
                     )
                 }
                 composable<BenefitReport> {

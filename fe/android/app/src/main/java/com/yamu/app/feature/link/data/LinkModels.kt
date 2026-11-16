@@ -319,7 +319,8 @@ data class LinkedOverview(val accounts: List<LinkedAccount>, val cards: List<Lin
 object CardValidation {
     const val NUMBER_LENGTH = 16
     const val EXPIRY_LENGTH = 4
-    const val NICKNAME_MAX = 20             // 카드 · 계좌 별칭(서버 CardUpdateRequest · AccountUpdateRequest)
+    // 카드 · 계좌 별칭. 서버(CardUpdateRequest · AccountUpdateRequest)는 20자까지 받지만 긴 이름이 화면을 밀어내 앱에서 12자로 막는다(S15P31E103-522)
+    const val NICKNAME_MAX = 12
     private val NUMBER = Regex("\\d{16}")
     private val EXPIRY = Regex("(0[1-9]|1[0-2])\\d{2}")
 
@@ -334,6 +335,29 @@ object CardValidation {
 
     /** 앞뒤 공백을 빼고 비면 별칭 없음(서버와 같게) */
     fun nickname(value: String): String? = value.trim().ifEmpty { null }
+
+    /**
+     * 별칭 칸에 들어갈 글 — [NICKNAME_MAX]를 넘는 새 글자는 받지 않고, 붙여 넣은 긴 글은 앞에서 자른다.
+     * 12자로 줄이기 전에 길게 저장한 별칭은 지우는 입력만 받는다(한 글자 지웠는데 뒤가 뭉텅 잘리지 않게)
+     */
+    fun nicknameInput(old: String, new: String): String = when {
+        new.length <= NICKNAME_MAX || new.length < old.length -> new
+        old.length >= NICKNAME_MAX -> old
+        else -> new.take(NICKNAME_MAX)
+    }
+
+    /** 칸 아래 글자 수 — '7/12자' */
+    fun nicknameCount(value: String): String = "${value.length}/${NICKNAME_MAX}자"
+
+    /** 저장할 수 없는 길이(12자로 줄이기 전에 저장한 별칭) */
+    fun nicknameTooLong(value: String): Boolean = value.trim().length > NICKNAME_MAX
+
+    /** 칸 아래 빨간 안내 — 저장할 수 없게 길면 줄일 글자 수, [overflowed](방금 넘기려 한 입력)면 최대 길이. 아니면 null */
+    fun nicknameError(value: String, overflowed: Boolean): String? = when {
+        nicknameTooLong(value) -> "${NICKNAME_MAX}자까지 쓸 수 있어요 · ${value.trim().length - NICKNAME_MAX}자를 줄여 주세요"
+        overflowed -> "${NICKNAME_MAX}자까지 쓸 수 있어요"
+        else -> null
+    }
 }
 
 // ── 오류 ──

@@ -409,7 +409,6 @@ fun ForecastRoute(
     onBuyCheck: () -> Unit,
     onCashflowList: () -> Unit,
     onLink: () -> Unit,
-    onAlertSettings: () -> Unit = {},
     onLivingCost: () -> Unit = {},
     onRegisterIncome: () -> Unit = {},   // 월급을 못 찾았다는 안내의 '월급 등록하기' → B-06(Task 8.2.74)
     viewModel: ForecastViewModel = hiltViewModel(),
@@ -428,10 +427,7 @@ fun ForecastRoute(
         title = "잔고예보",
         onBack = onBack,
         cards = true,
-        actions = {
-            // 알림 설정은 톱니 — 종은 앱 어디서나 알림 목록(홈 · 마이), 톱니는 알림 설정(알림 화면)으로 뜻을 맞춘다(docs/fe/ui-ux-rationale.md V-02)
-            IconButton(onClick = onAlertSettings) { Icon(YamuIcons.Settings, contentDescription = "잔액 알림 설정", tint = c.text1) }
-        },
+        // 앱바 오른쪽 잔액 알림 톱니는 뺐다 — 알림 설정은 마이에서만(S15P31E103-521)
         bottomBar = {
             if (!s.noAccount) BottomCta { PrimaryButton("이거 사면 잔고는? 비교해 보기", onClick = onBuyCheck) }
         },

@@ -161,6 +161,36 @@ class PerformanceMapperTest {
         assertEquals("30만원 이상", d.targetLabel)
     }
 
+    @Test fun `혜택이 열리는 구간이 하나면 그 한 줄만 — 위 구간 달성도 남긴 줄에`() {
+        // 서버 노리2: 혜택 이름은 20만 구간에만, 위 구간은 금액만 커진다
+        val nori2 = listOf(
+            PerfTier("20만원 이상", "모바일 10%, 문화 10%", 20_000, achieved = false),
+            PerfTier("30만원 이상", null, 20_000, achieved = false),
+            PerfTier("40만원 이상", null, 30_000, achieved = true),
+            PerfTier("80만원 이상", null, null, achieved = false),
+        )
+        assertEquals(listOf(PerfTier("20만원 이상", "모바일 10%, 문화 10%", 20_000, achieved = true)), nori2.visibleTiers())
+        // 가짜 데이터처럼 같은 이름이 모든 구간에 와도 하나로 센다
+        val repeated = listOf(PerfTier("20만 원 이상", "GS25·CU 5%", 20_000, false), PerfTier("30만 원 이상", "GS25·CU 5%", 20_000, false))
+        assertEquals(listOf(repeated.first()), repeated.visibleTiers())
+    }
+
+    @Test fun `혜택이 열리는 구간이 여럿이거나 없으면 구간을 그대로`() {
+        // 노리 체크: 20만 · 30만에 각각 새 혜택, 50만 · 100만은 금액만
+        val several = listOf(
+            PerfTier("20만원 이상", "음식점 할인", 10_000, true),
+            PerfTier("30만원 이상", "통신 할인", 20_000, false),
+            PerfTier("50만원 이상", null, 30_000, false),
+            PerfTier("100만원 이상", null, 50_000, false),
+        )
+        assertEquals(several, several.visibleTiers())
+        val unnamed = listOf(PerfTier("30만원 이상", null, 10_000, false), PerfTier("60만원 이상", " ", 20_000, false))
+        assertEquals(unnamed, unnamed.visibleTiers())
+        val single = listOf(PerfTier("40만 원 이상", "쿠팡·편의점 60%", 13_000, false))
+        assertEquals(single, single.visibleTiers())
+        assertEquals(emptyList<PerfTier>(), emptyList<PerfTier>().visibleTiers())
+    }
+
     @Test fun `기준 금액 만 원 표기`() {
         assertEquals("40만 원", 400_000L.toManWon())
         assertEquals("125,000원", 125_000L.toManWon())

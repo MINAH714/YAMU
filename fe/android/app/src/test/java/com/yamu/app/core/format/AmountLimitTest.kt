@@ -34,5 +34,9 @@ class AmountLimitTest {
         assertEquals("123456789012", AmountLimit.CASHFLOW.clampInput("1234567890123"))
         assertEquals("123456789", AmountLimit.POS_PAYMENT.clampInput("1234567890"))
         assertEquals("", AmountLimit.CASHFLOW.clampInput("원"))
+        // 앞자리 0은 버린다(S15P31E103-525와 같은 amountDigits) — 자릿수는 0을 뺀 뒤 센다
+        assertEquals("", AmountLimit.CASHFLOW.clampInput("000"))
+        assertEquals("12000", AmountLimit.CASHFLOW.clampInput("0012,000"))
+        assertEquals("100000000000", AmountLimit.CASHFLOW.clampInput("0100000000000"))
     }
 }

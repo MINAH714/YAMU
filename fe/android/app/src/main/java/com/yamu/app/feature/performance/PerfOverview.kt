@@ -45,6 +45,7 @@ import com.yamu.app.core.designsystem.component.ListRow
 import com.yamu.app.core.designsystem.component.SkeletonBlock
 import com.yamu.app.core.designsystem.component.StatusTag
 import com.yamu.app.core.designsystem.component.TabScreen
+import com.yamu.app.feature.my.TabBell
 import com.yamu.app.core.designsystem.component.TagTone
 import com.yamu.app.core.designsystem.component.YamuCard
 import com.yamu.app.core.designsystem.theme.YamuSpacing
@@ -118,6 +119,7 @@ fun PerfOverviewRoute(
     onCardDetail: (userCardId: Long) -> Unit,
     onAddCard: () -> Unit,
     onBenefitLimits: () -> Unit = {},
+    onNotifications: () -> Unit = {},
     viewModel: PerfOverviewViewModel = hiltViewModel(),
 ) {
     val s by viewModel.state.collectAsStateWithLifecycle()
@@ -127,7 +129,7 @@ fun PerfOverviewRoute(
         onPauseOrDispose { }
     }
     val c = YamuTheme.colors
-    TabScreen(title = "실적 관리") { inner ->
+    TabScreen(title = "실적 관리", actions = { TabBell(onNotifications) }) { inner ->
         Column(Modifier.padding(inner).consumeWindowInsets(inner).fillMaxSize().verticalScroll(rememberScrollState())) {
             val o = s.overview
             when {

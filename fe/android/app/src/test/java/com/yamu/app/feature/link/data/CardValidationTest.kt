@@ -4,6 +4,7 @@ import androidx.compose.ui.text.AnnotatedString
 import com.yamu.app.feature.link.CardNumberFormat
 import com.yamu.app.feature.link.ExpiryFormat
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -41,6 +42,32 @@ class CardValidationTest {
         assertNull(CardValidation.nickname(""))
         assertNull(CardValidation.nickname("   "))
         assertEquals("생활비", CardValidation.nickname("  생활비 "))
+    }
+
+    @Test fun `별칭 칸 — 12자를 넘는 새 글자는 받지 않고 붙여 넣은 글은 앞 12자만`() {
+        val twelve = "가나다라마바사아자차카타"
+        assertEquals(12, CardValidation.NICKNAME_MAX)
+        assertEquals("생활비", CardValidation.nicknameInput("생활", "생활비"))
+        assertEquals(twelve, CardValidation.nicknameInput("가나다라마바사아자차카", twelve))
+        assertEquals(twelve, CardValidation.nicknameInput(twelve, twelve + "파"))
+        assertEquals(twelve, CardValidation.nicknameInput("", twelve + "파하"))           // 붙여 넣기
+        assertEquals("생활" + "가나다라마바사아자차", CardValidation.nicknameInput("생활", "생활" + twelve))
+    }
+
+    @Test fun `별칭 칸 — 예전에 길게 저장한 별칭은 지우기만 받는다`() {
+        val old = "가나다라마바사아자차카타파하거너"                // 16자(서버는 20자까지 받았다)
+        assertEquals(old.dropLast(1), CardValidation.nicknameInput(old, old.dropLast(1)))   // 한 글자 지우면 한 글자만 빠진다
+        assertEquals(old, CardValidation.nicknameInput(old, old + "더"))
+        assertTrue(CardValidation.nicknameTooLong(old))
+        assertEquals("12자까지 쓸 수 있어요 · 4자를 줄여 주세요", CardValidation.nicknameError(old, overflowed = false))
+    }
+
+    @Test fun `별칭 칸 안내 — 글자 수, 넘기려 했을 때만 빨간 안내`() {
+        assertEquals("0/12자", CardValidation.nicknameCount(""))
+        assertEquals("3/12자", CardValidation.nicknameCount("생활비"))
+        assertNull(CardValidation.nicknameError("생활비", overflowed = false))
+        assertEquals("12자까지 쓸 수 있어요", CardValidation.nicknameError("가나다라마바사아자차카타", overflowed = true))
+        assertFalse(CardValidation.nicknameTooLong("  가나다라마바사아자차카타  "))   // 앞뒤 공백은 저장 때 빠진다
     }
 
     @Test fun `카드 오류 문장`() {

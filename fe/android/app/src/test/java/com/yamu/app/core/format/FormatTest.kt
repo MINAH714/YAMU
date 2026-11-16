@@ -9,6 +9,14 @@ import java.time.ZonedDateTime
 class FormatTest {
 
     @Test
+    fun `버튼 속 카드 이름 — 8자를 넘으면 7자 + 말줄임`() {
+        assertEquals("신한카드 Mr", "신한카드 Mr".clipName())
+        assertEquals("신한카드 Deep Dream".take(7).trimEnd() + "…", "신한카드 Deep Dream".clipName())
+        assertEquals("신한카드…", "신한카드 Deep".clipName(6))   // 자른 끝 공백은 뺀다
+        assertEquals("12345678", "12345678".clipName())
+    }
+
+    @Test
     fun `금액 표기`() {
         assertEquals("15,000", 15_000L.toWon())
         assertEquals("−50,000", (-50_000L).toWon())

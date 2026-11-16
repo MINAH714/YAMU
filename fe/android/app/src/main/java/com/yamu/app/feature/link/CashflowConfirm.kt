@@ -456,8 +456,8 @@ private fun EditAmountSheet(
         CashflowEdit.DailyCost -> "하루 생활비" to state.dailyCost
         CashflowEdit.Income -> IncomeInput.INCOME_TITLE to state.newIncome?.amount   // 월급은 IncomeSheet가 맡는다
     }
-    var text by remember(editing) { mutableStateOf(initial?.toString().orEmpty()) }
     val limit = editAmountLimit(editing)
+    var text by remember(editing) { mutableStateOf(limit.clampInput(initial?.toString().orEmpty())) }
     val error = editAmountError(editing, text)
     YamuBottomSheet(onDismiss = onDismiss) {
         Text(title, style = YamuTheme.typography.titleL, color = YamuTheme.colors.text1)
@@ -494,7 +494,7 @@ private fun IncomeSheet(
     onSave: (IncomeInput?) -> Unit,
 ) {
     val c = YamuTheme.colors
-    var amount by remember { mutableStateOf(current?.amount?.toString().orEmpty()) }
+    var amount by remember { mutableStateOf(AmountLimit.CASHFLOW.clampInput(current?.amount?.toString().orEmpty())) }
     var day by remember { mutableStateOf(current?.day?.toString().orEmpty()) }
     var accountId by remember { mutableStateOf(current?.accountId ?: defaultAccount?.accountId) }
     var tried by remember { mutableStateOf(false) }

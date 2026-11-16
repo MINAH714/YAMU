@@ -101,6 +101,18 @@ class CardRegisterViewModelTest {
         assertEquals("1299", vm.state.value.expiry)
     }
 
+    @Test fun `별칭은 12자까지 · 넘기려 하면 안내, 지우면 안내가 사라진다`() = runTest(dispatcher) {
+        val vm = viewModel()
+        vm.onNickname("가나다라마바사아자차카타")
+        assertEquals(12, vm.state.value.nickname.length)
+        assertFalse(vm.state.value.nicknameOverflowed)
+        vm.onNickname("가나다라마바사아자차카타파")
+        assertEquals("가나다라마바사아자차카타", vm.state.value.nickname)
+        assertTrue(vm.state.value.nicknameOverflowed)
+        vm.onNickname("가나다라마바사아자차카")
+        assertFalse(vm.state.value.nicknameOverflowed)
+    }
+
     @Test fun `확인이 끝나면 번호 · 기간을 지운다`() = runTest(dispatcher) {
         val vm = viewModel()
         toConfirm(vm)

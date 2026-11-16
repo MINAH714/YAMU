@@ -34,8 +34,6 @@ import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Badge
-import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -79,6 +77,7 @@ import com.yamu.app.core.designsystem.component.EmptyState
 import com.yamu.app.core.designsystem.component.ErrorState
 import com.yamu.app.core.designsystem.component.FlowScreen
 import com.yamu.app.core.designsystem.component.LinkButton
+import com.yamu.app.core.designsystem.component.NotificationBell
 import com.yamu.app.core.designsystem.component.ListRow
 import com.yamu.app.core.designsystem.component.SkeletonBlock
 import com.yamu.app.core.designsystem.component.StatusTag
@@ -320,17 +319,8 @@ fun MyRoute(
     var policySheet by rememberSaveable { mutableStateOf(false) }
     if (policySheet) PolicySheet(onDismiss = { policySheet = false }, onOpen = { doc -> policySheet = false; onPolicyDoc(doc) })
     val c = YamuTheme.colors
-    TabScreen(
-        title = "마이",
-        largeTitle = true,
-        actions = {
-            IconButton(onClick = onNotifications) {
-                BadgedBox(badge = { if (s.unread > 0) Badge { Text("${s.unread}") } }) {
-                    Icon(YamuIcons.Notifications, contentDescription = "알림 ${s.unread}개", tint = c.text1)
-                }
-            }
-        },
-    ) { inner ->
+    // 탭 첫 화면 넷이 같은 앱바 — 큰 제목을 일반 제목으로, 종은 홈 · 소비분석 · 실적관리와 같은 NotificationBell(S15P31E103-521)
+    TabScreen(title = "마이", actions = { NotificationBell(s.unread, onNotifications) }) { inner ->
         Column(Modifier.padding(inner).consumeWindowInsets(inner).fillMaxSize().verticalScroll(rememberScrollState())) {
             val info = s.info
             when {
@@ -1042,10 +1032,6 @@ fun SecurityRoute(
                         trailing = { Icon(Icons.Rounded.KeyboardArrowDown, contentDescription = null, tint = c.text3) },
                         onClick = { sheet = SecuritySheet.CODE_AUTH },
                     )
-                    SectionLabel("이럴 때 확인해요")
-                    ListRow(title = "앱 열기", trailing = { StatusTag("앱 잠금") })
-                    ListRow(title = "결제 코드 열기", trailing = { StatusTag("추가 인증") })
-                    ListRow(title = "계좌 · 카드 등록", trailing = { StatusTag("추가 인증") })
                 }
             }
             Spacer(Modifier.height(YamuSpacing.x6))

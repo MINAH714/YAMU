@@ -158,14 +158,17 @@ val HomeBenefit.showsTypes: Boolean get() = byType.isNotEmpty() && (confirmed > 
 
 /**
  * 종류 칸 금액(11/14 결정: 확정만 — 세 칸 합이 큰 숫자와 같다). 확정이 0원이어도 확정 전 · 못 바꾼 혜택이 있으면
- * '0원'으로 쓰지 않는다(적립 0원 + 미환산 1건을 '적립 없음'으로 단정하지 않는다). 확정 전은 히어로 칩처럼 '예정'(11/16)
+ * '0원'으로 쓰지 않는다(적립 0원 + 미환산 1건을 '적립 없음'으로 단정하지 않는다). 확정 전만 있으면 금액과 함께 '6,000원 예정'(11/16 사용자 요청, S15P31E103-520 — '예정'만으로는 무슨 뜻인지 몰랐다)
  */
 fun BenefitByType.amountText(): String = when {
     confirmed > 0 -> "${confirmed.toWon()}원"
-    pending > 0 -> "예정"
+    pending > 0 -> "${pending.toWon()}원 예정"
     unconvertedCount > 0 -> "환산 전"
     else -> "0원"
 }
+
+/** 확정 금액 없이 확정 전만 있는 종류 칸 — 흐리게 그린다(S15P31E103-520) */
+val BenefitByType.pendingOnly: Boolean get() = confirmed <= 0 && pending > 0
 
 /** 원화로 못 바꾼 혜택이 있을 때 히어로 아래 한 줄 — 없으면 null */
 fun HomeBenefit.unconvertedNote(): String? =
