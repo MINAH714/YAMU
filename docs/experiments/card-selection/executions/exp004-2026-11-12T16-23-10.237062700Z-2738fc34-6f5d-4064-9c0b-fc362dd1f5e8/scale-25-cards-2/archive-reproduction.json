@@ -1,0 +1,7 @@
+{
+  "sha256" : "1f9c83608bbb0c883052bc8562ca13721a08cecaa4de9d00f84620da73d31860",
+  "runs" : 104,
+  "archive" : "..\\docs\\experiments\\card-selection\\executions\\exp003-2026-11-12T15-53-49.629195800Z-c0f56cb2-e64a-4426-b76d-67b3fe9becb0\\scale-25-cards-2\\raw-records.zip",
+  "status" : "PASS",
+  "comparison" : "all economic records; generated identities and numeric scales normalized"
+}

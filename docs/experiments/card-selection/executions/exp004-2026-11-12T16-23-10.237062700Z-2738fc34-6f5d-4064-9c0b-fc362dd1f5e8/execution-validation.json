@@ -1,0 +1,13 @@
+{
+  "Head": "67acde8949b370c4dd778d1c2761d61ee087708b",
+  "PolicyOrInputChanges": 0,
+  "ExitCode": 0,
+  "Skipped": "0",
+  "Errors": "0",
+  "Tests": "1",
+  "Attempt": 1,
+  "Command": ".\\gradlew.bat test --tests com.yamu.be.recommendation.CardSelectionManualTableTest --rerun-tasks",
+  "Seconds": "30.782",
+  "Failures": "0",
+  "Outcome": "PASS"
+}

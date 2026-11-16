@@ -222,19 +222,26 @@ private fun AccountActionSheet(account: LinkedAccount, onRename: () -> Unit, onM
 @Composable
 private fun AccountNameSheet(account: LinkedAccount, onSave: (String) -> Unit, onDismiss: () -> Unit) {
     var text by rememberSaveable { mutableStateOf(account.alias.orEmpty()) }
+    var overflowed by rememberSaveable { mutableStateOf(false) }   // 12자 넘게 넣으려 했다
     YamuBottomSheet(onDismiss = onDismiss) {
         Text("계좌 별칭", style = YamuTheme.typography.titleL, color = YamuTheme.colors.text1)
         Spacer(Modifier.height(YamuSpacing.x4))
         YamuTextField(
             label = "별칭",
             value = text,
-            onValueChange = { text = it.take(CardValidation.NICKNAME_MAX) },
+            onValueChange = {
+                val accepted = CardValidation.nicknameInput(text, it)
+                overflowed = accepted != it
+                text = accepted
+            },
             placeholder = account.numberLabel,
-            supporting = "${CardValidation.NICKNAME_MAX}자까지 · 비우면 기본 이름으로 보여요",
+            supporting = "${CardValidation.nicknameCount(text)} · 비우면 기본 이름으로 보여요",
+            error = CardValidation.nicknameError(text, overflowed),
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
         )
         Spacer(Modifier.height(YamuSpacing.x5))
-        PrimaryButton("저장", onClick = { onSave(text) })
+        // 12자로 줄이기 전에 길게 저장한 별칭은 줄여야 저장된다
+        PrimaryButton("저장", onClick = { onSave(text) }, enabled = !CardValidation.nicknameTooLong(text))
         Spacer(Modifier.height(YamuSpacing.x2))
     }
 }

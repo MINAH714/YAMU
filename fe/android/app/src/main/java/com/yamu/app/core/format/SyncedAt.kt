@@ -55,6 +55,12 @@ fun String.directionParticle(): String {
     return if (jong == 0 || jong == 8) "로" else "으로"
 }
 
+/**
+ * 버튼 · 링크 속 카드 이름 — [max]자를 넘으면 앞에서 자르고 '…'. 버튼은 한 줄 말줄임이라 긴 이름이 뒤 문구('실적 자세히 보기')를 잘라 먹지 않게 이름만 줄인다.
+ * 조사는 줄이기 전 이름으로 붙인다
+ */
+fun String.clipName(max: Int = 8): String = if (length <= max) this else take(max - 1).trimEnd() + "…"
+
 /** '10/20 (화)' */
 fun LocalDate.toMonthDayWeek(): String =
     "$monthValue/$dayOfMonth (${dayOfWeek.getDisplayName(java.time.format.TextStyle.SHORT, java.util.Locale.KOREAN)})"

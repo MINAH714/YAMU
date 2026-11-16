@@ -260,15 +260,8 @@ private fun AssetFlowBody(
                 AfterBox(n, date, value, Modifier.weight(1f))
             }
         }
-        Text(
-            listOfNotNull(
-                "예보는 보는 달과 상관없이 오늘(${s.today.toMonthDay()})부터 세요",
-                f.minBalance?.let { min -> "30일 안 가장 낮을 때 ${f.minBalanceDate?.let { "${it.toMonthDayWeek()} " }.orEmpty()}${min.toWon()}원" },
-            ).joinToString(" · "),
-            style = YamuTheme.typography.bodyS,
-            color = c.text3,
-            modifier = Modifier.padding(top = 8.dp),
-        )
+        // 아래 '예보는 보는 달과 상관없이 오늘부터 세요 · 30일 안 가장 낮을 때' 안내 줄은 11/16 사용자 요청으로 뺐다(S15P31E103-519).
+        // 상자마다 날짜가 붙어 있고 30일 최저는 홈 잔고예보 요약 · 잔고예보 화면이 말한다
     }
     Spacer(Modifier.height(12.dp))
     NeutralButton("AI 잔고예보 자세히 보기", onClick = onForecast)
@@ -411,9 +404,12 @@ private val HM = DateTimeFormatter.ofPattern("HH:mm")
 
 // ── 글자(단위 테스트) ──
 
-/** '지금 잔고 · 오늘 14:05 기준' — 자정을 넘겨 다시 받기 전이면 그날 날짜로 */
+/**
+ * '오늘 14:05 기준' — 자정을 넘겨 다시 받기 전이면 그날 날짜로. 금액 옆에 붙어 무엇의 기준인지 보여서
+ * '지금 잔고' 이름은 11/16 사용자 요청으로 뺐다(S15P31E103-519, 홈 잔고예보 요약의 '지금 잔고' 줄은 그대로)
+ */
 internal fun nowLine(loadedAt: ZonedDateTime, today: LocalDate): String =
-    "지금 잔고 · ${if (loadedAt.toLocalDate() == today) "오늘" else loadedAt.toLocalDate().toMonthDay()} ${loadedAt.format(HM)} 기준"
+    "${if (loadedAt.toLocalDate() == today) "오늘" else loadedAt.toLocalDate().toMonthDay()} ${loadedAt.format(HM)} 기준"
 
 /** 종류 꼬리표 색 — 글자가 먼저고 색은 거든다(COMMON-11). 조회 실패만 주황 */
 internal fun kindTone(kind: DayKind): TagTone = when (kind) {
@@ -428,7 +424,7 @@ internal fun kindTone(kind: DayKind): TagTone = when (kind) {
  */
 internal fun panelValue(d: AssetDay, flow: AssetFlow, monthFlow: MonthFlow?, today: LocalDate, current: Long?, asOf: ZonedDateTime): Pair<String?, String> = when (d.kind) {
     DayKind.ACTUAL, DayKind.SIMULATED -> d.value?.let { "${it.toWon()}원" } to (if (d.simulated) "QA 합성 이력 · 실제 과거 잔고가 아니에요" else "그날 끝 실제 잔고")
-    DayKind.TODAY -> current?.let { "${it.toWon()}원" } to (if (current == null) "지금 잔고를 확인하지 못했어요" else nowLine(asOf, today))
+    DayKind.TODAY -> current?.let { "${it.toWon()}원" } to (if (current == null) "오늘 잔고를 확인하지 못했어요" else nowLine(asOf, today))
     DayKind.EXPECTED -> d.value?.let { "${it.toWon()}원" } to "예상 잔고 · ${if (lineWithLiving(flow, monthFlow)) LINE_WITH_LIVING else LINE_WITHOUT_LIVING}"
     DayKind.NO_DATA -> null to when {
         d.date.isAfter(today) -> "예보를 불러오지 못해 비워 뒀어요."

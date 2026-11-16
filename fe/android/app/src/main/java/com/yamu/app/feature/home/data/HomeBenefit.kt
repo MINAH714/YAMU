@@ -6,7 +6,6 @@ import kotlinx.serialization.Serializable
 import java.time.LocalDate
 import java.time.YearMonth
 import kotlin.math.ceil
-import kotlin.math.roundToInt
 
 // ── 홈 위쪽(v4 HOME-02 ~ 09, S15P31E103-480)이 따로 부르는 두 API — 홈이 쓰는 칸만 받는다 ──
 // 리포트 저장소(ReportRepository.monthly)는 혜택을 'expected ?: actual' 하나로 합쳐 확정과 예상을 나눌 수 없어 홈이 직접 부른다
@@ -159,33 +158,28 @@ val HomeBenefit.showsTypes: Boolean get() = byType.isNotEmpty() && (confirmed > 
 
 /**
  * 종류 칸 금액(11/14 결정: 확정만 — 세 칸 합이 큰 숫자와 같다). 확정이 0원이어도 확정 전 · 못 바꾼 혜택이 있으면
- * '0원'으로 쓰지 않는다(적립 0원 + 미환산 1건을 '적립 없음'으로 단정하지 않는다)
+ * '0원'으로 쓰지 않는다(적립 0원 + 미환산 1건을 '적립 없음'으로 단정하지 않는다). 확정 전만 있으면 금액과 함께 '6,000원 예정'(11/16 사용자 요청, S15P31E103-520 — '예정'만으로는 무슨 뜻인지 몰랐다)
  */
 fun BenefitByType.amountText(): String = when {
     confirmed > 0 -> "${confirmed.toWon()}원"
-    pending > 0 -> "확정 전"
+    pending > 0 -> "${pending.toWon()}원 예정"
     unconvertedCount > 0 -> "환산 전"
     else -> "0원"
 }
+
+/** 확정 금액 없이 확정 전만 있는 종류 칸 — 흐리게 그린다(S15P31E103-520) */
+val BenefitByType.pendingOnly: Boolean get() = confirmed <= 0 && pending > 0
 
 /** 원화로 못 바꾼 혜택이 있을 때 히어로 아래 한 줄 — 없으면 null */
 fun HomeBenefit.unconvertedNote(): String? =
     "원화로 확인되는 혜택만 더했어요. 금액에 넣지 못한 혜택이 ${unconvertedCount}건 있어요".takeIf { unconvertedCount > 0 }
 
 /**
- * 히어로 동전 수 — 확정은 꽉 찬 동전, 확정 전은 점선 동전(11/13 시안에서 고름). 약 [WON_PER_COIN]원에 한 개(올림),
- * 둘 합이 [MAX_BENEFIT_COINS]개를 넘으면 비율대로 줄이되 0원이 아닌 쪽은 한 개 이상 남긴다
+ * 히어로 동전 수 — 확정 금액만 꽉 찬 동전으로 쌓는다(11/16: 확정 전 금액의 점선 동전은 뺐다).
+ * 약 [WON_PER_COIN]원에 한 개(올림), 많아도 [MAX_BENEFIT_COINS]개까지
  */
-fun benefitCoins(confirmed: Long, pending: Long): Pair<Int, Int> {
-    fun count(won: Long): Int = if (won <= 0) 0 else ceil(won / WON_PER_COIN.toDouble()).toInt().coerceAtMost(MAX_BENEFIT_COINS)
-    val solid = count(confirmed)
-    val ghost = count(pending)
-    val total = solid + ghost
-    if (total <= MAX_BENEFIT_COINS) return solid to ghost
-    val scaled = (solid * MAX_BENEFIT_COINS / total.toDouble()).roundToInt()
-        .coerceIn(if (solid > 0) 1 else 0, if (ghost > 0) MAX_BENEFIT_COINS - 1 else MAX_BENEFIT_COINS)
-    return scaled to MAX_BENEFIT_COINS - scaled
-}
+fun benefitCoins(confirmed: Long): Int =
+    if (confirmed <= 0) 0 else ceil(confirmed / WON_PER_COIN.toDouble()).toInt().coerceAtMost(MAX_BENEFIT_COINS)
 
 const val WON_PER_COIN = 2_500L
 const val MAX_BENEFIT_COINS = 24

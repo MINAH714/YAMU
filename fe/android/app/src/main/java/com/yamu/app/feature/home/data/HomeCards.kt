@@ -41,6 +41,8 @@ data class HomeCardRow(
     val chip: PerfChip,
     val limitLine: String?,
     val opens: Boolean,
+    /** 홈 카드 타일의 실적 막대(0~1) — 실적 조건 없는 카드는 null, 달성은 1(S15P31E103-519) */
+    val progress: Float? = null,
 )
 
 /** 홈에 보일 카드 수 — 3장 + 전체보기(11/13 시안에서 고름) */
@@ -59,8 +61,16 @@ fun HomeCardsData.rows(): List<HomeCardRow> {
             // 한도 API만 실패했으면 줄에 한도를 쓰지 않는다(0원 · 한도 없음으로 지어내지 않는다)
             limitLine = limitsById?.let { limitLine(it[card.userCardId]) },
             opens = !card.noTarget,
+            progress = card.perfProgress(),
         )
     }
+}
+
+/** 실적 막대 비율 — 조건 없음 · 목표를 모름은 null(막대 없이 칩 글자만), 달성은 꽉 찬 막대 */
+fun CardPerf.perfProgress(): Float? = when {
+    noTarget -> null
+    achieved -> 1f
+    else -> target?.takeIf { it > 0 }?.let { (recognized.toFloat() / it).coerceIn(0f, 1f) }
 }
 
 /** 실적 칩 — 달성 · 실적까지 ○원 · 실적 조건 없음 */
@@ -213,18 +223,31 @@ fun HomeBenefitReportDto.toCardBenefits(): Map<Long, CardBenefit>? = cards?.mapN
 }?.toMap()
 
 /**
- * 카드 줄 '받은 혜택 1,000원 · 확정 전 +500원'(11/14 결정: 히어로처럼 확정 전을 받은 혜택에 섞지 않는다).
+ * 카드 줄 '받은 혜택 1,000원 · 500원 혜택 예정'(11/14 결정: 히어로처럼 확정 전을 받은 혜택에 섞지 않는다, 11/16 히어로 칩과 같은 문구로).
  * 원화로 못 바꾼 줄이 있으면 덧붙인다. 응답에 없는 카드(이번 달 YAMU 결제 없음)는 null — 0원으로 지어내지 않는다.
- * 글자를 키워 두 줄이 되면 '·' 자리에서만 끊기게 마디 안은 줄바꿈 없는 공백으로 잇는다('확정 전' 따로 '+6,000원' 따로 갈라지지 않게)
+ * 글자를 키워 두 줄이 되면 '·' 자리에서만 끊기게 마디 안은 줄바꿈 없는 공백으로 잇는다('6,000원' 따로 '혜택 예정' 따로 갈라지지 않게)
  */
 fun CardBenefit?.lineText(): String? {
     this ?: return null
     return listOfNotNull(
         "받은 혜택 ${confirmed.toWon()}원",
-        "확정 전 +${pending.toWon()}원".takeIf { pending > 0 },
+        "${pending.toWon()}원 혜택 예정".takeIf { pending > 0 },
         "원화로 못 바꾼 혜택 ${unconvertedCount}건".takeIf { unconvertedCount > 0 },
     ).joinToString(" · ") { it.replace(' ', NO_BREAK) }
 }
+
+/**
+ * 홈 내 카드 타일을 읽을 때 한 문장(S15P31E103-519) — 이름, 받은 혜택(카드별 혜택이 있을 때만, 0원으로 지어내지 않음), 혜택 예정,
+ * 원화로 못 바꾼 혜택, 남은 한도 한 줄, 실적 칩 글자
+ */
+fun cardTileDescription(row: HomeCardRow, benefit: CardBenefit?): String = listOfNotNull(
+    row.name,
+    benefit?.let { "받은 혜택 ${it.confirmed.toWon()}원" },
+    benefit?.pending?.takeIf { it > 0 }?.let { "${it.toWon()}원 혜택 예정" },
+    benefit?.unconvertedCount?.takeIf { it > 0 }?.let { "원화로 못 바꾼 혜택 ${it}건" },
+    row.limitLine,
+    row.chip.text,
+).joinToString(", ")
 
 private const val NO_BREAK = ' '
 

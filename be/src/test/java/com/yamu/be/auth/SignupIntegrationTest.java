@@ -140,15 +140,37 @@ class SignupIntegrationTest extends MySqlTestSupport {
     // ───────── 시드에 없는 사람 ─────────
 
     @Test
-    void 시드에_없는_사람은_인증번호는_받지만_확인에서_404_DEMO_USER_NOT_FOUND이고_토큰이_없다() throws Exception {
-        // 요청 단계(confirmFor 안)는 등록 여부와 관계없이 200이다. 요청만으로 시드에 있는지 알 수 없게.
-        confirmFor(PHONE).andExpect(status().isNotFound())
+    void 시드에_없는_사람은_인증번호_요청에서_바로_404_DEMO_USER_NOT_FOUND이고_인증번호가_없다() throws Exception {
+        // 인증번호를 응답으로 주는 동안은 요청 단계에서 대조한다(S15P31E103-532). 확인을 불러도 같은 걸 알 수 있어서다.
+        requestVerification("김야무", BIRTH, "SKT", PHONE).andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.error.code").value("DEMO_USER_NOT_FOUND"))
                 .andExpect(jsonPath("$.data").doesNotExist());
 
+        assertThat(redis.keys("auth:phone-verify:*")).isEmpty();   // 인증번호도, 재요청 간격도 없다
         assertThat(redis.keys("signup:*")).isEmpty();
         assertThat(userRepository.count()).isZero();
         verifyNoInteractions(finApiClient);
+    }
+
+    @Test
+    void 이름을_고쳐_바로_다시_요청하면_재요청_간격에_걸리지_않고_인증번호를_받는다() throws Exception {
+        seed(PHONE);
+        requestVerification("김야모", BIRTH, "SKT", PHONE).andExpect(status().isNotFound());
+
+        requestVerification("김야무", BIRTH, "SKT", PHONE).andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.demoCode").exists());
+    }
+
+    @Test
+    void 요청과_확인_사이에_시드에서_빠지면_확인에서_404다() throws Exception {
+        AppUser seeded = seed(PHONE);
+        MvcResult requested = requestVerification("김야무", BIRTH, "SKT", PHONE).andExpect(status().isOk()).andReturn();
+        jdbc.update("DELETE FROM app_user WHERE user_id = ?", seeded.getId());
+
+        confirm(read(requested, "$.data.verificationId"), read(requested, "$.data.demoCode"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error.code").value("DEMO_USER_NOT_FOUND"));
+        assertThat(redis.keys("signup:*")).isEmpty();
     }
 
     @Test
@@ -156,9 +178,9 @@ class SignupIntegrationTest extends MySqlTestSupport {
         userRepository.save(AppUser.pending("김야무", LocalDate.parse(BIRTH),
                 cipher.encrypt(PHONE, CipherField.APP_USER_PHONE), lookupHasher.phone(PHONE), null));
 
-        confirmFor(PHONE).andExpect(status().isNotFound())
+        requestVerification("김야무", BIRTH, "SKT", PHONE).andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.error.code").value("DEMO_USER_NOT_FOUND"));
-        assertThat(redis.keys("signup:*")).isEmpty();
+        assertThat(redis.keys("auth:phone-verify:*")).isEmpty();
     }
 
     @Test
@@ -177,17 +199,22 @@ class SignupIntegrationTest extends MySqlTestSupport {
     @Test
     void 번호와_생년월일이_같아도_이름이_다르면_시드에_없는_사람과_똑같은_404다() throws Exception {
         AppUser seeded = seed(PHONE);
-        MvcResult requested = requestVerification("홍길동", BIRTH, "SKT", PHONE).andReturn();
-        MvcResult mismatched = confirm(read(requested, "$.data.verificationId"), read(requested, "$.data.demoCode"))
+        withdraw(seed("01055556666"));
+        MvcResult mismatched = requestVerification("홍길동", BIRTH, "SKT", PHONE)
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.error.code").value("DEMO_USER_NOT_FOUND"))
                 .andReturn();
-        MvcResult notSeeded = confirmFor("01099998888").andExpect(status().isNotFound()).andReturn();
+        MvcResult notSeeded = requestVerification("김야무", BIRTH, "SKT", "01099998888")
+                .andExpect(status().isNotFound()).andReturn();
+        MvcResult withdrawnMismatched = requestVerification("홍길동", BIRTH, "SKT", "01055556666")
+                .andExpect(status().isNotFound()).andReturn();
 
-        // 응답 본문이 글자 하나까지 같아야 번호·생년월일만으로 가입 여부를 알 수 없다.
+        // 응답 본문이 글자 하나까지 같아야 번호·생년월일만으로 가입·탈퇴 여부를 알 수 없다.
         String body = mismatched.getResponse().getContentAsString();
-        assertThat(body).isEqualTo(notSeeded.getResponse().getContentAsString());
+        assertThat(body).isEqualTo(notSeeded.getResponse().getContentAsString())
+                .isEqualTo(withdrawnMismatched.getResponse().getContentAsString());
         assertThat(body).doesNotContain("김야무").doesNotContain(String.valueOf(seeded.getId())).doesNotContain("sgt_");
+        assertThat(redis.keys("auth:phone-verify:*")).isEmpty();
         assertThat(redis.keys("signup:*")).isEmpty();
         assertThat(userRepository.findById(seeded.getId()).orElseThrow().getIdentityVerifiedAt()).isNull();
     }
@@ -217,13 +244,17 @@ class SignupIntegrationTest extends MySqlTestSupport {
 
     @Test
     void 탈퇴자라도_이름이_다르면_탈퇴_여부를_알려주지_않고_404다() throws Exception {
-        withdraw(seed(PHONE));
-        MvcResult requested = requestVerification("홍길동", BIRTH, "SKT", PHONE).andReturn();
+        AppUser old = seed(PHONE);
+        withdraw(old);
 
-        confirm(read(requested, "$.data.verificationId"), read(requested, "$.data.demoCode"))
+        requestVerification("홍길동", BIRTH, "SKT", PHONE)
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.error.code").value("DEMO_USER_NOT_FOUND"));
+        assertThat(redis.keys("auth:phone-verify:*")).isEmpty();
         assertThat(redis.keys("signup:*")).isEmpty();
+        // 요청 단계는 읽기만 한다. 재가입(새 사용자 만들기)은 확인 단계에서 이름까지 맞을 때만
+        assertThat(userRepository.count()).isEqualTo(1);
+        assertThat(userRepository.findById(old.getId()).orElseThrow().getPhoneHash()).isNotNull();
     }
 
     // ───────── 인증번호 ─────────
@@ -276,6 +307,8 @@ class SignupIntegrationTest extends MySqlTestSupport {
 
     @Test
     void 같은_번호로_1분_안에_다시_요청하면_429_VERIFICATION_TOO_FREQUENT다() throws Exception {
+        seed(PHONE);
+        seed("01099998888");
         requestVerification("김야무", BIRTH, "SKT", PHONE).andExpect(status().isOk());
 
         requestVerification("김야무", BIRTH, "SKT", PHONE)
@@ -310,6 +343,7 @@ class SignupIntegrationTest extends MySqlTestSupport {
 
     @Test
     void 형식이_다른_인증_ID는_Redis를_보지_않고_VERIFICATION_EXPIRED다() throws Exception {
+        seed(PHONE);
         requestVerification("김야무", BIRTH, "SKT", PHONE).andExpect(status().isOk());
 
         // 재요청 간격 키(String)를 Hash 명령으로 건드리면 500이 났다.

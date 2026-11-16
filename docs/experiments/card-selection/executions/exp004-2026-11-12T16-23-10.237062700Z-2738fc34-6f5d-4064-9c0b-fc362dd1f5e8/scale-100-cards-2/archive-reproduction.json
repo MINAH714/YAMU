@@ -1,0 +1,7 @@
+{
+  "sha256" : "87c836ab929d2d4704677893b964a8370555ec90b482911e65564a9a1e6e44fd",
+  "runs" : 104,
+  "archive" : "..\\docs\\experiments\\card-selection\\exp-001-two-cards\\original-results.zip",
+  "status" : "PASS",
+  "comparison" : "all economic records; generated identities and numeric scales normalized"
+}

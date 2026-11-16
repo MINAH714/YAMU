@@ -134,7 +134,10 @@ class HomeNewAreasTest {
 
     @Test fun `종류 칸은 확정만 — 확정 전 · 환산 전은 0원으로 쓰지 않는다`() {
         assertEquals("1,000원", BenefitByType(HomeBenefitType.DISCOUNT, 1_000, 0, 0).amountText())
-        assertEquals("확정 전", BenefitByType(HomeBenefitType.CASHBACK, 0, 500, 0).amountText())
+        // 확정 전만 있으면 금액과 함께 '○원 예정'(S15P31E103-520) — 흐리게 그리는 칸(pendingOnly)
+        assertEquals("500원 예정", BenefitByType(HomeBenefitType.CASHBACK, 0, 500, 0).amountText())
+        assertTrue(BenefitByType(HomeBenefitType.CASHBACK, 0, 500, 0).pendingOnly)
+        assertFalse(BenefitByType(HomeBenefitType.DISCOUNT, 1_000, 500, 0).pendingOnly)
         assertEquals("환산 전", BenefitByType(HomeBenefitType.POINT, 0, 0, 1).amountText())
         assertEquals("0원", BenefitByType(HomeBenefitType.POINT, 0, 0, 0).amountText())
     }
@@ -175,7 +178,7 @@ class HomeNewAreasTest {
     private fun CardBenefit?.shown() = lineText()?.replace(' ', ' ')
 
     @Test fun `카드 줄 문구 — 확정 전을 받은 혜택에 섞지 않고 목록에 없는 카드는 숨긴다`() {
-        assertEquals("받은 혜택 1,000원 · 확정 전 +500원", CardBenefit(1_000, 500, 0).shown())
+        assertEquals("받은 혜택 1,000원 · 500원 혜택 예정", CardBenefit(1_000, 500, 0).shown())
         assertEquals("받은 혜택 2,400원", CardBenefit(2_400, 0, 0).shown())
         assertEquals("받은 혜택 0원 · 원화로 못 바꾼 혜택 1건", CardBenefit(0, 0, 1).shown())
         assertNull((null as CardBenefit?).lineText())
@@ -183,6 +186,6 @@ class HomeNewAreasTest {
 
     @Test fun `카드 줄은 가운데 점에서만 줄이 바뀐다`() {
         val parts = CardBenefit(9_800, 6_000, 0).lineText()!!.split(" · ")
-        assertEquals(listOf("받은 혜택 9,800원", "확정 전 +6,000원"), parts)
+        assertEquals(listOf("받은 혜택 9,800원", "6,000원 혜택 예정"), parts)
     }
 }

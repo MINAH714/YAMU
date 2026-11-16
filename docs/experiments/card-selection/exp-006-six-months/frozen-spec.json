@@ -1,0 +1,200 @@
+{
+  "experimentId" : "EXP-006",
+  "startMonth" : "2026-11",
+  "months" : 6,
+  "generatorSeed" : 6006,
+  "generatorAlgorithm" : "java.util.Random seed 6006; fixed group order; distinct shuffled weekdays/days or weekly Sundays; one purchase per group per chosen day; fixed subscription day; every weekday two mobile postpaid rides; fixed month clothing schedule; amount in group units; chronological sort",
+  "cards" : [ "신한카드 처음", "KB국민 청춘대로 톡톡카드" ],
+  "openingPreviousPerformance" : 400000,
+  "availableCreditPerCard" : 10000000,
+  "policySnapshotDate" : "2026-11-15",
+  "policyAssumption" : "Registered November 2026 policy held constant through April 2027 in test adapter only; actual prior-month recognized spending rolls forward",
+  "randomSeeds" : {
+    "first" : 0,
+    "last" : 99
+  },
+  "strategies" : [ "FIXED_FIRST", "FIXED_TOKTOK", "CATEGORY", "YAMU", "RANDOM" ],
+  "groups" : [ {
+    "channel" : "OFFLINE",
+    "min" : 9000,
+    "count" : 18,
+    "hour" : 12,
+    "schedule" : "WEEKDAYS",
+    "max" : 18000,
+    "brands" : [ "YAMU_TEST_RESTAURANT" ],
+    "category" : "GENERAL_RESTAURANT",
+    "purpose" : "LUNCH",
+    "unit" : 1000
+  }, {
+    "channel" : "OFFLINE",
+    "min" : 55000,
+    "count" : 4,
+    "hour" : 16,
+    "schedule" : "SUNDAYS",
+    "max" : 95000,
+    "brands" : [ "EMART", "LOTTE_MART" ],
+    "category" : "HYPERMARKET",
+    "purpose" : "GROCERIES",
+    "unit" : 1000
+  }, {
+    "channel" : "OFFLINE",
+    "min" : 3000,
+    "count" : 8,
+    "hour" : 14,
+    "schedule" : "DISTINCT_DAYS",
+    "max" : 7000,
+    "brands" : [ "STARBUCKS", "EDIYA" ],
+    "category" : "COFFEE_SHOP",
+    "purpose" : "CAFE",
+    "unit" : 1000
+  }, {
+    "channel" : "OFFLINE",
+    "min" : 3000,
+    "count" : 8,
+    "hour" : 19,
+    "schedule" : "DISTINCT_DAYS",
+    "max" : 13000,
+    "brands" : [ "GS25", "CU", "EMART24", "SEVEN_ELEVEN" ],
+    "category" : "CONVENIENCE_STORE",
+    "purpose" : "CONVENIENCE",
+    "unit" : 1000
+  }, {
+    "channel" : "OFFLINE",
+    "min" : 1600,
+    "count" : 0,
+    "hour" : 8,
+    "schedule" : "COMMUTE_WEEKDAYS",
+    "max" : 1600,
+    "brands" : [ "EXP006_MOBILE_SUBWAY" ],
+    "category" : "SUBWAY",
+    "purpose" : "COMMUTE",
+    "unit" : 100
+  }, {
+    "channel" : "OFFLINE",
+    "min" : 10000,
+    "count" : 2,
+    "hour" : 22,
+    "schedule" : "SATURDAYS",
+    "max" : 25000,
+    "brands" : [ "EXP006_TAXI" ],
+    "category" : "TAXI",
+    "purpose" : "TAXI",
+    "unit" : 1000
+  }, {
+    "channel" : "ONLINE",
+    "counts" : [ 1, 0, 1, 0, 1, 0 ],
+    "count" : 1,
+    "min" : 80000,
+    "hour" : 20,
+    "schedule" : "DISTINCT_DAYS",
+    "max" : 150000,
+    "brands" : [ "GMARKET" ],
+    "category" : "ONLINE_MARKETPLACE",
+    "purpose" : "CLOTHING",
+    "unit" : 1000
+  }, {
+    "channel" : "ONLINE",
+    "min" : 40000,
+    "count" : 2,
+    "hour" : 21,
+    "schedule" : "DISTINCT_DAYS",
+    "max" : 75000,
+    "brands" : [ "COUPANG", "GMARKET" ],
+    "category" : "ONLINE_MARKETPLACE",
+    "purpose" : "HOUSEHOLD",
+    "unit" : 1000
+  }, {
+    "channel" : "ONLINE",
+    "min" : 17000,
+    "count" : 1,
+    "hour" : 9,
+    "schedule" : "DAY_10",
+    "max" : 17000,
+    "brands" : [ "NETFLIX" ],
+    "category" : "STREAMING_SERVICE",
+    "purpose" : "SUBSCRIPTION",
+    "unit" : 1000
+  } ],
+  "categoryRule" : {
+    "STREAMING_SERVICE" : 0,
+    "COFFEE_SHOP" : 1,
+    "CONVENIENCE_STORE" : 0,
+    "TAXI" : 0,
+    "HYPERMARKET" : 0,
+    "GENERAL_RESTAURANT" : 0,
+    "ONLINE_MARKETPLACE" : 0,
+    "SUBWAY" : 0
+  },
+  "facts" : {
+    "PERFORMANCE:INTRODUCTORY_WAIVER_ACTIVE:shinhan-cheoeum" : false,
+    "PERFORMANCE:INTRODUCTORY_WAIVER_ACTIVE:kb-toktok" : false,
+    "PERFORMANCE:POSTPAID_TRANSIT" : false,
+    "TRANSACTION_KIND:ENVIRONMENTAL_IMPROVEMENT_CHARGE" : false,
+    "RULE:OFFICIAL_PURCHASE_ROUTE" : true,
+    "RULE:AGENCY_SITE" : false,
+    "RULE:NON_PARTNER_EASY_PAY" : false,
+    "TRANSACTION_KIND:PG_MERCHANT" : false,
+    "TRANSACTION_KIND:PG_ONLY_MERCHANT" : false,
+    "RULE:EXCLUDE_REDEEMED_POINTS_FROM_BASE" : true,
+    "TRANSACTION_KIND:ANNUAL_FEE" : false,
+    "TRANSACTION_KIND:APARTMENT_MAINTENANCE" : false,
+    "TRANSACTION_KIND:CANCELED_TRANSACTION" : false,
+    "TRANSACTION_KIND:CITY_GAS_BILL" : false,
+    "TRANSACTION_KIND:ELECTRICITY_BILL" : false,
+    "TRANSACTION_KIND:ELECTRONIC_PREPAID_PURCHASE" : false,
+    "TRANSACTION_KIND:ELECTRONIC_PREPAID_TOPUP" : false,
+    "TRANSACTION_KIND:FEE" : false,
+    "TRANSACTION_KIND:GIFT_CARD_PURCHASE" : false,
+    "TRANSACTION_KIND:GIFT_CARD_TOPUP" : false,
+    "TRANSACTION_KIND:GIFT_CERTIFICATE_PURCHASE" : false,
+    "TRANSACTION_KIND:GOV_SUBSIDY" : false,
+    "TRANSACTION_KIND:GRADUATE_TUITION" : false,
+    "TRANSACTION_KIND:INTEREST" : false,
+    "TRANSACTION_KIND:LATE_CHARGE" : false,
+    "TRANSACTION_KIND:LOCAL_NON_TAX_REVENUE" : false,
+    "TRANSACTION_KIND:LOCAL_TAX" : false,
+    "TRANSACTION_KIND:LONG_TERM_CARD_LOAN" : false,
+    "TRANSACTION_KIND:NATIONAL_TAX" : false,
+    "TRANSACTION_KIND:PREPAID_TOPUP" : false,
+    "TRANSACTION_KIND:SCHOOL_PAYMENT" : false,
+    "TRANSACTION_KIND:SHORT_TERM_CARD_LOAN" : false,
+    "TRANSACTION_KIND:SOCIAL_INSURANCE" : false,
+    "TRANSACTION_KIND:TAX_OR_PUBLIC_CHARGE" : false,
+    "TRANSACTION_KIND:TV_LICENSE_FEE" : false,
+    "TRANSACTION_KIND:UNAPPROVED_VOUCHER" : false,
+    "TRANSACTION_KIND:UNIVERSITY_TUITION" : false,
+    "TRANSACTION_KIND:WATER_BILL" : false,
+    "REGION:DOMESTIC" : true,
+    "REGION:OVERSEAS" : false
+  },
+  "factEvidence" : "Synthetic ordinary meals, groceries, clothes and household goods, direct merchant purchase, domestic KRW subscription, mobile postpaid subway with per-ride current-month recognition (not topup), and direct taxi payment. Common exclusions explicitly false: no loans, issuer fees, taxes, utility or education bills, vouchers/topups/redemption, cancellation, interest or installments. Group-specific facts override only the declared facts. Fare and subscription price are illustrative inputs, not claims about current market prices. No holidays or distances modeled.",
+  "paymentAssumption" : "All cards payable; prior monthly charges settled in full at month boundary; no interest, annual fee or outside spending modeled",
+  "manualTableComparison" : "Not included: EXP-006 approved five strategies, not EXP-004 fixed-tier table",
+  "revision" : "LIFESTYLE_V2_REPLACES_PREVIOUS_EXP006",
+  "profile" : "Single working adult: weekday commute, 18 lunch purchases, home cooking with weekly groceries, modest cafes and convenience purchases, occasional clothes and household goods; illustrative budget, not a population average.",
+  "monthlyBudgetCeiling" : 1350000,
+  "groupFacts" : {
+    "SUBSCRIPTION" : {
+      "BILLING:RECURRING_MEMBERSHIP" : true,
+      "BILLING:AUTO_DEBIT" : true
+    },
+    "TAXI" : {
+      "TRANSACTION_KIND:TAXI_PAYMENT" : true
+    },
+    "COMMUTE" : {
+      "TRANSACTION_KIND:SUBWAY" : true,
+      "PERFORMANCE:MOBILE_POSTPAID_TRANSIT" : true,
+      "PERFORMANCE:POSTPAID_TRANSIT" : true
+    }
+  },
+  "syntheticMerchants" : [ {
+    "brand" : "EXP006_MOBILE_SUBWAY",
+    "category" : "SUBWAY",
+    "name" : "EXP006 synthetic mobile subway"
+  }, {
+    "brand" : "EXP006_TAXI",
+    "category" : "TAXI",
+    "name" : "EXP006 synthetic taxi"
+  } ],
+  "constraints" : "Monthly budget fixed independently of card benefits; no quota for card performance, no forced card assignment; outcomes cannot change seed or purchases."
+}

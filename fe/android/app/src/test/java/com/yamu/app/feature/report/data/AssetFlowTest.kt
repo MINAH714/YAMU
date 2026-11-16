@@ -256,18 +256,18 @@ class AssetFlowTest {
     // ── 날짜 칸 · 말풍선 글자 ──
 
     @Test fun `지금 잔고 기준 시각 — 자정을 넘겨 다시 받기 전이면 그 날짜`() {
-        assertEquals("지금 잔고 · 오늘 14:05 기준", nowLine(loadedAt, today))
-        assertEquals("지금 잔고 · 11/13 14:05 기준", nowLine(loadedAt, today.plusDays(1)))
+        assertEquals("오늘 14:05 기준", nowLine(loadedAt, today))
+        assertEquals("11/13 14:05 기준", nowLine(loadedAt, today.plusDays(1)))
     }
 
     @Test fun `오늘 칸 — 지금 잔고, 오늘 끝 예상이 다르면 한 줄 더`() {
         val m = novDto().toMonthFlow(nov)
         val days = assetDays(nov, today, flow, m)
         val (current, asOf) = currentBalanceOf(flow, m)
-        assertEquals("268,000원" to "지금 잔고 · 오늘 14:30 기준", panelValue(days[12], flow, m, today, current, asOf))
+        assertEquals("268,000원" to "오늘 14:30 기준", panelValue(days[12], flow, m, today, current, asOf))
         assertEquals("오늘 끝 예상 400,000원", panelNote(days[12], current))
         assertNull(panelNote(days[12], 400_000))
-        assertEquals(null to "지금 잔고를 확인하지 못했어요", panelValue(days[12], flow, m, today, null, asOf))
+        assertEquals(null to "오늘 잔고를 확인하지 못했어요", panelValue(days[12], flow, m, today, null, asOf))
     }
 
     @Test fun `빈 날 칸 — 자료 없음은 그 구간의 까닭, 조회 실패는 다시 시도, 표시 불가 · 범위 밖은 따로`() {

@@ -1,0 +1,68 @@
+{
+  "description" : "승인된 최소 실험. 결과 확인 전에 고정한 2026년 11월 합성 일반 구매 24건.",
+  "cards" : [ "신한카드 처음", "KB국민 청춘대로 톡톡카드" ],
+  "previousPerformance" : 400000,
+  "initialCurrentPerformance" : 0,
+  "availableCreditPerCard" : 10000000,
+  "defaultCardIndex" : 0,
+  "randomAlgorithm" : "java.util.Random.nextInt(2)",
+  "randomSeeds" : {
+    "first" : 0,
+    "last" : 99
+  },
+  "categoryRule" : {
+    "COFFEE_SHOP" : 1,
+    "GENERAL_RESTAURANT" : 0,
+    "CONVENIENCE_STORE" : 0,
+    "ONLINE_MARKETPLACE" : 0
+  },
+  "purchaseFacts" : {
+    "PERFORMANCE:INTRODUCTORY_WAIVER_ACTIVE:shinhan-cheoeum" : false,
+    "PERFORMANCE:INTRODUCTORY_WAIVER_ACTIVE:kb-toktok" : false,
+    "PERFORMANCE:POSTPAID_TRANSIT" : false,
+    "TRANSACTION_KIND:ENVIRONMENTAL_IMPROVEMENT_CHARGE" : false,
+    "PERFORMANCE:INTRODUCTORY_WAIVER_ACTIVE:lotte-p13943-a13943" : false,
+    "PERFORMANCE:TELECOM_AUTOPAY" : false,
+    "TRANSACTION_KIND:AUTO_SMART_CASHBACK" : false,
+    "TRANSACTION_KIND:DISABLED_EMPLOYMENT_LEVY" : false,
+    "TRANSACTION_KIND:POSTPAID_TRANSIT" : false,
+    "TRANSACTION_KIND:FINES_AND_PUBLIC_FEES" : false
+  },
+  "factEvidence" : "음식점 식사·스타벅스 음료·GS25 일반 상품·쿠팡 일반 상품 구매로 정의한 합성 거래다. 환경개선부담금 납부 및 후불교통이 아니며 두 카드의 신규 유예는 종료된 사용자다. 정책 미확정값의 대체가 아니다.",
+  "slots" : [ {
+    "time" : "12:00",
+    "brand" : "YAMU_TEST_RESTAURANT",
+    "channel" : "OFFLINE"
+  }, {
+    "time" : "13:00",
+    "brand" : "STARBUCKS",
+    "channel" : "OFFLINE"
+  }, {
+    "time" : "17:00",
+    "brand" : "GS25",
+    "channel" : "OFFLINE"
+  }, {
+    "time" : "19:00",
+    "brand" : "COUPANG",
+    "channel" : "ONLINE"
+  } ],
+  "days" : [ {
+    "date" : "2026-11-02",
+    "amounts" : [ 12000, 6000, 10000, 20000 ]
+  }, {
+    "date" : "2026-11-06",
+    "amounts" : [ 15000, 5000, 8000, 25000 ]
+  }, {
+    "date" : "2026-11-11",
+    "amounts" : [ 10000, 7000, 12000, 18000 ]
+  }, {
+    "date" : "2026-11-16",
+    "amounts" : [ 18000, 6000, 9000, 30000 ]
+  }, {
+    "date" : "2026-11-21",
+    "amounts" : [ 13000, 8000, 11000, 15000 ]
+  }, {
+    "date" : "2026-11-27",
+    "amounts" : [ 11000, 6000, 10000, 24000 ]
+  } ]
+}
