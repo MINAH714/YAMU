@@ -72,6 +72,8 @@ tasks.register('testSixMonthResultGate') {
 }
 
 tasks.named('test') {
+    // The opt-in local HTTP preview runs only through seed/qa/local-app.init.gradle.
+    exclude 'com/yamu/be/seed/qa/QaLocalAppTest.class'
     dependsOn tasks.named('testSixMonthResultGate')
     useJUnitPlatform {
         // 승인형 본 실험은 별도 태스크에서만 선택한다. 사전 경계 검사는 그대로 실행한다.
