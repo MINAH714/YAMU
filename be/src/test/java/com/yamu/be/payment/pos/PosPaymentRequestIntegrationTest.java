@@ -201,6 +201,8 @@ class PosPaymentRequestIntegrationTest extends MySqlTestSupport {
         assertThat(payment.merchant().merchantId()).isEqualTo(cafe);
         assertThat(payment.merchant().name()).isEqualTo("테스트 카페");
         assertThat(payment.merchant().categoryCode()).isEqualTo("COFFEE_SHOP");
+        // 결제 목록·상세와 같은 업종 표시 이름(S15P31E103-389)
+        assertThat(payment.merchant().categoryName()).isEqualTo("카페");
         assertThat(payment.recommendation()).isNotNull();
         assertThat(payment.recommendation().status()).isEqualTo(RecommendationResult.Status.READY);
         assertThat(payment.recommendation().uncomparedCards()).isEmpty();

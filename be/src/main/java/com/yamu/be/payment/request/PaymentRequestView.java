@@ -28,7 +28,12 @@ public record PaymentRequestView(
         LocalDateTime confirmDeadline,
         Recommendation recommendation) {
 
-    public record Merchant(Long merchantId, String name, String categoryCode, PaymentChannel channel) {}
+    /**
+     * @param categoryName 업종 표시 이름(앱 칸, S15P31E103-389). 결제 목록·상세의 {@code merchant.categoryName}과 같은 이름이다.
+     *                     업종 목록에 없는 코드면 null
+     */
+    public record Merchant(Long merchantId, String name, String categoryCode, String categoryName,
+            PaymentChannel channel) {}
 
     /**
      * 임시(명세 반영 전, 11/2 정책 변경): {@code status}·{@code noBenefit}·{@code uncomparedCards}·{@code noBenefitNotice}는

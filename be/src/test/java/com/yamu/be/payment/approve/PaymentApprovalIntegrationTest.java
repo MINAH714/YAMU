@@ -252,16 +252,22 @@ class PaymentApprovalIntegrationTest extends MySqlTestSupport {
 
     @Test
     void 결제_상세는_승인_응답과_같은_추천_순위_직접_선택_업종_이름을_보여준다() throws Exception {
+        jdbc.update("UPDATE card_product SET issuer_code = 'SHINHAN' WHERE card_product_id = ?", creditProduct);
         Requested requested = requested(15_000, null, null);
         approve(user, requested.paymentId(), UUID.randomUUID().toString(), body(creditCard))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.selectedCard.recommendedRank").value(1))
-                .andExpect(jsonPath("$.data.selectedCard.userSelected").value(true));
+                .andExpect(jsonPath("$.data.selectedCard.userSelected").value(true))
+                // 카드 목록 API와 같은 카드사 표시값(S15P31E103-389)
+                .andExpect(jsonPath("$.data.selectedCard.issuer.code").value("SHINHAN"))
+                .andExpect(jsonPath("$.data.selectedCard.issuer.name").value("신한카드"))
+                .andExpect(jsonPath("$.data.selectedCard.issuer.color").value("#0046FF"));
 
         detail(requested.paymentId())
                 .andExpect(jsonPath("$.data.selectedCard.userCardId").value(creditCard))
                 .andExpect(jsonPath("$.data.selectedCard.recommendedRank").value(1))
                 .andExpect(jsonPath("$.data.selectedCard.userSelected").value(true))
+                .andExpect(jsonPath("$.data.selectedCard.issuer.name").value("신한카드"))
                 .andExpect(jsonPath("$.data.merchant.categoryCode").value("COFFEE_SHOP"))
                 .andExpect(jsonPath("$.data.merchant.categoryName").value("카페"));
     }

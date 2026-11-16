@@ -182,7 +182,7 @@ class PaymentHistoryService {
         }
         String masked = row.cardLast4() == null ? null : "****-****-****-" + row.cardLast4();
         return new PaymentDetailResponse.SelectedCard(item.card().userCardId(), item.card().nickname(), masked,
-                item.card().cardType(), row.recommendedRank(), row.userSelected());
+                item.card().cardType(), row.recommendedRank(), row.userSelected(), item.card().issuer());
     }
 
     /**

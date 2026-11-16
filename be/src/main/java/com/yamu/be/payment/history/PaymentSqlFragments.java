@@ -46,6 +46,23 @@ public final class PaymentSqlFragments {
     /** 혜택 원화 합계. 혜택 줄이 없으면 NULL이다. */
     public static final String BENEFIT_AMOUNT = "(select sum(b.krw_amount) from payment_benefit b"
             + " where b.payment_transaction_id = p.payment_transaction_id)";
+    /**
+     * 결제의 대표 혜택 종류(목록 {@code benefitType}, S15P31E103-389). 원화 금액이 가장 큰 혜택 줄(같으면 먼저 기록한 줄, 원화로 바꾸지 못한
+     * 줄은 맨 뒤)의 종류다. 할인은 반영 시점으로 나눠 INSTANT_DISCOUNT(승인 때)·BILLING_DISCOUNT(청구 때)로, 캐시백·적립은
+     * CASHBACK·POINT로 쓴다. 대표 줄이 시점을 모르는 할인(약관 미확인)이면 시점을 지어내지 않고 NULL이다(2026-11-16 결정).
+     * 혜택 줄이 없으면 NULL이다.
+     */
+    public static final String MAIN_BENEFIT_TYPE = """
+            (select case
+                        when cb.benefit_type = 'DISCOUNT' and cb.application_timing = 'AT_APPROVAL' then 'INSTANT_DISCOUNT'
+                        when cb.benefit_type = 'DISCOUNT' and cb.application_timing = 'AT_BILLING' then 'BILLING_DISCOUNT'
+                        when cb.benefit_type in ('CASHBACK', 'POINT') then cb.benefit_type
+                    end
+               from payment_benefit b
+               join card_benefit cb on cb.card_benefit_id = b.card_benefit_id
+              where b.payment_transaction_id = p.payment_transaction_id and b.benefit_value > 0
+              order by b.krw_amount is null, b.krw_amount desc, b.payment_benefit_id
+              limit 1)""";
     /** 원화로 환산되지 않은 혜택 줄 수(0원 줄 제외). */
     public static final String UNCONVERTED_LINES = "(select count(*) from payment_benefit b"
             + " where b.payment_transaction_id = p.payment_transaction_id and b.benefit_value > 0 and b.krw_amount is null)";

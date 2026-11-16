@@ -1,6 +1,7 @@
 package com.yamu.be.payment.approve;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.yamu.be.card.CardIssuers;
 import com.yamu.be.card.CardQueryService;
 import com.yamu.be.card.domain.CardIssuerStatus;
 import com.yamu.be.global.exception.BusinessException;
@@ -727,7 +728,7 @@ public class PaymentApprovalService {
                 : snapshots.find(paymentId).flatMap(r -> r.candidate(cardId)).map(Candidate::rank).orElse(null);
         boolean userSelected = attempt != null ? attempt.userSelected() : Boolean.TRUE.equals(payment.getUserSelected());
         SelectedCard selected = new SelectedCard(card.userCardId(), nickname(card), masked(card.last4()),
-                card.cardType(), rank, userSelected);
+                card.cardType(), rank, userSelected, issuer(card));
         PaymentPlan plan = payment.isInstallment() ? PaymentPlan.INSTALLMENT : PaymentPlan.LUMP_SUM;
         Integer months = payment.isInstallment() ? payment.getInstallmentMonths() : null;
         if (payment.getStatus() == PaymentStatus.APPROVED || payment.getStatus() == PaymentStatus.CANCELED) {
@@ -815,7 +816,7 @@ public class PaymentApprovalService {
             PaymentPerformanceTotals.Total total) {
         CardSummary card = selection.card();
         SelectedCard selected = new SelectedCard(card.userCardId(), nickname(card), masked(card.last4()),
-                card.cardType(), selection.recommendedRank(), selection.userSelected());
+                card.cardType(), selection.recommendedRank(), selection.userSelected(), issuer(card));
         PaymentPlan plan = payment.isInstallment() ? PaymentPlan.INSTALLMENT : PaymentPlan.LUMP_SUM;
         Integer months = payment.isInstallment() ? payment.getInstallmentMonths() : null;
 
@@ -985,6 +986,11 @@ public class PaymentApprovalService {
 
     private static String nickname(CardSummary card) {
         return card.alias() != null ? card.alias() : card.productName();
+    }
+
+    /** 카드 목록 API와 같은 카드사 표시값. 카드사 코드를 읽지 못한 카드(해제된 카드의 복구 응답)는 null. */
+    private static CardIssuers.Issuer issuer(CardSummary card) {
+        return card.issuerCode() == null ? null : CardIssuers.of(card.issuerCode());
     }
 
     private static String masked(String last4) {

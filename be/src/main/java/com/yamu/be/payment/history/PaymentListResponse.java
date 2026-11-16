@@ -1,6 +1,7 @@
 package com.yamu.be.payment.history;
 
 import com.fasterxml.jackson.annotation.JsonUnwrapped;
+import com.yamu.be.card.CardIssuers;
 import com.yamu.be.card.domain.CardType;
 import com.yamu.be.global.common.PageResponse;
 import com.yamu.be.payment.PaymentPlan;
@@ -42,6 +43,9 @@ public record PaymentListResponse(
      * @param card                  승인·거절에 쓴 카드
      * @param benefitAmount         승인 건의 적용 혜택 원화 합계. 취소·거절 건이나 기록된 혜택이 없으면 0(취소해도 혜택 기록은
      *                              남지만 받지 않은 혜택이다. 상세의 {@code benefits}에는 기록 그대로 보인다)
+     * @param benefitType           대표 혜택 종류(앱 칸, S15P31E103-389): INSTANT_DISCOUNT·BILLING_DISCOUNT·CASHBACK·POINT.
+     *                              혜택이 여러 줄이면 원화 금액이 가장 큰 줄의 종류다({@link PaymentSqlFragments#MAIN_BENEFIT_TYPE}).
+     *                              승인 건이 아니거나 혜택이 없거나 대표 줄이 시점을 모르는 할인이면 null
      * @param benefitConfirmed      혜택이 모두 확정됐으면 true, 아직 확정되지 않은 혜택이 있으면 false, 혜택이 없으면 null
      * @param performanceRecognized 승인 상태이고 실적 인정액이 0원보다 큰지
      * @param benefitStatus         혜택 확정 상태(명세에 더한 칸, 필터 {@code benefitStatus}와 같은 값)
@@ -62,6 +66,7 @@ public record PaymentListResponse(
             Integer installmentMonths,
             Card card,
             long benefitAmount,
+            String benefitType,
             Boolean benefitConfirmed,
             boolean performanceRecognized,
             BenefitStatus benefitStatus,
@@ -76,6 +81,10 @@ public record PaymentListResponse(
      */
     public record Merchant(Long merchantId, String name, String categoryCode, String categoryName) {}
 
-    /** @param nickname 사용자 별칭. 없으면 상품명 */
-    public record Card(Long userCardId, String nickname, CardType cardType) {}
+    /**
+     * @param nickname 사용자 별칭. 없으면 상품명
+     * @param issuer   카드사 코드·이름·대표색(앱 칸, S15P31E103-389). 카드 목록 API({@code GET /api/cards})와 같은 모양·값이다.
+     *                 모르는 코드는 이름이 코드 그대로이고 색이 null
+     */
+    public record Card(Long userCardId, String nickname, CardType cardType, CardIssuers.Issuer issuer) {}
 }
