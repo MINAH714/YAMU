@@ -3,7 +3,6 @@ package com.yamu.app.feature.report
 import androidx.lifecycle.viewModelScope
 import com.yamu.app.core.network.ApiError
 import com.yamu.app.core.network.ApiResult
-import com.yamu.app.feature.link.data.CardsOnlyLink
 import com.yamu.app.feature.report.data.BenefitReport
 import com.yamu.app.feature.report.data.ReportMonth
 import com.yamu.app.feature.report.data.ReportRepository
@@ -32,7 +31,7 @@ class BenefitReportRefreshTest {
 
     @Test fun `첫 진입은 한 번만 조회하고 취소 후 같은 달 복귀도 최신 집계를 받는다`() = runTest(dispatcher) {
         var calls = 0
-        val vm = BenefitReportViewModel(repo { calls++; ApiResult.Success(report(if (calls == 1) 1_000 else 0)) }, ReportMonth { month }, CardsOnlyLink())
+        val vm = BenefitReportViewModel(repo { calls++; ApiResult.Success(report(if (calls == 1) 1_000 else 0)) }, ReportMonth { month })
         runCurrent()
         assertEquals(0, calls)
         vm.resume(); runCurrent()
@@ -48,7 +47,7 @@ class BenefitReportRefreshTest {
     @Test fun `기존 값과 빈 집계 모두 갱신 실패를 알리고 재시도로 복구한다`() = runTest(dispatcher) {
         for (amount in listOf(1_000L, 0L)) {
             var reply: ApiResult<BenefitReport> = ApiResult.Success(report(amount))
-            val vm = BenefitReportViewModel(repo { reply }, ReportMonth { month }, CardsOnlyLink())
+            val vm = BenefitReportViewModel(repo { reply }, ReportMonth { month })
             vm.resume(); runCurrent()
             reply = ApiResult.Failure(ApiError.Network)
             vm.resume(); runCurrent()
@@ -68,7 +67,7 @@ class BenefitReportRefreshTest {
         var calls = 0
         val vm = BenefitReportViewModel(repo {
             if (++calls == 1) withContext(NonCancellable) { old.await() } else ApiResult.Success(report(500))
-        }, ReportMonth { month }, CardsOnlyLink())
+        }, ReportMonth { month })
         vm.resume(); runCurrent()
         vm.select(month.minusMonths(1)); runCurrent()
         vm.select(month); runCurrent()
@@ -81,7 +80,7 @@ class BenefitReportRefreshTest {
 
     @Test fun `최초 조회 실패는 재시도 가능하고 다른 달에 이전 값을 보이지 않는다`() = runTest(dispatcher) {
         var reply: ApiResult<BenefitReport> = ApiResult.Success(report(1_000))
-        val vm = BenefitReportViewModel(repo { reply }, ReportMonth { month }, CardsOnlyLink())
+        val vm = BenefitReportViewModel(repo { reply }, ReportMonth { month })
         vm.resume(); runCurrent()
         reply = ApiResult.Failure(ApiError.Network)
         vm.select(month.minusMonths(1)); runCurrent()
