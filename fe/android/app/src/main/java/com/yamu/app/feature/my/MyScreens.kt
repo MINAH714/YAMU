@@ -410,7 +410,7 @@ data class AllFeaturesNav(
 )
 
 /** '모든 기능' 줄 순서 — 돈의 흐름(잔고 · 예정된 돈 · 사기 전 비교) 다음 혜택 · 결제 기록. 가계부는 팀이 부르는 이름이라 괄호로 같이 둔다 */
-internal val ALL_FEATURE_TITLES = listOf("잔고예보", "예정 수입·지출(가계부)", "이거 사도 될까?", "남은 혜택 한도", "혜택 리포트", "결제 내역")
+internal val ALL_FEATURE_TITLES = listOf("잔고예보", "가계부", "이거 사도 될까?", "남은 혜택 한도", "혜택 리포트", "결제 내역")
 
 @Composable
 private fun AllFeaturesCard(nav: AllFeaturesNav) {

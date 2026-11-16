@@ -79,7 +79,7 @@ import javax.inject.Singleton
  */
 @Serializable data class ForecastSettingsDto(val dailyLivingCostTarget: Long? = null, val income: SettingsIncomeDto? = null)
 
-@Serializable data class SettingsIncomeDto(val cashflowItemId: Long, val title: String = "월급", val amount: Long? = null, val dayOfMonth: Int? = null)
+@Serializable data class SettingsIncomeDto(val cashflowItemId: Long, val title: String = "월급", val amount: Long? = null, val dayOfMonth: Int? = null, val accountId: Long? = null)
 
 /** `GET /forecasts/living-cost`에서 하루 평균만 — 최근 3개월 실제 소비의 하루 평균(예측 값이 아니다) */
 @Serializable data class LivingCostDto(val dailyAverage: Long? = null)

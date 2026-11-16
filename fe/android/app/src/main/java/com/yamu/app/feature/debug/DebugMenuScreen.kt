@@ -237,7 +237,7 @@ fun DebugMenuScreen(navController: NavController, viewModel: DebugMenuViewModel 
                     "H-02 알림" to Notifications,
                     "H-03 내 카드" to MyCards,
                     "F-01 잔고예보" to Forecast,
-                    "F-02 예정 수입 · 지출" to CashflowList,
+                    "F-02 가계부" to CashflowList,
                     "I-01 이거 사도 될까?" to BuyCheckInput,
                     "I-02 결과(400,000원 · 대형마트)" to BuyCheckResult(400_000, "태블릿", categoryCode = "HYPERMARKET", categoryName = "대형마트", channel = "OFFLINE", purchaseDate = java.time.LocalDate.now().toString()),
                     "P-06 결제 코드" to PayCode,

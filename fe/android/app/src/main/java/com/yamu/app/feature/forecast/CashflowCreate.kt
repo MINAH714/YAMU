@@ -311,7 +311,7 @@ fun CashflowCreateRoute(onBack: () -> Unit, onDone: () -> Unit, viewModel: Cashf
     val c = YamuTheme.colors
     fun errorOf(field: CashflowField) = s.errors[field].takeIf { s.showErrors }
     FlowScreen(
-        title = if (editing != null || s.missing) "예정 수입·지출 수정" else "예정 수입·지출 추가",
+        title = if (editing != null || s.missing) "가계부 항목 수정" else "가계부 항목 추가",
         onBack = onBack,
         modifier = Modifier.imePadding(),
         bottomBar = bottomBar@{
