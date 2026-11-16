@@ -19,6 +19,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.SavedStateHandle
@@ -171,7 +172,7 @@ private fun BillDetailBody(d: BillDetail, art: CardArtRef?, onPayment: (Long) ->
         // 카드 그림 44dp + 카드 이름 · 끝자리(청구서 목록 줄과 같은 그림)
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(YamuSpacing.x2)) {
             BillCardThumb(art, b.cardName)
-            Text(listOfNotNull(b.cardName, d.cardLast4?.let { "·$it" }).joinToString(" "), style = YamuTheme.typography.bodyM, color = c.text2)
+            Text(listOfNotNull(b.cardName, d.cardLast4?.let { "·$it" }).joinToString(" "), style = YamuTheme.typography.bodyM, color = c.text2, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
         Spacer(Modifier.height(YamuSpacing.x2))
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
