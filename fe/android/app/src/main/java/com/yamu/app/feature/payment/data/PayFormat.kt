@@ -1,6 +1,8 @@
 package com.yamu.app.feature.payment.data
 
+import com.yamu.app.core.format.directionParticle
 import com.yamu.app.core.format.toWon
+import java.math.BigDecimal
 import java.time.Instant
 import java.time.OffsetDateTime
 
@@ -48,6 +50,61 @@ fun ReceiptBenefit.amountText(): String {
         BenefitKind.CASHBACK -> "$won 환급"
         BenefitKind.POINT -> "$won 적립"
     }
+}
+
+// ── 결제 확인(P-06c) 카드 칸 — S15P31E103-555 ──
+
+/** 카드 칸의 혜택 방식 태그. 반영 시점을 모르면 null(태그 없이 금액만) */
+fun BenefitKind.tagText(): String? = when (this) {
+    BenefitKind.INSTANT -> "즉시할인"
+    BenefitKind.BILLING -> "청구할인"
+    BenefitKind.CASHBACK -> "환급할인"
+    BenefitKind.POINT -> "적립"
+    BenefitKind.UNKNOWN -> null
+}
+
+/**
+ * 카드 칸의 혜택 금액 — 순혜택(원)에 방식별 말을 붙인다('1,980원 할인' · '660원 돌려받아요' · '330원 적립').
+ * 비교 못 한 카드 · 순혜택 0원 이하는 null.
+ * 임시: 적립은 결제 완료 화면('1,500원 적립')처럼 원으로 쓴다 — 결제 응답에 포인트의 원화 가치가 없어 순혜택 값을 쓴다
+ */
+fun PayCard.benefitHeadline(): String? {
+    if (benefitUnknown || netBenefit.signum() <= 0) return null
+    val won = "${netBenefit.toWon()}원"
+    return when (benefitKind) {
+        BenefitKind.CASHBACK -> "$won 돌려받아요"
+        BenefitKind.POINT -> "$won 적립"
+        BenefitKind.INSTANT, BenefitKind.BILLING, BenefitKind.UNKNOWN -> "$won 할인"
+    }
+}
+
+/**
+ * 결제 버튼 — '삼성카드로 6,600원 결제'. 즉시할인 카드는 실제로 빠지는 금액만 '5,940원 결제'(서버 chargedAmount = 결제 금액 − 즉시할인).
+ * 임시: 즉시할인 버튼에 카드 이름을 붙일지는 미정(S15P31E103-555)
+ */
+fun PayCard.payButtonLabel(amount: Long): String {
+    val charged = chargedAmount
+    if (benefitKind == BenefitKind.INSTANT && charged != null && charged in 0 until amount) return "${charged.toWon()}원 결제"
+    return "${brand.name}${brand.name.directionParticle()} ${amount.toWon()}원 결제"
+}
+
+/** 목록 아래 비교 문구의 값 — [pickSelected]면 '야무픽이 N원 더 아껴요', 아니면 '야무픽으로 내면 N원 더 아낄 수 있어요' */
+data class PickGap(val won: BigDecimal, val pickSelected: Boolean)
+
+/**
+ * 야무픽과 고른 카드의 순혜택 차이. 아래면 null(문구를 숨긴다):
+ * 야무픽이 없다 · 야무픽이 이 결제에서 거절됐다 · 고른 카드가 없거나 비교 못 한 카드다 · 차이가 0원 이하다.
+ * 야무픽을 골랐으면 비교한 다른 카드 중 순혜택이 가장 큰 카드와 견준다(그런 카드가 없으면 null)
+ */
+fun pickGap(cards: List<PayCard>, selected: PayCard?, declinedIds: Set<Long> = emptySet()): PickGap? {
+    val pick = cards.firstOrNull { it.isYamuPick } ?: return null
+    if (pick.userCardId in declinedIds || selected == null || selected.benefitUnknown) return null
+    val pickSelected = selected.userCardId == pick.userCardId
+    val other = if (pickSelected) {
+        cards.filter { !it.benefitUnknown && it.userCardId != pick.userCardId }.maxByOrNull { it.netBenefit } ?: return null
+    } else selected
+    val gap = pick.netBenefit - other.netBenefit
+    return if (gap.signum() > 0) PickGap(gap, pickSelected) else null
 }
 
 /** 즉시할인이 있을 때 큰 금액 아래 한 줄 — '6,600원에서 660원 바로 할인'. 없으면 null */

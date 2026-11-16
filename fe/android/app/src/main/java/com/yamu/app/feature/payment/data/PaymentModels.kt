@@ -231,9 +231,16 @@ data class PayCard(
     val productName: String? = null,
     /** 응답에 카드사 칸이 없어 [brand]를 별명 글자로 만들었다 — 카드 목록에서 찾으면 그 카드사로 바꾼다([withListedCards]) */
     val issuerUnknown: Boolean = false,
+    /** 서버 추천 순위(1부터). 비교 못 한 카드 · 순위 없는 응답은 0 */
+    val rank: Int = 0,
+    /** 카드 칸에 보일 혜택 방식 — [benefitName]과 같은 혜택(가장 큰 혜택)의 realization. 모르면 [BenefitKind.UNKNOWN](S15P31E103-555) */
+    val benefitKind: BenefitKind = BenefitKind.UNKNOWN,
 ) {
     /** 앱이 알아서 골라도 되는 카드 — 처음 1순위 · 거절 뒤 다음 카드. 비교 못 한 카드는 사용자가 직접 골라야 한다 */
     val autoSelectable: Boolean get() = selectable && !benefitUnknown
+
+    /** 야무픽 — 서버 1순위이면서 이번 결제에 혜택이 있는 카드. 혜택이 0원인 1순위는 야무픽으로 내세우지 않는다(S15P31E103-555) */
+    val isYamuPick: Boolean get() = rank == 1 && !benefitUnknown && netBenefit.signum() > 0
 
     /** 카드 그림을 찾는 이름(CardImages) — 상품명을 모르면 화면 이름(별명이 없으면 서버가 상품명을 준다) */
     val imageName: String get() = productName ?: name
@@ -406,19 +413,24 @@ fun CandidateDto.toPayCard() = PayCard(
     performanceNote = performanceImpact?.note,
     productName = productName,
     issuerUnknown = issuer == null && issuerName == null,
+    rank = rank,
+    benefitKind = mainBenefitOf(benefits)?.kind() ?: BenefitKind.UNKNOWN,
 )
 
+/** 카드 줄에 보일 혜택 이름 — [mainBenefitOf]의 이름. 없으면 null(줄에는 서버 reason) */
+internal fun benefitNameOf(benefits: List<BenefitDto>): String? = mainBenefitOf(benefits)?.name
+
 /**
- * 카드 줄에 보일 혜택 이름 — 이번 결제에 금액이 붙은 혜택 중 원 단위(할인 · 캐시백)에서 가장 큰 것, 원 단위가 없을 때만 포인트에서 가장 큰 것.
- * 없으면 null(줄에는 서버 reason).
+ * 카드 줄의 대표 혜택 — 이번 결제에 금액이 붙은 혜택 중 원 단위(할인 · 캐시백)에서 가장 큰 것, 원 단위가 없을 때만 포인트에서 가장 큰 것.
+ * 혜택 이름([benefitNameOf])과 혜택 방식(PayCard.benefitKind)이 같은 혜택을 본다.
  * 서버는 이번 결제에 맞지 않아 0원인 혜택(스타벅스 결제의 '교보문고 …')도 같이 보낸다. 공유 한도 배분이 안 정해진 혜택은 amount가 null로 와서
  * 0으로 읽힌다(YamuJson coerceInputValues).
  * 임시: amount는 혜택마다 자기 단위(원 · 포인트)이고 응답에 원화 환산값이 없어 원과 포인트를 견줄 수 없다(포인트 가치가 더 커도 원 단위가 보인다).
  * BE 엔진은 혜택별 krwValue를 계산하므로 결제 응답에 실리면 그 값으로 고른다
  */
-internal fun benefitNameOf(benefits: List<BenefitDto>): String? {
+internal fun mainBenefitOf(benefits: List<BenefitDto>): BenefitDto? {
     val (points, won) = benefits.filter { it.amount > 0 }.partition { it.isPoint }
-    return (won.maxByOrNull { it.amount } ?: points.maxByOrNull { it.amount })?.name
+    return won.maxByOrNull { it.amount } ?: points.maxByOrNull { it.amount }
 }
 
 private val BenefitDto.isPoint: Boolean
