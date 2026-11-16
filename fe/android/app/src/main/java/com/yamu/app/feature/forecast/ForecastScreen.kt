@@ -693,13 +693,17 @@ internal fun statusTag(f: Forecast): Pair<String, TagTone>? {
 
 /**
  * 그래프의 두 선 이름(점검 B-05, BE -356). 서버 expected는 생활비를 빼기 전, conservative는 AI 예상 생활비와 앞으로 쓸 신용카드 금액까지 뺀 선이다.
- * confirmed는 응답에 남아 있어도 그리지 않는다. 범례 · 날짜 칸 · 선 설명 · 위험 문장 · 접근성 설명이 이 이름을 같이 쓴다
+ * confirmed는 응답에 남아 있어도 그리지 않는다. 날짜 칸 · 선 설명 · 위험 문장 · 접근성 설명이 이 이름을 같이 쓴다
  */
 internal const val LINE_WITHOUT_LIVING = "AI 생활비 제외"
 internal const val LINE_WITH_LIVING = "AI 생활비 반영"
 
+/** 그래프 아래 범례에만 쓰는 짧은 이름 — 실선 'AI 제외' · 점선 'AI 예측'. 다른 곳은 위 두 이름 그대로 쓴다 */
+internal const val LEGEND_WITHOUT_LIVING = "AI 제외"
+internal const val LEGEND_WITH_LIVING = "AI 예측"
+
 /** 이번에 그리지 못한 선 — 생활비 선(conservative)이 없으면 범례에 취소선으로 남긴다 */
-internal fun missingLines(f: Forecast): List<String> = if (f.hasConservative) emptyList() else listOf(LINE_WITH_LIVING)
+internal fun missingLines(f: Forecast): List<String> = if (f.hasConservative) emptyList() else listOf(LEGEND_WITH_LIVING)
 
 /**
  * 그래프 접근성 설명 — 어떤 선이 있는지와 가장 낮을 때. 최저 잔액(summary.minBalance)은 가장 낮은 선 기준이라 그 선 이름을 붙인다.
@@ -771,10 +775,10 @@ private fun ForecastLines(
         return
     }
     if (days.size < 2) return
-    // 마지막 선이 손잡이가 타는 선 — 'AI 생활비 반영'(없으면 'AI 생활비 제외')
+    // 마지막 선이 손잡이가 타는 선 — 'AI 생활비 반영'(없으면 'AI 생활비 제외'). 선 이름은 범례에만 쓰여 짧은 이름을 넣는다
     val lines = buildList {
-        add(ChartLine(LINE_WITHOUT_LIVING, days.map { it.expected }, c.primary, width = 2.6.dp))
-        if (f.hasConservative) add(ChartLine(LINE_WITH_LIVING, days.map { it.conservative }, c.primary, dashed = true, width = 2.2.dp))
+        add(ChartLine(LEGEND_WITHOUT_LIVING, days.map { it.expected }, c.primary, width = 2.6.dp))
+        if (f.hasConservative) add(ChartLine(LEGEND_WITH_LIVING, days.map { it.conservative }, c.primary, dashed = true, width = 2.2.dp))
     }
     val eventDays = remember(days) { eventDayIndices(days) }
     val strip = remember(days, f.alertThreshold) { stripDays(days, f.hasConservative, f.alertThreshold) }
@@ -1119,13 +1123,11 @@ private fun LinesCard(f: Forecast) {
             with.steps.forEach { StepRow(stepLabel(it), "${it.amount.toWon(withPlusSign = true)}원") }
             LineTotal(with, dashed = true)
             with.note?.let { Text(it, style = YamuTheme.typography.bodyS, color = c.text3, modifier = Modifier.padding(top = 2.dp)) }
-        } else {
-            Text("$LINE_WITH_LIVING 선은 생활비 기록이 없어 그리지 않았어요", style = YamuTheme.typography.bodyS, color = c.text3, modifier = Modifier.padding(top = 4.dp))
         }
     }
 }
 
-/** 계산식의 결과 줄 — 구분선 밑에 선 견본 · 선 이름(범례와 같은 이름) · 기간 끝 잔액을 굵게 */
+/** 계산식의 결과 줄 — 구분선 밑에 선 견본 · 선 이름 · 기간 끝 잔액을 굵게. 생활비 선이 없으면 이 줄만 하나 남는다 */
 @Composable
 private fun LineTotal(g: LineGroup, dashed: Boolean) {
     val c = YamuTheme.colors
