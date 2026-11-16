@@ -57,7 +57,7 @@ class BalanceRiskNotifyJobTest {
     @BeforeEach
     void setUp() {
         job = new BalanceRiskNotifyJob(jdbc, settings, contents, writer, riskCheck, marks, mock(JobLocks.class),
-                new NotificationProperties("0 * * * * *", true), Clock.fixed(at(8, 30), ZoneOffset.UTC));
+                new NotificationProperties("0 * * * * *", "0 * * * * *", true), Clock.fixed(at(8, 30), ZoneOffset.UTC));
         when(jdbc.queryForList(anyString(), eq(Long.class))).thenReturn(List.of(USER));
         when(settings.read(anyLong())).thenReturn(NotificationSettings.DEFAULTS);
         when(contents.connectedAccounts(anyLong(), eq(BalanceRiskCheck.MAX_ACCOUNTS))).thenReturn(List.of(ACCOUNT));
@@ -215,7 +215,7 @@ class BalanceRiskNotifyJobTest {
     void 미래_구간을_알린_다음_날_위험이_오늘로_당겨지면_다시_알리고_그다음_날은_이어지는_구간이다() {
         // 표시는 실제 BalanceRiskMarks로 남긴다(Redis만 메모리 대역). 판정한 날(Risk.today)을 하루씩 넘긴다
         job = new BalanceRiskNotifyJob(jdbc, settings, contents, writer, riskCheck, memoryMarks(), mock(JobLocks.class),
-                new NotificationProperties("0 * * * * *", true), Clock.fixed(at(8, 30), ZoneOffset.UTC));
+                new NotificationProperties("0 * * * * *", "0 * * * * *", true), Clock.fixed(at(8, 30), ZoneOffset.UTC));
         LocalDate dayBefore = TODAY.minusDays(1);
         LocalDate nextDay = TODAY.plusDays(1);
         when(riskCheck.firstRisk(eq(USER), eq(List.of(ACCOUNT))))
