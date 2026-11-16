@@ -59,10 +59,43 @@ dependencies {
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 }
 
-tasks.named('test') {
+tasks.withType(Test).configureEach {
     useJUnitPlatform()
     // 테스트는 개인 로컬 설정(application-local.yml) 대신 src/test/resources/application-test.yml을 쓴다.
     systemProperty 'spring.profiles.active', 'test'
+}
+
+tasks.named('test') {
+    useJUnitPlatform { excludeTags 'experiment' }
+}
+
+tasks.register('experimentTest', Test) {
+    group = 'verification'
+    description = 'Run synthetic card-selection experiments separately from regression tests.'
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    useJUnitPlatform {
+        includeTags 'experiment'
+        excludeTags 'experiment-approved'
+    }
+    outputs.upToDateWhen { false }
+    outputs.cacheIf { false }
+    shouldRunAfter tasks.named('test')
+}
+
+tasks.register('sixMonthExperimentTest', Test) {
+    group = 'verification'
+    description = 'Run the six-month comparison only with explicit EXP-006 approval.'
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    useJUnitPlatform { includeTags 'experiment-approved' }
+    outputs.upToDateWhen { false }
+    outputs.cacheIf { false }
+    doFirst {
+        if (System.getenv('YAMU_EXP006_EXECUTE') != 'APPROVED_6_MONTHS_V1') {
+            throw new GradleException('EXP-006 requires YAMU_EXP006_EXECUTE=APPROVED_6_MONTHS_V1')
+        }
+    }
 }
 
 tasks.register('seedLocal', JavaExec) {

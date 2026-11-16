@@ -16,6 +16,7 @@ import java.util.*;
 import java.util.zip.*;
 import javax.sql.DataSource;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
@@ -30,6 +31,7 @@ import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.junit.jupiter.Container;
 
 @DirtiesContext(classMode=DirtiesContext.ClassMode.AFTER_CLASS)
+@Tag("experiment")
 class CardSelectionSixMonthTest extends MySqlTestSupport {
     @Container @ServiceConnection(name="redis")
     static final GenericContainer<?> REDIS=new GenericContainer<>("redis:7-alpine").withExposedPorts(6379);
@@ -43,7 +45,8 @@ class CardSelectionSixMonthTest extends MySqlTestSupport {
     final Map<String,Map<String,Object>> merchants=new HashMap<>();
 
     @Test void preflightSixMonthBoundaries() throws Exception { execute(false); }
-    @Test @EnabledIfEnvironmentVariable(named="YAMU_EXP006_EXECUTE",matches="APPROVED_6_MONTHS_V1")
+    @Test @Tag("experiment-approved")
+    @EnabledIfEnvironmentVariable(named="YAMU_EXP006_EXECUTE",matches="APPROVED_6_MONTHS_V1")
     void approvedSixMonthComparison() throws Exception { execute(true); }
 
     void execute(boolean main) throws Exception {
