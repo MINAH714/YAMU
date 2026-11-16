@@ -215,6 +215,19 @@ data class PerfTier(val label: String, val benefit: String?, val benefitAmount: 
     val amountText: String get() = benefitAmount?.let { "최대 ${it.toWon()}원" } ?: ""
 }
 
+/**
+ * 실적 화면에 보일 구간. 새 혜택이 열리는 구간(혜택 이름이 있는 구간)이 하나뿐이면 그 구간 한 줄만 남기고,
+ * 한도만 커지는 위 구간 줄은 뺀다(노리2 · Mr.Life처럼 20만에 혜택이 다 열리고 30만부터는 금액만 커지는 카드).
+ * 서버는 그 구간에서 새로 열린 혜택만 보내지만 같은 이름이 여러 구간에 와도 하나로 센다.
+ * 남긴 줄의 '달성'은 지운 위 구간 중 하나라도 달성했으면 켠다. 혜택 이름이 둘 이상이거나 하나도 없으면 그대로 둔다
+ */
+fun List<PerfTier>.visibleTiers(): List<PerfTier> {
+    val names = mapNotNull { it.benefit?.takeIf(String::isNotBlank) }.distinct()
+    if (names.size != 1) return this
+    val keep = indexOfFirst { it.benefit == names.single() }
+    return listOf(this[keep].copy(achieved = drop(keep).any { it.achieved }))
+}
+
 data class PerfDetail(
     val userCardId: Long,
     val month: Int?,
