@@ -107,9 +107,12 @@ fun pickGap(cards: List<PayCard>, selected: PayCard?, declinedIds: Set<Long> = e
     return if (gap.signum() > 0) PickGap(gap, pickSelected) else null
 }
 
-/** 즉시할인이 있을 때 큰 금액 아래 한 줄 — '6,600원에서 660원 바로 할인'. 없으면 null */
+/**
+ * 즉시할인이 있을 때 큰 금액 아래 한 줄 — '6,600원에서 660원 바로 할인'. 없으면 null.
+ * 취소된 결제는 할인도 함께 없어져 null(서버 chargedAmount는 취소 뒤에도 승인 당시 값이라 금액만으로는 못 가린다, S15P31E103-582)
+ */
 fun PaymentReceipt.instantDiscountText(): String? =
-    instantDiscount.takeIf { it > 0 }?.let { "${amount.toWon()}원에서 ${it.toWon()}원 바로 할인" }
+    instantDiscount.takeIf { it > 0 && !canceled }?.let { "${amount.toWon()}원에서 ${it.toWon()}원 바로 할인" }
 
 /** 승인 거절 코드(#1 failure.code) → 사용자 문장 */
 fun declineMessage(code: String?): String = when (code) {
