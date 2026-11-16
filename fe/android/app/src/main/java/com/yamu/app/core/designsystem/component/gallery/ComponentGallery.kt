@@ -485,7 +485,6 @@ private fun GallerySections() {
         Spacer(Modifier.height(6.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             StatusTag("추가 소비 비추천", tone = TagTone.Error)
-            StatusTag("자연 소비 유지")
         }
         Spacer(Modifier.height(8.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
