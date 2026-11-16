@@ -6,6 +6,7 @@ import com.yamu.be.payment.PaymentPlan;
 import com.yamu.be.payment.domain.PaymentChannel;
 import com.yamu.be.payment.domain.PaymentStatus;
 import com.yamu.be.payment.domain.TransactionSource;
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -67,9 +68,13 @@ public record PaymentDetailResponse(
      * @param type         DB 혜택 종류(DISCOUNT·CASHBACK·POINT)
      * @param actualAmount 적용한 혜택의 원화 금액. 포인트처럼 원화로 바꾸지 못했으면 null
      * @param realization  혜택 반영 시점(AT_APPROVAL·AT_BILLING·AFTER_BILLING·POINT_ACCRUAL). 약관 미확인은 null
+     * @param rawAmount    혜택 자기 단위의 값({@code payment_benefit.benefit_value}). 적립이면 포인트 수이고, 승인 응답의
+     *                     {@code amount}와 같은 값이다. 소수가 있으면 {@code 1.5}처럼, 정수면 소수점 없이 나간다(S15P31E103-580)
+     * @param unit         {@code rawAmount}의 단위(KRW·POINT, {@code payment_benefit.value_unit})
      */
     public record Benefit(Long paymentBenefitId, Long benefitId, String name, String type, Long expectedAmount,
-            Long actualAmount, String realization, Boolean confirmed, LocalDateTime confirmedAt) {}
+            Long actualAmount, String realization, Boolean confirmed, LocalDateTime confirmedAt, BigDecimal rawAmount,
+            String unit) {}
 
     /**
      * @param yearMonth  실적을 합산하는 월(한국 기준, YYYY-MM)

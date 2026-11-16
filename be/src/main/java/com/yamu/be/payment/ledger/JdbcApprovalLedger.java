@@ -65,12 +65,12 @@ public class JdbcApprovalLedger implements ApprovalLedger {
     public Recorded recordApproval(PaymentTransaction payment, ApprovalOutcome.Approved outcome) {
         LocalDateTime now = LocalDateTime.ofInstant(clock.instant(), ZoneOffset.UTC).truncatedTo(ChronoUnit.MICROS);
         Candidate basis = basisOf(payment, outcome.basis());
-        Map<Long, Long> benefitIds = basis == null ? Map.of() : writeBenefits(payment, outcome.benefits(), now);
+        Recorded benefits = basis == null ? Recorded.none() : writeBenefits(payment, outcome.benefits(), now);
         int limitRows = basis == null ? 0 : writeLimitUses(payment, basis, now);
         addPerformance(payment, outcome.recognizedPerformanceAmount(), outcome.performanceMonth(), now);
         log.info("승인 원장 반영 paymentId={} benefits={} limitUsages={} recognizedPerformance={}", payment.getId(),
-                benefitIds.size(), limitRows, outcome.recognizedPerformanceAmount());
-        return new Recorded(benefitIds);
+                benefits.paymentBenefitIds().size(), limitRows, outcome.recognizedPerformanceAmount());
+        return benefits;
     }
 
     /** 후보가 이 결제의 카드 것일 때만 근거로 쓴다. 다르면 혜택·한도를 적지 않는다. */
@@ -87,13 +87,14 @@ public class JdbcApprovalLedger implements ApprovalLedger {
         return basis;
     }
 
-    private Map<Long, Long> writeBenefits(PaymentTransaction payment, List<BenefitLine> lines, LocalDateTime now) {
+    private Recorded writeBenefits(PaymentTransaction payment, List<BenefitLine> lines, LocalDateTime now) {
         if (lines.isEmpty()) {
-            return Map.of();
+            return Recorded.none();
         }
         Map<Long, BenefitUnit> units = units(payment.getCardProductId(),
                 lines.stream().map(BenefitLine::benefitId).toList());
         Map<Long, Long> ids = new LinkedHashMap<>();
+        Map<Long, Recorded.Value> values = new LinkedHashMap<>();
         for (BenefitLine line : lines) {
             BenefitUnit unit = units.get(line.benefitId());
             if (unit == null) {
@@ -102,6 +103,7 @@ public class JdbcApprovalLedger implements ApprovalLedger {
                 continue;
             }
             KeyHolder key = new GeneratedKeyHolder();
+            Long krwAmount = unit.krwAmount(line.amount());
             jdbc.update("""
                     INSERT INTO payment_benefit (payment_transaction_id, card_product_id, card_benefit_id, benefit_value,
                                                  value_unit, krw_amount, created_at)
@@ -112,11 +114,12 @@ public class JdbcApprovalLedger implements ApprovalLedger {
                     .addValue("benefit", line.benefitId())
                     .addValue("value", BigDecimal.valueOf(line.amount()))
                     .addValue("unit", unit.unit())
-                    .addValue("krw", unit.krwAmount(line.amount()))
+                    .addValue("krw", krwAmount)
                     .addValue("now", now), key, new String[] {"payment_benefit_id"});
             ids.put(line.benefitId(), key.getKey().longValue());
+            values.put(line.benefitId(), new Recorded.Value(unit.unit(), krwAmount));
         }
-        return ids;
+        return new Recorded(ids, values);
     }
 
     private Map<Long, BenefitUnit> units(Long cardProductId, List<Long> benefitIds) {

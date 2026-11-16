@@ -7,6 +7,7 @@ import com.yamu.be.payment.domain.PaymentChannel;
 import com.yamu.be.payment.domain.PaymentStatus;
 import com.yamu.be.payment.domain.TransactionSource;
 import com.yamu.be.payment.merchant.MerchantCategoryNames;
+import java.math.BigDecimal;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.LocalDate;
@@ -208,7 +209,7 @@ class PaymentHistoryReader {
     List<PaymentDetailResponse.Benefit> findBenefits(Long paymentId) {
         return jdbc.query("""
                 select b.payment_benefit_id, b.card_benefit_id, cb.benefit_name, cb.benefit_type,
-                       cb.application_timing, b.krw_amount
+                       cb.application_timing, b.krw_amount, b.benefit_value, b.value_unit
                 from payment_benefit b
                 join card_benefit cb on cb.card_benefit_id = b.card_benefit_id
                 where b.payment_transaction_id = :paymentId
@@ -216,7 +217,17 @@ class PaymentHistoryReader {
                 """, new MapSqlParameterSource("paymentId", paymentId),
                 (rs, i) -> new PaymentDetailResponse.Benefit(rs.getLong("payment_benefit_id"),
                         rs.getLong("card_benefit_id"), rs.getString("benefit_name"), rs.getString("benefit_type"),
-                        null, rs.getObject("krw_amount", Long.class), rs.getString("application_timing"), null, null));
+                        null, rs.getObject("krw_amount", Long.class), rs.getString("application_timing"), null, null,
+                        plain(rs.getBigDecimal("benefit_value")), rs.getString("value_unit")));
+    }
+
+    /** DECIMAL(19,6)의 뒤 0을 지운다. 1500.000000은 1500, 1.500000은 1.5로 나간다(지수 표기 1.5E+3이 되지 않게 소수 자리는 0 이상). */
+    private static BigDecimal plain(BigDecimal value) {
+        if (value == null) {
+            return null;
+        }
+        BigDecimal stripped = value.stripTrailingZeros();
+        return stripped.scale() < 0 ? stripped.setScale(0) : stripped;
     }
 
     List<PaymentDetailResponse.LimitImpact> findLimitImpacts(Long paymentId) {
