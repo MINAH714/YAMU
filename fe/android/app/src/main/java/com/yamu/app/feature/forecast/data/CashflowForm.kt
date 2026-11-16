@@ -1,5 +1,6 @@
 package com.yamu.app.feature.forecast.data
 
+import com.yamu.app.core.format.AmountLimit
 import com.yamu.app.feature.link.data.monthlyDayLabel
 import kotlinx.serialization.Serializable
 import java.time.LocalDate
@@ -32,7 +33,6 @@ enum class CashflowRepeat { NONE, WEEKLY, MONTHLY }
 enum class CashflowField { TITLE, AMOUNT, DATE, RECURRENCE, PAYMENT }
 
 const val CASHFLOW_TITLE_MAX = 30
-const val CASHFLOW_AMOUNT_MAX = 100_000_000_000L     // 1,000억 원(서버 상한)
 private const val MONTH_END = 31                      // 서버 규칙(7.1.6): 31 = 31일이 없는 달은 말일 → 매월 말일
 
 /** 등록 화면 입력 그대로. 고치는 일은 with…로만 — 말일 반복 · 수입 계좌처럼 칸끼리 묶인 규칙을 한곳에서 지킨다 */
@@ -73,12 +73,7 @@ data class CashflowForm(
             t.isEmpty() -> put(CashflowField.TITLE, "이름을 넣어 주세요")
             t.length > CASHFLOW_TITLE_MAX -> put(CashflowField.TITLE, "이름은 ${CASHFLOW_TITLE_MAX}자까지예요")
         }
-        val a = amount
-        when {
-            a == null -> put(CashflowField.AMOUNT, "금액을 넣어 주세요")
-            a <= 0 -> put(CashflowField.AMOUNT, "1원 이상 넣어 주세요")
-            a > CASHFLOW_AMOUNT_MAX -> put(CashflowField.AMOUNT, "1,000억 원까지 넣을 수 있어요")
-        }
+        AmountLimit.CASHFLOW.error(amount)?.let { put(CashflowField.AMOUNT, it) }   // 1원 ~ 1,000억 원(서버 상한)
         if (date.isBefore(today)) put(CashflowField.DATE, "오늘이나 그 뒤 날짜를 골라 주세요")
         if (effectiveEndDate?.isBefore(date) == true) put(CashflowField.RECURRENCE, "끝나는 날은 ${if (isIncome) "들어오는" else "나가는"} 날과 같거나 그 뒤여야 해요")
         when {

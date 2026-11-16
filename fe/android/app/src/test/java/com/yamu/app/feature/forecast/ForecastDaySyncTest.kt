@@ -113,6 +113,13 @@ class ForecastDaySyncTest {
         assertEquals("−125만", pillAmount(-1_254_000))
         assertEquals("−6천", pillAmount(-6_000))
         assertEquals("+1천", pillAmount(300))
+        // 1억부터 억, 1조부터 조 — 50dp 칸에 들어가게(큰 금액 QA)
+        assertEquals("−9999만", pillAmount(-99_990_000))
+        assertEquals("−1억", pillAmount(-99_999_999))           // 10000만으로 반올림되면 1억으로 올린다
+        assertEquals("−2.5억", pillAmount(-250_000_000))
+        assertEquals("−1000억", pillAmount(-100_000_000_000))
+        assertEquals("−5000억", pillAmount(-500_000_000_000))
+        assertEquals("+1.2조", pillAmount(1_200_000_000_000))
     }
 
     @Test fun `알약 읽어 주기 — 날짜, 금액, 구간`() {

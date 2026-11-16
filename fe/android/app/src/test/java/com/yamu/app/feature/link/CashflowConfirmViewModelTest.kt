@@ -311,4 +311,38 @@ class CashflowConfirmViewModelTest {
         assertEquals("1~31 사이로 넣어 주세요", incomeDayError("32"))
         assertNull(incomeDayError("31"))
     }
+
+    @Test fun `금액 고치기 시트 — 항목은 1,000억, 하루 생활비는 20억까지 · 빈 칸과 0은 막지 않는다`() {
+        val item = CashflowEdit.Item(expensesOnly.expenses.first())
+        assertNull(editAmountError(item, "100000000000"))
+        assertEquals("1,000억 원까지 넣을 수 있어요", editAmountError(item, "100000000001"))
+        assertNull(editAmountError(CashflowEdit.DailyCost, "2000000000"))
+        assertEquals("20억 원까지 넣을 수 있어요", editAmountError(CashflowEdit.DailyCost, "2000000001"))
+        // 비우면 항목은 그대로 · 하루 생활비는 지우는 뜻이라 오류가 아니다
+        assertNull(editAmountError(item, ""))
+        assertNull(editAmountError(CashflowEdit.DailyCost, "0"))
+        // 칸은 상한 자릿수까지만 받는다 — 항목 12자리, 하루 생활비 10자리
+        assertEquals("999999999999", editAmountLimit(item).clampInput("9999999999999"))
+        assertEquals("9999999999", editAmountLimit(CashflowEdit.DailyCost).clampInput("99,999,999,999"))
+    }
+
+    @Test fun `상한을 넘는 금액은 저장하지 않고 시트를 그대로 둔다 — 서버 400 전에 막기`() = runTest(dispatcher) {
+        val vm = CashflowConfirmViewModel(Repo(ApiResult.Success(expensesOnly)))
+        advanceUntilIdle()
+        val expense = expensesOnly.expenses.first()
+
+        vm.edit(CashflowEdit.DailyCost)
+        val before = vm.state.value.dailyCost
+        vm.saveAmount(3_000_000_000)                 // 서버 상한(약 21억)도 넘는 값
+        assertEquals(before, vm.state.value.dailyCost)
+        assertEquals(CashflowEdit.DailyCost, vm.state.value.editing)
+        vm.saveAmount(2_000_000_000)
+        assertEquals(2_000_000_000L, vm.state.value.dailyCost)
+
+        vm.edit(CashflowEdit.Item(expense))
+        vm.saveAmount(100_000_000_001)
+        assertEquals(expense.amount, vm.state.value.amountOf(expense))
+        vm.saveAmount(100_000_000_000)
+        assertEquals(100_000_000_000L, vm.state.value.amountOf(expense))
+    }
 }

@@ -25,11 +25,21 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.unit.dp
 import com.yamu.app.core.designsystem.icon.YamuIcons
 import com.yamu.app.core.designsystem.theme.YamuSize
 import com.yamu.app.core.designsystem.theme.YamuSpacing
 import com.yamu.app.core.designsystem.theme.YamuTheme
+
+/** 줄 오른쪽 값 묶음은 받은 폭의 60%까지 — 넘치는 값은 그 안에서 줄을 바꾼다 */
+private fun Modifier.trailWidth() = layout { measurable, constraints ->
+    val max = if (constraints.hasBoundedWidth) (constraints.maxWidth * TRAIL_MAX_FRACTION).toInt() else constraints.maxWidth
+    val p = measurable.measure(constraints.copy(minWidth = 0, maxWidth = max))
+    layout(p.width, p.height) { p.place(0, 0) }
+}
+
+private const val TRAIL_MAX_FRACTION = 0.6f
 
 /**
  * 목록 한 줄 — 제목 · 보조 · 값 · › (한 줄에 하나).
@@ -75,9 +85,9 @@ fun ListRow(
             }
             if (sub != null) Text(sub, style = if (dense) t.bodyS else t.sub, color = c.text3)
         }
-        // 값 · 태그 · ›는 가깝게(4dp) — 프로토타입 .trail
+        // 값 · 태그 · ›는 가깝게(4dp) — 프로토타입 .trail. 남은 폭의 60%까지만 써서 1,000억처럼 긴 금액에도 제목이 눌리지 않는다(큰 금액 QA)
         if (value != null || valuePlain != null || trailing != null || chevron) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            Row(Modifier.trailWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 if (value != null) {
                     Column(horizontalAlignment = Alignment.End) {
                         Text(value, style = if (dense) t.titleM else t.value, color = if (valueColor == Color.Unspecified) c.text1 else valueColor)

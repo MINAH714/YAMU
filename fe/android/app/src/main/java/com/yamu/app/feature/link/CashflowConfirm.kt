@@ -40,14 +40,13 @@ import com.yamu.app.core.designsystem.component.YamuBottomSheet
 import com.yamu.app.core.designsystem.component.YamuTextField
 import com.yamu.app.core.designsystem.theme.YamuSpacing
 import com.yamu.app.core.designsystem.theme.YamuTheme
+import com.yamu.app.core.format.AmountLimit
 import com.yamu.app.core.format.KST
-import com.yamu.app.core.format.amountDigits
 import com.yamu.app.core.format.toWon
 import com.yamu.app.core.network.ApiError
 import com.yamu.app.core.network.ApiResult
 import com.yamu.app.core.network.newIdempotencyKey
 import com.yamu.app.core.ui.userMessage
-import com.yamu.app.feature.forecast.data.CASHFLOW_AMOUNT_MAX
 import com.yamu.app.feature.forecast.data.CashflowCreateRequest
 import com.yamu.app.feature.link.data.BillLine
 import com.yamu.app.feature.link.data.CashflowCandidate
@@ -165,7 +164,9 @@ class CashflowConfirmViewModel @Inject constructor(private val cashflow: Cashflo
 
     fun saveAmount(amount: Long?) {
         _state.update { s ->
-            when (val e = s.editing) {
+            val e = s.editing
+            if (e != null && amount != null && amount > editAmountLimit(e).max) return@update s   // 시트가 막지만 서버 400을 한 번 더 막는다
+            when (e) {
                 is CashflowEdit.Item -> s.copy(
                     amounts = if (amount != null && amount > 0) s.amounts + (e.candidate.id to amount) else s.amounts,
                     excluded = s.excluded - e.candidate.id,
@@ -455,20 +456,23 @@ private fun EditAmountSheet(
         CashflowEdit.DailyCost -> "하루 생활비" to state.dailyCost
         CashflowEdit.Income -> IncomeInput.INCOME_TITLE to state.newIncome?.amount   // 월급은 IncomeSheet가 맡는다
     }
-    var text by remember(editing) { mutableStateOf(amountDigits(initial?.toString().orEmpty(), 10)) }
+    val limit = editAmountLimit(editing)
+    var text by remember(editing) { mutableStateOf(limit.clampInput(initial?.toString().orEmpty())) }
+    val error = editAmountError(editing, text)
     YamuBottomSheet(onDismiss = onDismiss) {
         Text(title, style = YamuTheme.typography.titleL, color = YamuTheme.colors.text1)
         Spacer(Modifier.height(YamuSpacing.x4))
         YamuTextField(
             label = "금액(원)",
             value = text,
-            onValueChange = { v -> text = amountDigits(v, 10) },
+            onValueChange = { v -> text = limit.clampInput(v) },
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
             // 서버는 이 값을 하루 목표로 저장만 하고 잔고예보 예측에는 넣지 않는다(docs/be/forecast.md)
             supporting = if (editing is CashflowEdit.DailyCost) "하루에 쓸 목표 금액이에요" else null,
+            error = error,
         )
         Spacer(Modifier.height(YamuSpacing.x5))
-        PrimaryButton("저장", onClick = { onSave(text.toLongOrNull()) })
+        PrimaryButton("저장", onClick = { if (error == null) onSave(text.toLongOrNull()) })
         if (editing is CashflowEdit.Item) {
             Spacer(Modifier.height(YamuSpacing.x2))
             val excluded = editing.candidate.id in state.excluded
@@ -490,7 +494,7 @@ private fun IncomeSheet(
     onSave: (IncomeInput?) -> Unit,
 ) {
     val c = YamuTheme.colors
-    var amount by remember { mutableStateOf(amountDigits(current?.amount?.toString().orEmpty(), 12)) }
+    var amount by remember { mutableStateOf(AmountLimit.CASHFLOW.clampInput(current?.amount?.toString().orEmpty())) }
     var day by remember { mutableStateOf(current?.day?.toString().orEmpty()) }
     var accountId by remember { mutableStateOf(current?.accountId ?: defaultAccount?.accountId) }
     var tried by remember { mutableStateOf(false) }
@@ -502,7 +506,7 @@ private fun IncomeSheet(
         YamuTextField(
             label = "금액(원)",
             value = amount,
-            onValueChange = { v -> amount = amountDigits(v, 12) },
+            onValueChange = { v -> amount = AmountLimit.CASHFLOW.clampInput(v) },
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
             error = amountError.takeIf { tried },
         )
@@ -544,14 +548,17 @@ private fun IncomeSheet(
 }
 
 /** 월급 금액 — 1원 ~ 1,000억 원(서버 상한) */
-internal fun incomeAmountError(text: String): String? {
-    val v = text.toLongOrNull()
-    return when {
-        v == null -> "금액을 넣어 주세요"
-        v <= 0 -> "1원 이상 넣어 주세요"
-        v > CASHFLOW_AMOUNT_MAX -> "1,000억 원까지 넣을 수 있어요"
-        else -> null
-    }
+internal fun incomeAmountError(text: String): String? = AmountLimit.CASHFLOW.error(text.toLongOrNull())
+
+/** 금액 고치기 시트의 상한 — 고정 수입·지출 항목은 예정 돈과 같은 1,000억, 하루 생활비는 설정 상한 */
+internal fun editAmountLimit(editing: CashflowEdit): AmountLimit =
+    if (editing is CashflowEdit.DailyCost) AmountLimit.DAILY_LIVING_COST else AmountLimit.CASHFLOW
+
+/** 금액 고치기 시트 — 비우거나 0이면 항목은 그대로, 하루 생활비는 지우는 칸이라 상한만 본다 */
+internal fun editAmountError(editing: CashflowEdit, text: String): String? {
+    val v = text.toLongOrNull() ?: return null
+    val limit = editAmountLimit(editing)
+    return if (v > limit.max) limit.error(v) else null
 }
 
 /** 매월 받는 날 — 1~31(서버 recurrence.dayOfMonth 범위) */
