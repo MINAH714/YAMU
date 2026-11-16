@@ -3,12 +3,16 @@ package com.yamu.be.auth;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
+import com.yamu.be.auth.PhoneVerificationStore.IssuedVerification;
 import com.yamu.be.auth.SignupTokenStore.IssuedSignupToken;
 import com.yamu.be.auth.domain.SignupMode;
 import com.yamu.be.auth.domain.SignupStep;
 import com.yamu.be.auth.dto.PhoneVerificationConfirmResponse;
+import com.yamu.be.auth.dto.PhoneVerificationRequest;
+import com.yamu.be.auth.dto.PhoneVerificationResponse;
 import com.yamu.be.global.crypto.LookupHasher;
 import com.yamu.be.global.crypto.PersonalDataCipher;
 import com.yamu.be.user.RejoinService;
@@ -69,6 +73,25 @@ class SignupServiceTest {
         assertThat(response.mode()).isEqualTo(SignupMode.DEVICE_RECOVERY);
         assertThat(response.nextStep()).isEqualTo(SignupStep.ACCOUNT_LINK);
         assertThat(activeWhenLocked.getIdentityVerifiedAt()).isEqualTo(EARLIER);
+    }
+
+    @Test
+    void 인증번호를_응답으로_주지_않는_설정에서는_요청_단계에서_시드를_보지_않는다() {
+        // 문자를 실제로 보내게 되면 인증번호를 받은 폰 주인만 결과를 알 수 있으므로 예전처럼 확인 단계에서만 대조한다.
+        SignupService smsService = new SignupService(verificationStore, tokenStore, userRepository,
+                mock(RejoinService.class), mock(PersonalDataCipher.class), mock(LookupHasher.class),
+                new SignupProperties(Duration.ofMinutes(3), Duration.ofMinutes(1), 5, Duration.ofMinutes(30), false, 30),
+                mock(LoginRateLimiter.class), transaction,
+                Clock.fixed(Instant.parse("2026-10-30T03:00:00Z"), ZoneOffset.UTC));
+        when(verificationStore.issue(any())).thenReturn(new IssuedVerification("pv_x", "123456"));
+
+        PhoneVerificationResponse response = smsService.requestVerification(
+                new PhoneVerificationRequest("김야무", BIRTH, "SKT", "01012345678"),
+                new ClientInfo("127.0.0.1", "test"));
+
+        assertThat(response.verificationId()).isEqualTo("pv_x");
+        assertThat(response.demoCode()).isNull();
+        verifyNoInteractions(userRepository);
     }
 
     private static AppUser seeded() {
