@@ -179,16 +179,148 @@ class PayCodeViewModelTest {
         }
     }
 
-    @Test fun `새 코드는 카드 목록을 다시 보지 않고 바로 인증한다`() = runTest(dispatcher) {
+    // ── [새 코드]는 다시 인증하지 않고 받는다(S15P31E103-531) — 안 되면 지금처럼 본인 인증 ──
+
+    /** 처음 인증해 코드를 띄운 화면 */
+    private fun TestScope.toCode(): PayCodeViewModel {
+        val vm = open()
+        vm.stepUp.onPinOpened()
+        passPin()
+        assertTrue(vm.state.value.phase is PayPhase.Code)
+        return vm
+    }
+
+    private val PayCodeViewModel.codeToken get() = (state.value.phase as PayPhase.Code).code.token
+
+    @Test fun `새 코드는 카드 목록도 인증도 다시 거치지 않고 바로 새 코드와 남은 시간을 띄운다`() = runTest(dispatcher) {
+        val vm = toCode()
+        closing(vm) {
+            vm.renewCode()
+            runCurrent()
+
+            assertEquals("tok2", vm.codeToken)
+            assertEquals(listOf("tok"), payments.reissuedFrom)
+            assertTrue((vm.state.value.remainingSec ?: 0) > 0)
+            assertFalse(vm.state.value.issuing)
+            assertEquals(StepUpUi.Idle, vm.stepUp.ui.value)
+            assertEquals("본인 인증은 처음 한 번", 1, payments.issues)
+            assertEquals(1, link.cardsCalls)
+
+            // 새 코드에서 한 번 더 — 직전 코드로 받는다
+            vm.renewCode()
+            runCurrent()
+            assertEquals("tok3", vm.codeToken)
+            assertEquals(listOf("tok", "tok2"), payments.reissuedFrom)
+        }
+    }
+
+    @Test fun `시간이 지난 뒤 새 코드 받기도 다시 인증하지 않는다`() = runTest(dispatcher) {
+        payments.issueResult = ApiResult.Success(PayCode("tok", "barcode", "qr", OffsetDateTime.now().minusSeconds(1).toString()))
         val vm = open()
         closing(vm) {
             vm.stepUp.onPinOpened()
             passPin()
-            assertTrue(vm.state.value.phase is PayPhase.Code)
-            vm.openCode()
+            assertEquals(PayPhase.CodeExpired, vm.state.value.phase)
+
+            vm.renewCode()
             runCurrent()
+
+            assertEquals("tok2", vm.codeToken)
+            assertEquals(StepUpUi.Idle, vm.stepUp.ui.value)
+            assertEquals(1, payments.issues)
+        }
+    }
+
+    @Test fun `재발급이 안 되면 지금처럼 본인 인증으로 돌아간다`() = runTest(dispatcher) {
+        val vm = toCode()
+        closing(vm) {
+            payments.reissueResult = ApiResult.Failure(ApiError.StepUpRequired("REAUTH_REQUIRED"))
+            payments.status = ApiResult.Success(PayCodeStatus(CodeState.ISSUED, null))
+            vm.renewCode()
+            runCurrent()
+
+            assertEquals(PayPhase.Auth, vm.state.value.phase)
             assertEquals(StepUpUi.OpenPin(StepUpPurpose.BARCODE), vm.stepUp.ui.value)
+            assertFalse(vm.state.value.issuing)
             assertEquals(1, link.cardsCalls)
+        }
+    }
+
+    @Test fun `재발급 API가 없거나 연결이 끊겨도 본인 인증으로 돌아간다`() = runTest(dispatcher) {
+        val vm = toCode()
+        closing(vm) {
+            payments.reissueResult = ApiResult.Failure(ApiError.Network)
+            payments.status = ApiResult.Failure(ApiError.Network)
+            vm.renewCode()
+            runCurrent()
+
+            assertEquals(PayPhase.Auth, vm.state.value.phase)
+            assertEquals(StepUpUi.OpenPin(StepUpPurpose.BARCODE), vm.stepUp.ui.value)
+        }
+    }
+
+    @Test fun `재발급에서 카드가 없어졌다고 하면 인증 없이 카드 없음으로`() = runTest(dispatcher) {
+        val vm = toCode()
+        closing(vm) {
+            payments.reissueResult = ApiResult.Failure(ApiError.Conflict("NO_ACTIVE_CARD"))
+            vm.renewCode()
+            runCurrent()
+
+            assertEquals(PayPhase.NoCard, vm.state.value.phase)
+            assertEquals(StepUpUi.Idle, vm.stepUp.ui.value)
+        }
+    }
+
+    @Test fun `새 코드를 연달아 눌러도 재발급은 한 번만 나간다`() = runTest(dispatcher) {
+        val vm = toCode()
+        closing(vm) {
+            payments.reissueDelayMs = 500
+            vm.renewCode()
+            runCurrent()
+            assertTrue(vm.state.value.issuing)
+            vm.renewCode()
+            vm.renewCode()
+            advanceTimeBy(600)
+            runCurrent()
+
+            assertEquals(listOf("tok"), payments.reissuedFrom)
+            assertEquals("tok2", vm.codeToken)
+        }
+    }
+
+    @Test fun `재발급을 기다리는 동안 이전 코드가 찍혔으면 인증으로 가지 않고 결제 요청을 띄운다`() = runTest(dispatcher) {
+        val vm = toCode()
+        closing(vm) {
+            // 서버는 이미 스캔된 코드라 재발급을 거절하고, 이전 코드를 보면 결제 요청이 있다
+            payments.reissueResult = ApiResult.Failure(ApiError.StepUpRequired("REAUTH_REQUIRED"))
+            vm.renewCode()
+            runCurrent()
+
+            assertTrue(vm.state.value.phase is PayPhase.Request)
+            assertEquals(StepUpUi.Idle, vm.stepUp.ui.value)
+        }
+    }
+
+    @Test fun `재발급 중 이전 코드가 닫혀도 시간이 지났어요를 띄우지 않고 새 코드로 바꾼다`() = runTest(dispatcher) {
+        payments.status = ApiResult.Success(PayCodeStatus(CodeState.ISSUED, null))
+        val vm = toCode()
+        closing(vm) {
+            vm.setVisible(true)
+            runCurrent()
+            payments.reissueDelayMs = 2_500
+            vm.renewCode()
+            runCurrent()
+            // 서버가 이전 코드를 먼저 닫아 확인이 EXPIRED를 돌려준다
+            payments.status = ApiResult.Success(PayCodeStatus(CodeState.EXPIRED, null))
+            advanceTimeBy(2_000)
+            runCurrent()
+            assertTrue(vm.state.value.phase is PayPhase.Code)
+            assertEquals("tok", vm.codeToken)
+
+            payments.status = ApiResult.Success(PayCodeStatus(CodeState.ISSUED, null))
+            advanceTimeBy(600)
+            runCurrent()
+            assertEquals("tok2", vm.codeToken)
         }
     }
 
@@ -788,10 +920,25 @@ class PayCodeViewModelTest {
             return issueResult ?: ApiResult.Success(PayCode("tok", "barcode", "qr", OffsetDateTime.now().plusMinutes(3).toString()))
         }
 
+        /** 재발급에 넘긴 이전 코드들 */
+        val reissuedFrom = mutableListOf<String>()
+        /** null이면 tok2 · tok3 …을 낸다 */
+        var reissueResult: ApiResult<PayCode>? = null
+        var reissueDelayMs = 0L
+
+        override suspend fun reissueCode(previousToken: String): ApiResult<PayCode> {
+            reissuedFrom += previousToken
+            delay(reissueDelayMs)
+            return reissueResult
+                ?: ApiResult.Success(PayCode("tok${reissuedFrom.size + 1}", "barcode", "qr", OffsetDateTime.now().plusMinutes(1).toString()))
+        }
+
         /** 마감은 테스트마다 정한다. 기본은 한 시간 뒤라 느린 실행에도 만료되지 않음 */
         var request = request(OffsetDateTime.now().plusHours(1))
+        /** null이면 찍혀서 결제 요청([request])이 온다 */
+        var status: ApiResult<PayCodeStatus>? = null
 
-        override suspend fun codeStatus(token: String) = ApiResult.Success(PayCodeStatus(CodeState.SCANNED, request))
+        override suspend fun codeStatus(token: String) = status ?: ApiResult.Success(PayCodeStatus(CodeState.SCANNED, request))
 
         var approvedCardId: Long? = null
         val keys = mutableListOf<String>()

@@ -202,6 +202,8 @@ data class PayCodeState(
     val shakeSeq: Int = 0,
 ) {
     val request: PaymentRequest? get() = (phase as? PayPhase.Request)?.request
+    /** 코드나 '시간이 지났어요'를 보고 있다 — [새 코드]를 누를 수 있는 단계 */
+    val onCodeScreen: Boolean get() = phase is PayPhase.Code || phase == PayPhase.CodeExpired
     val selectedCard: PayCard? get() = request?.cards?.firstOrNull { it.userCardId == selectedCardId }
     val requestDone: Boolean get() = requestExpired || !canRetry
     /** 승인 응답을 기다리거나 승인 뒤 화면을 떠나는 중. 이 동안 결제 · 거절 · 뒤로가기는 받지 않는다(판은 결과 불명일 때도 떠 있다 — [waitPanel]) */
@@ -259,6 +261,8 @@ class PayCodeViewModel @Inject constructor(
     private var listedCards: Map<Long, LinkedCard> = emptyMap()
     private var listedCardsJob: Job? = null
     private var pollJob: Job? = null
+    /** 마지막으로 띄운 코드 — [새 코드]는 이 코드로 다시 인증하지 않고 받는다([renewCode]) */
+    private var lastCodeToken: String? = null
     private var visible = false
     private var pollFailures = 0
     /** 같은 결제 · 카드 · 할부 = 같은 키(두 번 눌러도 한 번만 결제), 바꾸면 새 키 */
@@ -297,7 +301,55 @@ class PayCodeViewModel @Inject constructor(
         if (!noCard) openCode()
     }
 
-    /** 본인 인증(BARCODE) → 코드 발급(#77). [새 코드]도 여기(1차: 매번 다시 인증) */
+    /**
+     * [새 코드] · [새 코드 받기]. 먼저 다시 인증하지 않는 재발급(S15P31E103-531)을 부르고, 되면 인증 단계 없이 바로 새 코드를 띄운다.
+     * BE는 같은 기기에서 처음 인증한 지 10분 안이고 이전 코드가 스캔 · 결제에 쓰이지 않았을 때만 내준다(임시 정책).
+     * 카드가 0장이면 카드 없음, 그 밖의 실패(REAUTH_REQUIRED · 끊김 · BE에 아직 없는 API)는 지금처럼 본인 인증([openCode])으로.
+     * 요청 중에 가맹점이 이전 코드를 찍었으면 그 결제 요청을 놓치지 않는다 — 실패하면 이전 코드를 한 번 더 보고, 요청 화면이면 덮지 않는다
+     */
+    fun renewCode() {
+        val previous = lastCodeToken
+        if (previous == null || !_state.value.onCodeScreen) return openCode()
+        if (stepUp.busy || _state.value.issuing || _state.value.checkingCards) return
+        _state.update { it.copy(issuing = true, error = null) }
+        viewModelScope.launch {
+            val r = payments.reissueCode(previous)
+            when {
+                // 그사이 찍혀 요청 화면으로 넘어갔다(재발급은 거절됐을 것) — 그대로 둔다
+                !_state.value.onCodeScreen -> _state.update { it.copy(issuing = false) }
+                r is ApiResult.Success -> showCode(r.data)
+                r is ApiResult.Failure && r.error.code == "NO_ACTIVE_CARD" -> {
+                    stopPolling()
+                    _state.update { it.copy(issuing = false, phase = PayPhase.NoCard) }
+                }
+                else -> {
+                    val scanned = (payments.codeStatus(previous) as? ApiResult.Success)?.data
+                        ?.takeIf { it.state == CodeState.SCANNED }?.request
+                    _state.update { it.copy(issuing = false) }
+                    when {
+                        !_state.value.onCodeScreen -> Unit
+                        scanned != null -> {
+                            stopPolling()
+                            onScanned(scanned)
+                        }
+                        else -> openCode()
+                    }
+                }
+            }
+        }
+    }
+
+    /** 받은 코드를 띄우고 남은 시간 · 찍혔는지 확인을 새 코드로 다시 시작한다 */
+    private fun showCode(code: PayCode) {
+        pollFailures = 0
+        lastCodeToken = code.token
+        _state.update { it.copy(issuing = false, phase = PayPhase.Code(code), unstable = false, error = null) }
+        tick()
+        restartPolling()
+        loadListedCards()
+    }
+
+    /** 본인 인증(BARCODE) → 코드 발급(#77). 처음 열 때와, [새 코드]를 재인증 없이 받지 못했을 때 */
     fun openCode() {
         if (stepUp.busy || _state.value.issuing || _state.value.checkingCards) return
         stopPolling()
@@ -309,13 +361,7 @@ class PayCodeViewModel @Inject constructor(
         ) { token ->
             _state.update { it.copy(issuing = true) }
             when (val r = payments.issueCode(token.token)) {
-                is ApiResult.Success -> {
-                    pollFailures = 0
-                    _state.update { it.copy(issuing = false, phase = PayPhase.Code(r.data), unstable = false) }
-                    tick()
-                    restartPolling()
-                    loadListedCards()
-                }
+                is ApiResult.Success -> showCode(r.data)
                 is ApiResult.Failure -> _state.update {
                     if (r.error.code == "NO_ACTIVE_CARD") it.copy(issuing = false, phase = PayPhase.NoCard)
                     else it.copy(issuing = false, error = r.error.userMessage())
@@ -368,7 +414,8 @@ class PayCodeViewModel @Inject constructor(
                                 r.data.request?.let(::onScanned)
                                 return@launch
                             }
-                            CodeState.EXPIRED, CodeState.USED -> {
+                            // 재발급 중이면 이전 코드는 서버가 닫았을 수 있다 — '시간이 지났어요'를 잠깐 띄우지 않고 결과를 기다린다
+                            CodeState.EXPIRED, CodeState.USED -> if (!_state.value.issuing) {
                                 _state.update { it.copy(phase = PayPhase.CodeExpired, remainingSec = 0) }
                                 return@launch
                             }
@@ -664,7 +711,7 @@ fun PayCodeRoute(
                     PayPhase.Auth -> BottomCta {
                         PrimaryButton(if (s.biometricReady) "지문으로 결제 코드 열기" else "결제 코드 열기", onClick = viewModel::openCode, loading = busy)
                     }
-                    PayPhase.CodeExpired -> BottomCta { PrimaryButton("새 코드 받기", onClick = viewModel::openCode, loading = busy) }
+                    PayPhase.CodeExpired -> BottomCta { PrimaryButton("새 코드 받기", onClick = viewModel::renewCode, loading = busy) }
                     is PayPhase.Request -> RequestButtons(
                         p.request, s,
                         onApprove = viewModel::approve,
@@ -684,7 +731,7 @@ fun PayCodeRoute(
                 when (val p = s.phase) {
                     // 카드 목록을 보는 동안은 본문을 비운다 — 0장이면 '인증하면 결제 코드가 열려요'를 잠깐 보였다가 카드 없음으로 바뀌지 않게
                     PayPhase.Auth -> if (!s.checkingCards) AuthBody(s.error)
-                    is PayPhase.Code -> CodeBody(p.code, s.remainingSec, s.unstable, onNewCode = viewModel::openCode, hint = cancelHint ?: "매장에서 스캔하면 바로 넘어가요")
+                    is PayPhase.Code -> CodeBody(p.code, s.remainingSec, s.unstable, onNewCode = viewModel::renewCode, hint = cancelHint ?: "매장에서 스캔하면 바로 넘어가요")
                     PayPhase.CodeExpired -> MessageBody("시간이 지났어요", "새 코드를 받아 매장에 보여 주세요")
                     // 취소도 같은 결제 코드라 BE가 카드 0장이면 발급하지 않는다(NO_ACTIVE_CARD) — 카드를 다시 넣어야 매장에서 취소할 수 있다
                     PayPhase.NoCard -> EmptyState(

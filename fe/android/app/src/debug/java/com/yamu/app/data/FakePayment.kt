@@ -49,6 +49,9 @@ object FakeMerchants {
     )
 }
 
+/** BE yamu.auth.barcode-reissue-window(임시 10분)와 같게 */
+private const val REISSUE_WINDOW_MS = 10 * 60 * 1000L
+
 /**
  * debug 전용 가짜 결제 서버 — 코드 발급 → (디버그 메뉴 '결제 상태'대로) 3초 뒤 가짜 가맹점이 찍음 → 승인 · 거절.
  * 카드 · 혜택은 BE 카드 시드(be/seed 01 · 02)에 있는 상품의 실제 혜택 · 월 한도로 계산한다.
@@ -61,9 +64,12 @@ class FakePaymentRepository @Inject constructor(
     private val bank: FakeBank,
 ) : PaymentRepository {
 
-    private class Issued(val code: PayCode, val issuedAt: Long, val scenario: PayScenario) {
+    /** [authAt] 이 코드를 처음 인증해 연 시각 — 재발급한 코드는 이전 코드의 값을 물려받는다(BE와 같이 이어 붙여도 창이 늘지 않음) */
+    private class Issued(val code: PayCode, val issuedAt: Long, val scenario: PayScenario, val authAt: Long = issuedAt) {
         var request: PaymentRequest? = null
         var closed = false
+        /** 재발급으로 닫힌 코드 — 조회하면 EXPIRED */
+        var replaced = false
         var declines = 0
         /** 마감 전 승인 시도 수(같은 키로 다시 물은 것 포함) — 결과 불명 시나리오가 몇 번째에 답할지 정한다 */
         var attempts = 0
@@ -128,13 +134,28 @@ class FakePaymentRepository @Inject constructor(
         delay(400)
         // BE BarcodeService처럼 결제에 쓸 ACTIVE 카드가 0장이면 발급하지 않는다(자동 선택에서 뺀 카드만 남아도 0장)
         if (bank.activeCardIds().isEmpty()) return ApiResult.Failure(ApiError.Conflict("NO_ACTIVE_CARD"))
-        val scenario = DevSession.payScenario
+        return ApiResult.Success(newCode(DevSession.payScenario, System.currentTimeMillis()))
+    }
+
+    /** BE 재발급처럼: 처음 인증에서 10분 안이고 찍히거나 닫히지 않은 마지막 코드만. 아니면 REAUTH_REQUIRED */
+    override suspend fun reissueCode(previousToken: String): ApiResult<PayCode> {
+        delay(250)
+        if (bank.activeCardIds().isEmpty()) return ApiResult.Failure(ApiError.Conflict("NO_ACTIVE_CARD"))
+        val previous = codes[previousToken] ?: return ApiResult.Failure(ApiError.NotFound("BARCODE_NOT_FOUND"))
+        val usable = previous.request == null && !previous.closed && !previous.replaced &&
+            System.currentTimeMillis() - previous.authAt < REISSUE_WINDOW_MS
+        if (!usable) return ApiResult.Failure(ApiError.StepUpRequired("REAUTH_REQUIRED"))
+        previous.replaced = true
+        return ApiResult.Success(newCode(DevSession.payScenario, previous.authAt))
+    }
+
+    private fun newCode(scenario: PayScenario, authAt: Long): PayCode {
         val token = "YAMU" + List(12) { "0123456789ABCDEF"[Random.nextInt(16)] }.joinToString("")
         val life = if (scenario == PayScenario.NO_SCAN) 20L else 180L
         val expires = OffsetDateTime.now(KST).plusSeconds(life).toString()
         val code = PayCode(token, token, "yamu://pay/$token", expires)
-        codes[token] = Issued(code, System.currentTimeMillis(), scenario)
-        return ApiResult.Success(code)
+        codes[token] = Issued(code, System.currentTimeMillis(), scenario, authAt)
+        return code
     }
 
     override suspend fun codeStatus(token: String): ApiResult<PayCodeStatus> {
@@ -142,6 +163,7 @@ class FakePaymentRepository @Inject constructor(
         val issued = codes[token] ?: return ApiResult.Failure(ApiError.NotFound("BARCODE_NOT_FOUND"))
         val now = System.currentTimeMillis()
         if (issued.closed) return ApiResult.Success(PayCodeStatus(CodeState.USED, null))
+        if (issued.replaced) return ApiResult.Success(PayCodeStatus(CodeState.EXPIRED, null))
         issued.request?.let { return ApiResult.Success(PayCodeStatus(CodeState.SCANNED, it)) }
         if (OffsetDateTime.parse(issued.code.expiresAtIso).toInstant().toEpochMilli() < now) {
             return ApiResult.Success(PayCodeStatus(CodeState.EXPIRED, null))

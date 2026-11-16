@@ -31,6 +31,10 @@ interface PaymentApi {
     @POST("payments/barcodes")
     suspend fun issueCode(@Header(YamuHeaders.STEP_UP_TOKEN) stepUpToken: String): Response<ApiEnvelope<BarcodeResponse>>
 
+    /** [새 코드] — 인증 토큰 없이 이전 코드를 닫고 새 코드(S15P31E103-530). 응답은 발급과 같다 */
+    @POST("payments/barcodes/{token}/reissue")
+    suspend fun reissueCode(@Path("token") previousToken: String): Response<ApiEnvelope<BarcodeResponse>>
+
     /** 추천은 여기 recommendation으로만 받는다 — 결제 전 단일 추천(#64)은 명세 V2에서 빠졌고 가맹점 목록(#5)은 모의 POS만 쓴다 */
     @GET("payments/barcodes/{token}")
     suspend fun codeStatus(@Path("token") token: String): Response<ApiEnvelope<BarcodeStatusResponse>>
@@ -76,6 +80,12 @@ interface PaymentRepository {
     /** P-06 결제 코드 — 본인 인증 토큰(BARCODE) 필요 */
     suspend fun issueCode(stepUpToken: String): ApiResult<PayCode>
 
+    /**
+     * P-06 [새 코드] — 다시 인증하지 않고 [previousToken]을 닫고 새 코드를 받는다. 같은 기기에서 처음 인증한 지 10분 안이고
+     * 이전 코드가 스캔 · 결제에 쓰이지 않았을 때만(임시 정책). 아니면 REAUTH_REQUIRED(403)라 본인 인증 뒤 [issueCode]
+     */
+    suspend fun reissueCode(previousToken: String): ApiResult<PayCode>
+
     /** 1초마다 — 가맹점이 찍으면 결제 요청 · 추천 2장이 같이 온다 */
     suspend fun codeStatus(token: String): ApiResult<PayCodeStatus>
 
@@ -110,9 +120,13 @@ class PaymentRepositoryImpl @Inject constructor(private val api: PaymentApi, pri
     private val receipts = ConcurrentHashMap<Long, PaymentReceipt>()
 
     override suspend fun issueCode(stepUpToken: String): ApiResult<PayCode> =
-        apiCall { api.issueCode(stepUpToken) }.map {
-            PayCode(it.barcodeToken, it.barcodeValue ?: it.barcodeToken, it.qrValue ?: "yamu://pay/${it.barcodeToken}", it.expiresAt)
-        }
+        apiCall { api.issueCode(stepUpToken) }.map { it.toPayCode() }
+
+    override suspend fun reissueCode(previousToken: String): ApiResult<PayCode> =
+        apiCall { api.reissueCode(previousToken) }.map { it.toPayCode() }
+
+    private fun BarcodeResponse.toPayCode() =
+        PayCode(barcodeToken, barcodeValue ?: barcodeToken, qrValue ?: "yamu://pay/$barcodeToken", expiresAt)
 
     override suspend fun codeStatus(token: String): ApiResult<PayCodeStatus> = apiCall { api.codeStatus(token) }.map { it.toStatus() }
 
