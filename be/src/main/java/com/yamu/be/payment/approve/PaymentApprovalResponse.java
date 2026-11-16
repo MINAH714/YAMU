@@ -63,9 +63,16 @@ public record PaymentApprovalResponse(
     public record BillItem(Long billItemId, int seq, long amount, String billingMonth,
             LocalDate expectedWithdrawalDate, String status) {}
 
-    /** 실적 반영(Task 5.2.5). */
+    /**
+     * 실적 반영(Task 5.2.5).
+     *
+     * @param recognizedTotalAfter 이 결제를 반영한 그 카드·그 실적 월의 누적 실적(앱 칸, S15P31E103-390). 카드 목록 API의
+     *                             이번 달 실적과 같은 값이다. 인정액 미확인이거나 읽지 못했으면 null
+     * @param targetAmount         목표 실적. 카드 목록 API와 같은 규칙(누적보다 큰 기준 중 가장 작은 값, 다 넘었으면 가장 큰 기준).
+     *                             실적 조건이 없는 카드·인정액 미확인은 null
+     */
     public record Performance(String yearMonth, long recognizedAmount, boolean recognized,
-            Double achievementRateAfter) {}
+            Double achievementRateAfter, Long recognizedTotalAfter, Long targetAmount) {}
 
     /** 한도 사용(Task 5.2.5). */
     public record LimitImpact(Long limitGroupId, String period, long consumedAmount, Long remainingAfter) {}

@@ -323,6 +323,25 @@ class PaymentHistoryIntegrationTest extends MySqlTestSupport {
     }
 
     @Test
+    void 상세의_누적_실적은_그_실적_월의_지금_합계이고_취소된_결제는_비운다() throws Exception {
+        long id = approved(owner, card, OCT_10, 10_000, 1);
+        long canceled = approved(owner, card, OCT_10.plusHours(1), 20_000, 1);
+        jdbc.update("UPDATE payment_transaction SET status = 'CANCELED', canceled_at = ? WHERE payment_transaction_id = ?",
+                OCT_10.plusHours(2), canceled);
+        // 그 뒤 다른 결제까지 더해진 10월 합계(결제 당시가 아니라 지금 값을 보인다)
+        insert("card_monthly_performance", "card_monthly_performance_id", timestamps(Map.of("user_card_id", card,
+                "performance_month", LocalDate.of(2026, 10, 1), "recognized_amount", 250_000L, "version", 0)));
+
+        mockMvc.perform(get("/api/payments/" + id).with(AuthUsers.asUser(owner)))
+                .andExpect(jsonPath("$.data.performance.recognizedAmount").value(10_000))
+                .andExpect(jsonPath("$.data.performance.recognizedTotalAfter").value(250_000))
+                .andExpect(jsonPath("$.data.performance.targetAmount").value(nullValue()));
+        mockMvc.perform(get("/api/payments/" + canceled).with(AuthUsers.asUser(owner)))
+                .andExpect(jsonPath("$.data.performance.recognizedTotalAfter").value(nullValue()))
+                .andExpect(jsonPath("$.data.performance.targetAmount").value(nullValue()));
+    }
+
+    @Test
     void 거절_상세는_사유와_마지막_상태를_보여준다() throws Exception {
         long id = declined(owner, card, OCT_10);
 
