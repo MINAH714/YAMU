@@ -32,7 +32,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.TextAutoSize
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Scaffold
@@ -91,7 +90,6 @@ import com.yamu.app.core.designsystem.component.YamuTopBar
 import com.yamu.app.core.designsystem.component.rememberCoinPileState
 import com.yamu.app.core.designsystem.component.rememberRolledAmount
 import com.yamu.app.core.designsystem.icon.YamuIcons
-import com.yamu.app.core.designsystem.icon.YamuTabIcons
 import com.yamu.app.core.designsystem.theme.YamuMotion
 import com.yamu.app.core.designsystem.theme.YamuRadius
 import com.yamu.app.core.designsystem.theme.YamuSize
@@ -123,9 +121,9 @@ import com.yamu.app.feature.home.data.amountText
 import com.yamu.app.feature.home.data.asOfLabel
 import com.yamu.app.feature.home.data.benefitCoins
 import com.yamu.app.feature.home.data.benefitTitle
+import com.yamu.app.feature.home.data.cardTileDescription
 import com.yamu.app.feature.home.data.emptyNote
 import com.yamu.app.feature.home.data.homeGreeting
-import com.yamu.app.feature.home.data.lineText
 import com.yamu.app.feature.home.data.minLabel
 import com.yamu.app.feature.home.data.missed
 import com.yamu.app.feature.home.data.paidAtLabel
@@ -146,7 +144,6 @@ import java.time.YearMonth
  */
 @Composable
 fun HomeRoute(
-    onPay: () -> Unit,
     onForecast: () -> Unit,
     onNotifications: () -> Unit,
     onMyCards: () -> Unit,
@@ -178,7 +175,6 @@ fun HomeRoute(
         onRetryCards = viewModel::retryCards,
         onRetryForecast = viewModel::retryForecast,
         arts = arts,
-        onPay = onPay,
         onForecast = {
             viewModel.openForecast()   // F-01을 홈 요약과 같은 기준 계좌 · 30일로(고른 기간 · 계좌를 덮어씀)
             onForecast()
@@ -213,7 +209,6 @@ fun HomeScreen(
     state: HomeUiState,
     onRefresh: () -> Unit,
     onRetry: () -> Unit,
-    onPay: () -> Unit,
     onNotifications: () -> Unit,
     onMyCards: () -> Unit,
     onStartLinking: () -> Unit,
@@ -257,7 +252,6 @@ fun HomeScreen(
                             home = content,
                             state = state,
                             onRetryBenefit = onRetryBenefit,
-                            onPay = onPay,
                             onStartLinking = onStartLinking,
                             onRecentPayment = onRecentPayment,
                             onPayments = onPayments,
@@ -294,7 +288,6 @@ private fun HomeContent(
     home: HomeSummary,
     state: HomeUiState,
     onRetryBenefit: () -> Unit,
-    onPay: () -> Unit,
     onStartLinking: () -> Unit,
     onRecentPayment: (Long) -> Unit,
     onPayments: () -> Unit,
@@ -358,10 +351,8 @@ private fun HomeContent(
             RecentPaymentCard(home.recentPaymentOutsidePayCard(), onRecentPayment, onPayments)
         }
         // 카드 영역만 실패했으면 몇 장인지 몰라 혜택 · 결제 칸을 그린다 — 카드가 정말 없으면 결제 코드 화면이 알려 준다
-        else -> {
-            BenefitHero(state.benefit, onClick = onBenefitReport, onRetry = onRetryBenefit)
-            PayButton(onPay)
-        }
+        // 혜택 히어로 아래 'YAMU 결제 바코드 열기' 버튼은 11/16 사용자 요청으로 뺐다(S15P31E103-519) — 결제는 하단 가운데 버튼 하나로 연다
+        else -> BenefitHero(state.benefit, onClick = onBenefitReport, onRetry = onRetryBenefit)
     }
 }
 
@@ -647,54 +638,6 @@ private fun HeroButton(text: String, onClick: () -> Unit) {
 }
 
 /**
- * 'YAMU 결제 바코드 열기'(HOME-07) — 혜택 바로 아래의 주된 행동, 파란 버튼 하나(11/15 결정).
- * 제목 · 아이콘 · 자동 선택 꺼짐 안내 · 최근 결제 줄은 뺐다(최근 결제와 결제 내역은 소비분석 탭에서 연다).
- * 버튼은 하단 가운데 결제 버튼과 같은 결제 코드(P-06) — 인증 · 자동 선택 설정은 그 화면이 지금대로 따른다(QA-04)
- */
-@Composable
-private fun PayButton(onPay: () -> Unit) {
-    // 바탕은 위 혜택 히어로와 같은 브랜드 그러데이션(11/15 결정) — 공용 PrimaryButton은 단색이라 홈에서만 따로 그린다.
-    // 누르면 히어로처럼 살짝 줄어든다(모션 줄이기면 대신 옅어진다)
-    val c = YamuTheme.colors
-    val reduce = YamuTheme.reduceMotion
-    val interaction = remember { MutableInteractionSource() }
-    val pressed by interaction.collectIsPressedAsState()
-    val scale by animateFloatAsState(
-        targetValue = if (pressed && !reduce) HERO_PRESSED_SCALE else 1f,
-        animationSpec = spring(dampingRatio = 0.55f, stiffness = 700f),
-        label = "payPress",
-    )
-    // 모션 줄이기면 줄어드는 대신 옅어진다(히어로와 같다)
-    val pressAlpha by animateFloatAsState(
-        targetValue = if (pressed && reduce) YamuMotion.REDUCED_PRESS_ALPHA else 1f,
-        animationSpec = tween(YamuMotion.SHORT_MS),
-        label = "payPressAlpha",
-    )
-    Row(
-        Modifier
-            .padding(horizontal = YamuSpacing.screen)
-            .padding(bottom = YamuSpacing.blockGap)
-            .graphicsLayer {
-                scaleX = scale
-                scaleY = scale
-                alpha = pressAlpha
-            }
-            .fillMaxWidth()
-            .height(YamuSize.button)
-            .clip(RoundedCornerShape(YamuRadius.button))
-            .background(Brush.linearGradient(listOf(c.heroStart, c.heroEnd)))
-            .clickable(interactionSource = interaction, indication = null, role = Role.Button, onClick = onPay)
-            .padding(horizontal = 20.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.Center,
-    ) {
-        Icon(YamuTabIcons.PayCode, contentDescription = null, tint = c.onHero, modifier = Modifier.size(20.dp))
-        Spacer(Modifier.width(6.dp))
-        Text("YAMU 결제 바코드 열기", style = YamuTheme.typography.button, color = c.onHero, maxLines = 1, overflow = TextOverflow.Ellipsis)
-    }
-}
-
-/**
  * 결제 칸이 없는 홈(연결 전 · 카드 없음)의 최근 결제 — 안내 카드 아래 따로 한 칸. 카드를 모두 지운 사람도
  * 지난 결제와 결제 내역 입구를 잃지 않게(예전 홈은 상태와 상관없이 그렸다). 결제가 없으면 그리지 않는다
  */
@@ -817,9 +760,11 @@ private fun SectionFailure(text: String, onRetry: () -> Unit) {
 }
 
 /**
- * 내 카드 혜택 현황(HOME-10 · 11) — 카드 목록 순서로 3장 + '전체보기 ›'(실적관리 탭). 줄을 누르면 그 카드 R-02.
- * 줄마다 이번 달 받은 혜택 · 남은 한도 한 줄과 실적 칩. 받은 혜택은 새 서버(BE -489)의 카드별 혜택이 있을 때만 —
- * 옛 서버이거나 그 호출만 실패했거나 이번 달 YAMU 결제가 없는 카드면 그 줄을 숨긴다(11/13 결정: 0원으로 지어내지 않음)
+ * 내 카드 혜택 현황(HOME-10 · 11) — 카드 목록 순서로 3장 + '전체보기 ›'(실적관리 탭).
+ * 11/16 사용자 요청으로 세로 줄 대신 놓치기 아까운 혜택과 같은 카드 그림 가로 타일로 바꿨다(S15P31E103-519, 한눈에 보이게).
+ * 타일은 카드 이름 → 받은 혜택 · 혜택 예정 → 남은 한도 한 줄 → 실적 막대와 칩 글자. 받은 혜택은 새 서버(BE -489)의 카드별 혜택이 있을 때만 —
+ * 옛 서버이거나 그 호출만 실패했거나 이번 달 YAMU 결제가 없는 카드면 그 줄을 숨긴다(11/13 결정: 0원으로 지어내지 않음).
+ * 누르면 그 카드 R-02(실적 조건 없는 카드는 R-02에 보일 실적이 없어 열지 않는다)
  */
 @Composable
 private fun CardsSection(
@@ -832,54 +777,64 @@ private fun CardsSection(
 ) {
     val rows = section.dataOrNull?.rows()
     if (rows != null && rows.isEmpty()) return   // 카드 영역만 실패해 0장으로 읽힌 홈 — 실적도 0장이면 그릴 것이 없다
-    YamuCard(contentPadding = PaddingValues(start = 20.dp, end = 16.dp, top = 16.dp, bottom = if (rows != null) 6.dp else 16.dp)) {
-        SectionTitle("내 카드 혜택 현황", link = "전체보기", onLink = onAll)
+    YamuCard(contentPadding = PaddingValues(top = 16.dp, bottom = 16.dp)) {
+        Box(Modifier.padding(horizontal = 20.dp)) { SectionTitle("내 카드 혜택 현황", link = "전체보기", onLink = onAll) }
+        Spacer(Modifier.height(12.dp))
         when {
-            rows != null -> rows.forEachIndexed { i, row ->
-                if (i > 0) HorizontalDivider(color = YamuTheme.colors.outlineVariant)
-                CardRowItem(row, arts[row.userCardId], benefits?.get(row.userCardId).lineText(), onClick = { onCard(row.userCardId) })
+            rows != null -> Row(
+                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 20.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                rows.forEach { row ->
+                    CardTile(row, arts[row.userCardId], benefits?.get(row.userCardId), onClick = if (row.opens) ({ onCard(row.userCardId) }) else null)
+                }
             }
-            section is HomeSection.Failed -> SectionFailure("카드 현황을 불러오지 못했어요", onRetry)
-            else -> {
-                Spacer(Modifier.height(14.dp))
+            section is HomeSection.Failed -> Box(Modifier.padding(horizontal = 20.dp)) { SectionFailure("카드 현황을 불러오지 못했어요", onRetry) }
+            else -> Row(Modifier.padding(horizontal = 20.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 repeat(HOME_CARD_ROWS) {
-                    SkeletonBlock(height = 20.dp, widthFraction = 0.8f)
-                    Spacer(Modifier.height(14.dp))
+                    Column(Modifier.width(MISSED_TILE_WIDTH)) {
+                        SkeletonBlock(height = CARD_TILE_ART_HEIGHT)
+                        Spacer(Modifier.height(10.dp))
+                        SkeletonBlock(height = 16.dp, widthFraction = 0.7f)
+                        Spacer(Modifier.height(6.dp))
+                        SkeletonBlock(height = 16.dp, widthFraction = 0.5f)
+                    }
                 }
             }
         }
     }
 }
 
+/** 카드 타일 그림 높이(폭 148dp 카드의 1.586:1) — 불러오는 중 회색 막대 크기 */
+private val CARD_TILE_ART_HEIGHT = 93.dp
+
+/** 내 카드 타일 한 장 — 읽을 때는 [cardTileDescription] 한 문장 */
 @Composable
-private fun CardRowItem(row: HomeCardRow, art: CardArtRef?, benefitLine: String?, onClick: () -> Unit) {
+private fun CardTile(row: HomeCardRow, art: CardArtRef?, benefit: CardBenefit?, onClick: (() -> Unit)?) {
     val c = YamuTheme.colors
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .then(if (row.opens) Modifier.clickable(role = Role.Button, onClickLabel = "카드 실적 보기", onClick = onClick) else Modifier)
-            .heightIn(min = 64.dp)
-            .padding(vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
+    CardArtTile(
+        art, row.brand, art?.productName ?: row.productName ?: row.name,
+        description = cardTileDescription(row, benefit),
+        onClickLabel = "카드 실적 보기",
+        onClick = onClick,
     ) {
-        CardListThumb(art?.brand ?: row.brand, art?.productName ?: row.productName ?: row.name, width = 52.dp, dimmed = art?.dimmed == true)
-        Spacer(Modifier.width(12.dp))
-        // 이름 · 한도 · 실적 칩을 세로로 — 카드 이름이 길어도 남은 한도 금액이 잘리지 않게(칩을 오른쪽에 두면 한도 줄이 '…'로 끊긴다)
-        Column(Modifier.weight(1f)) {
-            Text(row.name, style = YamuTheme.typography.titleM, color = c.text1, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            benefitLine?.let { Text(it, style = YamuTheme.typography.sub, color = c.text1, maxLines = 2, overflow = TextOverflow.Ellipsis) }
-            row.limitLine?.let { Text(it, style = YamuTheme.typography.sub, color = c.text2, maxLines = 2, overflow = TextOverflow.Ellipsis) }
-            Spacer(Modifier.height(6.dp))
-            StatusTag(
-                row.chip.text,
-                tone = when (row.chip.tone) {
-                    PerfChipTone.Done -> TagTone.Success
-                    PerfChipTone.Todo, PerfChipTone.None -> TagTone.Neutral
-                },
-                guide = true,
-            )
+        Text(row.name, style = YamuTheme.typography.sub, color = c.text3, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        benefit?.let { b ->
+            // 받은 혜택을 크게 — 놓치기 아까운 혜택의 '○원 남음'과 같은 자리 · 크기
+            Text("${b.confirmed.toWon()}원 받음", style = YamuTheme.typography.value, color = c.primary, maxLines = 1)
+            if (b.pending > 0) Text("${b.pending.toWon()}원 혜택 예정", style = YamuTheme.typography.sub, color = c.text2, maxLines = 1)
+            if (b.unconvertedCount > 0) Text("원화로 못 바꾼 혜택 ${b.unconvertedCount}건", style = YamuTheme.typography.sub, color = c.text3, maxLines = 1)
         }
-        if (row.opens) Icon(YamuIcons.ChevronRight, contentDescription = null, tint = c.text3)
+        row.limitLine?.let { Text(it, style = YamuTheme.typography.sub, color = c.text2, maxLines = 2, overflow = TextOverflow.Ellipsis) }
+        Spacer(Modifier.height(8.dp))
+        row.progress?.let { p ->
+            val done = row.chip.tone == PerfChipTone.Done
+            Box(Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp)).background(c.surfaceVariant)) {
+                Box(Modifier.fillMaxWidth(p).fillMaxHeight().clip(RoundedCornerShape(3.dp)).background(if (done) c.success else c.primary))
+            }
+            Spacer(Modifier.height(4.dp))
+        }
+        Text(row.chip.text, style = YamuTheme.typography.sub, color = if (row.chip.tone == PerfChipTone.None) c.text3 else c.text2, maxLines = 1)
     }
 }
 
@@ -908,14 +863,17 @@ private fun MissedSection(missed: MissedBenefits, arts: Map<Long, CardArtRef>, o
 /** 놓치기 아까운 혜택 카드 한 장의 폭 — 360dp 화면에서 두 장이 다 보이고 셋째가 조금 보인다 */
 private val MISSED_TILE_WIDTH = 148.dp
 
-/** 카드 그림(카드 목록의 상품 그림, 없으면 카드사 색 카드) + 아래 글 — 읽을 때는 [description] 한 문장 */
+/**
+ * 카드 그림(카드 목록의 상품 그림, 없으면 카드사 색 카드) + 아래 글 — 읽을 때는 [description] 한 문장.
+ * 놓치기 아까운 혜택과 내 카드 혜택 현황이 같이 쓴다. [onClick]이 null이면 누를 수 없는 타일(실적 조건 없는 카드)
+ */
 @Composable
-private fun MissedTile(art: CardArtRef?, brand: Brand, artName: String, description: String, onClickLabel: String, onClick: () -> Unit, body: @Composable ColumnScope.() -> Unit) {
+private fun CardArtTile(art: CardArtRef?, brand: Brand, artName: String, description: String, onClickLabel: String, onClick: (() -> Unit)?, body: @Composable ColumnScope.() -> Unit) {
     Column(
         Modifier
             .width(MISSED_TILE_WIDTH)
             .clip(RoundedCornerShape(YamuRadius.s))
-            .clickable(role = Role.Button, onClickLabel = onClickLabel, onClick = onClick)
+            .then(if (onClick != null) Modifier.clickable(role = Role.Button, onClickLabel = onClickLabel, onClick = onClick) else Modifier)
             .clearAndSetSemantics { contentDescription = description }
             .padding(bottom = 8.dp),
     ) {
@@ -929,7 +887,7 @@ private fun MissedTile(art: CardArtRef?, brand: Brand, artName: String, descript
 @Composable
 private fun LimitTile(r: RemainingLimit, art: CardArtRef?, onClick: () -> Unit) {
     val c = YamuTheme.colors
-    MissedTile(art, r.brand, r.artName, "${r.cardName}, ${r.limitName} ${r.amount.toWon()}원 남음", onClickLabel = "혜택 한도 보기", onClick = onClick) {
+    CardArtTile(art, r.brand, r.artName, "${r.cardName}, ${r.limitName} ${r.amount.toWon()}원 남음", onClickLabel = "혜택 한도 보기", onClick = onClick) {
         Text(r.cardName, style = YamuTheme.typography.sub, color = c.text3, maxLines = 1, overflow = TextOverflow.Ellipsis)
         Text(r.limitName, style = YamuTheme.typography.bodyM, color = c.text1, maxLines = 1, overflow = TextOverflow.Ellipsis)
         Spacer(Modifier.height(2.dp))
@@ -941,7 +899,7 @@ private fun LimitTile(r: RemainingLimit, art: CardArtRef?, onClick: () -> Unit) 
 @Composable
 private fun ConditionTile(line: ConditionLine, art: CardArtRef?, onClick: () -> Unit) {
     val c = YamuTheme.colors
-    MissedTile(art, line.brand, line.artName, "${line.cardName}, ${line.text}", onClickLabel = "카드 실적 보기", onClick = onClick) {
+    CardArtTile(art, line.brand, line.artName, "${line.cardName}, ${line.text}", onClickLabel = "카드 실적 보기", onClick = onClick) {
         Text(line.cardName, style = YamuTheme.typography.sub, color = c.text3, maxLines = 1, overflow = TextOverflow.Ellipsis)
         Text("다음 달 혜택 조건", style = YamuTheme.typography.bodyM, color = c.text1, maxLines = 1)
         Spacer(Modifier.height(6.dp))
@@ -1122,7 +1080,7 @@ private fun HomeScreenPreview() = YamuTheme {
             ),
             pay = HomeSection.Ready(PaySettings(autoSelect = true, defaultUserCardId = null)),
         ),
-        onRefresh = {}, onRetry = {}, onPay = {}, onNotifications = {}, onMyCards = {},
+        onRefresh = {}, onRetry = {}, onNotifications = {}, onMyCards = {},
         onStartLinking = {}, onRecentPayment = {},
     )
 }
