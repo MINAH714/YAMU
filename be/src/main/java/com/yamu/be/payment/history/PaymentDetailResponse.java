@@ -1,5 +1,6 @@
 package com.yamu.be.payment.history;
 
+import com.yamu.be.card.CardIssuers;
 import com.yamu.be.card.domain.CardType;
 import com.yamu.be.payment.PaymentPlan;
 import com.yamu.be.payment.domain.PaymentChannel;
@@ -56,9 +57,10 @@ public record PaymentDetailResponse(
      * @param maskedNumber    끝 4자리만 보이는 카드번호
      * @param recommendedRank 마지막 시도 카드의 추천 순위(1부터). 추천 밖 카드를 직접 골랐거나 기록 전 결제면 null
      * @param userSelected    마지막 시도의 카드를 사용자가 직접 골랐는지. 기록 전 결제·SEED는 null
+     * @param issuer          카드사 코드·이름·대표색(앱 칸, S15P31E103-389). 목록의 {@code card.issuer}와 같은 값이다
      */
     public record SelectedCard(Long userCardId, String nickname, String maskedNumber, CardType cardType,
-            Integer recommendedRank, Boolean userSelected) {}
+            Integer recommendedRank, Boolean userSelected, CardIssuers.Issuer issuer) {}
 
     /**
      * @param benefitId    적용한 혜택 정책 버전({@code card_benefit_id})

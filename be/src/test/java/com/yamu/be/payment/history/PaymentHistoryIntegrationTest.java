@@ -531,6 +531,69 @@ class PaymentHistoryIntegrationTest extends MySqlTestSupport {
     }
 
     @Test
+    void 목록의_혜택_종류는_원화_금액이_가장_큰_혜택_줄의_종류다() throws Exception {
+        // 시각이 늦을수록 목록 앞이라 아래에서 위 순서로 items[0..]가 된다
+        long instant = approved(owner, card, OCT_10, 10_000, 1);
+        typedBenefit(instant, "DISCOUNT", "AT_APPROVAL", 1_000, 1_000L);
+        typedBenefit(instant, "POINT", "POINT_ACCRUAL", 500, 500L);
+        long billing = approved(owner, card, OCT_10.plusHours(1), 10_000, 1);
+        typedBenefit(billing, "DISCOUNT", "AT_BILLING", 2_000, 2_000L);
+        long cashback = approved(owner, card, OCT_10.plusHours(2), 10_000, 1);
+        typedBenefit(cashback, "DISCOUNT", "AT_BILLING", 1_000, 1_000L);
+        typedBenefit(cashback, "CASHBACK", "AFTER_BILLING", 3_000, 3_000L);
+        // 금액이 같으면 먼저 기록한 줄
+        long tie = approved(owner, card, OCT_10.plusHours(3), 10_000, 1);
+        typedBenefit(tie, "POINT", "POINT_ACCRUAL", 700, 700L);
+        typedBenefit(tie, "DISCOUNT", "AT_APPROVAL", 700, 700L);
+        // 원화로 바꾸지 못한 줄은 금액이 커 보여도 맨 뒤
+        long unconverted = approved(owner, card, OCT_10.plusHours(4), 10_000, 1);
+        typedBenefit(unconverted, "POINT", "POINT_ACCRUAL", 5_000, null);
+        typedBenefit(unconverted, "DISCOUNT", "AT_BILLING", 100, 100L);
+        // 시점을 모르는 할인은 시점을 지어내지 않는다
+        long unknownTiming = approved(owner, card, OCT_10.plusHours(5), 10_000, 1);
+        typedBenefit(unknownTiming, "DISCOUNT", null, 1_000, 1_000L);
+        long none = approved(owner, card, OCT_10.plusHours(6), 10_000, 1);
+        long canceled = approved(owner, card, OCT_10.plusHours(7), 10_000, 1);
+        typedBenefit(canceled, "DISCOUNT", "AT_APPROVAL", 1_000, 1_000L);
+        jdbc.update("UPDATE payment_transaction SET status = 'CANCELED', canceled_at = ? WHERE payment_transaction_id = ?",
+                OCT_10.plusHours(8), canceled);
+
+        mockMvc.perform(list().param("yearMonth", OCTOBER))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.items[*].paymentId").value(contains((int) canceled, (int) none,
+                        (int) unknownTiming, (int) unconverted, (int) tie, (int) cashback, (int) billing, (int) instant)))
+                .andExpect(jsonPath("$.data.items[0].benefitType").value(nullValue()))
+                .andExpect(jsonPath("$.data.items[1].benefitType").value(nullValue()))
+                .andExpect(jsonPath("$.data.items[2].benefitType").value(nullValue()))
+                .andExpect(jsonPath("$.data.items[3].benefitType").value("BILLING_DISCOUNT"))
+                .andExpect(jsonPath("$.data.items[4].benefitType").value("POINT"))
+                .andExpect(jsonPath("$.data.items[5].benefitType").value("CASHBACK"))
+                .andExpect(jsonPath("$.data.items[6].benefitType").value("BILLING_DISCOUNT"))
+                .andExpect(jsonPath("$.data.items[7].benefitType").value("INSTANT_DISCOUNT"));
+    }
+
+    @Test
+    void 목록과_상세의_카드는_카드_목록_API와_같은_카드사_표시값이다() throws Exception {
+        long id = approved(owner, card, OCT_10, 10_000, 1);
+
+        // 카드사 표에 없는 코드(픽스처 TEST)는 이름이 코드 그대로이고 색이 없다
+        mockMvc.perform(list().param("yearMonth", OCTOBER))
+                .andExpect(jsonPath("$.data.items[0].card.issuer.code").value("TEST"))
+                .andExpect(jsonPath("$.data.items[0].card.issuer.name").value("TEST"))
+                .andExpect(jsonPath("$.data.items[0].card.issuer.color").value(nullValue()));
+
+        jdbc.update("UPDATE card_product SET issuer_code = 'SHINHAN' WHERE card_product_id = ?", product);
+        mockMvc.perform(list().param("yearMonth", OCTOBER))
+                .andExpect(jsonPath("$.data.items[0].paymentId").value(id))
+                .andExpect(jsonPath("$.data.items[0].card.issuer.code").value("SHINHAN"))
+                .andExpect(jsonPath("$.data.items[0].card.issuer.name").value("신한카드"))
+                .andExpect(jsonPath("$.data.items[0].card.issuer.color").value("#0046FF"));
+        mockMvc.perform(get("/api/payments/" + id).with(AuthUsers.asUser(owner)))
+                .andExpect(jsonPath("$.data.selectedCard.issuer.code").value("SHINHAN"))
+                .andExpect(jsonPath("$.data.selectedCard.issuer.name").value("신한카드"));
+    }
+
+    @Test
     void 취소된_결제는_혜택_기록이_있어도_NONE이다() throws Exception {
         long canceled = approved(owner, card, OCT_10, 10_000, 1);
         benefit(canceled, 1_000, "AT_APPROVAL");
@@ -659,6 +722,26 @@ class PaymentHistoryIntegrationTest extends MySqlTestSupport {
         return insert("payment_benefit", "payment_benefit_id", Map.of("payment_transaction_id", paymentId,
                 "card_product_id", product, "card_benefit_id", cardBenefit, "benefit_value", krw, "value_unit", "KRW",
                 "krw_amount", krw, "created_at", now()));
+    }
+
+    /**
+     * 종류·반영 시점을 정한 혜택 한 줄.
+     *
+     * @param timing 약관 미확인이면 null
+     * @param krw    원화로 바꾸지 못했으면 null
+     */
+    private long typedBenefit(long paymentId, String type, String timing, long value, Long krw) {
+        Map<String, Object> cb = new HashMap<>(Map.of("card_product_id", product,
+                "benefit_code", "B-" + UUID.randomUUID(), "policy_version", 1, "benefit_name", type + " 혜택",
+                "benefit_type", type, "calculation_type", "FIXED", "fixed_value", value,
+                "value_unit", krw == null ? "POINT" : "KRW", "created_at", now()));
+        cb.put("application_timing", timing);
+        long cardBenefit = insert("card_benefit", "card_benefit_id", cb);
+        Map<String, Object> pb = new HashMap<>(Map.of("payment_transaction_id", paymentId, "card_product_id", product,
+                "card_benefit_id", cardBenefit, "benefit_value", value, "value_unit", krw == null ? "POINT" : "KRW",
+                "created_at", now()));
+        pb.put("krw_amount", krw);
+        return insert("payment_benefit", "payment_benefit_id", pb);
     }
 
     private long billItem(long paymentId, Long bill, int seq, LocalDate billingMonth, long principal, String status) {

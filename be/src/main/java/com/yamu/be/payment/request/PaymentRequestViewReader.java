@@ -5,6 +5,7 @@ import com.yamu.be.payment.PaymentPlan;
 import com.yamu.be.payment.PaymentTerms;
 import com.yamu.be.payment.domain.PaymentTransaction;
 import com.yamu.be.payment.domain.PaymentTransactionRepository;
+import com.yamu.be.payment.merchant.MerchantCategoryNames;
 import com.yamu.be.payment.recommend.RecommendationResult;
 import com.yamu.be.payment.recommend.RecommendationResult.CardSummary;
 import com.yamu.be.payment.recommend.RecommendationResult.SelectionReason;
@@ -49,10 +50,10 @@ public class PaymentRequestViewReader {
         Optional<MerchantContextSnapshot> context = MerchantContextSnapshot.of(payment, objectMapper);
         PaymentPlan plan = payment.isInstallment() ? PaymentPlan.INSTALLMENT : PaymentPlan.LUMP_SUM;
         Integer months = payment.isInstallment() ? payment.getInstallmentMonths() : null;
+        String categoryCode = context.map(MerchantContextSnapshot::categoryCode).orElse(null);
         PaymentRequestView.Merchant merchant = new PaymentRequestView.Merchant(payment.getMerchantId(),
-                context.map(MerchantContextSnapshot::merchantName).orElse(null),
-                context.map(MerchantContextSnapshot::categoryCode).orElse(null),
-                payment.getPaymentChannel());
+                context.map(MerchantContextSnapshot::merchantName).orElse(null), categoryCode,
+                MerchantCategoryNames.of(categoryCode), payment.getPaymentChannel());
         PaymentTerms terms = new PaymentTerms(payment.getRequestedAmount(), plan, months);
         PaymentRequestView.Recommendation recommendation = snapshots.find(payment.getId())
                 .map(result -> recommendation(result, terms)).orElse(null);

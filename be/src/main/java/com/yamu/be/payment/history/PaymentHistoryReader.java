@@ -1,20 +1,19 @@
 package com.yamu.be.payment.history;
 
+import com.yamu.be.card.CardIssuers;
 import com.yamu.be.card.domain.CardType;
-import com.yamu.be.merchant.MerchantCategories;
 import com.yamu.be.payment.PaymentPlan;
 import com.yamu.be.payment.domain.PaymentChannel;
 import com.yamu.be.payment.domain.PaymentStatus;
 import com.yamu.be.payment.domain.TransactionSource;
+import com.yamu.be.payment.merchant.MerchantCategoryNames;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.YearMonth;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
-import java.util.stream.Collectors;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Component;
@@ -40,10 +39,7 @@ class PaymentHistoryReader {
     private static final String CONFIRMED_AMOUNT = PaymentSqlFragments.CONFIRMED_AMOUNT;
     private static final String BENEFIT_AMOUNT = PaymentSqlFragments.BENEFIT_AMOUNT;
     private static final String YAMU_PICK = PaymentSqlFragments.YAMU_PICK;
-    /** 업종 코드 → 표시 이름(Task 297 업종 목록). 목록에 없는 코드는 이름이 없다 */
-    private static final Map<String, String> CATEGORY_NAMES = MerchantCategories.list().stream()
-            .collect(Collectors.toUnmodifiableMap(MerchantCategories.Category::merchantCategoryCode,
-                    MerchantCategories.Category::merchantCategoryName));
+    private static final String MAIN_BENEFIT_TYPE = PaymentSqlFragments.MAIN_BENEFIT_TYPE;
 
     private static final String LIST_COLUMNS = """
             select p.payment_transaction_id, p.source, p.status, p.requested_at, p.approved_at, p.canceled_at,
@@ -51,14 +47,16 @@ class PaymentHistoryReader {
                    p.payment_channel, p.requested_amount, p.approved_amount, p.installment_months,
                    p.recognized_performance_amount, p.performance_month, p.failure_code,
                    p.spending_class, p.memo,
-                   p.user_card_id, p.card_product_id, c.card_alias, c.card_last4, cp.product_name, cp.card_type,
+                   p.user_card_id, p.card_product_id, c.card_alias, c.card_last4, cp.product_name, cp.card_type, cp.issuer_code,
                    p.recommended_rank, p.user_selected,
-                   cast(%s as signed) as benefit_amount, %s as benefit_lines, %s as confirmed_lines
+                   cast(%s as signed) as benefit_amount, %s as benefit_lines, %s as confirmed_lines,
+                   %s as main_benefit_type
             from payment_transaction p
             join merchant m on m.merchant_id = p.merchant_id
             left join user_card c on c.user_card_id = p.user_card_id
             left join card_product cp on cp.card_product_id = p.card_product_id
-            """.formatted(MERCHANT_NAME, CATEGORY_CODE, BENEFIT_AMOUNT, BENEFIT_LINES, CONFIRMED_LINES);
+            """.formatted(MERCHANT_NAME, CATEGORY_CODE, BENEFIT_AMOUNT, BENEFIT_LINES, CONFIRMED_LINES,
+            MAIN_BENEFIT_TYPE);
 
     /**
      * 목록 조건(v0.3.1 보완 포함). q는 가맹점명·메모 부분 일치이고, 숫자만이면 결제 금액·승인액이 같은 결제도 찾는다.
@@ -292,12 +290,14 @@ class PaymentHistoryReader {
                 rs.getObject("requested_at", LocalDateTime.class),
                 rs.getObject("approved_at", LocalDateTime.class),
                 new PaymentListResponse.Merchant(rs.getLong("merchant_id"), rs.getString("merchant_name"),
-                        categoryCode, categoryCode == null ? null : CATEGORY_NAMES.get(categoryCode)),
+                        categoryCode, MerchantCategoryNames.of(categoryCode)),
                 rs.getLong("requested_amount"),
                 installment ? PaymentPlan.INSTALLMENT : PaymentPlan.LUMP_SUM,
                 installment ? months : null,
                 card(rs),
                 status != PaymentStatus.APPROVED || benefit == null ? 0 : benefit,
+                // 혜택 금액과 같은 조건: 승인 건만. 취소·거절 건은 받지 않은 혜택이다
+                status != PaymentStatus.APPROVED ? null : rs.getString("main_benefit_type"),
                 benefitStatus == BenefitStatus.NONE ? null : benefitStatus == BenefitStatus.CONFIRMED,
                 status == PaymentStatus.APPROVED && recognized != null && recognized > 0,
                 benefitStatus,
@@ -321,8 +321,9 @@ class PaymentHistoryReader {
             return null;
         }
         String alias = rs.getString("card_alias");
+        String issuerCode = rs.getString("issuer_code");
         return new PaymentListResponse.Card(userCardId, alias != null ? alias : rs.getString("product_name"),
-                CardType.valueOf(rs.getString("card_type")));
+                CardType.valueOf(rs.getString("card_type")), issuerCode == null ? null : CardIssuers.of(issuerCode));
     }
 
     private static String yearMonth(LocalDate firstDay) {
