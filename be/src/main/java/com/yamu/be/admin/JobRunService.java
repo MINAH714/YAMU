@@ -27,7 +27,7 @@ import org.springframework.stereotype.Service;
  * 스케줄 실행과 같은 잠금을 쓰므로 둘이 겹치면 뒤의 것이 409 {@code JOB_ALREADY_RUNNING}이다.
  *
  * <p>지금 등록된 작업: {@code bill-confirm}(Task 5.4.2), {@code bill-withdraw}(Task 5.4.3), {@code refund-payout}(Task 5.4.4),
- * {@code balance-risk-notify}(Task 9.3.2, 잔고 위험 알림).
+ * {@code balance-risk-notify}(Task 9.3.2, 잔고 위험 알림), {@code performance-shortfall-notify}(Task 9.3.3, 실적 부족 알림).
  * 명세 표의 나머지 작업은 각 Task에서 {@link ManualJob}으로 추가한다.
  */
 @Slf4j
