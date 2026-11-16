@@ -253,11 +253,9 @@ fun YamuNavHost(navController: NavHostController, modifier: Modifier = Modifier,
                         onAddCard = { navController.navigate(AddCard) },
                         // 혜택 히어로 → 혜택 리포트(S-04) — 홈 위에 쌓여 뒤로 = 홈. 달은 홈이 누르기 전에 고른다
                         onBenefitReport = { navController.navigate(BenefitReport) },
-                        // 내 카드 혜택 현황 줄 → 그 카드 R-02, 남은 혜택 모두 보기 → R-06 — 홈 위에 쌓여 뒤로 = 홈
+                        // 놓치기 아까운 혜택 조건 카드 → 그 카드 R-02, 한도 카드 · 남은 혜택 모두 보기 → R-06 — 홈 위에 쌓여 뒤로 = 홈
                         onCardPerformance = { userCardId -> navController.navigate(CardPerformance(userCardId)) },
                         onBenefitLimits = { navController.navigate(BenefitLimits) },
-                        // 전체보기 → 실적관리 탭(R-01) — 하단 탭을 누른 것과 같이 탭을 바꾼다
-                        onPerfTab = { navController.navigateToTab(TopTab.PERF) },
                     )
                 }
                 // 9 · 10단계: 실제 화면(13 문서)
