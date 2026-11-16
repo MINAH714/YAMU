@@ -227,8 +227,11 @@ public class CardManagementService {
     }
 
     /**
-     * 카드 등록을 해제한다(행은 남김). 카드·청구를 다 확인한 뒤 본인 인증 토큰(CARD_DELETE)을 쓴다.
-     * 끝나지 않은(PAID·CANCELED가 아닌) 청구서가 하나라도 있으면 409 CARD_HAS_OPEN_BILL이다.
+     * 카드 등록을 해제한다(행은 남김). 카드를 확인한 뒤 본인 인증 토큰(CARD_DELETE)을 쓴다.
+     *
+     * <p>끝나지 않은 청구서가 있어도 막지 않는다(S15P31E103-562). 해제는 YAMU 등록만 푸는 것이라 남은 청구는 그대로
+     * 확정·출금되고 청구서 목록에도 남는다(청구 확정·출금·조회는 카드 등록 상태를 보지 않는다). 청구를 닫지 않는 것은
+     * 다시 등록하면 같은 카드 행을 쓰므로, 닫은 청구서가 카드·청구월 유일 제약({@code uk_bill_card_month})과 부딪치지 않게 하려는 것이다.
      */
     @Transactional
     public void unregister(AuthUser me, Long userCardId, String stepUpToken) {
@@ -236,10 +239,6 @@ public class CardManagementService {
         UserCard card = cardRepository.findByIdAndUserId(userCardId, me.userId())
                 .filter(c -> c.getRegistrationStatus().isRegistered())
                 .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND));
-        List<Long> openBills = activityReader.unsettledBillIds(card.getId());
-        if (!openBills.isEmpty()) {
-            throw new BusinessException(ErrorCode.CARD_HAS_OPEN_BILL, Map.of("billIds", openBills));
-        }
         stepUpService.requireStepUp(me, StepUpPurpose.CARD_DELETE, stepUpToken);
         boolean wasDefault = card.isDefaultCard();
         card.unregister();

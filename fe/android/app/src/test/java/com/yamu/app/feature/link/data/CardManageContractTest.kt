@@ -59,7 +59,7 @@ class CardManageContractTest {
         assertNull(card.stateLabel)
     }
 
-    @Test fun `확정 · 미납 청구가 있으면 해제할 수 없는 카드`() {
+    @Test fun `확정 · 미납 청구가 있으면 출금이 남은 카드`() {
         assertTrue(YamuJson.decodeFromString<CardDetailDto>(creditJson).toInfo().hasOpenBill)
         val unpaid = creditJson.replace(""""nextWithdrawal":{"billId":7,"amount":32000,"withdrawalDate":"2026-11-14","status":"CONFIRMED"},"hasUnpaidBill":false""", """"nextWithdrawal":null,"hasUnpaidBill":true""")
         assertTrue(YamuJson.decodeFromString<CardDetailDto>(unpaid).toInfo().hasOpenBill)

@@ -54,12 +54,6 @@ public class CardActivityReader {
                 .map(CardBill::getUserCardId).collect(Collectors.toCollection(HashSet::new));
     }
 
-    /** 끝나지 않은 청구서 번호(ACCUMULATING·확정·미납 등 {@link CardBillQueryRepository#SETTLED}가 아닌 것), 번호 순. */
-    List<Long> unsettledBillIds(Long userCardId) {
-        return bills.findByUserCardIdAndStatusNotInOrderByIdAsc(userCardId, CardBillQueryRepository.SETTLED).stream()
-                .map(CardBill::getId).toList();
-    }
-
     /** 출금일이 가장 가까운 확정 청구서. 없으면 empty. */
     Optional<NextWithdrawal> nextWithdrawal(Long userCardId) {
         return bills.findFirstByUserCardIdAndStatusOrderByWithdrawalDateAscIdAsc(userCardId, BillStatus.CONFIRMED)
