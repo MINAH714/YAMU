@@ -138,15 +138,21 @@ private fun secondsSince(startMillis: Long, now: Long): Int = ((now - startMilli
 /**
  * 실제 문자는 오지 않아서 BE가 준 시연용 숫자를 화면 위에 문자처럼 잠깐 띄운다. 누르면 숫자를 채운다.
  * 본인인증은 띄울 때 칸도 같이 채우고(누르면 지운 칸을 다시 채움), 1원은 계좌 확인이라 누를 때만 채운다.
- * 6초 뒤 저절로 닫힌다.
+ * 본인인증은 [autoDismissMillis](6초) 뒤 저절로 닫힌다. 1원은 null이라 알림을 눌러 숫자를 채우거나 화면을 떠날 때까지 남는다.
  */
 @Composable
-internal fun SmsBanner(message: String?, onFill: () -> Unit, onDismiss: () -> Unit, modifier: Modifier = Modifier) {
+internal fun SmsBanner(
+    message: String?,
+    onFill: () -> Unit,
+    onDismiss: () -> Unit,
+    modifier: Modifier = Modifier,
+    autoDismissMillis: Long? = 6_000,
+) {
     var last by remember { mutableStateOf("") }
     if (message != null) last = message
-    LaunchedEffect(message) {
-        if (message != null) {
-            delay(6_000)
+    LaunchedEffect(message, autoDismissMillis) {
+        if (message != null && autoDismissMillis != null) {
+            delay(autoDismissMillis)
             onDismiss()
         }
     }
@@ -892,12 +898,17 @@ class SignupOneWonViewModel @Inject constructor(private val signup: SignupReposi
                     when (r.error.code) {
                         SIGNUP_TOKEN_INVALID -> it.copy(confirming = false, restart = true)
                         // 남은 횟수가 0이면 다시 넣어도 BE가 AUTH_CODE_EXPIRED('시간이 지났어요')로 답한다 — 1원을 다시 받게만 둔다
-                        "AUTH_CODE_MISMATCH" -> it.copy(
-                            confirming = false, code = "", codeError = true, error = r.error.signupMessage(),
-                            needResend = r.error.detailInt("remainingAttempts") == 0,
-                        )
+                        // 틀려도 다시 넣을 수 있으면 시연 알림을 다시 띄운다(눌러서 닫았어도). 다시 받아야 하면 옛 숫자라 띄우지 않는다
+                        "AUTH_CODE_MISMATCH" -> {
+                            val needResend = r.error.detailInt("remainingAttempts") == 0
+                            it.copy(
+                                confirming = false, code = "", codeError = true, error = r.error.signupMessage(),
+                                needResend = needResend,
+                                banner = if (needResend) null else it.info?.bannerText(),
+                            )
+                        }
                         "AUTH_CODE_EXPIRED", "VERIFICATION_TOKEN_EXPIRED" ->
-                            it.copy(confirming = false, code = "", needResend = true, error = r.error.signupMessage())
+                            it.copy(confirming = false, code = "", needResend = true, error = r.error.signupMessage(), banner = null)
                         else -> it.copy(confirming = false, error = r.error.signupMessage())   // 네트워크면 같은 키로 다시 누르면 된다
                     }
                 }
@@ -1002,6 +1013,10 @@ fun SignupOneWonRoute(
                 Spacer(Modifier.height(24.dp))
             }
         }
-        SmsBanner(s.banner, onFill = viewModel::fillFromBanner, onDismiss = viewModel::bannerGone, modifier = Modifier.statusBarsPadding())
+        // 1원 알림은 저절로 닫지 않는다 — 눌러서 숫자를 채우거나 다음 화면으로 넘어갈 때만 사라진다
+        SmsBanner(
+            s.banner, onFill = viewModel::fillFromBanner, onDismiss = viewModel::bannerGone,
+            modifier = Modifier.statusBarsPadding(), autoDismissMillis = null,
+        )
     }
 }
