@@ -167,7 +167,7 @@ fun gapReason(reason: String?): String = when (reason?.uppercase()) {
     "UPSTREAM_TIMEOUT" -> "은행 응답이 늦어 지난 잔고를 불러오지 못했어요"
     "HISTORY_INCOMPLETE" -> "거래 내역이 모두 오지 않아 지난 잔고를 확인하지 못했어요"
     "FILTERED_HISTORY" -> "입출금 전체가 아닌 내역이라 지난 잔고를 확인하지 못했어요"
-    "QA_BOUNDARY_UNVERIFIED" -> "QA 이력과 실제 잔고의 연결 근거를 다시 확인해야 해요"
+    "QA_BOUNDARY_UNVERIFIED" -> "과거 내역과 현재 잔고의 연결 정보를 다시 확인해야 해요"
     "SOURCE_CONFLICT" -> "저장한 거래와 은행 조회 결과가 달라 잔고를 확인하지 못했어요"
     "NO_ANCHOR" -> "기준이 될 지난 잔고가 없어 확인하지 못했어요"
     "AMBIGUOUS_ORDER" -> "같은 시각 거래의 순서를 알 수 없어 지난 잔고를 확인하지 못했어요"

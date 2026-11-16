@@ -30,6 +30,7 @@ public final class QaSeedCli {
             // plan is offline and requires no database or secrets beyond the local input bindings.
             if ("plan".equals(command)) {
                 for (var p : spec.personas()) {
+                    if(p.scenario()==QaSeedSpec.Scenario.LIFE) for(int a=0;a<3;a++) QaLifeScenario.ledger(a);
                     var payments = QaHistoryPlan.build(p.scenario(), spec.baseDate());
                     System.out.printf("%s scenario=%s cards=%d payments=%d base=%s%n",
                             p.key(), p.scenario(), p.cards().size(), payments.size(), spec.baseDate());
@@ -44,6 +45,10 @@ public final class QaSeedCli {
             CryptoKeys keys = new CryptoKeys(new CryptoProperties(keyId,
                     Map.of(keyId, env("YAMU_CRYPTO_DATA_KEY_" + keyId)),
                     env("YAMU_CRYPTO_HMAC_KEY"), env("YAMU_CRYPTO_PIN_PEPPER")));
+            String bindingsFile=System.getenv("QA_SEED_ENCRYPTED_BINDINGS_FILE");
+            if(bindingsFile!=null&&!bindingsFile.isBlank()) spec=QaEncryptedBindings.bind(spec,
+                    mapper.readTree(Files.readString(Path.of(bindingsFile))),
+                    new com.yamu.be.global.crypto.PersonalDataCipher(keys,new java.security.SecureRandom()));
             try (var connection = DriverManager.getConnection(env("QA_SEED_JDBC_URL"),
                     env("QA_SEED_DB_USERNAME"), env("QA_SEED_DB_PASSWORD"))) {
                 new QaSeedService(connection, keys, Clock.systemUTC(), env("YAMU_CRYPTO_HMAC_KEY")).run(command, spec);

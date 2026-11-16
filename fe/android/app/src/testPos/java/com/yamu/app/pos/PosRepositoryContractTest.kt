@@ -81,11 +81,11 @@ class PosRepositoryContractTest {
                 200,
                 """{"success":true,"data":[
                   {"merchantId":3,"brandCode":"STARBUCKS","merchantName":"스타벅스","merchantCategoryCode":"COFFEE_SHOP"},
-                  {"merchantId":12,"brandCode":"YAMU_TEST_CAFE","merchantName":"야무 테스트 카페","merchantCategoryCode":"COFFEE_SHOP"}]}""",
+                  {"merchantId":12,"brandCode":"YAMU_TEST_CAFE","merchantName":"오월커피","merchantCategoryCode":"COFFEE_SHOP"}]}""",
             ),
         )
         val merchant = (repository.merchantFor(cafe) as ApiResult.Success).data
-        assertEquals(PosMerchant(12, "POS-YAMU-CAFE", "야무 테스트 카페"), merchant)
+        assertEquals(PosMerchant(12, "POS-YAMU-CAFE", "오월커피"), merchant)
         val request = server.takeRequest()
         assertEquals("/merchants", request.url.encodedPath)
         assertEquals("COFFEE_SHOP", request.url.queryParameter("merchantCategoryCode"))

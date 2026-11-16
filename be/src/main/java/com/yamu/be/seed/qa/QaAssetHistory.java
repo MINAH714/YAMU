@@ -15,9 +15,15 @@ public final class QaAssetHistory {
     private final JdbcTemplate db; private final Clock clock;
     public QaAssetHistory(JdbcTemplate db,Clock clock) { this.db=db;this.clock=clock; }
     public record Spec(String datasetKey,String personaKey,long accountId,LocalDate from,LocalDate to,
-                       long monthlyIncome,long monthlyRent,List<QaAssetHistoryPlan.Event> extraEvents) {}
+                       long monthlyIncome,long monthlyRent,List<QaAssetHistoryPlan.Event> extraEvents,
+                       String scenario,String fundingExternalId) {
+        public Spec(String datasetKey,String personaKey,long accountId,LocalDate from,LocalDate to,
+                    long monthlyIncome,long monthlyRent,List<QaAssetHistoryPlan.Event> extraEvents) {
+            this(datasetKey,personaKey,accountId,from,to,monthlyIncome,monthlyRent,extraEvents,null,null);
+        }
+    }
     public record Report(String command,int transactions,long opening,long deposits,long withdrawals,long closing) {}
-    private record Boundary(long stream,long coverage,long balance) {}
+    private record Boundary(long stream,long coverage,long balance,Long transaction,String contentHash) {}
 
     public Report run(String command,Spec spec) {
         require(spec.datasetKey()!=null&&spec.personaKey()!=null&&spec.accountId()>0,"Missing ownership");
@@ -46,6 +52,10 @@ public final class QaAssetHistory {
                 VALUES (?,?,'QA_SYNTHETIC',?,1,FALSE,?,?,?,?,?,0)
                 """,spec.accountId(),user,spec.datasetKey(),spec.from(),spec.to(),fingerprint,now,now);
             long stream=db.queryForObject("SELECT LAST_INSERT_ID()",Long.class);
+            if(boundary.transaction()!=null) db.update("""
+                INSERT INTO qa_seed_funding_boundary(qa_stream_id,actual_stream_id,funding_transaction_id,funding_content_hash,funded_balance)
+                VALUES (?,?,?,?,?)
+                """,stream,boundary.stream(),boundary.transaction(),boundary.contentHash(),boundary.balance());
             db.update("""
                 INSERT INTO account_history_sync_run(stream_id,generation,range_from,range_to,status,reported_count,received_count,queried_at,created_at,updated_at,version)
                 VALUES (?,1,?,?,'OK',?,?,?,?,?,0)
@@ -61,7 +71,7 @@ public final class QaAssetHistory {
                 VALUES (?,?,?,?,TRUE,?,'QA_SCENARIO',?,?,0)
                 """,stream,run,spec.from(),spec.to(),plan.opening(),now,now);
             // Proof is locked and rechecked in the same transaction before activation.
-            require(boundary(spec).balance()==plan.closing(),"Boundary changed");
+            require(boundary(spec).equals(boundary),"Boundary changed");
             db.update("UPDATE account_history_stream SET active=TRUE,updated_at=?,version=version+1 WHERE stream_id=?",now,stream);
             ids=List.of(stream);
         }
@@ -70,6 +80,10 @@ public final class QaAssetHistory {
             long stream=ids.get(0);
             require(db.queryForObject("SELECT COUNT(*) FROM account_history_stream WHERE stream_id=? AND user_id=? AND dataset_key=? AND input_hash=? AND active=TRUE",
                     Long.class,stream,user,spec.datasetKey(),fingerprint)==1,"Inputs changed; reset only QA asset history first");
+            if(boundary.transaction()!=null) require(db.queryForObject("""
+                SELECT COUNT(*) FROM qa_seed_funding_boundary WHERE qa_stream_id=? AND actual_stream_id=?
+                  AND funding_transaction_id=? AND funding_content_hash=? AND funded_balance=?
+                """,Long.class,stream,boundary.stream(),boundary.transaction(),boundary.contentHash(),boundary.balance())==1,"Funding mapping differs");
             var installed=db.query("""
                 SELECT external_id,occurred_at,direction,amount,balance_after FROM account_transaction WHERE stream_id=? ORDER BY occurred_at
                 """,(rs,n)->{
@@ -90,14 +104,36 @@ public final class QaAssetHistory {
             WHERE s.linked_account_id=? AND s.source='SSAFY' AND c.valid=TRUE
               AND c.range_from=? AND c.opening_evidence='FIRST_TRANSACTION'
             ORDER BY c.coverage_id DESC LIMIT 1 FOR UPDATE
-            """,(rs,n)->new Boundary(rs.getLong(1),rs.getLong(2),rs.getLong(3)),spec.accountId(),spec.to().plusDays(1));
+            """,(rs,n)->new Boundary(rs.getLong(1),rs.getLong(2),rs.getLong(3),null,null),spec.accountId(),spec.to().plusDays(1));
         require(found.size()==1,"No verified actual opening boundary");
         var proof=found.get(0);
         var first=db.queryForObject("SELECT MIN(occurred_at) FROM account_transaction WHERE stream_id=?",Timestamp.class,proof.stream());
         require(first!=null&&first.toInstant().atZone(KST).toLocalDate().equals(spec.to().plusDays(1)),"Boundary must be first real history date");
+        if(spec.fundingExternalId()!=null) {
+            require(proof.balance()==0,"Funding requires a verified zero opening");
+            var funding=db.query("""
+                SELECT transaction_id,balance_after,content_hash,occurred_at FROM account_transaction
+                WHERE stream_id=? AND external_id=? AND direction='DEPOSIT' AND amount>0
+                """,(rs,n)->{
+                    require(rs.getTimestamp(4).toInstant().atZone(KST).toLocalDate().equals(spec.to().plusDays(1)),"Funding must be on transition day");
+                    return new Boundary(proof.stream(),proof.coverage(),rs.getLong(2),rs.getLong(1),rs.getString(3));
+                },proof.stream(),spec.fundingExternalId());
+            require(funding.size()==1&&funding.get(0).balance()>0,"Verified funding transaction missing");
+            return funding.get(0);
+        }
         return proof;
     }
     private List<QaAssetHistoryPlan.Event> events(long user,Spec spec) {
+        if ("LIFE".equals(spec.scenario())) {
+            require(QaLifeScenario.FROM.equals(spec.from())&&QaLifeScenario.BASE.minusDays(1).equals(spec.to())
+                    && spec.monthlyIncome()==0 && spec.monthlyRent()==0 && (spec.extraEvents()==null||spec.extraEvents().isEmpty()),"LIFE input must use its exact ledger");
+            String bank=db.queryForObject("SELECT bank_code FROM linked_account WHERE linked_account_id=?",String.class,spec.accountId());
+            int account=switch(bank) {case "004"->0;case "088"->1;case "003"->2;default->throw new IllegalArgumentException("Unknown LIFE bank");};
+            require(boundary(spec).balance()==QaLifeScenario.startingBalance(account),"Funded balance differs from LIFE target");
+            verifyLifePayments(user);
+            return QaLifeScenario.events(account);
+        }
+        require(spec.scenario()==null,"Unknown asset scenario");
         var events=new ArrayList<QaAssetHistoryPlan.Event>();
         if(spec.extraEvents()!=null) events.addAll(spec.extraEvents());
         // These are scenario events, not real bank debits or bill rows.
@@ -129,9 +165,31 @@ public final class QaAssetHistory {
     static void removeStream(JdbcTemplate db,long stream) {
         require(db.queryForObject("SELECT COUNT(*) FROM account_history_stream WHERE stream_id=? AND source='QA_SYNTHETIC'",Long.class,stream)==1,"Only synthetic streams can be removed");
         db.update("UPDATE account_history_stream SET active=FALSE,generation=generation+1,version=version+1 WHERE stream_id=?",stream);
+        db.update("DELETE FROM qa_seed_funding_boundary WHERE qa_stream_id=?",stream);
         for(String table:List.of("account_history_coverage","account_history_sync_run","account_transaction"))
             db.update("DELETE FROM "+table+" WHERE stream_id=?",stream);
         db.update("DELETE FROM account_history_stream WHERE stream_id=?",stream);
+    }
+    private void verifyLifePayments(long user) {
+        var actual=db.query("""
+            SELECT t.approved_at,t.approved_amount,p.product_name FROM payment_transaction t
+            JOIN user_card c USING(user_card_id) JOIN card_product p ON p.card_product_id=c.card_product_id
+            WHERE t.user_id=? AND (t.source='SEED' OR JSON_UNQUOTE(JSON_EXTRACT(t.merchant_context_snapshot,'$.source'))='QA_LIFE_550') AND t.status='APPROVED'
+            """,(rs,n)->rs.getTimestamp(1).toInstant().atZone(KST).toLocalDate()+"|"+rs.getString(3)+"|"+rs.getLong(2),user);
+        String[] names={"KB국민 노리 체크","신한카드 처음","신한카드 Mr.Life","IBK나라사랑카드"};
+        var expected=QaLifeScenario.payments(QaLifeScenario.BASE).stream().map(p->p.date()+"|"+names[p.card()]+"|"+QaLifeBenefits.approved(p)).sorted().toList();
+        require(actual.stream().sorted().toList().equals(expected),"LIFE payment ledger differs");
+        for(var b:QaLifeScenario.bills()) {
+            var found=db.queryForList("""
+                SELECT b.paid_amount,b.status,b.withdrawal_date FROM card_bill b JOIN user_card c USING(user_card_id)
+                JOIN card_product p ON p.card_product_id=c.card_product_id
+                WHERE b.user_id=? AND p.product_name=? AND b.billing_month=?
+                """,user,names[b.card()],b.month().atDay(1));
+            require(found.size()==1,"LIFE bill missing");
+            var row=found.get(0);
+            require(((java.sql.Date)row.get("withdrawal_date")).toLocalDate().equals(b.due()),"LIFE billing date differs");
+            if(b.due().isBefore(QaLifeScenario.BASE)) require("PAID".equals(row.get("status"))&&((Number)row.get("paid_amount")).longValue()==b.amount(),"LIFE historical bill differs");
+        }
     }
     static String hash(String value) {
         try { return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(value.getBytes(StandardCharsets.UTF_8))); }

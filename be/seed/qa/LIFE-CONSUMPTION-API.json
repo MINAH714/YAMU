@@ -1,0 +1,686 @@
+{
+  "baseCommit": "2c31e7c7",
+  "seed": "Uncommitted S15P31E103-550 LIFE changes",
+  "referenceDate": "2026-11-16",
+  "execution": "MockMvc controllers + isolated MySQL; signup prerequisites prepared in test; no financial calls",
+  "apiCalls": 63,
+  "allPersonasEqual": true,
+  "testedPersonas": [
+    "최인국",
+    "남윤주",
+    "박준수"
+  ],
+  "representative": {
+    "name": "최인국",
+    "months": [
+      {
+        "monthly": {
+          "yearMonth": "2026-05",
+          "isPartialMonth": false,
+          "periodTo": "2026-05-31",
+          "totalSpent": 1927500,
+          "livingSpent": 1927500,
+          "prevSamePeriodSpent": 1841000,
+          "prevMonthTotalSpent": 1841000,
+          "byCategory": [
+            {
+              "categoryCode": "ONLINE_MARKETPLACE",
+              "categoryName": "온라인 쇼핑",
+              "amount": 861500,
+              "ratio": 44.7
+            },
+            {
+              "categoryCode": "HYPERMARKET",
+              "categoryName": "대형마트",
+              "amount": 596000,
+              "ratio": 30.9
+            },
+            {
+              "categoryCode": "GENERAL_RESTAURANT",
+              "categoryName": "일반음식점",
+              "amount": 366000,
+              "ratio": 19.0
+            },
+            {
+              "categoryCode": "TELECOMMUNICATION",
+              "categoryName": "통신",
+              "amount": 65000,
+              "ratio": 3.4
+            },
+            {
+              "categoryCode": "CONVENIENCE_STORE",
+              "categoryName": "편의점",
+              "amount": 39000,
+              "ratio": 2.0
+            }
+          ],
+          "benefitSummary": {
+            "expected": 0,
+            "actual": 0
+          }
+        },
+        "paymentsSummary": {
+          "count": 31,
+          "amount": 1927500,
+          "expectedBenefit": 0,
+          "confirmedBenefit": 0,
+          "byClass": {
+            "LIVING": 1927500,
+            "LARGE": 0,
+            "EXCLUDED": 0
+          },
+          "yamuPickCount": 0
+        },
+        "yamuBenefits": {
+          "yearMonth": "2026-05",
+          "status": "CONFIRMED",
+          "summary": {
+            "expectedBenefit": 0,
+            "confirmedBenefit": 0,
+            "yamuPickExtra": 0,
+            "missedBenefit": 0,
+            "unconfirmedBenefit": 0,
+            "unconvertedBenefitCount": 0,
+            "byType": [
+              {
+                "type": "DISCOUNT",
+                "expectedBenefit": 0,
+                "confirmedBenefit": 0,
+                "unconfirmedBenefit": 0,
+                "unconvertedBenefitCount": 0
+              },
+              {
+                "type": "CASHBACK",
+                "expectedBenefit": 0,
+                "confirmedBenefit": 0,
+                "unconfirmedBenefit": 0,
+                "unconvertedBenefitCount": 0
+              },
+              {
+                "type": "POINT",
+                "expectedBenefit": 0,
+                "confirmedBenefit": 0,
+                "unconfirmedBenefit": 0,
+                "unconvertedBenefitCount": 0
+              }
+            ]
+          },
+          "differences": [],
+          "byCategory": [],
+          "source": "YAMU",
+          "cards": []
+        }
+      },
+      {
+        "monthly": {
+          "yearMonth": "2026-06",
+          "isPartialMonth": false,
+          "periodTo": "2026-06-30",
+          "totalSpent": 1789000,
+          "livingSpent": 1789000,
+          "prevSamePeriodSpent": 1927500,
+          "prevMonthTotalSpent": 1927500,
+          "byCategory": [
+            {
+              "categoryCode": "ONLINE_MARKETPLACE",
+              "categoryName": "온라인 쇼핑",
+              "amount": 812500,
+              "ratio": 45.4
+            },
+            {
+              "categoryCode": "HYPERMARKET",
+              "categoryName": "대형마트",
+              "amount": 496000,
+              "ratio": 27.7
+            },
+            {
+              "categoryCode": "GENERAL_RESTAURANT",
+              "categoryName": "일반음식점",
+              "amount": 376500,
+              "ratio": 21.0
+            },
+            {
+              "categoryCode": "TELECOMMUNICATION",
+              "categoryName": "통신",
+              "amount": 65000,
+              "ratio": 3.6
+            },
+            {
+              "categoryCode": "CONVENIENCE_STORE",
+              "categoryName": "편의점",
+              "amount": 39000,
+              "ratio": 2.2
+            }
+          ],
+          "benefitSummary": {
+            "expected": 0,
+            "actual": 0
+          }
+        },
+        "paymentsSummary": {
+          "count": 31,
+          "amount": 1789000,
+          "expectedBenefit": 0,
+          "confirmedBenefit": 0,
+          "byClass": {
+            "LIVING": 1789000,
+            "LARGE": 0,
+            "EXCLUDED": 0
+          },
+          "yamuPickCount": 0
+        },
+        "yamuBenefits": {
+          "yearMonth": "2026-06",
+          "status": "CONFIRMED",
+          "summary": {
+            "expectedBenefit": 0,
+            "confirmedBenefit": 0,
+            "yamuPickExtra": 0,
+            "missedBenefit": 0,
+            "unconfirmedBenefit": 0,
+            "unconvertedBenefitCount": 0,
+            "byType": [
+              {
+                "type": "DISCOUNT",
+                "expectedBenefit": 0,
+                "confirmedBenefit": 0,
+                "unconfirmedBenefit": 0,
+                "unconvertedBenefitCount": 0
+              },
+              {
+                "type": "CASHBACK",
+                "expectedBenefit": 0,
+                "confirmedBenefit": 0,
+                "unconfirmedBenefit": 0,
+                "unconvertedBenefitCount": 0
+              },
+              {
+                "type": "POINT",
+                "expectedBenefit": 0,
+                "confirmedBenefit": 0,
+                "unconfirmedBenefit": 0,
+                "unconvertedBenefitCount": 0
+              }
+            ]
+          },
+          "differences": [],
+          "byCategory": [],
+          "source": "YAMU",
+          "cards": []
+        }
+      },
+      {
+        "monthly": {
+          "yearMonth": "2026-07",
+          "isPartialMonth": false,
+          "periodTo": "2026-07-31",
+          "totalSpent": 2758000,
+          "livingSpent": 1858000,
+          "prevSamePeriodSpent": 1789000,
+          "prevMonthTotalSpent": 1789000,
+          "byCategory": [
+            {
+              "categoryCode": "ONLINE_MARKETPLACE",
+              "categoryName": "온라인 쇼핑",
+              "amount": 1741500,
+              "ratio": 63.1
+            },
+            {
+              "categoryCode": "HYPERMARKET",
+              "categoryName": "대형마트",
+              "amount": 516000,
+              "ratio": 18.7
+            },
+            {
+              "categoryCode": "GENERAL_RESTAURANT",
+              "categoryName": "일반음식점",
+              "amount": 396500,
+              "ratio": 14.4
+            },
+            {
+              "categoryCode": "TELECOMMUNICATION",
+              "categoryName": "통신",
+              "amount": 65000,
+              "ratio": 2.4
+            },
+            {
+              "categoryCode": "CONVENIENCE_STORE",
+              "categoryName": "편의점",
+              "amount": 39000,
+              "ratio": 1.4
+            }
+          ],
+          "benefitSummary": {
+            "expected": 0,
+            "actual": 0
+          }
+        },
+        "paymentsSummary": {
+          "count": 33,
+          "amount": 2758000,
+          "expectedBenefit": 0,
+          "confirmedBenefit": 0,
+          "byClass": {
+            "LIVING": 1858000,
+            "LARGE": 900000,
+            "EXCLUDED": 0
+          },
+          "yamuPickCount": 0
+        },
+        "yamuBenefits": {
+          "yearMonth": "2026-07",
+          "status": "CONFIRMED",
+          "summary": {
+            "expectedBenefit": 0,
+            "confirmedBenefit": 0,
+            "yamuPickExtra": 0,
+            "missedBenefit": 0,
+            "unconfirmedBenefit": 0,
+            "unconvertedBenefitCount": 0,
+            "byType": [
+              {
+                "type": "DISCOUNT",
+                "expectedBenefit": 0,
+                "confirmedBenefit": 0,
+                "unconfirmedBenefit": 0,
+                "unconvertedBenefitCount": 0
+              },
+              {
+                "type": "CASHBACK",
+                "expectedBenefit": 0,
+                "confirmedBenefit": 0,
+                "unconfirmedBenefit": 0,
+                "unconvertedBenefitCount": 0
+              },
+              {
+                "type": "POINT",
+                "expectedBenefit": 0,
+                "confirmedBenefit": 0,
+                "unconfirmedBenefit": 0,
+                "unconvertedBenefitCount": 0
+              }
+            ]
+          },
+          "differences": [],
+          "byCategory": [],
+          "source": "YAMU",
+          "cards": []
+        }
+      },
+      {
+        "monthly": {
+          "yearMonth": "2026-08",
+          "isPartialMonth": false,
+          "periodTo": "2026-08-31",
+          "totalSpent": 1910500,
+          "livingSpent": 1910500,
+          "prevSamePeriodSpent": 1858000,
+          "prevMonthTotalSpent": 2758000,
+          "byCategory": [
+            {
+              "categoryCode": "ONLINE_MARKETPLACE",
+              "categoryName": "온라인 쇼핑",
+              "amount": 852500,
+              "ratio": 44.6
+            },
+            {
+              "categoryCode": "HYPERMARKET",
+              "categoryName": "대형마트",
+              "amount": 588000,
+              "ratio": 30.8
+            },
+            {
+              "categoryCode": "GENERAL_RESTAURANT",
+              "categoryName": "일반음식점",
+              "amount": 366000,
+              "ratio": 19.2
+            },
+            {
+              "categoryCode": "TELECOMMUNICATION",
+              "categoryName": "통신",
+              "amount": 65000,
+              "ratio": 3.4
+            },
+            {
+              "categoryCode": "CONVENIENCE_STORE",
+              "categoryName": "편의점",
+              "amount": 39000,
+              "ratio": 2.0
+            }
+          ],
+          "benefitSummary": {
+            "expected": 0,
+            "actual": 0
+          }
+        },
+        "paymentsSummary": {
+          "count": 31,
+          "amount": 1910500,
+          "expectedBenefit": 0,
+          "confirmedBenefit": 0,
+          "byClass": {
+            "LIVING": 1910500,
+            "LARGE": 0,
+            "EXCLUDED": 0
+          },
+          "yamuPickCount": 0
+        },
+        "yamuBenefits": {
+          "yearMonth": "2026-08",
+          "status": "CONFIRMED",
+          "summary": {
+            "expectedBenefit": 0,
+            "confirmedBenefit": 0,
+            "yamuPickExtra": 0,
+            "missedBenefit": 0,
+            "unconfirmedBenefit": 0,
+            "unconvertedBenefitCount": 0,
+            "byType": [
+              {
+                "type": "DISCOUNT",
+                "expectedBenefit": 0,
+                "confirmedBenefit": 0,
+                "unconfirmedBenefit": 0,
+                "unconvertedBenefitCount": 0
+              },
+              {
+                "type": "CASHBACK",
+                "expectedBenefit": 0,
+                "confirmedBenefit": 0,
+                "unconfirmedBenefit": 0,
+                "unconvertedBenefitCount": 0
+              },
+              {
+                "type": "POINT",
+                "expectedBenefit": 0,
+                "confirmedBenefit": 0,
+                "unconfirmedBenefit": 0,
+                "unconvertedBenefitCount": 0
+              }
+            ]
+          },
+          "differences": [],
+          "byCategory": [],
+          "source": "YAMU",
+          "cards": []
+        }
+      },
+      {
+        "monthly": {
+          "yearMonth": "2026-09",
+          "isPartialMonth": false,
+          "periodTo": "2026-09-30",
+          "totalSpent": 1828000,
+          "livingSpent": 1828000,
+          "prevSamePeriodSpent": 1910500,
+          "prevMonthTotalSpent": 1910500,
+          "byCategory": [
+            {
+              "categoryCode": "ONLINE_MARKETPLACE",
+              "categoryName": "온라인 쇼핑",
+              "amount": 821500,
+              "ratio": 44.9
+            },
+            {
+              "categoryCode": "HYPERMARKET",
+              "categoryName": "대형마트",
+              "amount": 504000,
+              "ratio": 27.6
+            },
+            {
+              "categoryCode": "GENERAL_RESTAURANT",
+              "categoryName": "일반음식점",
+              "amount": 398500,
+              "ratio": 21.8
+            },
+            {
+              "categoryCode": "TELECOMMUNICATION",
+              "categoryName": "통신",
+              "amount": 65000,
+              "ratio": 3.6
+            },
+            {
+              "categoryCode": "CONVENIENCE_STORE",
+              "categoryName": "편의점",
+              "amount": 39000,
+              "ratio": 2.1
+            }
+          ],
+          "benefitSummary": {
+            "expected": 0,
+            "actual": 0
+          }
+        },
+        "paymentsSummary": {
+          "count": 32,
+          "amount": 1828000,
+          "expectedBenefit": 0,
+          "confirmedBenefit": 0,
+          "byClass": {
+            "LIVING": 1828000,
+            "LARGE": 0,
+            "EXCLUDED": 0
+          },
+          "yamuPickCount": 0
+        },
+        "yamuBenefits": {
+          "yearMonth": "2026-09",
+          "status": "CONFIRMED",
+          "summary": {
+            "expectedBenefit": 0,
+            "confirmedBenefit": 0,
+            "yamuPickExtra": 0,
+            "missedBenefit": 0,
+            "unconfirmedBenefit": 0,
+            "unconvertedBenefitCount": 0,
+            "byType": [
+              {
+                "type": "DISCOUNT",
+                "expectedBenefit": 0,
+                "confirmedBenefit": 0,
+                "unconfirmedBenefit": 0,
+                "unconvertedBenefitCount": 0
+              },
+              {
+                "type": "CASHBACK",
+                "expectedBenefit": 0,
+                "confirmedBenefit": 0,
+                "unconfirmedBenefit": 0,
+                "unconvertedBenefitCount": 0
+              },
+              {
+                "type": "POINT",
+                "expectedBenefit": 0,
+                "confirmedBenefit": 0,
+                "unconfirmedBenefit": 0,
+                "unconvertedBenefitCount": 0
+              }
+            ]
+          },
+          "differences": [],
+          "byCategory": [],
+          "source": "YAMU",
+          "cards": []
+        }
+      },
+      {
+        "monthly": {
+          "yearMonth": "2026-10",
+          "isPartialMonth": false,
+          "periodTo": "2026-10-31",
+          "totalSpent": 1880000,
+          "livingSpent": 1880000,
+          "prevSamePeriodSpent": 1828000,
+          "prevMonthTotalSpent": 1828000,
+          "byCategory": [
+            {
+              "categoryCode": "ONLINE_MARKETPLACE",
+              "categoryName": "온라인 쇼핑",
+              "amount": 822500,
+              "ratio": 43.8
+            },
+            {
+              "categoryCode": "HYPERMARKET",
+              "categoryName": "대형마트",
+              "amount": 573000,
+              "ratio": 30.5
+            },
+            {
+              "categoryCode": "GENERAL_RESTAURANT",
+              "categoryName": "일반음식점",
+              "amount": 380500,
+              "ratio": 20.2
+            },
+            {
+              "categoryCode": "TELECOMMUNICATION",
+              "categoryName": "통신",
+              "amount": 65000,
+              "ratio": 3.5
+            },
+            {
+              "categoryCode": "CONVENIENCE_STORE",
+              "categoryName": "편의점",
+              "amount": 39000,
+              "ratio": 2.1
+            }
+          ],
+          "benefitSummary": {
+            "expected": 0,
+            "actual": 0
+          }
+        },
+        "paymentsSummary": {
+          "count": 32,
+          "amount": 1880000,
+          "expectedBenefit": 0,
+          "confirmedBenefit": 0,
+          "byClass": {
+            "LIVING": 1880000,
+            "LARGE": 0,
+            "EXCLUDED": 0
+          },
+          "yamuPickCount": 0
+        },
+        "yamuBenefits": {
+          "yearMonth": "2026-10",
+          "status": "CONFIRMED",
+          "summary": {
+            "expectedBenefit": 0,
+            "confirmedBenefit": 0,
+            "yamuPickExtra": 0,
+            "missedBenefit": 0,
+            "unconfirmedBenefit": 0,
+            "unconvertedBenefitCount": 0,
+            "byType": [
+              {
+                "type": "DISCOUNT",
+                "expectedBenefit": 0,
+                "confirmedBenefit": 0,
+                "unconfirmedBenefit": 0,
+                "unconvertedBenefitCount": 0
+              },
+              {
+                "type": "CASHBACK",
+                "expectedBenefit": 0,
+                "confirmedBenefit": 0,
+                "unconfirmedBenefit": 0,
+                "unconvertedBenefitCount": 0
+              },
+              {
+                "type": "POINT",
+                "expectedBenefit": 0,
+                "confirmedBenefit": 0,
+                "unconfirmedBenefit": 0,
+                "unconvertedBenefitCount": 0
+              }
+            ]
+          },
+          "differences": [],
+          "byCategory": [],
+          "source": "YAMU",
+          "cards": []
+        }
+      },
+      {
+        "monthly": {
+          "yearMonth": "2026-11",
+          "isPartialMonth": true,
+          "periodTo": "2026-11-16",
+          "totalSpent": 690000,
+          "livingSpent": 690000,
+          "prevSamePeriodSpent": 1040500,
+          "prevMonthTotalSpent": 1880000,
+          "byCategory": [
+            {
+              "categoryCode": "ONLINE_MARKETPLACE",
+              "categoryName": "온라인 쇼핑",
+              "amount": 630000,
+              "ratio": 91.3
+            },
+            {
+              "categoryCode": "GENERAL_RESTAURANT",
+              "categoryName": "일반음식점",
+              "amount": 60000,
+              "ratio": 8.7
+            }
+          ],
+          "benefitSummary": {
+            "expected": 0,
+            "actual": 0
+          }
+        },
+        "paymentsSummary": {
+          "count": 12,
+          "amount": 690000,
+          "expectedBenefit": 0,
+          "confirmedBenefit": 0,
+          "byClass": {
+            "LIVING": 690000,
+            "LARGE": 0,
+            "EXCLUDED": 0
+          },
+          "yamuPickCount": 0
+        },
+        "yamuBenefits": {
+          "yearMonth": "2026-11",
+          "status": "PARTIAL",
+          "summary": {
+            "expectedBenefit": 0,
+            "confirmedBenefit": 0,
+            "yamuPickExtra": 0,
+            "missedBenefit": 0,
+            "unconfirmedBenefit": 0,
+            "unconvertedBenefitCount": 0,
+            "byType": [
+              {
+                "type": "DISCOUNT",
+                "expectedBenefit": 0,
+                "confirmedBenefit": 0,
+                "unconfirmedBenefit": 0,
+                "unconvertedBenefitCount": 0
+              },
+              {
+                "type": "CASHBACK",
+                "expectedBenefit": 0,
+                "confirmedBenefit": 0,
+                "unconfirmedBenefit": 0,
+                "unconvertedBenefitCount": 0
+              },
+              {
+                "type": "POINT",
+                "expectedBenefit": 0,
+                "confirmedBenefit": 0,
+                "unconfirmedBenefit": 0,
+                "unconvertedBenefitCount": 0
+              }
+            ]
+          },
+          "differences": [],
+          "byCategory": [],
+          "source": "YAMU",
+          "cards": []
+        }
+      }
+    ]
+  }
+}

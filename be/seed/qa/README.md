@@ -5,6 +5,8 @@
 
 v3 세 사용자·IBK나라사랑카드 구성은 [IBK-551](IBK-551.md)을 따릅니다. 아래 기존 5종 구성은 v1/v2 기준입니다.
 
+550의 동일 생활 이력 3인 구성은 [LIFE 전달 문서](LIFE-HANDOFF.md)와 `life-persona-1/2/3.example.json`을 사용합니다. 시작 잔액 225만 원, 원거래 기반 청구, 실제 시작 자금과 합성 원장의 전환 검증은 이 별도 LIFE 시나리오에만 적용됩니다. [월별 수치 보고서](LIFE-VALIDATION.txt)는 오프라인 `planQaLife`로 재생성합니다.
+
 ## 구성과 기대 결과
 
 기준일 D는 입력의 baseDate(한국 날짜), 거래 시각은 UTC로 저장한다. 표의 기대값은 초기 상태 기준이다.
@@ -141,3 +143,131 @@ v1을 이미 적재했다면 **기존 version=1 원본 파일로 inspect→purge
 ## QA 자산 이력만 관리
 
 계좌 입출금 합성 이력은 기존 소비 시드와 별도 seedQaAssets CLI로 관리한다. [실행·보존 안내](../../../docs/be/account-history-handoff.md)를 따른다. 실제 이력 stream이 있는 사용자의 전체 reset/purge는 실제 이력 보존을 위해 거절한다.
+
+## 운영 동작 비교용 로컬 앱 (2026-11-16)
+
+기준: develop 2c31e7c7 + 현재 작업 브랜치의 LIFE 시드/표시 수정.
+배포된 운영 서버의 버전·설정은 변경하거나 조회하지 않았다. 여기서 동일은 이 소스 기준이다.
+
+### 동일하게 사용하는 부분
+- Android MainActivity, 일반 PIN 로그인, 하단 탭, 홈/잔고예보/소비 분석/실적/마이 화면.
+- 실제 Spring Boot HTTP 서버(127.0.0.1:18553), Spring Security, 기기 서명, JWT, Redis 로그인 상태.
+- 운영 컨트롤러·서비스·SQL·Flyway·검증·예보/청구/실적 계산.
+- GET만 허용하던 임시 중계 서버를 사용하지 않는다. 새로고침(POST /api/sync), 설정 PATCH도 실제 경로다.
+- 카드명은 상품명, 계좌 끝자리는 시드 번호의 마지막 4자리다.
+- 화면의 QA/p0 안내만 제거했으며 SEED/SIMULATED 등의 내부 출처·식별자는 보존한다.
+
+### 의도적으로 다른 부분과 비교 한계
+- DB/Redis는 별도 Testcontainers 인스턴스다. 종료 후 데이터는 보존되지 않는다.
+- 금융망 계좌 응답은 로컬 fixture다. 시작 잔액 국민 1,050,000 / 신한 900,000 / 기업 300,000.
+- 금융망 전체 창구와 입출금 API는 테스트 대역이며 미지원 호출은 로컬 실패다.
+  실제 금융망의 지연·장애·입출금·잔액 반영·1원 인증은 이 환경으로 검증할 수 없다.
+- 기기 최초 등록만 개발용 bootstrap으로 준비한다. 그 뒤 PIN/서명/토큰/자동 잠금은 원래 경로다.
+  bootstrap 컨트롤러는 test 소스에만 있어 bootJar에 포함되지 않는다.
+- 금융기관 휴일 API 키는 테스트 프로필에서 비우고 정기 청구·푸시 작업도 비활성화한다.
+- LIFE 기준일은 2026-11-16이며 이력은 2025-12-01~2026-11-15다. 앱 서버 시계는 준비 후 실제 시각을 사용한다.
+  날짜가 바뀌면 시드의 시작 잔액 조건과 오늘의 조건이 달라지므로 운영 잔액으로 해석하지 않는다.
+- 과거 잔고 연결을 위한 입금 증거는 로컬 DB에만 넣는 fixture다. 실제 입금을 했다는 의미가 아니다.
+- 기본 자산 흐름은 운영 정책대로 기준 계좌 한 개다. 225만 원은 세 계좌를 함께 조회할 때의 합계다.
+- 현재 로컬은 첫 번째 LIFE 사용자로 비교한다. 운영 사용자·계좌를 복제하거나 접속하지 않는다.
+
+### 실행 (PowerShell)
+Docker Desktop과 Java 17이 필요하다. 저장소의 be 폴더에서 실행:
+
+    .\gradlew.bat -I seed/qa/local-app.init.gradle localApp
+
+be/build/local-app/ready.txt 생성과 로컬 health 응답을 확인한다.
+별도 터미널의 be 폴더에서 실제 HTTP 검증:
+
+    .\seed\qa\check-local-app.ps1
+
+검증은 테스트 기기를 등록한다. 1인 1기기 정책이므로 앱 등록 전에 실행한다.
+결과 파일: be/build/local-app/http-checks.json.
+
+Android Studio JBR과 SDK를 환경에 지정하고 fe/android에서:
+
+    .\gradlew.bat -I tools/local-preview/preview.init.gradle assembleCustomerDebug '-Pyamu.appIdSuffix=.qa550'
+    adb -s emulator-5554 install -r app/build/outputs/apk/customer/debug/app-customer-debug.apk
+    adb -s emulator-5554 reverse tcp:18550 tcp:18553
+    adb -s emulator-5554 shell am start -n com.yamu.app.qa550/com.yamu.app.QaLifePreviewActivity
+
+local.properties의 yamu.baseUrl=http://localhost:18550/api/가 필요하다.
+준비용 진입점은 기기만 등록한 뒤 MainActivity로 이동한다. 일반 실행은 런처의 YAMU qa550.
+로컬 테스트 PIN: 493827. 서버를 다시 만들었을 때만 준비용 진입점을 다시 실행한다.
+개발 진입점은 위 init script를 명시한 customerDebug에만 추가되고 일반 빌드/release에는 들어가지 않는다.
+
+### 변경 묶음
+1. LIFE 12개월 과거 구매·입출금·청구 및 시작 잔액 정합성.
+2. 계좌 이력 연결/출처 보존과 화면 QA 문구 제거.
+3. 카드명·알림·일정·메모·기기명 표시 정리, 계좌 끝자리 고정값 제거.
+4. 임시 MockMvc 중계에서 실제 HTTP 로컬 앱으로 교체, 재실행/검증 명령 정리.
+
+실제 금융거래, RDS 적재, 배포, push/MR merge는 수행하지 않는다.
+
+### 2026-11-16 표시용 테스트 상호 정리
+자연스러운 예시 상호이며, 실제 상점과의 거래를 의미하지 않는다.
+
+| 변경 대상 | 변경 전 | 변경 후 | 현재 로컬 변경 건수 |
+|---|---|---|---:|
+| 식당 가맹점 표시명 | 야무 테스트 식당 | 느티나무식당 | 1 |
+| 카페 가맹점 표시명 | 야무 테스트 카페 | 오월커피 | 1 |
+| 고정 지출 원본 제목 | 야무 테스트 식당 | 느티나무식당 | 2 |
+| 고정 지출 회차 제목 | 야무 테스트 식당 | 느티나무식당 | 2 |
+
+01-card-catalog.sql, POS 단말 표시명, 관련 계약 테스트의 표시명도 동일하게 수정했다.
+가맹점 ID/brand_code/업종, 거래 날짜·금액·상태, 반복 규칙, 알림 연결, 원장 출처는 변경하지 않았다.
+표시용 이름·제목·본문·메모 14개 테이블을 점검했으며 테스트/샘플/더미/QA/p0/test/dummy/sample/mock/fixture/local 검색 잔여는 0건이었다.
+결제 395건/24,455,000원, 계좌 거래 336건/82,585,500원, 청구 26건/12,162,000원의 변경 전후 집계가 동일했다.
+내부 테스트 코드·문서·식별자에는 원래 테스트 용도를 추적할 수 있도록 표기를 유지한다.
+
+### 2026-11-16 LIFE 알림을 운영 생성 코드와 통일
+- 임의로 최근 거래를 골라 만든 24개 알림 대신 가입일(2026-04-01) 이후 시드 사건을 재생한다.
+- 운영의 NotificationContentReader / NotificationMessages / NotificationWriter를 재사용한다. 가맹점·금액·카드명, 즉시할인, 청구 월·출금 예정일 문구와 설정 검사·중복 방지 키가 동일하다.
+- 운영은 커밋 이후 이벤트로 생성하고, 시드는 이미 존재하는 승인·취소·청구 확정·납부 완료 기록에서 생성한다. 금융 이벤트를 발행하거나 출금을 실행하지 않는다. 근거 없는 미납·환급·예보 알림은 만들지 않는다.
+- 생성 시각은 시드 실행 시각 대신 사건 시각이다. 신규 알림은 미읽음이며 같은 사건의 기존 읽음 상태는 보존한다. 가입 전 이력과 미래 사건은 제외한다.
+- 현재 로컬 적용 결과: 결제 승인 234개, 청구 확정 16개, 납부 완료 14개 = 264개. 기존 읽음 14개 보존, 재실행 추가 0개.
+- 앱 알림 화면에서 `쿠팡 27,000원을 신한카드 Mr.Life(으)로 결제했어요`와 사건 시각 표시를 확인했다. `(으)로` 표기도 운영 문구 원본 그대로다.
+- 결제 395건/24,455,000원, 계좌 거래 336건/82,585,500원, 청구 26건/12,162,000원은 적용 전후 동일하다. 실제 금융거래와 RDS 적재는 하지 않는다.
+- 검증: `gradlew.bat -I seed/qa/notifications.init.gradle checkSeedNotifications`.
+- 기존 로컬 DB에 알림만 적용: 같은 init script의 `replayLocalNotifications`. 테스트 전용 CLI가 loopback MySQL의 `test_<숫자>` DB만 허용한다. 접속 값은 환경변수로만 전달하고 출력하지 않는다.
+
+### 2026-11-16 화면별 운영 코드 대비 점검
+
+비교 기준: 실행 앱의 기반 커밋 `2c31e7c7`, fetch로 확인한 develop `5b5b99d3`.
+운영 서버의 실제 배포 커밋·환경변수·DB는 조회하지 않았다. 따라서 이 기록은 운영 배포와 완전히 동일하다는 보증이 아니다.
+
+| 화면 | 확인한 데이터 경로 | 남은 차이 / 해석 |
+|---|---|---|
+| 홈 | HomeRepositoryImpl → home, card-performances, benefit-limits, reports API | 고정 화면 수치는 없음. 현재 DB는 최신 혜택 소급 시드 미적용으로 이번 달 YAMU 혜택 없음 표시. 급여가 있어도 DAYS 예보에서는 홈 nextIncome이 null인 것은 기존 HomeService 분기이며 로컬 가짜 값이 아님 |
+| 잔고예보 | ForecastRepositoryImpl → forecasts/balance, living-cost, cashflow API | 금융 어댑터의 잔액 1,050,000 / 900,000 / 300,000원은 로컬 시작 조건. AI URL은 테스트 설정에서 비어 있어 운영 코드의 TSB 대체 계산 사용. 화면의 AI 생활비라는 명칭만으로 AI 서버 호출 성공을 판단하면 안 됨 |
+| 소비 분석 | ReportRepositoryImpl / AssetFlowRepositoryImpl → reports, payments, asset-flows API | 12개월 구매·계좌 과거 이력은 시드. 과거 잔고는 QA_SYNTHETIC 출처를 보존하며 시작 자금 연결 검증만 추가됨. 이전 요청에 따라 QA 설명을 중립 문구로 바꾼 4개 파일 외 화면 코드 변경 없음(기반 커밋 대비) |
+| 실적 관리 | PerformanceRepositoryImpl → card-performances, performance/analysis, benefit-limits API | 실적·판정은 서버 계산. 현재 앱의 혜택·한도는 최신 소급 시드 미적용 상태이므로 최신 시드 결과와 다름. 자연 소비 유지 등 판정을 화면에 하드코딩하지 않음 |
+| 마이페이지 | MyRepositoryImpl / LinkRepositoryImpl → users/me, cards, accounts, auth/devices, settings API | 실제 PIN 인증 사용. 최초 기기 등록만 test 전용 bootstrap. 최신 develop은 남은 청구가 있어도 카드 해제를 허용하지만 현재 실행 앱은 그 변경 전 버전 |
+
+공통으로 debug/release의 12개 Repository 바인딩이 일치한다. Fake 클래스는 develop에도 테스트용으로 남아 있지만 앱에 바인딩되지 않는다. 로컬 서버의 Mockito 대체 대상은 Clock, SsafyAccountApi, SsafyTransferApi, FinApiClient뿐이며 홈·예보·리포트·실적·사용자 서비스는 대체하지 않는다. 초기 시드 구성 후 Clock은 현재 시각을 반환한다.
+
+로컬 금융 조회는 고정 fixture이고 입출금 호출은 실패하도록 격리한다. 청구·알림 정기 작업과 결제 복구 작업은 test 설정에서 꺼져 있다. 금융망 연동·새 계좌 연결·실제 잔액 변화·정기 처리 타이밍은 이 앱으로 검증할 수 없다. 이를 숨기기 위해 성공 응답이나 지급 완료 데이터를 추가하지 않는다.
+
+현재 시드의 급여·월세·정기 구독·예정 이체·금액 미정 일정은 가계부에 저장한 예시 입력이지 운영 기본 제공 항목이 아니다. 카드 실적은 과거 구매의 집계이고, 상품 한도는 카탈로그 정책이다. 상품 정책의 과거 투영 한계는 LIFE-BENEFITS.md에 명시한다.
+
+이번 점검에서 5개 화면의 실제 UI 텍스트를 `build/local-app/parity-*.xml`에 남겼다(로컬 검증 산출물, 커밋 제외). 화면 조회 외 데이터 변경·재시드·카드 해제·실제 금융거래·RDS 적재는 하지 않았다.
+
+검사 보강:
+- `check-local-bindings.ps1`: debug/release 실제 Repository 연결과 로컬 대체 서비스 범위를 확인한다. 배포 버전이나 시드 최신성까지 보장하지 않는다.
+- `check-local-app.ps1`: 표시문구 검사 정규식의 공백·단어 경계를 수정하고 QA/p숫자/테스트/더미를 검사한다. 이 HTTP 검사는 기기를 재등록하므로 기존 에뮬레이터 세션을 끊을 수 있어 이번 점검에서는 재실행하지 않았다.
+- 스크립트 바인딩 검사와 표시문구 양성/음성 검사를 통과했다.
+
+### 2026-11-16 최신 혜택 시드 로컬 반영 완료
+
+위 점검에서 발견한 **최신 혜택 시드 미적용**은 사용자 승인 후 해소했다. AI 미연결, 금융 어댑터 격리, 실행 중인 서버/앱 기반 커밋 차이는 이번 혜택 이관의 대상이 아니다.
+
+- `QaLifeBenefits.apply`를 신규 시드 생성과 기존 로컬 이관이 공유한다. 정책 계산 결과 JSON과 기존 엔진은 바꾸지 않았다.
+- 기존 395개 구매의 ID·원금·상태를 보존하고 가입 후 234개를 최신 LIFE의 YAMU 이력으로 연결했다. 가입 전 161개는 SEED 유지.
+- 전체 이력의 청구할인 19,000원, 예상 포인트 19,000점 및 월별 한도 사용을 반영했다. 지급 완료 기록은 만들지 않았다.
+- 11월 확정 청구 897,500 → **896,500원**. 12월 누적 청구 **420,000원** 유지.
+- 과거 납부액 18,000원 감소를 과거 합성 원장에 반영했다. 합성 과거 이력만 기존 작성기로 다시 만들고 검증했으며 SSAFY 출처 행은 수정하지 않았다. 3계좌의 종료/시작 잔액 1,050,000 / 900,000 / 300,000원 유지.
+- 구매 합계 395건 / 24,455,000원 유지. PIN·예보/결제/알림 설정 보존. 청구 알림은 기존 ID·시각·읽음 상태를 보존하고 운영 문구 생성기로 금액만 갱신했다.
+- 신규 이관 도구는 test classpath의 `LocalLifeBenefitsUpgradeCli`이며 loopback의 `test_<숫자>` DB만 허용한다. 기본 실행은 전체 검증 후 롤백, `QA_LOCAL_BENEFITS_COMMIT=true`일 때만 커밋한다. 실행 태스크는 `notifications.init.gradle`의 `upgradeLocalLifeBenefits`이다. 기존 dataset fingerprint를 우회/덮어쓰지 않으며 일반 apply/enrich의 입력 변경 거절 정책은 유지한다.
+- 실제 실행 순서: dry run 전체 롤백 성공 → commit 성공 → 재실행 `Already upgraded; no writes` 확인. 신규 시드 및 운영 알림 테스트 18개 통과.
+- 앱 정상 PIN 로그인 후 홈에서 **11월 적립 1,000원 예정**, 소비 분석에서 **690,000원**, 실적 관리에서 기존 카드별 실적을 확인했다. 11월 한도 사용 합계 1,000원. 홈에 돌아간 상태로 두었다.
+- 실제 금융거래·RDS 적재·원격 배포는 실행하지 않았다.

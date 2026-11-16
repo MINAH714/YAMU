@@ -167,7 +167,7 @@ fun monthEmptyValue(kind: DayKind): String = if (kind == DayKind.TODAY) "확인�
 /** 날 종류 짧은 이름 — 날짜 칸 꼬리표 · 말풍선 · 읽어 주기가 같이 쓴다 */
 fun kindShortLabel(kind: DayKind): String = when (kind) {
     DayKind.ACTUAL -> "실제"
-    DayKind.SIMULATED -> "QA 합성"
+    DayKind.SIMULATED -> "과거"
     DayKind.TODAY -> "지금"
     DayKind.EXPECTED -> "예상"
     DayKind.NO_DATA -> "데이터 없음"

@@ -73,7 +73,7 @@ class AssetFlowRepositoryTest {
         assertEquals(DayKind.SIMULATED, synthetic.kind)
         assertEquals(0L, synthetic.value)
         assertTrue(synthetic.simulated)
-        assertTrue(assetDayLabel(synthetic).contains("QA 합성"))
+        assertTrue(assetDayLabel(synthetic).contains("과거"))
         assertEquals(DayKind.ACTUAL, actual.kind)
         assertFalse(actual.simulated)
         assertEquals(300000L, actual.value)
@@ -84,7 +84,7 @@ class AssetFlowRepositoryTest {
         val flow = AssetFlow(emptyList(), null, loadedAt = at)
         val panel = panelValue(synthetic, flow, month, today, null, at)
         assertEquals("0원", panel.first)
-        assertTrue(panel.second.contains("QA 합성"))
+        assertTrue(panel.second == "그날 끝 잔고")
         assertTrue(panelValue(actual, flow, month, today, null, at).second.contains("실제 잔고"))
     }
 

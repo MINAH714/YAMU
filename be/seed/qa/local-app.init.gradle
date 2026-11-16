@@ -1,0 +1,20 @@
+allprojects {
+    afterEvaluate {
+        if (plugins.hasPlugin('java')) {
+            tasks.register('localApp', Test) {
+                description = 'Run the real local HTTP API with isolated MySQL/Redis and LIFE fixtures.'
+                group = 'verification'
+                testClassesDirs = sourceSets.test.output.classesDirs
+                classpath = sourceSets.test.runtimeClasspath
+                useJUnitPlatform()
+                filter { includeTestsMatching 'com.yamu.be.seed.qa.QaLocalAppTest.serveLocalPreview' }
+                systemProperty 'spring.profiles.active', 'test'
+                systemProperty 'qa.localApp', 'true'
+                reports.html.outputLocation = layout.buildDirectory.dir('reports/local-app')
+                reports.junitXml.outputLocation = layout.buildDirectory.dir('test-results/local-app')
+                binaryResultsDirectory = layout.buildDirectory.dir('test-results/local-app/binary')
+                outputs.upToDateWhen { false }
+            }
+        }
+    }
+}

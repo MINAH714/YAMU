@@ -1,0 +1,28 @@
+2026-11-16 QA LIFE validation (isolated MySQL and unit tests)
+Command: .\gradlew.bat test --tests com.yamu.be.seed.qa.* --tests com.yamu.be.accounthistory.AccountHistoryStoreTest
+Total=45 Failures=0 Errors=0 Skipped=0
+No real SSAFY financial transactions or RDS deployment executed.
+
+com.yamu.be.accounthistory.AccountHistoryStoreTest: tests=12, failures=0, errors=0, skipped=0
+com.yamu.be.seed.qa.QaAssetHistoryPlanTest: tests=3, failures=0, errors=0, skipped=0
+com.yamu.be.seed.qa.QaEncryptedBindingsTest: tests=1, failures=0, errors=0, skipped=0
+com.yamu.be.seed.qa.QaHistoryPlanTest: tests=4, failures=0, errors=0, skipped=0
+com.yamu.be.seed.qa.QaIbkSeedSpecTest: tests=2, failures=0, errors=0, skipped=0
+com.yamu.be.seed.qa.QaLifeScenarioTest: tests=4, failures=0, errors=0, skipped=0
+com.yamu.be.seed.qa.QaSeedServiceTest: tests=19, failures=0, errors=0, skipped=0
+
+2026-11-16 December 2025 extension validation (separate disposable MySQL)
+Command: .\gradlew.bat -I build/life-extension/verify.init.gradle verifyLifeExtension --tests com.yamu.be.seed.qa.QaLifeScenarioTest --tests com.yamu.be.seed.qa.QaSeedServiceTest
+The temporary init script only separates test output directories from the running local preview.
+Equivalent when no preview test is running: .\gradlew.bat test --tests com.yamu.be.seed.qa.QaLifeScenarioTest --tests com.yamu.be.seed.qa.QaSeedServiceTest
+Total=27 Failures=0 Errors=0 Skipped=0
+QaLifeScenarioTest=6; QaSeedServiceTest=21
+Three users: 12 months x 3 consumption endpoints = 108 HTTP 200 responses.
+Three users: 4 added months x asset-flow endpoint = 12 HTTP 200 responses.
+All 9 account histories verified; all added days AVAILABLE; no partial errors.
+Pre-extension SHA-256 fingerprints preserved for March-onward purchases,
+April-onward bills, and April-onward transactions including every post-balance.
+No actual bank transactions, RDS loading, or running preview database replacement.
+Summary: LIFE-EXTENSION-VALIDATION.json
+
+2026-11-16 benefits replay: 29 tests passed, 0 failures/errors/skips. 108 report HTTP 200 + 12 asset-flow HTTP 200. No real financial transactions or RDS writes.

@@ -20,7 +20,7 @@ class PaymentContractTest {
         val status = YamuJson.decodeFromString<BarcodeStatusResponse>(
             """{"status":"SCANNED","expiresAt":"2026-11-03T01:01:00Z","payment":{
               "paymentId":9,"status":"REQUESTED",
-              "merchant":{"merchantId":3,"name":"야무 테스트 카페","categoryCode":"COFFEE_SHOP","channel":"OFFLINE"},
+              "merchant":{"merchantId":3,"name":"오월커피","categoryCode":"COFFEE_SHOP","channel":"OFFLINE"},
               "amount":15000,"plan":"INSTALLMENT","installmentMonths":3,"confirmDeadline":"2026-11-03T01:01:00Z",
               "recommendation":{"recommendationId":"r1","calculatedAt":"2026-11-03T01:00:00Z","status":"READY",
                 "candidates":[{"rank":1,"userCardId":7,"nickname":"Mr.Life","cardType":"CREDIT","maskedNumber":"****-1234",
@@ -30,7 +30,7 @@ class PaymentContractTest {
         )
         assertEquals(3, status.payment?.installmentMonths)
         val request = status.toStatus().request!!
-        assertEquals("야무 테스트 카페", request.merchantName)
+        assertEquals("오월커피", request.merchantName)
         assertNull(request.categoryName)
         assertEquals(7L, request.cards.single().userCardId)
         assertEquals("1234", request.cards.single().last4)
