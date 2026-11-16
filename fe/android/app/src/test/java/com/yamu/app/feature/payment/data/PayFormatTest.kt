@@ -70,6 +70,11 @@ class PayFormatTest {
         assertNull(receipt(amount = 10_000, charged = null).instantDiscountText())
     }
 
+    @Test fun `취소된 결제는 즉시할인 한 줄을 보이지 않는다`() {
+        // 취소 뒤에도 chargedAmount는 승인 당시 값(5,940원)이 그대로 온다
+        assertNull(receipt(amount = 6_600, charged = 5_940).copy(status = PayStatus.CANCELED).instantDiscountText())
+    }
+
     private fun receipt(amount: Long, charged: Long?) = PaymentReceipt(
         paymentId = 1, merchantName = "GS25", categoryName = null, amount = amount, paidAtIso = null, cardId = null, cardBrand = null,
         cardName = null, cardLast4 = null, isCheck = false, approvalNo = null, installmentMonths = null, benefits = emptyList(),
