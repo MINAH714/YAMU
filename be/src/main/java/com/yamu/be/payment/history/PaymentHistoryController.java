@@ -112,7 +112,7 @@ class PaymentHistoryController {
     }
 
     @Operation(summary = "결제 상세 조회",
-            description = "결제 한 건의 상태 이력·적용 혜택·한도 사용·청구 회차·환급. 없는 결제나 다른 사용자의 결제는 404 RESOURCE_NOT_FOUND.")
+            description = "결제 한 건의 상태 이력·적용 혜택·한도 사용·청구 회차·환급·메모(없으면 null). 없는 결제나 다른 사용자의 결제는 404 RESOURCE_NOT_FOUND.")
     @GetMapping("/{paymentId}")
     ApiResponse<PaymentDetailResponse> detail(@AuthenticationPrincipal AuthUser me, @PathVariable Long paymentId) {
         return ApiResponse.ok(service.detail(me, paymentId));

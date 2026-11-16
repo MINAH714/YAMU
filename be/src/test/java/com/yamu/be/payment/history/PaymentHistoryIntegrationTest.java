@@ -3,7 +3,9 @@ package com.yamu.be.payment.history;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.contains;
 import static org.hamcrest.Matchers.endsWith;
+import static org.hamcrest.Matchers.hasKey;
 import static org.hamcrest.Matchers.hasSize;
+import static org.hamcrest.Matchers.not;
 import static org.hamcrest.Matchers.nullValue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -356,6 +358,25 @@ class PaymentHistoryIntegrationTest extends MySqlTestSupport {
                 .andExpect(jsonPath("$.data.statusHistory[1].at").value(nullValue()))
                 .andExpect(jsonPath("$.data.billItems", hasSize(0)))
                 .andExpect(jsonPath("$.data.installmentPolicy").value(nullValue()));
+    }
+
+    @Test
+    void 상세는_목록과_같은_메모를_보여주고_메모가_없으면_null_칸이다() throws Exception {
+        long withMemo = approved(owner, card, OCT_10, 12_000, 1);
+        jdbc.update("UPDATE payment_transaction SET memo = '팀 회식 정산', memo_updated_at = ? WHERE payment_transaction_id = ?",
+                OCT_10.plusHours(1), withMemo);
+        long withoutMemo = declined(owner, card, OCT_10.plusHours(2));
+
+        mockMvc.perform(get("/api/payments/" + withMemo).with(AuthUsers.asUser(owner)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.memo").value("팀 회식 정산"))
+                .andExpect(jsonPath("$.data", not(hasKey("memoUpdatedAt"))));
+        mockMvc.perform(get("/api/payments/" + withoutMemo).with(AuthUsers.asUser(owner)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data", hasKey("memo")))
+                .andExpect(jsonPath("$.data.memo").value(nullValue()));
+        mockMvc.perform(list().param("yearMonth", OCTOBER).param("status", "APPROVED"))
+                .andExpect(jsonPath("$.data.items[0].memo").value("팀 회식 정산"));
     }
 
     @Test

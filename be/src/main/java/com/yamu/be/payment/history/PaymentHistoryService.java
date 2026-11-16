@@ -172,7 +172,8 @@ class PaymentHistoryService {
                 null,
                 statusHistory(item, row),
                 failure(row.failureCode()),
-                installmentPolicy(item, billItems));
+                installmentPolicy(item, billItems),
+                item.memo());
     }
 
     private static PaymentDetailResponse.SelectedCard selectedCard(PaymentListResponse.Item item, PaymentRow row) {
