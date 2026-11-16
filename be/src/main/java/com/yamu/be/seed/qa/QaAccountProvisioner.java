@@ -153,34 +153,53 @@ public final class QaAccountProvisioner {
         require(cards.size() == 4, STATE_CHANGED);
         require(count("SELECT COUNT(*) FROM user_device WHERE public_key=? AND user_id<>?", device.publicKey(), userId) == 0,
                 DEVICE_CONFLICT);
+        // Revoked/disconnected rows are audit history, not current credentials or connections.
+        require(devices.stream().allMatch(row -> List.of("ACTIVE", "REVOKED").contains(row.get("status"))), STATE_CHANGED);
+        require(accounts.stream().allMatch(row -> List.of("CONNECTED", "DISCONNECTED").contains(row.get("status"))), STATE_CHANGED);
+        var activeDevices = devices.stream().filter(row -> "ACTIVE".equals(row.get("status"))).toList();
+        var connectedAccounts = accounts.stream().filter(row -> "CONNECTED".equals(row.get("status"))).toList();
         boolean prepared = "ACTIVE".equals(user.get("status"));
         if (prepared) {
-            require(user.get("pin_hash") != null && user.get("identity_verified_at") != null && devices.size() == 1,
+            require(user.get("pin_hash") != null && user.get("identity_verified_at") != null && activeDevices.size() == 1,
                     STATE_CHANGED);
-            var registered = devices.get(0);
+            var registered = activeDevices.get(0);
             require(device.deviceId().equals(registered.get("device_uuid"))
                     && device.publicKey().equals(registered.get("public_key"))
                     && "EC_P256".equals(registered.get("key_algorithm"))
                     && "ACTIVE".equals(registered.get("status"))
                     && count("SELECT COUNT(*) FROM user_device_event WHERE user_device_id=? AND event_type='REGISTERED' AND reason=?",
                         registered.get("user_device_id"), EVENT_PREFIX + device.bindingDigest()) == 1, DEVICE_CONFLICT);
-            require(accounts.size() == 3, STATE_CHANGED);
+            require(connectedAccounts.size() == 3, STATE_CHANGED);
         } else {
             require("PENDING".equals(user.get("status")) && user.get("pin_hash") == null && user.get("pin_updated_at") == null
-                    && user.get("identity_verified_at") == null && devices.isEmpty() && accounts.isEmpty()
+                    && user.get("identity_verified_at") == null && activeDevices.isEmpty() && connectedAccounts.isEmpty()
                     && !Boolean.TRUE.equals(members.get(0).get("enriched")), STATE_CHANGED);
+            require(devices.stream().noneMatch(row -> device.deviceId().equals(row.get("device_uuid"))
+                    || device.publicKey().equals(row.get("public_key"))), DEVICE_CONFLICT);
         }
+        var currentAccounts = new ArrayList<Map<String, Object>>();
         int primary = 0;
         for (var expected : person.accounts()) {
             byte[] hash = lookup.account(expected.bankCode(), expected.accountNo());
             require(count("SELECT COUNT(*) FROM linked_account WHERE bank_code=? AND account_no_hash=? AND user_id<>?",
                     expected.bankCode(), hash, userId) == 0, ACCOUNT_CONFLICT);
             if (prepared) {
-                var account = account(accounts, expected);
+                var account = account(connectedAccounts, expected);
                 require("CONNECTED".equals(account.get("status"))
                         && expected.accountNo().equals(cipher.decrypt((byte[]) account.get("account_no_enc"), CipherField.LINKED_ACCOUNT_NO)),
                         STATE_CHANGED);
                 if (Boolean.TRUE.equals(account.get("is_primary"))) primary++;
+                currentAccounts.add(account);
+            } else {
+                var matches = matchingAccounts(accounts, expected);
+                require(matches.size() <= 1, STATE_CHANGED);
+                if (!matches.isEmpty()) {
+                    var account = matches.get(0);
+                    // A matching lookup hash is insufficient: verify the encrypted number as well.
+                    require(expected.accountNo().equals(cipher.decrypt((byte[]) account.get("account_no_enc"),
+                            CipherField.LINKED_ACCOUNT_NO)) && !Boolean.TRUE.equals(account.get("is_primary")), STATE_CHANGED);
+                    currentAccounts.add(account);
+                }
             }
         }
         if (prepared) require(primary == 1, STATE_CHANGED);
@@ -203,14 +222,18 @@ public final class QaAccountProvisioner {
             else require("PENDING".equals(card.get("status")) && card.get("registered_at") == null
                     && card.get("linked_account_id") == null, STATE_CHANGED);
         }
-        return new State(spec, device, userId, user, cards, accounts, devices, prepared);
+        return new State(spec, device, userId, user, cards, currentAccounts, activeDevices, prepared);
     }
 
     private Map<String, Object> account(List<Map<String, Object>> rows, QaSeedSpec.Account expected) {
-        var matches = rows.stream().filter(row -> expected.bankCode().equals(row.get("bank_code"))
-                && Arrays.equals(lookup.account(expected.bankCode(), expected.accountNo()), (byte[]) row.get("account_no_hash"))).toList();
+        var matches = matchingAccounts(rows, expected);
         require(matches.size() == 1, STATE_CHANGED);
         return matches.get(0);
+    }
+
+    private List<Map<String, Object>> matchingAccounts(List<Map<String, Object>> rows, QaSeedSpec.Account expected) {
+        return rows.stream().filter(row -> expected.bankCode().equals(row.get("bank_code"))
+                && Arrays.equals(lookup.account(expected.bankCode(), expected.accountNo()), (byte[]) row.get("account_no_hash"))).toList();
     }
 
     private void prepare(State state, String pin) throws Exception {
@@ -219,13 +242,24 @@ public final class QaAccountProvisioner {
         Map<String, Long> ids = new HashMap<>();
         for (int i = 0; i < person.accounts().size(); i++) {
             var account = person.accounts().get(i);
-            long id = seed.insert("""
+            var reusable = matchingAccounts(state.accounts, account);
+            long id;
+            if (!reusable.isEmpty()) {
+                id = ((Number) reusable.get(0).get("linked_account_id")).longValue();
+                require(db.update("""
+                        UPDATE linked_account SET status='CONNECTED',is_primary=?,connected_at=?,disconnected_at=NULL,
+                            updated_at=?,version=version+1
+                        WHERE linked_account_id=? AND user_id=? AND status='DISCONNECTED'
+                        """, i == 0, now, now, id, state.userId) == 1, STATE_CHANGED);
+            } else {
+                id = seed.insert("""
                     INSERT INTO linked_account(user_id,bank_code,account_no_enc,account_no_hash,account_last4,
                         status,is_primary,connected_at,created_at,updated_at)
                     VALUES (?,?,?,?,?,'CONNECTED',?,?,?,?)
                     """, state.userId, account.bankCode(), cipher.encrypt(account.accountNo(), CipherField.LINKED_ACCOUNT_NO),
                     lookup.account(account.bankCode(), account.accountNo()), account.accountNo().substring(account.accountNo().length()-4),
                     i == 0, now, now, now);
+            }
             ids.put(account.bankCode(), id);
         }
         for (var card : state.cards) {

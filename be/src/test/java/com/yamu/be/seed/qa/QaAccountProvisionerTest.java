@@ -215,6 +215,101 @@ class QaAccountProvisionerTest extends MySqlTestSupport {
         assertThat(count("linked_account")).isZero();
     }
 
+    @Test void preservesWithdrawalAuditAndReusesOnlyVerifiedDisconnectedAccount() throws Exception {
+        var old = addWithdrawalAudit();
+        var auditAccount = snapshot("SELECT * FROM linked_account WHERE linked_account_id=" + old[1]);
+        var devicesBefore = snapshot("SELECT * FROM user_device ORDER BY user_device_id");
+        var eventsBefore = snapshot("SELECT * FROM user_device_event ORDER BY user_device_event_id");
+        var purchases = history();
+        var benefits = snapshot("SELECT * FROM payment_benefit ORDER BY payment_benefit_id");
+        var performance = snapshot("SELECT * FROM card_monthly_performance ORDER BY card_monthly_performance_id");
+        var plan = tool.run("plan", specs, manifest, Map.of());
+        assertThat(plan.targets().get(0).userDeviceId()).isNull();
+        assertThat(count("linked_account")).isEqualTo(2);
+        var result = tool.run("prepare", specs, manifest, pins);
+        assertThat(result.targets().get(0).linkedAccountIds()).contains(old[0]).doesNotContain(old[1]);
+        assertThat(count("linked_account")).isEqualTo(10); // nine live accounts plus the wiped audit row
+        assertThat(count("user_device")).isEqualTo(4); // three new devices plus the revoked audit row
+        assertThat(db.queryForObject("SELECT COUNT(*) FROM linked_account WHERE status='CONNECTED'", Long.class)).isEqualTo(9);
+        assertThat(snapshot("SELECT * FROM linked_account WHERE linked_account_id=" + old[1])).isEqualTo(auditAccount);
+        assertThat(snapshot("SELECT * FROM user_device WHERE status='REVOKED' ORDER BY user_device_id")).isEqualTo(devicesBefore);
+        assertThat(snapshot("SELECT * FROM user_device_event WHERE user_device_id=" + old[2] + " ORDER BY user_device_event_id")).isEqualTo(eventsBefore);
+        assertThat(history()).isEqualTo(purchases);
+        assertThat(snapshot("SELECT * FROM payment_benefit ORDER BY payment_benefit_id")).isEqualTo(benefits);
+        assertThat(snapshot("SELECT * FROM card_monthly_performance ORDER BY card_monthly_performance_id")).isEqualTo(performance);
+        assertThat(tool.run("prepare", specs, manifest, pins).targets()).isEqualTo(result.targets());
+        assertThat(tool.run("verify", specs, manifest, Map.of()).targets()).isEqualTo(result.targets());
+        for (var spec : specs) { seed.run("enrich", spec); seed.run("verify", spec); }
+        assertThat(tool.run("verify", specs, manifest, Map.of()).targets()).isEqualTo(result.targets());
+    }
+
+    @Test void neverReusesRevokedDeviceIdentityOrAcceptsActivePartialOnboarding() throws Exception {
+        var old = addWithdrawalAudit();
+        var proof = manifest.devices().get(0);
+        db.update("UPDATE user_device SET device_uuid=? WHERE user_device_id=?", proof.deviceId(), old[2]);
+        assertThatThrownBy(() -> tool.run("prepare", specs, manifest, pins)).hasMessage(DEVICE_CONFLICT.name());
+        db.update("UPDATE user_device SET device_uuid=?,public_key=? WHERE user_device_id=?", java.util.UUID.randomUUID().toString(), proof.publicKey(), old[2]);
+        assertThatThrownBy(() -> tool.run("prepare", specs, manifest, pins)).hasMessage(DEVICE_CONFLICT.name());
+        db.update("UPDATE user_device SET public_key='withdrawn:audit',status='ACTIVE' WHERE user_device_id=?", old[2]);
+        assertThatThrownBy(() -> tool.run("prepare", specs, manifest, pins)).hasMessage(STATE_CHANGED.name());
+        db.update("UPDATE user_device SET status='REVOKED' WHERE user_device_id=?", old[2]);
+        db.update("UPDATE linked_account SET status='CONNECTED' WHERE linked_account_id=?", old[0]);
+        assertThatThrownBy(() -> tool.run("prepare", specs, manifest, pins)).hasMessage(STATE_CHANGED.name());
+        assertThat(count("linked_account")).isEqualTo(2);
+        assertThat(count("user_device")).isEqualTo(1);
+        assertThat(db.queryForObject("SELECT COUNT(*) FROM app_user WHERE status='PENDING'", Long.class)).isEqualTo(3);
+    }
+
+    @Test void disconnectedLookupHashAloneCannotAuthorizeReuse() throws Exception {
+        var old = addWithdrawalAudit();
+        var cipher = new com.yamu.be.global.crypto.PersonalDataCipher(new CryptoKeys(crypto), new java.security.SecureRandom());
+        db.update("UPDATE linked_account SET account_no_enc=? WHERE linked_account_id=?",
+                cipher.encrypt("999999999999", com.yamu.be.global.crypto.CipherField.LINKED_ACCOUNT_NO), old[0]);
+        var before = snapshot("SELECT * FROM linked_account ORDER BY linked_account_id");
+        assertThatThrownBy(() -> tool.run("prepare", specs, manifest, pins)).hasMessage(STATE_CHANGED.name());
+        assertThat(snapshot("SELECT * FROM linked_account ORDER BY linked_account_id")).isEqualTo(before);
+        assertThat(count("user_device")).isEqualTo(1);
+    }
+
+    @Test void failureAfterReconnectRollsBackAuditAndAllThreeUsers() throws Exception {
+        addWithdrawalAudit();
+        var accounts = snapshot("SELECT * FROM linked_account ORDER BY linked_account_id");
+        var devices = snapshot("SELECT * FROM user_device ORDER BY user_device_id");
+        var users = snapshot("SELECT * FROM app_user ORDER BY user_id");
+        var cards = snapshot("SELECT * FROM user_card ORDER BY user_card_id");
+        db.execute("ALTER TABLE user_device ADD CONSTRAINT reject_second_qa_device CHECK(user_id<>" + user(specs.get(1)) + ")");
+        try { assertThatThrownBy(() -> tool.run("prepare", specs, manifest, pins)).isInstanceOf(java.sql.SQLException.class); }
+        finally { db.execute("ALTER TABLE user_device DROP CHECK reject_second_qa_device"); }
+        assertThat(snapshot("SELECT * FROM linked_account ORDER BY linked_account_id")).isEqualTo(accounts);
+        assertThat(snapshot("SELECT * FROM user_device ORDER BY user_device_id")).isEqualTo(devices);
+        assertThat(snapshot("SELECT * FROM app_user ORDER BY user_id")).isEqualTo(users);
+        assertThat(snapshot("SELECT * FROM user_card ORDER BY user_card_id")).isEqualTo(cards);
+    }
+
+    private long[] addWithdrawalAudit() throws Exception {
+        long user = user(specs.get(0));
+        var expected = specs.get(0).personas().get(0).accounts().get(0);
+        var keys = new CryptoKeys(crypto);
+        var cipher = new com.yamu.be.global.crypto.PersonalDataCipher(keys, new java.security.SecureRandom());
+        long reusable = seed.insert("""
+                INSERT INTO linked_account(user_id,bank_code,account_no_enc,account_no_hash,account_last4,status,is_primary,
+                  connected_at,disconnected_at,created_at,updated_at)
+                VALUES (?,?,?,?,'0001','DISCONNECTED',FALSE,UTC_TIMESTAMP(),UTC_TIMESTAMP(),UTC_TIMESTAMP(),UTC_TIMESTAMP())
+                """, user, expected.bankCode(), cipher.encrypt(expected.accountNo(), com.yamu.be.global.crypto.CipherField.LINKED_ACCOUNT_NO),
+                new LookupHasher(keys).account(expected.bankCode(), expected.accountNo()));
+        long wiped = seed.insert("""
+                INSERT INTO linked_account(user_id,bank_code,account_no_enc,account_no_hash,account_last4,status,is_primary,
+                  connected_at,disconnected_at,created_at,updated_at)
+                VALUES (?,'003',?,?,'0003','DISCONNECTED',FALSE,UTC_TIMESTAMP(),UTC_TIMESTAMP(),UTC_TIMESTAMP(),UTC_TIMESTAMP())
+                """, user, cipher.encrypt("withdrawn-random", com.yamu.be.global.crypto.CipherField.LINKED_ACCOUNT_NO), new byte[32]);
+        long revoked = seed.insert("""
+                INSERT INTO user_device(user_id,device_uuid,public_key,key_algorithm,platform,status,created_at,updated_at)
+                VALUES (?,?,'withdrawn:audit','EC_P256','ANDROID','REVOKED',UTC_TIMESTAMP(),UTC_TIMESTAMP())
+                """, user, java.util.UUID.randomUUID().toString());
+        seed.insert("INSERT INTO user_device_event(user_device_id,event_type,reason,created_at) VALUES (?,'REVOKED','withdrawal audit',UTC_TIMESTAMP())", revoked);
+        return new long[]{reusable,wiped,revoked};
+    }
+
     private long user(QaSeedSpec spec) { return db.queryForObject("SELECT user_id FROM qa_seed_member WHERE dataset_key=?", Long.class, spec.datasetKey()); }
     private long count(String table) { return db.queryForObject("SELECT COUNT(*) FROM " + table, Long.class); }
     private List<Map<String, Object>> history() { return snapshot("SELECT * FROM payment_transaction ORDER BY payment_transaction_id"); }
