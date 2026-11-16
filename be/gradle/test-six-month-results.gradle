@@ -1,0 +1,35 @@
+import org.gradle.api.GradleException
+
+// Runs against synthetic reports; never invokes the approved experiment.
+def good = '<testcase classname="com.yamu.be.recommendation.CardSelectionSixMonthTest" name="approvedSixMonthComparison()"/>'
+def ran = [total: 1L, failed: 0L, skipped: 0L]
+def cases = [
+    [name: 'one executed success', xml: "<testsuite>${good}</testsuite>", execution: ran, accepted: true],
+    [name: 'missing report', execution: ran],
+    [name: 'empty suite', xml: '<testsuite/>', execution: ran],
+    [name: 'malformed report', xml: '<testsuite>', execution: ran],
+    [name: 'two tests', xml: "<testsuite>${good}${good}</testsuite>", execution: ran],
+    [name: 'wrong identity', xml: "<testsuite>${good.replace('approvedSixMonthComparison', 'preflightSixMonthBoundaries')}</testsuite>", execution: ran],
+    [name: 'failure', xml: "<testsuite>${good.replace('/>', '><failure/></testcase>')}</testsuite>", execution: ran],
+    [name: 'error', xml: "<testsuite>${good.replace('/>', '><error/></testcase>')}</testsuite>", execution: ran],
+    [name: 'skip XML', xml: "<testsuite>${good.replace('/>', '><skipped/></testcase>')}</testsuite>", execution: ran],
+    [name: 'Docker unavailable', xml: "<testsuite>${good.replace('/>', '><skipped/></testcase>')}</testsuite>", execution: [total: 1L, failed: 0L, skipped: 1L]],
+    [name: 'old successful XML without execution', xml: "<testsuite>${good}</testsuite>", execution: null],
+    [name: 'NO-SOURCE or filtered out', xml: "<testsuite>${good}</testsuite>", execution: [total: 0L, failed: 0L, skipped: 0L]],
+    [name: 'failed event with old success XML', xml: "<testsuite>${good}</testsuite>", execution: [total: 1L, failed: 1L, skipped: 0L]],
+    [name: 'two reports', xml: "<testsuite>${good}</testsuite>", execution: ran, duplicate: true],
+]
+cases.each { fixture ->
+    File directory = java.nio.file.Files.createTempDirectory(tempRoot.toPath(), 'report-').toFile()
+    if (fixture.xml != null) new File(directory, 'TEST-experiment.xml').setText(fixture.xml, 'UTF-8')
+    if (fixture.duplicate) new File(directory, 'TEST-other.xml').setText(fixture.xml, 'UTF-8')
+    boolean accepted = false
+    try {
+        verifyResult(directory, fixture.execution)
+        accepted = true
+    } catch (GradleException expected) {
+        assert expected.message.startsWith('Six-month experiment result rejected:')
+    }
+    assert accepted == (fixture.accepted ?: false): fixture.name
+}
+println "Six-month result gate: ${cases.size()} regression cases passed (synthetic reports only)"

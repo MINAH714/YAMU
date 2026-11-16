@@ -59,7 +59,20 @@ dependencies {
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 }
 
+apply from: 'gradle/six-month-results.gradle'
+
+tasks.register('testSixMonthResultGate') {
+    group = 'verification'
+    description = 'Test the experiment result gate using synthetic reports, without running the experiment.'
+    doLast {
+        new GroovyShell(this.class.classLoader, new Binding([
+            verifyResult: project.ext.verifySixMonthResults, tempRoot: temporaryDir
+        ])).evaluate(file('gradle/test-six-month-results.gradle'))
+    }
+}
+
 tasks.named('test') {
+    dependsOn tasks.named('testSixMonthResultGate')
     useJUnitPlatform {
         // 승인형 본 실험은 별도 태스크에서만 선택한다. 사전 경계 검사는 그대로 실행한다.
         excludeTags 'six-month-approved-experiment'
@@ -68,7 +81,18 @@ tasks.named('test') {
     systemProperty 'spring.profiles.active', 'test'
 }
 
+def experimentExecution = [result: null]
+def experimentResultGate = tasks.register('verifySixMonthExperimentResult') {
+    group = 'verification'
+    description = 'Reject skipped, missing, stale or unsuccessful approved experiment results.'
+    doLast {
+        def experiment = tasks.named('sixMonthExperiment', Test).get()
+        project.ext.verifySixMonthResults(experiment.reports.junitXml.outputLocation.get().asFile, experimentExecution.result)
+    }
+}
+
 tasks.register('sixMonthExperiment', Test) {
+    finalizedBy experimentResultGate
     group = 'verification'
     description = 'Run the explicitly approved EXP-006 six-month comparison.'
     testClassesDirs = sourceSets.test.output.classesDirs
@@ -80,6 +104,11 @@ tasks.register('sixMonthExperiment', Test) {
     // 승인된 재실행은 매번 새 결과를 만든다. 이전 성공으로 승인 검사를 우회하지 않는다.
     outputs.upToDateWhen { false }
     outputs.doNotCacheIf('An approved experiment must execute on every invocation') { true }
+    afterSuite { descriptor, result ->
+        if (descriptor.parent == null) {
+            experimentExecution.result = [total: result.testCount, failed: result.failedTestCount, skipped: result.skippedTestCount]
+        }
+    }
     doFirst {
         if (System.getenv('YAMU_EXP006_EXECUTE') != 'APPROVED_6_MONTHS_V1') {
             throw new GradleException('sixMonthExperiment requires YAMU_EXP006_EXECUTE=APPROVED_6_MONTHS_V1; no experiment was started.')

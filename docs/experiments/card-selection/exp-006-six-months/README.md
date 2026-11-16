@@ -102,6 +102,10 @@ $run='docs/experiments/card-selection/exp-006-six-months/runs/main-2026-11-13T08
 
 일반 테스트 보고서는 `be/build/test-results/test`와 `be/build/reports/tests/test`, 본 실험 보고서는 `be/build/test-results/sixMonthExperiment`와 `be/build/reports/tests/sixMonthExperiment`에 각각 생성된다. Docker로 일회용 MySQL·Redis 컨테이너를 실행할 수 있어야 한다.
 
+본 실험 태스크의 finalizer는 이번 실행의 테스트 이벤트와 JUnit XML을 함께 검사한다. 정확히 `approvedSixMonthComparison()` 1건이 실행되고 실패·오류·스킵이 모두 0이어야 성공한다. Docker 미사용으로 인한 스킵, 빈 결과, `NO-SOURCE`, 이전 실행 XML만 남은 경우도 실패한다. `--test-dry-run` 역시 실제 실행 성공으로 인정하지 않는다. 결과 게이트만 직접 호출해도 현재 실행 이벤트가 없으므로 실패한다.
+
+`gradlew.bat testSixMonthResultGate`는 합성 XML과 실행 집계로 결과 검사 회귀 테스트를 수행하며 본 실험은 실행하지 않는다. 일반 `test`와 `build`에서도 이 회귀 검사를 수행한다.
+
 Windows JDK 17의 기본 인코딩이 MS949라면 한글 SQL을 읽는 기존 QA 시드 테스트가 실패할 수 있다. 일반 전체 테스트를 검증할 때는 실행 터미널에서 `$env:JAVA_TOOL_OPTIONS='-Dfile.encoding=UTF-8'`로 UTF-8을 지정한다. 이 설정은 본 실험 승인과 별개다.
 
 실험 산출물은 `build/`가 아닌 이 문서 폴더에 저장된다. [검산 결과](runs/main-2026-11-13T08-12-30.835208800Z-001549c3-9328-424e-b65b-38762aadac1e/independent-verification.json)와 [실행 검증](runs/main-2026-11-13T08-12-30.835208800Z-001549c3-9328-424e-b65b-38762aadac1e/validation.json)도 함께 확인할 수 있다.
