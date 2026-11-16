@@ -31,7 +31,7 @@ class QaAccountSetupActivity : FragmentActivity() {
     @Inject lateinit var keys: DeviceKeyManager
     @Inject lateinit var tokens: TokenStore
 
-    // SAF works on a non-debuggable release APK too; only the public proof is exported.
+    // Export only the public proof; this Activity is included by the explicit debug-only init script.
     private val saveProof = registerForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
         if (uri != null) lifecycleScope.launch {
             try {
