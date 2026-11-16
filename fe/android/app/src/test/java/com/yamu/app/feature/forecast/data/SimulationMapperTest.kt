@@ -43,8 +43,8 @@ class SimulationMapperTest {
         merchantId = null, merchantName = null, channel = PaymentChannel.OFFLINE, userCardId = null, installmentMonths = null, purchaseDate = nov8,
     )
 
-    private fun body(q: SimulationQuery, period: ForecastPeriod? = null): JsonObject =
-        YamuJson.encodeToJsonElement(SimulationRequest.serializer(), q.toRequest(listOf(3, 4), period)).jsonObject
+    private fun body(q: SimulationQuery): JsonObject =
+        YamuJson.encodeToJsonElement(SimulationRequest.serializer(), q.toRequest(listOf(3, 4))).jsonObject
 
     @Test fun `요청 — paymentChannel은 늘, 일시불이면 plan · installmentMonths · userCardId를 아예 빼고 보낸다`() {
         val json = body(query)
@@ -53,23 +53,24 @@ class SimulationMapperTest {
         assertFalse("installmentMonths" in json)
         assertFalse("userCardId" in json)               // 빼면 혜택이 가장 큰 카드
         assertFalse("merchantId" in json)
-        assertFalse("until" in json)                    // 기간을 고르지 않았으면 잔고예보 설정
         assertEquals(JsonPrimitive("HYPERMARKET"), json["merchantCategoryCode"])
         assertEquals(JsonPrimitive("2026-11-08"), json["purchaseDate"])
         assertEquals("[3,4]", json["accountIds"].toString())
     }
 
-    @Test fun `요청 — 할부 · 카드 · 온라인 · N일`() {
-        val json = body(query.copy(installmentMonths = 3, userCardId = 11, channel = PaymentChannel.ONLINE, merchantId = 201), ForecastPeriod.DAYS_14)
+    @Test fun `요청 — 기간은 늘 오늘부터 30일, 계좌별 전후도 받는다(-589)`() {
+        val json = body(query)
+        assertEquals(JsonPrimitive("DAYS"), json["until"])     // N일은 until=DAYS와 days를 같이(BE -318)
+        assertEquals(JsonPrimitive(30), json["days"])
+        assertEquals(JsonPrimitive(true), json["includeAccountDetails"])
+    }
+
+    @Test fun `요청 — 할부 · 카드 · 온라인`() {
+        val json = body(query.copy(installmentMonths = 3, userCardId = 11, channel = PaymentChannel.ONLINE, merchantId = 201))
         assertEquals(JsonPrimitive("INSTALLMENT"), json["plan"])
         assertEquals(JsonPrimitive(3), json["installmentMonths"])
         assertEquals(JsonPrimitive(11), json["userCardId"])
         assertEquals(JsonPrimitive("ONLINE"), json["paymentChannel"])
-        assertEquals(JsonPrimitive("DAYS"), json["until"])     // N일은 until=DAYS와 days를 같이(BE -318)
-        assertEquals(JsonPrimitive(14), json["days"])
-        val next = body(query, ForecastPeriod.NEXT_INCOME)
-        assertEquals(JsonPrimitive("NEXT_INCOME"), next["until"])
-        assertFalse("days" in next)
     }
 
     /** 사용자가 생활카드를 골랐는데 1순위는 알뜰카드 · 비교 못 한 카드 · 소수 혜택 · 기간 밖 회차 · 모르는 빠진 정보 코드 */
@@ -132,6 +133,72 @@ class SimulationMapperTest {
         val s = parse()
         assertNull(s.after!!.riskStartDate)
         assertNull(s.before!!.riskStartDate)
+    }
+
+    // ── 카드 출금 계좌 부족(-589) — 계좌 3(카드 11) · 계좌 4(카드 16) ──
+
+    private val kb = ForecastAccountOption(3, "KB 입출금", "KB국민은행", "1234", 300_000, isPrimary = true, cardIds = setOf(11))
+    private val shinhan = ForecastAccountOption(4, "신한 입출금", "신한은행", "5678", 200_000, isPrimary = false, cardIds = setOf(16))
+
+    /** 계좌 3의 사기 전 · 후 최저 잔액과 날짜 */
+    private fun withAccounts(before: Long, after: Long, date: String = "2026-11-20") = response.replace(
+        """"accountComparisons":null""",
+        """"accountComparisons":[
+            {"accountId":3,"before":{"minBalance":$before,"minBalanceDate":"2026-11-10","endBalance":$before,"status":"SAFE"},
+                           "after":{"minBalance":$after,"minBalanceDate":"$date","endBalance":$after,"status":"DANGER","riskStartDate":"2026-11-12"}},
+            {"accountId":4,"before":{"minBalance":-5000,"minBalanceDate":"2026-11-15","endBalance":0,"status":"DANGER"},
+                           "after":{"minBalance":-5000,"minBalanceDate":"2026-11-15","endBalance":0,"status":"DANGER"}}]""",
+    )
+
+    private fun parseWith(json: String, accounts: List<ForecastAccountOption> = listOf(kb, shinhan)) =
+        YamuJson.decodeFromString(SimulationResponseDto.serializer(), json).toSimulation(query.copy(userCardId = 11)).copy(accounts = accounts)
+
+    @Test fun `응답 — 계좌별 전후를 읽고, 옛 응답(null)이면 비운다`() {
+        val s = parseWith(withAccounts(before = 50_000, after = -40_000))
+        assertEquals(listOf(3L, 4L), s.accountComparisons.map { it.accountId })
+        assertEquals(-40_000L, s.accountComparisons[0].after!!.minBalance)
+        assertEquals(RiskLevel.DANGER, s.accountComparisons[0].after!!.status)
+        assertEquals(LocalDate.of(2026, 11, 12), s.accountComparisons[0].after!!.riskStartDate)
+        assertTrue(parse().accountComparisons.isEmpty())
+    }
+
+    @Test fun `카드 출금 계좌가 0원 아래면 어느 계좌에 얼마 — 모자란 몫 전체와 가장 모자랄 때`() {
+        val s = parseWith(withAccounts(before = -10_000, after = -40_000))
+        val shortfall = s.cardAccountShortfall!!
+        assertEquals(kb, shortfall.account)
+        assertEquals(40_000L, shortfall.amount)   // 구매로 늘어난 30,000원이 아니라 0원 아래 전체
+        assertEquals(LocalDate.of(2026, 11, 20), shortfall.date)
+        assertEquals("이 카드로 결제하면 KB국민은행 ··1234 계좌에 40,000원이 부족해요", shortfall.text)
+        assertEquals("KB국민은행 ··1234", s.cardAccount!!.shortName())
+    }
+
+    @Test fun `카드 출금 계좌 부족 — 0원이거나 위면, 구매가 최저점을 바꾸지 않았으면 안내하지 않는다`() {
+        assertNull(parseWith(withAccounts(before = 50_000, after = 0)).cardAccountShortfall)
+        assertNull(parseWith(withAccounts(before = 50_000, after = 10_000)).cardAccountShortfall)
+        // 사기 전부터 모자랐고 구매(기간 밖 출금 등)가 그 최저점을 바꾸지 않았다 — 이 카드 탓이 아니다
+        assertNull(parseWith(withAccounts(before = -40_000, after = -40_000)).cardAccountShortfall)
+    }
+
+    @Test fun `카드 출금 계좌 부족 — 다른 계좌만 모자라거나, 계좌를 모르거나, 계좌별 전후가 없으면 안내하지 않는다`() {
+        // 계좌 4(카드 16)가 −5,000원이지만 고른 카드는 11(계좌 3)이다
+        assertNull(parseWith(withAccounts(before = 50_000, after = 10_000)).cardAccountShortfall)
+        // 카드 11의 출금 계좌가 연결 계좌 목록에 없다(연결을 끊은 계좌)
+        assertNull(parseWith(withAccounts(before = 50_000, after = -40_000), accounts = listOf(shinhan)).cardAccountShortfall)
+        // 옛 응답
+        assertNull(parse().copy(accounts = listOf(kb, shinhan)).cardAccountShortfall)
+    }
+
+    @Test fun `카드 출금 계좌 — 계산한 계좌 중 카드가 묶인 계좌, 목록에 없으면 null`() {
+        val s = parse()   // 카드 11
+        assertEquals(4L, s.copy(accounts = listOf(kb.copy(cardIds = setOf(12)), shinhan.copy(cardIds = setOf(21, 11)))).cardAccount!!.accountId)
+        assertNull(s.copy(accounts = listOf(shinhan)).cardAccount)
+        assertNull(s.cardAccount)
+    }
+
+    @Test fun `계좌 이름표 — 하나면 그 계좌, 여럿이면 개수와 합`() {
+        assertEquals("계좌 2개 합", parse().copy(accounts = listOf(kb, shinhan)).accountsLabel)
+        assertEquals("KB국민은행 ··1234", parse().copy(accounts = listOf(kb)).accountsLabel)
+        assertNull(parse().accountsLabel)
     }
 
     @Test fun `업종을 고르면 맞추는 결제 방식 — 온라인 업종 넷만 온라인(점검 B-14)`() {

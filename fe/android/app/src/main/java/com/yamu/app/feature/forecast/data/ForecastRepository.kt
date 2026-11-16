@@ -118,7 +118,10 @@ interface ForecastRepository {
     /** 계좌 고르기 시트 — 연결 계좌 전체 */
     suspend fun accounts(): ApiResult<List<ForecastAccountOption>>
 
-    /** I-02 — 가상 구매. 잔고예보와 같은 기간 · 계좌로 불러 '사기 전'이 잔고예보 화면과 같다 */
+    /**
+     * I-02 — 가상 구매. 연결 계좌 전체 · 오늘부터 30일로 부른다(S15P31E103-589). 그래서 '사기 전'은 잔고예보 화면에서
+     * 계좌 전체 · 30일을 골랐을 때만 그 화면과 같다
+     */
     suspend fun simulate(query: SimulationQuery): ApiResult<Simulation>
 
     /** I-01b 업종(한 번 받으면 기억) · 업종의 브랜드 · 내 카드 */
@@ -200,13 +203,6 @@ fun ForecastSelection.accountIdsFrom(accounts: List<ForecastAccountOption>): Lis
     return accountIds?.let { chosen -> ids.filter { it in chosen } }.orEmpty().ifEmpty { ids }
 }
 
-/**
- * 가상 구매가 볼 계좌 — 카드의 출금 계좌 하나(S15P31E103-548). 잔고예보에서 고른 계좌 밖에서 빠지는 카드면 BE가 전후를 같게 두고
- * 안내만 줘서, 산 돈이 어디서도 빠지지 않는 것처럼 보였다. 카드를 모르거나(추천 카드는 응답 전) 그 계좌가 목록에 없으면 null
- */
-fun cardAccountIds(userCardId: Long?, accounts: List<ForecastAccountOption>): List<Long>? =
-    userCardId?.let { id -> accounts.firstOrNull { id in it.cardIds } }?.let { listOf(it.accountId) }
-
 /** 등록 카드 → 카드 고르기 줄. 등록 중 · 해제 카드는 빼고, 결제할 수 없는 카드는 이유를 달아 둔다(BE CARD_NOT_ELIGIBLE과 같은 기준) */
 fun CardDto.toSimCardOption(): SimCardOption? {
     val state = status?.uppercase()
@@ -275,9 +271,9 @@ class ForecastRepositoryImpl @Inject constructor(
         apiCall { linkApi.accounts(null) }.map { r -> r.accounts.map { it.toOption() } }
 
     /**
-     * 카드를 골랐으면 그 카드의 출금 계좌로만 계산한다([cardAccountIds]). 추천 카드는 응답이 와야 카드를 알아 잔고예보 선택으로 먼저 부르고,
-     * 그 카드의 출금 계좌가 보낸 계좌와 다르면 그 계좌로 한 번 더 부른다(시뮬레이션은 계산만 해서 다시 불러도 남는 것이 없다).
-     * 두 번째도 userCardId 없이 부르므로 '혜택이 가장 큰 카드' 표시는 그대로다
+     * 연결 계좌 전체로 한 번 부른다(S15P31E103-589) — 잔고예보에서 고른 계좌 · 기간과 상관없다. 카드 출금 계좌가 늘 들어 있어
+     * 산 돈이 어디서도 빠지지 않는 것처럼 보이지 않고, 그 계좌 하나만 보면 모자라는지는 계좌별 전후로 본다([Simulation.cardAccountShortfall]).
+     * 전에는(-548) 카드 출금 계좌 하나로 계산하고, 추천 카드는 응답 뒤 그 카드 계좌로 한 번 더 불렀다
      */
     override suspend fun simulate(query: SimulationQuery): ApiResult<Simulation> {
         val accounts = when (val a = accounts()) {
@@ -285,14 +281,8 @@ class ForecastRepositoryImpl @Inject constructor(
             is ApiResult.Success -> a.data
         }
         if (accounts.isEmpty()) return ApiResult.Failure(ApiError.InvalidRequest(ForecastRepository.NO_ACCOUNT))
-        val selection = current
-        suspend fun call(ids: List<Long>) = apiCall { api.simulate(query.toRequest(ids, selection.period)) }
-            .map { it.toSimulation(query).copy(accounts = accounts.filter { a -> a.accountId in ids }) }
-        val ids = cardAccountIds(query.userCardId, accounts) ?: selection.accountIdsFrom(accounts)
-        val first = call(ids)
-        if (query.userCardId != null || first !is ApiResult.Success) return first
-        val cardIds = cardAccountIds(first.data.card.userCardId, accounts)
-        return if (cardIds == null || cardIds == ids) first else call(cardIds)
+        return apiCall { api.simulate(query.toRequest(accounts.map { it.accountId })) }
+            .map { it.toSimulation(query).copy(accounts = accounts) }
     }
 
     @Volatile private var categoryCache: List<MerchantCategory>? = null
