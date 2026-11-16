@@ -1,5 +1,5 @@
 import type { PaymentHistoryItem } from '../api/posHistory'
-import { cardLabel, chargedOf, formatKstTime } from '../payment/history'
+import { cardLabel, chargedOf, formatKstDateTime, formatKstTime } from '../payment/history'
 import { formatWon, planLabel } from '../payment/terms'
 import { Amount } from './Amount'
 import '../styles/result.css'
@@ -132,7 +132,7 @@ function HistoryDetail({ item, onCancel }: { item: PaymentHistoryItem; onCancel:
   return (
     <>
       <div className="history-detail-head">
-        <p>{formatKstTime(item.approvedAt)} · YAMU페이</p>
+        <p>{formatKstDateTime(item.approvedAt)} · YAMU페이</p>
         <Amount value={chargedOf(item)} size="lg" />
       </div>
       <dl className="status-rows history-rows">
@@ -144,7 +144,7 @@ function HistoryDetail({ item, onCancel }: { item: PaymentHistoryItem; onCancel:
         ))}
       </dl>
       {item.status === 'CANCELED' ? (
-        <p className="history-canceled">{formatKstTime(item.canceledAt)}에 취소한 결제예요</p>
+        <p className="history-canceled">{formatKstDateTime(item.canceledAt)}에 취소한 결제예요</p>
       ) : (
         item.cancelable && (
           <button type="button" className="primary history-action" onClick={() => onCancel(item)}>
