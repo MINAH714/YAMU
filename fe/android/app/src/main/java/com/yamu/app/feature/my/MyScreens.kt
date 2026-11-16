@@ -1042,10 +1042,6 @@ fun SecurityRoute(
                         trailing = { Icon(Icons.Rounded.KeyboardArrowDown, contentDescription = null, tint = c.text3) },
                         onClick = { sheet = SecuritySheet.CODE_AUTH },
                     )
-                    SectionLabel("이럴 때 확인해요")
-                    ListRow(title = "앱 열기", trailing = { StatusTag("앱 잠금") })
-                    ListRow(title = "결제 코드 열기", trailing = { StatusTag("추가 인증") })
-                    ListRow(title = "계좌 · 카드 등록", trailing = { StatusTag("추가 인증") })
                 }
             }
             Spacer(Modifier.height(YamuSpacing.x6))
