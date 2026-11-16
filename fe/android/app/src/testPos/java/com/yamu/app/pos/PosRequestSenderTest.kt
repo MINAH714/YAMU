@@ -23,7 +23,7 @@ import kotlin.random.Random
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class PosRequestSenderTest {
-    private val merchant = PosMerchant(12, "POS-YAMU-CAFE", "야무 테스트 카페")
+    private val merchant = PosMerchant(12, "POS-YAMU-CAFE", "오월커피")
     private val store = MemoryPosPendingStore()
     private var clock = 1_000_000L
 

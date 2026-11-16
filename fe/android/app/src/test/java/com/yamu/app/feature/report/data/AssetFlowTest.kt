@@ -43,7 +43,7 @@ class AssetFlowTest {
         assertEquals(123L, month.points.single().value)
         val day = assetDays(YearMonth.from(date), date.plusMonths(6), null, month).first()
         assertTrue(day.simulated)
-        assertTrue(assetDayLabel(day).contains("QA 합성"))
+        assertTrue(assetDayLabel(day).contains("과거"))
     }
     private val today = LocalDate.of(2026, 11, 13)
     private val nov = YearMonth.of(2026, 11)

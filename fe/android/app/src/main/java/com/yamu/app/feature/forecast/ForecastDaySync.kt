@@ -104,7 +104,7 @@ internal fun monthPillTopLabel(day: StripDay): String =
 /** 알약 읽어 주기의 날 종류 — 오늘은 '오늘'로 읽는다(꼬리표의 '지금'은 잔고 이야기라서) */
 internal fun pillKindLabel(kind: DayKind): String = when (kind) {
     DayKind.ACTUAL -> "실제 잔고"
-    DayKind.SIMULATED -> "QA 합성 잔고"
+    DayKind.SIMULATED -> "과거 잔고"
     DayKind.TODAY -> "오늘"
     DayKind.EXPECTED -> "예상 잔고"
     DayKind.NO_DATA -> "잔고 데이터 없음"

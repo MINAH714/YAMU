@@ -1,0 +1,68 @@
+{
+  "datasetKey": "qa-550-life-3",
+  "version": 3,
+  "baseDate": "2026-11-16",
+  "personas": [
+    {
+      "key": "qa-3",
+      "scenario": "LIFE",
+      "name": "박준수",
+      "birthDate": "2000-01-01",
+      "phone": "01005500003",
+      "ssafyMemberId": "qa550-prod-3@yamu.it.kr",
+      "ssafyUserKey": "REPLACE_WITH_SSAFY_USER_KEY",
+      "accounts": [
+        {
+          "bankCode": "004",
+          "accountNo": "000055030001"
+        },
+        {
+          "bankCode": "088",
+          "accountNo": "000055030002"
+        },
+        {
+          "bankCode": "003",
+          "accountNo": "000055030003"
+        }
+      ],
+      "cards": [
+        {
+          "issuerCode": "KB",
+          "productName": "KB국민 노리 체크",
+          "cardType": "CHECK",
+          "cardNo": "9550000000000301",
+          "accountIndex": 0,
+          "paymentDay": null
+        },
+        {
+          "issuerCode": "SHINHAN",
+          "productName": "신한카드 처음",
+          "cardType": "CREDIT",
+          "cardNo": "9550000000000302",
+          "accountIndex": 1,
+          "paymentDay": 15
+        },
+        {
+          "issuerCode": "SHINHAN",
+          "productName": "신한카드 Mr.Life",
+          "cardType": "CREDIT",
+          "cardNo": "9550000000000303",
+          "accountIndex": 1,
+          "paymentDay": 15
+        },
+        {
+          "issuerCode": "IBK",
+          "productName": "IBK나라사랑카드",
+          "cardType": "CHECK",
+          "cardNo": "9550000000000304",
+          "accountIndex": 2,
+          "paymentDay": null,
+          "issuerRegisteredOn": "2026-01-01",
+          "ibkSalaryQualified": false,
+          "ibkMilitaryQualified": false
+        }
+      ],
+      "issuanceEligibility": "MILITARY_EXAM_COMPLETED"
+    }
+  ]
+}

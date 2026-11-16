@@ -1,0 +1,3440 @@
+{
+  "signup" : "2026-04-01",
+  "policyAsOf" : "2026-11-16",
+  "payments" : [ {
+    "key" : "3:2026-04-01:0",
+    "gross" : 18000,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 18000,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "0:2026-04-02:0",
+    "gross" : 12500,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 12500,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "0:2026-04-04:0",
+    "gross" : 65000,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 65000,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "1:2026-04-05:0",
+    "gross" : 199000,
+    "channel" : "ONLINE",
+    "benefits" : [ {
+      "code" : "TODAY_ONLINE_SHOPPING",
+      "value" : 500,
+      "unit" : "POINT",
+      "krw" : 500.000000
+    } ],
+    "limits" : [ {
+      "code" : "TODAY_MONTHLY",
+      "before" : 10000,
+      "used" : 500
+    }, {
+      "code" : "TODAY_DAILY",
+      "before" : 1000,
+      "used" : 500
+    }, {
+      "code" : "TODAY_ONLINE_SHOPPING_PER_TRANSACTION",
+      "before" : 500,
+      "used" : 500
+    } ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 199000,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "3:2026-04-06:0",
+    "gross" : 18000,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 18000,
+    "complete" : false,
+    "unresolved" : [ "CALCULATION_POLICY_UNKNOWN" ]
+  }, {
+    "key" : "0:2026-04-07:0",
+    "gross" : 14500,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 14500,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "2:2026-04-07:1",
+    "gross" : 112000,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 112000,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "3:2026-04-08:0",
+    "gross" : 20000,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 20000,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "0:2026-04-08:1",
+    "gross" : 288000,
+    "channel" : "ONLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 288000,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "0:2026-04-09:0",
+    "gross" : 14500,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 14500,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "1:2026-04-09:1",
+    "gross" : 45000,
+    "channel" : "OFFLINE",
+    "benefits" : [ {
+      "code" : "TODAY_FOOD",
+      "value" : 500,
+      "unit" : "POINT",
+      "krw" : 500.000000
+    } ],
+    "limits" : [ {
+      "code" : "TODAY_MONTHLY",
+      "before" : 9500,
+      "used" : 500
+    }, {
+      "code" : "TODAY_DAILY",
+      "before" : 1000,
+      "used" : 500
+    }, {
+      "code" : "TODAY_FOOD_PER_TRANSACTION",
+      "before" : 500,
+      "used" : 500
+    } ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 45000,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "2:2026-04-10:0",
+    "gross" : 65000,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 65000,
+    "complete" : false,
+    "unresolved" : [ "FACT_MISSING" ]
+  }, {
+    "key" : "0:2026-04-11:0",
+    "gross" : 69000,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 69000,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "1:2026-04-12:0",
+    "gross" : 79000,
+    "channel" : "ONLINE",
+    "benefits" : [ {
+      "code" : "TODAY_ONLINE_SHOPPING",
+      "value" : 500,
+      "unit" : "POINT",
+      "krw" : 500.000000
+    } ],
+    "limits" : [ {
+      "code" : "TODAY_MONTHLY",
+      "before" : 9000,
+      "used" : 500
+    }, {
+      "code" : "TODAY_DAILY",
+      "before" : 1000,
+      "used" : 500
+    }, {
+      "code" : "TODAY_ONLINE_SHOPPING_PER_TRANSACTION",
+      "before" : 500,
+      "used" : 500
+    } ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 79000,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "0:2026-04-14:0",
+    "gross" : 12500,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 12500,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "3:2026-04-15:0",
+    "gross" : 22000,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 22000,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "0:2026-04-16:0",
+    "gross" : 12500,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 12500,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "2:2026-04-17:0",
+    "gross" : 88000,
+    "channel" : "OFFLINE",
+    "benefits" : [ {
+      "code" : "NIGHT_FOOD",
+      "value" : 1000,
+      "unit" : "KRW",
+      "krw" : 1000
+    } ],
+    "limits" : [ {
+      "code" : "TIME_MONTHLY",
+      "before" : 10000,
+      "used" : 1000
+    }, {
+      "code" : "NIGHT_FOOD_DAILY_COUNT",
+      "before" : 1,
+      "used" : 1
+    }, {
+      "code" : "NIGHT_FOOD_MONTHLY_COUNT",
+      "before" : 10,
+      "used" : 1
+    }, {
+      "code" : "NIGHT_FOOD_PER_TRANSACTION",
+      "before" : 1000,
+      "used" : 1000
+    } ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 1000,
+    "recognized" : 88000,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "0:2026-04-18:0",
+    "gross" : 73000,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 73000,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "2:2026-04-19:0",
+    "gross" : 112000,
+    "channel" : "OFFLINE",
+    "benefits" : [ {
+      "code" : "WEEKEND_MART",
+      "value" : 3000,
+      "unit" : "KRW",
+      "krw" : 3000
+    } ],
+    "limits" : [ {
+      "code" : "WEEKEND_MONTHLY",
+      "before" : 3000,
+      "used" : 3000
+    }, {
+      "code" : "WEEKEND_MART_DAILY_COUNT",
+      "before" : 1,
+      "used" : 1
+    }, {
+      "code" : "WEEKEND_MART_PER_TRANSACTION",
+      "before" : 5000,
+      "used" : 3000
+    } ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 3000,
+    "recognized" : 112000,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "0:2026-04-21:0",
+    "gross" : 14500,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 14500,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "2:2026-04-21:1",
+    "gross" : 13500,
+    "channel" : "ONLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 13500,
+    "complete" : false,
+    "unresolved" : [ "FACT_MISSING" ]
+  }, {
+    "key" : "3:2026-04-22:0",
+    "gross" : 18000,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 18000,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "3:2026-04-22:1",
+    "gross" : 21000,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 21000,
+    "complete" : false,
+    "unresolved" : [ "CALCULATION_POLICY_UNKNOWN" ]
+  }, {
+    "key" : "0:2026-04-23:0",
+    "gross" : 14500,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 14500,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "1:2026-04-23:1",
+    "gross" : 45000,
+    "channel" : "OFFLINE",
+    "benefits" : [ {
+      "code" : "TODAY_FOOD",
+      "value" : 500,
+      "unit" : "POINT",
+      "krw" : 500.000000
+    } ],
+    "limits" : [ {
+      "code" : "TODAY_MONTHLY",
+      "before" : 8500,
+      "used" : 500
+    }, {
+      "code" : "TODAY_DAILY",
+      "before" : 1000,
+      "used" : 500
+    }, {
+      "code" : "TODAY_FOOD_PER_TRANSACTION",
+      "before" : 500,
+      "used" : 500
+    } ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 45000,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "0:2026-04-24:0",
+    "gross" : 104000,
+    "channel" : "ONLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 104000,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "0:2026-04-25:0",
+    "gross" : 77000,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 77000,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "1:2026-04-25:1",
+    "gross" : 149000,
+    "channel" : "ONLINE",
+    "benefits" : [ {
+      "code" : "TODAY_ONLINE_SHOPPING",
+      "value" : 500,
+      "unit" : "POINT",
+      "krw" : 500.000000
+    } ],
+    "limits" : [ {
+      "code" : "TODAY_MONTHLY",
+      "before" : 8000,
+      "used" : 500
+    }, {
+      "code" : "TODAY_DAILY",
+      "before" : 1000,
+      "used" : 500
+    }, {
+      "code" : "TODAY_ONLINE_SHOPPING_PER_TRANSACTION",
+      "before" : 500,
+      "used" : 500
+    } ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 149000,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "0:2026-04-28:0",
+    "gross" : 12500,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 12500,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "3:2026-04-29:0",
+    "gross" : 20000,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 20000,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "0:2026-04-30:0",
+    "gross" : 12500,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 12500,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "0:2026-05-02:0",
+    "gross" : 68000,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 68000,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "0:2026-05-05:0",
+    "gross" : 14500,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 14500,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "1:2026-05-05:1",
+    "gross" : 209000,
+    "channel" : "ONLINE",
+    "benefits" : [ {
+      "code" : "TODAY_ONLINE_SHOPPING",
+      "value" : 500,
+      "unit" : "POINT",
+      "krw" : 500.000000
+    } ],
+    "limits" : [ {
+      "code" : "TODAY_MONTHLY",
+      "before" : 10000,
+      "used" : 500
+    }, {
+      "code" : "TODAY_DAILY",
+      "before" : 1000,
+      "used" : 500
+    }, {
+      "code" : "TODAY_ONLINE_SHOPPING_PER_TRANSACTION",
+      "before" : 500,
+      "used" : 500
+    } ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 209000,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "3:2026-05-06:0",
+    "gross" : 20000,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 20000,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "3:2026-05-06:1",
+    "gross" : 18000,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 18000,
+    "complete" : false,
+    "unresolved" : [ "CALCULATION_POLICY_UNKNOWN" ]
+  }, {
+    "key" : "0:2026-05-07:0",
+    "gross" : 14500,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 14500,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "2:2026-05-07:1",
+    "gross" : 112000,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 112000,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "0:2026-05-08:0",
+    "gross" : 298000,
+    "channel" : "ONLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 298000,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "0:2026-05-09:0",
+    "gross" : 72000,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 72000,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "1:2026-05-09:1",
+    "gross" : 45000,
+    "channel" : "OFFLINE",
+    "benefits" : [ {
+      "code" : "TODAY_FOOD",
+      "value" : 500,
+      "unit" : "POINT",
+      "krw" : 500.000000
+    } ],
+    "limits" : [ {
+      "code" : "TODAY_MONTHLY",
+      "before" : 9500,
+      "used" : 500
+    }, {
+      "code" : "TODAY_DAILY",
+      "before" : 1000,
+      "used" : 500
+    }, {
+      "code" : "TODAY_FOOD_PER_TRANSACTION",
+      "before" : 500,
+      "used" : 500
+    } ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 45000,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "2:2026-05-10:0",
+    "gross" : 65000,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 65000,
+    "complete" : false,
+    "unresolved" : [ "FACT_MISSING" ]
+  }, {
+    "key" : "0:2026-05-12:0",
+    "gross" : 12500,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 12500,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "1:2026-05-12:1",
+    "gross" : 79000,
+    "channel" : "ONLINE",
+    "benefits" : [ {
+      "code" : "TODAY_ONLINE_SHOPPING",
+      "value" : 500,
+      "unit" : "POINT",
+      "krw" : 500.000000
+    } ],
+    "limits" : [ {
+      "code" : "TODAY_MONTHLY",
+      "before" : 9000,
+      "used" : 500
+    }, {
+      "code" : "TODAY_DAILY",
+      "before" : 1000,
+      "used" : 500
+    }, {
+      "code" : "TODAY_ONLINE_SHOPPING_PER_TRANSACTION",
+      "before" : 500,
+      "used" : 500
+    } ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 79000,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "3:2026-05-13:0",
+    "gross" : 22000,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 22000,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "0:2026-05-14:0",
+    "gross" : 12500,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 12500,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "0:2026-05-16:0",
+    "gross" : 76000,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 76000,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "2:2026-05-17:0",
+    "gross" : 88000,
+    "channel" : "OFFLINE",
+    "benefits" : [ {
+      "code" : "NIGHT_FOOD",
+      "value" : 1000,
+      "unit" : "KRW",
+      "krw" : 1000
+    } ],
+    "limits" : [ {
+      "code" : "TIME_MONTHLY",
+      "before" : 10000,
+      "used" : 1000
+    }, {
+      "code" : "NIGHT_FOOD_DAILY_COUNT",
+      "before" : 1,
+      "used" : 1
+    }, {
+      "code" : "NIGHT_FOOD_MONTHLY_COUNT",
+      "before" : 10,
+      "used" : 1
+    }, {
+      "code" : "NIGHT_FOOD_PER_TRANSACTION",
+      "before" : 1000,
+      "used" : 1000
+    } ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 1000,
+    "recognized" : 88000,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "0:2026-05-19:0",
+    "gross" : 14500,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 14500,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "2:2026-05-19:1",
+    "gross" : 120000,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 120000,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "3:2026-05-20:0",
+    "gross" : 18000,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 18000,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "0:2026-05-21:0",
+    "gross" : 14500,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 14500,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "2:2026-05-21:1",
+    "gross" : 13500,
+    "channel" : "ONLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 13500,
+    "complete" : false,
+    "unresolved" : [ "FACT_MISSING" ]
+  }, {
+    "key" : "3:2026-05-22:0",
+    "gross" : 21000,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 21000,
+    "complete" : false,
+    "unresolved" : [ "CALCULATION_POLICY_UNKNOWN" ]
+  }, {
+    "key" : "0:2026-05-23:0",
+    "gross" : 80000,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 80000,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "1:2026-05-23:1",
+    "gross" : 45000,
+    "channel" : "OFFLINE",
+    "benefits" : [ {
+      "code" : "TODAY_FOOD",
+      "value" : 500,
+      "unit" : "POINT",
+      "krw" : 500.000000
+    } ],
+    "limits" : [ {
+      "code" : "TODAY_MONTHLY",
+      "before" : 8500,
+      "used" : 500
+    }, {
+      "code" : "TODAY_DAILY",
+      "before" : 1000,
+      "used" : 500
+    }, {
+      "code" : "TODAY_FOOD_PER_TRANSACTION",
+      "before" : 500,
+      "used" : 500
+    } ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 45000,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "0:2026-05-24:0",
+    "gross" : 113000,
+    "channel" : "ONLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 113000,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "1:2026-05-25:0",
+    "gross" : 149000,
+    "channel" : "ONLINE",
+    "benefits" : [ {
+      "code" : "TODAY_ONLINE_SHOPPING",
+      "value" : 500,
+      "unit" : "POINT",
+      "krw" : 500.000000
+    } ],
+    "limits" : [ {
+      "code" : "TODAY_MONTHLY",
+      "before" : 8000,
+      "used" : 500
+    }, {
+      "code" : "TODAY_DAILY",
+      "before" : 1000,
+      "used" : 500
+    }, {
+      "code" : "TODAY_ONLINE_SHOPPING_PER_TRANSACTION",
+      "before" : 500,
+      "used" : 500
+    } ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 149000,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "0:2026-05-26:0",
+    "gross" : 12500,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 12500,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "3:2026-05-27:0",
+    "gross" : 20000,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 20000,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "0:2026-05-28:0",
+    "gross" : 12500,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 12500,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "0:2026-05-30:0",
+    "gross" : 68000,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 68000,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "0:2026-06-02:0",
+    "gross" : 12500,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 12500,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "3:2026-06-03:0",
+    "gross" : 18000,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 18000,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "0:2026-06-04:0",
+    "gross" : 12500,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 12500,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "1:2026-06-05:0",
+    "gross" : 189000,
+    "channel" : "ONLINE",
+    "benefits" : [ {
+      "code" : "TODAY_ONLINE_SHOPPING",
+      "value" : 500,
+      "unit" : "POINT",
+      "krw" : 500.000000
+    } ],
+    "limits" : [ {
+      "code" : "TODAY_MONTHLY",
+      "before" : 10000,
+      "used" : 500
+    }, {
+      "code" : "TODAY_DAILY",
+      "before" : 1000,
+      "used" : 500
+    }, {
+      "code" : "TODAY_ONLINE_SHOPPING_PER_TRANSACTION",
+      "before" : 500,
+      "used" : 500
+    } ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 189000,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "0:2026-06-06:0",
+    "gross" : 62000,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 62000,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "3:2026-06-06:1",
+    "gross" : 18000,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 18000,
+    "complete" : false,
+    "unresolved" : [ "CALCULATION_POLICY_UNKNOWN" ]
+  }, {
+    "key" : "2:2026-06-07:0",
+    "gross" : 112000,
+    "channel" : "OFFLINE",
+    "benefits" : [ {
+      "code" : "WEEKEND_MART",
+      "value" : 3000,
+      "unit" : "KRW",
+      "krw" : 3000
+    } ],
+    "limits" : [ {
+      "code" : "WEEKEND_MONTHLY",
+      "before" : 3000,
+      "used" : 3000
+    }, {
+      "code" : "WEEKEND_MART_DAILY_COUNT",
+      "before" : 1,
+      "used" : 1
+    }, {
+      "code" : "WEEKEND_MART_PER_TRANSACTION",
+      "before" : 5000,
+      "used" : 3000
+    } ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 3000,
+    "recognized" : 112000,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "0:2026-06-08:0",
+    "gross" : 278000,
+    "channel" : "ONLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 278000,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "0:2026-06-09:0",
+    "gross" : 14500,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 14500,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "1:2026-06-09:1",
+    "gross" : 45000,
+    "channel" : "OFFLINE",
+    "benefits" : [ {
+      "code" : "TODAY_FOOD",
+      "value" : 500,
+      "unit" : "POINT",
+      "krw" : 500.000000
+    } ],
+    "limits" : [ {
+      "code" : "TODAY_MONTHLY",
+      "before" : 9500,
+      "used" : 500
+    }, {
+      "code" : "TODAY_DAILY",
+      "before" : 1000,
+      "used" : 500
+    }, {
+      "code" : "TODAY_FOOD_PER_TRANSACTION",
+      "before" : 500,
+      "used" : 500
+    } ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 45000,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "3:2026-06-10:0",
+    "gross" : 20000,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 20000,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "2:2026-06-10:1",
+    "gross" : 65000,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 65000,
+    "complete" : false,
+    "unresolved" : [ "FACT_MISSING" ]
+  }, {
+    "key" : "0:2026-06-11:0",
+    "gross" : 14500,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 14500,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "1:2026-06-12:0",
+    "gross" : 79000,
+    "channel" : "ONLINE",
+    "benefits" : [ {
+      "code" : "TODAY_ONLINE_SHOPPING",
+      "value" : 500,
+      "unit" : "POINT",
+      "krw" : 500.000000
+    } ],
+    "limits" : [ {
+      "code" : "TODAY_MONTHLY",
+      "before" : 9000,
+      "used" : 500
+    }, {
+      "code" : "TODAY_DAILY",
+      "before" : 1000,
+      "used" : 500
+    }, {
+      "code" : "TODAY_ONLINE_SHOPPING_PER_TRANSACTION",
+      "before" : 500,
+      "used" : 500
+    } ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 79000,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "0:2026-06-13:0",
+    "gross" : 66000,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 66000,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "0:2026-06-16:0",
+    "gross" : 12500,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 12500,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "3:2026-06-17:0",
+    "gross" : 22000,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 22000,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "2:2026-06-17:1",
+    "gross" : 88000,
+    "channel" : "OFFLINE",
+    "benefits" : [ {
+      "code" : "NIGHT_FOOD",
+      "value" : 1000,
+      "unit" : "KRW",
+      "krw" : 1000
+    } ],
+    "limits" : [ {
+      "code" : "TIME_MONTHLY",
+      "before" : 10000,
+      "used" : 1000
+    }, {
+      "code" : "NIGHT_FOOD_DAILY_COUNT",
+      "before" : 1,
+      "used" : 1
+    }, {
+      "code" : "NIGHT_FOOD_MONTHLY_COUNT",
+      "before" : 10,
+      "used" : 1
+    }, {
+      "code" : "NIGHT_FOOD_PER_TRANSACTION",
+      "before" : 1000,
+      "used" : 1000
+    } ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 1000,
+    "recognized" : 88000,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "0:2026-06-18:0",
+    "gross" : 12500,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 12500,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "2:2026-06-19:0",
+    "gross" : 112000,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 112000,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "0:2026-06-20:0",
+    "gross" : 70000,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 70000,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "2:2026-06-21:0",
+    "gross" : 13500,
+    "channel" : "ONLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 13500,
+    "complete" : false,
+    "unresolved" : [ "FACT_MISSING" ]
+  }, {
+    "key" : "3:2026-06-22:0",
+    "gross" : 21000,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 21000,
+    "complete" : false,
+    "unresolved" : [ "CALCULATION_POLICY_UNKNOWN" ]
+  }, {
+    "key" : "0:2026-06-23:0",
+    "gross" : 14500,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 14500,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "1:2026-06-23:1",
+    "gross" : 45000,
+    "channel" : "OFFLINE",
+    "benefits" : [ {
+      "code" : "TODAY_FOOD",
+      "value" : 500,
+      "unit" : "POINT",
+      "krw" : 500.000000
+    } ],
+    "limits" : [ {
+      "code" : "TODAY_MONTHLY",
+      "before" : 8500,
+      "used" : 500
+    }, {
+      "code" : "TODAY_DAILY",
+      "before" : 1000,
+      "used" : 500
+    }, {
+      "code" : "TODAY_FOOD_PER_TRANSACTION",
+      "before" : 500,
+      "used" : 500
+    } ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 45000,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "3:2026-06-24:0",
+    "gross" : 18000,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 18000,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "0:2026-06-24:1",
+    "gross" : 104000,
+    "channel" : "ONLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 104000,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "0:2026-06-25:0",
+    "gross" : 14500,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 14500,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "1:2026-06-25:1",
+    "gross" : 149000,
+    "channel" : "ONLINE",
+    "benefits" : [ {
+      "code" : "TODAY_ONLINE_SHOPPING",
+      "value" : 500,
+      "unit" : "POINT",
+      "krw" : 500.000000
+    } ],
+    "limits" : [ {
+      "code" : "TODAY_MONTHLY",
+      "before" : 8000,
+      "used" : 500
+    }, {
+      "code" : "TODAY_DAILY",
+      "before" : 1000,
+      "used" : 500
+    }, {
+      "code" : "TODAY_ONLINE_SHOPPING_PER_TRANSACTION",
+      "before" : 500,
+      "used" : 500
+    } ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 149000,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "0:2026-06-27:0",
+    "gross" : 74000,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 74000,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "0:2026-06-30:0",
+    "gross" : 12500,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 12500,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "3:2026-07-01:0",
+    "gross" : 18000,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 18000,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "0:2026-07-02:0",
+    "gross" : 12500,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 12500,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "0:2026-07-04:0",
+    "gross" : 65000,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 65000,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "1:2026-07-05:0",
+    "gross" : 199000,
+    "channel" : "ONLINE",
+    "benefits" : [ {
+      "code" : "TODAY_ONLINE_SHOPPING",
+      "value" : 500,
+      "unit" : "POINT",
+      "krw" : 500.000000
+    } ],
+    "limits" : [ {
+      "code" : "TODAY_MONTHLY",
+      "before" : 10000,
+      "used" : 500
+    }, {
+      "code" : "TODAY_DAILY",
+      "before" : 1000,
+      "used" : 500
+    }, {
+      "code" : "TODAY_ONLINE_SHOPPING_PER_TRANSACTION",
+      "before" : 500,
+      "used" : 500
+    } ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 199000,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "3:2026-07-06:0",
+    "gross" : 18000,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 18000,
+    "complete" : false,
+    "unresolved" : [ "CALCULATION_POLICY_UNKNOWN" ]
+  }, {
+    "key" : "0:2026-07-07:0",
+    "gross" : 14500,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 14500,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "2:2026-07-07:1",
+    "gross" : 112000,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 112000,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "3:2026-07-08:0",
+    "gross" : 20000,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 20000,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "0:2026-07-08:1",
+    "gross" : 288000,
+    "channel" : "ONLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 288000,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "0:2026-07-09:0",
+    "gross" : 14500,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 14500,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "1:2026-07-09:1",
+    "gross" : 45000,
+    "channel" : "OFFLINE",
+    "benefits" : [ {
+      "code" : "TODAY_FOOD",
+      "value" : 500,
+      "unit" : "POINT",
+      "krw" : 500.000000
+    } ],
+    "limits" : [ {
+      "code" : "TODAY_MONTHLY",
+      "before" : 9500,
+      "used" : 500
+    }, {
+      "code" : "TODAY_DAILY",
+      "before" : 1000,
+      "used" : 500
+    }, {
+      "code" : "TODAY_FOOD_PER_TRANSACTION",
+      "before" : 500,
+      "used" : 500
+    } ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 45000,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "2:2026-07-10:0",
+    "gross" : 65000,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 65000,
+    "complete" : false,
+    "unresolved" : [ "FACT_MISSING" ]
+  }, {
+    "key" : "0:2026-07-11:0",
+    "gross" : 69000,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 69000,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "1:2026-07-11:1",
+    "gross" : 900000,
+    "channel" : "ONLINE",
+    "benefits" : [ {
+      "code" : "TODAY_ONLINE_SHOPPING",
+      "value" : 500,
+      "unit" : "POINT",
+      "krw" : 500.000000
+    } ],
+    "limits" : [ {
+      "code" : "TODAY_MONTHLY",
+      "before" : 9000,
+      "used" : 500
+    }, {
+      "code" : "TODAY_DAILY",
+      "before" : 1000,
+      "used" : 500
+    }, {
+      "code" : "TODAY_ONLINE_SHOPPING_PER_TRANSACTION",
+      "before" : 500,
+      "used" : 500
+    } ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 900000,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "1:2026-07-12:0",
+    "gross" : 79000,
+    "channel" : "ONLINE",
+    "benefits" : [ {
+      "code" : "TODAY_ONLINE_SHOPPING",
+      "value" : 500,
+      "unit" : "POINT",
+      "krw" : 500.000000
+    } ],
+    "limits" : [ {
+      "code" : "TODAY_MONTHLY",
+      "before" : 8500,
+      "used" : 500
+    }, {
+      "code" : "TODAY_DAILY",
+      "before" : 1000,
+      "used" : 500
+    }, {
+      "code" : "TODAY_ONLINE_SHOPPING_PER_TRANSACTION",
+      "before" : 500,
+      "used" : 500
+    } ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 79000,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "0:2026-07-14:0",
+    "gross" : 12500,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 12500,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "3:2026-07-15:0",
+    "gross" : 22000,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 22000,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "0:2026-07-16:0",
+    "gross" : 12500,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 12500,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "2:2026-07-17:0",
+    "gross" : 88000,
+    "channel" : "OFFLINE",
+    "benefits" : [ {
+      "code" : "NIGHT_FOOD",
+      "value" : 1000,
+      "unit" : "KRW",
+      "krw" : 1000
+    } ],
+    "limits" : [ {
+      "code" : "TIME_MONTHLY",
+      "before" : 10000,
+      "used" : 1000
+    }, {
+      "code" : "NIGHT_FOOD_DAILY_COUNT",
+      "before" : 1,
+      "used" : 1
+    }, {
+      "code" : "NIGHT_FOOD_MONTHLY_COUNT",
+      "before" : 10,
+      "used" : 1
+    }, {
+      "code" : "NIGHT_FOOD_PER_TRANSACTION",
+      "before" : 1000,
+      "used" : 1000
+    } ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 1000,
+    "recognized" : 88000,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "0:2026-07-18:0",
+    "gross" : 73000,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 73000,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "2:2026-07-19:0",
+    "gross" : 120000,
+    "channel" : "OFFLINE",
+    "benefits" : [ {
+      "code" : "WEEKEND_MART",
+      "value" : 3000,
+      "unit" : "KRW",
+      "krw" : 3000
+    } ],
+    "limits" : [ {
+      "code" : "WEEKEND_MONTHLY",
+      "before" : 3000,
+      "used" : 3000
+    }, {
+      "code" : "WEEKEND_MART_DAILY_COUNT",
+      "before" : 1,
+      "used" : 1
+    }, {
+      "code" : "WEEKEND_MART_PER_TRANSACTION",
+      "before" : 5000,
+      "used" : 3000
+    } ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 3000,
+    "recognized" : 120000,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "0:2026-07-21:0",
+    "gross" : 14500,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 14500,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "2:2026-07-21:1",
+    "gross" : 13500,
+    "channel" : "ONLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 13500,
+    "complete" : false,
+    "unresolved" : [ "FACT_MISSING" ]
+  }, {
+    "key" : "3:2026-07-22:0",
+    "gross" : 18000,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 18000,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "3:2026-07-22:1",
+    "gross" : 21000,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 21000,
+    "complete" : false,
+    "unresolved" : [ "CALCULATION_POLICY_UNKNOWN" ]
+  }, {
+    "key" : "0:2026-07-23:0",
+    "gross" : 14500,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 14500,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "1:2026-07-23:1",
+    "gross" : 45000,
+    "channel" : "OFFLINE",
+    "benefits" : [ {
+      "code" : "TODAY_FOOD",
+      "value" : 500,
+      "unit" : "POINT",
+      "krw" : 500.000000
+    } ],
+    "limits" : [ {
+      "code" : "TODAY_MONTHLY",
+      "before" : 8000,
+      "used" : 500
+    }, {
+      "code" : "TODAY_DAILY",
+      "before" : 1000,
+      "used" : 500
+    }, {
+      "code" : "TODAY_FOOD_PER_TRANSACTION",
+      "before" : 500,
+      "used" : 500
+    } ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 45000,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "0:2026-07-24:0",
+    "gross" : 113000,
+    "channel" : "ONLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 113000,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "0:2026-07-25:0",
+    "gross" : 77000,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 77000,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "1:2026-07-25:1",
+    "gross" : 149000,
+    "channel" : "ONLINE",
+    "benefits" : [ {
+      "code" : "TODAY_ONLINE_SHOPPING",
+      "value" : 500,
+      "unit" : "POINT",
+      "krw" : 500.000000
+    } ],
+    "limits" : [ {
+      "code" : "TODAY_MONTHLY",
+      "before" : 7500,
+      "used" : 500
+    }, {
+      "code" : "TODAY_DAILY",
+      "before" : 1000,
+      "used" : 500
+    }, {
+      "code" : "TODAY_ONLINE_SHOPPING_PER_TRANSACTION",
+      "before" : 500,
+      "used" : 500
+    } ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 149000,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "0:2026-07-28:0",
+    "gross" : 12500,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 12500,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "3:2026-07-29:0",
+    "gross" : 20000,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 20000,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "0:2026-07-30:0",
+    "gross" : 12500,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 12500,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "0:2026-08-01:0",
+    "gross" : 68000,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 68000,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "0:2026-08-04:0",
+    "gross" : 12500,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 12500,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "3:2026-08-05:0",
+    "gross" : 20000,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 20000,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "1:2026-08-05:1",
+    "gross" : 209000,
+    "channel" : "ONLINE",
+    "benefits" : [ {
+      "code" : "TODAY_ONLINE_SHOPPING",
+      "value" : 500,
+      "unit" : "POINT",
+      "krw" : 500.000000
+    } ],
+    "limits" : [ {
+      "code" : "TODAY_MONTHLY",
+      "before" : 20000,
+      "used" : 500
+    }, {
+      "code" : "TODAY_DAILY",
+      "before" : 1000,
+      "used" : 500
+    }, {
+      "code" : "TODAY_ONLINE_SHOPPING_PER_TRANSACTION",
+      "before" : 500,
+      "used" : 500
+    } ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 209000,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "0:2026-08-06:0",
+    "gross" : 12500,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 12500,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "3:2026-08-06:1",
+    "gross" : 18000,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 18000,
+    "complete" : false,
+    "unresolved" : [ "CALCULATION_POLICY_UNKNOWN" ]
+  }, {
+    "key" : "2:2026-08-07:0",
+    "gross" : 112000,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 112000,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "0:2026-08-08:0",
+    "gross" : 72000,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 72000,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "0:2026-08-08:1",
+    "gross" : 298000,
+    "channel" : "ONLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 298000,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "1:2026-08-09:0",
+    "gross" : 45000,
+    "channel" : "OFFLINE",
+    "benefits" : [ {
+      "code" : "TODAY_FOOD",
+      "value" : 500,
+      "unit" : "POINT",
+      "krw" : 500.000000
+    } ],
+    "limits" : [ {
+      "code" : "TODAY_MONTHLY",
+      "before" : 19500,
+      "used" : 500
+    }, {
+      "code" : "TODAY_DAILY",
+      "before" : 1000,
+      "used" : 500
+    }, {
+      "code" : "TODAY_FOOD_PER_TRANSACTION",
+      "before" : 500,
+      "used" : 500
+    } ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 45000,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "2:2026-08-10:0",
+    "gross" : 65000,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 65000,
+    "complete" : false,
+    "unresolved" : [ "FACT_MISSING" ]
+  }, {
+    "key" : "0:2026-08-11:0",
+    "gross" : 14500,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 14500,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "3:2026-08-12:0",
+    "gross" : 22000,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 22000,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "1:2026-08-12:1",
+    "gross" : 79000,
+    "channel" : "ONLINE",
+    "benefits" : [ {
+      "code" : "TODAY_ONLINE_SHOPPING",
+      "value" : 500,
+      "unit" : "POINT",
+      "krw" : 500.000000
+    } ],
+    "limits" : [ {
+      "code" : "TODAY_MONTHLY",
+      "before" : 19000,
+      "used" : 500
+    }, {
+      "code" : "TODAY_DAILY",
+      "before" : 1000,
+      "used" : 500
+    }, {
+      "code" : "TODAY_ONLINE_SHOPPING_PER_TRANSACTION",
+      "before" : 500,
+      "used" : 500
+    } ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 79000,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "0:2026-08-13:0",
+    "gross" : 14500,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 14500,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "0:2026-08-15:0",
+    "gross" : 76000,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 76000,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "2:2026-08-17:0",
+    "gross" : 88000,
+    "channel" : "OFFLINE",
+    "benefits" : [ {
+      "code" : "NIGHT_FOOD",
+      "value" : 1000,
+      "unit" : "KRW",
+      "krw" : 1000
+    } ],
+    "limits" : [ {
+      "code" : "TIME_MONTHLY",
+      "before" : 10000,
+      "used" : 1000
+    }, {
+      "code" : "NIGHT_FOOD_DAILY_COUNT",
+      "before" : 1,
+      "used" : 1
+    }, {
+      "code" : "NIGHT_FOOD_MONTHLY_COUNT",
+      "before" : 10,
+      "used" : 1
+    }, {
+      "code" : "NIGHT_FOOD_PER_TRANSACTION",
+      "before" : 1000,
+      "used" : 1000
+    } ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 1000,
+    "recognized" : 88000,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "0:2026-08-18:0",
+    "gross" : 12500,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 12500,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "3:2026-08-19:0",
+    "gross" : 18000,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 18000,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "2:2026-08-19:1",
+    "gross" : 112000,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 112000,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "0:2026-08-20:0",
+    "gross" : 12500,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 12500,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "2:2026-08-21:0",
+    "gross" : 13500,
+    "channel" : "ONLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 13500,
+    "complete" : false,
+    "unresolved" : [ "FACT_MISSING" ]
+  }, {
+    "key" : "0:2026-08-22:0",
+    "gross" : 80000,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 80000,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "3:2026-08-22:1",
+    "gross" : 21000,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 21000,
+    "complete" : false,
+    "unresolved" : [ "CALCULATION_POLICY_UNKNOWN" ]
+  }, {
+    "key" : "1:2026-08-23:0",
+    "gross" : 45000,
+    "channel" : "OFFLINE",
+    "benefits" : [ {
+      "code" : "TODAY_FOOD",
+      "value" : 500,
+      "unit" : "POINT",
+      "krw" : 500.000000
+    } ],
+    "limits" : [ {
+      "code" : "TODAY_MONTHLY",
+      "before" : 18500,
+      "used" : 500
+    }, {
+      "code" : "TODAY_DAILY",
+      "before" : 1000,
+      "used" : 500
+    }, {
+      "code" : "TODAY_FOOD_PER_TRANSACTION",
+      "before" : 500,
+      "used" : 500
+    } ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 45000,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "0:2026-08-24:0",
+    "gross" : 104000,
+    "channel" : "ONLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 104000,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "0:2026-08-25:0",
+    "gross" : 14500,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 14500,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "1:2026-08-25:1",
+    "gross" : 149000,
+    "channel" : "ONLINE",
+    "benefits" : [ {
+      "code" : "TODAY_ONLINE_SHOPPING",
+      "value" : 500,
+      "unit" : "POINT",
+      "krw" : 500.000000
+    } ],
+    "limits" : [ {
+      "code" : "TODAY_MONTHLY",
+      "before" : 18000,
+      "used" : 500
+    }, {
+      "code" : "TODAY_DAILY",
+      "before" : 1000,
+      "used" : 500
+    }, {
+      "code" : "TODAY_ONLINE_SHOPPING_PER_TRANSACTION",
+      "before" : 500,
+      "used" : 500
+    } ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 149000,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "3:2026-08-26:0",
+    "gross" : 20000,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 20000,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "0:2026-08-27:0",
+    "gross" : 14500,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 14500,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "0:2026-08-29:0",
+    "gross" : 68000,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 68000,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "0:2026-09-01:0",
+    "gross" : 14500,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 14500,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "3:2026-09-02:0",
+    "gross" : 18000,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 18000,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "0:2026-09-03:0",
+    "gross" : 14500,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 14500,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "0:2026-09-05:0",
+    "gross" : 62000,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 62000,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "1:2026-09-05:1",
+    "gross" : 189000,
+    "channel" : "ONLINE",
+    "benefits" : [ {
+      "code" : "TODAY_ONLINE_SHOPPING",
+      "value" : 500,
+      "unit" : "POINT",
+      "krw" : 500.000000
+    } ],
+    "limits" : [ {
+      "code" : "TODAY_MONTHLY",
+      "before" : 10000,
+      "used" : 500
+    }, {
+      "code" : "TODAY_DAILY",
+      "before" : 1000,
+      "used" : 500
+    }, {
+      "code" : "TODAY_ONLINE_SHOPPING_PER_TRANSACTION",
+      "before" : 500,
+      "used" : 500
+    } ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 189000,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "3:2026-09-06:0",
+    "gross" : 18000,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 18000,
+    "complete" : false,
+    "unresolved" : [ "CALCULATION_POLICY_UNKNOWN" ]
+  }, {
+    "key" : "2:2026-09-07:0",
+    "gross" : 112000,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 112000,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "0:2026-09-08:0",
+    "gross" : 12500,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 12500,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "0:2026-09-08:1",
+    "gross" : 278000,
+    "channel" : "ONLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 278000,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "3:2026-09-09:0",
+    "gross" : 20000,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 20000,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "1:2026-09-09:1",
+    "gross" : 45000,
+    "channel" : "OFFLINE",
+    "benefits" : [ {
+      "code" : "TODAY_FOOD",
+      "value" : 500,
+      "unit" : "POINT",
+      "krw" : 500.000000
+    } ],
+    "limits" : [ {
+      "code" : "TODAY_MONTHLY",
+      "before" : 9500,
+      "used" : 500
+    }, {
+      "code" : "TODAY_DAILY",
+      "before" : 1000,
+      "used" : 500
+    }, {
+      "code" : "TODAY_FOOD_PER_TRANSACTION",
+      "before" : 500,
+      "used" : 500
+    } ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 45000,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "0:2026-09-10:0",
+    "gross" : 12500,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 12500,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "2:2026-09-10:1",
+    "gross" : 65000,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 65000,
+    "complete" : false,
+    "unresolved" : [ "FACT_MISSING" ]
+  }, {
+    "key" : "0:2026-09-12:0",
+    "gross" : 66000,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 66000,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "1:2026-09-12:1",
+    "gross" : 79000,
+    "channel" : "ONLINE",
+    "benefits" : [ {
+      "code" : "TODAY_ONLINE_SHOPPING",
+      "value" : 500,
+      "unit" : "POINT",
+      "krw" : 500.000000
+    } ],
+    "limits" : [ {
+      "code" : "TODAY_MONTHLY",
+      "before" : 9000,
+      "used" : 500
+    }, {
+      "code" : "TODAY_DAILY",
+      "before" : 1000,
+      "used" : 500
+    }, {
+      "code" : "TODAY_ONLINE_SHOPPING_PER_TRANSACTION",
+      "before" : 500,
+      "used" : 500
+    } ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 79000,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "0:2026-09-15:0",
+    "gross" : 14500,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 14500,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "3:2026-09-16:0",
+    "gross" : 22000,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 22000,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "0:2026-09-17:0",
+    "gross" : 14500,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 14500,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "2:2026-09-17:1",
+    "gross" : 88000,
+    "channel" : "OFFLINE",
+    "benefits" : [ {
+      "code" : "NIGHT_FOOD",
+      "value" : 1000,
+      "unit" : "KRW",
+      "krw" : 1000
+    } ],
+    "limits" : [ {
+      "code" : "TIME_MONTHLY",
+      "before" : 10000,
+      "used" : 1000
+    }, {
+      "code" : "NIGHT_FOOD_DAILY_COUNT",
+      "before" : 1,
+      "used" : 1
+    }, {
+      "code" : "NIGHT_FOOD_MONTHLY_COUNT",
+      "before" : 10,
+      "used" : 1
+    }, {
+      "code" : "NIGHT_FOOD_PER_TRANSACTION",
+      "before" : 1000,
+      "used" : 1000
+    } ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 1000,
+    "recognized" : 88000,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "0:2026-09-19:0",
+    "gross" : 70000,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 70000,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "2:2026-09-19:1",
+    "gross" : 120000,
+    "channel" : "OFFLINE",
+    "benefits" : [ {
+      "code" : "WEEKEND_MART",
+      "value" : 3000,
+      "unit" : "KRW",
+      "krw" : 3000
+    } ],
+    "limits" : [ {
+      "code" : "WEEKEND_MONTHLY",
+      "before" : 3000,
+      "used" : 3000
+    }, {
+      "code" : "WEEKEND_MART_DAILY_COUNT",
+      "before" : 1,
+      "used" : 1
+    }, {
+      "code" : "WEEKEND_MART_PER_TRANSACTION",
+      "before" : 5000,
+      "used" : 3000
+    } ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 3000,
+    "recognized" : 120000,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "2:2026-09-21:0",
+    "gross" : 13500,
+    "channel" : "ONLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 13500,
+    "complete" : false,
+    "unresolved" : [ "FACT_MISSING" ]
+  }, {
+    "key" : "0:2026-09-22:0",
+    "gross" : 12500,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 12500,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "3:2026-09-22:1",
+    "gross" : 21000,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 21000,
+    "complete" : false,
+    "unresolved" : [ "CALCULATION_POLICY_UNKNOWN" ]
+  }, {
+    "key" : "3:2026-09-23:0",
+    "gross" : 18000,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 18000,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "1:2026-09-23:1",
+    "gross" : 45000,
+    "channel" : "OFFLINE",
+    "benefits" : [ {
+      "code" : "TODAY_FOOD",
+      "value" : 500,
+      "unit" : "POINT",
+      "krw" : 500.000000
+    } ],
+    "limits" : [ {
+      "code" : "TODAY_MONTHLY",
+      "before" : 8500,
+      "used" : 500
+    }, {
+      "code" : "TODAY_DAILY",
+      "before" : 1000,
+      "used" : 500
+    }, {
+      "code" : "TODAY_FOOD_PER_TRANSACTION",
+      "before" : 500,
+      "used" : 500
+    } ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 45000,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "0:2026-09-24:0",
+    "gross" : 12500,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 12500,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "0:2026-09-24:1",
+    "gross" : 113000,
+    "channel" : "ONLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 113000,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "1:2026-09-25:0",
+    "gross" : 149000,
+    "channel" : "ONLINE",
+    "benefits" : [ {
+      "code" : "TODAY_ONLINE_SHOPPING",
+      "value" : 500,
+      "unit" : "POINT",
+      "krw" : 500.000000
+    } ],
+    "limits" : [ {
+      "code" : "TODAY_MONTHLY",
+      "before" : 8000,
+      "used" : 500
+    }, {
+      "code" : "TODAY_DAILY",
+      "before" : 1000,
+      "used" : 500
+    }, {
+      "code" : "TODAY_ONLINE_SHOPPING_PER_TRANSACTION",
+      "before" : 500,
+      "used" : 500
+    } ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 149000,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "0:2026-09-26:0",
+    "gross" : 74000,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 74000,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "0:2026-09-29:0",
+    "gross" : 14500,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 14500,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "3:2026-09-30:0",
+    "gross" : 20000,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 20000,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "0:2026-10-01:0",
+    "gross" : 14500,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 14500,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "0:2026-10-03:0",
+    "gross" : 65000,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 65000,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "1:2026-10-05:0",
+    "gross" : 189000,
+    "channel" : "ONLINE",
+    "benefits" : [ {
+      "code" : "TODAY_ONLINE_SHOPPING",
+      "value" : 500,
+      "unit" : "POINT",
+      "krw" : 500.000000
+    } ],
+    "limits" : [ {
+      "code" : "TODAY_MONTHLY",
+      "before" : 10000,
+      "used" : 500
+    }, {
+      "code" : "TODAY_DAILY",
+      "before" : 1000,
+      "used" : 500
+    }, {
+      "code" : "TODAY_ONLINE_SHOPPING_PER_TRANSACTION",
+      "before" : 500,
+      "used" : 500
+    } ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 189000,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "0:2026-10-06:0",
+    "gross" : 12500,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 12500,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "3:2026-10-06:1",
+    "gross" : 18000,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 18000,
+    "complete" : false,
+    "unresolved" : [ "CALCULATION_POLICY_UNKNOWN" ]
+  }, {
+    "key" : "3:2026-10-07:0",
+    "gross" : 20000,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 20000,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "2:2026-10-07:1",
+    "gross" : 112000,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 112000,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "0:2026-10-08:0",
+    "gross" : 12500,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 12500,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "0:2026-10-08:1",
+    "gross" : 288000,
+    "channel" : "ONLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 288000,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "1:2026-10-09:0",
+    "gross" : 45000,
+    "channel" : "OFFLINE",
+    "benefits" : [ {
+      "code" : "TODAY_FOOD",
+      "value" : 500,
+      "unit" : "POINT",
+      "krw" : 500.000000
+    } ],
+    "limits" : [ {
+      "code" : "TODAY_MONTHLY",
+      "before" : 9500,
+      "used" : 500
+    }, {
+      "code" : "TODAY_DAILY",
+      "before" : 1000,
+      "used" : 500
+    }, {
+      "code" : "TODAY_FOOD_PER_TRANSACTION",
+      "before" : 500,
+      "used" : 500
+    } ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 45000,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "0:2026-10-10:0",
+    "gross" : 69000,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 69000,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "2:2026-10-10:1",
+    "gross" : 65000,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 65000,
+    "complete" : false,
+    "unresolved" : [ "FACT_MISSING" ]
+  }, {
+    "key" : "1:2026-10-12:0",
+    "gross" : 79000,
+    "channel" : "ONLINE",
+    "benefits" : [ {
+      "code" : "TODAY_ONLINE_SHOPPING",
+      "value" : 500,
+      "unit" : "POINT",
+      "krw" : 500.000000
+    } ],
+    "limits" : [ {
+      "code" : "TODAY_MONTHLY",
+      "before" : 9000,
+      "used" : 500
+    }, {
+      "code" : "TODAY_DAILY",
+      "before" : 1000,
+      "used" : 500
+    }, {
+      "code" : "TODAY_ONLINE_SHOPPING_PER_TRANSACTION",
+      "before" : 500,
+      "used" : 500
+    } ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 79000,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "0:2026-10-13:0",
+    "gross" : 14500,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 14500,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "3:2026-10-14:0",
+    "gross" : 22000,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 22000,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "0:2026-10-15:0",
+    "gross" : 14500,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 14500,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "0:2026-10-17:0",
+    "gross" : 73000,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 73000,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "2:2026-10-17:1",
+    "gross" : 88000,
+    "channel" : "OFFLINE",
+    "benefits" : [ {
+      "code" : "NIGHT_FOOD",
+      "value" : 1000,
+      "unit" : "KRW",
+      "krw" : 1000
+    } ],
+    "limits" : [ {
+      "code" : "TIME_MONTHLY",
+      "before" : 10000,
+      "used" : 1000
+    }, {
+      "code" : "NIGHT_FOOD_DAILY_COUNT",
+      "before" : 1,
+      "used" : 1
+    }, {
+      "code" : "NIGHT_FOOD_MONTHLY_COUNT",
+      "before" : 10,
+      "used" : 1
+    }, {
+      "code" : "NIGHT_FOOD_PER_TRANSACTION",
+      "before" : 1000,
+      "used" : 1000
+    } ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 1000,
+    "recognized" : 88000,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "2:2026-10-19:0",
+    "gross" : 112000,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 112000,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "0:2026-10-20:0",
+    "gross" : 12500,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 12500,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "3:2026-10-21:0",
+    "gross" : 18000,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 18000,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "2:2026-10-21:1",
+    "gross" : 13500,
+    "channel" : "ONLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 13500,
+    "complete" : false,
+    "unresolved" : [ "FACT_MISSING" ]
+  }, {
+    "key" : "0:2026-10-22:0",
+    "gross" : 12500,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 12500,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "3:2026-10-22:1",
+    "gross" : 21000,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 21000,
+    "complete" : false,
+    "unresolved" : [ "CALCULATION_POLICY_UNKNOWN" ]
+  }, {
+    "key" : "1:2026-10-23:0",
+    "gross" : 45000,
+    "channel" : "OFFLINE",
+    "benefits" : [ {
+      "code" : "TODAY_FOOD",
+      "value" : 500,
+      "unit" : "POINT",
+      "krw" : 500.000000
+    } ],
+    "limits" : [ {
+      "code" : "TODAY_MONTHLY",
+      "before" : 8500,
+      "used" : 500
+    }, {
+      "code" : "TODAY_DAILY",
+      "before" : 1000,
+      "used" : 500
+    }, {
+      "code" : "TODAY_FOOD_PER_TRANSACTION",
+      "before" : 500,
+      "used" : 500
+    } ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 45000,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "0:2026-10-24:0",
+    "gross" : 77000,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 77000,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "0:2026-10-24:1",
+    "gross" : 104000,
+    "channel" : "ONLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 104000,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "1:2026-10-25:0",
+    "gross" : 149000,
+    "channel" : "ONLINE",
+    "benefits" : [ {
+      "code" : "TODAY_ONLINE_SHOPPING",
+      "value" : 500,
+      "unit" : "POINT",
+      "krw" : 500.000000
+    } ],
+    "limits" : [ {
+      "code" : "TODAY_MONTHLY",
+      "before" : 8000,
+      "used" : 500
+    }, {
+      "code" : "TODAY_DAILY",
+      "before" : 1000,
+      "used" : 500
+    }, {
+      "code" : "TODAY_ONLINE_SHOPPING_PER_TRANSACTION",
+      "before" : 500,
+      "used" : 500
+    } ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 149000,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "0:2026-10-27:0",
+    "gross" : 14500,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 14500,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "3:2026-10-28:0",
+    "gross" : 20000,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 20000,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "0:2026-10-29:0",
+    "gross" : 14500,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 14500,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "0:2026-10-31:0",
+    "gross" : 65000,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 65000,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "0:2026-11-03:0",
+    "gross" : 32000,
+    "channel" : "ONLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 32000,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "3:2026-11-04:0",
+    "gross" : 18000,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 18000,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "1:2026-11-05:0",
+    "gross" : 129000,
+    "channel" : "ONLINE",
+    "benefits" : [ {
+      "code" : "TODAY_ONLINE_SHOPPING",
+      "value" : 500,
+      "unit" : "POINT",
+      "krw" : 500.000000
+    } ],
+    "limits" : [ {
+      "code" : "TODAY_MONTHLY",
+      "before" : 10000,
+      "used" : 500
+    }, {
+      "code" : "TODAY_DAILY",
+      "before" : 1000,
+      "used" : 500
+    }, {
+      "code" : "TODAY_ONLINE_SHOPPING_PER_TRANSACTION",
+      "before" : 500,
+      "used" : 500
+    } ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 129000,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "2:2026-11-06:0",
+    "gross" : 65000,
+    "channel" : "ONLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 65000,
+    "complete" : false,
+    "unresolved" : [ "FACT_MISSING" ]
+  }, {
+    "key" : "0:2026-11-07:0",
+    "gross" : 78000,
+    "channel" : "ONLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 78000,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "3:2026-11-08:0",
+    "gross" : 22000,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 22000,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "2:2026-11-09:0",
+    "gross" : 88000,
+    "channel" : "ONLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 88000,
+    "complete" : false,
+    "unresolved" : [ "FACT_MISSING" ]
+  }, {
+    "key" : "0:2026-11-10:0",
+    "gross" : 24000,
+    "channel" : "ONLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 24000,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "1:2026-11-12:0",
+    "gross" : 111000,
+    "channel" : "ONLINE",
+    "benefits" : [ {
+      "code" : "TODAY_ONLINE_SHOPPING",
+      "value" : 500,
+      "unit" : "POINT",
+      "krw" : 500.000000
+    } ],
+    "limits" : [ {
+      "code" : "TODAY_MONTHLY",
+      "before" : 9500,
+      "used" : 500
+    }, {
+      "code" : "TODAY_DAILY",
+      "before" : 1000,
+      "used" : 500
+    }, {
+      "code" : "TODAY_ONLINE_SHOPPING_PER_TRANSACTION",
+      "before" : 500,
+      "used" : 500
+    } ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 111000,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "3:2026-11-13:0",
+    "gross" : 20000,
+    "channel" : "OFFLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 20000,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "0:2026-11-14:0",
+    "gross" : 76000,
+    "channel" : "ONLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 76000,
+    "complete" : true,
+    "unresolved" : [ ]
+  }, {
+    "key" : "2:2026-11-14:1",
+    "gross" : 27000,
+    "channel" : "ONLINE",
+    "benefits" : [ ],
+    "limits" : [ ],
+    "approvalDiscount" : 0,
+    "billingDiscount" : 0,
+    "recognized" : 27000,
+    "complete" : false,
+    "unresolved" : [ "FACT_MISSING" ]
+  } ]
+}
