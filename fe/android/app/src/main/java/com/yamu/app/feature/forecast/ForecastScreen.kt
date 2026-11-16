@@ -73,8 +73,6 @@ import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.Constraints
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
@@ -445,7 +443,7 @@ fun ForecastRoute(
     ReloadOnReconnect(waiting = s.error != null, onReconnect = viewModel::refresh)
     var filtering by rememberSaveable { mutableStateOf(false) }
     val c = YamuTheme.colors
-    // 회색 바탕 + 카드: 고르기 칩 · 예상 잔액 · 낮아지는 때 · 선 설명 · 예정된 돈 · 기간 뒤 카드값. 가상 구매 입구는 아래 버튼(2026-11-08 개편)
+    // 회색 바탕 + 카드: 고르기 칩 · 예상 잔액 · 낮아지는 때 · 선 설명 · 생활비 입구 · 가계부 관리 · 기간 뒤 카드값. 가상 구매 입구는 아래 버튼(2026-11-08 개편)
     FlowScreen(
         title = "잔고예보",
         onBack = onBack,
@@ -505,7 +503,7 @@ fun ForecastRoute(
                     if (f.riskWindows.isNotEmpty()) RiskCard(f, selectedDate, onJump = jump)
                     LinesCard(whole)
                     LivingCostEntry(whole, onLivingCost)   // F-01b 생활비 예측 입구
-                    UpcomingCard(f, onCashflowList, selectedDate, onJump = jump)
+                    CashflowManageEntry(onCashflowList)   // 가계부(F-02) 입구 — 예정된 돈 목록 카드였다(S15P31E103-592)
                     BeyondHorizonCard(f)
                     // 맨 아래 '빼고 계산한 것' 카드는 QA 요청으로 뺐다(S15P31E103-554)
                 }
@@ -1148,41 +1146,21 @@ private fun StepRow(label: String, value: String) {
     }
 }
 
-/** 예정된 돈 — 위 5줄. 카드 사용 예상은 '추정' 태그와 근거 문장(서버 title 그대로). 줄을 누르면 그래프가 그날로 */
+/**
+ * 가계부(F-02) 입구 — 바로 위 생활비 입구와 같은 흰 카드 한 줄. 전에는 '월급 전까지 예정된 돈' 위 5줄과 '전체 보기'가 있었는데
+ * 11/17 사용자 요청으로 목록은 F-02에서만 보고 여기는 들어가는 줄 하나로 줄였다(S15P31E103-592).
+ * 파란 주 버튼은 화면 아래 '이거 사면 잔고는?' 하나로 두려고 큰 버튼 대신 카드 줄로 했다
+ */
 @Composable
-private fun UpcomingCard(f: Forecast, onCashflowList: () -> Unit, selectedDate: LocalDate?, onJump: (LocalDate?) -> Unit) {
-    val c = YamuTheme.colors
-    // 목록 카드는 안쪽 16(프로토타입 .card.tight) · 머리 줄 24dp. '전체 보기' 터치 칸(48)은 머리 줄 위아래로 넘친다(.card-hd .more 음수 여백)
-    YamuCard(contentPadding = PaddingValues(16.dp)) {
-        Row(Modifier.heightIn(min = 24.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text("${cashflowPeriod(f)} 예정된 돈", style = YamuTheme.typography.cardTitle, color = c.text1, modifier = Modifier.weight(1f))
-            Row(
-                Modifier
-                    .overflowHeight(24.dp)
-                    .heightIn(min = 48.dp)
-                    .clip(RoundedCornerShape(YamuRadius.s))
-                    .clickable(role = Role.Button, onClick = onCashflowList)
-                    .padding(start = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text("전체 보기", style = YamuTheme.typography.link, color = c.text3)
-                Icon(YamuIcons.ChevronRight, contentDescription = null, tint = c.text3, modifier = Modifier.size(18.dp))
-            }
-        }
-        val rows = f.upcoming
-        if (rows.isEmpty()) {
-            Text("${cashflowPeriod(f)} 예정된 돈이 없어요", style = YamuTheme.typography.bodyM, color = c.text3, modifier = Modifier.padding(vertical = 12.dp))
-        }
-        rows.take(5).forEachIndexed { i, e ->
-            if (i > 0) HorizontalDivider(color = c.outlineVariant)
-            EventRow(e, on = e.date == selectedDate, onClick = { onJump(e.date) })
-        }
+private fun CashflowManageEntry(onOpen: () -> Unit) {
+    YamuCard(contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp)) {
+        ListRow(title = "가계부 관리", chevron = true, onClick = onOpen)
     }
 }
 
 /**
  * 기간 뒤에 빠질 카드값(BE beyondHorizon) — 30일 예보인데 카드값이 31일째에 빠지면 아무 안내 없이 빠져 있던 것(점검 2026-11-08).
- * 선 · 위험에는 넣지 않은 돈이라 '예정된 돈'과 따로 두고 없으면 카드를 그리지 않는다
+ * 선 · 위험에는 넣지 않은 돈이라 따로 두고 없으면 카드를 그리지 않는다
  */
 @Composable
 private fun BeyondHorizonCard(f: Forecast) {
@@ -1211,11 +1189,9 @@ internal fun beyondHorizonNote(f: Forecast): String =
 private const val BEYOND_VISIBLE = 5
 
 @Composable
-private fun EventRow(e: ForecastEvent, on: Boolean = false, onClick: (() -> Unit)? = null) {
+private fun EventRow(e: ForecastEvent) {
     val c = YamuTheme.colors
     ListRow(
-        modifier = Modifier.dayRow(on, c.primaryContainer),
-        onClick = onClick,
         title = e.label,
         sub = listOfNotNull(e.date.toMonthDayWeek(), e.basis).joinToString(" · "),
         value = "${e.amount.toWon(withPlusSign = true)}원",
@@ -1294,7 +1270,7 @@ private fun FilterSheet(
 
 /**
  * F-02 한 줄 — 가계부 항목이면 눌러서 고치고(F-02b), 맞춘 확인 전 후보는 눌러서 넣거나 빼고, 카드 청구와 못 맞춘 후보는 읽기 전용.
- * 반복이면 날짜 옆에 '매월 말일'처럼. 확인 전 후보는 F-01 '예정된 돈'과 같은 '예상' 태그.
+ * 반복이면 날짜 옆에 '매월 말일'처럼. 확인 전 후보는 '예상' 태그.
  * [onDelete]가 있으면 줄 끝에 휴지통(터치 48dp). 보내는 중([busy])이면 휴지통도 줄도 눌리지 않는다(지우는 중에 수정 화면으로 들어가지 않게)
  */
 @Composable
@@ -1475,11 +1451,4 @@ fun CashflowListRoute(
             onDismiss = viewModel::dismissAsk,
         )
     }
-}
-
-/** 보이는 높이는 [visible]로 두고 실제 칸(터치 48dp)은 위아래로 넘치게 놓는다 — 프로토타입의 음수 여백 링크(.card-hd .more) */
-private fun Modifier.overflowHeight(visible: Dp) = layout { measurable, constraints ->
-    val p = measurable.measure(constraints.copy(minHeight = 0, maxHeight = Constraints.Infinity))
-    val h = visible.roundToPx()
-    layout(p.width, h) { p.place(0, (h - p.height) / 2) }
 }
