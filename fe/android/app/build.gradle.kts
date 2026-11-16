@@ -157,6 +157,7 @@ androidComponents {
 
 dependencies {
     implementation(libs.androidx.core.ktx)
+    implementation(libs.androidx.core.splashscreen)   // 첫 화면을 정할 때까지 시스템 스플래시를 둔다(S15P31E103-512)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.androidx.activity.compose)
