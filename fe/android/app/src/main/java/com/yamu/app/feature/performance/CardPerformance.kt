@@ -159,10 +159,11 @@ fun CardPerformanceRoute(onBack: () -> Unit, onAnalysis: (userCardId: Long) -> U
           }
             // 다음 달 혜택 구간 — 화면 폭 선 + 키–값(달성 구간엔 초록 태그). 키는 '30만 · 정수기 할인'(프로토타입 R-02)
             // 금액은 실적이 그 구간일 때 한 달에 받을 수 있는 최대치(아래 구간까지 누적, BE !227)라 달성 여부와 상관없이 '최대 n원'
-            // 혜택이 열리는 구간이 하나뿐이면 그 한 줄만(visibleTiers)
-            if (d != null && !d.noTarget && d.tiers.isNotEmpty()) {
+            // 혜택이 열리는 구간이 하나뿐이면 그 한 줄만, 이름도 금액도 없는 구간은 빼고(visibleTiers). 남는 줄이 없으면 덩어리째 숨김
+            val tiers = d?.tiers?.visibleTiers().orEmpty()
+            if (d != null && !d.noTarget && tiers.isNotEmpty()) {
                 SectionBlock(title = d.month?.let { "${it % 12 + 1}월 혜택" } ?: "다음 달 혜택") {
-                    d.tiers.visibleTiers().forEach { t ->
+                    tiers.forEach { t ->
                         KeyValueRow(
                             listOfNotNull(t.label.removeSuffix(" 이상").removeSuffix(" 원"), t.benefit).joinToString(" · "),
                             t.amountText,
