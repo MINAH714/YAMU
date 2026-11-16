@@ -1,6 +1,7 @@
 package com.yamu.app.feature.forecast.data
 
 import com.yamu.app.core.format.parseDate
+import com.yamu.app.core.format.toWon
 import com.yamu.app.core.network.ApiError
 import com.yamu.app.core.network.BigDecimalSerializer
 import com.yamu.app.feature.link.data.Brand
@@ -15,6 +16,7 @@ import java.time.LocalDate
  * - [paymentChannel]은 기본값을 두지 않는다. 빠지면 BE가 400(2026-11-06 필수)
  * - 일시불이면 [plan] · [installmentMonths]를 아예 뺀다. null을 보내면 BE가 '보냈다'로 보고 400 INVALID_INSTALLMENT
  * - [userCardId]를 빼면 혜택이 가장 큰 카드(추천 1순위)로 계산한다
+ * - [includeAccountDetails]가 true면 응답에 계좌별 전후([SimulationResponseDto.accountComparisons])가 온다
  */
 @Serializable data class SimulationRequest(
     val accountIds: List<Long>,
@@ -29,6 +31,7 @@ import java.time.LocalDate
     val installmentMonths: Int? = null,
     val until: String? = null,
     val days: Int? = null,
+    val includeAccountDetails: Boolean = false,
 )
 
 @Serializable data class SimulationResponseDto(
@@ -42,6 +45,7 @@ import java.time.LocalDate
     val missingInformation: List<SimMissingDto> = emptyList(),
     val creditLimit: SimCreditLimitDto? = null,
     val outsideSelectionImpact: SimOutsideDto? = null,
+    val accountComparisons: List<SimAccountComparisonDto>? = null,
     val message: String? = null,
     val isEstimate: Boolean = true,
 )
@@ -85,6 +89,12 @@ import java.time.LocalDate
     val withinPeriodImpact: Long = 0,
     val beyondPeriodImpact: Long = 0,
 )
+
+/**
+ * 계좌 하나의 전후(includeAccountDetails=true일 때만, 보낸 계좌 순서). 금액은 그 계좌의 가장 나쁜 선 기준이라
+ * 계좌별 최저 잔액의 합이 통합과 다를 수 있다(docs/be/forecast.md 「계좌 상세의 선 혼합」)
+ */
+@Serializable data class SimAccountComparisonDto(val accountId: Long? = null, val before: SimSnapshotDto? = null, val after: SimSnapshotDto? = null)
 
 /** 가장 낮은 선(conservative 'AI 생활비 반영', 없으면 expected 'AI 생활비 제외') 기준 전후 잔액 */
 @Serializable data class SimSeriesPointDto(val date: String, val before: Long? = null, val after: Long? = null)
@@ -166,7 +176,11 @@ data class SimulationQuery(
 ) {
     val isInstallment: Boolean get() = installmentMonths != null
 
-    fun toRequest(accountIds: List<Long>, period: ForecastPeriod?) = SimulationRequest(
+    /**
+     * 기간은 잔고예보 설정과 상관없이 늘 [PERIOD](오늘부터 30일, 끝 날 포함 — 11/16이면 12/16까지), 계좌별 전후도 받는다(S15P31E103-589).
+     * 전에는 잔고예보에서 고른 기간이라 '월급날까지'면 그래프가 30일을 채우지 못했다
+     */
+    fun toRequest(accountIds: List<Long>) = SimulationRequest(
         accountIds = accountIds,
         amount = amount,
         paymentChannel = channel.name,
@@ -177,11 +191,15 @@ data class SimulationQuery(
         userCardId = userCardId,
         plan = if (installmentMonths != null) "INSTALLMENT" else null,
         installmentMonths = installmentMonths,
-        until = period?.until,
-        days = period?.days,
+        until = PERIOD.until,
+        days = PERIOD.days,
+        includeAccountDetails = true,
     )
 
     companion object {
+        /** 가상 구매가 보는 기간 — 오늘부터 30일(S15P31E103-589) */
+        val PERIOD = ForecastPeriod.DAYS_30
+
         /** 가격 상한 1,000억 원 — BE SimulationRequest와 같고, 예정 수입·지출 상한과도 같다 */
         const val AMOUNT_MAX = 100_000_000_000L
 
@@ -203,6 +221,14 @@ data class SimWithdrawal(val date: LocalDate?, val amount: Long, val label: Stri
 
 data class SimDay(val date: LocalDate, val before: Long?, val after: Long?)
 
+data class SimAccountComparison(val accountId: Long, val before: SimSnapshot?, val after: SimSnapshot?)
+
+/** 카드 출금 계좌 하나만 보면 모자라는 몫 — [amount]는 0원 아래로 내려간 만큼 전체(양수), [date]는 그 계좌가 가장 모자랄 때 */
+data class AccountShortfall(val account: ForecastAccountOption, val amount: Long, val date: LocalDate?) {
+    /** '이 카드로 결제하면 KB국민은행 ··1234 계좌에 40,000원이 부족해요' */
+    val text: String get() = "이 카드로 결제하면 ${account.shortName()} 계좌에 ${amount.toWon()}원이 부족해요"
+}
+
 data class AltCard(val userCardId: Long, val name: String, val detail: String?, val net: BigDecimal?, val note: String?, val recommended: Boolean)
 
 data class Simulation(
@@ -221,9 +247,38 @@ data class Simulation(
     val outsideNote: String?,
     val message: String?,
     val isEstimate: Boolean,
-    /** 계산한 계좌 — 카드를 알면 그 카드의 출금 계좌 하나(저장소가 채운다, S15P31E103-548) */
+    /** 계산한 계좌 — 연결 계좌 전체(저장소가 채운다, S15P31E103-589) */
     val accounts: List<ForecastAccountOption> = emptyList(),
-)
+    /** 계좌별 전후 — BE가 주지 않았으면(옛 응답) 비어 있다 */
+    val accountComparisons: List<SimAccountComparison> = emptyList(),
+) {
+    /** 어느 계좌 잔액인지 — 하나면 'KB국민은행 ··1234', 여럿이면 '계좌 3개 합'. 저장소가 계좌를 붙이지 못했으면 null */
+    val accountsLabel: String? get() = when (accounts.size) {
+        0 -> null
+        1 -> accounts[0].shortName()
+        else -> "계좌 ${accounts.size}개 합"
+    }
+
+    /** 이 카드의 출금 계좌 — 계산한 계좌 중 카드가 묶인 계좌. 연결을 끊은 계좌면 목록에 없어 null */
+    val cardAccount: ForecastAccountOption? get() = accounts.firstOrNull { card.userCardId in it.cardIds }
+
+    /**
+     * 전체 계좌 합은 괜찮아도 카드 출금 계좌 하나만 보면 모자라는 몫(S15P31E103-589, 2026-11-17 결정).
+     * 그 계좌의 사고 난 뒤 최저 잔액이 0원 아래이고 구매 때문에 그 최저점이 더 내려갔을 때만 — 사기 전부터 모자랐는데 구매가
+     * 최저점을 바꾸지 않았으면(출금이 기간 밖 · 전액 즉시할인) 이 카드 탓이 아니다. 금액은 구매로 늘어난 몫이 아니라 0원 아래 전체다
+     * (그만큼 옮겨 두면 그 계좌가 0원 아래로 내려가지 않는다).
+     * 한계: BE가 계좌별로는 최저 잔액만 줘서, 구매가 그 계좌의 최저점이 아닌 다른 날을 0원 아래로 만들면 놓친다
+     */
+    val cardAccountShortfall: AccountShortfall? get() {
+        val account = cardAccount ?: return null
+        val compared = accountComparisons.firstOrNull { it.accountId == account.accountId } ?: return null
+        val after = compared.after ?: return null
+        val lowest = after.minBalance ?: return null
+        val before = compared.before?.minBalance
+        if (lowest >= 0 || (before != null && lowest >= before)) return null
+        return AccountShortfall(account, -lowest, after.minBalanceDate)
+    }
+}
 
 fun SimulationResponseDto.toSimulation(query: SimulationQuery): Simulation {
     val lastDay = series.mapNotNull { parseDate(it.date) }.maxOrNull()
@@ -266,6 +321,7 @@ fun SimulationResponseDto.toSimulation(query: SimulationQuery): Simulation {
         outsideNote = outsideSelectionImpact?.note?.takeIf { it.isNotBlank() },
         message = message?.takeIf { it.isNotBlank() },
         isEstimate = isEstimate,
+        accountComparisons = accountComparisons.orEmpty().mapNotNull { a -> a.accountId?.let { SimAccountComparison(it, snapshot(a.before), snapshot(a.after)) } },
     )
 }
 

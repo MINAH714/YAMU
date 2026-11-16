@@ -7,32 +7,36 @@ import com.yamu.app.feature.link.data.CashflowApi
 import com.yamu.app.feature.link.data.LinkApi
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.long
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.long
 import mockwebserver3.Dispatcher
 import mockwebserver3.MockResponse
 import mockwebserver3.MockWebServer
 import mockwebserver3.RecordedRequest
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Before
 import org.junit.Test
 import java.time.LocalDate
 import java.util.concurrent.CopyOnWriteArrayList
 
 /**
- * 가상 구매는 카드의 출금 계좌 하나로 계산한다(S15P31E103-548). 체크카드가 잔고예보에서 고른 계좌 밖에 묶여 있으면
- * BE가 전후를 같게 두어, 2,000원을 넣어도 사기 전 · 후가 같게 보였다(11/16 에뮬레이터)
+ * 가상 구매는 연결 계좌 전체 · 오늘부터 30일로 한 번 부른다(S15P31E103-589) — 잔고예보에서 고른 계좌 · 기간과 상관없다.
+ * 카드 출금 계좌 하나만 보면 모자라는지는 계좌별 전후(accountComparisons)로 본다.
+ * 전에는(-548) 카드 출금 계좌 하나로, 추천 카드는 응답 뒤 한 번 더 불렀다
  */
 class SimulationAccountsTest {
 
     private lateinit var server: MockWebServer
     private lateinit var repository: ForecastRepositoryImpl
-    private val sent = CopyOnWriteArrayList<List<Long>>()
+    private val sent = CopyOnWriteArrayList<JsonObject>()
 
-    /** 기준 계좌 1(카드 11) · 계좌 2(카드 22). 추천하면 카드 22 */
+    /** 기준 계좌 1(카드 11) · 계좌 2(카드 22). 추천하면 카드 22. 계좌 2는 사고 나면 −40,000원 */
     @Before fun setUp() {
         server = MockWebServer()
         server.dispatcher = object : Dispatcher() {
@@ -45,9 +49,16 @@ class SimulationAccountsTest {
                 )
                 "/forecasts/simulations" -> {
                     val body = Json.parseToJsonElement(request.body!!.utf8()).jsonObject
-                    sent += body.getValue("accountIds").jsonArray.map { it.jsonPrimitive.long }
+                    sent += body
                     val card = body["userCardId"]?.jsonPrimitive?.long ?: 22L   // null은 보내지 않는다(explicitNulls = false)
-                    json(200, """{"success":true,"data":{"card":{"userCardId":$card,"nickname":"노리","cardType":"CHECK","recommended":${body["userCardId"] == null}}}}""")
+                    json(
+                        200,
+                        """{"success":true,"data":{"card":{"userCardId":$card,"nickname":"노리","cardType":"CHECK","recommended":${body["userCardId"] == null}},
+                            "comparison":{"before":{"minBalance":500000,"minBalanceDate":"2026-11-17","status":"SAFE"},"after":{"minBalance":260000,"minBalanceDate":"2026-11-17","status":"SAFE"}},
+                            "accountComparisons":[
+                              {"accountId":1,"before":{"minBalance":300000,"minBalanceDate":"2026-11-17","status":"SAFE"},"after":{"minBalance":300000,"minBalanceDate":"2026-11-17","status":"SAFE"}},
+                              {"accountId":2,"before":{"minBalance":200000,"minBalanceDate":"2026-11-17","status":"SAFE"},"after":{"minBalance":-40000,"minBalanceDate":"2026-11-17","status":"DANGER"}}]}}""",
+                    )
                 }
                 else -> json(404, """{"success":false,"data":null,"error":{"code":"API_NOT_FOUND","message":"없음"}}""")
             }
@@ -59,25 +70,31 @@ class SimulationAccountsTest {
 
     @After fun tearDown() = server.close()
 
-    private fun query(card: Long?) = SimulationQuery(2_000, null, "HYPERMARKET", "대형마트", null, null, PaymentChannel.OFFLINE, card, null, LocalDate.now())
+    private fun query(card: Long?) = SimulationQuery(240_000, null, "HYPERMARKET", "대형마트", null, null, PaymentChannel.OFFLINE, card, null, LocalDate.now())
 
-    @Test fun `카드를 고르면 그 카드의 출금 계좌로만 부른다 — 잔고예보에서 고른 계좌와 상관없이`() = runTest {
-        repository.select(ForecastSelection(accountIds = setOf(1)))
+    private fun JsonObject.accountIds() = getValue("accountIds").jsonArray.map { it.jsonPrimitive.long }
+
+    @Test fun `카드를 고르면 연결 계좌 전체 · 30일로 한 번 — 잔고예보에서 고른 계좌 · 기간과 상관없이`() = runTest {
+        repository.select(ForecastSelection(period = ForecastPeriod.NEXT_INCOME, accountIds = setOf(1)))
         val sim = (repository.simulate(query(22)) as ApiResult.Success).data
-        assertEquals(listOf(listOf(2L)), sent)
-        assertEquals(listOf(2L), sim.accounts.map { it.accountId })
+        assertEquals(listOf(listOf(1L, 2L)), sent.map { it.accountIds() })
+        assertEquals(JsonPrimitive("DAYS"), sent.single()["until"])
+        assertEquals(JsonPrimitive(30), sent.single()["days"])
+        assertEquals(JsonPrimitive(true), sent.single()["includeAccountDetails"])
+        assertEquals(listOf(1L, 2L), sim.accounts.map { it.accountId })
     }
 
-    @Test fun `추천 카드는 잔고예보 선택으로 먼저 부르고, 카드 계좌가 다르면 그 계좌로 한 번 더`() = runTest {
+    @Test fun `추천 카드도 한 번만 부르고, 그 카드의 출금 계좌가 모자라면 어느 계좌에 얼마`() = runTest {
         val sim = (repository.simulate(query(null)) as ApiResult.Success).data
-        assertEquals(listOf(listOf(1L, 2L), listOf(2L)), sent)   // 기본은 전체 계좌 → 추천 카드 22의 계좌 2
-        assertEquals(listOf(2L), sim.accounts.map { it.accountId })
+        assertEquals(1, sent.size)   // 전에는 추천 카드 계좌로 한 번 더 불렀다
         assertEquals(true, sim.card.recommendedTop)
+        assertEquals("이 카드로 결제하면 신한은행 ··5678 계좌에 40,000원이 부족해요", sim.cardAccountShortfall!!.text)
+        assertEquals("계좌 2개 합", sim.accountsLabel)
     }
 
-    @Test fun `추천 카드 계좌가 처음 보낸 계좌와 같으면 다시 부르지 않는다`() = runTest {
-        repository.select(ForecastSelection(accountIds = setOf(2)))
-        repository.simulate(query(null))
-        assertEquals(listOf(listOf(2L)), sent)
+    @Test fun `카드 출금 계좌가 남으면 안내하지 않는다`() = runTest {
+        val sim = (repository.simulate(query(11)) as ApiResult.Success).data
+        assertEquals(1L, sim.cardAccount!!.accountId)
+        assertNull(sim.cardAccountShortfall)
     }
 }
