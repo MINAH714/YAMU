@@ -123,13 +123,33 @@ class ForecastViewModelTest {
         assertFalse(vm.state.value.cashflowLoading)
     }
 
-    @Test fun `지난 예보가 남아 있으면 회차 응답 전에도 그 예보로 그린다`() = runTest(dispatcher) {
+    @Test fun `지난 예보가 남아 있어도 회차 응답 전에는 불러오는 중이다 — 예보 줄만 그렸다가 모양이 바뀌지 않게`() = runTest(dispatcher) {
         cachedForecast = testForecast()
+        forecastResult = ApiResult.Success(testForecast())
+        val vm = ForecastViewModel(repo)
+        assertTrue(vm.state.value.cashflowLoading)   // 화면이 처음 그려질 때(새로 부르기 전)도
+
+        vm.refreshWithEntries()
+        advanceUntilIdle()
+        assertTrue(vm.state.value.cashflowLoading)   // 예보는 왔지만 회차는 아직
+
+        entriesResponse.complete(ApiResult.Success(emptyList()))
+        advanceUntilIdle()
+        assertFalse(vm.state.value.cashflowLoading)
+    }
+
+    @Test fun `회차를 못 받으면 받아 둔 예보 줄로 그린다`() = runTest(dispatcher) {
+        cachedForecast = testForecast()
+        forecastResult = ApiResult.Success(testForecast())
         val vm = ForecastViewModel(repo)
         vm.refreshWithEntries()
+        entriesResponse.complete(ApiResult.Failure(ENTRIES_ERROR))
         advanceUntilIdle()
 
         assertFalse(vm.state.value.cashflowLoading)
+        assertNull(vm.state.value.entries)
+        assertEquals(ENTRIES_ERROR.userMessage(), vm.state.value.entriesError)
+        assertTrue(vm.state.value.forecast != null)
     }
 
     @Test fun `계좌를 잇지 않았으면 회차를 부르지 않고 빈 상태로 끝난다`() = runTest(dispatcher) {

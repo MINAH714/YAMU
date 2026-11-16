@@ -161,9 +161,12 @@ data class ForecastState(
     val ask: CashflowAsk? = null,                       // F-02 확인 시트 · 대화상자
     val message: String? = null,                        // F-02 결과 한 줄(스낵바)
 ) {
-    /** F-02 — 예보가 실패해도 회차만으로 목록을 그리므로 보여 줄 것이 없으면 회차 응답까지 기다린다 */
+    /**
+     * F-02 — 회차 응답이 올 때까지 기다린다. 받아 둔 예보가 있어도 그 예보 줄(읽기 전용)을 먼저 그리면 회차가 온 뒤
+     * 반복 표시 · 휴지통이 붙은 다른 모양으로 바뀌어, 예보 줄만 그리는 것은 회차를 못 받았을 때로 한정한다
+     */
     val cashflowLoading: Boolean
-        get() = forecast == null && entries == null && (loading || entriesLoading)
+        get() = !noAccount && entries == null && (entriesLoading || entriesError == null)
 
     /** F-02 — 이 화면은 회차를 보여 주므로 둘 다 실패하면 회차 쪽 오류가 먼저 */
     val cashflowError: String?
