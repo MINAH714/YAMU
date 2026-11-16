@@ -1,0 +1,14 @@
+// Explicit customerDebug operator tool only. Normal builds omit this init script.
+allprojects {
+    afterEvaluate {
+        if (plugins.hasPlugin('com.android.application')) {
+            def selected = providers.gradleProperty('qaSetupVariant').getOrElse('customerDebug')
+            if (selected != 'customerDebug' || gradle.startParameter.taskNames.any { it.toLowerCase(java.util.Locale.ROOT).contains('release') }) {
+                throw new GradleException('QA account setup is debug-only; build release without this init script')
+            }
+            android.sourceSets.maybeCreate('customerDebug').kotlin.srcDir project.file('../tools/qa-account-setup/src')
+            android.sourceSets.maybeCreate('customerDebug').manifest.srcFile project.file('../tools/qa-account-setup/AndroidManifest.xml')
+            android.sourceSets.maybeCreate('testCustomerDebug').kotlin.srcDir project.file('../tools/qa-account-setup/test')
+        }
+    }
+}

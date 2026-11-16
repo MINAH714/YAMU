@@ -9,13 +9,13 @@ import com.yamu.be.global.exception.ErrorCode;
  *
  * <p>로그인·본인 인증은 형식만 보고(PinHasher.isPinFormat), 이 규칙은 새로 정할 때만 본다. 이미 쓰고 있는 PIN을 막지 않으려고.
  */
-final class PinPolicy {
+public final class PinPolicy {
 
     private PinPolicy() {
     }
 
     /** 정할 수 없는 PIN이면 400 INVALID_PIN_FORMAT. */
-    static void requireAllowed(String pin) {
+    public static void requireAllowed(String pin) {
         if (!PinHasher.isPinFormat(pin) || isRepeated(pin) || isSequential(pin, 1) || isSequential(pin, -1)) {
             throw new BusinessException(ErrorCode.INVALID_PIN_FORMAT);
         }
