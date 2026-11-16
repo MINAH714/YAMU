@@ -7,6 +7,10 @@ import org.junit.Test
 
 /** yamu.realApi(BuildConfig.REAL_API) → 진짜 서버를 쓰는 기능 */
 class ApiFeatureTest {
+    @Test fun `실행 빌드는 모든 기능을 실제 API로 사용한다`() {
+        assertEquals(ApiFeature.entries.toSet(), ApiFeature.real)
+        assertEquals(BuildConfig.API_FEATURES.split(',').toSet(), BuildConfig.REAL_API.split(',').toSet())
+    }
     @Test fun `비어 있으면 전부 가짜`() {
         assertTrue(ApiFeature.parse("").isEmpty())
     }

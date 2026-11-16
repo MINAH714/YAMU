@@ -37,6 +37,22 @@ class PaymentCancelMemoContractTest {
 
     @After fun tearDown() = server.close()
 
+    @Test fun `거절은 서버에 결제 번호와 멱등 키를 전송한다`() = runTest {
+        server.enqueue(json(200, """{"success":true,"data":{"paymentId":1024,"status":"REJECTED"}}"""))
+        assertTrue(repository.reject(1024, "reject-key") is ApiResult.Success)
+        val request = server.takeRequest()
+        assertEquals("POST", request.method)
+        assertEquals("/payments/1024/reject", request.url.encodedPath)
+        assertEquals("reject-key", request.headers[YamuHeaders.IDEMPOTENCY_KEY])
+    }
+
+    @Test fun `거절 API 오류를 가짜 성공으로 바꾸지 않는다`() = runTest {
+        server.enqueue(json(409, """{"success":false,"error":{"code":"PAYMENT_ALREADY_PROCESSED","message":"처리된 결제"}}"""))
+        val result = repository.reject(1024, "reject-key")
+        assertTrue(result is ApiResult.Failure)
+        assertEquals(1, server.requestCount)
+    }
+
     @Test fun `취소 본문은 빈 객체 — 금액 칸이 있으면 BE가 400 PARTIAL_CANCEL_NOT_SUPPORTED`() {
         assertEquals("{}", YamuJson.encodeToString(CancelRequest()))
     }
