@@ -197,10 +197,11 @@ class BuyCheckViewModel internal constructor(initial: SimulationQuery, private v
         load()
     }
 
-    /** 카드를 바꾼다(null = 혜택이 가장 큰 카드). 체크카드면 할부를 푼다 */
+    /** 카드를 바꾼다(null = 혜택이 가장 큰 카드). 체크카드면 할부를 푼다. 할부일 때는 카드 시트가 체크카드를 보여 주지 않는다(-588) */
     fun setCard(userCardId: Long?) = change { q ->
-        val card = _state.value.cards?.firstOrNull { it.userCardId == userCardId }
-        q.copy(userCardId = userCardId, installmentMonths = q.installmentMonths.takeIf { installmentAllowed(q.amount, card) })
+        val cards = _state.value.cards
+        val card = cards?.firstOrNull { it.userCardId == userCardId }
+        q.copy(userCardId = userCardId, installmentMonths = q.installmentMonths.takeIf { installmentAllowed(q.amount, card, cards) })
     }
 
     fun setChannelAndMonths(channel: PaymentChannel, months: Int?) = change { it.copy(channel = channel, installmentMonths = months) }
@@ -332,7 +333,11 @@ fun BuyCheckResultRoute(
         },
     ) { inner ->
         Column(Modifier.padding(inner).consumeWindowInsets(inner).fillMaxSize().verticalScroll(scroll)) {
-            Header(s.query, sim, onCard = openCards, onHow = { sheet = "how" }, onDate = { picking = true })
+            // '어떻게' 시트도 카드 목록을 읽는다 — 쓸 수 있는 신용카드가 없으면 할부를 닫는다(-588)
+            Header(s.query, sim, onCard = openCards, onHow = {
+                viewModel.loadCards()
+                sheet = "how"
+            }, onDate = { picking = true })
             val problem = s.problem
             when {
                 problem != null -> ProblemCard(problem, onAction = { action ->
@@ -384,11 +389,11 @@ fun BuyCheckResultRoute(
         }
     }
     when (sheet) {
-        "card" -> CardSheet(s.cards, s.cardsError, s.query.userCardId, onRetry = viewModel::reloadCards, onDismiss = { sheet = null }, onPick = {
+        "card" -> CardSheet(s.cards, s.cardsError, s.query.userCardId, installment = s.query.isInstallment, onRetry = viewModel::reloadCards, onDismiss = { sheet = null }, onPick = {
             sheet = null
             viewModel.setCard(it)
         })
-        "how" -> HowSheet(s.query, s.cards?.firstOrNull { it.userCardId == s.query.userCardId }, onDismiss = { sheet = null }, onApply = { channel, months ->
+        "how" -> HowSheet(s.query, s.cards, onDismiss = { sheet = null }, onApply = { channel, months ->
             sheet = null
             viewModel.setChannelAndMonths(channel, months)
         })
@@ -649,14 +654,14 @@ private fun ProblemCard(problem: SimProblem, onAction: (SimAction) -> Unit, onRe
     }
 }
 
-/** 어디서 어떻게 — 매장/온라인 · 일시불/할부(신용카드 · 5만 원 이상) */
+/** 어디서 어떻게 — 매장/온라인 · 일시불/할부(신용카드 · 5만 원 이상, 카드를 안 골랐으면 쓸 수 있는 신용카드가 있을 때) */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun HowSheet(query: SimulationQuery, card: SimCardOption?, onDismiss: () -> Unit, onApply: (PaymentChannel, Int?) -> Unit) {
+private fun HowSheet(query: SimulationQuery, cards: List<SimCardOption>?, onDismiss: () -> Unit, onApply: (PaymentChannel, Int?) -> Unit) {
     val c = YamuTheme.colors
     var channel by rememberSaveable { mutableStateOf(query.channel) }
     var months by rememberSaveable { mutableStateOf(query.installmentMonths) }
-    val canInstallment = installmentAllowed(query.amount, card)
+    val canInstallment = installmentAllowed(query.amount, cards?.firstOrNull { it.userCardId == query.userCardId }, cards)
     YamuBottomSheet(onDismiss = onDismiss) {
         Text("어떻게 사나요", style = YamuTheme.typography.titleL, color = c.text1)
         Spacer(Modifier.height(14.dp))

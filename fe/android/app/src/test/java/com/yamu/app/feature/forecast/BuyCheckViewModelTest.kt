@@ -53,13 +53,14 @@ class BuyCheckViewModelTest {
         MerchantCategory("UNIVERSITY", "대학", false),
         MerchantCategory("TAXI", "택시", false),
     )
+    private var cardList = CARDS
 
     private val repo = object : ForecastRepository by unused() {
         override suspend fun simulate(query: SimulationQuery): ApiResult<Simulation> {
             queries += query
             return pending.removeFirstOrNull()?.await() ?: ApiResult.Success(sim(query))
         }
-        override suspend fun simulationCards(): ApiResult<List<SimCardOption>> = ApiResult.Success(CARDS)
+        override suspend fun simulationCards(): ApiResult<List<SimCardOption>> = ApiResult.Success(cardList)
         override suspend fun categories(): ApiResult<List<MerchantCategory>> = ApiResult.Success(categoryList)
         override suspend fun merchants(categoryCode: String): ApiResult<List<CatalogMerchant>> = ApiResult.Success(listOf(CatalogMerchant(201, "이마트")))
         override suspend fun savePlan(simulation: Simulation, idempotencyKey: String): ApiResult<SavedPlan> {
@@ -296,6 +297,58 @@ class BuyCheckViewModelTest {
         assertFalse(installmentAllowed(49_999, null))
         assertFalse(installmentAllowed(400_000, CARDS.single { it.userCardId == 16L }))
         assertTrue(installmentAllowed(400_000, CARDS.first()))
+    }
+
+    @Test fun `할부 — 카드를 안 골랐으면 쓸 수 있는 신용카드가 있을 때만, 목록을 아직 못 받았으면 연다(-588)`() {
+        val checkOnly = CARDS.filter { !it.isCredit }
+        val stoppedCredit = listOf(CARDS.first().copy(unusableReason = "정지된 카드예요")) + checkOnly
+        assertTrue(installmentAllowed(400_000, null, null))
+        assertTrue(installmentAllowed(400_000, null, CARDS))
+        assertFalse(installmentAllowed(400_000, null, checkOnly))
+        assertFalse(installmentAllowed(400_000, null, stoppedCredit))
+        // 카드를 골랐으면 그 카드만 본다
+        assertTrue(installmentAllowed(400_000, CARDS.first(), checkOnly))
+        assertFalse(installmentAllowed(400_000, checkOnly.single(), CARDS))
+    }
+
+    @Test fun `조건 화면 — 할부면 고를 카드와 '내 카드 N장'에서 체크카드를 빼고, 일시불로 돌리면 다시 보인다(-588)`() = runTest(dispatcher) {
+        cardList = CARDS + SimCardOption(12, "정지카드", "정지카드", isCredit = true, unusableReason = "정지된 카드예요")
+        val vm = BuyConditionsViewModel(400_000L, "태블릿", repo)
+        advanceUntilIdle()
+        assertEquals(listOf(11L, 16L, 12L), vm.state.value.pickableCards?.map { it.userCardId })
+        assertEquals(2, vm.state.value.pickableCards?.count { it.unusableReason == null })
+
+        vm.setMonths(3)
+        assertEquals(3, vm.state.value.months)
+        assertEquals(listOf(11L, 12L), vm.state.value.pickableCards?.map { it.userCardId })
+        assertEquals(1, vm.state.value.pickableCards?.count { it.unusableReason == null })
+        assertEquals(listOf(11L, 12L), cardList.forPlan(installment = true).map { it.userCardId })
+
+        vm.setMonths(null)
+        assertEquals(cardList, vm.state.value.pickableCards)
+    }
+
+    @Test fun `조건 화면 — 쓸 수 있는 신용카드가 없으면 할부를 고를 수 없다(-588)`() = runTest(dispatcher) {
+        cardList = listOf(CARDS.first().copy(unusableReason = "정지된 카드예요")) + CARDS.filter { !it.isCredit }
+        val vm = BuyConditionsViewModel(400_000L, "태블릿", repo)
+        advanceUntilIdle()
+        vm.setMonths(3)
+        assertNull(vm.state.value.months)
+    }
+
+    @Test fun `조건 화면 — 카드 목록보다 할부를 먼저 골랐어도 목록에 신용카드가 없으면 할부를 푼다(-588)`() = runTest(dispatcher) {
+        cardList = CARDS.filter { !it.isCredit }
+        val vm = BuyConditionsViewModel(400_000L, "태블릿", repo)
+        vm.setMonths(3)   // 카드 목록을 받기 전 — 추천 카드가 신용카드일 수 있어 연다
+        assertEquals(3, vm.state.value.months)
+        advanceUntilIdle()
+        assertNull(vm.state.value.months)
+
+        cardList = CARDS
+        val withCredit = BuyConditionsViewModel(400_000L, "태블릿", repo)
+        withCredit.setMonths(3)
+        advanceUntilIdle()
+        assertEquals(3, withCredit.state.value.months)
     }
 
     private companion object {

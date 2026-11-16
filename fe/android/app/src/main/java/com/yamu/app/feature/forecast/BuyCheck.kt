@@ -280,11 +280,24 @@ data class ConditionsState(
     val message: String? = null,                            // 스낵바 한 번 — 업종 없이 비교하기를 눌렀을 때
 ) {
     val card: SimCardOption? get() = cards?.firstOrNull { it.userCardId == cardId }
+
+    /** 고를 수 있는 카드 — 할부면 신용카드만(-588) */
+    val pickableCards: List<SimCardOption>? get() = cards?.forPlan(installment = months != null)
 }
 
-/** 할부를 고를 수 있는지 — 신용카드 · 5만 원 이상(BE PaymentTerms). 카드를 고르지 않았으면 추천 카드가 신용카드일 수 있어 연다 */
-internal fun installmentAllowed(amount: Long, card: SimCardOption?): Boolean =
-    amount >= SimulationQuery.INSTALLMENT_MIN_AMOUNT && (card == null || card.isCredit)
+/**
+ * 할부를 고를 수 있는지 — 신용카드 · 5만 원 이상(BE PaymentTerms). 카드를 고르지 않았으면 추천 카드가 신용카드일 수 있어 연다.
+ * 다만 카드 목록([cards])을 받았는데 쓸 수 있는 신용카드가 없으면 추천할 카드가 없어 닫는다(-588). 목록을 아직 못 받았으면 연다
+ */
+internal fun installmentAllowed(amount: Long, card: SimCardOption?, cards: List<SimCardOption>? = null): Boolean =
+    amount >= SimulationQuery.INSTALLMENT_MIN_AMOUNT && when {
+        card != null -> card.isCredit
+        else -> cards == null || cards.any { it.isCredit && it.unusableReason == null }
+    }
+
+/** 할부면 체크카드를 뺀다 — 체크카드는 일시불만이고 BE도 할부 추천 · 대안에서 뺀다(-588) */
+internal fun List<SimCardOption>.forPlan(installment: Boolean): List<SimCardOption> =
+    if (installment) filter { it.isCredit } else this
 
 /** I-01b — 고른 조건은 이 화면에만(결과로 넘길 때 경로 값으로 굳힌다) */
 @HiltViewModel
@@ -320,7 +333,11 @@ class BuyConditionsViewModel internal constructor(val amount: Long, val title: S
         viewModelScope.launch {
             _state.update { it.copy(cardsError = null) }
             when (val r = repo.simulationCards()) {
-                is ApiResult.Success -> _state.update { it.copy(cards = r.data) }
+                // 목록보다 할부를 먼저 골랐는데 쓸 수 있는 신용카드가 없으면 할부를 푼다(-588)
+                is ApiResult.Success -> _state.update { s ->
+                    val card = r.data.firstOrNull { it.userCardId == s.cardId }
+                    s.copy(cards = r.data, months = s.months.takeIf { installmentAllowed(amount, card, r.data) })
+                }
                 is ApiResult.Failure -> _state.update { it.copy(cardsError = r.error.userMessage()) }
             }
         }
@@ -363,13 +380,13 @@ class BuyConditionsViewModel internal constructor(val amount: Long, val title: S
 
     fun setChannel(channel: PaymentChannel) = _state.update { it.copy(channel = channel) }
 
-    /** 체크카드를 고르면 할부를 푼다(체크카드는 일시불만) */
+    /** 체크카드를 고르면 할부를 푼다(체크카드는 일시불만). 할부일 때는 카드 시트가 체크카드를 보여 주지 않는다(-588) */
     fun pickCard(cardId: Long?) = _state.update { s ->
         val card = s.cards?.firstOrNull { it.userCardId == cardId }
-        s.copy(cardId = cardId, months = s.months.takeIf { installmentAllowed(amount, card) })
+        s.copy(cardId = cardId, months = s.months.takeIf { installmentAllowed(amount, card, s.cards) })
     }
 
-    fun setMonths(months: Int?) = _state.update { it.copy(months = months.takeIf { m -> m != null && installmentAllowed(amount, it.card) }) }
+    fun setMonths(months: Int?) = _state.update { it.copy(months = months.takeIf { m -> m != null && installmentAllowed(amount, it.card, it.cards) }) }
 
     fun setDate(date: LocalDate) = _state.update { it.copy(date = date) }
 
@@ -464,7 +481,7 @@ fun BuyConditionsRoute(onBack: () -> Unit, onCompare: (SimulationQuery) -> Unit,
             Text("카드", style = YamuTheme.typography.bodyM, color = c.text3)
             RadioRow(
                 title = "혜택이 가장 큰 카드",
-                sub = s.cards?.count { it.unusableReason == null }?.let { "내 카드 ${it}장 중에서 골라 드려요" },
+                sub = s.pickableCards?.count { it.unusableReason == null }?.let { "내 카드 ${it}장 중에서 골라 드려요" },
                 selected = s.cardId == null,
                 onClick = { viewModel.pickCard(null) },
             )
@@ -480,7 +497,7 @@ fun BuyConditionsRoute(onBack: () -> Unit, onCompare: (SimulationQuery) -> Unit,
             Spacer(Modifier.height(14.dp))
             Text("결제", style = YamuTheme.typography.bodyM, color = c.text3)
             Spacer(Modifier.height(8.dp))
-            val canInstallment = installmentAllowed(viewModel.amount, s.card)
+            val canInstallment = installmentAllowed(viewModel.amount, s.card, s.cards)
             if (canInstallment) {
                 Segmented(
                     listOf("일시불", s.months?.let { "할부 ${it}개월" } ?: "할부"),
@@ -515,7 +532,7 @@ fun BuyConditionsRoute(onBack: () -> Unit, onCompare: (SimulationQuery) -> Unit,
             sheet = null
             viewModel.pickMerchant(it)
         })
-        "card" -> CardSheet(s.cards, s.cardsError, s.cardId, onRetry = viewModel::loadCards, onDismiss = { sheet = null }, onPick = {
+        "card" -> CardSheet(s.cards, s.cardsError, s.cardId, installment = s.months != null, onRetry = viewModel::loadCards, onDismiss = { sheet = null }, onPick = {
             sheet = null
             viewModel.pickCard(it)
         })
@@ -630,12 +647,16 @@ private fun BrandSheet(
     }
 }
 
-/** 카드 고르기 — 맨 위는 '혜택이 가장 큰 카드'(null), 결제할 수 없는 카드는 이유를 달고 고를 수 없다 */
+/**
+ * 카드 고르기 — 맨 위는 '혜택이 가장 큰 카드'(null), 결제할 수 없는 카드는 이유를 달고 고를 수 없다.
+ * 할부([installment])면 체크카드는 목록에서 뺀다(-588)
+ */
 @Composable
 internal fun CardSheet(
     cards: List<SimCardOption>?,
     error: String?,
     selectedId: Long?,
+    installment: Boolean,
     onRetry: () -> Unit,
     onDismiss: () -> Unit,
     onPick: (Long?) -> Unit,
@@ -643,6 +664,7 @@ internal fun CardSheet(
     val c = YamuTheme.colors
     YamuBottomSheet(onDismiss = onDismiss) {
         Text("카드", style = YamuTheme.typography.titleL, color = c.text1)
+        if (installment) Text("할부는 신용카드만 고를 수 있어요", style = YamuTheme.typography.bodyS, color = c.text3, modifier = Modifier.padding(top = 4.dp))
         Spacer(Modifier.height(8.dp))
         RadioRow("혜택이 가장 큰 카드", "야무가 골라 드려요", selected = selectedId == null, onClick = { onPick(null) })
         when {
@@ -652,7 +674,7 @@ internal fun CardSheet(
                 Spacer(Modifier.height(8.dp))
             }
             else -> SheetList {
-                cards.forEach { card ->
+                cards.forPlan(installment).forEach { card ->
                     HorizontalDivider(color = c.outlineVariant)
                     RadioRow(
                         title = card.name,
