@@ -241,7 +241,8 @@ class PaymentApprovalServiceTest {
             return new ApprovalOutcome.Approved(amount, amount, 0, ApprovalDates.performanceMonth(command.now()),
                     ApprovalOutcome.Approved.applied(command.candidate()), null, null, null, command.candidate());
         }).when(approver).approve(any());
-        doReturn(new ApprovalLedger.Recorded(Map.of(101L, 777L))).when(ledger).recordApproval(eq(payment), any());
+        doReturn(new ApprovalLedger.Recorded(Map.of(101L, 777L),
+                Map.of(101L, new ApprovalLedger.Recorded.Value("KRW", 1_000L)))).when(ledger).recordApproval(eq(payment), any());
 
         PaymentApprovalResponse response = service.approve(ME, PAYMENT_ID, request(null), KEY);
 
@@ -257,6 +258,8 @@ class PaymentApprovalServiceTest {
             assertThat(b.paymentBenefitId()).isEqualTo(777L);
             assertThat(b.amount()).isEqualTo(1_000);
             assertThat(b.confirmed()).isTrue();
+            assertThat(b.unit()).isEqualTo("KRW");
+            assertThat(b.krwAmount()).isEqualTo(1_000L);
         });
         assertThat(response.limitImpacts()).containsExactly(
                 new PaymentApprovalResponse.LimitImpact(7L, "MONTHLY", 1_000, 4_000L));

@@ -122,6 +122,10 @@ class PaymentLedgerIntegrationTest extends MySqlTestSupport {
         Map<String, Object> points = row("SELECT * FROM payment_benefit WHERE card_benefit_id = ?", point);
         assertThat(points.get("value_unit")).isEqualTo("POINT");
         assertThat(points.get("krw_amount")).isEqualTo(2L);
+        // 승인 응답이 상세와 같은 원화 값을 싣도록 적은 단위·환산액을 돌려준다(S15P31E103-580)
+        assertThat(recorded.values()).containsExactlyInAnyOrderEntriesOf(Map.of(
+                discount, new ApprovalLedger.Recorded.Value("KRW", 1_500L),
+                point, new ApprovalLedger.Recorded.Value("POINT", 2L)));
 
         Map<String, Object> monthlyUse = row("SELECT * FROM payment_limit_usage WHERE limit_group_id = ?", monthly);
         assertThat(monthlyUse.get("remaining_before")).isEqualTo(5_000L);
@@ -141,11 +145,12 @@ class PaymentLedgerIntegrationTest extends MySqlTestSupport {
         // 3P × 0.5 = 1.5원
         Candidate basis = candidate(List.of(line(point, "POINT", 3L, "POINT_ACCRUAL")), List.of(), List.of());
 
-        record(paymentId, approved(15_000, 0, basis));
+        ApprovalLedger.Recorded recorded = record(paymentId, approved(15_000, 0, basis));
 
         Map<String, Object> points = row("SELECT * FROM payment_benefit WHERE card_benefit_id = ?", point);
         assertThat((BigDecimal) points.get("benefit_value")).isEqualByComparingTo("3");
         assertThat(points.get("krw_amount")).isNull();
+        assertThat(recorded.values()).containsExactlyEntriesOf(Map.of(point, new ApprovalLedger.Recorded.Value("POINT", null)));
     }
 
     @Test
