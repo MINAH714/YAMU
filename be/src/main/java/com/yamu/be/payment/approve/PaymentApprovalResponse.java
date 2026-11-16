@@ -1,5 +1,6 @@
 package com.yamu.be.payment.approve;
 
+import com.yamu.be.card.CardIssuers;
 import com.yamu.be.card.domain.CardType;
 import com.yamu.be.payment.PaymentPlan;
 import com.yamu.be.payment.domain.PaymentStatus;
@@ -48,9 +49,11 @@ public record PaymentApprovalResponse(
      * @param maskedNumber    끝 4자리만 보이는 카드번호
      * @param recommendedRank 추천 순위. 추천 밖의 카드를 직접 골랐으면 null
      * @param userSelected    사용자가 카드를 직접 골랐는지(기본 카드 설정은 바꾸지 않는다)
+     * @param issuer          카드사 코드·이름·대표색(앱 칸, S15P31E103-389). 카드 목록 API와 같은 모양이다. 해제된 카드라
+     *                        카드사를 읽지 못한 복구 응답은 null
      */
     public record SelectedCard(Long userCardId, String nickname, String maskedNumber, CardType cardType,
-            Integer recommendedRank, boolean userSelected) {}
+            Integer recommendedRank, boolean userSelected, CardIssuers.Issuer issuer) {}
 
     /**
      * @param paymentBenefitId {@code payment_benefit} 행 번호. 원장 저장 전에 만든 응답(저장 실패 뒤 재전송 등)은 null
