@@ -78,7 +78,8 @@ import org.springframework.transaction.support.TransactionTemplate;
  *    청구서가 이미 마감됐으면 422(BILL_CLOSED), 그 밖은 500
  * ⑦ 실행 결과(거래 번호·출금액·응답)를 로그와 시도 기록에 먼저 남긴다
  * ⑧ tx2: APPROVED(원장 반영 포트·청구 회차 저장) 또는 DECLINED 저장
- *    → 바코드 USED → 청구 회차가 생겼으면 회차를 채운 응답으로 시도 기록을 다시 적는다 → 응답 기억(실패해도 ⑦이 있으므로 응답은 그대로)
+ *    → 바코드 USED → 체크카드면 거래내역에서 출금 뒤 잔액을 읽는다(실패면 null)
+ *    → 청구 회차·잔액 등이 생겼으면 그 값을 채운 응답으로 시도 기록을 다시 적는다 → 응답 기억(실패해도 ⑦이 있으므로 응답은 그대로)
  * </pre>
  *
  * <p>깨질 수 있는 곳
@@ -92,6 +93,8 @@ import org.springframework.transaction.support.TransactionTemplate;
  *   <li>같은 카드의 혜택 한도를 두 결제가 동시에 쓰기: 카드별 원장 잠금이 재계산부터 tx2 커밋까지 한 결제씩 지나가게 한다. 뒤 결제는
  *       앞 결제의 원장이 커밋된 사용량으로 다시 계산한다. 월 합계는 원장이 원자적으로 더한다. 결과 불명 복구는 이 잠금을 잡지 않고
  *       시도 기록의 값으로 적으므로(임시) 그 사이 다른 결제가 같은 한도를 쓰면 월 합계가 한도를 넘을 수 있다(한계).</li>
+ *   <li>출금 뒤 잔액 조회(S15P31E103-569)는 tx2 뒤라 승인을 되돌리지 않는다. 다만 정산·카드 잠금 안에서 금융망을 한 번 더 부르므로
+ *       체크카드 승인 응답이 그만큼 늦어진다(한계).</li>
  * </ul>
  */
 @Slf4j
@@ -122,6 +125,7 @@ public class PaymentApprovalService {
     private final PaymentApprovalProperties properties;
     private final Clock clock;
     private final PaymentPerformanceTotals performanceTotals;
+    private final CheckCardBalanceReader balanceReader;
 
     public PaymentApprovalService(PaymentTransactionRepository payments, CardQueryService cardQuery,
             PaymentCardLookup cards, RecommendationSnapshotStore snapshots, CardRecommender recommender,
@@ -130,7 +134,7 @@ public class PaymentApprovalService {
             ApprovalAttemptStore attempts, PaymentExpiry expiry, WithdrawalRecovery recovery, BarcodeStore barcodes,
             RedisLocks locks, TransactionTemplate transaction, ObjectMapper objectMapper,
             PosProperties posProperties, PaymentApprovalProperties properties, Clock clock,
-            PaymentPerformanceTotals performanceTotals) {
+            PaymentPerformanceTotals performanceTotals, CheckCardBalanceReader balanceReader) {
         this.payments = payments;
         this.cardQuery = cardQuery;
         this.cards = cards;
@@ -151,6 +155,7 @@ public class PaymentApprovalService {
         this.properties = properties;
         this.clock = clock;
         this.performanceTotals = performanceTotals;
+        this.balanceReader = balanceReader;
     }
 
     public PaymentApprovalResponse approve(AuthUser me, Long paymentId, PaymentApprovalRequest request,
@@ -353,19 +358,23 @@ public class PaymentApprovalService {
                 selection.candidate(), payment.getRequestedAt(), nowUtc, attempt.no(), selection.recognition()), attempt);
         Map<YearMonth, CardBill> bills = ensureBills(paymentId, userId, selection, outcome, attempt);
         PaymentApprovalResponse response = response(payment, selection, recommendation, outcome, attempt.no(),
-                nowUtc, List.of(), ApprovalLedger.Recorded.none(), null);
+                nowUtc, List.of(), ApprovalLedger.Recorded.none(), null, null);
         Attempt recorded = record(paymentId, attempt, outcome, response);
         Settled settled = settle(paymentId, attempt, outcome, nowUtc, bills);
         PaymentPerformanceTotals.Total total = null;
+        Long balanceAfter = null;
         if (outcome instanceof ApprovalOutcome.Approved approved) {
             markBarcodeUsed(paymentId);
             total = performanceTotal(selection.card(), approved);
+            // 체크카드 출금 뒤 잔액(S15P31E103-569). 돈·원장이 확정된 뒤에 읽어 조회가 느리거나 실패해도 승인을 막지 않는다
+            balanceAfter = balanceReader.balanceAfter(paymentId, userId, selection.card().userCardId(), approved);
         }
-        if (!settled.items().isEmpty() || !settled.recorded().paymentBenefitIds().isEmpty() || total != null) {
-            // 회차 번호·혜택 행 번호·월 실적 누적(S15P31E103-390)은 tx2가 저장해야 정해지므로, 그 값을 채운 응답으로 시도 기록을
-            // 다시 적는다. 같은 키 재전송은 이 응답(승인 직후의 누적)을 돌려준다
+        if (!settled.items().isEmpty() || !settled.recorded().paymentBenefitIds().isEmpty() || total != null
+                || balanceAfter != null) {
+            // 회차 번호·혜택 행 번호·월 실적 누적(S15P31E103-390)·출금 뒤 잔액(S15P31E103-569)은 tx2 뒤에 정해지므로, 그 값을 채운
+            // 응답으로 시도 기록을 다시 적는다. 같은 키 재전송은 이 응답(승인 직후의 누적·잔액)을 돌려준다
             response = response(payment, selection, recommendation, outcome, attempt.no(), nowUtc,
-                    billItems(settled.items(), bills), settled.recorded(), total);
+                    billItems(settled.items(), bills), settled.recorded(), total, balanceAfter);
             recordSavedNumbers(paymentId, attempt, recorded, response);
         }
         log.info("결제 승인 결과 저장 paymentId={} attempt={} status={} failure={} billItems={}", paymentId, attempt.no(),
@@ -807,12 +816,13 @@ public class PaymentApprovalService {
      * tx2 전에 만든다. 저장될 값(상태·승인 시각)은 실행 결과와 처리 시각으로 정해지므로 저장 뒤의 행과 같다.
      * 혜택 행 번호와 청구 회차 번호는 tx2 뒤에 다시 만들 때 채운다.
      *
-     * @param recorded 원장에 적은 혜택 행(번호·단위·원화 환산액). tx2 전이면 비어 있어 세 값 모두 null이다
+     * @param recorded     원장에 적은 혜택 행(번호·단위·원화 환산액). tx2 전이면 비어 있어 세 값 모두 null이다
+     * @param balanceAfter 체크카드 출금 뒤 연결 계좌 잔액. tx2 전이거나 읽지 못했거나 출금이 없었으면 null
      */
     private PaymentApprovalResponse response(PaymentTransaction payment, Selection selection,
             RecommendationResult recommendation, ApprovalOutcome outcome, int attemptNo, LocalDateTime now,
             List<PaymentApprovalResponse.BillItem> billItems, ApprovalLedger.Recorded recorded,
-            PaymentPerformanceTotals.Total total) {
+            PaymentPerformanceTotals.Total total, Long balanceAfter) {
         CardSummary card = selection.card();
         SelectedCard selected = new SelectedCard(card.userCardId(), nickname(card), masked(card.last4()),
                 card.cardType(), selection.recommendedRank(), selection.userSelected(), issuer(card));
@@ -831,7 +841,7 @@ public class PaymentApprovalService {
                     .toList();
             return new PaymentApprovalResponse(payment.getId(), PaymentStatus.APPROVED,
                     ApprovalNumbers.of(now, payment.getId()), now, selected, payment.getRequestedAmount(), plan,
-                    months, benefits, approved.chargedAmount(), null, billItems, performance(approved, total),
+                    months, benefits, approved.chargedAmount(), balanceAfter, billItems, performance(approved, total),
                     limitImpacts(approved.basis()), null, null, null, List.of());
         }
         ApprovalOutcome.Declined declined = (ApprovalOutcome.Declined) outcome;
