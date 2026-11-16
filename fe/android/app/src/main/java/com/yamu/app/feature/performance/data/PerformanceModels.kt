@@ -222,11 +222,12 @@ data class PerfTier(val label: String, val benefit: String?, val benefitAmount: 
  * 실적 화면에 보일 구간. 새 혜택이 열리는 구간(혜택 이름이 있는 구간)이 하나뿐이면 그 구간 한 줄만 남기고,
  * 한도만 커지는 위 구간 줄은 뺀다(노리2 · Mr.Life처럼 20만에 혜택이 다 열리고 30만부터는 금액만 커지는 카드).
  * 서버는 그 구간에서 새로 열린 혜택만 보내지만 같은 이름이 여러 구간에 와도 하나로 센다.
- * 남긴 줄의 '달성'은 지운 위 구간 중 하나라도 달성했으면 켠다. 혜택 이름이 둘 이상이거나 하나도 없으면 그대로 둔다
+ * 남긴 줄의 '달성'은 지운 위 구간 중 하나라도 달성했으면 켠다. 혜택 이름이 둘 이상이거나 하나도 없으면 구간을 두되,
+ * 혜택 이름도 금액도 없는 줄은 뺀다(IBK나라사랑 50만 · 100만처럼 한도만 커지는데 원화 월 최대치를 모르는 구간은 기준 금액만 남아 빈칸처럼 보인다)
  */
 fun List<PerfTier>.visibleTiers(): List<PerfTier> {
     val names = mapNotNull { it.benefit?.takeIf(String::isNotBlank) }.distinct()
-    if (names.size != 1) return this
+    if (names.size != 1) return filter { !it.benefit.isNullOrBlank() || it.benefitAmount != null }
     val keep = indexOfFirst { it.benefit == names.single() }
     return listOf(this[keep].copy(achieved = drop(keep).any { it.achieved }))
 }
