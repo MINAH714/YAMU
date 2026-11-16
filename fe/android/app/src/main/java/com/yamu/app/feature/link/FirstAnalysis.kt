@@ -84,7 +84,7 @@ data class FirstAnalysisState(val loading: Boolean = true, val summary: HomeSumm
 internal const val FIRST_ANALYSIS_FAILED = "다시 시도하거나\n아래 버튼으로 먼저 시작해도 돼요"
 
 /** 빈 결과 본문 — 무엇을 하면 어디에 무엇이 보이는지 */
-internal const val FIRST_ANALYSIS_EMPTY = "결제하거나 예정 수입·지출을 넣으면\n홈에서 예상 잔액과 챙길 일을 알려 드려요"
+internal const val FIRST_ANALYSIS_EMPTY = "결제하거나 가계부에 수입·지출을 넣으면\n홈에서 예상 잔액과 챙길 일을 알려 드려요"
 
 /** B-07 첫 분석 — 홈과 같은 서버 값(#58): 예상 잔액(월급 전 가장 낮을 때) · 할 일 · 오늘 쓸 카드. 앱은 계산하지 않음 */
 @HiltViewModel

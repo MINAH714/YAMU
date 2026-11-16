@@ -1379,14 +1379,15 @@ fun CashflowListRoute(
     val c = YamuTheme.colors
     // 회색 바탕 + 카드: 요약 · 달마다 하나(프로토타입 F-02). 계좌를 이었을 때만 + (추가는 계좌 · 카드가 있어야 한다)
     FlowScreen(
-        title = "예정 수입·지출",
+        title = "가계부",
         onBack = onBack,
         cards = true,
         actions = {
-            if (!s.noAccount) IconButton(onClick = onAdd) { Icon(Icons.Rounded.Add, contentDescription = "예정 수입·지출 추가", tint = c.text1) }
+            if (!s.noAccount) IconButton(onClick = onAdd) { Icon(Icons.Rounded.Add, contentDescription = "가계부 항목 추가", tint = c.text1) }
         },
     ) { inner ->
         Column(Modifier.padding(inner).consumeWindowInsets(inner).fillMaxSize().verticalScroll(rememberScrollState())) {
+            SalaryCard(onSaved = viewModel::refreshWithEntries)
             val f = s.forecast
             when {
                 s.cashflowLoading -> YamuCard {

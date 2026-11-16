@@ -485,68 +485,6 @@ private fun EditAmountSheet(
 }
 
 /** 월급 넣기 — 금액 · 매월 받는 날(31은 말일) · 받는 계좌(둘 이상일 때만 고른다). 저장은 화면 값만 바꾸고 보내는 건 아래 버튼 */
-@Composable
-private fun IncomeSheet(
-    current: IncomeInput?,
-    accounts: List<IncomeAccount>,
-    defaultAccount: IncomeAccount?,
-    onDismiss: () -> Unit,
-    onSave: (IncomeInput?) -> Unit,
-) {
-    val c = YamuTheme.colors
-    var amount by remember { mutableStateOf(AmountLimit.CASHFLOW.clampInput(current?.amount?.toString().orEmpty())) }
-    var day by remember { mutableStateOf(current?.day?.toString().orEmpty()) }
-    var accountId by remember { mutableStateOf(current?.accountId ?: defaultAccount?.accountId) }
-    var tried by remember { mutableStateOf(false) }
-    val amountError = incomeAmountError(amount)
-    val dayError = incomeDayError(day)
-    YamuBottomSheet(onDismiss = onDismiss) {
-        Text("월급", style = YamuTheme.typography.titleL, color = c.text1)
-        Spacer(Modifier.height(YamuSpacing.x4))
-        YamuTextField(
-            label = "금액(원)",
-            value = amount,
-            onValueChange = { v -> amount = AmountLimit.CASHFLOW.clampInput(v) },
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-            error = amountError.takeIf { tried },
-        )
-        Spacer(Modifier.height(YamuSpacing.x4))
-        YamuTextField(
-            label = "매월 받는 날",
-            value = day,
-            onValueChange = { v -> day = v.filter(Char::isDigit).take(2) },
-            placeholder = "예: 25",   // 숫자만 두면 들어간 값처럼 보여 비운 채 저장하다 막혔다(S15P31E103-431)
-            supporting = "31을 넣으면 매월 말일이에요",
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-            error = dayError.takeIf { tried },
-        )
-        if (accounts.size > 1) {
-            Spacer(Modifier.height(YamuSpacing.x4))
-            Text("받는 계좌", style = YamuTheme.typography.bodyS, color = c.text2)
-            accounts.forEach { a ->
-                ListRow(
-                    title = a.label,
-                    value = if (a.accountId == accountId) "선택" else null,
-                    valueColor = c.primary,
-                    dense = true,
-                    onClick = { accountId = a.accountId },
-                    modifier = Modifier.semantics { contentDescription = a.label + if (a.accountId == accountId) ", 고름" else "" },
-                )
-            }
-        }
-        Spacer(Modifier.height(YamuSpacing.x5))
-        PrimaryButton("저장", onClick = {
-            tried = true
-            val id = accountId
-            if (amountError == null && dayError == null && id != null) onSave(IncomeInput(amount.toLong(), day.toInt(), id))
-        })
-        if (current != null) {
-            Spacer(Modifier.height(YamuSpacing.x2))
-            NeutralButton("월급 넣지 않기", onClick = { onSave(null) })
-        }
-    }
-}
-
 /** 월급 금액 — 1원 ~ 1,000억 원(서버 상한) */
 internal fun incomeAmountError(text: String): String? = AmountLimit.CASHFLOW.error(text.toLongOrNull())
 
