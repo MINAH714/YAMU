@@ -531,17 +531,13 @@ class BenefitReportViewModel @Inject constructor(
     private var job: Job? = null
     private var cardsJob: Job? = null
 
-    init { load() }
-
-    fun resume() {
-        if (months.current().month != _state.value.shown.month) load() else loadCards()
-    }
+    fun resume() = load()
 
     fun load() {
         val shown = months.current()
         job?.cancel()
         _state.update {
-            if (it.shown.month == shown.month) it.copy(shown = shown, loading = true, error = null)
+            if (it.shown.month == shown.month) it.copy(shown = shown, loading = it.report == null, error = null)
             else BenefitReportState(shown, cardIds = it.cardIds)
         }
         job = viewModelScope.launch {
@@ -558,8 +554,8 @@ class BenefitReportViewModel @Inject constructor(
 
     /** 이번 달을 볼 때만 등록된 카드를 받는다(카드 상세에서 해지하고 돌아와도 다시 받게 [resume]에서도). 실패하면 누르기를 끈다 */
     private fun loadCards() {
-        if (!_state.value.shown.isThisMonth) return
         cardsJob?.cancel()
+        if (!_state.value.shown.isThisMonth) return
         cardsJob = viewModelScope.launch {
             val r = links.cards()
             ensureActive()
@@ -603,6 +599,10 @@ fun BenefitReportRoute(
         Column(Modifier.padding(inner).consumeWindowInsets(inner).fillMaxSize()) {
             MonthSwitcher(s.shown, onSelect = viewModel::select)
             Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
+                if (r != null && s.error != null) YamuCard {
+                    Text("${s.error} · 마지막 값을 보여 드려요", style = YamuTheme.typography.bodyS, color = c.warning)
+                    LinkButton("다시 시도", onClick = viewModel::load)
+                }
                 when {
                     r == null && s.loading -> {
                         YamuCard {
