@@ -228,6 +228,32 @@ class BuyCheckViewModelTest {
         assertEquals(PaymentChannel.OFFLINE, vm.query()?.channel)   // 기본값은 매장
     }
 
+    @Test fun `조건 화면 — 업종 없이 비교하기를 누르면 넘어가지 않고 고르라고 알린다(QA)`() = runTest(dispatcher) {
+        val vm = BuyConditionsViewModel(400_000L, "태블릿", repo)
+        advanceUntilIdle()
+        assertNull(vm.compare())
+        assertEquals(BuyConditionsViewModel.CATEGORY_REQUIRED, vm.state.value.message)
+        // 안내가 떠 있는 동안 또 눌러도 같은 값 — 화면의 LaunchedEffect가 한 번만 띄운다
+        assertNull(vm.compare())
+        assertEquals(BuyConditionsViewModel.CATEGORY_REQUIRED, vm.state.value.message)
+        vm.messageShown()
+        assertNull(vm.state.value.message)
+
+        vm.pickCategory(MerchantCategory("HYPERMARKET", "대형마트"))
+        advanceUntilIdle()
+        assertEquals("HYPERMARKET", vm.compare()?.categoryCode)
+        assertNull(vm.state.value.message)
+    }
+
+    @Test fun `구매일 달력 — 오늘(한국 날짜)부터 고를 수 있다`() {
+        val today = LocalDate.of(2026, 11, 16)
+        val selectable = FromDateSelectable(today)
+        fun utc(d: LocalDate) = d.atStartOfDay().toInstant(java.time.ZoneOffset.UTC).toEpochMilli()
+        assertFalse(selectable.isSelectableDate(utc(today.minusDays(1))))
+        assertTrue(selectable.isSelectableDate(utc(today)))
+        assertTrue(selectable.isSelectableDate(utc(today.plusMonths(2))))
+    }
+
     @Test fun `조건 화면 — 업종을 고르면 결제 방식을 그 업종의 기본값으로, 그 뒤 바꾼 것은 그대로(점검 B-14)`() = runTest(dispatcher) {
         val vm = BuyConditionsViewModel(400_000L, "태블릿", repo)
         advanceUntilIdle()
