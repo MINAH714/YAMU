@@ -29,7 +29,7 @@ class QaFundingBoundaryMigrationTest extends MySqlTestSupport {
     @Autowired Flyway flyway;
 
     @Test
-    void upgradesExistingDataThroughRefundVersionThenFundingVersionWithoutRepairOrReapplication() {
+    void upgradesExistingDataThroughRefundFundingAndBenefitsWithoutRepairOrReapplication() {
         OwnershipFixtures fixtures = new OwnershipFixtures(jdbc);
         long owner = fixtures.user();
         long stranger = fixtures.user();
@@ -56,9 +56,10 @@ class QaFundingBoundaryMigrationTest extends MySqlTestSupport {
                 """, String.class)).isEqualTo("V20261116_3__add_payment_refund_account.sql");
         assertThat(existingRows()).usingRecursiveComparison().isEqualTo(before);
 
-        Flyway latest = Flyway.configure().configuration(flyway.getConfiguration())
-                .target(MigrationVersion.LATEST).load();
-        assertThat(latest.migrate().migrationsExecuted).isEqualTo(1);
+        // This checkpoint tests V4 itself. Future migrations must not change its expected count.
+        Flyway funding = Flyway.configure().configuration(flyway.getConfiguration())
+                .target(MigrationVersion.fromVersion("20261116.4")).load();
+        assertThat(funding.migrate().migrationsExecuted).isEqualTo(1);
         assertThat(jdbc.queryForObject("""
                 SELECT script FROM flyway_schema_history WHERE version='20261116.4' AND success=1
                 """, String.class)).isEqualTo("V20261116_4__add_qa_funding_boundary.sql");
@@ -67,8 +68,23 @@ class QaFundingBoundaryMigrationTest extends MySqlTestSupport {
         assertThat(jdbc.queryForList(
                 "SELECT version,checksum FROM flyway_schema_history WHERE success=1 ORDER BY installed_rank"))
                 .containsAll(history);
-        assertThat(latest.validateWithResult().validationSuccessful).isTrue();
-        assertThat(latest.migrate().migrationsExecuted).isZero();
+        assertThat(funding.validateWithResult().validationSuccessful).isTrue();
+        assertThat(funding.migrate().migrationsExecuted).isZero();
+        assertThat(existingRows()).usingRecursiveComparison().isEqualTo(before);
+
+        List<Map<String, Object>> fundingHistory = jdbc.queryForList(
+                "SELECT version,checksum FROM flyway_schema_history WHERE success=1 ORDER BY installed_rank");
+        Flyway benefits = Flyway.configure().configuration(flyway.getConfiguration())
+                .target(MigrationVersion.fromVersion("20261116.5")).load();
+        assertThat(benefits.migrate().migrationsExecuted).isEqualTo(1);
+        assertThat(jdbc.queryForObject("""
+                SELECT script FROM flyway_schema_history WHERE version='20261116.5' AND success=1
+                """, String.class)).isEqualTo("V20261116_5__add_benefit_confirmation_evidence.sql");
+        assertThat(jdbc.queryForList(
+                "SELECT version,checksum FROM flyway_schema_history WHERE success=1 ORDER BY installed_rank"))
+                .containsAll(fundingHistory);
+        assertThat(benefits.validateWithResult().validationSuccessful).isTrue();
+        assertThat(benefits.migrate().migrationsExecuted).isZero();
         assertThat(existingRows()).usingRecursiveComparison().isEqualTo(before);
     }
 
