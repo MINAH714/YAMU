@@ -16,7 +16,6 @@ import mockwebserver3.MockWebServer
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -24,7 +23,7 @@ import java.time.YearMonth
 import java.time.LocalDate
 import java.time.ZonedDateTime
 
-/** GET asset-flows(S15P31E103-492) — 기준 계좌라 계좌를 적지 않고, 옛 서버의 404 API_NOT_FOUND는 실패가 아니라 없는 API(데이터 404는 실패) */
+/** GET asset-flows(S15P31E103-492) — 연결 계좌 전체를 적고(-548), 옛 서버의 404 API_NOT_FOUND는 실패가 아니라 없는 API(데이터 404는 실패) */
 class AssetFlowRepositoryTest {
 
     private lateinit var server: MockWebServer
@@ -39,18 +38,21 @@ class AssetFlowRepositoryTest {
 
     @After fun tearDown() = server.close()
 
-    @Test fun `실제 계좌 API의 기준 계좌로 예보를 요청하고 받은 잔액을 사용한다`() = runTest {
+    /** 계좌 목록 — month()가 load() 전이면 먼저 부른다 */
+    private fun enqueueAccounts() = server.enqueue(json(200, """{"success":true,"data":{"accounts":[{"accountId":1,"bank":{"code":"004","name":"KB국민은행"},"maskedAccountNo":"****-1234","balance":300000,"isPrimary":true}]}}"""))
+
+    @Test fun `실제 계좌 API의 연결 계좌 전체로 예보를 요청하고 받은 잔액을 사용한다(-548)`() = runTest {
         server.enqueue(json(200, """{"success":true,"data":{"accounts":[
             {"accountId":41,"bank":{"code":"088","name":"신한"},"maskedAccountNo":"***1234","balance":777777,"isPrimary":true},
             {"accountId":42,"bank":{"code":"004","name":"국민"},"maskedAccountNo":"***5678","balance":999999,"isPrimary":false}]}}"""))
-        server.enqueue(json(200, """{"success":true,"data":{"accountIds":[41],"currentTotalBalance":777777,"series":[]}}"""))
+        server.enqueue(json(200, """{"success":true,"data":{"accountIds":[41,42],"currentTotalBalance":1777776,"series":[]}}"""))
         val flow = (repository.load() as ApiResult.Success).data
-        assertEquals(listOf(41L), flow.accounts.map { it.accountId })
-        assertEquals(777777L, flow.currentBalance)
+        assertEquals(listOf(41L, 42L), flow.accounts.map { it.accountId })
+        assertEquals(1_777_776L, flow.currentBalance)
         assertEquals("/accounts", server.takeRequest().url.encodedPath)
         val request = server.takeRequest()
         assertEquals("/forecasts/balance", request.url.encodedPath)
-        assertEquals(listOf("41"), request.url.queryParameterValues("accountIds"))
+        assertEquals(listOf("41", "42"), request.url.queryParameterValues("accountIds"))
         assertEquals("30", request.url.queryParameter("days"))
     }
 
@@ -61,6 +63,7 @@ class AssetFlowRepositoryTest {
     }
 
     @Test fun `서버 QA 합성 0원과 실제 경계가 그래프와 선택 날짜에 구분되어 전달된다`() = runTest {
+        enqueueAccounts()
         server.enqueue(json(200, """{"success":true,"data":{"yearMonth":"2026-11","accountIds":[41],
             "series":[{"date":"2026-11-11","kind":"SIMULATED","dataStatus":"AVAILABLE","displayBalance":0,"actualBalance":null},
                       {"date":"2026-11-12","kind":"ACTUAL","dataStatus":"AVAILABLE","displayBalance":300000,"actualBalance":300000}],
@@ -88,7 +91,15 @@ class AssetFlowRepositoryTest {
         assertTrue(panelValue(actual, flow, month, today, null, at).second.contains("실제 잔고"))
     }
 
-    @Test fun `그달을 yearMonth로 묻고 계좌는 적지 않는다(서버가 기준 계좌를 고른다)`() = runTest {
+    @Test fun `그달을 yearMonth로 묻고 연결 계좌 전체를 적는다(-548, 빼면 서버가 기준 계좌 하나만 준다)`() = runTest {
+        server.enqueue(
+            json(
+                200,
+                """{"success":true,"data":{"accounts":[
+                    {"accountId":1,"bank":{"code":"004","name":"KB국민은행"},"maskedAccountNo":"****-1234","balance":300000,"isPrimary":true},
+                    {"accountId":2,"bank":{"code":"088","name":"신한은행"},"maskedAccountNo":"****-5678","balance":200000,"isPrimary":false}]}}""",
+            ),
+        )
         server.enqueue(
             json(
                 200,
@@ -103,10 +114,11 @@ class AssetFlowRepositoryTest {
             ),
         )
         val r = repository.month(YearMonth.of(2026, 11))
+        assertEquals("/accounts", server.takeRequest().url.encodedPath)   // load() 전이라 계좌부터
         val request = server.takeRequest()
         assertEquals("/asset-flows", request.url.encodedPath)
         assertEquals("2026-11", request.url.queryParameter("yearMonth"))
-        assertNull("기준 계좌면 빼고 보낸다", request.url.queryParameter("accountIds"))
+        assertEquals(listOf("1", "2"), request.url.queryParameterValues("accountIds"))
         val flow = (r as MonthFlowResult.Loaded).flow
         assertEquals(listOf(DayKind.ACTUAL, DayKind.TODAY, DayKind.EXPECTED, DayKind.NO_DATA), flow.points.map { it.kind })
         assertEquals(listOf(3_100_001L, 3_000_001L, 2_900_001L, null), flow.points.map { it.value })
@@ -114,23 +126,27 @@ class AssetFlowRepositoryTest {
     }
 
     @Test fun `asset-flows가 없는 옛 서버(404 API_NOT_FOUND)면 Unsupported — 예보만으로 그린다`() = runTest {
+        enqueueAccounts()
         // BE GlobalExceptionHandler가 매핑 없는 경로에 주는 본문(yamu.it.kr 11/14)
         server.enqueue(json(404, """{"success":false,"data":null,"error":{"code":"API_NOT_FOUND","message":"요청한 API를 찾을 수 없습니다."}}"""))
         assertEquals(MonthFlowResult.Unsupported, repository.month(YearMonth.of(2026, 11)))
     }
 
     @Test fun `프록시가 본문 없이 준 404도 없는 API로 본다`() = runTest {
+        enqueueAccounts()
         server.enqueue(json(404, ""))
         assertEquals(MonthFlowResult.Unsupported, repository.month(YearMonth.of(2026, 11)))
     }
 
     @Test fun `새 서버의 데이터 404(RESOURCE_NOT_FOUND)는 옛 서버로 묻지 않고 실패로`() = runTest {
+        enqueueAccounts()
         server.enqueue(json(404, """{"success":false,"data":null,"error":{"code":"RESOURCE_NOT_FOUND","message":"없음"}}"""))
         val r = repository.month(YearMonth.of(2026, 11))
         assertEquals(ApiError.NotFound("RESOURCE_NOT_FOUND"), (r as MonthFlowResult.Failed).error)
     }
 
     @Test fun `은행 · 서버 오류는 실패로 — 다시 시도를 보인다`() = runTest {
+        enqueueAccounts()
         server.enqueue(json(502, """{"success":false,"data":null,"error":{"code":"FIN_API_UNAVAILABLE","message":"은행"}}"""))
         assertTrue(repository.month(YearMonth.of(2026, 11)) is MonthFlowResult.Failed)
     }

@@ -28,7 +28,7 @@ import javax.inject.Singleton
 import kotlin.math.abs
 
 /**
- * 가짜 소비분석 자산 흐름 — 30일 예보는 가짜 잔고예보 계산(FakeForecastRepository) 그대로라 잔고예보에서 기준 계좌 · 30일을 고른 화면과 숫자가 같다.
+ * 가짜 소비분석 자산 흐름 — 30일 예보는 가짜 잔고예보 계산(FakeForecastRepository) 그대로라 잔고예보에서 전체 계좌 · 30일을 고른 화면과 숫자가 같다.
  * 한 달 응답(asset-flows)은 디버그 메뉴 '소비분석 자산 흐름'에서 고른다(S15P31E103-492):
  * 새 서버는 지난 잔고를 오늘부터 [HISTORY_DAYS]일 앞까지만 주고 그 앞은 자료 없음(HISTORY_INCOMPLETE), 은행 조회 실패는 지난날이 모두 ERROR,
  * 옛 서버는 404라 앱이 예보만으로 그린다. BE asset-flows처럼 오늘은 지금 잔고(CURRENT), 내일부터 30일은 예보, 그 뒤는 자료 없음
@@ -56,7 +56,7 @@ class FakeAssetFlowRepository @Inject constructor(private val forecasts: FakeFor
         if (scenario == AssetFlowScenario.OLD_SERVER) { delay(150); return monthFlowResult(ApiResult.Failure(ApiError.from(404, "API_NOT_FOUND")), month) }
         delay(250)
         val all = forecasts.assetAccounts()
-        val accounts = all.filter { it.isPrimary }.take(1)   // BE: accountIds를 빼면 기준 계좌 하나, 없으면 계좌 없이 모두 NO_DATA
+        val accounts = assetFlowAccounts(all)   // 앱이 연결 계좌 전체를 넘긴다(-548). 계좌가 없으면 모두 NO_DATA
         val ids = accounts.map { it.accountId }
         val today = LocalDate.now(KST)
         val forecast = ids.takeIf { it.isNotEmpty() }?.let { forecasts.assetForecast(it.toSet()) }
