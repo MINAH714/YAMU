@@ -529,7 +529,7 @@ private fun BenefitTypeCells(types: List<BenefitByType>) {
     }
 }
 
-/** 히어로 바탕 — 브랜드 색 깊은 그러데이션, 누르면 0.97로 살짝 눌림(모션 줄이기면 없음), [sheen] 0~1이면 빛이 한 번 훑는다 */
+/** 히어로 바탕 — 브랜드 색 깊은 그러데이션, 누르면 0.97로 살짝 눌림(모션 줄이기면 대신 옅어짐), [sheen] 0~1이면 빛이 한 번 훑는다 */
 @Composable
 private fun HeroFrame(
     onClick: (() -> Unit)?,
@@ -546,6 +546,12 @@ private fun HeroFrame(
         animationSpec = spring(dampingRatio = 0.55f, stiffness = 700f),
         label = "heroPress",
     )
+    // 모션 줄이기면 줄어드는 대신 옅어져 누른 것을 보인다(물결은 꺼 두어서 이것이 없으면 아무 표시가 없다, S15P31E103-513)
+    val pressAlpha by animateFloatAsState(
+        targetValue = if (pressed && reduce) YamuMotion.REDUCED_PRESS_ALPHA else 1f,
+        animationSpec = tween(YamuMotion.SHORT_MS),
+        label = "heroPressAlpha",
+    )
     Column(
         Modifier
             .padding(horizontal = YamuSpacing.screen)
@@ -553,6 +559,7 @@ private fun HeroFrame(
             .graphicsLayer {
                 scaleX = scale
                 scaleY = scale
+                alpha = pressAlpha
             }
             .fillMaxWidth()
             .clip(RoundedCornerShape(YamuRadius.sheet))
@@ -646,7 +653,7 @@ private fun HeroButton(text: String, onClick: () -> Unit) {
 @Composable
 private fun PayButton(onPay: () -> Unit) {
     // 바탕은 위 혜택 히어로와 같은 브랜드 그러데이션(11/15 결정) — 공용 PrimaryButton은 단색이라 홈에서만 따로 그린다.
-    // 누르면 히어로처럼 살짝 줄어든다(모션 줄이기면 그대로)
+    // 누르면 히어로처럼 살짝 줄어든다(모션 줄이기면 대신 옅어진다)
     val c = YamuTheme.colors
     val reduce = YamuTheme.reduceMotion
     val interaction = remember { MutableInteractionSource() }
@@ -656,6 +663,12 @@ private fun PayButton(onPay: () -> Unit) {
         animationSpec = spring(dampingRatio = 0.55f, stiffness = 700f),
         label = "payPress",
     )
+    // 모션 줄이기면 줄어드는 대신 옅어진다(히어로와 같다)
+    val pressAlpha by animateFloatAsState(
+        targetValue = if (pressed && reduce) YamuMotion.REDUCED_PRESS_ALPHA else 1f,
+        animationSpec = tween(YamuMotion.SHORT_MS),
+        label = "payPressAlpha",
+    )
     Row(
         Modifier
             .padding(horizontal = YamuSpacing.screen)
@@ -663,6 +676,7 @@ private fun PayButton(onPay: () -> Unit) {
             .graphicsLayer {
                 scaleX = scale
                 scaleY = scale
+                alpha = pressAlpha
             }
             .fillMaxWidth()
             .height(YamuSize.button)
@@ -762,7 +776,9 @@ private fun SectionTitle(title: String, link: String? = null, onLink: () -> Unit
         if (link != null) {
             Row(
                 Modifier
-                    .heightIn(min = 40.dp)
+                    // 머리 줄은 40dp 그대로, 터치 칸(48)만 위아래로 넘친다(S15P31E103-513)
+                    .overflowHeight(40.dp)
+                    .heightIn(min = YamuSize.touch)
                     .clip(RoundedCornerShape(YamuRadius.s))
                     .clickable(role = Role.Button, onClick = onLink)
                     .padding(start = 8.dp),
