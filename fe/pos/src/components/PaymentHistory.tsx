@@ -44,7 +44,10 @@ function groupByDay(items: PaymentHistoryItem[]) {
 
 /** POS 결제 내역. 왼쪽 목록, 오른쪽 352px 상세(결과 화면의 주문 내역 자리)와 주 버튼 하나 */
 export function PaymentHistory({ items, error = null, onReload, selectedId, inert, onSelect, onCancel, onBack }: Props) {
-  const selected = items?.find((item) => item.paymentId === selectedId) ?? null
+  // 고른 결제가 없거나 다시 불러온 목록에서 사라졌으면 맨 위(가장 최근) 결제를 보인다.
+  // 일반 POS 결제 내역처럼 오른쪽 상세가 비지 않게 한다. 취소는 고객 바코드를 읽어야 하므로 자동으로 골라도 바로 취소되지 않는다
+  const selected = items?.find((item) => item.paymentId === selectedId) ?? items?.[0] ?? null
+  const shownId = selected?.paymentId ?? null
 
   return (
     <section className="history" inert={inert}>
@@ -84,9 +87,9 @@ export function PaymentHistory({ items, error = null, onReload, selectedId, iner
                         <button
                           type="button"
                           className="history-row"
-                          data-selected={item.paymentId === selectedId}
+                          data-selected={item.paymentId === shownId}
                           data-canceled={canceled}
-                          aria-pressed={item.paymentId === selectedId}
+                          aria-pressed={item.paymentId === shownId}
                           onClick={() => onSelect(item.paymentId)}>
                           <span className="history-time">{formatKstTime(item.approvedAt)}</span>
                           <span className="history-card">{cardLabel(item.card)}</span>
@@ -105,13 +108,8 @@ export function PaymentHistory({ items, error = null, onReload, selectedId, iner
         )}
       </div>
 
-      <aside className="history-side">
-        {selected ? (
-          <HistoryDetail item={selected} onCancel={onCancel} />
-        ) : (
-          <p className="history-side-empty">취소할 결제를 골라 주세요</p>
-        )}
-      </aside>
+      {/* 고른 결제가 없으면 비워 둔다. 고르라는 안내는 두지 않는다(목록이 바로 옆에 있다) */}
+      <aside className="history-side">{selected && <HistoryDetail item={selected} onCancel={onCancel} />}</aside>
     </section>
   )
 }

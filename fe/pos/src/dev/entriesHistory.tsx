@@ -48,7 +48,7 @@ export const historyEntries: GalleryEntry[] = [
   {
     ...base,
     id: 'history-none-selected',
-    label: '내역(선택 전)',
+    label: '내역(처음 열 때 · 맨 위 자동 선택)',
     render: () => <HistoryDemo initial={null} />,
   },
   {
