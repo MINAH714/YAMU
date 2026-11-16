@@ -436,7 +436,7 @@ private fun HeroCard(
     val after = sim.after
     YamuCard(contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 20.dp, bottom = 18.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("사고 나면 가장 낮을 때", style = YamuTheme.typography.titleS, color = c.text2)
+            Text("구매 후 가장 낮을 때", style = YamuTheme.typography.titleS, color = c.text2)
             if (sim.isEstimate) {
                 Spacer(Modifier.width(6.dp))
                 EstimateTag()
@@ -480,7 +480,7 @@ private fun HeroCard(
     }
 }
 
-internal const val SAME_AS_BEFORE = "사기 전과 같아요"
+internal const val SAME_AS_BEFORE = "구매 전과 같아요"
 
 /**
  * 사고 난 뒤 상태 — 권하거나 말리지 않고 잔액 사실만(FR-032 · BE 안내 문장과 같은 원칙).

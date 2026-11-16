@@ -110,22 +110,31 @@ internal fun simDayLabel(date: LocalDate, events: List<SimDayEvent>, today: Loca
     return "${date.toMonthDayWeek()} · $name$more"
 }
 
-/** TalkBack이 고른 날을 바꾼 뒤 읽는 문장 — 날짜, 사기 전 · 후 잔액, 그날 일 */
+/** TalkBack이 고른 날을 바꾼 뒤 읽는 문장 — 날짜, 구매 전 · 후 잔액, 그날 일 */
 internal fun simDayState(day: SimDay, events: List<SimDayEvent>): String = listOfNotNull(
     day.date.toKoreanDateWeek(),
-    day.before?.let { "사기 전 ${it.toWon()}원" },
-    day.after?.let { "사기 후 ${it.toWon()}원" },
+    day.before?.let { "구매 전 ${it.toWon()}원" },
+    day.after?.let { "구매 후 ${it.toWon()}원" },
     events.takeIf { it.isNotEmpty() }?.joinToString(", ") { e -> e.amount?.let { "${e.label} ${it.toWon(withPlusSign = true)}원" } ?: "${e.label} 카드 결제" },
 ).joinToString(", ")
 
 /** 그래프 읽어 주기 — 가장 낮을 때와 기간 밖 출금 */
 internal fun simChartDescription(sim: Simulation): String = listOfNotNull(
-    "사기 전과 후 잔액 그래프, 사고 나면 가장 낮을 때 ${(sim.after?.minBalance ?: 0).toWon()}원",
+    "구매 전과 후 잔액 그래프, 구매 후 가장 낮을 때 ${(sim.after?.minBalance ?: 0).toWon()}원",
     sim.schedule.filter { it.beyondPeriod }.mapNotNull { it.date }.minOrNull()?.takeIf { withdrawalsOnChart(sim) }?.let { "${it.toKoreanDate()} 출금은 예보 기간 밖이라 선에 넣지 않았어요" },
 ).joinToString(", ")
 
 /**
- * 사기 전 · 후 그래프 + 범례 + 고른 날 칸. 손잡이는 '사기 후' 선을 탄다.
+ * 범례 끝에 붙이는 '구매 후' 선 색(Task 8.2.178) — 안전 잔액 아래 주황, '구매 후' 선이 0원 아래로 내려가면 빨강(위는 파랑).
+ * 안전 잔액은 지난 잔고예보에서 빌려 와 모르면(null) 주황을 그리지 않으니 범례에도 넣지 않는다. 0원 이하면 주황 구간이 없다([zoneOf])
+ */
+internal fun simLegendZones(after: List<Long?>, threshold: Long?): List<BalanceZone> = buildList {
+    if (threshold != null && threshold > 0) add(BalanceZone.BELOW_SAFE)
+    if (after.any { it != null && it < 0 }) add(BalanceZone.BELOW_ZERO)
+}
+
+/**
+ * 구매 전 · 후 그래프 + 범례 + 고른 날 칸. 손잡이는 '구매 후' 선을 탄다.
  * [selected] · [interacted]는 화면이 들고 있어 '빠져나가는 날' 줄을 눌러도 같은 날을 가리킨다
  */
 @Composable
@@ -150,11 +159,20 @@ internal fun SimGraph(
         beyond = remember(sim) { beyondLabel(sim) },
         flash = flash,
     )
-    // 마지막 선('사기 후')이 면 · 구간 색을 따르고, '사기 전' 회색 점선은 비교용이라 색을 바꾸지 않는다
+    // 마지막 선('구매 후')이 면 · 구간 색을 따르고, '구매 전' 회색 점선은 비교용이라 색을 바꾸지 않는다
     val lines = listOf(
-        ChartLine("사기 전", days.map { it.before }, c.text3, dashed = true, width = 1.8.dp, zoned = false),
-        ChartLine("사기 후", days.map { it.after }, c.primary, width = 2.4.dp),
+        ChartLine("구매 전", days.map { it.before }, c.text3, dashed = true, width = 1.8.dp, zoned = false),
+        ChartLine("구매 후", days.map { it.after }, c.primary, width = 2.4.dp),
     )
+    // 범례는 두 선 + '구매 후' 선이 바뀌는 색의 뜻. 바뀐 색 항목은 견본만 그려 값이 없다
+    val zones = remember(sim, threshold) { simLegendZones(days.map { it.after }, threshold) }
+    val legend = lines + zones.mapNotNull { z ->
+        when (z) {
+            BalanceZone.BELOW_SAFE -> ChartLine("안전 잔액 아래", emptyList(), c.warning, width = 2.4.dp)
+            BalanceZone.BELOW_ZERO -> ChartLine("0원 아래", emptyList(), c.error, width = 2.4.dp)
+            BalanceZone.OK -> null
+        }
+    }
     val sel = selected.coerceIn(0, days.lastIndex)
     BalanceChart(
         dates = days.map { it.date },
@@ -171,13 +189,13 @@ internal fun SimGraph(
         onInteract = onInteract,
     )
     Spacer(Modifier.height(10.dp))
-    ChartLegend(lines)
+    ChartLegend(legend)
     Spacer(Modifier.height(14.dp))
     SimDayPanel(days[sel], events[sel], threshold, knowsFlows = matched != null)
 }
 
 /**
- * 고른 날 — 사기 전 · 후 끝 잔액, 사고 나서 안전 잔액 · 0원 아래면 태그, 그날 일.
+ * 고른 날 — 구매 전 · 후 끝 잔액, 구매 후 안전 잔액 · 0원 아래면 태그, 그날 일.
  * 잔고예보 입출금을 빌려 오지 못했으면([knowsFlows] false) 다른 입출금을 모르니 '오가는 돈이 없어요'라고 하지 않는다
  */
 @Composable
@@ -200,8 +218,8 @@ private fun SimDayPanel(day: SimDay, events: List<SimDayEvent>, threshold: Long?
         }
         Spacer(Modifier.height(6.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            DayValue("사기 전", day.before, c.text2, Modifier.weight(1f))
-            DayValue("사기 후", day.after, c.onPrimaryContainer, Modifier.weight(1f))
+            DayValue("구매 전", day.before, c.text2, Modifier.weight(1f))
+            DayValue("구매 후", day.after, c.onPrimaryContainer, Modifier.weight(1f))
         }
         if (events.isEmpty()) {
             if (knowsFlows) Text("이날은 오가는 돈이 없어요", style = YamuTheme.typography.bodyS, color = c.text3, modifier = Modifier.padding(top = 8.dp))
