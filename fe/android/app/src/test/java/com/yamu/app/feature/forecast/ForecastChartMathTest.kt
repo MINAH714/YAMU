@@ -160,4 +160,15 @@ class ForecastChartMathTest {
         assertEquals(34f, chartRightPad(340f, 8f, 9, paydaySlot = false, plain = 34f), 0f)
         assertEquals(8f, chartRightPad(340f, 8f, 1, paydaySlot = true, plain = 8f), 0f)
     }
+
+    @Test fun `월급날 칸이 있으면 마지막 날 잔액으로 화살표까지 잇는다(S15P31E103-595)`() {
+        assertEquals(15_000L, paydayCarry(listOf(412_000L, 69_000L, 15_000L), paydaySlot = true))
+        assertEquals(-20_000L, paydayCarry(listOf(30_000L, -20_000L), paydaySlot = true))
+    }
+
+    @Test fun `월급날 칸이 없거나 마지막 날 값이 없으면 잇지 않는다`() {
+        assertNull(paydayCarry(listOf(412_000L, 15_000L), paydaySlot = false))
+        assertNull(paydayCarry(listOf(412_000L, null), paydaySlot = true))
+        assertNull(paydayCarry(emptyList(), paydaySlot = true))
+    }
 }

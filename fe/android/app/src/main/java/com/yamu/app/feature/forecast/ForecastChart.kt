@@ -325,6 +325,9 @@ fun BalanceChart(
                 val bottom = size.height - (axisHeight?.let { it + 4.dp.toPx() } ?: BOTTOM_PAD.toPx())
                 fun x(i: Int) = left + (right - left) * fractionOf(i, n)
                 fun y(v: Double) = bottom - range.fraction(v) * (bottom - top)
+                // 월급날 칸(화살표 자리) — 선 · 면 · 기준선을 여기까지 잇는다([paydayCarry]). 화살표가 없으면 마지막 날에서 끝난다
+                val payX = if (incomeArrow) size.width - SIDE_PAD.toPx() else null
+                val lineEnd = payX ?: right
                 val ySafe = threshold?.let { y(it.toDouble()).coerceIn(0f, size.height) } ?: size.height
                 val zeroIn = range.shows(0)
                 val yZero = y(0.0).coerceIn(0f, size.height)
@@ -344,7 +347,7 @@ fun BalanceChart(
                 var safeLabel: (() -> Unit)? = null
                 threshold?.let { t ->
                     if (range.shows(t)) {
-                        drawLine(c.warning.copy(alpha = 0.8f), Offset(0f, ySafe), Offset(right, ySafe), strokeWidth = 1.dp.toPx(), pathEffect = PathEffect.dashPathEffect(floatArrayOf(3.dp.toPx(), 3.dp.toPx())))
+                        drawLine(c.warning.copy(alpha = 0.8f), Offset(0f, ySafe), Offset(lineEnd, ySafe), strokeWidth = 1.dp.toPx(), pathEffect = PathEffect.dashPathEffect(floatArrayOf(3.dp.toPx(), 3.dp.toPx())))
                         val label = measurer.measure("안전 잔액 ${t.toManWon()}", labelStyle.copy(color = c.onWarningContainer))
                         val w = label.size.width.toFloat()
                         val h = label.size.height.toFloat()
@@ -375,9 +378,9 @@ fun BalanceChart(
                     }
                 }
                 if (zeroIn) {
-                    drawLine(c.error.copy(alpha = 0.55f), Offset(0f, yZero), Offset(right, yZero), strokeWidth = 1.dp.toPx())
+                    drawLine(c.error.copy(alpha = 0.55f), Offset(0f, yZero), Offset(lineEnd, yZero), strokeWidth = 1.dp.toPx())
                     val label = measurer.measure("0원", labelStyle.copy(color = c.onErrorContainer))
-                    if (yZero + 2.dp.toPx() + label.size.height < size.height) drawText(label, topLeft = Offset(right - label.size.width, yZero + 2.dp.toPx()))
+                    if (yZero + 2.dp.toPx() + label.size.height < size.height) drawText(label, topLeft = Offset(lineEnd - label.size.width, yZero + 2.dp.toPx()))
                 }
 
                 // 한 달 그래프 빗금 — 데이터 없음은 진하게, 범위 밖은 옅게. 넓으면 무엇인지 글자로(색만으로 나누지 않게, COMMON-11).
@@ -471,6 +474,7 @@ fun BalanceChart(
                             if (firstX.isNaN()) { area.moveTo(x(i), y(v.toDouble())); firstX = x(i) } else area.lineTo(x(i), y(v.toDouble()))
                             lastX = x(i)
                         }
+                        if (payX != null) paydayCarry(ride.values, paydaySlot = true)?.let { v -> area.lineTo(payX, y(v.toDouble())); lastX = payX }
                         if (!firstX.isNaN()) { area.lineTo(lastX, baseY); area.lineTo(firstX, baseY); area.close(); filled = true }
                     } else {
                         var count = 0
@@ -504,6 +508,7 @@ fun BalanceChart(
                             else if (!drawing) { path.moveTo(x(i), y(v.toDouble())); drawing = true }
                             else path.lineTo(x(i), y(v.toDouble()))
                         }
+                        if (payX != null) paydayCarry(line.values, paydaySlot = true)?.let { v -> path.lineTo(payX, y(v.toDouble())) }
                         val stroke = Stroke(
                             width = line.width.toPx(),
                             cap = StrokeCap.Round,
