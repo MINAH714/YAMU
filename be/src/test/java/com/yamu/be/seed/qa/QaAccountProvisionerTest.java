@@ -48,6 +48,7 @@ class QaAccountProvisionerTest extends MySqlTestSupport {
     @Autowired DataSource dataSource;
     @Autowired CryptoProperties crypto;
     @Autowired AuthService auth;
+    @Autowired com.yamu.be.accounthistory.AccountHistoryStore accountHistory;
     @MockitoBean FinApiClient financial;
     @MockitoBean SsafyTransferApi transfers;
     @MockitoBean ChallengeStore challenges;
@@ -241,6 +242,8 @@ class QaAccountProvisionerTest extends MySqlTestSupport {
         assertThat(tool.run("verify", specs, manifest, Map.of()).targets()).isEqualTo(result.targets());
         for (var spec : specs) { seed.run("enrich", spec); seed.run("verify", spec); }
         assertThat(tool.run("verify", specs, manifest, Map.of()).targets()).isEqualTo(result.targets());
+        assertThat(snapshot("SELECT * FROM linked_account WHERE linked_account_id=" + old[1])).isEqualTo(auditAccount);
+        assertThat(snapshot("SELECT * FROM user_device WHERE status='REVOKED' ORDER BY user_device_id")).isEqualTo(devicesBefore);
     }
 
     @Test void neverReusesRevokedDeviceIdentityOrAcceptsActivePartialOnboarding() throws Exception {
@@ -284,6 +287,93 @@ class QaAccountProvisionerTest extends MySqlTestSupport {
         assertThat(snapshot("SELECT * FROM user_device ORDER BY user_device_id")).isEqualTo(devices);
         assertThat(snapshot("SELECT * FROM app_user ORDER BY user_id")).isEqualTo(users);
         assertThat(snapshot("SELECT * FROM user_card ORDER BY user_card_id")).isEqualTo(cards);
+    }
+
+    @Test void lateMaterializedFundingPreservesDatesAndNeverAddsStartingMoneyTwice() throws Exception {
+        var target = tool.run("prepare", specs, manifest, pins).targets().get(0);
+        var spec = specs.get(0);
+        seed.run("enrich", spec);
+        long account = db.queryForObject("SELECT linked_account_id FROM linked_account WHERE user_id=? AND bank_code='003' AND status='CONNECTED'", Long.class, target.userId());
+        var realDay = java.time.LocalDate.of(2026,11,17);
+        var checkedAt = java.time.Instant.parse("2026-11-18T03:00:00Z");
+        var ticket = accountHistory.begin(target.userId(), account, realDay, realDay);
+        var bankRows = List.of(
+                new com.yamu.be.payment.bank.BankTransaction("preexisting-three",realDay,java.time.LocalTime.of(0,54),com.yamu.be.payment.bank.BankDirection.DEPOSIT,3,3,""),
+                new com.yamu.be.payment.bank.BankTransaction("approved-funding",realDay,java.time.LocalTime.of(1,21),com.yamu.be.payment.bank.BankDirection.DEPOSIT,299997,300000,""));
+        assertThat(accountHistory.complete(ticket,new com.yamu.be.payment.bank.BankHistory(realDay,realDay,null,2L,bankRows,checkedAt))).isEqualTo("OK");
+        var actualBefore = snapshot("SELECT * FROM account_transaction WHERE stream_id=" + ticket.streamId() + " ORDER BY transaction_id");
+        var purchases = history();
+        var fingerprint = snapshot("SELECT * FROM qa_seed_dataset ORDER BY dataset_key");
+        var assets = new QaAssetHistory(db,Clock.fixed(checkedAt,ZoneOffset.UTC));
+        var hold = new QaAssetHistory.Spec(spec.datasetKey(),spec.personas().get(0).key(),account,QaLifeScenario.FROM,QaLifeScenario.BASE,0,0,List.of(),"LIFE","approved-funding");
+        connection.setAutoCommit(false);
+        try {
+            var missingProof = new QaAssetHistory.Spec(hold.datasetKey(),hold.personaKey(),account,hold.from(),hold.to(),0,0,List.of(),"LIFE",null);
+            assertThatThrownBy(() -> assets.run("plan",missingProof)).hasMessage("LIFE input must use its exact ledger");
+            var wrongDay = new QaAssetHistory.Spec(hold.datasetKey(),hold.personaKey(),account,hold.from(),hold.to().minusDays(1),0,0,List.of(),"LIFE","approved-funding");
+            assertThatThrownBy(() -> assets.run("plan",wrongDay)).hasMessage("No verified actual opening boundary");
+            var plan = assets.run("plan",hold);
+            assertThat(plan.closing()).isEqualTo(300000);
+            assertThat(plan.transactions()).isEqualTo(QaLifeScenario.ledger(2).rows().size());
+            assets.run("apply",hold);connection.commit();
+            assets.run("apply",hold);connection.commit();
+            assets.run("verify",hold);connection.commit();
+            var view = accountHistory.read(target.userId(),account,realDay.minusDays(2),realDay);
+            assertThat(view.reason()).isEqualTo("OK");
+            assertThat(view.days().get(realDay.minusDays(1)).balance()).isEqualTo(300000);
+            assertThat(view.days().get(realDay.minusDays(1)).source()).isEqualTo(com.yamu.be.accounthistory.HistorySource.QA_SYNTHETIC);
+            assertThat(view.days().get(realDay).balance()).isEqualTo(300000);
+            assertThat(view.days().get(realDay).source()).isEqualTo(com.yamu.be.accounthistory.HistorySource.SSAFY);
+            assertThat(db.queryForObject("SELECT COUNT(*) FROM account_transaction t JOIN account_history_stream s USING(stream_id) WHERE s.linked_account_id=? AND s.source='QA_SYNTHETIC' AND DATE(t.occurred_at + INTERVAL 9 HOUR)='2026-11-16'",Long.class,account)).isZero();
+            assertThat(history()).isEqualTo(purchases);
+            assertThat(snapshot("SELECT * FROM qa_seed_dataset ORDER BY dataset_key")).isEqualTo(fingerprint);
+            assertThat(snapshot("SELECT * FROM account_transaction WHERE stream_id=" + ticket.streamId() + " ORDER BY transaction_id")).isEqualTo(actualBefore);
+            assets.run("reset",hold);connection.commit();
+        } finally {
+            connection.rollback();connection.setAutoCommit(true);
+            for (String table : List.of("qa_seed_funding_boundary","account_history_coverage","account_history_sync_run","account_transaction")) {
+                String column = table.equals("qa_seed_funding_boundary") ? "actual_stream_id" : "stream_id";
+                db.update("DELETE FROM " + table + " WHERE " + column + "=?",ticket.streamId());
+            }
+            db.update("DELETE FROM account_history_stream WHERE stream_id=?",ticket.streamId());
+        }
+    }
+
+    @Test void benefitRevisionRenamesOnlySeedSalaryAndUneditedOccurrences() throws Exception {
+        var target = tool.run("prepare", specs, manifest, pins).targets().get(0);
+        var spec = specs.get(0);
+        seed.run("enrich",spec);
+        long income = db.queryForObject("SELECT CAST(JSON_UNQUOTE(JSON_EXTRACT(forecast_settings,'$.incomeCashflowItemId')) AS UNSIGNED) FROM app_user WHERE user_id=?",Long.class,target.userId());
+        db.update("UPDATE cashflow_item SET title='급여' WHERE cashflow_item_id=?",income);
+        db.update("UPDATE cashflow_occurrence SET title='급여' WHERE cashflow_item_id=?",income);
+        long other = seed.insert("""
+                INSERT INTO cashflow_item(user_id,title,direction,amount,scheduled_date,recurrence_type,recurrence_day_of_month,status,created_at,updated_at)
+                VALUES (?,'급여','INCOME',2500000,'2026-11-26','MONTHLY',26,'CONFIRMED',UTC_TIMESTAMP(),UTC_TIMESTAMP())
+                """,target.userId());
+        long overridden = seed.insert("""
+                INSERT INTO cashflow_occurrence(cashflow_item_id,user_id,occurrence_date,scheduled_date,title,direction,amount,status,is_overridden,created_at,updated_at)
+                VALUES (?,?,'2026-12-26','2026-12-26','급여','INCOME',2500000,'CONFIRMED',TRUE,UTC_TIMESTAMP(),UTC_TIMESTAMP())
+                """,income,target.userId());
+        var manual = snapshot("SELECT * FROM cashflow_item WHERE cashflow_item_id=" + other);
+        var custom = snapshot("SELECT * FROM cashflow_occurrence WHERE cashflow_occurrence_id=" + overridden);
+        String hash = db.queryForObject("SELECT HEX(input_hash) FROM qa_seed_dataset WHERE dataset_key=?",String.class,spec.datasetKey());
+        seed.reviseBenefits(spec,hash);
+        seed.reviseBenefits(spec,hash);
+        assertThat(db.queryForObject("SELECT title FROM cashflow_item WHERE cashflow_item_id=?",String.class,income)).isEqualTo("월급");
+        assertThat(db.queryForList("SELECT title FROM cashflow_occurrence WHERE cashflow_item_id=? AND is_overridden=FALSE",String.class,income)).containsOnly("월급");
+        assertThat(snapshot("SELECT * FROM cashflow_item WHERE cashflow_item_id=" + other)).isEqualTo(manual);
+        assertThat(snapshot("SELECT * FROM cashflow_occurrence WHERE cashflow_occurrence_id=" + overridden)).isEqualTo(custom);
+        seed.run("verify",spec);
+    }
+
+    @Test void preservesIdentityTimestampWrittenByNormalSignup() throws Exception {
+        long user = user(specs.get(0));
+        var verifiedAt = java.sql.Timestamp.from(NOW.minusSeconds(60));
+        db.update("UPDATE app_user SET identity_verified_at=? WHERE user_id=?",verifiedAt,user);
+        var before = snapshot("SELECT identity_verified_at FROM app_user WHERE user_id=" + user);
+        tool.run("prepare",specs,manifest,pins);
+        assertThat(snapshot("SELECT identity_verified_at FROM app_user WHERE user_id=" + user)).isEqualTo(before);
+        assertThat(tool.run("verify",specs,manifest,Map.of()).targets()).allMatch(QaAccountProvisioner.Target::prepared);
     }
 
     private long[] addWithdrawalAudit() throws Exception {

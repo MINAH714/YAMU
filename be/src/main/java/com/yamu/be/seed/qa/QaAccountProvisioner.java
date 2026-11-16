@@ -172,7 +172,7 @@ public final class QaAccountProvisioner {
             require(connectedAccounts.size() == 3, STATE_CHANGED);
         } else {
             require("PENDING".equals(user.get("status")) && user.get("pin_hash") == null && user.get("pin_updated_at") == null
-                    && user.get("identity_verified_at") == null && activeDevices.isEmpty() && connectedAccounts.isEmpty()
+                    && activeDevices.isEmpty() && connectedAccounts.isEmpty()
                     && !Boolean.TRUE.equals(members.get(0).get("enriched")), STATE_CHANGED);
             require(devices.stream().noneMatch(row -> device.deviceId().equals(row.get("device_uuid"))
                     || device.publicKey().equals(row.get("public_key"))), DEVICE_CONFLICT);
@@ -278,7 +278,7 @@ public final class QaAccountProvisioner {
                 INSERT INTO user_device_event(user_device_id,event_type,reason,created_at) VALUES (?,'REGISTERED',?,?)
                 """, deviceId, EVENT_PREFIX + state.device.bindingDigest(), now);
         require(db.update("""
-                UPDATE app_user SET pin_hash=?,pin_updated_at=?,identity_verified_at=?,status='ACTIVE',
+                UPDATE app_user SET pin_hash=?,pin_updated_at=?,identity_verified_at=COALESCE(identity_verified_at,?),status='ACTIVE',
                     updated_at=?,version=version+1 WHERE user_id=? AND status='PENDING' AND pin_hash IS NULL
                 """, pins.hash(pin), now, now, now, state.userId) == 1, STATE_CHANGED);
     }

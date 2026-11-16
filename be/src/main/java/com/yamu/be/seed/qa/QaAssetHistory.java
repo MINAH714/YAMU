@@ -125,7 +125,11 @@ public final class QaAssetHistory {
     }
     private List<QaAssetHistoryPlan.Event> events(long user,Spec spec) {
         if ("LIFE".equals(spec.scenario())) {
-            require(QaLifeScenario.FROM.equals(spec.from())&&QaLifeScenario.BASE.minusDays(1).equals(spec.to())
+            // The approved one-day hold adds no synthetic transaction. Its real funding proof
+            // must still begin on the following day; original LIFE purchases/fingerprint stay fixed.
+            boolean originalEnd = QaLifeScenario.BASE.minusDays(1).equals(spec.to());
+            boolean fundedNextDay = QaLifeScenario.BASE.equals(spec.to()) && spec.fundingExternalId()!=null;
+            require(QaLifeScenario.FROM.equals(spec.from()) && (originalEnd || fundedNextDay)
                     && spec.monthlyIncome()==0 && spec.monthlyRent()==0 && (spec.extraEvents()==null||spec.extraEvents().isEmpty()),"LIFE input must use its exact ledger");
             String bank=db.queryForObject("SELECT bank_code FROM linked_account WHERE linked_account_id=?",String.class,spec.accountId());
             int account=switch(bank) {case "004"->0;case "088"->1;case "003"->2;default->throw new IllegalArgumentException("Unknown LIFE bank");};

@@ -357,7 +357,7 @@ public final class QaSeedService {
             if (p.scenario()==QaSeedSpec.Scenario.LIFE) {
                 var joined=Timestamp.from(QaLifeBenefits.SIGNUP.atStartOfDay(KST).toInstant());
                 db.update("UPDATE user_card SET registered_at=? WHERE user_id=?",joined,user);
-                db.update("UPDATE linked_account SET connected_at=? WHERE user_id=?",joined,user);
+                db.update("UPDATE linked_account SET connected_at=? WHERE user_id=? AND status='CONNECTED'",joined,user);
             }
             if (p.scenario() != QaSeedSpec.Scenario.EMPTY) {
                 long income = cashflow(user, accounts[0], spec.baseDate().plusDays(10), "월급", "INCOME",

@@ -72,7 +72,7 @@ final class QaLifeBenefitRevision {
                 Timestamp.from(LocalDate.of(2026,11,1).atStartOfDay(ZoneId.of("Asia/Seoul")).toInstant()));
             // Regenerate only this dataset's synthetic IBK stream, if installed. Never touch SSAFY rows.
             var streams=db.queryForList("""
-                SELECT s.linked_account_id,t.external_id FROM account_history_stream s
+                SELECT s.linked_account_id,s.range_from,s.range_to,t.external_id FROM account_history_stream s
                 JOIN linked_account a USING(linked_account_id)
                 LEFT JOIN qa_seed_funding_boundary f ON f.qa_stream_id=s.stream_id
                 LEFT JOIN account_transaction t ON t.transaction_id=f.funding_transaction_id
@@ -81,11 +81,29 @@ final class QaLifeBenefitRevision {
             require(streams.size()<=1,"Multiple IBK streams");
             for(var stream:changedApproval?streams:List.<Map<String,Object>>of()) {
                 var input=new QaAssetHistory.Spec(spec.datasetKey(),person.key(),((Number)stream.get("linked_account_id")).longValue(),
-                    QaLifeScenario.FROM,spec.baseDate().minusDays(1),0,0,List.of(),"LIFE",(String)stream.get("external_id"));
+                    ((java.sql.Date)stream.get("range_from")).toLocalDate(),((java.sql.Date)stream.get("range_to")).toLocalDate(),
+                    0,0,List.of(),"LIFE",(String)stream.get("external_id"));
                 var assets=new QaAssetHistory(db,clock);
                 assets.run("reset",input);assets.run("apply",input);
                 require(assets.run("verify",input).closing()==300000,"IBK closing changed");
             }
+            // Only the seeded salary item referenced by this user's settings is renamed.
+            // User-created schedules, edited labels and overridden occurrences are preserved.
+            db.update("""
+                UPDATE cashflow_occurrence o JOIN cashflow_item i USING(cashflow_item_id)
+                JOIN app_user u ON u.user_id=i.user_id
+                SET o.title='월급'
+                WHERE i.user_id=? AND o.user_id=i.user_id AND i.title IN ('급여','월급')
+                  AND i.direction='INCOME' AND i.amount=2500000 AND i.recurrence_type='MONTHLY'
+                  AND i.recurrence_day_of_month=26 AND o.title='급여' AND o.is_overridden=FALSE
+                  AND i.cashflow_item_id=CAST(JSON_UNQUOTE(JSON_EXTRACT(u.forecast_settings,'$.incomeCashflowItemId')) AS UNSIGNED)
+                """,user);
+            db.update("""
+                UPDATE cashflow_item i JOIN app_user u ON u.user_id=i.user_id SET i.title='월급'
+                WHERE i.user_id=? AND i.title='급여' AND i.direction='INCOME' AND i.amount=2500000
+                  AND i.recurrence_type='MONTHLY' AND i.recurrence_day_of_month=26
+                  AND i.cashflow_item_id=CAST(JSON_UNQUOTE(JSON_EXTRACT(u.forecast_settings,'$.incomeCashflowItemId')) AS UNSIGNED)
+                """,user);
             com.yamu.be.notification.SeedNotificationReplay.refreshPayment(db,user,instantPayment);
         }
     }
