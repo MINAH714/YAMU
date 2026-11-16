@@ -570,8 +570,8 @@ class BenefitReportViewModel @Inject constructor(
 }
 
 /**
- * S-04 혜택 리포트 — 야무 결제만(source=YAMU, S15P31E103-493). 큰 숫자는 확정된 혜택(홈 히어로와 같은 기준, 11/14 결정)이고
- * 확정 전은 따로, 원화로 바꾸지 못한 혜택은 금액에 없다고 알린다. 그 아래 종류별 · 카드별 · 놓친 혜택 · 어디서 받았나요.
+ * S-04 혜택 리포트 — 야무 결제만(source=YAMU, S15P31E103-493). 큰 숫자는 확정과 예정을 합친 그달 이용 혜택 총액이고(-578,
+ * 홈 히어로는 확정만), 원화로 바꾸지 못한 혜택은 금액에 없다고 알린다. 그 아래 종류별 · 카드별 · 놓친 혜택 · 어디서 받았나요.
  * [onCard]를 주면 카드 줄을 눌러 그 카드 실적(R-02)으로 간다. 지난달을 보는 중이거나 지금 등록된 카드가 아니면 누를 수 없다([cardTarget])
  */
 @Composable
@@ -627,11 +627,9 @@ fun BenefitReportRoute(
                             // '○월 이용 혜택' — 지급월이 아니라 그달 이용으로 생긴 혜택(명세 v4 · 레인 1 홈과 같은 말)
                             Text("${r.periodLabel} 이용 혜택", style = YamuTheme.typography.bodyM, color = c.text2)
                             Spacer(Modifier.height(4.dp))
-                            AmountText(r.confirmed)
-                            Spacer(Modifier.height(4.dp))
-                            Text(confirmedLine(r), style = YamuTheme.typography.bodyM, color = c.text2)
+                            AmountText(r.received)
                             if (r.unconverted > 0) {
-                                Text(unconvertedLine(r.unconverted), style = YamuTheme.typography.bodyS, color = c.text3, modifier = Modifier.padding(top = 2.dp))
+                                Text(unconvertedLine(r.unconverted), style = YamuTheme.typography.bodyS, color = c.text3, modifier = Modifier.padding(top = 4.dp))
                             }
                             r.yamuExtra?.let {
                                 Spacer(Modifier.height(4.dp))
@@ -712,10 +710,6 @@ private fun BenefitAmountRow(name: String, confirmed: Long, unconfirmed: Long, u
         if (onClick != null) Icon(YamuIcons.ChevronRight, contentDescription = null, tint = c.text3, modifier = Modifier.padding(start = 4.dp).size(18.dp))
     }
 }
-
-/** 큰 숫자 밑 한 줄 — 확정 전이 있으면 '확정 전 500원 더 있어요(모두 1,500원)', 없으면 '모두 확정된 혜택이에요' */
-internal fun confirmedLine(r: BenefitReport): String =
-    if (r.unconfirmed > 0) "확정된 혜택이에요 · 확정 전 ${r.unconfirmed.toWon()}원 더 있어요(모두 ${r.received.toWon()}원)" else "모두 확정된 혜택이에요"
 
 /** 원화로 바꾸지 못한 혜택 — 적립이 없는 게 아니라 금액에 넣지 못한 것 */
 internal fun unconvertedLine(count: Long): String = "원화로 바꾸지 못한 혜택 ${count}건은 금액에 넣지 않았어요"
