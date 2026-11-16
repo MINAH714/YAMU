@@ -31,7 +31,10 @@ import com.yamu.be.support.MySqlTestSupport;
 import java.sql.Date;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.time.ZoneOffset;
+import java.time.ZonedDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -185,10 +188,27 @@ class WithdrawalIntegrationTest extends MySqlTestSupport {
     }
 
     @Test
-    void 끝나지_않은_청구가_있으면_409이고_아무것도_바뀌지_않으며_본인_인증_토큰도_쓰지_않는다() throws Exception {
+    void 끝나지_않은_청구가_있어도_탈퇴되고_남은_청구서는_탈퇴로_닫힌다() throws Exception {
         Member member = activeMember();
         long card = card(member.userId(), "ACTIVE");
-        long bill = bill(member.userId(), card, "CONFIRMED");
+        long accumulating = bill(member.userId(), card, "ACCUMULATING", LocalDate.of(2026, 11, 1));
+        long confirmed = bill(member.userId(), card, "CONFIRMED", LocalDate.of(2026, 10, 1));
+        long unpaid = bill(member.userId(), card, "UNPAID", LocalDate.of(2026, 9, 1));
+
+        withdraw(member, stepUpToken(member, StepUpPurpose.WITHDRAW_MEMBER)).andExpect(status().isNoContent());
+
+        assertThat(jdbc.queryForObject("SELECT status FROM app_user WHERE user_id = ?", String.class, member.userId()))
+                .isEqualTo("WITHDRAWN");
+        assertThat(jdbc.queryForList("SELECT status FROM card_bill WHERE card_bill_id IN (?, ?, ?)", String.class,
+                accumulating, confirmed, unpaid)).containsOnly("CLOSED_BY_WITHDRAWAL").hasSize(3);
+    }
+
+    @Test
+    void 출금을_처리하고_있으면_409이고_아무것도_바뀌지_않으며_본인_인증_토큰도_쓰지_않는다() throws Exception {
+        Member member = activeMember();
+        long card = card(member.userId(), "ACTIVE");
+        long accumulating = bill(member.userId(), card, "ACCUMULATING", LocalDate.of(2026, 11, 1));
+        long bill = withdrawalRequested(bill(member.userId(), card, "CONFIRMED", LocalDate.of(2026, 10, 1)));
         String stepUp = stepUpToken(member, StepUpPurpose.WITHDRAW_MEMBER);
 
         withdraw(member, stepUp).andExpect(status().isConflict())
@@ -196,24 +216,16 @@ class WithdrawalIntegrationTest extends MySqlTestSupport {
                 .andExpect(jsonPath("$.error.details.billIds[0]").value(bill));
         assertThat(jdbc.queryForObject("SELECT status FROM app_user WHERE user_id = ?", String.class, member.userId()))
                 .isEqualTo("ACTIVE");
+        assertThat(jdbc.queryForObject("SELECT status FROM card_bill WHERE card_bill_id = ?", String.class, accumulating))
+                .isEqualTo("ACCUMULATING");
 
+        // 출금 작업이 결과를 정하면(여기서는 출금 완료) 같은 본인 인증 토큰으로 탈퇴된다
         jdbc.update("UPDATE card_bill SET status = 'PAID' WHERE card_bill_id = ?", bill);
         withdraw(member, stepUp).andExpect(status().isNoContent());
-    }
-
-    @Test
-    void 쌓이는_중인_청구도_탈퇴를_막고_취소로_끝난_청구는_통과한다() throws Exception {
-        Member member = activeMember();
-        long card = card(member.userId(), "ACTIVE");
-        long bill = bill(member.userId(), card, "ACCUMULATING");
-        String stepUp = stepUpToken(member, StepUpPurpose.WITHDRAW_MEMBER);
-
-        withdraw(member, stepUp).andExpect(status().isConflict())
-                .andExpect(jsonPath("$.error.code").value("BILL_OUTSTANDING"))
-                .andExpect(jsonPath("$.error.details.billIds[0]").value(bill));
-
-        jdbc.update("UPDATE card_bill SET status = 'CANCELED' WHERE card_bill_id = ?", bill);
-        withdraw(member, stepUp).andExpect(status().isNoContent());
+        assertThat(jdbc.queryForObject("SELECT status FROM card_bill WHERE card_bill_id = ?", String.class, bill))
+                .isEqualTo("PAID");
+        assertThat(jdbc.queryForObject("SELECT status FROM card_bill WHERE card_bill_id = ?", String.class, accumulating))
+                .isEqualTo("CLOSED_BY_WITHDRAWAL");
     }
 
     @Test
@@ -278,13 +290,14 @@ class WithdrawalIntegrationTest extends MySqlTestSupport {
     }
 
     @Test
-    void 처음_확인_뒤_잠금_전에_생긴_청구는_잠근_뒤_다시_보고_409로_막는다() throws Exception {
+    void 처음_확인_뒤_잠금_전에_출금을_요청한_청구는_잠근_뒤_다시_보고_409로_막는다() throws Exception {
         Member member = activeMember();
         long card = card(member.userId(), "ACTIVE");
+        long bill = bill(member.userId(), card, "CONFIRMED", LocalDate.of(2026, 10, 1));
         String stepUp = stepUpToken(member, StepUpPurpose.WITHDRAW_MEMBER);
 
-        // 처음 확인(잠금 밖)은 아직 커밋되지 않은 청구를 보지 못하고, 잠근 뒤의 확인은 커밋된 청구를 본다.
-        int status = whileUserLocked(member.userId(), () -> bill(member.userId(), card, "CONFIRMED"),
+        // 처음 확인(잠금 밖)은 아직 커밋되지 않은 출금 요청을 보지 못하고, 잠근 뒤의 확인은 커밋된 요청을 본다.
+        int status = whileUserLocked(member.userId(), () -> withdrawalRequested(bill),
                 () -> withdraw(member, stepUp).andReturn().getResponse().getStatus());
 
         assertThat(status).isEqualTo(409);
@@ -321,7 +334,7 @@ class WithdrawalIntegrationTest extends MySqlTestSupport {
     void 탈퇴한_사람이_본인인증을_하면_새_사용자를_만들고_열쇠와_카드를_옮긴다() throws Exception {
         Member member = activeMember();
         long oldCard = card(member.userId(), "ACTIVE");
-        long paidBill = bill(member.userId(), oldCard, "PAID");
+        long paidBill = bill(member.userId(), oldCard, "PAID", LocalDate.of(2026, 10, 1));
         withdraw(member, stepUpToken(member, StepUpPurpose.WITHDRAW_MEMBER)).andExpect(status().isNoContent());
 
         MvcResult confirmed = confirm(verificationStore.issue(identity("김야무")))
@@ -504,8 +517,7 @@ class WithdrawalIntegrationTest extends MySqlTestSupport {
         return insert("user_card", "user_card_id", values);
     }
 
-    private long bill(long userId, long card, String status) {
-        LocalDate month = LocalDate.of(2026, 10, 1);
+    private long bill(long userId, long card, String status, LocalDate month) {
         return insert("card_bill", "card_bill_id", new HashMap<>(Map.ofEntries(
                 Map.entry("user_id", userId), Map.entry("user_card_id", card),
                 Map.entry("linked_account_id", jdbc.queryForObject(
@@ -516,6 +528,14 @@ class WithdrawalIntegrationTest extends MySqlTestSupport {
                 Map.entry("withdrawal_date", Date.valueOf(month.plusDays(13))), Map.entry("status", status),
                 Map.entry("confirmed_amount", 128500L), Map.entry("confirmed_at", now()),
                 Map.entry("created_at", now()), Map.entry("updated_at", now()))));
+    }
+
+    /** 출금 작업이 방금 출금을 요청한 모양(요청 번호의 앞 14자리 = 지금 한국 시각, 유예 30초 안). */
+    private long withdrawalRequested(long bill) {
+        String requestNo = DateTimeFormatter.ofPattern("yyyyMMddHHmmss").format(ZonedDateTime.now(ZoneId.of("Asia/Seoul")))
+                + "000001";
+        jdbc.update("UPDATE card_bill SET fin_request_no = ? WHERE card_bill_id = ?", requestNo, bill);
+        return bill;
     }
 
     private byte[] accountHash(long userId) {

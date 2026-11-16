@@ -284,6 +284,23 @@ public class CardBill extends BaseTimeEntity {
         }
     }
 
+    /** 출금을 요청해 결과를 기다리는 확정 청구서인지(요청 번호 있음). 결과는 출금 작업·결과 불명 복구가 정한다. */
+    public boolean isWithdrawalRequested() {
+        return status == BillStatus.CONFIRMED && finRequestNo != null;
+    }
+
+    /**
+     * 회원 탈퇴로 닫는다(S15P31E103-443, 임시). 진행 중·확정·미납 청구서를 출금 없이 {@link BillStatus#CLOSED_BY_WITHDRAWAL}로 바꾸고
+     * 금액·출금 이력은 그대로 둔다. 회차도 그대로 둔다(청구서 상태로 확정·출금·취소가 이 청구서를 건너뛴다).
+     * 출금을 요청한 청구서를 닫을지는 부르는 쪽이 유예로 정한다.
+     */
+    public void closeForWithdrawal() {
+        if (status != BillStatus.ACCUMULATING && status != BillStatus.CONFIRMED && status != BillStatus.UNPAID) {
+            throw new IllegalStateException("끝나지 않은 청구서만 탈퇴로 닫을 수 있습니다 (청구서 " + id + ", 상태 " + status + ")");
+        }
+        this.status = BillStatus.CLOSED_BY_WITHDRAWAL;
+    }
+
     /** 확정액 전부가 출금됐는지. 청구액 일부 출금은 지원하지 않으므로 출금 완료 청구서는 늘 그래야 한다. */
     public boolean isFullyPaid() {
         return status == BillStatus.PAID && confirmedAmount != null && paidAmount == confirmedAmount;

@@ -522,10 +522,12 @@ class CardManagementIntegrationTest extends MySqlTestSupport {
         bill(card, "PAID", LocalDate.of(2026, 1, 14));
         bill(card, "CANCELED", LocalDate.of(2026, 2, 14));
         // 쌓이는 중(ACCUMULATING)·확정·미납과 앞으로 BillStatus에 더해질 상태 모두 해제를 막지 않는다.
+        // 탈퇴로 닫힌 청구서(CLOSED_BY_WITHDRAWAL, S15P31E103-443)는 끝난 청구라 뺀다.
         Map<Long, String> open = new HashMap<>();
         int month = 3;
         for (BillStatus status : BillStatus.values()) {
-            if (status != BillStatus.PAID && status != BillStatus.CANCELED) {
+            if (status != BillStatus.PAID && status != BillStatus.CANCELED
+                    && status != BillStatus.CLOSED_BY_WITHDRAWAL) {
                 open.put(bill(card, status.name(), LocalDate.of(2026, month++, 14)), status.name());
             }
         }

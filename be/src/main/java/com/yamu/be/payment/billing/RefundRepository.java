@@ -32,6 +32,17 @@ public interface RefundRepository extends JpaRepository<Refund, Long> {
     List<Refund> findPayoutTargets(@Param("status") RefundStatus status, @Param("userId") Long userId,
             @Param("afterId") Long afterId, Pageable page);
 
+    /**
+     * 이 사용자의 그 상태 환급, 번호 순. 잠그지 않는다. refund에는 user_id만으로 타는 인덱스가 없어, 잠글 때는 여기서 얻은 번호로
+     * {@link #findAllForUpdate}를 부른다(회원 탈퇴, S15P31E103-443).
+     */
+    List<Refund> findByUserIdAndStatusInOrderByIdAsc(Long userId, Collection<RefundStatus> statuses);
+
+    /** 환급 여러 건을 번호 순으로 잠근다(SELECT ... FOR UPDATE). 빈 목록은 넘기지 않는다. */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT r FROM Refund r WHERE r.id IN :ids ORDER BY r.id")
+    List<Refund> findAllForUpdate(@Param("ids") Collection<Long> ids);
+
     /** 입금 요청 기록·결과 저장 전에 같은 환급을 다루는 다른 실행과 줄을 세운다. */
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("SELECT r FROM Refund r WHERE r.id = :id")

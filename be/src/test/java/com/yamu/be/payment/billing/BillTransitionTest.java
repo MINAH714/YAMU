@@ -88,4 +88,72 @@ class BillTransitionTest {
 
         assertThatThrownBy(item::bill).isInstanceOf(IllegalStateException.class);
     }
+
+    // ───────── 회원 탈퇴로 닫기(S15P31E103-443) ─────────
+
+    @Test
+    void 진행_중_확정_미납_청구서는_탈퇴로_닫고_금액은_그대로_둔다() {
+        CardBill accumulating = accumulating();
+        accumulating.closeForWithdrawal();
+        assertThat(accumulating.getStatus()).isEqualTo(BillStatus.CLOSED_BY_WITHDRAWAL);
+
+        CardBill confirmed = accumulating();
+        confirmed.confirm(30_000, 3L, LocalDate.of(2026, 11, 16), NOW);
+        confirmed.closeForWithdrawal();
+        assertThat(confirmed.getStatus()).isEqualTo(BillStatus.CLOSED_BY_WITHDRAWAL);
+        assertThat(confirmed.getConfirmedAmount()).isEqualTo(30_000);
+
+        CardBill unpaid = accumulating();
+        unpaid.confirm(30_000, 3L, LocalDate.of(2026, 11, 16), NOW);
+        unpaid.requestWithdrawal("20261116070000000001");
+        unpaid.markUnpaid(NOW);
+        assertThat(unpaid.isWithdrawalRequested()).isFalse();
+        unpaid.closeForWithdrawal();
+        assertThat(unpaid.getStatus()).isEqualTo(BillStatus.CLOSED_BY_WITHDRAWAL);
+        assertThat(unpaid.getFailedAt()).isEqualTo(NOW);
+    }
+
+    @Test
+    void 끝난_청구서와_이미_닫은_청구서는_탈퇴로_닫지_않고_닫은_뒤에는_확정_출금도_안_된다() {
+        CardBill paid = accumulating();
+        paid.confirm(0, 3L, LocalDate.of(2026, 11, 16), NOW);
+        paid.settleWithoutWithdrawal(NOW);
+        assertThatThrownBy(paid::closeForWithdrawal).isInstanceOf(IllegalStateException.class);
+
+        CardBill closed = accumulating();
+        closed.closeForWithdrawal();
+        assertThatThrownBy(closed::closeForWithdrawal).isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> closed.confirm(30_000, 3L, LocalDate.of(2026, 11, 16), NOW))
+                .isInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
+    void 출금을_요청한_확정_청구서만_결과를_기다리는_중이다() {
+        CardBill bill = accumulating();
+        assertThat(bill.isWithdrawalRequested()).isFalse();
+        bill.confirm(30_000, 3L, LocalDate.of(2026, 11, 16), NOW);
+        assertThat(bill.isWithdrawalRequested()).isFalse();
+        bill.requestWithdrawal("20261116070000000001");
+        assertThat(bill.isWithdrawalRequested()).isTrue();
+    }
+
+    @Test
+    void 대기_입금_실패_환급은_탈퇴로_닫고_끝난_환급은_닫지_않는다() {
+        Refund awaiting = Refund.pending(1L, 2L, 7L, 3L, 10_000, null);
+        awaiting.closeForWithdrawal();
+        assertThat(awaiting.getStatus()).isEqualTo(RefundStatus.CLOSED_BY_WITHDRAWAL);
+
+        Refund failed = Refund.pending(1L, 3L, 7L, 3L, 10_000, LocalDate.of(2026, 11, 19));
+        failed.recordSending("20261119070000000001");
+        assertThat(failed.isDepositRequested()).isTrue();
+        failed.fail();
+        assertThat(failed.isDepositRequested()).isFalse();
+        failed.closeForWithdrawal();
+        assertThat(failed.getStatus()).isEqualTo(RefundStatus.CLOSED_BY_WITHDRAWAL);
+
+        Refund completed = Refund.pending(1L, 4L, 7L, 3L, 10_000, LocalDate.of(2026, 11, 19));
+        completed.complete("D1", NOW);
+        assertThatThrownBy(completed::closeForWithdrawal).isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(awaiting::closeForWithdrawal).isInstanceOf(IllegalStateException.class);
+    }
 }
