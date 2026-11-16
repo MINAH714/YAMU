@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.HorizontalDivider
@@ -27,6 +28,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
@@ -176,7 +178,7 @@ private fun AnalysisRows(summary: HomeSummary) {
                     Text("오늘 쓸 카드", style = YamuTheme.typography.titleM, color = c.text1)
                     card.benefit?.let { Text(it, style = YamuTheme.typography.sub, color = c.text3) }
                 }
-                Text(card.cardName, style = YamuTheme.typography.value, color = c.primary)
+                Text(card.cardName, style = YamuTheme.typography.value, color = c.primary, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 180.dp))
             }
         }
     }
