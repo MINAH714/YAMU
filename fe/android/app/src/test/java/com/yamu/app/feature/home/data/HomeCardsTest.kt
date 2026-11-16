@@ -108,6 +108,37 @@ class HomeCardsTest {
         assertNull(rows[1].limitLine)   // 한도 응답에 없는 카드
     }
 
+    // ── 받은 혜택 순 · 이번 달 혜택 없음(11/16 사용자 요청) ──
+
+    private fun benefit(confirmed: Long, pending: Long = 0) = CardBenefit(confirmed, pending, unconvertedCount = 0)
+
+    @Test fun `받은 혜택이 큰 카드부터 3장 · 같으면 혜택 예정 순 · 혜택 없는 카드는 목록 순서로 뒤에`() {
+        val data = HomeCardsData(listOf(card(1), card(2), card(3), card(4), card(5)), limits = null)
+        val rows = data.rows(mapOf(4L to benefit(9_800), 2L to benefit(1_000, pending = 500), 5L to benefit(1_000)))
+        assertEquals(listOf(4L, 2L, 5L), rows.map { it.userCardId })
+        // 혜택 받은 카드가 하나면 나머지는 카드 목록 순서
+        assertEquals(listOf(3L, 1L, 2L), data.rows(mapOf(3L to benefit(500))).map { it.userCardId })
+    }
+
+    @Test fun `카드별 혜택을 모르면 카드 목록 순서 그대로`() {
+        val data = HomeCardsData(listOf(card(1), card(2), card(3), card(4)), limits = null)
+        assertEquals(listOf(1L, 2L, 3L), data.rows(null).map { it.userCardId })
+    }
+
+    @Test fun `이번 달 혜택 없음은 받아 온 혜택에 그 카드가 없거나 다 0원일 때만`() {
+        val benefits = mapOf(1L to benefit(9_800), 2L to benefit(0, pending = 3_000), 3L to benefit(0))
+        assertFalse(noBenefitThisMonth(benefits, 1L))
+        assertFalse(noBenefitThisMonth(benefits, 2L))   // 확정 전 혜택은 있다
+        assertTrue(noBenefitThisMonth(benefits, 3L))
+        assertTrue(noBenefitThisMonth(benefits, 4L))    // 이번 달 YAMU 결제 없음
+        assertFalse(noBenefitThisMonth(null, 4L))       // 불러오지 못했으면 없다고 말하지 않는다
+    }
+
+    @Test fun `혜택 없는 카드 타일 한 문장`() {
+        val row = HomeCardsData(listOf(card(1, recognized = 255_000)), limits = null).rows().single()
+        assertEquals("카드 1, 이번 달 받은 혜택 없음, 실적까지 45,000원", cardTileDescription(row, null, noBenefit = true))
+    }
+
     @Test fun `한도 API만 실패하면 줄에 한도를 쓰지 않는다`() {
         val rows = HomeCardsData(listOf(card(1)), limits = null).rows()
         assertNull(rows.single().limitLine)
