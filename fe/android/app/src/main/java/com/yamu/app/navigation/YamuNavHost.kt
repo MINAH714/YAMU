@@ -320,7 +320,7 @@ fun YamuNavHost(navController: NavHostController, modifier: Modifier = Modifier,
                         onBack = back,
                         onEditConditions = back,
                         onEditAmount = { if (!navController.popBackStack<BuyCheckInput>(inclusive = false)) back() },
-                        onForecast = { if (!navController.popBackStack<Forecast>(inclusive = false)) back() },
+                        onForecast = { navController.buyCheckToForecast() },
                         onSaved = { planId -> navController.toBuyCheckSaved(planId) },
                     )
                 }
@@ -403,11 +403,8 @@ fun YamuNavHost(navController: NavHostController, modifier: Modifier = Modifier,
                         allFeatures = AllFeaturesNav(
                             onForecast = { navController.navigate(Forecast) { launchSingleTop = true } },
                             onCashflowList = { navController.navigate(CashflowList) { launchSingleTop = true } },
-                            // 이거 사도 될까?는 잔고예보의 하위 흐름 — 잔고예보를 밑에 깔아 저장(toBuyCheckSaved: 잔고예보 위) · '잔고예보에서 보기'가 그대로 맞게
-                            onBuyCheck = {
-                                navController.navigate(Forecast) { launchSingleTop = true }
-                                navController.navigate(BuyCheckInput)
-                            },
+                            // 금액 입력만 마이 위에 — 뒤로 = 마이(S15P31E103-586). 저장 · '잔고예보에서 확인하기'는 흐름 자리에 잔고예보를 깔아 그다음 뒤로 = 마이
+                            onBuyCheck = { navController.navigate(BuyCheckInput) { launchSingleTop = true } },
                             onBenefitLimits = { navController.navigate(BenefitLimits) { launchSingleTop = true } },
                             onBenefitReport = { navController.navigate(BenefitReport) { launchSingleTop = true } },
                             onPayments = { navController.navigate(Payments) { launchSingleTop = true } },
