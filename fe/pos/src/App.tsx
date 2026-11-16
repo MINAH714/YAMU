@@ -599,6 +599,7 @@ function App() {
                       showScan(phase.attempt.order, phase.attempt.terms)
                       syncHistory(ENTRY_DEPTH.pay)
                     }}
+                    onBackToOrder={closeTray}
                   />
                 )}
 
