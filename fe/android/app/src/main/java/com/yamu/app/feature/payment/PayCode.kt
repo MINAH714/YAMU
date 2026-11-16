@@ -5,7 +5,20 @@ import androidx.compose.ui.unit.em
 import com.yamu.app.core.designsystem.component.CompactButton
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.EnterExitState
+import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.border
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.withStyle
+import com.yamu.app.feature.payment.data.benefitHeadline
+import com.yamu.app.feature.payment.data.payButtonLabel
+import com.yamu.app.feature.payment.data.pickGap
+import com.yamu.app.feature.payment.data.tagText
 import androidx.compose.animation.core.keyframes
 import androidx.compose.foundation.layout.offset
 import androidx.compose.runtime.SideEffect
@@ -944,22 +957,40 @@ private fun RequestBody(request: PaymentRequest, s: PayCodeState, onSelectCard: 
             }
             Spacer(Modifier.height(YamuSpacing.x5))
         }
-        Text("결제 카드", style = YamuTheme.typography.sub, color = c.text3)
+        // 비교한 카드가 있으면 서버 순서가 곧 혜택 순서다(S15P31E103-555)
+        val ranked = request.cards.any { !it.benefitUnknown }
+        Text(if (ranked) "이 결제에서 혜택이 큰 순서예요" else "결제 카드", style = YamuTheme.typography.sub, color = c.text3)
         // 서버가 추천을 끝낸 결과라 기다려도 바뀌지 않는다(FR-018)
         if (request.cards.isEmpty()) {
             EmptyState(if (request.cardsUnknown) "카드 정보를 확인하지 못해 결제할 카드를 고를 수 없어요" else "이 결제에 쓸 수 있는 카드가 없어요")
         }
         val firstUncompared = request.cards.firstOrNull { it.benefitUnknown }
-        request.cards.forEach { card ->
-            // 비교 못 한 카드는 순위 없이 뒤에 묶는다(서버 문구는 줄 아래에)
-            if (card === firstUncompared) {
-                Spacer(Modifier.height(YamuSpacing.x3))
-                Text("혜택을 비교하지 못한 카드", style = YamuTheme.typography.sub, color = c.text3)
+        // 고른 카드가 살짝 커져도(CHOSEN_SCALE) 옆 칸과 겹치지 않게 칸 사이를 띄운다
+        Column(Modifier.padding(top = YamuSpacing.x2), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            request.cards.forEach { card ->
+                // 비교 못 한 카드는 순위 없이 뒤에 묶는다(서버 문구는 칸 안에)
+                if (card === firstUncompared) {
+                    Text("혜택을 비교하지 못한 카드", style = YamuTheme.typography.sub, color = c.text3, modifier = Modifier.padding(top = YamuSpacing.x2))
+                }
+                PayCardRow(
+                    card, selected = card.userCardId == s.selectedCardId, enabled = !s.requestDone && !s.waiting && !s.outcomeUnknown,
+                    declined = card.userCardId in s.declinedCardIds, onClick = { onSelectCard(card.userCardId) },
+                    shakeKey = s.shakeSeq.takeIf { card.userCardId == s.shakeCardId },
+                )
             }
-            PayCardRow(
-                card, selected = card.userCardId == s.selectedCardId, enabled = !s.requestDone && !s.waiting && !s.outcomeUnknown,
-                declined = card.userCardId in s.declinedCardIds, onClick = { onSelectCard(card.userCardId) },
-                shakeKey = s.shakeSeq.takeIf { card.userCardId == s.shakeCardId },
+        }
+        pickGap(request.cards, s.selectedCard, s.declinedCardIds)?.let { gap ->
+            Spacer(Modifier.height(YamuSpacing.x3))
+            Text(
+                buildAnnotatedString {
+                    append(if (gap.pickSelected) "야무픽이 " else "야무픽으로 내면 ")
+                    withStyle(SpanStyle(color = c.primary, fontWeight = FontWeight.Bold)) { append("${gap.won.toWon()}원") }
+                    append(if (gap.pickSelected) " 더 아껴요" else " 더 아낄 수 있어요")
+                },
+                style = YamuTheme.typography.sub,
+                color = c.text2,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth(),
             )
         }
         if (s.selectedCard?.benefitUnknown == true) {
@@ -987,9 +1018,31 @@ private fun RequestBody(request: PaymentRequest, s: PayCodeState, onSelectCard: 
     }
 }
 
+/** 고른 카드 칸이 커지는 비율(S15P31E103-555) */
+private const val CHOSEN_SCALE = 1.03f
+
+/** 야무픽 태그 — 파란 바탕 · 흰 글씨. 다른 순위 태그(StatusTag)보다 진하게 둬서 더 좋은 선택이라는 게 보이게 */
+@Composable
+private fun PickTag() {
+    val c = YamuTheme.colors
+    Box(
+        Modifier
+            .heightIn(min = 26.dp)
+            .clip(RoundedCornerShape(YamuRadius.tag))
+            .background(c.primary)
+            .padding(horizontal = 9.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text("야무픽", style = YamuTheme.typography.labelL, color = c.onPrimary, maxLines = 1)
+    }
+}
+
 /**
- * 카드 한 줄 — 카드사 · 이름 · 혜택 · 순혜택(서버 값).
- * 고를 수 없는 카드(결제 가능 여부 모름 · 이 결제에서 [declined])는 흐리게, 체크 없이.
+ * 카드 한 칸(S15P31E103-555).
+ * - 야무픽([PayCard.isYamuPick]) · 고른 카드: 큰 그림 · 큰 이름, 아래에 혜택 방식 태그와 혜택 금액([benefitHeadline]). 야무픽 금액은 파랑
+ * - 그 밖의 카드: 한 줄로 작게 — 오른쪽에 금액과 혜택 방식만
+ * - 고른 카드만 하늘색 바탕 · 파란 테두리로 [CHOSEN_SCALE]만큼 커진다(모션 줄이기면 크기는 그대로)
+ * 설명 줄('다음 달 카드값엔 …')은 두지 않는다. 고를 수 없는 카드(결제 가능 여부 모름 · 이 결제에서 [declined])는 흐리게, 체크 없이 한 줄로.
  * [shakeKey]가 새 값으로 바뀌면 판이 걷힌 뒤 좌우로 한 번 흔든다(M-WAIT-DECLINED). 처음 그릴 때 · 회전 뒤에는 흔들지 않고, 모션 줄이기면 흐려지기만 한다
  */
 @Composable
@@ -1016,33 +1069,72 @@ private fun PayCardRow(card: PayCard, selected: Boolean, enabled: Boolean, decli
             },
         )
     }
-    Row(
+    val chosen = selected && usable
+    val pick = card.isYamuPick
+    // 큰 칸은 혜택을 비교한 카드만 — 거절 · 비교 못 한 카드는 고른 상태여도 한 줄로 두고 사유를 보인다
+    val large = (pick || chosen) && !declined && !card.benefitUnknown
+    val motion = tween<Float>(YamuMotion.BASE_MS, easing = YamuMotion.standard)
+    val scale by animateFloatAsState(if (chosen && !reduce) CHOSEN_SCALE else 1f, motion, label = "chosenScale")
+    val shape = RoundedCornerShape(YamuRadius.card)
+    Column(
         Modifier
             .fillMaxWidth()
             .offset { IntOffset(shake.value.dp.roundToPx(), 0) }
-            .heightIn(min = 64.dp)
+            .graphicsLayer { scaleX = scale; scaleY = scale }
+            .clip(shape)
+            .background(if (chosen) c.primaryContainer else c.surface)
+            .border(if (chosen) 2.dp else 1.dp, if (chosen) c.primary else c.outlineVariant, shape)
             .selectable(selected = selected, enabled = enabled && usable, role = Role.RadioButton, onClick = onClick)
             .alpha(if (usable) 1f else 0.5f)
-            .padding(vertical = YamuSpacing.x2),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(YamuSpacing.x3),
+            .then(if (reduce) Modifier else Modifier.animateContentSize(tween(YamuMotion.BASE_MS, easing = YamuMotion.standard)))
+            .padding(horizontal = if (large) YamuSpacing.x4 else 14.dp, vertical = if (large) YamuSpacing.x4 else YamuSpacing.x3),
     ) {
-        CardThumb(CardImages.forProduct(card.imageName)) { BrandMark(card.brand, large = true) }
-        Column(Modifier.weight(1f)) {
-            Text(card.name, style = YamuTheme.typography.titleM, color = c.text1, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            val sub = when {
-                declined -> "이 결제에서 거절된 카드예요"
-                card.isCheck && card.chargedAmount != null -> "${card.benefitName ?: "체크카드"} · ${card.chargedAmount.toWon()}원 출금"
-                else -> card.benefitName ?: card.reason
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(YamuSpacing.x3)) {
+            CardThumb(CardImages.forProduct(card.imageName), width = if (large) 72.dp else 40.dp) { BrandMark(card.brand, large = true) }
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(YamuSpacing.x1)) {
+                when {
+                    pick -> PickTag()
+                    card.rank > 0 && !card.benefitUnknown -> StatusTag("${card.rank}순위")
+                }
+                Text(
+                    card.name,
+                    style = if (large) YamuTheme.typography.cardTitle else YamuTheme.typography.titleS,
+                    color = if (large) c.text1 else c.text2,
+                    maxLines = if (large) 2 else 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                val sub = when {
+                    declined -> "이 결제에서 거절된 카드예요"
+                    card.benefitUnknown -> card.reason
+                    else -> null
+                }
+                sub?.let { Text(it, style = YamuTheme.typography.sub, color = c.text3) }
             }
-            sub?.let { Text(it, style = YamuTheme.typography.sub, color = c.text3) }
+            // 작은 칸 — 오른쪽에 금액과 혜택 방식만. 혜택이 없으면(0원 이하) '혜택 없음'
+            if (!large && !declined && !card.benefitUnknown) {
+                Column(horizontalAlignment = Alignment.End) {
+                    if (card.netBenefit.signum() > 0) {
+                        Text("${card.netBenefit.toWon()}원", style = YamuTheme.typography.value, color = c.text2)
+                        card.benefitKind.tagText()?.let { Text(it, style = YamuTheme.typography.bodyS, color = c.text3) }
+                    } else {
+                        Text("혜택 없음", style = YamuTheme.typography.sub, color = c.text3)
+                    }
+                }
+            }
+            if (usable) RoundCheckbox(checked = selected, onCheckedChange = null)
         }
-        // 비교한 카드는 어느 카드를 골라도 예상 혜택이 보이게 — 없으면(0원 이하) '혜택 없음'. 비교 못 한 카드는 줄 아래 서버 문구로 대신한다
-        if (!declined && !card.benefitUnknown) {
-            if (card.netBenefit.signum() > 0) Text("−${card.netBenefit.toWon()}원", style = YamuTheme.typography.value, color = c.primary)
-            else Text("혜택 없음", style = YamuTheme.typography.sub, color = c.text3)
+        if (large) {
+            Spacer(Modifier.height(YamuSpacing.x3))
+            card.benefitKind.tagText()?.let { tag ->
+                StatusTag(tag)
+                Spacer(Modifier.height(YamuSpacing.x1))
+            }
+            Text(
+                card.benefitHeadline() ?: "혜택 없음",
+                style = YamuTheme.typography.cardTitle,
+                color = if (pick) c.primary else c.text1,
+            )
         }
-        if (usable) RoundCheckbox(checked = selected, onCheckedChange = null)
     }
 }
 
@@ -1081,7 +1173,7 @@ private fun RequestButtons(
     val label = when {
         card == null -> "결제할 카드를 골라 주세요"      // 데이터 부족 — 1순위가 없어 미리 고르지 않았다
         s.declined != null -> "$name${name.directionParticle()} 다시 결제"
-        else -> "$name${name.directionParticle()} ${request.amount.toWon()}원 결제"
+        else -> card.payButtonLabel(request.amount)     // 즉시할인 카드는 실제로 빠지는 금액(S15P31E103-555)
     }
     BottomCta(secondary = { TextButtonGrey("거절", onClick = onReject, modifier = Modifier.fillMaxWidth()) }) {
         PrimaryButton(label, onClick = onApprove, enabled = card != null && !s.rejecting, loading = s.waiting)
