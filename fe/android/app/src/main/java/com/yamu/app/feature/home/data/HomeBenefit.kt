@@ -5,7 +5,6 @@ import com.yamu.app.core.format.toWon
 import kotlinx.serialization.Serializable
 import java.time.LocalDate
 import java.time.YearMonth
-import kotlin.math.ceil
 
 // ── 홈 위쪽(v4 HOME-02 ~ 09, S15P31E103-480)이 따로 부르는 두 API — 홈이 쓰는 칸만 받는다 ──
 // 리포트 저장소(ReportRepository.monthly)는 혜택을 'expected ?: actual' 하나로 합쳐 확정과 예상을 나눌 수 없어 홈이 직접 부른다
@@ -176,10 +175,13 @@ fun HomeBenefit.unconvertedNote(): String? =
 
 /**
  * 히어로 동전 수 — 확정 금액만 꽉 찬 동전으로 쌓는다(11/16: 확정 전 금액의 점선 동전은 뺐다).
- * 약 [WON_PER_COIN]원에 한 개(올림), 많아도 [MAX_BENEFIT_COINS]개까지
+ * [FULL_PILE_WON]원부터 [MAX_BENEFIT_COINS]개로 꽉 차고 그 아래는 금액에 비례한다(약 156원에 한 개, 올림).
+ * 11/17 사용자 요청(S15P31E103-573) — 2,500원에 한 개일 때는 5,000원이어도 동전이 두 개뿐이었다
  */
 fun benefitCoins(confirmed: Long): Int =
-    if (confirmed <= 0) 0 else ceil(confirmed / WON_PER_COIN.toDouble()).toInt().coerceAtMost(MAX_BENEFIT_COINS)
+    if (confirmed <= 0) 0 else ((confirmed.coerceAtMost(FULL_PILE_WON) * MAX_BENEFIT_COINS + FULL_PILE_WON - 1) / FULL_PILE_WON).toInt()
 
-const val WON_PER_COIN = 2_500L
-const val MAX_BENEFIT_COINS = 24
+/** 동전 무더기가 꽉 차는 확정 금액 */
+const val FULL_PILE_WON = 5_000L
+/** 무더기에 놓을 수 있는 동전 전부(CoinPile의 FILL_ORDER 32자리) */
+const val MAX_BENEFIT_COINS = 32
