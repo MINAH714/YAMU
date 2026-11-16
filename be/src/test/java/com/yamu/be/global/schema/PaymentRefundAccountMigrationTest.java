@@ -21,13 +21,13 @@ import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.TestPropertySource;
 
 /**
- * 체크카드 환불 계좌 칸(V20261116_3, S15P31E103-323)을 추가할 때 이미 취소된 체크카드 결제는 카드의 그때 연결 계좌로 채운다.
+ * 체크카드 환불 계좌 칸(V20261116_4, S15P31E103-323)을 추가할 때 이미 취소된 체크카드 결제는 카드의 그때 연결 계좌로 채운다.
  * 환급 내역에 보이지 않는 결제(0원 승인·SEED·신용카드·취소 전)와 카드에 연결 계좌가 없는 결제는 비워 둔다.
  * 칸에는 같은 사용자의 계좌만 들어간다(외래 키).
  */
 @TestPropertySource(properties = {
         "spring.application.name=yamu-payment-refund-account-migration-test",
-        "spring.flyway.target=20261116.2",
+        "spring.flyway.target=20261116.3",
         "spring.jpa.hibernate.ddl-auto=none"
 })
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
@@ -58,7 +58,7 @@ class PaymentRefundAccountMigrationTest extends MySqlTestSupport {
 
         Flyway upgrade = Flyway.configure().dataSource(flyway.getConfiguration().getDataSource())
                 .locations(flyway.getConfiguration().getLocations())
-                .target(MigrationVersion.fromVersion("20261116.3")).load();
+                .target(MigrationVersion.fromVersion("20261116.4")).load();
         assertThat(upgrade.migrate().migrationsExecuted).isEqualTo(1);
 
         assertThat(refundAccount(canceled)).isEqualTo(account);
