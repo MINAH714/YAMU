@@ -163,19 +163,30 @@ class PerfAnalysisViewModel internal constructor(
         viewModelScope.launch {
             val moved = perf.moveCashflow(item.cashflowItemId, a.userCardId)
             if (moved is ApiResult.Failure) {
-                finishAction(a.userCardId, request) { it.copy(message = moved.error.userMessage()) }
+                val message = if (moved.error.isOutcomeUnknown) "${item.title} 결제 카드 변경 결과를 확인하지 못했어요 · 예정 지출에서 확인해 주세요" else moved.error.userMessage()
+                finishAction(a.userCardId, request, refresh = moved.error.isOutcomeUnknown) { it.copy(message = message) }
                 return@launch
             }
-            perf.decide(a.userCardId, PerfDecision.FILL, a.version)
+            val recorded = perf.decide(a.userCardId, PerfDecision.FILL, a.version)
             val deadline = parseDate(item.deadlineIso)?.toMonthDay()?.let { "${it}까지 " }.orEmpty()
-            finishAction(a.userCardId, request, refresh = true) { it.copy(message = "${item.title} 결제 카드를 $card${card.directionParticle()} 바꿔 뒀어요 · ${deadline}${item.title}${item.title.objectParticle()} 내는 곳에서도 카드를 바꿔 주세요") }
+            // 앱의 예정 지출만 바뀐 것이므로 판단 기록 결과와 관계없이 결제처 변경 안내를 남긴다.
+            val movedMessage = "${item.title} 결제 카드를 $card${card.directionParticle()} 바꿔 뒀어요 · ${deadline}${item.title}${item.title.objectParticle()} 내는 곳에서도 카드를 바꿔 주세요"
+            val message = when (recorded) {
+                is ApiResult.Success -> movedMessage
+                is ApiResult.Failure -> if (recorded.error.isOutcomeUnknown) {
+                    "$movedMessage · 판단 기록 결과는 확인하지 못했어요 · 다시 불러온 분석을 확인해 주세요"
+                } else {
+                    "$movedMessage · 판단은 기록하지 못했어요 · ${recorded.error.userMessage()}"
+                }
+            }
+            finishAction(a.userCardId, request, refresh = true, completionMessage = message) { it }
         }
     }
 
-    /** 쓰기는 끝까지 기다리되, 그사이 바뀐 카드/요청의 본문과 안내는 덮지 않는다. */
-    private fun finishAction(id: Long, request: Long, refresh: Boolean = false, update: (PerfAnalysisState) -> PerfAnalysisState) {
+    /** 쓰기는 끝까지 기다리되, 그사이 바뀐 카드/요청의 본문은 덮지 않는다. 이동 완료 안내는 선택 카드와 독립적이다. */
+    private fun finishAction(id: Long, request: Long, refresh: Boolean = false, completionMessage: String? = null, update: (PerfAnalysisState) -> PerfAnalysisState) {
         _state.update {
-            val idle = it.copy(acting = false)
+            val idle = it.copy(acting = false, message = completionMessage ?: it.message)
             if (it.selectedId == id && analysisRequest == request) update(idle) else idle
         }
         // 지출 이동은 출발 카드의 분석도 바꾼다. 다른 카드를 보고 있어도 현재 카드를 다시 받는다.
