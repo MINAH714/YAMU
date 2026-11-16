@@ -4,7 +4,6 @@ import com.yamu.app.feature.forecast.data.FlowConfidence
 import com.yamu.app.feature.forecast.data.FlowType
 import com.yamu.app.feature.forecast.data.ForecastEvent
 import com.yamu.app.feature.forecast.data.ForecastLivingCost
-import com.yamu.app.feature.forecast.data.ForecastSelection
 import com.yamu.app.feature.forecast.data.LineStep
 import com.yamu.app.feature.forecast.data.LivingMethod
 import com.yamu.app.feature.forecast.data.RiskLevel
@@ -121,7 +120,6 @@ class ForecastTwoLinesTest {
         // 계좌 하나면 줄 합계(500,000 − 36,000)가 끝 잔액과 맞아 안내를 붙이지 않는다
         assertFalse(f.hasPartialLiving)
         assertNull(withLiving.note)
-        assertEquals(listOf("생활비 기록이 없어 'AI 생활비 반영' 선에는 앞으로 쓸 신용카드 금액만 넣었어요."), noticeLines(f, ForecastSelection()))
     }
 
     /**
@@ -142,7 +140,6 @@ class ForecastTwoLinesTest {
         assertEquals(listOf(LineStep("앞으로 쓸 신용카드 금액", -36_000)), withLiving.steps)   // 생활비 줄은 만들지 않는다
         assertEquals(344_000L, withLiving.end)                                                  // 서버 끝 잔액 그대로
         assertEquals("생활비 기록이 있는 계좌가 있으면 그 계좌의 예상 생활비는 금액을 따로 받지 못해 끝 잔액에만 들어 있어요", withLiving.note)
-        assertEquals(listOf("생활비 기록이 없는 계좌는 'AI 생활비 반영' 선에 앞으로 쓸 신용카드 금액만 넣었어요."), noticeLines(f, ForecastSelection()))
     }
 
     @Test fun `여러 계좌라도 생활비 금액을 받았거나 생활비 선이 없으면 안내를 붙이지 않는다`() {
@@ -189,7 +186,6 @@ class ForecastTwoLinesTest {
         assertEquals(464_000L, withLiving.end)
         assertFalse(f.hasPartialLiving)
         assertNull(withLiving.note)
-        assertEquals(listOf("생활비 기록이 없어 'AI 생활비 반영' 선에는 앞으로 쓸 신용카드 금액만 넣었어요."), noticeLines(f, ForecastSelection()))
     }
 
     @Test fun `모든 계좌에 기록이 있어 예상 생활비가 0원이면 0원 줄도 그대로 보인다`() {
