@@ -386,7 +386,11 @@ class PhoneVerifyViewModel @Inject constructor(private val signup: SignupReposit
                         banner = demo?.let { code -> "[YAMU] 인증번호 [$code]을 입력해 주세요" }, notice = null,
                     )
                 }
-                is ApiResult.Failure -> _state.update { it.copy(sending = false, error = r.error.signupMessage()) }
+                is ApiResult.Failure -> _state.update {
+                    // 서버가 요청 단계에서 등록 여부를 보기 시작하면 여기서도 404가 온다 — 확인 단계와 같은 문장, 칸은 그대로(QA 11/16)
+                    val notFound = r.error.code == "DEMO_USER_NOT_FOUND"
+                    it.copy(sending = false, error = if (notFound) demoUserNotFoundMessage(signup = it.fromTerms) else r.error.signupMessage())
+                }
             }
         }
     }
