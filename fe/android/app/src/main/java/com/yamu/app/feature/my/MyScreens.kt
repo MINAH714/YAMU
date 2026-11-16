@@ -33,18 +33,12 @@ import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.Lock
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.TimePicker
-import androidx.compose.material3.TimePickerDefaults
-import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
 import androidx.compose.runtime.Composable
@@ -117,7 +111,6 @@ import com.yamu.app.feature.my.data.NotiKind
 import com.yamu.app.feature.my.data.NotiSettings
 import com.yamu.app.feature.my.data.autoLockLabel
 import com.yamu.app.feature.my.data.deviceLastUsed
-import com.yamu.app.feature.my.data.koreanTime
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -129,7 +122,7 @@ import javax.inject.Inject
 
 // ───────────────────────── 공통 ─────────────────────────
 
-/** 값을 눌러 고르는 설정 줄(받는 시각 · 자동 잠금) — 값 쪽 터치 칸 48이라 한 줄도 64dp(프로토타입 .trail.tap · .tval) */
+/** 값을 눌러 고르는 설정 줄(자동 잠금 등) — 값 쪽 터치 칸 48이라 한 줄도 64dp(프로토타입 .trail.tap · .tval) */
 internal val TapRowHeight = 64.dp
 
 /** 설정 목록 묶음 이름 — '결제' · '알림 종류' */
@@ -668,11 +661,6 @@ class NotificationSettingsViewModel @Inject constructor(private val my: MyReposi
         }
         change(next, onFail) { my.setNotification(kind, on) }
     }
-
-    fun setTime(hhmm: String, onFail: (String) -> Unit) {
-        val s = _state.value.settings ?: return
-        change(s.copy(time = hhmm), onFail) { my.setNotificationTime(hhmm) }
-    }
 }
 
 private fun Context.openAppNotificationSettings() {
@@ -684,7 +672,6 @@ private fun Context.openAppNotificationSettings() {
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun NotificationSettingsRoute(onBack: () -> Unit, viewModel: NotificationSettingsViewModel = hiltViewModel()) {
     val s by viewModel.state.collectAsStateWithLifecycle()
@@ -699,7 +686,6 @@ fun NotificationSettingsRoute(onBack: () -> Unit, viewModel: NotificationSetting
         systemOn = NotificationManagerCompat.from(context).areNotificationsEnabled()
         onPauseOrDispose { }
     }
-    var picking by rememberSaveable { mutableStateOf(false) }
     FlowScreen(title = "알림 설정", onBack = onBack) { inner ->
         Column(
             Modifier.padding(inner).consumeWindowInsets(inner).fillMaxSize().verticalScroll(rememberScrollState())
@@ -731,51 +717,11 @@ fun NotificationSettingsRoute(onBack: () -> Unit, viewModel: NotificationSetting
                         sub = "결제 결과 · 청구 확정 · 출금 · 미납 · 환급",
                     )
                     // 보안 알림(새 기기 로그인)은 끌 수 없어 목록에 없다 — 프로토타입은 안내 문장도 뺐다
-                    SectionLabel("받는 방식")
-                    ListRow(title = "받는 시각", valuePlain = koreanTime(st.time), chevron = true, minHeight = TapRowHeight, onClick = { picking = true })
+                    // 받는 시각(받는 방식) 줄은 11/16 뺐다(-564). 서버에 저장된 시각은 그대로라 실적 · 잔액 알림은 그 시각(기본 08:30)에 온다
                 }
             }
             Spacer(Modifier.height(YamuSpacing.x6))
         }
-    }
-    val st = s.settings
-    if (picking && st != null) {
-        val (h, m) = st.time.split(":").map { it.toIntOrNull() ?: 0 }.let { (it.getOrElse(0) { 8 }) to (it.getOrElse(1) { 30 }) }
-        val picker = rememberTimePickerState(initialHour = h, initialMinute = m, is24Hour = false)
-        AlertDialog(
-            onDismissRequest = { picking = false },
-            title = { Text("받는 시각", style = YamuTheme.typography.titleL) },
-            text = {
-                // 기본 색(분홍 · 보라) 대신 앱 색 — 고른 칸은 파랑, 나머지는 회색 칸
-                TimePicker(
-                    state = picker,
-                    colors = TimePickerDefaults.colors(
-                        clockDialColor = c.surfaceVariant,
-                        clockDialSelectedContentColor = c.onPrimary,
-                        clockDialUnselectedContentColor = c.text1,
-                        selectorColor = c.primary,
-                        containerColor = c.surface,
-                        periodSelectorBorderColor = c.outline,
-                        periodSelectorSelectedContainerColor = c.primaryContainer,
-                        periodSelectorUnselectedContainerColor = c.surface,
-                        periodSelectorSelectedContentColor = c.onPrimaryContainer,
-                        periodSelectorUnselectedContentColor = c.text2,
-                        timeSelectorSelectedContainerColor = c.primaryContainer,
-                        timeSelectorUnselectedContainerColor = c.surfaceVariant,
-                        timeSelectorSelectedContentColor = c.onPrimaryContainer,
-                        timeSelectorUnselectedContentColor = c.text1,
-                    ),
-                )
-            },
-            confirmButton = {
-                TextButton(onClick = {
-                    picking = false
-                    viewModel.setTime("%02d:%02d".format(picker.hour, picker.minute), onFail)
-                }) { Text("확인") }
-            },
-            dismissButton = { TextButton(onClick = { picking = false }) { Text("닫기") } },
-            containerColor = c.surface,
-        )
     }
 }
 
