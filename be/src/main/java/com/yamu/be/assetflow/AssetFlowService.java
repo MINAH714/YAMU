@@ -1,5 +1,6 @@
 package com.yamu.be.assetflow;
 
+import com.yamu.be.accounthistory.HistorySource;
 import com.yamu.be.account.AccountBalance;
 import com.yamu.be.account.AccountBalanceService;
 import com.yamu.be.account.domain.LinkedAccount;
@@ -35,10 +36,10 @@ public class AssetFlowService {
     private final PersonalDataCipher cipher;
     private final AccountBalanceService balances;
     private final ForecastService forecasts;
-    private final AssetFlowHistoryReader history;
+    private final PersistedAssetFlowHistoryReader history;
     private final Clock clock;
     public AssetFlowService(LinkedAccountRepository accounts, AppUserRepository users, PersonalDataCipher cipher,
-            AccountBalanceService balances, ForecastService forecasts, AssetFlowHistoryReader history, Clock clock) {
+            AccountBalanceService balances, ForecastService forecasts, PersistedAssetFlowHistoryReader history, Clock clock) {
         this.accounts = accounts; this.users = users; this.cipher = cipher;
         this.balances = balances; this.forecasts = forecasts; this.history = history; this.clock = clock;
     }
@@ -55,6 +56,7 @@ public class AssetFlowService {
         List<Long> ids = selected.stream().map(LinkedAccount::getId).toList();
         var errors = new ArrayList<PartialError>();
         var actuals = new ArrayList<Map<LocalDate, Long>>();
+        var simulated = new java.util.HashSet<LocalDate>();
         Long current = null;
         Instant asOf = null;
         BalanceForecast forecast = null;
@@ -80,12 +82,13 @@ public class AssetFlowService {
                 for (LinkedAccount account : selected) {
                     var available = new HashMap<LocalDate, Long>();
                     try {
-                        var snapshot = history.read(userKey, account, month.atDay(1), to, deadline);
-                        var result = new DailyBalanceReconstructor().reconstruct(snapshot, null);
-                        result.points().stream().filter(p -> p.balance() != null)
-                                .forEach(p -> available.put(p.date(), p.balance()));
-                        if (result.reason() != DailyBalanceReconstructor.Reason.OK) {
-                            errors.add(new PartialError(account.getId(), month.atDay(1), to, result.reason().name()));
+                        var result = history.read(userKey, account, month.atDay(1), to, deadline);
+                        result.days().forEach((date, day) -> {
+                            available.put(date, day.balance());
+                            if (day.source() == HistorySource.QA_SYNTHETIC) simulated.add(date);
+                        });
+                        if (!result.reason().equals("OK")) {
+                            errors.add(new PartialError(account.getId(), month.atDay(1), to, result.reason()));
                         }
                     } catch (BusinessException failure) {
                         if (!isExternalFailure(failure.getErrorCode().name())) throw failure;
@@ -123,7 +126,8 @@ public class AssetFlowService {
                 events = p.events();
             }
             if (value != null) status = DataStatus.AVAILABLE;
-            points.add(new Point(date, kind, status, value, kind == Kind.FORECAST ? null : value, prediction, events));
+            if (kind == Kind.ACTUAL && simulated.contains(date)) kind = Kind.SIMULATED;
+            points.add(new Point(date, kind, status, value, kind == Kind.FORECAST || kind == Kind.SIMULATED ? null : value, prediction, events));
         }
         if (!clock.instant().atZone(KOREA).toLocalDate().equals(today)) {
             throw new BusinessException(ErrorCode.FORECAST_DATE_CHANGED);

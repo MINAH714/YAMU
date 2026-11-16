@@ -1,0 +1,10 @@
+{
+  "datasetKey": "YOUR_EXISTING_QA_DATASET",
+  "personaKey": "YOUR_EXISTING_PERSONA",
+  "accountId": 0,
+  "from": "2026-05-01",
+  "to": "2026-11-11",
+  "monthlyIncome": 500000,
+  "monthlyRent": 600000,
+  "extraEvents": []
+}

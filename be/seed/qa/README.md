@@ -135,3 +135,7 @@ v1을 이미 적재했다면 **기존 version=1 원본 파일로 inspect→purge
 [FR-070](https://app.notion.com/p/7d831720f35883b4ac48818138c04ed4).
 현행 등록 구현은 빈 이력 카드에 source=NONE을 반환할 수 있다. empty는 DB 집계 0원과 거래 없음은 보장하지만,
 등록 화면의 '확인 불가' 표시까지 시드로 바꾸지 않는다. 정책/구현 차이는 관련 기능 QA 항목으로 남긴다.
+
+## QA 자산 이력만 관리
+
+계좌 입출금 합성 이력은 기존 소비 시드와 별도 seedQaAssets CLI로 관리한다. [실행·보존 안내](../../../docs/be/account-history-handoff.md)를 따른다. 실제 이력 stream이 있는 사용자의 전체 reset/purge는 실제 이력 보존을 위해 거절한다.

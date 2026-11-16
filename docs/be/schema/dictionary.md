@@ -1131,3 +1131,7 @@ CONSTRAINT ck_credit_prediction_origin CHECK (data_origin IN ('REAL','SEED'))
 ## QA 시드 소유권 (2026-11-12 추가)
 
 QA 전용 `qa_seed_dataset`·`qa_seed_member`의 컬럼·제약은 [QA 시드 소유권 사전](qa-seed.md)을 따른다. 기존 업무 테이블의 컬럼은 변경하지 않는다.
+
+## 계좌 이력 저장 (S15P31E103-517)
+
+새 계좌 원장·잔액 근거·조회 범위·동기화 실행의 컬럼은 [계좌 이력 사전](account-history.md)을 따른다. 실제 금융망 원본과 QA 합성 이력은 별도 stream으로 보관한다.

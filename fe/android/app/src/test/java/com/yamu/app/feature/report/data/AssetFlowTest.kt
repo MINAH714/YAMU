@@ -32,6 +32,19 @@ import java.time.ZonedDateTime
 
 /** 소비분석 자산 흐름(Task 8.2.100 · 8.2.103) — 계좌 범위 · asset-flows 읽기 · 옛 서버 동작 · 처음 고를 날 · 7·14·30일 뒤 · 날짜 칸 글자 */
 class AssetFlowTest {
+    @Test fun simulatedBalanceRemainsExplicitlySynthetic() {
+        val date = LocalDate.of(2026, 5, 1)
+        val response = AssetFlowDto(yearMonth = "2026-05", series = listOf(
+            AssetFlowPointDto(date = date.toString(), kind = "SIMULATED", dataStatus = "AVAILABLE", displayBalance = 123L, actualBalance = null)
+        ))
+        val month = response.toMonthFlow(YearMonth.from(date))
+        assertTrue(month.points.single().simulated)
+        assertEquals(DayKind.SIMULATED, month.points.single().kind)
+        assertEquals(123L, month.points.single().value)
+        val day = assetDays(YearMonth.from(date), date.plusMonths(6), null, month).first()
+        assertTrue(day.simulated)
+        assertTrue(assetDayLabel(day).contains("QA 합성"))
+    }
     private val today = LocalDate.of(2026, 11, 13)
     private val nov = YearMonth.of(2026, 11)
     private val dec = YearMonth.of(2026, 12)

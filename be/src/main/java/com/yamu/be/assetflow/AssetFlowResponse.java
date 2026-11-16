@@ -15,7 +15,7 @@ public record AssetFlowResponse(YearMonth yearMonth, List<Long> accountIds, Long
         series = List.copyOf(series);
         partialErrors = List.copyOf(partialErrors);
     }
-    public enum Kind { ACTUAL, CURRENT, FORECAST }
+    public enum Kind { ACTUAL, CURRENT, FORECAST, SIMULATED }
     public enum DataStatus { AVAILABLE, NO_DATA, ERROR }
     public record Forecast(long confirmed, long expected, Long conservative) {}
     public record Point(LocalDate date, Kind kind, DataStatus dataStatus, Long displayBalance,

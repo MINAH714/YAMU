@@ -70,3 +70,7 @@ Java 17에서 다음 검사로 101개 통과(실패·오류·생략 0):
 ```
 
 새 488 테스트 25개, 선행 487 테스트 62개, 기존 예보 계산 회귀 14개다. 외부 금융망은 대체하며 실제 RDS/인증 필터를 포함한 서버 통합·기기 연동·배포 검증은 이 결과에 포함하지 않는다. API 인증은 기존 SecurityConfig의 공개 경로 외 인증 필수 규칙을 따른다.
+
+## S15P31E103-517 저장 경로 확장
+
+과거는 동기화 후 DB 원장·유효 조회 범위에서 재계산한다. QA 선택 구간은 kind=SIMULATED, actualBalance=null, displayBalance=합성 잔고다. 일반 사용자의 ACTUAL/CURRENT/FORECAST 계약은 유지한다. SOURCE_CONFLICT, SUPERSEDED, QA_BOUNDARY_UNVERIFIED 사유를 추가한다. 자세한 보존·동기화·실제 경계 검증은 [실행 안내](account-history-handoff.md)를 따른다.

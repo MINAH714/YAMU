@@ -11,6 +11,8 @@ final class QaSeedCleanup {
         require(db.queryForObject("SELECT COUNT(*) FROM qa_seed_member WHERE user_id=?", Long.class, user) == 1,
                 "User is not registered QA ownership");
         db.queryForObject("SELECT user_id FROM app_user WHERE user_id=? FOR UPDATE", Long.class, user);
+        require(db.queryForObject("SELECT COUNT(*) FROM account_history_stream WHERE user_id=?", Long.class, user) == 0,
+                "Account history exists: use asset-only reset. Actual bank history is preserved; full user cleanup is refused.");
         require(db.queryForObject("""
                 SELECT COUNT(*) FROM payment_transaction WHERE user_id=?
                 AND (status IN ('REQUESTED','PROCESSING') OR (fin_request_no IS NOT NULL AND fin_transaction_no IS NULL))
