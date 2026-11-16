@@ -72,7 +72,6 @@ import com.yamu.app.core.designsystem.theme.YamuMotion
 import com.yamu.app.core.designsystem.theme.YamuRadius
 import com.yamu.app.core.designsystem.theme.YamuSpacing
 import com.yamu.app.core.designsystem.theme.YamuTheme
-import com.yamu.app.core.format.KST
 import com.yamu.app.core.format.directionParticle
 import com.yamu.app.core.format.toKoreanDate
 import com.yamu.app.core.format.toWon
@@ -264,7 +263,6 @@ fun BuyCheckResultRoute(
     onEditConditions: () -> Unit,
     onEditAmount: () -> Unit,
     onForecast: () -> Unit,
-    onPay: () -> Unit,
     onSaved: (planId: Long) -> Unit,
     viewModel: BuyCheckViewModel = hiltViewModel(),
 ) {
@@ -287,7 +285,6 @@ fun BuyCheckResultRoute(
         sheet = "card"
     }
     val sim = s.simulation
-    val today = LocalDate.now(KST)
     val scroll = rememberScrollState()
     val scope = rememberCoroutineScope()
     val reduce = YamuTheme.reduceMotion
@@ -325,7 +322,7 @@ fun BuyCheckResultRoute(
                     Text("할부 구매는 가계부에 할부 칸이 없어 아직 계획으로 저장할 수 없어요", style = YamuTheme.typography.bodyS, color = YamuTheme.colors.text3, modifier = Modifier.padding(bottom = 8.dp))
                     PrimaryButton("일시불로 다시 보기", onClick = { viewModel.setMonths(null) }, enabled = !s.loading)
                 }
-                sim.canSavePlan -> BottomCta(secondary = if (sim.query.purchaseDate == today) ({ TextButtonGrey("지금 결제하러 가기", onClick = onPay, modifier = Modifier.fillMaxWidth(), small = true) }) else null) {
+                sim.canSavePlan -> BottomCta {
                     PrimaryButton("${sim.query.purchaseDate.toKoreanDate()} 구매 계획으로 저장", onClick = viewModel::save, loading = s.saving, enabled = !s.loading)
                 }
                 else -> Unit
