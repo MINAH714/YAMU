@@ -71,7 +71,7 @@ public final class QaLifeScenario {
         for (int[] r : new int[][]{{0,3,32000},{0,7,78000},{0,10,24000},{0,14,76000},
                 {3,4,18000},{3,8,22000},{3,13,20000},{1,5,129000},{1,12,111000},
                 {2,6,65000},{2,9,88000},{2,14,27000}})
-            add(out,r[0],LocalDate.of(2026,11,r[1]),r[0]==3?"YAMU_TEST_RESTAURANT":"COUPANG",r[2]);
+            add(out,r[0],LocalDate.of(2026,11,r[1]),r[0]==3?(r[1]==8?"GS25":"YAMU_TEST_RESTAURANT"):"COUPANG",r[2]);
         out.sort(Comparator.comparing(QaHistoryPlan.Payment::date).thenComparingInt(QaHistoryPlan.Payment::slot));
         return List.copyOf(out);
     }
