@@ -1,6 +1,15 @@
 allprojects {
     afterEvaluate {
         if (plugins.hasPlugin('java')) {
+            tasks.register('checkLifeBenefitRevision', Test) {
+                testClassesDirs = sourceSets.test.output.classesDirs
+                classpath = sourceSets.test.runtimeClasspath
+                useJUnitPlatform()
+                systemProperty 'spring.profiles.active', 'test'
+                binaryResultsDirectory = layout.buildDirectory.dir('test-results/life-benefit-revision/binary')
+                reports.junitXml.outputLocation = layout.buildDirectory.dir('test-results/life-benefit-revision')
+                reports.html.outputLocation = layout.buildDirectory.dir('reports/life-benefit-revision')
+            }
             tasks.register('upgradeLocalLifeBenefits', JavaExec) {
                 dependsOn testClasses
                 classpath = sourceSets.test.runtimeClasspath

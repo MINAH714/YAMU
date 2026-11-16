@@ -40,6 +40,10 @@ public final class QaLifeBenefits {
               '$.policyAsOf','2026-11-16') WHERE payment_transaction_id=?
             """,r.path("channel").asText(),QaLifeBenefits.approved(purchase),
             r.path("recognized").isNull()?null:r.path("recognized").asLong(),payment);
+        if(r.has("basket")) db.update("""
+            UPDATE payment_transaction SET merchant_context_snapshot=JSON_SET(merchant_context_snapshot,
+              '$.basket',CAST(? AS JSON),'$.benefitCalculationScope',?) WHERE payment_transaction_id=?
+            """,r.path("basket").toString(),r.path("calculationScope").asText(),payment);
         for(var b:r.path("benefits")) {
             long benefit=db.queryForObject("SELECT card_benefit_id FROM card_benefit WHERE card_product_id=? AND benefit_code=? AND policy_version=1",Long.class,product,b.path("code").asText());
             db.update("""
@@ -55,5 +59,9 @@ public final class QaLifeBenefits {
                   remaining_before,consumed_value,usage_date,usage_month,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)
                 """,payment,product,group,u.path("before").asLong(),u.path("used").asLong(),purchase.date(),purchase.date().withDayOfMonth(1),at,at);
         }
+        if(purchase.date().isBefore(LocalDate.of(2026,11,1))) db.update("""
+            UPDATE payment_benefit SET confirmed_at=?,confirmation_source='QA_HISTORY'
+            WHERE payment_transaction_id=? AND confirmed_at IS NULL
+            """,java.sql.Timestamp.from(QaLifeScenario.BASE.atStartOfDay(java.time.ZoneId.of("Asia/Seoul")).toInstant()),payment);
     }
 }
