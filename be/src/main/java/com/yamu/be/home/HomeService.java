@@ -27,7 +27,6 @@ import java.time.YearMonth;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Supplier;
-import java.util.stream.Stream;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
@@ -85,7 +84,7 @@ public class HomeService {
         HomeResponse.ForecastPreview forecastPreview = section("forecastPreview", errors,
                 () -> forecastPreview(userId, forecast, forecastError, today));
         Integer unread = section("unreadNotificationCount", errors, () -> reader.unreadNotificationCount(userId));
-        List<HomeResponse.Todo> todos = section("todos", errors, () -> todos(cardList, alerts));
+        List<HomeResponse.Todo> todos = section("todos", errors, () -> todos(alerts));
         HomeResponse.RecentPayment recentPayment = section("recentPayment", errors,
                 () -> reader.recentPayment(userId).orElse(null));
         HomeResponse.Onboarding onboarding = section("onboarding", errors,
@@ -154,21 +153,22 @@ public class HomeService {
     }
 
     /**
-     * 할 일(2026-11-10 결정). 최대 {@value #MAX_TODOS}개. 1순위 미납 청구서가 있는 카드(카드 목록 순서), 2순위 실적 부족 카드
-     * ({@code performanceAlerts} 순서). 잔고 부족은 잔고예보 칸에 이미 나와 넣지 않는다. 실적 할 일 문구는 앱이
-     * {@code performanceAlerts}로 할 일을 만들 때의 문구와 같다. 카드 목록이나 실적 영역이 실패하면 남은 쪽으로만 만든다.
+     * 할 일(2026-11-10 결정). 최대 {@value #MAX_TODOS}개. 실적 부족 카드({@code performanceAlerts} 순서)만 넣는다.
+     * 미납 청구서 항목은 넣지 않는다(S15P31E103-486, 미납 알림과 함께 홈에서도 미납을 알리지 않기로 함). 잔고 부족은
+     * 잔고예보 칸에 이미 나와 넣지 않는다. 실적 할 일 문구는 앱이 {@code performanceAlerts}로 할 일을 만들 때의 문구와
+     * 같다. 실적 영역이 실패하면 빈 목록이다.
      */
-    static List<HomeResponse.Todo> todos(CardListResponse list, List<HomeResponse.PerformanceAlert> alerts) {
-        Stream<HomeResponse.Todo> unpaid = list == null ? Stream.empty() : list.cards().stream()
-                .filter(card -> card.billingSummary() != null && card.billingSummary().hasUnpaidBill())
-                .map(card -> new HomeResponse.Todo(card.nickname() + " 청구서가 미납됐어요", "미납", "ERROR",
-                        card.userCardId()));
-        Stream<HomeResponse.Todo> performance = alerts == null ? Stream.empty() : alerts.stream()
+    static List<HomeResponse.Todo> todos(List<HomeResponse.PerformanceAlert> alerts) {
+        if (alerts == null) {
+            return List.of();
+        }
+        return alerts.stream()
                 .map(alert -> new HomeResponse.Todo(
                         "%s 실적까지 %,d원 남았어요".formatted(alert.nickname(), alert.remainingAmount()),
                         alert.daysLeft() == null ? null : "마감 D-" + alert.daysLeft(), "WARNING",
-                        alert.userCardId()));
-        return Stream.concat(unpaid, performance).limit(MAX_TODOS).toList();
+                        alert.userCardId()))
+                .limit(MAX_TODOS)
+                .toList();
     }
 
     /**

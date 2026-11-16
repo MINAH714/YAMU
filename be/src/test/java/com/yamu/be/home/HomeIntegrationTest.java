@@ -98,7 +98,7 @@ class HomeIntegrationTest extends MySqlTestSupport {
     }
 
     @Test
-    void 실적_부족_카드는_performanceAlerts에_나오고_할_일에서_미납_다음이다() throws Exception {
+    void 실적_부족_카드는_performanceAlerts와_할_일에_나오고_미납_청구서는_할_일에_없다() throws Exception {
         long owner = fixtures.user();
         long account = primaryAccount(owner);
         long unpaidCard = creditCard(owner, account, "ACTIVE");
@@ -124,12 +124,11 @@ class HomeIntegrationTest extends MySqlTestSupport {
                 .andExpect(jsonPath("$.data.performanceAlerts[0].daysLeft").value(11))
                 .andExpect(jsonPath("$.data.performanceAlerts[1].userCardId").value(atRiskToo))
                 .andExpect(jsonPath("$.data.todos.length()").value(2))
-                .andExpect(jsonPath("$.data.todos[0].userCardId").value(unpaidCard))
-                .andExpect(jsonPath("$.data.todos[0].tone").value("ERROR"))
-                .andExpect(jsonPath("$.data.todos[1].userCardId").value(atRisk))
-                .andExpect(jsonPath("$.data.todos[1].title").value("딥드림 실적까지 180,000원 남았어요"))
-                .andExpect(jsonPath("$.data.todos[1].tag").value("마감 D-11"))
-                .andExpect(jsonPath("$.data.todos[1].tone").value("WARNING"));
+                .andExpect(jsonPath("$.data.todos[0].userCardId").value(atRisk))
+                .andExpect(jsonPath("$.data.todos[0].title").value("딥드림 실적까지 180,000원 남았어요"))
+                .andExpect(jsonPath("$.data.todos[0].tag").value("마감 D-11"))
+                .andExpect(jsonPath("$.data.todos[0].tone").value("WARNING"))
+                .andExpect(jsonPath("$.data.todos[1].userCardId").value(atRiskToo));   // 미납 카드는 없다(S15P31E103-486)
     }
 
     @Test
@@ -159,7 +158,7 @@ class HomeIntegrationTest extends MySqlTestSupport {
     }
 
     @Test
-    void 실적을_못_읽어도_미납_할_일과_나머지_영역은_나온다() throws Exception {
+    void 실적을_못_읽어도_나머지_영역은_나오고_미납은_할_일에_없다() throws Exception {
         long owner = fixtures.user();
         long account = primaryAccount(owner);
         long card = creditCard(owner, account, "ACTIVE");
@@ -172,8 +171,7 @@ class HomeIntegrationTest extends MySqlTestSupport {
                 .andExpect(jsonPath("$.data.partialErrors[0].area").value("performanceAlerts"))
                 .andExpect(jsonPath("$.data.partialErrors[0].code").value("INTERNAL_ERROR"))
                 .andExpect(jsonPath("$.data.performanceAlerts").isEmpty())
-                .andExpect(jsonPath("$.data.todos.length()").value(1))
-                .andExpect(jsonPath("$.data.todos[0].userCardId").value(card))
+                .andExpect(jsonPath("$.data.todos").isEmpty())
                 .andExpect(jsonPath("$.data.cards.count").value(1));
     }
 
@@ -224,10 +222,7 @@ class HomeIntegrationTest extends MySqlTestSupport {
                 .andExpect(jsonPath("$.data.balanceForecast.isEstimate").value(true))
                 .andExpect(jsonPath("$.data.dataSyncedAt").value(fetchedAt + "Z"))
                 .andExpect(jsonPath("$.data.unreadNotificationCount").value(2))
-                .andExpect(jsonPath("$.data.todos.length()").value(1))
-                .andExpect(jsonPath("$.data.todos[0].tag").value("미납"))
-                .andExpect(jsonPath("$.data.todos[0].tone").value("ERROR"))
-                .andExpect(jsonPath("$.data.todos[0].userCardId").value(card))
+                .andExpect(jsonPath("$.data.todos").isEmpty())   // 미납 청구서는 할 일로 알리지 않는다(S15P31E103-486)
                 .andExpect(jsonPath("$.data.recentPayment.paymentId").value(latest))
                 .andExpect(jsonPath("$.data.recentPayment.merchantName").value("야무카페 역삼점"))
                 .andExpect(jsonPath("$.data.recentPayment.amount").value(15_000))
