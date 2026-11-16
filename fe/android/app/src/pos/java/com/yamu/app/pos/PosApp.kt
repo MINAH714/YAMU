@@ -66,6 +66,7 @@ import com.yamu.app.core.designsystem.component.YamuTextField
 import com.yamu.app.core.designsystem.theme.YamuRadius
 import com.yamu.app.core.designsystem.theme.YamuSpacing
 import com.yamu.app.core.designsystem.theme.YamuTheme
+import com.yamu.app.core.format.AmountLimit
 import com.yamu.app.core.format.toWon
 import com.yamu.app.core.network.ApiError
 import com.yamu.app.core.network.ApiFeature
@@ -217,10 +218,10 @@ private fun PosMerchantsScreen(onBack: (() -> Unit)?, onChosen: () -> Unit, view
 
 // ───────────────────────── POS-2 금액 ─────────────────────────
 
-/** 금액 키 — 0으로 시작하지 않고 9자리까지 */
+/** 금액 키 — 0으로 시작하지 않고 9자리까지(AmountLimit.POS_PAYMENT) */
 private fun String.applyAmountKey(key: KeypadKey): String = when (key) {
-    is KeypadKey.Digit -> if (isEmpty() && key.value == 0) this else (this + key.value).take(9)
-    KeypadKey.DoubleZero -> if (isEmpty()) this else (this + "00").take(9)
+    is KeypadKey.Digit -> if (isEmpty() && key.value == 0) this else (this + key.value).take(AmountLimit.POS_PAYMENT.digits)
+    KeypadKey.DoubleZero -> if (isEmpty()) this else (this + "00").take(AmountLimit.POS_PAYMENT.digits)
     KeypadKey.Delete -> dropLast(1)
 }
 

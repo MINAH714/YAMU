@@ -127,17 +127,25 @@ internal fun pillTopLabel(date: LocalDate, index: Int): String = when {
 
 /**
  * 알약 아랫줄 금액 — 좁은 칸(50dp)이라 만 원 단위로 줄인다. '−2.5만' · '−15만' · '+280만', 만 원 아래는 '−6천', 0원이면 null.
- * 100만 원 이상은 소수점 없이, 그 아래는 소수 한 자리(.0은 뗀다)
+ * 단위 값이 100 이상이면 소수점 없이, 그 아래는 소수 한 자리(.0은 뗀다).
+ * 1억 · 1조부터는 그 단위로 — 만 원으로만 줄이면 1,000억이 '−10000000만'이 되어 칸 밖으로 나간다(큰 금액 QA)
  */
 internal fun pillAmount(net: Long): String? {
     if (net == 0L) return null
     val sign = if (net > 0) "+" else "−"
     val a = abs(net)
     if (a < 10_000) return "$sign${(a / 1000.0).roundToLong().coerceAtLeast(1)}천"
-    val man = a / 10_000.0
-    val text = if (man >= 100) man.roundToLong().toString() else ((man * 10).roundToLong() / 10.0).let { if (it % 1.0 == 0.0) it.toLong().toString() else it.toString() }
-    return "$sign${text}만"
+    PILL_UNITS.forEachIndexed { i, (size, unit) ->
+        val v = a.toDouble() / size
+        val rounded = if (v >= 100) v.roundToLong().toDouble() else (v * 10).roundToLong() / 10.0
+        if (rounded >= 10_000 && i < PILL_UNITS.lastIndex) return@forEachIndexed   // 10000만 → 1억으로 올린다
+        val text = if (rounded % 1.0 == 0.0) rounded.toLong().toString() else rounded.toString()
+        return "$sign$text$unit"
+    }
+    return null   // 닿지 않는다 — 마지막 단위(조)에서 늘 돌려준다
 }
+
+private val PILL_UNITS = listOf(10_000L to "만", 100_000_000L to "억", 1_000_000_000_000L to "조")
 
 /** 알약 읽어 주기 — '11월 21일 (토), −250,000원, 안전 잔액 아래' */
 internal fun pillDescription(day: StripDay): String = listOfNotNull(
