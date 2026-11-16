@@ -99,6 +99,7 @@ data class CardRegisterState(
     val inputError: String? = null,                // 입력 화면 오류 한 줄
     val lookup: CardLookup? = null,                // 확인 토큰이 여기 든다
     val nickname: String = "",
+    val nicknameOverflowed: Boolean = false,       // 별칭을 12자 넘게 넣으려 했다 — 칸 아래 빨간 안내
     val biometricReady: Boolean = false,
     val registering: Boolean = false,
     val registered: RegisteredCard? = null,        // 마지막으로 등록한 카드
@@ -142,7 +143,10 @@ class CardRegisterViewModel @Inject constructor(
         it.copy(expiry = value.filter(Char::isDigit).take(CardValidation.EXPIRY_LENGTH), inputError = null)
     }
 
-    fun onNickname(value: String) = _state.update { it.copy(nickname = value.take(CardValidation.NICKNAME_MAX)) }
+    fun onNickname(value: String) = _state.update {
+        val accepted = CardValidation.nicknameInput(it.nickname, value)
+        it.copy(nickname = accepted, nicknameOverflowed = accepted != value)
+    }
 
     /** [카드 확인하기] — 형식이 맞을 때만 서버로(형식 오류도 1분 5번에 세므로) */
     fun lookup() {
@@ -156,7 +160,7 @@ class CardRegisterViewModel @Inject constructor(
             when (val r = link.lookupCard(s.number, s.expiry.take(2), s.expiry.takeLast(2))) {
                 is ApiResult.Success -> _state.update {
                     // 확인이 끝나면 번호는 더 쓰지 않는다 — 이 뒤로는 확인 토큰만 있으면 된다
-                    it.copy(looking = false, number = "", expiry = "", lookup = r.data, nickname = "", step = CardRegisterStep.Confirm)
+                    it.copy(looking = false, number = "", expiry = "", lookup = r.data, nickname = "", nicknameOverflowed = false, step = CardRegisterStep.Confirm)
                 }
                 is ApiResult.Failure -> _state.update { it.copy(looking = false, inputError = r.error.cardMessage()) }
             }
@@ -187,7 +191,7 @@ class CardRegisterViewModel @Inject constructor(
         auth.completeOnboarding()      // 카드가 등록되면 서버도 초기 설정 끝으로 본다 — 다시 켜도 홈으로
         _state.update {
             it.copy(
-                registering = false, lookup = null, nickname = "", registered = card, step = CardRegisterStep.Done,
+                registering = false, lookup = null, nickname = "", nicknameOverflowed = false, registered = card, step = CardRegisterStep.Done,
                 celebrateCardId = card.userCardId,
             )
         }
@@ -224,7 +228,7 @@ class CardRegisterViewModel @Inject constructor(
     /** 확인 토큰을 버리고 입력 화면으로 — 번호는 이미 지웠으니 다시 넣는다 */
     private fun restart(message: String?) = _state.update {
         it.copy(
-            step = CardRegisterStep.Input, lookup = null, nickname = "", registering = false, linking = false,
+            step = CardRegisterStep.Input, lookup = null, nickname = "", nicknameOverflowed = false, registering = false, linking = false,
             showErrors = false, inputError = message,
         )
     }
@@ -559,7 +563,8 @@ private fun CardConfirmStep(
                     value = s.nickname,
                     onValueChange = vm::onNickname,
                     placeholder = card.productName,
-                    supporting = "${CardValidation.NICKNAME_MAX}자까지",
+                    supporting = CardValidation.nicknameCount(s.nickname),
+                    error = CardValidation.nicknameError(s.nickname, s.nicknameOverflowed),
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
                 )
             }

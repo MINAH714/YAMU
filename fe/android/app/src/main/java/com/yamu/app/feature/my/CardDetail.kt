@@ -28,6 +28,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.SavedStateHandle
@@ -483,13 +485,47 @@ private fun CardDetailBody(
     }
     Spacer(Modifier.height(YamuSpacing.x4))
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-        Text(card.displayName, style = YamuTheme.typography.titleL, color = c.text1, modifier = Modifier.weight(1f, fill = false))
+        Text(
+            card.displayName,
+            style = YamuTheme.typography.titleL,
+            color = c.text1,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f, fill = false),
+        )
         if (card.stateLabel != null || card.isDefault) StatusTag(card.stateLabel ?: "기본")
     }
 
     SectionLabel("카드 정보")
-    ListRow(title = "별칭", valuePlain = card.nickname ?: "없음", chevron = true, onClick = onNickname)
-    if (card.nickname != null) KeyValueRow("상품", card.productName, large = false)
+    // 값 칸은 폭을 정하지 않으면 긴 이름(옛 20자 별칭 · 긴 상품명)이 키 칸을 한 글자 폭으로 밀어낸다 — 폭 상한 + 한 줄 말줄임(S15P31E103-522)
+    ListRow(
+        title = "별칭",
+        trailing = {
+            Text(
+                card.nickname ?: "없음",
+                style = YamuTheme.typography.bodyM,
+                color = c.text3,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.widthIn(max = 200.dp),
+            )
+        },
+        chevron = true,
+        onClick = onNickname,
+    )
+    if (card.nickname != null) {
+        KeyValueRow("상품", card.productName, large = false, valueContent = { style, color ->
+            Text(
+                card.productName,
+                style = style,
+                color = color,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                textAlign = TextAlign.End,
+                modifier = Modifier.widthIn(max = 240.dp),
+            )
+        })
+    }
     KeyValueRow("카드 번호", "•••• ${card.last4}", large = false)
     if (card.isCheck) {
         KeyValueRow("결제일", "결제 즉시 출금", large = false)
@@ -568,19 +604,26 @@ private fun AccountLine(row: CardAccountRow, onOpen: () -> Unit) {
 @Composable
 private fun NicknameSheet(card: CardInfo, onSave: (String) -> Unit, onDismiss: () -> Unit) {
     var text by rememberSaveable { mutableStateOf(card.nickname.orEmpty()) }
+    var overflowed by rememberSaveable { mutableStateOf(false) }   // 12자 넘게 넣으려 했다
     YamuBottomSheet(onDismiss = onDismiss) {
         Text("카드 별칭", style = YamuTheme.typography.titleL, color = YamuTheme.colors.text1)
         Spacer(Modifier.height(YamuSpacing.x4))
         YamuTextField(
             label = "별칭",
             value = text,
-            onValueChange = { text = it.take(CardValidation.NICKNAME_MAX) },
+            onValueChange = {
+                val accepted = CardValidation.nicknameInput(text, it)
+                overflowed = accepted != it
+                text = accepted
+            },
             placeholder = card.productName,
-            supporting = "${CardValidation.NICKNAME_MAX}자까지 · 비우면 상품 이름으로 보여요",
+            supporting = "${CardValidation.nicknameCount(text)} · 비우면 상품 이름으로 보여요",
+            error = CardValidation.nicknameError(text, overflowed),
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
         )
         Spacer(Modifier.height(YamuSpacing.x5))
-        PrimaryButton("저장", onClick = { onSave(text) })
+        // 12자로 줄이기 전에 길게 저장한 별칭은 줄여야 저장된다
+        PrimaryButton("저장", onClick = { onSave(text) }, enabled = !CardValidation.nicknameTooLong(text))
         Spacer(Modifier.height(YamuSpacing.x2))
     }
 }

@@ -50,6 +50,7 @@ import com.yamu.app.core.designsystem.theme.YamuSpacing
 import com.yamu.app.core.designsystem.theme.YamuTheme
 import com.yamu.app.core.format.parseDate
 import com.yamu.app.core.format.toMonthDay
+import com.yamu.app.core.format.clipName
 import com.yamu.app.core.format.directionParticle
 import com.yamu.app.core.format.objectParticle
 import com.yamu.app.core.format.toWon
@@ -183,7 +184,7 @@ fun PerfAnalysisRoute(onBack: () -> Unit, onCardDetail: (userCardId: Long) -> Un
         bottomBar = {
             val a = s.analysis
             if (a != null) ActionButtons(a, cardName, s.acting, viewModel::decide, viewModel::moveAndFill, onDetail = { onCardDetail(a.userCardId) })
-            else if (s.noData || s.notReady) BottomCta { PrimaryButton("$cardName 실적 자세히 보기", onClick = { onCardDetail(s.selectedId) }) }
+            else if (s.noData || s.notReady) BottomCta { PrimaryButton("${cardName.clipName()} 실적 자세히 보기", onClick = { onCardDetail(s.selectedId) }) }
         },
     ) { inner ->
         Column(Modifier.padding(inner).consumeWindowInsets(inner).fillMaxSize()) {
@@ -295,7 +296,7 @@ private fun AnalysisBody(a: PerfAnalysis, cardName: String, onDetail: () -> Unit
 
 @Composable
 private fun DetailLink(cardName: String, onDetail: () -> Unit) =
-    QuietLink("$cardName 실적 자세히 보기", onClick = onDetail, modifier = Modifier.offset(x = (-4).dp))
+    QuietLink("${cardName.clipName()} 실적 자세히 보기", onClick = onDetail, modifier = Modifier.offset(x = (-4).dp))
 
 /** R-03 아래 버튼 하나 — 기록했으면 다시 판단, 아니면 판정별 행동, 행동이 없는 판정은 카드 실적 상세(R-02) */
 internal enum class PerfAction { REJUDGE, MOVE, SKIP, KEEP, DETAIL }
@@ -339,13 +340,13 @@ private fun ActionButtons(
     onMove: () -> Unit,
     onDetail: () -> Unit,
 ) {
-    val detail = "$cardName 실적 자세히 보기"
+    val detail = "${cardName.clipName()} 실적 자세히 보기"
     when (a.primaryAction()) {
         PerfAction.REJUDGE -> BottomCta {
             PrimaryButton("다시 판단하기", onClick = { onDecide(null) }, loading = acting)
         }
         PerfAction.MOVE -> a.movable?.let { m ->
-            BottomCta { PrimaryButton("${m.title} $cardName${cardName.directionParticle()} 옮기기", onClick = onMove, loading = acting) }
+            BottomCta { PrimaryButton("${m.title} ${cardName.clipName()}${cardName.directionParticle()} 옮기기", onClick = onMove, loading = acting) }
         }
         PerfAction.SKIP -> BottomCta {
             PrimaryButton("채우지 않을게요", onClick = { onDecide(PerfDecision.SKIP) }, loading = acting)
