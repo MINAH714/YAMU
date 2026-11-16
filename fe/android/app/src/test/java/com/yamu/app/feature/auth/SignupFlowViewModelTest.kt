@@ -196,6 +196,33 @@ class SignupFlowViewModelTest {
         assertEquals("입력한 정보로는 본인 확인을 할 수 없어요 · 등록된 이름 · 생년월일 · 번호인지 확인해 주세요", vm.state.value.error)
     }
 
+    @Test fun `인증번호 받기에서 등록 안 된 정보면 확인 단계와 같은 문장을 보이고 칸은 그대로 둔다`() = runTest(dispatcher) {
+        signup.termsAgreed = true
+        signup.requestFailure = ApiError.from(404, "DEMO_USER_NOT_FOUND")
+        val vm = PhoneVerifyViewModel(signup)
+        vm.fillAndSend()
+        advanceUntilIdle()
+
+        val s = vm.state.value
+        assertEquals("입력한 정보로는 가입할 수 없어요 · 등록된 이름 · 생년월일 · 번호인지 확인해 주세요", s.error)
+        assertNull(s.sent)                         // 인증번호 칸 · 문자 알림은 열리지 않는다
+        assertNull(s.banner)
+        assertFalse(s.sending)
+        assertEquals("김야무", s.name)             // 오타만 고쳐 다시 받게 칸은 그대로
+        assertEquals("01012345678", s.phone)
+        assertEquals(0, signup.confirmCalls)
+    }
+
+    @Test fun `기기 재등록에서 인증번호 받기가 404면 본인 확인 문장으로`() = runTest(dispatcher) {
+        signup.termsAgreed = false
+        signup.requestFailure = ApiError.from(404, "DEMO_USER_NOT_FOUND")
+        val vm = PhoneVerifyViewModel(signup)
+        vm.fillAndSend()
+        advanceUntilIdle()
+
+        assertEquals("입력한 정보로는 본인 확인을 할 수 없어요 · 등록된 이름 · 생년월일 · 번호인지 확인해 주세요", vm.state.value.error)
+    }
+
     @Test fun `본인인증 안내 — 가입은 미리 등록된 분만 된다고 인증번호 받기 전에 알린다`() {
         assertTrue(phoneVerifyGuide(signup = true).startsWith("야무는 시연용으로 미리 등록된 분만 가입할 수 있어요"))
         assertEquals("시연에 등록된 이름 · 생년월일 · 휴대폰 번호를 넣어 주세요", phoneVerifyGuide(signup = false))
@@ -452,6 +479,8 @@ class SignupFlowViewModelTest {
         var confirmResult: ApiResult<SignupMode> = ApiResult.Success(SignupMode.SIGNUP)
         var candidatesResult: ApiResult<List<AccountCandidate>> = ApiResult.Success(emptyList())
         var requestedPhone: String? = null
+        /** null이 아니면 인증번호 받기가 이 실패를 돌려준다 */
+        var requestFailure: ApiError? = null
         /** 시연 서버가 응답에 실어 주는 인증번호 — null이면 운영처럼 빠진다 */
         var demoCode: String? = "123456"
         private var restartReason: SignupRestart? = null
@@ -467,6 +496,7 @@ class SignupFlowViewModelTest {
 
         override suspend fun requestCode(name: String, birthDate: LocalDate, carrier: Carrier, phoneNumber: String): ApiResult<CodeSent> {
             requestedPhone = phoneNumber
+            requestFailure?.let { return ApiResult.Failure(it) }
             return ApiResult.Success(CodeSent("pv_$name$phoneNumber", demoCode))
         }
 
