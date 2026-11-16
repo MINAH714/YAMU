@@ -22,6 +22,8 @@ import java.util.List;
  * @param chargedAmount     승인 금액(체크카드는 즉시할인 뒤 출금액). 승인 전·거절은 null
  * @param approvalNo        승인번호({@code ApprovalNumbers}). 승인되지 않았으면 null
  * @param installmentPolicy 할부 회차가 모두 수수료 0원으로 기록된 YAMU 할부면 {@code YAMU_INTEREST_FREE}, 그 밖은 null
+ * @param memo              사용자 메모(S15P31E103-579). 목록 {@code items[].memo}와 같은 값이고, 없으면 null이다(칸은 항상 내려간다).
+ *                          남기거나 지운 시각은 메모 API 응답의 {@code memoUpdatedAt}에만 있다
  */
 public record PaymentDetailResponse(
         Long paymentId,
@@ -45,7 +47,8 @@ public record PaymentDetailResponse(
         Object recommendationSnapshot,
         List<StatusChange> statusHistory,
         Failure failure,
-        String installmentPolicy) {
+        String installmentPolicy,
+        String memo) {
 
     public static final String YAMU_INTEREST_FREE = "YAMU_INTEREST_FREE";
 

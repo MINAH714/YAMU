@@ -85,8 +85,6 @@ data class PaymentDetailState(
     val memoOpen: Boolean = false,
     val savingMemo: Boolean = false,
     val memoError: String? = null,
-    /** 상세에 memo가 없어 결제 내역에서 찾는 중 */
-    val memoChecking: Boolean = false,
     /** 스낵바 한 번 */
     val message: String? = null,
 )
@@ -112,9 +110,6 @@ class PaymentDetailViewModel @Inject constructor(
     private val artLoader = CardArtRefsLoader(link, viewModelScope)
     val arts: StateFlow<Map<Long, CardArtRef>> = artLoader.refs
 
-    /** 메모 찾기는 화면마다 한 번 — 못 찾으면 '모름'으로 두고 저장 전에 알린다 */
-    private var memoLookedUp = false
-
     /** 처음 보일 때는 init에서 이미 받고 있다 — 그 뒤 다시 보일 때(결제 코드 화면에서 돌아옴 등)만 다시 받는다 */
     private var shownOnce = false
 
@@ -129,7 +124,7 @@ class PaymentDetailViewModel @Inject constructor(
         if (!_state.value.loading) load()
     }
 
-    /** 다시 불러오는 동안에도 보던 내용은 그대로 둔다(실패해도 마지막 값). 이미 아는 메모는 '모름'으로 되돌리지 않는다 */
+    /** 다시 불러오는 동안에도 보던 내용은 그대로 둔다(실패해도 마지막 값). 메모도 상세 응답의 값을 쓴다 */
     fun load() {
         artLoader.ensure(listOfNotNull(_state.value.receipt?.cardId))
         viewModelScope.launch {
@@ -137,42 +132,14 @@ class PaymentDetailViewModel @Inject constructor(
             when (val r = payments.detail(paymentId)) {
                 is ApiResult.Success -> {
                     artLoader.ensure(listOfNotNull(r.data.cardId))
-                    _state.update {
-                        val known = it.receipt?.takeIf { old -> old.memoKnown }
-                        val fresh = if (!r.data.memoKnown && known != null) r.data.copy(memo = known.memo, memoKnown = true) else r.data
-                        it.copy(loading = false, receipt = fresh)
-                    }
-                    findMemoIfUnknown()
+                    _state.update { it.copy(loading = false, receipt = r.data) }
                 }
                 is ApiResult.Failure -> _state.update { it.copy(loading = false, error = r.error.userMessage()) }
             }
         }
     }
 
-    /**
-     * 목록을 거치지 않고 들어왔으면(홈 · 알림 · 결제 완료 · 앱 다시 켬) 메모를 모른다. 모르는 채로 '메모 남기기'를 보이면
-     * 서버의 메모를 확인 없이 덮어쓰므로 결제 내역에서 찾아본다. 그사이 저장했으면 찾은 값으로 덮지 않는다
-     */
-    private fun findMemoIfUnknown() {
-        val receipt = _state.value.receipt ?: return
-        if (receipt.memoKnown || memoLookedUp) return
-        memoLookedUp = true
-        _state.update { it.copy(memoChecking = true) }
-        viewModelScope.launch {
-            val found = payments.findMemo(paymentId, receipt.paidAtIso)
-            _state.update {
-                val current = it.receipt
-                it.copy(
-                    memoChecking = false,
-                    receipt = if (found != null && current != null && !current.memoKnown) current.copy(memo = found.text, memoKnown = true) else current,
-                )
-            }
-        }
-    }
-
-    /** 찾는 중에는 열지 않는다 — 열면 아직 모르는 메모를 빈 칸으로 보이게 된다 */
     fun openMemo() {
-        if (_state.value.memoChecking) return
         _state.update { it.copy(memoOpen = true, memoError = null) }
     }
 
@@ -190,10 +157,6 @@ class PaymentDetailViewModel @Inject constructor(
             return
         }
         val text = MemoRules.normalize(raw).ifEmpty { null }
-        if (text == null && _state.value.receipt?.memoKnown == false) {   // 모르는 메모를 지우지 않는다
-            _state.update { it.copy(memoError = "전에 남긴 메모를 불러오지 못해 지울 수 없어요") }
-            return
-        }
         _state.update { it.copy(savingMemo = true, memoError = null) }
         viewModelScope.launch {
             when (val res = payments.saveMemo(paymentId, text)) {
@@ -201,7 +164,7 @@ class PaymentDetailViewModel @Inject constructor(
                     it.copy(
                         savingMemo = false,
                         memoOpen = false,
-                        receipt = it.receipt?.copy(memo = res.data, memoKnown = true),
+                        receipt = it.receipt?.copy(memo = res.data),
                         message = if (res.data == null) "메모를 지웠어요" else "메모를 남겼어요",
                     )
                 }
@@ -285,7 +248,7 @@ fun PaymentDetailRoute(onBack: () -> Unit, onCancel: (PaymentReceipt) -> Unit, v
                             Text(it, style = YamuTheme.typography.sub, color = c.text3, textAlign = TextAlign.End, modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp))
                         }
                         r.approvalNo?.let { KeyValueRow("승인번호", it, large = false) }
-                        MemoRow(r.memo, known = r.memoKnown, checking = s.memoChecking, onClick = viewModel::openMemo)
+                        MemoRow(r.memo, onClick = viewModel::openMemo)
                     }
                     HorizontalDivider(color = c.outlineVariant, modifier = Modifier.padding(horizontal = YamuSpacing.screen))
                     if (r.canceled) {
@@ -311,7 +274,6 @@ fun PaymentDetailRoute(onBack: () -> Unit, onCancel: (PaymentReceipt) -> Unit, v
     if (s.memoOpen && r != null) {
         MemoSheet(
             initial = r.memo,
-            known = r.memoKnown,
             saving = s.savingMemo,
             serverError = s.memoError,
             onEdit = viewModel::memoEdited,
@@ -326,20 +288,14 @@ fun PaymentDetailRoute(onBack: () -> Unit, onCancel: (PaymentReceipt) -> Unit, v
  * (KeyValueRow는 값이 길면 키 칸이 눌린다). 높이 · 글자는 상세의 작은 키–값 줄(40dp · bodyM / titleS)과 같다
  */
 @Composable
-private fun MemoRow(memo: String?, known: Boolean, checking: Boolean, onClick: () -> Unit) {
+private fun MemoRow(memo: String?, onClick: () -> Unit) {
     val c = YamuTheme.colors
-    // 모르는 메모를 '메모 남기기'로 보이지 않는다 — 찾는 중 · 못 찾음을 따로
-    val (value, color) = when {
-        memo != null -> memo to c.text1
-        checking -> "확인하는 중…" to c.text3
-        !known -> "불러오지 못했어요" to c.text3
-        else -> "메모 남기기" to c.primary
-    }
+    val (value, color) = if (memo != null) memo to c.text1 else "메모 남기기" to c.primary
     Row(
         Modifier
             .fillMaxWidth()
             .heightIn(min = 40.dp)
-            .clickable(enabled = !checking, role = Role.Button, onClickLabel = if (memo == null) "메모 남기기" else "메모 고치기", onClick = onClick),
+            .clickable(role = Role.Button, onClickLabel = if (memo == null) "메모 남기기" else "메모 고치기", onClick = onClick),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
@@ -418,12 +374,10 @@ private fun CanceledLines(r: PaymentReceipt) {
 
 /**
  * 메모 입력 — 한 줄 100자(코드포인트). 저장할 수 없으면 칸 아래 빨간 줄 · 저장 버튼 막음.
- * [known]이 false면 전에 남긴 메모를 모른다: 저장하면 덮어쓴다고 먼저 알리고, 빈 칸 저장(지우기)은 막는다
  */
 @Composable
 private fun MemoSheet(
     initial: String?,
-    known: Boolean,
     saving: Boolean,
     serverError: String?,
     onEdit: () -> Unit,
@@ -436,19 +390,11 @@ private fun MemoSheet(
     val count = MemoRules.length(normalized)
     val problem = MemoRules.problem(text)
     val changed = normalized != initial.orEmpty()
-    val canSave = problem == null && changed && !saving && (known || normalized.isNotEmpty())
+    val canSave = problem == null && changed && !saving
     YamuBottomSheet(onDismiss = onDismiss) {
         Text("메모", style = YamuTheme.typography.titleL, color = c.text1)
         Spacer(Modifier.height(4.dp))
         Text("나만 볼 수 있고 소비분석 · 추천에는 쓰지 않아요", style = YamuTheme.typography.bodyM, color = c.text2)
-        if (!known) {
-            Spacer(Modifier.height(YamuSpacing.x2))
-            Text(
-                "전에 남긴 메모를 불러오지 못했어요. 저장하면 전에 남긴 메모가 있어도 이 내용으로 바뀌어요",
-                style = YamuTheme.typography.bodyM,
-                color = c.warning,
-            )
-        }
         Spacer(Modifier.height(YamuSpacing.x4))
         YamuTextField(
             label = "메모",
