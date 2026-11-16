@@ -77,21 +77,17 @@ pipeline {
             when { expression { env.CI_SCOPE.split(',').contains('be') } }
             steps {
                 dir('be') {
-                    sh 'sh ./gradlew --no-daemon --max-workers=1 -Dorg.gradle.jvmargs="-Xmx768m -XX:MaxMetaspaceSize=384m" clean test'
+                    script {
+                        // One Gradle JVM and compilation for the tested release JAR.
+                        def tasks = env.CI_SCOPE.split(',').contains('full') ? 'test bootJar' : 'test'
+                        sh "sh ./gradlew --no-daemon --max-workers=1 -Dorg.gradle.jvmargs=\"-Xmx768m -XX:MaxMetaspaceSize=384m\" clean ${tasks}"
+                    }
                 }
                 sh 'python3 infra/ci/check-test-results.py be/build/test-results/test'
             }
             post {
                 always {
                     junit testResults: 'be/build/test-results/test/TEST-*.xml', allowEmptyResults: false
-                }
-            }
-        }
-        stage('BE JAR') {
-            when { expression { env.CI_SCOPE.split(',').contains('full') } }
-            steps {
-                dir('be') {
-                    sh 'sh ./gradlew --no-daemon --max-workers=1 -Dorg.gradle.jvmargs="-Xmx768m -XX:MaxMetaspaceSize=384m" bootJar'
                 }
             }
         }
