@@ -825,6 +825,23 @@ fun ProfileRoute(onBack: () -> Unit, onOpenPinPad: (purpose: String) -> Unit, on
 
 // ───────────────────────── M-08 보안 · 인증 ─────────────────────────
 
+private const val CODE_AUTH_BIOMETRIC = "지문 또는 간편 비밀번호"
+private const val CODE_AUTH_PIN_ONLY = "간편 비밀번호만"
+
+/**
+ * 결제 코드를 열 때 실제로 쓰는 방식이 간편 비밀번호만인지. 이 기기에서 지문 인증이 꺼져 있으면 서버 설정이
+ * '지문 또는 간편 비밀번호'여도 본인 확인은 간편 비밀번호로 열린다(StepUp). 목록 글자와 선택 창 체크가 이 값 하나를 본다.
+ * 서버 값은 바꾸지 않아서, 나중에 지문을 켜면 고른 방식으로 돌아간다(S15P31E103-585).
+ */
+internal fun codeAuthPinOnly(pinOnlyForCode: Boolean, biometricOn: Boolean): Boolean = pinOnlyForCode || !biometricOn
+
+internal fun codeAuthLabel(pinOnly: Boolean): String = if (pinOnly) CODE_AUTH_PIN_ONLY else CODE_AUTH_BIOMETRIC
+
+/** 지문 인증이 꺼진 기기에는 고를 수 있는 게 간편 비밀번호뿐이라 그 한 줄만 보여 준다 */
+internal fun codeAuthChoices(biometricOn: Boolean): List<Pair<Boolean, String>> =
+    if (biometricOn) listOf(false to CODE_AUTH_BIOMETRIC, true to CODE_AUTH_PIN_ONLY)
+    else listOf(true to CODE_AUTH_PIN_ONLY)
+
 data class SecurityState(
     val loading: Boolean = true,
     val info: MyInfo? = null,
@@ -974,7 +991,7 @@ fun SecurityRoute(
                     ListRow(
                         title = "결제 코드 열 때 인증",
                         minHeight = TapRowHeight,
-                        valuePlain = if (info.pinOnlyForCode || !s.biometricOn) "간편 비밀번호" else "지문",
+                        valuePlain = codeAuthLabel(codeAuthPinOnly(info.pinOnlyForCode, s.biometricOn)),
                         trailing = { Icon(Icons.Rounded.KeyboardArrowDown, contentDescription = null, tint = c.text3) },
                         onClick = { sheet = SecuritySheet.CODE_AUTH },
                     )
@@ -994,8 +1011,8 @@ fun SecurityRoute(
         )
         SecuritySheet.CODE_AUTH -> if (info != null) ChoiceSheet(
             title = "결제 코드 열 때 인증",
-            options = listOf(false to "지문 또는 간편 비밀번호", true to "간편 비밀번호만"),
-            selected = info.pinOnlyForCode,
+            options = codeAuthChoices(s.biometricOn),
+            selected = codeAuthPinOnly(info.pinOnlyForCode, s.biometricOn),
             onSelect = { viewModel.setPinOnly(it, onFail) },
             onDismiss = { sheet = null },
         )
