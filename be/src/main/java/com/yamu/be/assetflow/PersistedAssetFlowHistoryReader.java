@@ -13,6 +13,17 @@ public class PersistedAssetFlowHistoryReader {
     public PersistedAssetFlowHistoryReader(AssetFlowHistoryReader upstream,AccountHistoryStore store) {
         this.upstream=upstream; this.store=store;
     }
+    /** Operator current-day capture. Its validated snapshot is excluded from daily closing-balance views. */
+    public String captureCurrentSnapshot(String key,LinkedAccount account,java.time.Clock clock,long deadline) {
+        LocalDate today=LocalDate.now(clock.withZone(java.time.ZoneId.of("Asia/Seoul")));
+        var ticket=store.begin(account.getUserId(),account.getId(),today.withDayOfMonth(1),today);
+        try {
+            return store.completeCurrentSnapshot(ticket,upstream.read(key,account,today.withDayOfMonth(1),today,deadline));
+        } catch(RuntimeException failure) {
+            store.failed(ticket,"CURRENT_SNAPSHOT_FAILED"); throw failure;
+        }
+    }
+
     public AccountHistoryStore.View read(String key,LinkedAccount account,LocalDate from,LocalDate to,long deadline) {
         var ticket=store.begin(account.getUserId(),account.getId(),from,to);
         String reason;
