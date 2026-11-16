@@ -20,6 +20,6 @@ public interface CardRecommender {
     default LongFunction<RecommendationResult> prepare(RecommendationRequest request) {
         return paymentId -> recommend(new RecommendationRequest(paymentId, request.userId(), request.terms(),
                 request.merchant(), request.requestedAt(), request.purchaseItemCode(), request.availability(),
-                request.verifiedFacts()));
+                request.verifiedFacts(), request.basket()));
     }
 }

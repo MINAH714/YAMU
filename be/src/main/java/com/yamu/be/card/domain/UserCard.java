@@ -83,6 +83,13 @@ public class UserCard extends BaseTimeEntity {
     /** 처음 등록한 시각(UTC). 등록 해제 후 다시 등록해도 바꾸지 않는다. 등록 전 PENDING은 null */
     private LocalDateTime registeredAt;
 
+    /** 카드사 사용 등록일. YAMU 최초 등록일과 구분하며 NULL은 미확인이다. */
+    private java.time.LocalDate issuerRegisteredOn;
+    /** 아래 전월 자격 판정이 적용되는 한국 이용월. 월이 바뀌면 재확인한다. */
+    private java.time.LocalDate ibkContextMonth;
+    private Boolean ibkSalaryQualified;
+    private Boolean ibkMilitaryQualified;
+
     /** 사용자가 정한 목록 순서(작을수록 앞). 추천 동률의 마지막 기준(FIXED_ORDER). 저장 전에는 null(등록 순) */
     private Integer displayOrder;
 

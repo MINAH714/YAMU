@@ -6,6 +6,14 @@ import java.util.Map;
 import org.junit.jupiter.api.Test;
 
 class BasicPurchaseSimulationTest {
+    @Test void verifiedNonNpayDoesNotSuppressExistingOrdinaryPurchaseDefaults() {
+        var before = BasicPurchaseSimulation.apply(tx(Map.of()), "OFFLINE", "GENERAL").facts();
+        var actual = BasicPurchaseSimulation.apply(tx(Map.of("PAYMENT_METHOD:NPAY", false)), "OFFLINE", "GENERAL").facts();
+        assertThat(actual).containsAllEntriesOf(before).containsEntry("PAYMENT_METHOD:NPAY", false);
+        assertThat(BasicPurchaseSimulation.apply(tx(Map.of("PAYMENT_METHOD:NPAY", true)), "ONLINE", "GENERAL").facts())
+                .containsEntry("PAYMENT_METHOD:NPAY", true).doesNotContainKey("RULE:NON_PARTNER_EASY_PAY");
+    }
+
     @org.junit.jupiter.params.ParameterizedTest
     @org.junit.jupiter.params.provider.ValueSource(strings = {"TAXI", "CITY_BUS", "INTERCITY_BUS", "EXPRESS_BUS",
             "SUBWAY", "RAILWAY", "ELECTRIC_UTILITY", "WATER_UTILITY", "CITY_GAS_UTILITY", "UNIVERSITY",

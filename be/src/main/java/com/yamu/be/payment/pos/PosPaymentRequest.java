@@ -37,6 +37,10 @@ public class PosPaymentRequest {
     @NotNull(message = "결제 금액을 보내 주세요.")
     private BigDecimal amount;
 
+    private java.util.List<PosBasket.Line> items;
+    @JsonSetter("items")
+    public void setItems(java.util.List<PosBasket.Line> items) { this.items = items; }
+
     private String plan;
 
     @JsonIgnore

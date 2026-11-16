@@ -106,6 +106,7 @@ public class PosPaymentRequestService {
         if (!merchant.merchantId().equals(request.getMerchantId())) {
             throw new BusinessException(ErrorCode.MERCHANT_NOT_FOUND, "이 POS에서 결제할 수 없는 가맹점입니다.");
         }
+        PosBasket.Snapshot basket = PosBasket.validate(terminal.brandCode(), request.getItems(), terms.amount());
         String fingerprint = fingerprint(terminal, request, terms);
 
         Optional<PosIdempotencyStore.Previous> previous = idempotency.find(terminal.posCode(), key);
@@ -133,7 +134,7 @@ public class PosPaymentRequestService {
             Instant now = clock.instant().truncatedTo(ChronoUnit.MICROS);
             Barcode barcode = requireIssued(request.getBarcodeToken(), now);
             PaymentTransaction payment = createPayment(terminal, merchant, barcode, request, terms, key,
-                    fingerprint, now);
+                    fingerprint, now, basket);
             remember(terminal, key, fingerprint, payment);
             return response(payment, request.getOrderNo());
         }
@@ -141,18 +142,18 @@ public class PosPaymentRequestService {
 
     /** 결제 저장 → 바코드 전환 → 추천을 한 트랜잭션으로. 바코드 전환이 실패하면 추천을 계산하지 않고 저장한 결제도 사라진다. */
     private PaymentTransaction createPayment(PosProperties.Terminal terminal, Merchant merchant, Barcode barcode,
-            PosPaymentRequest request, PaymentTerms terms, String key, String fingerprint, Instant now) {
+            PosPaymentRequest request, PaymentTerms terms, String key, String fingerprint, Instant now, PosBasket.Snapshot basket) {
         LocalDateTime requestedAt = LocalDateTime.ofInstant(now, ZoneOffset.UTC);
         MerchantContextSnapshot context = new MerchantContextSnapshot(MerchantContextSnapshot.CURRENT_VERSION,
                 terminal.posCode(), merchant.brandCode(), merchant.name(), merchant.categoryCode(),
                 terminal.channel(), terminal.facilityType(), request.getOrderNo(), terms.amount(), terms.plan(),
-                terms.isInstallment() ? terms.installmentMonths() : null);
+                terms.isInstallment() ? terms.installmentMonths() : null, basket);
         // 바코드를 전환했을 수 있는 결제 번호. 스캔 응답을 못 받아도 되돌릴 수 있게 스캔 전에 적는다(되돌리기는 이 번호일 때만 바꾼다)
         Long[] scanning = new Long[1];
         // 추천에 필요한 조회를 마친 뒤 결제 저장 트랜잭션을 시작한다.
         var prepared = recommender.prepare(RecommendationRequest.posPurchase(null, barcode.userId(), terms,
                 new MerchantContext(merchant.merchantId(), merchant.categoryCode(), terminal.channel().name(),
-                        terminal.facilityType() == null ? null : terminal.facilityType().name()), requestedAt));
+                        terminal.facilityType() == null ? null : terminal.facilityType().name()), requestedAt, basket));
         try {
             return transaction.execute(status -> {
                 PaymentTransaction saved = payments.saveAndFlush(PaymentTransaction.request(barcode.userId(),
@@ -314,7 +315,7 @@ public class PosPaymentRequestService {
                 Long.toString(terms.amount()),
                 terms.plan().name(),
                 terms.isInstallment() ? Integer.toString(terms.installmentMonths()) : "",
-                request.getOrderNo() == null ? "" : request.getOrderNo());
+                request.getOrderNo() == null ? "" : request.getOrderNo()) + PosBasket.fingerprint(request.getItems());
         try {
             byte[] digest = MessageDigest.getInstance("SHA-256").digest(canonical.getBytes(StandardCharsets.UTF_8));
             return HexFormat.of().formatHex(digest);

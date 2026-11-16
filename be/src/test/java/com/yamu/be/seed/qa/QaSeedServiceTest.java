@@ -111,7 +111,7 @@ class QaSeedServiceTest extends MySqlTestSupport {
             db.update("""
                     UPDATE app_user SET status='ACTIVE',pin_hash=?,pin_updated_at=?,identity_verified_at=? WHERE user_id=?
                     """,new PinHasher(keys).hash("493827"),now,now,user);
-            for(int a=0;a<2;a++) {
+            for(int a=0;a<p.accounts().size();a++) {
                 var account=p.accounts().get(a);
                 db.update("""
                         INSERT INTO linked_account(user_id,bank_code,account_no_enc,account_no_hash,account_last4,
@@ -128,6 +128,28 @@ class QaSeedServiceTest extends MySqlTestSupport {
         }
     }
     private long count(String table) { return db.queryForObject("SELECT COUNT(*) FROM "+table,Long.class); }
+
+
+    @Test void versionThreeLoadsFourCardsAndEnforcesIbkBankBinding() throws Exception {
+        ScriptUtils.executeSqlScript(connection,new FileSystemResource(Path.of("seed/05-ibk-narasarang.sql")));
+        var original=spec("ibk551",QaSeedSpec.Scenario.RICH).personas().get(0);
+        var accounts=List.of(new QaSeedSpec.Account("004","800000000001"),
+                new QaSeedSpec.Account("088","900000000001"),new QaSeedSpec.Account("003","700000000001"));
+        var cards=new ArrayList<>(original.cards());
+        var first=cards.get(1);
+        cards.set(1,new QaSeedSpec.Card(first.issuerCode(),first.productName(),first.cardType(),first.cardNo(),1,15));
+        cards.add(new QaSeedSpec.Card("IBK","IBK나라사랑카드","CHECK","9000000000010004",2,null,LocalDate.of(2026,1,1),false,false));
+        var person=new QaSeedSpec.Persona(original.key(),original.scenario(),"최인국",original.birthDate(),original.phone(),
+                original.ssafyMemberId(),original.ssafyUserKey(),accounts,cards,"MILITARY_EXAM_COMPLETED");
+        var spec=new QaSeedSpec("qa-ibk551",3,LocalDate.of(2026,11,12),List.of(person));
+        spec.validate(LocalDate.of(2026,11,16));
+        apply(spec); signedUp(spec); service.run("enrich",spec); service.run("verify",spec);
+        assertThat(db.queryForObject("SELECT COUNT(*) FROM user_card WHERE user_id=?",Long.class,user(spec,0))).isEqualTo(4);
+        assertThat(db.queryForObject("SELECT a.bank_code FROM user_card c JOIN linked_account a ON a.linked_account_id=c.linked_account_id JOIN card_product p USING(card_product_id) WHERE c.user_id=? AND p.issuer_code='IBK'",String.class,user(spec,0))).isEqualTo("003");
+        service.run("apply",spec);
+        service.run("reset",spec);
+        assertThat(db.queryForObject("SELECT COUNT(*) FROM user_card WHERE user_id=?",Long.class,user(spec,0))).isEqualTo(4);
+    }
 
     @Test void seededBillConfirmsWithdrawsAndDoesNotWithdrawTwice() throws Exception {
         var spec=spec("billing",QaSeedSpec.Scenario.RICH);

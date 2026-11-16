@@ -31,8 +31,8 @@ public final class QaSeedCli {
             if ("plan".equals(command)) {
                 for (var p : spec.personas()) {
                     var payments = QaHistoryPlan.build(p.scenario(), spec.baseDate());
-                    System.out.printf("%s scenario=%s cards=3 payments=%d base=%s%n",
-                            p.key(), p.scenario(), payments.size(), spec.baseDate());
+                    System.out.printf("%s scenario=%s cards=%d payments=%d base=%s%n",
+                            p.key(), p.scenario(), p.cards().size(), payments.size(), spec.baseDate());
                 }
                 return;
             }

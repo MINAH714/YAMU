@@ -204,6 +204,10 @@ KEY ix_merchant_category (merchant_category_code)
 | payment_day | `SMALLINT NULL` | 월 결제일; 신용카드에 사용 |
 | status | `VARCHAR(20) NOT NULL` | PENDING: 서버가 준비한 사용자 등록 전 카드 / ACTIVE: 등록 완료, 추천·결제에 사용 / INACTIVE: 등록 유지, 추천에서 제외 / UNREGISTERED: 등록 해제, 과거 거래 이력 보존 |
 | registered_at | `TIMESTAMP(6) NULL` | UTC 최초 사용자 등록 시각; 서버가 미리 준비한 등록 전 PENDING 카드는 NULL |
+| issuer_registered_on | `DATE NULL` | 카드사 사용 등록일; YAMU 등록일과 별개. QA 시드 근거이며 NULL은 미확인 |
+| ibk_context_month | `DATE NULL` | IBK 자격 판정 적용 이용월(KST 월 1일). 전월 자격을 이 이용월에만 사용 |
+| ibk_salary_qualified | `BOOLEAN NULL` | 해당 이용월의 전월 병 급여수령 자격. false와 미확인 NULL 구분 |
+| ibk_military_qualified | `BOOLEAN NULL` | 해당 이용월의 전월 현역병 우대 자격. false와 미확인 NULL 구분 |
 | created_at | `TIMESTAMP(6) NOT NULL` | UTC 생성 시각 |
 | updated_at | `TIMESTAMP(6) NOT NULL` | UTC 수정 시각 |
 | version | `BIGINT NOT NULL DEFAULT 0` | JPA 낙관적 락 버전 |
