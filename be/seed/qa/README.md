@@ -9,6 +9,8 @@ v3 세 사용자·IBK나라사랑카드 구성은 [IBK-551](IBK-551.md)을 따�
 
 550의 동일 생활 이력 3인 구성은 [LIFE 전달 문서](LIFE-HANDOFF.md)와 `life-persona-1/2/3.example.json`을 사용합니다. 시작 잔액 225만 원, 원거래 기반 청구, 실제 시작 자금과 합성 원장의 전환 검증은 이 별도 LIFE 시나리오에만 적용됩니다. [월별 수치 보고서](LIFE-VALIDATION.txt)는 오프라인 `planQaLife`로 재생성합니다.
 
+기존 세 운영 QA 계정을 실제 입출금 없이 준비하는 명시 도구는 [계정 준비 안내](ACCOUNT-PREPARATION.md)를 따릅니다. 이 경로에서는 `BILLING_JOBS_ENABLED=false`를 유지하며, 아래 일반 QA 환경의 배치 허용 절차를 적용하지 않습니다. 실제 기기 증명·PIN·BE 검토 전에 운영 준비를 실행하지 않습니다.
+
 ## 구성과 기대 결과
 
 기준일 D는 입력의 baseDate(한국 날짜), 거래 시각은 UTC로 저장한다. 표의 기대값은 초기 상태 기준이다.

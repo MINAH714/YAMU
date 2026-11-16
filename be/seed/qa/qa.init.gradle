@@ -16,6 +16,21 @@ allprojects {
                 systemProperty 'file.encoding', 'UTF-8'
                 systemProperty 'user.timezone', 'UTC'
             }
+            tasks.register('prepareQaAccounts', JavaExec) {
+                group = 'application'
+                description = 'Explicit QA550 account preparation; never runs during test/check/build.'
+                classpath = sourceSets.main.runtimeClasspath
+                mainClass = 'com.yamu.be.seed.qa.QaAccountPrepareCli'
+                systemProperty 'file.encoding', 'UTF-8'
+                systemProperty 'user.timezone', 'UTC'
+                standardInput = System.in
+                args providers.gradleProperty('qaPrepareCommand').getOrElse('plan')
+                args providers.gradleProperty('qaSeedDirectory').getOrElse('seed/qa')
+                args providers.gradleProperty('qaDeviceManifest').getOrElse('seed/qa/devices.local.json')
+                if (providers.gradleProperty('qaPrepareReceipt').isPresent()) {
+                    args providers.gradleProperty('qaPrepareReceipt').get()
+                }
+            }
         }
     }
 }

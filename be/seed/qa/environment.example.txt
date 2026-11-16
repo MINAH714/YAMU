@@ -8,3 +8,10 @@ YAMU_CRYPTO_DATA_KEY_<ID>=<same current AES key as API server>
 YAMU_CRYPTO_HMAC_KEY=<same lookup key as API server>
 YAMU_CRYPTO_PIN_PEPPER=<same PIN pepper as API server>
 QA_SEED_MAINTENANCE=true
+
+# Explicit QA550 account preparation only; never enables withdrawal jobs.
+BILLING_JOBS_ENABLED=false
+QA_SEED_ENCRYPTED_BINDINGS_FILE=<protected file encrypted with the existing API data key>
+QA_ACCOUNT_PREPARE_APPROVAL=<reviewed plan result manifestDigest>
+# Set only when PIN JSON is supplied through a private stdin pipe; PINs are not environment values.
+QA_ACCOUNT_PINS_STDIN=true
