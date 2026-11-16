@@ -1,0 +1,17 @@
+{
+  "status": "PASS",
+  "sourceRun": "main-2026-11-13T08-12-30.835208800Z-001549c3-9328-424e-b65b-38762aadac1e",
+  "analysisScriptSha256": "AD5008DEB8A8A173282168D112E6BCC841740769F6B27D53A632200355E40476",
+  "sourceMonthlySha256": "FED5BF42A7C80EEB13224FE371B090C363F56987025F8CEB9ED591511B025A3D",
+  "sourceSummarySha256": "5D9E8AEF163B441E57769471F3865FB00AFEBD9D2A5FD6409EC8B41E8CF9FA6C",
+  "paths": 103,
+  "pathMonthChecks": 618,
+  "aggregateMonthChecks": 24,
+  "originalSummaryMatches": true,
+  "yamuSummaryMatches": true,
+  "cumulativeIdentityMatches": true,
+  "meanMonthlySumMatches": true,
+  "randomSeeds": "0..99; continuous paths",
+  "quantiles": "Nearest rank: 5th and 95th of 100 cumulative path differences; never sum monthly quantiles",
+  "newExperimentRun": false
+}

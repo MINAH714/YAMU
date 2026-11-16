@@ -1,0 +1,8 @@
+{
+  "partial1Versus1000" : "second card",
+  "scope" : "frozen 24 purchases and existing facts; initial and cap boundary values checked separately",
+  "status" : "PASS",
+  "minimumPayment" : "registered zero; positive threshold not applicable",
+  "tie" : "default",
+  "missingInformation" : "throws"
+}

@@ -1,0 +1,966 @@
+[
+  {
+    "Path": "be/src/main/java/com/yamu/be/recommendation/BasicPurchaseSimulation.java",
+    "Hash": "3B2F4A7A763D84085F84069BD72C560C19F8D1B531EA7EE7A577C0C4CCCAAB60"
+  },
+  {
+    "Path": "be/src/main/java/com/yamu/be/recommendation/BenefitConditionEvaluator.java",
+    "Hash": "1B738E3064E2938139993B9515922AF109124ED5360AE34EF563868DEB8DB2CA"
+  },
+  {
+    "Path": "be/src/main/java/com/yamu/be/recommendation/RecommendationInput.java",
+    "Hash": "2B41021328AEC3EB59265740DDB7BDD58C424D1E3B3F8D193A025563E519DD71"
+  },
+  {
+    "Path": "be/src/main/java/com/yamu/be/recommendation/RecommendationInputAssembler.java",
+    "Hash": "DDD3EE2D987778D90136126A727AFDFD450517562E1A3B6FD93EA6FA9843DF29"
+  },
+  {
+    "Path": "be/src/main/java/com/yamu/be/recommendation/RecommendationSelector.java",
+    "Hash": "53E8217B384F340F2FCFECA5FB53CC384C3224FEBEDAF6B212DFBFE156A4C5EC"
+  },
+  {
+    "Path": "be/src/main/java/com/yamu/be/recommendation/RecommendationService.java",
+    "Hash": "1088B7BC4915800423D61C8C78BE19C6A200DA1C8C0045A7D3ACABAF71EC0792"
+  },
+  {
+    "Path": "be/src/test/java/com/yamu/be/recommendation/BasicPurchaseSimulationTest.java",
+    "Hash": "6BA888476656ACEFC69F85DE50448C89A1FF25683B61408D9DDDD5D28442F0F1"
+  },
+  {
+    "Path": "be/src/test/java/com/yamu/be/recommendation/BenefitConditionEvaluatorTest.java",
+    "Hash": "7C5E6CE0DC316DBED33A3F9FE081C2A0E05730F80F92595DBAC5922BC6A096C9"
+  },
+  {
+    "Path": "be/src/test/java/com/yamu/be/recommendation/RecommendationServiceTest.java",
+    "Hash": "DE85631DA07612F711C300724A3C78D9DB81E69EF4C9448B5C43C1545B66F2BD"
+  },
+  {
+    "Path": "be/src/test/java/com/yamu/be/recommendation/SimulationSeedRecommendationDatabaseTest.java",
+    "Hash": "0C2389DE08355F83195FA1D60E51AE691307949B640B0AB2B488A04057D8B8E7"
+  },
+  {
+    "Path": "docs/be/benefit-composition.md",
+    "Hash": "ED8751F2C8333DDE2F3B4207A26E427C063E59CA144605BA10604BB1BD9B8D2F"
+  },
+  {
+    "Path": "be/src/main/java/com/yamu/be/recommendation/CheoeumPurchaseSimulation.java",
+    "Hash": "BF6D5B5FDAB97CA6E7BDFFB2BB4288C9998651898E79900D89840D0F04102443"
+  },
+  {
+    "Path": "be/src/test/java/com/yamu/be/recommendation/CardSelectionConsumptionScaleSupport.java",
+    "Hash": "98687C704F3A5A2573C67FA6A25DFCC4AE0D547018E2E194B95669B7572A7636"
+  },
+  {
+    "Path": "be/src/test/java/com/yamu/be/recommendation/CardSelectionConsumptionScaleTest.java",
+    "Hash": "23CABD7E2DA7642CA6F7514B9EB789A3006C6100CD177B969BE6EEA1114AB21A"
+  },
+  {
+    "Path": "be/src/test/java/com/yamu/be/recommendation/CardSelectionExperimentSupport.java",
+    "Hash": "CF11D30D6D415DA1E3613CA35B7D4A4C07FF1AAAE1EE98CBE6D12A6E4C8B71B1"
+  },
+  {
+    "Path": "be/src/test/java/com/yamu/be/recommendation/CardSelectionExperimentTest.java",
+    "Hash": "3163CFEBB34C3A8DC7DA6482F28F78A7D56D80B3024D897461FB99D28719D445"
+  },
+  {
+    "Path": "be/src/test/java/com/yamu/be/recommendation/CatalogRecommendationMatrixTest.java",
+    "Hash": "EDEF46DC50DD2F619B81877EC927689786B1AABAA02CE77C6EEFE8A07A6EED77"
+  },
+  {
+    "Path": "be/src/test/java/com/yamu/be/recommendation/CheoeumPurchaseSimulationTest.java",
+    "Hash": "40E54AEA128A7017899DE9159D950B03C20F59A1A39A36281F78C3F4E78457FB"
+  },
+  {
+    "Path": "be/src/test/java/com/yamu/be/recommendation/CheoeumStorePurchaseDatabaseTest.java",
+    "Hash": "FF37C4A49CA7D4A7068604A888FA713D928FB388E0E8E5FE2CE9AAD1338E8F29"
+  },
+  {
+    "Path": "be/src/test/java/com/yamu/be/recommendation/MonthlyCardSelectionSimulationSupport.java",
+    "Hash": "BF73AFB97AA068BA723ABDC1EB5768F64F16B1219618EE97772EC7DC7005E463"
+  },
+  {
+    "Path": "be/src/test/java/com/yamu/be/recommendation/MonthlyCardSelectionSimulationTest.java",
+    "Hash": "7B6C17E9D44062C47BC6A9FC9E780C3822ED9040945978430D1A6B8F84CD2A3F"
+  },
+  {
+    "Path": "be/src/test/resources/recommendation/card-selection-exp-002.json",
+    "Hash": "0A2812E158468C866F6DBA43AF82F1DEC8BF2883D8B3E16EB9318B3FF0929F70"
+  },
+  {
+    "Path": "be/src/test/resources/recommendation/card-selection-exp-003.json",
+    "Hash": "9486512B32599AFAAB65F9363BE3556084DE8A2D7079DB48A088EDF9348607DF"
+  },
+  {
+    "Path": "be/src/test/resources/recommendation/monthly-card-selection.json",
+    "Hash": "6893D7F66D13C8010623B499A4D07A9A660336F1C91BD7961F53DE9D8CBF850C"
+  },
+  {
+    "Path": "docs/be/card-benefit-recommendation-presenter.md",
+    "Hash": "4645A9979EB15F34B23F66B030A8B2CF1ECD3CB132D21D7ED6681B69A5CE95F6"
+  },
+  {
+    "Path": "docs/experiments/card-selection/Archive-Execution.ps1",
+    "Hash": "A6E547AC87B68804B0331AF3609DF1034AF7E155B9E99325D855D4F634B03853"
+  },
+  {
+    "Path": "docs/experiments/card-selection/README.md",
+    "Hash": "2EE2FE11EA5C51098204783887E8200E26E70E97514751F47579E9CDB4FD0172"
+  },
+  {
+    "Path": "docs/experiments/card-selection/Verify-Archives.ps1",
+    "Hash": "E3A635325CE1063CD8FEBECF6FAE41EA4308FEAF14DD363FFA06B17CCB4AE379"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/exp003-2026-11-12T15-53-49.629195800Z-c0f56cb2-e64a-4426-b76d-67b3fe9becb0/card-benefit-breakdown.csv",
+    "Hash": "07D21EFAE42C8C9CDBA1C1F02726EFAE164B700578DD8E274E0BAB2BADE9164E"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/exp003-2026-11-12T15-53-49.629195800Z-c0f56cb2-e64a-4426-b76d-67b3fe9becb0/comparison.csv",
+    "Hash": "B1AF15466AAC2FE3CB8D1DCD74437CA0AB96A0F697770D623D7B197B93BC3F2F"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/exp003-2026-11-12T15-53-49.629195800Z-c0f56cb2-e64a-4426-b76d-67b3fe9becb0/comparison.json",
+    "Hash": "04FA5C38412AE1C61362F97CE1581B498A7D639F782B85D1FB317FFB79030C0D"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/exp003-2026-11-12T15-53-49.629195800Z-c0f56cb2-e64a-4426-b76d-67b3fe9becb0/execution-source-checksums.json",
+    "Hash": "CD0DFBFFF759AC133A6032868109E34248C074A0E6325B8D876AC6E6475AA991"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/exp003-2026-11-12T15-53-49.629195800Z-c0f56cb2-e64a-4426-b76d-67b3fe9becb0/execution-source.zip",
+    "Hash": "E139F2D12CF25C01A33482B25A31A94CC60D50B5D61BE8D8570ACC9094CCD804"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/exp003-2026-11-12T15-53-49.629195800Z-c0f56cb2-e64a-4426-b76d-67b3fe9becb0/frozen-extension.json",
+    "Hash": "0A2812E158468C866F6DBA43AF82F1DEC8BF2883D8B3E16EB9318B3FF0929F70"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/exp003-2026-11-12T15-53-49.629195800Z-c0f56cb2-e64a-4426-b76d-67b3fe9becb0/frozen-scale-plan.json",
+    "Hash": "9486512B32599AFAAB65F9363BE3556084DE8A2D7079DB48A088EDF9348607DF"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/exp003-2026-11-12T15-53-49.629195800Z-c0f56cb2-e64a-4426-b76d-67b3fe9becb0/junit-summary.json",
+    "Hash": "3C513699DEE427DB2774FC568E7972A76DB959B54F9DBA8700C34863210AF25F"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/exp003-2026-11-12T15-53-49.629195800Z-c0f56cb2-e64a-4426-b76d-67b3fe9becb0/scale-10-cards-2/assembly-issues.json",
+    "Hash": "5984EAC0C5C6D947241E29DD5671B81A1546CEDF77E08D38438AC47029969AFA"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/exp003-2026-11-12T15-53-49.629195800Z-c0f56cb2-e64a-4426-b76d-67b3fe9becb0/scale-10-cards-2/effective-input.json",
+    "Hash": "CB272992232515943E878F99E60732A64DD6E5F3116FAF6D3F476B58E9BF597B"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/exp003-2026-11-12T15-53-49.629195800Z-c0f56cb2-e64a-4426-b76d-67b3fe9becb0/scale-10-cards-2/frozen-input.json",
+    "Hash": "6893D7F66D13C8010623B499A4D07A9A660336F1C91BD7961F53DE9D8CBF850C"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/exp003-2026-11-12T15-53-49.629195800Z-c0f56cb2-e64a-4426-b76d-67b3fe9becb0/scale-10-cards-2/limit-utilization.csv",
+    "Hash": "C582570D51544F9C40B4C0237FA4269F3184117AABF5820A9350325F38A3309B"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/exp003-2026-11-12T15-53-49.629195800Z-c0f56cb2-e64a-4426-b76d-67b3fe9becb0/scale-10-cards-2/manifest.json",
+    "Hash": "00641C6FD2EF9A664D2CE1F6A2BED28E5822F85007B9FD8F825D09D21BA8D5E8"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/exp003-2026-11-12T15-53-49.629195800Z-c0f56cb2-e64a-4426-b76d-67b3fe9becb0/scale-10-cards-2/manual-checks.json",
+    "Hash": "DC71599F337D0C0B9149E078673407815E4D975E8F591BD07404AC956DE5495D"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/exp003-2026-11-12T15-53-49.629195800Z-c0f56cb2-e64a-4426-b76d-67b3fe9becb0/scale-10-cards-2/manual-checks.md",
+    "Hash": "4C4B03F3134D09B95288C069DB29375E8955DAEE7EE4D25237DE06150776236C"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/exp003-2026-11-12T15-53-49.629195800Z-c0f56cb2-e64a-4426-b76d-67b3fe9becb0/scale-10-cards-2/random-distribution.csv",
+    "Hash": "01DECBA45F77AEE0861953883237A46CCEDFE7629FF702D2B7575DFF60296C95"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/exp003-2026-11-12T15-53-49.629195800Z-c0f56cb2-e64a-4426-b76d-67b3fe9becb0/scale-10-cards-2/random-statistics.json",
+    "Hash": "D9C6ED8F047868125F5085B054D0537374E633EE880FF6E5CD25D9E49332405E"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/exp003-2026-11-12T15-53-49.629195800Z-c0f56cb2-e64a-4426-b76d-67b3fe9becb0/scale-10-cards-2/raw-checksums.json",
+    "Hash": "C933117204FB34FEB7E1E008DD45DAEFFAE4870ED906B2E0C3BE65FAF04EC64E"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/exp003-2026-11-12T15-53-49.629195800Z-c0f56cb2-e64a-4426-b76d-67b3fe9becb0/scale-10-cards-2/raw-records.zip",
+    "Hash": "D2AD89DDD44311E465C2E80FE54343CC12510929CB189CE7442B2FA2F472B445"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/exp003-2026-11-12T15-53-49.629195800Z-c0f56cb2-e64a-4426-b76d-67b3fe9becb0/scale-10-cards-2/report.md",
+    "Hash": "36347B612A0285A60CF880A78FB2B311DA9DC1E89D849933EFD20FD363D62D2C"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/exp003-2026-11-12T15-53-49.629195800Z-c0f56cb2-e64a-4426-b76d-67b3fe9becb0/scale-10-cards-2/summary.csv",
+    "Hash": "11C922BC18DE5BF12AC99152C230AEF0844AA998E3ADECCB9457329E33DDBBCD"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/exp003-2026-11-12T15-53-49.629195800Z-c0f56cb2-e64a-4426-b76d-67b3fe9becb0/scale-10-cards-2/validation.json",
+    "Hash": "D67141E3BBDA2D9C1250CDD8DC2D9AD45A3255F0CA19DA391B1E590B5479B684"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/exp003-2026-11-12T15-53-49.629195800Z-c0f56cb2-e64a-4426-b76d-67b3fe9becb0/scale-10-cards-3/assembly-issues.json",
+    "Hash": "5984EAC0C5C6D947241E29DD5671B81A1546CEDF77E08D38438AC47029969AFA"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/exp003-2026-11-12T15-53-49.629195800Z-c0f56cb2-e64a-4426-b76d-67b3fe9becb0/scale-10-cards-3/effective-input.json",
+    "Hash": "F7C25AFDAD28E1DAD7271CA9E69C665CCF7657F73BA6BCC243E384A6A73AECF8"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/exp003-2026-11-12T15-53-49.629195800Z-c0f56cb2-e64a-4426-b76d-67b3fe9becb0/scale-10-cards-3/frozen-input.json",
+    "Hash": "6893D7F66D13C8010623B499A4D07A9A660336F1C91BD7961F53DE9D8CBF850C"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/exp003-2026-11-12T15-53-49.629195800Z-c0f56cb2-e64a-4426-b76d-67b3fe9becb0/scale-10-cards-3/limit-utilization.csv",
+    "Hash": "27300B2C4BBFEC5E6BE2E595CF78BB3C6421B43280CD73A44FE670D8585BDCCD"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/exp003-2026-11-12T15-53-49.629195800Z-c0f56cb2-e64a-4426-b76d-67b3fe9becb0/scale-10-cards-3/manifest.json",
+    "Hash": "6B899A02E96BB7983C3939E8324D38933CB5B873EE0B685DF81531FE873CB922"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/exp003-2026-11-12T15-53-49.629195800Z-c0f56cb2-e64a-4426-b76d-67b3fe9becb0/scale-10-cards-3/manual-checks.json",
+    "Hash": "14C289C1836D20F3DC1C663BFF5198EEA8F9D0AC53CCF9A91A5201115FA62523"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/exp003-2026-11-12T15-53-49.629195800Z-c0f56cb2-e64a-4426-b76d-67b3fe9becb0/scale-10-cards-3/manual-checks.md",
+    "Hash": "4C4B03F3134D09B95288C069DB29375E8955DAEE7EE4D25237DE06150776236C"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/exp003-2026-11-12T15-53-49.629195800Z-c0f56cb2-e64a-4426-b76d-67b3fe9becb0/scale-10-cards-3/random-distribution.csv",
+    "Hash": "AFF9B9D28497A7FD9CB00BDD2C92FDD14FA174E52F74D0003C54EA4AEF335B65"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/exp003-2026-11-12T15-53-49.629195800Z-c0f56cb2-e64a-4426-b76d-67b3fe9becb0/scale-10-cards-3/random-statistics.json",
+    "Hash": "7B904C221ACB55A19061E7FEC5038139C0909FC82DB89DCCE86FA4BCBFB04FFC"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/exp003-2026-11-12T15-53-49.629195800Z-c0f56cb2-e64a-4426-b76d-67b3fe9becb0/scale-10-cards-3/raw-checksums.json",
+    "Hash": "8B9A3BBAB3E62D18FD8659B21845D013389921A69B77D9E25A13D1D18EE45D38"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/exp003-2026-11-12T15-53-49.629195800Z-c0f56cb2-e64a-4426-b76d-67b3fe9becb0/scale-10-cards-3/raw-records.zip",
+    "Hash": "329C37E2D1948A32EF7326ACE6BA948C271F343EB69FD730067428B36376A12F"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/exp003-2026-11-12T15-53-49.629195800Z-c0f56cb2-e64a-4426-b76d-67b3fe9becb0/scale-10-cards-3/report.md",
+    "Hash": "A1CA7CF6174865271372543A14B2A78A625E7C9B328282CFBEF6A0A046F51D40"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/exp003-2026-11-12T15-53-49.629195800Z-c0f56cb2-e64a-4426-b76d-67b3fe9becb0/scale-10-cards-3/summary.csv",
+    "Hash": "24F41145729EF60BD2AFB8EBBF40C1339D6125D7C2E2886D1252FF8B9296A3E4"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/exp003-2026-11-12T15-53-49.629195800Z-c0f56cb2-e64a-4426-b76d-67b3fe9becb0/scale-10-cards-3/validation.json",
+    "Hash": "369526397F0CF2740012397F2082205E95419B36EB8B6F824D3F2608D4165631"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/exp003-2026-11-12T15-53-49.629195800Z-c0f56cb2-e64a-4426-b76d-67b3fe9becb0/scale-15-cards-2/assembly-issues.json",
+    "Hash": "5984EAC0C5C6D947241E29DD5671B81A1546CEDF77E08D38438AC47029969AFA"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/exp003-2026-11-12T15-53-49.629195800Z-c0f56cb2-e64a-4426-b76d-67b3fe9becb0/scale-15-cards-2/effective-input.json",
+    "Hash": "054BF03F9C381C806CEC43F836A469EADFFB1A59D2341E8C6F40789FEA855035"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/exp003-2026-11-12T15-53-49.629195800Z-c0f56cb2-e64a-4426-b76d-67b3fe9becb0/scale-15-cards-2/frozen-input.json",
+    "Hash": "6893D7F66D13C8010623B499A4D07A9A660336F1C91BD7961F53DE9D8CBF850C"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/exp003-2026-11-12T15-53-49.629195800Z-c0f56cb2-e64a-4426-b76d-67b3fe9becb0/scale-15-cards-2/limit-utilization.csv",
+    "Hash": "96262B09000C697C292D2C08557F3BD87F3187FCE2B46B3490A32A5519379FD4"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/exp003-2026-11-12T15-53-49.629195800Z-c0f56cb2-e64a-4426-b76d-67b3fe9becb0/scale-15-cards-2/manifest.json",
+    "Hash": "E188039957123C7B9DA94A6F5FA3A92CF0FC8BCA57A14B3C3C644047F3E93C91"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/exp003-2026-11-12T15-53-49.629195800Z-c0f56cb2-e64a-4426-b76d-67b3fe9becb0/scale-15-cards-2/manual-checks.json",
+    "Hash": "A7478FA43CBD24358D33895F73EDE20E4248D1682BF36BCF19118EB280722F2A"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/exp003-2026-11-12T15-53-49.629195800Z-c0f56cb2-e64a-4426-b76d-67b3fe9becb0/scale-15-cards-2/manual-checks.md",
+    "Hash": "4C4B03F3134D09B95288C069DB29375E8955DAEE7EE4D25237DE06150776236C"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/exp003-2026-11-12T15-53-49.629195800Z-c0f56cb2-e64a-4426-b76d-67b3fe9becb0/scale-15-cards-2/random-distribution.csv",
+    "Hash": "2ACD0D635820C84D21C4B263AA54CBBA5D42486D2160562ED62536AB16B8294A"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/exp003-2026-11-12T15-53-49.629195800Z-c0f56cb2-e64a-4426-b76d-67b3fe9becb0/scale-15-cards-2/random-statistics.json",
+    "Hash": "16E6A250D6C00BD22A09E652CD6BB45D3E27F8278ED212345E692D4A39E4A88A"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/exp003-2026-11-12T15-53-49.629195800Z-c0f56cb2-e64a-4426-b76d-67b3fe9becb0/scale-15-cards-2/raw-checksums.json",
+    "Hash": "C9F6C2CFBF0E77370CCB00450B126FA7B5C47A7F4F48AB3F1408A0379DB9D9EC"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/exp003-2026-11-12T15-53-49.629195800Z-c0f56cb2-e64a-4426-b76d-67b3fe9becb0/scale-15-cards-2/raw-records.zip",
+    "Hash": "36C77DEBCE2AB45899A3E58E69DA7C2C76F349BC6F8D9C8471A708E44A739AAD"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/exp003-2026-11-12T15-53-49.629195800Z-c0f56cb2-e64a-4426-b76d-67b3fe9becb0/scale-15-cards-2/report.md",
+    "Hash": "520F6F4781208C5BC65E8E15551F522EEE12C82E8C17E9AFD841D35F16FD3F36"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/exp003-2026-11-12T15-53-49.629195800Z-c0f56cb2-e64a-4426-b76d-67b3fe9becb0/scale-15-cards-2/summary.csv",
+    "Hash": "9A4878D77A3EFAD555BBC1FCBF87451677940DB22FCD1B94467794E437D795AE"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/exp003-2026-11-12T15-53-49.629195800Z-c0f56cb2-e64a-4426-b76d-67b3fe9becb0/scale-15-cards-2/validation.json",
+    "Hash": "D67141E3BBDA2D9C1250CDD8DC2D9AD45A3255F0CA19DA391B1E590B5479B684"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/exp003-2026-11-12T15-53-49.629195800Z-c0f56cb2-e64a-4426-b76d-67b3fe9becb0/scale-15-cards-3/assembly-issues.json",
+    "Hash": "5984EAC0C5C6D947241E29DD5671B81A1546CEDF77E08D38438AC47029969AFA"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/exp003-2026-11-12T15-53-49.629195800Z-c0f56cb2-e64a-4426-b76d-67b3fe9becb0/scale-15-cards-3/effective-input.json",
+    "Hash": "6AC08509FA980B4E73EB191E5C7273E6873A597F7E976589192E3E8618C9B407"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/exp003-2026-11-12T15-53-49.629195800Z-c0f56cb2-e64a-4426-b76d-67b3fe9becb0/scale-15-cards-3/frozen-input.json",
+    "Hash": "6893D7F66D13C8010623B499A4D07A9A660336F1C91BD7961F53DE9D8CBF850C"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/exp003-2026-11-12T15-53-49.629195800Z-c0f56cb2-e64a-4426-b76d-67b3fe9becb0/scale-15-cards-3/limit-utilization.csv",
+    "Hash": "7E19521D793482016FFD94969DCA92868517F628914E468B62F7D00AB9E825C0"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/exp003-2026-11-12T15-53-49.629195800Z-c0f56cb2-e64a-4426-b76d-67b3fe9becb0/scale-15-cards-3/manifest.json",
+    "Hash": "82CDB1568BF1DC85024628318F0BC5314749F4A302FF3B853FC31F80D1A162CE"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/exp003-2026-11-12T15-53-49.629195800Z-c0f56cb2-e64a-4426-b76d-67b3fe9becb0/scale-15-cards-3/manual-checks.json",
+    "Hash": "A55F5BAB8EFCCE4F6CEC49DE838D6D0419C5C590E42E2CDE497CC5E42EFAE7DD"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/exp003-2026-11-12T15-53-49.629195800Z-c0f56cb2-e64a-4426-b76d-67b3fe9becb0/scale-15-cards-3/manual-checks.md",
+    "Hash": "4C4B03F3134D09B95288C069DB29375E8955DAEE7EE4D25237DE06150776236C"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/exp003-2026-11-12T15-53-49.629195800Z-c0f56cb2-e64a-4426-b76d-67b3fe9becb0/scale-15-cards-3/random-distribution.csv",
+    "Hash": "3A2B3E5E20C6DE69213E67E762A0B9AC56292E5969442F0DC94BE826FCAAA1E5"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/exp003-2026-11-12T15-53-49.629195800Z-c0f56cb2-e64a-4426-b76d-67b3fe9becb0/scale-15-cards-3/random-statistics.json",
+    "Hash": "F92354C964A15AC703F163A645FC6286CF28990014BF4BF1AB2E887D144469A3"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/exp003-2026-11-12T15-53-49.629195800Z-c0f56cb2-e64a-4426-b76d-67b3fe9becb0/scale-15-cards-3/raw-checksums.json",
+    "Hash": "1E1D9B67F486D49E4EB0E0B218CB0161D431449930FCD4D0B07DBF5CB3064832"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/exp003-2026-11-12T15-53-49.629195800Z-c0f56cb2-e64a-4426-b76d-67b3fe9becb0/scale-15-cards-3/raw-records.zip",
+    "Hash": "C257094E270BA11CA987614C03CD57A89428D91933F34B3C896949F8DFABBFCC"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/exp003-2026-11-12T15-53-49.629195800Z-c0f56cb2-e64a-4426-b76d-67b3fe9becb0/scale-15-cards-3/report.md",
+    "Hash": "63E72DDB9F8E2E71CBCCB16EDF7DC44C51D334D8F8710F08A780CF2A8B792A38"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/exp003-2026-11-12T15-53-49.629195800Z-c0f56cb2-e64a-4426-b76d-67b3fe9becb0/scale-15-cards-3/summary.csv",
+    "Hash": "9ABEDE4261345B159C5F603AC21B7F55344918CC8668F474586392B567E1B547"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/exp003-2026-11-12T15-53-49.629195800Z-c0f56cb2-e64a-4426-b76d-67b3fe9becb0/scale-15-cards-3/validation.json",
+    "Hash": "369526397F0CF2740012397F2082205E95419B36EB8B6F824D3F2608D4165631"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/exp003-2026-11-12T15-53-49.629195800Z-c0f56cb2-e64a-4426-b76d-67b3fe9becb0/scale-25-cards-2/assembly-issues.json",
+    "Hash": "5984EAC0C5C6D947241E29DD5671B81A1546CEDF77E08D38438AC47029969AFA"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/exp003-2026-11-12T15-53-49.629195800Z-c0f56cb2-e64a-4426-b76d-67b3fe9becb0/scale-25-cards-2/effective-input.json",
+    "Hash": "8F452033F9819CD05B4A01ED7BA6C658832BBB17C490C3AD6401D35181767BE4"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/exp003-2026-11-12T15-53-49.629195800Z-c0f56cb2-e64a-4426-b76d-67b3fe9becb0/scale-25-cards-2/frozen-input.json",
+    "Hash": "6893D7F66D13C8010623B499A4D07A9A660336F1C91BD7961F53DE9D8CBF850C"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/exp003-2026-11-12T15-53-49.629195800Z-c0f56cb2-e64a-4426-b76d-67b3fe9becb0/scale-25-cards-2/limit-utilization.csv",
+    "Hash": "FD446EF1CFBDCBF38451954A43227640DC102171082913105723A6C4C964E8BD"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/exp003-2026-11-12T15-53-49.629195800Z-c0f56cb2-e64a-4426-b76d-67b3fe9becb0/scale-25-cards-2/manifest.json",
+    "Hash": "7AE19FD9DB52C64CE71710A9F160B806CDF12E7DB72805AE9EB2A91E80CA02B8"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/exp003-2026-11-12T15-53-49.629195800Z-c0f56cb2-e64a-4426-b76d-67b3fe9becb0/scale-25-cards-2/manual-checks.json",
+    "Hash": "9087B7AD2F8BE0B8154F17958300CD0EAE10C5C2DA0DD15D3A2ED997BF1D9E24"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/exp003-2026-11-12T15-53-49.629195800Z-c0f56cb2-e64a-4426-b76d-67b3fe9becb0/scale-25-cards-2/manual-checks.md",
+    "Hash": "4C4B03F3134D09B95288C069DB29375E8955DAEE7EE4D25237DE06150776236C"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/exp003-2026-11-12T15-53-49.629195800Z-c0f56cb2-e64a-4426-b76d-67b3fe9becb0/scale-25-cards-2/random-distribution.csv",
+    "Hash": "CC4C33B27C62363E91EBC28D5C41181754DECB0169219EC9424CD42F70230FAF"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/exp003-2026-11-12T15-53-49.629195800Z-c0f56cb2-e64a-4426-b76d-67b3fe9becb0/scale-25-cards-2/random-statistics.json",
+    "Hash": "53B0FB9C544F0D6A1D9172B1FA3237B4DD7D71976CA61652272145896073F948"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/exp003-2026-11-12T15-53-49.629195800Z-c0f56cb2-e64a-4426-b76d-67b3fe9becb0/scale-25-cards-2/raw-checksums.json",
+    "Hash": "7100EC771C5E150E68A33E484CCD15A1621671E7D835CE653A3D8BA9C3FADE32"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/exp003-2026-11-12T15-53-49.629195800Z-c0f56cb2-e64a-4426-b76d-67b3fe9becb0/scale-25-cards-2/raw-records.zip",
+    "Hash": "1F9C83608BBB0C883052BC8562CA13721A08CECAA4DE9D00F84620DA73D31860"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/exp003-2026-11-12T15-53-49.629195800Z-c0f56cb2-e64a-4426-b76d-67b3fe9becb0/scale-25-cards-2/report.md",
+    "Hash": "71A36A13738EEFFD51E3F0D858B45CF0884D8BB7054105FAEE899EF928281CD1"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/exp003-2026-11-12T15-53-49.629195800Z-c0f56cb2-e64a-4426-b76d-67b3fe9becb0/scale-25-cards-2/summary.csv",
+    "Hash": "583D0F2E6C23B2EA2303F7BB18FF5CDCD52FFDEB8B9F1015F0041064F2E8E40D"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/exp003-2026-11-12T15-53-49.629195800Z-c0f56cb2-e64a-4426-b76d-67b3fe9becb0/scale-25-cards-2/validation.json",
+    "Hash": "D67141E3BBDA2D9C1250CDD8DC2D9AD45A3255F0CA19DA391B1E590B5479B684"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/exp003-2026-11-12T15-53-49.629195800Z-c0f56cb2-e64a-4426-b76d-67b3fe9becb0/scale-25-cards-3/assembly-issues.json",
+    "Hash": "5984EAC0C5C6D947241E29DD5671B81A1546CEDF77E08D38438AC47029969AFA"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/exp003-2026-11-12T15-53-49.629195800Z-c0f56cb2-e64a-4426-b76d-67b3fe9becb0/scale-25-cards-3/effective-input.json",
+    "Hash": "03F913132B4384CB176B0C8D681C385862EC5A29EC490D91651EFA41ADC96B05"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/exp003-2026-11-12T15-53-49.629195800Z-c0f56cb2-e64a-4426-b76d-67b3fe9becb0/scale-25-cards-3/frozen-input.json",
+    "Hash": "6893D7F66D13C8010623B499A4D07A9A660336F1C91BD7961F53DE9D8CBF850C"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/exp003-2026-11-12T15-53-49.629195800Z-c0f56cb2-e64a-4426-b76d-67b3fe9becb0/scale-25-cards-3/limit-utilization.csv",
+    "Hash": "8588B8EAC8F25B0E8ECC2A134C73734E00F7EDFB19FBA6A97670590D45B8224A"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/exp003-2026-11-12T15-53-49.629195800Z-c0f56cb2-e64a-4426-b76d-67b3fe9becb0/scale-25-cards-3/manifest.json",
+    "Hash": "03C61472C59155FDA0B3D893B3BDFFFBC5D8B0B2C4716E3F8D92F40EC5F23836"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/exp003-2026-11-12T15-53-49.629195800Z-c0f56cb2-e64a-4426-b76d-67b3fe9becb0/scale-25-cards-3/manual-checks.json",
+    "Hash": "A51A3AB904A5640D044E7304A2A7822F2A73B3712805F62C3A98B320B6EEDD22"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/exp003-2026-11-12T15-53-49.629195800Z-c0f56cb2-e64a-4426-b76d-67b3fe9becb0/scale-25-cards-3/manual-checks.md",
+    "Hash": "4C4B03F3134D09B95288C069DB29375E8955DAEE7EE4D25237DE06150776236C"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/exp003-2026-11-12T15-53-49.629195800Z-c0f56cb2-e64a-4426-b76d-67b3fe9becb0/scale-25-cards-3/random-distribution.csv",
+    "Hash": "6A4AA0BF7642C9CF02C195B6BBD5981314245DB8D8DCE6E12AC44CA3581AD2A5"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/exp003-2026-11-12T15-53-49.629195800Z-c0f56cb2-e64a-4426-b76d-67b3fe9becb0/scale-25-cards-3/random-statistics.json",
+    "Hash": "E8B1AE3969FD4A35DF684FB41AE376E1D6065EF5869333C7F925341D536198C0"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/exp003-2026-11-12T15-53-49.629195800Z-c0f56cb2-e64a-4426-b76d-67b3fe9becb0/scale-25-cards-3/raw-checksums.json",
+    "Hash": "91ACDC25CF9F54FAE7C9936925A0E7CDAC8144D4DC3FE6105B3A2439D0FB6040"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/exp003-2026-11-12T15-53-49.629195800Z-c0f56cb2-e64a-4426-b76d-67b3fe9becb0/scale-25-cards-3/raw-records.zip",
+    "Hash": "E455B144F109003A3A36E7AABD966FED063700E3DA19F8F95502810F1807D8E0"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/exp003-2026-11-12T15-53-49.629195800Z-c0f56cb2-e64a-4426-b76d-67b3fe9becb0/scale-25-cards-3/report.md",
+    "Hash": "9D21B0FBD12BD04D66F6A0CEA158766CE370DD7299C49D7F873A235CB5DC09D1"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/exp003-2026-11-12T15-53-49.629195800Z-c0f56cb2-e64a-4426-b76d-67b3fe9becb0/scale-25-cards-3/summary.csv",
+    "Hash": "64D49D36B3105F2561163B15164489919A5539D3526A6CD7424BD9B8DF8CECEF"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/exp003-2026-11-12T15-53-49.629195800Z-c0f56cb2-e64a-4426-b76d-67b3fe9becb0/scale-25-cards-3/validation.json",
+    "Hash": "369526397F0CF2740012397F2082205E95419B36EB8B6F824D3F2608D4165631"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/exp003-2026-11-12T15-53-49.629195800Z-c0f56cb2-e64a-4426-b76d-67b3fe9becb0/scale-50-cards-2/assembly-issues.json",
+    "Hash": "5984EAC0C5C6D947241E29DD5671B81A1546CEDF77E08D38438AC47029969AFA"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/exp003-2026-11-12T15-53-49.629195800Z-c0f56cb2-e64a-4426-b76d-67b3fe9becb0/scale-50-cards-2/effective-input.json",
+    "Hash": "EA8F2C2E9F7D9F1C5ACDC3ABBA677ED12DCFFD7C5F1C86CE67319625CB7FD95D"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/exp003-2026-11-12T15-53-49.629195800Z-c0f56cb2-e64a-4426-b76d-67b3fe9becb0/scale-50-cards-2/frozen-input.json",
+    "Hash": "6893D7F66D13C8010623B499A4D07A9A660336F1C91BD7961F53DE9D8CBF850C"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/exp003-2026-11-12T15-53-49.629195800Z-c0f56cb2-e64a-4426-b76d-67b3fe9becb0/scale-50-cards-2/limit-utilization.csv",
+    "Hash": "288F8252E21FBC4AD7B6DA8E168B94866F4452794F84F53B14E2D459001D7667"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/exp003-2026-11-12T15-53-49.629195800Z-c0f56cb2-e64a-4426-b76d-67b3fe9becb0/scale-50-cards-2/manifest.json",
+    "Hash": "F83FA81E09E50EBA02D0C61DFF40E7C2DACCA64EDDAB5A6A3F4BE2A40BA54273"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/exp003-2026-11-12T15-53-49.629195800Z-c0f56cb2-e64a-4426-b76d-67b3fe9becb0/scale-50-cards-2/manual-checks.json",
+    "Hash": "F1A927D14C0A4D0E5B1C81DB5613C5114C966A2AFBA694F4B524EFF2CFBD7B1B"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/exp003-2026-11-12T15-53-49.629195800Z-c0f56cb2-e64a-4426-b76d-67b3fe9becb0/scale-50-cards-2/manual-checks.md",
+    "Hash": "4C4B03F3134D09B95288C069DB29375E8955DAEE7EE4D25237DE06150776236C"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/exp003-2026-11-12T15-53-49.629195800Z-c0f56cb2-e64a-4426-b76d-67b3fe9becb0/scale-50-cards-2/random-distribution.csv",
+    "Hash": "6666F07D811B878E8329C1E29C4BFE3B9DB4EFDAE62613CA2C74388CDF63BE42"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/exp003-2026-11-12T15-53-49.629195800Z-c0f56cb2-e64a-4426-b76d-67b3fe9becb0/scale-50-cards-2/random-statistics.json",
+    "Hash": "FC14E2282CE93A9F3DA6C7A582D95C9EBA7A79CE1CC23EAD980CC23A2719F7D2"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/exp003-2026-11-12T15-53-49.629195800Z-c0f56cb2-e64a-4426-b76d-67b3fe9becb0/scale-50-cards-2/raw-checksums.json",
+    "Hash": "E831FBF62F0C0538D00B68F0CD6F100CCB2853D344C3CEC6C1E0FA14824BB28E"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/exp003-2026-11-12T15-53-49.629195800Z-c0f56cb2-e64a-4426-b76d-67b3fe9becb0/scale-50-cards-2/raw-records.zip",
+    "Hash": "20229013969319A59FFAA5A0FB6BD0720C426DAD76E589B4ED86568BA76D179A"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/exp003-2026-11-12T15-53-49.629195800Z-c0f56cb2-e64a-4426-b76d-67b3fe9becb0/scale-50-cards-2/report.md",
+    "Hash": "3EEA5046EBCE1B8F9BD328003474EDBBBD40A51CDA0FECDFE3EC1470AC448F39"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/exp003-2026-11-12T15-53-49.629195800Z-c0f56cb2-e64a-4426-b76d-67b3fe9becb0/scale-50-cards-2/summary.csv",
+    "Hash": "3B96FFB0A42A9EA9EBE2444767075E67E5E961D6F1BB90D815CEE5C6047942F4"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/exp003-2026-11-12T15-53-49.629195800Z-c0f56cb2-e64a-4426-b76d-67b3fe9becb0/scale-50-cards-2/validation.json",
+    "Hash": "D67141E3BBDA2D9C1250CDD8DC2D9AD45A3255F0CA19DA391B1E590B5479B684"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/exp003-2026-11-12T15-53-49.629195800Z-c0f56cb2-e64a-4426-b76d-67b3fe9becb0/scale-50-cards-3/assembly-issues.json",
+    "Hash": "5984EAC0C5C6D947241E29DD5671B81A1546CEDF77E08D38438AC47029969AFA"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/exp003-2026-11-12T15-53-49.629195800Z-c0f56cb2-e64a-4426-b76d-67b3fe9becb0/scale-50-cards-3/effective-input.json",
+    "Hash": "483B96781AB577CF2A73CA8E00CFE2FB90894A8ED2279A631EAC3E49AB19AB43"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/exp003-2026-11-12T15-53-49.629195800Z-c0f56cb2-e64a-4426-b76d-67b3fe9becb0/scale-50-cards-3/frozen-input.json",
+    "Hash": "6893D7F66D13C8010623B499A4D07A9A660336F1C91BD7961F53DE9D8CBF850C"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/exp003-2026-11-12T15-53-49.629195800Z-c0f56cb2-e64a-4426-b76d-67b3fe9becb0/scale-50-cards-3/limit-utilization.csv",
+    "Hash": "65D2A15EA2DAAF738A1C7A57C22F6C6E0729F9A080F57FB99741E88BBE255761"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/exp003-2026-11-12T15-53-49.629195800Z-c0f56cb2-e64a-4426-b76d-67b3fe9becb0/scale-50-cards-3/manifest.json",
+    "Hash": "D0CD50086E1A3842B6C54CB9C05FF3095E91FD7661B199986EDFC1CF5884C91D"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/exp003-2026-11-12T15-53-49.629195800Z-c0f56cb2-e64a-4426-b76d-67b3fe9becb0/scale-50-cards-3/manual-checks.json",
+    "Hash": "E988E6047AFF7479D8F8B4A12575101733AA8EB2B294EB3C59CCF9B4BEA9DCDF"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/exp003-2026-11-12T15-53-49.629195800Z-c0f56cb2-e64a-4426-b76d-67b3fe9becb0/scale-50-cards-3/manual-checks.md",
+    "Hash": "4C4B03F3134D09B95288C069DB29375E8955DAEE7EE4D25237DE06150776236C"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/exp003-2026-11-12T15-53-49.629195800Z-c0f56cb2-e64a-4426-b76d-67b3fe9becb0/scale-50-cards-3/random-distribution.csv",
+    "Hash": "FA572EEBC22FE972BBDE0930085058A1304E7B8E94C78E6FCADC7DBBFBAD3E65"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/exp003-2026-11-12T15-53-49.629195800Z-c0f56cb2-e64a-4426-b76d-67b3fe9becb0/scale-50-cards-3/random-statistics.json",
+    "Hash": "2C4BB9F64B9BD28864AE95EE6FA70A805F9990495E0FF04EEE7F0F754F5E9902"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/exp003-2026-11-12T15-53-49.629195800Z-c0f56cb2-e64a-4426-b76d-67b3fe9becb0/scale-50-cards-3/raw-checksums.json",
+    "Hash": "EABA8FB83E16C60D7CEFC6C459A04E0150F23DF9D72854F1A8FA02D90114F9D1"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/exp003-2026-11-12T15-53-49.629195800Z-c0f56cb2-e64a-4426-b76d-67b3fe9becb0/scale-50-cards-3/raw-records.zip",
+    "Hash": "6F9696C4554B14C2EDF8898108156F36A600D33569878872E76718BB877541F3"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/exp003-2026-11-12T15-53-49.629195800Z-c0f56cb2-e64a-4426-b76d-67b3fe9becb0/scale-50-cards-3/report.md",
+    "Hash": "CB39DFFF8363DAEC77CB645C43A4456597BF32F134471AA63C43307867A26066"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/exp003-2026-11-12T15-53-49.629195800Z-c0f56cb2-e64a-4426-b76d-67b3fe9becb0/scale-50-cards-3/summary.csv",
+    "Hash": "D9EB12E0C76297A02917F4F9A2B0363E80E496918391E216DB59943068D09737"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/exp003-2026-11-12T15-53-49.629195800Z-c0f56cb2-e64a-4426-b76d-67b3fe9becb0/scale-50-cards-3/validation.json",
+    "Hash": "369526397F0CF2740012397F2082205E95419B36EB8B6F824D3F2608D4165631"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/exp003-2026-11-12T15-53-49.629195800Z-c0f56cb2-e64a-4426-b76d-67b3fe9becb0/scale-75-cards-2/assembly-issues.json",
+    "Hash": "5984EAC0C5C6D947241E29DD5671B81A1546CEDF77E08D38438AC47029969AFA"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/exp003-2026-11-12T15-53-49.629195800Z-c0f56cb2-e64a-4426-b76d-67b3fe9becb0/scale-75-cards-2/effective-input.json",
+    "Hash": "8A7EB951B23133386F930BCDA50E96B1025AA97743D64BFB0FAE40FACDB41253"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/exp003-2026-11-12T15-53-49.629195800Z-c0f56cb2-e64a-4426-b76d-67b3fe9becb0/scale-75-cards-2/frozen-input.json",
+    "Hash": "6893D7F66D13C8010623B499A4D07A9A660336F1C91BD7961F53DE9D8CBF850C"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/exp003-2026-11-12T15-53-49.629195800Z-c0f56cb2-e64a-4426-b76d-67b3fe9becb0/scale-75-cards-2/limit-utilization.csv",
+    "Hash": "AAE1DE59A51B822A7A01EF13B1CD5AD2E835237AB55E2F1691F8DA84DE51B8EF"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/exp003-2026-11-12T15-53-49.629195800Z-c0f56cb2-e64a-4426-b76d-67b3fe9becb0/scale-75-cards-2/manifest.json",
+    "Hash": "4A714E04971E2B022D9EB0045FDD986E65F47206D6EA24B28DE04C1456F4051C"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/exp003-2026-11-12T15-53-49.629195800Z-c0f56cb2-e64a-4426-b76d-67b3fe9becb0/scale-75-cards-2/manual-checks.json",
+    "Hash": "5B91D067241D2576B49602CB764750F63E28B7B4F26A620E167598DB22AA9EE4"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/exp003-2026-11-12T15-53-49.629195800Z-c0f56cb2-e64a-4426-b76d-67b3fe9becb0/scale-75-cards-2/manual-checks.md",
+    "Hash": "4C4B03F3134D09B95288C069DB29375E8955DAEE7EE4D25237DE06150776236C"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/exp003-2026-11-12T15-53-49.629195800Z-c0f56cb2-e64a-4426-b76d-67b3fe9becb0/scale-75-cards-2/random-distribution.csv",
+    "Hash": "CC52B0310694C500329BF28E420E98790C0508C48533BEFDD9AD83380A52D39D"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/exp003-2026-11-12T15-53-49.629195800Z-c0f56cb2-e64a-4426-b76d-67b3fe9becb0/scale-75-cards-2/random-statistics.json",
+    "Hash": "E7970B4B8A75009E4075E5CD913EE4051993EDF64EF14C3A3039E5F5AA3687CA"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/exp003-2026-11-12T15-53-49.629195800Z-c0f56cb2-e64a-4426-b76d-67b3fe9becb0/scale-75-cards-2/raw-checksums.json",
+    "Hash": "1F38D41A27D17BC8067E91EA8D3E367032BB98E316AC97D67ED1AD213E032D38"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/exp003-2026-11-12T15-53-49.629195800Z-c0f56cb2-e64a-4426-b76d-67b3fe9becb0/scale-75-cards-2/raw-records.zip",
+    "Hash": "FFF83F16F4AC7B172805B6DEFA7AD39D9454D885E48914D865B1167143285818"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/exp003-2026-11-12T15-53-49.629195800Z-c0f56cb2-e64a-4426-b76d-67b3fe9becb0/scale-75-cards-2/report.md",
+    "Hash": "4AEEE6B46EA746A06D568329230A82005EFA7FC31A64C35A2E11C3EC760B3478"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/exp003-2026-11-12T15-53-49.629195800Z-c0f56cb2-e64a-4426-b76d-67b3fe9becb0/scale-75-cards-2/summary.csv",
+    "Hash": "D6D6C63852E845BA1FB892B26CDF03C91C9AEB6331312C264FB07A88DE37689D"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/exp003-2026-11-12T15-53-49.629195800Z-c0f56cb2-e64a-4426-b76d-67b3fe9becb0/scale-75-cards-2/validation.json",
+    "Hash": "D67141E3BBDA2D9C1250CDD8DC2D9AD45A3255F0CA19DA391B1E590B5479B684"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/exp003-2026-11-12T15-53-49.629195800Z-c0f56cb2-e64a-4426-b76d-67b3fe9becb0/scale-75-cards-3/assembly-issues.json",
+    "Hash": "5984EAC0C5C6D947241E29DD5671B81A1546CEDF77E08D38438AC47029969AFA"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/exp003-2026-11-12T15-53-49.629195800Z-c0f56cb2-e64a-4426-b76d-67b3fe9becb0/scale-75-cards-3/effective-input.json",
+    "Hash": "BB01EAE1EB45DA7222A41B0F61D4EDD870D7DC24AF58B45607FF9289EA633011"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/exp003-2026-11-12T15-53-49.629195800Z-c0f56cb2-e64a-4426-b76d-67b3fe9becb0/scale-75-cards-3/frozen-input.json",
+    "Hash": "6893D7F66D13C8010623B499A4D07A9A660336F1C91BD7961F53DE9D8CBF850C"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/exp003-2026-11-12T15-53-49.629195800Z-c0f56cb2-e64a-4426-b76d-67b3fe9becb0/scale-75-cards-3/limit-utilization.csv",
+    "Hash": "CD3B8F92808CC25E015F0320C9FDB7DF665700ACA5EA8257DE3418E15AE28C05"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/exp003-2026-11-12T15-53-49.629195800Z-c0f56cb2-e64a-4426-b76d-67b3fe9becb0/scale-75-cards-3/manifest.json",
+    "Hash": "AA27729394B7939063C450470451A3038FBA83843C44C6F391AA956AE0079E80"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/exp003-2026-11-12T15-53-49.629195800Z-c0f56cb2-e64a-4426-b76d-67b3fe9becb0/scale-75-cards-3/manual-checks.json",
+    "Hash": "3D71680FF6F827B33A3F3E8E5B457B390700174B00A9C39A3D2303823594FBDF"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/exp003-2026-11-12T15-53-49.629195800Z-c0f56cb2-e64a-4426-b76d-67b3fe9becb0/scale-75-cards-3/manual-checks.md",
+    "Hash": "4C4B03F3134D09B95288C069DB29375E8955DAEE7EE4D25237DE06150776236C"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/exp003-2026-11-12T15-53-49.629195800Z-c0f56cb2-e64a-4426-b76d-67b3fe9becb0/scale-75-cards-3/random-distribution.csv",
+    "Hash": "784C7D661363DB9700CC96C1F55C9860BCA94A765E15059C7FFCE6639FE707B0"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/exp003-2026-11-12T15-53-49.629195800Z-c0f56cb2-e64a-4426-b76d-67b3fe9becb0/scale-75-cards-3/random-statistics.json",
+    "Hash": "58FC13F77E73F0997952F094CCCF8987090FA3033805820744A79174FDB82B3C"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/exp003-2026-11-12T15-53-49.629195800Z-c0f56cb2-e64a-4426-b76d-67b3fe9becb0/scale-75-cards-3/raw-checksums.json",
+    "Hash": "6678C7AA439AC814881F20281DC715FC9349649B5A20B09E0A0C2E690444BDCF"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/exp003-2026-11-12T15-53-49.629195800Z-c0f56cb2-e64a-4426-b76d-67b3fe9becb0/scale-75-cards-3/raw-records.zip",
+    "Hash": "0B9A44E7A89157115889D5AA04B53C5546D3199DD61789AEF229BC66226369BA"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/exp003-2026-11-12T15-53-49.629195800Z-c0f56cb2-e64a-4426-b76d-67b3fe9becb0/scale-75-cards-3/report.md",
+    "Hash": "64562543331121379B23C5BDDD1A62B94ED5A1567BB3D6E22BBAA1000BA72845"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/exp003-2026-11-12T15-53-49.629195800Z-c0f56cb2-e64a-4426-b76d-67b3fe9becb0/scale-75-cards-3/summary.csv",
+    "Hash": "5D66BB89C023AC5DAA65A342F39F7E4183E084E27A819C843FE3ACC893EEC0C2"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/exp003-2026-11-12T15-53-49.629195800Z-c0f56cb2-e64a-4426-b76d-67b3fe9becb0/scale-75-cards-3/validation.json",
+    "Hash": "369526397F0CF2740012397F2082205E95419B36EB8B6F824D3F2608D4165631"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/exp003-2026-11-12T15-53-49.629195800Z-c0f56cb2-e64a-4426-b76d-67b3fe9becb0/status.txt",
+    "Hash": "3C608B7A5468BF7E0DE4EE94581E960B32267C80E2D9ADBD538AF0D7A2FF0642"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/run-2026-11-12T15-34-58.098810900Z-9db10134-5b83-4b4c-9881-6ff7b6a1b619/execution-source-checksums.json",
+    "Hash": "E448ED9D8CEADC9A17463A23B54ED73E9A86E0F5854745106CD2B54F02EE8E0B"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/run-2026-11-12T15-34-58.098810900Z-9db10134-5b83-4b4c-9881-6ff7b6a1b619/execution-source.zip",
+    "Hash": "2DE5A3C0C5C12B87B62C50140B4DAF1D448DBE384DDBEFE75897ADAC04EB9283"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/run-2026-11-12T15-34-58.098810900Z-9db10134-5b83-4b4c-9881-6ff7b6a1b619/exp-001-fact-equivalence/assembly-issues.json",
+    "Hash": "5984EAC0C5C6D947241E29DD5671B81A1546CEDF77E08D38438AC47029969AFA"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/run-2026-11-12T15-34-58.098810900Z-9db10134-5b83-4b4c-9881-6ff7b6a1b619/exp-001-fact-equivalence/effective-input.json",
+    "Hash": "E28BC6D371EC45B2007CE8AEAB1B9524BA3349911E44E4E8DEDC363A5E2EC0E8"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/run-2026-11-12T15-34-58.098810900Z-9db10134-5b83-4b4c-9881-6ff7b6a1b619/exp-001-fact-equivalence/frozen-input.json",
+    "Hash": "6893D7F66D13C8010623B499A4D07A9A660336F1C91BD7961F53DE9D8CBF850C"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/run-2026-11-12T15-34-58.098810900Z-9db10134-5b83-4b4c-9881-6ff7b6a1b619/exp-001-fact-equivalence/manifest.json",
+    "Hash": "36C976415C33DE88D88B30890D4E877ABC24FDDFB0B03A2C0714B7F1B527C8C2"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/run-2026-11-12T15-34-58.098810900Z-9db10134-5b83-4b4c-9881-6ff7b6a1b619/exp-001-fact-equivalence/manual-checks.md",
+    "Hash": "F69B0B0E0C0D57ACEC49B958F639F5C08B76D51E2EBFBCD93BFD7E2D48BF2B16"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/run-2026-11-12T15-34-58.098810900Z-9db10134-5b83-4b4c-9881-6ff7b6a1b619/exp-001-fact-equivalence/random-distribution.csv",
+    "Hash": "D949BA64043F7940134D73AF6DF728D7244ADFC13300745F5020A0489DFBA774"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/run-2026-11-12T15-34-58.098810900Z-9db10134-5b83-4b4c-9881-6ff7b6a1b619/exp-001-fact-equivalence/random-statistics.json",
+    "Hash": "D132057E67D7F90ADE3BF0594E4B27915A1049BFC9A88299725EA4946DEF3C7E"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/run-2026-11-12T15-34-58.098810900Z-9db10134-5b83-4b4c-9881-6ff7b6a1b619/exp-001-fact-equivalence/raw-checksums.json",
+    "Hash": "6BAFF63CB08A9E4B7A2AA7DCE7A3BC2DAC6B276762EDEE2AC93FA2CE03774FE7"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/run-2026-11-12T15-34-58.098810900Z-9db10134-5b83-4b4c-9881-6ff7b6a1b619/exp-001-fact-equivalence/raw-records.zip",
+    "Hash": "B746D67F108D83C4A0BCE269859021A46F7C1C788FD38A5521018FDA7E66E115"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/run-2026-11-12T15-34-58.098810900Z-9db10134-5b83-4b4c-9881-6ff7b6a1b619/exp-001-fact-equivalence/report.md",
+    "Hash": "58B77AF04A4F0C6567C7791AF1F19DA9C2BF2660C4F2A3E71343AE11B650B4CB"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/run-2026-11-12T15-34-58.098810900Z-9db10134-5b83-4b4c-9881-6ff7b6a1b619/exp-001-fact-equivalence/summary.csv",
+    "Hash": "5D38D01DA8D033F03B358189CDFD5A9A556204502C0D2477A3C8193A18B1D2A5"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/run-2026-11-12T15-34-58.098810900Z-9db10134-5b83-4b4c-9881-6ff7b6a1b619/exp-001-fact-equivalence/validation.json",
+    "Hash": "335463C9F2FB567B4346001E501E35AA43A4342BA8D62D1BA4A24F527732D162"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/run-2026-11-12T15-34-58.098810900Z-9db10134-5b83-4b4c-9881-6ff7b6a1b619/exp-001-reproduction/assembly-issues.json",
+    "Hash": "5984EAC0C5C6D947241E29DD5671B81A1546CEDF77E08D38438AC47029969AFA"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/run-2026-11-12T15-34-58.098810900Z-9db10134-5b83-4b4c-9881-6ff7b6a1b619/exp-001-reproduction/effective-input.json",
+    "Hash": "86232D99796C3821F0EEDF6BB65AB4CD6B9998CAB4EB09ADF77C4A4F6A1F293E"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/run-2026-11-12T15-34-58.098810900Z-9db10134-5b83-4b4c-9881-6ff7b6a1b619/exp-001-reproduction/frozen-input.json",
+    "Hash": "6893D7F66D13C8010623B499A4D07A9A660336F1C91BD7961F53DE9D8CBF850C"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/run-2026-11-12T15-34-58.098810900Z-9db10134-5b83-4b4c-9881-6ff7b6a1b619/exp-001-reproduction/manifest.json",
+    "Hash": "D989F2E631D714CD1852AA574ECF92FC5F6CE4C43E8FCD8F21D4B975CDC26CC8"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/run-2026-11-12T15-34-58.098810900Z-9db10134-5b83-4b4c-9881-6ff7b6a1b619/exp-001-reproduction/manual-checks.md",
+    "Hash": "F69B0B0E0C0D57ACEC49B958F639F5C08B76D51E2EBFBCD93BFD7E2D48BF2B16"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/run-2026-11-12T15-34-58.098810900Z-9db10134-5b83-4b4c-9881-6ff7b6a1b619/exp-001-reproduction/random-distribution.csv",
+    "Hash": "D949BA64043F7940134D73AF6DF728D7244ADFC13300745F5020A0489DFBA774"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/run-2026-11-12T15-34-58.098810900Z-9db10134-5b83-4b4c-9881-6ff7b6a1b619/exp-001-reproduction/random-statistics.json",
+    "Hash": "D132057E67D7F90ADE3BF0594E4B27915A1049BFC9A88299725EA4946DEF3C7E"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/run-2026-11-12T15-34-58.098810900Z-9db10134-5b83-4b4c-9881-6ff7b6a1b619/exp-001-reproduction/raw-checksums.json",
+    "Hash": "98E156A801E57878F75C29F77454D89563A2F25B7A835C2BE570BE510D5FF41F"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/run-2026-11-12T15-34-58.098810900Z-9db10134-5b83-4b4c-9881-6ff7b6a1b619/exp-001-reproduction/raw-records.zip",
+    "Hash": "6721DAAD51C3282F6D743E6DF30A3D89E939FA50F2B4BECE9098D4AC3C34937F"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/run-2026-11-12T15-34-58.098810900Z-9db10134-5b83-4b4c-9881-6ff7b6a1b619/exp-001-reproduction/report.md",
+    "Hash": "E1D5C9A6EEF6DCC832053519D1D45C8EB87BF697EF11CD0A194E3AB23B7951BE"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/run-2026-11-12T15-34-58.098810900Z-9db10134-5b83-4b4c-9881-6ff7b6a1b619/exp-001-reproduction/summary.csv",
+    "Hash": "B1F575AA283594B1958DC48F57AD8999843FDD9554B8668A9914FE3AE6C565A4"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/run-2026-11-12T15-34-58.098810900Z-9db10134-5b83-4b4c-9881-6ff7b6a1b619/exp-001-reproduction/validation.json",
+    "Hash": "335463C9F2FB567B4346001E501E35AA43A4342BA8D62D1BA4A24F527732D162"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/run-2026-11-12T15-34-58.098810900Z-9db10134-5b83-4b4c-9881-6ff7b6a1b619/exp-002-three-cards/assembly-issues.json",
+    "Hash": "5984EAC0C5C6D947241E29DD5671B81A1546CEDF77E08D38438AC47029969AFA"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/run-2026-11-12T15-34-58.098810900Z-9db10134-5b83-4b4c-9881-6ff7b6a1b619/exp-002-three-cards/effective-input.json",
+    "Hash": "A87FAB37911C0E9480926F51B4894B54C6B1615E789875DA9BFF533797CCD965"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/run-2026-11-12T15-34-58.098810900Z-9db10134-5b83-4b4c-9881-6ff7b6a1b619/exp-002-three-cards/frozen-input.json",
+    "Hash": "6893D7F66D13C8010623B499A4D07A9A660336F1C91BD7961F53DE9D8CBF850C"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/run-2026-11-12T15-34-58.098810900Z-9db10134-5b83-4b4c-9881-6ff7b6a1b619/exp-002-three-cards/loca-manual-checks.md",
+    "Hash": "98C9FFE476C67C992416740D66C8C5C3A7CEB36C4C56DB080CC66BB3211EB3E3"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/run-2026-11-12T15-34-58.098810900Z-9db10134-5b83-4b4c-9881-6ff7b6a1b619/exp-002-three-cards/manifest.json",
+    "Hash": "6A84D1B05C314A6C72387A78B9F6AB25F898F8876D4E4D3FCCB9082EB958808F"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/run-2026-11-12T15-34-58.098810900Z-9db10134-5b83-4b4c-9881-6ff7b6a1b619/exp-002-three-cards/manual-checks.md",
+    "Hash": "F69B0B0E0C0D57ACEC49B958F639F5C08B76D51E2EBFBCD93BFD7E2D48BF2B16"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/run-2026-11-12T15-34-58.098810900Z-9db10134-5b83-4b4c-9881-6ff7b6a1b619/exp-002-three-cards/random-distribution.csv",
+    "Hash": "A3CD65FD3AB8C33EBE6829C750B0AAD2B41642951AEF7D336F8663DC092B4F30"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/run-2026-11-12T15-34-58.098810900Z-9db10134-5b83-4b4c-9881-6ff7b6a1b619/exp-002-three-cards/random-statistics.json",
+    "Hash": "1DAC1286E17AAB27AF80A11BAFD5CA100AC89BB9E438FEE07E4782B72FC13EE7"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/run-2026-11-12T15-34-58.098810900Z-9db10134-5b83-4b4c-9881-6ff7b6a1b619/exp-002-three-cards/raw-checksums.json",
+    "Hash": "C79ADD6375E6B5CBDC3971B19390DA6FDB27B67BE725E1C1AB0D30D63A238D4C"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/run-2026-11-12T15-34-58.098810900Z-9db10134-5b83-4b4c-9881-6ff7b6a1b619/exp-002-three-cards/raw-records.zip",
+    "Hash": "40B91370E6DAA61228E5C73C8FFCD0E31300B96DBFFE0C22F96F63F37C676183"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/run-2026-11-12T15-34-58.098810900Z-9db10134-5b83-4b4c-9881-6ff7b6a1b619/exp-002-three-cards/report.md",
+    "Hash": "5A6A1928F90F4DE14F9B7D7CD6A8E49F00707096D0FE4882CCD3CB89B3C0220E"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/run-2026-11-12T15-34-58.098810900Z-9db10134-5b83-4b4c-9881-6ff7b6a1b619/exp-002-three-cards/summary.csv",
+    "Hash": "464A0A772D3AE34AFEB44336651F4404A503822560CF21093B9A8EC9A2F7B6A0"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/run-2026-11-12T15-34-58.098810900Z-9db10134-5b83-4b4c-9881-6ff7b6a1b619/exp-002-three-cards/validation.json",
+    "Hash": "19311E7313C143D08040F0088628AD0B304E88986BE8128371E8CE9E658E7D6C"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/run-2026-11-12T15-34-58.098810900Z-9db10134-5b83-4b4c-9881-6ff7b6a1b619/frozen-extension.json",
+    "Hash": "0A2812E158468C866F6DBA43AF82F1DEC8BF2883D8B3E16EB9318B3FF0929F70"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/run-2026-11-12T15-34-58.098810900Z-9db10134-5b83-4b4c-9881-6ff7b6a1b619/junit-summary.json",
+    "Hash": "6F8D3D270447B156FFC06CC013C52DB0D8139FEA80DA740723DA746CC6805E9E"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/run-2026-11-12T15-34-58.098810900Z-9db10134-5b83-4b4c-9881-6ff7b6a1b619/reproduction.txt",
+    "Hash": "9AEA926B96FB33CEA119BAF331CD549509247192F3E3461423806B28C909A97F"
+  },
+  {
+    "Path": "docs/experiments/card-selection/executions/run-2026-11-12T15-34-58.098810900Z-9db10134-5b83-4b4c-9881-6ff7b6a1b619/status.txt",
+    "Hash": "5209E5F608A34A70EDDE2210B75030A564DAD87C414131E2163361A542349F6D"
+  },
+  {
+    "Path": "docs/experiments/card-selection/exp-001-two-cards/README.md",
+    "Hash": "D3D44EF977EA85899C23DFF76D59E874BAE2D8AC6FD1DB6FA89075CC9ECC2DDE"
+  },
+  {
+    "Path": "docs/experiments/card-selection/exp-001-two-cards/frozen-input.json",
+    "Hash": "6893D7F66D13C8010623B499A4D07A9A660336F1C91BD7961F53DE9D8CBF850C"
+  },
+  {
+    "Path": "docs/experiments/card-selection/exp-001-two-cards/manifest.json",
+    "Hash": "07E7D8D24CAA3B21D7EA64E0910090493FF19EE41922030A87235BC32BFE63BD"
+  },
+  {
+    "Path": "docs/experiments/card-selection/exp-001-two-cards/manual-checks.md",
+    "Hash": "F69B0B0E0C0D57ACEC49B958F639F5C08B76D51E2EBFBCD93BFD7E2D48BF2B16"
+  },
+  {
+    "Path": "docs/experiments/card-selection/exp-001-two-cards/original-checksums.json",
+    "Hash": "C1592522B6F09205EABF9AF962BADD7B93E95867FC6618D0755E9889EB12720F"
+  },
+  {
+    "Path": "docs/experiments/card-selection/exp-001-two-cards/original-results.zip",
+    "Hash": "87C836AB929D2D4704677893B964A8370555EC90B482911E65564A9A1E6E44FD"
+  },
+  {
+    "Path": "docs/experiments/card-selection/exp-001-two-cards/preservation.json",
+    "Hash": "C09E75FA8999E3415A34C8C4C7399D062884ADE643066C4047ED4F4EF7488383"
+  },
+  {
+    "Path": "docs/experiments/card-selection/exp-001-two-cards/random-statistics.json",
+    "Hash": "D132057E67D7F90ADE3BF0594E4B27915A1049BFC9A88299725EA4946DEF3C7E"
+  },
+  {
+    "Path": "docs/experiments/card-selection/exp-001-two-cards/report.md",
+    "Hash": "3A365E15CA8B7EE44ED79E7F99441B3778008F381EA867EA60057F279C74416F"
+  },
+  {
+    "Path": "docs/experiments/card-selection/exp-001-two-cards/source-checksums.json",
+    "Hash": "ABF51676790A3EC39D35D705343A28F5D3DB708BA27A46D678AED231D6000C29"
+  },
+  {
+    "Path": "docs/experiments/card-selection/exp-001-two-cards/source-overlay.zip",
+    "Hash": "B7FE5979D60478C70909934BB4F8A1685DB82FA5804671B0467D2628ABF6EC2E"
+  },
+  {
+    "Path": "docs/experiments/card-selection/exp-001-two-cards/status.txt",
+    "Hash": "6F14BB6874E1A15568755F85E0DDB6486FE4AD1DEDC74784401A6DD0DDA68B4C"
+  },
+  {
+    "Path": "docs/experiments/card-selection/exp-001-two-cards/summary.csv",
+    "Hash": "445B7999221B9851BBC28DE7714068A5DF1D12B64C7F19BC9D15E066834083C0"
+  },
+  {
+    "Path": "docs/experiments/card-selection/exp-002-three-cards/README.md",
+    "Hash": "5EE21114B507281304B9FD9DC474479160239D109B829A6EBD803C83221970E3"
+  },
+  {
+    "Path": "docs/experiments/card-selection/exp-003-consumption-scale/README.md",
+    "Hash": "C893E8A2BE575489118A959709ED95DED284B4F85CD1DE48E42197395E728899"
+  },
+  {
+    "Path": "docs/experiments/card-selection/exp-003-consumption-scale/comparison.csv",
+    "Hash": "B1AF15466AAC2FE3CB8D1DCD74437CA0AB96A0F697770D623D7B197B93BC3F2F"
+  },
+  {
+    "Path": "docs/experiments/card-selection/exp-003-consumption-scale/frozen-scale-plan.json",
+    "Hash": "9486512B32599AFAAB65F9363BE3556084DE8A2D7079DB48A088EDF9348607DF"
+  },
+  {
+    "Path": "docs/experiments/card-selection/exp-003-consumption-scale/plan.md",
+    "Hash": "AB26602A3CF80E3EC388F4CD0D1B54C28A687BAE724CE7B96D2B0AE59D030D20"
+  },
+  {
+    "Path": "docs/experiments/card-selection/exp-003-consumption-scale/preservation-verification.json",
+    "Hash": "6B0A8D419AA685218F9CB85FB53F61DA6DE6A7AA4A47DE3DED87DF36E262729B"
+  },
+  {
+    "Path": "docs/experiments/card-selection/preservation-verification.json",
+    "Hash": "FFBD0F725099041114ED112F09BCCCF94D627FD80BC776E03B2222B6A720DDC7"
+  },
+  {
+    "Path": "docs/experiments/card-selection/record-audit.md",
+    "Hash": "48CF6BA40BDD521C99A30A08068A37D873C3C5F400E555C538FC8B5628247A65"
+  }
+]

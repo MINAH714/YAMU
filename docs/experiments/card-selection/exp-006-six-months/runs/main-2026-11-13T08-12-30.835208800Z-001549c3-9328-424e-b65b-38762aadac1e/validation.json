@@ -1,0 +1,8 @@
+{
+  "transactionsPerStrategy" : 521,
+  "yamuReplaySha256" : "2c5cd7149a51424b0bad43cda24c6aa180f4dba7a870cb468d78cc64f811ad0d",
+  "candidateEvaluations" : 108368,
+  "incalculable" : 0,
+  "seedDatabaseUsageUnchanged" : true,
+  "strategies" : 104
+}

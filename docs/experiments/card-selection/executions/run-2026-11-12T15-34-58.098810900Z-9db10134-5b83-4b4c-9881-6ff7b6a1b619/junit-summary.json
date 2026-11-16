@@ -1,0 +1,12 @@
+{
+  "Test": "com.yamu.be.recommendation.CardSelectionExperimentTest",
+  "Tests": "1",
+  "Failures": "0",
+  "Errors": "0",
+  "Skipped": "0",
+  "StartedUtc": "2026-11-12T15:35:12.159Z",
+  "DurationSeconds": "8.04",
+  "Command": ".\\gradlew.bat test --tests com.yamu.be.recommendation.CardSelectionExperimentTest",
+  "Build": "SUCCESSFUL",
+  "Interpretation": "One JUnit scenario containing 104 original reproductions, 104 fact-equivalence runs, 105 three-card runs and checks; not 313 JUnit tests"
+}

@@ -1,0 +1,6 @@
+{
+  "mainExecutionApproved": false,
+  "phase": "PUBLIC_SYNTHETIC_TEST_ONLY",
+  "experimentId": "EXP-005",
+  "note": "Private input, identifiers and original execution configuration are intentionally excluded."
+}

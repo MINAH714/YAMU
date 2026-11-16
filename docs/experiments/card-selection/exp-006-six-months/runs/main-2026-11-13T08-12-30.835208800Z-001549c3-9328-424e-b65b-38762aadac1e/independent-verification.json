@@ -1,0 +1,8 @@
+{
+  "sourceArchive": "PASS",
+  "runs": 104,
+  "method": "Independent fixed-scope formula, monthly tiers and discount-recognition arithmetic; not real issuer payout validation",
+  "status": "PASS",
+  "candidateArithmeticChecks": 108368,
+  "stateAndRandomMapping": "PASS"
+}

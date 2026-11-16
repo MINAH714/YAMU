@@ -1,0 +1,43 @@
+[ {
+  "amount" : 6000,
+  "card" : "신한카드 처음",
+  "actual" : 300.000000,
+  "transaction" : 1,
+  "expected" : 300,
+  "recognized" : 6000
+}, {
+  "amount" : 6000,
+  "card" : "KB국민 청춘대로 톡톡카드",
+  "actual" : 0,
+  "transaction" : 1,
+  "expected" : 0,
+  "recognized" : 6000
+}, {
+  "amount" : 6000,
+  "card" : "LOCA LIKIT Eat",
+  "actual" : 3600,
+  "transaction" : 1,
+  "expected" : 3600,
+  "recognized" : 0
+}, {
+  "amount" : 3000,
+  "card" : "신한카드 처음",
+  "actual" : 150.000000,
+  "transaction" : 2,
+  "expected" : 150,
+  "recognized" : 3000
+}, {
+  "amount" : 3000,
+  "card" : "KB국민 청춘대로 톡톡카드",
+  "actual" : 1500,
+  "transaction" : 2,
+  "expected" : 1500,
+  "recognized" : 0
+}, {
+  "amount" : 3000,
+  "card" : "LOCA LIKIT Eat",
+  "actual" : 1800,
+  "transaction" : 2,
+  "expected" : 1800,
+  "recognized" : 0
+} ]

@@ -1,0 +1,26 @@
+{
+  "experimentId": "exp-002-three-cards",
+  "baseInput": "recommendation/monthly-card-selection.json",
+  "baseInputSha256": "6893d7f66d13c8010623b499a4d07a9a660336f1c91bd7961f53de9d8cbf850c",
+  "addedCard": "LOCA LIKIT Eat",
+  "selectionReason": "등록된 음식점·카페 60% 할인 및 월 13000원 공유 한도. 음식점 혜택 기회와 업종 간 한도 경쟁을 검증한다. 결과 확인 전 선정.",
+  "categoryRule": {"COFFEE_SHOP": 1, "GENERAL_RESTAURANT": 2, "CONVENIENCE_STORE": 0, "ONLINE_MARKETPLACE": 0},
+  "randomAlgorithm": "java.util.Random.nextInt(3)",
+  "additionalFacts": {
+    "PERFORMANCE:INTRODUCTORY_WAIVER_ACTIVE:lotte-p13943-a13943": false,
+    "PERFORMANCE:TELECOM_AUTOPAY": false,
+    "TRANSACTION_KIND:AUTO_SMART_CASHBACK": false,
+    "TRANSACTION_KIND:DISABLED_EMPLOYMENT_LEVY": false,
+    "TRANSACTION_KIND:POSTPAID_TRANSIT": false,
+    "TRANSACTION_KIND:FINES_AND_PUBLIC_FEES": false
+  },
+  "factEvidence": {
+    "PERFORMANCE:INTRODUCTORY_WAIVER_ACTIVE:lotte-p13943-a13943": "기존 두 카드와 동일하게 신규 유예가 끝난 가상 사용자로 정의",
+    "PERFORMANCE:TELECOM_AUTOPAY": "기존 24건은 음식·음료·일반 상품 구매이며 통신요금 자동납부가 아님",
+    "TRANSACTION_KIND:AUTO_SMART_CASHBACK": "기존 24건의 일반 상품 구매는 Auto/Smart Cashback 거래가 아님",
+    "TRANSACTION_KIND:DISABLED_EMPLOYMENT_LEVY": "기존 음식·음료·일반 상품 구매는 장애인고용부담금 납부가 아님",
+    "TRANSACTION_KIND:POSTPAID_TRANSIT": "기존 PERFORMANCE:POSTPAID_TRANSIT=false와 동일한 사실을 상품 실적 해석기의 코드로 명시",
+    "TRANSACTION_KIND:FINES_AND_PUBLIC_FEES": "기존 음식·음료·일반 상품 구매는 벌금·공과금 납부가 아님"
+  },
+  "invariants": "금액·가맹점·시각·순서와 기존 카드 상태는 원본 유지. 초기 전월 실적 각 400000, 당월 실적·한도 사용량 0, 카드별 가용 신용한도 10000000, ACTIVE/NORMAL. 기본 카드 처음. 시드 0~99. 정책 수정 금지."
+}

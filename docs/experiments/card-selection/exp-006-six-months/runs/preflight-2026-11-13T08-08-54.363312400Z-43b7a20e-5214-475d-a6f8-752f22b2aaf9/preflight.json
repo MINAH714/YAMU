@@ -1,0 +1,15 @@
+{
+  "monthRollover" : "PASS",
+  "manualCheck" : {
+    "toktok" : 3500,
+    "amount" : 7000,
+    "first" : 350.000000
+  },
+  "note" : "Below-minimum unused tier limit stays null; eligibility-zero is confirmed by existing calculator",
+  "assemblyDiagnostics" : [ "LIMIT_MAXIMUM_UNKNOWN" ],
+  "normalZero" : 16884,
+  "evaluations" : 18756,
+  "recognitionExclusion" : "PASS",
+  "incalculable" : 0,
+  "inputDeterministic" : true
+}

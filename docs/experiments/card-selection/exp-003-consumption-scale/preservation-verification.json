@@ -1,0 +1,18 @@
+{
+  "CheckedAtUtc": "2026-11-12T15:58:40.9846438Z",
+  "ExistingFilesChecked": 84,
+  "AuthorizedDocumentationUpdates": [
+    "docs/experiments/card-selection/README.md",
+    "docs/experiments/card-selection/record-audit.md"
+  ],
+  "UnexpectedExistingFileChanges": 0,
+  "OriginalBuildResultsChecked": 14,
+  "OriginalBuildResultsChanged": 0,
+  "ArchivedEntriesVerified": 136,
+  "MainRuns": 1045,
+  "MainCardEvaluations": 62760,
+  "Cells": 10,
+  "NewPolicyOrFactChanges": 0,
+  "CommitCreated": false,
+  "RemotePublished": false
+}

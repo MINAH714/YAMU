@@ -1,0 +1,14 @@
+{
+  "Test": "com.yamu.be.recommendation.CardSelectionConsumptionScaleTest",
+  "Tests": "1",
+  "Failures": "0",
+  "Errors": "0",
+  "Skipped": "0",
+  "StartedUtc": "2026-11-12T15:54:03.306Z",
+  "DurationSeconds": "22.133",
+  "Command": ".\\gradlew.bat test --tests com.yamu.be.recommendation.CardSelectionConsumptionScaleTest",
+  "Build": "SUCCESSFUL",
+  "MainRuns": 1045,
+  "MainCardEvaluations": 62760,
+  "Meaning": "One JUnit scenario, 10 prespecified cells, extra manual/boundary and replay checks excluded from main run count"
+}

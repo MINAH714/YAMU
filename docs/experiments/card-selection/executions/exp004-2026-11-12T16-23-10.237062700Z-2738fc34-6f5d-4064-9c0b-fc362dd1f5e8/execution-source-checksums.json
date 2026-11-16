@@ -1,0 +1,17 @@
+[
+  {
+    "Bytes": 37146,
+    "Path": "be/src/test/java/com/yamu/be/recommendation/CardSelectionManualTableTest.java",
+    "SHA256": "A81259867AC9120CF20365F57C31F91272D63D21FD1C51A20D939380E7023169"
+  },
+  {
+    "Bytes": 16008,
+    "Path": "be/src/test/java/com/yamu/be/recommendation/CardSelectionManualTableSupport.java",
+    "SHA256": "095B6348DDDED2C029AA1F7C1FFE139741E626ECF8752BC0FDA2B64F6307AF25"
+  },
+  {
+    "Bytes": 3762,
+    "Path": "be/src/test/resources/recommendation/card-selection-exp-004.json",
+    "SHA256": "BB324CAFC0D6D7BA43DFE5AB38007B37C0C4FFDB7DC5B58172C337FA83515155"
+  }
+]

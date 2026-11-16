@@ -1,0 +1,13 @@
+{
+  "count": 100,
+  "mean": 61851.0,
+  "min": 50050.0,
+  "p05": 52200.0,
+  "median": 61625.0,
+  "p95": 70750.0,
+  "max": 79100.0,
+  "populationStdDev": 6009.937520473903,
+  "greaterThanYamu": 9,
+  "equalToYamu": 0,
+  "lessThanYamu": 91
+}

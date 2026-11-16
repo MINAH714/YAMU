@@ -1,0 +1,1 @@
+PASS: 12 conditions; 1266 main runs; 76032 main card evaluations; 1254 archived runs reproduced; no uncomputable evaluations; independent manual table and boundary checks
