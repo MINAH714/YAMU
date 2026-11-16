@@ -134,7 +134,7 @@ import java.math.BigDecimal
     val source: String? = null,              // #3 — YAMU · SEED(가입 전 거래, 취소 불가)
     val canceledAt: String? = null,          // #3
     val refunds: List<RefundDto> = emptyList(),   // #3 — 출금 뒤 취소로 생긴 환급
-    val memo: String? = null,                // #3에는 아직 없다(BE에 요청). 오면 이 값을 먼저 쓴다
+    val memo: String? = null,                // #3 — 없으면 null(BE가 칸을 늘 내려준다, S15P31E103-579). 승인 응답엔 없다
 )
 
 @Serializable data class SelectedCardDto(
@@ -200,11 +200,6 @@ import java.math.BigDecimal
 @Serializable data class MemoRequest(val memo: String)
 
 @Serializable data class MemoResponseDto(val paymentId: Long, val memo: String? = null, val memoUpdatedAt: String? = null)
-
-/** 메모 찾기용 결제 내역(#4) — 결제 번호 · 메모만 읽는다 */
-@Serializable data class MemoPageDto(val items: List<MemoItemDto> = emptyList(), val hasNext: Boolean = false)
-
-@Serializable data class MemoItemDto(val paymentId: Long, val memo: String? = null)
 
 // ── 앱 안에서 쓰는 값 ──
 
@@ -325,8 +320,6 @@ data class PaymentReceipt(
     val canceledAtIso: String? = null,
     val refunds: List<RefundLine> = emptyList(),
     val memo: String? = null,
-    /** false면 [memo]가 null이어도 '없음'이 아니라 '모름'(상세 응답에 memo가 없다) — 저장하면 서버 메모를 덮어쓸 수 있다 */
-    val memoKnown: Boolean = true,
     val recommendedRank: Int? = null,
     val userSelected: Boolean? = null,
 ) {
@@ -526,7 +519,6 @@ fun PaymentResultDto.toReceipt(request: PaymentRequest? = null, card: PayCard? =
         canceledAtIso = canceledAt,
         refunds = refunds.map { it.toLine() },
         memo = memo,
-        memoKnown = memo != null || request != null,   // 방금 승인한 결제는 메모가 없다. 상세(#3)는 memo 칸이 없어 모른다
         recommendedRank = selectedCard?.recommendedRank,
         userSelected = selectedCard?.userSelected,
     )

@@ -1,6 +1,5 @@
 package com.yamu.app.feature.payment.data
 
-import com.yamu.app.core.format.KST
 import com.yamu.app.core.network.ApiEnvelope
 import com.yamu.app.core.network.ApiResult
 import com.yamu.app.core.network.YamuHeaders
@@ -20,8 +19,6 @@ import retrofit2.http.Header
 import retrofit2.http.PATCH
 import retrofit2.http.POST
 import retrofit2.http.Path
-import retrofit2.http.Query
-import java.time.OffsetDateTime
 import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -65,15 +62,6 @@ interface PaymentApi {
 
     @PATCH("payments/{id}/memo")
     suspend fun memo(@Path("id") paymentId: Long, @Body body: MemoRequest): Response<ApiEnvelope<MemoResponseDto>>
-
-    /** 메모 찾기 — 결제 내역(#4)을 한국 날짜 기간으로 */
-    @GET("payments")
-    suspend fun memoPage(
-        @Query("from") from: String,
-        @Query("to") to: String,
-        @Query("page") page: Int,
-        @Query("size") size: Int = 100,
-    ): Response<ApiEnvelope<MemoPageDto>>
 }
 
 interface PaymentRepository {
@@ -106,12 +94,6 @@ interface PaymentRepository {
 
     /** P-08 메모. [memo]가 null · 빈 문자열이면 지운다. 저장된 메모(지웠으면 null)를 돌려준다 */
     suspend fun saveMemo(paymentId: Long, memo: String?): ApiResult<String?>
-
-    /**
-     * 상세에 memo가 없어 모를 때([PaymentReceipt.memoKnown] false) 결제 내역에서 찾는다. 못 찾거나 실패하면 null(여전히 모름).
-     * BE 상세 응답에 memo가 생기면 필요 없다
-     */
-    suspend fun findMemo(paymentId: Long, paidAtIso: String?): KnownMemo? = null
 }
 
 @Singleton
@@ -149,7 +131,7 @@ class PaymentRepositoryImpl @Inject constructor(private val api: PaymentApi, pri
     override fun recentReceipt(paymentId: Long): PaymentReceipt? = receipts[paymentId]
 
     /**
-     * 상세 응답엔 memo가 없어 목록에서 받아 둔 메모로 채운다([PaymentEdits]). 받아 둔 게 없으면 '모름'.
+     * 상세 응답의 memo(없으면 null)가 서버 값이라 그대로 쓰고 결제 내역에도 알린다([PaymentEdits]).
      * 취소된 결제면 취소 응답 때처럼 알린다 — 응답이 끊겨 다시 읽어 보니 취소됐거나 다른 기기에서 취소한 경우에도
      * 결제 완료(P-07) · 결제 내역이 승인으로 남지 않게
      */
@@ -157,28 +139,9 @@ class PaymentRepositoryImpl @Inject constructor(private val api: PaymentApi, pri
         apiCall { api.detail(paymentId) }.map { dto ->
             val receipt = dto.toReceipt()
             if (receipt.canceled) noteCanceled(paymentId, receipt.canceledAtIso)
-            when {
-                receipt.memoKnown -> receipt.also { edits.rememberMemo(paymentId, it.memo) }
-                else -> edits.memo(paymentId)?.let { receipt.copy(memo = it.text, memoKnown = true) } ?: receipt
-            }
+            edits.rememberMemo(paymentId, receipt.memo)
+            receipt
         }
-
-    /**
-     * 결제일(한국 날짜)과 그 전날의 결제 내역에서 찾는다 — 목록은 요청 시각으로 거르므로 자정 직전 요청 · 직후 승인이면 전날에 있다.
-     * 받은 줄의 메모는 모두 기억한다. 기본 목록은 승인 · 취소만이라 거절된 결제는 못 찾는다(모름으로 남는다)
-     */
-    override suspend fun findMemo(paymentId: Long, paidAtIso: String?): KnownMemo? {
-        edits.memo(paymentId)?.let { return it }
-        val day = paidAtIso?.let { runCatching { OffsetDateTime.parse(it).atZoneSameInstant(KST).toLocalDate() }.getOrNull() } ?: return null
-        for (page in 1..MEMO_LOOKUP_PAGES) {
-            val result = apiCall { api.memoPage(from = day.minusDays(1).toString(), to = day.toString(), page = page) }
-            val data = (result as? ApiResult.Success)?.data ?: return null
-            data.items.forEach { edits.rememberMemo(it.paymentId, it.memo) }
-            data.items.firstOrNull { it.paymentId == paymentId }?.let { return KnownMemo(it.memo) }
-            if (!data.hasNext) return null
-        }
-        return null
-    }
 
     override suspend fun cancel(paymentId: Long, idempotencyKey: String): ApiResult<CancelResult> =
         apiCall { api.cancel(paymentId, idempotencyKey, CancelRequest()) }.map { it.toResult() }.also {
@@ -198,11 +161,6 @@ class PaymentRepositoryImpl @Inject constructor(private val api: PaymentApi, pri
                 edits.changed()
             }
         }
-
-    private companion object {
-        /** 하루 이틀 결제가 100건을 넘는 일은 드물다 — 3쪽(300건)까지만 보고 모름으로 둔다 */
-        const val MEMO_LOOKUP_PAGES = 3
-    }
 }
 
 @Module
