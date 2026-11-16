@@ -2,6 +2,7 @@ import type { PaymentHistoryItem } from '../api/posHistory'
 import { cardLabel, chargedOf, formatKstTime } from '../payment/history'
 import { formatWon, planLabel } from '../payment/terms'
 import { Amount } from './Amount'
+import { Character } from './Character'
 import '../styles/result.css'
 import '../styles/history.css'
 
@@ -60,6 +61,7 @@ export function PaymentHistory({ items, error = null, onReload, selectedId, iner
 
         {error ? (
           <div className="history-empty history-error">
+            <Character pose="worry" size={96} />
             <p>{error}</p>
             {onReload && (
               <button type="button" className="secondary" onClick={onReload}>
@@ -70,7 +72,10 @@ export function PaymentHistory({ items, error = null, onReload, selectedId, iner
         ) : items === null ? (
           <p className="history-empty">결제 내역을 불러오고 있어요</p>
         ) : items.length === 0 ? (
-          <p className="history-empty">최근 7일 동안 이 POS에서 결제한 내역이 없어요.</p>
+          <div className="history-empty history-empty-stack">
+            <Character pose="thinking" size={96} />
+            <p>최근 7일 동안 이 POS에서 결제한 내역이 없어요.</p>
+          </div>
         ) : (
           <div className="history-list">
             {groupByDay(items).map((group) => (
