@@ -110,16 +110,27 @@ class ForecastDaySyncTest {
         assertEquals("−15만", pillAmount(-150_000))
         assertEquals("−18.6만", pillAmount(-186_000))
         assertEquals("+280만", pillAmount(2_800_000))
-        assertEquals("−125만", pillAmount(-1_254_000))
+        assertEquals("−125.4만", pillAmount(-1_254_000))
         assertEquals("−6천", pillAmount(-6_000))
-        assertEquals("+1천", pillAmount(300))
+        assertEquals("+0.3천", pillAmount(300))
+        assertEquals("+0.1천", pillAmount(50))                  // 100원이 안 돼도 빈칸으로 두지 않는다
         // 1억부터 억, 1조부터 조 — 50dp 칸에 들어가게(큰 금액 QA)
         assertEquals("−9999만", pillAmount(-99_990_000))
-        assertEquals("−1억", pillAmount(-99_999_999))           // 10000만으로 반올림되면 1억으로 올린다
+        assertEquals("−9999.99만", pillAmount(-99_999_999))     // 버리므로 1억으로 올라가지 않는다
+        assertEquals("−1억", pillAmount(-100_000_000))
         assertEquals("−2.5억", pillAmount(-250_000_000))
         assertEquals("−1000억", pillAmount(-100_000_000_000))
         assertEquals("−5000억", pillAmount(-500_000_000_000))
         assertEquals("+1.2조", pillAmount(1_200_000_000_000))
+    }
+
+    @Test fun `알약 금액 — 반올림하지 않고 100원 자리까지 버린다`() {
+        assertEquals("−1.23만", pillAmount(-12_399))           // 반올림이면 1.24만
+        assertEquals("−18.63만", pillAmount(-186_350))
+        assertEquals("+1.05만", pillAmount(10_500))            // 소수 둘째 자리 앞의 0을 지키고
+        assertEquals("−6.3천", pillAmount(-6_399))
+        assertEquals("−9.9천", pillAmount(-9_999))             // 10천으로 올라가지 않는다
+        assertEquals("−2.53억", pillAmount(-253_999_999))
     }
 
     @Test fun `알약 읽어 주기 — 날짜, 금액, 구간`() {
