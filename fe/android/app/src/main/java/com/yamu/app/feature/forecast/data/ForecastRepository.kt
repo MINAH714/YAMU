@@ -21,6 +21,8 @@ import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import retrofit2.Response
 import retrofit2.Retrofit
 import retrofit2.http.Body
@@ -186,6 +188,12 @@ interface ForecastRepository {
      * 정한 월급이 없으면 null. 가짜 저장소는 월급을 모르는 것으로 둔다
      */
     suspend fun incomeRule(): ApiResult<IncomeRule?> = ApiResult.Success(null)
+
+    /**
+     * 안전 잔액 저장(PATCH forecasts/settings의 alertThreshold, 0 ~ 2,147,483,647원, S15P31E103-593). 보낸 값으로 덮어쓰는 요청이라
+     * 같은 값을 다시 보내도 결과가 같다. 저장하면 받아 둔 예보는 옛 안전 잔액으로 계산한 것이라 버린다
+     */
+    suspend fun saveAlertThreshold(amount: Long): ApiResult<Unit>
 
     companion object {
         /** 연결한 계좌가 없다 — BE가 accountIds 없이 부르면 내는 코드와 같게 둬 화면이 한 곳에서 빈 상태로 바꾼다 */
@@ -378,6 +386,10 @@ class ForecastRepositoryImpl @Inject constructor(
 
     override suspend fun incomeRule(): ApiResult<IncomeRule?> =
         apiCall { cashflowApi.settings() }.map { s -> s.income?.let { i -> i.dayOfMonth?.let { IncomeRule(i.title, it) } } }
+
+    override suspend fun saveAlertThreshold(amount: Long): ApiResult<Unit> =
+        apiCallNoData { cashflowApi.patchSettings(buildJsonObject { put("alertThreshold", amount) }) }
+            .also { if (it is ApiResult.Success) last = null }
 }
 
 @Module

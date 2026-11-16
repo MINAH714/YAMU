@@ -11,10 +11,12 @@ class AmountLimitTest {
         assertEquals(2_000_000_000L, AmountLimit.DAILY_LIVING_COST.max)
         assert(AmountLimit.DAILY_LIVING_COST.max <= Int.MAX_VALUE)
         assertEquals(999_999_999L, AmountLimit.POS_PAYMENT.max)
+        assertEquals(2_000_000_000L, AmountLimit.ALERT_THRESHOLD.max)
+        assert(AmountLimit.ALERT_THRESHOLD.max <= Int.MAX_VALUE)
     }
 
     @Test fun `경계값 — 빈 칸 · 0원 · 1원 · 상한 · 상한 + 1`() {
-        AmountLimit.entries.forEach { limit ->
+        AmountLimit.entries.filter { it != AmountLimit.ALERT_THRESHOLD }.forEach { limit ->
             assertEquals("금액을 넣어 주세요", limit.error(null))
             assertEquals("1원 이상 넣어 주세요", limit.error(0))
             assertEquals("1원 이상 넣어 주세요", limit.error(-1))
@@ -38,5 +40,23 @@ class AmountLimitTest {
         assertEquals("", AmountLimit.CASHFLOW.clampInput("000"))
         assertEquals("12000", AmountLimit.CASHFLOW.clampInput("0012,000"))
         assertEquals("100000000000", AmountLimit.CASHFLOW.clampInput("0100000000000"))
+    }
+
+    @Test fun `안전 잔액만 0원을 받는다 — 0만 치면 0이 남고, 그 뒤에 숫자를 치면 0은 버린다`() {
+        val limit = AmountLimit.ALERT_THRESHOLD
+        assertNull(limit.error(0))
+        assertEquals("0원 이상 넣어 주세요", limit.error(-1))
+        assertEquals("금액을 넣어 주세요", limit.error(null))
+        assertNull(limit.error(limit.max))
+        assertEquals("20억 원까지 넣을 수 있어요", limit.error(limit.max + 1))
+        assertEquals(10, limit.digits)
+        assertEquals("0", limit.clampInput("0"))
+        assertEquals("0", limit.clampInput("00"))
+        assertEquals("5", limit.clampInput("05"))
+        assertEquals("", limit.clampInput(""))
+        assertEquals("", limit.clampInput("원"))
+        assertEquals("1234567890", limit.clampInput("12345678901"))   // 11자리째는 쳐지지 않는다
+        // 다른 칸은 그대로 0을 빈 칸으로
+        assertEquals("", AmountLimit.DAILY_LIVING_COST.clampInput("0"))
     }
 }
