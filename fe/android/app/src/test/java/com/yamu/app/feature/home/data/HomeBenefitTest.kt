@@ -1,5 +1,6 @@
 package com.yamu.app.feature.home.data
 
+import com.yamu.app.core.designsystem.component.CoinPileSpec
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
@@ -87,17 +88,32 @@ class HomeBenefitTest {
 
     // ── 동전 ──
 
-    @Test fun `동전은 확정 금액만 약 2,500원에 한 개 · 올림`() {
-        assertEquals(5, benefitCoins(12_400))
+    @Test fun `5,000원 아래는 확정 금액에 비례해 쌓는다 · 올림`() {
+        assertEquals(0, benefitCoins(-500))
         assertEquals(0, benefitCoins(0))
         assertEquals(1, benefitCoins(1))
-        assertEquals(1, benefitCoins(2_500))
-        assertEquals(0, benefitCoins(-500))
+        assertEquals(1, benefitCoins(100))
+        assertEquals(2, benefitCoins(300))
+        assertEquals(4, benefitCoins(500))
+        assertEquals(7, benefitCoins(1_000))
+        assertEquals(16, benefitCoins(2_500))
+        assertEquals(26, benefitCoins(4_000))
+        assertEquals(MAX_BENEFIT_COINS, benefitCoins(4_999))   // 31.99개 → 올림
     }
 
-    @Test fun `많아도 최대 개수까지만 쌓는다`() {
+    @Test fun `5,000원부터는 무더기가 꽉 찬다`() {
+        assertEquals(MAX_BENEFIT_COINS, benefitCoins(FULL_PILE_WON))
+        assertEquals(MAX_BENEFIT_COINS, benefitCoins(19_300))
         assertEquals(MAX_BENEFIT_COINS, benefitCoins(1_000_000))
-        assertEquals(MAX_BENEFIT_COINS, benefitCoins(MAX_BENEFIT_COINS * WON_PER_COIN))
-        assertEquals(MAX_BENEFIT_COINS, benefitCoins(MAX_BENEFIT_COINS * WON_PER_COIN + 1))
+        assertEquals(MAX_BENEFIT_COINS, benefitCoins(Long.MAX_VALUE))
+    }
+
+    @Test fun `금액이 늘면 동전은 줄지 않는다`() {
+        val counts = (0L..FULL_PILE_WON step 50).map(::benefitCoins)
+        assertEquals(counts.sorted(), counts)
+    }
+
+    @Test fun `최대 개수는 무더기 자리 전부`() {
+        assertEquals(CoinPileSpec.FILL_ORDER.size, MAX_BENEFIT_COINS)
     }
 }
