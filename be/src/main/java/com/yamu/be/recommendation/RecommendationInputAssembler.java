@@ -37,6 +37,12 @@ class RecommendationInputAssembler {
 
     BenefitPolicy policy(UserCard card, RecommendationPolicyData data, LocalDate date, Long previous,
             List<RecommendationDataIssue> issues, RecommendationInput.Transaction transaction, com.yamu.be.card.domain.CardProduct product) {
+        return policy(card,data,date,previous,issues,transaction,product,null);
+    }
+
+    BenefitPolicy policy(UserCard card, RecommendationPolicyData data, LocalDate date, Long previous,
+            List<RecommendationDataIssue> issues, RecommendationInput.Transaction transaction,
+            com.yamu.be.card.domain.CardProduct product, String merchantBrand) {
         var rows = data.benefits().stream().filter(b -> b.getCardProductId().equals(card.getCardProductId())).toList();
         if (rows.isEmpty()) {
             issue(issues, card, null, "POLICY_NOT_REGISTERED_FOR_TRANSACTION");
@@ -46,13 +52,27 @@ class RecommendationInputAssembler {
                     && c.type().equals(product.getCardType().name())).findFirst().orElse(null);
         boolean scoped=scope!=null && rows.size()==scope.benefits().size() && rows.stream().allMatch(b -> b.getPolicyVersion()==1
                 && scope.benefits().contains(b.getBenefitCode())) && rows.stream().map(CardBenefit::getBenefitCode).distinct().count()==rows.size();
+        boolean ibk = product != null && "IBK".equals(product.getIssuerCode()) && "IBK나라사랑카드".equals(product.getProductName());
+        if (ibk) scoped = transaction != null && !date.isBefore(SIM_FROM) && date.isBefore(SIM_UNTIL)
+                && rows.size() == IbkPolicyRules.CODES.size()
+                && rows.stream().allMatch(r -> r.getPolicyVersion() == 1 && IbkPolicyRules.CODES.contains(r.getBenefitCode()))
+                && rows.stream().map(CardBenefit::getBenefitCode).distinct().count() == rows.size();
+        boolean coverage = !ibk || transaction != null && IbkPolicyRules.coverage(card,date,previous,transaction,merchantBrand,issues);
         var traces=new ArrayList<SimulationRule>();
         if (!scoped) issue(issues,card,null,"POLICY_COMPLETENESS_UNVERIFIED");
-        else trace(traces,card,null,List.of("catalogScope=SEED_17_PRODUCTS_56_BENEFITS_VERSION_1"));
+        else if (!ibk) trace(traces,card,null,List.of("catalogScope=SEED_17_PRODUCTS_56_BENEFITS_VERSION_1"));
+        else traces.add(new SimulationRule("YAMU_IBK_NOVEMBER",2,
+                "2026년 11월 기존 보유자 정책입니다. 미지원·미확인 혜택은 완료 금액에 포함하지 않습니다.",card.getId(),null,
+                List.of("newIssueWaiver=EXCLUDED","GS25_ONLY:rounding=DOWN_1_KRW","GS25_ONLY:fullCancellation=RESTORE_DAILY_COUNT")));
         var codes = new HashSet<String>();
         var converted = new ArrayList<Benefit>();
         var groupIds = new LinkedHashSet<Long>();
-        for (var row : rows) {
+        var effectiveRows = rows.stream().filter(r -> !ibk || !"NARA_CONVENIENCE".equals(r.getBenefitCode())
+                || previous == null || previous < 250000).toList();
+        for (var row : effectiveRows) {
+            // 25만원 이상에서는 나라 편의점 서비스를 All in One으로 대체한다(한도 소진 시에도 되돌리지 않는다).
+            if (ibk && "NARA_CONVENIENCE".equals(row.getBenefitCode()) && previous != null && previous >= 250000) continue;
+            boolean instant = ibk && "GS25_INSTANT_10".equals(row.getBenefitCode());
             if (!codes.add(row.getBenefitCode())) {
                 issue(issues, card, row.getId(), "BENEFIT_VERSION_AMBIGUOUS");
             }
@@ -101,8 +121,8 @@ class RecommendationInputAssembler {
             var mode=row.getRoundingMode()==null ? null : RoundingMode.valueOf(row.getRoundingMode());
             var unit=row.getRoundingUnit()==null ? null : BigDecimal.valueOf(row.getRoundingUnit());
             var stage=row.getRoundingStage();
-            if (scoped) {
-                applied.add("baseAmount=transaction.amount");
+            if (scoped && (!ibk || instant)) {
+                applied.add(instant ? "baseAmount=verifiedBasket.ibkEligibleAmount" : "baseAmount=transaction.amount");
                 applied.add("calculationOrder=LIMIT_THEN_ROUND");
                 if (mode==null) { mode=RoundingMode.DOWN; applied.add("roundingMode=DOWN"); }
                 if (unit==null) { unit=BigDecimal.ONE; applied.add("roundingUnit=1"); }
@@ -110,18 +130,32 @@ class RecommendationInputAssembler {
             }
             var rounding=new Rounding(mode,unit,stage,null);
             var pointRate=row.getPointKrwRate();
-            if (scoped && pointRate==null && scope.mockPointBenefits().contains(row.getBenefitCode())) {
+            if (scoped && scope!=null && pointRate==null && scope.mockPointBenefits().contains(row.getBenefitCode())) {
                 pointRate=BigDecimal.ONE; applied.add("pointKrwRate=1(MOCK_COMPARISON_ONLY)");
             }
             trace(traces,card,row.getId(),applied);
             if (row.getRoundingStage() == RoundingStage.AFTER_AGGREGATION) {
                 issue(issues, card, row.getId(), "RAW_AGGREGATION_SCOPE_AND_VALUE_UNKNOWN");
             }
+            Long baseAmount = !scoped ? null : instant
+                    ? (transaction.basket() == null ? null : transaction.basket().ibkEligibleAmount()) : Long.valueOf(transaction.amount());
+            boolean relevant = ibk && !instant && (previous == null || previous >= row.getMinPerformanceAmount())
+                    && new BenefitConditionEvaluator().evaluate(conditions,transaction) != BenefitConditionEvaluator.Match.NOT_MATCHED;
+            if (relevant) {
+                IbkPolicyRules.issue(issues,card,"IBK_ROUNDING_AND_REVERSAL_UNKNOWN");
+                if ("AIO_CONVENIENCE".equals(row.getBenefitCode())) IbkPolicyRules.issue(issues,card,"IBK_DAILY_COUNT_CONFLICT");
+                if (("NARA_CONVENIENCE".equals(row.getBenefitCode()) || "AIO_CONVENIENCE".equals(row.getBenefitCode()))
+                        && "GS25".equals(merchantBrand) && (transaction.basket() == null
+                        || transaction.basket().ibkEligibleAmount() == null || transaction.basket().ibkEligibleAmount() > 0)) {
+                    baseAmount = null;
+                    IbkPolicyRules.issue(issues,card,"IBK_STACKED_BASE_UNKNOWN");
+                }
+            }
             converted.add(new Benefit(row.getId(), row.getPolicyVersion(), row.getBenefitName(), row.getBenefitType(),
                     row.getCalculationType(), row.getCalculationType() == CalculationType.RATE ? row.getRate() : row.getFixedValue(),
-                    row.getValueUnit(), pointRate, scoped ? transaction.amount() : null,
+                    row.getValueUnit(), pointRate, baseAmount,
                     // 최소값은 승인된 Seed 범위에서 사용하며, 그 밖의 DEFAULT 0을 확인된 정책으로 승격하지 않는다.
-                    row.getMinPaymentAmount(), row.getMinPerformanceAmount(), conditions, rounding, scoped ? CalculationOrder.LIMIT_THEN_ROUND : null, links));
+                    row.getMinPaymentAmount(), row.getMinPerformanceAmount(), conditions, rounding, scoped && (!ibk || instant) ? CalculationOrder.LIMIT_THEN_ROUND : null, links));
         }
         var limits = new ArrayList<Limit>();
         for (Long groupId : groupIds) {
@@ -150,7 +184,7 @@ class RecommendationInputAssembler {
             if (used == null) {
                 issue(issues, card, groupId, "LIMIT_USAGE_MISSING");
             }
-            boolean singleCount=scopedGroup && group.getLimitUnit()==Unit.COUNT && data.links().stream()
+            boolean singleCount=scopedGroup && (!ibk || "GS25_INSTANT_DAILY".equals(group.getGroupCode())) && group.getLimitUnit()==Unit.COUNT && data.links().stream()
                     .filter(l -> l.getLimitGroupId().equals(groupId)).map(BenefitLimitLink::getCardBenefitId).distinct().count()==1;
             if (group.getLimitUnit()==Unit.COUNT && !singleCount) issue(issues,card,groupId,"COUNT_CONSUMPTION_POLICY_UNKNOWN");
             if (singleCount) trace(traces,card,null,List.of("limit:"+groupId+".countMode=PER_BENEFIT","limit:"+groupId+".consumeOnZero=false"));
@@ -159,7 +193,7 @@ class RecommendationInputAssembler {
         }
         // POL-012·013: 현재 지원하는 일시불·YAMU 모의 무이자 할부의 금융 수수료·이자는 0원이다.
         // 비용 0원은 정책 완전성 판단을 바꾸지 않는다. 승인 범위 밖은 기존 미확인을 유지한다.
-        var applications = applicationGroups(card, data, rows);
+        var applications = applicationGroups(card, data, effectiveRows);
         var fallbacks = new HashMap<Long, Fallback>();
         for (var row : rows) {
             if ((row.getFallbackBenefitId() == null) != (row.getFallbackMode() == null)) {
@@ -177,7 +211,7 @@ class RecommendationInputAssembler {
             }
         }
         if (applications.isEmpty() && !scoped) issue(issues,card,null,"BENEFIT_COMBINATIONS_UNKNOWN");
-        return new BenefitPolicy(scoped,previous,BigDecimal.ZERO,converted,limits,null,applications,fallbacks,traces);
+        return new BenefitPolicy(scoped && coverage,previous,BigDecimal.ZERO,converted,limits,null,applications,fallbacks,traces);
     }
 
     private LocalDate[] validity(LocalDate from,LocalDate until,boolean scoped,List<String> fields) {

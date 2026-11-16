@@ -72,7 +72,7 @@ public final class PosPurchaseFacts {
 
     private static Map<String, Boolean> build() {
         var kinds = NOT_POS_PURCHASE_KINDS.stream().map(kind -> "TRANSACTION_KIND:" + kind);
-        return java.util.stream.Stream.concat(kinds, NOT_POS_PERFORMANCE_FACTS.stream())
+        return java.util.stream.Stream.concat(java.util.stream.Stream.of("PAYMENT_METHOD:NPAY"), java.util.stream.Stream.concat(kinds, NOT_POS_PERFORMANCE_FACTS.stream()))
                 .collect(Collectors.toUnmodifiableMap(key -> key, key -> Boolean.FALSE));
     }
 }

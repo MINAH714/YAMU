@@ -16,7 +16,12 @@ import java.util.Objects;
  */
 public record RecommendationRequest(Long paymentId, Long userId, PaymentTerms terms, MerchantContext merchant,
         LocalDateTime requestedAt, String purchaseItemCode, java.util.Map<Long, com.yamu.be.recommendation.RecommendationCommand.PaymentAvailability> availability,
-        java.util.Map<String, Boolean> verifiedFacts) {
+        java.util.Map<String, Boolean> verifiedFacts, com.yamu.be.payment.pos.PosBasket.Snapshot basket) {
+    public RecommendationRequest(Long paymentId, Long userId, PaymentTerms terms, MerchantContext merchant,
+            LocalDateTime requestedAt, String purchaseItemCode, java.util.Map<Long, com.yamu.be.recommendation.RecommendationCommand.PaymentAvailability> availability,
+            java.util.Map<String, Boolean> verifiedFacts) {
+        this(paymentId,userId,terms,merchant,requestedAt,purchaseItemCode,availability,verifiedFacts,null);
+    }
     public RecommendationRequest(Long paymentId, Long userId, PaymentTerms terms, MerchantContext merchant, LocalDateTime requestedAt) {
         this(paymentId, userId, terms, merchant, requestedAt, null, java.util.Map.of(), java.util.Map.of());
     }
@@ -27,8 +32,12 @@ public record RecommendationRequest(Long paymentId, Long userId, PaymentTerms te
      */
     public static RecommendationRequest posPurchase(Long paymentId, Long userId, PaymentTerms terms, MerchantContext merchant,
             LocalDateTime requestedAt) {
-        return new RecommendationRequest(paymentId, userId, terms, merchant, requestedAt, null, java.util.Map.of(),
-                PosPurchaseFacts.verified());
+        return posPurchase(paymentId,userId,terms,merchant,requestedAt,null);
+    }
+
+    public static RecommendationRequest posPurchase(Long paymentId, Long userId, PaymentTerms terms, MerchantContext merchant,
+            LocalDateTime requestedAt, com.yamu.be.payment.pos.PosBasket.Snapshot basket) {
+        return new RecommendationRequest(paymentId,userId,terms,merchant,requestedAt,null,java.util.Map.of(),PosPurchaseFacts.verified(),basket);
     }
 
     public RecommendationRequest {

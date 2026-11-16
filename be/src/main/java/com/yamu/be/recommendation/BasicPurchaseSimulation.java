@@ -69,7 +69,7 @@ public final class BasicPurchaseSimulation {
         var rules = new ArrayList<>(original.simulationRules());
         if (!applied.isEmpty()) rules.add(new SimulationRule("YAMU_BASIC_PURCHASE",2,"YAMU 기본 모의 거래 기준",null,null,applied));
         return new RecommendationInput.Transaction(original.amount(),original.plan(),original.installmentMonths(),original.occurredAt(),
-                original.merchantId(),original.merchantCategoryCode(),facts,original.purchaseItemCode(),rules);
+                original.merchantId(),original.merchantCategoryCode(),facts,original.purchaseItemCode(),rules,original.basket());
     }
     private static void put(Map<String,Boolean> facts,List<String> fields,String key,boolean value) {
         if (!facts.containsKey(key)) { facts.put(key,value); fields.add(key); }

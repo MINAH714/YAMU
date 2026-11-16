@@ -18,6 +18,7 @@ public final class MerchantCategories {
 
     private static final List<Category> CATEGORIES = List.of(
             // 2026-11-05 Task 297 구현 검토에서 표시명 승인. 코드/브랜드 배정은 기존 Seed 유지.
+            new Category("PC_ROOM", "PC방"),
             new Category("HOSPITAL", "병원"),
             new Category("DENTAL_CLINIC", "치과"),
             new Category("KOREAN_MEDICINE_CLINIC", "한의원"),

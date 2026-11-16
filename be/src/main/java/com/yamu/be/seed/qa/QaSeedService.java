@@ -50,8 +50,8 @@ public final class QaSeedService {
     public void run(String command, QaSeedSpec spec) throws Exception {
         spec.validate(LocalDate.now(clock.withZone(KST)));
         require(List.of("apply", "enrich", "verify", "inspect", "reset", "purge").contains(command), "Unknown operation");
-        require(!List.of("apply", "enrich", "reset").contains(command) || spec.version() == 2,
-                "Use version 2 for executable fixtures; purge version 1 using its original input first");
+        require(!List.of("apply", "enrich", "reset").contains(command) || (spec.version() == 2 || spec.version() == 3),
+                "Use version 2 or 3 for executable fixtures; purge version 1 using its original input first");
         for (var persona : spec.personas()) {
             require(!persona.ssafyUserKey().startsWith("REPLACE_"), "Replace financial binding placeholders");
         }
@@ -148,8 +148,8 @@ public final class QaSeedService {
                     cipher.encrypt(p.ssafyUserKey(), CipherField.APP_USER_SSAFY_USER_KEY), now(), now());
             db.update("INSERT INTO qa_seed_member(dataset_key,persona_key,user_id) VALUES (?,?,?)",
                     spec.datasetKey(), p.key(), user);
-            long[] cards = new long[3], products = new long[3];
-            for (int i = 0; i < 3; i++) {
+            long[] cards = new long[p.cards().size()], products = new long[p.cards().size()];
+            for (int i = 0; i < p.cards().size(); i++) {
                 var c = p.cards().get(i);
                 var a = p.accounts().get(c.accountIndex());
                 products[i] = product(c);
@@ -161,6 +161,11 @@ public final class QaSeedService {
                         """, user, products[i], cipher.encrypt(c.cardNo(), CipherField.USER_CARD_NO),
                         lookup.card(c.cardNo()), last4(c.cardNo()), a.bankCode(),
                         lookup.account(a.bankCode(), a.accountNo()), last4(a.accountNo()), c.paymentDay(), now(), now());
+            }
+            if (spec.version() == 3) {
+                var ibk = p.cards().get(3);
+                db.update("UPDATE user_card SET issuer_registered_on=?,ibk_context_month=?,ibk_salary_qualified=?,ibk_military_qualified=? WHERE user_card_id=? AND user_id=?",
+                        ibk.issuerRegisteredOn(),spec.baseDate().withDayOfMonth(1),ibk.ibkSalaryQualified(),ibk.ibkMilitaryQualified(),cards[3],user);
             }
             for (var row : QaHistoryPlan.build(p.scenario(), spec.baseDate())) {
                 long payment = payment(spec, p, user, cards[row.card()], products[row.card()], row);
@@ -286,16 +291,16 @@ public final class QaSeedService {
             if (enriched) continue;
             require("ACTIVE".equals(db.queryForObject("SELECT status FROM app_user WHERE user_id=? FOR UPDATE",
                     String.class, user)), "Complete normal signup first");
-            long[] accounts = new long[2];
-            for (int i = 0; i < 2; i++) {
+            long[] accounts = new long[p.accounts().size()];
+            for (int i = 0; i < p.accounts().size(); i++) {
                 var a = p.accounts().get(i);
                 accounts[i] = id("""
                         SELECT linked_account_id FROM linked_account WHERE user_id=? AND bank_code=?
                         AND account_no_hash=? AND status='CONNECTED'
                         """, user, a.bankCode(), lookup.account(a.bankCode(), a.accountNo()));
             }
-            long[] cards = new long[3];
-            for (int i = 0; i < 3; i++) {
+            long[] cards = new long[p.cards().size()];
+            for (int i = 0; i < p.cards().size(); i++) {
                 var c = p.cards().get(i);
                 cards[i] = id("""
                         SELECT user_card_id FROM user_card WHERE user_id=? AND card_no_hash=?
@@ -304,7 +309,7 @@ public final class QaSeedService {
             }
             for (int i = 0; i < cards.length; i++) {
                 db.update("UPDATE user_card SET card_alias=?,display_order=?,updated_at=? WHERE user_card_id=?",
-                        "QA " + p.key() + " " + (i == 0 ? "생활 체크" : i == 1 ? "처음" : "Mr.Life"),
+                        "QA " + p.key() + " " + (i == 0 ? "생활 체크" : i == 1 ? "처음" : i == 2 ? "Mr.Life" : "IBK나라사랑"),
                         i, now(), cards[i]);
             }
             if (p.scenario() != QaSeedSpec.Scenario.EMPTY) {
@@ -361,7 +366,7 @@ public final class QaSeedService {
             long user = owner(spec, p);
             require(count("SELECT COUNT(*) FROM payment_transaction WHERE user_id=? AND source='SEED'", user)
                     == QaHistoryPlan.build(p.scenario(), spec.baseDate()).size(), "Initial history row count mismatch");
-            require(count("SELECT COUNT(*) FROM card_monthly_performance m JOIN user_card c USING(user_card_id) WHERE c.user_id=? AND m.performance_month BETWEEN ? AND ?", user, spec.baseDate().withDayOfMonth(1).minusMonths(6), spec.baseDate().withDayOfMonth(1)) >= 21, "Missing performance months");
+            require(count("SELECT COUNT(*) FROM card_monthly_performance m JOIN user_card c USING(user_card_id) WHERE c.user_id=? AND m.performance_month BETWEEN ? AND ?", user, spec.baseDate().withDayOfMonth(1).minusMonths(6), spec.baseDate().withDayOfMonth(1)) >= p.cards().size() * 7, "Missing performance months");
             require(count("""
                     SELECT COUNT(*) FROM card_monthly_performance m JOIN user_card c USING(user_card_id)
                     WHERE c.user_id=? AND m.recognized_amount<>(

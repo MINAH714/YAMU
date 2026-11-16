@@ -381,6 +381,7 @@ function App() {
       plan: terms.plan,
       ...(terms.plan === 'INSTALLMENT' ? { installmentMonths: terms.installmentMonths } : {}),
       orderNo: newOrderNo(),
+      ...(storeId === 'gs25' ? { items: order.lines.map(({ item, quantity }) => ({ productCode: item.id, quantity })) } : {}),
     }
     send({ idempotencyKey: newIdempotencyKey(), body, terms, order })
   }
