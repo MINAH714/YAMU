@@ -494,14 +494,14 @@ class CardDetailViewModelTest {
         assertEquals("출금이 끝나지 않은 청구가 있어 해제할 수 없어요", vm.state.value.message)
     }
 
-    @Test fun `이미 아는 청구가 있으면 본인 인증을 받지 않는다`() = runTest(dispatcher) {
+    @Test fun `출금 전 청구가 있어도 본인 인증 뒤 해제한다`() = runTest(dispatcher) {
+        // S15P31E103-562: 남은 청구는 결제일에 그대로 출금되고 해제는 막지 않는다
         link.detailResult = ApiResult.Success(CARD.copy(hasOpenBill = true))
         val vm = detail()
         vm.unregister()
-        advanceUntilIdle()
-        assertFalse(vm.state.value.unregistering)
-        assertFalse(vm.stepUp.busy)
-        assertEquals(0, link.unregisters)
+        passStepUp(vm)
+        assertEquals(1, link.unregisters)
+        assertEquals(CARD.productName, vm.state.value.unregisteredName)
     }
 
     @Test fun `본인 인증을 취소하면 다시 누를 수 있다`() = runTest(dispatcher) {
