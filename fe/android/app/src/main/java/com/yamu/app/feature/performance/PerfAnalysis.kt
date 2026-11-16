@@ -188,8 +188,9 @@ class PerfAnalysisViewModel internal constructor(
             val idle = it.copy(acting = false)
             if (it.selectedId == id && analysisRequest == request) update(idle) else idle
         }
-        // A→B→A로 돌아왔다면 저장 전에 받은 A의 분석도 낡았을 수 있다.
-        if (_state.value.selectedId == id && (refresh || analysisRequest != request)) load()
+        // 지출 이동은 출발 카드의 분석도 바꾼다. 다른 카드를 보고 있어도 현재 카드를 다시 받는다.
+        // 일반 판단 저장은 A→B→A로 돌아왔을 때만 다시 받는다.
+        if (refresh || (_state.value.selectedId == id && analysisRequest != request)) load()
     }
 
     fun messageShown() = _state.update { it.copy(message = null) }
