@@ -91,6 +91,8 @@ import kotlinx.serialization.Serializable
 @Serializable data object AddCard            // C-11 카드 추가(CardRegister와 같은 화면)
 @Serializable data object AccountManage      // M-01b 계좌 관리(월급 · 고정 지출은 빼고 계좌만)
 @Serializable data object NotificationSettings // M-04
+/** M-01 '약관 및 정책' → 약관 전문(A-04a와 같은 화면, TermDoc 이름). 가입 그래프의 TermsDoc과 따로 둬 마이 위에서 자동 잠금이 그대로 걸린다 */
+@Serializable data class PolicyDoc(val doc: String)
 @Serializable data object Profile            // M-06
 @Serializable data object Withdraw           // M-07b 회원 탈퇴
 @Serializable data object Security           // M-08
