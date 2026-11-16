@@ -55,6 +55,10 @@ import java.math.BigDecimal
     val expectedAmount: Long? = null,        // #3
     val actualAmount: Long? = null,
     val realization: String? = null,         // #12 후보: AT_APPROVAL · AT_BILLING · AFTER_BILLING · POINT_ACCRUAL
+    val unit: String? = null,                // #1 · #3: amount · rawAmount의 단위 KRW · POINT(S15P31E103-580). 옛 서버는 없다
+    val krwAmount: Long? = null,             // #1: 원화 금액(#3 actualAmount와 같은 값). 원화로 못 바꾼 적립은 null
+    @Serializable(with = BigDecimalSerializer::class)
+    val rawAmount: BigDecimal? = null,       // #3: 자기 단위 값(적립이면 포인트 수, #1 amount와 같은 값). 소수가 올 수 있다
 )
 
 @Serializable data class PerformanceImpactDto(val recognized: Boolean = true, val note: String? = null)
@@ -264,7 +268,34 @@ data class PayCodeStatus(val state: CodeState, val request: PaymentRequest?)
 /** 혜택이 반영되는 때 — 금액 뒤에 붙는 말이 다르다([amountText]). 서버가 시점을 모르면(약관 미확인) [UNKNOWN] */
 enum class BenefitKind { INSTANT, BILLING, CASHBACK, POINT, UNKNOWN }
 
-data class ReceiptBenefit(val name: String, val amount: Long, val kind: BenefitKind = BenefitKind.UNKNOWN)
+/**
+ * 결제 완료 · 상세의 혜택 한 줄. [amount]는 원화 금액이다. 원화로 바꾸지 못한 적립만 [points]에 포인트 수가 있고 그때 [amount]는 0이다
+ */
+data class ReceiptBenefit(
+    val name: String,
+    val amount: Long,
+    val kind: BenefitKind = BenefitKind.UNKNOWN,
+    val points: BigDecimal? = null,
+)
+
+/**
+ * #1 · #3 혜택 → 결제 완료 · 상세 줄. 적립도 원화가 있으면 원으로 쓰고(#3 actualAmount · #1 krwAmount — 둘 다 payment_benefit.krw_amount),
+ * 원화로 못 바꿨을 때만 포인트 수(#3 rawAmount · #1 amount)로 — 두 화면이 같은 단위 · 같은 금액으로 보인다(S15P31E103-580).
+ * #1 amount는 혜택 자기 단위라 적립이면 포인트 수다. 할인 · 캐시백은 전처럼 원(actualAmount → expectedAmount → amount).
+ * 금액이 0 이하면 null(줄을 그리지 않는다)
+ */
+internal fun BenefitDto.toReceiptBenefit(): ReceiptBenefit? {
+    val kind = kind()
+    val pointUnit = unit?.equals("POINT", ignoreCase = true) ?: isPoint
+    if (!pointUnit) {
+        val won = actualAmount ?: krwAmount ?: expectedAmount ?: amount
+        return ReceiptBenefit(name, won, kind).takeIf { won > 0 }
+    }
+    val won = actualAmount ?: krwAmount
+    if (won != null) return ReceiptBenefit(name, won, kind).takeIf { won > 0 }
+    val points = rawAmount ?: BigDecimal.valueOf(amount)
+    return ReceiptBenefit(name, 0, kind, points).takeIf { points.signum() > 0 }
+}
 
 /** #1 · #3 혜택의 realization(AT_APPROVAL · AT_BILLING · AFTER_BILLING · POINT_ACCRUAL), 없으면 type(CASHBACK · POINT)으로 */
 internal fun BenefitDto.kind(): BenefitKind = when (realization?.uppercase()) {
@@ -504,7 +535,7 @@ fun PaymentResultDto.toReceipt(request: PaymentRequest? = null, card: PayCard? =
         isCheck = isCheck,
         approvalNo = approvalNo,
         installmentMonths = installmentMonths?.takeIf { plan.equals("INSTALLMENT", ignoreCase = true) },
-        benefits = benefits.map { ReceiptBenefit(it.name, it.actualAmount ?: it.expectedAmount ?: it.amount, it.kind()) }.filter { it.amount > 0 },
+        benefits = benefits.mapNotNull { it.toReceiptBenefit() },
         chargedAmount = chargedAmount,
         balanceAfter = accountBalanceAfter,
         billDateIso = if (isCheck) null else bill?.let { it.expectedWithdrawalDate ?: it.withdrawalDate },
