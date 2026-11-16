@@ -14,6 +14,7 @@ import com.yamu.be.payment.domain.TransactionSource;
 import com.yamu.be.payment.history.PaymentHistoryReader.Filter;
 import com.yamu.be.payment.history.PaymentHistoryReader.PaymentRow;
 import com.yamu.be.payment.history.PaymentHistoryReader.Totals;
+import com.yamu.be.payment.performance.PaymentPerformanceTotals;
 import java.time.Clock;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -53,10 +54,12 @@ class PaymentHistoryService {
 
     private final PaymentHistoryReader reader;
     private final Clock clock;
+    private final PaymentPerformanceTotals performanceTotals;
 
-    PaymentHistoryService(PaymentHistoryReader reader, Clock clock) {
+    PaymentHistoryService(PaymentHistoryReader reader, Clock clock, PaymentPerformanceTotals performanceTotals) {
         this.reader = reader;
         this.clock = clock;
+        this.performanceTotals = performanceTotals;
     }
 
     /**
@@ -181,12 +184,21 @@ class PaymentHistoryService {
                 item.card().cardType(), row.recommendedRank(), row.userSelected());
     }
 
-    private static PaymentDetailResponse.Performance performance(PaymentListResponse.Item item, PaymentRow row) {
+    /**
+     * 실적 줄. 인정액 미확인이면 줄 자체가 없다. 누적·목표(S15P31E103-390)는 승인 상태(SEED 포함)일 때만 그 실적 월의 지금 값으로
+     * 채운다(2026-11-16 결정: 결제 당시가 아니라 지금 값). 취소된 결제는 이미 실적에서 빠져 null이다.
+     */
+    private PaymentDetailResponse.Performance performance(PaymentListResponse.Item item, PaymentRow row) {
         if (row.performanceMonth() == null || row.recognizedPerformanceAmount() == null) {
             return null;
         }
+        PaymentPerformanceTotals.Total total = item.status() == PaymentStatus.APPROVED && item.card() != null
+                && row.cardProductId() != null
+                ? performanceTotals.of(item.card().userCardId(), row.cardProductId(), row.performanceMonth())
+                : null;
         return new PaymentDetailResponse.Performance(YearMonth.from(row.performanceMonth()).toString(),
-                row.recognizedPerformanceAmount(), item.performanceRecognized(), null);
+                row.recognizedPerformanceAmount(), item.performanceRecognized(), null,
+                total == null ? null : total.recognizedTotalAfter(), total == null ? null : total.targetAmount());
     }
 
     /** 저장된 시각(요청·승인·취소)으로 만든다. 처리 중·거절·만료는 시각을 저장하지 않아 현재 상태일 때만 시각 없이 붙인다. */
