@@ -82,30 +82,33 @@ class NotificationWriter {
      * 설정이 켜져 있으면 쌓는다. 사용자가 없으면 404 {@code RESOURCE_NOT_FOUND}, 설정 저장값이 깨졌으면 IllegalStateException이다.
      */
     Result write(Draft draft) {
-        return transaction.execute(status -> {
-            if (!enabled(settings.read(draft.userId()), draft.type())) {
-                return Result.DISABLED;
-            }
-            LocalDateTime now = LocalDateTime.ofInstant(clock.instant(), ZoneOffset.UTC).truncatedTo(ChronoUnit.MICROS);
-            try {
-                jdbc.update("""
-                        INSERT INTO notification (user_id, notification_type, deduplication_key, title, body,
-                                                  target_type, target_id, read_at, created_at, updated_at)
-                        VALUES (:userId, :type, :key, :title, :body, :targetType, :targetId, NULL, :now, :now)
-                        """, new MapSqlParameterSource("userId", draft.userId())
-                        .addValue("type", draft.type().name())
-                        .addValue("key", draft.deduplicationKey())
-                        .addValue("title", draft.title())
-                        .addValue("body", draft.body())
-                        .addValue("targetType", draft.targetType())
-                        .addValue("targetId", draft.targetId())
-                        .addValue("now", now));
-                return Result.CREATED;
-            } catch (DuplicateKeyException e) {
-                // 중복 키 실패는 그 문장만 실패한다(MySQL은 트랜잭션을 되돌리지 않는다). 예외를 밖으로 던지지 않으므로 롤백 표시도 없다
-                return Result.DUPLICATE;
-            }
-        });
+        return transaction.execute(status -> writeAt(draft,
+                LocalDateTime.ofInstant(clock.instant(), ZoneOffset.UTC).truncatedTo(ChronoUnit.MICROS)));
+    }
+
+    /** Historical fixture replay supplies its event time and owns the surrounding transaction. */
+    Result writeAt(Draft draft, LocalDateTime now) {
+        if (!enabled(settings.read(draft.userId()), draft.type())) {
+            return Result.DISABLED;
+        }
+        try {
+            jdbc.update("""
+                    INSERT INTO notification (user_id, notification_type, deduplication_key, title, body,
+                                              target_type, target_id, read_at, created_at, updated_at)
+                    VALUES (:userId, :type, :key, :title, :body, :targetType, :targetId, NULL, :now, :now)
+                    """, new MapSqlParameterSource("userId", draft.userId())
+                    .addValue("type", draft.type().name())
+                    .addValue("key", draft.deduplicationKey())
+                    .addValue("title", draft.title())
+                    .addValue("body", draft.body())
+                    .addValue("targetType", draft.targetType())
+                    .addValue("targetId", draft.targetId())
+                    .addValue("now", now));
+            return Result.CREATED;
+        } catch (DuplicateKeyException e) {
+            // 중복 키 실패는 그 문장만 실패한다(MySQL은 트랜잭션을 되돌리지 않는다). 예외를 밖으로 던지지 않으므로 롤백 표시도 없다
+            return Result.DUPLICATE;
+        }
     }
 
     /** 알림 유형이 속한 설정 묶음이 켜져 있는지. 설정 묶음이 없는 유형은 늘 켜짐이다. */

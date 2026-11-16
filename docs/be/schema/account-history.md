@@ -1,5 +1,21 @@
 # 계좌 이력 컬럼 사전 — S15P31E103-517
 
+## QA 시작 자금 전환 근거 (550)
+
+`V20261116_3__add_qa_funding_boundary.sql`은 실제 시작 자금 입금으로 합성 종료 잔액을 마련한 경우에만 사용하는 QA 전용 연결이다. 실제 잔액·입출금·coverage는 변경하지 않는다.
+
+| 테이블 | 컬럼 | 의미 |
+|---|---|---|
+| qa_seed_funding_boundary | qa_stream_id BIGINT PK/FK | 합성 stream 하나당 명시적으로 선택한 전환 근거 하나 |
+| | actual_stream_id BIGINT | 같은 사용자·같은 계좌의 SSAFY stream. 쓰기와 읽기에서 소유권 검사 |
+| | funding_transaction_id BIGINT | 실제 시작 자금 입금 거래. actual_stream_id와 복합 FK |
+| | funding_content_hash CHAR(64) | 등록 당시 실제 거래 내용 해시. 변경되면 연결 불인정 |
+| | funded_balance BIGINT | 입금 후 양수 잔액. 합성 종료 잔액과 동일해야 함 |
+
+전환일은 합성 마지막 날 다음 날이며 실제 최초 거래 날짜여야 한다. 유효한 FIRST_TRANSACTION coverage와 실제 기초잔액 0원을 요구한다. 같은 날 가입 인증 등 준비 거래가 먼저 있었다면, 준비가 끝난 명시적 입금 거래의 잔액을 사용한다. 현재 잔액이나 나중 날짜 입금을 근거로 과거를 변경하지 않는다. 실제 조회 충돌로 coverage가 무효화되면 합성 구간도 숨긴다. 실제 입금은 보존하며 합성 잔액에 다시 더하지 않는다. 이 표는 실제 원장을 대체하는 잔액 앵커가 아닌 QA 원장 전환의 대응 근거다.
+
+자산 전용 reset은 이 대응 근거와 합성 stream만 제거한다. 실제 거래 FK는 보존되며 기존 사용자 전체 reset의 실제 이력 보존 차단을 유지한다.
+
 원본: V20261116_1__create_account_history.sql. 기존 계좌번호·금융망 키는 복제하지 않는다.
 모든 금액은 signed BIGINT 원화, 저장 시각은 UTC, 날짜는 한국 날짜다. 모든 PK는 BIGINT AUTO_INCREMENT다.
 

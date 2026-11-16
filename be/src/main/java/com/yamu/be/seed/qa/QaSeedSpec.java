@@ -8,7 +8,7 @@ import java.util.Set;
 
 /** Public scenario settings and injected financial bindings; never log this record. */
 public record QaSeedSpec(String datasetKey, int version, LocalDate baseDate, List<Persona> personas) {
-    public enum Scenario { RICH, EMPTY, BOUNDARY, SHORTFALL, STATES }
+    public enum Scenario { RICH, EMPTY, BOUNDARY, SHORTFALL, STATES, LIFE }
     public record Account(String bankCode, String accountNo) {
         @Override public String toString() { return "Account[REDACTED]"; }
     }
@@ -40,6 +40,9 @@ public record QaSeedSpec(String datasetKey, int version, LocalDate baseDate, Lis
         Set<String> keys = new HashSet<>(), people = new HashSet<>(), members = new HashSet<>(),
                 accountsSeen = new HashSet<>(), cardsSeen = new HashSet<>();
         for (Persona p : personas) {
+            if (p != null && p.scenario() == Scenario.LIFE)
+                require(version == 3 && QaLifeScenario.BASE.equals(baseDate) && personas.size() == 1,
+                        "LIFE requires version 3, fixed date and one independently owned persona");
             require(p != null && p.key() != null && p.key().matches("[a-z0-9-]{1,32}")
                     && keys.add(p.key()) && p.scenario() != null, "Invalid or duplicate persona");
             require(p.name() != null && p.name().length() >= 2 && p.name().length() <= 20

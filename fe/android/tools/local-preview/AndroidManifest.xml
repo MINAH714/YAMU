@@ -1,0 +1,5 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <activity android:name="com.yamu.app.QaLifePreviewActivity" android:exported="true" android:label="YAMU QA550 소비 분석" />
+    </application>
+</manifest>

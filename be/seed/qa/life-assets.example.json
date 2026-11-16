@@ -1,0 +1,12 @@
+{
+  "datasetKey": "qa-550-life-1",
+  "personaKey": "qa-1",
+  "accountId": 0,
+  "from": "2025-12-01",
+  "to": "2026-11-15",
+  "monthlyIncome": 0,
+  "monthlyRent": 0,
+  "extraEvents": [],
+  "scenario": "LIFE",
+  "fundingExternalId": "REPLACE_WITH_VERIFIED_FUNDING_TRANSACTION_ID"
+}

@@ -38,6 +38,35 @@ class AccountHistoryStoreTest extends MySqlTestSupport {
     String sync(LocalDate from,LocalDate to,BankTransaction... rows) {
         return store.complete(store.begin(user,account,from,to),snapshot(from,to,rows));
     }
+    @Test void materializedFundingConnectsWithoutAddingDepositTwiceAndFailsClosedOnConflict() throws Exception {
+        sync(DAY,DAY,deposit("funding",DAY,900_000,900_000));
+        String dataset="qa-funding-"+user;
+        db.update("INSERT INTO qa_seed_dataset(dataset_key,seed_version,base_date,input_hash,run_id,created_at) VALUES (?,3,?,?,'00000000-0000-0000-0000-000000000001',UTC_TIMESTAMP(6))",dataset,DAY,new byte[32]);
+        db.update("INSERT INTO qa_seed_member(dataset_key,persona_key,user_id,enriched) VALUES (?,'life',?,TRUE)",dataset,user);
+        var spec=new QaAssetHistory.Spec(dataset,"life",account,DAY.minusDays(3),DAY.minusDays(1),0,0,
+                List.of(new QaAssetHistoryPlan.Event("rent",DAY.minusDays(2),BankDirection.WITHDRAWAL,700_000)),null,"funding");
+        try(var connection=dataSource.getConnection()) {
+            connection.setAutoCommit(false);
+            var qa=new QaAssetHistory(new JdbcTemplate(new SingleConnectionDataSource(connection,true)),Clock.fixed(NOW,ZoneOffset.UTC));
+            var plan=qa.run("plan",spec);
+            assertThat(plan.opening()).isEqualTo(1_600_000);
+            assertThat(plan.closing()).isEqualTo(900_000);
+            qa.run("apply",spec); connection.commit();
+            qa.run("apply",spec); connection.commit();
+            qa.run("verify",spec); connection.commit();
+            var view=store.read(user,account,spec.from(),DAY);
+            assertThat(view.reason()).isEqualTo("OK");
+            assertThat(view.days().get(DAY.minusDays(1)).balance()).isEqualTo(900_000);
+            assertThat(view.days().get(DAY).balance()).isEqualTo(900_000); // not 1,800,000
+            assertThat(view.days().get(DAY).source()).isEqualTo(HistorySource.SSAFY);
+            assertThat(sync(DAY,DAY,deposit("funding",DAY,800_000,800_000))).isEqualTo("SOURCE_CONFLICT");
+            assertThat(store.read(user,account,spec.from(),spec.to()).reason()).isEqualTo("QA_BOUNDARY_UNVERIFIED");
+            assertThatThrownBy(()->qa.run("verify",spec)).isInstanceOf(IllegalArgumentException.class);
+            connection.rollback();
+            qa.run("reset",spec);connection.commit();
+        }
+        assertThat(db.queryForObject("SELECT COUNT(*) FROM account_transaction WHERE external_id='funding' AND stream_id IN (SELECT stream_id FROM account_history_stream WHERE linked_account_id=?)",Long.class,account)).isEqualTo(1);
+    }
     @Test void storesOnceAndNeverInventsPreOpeningZero() {
         var row=deposit("first",DAY,300,300);
         assertThat(sync(DAY.withDayOfMonth(1),DAY,row)).isEqualTo("OK");

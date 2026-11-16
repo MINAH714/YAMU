@@ -1,0 +1,201 @@
+{
+  "referenceDate": "2026-11-16",
+  "historyFrom": "2025-12-01",
+  "historyTo": "2026-11-15",
+  "names": [
+    "최인국",
+    "남윤주",
+    "박준수"
+  ],
+  "tests": [
+    {
+      "Suite": "com.yamu.be.seed.qa.QaLifeScenarioTest",
+      "Tests": 6,
+      "Failures": 0,
+      "Errors": 0,
+      "Skipped": 0
+    },
+    {
+      "Suite": "com.yamu.be.seed.qa.QaSeedServiceTest",
+      "Tests": 21,
+      "Failures": 0,
+      "Errors": 0,
+      "Skipped": 0
+    }
+  ],
+  "monthlyReportRequests": 108,
+  "assetFlowRequests": 12,
+  "accountCount": 9,
+  "unchanged": [
+    "2026-03 onward purchases",
+    "2026-04 onward bills",
+    "2026-04 onward account transactions and post-balances"
+  ],
+  "startingBalances": [
+    1050000,
+    900000,
+    300000
+  ],
+  "novemberConfirmedBill": 897500,
+  "decemberAccumulatingBill": 420000,
+  "assetChecks": [
+    {
+      "name": "최인국",
+      "month": "2025-12",
+      "days": 31,
+      "availableDays": 31,
+      "partialErrors": 0,
+      "currentTotalBalance": 2250000
+    },
+    {
+      "name": "최인국",
+      "month": "2026-01",
+      "days": 31,
+      "availableDays": 31,
+      "partialErrors": 0,
+      "currentTotalBalance": 2250000
+    },
+    {
+      "name": "최인국",
+      "month": "2026-02",
+      "days": 28,
+      "availableDays": 28,
+      "partialErrors": 0,
+      "currentTotalBalance": 2250000
+    },
+    {
+      "name": "최인국",
+      "month": "2026-03",
+      "days": 31,
+      "availableDays": 31,
+      "partialErrors": 0,
+      "currentTotalBalance": 2250000
+    },
+    {
+      "name": "남윤주",
+      "month": "2025-12",
+      "days": 31,
+      "availableDays": 31,
+      "partialErrors": 0,
+      "currentTotalBalance": 2250000
+    },
+    {
+      "name": "남윤주",
+      "month": "2026-01",
+      "days": 31,
+      "availableDays": 31,
+      "partialErrors": 0,
+      "currentTotalBalance": 2250000
+    },
+    {
+      "name": "남윤주",
+      "month": "2026-02",
+      "days": 28,
+      "availableDays": 28,
+      "partialErrors": 0,
+      "currentTotalBalance": 2250000
+    },
+    {
+      "name": "남윤주",
+      "month": "2026-03",
+      "days": 31,
+      "availableDays": 31,
+      "partialErrors": 0,
+      "currentTotalBalance": 2250000
+    },
+    {
+      "name": "박준수",
+      "month": "2025-12",
+      "days": 31,
+      "availableDays": 31,
+      "partialErrors": 0,
+      "currentTotalBalance": 2250000
+    },
+    {
+      "name": "박준수",
+      "month": "2026-01",
+      "days": 31,
+      "availableDays": 31,
+      "partialErrors": 0,
+      "currentTotalBalance": 2250000
+    },
+    {
+      "name": "박준수",
+      "month": "2026-02",
+      "days": 28,
+      "availableDays": 28,
+      "partialErrors": 0,
+      "currentTotalBalance": 2250000
+    },
+    {
+      "name": "박준수",
+      "month": "2026-03",
+      "days": 31,
+      "availableDays": 31,
+      "partialErrors": 0,
+      "currentTotalBalance": 2250000
+    }
+  ],
+  "monthlyConsumption": [
+    {
+      "month": "2025-12",
+      "livingSpent": 1987000,
+      "totalSpent": 1987000
+    },
+    {
+      "month": "2026-01",
+      "livingSpent": 2016000,
+      "totalSpent": 2016000
+    },
+    {
+      "month": "2026-02",
+      "livingSpent": 2092500,
+      "totalSpent": 2092500
+    },
+    {
+      "month": "2026-03",
+      "livingSpent": 1808000,
+      "totalSpent": 1808000
+    },
+    {
+      "month": "2026-04",
+      "livingSpent": 1841000,
+      "totalSpent": 1841000
+    },
+    {
+      "month": "2026-05",
+      "livingSpent": 1927500,
+      "totalSpent": 1927500
+    },
+    {
+      "month": "2026-06",
+      "livingSpent": 1789000,
+      "totalSpent": 1789000
+    },
+    {
+      "month": "2026-07",
+      "livingSpent": 1858000,
+      "totalSpent": 2758000
+    },
+    {
+      "month": "2026-08",
+      "livingSpent": 1910500,
+      "totalSpent": 1910500
+    },
+    {
+      "month": "2026-09",
+      "livingSpent": 1828000,
+      "totalSpent": 1828000
+    },
+    {
+      "month": "2026-10",
+      "livingSpent": 1880000,
+      "totalSpent": 1880000
+    },
+    {
+      "month": "2026-11",
+      "livingSpent": 690000,
+      "totalSpent": 690000
+    }
+  ]
+}

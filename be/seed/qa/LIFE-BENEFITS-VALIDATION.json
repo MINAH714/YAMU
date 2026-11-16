@@ -1,0 +1,68 @@
+{
+  "referenceDate": "2026-11-16",
+  "signupDate": "2026-04-01",
+  "policyAsOf": "2026-11-16",
+  "environment": "Isolated local Testcontainers MySQL + MockMvc",
+  "realFinancialTransactions": false,
+  "rdsWrites": false,
+  "appPreviewDatabaseReplaced": false,
+  "suites": [
+    {
+      "name": "com.yamu.be.seed.qa.QaLifeScenarioTest",
+      "tests": 6,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "name": "com.yamu.be.seed.qa.QaSeedServiceTest",
+      "tests": 23,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    }
+  ],
+  "reportHttp200Count": 108,
+  "assetFlowHttp200Count": 12,
+  "startingBalances": [
+    1050000,
+    900000,
+    300000
+  ],
+  "historicalOpeningBalances": [
+    2186000,
+    2246500,
+    135000
+  ],
+  "historicalMinimumBalances": [
+    54000,
+    0,
+    18000
+  ],
+  "currentBill": 896500,
+  "nextBill": 420000,
+  "billingDiscount": 19000,
+  "historicalPaidDiscount": 18000,
+  "expectedPoints": 19000,
+  "unresolvedPurchasesPerPerson": 31,
+  "personas": [
+    {
+      "name": "최인국",
+      "months": 12,
+      "expectedBenefit": 38000.0,
+      "confirmedBenefit": 19000.0
+    },
+    {
+      "name": "남윤주",
+      "months": 12,
+      "expectedBenefit": 38000.0,
+      "confirmedBenefit": 19000.0
+    },
+    {
+      "name": "박준수",
+      "months": 12,
+      "expectedBenefit": 38000.0,
+      "confirmedBenefit": 19000.0
+    }
+  ]
+}

@@ -1,0 +1,30 @@
+allprojects {
+    afterEvaluate {
+        if (plugins.hasPlugin('java')) {
+            tasks.register('upgradeLocalLifeBenefits', JavaExec) {
+                dependsOn testClasses
+                classpath = sourceSets.test.runtimeClasspath
+                mainClass = 'com.yamu.be.seed.qa.LocalLifeBenefitsUpgradeCli'
+            }
+            tasks.register('replayLocalNotifications', JavaExec) {
+                dependsOn testClasses
+                classpath = sourceSets.test.runtimeClasspath
+                mainClass = 'com.yamu.be.seed.qa.LocalNotificationReplayCli'
+            }
+            tasks.register('checkSeedNotifications', Test) {
+                testClassesDirs = sourceSets.test.output.classesDirs
+                classpath = sourceSets.test.runtimeClasspath
+                useJUnitPlatform()
+                systemProperty 'spring.profiles.active', 'test'
+                filter {
+                    includeTestsMatching 'com.yamu.be.seed.qa.QaSeedServiceTest.lifeNotificationsUseProductionMessagesAndEventTimes'
+                    includeTestsMatching 'com.yamu.be.notification.NotificationWriterTest'
+                    includeTestsMatching 'com.yamu.be.notification.TransactionNotificationIntegrationTest'
+                }
+                binaryResultsDirectory = layout.buildDirectory.dir('test-results/seed-notifications/binary')
+                reports.junitXml.outputLocation = layout.buildDirectory.dir('test-results/seed-notifications')
+                reports.html.outputLocation = layout.buildDirectory.dir('reports/seed-notifications')
+            }
+        }
+    }
+}
