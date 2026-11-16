@@ -243,7 +243,6 @@ fun YamuNavHost(navController: NavHostController, modifier: Modifier = Modifier,
                 composable<Home> {
                     // 3단계: 실제 화면(07 문서 3-5) · v4 홈(S15P31E103-480 · 481)
                     HomeRoute(
-                        onPay = { navController.navigate(PayCode) },
                         onForecast = { navController.navigate(Forecast) },
                         onNotifications = { navController.navigate(Notifications) },
                         onMyCards = { navController.navigate(MyCards) },
