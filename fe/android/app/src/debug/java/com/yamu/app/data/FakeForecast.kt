@@ -11,6 +11,7 @@ import com.yamu.app.feature.forecast.data.CashflowDeleteScope
 import com.yamu.app.feature.forecast.data.CatalogMerchant
 import com.yamu.app.feature.forecast.data.MerchantCategory
 import com.yamu.app.feature.forecast.data.PaymentChannel
+import com.yamu.app.feature.forecast.data.SimAccountComparisonDto
 import com.yamu.app.feature.forecast.data.SimAlternativeDto
 import com.yamu.app.feature.forecast.data.SimAssumptionDto
 import com.yamu.app.feature.forecast.data.SimBenefitDto
@@ -60,7 +61,6 @@ import com.yamu.app.feature.forecast.data.MatchViewDto
 import com.yamu.app.feature.forecast.data.PaceCheckDto
 import com.yamu.app.feature.forecast.data.PaymentMatch
 import com.yamu.app.feature.forecast.data.accountIdsFrom
-import com.yamu.app.feature.forecast.data.cardAccountIds
 import com.yamu.app.feature.forecast.data.isMatchable
 import com.yamu.app.feature.forecast.data.toCandidates
 import com.yamu.app.feature.forecast.data.toConfirmed
@@ -494,10 +494,10 @@ class FakeForecastRepository @Inject constructor(private val bank: FakeBank) : F
         val card = chosen ?: top
         val (benefitName, benefitAmount) = net(card)
         val schedule = withdrawals(card, query.purchaseDate, query.amount, query.installmentMonths)
-        // 실제 저장소처럼 카드의 출금 계좌 하나로 계산한다(-548). 그 계좌를 모르면 저장한 계획과 같은 계좌(시드 사용자는 신한 ·5678)에서 뺀다
-        val cardAccounts = cardAccountIds(card.id, options())
-        val purchaseAccount = cardAccounts?.single() ?: spendAccount()
-        val scope = cardAccounts?.let { current.copy(accountIds = it.toSet(), all = false) } ?: current
+        // 실제 저장소처럼 연결 계좌 전체 · 30일로 계산하고 계좌별 전후를 같이 준다(-589). 카드 출금 계좌를 모르면 저장한 계획과 같은 계좌(시드 사용자는 신한 ·5678)에서 뺀다
+        val purchaseAccount = options().firstOrNull { card.id in it.cardIds }?.accountId ?: spendAccount()
+        val scope = ForecastSelection(SimulationQuery.PERIOD, all = true)
+        fun account(id: Long) = ForecastSelection(SimulationQuery.PERIOD, setOf(id))
         val purchaseFlows = schedule.map { Flow(purchaseAccount, LocalDate.parse(it.date), it.amount, "SIMULATED_PURCHASE", "CONFIRMED", it.label ?: "가상 구매") }
         val before = build(scope)
         val after = build(scope, purchaseFlows)
@@ -508,9 +508,9 @@ class FakeForecastRepository @Inject constructor(private val bank: FakeBank) : F
         val afterMin = after.summary?.minBalance ?: 0
         val afterDate = after.summary?.minBalanceDate?.let(LocalDate::parse)
         // 체크카드 구매일(기간 안) 출금 계좌의 구매 후 잔액(그 계좌의 가장 나쁜 선)이 0원 아래면 BE처럼 안내를 덧붙인다(-347).
-        // 통합 합계로 보면 다른 계좌 잔액이 출금 계좌의 마이너스를 가린다(!206 리뷰). 출금 계좌를 고르지 않았으면 그날 잔액을 몰라 붙이지 않는다
+        // 통합 합계로 보면 다른 계좌 잔액이 출금 계좌의 마이너스를 가린다(!206 리뷰). 출금 계좌가 연결 계좌 밖이면 그날 잔액을 몰라 붙이지 않는다
         val checkOverdrawn = !card.credit && !query.purchaseDate.isAfter(to) && purchaseAccount in scope.accountIdsFrom(options()) &&
-            build(current.copy(accountIds = setOf(purchaseAccount), all = false), purchaseFlows).series
+            build(account(purchaseAccount), purchaseFlows).series
                 .firstOrNull { it.date == query.purchaseDate.toString() }?.let { (it.conservative ?: it.expected ?: 0) < 0 } == true
         val message = buildString {
             val d = afterDate?.let { "${it.monthValue}월 ${it.dayOfMonth}일" } ?: "기간 중"
@@ -541,6 +541,9 @@ class FakeForecastRepository @Inject constructor(private val bank: FakeBank) : F
                 SimAssumptionDto("YAMU_BRAND_NOT_SELECTED", "브랜드를 고르지 않아 브랜드 혜택은 빼고 계산했어요.").takeIf { query.merchantId == null },
             ),
             creditLimit = SimCreditLimitDto("SKIPPED", null).takeIf { card.credit },
+            accountComparisons = scope.accountIdsFrom(options()).map { id ->
+                SimAccountComparisonDto(id, snapshot(build(account(id))), snapshot(build(account(id), purchaseFlows)))
+            },
             message = message,
         )
         val ids = scope.accountIdsFrom(options())

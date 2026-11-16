@@ -3,6 +3,7 @@ package com.yamu.app.feature.forecast
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -19,6 +20,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -35,6 +37,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.onPlaced
 import androidx.compose.ui.layout.positionInParent
 import androidx.compose.ui.semantics.Role
@@ -66,6 +69,7 @@ import com.yamu.app.core.designsystem.component.YamuCard
 import com.yamu.app.core.designsystem.component.YamuPose
 import com.yamu.app.core.designsystem.icon.YamuIcons
 import com.yamu.app.core.designsystem.theme.YamuMotion
+import com.yamu.app.core.designsystem.theme.YamuRadius
 import com.yamu.app.core.designsystem.theme.YamuSpacing
 import com.yamu.app.core.designsystem.theme.YamuTheme
 import com.yamu.app.core.format.directionParticle
@@ -76,6 +80,7 @@ import com.yamu.app.core.network.ApiResult
 import com.yamu.app.core.network.newIdempotencyKey
 import com.yamu.app.core.ui.LocalSnackbar
 import com.yamu.app.core.ui.userMessage
+import com.yamu.app.feature.forecast.data.AccountShortfall
 import com.yamu.app.feature.forecast.data.Forecast
 import com.yamu.app.feature.forecast.data.ForecastRepository
 import com.yamu.app.feature.forecast.data.PaymentChannel
@@ -439,10 +444,10 @@ private fun HeroCard(
                 Spacer(Modifier.width(6.dp))
                 EstimateTag()
             }
-            // 어느 계좌 잔액인지 — 카드 출금 계좌 하나로 계산한다(S15P31E103-548)
-            sim.accounts.singleOrNull()?.let {
+            // 어느 계좌 잔액인지 — 연결 계좌 전체의 합으로 계산한다(S15P31E103-589)
+            sim.accountsLabel?.let {
                 Spacer(Modifier.weight(1f))
-                Text(it.shortName(), style = YamuTheme.typography.bodyS, color = c.text3, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(start = 8.dp))
+                Text(it, style = YamuTheme.typography.bodyS, color = c.text3, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(start = 8.dp))
             }
         }
         // 전 → 후. 같으면(출금이 예보 기간 밖 · 고르지 않은 계좌 · 전액 즉시할인) 숫자 하나에 '사기 전과 같아요'를 붙여
@@ -471,6 +476,10 @@ private fun HeroCard(
             Spacer(Modifier.height(10.dp))
             Text(it, style = YamuTheme.typography.bodyM, color = c.text2)
         }
+        sim.cardAccountShortfall?.let {
+            Spacer(Modifier.height(12.dp))
+            ShortfallNote(it)
+        }
         if (sim.days.size >= 2) {
             Spacer(Modifier.height(YamuSpacing.x5))
             SimGraph(sim, threshold, forecast, selected, onSelect, interacted, onInteract, flash)
@@ -498,6 +507,27 @@ internal fun afterTag(after: SimSnapshot?): Pair<String, TagTone>? {
 }
 
 /**
+ * 전체 계좌 합은 괜찮아도 카드 출금 계좌 하나만 보면 모자랄 때(S15P31E103-589) — 어느 계좌에 얼마, 가장 모자랄 때.
+ * 0원 아래라 그래프 · 고른 날 칸의 '0원 아래'와 같은 빨간 계열이다
+ */
+@Composable
+private fun ShortfallNote(shortfall: AccountShortfall) {
+    val c = YamuTheme.colors
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(YamuRadius.input))
+            .background(c.errorContainer)
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+    ) {
+        Text(shortfall.text, style = YamuTheme.typography.titleS, color = c.onErrorContainer)
+        shortfall.date?.let {
+            Text("가장 모자랄 때 ${it.toKoreanDateWeek()}", style = YamuTheme.typography.bodyS, color = c.onErrorContainer, modifier = Modifier.padding(top = 2.dp))
+        }
+    }
+}
+
+/**
  * 빠져나가는 날 — 회차마다, 예보 기간 밖이면 태그. 줄을 누르면 그래프가 그날로 가고(기간 밖이면 오른쪽 끝 표시가 깜빡인다)
  * 그래프에서 고른 날과 같은 날 줄은 연한 파랑 바탕이다
  */
@@ -510,7 +540,7 @@ private fun ScheduleCard(sim: Simulation, selectedDate: LocalDate?, onWithdrawal
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("빠져나가는 날", style = YamuTheme.typography.cardTitle, color = c.text1, modifier = Modifier.weight(1f))
             Text(
-                sim.accounts.singleOrNull()?.shortName() ?: "${sim.card.name} 출금 계좌",
+                sim.cardAccount?.shortName() ?: "${sim.card.name} 출금 계좌",
                 style = YamuTheme.typography.bodyS,
                 color = c.text3,
                 maxLines = 1,

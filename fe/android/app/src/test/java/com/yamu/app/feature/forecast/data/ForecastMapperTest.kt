@@ -356,17 +356,6 @@ class ForecastMapperTest {
         assertFalse(ForecastSelection(accountIds = setOf(2)).coversAll)
     }
 
-    @Test fun `가상 구매 계좌 — 카드의 출금 계좌 하나, 카드를 모르거나 목록에 없으면 null(-548)`() {
-        val accounts = listOf(
-            ForecastAccountOption(1, "a", null, "", null, true, cardIds = setOf(11)),
-            ForecastAccountOption(2, "b", null, "", null, false, cardIds = setOf(21, 22)),
-        )
-        assertEquals(listOf(2L), cardAccountIds(22, accounts))
-        assertEquals(listOf(1L), cardAccountIds(11, accounts))
-        assertNull(cardAccountIds(null, accounts))
-        assertNull(cardAccountIds(99, accounts))
-    }
-
     @Test fun `계좌 이름표 — 하나면 은행 · 끝 네 자리, 여럿이면 개수, 모두 고르면 전체`() {
         val kb = ForecastAccountOption(1, "KB 입출금", "KB국민은행", "1234", 412_000, true)
         val shinhan = ForecastAccountOption(2, "생활비 통장", "신한은행", "5678", 268_000, false)
