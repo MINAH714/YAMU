@@ -69,7 +69,7 @@ class PerfAnalysisViewModelTest {
         assertEquals(22L, vm.state.value.analysis?.userCardId)
         assertEquals(200_000L, vm.state.value.analysis?.projected)
         assertEquals(2, repo.bReads)
-        assertNull(vm.state.value.message)
+        assertTrue(vm.state.value.message!!.contains("내는 곳에서도 카드를 바꿔 주세요"))
         assertFalse(vm.state.value.acting)
         finish(vm)
     }
@@ -208,6 +208,155 @@ class PerfAnalysisViewModelTest {
         assertNull(vm.state.value.message)
         assertFalse(vm.state.value.acting)
         finish(vm)
+    }
+
+    @Test fun `옮기기 연타도 한 번만 보내고 두 쓰기가 성공하면 다시 분석한다`() = runTest(dispatcher) {
+        val repo = MoveRepo()
+        val vm = PerfAnalysisViewModel(CARD_ID, repo)
+        runCurrent()
+        vm.moveAndFill(); vm.moveAndFill(); runCurrent()
+        assertEquals(1, repo.moves)
+        assertEquals(1, repo.decisions)
+        assertEquals(2, repo.reads)
+        assertTrue(vm.state.value.message!!.contains("내는 곳에서도"))
+        finish(vm)
+    }
+
+    @Test fun `이동 실패면 판단을 보내지 않고 응답 유실은 결과 불명으로 알린다`() = runTest(dispatcher) {
+        for (error in listOf(ApiError.Conflict("CONFLICT"), ApiError.Network)) {
+            val repo = MoveRepo().apply { moved = ApiResult.Failure(error) }
+            val vm = PerfAnalysisViewModel(CARD_ID, repo)
+            runCurrent()
+            vm.moveAndFill(); runCurrent()
+            assertEquals(1, repo.moves)
+            assertEquals(0, repo.decisions)
+            assertEquals(if (error.isOutcomeUnknown) 2 else 1, repo.reads)
+            assertEquals(error.isOutcomeUnknown, vm.state.value.message!!.contains("변경 결과를 확인하지 못했어요"))
+            assertFalse(vm.state.value.acting)
+            finish(vm)
+        }
+    }
+
+    @Test fun `이동 뒤 판단 실패와 결과 불명을 구분하고 자동으로 쓰기를 반복하지 않는다`() = runTest(dispatcher) {
+        for (error in listOf(ApiError.Conflict("CONFLICT"), ApiError.Server("ERROR"), ApiError.Network)) {
+            val repo = MoveRepo().apply { recorded = ApiResult.Failure(error) }
+            val vm = PerfAnalysisViewModel(CARD_ID, repo)
+            runCurrent()
+            vm.moveAndFill(); runCurrent()
+            val message = vm.state.value.message!!
+            assertTrue(message.contains("바꿔 뒀어요"))
+            assertEquals(error.isOutcomeUnknown, message.contains("판단 기록 결과는 확인하지 못했어요"))
+            assertEquals(!error.isOutcomeUnknown, message.contains("판단은 기록하지 못했어요"))
+            assertEquals(1, repo.moves)
+            assertEquals(1, repo.decisions)
+            assertEquals(2, repo.reads)
+            assertFalse(vm.state.value.acting)
+            finish(vm)
+        }
+    }
+
+    @Test fun `판단 기록 성공 실패 결과 불명 모두 결제처 변경 기한과 안내를 유지한다`() = runTest(dispatcher) {
+        for (result in listOf(ApiResult.Success(Unit), ApiResult.Failure(ApiError.Conflict("CONFLICT")), ApiResult.Failure(ApiError.Server("ERROR")), ApiResult.Failure(ApiError.Network))) {
+            val repo = MoveRepo().apply { recorded = result }
+            val vm = PerfAnalysisViewModel(CARD_ID, repo)
+            runCurrent()
+            vm.moveAndFill(); runCurrent()
+            val message = vm.state.value.message!!
+            assertTrue(message.contains("바꿔 뒀어요"))
+            assertTrue(message.contains("내는 곳에서도 카드를 바꿔 주세요"))
+            assertTrue(message.contains("11/25까지 통신비"))
+            assertEquals(1, repo.moves)
+            assertEquals(1, repo.decisions)
+            assertEquals(2, repo.reads)
+            assertFalse(vm.state.value.acting)
+            finish(vm)
+        }
+    }
+
+    @Test fun `부분 성공 뒤 분석 재조회도 실패하면 결과 안내와 조회 오류를 모두 남긴다`() = runTest(dispatcher) {
+        val repo = MoveRepo().apply {
+            recorded = ApiResult.Failure(ApiError.Network)
+            failReload = true
+        }
+        val vm = PerfAnalysisViewModel(CARD_ID, repo)
+        runCurrent()
+        vm.moveAndFill(); runCurrent()
+        assertNotNull(vm.state.value.error)
+        assertTrue(vm.state.value.message!!.contains("판단 기록 결과는 확인하지 못했어요"))
+        assertFalse(vm.state.value.loading)
+        finish(vm)
+    }
+
+    @Test fun `이동 중 카드가 바뀌면 뒤이은 판단 저장은 원래 카드로 하고 현재 화면은 유지한다`() = runTest(dispatcher) {
+        val move = CompletableDeferred<ApiResult<Unit>>()
+        val repo = MoveRepo().apply { waitMove = move }
+        val vm = PerfAnalysisViewModel(CARD_ID, repo)
+        runCurrent()
+        vm.moveAndFill(); runCurrent()
+        vm.select(22); runCurrent()
+        move.complete(ApiResult.Success(Unit)); runCurrent()
+        assertEquals(CARD_ID, repo.decidedId)
+        assertEquals(22L, vm.state.value.analysis?.userCardId)
+        assertTrue(vm.state.value.message!!.contains("11/25까지 통신비"))
+        assertTrue(vm.state.value.message!!.contains("내는 곳에서도 카드를 바꿔 주세요"))
+        assertFalse(vm.state.value.acting)
+        finish(vm)
+    }
+
+    @Test fun `카드 전환 뒤 판단 성공도 이동 완료 안내를 남긴다`() = switchedDuringRecording(ApiResult.Success(Unit))
+    @Test fun `카드 전환 뒤 판단 충돌도 이동 완료 안내를 남긴다`() = switchedDuringRecording(ApiResult.Failure(ApiError.Conflict("CONFLICT")))
+    @Test fun `카드 전환 뒤 판단 서버 오류도 이동 완료 안내를 남긴다`() = switchedDuringRecording(ApiResult.Failure(ApiError.Server("ERROR")))
+    @Test fun `카드 전환 뒤 판단 결과 불명도 이동 완료 안내를 남긴다`() = switchedDuringRecording(ApiResult.Failure(ApiError.Network))
+
+    private fun switchedDuringRecording(result: ApiResult<Unit>) = runTest(dispatcher) {
+        val decision = CompletableDeferred<ApiResult<Unit>>()
+        val repo = MoveRepo().apply { waitDecision = decision }
+        val vm = PerfAnalysisViewModel(CARD_ID, repo)
+        runCurrent()
+        vm.moveAndFill(); runCurrent()
+        assertEquals(1, repo.decisions)
+        vm.select(22); runCurrent()
+        decision.complete(result); runCurrent()
+        assertEquals(22L, vm.state.value.analysis?.userCardId)
+        assertEquals(CARD_ID, repo.decidedId)
+        val message = vm.state.value.message!!
+        assertTrue(message.contains("11/25까지 통신비"))
+        assertTrue(message.contains("내는 곳에서도 카드를 바꿔 주세요"))
+        assertEquals(1, repo.moves)
+        assertEquals(1, repo.decisions)
+        assertFalse(vm.state.value.acting)
+        vm.messageShown()
+        assertNull(vm.state.value.message)
+        finish(vm)
+    }
+
+    private class MoveRepo : PerformanceRepository by unused() {
+        var moved: ApiResult<Unit> = ApiResult.Success(Unit)
+        var recorded: ApiResult<Unit> = ApiResult.Success(Unit)
+        var waitMove: CompletableDeferred<ApiResult<Unit>>? = null
+        var waitDecision: CompletableDeferred<ApiResult<Unit>>? = null
+        var failReload = false
+        var moves = 0
+        var decisions = 0
+        var reads = 0
+        var decidedId: Long? = null
+        override fun cachedOverview(): PerfOverview? = null
+        override suspend fun overview(): ApiResult<PerfOverview> = ApiResult.Failure(ApiError.Network)
+        override suspend fun analysis(userCardId: Long): ApiResult<PerfAnalysis> {
+            reads++
+            if (failReload && reads > 1) return ApiResult.Failure(ApiError.Network)
+            return ApiResult.Success(sample(userCardId).copy(movable = MovableItem(3, "통신비", 55_000, "2026-11-25", null)))
+        }
+        override suspend fun moveCashflow(cashflowItemId: Long, userCardId: Long): ApiResult<Unit> {
+            moves++
+            return waitMove?.await() ?: moved
+        }
+        override suspend fun decide(userCardId: Long, decision: PerfDecision?, analysisVersion: String?): ApiResult<Unit> {
+            decisions++
+            decidedId = userCardId
+            assertEquals(PerfDecision.FILL, decision)
+            return waitDecision?.await() ?: recorded
+        }
     }
 
     private class DeferredRepo : PerformanceRepository by unused() {
