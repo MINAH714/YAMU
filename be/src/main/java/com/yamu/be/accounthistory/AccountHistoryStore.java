@@ -45,6 +45,16 @@ public class AccountHistoryStore {
 
     @Transactional
     public String complete(Ticket ticket, BankHistory history) {
+        return complete(ticket, history, false);
+    }
+
+    /** Current-day source evidence for an opening boundary, not a completed day's balance. */
+    @Transactional
+    public String completeCurrentSnapshot(Ticket ticket, BankHistory history) {
+        return complete(ticket, history, true);
+    }
+
+    private String complete(Ticket ticket, BankHistory history, boolean currentSnapshot) {
         var stream=em.find(HistoryStream.class,ticket.streamId(),LockModeType.PESSIMISTIC_WRITE);
         var run=em.find(HistoryRun.class,ticket.runId());
         if(stream==null || run==null) return "SUPERSEDED";
@@ -60,6 +70,7 @@ public class AccountHistoryStore {
         history.transactions().forEach(r->incoming.put(r.bankTransactionNo(),r));
         var existing=rows(stream.id,history.from(),history.to());
         boolean changed=false;
+        LocalDate changedFrom=null;
         for(var old:existing) {
             var row=incoming.get(old.externalId);
             if(row==null || !old.contentHash.equals(HistoryTransaction.hash(row))) {
@@ -77,16 +88,23 @@ public class AccountHistoryStore {
             if(prior!=null && !prior.contentHash.equals(HistoryTransaction.hash(row))) {
                 invalidate(stream.id,history.from()); run.status="SOURCE_CONFLICT"; return run.status;
             }
-            if(prior==null) changed=true;
+            if(prior==null) {
+                changed=true;
+                if(changedFrom==null || row.date().isBefore(changedFrom)) changedFrom=row.date();
+            }
         }
         var priorOpening=opening(stream.id,history.from().minusDays(1));
         Long opening=priorOpening==null?null:priorOpening.balance();
         boolean hadOpening=opening!=null;
-        var result=new DailyBalanceReconstructor().reconstruct(history,opening);
+        var calculator=new DailyBalanceReconstructor();
+        var result=currentSnapshot?calculator.validateCurrentSnapshot(history,opening):calculator.reconstruct(history,opening);
+        if(currentSnapshot && result.reason()!=DailyBalanceReconstructor.Reason.OK) {
+            run.status=result.reason().name(); return run.status;
+        }
         if(result.reason()!=DailyBalanceReconstructor.Reason.OK && result.reason()!=DailyBalanceReconstructor.Reason.NO_ANCHOR) {
             invalidate(stream.id,history.from()); run.status=result.reason().name(); return run.status;
         }
-        if(changed) invalidate(stream.id,history.from());
+        if(changed) invalidate(stream.id,currentSnapshot?changedFrom:history.from());
         var known=new HashSet<String>();
         existing.forEach(r->known.add(r.externalId));
         for(var row:history.transactions()) if(!known.contains(row.bankTransactionNo())) {
@@ -113,7 +131,11 @@ public class AccountHistoryStore {
             coverage.rangeFrom=history.transactions().stream().map(BankTransaction::date).min(LocalDate::compareTo).orElseThrow();
         }
         em.persist(coverage); em.flush();
-        run.status=result.reason().name(); return run.status;
+        run.status=currentSnapshot?"INTRADAY_BOUNDARY":result.reason().name(); return run.status;
+    }
+
+    private boolean currentSnapshot(HistoryCoverage coverage) {
+        return "INTRADAY_BOUNDARY".equals(em.find(HistoryRun.class,coverage.runId).status);
     }
 
     private void invalidate(Long stream,LocalDate from) {
@@ -126,6 +148,7 @@ public class AccountHistoryStore {
         var candidates=em.createQuery("select c from HistoryCoverage c where c.valid=true and c.streamId=:s and c.rangeTo=:d and c.openingBalance is not null order by c.id desc",HistoryCoverage.class)
                 .setParameter("s",stream).setParameter("d",date).getResultList();
         for(var coverage:candidates) {
+            if(currentSnapshot(coverage)) continue;
             var result=reconstruct(coverage);
             if(result.reason()==DailyBalanceReconstructor.Reason.OK)
                 return new Opening(result.points().get(result.points().size()-1).balance(),coverage.id);
@@ -200,6 +223,7 @@ public class AccountHistoryStore {
             var coverages=em.createQuery("select c from HistoryCoverage c where c.streamId=:s and c.valid=true and c.rangeFrom<=:t and c.rangeTo>=:f order by c.id",HistoryCoverage.class)
                     .setParameter("s",stream.id).setParameter("f",from).setParameter("t",to).getResultList();
             for(var c:coverages) {
+                if(currentSnapshot(c)) continue;
                 var result=reconstruct(c);
                 reason=result.reason().name();
                 for(var point:result.points()) {
