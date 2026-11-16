@@ -37,6 +37,7 @@ import java.time.LocalDateTime;
 import java.time.YearMonth;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
+import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoUnit;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -69,6 +70,8 @@ import org.testcontainers.utility.DockerImageName;
 class HomeIntegrationTest extends MySqlTestSupport {
 
     private static final ZoneId KOREA = ZoneId.of("Asia/Seoul");
+    /** 서버가 시각을 내보내는 형식(UtcLocalDateTimeSerializer). LocalDateTime.toString()은 초가 0이면 초를 빼서 쓰지 않는다. */
+    private static final DateTimeFormatter UTC_JSON = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss'Z'");
 
     @Container
     @ServiceConnection(name = "redis")
@@ -222,7 +225,7 @@ class HomeIntegrationTest extends MySqlTestSupport {
                 .andExpect(jsonPath("$.data.balanceForecast.horizonDays").isNumber())
                 .andExpect(jsonPath("$.data.balanceForecast.minBalance").isNumber())
                 .andExpect(jsonPath("$.data.balanceForecast.isEstimate").value(true))
-                .andExpect(jsonPath("$.data.dataSyncedAt").value(fetchedAt + "Z"))
+                .andExpect(jsonPath("$.data.dataSyncedAt").value(UTC_JSON.format(fetchedAt)))
                 .andExpect(jsonPath("$.data.unreadNotificationCount").value(2))
                 .andExpect(jsonPath("$.data.todos.length()").value(1))
                 .andExpect(jsonPath("$.data.todos[0].tag").value("미납"))
