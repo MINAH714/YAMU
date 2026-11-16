@@ -69,6 +69,9 @@ yamu:
     lock-duration: 30m
     # 본인 인증(step-up) 토큰. 5분 안에 한 번만 쓸 수 있다(명세 5장)
     step-up-token-ttl: 5m
+    # 임시(S15P31E103-530): 결제 코드를 처음 인증해 연 뒤 이 시간 안에는 [새 코드]를 다시 인증하지 않고 받는다.
+    # 재발급한 코드도 처음 인증 시각을 물려받아, 이어 붙여도 창이 늘지 않는다
+    barcode-reissue-window: 10m
     # 로그인 준비·로그인 호출 횟수 제한(두 API 합산). 넘으면 429 TOO_MANY_REQUESTS
     rate-limit:
       window: 1m
