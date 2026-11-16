@@ -1023,9 +1023,10 @@ private fun ForecastSection(
                 Icon(YamuIcons.ChevronRight, contentDescription = null, tint = c.onPrimaryContainer)
             }
         }
-        // 히어로 아래 따로 있던 브랜드 색 버튼(-520)을 카드 안으로 — F-01(같은 계좌 · 30일)을 연다
+        // 히어로 아래 따로 있던 브랜드 색 버튼(-520)을 카드 안으로 — F-01(같은 계좌 · 30일)을 연다.
+        // 바탕은 히어로 카드와 같은 그라데이션(11/16 QA). 브랜드 색보다 진해서 흰 글자 대비도 올라간다
         Spacer(Modifier.height(16.dp))
-        PrimaryButton("잔고예보 보기", onClick = onForecast)
+        PrimaryButton("잔고예보 보기", onClick = onForecast, brush = Brush.linearGradient(listOf(c.heroStart, c.heroEnd)))
     }
 }
 

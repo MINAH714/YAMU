@@ -14,6 +14,8 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.runtime.remember
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.Icon
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Column
@@ -43,7 +45,11 @@ import com.yamu.app.core.designsystem.theme.YamuSize
 import com.yamu.app.core.designsystem.theme.YamuSpacing
 import com.yamu.app.core.designsystem.theme.YamuTheme
 
-/** 주 버튼 — 화면에 1개, 글자는 누르면 일어날 일("신한카드로 15,000원 결제") */
+/**
+ * 주 버튼 — 화면에 1개, 글자는 누르면 일어날 일("신한카드로 15,000원 결제").
+ * [brush]를 주면 단색 대신 그 그라데이션을 바탕에 깐다(홈 '잔고예보 보기'가 히어로와 같은 heroStart → heroEnd).
+ * 누를 수 없을 때는 brush가 있어도 다른 주 버튼처럼 회색이다.
+ */
 @Composable
 fun PrimaryButton(
     text: String,
@@ -52,18 +58,25 @@ fun PrimaryButton(
     enabled: Boolean = true,
     loading: Boolean = false,
     icon: ImageVector? = null,           // 지문으로 서명 · 연결할 때 fingerprint(C-02c · C-12)
+    brush: Brush? = null,
 ) {
     val c = YamuTheme.colors
+    val shape = RoundedCornerShape(YamuRadius.button)
+    // 불러오는 중에는 누를 수 없지만 색은 그대로(회색이면 진행 표시가 안 보임)
+    val gradient = brush.takeIf { enabled || loading }
+    val container = if (gradient != null) Color.Transparent else c.primary
     Button(
         onClick = onClick,
         enabled = enabled && !loading,
-        modifier = modifier.fillMaxWidth().height(YamuSize.button),
-        shape = RoundedCornerShape(YamuRadius.button),
+        modifier = modifier
+            .fillMaxWidth()
+            .height(YamuSize.button)
+            .then(if (gradient != null) Modifier.background(gradient, shape) else Modifier),
+        shape = shape,
         colors = ButtonDefaults.buttonColors(
-            containerColor = c.primary,
+            containerColor = container,
             contentColor = c.onPrimary,
-            // 불러오는 중에는 누를 수 없지만 색은 그대로(회색이면 진행 표시가 안 보임)
-            disabledContainerColor = if (loading) c.primary else c.surfaceHigh,
+            disabledContainerColor = if (loading) container else c.surfaceHigh,
             disabledContentColor = if (loading) c.onPrimary else c.text3,
         ),
         contentPadding = PaddingValues(horizontal = 20.dp),
@@ -209,6 +222,13 @@ fun BottomCta(
 private fun ButtonsPreview() = YamuTheme {
     Column(Modifier.background(YamuTheme.colors.surface).padding(16.dp)) {
         PrimaryButton("신한카드로 15,000원 결제", onClick = {})
+        Spacer(Modifier.height(8.dp))
+        val hero = Brush.linearGradient(listOf(YamuTheme.colors.heroStart, YamuTheme.colors.heroEnd))
+        PrimaryButton("잔고예보 보기", onClick = {}, brush = hero)
+        Spacer(Modifier.height(8.dp))
+        PrimaryButton("잔고예보 보기", onClick = {}, brush = hero, loading = true)
+        Spacer(Modifier.height(8.dp))
+        PrimaryButton("잔고예보 보기", onClick = {}, brush = hero, enabled = false)
         Spacer(Modifier.height(8.dp))
         NeutralButton("다른 카드로", onClick = {})
         TextButtonGrey("나중에 할게요", onClick = {})
