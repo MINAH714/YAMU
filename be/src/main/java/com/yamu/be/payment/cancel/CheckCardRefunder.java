@@ -95,7 +95,7 @@ public class CheckCardRefunder {
             log.info("체크카드 환불 입금을 거래내역에서 찾음, 다시 입금하지 않음 paymentId={} tag={} bankTransactionNo={}",
                     paymentId, tag, found.bankTransactionNo());
             balances.evict(access.linkedAccountId());
-            return new Refunded(withdrawn, found.balanceAfter());
+            return new Refunded(withdrawn, found.balanceAfter(), access.linkedAccountId());
         }
         Optional<Instant> sentAt = attempts.lastSentAt(paymentId);
         if (sentAt.isPresent() && clock.instant().isBefore(sentAt.get().plus(properties.recoveryGrace()))) {
@@ -134,7 +134,8 @@ public class CheckCardRefunder {
             case SUCCESS -> {
                 log.info("체크카드 환불 입금 성공 paymentId={} tag={} amount={}", paymentId, tag, amount);
                 balances.evict(access.linkedAccountId());
-                yield new Refunded(amount, balanceAfter(paymentId, access, tag, amount, transactionNo));
+                yield new Refunded(amount, balanceAfter(paymentId, access, tag, amount, transactionNo),
+                        access.linkedAccountId());
             }
             case REJECTED -> {
                 clearQuietly(paymentId);
@@ -199,9 +200,11 @@ public class CheckCardRefunder {
     /**
      * @param amount       환불한 금액(원). 0원 승인은 0
      * @param balanceAfter 입금 뒤 잔액. 입금이 없었거나 읽지 못하면 null
+     * @param accountId    환불을 넣은(또는 거래내역에서 이미 들어간 것을 찾은) 연결 계좌 번호. 결제 행에 저장해 환급 내역이
+     *                     계좌를 바꾼 뒤에도 실제 입금 계좌를 보여 준다(S15P31E103-323). 0원 승인은 null
      */
-    public record Refunded(long amount, Long balanceAfter) {
+    public record Refunded(long amount, Long balanceAfter, Long accountId) {
 
-        static final Refunded NONE = new Refunded(0, null);
+        static final Refunded NONE = new Refunded(0, null, null);
     }
 }

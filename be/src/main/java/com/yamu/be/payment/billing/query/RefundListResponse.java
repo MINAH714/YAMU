@@ -40,7 +40,8 @@ public record RefundListResponse(
      * @param scheduledAfter   아직 출금 전인 청구서의 회차면 그 출금 예정일. 출금이 끝나야 환급 기한이 정해진다
      * @param dueDate          환급 기한(출금 완료일 + 3영업일). 출금 전이면 null. 체크카드는 취소일(한국 날짜)
      * @param finTransactionNo 입금의 금융망 거래 번호. 체크카드는 저장하지 않아 null
-     * @param toAccount        환급 계좌. 체크카드는 카드의 지금 연결 계좌(입금 계좌를 저장하지 않음, 임시)
+     * @param toAccount        환급 계좌. 체크카드는 취소 때 환불을 넣은 계좌(S15P31E103-323). 칸이 생기기 전 취소 건은
+     *                         마이그레이션 때의 카드 연결 계좌, 카드를 해제해 계좌가 없었으면 null
      */
     public record Item(Long refundId, Long paymentId, Long billItemId, Long billId, Long userCardId, String nickname,
             String merchantName, String reason, long amount, boolean estimated, RefundStatus status,

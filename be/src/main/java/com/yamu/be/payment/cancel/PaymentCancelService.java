@@ -175,10 +175,12 @@ public class PaymentCancelService {
                         .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND));
                 requireCancelable(payment);
                 LocalDateTime now = nowUtc();
-                payment.cancel(now);
+                // 실제로 넣은 계좌를 적는다. 입금과 저장 사이에 사용자가 계좌를 바꿔도 환급 내역은 이 계좌를 보여 준다
+                payment.cancel(now, refunded.accountId());
                 payments.saveAndFlush(payment);
                 PaymentCancelResponse.Restored restored = ledger.reverse(payment, now);
-                log.info("체크카드 결제 취소 paymentId={} refund={}", paymentId, refunded.amount());
+                log.info("체크카드 결제 취소 paymentId={} refund={} refundAccountId={}", paymentId, refunded.amount(),
+                        refunded.accountId());
                 return new PaymentCancelResponse(payment.getId(), payment.getStatus(), payment.getCanceledAt(),
                         restored, List.of(), List.of(), refunded.balanceAfter());
             });

@@ -149,6 +149,13 @@ public class PaymentTransaction extends BaseTimeEntity {
     @Column(name = "fin_transaction_no", length = 128)
     private String finTransactionNo;
 
+    /**
+     * 체크카드 취소 환불을 넣은 연결 계좌(S15P31E103-323). 취소할 때 한 번 적고 바꾸지 않는다. 0원 승인·신용카드·취소 전은 null.
+     * 이 칸이 생기기 전에 취소된 결제는 마이그레이션이 그때의 카드 연결 계좌로 채웠다
+     */
+    @Column(name = "refund_linked_account_id")
+    private Long refundLinkedAccountId;
+
     /** 소비 분류(BE4 영역). 결제는 읽지 않는다 */
     @Column(name = "spending_class", length = 16)
     private String spendingClass;
@@ -373,8 +380,18 @@ public class PaymentTransaction extends BaseTimeEntity {
      * 지우지 않는다. 실적·한도 복구는 원장 포트가 같은 트랜잭션에서 한다.
      */
     public void cancel(LocalDateTime canceledAt) {
+        cancel(canceledAt, null);
+    }
+
+    /**
+     * 전체 취소에 체크카드 환불 계좌를 함께 적는다. 신용카드 환급 계좌는 refund 행에 따로 있으므로 신용카드는 null로 부른다.
+     *
+     * @param refundLinkedAccountId 체크카드 환불을 넣은 연결 계좌. 0원 승인처럼 입금이 없으면 null
+     */
+    public void cancel(LocalDateTime canceledAt, Long refundLinkedAccountId) {
         requireStatus("취소", PaymentStatus.APPROVED);
         this.canceledAt = canceledAt;
+        this.refundLinkedAccountId = refundLinkedAccountId;
         this.status = PaymentStatus.CANCELED;
         domainEvents.add(new PaymentCanceledEvent(id, userId));
     }
