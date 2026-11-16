@@ -410,20 +410,20 @@ private fun BenefitHero(section: HomeSection<HomeBenefit>, onClick: () -> Unit, 
         is HomeSection.Ready -> BenefitHeroReady(section.data, onClick, extra)
         HomeSection.Loading -> HeroFrame(onClick = null) {
             HeroTitle(benefitTitle(null), more = false)
-            Spacer(Modifier.height(extra))
             Spacer(Modifier.height(YamuSpacing.x3))
             Box(Modifier.width(150.dp).height(40.dp).clip(RoundedCornerShape(10.dp)).background(c.onHero.copy(alpha = HERO_GLASS_ALPHA)))
             Spacer(Modifier.height(YamuSpacing.x3))
             Box(Modifier.width(110.dp).height(22.dp).clip(RoundedCornerShape(YamuRadius.input)).background(c.onHero.copy(alpha = HERO_GLASS_ALPHA)))
+            Spacer(Modifier.height(extra))
         }
         // 혜택만 실패 — 홈의 다른 칸은 그대로 그리고 여기만 다시 시도(COMMON-08)
         is HomeSection.Failed -> HeroFrame(onClick = null) {
             HeroTitle(benefitTitle(null), more = false)
-            Spacer(Modifier.height(extra))
             Spacer(Modifier.height(YamuSpacing.x3))
             Text("혜택을 불러오지 못했어요", style = YamuTheme.typography.titleM, color = c.onHero)
             Spacer(Modifier.height(YamuSpacing.x3))
             HeroButton("다시 시도", onClick = onRetry)
+            Spacer(Modifier.height(extra))
         }
     }
 }
@@ -452,11 +452,10 @@ private fun BenefitHeroReady(b: HomeBenefit, onClick: () -> Unit, extra: Dp = 0.
 
     HeroFrame(onClick = onClick, onClickLabel = "혜택 리포트 보기", sheen = sheen.value) {
         HeroTitle(benefitTitle(b.month), more = true)
-        // 첫 화면을 채우려고 늘린 만큼은 제목 아래에 — 금액 · 동전 · 종류 칸은 한 덩어리로 카드 아래쪽에 모인다(S15P31E103-596)
-        Spacer(Modifier.height(extra))
         Row(verticalAlignment = Alignment.Bottom) {
             Column(Modifier.weight(1f)) {
-                Spacer(Modifier.height(YamuSpacing.x2))
+                // 금액은 왼쪽 위, 제목 바로 아래에 붙이되 12dp는 띄운다(11/17 사용자 요청, S15P31E103-596)
+                Spacer(Modifier.height(YamuSpacing.x3))
                 AmountText(
                     shown,
                     size = AmountSize.Hero,
@@ -466,8 +465,9 @@ private fun BenefitHeroReady(b: HomeBenefit, onClick: () -> Unit, extra: Dp = 0.
                 )
                 Spacer(Modifier.height(YamuSpacing.x2))
                 FlowRow(
-                    // 동전 무더기가 왼쪽으로 넘쳐 들어오는 자리는 비운다 — 좁은 폰에서는 칩이 다음 줄로 내려간다
-                    modifier = Modifier.padding(end = if (coins > 0) HERO_PILE_OVERFLOW else 0.dp),
+                    // 동전 무더기가 왼쪽으로 넘쳐 들어오는 자리는 비운다 — 좁은 폰에서는 칩이 다음 줄로 내려간다.
+                    // 히어로를 늘려 칩이 무더기보다 위에 있으면 겹치지 않으니 비우지 않는다
+                    modifier = Modifier.padding(end = if (coins > 0 && extra < HERO_PILE_HEIGHT) HERO_PILE_OVERFLOW else 0.dp),
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                     verticalArrangement = Arrangement.spacedBy(6.dp),
                     itemVerticalAlignment = Alignment.CenterVertically,
@@ -480,6 +480,8 @@ private fun BenefitHeroReady(b: HomeBenefit, onClick: () -> Unit, extra: Dp = 0.
                         if (b.pending > 0) HeroChip("${b.pending.toWon()}원 혜택 예정", dashed = true)
                     }
                 }
+                // 첫 화면을 채우려고 늘린 만큼은 칩 아래에 — 금액은 위에 남고 동전 무더기는 종류 칸 바로 위 바닥에 앉는다(S15P31E103-596)
+                Spacer(Modifier.height(extra))
             }
             if (coins > 0) {
                 CoinPile(
