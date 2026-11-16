@@ -15,7 +15,6 @@ import java.time.LocalDate
 import java.time.format.TextStyle
 import java.util.Locale
 import kotlin.math.abs
-import kotlin.math.roundToLong
 
 /** 고른 날을 바꾼 곳(Task 8.2.70) — 바꾼 곳은 다시 움직이지 않고 나머지만 따라온다 */
 enum class DaySource {
@@ -127,23 +126,31 @@ internal fun pillTopLabel(date: LocalDate, index: Int): String = when {
 }
 
 /**
- * 알약 아랫줄 금액 — 좁은 칸(50dp)이라 만 원 단위로 줄인다. '−2.5만' · '−15만' · '+280만', 만 원 아래는 '−6천', 0원이면 null.
- * 단위 값이 100 이상이면 소수점 없이, 그 아래는 소수 한 자리(.0은 뗀다).
+ * 알약 아랫줄 금액(캘린더 칸 · 날짜 띠) — 좁은 칸이라 만 원 단위로 줄인다. '−2.5만' · '−18.63만' · '+280만', 만 원 아래는 '−6.3천', 0원이면 null.
+ * 반올림하지 않고 버린다 — 만 원은 소수 둘째 자리(100원), 천 원은 소수 첫째 자리(100원)까지. 끝의 0은 뗀다.
+ * 100원이 안 되는 금액은 '0.1천'으로 — 돈이 오간 날이 빈칸으로 보이지 않게.
  * 1억 · 1조부터는 그 단위로 — 만 원으로만 줄이면 1,000억이 '−10000000만'이 되어 칸 밖으로 나간다(큰 금액 QA)
  */
 internal fun pillAmount(net: Long): String? {
     if (net == 0L) return null
     val sign = if (net > 0) "+" else "−"
     val a = abs(net)
-    if (a < 10_000) return "$sign${(a / 1000.0).roundToLong().coerceAtLeast(1)}천"
+    if (a < 10_000) return "$sign${decimalText((a / 100).coerceAtLeast(1), 10)}천"
     PILL_UNITS.forEachIndexed { i, (size, unit) ->
-        val v = a.toDouble() / size
-        val rounded = if (v >= 100) v.roundToLong().toDouble() else (v * 10).roundToLong() / 10.0
-        if (rounded >= 10_000 && i < PILL_UNITS.lastIndex) return@forEachIndexed   // 10000만 → 1억으로 올린다
-        val text = if (rounded % 1.0 == 0.0) rounded.toLong().toString() else rounded.toString()
-        return "$sign$text$unit"
+        val hundredths = a / (size / 100)   // 버림
+        if (hundredths >= 10_000 * 100L && i < PILL_UNITS.lastIndex) return@forEachIndexed   // 10000만 → 1억으로 올린다
+        return "$sign${decimalText(hundredths, 100)}$unit"
     }
     return null   // 닿지 않는다 — 마지막 단위(조)에서 늘 돌려준다
+}
+
+/** scaled를 scale(10 · 100)로 나눈 값을 끝의 0 없이 — decimalText(1863, 100) = '18.63', decimalText(250, 100) = '2.5' */
+private fun decimalText(scaled: Long, scale: Long): String {
+    val whole = scaled / scale
+    val frac = scaled % scale
+    if (frac == 0L) return whole.toString()
+    val digits = frac.toString().padStart(scale.toString().length - 1, '0').trimEnd('0')
+    return "$whole.$digits"
 }
 
 private val PILL_UNITS = listOf(10_000L to "만", 100_000_000L to "억", 1_000_000_000_000L to "조")
