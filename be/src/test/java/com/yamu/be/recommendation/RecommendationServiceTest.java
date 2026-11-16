@@ -73,7 +73,7 @@ class RecommendationServiceTest {
     }
 
     @Test void simulationReusesPoliciesWithoutPaymentIdAndKeepsActualPaymentResult() {
-        doReturn(fixedPolicy("500")).when(assembler).policy(any(), any(), any(), any(), anyList(), any(), any());
+        doReturn(fixedPolicy("500")).when(assembler).policy(any(), any(), any(), any(), anyList(), any(), any(), any());
         var command = command(Map.of(1L, available(), 2L, available(), 3L, available()));
         var actual = recommend(command).recommendation();
         var simulated = service.recommendSimulation(1L, command.transaction(), CalculationOptions.DEFAULT).recommendation();
@@ -97,7 +97,7 @@ class RecommendationServiceTest {
 
     @Test void simulationOptionsDoNotLeakAndOnlyAppliedRulesAreReturned() {
         var fixture = new BrandMissingSimulationTest();
-        doReturn(fixture.legacy(fixture.brandOnly())).when(assembler).policy(any(), any(), any(), any(), anyList(), any(), any());
+        doReturn(fixture.legacy(fixture.brandOnly())).when(assembler).policy(any(), any(), any(), any(), anyList(), any(), any(), any());
         var enabled = service.recommendSimulation(1L, fixture.tx, new CalculationOptions(true));
         assertThat(enabled.recommendation().rankedCards()).hasSize(3).allSatisfy(c -> {
             assertThat(c.calculation().netBenefit()).isEqualByComparingTo("500");
@@ -117,7 +117,7 @@ class RecommendationServiceTest {
 
     @Test void concurrentSimulationsKeepOptionsIsolated() throws Exception {
         var fixture = new BrandMissingSimulationTest();
-        doReturn(fixture.legacy(fixture.brandOnly())).when(assembler).policy(any(), any(), any(), any(), anyList(), any(), any());
+        doReturn(fixture.legacy(fixture.brandOnly())).when(assembler).policy(any(), any(), any(), any(), anyList(), any(), any(), any());
         var pool = java.util.concurrent.Executors.newFixedThreadPool(4);
         try {
             var tasks = new ArrayList<java.util.concurrent.Callable<Void>>();
@@ -141,8 +141,8 @@ class RecommendationServiceTest {
     @Test
     void passesLoadedInputsToRealSelectorAndKeepsPartialReadyExclusionAndConfirmedZeroDistinct() {
         // 테스트에서만 제공하는 확인된 입력. 실제 상품의 정책 공급 설정이 아니다.
-        doReturn(fixedPolicy("500")).when(assembler).policy(argThat(c -> c.getId() == 1), any(), any(), any(), anyList(), any(), any());
-        doReturn(fixedPolicy("0")).when(assembler).policy(argThat(c -> c.getId() == 2), any(), any(), any(), anyList(), any(), any());
+        doReturn(fixedPolicy("500")).when(assembler).policy(argThat(c -> c.getId() == 1), any(), any(), any(), anyList(), any(), any(), any());
+        doReturn(fixedPolicy("0")).when(assembler).policy(argThat(c -> c.getId() == 2), any(), any(), any(), anyList(), any(), any(), any());
         var available = Map.of(1L, available(), 2L, available(), 3L, available());
         var result = recommend(command(available)).recommendation();
         assertThat(result.status()).isEqualTo(RecommendationSelector.Status.PARTIAL_READY);
@@ -168,7 +168,7 @@ class RecommendationServiceTest {
             var actual = (BenefitPolicy) invocation.callRealMethod();
             assembled.add(actual);
             return actual;
-        }).when(assembler).policy(any(), any(), any(), any(), anyList(), any(), any());
+        }).when(assembler).policy(any(), any(), any(), any(), anyList(), any(), any(), any());
         var transaction = new Transaction(50_000, plan, plan == Plan.LUMP_SUM ? 1 : 2,
                 Instant.parse("2026-09-30T15:30:00Z"), 20L, "CAFE", Map.of());
 
@@ -196,13 +196,13 @@ class RecommendationServiceTest {
 
     @Test
     void knownUnpayableCardDoesNotRequireBenefitPolicyAndUnknownAvailabilityIsNotAvailable() {
-        doReturn(fixedPolicy("500")).when(assembler).policy(argThat(c -> c.getId() == 1), any(), any(), any(), anyList(), any(), any());
+        doReturn(fixedPolicy("500")).when(assembler).policy(argThat(c -> c.getId() == 1), any(), any(), any(), anyList(), any(), any(), any());
         var result = recommend(command(Map.of(1L, available(), 2L,
                 new PaymentAvailability(Availability.UNAVAILABLE, "INSUFFICIENT_BALANCE")))).recommendation();
         assertThat(result.status()).isEqualTo(RecommendationSelector.Status.PARTIAL_READY);
         assertThat(result.evaluatedCards().get(1).status()).isEqualTo(RecommendationSelector.CardStatus.EXCLUDED);
         assertThat(result.evaluatedCards().get(2).reason()).isEqualTo("PAYMENT_AVAILABILITY_UNKNOWN");
-        verify(assembler, times(1)).policy(any(), any(), any(), any(), anyList(), any(), any());
+        verify(assembler, times(1)).policy(any(), any(), any(), any(), anyList(), any(), any(), any());
     }
 
     @Test
@@ -211,8 +211,8 @@ class RecommendationServiceTest {
         when(loader.load(eq(1L), anyList(), eq(LocalDate.of(2026, 10, 1)))).thenReturn(data);
         when(activity.recognizedAmounts(List.of(1L, 2L), YearMonth.of(2026, 9))).thenReturn(Map.of(1L, 0L));
         var result = recommend(command(Map.of(1L, available(), 2L, available())));
-        verify(assembler).policy(argThat(c -> c.getId() == 1), eq(data), eq(LocalDate.of(2026, 10, 1)), eq(0L), anyList(), any(), any());
-        verify(assembler).policy(argThat(c -> c.getId() == 2), eq(data), eq(LocalDate.of(2026, 10, 1)), isNull(), anyList(), any(), any());
+        verify(assembler).policy(argThat(c -> c.getId() == 1), eq(data), eq(LocalDate.of(2026, 10, 1)), eq(0L), anyList(), any(), any(), any());
+        verify(assembler).policy(argThat(c -> c.getId() == 2), eq(data), eq(LocalDate.of(2026, 10, 1)), isNull(), anyList(), any(), any(), any());
         assertThat(result.issues()).anyMatch(i -> i.userCardId() == 2 && i.code().equals("PREVIOUS_PERFORMANCE_MISSING"));
         verify(activity).recognizedAmounts(List.of(1L, 2L), YearMonth.of(2026, 9));
         verifyNoMoreInteractions(activity);
@@ -249,9 +249,9 @@ class RecommendationServiceTest {
 
     @Test
     void malformedPolicyForOneCardDoesNotAbortOtherCalculatedCards() {
-        doReturn(fixedPolicy("500")).when(assembler).policy(argThat(c -> c.getId() == 1), any(), any(), any(), anyList(), any(), any());
+        doReturn(fixedPolicy("500")).when(assembler).policy(argThat(c -> c.getId() == 1), any(), any(), any(), anyList(), any(), any(), any());
         doThrow(new IllegalArgumentException("incompatible unit")).when(assembler)
-                .policy(argThat(c -> c.getId() == 2), any(), any(), any(), anyList(), any(), any());
+                .policy(argThat(c -> c.getId() == 2), any(), any(), any(), anyList(), any(), any(), any());
         var result = recommend(command(Map.of(1L, available(), 2L, available())));
         assertThat(result.recommendation().status()).isEqualTo(RecommendationSelector.Status.PARTIAL_READY);
         assertThat(result.recommendation().selectedUserCardId()).isEqualTo(1L);
@@ -276,7 +276,7 @@ class RecommendationServiceTest {
                 List.of(selfReference), List.of(), List.of(), List.of(), List.of(), List.of(), List.of()));
         doCallRealMethod().when(loader).validateFallbacks(any(), any());
         doReturn(fixedPolicy("500")).when(assembler)
-                .policy(argThat(c -> c.getId() == 1), any(), any(), any(), anyList(), any(), any());
+                .policy(argThat(c -> c.getId() == 1), any(), any(), any(), anyList(), any(), any(), any());
 
         var result = recommend(command(Map.of(1L, available(), 2L, available())));
 
@@ -284,7 +284,7 @@ class RecommendationServiceTest {
         assertThat(result.recommendation().selectedUserCardId()).isEqualTo(1L);
         assertThat(result.issues()).filteredOn(i -> i.code().equals("POLICY_DATA_INVALID"))
                 .containsExactly(new RecommendationDataIssue(2L, null, "POLICY_DATA_INVALID", false));
-        verify(assembler, never()).policy(eq(invalidCard), any(), any(), any(), anyList(), any(), any());
+        verify(assembler, never()).policy(eq(invalidCard), any(), any(), any(), anyList(), any(), any(), any());
     }
 
     @Test
@@ -325,7 +325,7 @@ class RecommendationServiceTest {
         setField(first, "displayOrder", 1);
         setField(second, "displayOrder", 0);
         when(cards.findOrdered(anyLong(), anyCollection())).thenReturn(List.of(second, first));
-        doReturn(fixedPolicy("0")).when(assembler).policy(any(), any(), any(), any(), anyList(), any(), any());
+        doReturn(fixedPolicy("0")).when(assembler).policy(any(), any(), any(), any(), anyList(), any(), any(), any());
         var result = recommend(command(Map.of(1L, available(), 2L, available()))).recommendation();
         assertThat(result.status()).isEqualTo(RecommendationSelector.Status.READY);
         assertThat(result.selectedUserCardId()).isEqualTo(2L);
@@ -439,7 +439,7 @@ class RecommendationServiceTest {
         assertThat(result.issues()).extracting(RecommendationDataIssue::code).containsOnly("DATABASE_READ_RETRYABLE");
         assertThat(result.issues()).extracting(RecommendationDataIssue::userCardId).containsExactly(1L, 2L);
         assertThat(result.recommendation().status()).isEqualTo(RecommendationSelector.Status.DATA_INSUFFICIENT);
-        verify(assembler, never()).policy(any(), any(), any(), any(), anyList(), any(), any());
+        verify(assembler, never()).policy(any(), any(), any(), any(), anyList(), any(), any(), any());
     }
 
     @ParameterizedTest
@@ -464,8 +464,8 @@ class RecommendationServiceTest {
         assertThat(result.issues()).filteredOn(RecommendationDataIssue::retryable)
                 .extracting(RecommendationDataIssue::userCardId).containsExactly(2L);
         assertThat(result.issues()).noneMatch(i -> i.code().equals("PREVIOUS_PERFORMANCE_MISSING"));
-        verify(assembler).policy(argThat(c -> c.getId() == 1), same(data), any(), isNull(), anyList(), any(), any());
-        verify(assembler, never()).policy(argThat(c -> c.getId() == 2), any(), any(), any(), anyList(), any(), any());
+        verify(assembler).policy(argThat(c -> c.getId() == 1), same(data), any(), isNull(), anyList(), any(), any(), any());
+        verify(assembler, never()).policy(argThat(c -> c.getId() == 2), any(), any(), any(), anyList(), any(), any(), any());
         var order = inOrder(transactions, activity, assembler);
         order.verify(transactions).commit(any());
         order.verify(activity).recognizedAmounts(List.of(2L), YearMonth.of(2026, 9));
@@ -474,7 +474,7 @@ class RecommendationServiceTest {
         } else {
             order.verify(transactions).rollback(any());
         }
-        order.verify(assembler).policy(any(), any(), any(), any(), anyList(), any(), any());
+        order.verify(assembler).policy(any(), any(), any(), any(), anyList(), any(), any(), any());
         verify(activity, times(1)).recognizedAmounts(anyList(), any());
         verify(transactions, times(2)).getTransaction(argThat(t -> t.isReadOnly()
                 && t.getPropagationBehavior() == TransactionDefinition.PROPAGATION_REQUIRES_NEW));
@@ -489,8 +489,8 @@ class RecommendationServiceTest {
         // 최종 상태 검증 전용 확인 정책. 실제 조립 경로/complete=false 검증은 위 테스트와 분리한다.
         var confirmedA = fixedPolicy("500");
         var confirmedB = fixedPolicy("1000");
-        doReturn(confirmedA).when(assembler).policy(argThat(c -> c.getId() == 1), any(), any(), any(), anyList(), any(), any());
-        doReturn(confirmedB).when(assembler).policy(argThat(c -> c.getId() == 2), any(), any(), eq(400_000L), anyList(), any(), any());
+        doReturn(confirmedA).when(assembler).policy(argThat(c -> c.getId() == 1), any(), any(), any(), anyList(), any(), any(), any());
+        doReturn(confirmedB).when(assembler).policy(argThat(c -> c.getId() == 2), any(), any(), eq(400_000L), anyList(), any(), any(), any());
         if (querySucceeds) {
             when(activity.recognizedAmounts(List.of(2L), YearMonth.of(2026, 9))).thenReturn(Map.of(2L, 400_000L));
         } else {

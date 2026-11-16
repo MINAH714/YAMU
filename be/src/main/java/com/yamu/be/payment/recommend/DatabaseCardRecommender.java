@@ -33,7 +33,7 @@ public class DatabaseCardRecommender implements CardRecommender {
         var terms = request.terms();
         var preserved = new RecommendationInput.Transaction(terms.amount(), RecommendationInput.Plan.valueOf(terms.plan().name()),
                 terms.installmentMonths() == null ? 1 : terms.installmentMonths(), request.requestedAt().toInstant(ZoneOffset.UTC),
-                request.merchant().merchantId(), request.merchant().categoryCode(), request.verifiedFacts(), request.purchaseItemCode());
+                request.merchant().merchantId(), request.merchant().categoryCode(), request.verifiedFacts(), request.purchaseItemCode(), java.util.List.of(), request.basket());
         var transaction=com.yamu.be.recommendation.BasicPurchaseSimulation.apply(preserved,request.merchant().channel(),request.merchant().facilityType());
         return new RecommendationCommand(request.paymentId(), request.userId().longValue(), transaction, request.availability());
     }

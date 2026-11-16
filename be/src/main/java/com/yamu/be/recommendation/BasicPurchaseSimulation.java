@@ -51,7 +51,9 @@ public final class BasicPurchaseSimulation {
             put(facts,applied,"FACILITY:LARGE_FACILITY_TENANT",false); put(facts,applied,"FACILITY:BUILDING_TENANT",false);
         }
         if (facts.keySet().stream().noneMatch(k->k.startsWith("RULE:") && (k.contains("ROUTE")||k.contains("EASY_PAY")||k.contains("AGENCY")))
-                && facts.keySet().stream().noneMatch(k->k.startsWith("PAYMENT_METHOD:"))) {
+                // POS의 Npay 비사용 사실은 일반 구매 모의 기준을 바꾸지 않는다.
+                && facts.entrySet().stream().noneMatch(e->e.getKey().startsWith("PAYMENT_METHOD:")
+                    && !("PAYMENT_METHOD:NPAY".equals(e.getKey()) && Boolean.FALSE.equals(e.getValue())))) {
             put(facts,applied,"RULE:AGENCY_SITE",false); put(facts,applied,"RULE:NON_PARTNER_EASY_PAY",false);
             put(facts,applied,"TRANSACTION_KIND:PG_MERCHANT",false); put(facts,applied,"TRANSACTION_KIND:PG_ONLY_MERCHANT",false);
         }
@@ -69,7 +71,7 @@ public final class BasicPurchaseSimulation {
         var rules = new ArrayList<>(original.simulationRules());
         if (!applied.isEmpty()) rules.add(new SimulationRule("YAMU_BASIC_PURCHASE",2,"YAMU 기본 모의 거래 기준",null,null,applied));
         return new RecommendationInput.Transaction(original.amount(),original.plan(),original.installmentMonths(),original.occurredAt(),
-                original.merchantId(),original.merchantCategoryCode(),facts,original.purchaseItemCode(),rules);
+                original.merchantId(),original.merchantCategoryCode(),facts,original.purchaseItemCode(),rules,original.basket());
     }
     private static void put(Map<String,Boolean> facts,List<String> fields,String key,boolean value) {
         if (!facts.containsKey(key)) { facts.put(key,value); fields.add(key); }

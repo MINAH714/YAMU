@@ -16,6 +16,7 @@ public final class CardIssuers {
     }
 
     private static final Map<String, Issuer> KNOWN = Map.of(
+            "IBK", new Issuer("IBK", "IBK기업은행", "#0058A3"),
             "SHINHAN", new Issuer("SHINHAN", "신한카드", "#0046FF"),
             "KB", new Issuer("KB", "KB국민카드", "#FFBC00"),
             "WOORI", new Issuer("WOORI", "우리카드", "#0067AC"),

@@ -114,8 +114,8 @@ class RecommendationDatabaseIntegrationTest extends MySqlTestSupport {
         var result = service.recommend(command(Map.of(first, available(), second, available())));
         assertThat(result.recommendation().status()).isEqualTo(RecommendationSelector.Status.DATA_INSUFFICIENT);
         assertThat(result.recommendation().uncomparedCards()).hasSize(2);
-        verify(assembler).policy(argThat(c -> c.getId() == first), any(), eq(date), eq(0L), anyList(), any(), any());
-        verify(assembler).policy(argThat(c -> c.getId() == second), any(), eq(date), isNull(), anyList(), any(), any());
+        verify(assembler).policy(argThat(c -> c.getId() == first), any(), eq(date), eq(0L), anyList(), any(), any(), any());
+        verify(assembler).policy(argThat(c -> c.getId() == second), any(), eq(date), isNull(), anyList(), any(), any(), any());
         assertThat(result.issues()).anyMatch(i -> i.userCardId() == second && i.code().equals("PREVIOUS_PERFORMANCE_MISSING"));
         assertThat(result.issues()).noneMatch(RecommendationDataIssue::retryable);
         assertThat(snapshot()).isEqualTo(before);

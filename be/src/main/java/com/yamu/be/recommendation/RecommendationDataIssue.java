@@ -7,7 +7,19 @@ public record RecommendationDataIssue(Long userCardId, Long policyId, String cod
     /** HTTP 연결 시에도 원본 DB 예외 대신 이 안내를 전달한다. */
     @com.fasterxml.jackson.annotation.JsonProperty("message")
     public String message() {
+        if (code.startsWith("IBK_UNSUPPORTED_")) return "이 거래에 관련된 미지원 혜택이 있어 전체 혜택을 확정할 수 없습니다: " + code.substring(16);
         return switch (code) {
+            case "IBK_ISSUER_REGISTRATION_UNKNOWN" -> "카드사 사용 등록일을 확인하지 못했습니다.";
+            case "IBK_INTRODUCTORY_WAIVER_EXCLUDED" -> "신규 발급 우대기간은 이번 계산 범위에 포함되지 않습니다.";
+            case "IBK_MONTHLY_ELIGIBILITY_UNKNOWN" -> "해당 이용월의 병 급여·현역 자격을 확인하지 못했습니다.";
+            case "IBK_MILITARY_PACKAGE_UNSUPPORTED" -> "병 급여·현역병 우대는 현재 지원하지 않습니다.";
+            case "IBK_PERFORMANCE_POSTING_UNSUPPORTED" -> "IBK 실적 인정 및 취소 접수월 차감은 아직 지원하지 않습니다.";
+            case "IBK_PREVIOUS_PERFORMANCE_UNKNOWN" -> "IBK 전월 실적을 확인하지 못했습니다.";
+            case "IBK_DAILY_COUNT_CONFLICT" -> "편의점 일 할인 횟수가 공식 안내 간 달라 미확인입니다.";
+            case "IBK_STACKED_BASE_UNKNOWN" -> "현장할인과 환급 중복 시 환급 계산 기준액이 미확인입니다.";
+            case "IBK_ROUNDING_AND_REVERSAL_UNKNOWN" -> "추가 혜택의 절사·계산 순서와 취소 후 한도 복원 기준이 미확인입니다.";
+            case "IBK_REGION_UNKNOWN_OR_UNSUPPORTED" -> "국내 일반 구매만 계산하며 해외·지역 미확인 거래는 지원하지 않습니다.";
+            case "IBK_MEDICAL_CLASSIFICATION_UNKNOWN" -> "해당 의료 업종의 IBK 대상 분류를 확인하지 못했습니다.";
             case "DATABASE_READ_RETRYABLE", "RECOGNITION_AGGREGATE_READ_RETRYABLE", "BALANCE_READ_RETRYABLE" -> RETRY_MESSAGE;
             default -> null;
         };
