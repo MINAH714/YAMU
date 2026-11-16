@@ -118,8 +118,9 @@ class EngineSimulationRecommenderTest {
         assertThat(transaction.getValue().merchantCategoryCode()).isEqualTo("SUPERMARKET");
         assertThat(transaction.getValue().facts()).containsEntry("CHANNEL:OFFLINE", true)
                 .containsEntry("CHANNEL:ONLINE", false);
-        // 브랜드를 골랐으니 POS 결제와 같은 거래 사실을 싣는다(2026-11-08)
-        assertThat(transaction.getValue().facts()).containsAllEntriesOf(PosPurchaseFacts.verified());
+        // 업종 구매 사실은 공유하되, 브랜드 선택만으로 간편결제 수단을 추정하지 않는다.
+        assertThat(transaction.getValue().facts()).containsAllEntriesOf(PosPurchaseFacts.forCategory("SUPERMARKET"))
+                .doesNotContainKey("PAYMENT_METHOD:NPAY");
         assertThat(options.getValue().excludeBrandDependentBenefits()).isFalse();
     }
 

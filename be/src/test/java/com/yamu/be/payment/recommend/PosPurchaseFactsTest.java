@@ -9,9 +9,11 @@ import org.junit.jupiter.api.Test;
 class PosPurchaseFactsTest {
 
     @Test
-    void 일반_업종이면_POS_일반_구매와_같은_사실을_준다() {
-        assertThat(PosPurchaseFacts.forCategory("GAS_STATION")).isEqualTo(PosPurchaseFacts.verified());
-        assertThat(PosPurchaseFacts.forCategory("TELECOMMUNICATION")).isEqualTo(PosPurchaseFacts.verified());
+    void 일반_업종은_구매_사실만_공유하고_Npay_비사용을_추정하지_않는다() {
+        var expected = new java.util.HashMap<>(PosPurchaseFacts.verified());
+        assertThat(expected.remove("PAYMENT_METHOD:NPAY")).isFalse();
+        assertThat(PosPurchaseFacts.forCategory("GAS_STATION")).isEqualTo(expected).doesNotContainKey("PAYMENT_METHOD:NPAY");
+        assertThat(PosPurchaseFacts.forCategory("TELECOMMUNICATION")).isEqualTo(expected).doesNotContainKey("PAYMENT_METHOD:NPAY");
     }
 
     @Test
