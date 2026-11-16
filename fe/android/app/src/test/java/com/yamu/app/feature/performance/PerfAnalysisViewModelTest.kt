@@ -69,7 +69,7 @@ class PerfAnalysisViewModelTest {
         assertEquals(22L, vm.state.value.analysis?.userCardId)
         assertEquals(200_000L, vm.state.value.analysis?.projected)
         assertEquals(2, repo.bReads)
-        assertNull(vm.state.value.message)
+        assertTrue(vm.state.value.message!!.contains("내는 곳에서도 카드를 바꿔 주세요"))
         assertFalse(vm.state.value.acting)
         finish(vm)
     }
@@ -297,8 +297,36 @@ class PerfAnalysisViewModelTest {
         move.complete(ApiResult.Success(Unit)); runCurrent()
         assertEquals(CARD_ID, repo.decidedId)
         assertEquals(22L, vm.state.value.analysis?.userCardId)
-        assertNull(vm.state.value.message)
+        assertTrue(vm.state.value.message!!.contains("11/25까지 통신비"))
+        assertTrue(vm.state.value.message!!.contains("내는 곳에서도 카드를 바꿔 주세요"))
         assertFalse(vm.state.value.acting)
+        finish(vm)
+    }
+
+    @Test fun `카드 전환 뒤 판단 성공도 이동 완료 안내를 남긴다`() = switchedDuringRecording(ApiResult.Success(Unit))
+    @Test fun `카드 전환 뒤 판단 충돌도 이동 완료 안내를 남긴다`() = switchedDuringRecording(ApiResult.Failure(ApiError.Conflict("CONFLICT")))
+    @Test fun `카드 전환 뒤 판단 서버 오류도 이동 완료 안내를 남긴다`() = switchedDuringRecording(ApiResult.Failure(ApiError.Server("ERROR")))
+    @Test fun `카드 전환 뒤 판단 결과 불명도 이동 완료 안내를 남긴다`() = switchedDuringRecording(ApiResult.Failure(ApiError.Network))
+
+    private fun switchedDuringRecording(result: ApiResult<Unit>) = runTest(dispatcher) {
+        val decision = CompletableDeferred<ApiResult<Unit>>()
+        val repo = MoveRepo().apply { waitDecision = decision }
+        val vm = PerfAnalysisViewModel(CARD_ID, repo)
+        runCurrent()
+        vm.moveAndFill(); runCurrent()
+        assertEquals(1, repo.decisions)
+        vm.select(22); runCurrent()
+        decision.complete(result); runCurrent()
+        assertEquals(22L, vm.state.value.analysis?.userCardId)
+        assertEquals(CARD_ID, repo.decidedId)
+        val message = vm.state.value.message!!
+        assertTrue(message.contains("11/25까지 통신비"))
+        assertTrue(message.contains("내는 곳에서도 카드를 바꿔 주세요"))
+        assertEquals(1, repo.moves)
+        assertEquals(1, repo.decisions)
+        assertFalse(vm.state.value.acting)
+        vm.messageShown()
+        assertNull(vm.state.value.message)
         finish(vm)
     }
 
@@ -306,6 +334,7 @@ class PerfAnalysisViewModelTest {
         var moved: ApiResult<Unit> = ApiResult.Success(Unit)
         var recorded: ApiResult<Unit> = ApiResult.Success(Unit)
         var waitMove: CompletableDeferred<ApiResult<Unit>>? = null
+        var waitDecision: CompletableDeferred<ApiResult<Unit>>? = null
         var failReload = false
         var moves = 0
         var decisions = 0
@@ -326,7 +355,7 @@ class PerfAnalysisViewModelTest {
             decisions++
             decidedId = userCardId
             assertEquals(PerfDecision.FILL, decision)
-            return recorded
+            return waitDecision?.await() ?: recorded
         }
     }
 

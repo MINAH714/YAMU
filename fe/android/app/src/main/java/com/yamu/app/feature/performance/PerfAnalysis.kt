@@ -179,14 +179,14 @@ class PerfAnalysisViewModel internal constructor(
                     "$movedMessage · 판단은 기록하지 못했어요 · ${recorded.error.userMessage()}"
                 }
             }
-            finishAction(a.userCardId, request, refresh = true) { it.copy(message = message) }
+            finishAction(a.userCardId, request, refresh = true, completionMessage = message) { it }
         }
     }
 
-    /** 쓰기는 끝까지 기다리되, 그사이 바뀐 카드/요청의 본문과 안내는 덮지 않는다. */
-    private fun finishAction(id: Long, request: Long, refresh: Boolean = false, update: (PerfAnalysisState) -> PerfAnalysisState) {
+    /** 쓰기는 끝까지 기다리되, 그사이 바뀐 카드/요청의 본문은 덮지 않는다. 이동 완료 안내는 선택 카드와 독립적이다. */
+    private fun finishAction(id: Long, request: Long, refresh: Boolean = false, completionMessage: String? = null, update: (PerfAnalysisState) -> PerfAnalysisState) {
         _state.update {
-            val idle = it.copy(acting = false)
+            val idle = it.copy(acting = false, message = completionMessage ?: it.message)
             if (it.selectedId == id && analysisRequest == request) update(idle) else idle
         }
         // 지출 이동은 출발 카드의 분석도 바꾼다. 다른 카드를 보고 있어도 현재 카드를 다시 받는다.
