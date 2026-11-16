@@ -6,9 +6,11 @@
 
 | 검증 | 결과 | 범위 |
 |---|---|---|
-| BE 전체 회귀 | 231개 클래스, 2,679개 통과, 실패·오류·건너뜀 0 | 앵커 구조 단순화 전 실행 |
+| BE 전체 회귀 재검증 | 232개 클래스, 2,683개 통과, 실패·오류·건너뜀 0 | 최종 구현 커밋 c15d387a, 앵커 제거 반영 후 전체 재실행 |
 | 최종 BE 변경 범위 | 9개 클래스, 120개 통과, 실패·오류·건너뜀 0 | 앵커 제거 및 추가 테스트 반영 후 실행 |
-| Android 관련 단위 테스트 | 4개 클래스, 66개 통과, 실패·오류·건너뜀 0 | SIMULATED 표시·변환 및 예보 공통 계산 |
+| Android 관련 단위 테스트 재검증 | 4개 클래스, 66개 통과, 실패·오류·건너뜀 0 | 최종 구현 커밋 c15d387a, SIMULATED 표시·변환 및 예보 공통 계산 |
+
+MR 병합 전 재검증 요청에 따라 2026-11-16 두 명령에 `--rerun-tasks`를 적용해 재컴파일·재실행했다. BE는 13분 23초, Android는 3분 20초에 BUILD SUCCESSFUL로 종료했다. 재검증 과정에서 구현 코드는 수정하지 않았다. 결과는 해당 커밋 기준이며 이후 다른 MR이 병합된 develop과의 통합 결과까지 검증한 것은 아니다.
 
 최종 BE 테스트는 Testcontainers의 격리 MySQL 8.4.11에서 신규 Flyway와 JPA 매핑을 함께 검증했다. 앵커 테이블 부재, 시작 잔액 근거 CHECK, 인접 무거래 구간 연속 복원, 미조회 날짜를 건너뛴 잔액 이월 거절, 소유권, 동시 실행 세대, 재시도 중복, 충돌 시 원본 보존·근거 무효화, 외부 실패, QA 0원 경계와 무거래 합성 구간, QA 전용 초기화 후 실제 이력 보존을 확인했다.
 
@@ -17,14 +19,14 @@
 BE 폴더:
 
 ```powershell
-.\gradlew.bat test --console=plain
+.\gradlew.bat test --rerun-tasks --console=plain
 .\gradlew.bat test --tests '*accounthistory*' --tests '*assetflow*' --tests '*QaAssetHistory*' --tests '*SsafyTransferApiTest' --tests '*ForecastCalculatorTest' --console=plain
 ```
 
 Android 폴더에서 설치된 SDK를 ANDROID_HOME으로 지정한 뒤:
 
 ```powershell
-.\gradlew.bat :app:testCustomerDebugUnitTest --tests '*AssetFlow*' --tests '*ForecastChart*' --tests '*ForecastDaySync*' --console=plain
+.\gradlew.bat :app:testCustomerDebugUnitTest --tests '*AssetFlow*' --tests '*ForecastChart*' --tests '*ForecastDaySync*' --rerun-tasks --console=plain
 ```
 
 ## 실행하지 않은 범위
