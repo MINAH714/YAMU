@@ -50,7 +50,17 @@ class QaLifeScenarioTest {
         var expected=new Properties();
         try(var input=getClass().getResourceAsStream("/qa/life-pre-extension.properties")) { expected.load(input); }
         assertThat(digest(QaLifeScenario.payments(QaLifeScenario.BASE).stream()
-            .filter(p->!p.date().isBefore(LocalDate.of(2026,3,1))).toList().toString())).isEqualTo(expected.getProperty("payments"));
+            .filter(p->!p.date().isBefore(LocalDate.of(2026,3,1)))
+            // The approved revision changes this merchant only; every other purchase fact remains identical.
+            .map(p->p.card()==3 && p.date().equals(LocalDate.of(2026,11,8))
+                ? new QaHistoryPlan.Payment(p.card(),p.date(),p.slot(),"YAMU_TEST_RESTAURANT",p.amount(),p.status(),p.installments(),p.utilityDiscount()) : p)
+            .toList().toString())).isEqualTo(expected.getProperty("payments"));
+        assertThat(QaLifeScenario.payments(QaLifeScenario.BASE).stream().filter(p->QaLifeBenefits.approved(p)<p.amount()).toList())
+            .singleElement().satisfies(p->{
+                assertThat(p.brand()).isEqualTo("GS25");
+                assertThat(p.amount()).isEqualTo(22000);
+                assertThat(QaLifeBenefits.approved(p)).isEqualTo(19800);
+            });
     }
     @Test void addedMonthsHaveSalaryRentCardBillsAndPairedBudgets() {
         assertThat(QaLifeScenario.FROM).isEqualTo(LocalDate.of(2025,12,1));

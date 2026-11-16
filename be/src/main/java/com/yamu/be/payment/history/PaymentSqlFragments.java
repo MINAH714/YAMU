@@ -17,11 +17,16 @@ public final class PaymentSqlFragments {
 
     /**
      * 혜택 줄이 확정됐는지(2026-11-06 결정, {@link BenefitStatus}). 즉시할인은 승인 때, 청구할인은 결제의 회차가 모두 청구 확정되면
-     * (청구 전 PENDING 회차가 없으면) 확정이다. 캐시백·적립·시점 미확인은 지급 기록이 없어 확정되지 않는다.
+     * (청구 전 PENDING 회차가 없으면) 확정이다. 캐시백·적립·시점 미확인은 기본적으로 확정되지 않는다.
+     * 등록된 LIFE 시드에만 QA_HISTORY 확정 근거를 허용하며 일반 결제는 이 예외를 적용하지 않는다.
      * 임시: 할부 청구할인은 회차가 일부만 확정된 동안 확정으로 세지 않는다(회차별 배분은 S15P31E103-299의 bill_item_discount).
      */
     public static final String CONFIRMED_LINE = """
-            (cb.application_timing = 'AT_APPROVAL'
+            ((b.confirmed_at IS NOT NULL AND b.confirmation_source = 'QA_HISTORY'
+              AND EXISTS (SELECT 1 FROM payment_transaction qp JOIN qa_seed_member qm ON qm.user_id=qp.user_id
+                          WHERE qp.payment_transaction_id=b.payment_transaction_id
+                            AND JSON_UNQUOTE(JSON_EXTRACT(qp.merchant_context_snapshot,'$.source'))='QA_LIFE_550'))
+             or cb.application_timing = 'AT_APPROVAL'
              or (cb.application_timing = 'AT_BILLING'
                  and exists (select 1 from bill_item i where i.payment_transaction_id = b.payment_transaction_id)
                  and not exists (select 1 from bill_item i

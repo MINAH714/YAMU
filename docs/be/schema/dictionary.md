@@ -510,6 +510,8 @@ CONSTRAINT ck_payment_spending_pair CHECK ((spending_class IS NULL AND spending_
 | benefit_value | `DECIMAL(19,6) NOT NULL` | 실제 적용한 할인·캐시백·적립 결과; 원화 또는 포인트. 한도 소모량이 아님 |
 | value_unit | `VARCHAR(16) NOT NULL` | KRW / POINT |
 | krw_amount | `BIGINT NULL` | 확인 가능한 원화 혜택 금액; 미환산 NULL |
+| confirmed_at | `DATETIME(6) NULL` | 명시적 확정 근거 시각(UTC). 미지정 시 기존 승인/청구 판정 유지 |
+| confirmation_source | `VARCHAR(32) NULL` | 현재 허용값 QA_HISTORY: LIFE 과거 혜택 확정 시나리오. 실제 지급 증빙이나 금융망 실행 기록이 아님. confirmed_at과 함께 지정 |
 | created_at | `TIMESTAMP(6) NOT NULL` | UTC 생성 시각 |
 
 ```sql

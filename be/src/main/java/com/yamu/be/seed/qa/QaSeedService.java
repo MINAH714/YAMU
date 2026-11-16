@@ -48,8 +48,14 @@ public final class QaSeedService {
     }
 
     public void run(String command, QaSeedSpec spec) throws Exception {
+        run(command,spec,null);
+    }
+    public void reviseBenefits(QaSeedSpec spec,String expectedInputHash) throws Exception {
+        run("revise-benefits",spec,expectedInputHash);
+    }
+    private void run(String command, QaSeedSpec spec,String expectedInputHash) throws Exception {
         spec.validate(LocalDate.now(clock.withZone(KST)));
-        require(List.of("apply", "enrich", "verify", "inspect", "reset", "purge").contains(command), "Unknown operation");
+        require(List.of("apply", "enrich", "verify", "inspect", "reset", "purge", "revise-benefits").contains(command), "Unknown operation");
         require(!List.of("apply", "enrich", "reset").contains(command) || (spec.version() == 2 || spec.version() == 3),
                 "Use version 2 or 3 for executable fixtures; purge version 1 using its original input first");
         for (var persona : spec.personas()) {
@@ -70,10 +76,17 @@ public final class QaSeedService {
                 byte[] hash = fingerprint(spec);
                 if (!existing.isEmpty()) {
                     // Changed credentials, date, persona list, or version cannot silently select other users.
-                    require(Arrays.equals(hash, (byte[]) existing.get(0).get("input_hash")),
+                    require(command.equals("revise-benefits")
+                            ? expectedInputHash!=null && expectedInputHash.equalsIgnoreCase(java.util.HexFormat.of().formatHex((byte[])existing.get(0).get("input_hash")))
+                            : Arrays.equals(hash, (byte[]) existing.get(0).get("input_hash")),
                             "Input changed; purge with the original input first");
                 }
                 switch (command) {
+                    case "revise-benefits" -> {
+                        require(!existing.isEmpty(),"Apply first");
+                        new QaLifeBenefitRevision(db,clock,lookup).apply(spec);
+                        db.update("UPDATE qa_seed_dataset SET input_hash=? WHERE dataset_key=?",hash,spec.datasetKey());
+                    }
                     case "apply" -> {
                         if (existing.isEmpty()) apply(spec, hash);
                         else System.out.println("Existing dataset preserved");
@@ -347,7 +360,7 @@ public final class QaSeedService {
                 db.update("UPDATE linked_account SET connected_at=? WHERE user_id=?",joined,user);
             }
             if (p.scenario() != QaSeedSpec.Scenario.EMPTY) {
-                long income = cashflow(user, accounts[0], spec.baseDate().plusDays(10), "급여", "INCOME",
+                long income = cashflow(user, accounts[0], spec.baseDate().plusDays(10), "월급", "INCOME",
                         2500000L, "MONTHLY");
                 cashflow(user, accounts[0], spec.baseDate().plusDays(2), "월세", "EXPENSE", 700000L, "MONTHLY");
                 long subscription = cashflow(user, accounts[1], spec.baseDate().plusDays(5), "정기 구독", "EXPENSE", 13500L, "MONTHLY");
@@ -410,6 +423,21 @@ public final class QaSeedService {
             long user = owner(spec, p);
             require(count("SELECT COUNT(*) FROM payment_transaction WHERE user_id=? AND (source='SEED' OR JSON_UNQUOTE(JSON_EXTRACT(merchant_context_snapshot,'$.source'))='QA_LIFE_550')", user)
                     == QaHistoryPlan.build(p.scenario(), spec.baseDate()).size(), "Initial history row count mismatch");
+            if(p.scenario()==QaSeedSpec.Scenario.LIFE) {
+                require(count("""
+                    SELECT COUNT(*) FROM payment_benefit b JOIN payment_transaction t USING(payment_transaction_id)
+                    WHERE t.user_id=? AND t.approved_at>='2026-03-31 15:00:00' AND t.approved_at<'2026-10-31 15:00:00'
+                      AND JSON_UNQUOTE(JSON_EXTRACT(t.merchant_context_snapshot,'$.source'))='QA_LIFE_550'
+                      AND (b.confirmed_at IS NULL OR b.confirmation_source<>'QA_HISTORY')
+                    """,user)==0,"Historical benefits not confirmed");
+                require(count("""
+                    SELECT COUNT(*) FROM payment_transaction t JOIN payment_benefit b USING(payment_transaction_id)
+                    JOIN card_benefit cb USING(card_benefit_id)
+                    WHERE t.user_id=? AND t.approved_at='2026-11-07 15:00:00' AND t.requested_amount=22000
+                      AND t.approved_amount=19800 AND cb.benefit_code='GS25_INSTANT_10' AND b.krw_amount=2200
+                      AND JSON_UNQUOTE(JSON_EXTRACT(t.merchant_context_snapshot,'$.source'))='QA_LIFE_550'
+                    """,user)==1,"Instant discount fixture differs");
+            }
             require(count("SELECT COUNT(*) FROM card_monthly_performance m JOIN user_card c USING(user_card_id) WHERE c.user_id=? AND m.performance_month BETWEEN ? AND ?", user, spec.baseDate().withDayOfMonth(1).minusMonths(6), spec.baseDate().withDayOfMonth(1)) >= p.cards().size() * 7, "Missing performance months");
             require(count("""
                     SELECT COUNT(*) FROM card_monthly_performance m JOIN user_card c USING(user_card_id)

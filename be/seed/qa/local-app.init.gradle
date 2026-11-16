@@ -1,6 +1,18 @@
 allprojects {
     afterEvaluate {
         if (plugins.hasPlugin('java')) {
+            tasks.register('resumeLocalApp', Test) {
+                testClassesDirs = sourceSets.test.output.classesDirs
+                classpath = sourceSets.test.runtimeClasspath
+                useJUnitPlatform()
+                filter { includeTestsMatching 'com.yamu.be.seed.qa.QaLocalResumeTest.resumeLocalPreview' }
+                systemProperty 'spring.profiles.active', 'test'
+                systemProperty 'qa.localResume', 'true'
+                reports.html.outputLocation = layout.buildDirectory.dir('reports/local-resume')
+                reports.junitXml.outputLocation = layout.buildDirectory.dir('test-results/local-resume')
+                binaryResultsDirectory = layout.buildDirectory.dir('test-results/local-resume/binary')
+                outputs.upToDateWhen { false }
+            }
             tasks.register('localApp', Test) {
                 description = 'Run the real local HTTP API with isolated MySQL/Redis and LIFE fixtures.'
                 group = 'verification'

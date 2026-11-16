@@ -21,7 +21,7 @@ public final class QaSeedCli {
         try {
             QaSeedSpec.require(args.length == 2, "Expected command and input file");
             String command = args[0];
-            QaSeedSpec.require(Set.of("plan", "apply", "enrich", "verify", "inspect", "reset", "purge").contains(command),
+            QaSeedSpec.require(Set.of("plan", "apply", "enrich", "verify", "inspect", "reset", "purge", "revise-benefits").contains(command),
                     "Unknown command");
             ObjectMapper mapper = new ObjectMapper().registerModule(new JavaTimeModule())
                     .enable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES);
@@ -51,7 +51,9 @@ public final class QaSeedCli {
                     new com.yamu.be.global.crypto.PersonalDataCipher(keys,new java.security.SecureRandom()));
             try (var connection = DriverManager.getConnection(env("QA_SEED_JDBC_URL"),
                     env("QA_SEED_DB_USERNAME"), env("QA_SEED_DB_PASSWORD"))) {
-                new QaSeedService(connection, keys, Clock.systemUTC(), env("YAMU_CRYPTO_HMAC_KEY")).run(command, spec);
+                var service=new QaSeedService(connection, keys, Clock.systemUTC(), env("YAMU_CRYPTO_HMAC_KEY"));
+                if(command.equals("revise-benefits")) service.reviseBenefits(spec,env("QA_SEED_EXPECTED_INPUT_HASH"));
+                else service.run(command, spec);
             }
             System.out.println("QA seed " + command + " completed");
         } catch (Exception failure) {
