@@ -1,0 +1,14 @@
+[
+  {
+    "Path": "be/src/test/java/com/yamu/be/recommendation/CardSelectionConsumptionScaleTest.java",
+    "SHA256": "23CABD7E2DA7642CA6F7514B9EB789A3006C6100CD177B969BE6EEA1114AB21A"
+  },
+  {
+    "Path": "be/src/test/java/com/yamu/be/recommendation/CardSelectionConsumptionScaleSupport.java",
+    "SHA256": "98687C704F3A5A2573C67FA6A25DFCC4AE0D547018E2E194B95669B7572A7636"
+  },
+  {
+    "Path": "be/src/test/resources/recommendation/card-selection-exp-003.json",
+    "SHA256": "9486512B32599AFAAB65F9363BE3556084DE8A2D7079DB48A088EDF9348607DF"
+  }
+]

@@ -1,0 +1,12 @@
+{
+  "mean" : 8596.61,
+  "populationStdDev" : 2484.140784637618,
+  "min" : 1210.0,
+  "p05" : 4386.0,
+  "median" : 8560.0,
+  "p95" : 12336.0,
+  "max" : 14611.0,
+  "lessThanYamu" : 100,
+  "equalToYamu" : 0,
+  "greaterThanYamu" : 0
+}

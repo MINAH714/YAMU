@@ -1,0 +1,29 @@
+[ {
+  "amount" : 12000,
+  "card" : "신한카드 처음",
+  "actual" : 500.000000,
+  "transaction" : 1,
+  "expected" : 500,
+  "recognized" : 12000
+}, {
+  "amount" : 12000,
+  "card" : "KB국민 청춘대로 톡톡카드",
+  "actual" : 0,
+  "transaction" : 1,
+  "expected" : 0,
+  "recognized" : 12000
+}, {
+  "amount" : 6000,
+  "card" : "신한카드 처음",
+  "actual" : 300.000000,
+  "transaction" : 2,
+  "expected" : 300,
+  "recognized" : 6000
+}, {
+  "amount" : 6000,
+  "card" : "KB국민 청춘대로 톡톡카드",
+  "actual" : 3000,
+  "transaction" : 2,
+  "expected" : 3000,
+  "recognized" : 0
+} ]

@@ -1,0 +1,10 @@
+{
+  "uncomputableMain" : 0,
+  "deterministicReplay" : "PASS",
+  "boundaryEvaluationStates" : 288,
+  "countLimits" : 0,
+  "initialCardEvaluations" : 72,
+  "manualChecks" : "PASS",
+  "mainRuns" : 106,
+  "mainCardEvaluations" : 7632
+}

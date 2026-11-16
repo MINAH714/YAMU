@@ -1,0 +1,206 @@
+[
+  {
+    "Path": "be/src/main/java/com/yamu/be/recommendation/BasicPurchaseSimulation.java",
+    "SHA256": "3B2F4A7A763D84085F84069BD72C560C19F8D1B531EA7EE7A577C0C4CCCAAB60"
+  },
+  {
+    "Path": "be/src/main/java/com/yamu/be/recommendation/BenefitConditionEvaluator.java",
+    "SHA256": "1B738E3064E2938139993B9515922AF109124ED5360AE34EF563868DEB8DB2CA"
+  },
+  {
+    "Path": "be/src/main/java/com/yamu/be/recommendation/BenefitPolicy.java",
+    "SHA256": "3BB6D62BE22F038474D2E2C060EE15D8275F34BAB9C9EF2BB178996E94CE34C6"
+  },
+  {
+    "Path": "be/src/main/java/com/yamu/be/recommendation/CalculationOptions.java",
+    "SHA256": "764473DD049C99936D6E528F957652BBC478DEDA78A2C64A5C3218EFACA11AEB"
+  },
+  {
+    "Path": "be/src/main/java/com/yamu/be/recommendation/CardBenefitCalculator.java",
+    "SHA256": "D39EAFE2BCC10C887854745E21FAEA4BAC740AEEBD8E4C1B5CF6DC7FE23E1D89"
+  },
+  {
+    "Path": "be/src/main/java/com/yamu/be/recommendation/CheoeumPurchaseSimulation.java",
+    "SHA256": "BF6D5B5FDAB97CA6E7BDFFB2BB4288C9998651898E79900D89840D0F04102443"
+  },
+  {
+    "Path": "be/src/main/java/com/yamu/be/recommendation/PurchaseItemReader.java",
+    "SHA256": "1A14E04B0604ADEC3C7BF0549B98773024743EFEACE54009395760D8A7293453"
+  },
+  {
+    "Path": "be/src/main/java/com/yamu/be/recommendation/RecommendationAvailabilityReader.java",
+    "SHA256": "0EE48EBF42FB640EF15819815626FD7D74803D25FEFB66B3169BE8DA31E57E3C"
+  },
+  {
+    "Path": "be/src/main/java/com/yamu/be/recommendation/RecommendationCommand.java",
+    "SHA256": "05F730CC88B3215198F2F49B04963310E2F10FB222DCA8C8FB96804FCF1D7358"
+  },
+  {
+    "Path": "be/src/main/java/com/yamu/be/recommendation/RecommendationDataIssue.java",
+    "SHA256": "BAF92FB5E2618C3CC584719CE1EACC5BCEF7DF9ECD4B6D410B7E35D03A61F44B"
+  },
+  {
+    "Path": "be/src/main/java/com/yamu/be/recommendation/RecommendationInput.java",
+    "SHA256": "2B41021328AEC3EB59265740DDB7BDD58C424D1E3B3F8D193A025563E519DD71"
+  },
+  {
+    "Path": "be/src/main/java/com/yamu/be/recommendation/RecommendationInputAssembler.java",
+    "SHA256": "DDD3EE2D987778D90136126A727AFDFD450517562E1A3B6FD93EA6FA9843DF29"
+  },
+  {
+    "Path": "be/src/main/java/com/yamu/be/recommendation/RecommendationPolicyData.java",
+    "SHA256": "0F9A4909B1B7FD40C6E12EEFE46B8B1490B4ED8CD9C14A6E084BC92A5CAD2800"
+  },
+  {
+    "Path": "be/src/main/java/com/yamu/be/recommendation/RecommendationPolicyLoader.java",
+    "SHA256": "F1BA13C485B1A6F99D02A5FFE718C45D8F924431B6D8502E6061DF82ACF4B13F"
+  },
+  {
+    "Path": "be/src/main/java/com/yamu/be/recommendation/RecommendationRecognitionResolver.java",
+    "SHA256": "F3B8C693919925565815F4DA43388AD62AF9972BD7DFEE2148F3EC53FCC1334D"
+  },
+  {
+    "Path": "be/src/main/java/com/yamu/be/recommendation/RecommendationSelector.java",
+    "SHA256": "53E8217B384F340F2FCFECA5FB53CC384C3224FEBEDAF6B212DFBFE156A4C5EC"
+  },
+  {
+    "Path": "be/src/main/java/com/yamu/be/recommendation/RecommendationService.java",
+    "SHA256": "1088B7BC4915800423D61C8C78BE19C6A200DA1C8C0045A7D3ACABAF71EC0792"
+  },
+  {
+    "Path": "be/src/main/java/com/yamu/be/recommendation/SimulationRule.java",
+    "SHA256": "19D0FBE8A96F9078750BC4C62E9C6FD42D5674F766565A12D964A94DCFAE4D03"
+  },
+  {
+    "Path": "be/src/main/java/com/yamu/be/recommendation/domain/BenefitApplicationGroup.java",
+    "SHA256": "C0B9A6656A260C8A3D20E35F7F99DBA41C0F7BF76FFDB00DF289350D2C3F7574"
+  },
+  {
+    "Path": "be/src/main/java/com/yamu/be/recommendation/domain/BenefitApplicationGroupRepository.java",
+    "SHA256": "94EBE9A5B2D70D3122B30CF422BBA458DFD3E602E0A23AC84825428D06164612"
+  },
+  {
+    "Path": "be/src/main/java/com/yamu/be/recommendation/domain/BenefitApplicationMember.java",
+    "SHA256": "FB47B2C4331E6235A8D2220E7D96CC60CA32537F110CC5F2DFB77EE57D77AC4E"
+  },
+  {
+    "Path": "be/src/main/java/com/yamu/be/recommendation/domain/BenefitApplicationMemberRepository.java",
+    "SHA256": "1618D8630EED9681728B4909D97F8F8D49131CC52C26CE702B9FF22E185586C6"
+  },
+  {
+    "Path": "be/src/main/java/com/yamu/be/recommendation/domain/BenefitLimitLink.java",
+    "SHA256": "AD73DCD0AA226A4B3B1DDC70FFD84A4EB391EA544035E6A17A5307B9EF1AA5BF"
+  },
+  {
+    "Path": "be/src/main/java/com/yamu/be/recommendation/domain/BenefitLimitLinkRepository.java",
+    "SHA256": "668B9573B565BE2F7BAB38CA558099B503B99F6D0919EE6868965463A51DF128"
+  },
+  {
+    "Path": "be/src/main/java/com/yamu/be/recommendation/domain/BenefitTarget.java",
+    "SHA256": "F9B0EF19CC4DBD3621ABC2AE568E66B66758E4B7C4954AE72AF39632A682BBE5"
+  },
+  {
+    "Path": "be/src/main/java/com/yamu/be/recommendation/domain/BenefitTargetGroup.java",
+    "SHA256": "E9FD37BFAD364768BDF9574E3DE9077DEA0CA91B99D5D1E12110388ABDE69D25"
+  },
+  {
+    "Path": "be/src/main/java/com/yamu/be/recommendation/domain/BenefitTargetGroupMember.java",
+    "SHA256": "BA742ADAA47A2BBB4F63B4AE4284F6BA9263F56C33F63696046837B797120D3B"
+  },
+  {
+    "Path": "be/src/main/java/com/yamu/be/recommendation/domain/BenefitTargetGroupMemberRepository.java",
+    "SHA256": "23E5D109CCCDB56AA78CC778EA67C1F9C16E20948868DBCD12F05A2FD1C2F6DC"
+  },
+  {
+    "Path": "be/src/main/java/com/yamu/be/recommendation/domain/BenefitTargetGroupRepository.java",
+    "SHA256": "A0275796385C7D10C5545DE9383FE7CA40333043C30AFB665E3A7E8CB2F55394"
+  },
+  {
+    "Path": "be/src/main/java/com/yamu/be/recommendation/domain/BenefitTargetRepository.java",
+    "SHA256": "28B3BC1BC54B5A66216739C52A344F24D619C8B7A0D102945E609830C4D2EEB4"
+  },
+  {
+    "Path": "be/src/main/java/com/yamu/be/recommendation/domain/CardBenefit.java",
+    "SHA256": "413D46D8AC632B2EA124DA797EB83BAB12C043D38144DE07223F147D36EF80D9"
+  },
+  {
+    "Path": "be/src/main/java/com/yamu/be/recommendation/domain/CardBenefitRepository.java",
+    "SHA256": "FD4EFEA1251B52227E4448102039A103D966AA08B0D27C63621DBDFE17933E73"
+  },
+  {
+    "Path": "be/src/main/java/com/yamu/be/recommendation/domain/LimitGroup.java",
+    "SHA256": "482DEFAC073EC31BD067949681739F9B650F5B8565D809B6E8AE5DE946EEFBBF"
+  },
+  {
+    "Path": "be/src/main/java/com/yamu/be/recommendation/domain/LimitGroupRepository.java",
+    "SHA256": "A1748035FD15B467AE6C7B320FCDF137BB359E5CAE8EAC313E1443C2275A2313"
+  },
+  {
+    "Path": "be/src/main/java/com/yamu/be/recommendation/domain/MonthlyLimitUsage.java",
+    "SHA256": "5D6A9717FCABC61178F27DF2C961471928E8912B0D9EF14B427171235F21841F"
+  },
+  {
+    "Path": "be/src/main/java/com/yamu/be/recommendation/domain/MonthlyLimitUsageRepository.java",
+    "SHA256": "B19CBE986333064E5217472D340EF57DEE82BCD2C2A5DE32D8A1C1922B164BE3"
+  },
+  {
+    "Path": "be/src/main/java/com/yamu/be/recommendation/domain/PaymentLimitUsage.java",
+    "SHA256": "2CB67ABF4795E04B200DE075EF58C4EA20870C153AD51E363ED16D66407C8E66"
+  },
+  {
+    "Path": "be/src/main/java/com/yamu/be/recommendation/domain/PaymentLimitUsageRepository.java",
+    "SHA256": "A5ED3BFEE324484C89749E5808C2D6F741FA9BF6209F87E9880F4F2ADC5E9F79"
+  },
+  {
+    "Path": "be/src/main/java/com/yamu/be/recommendation/domain/PurchaseItem.java",
+    "SHA256": "C127E6ED388FD839920D1000BE0CEC186F3E2EB29C73CAC24CFA76F2607280FA"
+  },
+  {
+    "Path": "be/src/main/java/com/yamu/be/recommendation/domain/PurchaseItemRepository.java",
+    "SHA256": "9F7C48AF62B040CE641897DB1F1CD09985741CE60547DD3A91FC42136ED12CB8"
+  },
+  {
+    "Path": "be/src/main/java/com/yamu/be/recommendation/domain/TierLimit.java",
+    "SHA256": "7F8EAEC0978E42696F62CAEC4144A6FDAD79748EB5F4F6808F3CB958EB0D24C4"
+  },
+  {
+    "Path": "be/src/main/java/com/yamu/be/recommendation/domain/TierLimitRepository.java",
+    "SHA256": "C4CB7465A2EC84474F2D76ABB6532A726C7723CCE825F58668B15840024A76E0"
+  },
+  {
+    "Path": "be/src/main/resources/recommendation/performance-policies.json",
+    "SHA256": "1DAC1BA9CEA645ED6B5F5676C0D58ABF6C0713F2AD0FFFC0BC5F87F6BBC7436F"
+  },
+  {
+    "Path": "be/src/main/resources/recommendation/simulation-catalog.json",
+    "SHA256": "37AE17D7A721A8F4B1150645F19726F8B76093C5F88F47574EB9AEE4AF084F39"
+  },
+  {
+    "Path": "be/src/test/java/com/yamu/be/recommendation/MonthlyCardSelectionSimulationTest.java",
+    "SHA256": "7B6C17E9D44062C47BC6A9FC9E780C3822ED9040945978430D1A6B8F84CD2A3F"
+  },
+  {
+    "Path": "be/src/test/java/com/yamu/be/recommendation/MonthlyCardSelectionSimulationSupport.java",
+    "SHA256": "BF73AFB97AA068BA723ABDC1EB5768F64F16B1219618EE97772EC7DC7005E463"
+  },
+  {
+    "Path": "be/src/test/resources/recommendation/monthly-card-selection.json",
+    "SHA256": "6893D7F66D13C8010623B499A4D07A9A660336F1C91BD7961F53DE9D8CBF850C"
+  },
+  {
+    "Path": "be/seed/01-card-catalog.sql",
+    "SHA256": "7C6DFC28414A2E23683551064910B4DF6663E279623E5319FD26BC98E6E8AEA2"
+  },
+  {
+    "Path": "be/seed/02-card-catalog-ab20.sql",
+    "SHA256": "A17274EA83EA6AF76AF7D92E8F635379889E005A0658148E81936D6B1A436E16"
+  },
+  {
+    "Path": "be/seed/03-benefit-composition.sql",
+    "SHA256": "57D4AEEEFC1376E6E2A7BA591820599A1EDF13554956CB4B726DCB1F909F79F0"
+  },
+  {
+    "Path": "be/build.gradle",
+    "SHA256": "B2D55CA91BC43FA1970C7EF25B7884324DC188CC642BD473A493FB4C545CC483"
+  }
+]
