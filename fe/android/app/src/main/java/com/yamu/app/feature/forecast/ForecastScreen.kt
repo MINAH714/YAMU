@@ -848,21 +848,26 @@ private fun DayPager(f: Forecast, day: DaySelection, select: (Int, DaySource) ->
     var width by remember { mutableIntStateOf(0) }
     var busy by remember { mutableStateOf(false) }
     val latestDay by rememberUpdatedState(day.day)
-    // 한쪽으로 빠져나가고(dir 쪽 반대로) 새 날이 반대편에서 들어온다
+    // 한쪽으로 빠져나가고(dir 쪽 반대로) 새 날이 반대편에서 들어온다.
+    // 넘기는 중에 누르거나 민 것은 버린다 — 전에는 그때 '제자리로' 움직임을 새로 걸어 넘기던 움직임이 끊겼고, busy가 풀리지 않아 ‹ ›가 더는 듣지 않을 수 있었다(QA)
     fun go(dir: Int) {
+        if (busy) return
         val target = latestDay + dir
-        if (target !in 0 until n || busy) {
+        if (target !in 0 until n) {
             scope.launch { offset.animateTo(0f, tween(YamuMotion.BASE_MS, easing = YamuMotion.standard)) }
             return
         }
         if (reduce || width == 0) { scope.launch { offset.snapTo(0f) }; select(target, DaySource.PANEL); return }
         busy = true
         scope.launch {
-            offset.animateTo(-dir * width.toFloat(), tween(PAGER_OUT_MS, easing = YamuMotion.standard))
-            select(target, DaySource.PANEL)
-            offset.snapTo(dir * width.toFloat())
-            offset.animateTo(0f, tween(PAGER_IN_MS, easing = YamuMotion.standard))
-            busy = false
+            try {
+                offset.animateTo(-dir * width.toFloat(), tween(PAGER_OUT_MS, easing = YamuMotion.standard))
+                select(target, DaySource.PANEL)
+                offset.snapTo(dir * width.toFloat())
+                offset.animateTo(0f, tween(PAGER_IN_MS, easing = YamuMotion.standard))
+            } finally {
+                busy = false
+            }
         }
     }
     Box(
@@ -945,10 +950,9 @@ private fun DayPanel(
             DayValue(LINE_WITHOUT_LIVING, day.expected, c.onPrimaryContainer, Modifier.weight(1f))
             if (hasConservative) DayValue(LINE_WITH_LIVING, day.conservative, c.onWarningContainer, Modifier.weight(1f))
         }
+        // 오가는 돈이 없는 날은 두 금액만 — '이날은 오가는 돈이 없어요' 문장은 군더더기라 뺐다(QA)
         val events = day.events.filter { it.amount != 0L }
-        if (events.isEmpty()) {
-            Text("이날은 오가는 돈이 없어요", style = YamuTheme.typography.bodyS, color = c.text3, modifier = Modifier.padding(top = 8.dp))
-        } else {
+        if (events.isNotEmpty()) {
             Spacer(Modifier.height(10.dp))
             HorizontalDivider(color = c.outlineVariant)
             Spacer(Modifier.height(6.dp))
@@ -1073,57 +1077,49 @@ internal fun riskLine(w: RiskWindow): String {
 }
 
 /**
- * 두 선은 이렇게 계산했어요 — 지금 잔액에서 'AI 생활비 제외' 선이 무엇을 뺐는지, 'AI 생활비 반영' 선은 거기서 무엇을 더 뺐는지(FR-047 확정 · 예측 구분).
- * 서버 conservative는 expected에서 예상 생활비와 앞으로 쓸 신용카드 금액을 더 뺀 값이라 두 번째 묶음은 첫 묶음 끝에서 이어 읽는다
+ * 두 선 계산 — 제목 없이 계산식만 둔다(QA: 문구가 많아 안 읽힌다). 지금 잔액 → 더하고 빼는 돈 → 'AI 생활비 제외' 선 끝 → 더 빼는 생활비 → 'AI 생활비 반영' 선 끝.
+ * 서버 conservative는 expected에서 예상 생활비와 앞으로 쓸 신용카드 금액을 더 뺀 값이라 두 번째 묶음은 첫 선 끝에서 이어 읽힌다(FR-047 확정 · 예측 구분)
  */
 @Composable
 private fun LinesCard(f: Forecast) {
     val c = YamuTheme.colors
-    YamuCard(contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 18.dp, bottom = 18.dp)) {
-        Text("두 선은 이렇게 계산했어요", style = YamuTheme.typography.cardTitle, color = c.text1)
-        Spacer(Modifier.height(12.dp))
-        f.currentBalance?.let { b ->
-            StepRow("지금 잔액 (계좌 ${f.accountIds.size}개)", "${b.toWon()}원", strong = true)
-            Spacer(Modifier.height(12.dp))
-        }
-        f.lineGroups().forEachIndexed { i, g ->
-            if (i > 0) Spacer(Modifier.height(14.dp))
-            LineGroupRow(g, hasConservative = f.hasConservative)
-        }
-    }
-}
-
-@Composable
-private fun LineGroupRow(g: LineGroup, hasConservative: Boolean) {
-    val c = YamuTheme.colors
-    val withLiving = g.line == FlowConfidence.CONSERVATIVE
-    val name = if (withLiving) LINE_WITH_LIVING else LINE_WITHOUT_LIVING
-    Row {
-        LineGlyph(dashed = withLiving, modifier = Modifier.padding(top = 9.dp))
-        Spacer(Modifier.width(10.dp))
-        Column(Modifier.weight(1f)) {
-            // 선 이름(범례와 같은 이름). 두 번째 묶음은 첫 선에서 더 빼는 돈이라 그 사실을 이름 밑에 적는다
-            Text(name, style = YamuTheme.typography.titleS, color = c.text1)
-            if (withLiving) Text("$LINE_WITHOUT_LIVING 선에서 더 빼요", style = YamuTheme.typography.bodyS, color = c.text3)
-            Spacer(Modifier.height(4.dp))
-            g.steps.forEach { s -> StepRow(stepLabel(s), "${s.amount.toWon(withPlusSign = true)}원") }
-            if (withLiving && !hasConservative) {
-                Text("생활비 기록이 없어 이번에는 그리지 않았어요", style = YamuTheme.typography.bodyM, color = c.text3)
-            } else {
-                StepRow("$name 선 끝", g.end?.let { "${it.toWon()}원" } ?: "—", muted = true)
-                g.note?.let { Text(it, style = YamuTheme.typography.bodyS, color = c.text3, modifier = Modifier.padding(top = 2.dp)) }
-            }
+    val (without, with) = f.lineGroups()
+    YamuCard(contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 16.dp, bottom = 16.dp)) {
+        f.currentBalance?.let { StepRow("지금 잔액", "${it.toWon()}원") }
+        // 들어오는 돈을 먼저 — 위에서 아래로 더하고 빼는 순서로 읽힌다(같은 쪽 안에서는 서버 순서 그대로)
+        without.steps.sortedByDescending { it.amount > 0 }.forEach { StepRow(stepLabel(it), "${it.amount.toWon(withPlusSign = true)}원") }
+        LineTotal(without, dashed = false)
+        if (f.hasConservative) {
+            Spacer(Modifier.height(8.dp))
+            with.steps.forEach { StepRow(stepLabel(it), "${it.amount.toWon(withPlusSign = true)}원") }
+            LineTotal(with, dashed = true)
+            with.note?.let { Text(it, style = YamuTheme.typography.bodyS, color = c.text3, modifier = Modifier.padding(top = 2.dp)) }
+        } else {
+            Text("$LINE_WITH_LIVING 선은 생활비 기록이 없어 그리지 않았어요", style = YamuTheme.typography.bodyS, color = c.text3, modifier = Modifier.padding(top = 4.dp))
         }
     }
 }
 
+/** 계산식의 결과 줄 — 구분선 밑에 선 견본 · 선 이름(범례와 같은 이름) · 기간 끝 잔액을 굵게 */
 @Composable
-private fun StepRow(label: String, value: String, strong: Boolean = false, muted: Boolean = false) {
+private fun LineTotal(g: LineGroup, dashed: Boolean) {
     val c = YamuTheme.colors
-    val style = if (muted) YamuTheme.typography.bodyS else YamuTheme.typography.bodyM
-    Row(Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
-        Text(label, style = style, color = if (muted) c.text3 else if (strong) c.text2 else c.text1, modifier = Modifier.weight(1f))
-        Text(value, style = if (strong) YamuTheme.typography.titleS else style, color = if (muted) c.text3 else c.text1)
+    val end = g.end
+    HorizontalDivider(color = c.outlineVariant, modifier = Modifier.padding(vertical = 8.dp))
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        LineGlyph(dashed = dashed)
+        Spacer(Modifier.width(8.dp))
+        Text(if (dashed) LINE_WITH_LIVING else LINE_WITHOUT_LIVING, style = YamuTheme.typography.titleS, color = c.text1, modifier = Modifier.weight(1f))
+        Text(end?.let { "${it.toWon()}원" } ?: "—", style = YamuTheme.typography.titleS, color = if ((end ?: 0) < 0) c.error else c.text1)
+    }
+}
+
+@Composable
+private fun StepRow(label: String, value: String) {
+    val c = YamuTheme.colors
+    Row(Modifier.fillMaxWidth().padding(vertical = 3.dp)) {
+        Text(label, style = YamuTheme.typography.bodyM, color = c.text2, modifier = Modifier.weight(1f))
+        Text(value, style = YamuTheme.typography.bodyM, color = c.text1)
     }
 }
 
