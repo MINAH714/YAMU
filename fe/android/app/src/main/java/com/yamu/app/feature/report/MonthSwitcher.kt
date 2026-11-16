@@ -33,6 +33,7 @@ import androidx.compose.ui.unit.dp
 import com.yamu.app.core.designsystem.component.EmptyState
 import com.yamu.app.core.designsystem.icon.YamuIcons
 import com.yamu.app.core.designsystem.theme.YamuRadius
+import com.yamu.app.core.designsystem.theme.YamuSize
 import com.yamu.app.core.designsystem.theme.YamuSpacing
 import com.yamu.app.core.designsystem.theme.YamuTheme
 import com.yamu.app.feature.report.data.REPORT_MONTHS
@@ -61,6 +62,8 @@ internal fun MonthSwitcher(shown: ShownMonth, onSelect: (YearMonth) -> Unit, mod
         Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
             Row(
                 Modifier
+                    // 줄은 양쪽 화살표(48dp)로 이미 48 — 바탕 없는 글자라 누르는 칸만 그 높이까지 채운다(S15P31E103-513)
+                    .heightIn(min = YamuSize.touch)
                     .clip(RoundedCornerShape(YamuRadius.s))
                     .then(if (onPick != null) Modifier.clickable(role = Role.Button, onClickLabel = "볼 달 고르기", onClick = onPick) else Modifier)
                     .padding(horizontal = 10.dp, vertical = 6.dp)

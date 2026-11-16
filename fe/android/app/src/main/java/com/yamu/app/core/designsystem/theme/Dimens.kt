@@ -56,6 +56,9 @@ object YamuMotion {
     const val SHORT_MS = 150
     const val BASE_MS = 200
 
+    /** 누르면 줄어드는 판(홈 히어로 · 결제 버튼)이 모션 줄이기에서 대신 옅어지는 정도. SHORT_MS 동안 바뀐다(S15P31E103-513) */
+    const val REDUCED_PRESS_ALPHA = 0.8f
+
     /** 화면 교체(앱 화면 이동 · 카드 등록 완료 단계): 통째로 페이드, 옮기거나 미끄러뜨리지 않음. 모션 줄이기에서는 SHORT_MS */
     const val SCREEN_SWAP_MS = BASE_MS
     /** 완료 화면의 축하 팝은 화면 교체 페이드가 끝난 뒤 시작 */

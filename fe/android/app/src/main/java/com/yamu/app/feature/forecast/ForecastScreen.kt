@@ -26,6 +26,10 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.Animatable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.LocalIndication
+import androidx.compose.foundation.indication
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import com.yamu.app.core.designsystem.component.overflowTouch
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -516,12 +520,15 @@ private fun FilterChips(f: Forecast, selection: ForecastSelection, onOpen: () ->
 @Composable
 private fun FilterChip(text: String, contentDescription: String, onClick: () -> Unit) {
     val c = YamuTheme.colors
+    val interaction = remember { MutableInteractionSource() }
     Row(
         Modifier
+            // 보이는 알약은 36dp, 터치 칸은 위아래로 6dp씩 넘쳐 48dp(S15P31E103-513)
+            .overflowTouch(6.dp, Modifier.clickable(interaction, indication = null, role = Role.Button, onClickLabel = contentDescription, onClick = onClick))
             .heightIn(min = 36.dp)
             .clip(RoundedCornerShape(18.dp))
             .background(c.surface)
-            .clickable(role = Role.Button, onClickLabel = contentDescription, onClick = onClick)
+            .indication(interaction, LocalIndication.current)
             .padding(start = 14.dp, end = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -804,21 +811,24 @@ private fun ViewToggle(view: ChartView, onChange: (ChartView) -> Unit) {
     val c = YamuTheme.colors
     Row(
         Modifier
-            .clip(RoundedCornerShape(10.dp))
-            .background(c.surfaceVariant)
+            // 자르지 않고 바탕만 그린다 — 칸의 터치(48dp)가 알약 위아래로 넘쳐야 해서
+            .background(c.surfaceVariant, RoundedCornerShape(10.dp))
             .padding(3.dp)
             .semantics { contentDescription = "보기" },
     ) {
         listOf(ChartView.GRAPH to "그래프", ChartView.CALENDAR to "달력").forEach { (v, label) ->
             val on = v == view
+            val interaction = remember { MutableInteractionSource() }
             Text(
                 label,
                 style = YamuTheme.typography.labelM,
                 color = if (on) c.text1 else c.text3,
                 modifier = Modifier
+                    // 보이는 칸은 26dp 그대로, 터치 칸만 위아래로 11dp씩 넘쳐 48dp(S15P31E103-513)
+                    .overflowTouch(11.dp, Modifier.selectable(selected = on, interactionSource = interaction, indication = null, role = Role.Tab, onClick = { onChange(v) }))
                     .clip(RoundedCornerShape(8.dp))
                     .background(if (on) c.surface else androidx.compose.ui.graphics.Color.Transparent)
-                    .selectable(selected = on, role = Role.Tab, onClick = { onChange(v) })
+                    .indication(interaction, LocalIndication.current)
                     .padding(horizontal = 11.dp, vertical = 5.dp),
             )
         }

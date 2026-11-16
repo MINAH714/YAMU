@@ -2,9 +2,12 @@ package com.yamu.app.core.designsystem.component
 
 import androidx.annotation.DrawableRes
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.indication
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -19,12 +22,14 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.TextAutoSize
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
@@ -75,7 +80,10 @@ fun EstimateTag(modifier: Modifier = Modifier, text: String = "예측") {
     )
 }
 
-/** 회색 알약 칩 — 흰 바탕(surface) 위에서만(회색 바탕 위에선 안 보임) */
+/**
+ * 회색 알약 칩 — 흰 바탕(surface) 위에서만(회색 바탕 위에선 안 보임).
+ * 누르는 칩은 보이는 알약(34dp)은 그대로 두고 터치 칸만 위아래로 넘쳐 48dp(S15P31E103-513). 칩 줄 사이는 8dp 넘게 띄운다
+ */
 @Composable
 fun GreyChip(
     text: String,
@@ -84,18 +92,26 @@ fun GreyChip(
     onClick: (() -> Unit)? = null,
 ) {
     val c = YamuTheme.colors
+    val interaction = remember { MutableInteractionSource() }
     Box(
         modifier
+            .then(
+                if (onClick != null) Modifier.overflowTouch(ChipTouchExtra, Modifier.clickable(interaction, indication = null, role = Role.Button, onClick = onClick))
+                else Modifier,
+            )
             .heightIn(min = YamuSize.chip)
             .clip(RoundedCornerShape(50))
             .background(if (selected) c.primaryContainer else c.surfaceVariant)
-            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
+            .then(if (onClick != null) Modifier.indication(interaction, LocalIndication.current) else Modifier)
             .padding(horizontal = 14.dp),
         contentAlignment = Alignment.Center,
     ) {
         Text(text, style = YamuTheme.typography.labelL, color = if (selected) c.onPrimaryContainer else c.text2)
     }
 }
+
+/** 칩 터치 칸을 48dp로 — (48 − 34) / 2 */
+private val ChipTouchExtra = (YamuSize.touch - YamuSize.chip) / 2
 
 enum class AmountSize { Hero, L, M, Value }
 

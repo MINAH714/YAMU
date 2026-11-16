@@ -25,7 +25,9 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.TextAutoSize
 import androidx.compose.material3.Text
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
@@ -231,13 +233,28 @@ private fun DatePill(day: StripDay, index: Int, selected: Boolean, onClick: () -
         contentAlignment = Alignment.Center,
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(if (kind != null) monthPillTopLabel(day) else pillTopLabel(day.date, index), style = YamuTheme.typography.labelS.copy(fontSize = 10.5.sp, lineHeight = 13.sp), color = sub)
+            // 알약 글자는 11sp(labelS) 아래로 내리지 않는다(S15P31E103-513) — 줄 높이만 알약(68dp)에 맞게 13
+            Text(if (kind != null) monthPillTopLabel(day) else pillTopLabel(day.date, index), style = YamuTheme.typography.labelS.copy(lineHeight = 13.sp), color = sub)
             Text("${day.date.dayOfMonth}", style = YamuTheme.typography.value.copy(fontSize = 17.sp, lineHeight = 20.sp), color = main)
-            Row(Modifier.height(13.dp), verticalAlignment = Alignment.CenterVertically) {
+            // 양옆 3dp — 알약 아래 둥근 모서리(16dp)에 글자 끝이 잘리지 않게
+            Row(Modifier.height(13.dp).padding(horizontal = 3.dp), verticalAlignment = Alignment.CenterVertically) {
                 pillAmount(day.net)?.let { amount ->
-                    Box(Modifier.size(6.dp).clip(CircleShape).background(c.coinFace).border(1.dp, c.coinLine, CircleShape))
-                    Spacer(Modifier.width(2.dp))
-                    Text(amount, style = YamuTheme.typography.labelS.copy(fontSize = 9.5.sp, lineHeight = 12.sp, letterSpacing = (-0.2).sp), color = if (selected) c.onPrimary else if (day.net > 0) c.primary else c.text1, maxLines = 1)
+                    // 큰 글씨의 고른 날 알약은 링 때문에 안쪽이 42dp로 좁고 금액 줄이 아래 둥근 모서리에 걸린다 — 동전 점을 빼고 글자에 자리를 준다
+                    if (!selected || LocalDensity.current.fontScale < LARGE_FONT_SCALE) {
+                        Box(Modifier.size(6.dp).clip(CircleShape).background(c.coinFace).border(1.dp, c.coinLine, CircleShape))
+                        Spacer(Modifier.width(2.dp))
+                    }
+                    // 11sp로 쓰되 칸이 모자라면(고른 날 '−18.6만' · 큰 글씨) 칸에 맞게 줄인다. 줄은 꺾지 않는다 —
+                    // 꺾이면 한 줄만 보여 '−3.5만'이 '−3.5'로 읽힌다
+                    val amountStyle = YamuTheme.typography.labelS.copy(lineHeight = 12.sp, letterSpacing = (-0.2).sp)
+                    Text(
+                        amount,
+                        style = amountStyle,
+                        color = if (selected) c.onPrimary else if (day.net > 0) c.primary else c.text1,
+                        maxLines = 1,
+                        softWrap = false,
+                        autoSize = TextAutoSize.StepBased(minFontSize = 8.sp, maxFontSize = amountStyle.fontSize, stepSize = 0.5.sp),
+                    )
                 }
             }
         }
@@ -283,9 +300,9 @@ private fun IncomePill(date: LocalDate) {
         contentAlignment = Alignment.Center,
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text("월급", style = YamuTheme.typography.labelS.copy(fontSize = 10.5.sp, lineHeight = 13.sp), color = c.onPrimaryContainer)
+            Text("월급", style = YamuTheme.typography.labelS.copy(lineHeight = 13.sp), color = c.onPrimaryContainer)
             Text("${date.dayOfMonth}", style = YamuTheme.typography.value.copy(fontSize = 17.sp, lineHeight = 20.sp), color = c.onPrimaryContainer)
-            Text("입금", style = YamuTheme.typography.labelS.copy(fontSize = 9.5.sp, lineHeight = 13.sp), color = c.primary, textAlign = TextAlign.Center)
+            Text("입금", style = YamuTheme.typography.labelS.copy(lineHeight = 13.sp), color = c.primary, textAlign = TextAlign.Center)
         }
     }
 }
@@ -297,3 +314,5 @@ private val EDGE_FADE = 30.dp
 private val PEEK_DX = 26.dp
 private const val PEEK_DELAY_MS = 1_300L   // 그래프 들어오기 · 손잡이 흔들기와 겹치지 않게 조금 늦게
 private const val PEEK_MS = 1_150
+/** 이 글자 배율부터 고른 날 알약의 동전 점을 뺀다 */
+private const val LARGE_FONT_SCALE = 1.15f
