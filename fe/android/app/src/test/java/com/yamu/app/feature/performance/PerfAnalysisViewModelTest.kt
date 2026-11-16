@@ -255,6 +255,24 @@ class PerfAnalysisViewModelTest {
         }
     }
 
+    @Test fun `판단 기록 성공 실패 결과 불명 모두 결제처 변경 기한과 안내를 유지한다`() = runTest(dispatcher) {
+        for (result in listOf(ApiResult.Success(Unit), ApiResult.Failure(ApiError.Conflict("CONFLICT")), ApiResult.Failure(ApiError.Server("ERROR")), ApiResult.Failure(ApiError.Network))) {
+            val repo = MoveRepo().apply { recorded = result }
+            val vm = PerfAnalysisViewModel(CARD_ID, repo)
+            runCurrent()
+            vm.moveAndFill(); runCurrent()
+            val message = vm.state.value.message!!
+            assertTrue(message.contains("바꿔 뒀어요"))
+            assertTrue(message.contains("내는 곳에서도 카드를 바꿔 주세요"))
+            assertTrue(message.contains("11/25까지 통신비"))
+            assertEquals(1, repo.moves)
+            assertEquals(1, repo.decisions)
+            assertEquals(2, repo.reads)
+            assertFalse(vm.state.value.acting)
+            finish(vm)
+        }
+    }
+
     @Test fun `부분 성공 뒤 분석 재조회도 실패하면 결과 안내와 조회 오류를 모두 남긴다`() = runTest(dispatcher) {
         val repo = MoveRepo().apply {
             recorded = ApiResult.Failure(ApiError.Network)

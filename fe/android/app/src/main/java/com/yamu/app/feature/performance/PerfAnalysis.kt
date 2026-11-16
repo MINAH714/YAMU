@@ -169,9 +169,10 @@ class PerfAnalysisViewModel internal constructor(
             }
             val recorded = perf.decide(a.userCardId, PerfDecision.FILL, a.version)
             val deadline = parseDate(item.deadlineIso)?.toMonthDay()?.let { "${it}까지 " }.orEmpty()
-            val movedMessage = "${item.title} 결제 카드를 $card${card.directionParticle()} 바꿔 뒀어요"
+            // 앱의 예정 지출만 바뀐 것이므로 판단 기록 결과와 관계없이 결제처 변경 안내를 남긴다.
+            val movedMessage = "${item.title} 결제 카드를 $card${card.directionParticle()} 바꿔 뒀어요 · ${deadline}${item.title}${item.title.objectParticle()} 내는 곳에서도 카드를 바꿔 주세요"
             val message = when (recorded) {
-                is ApiResult.Success -> "$movedMessage · ${deadline}${item.title}${item.title.objectParticle()} 내는 곳에서도 카드를 바꿔 주세요"
+                is ApiResult.Success -> movedMessage
                 is ApiResult.Failure -> if (recorded.error.isOutcomeUnknown) {
                     "$movedMessage · 판단 기록 결과는 확인하지 못했어요 · 다시 불러온 분석을 확인해 주세요"
                 } else {
