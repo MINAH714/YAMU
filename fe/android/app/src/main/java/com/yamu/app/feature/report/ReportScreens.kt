@@ -77,6 +77,7 @@ import com.yamu.app.core.designsystem.component.PrimaryButton
 import com.yamu.app.core.designsystem.component.SkeletonBlock
 import com.yamu.app.core.designsystem.component.StatusTag
 import com.yamu.app.core.designsystem.component.TabScreen
+import com.yamu.app.feature.my.TabBell
 import com.yamu.app.core.designsystem.component.YamuCard
 import com.yamu.app.core.designsystem.theme.LocalYamuReduceMotion
 import com.yamu.app.core.designsystem.theme.YamuSpacing
@@ -355,6 +356,7 @@ fun ReportRoute(
     onBenefits: () -> Unit,
     onPayments: () -> Unit,
     onForecast: () -> Unit = {},
+    onNotifications: () -> Unit = {},
     viewModel: ReportViewModel = hiltViewModel(),
 ) {
     val s by viewModel.state.collectAsStateWithLifecycle()
@@ -381,7 +383,7 @@ fun ReportRoute(
     }
     var picking by rememberSaveable { mutableStateOf(false) }
     val c = YamuTheme.colors
-    TabScreen(title = "소비분석") { inner ->
+    TabScreen(title = "소비분석", actions = { TabBell(onNotifications) }) { inner ->
         Column(Modifier.padding(inner).consumeWindowInsets(inner).fillMaxSize()) {
             MonthSwitcher(s.shown, onSelect = viewModel::select, onPick = { picking = true })
             Column(Modifier.weight(1f).verticalScroll(scroll)) {

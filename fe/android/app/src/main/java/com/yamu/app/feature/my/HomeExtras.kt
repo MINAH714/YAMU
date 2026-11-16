@@ -227,7 +227,6 @@ class NotificationsViewModel @Inject constructor(private val my: MyRepository) :
 @Composable
 fun NotificationsRoute(
     onBack: () -> Unit,
-    onSettings: () -> Unit,
     onOpen: (NotiTarget) -> Unit,
     viewModel: NotificationsViewModel = hiltViewModel(),
 ) {
@@ -242,13 +241,15 @@ fun NotificationsRoute(
     var showOlder by rememberSaveable { mutableStateOf(false) }
     Scaffold(
         topBar = {
+            // 오른쪽엔 이 화면의 일만 — 알림 설정은 마이에서만 연다(S15P31E103-521). 아이콘만으로는 뜻이 안 읽혀 글자로 쓴다
             YamuTopBar("알림", onBack = onBack) {
                 if (s.unread > 0) {
-                    IconButton(onClick = { viewModel.readAll { m -> scope.launch { snackbar.showSnackbar(m) } } }) {
-                        Icon(YamuIcons.DoneAll, contentDescription = "모두 읽음, 안 읽은 알림 ${s.unread}개", tint = c.text1)
-                    }
+                    LinkButton(
+                        "모두 읽음 표시",
+                        onClick = { viewModel.readAll { m -> scope.launch { snackbar.showSnackbar(m) } } },
+                        modifier = Modifier.padding(end = YamuSpacing.x2),
+                    )
                 }
-                IconButton(onClick = onSettings) { Icon(YamuIcons.Settings, contentDescription = "알림 설정", tint = c.text1) }
             }
         },
         containerColor = c.surface,
