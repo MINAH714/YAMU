@@ -63,6 +63,7 @@ import com.yamu.app.feature.link.CardRegisterRoute
 import com.yamu.app.feature.link.CashflowConfirmRoute
 import com.yamu.app.feature.link.FirstAnalysisRoute
 import com.yamu.app.feature.my.AccountManageRoute
+import com.yamu.app.feature.my.AllFeaturesNav
 import com.yamu.app.feature.my.CardDetailRoute
 import com.yamu.app.feature.my.CardManageRoute
 import com.yamu.app.feature.my.CardOrderRoute
@@ -349,6 +350,7 @@ fun YamuNavHost(navController: NavHostController, modifier: Modifier = Modifier,
                         onAnalysis = { id -> navController.navigate(PerfAnalysis(id)) },
                         onCardDetail = { id -> navController.navigate(CardPerformance(id)) },
                         onAddCard = { navController.navigate(AddCard) },
+                        onBenefitLimits = { navController.navigate(BenefitLimits) { launchSingleTop = true } },
                     )
                 }
                 composable<CardPerformance> {
@@ -397,15 +399,29 @@ fun YamuNavHost(navController: NavHostController, modifier: Modifier = Modifier,
                         onSecurity = { navController.navigate(Security) },
                         onBilling = { navController.navigate(Billing) },
                         onOpenPinPad = openPinPad,   // 숨은 시연 모드 본인 확인(S15P31E103-434)
-                        onNotReady = showMessage,
                         onLoggedOut = {
                             // 첫 화면으로. 스플래시로 가면 이 폰에 남은 기기 때문에 곧바로 간편 비밀번호 화면이 열린다(2차 QA 14)
                             navController.toWelcome()
                             showMessage("로그아웃했어요")
                         },
                         onDebugMenu = debugMenu,
+                        // '모든 기능' — 다른 탭 그래프의 화면도 마이 위에 쌓아 뒤로 = 마이(홈이 혜택 리포트 · 결제 내역을 홈 위에 쌓는 것과 같다)
+                        allFeatures = AllFeaturesNav(
+                            onForecast = { navController.navigate(Forecast) { launchSingleTop = true } },
+                            onCashflowList = { navController.navigate(CashflowList) { launchSingleTop = true } },
+                            // 이거 사도 될까?는 잔고예보의 하위 흐름 — 잔고예보를 밑에 깔아 저장(toBuyCheckSaved: 잔고예보 위) · '잔고예보에서 보기'가 그대로 맞게
+                            onBuyCheck = {
+                                navController.navigate(Forecast) { launchSingleTop = true }
+                                navController.navigate(BuyCheckInput)
+                            },
+                            onBenefitLimits = { navController.navigate(BenefitLimits) { launchSingleTop = true } },
+                            onBenefitReport = { navController.navigate(BenefitReport) { launchSingleTop = true } },
+                            onPayments = { navController.navigate(Payments) { launchSingleTop = true } },
+                        ),
+                        onPolicyDoc = { doc -> navController.navigate(PolicyDoc(doc.name)) { launchSingleTop = true } },
                     )
                 }
+                composable<PolicyDoc> { entry -> TermDocRoute(entry.toRoute<PolicyDoc>().doc, onBack = back) }
                 composable<CardManage> { entry ->
                     // 카드 상세에서 해제하고 돌아오면 그 카드를 제자리에서 지운다
                     val removed = entry.savedStateHandle.getStateFlow<Long?>(REMOVED_CARD_ID, null).collectAsStateWithLifecycle().value

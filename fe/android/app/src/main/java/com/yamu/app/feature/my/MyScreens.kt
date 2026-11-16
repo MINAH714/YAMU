@@ -64,6 +64,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.core.app.NotificationManagerCompat
@@ -100,6 +102,7 @@ import com.yamu.app.core.ui.userMessage
 import com.yamu.app.feature.auth.StepUpEffect
 import com.yamu.app.feature.auth.StepUpFactory
 import com.yamu.app.feature.auth.StepUpPrompt
+import com.yamu.app.feature.auth.TermDoc
 import com.yamu.app.feature.auth.data.AuthRepository
 import com.yamu.app.feature.auth.data.StepUpPurpose
 import com.yamu.app.feature.link.CardListThumb
@@ -295,10 +298,11 @@ fun MyRoute(
     onNotificationSettings: () -> Unit,
     onSecurity: () -> Unit,
     onBilling: () -> Unit,
-    onNotReady: (String) -> Unit,
     onLoggedOut: () -> Unit,
     onDebugMenu: (() -> Unit)?,
     onOpenPinPad: (purpose: String) -> Unit,
+    allFeatures: AllFeaturesNav = AllFeaturesNav(),
+    onPolicyDoc: (TermDoc) -> Unit = {},
     viewModel: MyViewModel = hiltViewModel(),
 ) {
     val s by viewModel.state.collectAsStateWithLifecycle()
@@ -313,6 +317,8 @@ fun MyRoute(
         viewModel.messageShown()
     }
     if (s.demoSheet) DemoModeSheet(onDismiss = viewModel::closeDemoSheet)
+    var policySheet by rememberSaveable { mutableStateOf(false) }
+    if (policySheet) PolicySheet(onDismiss = { policySheet = false }, onOpen = { doc -> policySheet = false; onPolicyDoc(doc) })
     val c = YamuTheme.colors
     TabScreen(
         title = "마이",
@@ -361,10 +367,12 @@ fun MyRoute(
                     onClick = onSecurity,
                 )
             }
+            AllFeaturesCard(allFeatures)
             YamuCard(contentPadding = MenuPadding) {
-                // 주소가 정해지면 Custom Tabs로 연다(13 문서 9·10-6 ④)
-                ListRow(title = "고객센터", trailing = { ExternalMark() }, onClick = { onNotReady("고객센터는 준비 중이에요") })
-                ListRow(title = "약관 및 정책", trailing = { ExternalMark() }, onClick = { onNotReady("약관 및 정책은 준비 중이에요") })
+                // 고객센터는 주소가 정해지면 Custom Tabs로 연다(13 문서 9·10-6 ④). 그 전엔 새 창 표시 없이 '준비 중'만 — 누르면 나갈 것처럼 보이지 않게(V-03)
+                ListRow(title = "고객센터", valuePlain = "준비 중")
+                // 약관 전문은 앱에 들어 있어(TermDoc · res/raw) 앱 안에서 연다
+                ListRow(title = "약관 및 정책", chevron = true, onClick = { policySheet = true })
                 ListRow(title = "로그아웃", onClick = { viewModel.logout(onLoggedOut) })
                 if (onDebugMenu != null) ListRow(title = "디버그 메뉴", chevron = true, onClick = onDebugMenu)
             }
@@ -404,10 +412,46 @@ private fun DemoModeSheet(onDismiss: () -> Unit) {
 /** 메뉴 카드 안쪽 — 위아래 8 · 왼쪽 20 · 오른쪽 16(프로토타입 M-01 .menu) */
 private val MenuPadding = PaddingValues(start = 20.dp, end = 16.dp, top = 8.dp, bottom = 8.dp)
 
-/** 웹 페이지로 나가는 줄 표시(open_in_new) */
+/**
+ * 마이 '모든 기능'에서 여는 화면 — 탭에 없는 기능(잔고예보 · 예정 수입·지출 · 이거 사도 될까? · 혜택 한도 · 혜택 리포트 · 결제 내역)의 목록.
+ * 햄버거 메뉴를 두지 않는 대신 마이가 모든 기능을 모은다(토스 · 뱅크샐러드의 '전체' 탭처럼, docs/fe/ui-ux-rationale.md V-01).
+ * 연 화면은 마이 위에 쌓여 뒤로 가면 마이다
+ */
+data class AllFeaturesNav(
+    val onForecast: () -> Unit = {},
+    val onCashflowList: () -> Unit = {},
+    val onBuyCheck: () -> Unit = {},
+    val onBenefitLimits: () -> Unit = {},
+    val onBenefitReport: () -> Unit = {},
+    val onPayments: () -> Unit = {},
+)
+
+/** '모든 기능' 줄 순서 — 돈의 흐름(잔고 · 예정된 돈 · 사기 전 비교) 다음 혜택 · 결제 기록. 가계부는 팀이 부르는 이름이라 괄호로 같이 둔다 */
+internal val ALL_FEATURE_TITLES = listOf("잔고예보", "예정 수입·지출(가계부)", "이거 사도 될까?", "남은 혜택 한도", "혜택 리포트", "결제 내역")
+
 @Composable
-private fun ExternalMark() {
-    Icon(YamuIcons.OpenInNew, contentDescription = "새 창", tint = YamuTheme.colors.text3, modifier = Modifier.size(20.dp))
+private fun AllFeaturesCard(nav: AllFeaturesNav) {
+    val actions = listOf(nav.onForecast, nav.onCashflowList, nav.onBuyCheck, nav.onBenefitLimits, nav.onBenefitReport, nav.onPayments)
+    YamuCard(contentPadding = MenuPadding) {
+        Text(
+            "모든 기능",
+            style = YamuTheme.typography.cardTitle,
+            color = YamuTheme.colors.text1,
+            modifier = Modifier.padding(top = YamuSpacing.x3, bottom = YamuSpacing.x1).semantics { heading() },
+        )
+        ALL_FEATURE_TITLES.zip(actions).forEach { (title, onClick) -> ListRow(title = title, chevron = true, onClick = onClick) }
+    }
+}
+
+/** '약관 및 정책' — 앱에 들어 있는 약관 전문 목록. 고르면 전문 화면(PolicyDoc)으로 */
+@Composable
+private fun PolicySheet(onDismiss: () -> Unit, onOpen: (TermDoc) -> Unit) {
+    YamuBottomSheet(onDismiss = onDismiss) {
+        Text("약관 및 정책", style = YamuTheme.typography.titleL, color = YamuTheme.colors.text1)
+        Spacer(Modifier.height(YamuSpacing.x2))
+        TermDoc.entries.forEach { doc -> ListRow(title = doc.title, chevron = true, onClick = { onOpen(doc) }) }
+        Spacer(Modifier.height(YamuSpacing.x5))
+    }
 }
 
 // ───────────────────────── M-02 카드 관리 ─────────────────────────
