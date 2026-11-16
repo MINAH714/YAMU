@@ -3,12 +3,17 @@ package com.yamu.be.payment.barcode;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
+import com.yamu.be.auth.AuthProperties;
 import com.yamu.be.auth.StepUpService;
+import com.yamu.be.auth.StepUpTokenStore.StepUpGrant;
+import com.yamu.be.auth.domain.AuthMethod;
 import com.yamu.be.auth.domain.StepUpPurpose;
 import com.yamu.be.global.exception.BusinessException;
 import com.yamu.be.global.exception.ErrorCode;
@@ -31,6 +36,12 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.Callable;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -42,6 +53,9 @@ class BarcodeServiceTest {
 
     static final Instant NOW = Instant.parse("2026-10-28T05:30:00Z");
     static final AuthUser ME = new AuthUser(7L, 1L);
+    static final Duration REISSUE_WINDOW = Duration.ofMinutes(10);
+    static final AuthProperties AUTH = new AuthProperties(Duration.ofSeconds(60), Duration.ofDays(14),
+            Duration.ofSeconds(60), 5, Duration.ofMinutes(30), Duration.ofMinutes(5), REISSUE_WINDOW);
 
     @Mock PaymentCardLookup cards;
     @Mock StepUpService stepUp;
@@ -56,7 +70,13 @@ class BarcodeServiceTest {
     void setUp() {
         store = new InMemoryBarcodeStore();
         clock = new MutableClock(NOW);
-        service = new BarcodeService(store, cards, stepUp, paymentViews, expiry, new BarcodeTokenGenerator(), clock);
+        service = new BarcodeService(store, cards, stepUp, paymentViews, expiry, new BarcodeTokenGenerator(), clock,
+                AUTH);
+        // 인증을 통과하면 PIN으로 인증한 기록(번호 900)을 돌려준다. 실패는 각 테스트가 따로 정한다
+        lenient().when(stepUp.requireStepUp(any(), any(), any())).thenAnswer(call -> {
+            AuthUser me = call.getArgument(0);
+            return new StepUpGrant(me.userId(), me.userDeviceId(), StepUpPurpose.BARCODE, AuthMethod.PIN, 900L);
+        });
     }
 
     @Test
@@ -201,7 +221,7 @@ class BarcodeServiceTest {
                 return generated.removeFirst();
             }
         };
-        service = new BarcodeService(store, cards, stepUp, paymentViews, expiry, tokens, clock);
+        service = new BarcodeService(store, cards, stepUp, paymentViews, expiry, tokens, clock, AUTH);
         when(cards.countActiveCards(7L)).thenReturn(1L);
 
         assertThat(service.issue(ME, "step-up").barcodeToken()).isEqualTo(fresh);
@@ -247,6 +267,204 @@ class BarcodeServiceTest {
         assertThat(store.find(token).orElseThrow().status()).isEqualTo(BarcodeStatus.SCANNED);
     }
 
+    // ───────── 재발급(다시 인증하지 않는 [새 코드]) ─────────
+
+    @Test
+    void 발급한_코드에_인증한_기기_시각_방식_기록_번호를_남긴다() {
+        when(cards.countActiveCards(7L)).thenReturn(1L);
+
+        String token = service.issue(ME, "step-up").barcodeToken();
+
+        assertThat(store.find(token).orElseThrow().auth())
+                .isEqualTo(new Barcode.IssueAuth(1L, NOW, AuthMethod.PIN, 900L));
+    }
+
+    @Test
+    void 재발급하면_인증_토큰_없이_새_코드를_내고_이전_코드는_닫고_인증_정보는_물려준다() {
+        when(cards.countActiveCards(7L)).thenReturn(2L);
+        String first = service.issue(ME, "step-up").barcodeToken();
+        clock.advance(Duration.ofSeconds(20));
+
+        BarcodeService.Issued next = service.reissue(ME, first);
+
+        assertThat(next.barcodeToken()).isNotEqualTo(first).matches("[0-9]{16}");
+        assertThat(next.status()).isEqualTo(BarcodeStatus.ISSUED);
+        assertThat(next.issuedAt()).isEqualTo(LocalDateTime.parse("2026-10-28T05:30:20"));
+        assertThat(next.expiresAt()).isEqualTo(LocalDateTime.parse("2026-10-28T05:31:20"));
+        assertThat(next.activeCardCount()).isEqualTo(2L);
+        assertThat(service.get(7L, first).status()).isEqualTo(BarcodeStatus.EXPIRED);
+        assertThat(store.find(first).orElseThrow().reissuedTo()).isEqualTo(next.barcodeToken());
+        assertThat(store.find(next.barcodeToken()).orElseThrow().auth())
+                .isEqualTo(new Barcode.IssueAuth(1L, NOW, AuthMethod.PIN, 900L));
+        // 인증 토큰은 처음 발급 때 한 번만 쓰고, 재발급은 기기 · 설정만 다시 본다
+        verify(stepUp).requireStepUp(ME, StepUpPurpose.BARCODE, "step-up");
+        verify(stepUp).requireReusable(ME, StepUpPurpose.BARCODE, AuthMethod.PIN);
+        verifyNoMoreInteractions(stepUp);
+    }
+
+    @Test
+    void 시간이_지나_만료된_코드도_재발급한다() {
+        when(cards.countActiveCards(7L)).thenReturn(1L);
+        String first = service.issue(ME, "step-up").barcodeToken();
+        clock.advance(Duration.ofSeconds(90));
+        assertThat(service.get(7L, first).status()).isEqualTo(BarcodeStatus.EXPIRED);
+
+        String next = service.reissue(ME, first).barcodeToken();
+
+        assertThat(service.get(7L, next).status()).isEqualTo(BarcodeStatus.ISSUED);
+    }
+
+    @Test
+    void 재발급을_이어_붙여도_처음_인증에서_10분이_지나면_다시_인증해야_한다() {
+        when(cards.countActiveCards(7L)).thenReturn(1L);
+        String token = service.issue(ME, "step-up").barcodeToken();
+        for (int i = 0; i < 9; i++) {
+            clock.advance(Duration.ofSeconds(60));
+            token = service.reissue(ME, token).barcodeToken();
+        }
+        clock.advance(Duration.ofSeconds(59)); // 처음 인증에서 9분 59초
+        token = service.reissue(ME, token).barcodeToken();
+
+        clock.advance(Duration.ofSeconds(1)); // 정확히 10분
+        String last = token;
+        assertError(() -> service.reissue(ME, last), ErrorCode.STEP_UP_REQUIRED);
+        assertThat(service.get(7L, last).status()).isEqualTo(BarcodeStatus.ISSUED);
+    }
+
+    @Test
+    void 다른_사용자의_코드는_재발급할_수_없고_있는지도_알려_주지_않는다() {
+        AuthUser other = new AuthUser(8L, 2L);
+        when(cards.countActiveCards(8L)).thenReturn(1L);
+        String othersToken = service.issue(other, "other-step-up").barcodeToken();
+
+        assertError(() -> service.reissue(ME, othersToken), ErrorCode.BARCODE_NOT_FOUND);
+        assertThat(service.get(8L, othersToken).status()).isEqualTo(BarcodeStatus.ISSUED);
+        assertThat(store.size()).isEqualTo(1);
+    }
+
+    @Test
+    void 같은_사용자라도_다른_기기에서는_재발급하지_않는다() {
+        when(cards.countActiveCards(7L)).thenReturn(1L);
+        String token = service.issue(ME, "step-up").barcodeToken();
+
+        assertError(() -> service.reissue(new AuthUser(7L, 2L), token), ErrorCode.STEP_UP_REQUIRED);
+        assertThat(service.get(7L, token).status()).isEqualTo(BarcodeStatus.ISSUED);
+    }
+
+    @Test
+    void 스캔된_코드는_재발급하지_않고_결제를_그대로_둔다() {
+        when(cards.countActiveCards(7L)).thenReturn(1L);
+        String token = service.issue(ME, "step-up").barcodeToken();
+        store.scan(token, 7L, 1024L, NOW, Duration.ofMinutes(10));
+
+        assertError(() -> service.reissue(ME, token), ErrorCode.STEP_UP_REQUIRED);
+        assertThat(store.find(token).orElseThrow().status()).isEqualTo(BarcodeStatus.SCANNED);
+        assertThat(store.size()).isEqualTo(1);
+    }
+
+    @Test
+    void 결제가_끝나_닫힌_코드도_재발급하지_않는다() {
+        when(cards.countActiveCards(7L)).thenReturn(1L);
+        String token = service.issue(ME, "step-up").barcodeToken();
+        store.scan(token, 7L, 1024L, NOW, Duration.ofMinutes(10));
+        store.expireByPayment(1024L); // 결제 확정 시간 초과로 EXPIRED지만 결제에 쓰인 코드다
+
+        assertError(() -> service.reissue(ME, token), ErrorCode.STEP_UP_REQUIRED);
+    }
+
+    @Test
+    void 그사이_본인_인증으로_새로_발급했으면_이전_코드로는_재발급하지_않는다() {
+        when(cards.countActiveCards(7L)).thenReturn(1L);
+        String first = service.issue(ME, "step-up-1").barcodeToken();
+        String second = service.issue(ME, "step-up-2").barcodeToken();
+
+        assertError(() -> service.reissue(ME, first), ErrorCode.STEP_UP_REQUIRED);
+        assertThat(service.get(7L, second).status()).isEqualTo(BarcodeStatus.ISSUED);
+    }
+
+    @Test
+    void 없거나_형식이_다른_토큰은_404다() {
+        assertError(() -> service.reissue(ME, "0000000000000000"), ErrorCode.BARCODE_NOT_FOUND);
+        assertError(() -> service.reissue(ME, "user:7"), ErrorCode.BARCODE_NOT_FOUND);
+        assertError(() -> service.reissue(ME, null), ErrorCode.BARCODE_NOT_FOUND);
+    }
+
+    @Test
+    void 인증_정보가_없는_코드는_다시_인증해야_한다() {
+        // 이 기능이 배포되기 전에 발급돼 Redis에 남아 있는 코드
+        String legacy = "0000000000000009";
+        store.issue(new Barcode(legacy, 7L, BarcodeStatus.ISSUED, NOW, NOW.plusSeconds(60)), Duration.ofMinutes(10));
+        when(cards.countActiveCards(7L)).thenReturn(1L);
+
+        assertError(() -> service.reissue(ME, legacy), ErrorCode.STEP_UP_REQUIRED);
+    }
+
+    @Test
+    void 결제할_카드가_없어졌으면_발급처럼_NO_ACTIVE_CARD다() {
+        when(cards.countActiveCards(7L)).thenReturn(1L, 0L);
+        String token = service.issue(ME, "step-up").barcodeToken();
+
+        assertError(() -> service.reissue(ME, token), ErrorCode.NO_ACTIVE_CARD);
+        assertThat(service.get(7L, token).status()).isEqualTo(BarcodeStatus.ISSUED);
+    }
+
+    @Test
+    void 기기가_잠겼거나_간편_비밀번호만으로_바꿨으면_재발급하지_않고_이전_코드를_그대로_둔다() {
+        when(cards.countActiveCards(7L)).thenReturn(1L);
+        String token = service.issue(ME, "step-up").barcodeToken();
+        doThrow(new BusinessException(ErrorCode.DEVICE_LOCKED))
+                .when(stepUp).requireReusable(ME, StepUpPurpose.BARCODE, AuthMethod.PIN);
+
+        assertError(() -> service.reissue(ME, token), ErrorCode.DEVICE_LOCKED);
+        assertThat(service.get(7L, token).status()).isEqualTo(BarcodeStatus.ISSUED);
+        assertThat(store.size()).isEqualTo(1);
+    }
+
+    @Test
+    void 같은_코드로_다시_재발급하면_앞서_낸_새_코드를_돌려준다() {
+        when(cards.countActiveCards(7L)).thenReturn(1L);
+        String first = service.issue(ME, "step-up").barcodeToken();
+
+        String next = service.reissue(ME, first).barcodeToken();
+        clock.advance(Duration.ofSeconds(5));
+        String again = service.reissue(ME, first).barcodeToken();
+
+        assertThat(again).isEqualTo(next);
+        assertThat(store.size()).isEqualTo(2);
+        // 새 코드가 만료됐거나 그 뒤 또 바뀌었으면 이전 코드로는 받을 수 없다
+        clock.advance(Duration.ofSeconds(60));
+        assertError(() -> service.reissue(ME, first), ErrorCode.STEP_UP_REQUIRED);
+    }
+
+    @Test
+    void 동시에_두_번_재발급해도_살아_있는_코드는_하나이고_둘_다_같은_코드를_받는다() throws Exception {
+        when(cards.countActiveCards(7L)).thenReturn(1L);
+        String first = service.issue(ME, "step-up").barcodeToken();
+        CountDownLatch start = new CountDownLatch(1);
+        Callable<String> reissue = () -> {
+            start.await();
+            return service.reissue(ME, first).barcodeToken();
+        };
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        try {
+            Future<String> a = pool.submit(reissue);
+            Future<String> b = pool.submit(reissue);
+            start.countDown();
+
+            assertThat(a.get(5, TimeUnit.SECONDS)).isEqualTo(b.get(5, TimeUnit.SECONDS));
+        } finally {
+            pool.shutdownNow();
+        }
+        assertThat(store.size()).isEqualTo(2);
+        assertThat(store.issuedCount(NOW)).isEqualTo(1);
+    }
+
+    private static void assertError(Runnable call, ErrorCode expected) {
+        assertThatThrownBy(call::run)
+                .isInstanceOf(BusinessException.class)
+                .extracting("errorCode").isEqualTo(expected);
+    }
+
     private static PaymentRequestView view(PaymentStatus status, LocalDateTime confirmDeadline) {
         return new PaymentRequestView(1024L, status, null, 15_000, PaymentPlan.LUMP_SUM, null, confirmDeadline, null);
     }
@@ -266,8 +484,7 @@ class BarcodeServiceTest {
             String previous = currentTokens.get(barcode.userId());
             Barcode old = previous == null ? null : barcodes.get(previous);
             if (old != null && old.status() == BarcodeStatus.ISSUED) {
-                barcodes.put(previous, new Barcode(old.token(), old.userId(), BarcodeStatus.EXPIRED,
-                        old.issuedAt(), old.expiresAt()));
+                barcodes.put(previous, with(old, BarcodeStatus.EXPIRED, old.paymentId()));
             }
             barcodes.put(barcode.token(), barcode);
             currentTokens.put(barcode.userId(), barcode.token());
@@ -293,8 +510,7 @@ class BarcodeServiceTest {
             if (barcode.status() != BarcodeStatus.ISSUED) {
                 return ScanResult.ALREADY_USED;
             }
-            barcodes.put(token, new Barcode(token, barcode.userId(), BarcodeStatus.SCANNED, barcode.issuedAt(),
-                    barcode.expiresAt(), paymentId));
+            barcodes.put(token, with(barcode, BarcodeStatus.SCANNED, paymentId));
             return ScanResult.SCANNED;
         }
 
@@ -304,8 +520,7 @@ class BarcodeServiceTest {
             if (barcode == null || barcode.status() != BarcodeStatus.SCANNED || !paymentId.equals(barcode.paymentId())) {
                 return false;
             }
-            barcodes.put(token, new Barcode(token, barcode.userId(), BarcodeStatus.ISSUED, barcode.issuedAt(),
-                    barcode.expiresAt()));
+            barcodes.put(token, with(barcode, BarcodeStatus.ISSUED, null));
             return true;
         }
 
@@ -325,16 +540,52 @@ class BarcodeServiceTest {
             if (barcode == null || barcode.status() != BarcodeStatus.ISSUED) {
                 return false;
             }
-            barcodes.put(token, new Barcode(token, barcode.userId(), BarcodeStatus.USED, barcode.issuedAt(),
-                    barcode.expiresAt(), paymentId));
+            barcodes.put(token, with(barcode, BarcodeStatus.USED, paymentId));
             return true;
+        }
+
+        @Override
+        public synchronized Reissue reissue(String previousToken, Barcode next, Duration retention, Instant now) {
+            Barcode previous = barcodes.get(previousToken);
+            if (previous == null) {
+                return new Reissue(ReissueResult.DENIED, null);
+            }
+            String current = currentTokens.get(previous.userId());
+            if (previous.reissuedTo() != null) {
+                Barcode successor = barcodes.get(previous.reissuedTo());
+                boolean usable = successor != null && successor.token().equals(current)
+                        && successor.status() == BarcodeStatus.ISSUED && successor.expiresAt().isAfter(now);
+                return usable ? new Reissue(ReissueResult.ALREADY_REISSUED, successor.token())
+                        : new Reissue(ReissueResult.DENIED, null);
+            }
+            boolean open = previous.status() == BarcodeStatus.ISSUED || previous.status() == BarcodeStatus.EXPIRED;
+            if (!open || previous.paymentId() != null || !previousToken.equals(current)) {
+                return new Reissue(ReissueResult.DENIED, null);
+            }
+            if (barcodes.containsKey(next.token())) {
+                return new Reissue(ReissueResult.TOKEN_TAKEN, null);
+            }
+            barcodes.put(previousToken, new Barcode(previous.token(), previous.userId(), BarcodeStatus.EXPIRED,
+                    previous.issuedAt(), previous.expiresAt(), null, previous.auth(), next.token()));
+            barcodes.put(next.token(), next);
+            currentTokens.put(next.userId(), next.token());
+            return new Reissue(ReissueResult.REISSUED, next.token());
+        }
+
+        private static Barcode with(Barcode barcode, BarcodeStatus status, Long paymentId) {
+            return new Barcode(barcode.token(), barcode.userId(), status, barcode.issuedAt(), barcode.expiresAt(),
+                    paymentId, barcode.auth(), barcode.reissuedTo());
+        }
+
+        /** 지금 시각에 ISSUED인(쓸 수 있는) 코드 수 */
+        synchronized long issuedCount(Instant now) {
+            return barcodes.values().stream().filter(b -> b.statusAt(now) == BarcodeStatus.ISSUED).count();
         }
 
         private boolean settle(Long paymentId, BarcodeStatus status) {
             for (Barcode barcode : barcodes.values()) {
                 if (barcode.status() == BarcodeStatus.SCANNED && paymentId.equals(barcode.paymentId())) {
-                    barcodes.put(barcode.token(), new Barcode(barcode.token(), barcode.userId(), status,
-                            barcode.issuedAt(), barcode.expiresAt(), paymentId));
+                    barcodes.put(barcode.token(), with(barcode, status, paymentId));
                     return true;
                 }
             }

@@ -33,7 +33,7 @@ import { config, missingConfig } from './config'
 import { enterFullscreenOnFirstTouch } from './hooks/useFullscreen'
 import { FORCE_REDUCE_MOTION, useReduceMotion } from './hooks/useReduceMotion'
 import { formatToken } from './payment/barcode'
-import { chargedOf } from './payment/history'
+import { chargedOf, HISTORY_CONFIG_MISMATCH, HISTORY_LOAD_FAILED } from './payment/history'
 import { classifyCancelError } from './payment/cancelErrors'
 import { classifyCreateError } from './payment/errors'
 import { formatWon, MIN_INSTALLMENT_AMOUNT, validateTerms, type Terms, type TermsErrors } from './payment/terms'
@@ -441,8 +441,10 @@ function App() {
         setPhase({ step: 'fatal', message: 'POS 키가 없거나 올바르지 않아요. VITE_POS_KEY 설정을 확인해 주세요.', config: true })
         return
       }
-      const reason = error instanceof Error ? `${error.message} ` : ''
-      setHistoryList({ items: null, error: `${reason}결제 내역을 불러오지 못했어요.` })
+      // 화면에는 직원이 할 일만 보이고, 원인(HTTP 상태·오류 코드)은 콘솔에 남긴다
+      console.warn('결제 내역 불러오기 실패', error)
+      const configMismatch = error instanceof ApiError && error.code === 'MERCHANT_NOT_FOUND'
+      setHistoryList({ items: null, error: configMismatch ? HISTORY_CONFIG_MISMATCH : HISTORY_LOAD_FAILED })
     }
   }
 

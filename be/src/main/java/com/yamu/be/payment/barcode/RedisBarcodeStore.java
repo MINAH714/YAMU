@@ -1,5 +1,7 @@
 package com.yamu.be.payment.barcode;
 
+import com.yamu.be.auth.domain.AuthMethod;
+import com.yamu.be.payment.barcode.Barcode.IssueAuth;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
@@ -13,12 +15,15 @@ import org.springframework.stereotype.Component;
  * 바코드를 Redis에 보관한다.
  *
  * <pre>
- * barcode:code:{토큰}         → 해시 { userId, status, issuedAt, expiresAt, paymentId? }   시각은 epoch 밀리초
+ * barcode:code:{토큰}         → 해시 { userId, status, issuedAt, expiresAt, paymentId?,
+ *                                      userDeviceId?, authAt?, authMethod?, authAuditLogId?, reissuedTo? }   시각은 epoch 밀리초
  * barcode:user:{userId}       → 그 사용자의 현재 바코드 토큰
  * barcode:payment:{paymentId} → 그 결제 요청이 스캔한 바코드 토큰(스캔 때 생김). 승인·만료가 토큰 없이 바코드를 찾는 역색인
  * </pre>
  *
  * 세 키 모두 보관 시간이 지나면 Redis가 지운다.
+ * userDeviceId · authAt · authMethod · authAuditLogId는 코드를 연 본인 인증({@link IssueAuth})이고, reissuedTo는 재발급으로
+ * 이 코드를 대신한 새 토큰이다(S15P31E103-530). 이 칸이 생기기 전에 저장된 코드에는 없다.
  * 바코드 키와 사용자 키는 접두어를 나눈다. 같은 접두어면 토큰 자리에 "user:5" 같은 값이 왔을 때 사용자 키(문자열)를
  * 해시로 읽어 WRONGTYPE 오류(500)가 나고, 그 사용자가 바코드를 발급했는지가 404와의 차이로 드러난다.
  */
@@ -33,6 +38,7 @@ class RedisBarcodeStore implements BarcodeStore {
      * 새 바코드 저장과 이전 바코드 만료를 Redis 안에서 끊기지 않게 한 번에 실행한다.
      * KEYS[1] 새 바코드 키, KEYS[2] 사용자의 현재 바코드 키
      * ARGV[1] 새 토큰, ARGV[2] userId, ARGV[3] issuedAt, ARGV[4] expiresAt, ARGV[5] 보관 시간(밀리초), ARGV[6] 바코드 키 접두어
+     * ARGV[7] userDeviceId, ARGV[8] authAt, ARGV[9] authMethod, ARGV[10] authAuditLogId. 인증 정보가 없으면 빈 문자열이고 저장하지 않는다
      * 이전 바코드가 SCANNED·USED면 결제가 진행 중이거나 끝난 것이므로 바꾸지 않는다.
      */
     private static final RedisScript<Long> ISSUE_SCRIPT = RedisScript.of("""
@@ -47,10 +53,62 @@ class RedisBarcodeStore implements BarcodeStore {
               end
             end
             redis.call('HSET', KEYS[1], 'userId', ARGV[2], 'status', 'ISSUED', 'issuedAt', ARGV[3], 'expiresAt', ARGV[4])
+            if ARGV[7] ~= '' then
+              redis.call('HSET', KEYS[1], 'userDeviceId', ARGV[7], 'authAt', ARGV[8], 'authMethod', ARGV[9])
+            end
+            if ARGV[10] ~= '' then
+              redis.call('HSET', KEYS[1], 'authAuditLogId', ARGV[10])
+            end
             redis.call('PEXPIRE', KEYS[1], ARGV[5])
             redis.call('SET', KEYS[2], ARGV[1], 'PX', ARGV[5])
             return 1
             """, Long.class);
+
+    /*
+     * 다시 인증하지 않는 재발급(S15P31E103-530). 이전 코드 확인 · 닫기와 새 코드 저장을 한 번에 해서, 연타 · 스캔 · 새 발급이 겹쳐도
+     * 살아 있는 코드는 하나다. 사용자 · 기기 · 인증 시각은 바뀌지 않는 값이라 부르는 쪽이 먼저 확인한다.
+     * KEYS[1] 이전 바코드 키, KEYS[2] 사용자의 현재 바코드 키, KEYS[3] 새 바코드 키
+     * ARGV[1] 이전 토큰, ARGV[2] 새 토큰, ARGV[3] userId, ARGV[4] issuedAt, ARGV[5] expiresAt, ARGV[6] 보관 시간(밀리초),
+     * ARGV[7] 지금(밀리초), ARGV[8] 바코드 키 접두어, ARGV[9] userDeviceId, ARGV[10] authAt, ARGV[11] authMethod, ARGV[12] authAuditLogId
+     * 반환: REISSUED, TAKEN(새 토큰 충돌), DENIED, AGAIN:{앞서 재발급한 토큰}
+     */
+    private static final RedisScript<String> REISSUE_SCRIPT = RedisScript.of("""
+            local status = redis.call('HGET', KEYS[1], 'status')
+            if not status then
+              return 'DENIED'
+            end
+            local successor = redis.call('HGET', KEYS[1], 'reissuedTo')
+            if successor then
+              local successorKey = ARGV[8] .. successor
+              if redis.call('GET', KEYS[2]) == successor
+                  and redis.call('HGET', successorKey, 'status') == 'ISSUED'
+                  and tonumber(redis.call('HGET', successorKey, 'expiresAt')) > tonumber(ARGV[7]) then
+                return 'AGAIN:' .. successor
+              end
+              return 'DENIED'
+            end
+            if status ~= 'ISSUED' and status ~= 'EXPIRED' then
+              return 'DENIED'
+            end
+            if redis.call('HEXISTS', KEYS[1], 'paymentId') == 1 then
+              return 'DENIED'
+            end
+            if redis.call('GET', KEYS[2]) ~= ARGV[1] then
+              return 'DENIED'
+            end
+            if redis.call('EXISTS', KEYS[3]) == 1 then
+              return 'TAKEN'
+            end
+            redis.call('HSET', KEYS[1], 'status', 'EXPIRED', 'reissuedTo', ARGV[2])
+            redis.call('HSET', KEYS[3], 'userId', ARGV[3], 'status', 'ISSUED', 'issuedAt', ARGV[4], 'expiresAt', ARGV[5],
+                'userDeviceId', ARGV[9], 'authAt', ARGV[10], 'authMethod', ARGV[11])
+            if ARGV[12] ~= '' then
+              redis.call('HSET', KEYS[3], 'authAuditLogId', ARGV[12])
+            end
+            redis.call('PEXPIRE', KEYS[3], ARGV[6])
+            redis.call('SET', KEYS[2], ARGV[2], 'PX', ARGV[6])
+            return 'REISSUED'
+            """, String.class);
 
     /*
      * ISSUED이고 만료 전인 바코드만 SCANNED로 바꾼다. 상태 확인과 변경이 한 스크립트라 동시 스캔은 한 건만 성공한다.
@@ -135,6 +193,7 @@ class RedisBarcodeStore implements BarcodeStore {
 
     @Override
     public boolean issue(Barcode barcode, Duration retention) {
+        IssueAuth auth = barcode.auth();
         Long saved = redis.execute(ISSUE_SCRIPT,
                 List.of(KEY_PREFIX + barcode.token(), USER_KEY_PREFIX + barcode.userId()),
                 barcode.token(),
@@ -142,8 +201,44 @@ class RedisBarcodeStore implements BarcodeStore {
                 Long.toString(barcode.issuedAt().toEpochMilli()),
                 Long.toString(barcode.expiresAt().toEpochMilli()),
                 Long.toString(retention.toMillis()),
-                KEY_PREFIX);
+                KEY_PREFIX,
+                auth == null ? "" : auth.userDeviceId().toString(),
+                auth == null ? "" : Long.toString(auth.authAt().toEpochMilli()),
+                auth == null ? "" : auth.method().name(),
+                auth == null || auth.auditLogId() == null ? "" : auth.auditLogId().toString());
         return saved != null && saved == 1L;
+    }
+
+    @Override
+    public Reissue reissue(String previousToken, Barcode next, Duration retention, Instant now) {
+        IssueAuth auth = next.auth();
+        if (!BarcodeTokenGenerator.isWellFormed(previousToken) || auth == null) {
+            return new Reissue(ReissueResult.DENIED, null);
+        }
+        String result = redis.execute(REISSUE_SCRIPT,
+                List.of(KEY_PREFIX + previousToken, USER_KEY_PREFIX + next.userId(), KEY_PREFIX + next.token()),
+                previousToken,
+                next.token(),
+                next.userId().toString(),
+                Long.toString(next.issuedAt().toEpochMilli()),
+                Long.toString(next.expiresAt().toEpochMilli()),
+                Long.toString(retention.toMillis()),
+                Long.toString(now.toEpochMilli()),
+                KEY_PREFIX,
+                auth.userDeviceId().toString(),
+                Long.toString(auth.authAt().toEpochMilli()),
+                auth.method().name(),
+                auth.auditLogId() == null ? "" : auth.auditLogId().toString());
+        if ("REISSUED".equals(result)) {
+            return new Reissue(ReissueResult.REISSUED, next.token());
+        }
+        if ("TAKEN".equals(result)) {
+            return new Reissue(ReissueResult.TOKEN_TAKEN, null);
+        }
+        if (result != null && result.startsWith("AGAIN:")) {
+            return new Reissue(ReissueResult.ALREADY_REISSUED, result.substring("AGAIN:".length()));
+        }
+        return new Reissue(ReissueResult.DENIED, null);
     }
 
     @Override
@@ -162,7 +257,22 @@ class RedisBarcodeStore implements BarcodeStore {
                 BarcodeStatus.valueOf((String) fields.get("status")),
                 Instant.ofEpochMilli(Long.parseLong((String) fields.get("issuedAt"))),
                 Instant.ofEpochMilli(Long.parseLong((String) fields.get("expiresAt"))),
-                paymentId == null ? null : Long.valueOf(paymentId)));
+                paymentId == null ? null : Long.valueOf(paymentId),
+                auth(fields),
+                (String) fields.get("reissuedTo")));
+    }
+
+    /** 인증 정보 세 칸이 다 있을 때만 읽는다. 하나라도 없으면(이 칸이 생기기 전 코드) null이라 재발급하지 않는다. */
+    private static IssueAuth auth(Map<Object, Object> fields) {
+        String deviceId = (String) fields.get("userDeviceId");
+        String authAt = (String) fields.get("authAt");
+        String method = (String) fields.get("authMethod");
+        if (deviceId == null || authAt == null || method == null) {
+            return null;
+        }
+        String auditLogId = (String) fields.get("authAuditLogId");
+        return new IssueAuth(Long.valueOf(deviceId), Instant.ofEpochMilli(Long.parseLong(authAt)),
+                AuthMethod.valueOf(method), auditLogId == null ? null : Long.valueOf(auditLogId));
     }
 
     @Override

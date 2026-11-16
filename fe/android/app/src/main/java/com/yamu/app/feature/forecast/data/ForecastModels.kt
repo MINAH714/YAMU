@@ -237,7 +237,7 @@ data class ForecastLivingCost(val projectedAmount: Long?, val method: LivingMeth
 /** 계산에서 뺀 것 — 이유마다 문장 하나 */
 data class ExcludedNote(val reason: String?, val text: String)
 
-/** '두 선은 이렇게 계산했어요'의 한 줄 */
+/** 잔고예보 두 선 계산 카드의 한 줄 */
 data class LineStep(val label: String, val amount: Long, val note: String? = null)
 
 /**

@@ -223,6 +223,7 @@ class PaymentDetailViewModelTest {
         }
 
         override suspend fun issueCode(stepUpToken: String): ApiResult<PayCode> = error("안 씀")
+        override suspend fun reissueCode(previousToken: String): ApiResult<PayCode> = error("안 씀")
         override suspend fun codeStatus(token: String): ApiResult<PayCodeStatus> = error("안 씀")
         override suspend fun approve(request: PaymentRequest, card: PayCard, installmentMonths: Int?, idempotencyKey: String): ApiResult<ApproveOutcome> = error("안 씀")
         override suspend fun reject(paymentId: Long, idempotencyKey: String): ApiResult<Unit> = error("안 씀")

@@ -29,6 +29,7 @@ import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.TextAutoSize
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
@@ -61,7 +62,9 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
@@ -144,18 +147,36 @@ private fun AmountField(amount: Long, active: Boolean, onClick: () -> Unit) {
             .semantics(mergeDescendants = true) { contentDescription = "가격 ${amount.toWon()}원" },
         // 숫자와 '원'은 글자 바닥을 맞추고 커서만 가운데(프로토타입 .amount-field align-items: baseline · gap 4)
     ) {
-        Text(if (amount > 0) amount.toWon() else "0", style = YamuTheme.typography.amountL, color = if (amount > 0) c.text1 else c.text3, modifier = Modifier.alignByBaseline())
-        Box(Modifier.align(Alignment.CenterVertically).padding(start = 4.dp).width(2.dp).height(32.dp).background(if (active) c.primary else Color.Transparent))
-        Spacer(Modifier.weight(1f))
-        Text("원", style = YamuTheme.typography.titleL, color = c.text2, modifier = Modifier.alignByBaseline())
+        // 숫자 + 커서는 '원' 앞 자리를 다 쓰고, 1,000억처럼 길면 그 안에 한 줄로 들어가게 글자를 줄인다
+        Row(Modifier.weight(1f).alignByBaseline()) {
+            val style = YamuTheme.typography.amountL
+            Text(
+                if (amount > 0) amount.toWon() else "0",
+                style = style,
+                color = if (amount > 0) c.text1 else c.text3,
+                maxLines = 1,
+                autoSize = TextAutoSize.StepBased(minFontSize = style.fontSize * 0.5f, maxFontSize = style.fontSize, stepSize = 1.sp),
+                modifier = Modifier.weight(1f, fill = false).alignByBaseline(),
+            )
+            Box(Modifier.align(Alignment.CenterVertically).padding(start = 4.dp).width(2.dp).height(32.dp).background(if (active) c.primary else Color.Transparent))
+        }
+        Text("원", style = YamuTheme.typography.titleL, color = c.text2, modifier = Modifier.padding(start = 8.dp).alignByBaseline())
     }
 }
 
-/** 금액 키 — 0으로 시작하지 않고 10자리까지(BE 상한 1,000억 원보다 작다) */
+/** 가격 자리 수 — 상한 1,000억 원이 12자리 */
+private val AMOUNT_DIGITS = SimulationQuery.AMOUNT_MAX.toString().length
+
+/** 금액 키 — 앞자리 0 없이 1,000억 원([SimulationQuery.AMOUNT_MAX], BE 상한)까지. 넘기는 키는 받지 않는다(잘라 붙이지 않는다) */
 internal fun String.applyAmountKey(key: KeypadKey): String = when (key) {
-    is KeypadKey.Digit -> amountDigits(this + key.value, 10)
-    KeypadKey.DoubleZero -> amountDigits(this + "00", 10)
+    is KeypadKey.Digit -> appendAmount(key.value.toString())
+    KeypadKey.DoubleZero -> appendAmount("00")
     KeypadKey.Delete -> dropLast(1)
+}
+
+private fun String.appendAmount(tail: String): String {
+    val next = amountDigits(this + tail, AMOUNT_DIGITS + tail.length)
+    return if (next.length > AMOUNT_DIGITS || (next.toLongOrNull() ?: 0L) > SimulationQuery.AMOUNT_MAX) this else next
 }
 
 @OptIn(ExperimentalLayoutApi::class)   // imeAnimationTarget · isImeVisible
@@ -244,6 +265,7 @@ data class ConditionsState(
     val cardId: Long? = null,                               // null = 혜택이 가장 큰 카드(추천 1순위)
     val months: Int? = null,                                // null = 일시불
     val date: LocalDate = LocalDate.now(KST),
+    val message: String? = null,                            // 스낵바 한 번 — 업종 없이 비교하기를 눌렀을 때
 ) {
     val card: SimCardOption? get() = cards?.firstOrNull { it.userCardId == cardId }
 }
@@ -346,6 +368,18 @@ class BuyConditionsViewModel internal constructor(val amount: Long, val title: S
         if (!category.simulationSupported) return null
         return SimulationQuery(amount, title, category.code, category.name, s.merchant?.id, s.merchant?.name, s.channel, s.cardId, s.months, s.date)
     }
+
+    /** '사기 전후 비교하기' — 버튼은 늘 눌리고, 업종이 없으면 비교하지 않고 고르라고 알린다(QA) */
+    fun compare(): SimulationQuery? = query() ?: run {
+        _state.update { it.copy(message = CATEGORY_REQUIRED) }
+        null
+    }
+
+    fun messageShown() = _state.update { it.copy(message = null) }
+
+    companion object {
+        const val CATEGORY_REQUIRED = "어디서 살지 골라 주세요"
+    }
 }
 
 /** 업종 칩에 먼저 보일 것 — 목록에 있는 것만, 나머지는 '전체 업종' 시트 */
@@ -358,11 +392,17 @@ fun BuyConditionsRoute(onBack: () -> Unit, onCompare: (SimulationQuery) -> Unit,
     var sheet by rememberSaveable { mutableStateOf<String?>(null) }   // category · brand · card · months
     var picking by rememberSaveable { mutableStateOf(false) }
     val c = YamuTheme.colors
+    val snackbar = LocalSnackbar.current
+    // 안내가 떠 있는 동안 다시 눌러도 같은 값이라 쌓이지 않는다
+    LaunchedEffect(s.message) {
+        s.message?.let { snackbar.showSnackbar(it) }
+        viewModel.messageShown()
+    }
     FlowScreen(
         title = "이거 사도 될까?",
         onBack = onBack,
         bottomBar = {
-            BottomCta { PrimaryButton("사기 전후 비교하기", onClick = { viewModel.query()?.let(onCompare) }, enabled = s.category != null) }
+            BottomCta { PrimaryButton("사기 전후 비교하기", onClick = { viewModel.compare()?.let(onCompare) }) }
         },
     ) { inner ->
         Column(
@@ -494,7 +534,7 @@ private fun ChoiceRow(label: String, value: String, enabled: Boolean, onClick: (
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(label, style = YamuTheme.typography.bodyM, color = c.text3, modifier = Modifier.width(64.dp))
-        Text(value, style = YamuTheme.typography.titleS, color = c.text1, modifier = Modifier.weight(1f))
+        Text(value, style = YamuTheme.typography.titleS, color = c.text1, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
         Icon(YamuIcons.ChevronRight, contentDescription = null, tint = c.text3, modifier = Modifier.size(18.dp))
     }
 }
@@ -523,7 +563,8 @@ internal fun RadioRow(
     ) {
         RoundCheckbox(checked = selected, onCheckedChange = null)
         Column(Modifier.weight(1f)) {
-            Text(title, style = YamuTheme.typography.titleS, color = c.text1)
+            // 긴 카드 이름은 한 줄 말줄임(읽어 주기는 전체 이름)
+            Text(title, style = YamuTheme.typography.titleS, color = c.text1, maxLines = 1, overflow = TextOverflow.Ellipsis)
             sub?.let { Text(it, style = YamuTheme.typography.bodyS, color = c.text3) }
         }
         trailing?.invoke()
@@ -629,17 +670,24 @@ internal fun MonthsSheet(selected: Int?, onDismiss: () -> Unit, onPick: (Int) ->
     }
 }
 
-/** 구매일 — 오늘부터(지난 날은 BE가 400) */
+/** 오늘(한국)부터 고를 수 있는 날 — 지난 날은 BE가 400 */
+internal class FromDateSelectable(from: LocalDate) : SelectableDates {
+    private val fromUtc = from.atStartOfDay().toInstant(ZoneOffset.UTC).toEpochMilli()
+    override fun isSelectableDate(utcTimeMillis: Long) = utcTimeMillis >= fromUtc
+}
+
+/**
+ * 구매일 — 오늘부터. Material3 rememberDatePickerState는 재구성마다 selectableDates를 상태에 다시 쓰므로(1.4.0),
+ * 고를 수 있는 날을 remember로 한 번만 만든다. 매번 새 객체면 바깥이 다시 그려질 때마다 달력 날짜 칸이 전부 다시 그려진다(QA 달력 흔들림)
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun PurchaseDatePicker(date: LocalDate, onDismiss: () -> Unit, onPick: (LocalDate) -> Unit) {
     val c = YamuTheme.colors
-    val todayUtc = LocalDate.now(KST).atStartOfDay().toInstant(ZoneOffset.UTC).toEpochMilli()
+    val selectable = remember { FromDateSelectable(LocalDate.now(KST)) }
     val state = rememberDatePickerState(
         initialSelectedDateMillis = date.atStartOfDay().toInstant(ZoneOffset.UTC).toEpochMilli(),
-        selectableDates = object : SelectableDates {
-            override fun isSelectableDate(utcTimeMillis: Long) = utcTimeMillis >= todayUtc
-        },
+        selectableDates = selectable,
     )
     DatePickerDialog(
         onDismissRequest = onDismiss,
@@ -736,7 +784,8 @@ internal fun PillButton(text: String, contentDescription: String, onClick: () ->
             .padding(start = 12.dp, end = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(text, style = YamuTheme.typography.labelL, color = c.text1)
+        // 칩이 줄보다 길면 글자만 말줄임 — ⌄는 늘 보인다
+        Text(text, style = YamuTheme.typography.labelL, color = c.text1, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
         Icon(YamuIcons.ExpandMore, contentDescription = null, tint = c.text3, modifier = Modifier.size(16.dp))
     }
 }

@@ -6,7 +6,7 @@ import { Amount } from '../components/Amount'
 import { CancelScanStep } from '../components/CancelScanStep'
 import { CancelDoneScreen, CancelFailedScreen, CancelingScreen, CancelUnknownScreen } from '../components/CancelScreens'
 import { PaymentHistory } from '../components/PaymentHistory'
-import { chargedOf } from '../payment/history'
+import { chargedOf, HISTORY_CONFIG_MISMATCH, HISTORY_LOAD_FAILED } from '../payment/history'
 import { Tray } from '../components/Tray'
 import { CANCEL_NOT_FOUND_MESSAGE, demoHistory } from './historyFixtures'
 import type { GalleryEntry } from './types'
@@ -111,7 +111,15 @@ export const historyEntries: GalleryEntry[] = [
     id: 'history-error',
     label: '내역(불러오기 실패)',
     render: () => (
-      <PaymentHistory items={null} error="서버에 연결하지 못했어요. 결제 내역을 불러오지 못했어요." onReload={noop} selectedId={null} onSelect={noop} onCancel={noop} onBack={noop} />
+      <PaymentHistory items={null} error={HISTORY_LOAD_FAILED} onReload={noop} selectedId={null} onSelect={noop} onCancel={noop} onBack={noop} />
+    ),
+  },
+  {
+    ...base,
+    id: 'history-error-config',
+    label: '내역(POS 설정 불일치)',
+    render: () => (
+      <PaymentHistory items={null} error={HISTORY_CONFIG_MISMATCH} onReload={noop} selectedId={null} onSelect={noop} onCancel={noop} onBack={noop} />
     ),
   },
 ]
