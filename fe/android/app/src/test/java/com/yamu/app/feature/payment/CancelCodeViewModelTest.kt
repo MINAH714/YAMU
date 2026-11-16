@@ -134,6 +134,7 @@ class CancelCodeViewModelTest {
         override suspend fun cancel(paymentId: Long, idempotencyKey: String): ApiResult<CancelResult> = error("앱은 바로 취소하지 않는다")
         override suspend fun saveMemo(paymentId: Long, memo: String?): ApiResult<String?> = error("안 씀")
         override suspend fun issueCode(stepUpToken: String): ApiResult<PayCode> = error("안 씀")
+        override suspend fun reissueCode(previousToken: String): ApiResult<PayCode> = error("안 씀")
         override suspend fun codeStatus(token: String): ApiResult<PayCodeStatus> = error("안 씀")
         override suspend fun approve(request: PaymentRequest, card: PayCard, installmentMonths: Int?, idempotencyKey: String): ApiResult<ApproveOutcome> = error("안 씀")
         override suspend fun reject(paymentId: Long, idempotencyKey: String): ApiResult<Unit> = error("안 씀")
