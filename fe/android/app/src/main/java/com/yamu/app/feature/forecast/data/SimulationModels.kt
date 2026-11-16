@@ -223,13 +223,7 @@ data class Simulation(
     val isEstimate: Boolean,
     /** 계산한 계좌 — 카드를 알면 그 카드의 출금 계좌 하나(저장소가 채운다, S15P31E103-548) */
     val accounts: List<ForecastAccountOption> = emptyList(),
-) {
-    /** 사용자가 고른 카드보다 혜택이 큰 1순위 카드 — '○○카드가 혜택이 더 커요' */
-    val betterCard: AltCard? get() = alternatives.firstOrNull { it.recommended }
-
-    /** 1순위 카드가 지금 카드보다 얼마 더 주는지(둘 다 계산했을 때만) */
-    val betterBy: BigDecimal? get() = betterCard?.net?.let { b -> benefit?.net?.let { b - it } }?.takeIf { it.signum() > 0 }
-}
+)
 
 fun SimulationResponseDto.toSimulation(query: SimulationQuery): Simulation {
     val lastDay = series.mapNotNull { parseDate(it.date) }.maxOrNull()
