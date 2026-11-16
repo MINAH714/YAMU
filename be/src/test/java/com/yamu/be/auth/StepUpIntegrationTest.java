@@ -212,6 +212,26 @@ class StepUpIntegrationTest extends MySqlTestSupport {
                 });
     }
 
+    @Test
+    void 앞서_받은_인증을_다시_쓸_때도_간편_비밀번호만_설정과_기기_잠금을_다시_본다() {
+        UserDevice device = saveDevice("01012345678", deviceKey, biometricKey);
+        stepUpService.requireReusable(me(device), StepUpPurpose.BARCODE, AuthMethod.BIOMETRIC);
+
+        jdbc.update("UPDATE app_user SET barcode_auth_method = 'PIN_ONLY' WHERE user_id = ?", device.getUser().getId());
+        assertErrorCode(() -> stepUpService.requireReusable(me(device), StepUpPurpose.BARCODE, AuthMethod.BIOMETRIC),
+                ErrorCode.REAUTH_REQUIRED);
+        stepUpService.requireReusable(me(device), StepUpPurpose.BARCODE, AuthMethod.PIN);
+
+        jdbc.update("UPDATE user_device SET status = 'LOCKED', locked_until = ? WHERE user_device_id = ?",
+                LocalDateTime.now(ZoneOffset.UTC).plusMinutes(30), device.getId());
+        assertErrorCode(() -> stepUpService.requireReusable(me(device), StepUpPurpose.BARCODE, AuthMethod.PIN),
+                ErrorCode.DEVICE_LOCKED);
+
+        jdbc.update("UPDATE user_device SET status = 'REVOKED' WHERE user_device_id = ?", device.getId());
+        assertErrorCode(() -> stepUpService.requireReusable(me(device), StepUpPurpose.BARCODE, AuthMethod.PIN),
+                ErrorCode.DEVICE_NOT_REGISTERED);
+    }
+
     // ───────── 실패 ─────────
 
     @Test

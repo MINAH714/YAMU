@@ -36,6 +36,18 @@ class BarcodeController {
                 .body(ApiResponse.ok(barcodes.issue(me, stepUpToken)));
     }
 
+    @Operation(summary = "결제 바코드 재발급", description = """
+            결제 화면의 [새 코드]. 본인 인증 토큰 없이 이전 코드를 닫고 새 코드를 발급한다(임시 정책, S15P31E103-530).
+            같은 기기에서 처음 인증한 지 10분 안이고, 이전 코드가 내 현재 코드이며 스캔·결제에 쓰이지 않았을 때만 된다(시간 만료는 허용).
+            조건이 안 맞으면 403 REAUTH_REQUIRED이고 앱은 본인 인증 뒤 발급 API를 부른다.
+            같은 코드로 다시 부르면 앞서 발급한 새 코드를 돌려준다.""")
+    @PostMapping("/{barcodeToken}/reissue")
+    ResponseEntity<ApiResponse<BarcodeService.Issued>> reissue(
+            @AuthenticationPrincipal AuthUser me, @PathVariable String barcodeToken) {
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(ApiResponse.ok(barcodes.reissue(me, barcodeToken)));
+    }
+
     @Operation(summary = "바코드 상태 조회", description = "앱이 폴링해 POS가 바코드를 스캔했는지 확인한다.")
     @GetMapping("/{barcodeToken}")
     ApiResponse<BarcodeService.State> get(@AuthenticationPrincipal AuthUser me, @PathVariable String barcodeToken) {

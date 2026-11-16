@@ -1,11 +1,16 @@
 package com.yamu.be.payment.barcode;
 
+import com.yamu.be.auth.AuthProperties;
 import com.yamu.be.auth.StepUpService;
+import com.yamu.be.auth.StepUpTokenStore.StepUpGrant;
 import com.yamu.be.auth.domain.StepUpPurpose;
 import com.yamu.be.global.exception.BusinessException;
 import com.yamu.be.global.exception.ErrorCode;
 import com.yamu.be.global.security.AuthUser;
 import com.yamu.be.payment.PaymentExpiry;
+import com.yamu.be.payment.barcode.Barcode.IssueAuth;
+import com.yamu.be.payment.barcode.BarcodeStore.Reissue;
+import com.yamu.be.payment.barcode.BarcodeStore.ReissueResult;
 import com.yamu.be.payment.domain.PaymentStatus;
 import com.yamu.be.payment.lookup.PaymentCardLookup;
 import com.yamu.be.payment.request.PaymentRequestView;
@@ -37,10 +42,13 @@ public class BarcodeService {
     private final PaymentExpiry expiry;
     private final BarcodeTokenGenerator tokens;
     private final Clock clock;
+    /** 처음 인증 뒤 다시 인증하지 않고 새 코드를 받을 수 있는 시간({@code yamu.auth.barcode-reissue-window}, 임시 10분) */
+    private final Duration reissueWindow;
 
     /** clock은 {@code ClockConfig}의 빈이다. 테스트가 시계를 옮겨 만료를 확인할 수 있게 직접 만들지 않는다. */
     BarcodeService(BarcodeStore store, PaymentCardLookup cards, StepUpService stepUp,
-            PaymentRequestViewReader paymentViews, PaymentExpiry expiry, BarcodeTokenGenerator tokens, Clock clock) {
+            PaymentRequestViewReader paymentViews, PaymentExpiry expiry, BarcodeTokenGenerator tokens, Clock clock,
+            AuthProperties authProperties) {
         this.store = store;
         this.cards = cards;
         this.stepUp = stepUp;
@@ -48,6 +56,7 @@ public class BarcodeService {
         this.expiry = expiry;
         this.tokens = tokens;
         this.clock = clock;
+        this.reissueWindow = authProperties.barcodeReissueWindow();
     }
 
     /**
@@ -61,16 +70,72 @@ public class BarcodeService {
         }
         // 본인 인증 토큰은 확인하는 순간 쓰여 없어진다. 카드 확인처럼 실패할 수 있는 검증을 먼저 끝내야
         // 그 검증에 걸렸을 때 사용자가 본인 인증을 다시 하지 않는다.
-        stepUp.requireStepUp(me, StepUpPurpose.BARCODE, stepUpToken);
+        StepUpGrant grant = stepUp.requireStepUp(me, StepUpPurpose.BARCODE, stepUpToken);
         Instant now = clock.instant();
+        // 재발급(S15P31E103-530)이 다시 인증하지 않아도 되는지 판단할 값. 새 코드는 이 값을 그대로 물려받는다
+        IssueAuth auth = new IssueAuth(me.userDeviceId(), now, grant.method(), grant.auditLogId());
         for (int attempt = 0; attempt < MAX_TOKEN_ATTEMPTS; attempt++) {
             Barcode barcode = new Barcode(tokens.next(), me.userId(), BarcodeStatus.ISSUED, now,
-                    now.plus(VALIDITY));
+                    now.plus(VALIDITY), null, auth, null);
             if (store.issue(barcode, RETENTION)) {
                 return Issued.of(barcode, activeCardCount);
             }
         }
         // 10^16가지(약 53비트) 난수가 세 번 연속 겹치는 일은 사실상 없다. 생기면 난수 생성에 문제가 있는 것이므로 서버 오류로 둔다.
+        throw new IllegalStateException("바코드 토큰을 만들지 못했습니다.");
+    }
+
+    /**
+     * 결제 화면의 [새 코드]. 본인 인증을 다시 받지 않고 이전 코드를 닫고 새 코드를 낸다(S15P31E103-530, 임시 정책).
+     * <ul>
+     *   <li>형식이 다르거나, 없거나(보관 종료 포함), 다른 사용자의 코드면 조회와 같이 404 BARCODE_NOT_FOUND</li>
+     *   <li>결제에 쓸 ACTIVE 카드가 없으면 발급과 같이 NO_ACTIVE_CARD</li>
+     *   <li>다른 기기에서 불렀거나, 처음 인증한 지 {@code reissueWindow}가 지났거나, 인증 정보가 없는 코드(이 기능 전 발급)면 403 REAUTH_REQUIRED</li>
+     *   <li>기기가 잠겼으면 DEVICE_LOCKED, 생체로 연 뒤 "간편 비밀번호만"으로 바꿨으면 REAUTH_REQUIRED</li>
+     *   <li>현재 코드가 아니거나 스캔 · 결제 · 취소에 쓰인 코드면 REAUTH_REQUIRED(저장소가 한 번에 확인)</li>
+     * </ul>
+     * 시간이 지나 만료된 코드는 받는다. 같은 코드로 다시 오면(연타 · 응답이 끊긴 재시도) 앞서 낸 새 코드가 아직 쓸 수 있을 때 그 코드를 돌려준다.
+     * 새 코드는 처음 인증 시각을 물려받으므로 재발급을 이어 붙여도 창이 늘지 않는다. 새 인증이 아니라 step_up_audit_log에 남기지 않고,
+     * 코드에 물려 둔 처음 인증 기록 번호(auditLogId)로 따라간다.
+     */
+    public Issued reissue(AuthUser me, String previousToken) {
+        if (!BarcodeTokenGenerator.isWellFormed(previousToken)) {
+            throw new BusinessException(ErrorCode.BARCODE_NOT_FOUND);
+        }
+        Barcode previous = store.find(previousToken)
+                .filter(found -> found.userId().equals(me.userId()))
+                .orElseThrow(() -> new BusinessException(ErrorCode.BARCODE_NOT_FOUND));
+        long activeCardCount = cards.countActiveCards(me.userId());
+        if (activeCardCount == 0) {
+            throw new BusinessException(ErrorCode.NO_ACTIVE_CARD);
+        }
+        Instant now = clock.instant();
+        IssueAuth auth = previous.auth();
+        if (auth == null || !auth.userDeviceId().equals(me.userDeviceId())
+                || !now.isBefore(auth.authAt().plus(reissueWindow))) {
+            throw new BusinessException(ErrorCode.REAUTH_REQUIRED);
+        }
+        stepUp.requireReusable(me, StepUpPurpose.BARCODE, auth.method());
+        for (int attempt = 0; attempt < MAX_TOKEN_ATTEMPTS; attempt++) {
+            Barcode next = new Barcode(tokens.next(), me.userId(), BarcodeStatus.ISSUED, now, now.plus(VALIDITY),
+                    null, auth, null);
+            Reissue reissue = store.reissue(previousToken, next, RETENTION, now);
+            if (reissue.result() == ReissueResult.REISSUED) {
+                log.info("결제 코드 재발급 userId={} deviceId={} authAuditLogId={}", me.userId(), me.userDeviceId(),
+                        auth.auditLogId());
+                return Issued.of(next, activeCardCount);
+            }
+            if (reissue.result() == ReissueResult.ALREADY_REISSUED) {
+                // 앞서 낸 새 코드를 그대로 돌려준다. 그사이 보관이 끝났거나 바뀌었으면 다시 인증
+                return store.find(reissue.token())
+                        .filter(found -> found.statusAt(now) == BarcodeStatus.ISSUED)
+                        .map(found -> Issued.of(found, activeCardCount))
+                        .orElseThrow(() -> new BusinessException(ErrorCode.REAUTH_REQUIRED));
+            }
+            if (reissue.result() == ReissueResult.DENIED) {
+                throw new BusinessException(ErrorCode.REAUTH_REQUIRED);
+            }
+        }
         throw new IllegalStateException("바코드 토큰을 만들지 못했습니다.");
     }
 

@@ -212,6 +212,43 @@ class BarcodeIssueIntegrationTest extends MySqlTestSupport {
                 .andExpect(jsonPath("$.error.code").value("BARCODE_NOT_FOUND"));
     }
 
+    // ───────── 재발급(다시 인증하지 않는 [새 코드]) ─────────
+
+    @Test
+    void 재발급은_인증_토큰_없이_새_코드를_내고_다른_기기_다른_사용자는_막는다() throws Exception {
+        long userId = userId(device);
+        fixtures.card(userId, product, null, "ACTIVE");
+        UserDevice other = saveDevice("01099998888");
+        String first = read(issue(device, barcodeToken(device)).andReturn(), "$.data.barcodeToken");
+
+        String next = read(reissue(device, first)
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.status").value("ISSUED"))
+                .andExpect(jsonPath("$.data.activeCardCount").value(1))
+                .andReturn(), "$.data.barcodeToken");
+
+        assertThat(next).isNotEqualTo(first);
+        fetch(device, first).andExpect(jsonPath("$.data.status").value("EXPIRED"));
+        fetch(device, next).andExpect(jsonPath("$.data.status").value("ISSUED"));
+        assertThat(redis.opsForValue().get("barcode:user:" + userId)).isEqualTo(next);
+        assertThat(redis.opsForHash().get("barcode:code:" + next, "userDeviceId")).isEqualTo(device.getId().toString());
+        // 재발급은 새 인증이 아니어서 인증 기록이 늘지 않는다(발급에 쓴 토큰은 테스트가 직접 만든 것이라 0건)
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM step_up_audit_log", Long.class)).isZero();
+
+        // 같은 코드로 다시 부르면 같은 새 코드
+        reissue(device, first).andExpect(status().isCreated()).andExpect(jsonPath("$.data.barcodeToken").value(next));
+        // 다른 사용자는 존재도 모른다
+        reissue(other, next).andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error.code").value("BARCODE_NOT_FOUND"));
+        // 같은 사용자의 다른 기기는 다시 인증해야 한다
+        UserDevice secondPhone = deviceRepository.save(UserDevice.register(device.getUser(),
+                UUID.randomUUID().toString(), "Galaxy Tab", DevicePlatform.ANDROID, DeviceKeys.generate().publicKey(),
+                DeviceSignatureVerifier.EC_P256, null));
+        reissue(secondPhone, next).andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error.code").value("REAUTH_REQUIRED"));
+        fetch(device, next).andExpect(jsonPath("$.data.status").value("ISSUED"));
+    }
+
     // ───────── 동시 요청 ─────────
 
     @Test
@@ -318,6 +355,11 @@ class BarcodeIssueIntegrationTest extends MySqlTestSupport {
             request = request.header(StepUpService.HEADER, stepUpToken);
         }
         return mockMvc.perform(request);
+    }
+
+    private ResultActions reissue(UserDevice device, String code) throws Exception {
+        return mockMvc.perform(post("/api/payments/barcodes/{code}/reissue", code)
+                .with(AuthUsers.asUser(userId(device), device.getId())));
     }
 
     private ResultActions fetch(UserDevice device, String code) throws Exception {
