@@ -54,6 +54,7 @@ import com.yamu.app.core.designsystem.component.YamuBottomSheet
 import com.yamu.app.core.designsystem.component.YamuTextField
 import com.yamu.app.core.designsystem.theme.YamuSpacing
 import com.yamu.app.core.designsystem.theme.YamuTheme
+import com.yamu.app.core.format.AmountLimit
 import com.yamu.app.core.format.KST
 import com.yamu.app.core.format.toKoreanDate
 import com.yamu.app.core.format.toWon
@@ -376,7 +377,7 @@ fun CashflowCreateRoute(onBack: () -> Unit, onDone: () -> Unit, viewModel: Cashf
             YamuTextField(
                 label = "금액(원)",
                 value = f.amount?.toString().orEmpty(),
-                onValueChange = { v -> viewModel.edit { it.copy(amount = v.filter(Char::isDigit).take(12).toLongOrNull()) } },
+                onValueChange = { v -> viewModel.edit { it.copy(amount = AmountLimit.CASHFLOW.clampInput(v).toLongOrNull()) } },
                 placeholder = "예: 250000",
                 supporting = f.amount?.takeIf { it > 0 }?.let { "${it.toWon()}원" },
                 error = errorOf(CashflowField.AMOUNT),

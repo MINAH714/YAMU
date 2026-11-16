@@ -1,5 +1,6 @@
 package com.yamu.app.feature.forecast.data
 
+import com.yamu.app.core.format.AmountLimit
 import com.yamu.app.core.network.ApiError
 import com.yamu.app.core.network.YamuJson
 import kotlinx.serialization.encodeToString
@@ -150,8 +151,8 @@ class CashflowFormTest {
         assertEquals("금액을 넣어 주세요", form().copy(amount = null).validate(today)[CashflowField.AMOUNT])
         assertEquals("1원 이상 넣어 주세요", bad[CashflowField.AMOUNT])
         assertTrue(form().copy(amount = 1).validate(today).isEmpty())
-        assertEquals("1,000억 원까지 넣을 수 있어요", form().copy(amount = CASHFLOW_AMOUNT_MAX + 1).validate(today)[CashflowField.AMOUNT])
-        assertTrue(form().copy(amount = CASHFLOW_AMOUNT_MAX).validate(today).isEmpty())
+        assertEquals("1,000억 원까지 넣을 수 있어요", form().copy(amount = AmountLimit.CASHFLOW.max + 1).validate(today)[CashflowField.AMOUNT])
+        assertTrue(form().copy(amount = AmountLimit.CASHFLOW.max).validate(today).isEmpty())
         assertTrue(form(today).validate(today).isEmpty())   // 오늘은 된다
     }
 

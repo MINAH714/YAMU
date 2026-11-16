@@ -28,15 +28,18 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.sp
 import com.yamu.app.core.designsystem.theme.Issuer
 import com.yamu.app.core.designsystem.theme.YamuRadius
@@ -126,7 +129,8 @@ fun AmountText(
     withPlusSign: Boolean = false,
     color: Color? = null,                // 잔고예보 큰 숫자는 파랑(F-01) — 없으면 검정 · 부족이면 빨강
     unit: String = "원",
-    fitOneLine: Boolean = false,         // 홈 히어로처럼 글자가 커서 넘칠 수 있는 곳 — 한 줄에 맞게 줄인다(큰 글씨 · 천만 원대)
+    // 늘 한 줄 — 넘치면 절반(11sp 아래로는 안 감)까지 줄인다. 1,000억 · 조 단위나 큰 글씨에서 숫자가 꺾이거나 칸 밖으로 나가지 않게(큰 금액 QA, 11/16)
+    fitOneLine: Boolean = true,
 ) {
     val c = YamuTheme.colors
     val style = when (size) {
@@ -143,32 +147,52 @@ fun AmountText(
         AmountSize.M -> 3.dp
         AmountSize.Value -> 0.dp
     }
-    Row(modifier.padding(bottom = hang), verticalAlignment = Alignment.CenterVertically) {
-        Text(
-            buildAnnotatedString {
-                append(won.toWon(withPlusSign))
-                // 단위는 0.6배 · SemiBold(프로토타입 .amount-l .u). 목록 값 크기(16sp)는 같은 크기로 — 11sp 아래로 내려가지 않게
-                val small = size != AmountSize.Value
-                // 0.6em — 한 줄에 맞게 줄일 때 숫자와 같이 줄도록 숫자 크기 기준으로
-                withStyle(SpanStyle(fontSize = if (small) 0.6.em else style.fontSize, fontWeight = FontWeight.SemiBold)) {
-                    append(if (small) "\u2009$unit" else unit)
+    // '예측' 태그를 먼저 재고 남은 폭을 금액에 준다 — Row는 앞 칸(금액)이 폭을 다 쓰면 태그를 밀어낸다
+    Layout(
+        content = {
+            Text(
+                buildAnnotatedString {
+                    append(won.toWon(withPlusSign))
+                    // 단위는 0.6배 · SemiBold(프로토타입 .amount-l .u). 목록 값 크기(16sp)는 같은 크기로 — 11sp 아래로 내려가지 않게
+                    val small = size != AmountSize.Value
+                    // em — 한 줄에 맞게 줄일 때 숫자와 같이 줄도록 숫자 크기 기준으로
+                    withStyle(SpanStyle(fontSize = if (small) 0.6.em else 1.em, fontWeight = FontWeight.SemiBold)) {
+                        append(if (small) "\u2009$unit" else unit)
+                    }
+                },
+                style = style,
+                color = when {
+                    shortage -> c.error
+                    color != null -> color
+                    else -> c.text1
+                },
+                maxLines = if (fitOneLine) 1 else Int.MAX_VALUE,
+                autoSize = if (fitOneLine) TextAutoSize.StepBased(minFontSize = amountMinFontSize(style.fontSize), maxFontSize = style.fontSize, stepSize = 1.sp) else null,
+            )
+            if (estimate) {
+                Row {
+                    Spacer(Modifier.width(6.dp))
+                    EstimateTag()
                 }
-            },
-            style = style,
-            color = when {
-                shortage -> c.error
-                color != null -> color
-                else -> c.text1
-            },
-            maxLines = if (fitOneLine) 1 else Int.MAX_VALUE,
-            autoSize = if (fitOneLine) TextAutoSize.StepBased(minFontSize = style.fontSize * 0.5f, maxFontSize = style.fontSize, stepSize = 1.sp) else null,
-        )
-        if (estimate) {
-            Spacer(Modifier.width(6.dp))
-            EstimateTag()
+            }
+        },
+        modifier = modifier.padding(bottom = hang),
+    ) { measurables, constraints ->
+        val loose = constraints.copy(minWidth = 0, minHeight = 0)
+        val tag = measurables.getOrNull(1)?.measure(loose)
+        val tagWidth = tag?.width ?: 0
+        val amountMax = if (constraints.hasBoundedWidth) (constraints.maxWidth - tagWidth).coerceAtLeast(0) else Constraints.Infinity
+        val amount = measurables[0].measure(loose.copy(maxWidth = amountMax))
+        val height = maxOf(amount.height, tag?.height ?: 0)
+        layout((amount.width + tagWidth).coerceIn(constraints.minWidth, constraints.maxWidth), height.coerceIn(constraints.minHeight, constraints.maxHeight)) {
+            amount.place(0, (height - amount.height) / 2)
+            tag?.place(amount.width, (height - tag.height) / 2)
         }
     }
 }
+
+/** 한 줄에 맞게 줄일 때 가장 작은 글자 — 절반, 11sp보다 작게는 안 간다(글자 규칙) */
+private fun amountMinFontSize(full: TextUnit): TextUnit = (full.value * 0.5f).coerceAtLeast(11f).sp
 
 /** 카드사 칩 — 짧은 이름 + 대표 색. 글자는 11sp 이상(프로토타입 9px에서 키움) */
 @Composable

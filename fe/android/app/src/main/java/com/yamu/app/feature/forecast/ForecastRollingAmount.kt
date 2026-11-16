@@ -4,6 +4,7 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.AnimationVector1D
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -26,6 +27,7 @@ import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
 import com.yamu.app.core.designsystem.theme.YamuTheme
@@ -41,11 +43,10 @@ import kotlin.math.floor
  */
 @Composable
 internal fun RollingAmountText(won: Long, color: Color, modifier: Modifier = Modifier) {
-    val style = YamuTheme.typography.amountL
+    val base = YamuTheme.typography.amountL
     val reduce = YamuTheme.reduceMotion
     val text = won.toWon()
     val measurer = rememberTextMeasurer()
-    val glyphs = remember(style, color) { (0..9).map { measurer.measure("$it", style.copy(color = color)) } }
     // 자리(오른쪽에서 몇 번째인지)마다 지금 보이는 숫자 — 자릿수가 바뀌어도 같은 자리끼리 이어 굴린다
     val wheels = remember { HashMap<Int, Animatable<Float, AnimationVector1D>>() }
     val targets = text.mapIndexedNotNull { i, ch -> if (ch.isDigit()) (text.length - i) to ch.digitToInt() else null }
@@ -66,37 +67,51 @@ internal fun RollingAmountText(won: Long, color: Color, modifier: Modifier = Mod
             withStyle(SpanStyle(fontSize = 0.6.em, fontWeight = FontWeight.SemiBold)) { append(" 원") }
         }
     }
-    Text(
-        annotated,
-        style = style,
-        color = color,
-        maxLines = 1,
-        onTextLayout = { layout = it },
-        modifier = modifier
-            .padding(bottom = 4.dp)
-            .clearAndSetSemantics { contentDescription = "${text}원" }
-            .drawWithContent {
-                drawContent()
-                val l = layout ?: return@drawWithContent
-                text.forEachIndexed { i, ch ->
-                    if (!ch.isDigit() || i >= l.layoutInput.text.length) return@forEachIndexed
-                    val v = wheels[text.length - i]?.value ?: return@forEachIndexed
-                    val box = l.getBoundingBox(i)
-                    val lo = floor(v).toInt().coerceIn(0, 9)
-                    val hi = (lo + 1).coerceAtMost(9)
-                    val frac = v - lo
-                    clipRect(box.left, box.top, box.right, box.bottom) {
-                        val a = glyphs[lo]
-                        drawText(a, topLeft = Offset(box.left + (box.width - a.size.width) / 2, box.top - frac * box.height))
-                        if (frac > 0.001f) {
-                            val b = glyphs[hi]
-                            drawText(b, topLeft = Offset(box.left + (box.width - b.size.width) / 2, box.top + (1 - frac) * box.height))
+    // 칸보다 길면(1,000억 · 조 단위, 큰 글씨) 글자를 절반까지 줄인다. 굴러가는 숫자도 같은 크기로 그려야 칸과 맞는다(큰 금액 QA)
+    BoxWithConstraints(modifier) {
+        val natural = remember(annotated, base) { measurer.measure(annotated, base, softWrap = false, maxLines = 1).size.width }
+        val scale = rollingFitScale(natural, constraints.maxWidth)
+        val style = if (scale < 1f) base.copy(fontSize = base.fontSize * scale) else base
+        val glyphs = remember(style, color) { (0..9).map { measurer.measure("$it", style.copy(color = color)) } }
+        Text(
+            annotated,
+            style = style,
+            color = color,
+            maxLines = 1,
+            onTextLayout = { layout = it },
+            modifier = Modifier
+                .padding(bottom = 4.dp)
+                .clearAndSetSemantics { contentDescription = "${text}원" }
+                .drawWithContent {
+                    drawContent()
+                    val l = layout ?: return@drawWithContent
+                    text.forEachIndexed { i, ch ->
+                        if (!ch.isDigit() || i >= l.layoutInput.text.length) return@forEachIndexed
+                        val v = wheels[text.length - i]?.value ?: return@forEachIndexed
+                        val box = l.getBoundingBox(i)
+                        val lo = floor(v).toInt().coerceIn(0, 9)
+                        val hi = (lo + 1).coerceAtMost(9)
+                        val frac = v - lo
+                        clipRect(box.left, box.top, box.right, box.bottom) {
+                            val a = glyphs[lo]
+                            drawText(a, topLeft = Offset(box.left + (box.width - a.size.width) / 2, box.top - frac * box.height))
+                            if (frac > 0.001f) {
+                                val b = glyphs[hi]
+                                drawText(b, topLeft = Offset(box.left + (box.width - b.size.width) / 2, box.top + (1 - frac) * box.height))
+                            }
                         }
                     }
-                }
-            },
-    )
+                },
+        )
+    }
 }
 
+/** 금액 글줄이 칸보다 길 때 줄일 배율 — 0.01 단위로 내려 칸을 넘지 않게, 절반 아래로는 안 간다 */
+internal fun rollingFitScale(naturalWidth: Int, maxWidth: Int): Float {
+    if (maxWidth == Constraints.Infinity || naturalWidth <= maxWidth || naturalWidth <= 0) return 1f
+    return (floor(maxWidth * 100f / naturalWidth) / 100f).coerceAtLeast(ROLL_MIN_SCALE)
+}
+
+private const val ROLL_MIN_SCALE = 0.5f
 private const val ROLL_BASE_MS = 240
 private const val ROLL_STEP_MS = 22

@@ -250,7 +250,8 @@ fun PaymentDetailRoute(onBack: () -> Unit, onCancel: (PaymentReceipt) -> Unit, v
                         Text(listOfNotNull(r.merchantName, r.categoryName, formatPaidAt(r.paidAtIso)).joinToString(" · "), style = YamuTheme.typography.bodyL, color = c.text2)
                         Spacer(Modifier.height(6.dp))
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            AmountText(r.paidAmount)
+                            // 금액이 길면 '취소' 태그 자리를 남기고 줄어든다
+                            AmountText(r.paidAmount, Modifier.weight(1f, fill = false))
                             if (r.canceled) StatusTag("취소")
                         }
                         r.instantDiscountText()?.let {
