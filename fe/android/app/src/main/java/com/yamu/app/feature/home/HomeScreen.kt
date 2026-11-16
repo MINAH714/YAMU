@@ -97,7 +97,6 @@ import com.yamu.app.core.designsystem.theme.YamuSpacing
 import com.yamu.app.core.designsystem.theme.YamuTheme
 import com.yamu.app.core.format.KST
 import com.yamu.app.core.format.formatSyncedAt
-import com.yamu.app.core.format.toMonthDayWeek
 import com.yamu.app.core.format.toWon
 import com.yamu.app.core.network.ApiError
 import com.yamu.app.core.ui.ReloadOnReconnect
@@ -118,7 +117,6 @@ import com.yamu.app.feature.home.data.PaySettings
 import com.yamu.app.feature.home.data.PerfChipTone
 import com.yamu.app.feature.home.data.RecentPayment
 import com.yamu.app.feature.home.data.amountText
-import com.yamu.app.feature.home.data.asOfLabel
 import com.yamu.app.feature.home.data.benefitCoins
 import com.yamu.app.feature.home.data.benefitTitle
 import com.yamu.app.feature.home.data.cardTileDescription
@@ -127,6 +125,7 @@ import com.yamu.app.feature.home.data.homeGreeting
 import com.yamu.app.feature.home.data.minLabel
 import com.yamu.app.feature.home.data.missed
 import com.yamu.app.feature.home.data.paidAtLabel
+import com.yamu.app.feature.home.data.pendingOnly
 import com.yamu.app.feature.home.data.recentPaymentOutsidePayCard
 import com.yamu.app.feature.home.data.rows
 import com.yamu.app.feature.home.data.showsTypes
@@ -139,8 +138,9 @@ import java.time.OffsetDateTime
 import java.time.YearMonth
 
 /**
- * H-01 홈 — v4(11/13 '홈 개편 및 소비 분석 확장 요구사항 명세서'). 위에서부터 인사 → 이번 달 혜택 → YAMU로 결제하기(S15P31E103-480)
- * → 내 카드 혜택 현황 → 놓치기 아까운 혜택 → 잔고예보 요약(S15P31E103-481). 큰 자산 흐름 그래프는 홈에 두지 않는다(HOME-16)
+ * H-01 홈 — v4(11/13 '홈 개편 및 소비 분석 확장 요구사항 명세서'). 위에서부터 인사 → 이번 달 혜택 → 잔고예보 보기 버튼(S15P31E103-520)
+ * → 내 카드 혜택 현황 → 놓치기 아까운 혜택 → 잔고예보 요약(S15P31E103-481). 큰 자산 흐름 그래프는 홈에 두지 않는다(HOME-16).
+ * 혜택 아래 결제 버튼(-480 · -499)은 11/16에 뺐다(-519) — 결제는 하단 가운데 버튼
  */
 @Composable
 fun HomeRoute(
@@ -150,7 +150,6 @@ fun HomeRoute(
     onStartLinking: () -> Unit,
     onRecentPayment: (paymentId: Long) -> Unit,
     onPayments: () -> Unit,
-    onReport: () -> Unit,
     onRegisterIncome: () -> Unit,
     onAddCard: () -> Unit,
     onBenefitReport: () -> Unit,
@@ -194,10 +193,6 @@ fun HomeRoute(
             viewModel.openBenefitReport()   // 혜택 리포트를 히어로와 같은 달로
             onBenefitReport()
         },
-        onAssetFlow = {
-            viewModel.openAssetFlow()   // 소비분석이 이번 달 · 자산 흐름 칸으로 내려가게 요청해 두고
-            onReport()                  // 하단 탭을 누른 것과 같이 소비분석 탭으로 바꾼다(뒤로 = 홈)
-        },
         onRegisterIncome = onRegisterIncome,
         onAddCard = onAddCard,
     )
@@ -223,7 +218,6 @@ fun HomeScreen(
     onPerfTab: () -> Unit = {},
     onBenefitLimits: () -> Unit = {},
     onForecast: () -> Unit = {},
-    onAssetFlow: () -> Unit = {},
     onRegisterIncome: () -> Unit = {},
     onAddCard: () -> Unit = {},
 ) {
@@ -257,6 +251,7 @@ fun HomeScreen(
                             onPayments = onPayments,
                             onBenefitReport = onBenefitReport,
                             onAddCard = onAddCard,
+                            onForecast = onForecast,
                         )
                         // 아래쪽(S15P31E103-481) — 카드가 있어야 보이는 두 칸, 그다음 잔고예보 요약
                         if (!content.needsLinking && !content.needsCard) {
@@ -268,7 +263,6 @@ fun HomeScreen(
                             home = content,
                             brief = state.forecast,
                             onForecast = onForecast,
-                            onAssetFlow = onAssetFlow,
                             onRegisterIncome = onRegisterIncome,
                             onStartLinking = onStartLinking,
                             onRetry = onRetryForecast,
@@ -293,6 +287,7 @@ private fun HomeContent(
     onPayments: () -> Unit,
     onBenefitReport: () -> Unit,
     onAddCard: () -> Unit,
+    onForecast: () -> Unit,
 ) {
     val c = YamuTheme.colors
     val error = state.error
@@ -352,7 +347,15 @@ private fun HomeContent(
         }
         // 카드 영역만 실패했으면 몇 장인지 몰라 혜택 · 결제 칸을 그린다 — 카드가 정말 없으면 결제 코드 화면이 알려 준다
         // 혜택 히어로 아래 'YAMU 결제 바코드 열기' 버튼은 11/16 사용자 요청으로 뺐다(S15P31E103-519) — 결제는 하단 가운데 버튼 하나로 연다
-        else -> BenefitHero(state.benefit, onClick = onBenefitReport, onRetry = onRetryBenefit)
+        else -> {
+            BenefitHero(state.benefit, onClick = onBenefitReport, onRetry = onRetryBenefit)
+            // 옛 결제 버튼 자리에 잔고예보로 가는 브랜드 색 버튼(11/16 사용자 요청, S15P31E103-520) — 혜택을 본 다음 이번 달 잔고를 이어서 본다
+            PrimaryButton(
+                "잔고예보 보기",
+                onClick = onForecast,
+                modifier = Modifier.padding(horizontal = YamuSpacing.screen).padding(bottom = YamuSpacing.blockGap),
+            )
+        }
     }
 }
 
@@ -511,7 +514,8 @@ private fun BenefitTypeCells(types: List<BenefitByType>) {
                 Text(
                     t.amountText(),
                     style = style,
-                    color = c.onHero,
+                    // 확정 전만 있는 칸은 흐리게 — 큰 숫자(확정)에 더해지지 않는 금액이라(S15P31E103-520)
+                    color = if (t.pendingOnly) c.onHeroMuted else c.onHero,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     autoSize = TextAutoSize.StepBased(minFontSize = 8.sp, maxFontSize = style.fontSize, stepSize = 0.5.sp),
@@ -717,21 +721,25 @@ private fun SectionTitle(title: String, link: String? = null, onLink: () -> Unit
     val c = YamuTheme.colors
     Row(Modifier.heightIn(min = 24.dp), verticalAlignment = Alignment.CenterVertically) {
         Text(title, style = YamuTheme.typography.cardTitle, color = c.text1, modifier = Modifier.weight(1f))
-        if (link != null) {
-            Row(
-                Modifier
-                    // 머리 줄은 40dp 그대로, 터치 칸(48)만 위아래로 넘친다(S15P31E103-513)
-                    .overflowHeight(40.dp)
-                    .heightIn(min = YamuSize.touch)
-                    .clip(RoundedCornerShape(YamuRadius.s))
-                    .clickable(role = Role.Button, onClick = onLink)
-                    .padding(start = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(link, style = YamuTheme.typography.link, color = c.text3)
-                Icon(YamuIcons.ChevronRight, contentDescription = null, tint = c.text3, modifier = Modifier.size(18.dp))
-            }
-        }
+        if (link != null) DetailLink(link, onLink)
+    }
+}
+
+/** 칸 머리 오른쪽 조용한 링크 '전체보기 ›' · '자세히 ›' — 머리 줄은 40dp 그대로, 터치 칸(48)만 위아래로 넘친다(S15P31E103-513) */
+@Composable
+private fun DetailLink(text: String, onClick: () -> Unit) {
+    val c = YamuTheme.colors
+    Row(
+        Modifier
+            .overflowHeight(40.dp)
+            .heightIn(min = YamuSize.touch)
+            .clip(RoundedCornerShape(YamuRadius.s))
+            .clickable(role = Role.Button, onClick = onClick)
+            .padding(start = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(text, style = YamuTheme.typography.link, color = c.text3)
+        Icon(YamuIcons.ChevronRight, contentDescription = null, tint = c.text3, modifier = Modifier.size(18.dp))
     }
 }
 
@@ -762,7 +770,7 @@ private fun SectionFailure(text: String, onRetry: () -> Unit) {
 /**
  * 내 카드 혜택 현황(HOME-10 · 11) — 카드 목록 순서로 3장 + '전체보기 ›'(실적관리 탭).
  * 11/16 사용자 요청으로 세로 줄 대신 놓치기 아까운 혜택과 같은 카드 그림 가로 타일로 바꿨다(S15P31E103-519, 한눈에 보이게).
- * 타일은 카드 이름 → 받은 혜택 · 혜택 예정 → 남은 한도 한 줄 → 실적 막대와 칩 글자. 받은 혜택은 새 서버(BE -489)의 카드별 혜택이 있을 때만 —
+ * 타일은 카드 이름 → 받은 혜택 → 실적 막대(-520에서 글자를 줄임). 받은 혜택은 새 서버(BE -489)의 카드별 혜택이 있을 때만 —
  * 옛 서버이거나 그 호출만 실패했거나 이번 달 YAMU 결제가 없는 카드면 그 줄을 숨긴다(11/13 결정: 0원으로 지어내지 않음).
  * 누르면 그 카드 R-02(실적 조건 없는 카드는 R-02에 보일 실적이 없어 열지 않는다)
  */
@@ -818,23 +826,17 @@ private fun CardTile(row: HomeCardRow, art: CardArtRef?, benefit: CardBenefit?, 
         onClickLabel = "카드 실적 보기",
         onClick = onClick,
     ) {
+        // 11/16 사용자 요청(S15P31E103-520): 글자는 이름과 받은 혜택만, 나머지는 그림(실적 막대). 혜택 예정 · 남은 한도 · 실적 글자는
+        // 카드를 눌러 여는 R-02에서 보고, 화면 읽기는 [cardTileDescription]으로 다 읽는다
         Text(row.name, style = YamuTheme.typography.sub, color = c.text3, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        benefit?.let { b ->
-            // 받은 혜택을 크게 — 놓치기 아까운 혜택의 '○원 남음'과 같은 자리 · 크기
-            Text("${b.confirmed.toWon()}원 받음", style = YamuTheme.typography.value, color = c.primary, maxLines = 1)
-            if (b.pending > 0) Text("${b.pending.toWon()}원 혜택 예정", style = YamuTheme.typography.sub, color = c.text2, maxLines = 1)
-            if (b.unconvertedCount > 0) Text("원화로 못 바꾼 혜택 ${b.unconvertedCount}건", style = YamuTheme.typography.sub, color = c.text3, maxLines = 1)
-        }
-        row.limitLine?.let { Text(it, style = YamuTheme.typography.sub, color = c.text2, maxLines = 2, overflow = TextOverflow.Ellipsis) }
-        Spacer(Modifier.height(8.dp))
+        benefit?.let { b -> Text("${b.confirmed.toWon()}원 받음", style = YamuTheme.typography.value, color = c.primary, maxLines = 1) }
         row.progress?.let { p ->
+            Spacer(Modifier.height(8.dp))
             val done = row.chip.tone == PerfChipTone.Done
             Box(Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp)).background(c.surfaceVariant)) {
                 Box(Modifier.fillMaxWidth(p).fillMaxHeight().clip(RoundedCornerShape(3.dp)).background(if (done) c.success else c.primary))
             }
-            Spacer(Modifier.height(4.dp))
         }
-        Text(row.chip.text, style = YamuTheme.typography.sub, color = if (row.chip.tone == PerfChipTone.None) c.text3 else c.text2, maxLines = 1)
     }
 }
 
@@ -925,8 +927,9 @@ internal fun Long.manShort(): String {
 }
 
 /**
- * 잔고예보 요약(HOME-14 · 15) — 기준 계좌 하나의 지금 잔고 · 기준 시각과 30일 안 가장 낮은 잔고 · 날짜(잔고예보 API 결과를 다시 씀, FORECAST-02).
- * 계좌 칩으로 계좌 범위를, 줄 이름으로 기준 시점 · 기간을 말한다. 버튼 둘: '잔고예보'(F-01, 같은 계좌 · 30일) · '자산 흐름 보기'(소비분석 탭 자산 흐름 칸).
+ * 잔고예보 요약(HOME-14 · 15) — 기준 계좌 하나의 지금 잔고와 30일 안 가장 낮은 잔고(잔고예보 API 결과를 다시 씀, FORECAST-02).
+ * 계좌 칩으로 계좌 범위를, 줄 이름으로 기간을 말한다. 제목 옆 '자세히 ›'가 F-01(같은 계좌 · 30일)을 연다.
+ * 11/16 사용자 요청(S15P31E103-520): 아래 버튼 둘('잔고예보' · '자산 흐름 보기')을 빼고 줄 뒤 '· 오늘 HH:mm 기준' · '· 최저 날짜'를 지웠다.
  * 계좌가 없으면 연결 안내, 예보만 실패하면 지금 잔고는 남기고 다시 시도. 월급을 정하기 전이면 B-06으로 가는 한 줄(11/13 결정)
  */
 @Composable
@@ -935,7 +938,6 @@ private fun ForecastSection(
     home: HomeSummary,
     brief: HomeSection<HomeForecastBrief>,
     onForecast: () -> Unit,
-    onAssetFlow: () -> Unit,
     onRegisterIncome: () -> Unit,
     onStartLinking: () -> Unit,
     onRetry: () -> Unit,
@@ -969,16 +971,17 @@ private fun ForecastSection(
             // 생활비 자료가 부족해 어림한 예보 — 첫 분석 화면과 같은 '잠정'(확정 결과처럼 보이지 않게)
             if (data?.provisional == true) StatusTag("잠정", tone = TagTone.Neutral, guide = true)
             data?.accountLabel?.let { StatusTag(it, tone = TagTone.Neutral, guide = true) }
+            DetailLink("자세히", onForecast)
         }
         when {
             data != null -> {
-                ForecastRow("지금 잔고", data.asOfIso?.let(::asOfLabel), data.currentBalance, emphasize = false)
-                ForecastRow(data.minLabel, data.minDate?.toMonthDayWeek(), data.minBalance, emphasize = true)
+                ForecastRow("지금 잔고", null, data.currentBalance, emphasize = false)
+                ForecastRow(data.minLabel, null, data.minBalance, emphasize = true)
             }
             slot == ForecastSlot.HomeFailed -> SectionFailure("잔고를 불러오지 못했어요", onRetry)
             brief is HomeSection.Failed -> {
                 // 예보만 실패 — 홈 요약이 읽은 지금 잔고는 남긴다(사용자 상태별 처리 '예측 실패')
-                ForecastRow("지금 잔고", formatSyncedAt(home.syncedAtIso)?.replace(" 반영", " 기준"), home.forecast?.currentBalance, emphasize = false)
+                ForecastRow("지금 잔고", null, home.forecast?.currentBalance, emphasize = false)
                 SectionFailure("예보를 불러오지 못했어요", onRetry)
             }
             else -> {
@@ -1003,11 +1006,6 @@ private fun ForecastSection(
                 Text("월급날을 알려 주면 월급 전 잔고도 볼 수 있어요", style = YamuTheme.typography.bodyM, color = c.onPrimaryContainer, modifier = Modifier.weight(1f))
                 Icon(YamuIcons.ChevronRight, contentDescription = null, tint = c.onPrimaryContainer)
             }
-        }
-        Spacer(Modifier.height(14.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            NeutralButton("잔고예보", onClick = onForecast, modifier = Modifier.weight(1f))
-            NeutralButton("자산 흐름 보기", onClick = onAssetFlow, modifier = Modifier.weight(1f))
         }
     }
 }
