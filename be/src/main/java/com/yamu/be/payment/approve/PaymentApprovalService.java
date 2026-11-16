@@ -846,20 +846,21 @@ public class PaymentApprovalService {
 
     /**
      * 이 승인의 실적 반영. 달성률은 최소 실적 기준을 BE3 결과가 내보내지 않아 null이다(임시).
-     * 실적 인정액은 BE3 계산 값이다(Task 5.2.11). 응답 모양은 그대로 두어, 월 실적에 더해졌을 때만 {@code recognized=true}이고
-     * 제외(0)·미확인(null)은 {@code recognizedAmount=0, recognized=false}다(임시: 둘을 나눠 보일지는 실적 화면 담당과 정한다).
+     * 실적 인정액은 BE3 계산 값이다(Task 5.2.11). 월 실적에 더해졌을 때만 {@code recognized=true}이고, 제외(0)는
+     * {@code recognizedAmount=0, recognized=false}다. 인정액 미확인(null)은 결제 상세처럼 {@code performance} 자체가 null이다
+     * (S15P31E103-568: 이 결제가 얼마로 잡힐지 몰라 줄을 보이지 않는다. 0으로 보내면 앱이 "이 결제는 빠져요"로 그린다).
      *
-     * <p>누적·목표(S15P31E103-390)는 원장 저장 뒤에 읽은 값이다. 원장 저장 전 응답, 누적을 읽지 못한 응답, 인정액 미확인 결제는
-     * null이다(미확인은 이 결제가 얼마로 잡힐지 몰라 줄을 보이지 않는다).
+     * <p>누적·목표(S15P31E103-390)는 원장 저장 뒤에 읽은 값이다. 원장 저장 전 응답, 누적을 읽지 못한 응답은 null이다.
      */
     private static PaymentApprovalResponse.Performance performance(ApprovalOutcome.Approved approved,
             PaymentPerformanceTotals.Total total) {
         Long amount = approved.recognizedPerformanceAmount();
-        long shown = amount == null ? 0 : amount;
-        boolean showTotal = amount != null && total != null;
-        return new PaymentApprovalResponse.Performance(YearMonth.from(approved.performanceMonth()).toString(), shown,
-                shown > 0, null, showTotal ? total.recognizedTotalAfter() : null,
-                showTotal ? total.targetAmount() : null);
+        if (amount == null || approved.performanceMonth() == null) {
+            return null;
+        }
+        return new PaymentApprovalResponse.Performance(YearMonth.from(approved.performanceMonth()).toString(), amount,
+                amount > 0, null, total == null ? null : total.recognizedTotalAfter(),
+                total == null ? null : total.targetAmount());
     }
 
     /**

@@ -14,8 +14,8 @@ import java.util.Map;
  *
  * <p>{@code billItems}는 신용카드 승인의 청구 회차(Task 5.2.4). 체크카드·거절은 빈 목록이다.
  * {@code benefits}·{@code performance}·{@code limitImpacts}는 승인 때 다시 계산해 원장에 적은 값이다(Task 5.2.5).
- * 실적 인정액은 BE3 계산 값이다(Task 5.2.11). 임시: 제외(0)와 미확인(NULL)은 모두 {@code recognizedAmount=0, recognized=false}로
- * 나가고, 달성률과 {@code accountBalanceAfter}(Task 5.2.3)는 null이다.
+ * 실적 인정액은 BE3 계산 값이다(Task 5.2.11). 제외(0)는 {@code recognizedAmount=0, recognized=false}이고, 미확인(NULL)은
+ * 결제 상세처럼 {@code performance}가 null이다(S15P31E103-568). 달성률과 {@code accountBalanceAfter}(Task 5.2.3)는 null이다.
  * 복구로 확정된 결제의 응답은 혜택·실적·한도를 싣지 않는다.
  *
  * @param approvalNo        승인번호(임시 규칙 Q3). 거절이면 null
@@ -67,12 +67,12 @@ public record PaymentApprovalResponse(
             LocalDate expectedWithdrawalDate, String status) {}
 
     /**
-     * 실적 반영(Task 5.2.5).
+     * 실적 반영(Task 5.2.5). 인정액 미확인 결제는 이 객체 없이 {@code performance=null}이다(S15P31E103-568).
      *
      * @param recognizedTotalAfter 이 결제를 반영한 그 카드·그 실적 월의 누적 실적(앱 칸, S15P31E103-390). 카드 목록 API의
-     *                             이번 달 실적과 같은 값이다. 인정액 미확인이거나 읽지 못했으면 null
+     *                             이번 달 실적과 같은 값이다. 읽지 못했으면 null
      * @param targetAmount         목표 실적. 카드 목록 API와 같은 규칙(누적보다 큰 기준 중 가장 작은 값, 다 넘었으면 가장 큰 기준).
-     *                             실적 조건이 없는 카드·인정액 미확인은 null
+     *                             실적 조건이 없는 카드는 null
      */
     public record Performance(String yearMonth, long recognizedAmount, boolean recognized,
             Double achievementRateAfter, Long recognizedTotalAfter, Long targetAmount) {}
