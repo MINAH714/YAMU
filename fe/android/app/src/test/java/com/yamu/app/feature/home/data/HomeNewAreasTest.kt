@@ -134,7 +134,10 @@ class HomeNewAreasTest {
 
     @Test fun `종류 칸은 확정만 — 확정 전 · 환산 전은 0원으로 쓰지 않는다`() {
         assertEquals("1,000원", BenefitByType(HomeBenefitType.DISCOUNT, 1_000, 0, 0).amountText())
-        assertEquals("예정", BenefitByType(HomeBenefitType.CASHBACK, 0, 500, 0).amountText())
+        // 확정 전만 있으면 금액과 함께 '○원 예정'(S15P31E103-520) — 흐리게 그리는 칸(pendingOnly)
+        assertEquals("500원 예정", BenefitByType(HomeBenefitType.CASHBACK, 0, 500, 0).amountText())
+        assertTrue(BenefitByType(HomeBenefitType.CASHBACK, 0, 500, 0).pendingOnly)
+        assertFalse(BenefitByType(HomeBenefitType.DISCOUNT, 1_000, 500, 0).pendingOnly)
         assertEquals("환산 전", BenefitByType(HomeBenefitType.POINT, 0, 0, 1).amountText())
         assertEquals("0원", BenefitByType(HomeBenefitType.POINT, 0, 0, 0).amountText())
     }
