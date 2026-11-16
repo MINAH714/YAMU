@@ -86,7 +86,7 @@ class PerformanceRepositoryTest {
 
         val o = (repo.overview() as ApiResult.Success).data
         assertEquals(listOf(11L, 13L, 14L), api.analysisCalls.sorted())   // 달성 카드는 부르지 않는다
-        assertTrue(o.pending.all { it.guide == PerfGuide.KEEP_NATURAL && it.tagLabel == "자연 소비 유지" })
+        assertTrue(o.pending.all { it.guide == PerfGuide.KEEP_NATURAL && it.tagLabel == null })   // 자연 소비 유지는 태그를 그리지 않는다
 
         repo.overview()
         assertEquals(6, api.analysisCalls.size)

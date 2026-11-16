@@ -466,7 +466,7 @@ private fun CardLine(card: CardPerf, art: CardArtRef?, onClick: (() -> Unit)?) {
     val tag = when {
         card.noTarget -> "실적 조건 없음" to TagTone.Neutral
         card.achieved -> "달성 완료" to TagTone.Success
-        else -> card.guide?.let { it.label to it.tone() }
+        else -> card.guide?.let { g -> g.label?.let { it to g.tone() } }
     }
     Row(
         Modifier

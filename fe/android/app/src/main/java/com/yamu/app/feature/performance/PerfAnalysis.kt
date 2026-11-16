@@ -134,7 +134,7 @@ class PerfAnalysisViewModel internal constructor(
         }
     }
 
-    /** [채우지 않을게요] · [평소대로 쓸게요] · [다시 판단하기](null) */
+    /** [채우지 않을게요] · [다시 판단하기](null) */
     fun decide(decision: PerfDecision?) {
         val a = _state.value.analysis ?: return
         if (_state.value.acting) return
@@ -232,7 +232,7 @@ private fun AnalysisPage(card: CardPerf?, current: PerfAnalysisState?, cardName:
                 }
             }
             current.noData -> SectionBlock(divider = false) {
-                StatusTag(PerfGuide.INSUFFICIENT_DATA.label, tone = PerfGuide.INSUFFICIENT_DATA.tone())
+                StatusTag(PerfGuide.INSUFFICIENT_DATA.label.orEmpty(), tone = PerfGuide.INSUFFICIENT_DATA.tone())
                 Spacer(Modifier.height(YamuSpacing.x2))
                 Text("데이터가 더 모이면 판단해 드려요", style = YamuTheme.typography.titleL, color = c.text1)
                 Text("거래가 한 달쯤 쌓이면 이 카드의 유불리를 알려 드려요", style = YamuTheme.typography.bodyM, color = c.text3)
@@ -255,8 +255,10 @@ private fun AnalysisBody(a: PerfAnalysis, cardName: String, onDetail: () -> Unit
     val nextMonth = a.month?.let { it % 12 + 1 }
     // ① 판정 · 머리 문장 · 큰 숫자
     SectionBlock(divider = false) {
-        StatusTag(a.guide.label, tone = a.guide.tone(), large = true)
-        Spacer(Modifier.height(12.dp))
+        a.guide.label?.let {
+            StatusTag(it, tone = a.guide.tone(), large = true)
+            Spacer(Modifier.height(12.dp))
+        }
         a.headline?.let { Text(it, style = YamuTheme.typography.headlineS, color = c.text1) }
         // 큰 숫자 — 판정마다 다르다(11 문서 7-1 표)
         when (a.guide) {
@@ -298,14 +300,16 @@ private fun AnalysisBody(a: PerfAnalysis, cardName: String, onDetail: () -> Unit
 private fun DetailLink(cardName: String, onDetail: () -> Unit) =
     QuietLink("${cardName.clipName()} 실적 자세히 보기", onClick = onDetail, modifier = Modifier.offset(x = (-4).dp))
 
-/** R-03 아래 버튼 하나 — 기록했으면 다시 판단, 아니면 판정별 행동, 행동이 없는 판정은 카드 실적 상세(R-02) */
-internal enum class PerfAction { REJUDGE, MOVE, SKIP, KEEP, DETAIL }
+/**
+ * R-03 아래 버튼 하나 — 기록했으면 다시 판단, 아니면 판정별 행동, 행동이 없는 판정은 카드 실적 상세(R-02).
+ * KEEP_NATURAL의 [평소대로 쓸게요]는 헷갈린다는 의견으로 빼서 R-02로 간다
+ */
+internal enum class PerfAction { REJUDGE, MOVE, SKIP, DETAIL }
 
 internal fun PerfAnalysis.primaryAction(): PerfAction = when {
     decision != null -> PerfAction.REJUDGE
     guide == PerfGuide.ACHIEVE_RECOMMENDED && movable != null -> PerfAction.MOVE
     guide == PerfGuide.EXTRA_SPENDING_NOT_RECOMMENDED -> PerfAction.SKIP
-    guide == PerfGuide.KEEP_NATURAL -> PerfAction.KEEP
     else -> PerfAction.DETAIL
 }
 
@@ -350,9 +354,6 @@ private fun ActionButtons(
         }
         PerfAction.SKIP -> BottomCta {
             PrimaryButton("채우지 않을게요", onClick = { onDecide(PerfDecision.SKIP) }, loading = acting)
-        }
-        PerfAction.KEEP -> BottomCta {
-            PrimaryButton("평소대로 쓸게요", onClick = { onDecide(PerfDecision.KEEP) }, loading = acting)
         }
         PerfAction.DETAIL -> BottomCta { PrimaryButton(detail, onClick = onDetail) }
     }

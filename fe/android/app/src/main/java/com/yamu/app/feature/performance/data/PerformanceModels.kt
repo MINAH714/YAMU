@@ -135,10 +135,13 @@ import kotlinx.serialization.json.jsonPrimitive
 
 // ── 앱 안에서 쓰는 값 ──
 
-/** 유불리 판정(PerformanceGuide) — 판정은 서버가 하고 앱은 이름 · 색만 붙인다 */
-enum class PerfGuide(val label: String, val order: Int) {
+/**
+ * 유불리 판정(PerformanceGuide) — 판정은 서버가 하고 앱은 이름 · 색만 붙인다.
+ * [label]이 null인 판정은 태그를 그리지 않는다 — KEEP_NATURAL('자연 소비 유지')은 헷갈린다는 의견으로 뺐다(서버 값은 그대로 읽는다)
+ */
+enum class PerfGuide(val label: String?, val order: Int) {
     ACHIEVE_RECOMMENDED("실적 달성 추천", 0),
-    KEEP_NATURAL("자연 소비 유지", 1),
+    KEEP_NATURAL(null, 1),
     EXTRA_SPENDING_NOT_RECOMMENDED("추가 소비 비추천", 2),
     INSUFFICIENT_DATA("판단 보류", 3),
     ALREADY_ACHIEVED("달성", 4);
@@ -148,7 +151,7 @@ enum class PerfGuide(val label: String, val order: Int) {
     }
 }
 
-/** 사용자가 기록한 판단(#35) */
+/** 사용자가 기록한 판단(#35). 앱은 KEEP을 더 보내지 않지만 이미 기록된 값은 읽어 '다시 판단하기'로 되돌릴 수 있게 둔다 */
 enum class PerfDecision(val label: String) {
     FILL("채우기"),
     KEEP("평소대로 쓰기"),
@@ -188,8 +191,8 @@ data class CardPerf(
     /** 기준 전 — 판정을 보여 줄 카드 */
     val pending: Boolean get() = !achieved && !noTarget
 
-    /** 목록 태그 — 판정이 있으면 판정, 없으면 AT_RISK만 '미달 예상' */
-    val tagLabel: String? get() = guide?.label ?: AT_RISK_LABEL.takeIf { atRisk }
+    /** 목록 태그 — 판정이 있으면 판정(태그 없는 판정이면 없음), 없으면 AT_RISK만 '미달 예상' */
+    val tagLabel: String? get() = if (guide != null) guide.label else AT_RISK_LABEL.takeIf { atRisk }
 }
 
 /**
