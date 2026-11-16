@@ -1,4 +1,5 @@
 import type { PaymentResult } from '../api/pos'
+import { cardLabel, formatKstTime } from '../payment/history'
 import { formatWon, planLabel } from '../payment/terms'
 import { orderItems, type Order } from '../store/cart'
 import { Amount } from './Amount'
@@ -19,12 +20,6 @@ export const PAYMENT_METHOD = 'YAMU페이'
 
 /** BE FailureCode. 은행 처리가 늦어 출금 결과를 아직 모르는 거절 */
 const WITHDRAWAL_NOT_CONFIRMED = 'WITHDRAWAL_NOT_CONFIRMED'
-
-const kstTime = new Intl.DateTimeFormat('ko-KR', {
-  timeZone: 'Asia/Seoul',
-  hour: 'numeric',
-  minute: '2-digit',
-})
 
 /**
  * 최종 결과 화면. 거절이면 서버가 준 사유(failure.message)를 띄운다.
@@ -59,16 +54,19 @@ export function Receipt({ result, order, onNext, onRetry }: Props) {
     case 'APPROVED': {
       const discount = result.instantDiscount ?? 0
       const charged = result.chargedAmount ?? result.amount - discount
+      // 결제 내역 상세(PaymentHistory)와 같은 줄을 같은 형식으로 보인다. 취소하러 온 고객의 결제를 찾을 때 대조한다
       const rows: StatusRow[] = [{ label: '결제 수단', value: PAYMENT_METHOD }]
-      if (result.card?.plan === 'INSTALLMENT') {
+      if (result.card) {
+        rows.push({ label: '카드', value: cardLabel(result.card) })
         rows.push({ label: '결제 방식', value: planLabel(result.card.plan, result.card.installmentMonths) })
       }
       if (discount > 0) {
         rows.push({ label: '주문 금액', value: formatWon(result.amount) })
         rows.push({ label: '즉시할인', value: `-${formatWon(discount)}` })
       }
-      if (result.approvedAt) rows.push({ label: '승인 시각', value: kstTime.format(new Date(result.approvedAt)) })
+      if (result.approvedAt) rows.push({ label: '승인 시각', value: formatKstTime(result.approvedAt) })
       if (result.approvalNo) rows.push({ label: '승인 번호', value: result.approvalNo, mono: true })
+      if (result.orderNo) rows.push({ label: '주문 번호', value: result.orderNo, mono: true })
       return (
         <StatusScreen
           tone="approved"
