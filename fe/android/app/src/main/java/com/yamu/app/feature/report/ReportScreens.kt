@@ -543,8 +543,8 @@ class BenefitReportViewModel @Inject constructor(
 }
 
 /**
- * S-04 혜택 리포트 — 야무 결제만(source=YAMU, S15P31E103-493). 큰 숫자는 확정된 혜택(홈 히어로와 같은 기준, 11/14 결정)이고
- * 확정 전은 따로, 원화로 바꾸지 못한 혜택은 금액에 없다고 알린다. 그 아래 종류별 · 카드별 · 놓친 혜택 · 어디서 받았나요.
+ * S-04 혜택 리포트 — 야무 결제만(source=YAMU, S15P31E103-493). 큰 숫자는 확정과 예정을 합친 그달 이용 혜택 총액이고(-578,
+ * 홈 히어로는 확정만), 원화로 바꾸지 못한 혜택은 금액에 없다고 알린다. 그 아래 종류별 · 카드별 · 놓친 혜택 · 어디서 받았나요.
  * 카드별 줄은 보기만 하고 카드 실적(R-02)으로 넘어가지 않는다(S15P31E103-577)
  */
 @Composable
@@ -599,11 +599,9 @@ fun BenefitReportRoute(
                             // '○월 이용 혜택' — 지급월이 아니라 그달 이용으로 생긴 혜택(명세 v4 · 레인 1 홈과 같은 말)
                             Text("${r.periodLabel} 이용 혜택", style = YamuTheme.typography.bodyM, color = c.text2)
                             Spacer(Modifier.height(4.dp))
-                            AmountText(r.confirmed)
-                            Spacer(Modifier.height(4.dp))
-                            Text(confirmedLine(r), style = YamuTheme.typography.bodyM, color = c.text2)
+                            AmountText(r.received)
                             if (r.unconverted > 0) {
-                                Text(unconvertedLine(r.unconverted), style = YamuTheme.typography.bodyS, color = c.text3, modifier = Modifier.padding(top = 2.dp))
+                                Text(unconvertedLine(r.unconverted), style = YamuTheme.typography.bodyS, color = c.text3, modifier = Modifier.padding(top = 4.dp))
                             }
                             r.yamuExtra?.let {
                                 Spacer(Modifier.height(4.dp))
@@ -659,7 +657,7 @@ fun BenefitReportRoute(
     }
 }
 
-/** 종류별 · 카드별 한 줄 — 이름 / 확정 금액, 밑에 확정 전 · 원화로 못 바꾼 건수. 누를 수 없는 줄 */
+/** 종류별 · 카드별 한 줄 — 이름 / 확정+예정 합계(맨 위 총액과 같은 기준), 밑에 예정 금액 · 원화로 못 바꾼 건수. 누를 수 없는 줄 */
 @Composable
 private fun BenefitAmountRow(name: String, confirmed: Long, unconfirmed: Long, unconverted: Long) {
     val c = YamuTheme.colors
@@ -676,20 +674,16 @@ private fun BenefitAmountRow(name: String, confirmed: Long, unconfirmed: Long, u
             Text(name, style = YamuTheme.typography.titleM, color = c.text1, maxLines = 1, overflow = TextOverflow.Ellipsis)
             sub?.let { Text(it, style = YamuTheme.typography.bodyS, color = c.text3, modifier = Modifier.padding(top = 2.dp)) }
         }
-        Text("${confirmed.toWon()}원", style = YamuTheme.typography.value, color = c.text1)
+        Text("${(confirmed + unconfirmed).toWon()}원", style = YamuTheme.typography.value, color = c.text1)
     }
 }
-
-/** 큰 숫자 밑 한 줄 — 확정 전이 있으면 '확정 전 500원 더 있어요(모두 1,500원)', 없으면 '모두 확정된 혜택이에요' */
-internal fun confirmedLine(r: BenefitReport): String =
-    if (r.unconfirmed > 0) "확정된 혜택이에요 · 확정 전 ${r.unconfirmed.toWon()}원 더 있어요(모두 ${r.received.toWon()}원)" else "모두 확정된 혜택이에요"
 
 /** 원화로 바꾸지 못한 혜택 — 적립이 없는 게 아니라 금액에 넣지 못한 것 */
 internal fun unconvertedLine(count: Long): String = "원화로 바꾸지 못한 혜택 ${count}건은 금액에 넣지 않았어요"
 
-/** 종류별 · 카드별 줄의 보조 줄 — 확정 전 · 원화로 못 바꾼 건수. 둘 다 없으면 null */
+/** 종류별 · 카드별 줄의 보조 줄 — 아직 들어오지 않은 금액은 '(예정) 1,000원', 원화로 못 바꾼 건수. 둘 다 없으면 null */
 internal fun amountSubLine(unconfirmed: Long, unconverted: Long): String? = listOfNotNull(
-    "확정 전 ${unconfirmed.toWon()}원".takeIf { unconfirmed > 0 },
+    "(예정) ${unconfirmed.toWon()}원".takeIf { unconfirmed > 0 },
     "원화로 못 바꾼 ${unconverted}건".takeIf { unconverted > 0 },
 ).joinToString(" · ").ifEmpty { null }
 

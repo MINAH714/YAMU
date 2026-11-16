@@ -137,7 +137,7 @@ data class MonthlySpend(
 data class MissedBenefit(val merchant: String, val date: LocalDate?, val reason: String, val amount: Long)
 
 /**
- * 혜택 리포트(S-04). [received]는 확정 전을 포함한 그달 이용 혜택 전체, [confirmed]는 그중 확정(큰 숫자 — 홈 히어로와 같은 기준, 11/14 결정),
+ * 혜택 리포트(S-04). [received]는 확정 전을 포함한 그달 이용 혜택 전체(큰 숫자, -578. 홈 히어로는 확정만), [confirmed]는 그중 확정,
  * [unconfirmed]는 확정 전, [unconverted]는 원화로 바꾸지 못해 금액에 없는 혜택 줄 수. [byType] · [cards]는 옛 서버면 비어 칸을 숨긴다
  */
 data class BenefitReport(
