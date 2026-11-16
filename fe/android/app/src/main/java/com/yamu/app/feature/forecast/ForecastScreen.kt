@@ -422,7 +422,7 @@ fun ForecastRoute(
     ReloadOnReconnect(waiting = s.error != null, onReconnect = viewModel::refresh)
     var filtering by rememberSaveable { mutableStateOf(false) }
     val c = YamuTheme.colors
-    // 회색 바탕 + 카드: 고르기 칩 · 예상 잔액 · 낮아지는 때 · 선 설명 · 예정된 돈 · 빼고 계산한 것. 가상 구매 입구는 아래 버튼(2026-11-08 개편)
+    // 회색 바탕 + 카드: 고르기 칩 · 예상 잔액 · 낮아지는 때 · 선 설명 · 예정된 돈 · 기간 뒤 카드값. 가상 구매 입구는 아래 버튼(2026-11-08 개편)
     FlowScreen(
         title = "잔고예보",
         onBack = onBack,
@@ -482,7 +482,7 @@ fun ForecastRoute(
                     LivingCostEntry(f, onLivingCost)   // F-01b 생활비 예측 입구
                     UpcomingCard(f, onCashflowList, selectedDate, onJump = jump)
                     BeyondHorizonCard(f)
-                    NoticeCard(f, s.selection)
+                    // 맨 아래 '빼고 계산한 것' 카드는 QA 요청으로 뺐다(S15P31E103-554)
                 }
             }
             Spacer(Modifier.height(YamuSpacing.x6))
@@ -1206,35 +1206,6 @@ private fun EventRow(e: ForecastEvent, on: Boolean = false, onClick: (() -> Unit
         },
         dense = true,
     )
-}
-
-/** 빼고 계산한 것 — 생활비 미반영(dataOrigin 기준) · 월급을 못 찾음 · excluded 이유마다 한 줄 */
-@Composable
-private fun NoticeCard(f: Forecast, selection: ForecastSelection) {
-    val notes = noticeLines(f, selection)
-    if (notes.isEmpty()) return
-    val c = YamuTheme.colors
-    YamuCard(contentPadding = PaddingValues(horizontal = 20.dp, vertical = 16.dp)) {
-        Text("빼고 계산한 것", style = YamuTheme.typography.titleS, color = c.text1)
-        Spacer(Modifier.height(8.dp))
-        notes.forEach { Text(it, style = YamuTheme.typography.bodyM, color = c.text2, modifier = Modifier.padding(vertical = 3.dp)) }
-    }
-}
-
-internal fun noticeLines(f: Forecast, selection: ForecastSelection): List<String> {
-    val living = f.livingCost
-    val livingLine = when {
-        living == null || !living.insufficient -> null
-        // 여러 계좌면 기록 있는 계좌의 생활비가 선에 들어 있을 수 있다(Forecast.hasPartialLiving) — 기록 없는 계좌 이야기로만 쓴다.
-        // 선에 빠진 생활비가 0원이면(appliedAmount, BE -395) 어느 계좌에도 기록이 없다는 뜻이라 아래 문장으로 간다
-        f.hasConservative && f.accountIds.size > 1 && living.appliedAmount != 0L -> "생활비 기록이 없는 계좌는 '$LINE_WITH_LIVING' 선에 앞으로 쓸 신용카드 금액만 넣었어요."
-        f.hasConservative -> "생활비 기록이 없어 '$LINE_WITH_LIVING' 선에는 앞으로 쓸 신용카드 금액만 넣었어요."
-        // 어느 계좌에 기록이 있는지는 이 응답만으로 모른다 — 모든 계좌에 없을 수도 있어 '고르면 된다'고 약속하지 않는다
-        f.accountIds.size > 1 -> "생활비 기록이 없는 계좌가 있어 생활비는 빼고 계산했어요. 계좌를 따로 골라 보면 기록이 있는 계좌는 생활비까지 넣어 계산해요."
-        else -> "생활비 기록이 아직 없어 생활비는 빼고 계산했어요. 체크카드로 결제하면 다음 예보부터 들어가요."
-    }
-    // 월급을 못 찾아 N일로 계산했다는 줄은 위 카드로 옮겼다(incomeMissingNote, P1-08) — 맨 아래에서는 놓치기 쉬웠다
-    return listOfNotNull(livingLine) + f.excluded.map { it.text }.distinct()
 }
 
 /** 기간 · 계좌 고르기 — 고른 값은 앱을 켜 둔 동안만 기억(서버 설정은 그대로) */
