@@ -36,10 +36,23 @@ public final class DailyBalanceReconstructor {
      *      현재 잔고 캐시를 이 값에 넣지 않는다. 첫 거래가 있으면 거래 전 잔고를 역산할 수 있다.
      */
     public Result reconstruct(BankHistory history, Long verifiedOpeningBalance) {
+        return reconstruct(history, verifiedOpeningBalance, false);
+    }
+
+    /** Validate a received current-day snapshot only; never expose these points as daily closing balances. */
+    public Result validateCurrentSnapshot(BankHistory history, Long verifiedOpeningBalance) {
+        return reconstruct(history, verifiedOpeningBalance, true);
+    }
+
+    private Result reconstruct(BankHistory history, Long verifiedOpeningBalance, boolean currentSnapshot) {
         Objects.requireNonNull(history);
-        if (!history.to().isBefore(history.queriedAt().atZone(KOREA).toLocalDate())) {
+        LocalDate receivedDay = history.queriedAt().atZone(KOREA).toLocalDate();
+        if (currentSnapshot ? !history.to().equals(receivedDay) : !history.to().isBefore(receivedDay)) {
             throw new IllegalArgumentException("일말 실제 잔고는 조회 시점 이전 날짜만 구성합니다.");
         }
+        if (currentSnapshot && history.transactions().stream().anyMatch(row -> row.date() != null && row.time() != null
+                && row.date().atTime(row.time()).atZone(KOREA).toInstant().isAfter(history.queriedAt())))
+            return unavailable(history, Reason.HISTORY_INCOMPLETE);
         if (!history.complete()) return unavailable(history, Reason.HISTORY_INCOMPLETE);
         if (history.direction() != null) return unavailable(history, Reason.FILTERED_HISTORY);
         var rows = history.transactions().stream()
