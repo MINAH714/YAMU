@@ -1,9 +1,13 @@
 package com.yamu.app.feature.payment.data
 
 import com.yamu.app.core.format.directionParticle
+import com.yamu.app.feature.link.data.brandOf
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.math.BigDecimal
 import java.time.Instant
 
 /** 결제 코드 · 모의 POS 표기(10 문서 6-3 · 6-5) */
@@ -79,5 +83,78 @@ class PayFormatTest {
         assertEquals("으로", "KB국민 적립 신용".directionParticle())  // ㅇ 받침
         assertEquals("으로", "하나 생활 통장".directionParticle())
         assertEquals("로", "BC".directionParticle())
+    }
+
+    // ── 결제 확인 카드 칸(S15P31E103-555) ──
+
+    private fun card(
+        id: Long, net: Long, kind: BenefitKind = BenefitKind.BILLING, rank: Int = 0,
+        charged: Long? = null, unknown: Boolean = false, issuer: String = "삼성카드",
+    ) = PayCard(
+        userCardId = id, brand = brandOf(issuer), name = "카드$id", last4 = "", isCheck = false, netBenefit = BigDecimal(net),
+        benefitName = null, chargedAmount = charged, installmentOptions = emptyList(), reason = null, performanceNote = null,
+        benefitUnknown = unknown, rank = rank, benefitKind = kind,
+    )
+
+    @Test fun `혜택 방식 태그 — 시점을 모르면 태그 없음`() {
+        assertEquals("즉시할인", BenefitKind.INSTANT.tagText())
+        assertEquals("청구할인", BenefitKind.BILLING.tagText())
+        assertEquals("환급할인", BenefitKind.CASHBACK.tagText())
+        assertEquals("적립", BenefitKind.POINT.tagText())
+        assertNull(BenefitKind.UNKNOWN.tagText())
+    }
+
+    @Test fun `혜택 금액 문구 — 방식마다 붙는 말이 다르다`() {
+        assertEquals("1,980원 할인", card(1, 1980, BenefitKind.BILLING).benefitHeadline())
+        assertEquals("660원 할인", card(1, 660, BenefitKind.INSTANT).benefitHeadline())
+        assertEquals("660원 돌려받아요", card(1, 660, BenefitKind.CASHBACK).benefitHeadline())
+        assertEquals("330원 적립", card(1, 330, BenefitKind.POINT).benefitHeadline())
+        assertEquals("500원 할인", card(1, 500, BenefitKind.UNKNOWN).benefitHeadline())
+    }
+
+    @Test fun `혜택 금액 문구 — 0원 · 비교 못 한 카드는 없음`() {
+        assertNull(card(1, 0).benefitHeadline())
+        assertNull(card(1, 500, unknown = true).benefitHeadline())
+    }
+
+    @Test fun `결제 버튼 — 카드사 이름으로, 즉시할인은 실제로 빠지는 금액만`() {
+        assertEquals("삼성카드로 6,600원 결제", card(1, 1980, BenefitKind.BILLING, charged = 6600).payButtonLabel(6600))
+        assertEquals("KB국민카드로 6,600원 결제", card(2, 660, BenefitKind.CASHBACK, issuer = "KB국민카드").payButtonLabel(6600))
+        assertEquals("5,940원 결제", card(3, 660, BenefitKind.INSTANT, charged = 5940).payButtonLabel(6600))
+    }
+
+    @Test fun `즉시할인이어도 빠지는 금액을 모르거나 같으면 카드 이름으로`() {
+        assertEquals("삼성카드로 6,600원 결제", card(3, 660, BenefitKind.INSTANT, charged = null).payButtonLabel(6600))
+        assertEquals("삼성카드로 6,600원 결제", card(3, 660, BenefitKind.INSTANT, charged = 6600).payButtonLabel(6600))
+    }
+
+    @Test fun `야무픽은 1순위이면서 혜택이 있는 카드만`() {
+        assertTrue(card(1, 1980, rank = 1).isYamuPick)
+        assertFalse(card(1, 0, rank = 1).isYamuPick)
+        assertFalse(card(2, 660, rank = 2).isYamuPick)
+        assertFalse(card(1, 1980, rank = 1, unknown = true).isYamuPick)
+    }
+
+    private val pick = card(1, 1980, rank = 1)
+    private val second = card(2, 660, BenefitKind.CASHBACK, rank = 2)
+    private val third = card(3, 300, rank = 3)
+    private val uncompared = card(9, 0, unknown = true)
+
+    @Test fun `비교 문구 — 야무픽을 고르면 다음으로 혜택이 큰 카드와 견준다`() {
+        assertEquals(PickGap(BigDecimal(1320), pickSelected = true), pickGap(listOf(pick, second, third, uncompared), pick))
+    }
+
+    @Test fun `비교 문구 — 다른 카드를 고르면 그 카드와 견준다`() {
+        assertEquals(PickGap(BigDecimal(1320), pickSelected = false), pickGap(listOf(pick, second, third), second))
+        assertEquals(PickGap(BigDecimal(1680), pickSelected = false), pickGap(listOf(pick, second, third), third))
+    }
+
+    @Test fun `비교 문구를 숨기는 경우`() {
+        assertNull("야무픽 없음", pickGap(listOf(card(1, 0, rank = 1), second), second))
+        assertNull("고른 카드 없음", pickGap(listOf(pick, second), null))
+        assertNull("비교 못 한 카드를 고름", pickGap(listOf(pick, second, uncompared), uncompared))
+        assertNull("야무픽이 거절됨", pickGap(listOf(pick, second), second, declinedIds = setOf(1L)))
+        assertNull("견줄 다른 카드 없음", pickGap(listOf(pick, uncompared), pick))
+        assertNull("차이 0원", pickGap(listOf(pick, card(2, 1980, rank = 2)), pick))
     }
 }

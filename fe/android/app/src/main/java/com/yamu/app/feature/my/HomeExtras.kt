@@ -333,7 +333,10 @@ private fun GroupHeader(text: String) {
     )
 }
 
-/** 2줄 — 위 시각(안 읽으면 앞에 파란 점) · 아래 제목(안 읽음 Bold · 읽음 Medium). 내용은 읽어 주기에만 */
+/**
+ * 위 시각(안 읽으면 앞에 파란 점) · 제목(안 읽음 Bold · 읽음 Medium) · 내용 두 줄까지.
+ * 내용은 서버가 가맹점 · 금액 · 카드를 넣어 보낸다('스타벅스 4,500원을 ○○카드로 결제했어요') — 카드 승인 문자처럼 무엇이 얼마였는지 목록에서 바로 보이게
+ */
 @Composable
 private fun NotificationRow(n: AppNotification, onClick: () -> Unit) {
     val c = YamuTheme.colors
@@ -357,6 +360,10 @@ private fun NotificationRow(n: AppNotification, onClick: () -> Unit) {
                 style = YamuTheme.typography.bodyL.copy(fontWeight = if (n.read) FontWeight.Medium else FontWeight.Bold),
                 color = c.text1,
             )
+            n.body?.takeIf { it.isNotBlank() }?.let {
+                Spacer(Modifier.height(2.dp))
+                Text(it, style = YamuTheme.typography.bodyM, color = c.text2, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            }
         }
     }
 }
@@ -459,7 +466,7 @@ private fun CardLine(card: CardPerf, art: CardArtRef?, onClick: (() -> Unit)?) {
     val tag = when {
         card.noTarget -> "실적 조건 없음" to TagTone.Neutral
         card.achieved -> "달성 완료" to TagTone.Success
-        else -> card.guide?.let { it.label to it.tone() }
+        else -> card.guide?.let { g -> g.label?.let { it to g.tone() } }
     }
     Row(
         Modifier

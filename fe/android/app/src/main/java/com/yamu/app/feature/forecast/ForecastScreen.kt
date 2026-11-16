@@ -129,9 +129,14 @@ import com.yamu.app.feature.forecast.data.RiskLevel
 import com.yamu.app.feature.forecast.data.RiskWindow
 import com.yamu.app.feature.forecast.data.cashflowRows
 import com.yamu.app.feature.forecast.data.forecastOnlyRows
+import com.yamu.app.feature.forecast.data.IncomeRule
+import com.yamu.app.feature.forecast.data.payday
+import com.yamu.app.feature.forecast.data.untilPayday
 import com.yamu.app.feature.link.data.CashflowCandidate
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -147,6 +152,7 @@ import javax.inject.Inject
 data class ForecastState(
     val loading: Boolean = true,
     val forecast: Forecast? = null,
+    val incomeRule: IncomeRule? = null,   // 잔고예보 설정의 월급 — F-01이 7 · 14 · 30일 그래프를 월급날에서 끊는다([chartForecast])
     val error: String? = null,
     val noAccount: Boolean = false,
     val selection: ForecastSelection = ForecastSelection(),
@@ -161,9 +167,12 @@ data class ForecastState(
     val ask: CashflowAsk? = null,                       // F-02 확인 시트 · 대화상자
     val message: String? = null,                        // F-02 결과 한 줄(스낵바)
 ) {
-    /** F-02 — 예보가 실패해도 회차만으로 목록을 그리므로 보여 줄 것이 없으면 회차 응답까지 기다린다 */
+    /**
+     * F-02 — 회차 응답이 올 때까지 기다린다. 받아 둔 예보가 있어도 그 예보 줄(읽기 전용)을 먼저 그리면 회차가 온 뒤
+     * 반복 표시 · 휴지통이 붙은 다른 모양으로 바뀌어, 예보 줄만 그리는 것은 회차를 못 받았을 때로 한정한다
+     */
     val cashflowLoading: Boolean
-        get() = forecast == null && entries == null && (loading || entriesLoading)
+        get() = !noAccount && entries == null && (entriesLoading || entriesError == null)
 
     /** F-02 — 이 화면은 회차를 보여 주므로 둘 다 실패하면 회차 쪽 오류가 먼저 */
     val cashflowError: String?
@@ -333,7 +342,7 @@ class ForecastViewModel @Inject constructor(private val repo: ForecastRepository
 
     /**
      * 시트에서 고른 기간 · 계좌 — 계좌를 모두 골랐으면 '전체'(all)로 둬 새로 연결한 계좌도 들어가게 한다.
-     * 고르지 않은 기본은 기준 계좌 하나다(S15P31E103-484) — 전에는 기본이 전체라 모두 고르면 null로 돌렸다
+     * 고르지 않은 기본도 연결 계좌 전체다(S15P31E103-548, -484 때는 기준 계좌 하나였다)
      */
     fun apply(period: ForecastPeriod?, accountIds: Set<Long>?) {
         val all = _state.value.accounts?.map { it.accountId }?.toSet()
@@ -346,13 +355,21 @@ class ForecastViewModel @Inject constructor(private val repo: ForecastRepository
         refresh()
     }
 
-    private suspend fun refreshForecast() {
+    /** 월급 설정도 같이 받는다 — 예보와 한 번에 바꿔야 그래프가 30일로 그려졌다가 월급날로 줄어드는 일이 없다. 못 받으면 끊지 않는다 */
+    private suspend fun refreshForecast(): Unit = coroutineScope {
         _state.update { it.copy(loading = it.forecast == null, error = null) }
+        val rule = async { (repo.incomeRule() as? ApiResult.Success)?.data }
         when (val r = repo.forecast()) {
-            is ApiResult.Success -> _state.update { it.copy(loading = false, forecast = r.data, noAccount = false) }
-            is ApiResult.Failure -> _state.update {
-                if (r.error.code in NO_ACCOUNT_CODES) ForecastState(loading = false, noAccount = true, selection = it.selection)
-                else it.copy(loading = false, error = r.error.userMessage())
+            is ApiResult.Success -> {
+                val income = rule.await()
+                _state.update { it.copy(loading = false, forecast = r.data, incomeRule = income, noAccount = false) }
+            }
+            is ApiResult.Failure -> {
+                rule.cancel()
+                _state.update {
+                    if (r.error.code in NO_ACCOUNT_CODES) ForecastState(loading = false, noAccount = true, selection = it.selection)
+                    else it.copy(loading = false, error = r.error.userMessage())
+                }
             }
         }
     }
@@ -363,7 +380,13 @@ class ForecastViewModel @Inject constructor(private val repo: ForecastRepository
     }
 }
 
-private fun LocalDate.daysFromToday(): Long = ChronoUnit.DAYS.between(LocalDate.now(KST), this)
+/**
+ * F-01이 그리는 예보 — 월급날이 7 · 14 · 30일 기간 안이면 월급 전날까지로 끊는다(x축 끝이 월급날, [untilPayday]).
+ * F-02 예정된 돈 목록은 고른 기간 그대로 서버 예보를 쓴다
+ */
+internal fun chartForecast(f: Forecast?, rule: IncomeRule?): Forecast? = f?.untilPayday(f.payday(rule))
+
+private fun LocalDate.daysFromToday(): Long =ChronoUnit.DAYS.between(LocalDate.now(KST), this)
 
 /** '11월 20일 (금)'. [markToday]면 오늘은 '11월 20일 (금, 오늘)' — 전에는 '(금) · 오늘'이었다(가운데 점 대신 괄호, 11/10 QA) */
 internal fun LocalDate.toKoreanDateWeek(markToday: Boolean = false, today: LocalDate = LocalDate.now(KST)): String {
@@ -422,7 +445,7 @@ fun ForecastRoute(
     ReloadOnReconnect(waiting = s.error != null, onReconnect = viewModel::refresh)
     var filtering by rememberSaveable { mutableStateOf(false) }
     val c = YamuTheme.colors
-    // 회색 바탕 + 카드: 고르기 칩 · 예상 잔액 · 낮아지는 때 · 선 설명 · 예정된 돈 · 빼고 계산한 것. 가상 구매 입구는 아래 버튼(2026-11-08 개편)
+    // 회색 바탕 + 카드: 고르기 칩 · 예상 잔액 · 낮아지는 때 · 선 설명 · 예정된 돈 · 기간 뒤 카드값. 가상 구매 입구는 아래 버튼(2026-11-08 개편)
     FlowScreen(
         title = "잔고예보",
         onBack = onBack,
@@ -437,7 +460,7 @@ fun ForecastRoute(
         val reduce = YamuTheme.reduceMotion
         var heroTop by remember { mutableIntStateOf(0) }
         Column(Modifier.padding(inner).consumeWindowInsets(inner).fillMaxSize().verticalScroll(scroll)) {
-            val f = s.forecast
+            val f = remember(s.forecast, s.incomeRule) { chartForecast(s.forecast, s.incomeRule) }
             when {
                 s.noAccount -> YamuCard { EmptyState("계좌를 연결하면 예보를 보여 드려요", actionText = "계좌 연결", onAction = onLink) }
                 f == null && s.loading -> YamuCard {
@@ -447,7 +470,9 @@ fun ForecastRoute(
                 }
                 f == null -> YamuCard { ErrorState(s.error ?: "예보를 불러오지 못했어요", onRetry = viewModel::refresh) }
                 else -> {
-                    FilterChips(f, s.selection, onOpen = {
+                    // 기간 칩 · 두 선 계산 · 생활비는 고른 기간 그대로(서버 생활비 금액은 그 기간 것이라 월급날에서 끊으면 합이 맞지 않는다)
+                    val whole = s.forecast ?: f
+                    FilterChips(whole, s.selection, onOpen = {
                         filtering = true
                         viewModel.loadAccounts()
                     })
@@ -478,11 +503,11 @@ fun ForecastRoute(
                         )
                     }
                     if (f.riskWindows.isNotEmpty()) RiskCard(f, selectedDate, onJump = jump)
-                    LinesCard(f)
-                    LivingCostEntry(f, onLivingCost)   // F-01b 생활비 예측 입구
+                    LinesCard(whole)
+                    LivingCostEntry(whole, onLivingCost)   // F-01b 생활비 예측 입구
                     UpcomingCard(f, onCashflowList, selectedDate, onJump = jump)
                     BeyondHorizonCard(f)
-                    NoticeCard(f, s.selection)
+                    // 맨 아래 '빼고 계산한 것' 카드는 QA 요청으로 뺐다(S15P31E103-554)
                 }
             }
             Spacer(Modifier.height(YamuSpacing.x6))
@@ -507,7 +532,7 @@ fun ForecastRoute(
 /** 기간 · 계좌 칩 — 회색 바탕 위 흰 알약, 누르면 시트. 계좌 칩은 계좌 이름표('KB국민은행 ··1234' · '계좌 2개 전체', COMMON-04) */
 @Composable
 private fun FilterChips(f: Forecast, selection: ForecastSelection, onOpen: () -> Unit) {
-    val account = f.accountLabel(selection.all)
+    val account = f.accountLabel(selection.coversAll)
     Row(Modifier.padding(horizontal = YamuSpacing.screen).padding(bottom = YamuSpacing.blockGap), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         FilterChip(periodLabel(f, selection), contentDescription = "예보 기간 ${periodLabel(f, selection)}, 바꾸기", onClick = onOpen)
         FilterChip(account, contentDescription = "보는 계좌 $account, 바꾸기", onClick = onOpen)
@@ -848,21 +873,26 @@ private fun DayPager(f: Forecast, day: DaySelection, select: (Int, DaySource) ->
     var width by remember { mutableIntStateOf(0) }
     var busy by remember { mutableStateOf(false) }
     val latestDay by rememberUpdatedState(day.day)
-    // 한쪽으로 빠져나가고(dir 쪽 반대로) 새 날이 반대편에서 들어온다
+    // 한쪽으로 빠져나가고(dir 쪽 반대로) 새 날이 반대편에서 들어온다.
+    // 넘기는 중에 누르거나 민 것은 버린다 — 전에는 그때 '제자리로' 움직임을 새로 걸어 넘기던 움직임이 끊겼고, busy가 풀리지 않아 ‹ ›가 더는 듣지 않을 수 있었다(QA)
     fun go(dir: Int) {
+        if (busy) return
         val target = latestDay + dir
-        if (target !in 0 until n || busy) {
+        if (target !in 0 until n) {
             scope.launch { offset.animateTo(0f, tween(YamuMotion.BASE_MS, easing = YamuMotion.standard)) }
             return
         }
         if (reduce || width == 0) { scope.launch { offset.snapTo(0f) }; select(target, DaySource.PANEL); return }
         busy = true
         scope.launch {
-            offset.animateTo(-dir * width.toFloat(), tween(PAGER_OUT_MS, easing = YamuMotion.standard))
-            select(target, DaySource.PANEL)
-            offset.snapTo(dir * width.toFloat())
-            offset.animateTo(0f, tween(PAGER_IN_MS, easing = YamuMotion.standard))
-            busy = false
+            try {
+                offset.animateTo(-dir * width.toFloat(), tween(PAGER_OUT_MS, easing = YamuMotion.standard))
+                select(target, DaySource.PANEL)
+                offset.snapTo(dir * width.toFloat())
+                offset.animateTo(0f, tween(PAGER_IN_MS, easing = YamuMotion.standard))
+            } finally {
+                busy = false
+            }
         }
     }
     Box(
@@ -945,10 +975,9 @@ private fun DayPanel(
             DayValue(LINE_WITHOUT_LIVING, day.expected, c.onPrimaryContainer, Modifier.weight(1f))
             if (hasConservative) DayValue(LINE_WITH_LIVING, day.conservative, c.onWarningContainer, Modifier.weight(1f))
         }
+        // 오가는 돈이 없는 날은 두 금액만 — '이날은 오가는 돈이 없어요' 문장은 군더더기라 뺐다(QA)
         val events = day.events.filter { it.amount != 0L }
-        if (events.isEmpty()) {
-            Text("이날은 오가는 돈이 없어요", style = YamuTheme.typography.bodyS, color = c.text3, modifier = Modifier.padding(top = 8.dp))
-        } else {
+        if (events.isNotEmpty()) {
             Spacer(Modifier.height(10.dp))
             HorizontalDivider(color = c.outlineVariant)
             Spacer(Modifier.height(6.dp))
@@ -1073,57 +1102,49 @@ internal fun riskLine(w: RiskWindow): String {
 }
 
 /**
- * 두 선은 이렇게 계산했어요 — 지금 잔액에서 'AI 생활비 제외' 선이 무엇을 뺐는지, 'AI 생활비 반영' 선은 거기서 무엇을 더 뺐는지(FR-047 확정 · 예측 구분).
- * 서버 conservative는 expected에서 예상 생활비와 앞으로 쓸 신용카드 금액을 더 뺀 값이라 두 번째 묶음은 첫 묶음 끝에서 이어 읽는다
+ * 두 선 계산 — 제목 없이 계산식만 둔다(QA: 문구가 많아 안 읽힌다). 지금 잔액 → 더하고 빼는 돈 → 'AI 생활비 제외' 선 끝 → 더 빼는 생활비 → 'AI 생활비 반영' 선 끝.
+ * 서버 conservative는 expected에서 예상 생활비와 앞으로 쓸 신용카드 금액을 더 뺀 값이라 두 번째 묶음은 첫 선 끝에서 이어 읽힌다(FR-047 확정 · 예측 구분)
  */
 @Composable
 private fun LinesCard(f: Forecast) {
     val c = YamuTheme.colors
-    YamuCard(contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 18.dp, bottom = 18.dp)) {
-        Text("두 선은 이렇게 계산했어요", style = YamuTheme.typography.cardTitle, color = c.text1)
-        Spacer(Modifier.height(12.dp))
-        f.currentBalance?.let { b ->
-            StepRow("지금 잔액 (계좌 ${f.accountIds.size}개)", "${b.toWon()}원", strong = true)
-            Spacer(Modifier.height(12.dp))
-        }
-        f.lineGroups().forEachIndexed { i, g ->
-            if (i > 0) Spacer(Modifier.height(14.dp))
-            LineGroupRow(g, hasConservative = f.hasConservative)
-        }
-    }
-}
-
-@Composable
-private fun LineGroupRow(g: LineGroup, hasConservative: Boolean) {
-    val c = YamuTheme.colors
-    val withLiving = g.line == FlowConfidence.CONSERVATIVE
-    val name = if (withLiving) LINE_WITH_LIVING else LINE_WITHOUT_LIVING
-    Row {
-        LineGlyph(dashed = withLiving, modifier = Modifier.padding(top = 9.dp))
-        Spacer(Modifier.width(10.dp))
-        Column(Modifier.weight(1f)) {
-            // 선 이름(범례와 같은 이름). 두 번째 묶음은 첫 선에서 더 빼는 돈이라 그 사실을 이름 밑에 적는다
-            Text(name, style = YamuTheme.typography.titleS, color = c.text1)
-            if (withLiving) Text("$LINE_WITHOUT_LIVING 선에서 더 빼요", style = YamuTheme.typography.bodyS, color = c.text3)
-            Spacer(Modifier.height(4.dp))
-            g.steps.forEach { s -> StepRow(stepLabel(s), "${s.amount.toWon(withPlusSign = true)}원") }
-            if (withLiving && !hasConservative) {
-                Text("생활비 기록이 없어 이번에는 그리지 않았어요", style = YamuTheme.typography.bodyM, color = c.text3)
-            } else {
-                StepRow("$name 선 끝", g.end?.let { "${it.toWon()}원" } ?: "—", muted = true)
-                g.note?.let { Text(it, style = YamuTheme.typography.bodyS, color = c.text3, modifier = Modifier.padding(top = 2.dp)) }
-            }
+    val (without, with) = f.lineGroups()
+    YamuCard(contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 16.dp, bottom = 16.dp)) {
+        f.currentBalance?.let { StepRow("지금 잔액", "${it.toWon()}원") }
+        // 들어오는 돈을 먼저 — 위에서 아래로 더하고 빼는 순서로 읽힌다(같은 쪽 안에서는 서버 순서 그대로)
+        without.steps.sortedByDescending { it.amount > 0 }.forEach { StepRow(stepLabel(it), "${it.amount.toWon(withPlusSign = true)}원") }
+        LineTotal(without, dashed = false)
+        if (f.hasConservative) {
+            Spacer(Modifier.height(8.dp))
+            with.steps.forEach { StepRow(stepLabel(it), "${it.amount.toWon(withPlusSign = true)}원") }
+            LineTotal(with, dashed = true)
+            with.note?.let { Text(it, style = YamuTheme.typography.bodyS, color = c.text3, modifier = Modifier.padding(top = 2.dp)) }
+        } else {
+            Text("$LINE_WITH_LIVING 선은 생활비 기록이 없어 그리지 않았어요", style = YamuTheme.typography.bodyS, color = c.text3, modifier = Modifier.padding(top = 4.dp))
         }
     }
 }
 
+/** 계산식의 결과 줄 — 구분선 밑에 선 견본 · 선 이름(범례와 같은 이름) · 기간 끝 잔액을 굵게 */
 @Composable
-private fun StepRow(label: String, value: String, strong: Boolean = false, muted: Boolean = false) {
+private fun LineTotal(g: LineGroup, dashed: Boolean) {
     val c = YamuTheme.colors
-    val style = if (muted) YamuTheme.typography.bodyS else YamuTheme.typography.bodyM
-    Row(Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
-        Text(label, style = style, color = if (muted) c.text3 else if (strong) c.text2 else c.text1, modifier = Modifier.weight(1f))
-        Text(value, style = if (strong) YamuTheme.typography.titleS else style, color = if (muted) c.text3 else c.text1)
+    val end = g.end
+    HorizontalDivider(color = c.outlineVariant, modifier = Modifier.padding(vertical = 8.dp))
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        LineGlyph(dashed = dashed)
+        Spacer(Modifier.width(8.dp))
+        Text(if (dashed) LINE_WITH_LIVING else LINE_WITHOUT_LIVING, style = YamuTheme.typography.titleS, color = c.text1, modifier = Modifier.weight(1f))
+        Text(end?.let { "${it.toWon()}원" } ?: "—", style = YamuTheme.typography.titleS, color = if ((end ?: 0) < 0) c.error else c.text1)
+    }
+}
+
+@Composable
+private fun StepRow(label: String, value: String) {
+    val c = YamuTheme.colors
+    Row(Modifier.fillMaxWidth().padding(vertical = 3.dp)) {
+        Text(label, style = YamuTheme.typography.bodyM, color = c.text2, modifier = Modifier.weight(1f))
+        Text(value, style = YamuTheme.typography.bodyM, color = c.text1)
     }
 }
 
@@ -1210,35 +1231,6 @@ private fun EventRow(e: ForecastEvent, on: Boolean = false, onClick: (() -> Unit
         },
         dense = true,
     )
-}
-
-/** 빼고 계산한 것 — 생활비 미반영(dataOrigin 기준) · 월급을 못 찾음 · excluded 이유마다 한 줄 */
-@Composable
-private fun NoticeCard(f: Forecast, selection: ForecastSelection) {
-    val notes = noticeLines(f, selection)
-    if (notes.isEmpty()) return
-    val c = YamuTheme.colors
-    YamuCard(contentPadding = PaddingValues(horizontal = 20.dp, vertical = 16.dp)) {
-        Text("빼고 계산한 것", style = YamuTheme.typography.titleS, color = c.text1)
-        Spacer(Modifier.height(8.dp))
-        notes.forEach { Text(it, style = YamuTheme.typography.bodyM, color = c.text2, modifier = Modifier.padding(vertical = 3.dp)) }
-    }
-}
-
-internal fun noticeLines(f: Forecast, selection: ForecastSelection): List<String> {
-    val living = f.livingCost
-    val livingLine = when {
-        living == null || !living.insufficient -> null
-        // 여러 계좌면 기록 있는 계좌의 생활비가 선에 들어 있을 수 있다(Forecast.hasPartialLiving) — 기록 없는 계좌 이야기로만 쓴다.
-        // 선에 빠진 생활비가 0원이면(appliedAmount, BE -395) 어느 계좌에도 기록이 없다는 뜻이라 아래 문장으로 간다
-        f.hasConservative && f.accountIds.size > 1 && living.appliedAmount != 0L -> "생활비 기록이 없는 계좌는 '$LINE_WITH_LIVING' 선에 앞으로 쓸 신용카드 금액만 넣었어요."
-        f.hasConservative -> "생활비 기록이 없어 '$LINE_WITH_LIVING' 선에는 앞으로 쓸 신용카드 금액만 넣었어요."
-        // 어느 계좌에 기록이 있는지는 이 응답만으로 모른다 — 모든 계좌에 없을 수도 있어 '고르면 된다'고 약속하지 않는다
-        f.accountIds.size > 1 -> "생활비 기록이 없는 계좌가 있어 생활비는 빼고 계산했어요. 계좌를 따로 골라 보면 기록이 있는 계좌는 생활비까지 넣어 계산해요."
-        else -> "생활비 기록이 아직 없어 생활비는 빼고 계산했어요. 체크카드로 결제하면 다음 예보부터 들어가요."
-    }
-    // 월급을 못 찾아 N일로 계산했다는 줄은 위 카드로 옮겼다(incomeMissingNote, P1-08) — 맨 아래에서는 놓치기 쉬웠다
-    return listOfNotNull(livingLine) + f.excluded.map { it.text }.distinct()
 }
 
 /** 기간 · 계좌 고르기 — 고른 값은 앱을 켜 둔 동안만 기억(서버 설정은 그대로) */
@@ -1424,7 +1416,7 @@ fun CashflowListRoute(
                             listOfNotNull(
                                 if (f?.from != null && f.to != null) "${f.from.toMonthDay()} ~ ${f.to.toMonthDay()}" else null,
                                 "출금 ${outCount}건",
-                                f?.accountLabel(s.selection.all),   // 잔고예보에서 고른 계좌로 걸렀다는 표시(기본은 기준 계좌, -484)
+                                f?.accountLabel(s.selection.coversAll),   // 잔고예보에서 고른 계좌로 걸렀다는 표시(기본은 전체, -548)
                             ).joinToString(" · "),
                             style = YamuTheme.typography.bodyM,
                             color = c.text2,

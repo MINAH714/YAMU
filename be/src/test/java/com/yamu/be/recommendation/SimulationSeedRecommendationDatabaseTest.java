@@ -40,6 +40,9 @@ class SimulationSeedRecommendationDatabaseTest extends MySqlTestSupport {
         @org.springframework.context.annotation.Bean @org.springframework.context.annotation.Primary
         java.time.Clock simulationClock() { return java.time.Clock.fixed(java.time.Instant.parse("2026-11-03T03:00:00Z"),java.time.ZoneOffset.UTC); }
     }
+    @Autowired com.yamu.be.payment.cancel.PaymentCancelService cancellations;
+    @org.springframework.test.context.bean.override.mockito.MockitoBean
+    com.yamu.be.payment.bank.SsafyTransferApi transfer;
     @Autowired DataSource source;
     @Autowired JdbcTemplate jdbc;
     @Autowired CardRecommender port;
@@ -69,14 +72,14 @@ class SimulationSeedRecommendationDatabaseTest extends MySqlTestSupport {
         org.mockito.Mockito.when(bank.balance(org.mockito.ArgumentMatchers.anyString(),org.mockito.ArgumentMatchers.anyString())).thenReturn(1_000_000L);
     }
     @BeforeAll void seed() throws Exception {
-        for(var name:List.of("01-card-catalog.sql","02-card-catalog-ab20.sql","03-benefit-composition.sql")) {
+        for(var name:List.of("01-card-catalog.sql","02-card-catalog-ab20.sql","03-benefit-composition.sql","05-ibk-narasarang.sql")) {
             try(var connection=source.getConnection()) { ScriptUtils.executeSqlScript(connection,new EncodedResource(new FileSystemResource(Path.of("seed",name)),StandardCharsets.UTF_8)); }
         }
     }
     long product(String name) { return jdbc.queryForObject("SELECT card_product_id FROM card_product WHERE product_name=?",Long.class,name); }
     long card(long user,long product,long previous,long preferredUsed) {
         var fixtures=new OwnershipFixtures(jdbc);long id=fixtures.card(user,product,fixtures.account(user),"ACTIVE");
-        jdbc.update("UPDATE user_card SET payment_day=15 WHERE user_card_id=?",id);
+        jdbc.update("UPDATE user_card SET payment_day=15, issuer_registered_on='2026-01-01', ibk_context_month='2026-11-01', ibk_salary_qualified=false, ibk_military_qualified=false WHERE user_card_id=?",id);
         jdbc.update("UPDATE app_user SET ssafy_user_key=? WHERE user_id=?",cipher.encrypt("simulation-user",com.yamu.be.global.crypto.CipherField.APP_USER_SSAFY_USER_KEY),user);
         jdbc.update("UPDATE linked_account SET account_no_enc=? WHERE linked_account_id=(SELECT linked_account_id FROM user_card WHERE user_card_id=?)",cipher.encrypt("simulation-account-"+id,com.yamu.be.global.crypto.CipherField.LINKED_ACCOUNT_NO),id);
         jdbc.update("INSERT INTO card_monthly_performance(user_card_id,performance_month,recognized_amount,created_at,updated_at) VALUES(?,'2026-10-01',?,UTC_TIMESTAMP(6),UTC_TIMESTAMP(6)),(?,'2026-11-01',0,UTC_TIMESTAMP(6),UTC_TIMESTAMP(6))",id,previous,id);
@@ -138,7 +141,7 @@ class SimulationSeedRecommendationDatabaseTest extends MySqlTestSupport {
                 org.mockito.ArgumentMatchers.any(RecommendationPolicyData.class),
                 org.mockito.ArgumentMatchers.eq(transactionDate), org.mockito.ArgumentMatchers.eq(expected),
                 org.mockito.ArgumentMatchers.anyList(), org.mockito.ArgumentMatchers.any(RecommendationInput.Transaction.class),
-                org.mockito.ArgumentMatchers.any(com.yamu.be.card.domain.CardProduct.class));
+                org.mockito.ArgumentMatchers.any(com.yamu.be.card.domain.CardProduct.class), org.mockito.ArgumentMatchers.eq("GS25"));
         if (transactionDate.getMonthValue() == 10) {
             // 모의 정책은 11월 한정이므로, 10월의 최종 할인액을 임의로 0원으로 확정하지 않는다.
             assertThat(result.status()).isEqualTo(RecommendationResult.Status.DATA_INSUFFICIENT);
@@ -506,8 +509,132 @@ class SimulationSeedRecommendationDatabaseTest extends MySqlTestSupport {
         org.mockito.Mockito.verify(bank,org.mockito.Mockito.times(2)).balance("simulation-user","simulation-account-"+check);
     }
 
+
+    @ParameterizedTest
+    @CsvSource({"gs-jeyuk-dosirak,5500,550", "gs-chips,1700,0", "gs-water,1100,110"})
+    void ibkEligibleAndExcludedItemsUseSeedPolicy(String code,long amount,long expected) {
+        long user=new OwnershipFixtures(jdbc).user();
+        long id=card(user,product("IBK나라사랑카드"),0,0);
+        var base=request(user,List.of(id),"GS25",amount,null,Map.of());
+        var basket=com.yamu.be.payment.pos.PosBasket.validate("GS25",List.of(new com.yamu.be.payment.pos.PosBasket.Line(code,java.math.BigDecimal.ONE)),amount);
+        var result=port.recommend(new RecommendationRequest(base.paymentId(),base.userId(),base.terms(),base.merchant(),base.requestedAt(),null,base.availability(),base.verifiedFacts(),basket));
+        assertThat(result.status()).isEqualTo(RecommendationResult.Status.READY);
+        assertThat(result.topCandidate().orElseThrow().netBenefit()).isEqualByComparingTo(Long.toString(expected));
+    }
+
+    @Test void ibkMixedBasketAndMissingItemsAreNotWholeAmountDiscounts() {
+        long user=new OwnershipFixtures(jdbc).user();
+        long id=card(user,product("IBK나라사랑카드"),0,0);
+        var base=request(user,List.of(id),"GS25",7200,null,Map.of());
+        var basket=com.yamu.be.payment.pos.PosBasket.validate("GS25",List.of(
+                new com.yamu.be.payment.pos.PosBasket.Line("gs-jeyuk-dosirak",java.math.BigDecimal.ONE),
+                new com.yamu.be.payment.pos.PosBasket.Line("gs-chips",java.math.BigDecimal.ONE)),7200);
+        var result=port.recommend(new RecommendationRequest(base.paymentId(),base.userId(),base.terms(),base.merchant(),base.requestedAt(),null,base.availability(),base.verifiedFacts(),basket));
+        assertThat(result.topCandidate().orElseThrow().netBenefit()).isEqualByComparingTo("550");
+        assertThat(port.recommend(base).status()).isEqualTo(RecommendationResult.Status.DATA_INSUFFICIENT);
+    }
+
+
+    @Test void ibkApprovalRecalculatesBasketAndCancellationRestoresDailyCount() throws Exception {
+        long user=new OwnershipFixtures(jdbc).user();
+        long id=card(user,product("IBK나라사랑카드"),0,0);
+        jdbc.update("UPDATE linked_account SET bank_code='003' WHERE linked_account_id=(SELECT linked_account_id FROM user_card WHERE user_card_id=?)",id);
+        org.mockito.Mockito.when(transfer.newTransactionNo()).thenReturn("20261103120000000001","20261103120000000002");
+        var success=new com.yamu.be.payment.bank.TransferResult(com.yamu.be.payment.bank.TransferResult.Status.SUCCESS,"bank-551",java.time.LocalDate.of(2026,11,3),null,null);
+        org.mockito.Mockito.when(transfer.withdraw(org.mockito.ArgumentMatchers.anyString(),org.mockito.ArgumentMatchers.anyString(),org.mockito.ArgumentMatchers.anyLong(),org.mockito.ArgumentMatchers.any(),org.mockito.ArgumentMatchers.anyString())).thenReturn(success);
+        org.mockito.Mockito.when(transfer.deposit(org.mockito.ArgumentMatchers.anyString(),org.mockito.ArgumentMatchers.anyString(),org.mockito.ArgumentMatchers.anyLong(),org.mockito.ArgumentMatchers.any(),org.mockito.ArgumentMatchers.anyString())).thenReturn(success);
+        var now=java.time.Instant.parse("2026-11-03T03:00:00Z");
+        var token=String.format("%016d",8_000_000_000_000_000L+user);
+        barcodes.issue(new com.yamu.be.payment.barcode.Barcode(token,user,com.yamu.be.payment.barcode.BarcodeStatus.ISSUED,now,now.plusSeconds(60)),java.time.Duration.ofMinutes(10));
+        long merchant=jdbc.queryForObject("SELECT merchant_id FROM merchant WHERE brand_code='GS25'",Long.class);
+        var body=json.readValue(json.writeValueAsString(Map.of("barcodeToken",token,"merchantId",merchant,"posCode","POS-TEST-CAFE","amount",7200,
+                "items",List.of(Map.of("productCode","gs-jeyuk-dosirak","quantity",1),Map.of("productCode","gs-chips","quantity",1)))),com.yamu.be.payment.pos.PosPaymentRequest.class);
+        String key=UUID.randomUUID().toString();
+        var created=pos.create("test-pos-key",body,key);
+        assertThat(pos.create("test-pos-key",body,key).paymentId()).isEqualTo(created.paymentId());
+        assertThat(snapshots.find(created.paymentId()).orElseThrow().topCandidate().orElseThrow().netBenefit()).isEqualByComparingTo("550");
+        snapshots.delete(created.paymentId());
+        var auth=new com.yamu.be.global.security.AuthUser(user,1L);
+        String approvalKey=UUID.randomUUID().toString();
+        var approvalRequest=new com.yamu.be.payment.approve.PaymentApprovalRequest(id);
+        var approved=approvals.approve(auth,created.paymentId(),approvalRequest,approvalKey);
+        assertThat(approved.status()).isEqualTo(com.yamu.be.payment.domain.PaymentStatus.APPROVED);
+        approvals.approve(auth,created.paymentId(),approvalRequest,approvalKey);
+        org.mockito.Mockito.verify(transfer).withdraw(org.mockito.ArgumentMatchers.eq("simulation-user"),org.mockito.ArgumentMatchers.eq("simulation-account-"+id),org.mockito.ArgumentMatchers.eq(6650L),org.mockito.ArgumentMatchers.any(),org.mockito.ArgumentMatchers.anyString());
+        var base=request(user,List.of(id),"GS25",7200,null,Map.of());
+        var basket=com.yamu.be.payment.pos.PosBasket.validate("GS25",body.getItems(),7200);
+        var next=new RecommendationRequest(base.paymentId(),user,base.terms(),base.merchant(),base.requestedAt(),null,base.availability(),base.verifiedFacts(),basket);
+        assertThat(port.recommend(next).topCandidate().orElseThrow().netBenefit()).isEqualByComparingTo("0");
+        var tomorrow=new RecommendationRequest(base.paymentId(),user,base.terms(),base.merchant(),base.requestedAt().plusDays(1),null,base.availability(),base.verifiedFacts(),basket);
+        assertThat(port.recommend(tomorrow).topCandidate().orElseThrow().netBenefit()).isEqualByComparingTo("550");
+        org.mockito.Mockito.when(transfer.findAllByTag(org.mockito.ArgumentMatchers.eq("simulation-user"),org.mockito.ArgumentMatchers.eq("simulation-account-"+id),
+                org.mockito.ArgumentMatchers.eq(com.yamu.be.payment.bank.TransferTag.payment(created.paymentId())),org.mockito.ArgumentMatchers.anyString()))
+                .thenReturn(List.of(new com.yamu.be.payment.bank.BankTransaction("bank-551",java.time.LocalDate.of(2026,11,3),java.time.LocalTime.NOON,
+                        com.yamu.be.payment.bank.BankDirection.WITHDRAWAL,6650,993350,"YAMU-P:"+created.paymentId())));
+        var cancelRequest=new com.yamu.be.payment.cancel.PaymentCancelRequest(null);
+        String cancelKey=UUID.randomUUID().toString();
+        cancellations.cancel(auth,created.paymentId(),cancelRequest,cancelKey);
+        cancellations.cancel(auth,created.paymentId(),cancelRequest,cancelKey);
+        org.mockito.Mockito.verify(transfer).deposit(org.mockito.ArgumentMatchers.eq("simulation-user"),org.mockito.ArgumentMatchers.eq("simulation-account-"+id),org.mockito.ArgumentMatchers.eq(6650L),org.mockito.ArgumentMatchers.any(),org.mockito.ArgumentMatchers.anyString());
+        assertThat(port.recommend(next).topCandidate().orElseThrow().netBenefit()).isEqualByComparingTo("550");
+    }
+
     private void assertNoHeldReadConnection() throws Exception {
         assertThat(org.springframework.transaction.support.TransactionSynchronizationManager.isActualTransactionActive()).isFalse();
         assertThat(source.unwrap(com.zaxxer.hikari.HikariDataSource.class).getHikariPoolMXBean().getActiveConnections()).isZero();
+    }
+
+    @ParameterizedTest
+    @CsvSource({"79999,READY", "80000,DATA_INSUFFICIENT", "249999,DATA_INSUFFICIENT", "250000,DATA_INSUFFICIENT", "500000,DATA_INSUFFICIENT"})
+    void ibkNewCashbacksNeverBecomeFabricatedCompletedAmounts(long previous, String status) {
+        long user=new OwnershipFixtures(jdbc).user();
+        long id=card(user,product("IBK나라사랑카드"),previous,0);
+        var base=request(user,List.of(id),"GS25",5500,null,Map.of("PAYMENT_METHOD:NPAY",false));
+        var basket=com.yamu.be.payment.pos.PosBasket.validate("GS25",List.of(new com.yamu.be.payment.pos.PosBasket.Line("gs-jeyuk-dosirak",java.math.BigDecimal.ONE)),5500);
+        var result=port.recommend(new RecommendationRequest(base.paymentId(),user,base.terms(),base.merchant(),base.requestedAt(),null,base.availability(),base.verifiedFacts(),basket));
+        assertThat(result.status().name()).isEqualTo(status);
+        if(previous>=80000) {
+            assertThat(result.topCandidate()).isEmpty();
+            assertThat(result.issues()).extracting(RecommendationDataIssue::code).contains("IBK_STACKED_BASE_UNKNOWN");
+        }
+        if(previous>=250000) assertThat(result.issues()).extracting(RecommendationDataIssue::code).contains("IBK_DAILY_COUNT_CONFLICT");
+    }
+
+    @Test void ibkMissingHolderContextNeverMeansZeroBenefit() {
+        long user=new OwnershipFixtures(jdbc).user();
+        long id=card(user,product("IBK나라사랑카드"),0,0);
+        jdbc.update("UPDATE user_card SET issuer_registered_on=NULL WHERE user_card_id=?",id);
+        var result=port.recommend(request(user,List.of(id),"STARBUCKS",10000,null,Map.of()));
+        assertThat(result.status()).isEqualTo(RecommendationResult.Status.DATA_INSUFFICIENT);
+        assertThat(result.issues()).extracting(RecommendationDataIssue::code).contains("IBK_ISSUER_REGISTRATION_UNKNOWN");
+    }
+
+    @Test void ibkCatalogRerunPreservesUnknownsAndBenefitKinds() throws Exception {
+        try(var connection=source.getConnection()) {
+            ScriptUtils.executeSqlScript(connection,new EncodedResource(new FileSystemResource(Path.of("seed","05-ibk-narasarang.sql")),StandardCharsets.UTF_8));
+        }
+        long p=product("IBK나라사랑카드");
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM card_benefit WHERE card_product_id=?",Long.class,p)).isEqualTo(8);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM card_benefit WHERE card_product_id=? AND benefit_type='CASHBACK' AND rounding_mode IS NULL",Long.class,p)).isEqualTo(6);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM card_benefit WHERE card_product_id=? AND benefit_type='DISCOUNT'",Long.class,p)).isEqualTo(2);
+    }
+
+    @ParameterizedTest
+    @CsvSource({"249999,READY", "250000,DATA_INSUFFICIENT"})
+    void ibkCafeThresholdDoesNotTurnUnknownIntoZero(long previous,String status) {
+        long user=new OwnershipFixtures(jdbc).user();
+        long id=card(user,product("IBK나라사랑카드"),previous,0);
+        var result=port.recommend(request(user,List.of(id),"STARBUCKS",10000,null,Map.of("PAYMENT_METHOD:NPAY",false)));
+        assertThat(result.status().name()).isEqualTo(status);
+        if(previous<250000) assertThat(result.topCandidate().orElseThrow().netBenefit()).isEqualByComparingTo("0");
+        else assertThat(result.issues()).extracting(RecommendationDataIssue::code).contains("IBK_ROUNDING_AND_REVERSAL_UNKNOWN");
+    }
+
+    @Test void ibkUnimplementedBenefitKeepsMixedRecommendationPartial() {
+        long user=new OwnershipFixtures(jdbc).user();
+        long ibk=card(user,product("IBK나라사랑카드"),250000,0);
+        long shinhan=card(user,product("신한카드 Mr.Life"),300000,0);
+        var result=port.recommend(request(user,List.of(ibk,shinhan),"STARBUCKS",10000,null,Map.of("PAYMENT_METHOD:NPAY",false)));
+        assertThat(result.status()).isEqualTo(RecommendationResult.Status.PARTIAL_READY);
     }
 }

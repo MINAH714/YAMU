@@ -50,7 +50,7 @@ data class PosTerminal(
 )
 
 val POS_TERMINALS = listOf(
-    PosTerminal("POS-YAMU-CAFE", "YAMU_TEST_CAFE", "COFFEE_SHOP", "야무 테스트 카페", "카페 · 일반 매장"),
+    PosTerminal("POS-YAMU-CAFE", "YAMU_TEST_CAFE", "COFFEE_SHOP", "오월커피", "카페 · 일반 매장"),
     PosTerminal("POS-STARBUCKS-GENERAL", "STARBUCKS", "COFFEE_SHOP", "스타벅스", "카페 · 일반 매장"),
     PosTerminal("POS-STARBUCKS-DEPARTMENT_STORE", "STARBUCKS", "COFFEE_SHOP", "스타벅스 백화점점", "카페 · 백화점 입점"),
     PosTerminal("POS-GS25-GENERAL", "GS25", "CONVENIENCE_STORE", "GS25", "편의점 · 일반 매장"),

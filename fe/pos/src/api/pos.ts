@@ -8,6 +8,7 @@ export type PaymentStatus = 'REQUESTED' | 'PROCESSING' | 'APPROVED' | 'DECLINED'
 
 /** POST /api/pos/payment-requests 본문. 일시불이면 installmentMonths 칸 자체를 보내지 않는다(null도 400). */
 export type PaymentRequestBody = {
+  items?: { productCode: string; quantity: number }[]
   barcodeToken: string
   merchantId: number
   posCode: string

@@ -48,10 +48,18 @@ data class HomeCardRow(
 /** 홈에 보일 카드 수 — 3장 + 전체보기(11/13 시안에서 고름) */
 const val HOME_CARD_ROWS = 3
 
-/** 카드 목록 순서 그대로 [HOME_CARD_ROWS]장 */
-fun HomeCardsData.rows(): List<HomeCardRow> {
+/**
+ * 홈에 보일 [HOME_CARD_ROWS]장. 카드별 혜택([benefits])을 받았으면 받은 혜택이 큰 카드부터(같으면 혜택 예정이 큰 순),
+ * 이번 달 YAMU 혜택이 없는 카드는 그 뒤에 카드 목록 순서로 놓는다(11/16 사용자 요청). 혜택을 모르면(null) 카드 목록 순서 그대로
+ */
+fun HomeCardsData.rows(benefits: Map<Long, CardBenefit>? = null): List<HomeCardRow> {
     val limitsById = limits?.associateBy { it.userCardId }
-    return cards.take(HOME_CARD_ROWS).map { card ->
+    val ordered = if (benefits == null) cards else cards.sortedWith(   // sortedWith는 안정 정렬 — 혜택 없는 카드끼리는 목록 순서
+        // -1L: 혜택 없는 카드를 0원 카드보다 뒤로. Int -1을 쓰면 Long과 비교하다 ClassCastException
+        compareByDescending<CardPerf> { benefits[it.userCardId]?.confirmed ?: -1L }
+            .thenByDescending { benefits[it.userCardId]?.pending ?: -1L },
+    )
+    return ordered.take(HOME_CARD_ROWS).map { card ->
         HomeCardRow(
             userCardId = card.userCardId,
             name = card.nickname?.takeIf { it.isNotBlank() } ?: card.name,
@@ -237,12 +245,22 @@ fun CardBenefit?.lineText(): String? {
 }
 
 /**
+ * 홈 카드 타일에 '이번 달 혜택 없음'을 쓸지 — 카드별 혜택을 받아 왔는데 그 카드가 없거나(이번 달 YAMU 결제 없음) 확정 · 예정이 다 0원일 때.
+ * 혜택을 불러오지 못했거나 옛 서버라 모르면(null) false — 모르는 걸 없다고 말하지 않는다(11/13 결정)
+ */
+fun noBenefitThisMonth(benefits: Map<Long, CardBenefit>?, userCardId: Long): Boolean {
+    benefits ?: return false
+    val b = benefits[userCardId] ?: return true
+    return b.confirmed == 0L && b.pending == 0L
+}
+
+/**
  * 홈 내 카드 타일을 읽을 때 한 문장(S15P31E103-519) — 이름, 받은 혜택(카드별 혜택이 있을 때만, 0원으로 지어내지 않음), 혜택 예정,
  * 원화로 못 바꾼 혜택, 남은 한도 한 줄, 실적 칩 글자
  */
-fun cardTileDescription(row: HomeCardRow, benefit: CardBenefit?): String = listOfNotNull(
+fun cardTileDescription(row: HomeCardRow, benefit: CardBenefit?, noBenefit: Boolean = false): String = listOfNotNull(
     row.name,
-    benefit?.let { "받은 혜택 ${it.confirmed.toWon()}원" },
+    if (noBenefit) "이번 달 받은 혜택 없음" else benefit?.let { "받은 혜택 ${it.confirmed.toWon()}원" },
     benefit?.pending?.takeIf { it > 0 }?.let { "${it.toWon()}원 혜택 예정" },
     benefit?.unconvertedCount?.takeIf { it > 0 }?.let { "원화로 못 바꾼 혜택 ${it}건" },
     row.limitLine,

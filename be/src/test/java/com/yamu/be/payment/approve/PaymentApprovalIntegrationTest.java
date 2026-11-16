@@ -1,6 +1,7 @@
 package com.yamu.be.payment.approve;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.nullValue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doReturn;
@@ -32,6 +33,7 @@ import com.yamu.be.support.MySqlTestSupport;
 import com.yamu.be.support.OwnershipFixtures;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
@@ -132,6 +134,7 @@ class PaymentApprovalIntegrationTest extends MySqlTestSupport {
         jdbc.update("DELETE FROM bill_item");
         jdbc.update("DELETE FROM card_bill");
         jdbc.update("DELETE FROM payment_transaction");
+        jdbc.update("DELETE FROM card_monthly_performance");
         jdbc.update("DELETE FROM user_card");
         jdbc.update("DELETE FROM linked_account");
         jdbc.update("DELETE FROM card_product");
@@ -189,6 +192,50 @@ class PaymentApprovalIntegrationTest extends MySqlTestSupport {
         assertThat(barcodes.find(requested.token()).orElseThrow().status()).isEqualTo(BarcodeStatus.USED);
         assertThat(attempts.count(requested.paymentId())).isEqualTo(1);
         assertThat(attempts.list(requested.paymentId()).get(0).outcome()).isEqualTo("APPROVED");
+    }
+
+    @Test
+    void 승인_응답과_상세의_누적_실적은_카드_목록의_이번_달_실적과_같다() throws Exception {
+        // 이번 달 앞선 실적 120,000원 + 이 결제 30,000원
+        LocalDate month = ApprovalDates.performanceMonth(LocalDateTime.ofInstant(clock.instant(), ZoneOffset.UTC));
+        jdbc.update("""
+                INSERT INTO card_monthly_performance (user_card_id, performance_month, recognized_amount,
+                                                      created_at, updated_at, version)
+                VALUES (?, ?, 120000, UTC_TIMESTAMP(6), UTC_TIMESTAMP(6), 0)
+                """, creditCard, month);
+        doAnswer(inv -> approvedWithPerformance(inv.getArgument(0), 30_000L)).when(approver).approve(any());
+        Requested requested = requested(30_000, null, null);
+        String key = UUID.randomUUID().toString();
+
+        approve(user, requested.paymentId(), key, body(creditCard))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.performance.recognizedAmount").value(30_000))
+                .andExpect(jsonPath("$.data.performance.recognizedTotalAfter").value(150_000))
+                // 실적 조건이 없는 카드(픽스처 상품에 혜택 없음)는 목표가 없다
+                .andExpect(jsonPath("$.data.performance.targetAmount").value(nullValue()));
+        // 같은 키 재전송은 승인 직후의 누적을 그대로 돌려준다
+        approve(user, requested.paymentId(), key, body(creditCard))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.performance.recognizedTotalAfter").value(150_000));
+        detail(requested.paymentId())
+                .andExpect(jsonPath("$.data.performance.recognizedTotalAfter").value(150_000))
+                .andExpect(jsonPath("$.data.performance.targetAmount").value(nullValue()));
+        // 카드 목록 API가 이번 달 실적으로 읽는 행과 같은 값이다(그 읽기는 CardManagementIntegrationTest가 확인한다.
+        // 카드 목록 서비스는 clock.withZone을 써서 이 테스트의 MutableClock으로는 부를 수 없다)
+        assertThat(jdbc.queryForObject("SELECT recognized_amount FROM card_monthly_performance"
+                + " WHERE user_card_id = ? AND performance_month = ?", Long.class, creditCard, month)).isEqualTo(150_000L);
+    }
+
+    @Test
+    void 실적_인정액을_모르는_승인은_누적과_목표를_비운다() throws Exception {
+        doAnswer(inv -> approvedWithPerformance(inv.getArgument(0), null)).when(approver).approve(any());
+        Requested requested = requested(30_000, null, null);
+
+        approve(user, requested.paymentId(), UUID.randomUUID().toString(), body(creditCard))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.performance.recognized").value(false))
+                .andExpect(jsonPath("$.data.performance.recognizedTotalAfter").value(nullValue()))
+                .andExpect(jsonPath("$.data.performance.targetAmount").value(nullValue()));
     }
 
     @Test
@@ -708,6 +755,13 @@ class PaymentApprovalIntegrationTest extends MySqlTestSupport {
             builder.content(body);
         }
         return mockMvc.perform(builder);
+    }
+
+    /** 실적 인정액만 정한 승인. {@code recognized}가 null이면 인정액 미확인. */
+    static ApprovalOutcome.Approved approvedWithPerformance(ApprovalCommand command, Long recognized) {
+        long amount = command.terms().amount();
+        return new ApprovalOutcome.Approved(amount, amount, recognized, ApprovalDates.performanceMonth(command.now()),
+                List.of(), null, null, null, null);
     }
 
     /** 체크카드·혜택 0원 승인과 같은 모양: 승인액 = 원금, 실적 0, 청구 계획 없음. */

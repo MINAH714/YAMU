@@ -144,7 +144,9 @@
   text-align: center;
 }
 
-.history-error {
+/* 캐릭터가 붙는 안내(불러오기 실패·빈 목록). 그림·문구·버튼을 세로로 쌓는다 */
+.history-error,
+.history-empty-stack {
   flex-direction: column;
   gap: var(--s-4);
 }

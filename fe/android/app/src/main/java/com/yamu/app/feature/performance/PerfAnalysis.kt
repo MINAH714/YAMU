@@ -99,6 +99,7 @@ class PerfAnalysisViewModel internal constructor(
 
     private val _state = MutableStateFlow(PerfAnalysisState(selectedId = initialCardId))
     val state: StateFlow<PerfAnalysisState> = _state.asStateFlow()
+    private var analysisRequest = 0L
 
     init {
         viewModelScope.launch {
@@ -114,18 +115,19 @@ class PerfAnalysisViewModel internal constructor(
 
     fun select(userCardId: Long) {
         if (userCardId == _state.value.selectedId) return
-        _state.update { it.copy(selectedId = userCardId) }
+        _state.update { it.copy(selectedId = userCardId, message = null) }
         load()
     }
 
     fun load() {
         val id = _state.value.selectedId
+        val request = ++analysisRequest
+        _state.update { it.copy(loading = true, error = null, noData = false, notReady = false, analysis = null) }
         viewModelScope.launch {
-            _state.update { it.copy(loading = true, error = null, noData = false, notReady = false, analysis = null) }
             when (val r = perf.analysis(id)) {
-                is ApiResult.Success -> _state.update { if (it.selectedId == id) it.copy(loading = false, analysis = r.data) else it }
+                is ApiResult.Success -> _state.update { if (analysisRequest == request && it.selectedId == id) it.copy(loading = false, analysis = r.data) else it }
                 is ApiResult.Failure -> _state.update {
-                    if (it.selectedId != id) it
+                    if (analysisRequest != request || it.selectedId != id) it
                     else if (r.error is ApiError.DataInsufficient) it.copy(loading = false, noData = true)
                     else if (r.error is ApiError.NotSupported) it.copy(loading = false, notReady = true)
                     else it.copy(loading = false, error = r.error.userMessage())
@@ -134,17 +136,18 @@ class PerfAnalysisViewModel internal constructor(
         }
     }
 
-    /** [채우지 않을게요] · [평소대로 쓸게요] · [다시 판단하기](null) */
+    /** [채우지 않을게요] · [다시 판단하기](null) */
     fun decide(decision: PerfDecision?) {
         val a = _state.value.analysis ?: return
         if (_state.value.acting) return
+        val request = analysisRequest
+        _state.update { it.copy(acting = true) }
         viewModelScope.launch {
-            _state.update { it.copy(acting = true) }
             when (val r = perf.decide(a.userCardId, decision, a.version)) {
                 is ApiResult.Success -> {
-                    _state.update { it.copy(acting = false, analysis = a.copy(decision = decision), message = if (decision == null) "다시 판단할 수 있어요 · 알림도 다시 받아요" else "이번 달 판단을 기록했어요") }
+                    finishAction(a.userCardId, request) { it.copy(analysis = a.copy(decision = decision), message = if (decision == null) "다시 판단할 수 있어요 · 알림도 다시 받아요" else "이번 달 판단을 기록했어요") }
                 }
-                is ApiResult.Failure -> _state.update { it.copy(acting = false, message = r.error.userMessage()) }
+                is ApiResult.Failure -> finishAction(a.userCardId, request) { it.copy(message = r.error.userMessage()) }
             }
         }
     }
@@ -155,15 +158,40 @@ class PerfAnalysisViewModel internal constructor(
         val item = a.movable ?: return
         val card = _state.value.selected?.name ?: "이 카드"
         if (_state.value.acting) return
+        val request = analysisRequest
+        _state.update { it.copy(acting = true) }
         viewModelScope.launch {
-            _state.update { it.copy(acting = true) }
             val moved = perf.moveCashflow(item.cashflowItemId, a.userCardId)
-            if (moved is ApiResult.Failure) return@launch _state.update { it.copy(acting = false, message = moved.error.userMessage()) }
-            perf.decide(a.userCardId, PerfDecision.FILL, a.version)
+            if (moved is ApiResult.Failure) {
+                val message = if (moved.error.isOutcomeUnknown) "${item.title} 결제 카드 변경 결과를 확인하지 못했어요 · 예정 지출에서 확인해 주세요" else moved.error.userMessage()
+                finishAction(a.userCardId, request, refresh = moved.error.isOutcomeUnknown) { it.copy(message = message) }
+                return@launch
+            }
+            val recorded = perf.decide(a.userCardId, PerfDecision.FILL, a.version)
             val deadline = parseDate(item.deadlineIso)?.toMonthDay()?.let { "${it}까지 " }.orEmpty()
-            _state.update { it.copy(acting = false, message = "${item.title} 결제 카드를 $card${card.directionParticle()} 바꿔 뒀어요 · ${deadline}${item.title}${item.title.objectParticle()} 내는 곳에서도 카드를 바꿔 주세요") }
-            load()
+            // 앱의 예정 지출만 바뀐 것이므로 판단 기록 결과와 관계없이 결제처 변경 안내를 남긴다.
+            val movedMessage = "${item.title} 결제 카드를 $card${card.directionParticle()} 바꿔 뒀어요 · ${deadline}${item.title}${item.title.objectParticle()} 내는 곳에서도 카드를 바꿔 주세요"
+            val message = when (recorded) {
+                is ApiResult.Success -> movedMessage
+                is ApiResult.Failure -> if (recorded.error.isOutcomeUnknown) {
+                    "$movedMessage · 판단 기록 결과는 확인하지 못했어요 · 다시 불러온 분석을 확인해 주세요"
+                } else {
+                    "$movedMessage · 판단은 기록하지 못했어요 · ${recorded.error.userMessage()}"
+                }
+            }
+            finishAction(a.userCardId, request, refresh = true, completionMessage = message) { it }
         }
+    }
+
+    /** 쓰기는 끝까지 기다리되, 그사이 바뀐 카드/요청의 본문은 덮지 않는다. 이동 완료 안내는 선택 카드와 독립적이다. */
+    private fun finishAction(id: Long, request: Long, refresh: Boolean = false, completionMessage: String? = null, update: (PerfAnalysisState) -> PerfAnalysisState) {
+        _state.update {
+            val idle = it.copy(acting = false, message = completionMessage ?: it.message)
+            if (it.selectedId == id && analysisRequest == request) update(idle) else idle
+        }
+        // 지출 이동은 출발 카드의 분석도 바꾼다. 다른 카드를 보고 있어도 현재 카드를 다시 받는다.
+        // 일반 판단 저장은 A→B→A로 돌아왔을 때만 다시 받는다.
+        if (refresh || (_state.value.selectedId == id && analysisRequest != request)) load()
     }
 
     fun messageShown() = _state.update { it.copy(message = null) }
@@ -232,7 +260,7 @@ private fun AnalysisPage(card: CardPerf?, current: PerfAnalysisState?, cardName:
                 }
             }
             current.noData -> SectionBlock(divider = false) {
-                StatusTag(PerfGuide.INSUFFICIENT_DATA.label, tone = PerfGuide.INSUFFICIENT_DATA.tone())
+                StatusTag(PerfGuide.INSUFFICIENT_DATA.label.orEmpty(), tone = PerfGuide.INSUFFICIENT_DATA.tone())
                 Spacer(Modifier.height(YamuSpacing.x2))
                 Text("데이터가 더 모이면 판단해 드려요", style = YamuTheme.typography.titleL, color = c.text1)
                 Text("거래가 한 달쯤 쌓이면 이 카드의 유불리를 알려 드려요", style = YamuTheme.typography.bodyM, color = c.text3)
@@ -255,8 +283,10 @@ private fun AnalysisBody(a: PerfAnalysis, cardName: String, onDetail: () -> Unit
     val nextMonth = a.month?.let { it % 12 + 1 }
     // ① 판정 · 머리 문장 · 큰 숫자
     SectionBlock(divider = false) {
-        StatusTag(a.guide.label, tone = a.guide.tone(), large = true)
-        Spacer(Modifier.height(12.dp))
+        a.guide.label?.let {
+            StatusTag(it, tone = a.guide.tone(), large = true)
+            Spacer(Modifier.height(12.dp))
+        }
         a.headline?.let { Text(it, style = YamuTheme.typography.headlineS, color = c.text1) }
         // 큰 숫자 — 판정마다 다르다(11 문서 7-1 표)
         when (a.guide) {
@@ -298,14 +328,16 @@ private fun AnalysisBody(a: PerfAnalysis, cardName: String, onDetail: () -> Unit
 private fun DetailLink(cardName: String, onDetail: () -> Unit) =
     QuietLink("${cardName.clipName()} 실적 자세히 보기", onClick = onDetail, modifier = Modifier.offset(x = (-4).dp))
 
-/** R-03 아래 버튼 하나 — 기록했으면 다시 판단, 아니면 판정별 행동, 행동이 없는 판정은 카드 실적 상세(R-02) */
-internal enum class PerfAction { REJUDGE, MOVE, SKIP, KEEP, DETAIL }
+/**
+ * R-03 아래 버튼 하나 — 기록했으면 다시 판단, 아니면 판정별 행동, 행동이 없는 판정은 카드 실적 상세(R-02).
+ * KEEP_NATURAL의 [평소대로 쓸게요]는 헷갈린다는 의견으로 빼서 R-02로 간다
+ */
+internal enum class PerfAction { REJUDGE, MOVE, SKIP, DETAIL }
 
 internal fun PerfAnalysis.primaryAction(): PerfAction = when {
     decision != null -> PerfAction.REJUDGE
     guide == PerfGuide.ACHIEVE_RECOMMENDED && movable != null -> PerfAction.MOVE
     guide == PerfGuide.EXTRA_SPENDING_NOT_RECOMMENDED -> PerfAction.SKIP
-    guide == PerfGuide.KEEP_NATURAL -> PerfAction.KEEP
     else -> PerfAction.DETAIL
 }
 
@@ -350,9 +382,6 @@ private fun ActionButtons(
         }
         PerfAction.SKIP -> BottomCta {
             PrimaryButton("채우지 않을게요", onClick = { onDecide(PerfDecision.SKIP) }, loading = acting)
-        }
-        PerfAction.KEEP -> BottomCta {
-            PrimaryButton("평소대로 쓸게요", onClick = { onDecide(PerfDecision.KEEP) }, loading = acting)
         }
         PerfAction.DETAIL -> BottomCta { PrimaryButton(detail, onClick = onDetail) }
     }

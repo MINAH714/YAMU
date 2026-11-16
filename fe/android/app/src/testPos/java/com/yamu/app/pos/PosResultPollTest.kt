@@ -77,7 +77,7 @@ class PosResultPollTest {
             requests = listOf(ApiResult.Failure(ApiError.Network), ApiResult.Success(9)),
             results = listOf(dto("REJECTED")),
         )
-        val sender = PosRequestSender(repo, PosMerchant(12, "POS-YAMU-CAFE", "야무 테스트 카페"), 15_000, store)
+        val sender = PosRequestSender(repo, PosMerchant(12, "POS-YAMU-CAFE", "오월커피"), 15_000, store)
         sender.send("YAMU8F2A")
         assertNotNull(store.value)
         // 그 사이 고객이 앱에서 거절했다. BE는 같은 키 · 같은 본문에 처음 paymentId를 돌려주고, 결과 조회는 REJECTED다

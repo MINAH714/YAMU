@@ -9,6 +9,7 @@ import com.yamu.app.feature.performance.data.PerfGuide
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -29,8 +30,6 @@ class PerfCardDetailPathTest {
     }
 
     @Test fun `행동 버튼이 있는 판정은 본문에 자세히 보기 링크를 둔다`() {
-        assertEquals(PerfAction.KEEP, analysis(PerfGuide.KEEP_NATURAL).primaryAction())
-        assertEquals(DetailLinkPlace.REASONS, analysis(PerfGuide.KEEP_NATURAL).detailLinkPlace())
         assertEquals(PerfAction.SKIP, analysis(PerfGuide.EXTRA_SPENDING_NOT_RECOMMENDED).primaryAction())
         assertEquals(DetailLinkPlace.REASONS, analysis(PerfGuide.EXTRA_SPENDING_NOT_RECOMMENDED).detailLinkPlace())
         assertEquals(PerfAction.MOVE, analysis(PerfGuide.ACHIEVE_RECOMMENDED, movable = MOVABLE).primaryAction())
@@ -44,10 +43,19 @@ class PerfCardDetailPathTest {
     }
 
     @Test fun `아래 버튼이 이미 자세히 보기면 링크를 겹쳐 두지 않는다`() {
-        for (a in listOf(analysis(PerfGuide.ACHIEVE_RECOMMENDED), analysis(PerfGuide.ALREADY_ACHIEVED), analysis(PerfGuide.INSUFFICIENT_DATA))) {
+        for (a in listOf(analysis(PerfGuide.ACHIEVE_RECOMMENDED), analysis(PerfGuide.ALREADY_ACHIEVED), analysis(PerfGuide.INSUFFICIENT_DATA), analysis(PerfGuide.KEEP_NATURAL))) {
             assertEquals(a.guide.name, PerfAction.DETAIL, a.primaryAction())
             assertEquals(a.guide.name, DetailLinkPlace.NONE, a.detailLinkPlace())
         }
+    }
+
+    @Test fun `자연 소비 유지 판정은 태그도 '평소대로 쓸게요' 버튼도 없이 R-02 버튼만 둔다`() {
+        assertNull(PerfGuide.KEEP_NATURAL.label)
+        assertEquals(PerfAction.DETAIL, analysis(PerfGuide.KEEP_NATURAL).primaryAction())
+    }
+
+    @Test fun `이미 '평소대로 쓰기'로 기록한 카드는 다시 판단해 되돌릴 수 있다`() {
+        assertEquals(PerfAction.REJUDGE, analysis(PerfGuide.KEEP_NATURAL, decision = PerfDecision.KEEP).primaryAction())
     }
 
     @Test fun `그 밖의 카드 줄 읽기 이름은 카드 이름과 달성 · 실적 조건 없음`() {

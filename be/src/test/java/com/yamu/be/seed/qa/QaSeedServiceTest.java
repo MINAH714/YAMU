@@ -42,11 +42,16 @@ import org.springframework.jdbc.datasource.init.ScriptUtils;
 @org.springframework.test.annotation.DirtiesContext(classMode = org.springframework.test.annotation.DirtiesContext.ClassMode.AFTER_CLASS)
 class QaSeedServiceTest extends MySqlTestSupport {
     @Autowired org.springframework.test.web.servlet.MockMvc mvc;
+    @Autowired org.springframework.context.ApplicationContext context;
     @Autowired CryptoProperties cryptoProperties;
     @Autowired DataSource dataSource;
     @Autowired BillConfirmer confirmer;
     @Autowired BillWithdrawer withdrawer;
     @Autowired RefundDepositor depositor;
+    @Autowired com.yamu.be.forecast.CardBillReader billReader;
+    @Autowired com.yamu.be.payment.billing.CreditBillingWriter billingWriter;
+    @Autowired org.springframework.transaction.PlatformTransactionManager transactionManager;
+    @Autowired com.yamu.be.accounthistory.AccountHistoryStore accountHistory;
     @MockitoBean SsafyTransferApi transfer;
     @MockitoBean com.yamu.be.account.AccountBalanceService balances;
     @MockitoBean Clock runtimeClock;
@@ -111,14 +116,14 @@ class QaSeedServiceTest extends MySqlTestSupport {
             db.update("""
                     UPDATE app_user SET status='ACTIVE',pin_hash=?,pin_updated_at=?,identity_verified_at=? WHERE user_id=?
                     """,new PinHasher(keys).hash("493827"),now,now,user);
-            for(int a=0;a<2;a++) {
+            for(int a=0;a<p.accounts().size();a++) {
                 var account=p.accounts().get(a);
                 db.update("""
                         INSERT INTO linked_account(user_id,bank_code,account_no_enc,account_no_hash,account_last4,
                           status,is_primary,connected_at,created_at,updated_at)
                         VALUES (?,?,?,?,?,'CONNECTED',?,?,?,?)
                         """,user,account.bankCode(),cipher.encrypt(account.accountNo(),CipherField.LINKED_ACCOUNT_NO),
-                        lookup.account(account.bankCode(),account.accountNo()),"0001",a==0,now,now,now);
+                        lookup.account(account.bankCode(),account.accountNo()),account.accountNo().substring(account.accountNo().length()-4),a==0,now,now,now);
             }
             db.update("""
                     UPDATE user_card c JOIN linked_account a ON a.user_id=c.user_id
@@ -128,6 +133,257 @@ class QaSeedServiceTest extends MySqlTestSupport {
         }
     }
     private long count(String table) { return db.queryForObject("SELECT COUNT(*) FROM "+table,Long.class); }
+
+    @Test void compileCurrentPolicyLifeBenefits() throws Exception {
+        ScriptUtils.executeSqlScript(connection,new FileSystemResource(Path.of("seed/05-ibk-narasarang.sql")));
+        service=new QaSeedService(connection,keys,Clock.fixed(Instant.parse("2026-11-16T03:00:00Z"),ZoneOffset.UTC),cryptoProperties.hmacKey());
+        var mapper=new com.fasterxml.jackson.databind.ObjectMapper().findAndRegisterModules();
+        var input=mapper.readValue(Path.of("seed/qa/life-persona-1.example.json").toFile(),QaSeedSpec.class);
+        var p=input.personas().get(0);
+        var person=new QaSeedSpec.Persona("p0",p.scenario(),p.name(),p.birthDate(),p.phone(),p.ssafyMemberId(),"local-replay",p.accounts(),p.cards(),p.issuanceEligibility());
+        var spec=new QaSeedSpec(input.datasetKey(),3,input.baseDate(),List.of(person));
+        apply(spec); signedUp(spec);
+        var compiled=com.yamu.be.recommendation.QaLifePolicyReplay.generate(context,user(spec,0));
+        java.nio.file.Files.createDirectories(Path.of("build/reports"));
+        mapper.writerWithDefaultPrettyPrinter().writeValue(Path.of("build/reports/life-benefits.json").toFile(),compiled);
+        assertThat(mapper.readTree(mapper.writeValueAsBytes(compiled))).isEqualTo(mapper.readTree(Path.of("src/main/resources/qa/life-benefits.json").toFile()));
+    }
+    @Test void extendedHistoryIsAvailableForAllThreeUsersAndNineAccounts() throws Exception {
+        ScriptUtils.executeSqlScript(connection,new FileSystemResource(Path.of("seed/05-ibk-narasarang.sql")));
+        service=new QaSeedService(connection,keys,Clock.fixed(Instant.parse("2026-11-16T03:00:00Z"),ZoneOffset.UTC),cryptoProperties.hmacKey());
+        var mapper=new com.fasterxml.jackson.databind.ObjectMapper().registerModule(new com.fasterxml.jackson.datatype.jsr310.JavaTimeModule());
+        var actualStreams=new ArrayList<Long>();
+        var assetSpecs=new ArrayList<QaAssetHistory.Spec>();
+        var assets=new QaAssetHistory(db,Clock.fixed(Instant.parse("2026-11-17T04:00:00Z"),ZoneOffset.UTC));
+        var responseSnapshots=mapper.createArrayNode();
+        when(transfer.historySnapshot(anyString(),anyString(),any(),any(),any())).thenAnswer(call ->
+            new com.yamu.be.payment.bank.BankHistory(call.getArgument(2),call.getArgument(3),null,0L,List.of(),runtimeClock.instant()));
+        try {
+            for(int n=1;n<=3;n++) {
+                var input=mapper.readValue(Path.of("seed/qa/life-persona-"+n+".example.json").toFile(),QaSeedSpec.class);
+                var p=input.personas().get(0);
+                var person=new QaSeedSpec.Persona("p0",p.scenario(),p.name(),p.birthDate(),p.phone(),p.ssafyMemberId(),
+                    "isolated-extension-"+n,p.accounts(),p.cards(),p.issuanceEligibility());
+                var spec=new QaSeedSpec(input.datasetKey(),3,input.baseDate(),List.of(person));
+                apply(spec);signedUp(spec);service.run("enrich",spec);service.run("verify",spec);
+                long owner=user(spec,0);
+                var accountIds=new ArrayList<Long>();
+                var bankBalances=new ArrayList<com.yamu.be.account.AccountBalance>();
+                when(runtimeClock.instant()).thenReturn(Instant.parse("2026-11-17T04:00:00Z"));
+                for(int a=0;a<3;a++) {
+                    long account=db.queryForObject("SELECT linked_account_id FROM linked_account WHERE user_id=? AND bank_code=?",Long.class,owner,p.accounts().get(a).bankCode());
+                    accountIds.add(account);
+                    long opening=QaLifeScenario.startingBalance(a);
+                    bankBalances.add(new com.yamu.be.account.AccountBalance(account,opening,java.time.LocalDateTime.of(2026,11,16,3,0)));
+                    String funding="extension-local-funding-"+n+"-"+a;
+                    var ticket=accountHistory.begin(owner,account,QaLifeScenario.BASE,QaLifeScenario.BASE);
+                    actualStreams.add(ticket.streamId());
+                    var row=new com.yamu.be.payment.bank.BankTransaction(funding,QaLifeScenario.BASE,java.time.LocalTime.NOON,
+                        com.yamu.be.payment.bank.BankDirection.DEPOSIT,opening,opening,"");
+                    assertThat(accountHistory.complete(ticket,new com.yamu.be.payment.bank.BankHistory(QaLifeScenario.BASE,QaLifeScenario.BASE,null,1L,List.of(row),runtimeClock.instant()))).isEqualTo("OK");
+                    var assetSpec=new QaAssetHistory.Spec(spec.datasetKey(),"p0",account,QaLifeScenario.FROM,QaLifeScenario.BASE.minusDays(1),0,0,List.of(),"LIFE",funding);
+                    assetSpecs.add(assetSpec);
+                    connection.setAutoCommit(false);
+                    try { assets.run("apply",assetSpec);connection.commit();assets.run("verify",assetSpec);connection.commit(); }
+                    finally {connection.rollback();connection.setAutoCommit(true);}
+                    assertThat(accountHistory.read(owner,account,QaLifeScenario.FROM,LocalDate.of(2026,3,31)).reason()).isEqualTo("OK");
+                }
+                when(runtimeClock.instant()).thenReturn(Instant.parse("2026-11-16T03:00:00Z"));
+                when(balances.getBalances(eq(owner),eq(accountIds),eq(false))).thenReturn(bankBalances);
+                for(var ym=java.time.YearMonth.of(2025,12);ym.isBefore(java.time.YearMonth.of(2026,4));ym=ym.plusMonths(1)) {
+                    var data=mapper.readTree(mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/api/asset-flows")
+                        .param("yearMonth",ym.toString()).param("accountIds",accountIds.stream().map(String::valueOf).toArray(String[]::new))
+                        .with(com.yamu.be.support.AuthUsers.asUser(owner)))
+                        .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isOk())
+                        .andReturn().getResponse().getContentAsString(java.nio.charset.StandardCharsets.UTF_8)).path("data");
+                    assertThat(data.path("partialErrors").size()).isZero();
+                    assertThat(data.path("currentTotalBalance").asLong()).isEqualTo(2_250_000);
+                    assertThat(data.path("series").size()).isEqualTo(ym.lengthOfMonth());
+                    for(var day:data.path("series")) {
+                        assertThat(day.path("kind").asText()).isEqualTo("SIMULATED");
+                        assertThat(day.path("dataStatus").asText()).isEqualTo("AVAILABLE");
+                    }
+                    var snapshot=responseSnapshots.addObject();snapshot.put("name",p.name());snapshot.set("assetFlow",data);
+                }
+            }
+            verify(transfer,never()).withdraw(anyString(),anyString(),anyLong(),any(),anyString());
+            verify(transfer,never()).deposit(anyString(),anyString(),anyLong(),any(),anyString());
+            java.nio.file.Files.createDirectories(Path.of("build/reports"));
+            mapper.writerWithDefaultPrettyPrinter().writeValue(Path.of("build/reports/qa-life-extension-assets.json").toFile(),responseSnapshots);
+        } finally {
+            // Cleanup only in MySqlTestSupport's disposable database; never touch financial originals.
+            for(var assetSpec:assetSpecs) assets.run("reset",assetSpec);
+            for(long stream:actualStreams) {
+                for(String table:List.of("account_history_coverage","account_history_sync_run","account_transaction"))
+                    db.update("DELETE FROM "+table+" WHERE stream_id=?",stream);
+                db.update("DELETE FROM account_history_stream WHERE stream_id=?",stream);
+            }
+        }
+    }
+    @Test void lifeConsumptionReportSnapshot() throws Exception {
+        ScriptUtils.executeSqlScript(connection,new FileSystemResource(Path.of("seed/05-ibk-narasarang.sql")));
+        service=new QaSeedService(connection,keys,Clock.fixed(Instant.parse("2026-11-16T03:00:00Z"),ZoneOffset.UTC),cryptoProperties.hmacKey());
+        var mapper=new com.fasterxml.jackson.databind.ObjectMapper().registerModule(new com.fasterxml.jackson.datatype.jsr310.JavaTimeModule());
+        var result=mapper.createObjectNode();
+        result.put("referenceDate","2026-11-16");
+        result.put("execution","MockMvc controllers + isolated MySQL; signup prerequisites prepared in test; no financial calls");
+        var people=result.putArray("personas");
+        com.fasterxml.jackson.databind.JsonNode baseline=null;
+        for(int n=1;n<=3;n++) {
+            var input=mapper.readValue(Path.of("seed/qa/life-persona-"+n+".example.json").toFile(),QaSeedSpec.class);
+            var p=input.personas().get(0);
+            var person=new QaSeedSpec.Persona("p0",p.scenario(),p.name(),p.birthDate(),p.phone(),p.ssafyMemberId(),"isolated-report-binding-"+n,p.accounts(),p.cards(),p.issuanceEligibility());
+            var spec=new QaSeedSpec(input.datasetKey(),3,input.baseDate(),List.of(person));
+            apply(spec);signedUp(spec);service.run("enrich",spec);service.run("verify",spec);
+            long owner=user(spec,0);
+            assertThat(db.queryForObject("SELECT created_at FROM app_user WHERE user_id=?",Timestamp.class,owner).toInstant()).isEqualTo(Instant.parse("2026-03-31T15:00:00Z"));
+            var entry=people.addObject();entry.put("name",p.name());var months=entry.putArray("months");
+            for(var ym=java.time.YearMonth.of(2025,12);!ym.isAfter(java.time.YearMonth.of(2026,11));ym=ym.plusMonths(1)) {
+                String month=ym.toString();
+                var report=mapper.readTree(mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/api/reports/monthly")
+                        .param("yearMonth",month).with(com.yamu.be.support.AuthUsers.asUser(owner)))
+                        .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isOk()).andReturn().getResponse().getContentAsString(java.nio.charset.StandardCharsets.UTF_8)).path("data");
+                var payments=mapper.readTree(mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/api/payments")
+                        .param("yearMonth",month).param("page","1").param("size","1").with(com.yamu.be.support.AuthUsers.asUser(owner)))
+                        .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isOk()).andReturn().getResponse().getContentAsString(java.nio.charset.StandardCharsets.UTF_8)).path("data");
+                var benefits=mapper.readTree(mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/api/reports/monthly/benefits")
+                        .param("yearMonth",month).param("source","YAMU").with(com.yamu.be.support.AuthUsers.asUser(owner)))
+                        .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isOk()).andReturn().getResponse().getContentAsString(java.nio.charset.StandardCharsets.UTF_8)).path("data");
+                final var benefitMonth=ym;
+                long expectedBenefit=QaLifeScenario.payments(QaLifeScenario.BASE).stream()
+                    .filter(t->java.time.YearMonth.from(t.date()).equals(benefitMonth))
+                    .map(QaLifeBenefits::row).filter(java.util.Objects::nonNull)
+                    .flatMap(r->java.util.stream.StreamSupport.stream(r.path("benefits").spliterator(),false))
+                    .mapToLong(b->b.path("krw").asLong()).sum();
+                assertThat(benefits.path("summary").path("expectedBenefit").asLong()).isEqualTo(expectedBenefit);
+                if(!ym.isBefore(java.time.YearMonth.of(2026,4))) assertThat(expectedBenefit).isPositive();
+                else assertThat(expectedBenefit).isZero();
+                assertThat(benefits.path("summary").path("yamuPickExtra").asLong()).isZero();
+                var row=months.addObject();row.set("monthly",report);row.set("paymentsSummary",payments.path("summary"));row.set("yamuBenefits",benefits);
+                final var snapshotMonth=ym;
+                long total=QaLifeScenario.payments(QaLifeScenario.BASE).stream().filter(t->java.time.YearMonth.from(t.date()).equals(snapshotMonth)).mapToLong(QaHistoryPlan.Payment::amount).sum();
+                assertThat(report.path("totalSpent").asLong()).isEqualTo(total);
+                assertThat(report.path("livingSpent").asLong()).isEqualTo(total-(snapshotMonth.equals(java.time.YearMonth.of(2026,7))?900000:0));
+            }
+            var comparable=months.deepCopy();
+            for(var m:comparable) for(var card:m.path("yamuBenefits").path("cards")) ((com.fasterxml.jackson.databind.node.ObjectNode)card).remove(List.of("userCardId","cardProductId"));
+            if(baseline==null) baseline=comparable;else assertThat(comparable).isEqualTo(baseline);
+        }
+        verify(transfer,never()).withdraw(anyString(),anyString(),anyLong(),any(),anyString());
+        verify(transfer,never()).deposit(anyString(),anyString(),anyLong(),any(),anyString());
+        var output=Path.of("build/reports/qa-life-consumption.json");java.nio.file.Files.createDirectories(output.getParent());
+        mapper.writerWithDefaultPrettyPrinter().writeValue(output.toFile(),result);
+    }
+
+    @Test void lifeUsersHaveIndependentMatchingBillsPlansAndReset() throws Exception {
+        ScriptUtils.executeSqlScript(connection,new FileSystemResource(Path.of("seed/05-ibk-narasarang.sql")));
+        service=new QaSeedService(connection,keys,Clock.fixed(Instant.parse("2026-11-16T03:00:00Z"),ZoneOffset.UTC),cryptoProperties.hmacKey());
+        var mapper=new com.fasterxml.jackson.databind.ObjectMapper().registerModule(new com.fasterxml.jackson.datatype.jsr310.JavaTimeModule());
+        var life=new ArrayList<QaSeedSpec>();
+        for(int n=1;n<=3;n++) {
+            var input=mapper.readValue(Path.of("seed/qa/life-persona-"+n+".example.json").toFile(),QaSeedSpec.class);
+            var p=input.personas().get(0);
+            var person=new QaSeedSpec.Persona("p0",p.scenario(),p.name(),p.birthDate(),p.phone(),p.ssafyMemberId(),"isolated-test-binding-"+n,p.accounts(),p.cards(),p.issuanceEligibility());
+            var spec=new QaSeedSpec(input.datasetKey(),3,input.baseDate(),List.of(person));
+            apply(spec); signedUp(spec);service.run("enrich",spec);service.run("enrich",spec);service.run("verify",spec);
+            life.add(spec);
+            long owner=user(spec,0);
+            assertThat(db.queryForObject("""
+                SELECT COUNT(*) FROM card_bill b WHERE b.user_id=? AND b.status IN ('CONFIRMED','PAID')
+                  AND b.confirmed_amount<>(SELECT SUM(i.billed_amount) FROM bill_item i WHERE i.card_bill_id=b.card_bill_id)
+                    -COALESCE((SELECT SUM(d.amount) FROM bill_item_discount d WHERE d.card_bill_id=b.card_bill_id),0)
+                """,Long.class,owner)).isZero();
+            assertThat(db.queryForObject("""
+                SELECT COUNT(*) FROM payment_benefit pb JOIN payment_transaction t USING(payment_transaction_id)
+                  WHERE t.user_id=? AND t.approved_at<'2026-03-31 15:00:00'
+                """,Long.class,owner)).isZero();
+            assertThat(db.queryForObject("""
+                SELECT COUNT(*) FROM payment_transaction WHERE user_id=? AND source='YAMU'
+                """,Long.class,owner)).isEqualTo(234);
+            assertThat(db.queryForObject("SELECT COUNT(*) FROM notification WHERE user_id=? AND target_id IS NOT NULL",Long.class,owner)).isGreaterThan(24);
+            assertThat(db.queryForObject("SELECT COUNT(DISTINCT notification_type) FROM notification WHERE user_id=?",Long.class,owner)).isEqualTo(3);
+            assertThat(db.queryForObject("SELECT SUM(confirmed_amount) FROM card_bill WHERE user_id=? AND status='CONFIRMED'",Long.class,owner)).isEqualTo(QaLifeScenario.bills().stream().filter(b->b.month().equals(java.time.YearMonth.of(2026,11))).mapToLong(QaLifeScenario.Bill::amount).sum());
+            assertThat(db.queryForObject("SELECT SUM(i.billed_amount) FROM bill_item i JOIN card_bill b USING(card_bill_id) WHERE b.user_id=? AND b.billing_month='2026-12-01'",Long.class,owner)).isEqualTo(420000);
+            assertThat(db.queryForObject("SELECT COUNT(*) FROM cashflow_item WHERE user_id=? AND title='정기 구독' AND linked_account_id IS NULL AND user_card_id IS NOT NULL",Long.class,owner)).isEqualTo(1);
+            assertThat(db.queryForObject("SELECT COALESCE(SUM(used_value),0) FROM monthly_limit_usage m JOIN user_card c USING(user_card_id) JOIN card_product p ON p.card_product_id=c.card_product_id WHERE c.user_id=? AND p.issuer_code='IBK'",Long.class,owner)).isZero();
+            var accounts=db.queryForList("SELECT linked_account_id FROM linked_account WHERE user_id=?",Long.class,owner);
+            var outstanding=billReader.outstanding(owner,accounts,LocalDate.of(2026,12,15));
+            assertThat(outstanding).hasSize(4);
+            assertThat(outstanding.stream().mapToLong(com.yamu.be.forecast.CardBillReader.OutstandingBill::amount).sum()).isEqualTo(QaLifeScenario.bills().stream().filter(b->!b.due().isBefore(QaLifeScenario.BASE)).mapToLong(QaLifeScenario.Bill::amount).sum());
+            long card=db.queryForObject("SELECT c.user_card_id FROM user_card c JOIN card_product p USING(card_product_id) WHERE c.user_id=? AND p.product_name='신한카드 처음'",Long.class,owner);
+            var purchase=com.yamu.be.payment.billing.InstallmentPlan.of(25000,1,new com.yamu.be.payment.billing.BillingCycle(15,14),QaLifeScenario.BASE,QaLifeScenario.calendar());
+            var ensured=billingWriter.ensureBills(owner,card,purchase);
+            assertThat(ensured.get(java.time.YearMonth.of(2026,12)).getId()).isEqualTo(db.queryForObject("SELECT card_bill_id FROM card_bill WHERE user_card_id=? AND billing_month='2026-12-01'",Long.class,card));
+            if(n==1) {
+                long payment=service.insert("""
+                    INSERT INTO payment_transaction(user_id,user_card_id,card_product_id,merchant_id,payment_channel,facility_type,
+                      request_key,request_fingerprint,source,status,requested_amount,approved_amount,installment_months,
+                      recognized_performance_amount,performance_month,requested_at,approved_at,created_at,updated_at)
+                    SELECT user_id,user_card_id,card_product_id,merchant_id,'OFFLINE','GENERAL',UUID(),UNHEX(REPEAT('01',32)),
+                      'YAMU','APPROVED',25000,25000,1,25000,'2026-11-01','2026-11-16 03:00:00','2026-11-16 03:00:00',UTC_TIMESTAMP(6),UTC_TIMESTAMP(6)
+                    FROM payment_transaction WHERE user_card_id=? LIMIT 1
+                    """,card);
+                var approved=mock(com.yamu.be.payment.domain.PaymentTransaction.class);
+                when(approved.getId()).thenReturn(payment);when(approved.getUserId()).thenReturn(owner);when(approved.getUserCardId()).thenReturn(card);
+                new org.springframework.transaction.support.TransactionTemplate(transactionManager).executeWithoutResult(tx->billingWriter.writeItems(approved,purchase,ensured));
+                assertThat(billReader.outstanding(owner,accounts,LocalDate.of(2026,12,15)).stream()
+                        .filter(b->b.billingMonth().equals(LocalDate.of(2026,12,1))).mapToLong(com.yamu.be.forecast.CardBillReader.OutstandingBill::amount).sum()).isEqualTo(445000);
+                service.run("apply",spec); // reapplying must preserve QA purchases
+                assertThat(db.queryForObject("SELECT COUNT(*) FROM payment_transaction WHERE payment_transaction_id=?",Long.class,payment)).isEqualTo(1);
+            }
+        }
+        long other=user(life.get(1),0);
+        long firstOwner=user(life.get(0),0);
+        long account=db.queryForObject("SELECT linked_account_id FROM linked_account WHERE user_id=? AND bank_code='088'",Long.class,firstOwner);
+        var actual=new com.yamu.be.payment.bank.BankTransaction("isolated-funding",QaLifeScenario.BASE,java.time.LocalTime.NOON,
+                com.yamu.be.payment.bank.BankDirection.DEPOSIT,900000,900000,"");
+        when(runtimeClock.instant()).thenReturn(Instant.parse("2026-11-17T04:00:00Z"));
+        var ticket=accountHistory.begin(firstOwner,account,QaLifeScenario.BASE,QaLifeScenario.BASE);
+        assertThat(accountHistory.complete(ticket,new com.yamu.be.payment.bank.BankHistory(QaLifeScenario.BASE,QaLifeScenario.BASE,null,1L,List.of(actual),Instant.parse("2026-11-17T04:00:00Z")))).isEqualTo("OK");
+        var assetSpec=new QaAssetHistory.Spec(life.get(0).datasetKey(),"p0",account,QaLifeScenario.FROM,QaLifeScenario.BASE.minusDays(1),0,0,List.of(),"LIFE","isolated-funding");
+        connection.setAutoCommit(false);
+        try {
+            var assets=new QaAssetHistory(db,Clock.fixed(Instant.parse("2026-11-17T04:00:00Z"),ZoneOffset.UTC));
+            assertThat(assets.run("plan",assetSpec).closing()).isEqualTo(900000);
+            assets.run("apply",assetSpec);connection.commit();
+            assets.run("verify",assetSpec);connection.commit();
+            assertThat(accountHistory.read(firstOwner,account,LocalDate.of(2026,10,1),LocalDate.of(2026,10,31)).reason()).isEqualTo("OK");
+            assets.run("reset",assetSpec);connection.commit();
+        } finally {connection.rollback();connection.setAutoCommit(true);}
+        assertThatThrownBy(()->service.run("reset",life.get(0))).isInstanceOf(IllegalArgumentException.class).hasMessageContaining("Actual bank history is preserved");
+        assertThat(db.queryForObject("SELECT COUNT(*) FROM account_transaction WHERE stream_id=?",Long.class,ticket.streamId())).isEqualTo(1);
+        // Isolated test fixture cleanup only; production reset intentionally cannot do this.
+        for(String table:List.of("account_history_coverage","account_history_sync_run","account_transaction"))
+            db.update("DELETE FROM "+table+" WHERE stream_id=?",ticket.streamId());
+        db.update("DELETE FROM account_history_stream WHERE stream_id=?",ticket.streamId());
+        service.run("reset",life.get(0));
+        assertThat(db.queryForObject("SELECT COUNT(*) FROM card_bill WHERE user_id=?",Long.class,other)).isEqualTo(26);
+        assertThat(db.queryForObject("SELECT status FROM app_user WHERE user_id=?",String.class,other)).isEqualTo("ACTIVE");
+        verify(transfer,never()).withdraw(anyString(),anyString(),anyLong(),any(),anyString());
+        verify(transfer,never()).deposit(anyString(),anyString(),anyLong(),any(),anyString());
+    }
+
+
+    @Test void versionThreeLoadsFourCardsAndEnforcesIbkBankBinding() throws Exception {
+        ScriptUtils.executeSqlScript(connection,new FileSystemResource(Path.of("seed/05-ibk-narasarang.sql")));
+        var original=spec("ibk551",QaSeedSpec.Scenario.RICH).personas().get(0);
+        var accounts=List.of(new QaSeedSpec.Account("004","800000000001"),
+                new QaSeedSpec.Account("088","900000000001"),new QaSeedSpec.Account("003","700000000001"));
+        var cards=new ArrayList<>(original.cards());
+        var first=cards.get(1);
+        cards.set(1,new QaSeedSpec.Card(first.issuerCode(),first.productName(),first.cardType(),first.cardNo(),1,15));
+        cards.add(new QaSeedSpec.Card("IBK","IBK나라사랑카드","CHECK","9000000000010004",2,null,LocalDate.of(2026,1,1),false,false));
+        var person=new QaSeedSpec.Persona(original.key(),original.scenario(),"최인국",original.birthDate(),original.phone(),
+                original.ssafyMemberId(),original.ssafyUserKey(),accounts,cards,"MILITARY_EXAM_COMPLETED");
+        var spec=new QaSeedSpec("qa-ibk551",3,LocalDate.of(2026,11,12),List.of(person));
+        spec.validate(LocalDate.of(2026,11,16));
+        apply(spec); signedUp(spec); service.run("enrich",spec); service.run("verify",spec);
+        assertThat(db.queryForObject("SELECT COUNT(*) FROM user_card WHERE user_id=?",Long.class,user(spec,0))).isEqualTo(4);
+        assertThat(db.queryForObject("SELECT a.bank_code FROM user_card c JOIN linked_account a ON a.linked_account_id=c.linked_account_id JOIN card_product p USING(card_product_id) WHERE c.user_id=? AND p.issuer_code='IBK'",String.class,user(spec,0))).isEqualTo("003");
+        service.run("apply",spec);
+        service.run("reset",spec);
+        assertThat(db.queryForObject("SELECT COUNT(*) FROM user_card WHERE user_id=?",Long.class,user(spec,0))).isEqualTo(4);
+    }
 
     @Test void seededBillConfirmsWithdrawsAndDoesNotWithdrawTwice() throws Exception {
         var spec=spec("billing",QaSeedSpec.Scenario.RICH);
@@ -228,7 +484,8 @@ class QaSeedServiceTest extends MySqlTestSupport {
     }
 
     @Test void allFivePersonasRemainConsistentAndRepeatedApplyDoesNotDuplicate() throws Exception {
-        var spec=spec("all",QaSeedSpec.Scenario.values());
+        var spec=spec("all",QaSeedSpec.Scenario.RICH,QaSeedSpec.Scenario.EMPTY,QaSeedSpec.Scenario.BOUNDARY,
+                QaSeedSpec.Scenario.SHORTFALL,QaSeedSpec.Scenario.STATES);
         apply(spec);
         long payments=count("payment_transaction");
         assertThat(payments).isGreaterThan(2000);
@@ -398,4 +655,33 @@ class QaSeedServiceTest extends MySqlTestSupport {
         db.update("UPDATE card_monthly_performance SET recognized_amount=recognized_amount+1");
         assertThatThrownBy(()->service.run("verify",spec)).isInstanceOf(IllegalArgumentException.class);
     }
-}
+    @Test void lifeNotificationsUseProductionMessagesAndEventTimes() throws Exception {
+        ScriptUtils.executeSqlScript(connection,new FileSystemResource(Path.of("seed/05-ibk-narasarang.sql")));
+        service=new QaSeedService(connection,keys,Clock.fixed(Instant.parse("2026-11-16T03:00:00Z"),ZoneOffset.UTC),cryptoProperties.hmacKey());
+        var mapper=new com.fasterxml.jackson.databind.ObjectMapper().registerModule(new com.fasterxml.jackson.datatype.jsr310.JavaTimeModule());
+        var input=mapper.readValue(Path.of("seed/qa/life-persona-1.example.json").toFile(),QaSeedSpec.class);
+        var p=input.personas().get(0);
+        var person=new QaSeedSpec.Persona("p0",p.scenario(),p.name(),p.birthDate(),p.phone(),p.ssafyMemberId(),"notification-test-only",p.accounts(),p.cards(),p.issuanceEligibility());
+        var spec=new QaSeedSpec("qa-notification-production",3,input.baseDate(),List.of(person));
+        apply(spec);signedUp(spec);service.run("enrich",spec);
+        long owner=user(spec,0);
+        assertThat(db.queryForObject("SELECT COUNT(*) FROM notification WHERE user_id=? AND read_at IS NOT NULL",Long.class,owner)).isEqualTo(250);
+        assertThat(db.queryForObject("SELECT COUNT(*) FROM notification WHERE user_id=? AND read_at IS NULL",Long.class,owner)).isEqualTo(14);
+        assertThat(db.queryForObject("SELECT COUNT(*) FROM notification WHERE user_id=? AND read_at IS NULL AND created_at < ?",Long.class,owner,Timestamp.from(Instant.parse("2026-10-31T15:00:00Z")))).isZero();
+        assertThat(db.queryForObject("""
+            SELECT COUNT(*) FROM notification n JOIN payment_transaction p ON n.target_id=p.payment_transaction_id AND n.user_id=p.user_id
+            JOIN merchant m ON m.merchant_id=p.merchant_id
+            WHERE n.user_id=? AND n.notification_type='PAYMENT_RESULT'
+              AND (n.title<>'결제 승인' OR n.created_at<>p.approved_at OR n.body NOT LIKE CONCAT('%',m.merchant_name,'%'))
+            """,Long.class,owner)).isZero();
+        long total=db.queryForObject("SELECT COUNT(*) FROM notification WHERE user_id=?",Long.class,owner);
+        assertThat(total).isGreaterThan(24);
+        var since=QaLifeBenefits.SIGNUP.atStartOfDay(java.time.ZoneId.of("Asia/Seoul")).toInstant();
+        assertThat(com.yamu.be.notification.SeedNotificationReplay.replay(db,spec.datasetKey(),owner,since,runtimeClock.instant())).isZero();
+        assertThat(db.queryForObject("SELECT COUNT(*) FROM notification WHERE user_id=?",Long.class,owner)).isEqualTo(total);
+        db.update("DELETE FROM notification WHERE user_id=?",owner);
+        db.update("UPDATE app_user SET notification_settings=JSON_OBJECT('transactionEnabled',false) WHERE user_id=?",owner);
+        assertThat(com.yamu.be.notification.SeedNotificationReplay.replay(db,spec.datasetKey(),owner,since,runtimeClock.instant())).isZero();
+        assertThat(db.queryForObject("SELECT COUNT(*) FROM notification WHERE user_id=?",Long.class,owner)).isZero();
+        verifyNoInteractions(transfer);
+    }}

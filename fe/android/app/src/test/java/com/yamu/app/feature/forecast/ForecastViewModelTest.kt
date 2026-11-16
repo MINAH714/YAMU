@@ -11,6 +11,7 @@ import com.yamu.app.feature.forecast.data.ForecastAccountOption
 import com.yamu.app.feature.forecast.data.ForecastPeriod
 import com.yamu.app.feature.forecast.data.ForecastRepository
 import com.yamu.app.feature.forecast.data.ForecastSelection
+import com.yamu.app.feature.forecast.data.IncomeRule
 import com.yamu.app.feature.forecast.data.testForecast
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
@@ -45,6 +46,7 @@ class ForecastViewModelTest {
             forecastCalls++
             return pendingForecast?.also { pendingForecast = null }?.await() ?: forecastResult
         }
+        override suspend fun incomeRule(): ApiResult<IncomeRule?> = ruleResult
         override fun cached() = cachedForecast
         override fun selection() = selected
         override fun select(selection: ForecastSelection) {
@@ -63,10 +65,33 @@ class ForecastViewModelTest {
     }
     private var pastResult: ApiResult<List<CashflowEntry>> = ApiResult.Success(emptyList())
     private var pastRange: Pair<LocalDate, LocalDate>? = null
+    private var ruleResult: ApiResult<IncomeRule?> = ApiResult.Success(null)
 
     @Before fun setUp() = Dispatchers.setMain(dispatcher)
 
     @After fun tearDown() = Dispatchers.resetMain()
+
+    @Test fun `예보와 함께 월급 설정을 받아 둔다`() = runTest(dispatcher) {
+        forecastResult = ApiResult.Success(testForecast())
+        ruleResult = ApiResult.Success(IncomeRule("월급", 25))
+        val vm = ForecastViewModel(repo)
+        vm.refresh()
+        advanceUntilIdle()
+
+        assertEquals(IncomeRule("월급", 25), vm.state.value.incomeRule)
+    }
+
+    @Test fun `월급 설정을 못 받으면 끊지 않고 예보만 보인다`() = runTest(dispatcher) {
+        forecastResult = ApiResult.Success(testForecast())
+        ruleResult = ApiResult.Failure(FORECAST_ERROR)
+        val vm = ForecastViewModel(repo)
+        vm.refresh()
+        advanceUntilIdle()
+
+        assertNull(vm.state.value.incomeRule)
+        assertNull(vm.state.value.error)
+        assertTrue(vm.state.value.forecast != null)
+    }
 
     @Test fun `예보가 실패해도 회차 응답 전에는 불러오는 중이다`() = runTest(dispatcher) {
         val vm = ForecastViewModel(repo)
@@ -123,13 +148,33 @@ class ForecastViewModelTest {
         assertFalse(vm.state.value.cashflowLoading)
     }
 
-    @Test fun `지난 예보가 남아 있으면 회차 응답 전에도 그 예보로 그린다`() = runTest(dispatcher) {
+    @Test fun `지난 예보가 남아 있어도 회차 응답 전에는 불러오는 중이다 — 예보 줄만 그렸다가 모양이 바뀌지 않게`() = runTest(dispatcher) {
         cachedForecast = testForecast()
+        forecastResult = ApiResult.Success(testForecast())
+        val vm = ForecastViewModel(repo)
+        assertTrue(vm.state.value.cashflowLoading)   // 화면이 처음 그려질 때(새로 부르기 전)도
+
+        vm.refreshWithEntries()
+        advanceUntilIdle()
+        assertTrue(vm.state.value.cashflowLoading)   // 예보는 왔지만 회차는 아직
+
+        entriesResponse.complete(ApiResult.Success(emptyList()))
+        advanceUntilIdle()
+        assertFalse(vm.state.value.cashflowLoading)
+    }
+
+    @Test fun `회차를 못 받으면 받아 둔 예보 줄로 그린다`() = runTest(dispatcher) {
+        cachedForecast = testForecast()
+        forecastResult = ApiResult.Success(testForecast())
         val vm = ForecastViewModel(repo)
         vm.refreshWithEntries()
+        entriesResponse.complete(ApiResult.Failure(ENTRIES_ERROR))
         advanceUntilIdle()
 
         assertFalse(vm.state.value.cashflowLoading)
+        assertNull(vm.state.value.entries)
+        assertEquals(ENTRIES_ERROR.userMessage(), vm.state.value.entriesError)
+        assertTrue(vm.state.value.forecast != null)
     }
 
     @Test fun `계좌를 잇지 않았으면 회차를 부르지 않고 빈 상태로 끝난다`() = runTest(dispatcher) {

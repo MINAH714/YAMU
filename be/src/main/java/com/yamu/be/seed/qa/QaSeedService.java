@@ -50,8 +50,8 @@ public final class QaSeedService {
     public void run(String command, QaSeedSpec spec) throws Exception {
         spec.validate(LocalDate.now(clock.withZone(KST)));
         require(List.of("apply", "enrich", "verify", "inspect", "reset", "purge").contains(command), "Unknown operation");
-        require(!List.of("apply", "enrich", "reset").contains(command) || spec.version() == 2,
-                "Use version 2 for executable fixtures; purge version 1 using its original input first");
+        require(!List.of("apply", "enrich", "reset").contains(command) || (spec.version() == 2 || spec.version() == 3),
+                "Use version 2 or 3 for executable fixtures; purge version 1 using its original input first");
         for (var persona : spec.personas()) {
             require(!persona.ssafyUserKey().startsWith("REPLACE_"), "Replace financial binding placeholders");
         }
@@ -117,6 +117,16 @@ public final class QaSeedService {
         Mac mac = Mac.getInstance("HmacSHA256");
         mac.init(new SecretKeySpec(registryKey, "HmacSHA256"));
         mac.update("YAMU-QA-442-V1:".getBytes(StandardCharsets.UTF_8));
+        if(spec.personas().stream().anyMatch(p->p.scenario()==QaSeedSpec.Scenario.LIFE)) {
+            var mapper=new ObjectMapper().registerModule(new JavaTimeModule());
+            mac.update(mapper.writeValueAsBytes(QaLifeScenario.payments(spec.baseDate())));
+            mac.update(mapper.writeValueAsBytes(QaLifeScenario.bills()));
+            mac.update(QaLifeBenefits.fingerprint().getBytes(StandardCharsets.UTF_8));
+            for(int account=0;account<3;account++) {
+                mac.update(mapper.writeValueAsBytes(QaLifeScenario.events(account)));
+                mac.update(Long.toString(QaLifeScenario.startingBalance(account)).getBytes(StandardCharsets.UTF_8));
+            }
+        }
         return mac.doFinal(new ObjectMapper().registerModule(new JavaTimeModule()).writeValueAsBytes(spec));
     }
 
@@ -129,7 +139,13 @@ public final class QaSeedService {
                         "Mock card already belongs to another user");
             }
             for (var payment : QaHistoryPlan.build(p.scenario(), spec.baseDate())) merchant(payment.brand());
-            if (p.scenario() != QaSeedSpec.Scenario.EMPTY) utilityPolicy(product(p.cards().get(2)));
+            if (p.scenario() != QaSeedSpec.Scenario.EMPTY && p.scenario() != QaSeedSpec.Scenario.LIFE) utilityPolicy(product(p.cards().get(2)));
+            if (p.scenario() == QaSeedSpec.Scenario.LIFE) {
+                for (int i : new int[]{1,2}) require(p.cards().get(i).paymentDay()==15 &&
+                        count("SELECT COUNT(*) FROM card_product WHERE card_product_id=? AND COALESCE(billing_cutoff_days,14)=14",product(p.cards().get(i)))==1,
+                        "LIFE requires verified 15/14 billing cycles");
+                for (int a=0;a<3;a++) QaLifeScenario.ledger(a); // reject negative ledgers before any write
+            }
             require(count("SELECT COUNT(*) FROM app_user WHERE (phone_hash=? AND birth_date=?) OR ssafy_member_id=?",
                     lookup.phone(p.phone()), p.birthDate(), p.ssafyMemberId()) == 0, "Identity already belongs to another dataset/user");
             for (var a : p.accounts()) {
@@ -145,11 +161,12 @@ public final class QaSeedService {
                       status,created_at,updated_at) VALUES (?,?,?,?,?,?,'PENDING',?,?)
                     """, p.name(), p.birthDate(), cipher.encrypt(com.yamu.be.global.crypto.PersonalDataNormalizer.phone(p.phone()), CipherField.APP_USER_PHONE),
                     lookup.phone(p.phone()), p.ssafyMemberId(),
-                    cipher.encrypt(p.ssafyUserKey(), CipherField.APP_USER_SSAFY_USER_KEY), now(), now());
+                    cipher.encrypt(p.ssafyUserKey(), CipherField.APP_USER_SSAFY_USER_KEY),
+                    p.scenario()==QaSeedSpec.Scenario.LIFE ? Timestamp.from(QaLifeBenefits.SIGNUP.atStartOfDay(KST).toInstant()) : now(), now());
             db.update("INSERT INTO qa_seed_member(dataset_key,persona_key,user_id) VALUES (?,?,?)",
                     spec.datasetKey(), p.key(), user);
-            long[] cards = new long[3], products = new long[3];
-            for (int i = 0; i < 3; i++) {
+            long[] cards = new long[p.cards().size()], products = new long[p.cards().size()];
+            for (int i = 0; i < p.cards().size(); i++) {
                 var c = p.cards().get(i);
                 var a = p.accounts().get(c.accountIndex());
                 products[i] = product(c);
@@ -162,11 +179,23 @@ public final class QaSeedService {
                         lookup.card(c.cardNo()), last4(c.cardNo()), a.bankCode(),
                         lookup.account(a.bankCode(), a.accountNo()), last4(a.accountNo()), c.paymentDay(), now(), now());
             }
+            if (spec.version() == 3) {
+                var ibk = p.cards().get(3);
+                db.update("UPDATE user_card SET issuer_registered_on=?,ibk_context_month=?,ibk_salary_qualified=?,ibk_military_qualified=? WHERE user_card_id=? AND user_id=?",
+                        ibk.issuerRegisteredOn(),spec.baseDate().withDayOfMonth(1),ibk.ibkSalaryQualified(),ibk.ibkMilitaryQualified(),cards[3],user);
+            }
+            if(p.scenario()==QaSeedSpec.Scenario.LIFE)
+                db.update("UPDATE user_card SET issuer_registered_on='2025-11-01' WHERE user_id=?",user);
             for (var row : QaHistoryPlan.build(p.scenario(), spec.baseDate())) {
                 long payment = payment(spec, p, user, cards[row.card()], products[row.card()], row);
+                if (p.scenario() == QaSeedSpec.Scenario.LIFE) db.update(
+                        "UPDATE payment_transaction SET memo=?,spending_class=?,spending_class_source='USER' WHERE payment_transaction_id=?",
+                        row.amount()==900_000?"가전 일시불":"생활 구매",
+                        row.amount()==900_000?"LARGE":"LIVING",payment);
+                if (p.scenario()==QaSeedSpec.Scenario.LIFE) lifeBenefit(payment, products[row.card()], row);
                 if (row.utilityDiscount() > 0) benefit(payment, products[row.card()], row);
             }
-            aggregate(cards, products, spec.baseDate());
+            aggregate(cards, products, spec.baseDate(),p.scenario()==QaSeedSpec.Scenario.LIFE);
             System.out.printf("%s prepared payments=%d%n", p.key(),
                     QaHistoryPlan.build(p.scenario(), spec.baseDate()).size());
         }
@@ -225,6 +254,9 @@ public final class QaSeedService {
                 declined ? "ISSUER_DECLINED" : null, now(), now());
     }
 
+    private void lifeBenefit(long payment, long product, QaHistoryPlan.Payment purchase) {
+        QaLifeBenefits.apply(db, payment, product, purchase);
+    }
     private void benefit(long payment, long product, QaHistoryPlan.Payment row) {
         long benefit = utilityPolicy(product);
         db.update("""
@@ -253,9 +285,9 @@ public final class QaSeedService {
         }
     }
 
-    private void aggregate(long[] cards, long[] products, LocalDate base) {
+    private void aggregate(long[] cards, long[] products, LocalDate base, boolean life) {
         for (int i = 0; i < cards.length; i++) {
-            for (LocalDate month = base.withDayOfMonth(1).minusMonths(6);
+            for (LocalDate month = db.queryForObject("SELECT COALESCE(MIN(performance_month),?) FROM payment_transaction WHERE user_card_id=?",java.sql.Date.class,base.withDayOfMonth(1).minusMonths(6),cards[i]).toLocalDate();
                  !month.isAfter(base.withDayOfMonth(1)); month = month.plusMonths(1)) {
                 db.update("""
                         INSERT INTO card_monthly_performance(user_card_id,performance_month,recognized_amount,
@@ -264,6 +296,7 @@ public final class QaSeedService {
                         FROM payment_transaction WHERE user_card_id=? AND performance_month=? AND status='APPROVED'
                         """, cards[i], month, now(), now(), cards[i], month);
             }
+            for(var usageMonth:db.queryForList("SELECT performance_month FROM card_monthly_performance WHERE user_card_id=? AND (? OR performance_month=?)",java.sql.Date.class,cards[i],life,base.withDayOfMonth(1))) {
             db.update("""
                     INSERT INTO monthly_limit_usage(user_card_id,card_product_id,limit_group_id,usage_month,
                       used_value,created_at,updated_at)
@@ -273,8 +306,9 @@ public final class QaSeedService {
                         WHERE t.user_card_id=? AND u.limit_group_id=g.limit_group_id AND u.usage_month=?
                         AND u.restored_at IS NULL),0),?,?
                     FROM limit_group g WHERE g.card_product_id=? AND g.period_type='MONTHLY'
-                    """, cards[i], products[i], base.withDayOfMonth(1), cards[i], base.withDayOfMonth(1),
+                    """, cards[i], products[i], usageMonth, cards[i], usageMonth,
                     now(), now(), products[i]);
+            }
         }
     }
 
@@ -286,16 +320,16 @@ public final class QaSeedService {
             if (enriched) continue;
             require("ACTIVE".equals(db.queryForObject("SELECT status FROM app_user WHERE user_id=? FOR UPDATE",
                     String.class, user)), "Complete normal signup first");
-            long[] accounts = new long[2];
-            for (int i = 0; i < 2; i++) {
+            long[] accounts = new long[p.accounts().size()];
+            for (int i = 0; i < p.accounts().size(); i++) {
                 var a = p.accounts().get(i);
                 accounts[i] = id("""
                         SELECT linked_account_id FROM linked_account WHERE user_id=? AND bank_code=?
                         AND account_no_hash=? AND status='CONNECTED'
                         """, user, a.bankCode(), lookup.account(a.bankCode(), a.accountNo()));
             }
-            long[] cards = new long[3];
-            for (int i = 0; i < 3; i++) {
+            long[] cards = new long[p.cards().size()];
+            for (int i = 0; i < p.cards().size(); i++) {
                 var c = p.cards().get(i);
                 cards[i] = id("""
                         SELECT user_card_id FROM user_card WHERE user_id=? AND card_no_hash=?
@@ -304,30 +338,45 @@ public final class QaSeedService {
             }
             for (int i = 0; i < cards.length; i++) {
                 db.update("UPDATE user_card SET card_alias=?,display_order=?,updated_at=? WHERE user_card_id=?",
-                        "QA " + p.key() + " " + (i == 0 ? "생활 체크" : i == 1 ? "처음" : "Mr.Life"),
+                        p.cards().get(i).productName(),
                         i, now(), cards[i]);
             }
+            if (p.scenario()==QaSeedSpec.Scenario.LIFE) {
+                var joined=Timestamp.from(QaLifeBenefits.SIGNUP.atStartOfDay(KST).toInstant());
+                db.update("UPDATE user_card SET registered_at=? WHERE user_id=?",joined,user);
+                db.update("UPDATE linked_account SET connected_at=? WHERE user_id=?",joined,user);
+            }
             if (p.scenario() != QaSeedSpec.Scenario.EMPTY) {
-                long income = cashflow(user, accounts[0], spec.baseDate().plusDays(10), "QA 급여", "INCOME",
+                long income = cashflow(user, accounts[0], spec.baseDate().plusDays(10), "급여", "INCOME",
                         2500000L, "MONTHLY");
-                cashflow(user, accounts[0], spec.baseDate().plusDays(2), "QA 월세", "EXPENSE", 700000L, "MONTHLY");
-                cashflow(user, accounts[1], spec.baseDate().plusDays(5), "QA 정기 구독", "EXPENSE", 13500L, "MONTHLY");
-                cashflow(user, accounts[0], spec.baseDate().plusDays(4), "QA 금액 미정 일정", "EXPENSE", null, "NONE");
+                cashflow(user, accounts[0], spec.baseDate().plusDays(2), "월세", "EXPENSE", 700000L, "MONTHLY");
+                long subscription = cashflow(user, accounts[1], spec.baseDate().plusDays(5), "정기 구독", "EXPENSE", 13500L, "MONTHLY");
+                if (p.scenario() == QaSeedSpec.Scenario.LIFE) {
+                    db.update("UPDATE cashflow_item SET linked_account_id=NULL,user_card_id=?,payment_plan='LUMP_SUM',installment_months=1 WHERE cashflow_item_id=?",cards[2],subscription);
+                    db.update("UPDATE cashflow_occurrence SET linked_account_id=NULL,user_card_id=?,payment_plan='LUMP_SUM',installment_months=1 WHERE cashflow_item_id=?",cards[2],subscription);
+                    for (int destination : new int[]{1,2}) {
+                        cashflow(user,accounts[0],spec.baseDate().plusDays(11),"계좌 간 이체 출금 " + destination,"EXPENSE",150000L,"NONE");
+                        cashflow(user,accounts[destination],spec.baseDate().plusDays(11),"계좌 간 이체 입금 " + destination,"INCOME",150000L,"NONE");
+                    }
+                }
+                cashflow(user, accounts[0], spec.baseDate().plusDays(4), "금액 미정 일정", "EXPENSE", null, "NONE");
                 cashflow(user, accounts[0], spec.baseDate().plusDays(7),
-                        "QA 긴 이름 표시 확인용 생활용품 및 주방용품 구매 예정", "EXPENSE", 90000L, "NONE");
+                        "생활용품 및 주방용품 구매 예정", "EXPENSE", 90000L, "NONE");
                 db.update("UPDATE app_user SET forecast_settings=?,updated_at=? WHERE user_id=?",
                         new ObjectMapper().writeValueAsString(Map.of("horizon", "DAYS", "defaultDays", 30,
-                                "incomeCashflowItemId", income)), now(), user);
-                // Seed only existing notification contract names; no push or external message delivery.
-                for (int n = 0; n < 24; n++) {
+                                "incomeCashflowItemId", income,"alertThreshold",p.scenario()==QaSeedSpec.Scenario.LIFE?300000:100000)), now(), user);
+                new QaBillingFixtures(db, this::insert, clock).create(user, spec.baseDate(),p.scenario()==QaSeedSpec.Scenario.LIFE);
+                if(p.scenario()==QaSeedSpec.Scenario.LIFE) {
+                    com.yamu.be.notification.SeedNotificationReplay.replay(db,spec.datasetKey(),user,
+                            QaLifeBenefits.SIGNUP.atStartOfDay(KST).toInstant(),clock.instant());
+                } else for (int n = 0; n < 24; n++) {
                     db.update("""
                             INSERT INTO notification(user_id,notification_type,deduplication_key,title,body,
                               read_at,created_at,updated_at) VALUES (?,'PAYMENT_RESULT',?,?,?,?,?,?)
                             """, user, spec.datasetKey() + ":" + p.key() + ":" + n,
-                            "QA 거래 내역 확인 " + (n + 1), "화면 표시 확인용 알림입니다.",
+                            "거래 내역 확인 " + (n + 1), "거래 내역을 확인하세요.",
                             n % 2 == 0 ? null : now(), now(), now());
                 }
-                new QaBillingFixtures(db, this::insert, clock).create(user, spec.baseDate());
             }
             db.update("UPDATE qa_seed_member SET enriched=TRUE WHERE user_id=?", user);
         }
@@ -359,9 +408,9 @@ public final class QaSeedService {
                 == spec.personas().size(), "Registry membership mismatch");
         for (var p : spec.personas()) {
             long user = owner(spec, p);
-            require(count("SELECT COUNT(*) FROM payment_transaction WHERE user_id=? AND source='SEED'", user)
+            require(count("SELECT COUNT(*) FROM payment_transaction WHERE user_id=? AND (source='SEED' OR JSON_UNQUOTE(JSON_EXTRACT(merchant_context_snapshot,'$.source'))='QA_LIFE_550')", user)
                     == QaHistoryPlan.build(p.scenario(), spec.baseDate()).size(), "Initial history row count mismatch");
-            require(count("SELECT COUNT(*) FROM card_monthly_performance m JOIN user_card c USING(user_card_id) WHERE c.user_id=? AND m.performance_month BETWEEN ? AND ?", user, spec.baseDate().withDayOfMonth(1).minusMonths(6), spec.baseDate().withDayOfMonth(1)) >= 21, "Missing performance months");
+            require(count("SELECT COUNT(*) FROM card_monthly_performance m JOIN user_card c USING(user_card_id) WHERE c.user_id=? AND m.performance_month BETWEEN ? AND ?", user, spec.baseDate().withDayOfMonth(1).minusMonths(6), spec.baseDate().withDayOfMonth(1)) >= p.cards().size() * 7, "Missing performance months");
             require(count("""
                     SELECT COUNT(*) FROM card_monthly_performance m JOIN user_card c USING(user_card_id)
                     WHERE c.user_id=? AND m.recognized_amount<>(
@@ -378,7 +427,7 @@ public final class QaSeedService {
                       AND u.usage_month=m.usage_month AND u.restored_at IS NULL)
                     """, user) == 0, "Limit totals mismatch");
             require(count("""
-                    SELECT COUNT(*) FROM payment_transaction WHERE user_id=? AND source='SEED'
+                    SELECT COUNT(*) FROM payment_transaction WHERE user_id=? AND (source='SEED' OR JSON_UNQUOTE(JSON_EXTRACT(merchant_context_snapshot,'$.source'))='QA_LIFE_550')
                     AND (fin_request_no IS NOT NULL OR fin_transaction_no IS NOT NULL)
                     """, user) == 0, "Synthetic payments have financial identifiers");
             long payments = count("SELECT COUNT(*) FROM payment_transaction WHERE user_id=?", user);

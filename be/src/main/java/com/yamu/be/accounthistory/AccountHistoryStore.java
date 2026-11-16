@@ -150,6 +150,24 @@ public class AccountHistoryStore {
             if(result.reason()!=DailyBalanceReconstructor.Reason.OK) continue;
             Long closing=result.points().get(result.points().size()-1).balance();
             if(actuals.stream().anyMatch(c->Objects.equals(c.openingBalance,closing))) return true;
+            // A QA funding bridge maps a simulated balance to its materialized real balance.
+            // SSAFY rows remain untouched; the graph selects one source per day, never adds both.
+            for(var actual:actuals) if(Objects.equals(actual.openingBalance,0L)) {
+                Number matches=(Number)em.createNativeQuery("""
+                    SELECT COUNT(*) FROM qa_seed_funding_boundary f
+                    JOIN account_transaction t ON t.transaction_id=f.funding_transaction_id AND t.stream_id=f.actual_stream_id
+                    JOIN account_history_stream s ON s.stream_id=f.actual_stream_id
+                    WHERE f.qa_stream_id=:qa AND s.linked_account_id=:account AND s.user_id=:user
+                      AND s.source='SSAFY' AND f.actual_stream_id=:actual
+                      AND t.content_hash=f.funding_content_hash AND t.balance_after=f.funded_balance
+                      AND f.funded_balance=:closing AND t.direction='DEPOSIT' AND t.amount>0
+                      AND t.occurred_at>=:start AND t.occurred_at<:end
+                      AND (SELECT MIN(t2.occurred_at) FROM account_transaction t2 WHERE t2.stream_id=s.stream_id)>=:start
+                    """).setParameter("qa",qa.id).setParameter("account",qa.linkedAccountId).setParameter("user",qa.userId)
+                        .setParameter("actual",actual.streamId).setParameter("closing",closing)
+                        .setParameter("start",utc(qa.rangeTo.plusDays(1))).setParameter("end",utc(qa.rangeTo.plusDays(2))).getSingleResult();
+                if(matches.longValue()==1) return true;
+            }
         }
         return false;
     }

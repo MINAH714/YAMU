@@ -119,11 +119,36 @@ class RefundQueryIntegrationTest extends MySqlTestSupport {
                         .value(now.minusDays(2).atOffset(ZoneOffset.UTC).atZoneSameInstant(KST).toLocalDate().toString()))
                 .andExpect(jsonPath("$.data.items[1].completedAt").isString())
                 .andExpect(jsonPath("$.data.items[1].estimated").value(false))
+                .andExpect(jsonPath("$.data.items[1].toAccount.accountId").value(account))
                 // 출금 뒤 완료된 환급
                 .andExpect(jsonPath("$.data.items[2].refundId").value(completed))
                 .andExpect(jsonPath("$.data.items[2].scheduledAfter").value(nullValue()))
                 .andExpect(jsonPath("$.data.items[2].dueDate").value("2026-11-19"))
                 .andExpect(jsonPath("$.data.items[2].estimated").value(false));
+    }
+
+    @Test
+    void 체크카드_환불은_카드_계좌를_바꾼_뒤에도_환불을_넣은_계좌를_보인다() throws Exception {
+        long checkPayment = payment(owner, checkCard, checkProduct, "CANCELED", 14_250);
+        long newAccount = fixtures.account(owner);
+        jdbc.update("UPDATE user_card SET linked_account_id = ? WHERE user_card_id = ?", newAccount, checkCard);
+
+        mockMvc.perform(refunds())
+                .andExpect(jsonPath("$.data.items", hasSize(1)))
+                .andExpect(jsonPath("$.data.items[0].paymentId").value(checkPayment))
+                .andExpect(jsonPath("$.data.items[0].toAccount.accountId").value(account));
+    }
+
+    @Test
+    void 환불_계좌가_없는_체크카드_취소는_계좌를_비워_보인다() throws Exception {
+        // 마이그레이션 때 카드를 해제해 연결 계좌가 없던 예전 취소 건
+        long checkPayment = payment(owner, checkCard, checkProduct, "CANCELED", 14_250);
+        jdbc.update("UPDATE payment_transaction SET refund_linked_account_id = NULL WHERE payment_transaction_id = ?",
+                checkPayment);
+
+        mockMvc.perform(refunds())
+                .andExpect(jsonPath("$.data.items[0].paymentId").value(checkPayment))
+                .andExpect(jsonPath("$.data.items[0].toAccount").value(nullValue()));
     }
 
     @Test
@@ -244,6 +269,11 @@ class RefundQueryIntegrationTest extends MySqlTestSupport {
         row.put("performance_month", LocalDate.of(requestedAt.getYear(), requestedAt.getMonth(), 1));
         if ("CANCELED".equals(status)) {
             row.put("canceled_at", requestedAt.plusDays(1));
+            // 체크카드 취소는 환불을 넣은 계좌를 결제 행에 적는다(S15P31E103-323). 여기서는 취소 때의 카드 연결 계좌
+            if (product == checkProduct) {
+                row.put("refund_linked_account_id", jdbc.queryForObject(
+                        "SELECT linked_account_id FROM user_card WHERE user_card_id = ?", Long.class, userCard));
+            }
         }
         return insert("payment_transaction", "payment_transaction_id", row);
     }

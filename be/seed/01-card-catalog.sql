@@ -191,7 +191,7 @@ INSERT INTO seed97_merchant VALUES
 ('EMART24', '이마트24', 'CONVENIENCE_STORE'),
 ('SEVEN_ELEVEN', '세븐일레븐', 'CONVENIENCE_STORE'),
 ('KURLY', '컬리', 'ONLINE_MARKETPLACE'),
-('YAMU_TEST_CAFE', '야무 테스트 카페', 'COFFEE_SHOP'),
+('YAMU_TEST_CAFE', '오월커피', 'COFFEE_SHOP'),
 ('AUCTION', '옥션', 'ONLINE_MARKETPLACE'),
 ('GMARKET', 'G마켓', 'ONLINE_MARKETPLACE'),
 ('AK_MALL', 'AK몰', 'ONLINE_MARKETPLACE'),
@@ -208,7 +208,7 @@ INSERT INTO seed97_merchant VALUES
 ('SKT', 'SKT', 'TELECOMMUNICATION'),
 ('KT', 'KT', 'TELECOMMUNICATION'),
 ('LG_UPLUS', 'LG U+', 'TELECOMMUNICATION'),
-('YAMU_TEST_RESTAURANT', '야무 테스트 식당', 'GENERAL_RESTAURANT');
+('YAMU_TEST_RESTAURANT', '느티나무식당', 'GENERAL_RESTAURANT');
 
 -- Refuse an existing brand with a different industry instead of changing it.
 CREATE TEMPORARY TABLE seed97_guard (ok INT NOT NULL CHECK (ok = 1));

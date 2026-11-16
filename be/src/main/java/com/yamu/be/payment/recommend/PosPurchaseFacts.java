@@ -46,7 +46,10 @@ public final class PosPurchaseFacts {
     static final Set<String> NOT_POS_PERFORMANCE_FACTS = Set.of(
             "PERFORMANCE:POSTPAID_TRANSIT", "PERFORMANCE:MOBILE_POSTPAID_TRANSIT", "PERFORMANCE:TELECOM_AUTOPAY");
 
-    private static final Map<String, Boolean> VERIFIED = build();
+    private static final Map<String, Boolean> CATEGORY_FACTS = build();
+    private static final Map<String, Boolean> VERIFIED = java.util.stream.Stream.concat(
+            CATEGORY_FACTS.entrySet().stream(), java.util.stream.Stream.of(Map.entry("PAYMENT_METHOD:NPAY", false)))
+            .collect(Collectors.toUnmodifiableMap(Map.Entry::getKey, Map.Entry::getValue));
 
     private PosPurchaseFacts() {
     }
@@ -67,7 +70,8 @@ public final class PosPurchaseFacts {
         if (!com.yamu.be.merchant.PurchaseSimulationCategories.supports(merchantCategoryCode)) {
             return Map.of();
         }
-        return VERIFIED;
+        // 업종만으로 실제 간편결제 수단을 확인할 수 없다. POS 직접 결제의 Npay 비사용 사실은 제외한다.
+        return CATEGORY_FACTS;
     }
 
     private static Map<String, Boolean> build() {

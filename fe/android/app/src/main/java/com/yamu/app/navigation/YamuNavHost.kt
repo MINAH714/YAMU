@@ -354,7 +354,7 @@ fun YamuNavHost(navController: NavHostController, modifier: Modifier = Modifier,
                 composable<PerfAnalysis> {
                     PerfAnalysisRoute(onBack = back, onCardDetail = { id -> navController.backOrNavigate(CardPerformance(id)) })
                 }
-                composable<BenefitLimits> { BenefitLimitsRoute(onBack = back, onPay = { navController.navigate(PayCode) }) }
+                composable<BenefitLimits> { BenefitLimitsRoute(onBack = back) }
             }
 
             navigation<ReportGraph>(startDestination = Report) {

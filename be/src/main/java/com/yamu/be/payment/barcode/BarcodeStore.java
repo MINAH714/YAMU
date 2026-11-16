@@ -55,6 +55,34 @@ public interface BarcodeStore {
      */
     boolean useForCancel(String token, Long paymentId);
 
+    /**
+     * 다시 인증하지 않고 새 코드를 낸다(S15P31E103-530). 아래를 한 번에 확인하고 바꿔, 연타·스캔·새 발급이 동시에 와도 살아 있는 코드는 하나다.
+     * <ul>
+     *   <li>이전 코드가 그 사용자의 현재 코드이고, ISSUED 또는 결제에 쓰이지 않은 EXPIRED(시간 만료)이고, 결제 번호가 없다</li>
+     *   <li>이전 코드는 EXPIRED로 닫고 {@code reissuedTo}에 새 토큰을 남긴다. 새 코드를 저장하고 사용자의 현재 코드로 둔다</li>
+     *   <li>이전 코드가 이미 재발급됐고 그 새 코드가 아직 현재 코드 · ISSUED · 만료 전이면 저장하지 않고 그 토큰을 돌려준다</li>
+     * </ul>
+     * 사용자 · 기기 · 인증 시각처럼 발급 뒤 바뀌지 않는 값은 부르는 쪽이 먼저 확인한다.
+     *
+     * @param next 새 코드. 인증 정보(auth)는 이전 코드 것을 그대로 담아 온다
+     * @param now  만료 판정 시각
+     */
+    Reissue reissue(String previousToken, Barcode next, Duration retention, Instant now);
+
+    /** @param token REISSUED면 새로 저장한 토큰, ALREADY_REISSUED면 앞서 재발급한 토큰, 그 밖에는 null */
+    record Reissue(ReissueResult result, String token) {
+    }
+
+    enum ReissueResult {
+        REISSUED,
+        /** 같은 이전 코드를 앞서 재발급했고 그 코드가 아직 쓸 수 있다 */
+        ALREADY_REISSUED,
+        /** 새 토큰이 이미 있다(난수 충돌). 다른 토큰으로 다시 부른다 */
+        TOKEN_TAKEN,
+        /** 현재 코드가 아님 · 스캔 · 결제 · 취소에 쓰임 · 보관 종료 등 재발급할 수 없다 */
+        DENIED
+    }
+
     enum ScanResult {
         SCANNED,
         /** 없는 토큰(보관 종료 포함) */

@@ -11,6 +11,7 @@ public final class QaHistoryPlan {
     public record Payment(int card, LocalDate date, int slot, String brand, long amount,
                           String status, int installments, long utilityDiscount) {}
     public static List<Payment> build(QaSeedSpec.Scenario scenario, LocalDate base) {
+        if (scenario == QaSeedSpec.Scenario.LIFE) return QaLifeScenario.payments(base);
         if (scenario == QaSeedSpec.Scenario.EMPTY) return List.of();
         List<Payment> rows = new ArrayList<>();
         LocalDate first = base.withDayOfMonth(1).minusMonths(6);

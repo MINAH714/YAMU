@@ -2,7 +2,6 @@ package com.yamu.app.feature.forecast.data
 
 import com.yamu.app.core.format.toMonthDayWeek
 import com.yamu.app.core.network.YamuJson
-import com.yamu.app.feature.forecast.noticeLines
 import com.yamu.app.feature.forecast.periodLabel
 import com.yamu.app.feature.forecast.riskLine
 import com.yamu.app.feature.forecast.statusTag
@@ -143,7 +142,6 @@ class ForecastMapperTest {
         assertEquals(withoutLiving.end!! + withLiving.steps.sumOf { it.amount }, withLiving.end)   // 1,500,000 − 150,000 − 48,000
         assertFalse(f.hasPartialLiving)                                                         // 금액을 받았으니 '끝 잔액에만 들어 있다' 안내는 없다
         assertNull(withLiving.note)
-        assertEquals(listOf("생활비 기록이 없는 계좌는 'AI 생활비 반영' 선에 앞으로 쓸 신용카드 금액만 넣었어요."), noticeLines(f, ForecastSelection()))
     }
 
     @Test fun `두 선 설명 — 옛 서버(appliedAmount 없음)면 생활비 줄 없이 끝 잔액에만 들어 있다고 알린다`() {
@@ -204,7 +202,6 @@ class ForecastMapperTest {
         assertEquals(250_000L, withoutLiving.end)
         assertTrue(withLiving.steps.isEmpty())                      // 생활비 기록이 없으면 예상 생활비 줄도 없다
         assertNull(withLiving.end)
-        assertEquals(listOf("생활비 기록이 아직 없어 생활비는 빼고 계산했어요. 체크카드로 결제하면 다음 예보부터 들어가요."), noticeLines(f, ForecastSelection()))
         assertEquals("30일 동안 안전 잔액 위" to TagTone.Success, statusTag(f))
         assertEquals("30일", periodLabel(f, ForecastSelection()))
     }
@@ -214,7 +211,6 @@ class ForecastMapperTest {
         val f = dto.copy(series = dto.series.map { it.copy(conservative = (it.expected ?: 0) - 50_000) }).toForecast()
         assertTrue(f.hasConservative)
         assertTrue(f.livingCost!!.insufficient)
-        assertEquals(listOf("생활비 기록이 없어 'AI 생활비 반영' 선에는 앞으로 쓸 신용카드 금액만 넣었어요."), noticeLines(f, ForecastSelection()))
     }
 
     @Test fun `월급날까지를 골랐는데 서버가 30일로 계산했으면 위 카드에서 알린다(P1-08, 맨 아래 줄에서 옮김)`() {
@@ -223,16 +219,7 @@ class ForecastMapperTest {
             "월급을 찾지 못해 오늘부터 30일로 계산했어요. 월급을 등록하면 월급날까지로 바꿔 보여 드려요.",
             com.yamu.app.feature.forecast.incomeMissingNote(f, ForecastSelection(ForecastPeriod.NEXT_INCOME)),
         )
-        assertTrue(noticeLines(f, ForecastSelection(ForecastPeriod.NEXT_INCOME)).none { it.contains("월급") && it.contains("찾지 못해") })
         assertEquals("월급날까지", periodLabel(f, ForecastSelection(ForecastPeriod.NEXT_INCOME)))
-    }
-
-    @Test fun `계좌가 여럿인데 생활비가 빠졌으면 고르면 된다고 약속하지 않는다`() {
-        // 로컬 BE 확인: 두 계좌 모두 기록이 없을 때도 '기록이 있는 계좌만 고르면'이라고 했다
-        val f = parse(noConservative.replace("\"accountIds\":[3]", "\"accountIds\":[3,4]"))
-        val line = noticeLines(f, ForecastSelection()).single()
-        assertEquals("생활비 기록이 없는 계좌가 있어 생활비는 빼고 계산했어요. 계좌를 따로 골라 보면 기록이 있는 계좌는 생활비까지 넣어 계산해요.", line)
-        assertFalse("고르면 생활비까지 넣어 볼 수 있어요" in line)
     }
 
     @Test fun `예정 수입·지출 머리 — 금액과 건수는 같은 기준(예보가 있으면 기간 안 출금)`() {
@@ -272,8 +259,8 @@ class ForecastMapperTest {
         // 전체를 고르면(또는 고른 계좌가 모두 남아 있으면) 거르지 않는다
         assertNull(ForecastSelection(all = true).scopeFrom(accounts))
         assertNull(ForecastSelection(accountIds = setOf(1, 2)).scopeFrom(accounts))
-        // 고르지 않으면 기준 계좌(월급 통장) — 예정 목록도 그 계좌 · 그 계좌 카드 줄만(S15P31E103-484, 11/13 결정)
-        assertEquals(AccountScope(setOf(1), setOf(16)), ForecastSelection().scopeFrom(accounts))
+        // 고르지 않으면 전체 — 거르지 않는다(S15P31E103-548, -484 때는 기준 계좌 하나였다)
+        assertNull(ForecastSelection().scopeFrom(accounts))
         assertEquals(5, cashflowRows(entries, testForecast()).size)
     }
 
@@ -357,18 +344,27 @@ class ForecastMapperTest {
         assertNull(statusTag(testForecast(status = RiskLevel.UNKNOWN)))
     }
 
-    @Test fun `계좌 고르기 — 고르지 않으면 기준 계좌, 해제된 계좌는 빼고 남은 게 없으면 기준 계좌, 모두 고르면 전체(-484)`() {
+    @Test fun `계좌 고르기 — 고르지 않으면 전체, 해제된 계좌는 빼고 남은 게 없으면 전체, 모두 고르면 전체(-548)`() {
         val accounts = listOf(ForecastAccountOption(1, "a", null, "", null, true), ForecastAccountOption(2, "b", null, "", null, false))
-        assertEquals(listOf(1L), ForecastSelection().accountIdsFrom(accounts))
+        assertEquals(listOf(1L, 2L), ForecastSelection().accountIdsFrom(accounts))
         assertEquals(listOf(2L), ForecastSelection(accountIds = setOf(2, 9)).accountIdsFrom(accounts))
-        assertEquals(listOf(1L), ForecastSelection(accountIds = setOf(9)).accountIdsFrom(accounts))
+        assertEquals(listOf(1L, 2L), ForecastSelection(accountIds = setOf(9)).accountIdsFrom(accounts))
         assertEquals(listOf(1L, 2L), ForecastSelection(all = true).accountIdsFrom(accounts))
+        assertEquals(emptyList<Long>(), ForecastSelection().accountIdsFrom(emptyList()))
+        // 계좌 칩 '계좌 N개 전체'는 고르지 않았을 때도 붙는다
+        assertTrue(ForecastSelection().coversAll)
+        assertFalse(ForecastSelection(accountIds = setOf(2)).coversAll)
     }
 
-    @Test fun `기준 계좌가 없는 옛 자료면 전처럼 전체, 계좌가 없으면 빈 목록`() {
-        val noPrimary = listOf(ForecastAccountOption(1, "a", null, "", null, false), ForecastAccountOption(2, "b", null, "", null, false))
-        assertEquals(listOf(1L, 2L), ForecastSelection().accountIdsFrom(noPrimary))
-        assertEquals(emptyList<Long>(), ForecastSelection().accountIdsFrom(emptyList()))
+    @Test fun `가상 구매 계좌 — 카드의 출금 계좌 하나, 카드를 모르거나 목록에 없으면 null(-548)`() {
+        val accounts = listOf(
+            ForecastAccountOption(1, "a", null, "", null, true, cardIds = setOf(11)),
+            ForecastAccountOption(2, "b", null, "", null, false, cardIds = setOf(21, 22)),
+        )
+        assertEquals(listOf(2L), cardAccountIds(22, accounts))
+        assertEquals(listOf(1L), cardAccountIds(11, accounts))
+        assertNull(cardAccountIds(null, accounts))
+        assertNull(cardAccountIds(99, accounts))
     }
 
     @Test fun `계좌 이름표 — 하나면 은행 · 끝 네 자리, 여럿이면 개수, 모두 고르면 전체`() {

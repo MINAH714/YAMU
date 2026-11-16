@@ -47,7 +47,16 @@ export function demoHistory(): PaymentHistoryItem[] {
     item(2039, { approvedAt: kst(0, '09:02'), amount: 4_500, chargedAmount: 4_500 }),
     item(2031, { approvedAt: kst(1, '18:41'), amount: 6_100, chargedAmount: 6_100, card: KB }),
     item(2027, { approvedAt: kst(1, '15:20'), amount: 23_000, chargedAmount: 21_000, instantDiscount: 2_000 }),
-    item(2018, { approvedAt: kst(2, '11:47'), amount: 8_900, chargedAmount: 8_900, card: HYUNDAI }),
+    // 결제한 다음 날 취소했다. 상세의 취소 문구에 날짜가 붙는다
+    item(2018, {
+      status: 'CANCELED',
+      approvedAt: kst(2, '11:47'),
+      canceledAt: kst(1, '09:30'),
+      amount: 8_900,
+      chargedAmount: 8_900,
+      card: HYUNDAI,
+      cancelable: false,
+    }),
   ]
 }
 

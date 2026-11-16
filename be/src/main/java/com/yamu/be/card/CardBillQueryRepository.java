@@ -18,16 +18,14 @@ import org.springframework.data.repository.Repository;
 public interface CardBillQueryRepository extends Repository<CardBill, Long> {
 
     /**
-     * 끝난 청구. 이 상태가 아닌 청구(ACCUMULATING 포함)가 하나라도 있으면 카드 해제(CARD_HAS_OPEN_BILL)와
-     * 탈퇴(BILL_OUTSTANDING)를 막는다. 막을 상태를 나열하지 않고 끝난 상태만 나열해, 나중에 생길 상태도 기본으로 막는다.
+     * 끝난 청구. 이 상태가 아닌 청구(ACCUMULATING 포함)가 하나라도 있으면 탈퇴(BILL_OUTSTANDING)를 막는다.
+     * 막을 상태를 나열하지 않고 끝난 상태만 나열해, 나중에 생길 상태도 기본으로 막는다.
+     * 카드 해제는 남은 청구가 있어도 막지 않는다(S15P31E103-562).
      */
     Set<BillStatus> SETTLED = Set.of(BillStatus.PAID, BillStatus.CANCELED);
 
     /** 카드들 중 그 상태의 청구서. 빈 목록은 넘기지 않는다. */
     List<CardBill> findByUserCardIdInAndStatus(Collection<Long> userCardIds, BillStatus status);
-
-    /** 이 카드의 청구서 중 주어진 상태가 아닌 것, 번호 순. */
-    List<CardBill> findByUserCardIdAndStatusNotInOrderByIdAsc(Long userCardId, Collection<BillStatus> statuses);
 
     /** 이 사용자의 청구서 중 주어진 상태가 아닌 것, 번호 순. */
     List<CardBill> findByUserIdAndStatusNotInOrderByIdAsc(Long userId, Collection<BillStatus> statuses);

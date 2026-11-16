@@ -1,0 +1,28 @@
+// A fresh test event and its XML report must both prove that the approved test ran.
+ext.verifySixMonthResults = { File directory, Map execution ->
+    def reject = { String reason -> throw new GradleException("Six-month experiment result rejected: ${reason}") }
+    if (execution == null || execution.total != 1 || execution.failed != 0 || execution.skipped != 0) {
+        reject("this invocation must execute exactly 1 test with 0 failures and 0 skips (observed: ${execution})")
+    }
+    def reports = directory.listFiles()?.findAll { it.name.startsWith('TEST-') && it.name.endsWith('.xml') } ?: []
+    if (reports.size() != 1) reject('expected exactly 1 current JUnit XML report')
+    def root
+    try {
+        def parser = new groovy.xml.XmlParser(false, false)
+        parser.errorHandler = new org.xml.sax.helpers.DefaultHandler() {
+            @Override void error(org.xml.sax.SAXParseException e) { throw e }
+            @Override void fatalError(org.xml.sax.SAXParseException e) { throw e }
+        }
+        root = parser.parse(reports[0])
+    } catch (Exception e) {
+        throw new GradleException('Six-month experiment result rejected: unreadable JUnit XML', e)
+    }
+    def cases = root.depthFirst().findAll { it instanceof Node && it.name() == 'testcase' }
+    if (cases.size() != 1) reject('expected exactly 1 reported test')
+    def test = cases[0]
+    if (test.@classname != 'com.yamu.be.recommendation.CardSelectionSixMonthTest' ||
+            test.@name != 'approvedSixMonthComparison()') reject('unexpected test identity')
+    if (test.children().any { it instanceof Node && it.name() in ['failure', 'error', 'skipped'] }) {
+        reject('reported test failed, errored or was skipped')
+    }
+}

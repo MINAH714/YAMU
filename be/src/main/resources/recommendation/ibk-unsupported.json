@@ -1,0 +1,295 @@
+{
+  "checkedOn": "2026-11-16",
+  "sources": [
+    "https://www.ibk.co.kr/cardbiz/detailBizNew.ibk?PDCD=0001&PDGR_CD=11&PDLN_CD=12&PDTM_CD=296&pageId=CA01030000",
+    "https://bccard.com/app/card/CheckCardMain.do?gdsno=756053&mbkNo=003",
+    "https://narasarang.ibk.co.kr/"
+  ],
+  "benefits": [
+    {
+      "code": "NPAY",
+      "minimumPerformance": 250000,
+      "brands": [],
+      "categories": [],
+      "requiredFact": "PAYMENT_METHOD:NPAY",
+      "onlineOnly": false,
+      "militaryOnly": false
+    },
+    {
+      "code": "TRANSIT",
+      "minimumPerformance": 200000,
+      "brands": [],
+      "categories": [
+        "CITY_BUS",
+        "SUBWAY"
+      ],
+      "requiredFact": null,
+      "onlineOnly": false,
+      "militaryOnly": false
+    },
+    {
+      "code": "RAIL_BUS",
+      "minimumPerformance": 80000,
+      "brands": [],
+      "categories": [
+        "RAILWAY",
+        "EXPRESS_BUS"
+      ],
+      "requiredFact": null,
+      "onlineOnly": false,
+      "militaryOnly": false
+    },
+    {
+      "code": "KAKAO_T",
+      "minimumPerformance": 250000,
+      "brands": [
+        "KAKAO_T"
+      ],
+      "categories": [
+        "TAXI"
+      ],
+      "requiredFact": null,
+      "onlineOnly": false,
+      "militaryOnly": false
+    },
+    {
+      "code": "SUBSCRIPTION",
+      "minimumPerformance": 250000,
+      "brands": [
+        "YOUTUBE_PREMIUM",
+        "NETFLIX",
+        "TVING",
+        "NEXON",
+        "NAVER_WEBTOON",
+        "RIOT_GAMES",
+        "APP_STORE",
+        "GOOGLE_PLAY"
+      ],
+      "categories": [
+        "STREAMING_SERVICE",
+        "OTHER"
+      ],
+      "requiredFact": "BILLING:AUTO_DEBIT",
+      "onlineOnly": false,
+      "militaryOnly": false
+    },
+    {
+      "code": "TELECOM",
+      "minimumPerformance": 200000,
+      "brands": [],
+      "categories": [
+        "TELECOMMUNICATION"
+      ],
+      "requiredFact": "BILLING:AUTO_DEBIT",
+      "onlineOnly": false,
+      "militaryOnly": false
+    },
+    {
+      "code": "CGV",
+      "minimumPerformance": 80000,
+      "brands": [
+        "CGV"
+      ],
+      "categories": [
+        "MOVIE_THEATER"
+      ],
+      "requiredFact": null,
+      "onlineOnly": false,
+      "militaryOnly": false
+    },
+    {
+      "code": "AMUSEMENT",
+      "minimumPerformance": 80000,
+      "brands": [
+        "EVERLAND",
+        "LOTTE_WORLD",
+        "SEOUL_LAND",
+        "E_WORLD",
+        "GYEONGJU_WORLD",
+        "CARIBBEAN_BAY",
+        "LOTTE_WORLD_BUSAN"
+      ],
+      "categories": [
+        "OTHER"
+      ],
+      "requiredFact": null,
+      "onlineOnly": false,
+      "militaryOnly": false
+    },
+    {
+      "code": "TOEIC_BOOK",
+      "minimumPerformance": 200000,
+      "brands": [
+        "TOEIC",
+        "KYOBO"
+      ],
+      "categories": [
+        "OTHER",
+        "BOOKSTORE"
+      ],
+      "requiredFact": null,
+      "onlineOnly": true,
+      "militaryOnly": false
+    },
+    {
+      "code": "EMART24_BASKET",
+      "minimumPerformance": 0,
+      "brands": [
+        "EMART24"
+      ],
+      "categories": [
+        "CONVENIENCE_STORE"
+      ],
+      "requiredFact": null,
+      "onlineOnly": false,
+      "militaryOnly": false
+    },
+    {
+      "code": "MEGA_ORDER",
+      "minimumPerformance": 0,
+      "brands": [
+        "MEGA_MGC"
+      ],
+      "categories": [
+        "COFFEE_SHOP"
+      ],
+      "requiredFact": null,
+      "onlineOnly": true,
+      "militaryOnly": false
+    },
+    {
+      "code": "NOL_POINTS",
+      "minimumPerformance": 0,
+      "brands": [
+        "NOL"
+      ],
+      "categories": [
+        "OTHER"
+      ],
+      "requiredFact": null,
+      "onlineOnly": false,
+      "militaryOnly": false
+    },
+    {
+      "code": "SOCAR_COUPON",
+      "minimumPerformance": 0,
+      "brands": [
+        "SOCAR"
+      ],
+      "categories": [
+        "OTHER"
+      ],
+      "requiredFact": null,
+      "onlineOnly": false,
+      "militaryOnly": false
+    },
+    {
+      "code": "GENIE_PASS",
+      "minimumPerformance": 0,
+      "brands": [
+        "GENIE"
+      ],
+      "categories": [
+        "STREAMING_SERVICE",
+        "OTHER"
+      ],
+      "requiredFact": null,
+      "onlineOnly": false,
+      "militaryOnly": false
+    },
+    {
+      "code": "SPOTV_PASS",
+      "minimumPerformance": 0,
+      "brands": [
+        "SPOTV_NOW"
+      ],
+      "categories": [
+        "STREAMING_SERVICE",
+        "OTHER"
+      ],
+      "requiredFact": null,
+      "onlineOnly": false,
+      "militaryOnly": false
+    },
+    {
+      "code": "WATCHA_PASS",
+      "minimumPerformance": 0,
+      "brands": [
+        "WATCHA"
+      ],
+      "categories": [
+        "STREAMING_SERVICE",
+        "OTHER"
+      ],
+      "requiredFact": null,
+      "onlineOnly": false,
+      "militaryOnly": false
+    },
+    {
+      "code": "HACKERS",
+      "minimumPerformance": 0,
+      "brands": [
+        "HACKERS"
+      ],
+      "categories": [
+        "ACADEMY",
+        "OTHER"
+      ],
+      "requiredFact": null,
+      "onlineOnly": false,
+      "militaryOnly": false
+    },
+    {
+      "code": "WEOLBU_COUPON",
+      "minimumPerformance": 0,
+      "brands": [
+        "WEOLBU"
+      ],
+      "categories": [
+        "OTHER"
+      ],
+      "requiredFact": null,
+      "onlineOnly": false,
+      "militaryOnly": false
+    },
+    {
+      "code": "PX",
+      "minimumPerformance": 0,
+      "brands": [
+        "MILITARY_PX"
+      ],
+      "categories": [
+        "OTHER"
+      ],
+      "requiredFact": null,
+      "onlineOnly": false,
+      "militaryOnly": true
+    },
+    {
+      "code": "MILITARY_SERVICES",
+      "minimumPerformance": 0,
+      "brands": [],
+      "categories": [],
+      "requiredFact": null,
+      "onlineOnly": false,
+      "militaryOnly": true
+    }
+  ],
+  "newIssueExcluded": [
+    "INITIAL_PERFORMANCE_WAIVER",
+    "INITIAL_AIO_TIER",
+    "INITIAL_NPAY_WAIVER",
+    "WELCOME_GIFTS"
+  ],
+  "nonPaymentServices": [
+    "GS_ALL",
+    "GREEN_CARD",
+    "SYRUP",
+    "TRAVEL_FX_ATM",
+    "INSURANCE",
+    "FUNERAL_SUPPORT"
+  ],
+  "expiredInNovember": [
+    "SHOEMARKER_MYTAG_20260930"
+  ]
+}

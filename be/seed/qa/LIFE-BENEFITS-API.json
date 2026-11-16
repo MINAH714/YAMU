@@ -1,0 +1,6074 @@
+{
+  "referenceDate" : "2026-11-16",
+  "execution" : "MockMvc controllers + isolated MySQL; signup prerequisites prepared in test; no financial calls",
+  "personas" : [ {
+    "name" : "최인국",
+    "months" : [ {
+      "monthly" : {
+        "yearMonth" : "2025-12",
+        "isPartialMonth" : false,
+        "periodTo" : "2025-12-31",
+        "totalSpent" : 1987000,
+        "livingSpent" : 1987000,
+        "prevSamePeriodSpent" : 1927500,
+        "prevMonthTotalSpent" : 1927500,
+        "byCategory" : [ {
+          "categoryCode" : "ONLINE_MARKETPLACE",
+          "categoryName" : "온라인 쇼핑",
+          "amount" : 908500,
+          "ratio" : 45.7
+        }, {
+          "categoryCode" : "HYPERMARKET",
+          "categoryName" : "대형마트",
+          "amount" : 496000,
+          "ratio" : 25.0
+        }, {
+          "categoryCode" : "GENERAL_RESTAURANT",
+          "categoryName" : "일반음식점",
+          "amount" : 478500,
+          "ratio" : 24.1
+        }, {
+          "categoryCode" : "TELECOMMUNICATION",
+          "categoryName" : "통신",
+          "amount" : 65000,
+          "ratio" : 3.3
+        }, {
+          "categoryCode" : "CONVENIENCE_STORE",
+          "categoryName" : "편의점",
+          "amount" : 39000,
+          "ratio" : 2.0
+        } ],
+        "benefitSummary" : {
+          "expected" : 0,
+          "actual" : 0
+        }
+      },
+      "paymentsSummary" : {
+        "count" : 34,
+        "amount" : 1987000,
+        "expectedBenefit" : 0,
+        "confirmedBenefit" : 0,
+        "byClass" : {
+          "LIVING" : 1987000,
+          "LARGE" : 0,
+          "EXCLUDED" : 0
+        },
+        "yamuPickCount" : 0
+      },
+      "yamuBenefits" : {
+        "yearMonth" : "2025-12",
+        "status" : "CONFIRMED",
+        "summary" : {
+          "expectedBenefit" : 0,
+          "confirmedBenefit" : 0,
+          "yamuPickExtra" : 0,
+          "missedBenefit" : 0,
+          "unconfirmedBenefit" : 0,
+          "unconvertedBenefitCount" : 0,
+          "byType" : [ {
+            "type" : "DISCOUNT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "CASHBACK",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "POINT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          } ]
+        },
+        "differences" : [ ],
+        "byCategory" : [ ],
+        "source" : "YAMU",
+        "cards" : [ ]
+      }
+    }, {
+      "monthly" : {
+        "yearMonth" : "2026-01",
+        "isPartialMonth" : false,
+        "periodTo" : "2026-01-31",
+        "totalSpent" : 2016000,
+        "livingSpent" : 2016000,
+        "prevSamePeriodSpent" : 1987000,
+        "prevMonthTotalSpent" : 1987000,
+        "byCategory" : [ {
+          "categoryCode" : "ONLINE_MARKETPLACE",
+          "categoryName" : "온라인 쇼핑",
+          "amount" : 950500,
+          "ratio" : 47.1
+        }, {
+          "categoryCode" : "HYPERMARKET",
+          "categoryName" : "대형마트",
+          "amount" : 581000,
+          "ratio" : 28.8
+        }, {
+          "categoryCode" : "GENERAL_RESTAURANT",
+          "categoryName" : "일반음식점",
+          "amount" : 380500,
+          "ratio" : 18.9
+        }, {
+          "categoryCode" : "TELECOMMUNICATION",
+          "categoryName" : "통신",
+          "amount" : 65000,
+          "ratio" : 3.2
+        }, {
+          "categoryCode" : "CONVENIENCE_STORE",
+          "categoryName" : "편의점",
+          "amount" : 39000,
+          "ratio" : 1.9
+        } ],
+        "benefitSummary" : {
+          "expected" : 0,
+          "actual" : 0
+        }
+      },
+      "paymentsSummary" : {
+        "count" : 33,
+        "amount" : 2016000,
+        "expectedBenefit" : 0,
+        "confirmedBenefit" : 0,
+        "byClass" : {
+          "LIVING" : 2016000,
+          "LARGE" : 0,
+          "EXCLUDED" : 0
+        },
+        "yamuPickCount" : 0
+      },
+      "yamuBenefits" : {
+        "yearMonth" : "2026-01",
+        "status" : "CONFIRMED",
+        "summary" : {
+          "expectedBenefit" : 0,
+          "confirmedBenefit" : 0,
+          "yamuPickExtra" : 0,
+          "missedBenefit" : 0,
+          "unconfirmedBenefit" : 0,
+          "unconvertedBenefitCount" : 0,
+          "byType" : [ {
+            "type" : "DISCOUNT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "CASHBACK",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "POINT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          } ]
+        },
+        "differences" : [ ],
+        "byCategory" : [ ],
+        "source" : "YAMU",
+        "cards" : [ ]
+      }
+    }, {
+      "monthly" : {
+        "yearMonth" : "2026-02",
+        "isPartialMonth" : false,
+        "periodTo" : "2026-02-28",
+        "totalSpent" : 2092500,
+        "livingSpent" : 2092500,
+        "prevSamePeriodSpent" : 1936500,
+        "prevMonthTotalSpent" : 2016000,
+        "byCategory" : [ {
+          "categoryCode" : "ONLINE_MARKETPLACE",
+          "categoryName" : "온라인 쇼핑",
+          "amount" : 980500,
+          "ratio" : 46.9
+        }, {
+          "categoryCode" : "HYPERMARKET",
+          "categoryName" : "대형마트",
+          "amount" : 520000,
+          "ratio" : 24.9
+        }, {
+          "categoryCode" : "GENERAL_RESTAURANT",
+          "categoryName" : "일반음식점",
+          "amount" : 488000,
+          "ratio" : 23.3
+        }, {
+          "categoryCode" : "TELECOMMUNICATION",
+          "categoryName" : "통신",
+          "amount" : 65000,
+          "ratio" : 3.1
+        }, {
+          "categoryCode" : "CONVENIENCE_STORE",
+          "categoryName" : "편의점",
+          "amount" : 39000,
+          "ratio" : 1.9
+        } ],
+        "benefitSummary" : {
+          "expected" : 0,
+          "actual" : 0
+        }
+      },
+      "paymentsSummary" : {
+        "count" : 32,
+        "amount" : 2092500,
+        "expectedBenefit" : 0,
+        "confirmedBenefit" : 0,
+        "byClass" : {
+          "LIVING" : 2092500,
+          "LARGE" : 0,
+          "EXCLUDED" : 0
+        },
+        "yamuPickCount" : 0
+      },
+      "yamuBenefits" : {
+        "yearMonth" : "2026-02",
+        "status" : "CONFIRMED",
+        "summary" : {
+          "expectedBenefit" : 0,
+          "confirmedBenefit" : 0,
+          "yamuPickExtra" : 0,
+          "missedBenefit" : 0,
+          "unconfirmedBenefit" : 0,
+          "unconvertedBenefitCount" : 0,
+          "byType" : [ {
+            "type" : "DISCOUNT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "CASHBACK",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "POINT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          } ]
+        },
+        "differences" : [ ],
+        "byCategory" : [ ],
+        "source" : "YAMU",
+        "cards" : [ ]
+      }
+    }, {
+      "monthly" : {
+        "yearMonth" : "2026-03",
+        "isPartialMonth" : false,
+        "periodTo" : "2026-03-31",
+        "totalSpent" : 1808000,
+        "livingSpent" : 1808000,
+        "prevSamePeriodSpent" : 2092500,
+        "prevMonthTotalSpent" : 2092500,
+        "byCategory" : [ {
+          "categoryCode" : "ONLINE_MARKETPLACE",
+          "categoryName" : "온라인 쇼핑",
+          "amount" : 821500,
+          "ratio" : 45.4
+        }, {
+          "categoryCode" : "HYPERMARKET",
+          "categoryName" : "대형마트",
+          "amount" : 504000,
+          "ratio" : 27.9
+        }, {
+          "categoryCode" : "GENERAL_RESTAURANT",
+          "categoryName" : "일반음식점",
+          "amount" : 378500,
+          "ratio" : 20.9
+        }, {
+          "categoryCode" : "TELECOMMUNICATION",
+          "categoryName" : "통신",
+          "amount" : 65000,
+          "ratio" : 3.6
+        }, {
+          "categoryCode" : "CONVENIENCE_STORE",
+          "categoryName" : "편의점",
+          "amount" : 39000,
+          "ratio" : 2.2
+        } ],
+        "benefitSummary" : {
+          "expected" : 0,
+          "actual" : 0
+        }
+      },
+      "paymentsSummary" : {
+        "count" : 31,
+        "amount" : 1808000,
+        "expectedBenefit" : 0,
+        "confirmedBenefit" : 0,
+        "byClass" : {
+          "LIVING" : 1808000,
+          "LARGE" : 0,
+          "EXCLUDED" : 0
+        },
+        "yamuPickCount" : 0
+      },
+      "yamuBenefits" : {
+        "yearMonth" : "2026-03",
+        "status" : "CONFIRMED",
+        "summary" : {
+          "expectedBenefit" : 0,
+          "confirmedBenefit" : 0,
+          "yamuPickExtra" : 0,
+          "missedBenefit" : 0,
+          "unconfirmedBenefit" : 0,
+          "unconvertedBenefitCount" : 0,
+          "byType" : [ {
+            "type" : "DISCOUNT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "CASHBACK",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "POINT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          } ]
+        },
+        "differences" : [ ],
+        "byCategory" : [ ],
+        "source" : "YAMU",
+        "cards" : [ ]
+      }
+    }, {
+      "monthly" : {
+        "yearMonth" : "2026-04",
+        "isPartialMonth" : false,
+        "periodTo" : "2026-04-30",
+        "totalSpent" : 1841000,
+        "livingSpent" : 1841000,
+        "prevSamePeriodSpent" : 1793500,
+        "prevMonthTotalSpent" : 1808000,
+        "byCategory" : [ {
+          "categoryCode" : "ONLINE_MARKETPLACE",
+          "categoryName" : "온라인 쇼핑",
+          "amount" : 832500,
+          "ratio" : 45.2
+        }, {
+          "categoryCode" : "HYPERMARKET",
+          "categoryName" : "대형마트",
+          "amount" : 508000,
+          "ratio" : 27.6
+        }, {
+          "categoryCode" : "GENERAL_RESTAURANT",
+          "categoryName" : "일반음식점",
+          "amount" : 396500,
+          "ratio" : 21.5
+        }, {
+          "categoryCode" : "TELECOMMUNICATION",
+          "categoryName" : "통신",
+          "amount" : 65000,
+          "ratio" : 3.5
+        }, {
+          "categoryCode" : "CONVENIENCE_STORE",
+          "categoryName" : "편의점",
+          "amount" : 39000,
+          "ratio" : 2.1
+        } ],
+        "benefitSummary" : {
+          "expected" : 6500,
+          "actual" : 4000
+        }
+      },
+      "paymentsSummary" : {
+        "count" : 32,
+        "amount" : 1841000,
+        "expectedBenefit" : 6500,
+        "confirmedBenefit" : 4000,
+        "byClass" : {
+          "LIVING" : 1841000,
+          "LARGE" : 0,
+          "EXCLUDED" : 0
+        },
+        "yamuPickCount" : 0
+      },
+      "yamuBenefits" : {
+        "yearMonth" : "2026-04",
+        "status" : "PARTIAL",
+        "summary" : {
+          "expectedBenefit" : 6500,
+          "confirmedBenefit" : 4000,
+          "yamuPickExtra" : 0,
+          "missedBenefit" : 0,
+          "unconfirmedBenefit" : 2500,
+          "unconvertedBenefitCount" : 0,
+          "byType" : [ {
+            "type" : "DISCOUNT",
+            "expectedBenefit" : 4000,
+            "confirmedBenefit" : 4000,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "CASHBACK",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "POINT",
+            "expectedBenefit" : 2500,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 2500,
+            "unconvertedBenefitCount" : 0
+          } ]
+        },
+        "differences" : [ ],
+        "byCategory" : [ {
+          "categoryCode" : "HYPERMARKET",
+          "categoryName" : "대형마트",
+          "amount" : 3000,
+          "ratio" : 46.2
+        }, {
+          "categoryCode" : "GENERAL_RESTAURANT",
+          "categoryName" : "일반음식점",
+          "amount" : 2000,
+          "ratio" : 30.8
+        }, {
+          "categoryCode" : "ONLINE_MARKETPLACE",
+          "categoryName" : "온라인 쇼핑",
+          "amount" : 1500,
+          "ratio" : 23.1
+        } ],
+        "source" : "YAMU",
+        "cards" : [ {
+          "userCardId" : 104,
+          "cardProductId" : 1,
+          "cardName" : "신한카드 Mr.Life",
+          "cardAlias" : "신한카드 Mr.Life",
+          "expectedBenefit" : 4000,
+          "confirmedBenefit" : 4000,
+          "unconfirmedBenefit" : 0,
+          "unconvertedBenefitCount" : 0,
+          "byType" : [ {
+            "type" : "DISCOUNT",
+            "expectedBenefit" : 4000,
+            "confirmedBenefit" : 4000,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "CASHBACK",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "POINT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          } ]
+        }, {
+          "userCardId" : 103,
+          "cardProductId" : 3,
+          "cardName" : "신한카드 처음",
+          "cardAlias" : "신한카드 처음",
+          "expectedBenefit" : 2500,
+          "confirmedBenefit" : 0,
+          "unconfirmedBenefit" : 2500,
+          "unconvertedBenefitCount" : 0,
+          "byType" : [ {
+            "type" : "DISCOUNT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "CASHBACK",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "POINT",
+            "expectedBenefit" : 2500,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 2500,
+            "unconvertedBenefitCount" : 0
+          } ]
+        }, {
+          "userCardId" : 102,
+          "cardProductId" : 8,
+          "cardName" : "KB국민 노리 체크",
+          "cardAlias" : "KB국민 노리 체크",
+          "expectedBenefit" : 0,
+          "confirmedBenefit" : 0,
+          "unconfirmedBenefit" : 0,
+          "unconvertedBenefitCount" : 0,
+          "byType" : [ {
+            "type" : "DISCOUNT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "CASHBACK",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "POINT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          } ]
+        }, {
+          "userCardId" : 105,
+          "cardProductId" : 19,
+          "cardName" : "IBK나라사랑카드",
+          "cardAlias" : "IBK나라사랑카드",
+          "expectedBenefit" : 0,
+          "confirmedBenefit" : 0,
+          "unconfirmedBenefit" : 0,
+          "unconvertedBenefitCount" : 0,
+          "byType" : [ {
+            "type" : "DISCOUNT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "CASHBACK",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "POINT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          } ]
+        } ]
+      }
+    }, {
+      "monthly" : {
+        "yearMonth" : "2026-05",
+        "isPartialMonth" : false,
+        "periodTo" : "2026-05-31",
+        "totalSpent" : 1927500,
+        "livingSpent" : 1927500,
+        "prevSamePeriodSpent" : 1841000,
+        "prevMonthTotalSpent" : 1841000,
+        "byCategory" : [ {
+          "categoryCode" : "ONLINE_MARKETPLACE",
+          "categoryName" : "온라인 쇼핑",
+          "amount" : 861500,
+          "ratio" : 44.7
+        }, {
+          "categoryCode" : "HYPERMARKET",
+          "categoryName" : "대형마트",
+          "amount" : 596000,
+          "ratio" : 30.9
+        }, {
+          "categoryCode" : "GENERAL_RESTAURANT",
+          "categoryName" : "일반음식점",
+          "amount" : 366000,
+          "ratio" : 19.0
+        }, {
+          "categoryCode" : "TELECOMMUNICATION",
+          "categoryName" : "통신",
+          "amount" : 65000,
+          "ratio" : 3.4
+        }, {
+          "categoryCode" : "CONVENIENCE_STORE",
+          "categoryName" : "편의점",
+          "amount" : 39000,
+          "ratio" : 2.0
+        } ],
+        "benefitSummary" : {
+          "expected" : 3500,
+          "actual" : 1000
+        }
+      },
+      "paymentsSummary" : {
+        "count" : 31,
+        "amount" : 1927500,
+        "expectedBenefit" : 3500,
+        "confirmedBenefit" : 1000,
+        "byClass" : {
+          "LIVING" : 1927500,
+          "LARGE" : 0,
+          "EXCLUDED" : 0
+        },
+        "yamuPickCount" : 0
+      },
+      "yamuBenefits" : {
+        "yearMonth" : "2026-05",
+        "status" : "PARTIAL",
+        "summary" : {
+          "expectedBenefit" : 3500,
+          "confirmedBenefit" : 1000,
+          "yamuPickExtra" : 0,
+          "missedBenefit" : 0,
+          "unconfirmedBenefit" : 2500,
+          "unconvertedBenefitCount" : 0,
+          "byType" : [ {
+            "type" : "DISCOUNT",
+            "expectedBenefit" : 1000,
+            "confirmedBenefit" : 1000,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "CASHBACK",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "POINT",
+            "expectedBenefit" : 2500,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 2500,
+            "unconvertedBenefitCount" : 0
+          } ]
+        },
+        "differences" : [ ],
+        "byCategory" : [ {
+          "categoryCode" : "GENERAL_RESTAURANT",
+          "categoryName" : "일반음식점",
+          "amount" : 2000,
+          "ratio" : 57.1
+        }, {
+          "categoryCode" : "ONLINE_MARKETPLACE",
+          "categoryName" : "온라인 쇼핑",
+          "amount" : 1500,
+          "ratio" : 42.9
+        } ],
+        "source" : "YAMU",
+        "cards" : [ {
+          "userCardId" : 103,
+          "cardProductId" : 3,
+          "cardName" : "신한카드 처음",
+          "cardAlias" : "신한카드 처음",
+          "expectedBenefit" : 2500,
+          "confirmedBenefit" : 0,
+          "unconfirmedBenefit" : 2500,
+          "unconvertedBenefitCount" : 0,
+          "byType" : [ {
+            "type" : "DISCOUNT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "CASHBACK",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "POINT",
+            "expectedBenefit" : 2500,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 2500,
+            "unconvertedBenefitCount" : 0
+          } ]
+        }, {
+          "userCardId" : 104,
+          "cardProductId" : 1,
+          "cardName" : "신한카드 Mr.Life",
+          "cardAlias" : "신한카드 Mr.Life",
+          "expectedBenefit" : 1000,
+          "confirmedBenefit" : 1000,
+          "unconfirmedBenefit" : 0,
+          "unconvertedBenefitCount" : 0,
+          "byType" : [ {
+            "type" : "DISCOUNT",
+            "expectedBenefit" : 1000,
+            "confirmedBenefit" : 1000,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "CASHBACK",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "POINT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          } ]
+        }, {
+          "userCardId" : 102,
+          "cardProductId" : 8,
+          "cardName" : "KB국민 노리 체크",
+          "cardAlias" : "KB국민 노리 체크",
+          "expectedBenefit" : 0,
+          "confirmedBenefit" : 0,
+          "unconfirmedBenefit" : 0,
+          "unconvertedBenefitCount" : 0,
+          "byType" : [ {
+            "type" : "DISCOUNT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "CASHBACK",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "POINT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          } ]
+        }, {
+          "userCardId" : 105,
+          "cardProductId" : 19,
+          "cardName" : "IBK나라사랑카드",
+          "cardAlias" : "IBK나라사랑카드",
+          "expectedBenefit" : 0,
+          "confirmedBenefit" : 0,
+          "unconfirmedBenefit" : 0,
+          "unconvertedBenefitCount" : 0,
+          "byType" : [ {
+            "type" : "DISCOUNT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "CASHBACK",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "POINT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          } ]
+        } ]
+      }
+    }, {
+      "monthly" : {
+        "yearMonth" : "2026-06",
+        "isPartialMonth" : false,
+        "periodTo" : "2026-06-30",
+        "totalSpent" : 1789000,
+        "livingSpent" : 1789000,
+        "prevSamePeriodSpent" : 1927500,
+        "prevMonthTotalSpent" : 1927500,
+        "byCategory" : [ {
+          "categoryCode" : "ONLINE_MARKETPLACE",
+          "categoryName" : "온라인 쇼핑",
+          "amount" : 812500,
+          "ratio" : 45.4
+        }, {
+          "categoryCode" : "HYPERMARKET",
+          "categoryName" : "대형마트",
+          "amount" : 496000,
+          "ratio" : 27.7
+        }, {
+          "categoryCode" : "GENERAL_RESTAURANT",
+          "categoryName" : "일반음식점",
+          "amount" : 376500,
+          "ratio" : 21.0
+        }, {
+          "categoryCode" : "TELECOMMUNICATION",
+          "categoryName" : "통신",
+          "amount" : 65000,
+          "ratio" : 3.6
+        }, {
+          "categoryCode" : "CONVENIENCE_STORE",
+          "categoryName" : "편의점",
+          "amount" : 39000,
+          "ratio" : 2.2
+        } ],
+        "benefitSummary" : {
+          "expected" : 6500,
+          "actual" : 4000
+        }
+      },
+      "paymentsSummary" : {
+        "count" : 31,
+        "amount" : 1789000,
+        "expectedBenefit" : 6500,
+        "confirmedBenefit" : 4000,
+        "byClass" : {
+          "LIVING" : 1789000,
+          "LARGE" : 0,
+          "EXCLUDED" : 0
+        },
+        "yamuPickCount" : 0
+      },
+      "yamuBenefits" : {
+        "yearMonth" : "2026-06",
+        "status" : "PARTIAL",
+        "summary" : {
+          "expectedBenefit" : 6500,
+          "confirmedBenefit" : 4000,
+          "yamuPickExtra" : 0,
+          "missedBenefit" : 0,
+          "unconfirmedBenefit" : 2500,
+          "unconvertedBenefitCount" : 0,
+          "byType" : [ {
+            "type" : "DISCOUNT",
+            "expectedBenefit" : 4000,
+            "confirmedBenefit" : 4000,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "CASHBACK",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "POINT",
+            "expectedBenefit" : 2500,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 2500,
+            "unconvertedBenefitCount" : 0
+          } ]
+        },
+        "differences" : [ ],
+        "byCategory" : [ {
+          "categoryCode" : "HYPERMARKET",
+          "categoryName" : "대형마트",
+          "amount" : 3000,
+          "ratio" : 46.2
+        }, {
+          "categoryCode" : "GENERAL_RESTAURANT",
+          "categoryName" : "일반음식점",
+          "amount" : 2000,
+          "ratio" : 30.8
+        }, {
+          "categoryCode" : "ONLINE_MARKETPLACE",
+          "categoryName" : "온라인 쇼핑",
+          "amount" : 1500,
+          "ratio" : 23.1
+        } ],
+        "source" : "YAMU",
+        "cards" : [ {
+          "userCardId" : 104,
+          "cardProductId" : 1,
+          "cardName" : "신한카드 Mr.Life",
+          "cardAlias" : "신한카드 Mr.Life",
+          "expectedBenefit" : 4000,
+          "confirmedBenefit" : 4000,
+          "unconfirmedBenefit" : 0,
+          "unconvertedBenefitCount" : 0,
+          "byType" : [ {
+            "type" : "DISCOUNT",
+            "expectedBenefit" : 4000,
+            "confirmedBenefit" : 4000,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "CASHBACK",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "POINT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          } ]
+        }, {
+          "userCardId" : 103,
+          "cardProductId" : 3,
+          "cardName" : "신한카드 처음",
+          "cardAlias" : "신한카드 처음",
+          "expectedBenefit" : 2500,
+          "confirmedBenefit" : 0,
+          "unconfirmedBenefit" : 2500,
+          "unconvertedBenefitCount" : 0,
+          "byType" : [ {
+            "type" : "DISCOUNT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "CASHBACK",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "POINT",
+            "expectedBenefit" : 2500,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 2500,
+            "unconvertedBenefitCount" : 0
+          } ]
+        }, {
+          "userCardId" : 102,
+          "cardProductId" : 8,
+          "cardName" : "KB국민 노리 체크",
+          "cardAlias" : "KB국민 노리 체크",
+          "expectedBenefit" : 0,
+          "confirmedBenefit" : 0,
+          "unconfirmedBenefit" : 0,
+          "unconvertedBenefitCount" : 0,
+          "byType" : [ {
+            "type" : "DISCOUNT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "CASHBACK",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "POINT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          } ]
+        }, {
+          "userCardId" : 105,
+          "cardProductId" : 19,
+          "cardName" : "IBK나라사랑카드",
+          "cardAlias" : "IBK나라사랑카드",
+          "expectedBenefit" : 0,
+          "confirmedBenefit" : 0,
+          "unconfirmedBenefit" : 0,
+          "unconvertedBenefitCount" : 0,
+          "byType" : [ {
+            "type" : "DISCOUNT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "CASHBACK",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "POINT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          } ]
+        } ]
+      }
+    }, {
+      "monthly" : {
+        "yearMonth" : "2026-07",
+        "isPartialMonth" : false,
+        "periodTo" : "2026-07-31",
+        "totalSpent" : 2758000,
+        "livingSpent" : 1858000,
+        "prevSamePeriodSpent" : 1789000,
+        "prevMonthTotalSpent" : 1789000,
+        "byCategory" : [ {
+          "categoryCode" : "ONLINE_MARKETPLACE",
+          "categoryName" : "온라인 쇼핑",
+          "amount" : 1741500,
+          "ratio" : 63.1
+        }, {
+          "categoryCode" : "HYPERMARKET",
+          "categoryName" : "대형마트",
+          "amount" : 516000,
+          "ratio" : 18.7
+        }, {
+          "categoryCode" : "GENERAL_RESTAURANT",
+          "categoryName" : "일반음식점",
+          "amount" : 396500,
+          "ratio" : 14.4
+        }, {
+          "categoryCode" : "TELECOMMUNICATION",
+          "categoryName" : "통신",
+          "amount" : 65000,
+          "ratio" : 2.4
+        }, {
+          "categoryCode" : "CONVENIENCE_STORE",
+          "categoryName" : "편의점",
+          "amount" : 39000,
+          "ratio" : 1.4
+        } ],
+        "benefitSummary" : {
+          "expected" : 7000,
+          "actual" : 4000
+        }
+      },
+      "paymentsSummary" : {
+        "count" : 33,
+        "amount" : 2758000,
+        "expectedBenefit" : 7000,
+        "confirmedBenefit" : 4000,
+        "byClass" : {
+          "LIVING" : 1858000,
+          "LARGE" : 900000,
+          "EXCLUDED" : 0
+        },
+        "yamuPickCount" : 0
+      },
+      "yamuBenefits" : {
+        "yearMonth" : "2026-07",
+        "status" : "PARTIAL",
+        "summary" : {
+          "expectedBenefit" : 7000,
+          "confirmedBenefit" : 4000,
+          "yamuPickExtra" : 0,
+          "missedBenefit" : 0,
+          "unconfirmedBenefit" : 3000,
+          "unconvertedBenefitCount" : 0,
+          "byType" : [ {
+            "type" : "DISCOUNT",
+            "expectedBenefit" : 4000,
+            "confirmedBenefit" : 4000,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "CASHBACK",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "POINT",
+            "expectedBenefit" : 3000,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 3000,
+            "unconvertedBenefitCount" : 0
+          } ]
+        },
+        "differences" : [ ],
+        "byCategory" : [ {
+          "categoryCode" : "HYPERMARKET",
+          "categoryName" : "대형마트",
+          "amount" : 3000,
+          "ratio" : 42.9
+        }, {
+          "categoryCode" : "GENERAL_RESTAURANT",
+          "categoryName" : "일반음식점",
+          "amount" : 2000,
+          "ratio" : 28.6
+        }, {
+          "categoryCode" : "ONLINE_MARKETPLACE",
+          "categoryName" : "온라인 쇼핑",
+          "amount" : 2000,
+          "ratio" : 28.6
+        } ],
+        "source" : "YAMU",
+        "cards" : [ {
+          "userCardId" : 104,
+          "cardProductId" : 1,
+          "cardName" : "신한카드 Mr.Life",
+          "cardAlias" : "신한카드 Mr.Life",
+          "expectedBenefit" : 4000,
+          "confirmedBenefit" : 4000,
+          "unconfirmedBenefit" : 0,
+          "unconvertedBenefitCount" : 0,
+          "byType" : [ {
+            "type" : "DISCOUNT",
+            "expectedBenefit" : 4000,
+            "confirmedBenefit" : 4000,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "CASHBACK",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "POINT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          } ]
+        }, {
+          "userCardId" : 103,
+          "cardProductId" : 3,
+          "cardName" : "신한카드 처음",
+          "cardAlias" : "신한카드 처음",
+          "expectedBenefit" : 3000,
+          "confirmedBenefit" : 0,
+          "unconfirmedBenefit" : 3000,
+          "unconvertedBenefitCount" : 0,
+          "byType" : [ {
+            "type" : "DISCOUNT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "CASHBACK",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "POINT",
+            "expectedBenefit" : 3000,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 3000,
+            "unconvertedBenefitCount" : 0
+          } ]
+        }, {
+          "userCardId" : 102,
+          "cardProductId" : 8,
+          "cardName" : "KB국민 노리 체크",
+          "cardAlias" : "KB국민 노리 체크",
+          "expectedBenefit" : 0,
+          "confirmedBenefit" : 0,
+          "unconfirmedBenefit" : 0,
+          "unconvertedBenefitCount" : 0,
+          "byType" : [ {
+            "type" : "DISCOUNT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "CASHBACK",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "POINT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          } ]
+        }, {
+          "userCardId" : 105,
+          "cardProductId" : 19,
+          "cardName" : "IBK나라사랑카드",
+          "cardAlias" : "IBK나라사랑카드",
+          "expectedBenefit" : 0,
+          "confirmedBenefit" : 0,
+          "unconfirmedBenefit" : 0,
+          "unconvertedBenefitCount" : 0,
+          "byType" : [ {
+            "type" : "DISCOUNT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "CASHBACK",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "POINT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          } ]
+        } ]
+      }
+    }, {
+      "monthly" : {
+        "yearMonth" : "2026-08",
+        "isPartialMonth" : false,
+        "periodTo" : "2026-08-31",
+        "totalSpent" : 1910500,
+        "livingSpent" : 1910500,
+        "prevSamePeriodSpent" : 1858000,
+        "prevMonthTotalSpent" : 2758000,
+        "byCategory" : [ {
+          "categoryCode" : "ONLINE_MARKETPLACE",
+          "categoryName" : "온라인 쇼핑",
+          "amount" : 852500,
+          "ratio" : 44.6
+        }, {
+          "categoryCode" : "HYPERMARKET",
+          "categoryName" : "대형마트",
+          "amount" : 588000,
+          "ratio" : 30.8
+        }, {
+          "categoryCode" : "GENERAL_RESTAURANT",
+          "categoryName" : "일반음식점",
+          "amount" : 366000,
+          "ratio" : 19.2
+        }, {
+          "categoryCode" : "TELECOMMUNICATION",
+          "categoryName" : "통신",
+          "amount" : 65000,
+          "ratio" : 3.4
+        }, {
+          "categoryCode" : "CONVENIENCE_STORE",
+          "categoryName" : "편의점",
+          "amount" : 39000,
+          "ratio" : 2.0
+        } ],
+        "benefitSummary" : {
+          "expected" : 3500,
+          "actual" : 1000
+        }
+      },
+      "paymentsSummary" : {
+        "count" : 31,
+        "amount" : 1910500,
+        "expectedBenefit" : 3500,
+        "confirmedBenefit" : 1000,
+        "byClass" : {
+          "LIVING" : 1910500,
+          "LARGE" : 0,
+          "EXCLUDED" : 0
+        },
+        "yamuPickCount" : 0
+      },
+      "yamuBenefits" : {
+        "yearMonth" : "2026-08",
+        "status" : "PARTIAL",
+        "summary" : {
+          "expectedBenefit" : 3500,
+          "confirmedBenefit" : 1000,
+          "yamuPickExtra" : 0,
+          "missedBenefit" : 0,
+          "unconfirmedBenefit" : 2500,
+          "unconvertedBenefitCount" : 0,
+          "byType" : [ {
+            "type" : "DISCOUNT",
+            "expectedBenefit" : 1000,
+            "confirmedBenefit" : 1000,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "CASHBACK",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "POINT",
+            "expectedBenefit" : 2500,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 2500,
+            "unconvertedBenefitCount" : 0
+          } ]
+        },
+        "differences" : [ ],
+        "byCategory" : [ {
+          "categoryCode" : "GENERAL_RESTAURANT",
+          "categoryName" : "일반음식점",
+          "amount" : 2000,
+          "ratio" : 57.1
+        }, {
+          "categoryCode" : "ONLINE_MARKETPLACE",
+          "categoryName" : "온라인 쇼핑",
+          "amount" : 1500,
+          "ratio" : 42.9
+        } ],
+        "source" : "YAMU",
+        "cards" : [ {
+          "userCardId" : 103,
+          "cardProductId" : 3,
+          "cardName" : "신한카드 처음",
+          "cardAlias" : "신한카드 처음",
+          "expectedBenefit" : 2500,
+          "confirmedBenefit" : 0,
+          "unconfirmedBenefit" : 2500,
+          "unconvertedBenefitCount" : 0,
+          "byType" : [ {
+            "type" : "DISCOUNT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "CASHBACK",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "POINT",
+            "expectedBenefit" : 2500,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 2500,
+            "unconvertedBenefitCount" : 0
+          } ]
+        }, {
+          "userCardId" : 104,
+          "cardProductId" : 1,
+          "cardName" : "신한카드 Mr.Life",
+          "cardAlias" : "신한카드 Mr.Life",
+          "expectedBenefit" : 1000,
+          "confirmedBenefit" : 1000,
+          "unconfirmedBenefit" : 0,
+          "unconvertedBenefitCount" : 0,
+          "byType" : [ {
+            "type" : "DISCOUNT",
+            "expectedBenefit" : 1000,
+            "confirmedBenefit" : 1000,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "CASHBACK",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "POINT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          } ]
+        }, {
+          "userCardId" : 102,
+          "cardProductId" : 8,
+          "cardName" : "KB국민 노리 체크",
+          "cardAlias" : "KB국민 노리 체크",
+          "expectedBenefit" : 0,
+          "confirmedBenefit" : 0,
+          "unconfirmedBenefit" : 0,
+          "unconvertedBenefitCount" : 0,
+          "byType" : [ {
+            "type" : "DISCOUNT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "CASHBACK",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "POINT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          } ]
+        }, {
+          "userCardId" : 105,
+          "cardProductId" : 19,
+          "cardName" : "IBK나라사랑카드",
+          "cardAlias" : "IBK나라사랑카드",
+          "expectedBenefit" : 0,
+          "confirmedBenefit" : 0,
+          "unconfirmedBenefit" : 0,
+          "unconvertedBenefitCount" : 0,
+          "byType" : [ {
+            "type" : "DISCOUNT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "CASHBACK",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "POINT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          } ]
+        } ]
+      }
+    }, {
+      "monthly" : {
+        "yearMonth" : "2026-09",
+        "isPartialMonth" : false,
+        "periodTo" : "2026-09-30",
+        "totalSpent" : 1828000,
+        "livingSpent" : 1828000,
+        "prevSamePeriodSpent" : 1910500,
+        "prevMonthTotalSpent" : 1910500,
+        "byCategory" : [ {
+          "categoryCode" : "ONLINE_MARKETPLACE",
+          "categoryName" : "온라인 쇼핑",
+          "amount" : 821500,
+          "ratio" : 44.9
+        }, {
+          "categoryCode" : "HYPERMARKET",
+          "categoryName" : "대형마트",
+          "amount" : 504000,
+          "ratio" : 27.6
+        }, {
+          "categoryCode" : "GENERAL_RESTAURANT",
+          "categoryName" : "일반음식점",
+          "amount" : 398500,
+          "ratio" : 21.8
+        }, {
+          "categoryCode" : "TELECOMMUNICATION",
+          "categoryName" : "통신",
+          "amount" : 65000,
+          "ratio" : 3.6
+        }, {
+          "categoryCode" : "CONVENIENCE_STORE",
+          "categoryName" : "편의점",
+          "amount" : 39000,
+          "ratio" : 2.1
+        } ],
+        "benefitSummary" : {
+          "expected" : 6500,
+          "actual" : 4000
+        }
+      },
+      "paymentsSummary" : {
+        "count" : 32,
+        "amount" : 1828000,
+        "expectedBenefit" : 6500,
+        "confirmedBenefit" : 4000,
+        "byClass" : {
+          "LIVING" : 1828000,
+          "LARGE" : 0,
+          "EXCLUDED" : 0
+        },
+        "yamuPickCount" : 0
+      },
+      "yamuBenefits" : {
+        "yearMonth" : "2026-09",
+        "status" : "PARTIAL",
+        "summary" : {
+          "expectedBenefit" : 6500,
+          "confirmedBenefit" : 4000,
+          "yamuPickExtra" : 0,
+          "missedBenefit" : 0,
+          "unconfirmedBenefit" : 2500,
+          "unconvertedBenefitCount" : 0,
+          "byType" : [ {
+            "type" : "DISCOUNT",
+            "expectedBenefit" : 4000,
+            "confirmedBenefit" : 4000,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "CASHBACK",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "POINT",
+            "expectedBenefit" : 2500,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 2500,
+            "unconvertedBenefitCount" : 0
+          } ]
+        },
+        "differences" : [ ],
+        "byCategory" : [ {
+          "categoryCode" : "HYPERMARKET",
+          "categoryName" : "대형마트",
+          "amount" : 3000,
+          "ratio" : 46.2
+        }, {
+          "categoryCode" : "GENERAL_RESTAURANT",
+          "categoryName" : "일반음식점",
+          "amount" : 2000,
+          "ratio" : 30.8
+        }, {
+          "categoryCode" : "ONLINE_MARKETPLACE",
+          "categoryName" : "온라인 쇼핑",
+          "amount" : 1500,
+          "ratio" : 23.1
+        } ],
+        "source" : "YAMU",
+        "cards" : [ {
+          "userCardId" : 104,
+          "cardProductId" : 1,
+          "cardName" : "신한카드 Mr.Life",
+          "cardAlias" : "신한카드 Mr.Life",
+          "expectedBenefit" : 4000,
+          "confirmedBenefit" : 4000,
+          "unconfirmedBenefit" : 0,
+          "unconvertedBenefitCount" : 0,
+          "byType" : [ {
+            "type" : "DISCOUNT",
+            "expectedBenefit" : 4000,
+            "confirmedBenefit" : 4000,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "CASHBACK",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "POINT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          } ]
+        }, {
+          "userCardId" : 103,
+          "cardProductId" : 3,
+          "cardName" : "신한카드 처음",
+          "cardAlias" : "신한카드 처음",
+          "expectedBenefit" : 2500,
+          "confirmedBenefit" : 0,
+          "unconfirmedBenefit" : 2500,
+          "unconvertedBenefitCount" : 0,
+          "byType" : [ {
+            "type" : "DISCOUNT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "CASHBACK",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "POINT",
+            "expectedBenefit" : 2500,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 2500,
+            "unconvertedBenefitCount" : 0
+          } ]
+        }, {
+          "userCardId" : 102,
+          "cardProductId" : 8,
+          "cardName" : "KB국민 노리 체크",
+          "cardAlias" : "KB국민 노리 체크",
+          "expectedBenefit" : 0,
+          "confirmedBenefit" : 0,
+          "unconfirmedBenefit" : 0,
+          "unconvertedBenefitCount" : 0,
+          "byType" : [ {
+            "type" : "DISCOUNT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "CASHBACK",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "POINT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          } ]
+        }, {
+          "userCardId" : 105,
+          "cardProductId" : 19,
+          "cardName" : "IBK나라사랑카드",
+          "cardAlias" : "IBK나라사랑카드",
+          "expectedBenefit" : 0,
+          "confirmedBenefit" : 0,
+          "unconfirmedBenefit" : 0,
+          "unconvertedBenefitCount" : 0,
+          "byType" : [ {
+            "type" : "DISCOUNT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "CASHBACK",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "POINT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          } ]
+        } ]
+      }
+    }, {
+      "monthly" : {
+        "yearMonth" : "2026-10",
+        "isPartialMonth" : false,
+        "periodTo" : "2026-10-31",
+        "totalSpent" : 1880000,
+        "livingSpent" : 1880000,
+        "prevSamePeriodSpent" : 1828000,
+        "prevMonthTotalSpent" : 1828000,
+        "byCategory" : [ {
+          "categoryCode" : "ONLINE_MARKETPLACE",
+          "categoryName" : "온라인 쇼핑",
+          "amount" : 822500,
+          "ratio" : 43.8
+        }, {
+          "categoryCode" : "HYPERMARKET",
+          "categoryName" : "대형마트",
+          "amount" : 573000,
+          "ratio" : 30.5
+        }, {
+          "categoryCode" : "GENERAL_RESTAURANT",
+          "categoryName" : "일반음식점",
+          "amount" : 380500,
+          "ratio" : 20.2
+        }, {
+          "categoryCode" : "TELECOMMUNICATION",
+          "categoryName" : "통신",
+          "amount" : 65000,
+          "ratio" : 3.5
+        }, {
+          "categoryCode" : "CONVENIENCE_STORE",
+          "categoryName" : "편의점",
+          "amount" : 39000,
+          "ratio" : 2.1
+        } ],
+        "benefitSummary" : {
+          "expected" : 3500,
+          "actual" : 1000
+        }
+      },
+      "paymentsSummary" : {
+        "count" : 32,
+        "amount" : 1880000,
+        "expectedBenefit" : 3500,
+        "confirmedBenefit" : 1000,
+        "byClass" : {
+          "LIVING" : 1880000,
+          "LARGE" : 0,
+          "EXCLUDED" : 0
+        },
+        "yamuPickCount" : 0
+      },
+      "yamuBenefits" : {
+        "yearMonth" : "2026-10",
+        "status" : "PARTIAL",
+        "summary" : {
+          "expectedBenefit" : 3500,
+          "confirmedBenefit" : 1000,
+          "yamuPickExtra" : 0,
+          "missedBenefit" : 0,
+          "unconfirmedBenefit" : 2500,
+          "unconvertedBenefitCount" : 0,
+          "byType" : [ {
+            "type" : "DISCOUNT",
+            "expectedBenefit" : 1000,
+            "confirmedBenefit" : 1000,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "CASHBACK",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "POINT",
+            "expectedBenefit" : 2500,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 2500,
+            "unconvertedBenefitCount" : 0
+          } ]
+        },
+        "differences" : [ ],
+        "byCategory" : [ {
+          "categoryCode" : "GENERAL_RESTAURANT",
+          "categoryName" : "일반음식점",
+          "amount" : 2000,
+          "ratio" : 57.1
+        }, {
+          "categoryCode" : "ONLINE_MARKETPLACE",
+          "categoryName" : "온라인 쇼핑",
+          "amount" : 1500,
+          "ratio" : 42.9
+        } ],
+        "source" : "YAMU",
+        "cards" : [ {
+          "userCardId" : 103,
+          "cardProductId" : 3,
+          "cardName" : "신한카드 처음",
+          "cardAlias" : "신한카드 처음",
+          "expectedBenefit" : 2500,
+          "confirmedBenefit" : 0,
+          "unconfirmedBenefit" : 2500,
+          "unconvertedBenefitCount" : 0,
+          "byType" : [ {
+            "type" : "DISCOUNT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "CASHBACK",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "POINT",
+            "expectedBenefit" : 2500,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 2500,
+            "unconvertedBenefitCount" : 0
+          } ]
+        }, {
+          "userCardId" : 104,
+          "cardProductId" : 1,
+          "cardName" : "신한카드 Mr.Life",
+          "cardAlias" : "신한카드 Mr.Life",
+          "expectedBenefit" : 1000,
+          "confirmedBenefit" : 1000,
+          "unconfirmedBenefit" : 0,
+          "unconvertedBenefitCount" : 0,
+          "byType" : [ {
+            "type" : "DISCOUNT",
+            "expectedBenefit" : 1000,
+            "confirmedBenefit" : 1000,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "CASHBACK",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "POINT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          } ]
+        }, {
+          "userCardId" : 102,
+          "cardProductId" : 8,
+          "cardName" : "KB국민 노리 체크",
+          "cardAlias" : "KB국민 노리 체크",
+          "expectedBenefit" : 0,
+          "confirmedBenefit" : 0,
+          "unconfirmedBenefit" : 0,
+          "unconvertedBenefitCount" : 0,
+          "byType" : [ {
+            "type" : "DISCOUNT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "CASHBACK",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "POINT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          } ]
+        }, {
+          "userCardId" : 105,
+          "cardProductId" : 19,
+          "cardName" : "IBK나라사랑카드",
+          "cardAlias" : "IBK나라사랑카드",
+          "expectedBenefit" : 0,
+          "confirmedBenefit" : 0,
+          "unconfirmedBenefit" : 0,
+          "unconvertedBenefitCount" : 0,
+          "byType" : [ {
+            "type" : "DISCOUNT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "CASHBACK",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "POINT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          } ]
+        } ]
+      }
+    }, {
+      "monthly" : {
+        "yearMonth" : "2026-11",
+        "isPartialMonth" : true,
+        "periodTo" : "2026-11-16",
+        "totalSpent" : 690000,
+        "livingSpent" : 690000,
+        "prevSamePeriodSpent" : 1040500,
+        "prevMonthTotalSpent" : 1880000,
+        "byCategory" : [ {
+          "categoryCode" : "ONLINE_MARKETPLACE",
+          "categoryName" : "온라인 쇼핑",
+          "amount" : 630000,
+          "ratio" : 91.3
+        }, {
+          "categoryCode" : "GENERAL_RESTAURANT",
+          "categoryName" : "일반음식점",
+          "amount" : 60000,
+          "ratio" : 8.7
+        } ],
+        "benefitSummary" : {
+          "expected" : 1000,
+          "actual" : 0
+        }
+      },
+      "paymentsSummary" : {
+        "count" : 12,
+        "amount" : 690000,
+        "expectedBenefit" : 1000,
+        "confirmedBenefit" : 0,
+        "byClass" : {
+          "LIVING" : 690000,
+          "LARGE" : 0,
+          "EXCLUDED" : 0
+        },
+        "yamuPickCount" : 0
+      },
+      "yamuBenefits" : {
+        "yearMonth" : "2026-11",
+        "status" : "PARTIAL",
+        "summary" : {
+          "expectedBenefit" : 1000,
+          "confirmedBenefit" : 0,
+          "yamuPickExtra" : 0,
+          "missedBenefit" : 0,
+          "unconfirmedBenefit" : 1000,
+          "unconvertedBenefitCount" : 0,
+          "byType" : [ {
+            "type" : "DISCOUNT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "CASHBACK",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "POINT",
+            "expectedBenefit" : 1000,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 1000,
+            "unconvertedBenefitCount" : 0
+          } ]
+        },
+        "differences" : [ ],
+        "byCategory" : [ {
+          "categoryCode" : "ONLINE_MARKETPLACE",
+          "categoryName" : "온라인 쇼핑",
+          "amount" : 1000,
+          "ratio" : 100.0
+        } ],
+        "source" : "YAMU",
+        "cards" : [ {
+          "userCardId" : 103,
+          "cardProductId" : 3,
+          "cardName" : "신한카드 처음",
+          "cardAlias" : "신한카드 처음",
+          "expectedBenefit" : 1000,
+          "confirmedBenefit" : 0,
+          "unconfirmedBenefit" : 1000,
+          "unconvertedBenefitCount" : 0,
+          "byType" : [ {
+            "type" : "DISCOUNT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "CASHBACK",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "POINT",
+            "expectedBenefit" : 1000,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 1000,
+            "unconvertedBenefitCount" : 0
+          } ]
+        }, {
+          "userCardId" : 102,
+          "cardProductId" : 8,
+          "cardName" : "KB국민 노리 체크",
+          "cardAlias" : "KB국민 노리 체크",
+          "expectedBenefit" : 0,
+          "confirmedBenefit" : 0,
+          "unconfirmedBenefit" : 0,
+          "unconvertedBenefitCount" : 0,
+          "byType" : [ {
+            "type" : "DISCOUNT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "CASHBACK",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "POINT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          } ]
+        }, {
+          "userCardId" : 104,
+          "cardProductId" : 1,
+          "cardName" : "신한카드 Mr.Life",
+          "cardAlias" : "신한카드 Mr.Life",
+          "expectedBenefit" : 0,
+          "confirmedBenefit" : 0,
+          "unconfirmedBenefit" : 0,
+          "unconvertedBenefitCount" : 0,
+          "byType" : [ {
+            "type" : "DISCOUNT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "CASHBACK",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "POINT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          } ]
+        }, {
+          "userCardId" : 105,
+          "cardProductId" : 19,
+          "cardName" : "IBK나라사랑카드",
+          "cardAlias" : "IBK나라사랑카드",
+          "expectedBenefit" : 0,
+          "confirmedBenefit" : 0,
+          "unconfirmedBenefit" : 0,
+          "unconvertedBenefitCount" : 0,
+          "byType" : [ {
+            "type" : "DISCOUNT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "CASHBACK",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "POINT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          } ]
+        } ]
+      }
+    } ]
+  }, {
+    "name" : "남윤주",
+    "months" : [ {
+      "monthly" : {
+        "yearMonth" : "2025-12",
+        "isPartialMonth" : false,
+        "periodTo" : "2025-12-31",
+        "totalSpent" : 1987000,
+        "livingSpent" : 1987000,
+        "prevSamePeriodSpent" : 1927500,
+        "prevMonthTotalSpent" : 1927500,
+        "byCategory" : [ {
+          "categoryCode" : "ONLINE_MARKETPLACE",
+          "categoryName" : "온라인 쇼핑",
+          "amount" : 908500,
+          "ratio" : 45.7
+        }, {
+          "categoryCode" : "HYPERMARKET",
+          "categoryName" : "대형마트",
+          "amount" : 496000,
+          "ratio" : 25.0
+        }, {
+          "categoryCode" : "GENERAL_RESTAURANT",
+          "categoryName" : "일반음식점",
+          "amount" : 478500,
+          "ratio" : 24.1
+        }, {
+          "categoryCode" : "TELECOMMUNICATION",
+          "categoryName" : "통신",
+          "amount" : 65000,
+          "ratio" : 3.3
+        }, {
+          "categoryCode" : "CONVENIENCE_STORE",
+          "categoryName" : "편의점",
+          "amount" : 39000,
+          "ratio" : 2.0
+        } ],
+        "benefitSummary" : {
+          "expected" : 0,
+          "actual" : 0
+        }
+      },
+      "paymentsSummary" : {
+        "count" : 34,
+        "amount" : 1987000,
+        "expectedBenefit" : 0,
+        "confirmedBenefit" : 0,
+        "byClass" : {
+          "LIVING" : 1987000,
+          "LARGE" : 0,
+          "EXCLUDED" : 0
+        },
+        "yamuPickCount" : 0
+      },
+      "yamuBenefits" : {
+        "yearMonth" : "2025-12",
+        "status" : "CONFIRMED",
+        "summary" : {
+          "expectedBenefit" : 0,
+          "confirmedBenefit" : 0,
+          "yamuPickExtra" : 0,
+          "missedBenefit" : 0,
+          "unconfirmedBenefit" : 0,
+          "unconvertedBenefitCount" : 0,
+          "byType" : [ {
+            "type" : "DISCOUNT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "CASHBACK",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "POINT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          } ]
+        },
+        "differences" : [ ],
+        "byCategory" : [ ],
+        "source" : "YAMU",
+        "cards" : [ ]
+      }
+    }, {
+      "monthly" : {
+        "yearMonth" : "2026-01",
+        "isPartialMonth" : false,
+        "periodTo" : "2026-01-31",
+        "totalSpent" : 2016000,
+        "livingSpent" : 2016000,
+        "prevSamePeriodSpent" : 1987000,
+        "prevMonthTotalSpent" : 1987000,
+        "byCategory" : [ {
+          "categoryCode" : "ONLINE_MARKETPLACE",
+          "categoryName" : "온라인 쇼핑",
+          "amount" : 950500,
+          "ratio" : 47.1
+        }, {
+          "categoryCode" : "HYPERMARKET",
+          "categoryName" : "대형마트",
+          "amount" : 581000,
+          "ratio" : 28.8
+        }, {
+          "categoryCode" : "GENERAL_RESTAURANT",
+          "categoryName" : "일반음식점",
+          "amount" : 380500,
+          "ratio" : 18.9
+        }, {
+          "categoryCode" : "TELECOMMUNICATION",
+          "categoryName" : "통신",
+          "amount" : 65000,
+          "ratio" : 3.2
+        }, {
+          "categoryCode" : "CONVENIENCE_STORE",
+          "categoryName" : "편의점",
+          "amount" : 39000,
+          "ratio" : 1.9
+        } ],
+        "benefitSummary" : {
+          "expected" : 0,
+          "actual" : 0
+        }
+      },
+      "paymentsSummary" : {
+        "count" : 33,
+        "amount" : 2016000,
+        "expectedBenefit" : 0,
+        "confirmedBenefit" : 0,
+        "byClass" : {
+          "LIVING" : 2016000,
+          "LARGE" : 0,
+          "EXCLUDED" : 0
+        },
+        "yamuPickCount" : 0
+      },
+      "yamuBenefits" : {
+        "yearMonth" : "2026-01",
+        "status" : "CONFIRMED",
+        "summary" : {
+          "expectedBenefit" : 0,
+          "confirmedBenefit" : 0,
+          "yamuPickExtra" : 0,
+          "missedBenefit" : 0,
+          "unconfirmedBenefit" : 0,
+          "unconvertedBenefitCount" : 0,
+          "byType" : [ {
+            "type" : "DISCOUNT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "CASHBACK",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "POINT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          } ]
+        },
+        "differences" : [ ],
+        "byCategory" : [ ],
+        "source" : "YAMU",
+        "cards" : [ ]
+      }
+    }, {
+      "monthly" : {
+        "yearMonth" : "2026-02",
+        "isPartialMonth" : false,
+        "periodTo" : "2026-02-28",
+        "totalSpent" : 2092500,
+        "livingSpent" : 2092500,
+        "prevSamePeriodSpent" : 1936500,
+        "prevMonthTotalSpent" : 2016000,
+        "byCategory" : [ {
+          "categoryCode" : "ONLINE_MARKETPLACE",
+          "categoryName" : "온라인 쇼핑",
+          "amount" : 980500,
+          "ratio" : 46.9
+        }, {
+          "categoryCode" : "HYPERMARKET",
+          "categoryName" : "대형마트",
+          "amount" : 520000,
+          "ratio" : 24.9
+        }, {
+          "categoryCode" : "GENERAL_RESTAURANT",
+          "categoryName" : "일반음식점",
+          "amount" : 488000,
+          "ratio" : 23.3
+        }, {
+          "categoryCode" : "TELECOMMUNICATION",
+          "categoryName" : "통신",
+          "amount" : 65000,
+          "ratio" : 3.1
+        }, {
+          "categoryCode" : "CONVENIENCE_STORE",
+          "categoryName" : "편의점",
+          "amount" : 39000,
+          "ratio" : 1.9
+        } ],
+        "benefitSummary" : {
+          "expected" : 0,
+          "actual" : 0
+        }
+      },
+      "paymentsSummary" : {
+        "count" : 32,
+        "amount" : 2092500,
+        "expectedBenefit" : 0,
+        "confirmedBenefit" : 0,
+        "byClass" : {
+          "LIVING" : 2092500,
+          "LARGE" : 0,
+          "EXCLUDED" : 0
+        },
+        "yamuPickCount" : 0
+      },
+      "yamuBenefits" : {
+        "yearMonth" : "2026-02",
+        "status" : "CONFIRMED",
+        "summary" : {
+          "expectedBenefit" : 0,
+          "confirmedBenefit" : 0,
+          "yamuPickExtra" : 0,
+          "missedBenefit" : 0,
+          "unconfirmedBenefit" : 0,
+          "unconvertedBenefitCount" : 0,
+          "byType" : [ {
+            "type" : "DISCOUNT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "CASHBACK",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "POINT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          } ]
+        },
+        "differences" : [ ],
+        "byCategory" : [ ],
+        "source" : "YAMU",
+        "cards" : [ ]
+      }
+    }, {
+      "monthly" : {
+        "yearMonth" : "2026-03",
+        "isPartialMonth" : false,
+        "periodTo" : "2026-03-31",
+        "totalSpent" : 1808000,
+        "livingSpent" : 1808000,
+        "prevSamePeriodSpent" : 2092500,
+        "prevMonthTotalSpent" : 2092500,
+        "byCategory" : [ {
+          "categoryCode" : "ONLINE_MARKETPLACE",
+          "categoryName" : "온라인 쇼핑",
+          "amount" : 821500,
+          "ratio" : 45.4
+        }, {
+          "categoryCode" : "HYPERMARKET",
+          "categoryName" : "대형마트",
+          "amount" : 504000,
+          "ratio" : 27.9
+        }, {
+          "categoryCode" : "GENERAL_RESTAURANT",
+          "categoryName" : "일반음식점",
+          "amount" : 378500,
+          "ratio" : 20.9
+        }, {
+          "categoryCode" : "TELECOMMUNICATION",
+          "categoryName" : "통신",
+          "amount" : 65000,
+          "ratio" : 3.6
+        }, {
+          "categoryCode" : "CONVENIENCE_STORE",
+          "categoryName" : "편의점",
+          "amount" : 39000,
+          "ratio" : 2.2
+        } ],
+        "benefitSummary" : {
+          "expected" : 0,
+          "actual" : 0
+        }
+      },
+      "paymentsSummary" : {
+        "count" : 31,
+        "amount" : 1808000,
+        "expectedBenefit" : 0,
+        "confirmedBenefit" : 0,
+        "byClass" : {
+          "LIVING" : 1808000,
+          "LARGE" : 0,
+          "EXCLUDED" : 0
+        },
+        "yamuPickCount" : 0
+      },
+      "yamuBenefits" : {
+        "yearMonth" : "2026-03",
+        "status" : "CONFIRMED",
+        "summary" : {
+          "expectedBenefit" : 0,
+          "confirmedBenefit" : 0,
+          "yamuPickExtra" : 0,
+          "missedBenefit" : 0,
+          "unconfirmedBenefit" : 0,
+          "unconvertedBenefitCount" : 0,
+          "byType" : [ {
+            "type" : "DISCOUNT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "CASHBACK",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "POINT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          } ]
+        },
+        "differences" : [ ],
+        "byCategory" : [ ],
+        "source" : "YAMU",
+        "cards" : [ ]
+      }
+    }, {
+      "monthly" : {
+        "yearMonth" : "2026-04",
+        "isPartialMonth" : false,
+        "periodTo" : "2026-04-30",
+        "totalSpent" : 1841000,
+        "livingSpent" : 1841000,
+        "prevSamePeriodSpent" : 1793500,
+        "prevMonthTotalSpent" : 1808000,
+        "byCategory" : [ {
+          "categoryCode" : "ONLINE_MARKETPLACE",
+          "categoryName" : "온라인 쇼핑",
+          "amount" : 832500,
+          "ratio" : 45.2
+        }, {
+          "categoryCode" : "HYPERMARKET",
+          "categoryName" : "대형마트",
+          "amount" : 508000,
+          "ratio" : 27.6
+        }, {
+          "categoryCode" : "GENERAL_RESTAURANT",
+          "categoryName" : "일반음식점",
+          "amount" : 396500,
+          "ratio" : 21.5
+        }, {
+          "categoryCode" : "TELECOMMUNICATION",
+          "categoryName" : "통신",
+          "amount" : 65000,
+          "ratio" : 3.5
+        }, {
+          "categoryCode" : "CONVENIENCE_STORE",
+          "categoryName" : "편의점",
+          "amount" : 39000,
+          "ratio" : 2.1
+        } ],
+        "benefitSummary" : {
+          "expected" : 6500,
+          "actual" : 4000
+        }
+      },
+      "paymentsSummary" : {
+        "count" : 32,
+        "amount" : 1841000,
+        "expectedBenefit" : 6500,
+        "confirmedBenefit" : 4000,
+        "byClass" : {
+          "LIVING" : 1841000,
+          "LARGE" : 0,
+          "EXCLUDED" : 0
+        },
+        "yamuPickCount" : 0
+      },
+      "yamuBenefits" : {
+        "yearMonth" : "2026-04",
+        "status" : "PARTIAL",
+        "summary" : {
+          "expectedBenefit" : 6500,
+          "confirmedBenefit" : 4000,
+          "yamuPickExtra" : 0,
+          "missedBenefit" : 0,
+          "unconfirmedBenefit" : 2500,
+          "unconvertedBenefitCount" : 0,
+          "byType" : [ {
+            "type" : "DISCOUNT",
+            "expectedBenefit" : 4000,
+            "confirmedBenefit" : 4000,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "CASHBACK",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "POINT",
+            "expectedBenefit" : 2500,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 2500,
+            "unconvertedBenefitCount" : 0
+          } ]
+        },
+        "differences" : [ ],
+        "byCategory" : [ {
+          "categoryCode" : "HYPERMARKET",
+          "categoryName" : "대형마트",
+          "amount" : 3000,
+          "ratio" : 46.2
+        }, {
+          "categoryCode" : "GENERAL_RESTAURANT",
+          "categoryName" : "일반음식점",
+          "amount" : 2000,
+          "ratio" : 30.8
+        }, {
+          "categoryCode" : "ONLINE_MARKETPLACE",
+          "categoryName" : "온라인 쇼핑",
+          "amount" : 1500,
+          "ratio" : 23.1
+        } ],
+        "source" : "YAMU",
+        "cards" : [ {
+          "userCardId" : 108,
+          "cardProductId" : 1,
+          "cardName" : "신한카드 Mr.Life",
+          "cardAlias" : "신한카드 Mr.Life",
+          "expectedBenefit" : 4000,
+          "confirmedBenefit" : 4000,
+          "unconfirmedBenefit" : 0,
+          "unconvertedBenefitCount" : 0,
+          "byType" : [ {
+            "type" : "DISCOUNT",
+            "expectedBenefit" : 4000,
+            "confirmedBenefit" : 4000,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "CASHBACK",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "POINT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          } ]
+        }, {
+          "userCardId" : 107,
+          "cardProductId" : 3,
+          "cardName" : "신한카드 처음",
+          "cardAlias" : "신한카드 처음",
+          "expectedBenefit" : 2500,
+          "confirmedBenefit" : 0,
+          "unconfirmedBenefit" : 2500,
+          "unconvertedBenefitCount" : 0,
+          "byType" : [ {
+            "type" : "DISCOUNT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "CASHBACK",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "POINT",
+            "expectedBenefit" : 2500,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 2500,
+            "unconvertedBenefitCount" : 0
+          } ]
+        }, {
+          "userCardId" : 106,
+          "cardProductId" : 8,
+          "cardName" : "KB국민 노리 체크",
+          "cardAlias" : "KB국민 노리 체크",
+          "expectedBenefit" : 0,
+          "confirmedBenefit" : 0,
+          "unconfirmedBenefit" : 0,
+          "unconvertedBenefitCount" : 0,
+          "byType" : [ {
+            "type" : "DISCOUNT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "CASHBACK",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "POINT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          } ]
+        }, {
+          "userCardId" : 109,
+          "cardProductId" : 19,
+          "cardName" : "IBK나라사랑카드",
+          "cardAlias" : "IBK나라사랑카드",
+          "expectedBenefit" : 0,
+          "confirmedBenefit" : 0,
+          "unconfirmedBenefit" : 0,
+          "unconvertedBenefitCount" : 0,
+          "byType" : [ {
+            "type" : "DISCOUNT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "CASHBACK",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "POINT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          } ]
+        } ]
+      }
+    }, {
+      "monthly" : {
+        "yearMonth" : "2026-05",
+        "isPartialMonth" : false,
+        "periodTo" : "2026-05-31",
+        "totalSpent" : 1927500,
+        "livingSpent" : 1927500,
+        "prevSamePeriodSpent" : 1841000,
+        "prevMonthTotalSpent" : 1841000,
+        "byCategory" : [ {
+          "categoryCode" : "ONLINE_MARKETPLACE",
+          "categoryName" : "온라인 쇼핑",
+          "amount" : 861500,
+          "ratio" : 44.7
+        }, {
+          "categoryCode" : "HYPERMARKET",
+          "categoryName" : "대형마트",
+          "amount" : 596000,
+          "ratio" : 30.9
+        }, {
+          "categoryCode" : "GENERAL_RESTAURANT",
+          "categoryName" : "일반음식점",
+          "amount" : 366000,
+          "ratio" : 19.0
+        }, {
+          "categoryCode" : "TELECOMMUNICATION",
+          "categoryName" : "통신",
+          "amount" : 65000,
+          "ratio" : 3.4
+        }, {
+          "categoryCode" : "CONVENIENCE_STORE",
+          "categoryName" : "편의점",
+          "amount" : 39000,
+          "ratio" : 2.0
+        } ],
+        "benefitSummary" : {
+          "expected" : 3500,
+          "actual" : 1000
+        }
+      },
+      "paymentsSummary" : {
+        "count" : 31,
+        "amount" : 1927500,
+        "expectedBenefit" : 3500,
+        "confirmedBenefit" : 1000,
+        "byClass" : {
+          "LIVING" : 1927500,
+          "LARGE" : 0,
+          "EXCLUDED" : 0
+        },
+        "yamuPickCount" : 0
+      },
+      "yamuBenefits" : {
+        "yearMonth" : "2026-05",
+        "status" : "PARTIAL",
+        "summary" : {
+          "expectedBenefit" : 3500,
+          "confirmedBenefit" : 1000,
+          "yamuPickExtra" : 0,
+          "missedBenefit" : 0,
+          "unconfirmedBenefit" : 2500,
+          "unconvertedBenefitCount" : 0,
+          "byType" : [ {
+            "type" : "DISCOUNT",
+            "expectedBenefit" : 1000,
+            "confirmedBenefit" : 1000,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "CASHBACK",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "POINT",
+            "expectedBenefit" : 2500,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 2500,
+            "unconvertedBenefitCount" : 0
+          } ]
+        },
+        "differences" : [ ],
+        "byCategory" : [ {
+          "categoryCode" : "GENERAL_RESTAURANT",
+          "categoryName" : "일반음식점",
+          "amount" : 2000,
+          "ratio" : 57.1
+        }, {
+          "categoryCode" : "ONLINE_MARKETPLACE",
+          "categoryName" : "온라인 쇼핑",
+          "amount" : 1500,
+          "ratio" : 42.9
+        } ],
+        "source" : "YAMU",
+        "cards" : [ {
+          "userCardId" : 107,
+          "cardProductId" : 3,
+          "cardName" : "신한카드 처음",
+          "cardAlias" : "신한카드 처음",
+          "expectedBenefit" : 2500,
+          "confirmedBenefit" : 0,
+          "unconfirmedBenefit" : 2500,
+          "unconvertedBenefitCount" : 0,
+          "byType" : [ {
+            "type" : "DISCOUNT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "CASHBACK",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "POINT",
+            "expectedBenefit" : 2500,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 2500,
+            "unconvertedBenefitCount" : 0
+          } ]
+        }, {
+          "userCardId" : 108,
+          "cardProductId" : 1,
+          "cardName" : "신한카드 Mr.Life",
+          "cardAlias" : "신한카드 Mr.Life",
+          "expectedBenefit" : 1000,
+          "confirmedBenefit" : 1000,
+          "unconfirmedBenefit" : 0,
+          "unconvertedBenefitCount" : 0,
+          "byType" : [ {
+            "type" : "DISCOUNT",
+            "expectedBenefit" : 1000,
+            "confirmedBenefit" : 1000,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "CASHBACK",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "POINT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          } ]
+        }, {
+          "userCardId" : 106,
+          "cardProductId" : 8,
+          "cardName" : "KB국민 노리 체크",
+          "cardAlias" : "KB국민 노리 체크",
+          "expectedBenefit" : 0,
+          "confirmedBenefit" : 0,
+          "unconfirmedBenefit" : 0,
+          "unconvertedBenefitCount" : 0,
+          "byType" : [ {
+            "type" : "DISCOUNT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "CASHBACK",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "POINT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          } ]
+        }, {
+          "userCardId" : 109,
+          "cardProductId" : 19,
+          "cardName" : "IBK나라사랑카드",
+          "cardAlias" : "IBK나라사랑카드",
+          "expectedBenefit" : 0,
+          "confirmedBenefit" : 0,
+          "unconfirmedBenefit" : 0,
+          "unconvertedBenefitCount" : 0,
+          "byType" : [ {
+            "type" : "DISCOUNT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "CASHBACK",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "POINT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          } ]
+        } ]
+      }
+    }, {
+      "monthly" : {
+        "yearMonth" : "2026-06",
+        "isPartialMonth" : false,
+        "periodTo" : "2026-06-30",
+        "totalSpent" : 1789000,
+        "livingSpent" : 1789000,
+        "prevSamePeriodSpent" : 1927500,
+        "prevMonthTotalSpent" : 1927500,
+        "byCategory" : [ {
+          "categoryCode" : "ONLINE_MARKETPLACE",
+          "categoryName" : "온라인 쇼핑",
+          "amount" : 812500,
+          "ratio" : 45.4
+        }, {
+          "categoryCode" : "HYPERMARKET",
+          "categoryName" : "대형마트",
+          "amount" : 496000,
+          "ratio" : 27.7
+        }, {
+          "categoryCode" : "GENERAL_RESTAURANT",
+          "categoryName" : "일반음식점",
+          "amount" : 376500,
+          "ratio" : 21.0
+        }, {
+          "categoryCode" : "TELECOMMUNICATION",
+          "categoryName" : "통신",
+          "amount" : 65000,
+          "ratio" : 3.6
+        }, {
+          "categoryCode" : "CONVENIENCE_STORE",
+          "categoryName" : "편의점",
+          "amount" : 39000,
+          "ratio" : 2.2
+        } ],
+        "benefitSummary" : {
+          "expected" : 6500,
+          "actual" : 4000
+        }
+      },
+      "paymentsSummary" : {
+        "count" : 31,
+        "amount" : 1789000,
+        "expectedBenefit" : 6500,
+        "confirmedBenefit" : 4000,
+        "byClass" : {
+          "LIVING" : 1789000,
+          "LARGE" : 0,
+          "EXCLUDED" : 0
+        },
+        "yamuPickCount" : 0
+      },
+      "yamuBenefits" : {
+        "yearMonth" : "2026-06",
+        "status" : "PARTIAL",
+        "summary" : {
+          "expectedBenefit" : 6500,
+          "confirmedBenefit" : 4000,
+          "yamuPickExtra" : 0,
+          "missedBenefit" : 0,
+          "unconfirmedBenefit" : 2500,
+          "unconvertedBenefitCount" : 0,
+          "byType" : [ {
+            "type" : "DISCOUNT",
+            "expectedBenefit" : 4000,
+            "confirmedBenefit" : 4000,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "CASHBACK",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "POINT",
+            "expectedBenefit" : 2500,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 2500,
+            "unconvertedBenefitCount" : 0
+          } ]
+        },
+        "differences" : [ ],
+        "byCategory" : [ {
+          "categoryCode" : "HYPERMARKET",
+          "categoryName" : "대형마트",
+          "amount" : 3000,
+          "ratio" : 46.2
+        }, {
+          "categoryCode" : "GENERAL_RESTAURANT",
+          "categoryName" : "일반음식점",
+          "amount" : 2000,
+          "ratio" : 30.8
+        }, {
+          "categoryCode" : "ONLINE_MARKETPLACE",
+          "categoryName" : "온라인 쇼핑",
+          "amount" : 1500,
+          "ratio" : 23.1
+        } ],
+        "source" : "YAMU",
+        "cards" : [ {
+          "userCardId" : 108,
+          "cardProductId" : 1,
+          "cardName" : "신한카드 Mr.Life",
+          "cardAlias" : "신한카드 Mr.Life",
+          "expectedBenefit" : 4000,
+          "confirmedBenefit" : 4000,
+          "unconfirmedBenefit" : 0,
+          "unconvertedBenefitCount" : 0,
+          "byType" : [ {
+            "type" : "DISCOUNT",
+            "expectedBenefit" : 4000,
+            "confirmedBenefit" : 4000,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "CASHBACK",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "POINT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          } ]
+        }, {
+          "userCardId" : 107,
+          "cardProductId" : 3,
+          "cardName" : "신한카드 처음",
+          "cardAlias" : "신한카드 처음",
+          "expectedBenefit" : 2500,
+          "confirmedBenefit" : 0,
+          "unconfirmedBenefit" : 2500,
+          "unconvertedBenefitCount" : 0,
+          "byType" : [ {
+            "type" : "DISCOUNT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "CASHBACK",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "POINT",
+            "expectedBenefit" : 2500,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 2500,
+            "unconvertedBenefitCount" : 0
+          } ]
+        }, {
+          "userCardId" : 106,
+          "cardProductId" : 8,
+          "cardName" : "KB국민 노리 체크",
+          "cardAlias" : "KB국민 노리 체크",
+          "expectedBenefit" : 0,
+          "confirmedBenefit" : 0,
+          "unconfirmedBenefit" : 0,
+          "unconvertedBenefitCount" : 0,
+          "byType" : [ {
+            "type" : "DISCOUNT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "CASHBACK",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "POINT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          } ]
+        }, {
+          "userCardId" : 109,
+          "cardProductId" : 19,
+          "cardName" : "IBK나라사랑카드",
+          "cardAlias" : "IBK나라사랑카드",
+          "expectedBenefit" : 0,
+          "confirmedBenefit" : 0,
+          "unconfirmedBenefit" : 0,
+          "unconvertedBenefitCount" : 0,
+          "byType" : [ {
+            "type" : "DISCOUNT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "CASHBACK",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "POINT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          } ]
+        } ]
+      }
+    }, {
+      "monthly" : {
+        "yearMonth" : "2026-07",
+        "isPartialMonth" : false,
+        "periodTo" : "2026-07-31",
+        "totalSpent" : 2758000,
+        "livingSpent" : 1858000,
+        "prevSamePeriodSpent" : 1789000,
+        "prevMonthTotalSpent" : 1789000,
+        "byCategory" : [ {
+          "categoryCode" : "ONLINE_MARKETPLACE",
+          "categoryName" : "온라인 쇼핑",
+          "amount" : 1741500,
+          "ratio" : 63.1
+        }, {
+          "categoryCode" : "HYPERMARKET",
+          "categoryName" : "대형마트",
+          "amount" : 516000,
+          "ratio" : 18.7
+        }, {
+          "categoryCode" : "GENERAL_RESTAURANT",
+          "categoryName" : "일반음식점",
+          "amount" : 396500,
+          "ratio" : 14.4
+        }, {
+          "categoryCode" : "TELECOMMUNICATION",
+          "categoryName" : "통신",
+          "amount" : 65000,
+          "ratio" : 2.4
+        }, {
+          "categoryCode" : "CONVENIENCE_STORE",
+          "categoryName" : "편의점",
+          "amount" : 39000,
+          "ratio" : 1.4
+        } ],
+        "benefitSummary" : {
+          "expected" : 7000,
+          "actual" : 4000
+        }
+      },
+      "paymentsSummary" : {
+        "count" : 33,
+        "amount" : 2758000,
+        "expectedBenefit" : 7000,
+        "confirmedBenefit" : 4000,
+        "byClass" : {
+          "LIVING" : 1858000,
+          "LARGE" : 900000,
+          "EXCLUDED" : 0
+        },
+        "yamuPickCount" : 0
+      },
+      "yamuBenefits" : {
+        "yearMonth" : "2026-07",
+        "status" : "PARTIAL",
+        "summary" : {
+          "expectedBenefit" : 7000,
+          "confirmedBenefit" : 4000,
+          "yamuPickExtra" : 0,
+          "missedBenefit" : 0,
+          "unconfirmedBenefit" : 3000,
+          "unconvertedBenefitCount" : 0,
+          "byType" : [ {
+            "type" : "DISCOUNT",
+            "expectedBenefit" : 4000,
+            "confirmedBenefit" : 4000,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "CASHBACK",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "POINT",
+            "expectedBenefit" : 3000,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 3000,
+            "unconvertedBenefitCount" : 0
+          } ]
+        },
+        "differences" : [ ],
+        "byCategory" : [ {
+          "categoryCode" : "HYPERMARKET",
+          "categoryName" : "대형마트",
+          "amount" : 3000,
+          "ratio" : 42.9
+        }, {
+          "categoryCode" : "GENERAL_RESTAURANT",
+          "categoryName" : "일반음식점",
+          "amount" : 2000,
+          "ratio" : 28.6
+        }, {
+          "categoryCode" : "ONLINE_MARKETPLACE",
+          "categoryName" : "온라인 쇼핑",
+          "amount" : 2000,
+          "ratio" : 28.6
+        } ],
+        "source" : "YAMU",
+        "cards" : [ {
+          "userCardId" : 108,
+          "cardProductId" : 1,
+          "cardName" : "신한카드 Mr.Life",
+          "cardAlias" : "신한카드 Mr.Life",
+          "expectedBenefit" : 4000,
+          "confirmedBenefit" : 4000,
+          "unconfirmedBenefit" : 0,
+          "unconvertedBenefitCount" : 0,
+          "byType" : [ {
+            "type" : "DISCOUNT",
+            "expectedBenefit" : 4000,
+            "confirmedBenefit" : 4000,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "CASHBACK",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "POINT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          } ]
+        }, {
+          "userCardId" : 107,
+          "cardProductId" : 3,
+          "cardName" : "신한카드 처음",
+          "cardAlias" : "신한카드 처음",
+          "expectedBenefit" : 3000,
+          "confirmedBenefit" : 0,
+          "unconfirmedBenefit" : 3000,
+          "unconvertedBenefitCount" : 0,
+          "byType" : [ {
+            "type" : "DISCOUNT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "CASHBACK",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "POINT",
+            "expectedBenefit" : 3000,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 3000,
+            "unconvertedBenefitCount" : 0
+          } ]
+        }, {
+          "userCardId" : 106,
+          "cardProductId" : 8,
+          "cardName" : "KB국민 노리 체크",
+          "cardAlias" : "KB국민 노리 체크",
+          "expectedBenefit" : 0,
+          "confirmedBenefit" : 0,
+          "unconfirmedBenefit" : 0,
+          "unconvertedBenefitCount" : 0,
+          "byType" : [ {
+            "type" : "DISCOUNT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "CASHBACK",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "POINT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          } ]
+        }, {
+          "userCardId" : 109,
+          "cardProductId" : 19,
+          "cardName" : "IBK나라사랑카드",
+          "cardAlias" : "IBK나라사랑카드",
+          "expectedBenefit" : 0,
+          "confirmedBenefit" : 0,
+          "unconfirmedBenefit" : 0,
+          "unconvertedBenefitCount" : 0,
+          "byType" : [ {
+            "type" : "DISCOUNT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "CASHBACK",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "POINT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          } ]
+        } ]
+      }
+    }, {
+      "monthly" : {
+        "yearMonth" : "2026-08",
+        "isPartialMonth" : false,
+        "periodTo" : "2026-08-31",
+        "totalSpent" : 1910500,
+        "livingSpent" : 1910500,
+        "prevSamePeriodSpent" : 1858000,
+        "prevMonthTotalSpent" : 2758000,
+        "byCategory" : [ {
+          "categoryCode" : "ONLINE_MARKETPLACE",
+          "categoryName" : "온라인 쇼핑",
+          "amount" : 852500,
+          "ratio" : 44.6
+        }, {
+          "categoryCode" : "HYPERMARKET",
+          "categoryName" : "대형마트",
+          "amount" : 588000,
+          "ratio" : 30.8
+        }, {
+          "categoryCode" : "GENERAL_RESTAURANT",
+          "categoryName" : "일반음식점",
+          "amount" : 366000,
+          "ratio" : 19.2
+        }, {
+          "categoryCode" : "TELECOMMUNICATION",
+          "categoryName" : "통신",
+          "amount" : 65000,
+          "ratio" : 3.4
+        }, {
+          "categoryCode" : "CONVENIENCE_STORE",
+          "categoryName" : "편의점",
+          "amount" : 39000,
+          "ratio" : 2.0
+        } ],
+        "benefitSummary" : {
+          "expected" : 3500,
+          "actual" : 1000
+        }
+      },
+      "paymentsSummary" : {
+        "count" : 31,
+        "amount" : 1910500,
+        "expectedBenefit" : 3500,
+        "confirmedBenefit" : 1000,
+        "byClass" : {
+          "LIVING" : 1910500,
+          "LARGE" : 0,
+          "EXCLUDED" : 0
+        },
+        "yamuPickCount" : 0
+      },
+      "yamuBenefits" : {
+        "yearMonth" : "2026-08",
+        "status" : "PARTIAL",
+        "summary" : {
+          "expectedBenefit" : 3500,
+          "confirmedBenefit" : 1000,
+          "yamuPickExtra" : 0,
+          "missedBenefit" : 0,
+          "unconfirmedBenefit" : 2500,
+          "unconvertedBenefitCount" : 0,
+          "byType" : [ {
+            "type" : "DISCOUNT",
+            "expectedBenefit" : 1000,
+            "confirmedBenefit" : 1000,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "CASHBACK",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "POINT",
+            "expectedBenefit" : 2500,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 2500,
+            "unconvertedBenefitCount" : 0
+          } ]
+        },
+        "differences" : [ ],
+        "byCategory" : [ {
+          "categoryCode" : "GENERAL_RESTAURANT",
+          "categoryName" : "일반음식점",
+          "amount" : 2000,
+          "ratio" : 57.1
+        }, {
+          "categoryCode" : "ONLINE_MARKETPLACE",
+          "categoryName" : "온라인 쇼핑",
+          "amount" : 1500,
+          "ratio" : 42.9
+        } ],
+        "source" : "YAMU",
+        "cards" : [ {
+          "userCardId" : 107,
+          "cardProductId" : 3,
+          "cardName" : "신한카드 처음",
+          "cardAlias" : "신한카드 처음",
+          "expectedBenefit" : 2500,
+          "confirmedBenefit" : 0,
+          "unconfirmedBenefit" : 2500,
+          "unconvertedBenefitCount" : 0,
+          "byType" : [ {
+            "type" : "DISCOUNT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "CASHBACK",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "POINT",
+            "expectedBenefit" : 2500,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 2500,
+            "unconvertedBenefitCount" : 0
+          } ]
+        }, {
+          "userCardId" : 108,
+          "cardProductId" : 1,
+          "cardName" : "신한카드 Mr.Life",
+          "cardAlias" : "신한카드 Mr.Life",
+          "expectedBenefit" : 1000,
+          "confirmedBenefit" : 1000,
+          "unconfirmedBenefit" : 0,
+          "unconvertedBenefitCount" : 0,
+          "byType" : [ {
+            "type" : "DISCOUNT",
+            "expectedBenefit" : 1000,
+            "confirmedBenefit" : 1000,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "CASHBACK",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "POINT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          } ]
+        }, {
+          "userCardId" : 106,
+          "cardProductId" : 8,
+          "cardName" : "KB국민 노리 체크",
+          "cardAlias" : "KB국민 노리 체크",
+          "expectedBenefit" : 0,
+          "confirmedBenefit" : 0,
+          "unconfirmedBenefit" : 0,
+          "unconvertedBenefitCount" : 0,
+          "byType" : [ {
+            "type" : "DISCOUNT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "CASHBACK",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "POINT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          } ]
+        }, {
+          "userCardId" : 109,
+          "cardProductId" : 19,
+          "cardName" : "IBK나라사랑카드",
+          "cardAlias" : "IBK나라사랑카드",
+          "expectedBenefit" : 0,
+          "confirmedBenefit" : 0,
+          "unconfirmedBenefit" : 0,
+          "unconvertedBenefitCount" : 0,
+          "byType" : [ {
+            "type" : "DISCOUNT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "CASHBACK",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "POINT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          } ]
+        } ]
+      }
+    }, {
+      "monthly" : {
+        "yearMonth" : "2026-09",
+        "isPartialMonth" : false,
+        "periodTo" : "2026-09-30",
+        "totalSpent" : 1828000,
+        "livingSpent" : 1828000,
+        "prevSamePeriodSpent" : 1910500,
+        "prevMonthTotalSpent" : 1910500,
+        "byCategory" : [ {
+          "categoryCode" : "ONLINE_MARKETPLACE",
+          "categoryName" : "온라인 쇼핑",
+          "amount" : 821500,
+          "ratio" : 44.9
+        }, {
+          "categoryCode" : "HYPERMARKET",
+          "categoryName" : "대형마트",
+          "amount" : 504000,
+          "ratio" : 27.6
+        }, {
+          "categoryCode" : "GENERAL_RESTAURANT",
+          "categoryName" : "일반음식점",
+          "amount" : 398500,
+          "ratio" : 21.8
+        }, {
+          "categoryCode" : "TELECOMMUNICATION",
+          "categoryName" : "통신",
+          "amount" : 65000,
+          "ratio" : 3.6
+        }, {
+          "categoryCode" : "CONVENIENCE_STORE",
+          "categoryName" : "편의점",
+          "amount" : 39000,
+          "ratio" : 2.1
+        } ],
+        "benefitSummary" : {
+          "expected" : 6500,
+          "actual" : 4000
+        }
+      },
+      "paymentsSummary" : {
+        "count" : 32,
+        "amount" : 1828000,
+        "expectedBenefit" : 6500,
+        "confirmedBenefit" : 4000,
+        "byClass" : {
+          "LIVING" : 1828000,
+          "LARGE" : 0,
+          "EXCLUDED" : 0
+        },
+        "yamuPickCount" : 0
+      },
+      "yamuBenefits" : {
+        "yearMonth" : "2026-09",
+        "status" : "PARTIAL",
+        "summary" : {
+          "expectedBenefit" : 6500,
+          "confirmedBenefit" : 4000,
+          "yamuPickExtra" : 0,
+          "missedBenefit" : 0,
+          "unconfirmedBenefit" : 2500,
+          "unconvertedBenefitCount" : 0,
+          "byType" : [ {
+            "type" : "DISCOUNT",
+            "expectedBenefit" : 4000,
+            "confirmedBenefit" : 4000,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "CASHBACK",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "POINT",
+            "expectedBenefit" : 2500,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 2500,
+            "unconvertedBenefitCount" : 0
+          } ]
+        },
+        "differences" : [ ],
+        "byCategory" : [ {
+          "categoryCode" : "HYPERMARKET",
+          "categoryName" : "대형마트",
+          "amount" : 3000,
+          "ratio" : 46.2
+        }, {
+          "categoryCode" : "GENERAL_RESTAURANT",
+          "categoryName" : "일반음식점",
+          "amount" : 2000,
+          "ratio" : 30.8
+        }, {
+          "categoryCode" : "ONLINE_MARKETPLACE",
+          "categoryName" : "온라인 쇼핑",
+          "amount" : 1500,
+          "ratio" : 23.1
+        } ],
+        "source" : "YAMU",
+        "cards" : [ {
+          "userCardId" : 108,
+          "cardProductId" : 1,
+          "cardName" : "신한카드 Mr.Life",
+          "cardAlias" : "신한카드 Mr.Life",
+          "expectedBenefit" : 4000,
+          "confirmedBenefit" : 4000,
+          "unconfirmedBenefit" : 0,
+          "unconvertedBenefitCount" : 0,
+          "byType" : [ {
+            "type" : "DISCOUNT",
+            "expectedBenefit" : 4000,
+            "confirmedBenefit" : 4000,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "CASHBACK",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "POINT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          } ]
+        }, {
+          "userCardId" : 107,
+          "cardProductId" : 3,
+          "cardName" : "신한카드 처음",
+          "cardAlias" : "신한카드 처음",
+          "expectedBenefit" : 2500,
+          "confirmedBenefit" : 0,
+          "unconfirmedBenefit" : 2500,
+          "unconvertedBenefitCount" : 0,
+          "byType" : [ {
+            "type" : "DISCOUNT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "CASHBACK",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "POINT",
+            "expectedBenefit" : 2500,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 2500,
+            "unconvertedBenefitCount" : 0
+          } ]
+        }, {
+          "userCardId" : 106,
+          "cardProductId" : 8,
+          "cardName" : "KB국민 노리 체크",
+          "cardAlias" : "KB국민 노리 체크",
+          "expectedBenefit" : 0,
+          "confirmedBenefit" : 0,
+          "unconfirmedBenefit" : 0,
+          "unconvertedBenefitCount" : 0,
+          "byType" : [ {
+            "type" : "DISCOUNT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "CASHBACK",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "POINT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          } ]
+        }, {
+          "userCardId" : 109,
+          "cardProductId" : 19,
+          "cardName" : "IBK나라사랑카드",
+          "cardAlias" : "IBK나라사랑카드",
+          "expectedBenefit" : 0,
+          "confirmedBenefit" : 0,
+          "unconfirmedBenefit" : 0,
+          "unconvertedBenefitCount" : 0,
+          "byType" : [ {
+            "type" : "DISCOUNT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "CASHBACK",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "POINT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          } ]
+        } ]
+      }
+    }, {
+      "monthly" : {
+        "yearMonth" : "2026-10",
+        "isPartialMonth" : false,
+        "periodTo" : "2026-10-31",
+        "totalSpent" : 1880000,
+        "livingSpent" : 1880000,
+        "prevSamePeriodSpent" : 1828000,
+        "prevMonthTotalSpent" : 1828000,
+        "byCategory" : [ {
+          "categoryCode" : "ONLINE_MARKETPLACE",
+          "categoryName" : "온라인 쇼핑",
+          "amount" : 822500,
+          "ratio" : 43.8
+        }, {
+          "categoryCode" : "HYPERMARKET",
+          "categoryName" : "대형마트",
+          "amount" : 573000,
+          "ratio" : 30.5
+        }, {
+          "categoryCode" : "GENERAL_RESTAURANT",
+          "categoryName" : "일반음식점",
+          "amount" : 380500,
+          "ratio" : 20.2
+        }, {
+          "categoryCode" : "TELECOMMUNICATION",
+          "categoryName" : "통신",
+          "amount" : 65000,
+          "ratio" : 3.5
+        }, {
+          "categoryCode" : "CONVENIENCE_STORE",
+          "categoryName" : "편의점",
+          "amount" : 39000,
+          "ratio" : 2.1
+        } ],
+        "benefitSummary" : {
+          "expected" : 3500,
+          "actual" : 1000
+        }
+      },
+      "paymentsSummary" : {
+        "count" : 32,
+        "amount" : 1880000,
+        "expectedBenefit" : 3500,
+        "confirmedBenefit" : 1000,
+        "byClass" : {
+          "LIVING" : 1880000,
+          "LARGE" : 0,
+          "EXCLUDED" : 0
+        },
+        "yamuPickCount" : 0
+      },
+      "yamuBenefits" : {
+        "yearMonth" : "2026-10",
+        "status" : "PARTIAL",
+        "summary" : {
+          "expectedBenefit" : 3500,
+          "confirmedBenefit" : 1000,
+          "yamuPickExtra" : 0,
+          "missedBenefit" : 0,
+          "unconfirmedBenefit" : 2500,
+          "unconvertedBenefitCount" : 0,
+          "byType" : [ {
+            "type" : "DISCOUNT",
+            "expectedBenefit" : 1000,
+            "confirmedBenefit" : 1000,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "CASHBACK",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "POINT",
+            "expectedBenefit" : 2500,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 2500,
+            "unconvertedBenefitCount" : 0
+          } ]
+        },
+        "differences" : [ ],
+        "byCategory" : [ {
+          "categoryCode" : "GENERAL_RESTAURANT",
+          "categoryName" : "일반음식점",
+          "amount" : 2000,
+          "ratio" : 57.1
+        }, {
+          "categoryCode" : "ONLINE_MARKETPLACE",
+          "categoryName" : "온라인 쇼핑",
+          "amount" : 1500,
+          "ratio" : 42.9
+        } ],
+        "source" : "YAMU",
+        "cards" : [ {
+          "userCardId" : 107,
+          "cardProductId" : 3,
+          "cardName" : "신한카드 처음",
+          "cardAlias" : "신한카드 처음",
+          "expectedBenefit" : 2500,
+          "confirmedBenefit" : 0,
+          "unconfirmedBenefit" : 2500,
+          "unconvertedBenefitCount" : 0,
+          "byType" : [ {
+            "type" : "DISCOUNT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "CASHBACK",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "POINT",
+            "expectedBenefit" : 2500,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 2500,
+            "unconvertedBenefitCount" : 0
+          } ]
+        }, {
+          "userCardId" : 108,
+          "cardProductId" : 1,
+          "cardName" : "신한카드 Mr.Life",
+          "cardAlias" : "신한카드 Mr.Life",
+          "expectedBenefit" : 1000,
+          "confirmedBenefit" : 1000,
+          "unconfirmedBenefit" : 0,
+          "unconvertedBenefitCount" : 0,
+          "byType" : [ {
+            "type" : "DISCOUNT",
+            "expectedBenefit" : 1000,
+            "confirmedBenefit" : 1000,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "CASHBACK",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "POINT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          } ]
+        }, {
+          "userCardId" : 106,
+          "cardProductId" : 8,
+          "cardName" : "KB국민 노리 체크",
+          "cardAlias" : "KB국민 노리 체크",
+          "expectedBenefit" : 0,
+          "confirmedBenefit" : 0,
+          "unconfirmedBenefit" : 0,
+          "unconvertedBenefitCount" : 0,
+          "byType" : [ {
+            "type" : "DISCOUNT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "CASHBACK",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "POINT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          } ]
+        }, {
+          "userCardId" : 109,
+          "cardProductId" : 19,
+          "cardName" : "IBK나라사랑카드",
+          "cardAlias" : "IBK나라사랑카드",
+          "expectedBenefit" : 0,
+          "confirmedBenefit" : 0,
+          "unconfirmedBenefit" : 0,
+          "unconvertedBenefitCount" : 0,
+          "byType" : [ {
+            "type" : "DISCOUNT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "CASHBACK",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "POINT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          } ]
+        } ]
+      }
+    }, {
+      "monthly" : {
+        "yearMonth" : "2026-11",
+        "isPartialMonth" : true,
+        "periodTo" : "2026-11-16",
+        "totalSpent" : 690000,
+        "livingSpent" : 690000,
+        "prevSamePeriodSpent" : 1040500,
+        "prevMonthTotalSpent" : 1880000,
+        "byCategory" : [ {
+          "categoryCode" : "ONLINE_MARKETPLACE",
+          "categoryName" : "온라인 쇼핑",
+          "amount" : 630000,
+          "ratio" : 91.3
+        }, {
+          "categoryCode" : "GENERAL_RESTAURANT",
+          "categoryName" : "일반음식점",
+          "amount" : 60000,
+          "ratio" : 8.7
+        } ],
+        "benefitSummary" : {
+          "expected" : 1000,
+          "actual" : 0
+        }
+      },
+      "paymentsSummary" : {
+        "count" : 12,
+        "amount" : 690000,
+        "expectedBenefit" : 1000,
+        "confirmedBenefit" : 0,
+        "byClass" : {
+          "LIVING" : 690000,
+          "LARGE" : 0,
+          "EXCLUDED" : 0
+        },
+        "yamuPickCount" : 0
+      },
+      "yamuBenefits" : {
+        "yearMonth" : "2026-11",
+        "status" : "PARTIAL",
+        "summary" : {
+          "expectedBenefit" : 1000,
+          "confirmedBenefit" : 0,
+          "yamuPickExtra" : 0,
+          "missedBenefit" : 0,
+          "unconfirmedBenefit" : 1000,
+          "unconvertedBenefitCount" : 0,
+          "byType" : [ {
+            "type" : "DISCOUNT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "CASHBACK",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "POINT",
+            "expectedBenefit" : 1000,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 1000,
+            "unconvertedBenefitCount" : 0
+          } ]
+        },
+        "differences" : [ ],
+        "byCategory" : [ {
+          "categoryCode" : "ONLINE_MARKETPLACE",
+          "categoryName" : "온라인 쇼핑",
+          "amount" : 1000,
+          "ratio" : 100.0
+        } ],
+        "source" : "YAMU",
+        "cards" : [ {
+          "userCardId" : 107,
+          "cardProductId" : 3,
+          "cardName" : "신한카드 처음",
+          "cardAlias" : "신한카드 처음",
+          "expectedBenefit" : 1000,
+          "confirmedBenefit" : 0,
+          "unconfirmedBenefit" : 1000,
+          "unconvertedBenefitCount" : 0,
+          "byType" : [ {
+            "type" : "DISCOUNT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "CASHBACK",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "POINT",
+            "expectedBenefit" : 1000,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 1000,
+            "unconvertedBenefitCount" : 0
+          } ]
+        }, {
+          "userCardId" : 106,
+          "cardProductId" : 8,
+          "cardName" : "KB국민 노리 체크",
+          "cardAlias" : "KB국민 노리 체크",
+          "expectedBenefit" : 0,
+          "confirmedBenefit" : 0,
+          "unconfirmedBenefit" : 0,
+          "unconvertedBenefitCount" : 0,
+          "byType" : [ {
+            "type" : "DISCOUNT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "CASHBACK",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "POINT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          } ]
+        }, {
+          "userCardId" : 108,
+          "cardProductId" : 1,
+          "cardName" : "신한카드 Mr.Life",
+          "cardAlias" : "신한카드 Mr.Life",
+          "expectedBenefit" : 0,
+          "confirmedBenefit" : 0,
+          "unconfirmedBenefit" : 0,
+          "unconvertedBenefitCount" : 0,
+          "byType" : [ {
+            "type" : "DISCOUNT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "CASHBACK",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "POINT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          } ]
+        }, {
+          "userCardId" : 109,
+          "cardProductId" : 19,
+          "cardName" : "IBK나라사랑카드",
+          "cardAlias" : "IBK나라사랑카드",
+          "expectedBenefit" : 0,
+          "confirmedBenefit" : 0,
+          "unconfirmedBenefit" : 0,
+          "unconvertedBenefitCount" : 0,
+          "byType" : [ {
+            "type" : "DISCOUNT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "CASHBACK",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "POINT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          } ]
+        } ]
+      }
+    } ]
+  }, {
+    "name" : "박준수",
+    "months" : [ {
+      "monthly" : {
+        "yearMonth" : "2025-12",
+        "isPartialMonth" : false,
+        "periodTo" : "2025-12-31",
+        "totalSpent" : 1987000,
+        "livingSpent" : 1987000,
+        "prevSamePeriodSpent" : 1927500,
+        "prevMonthTotalSpent" : 1927500,
+        "byCategory" : [ {
+          "categoryCode" : "ONLINE_MARKETPLACE",
+          "categoryName" : "온라인 쇼핑",
+          "amount" : 908500,
+          "ratio" : 45.7
+        }, {
+          "categoryCode" : "HYPERMARKET",
+          "categoryName" : "대형마트",
+          "amount" : 496000,
+          "ratio" : 25.0
+        }, {
+          "categoryCode" : "GENERAL_RESTAURANT",
+          "categoryName" : "일반음식점",
+          "amount" : 478500,
+          "ratio" : 24.1
+        }, {
+          "categoryCode" : "TELECOMMUNICATION",
+          "categoryName" : "통신",
+          "amount" : 65000,
+          "ratio" : 3.3
+        }, {
+          "categoryCode" : "CONVENIENCE_STORE",
+          "categoryName" : "편의점",
+          "amount" : 39000,
+          "ratio" : 2.0
+        } ],
+        "benefitSummary" : {
+          "expected" : 0,
+          "actual" : 0
+        }
+      },
+      "paymentsSummary" : {
+        "count" : 34,
+        "amount" : 1987000,
+        "expectedBenefit" : 0,
+        "confirmedBenefit" : 0,
+        "byClass" : {
+          "LIVING" : 1987000,
+          "LARGE" : 0,
+          "EXCLUDED" : 0
+        },
+        "yamuPickCount" : 0
+      },
+      "yamuBenefits" : {
+        "yearMonth" : "2025-12",
+        "status" : "CONFIRMED",
+        "summary" : {
+          "expectedBenefit" : 0,
+          "confirmedBenefit" : 0,
+          "yamuPickExtra" : 0,
+          "missedBenefit" : 0,
+          "unconfirmedBenefit" : 0,
+          "unconvertedBenefitCount" : 0,
+          "byType" : [ {
+            "type" : "DISCOUNT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "CASHBACK",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "POINT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          } ]
+        },
+        "differences" : [ ],
+        "byCategory" : [ ],
+        "source" : "YAMU",
+        "cards" : [ ]
+      }
+    }, {
+      "monthly" : {
+        "yearMonth" : "2026-01",
+        "isPartialMonth" : false,
+        "periodTo" : "2026-01-31",
+        "totalSpent" : 2016000,
+        "livingSpent" : 2016000,
+        "prevSamePeriodSpent" : 1987000,
+        "prevMonthTotalSpent" : 1987000,
+        "byCategory" : [ {
+          "categoryCode" : "ONLINE_MARKETPLACE",
+          "categoryName" : "온라인 쇼핑",
+          "amount" : 950500,
+          "ratio" : 47.1
+        }, {
+          "categoryCode" : "HYPERMARKET",
+          "categoryName" : "대형마트",
+          "amount" : 581000,
+          "ratio" : 28.8
+        }, {
+          "categoryCode" : "GENERAL_RESTAURANT",
+          "categoryName" : "일반음식점",
+          "amount" : 380500,
+          "ratio" : 18.9
+        }, {
+          "categoryCode" : "TELECOMMUNICATION",
+          "categoryName" : "통신",
+          "amount" : 65000,
+          "ratio" : 3.2
+        }, {
+          "categoryCode" : "CONVENIENCE_STORE",
+          "categoryName" : "편의점",
+          "amount" : 39000,
+          "ratio" : 1.9
+        } ],
+        "benefitSummary" : {
+          "expected" : 0,
+          "actual" : 0
+        }
+      },
+      "paymentsSummary" : {
+        "count" : 33,
+        "amount" : 2016000,
+        "expectedBenefit" : 0,
+        "confirmedBenefit" : 0,
+        "byClass" : {
+          "LIVING" : 2016000,
+          "LARGE" : 0,
+          "EXCLUDED" : 0
+        },
+        "yamuPickCount" : 0
+      },
+      "yamuBenefits" : {
+        "yearMonth" : "2026-01",
+        "status" : "CONFIRMED",
+        "summary" : {
+          "expectedBenefit" : 0,
+          "confirmedBenefit" : 0,
+          "yamuPickExtra" : 0,
+          "missedBenefit" : 0,
+          "unconfirmedBenefit" : 0,
+          "unconvertedBenefitCount" : 0,
+          "byType" : [ {
+            "type" : "DISCOUNT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "CASHBACK",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "POINT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          } ]
+        },
+        "differences" : [ ],
+        "byCategory" : [ ],
+        "source" : "YAMU",
+        "cards" : [ ]
+      }
+    }, {
+      "monthly" : {
+        "yearMonth" : "2026-02",
+        "isPartialMonth" : false,
+        "periodTo" : "2026-02-28",
+        "totalSpent" : 2092500,
+        "livingSpent" : 2092500,
+        "prevSamePeriodSpent" : 1936500,
+        "prevMonthTotalSpent" : 2016000,
+        "byCategory" : [ {
+          "categoryCode" : "ONLINE_MARKETPLACE",
+          "categoryName" : "온라인 쇼핑",
+          "amount" : 980500,
+          "ratio" : 46.9
+        }, {
+          "categoryCode" : "HYPERMARKET",
+          "categoryName" : "대형마트",
+          "amount" : 520000,
+          "ratio" : 24.9
+        }, {
+          "categoryCode" : "GENERAL_RESTAURANT",
+          "categoryName" : "일반음식점",
+          "amount" : 488000,
+          "ratio" : 23.3
+        }, {
+          "categoryCode" : "TELECOMMUNICATION",
+          "categoryName" : "통신",
+          "amount" : 65000,
+          "ratio" : 3.1
+        }, {
+          "categoryCode" : "CONVENIENCE_STORE",
+          "categoryName" : "편의점",
+          "amount" : 39000,
+          "ratio" : 1.9
+        } ],
+        "benefitSummary" : {
+          "expected" : 0,
+          "actual" : 0
+        }
+      },
+      "paymentsSummary" : {
+        "count" : 32,
+        "amount" : 2092500,
+        "expectedBenefit" : 0,
+        "confirmedBenefit" : 0,
+        "byClass" : {
+          "LIVING" : 2092500,
+          "LARGE" : 0,
+          "EXCLUDED" : 0
+        },
+        "yamuPickCount" : 0
+      },
+      "yamuBenefits" : {
+        "yearMonth" : "2026-02",
+        "status" : "CONFIRMED",
+        "summary" : {
+          "expectedBenefit" : 0,
+          "confirmedBenefit" : 0,
+          "yamuPickExtra" : 0,
+          "missedBenefit" : 0,
+          "unconfirmedBenefit" : 0,
+          "unconvertedBenefitCount" : 0,
+          "byType" : [ {
+            "type" : "DISCOUNT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "CASHBACK",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "POINT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          } ]
+        },
+        "differences" : [ ],
+        "byCategory" : [ ],
+        "source" : "YAMU",
+        "cards" : [ ]
+      }
+    }, {
+      "monthly" : {
+        "yearMonth" : "2026-03",
+        "isPartialMonth" : false,
+        "periodTo" : "2026-03-31",
+        "totalSpent" : 1808000,
+        "livingSpent" : 1808000,
+        "prevSamePeriodSpent" : 2092500,
+        "prevMonthTotalSpent" : 2092500,
+        "byCategory" : [ {
+          "categoryCode" : "ONLINE_MARKETPLACE",
+          "categoryName" : "온라인 쇼핑",
+          "amount" : 821500,
+          "ratio" : 45.4
+        }, {
+          "categoryCode" : "HYPERMARKET",
+          "categoryName" : "대형마트",
+          "amount" : 504000,
+          "ratio" : 27.9
+        }, {
+          "categoryCode" : "GENERAL_RESTAURANT",
+          "categoryName" : "일반음식점",
+          "amount" : 378500,
+          "ratio" : 20.9
+        }, {
+          "categoryCode" : "TELECOMMUNICATION",
+          "categoryName" : "통신",
+          "amount" : 65000,
+          "ratio" : 3.6
+        }, {
+          "categoryCode" : "CONVENIENCE_STORE",
+          "categoryName" : "편의점",
+          "amount" : 39000,
+          "ratio" : 2.2
+        } ],
+        "benefitSummary" : {
+          "expected" : 0,
+          "actual" : 0
+        }
+      },
+      "paymentsSummary" : {
+        "count" : 31,
+        "amount" : 1808000,
+        "expectedBenefit" : 0,
+        "confirmedBenefit" : 0,
+        "byClass" : {
+          "LIVING" : 1808000,
+          "LARGE" : 0,
+          "EXCLUDED" : 0
+        },
+        "yamuPickCount" : 0
+      },
+      "yamuBenefits" : {
+        "yearMonth" : "2026-03",
+        "status" : "CONFIRMED",
+        "summary" : {
+          "expectedBenefit" : 0,
+          "confirmedBenefit" : 0,
+          "yamuPickExtra" : 0,
+          "missedBenefit" : 0,
+          "unconfirmedBenefit" : 0,
+          "unconvertedBenefitCount" : 0,
+          "byType" : [ {
+            "type" : "DISCOUNT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "CASHBACK",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "POINT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          } ]
+        },
+        "differences" : [ ],
+        "byCategory" : [ ],
+        "source" : "YAMU",
+        "cards" : [ ]
+      }
+    }, {
+      "monthly" : {
+        "yearMonth" : "2026-04",
+        "isPartialMonth" : false,
+        "periodTo" : "2026-04-30",
+        "totalSpent" : 1841000,
+        "livingSpent" : 1841000,
+        "prevSamePeriodSpent" : 1793500,
+        "prevMonthTotalSpent" : 1808000,
+        "byCategory" : [ {
+          "categoryCode" : "ONLINE_MARKETPLACE",
+          "categoryName" : "온라인 쇼핑",
+          "amount" : 832500,
+          "ratio" : 45.2
+        }, {
+          "categoryCode" : "HYPERMARKET",
+          "categoryName" : "대형마트",
+          "amount" : 508000,
+          "ratio" : 27.6
+        }, {
+          "categoryCode" : "GENERAL_RESTAURANT",
+          "categoryName" : "일반음식점",
+          "amount" : 396500,
+          "ratio" : 21.5
+        }, {
+          "categoryCode" : "TELECOMMUNICATION",
+          "categoryName" : "통신",
+          "amount" : 65000,
+          "ratio" : 3.5
+        }, {
+          "categoryCode" : "CONVENIENCE_STORE",
+          "categoryName" : "편의점",
+          "amount" : 39000,
+          "ratio" : 2.1
+        } ],
+        "benefitSummary" : {
+          "expected" : 6500,
+          "actual" : 4000
+        }
+      },
+      "paymentsSummary" : {
+        "count" : 32,
+        "amount" : 1841000,
+        "expectedBenefit" : 6500,
+        "confirmedBenefit" : 4000,
+        "byClass" : {
+          "LIVING" : 1841000,
+          "LARGE" : 0,
+          "EXCLUDED" : 0
+        },
+        "yamuPickCount" : 0
+      },
+      "yamuBenefits" : {
+        "yearMonth" : "2026-04",
+        "status" : "PARTIAL",
+        "summary" : {
+          "expectedBenefit" : 6500,
+          "confirmedBenefit" : 4000,
+          "yamuPickExtra" : 0,
+          "missedBenefit" : 0,
+          "unconfirmedBenefit" : 2500,
+          "unconvertedBenefitCount" : 0,
+          "byType" : [ {
+            "type" : "DISCOUNT",
+            "expectedBenefit" : 4000,
+            "confirmedBenefit" : 4000,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "CASHBACK",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "POINT",
+            "expectedBenefit" : 2500,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 2500,
+            "unconvertedBenefitCount" : 0
+          } ]
+        },
+        "differences" : [ ],
+        "byCategory" : [ {
+          "categoryCode" : "HYPERMARKET",
+          "categoryName" : "대형마트",
+          "amount" : 3000,
+          "ratio" : 46.2
+        }, {
+          "categoryCode" : "GENERAL_RESTAURANT",
+          "categoryName" : "일반음식점",
+          "amount" : 2000,
+          "ratio" : 30.8
+        }, {
+          "categoryCode" : "ONLINE_MARKETPLACE",
+          "categoryName" : "온라인 쇼핑",
+          "amount" : 1500,
+          "ratio" : 23.1
+        } ],
+        "source" : "YAMU",
+        "cards" : [ {
+          "userCardId" : 112,
+          "cardProductId" : 1,
+          "cardName" : "신한카드 Mr.Life",
+          "cardAlias" : "신한카드 Mr.Life",
+          "expectedBenefit" : 4000,
+          "confirmedBenefit" : 4000,
+          "unconfirmedBenefit" : 0,
+          "unconvertedBenefitCount" : 0,
+          "byType" : [ {
+            "type" : "DISCOUNT",
+            "expectedBenefit" : 4000,
+            "confirmedBenefit" : 4000,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "CASHBACK",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "POINT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          } ]
+        }, {
+          "userCardId" : 111,
+          "cardProductId" : 3,
+          "cardName" : "신한카드 처음",
+          "cardAlias" : "신한카드 처음",
+          "expectedBenefit" : 2500,
+          "confirmedBenefit" : 0,
+          "unconfirmedBenefit" : 2500,
+          "unconvertedBenefitCount" : 0,
+          "byType" : [ {
+            "type" : "DISCOUNT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "CASHBACK",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "POINT",
+            "expectedBenefit" : 2500,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 2500,
+            "unconvertedBenefitCount" : 0
+          } ]
+        }, {
+          "userCardId" : 110,
+          "cardProductId" : 8,
+          "cardName" : "KB국민 노리 체크",
+          "cardAlias" : "KB국민 노리 체크",
+          "expectedBenefit" : 0,
+          "confirmedBenefit" : 0,
+          "unconfirmedBenefit" : 0,
+          "unconvertedBenefitCount" : 0,
+          "byType" : [ {
+            "type" : "DISCOUNT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "CASHBACK",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "POINT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          } ]
+        }, {
+          "userCardId" : 113,
+          "cardProductId" : 19,
+          "cardName" : "IBK나라사랑카드",
+          "cardAlias" : "IBK나라사랑카드",
+          "expectedBenefit" : 0,
+          "confirmedBenefit" : 0,
+          "unconfirmedBenefit" : 0,
+          "unconvertedBenefitCount" : 0,
+          "byType" : [ {
+            "type" : "DISCOUNT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "CASHBACK",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "POINT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          } ]
+        } ]
+      }
+    }, {
+      "monthly" : {
+        "yearMonth" : "2026-05",
+        "isPartialMonth" : false,
+        "periodTo" : "2026-05-31",
+        "totalSpent" : 1927500,
+        "livingSpent" : 1927500,
+        "prevSamePeriodSpent" : 1841000,
+        "prevMonthTotalSpent" : 1841000,
+        "byCategory" : [ {
+          "categoryCode" : "ONLINE_MARKETPLACE",
+          "categoryName" : "온라인 쇼핑",
+          "amount" : 861500,
+          "ratio" : 44.7
+        }, {
+          "categoryCode" : "HYPERMARKET",
+          "categoryName" : "대형마트",
+          "amount" : 596000,
+          "ratio" : 30.9
+        }, {
+          "categoryCode" : "GENERAL_RESTAURANT",
+          "categoryName" : "일반음식점",
+          "amount" : 366000,
+          "ratio" : 19.0
+        }, {
+          "categoryCode" : "TELECOMMUNICATION",
+          "categoryName" : "통신",
+          "amount" : 65000,
+          "ratio" : 3.4
+        }, {
+          "categoryCode" : "CONVENIENCE_STORE",
+          "categoryName" : "편의점",
+          "amount" : 39000,
+          "ratio" : 2.0
+        } ],
+        "benefitSummary" : {
+          "expected" : 3500,
+          "actual" : 1000
+        }
+      },
+      "paymentsSummary" : {
+        "count" : 31,
+        "amount" : 1927500,
+        "expectedBenefit" : 3500,
+        "confirmedBenefit" : 1000,
+        "byClass" : {
+          "LIVING" : 1927500,
+          "LARGE" : 0,
+          "EXCLUDED" : 0
+        },
+        "yamuPickCount" : 0
+      },
+      "yamuBenefits" : {
+        "yearMonth" : "2026-05",
+        "status" : "PARTIAL",
+        "summary" : {
+          "expectedBenefit" : 3500,
+          "confirmedBenefit" : 1000,
+          "yamuPickExtra" : 0,
+          "missedBenefit" : 0,
+          "unconfirmedBenefit" : 2500,
+          "unconvertedBenefitCount" : 0,
+          "byType" : [ {
+            "type" : "DISCOUNT",
+            "expectedBenefit" : 1000,
+            "confirmedBenefit" : 1000,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "CASHBACK",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "POINT",
+            "expectedBenefit" : 2500,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 2500,
+            "unconvertedBenefitCount" : 0
+          } ]
+        },
+        "differences" : [ ],
+        "byCategory" : [ {
+          "categoryCode" : "GENERAL_RESTAURANT",
+          "categoryName" : "일반음식점",
+          "amount" : 2000,
+          "ratio" : 57.1
+        }, {
+          "categoryCode" : "ONLINE_MARKETPLACE",
+          "categoryName" : "온라인 쇼핑",
+          "amount" : 1500,
+          "ratio" : 42.9
+        } ],
+        "source" : "YAMU",
+        "cards" : [ {
+          "userCardId" : 111,
+          "cardProductId" : 3,
+          "cardName" : "신한카드 처음",
+          "cardAlias" : "신한카드 처음",
+          "expectedBenefit" : 2500,
+          "confirmedBenefit" : 0,
+          "unconfirmedBenefit" : 2500,
+          "unconvertedBenefitCount" : 0,
+          "byType" : [ {
+            "type" : "DISCOUNT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "CASHBACK",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "POINT",
+            "expectedBenefit" : 2500,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 2500,
+            "unconvertedBenefitCount" : 0
+          } ]
+        }, {
+          "userCardId" : 112,
+          "cardProductId" : 1,
+          "cardName" : "신한카드 Mr.Life",
+          "cardAlias" : "신한카드 Mr.Life",
+          "expectedBenefit" : 1000,
+          "confirmedBenefit" : 1000,
+          "unconfirmedBenefit" : 0,
+          "unconvertedBenefitCount" : 0,
+          "byType" : [ {
+            "type" : "DISCOUNT",
+            "expectedBenefit" : 1000,
+            "confirmedBenefit" : 1000,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "CASHBACK",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "POINT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          } ]
+        }, {
+          "userCardId" : 110,
+          "cardProductId" : 8,
+          "cardName" : "KB국민 노리 체크",
+          "cardAlias" : "KB국민 노리 체크",
+          "expectedBenefit" : 0,
+          "confirmedBenefit" : 0,
+          "unconfirmedBenefit" : 0,
+          "unconvertedBenefitCount" : 0,
+          "byType" : [ {
+            "type" : "DISCOUNT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "CASHBACK",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "POINT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          } ]
+        }, {
+          "userCardId" : 113,
+          "cardProductId" : 19,
+          "cardName" : "IBK나라사랑카드",
+          "cardAlias" : "IBK나라사랑카드",
+          "expectedBenefit" : 0,
+          "confirmedBenefit" : 0,
+          "unconfirmedBenefit" : 0,
+          "unconvertedBenefitCount" : 0,
+          "byType" : [ {
+            "type" : "DISCOUNT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "CASHBACK",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "POINT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          } ]
+        } ]
+      }
+    }, {
+      "monthly" : {
+        "yearMonth" : "2026-06",
+        "isPartialMonth" : false,
+        "periodTo" : "2026-06-30",
+        "totalSpent" : 1789000,
+        "livingSpent" : 1789000,
+        "prevSamePeriodSpent" : 1927500,
+        "prevMonthTotalSpent" : 1927500,
+        "byCategory" : [ {
+          "categoryCode" : "ONLINE_MARKETPLACE",
+          "categoryName" : "온라인 쇼핑",
+          "amount" : 812500,
+          "ratio" : 45.4
+        }, {
+          "categoryCode" : "HYPERMARKET",
+          "categoryName" : "대형마트",
+          "amount" : 496000,
+          "ratio" : 27.7
+        }, {
+          "categoryCode" : "GENERAL_RESTAURANT",
+          "categoryName" : "일반음식점",
+          "amount" : 376500,
+          "ratio" : 21.0
+        }, {
+          "categoryCode" : "TELECOMMUNICATION",
+          "categoryName" : "통신",
+          "amount" : 65000,
+          "ratio" : 3.6
+        }, {
+          "categoryCode" : "CONVENIENCE_STORE",
+          "categoryName" : "편의점",
+          "amount" : 39000,
+          "ratio" : 2.2
+        } ],
+        "benefitSummary" : {
+          "expected" : 6500,
+          "actual" : 4000
+        }
+      },
+      "paymentsSummary" : {
+        "count" : 31,
+        "amount" : 1789000,
+        "expectedBenefit" : 6500,
+        "confirmedBenefit" : 4000,
+        "byClass" : {
+          "LIVING" : 1789000,
+          "LARGE" : 0,
+          "EXCLUDED" : 0
+        },
+        "yamuPickCount" : 0
+      },
+      "yamuBenefits" : {
+        "yearMonth" : "2026-06",
+        "status" : "PARTIAL",
+        "summary" : {
+          "expectedBenefit" : 6500,
+          "confirmedBenefit" : 4000,
+          "yamuPickExtra" : 0,
+          "missedBenefit" : 0,
+          "unconfirmedBenefit" : 2500,
+          "unconvertedBenefitCount" : 0,
+          "byType" : [ {
+            "type" : "DISCOUNT",
+            "expectedBenefit" : 4000,
+            "confirmedBenefit" : 4000,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "CASHBACK",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "POINT",
+            "expectedBenefit" : 2500,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 2500,
+            "unconvertedBenefitCount" : 0
+          } ]
+        },
+        "differences" : [ ],
+        "byCategory" : [ {
+          "categoryCode" : "HYPERMARKET",
+          "categoryName" : "대형마트",
+          "amount" : 3000,
+          "ratio" : 46.2
+        }, {
+          "categoryCode" : "GENERAL_RESTAURANT",
+          "categoryName" : "일반음식점",
+          "amount" : 2000,
+          "ratio" : 30.8
+        }, {
+          "categoryCode" : "ONLINE_MARKETPLACE",
+          "categoryName" : "온라인 쇼핑",
+          "amount" : 1500,
+          "ratio" : 23.1
+        } ],
+        "source" : "YAMU",
+        "cards" : [ {
+          "userCardId" : 112,
+          "cardProductId" : 1,
+          "cardName" : "신한카드 Mr.Life",
+          "cardAlias" : "신한카드 Mr.Life",
+          "expectedBenefit" : 4000,
+          "confirmedBenefit" : 4000,
+          "unconfirmedBenefit" : 0,
+          "unconvertedBenefitCount" : 0,
+          "byType" : [ {
+            "type" : "DISCOUNT",
+            "expectedBenefit" : 4000,
+            "confirmedBenefit" : 4000,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "CASHBACK",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "POINT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          } ]
+        }, {
+          "userCardId" : 111,
+          "cardProductId" : 3,
+          "cardName" : "신한카드 처음",
+          "cardAlias" : "신한카드 처음",
+          "expectedBenefit" : 2500,
+          "confirmedBenefit" : 0,
+          "unconfirmedBenefit" : 2500,
+          "unconvertedBenefitCount" : 0,
+          "byType" : [ {
+            "type" : "DISCOUNT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "CASHBACK",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "POINT",
+            "expectedBenefit" : 2500,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 2500,
+            "unconvertedBenefitCount" : 0
+          } ]
+        }, {
+          "userCardId" : 110,
+          "cardProductId" : 8,
+          "cardName" : "KB국민 노리 체크",
+          "cardAlias" : "KB국민 노리 체크",
+          "expectedBenefit" : 0,
+          "confirmedBenefit" : 0,
+          "unconfirmedBenefit" : 0,
+          "unconvertedBenefitCount" : 0,
+          "byType" : [ {
+            "type" : "DISCOUNT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "CASHBACK",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "POINT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          } ]
+        }, {
+          "userCardId" : 113,
+          "cardProductId" : 19,
+          "cardName" : "IBK나라사랑카드",
+          "cardAlias" : "IBK나라사랑카드",
+          "expectedBenefit" : 0,
+          "confirmedBenefit" : 0,
+          "unconfirmedBenefit" : 0,
+          "unconvertedBenefitCount" : 0,
+          "byType" : [ {
+            "type" : "DISCOUNT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "CASHBACK",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "POINT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          } ]
+        } ]
+      }
+    }, {
+      "monthly" : {
+        "yearMonth" : "2026-07",
+        "isPartialMonth" : false,
+        "periodTo" : "2026-07-31",
+        "totalSpent" : 2758000,
+        "livingSpent" : 1858000,
+        "prevSamePeriodSpent" : 1789000,
+        "prevMonthTotalSpent" : 1789000,
+        "byCategory" : [ {
+          "categoryCode" : "ONLINE_MARKETPLACE",
+          "categoryName" : "온라인 쇼핑",
+          "amount" : 1741500,
+          "ratio" : 63.1
+        }, {
+          "categoryCode" : "HYPERMARKET",
+          "categoryName" : "대형마트",
+          "amount" : 516000,
+          "ratio" : 18.7
+        }, {
+          "categoryCode" : "GENERAL_RESTAURANT",
+          "categoryName" : "일반음식점",
+          "amount" : 396500,
+          "ratio" : 14.4
+        }, {
+          "categoryCode" : "TELECOMMUNICATION",
+          "categoryName" : "통신",
+          "amount" : 65000,
+          "ratio" : 2.4
+        }, {
+          "categoryCode" : "CONVENIENCE_STORE",
+          "categoryName" : "편의점",
+          "amount" : 39000,
+          "ratio" : 1.4
+        } ],
+        "benefitSummary" : {
+          "expected" : 7000,
+          "actual" : 4000
+        }
+      },
+      "paymentsSummary" : {
+        "count" : 33,
+        "amount" : 2758000,
+        "expectedBenefit" : 7000,
+        "confirmedBenefit" : 4000,
+        "byClass" : {
+          "LIVING" : 1858000,
+          "LARGE" : 900000,
+          "EXCLUDED" : 0
+        },
+        "yamuPickCount" : 0
+      },
+      "yamuBenefits" : {
+        "yearMonth" : "2026-07",
+        "status" : "PARTIAL",
+        "summary" : {
+          "expectedBenefit" : 7000,
+          "confirmedBenefit" : 4000,
+          "yamuPickExtra" : 0,
+          "missedBenefit" : 0,
+          "unconfirmedBenefit" : 3000,
+          "unconvertedBenefitCount" : 0,
+          "byType" : [ {
+            "type" : "DISCOUNT",
+            "expectedBenefit" : 4000,
+            "confirmedBenefit" : 4000,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "CASHBACK",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "POINT",
+            "expectedBenefit" : 3000,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 3000,
+            "unconvertedBenefitCount" : 0
+          } ]
+        },
+        "differences" : [ ],
+        "byCategory" : [ {
+          "categoryCode" : "HYPERMARKET",
+          "categoryName" : "대형마트",
+          "amount" : 3000,
+          "ratio" : 42.9
+        }, {
+          "categoryCode" : "GENERAL_RESTAURANT",
+          "categoryName" : "일반음식점",
+          "amount" : 2000,
+          "ratio" : 28.6
+        }, {
+          "categoryCode" : "ONLINE_MARKETPLACE",
+          "categoryName" : "온라인 쇼핑",
+          "amount" : 2000,
+          "ratio" : 28.6
+        } ],
+        "source" : "YAMU",
+        "cards" : [ {
+          "userCardId" : 112,
+          "cardProductId" : 1,
+          "cardName" : "신한카드 Mr.Life",
+          "cardAlias" : "신한카드 Mr.Life",
+          "expectedBenefit" : 4000,
+          "confirmedBenefit" : 4000,
+          "unconfirmedBenefit" : 0,
+          "unconvertedBenefitCount" : 0,
+          "byType" : [ {
+            "type" : "DISCOUNT",
+            "expectedBenefit" : 4000,
+            "confirmedBenefit" : 4000,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "CASHBACK",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "POINT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          } ]
+        }, {
+          "userCardId" : 111,
+          "cardProductId" : 3,
+          "cardName" : "신한카드 처음",
+          "cardAlias" : "신한카드 처음",
+          "expectedBenefit" : 3000,
+          "confirmedBenefit" : 0,
+          "unconfirmedBenefit" : 3000,
+          "unconvertedBenefitCount" : 0,
+          "byType" : [ {
+            "type" : "DISCOUNT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "CASHBACK",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "POINT",
+            "expectedBenefit" : 3000,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 3000,
+            "unconvertedBenefitCount" : 0
+          } ]
+        }, {
+          "userCardId" : 110,
+          "cardProductId" : 8,
+          "cardName" : "KB국민 노리 체크",
+          "cardAlias" : "KB국민 노리 체크",
+          "expectedBenefit" : 0,
+          "confirmedBenefit" : 0,
+          "unconfirmedBenefit" : 0,
+          "unconvertedBenefitCount" : 0,
+          "byType" : [ {
+            "type" : "DISCOUNT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "CASHBACK",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "POINT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          } ]
+        }, {
+          "userCardId" : 113,
+          "cardProductId" : 19,
+          "cardName" : "IBK나라사랑카드",
+          "cardAlias" : "IBK나라사랑카드",
+          "expectedBenefit" : 0,
+          "confirmedBenefit" : 0,
+          "unconfirmedBenefit" : 0,
+          "unconvertedBenefitCount" : 0,
+          "byType" : [ {
+            "type" : "DISCOUNT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "CASHBACK",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "POINT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          } ]
+        } ]
+      }
+    }, {
+      "monthly" : {
+        "yearMonth" : "2026-08",
+        "isPartialMonth" : false,
+        "periodTo" : "2026-08-31",
+        "totalSpent" : 1910500,
+        "livingSpent" : 1910500,
+        "prevSamePeriodSpent" : 1858000,
+        "prevMonthTotalSpent" : 2758000,
+        "byCategory" : [ {
+          "categoryCode" : "ONLINE_MARKETPLACE",
+          "categoryName" : "온라인 쇼핑",
+          "amount" : 852500,
+          "ratio" : 44.6
+        }, {
+          "categoryCode" : "HYPERMARKET",
+          "categoryName" : "대형마트",
+          "amount" : 588000,
+          "ratio" : 30.8
+        }, {
+          "categoryCode" : "GENERAL_RESTAURANT",
+          "categoryName" : "일반음식점",
+          "amount" : 366000,
+          "ratio" : 19.2
+        }, {
+          "categoryCode" : "TELECOMMUNICATION",
+          "categoryName" : "통신",
+          "amount" : 65000,
+          "ratio" : 3.4
+        }, {
+          "categoryCode" : "CONVENIENCE_STORE",
+          "categoryName" : "편의점",
+          "amount" : 39000,
+          "ratio" : 2.0
+        } ],
+        "benefitSummary" : {
+          "expected" : 3500,
+          "actual" : 1000
+        }
+      },
+      "paymentsSummary" : {
+        "count" : 31,
+        "amount" : 1910500,
+        "expectedBenefit" : 3500,
+        "confirmedBenefit" : 1000,
+        "byClass" : {
+          "LIVING" : 1910500,
+          "LARGE" : 0,
+          "EXCLUDED" : 0
+        },
+        "yamuPickCount" : 0
+      },
+      "yamuBenefits" : {
+        "yearMonth" : "2026-08",
+        "status" : "PARTIAL",
+        "summary" : {
+          "expectedBenefit" : 3500,
+          "confirmedBenefit" : 1000,
+          "yamuPickExtra" : 0,
+          "missedBenefit" : 0,
+          "unconfirmedBenefit" : 2500,
+          "unconvertedBenefitCount" : 0,
+          "byType" : [ {
+            "type" : "DISCOUNT",
+            "expectedBenefit" : 1000,
+            "confirmedBenefit" : 1000,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "CASHBACK",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "POINT",
+            "expectedBenefit" : 2500,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 2500,
+            "unconvertedBenefitCount" : 0
+          } ]
+        },
+        "differences" : [ ],
+        "byCategory" : [ {
+          "categoryCode" : "GENERAL_RESTAURANT",
+          "categoryName" : "일반음식점",
+          "amount" : 2000,
+          "ratio" : 57.1
+        }, {
+          "categoryCode" : "ONLINE_MARKETPLACE",
+          "categoryName" : "온라인 쇼핑",
+          "amount" : 1500,
+          "ratio" : 42.9
+        } ],
+        "source" : "YAMU",
+        "cards" : [ {
+          "userCardId" : 111,
+          "cardProductId" : 3,
+          "cardName" : "신한카드 처음",
+          "cardAlias" : "신한카드 처음",
+          "expectedBenefit" : 2500,
+          "confirmedBenefit" : 0,
+          "unconfirmedBenefit" : 2500,
+          "unconvertedBenefitCount" : 0,
+          "byType" : [ {
+            "type" : "DISCOUNT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "CASHBACK",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "POINT",
+            "expectedBenefit" : 2500,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 2500,
+            "unconvertedBenefitCount" : 0
+          } ]
+        }, {
+          "userCardId" : 112,
+          "cardProductId" : 1,
+          "cardName" : "신한카드 Mr.Life",
+          "cardAlias" : "신한카드 Mr.Life",
+          "expectedBenefit" : 1000,
+          "confirmedBenefit" : 1000,
+          "unconfirmedBenefit" : 0,
+          "unconvertedBenefitCount" : 0,
+          "byType" : [ {
+            "type" : "DISCOUNT",
+            "expectedBenefit" : 1000,
+            "confirmedBenefit" : 1000,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "CASHBACK",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "POINT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          } ]
+        }, {
+          "userCardId" : 110,
+          "cardProductId" : 8,
+          "cardName" : "KB국민 노리 체크",
+          "cardAlias" : "KB국민 노리 체크",
+          "expectedBenefit" : 0,
+          "confirmedBenefit" : 0,
+          "unconfirmedBenefit" : 0,
+          "unconvertedBenefitCount" : 0,
+          "byType" : [ {
+            "type" : "DISCOUNT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "CASHBACK",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "POINT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          } ]
+        }, {
+          "userCardId" : 113,
+          "cardProductId" : 19,
+          "cardName" : "IBK나라사랑카드",
+          "cardAlias" : "IBK나라사랑카드",
+          "expectedBenefit" : 0,
+          "confirmedBenefit" : 0,
+          "unconfirmedBenefit" : 0,
+          "unconvertedBenefitCount" : 0,
+          "byType" : [ {
+            "type" : "DISCOUNT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "CASHBACK",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "POINT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          } ]
+        } ]
+      }
+    }, {
+      "monthly" : {
+        "yearMonth" : "2026-09",
+        "isPartialMonth" : false,
+        "periodTo" : "2026-09-30",
+        "totalSpent" : 1828000,
+        "livingSpent" : 1828000,
+        "prevSamePeriodSpent" : 1910500,
+        "prevMonthTotalSpent" : 1910500,
+        "byCategory" : [ {
+          "categoryCode" : "ONLINE_MARKETPLACE",
+          "categoryName" : "온라인 쇼핑",
+          "amount" : 821500,
+          "ratio" : 44.9
+        }, {
+          "categoryCode" : "HYPERMARKET",
+          "categoryName" : "대형마트",
+          "amount" : 504000,
+          "ratio" : 27.6
+        }, {
+          "categoryCode" : "GENERAL_RESTAURANT",
+          "categoryName" : "일반음식점",
+          "amount" : 398500,
+          "ratio" : 21.8
+        }, {
+          "categoryCode" : "TELECOMMUNICATION",
+          "categoryName" : "통신",
+          "amount" : 65000,
+          "ratio" : 3.6
+        }, {
+          "categoryCode" : "CONVENIENCE_STORE",
+          "categoryName" : "편의점",
+          "amount" : 39000,
+          "ratio" : 2.1
+        } ],
+        "benefitSummary" : {
+          "expected" : 6500,
+          "actual" : 4000
+        }
+      },
+      "paymentsSummary" : {
+        "count" : 32,
+        "amount" : 1828000,
+        "expectedBenefit" : 6500,
+        "confirmedBenefit" : 4000,
+        "byClass" : {
+          "LIVING" : 1828000,
+          "LARGE" : 0,
+          "EXCLUDED" : 0
+        },
+        "yamuPickCount" : 0
+      },
+      "yamuBenefits" : {
+        "yearMonth" : "2026-09",
+        "status" : "PARTIAL",
+        "summary" : {
+          "expectedBenefit" : 6500,
+          "confirmedBenefit" : 4000,
+          "yamuPickExtra" : 0,
+          "missedBenefit" : 0,
+          "unconfirmedBenefit" : 2500,
+          "unconvertedBenefitCount" : 0,
+          "byType" : [ {
+            "type" : "DISCOUNT",
+            "expectedBenefit" : 4000,
+            "confirmedBenefit" : 4000,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "CASHBACK",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "POINT",
+            "expectedBenefit" : 2500,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 2500,
+            "unconvertedBenefitCount" : 0
+          } ]
+        },
+        "differences" : [ ],
+        "byCategory" : [ {
+          "categoryCode" : "HYPERMARKET",
+          "categoryName" : "대형마트",
+          "amount" : 3000,
+          "ratio" : 46.2
+        }, {
+          "categoryCode" : "GENERAL_RESTAURANT",
+          "categoryName" : "일반음식점",
+          "amount" : 2000,
+          "ratio" : 30.8
+        }, {
+          "categoryCode" : "ONLINE_MARKETPLACE",
+          "categoryName" : "온라인 쇼핑",
+          "amount" : 1500,
+          "ratio" : 23.1
+        } ],
+        "source" : "YAMU",
+        "cards" : [ {
+          "userCardId" : 112,
+          "cardProductId" : 1,
+          "cardName" : "신한카드 Mr.Life",
+          "cardAlias" : "신한카드 Mr.Life",
+          "expectedBenefit" : 4000,
+          "confirmedBenefit" : 4000,
+          "unconfirmedBenefit" : 0,
+          "unconvertedBenefitCount" : 0,
+          "byType" : [ {
+            "type" : "DISCOUNT",
+            "expectedBenefit" : 4000,
+            "confirmedBenefit" : 4000,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "CASHBACK",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "POINT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          } ]
+        }, {
+          "userCardId" : 111,
+          "cardProductId" : 3,
+          "cardName" : "신한카드 처음",
+          "cardAlias" : "신한카드 처음",
+          "expectedBenefit" : 2500,
+          "confirmedBenefit" : 0,
+          "unconfirmedBenefit" : 2500,
+          "unconvertedBenefitCount" : 0,
+          "byType" : [ {
+            "type" : "DISCOUNT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "CASHBACK",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "POINT",
+            "expectedBenefit" : 2500,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 2500,
+            "unconvertedBenefitCount" : 0
+          } ]
+        }, {
+          "userCardId" : 110,
+          "cardProductId" : 8,
+          "cardName" : "KB국민 노리 체크",
+          "cardAlias" : "KB국민 노리 체크",
+          "expectedBenefit" : 0,
+          "confirmedBenefit" : 0,
+          "unconfirmedBenefit" : 0,
+          "unconvertedBenefitCount" : 0,
+          "byType" : [ {
+            "type" : "DISCOUNT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "CASHBACK",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "POINT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          } ]
+        }, {
+          "userCardId" : 113,
+          "cardProductId" : 19,
+          "cardName" : "IBK나라사랑카드",
+          "cardAlias" : "IBK나라사랑카드",
+          "expectedBenefit" : 0,
+          "confirmedBenefit" : 0,
+          "unconfirmedBenefit" : 0,
+          "unconvertedBenefitCount" : 0,
+          "byType" : [ {
+            "type" : "DISCOUNT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "CASHBACK",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "POINT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          } ]
+        } ]
+      }
+    }, {
+      "monthly" : {
+        "yearMonth" : "2026-10",
+        "isPartialMonth" : false,
+        "periodTo" : "2026-10-31",
+        "totalSpent" : 1880000,
+        "livingSpent" : 1880000,
+        "prevSamePeriodSpent" : 1828000,
+        "prevMonthTotalSpent" : 1828000,
+        "byCategory" : [ {
+          "categoryCode" : "ONLINE_MARKETPLACE",
+          "categoryName" : "온라인 쇼핑",
+          "amount" : 822500,
+          "ratio" : 43.8
+        }, {
+          "categoryCode" : "HYPERMARKET",
+          "categoryName" : "대형마트",
+          "amount" : 573000,
+          "ratio" : 30.5
+        }, {
+          "categoryCode" : "GENERAL_RESTAURANT",
+          "categoryName" : "일반음식점",
+          "amount" : 380500,
+          "ratio" : 20.2
+        }, {
+          "categoryCode" : "TELECOMMUNICATION",
+          "categoryName" : "통신",
+          "amount" : 65000,
+          "ratio" : 3.5
+        }, {
+          "categoryCode" : "CONVENIENCE_STORE",
+          "categoryName" : "편의점",
+          "amount" : 39000,
+          "ratio" : 2.1
+        } ],
+        "benefitSummary" : {
+          "expected" : 3500,
+          "actual" : 1000
+        }
+      },
+      "paymentsSummary" : {
+        "count" : 32,
+        "amount" : 1880000,
+        "expectedBenefit" : 3500,
+        "confirmedBenefit" : 1000,
+        "byClass" : {
+          "LIVING" : 1880000,
+          "LARGE" : 0,
+          "EXCLUDED" : 0
+        },
+        "yamuPickCount" : 0
+      },
+      "yamuBenefits" : {
+        "yearMonth" : "2026-10",
+        "status" : "PARTIAL",
+        "summary" : {
+          "expectedBenefit" : 3500,
+          "confirmedBenefit" : 1000,
+          "yamuPickExtra" : 0,
+          "missedBenefit" : 0,
+          "unconfirmedBenefit" : 2500,
+          "unconvertedBenefitCount" : 0,
+          "byType" : [ {
+            "type" : "DISCOUNT",
+            "expectedBenefit" : 1000,
+            "confirmedBenefit" : 1000,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "CASHBACK",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "POINT",
+            "expectedBenefit" : 2500,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 2500,
+            "unconvertedBenefitCount" : 0
+          } ]
+        },
+        "differences" : [ ],
+        "byCategory" : [ {
+          "categoryCode" : "GENERAL_RESTAURANT",
+          "categoryName" : "일반음식점",
+          "amount" : 2000,
+          "ratio" : 57.1
+        }, {
+          "categoryCode" : "ONLINE_MARKETPLACE",
+          "categoryName" : "온라인 쇼핑",
+          "amount" : 1500,
+          "ratio" : 42.9
+        } ],
+        "source" : "YAMU",
+        "cards" : [ {
+          "userCardId" : 111,
+          "cardProductId" : 3,
+          "cardName" : "신한카드 처음",
+          "cardAlias" : "신한카드 처음",
+          "expectedBenefit" : 2500,
+          "confirmedBenefit" : 0,
+          "unconfirmedBenefit" : 2500,
+          "unconvertedBenefitCount" : 0,
+          "byType" : [ {
+            "type" : "DISCOUNT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "CASHBACK",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "POINT",
+            "expectedBenefit" : 2500,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 2500,
+            "unconvertedBenefitCount" : 0
+          } ]
+        }, {
+          "userCardId" : 112,
+          "cardProductId" : 1,
+          "cardName" : "신한카드 Mr.Life",
+          "cardAlias" : "신한카드 Mr.Life",
+          "expectedBenefit" : 1000,
+          "confirmedBenefit" : 1000,
+          "unconfirmedBenefit" : 0,
+          "unconvertedBenefitCount" : 0,
+          "byType" : [ {
+            "type" : "DISCOUNT",
+            "expectedBenefit" : 1000,
+            "confirmedBenefit" : 1000,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "CASHBACK",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "POINT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          } ]
+        }, {
+          "userCardId" : 110,
+          "cardProductId" : 8,
+          "cardName" : "KB국민 노리 체크",
+          "cardAlias" : "KB국민 노리 체크",
+          "expectedBenefit" : 0,
+          "confirmedBenefit" : 0,
+          "unconfirmedBenefit" : 0,
+          "unconvertedBenefitCount" : 0,
+          "byType" : [ {
+            "type" : "DISCOUNT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "CASHBACK",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "POINT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          } ]
+        }, {
+          "userCardId" : 113,
+          "cardProductId" : 19,
+          "cardName" : "IBK나라사랑카드",
+          "cardAlias" : "IBK나라사랑카드",
+          "expectedBenefit" : 0,
+          "confirmedBenefit" : 0,
+          "unconfirmedBenefit" : 0,
+          "unconvertedBenefitCount" : 0,
+          "byType" : [ {
+            "type" : "DISCOUNT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "CASHBACK",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "POINT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          } ]
+        } ]
+      }
+    }, {
+      "monthly" : {
+        "yearMonth" : "2026-11",
+        "isPartialMonth" : true,
+        "periodTo" : "2026-11-16",
+        "totalSpent" : 690000,
+        "livingSpent" : 690000,
+        "prevSamePeriodSpent" : 1040500,
+        "prevMonthTotalSpent" : 1880000,
+        "byCategory" : [ {
+          "categoryCode" : "ONLINE_MARKETPLACE",
+          "categoryName" : "온라인 쇼핑",
+          "amount" : 630000,
+          "ratio" : 91.3
+        }, {
+          "categoryCode" : "GENERAL_RESTAURANT",
+          "categoryName" : "일반음식점",
+          "amount" : 60000,
+          "ratio" : 8.7
+        } ],
+        "benefitSummary" : {
+          "expected" : 1000,
+          "actual" : 0
+        }
+      },
+      "paymentsSummary" : {
+        "count" : 12,
+        "amount" : 690000,
+        "expectedBenefit" : 1000,
+        "confirmedBenefit" : 0,
+        "byClass" : {
+          "LIVING" : 690000,
+          "LARGE" : 0,
+          "EXCLUDED" : 0
+        },
+        "yamuPickCount" : 0
+      },
+      "yamuBenefits" : {
+        "yearMonth" : "2026-11",
+        "status" : "PARTIAL",
+        "summary" : {
+          "expectedBenefit" : 1000,
+          "confirmedBenefit" : 0,
+          "yamuPickExtra" : 0,
+          "missedBenefit" : 0,
+          "unconfirmedBenefit" : 1000,
+          "unconvertedBenefitCount" : 0,
+          "byType" : [ {
+            "type" : "DISCOUNT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "CASHBACK",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "POINT",
+            "expectedBenefit" : 1000,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 1000,
+            "unconvertedBenefitCount" : 0
+          } ]
+        },
+        "differences" : [ ],
+        "byCategory" : [ {
+          "categoryCode" : "ONLINE_MARKETPLACE",
+          "categoryName" : "온라인 쇼핑",
+          "amount" : 1000,
+          "ratio" : 100.0
+        } ],
+        "source" : "YAMU",
+        "cards" : [ {
+          "userCardId" : 111,
+          "cardProductId" : 3,
+          "cardName" : "신한카드 처음",
+          "cardAlias" : "신한카드 처음",
+          "expectedBenefit" : 1000,
+          "confirmedBenefit" : 0,
+          "unconfirmedBenefit" : 1000,
+          "unconvertedBenefitCount" : 0,
+          "byType" : [ {
+            "type" : "DISCOUNT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "CASHBACK",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "POINT",
+            "expectedBenefit" : 1000,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 1000,
+            "unconvertedBenefitCount" : 0
+          } ]
+        }, {
+          "userCardId" : 110,
+          "cardProductId" : 8,
+          "cardName" : "KB국민 노리 체크",
+          "cardAlias" : "KB국민 노리 체크",
+          "expectedBenefit" : 0,
+          "confirmedBenefit" : 0,
+          "unconfirmedBenefit" : 0,
+          "unconvertedBenefitCount" : 0,
+          "byType" : [ {
+            "type" : "DISCOUNT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "CASHBACK",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "POINT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          } ]
+        }, {
+          "userCardId" : 112,
+          "cardProductId" : 1,
+          "cardName" : "신한카드 Mr.Life",
+          "cardAlias" : "신한카드 Mr.Life",
+          "expectedBenefit" : 0,
+          "confirmedBenefit" : 0,
+          "unconfirmedBenefit" : 0,
+          "unconvertedBenefitCount" : 0,
+          "byType" : [ {
+            "type" : "DISCOUNT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "CASHBACK",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "POINT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          } ]
+        }, {
+          "userCardId" : 113,
+          "cardProductId" : 19,
+          "cardName" : "IBK나라사랑카드",
+          "cardAlias" : "IBK나라사랑카드",
+          "expectedBenefit" : 0,
+          "confirmedBenefit" : 0,
+          "unconfirmedBenefit" : 0,
+          "unconvertedBenefitCount" : 0,
+          "byType" : [ {
+            "type" : "DISCOUNT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "CASHBACK",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          }, {
+            "type" : "POINT",
+            "expectedBenefit" : 0,
+            "confirmedBenefit" : 0,
+            "unconfirmedBenefit" : 0,
+            "unconvertedBenefitCount" : 0
+          } ]
+        } ]
+      }
+    } ]
+  } ]
+}

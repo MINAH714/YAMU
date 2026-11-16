@@ -75,7 +75,7 @@ import java.time.OffsetDateTime
 import java.time.format.DateTimeFormatter
 import javax.inject.Inject
 
-/** 판정 태그 색 — 달성 추천 파랑 · 자연 소비 유지 회색 · 달성 초록 · 추가 소비 비추천 빨강(프로토타입 .guide) */
+/** 판정 태그 색 — 달성 추천 파랑 · 달성 초록 · 추가 소비 비추천 빨강(프로토타입 .guide). KEEP_NATURAL은 태그를 그리지 않는다(label null) */
 fun PerfGuide.tone(): TagTone = when (this) {
     PerfGuide.ACHIEVE_RECOMMENDED -> TagTone.Primary
     PerfGuide.KEEP_NATURAL -> TagTone.Neutral
@@ -193,7 +193,7 @@ private fun PendingRow(card: CardPerf, art: CardArtRef?, last: Boolean, onClick:
             Text(card.name, style = YamuTheme.typography.titleM, color = c.text1, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
             card.recentChange?.let { Text(it.toWon(withPlusSign = true), style = YamuTheme.typography.labelL.copy(fontWeight = FontWeight.Bold), color = c.primary, maxLines = 1) }
             when {
-                card.guide != null -> StatusTag(card.guide.label, tone = card.guide.tone(), guide = true)
+                card.guide != null -> card.guide.label?.let { StatusTag(it, tone = card.guide.tone(), guide = true) }   // 자연 소비 유지는 태그 없음
                 card.atRisk -> StatusTag(AT_RISK_LABEL, tone = TagTone.Warning, guide = true)
             }
             Icon(YamuIcons.ChevronRight, contentDescription = null, tint = c.text3)

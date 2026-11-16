@@ -26,6 +26,7 @@ import com.yamu.be.payment.billing.CreditBillingWriter;
 import com.yamu.be.payment.domain.PaymentStatus;
 import com.yamu.be.payment.domain.PaymentTransaction;
 import com.yamu.be.payment.domain.PaymentTransactionRepository;
+import com.yamu.be.payment.performance.PaymentPerformanceTotals;
 import com.yamu.be.payment.lookup.PaymentCardLookup;
 import com.yamu.be.payment.lookup.PaymentCardLookup.ActiveCard;
 import com.yamu.be.payment.pos.PosProperties;
@@ -119,6 +120,7 @@ public class PaymentApprovalService {
     private final PosProperties posProperties;
     private final PaymentApprovalProperties properties;
     private final Clock clock;
+    private final PaymentPerformanceTotals performanceTotals;
 
     public PaymentApprovalService(PaymentTransactionRepository payments, CardQueryService cardQuery,
             PaymentCardLookup cards, RecommendationSnapshotStore snapshots, CardRecommender recommender,
@@ -126,7 +128,8 @@ public class PaymentApprovalService {
             ApprovalIdempotencyStore idempotency,
             ApprovalAttemptStore attempts, PaymentExpiry expiry, WithdrawalRecovery recovery, BarcodeStore barcodes,
             RedisLocks locks, TransactionTemplate transaction, ObjectMapper objectMapper,
-            PosProperties posProperties, PaymentApprovalProperties properties, Clock clock) {
+            PosProperties posProperties, PaymentApprovalProperties properties, Clock clock,
+            PaymentPerformanceTotals performanceTotals) {
         this.payments = payments;
         this.cardQuery = cardQuery;
         this.cards = cards;
@@ -146,6 +149,7 @@ public class PaymentApprovalService {
         this.posProperties = posProperties;
         this.properties = properties;
         this.clock = clock;
+        this.performanceTotals = performanceTotals;
     }
 
     public PaymentApprovalResponse approve(AuthUser me, Long paymentId, PaymentApprovalRequest request,
@@ -348,16 +352,19 @@ public class PaymentApprovalService {
                 selection.candidate(), payment.getRequestedAt(), nowUtc, attempt.no(), selection.recognition()), attempt);
         Map<YearMonth, CardBill> bills = ensureBills(paymentId, userId, selection, outcome, attempt);
         PaymentApprovalResponse response = response(payment, selection, recommendation, outcome, attempt.no(),
-                nowUtc, List.of(), Map.of());
+                nowUtc, List.of(), Map.of(), null);
         Attempt recorded = record(paymentId, attempt, outcome, response);
         Settled settled = settle(paymentId, attempt, outcome, nowUtc, bills);
-        if (outcome instanceof ApprovalOutcome.Approved) {
+        PaymentPerformanceTotals.Total total = null;
+        if (outcome instanceof ApprovalOutcome.Approved approved) {
             markBarcodeUsed(paymentId);
+            total = performanceTotal(selection.card(), approved);
         }
-        if (!settled.items().isEmpty() || !settled.paymentBenefitIds().isEmpty()) {
-            // 회차 번호·혜택 행 번호는 tx2가 저장해야 생기므로, 그 번호를 채운 응답으로 시도 기록을 다시 적는다
+        if (!settled.items().isEmpty() || !settled.paymentBenefitIds().isEmpty() || total != null) {
+            // 회차 번호·혜택 행 번호·월 실적 누적(S15P31E103-390)은 tx2가 저장해야 정해지므로, 그 값을 채운 응답으로 시도 기록을
+            // 다시 적는다. 같은 키 재전송은 이 응답(승인 직후의 누적)을 돌려준다
             response = response(payment, selection, recommendation, outcome, attempt.no(), nowUtc,
-                    billItems(settled.items(), bills), settled.paymentBenefitIds());
+                    billItems(settled.items(), bills), settled.paymentBenefitIds(), total);
             recordSavedNumbers(paymentId, attempt, recorded, response);
         }
         log.info("결제 승인 결과 저장 paymentId={} attempt={} status={} failure={} billItems={}", paymentId, attempt.no(),
@@ -422,7 +429,7 @@ public class PaymentApprovalService {
                         context.map(MerchantContextSnapshot::categoryCode).orElse(null),
                         payment.getPaymentChannel().name(),
                         payment.getFacilityType() == null ? null : payment.getFacilityType().name()),
-                payment.getRequestedAt());
+                payment.getRequestedAt(), context.map(MerchantContextSnapshot::basket).orElse(null));
     }
 
     /**
@@ -804,7 +811,8 @@ public class PaymentApprovalService {
      */
     private PaymentApprovalResponse response(PaymentTransaction payment, Selection selection,
             RecommendationResult recommendation, ApprovalOutcome outcome, int attemptNo, LocalDateTime now,
-            List<PaymentApprovalResponse.BillItem> billItems, Map<Long, Long> paymentBenefitIds) {
+            List<PaymentApprovalResponse.BillItem> billItems, Map<Long, Long> paymentBenefitIds,
+            PaymentPerformanceTotals.Total total) {
         CardSummary card = selection.card();
         SelectedCard selected = new SelectedCard(card.userCardId(), nickname(card), masked(card.last4()),
                 card.cardType(), selection.recommendedRank(), selection.userSelected());
@@ -819,7 +827,7 @@ public class PaymentApprovalService {
                     .toList();
             return new PaymentApprovalResponse(payment.getId(), PaymentStatus.APPROVED,
                     ApprovalNumbers.of(now, payment.getId()), now, selected, payment.getRequestedAmount(), plan,
-                    months, benefits, approved.chargedAmount(), null, billItems, performance(approved),
+                    months, benefits, approved.chargedAmount(), null, billItems, performance(approved, total),
                     limitImpacts(approved.basis()), null, null, null, List.of());
         }
         ApprovalOutcome.Declined declined = (ApprovalOutcome.Declined) outcome;
@@ -839,12 +847,34 @@ public class PaymentApprovalService {
      * 이 승인의 실적 반영. 달성률은 최소 실적 기준을 BE3 결과가 내보내지 않아 null이다(임시).
      * 실적 인정액은 BE3 계산 값이다(Task 5.2.11). 응답 모양은 그대로 두어, 월 실적에 더해졌을 때만 {@code recognized=true}이고
      * 제외(0)·미확인(null)은 {@code recognizedAmount=0, recognized=false}다(임시: 둘을 나눠 보일지는 실적 화면 담당과 정한다).
+     *
+     * <p>누적·목표(S15P31E103-390)는 원장 저장 뒤에 읽은 값이다. 원장 저장 전 응답, 누적을 읽지 못한 응답, 인정액 미확인 결제는
+     * null이다(미확인은 이 결제가 얼마로 잡힐지 몰라 줄을 보이지 않는다).
      */
-    private static PaymentApprovalResponse.Performance performance(ApprovalOutcome.Approved approved) {
+    private static PaymentApprovalResponse.Performance performance(ApprovalOutcome.Approved approved,
+            PaymentPerformanceTotals.Total total) {
         Long amount = approved.recognizedPerformanceAmount();
         long shown = amount == null ? 0 : amount;
+        boolean showTotal = amount != null && total != null;
         return new PaymentApprovalResponse.Performance(YearMonth.from(approved.performanceMonth()).toString(), shown,
-                shown > 0, null);
+                shown > 0, null, showTotal ? total.recognizedTotalAfter() : null,
+                showTotal ? total.targetAmount() : null);
+    }
+
+    /**
+     * 승인을 저장한 뒤의 월 실적 누적·목표. 승인은 이미 끝났으므로 읽지 못해도 승인을 실패로 만들지 않고 null로 둔다.
+     * 인정액 미확인 결제는 줄을 보이지 않으므로 읽지 않는다.
+     */
+    private PaymentPerformanceTotals.Total performanceTotal(CardSummary card, ApprovalOutcome.Approved approved) {
+        if (approved.recognizedPerformanceAmount() == null || approved.performanceMonth() == null) {
+            return null;
+        }
+        try {
+            return performanceTotals.of(card.userCardId(), card.cardProductId(), approved.performanceMonth());
+        } catch (RuntimeException e) {
+            log.warn("승인 뒤 월 실적 누적을 읽지 못함(응답의 누적·목표 null) userCardId={}", card.userCardId(), e);
+            return null;
+        }
     }
 
     /**

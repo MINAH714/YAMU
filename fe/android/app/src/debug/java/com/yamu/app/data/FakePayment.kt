@@ -8,6 +8,7 @@ import com.yamu.app.core.session.HomeScenario
 import com.yamu.app.core.session.PayScenario
 import com.yamu.app.feature.link.data.brandOf
 import com.yamu.app.feature.payment.data.ApproveOutcome
+import com.yamu.app.feature.payment.data.BenefitKind
 import com.yamu.app.feature.payment.data.CancelResult
 import com.yamu.app.feature.payment.data.CodeState
 import com.yamu.app.feature.payment.data.MemoRules
@@ -49,6 +50,9 @@ object FakeMerchants {
     )
 }
 
+/** BE yamu.auth.barcode-reissue-window(임시 10분)와 같게 */
+private const val REISSUE_WINDOW_MS = 10 * 60 * 1000L
+
 /**
  * debug 전용 가짜 결제 서버 — 코드 발급 → (디버그 메뉴 '결제 상태'대로) 3초 뒤 가짜 가맹점이 찍음 → 승인 · 거절.
  * 카드 · 혜택은 BE 카드 시드(be/seed 01 · 02)에 있는 상품의 실제 혜택 · 월 한도로 계산한다.
@@ -61,9 +65,12 @@ class FakePaymentRepository @Inject constructor(
     private val bank: FakeBank,
 ) : PaymentRepository {
 
-    private class Issued(val code: PayCode, val issuedAt: Long, val scenario: PayScenario) {
+    /** [authAt] 이 코드를 처음 인증해 연 시각 — 재발급한 코드는 이전 코드의 값을 물려받는다(BE와 같이 이어 붙여도 창이 늘지 않음) */
+    private class Issued(val code: PayCode, val issuedAt: Long, val scenario: PayScenario, val authAt: Long = issuedAt) {
         var request: PaymentRequest? = null
         var closed = false
+        /** 재발급으로 닫힌 코드 — 조회하면 EXPIRED */
+        var replaced = false
         var declines = 0
         /** 마감 전 승인 시도 수(같은 키로 다시 물은 것 포함) — 결과 불명 시나리오가 몇 번째에 답할지 정한다 */
         var attempts = 0
@@ -73,14 +80,19 @@ class FakePaymentRepository @Inject constructor(
     private val receipts = mutableMapOf<Long, PaymentReceipt>()
     private var nextPaymentId = 1001L
 
-    private fun card(id: Long, issuer: String, color: String, name: String, last4: String, check: Boolean, benefit: Long, benefitName: String?, months: List<Int> = emptyList(), charged: Long? = null, perf: String? = null) =
-        PayCard(id, brandOf(issuer, color = color), name, last4, check, benefit.toBigDecimal(), benefitName, charged, months, benefitName?.let { "$it ${"%,d".format(benefit)}원" }, perf)
+    /** [kind]는 대표 혜택의 반영 시점(BE realization) — 결제 확인 카드 칸의 태그 · 금액 문구 · 즉시할인 버튼이 이 값을 본다(S15P31E103-555) */
+    private fun card(id: Long, issuer: String, color: String, name: String, last4: String, check: Boolean, benefit: Long, benefitName: String?, months: List<Int> = emptyList(), charged: Long? = null, perf: String? = null, kind: BenefitKind = BenefitKind.UNKNOWN) =
+        PayCard(id, brandOf(issuer, color = color), name, last4, check, benefit.toBigDecimal(), benefitName, charged, months, benefitName?.let { "$it ${"%,d".format(benefit)}원" }, perf, benefitKind = kind)
+
+    /** BE 후보 rank처럼 놓인 순서대로 1순위부터 — 혜택을 비교하지 못한 카드는 순위 없이(uncompared) */
+    private fun ranked(vararg cards: PayCard): List<PayCard> = cards.mapIndexed { i, c -> c.copy(rank = i + 1) }
 
     // 혜택 · 월 한도는 시드 값 — 톡톡 스타벅스 50%(한도 10,000) · ZERO 1.2% M포인트 · Mr.Life 주말 마트 10%(한도 3,000) · 노리2 GS25·CU 5%(한도 2,000)
-    private val toktok get() = card(11, "KB국민카드", "#FFBC00", "KB국민 청춘대로 톡톡카드", "1021", false, 7_500, "스타벅스 50% 청구할인", months = listOf(2, 3, 6), perf = "이번 달 실적 +15,000원")
-    private val zero get() = card(12, "현대카드", "#1A1A1A", "현대카드ZERO Edition3(포인트형)", "3310", false, 180, "1.2% M포인트 적립", perf = "이번 달 실적 +15,000원")
-    private fun mrLife(benefit: Long) = card(15, "신한카드", "#0046FF", "신한카드 Mr.Life", "5096", false, benefit, "주말 마트 10% 할인", months = listOf(2, 3, 6))
-    private fun nori2(benefit: Long, amount: Long) = card(16, "KB국민카드", "#60584C", "KB국민 노리2 체크카드(KB Pay)", "8823", true, benefit, "GS25·CU 5% 할인", charged = amount - benefit)
+    private val toktok get() = card(11, "KB국민카드", "#FFBC00", "KB국민 청춘대로 톡톡카드", "1021", false, 7_500, "스타벅스 50% 청구할인", months = listOf(2, 3, 6), perf = "이번 달 실적 +15,000원", kind = BenefitKind.BILLING)
+    private val zero get() = card(12, "현대카드", "#1A1A1A", "현대카드ZERO Edition3(포인트형)", "3310", false, 180, "1.2% M포인트 적립", perf = "이번 달 실적 +15,000원", kind = BenefitKind.POINT)
+    private fun mrLife(benefit: Long) = card(15, "신한카드", "#0046FF", "신한카드 Mr.Life", "5096", false, benefit, "주말 마트 10% 할인", months = listOf(2, 3, 6), kind = BenefitKind.BILLING)
+    // 결제 금액에서 혜택을 뺀 금액이 바로 빠진다(charged) — 즉시할인
+    private fun nori2(benefit: Long, amount: Long) = card(16, "KB국민카드", "#60584C", "KB국민 노리2 체크카드(KB Pay)", "8823", true, benefit, "GS25·CU 5% 할인", charged = amount - benefit, kind = BenefitKind.INSTANT)
 
     /** 결제 요청 카드는 가짜 사용자가 쓸 수 있는(ACTIVE) 카드만(S15P31E103-454). 시나리오 카드가 하나도 없으면 등록한 카드를 혜택 없이 */
     private fun requestFor(scenario: PayScenario, paymentId: Long, deadline: String): PaymentRequest {
@@ -99,14 +111,14 @@ class FakePaymentRepository @Inject constructor(
     private fun scenarioRequest(scenario: PayScenario, paymentId: Long, deadline: String): PaymentRequest = when (scenario) {
         PayScenario.MART -> PaymentRequest(
             paymentId, "야무마트 강남점", "대형마트", 90_000, deadline,
-            listOf(
+            ranked(
                 mrLife(3_000).copy(performanceNote = "이번 달 실적 +90,000원"),
                 zero.copy(netBenefit = 1_080.toBigDecimal(), reason = "1.2% M포인트 적립 1,080원", installmentOptions = listOf(2, 3, 6), performanceNote = "이번 달 실적 +90,000원"),
             ),
         )
         PayScenario.CHECK_DECLINED -> PaymentRequest(
             paymentId, "GS25 역삼역점", "편의점", 15_000, deadline,
-            listOf(nori2(750, 15_000).copy(performanceNote = "할인받은 결제는 실적에서 빠져요"), zero),
+            ranked(nori2(750, 15_000).copy(performanceNote = "할인받은 결제는 실적에서 빠져요"), zero),
         )
         PayScenario.NO_CARD -> PaymentRequest(paymentId, "스타벅스 역삼점", "카페", 15_000, deadline, emptyList())
         // 데이터 부족(DATA_INSUFFICIENT) — 1순위 없이 비교 못 한 카드만. 하나는 혜택 없이 바로 결제, 하나는 결제 가능 여부도 모름
@@ -114,27 +126,42 @@ class FakePaymentRepository @Inject constructor(
             paymentId, "스타벅스 역삼점", "카페", 15_000, deadline,
             listOf(uncompared(zero, direct = true), uncompared(nori2(0, 15_000), direct = false)),
         )
-        else -> PaymentRequest(paymentId, "스타벅스 역삼점", "카페", 15_000, deadline, listOf(toktok, zero))
+        else -> PaymentRequest(paymentId, "스타벅스 역삼점", "카페", 15_000, deadline, ranked(toktok, zero))
     }
 
     /** BE uncomparedCards 한 장과 같은 모양 — 문구는 BE UncomparedReason 기본 문구 그대로 */
     private fun uncompared(c: PayCard, direct: Boolean) = c.copy(
         netBenefit = 0.toBigDecimal(), benefitName = null, chargedAmount = null, installmentOptions = emptyList(), performanceNote = null,
         reason = if (direct) "혜택 정보를 확인하지 못해 비교에서 제외했어요." else "결제 가능 여부를 확인하지 못해 비교에서 제외했어요.",
-        benefitUnknown = true, selectable = direct,
+        benefitUnknown = true, selectable = direct, rank = 0, benefitKind = BenefitKind.UNKNOWN,
     )
 
     override suspend fun issueCode(stepUpToken: String): ApiResult<PayCode> {
         delay(400)
         // BE BarcodeService처럼 결제에 쓸 ACTIVE 카드가 0장이면 발급하지 않는다(자동 선택에서 뺀 카드만 남아도 0장)
         if (bank.activeCardIds().isEmpty()) return ApiResult.Failure(ApiError.Conflict("NO_ACTIVE_CARD"))
-        val scenario = DevSession.payScenario
+        return ApiResult.Success(newCode(DevSession.payScenario, System.currentTimeMillis()))
+    }
+
+    /** BE 재발급처럼: 처음 인증에서 10분 안이고 찍히거나 닫히지 않은 마지막 코드만. 아니면 STEP_UP_REQUIRED */
+    override suspend fun reissueCode(previousToken: String): ApiResult<PayCode> {
+        delay(250)
+        if (bank.activeCardIds().isEmpty()) return ApiResult.Failure(ApiError.Conflict("NO_ACTIVE_CARD"))
+        val previous = codes[previousToken] ?: return ApiResult.Failure(ApiError.NotFound("BARCODE_NOT_FOUND"))
+        val usable = previous.request == null && !previous.closed && !previous.replaced &&
+            System.currentTimeMillis() - previous.authAt < REISSUE_WINDOW_MS
+        if (!usable) return ApiResult.Failure(ApiError.StepUpRequired("STEP_UP_REQUIRED"))
+        previous.replaced = true
+        return ApiResult.Success(newCode(DevSession.payScenario, previous.authAt))
+    }
+
+    private fun newCode(scenario: PayScenario, authAt: Long): PayCode {
         val token = "YAMU" + List(12) { "0123456789ABCDEF"[Random.nextInt(16)] }.joinToString("")
         val life = if (scenario == PayScenario.NO_SCAN) 20L else 180L
         val expires = OffsetDateTime.now(KST).plusSeconds(life).toString()
         val code = PayCode(token, token, "yamu://pay/$token", expires)
-        codes[token] = Issued(code, System.currentTimeMillis(), scenario)
-        return ApiResult.Success(code)
+        codes[token] = Issued(code, System.currentTimeMillis(), scenario, authAt)
+        return code
     }
 
     override suspend fun codeStatus(token: String): ApiResult<PayCodeStatus> {
@@ -142,6 +169,7 @@ class FakePaymentRepository @Inject constructor(
         val issued = codes[token] ?: return ApiResult.Failure(ApiError.NotFound("BARCODE_NOT_FOUND"))
         val now = System.currentTimeMillis()
         if (issued.closed) return ApiResult.Success(PayCodeStatus(CodeState.USED, null))
+        if (issued.replaced) return ApiResult.Success(PayCodeStatus(CodeState.EXPIRED, null))
         issued.request?.let { return ApiResult.Success(PayCodeStatus(CodeState.SCANNED, it)) }
         if (OffsetDateTime.parse(issued.code.expiresAtIso).toInstant().toEpochMilli() < now) {
             return ApiResult.Success(PayCodeStatus(CodeState.EXPIRED, null))

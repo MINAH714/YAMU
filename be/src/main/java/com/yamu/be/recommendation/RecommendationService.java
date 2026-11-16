@@ -288,7 +288,7 @@ public class RecommendationService {
             try {
                 policies.validateFallbacks(card, rows.data());
                 policyByCard.put(card.getId(), assembler.policy(card, rows.data(), rows.date(), previous.get(card.getId()), issues,
-                        command.transaction(),loaded.products.get(card.getCardProductId())));
+                        command.transaction(),loaded.products.get(card.getCardProductId()), loaded.merchantBrand));
             } catch (IllegalArgumentException invalidPolicy) {
                 // DB의 개별 필드 제약만으로 보장되지 않는 정책 조합 오류도 해당 카드에 한정한다.
                 issues.add(new RecommendationDataIssue(card.getId(), null, "POLICY_DATA_INVALID", false));

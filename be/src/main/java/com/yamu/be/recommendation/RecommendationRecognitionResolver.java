@@ -34,6 +34,11 @@ public class RecommendationRecognitionResolver {
 
     Recognition resolve(long cardId, CardProduct product, Transaction transaction, BenefitPolicy benefits,
                         List<RecommendationDataIssue> issues) {
+        if ("IBK".equals(product.getIssuerCode()) && "IBK나라사랑카드".equals(product.getProductName())) {
+            // 취소 접수월 차감은 공통 원거래월 복원과 다르다. 임의 인정액을 적재하지 않는다.
+            issue(issues, cardId, "IBK_PERFORMANCE_POSTING_UNSUPPORTED");
+            return new Recognition(cardId, null, null, null);
+        }
         var policy = policies.stream().filter(p -> p.issuer() != null && p.issuer().equals(product.getIssuerCode())
                 && p.productName().equals(product.getProductName())
                 && p.cardType().equals(product.getCardType().name())).findFirst().orElse(null);

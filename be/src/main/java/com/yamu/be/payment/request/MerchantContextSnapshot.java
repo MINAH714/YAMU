@@ -29,9 +29,13 @@ public record MerchantContextSnapshot(
         String orderNo,
         long amount,
         PaymentPlan plan,
-        Integer installmentMonths) {
+        Integer installmentMonths, com.yamu.be.payment.pos.PosBasket.Snapshot basket) {
+    public MerchantContextSnapshot(int version, String posCode, String brandCode, String merchantName, String categoryCode,
+            PaymentChannel channel, FacilityType facilityType, String orderNo, long amount, PaymentPlan plan, Integer installmentMonths) {
+        this(version,posCode,brandCode,merchantName,categoryCode,channel,facilityType,orderNo,amount,plan,installmentMonths,null);
+    }
 
-    public static final int CURRENT_VERSION = 1;
+    public static final int CURRENT_VERSION = 2;
 
     private static final Logger log = LoggerFactory.getLogger(MerchantContextSnapshot.class);
 

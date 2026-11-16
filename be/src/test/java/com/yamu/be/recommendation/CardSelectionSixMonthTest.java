@@ -16,6 +16,7 @@ import java.util.*;
 import java.util.zip.*;
 import javax.sql.DataSource;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
@@ -43,6 +44,7 @@ class CardSelectionSixMonthTest extends MySqlTestSupport {
     final Map<String,Map<String,Object>> merchants=new HashMap<>();
 
     @Test void preflightSixMonthBoundaries() throws Exception { execute(false); }
+    @Tag("six-month-approved-experiment")
     @Test @EnabledIfEnvironmentVariable(named="YAMU_EXP006_EXECUTE",matches="APPROVED_6_MONTHS_V1")
     void approvedSixMonthComparison() throws Exception { execute(true); }
 

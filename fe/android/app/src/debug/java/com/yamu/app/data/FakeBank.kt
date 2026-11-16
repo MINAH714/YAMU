@@ -45,7 +45,7 @@ import javax.inject.Singleton
  *
  * 시험값(카드 번호 9410 0000 0000 + 끝 4자리): 아래 [cards]의 끝자리는 내 카드 · 0001 카드사 만료 · 0002 카드사 정지 ·
  * 0003 이미 등록 · 그 밖은 없는 카드. 5096 Mr.Life는 결제 계좌(신한 ·5678)를 먼저 연결해야 한다(시드 사용자는 이미 연결돼 있어 '카드 0장'에서만 보인다). 등록 단계 오류는 디버그 메뉴 '연결 상태'.
- * 7782 LOCA LIKIT은 출금 전 청구가 있어 해제할 수 없다.
+ * 7782 LOCA LIKIT은 출금 전 청구가 있다(해제는 되고 확인 트레이에 출금이 남는다는 안내가 뜬다).
  */
 @Singleton
 class FakeBank @Inject constructor(private val user: FakeUser) {
@@ -398,7 +398,6 @@ class FakeBank @Inject constructor(private val user: FakeUser) {
     suspend fun unregisterCard(userCardId: Long): ApiResult<Unit> {
         delay(500)
         val card = linkedCard(userCardId) ?: return ApiResult.Failure(ApiError.NotFound("RESOURCE_NOT_FOUND"))
-        if (card.assetId == "C3") return ApiResult.Failure(ApiError.Conflict("CARD_HAS_OPEN_BILL"))
         val id = card.assetId
         user.update { s ->
             s.copy(cards = s.cards - id, defaultCard = s.defaultCard.takeUnless { it == id }, nicknames = s.nicknames - id, excluded = s.excluded - id)

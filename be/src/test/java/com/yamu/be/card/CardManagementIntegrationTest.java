@@ -3,6 +3,7 @@ package com.yamu.be.card;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.endsWith;
 import static org.hamcrest.Matchers.contains;
+import static org.hamcrest.Matchers.containsInAnyOrder;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -515,45 +516,31 @@ class CardManagementIntegrationTest extends MySqlTestSupport {
     }
 
     @Test
-    void 출금되지_않은_확정_청구가_있으면_본인_인증_토큰을_쓰지_않고_409로_막는다() throws Exception {
-        long card = card(member.userId(), creditProduct, "4570000011111234", "ACTIVE", 14, account, 1);
-        long confirmed = bill(card, "CONFIRMED", LocalDate.of(2026, 11, 16));
-        bill(card, "PAID", LocalDate.of(2026, 10, 14));
-        String token = stepUp(member, StepUpPurpose.CARD_DELETE);
-
-        delete(member, card, token)
-                .andExpect(errorCode(409, "CARD_HAS_OPEN_BILL"))
-                .andExpect(jsonPath("$.error.details.billIds.length()").value(1))
-                .andExpect(jsonPath("$.error.details.billIds[0]").value(confirmed));
-        assertThat(jdbc.queryForObject("SELECT status FROM user_card WHERE user_card_id = ?", String.class, card))
-                .isEqualTo("ACTIVE");
-
-        jdbc.update("UPDATE card_bill SET status = 'PAID' WHERE card_bill_id = ?", confirmed);
-        delete(member, card, token).andExpect(status().isNoContent());
-    }
-
-    @Test
-    void 끝나지_않은_청구는_어떤_상태든_해제를_막고_PAID_CANCELED만_통과한다() throws Exception {
+    void 끝나지_않은_청구가_어떤_상태든_있어도_해제되고_청구서는_그대로_남아_목록에_보인다() throws Exception {
+        // S15P31E103-562: 해제는 YAMU 등록만 푼다. 남은 청구는 막지도 닫지도 않고 그대로 확정·출금된다.
         long card = card(member.userId(), creditProduct, "4570000011111234", "ACTIVE", 14, account, 1);
         bill(card, "PAID", LocalDate.of(2026, 1, 14));
         bill(card, "CANCELED", LocalDate.of(2026, 2, 14));
-        // 쌓이는 중(ACCUMULATING)·확정·미납과 앞으로 BillStatus에 더해질 상태도 끝난 상태(PAID·CANCELED)가 아니면 막는다.
-        List<Long> open = new ArrayList<>();
+        // 쌓이는 중(ACCUMULATING)·확정·미납과 앞으로 BillStatus에 더해질 상태 모두 해제를 막지 않는다.
+        Map<Long, String> open = new HashMap<>();
         int month = 3;
         for (BillStatus status : BillStatus.values()) {
             if (status != BillStatus.PAID && status != BillStatus.CANCELED) {
-                open.add(bill(card, status.name(), LocalDate.of(2026, month++, 14)));
+                open.put(bill(card, status.name(), LocalDate.of(2026, month++, 14)), status.name());
             }
         }
-        String token = stepUp(member, StepUpPurpose.CARD_DELETE);
 
-        delete(member, card, token)
-                .andExpect(errorCode(409, "CARD_HAS_OPEN_BILL"))
-                .andExpect(jsonPath("$.error.details.billIds.length()").value(open.size()))
-                .andExpect(jsonPath("$.error.details.billIds[0]").value(open.get(0)));
+        delete(member, card, stepUp(member, StepUpPurpose.CARD_DELETE)).andExpect(status().isNoContent());
 
-        open.forEach(id -> jdbc.update("UPDATE card_bill SET status = 'CANCELED' WHERE card_bill_id = ?", id));
-        delete(member, card, token).andExpect(status().isNoContent());
+        assertThat(jdbc.queryForObject("SELECT status FROM user_card WHERE user_card_id = ?", String.class, card))
+                .isEqualTo("UNREGISTERED");
+        open.forEach((id, status) -> assertThat(jdbc.queryForObject(
+                "SELECT status FROM card_bill WHERE card_bill_id = ?", String.class, id)).isEqualTo(status));
+        // 해제한 카드의 끝나지 않은 청구서도 청구서 목록에 계속 나온다.
+        get(member, "/api/billings?userCardId=" + card)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.items[*].billId",
+                        containsInAnyOrder(open.keySet().stream().map(Long::intValue).toArray())));
     }
 
     // ───────── 기본 카드 조건 ─────────

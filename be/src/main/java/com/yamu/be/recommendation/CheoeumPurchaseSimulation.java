@@ -63,6 +63,6 @@ final class CheoeumPurchaseSimulation {
                 cardId, null, applied));
         return new RecommendationInput.Transaction(transaction.amount(), transaction.plan(), transaction.installmentMonths(),
                 transaction.occurredAt(), transaction.merchantId(), transaction.merchantCategoryCode(), supplemented,
-                transaction.purchaseItemCode(), traces);
+                transaction.purchaseItemCode(), traces, transaction.basket());
     }
 }
