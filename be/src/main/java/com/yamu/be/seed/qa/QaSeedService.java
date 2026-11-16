@@ -113,7 +113,7 @@ public final class QaSeedService {
         }
     }
 
-    private byte[] fingerprint(QaSeedSpec spec) throws Exception {
+    byte[] fingerprint(QaSeedSpec spec) throws Exception {
         Mac mac = Mac.getInstance("HmacSHA256");
         mac.init(new SecretKeySpec(registryKey, "HmacSHA256"));
         mac.update("YAMU-QA-442-V1:".getBytes(StandardCharsets.UTF_8));

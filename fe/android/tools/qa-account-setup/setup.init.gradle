@@ -1,0 +1,19 @@
+// Explicit temporary preparation APK only. Omit this init script for the final APK.
+allprojects {
+    afterEvaluate {
+        if (plugins.hasPlugin('com.android.application')) {
+            def selected = providers.gradleProperty('qaSetupVariant').getOrElse('customerDebug')
+            if (!(selected in ['customerDebug', 'customerRelease'])) {
+                throw new GradleException('qaSetupVariant must be customerDebug or customerRelease')
+            }
+            if (selected == 'customerRelease' && providers.gradleProperty('qaSetupReleaseAcknowledged').getOrElse('false') != 'true') {
+                throw new GradleException('Temporary release preparation APK requires qaSetupReleaseAcknowledged=true')
+            }
+            android.sourceSets.maybeCreate(selected).kotlin.srcDir project.file('../tools/qa-account-setup/src')
+            android.sourceSets.maybeCreate(selected).manifest.srcFile project.file('../tools/qa-account-setup/AndroidManifest.xml')
+            if (selected == 'customerDebug') {
+                android.sourceSets.maybeCreate('testCustomerDebug').kotlin.srcDir project.file('../tools/qa-account-setup/test')
+            }
+        }
+    }
+}
