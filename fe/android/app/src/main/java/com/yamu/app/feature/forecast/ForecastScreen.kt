@@ -129,9 +129,14 @@ import com.yamu.app.feature.forecast.data.RiskLevel
 import com.yamu.app.feature.forecast.data.RiskWindow
 import com.yamu.app.feature.forecast.data.cashflowRows
 import com.yamu.app.feature.forecast.data.forecastOnlyRows
+import com.yamu.app.feature.forecast.data.IncomeRule
+import com.yamu.app.feature.forecast.data.payday
+import com.yamu.app.feature.forecast.data.untilPayday
 import com.yamu.app.feature.link.data.CashflowCandidate
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -147,6 +152,7 @@ import javax.inject.Inject
 data class ForecastState(
     val loading: Boolean = true,
     val forecast: Forecast? = null,
+    val incomeRule: IncomeRule? = null,   // 잔고예보 설정의 월급 — F-01이 7 · 14 · 30일 그래프를 월급날에서 끊는다([chartForecast])
     val error: String? = null,
     val noAccount: Boolean = false,
     val selection: ForecastSelection = ForecastSelection(),
@@ -346,13 +352,21 @@ class ForecastViewModel @Inject constructor(private val repo: ForecastRepository
         refresh()
     }
 
-    private suspend fun refreshForecast() {
+    /** 월급 설정도 같이 받는다 — 예보와 한 번에 바꿔야 그래프가 30일로 그려졌다가 월급날로 줄어드는 일이 없다. 못 받으면 끊지 않는다 */
+    private suspend fun refreshForecast(): Unit = coroutineScope {
         _state.update { it.copy(loading = it.forecast == null, error = null) }
+        val rule = async { (repo.incomeRule() as? ApiResult.Success)?.data }
         when (val r = repo.forecast()) {
-            is ApiResult.Success -> _state.update { it.copy(loading = false, forecast = r.data, noAccount = false) }
-            is ApiResult.Failure -> _state.update {
-                if (r.error.code in NO_ACCOUNT_CODES) ForecastState(loading = false, noAccount = true, selection = it.selection)
-                else it.copy(loading = false, error = r.error.userMessage())
+            is ApiResult.Success -> {
+                val income = rule.await()
+                _state.update { it.copy(loading = false, forecast = r.data, incomeRule = income, noAccount = false) }
+            }
+            is ApiResult.Failure -> {
+                rule.cancel()
+                _state.update {
+                    if (r.error.code in NO_ACCOUNT_CODES) ForecastState(loading = false, noAccount = true, selection = it.selection)
+                    else it.copy(loading = false, error = r.error.userMessage())
+                }
             }
         }
     }
@@ -363,7 +377,13 @@ class ForecastViewModel @Inject constructor(private val repo: ForecastRepository
     }
 }
 
-private fun LocalDate.daysFromToday(): Long = ChronoUnit.DAYS.between(LocalDate.now(KST), this)
+/**
+ * F-01이 그리는 예보 — 월급날이 7 · 14 · 30일 기간 안이면 월급 전날까지로 끊는다(x축 끝이 월급날, [untilPayday]).
+ * F-02 예정된 돈 목록은 고른 기간 그대로 서버 예보를 쓴다
+ */
+internal fun chartForecast(f: Forecast?, rule: IncomeRule?): Forecast? = f?.untilPayday(f.payday(rule))
+
+private fun LocalDate.daysFromToday(): Long =ChronoUnit.DAYS.between(LocalDate.now(KST), this)
 
 /** '11월 20일 (금)'. [markToday]면 오늘은 '11월 20일 (금, 오늘)' — 전에는 '(금) · 오늘'이었다(가운데 점 대신 괄호, 11/10 QA) */
 internal fun LocalDate.toKoreanDateWeek(markToday: Boolean = false, today: LocalDate = LocalDate.now(KST)): String {
@@ -437,7 +457,7 @@ fun ForecastRoute(
         val reduce = YamuTheme.reduceMotion
         var heroTop by remember { mutableIntStateOf(0) }
         Column(Modifier.padding(inner).consumeWindowInsets(inner).fillMaxSize().verticalScroll(scroll)) {
-            val f = s.forecast
+            val f = remember(s.forecast, s.incomeRule) { chartForecast(s.forecast, s.incomeRule) }
             when {
                 s.noAccount -> YamuCard { EmptyState("계좌를 연결하면 예보를 보여 드려요", actionText = "계좌 연결", onAction = onLink) }
                 f == null && s.loading -> YamuCard {
@@ -447,7 +467,9 @@ fun ForecastRoute(
                 }
                 f == null -> YamuCard { ErrorState(s.error ?: "예보를 불러오지 못했어요", onRetry = viewModel::refresh) }
                 else -> {
-                    FilterChips(f, s.selection, onOpen = {
+                    // 기간 칩 · 두 선 계산 · 생활비는 고른 기간 그대로(서버 생활비 금액은 그 기간 것이라 월급날에서 끊으면 합이 맞지 않는다)
+                    val whole = s.forecast ?: f
+                    FilterChips(whole, s.selection, onOpen = {
                         filtering = true
                         viewModel.loadAccounts()
                     })
@@ -478,8 +500,8 @@ fun ForecastRoute(
                         )
                     }
                     if (f.riskWindows.isNotEmpty()) RiskCard(f, selectedDate, onJump = jump)
-                    LinesCard(f)
-                    LivingCostEntry(f, onLivingCost)   // F-01b 생활비 예측 입구
+                    LinesCard(whole)
+                    LivingCostEntry(whole, onLivingCost)   // F-01b 생활비 예측 입구
                     UpcomingCard(f, onCashflowList, selectedDate, onJump = jump)
                     BeyondHorizonCard(f)
                     NoticeCard(f, s.selection)
