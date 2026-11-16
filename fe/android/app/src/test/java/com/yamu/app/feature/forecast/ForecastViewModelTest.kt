@@ -11,7 +11,6 @@ import com.yamu.app.feature.forecast.data.ForecastAccountOption
 import com.yamu.app.feature.forecast.data.ForecastPeriod
 import com.yamu.app.feature.forecast.data.ForecastRepository
 import com.yamu.app.feature.forecast.data.ForecastSelection
-import com.yamu.app.feature.forecast.data.IncomeRule
 import com.yamu.app.feature.forecast.data.testForecast
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
@@ -46,7 +45,6 @@ class ForecastViewModelTest {
             forecastCalls++
             return pendingForecast?.also { pendingForecast = null }?.await() ?: forecastResult
         }
-        override suspend fun incomeRule(): ApiResult<IncomeRule?> = ruleResult
         override fun cached() = cachedForecast
         override fun selection() = selected
         override fun select(selection: ForecastSelection) {
@@ -72,33 +70,10 @@ class ForecastViewModelTest {
     private var pendingSave: CompletableDeferred<ApiResult<Unit>>? = null
     private var pastResult: ApiResult<List<CashflowEntry>> = ApiResult.Success(emptyList())
     private var pastRange: Pair<LocalDate, LocalDate>? = null
-    private var ruleResult: ApiResult<IncomeRule?> = ApiResult.Success(null)
 
     @Before fun setUp() = Dispatchers.setMain(dispatcher)
 
     @After fun tearDown() = Dispatchers.resetMain()
-
-    @Test fun `예보와 함께 월급 설정을 받아 둔다`() = runTest(dispatcher) {
-        forecastResult = ApiResult.Success(testForecast())
-        ruleResult = ApiResult.Success(IncomeRule("월급", 25))
-        val vm = ForecastViewModel(repo)
-        vm.refresh()
-        advanceUntilIdle()
-
-        assertEquals(IncomeRule("월급", 25), vm.state.value.incomeRule)
-    }
-
-    @Test fun `월급 설정을 못 받으면 끊지 않고 예보만 보인다`() = runTest(dispatcher) {
-        forecastResult = ApiResult.Success(testForecast())
-        ruleResult = ApiResult.Failure(FORECAST_ERROR)
-        val vm = ForecastViewModel(repo)
-        vm.refresh()
-        advanceUntilIdle()
-
-        assertNull(vm.state.value.incomeRule)
-        assertNull(vm.state.value.error)
-        assertTrue(vm.state.value.forecast != null)
-    }
 
     @Test fun `예보가 실패해도 회차 응답 전에는 불러오는 중이다`() = runTest(dispatcher) {
         val vm = ForecastViewModel(repo)

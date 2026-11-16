@@ -184,12 +184,6 @@ interface ForecastRepository {
     suspend fun livingCost(): ApiResult<LivingCostDetail>
 
     /**
-     * 잔고예보 설정에 정해 둔 월급(GET forecasts/settings) — 7 · 14 · 30일 예보의 그래프를 월급날에서 자를 때 쓴다([untilPayday]).
-     * 정한 월급이 없으면 null. 가짜 저장소는 월급을 모르는 것으로 둔다
-     */
-    suspend fun incomeRule(): ApiResult<IncomeRule?> = ApiResult.Success(null)
-
-    /**
      * 안전 잔액 저장(PATCH forecasts/settings의 alertThreshold, 0 ~ 2,147,483,647원, S15P31E103-593). 보낸 값으로 덮어쓰는 요청이라
      * 같은 값을 다시 보내도 결과가 같다. 저장하면 받아 둔 예보는 옛 안전 잔액으로 계산한 것이라 버린다
      */
@@ -383,9 +377,6 @@ class ForecastRepositoryImpl @Inject constructor(
 
     override suspend fun decideCandidate(itemId: Long, confirm: Boolean): ApiResult<Unit> =
         apiCall { cashflowApi.patch(itemId, CashflowPatchRequest(if (confirm) "CONFIRMED" else "IGNORED")) }.map { }
-
-    override suspend fun incomeRule(): ApiResult<IncomeRule?> =
-        apiCall { cashflowApi.settings() }.map { s -> s.income?.let { i -> i.dayOfMonth?.let { IncomeRule(i.title, it) } } }
 
     override suspend fun saveAlertThreshold(amount: Long): ApiResult<Unit> =
         apiCallNoData { cashflowApi.patchSettings(buildJsonObject { put("alertThreshold", amount) }) }

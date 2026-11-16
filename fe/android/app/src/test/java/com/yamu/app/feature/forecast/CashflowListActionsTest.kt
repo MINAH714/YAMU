@@ -11,7 +11,6 @@ import com.yamu.app.feature.forecast.data.Forecast
 import com.yamu.app.feature.forecast.data.ForecastAccountOption
 import com.yamu.app.feature.forecast.data.ForecastRepository
 import com.yamu.app.feature.forecast.data.ForecastSelection
-import com.yamu.app.feature.forecast.data.IncomeRule
 import com.yamu.app.feature.forecast.data.testForecast
 import com.yamu.app.feature.link.data.CashflowCandidate
 import kotlinx.coroutines.CompletableDeferred
@@ -46,7 +45,6 @@ class CashflowListActionsTest {
 
     private val repo = object : ForecastRepository by unused() {
         override suspend fun forecast(): ApiResult<Forecast> = ApiResult.Success(testForecast())
-        override suspend fun incomeRule(): ApiResult<IncomeRule?> = ApiResult.Success(null)
         override fun cached(): Forecast? = null
         override fun selection() = ForecastSelection()
         override suspend fun accounts(): ApiResult<List<ForecastAccountOption>> = ApiResult.Success(emptyList())
