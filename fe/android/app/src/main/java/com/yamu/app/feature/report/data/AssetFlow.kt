@@ -87,7 +87,7 @@ interface AssetFlowApi {
 // ── 앱 안에서 쓰는 값 ──
 
 /** 날짜 하나의 점 — [value]는 dataStatus가 AVAILABLE일 때만(0원 · 음수도 그대로), 아니면 null */
-data class FlowPoint(val date: LocalDate, val kind: DayKind, val value: Long?, val events: List<ForecastEvent>)
+data class FlowPoint(val date: LocalDate, val kind: DayKind, val value: Long?, val events: List<ForecastEvent>, val simulated: Boolean = false)
 
 /** 지난 잔고를 확인하지 못한 구간 — [reason]은 서버 값 그대로 */
 data class HistoryGap(val accountId: Long?, val from: LocalDate?, val to: LocalDate?, val reason: String?)
@@ -118,14 +118,14 @@ internal fun pointKind(kind: String?, status: String?, date: LocalDate, forecast
     if (k !in KNOWN_KINDS) return DayKind.UNKNOWN
     if (k == "CURRENT") return DayKind.TODAY
     return when (status?.trim()?.uppercase()) {
-        "AVAILABLE" -> if (k == "ACTUAL") DayKind.ACTUAL else DayKind.EXPECTED
+        "AVAILABLE" -> when (k) { "ACTUAL" -> DayKind.ACTUAL; "SIMULATED" -> DayKind.SIMULATED; else -> DayKind.EXPECTED }
         "NO_DATA" -> if (k == "FORECAST" && forecastTo != null && date.isAfter(forecastTo)) DayKind.OUT_OF_RANGE else DayKind.NO_DATA
         "ERROR" -> DayKind.ERROR
         else -> DayKind.UNKNOWN
     }
 }
 
-private val KNOWN_KINDS = setOf("ACTUAL", "CURRENT", "FORECAST")
+private val KNOWN_KINDS = setOf("ACTUAL", "CURRENT", "FORECAST", "SIMULATED")
 
 /** UTC 시각 → 한국 시각. 못 읽으면 null */
 internal fun parseInstantKst(iso: String?): ZonedDateTime? =
@@ -141,6 +141,7 @@ fun AssetFlowDto.toMonthFlow(requested: YearMonth): MonthFlow {
             date = date,
             kind = kind,
             value = p.displayBalance.takeIf { available && kind != DayKind.UNKNOWN },
+            simulated = p.kind.equals("SIMULATED", ignoreCase = true),
             events = p.events.filter { it.amount != 0L }.map { e ->
                 ForecastEvent(date, enumOf(e.type, FlowType.UNKNOWN), e.title?.takeIf { it.isNotBlank() } ?: "예정된 돈", e.amount, enumOf(e.confidence, FlowConfidence.UNKNOWN))
             },
@@ -166,6 +167,8 @@ fun gapReason(reason: String?): String = when (reason?.uppercase()) {
     "UPSTREAM_TIMEOUT" -> "은행 응답이 늦어 지난 잔고를 불러오지 못했어요"
     "HISTORY_INCOMPLETE" -> "거래 내역이 모두 오지 않아 지난 잔고를 확인하지 못했어요"
     "FILTERED_HISTORY" -> "입출금 전체가 아닌 내역이라 지난 잔고를 확인하지 못했어요"
+    "QA_BOUNDARY_UNVERIFIED" -> "QA 이력과 실제 잔고의 연결 근거를 다시 확인해야 해요"
+    "SOURCE_CONFLICT" -> "저장한 거래와 은행 조회 결과가 달라 잔고를 확인하지 못했어요"
     "NO_ANCHOR" -> "기준이 될 지난 잔고가 없어 확인하지 못했어요"
     "AMBIGUOUS_ORDER" -> "같은 시각 거래의 순서를 알 수 없어 지난 잔고를 확인하지 못했어요"
     "BALANCE_MISMATCH" -> "거래 금액과 잔액이 맞지 않아 지난 잔고를 확인하지 못했어요"
@@ -307,7 +310,7 @@ object AssetFlowApiModule {
  * 예상은 'AI 생활비 반영' 선, 없으면 '제외' 선 — 잔고예보 손잡이와 같은 선). [events]는 예보의 그날 입출금(0원 제외).
  * [endOfDay]는 오늘 칸의 '오늘 끝 예상'(30일 예보의 오늘 값)
  */
-data class AssetDay(val date: LocalDate, val kind: DayKind, val value: Long?, val events: List<ForecastEvent>, val endOfDay: Long? = null)
+data class AssetDay(val date: LocalDate, val kind: DayKind, val value: Long?, val events: List<ForecastEvent>, val endOfDay: Long? = null, val simulated: Boolean = false)
 
 /**
  * 그달 하루하루. 한 달 응답([month], asset-flows)이 있고 같은 계좌면 그 점을 그대로 쓴다 — 지난 실제 잔고 · 오늘 지금 잔고 · 앞날 예상.
@@ -327,7 +330,7 @@ fun assetDays(month: YearMonth, today: LocalDate, flow: AssetFlow?, monthFlow: M
             when {
                 p == null -> AssetDay(date, DayKind.NO_DATA, null, emptyList())   // 서버는 모든 날을 주지만 빠지면 빈 날로
                 p.kind == DayKind.TODAY -> AssetDay(date, DayKind.TODAY, p.value, todayEvents, endOfDay = endOfToday)
-                else -> AssetDay(date, p.kind, p.value, p.events.takeIf { p.kind == DayKind.EXPECTED }.orEmpty())
+                else -> AssetDay(date, p.kind, p.value, p.events.takeIf { p.kind == DayKind.EXPECTED }.orEmpty(), simulated = p.simulated)
             }
         }
     }

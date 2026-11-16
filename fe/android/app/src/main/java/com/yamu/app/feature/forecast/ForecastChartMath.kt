@@ -105,6 +105,8 @@ internal fun valueAt(values: List<Long?>, fraction: Float): Double? {
 enum class DayKind {
     /** 지난날 실제 잔고 — 실선 */
     ACTUAL,
+    /** QA 합성 과거 잔고. 실제 관측값이 아님. */
+    SIMULATED,
     /** 오늘 — 실선과 점선이 만나는 자리, 세로 기준선 */
     TODAY,
     /** 앞날 예상 잔고 — 점선 */
@@ -165,6 +167,7 @@ fun monthEmptyValue(kind: DayKind): String = if (kind == DayKind.TODAY) "확인�
 /** 날 종류 짧은 이름 — 날짜 칸 꼬리표 · 말풍선 · 읽어 주기가 같이 쓴다 */
 fun kindShortLabel(kind: DayKind): String = when (kind) {
     DayKind.ACTUAL -> "실제"
+    DayKind.SIMULATED -> "QA 합성"
     DayKind.TODAY -> "지금"
     DayKind.EXPECTED -> "예상"
     DayKind.NO_DATA -> "데이터 없음"
@@ -193,7 +196,7 @@ internal fun hatchRuns(kinds: List<DayKind>): List<KindRun> = buildList {
  */
 internal fun splitByKind(values: List<Long?>, kinds: List<DayKind>): Pair<List<Long?>, List<Long?>> {
     val n = minOf(values.size, kinds.size)
-    val actual = List(n) { i -> values[i].takeIf { kinds[i] == DayKind.ACTUAL || kinds[i] == DayKind.TODAY } }
+    val actual = List(n) { i -> values[i].takeIf { kinds[i] == DayKind.ACTUAL || kinds[i] == DayKind.SIMULATED || kinds[i] == DayKind.TODAY } }
     val expected = List(n) { i -> values[i].takeIf { kinds[i] == DayKind.TODAY || kinds[i] == DayKind.EXPECTED } }
     return actual to expected
 }

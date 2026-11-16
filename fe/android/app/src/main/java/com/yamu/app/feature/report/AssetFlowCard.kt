@@ -200,6 +200,11 @@ private fun AssetFlowBody(
         )
         Spacer(Modifier.height(10.dp))
         AssetLegend(kinds, hasConservative = lineWithLiving(flow, monthFlow))
+        if (days.any { it.simulated }) {
+            val synthetic = days.filter { it.simulated }
+            Text("QA 합성 이력: ${synthetic.first().date} ~ ${synthetic.last().date}. 이 구간은 테스트용 과거 잔고예요.",
+                style = YamuTheme.typography.bodyS)
+        }
         Spacer(Modifier.height(6.dp))
         val strip = remember(days) { days.map { StripDay(it.date, it.events.sumOf { e -> e.amount }, it.value?.let { v -> zoneOf(v, null) } ?: BalanceZone.OK, it.kind) } }
         DateStrip(
@@ -291,7 +296,8 @@ private fun AccountTag(text: String) {
 private fun AssetLegend(kinds: List<DayKind>, hasConservative: Boolean) {
     val style = YamuTheme.typography.bodyS
     FlowRow(horizontalArrangement = Arrangement.spacedBy(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp), itemVerticalAlignment = Alignment.CenterVertically) {
-        LegendItem("실제", style) { LineSwatch(dashed = false) }
+        if (DayKind.ACTUAL in kinds || DayKind.TODAY in kinds) LegendItem("실제", style) { LineSwatch(dashed = false) }
+        if (DayKind.SIMULATED in kinds) LegendItem("QA 합성", style) { LineSwatch(dashed = false) }
         LegendItem("예상(${if (hasConservative) LINE_WITH_LIVING else LINE_WITHOUT_LIVING})", style) { LineSwatch(dashed = true) }
         // 빗금은 그달에 그 구간이 있을 때만 — 이름은 그래프 빗금 위 글자와 같다
         listOf(DayKind.NO_DATA, DayKind.ERROR, DayKind.UNKNOWN, DayKind.OUT_OF_RANGE).filter { it in kinds }.forEach { k ->
@@ -342,7 +348,7 @@ private fun AssetDayPanel(d: AssetDay, flow: AssetFlow, monthFlow: MonthFlow?, t
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(d.date.toKoreanDateWeek(), style = YamuTheme.typography.titleS, color = c.text1)
             Spacer(Modifier.width(8.dp))
-            StatusTag(kindShortLabel(d.kind), tone = kindTone(d.kind))
+            StatusTag(if (d.simulated) "QA 합성" else kindShortLabel(d.kind), tone = kindTone(d.kind))
         }
         val (main, key) = panelValue(d, flow, monthFlow, today, current, asOf)
         main?.let {
@@ -421,7 +427,7 @@ internal fun kindTone(kind: DayKind): TagTone = when (kind) {
  * 빈 날은 까닭을 나눠 적는다 — 조회 실패(다시 시도) · 자료 없음(그 구간의 partialErrors 까닭) · 범위 밖 · 표시 불가
  */
 internal fun panelValue(d: AssetDay, flow: AssetFlow, monthFlow: MonthFlow?, today: LocalDate, current: Long?, asOf: ZonedDateTime): Pair<String?, String> = when (d.kind) {
-    DayKind.ACTUAL -> d.value?.let { "${it.toWon()}원" } to "그날 끝 실제 잔고"
+    DayKind.ACTUAL, DayKind.SIMULATED -> d.value?.let { "${it.toWon()}원" } to (if (d.simulated) "QA 합성 이력 · 실제 과거 잔고가 아니에요" else "그날 끝 실제 잔고")
     DayKind.TODAY -> current?.let { "${it.toWon()}원" } to (if (current == null) "지금 잔고를 확인하지 못했어요" else nowLine(asOf, today))
     DayKind.EXPECTED -> d.value?.let { "${it.toWon()}원" } to "예상 잔고 · ${if (lineWithLiving(flow, monthFlow)) LINE_WITH_LIVING else LINE_WITHOUT_LIVING}"
     DayKind.NO_DATA -> null to when {
@@ -488,7 +494,7 @@ internal fun eventSub(e: ForecastEvent, today: Boolean): String = listOf(
  */
 internal fun assetDayLabel(d: AssetDay): String {
     if (d.value == null) return d.date.toKoreanDateWeek()
-    if (d.events.isEmpty()) return "${d.date.toKoreanDateWeek()} · ${kindShortLabel(d.kind)}"
+    if (d.events.isEmpty()) return "${d.date.toKoreanDateWeek()} · ${if (d.simulated) "QA 합성" else kindShortLabel(d.kind)}"
     val more = if (d.events.size > 1) " 외 ${d.events.size - 1}건" else ""
     return "${d.date.toMonthDayWeek()} · ${d.events.first().label}$more"
 }
@@ -496,7 +502,7 @@ internal fun assetDayLabel(d: AssetDay): String {
 /** TalkBack이 고른 날을 바꾼 뒤 읽는 문장 — 날짜, 종류, 잔고, 입출금 */
 internal fun assetDayState(d: AssetDay): String = listOfNotNull(
     d.date.toKoreanDateWeek(),
-    kindShortLabel(d.kind),
+    if (d.simulated) "QA 합성" else kindShortLabel(d.kind),
     d.value?.let { "${it.toWon()}원" },
     d.events.takeIf { it.isNotEmpty() }?.joinToString(", ") { "${it.label} ${it.amount.toWon(withPlusSign = true)}원" },
 ).joinToString(", ")
@@ -505,6 +511,7 @@ internal fun assetDayState(d: AssetDay): String = listOfNotNull(
 internal fun assetChartDescription(month: YearMonth, kinds: List<DayKind>, hasConservative: Boolean): String = listOfNotNull(
     "${month.monthValue}월 잔고 그래프, 가로로 밀어 날짜 고르기",
     "지난날 실선".takeIf { DayKind.ACTUAL in kinds },
+    "QA 합성 과거 잔고 실선".takeIf { DayKind.SIMULATED in kinds },
     "오늘 세로선".takeIf { DayKind.TODAY in kinds },
     "앞날 점선, ${if (hasConservative) LINE_WITH_LIVING else LINE_WITHOUT_LIVING}".takeIf { DayKind.EXPECTED in kinds },
     "실제 잔고 없는 날은 빗금".takeIf { DayKind.NO_DATA in kinds },

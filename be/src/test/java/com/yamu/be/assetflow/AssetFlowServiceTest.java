@@ -30,10 +30,17 @@ class AssetFlowServiceTest {
     PersonalDataCipher cipher = mock(PersonalDataCipher.class);
     AccountBalanceService balances = mock(AccountBalanceService.class);
     ForecastService forecasts = mock(ForecastService.class);
-    AssetFlowHistoryReader history = mock(AssetFlowHistoryReader.class);
+    PersistedAssetFlowHistoryReader history = mock(PersistedAssetFlowHistoryReader.class);
     AssetFlowService service = new AssetFlowService(accounts,users,cipher,balances,forecasts,history,Clock.fixed(NOW,ZoneOffset.UTC));
     LinkedAccount account;
 
+    static com.yamu.be.accounthistory.AccountHistoryStore.View view(BankHistory history) {
+        var r=new DailyBalanceReconstructor().reconstruct(history,null);
+        var days=new HashMap<LocalDate,com.yamu.be.accounthistory.AccountHistoryStore.Day>();
+        r.points().stream().filter(p->p.balance()!=null).forEach(p->days.put(p.date(),
+            new com.yamu.be.accounthistory.AccountHistoryStore.Day(p.balance(),com.yamu.be.accounthistory.HistorySource.SSAFY)));
+        return new com.yamu.be.accounthistory.AccountHistoryStore.View(days,r.reason().name());
+    }
     @BeforeEach void setup() {
         account = owned(1L);
         when(accounts.findByUserIdAndPrimaryTrue(7L)).thenReturn(List.of(account));
@@ -44,8 +51,8 @@ class AssetFlowServiceTest {
         when(forecasts.preview(eq(7L),anyList(),eq(BalanceForecast.Until.DAYS),eq(30),eq(true),anyBoolean()))
                 .thenAnswer(i -> forecast(i.getArgument(1),true));
         when(history.read(anyString(),any(),any(),any(),anyLong())).thenAnswer(i ->
-                new BankHistory(i.getArgument(2),i.getArgument(3),null,1L,List.of(
-                    new BankTransaction("x",i.getArgument(2),LocalTime.NOON,BankDirection.DEPOSIT,100,1000,"")),NOW));
+                view(new BankHistory(i.getArgument(2),i.getArgument(3),null,1L,List.of(
+                    new BankTransaction("x",i.getArgument(2),LocalTime.NOON,BankDirection.DEPOSIT,100,1000,"")),NOW)));
     }
     @Test void midnightDuringRequestIsConflictRatherThanInvalidInput() {
         Clock shifting=mock(Clock.class);
@@ -135,7 +142,7 @@ class AssetFlowServiceTest {
     }
     @Test void incompleteAccountDoesNotProducePartialTotal() {
         LinkedAccount second=owned(2L);
-        doReturn(new BankHistory(MONTH.atDay(1),TODAY.minusDays(1),null,2L,List.of(),NOW))
+        doReturn(view(new BankHistory(MONTH.atDay(1),TODAY.minusDays(1),null,2L,List.of(),NOW)))
                 .when(history).read(anyString(),eq(second),any(),any(),anyLong());
         var r=service.get(7L,MONTH,List.of(1L,2L),false);
         assertThat(r.series().subList(0,12)).allSatisfy(p->assertThat(p.displayBalance()).isNull());
@@ -150,7 +157,7 @@ class AssetFlowServiceTest {
         assertThat(r.series().get(13).displayBalance()).isEqualTo(700);
     }
     @Test void noAnchorIsNotZero() {
-        doReturn(new BankHistory(MONTH.atDay(1),TODAY.minusDays(1),null,0L,List.of(),NOW))
+        doReturn(view(new BankHistory(MONTH.atDay(1),TODAY.minusDays(1),null,0L,List.of(),NOW)))
                 .when(history).read(anyString(),any(),any(),any(),anyLong());
         var r=service.get(7L,MONTH,null,false);
         assertThat(r.series().get(0).displayBalance()).isNull();

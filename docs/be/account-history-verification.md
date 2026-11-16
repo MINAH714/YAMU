@@ -1,0 +1,34 @@
+# 계좌 이력 저장 검증 — S15P31E103-517
+
+## 결과
+
+2026-11-16 전용 worktree에서 구현과 로컬 검증을 완료했다. 별도 앵커 엔티티·테이블은 없으며 stream, transaction, sync_run, coverage의 4개 테이블을 사용한다. 시작 잔액과 근거 참조는 coverage에 저장한다.
+
+| 검증 | 결과 | 범위 |
+|---|---|---|
+| BE 전체 회귀 | 231개 클래스, 2,679개 통과, 실패·오류·건너뜀 0 | 앵커 구조 단순화 전 실행 |
+| 최종 BE 변경 범위 | 9개 클래스, 120개 통과, 실패·오류·건너뜀 0 | 앵커 제거 및 추가 테스트 반영 후 실행 |
+| Android 관련 단위 테스트 | 4개 클래스, 66개 통과, 실패·오류·건너뜀 0 | SIMULATED 표시·변환 및 예보 공통 계산 |
+
+최종 BE 테스트는 Testcontainers의 격리 MySQL 8.4.11에서 신규 Flyway와 JPA 매핑을 함께 검증했다. 앵커 테이블 부재, 시작 잔액 근거 CHECK, 인접 무거래 구간 연속 복원, 미조회 날짜를 건너뛴 잔액 이월 거절, 소유권, 동시 실행 세대, 재시도 중복, 충돌 시 원본 보존·근거 무효화, 외부 실패, QA 0원 경계와 무거래 합성 구간, QA 전용 초기화 후 실제 이력 보존을 확인했다.
+
+## 재현 명령
+
+BE 폴더:
+
+```powershell
+.\gradlew.bat test --console=plain
+.\gradlew.bat test --tests '*accounthistory*' --tests '*assetflow*' --tests '*QaAssetHistory*' --tests '*SsafyTransferApiTest' --tests '*ForecastCalculatorTest' --console=plain
+```
+
+Android 폴더에서 설치된 SDK를 ANDROID_HOME으로 지정한 뒤:
+
+```powershell
+.\gradlew.bat :app:testCustomerDebugUnitTest --tests '*AssetFlow*' --tests '*ForecastChart*' --tests '*ForecastDaySync*' --console=plain
+```
+
+## 실행하지 않은 범위
+
+실제 금융망 조회·금융 거래, RDS 마이그레이션, 실제 QA 계정 적재, 서버 배포, 실기기 화면 검증, push·MR 생성·승인·merge는 수행하지 않았다. 현재 잔액을 과거 기준으로 소급하지 않으며 실제 QA 적재는 [실행 안내](account-history-handoff.md)의 경계 검증을 거쳐야 한다. Jira는 MR merge 전까지 진행 중으로 유지한다.
+
+실제 이력 삭제를 포함하는 전체 사용자 정리 확장은 자동 승인 검토에서 보존 요구와 충돌한다는 사유로 거절되어 적용하지 않았다. 이력 stream이 있으면 전체 reset/purge를 사전 거절하며 자산 전용 reset/purge는 합성 이력만 제거한다.
