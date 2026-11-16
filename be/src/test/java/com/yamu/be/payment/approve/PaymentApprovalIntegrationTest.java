@@ -227,15 +227,35 @@ class PaymentApprovalIntegrationTest extends MySqlTestSupport {
     }
 
     @Test
-    void 실적_인정액을_모르는_승인은_누적과_목표를_비운다() throws Exception {
+    void 실적_인정액을_모르는_승인은_상세처럼_실적을_비운다() throws Exception {
+        // S15P31E103-568: 0·recognized=false로 보내면 앱이 "이 결제는 빠져요"로 그린다(상세는 줄이 없다)
         doAnswer(inv -> approvedWithPerformance(inv.getArgument(0), null)).when(approver).approve(any());
+        Requested requested = requested(30_000, null, null);
+        String key = UUID.randomUUID().toString();
+
+        approve(user, requested.paymentId(), key, body(creditCard))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.status").value("APPROVED"))
+                .andExpect(jsonPath("$.data.performance").value(nullValue()));
+        approve(user, requested.paymentId(), key, body(creditCard))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.performance").value(nullValue()));
+        detail(requested.paymentId())
+                .andExpect(jsonPath("$.data.performance").value(nullValue()));
+    }
+
+    @Test
+    void 실적_제외로_확정된_승인은_0원_미인정으로_보낸다() throws Exception {
+        doAnswer(inv -> approvedWithPerformance(inv.getArgument(0), 0L)).when(approver).approve(any());
         Requested requested = requested(30_000, null, null);
 
         approve(user, requested.paymentId(), UUID.randomUUID().toString(), body(creditCard))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.performance.recognized").value(false))
-                .andExpect(jsonPath("$.data.performance.recognizedTotalAfter").value(nullValue()))
-                .andExpect(jsonPath("$.data.performance.targetAmount").value(nullValue()));
+                .andExpect(jsonPath("$.data.performance.recognizedAmount").value(0))
+                .andExpect(jsonPath("$.data.performance.recognized").value(false));
+        detail(requested.paymentId())
+                .andExpect(jsonPath("$.data.performance.recognizedAmount").value(0))
+                .andExpect(jsonPath("$.data.performance.recognized").value(false));
     }
 
     @Test
