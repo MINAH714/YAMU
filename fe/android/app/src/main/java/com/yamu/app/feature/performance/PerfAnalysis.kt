@@ -4,7 +4,11 @@ import androidx.compose.foundation.layout.offset
 import com.yamu.app.core.designsystem.component.QuietLink
 import com.yamu.app.core.designsystem.component.KeyValueRow
 import com.yamu.app.core.designsystem.component.SectionBlock
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.consumeWindowInsets
@@ -316,10 +320,38 @@ private fun AnalysisBody(a: PerfAnalysis, cardName: String, onDetail: () -> Unit
                 PerfGuide.EXTRA_SPENDING_NOT_RECOMMENDED -> a.extraBenefit?.let {
                     KeyValueRow("채우면 받는 혜택", "약 ${it.toWon()}원", keyTag = { EstimateTag() })
                 }
-                PerfGuide.KEEP_NATURAL -> if (a.benefitNames.isNotEmpty()) KeyValueRow("채우면 받는 혜택", a.benefitNames.joinToString(" · "))
+                PerfGuide.KEEP_NATURAL -> if (a.benefitNames.isNotEmpty()) BenefitNamesRow(a.benefitNames)
                 else -> Unit
             }
             if (a.detailLinkPlace() == DetailLinkPlace.REASONS) DetailLink(cardName, onDetail)
+        }
+    }
+}
+
+/**
+ * '채우면 받는 혜택' 줄 — 혜택 이름을 한 줄에 하나씩 오른쪽에 쌓는다.
+ * [KeyValueRow]는 값 칸을 먼저 재서 값이 두 줄을 넘으면 키가 '채우면 / 받는 / 혜택'으로 접힌다.
+ * 여기서는 키를 먼저 재고 값이 남은 폭 안에서 줄을 바꾼다. 한 줄일 때 높이(44dp)와 글자 모양은 [KeyValueRow]와 같다
+ */
+@Composable
+private fun BenefitNamesRow(names: List<String>) {
+    val c = YamuTheme.colors
+    val t = YamuTheme.typography
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .heightIn(min = 44.dp)
+            .padding(vertical = 10.dp)
+            .semantics(mergeDescendants = true) { },
+        horizontalArrangement = Arrangement.spacedBy(16.dp),
+    ) {
+        Text("채우면 받는 혜택", style = t.bodyL, color = c.text2, modifier = Modifier.alignByBaseline())
+        Column(
+            Modifier.weight(1f).alignByBaseline(),
+            horizontalAlignment = Alignment.End,
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            names.forEach { Text(it, style = t.titleM, color = c.text1, textAlign = TextAlign.End) }
         }
     }
 }
