@@ -152,11 +152,9 @@ fun BalanceChart(
     val interactive = onSelect != null && sel != null
     val chartKey = dates.first() to dates.last()
     val topPad = if (interactive) BUBBLE_ZONE else 12.dp
-    val sidePadRight = when {
-        incomeArrow -> ARROW_PAD
-        marks?.beyond != null -> BEYOND_PAD
-        else -> SIDE_PAD
-    }
+    val plainRightPad = if (marks?.beyond != null) BEYOND_PAD else SIDE_PAD
+    // 월급 화살표가 있으면 x축 끝이 월급날(마지막 날 다음 날)이라 하루 칸 하나를 비운다([chartRightPad])
+    fun rightPad(width: Float): Float = with(density) { chartRightPad(width, SIDE_PAD.toPx(), n, incomeArrow, plainRightPad.toPx()) }
 
     // 들어오기 — 화면을 돌리거나 돌아와도 같은 기간이면 다시 하지 않는다
     var introDone by rememberSaveable(chartKey) { mutableStateOf(false) }
@@ -244,7 +242,7 @@ fun BalanceChart(
     val latestOnSelect by rememberUpdatedState(onSelect)
     fun fractionAt(x: Float, width: Float): Float = with(density) {
         val left = SIDE_PAD.toPx()
-        ((x - left) / (width - left - sidePadRight.toPx())).coerceIn(0f, 1f)
+        ((x - left) / (width - left - rightPad(width))).coerceIn(0f, 1f)
     }
     fun pick(i: Int) { if (i != latestSel) latestOnSelect?.invoke(i) }
     fun follow(x: Float, width: Float) {
@@ -316,7 +314,7 @@ fun BalanceChart(
         ) {
             Canvas(Modifier.matchParentSize()) {
                 val left = SIDE_PAD.toPx()
-                val right = size.width - sidePadRight.toPx()
+                val right = size.width - rightPad(size.width)
                 val top = topPad.toPx()
                 // 한 달 그래프는 바닥에 날짜 글자 자리를 둔다 — 글자 크기를 키워도 선과 겹치지 않게 잰 높이로
                 val axisLabels = kinds?.let { monthAxisIndices(n).map { i -> i to measurer.measure("${i + 1}일", labelStyle.copy(color = c.text3)) } }.orEmpty()
@@ -564,7 +562,7 @@ fun BalanceChart(
                 }
 
                 if (incomeArrow) {
-                    val ax = size.width - 4.dp.toPx()
+                    val ax = size.width - SIDE_PAD.toPx()   // 월급날 자리 — 마지막 날에서 하루 칸 오른쪽
                     drawLine(c.primary, Offset(ax, bottom), Offset(ax, top + 6.dp.toPx()), strokeWidth = 2.dp.toPx())
                     val head = Path().apply {
                         moveTo(ax, top - 2.dp.toPx())
@@ -641,7 +639,7 @@ fun BalanceChart(
                     Modifier
                         .offset {
                             val left = SIDE_PAD.roundToPx()
-                            val right = boxWidth - sidePadRight.roundToPx()
+                            val right = boxWidth - rightPad(boxWidth.toFloat()).roundToInt()
                             val hx = (left + (right - left) * handle.value + nudge.value * NUDGE_AMP.toPx()).coerceIn(left.toFloat(), right.toFloat())
                             IntOffset((hx - bubbleWidth / 2f).roundToInt().coerceIn(0, max(0, boxWidth - bubbleWidth)), 0)
                         }
@@ -669,7 +667,10 @@ fun BalanceChart(
     }
 }
 
-/** 잔고예보 · 가상 구매 그래프 밑 '오늘 … 11/20 · 월급 · 12/14 출금 →' 한 줄 */
+/**
+ * 잔고예보 · 가상 구매 그래프 밑 '오늘 … 11/25 · 월급 · 12/14 출금 →' 한 줄.
+ * 월급 화살표가 있으면 오른쪽 끝이 월급날 칸이라 끝 날짜도 월급날(마지막 날 다음 날)이다
+ */
 @Composable
 private fun AxisRow(last: LocalDate, incomeArrow: Boolean, beyond: String?, flash: () -> Float) {
     val c = YamuTheme.colors
@@ -678,7 +679,7 @@ private fun AxisRow(last: LocalDate, incomeArrow: Boolean, beyond: String?, flas
         val axis = YamuTheme.typography.labelS
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text("오늘", style = axis, color = c.text1, modifier = Modifier.weight(1f))
-            Text(last.toMonthDay(), style = axis, color = c.text1)
+            Text((if (incomeArrow) last.plusDays(1) else last).toMonthDay(), style = axis, color = c.text1)
             if (incomeArrow) {
                 Spacer(Modifier.width(8.dp))
                 Text("월급", style = axis, color = c.primary)
@@ -756,8 +757,7 @@ internal fun hatchInk(kind: DayKind, gray: Color, warning: Color): Color = when 
 
 private val BUBBLE_ZONE = 44.dp      // 말풍선 자리(손잡이가 있을 때만)
 private val SIDE_PAD = 8.dp
-private val ARROW_PAD = 26.dp        // 월급 화살표 자리
-private val BEYOND_PAD = 34.dp       // 가상 구매 기간 밖 출금 표시 자리 — 마지막 날 손잡이와 겹치지 않게 월급 화살표보다 넓다
+private val BEYOND_PAD = 34.dp       // 가상 구매 기간 밖 출금 표시 자리 — 마지막 날 손잡이와 겹치지 않게 넓다
 private val BOTTOM_PAD = 10.dp
 private val COIN_R = 5.dp
 private val WITHDRAW_R = 6.5.dp      // 가상 구매 출금일 동전

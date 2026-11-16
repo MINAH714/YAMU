@@ -178,6 +178,12 @@ interface ForecastRepository {
     /** F-01b 생활비 예측 — 지금 고른 기간 · 계좌로(잔고예보와 같은 기간을 설명한다) */
     suspend fun livingCost(): ApiResult<LivingCostDetail>
 
+    /**
+     * 잔고예보 설정에 정해 둔 월급(GET forecasts/settings) — 7 · 14 · 30일 예보의 그래프를 월급날에서 자를 때 쓴다([untilPayday]).
+     * 정한 월급이 없으면 null. 가짜 저장소는 월급을 모르는 것으로 둔다
+     */
+    suspend fun incomeRule(): ApiResult<IncomeRule?> = ApiResult.Success(null)
+
     companion object {
         /** 연결한 계좌가 없다 — BE가 accountIds 없이 부르면 내는 코드와 같게 둬 화면이 한 곳에서 빈 상태로 바꾼다 */
         const val NO_ACCOUNT = "ACCOUNT_SELECTION_REQUIRED"
@@ -379,6 +385,9 @@ class ForecastRepositoryImpl @Inject constructor(
 
     override suspend fun decideCandidate(itemId: Long, confirm: Boolean): ApiResult<Unit> =
         apiCall { cashflowApi.patch(itemId, CashflowPatchRequest(if (confirm) "CONFIRMED" else "IGNORED")) }.map { }
+
+    override suspend fun incomeRule(): ApiResult<IncomeRule?> =
+        apiCall { cashflowApi.settings() }.map { s -> s.income?.let { i -> i.dayOfMonth?.let { IncomeRule(i.title, it) } } }
 }
 
 @Module

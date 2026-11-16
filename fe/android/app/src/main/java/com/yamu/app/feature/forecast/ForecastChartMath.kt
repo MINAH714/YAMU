@@ -77,6 +77,16 @@ internal fun sharpDropDays(values: List<Long?>): Set<Int> = buildSet {
 internal fun dayAt(fraction: Float, n: Int): Int =
     if (n <= 1) 0 else (fraction.coerceIn(0f, 1f) * (n - 1)).roundToInt().coerceIn(0, n - 1)
 
+/**
+ * 선이 끝나는 오른쪽 여백(px). 월급 화살표가 있으면([paydaySlot]) x축 끝을 월급날(마지막 날 다음 날)로 두려고 하루 칸 하나를 비운다.
+ * 날이 [n]개면 축은 첫 날부터 월급날까지 n칸이고 월급날은 오른쪽 끝에서 [edge]만큼 안쪽이다. 화살표가 없으면 [plain]
+ */
+internal fun chartRightPad(width: Float, edge: Float, n: Int, paydaySlot: Boolean, plain: Float): Float {
+    if (!paydaySlot || n < 2) return plain
+    val span = width - edge * 2   // 첫 날 ~ 월급날(왼쪽 여백도 edge)
+    return edge + span / n
+}
+
 /** 날 → 가로 위치(0~1) */
 internal fun fractionOf(day: Int, n: Int): Float = if (n <= 1) 0f else day.coerceIn(0, n - 1) / (n - 1f)
 
