@@ -137,14 +137,14 @@ class FakePaymentRepository @Inject constructor(
         return ApiResult.Success(newCode(DevSession.payScenario, System.currentTimeMillis()))
     }
 
-    /** BE 재발급처럼: 처음 인증에서 10분 안이고 찍히거나 닫히지 않은 마지막 코드만. 아니면 REAUTH_REQUIRED */
+    /** BE 재발급처럼: 처음 인증에서 10분 안이고 찍히거나 닫히지 않은 마지막 코드만. 아니면 STEP_UP_REQUIRED */
     override suspend fun reissueCode(previousToken: String): ApiResult<PayCode> {
         delay(250)
         if (bank.activeCardIds().isEmpty()) return ApiResult.Failure(ApiError.Conflict("NO_ACTIVE_CARD"))
         val previous = codes[previousToken] ?: return ApiResult.Failure(ApiError.NotFound("BARCODE_NOT_FOUND"))
         val usable = previous.request == null && !previous.closed && !previous.replaced &&
             System.currentTimeMillis() - previous.authAt < REISSUE_WINDOW_MS
-        if (!usable) return ApiResult.Failure(ApiError.StepUpRequired("REAUTH_REQUIRED"))
+        if (!usable) return ApiResult.Failure(ApiError.StepUpRequired("STEP_UP_REQUIRED"))
         previous.replaced = true
         return ApiResult.Success(newCode(DevSession.payScenario, previous.authAt))
     }

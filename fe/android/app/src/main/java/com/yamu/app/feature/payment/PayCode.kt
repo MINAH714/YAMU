@@ -304,8 +304,9 @@ class PayCodeViewModel @Inject constructor(
     /**
      * [새 코드] · [새 코드 받기]. 먼저 다시 인증하지 않는 재발급(S15P31E103-531)을 부르고, 되면 인증 단계 없이 바로 새 코드를 띄운다.
      * BE는 같은 기기에서 처음 인증한 지 10분 안이고 이전 코드가 스캔 · 결제에 쓰이지 않았을 때만 내준다(임시 정책).
-     * 카드가 0장이면 카드 없음, 그 밖의 실패(REAUTH_REQUIRED · 끊김 · BE에 아직 없는 API)는 지금처럼 본인 인증([openCode])으로.
-     * 요청 중에 가맹점이 이전 코드를 찍었으면 그 결제 요청을 놓치지 않는다 — 실패하면 이전 코드를 한 번 더 보고, 요청 화면이면 덮지 않는다
+     * 카드가 0장이면 카드 없음, 그 밖의 실패(STEP_UP_REQUIRED · 끊김 · BE에 아직 없는 API)는 지금처럼 본인 인증([openCode])으로.
+     * 요청 중에 가맹점이 이전 코드를 찍었으면 그 결제 요청을 놓치지 않는다 — 실패하면 이전 코드를 한 번 더 보고, 요청 화면이면 덮지 않는다.
+     * 응답이 끊겨 결과를 모르면 재발급을 한 번만 다시 부른다. 서버가 이미 냈으면 같은 이전 코드에 앞서 낸 새 코드를 그대로 돌려준다
      */
     fun renewCode() {
         val previous = lastCodeToken
@@ -313,7 +314,12 @@ class PayCodeViewModel @Inject constructor(
         if (stepUp.busy || _state.value.issuing || _state.value.checkingCards) return
         _state.update { it.copy(issuing = true, error = null) }
         viewModelScope.launch {
-            val r = payments.reissueCode(previous)
+            val first = payments.reissueCode(previous)
+            val r = if (first is ApiResult.Failure && first.error.isOutcomeUnknown && _state.value.onCodeScreen) {
+                payments.reissueCode(previous)
+            } else {
+                first
+            }
             when {
                 // 그사이 찍혀 요청 화면으로 넘어갔다(재발급은 거절됐을 것) — 그대로 둔다
                 !_state.value.onCodeScreen -> _state.update { it.copy(issuing = false) }

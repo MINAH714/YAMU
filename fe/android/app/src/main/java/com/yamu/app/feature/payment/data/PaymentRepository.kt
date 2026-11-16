@@ -82,7 +82,7 @@ interface PaymentRepository {
 
     /**
      * P-06 [새 코드] — 다시 인증하지 않고 [previousToken]을 닫고 새 코드를 받는다. 같은 기기에서 처음 인증한 지 10분 안이고
-     * 이전 코드가 스캔 · 결제에 쓰이지 않았을 때만(임시 정책). 아니면 REAUTH_REQUIRED(403)라 본인 인증 뒤 [issueCode]
+     * 이전 코드가 스캔 · 결제에 쓰이지 않았을 때만(임시 정책). 아니면 STEP_UP_REQUIRED(403)라 본인 인증 뒤 [issueCode]
      */
     suspend fun reissueCode(previousToken: String): ApiResult<PayCode>
 
