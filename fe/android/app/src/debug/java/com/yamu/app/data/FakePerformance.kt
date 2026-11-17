@@ -8,6 +8,7 @@ import com.yamu.app.feature.performance.data.BenefitLimits
 import com.yamu.app.feature.performance.data.CardPerf
 import com.yamu.app.feature.performance.data.LimitCard
 import com.yamu.app.feature.performance.data.LimitTag
+import com.yamu.app.feature.performance.data.MonthRecognized
 import com.yamu.app.feature.performance.data.MovableItem
 import com.yamu.app.feature.performance.data.PerfAnalysis
 import com.yamu.app.feature.performance.data.PerfDecision
@@ -126,10 +127,10 @@ class FakePerformanceRepository @Inject constructor(private val store: FakePerfo
         val c = store.card(userCardId) ?: return ApiResult.Failure(ApiError.NotFound("RESOURCE_NOT_FOUND"))
         // 구간 금액은 서버(BE !227)처럼 그 실적일 때 한 달 최대 혜택(누적). 모르면 null
         val tiers = when (c.id) {
-            13L -> listOf(PerfTier("40만 원 이상", "쿠팡·편의점·미용실 60% 할인", 13_000, c.recognized >= 400_000))   // LIKIT Shop 공유 월 한도 13,000
+            13L -> listOf(PerfTier("40만 원 이상", "쿠팡·편의점·미용실 60% 할인", 13_000, c.recognized >= 400_000, 400_000))   // LIKIT Shop 공유 월 한도 13,000
             16L -> listOf(200_000L to 20_000L, 300_000L to 20_000L, 400_000L to 30_000L, 600_000L to 40_000L, 800_000L to 45_000L)   // 노리2
-                .map { (threshold, max) -> PerfTier("${threshold / 10_000}만 원 이상", c.nextMonthBenefit, max, c.recognized >= threshold) }
-            else -> c.target?.let { listOf(PerfTier("${it / 10_000}만 원 이상", c.nextMonthBenefit, null, c.recognized >= it)) }.orEmpty()
+                .map { (threshold, max) -> PerfTier("${threshold / 10_000}만 원 이상", c.nextMonthBenefit, max, c.recognized >= threshold, threshold) }
+            else -> c.target?.let { listOf(PerfTier("${it / 10_000}만 원 이상", c.nextMonthBenefit, null, c.recognized >= it, it)) }.orEmpty()
         }
         val achieved = store.achieved(c)
         val remaining = c.target?.let { (it - c.recognized).coerceAtLeast(0) } ?: 0
@@ -146,6 +147,12 @@ class FakePerformanceRepository @Inject constructor(private val store: FakePerfo
                 atRisk = c.atRisk && !achieved,
             ),
         )
+    }
+
+    /** 지난달 — 실적 조건이 있는 카드만, 이번 달보다 12만 원 더 쓴 달로(S15P31E103-602) */
+    override suspend fun recognizedIn(yearMonth: String): ApiResult<MonthRecognized> = withFault {
+        delay(300)
+        ApiResult.Success(MonthRecognized(yearMonth, store.cards.filter { it.target != null }.associate { it.id to it.recognized + 120_000 }))
     }
 
     override suspend fun analysis(userCardId: Long): ApiResult<PerfAnalysis> = withFault { analysisNow(userCardId) }
