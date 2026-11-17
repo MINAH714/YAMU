@@ -169,7 +169,7 @@ fun HomeRoute(
         onRetryForecast = viewModel::retryForecast,
         arts = arts,
         onForecast = {
-            viewModel.openForecast()   // F-01을 홈 요약과 같은 기준 계좌 · 30일로(고른 기간 · 계좌를 덮어씀)
+            viewModel.openForecast()   // F-01을 연결 계좌 전체 · 30일로(고른 기간 · 계좌를 덮어씀, -599)
             onForecast()
         },
         onCardPerformance = onCardPerformance,
@@ -886,11 +886,11 @@ internal fun Long.manShort(): String {
 }
 
 /**
- * 잔고예보 요약(HOME-14 · 15) — 기준 계좌 하나의 지금 잔고와 30일 안 가장 낮은 잔고(잔고예보 API 결과를 다시 씀, FORECAST-02).
- * 줄 이름으로 기간을 말하고, 카드 아래 '잔고예보 보기' 버튼이 F-01(같은 계좌 · 30일)을 연다.
+ * 잔고예보 요약(HOME-14 · 15) — 연결 계좌 전체 합의 지금 잔고와 30일 안 가장 낮은 잔고(잔고예보 API 결과를 다시 씀, FORECAST-02).
+ * 줄 이름으로 기간을 말하고, 카드 아래 '잔고예보 보기' 버튼이 F-01을 같은 전체 · 30일로 연다(-599, 11/16까지는 기준 계좌 하나).
  * 11/16 사용자 요청(S15P31E103-520): 아래 버튼 둘('잔고예보' · '자산 흐름 보기')을 빼고 줄 뒤 '· 오늘 HH:mm 기준' · '· 최저 날짜'를 지웠다.
  * 같은 날 다시 요청: 홈 맨 아래에서 혜택 히어로 아래로 올려 히어로 밑 버튼과 합치고, 제목 옆 '잠정' · 계좌 칩 · '자세히'는 숨겼다.
- * 계좌가 없으면 연결 안내, 예보만 실패하면 지금 잔고는 남기고 다시 시도. 월급을 정하기 전이면 B-06으로 가는 한 줄(11/13 결정)
+ * 계좌가 없으면 연결 안내, 예보만 실패하면 다시 시도. 월급을 정하기 전이면 B-06으로 가는 한 줄(11/13 결정)
  */
 @Composable
 private fun ForecastSection(
@@ -923,8 +923,7 @@ private fun ForecastSection(
         }
         else -> Unit
     }
-    // 지난 기준 계좌의 요약이 남아 있으면 그리지 않는다(새 계좌를 불러오는 중으로) — '잔고예보' 버튼이 여는 계좌와 맞춘다
-    val data = brief.forAccount(home.baseAccountId).dataOrNull
+    val data = brief.dataOrNull
     YamuCard {
         // 제목 옆 '잠정' · 계좌 칩과 '자세히'는 11/16 사용자 요청으로 숨겼다 — 카드 아래 '잔고예보 보기' 버튼 하나로 연다.
         // provisional · accountLabel 값은 남겨 두어 다시 보일 때 줄만 되살리면 된다
@@ -935,11 +934,8 @@ private fun ForecastSection(
                 ForecastRow(data.minLabel, null, data.minBalance, emphasize = true)
             }
             slot == ForecastSlot.HomeFailed -> SectionFailure("잔고를 불러오지 못했어요", onRetry)
-            brief is HomeSection.Failed -> {
-                // 예보만 실패 — 홈 요약이 읽은 지금 잔고는 남긴다(사용자 상태별 처리 '예측 실패')
-                ForecastRow("지금 잔고", null, home.forecast?.currentBalance, emphasize = false)
-                SectionFailure("예보를 불러오지 못했어요", onRetry)
-            }
+            // 예보만 실패 — 홈 요약의 지금 잔고는 기준 계좌 하나라 전체 합 칸에 남기지 않는다(-599, 전에는 '지금 잔고' 줄을 남겼다)
+            brief is HomeSection.Failed -> SectionFailure("예보를 불러오지 못했어요", onRetry)
             else -> {
                 Spacer(Modifier.height(12.dp))
                 SkeletonBlock(height = 22.dp, widthFraction = 0.9f)
@@ -963,7 +959,7 @@ private fun ForecastSection(
                 Icon(YamuIcons.ChevronRight, contentDescription = null, tint = c.onPrimaryContainer)
             }
         }
-        // 히어로 아래 따로 있던 브랜드 색 버튼(-520)을 카드 안으로 — F-01(같은 계좌 · 30일)을 연다.
+        // 히어로 아래 따로 있던 브랜드 색 버튼(-520)을 카드 안으로 — F-01(연결 계좌 전체 · 30일, -599)을 연다.
         // 바탕은 히어로 카드와 같은 그라데이션(11/16 QA). 브랜드 색보다 진해서 흰 글자 대비도 올라간다
         Spacer(Modifier.height(16.dp))
         PrimaryButton("잔고예보 보기", onClick = onForecast, brush = Brush.linearGradient(listOf(c.heroStart, c.heroEnd)))

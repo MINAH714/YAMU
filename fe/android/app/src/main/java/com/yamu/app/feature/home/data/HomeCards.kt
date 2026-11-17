@@ -269,7 +269,7 @@ fun cardTileDescription(row: HomeCardRow, benefit: CardBenefit?, noBenefit: Bool
 
 private const val NO_BREAK = ' '
 
-/** GET forecasts/balance — 홈은 기준 계좌 하나 · 30일로 부르고 지금 잔고 · 최저 잔고 · 날짜만 쓴다(FORECAST-02) */
+/** GET forecasts/balance — 홈은 연결 계좌 전체 · 30일로 부르고(-599) 지금 잔고 · 최저 잔고 · 날짜만 쓴다(FORECAST-02) */
 @Serializable
 data class HomeForecastDto(
     val currentTotalBalance: Long? = null,
@@ -280,9 +280,12 @@ data class HomeForecastDto(
 @Serializable
 data class HomeForecastSummaryDto(val minBalance: Long? = null, val minBalanceDate: String? = null)
 
-/** 잔고예보 요약 칸 값. [accountLabel]은 계좌 목록을 못 받으면 null(칩을 숨긴다) */
+/**
+ * 잔고예보 요약 칸 값. [accountId]는 서버 홈 칸(forecastPreview)의 기준 계좌이고, 홈 카드가 그리는 연결 계좌 전체 합이면 null(-599).
+ * [accountLabel]은 계좌 칩 이름(지금은 숨김)
+ */
 data class HomeForecastBrief(
-    val accountId: Long,
+    val accountId: Long?,
     val accountLabel: String?,
     val currentBalance: Long?,
     val minBalance: Long?,
@@ -317,14 +320,18 @@ fun HomeForecastPreviewDto.toBrief(): HomeForecastBrief? {
 val HomeForecastBrief.minLabel: String
     get() = if (fromTomorrow) "내일부터 ${HOME_FORECAST_DAYS}일 중 가장 낮을 때" else "${HOME_FORECAST_DAYS}일 안 가장 낮을 때"
 
-/** 홈 요약 · 잔고예보가 같은 기간을 쓰게 — 30일(11/13 결정: 기준 계좌 하나 · 30일) */
+/** 홈 요약 · 잔고예보가 같은 기간을 쓰게 — 30일(11/13 결정). 계좌는 11/17부터 연결 계좌 전체(-599, 그 전엔 기준 계좌 하나) */
 const val HOME_FORECAST_DAYS = 30
 
 /** 계좌 칩 '신한은행 ·0275'(계좌 관리 · 카드 상세와 같은 모양) — 목록에 그 계좌가 없으면 null */
 fun List<AccountDto>.labelOf(accountId: Long): String? =
     firstOrNull { it.accountId == accountId }?.let { "${it.bank.name} ·${it.maskedAccountNo.lastDigits()}" }
 
-fun HomeForecastDto.toBrief(accountId: Long, accountLabel: String?) = HomeForecastBrief(
+/** 연결 계좌 전체의 칩 이름 — 하나면 그 계좌, 여럿이면 '계좌 3개 전체'(잔고예보 칩과 같은 말) */
+fun List<AccountDto>.allLabel(): String? =
+    singleOrNull()?.let { labelOf(it.accountId) } ?: "계좌 ${size}개 전체".takeIf { size > 1 }
+
+fun HomeForecastDto.toBrief(accountId: Long?, accountLabel: String?) = HomeForecastBrief(
     accountId = accountId,
     accountLabel = accountLabel,
     currentBalance = currentTotalBalance,

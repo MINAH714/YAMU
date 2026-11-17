@@ -76,7 +76,7 @@ class HomeNewAreasTest {
         val h = decode(oldServer)
         assertEquals(NewHomeArea.OldServer, h.yamuBenefit)
         assertEquals(NewHomeArea.OldServer, h.forecastPreview)
-        assertEquals(1L, h.baseAccountId)
+        assertEquals(1L, h.forecast?.accountId)
     }
 
     @Test fun `옛 서버에서 잔고 영역만 실패해도 옛 서버로 본다`() {
@@ -98,7 +98,7 @@ class HomeNewAreasTest {
         )
         assertEquals(NewHomeArea.Failed, h.yamuBenefit)
         assertEquals(NewHomeArea.Failed, h.forecastPreview)
-        assertEquals(1L, h.baseAccountId)   // 버튼은 옛 칸의 기준 계좌로라도 연다
+        assertEquals(1L, h.forecast?.accountId)   // 옛 칸의 기준 계좌는 남는다(카드 숫자는 연결 계좌 전체로 따로 받는다, -599)
     }
 
     @Test fun `혜택 칸 숫자가 빠졌으면 0원 대신 실패`() {

@@ -71,8 +71,8 @@ data class HomeUiState(
     /** 내 카드 혜택 현황 · 놓치기 아까운 혜택(S15P31E103-481) */
     val cards: HomeSection<HomeCardsData> = HomeSection.Loading,
     /**
-     * 잔고예보 요약 — 새 홈 칸(forecastPreview)이 있으면 그 값, 옛 서버면 홈 요약에 기준 계좌가 있을 때만 forecasts/balance로 부른다.
-     * 어느 쪽도 아니면 Loading 그대로 두고 화면이 계좌 없음 · 실패를 홈 요약으로 가린다
+     * 잔고예보 요약 — 연결 계좌 전체 합 · 30일(forecasts/balance, -599). 홈 요약으로 그릴 칸일 때([ForecastSlot.Brief])만 부르고,
+     * 아니면 Loading 그대로 두고 화면이 계좌 없음 · 실패를 홈 요약으로 가린다
      */
     val forecast: HomeSection<HomeForecastBrief> = HomeSection.Loading,
     /** 카드별 이번 달 받은 혜택(userCardId → 혜택) — 새 홈 칸(benefitSummary)이 있을 때만 부른다. 없거나 실패면 카드 줄에 붙이지 않는다 */
@@ -104,8 +104,8 @@ enum class ForecastSlot { Hidden, NoAccount, HomeFailed, Brief }
 
 /**
  * 잔고예보 요약 칸 상태(HOME-14 · 사용자 상태별 처리). 연결 전은 위 안내가 맡아 숨기고, 기준 계좌가 없으면 계좌 연결 안내.
- * 새 홈 칸을 받았거나 그 칸만 실패했으면 요약(실패면 지금 잔고만 남기고 다시 시도). 옛 서버에서 홈 요약의 잔고 영역만 실패했으면
- * 어느 계좌인지 몰라 실패 · 다시 시도. 잔고 · 예보를 지어내지 않는다
+ * 새 홈 칸을 받았거나 그 칸만 실패했으면 요약(숫자는 연결 계좌 전체로 따로 받는다, -599). 옛 서버에서 홈 요약의 잔고 영역만 실패했으면
+ * 계좌가 있는지 몰라 실패 · 다시 시도. 잔고 · 예보를 지어내지 않는다
  */
 internal fun forecastSlot(home: HomeSummary): ForecastSlot = when {
     home.needsLinking -> ForecastSlot.Hidden
@@ -119,13 +119,8 @@ internal fun forecastSlot(home: HomeSummary): ForecastSlot = when {
 /** BE partialErrors의 잔고예보 영역 이름 */
 private const val BALANCE_AREA = "balanceForecast"
 
-/**
- * 지금 기준 계좌([accountId])의 요약만 남긴다. 기준 계좌를 A에서 B로 바꾼 뒤 B 응답 전이거나 B가 실패하면 A의 칩 · 금액이 그대로 보이면서
- * '잔고예보' 버튼은 B로 열리는 어긋남이 생긴다(셀프 리뷰 P2). 다른 계좌의 값이면 불러오는 중으로 되돌린다 —
- * 그 뒤 실패하면 [next]가 지난 값 없이 Failed로 남긴다. 화면도 그리기 전에 같은 걸 거친다
- */
-internal fun HomeSection<HomeForecastBrief>.forAccount(accountId: Long?): HomeSection<HomeForecastBrief> =
-    if (this is HomeSection.Ready && data.accountId != accountId) HomeSection.Loading else this
+/** 홈 '잔고예보 보기'가 여는 F-01 — 연결 계좌 전체 · 30일([HomeViewModel.openForecast]) */
+internal val HOME_FORECAST_SELECTION = ForecastSelection(ForecastPeriod.DAYS_30, all = true)
 
 /** 결제 시각(서버 UTC)이 든 한국 기준 달 — 시각이 없거나 못 읽으면 null */
 internal fun paymentMonthOf(paidAtIso: String?): YearMonth? =
@@ -179,7 +174,8 @@ class HomeViewModel @Inject constructor(
 
     /**
      * 홈 요약과 결제 설정 · 카드 현황을 같이 부른다. 홈 요약이 먼저 오면 먼저 그린다(가장 늦은 요청을 기다리지 않게).
-     * 혜택 · 잔고예보 요약은 홈 응답의 새 칸(BE -490)을 쓰고, 옛 서버면 지금까지처럼 reports/monthly · forecasts/balance를 부른다.
+     * 혜택은 홈 응답의 새 칸(BE -490)을 쓰고, 옛 서버면 지금까지처럼 reports/monthly를 부른다. 잔고예보 요약은 서버 새 칸이 기준 계좌
+     * 하나라 칸을 그릴지만 보고, 숫자는 연결 계좌 전체로 forecasts/balance를 부른다(-599).
      * 그래서 둘은 홈 요약을 받은 뒤에 정한다(마지막으로 받은 요약 기준 — 이번 홈 요청이 실패해도 지난 값으로).
      * 옛 서버의 혜택 달은 부르는 때의 이번 달(한국 기준) — 히어로를 누르면 같은 달 S-04로 간다([openBenefitReport])
      */
@@ -189,25 +185,11 @@ class HomeViewModel @Inject constructor(
         val result = repository.loadHome()
         onHome(result)
         val home = _state.value.content
-        // 기준 계좌가 바뀌었으면 지난 계좌의 요약부터 버린다 — 새 계좌가 늦거나 실패해도 지난 계좌 칩 · 금액이 남지 않게(셀프 리뷰 P2)
-        _state.update { it.copy(forecast = it.forecast.forAccount(it.content?.baseAccountId)) }
         val benefit = async { benefitOf(home, result) }
         // 카드별 받은 혜택은 새 홈 칸과 같은 달 · 출처(YAMU) — 옛 서버면 부르지 않는다(리포트에 cards가 없다)
         val cardBenefits = (home?.yamuBenefit as? NewHomeArea.Value)?.data?.month?.let { m -> async { m to repository.loadCardBenefits(m) } }
-        val label = when (val preview = home?.forecastPreview) {
-            is NewHomeArea.Value -> {
-                showPreview(preview.data)
-                async { preview.data.accountId to repository.loadAccountLabel(preview.data.accountId) }
-            }
-            NewHomeArea.Failed -> {
-                _state.update { it.copy(forecast = it.forecast.next(ApiResult.Failure(ApiError.Unknown(HOME_AREA_FAILED)))) }
-                null
-            }
-            else -> null
-        }
-        // 옛 서버 — 잔고예보 요약은 홈 요약의 기준 계좌로 forecasts/balance를 다시 부른다(-481 방식)
-        val oldBrief = home?.takeIf { it.forecastPreview == NewHomeArea.OldServer && forecastSlot(it) == ForecastSlot.Brief }
-            ?.forecast?.accountId?.let { async { repository.loadForecastBrief(it) } }
+        // 잔고예보 요약 — 서버 새 칸 · 옛 서버 모두 연결 계좌 전체로 다시 부른다. '잔고예보 보기'가 여는 F-01과 같은 숫자(-599)
+        val brief = home?.takeIf { forecastSlot(it) == ForecastSlot.Brief }?.let { async { repository.loadForecastBrief() } }
         val b = benefit.await()
         _state.update { it.copy(benefit = it.benefit.next(b)) }
         val p = pay.await()
@@ -216,8 +198,7 @@ class HomeViewModel @Inject constructor(
         _state.update { it.copy(cards = it.cards.next(c)) }
         (c as? ApiResult.Success)?.data?.cards?.let { list -> artLoader.ensure(list.map { it.userCardId }) }
         cardBenefits?.await()?.let { (m, r) -> _state.update { it.copy(cardBenefits = it.cardBenefits.nextFor(m, r)) } }
-        label?.await()?.let { (accountId, name) -> if (name != null) labelPreview(accountId, name) }
-        oldBrief?.await()?.let { f -> _state.update { it.copy(forecast = it.forecast.next(f)) } }
+        brief?.await()?.let { f -> _state.update { it.copy(forecast = it.forecast.next(f)) } }
     }
 
     /** 혜택 히어로 값 — 새 홈 칸이 있으면 그 값, 그 칸만 실패면 실패, 옛 서버면 reports/monthly. 홈 요약을 아직 한 번도 못 받았으면 그 실패 */
@@ -226,17 +207,6 @@ class HomeViewModel @Inject constructor(
         is NewHomeArea.Value -> ApiResult.Success(area.data)
         NewHomeArea.Failed -> ApiResult.Failure(ApiError.Unknown(HOME_AREA_FAILED))
         NewHomeArea.OldServer, NewHomeArea.None -> repository.loadBenefit(YearMonth.now(KST))
-    }
-
-    /** 새 홈 칸 요약을 그린다 — 계좌 칩은 계좌 목록을 받은 뒤 붙이므로 같은 계좌였던 지난 칩 이름을 그동안 남긴다 */
-    private fun showPreview(brief: HomeForecastBrief) = _state.update { s ->
-        val keep = s.forecast.dataOrNull?.takeIf { it.accountId == brief.accountId }?.accountLabel
-        s.copy(forecast = HomeSection.Ready(brief.copy(accountLabel = keep)))
-    }
-
-    private fun labelPreview(accountId: Long, name: String) = _state.update { s ->
-        val ready = s.forecast as? HomeSection.Ready ?: return@update s
-        if (ready.data.accountId != accountId) s else s.copy(forecast = HomeSection.Ready(ready.data.copy(accountLabel = name)))
     }
 
     /** 혜택 칸만 다시(실패 칸의 '다시 시도') — 새 홈 칸은 홈 응답에 실려 오므로 홈부터 다시, 옛 서버면 reports/monthly만 */
@@ -267,26 +237,23 @@ class HomeViewModel @Inject constructor(
         }
     }
 
-    /** 잔고예보 요약만 다시 — 새 홈 칸이거나 기준 계좌를 모르면(홈 요약의 잔고 영역 실패) 홈부터 다시 */
+    /** 잔고예보 요약만 다시(연결 계좌 전체) — 홈 요약으로 그릴 칸인지부터 모르면(홈 요약의 잔고 영역 실패) 홈부터 다시 */
     fun retryForecast() {
-        val accountId = _state.value.content?.takeIf { it.forecastPreview == NewHomeArea.OldServer }?.forecast?.accountId
-            ?: return reload { it.copy(forecast = HomeSection.Loading) }
+        val home = _state.value.content
+        if (home == null || forecastSlot(home) != ForecastSlot.Brief) return reload { it.copy(forecast = HomeSection.Loading) }
         viewModelScope.launch {
             _state.update { it.copy(forecast = HomeSection.Loading) }
-            val f = repository.loadForecastBrief(accountId)
+            val f = repository.loadForecastBrief()
             _state.update { it.copy(forecast = it.forecast.next(f)) }
         }
     }
 
     /**
-     * 잔고예보 요약 '잔고예보'(HOME-15) — F-01을 홈 요약과 같은 기준 계좌 · 30일로 연다(FORECAST-03, 11/13 허브 결정).
-     * 그래서 사용자가 잔고예보에서 골라 둔 기간 · 계좌를 이 계좌 · 30일로 덮어쓴다. 기준 계좌를 모르면 고르지 않고 열기만 한다.
-     * F-01 30일은 오늘을 포함하고 홈 새 칸(forecastPreview)은 내일부터라, 오늘이 가장 낮은 날이면 두 최저액이 다를 수 있다(487~490 명세)
+     * 잔고예보 요약 '잔고예보 보기'(HOME-15) — F-01을 연결 계좌 전체 · 30일로 연다(S15P31E103-599, 11/17 사용자 결정).
+     * 사용자가 잔고예보에서 골라 둔 기간 · 계좌는 이 선택으로 덮어쓴다. 전체는 [ForecastSelection.all]로 둬 그 뒤 새로 연결한 계좌도 들어간다.
+     * 11/13 허브 결정 · -548(11/16)까지는 홈 요약과 같은 기준 계좌 하나로 열었다. 홈 카드 숫자도 같은 전체 · 30일로 받아([loadAll]) 두 화면이 같다
      */
-    fun openForecast() {
-        val accountId = _state.value.content?.baseAccountId ?: return
-        forecasts.select(ForecastSelection(ForecastPeriod.DAYS_30, setOf(accountId)))
-    }
+    fun openForecast() = forecasts.select(HOME_FORECAST_SELECTION)
 
     /**
      * 최근 결제 '전체 보기' — 결제 내역(S-05)은 고른 달([ReportMonth])을 여니 최근 결제가 든 달을 먼저 고른다.
