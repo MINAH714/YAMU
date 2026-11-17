@@ -40,6 +40,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -343,6 +344,7 @@ fun BalanceChart(
                 }
                 // 기준선 — 안전 잔액(범위 안이면 점선, 한참 아래면 바닥에 글자만) · 0원. 점선 이름은 선을 그린 뒤 얹는다
                 var safeLabel: (() -> Unit)? = null
+                var safeBox: Rect? = null   // 안전 잔액 이름이 차지한 칸 — '구매' 글자가 피한다
                 threshold?.let { t ->
                     if (range.shows(t)) {
                         drawLine(c.warning.copy(alpha = 0.8f), Offset(0f, ySafe), Offset(right, ySafe), strokeWidth = 1.dp.toPx(), pathEffect = PathEffect.dashPathEffect(floatArrayOf(3.dp.toPx(), 3.dp.toPx())))
@@ -366,6 +368,7 @@ fun BalanceChart(
                         ).filter { it.y > bandTop && it.y + h < bottom }
                         val spot = spots.firstOrNull { !crossed(it.x, it.y) }
                         val at = spot ?: spots.firstOrNull() ?: Offset(left, ySafe - h - gap)
+                        safeBox = Rect(at.x - 3.dp.toPx(), at.y - 1.dp.toPx(), at.x + w + 3.dp.toPx(), at.y + h + 1.dp.toPx())
                         safeLabel = {
                             if (spot == null) drawRoundRect(c.surface.copy(alpha = 0.9f), topLeft = Offset(at.x - 3.dp.toPx(), at.y - 1.dp.toPx()), size = Size(w + 6.dp.toPx(), h + 2.dp.toPx()), cornerRadius = CornerRadius(4.dp.toPx()))
                             drawText(label, topLeft = at)
@@ -424,9 +427,11 @@ fun BalanceChart(
                     val h = label.size.height.toFloat()
                     val gap = 2.dp.toPx()
                     val lx = if (px + 5.dp.toPx() + w <= right) px + 5.dp.toPx() else px - 5.dp.toPx() - w
-                    // 선 · 동전 · 빨간 ↓가 지나가지 않는 자리 — 바닥, 안 되면 그래프 맨 위. 둘 다 겹치면 바닥에 바탕을 깔아 읽히게
+                    // 선 · 동전 · 빨간 ↓ · 안전 잔액 이름이 지나가지 않는 자리 — 바닥, 안 되면 그래프 맨 위. 둘 다 겹치면 바닥에 바탕을 깔아 읽히게
+                    // (안전 잔액 이름이 왼쪽 위로 밀리면 구매일이 첫날일 때 바닥의 '구매'와 겹쳤다, S15P31E103-528)
                     fun crossed(ly: Float): Boolean {
                         val band = (ly - gap)..(ly + h + gap)
+                        if (safeBox?.overlaps(Rect(lx, band.start, lx + w, band.endInclusive)) == true) return true
                         var sx = lx
                         while (sx <= lx + w) {
                             val f = ((sx - left) / (right - left)).coerceIn(0f, 1f)
