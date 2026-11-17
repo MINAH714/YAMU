@@ -21,7 +21,7 @@ public final class QaSeedCli {
         try {
             QaSeedSpec.require(args.length == 2, "Expected command and input file");
             String command = args[0];
-            QaSeedSpec.require(Set.of("plan", "apply", "enrich", "verify", "inspect", "reset", "purge", "revise-benefits").contains(command),
+            QaSeedSpec.require(Set.of("plan", "apply", "enrich", "verify", "inspect", "reset", "purge", "revise-benefits", "plan-display-names", "revise-display-names").contains(command),
                     "Unknown command");
             ObjectMapper mapper = new ObjectMapper().registerModule(new JavaTimeModule())
                     .enable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES);

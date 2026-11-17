@@ -726,7 +726,7 @@ class QaSeedServiceTest extends MySqlTestSupport {
             SELECT COUNT(*) FROM notification n JOIN payment_transaction p ON n.target_id=p.payment_transaction_id AND n.user_id=p.user_id
             JOIN merchant m ON m.merchant_id=p.merchant_id
             WHERE n.user_id=? AND n.notification_type='PAYMENT_RESULT'
-              AND (n.title<>'결제 승인' OR n.created_at<>p.approved_at OR n.body NOT LIKE CONCAT('%',m.merchant_name,'%'))
+              AND (n.title<>'결제 승인' OR n.created_at<>p.approved_at OR n.body NOT LIKE CONCAT('%',COALESCE(NULLIF(p.merchant_context_snapshot->>'$.merchantName','null'),m.merchant_name),'%'))
             """,Long.class,owner)).isZero();
         long total=db.queryForObject("SELECT COUNT(*) FROM notification WHERE user_id=?",Long.class,owner);
         assertThat(total).isGreaterThan(24);
@@ -738,4 +738,114 @@ class QaSeedServiceTest extends MySqlTestSupport {
         assertThat(com.yamu.be.notification.SeedNotificationReplay.replay(db,spec.datasetKey(),owner,since,runtimeClock.instant())).isZero();
         assertThat(db.queryForObject("SELECT COUNT(*) FROM notification WHERE user_id=?",Long.class,owner)).isZero();
         verifyNoInteractions(transfer);
-    }}
+    }
+    private QaSeedSpec displaySpec(String dataset) throws Exception {
+        ScriptUtils.executeSqlScript(connection,new FileSystemResource(Path.of("seed/05-ibk-narasarang.sql")));
+        service=new QaSeedService(connection,keys,Clock.fixed(Instant.parse("2026-11-17T03:00:00Z"),ZoneOffset.UTC),cryptoProperties.hmacKey());
+        var mapper=new com.fasterxml.jackson.databind.ObjectMapper().registerModule(new com.fasterxml.jackson.datatype.jsr310.JavaTimeModule());
+        var input=mapper.readValue(Path.of("seed/qa/life-persona-1.example.json").toFile(),QaSeedSpec.class);
+        var p=input.personas().get(0);
+        var person=new QaSeedSpec.Persona("p0",p.scenario(),p.name(),p.birthDate(),p.phone(),p.ssafyMemberId(),"isolated-display-test",p.accounts(),p.cards(),p.issuanceEligibility());
+        var spec=new QaSeedSpec(dataset,3,input.baseDate(),List.of(person));
+        apply(spec);return spec;
+    }
+
+    private void legacyDisplay(long owner) {
+        db.update("UPDATE payment_transaction p JOIN merchant m USING(merchant_id) SET p.merchant_context_snapshot=JSON_REMOVE(p.merchant_context_snapshot,'$.merchantName','$.displayNameSource') WHERE p.user_id=? AND m.brand_code='YAMU_TEST_RESTAURANT'",owner);
+    }
+    @Test void displayRevisionDryRunCommitRetryPreservesMoneyAndLivePurchases() throws Exception {
+        var spec=displaySpec("qa-550-life-1");signedUp(spec);service.run("enrich",spec);long owner=user(spec,0);
+        legacyDisplay(owner);
+        var ids=db.queryForList("SELECT p.payment_transaction_id FROM payment_transaction p JOIN merchant m USING(merchant_id) WHERE p.user_id=? AND m.brand_code='YAMU_TEST_RESTAURANT' ORDER BY p.payment_transaction_id",Long.class,owner);
+        for(long id:ids) com.yamu.be.notification.SeedNotificationReplay.refreshPayment(db,owner,id);
+        db.update("""
+            INSERT INTO payment_transaction(user_id,user_card_id,card_product_id,merchant_id,payment_channel,facility_type,
+              merchant_context_snapshot,request_key,request_fingerprint,source,status,requested_amount,approved_amount,
+              installment_months,recognized_performance_amount,performance_month,requested_at,approved_at,created_at,updated_at)
+            SELECT user_id,user_card_id,card_product_id,merchant_id,payment_channel,facility_type,
+              JSON_OBJECT('merchantName','사용자가 직접 만든 식사','source','LIVE_APP'),UUID(),UNHEX(SHA2(UUID(),256)),
+              'YAMU','APPROVED',requested_amount,approved_amount,installment_months,recognized_performance_amount,
+              performance_month,requested_at,approved_at,created_at,updated_at
+            FROM payment_transaction WHERE payment_transaction_id=?
+            """,ids.get(0));
+        var protectedBefore=db.queryForList("SELECT payment_transaction_id,requested_amount,approved_amount,recognized_performance_amount,source,status,merchant_id,request_fingerprint FROM payment_transaction WHERE user_id=? ORDER BY payment_transaction_id",owner);
+        var notificationsBefore=db.queryForList("SELECT notification_id,created_at,read_at,target_id FROM notification WHERE user_id=? ORDER BY notification_id",owner);
+        var benefitsBefore=db.queryForList("SELECT b.* FROM payment_benefit b JOIN payment_transaction p USING(payment_transaction_id) WHERE p.user_id=? ORDER BY payment_benefit_id",owner);
+        var legacyBefore=db.queryForList("SELECT * FROM payment_transaction WHERE user_id=? ORDER BY payment_transaction_id",owner);
+        service.run("plan-display-names",spec);
+        assertThat(db.queryForList("SELECT * FROM payment_transaction WHERE user_id=? ORDER BY payment_transaction_id",owner)).usingRecursiveComparison().isEqualTo(legacyBefore);
+        service.run("revise-display-names",spec);
+        assertThat(db.queryForObject("SELECT COUNT(DISTINCT p.merchant_context_snapshot->>'$.merchantName') FROM payment_transaction p JOIN merchant m USING(merchant_id) WHERE p.user_id=? AND m.brand_code='YAMU_TEST_RESTAURANT' AND p.merchant_context_snapshot->>'$.displayNameSource'='QA_DISPLAY_550_V1'",Long.class,owner)).isEqualTo(4);
+        assertThat(db.queryForObject("SELECT COUNT(*) FROM notification WHERE user_id=? AND body REGEXP '테스트|느티나무'",Long.class,owner)).isZero();
+        assertThat(db.queryForList("SELECT payment_transaction_id,requested_amount,approved_amount,recognized_performance_amount,source,status,merchant_id,request_fingerprint FROM payment_transaction WHERE user_id=? ORDER BY payment_transaction_id",owner)).usingRecursiveComparison().isEqualTo(protectedBefore);
+        assertThat(db.queryForList("SELECT notification_id,created_at,read_at,target_id FROM notification WHERE user_id=? ORDER BY notification_id",owner)).usingRecursiveComparison().isEqualTo(notificationsBefore);
+        assertThat(db.queryForList("SELECT b.* FROM payment_benefit b JOIN payment_transaction p USING(payment_transaction_id) WHERE p.user_id=? ORDER BY payment_benefit_id",owner)).usingRecursiveComparison().isEqualTo(benefitsBefore);
+        var after=db.queryForList("SELECT * FROM payment_transaction WHERE user_id=? ORDER BY payment_transaction_id",owner);
+        service.run("revise-display-names",spec);
+        assertThat(db.queryForList("SELECT * FROM payment_transaction WHERE user_id=? ORDER BY payment_transaction_id",owner)).usingRecursiveComparison().isEqualTo(after);
+        assertThat(db.queryForObject("SELECT COUNT(*) FROM payment_transaction WHERE user_id=? AND merchant_context_snapshot->>'$.source'='LIVE_APP' AND merchant_context_snapshot->>'$.merchantName'='사용자가 직접 만든 식사'",Long.class,owner)).isEqualTo(1);
+        verifyNoInteractions(transfer);
+    }
+
+    @Test void displayRevisionFailureRollsBackEarlierRows() throws Exception {
+        var spec=displaySpec("qa-550-life-1");long owner=user(spec,0);legacyDisplay(owner);
+        long last=db.queryForObject("SELECT MAX(p.payment_transaction_id) FROM payment_transaction p JOIN merchant m USING(merchant_id) WHERE p.user_id=? AND m.brand_code='YAMU_TEST_RESTAURANT'",Long.class,owner);
+        db.update("UPDATE payment_transaction SET merchant_context_snapshot=JSON_SET(merchant_context_snapshot,'$.merchantName','직접 수정한 이름') WHERE payment_transaction_id=?",last);
+        var before=db.queryForList("SELECT * FROM payment_transaction WHERE user_id=? ORDER BY payment_transaction_id",owner);
+        assertThatThrownBy(()->service.run("revise-display-names",spec)).hasMessageContaining("Edited display name");
+        assertThat(db.queryForList("SELECT * FROM payment_transaction WHERE user_id=? ORDER BY payment_transaction_id",owner)).usingRecursiveComparison().isEqualTo(before);verifyNoInteractions(transfer);
+    }
+
+    @Test void displayRevisionRejectsUnregisteredDataset() throws Exception {
+        var spec=displaySpec("qa-not-display-target");long owner=user(spec,0);legacyDisplay(owner);
+        var before=db.queryForList("SELECT * FROM payment_transaction WHERE user_id=? ORDER BY payment_transaction_id",owner);
+        assertThatThrownBy(()->service.run("revise-display-names",spec)).hasMessageContaining("Only the three fixed LIFE");
+        assertThat(db.queryForList("SELECT * FROM payment_transaction WHERE user_id=? ORDER BY payment_transaction_id",owner)).usingRecursiveComparison().isEqualTo(before);
+    }
+    @Test void displayRevisionPreservesEditedCandidatesAndOverriddenOccurrences() throws Exception {
+        var spec=displaySpec("qa-550-life-1");long owner=user(spec,0);legacyDisplay(owner);
+        long card=db.queryForObject("SELECT user_card_id FROM user_card WHERE user_id=? ORDER BY user_card_id DESC LIMIT 1",Long.class,owner);
+        long merchant=db.queryForObject("SELECT merchant_id FROM merchant WHERE brand_code='YAMU_TEST_RESTAURANT'",Long.class);
+        for(long amount:List.of(22000L,88000L)) {
+            db.update("""
+                INSERT INTO cashflow_item(user_id,source,direction,item_kind,title,status,amount,scheduled_date,
+                  recurrence_type,recurrence_day_of_month,user_card_id,detected_user_card_id,detected_merchant_id,detected_amount,created_at,updated_at)
+                VALUES (?,'DETECTED','EXPENSE','SCHEDULED',?,'CANDIDATE',?,'2026-12-01','MONTHLY',1,?,?,?,?,UTC_TIMESTAMP(6),UTC_TIMESTAMP(6))
+                """,owner,amount==22000L?"야무 테스트 식당":"직접 수정한 식당",amount,card,card,merchant,amount);
+            long id=db.queryForObject("SELECT cashflow_item_id FROM cashflow_item WHERE user_id=? AND detected_amount=?",Long.class,owner,amount);
+            db.update("""
+                INSERT INTO cashflow_occurrence(cashflow_item_id,user_id,occurrence_date,title,direction,amount,status,scheduled_date,is_overridden,created_at,updated_at)
+                VALUES (?,?,'2026-12-01',?,'EXPENSE',?,'CONFIRMED','2026-12-01',TRUE,UTC_TIMESTAMP(6),UTC_TIMESTAMP(6))
+                """,id,owner,"개별 회차 사용자 메모",amount);
+        }
+        var occurrenceBefore=db.queryForList("SELECT * FROM cashflow_occurrence WHERE user_id=? ORDER BY cashflow_occurrence_id",owner);
+        service.run("revise-display-names",spec);
+        assertThat(db.queryForObject("SELECT title FROM cashflow_item WHERE user_id=? AND detected_amount=22000",String.class,owner)).doesNotContain("테스트");
+        assertThat(db.queryForObject("SELECT title FROM cashflow_item WHERE user_id=? AND detected_amount=88000",String.class,owner)).isEqualTo("직접 수정한 식당");
+        assertThat(db.queryForList("SELECT * FROM cashflow_occurrence WHERE user_id=? ORDER BY cashflow_occurrence_id",owner)).usingRecursiveComparison().isEqualTo(occurrenceBefore);
+    }
+
+    @Test void displayRevisionRefusesSharedCafeWithAnyExistingPurchaseAndRollsBack() throws Exception {
+        var spec=displaySpec("qa-550-life-1");long owner=user(spec,0);legacyDisplay(owner);
+        long cafe=db.queryForObject("SELECT merchant_id FROM merchant WHERE brand_code='YAMU_TEST_CAFE'",Long.class);
+        db.update("UPDATE merchant SET merchant_name='오월커피' WHERE merchant_id=?",cafe);
+        db.update("""
+            INSERT INTO payment_transaction(user_id,user_card_id,card_product_id,merchant_id,payment_channel,facility_type,
+              merchant_context_snapshot,request_key,request_fingerprint,source,status,requested_amount,approved_amount,
+              installment_months,recognized_performance_amount,performance_month,requested_at,approved_at,created_at,updated_at)
+            SELECT user_id,user_card_id,card_product_id,?,payment_channel,facility_type,
+              JSON_OBJECT('merchantName','사용자 카페 구매','source','LIVE_APP'),UUID(),UNHEX(SHA2(UUID(),256)),
+              'YAMU','APPROVED',requested_amount,approved_amount,installment_months,recognized_performance_amount,
+              performance_month,requested_at,approved_at,created_at,updated_at
+            FROM payment_transaction WHERE user_id=? ORDER BY payment_transaction_id LIMIT 1
+            """,cafe,owner);
+        var before=db.queryForList("SELECT * FROM payment_transaction WHERE user_id=? ORDER BY payment_transaction_id",owner);
+        try {
+            assertThatThrownBy(()->service.run("revise-display-names",spec)).hasMessageContaining("Cafe has existing purchases");
+            assertThat(db.queryForList("SELECT * FROM payment_transaction WHERE user_id=? ORDER BY payment_transaction_id",owner)).usingRecursiveComparison().isEqualTo(before);
+            assertThat(db.queryForObject("SELECT merchant_name FROM merchant WHERE merchant_id=?",String.class,cafe)).isEqualTo("오월커피");
+        } finally { db.update("UPDATE merchant SET merchant_name='메가MGC커피' WHERE merchant_id=?",cafe); }
+        verifyNoInteractions(transfer);
+    }
+
+}

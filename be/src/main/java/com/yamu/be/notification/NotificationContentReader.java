@@ -35,7 +35,7 @@ class NotificationContentReader {
 
     Optional<Payment> payment(long userId, long paymentId) {
         List<Payment> rows = jdbc.query("""
-                SELECT m.merchant_name, p.requested_amount, p.approved_amount, %s AS card_name
+                SELECT COALESCE(NULLIF(p.merchant_context_snapshot->>'$.merchantName','null'),m.merchant_name) AS merchant_name, p.requested_amount, p.approved_amount, %s AS card_name
                   FROM payment_transaction p
                   JOIN merchant m ON m.merchant_id = p.merchant_id
                   LEFT JOIN user_card uc ON uc.user_card_id = p.user_card_id AND uc.user_id = p.user_id
