@@ -40,12 +40,13 @@ import org.springframework.jdbc.datasource.init.ScriptUtils;
 
 @org.junit.jupiter.api.condition.EnabledIfSystemProperty(named="qa.localApp",matches="true")
 @org.springframework.boot.test.context.SpringBootTest(webEnvironment=org.springframework.boot.test.context.SpringBootTest.WebEnvironment.DEFINED_PORT,
-    properties={"server.address=127.0.0.1","server.port=18553"})
+    properties={"server.address=127.0.0.1","server.port=${qa.localPort:18553}"})
 @org.springframework.context.annotation.Import(QaLocalAppTest.LocalConfiguration.class)
 
 @org.springframework.test.annotation.DirtiesContext(classMode = org.springframework.test.annotation.DirtiesContext.ClassMode.AFTER_CLASS)
 class QaLocalAppTest extends MySqlTestSupport {
     @Autowired Bootstrap bootstrap;
+    @Autowired com.yamu.be.assetflow.AssetFlowService assetFlows;
     @Autowired CryptoProperties cryptoProperties;
     @Autowired DataSource dataSource;
 
@@ -137,6 +138,7 @@ class QaLocalAppTest extends MySqlTestSupport {
         // Local-only bank fixtures: no external deposits or bank requests are made.
 
         var accountBalances=new java.util.HashMap<String,Long>();
+        var bankHistory = new QaLocalBankHistory(p.accounts(), runtimeClock);
         when(runtimeClock.instant()).thenReturn(Instant.parse("2026-11-17T04:00:00Z"));
         for(int index=0;index<p.accounts().size();index++) {
             var inputAccount=p.accounts().get(index);
@@ -144,8 +146,8 @@ class QaLocalAppTest extends MySqlTestSupport {
             accountBalances.put(inputAccount.accountNo(),amount);
             long accountId=db.queryForObject("SELECT linked_account_id FROM linked_account WHERE user_id=? AND bank_code=?",Long.class,owner,inputAccount.bankCode());
             String fundingId="LOCAL-FIXTURE-FUNDING-"+index;
-            var fixture=new com.yamu.be.payment.bank.BankTransaction(fundingId,QaLifeScenario.BASE,java.time.LocalTime.NOON,
-                com.yamu.be.payment.bank.BankDirection.DEPOSIT,amount,amount,"LOCAL TEST FIXTURE");
+            var fixture=bankHistory.snapshot(inputAccount.accountNo(),QaLifeScenario.BASE,QaLifeScenario.BASE,null)
+                    .transactions().get(0);
             var ticket=accountHistory.begin(owner,accountId,QaLifeScenario.BASE,QaLifeScenario.BASE);
             assertThat(accountHistory.complete(ticket,new com.yamu.be.payment.bank.BankHistory(QaLifeScenario.BASE,QaLifeScenario.BASE,null,1L,List.of(fixture),runtimeClock.instant()))).isEqualTo("OK");
             var assetSpec=new QaAssetHistory.Spec(spec.datasetKey(),"p0",accountId,QaLifeScenario.FROM,QaLifeScenario.BASE.minusDays(1),0,0,List.of(),"LIFE",fundingId);
@@ -162,11 +164,8 @@ class QaLocalAppTest extends MySqlTestSupport {
             if(balance==null) throw new IllegalArgumentException("Unknown local fixture account");
             return balance;
         });
-        when(transfer.historySnapshot(anyString(),anyString(),any(),any(),any())).thenAnswer(call -> {
-            LocalDate from=call.getArgument(2), to=call.getArgument(3);
-            // Real stream begins on the fixture funding date; earlier history is QA_SYNTHETIC.
-            return new com.yamu.be.payment.bank.BankHistory(from,to,null,0L,List.of(),runtimeClock.instant());
-        });
+        when(transfer.historySnapshot(anyString(),anyString(),any(),any(),any())).thenAnswer(call ->
+                bankHistory.snapshot(call.getArgument(1),call.getArgument(2),call.getArgument(3),call.getArgument(4)));
         // These are the only differences at the financial boundary. Unsupported financial
         // operations fail locally rather than falling through to a network implementation.
         when(externalFinance.post(anyString(),any(),any(),any(Class.class)))
@@ -179,6 +178,35 @@ class QaLocalAppTest extends MySqlTestSupport {
             .thenThrow(new com.yamu.be.global.exception.BusinessException(com.yamu.be.global.exception.ErrorCode.FIN_API_UNAVAILABLE));
         when(transfer.deposit(anyString(),anyString(),anyLong(),any(),anyString()))
             .thenThrow(new com.yamu.be.global.exception.BusinessException(com.yamu.be.global.exception.ErrorCode.FIN_API_UNAVAILABLE));
+        if (Boolean.getBoolean("qa.localHistoryCheck")) {
+            when(runtimeClock.instant()).thenReturn(Instant.parse("2026-11-17T04:00:00Z"));
+            var ids = db.queryForList("SELECT linked_account_id FROM linked_account WHERE user_id=? ORDER BY linked_account_id",Long.class,owner);
+            // Reproduce the old response's invalidation, then repair it through the normal store path.
+            for (int index=0;index<p.accounts().size();index++) {
+                long id=ids.get(index);
+                var broken=accountHistory.begin(owner,id,QaLifeScenario.BASE,QaLifeScenario.BASE);
+                assertThat(accountHistory.complete(broken,new com.yamu.be.payment.bank.BankHistory(QaLifeScenario.BASE,QaLifeScenario.BASE,null,0L,List.of(),runtimeClock.instant()))).isEqualTo("SOURCE_CONFLICT");
+                var repair=accountHistory.begin(owner,id,QaLifeScenario.BASE,QaLifeScenario.BASE);
+                assertThat(accountHistory.complete(repair,bankHistory.snapshot(p.accounts().get(index).accountNo(),QaLifeScenario.BASE,QaLifeScenario.BASE,null))).isEqualTo("OK");
+            }
+            var october = java.time.YearMonth.of(2026,10);
+            var before = assetFlows.get(owner,october,ids,false);
+            assertThat(before.partialErrors()).isEmpty();
+            assertThat(before.series()).hasSize(31).allSatisfy(point -> {
+                assertThat(point.dataStatus()).isEqualTo(com.yamu.be.assetflow.AssetFlowResponse.DataStatus.AVAILABLE);
+                assertThat(point.kind()).isEqualTo(com.yamu.be.assetflow.AssetFlowResponse.Kind.SIMULATED);
+            });
+            // Refresh funding month then past month twice: neither may invalidate the funding bridge.
+            for (int attempt=0; attempt<2; attempt++) {
+                var november = assetFlows.get(owner,java.time.YearMonth.of(2026,11),ids,true);
+                assertThat(november.partialErrors()).isEmpty();
+                var after = assetFlows.get(owner,october,ids,true);
+                assertThat(after.partialErrors()).isEmpty();
+                assertThat(after.series()).isEqualTo(before.series());
+            }
+            assertThat(db.queryForObject("SELECT COUNT(*) FROM account_history_coverage c JOIN account_history_stream s USING(stream_id) WHERE s.user_id=? AND s.source='SSAFY' AND c.opening_evidence='FIRST_TRANSACTION' AND c.valid=true",Long.class,owner)).isGreaterThanOrEqualTo(3L);
+            return;
+        }
         bootstrap.owner=owner;
         bootstrap.name=p.name();
         java.nio.file.Files.createDirectories(Path.of("build/local-app"));
