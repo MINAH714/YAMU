@@ -28,11 +28,12 @@ data class HomeSummary(
     val cards: List<HomeCardItem> = emptyList(),
     /** 이번 달 YAMU 이용 혜택(BE -490 benefitSummary) */
     val yamuBenefit: NewHomeArea<HomeBenefit> = NewHomeArea.OldServer,
-    /** 기준 계좌 내일부터 30일 요약(BE -490 forecastPreview) */
+    /**
+     * 기준 계좌 내일부터 30일 요약(BE -490 forecastPreview). 홈 카드는 이 칸으로 그릴지(계좌 없음 · 실패)만 정하고,
+     * 숫자는 연결 계좌 전체로 따로 받는다(-599)
+     */
     val forecastPreview: NewHomeArea<HomeForecastBrief> = NewHomeArea.OldServer,
 ) {
-    /** 잔고예보 요약 · '잔고예보' 버튼이 쓰는 기준 계좌 — 새 홈 칸이 있으면 그 계좌, 없으면 balanceForecast의 계좌 */
-    val baseAccountId: Long? get() = (forecastPreview as? NewHomeArea.Value)?.data?.accountId ?: forecast?.accountId
 
     /**
      * 계좌는 연결했는데 카드가 없다 — 가입 중 1원 인증에서 계좌가 붙어 BE는 onboarding을 DONE으로 준다.

@@ -357,6 +357,10 @@ class FakeForecastRepository @Inject constructor(private val bank: FakeBank) : F
     fun homeBrief(accountId: Long): BalanceForecastDto? =
         accountList.firstOrNull { it.id == accountId }?.let { build(ForecastSelection(ForecastPeriod.DAYS_30, setOf(it.id))) }
 
+    /** 가짜 홈 잔고예보 카드 숫자(S15P31E103-599) — 연결 계좌 전체 · 30일. 홈 '잔고예보 보기'가 여는 선택과 같은 응답이다. 계좌가 없으면 null */
+    fun homeBriefAll(): BalanceForecastDto? =
+        accountList.takeIf { it.isNotEmpty() }?.let { build(ForecastSelection(ForecastPeriod.DAYS_30, all = true)) }
+
     fun homeForecast(): HomeForecast? {
         val base = accountList.firstOrNull { it.primary } ?: accountList.firstOrNull() ?: return null
         val dto = build(ForecastSelection(accountIds = setOf(base.id)))

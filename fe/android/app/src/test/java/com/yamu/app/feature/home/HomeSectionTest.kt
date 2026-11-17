@@ -67,7 +67,6 @@ class HomeSectionTest {
     @Test fun `새 칸을 받았으면 옛 잔고 영역이 실패해도 요약`() {
         val h = home(accountId = null, failed = setOf("balanceForecast")).copy(forecastPreview = NewHomeArea.Value(brief))
         assertEquals(ForecastSlot.Brief, forecastSlot(h))
-        assertEquals(9L, h.baseAccountId)   // '잔고예보' 버튼도 새 칸의 계좌로
     }
 
     @Test fun `새 칸만 실패면 요약 칸 안에서 실패 · 다시 시도`() {
@@ -80,29 +79,6 @@ class HomeSectionTest {
 
     @Test fun `연결 전이면 새 칸이 있어도 숨긴다`() {
         assertEquals(ForecastSlot.Hidden, forecastSlot(home(accountId = null, needsLinking = true).copy(forecastPreview = NewHomeArea.Value(brief))))
-    }
-
-    // ── 기준 계좌를 바꾼 뒤(셀프 리뷰 P2) — 지난 계좌의 칩 · 금액을 새 계좌 것처럼 보이지 않는다 ──
-
-    private fun briefOf(accountId: Long) = HomeForecastBrief(accountId, "KB국민은행 ·1234", 412_000, 15_000, null, null)
-
-    @Test fun `같은 기준 계좌의 요약은 그대로`() {
-        assertEquals(HomeSection.Ready(briefOf(1)), HomeSection.Ready(briefOf(1)).forAccount(1))
-    }
-
-    @Test fun `기준 계좌가 바뀌었으면 지난 계좌 요약은 불러오는 중으로`() {
-        assertEquals(HomeSection.Loading, HomeSection.Ready(briefOf(1)).forAccount(2))
-        assertEquals(HomeSection.Loading, HomeSection.Ready(briefOf(1)).forAccount(null))   // 기준 계좌를 모르게 됐을 때도
-    }
-
-    @Test fun `바뀐 계좌가 실패하면 지난 계좌 값이 아니라 실패`() {
-        val after = HomeSection.Ready(briefOf(1)).forAccount(2).next(ApiResult.Failure(failed))
-        assertEquals(HomeSection.Failed(failed), after)
-    }
-
-    @Test fun `불러오는 중 · 실패는 그대로`() {
-        assertEquals(HomeSection.Loading, HomeSection.Loading.forAccount(2))
-        assertEquals(HomeSection.Failed(failed), HomeSection.Failed(failed).forAccount(2))
     }
 
     // ── 카드별 받은 혜택의 달(셀프 리뷰 P2) — 달이 바뀐 뒤 지난달 금액을 이번 달 카드 줄에 붙이지 않는다 ──
@@ -138,12 +114,5 @@ class HomeSectionTest {
         val old = HomeUiState(content = home(accountId = 1), cardBenefits = HomeSection.Ready(novBenefits))
         assertNull(old.cardBenefitsShown())   // 옛 서버(OldServer)
         assertNull(old.copy(content = home(accountId = 1).copy(yamuBenefit = NewHomeArea.Failed)).cardBenefitsShown())
-    }
-
-    @Test fun `새 칸 요약도 새 칸의 기준 계좌로 맞춘다`() {
-        // 새 서버 — 기준 계좌를 9로 바꿨는데 요약 칸엔 아직 지난 계좌(1)의 값이 있으면 그리지 않는다
-        val h = home(accountId = 9).copy(forecastPreview = NewHomeArea.Failed)
-        assertEquals(HomeSection.Loading, HomeSection.Ready(briefOf(1)).forAccount(h.baseAccountId))
-        assertEquals(HomeSection.Ready(brief), HomeSection.Ready(brief).forAccount(home(accountId = 1).copy(forecastPreview = NewHomeArea.Value(brief)).baseAccountId))
     }
 }

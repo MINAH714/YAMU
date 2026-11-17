@@ -6,6 +6,7 @@ import com.yamu.app.core.network.ApiError
 import com.yamu.app.core.network.ApiResult
 import com.yamu.app.core.network.apiCall
 import com.yamu.app.core.network.map
+import com.yamu.app.feature.forecast.data.ForecastRepository
 import com.yamu.app.feature.link.data.AccountsResponse
 import com.yamu.app.feature.performance.data.BenefitLimitsDto
 import com.yamu.app.feature.performance.data.CardPerformancesDto
@@ -51,7 +52,7 @@ interface HomeApi {
     @GET("benefit-limits")
     suspend fun benefitLimits(): Response<ApiEnvelope<BenefitLimitsDto>>
 
-    /** 잔고예보 — 홈 요약은 기준 계좌 하나 · N일(until=DAYS와 days를 같이, BE -318) */
+    /** 잔고예보 — 홈 요약은 연결 계좌 전체 · N일(until=DAYS와 days를 같이, BE -318 · -599) */
     @GET("forecasts/balance")
     suspend fun forecast(
         @Query("accountIds") accountIds: List<Long>,
@@ -91,11 +92,11 @@ interface HomeRepository {
     /** 내 카드 혜택 현황 · 놓치기 아까운 혜택 — 실적이 실패하면 실패, 한도만 실패하면 limits = null */
     suspend fun loadCards(): ApiResult<HomeCardsData>
 
-    /** 잔고예보 요약(옛 서버) — [accountId] 하나 · [HOME_FORECAST_DAYS]일. 계좌 목록을 못 받으면 계좌 칩만 비운다 */
-    suspend fun loadForecastBrief(accountId: Long): ApiResult<HomeForecastBrief>
-
-    /** 요약 칸 계좌 칩 '신한은행 ·0275'(새 홈 칸은 계좌 번호만 준다). 못 받으면 null */
-    suspend fun loadAccountLabel(accountId: Long): String?
+    /**
+     * 잔고예보 요약 — 연결 계좌 전체 합 · [HOME_FORECAST_DAYS]일(S15P31E103-599). '잔고예보 보기'가 여는 F-01(전체 · 30일)과 같은 호출이라 숫자가 같다.
+     * 서버 홈 칸(forecastPreview)은 기준 계좌 하나라 숫자에는 쓰지 않는다. 계좌 목록을 못 받으면 어느 계좌를 더할지 몰라 실패
+     */
+    suspend fun loadForecastBrief(): ApiResult<HomeForecastBrief>
 
     /** 카드별 [month] YAMU 결제 혜택(userCardId → 혜택). 응답에 cards가 없으면(옛 서버) 실패 */
     suspend fun loadCardBenefits(month: YearMonth): ApiResult<Map<Long, CardBenefit>>
@@ -136,15 +137,15 @@ class HomeRepositoryImpl @Inject constructor(
         perf.await().map { dto -> HomeCardsData(dto.cards.map { it.toCardPerf() }, l) }
     }
 
-    override suspend fun loadForecastBrief(accountId: Long): ApiResult<HomeForecastBrief> = coroutineScope {
-        val forecast = async { apiCall { api.forecast(listOf(accountId), until = "DAYS", days = HOME_FORECAST_DAYS) } }
-        val accounts = async { apiCall { api.accounts() } }
-        val label = (accounts.await() as? ApiResult.Success)?.data?.accounts?.labelOf(accountId)
-        forecast.await().map { it.toBrief(accountId, label) }
+    override suspend fun loadForecastBrief(): ApiResult<HomeForecastBrief> {
+        val accounts = when (val a = apiCall { api.accounts() }) {
+            is ApiResult.Failure -> return a
+            is ApiResult.Success -> a.data.accounts
+        }
+        if (accounts.isEmpty()) return ApiResult.Failure(ApiError.InvalidRequest(ForecastRepository.NO_ACCOUNT))
+        return apiCall { api.forecast(accounts.map { it.accountId }, until = "DAYS", days = HOME_FORECAST_DAYS) }
+            .map { it.toBrief(accountId = null, accountLabel = accounts.allLabel()) }
     }
-
-    override suspend fun loadAccountLabel(accountId: Long): String? =
-        (apiCall { api.accounts() } as? ApiResult.Success)?.data?.accounts?.labelOf(accountId)
 
     override suspend fun loadCardBenefits(month: YearMonth): ApiResult<Map<Long, CardBenefit>> =
         apiCall { api.benefitReport(month.toString(), source = YAMU_SOURCE) }.andThen { dto ->

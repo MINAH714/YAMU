@@ -158,19 +158,21 @@ class FakeHomeRepositoryTest {
         assertTrue(data.limits!!.flatMap { it.limits }.any { it.remainingAmount == null })
     }
 
-    @Test fun `잔고예보 요약은 기준 계좌 · 30일 예보와 같은 최저 잔고`() = runTest {
-        val accountId = load().forecast!!.accountId!!
-        val brief = (home.loadForecastBrief(accountId) as ApiResult.Success).data
-        val dto = forecast.homeBrief(accountId)!!
+    @Test fun `잔고예보 요약은 연결 계좌 전체 · 30일 예보와 같은 최저 잔고(-599)`() = runTest {
+        load()
+        val brief = (home.loadForecastBrief() as ApiResult.Success).data
+        val dto = forecast.homeBriefAll()!!
         assertEquals(dto.summary?.minBalance, brief.minBalance)
         assertEquals(dto.currentTotalBalance, brief.currentBalance)
+        assertEquals(bank.accountViews().sumOf { it.balance }, brief.currentBalance)   // 기준 계좌 하나가 아니라 전체 합
+        assertNull(brief.accountId)
         assertNotNull(brief.accountLabel)
     }
 
     @Test fun `잔고예보만 실패면 요약만 실패하고 홈은 기준 계좌를 준다`() = runTest {
         DevSession.homeScenario = HomeScenario.FORECAST_ERROR
-        val accountId = load().forecast!!.accountId!!
-        assertTrue(home.loadForecastBrief(accountId) is ApiResult.Failure)
+        assertNotNull(load().forecast!!.accountId)
+        assertTrue(home.loadForecastBrief() is ApiResult.Failure)
     }
 
     @Test fun `기준 계좌 없음은 잔고 영역이 비었지만 실패는 아니다`() = runTest {
@@ -202,7 +204,7 @@ class FakeHomeRepositoryTest {
     @Test fun `새 홈 칸 잔고 요약은 기준 계좌 30일 예보에서 오늘을 뺀 최저`() = runTest {
         val h = load()
         val p = (h.forecastPreview as NewHomeArea.Value).data
-        val series = forecast.homeBrief(p.accountId)!!.series.drop(1)
+        val series = forecast.homeBrief(p.accountId!!)!!.series.drop(1)
         val min = series.minOf { it.conservative ?: it.expected!! }
         assertEquals(h.forecast!!.accountId, p.accountId)
         assertEquals(min, p.minBalance)

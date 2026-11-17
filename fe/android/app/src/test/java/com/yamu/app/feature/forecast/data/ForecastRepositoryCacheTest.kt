@@ -48,7 +48,7 @@ class ForecastRepositoryCacheTest {
         repository.forecast()
         assertEquals(100_000L, repository.cached()?.currentBalance)
 
-        repository.select(ForecastSelection(ForecastPeriod.DAYS_30, setOf(1L)))   // 홈 '잔고예보' — 30일 · 기준 계좌
+        repository.select(ForecastSelection(ForecastPeriod.DAYS_30, setOf(1L)))   // 시트에서 30일 · 계좌 하나로
         assertNull("새 칩 밑에 전체 계좌 숫자를 두지 않는다", repository.cached())
 
         balance = 70_000
