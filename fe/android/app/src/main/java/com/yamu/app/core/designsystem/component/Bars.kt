@@ -29,6 +29,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.PathParser
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.layout
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.unit.Dp
 import com.yamu.app.core.designsystem.theme.LocalYamuReduceMotion
@@ -178,12 +179,21 @@ fun YamuLargeTopBar(
     }
 }
 
-/** 앱바 알림 종 — 안 읽은 알림 수 배지. 수는 서버 값 그대로 */
+/**
+ * 앱바 알림 종 — 안 읽은 알림 수 배지. 수는 서버 값 그대로.
+ * IconButton은 안을 원(40dp)으로 잘라서 배지를 그 안에 두면 두 자리부터 오른쪽이 잘린다. 그래서 배지는 버튼 밖에서
+ * 아이콘과 같은 24dp 자리에 겹쳐 그린다. 자리는 전과 같고 자르는 것만 없다. 배지 글자는 종 설명("알림 n개")과 겹치지 않게 읽지 않는다
+ */
 @Composable
 fun NotificationBell(unread: Int, onClick: () -> Unit) {
-    IconButton(onClick = onClick) {
-        BadgedBox(badge = { if (unread > 0) Badge { Text("$unread") } }) {
+    Box(contentAlignment = Alignment.Center) {
+        IconButton(onClick = onClick) {
             Icon(YamuIcons.Notifications, contentDescription = "알림 ${unread}개", tint = YamuTheme.colors.text1)
+        }
+        if (unread > 0) {
+            BadgedBox(badge = { Badge { Text("$unread") } }, modifier = Modifier.clearAndSetSemantics { }) {
+                Spacer(Modifier.size(24.dp))
+            }
         }
     }
 }
