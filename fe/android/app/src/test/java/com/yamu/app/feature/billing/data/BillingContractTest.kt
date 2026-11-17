@@ -13,6 +13,7 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import java.time.LocalDate
 
 /** 청구 · 환급 조회를 BE 응답 모양(BillListResponse · BillDetailResponse · RefundListResponse)과 맞춘다 */
 class BillingContractTest {
@@ -22,7 +23,8 @@ class BillingContractTest {
     @Before fun setUp() {
         server = MockWebServer()
         server.start()
-        repository = BillingRepositoryImpl(server.retrofit().create(BillingApi::class.java))
+        // 명세 예시 날짜(11/16 출금 완료 · 12/14 다음 출금) 사이로 고정한다 — 실제 오늘을 쓰면 12/14가 지나 결과가 바뀐다
+        repository = BillingRepositoryImpl(server.retrofit().create(BillingApi::class.java)) { LocalDate.of(2026, 11, 17) }
     }
 
     @After fun tearDown() = server.close()

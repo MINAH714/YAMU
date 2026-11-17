@@ -1,5 +1,6 @@
 package com.yamu.app.feature.billing.data
 
+import com.yamu.app.core.format.KST
 import com.yamu.app.core.network.ApiEnvelope
 import com.yamu.app.core.network.ApiResult
 import com.yamu.app.core.network.apiCall
@@ -13,6 +14,7 @@ import retrofit2.Retrofit
 import retrofit2.http.GET
 import retrofit2.http.Path
 import retrofit2.http.Query
+import java.time.LocalDate
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -45,11 +47,17 @@ interface BillingRepository {
     suspend fun refunds(page: Int): ApiResult<RefundPage>
 }
 
+/** [today] = 한국 날짜. 출금일이 지난 청구서를 출금 완료로 볼 때 쓰고, 테스트는 날짜를 고정해 넘긴다 */
 @Singleton
-class BillingRepositoryImpl @Inject constructor(private val api: BillingApi) : BillingRepository {
-    override suspend fun bills(userCardId: Long?): ApiResult<BillList> = apiCall { api.bills(userCardId) }.map { it.toBillList() }
+class BillingRepositoryImpl internal constructor(
+    private val api: BillingApi,
+    private val today: () -> LocalDate,
+) : BillingRepository {
+    @Inject constructor(api: BillingApi) : this(api, { LocalDate.now(KST) })
 
-    override suspend fun bill(billId: Long): ApiResult<BillDetail> = apiCall { api.bill(billId) }.map { it.toBillDetail(billId) }
+    override suspend fun bills(userCardId: Long?): ApiResult<BillList> = apiCall { api.bills(userCardId) }.map { it.toBillList(today()) }
+
+    override suspend fun bill(billId: Long): ApiResult<BillDetail> = apiCall { api.bill(billId) }.map { it.toBillDetail(billId, today()) }
 
     override suspend fun refunds(page: Int): ApiResult<RefundPage> = apiCall { api.refunds(page) }.map { it.toRefundPage(page) }
 }

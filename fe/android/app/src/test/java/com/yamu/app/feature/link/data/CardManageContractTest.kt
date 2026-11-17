@@ -48,7 +48,7 @@ class CardManageContractTest {
     }
 
     @Test fun `신용카드 상세`() {
-        val card = YamuJson.decodeFromString<CardDetailDto>(creditJson).toInfo()
+        val card = YamuJson.decodeFromString<CardDetailDto>(creditJson).toInfo(today = LocalDate.of(2026, 11, 14))
         assertFalse(card.isCheck)
         assertEquals("1021", card.last4)
         assertEquals(14, card.paymentDay)
@@ -57,6 +57,13 @@ class CardManageContractTest {
         assertTrue(card.recommended)
         assertTrue(card.isDefault)
         assertNull(card.stateLabel)
+    }
+
+    @Test fun `출금일이 지난 다음 출금은 뺀다 · 해제 안내는 BE 값 그대로`() {
+        // 출금 배치가 꺼진 서버는 11/14 청구서를 다음 날에도 확정으로 둔다 — 청구서 화면은 출금 완료로 보인다
+        val card = YamuJson.decodeFromString<CardDetailDto>(creditJson).toInfo(today = LocalDate.of(2026, 11, 15))
+        assertNull(card.nextWithdrawal)
+        assertTrue(card.hasOpenBill)
     }
 
     @Test fun `확정 · 미납 청구가 있으면 출금이 남은 카드`() {
