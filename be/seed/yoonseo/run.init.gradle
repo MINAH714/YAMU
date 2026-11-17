@@ -1,0 +1,25 @@
+// Use with the target server checkout: gradlew -I /path/run.init.gradle yoonseoSeed
+// No changes to build.gradle, application profiles, migrations or normal server startup.
+def seedDir = initscript.sourceFile.parentFile
+allprojects {
+    afterEvaluate {
+        def targetRuntime = project.hasProperty('seedRuntimeClasses')
+            ? files(project.property('seedRuntimeClasses')) + (sourceSets.main.runtimeClasspath - sourceSets.main.output)
+            : sourceSets.main.runtimeClasspath
+        tasks.register('compileYoonseoSeed', JavaCompile) {
+            dependsOn tasks.named('classes')
+            source = fileTree(seedDir) { include '*.java' }
+            classpath = targetRuntime
+            destinationDirectory = layout.buildDirectory.dir('yoonseo-seed/classes')
+            options.encoding = 'UTF-8'
+            options.release = 17
+        }
+        tasks.register('yoonseoSeed', JavaExec) {
+            dependsOn tasks.named('compileYoonseoSeed')
+            classpath = files(layout.buildDirectory.dir('yoonseo-seed/classes')) + targetRuntime
+            mainClass = project.findProperty('seedMain') ?: 'YoonseoSeed'
+            args project.findProperty('seedCommand') ?: 'plan', project.findProperty('seedInput') ?: new File(seedDir, 'input.example.json').absolutePath
+            systemProperty 'file.encoding', 'UTF-8'
+        }
+    }
+}
