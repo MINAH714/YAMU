@@ -46,6 +46,7 @@ import java.math.BigDecimal
     val installmentOptions: List<Int> = emptyList(),
     val reason: String? = null,
     val performanceImpact: PerformanceImpactDto? = null,
+    val benefitNotice: String? = null,
 )
 
 @Serializable data class BenefitDto(
@@ -224,6 +225,7 @@ data class PayCard(
     val performanceNote: String?,
     /** 추천의 uncomparedCards에서 온 카드 — 순위 · 혜택이 없고 [reason]에 서버 문구. 미리 고르지 않고, 고르면 승인 전에 혜택 없음을 확인받는다 */
     val benefitUnknown: Boolean = false,
+    val benefitNotice: String? = null,
     /** false면 줄만 보이고 고를 수 없다(비교 못 한 카드 중 결제 가능 여부까지 모르는 카드 — directPaymentAllowed false) */
     val selectable: Boolean = true,
     /** 카드 상품명 — [name]은 별명일 수 있어 그림은 이 이름으로 찾는다. 응답 · 카드 목록 어디에도 없으면 null */
@@ -234,6 +236,7 @@ data class PayCard(
     val rank: Int = 0,
     /** 카드 칸에 보일 혜택 방식 — [benefitName]과 같은 혜택(가장 큰 혜택)의 realization. 모르면 [BenefitKind.UNKNOWN](S15P31E103-555) */
     val benefitKind: BenefitKind = BenefitKind.UNKNOWN,
+    val hasMixedBenefits: Boolean = false,
 ) {
     /** 앱이 알아서 골라도 되는 카드 — 처음 1순위 · 거절 뒤 다음 카드. 비교 못 한 카드는 사용자가 직접 골라야 한다 */
     val autoSelectable: Boolean get() = selectable && !benefitUnknown
@@ -435,10 +438,12 @@ fun CandidateDto.toPayCard() = PayCard(
     installmentOptions = installmentOptions,
     reason = reason,
     performanceNote = performanceImpact?.note,
+    benefitNotice = benefitNotice,
     productName = productName,
     issuerUnknown = issuer == null && issuerName == null,
     rank = rank,
     benefitKind = mainBenefitOf(benefits)?.kind() ?: BenefitKind.UNKNOWN,
+    hasMixedBenefits = benefits.filter { it.amount > 0 }.map { it.kind() }.distinct().size > 1,
 )
 
 /** 카드 줄에 보일 혜택 이름 — [mainBenefitOf]의 이름. 없으면 null(줄에는 서버 reason) */

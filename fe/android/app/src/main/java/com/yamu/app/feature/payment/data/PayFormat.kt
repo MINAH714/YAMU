@@ -73,6 +73,7 @@ fun BenefitKind.tagText(): String? = when (this) {
 fun PayCard.benefitHeadline(): String? {
     if (benefitUnknown || netBenefit.signum() <= 0) return null
     val won = "${netBenefit.toWon()}원"
+    if (hasMixedBenefits) return "$won 예상 혜택"
     return when (benefitKind) {
         BenefitKind.CASHBACK -> "$won 돌려받아요"
         BenefitKind.POINT -> "$won 적립"
@@ -86,7 +87,7 @@ fun PayCard.benefitHeadline(): String? {
  */
 fun PayCard.payButtonLabel(amount: Long): String {
     val charged = chargedAmount
-    if (benefitKind == BenefitKind.INSTANT && charged != null && charged in 0 until amount) return "${charged.toWon()}원 결제"
+    if ((benefitKind == BenefitKind.INSTANT || hasMixedBenefits) && charged != null && charged in 0 until amount) return "${charged.toWon()}원 결제"
     return "${brand.name}${brand.name.directionParticle()} ${amount.toWon()}원 결제"
 }
 

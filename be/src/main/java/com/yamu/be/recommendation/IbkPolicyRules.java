@@ -22,6 +22,26 @@ final class IbkPolicyRules {
     }
     private IbkPolicyRules() { }
 
+    /** 다른 혜택과 한도/택일/전환을 공유하지 않는 현장할인만 별도의 계산 범위로 만든다. */
+    static BenefitPolicy confirmedInstant(BenefitPolicy policy, BenefitPolicy.Benefit instant) {
+        if (!policy.fallbacks().isEmpty() || instant.limitIds().size() != 1
+                || policy.applicationGroups() == null) return null;
+        var groups = policy.applicationGroups().stream()
+                .filter(g -> g.members().stream().anyMatch(m -> m.benefitId() == instant.id())).toList();
+        if (groups.size() != 1 || groups.get(0).mode() != BenefitPolicy.ApplicationMode.STACK) return null;
+        long limitId = instant.limitIds().get(0);
+        if (policy.benefits().stream().anyMatch(b -> b.id() != instant.id() && b.limitIds().contains(limitId))) return null;
+        var limits = policy.limits().stream().filter(l -> l.id() == limitId).toList();
+        if (limits.size() != 1 || limits.get(0).period() != BenefitPolicy.Period.DAILY
+                || limits.get(0).unit() != BenefitPolicy.Unit.COUNT) return null;
+        var traces = new java.util.ArrayList<>(policy.simulationRules());
+        traces.add(new SimulationRule(RecommendationDataIssue.IBK_CONFIRMED_ONLY, 1,
+                RecommendationDataIssue.IBK_CONFIRMED_NOTICE, null, instant.id(), List.of("confirmedIndependentBenefitOnly")));
+        return new BenefitPolicy(true, policy.previousMonthPerformance(), policy.additionalCost(), List.of(instant), limits,
+                null, List.of(new BenefitPolicy.ApplicationGroup(groups.get(0).id(), BenefitPolicy.ApplicationMode.STACK,
+                    List.of(new BenefitPolicy.ApplicationMember(instant.id(), null)))), java.util.Map.of(), traces);
+    }
+
     static boolean coverage(UserCard card, LocalDate date, Long previous, RecommendationInput.Transaction transaction,
             String brand, List<RecommendationDataIssue> issues) {
         boolean complete = true;
