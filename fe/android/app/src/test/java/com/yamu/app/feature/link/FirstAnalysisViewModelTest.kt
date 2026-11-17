@@ -37,8 +37,7 @@ class FirstAnalysisViewModelTest {
         override suspend fun loadBenefit(month: YearMonth): ApiResult<HomeBenefit> = error("B-07은 홈 혜택을 부르지 않는다")
         override suspend fun loadPaySettings(): ApiResult<PaySettings> = error("B-07은 결제 설정을 부르지 않는다")
         override suspend fun loadCards(): ApiResult<HomeCardsData> = error("B-07은 카드 현황을 부르지 않는다")
-        override suspend fun loadForecastBrief(accountId: Long): ApiResult<HomeForecastBrief> = error("B-07은 잔고예보 요약을 부르지 않는다")
-        override suspend fun loadAccountLabel(accountId: Long): String? = error("B-07은 계좌 칩을 부르지 않는다")
+        override suspend fun loadForecastBrief(): ApiResult<HomeForecastBrief> = error("B-07은 잔고예보 요약을 부르지 않는다")
         override suspend fun loadCardBenefits(month: YearMonth): ApiResult<Map<Long, CardBenefit>> = error("B-07은 카드별 혜택을 부르지 않는다")
     }
 

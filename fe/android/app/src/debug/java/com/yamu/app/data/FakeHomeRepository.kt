@@ -198,12 +198,6 @@ class FakeHomeRepository @Inject constructor(
         return ApiResult.Success(HomeBenefitReportDto(cards).toCardBenefits()!!)
     }
 
-    /** 요약 칸 계좌 칩 — 가짜 계좌 목록에서(잔고예보 요약과 같은 이름) */
-    override suspend fun loadAccountLabel(accountId: Long): String? {
-        if (scenario() == HomeScenario.NETWORK_ERROR) return null
-        return bank.accountViews().firstOrNull { it.accountId == accountId }?.let { "${it.bank} ·${it.last4}" }
-    }
-
     /** 결제 설정 — 가짜 마이(카드 관리에서 바꾼 자동 선택)와 가짜 카드의 기본 카드. '자동 선택 꺼짐' 상태면 꺼짐 + 기본 카드(없으면 첫 카드) */
     override suspend fun loadPaySettings(): ApiResult<PaySettings> {
         val scenario = scenario()
@@ -243,20 +237,21 @@ class FakeHomeRepository @Inject constructor(
         return ApiResult.Success(HomeCardsData(cards, limits))
     }
 
-    /** 잔고예보 요약 — 가짜 잔고예보와 같은 계산(기준 계좌 · 30일). '잔고예보만 실패'면 실패 */
-    override suspend fun loadForecastBrief(accountId: Long): ApiResult<HomeForecastBrief> {
+    /** 잔고예보 요약 — 가짜 잔고예보와 같은 계산(연결 계좌 전체 · 30일, -599). '잔고예보만 실패'면 실패 */
+    override suspend fun loadForecastBrief(): ApiResult<HomeForecastBrief> {
         val scenario = scenario()
         delay(if (scenario == HomeScenario.SLOW) 3_000 else 500)
         if (scenario == HomeScenario.FORECAST_ERROR) return ApiResult.Failure(ApiError.Server("INTERNAL_ERROR"))
         if (scenario == HomeScenario.NETWORK_ERROR) return ApiResult.Failure(ApiError.Network)
-        val dto = forecasts.homeBrief(accountId) ?: return ApiResult.Failure(ApiError.InvalidRequest("ACCOUNT_SELECTION_REQUIRED"))
-        val label = bank.accountViews().firstOrNull { it.accountId == accountId }?.let { "${it.bank} ·${it.last4}" }
+        val dto = forecasts.homeBriefAll() ?: return ApiResult.Failure(ApiError.InvalidRequest("ACCOUNT_SELECTION_REQUIRED"))
+        val views = bank.accountViews()
+        val label = views.singleOrNull()?.let { "${it.bank} ·${it.last4}" } ?: "계좌 ${views.size}개 전체".takeIf { views.size > 1 }
         return ApiResult.Success(
             HomeForecastDto(
                 currentTotalBalance = dto.currentTotalBalance,
                 summary = dto.summary?.let { HomeForecastSummaryDto(it.minBalance, it.minBalanceDate) },
                 calculatedAt = dto.calculatedAt,
-            ).toBrief(accountId, label),
+            ).toBrief(accountId = null, accountLabel = label),
         )
     }
 
