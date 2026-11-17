@@ -64,6 +64,9 @@ interface PerformanceRepository {
     /** #65를 [yearMonth](지난달 등)로 — 인정 실적만 쓴다. 판정 · 마지막 목록 캐시는 건드리지 않는다(S15P31E103-602) */
     suspend fun recognizedIn(yearMonth: String): ApiResult<MonthRecognized>
 
+    /** #65를 [yearMonth](전월)로 — 카드별 실적 / 기준 · 달성. 판정 채우기 · 마지막 목록 캐시는 하지 않는다(S15P31E103-614) */
+    suspend fun overviewOf(yearMonth: String): ApiResult<PerfOverview>
+
     /** R-03 — 달성 추천이고 옮길 수 있는 예정 지출이 있으면 what-if까지 */
     suspend fun analysis(userCardId: Long): ApiResult<PerfAnalysis>
 
@@ -136,6 +139,9 @@ class PerformanceRepositoryImpl @Inject constructor(
 
     override suspend fun recognizedIn(yearMonth: String): ApiResult<MonthRecognized> =
         apiCall { api.overview(yearMonth) }.map { it.toMonthRecognized(yearMonth) }
+
+    override suspend fun overviewOf(yearMonth: String): ApiResult<PerfOverview> =
+        apiCall { api.overview(yearMonth) }.map { r -> r.cards.map { it.toCardPerf() }.toOverview(r.yearMonth ?: yearMonth, null, r.dataSyncedAt) }
 
     override suspend fun analysis(userCardId: Long): ApiResult<PerfAnalysis> {
         val base = apiCall { api.analysis(userCardId) }.map { it.toAnalysis() }

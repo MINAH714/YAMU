@@ -96,6 +96,10 @@ class FakePerformanceRepository @Inject constructor(private val store: FakePerfo
     private val month = YearMonth.now(KST)
     private val daysLeft get() = month.atEndOfMonth().dayOfMonth - LocalDate.now(KST).dayOfMonth
 
+    /** 실적 단계 기준 — 노리2는 서버처럼 다섯 단계(20만~80만), 나머지는 목표 하나 */
+    private fun FakePerformanceStore.Card.thresholds(): List<Long> =
+        if (id == 16L) NORI2_THRESHOLDS else listOfNotNull(target)
+
     private fun FakePerformanceStore.Card.toCardPerf(): CardPerf {
         val achieved = store.achieved(this)
         return CardPerf(
@@ -106,6 +110,7 @@ class FakePerformanceRepository @Inject constructor(private val store: FakePerfo
             guide = if (achieved) PerfGuide.ALREADY_ACHIEVED else kind, decision = decision,
             provisional = false, recentChange = recentChange, recentAtIso = recentAt, nickname = name,
             atRisk = atRisk && !achieved,
+            thresholds = thresholds(),
         )
     }
 
@@ -153,6 +158,26 @@ class FakePerformanceRepository @Inject constructor(private val store: FakePerfo
     override suspend fun recognizedIn(yearMonth: String): ApiResult<MonthRecognized> = withFault {
         delay(300)
         ApiResult.Success(MonthRecognized(yearMonth, store.cards.filter { it.target != null }.associate { it.id to it.recognized + 120_000 }))
+    }
+
+    /** 전월 실적(S15P31E103-614) — 카드마다 정해 둔 지난달 실적. 노리2는 지난달 기록 없음, 목록에 없는 카드도 기록 없음 */
+    override suspend fun overviewOf(yearMonth: String): ApiResult<PerfOverview> = withFault {
+        delay(300)
+        val cards = store.cards.map { c ->
+            val recognized = LAST_MONTH_RECOGNIZED[c.id]
+            val thresholds = c.thresholds()
+            // 서버처럼 목표는 '그달 실적보다 큰 가장 작은 단계'(기록이 없으면 0원 기준), 다 넘겼으면 맨 위 단계
+            val target = thresholds.firstOrNull { it > (recognized ?: 0) } ?: thresholds.lastOrNull()
+            CardPerf(
+                userCardId = c.id, brand = brandOf(c.issuer, color = c.color), name = c.issuer,
+                target = target, targetLabel = target?.let { "${it / 10_000}만 원 이상" },
+                recognized = recognized ?: 0, remaining = target?.let { (it - (recognized ?: 0)).coerceAtLeast(0) } ?: 0,
+                achieved = target != null && recognized != null && recognized >= target, noTarget = target == null,
+                guide = null, decision = null, provisional = false, recentChange = null, recentAtIso = null, nickname = c.name,
+                noRecord = target != null && recognized == null, thresholds = thresholds,
+            )
+        }
+        ApiResult.Success(cards.toOverview(yearMonth, null, OffsetDateTime.now(KST).toString()))
     }
 
     override suspend fun analysis(userCardId: Long): ApiResult<PerfAnalysis> = withFault { analysisNow(userCardId) }
@@ -260,3 +285,9 @@ class FakePerformanceRepository @Inject constructor(private val store: FakePerfo
         )
     }
 }
+
+/** 노리2 실적 단계(BE 카드 시드와 같은 20만 · 30만 · 40만 · 60만 · 80만) */
+private val NORI2_THRESHOLDS = listOf(200_000L, 300_000L, 400_000L, 600_000L, 800_000L)
+
+/** 전월 인정 실적 — 롯데 · 톡톡은 달성, 신한 · 삼성은 미달성, 노리2는 기록 없음(목록에 없음), 현대는 실적 조건 없음 */
+private val LAST_MONTH_RECOGNIZED = mapOf(13L to 440_000L, 11L to 310_000L, 15L to 290_000L, 14L to 260_000L, 12L to 120_000L)

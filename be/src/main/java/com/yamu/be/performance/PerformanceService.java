@@ -115,12 +115,14 @@ public class PerformanceService {
         List<CardPerformancesResponse.Item> items = owned.stream().map(card -> {
             CardProduct product = productById.get(card.getCardProductId());
             CardIssuers.Issuer issuer = CardIssuers.of(product.getIssuerCode());
-            Progress progress = progress(summaries.get(product.getId()), recognized.get(card.getId()), month, today);
+            CardBenefitSummaryReader.Summary summary = summaries.get(product.getId());
+            Progress progress = progress(summary, recognized.get(card.getId()), month, today);
             String guide = guides ? guide(userId, card, progress.status(), expenses) : null;
             return new CardPerformancesResponse.Item(card.getId(), nickname(card, product), issuer, issuer.name(),
                     product.getCardType().name(), progress.target(), label(progress.target()), progress.recognized(),
                     progress.remaining(), progress.status(), guide, decided.get(card.getId()),
-                    provisional.contains(card.getId()), recent.get(card.getId()));
+                    provisional.contains(card.getId()), recent.get(card.getId()),
+                    summary == null ? List.of() : summary.thresholds());
         }).toList();
         return new CardPerformancesResponse(month.toString(), daysLeft(month, today), items, null);
     }
