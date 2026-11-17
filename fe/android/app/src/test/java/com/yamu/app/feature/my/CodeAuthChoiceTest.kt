@@ -32,6 +32,12 @@ class CodeAuthChoiceTest {
         assertEquals(codeAuthLabel(pinOnly), codeAuthChoices(biometricOn = true).single { it.first == pinOnly }.second)
     }
 
+    @Test fun `마이 보안 · 인증 줄도 같은 기준 — 간편 비밀번호만을 고르면 지문이 켜져 있어도 간편 비밀번호`() {
+        assertEquals("간편 비밀번호", securityRowLabel(pinOnlyForCode = true, biometricOn = true))
+        assertEquals("간편 비밀번호", securityRowLabel(pinOnlyForCode = false, biometricOn = false))
+        assertEquals("지문", securityRowLabel(pinOnlyForCode = false, biometricOn = true))
+    }
+
     @Test fun `서버가 간편 비밀번호만이고 지문도 꺼져 있으면 한 줄뿐`() {
         assertTrue(codeAuthPinOnly(pinOnlyForCode = true, biometricOn = false))
         assertEquals(1, codeAuthChoices(biometricOn = false).size)

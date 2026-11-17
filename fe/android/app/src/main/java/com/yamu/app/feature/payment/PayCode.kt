@@ -253,6 +253,14 @@ internal fun PayCodeState.waitPanel(): WaitPanel? {
  * 결제 코드 본인 확인 문구. 결제 상세의 '결제 취소'에서 열면(CancelCode) 취소라고 말한다(S15P31E103-464).
  * 인증 목적은 둘 다 BARCODE — 취소 코드도 같은 결제 코드를 매장이 찍는 것이라 서버 인증은 같다
  */
+/**
+ * 인증 단계 아래 버튼 글자. 이 기기에 지문이 있어도 '결제 코드 열 때 인증 = 간편 비밀번호만'이면 서버가 지문을 빼고
+ * challenge를 내려 준다. 그래서 서버가 지문을 허락한 것을 본 뒤에만(allowsBiometric = true) '지문으로'를 붙인다.
+ * 처음 묻기 전(null)에는 어느 쪽인지 몰라 '결제 코드 열기'
+ */
+internal fun payCodeOpenLabel(biometricReady: Boolean, biometricAllowed: Boolean?): String =
+    if (biometricReady && biometricAllowed == true) "지문으로 결제 코드 열기" else "결제 코드 열기"
+
 internal fun payCodePrompt(forCancel: Boolean): StepUpPrompt =
     if (forCancel) StepUpPrompt("결제 취소", "인증하면 취소 코드가 보여요", pinTitle = "간편 비밀번호로\n취소 코드를 열어요")
     else StepUpPrompt("결제 코드 열기", "인증하면 결제 코드가 보여요")
@@ -675,6 +683,7 @@ fun PayCodeRoute(
 ) {
     val s by viewModel.state.collectAsStateWithLifecycle()
     val stepUpUi by viewModel.stepUp.ui.collectAsStateWithLifecycle()
+    val biometricAllowed by viewModel.stepUp.biometricAllowed.collectAsStateWithLifecycle()
     var askReject by rememberSaveable { mutableStateOf(false) }
     StepUpEffect(viewModel.stepUp, onOpenPinPad)
     SecureScreen()
@@ -728,7 +737,7 @@ fun PayCodeRoute(
             bottomBar = {
                 when (val p = s.phase) {
                     PayPhase.Auth -> BottomCta {
-                        PrimaryButton(if (s.biometricReady) "지문으로 결제 코드 열기" else "결제 코드 열기", onClick = viewModel::openCode, loading = busy)
+                        PrimaryButton(payCodeOpenLabel(s.biometricReady, biometricAllowed), onClick = viewModel::openCode, loading = busy)
                     }
                     PayPhase.CodeExpired -> BottomCta { PrimaryButton("새 코드 받기", onClick = viewModel::renewCode, loading = busy) }
                     is PayPhase.Request -> RequestButtons(

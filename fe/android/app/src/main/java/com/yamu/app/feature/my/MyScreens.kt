@@ -193,6 +193,8 @@ data class MyState(
     val cardCount: Int? = null,
     val accountCount: Int? = null,
     val notificationsOn: Boolean? = null,
+    /** 이 기기에서 지문 인증을 쓸 수 있나(지문 키 등록 + 키 살아 있음) — 보안 · 인증 줄 글자 */
+    val biometricOn: Boolean = false,
     val error: String? = null,
     /** 숨은 시연 모드 시트 — 버전 글자 7번 + 간편 비밀번호 본인 확인 뒤에만(S15P31E103-434) */
     val demoSheet: Boolean = false,
@@ -257,6 +259,7 @@ class MyViewModel @Inject constructor(
             val notifications = async { my.notifications(page = 1) }
             val linked = async { link.linkedOverview() }
             val settings = async { my.notificationSettings() }
+            val biometricOn = auth.biometricReady()
             val i = info.await()
             val overview = (linked.await() as? ApiResult.Success)?.data
             _state.update { s ->
@@ -268,6 +271,7 @@ class MyViewModel @Inject constructor(
                     cardCount = overview?.cards?.size ?: s.cardCount,
                     accountCount = overview?.accounts?.size ?: s.accountCount,
                     notificationsOn = (settings.await() as? ApiResult.Success)?.data?.let { it.performance || it.balance || it.payment } ?: s.notificationsOn,
+                    biometricOn = biometricOn,
                 )
             }
         }
@@ -344,7 +348,7 @@ fun MyRoute(
                 )
                 ListRow(
                     title = "보안 · 인증",
-                    valuePlain = info?.let { if (it.biometricEnabled) "지문" else "간편 비밀번호" },
+                    valuePlain = info?.let { securityRowLabel(it.pinOnlyForCode, s.biometricOn) },
                     chevron = true,
                     onClick = onSecurity,
                 )
@@ -834,6 +838,13 @@ private const val CODE_AUTH_PIN_ONLY = "간편 비밀번호만"
 internal fun codeAuthPinOnly(pinOnlyForCode: Boolean, biometricOn: Boolean): Boolean = pinOnlyForCode || !biometricOn
 
 internal fun codeAuthLabel(pinOnly: Boolean): String = if (pinOnly) CODE_AUTH_PIN_ONLY else CODE_AUTH_BIOMETRIC
+
+/**
+ * 마이 '보안 · 인증' 줄 글자. 서버의 지문 값(biometricEnabled)만 보면 '간편 비밀번호만'을 골라도 '지문'으로 남아서,
+ * 보안 화면의 '결제 코드 열 때 인증'과 같은 기준([codeAuthPinOnly])으로 맞춘다
+ */
+internal fun securityRowLabel(pinOnlyForCode: Boolean, biometricOn: Boolean): String =
+    if (codeAuthPinOnly(pinOnlyForCode, biometricOn)) "간편 비밀번호" else "지문"
 
 /** 지문 인증이 꺼진 기기에는 고를 수 있는 게 간편 비밀번호뿐이라 그 한 줄만 보여 준다 */
 internal fun codeAuthChoices(biometricOn: Boolean): List<Pair<Boolean, String>> =
