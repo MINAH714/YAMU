@@ -215,7 +215,9 @@ class HomeOpenForecastTest {
         f01.select(HOME_FORECAST_SELECTION)
         val forecast = (f01.forecast() as ApiResult.Success).data
 
-        assertEquals(listOf("accountIds=1&accountIds=2&until=DAYS&days=30"), forecastQueries.distinct())
+        // 계좌 · 기간은 같고, F-01만 계좌별 결과(안전 잔액 아래로 내려가는 계좌 카드)를 더 받는다
+        assertEquals(listOf("accountIds=1&accountIds=2&until=DAYS&days=30"), forecastQueries.map { it?.removeSuffix("&includeAccountDetails=true") }.distinct())
+        assertEquals(listOf(false, true), forecastQueries.map { it.orEmpty().endsWith("&includeAccountDetails=true") })
         assertEquals(2, forecastQueries.size)
         assertEquals(forecast.currentBalance, brief.currentBalance)
         assertEquals(500_000L, brief.currentBalance)
