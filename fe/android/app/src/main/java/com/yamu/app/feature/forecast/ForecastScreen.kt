@@ -127,6 +127,7 @@ import com.yamu.app.feature.forecast.data.RiskLevel
 import com.yamu.app.feature.forecast.data.RiskWindow
 import com.yamu.app.feature.forecast.data.cashflowRows
 import com.yamu.app.feature.forecast.data.forecastOnlyRows
+import com.yamu.app.feature.forecast.data.shortName
 import com.yamu.app.feature.link.data.CashflowCandidate
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
@@ -535,6 +536,11 @@ fun ForecastRoute(
                         )
                     }
                     if (f.riskWindows.isNotEmpty()) RiskCard(f, selectedDate, onJump = jump)
+                    // 계좌를 여럿 볼 때 안전 잔액 아래로 내려가는 계좌 — 누르면 그 계좌 예보만 보고 화면을 맨 위로
+                    AccountRiskCard(f.atRiskAccounts) { a ->
+                        viewModel.apply(s.selection.period, setOf(a.accountId))
+                        scope.launch { if (reduce) scroll.scrollTo(0) else scroll.animateScrollTo(0) }
+                    }
                     LinesCard(f)
                     LivingCostEntry(f, onLivingCost)   // F-01b 생활비 예측 입구
                     CashflowManageEntry(onCashflowList)   // 가계부(F-02) 입구 — 예정된 돈 목록 카드였다(S15P31E103-592)
@@ -1202,6 +1208,30 @@ private fun RiskCard(f: Forecast, selectedDate: LocalDate?, onJump: (LocalDate?)
         }
     }
 }
+
+/**
+ * 안전 잔액 아래로 내려가는 계좌 — 'KB국민은행 ··1234 [안전 잔액 아래]'를 한 줄에 하나씩, 제목 없이.
+ * 통합 선이 안전해도 계좌 하나가 위험할 수 있다(BE summary.hasAccountRisk). 날짜는 계좌마다 크게 달라 넣지 않고(사용자 결정),
+ * 태그 색은 위 상태 태그와 같은 규칙(WARNING 주황 · DANGER 빨강). 줄을 누르면 그 계좌만 고른 잔고예보로 바꾼다
+ */
+@Composable
+private fun AccountRiskCard(accounts: List<Pair<ForecastAccountOption, RiskLevel>>, onPick: (ForecastAccountOption) -> Unit) {
+    if (accounts.isEmpty()) return
+    val c = YamuTheme.colors
+    YamuCard(contentPadding = PaddingValues(horizontal = 20.dp, vertical = 4.dp)) {
+        accounts.forEachIndexed { i, (a, level) ->
+            if (i > 0) HorizontalDivider(color = c.outlineVariant)
+            ListRow(
+                title = a.shortName(),
+                trailing = { StatusTag(ACCOUNT_RISK_TAG, tone = if (level == RiskLevel.DANGER) TagTone.Error else TagTone.Warning) },
+                chevron = true,
+                onClick = { onPick(a) },
+            )
+        }
+    }
+}
+
+internal const val ACCOUNT_RISK_TAG = "안전 잔액 아래"
 
 /**
  * 'AI 생활비를 반영하면 안전 잔액보다 최대 70,000원 모자라요'. 구간의 선은 BE -356부터 EXPECTED · CONSERVATIVE만 온다.
