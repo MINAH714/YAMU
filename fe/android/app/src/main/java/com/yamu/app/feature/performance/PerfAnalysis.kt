@@ -63,6 +63,10 @@ import com.yamu.app.core.network.ApiResult
 import com.yamu.app.core.ui.LocalSnackbar
 import com.yamu.app.core.ui.userMessage
 import com.yamu.app.feature.performance.data.CardPerf
+import com.yamu.app.feature.performance.data.LastMonthPerf
+import com.yamu.app.feature.performance.data.MonthRecognized
+import com.yamu.app.feature.performance.data.lastMonthPerf
+import com.yamu.app.feature.performance.data.previousYearMonth
 import com.yamu.app.feature.performance.data.PerfAnalysis
 import com.yamu.app.feature.performance.data.PerfDecision
 import com.yamu.app.feature.performance.data.PerfGuide
@@ -87,8 +91,17 @@ data class PerfAnalysisState(
     val error: String? = null,
     val acting: Boolean = false,
     val message: String? = null,                 // 스낵바 한 번
+    /** 지난달 카드별 인정 실적(기록 있는 카드만) — 못 받았으면 null이라 지난달 줄을 숨긴다(S15P31E103-602) */
+    val lastMonth: MonthRecognized? = null,
+    /** 카드별 실적 구간 기준 금액(R-02 #66) — 카드 id로 둬서 늦게 온 응답이 다른 카드에 붙지 않는다 */
+    val thresholds: Map<Long, List<Long>> = emptyMap(),
 ) {
     val selected: CardPerf? get() = tabs.firstOrNull { it.userCardId == selectedId }
+
+    /** 카드 그림 아래 지난달 한 줄 — 지난달 값이나 구간을 아직 · 못 받았으면 null */
+    fun lastMonthOf(userCardId: Long): LastMonthPerf? = lastMonth?.let { m ->
+        thresholds[userCardId]?.let { lastMonthPerf(m.yearMonth, m.byCard[userCardId], it) }
+    }
 }
 
 /** R-03 유불리 분석 — 카드 탭(기준 전 카드) · 판정은 서버(#18) 그대로 · 판단 기록(#35) */
@@ -104,6 +117,8 @@ class PerfAnalysisViewModel internal constructor(
     private val _state = MutableStateFlow(PerfAnalysisState(selectedId = initialCardId))
     val state: StateFlow<PerfAnalysisState> = _state.asStateFlow()
     private var analysisRequest = 0L
+    /** 구간을 받는 중인 카드 — init보다 먼저 만들어 둔다(init의 코루틴이 바로 부를 수 있어서) */
+    private val thresholdRequests = mutableSetOf<Long>()
 
     init {
         viewModelScope.launch {
@@ -113,6 +128,13 @@ class PerfAnalysisViewModel internal constructor(
             // 기준 전 카드가 탭. 고른 카드가 이미 달성이면 그 카드 하나만
             val tabs = if (selected != null && selected !in pending) listOf(selected) else pending
             _state.update { it.copy(tabs = tabs) }
+            // 지난달은 기기 시계가 아니라 서버가 준 이번 달에서 한 달 전(S15P31E103-602). 못 받으면 줄만 숨기고 분석은 그대로
+            previousYearMonth(overview?.yearMonth)?.let { month ->
+                (perf.recognizedIn(month) as? ApiResult.Success)?.data?.let { last ->
+                    _state.update { it.copy(lastMonth = last) }
+                    loadThresholds(_state.value.selectedId)
+                }
+            }
         }
         load()
     }
@@ -121,6 +143,18 @@ class PerfAnalysisViewModel internal constructor(
         if (userCardId == _state.value.selectedId) return
         _state.update { it.copy(selectedId = userCardId, message = null) }
         load()
+        loadThresholds(userCardId)
+    }
+
+    /** 지난달 기록이 있는 카드만 구간을 받는다 — 한 번 받은 카드 · 받는 중인 카드는 다시 부르지 않는다. 실패하면 줄만 숨긴다 */
+    private fun loadThresholds(userCardId: Long) {
+        val s = _state.value
+        if (s.lastMonth?.byCard?.containsKey(userCardId) != true || userCardId in s.thresholds || !thresholdRequests.add(userCardId)) return
+        viewModelScope.launch {
+            val tiers = (perf.detail(userCardId) as? ApiResult.Success)?.data?.tiers
+            thresholdRequests.remove(userCardId)
+            tiers?.mapNotNull { it.threshold }?.let { t -> _state.update { it.copy(thresholds = it.thresholds + (userCardId to t)) } }
+        }
     }
 
     fun load() {
@@ -222,7 +256,7 @@ fun PerfAnalysisRoute(onBack: () -> Unit, onCardDetail: (userCardId: Long) -> Un
         Column(Modifier.padding(inner).consumeWindowInsets(inner).fillMaxSize()) {
             if (s.tabs.isEmpty()) {
                 // 실적관리 목록을 아직 · 못 받았을 때 — 탭 · 카드 그림 없이 분석만
-                AnalysisPage(card = null, current = s, cardName, onRetry = viewModel::load, onCardDetail = onCardDetail)
+                AnalysisPage(card = null, current = s, cardName, lastMonth = null, onRetry = viewModel::load, onCardDetail = onCardDetail)
             } else {
                 // 카드를 옆으로 밀어 넘기면 탭이 따라가고, 탭을 누르면 카드가 미끄러진다.
                 // 분석은 멈춘 쪽(settledPage) 카드만 불러온다 — 넘기는 중인 옆 카드는 그림 + 뼈대만
@@ -241,20 +275,30 @@ fun PerfAnalysisRoute(onBack: () -> Unit, onCardDetail: (userCardId: Long) -> Un
                 }
                 HorizontalPager(pager, Modifier.fillMaxSize(), verticalAlignment = Alignment.Top) { page ->
                     val card = s.tabs[page]
-                    AnalysisPage(card, current = s.takeIf { card.userCardId == it.selectedId }, cardName, onRetry = viewModel::load, onCardDetail = onCardDetail)
+                    AnalysisPage(card, current = s.takeIf { card.userCardId == it.selectedId }, cardName, lastMonth = s.lastMonthOf(card.userCardId), onRetry = viewModel::load, onCardDetail = onCardDetail)
                 }
             }
         }
     }
 }
 
-/** 카드 한 장의 분석 쪽 — 카드 그림 + 판정. [current]가 null이면(넘기는 중인 옆 카드) 뼈대만 */
+/** 카드 한 장의 분석 쪽 — 카드 그림 + 지난달 한 줄 + 판정. [current]가 null이면(넘기는 중인 옆 카드) 뼈대만 */
 @Composable
-private fun AnalysisPage(card: CardPerf?, current: PerfAnalysisState?, cardName: String, onRetry: () -> Unit, onCardDetail: (Long) -> Unit) {
+private fun AnalysisPage(card: CardPerf?, current: PerfAnalysisState?, cardName: String, lastMonth: LastMonthPerf?, onRetry: () -> Unit, onCardDetail: (Long) -> Unit) {
     val c = YamuTheme.colors
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
         // 어떤 카드의 분석인지 — 카드 그림을 판정 위에
         card?.let { PerfCardArt(it, Modifier.padding(start = YamuSpacing.screen, end = YamuSpacing.screen, top = YamuSpacing.x6)) }
+        // 지난달 실적 — 채운 가장 높은 구간 기준(S15P31E103-602). 기록 · 구간이 없으면 줄을 두지 않는다
+        lastMonth?.let {
+            Text(
+                it.text,
+                style = YamuTheme.typography.bodyM,
+                color = c.text2,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth().padding(start = YamuSpacing.screen, end = YamuSpacing.screen, top = YamuSpacing.x3),
+            )
+        }
         val a = current?.analysis
         when {
             current == null || current.loading -> SectionBlock(divider = false) {

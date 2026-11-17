@@ -1,5 +1,6 @@
 package com.yamu.app.feature.performance.data
 
+import com.yamu.app.core.format.toManWon
 import com.yamu.app.core.format.toWon
 import com.yamu.app.feature.link.data.Brand
 import com.yamu.app.feature.link.data.IssuerDto
@@ -10,6 +11,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonPrimitive
+import java.util.Locale
 
 // ── 서버 요청 · 응답 — #65 카드별 실적 · #66 실적 상세 · #18 유불리 분석 · #35 판단 기록 · #32 혜택 한도. 11 문서 7-2 ──
 
@@ -211,8 +213,11 @@ data class PerfOverview(
     val all: List<CardPerf> get() = pending + others
 }
 
-/** [benefitAmount]는 실적이 이 기준일 때 한 달에 받을 수 있는 원화 혜택의 최대치(아래 구간 혜택까지 누적). 모르거나 한도 없는 혜택이 끼면 null */
-data class PerfTier(val label: String, val benefit: String?, val benefitAmount: Long?, val achieved: Boolean) {
+/**
+ * [benefitAmount]는 실적이 이 기준일 때 한 달에 받을 수 있는 원화 혜택의 최대치(아래 구간 혜택까지 누적). 모르거나 한도 없는 혜택이 끼면 null.
+ * [threshold]는 구간 기준 금액(원, 포함) — 지난달 달성 구간을 셀 때 쓴다(S15P31E103-602)
+ */
+data class PerfTier(val label: String, val benefit: String?, val benefitAmount: Long?, val achieved: Boolean, val threshold: Long? = null) {
     /** 금액 칸 — 구간마다 '최대 n원'. null은 0원이 아니라 금액을 모르는 것이라 비운다 */
     val amountText: String get() = benefitAmount?.let { "최대 ${it.toWon()}원" } ?: ""
 }
@@ -246,6 +251,37 @@ data class PerfDetail(
     /** 서버 summary.status AT_RISK */
     val atRisk: Boolean = false,
 )
+
+/** 다른 달(지난달)의 인정 실적 — 그달 실적 기록이 있는 카드만 담는다(S15P31E103-602). [yearMonth]는 '2026-10' */
+data class MonthRecognized(val yearMonth: String, val byCard: Map<Long, Long>)
+
+/** '2026-11' → '2026-10', '2026-01' → '2025-12'. 모양이 다르면 null */
+fun previousYearMonth(yearMonth: String?): String? {
+    val parts = yearMonth?.split('-')?.takeIf { it.size == 2 } ?: return null
+    val year = parts[0].toIntOrNull() ?: return null
+    val month = parts[1].toIntOrNull()?.takeIf { it in 1..12 } ?: return null
+    return if (month == 1) String.format(Locale.ROOT, "%04d-12", year - 1) else String.format(Locale.ROOT, "%04d-%02d", year, month - 1)
+}
+
+/**
+ * 실적 분석 카드 그림 아래 지난달 한 줄(S15P31E103-602). 채운 구간 중 가장 높은 구간 기준이고, 하나도 못 채웠으면 첫 구간까지 얼마나 왔는지.
+ * [percent]는 내림 — 349,999원 / 35만 원이 100%로 보이지 않게
+ */
+data class LastMonthPerf(val month: Int, val recognized: Long, val tier: Long, val reached: Boolean, val percent: Long) {
+    val text: String get() = if (reached) "${month}월 ${recognized.toWon()}원 · ${tier.toManWon()} 구간 달성 (${percent}%)"
+        else "${month}월 ${recognized.toWon()}원 · ${tier.toManWon()} 구간까지 ${percent}%"
+}
+
+/** 그달 실적 기록이 없거나([recognized] null) 실적 구간이 없는 카드면 null — 줄을 숨긴다 */
+fun lastMonthPerf(yearMonth: String?, recognized: Long?, thresholds: List<Long>): LastMonthPerf? {
+    val month = monthOf(yearMonth) ?: return null
+    if (recognized == null) return null
+    val sorted = thresholds.filter { it > 0 }.distinct().sorted()
+    if (sorted.isEmpty()) return null
+    val reached = sorted.lastOrNull { recognized >= it }
+    val tier = reached ?: sorted.first()
+    return LastMonthPerf(month, recognized, tier, reached = reached != null, percent = recognized.coerceAtLeast(0) * 100 / tier)
+}
 
 data class PerfStep(val label: String, val amount: Long?, val note: String?)
 
@@ -327,6 +363,13 @@ fun List<CardPerf>.toOverview(yearMonth: String?, daysLeft: Int?, syncedAtIso: S
     )
 }
 
+/** 그달 실적 행이 없으면(INSUFFICIENT_DATA) 0원이 아니라 모르는 달이라 뺀다. 실적 조건이 없는 카드(NO_TARGET)도 구간이 없어 뺀다 */
+fun CardPerformancesDto.toMonthRecognized(asked: String): MonthRecognized = MonthRecognized(
+    yearMonth = yearMonth ?: asked,
+    byCard = cards.filterNot { it.status.equals("INSUFFICIENT_DATA", ignoreCase = true) || it.status.equals("NO_TARGET", ignoreCase = true) }
+        .associate { it.userCardId to it.recognizedAmount },
+)
+
 fun PerformanceDetailDto.toDetail(): PerfDetail {
     val noTarget = summary.status.equals("NO_TARGET", ignoreCase = true) || summary.targetAmount == null
     return PerfDetail(
@@ -339,7 +382,7 @@ fun PerformanceDetailDto.toDetail(): PerfDetail {
         achieved = summary.status.equals("ACHIEVED", ignoreCase = true),
         noTarget = noTarget,
         // 구간 달성은 서버 값(achieved)을 쓰고, 없으면 인정 실적 ≥ 기준으로 표시만
-        tiers = tiers.sortedBy { it.threshold }.map { PerfTier(it.label, it.benefitSummary, it.benefitAmount, it.achieved ?: (summary.recognizedAmount >= it.threshold)) },
+        tiers = tiers.sortedBy { it.threshold }.map { PerfTier(it.label, it.benefitSummary, it.benefitAmount, it.achieved ?: (summary.recognizedAmount >= it.threshold), it.threshold) },
         nextMonthMessage = nextMonthImpact?.message?.takeIf { it.isNotBlank() },
         atRisk = summary.status.equals("AT_RISK", ignoreCase = true),
     )
