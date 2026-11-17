@@ -2,6 +2,8 @@ package com.yamu.be.recommendation;
 
 /** 조회·정책 확인 사유. 예외 메시지나 DB 접속 정보는 외부로 전달하지 않는다. */
 public record RecommendationDataIssue(Long userCardId, Long policyId, String code, boolean retryable) {
+    public static final String IBK_PARTIAL_ITEMS = "IBK_PARTIAL_ITEMS";
+    public static final String IBK_PARTIAL_ITEMS_NOTICE = "현장할인은 대상이 확인된 상품 금액만 반영했습니다. 바나나맛우유·컵라면·떡볶이 등 대상 여부가 미확인인 상품의 현장할인은 포함하지 않았습니다.";
     public static final String IBK_CONFIRMED_ONLY = "IBK_CONFIRMED_INSTANT_ONLY";
     public static final String IBK_CONFIRMED_NOTICE = "확인된 GS25 현장할인만 반영했습니다. 추가 환급은 계산 기준 미확정으로 포함하지 않았습니다.";
     public static final String IBK_ORIGINAL_CASHBACK = "IBK_ORIGINAL_AMOUNT_CASHBACK_POLICY";
@@ -18,10 +20,11 @@ public record RecommendationDataIssue(Long userCardId, Long policyId, String cod
                 case "gs-rose-tteokbokki" -> "떡볶이";
                 default -> "구매 상품";
             };
-            return name + "의 GS25 현장할인 대상 여부가 아직 확인되지 않아 IBK 혜택 비교에서 제외했어요. 할인 제외가 확정된 상품은 아니에요.";
+            return name + "의 GS25 현장할인 대상 여부가 아직 확인되지 않아 해당 상품의 현장할인을 계산하지 못했어요. 할인 제외가 확정된 상품은 아니에요.";
         }
         if (code.startsWith("IBK_UNSUPPORTED_")) return "이 거래에 관련된 미지원 혜택이 있어 전체 혜택을 확정할 수 없습니다: " + code.substring(16);
         return switch (code) {
+            case IBK_PARTIAL_ITEMS -> IBK_PARTIAL_ITEMS_NOTICE;
             case IBK_CONFIRMED_ONLY -> IBK_CONFIRMED_NOTICE;
             case IBK_ORIGINAL_CASHBACK -> IBK_ORIGINAL_NOTICE;
             case "IBK_ISSUER_REGISTRATION_UNKNOWN" -> "카드사 사용 등록일을 확인하지 못했습니다.";

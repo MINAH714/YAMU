@@ -640,6 +640,26 @@ class SimulationSeedRecommendationDatabaseTest extends MySqlTestSupport {
         }
     }
 
+    @ParameterizedTest
+    @CsvSource({"gs-banana-milk,1700,119000", "gs-cup-ramen,1250,119000", "gs-rose-tteokbokki,3900,119000", "gs-banana-milk,1700,250000"})
+    void ibkMixedUnknownItemPreservesConfirmedLunchDiscount(String unknown, long price, long previous) {
+        long user=new OwnershipFixtures(jdbc).user();
+        long id=card(user,product("IBK나라사랑카드"),previous,0);
+        long total=5500+price;
+        var base=request(user,List.of(id),"GS25",total,null,Map.of("PAYMENT_METHOD:NPAY",false));
+        var basket=com.yamu.be.payment.pos.PosBasket.validate("GS25",List.of(
+                new com.yamu.be.payment.pos.PosBasket.Line("gs-jeyuk-dosirak",java.math.BigDecimal.ONE),
+                new com.yamu.be.payment.pos.PosBasket.Line(unknown,java.math.BigDecimal.ONE)),total);
+        var result=port.recommend(new RecommendationRequest(base.paymentId(),user,base.terms(),base.merchant(),base.requestedAt(),null,base.availability(),base.verifiedFacts(),basket));
+        assertThat(basket.ibkEligibleAmount()).isEqualTo(5500);
+        assertThat(result.status()).isEqualTo(RecommendationResult.Status.PARTIAL_READY);
+        assertThat(result.uncomparedCards()).isEmpty();
+        assertThat(result.topCandidate().orElseThrow().instantDiscount()).isEqualTo(550);
+        assertThat(base.terms().chargedAmount(result.topCandidate().orElseThrow().instantDiscount())).isEqualTo(total-550);
+        assertThat(result.benefitNotice(id)).isEqualTo(RecommendationDataIssue.IBK_PARTIAL_ITEMS_NOTICE);
+        assertThat(codec.decode(codec.encode(result)).status()).isEqualTo(RecommendationResult.Status.PARTIAL_READY);
+    }
+
     @Test void ibkLifeBasketRanks1760AboveMrLife880AndCharges7920() {
         long user=new OwnershipFixtures(jdbc).user();
         long mr=card(user,product("신한카드 Mr.Life"),390500,0);

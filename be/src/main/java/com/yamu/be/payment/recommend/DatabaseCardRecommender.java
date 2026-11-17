@@ -57,7 +57,7 @@ public class DatabaseCardRecommender implements CardRecommender {
             var reason = Objects.equals(evaluated.userCardId(), result.recommendation().selectedUserCardId())
                     ? SelectionReason.valueOf(result.recommendation().selectionReason().name()) : null;
             String notice = result.issues().stream().filter(i -> Objects.equals(i.userCardId(), evaluated.userCardId())
-                    && Set.of(com.yamu.be.recommendation.RecommendationDataIssue.IBK_CONFIRMED_ONLY,
+                    && Set.of(com.yamu.be.recommendation.RecommendationDataIssue.IBK_PARTIAL_ITEMS, com.yamu.be.recommendation.RecommendationDataIssue.IBK_CONFIRMED_ONLY,
                         com.yamu.be.recommendation.RecommendationDataIssue.IBK_ORIGINAL_CASHBACK).contains(i.code()))
                     .map(com.yamu.be.recommendation.RecommendationDataIssue::message).findFirst().orElse(null);
             String explanation = reason != null ? result.recommendation().message()

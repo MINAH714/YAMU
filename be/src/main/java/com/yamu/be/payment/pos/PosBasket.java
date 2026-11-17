@@ -52,7 +52,7 @@ public final class PosBasket {
         } catch (ArithmeticException failure) { throw invalid(); }
         if (total != amount) throw invalid();
         items.sort(Comparator.comparing(Item::productCode));
-        return new Snapshot(1, brand, items, total, known ? eligible : null);
+        return new Snapshot(1, brand, items, total, known || eligible > 0 ? eligible : null);
     }
 
     /** 품목 순서만 다른 재송신은 동일하게 취급한다. 금액이 같아도 품목이 다르면 다른 요청이다. */

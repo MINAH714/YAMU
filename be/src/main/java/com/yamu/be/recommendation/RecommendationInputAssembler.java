@@ -63,6 +63,13 @@ class RecommendationInputAssembler {
                 && rows.stream().map(CardBenefit::getBenefitCode).distinct().count() == rows.size();
         boolean coverage = !ibk || transaction != null && IbkPolicyRules.coverage(card,date,previous,transaction,merchantBrand,issues);
         var traces=new ArrayList<SimulationRule>();
+        if (ibk && transaction != null && "GS25".equals(merchantBrand) && transaction.basket() != null
+                && transaction.basket().ibkEligibleAmount() != null && transaction.basket().ibkEligibleAmount() > 0
+                && transaction.basket().items().stream().anyMatch(item -> item.ibkEligible() == null)) {
+            issues.add(0, new RecommendationDataIssue(card.getId(), null, RecommendationDataIssue.IBK_PARTIAL_ITEMS, false));
+            traces.add(new SimulationRule(RecommendationDataIssue.IBK_PARTIAL_ITEMS, 1,
+                    RecommendationDataIssue.IBK_PARTIAL_ITEMS_NOTICE, card.getId(), null, List.of("confirmedItemsOnly")));
+        }
         if (!scoped) issue(issues,card,null,"POLICY_COMPLETENESS_UNVERIFIED");
         else if (!ibk) trace(traces,card,null,List.of("catalogScope=SEED_17_PRODUCTS_56_BENEFITS_VERSION_1"));
         else traces.add(new SimulationRule("YAMU_IBK_NOVEMBER",2,
