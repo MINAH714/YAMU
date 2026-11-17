@@ -1,0 +1,14 @@
+{
+  "datasetKey": "yoonseo-demo-20261118-v2",
+  "demoDate": "2026-11-18",
+  "historyThrough": "2026-11-16",
+  "name": "이윤서",
+  "birthDate": "1999-11-18",
+  "phone": "01000001118",
+  "ssafyMemberId": "FILL_FROM_PRIVATE_BINDING",
+  "ssafyUserKey": "FILL_FROM_PRIVATE_BINDING",
+  "accountNo": "FILL_FROM_PRIVATE_BINDING",
+  "pin": "FILL_SIX_DIGITS",
+  "noriCardNo": "FILL_UNIQUE_16_DIGITS",
+  "zeroCardNo": "FILL_UNIQUE_16_DIGITS"
+}

@@ -1,0 +1,7 @@
+*.local.json
+*.private.json
+*.private.json.tmp
+*.private.json.lock
+*.local.json.tmp
+*.local.json.lock
+/out/
