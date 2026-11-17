@@ -280,6 +280,8 @@ public final class YoonseoSeed {
         int i=0;for(var p:plan.payments()) {
             require(db.queryForObject("SELECT COUNT(*) FROM payment_transaction WHERE user_id=? AND request_key=? AND requested_amount=? AND approved_amount=? AND user_card_id=? AND performance_month=? AND status='APPROVED'",Integer.class,user,requestKey(i++),p.amount(),p.amount(),p.card().equals("NORI")?nori:zero,p.day().withDayOfMonth(1))==1,"Fixture payment changed");
         }
+        // 이미 적재된 데이터셋도 LOCA 청구·확정 할인·반복 지출 후보 아님을 함께 본다.
+        YoonseoRewards.verify(this,db.queryForObject("SELECT user_card_id FROM user_card WHERE user_id=? AND card_product_id=?",Long.class,user,product("LOCA LIKIT 2.0")));
         System.out.printf("VERIFY OK user=%d payments=%d history=%d closing=800000 NovemberBenefits=5300 bill=100000%n",user,plan.payments().size(),rows.size());
     }
     static BankProof bankProof(JsonNode input,LocalDate through)throws Exception {
