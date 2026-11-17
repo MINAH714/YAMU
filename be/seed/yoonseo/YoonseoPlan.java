@@ -72,4 +72,3 @@ public final class YoonseoPlan {
     static void require(boolean valid,String safeMessage){if(!valid)throw new SeedFailure(safeMessage);}
     static final class SeedFailure extends RuntimeException { SeedFailure(String message){super(message);} }
 }
-
