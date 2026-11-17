@@ -41,10 +41,17 @@ public record PerformanceAnalysisResponse(
     /**
      * @param scheduledRecognizable 이 카드로 낼 남은 예정 지출 중 실적 인정 대상 금액
      * @param method               SCHEDULED_PLUS_AVG_3M(예정 지출 + 최근 3개월 같은 기간 평균)
+     * @param history              naturalRecognizable을 낸 달마다 같은 기간(내일~말일) 인정 실적, 오래된 달부터
+     *                             (S15P31E103-615 — 앱 '어떻게 계산했나요?'의 달별 막대). 개수는 historyMonths와 같고, 이미 달성한
+     *                             카드처럼 자연 소비를 세지 않으면 빈 목록
      */
     public record Projection(long scheduledRecognizable, long naturalRecognizable, long averageDailyRecognizable,
             long projectedRecognizedAmount, String likelihood, long shortfallIfTrend, int historyMonths,
-            String method) {
+            String method, List<MonthAmount> history) {
+    }
+
+    /** @param yearMonth "2026-08" */
+    public record MonthAmount(String yearMonth, long amount) {
     }
 
     /** typicalMonthlyValue는 혜택마다 셀 수 없어 null(합계는 extraBenefitIfMet). */
