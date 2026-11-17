@@ -251,6 +251,7 @@ private const val NO_RECORD_LABEL = "기록 없음"
 /**
  * 카드 한 줄 — 위: 그림 · 이름 · 상태 태그 · › / 가운데: 게이지 / 아래: '320,000 / 400,000원'.
  * 여러 단계 카드(노리2 20만~80만)는 막대 대신 계단 게이지 — 단계마다 같은 폭 · 넘긴 단계는 점을 채운다.
+ * 달성 카드의 막대는 차오르다 기준에 닿을 때 초록으로 바뀐다(PerformanceGauge가 보이는 값으로 색을 고름).
  * 판정 · 혜택 설명은 목록에 두지 않는다(카드를 눌러 들어간 화면에서)
  */
 @Composable
@@ -271,8 +272,12 @@ private fun PerfRow(card: CardPerf, art: CardArtRef?, last: Boolean, onClick: ((
             PerfStateTag(card)
             if (onClick != null) Icon(YamuIcons.ChevronRight, contentDescription = null, tint = c.text3)
         }
+        // 게이지는 화면에 나올 때 0에서 차오르고, 결제 뒤 값이 바뀌면 보이던 값에서 새 값으로 간다(animatedFill). 금액 글자는 바로 새 값
         if (card.thresholds.size > 1) TierStepper(card.recognized, card.thresholds, Modifier.padding(top = 10.dp))
-        else target?.let { PerformanceGauge(card.recognized, it, modifier = Modifier.fillMaxWidth().padding(top = 10.dp), showCaption = false) }
+        else target?.let {
+            val shown = animatedFill(card.recognized.toFloat())
+            PerformanceGauge(if (shown == card.recognized.toFloat()) card.recognized else shown.toLong(), it, modifier = Modifier.fillMaxWidth().padding(top = 10.dp), showCaption = false)
+        }
         Text(card.amountLine(thisMonth = true), style = t.bodyM, color = c.text2, modifier = Modifier.padding(top = 8.dp))
     }
 }
