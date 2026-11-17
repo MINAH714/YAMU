@@ -423,7 +423,7 @@ class HomeIntegrationTest extends MySqlTestSupport {
     private static CardPerformancesResponse.Item performance(long card, String nickname, PerformanceStatus status,
             long target, long recognized) {
         return new CardPerformancesResponse.Item(card, nickname, null, null, "CREDIT", target, null, recognized,
-                Math.max(target - recognized, 0), status, null, null, false, null);
+                Math.max(target - recognized, 0), status, null, null, false, null, List.of(target));
     }
 
     private static CardPerformancesResponse.Item decided(CardPerformancesResponse.Item item,
@@ -432,7 +432,7 @@ class HomeIntegrationTest extends MySqlTestSupport {
                 item.cardType(), item.targetAmount(), item.targetLabel(), item.recognizedAmount(),
                 item.remainingAmount(), item.status(), null,
                 new PerformanceAnalysisResponse.Decision(choice, LocalDateTime.now(ZoneOffset.UTC), null, false),
-                item.isProvisional(), item.recentChange());
+                item.isProvisional(), item.recentChange(), item.thresholds());
     }
 
     /** 한국 기준 이번 달 결제면 금액, 아니면 0. 매달 1일 0~2시(한국)에 돌려도 월간 리포트와 같은 기준으로 맞춘다. */

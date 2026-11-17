@@ -38,6 +38,8 @@ import java.util.Locale
     val decision: JsonElement? = null,
     val isProvisional: Boolean = false,
     val recentChange: RecentChangeDto? = null,
+    /** 실적 단계 기준 금액(원, 작은 순) — 여러 단계 카드의 계단 게이지 · '20만원 달성'(S15P31E103-614). 실적 조건이 없으면 빈 목록 */
+    val thresholds: List<Long> = emptyList(),
 )
 
 @Serializable data class RecentChangeDto(val amount: Long, val approvedAt: String? = null, val merchantName: String? = null)
@@ -189,7 +191,14 @@ data class CardPerf(
     val nickname: String? = null,
     /** 서버 status AT_RISK — 지금 추세면 목표에 못 미친다 */
     val atRisk: Boolean = false,
+    /** 서버 status INSUFFICIENT_DATA — 그달 실적 기록이 없다(전월 실적에서 '기록 없음') */
+    val noRecord: Boolean = false,
+    /** 실적 단계 기준 금액(작은 순). 두 개 이상이면 여러 단계 카드 */
+    val thresholds: List<Long> = emptyList(),
 ) {
+    /** 넘긴 가장 높은 단계 — 여러 단계 카드에서 '20만원 달성'. 하나도 못 넘겼으면 null */
+    val reachedThreshold: Long? get() = thresholds.filter { it <= recognized }.maxOrNull()
+
     /** 기준 전 — 판정을 보여 줄 카드 */
     val pending: Boolean get() = !achieved && !noTarget
 
@@ -345,8 +354,13 @@ fun CardPerformanceItemDto.toCardPerf(): CardPerf {
         recentAtIso = recentChange?.approvedAt,
         nickname = nickname,
         atRisk = status.equals("AT_RISK", ignoreCase = true),
+        noRecord = status.equals("INSUFFICIENT_DATA", ignoreCase = true),
+        thresholds = thresholds.filter { it > 0 }.distinct().sorted(),
     )
 }
+
+/** 단계 이름 — 200000 → '20만원'. 만 원 단위가 아니면 '215,000원' */
+fun manLabel(amount: Long): String = if (amount % 10_000 == 0L) "${amount / 10_000}만원" else "${amount.toWon()}원"
 
 /** 기준 전: 판정 순 → 남은 금액 적은 순. 그 밖: 달성 → 실적 조건 없음 */
 fun List<CardPerf>.toOverview(yearMonth: String?, daysLeft: Int?, syncedAtIso: String?): PerfOverview {

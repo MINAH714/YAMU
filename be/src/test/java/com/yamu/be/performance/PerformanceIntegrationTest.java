@@ -128,6 +128,7 @@ class PerformanceIntegrationTest extends MySqlTestSupport {
                 .andExpect(jsonPath("$.data.cards[0].status").value("NO_TARGET"))
                 .andExpect(jsonPath("$.data.cards[0].targetAmount").value(nullValue()))
                 .andExpect(jsonPath("$.data.cards[0].targetLabel").value(nullValue()))
+                .andExpect(jsonPath("$.data.cards[0].thresholds", hasSize(0)))
                 .andExpect(jsonPath("$.data.cards[0].recognizedAmount").value(80_000))
                 .andExpect(jsonPath("$.data.cards[0].remainingAmount").value(0));
     }
@@ -140,6 +141,7 @@ class PerformanceIntegrationTest extends MySqlTestSupport {
                 .andExpect(jsonPath("$.data.cards[0].status").value("INSUFFICIENT_DATA"))
                 .andExpect(jsonPath("$.data.cards[0].targetAmount").value(300_000))
                 .andExpect(jsonPath("$.data.cards[0].targetLabel").value("30만원 이상"))
+                .andExpect(jsonPath("$.data.cards[0].thresholds", contains(300_000, 500_000)))   // 여러 단계 카드의 단계 기준(작은 순)
                 .andExpect(jsonPath("$.data.cards[0].recognizedAmount").value(0))
                 .andExpect(jsonPath("$.data.cards[0].remainingAmount").value(300_000));
     }

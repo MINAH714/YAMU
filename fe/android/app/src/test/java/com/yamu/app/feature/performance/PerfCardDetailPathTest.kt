@@ -7,7 +7,6 @@ import com.yamu.app.feature.performance.data.PerfAnalysis
 import com.yamu.app.feature.performance.data.PerfDecision
 import com.yamu.app.feature.performance.data.PerfGuide
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -58,20 +57,16 @@ class PerfCardDetailPathTest {
         assertEquals(PerfAction.REJUDGE, analysis(PerfGuide.KEEP_NATURAL, decision = PerfDecision.KEEP).primaryAction())
     }
 
-    @Test fun `그 밖의 카드 줄 읽기 이름은 카드 이름과 달성 · 실적 조건 없음`() {
-        assertEquals("우리카드 NU 달성", card(noTarget = false).otherRowLabel())
-        assertEquals("우리카드 NU 실적 조건 없음", card(noTarget = true).otherRowLabel())
-        assertNotEquals(card(noTarget = false).otherRowLabel(), card(noTarget = true).otherRowLabel())
+    @Test fun `목록 줄 읽기 이름은 보이는 차례대로 카드 이름 · 실적과 기준 · 상태`() {
+        assertEquals("우리카드 NU 320,000 / 300,000원 달성", card(noTarget = false).rowLabel(thisMonth = true))
+        assertEquals("우리카드 NU 이번 달 320,000원 썼어요 실적 조건 없음", card(noTarget = true).rowLabel(thisMonth = true))
+        assertNotEquals(card(noTarget = false).rowLabel(thisMonth = true), card(noTarget = true).rowLabel(thisMonth = true))
     }
 
-    @Test fun `그 밖의 카드 줄 읽기 이름에 방금 반영된 금액도 보이는 차례대로 넣는다`() {
-        assertEquals("우리카드 NU +15,000원 달성", card(noTarget = false, recentChange = 15_000).otherRowLabel())
-        assertEquals("우리카드 NU +15,000원 실적 조건 없음", card(noTarget = true, recentChange = 15_000).otherRowLabel())
-    }
-
-    @Test fun `그 밖의 카드 중 달성 카드만 R-02를 연다 — 실적 조건 없는 카드는 홈 내 카드처럼 누를 수 없다`() {
-        assertTrue(card(noTarget = false).opensCardDetail)
-        assertFalse(card(noTarget = true).opensCardDetail)
+    @Test fun `기준 전 카드는 R-03, 달성 카드는 R-02를 열고 실적 조건 없는 카드는 홈 내 카드처럼 누를 수 없다`() {
+        assertEquals(PerfRowTarget.CARD_DETAIL, card(noTarget = false).rowTarget)
+        assertEquals(PerfRowTarget.ANALYSIS, card(noTarget = false).copy(recognized = 100_000, remaining = 200_000, achieved = false).rowTarget)
+        assertNull(card(noTarget = true).rowTarget)
     }
 
     private companion object {
