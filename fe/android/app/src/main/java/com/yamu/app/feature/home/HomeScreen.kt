@@ -11,6 +11,7 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.FlowRow
@@ -39,7 +40,9 @@ import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -61,6 +64,9 @@ import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.layout.layout
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInParent
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -221,32 +227,50 @@ fun HomeScreen(
             modifier = Modifier.padding(inner).consumeWindowInsets(inner).fillMaxSize(),
         ) {
             val content = state.content
-            Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
-                when {
-                    content != null -> {
-                        HomeContent(
-                            home = content,
-                            state = state,
-                            onRetryBenefit = onRetryBenefit,
-                            onStartLinking = onStartLinking,
-                            onRecentPayment = onRecentPayment,
-                            onPayments = onPayments,
-                            onBenefitReport = onBenefitReport,
-                            onAddCard = onAddCard,
-                            onForecast = onForecast,
-                            onRegisterIncome = onRegisterIncome,
-                            onRetryForecast = onRetryForecast,
-                        )
-                        // 아래쪽(S15P31E103-481) — 카드가 있어야 보이는 칸. 잔고예보 요약은 위(혜택 히어로 아래)로 올렸고
-                        // 그 위에 있던 내 카드 혜택 현황은 11/17에 뺐다(S15P31E103-574)
-                        if (!content.needsLinking && !content.needsCard) {
-                            state.cards.dataOrNull?.missed()?.takeUnless { it.isEmpty }?.let { MissedSection(it, arts, onCard = onCardPerformance, onAll = onBenefitLimits) }
+            val missed = content?.takeIf { !it.needsLinking && !it.needsCard }?.let { state.cards.dataOrNull?.missed()?.takeUnless { m -> m.isEmpty } }
+            // 첫 화면에는 히어로 · 잔고예보와 '놓치기 아까운 혜택' 제목만 — 제목이 화면 맨 아래에 걸리게 히어로를 늘린다(S15P31E103-596).
+            // 폰 높이마다 다르니 스크롤 칸 높이와 그 칸의 실제 위치를 재서 맞춘다. 늘린 만큼 칸이 내려가므로 한 번에 맞는 값이 나온다
+            BoxWithConstraints(Modifier.fillMaxSize()) {
+                val viewport = maxHeight
+                val density = LocalDensity.current
+                var heroExtra by remember { mutableStateOf(0.dp) }
+                // 놓치기 아까운 혜택이 사라지면(새로고침 등) 늘린 것도 거둔다
+                val hasMissed = missed != null
+                LaunchedEffect(hasMissed) { if (!hasMissed) heroExtra = 0.dp }
+                Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+                    when {
+                        content != null -> {
+                            HomeContent(
+                                home = content,
+                                state = state,
+                                onRetryBenefit = onRetryBenefit,
+                                onStartLinking = onStartLinking,
+                                onRecentPayment = onRecentPayment,
+                                onPayments = onPayments,
+                                onBenefitReport = onBenefitReport,
+                                onAddCard = onAddCard,
+                                onForecast = onForecast,
+                                onRegisterIncome = onRegisterIncome,
+                                onRetryForecast = onRetryForecast,
+                                heroExtra = heroExtra,
+                            )
+                            // 아래쪽(S15P31E103-481) — 카드가 있어야 보이는 칸. 잔고예보 요약은 위(혜택 히어로 아래)로 올렸고
+                            // 그 위에 있던 내 카드 혜택 현황은 11/17에 뺐다(S15P31E103-574)
+                            missed?.let {
+                                Box(
+                                    Modifier.onGloballyPositioned { box ->
+                                        val top = with(density) { box.positionInParent().y.toDp() }
+                                        val next = heroExtraFor(viewport, top, heroExtra)
+                                        if ((next - heroExtra).value !in -1f..1f) heroExtra = next
+                                    },
+                                ) { MissedSection(it, arts, onCard = onCardPerformance, onAll = onBenefitLimits) }
+                            }
                         }
+                        state.isLoading -> HomeSkeleton()
+                        state.error != null -> YamuCard { ErrorState(state.error.userMessage(), onRetry = onRetry) }
                     }
-                    state.isLoading -> HomeSkeleton()
-                    state.error != null -> YamuCard { ErrorState(state.error.userMessage(), onRetry = onRetry) }
+                    Spacer(Modifier.height(YamuSpacing.bottomSafe))
                 }
-                Spacer(Modifier.height(YamuSpacing.bottomSafe))
             }
         }
     }
@@ -265,6 +289,7 @@ private fun HomeContent(
     onForecast: () -> Unit,
     onRegisterIncome: () -> Unit,
     onRetryForecast: () -> Unit,
+    heroExtra: Dp = 0.dp,
 ) {
     val c = YamuTheme.colors
     val error = state.error
@@ -324,7 +349,7 @@ private fun HomeContent(
         }
         // 카드 영역만 실패했으면 몇 장인지 몰라 혜택 · 결제 칸을 그린다 — 카드가 정말 없으면 결제 코드 화면이 알려 준다
         // 혜택 히어로 아래 'YAMU 결제 바코드 열기' 버튼은 11/16 사용자 요청으로 뺐다(S15P31E103-519) — 결제는 하단 가운데 버튼 하나로 연다
-        else -> BenefitHero(state.benefit, onClick = onBenefitReport, onRetry = onRetryBenefit)
+        else -> BenefitHero(state.benefit, onClick = onBenefitReport, onRetry = onRetryBenefit, extra = heroExtra)
     }
     // 잔고예보는 위쪽 한 곳에만 — 예전엔 히어로 아래 '잔고예보 보기' 버튼(-520)과 맨 아래 요약 카드로 나뉘어 있어
     // 버튼 자리로 요약 카드를 올리고 버튼은 카드 안으로 합쳤다(11/16 사용자 요청). 연결 전이면 위 안내가 맡아 그리지 않는다
@@ -379,16 +404,17 @@ private fun SetupGuide(title: String, body: String, button: String, onClick: () 
  * 카드를 누르면 살짝 눌렸다가(0.97) 혜택 리포트(S-04, 같은 달)로. 모션 줄이기면 금액은 처음부터 끝값, 눌림 · 빛 없음
  */
 @Composable
-private fun BenefitHero(section: HomeSection<HomeBenefit>, onClick: () -> Unit, onRetry: () -> Unit) {
+private fun BenefitHero(section: HomeSection<HomeBenefit>, onClick: () -> Unit, onRetry: () -> Unit, extra: Dp = 0.dp) {
     val c = YamuTheme.colors
     when (section) {
-        is HomeSection.Ready -> BenefitHeroReady(section.data, onClick)
+        is HomeSection.Ready -> BenefitHeroReady(section.data, onClick, extra)
         HomeSection.Loading -> HeroFrame(onClick = null) {
             HeroTitle(benefitTitle(null), more = false)
             Spacer(Modifier.height(YamuSpacing.x3))
             Box(Modifier.width(150.dp).height(40.dp).clip(RoundedCornerShape(10.dp)).background(c.onHero.copy(alpha = HERO_GLASS_ALPHA)))
             Spacer(Modifier.height(YamuSpacing.x3))
             Box(Modifier.width(110.dp).height(22.dp).clip(RoundedCornerShape(YamuRadius.input)).background(c.onHero.copy(alpha = HERO_GLASS_ALPHA)))
+            Spacer(Modifier.height(extra))
         }
         // 혜택만 실패 — 홈의 다른 칸은 그대로 그리고 여기만 다시 시도(COMMON-08)
         is HomeSection.Failed -> HeroFrame(onClick = null) {
@@ -397,12 +423,13 @@ private fun BenefitHero(section: HomeSection<HomeBenefit>, onClick: () -> Unit, 
             Text("혜택을 불러오지 못했어요", style = YamuTheme.typography.titleM, color = c.onHero)
             Spacer(Modifier.height(YamuSpacing.x3))
             HeroButton("다시 시도", onClick = onRetry)
+            Spacer(Modifier.height(extra))
         }
     }
 }
 
 @Composable
-private fun BenefitHeroReady(b: HomeBenefit, onClick: () -> Unit) {
+private fun BenefitHeroReady(b: HomeBenefit, onClick: () -> Unit, extra: Dp = 0.dp) {
     val c = YamuTheme.colors
     val reduce = YamuTheme.reduceMotion
     val pile = rememberCoinPileState()
@@ -427,7 +454,8 @@ private fun BenefitHeroReady(b: HomeBenefit, onClick: () -> Unit) {
         HeroTitle(benefitTitle(b.month), more = true)
         Row(verticalAlignment = Alignment.Bottom) {
             Column(Modifier.weight(1f)) {
-                Spacer(Modifier.height(YamuSpacing.x2))
+                // 금액은 왼쪽 위, 제목 바로 아래에 붙이되 12dp는 띄운다(11/17 사용자 요청, S15P31E103-596)
+                Spacer(Modifier.height(YamuSpacing.x3))
                 AmountText(
                     shown,
                     size = AmountSize.Hero,
@@ -437,8 +465,9 @@ private fun BenefitHeroReady(b: HomeBenefit, onClick: () -> Unit) {
                 )
                 Spacer(Modifier.height(YamuSpacing.x2))
                 FlowRow(
-                    // 동전 무더기가 왼쪽으로 넘쳐 들어오는 자리는 비운다 — 좁은 폰에서는 칩이 다음 줄로 내려간다
-                    modifier = Modifier.padding(end = if (coins > 0) HERO_PILE_OVERFLOW else 0.dp),
+                    // 동전 무더기가 왼쪽으로 넘쳐 들어오는 자리는 비운다 — 좁은 폰에서는 칩이 다음 줄로 내려간다.
+                    // 히어로를 늘려 칩이 무더기보다 위에 있으면 겹치지 않으니 비우지 않는다
+                    modifier = Modifier.padding(end = if (coins > 0 && extra < HERO_PILE_HEIGHT) HERO_PILE_OVERFLOW else 0.dp),
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                     verticalArrangement = Arrangement.spacedBy(6.dp),
                     itemVerticalAlignment = Alignment.CenterVertically,
@@ -451,6 +480,8 @@ private fun BenefitHeroReady(b: HomeBenefit, onClick: () -> Unit) {
                         if (b.pending > 0) HeroChip("${b.pending.toWon()}원 혜택 예정", dashed = true)
                     }
                 }
+                // 첫 화면을 채우려고 늘린 만큼은 칩 아래에 — 금액은 위에 남고 동전 무더기는 종류 칸 바로 위 바닥에 앉는다(S15P31E103-596)
+                Spacer(Modifier.height(extra))
             }
             if (coins > 0) {
                 CoinPile(
@@ -954,13 +985,44 @@ private fun ForecastRow(label: String, detail: String?, amount: Long?, emphasize
         Box(Modifier.weight(1f).padding(start = 12.dp), contentAlignment = Alignment.CenterEnd) {
             // 금액을 모르면 0원이 아니라 '확인할 수 없음'(COMMON-07)
             if (amount != null) {
-                AmountText(amount, size = AmountSize.Value, color = if (emphasize) c.primary else c.text1, shortage = amount < 0)
+                // 목록 값(16sp)보다 조금 크게 20sp(S15P31E103-596). 한 줄에 안 들어가면 줄여 맞춘다
+                val style = YamuTheme.typography.value.copy(fontSize = FORECAST_AMOUNT_SP, lineHeight = FORECAST_AMOUNT_LINE)
+                Text(
+                    "${amount.toWon()}원",
+                    style = style,
+                    color = when {
+                        amount < 0 -> c.error
+                        emphasize -> c.primary
+                        else -> c.text1
+                    },
+                    maxLines = 1,
+                    autoSize = TextAutoSize.StepBased(minFontSize = 12.sp, maxFontSize = FORECAST_AMOUNT_SP, stepSize = 1.sp),
+                )
             } else {
                 Text("확인할 수 없음", style = YamuTheme.typography.bodyM, color = c.text3)
             }
         }
     }
 }
+
+private val FORECAST_AMOUNT_SP = 20.sp
+private val FORECAST_AMOUNT_LINE = 26.sp
+
+/**
+ * '놓치기 아까운 혜택' 칸 위쪽에서 이만큼만 첫 화면에 보이게 한다 — 카드 위 여백 16 + 제목 줄 24 + 8.
+ * 카드 그림은 제목 아래 12dp부터라 52dp부터 가려진다
+ */
+private val HOME_MISSED_PEEK = 48.dp
+
+/** 키 큰 폰 · 태블릿에서 히어로가 너무 길어지지 않게 */
+private val HERO_EXTRA_MAX = 200.dp
+
+/**
+ * 히어로에 더할 높이 — [missedTop](스크롤 칸 안 '놓치기 아까운 혜택' 칸의 위, [current]만큼 늘린 뒤의 값)이
+ * [viewport] 맨 아래에서 [HOME_MISSED_PEEK]만큼 위에 오게 한다. 내용이 이미 화면보다 길면 0
+ */
+internal fun heroExtraFor(viewport: Dp, missedTop: Dp, current: Dp): Dp =
+    (current + (viewport - HOME_MISSED_PEEK) - missedTop).coerceIn(0.dp, HERO_EXTRA_MAX)
 
 private const val HERO_PRESSED_SCALE = 0.97f
 private const val HERO_SHEEN_MS = 900
