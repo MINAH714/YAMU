@@ -48,9 +48,12 @@ internal fun RollingAmountText(won: Long, color: Color, modifier: Modifier = Mod
     val text = won.toWon()
     val measurer = rememberTextMeasurer()
     // 자리(오른쪽에서 몇 번째인지)마다 지금 보이는 숫자 — 자릿수가 바뀌어도 같은 자리끼리 이어 굴린다
-    val wheels = remember { HashMap<Int, Animatable<Float, AnimationVector1D>>() }
+    val wheelCache = remember { HashMap<Int, Animatable<Float, AnimationVector1D>>() }
     val targets = text.mapIndexedNotNull { i, ch -> if (ch.isDigit()) (text.length - i) to ch.digitToInt() else null }
-    targets.forEach { (place, d) -> wheels.getOrPut(place) { Animatable(d.toFloat()) } }
+    val wheels = remember(text) {
+        targets.forEach { (place, d) -> wheelCache.getOrPut(place) { Animatable(d.toFloat()) } }
+        wheelCache
+    }
     LaunchedEffect(text, reduce) {
         targets.forEach { (place, d) ->
             val wheel = wheels.getValue(place)
