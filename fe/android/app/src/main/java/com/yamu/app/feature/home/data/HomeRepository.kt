@@ -8,6 +8,7 @@ import com.yamu.app.core.network.apiCall
 import com.yamu.app.core.network.map
 import com.yamu.app.feature.forecast.data.ForecastRepository
 import com.yamu.app.feature.link.data.AccountsResponse
+import com.yamu.app.feature.link.data.ForecastSettingsDto
 import com.yamu.app.feature.performance.data.BenefitLimitsDto
 import com.yamu.app.feature.performance.data.CardPerformancesDto
 import com.yamu.app.feature.performance.data.toCardPerf
@@ -60,6 +61,10 @@ interface HomeApi {
         @Query("days") days: Int,
     ): Response<ApiEnvelope<HomeForecastDto>>
 
+    /** 잔고예보 설정 — 홈은 월급(income)을 정해 뒀는지만 본다 */
+    @GET("forecasts/settings")
+    suspend fun forecastSettings(): Response<ApiEnvelope<ForecastSettingsDto>>
+
     /** 연결 계좌(금융망을 부르지 않는다) — 요약 칸의 계좌 칩 */
     @GET("accounts")
     suspend fun accounts(): Response<ApiEnvelope<AccountsResponse>>
@@ -109,8 +114,16 @@ class HomeRepositoryImpl @Inject constructor(
 
     private var lastSync: Pair<Long, SyncResult>? = null
 
-    override suspend fun loadHome(): ApiResult<HomeSummary> =
-        apiCall { api.home() }.map { it.toSummary(LocalDate.now(KST)) }
+    override suspend fun loadHome(): ApiResult<HomeSummary> {
+        val result = apiCall { api.home() }.map { it.toSummary(LocalDate.now(KST)) }
+        val summary = (result as? ApiResult.Success)?.data ?: return result
+        val forecast = summary.forecast?.takeIf { it.needsIncome } ?: return result
+        // BE 홈은 잔고예보 기간이 '다음 월급날까지'일 때만 nextIncome을 준다. 월급을 정해 두고 기간이 N일(DAYS)이면
+        // nextIncome이 비어 월급이 없는 것처럼 읽힌다(LIFE QA 시드). 설정에 월급이 있으면 '월급날을 알려 주면…' 줄을 띄우지 않는다.
+        // 설정을 못 읽으면 전처럼 안내를 둔다
+        if ((apiCall { api.forecastSettings() } as? ApiResult.Success)?.data?.income == null) return result
+        return ApiResult.Success(summary.copy(forecast = forecast.copy(needsIncome = false)))
+    }
 
     override suspend fun sync(): ApiResult<SyncResult> {
         val now = System.currentTimeMillis()
