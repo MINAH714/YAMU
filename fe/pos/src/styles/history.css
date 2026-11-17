@@ -198,6 +198,6 @@
   font-size: var(--fs-caption);
 }
 
-.pay-scan[data-typing='true'] .cancel-scan-guide {
+.pay-scan[data-manual='true'] .cancel-scan-guide {
   display: none;
 }

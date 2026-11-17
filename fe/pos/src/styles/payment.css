@@ -319,24 +319,18 @@
   white-space: nowrap;
 }
 
-/* 입력칸에 포커스가 있을 때. 카메라를 줄여 입력칸을 키보드 위로 올린다 */
+/* 입력칸에 포커스가 있을 때. 입력칸을 키보드 위로 올린다 */
 
 .tray-root:has(.pay-scan[data-typing='true']) {
   padding-bottom: calc(var(--s-4) + var(--keyboard-inset, 0px));
 }
 
-/* 단계 최대 높이(100cqh)는 위 아래 여백만큼 같이 줄어든다 */
-.tray-panel:has(.pay-scan[data-typing='true']) {
+/* 직접 입력 중. 카메라를 끄고 트레이를 내용 높이로 줄인다. 단계 최대 높이(100cqh)는 위 아래 여백만큼 같이 줄어든다 */
+.tray-panel:has(.pay-scan[data-manual='true']) {
   height: auto;
 }
 
-.pay-scan[data-typing='true'] .pay-scan-terms {
-  display: none;
-}
-
-.pay-scan[data-typing='true'] .camera {
-  flex: none;
-  height: 96px;
-  min-height: 0;
-  padding: var(--s-2) var(--s-4);
+.pay-camera-back {
+  align-self: flex-start;
+  margin-left: calc(var(--s-3) * -1);
 }
