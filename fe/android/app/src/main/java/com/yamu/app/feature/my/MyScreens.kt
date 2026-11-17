@@ -291,7 +291,6 @@ fun MyRoute(
     onSecurity: () -> Unit,
     onBilling: () -> Unit,
     onLoggedOut: () -> Unit,
-    onDebugMenu: (() -> Unit)?,
     onOpenPinPad: (purpose: String) -> Unit,
     allFeatures: AllFeaturesNav = AllFeaturesNav(),
     onPolicyDoc: (TermDoc) -> Unit = {},
@@ -357,7 +356,6 @@ fun MyRoute(
                 // 약관 전문은 앱에 들어 있어(TermDoc · res/raw) 앱 안에서 연다
                 ListRow(title = "약관 및 정책", chevron = true, onClick = { policySheet = true })
                 ListRow(title = "로그아웃", onClick = { viewModel.logout(onLoggedOut) })
-                if (onDebugMenu != null) ListRow(title = "디버그 메뉴", chevron = true, onClick = onDebugMenu)
             }
             // 숨은 입구 — 누른 티(물결 · 읽어 주기 동작)를 내지 않는다
             Text(
