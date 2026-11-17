@@ -28,6 +28,15 @@ public final class YoonseoSeedTest {
             check(p.payments().stream().allMatch(x->!x.day().isAfter(LocalDate.of(2026,11,end))),"No future purchases");
         }
         reject(()->YoonseoPlan.build(LocalDate.of(2026,11,18)));
+        // LOCA 대형 구매가 서버 반복 지출 규칙에 걸리지 않는다. 예전처럼 모두 쿠팡이면 걸린다(규칙이 실제로 작동하는지 확인).
+        var split=new HashMap<String,Map<YearMonth,Integer>>();var same=new HashMap<String,Map<YearMonth,Integer>>();
+        for(int m=8;m<=11;m++){
+            split.computeIfAbsent(YoonseoRewards.BRAND.get(m)+":"+YoonseoRewards.gross(m),k->new HashMap<>()).merge(YearMonth.of(2026,m),1,Integer::sum);
+            same.computeIfAbsent("COUPANG:"+YoonseoRewards.gross(m),k->new HashMap<>()).merge(YearMonth.of(2026,m),1,Integer::sum);
+        }
+        check(!YoonseoRewards.recurring(split.values()),"Large purchases must not become a recurring candidate");
+        check(YoonseoRewards.recurring(same.values()),"Same merchant three months is a recurring candidate");
+        check(new HashSet<>(YoonseoRewards.BRAND.values()).size()==4,"Distinct merchant per month");
         System.out.println("PURE TESTS OK checks="+checks);
         if(!args[0].equals("integration"))return;
         String url=YoonseoSeed.env("YOONSEO_TEST_JDBC_URL");
