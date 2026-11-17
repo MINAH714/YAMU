@@ -31,11 +31,13 @@ public record CardPerformancesResponse(String yearMonth, int daysLeft, List<Item
      * @param decision         그달 판단 기록(분석 응답의 decision과 같은 모양). 없거나 되돌렸으면 null
      * @param isProvisional    그달 실적 인정액이 미확인인 승인 결제가 있으면 true(실적이 나중에 늘 수 있음)
      * @param recentChange     그달 실적에 가장 최근 반영된 승인 결제. 없으면 null
+     * @param thresholds       실적 단계 기준 금액(원), 작은 순. 실적 상세 {@code tiers}의 {@code threshold}와 같은 원본이고, 여러 단계
+     *                         카드면 앱이 계단 게이지와 넘긴 단계("20만원 달성")를 그린다(S15P31E103-614). 실적 조건이 없으면 빈 목록
      */
     public record Item(long userCardId, String nickname, CardIssuers.Issuer issuer, String issuerName, String cardType,
             Long targetAmount, String targetLabel, long recognizedAmount, long remainingAmount, PerformanceStatus status,
             String guide, PerformanceAnalysisResponse.Decision decision, @JsonProperty("isProvisional") boolean isProvisional,
-            RecentChange recentChange) {
+            RecentChange recentChange, List<Long> thresholds) {
     }
 
     /**
