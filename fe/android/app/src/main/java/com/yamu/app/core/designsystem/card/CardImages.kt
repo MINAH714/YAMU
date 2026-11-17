@@ -34,6 +34,7 @@ object CardImages {
         "LOCA LIKIT 2.0" to R.drawable.card_lotte_p15835_a15835,
         "삼성 iD SIMPLE" to R.drawable.card_samsung_aap1767,
         "삼성 taptap O" to R.drawable.card_samsung_taptap_o,
+        // IBK 공식 상품 앞면: https://www.ibk.co.kr/fup/finemall/card/2026010511394823393470448714562.png
         "IBK나라사랑카드" to R.drawable.card_ibk_narasarang,
     )
 
