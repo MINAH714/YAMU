@@ -67,12 +67,19 @@ class RecommendationInputAssembler {
         var codes = new HashSet<String>();
         var converted = new ArrayList<Benefit>();
         var groupIds = new LinkedHashSet<Long>();
+        var deferredConvenience = new HashSet<Long>();
+        boolean otherRelevantBenefit = false;
         var effectiveRows = rows.stream().filter(r -> !ibk || !"NARA_CONVENIENCE".equals(r.getBenefitCode())
                 || previous == null || previous < 250000).toList();
+        // 601 사용자 승인 프로젝트 정책. 지정 POS 원금의 10%가 정수인 경우만 계산해 절사 규칙을 추정하지 않는다.
+        boolean originalCashback = ibk && scoped && "GS25".equals(merchantBrand) && transaction.basket() != null
+                && transaction.amount() % 10 == 0;
         for (var row : effectiveRows) {
             // 25만원 이상에서는 나라 편의점 서비스를 All in One으로 대체한다(한도 소진 시에도 되돌리지 않는다).
             if (ibk && "NARA_CONVENIENCE".equals(row.getBenefitCode()) && previous != null && previous >= 250000) continue;
             boolean instant = ibk && "GS25_INSTANT_10".equals(row.getBenefitCode());
+            boolean naraCashback = originalCashback && "NARA_CONVENIENCE".equals(row.getBenefitCode())
+                    && BigDecimal.valueOf(transaction.amount()).multiply(row.getRate()).remainder(BigDecimal.ONE).signum() == 0;
             if (!codes.add(row.getBenefitCode())) {
                 issue(issues, card, row.getId(), "BENEFIT_VERSION_AMBIGUOUS");
             }
@@ -128,6 +135,19 @@ class RecommendationInputAssembler {
                 if (unit==null) { unit=BigDecimal.ONE; applied.add("roundingUnit=1"); }
                 if (stage==null) { stage=RoundingStage.PER_TRANSACTION; applied.add("roundingStage=PER_TRANSACTION"); }
             }
+            if (naraCashback) {
+                // 위의 정수 원 검증을 통과했으므로 기존 DOWN 연산이 금액을 바꾸지 않는다.
+                mode=RoundingMode.DOWN;
+                unit=BigDecimal.ONE;
+                stage=RoundingStage.PER_TRANSACTION;
+                applied.add("baseAmount=transaction.amount");
+                applied.add("calculationOrder=LIMIT_THEN_ROUND");
+                applied.add("roundingMode=DOWN(EXACT_KRW_ONLY)");
+                applied.add("NARA_CONVENIENCE:projectOriginalAmount;exactKRW;fullCancellation=RESTORE_MONTHLY_COUNT");
+                if (previous != null && previous >= row.getMinPerformanceAmount()) {
+                    issues.add(new RecommendationDataIssue(card.getId(),row.getId(),RecommendationDataIssue.IBK_ORIGINAL_CASHBACK,false));
+                }
+            }
             var rounding=new Rounding(mode,unit,stage,null);
             var pointRate=row.getPointKrwRate();
             if (scoped && scope!=null && pointRate==null && scope.mockPointBenefits().contains(row.getBenefitCode())) {
@@ -139,9 +159,14 @@ class RecommendationInputAssembler {
             }
             Long baseAmount = !scoped ? null : instant
                     ? (transaction.basket() == null ? null : transaction.basket().ibkEligibleAmount()) : Long.valueOf(transaction.amount());
-            boolean relevant = ibk && !instant && (previous == null || previous >= row.getMinPerformanceAmount())
+            boolean relevant = ibk && !instant && !naraCashback && (previous == null || previous >= row.getMinPerformanceAmount())
                     && new BenefitConditionEvaluator().evaluate(conditions,transaction) != BenefitConditionEvaluator.Match.NOT_MATCHED;
             if (relevant) {
+                if (Set.of("NARA_CONVENIENCE", "AIO_CONVENIENCE").contains(row.getBenefitCode())) {
+                    deferredConvenience.add(row.getId());
+                } else {
+                    otherRelevantBenefit = true;
+                }
                 IbkPolicyRules.issue(issues,card,"IBK_ROUNDING_AND_REVERSAL_UNKNOWN");
                 if ("AIO_CONVENIENCE".equals(row.getBenefitCode())) IbkPolicyRules.issue(issues,card,"IBK_DAILY_COUNT_CONFLICT");
                 if (("NARA_CONVENIENCE".equals(row.getBenefitCode()) || "AIO_CONVENIENCE".equals(row.getBenefitCode()))
@@ -155,7 +180,7 @@ class RecommendationInputAssembler {
                     row.getCalculationType(), row.getCalculationType() == CalculationType.RATE ? row.getRate() : row.getFixedValue(),
                     row.getValueUnit(), pointRate, baseAmount,
                     // 최소값은 승인된 Seed 범위에서 사용하며, 그 밖의 DEFAULT 0을 확인된 정책으로 승격하지 않는다.
-                    row.getMinPaymentAmount(), row.getMinPerformanceAmount(), conditions, rounding, scoped && (!ibk || instant) ? CalculationOrder.LIMIT_THEN_ROUND : null, links));
+                    row.getMinPaymentAmount(), row.getMinPerformanceAmount(), conditions, rounding, scoped && (!ibk || instant || naraCashback) ? CalculationOrder.LIMIT_THEN_ROUND : null, links));
         }
         var limits = new ArrayList<Limit>();
         for (Long groupId : groupIds) {
@@ -184,7 +209,8 @@ class RecommendationInputAssembler {
             if (used == null) {
                 issue(issues, card, groupId, "LIMIT_USAGE_MISSING");
             }
-            boolean singleCount=scopedGroup && (!ibk || "GS25_INSTANT_DAILY".equals(group.getGroupCode())) && group.getLimitUnit()==Unit.COUNT && data.links().stream()
+            boolean singleCount=scopedGroup && (!ibk || "GS25_INSTANT_DAILY".equals(group.getGroupCode())
+                    || originalCashback && "NARA_CONVENIENCE_MONTH_COUNT".equals(group.getGroupCode())) && group.getLimitUnit()==Unit.COUNT && data.links().stream()
                     .filter(l -> l.getLimitGroupId().equals(groupId)).map(BenefitLimitLink::getCardBenefitId).distinct().count()==1;
             if (group.getLimitUnit()==Unit.COUNT && !singleCount) issue(issues,card,groupId,"COUNT_CONSUMPTION_POLICY_UNKNOWN");
             if (singleCount) trace(traces,card,null,List.of("limit:"+groupId+".countMode=PER_BENEFIT","limit:"+groupId+".consumeOnZero=false"));
@@ -211,7 +237,20 @@ class RecommendationInputAssembler {
             }
         }
         if (applications.isEmpty() && !scoped) issue(issues,card,null,"BENEFIT_COMBINATIONS_UNKNOWN");
-        return new BenefitPolicy(scoped && coverage,previous,BigDecimal.ZERO,converted,limits,null,applications,fallbacks,traces);
+        var policy = new BenefitPolicy(scoped && coverage,previous,BigDecimal.ZERO,converted,limits,null,applications,fallbacks,traces);
+        // 승인된 부분 계산은 GS25의 독립 현장할인에만 적용한다. 다른 미지원/자격 문제는 완전성 검사를 우회하지 않는다.
+        if (ibk && policy.complete() && "GS25".equals(merchantBrand) && !otherRelevantBenefit
+                && !deferredConvenience.isEmpty() && transaction.basket() != null
+                && transaction.basket().ibkEligibleAmount() != null && transaction.basket().ibkEligibleAmount() > 0) {
+            var instantRow = rows.stream().filter(r -> "GS25_INSTANT_10".equals(r.getBenefitCode())).findFirst().orElseThrow();
+            var instant = converted.stream().filter(b -> b.id() == instantRow.getId()).findFirst().orElseThrow();
+            var independent = IbkPolicyRules.confirmedInstant(policy, instant);
+            if (independent != null) {
+                issues.add(new RecommendationDataIssue(card.getId(), instant.id(), RecommendationDataIssue.IBK_CONFIRMED_ONLY, false));
+                return independent;
+            }
+        }
+        return policy;
     }
 
     private LocalDate[] validity(LocalDate from,LocalDate until,boolean scoped,List<String> fields) {

@@ -61,7 +61,13 @@ public record PaymentRequestView(
      */
     public record Candidate(int rank, Long userCardId, String nickname, CardType cardType, String maskedNumber,
             java.math.BigDecimal netBenefit, List<Benefit> benefits, long chargedAmount, String reason,
-            SelectionReason selectionReason, List<RecommendationResult.UnallocatedBenefitGroup> unallocatedBenefitGroups) {
+            SelectionReason selectionReason, List<RecommendationResult.UnallocatedBenefitGroup> unallocatedBenefitGroups,
+            String benefitNotice) {
+        public Candidate(int rank,Long userCardId,String nickname,CardType cardType,String maskedNumber,java.math.BigDecimal netBenefit,
+                List<Benefit> benefits,long chargedAmount,String reason,SelectionReason selectionReason,
+                List<RecommendationResult.UnallocatedBenefitGroup> unallocatedBenefitGroups) {
+            this(rank,userCardId,nickname,cardType,maskedNumber,netBenefit,benefits,chargedAmount,reason,selectionReason,unallocatedBenefitGroups,null);
+        }
         public Candidate(int rank,Long userCardId,String nickname,CardType cardType,String maskedNumber,java.math.BigDecimal netBenefit,
                 List<Benefit> benefits,long chargedAmount,String reason,SelectionReason selectionReason) {
             this(rank,userCardId,nickname,cardType,maskedNumber,netBenefit,benefits,chargedAmount,reason,selectionReason,List.of());

@@ -94,7 +94,18 @@ public record RecommendationResult(String recommendationId, LocalDateTime calcul
         if (candidates.isEmpty()) {
             return uncomparedCards.isEmpty() ? Status.NO_ELIGIBLE_CARD : Status.DATA_INSUFFICIENT;
         }
-        return uncomparedCards.isEmpty() ? Status.READY : Status.PARTIAL_READY;
+        return uncomparedCards.isEmpty() && candidates.stream().noneMatch(c -> issues.stream().anyMatch(i ->
+                Objects.equals(i.userCardId(),c.card().userCardId())
+                && com.yamu.be.recommendation.RecommendationDataIssue.IBK_CONFIRMED_ONLY.equals(i.code())))
+                ? Status.READY : Status.PARTIAL_READY;
+    }
+
+    /** 일부 혜택만 확인된 후보의 안내. 확정 금액 0원과 미확정 추가 혜택도 구분한다. */
+    public String benefitNotice(long userCardId) {
+        return issues.stream().filter(i -> Objects.equals(i.userCardId(), userCardId)
+                && Set.of(com.yamu.be.recommendation.RecommendationDataIssue.IBK_CONFIRMED_ONLY,
+                    com.yamu.be.recommendation.RecommendationDataIssue.IBK_ORIGINAL_CASHBACK).contains(i.code()))
+                .map(com.yamu.be.recommendation.RecommendationDataIssue::message).findFirst().orElse(null);
     }
 
     /** 1순위 추천이 있는지(READY·PARTIAL_READY). 카드를 생략한 승인이 자동으로 고를 수 있는지와 같다. */
