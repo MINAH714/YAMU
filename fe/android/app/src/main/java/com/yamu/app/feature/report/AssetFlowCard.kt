@@ -285,8 +285,8 @@ private fun AccountTag(text: String) {
 private fun AssetLegend(kinds: List<DayKind>, hasConservative: Boolean) {
     val style = YamuTheme.typography.bodyS
     FlowRow(horizontalArrangement = Arrangement.spacedBy(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp), itemVerticalAlignment = Alignment.CenterVertically) {
-        if (DayKind.ACTUAL in kinds || DayKind.TODAY in kinds) LegendItem("실제", style) { LineSwatch(dashed = false) }
-        if (DayKind.SIMULATED in kinds) LegendItem("과거 잔고", style) { LineSwatch(dashed = false) }
+        // 실선은 '과거 잔고' 하나로 — '실제'와 '과거 잔고'가 같은 실선을 두 번 말하던 것을 11/17 사용자 요청으로 '실제'를 뺐다
+        if (DayKind.ACTUAL in kinds || DayKind.SIMULATED in kinds) LegendItem("과거 잔고", style) { LineSwatch(dashed = false) }
         LegendItem("예상(${if (hasConservative) LINE_WITH_LIVING else LINE_WITHOUT_LIVING})", style) { LineSwatch(dashed = true) }
         // 빗금은 그달에 그 구간이 있을 때만 — 이름은 그래프 빗금 위 글자와 같다
         listOf(DayKind.NO_DATA, DayKind.ERROR, DayKind.UNKNOWN, DayKind.OUT_OF_RANGE).filter { it in kinds }.forEach { k ->
