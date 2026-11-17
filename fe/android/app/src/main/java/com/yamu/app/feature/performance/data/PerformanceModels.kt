@@ -49,8 +49,21 @@ import java.util.Locale
     val yearMonth: String? = null,
     val summary: PerfSummaryDto = PerfSummaryDto(),
     val tiers: List<TierDto> = emptyList(),
+    /** 혜택마다 내용 한 줄(S15P31E103-615 미리보기). 예전 서버는 칸이 없어 빈 목록 */
+    val benefits: List<BenefitDto> = emptyList(),
     val nextMonthImpact: NextMonthImpactDto? = null,
     val dataSyncedAt: String? = null,
+)
+
+/** [valueLabel]은 '0.8%' · '2,500원'. [limited]가 false면 한도 없이 받는다 */
+@Serializable data class BenefitDto(
+    val name: String,
+    val valueLabel: String? = null,
+    val minPerformanceAmount: Long = 0,
+    val minPaymentAmount: Long = 0,
+    val perTransactionLimit: Long? = null,
+    val monthlyCount: Int? = null,
+    val limited: Boolean = false,
 )
 
 @Serializable data class PerfSummaryDto(
@@ -77,6 +90,7 @@ import java.util.Locale
     val targetAmount: Long? = null,
     val recognizedAmount: Long = 0,
     val remainingAmount: Long = 0,
+    val daysLeft: Int? = null,
     val projection: ProjectionDto? = null,
     val guide: String? = null,
     val headline: String? = null,
@@ -94,7 +108,12 @@ import java.util.Locale
     val projectedRecognizedAmount: Long? = null,
     val likelihood: String? = null,
     val shortfallIfTrend: Long? = null,
+    val averageDailyRecognizable: Long? = null,
+    /** 자연 소비를 낸 달마다 같은 기간(내일~말일) 인정 실적, 오래된 달부터(S15P31E103-615) */
+    val history: List<MonthAmountDto> = emptyList(),
 )
+
+@Serializable data class MonthAmountDto(val yearMonth: String, val amount: Long)
 
 @Serializable data class BenefitAtStakeDto(val name: String, val typicalMonthlyValue: Long? = null)
 
@@ -227,8 +246,8 @@ data class PerfOverview(
  * [threshold]는 구간 기준 금액(원, 포함) — 지난달 달성 구간을 셀 때 쓴다(S15P31E103-602)
  */
 data class PerfTier(val label: String, val benefit: String?, val benefitAmount: Long?, val achieved: Boolean, val threshold: Long? = null) {
-    /** 금액 칸 — 구간마다 '최대 n원'. null은 0원이 아니라 금액을 모르는 것이라 비운다 */
-    val amountText: String get() = benefitAmount?.let { "최대 ${it.toWon()}원" } ?: ""
+    /** 금액 칸 — 구간마다 '월 최대 n원'. null은 0원이 아니라 금액을 모르는 것이라 비운다 */
+    val amountText: String get() = benefitAmount?.let { "월 최대 ${it.toWon()}원" } ?: ""
 }
 
 /**
@@ -259,6 +278,19 @@ data class PerfDetail(
     val nextMonthMessage: String?,
     /** 서버 summary.status AT_RISK */
     val atRisk: Boolean = false,
+    /** 혜택마다 내용 한 줄 — 필요한 실적이 낮은 순 */
+    val benefits: List<BenefitLine> = emptyList(),
+)
+
+/** 혜택 하나 — 이름 · 값('20%') · 필요한 실적 · 건당 최대 · 월 횟수 · 한 번 결제 최소 금액 · 한도 걸림 */
+data class BenefitLine(
+    val name: String,
+    val value: String?,
+    val minPerformance: Long,
+    val minPayment: Long,
+    val perTransaction: Long?,
+    val monthlyCount: Int?,
+    val limited: Boolean,
 )
 
 /** 다른 달(지난달)의 인정 실적 — 그달 실적 기록이 있는 카드만 담는다(S15P31E103-602). [yearMonth]는 '2026-10' */
@@ -312,6 +344,15 @@ data class PerfAnalysis(
     val decision: PerfDecision?,
     val isEstimate: Boolean,
     val version: String?,                       // #35 analysisVersion
+    /** 카드 실적 화면 '더 써야 할까요?' · '어떻게 계산했나요?'(S15P31E103-615) — 지금까지 인정 실적 · 서버 이유 문장 ·
+     * 월말까지 평소 소비(steps 2) · 이 카드로 낼 예정 지출(steps 3) · 남은 날 · 하루 평균 · 달별 같은 기간 실적(월 → 금액, 오래된 달부터) */
+    val recognized: Long? = null,
+    val message: String? = null,
+    val natural: Long? = null,
+    val scheduled: Long? = null,
+    val daysLeft: Int? = null,
+    val averageDaily: Long? = null,
+    val history: List<Pair<Int, Long>> = emptyList(),
 )
 
 enum class LimitTag(val label: String) { NEAR_END("임박"), EXHAUSTED("소진"), LOCKED("잠김"), UNLIMITED("한도 없음") }
@@ -399,6 +440,9 @@ fun PerformanceDetailDto.toDetail(): PerfDetail {
         tiers = tiers.sortedBy { it.threshold }.map { PerfTier(it.label, it.benefitSummary, it.benefitAmount, it.achieved ?: (summary.recognizedAmount >= it.threshold), it.threshold) },
         nextMonthMessage = nextMonthImpact?.message?.takeIf { it.isNotBlank() },
         atRisk = summary.status.equals("AT_RISK", ignoreCase = true),
+        benefits = benefits.filter { it.name.isNotBlank() }.map {
+            BenefitLine(it.name.trim(), it.valueLabel, it.minPerformanceAmount.coerceAtLeast(0), it.minPaymentAmount, it.perTransactionLimit, it.monthlyCount, it.limited)
+        },
     )
 }
 
@@ -419,6 +463,13 @@ fun PerformanceAnalysisDto.toAnalysis(): PerfAnalysis {
         decision = readDecision(decision),
         isEstimate = isEstimate,
         version = asOf,
+        recognized = recognizedAmount,
+        message = message?.takeIf { headline != null && it.isNotBlank() },
+        natural = steps.firstOrNull { it.no == 2 }?.amount,
+        scheduled = steps.firstOrNull { it.no == 3 }?.amount,
+        daysLeft = daysLeft,
+        averageDaily = projection?.averageDailyRecognizable,
+        history = projection?.history.orEmpty().mapNotNull { h -> monthOf(h.yearMonth)?.let { it to h.amount } },
     )
 }
 
