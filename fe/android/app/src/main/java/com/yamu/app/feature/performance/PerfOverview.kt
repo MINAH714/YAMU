@@ -50,7 +50,6 @@ import com.yamu.app.core.designsystem.component.TagTone
 import com.yamu.app.core.designsystem.component.YamuCard
 import com.yamu.app.core.designsystem.theme.YamuSpacing
 import com.yamu.app.core.designsystem.theme.YamuTheme
-import com.yamu.app.core.format.KST
 import com.yamu.app.core.format.toWon
 import com.yamu.app.core.network.ApiResult
 import com.yamu.app.core.ui.staleLine
@@ -71,8 +70,6 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import java.time.OffsetDateTime
-import java.time.format.DateTimeFormatter
 import javax.inject.Inject
 
 /** 판정 태그 색 — 달성 추천 파랑 · 달성 초록 · 추가 소비 비추천 빨강(프로토타입 .guide). KEEP_NATURAL은 태그를 그리지 않는다(label null) */
@@ -111,8 +108,6 @@ class PerfOverviewViewModel @Inject constructor(private val perf: PerformanceRep
     }
 }
 
-private val HM = DateTimeFormatter.ofPattern("HH:mm")
-
 @Composable
 fun PerfOverviewRoute(
     onAnalysis: (userCardId: Long) -> Unit,
@@ -139,11 +134,7 @@ fun PerfOverviewRoute(
                 else -> {
                     YamuCard {
                         val month = monthOf(o.yearMonth)?.let { "${it}월 실적" } ?: "이번 달 실적"
-                        val reflected = o.reflectedAtIso?.let { runCatching { OffsetDateTime.parse(it).atZoneSameInstant(KST).format(HM) }.getOrNull() }
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(listOfNotNull(month, o.daysLeft?.let { "마감 D-$it" }).joinToString(" · "), style = YamuTheme.typography.bodyM, color = c.text3, modifier = Modifier.weight(1f))
-                            reflected?.let { StatusTag("$it 결제 반영", tone = TagTone.Primary) }
-                        }
+                        Text(listOfNotNull(month, o.daysLeft?.let { "마감 D-$it" }).joinToString(" · "), style = YamuTheme.typography.bodyM, color = c.text3)
                         Spacer(Modifier.height(4.dp))
                         Text(
                             if (o.pending.isEmpty()) "모든 카드가 기준을 채웠어요" else "아직 기준 전 카드가 ${o.pending.size}장이에요",
