@@ -217,11 +217,11 @@ internal enum class PerfRowTarget { ANALYSIS, CARD_DETAIL }
 
 /**
  * 기준 전 카드는 유불리 분석(R-03), 달성 카드는 카드 실적 상세(R-02, 홈 내 카드에서 여는 곳과 같은 화면 · S15P31E103-451).
- * 실적 조건 없는 카드는 R-02에 보일 실적이 없어 누를 수 없다(null)
+ * 실적 조건 없는 카드도 R-02 — 실적 기준은 없지만 받는 혜택(이름 · 값 · 한도 없음)을 카드 화면에서 본다(S15P31E103-615)
  */
 internal val CardPerf.rowTarget: PerfRowTarget?
     get() = when {
-        noTarget -> null
+        noTarget -> PerfRowTarget.CARD_DETAIL
         pending -> PerfRowTarget.ANALYSIS
         else -> PerfRowTarget.CARD_DETAIL
     }

@@ -156,7 +156,7 @@ class PerformanceMapperTest {
                 TierDto(800_000, "80만원 이상", benefitAmount = null, achieved = false),
             ),
         ).toDetail()
-        assertEquals(listOf("최대 20,000원", "최대 20,000원", "최대 30,000원", "최대 40,000원", ""), d.tiers.map { it.amountText })
+        assertEquals(listOf("월 최대 20,000원", "월 최대 20,000원", "월 최대 30,000원", "월 최대 40,000원", ""), d.tiers.map { it.amountText })
         assertEquals("30만원 이상", d.targetLabel)
     }
 
