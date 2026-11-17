@@ -40,6 +40,10 @@ try {
     $sync=(Invoke-RestMethod "$BaseUrl/api/sync" -Headers $headers -Method Post -ContentType 'application/json' -Body '{}').data
     if(@($sync.failed).Count -ne 0){throw 'Local sync failed'}
     $results.Add([PSCustomObject]@{endpoint='POST /api/sync';status=200})
+    # A sync must not invalidate the funding bridge used by historical synthetic balances.
+    $past=(Invoke-RestMethod "$BaseUrl/api/asset-flows?yearMonth=2026-10&accountIds=1,2,3" -Headers $headers).data
+    if(@($past.partialErrors).Count -ne 0 -or @($past.series|Where-Object {$_.dataStatus -ne 'AVAILABLE'}).Count -ne 0){throw 'Historical balances lost after sync'}
+    $results.Add([PSCustomObject]@{endpoint='GET /api/asset-flows 2026-10 after sync';status=200})
     $settings=(Invoke-RestMethod "$BaseUrl/api/forecasts/settings" -Headers $headers).data
     # Write the same threshold: tests the real PATCH route without changing the scenario.
     $response=Invoke-RestMethod "$BaseUrl/api/forecasts/settings" -Headers $headers -Method Patch -ContentType 'application/json' -Body (@{alertThreshold=$settings.alertThreshold}|ConvertTo-Json)

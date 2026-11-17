@@ -21,6 +21,7 @@ import org.springframework.jdbc.datasource.SingleConnectionDataSource;
 @org.springframework.context.annotation.Import(QaLocalAppTest.LocalConfiguration.class)
 class QaLocalResumeTest {
     @Autowired DataSource source;
+    @Autowired com.yamu.be.accounthistory.AccountHistoryStore accountHistory;
     @Autowired com.yamu.be.global.crypto.CryptoProperties properties;
     @Autowired QaLocalAppTest.Bootstrap bootstrap;
     @MockitoBean com.yamu.be.payment.bank.SsafyTransferApi transfer;
@@ -49,13 +50,14 @@ class QaLocalResumeTest {
         when(finance.postWithApiKey(anyString(),any(),any(Class.class))).thenThrow(unavailable);
         when(transfer.withdraw(anyString(),anyString(),anyLong(),any(),anyString())).thenThrow(unavailable);
         when(transfer.deposit(anyString(),anyString(),anyLong(),any(),anyString())).thenThrow(unavailable);
-        when(transfer.historySnapshot(anyString(),anyString(),any(),any(),any())).thenAnswer(call->
-            new com.yamu.be.payment.bank.BankHistory(call.getArgument(2),call.getArgument(3),null,0L,List.of(),runtimeClock.instant()));
         var mapper=new com.fasterxml.jackson.databind.ObjectMapper().registerModule(new com.fasterxml.jackson.datatype.jsr310.JavaTimeModule());
         var input=mapper.readValue(Path.of("seed/qa/life-persona-1.example.json").toFile(),QaSeedSpec.class);
         var p=input.personas().get(0);
         var person=new QaSeedSpec.Persona("p0",p.scenario(),p.name(),p.birthDate(),p.phone(),p.ssafyMemberId(),"isolated-preview-only",p.accounts(),p.cards(),p.issuanceEligibility());
         var spec=new QaSeedSpec(input.datasetKey(),3,input.baseDate(),List.of(person));
+        var bankHistory = new QaLocalBankHistory(p.accounts(),runtimeClock);
+        when(transfer.historySnapshot(anyString(),anyString(),any(),any(),any())).thenAnswer(call ->
+                bankHistory.snapshot(call.getArgument(1),call.getArgument(2),call.getArgument(3),call.getArgument(4)));
         var balances=new HashMap<String,Long>();
         for(int i=0;i<p.accounts().size();i++) balances.put(p.accounts().get(i).accountNo(),QaLifeScenario.startingBalance(i));
         when(bank.balance(anyString(),anyString())).thenAnswer(call->{
@@ -71,6 +73,13 @@ class QaLocalResumeTest {
             service.run("verify",spec);
             bootstrap.owner=db.queryForObject("SELECT user_id FROM qa_seed_member WHERE dataset_key=? AND persona_key='p0'",Long.class,spec.datasetKey());
             bootstrap.name=p.name();
+            // Revalidate the same immutable evidence, including DBs invalidated by the old empty reply.
+            for (var account : p.accounts()) {
+                long id=db.queryForObject("SELECT linked_account_id FROM linked_account WHERE user_id=? AND bank_code=?",Long.class,bootstrap.owner,account.bankCode());
+                var ticket=accountHistory.begin(bootstrap.owner,id,QaLifeScenario.BASE,QaLifeScenario.BASE);
+                String result=accountHistory.complete(ticket,bankHistory.snapshot(account.accountNo(),QaLifeScenario.BASE,QaLifeScenario.BASE,null));
+                org.assertj.core.api.Assertions.assertThat(result).isEqualTo("OK");
+            }
         }
         Files.createDirectories(Path.of("build/local-resume"));
         Files.writeString(Path.of("build/local-resume/ready.txt"),"http://127.0.0.1:18559");

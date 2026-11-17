@@ -13,6 +13,19 @@ allprojects {
                 binaryResultsDirectory = layout.buildDirectory.dir('test-results/local-resume/binary')
                 outputs.upToDateWhen { false }
             }
+            tasks.register('localHistoryCheck', Test) {
+                description = 'Verify past balances survive repeated local bank history refreshes.'
+                group = 'verification'
+                testClassesDirs = sourceSets.test.output.classesDirs
+                classpath = sourceSets.test.runtimeClasspath
+                useJUnitPlatform()
+                filter { includeTestsMatching 'com.yamu.be.seed.qa.QaLocalAppTest.serveLocalPreview' }
+                systemProperty 'spring.profiles.active', 'test'
+                systemProperty 'qa.localApp', 'true'
+                systemProperty 'qa.localHistoryCheck', 'true'
+                systemProperty 'qa.localPort', '0'
+                outputs.upToDateWhen { false }
+            }
             tasks.register('localApp', Test) {
                 description = 'Run the real local HTTP API with isolated MySQL/Redis and LIFE fixtures.'
                 group = 'verification'
