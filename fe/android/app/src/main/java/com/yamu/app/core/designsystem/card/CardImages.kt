@@ -14,7 +14,7 @@ import com.yamu.app.R
 object CardImages {
     /**
      * 상품명 → 그림. 이름은 BE 시드 상품명(card-images.json product_name) — 다른 이름으로 오면 줄을 더한다(별칭).
-     * 시드에서 그림이 있는 17종을 모두 둔다. 적재가 보류된 Point Plan · Deep Oil · 원더카드 2.0 DAILY는 뺐다
+     * 기존 시드 17종과 IBK나라사랑카드의 공식 그림을 둔다. 적재가 보류된 Point Plan · Deep Oil · 원더카드 2.0 DAILY는 뺐다
      */
     private val products: List<Pair<String, Int>> = listOf(
         "현대카드ZERO Edition3(포인트형)" to R.drawable.card_hyundai_mzroe3,
@@ -34,6 +34,7 @@ object CardImages {
         "LOCA LIKIT 2.0" to R.drawable.card_lotte_p15835_a15835,
         "삼성 iD SIMPLE" to R.drawable.card_samsung_aap1767,
         "삼성 taptap O" to R.drawable.card_samsung_taptap_o,
+        "IBK나라사랑카드" to R.drawable.card_ibk_narasarang,
     )
 
     // 카드사 이름 머리 — '카드'를 지운 뒤에 뗀다. 긴 것부터. byKey보다 먼저 초기화돼야 한다

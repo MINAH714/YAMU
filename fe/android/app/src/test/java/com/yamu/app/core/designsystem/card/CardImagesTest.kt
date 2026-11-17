@@ -8,7 +8,7 @@ import org.junit.Test
 
 class CardImagesTest {
 
-    /** BE 시드에서 그림이 있는 17종(be/seed/03-card-product-images.sql) — 상품명은 시드 그대로 */
+    /** 기존 BE 시드 17종과 QA IBK나라사랑카드 — 상품명은 시드 그대로 */
     private val seed = mapOf(
         "하나카드 트래블로그 체크카드" to R.drawable.card_hana_travelog_check,
         "현대카드 M ME4" to R.drawable.card_hyundai_m,
@@ -25,14 +25,15 @@ class CardImagesTest {
         "삼성 iD SIMPLE" to R.drawable.card_samsung_aap1767,
         "삼성 iD ON 카드" to R.drawable.card_samsung_id_on,
         "삼성 taptap O" to R.drawable.card_samsung_taptap_o,
+        "IBK나라사랑카드" to R.drawable.card_ibk_narasarang,
         "신한카드 처음" to R.drawable.card_shinhan_cheoeum,
         "신한카드 Mr.Life" to R.drawable.card_shinhan_mrlife,
     )
 
     @Test
-    fun `시드 17종이 모두 각자 그림을 찾는다`() {
+    fun `시드 18종이 모두 각자 그림을 찾는다`() {
         seed.forEach { (name, res) -> assertEquals(name, res, CardImages.forProduct(name)) }
-        assertEquals(17, CardImages.all.size)
+        assertEquals(18, CardImages.all.size)
         assertEquals(seed.values.toSet(), CardImages.all.toSet())
     }
 
@@ -53,6 +54,7 @@ class CardImagesTest {
 
     @Test
     fun `띄어쓰기 · 괄호 · 대소문자 · '카드' · 카드사 머리가 달라도 찾는다`() {
+        assertEquals(R.drawable.card_ibk_narasarang, CardImages.forProduct("IBK 나라사랑 카드"))
         assertEquals(R.drawable.card_kb_07964, CardImages.forProduct("노리2 체크카드 KB Pay"))
         assertEquals(R.drawable.card_kb_07964, CardImages.forProduct("KB국민카드 노리2체크(KB PAY)"))
         assertEquals(R.drawable.card_hyundai_mzroe3, CardImages.forProduct("현대카드 ZERO Edition3 포인트형"))
@@ -71,6 +73,8 @@ class CardImagesTest {
 
     @Test
     fun `이름이 비슷한 다른 상품은 찾지 않는다`() {
+        assertNull(CardImages.forProduct("KB국민 나라사랑카드"))
+        assertNull(CardImages.forProduct("하나 나라사랑카드"))
         assertNull(CardImages.forProduct("현대카드 ZERO Edition2(할인형)"))
         assertNull(CardImages.forProduct("현대카드 ZERO Edition3"))
         assertNull(CardImages.forProduct("LOCA LIKIT"))
