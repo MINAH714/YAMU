@@ -206,7 +206,6 @@ data class PerfOverview(
     val daysLeft: Int?,
     val pending: List<CardPerf>,
     val others: List<CardPerf>,
-    val reflectedAtIso: String?,
     val syncedAtIso: String?,
 ) {
     val all: List<CardPerf> get() = pending + others
@@ -324,7 +323,6 @@ fun List<CardPerf>.toOverview(yearMonth: String?, daysLeft: Int?, syncedAtIso: S
         daysLeft = daysLeft,
         pending = pending.sortedWith(compareBy({ it.guide?.order ?: PerfGuide.INSUFFICIENT_DATA.order }, { it.remaining })),
         others = others.sortedBy { if (it.achieved) 0 else 1 },
-        reflectedAtIso = named.mapNotNull { it.recentAtIso }.maxOrNull(),
         syncedAtIso = syncedAtIso,
     )
 }

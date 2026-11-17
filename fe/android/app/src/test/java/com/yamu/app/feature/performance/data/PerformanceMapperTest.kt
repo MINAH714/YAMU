@@ -34,7 +34,7 @@ class PerformanceMapperTest {
         assertTrue(overview.others.last().noTarget)
     }
 
-    @Test fun `결제 반영 — 서버가 준 변화량과 가장 최근 반영 시각`() {
+    @Test fun `결제 반영 — 서버가 준 변화량`() {
         val json = """{"yearMonth":"2026-10","daysLeft":15,"cards":[
             {"userCardId":11,"issuer":{"name":"신한카드","color":"#0046FF"},"targetAmount":300000,"recognizedAmount":285000,"remainingAmount":15000,
              "status":"ON_TRACK","guide":"KEEP_NATURAL","recentChange":{"amount":15000,"approvedAt":"2026-10-16T09:38:00+09:00"}},
@@ -44,7 +44,6 @@ class PerformanceMapperTest {
         val shinhan = overview.pending.first { it.userCardId == 11L }
         assertEquals(15_000L, shinhan.recentChange)
         assertEquals("신한카드", shinhan.name)
-        assertEquals("2026-10-16T09:38:00+09:00", overview.reflectedAtIso)
         val woori = overview.pending.first { it.userCardId == 13L }
         assertNull(woori.guide)                       // 보완 전 모양 — 저장소가 #18로 채운다
         assertEquals("우리", woori.brand.shortName)    // 카드사가 없으면 별명 첫 단어
