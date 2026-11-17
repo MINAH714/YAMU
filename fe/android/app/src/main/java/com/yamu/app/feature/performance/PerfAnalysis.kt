@@ -1,6 +1,21 @@
 package com.yamu.app.feature.performance
 
 import androidx.compose.foundation.layout.offset
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import com.yamu.app.core.designsystem.component.ExpandToggle
+import com.yamu.app.core.format.toManWon
+import com.yamu.app.feature.performance.data.MovableItem
 import com.yamu.app.core.designsystem.component.QuietLink
 import com.yamu.app.core.designsystem.component.KeyValueRow
 import com.yamu.app.core.designsystem.component.SectionBlock
@@ -245,12 +260,12 @@ fun PerfAnalysisRoute(onBack: () -> Unit, onCardDetail: (userCardId: Long) -> Un
     }
     val cardName = s.selected?.name ?: "카드"
     FlowScreen(
-        title = "실적 분석",
+        title = "더 써야 할까요?",
         onBack = onBack,
         bottomBar = {
             val a = s.analysis
             if (a != null) ActionButtons(a, cardName, s.acting, viewModel::decide, viewModel::moveAndFill, onDetail = { onCardDetail(a.userCardId) })
-            else if (s.noData || s.notReady) BottomCta { PrimaryButton("${cardName.clipName()} 실적 자세히 보기", onClick = { onCardDetail(s.selectedId) }) }
+            else if (s.noData || s.notReady) BottomCta { PrimaryButton("${cardName.clipName()} 자세히 보기", onClick = { onCardDetail(s.selectedId) }) }
         },
     ) { inner ->
         Column(Modifier.padding(inner).consumeWindowInsets(inner).fillMaxSize()) {
@@ -308,10 +323,9 @@ private fun AnalysisPage(card: CardPerf?, current: PerfAnalysisState?, cardName:
                 }
             }
             current.noData -> SectionBlock(divider = false) {
-                StatusTag(PerfGuide.INSUFFICIENT_DATA.label.orEmpty(), tone = PerfGuide.INSUFFICIENT_DATA.tone())
-                Spacer(Modifier.height(YamuSpacing.x2))
-                Text("데이터가 더 모이면 판단해 드려요", style = YamuTheme.typography.titleL, color = c.text1)
-                Text("거래가 한 달쯤 쌓이면 이 카드의 유불리를 알려 드려요", style = YamuTheme.typography.bodyM, color = c.text3)
+                Text("이 카드는 쓴 기록이 아직 적어요", style = YamuTheme.typography.headlineS, color = c.text1)
+                Spacer(Modifier.height(8.dp))
+                Text("한 달쯤 쓰면 더 써야 할지 알려 드릴게요", style = YamuTheme.typography.bodyL, color = c.text2)
             }
             // 분석 API가 아직 없는 서버 — 다시 해도 같아서 다시 시도 대신 아래 버튼으로 R-02(S15P31E103-432)
             current.notReady -> SectionBlock(divider = false) {
@@ -328,19 +342,33 @@ private fun AnalysisPage(card: CardPerf?, current: PerfAnalysisState?, cardName:
 @Composable
 private fun AnalysisBody(a: PerfAnalysis, cardName: String, onDetail: () -> Unit) {
     val c = YamuTheme.colors
-    val nextMonth = a.month?.let { it % 12 + 1 }
-    // ① 판정 · 머리 문장 · 큰 숫자
+    val t = YamuTheme.typography
+    val thisMonth = a.month?.let { "${it}월" } ?: "이번 달"
+    val next = a.month?.let { "${it % 12 + 1}월" } ?: "다음 달"
+    val card = cardName.clipName()
+    // ① 답 먼저 — 더 써야 하나? 쓰면 무엇을 받나? 판정 이름 · 실적 · 기준 같은 말은 쓰지 않는다
     SectionBlock(divider = false) {
-        a.guide.label?.let {
-            StatusTag(it, tone = a.guide.tone(), large = true)
-            Spacer(Modifier.height(12.dp))
+        Text(a.answerTitle(next), style = t.headlineS, color = c.text1)
+        a.answerBody(card, thisMonth, next)?.let {
+            Spacer(Modifier.height(8.dp))
+            Text(it, style = t.bodyL, color = c.text2)
         }
-        a.headline?.let { Text(it, style = YamuTheme.typography.headlineS, color = c.text1) }
-        // 큰 숫자 — 판정마다 다르다(11 문서 7-1 표)
-        when (a.guide) {
-            PerfGuide.ACHIEVE_RECOMMENDED -> BigNumber(nextMonth?.let { "${it}월에 더 받는 혜택" } ?: "더 받는 혜택", a.extraBenefit, plus = true, color = c.primary)
-            PerfGuide.KEEP_NATURAL, PerfGuide.EXTRA_SPENDING_NOT_RECOMMENDED -> BigNumber("채우려면 더 써야 하는 돈", a.shortfall ?: 0)
-            else -> Unit
+        val move = a.movable
+        when {
+            // 더 안 쓰고 받는 길 — 할 일 두 단계
+            a.guide == PerfGuide.ACHIEVE_RECOMMENDED && move != null -> {
+                Spacer(Modifier.height(20.dp))
+                HowTo(move, card)
+            }
+            // 더 쓸 돈 vs 더 받는 혜택 — 막대 두 개로 바로 비교
+            a.guide == PerfGuide.ACHIEVE_RECOMMENDED || a.guide == PerfGuide.EXTRA_SPENDING_NOT_RECOMMENDED -> {
+                Spacer(Modifier.height(20.dp))
+                CompareBars(spend = a.shortfall ?: 0, gain = a.extraBenefit, next = next)
+            }
+        }
+        if (a.benefitNames.isNotEmpty() && a.guide != PerfGuide.ALREADY_ACHIEVED) {
+            Spacer(Modifier.height(16.dp))
+            BenefitBox(next, a.benefitNames, a.extraBenefit.takeIf { a.guide == PerfGuide.ACHIEVE_RECOMMENDED && move != null })
         }
         a.decision?.let { d ->
             Spacer(Modifier.height(YamuSpacing.x3))
@@ -351,25 +379,162 @@ private fun AnalysisBody(a: PerfAnalysis, cardName: String, onDetail: () -> Unit
             DetailLink(cardName, onDetail)
         }
     }
-    // ② 이렇게 판단했어요 — 키–값(근거는 서버 값, '예측'은 키 뒤)
+    // ② 계산은 접어 둔다 — 궁금한 사람만 펼친다
     if (a.drawsReasons) {
-        SectionBlock(title = "이렇게 판단했어요") {
-            a.target?.let { KeyValueRow("실적 기준", "${it.toWon()}원") }
-            a.projected?.let { KeyValueRow("월말 예상", "${it.toWon()}원", keyTag = if (a.isEstimate) ({ EstimateTag() }) else null) }
-            when (a.guide) {
-                PerfGuide.ACHIEVE_RECOMMENDED -> a.movable?.let { m ->
-                    val deadline = parseDate(m.deadlineIso)?.toMonthDay()?.let { " (${it}까지)" }.orEmpty()
-                    KeyValueRow("${m.title} 옮기면$deadline", a.projectedIfMoved?.let { "${it.toWon()}원" } ?: "+${m.amount.toWon()}원")
-                }
-                PerfGuide.EXTRA_SPENDING_NOT_RECOMMENDED -> a.extraBenefit?.let {
-                    KeyValueRow("채우면 받는 혜택", "약 ${it.toWon()}원", keyTag = { EstimateTag() })
-                }
-                PerfGuide.KEEP_NATURAL -> if (a.benefitNames.isNotEmpty()) BenefitNamesRow(a.benefitNames)
-                else -> Unit
-            }
+        SectionBlock {
+            CalcDetails { CalcRows(a, thisMonth) }
             if (a.detailLinkPlace() == DetailLinkPlace.REASONS) DetailLink(cardName, onDetail)
         }
     }
+}
+
+/** 계산 근거 — 지금까지 쓴 돈 + 월말까지 더 쓸 돈 + 예정 지출 = 이번 달 예상 → 혜택 조건 */
+@Composable
+private fun CalcRows(a: PerfAnalysis, thisMonth: String) {
+    val estimate: (@Composable () -> Unit)? = if (a.isEstimate) ({ EstimateTag() }) else null
+    a.recognized?.let { KeyValueRow("지금까지 쓴 돈", "${it.toWon()}원") }
+    a.natural?.let { KeyValueRow("월말까지 더 쓸 것 같은 돈", "+${it.toWon()}원", keyTag = estimate, keySub = "지난 3개월 이맘때 평균") }
+    a.scheduled?.takeIf { it > 0 }?.let { KeyValueRow("이 카드로 나갈 예정 지출", "+${it.toWon()}원") }
+    a.projected?.let { KeyValueRow("$thisMonth 예상 합계", "${it.toWon()}원", keyTag = estimate) }
+    a.target?.let { KeyValueRow("혜택 조건", "${it.toManWon()} 이상") }
+    a.movable?.let { m -> a.projectedIfMoved?.let { KeyValueRow("${m.title} 옮기면 합계", "${it.toWon()}원") } }
+}
+
+/**
+ * 카드 실적 한 화면(R-02 + R-03 합침)의 '더 써야 할까요?' 덩어리 — 답 한 문장 + 이유 + (할 일 | 막대 비교) + 계산 접기.
+ * 판정 행동 버튼은 화면 아래 [CardVerdictActions]
+ */
+@Composable
+internal fun VerdictBlock(a: PerfAnalysis, cardName: String) {
+    val c = YamuTheme.colors
+    val t = YamuTheme.typography
+    val thisMonth = a.month?.let { "${it}월" } ?: "이번 달"
+    val next = a.month?.let { "${it % 12 + 1}월" } ?: "다음 달"
+    val card = cardName.clipName()
+    Text(a.answerTitle(next), style = t.titleL, color = c.text1)
+    a.answerBody(card, thisMonth, next)?.let {
+        Spacer(Modifier.height(6.dp))
+        Text(it, style = t.bodyL, color = c.text2)
+    }
+    val move = a.movable
+    when {
+        a.guide == PerfGuide.ACHIEVE_RECOMMENDED && move != null -> {
+            Spacer(Modifier.height(16.dp))
+            HowTo(move, card)
+        }
+        a.guide == PerfGuide.ACHIEVE_RECOMMENDED || a.guide == PerfGuide.EXTRA_SPENDING_NOT_RECOMMENDED -> {
+            Spacer(Modifier.height(16.dp))
+            CompareBars(spend = a.shortfall ?: 0, gain = a.extraBenefit, next = next)
+        }
+    }
+    a.decision?.let { d ->
+        Spacer(Modifier.height(12.dp))
+        Text("이번 달은 '${d.label}'로 정했어요 · 이 카드 알림을 멈췄어요", style = t.bodyM, color = c.text2)
+    }
+    Spacer(Modifier.height(8.dp))
+    CalcDetails { CalcRows(a, thisMonth) }
+}
+
+/** 합친 화면 아래 버튼 — 판정 행동이 있을 때만(옮기기 · 안 쓰기 · 다시 판단). 자세히 보기는 이미 이 화면이라 두지 않는다 */
+@Composable
+internal fun CardVerdictActions(a: PerfAnalysis, cardName: String, acting: Boolean, onDecide: (PerfDecision?) -> Unit, onMove: () -> Unit) {
+    if (a.primaryAction() == PerfAction.DETAIL) return
+    ActionButtons(a, cardName, acting, onDecide, onMove, onDetail = {})
+}
+
+/** 머리 문장 — 판정을 사용자 질문(더 써야 해?)의 답으로 */
+internal fun PerfAnalysis.answerTitle(next: String): String = when (guide) {
+    PerfGuide.ACHIEVE_RECOMMENDED -> if (movable != null) "돈을 더 안 써도 $next 혜택을 받을 수 있어요" else "조금 더 쓰는 게 이득이에요"
+    PerfGuide.KEEP_NATURAL -> "평소처럼만 쓰면 돼요"
+    PerfGuide.EXTRA_SPENDING_NOT_RECOMMENDED -> "이번 달은 더 안 써도 돼요"
+    PerfGuide.ALREADY_ACHIEVED -> "이미 $next 혜택을 받아요"
+    PerfGuide.INSUFFICIENT_DATA -> "아직 판단하기 일러요"
+}
+
+/** 머리 아래 한 문장 — 왜 그런지(무엇을 하면 · 얼마를 쓰면 · 무엇을 받는지) */
+internal fun PerfAnalysis.answerBody(card: String, thisMonth: String, next: String): String? {
+    val goal = target?.toManWon() ?: "조건"
+    val gap = shortfall ?: 0
+    return when (guide) {
+        PerfGuide.ACHIEVE_RECOMMENDED -> movable?.let { m ->
+            "${m.title}(${m.amount.toWon()}원) 결제 카드만 $card${card.directionParticle()} 바꾸면 ${thisMonth}에 ${goal}을 넘겨요."
+        // '남은 돈'(기준 − 지금)과 헷갈리지 않게 — 여기 금액은 평소 쓰는 만큼을 빼고도 모자라는 돈
+        } ?: extraBenefit?.let { "평소처럼 써도 ${gap.toWon()}원이 모자라요. 그만큼 더 쓰면 ${next}에 최대 ${it.toWon()}원 혜택을 더 받아서 이득이에요." }
+        PerfGuide.KEEP_NATURAL -> projected?.let { "이대로면 ${thisMonth}에 ${it.toWon()}원쯤 써서 ${goal}을 넘겨요." }
+        PerfGuide.EXTRA_SPENDING_NOT_RECOMMENDED -> extraBenefit?.let { e ->
+            "평소처럼 써도 ${gap.toWon()}원이 모자라요. 그만큼 더 써도 ${next}에 받는 혜택은 최대 ${e.toWon()}원이라 ${if (gap >= e * 2) "훨씬 " else ""}손해예요."
+        } ?: "평소처럼 써도 ${gap.toWon()}원이 모자라요. 받는 혜택을 금액으로 셀 수 없어서, 꼭 필요한 결제가 아니면 안 써도 돼요."
+        PerfGuide.ALREADY_ACHIEVED -> "${thisMonth}에 ${goal}을 넘겼어요."
+        PerfGuide.INSUFFICIENT_DATA -> null
+    }
+}
+
+/** 더 안 쓰고 받는 길 — 앱에서 바꾸기 + 내는 곳에서 바꾸기 */
+@Composable
+internal fun HowTo(m: MovableItem, card: String) {
+    val deadline = parseDate(m.deadlineIso)?.toMonthDay()?.let { "${it}까지 " }.orEmpty()
+    Text("이렇게 하면 돼요", style = YamuTheme.typography.titleS, color = YamuTheme.colors.text1)
+    Spacer(Modifier.height(4.dp))
+    StepLine(1, "아래 버튼으로 이 앱의 ${m.title} 결제 카드를 $card${card.directionParticle()} 바꿔요")
+    StepLine(2, "$deadline${m.title}${m.title.objectParticle()} 내는 곳에서도 결제 카드를 바꿔요")
+}
+
+@Composable
+private fun StepLine(no: Int, text: String) {
+    val c = YamuTheme.colors
+    Row(Modifier.padding(vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        Box(Modifier.size(22.dp).clip(CircleShape).background(c.primaryContainer), contentAlignment = Alignment.Center) {
+            Text("$no", style = YamuTheme.typography.labelL, color = c.primary)
+        }
+        Text(text, style = YamuTheme.typography.bodyL, color = c.text1, modifier = Modifier.weight(1f))
+    }
+}
+
+/** 더 써야 하는 돈 vs 더 받는 혜택 — 길이로 바로 비교 */
+@Composable
+internal fun CompareBars(spend: Long, gain: Long?, next: String) {
+    val c = YamuTheme.colors
+    val max = maxOf(spend, gain ?: 0L, 1L).toFloat()
+    Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        Bar("평소보다 더 써야 하는 돈", spend, spend / max, c.text3)
+        if (gain != null) Bar("${next}에 더 받는 혜택 (최대)", gain, gain / max, c.primary)
+        else Text("더 받는 혜택은 금액으로 셀 수 없어요", style = YamuTheme.typography.bodyM, color = c.text3)
+    }
+}
+
+@Composable
+private fun Bar(label: String, amount: Long, fraction: Float, color: Color) {
+    val c = YamuTheme.colors
+    Column {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(label, style = YamuTheme.typography.bodyM, color = c.text2, modifier = Modifier.weight(1f))
+            Text("${amount.toWon()}원", style = YamuTheme.typography.titleM, color = c.text1)
+        }
+        Spacer(Modifier.height(6.dp))
+        Box(Modifier.fillMaxWidth().height(10.dp).clip(RoundedCornerShape(5.dp)).background(c.surfaceVariant)) {
+            Box(Modifier.fillMaxWidth(fraction.coerceIn(0.02f, 1f)).height(10.dp).clip(RoundedCornerShape(5.dp)).background(color))
+        }
+    }
+}
+
+/** 받는 혜택 이름 — 회색 상자 안에 */
+@Composable
+private fun BenefitBox(next: String, names: List<String>, extra: Long?) {
+    val c = YamuTheme.colors
+    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(c.surfaceVariant).padding(16.dp)) {
+        Text("${next}에 받는 혜택", style = YamuTheme.typography.bodyM, color = c.text3)
+        Spacer(Modifier.height(4.dp))
+        names.forEach { Text(it, style = YamuTheme.typography.titleM, color = c.text1) }
+        extra?.let { Text("한 달 최대 ${it.toWon()}원 더", style = YamuTheme.typography.bodyM, color = c.text2, modifier = Modifier.padding(top = 2.dp)) }
+    }
+}
+
+/** '어떻게 계산했나요?' 접기 */
+@Composable
+internal fun CalcDetails(initiallyExpanded: Boolean = false, content: @Composable ColumnScope.() -> Unit) {
+    var open by rememberSaveable { mutableStateOf(initiallyExpanded) }
+    ExpandToggle(if (open) "접기" else "어떻게 계산했나요?", expanded = open, onToggle = { open = !open })
+    AnimatedVisibility(open) { Column(content = content) }
 }
 
 /**
@@ -402,7 +567,7 @@ private fun BenefitNamesRow(names: List<String>) {
 
 @Composable
 private fun DetailLink(cardName: String, onDetail: () -> Unit) =
-    QuietLink("${cardName.clipName()} 실적 자세히 보기", onClick = onDetail, modifier = Modifier.offset(x = (-4).dp))
+    QuietLink("${cardName.clipName()} 자세히 보기", onClick = onDetail, modifier = Modifier.offset(x = (-4).dp))
 
 /**
  * R-03 아래 버튼 하나 — 기록했으면 다시 판단, 아니면 판정별 행동, 행동이 없는 판정은 카드 실적 상세(R-02).
@@ -448,16 +613,24 @@ private fun ActionButtons(
     onMove: () -> Unit,
     onDetail: () -> Unit,
 ) {
-    val detail = "${cardName.clipName()} 실적 자세히 보기"
+    val detail = "${cardName.clipName()} 자세히 보기"
     when (a.primaryAction()) {
         PerfAction.REJUDGE -> BottomCta {
             PrimaryButton("다시 판단하기", onClick = { onDecide(null) }, loading = acting)
         }
         PerfAction.MOVE -> a.movable?.let { m ->
-            BottomCta { PrimaryButton("${m.title} ${cardName.clipName()}${cardName.directionParticle()} 옮기기", onClick = onMove, loading = acting) }
+            BottomCta { PrimaryButton("${m.title} 결제 카드 ${cardName.clipName()}${cardName.directionParticle()} 바꾸기", onClick = onMove, loading = acting) }
         }
         PerfAction.SKIP -> BottomCta {
-            PrimaryButton("채우지 않을게요", onClick = { onDecide(PerfDecision.SKIP) }, loading = acting)
+            // 누르면 무엇이 바뀌는지 먼저 — 판단을 기록하고 이 카드 실적 알림을 멈춘다(#35 muteNotifications)
+            Text(
+                "누르면 이번 달 ${cardName.clipName()} 알림을 그만 보내요",
+                style = YamuTheme.typography.bodyM,
+                color = YamuTheme.colors.text3,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+            )
+            PrimaryButton("이번 달은 더 안 쓸게요", onClick = { onDecide(PerfDecision.SKIP) }, loading = acting)
         }
         PerfAction.DETAIL -> BottomCta { PrimaryButton(detail, onClick = onDetail) }
     }

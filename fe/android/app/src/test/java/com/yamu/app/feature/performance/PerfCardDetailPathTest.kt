@@ -63,10 +63,10 @@ class PerfCardDetailPathTest {
         assertNotEquals(card(noTarget = false).rowLabel(thisMonth = true), card(noTarget = true).rowLabel(thisMonth = true))
     }
 
-    @Test fun `기준 전 카드는 R-03, 달성 카드는 R-02를 열고 실적 조건 없는 카드는 홈 내 카드처럼 누를 수 없다`() {
+    @Test fun `기준 전 카드는 R-03, 달성 카드와 실적 조건 없는 카드는 R-02(받는 혜택)를 연다`() {
         assertEquals(PerfRowTarget.CARD_DETAIL, card(noTarget = false).rowTarget)
         assertEquals(PerfRowTarget.ANALYSIS, card(noTarget = false).copy(recognized = 100_000, remaining = 200_000, achieved = false).rowTarget)
-        assertNull(card(noTarget = true).rowTarget)
+        assertEquals(PerfRowTarget.CARD_DETAIL, card(noTarget = true).rowTarget)
     }
 
     private companion object {

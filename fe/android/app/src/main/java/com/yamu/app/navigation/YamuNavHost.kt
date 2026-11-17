@@ -264,7 +264,8 @@ fun YamuNavHost(navController: NavHostController, modifier: Modifier = Modifier,
                         onBack = back,
                         onOpen = { target ->
                             when (target) {
-                                is NotiTarget.Card -> navController.navigate(PerfAnalysis(target.userCardId))
+                                // 실적 부족 알림도 카드 실적 한 화면으로(유불리 분석을 합침, S15P31E103-615)
+                                is NotiTarget.Card -> navController.navigate(CardPerformance(target.userCardId))
                                 is NotiTarget.Payment -> navController.navigate(PaymentDetail(target.paymentId))
                                 NotiTarget.Forecast -> navController.navigate(Forecast)
                                 NotiTarget.Limits -> navController.navigate(BenefitLimits)
@@ -277,7 +278,7 @@ fun YamuNavHost(navController: NavHostController, modifier: Modifier = Modifier,
                     MyCardsRoute(
                         onBack = back,
                         onAddCard = { navController.navigate(AddCard) },
-                        onAnalysis = { id -> navController.navigate(PerfAnalysis(id)) },
+                        onAnalysis = { id -> navController.navigate(CardPerformance(id)) },
                         onCardDetail = { id -> navController.navigate(CardPerformance(id)) },
                     )
                 }
@@ -339,7 +340,8 @@ fun YamuNavHost(navController: NavHostController, modifier: Modifier = Modifier,
                 // 7단계: 실제 화면(11 문서)
                 composable<PerfOverview> {
                     PerfOverviewRoute(
-                        onAnalysis = { id -> navController.navigate(PerfAnalysis(id)) },
+                        // 기준 전 카드도 카드 실적 한 화면으로 — '더 써야 할까요?'가 그 안에 있다(S15P31E103-615)
+                        onAnalysis = { id -> navController.navigate(CardPerformance(id)) },
                         onCardDetail = { id -> navController.navigate(CardPerformance(id)) },
                         onAddCard = { navController.navigate(AddCard) },
                         onBenefitLimits = { navController.navigate(BenefitLimits) { launchSingleTop = true } },
