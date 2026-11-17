@@ -18,6 +18,7 @@ import java.time.YearMonth;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
+import java.util.Comparator;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -92,7 +93,8 @@ public class PerformanceAnalysisService {
                 calc.target().amount(), calc.recognized(), r.remaining(),
                 today.lengthOfMonth() - today.getDayOfMonth(),
                 new PerformanceAnalysisResponse.Projection(r.scheduledTotal(), r.natural(), r.averageDaily(),
-                        r.projected(), r.likelihood().name(), r.shortfallIfTrend(), calc.historyMonths(), METHOD),
+                        r.projected(), r.likelihood().name(), r.shortfallIfTrend(), calc.samples().size(), METHOD,
+                        historyOf(calc.samples())),
                 r.guide(), r.headline(), r.message(),
                 r.benefitsAtStake().stream().map(n -> new PerformanceAnalysisResponse.BenefitAtStake(n, null)).toList(),
                 true,
@@ -188,7 +190,15 @@ public class PerformanceAnalysisService {
 
         PerformanceAnalyzer.Result result = PerformanceAnalyzer.analyze(new PerformanceAnalyzer.Input(today, target,
                 recognized, samples, split.scheduled(), split.movable(), scenarioItemIds));
-        return new Calculation(today, target, recognized, samples.size(), result);
+        return new Calculation(today, target, recognized, samples, result);
+    }
+
+    /** 자연 소비를 낸 달별 같은 기간 인정 실적 — 오래된 달부터(S15P31E103-615). */
+    static List<PerformanceAnalysisResponse.MonthAmount> historyOf(List<PerformanceAnalyzer.MonthSample> samples) {
+        return samples.stream()
+                .sorted(Comparator.comparing(PerformanceAnalyzer.MonthSample::month))
+                .map(s -> new PerformanceAnalysisResponse.MonthAmount(s.month().toString(), s.amount()))
+                .toList();
     }
 
     private static void requireMovable(Set<Long> scenarioItemIds, List<PerformanceAnalyzer.Movable> movable) {
@@ -234,6 +244,6 @@ public class PerformanceAnalysisService {
     }
 
     private record Calculation(LocalDate today, PerformanceAnalyzer.Target target, long recognized,
-            int historyMonths, PerformanceAnalyzer.Result result) {
+            List<PerformanceAnalyzer.MonthSample> samples, PerformanceAnalyzer.Result result) {
     }
 }

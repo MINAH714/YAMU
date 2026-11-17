@@ -238,7 +238,57 @@ class PerformanceIntegrationTest extends MySqlTestSupport {
         mockMvc.perform(get("/api/user-cards/{id}/performance", card).with(AuthUsers.asUser(owner)))
                 .andExpect(jsonPath("$.data.summary.status").value("NO_TARGET"))
                 .andExpect(jsonPath("$.data.tiers", hasSize(0)))
-                .andExpect(jsonPath("$.data.nextMonthImpact").value(nullValue()));
+                .andExpect(jsonPath("$.data.nextMonthImpact").value(nullValue()))
+                // 구간이 없어도 받는 혜택은 보여 준다(S15P31E103-615). 0.1 → "10%"(1E+1로 쓰지 않는다)
+                .andExpect(jsonPath("$.data.benefits", hasSize(1)))
+                .andExpect(jsonPath("$.data.benefits[0].name").value("모든 가맹점 1% 할인"))
+                .andExpect(jsonPath("$.data.benefits[0].valueLabel").value("10%"))
+                .andExpect(jsonPath("$.data.benefits[0].minPerformanceAmount").value(0))
+                .andExpect(jsonPath("$.data.benefits[0].limited").value(false));
+    }
+
+    @Test
+    void 상세는_혜택마다_값과_필요_실적과_건당_최대와_월_횟수를_준다() throws Exception {
+        long product = fixtures.product();
+        long base = benefitRow(product, "기본 할인", "RATE", "0.008", 0, 0);
+        long coffee = benefitRow(product, "커피 할인", "RATE", "0.2", 200_000, 10_000);
+        long phone = benefitRow(product, "통신 자동이체", "FIXED", "2500", 300_000, 50_000);
+        // 건당 원화 한도는 그 혜택에 필요한 실적(20만)에서의 구간 값
+        long perTxn = limitGroup(product, "COFFEE_TXN", "PER_TRANSACTION", "KRW");
+        tier(perTxn, 200_000, 500_000L, 4_000);
+        tier(perTxn, 500_000, null, 6_000);
+        link(product, coffee, perTxn);
+        long count = limitGroup(product, "PHONE_COUNT", "MONTHLY", "COUNT");
+        tier(count, 300_000, null, 1);
+        link(product, phone, count);
+        // 버전을 몰라 화면에서 빼는 한도(같은 그룹 코드 두 버전)에만 걸려도 한도 없음이라 하지 않는다
+        long unknownA = limitGroup(product, "BASE_MONTH", "MONTHLY", "KRW");
+        long unknownB = insert("limit_group", "limit_group_id", Map.of("card_product_id", product,
+                "group_code", "BASE_MONTH", "policy_version", 2, "group_name", "BASE_MONTH", "period_type", "MONTHLY",
+                "limit_unit", "KRW", "created_at", now()));
+        link(product, base, unknownA);
+        link(product, base, unknownB);
+        long card = card(owner, product, "ACTIVE", null);
+        performance(card, THIS_MONTH, 250_000);
+
+        mockMvc.perform(get("/api/user-cards/{id}/performance", card).with(AuthUsers.asUser(owner)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.benefits[*].name").value(contains("기본 할인", "커피 할인", "통신 자동이체")))
+                .andExpect(jsonPath("$.data.benefits[0].valueLabel").value("0.8%"))
+                .andExpect(jsonPath("$.data.benefits[0].minPerformanceAmount").value(0))
+                .andExpect(jsonPath("$.data.benefits[0].perTransactionLimit").value(nullValue()))
+                .andExpect(jsonPath("$.data.benefits[0].limited").value(true))
+                .andExpect(jsonPath("$.data.benefits[1].valueLabel").value("20%"))
+                .andExpect(jsonPath("$.data.benefits[1].minPerformanceAmount").value(200_000))
+                .andExpect(jsonPath("$.data.benefits[1].minPaymentAmount").value(10_000))
+                .andExpect(jsonPath("$.data.benefits[1].perTransactionLimit").value(4_000))
+                .andExpect(jsonPath("$.data.benefits[1].monthlyCount").value(nullValue()))
+                .andExpect(jsonPath("$.data.benefits[1].limited").value(true))
+                .andExpect(jsonPath("$.data.benefits[2].valueLabel").value("2,500원"))
+                .andExpect(jsonPath("$.data.benefits[2].minPerformanceAmount").value(300_000))
+                .andExpect(jsonPath("$.data.benefits[2].minPaymentAmount").value(50_000))
+                .andExpect(jsonPath("$.data.benefits[2].perTransactionLimit").value(nullValue()))
+                .andExpect(jsonPath("$.data.benefits[2].monthlyCount").value(1));
     }
 
     @Test
@@ -291,6 +341,17 @@ class PerformanceIntegrationTest extends MySqlTestSupport {
                 "benefit_code", "B-" + UUID.randomUUID(), "policy_version", 1, "benefit_name", name,
                 "benefit_type", "DISCOUNT", "calculation_type", "RATE", "rate", new BigDecimal("0.1"),
                 "value_unit", "KRW", "min_performance_amount", minPerformance, "created_at", now()));
+    }
+
+    /** 계산 방식·값·최소 결제 금액을 고를 수 있는 혜택. FIXED면 원화 정액. */
+    private long benefitRow(long product, String name, String calculation, String value, long minPerformance,
+            long minPayment) {
+        Map<String, Object> row = new HashMap<>(Map.of("card_product_id", product,
+                "benefit_code", "B-" + UUID.randomUUID(), "policy_version", 1, "benefit_name", name,
+                "benefit_type", "DISCOUNT", "calculation_type", calculation, "value_unit", "KRW",
+                "min_performance_amount", minPerformance, "min_payment_amount", minPayment, "created_at", now()));
+        row.put(calculation.equals("RATE") ? "rate" : "fixed_value", new BigDecimal(value));
+        return insert("card_benefit", "card_benefit_id", row);
     }
 
     private long limitGroup(long product, String code, String period, String unit) {
