@@ -397,7 +397,6 @@ fun YamuNavHost(navController: NavHostController, modifier: Modifier = Modifier,
                             navController.toWelcome()
                             showMessage("로그아웃했어요")
                         },
-                        onDebugMenu = debugMenu,
                         // '모든 기능' — 다른 탭 그래프의 화면도 마이 위에 쌓아 뒤로 = 마이(홈이 혜택 리포트 · 결제 내역을 홈 위에 쌓는 것과 같다)
                         allFeatures = AllFeaturesNav(
                             onForecast = { navController.navigate(Forecast) { launchSingleTop = true } },
