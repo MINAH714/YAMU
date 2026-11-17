@@ -21,7 +21,7 @@ public final class QaSeedCli {
         try {
             QaSeedSpec.require(args.length == 2, "Expected command and input file");
             String command = args[0];
-            QaSeedSpec.require(Set.of("plan", "apply", "enrich", "verify", "inspect", "reset", "purge", "revise-benefits").contains(command),
+            QaSeedSpec.require(Set.of("plan", "apply", "enrich", "verify", "inspect", "reset", "purge", "revise-benefits", "plan-display-names", "revise-display-names").contains(command),
                     "Unknown command");
             ObjectMapper mapper = new ObjectMapper().registerModule(new JavaTimeModule())
                     .enable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES);
@@ -60,6 +60,11 @@ public final class QaSeedCli {
             // Driver/Jackson errors can contain secrets, SQL bindings or source excerpts.
             System.err.println("QA seed failed (" + failure.getClass().getSimpleName()
                     + "). Check input, catalog, schema, ownership and maintenance prerequisites.");
+            // Only source locations, never driver messages, SQL bindings or secret-bearing input.
+            java.util.Arrays.stream(failure.getStackTrace())
+                    .filter(frame -> frame.getClassName().startsWith("com.yamu.be.seed.qa."))
+                    .limit(4).forEach(frame -> System.err.println("QA stage: " + frame.getClassName()
+                            + "." + frame.getMethodName() + ":" + frame.getLineNumber()));
             System.exit(1);
         }
     }

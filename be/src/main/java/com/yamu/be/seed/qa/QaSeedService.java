@@ -55,7 +55,7 @@ public final class QaSeedService {
     }
     private void run(String command, QaSeedSpec spec,String expectedInputHash) throws Exception {
         spec.validate(LocalDate.now(clock.withZone(KST)));
-        require(List.of("apply", "enrich", "verify", "inspect", "reset", "purge", "revise-benefits").contains(command), "Unknown operation");
+        require(List.of("apply", "enrich", "verify", "inspect", "reset", "purge", "revise-benefits", "plan-display-names", "revise-display-names").contains(command), "Unknown operation");
         require(!List.of("apply", "enrich", "reset").contains(command) || (spec.version() == 2 || spec.version() == 3),
                 "Use version 2 or 3 for executable fixtures; purge version 1 using its original input first");
         for (var persona : spec.personas()) {
@@ -87,6 +87,10 @@ public final class QaSeedService {
                         new QaLifeBenefitRevision(db,clock,lookup).apply(spec);
                         db.update("UPDATE qa_seed_dataset SET input_hash=? WHERE dataset_key=?",hash,spec.datasetKey());
                     }
+                    case "plan-display-names", "revise-display-names" -> {
+                        require(!existing.isEmpty(),"Apply first");
+                        new QaLifeDisplayNames(db,lookup,clock).apply(spec);
+                    }
                     case "apply" -> {
                         if (existing.isEmpty()) apply(spec, hash);
                         else System.out.println("Existing dataset preserved");
@@ -113,7 +117,7 @@ public final class QaSeedService {
                     }
                     default -> throw new IllegalArgumentException("Unknown operation");
                 }
-                if (List.of("verify", "inspect").contains(command)) connection.rollback();
+                if (List.of("verify", "inspect", "plan-display-names").contains(command)) connection.rollback();
                 else connection.commit();
             } catch (Exception failure) {
                 connection.rollback();
@@ -250,8 +254,11 @@ public final class QaSeedService {
         if (row.utilityDiscount() > 0) at = Timestamp.from(row.date().atStartOfDay(KST).toInstant());
         String category = db.queryForObject("SELECT merchant_category_code FROM merchant WHERE brand_code=?",
                 String.class, row.brand());
-        String snapshot = new ObjectMapper().writeValueAsString(Map.of("brandCode", row.brand(),
+        var context = new java.util.HashMap<String,Object>(Map.of("brandCode", row.brand(),
                 "merchantCategoryCode", category, "source", "QA_SEED_442", "transactionKind", "PURCHASE"));
+        String display = persona.scenario()==QaSeedSpec.Scenario.LIFE ? QaLifeDisplayNames.name(row) : null;
+        if(display!=null) { context.put("merchantName",display); context.put("displayNameSource","QA_DISPLAY_550_V1"); }
+        String snapshot = new ObjectMapper().writeValueAsString(context);
         return insert("""
                 INSERT INTO payment_transaction(user_id,user_card_id,card_product_id,merchant_id,payment_channel,
                   facility_type,merchant_context_snapshot,request_key,request_fingerprint,source,status,
