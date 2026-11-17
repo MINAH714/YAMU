@@ -144,4 +144,31 @@ class ForecastChartMathTest {
         )
         assertEquals("11월 21일 (토), AI 생활비 제외 255,000원, 월세 −250,000원", chartDayState(rent, hasConservative = false))
     }
+
+    // ── '월급날까지' x축 끝 월급날 칸(S15P31E103-567) ──
+
+    @Test fun `월급 화살표가 있으면 하루 칸 하나를 비워 끝이 월급날`() {
+        // 너비 340, 양쪽 8 — 첫 날 ~ 월급날 324를 9칸으로. 마지막 날(8번)은 끝에서 한 칸(36) 안쪽
+        val pad = chartRightPad(width = 340f, edge = 8f, n = 9, paydaySlot = true, plain = 8f)
+        assertEquals(44f, pad, 0.001f)
+        val step = (340f - 8f - pad) / (9 - 1)
+        assertEquals(36f, step, 0.001f)
+        assertEquals(340f - 8f, 340f - pad + step, 0.001f)   // 마지막 날 + 한 칸 = 월급날 자리(화살표)
+    }
+
+    @Test fun `월급 화살표가 없으면 원래 여백`() {
+        assertEquals(34f, chartRightPad(340f, 8f, 9, paydaySlot = false, plain = 34f), 0f)
+        assertEquals(8f, chartRightPad(340f, 8f, 1, paydaySlot = true, plain = 8f), 0f)
+    }
+
+    @Test fun `월급날 칸이 있으면 마지막 날 잔액으로 화살표까지 잇는다(S15P31E103-595)`() {
+        assertEquals(15_000L, paydayCarry(listOf(412_000L, 69_000L, 15_000L), paydaySlot = true))
+        assertEquals(-20_000L, paydayCarry(listOf(30_000L, -20_000L), paydaySlot = true))
+    }
+
+    @Test fun `월급날 칸이 없거나 마지막 날 값이 없으면 잇지 않는다`() {
+        assertNull(paydayCarry(listOf(412_000L, 15_000L), paydaySlot = false))
+        assertNull(paydayCarry(listOf(412_000L, null), paydaySlot = true))
+        assertNull(paydayCarry(emptyList(), paydaySlot = true))
+    }
 }

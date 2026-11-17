@@ -87,6 +87,13 @@ internal fun chartRightPad(width: Float, edge: Float, n: Int, paydaySlot: Boolea
     return edge + span / n
 }
 
+/**
+ * 월급날 칸까지 선을 이을 잔액(S15P31E103-595). 서버는 '월급날까지'면 월급 전날까지만 잔액을 줘서 선이 화살표 한 칸 앞에서 끊겼다.
+ * 월급이 들어오기 전 월급날 잔액은 전날 끝 잔액과 같다고 보고 마지막 날 값으로 평평하게 잇는다.
+ * 월급 칸이 없거나([paydaySlot]) 마지막 날 값이 없으면 null(잇지 않는다). 월급날 당일의 다른 출금은 서버가 주지 않아 반영하지 못한다
+ */
+internal fun paydayCarry(values: List<Long?>, paydaySlot: Boolean): Long? = if (paydaySlot) values.lastOrNull() else null
+
 /** 날 → 가로 위치(0~1) */
 internal fun fractionOf(day: Int, n: Int): Float = if (n <= 1) 0f else day.coerceIn(0, n - 1) / (n - 1f)
 
