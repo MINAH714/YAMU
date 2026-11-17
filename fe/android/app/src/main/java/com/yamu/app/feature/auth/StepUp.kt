@@ -74,6 +74,13 @@ class StepUpController(
     val ui: StateFlow<StepUpUi> = _ui.asStateFlow()
     val busy: Boolean get() = _ui.value != StepUpUi.Idle
 
+    /**
+     * 마지막 본인 확인에서 서버가 지문을 허락했나(challenge의 allowsBiometric). 아직 묻기 전이면 null.
+     * 결제 코드는 '간편 비밀번호만'을 고르면 지문을 빼고 내려와서, 버튼 글자가 이 값을 본다
+     */
+    private val _biometricAllowed = MutableStateFlow<Boolean?>(null)
+    val biometricAllowed: StateFlow<Boolean?> = _biometricAllowed.asStateFlow()
+
     private var purpose: String? = null
     private var onToken: (suspend (StepUpToken) -> Unit)? = null
     private var onError: ((ApiError) -> Unit)? = null
@@ -99,12 +106,17 @@ class StepUpController(
         this.onError = onError
         _ui.value = StepUpUi.Working
         scope.launch {
-            if (!auth.biometricReady()) return@launch openPin()
+            if (!auth.biometricReady()) {
+                _biometricAllowed.value = false
+                return@launch openPin()
+            }
             when (val r = auth.challenge(purpose)) {
                 is ApiResult.Failure -> fail(r.error)
                 is ApiResult.Success -> {
-                    val signature = deviceKeys.biometricSignatureForPrompt()
-                    if (!r.data.allowsBiometric || signature == null) openPin()
+                    _biometricAllowed.value = r.data.allowsBiometric
+                    // 서버가 지문을 뺐으면 지문 키를 열어 보지 않는다
+                    val signature = if (r.data.allowsBiometric) deviceKeys.biometricSignatureForPrompt() else null
+                    if (signature == null) openPin()
                     else _ui.value = StepUpUi.Biometric(BiometricRequest(r.data, signature), prompt)
                 }
             }
