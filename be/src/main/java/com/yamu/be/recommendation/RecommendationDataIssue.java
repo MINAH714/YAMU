@@ -2,6 +2,10 @@ package com.yamu.be.recommendation;
 
 /** 조회·정책 확인 사유. 예외 메시지나 DB 접속 정보는 외부로 전달하지 않는다. */
 public record RecommendationDataIssue(Long userCardId, Long policyId, String code, boolean retryable) {
+    public static final String IBK_CONFIRMED_ONLY = "IBK_CONFIRMED_INSTANT_ONLY";
+    public static final String IBK_CONFIRMED_NOTICE = "확인된 GS25 현장할인만 반영했습니다. 추가 환급은 계산 기준 미확정으로 포함하지 않았습니다.";
+    public static final String IBK_ORIGINAL_CASHBACK = "IBK_ORIGINAL_AMOUNT_CASHBACK_POLICY";
+    public static final String IBK_ORIGINAL_NOTICE = "프로젝트 정책에 따라 현장할인과 편의점 환급을 할인 전 금액으로 계산했습니다. 환급은 예상 혜택이며 즉시 출금액에서 차감하지 않습니다.";
     public static final String RETRY_MESSAGE = "일시적으로 카드 정보를 불러오지 못했습니다. 잠시 후 다시 시도해주세요.";
 
     /** HTTP 연결 시에도 원본 DB 예외 대신 이 안내를 전달한다. */
@@ -9,6 +13,8 @@ public record RecommendationDataIssue(Long userCardId, Long policyId, String cod
     public String message() {
         if (code.startsWith("IBK_UNSUPPORTED_")) return "이 거래에 관련된 미지원 혜택이 있어 전체 혜택을 확정할 수 없습니다: " + code.substring(16);
         return switch (code) {
+            case IBK_CONFIRMED_ONLY -> IBK_CONFIRMED_NOTICE;
+            case IBK_ORIGINAL_CASHBACK -> IBK_ORIGINAL_NOTICE;
             case "IBK_ISSUER_REGISTRATION_UNKNOWN" -> "카드사 사용 등록일을 확인하지 못했습니다.";
             case "IBK_INTRODUCTORY_WAIVER_EXCLUDED" -> "신규 발급 우대기간은 이번 계산 범위에 포함되지 않습니다.";
             case "IBK_MONTHLY_ELIGIBILITY_UNKNOWN" -> "해당 이용월의 병 급여·현역 자격을 확인하지 못했습니다.";

@@ -56,9 +56,14 @@ public class DatabaseCardRecommender implements CardRecommender {
                     u.period().name(), u.remainingBefore(), u.consumed())).toList();
             var reason = Objects.equals(evaluated.userCardId(), result.recommendation().selectedUserCardId())
                     ? SelectionReason.valueOf(result.recommendation().selectionReason().name()) : null;
+            String notice = result.issues().stream().filter(i -> Objects.equals(i.userCardId(), evaluated.userCardId())
+                    && Set.of(com.yamu.be.recommendation.RecommendationDataIssue.IBK_CONFIRMED_ONLY,
+                        com.yamu.be.recommendation.RecommendationDataIssue.IBK_ORIGINAL_CASHBACK).contains(i.code()))
+                    .map(com.yamu.be.recommendation.RecommendationDataIssue::message).findFirst().orElse(null);
+            String explanation = reason != null ? result.recommendation().message()
+                    : "예상 순혜택은 " + calculation.netBenefit().stripTrailingZeros().toPlainString() + "원입니다.";
             candidates.add(new Candidate(candidates.size()+1, summary(evaluated.userCardId(),context), calculation.netBenefit(),
-                    lines, reason != null ? result.recommendation().message()
-                            : "예상 순혜택은 " + calculation.netBenefit().stripTrailingZeros().toPlainString() + "원입니다.", reason,
+                    lines, explanation + (notice == null ? "" : " " + notice), reason,
                     new RuleVersion(context.cardProductId(), distinctVersions.size()==1 ? distinctVersions.get(0) : null, versions),groups,uses));
         }
         for (var evaluated : result.recommendation().evaluatedCards()) {

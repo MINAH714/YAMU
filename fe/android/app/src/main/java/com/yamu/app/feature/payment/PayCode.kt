@@ -1106,7 +1106,7 @@ private fun PayCardRow(card: PayCard, selected: Boolean, enabled: Boolean, decli
                 val sub = when {
                     declined -> "이 결제에서 거절된 카드예요"
                     card.benefitUnknown -> card.reason
-                    else -> null
+                    else -> card.benefitNotice
                 }
                 sub?.let { Text(it, style = YamuTheme.typography.sub, color = c.text3) }
             }
@@ -1115,7 +1115,7 @@ private fun PayCardRow(card: PayCard, selected: Boolean, enabled: Boolean, decli
                 Column(horizontalAlignment = Alignment.End) {
                     if (card.netBenefit.signum() > 0) {
                         Text("${card.netBenefit.toWon()}원", style = YamuTheme.typography.value, color = c.text2)
-                        card.benefitKind.tagText()?.let { Text(it, style = YamuTheme.typography.bodyS, color = c.text3) }
+                        card.benefitKind.takeUnless { card.hasMixedBenefits }?.tagText()?.let { Text(it, style = YamuTheme.typography.bodyS, color = c.text3) }
                     } else {
                         Text("혜택 없음", style = YamuTheme.typography.sub, color = c.text3)
                     }
@@ -1125,7 +1125,7 @@ private fun PayCardRow(card: PayCard, selected: Boolean, enabled: Boolean, decli
         }
         if (large) {
             Spacer(Modifier.height(YamuSpacing.x3))
-            card.benefitKind.tagText()?.let { tag ->
+            card.benefitKind.takeUnless { card.hasMixedBenefits }?.tagText()?.let { tag ->
                 StatusTag(tag)
                 Spacer(Modifier.height(YamuSpacing.x1))
             }

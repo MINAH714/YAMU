@@ -64,7 +64,7 @@ public class PaymentRequestViewReader {
     static PaymentRequestView.Recommendation recommendation(RecommendationResult result, PaymentTerms terms) {
         List<PaymentRequestView.Candidate> candidates = result.candidates().stream()
                 .limit(CANDIDATES_SHOWN)
-                .map(c -> candidate(c, terms))
+                .map(c -> candidate(c, terms, result.benefitNotice(c.card().userCardId())))
                 .toList();
         List<PaymentRequestView.UncomparedCard> uncompared = result.uncomparedCards().stream()
                 .map(PaymentRequestViewReader::uncompared)
@@ -77,13 +77,13 @@ public class PaymentRequestViewReader {
                 directPayable ? RecommendationResult.NO_BENEFIT_NOTICE : null, defaultCardApplied);
     }
 
-    private static PaymentRequestView.Candidate candidate(RecommendationResult.Candidate c, PaymentTerms terms) {
+    private static PaymentRequestView.Candidate candidate(RecommendationResult.Candidate c, PaymentTerms terms, String benefitNotice) {
         CardSummary card = c.card();
         return new PaymentRequestView.Candidate(c.rank(), card.userCardId(), nickname(card), card.cardType(),
                 masked(card), c.netBenefit(),
                 c.benefits().stream().map(b -> new PaymentRequestView.Benefit(b.benefitId(), b.name(), b.type(),
                         b.amount(), b.realization())).toList(),
-                terms.chargedAmount(c.instantDiscount()), c.reason(), c.selectionReason(),c.unallocatedBenefitGroups());
+                terms.chargedAmount(c.instantDiscount()), c.reason(), c.selectionReason(),c.unallocatedBenefitGroups(),benefitNotice);
     }
 
     private static PaymentRequestView.UncomparedCard uncompared(UncomparedCard u) {

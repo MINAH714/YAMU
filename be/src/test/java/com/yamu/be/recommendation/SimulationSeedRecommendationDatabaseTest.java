@@ -535,9 +535,13 @@ class SimulationSeedRecommendationDatabaseTest extends MySqlTestSupport {
     }
 
 
-    @Test void ibkApprovalRecalculatesBasketAndCancellationRestoresDailyCount() throws Exception {
+    @ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(longs = {0, 119000, 250000})
+    void ibkApprovalRecalculatesBasketAndCancellationRestoresDailyCount(long previous) throws Exception {
+        long expected = previous >= 80000 && previous < 250000 ? 1270 : 550;
+        long cashback = expected - 550;
         long user=new OwnershipFixtures(jdbc).user();
-        long id=card(user,product("IBK나라사랑카드"),0,0);
+        long id=card(user,product("IBK나라사랑카드"),previous,0);
         jdbc.update("UPDATE linked_account SET bank_code='003' WHERE linked_account_id=(SELECT linked_account_id FROM user_card WHERE user_card_id=?)",id);
         org.mockito.Mockito.when(transfer.newTransactionNo()).thenReturn("20261103120000000001","20261103120000000002");
         var success=new com.yamu.be.payment.bank.TransferResult(com.yamu.be.payment.bank.TransferResult.Status.SUCCESS,"bank-551",java.time.LocalDate.of(2026,11,3),null,null);
@@ -552,7 +556,7 @@ class SimulationSeedRecommendationDatabaseTest extends MySqlTestSupport {
         String key=UUID.randomUUID().toString();
         var created=pos.create("test-pos-key",body,key);
         assertThat(pos.create("test-pos-key",body,key).paymentId()).isEqualTo(created.paymentId());
-        assertThat(snapshots.find(created.paymentId()).orElseThrow().topCandidate().orElseThrow().netBenefit()).isEqualByComparingTo("550");
+        assertThat(snapshots.find(created.paymentId()).orElseThrow().topCandidate().orElseThrow().netBenefit()).isEqualByComparingTo(Long.toString(expected));
         snapshots.delete(created.paymentId());
         var auth=new com.yamu.be.global.security.AuthUser(user,1L);
         String approvalKey=UUID.randomUUID().toString();
@@ -561,12 +565,16 @@ class SimulationSeedRecommendationDatabaseTest extends MySqlTestSupport {
         assertThat(approved.status()).isEqualTo(com.yamu.be.payment.domain.PaymentStatus.APPROVED);
         approvals.approve(auth,created.paymentId(),approvalRequest,approvalKey);
         org.mockito.Mockito.verify(transfer).withdraw(org.mockito.ArgumentMatchers.eq("simulation-user"),org.mockito.ArgumentMatchers.eq("simulation-account-"+id),org.mockito.ArgumentMatchers.eq(6650L),org.mockito.ArgumentMatchers.any(),org.mockito.ArgumentMatchers.anyString());
-        var base=request(user,List.of(id),"GS25",7200,null,Map.of());
+        var usedGroups=jdbc.queryForList("SELECT g.group_code FROM payment_limit_usage u JOIN limit_group g USING(limit_group_id) WHERE u.payment_transaction_id=?",String.class,created.paymentId());
+        assertThat(usedGroups).contains("GS25_INSTANT_DAILY");
+        if(cashback > 0) assertThat(usedGroups).contains("NARA_CONVENIENCE_MONTH_COUNT");
+        else assertThat(usedGroups).containsExactly("GS25_INSTANT_DAILY");
+        var base=request(user,List.of(id),"GS25",7200,null,Map.of("PAYMENT_METHOD:NPAY",false));
         var basket=com.yamu.be.payment.pos.PosBasket.validate("GS25",body.getItems(),7200);
         var next=new RecommendationRequest(base.paymentId(),user,base.terms(),base.merchant(),base.requestedAt(),null,base.availability(),base.verifiedFacts(),basket);
-        assertThat(port.recommend(next).topCandidate().orElseThrow().netBenefit()).isEqualByComparingTo("0");
+        assertThat(port.recommend(next).topCandidate().orElseThrow().netBenefit()).isEqualByComparingTo(Long.toString(cashback));
         var tomorrow=new RecommendationRequest(base.paymentId(),user,base.terms(),base.merchant(),base.requestedAt().plusDays(1),null,base.availability(),base.verifiedFacts(),basket);
-        assertThat(port.recommend(tomorrow).topCandidate().orElseThrow().netBenefit()).isEqualByComparingTo("550");
+        assertThat(port.recommend(tomorrow).topCandidate().orElseThrow().netBenefit()).isEqualByComparingTo(Long.toString(expected));
         org.mockito.Mockito.when(transfer.findAllByTag(org.mockito.ArgumentMatchers.eq("simulation-user"),org.mockito.ArgumentMatchers.eq("simulation-account-"+id),
                 org.mockito.ArgumentMatchers.eq(com.yamu.be.payment.bank.TransferTag.payment(created.paymentId())),org.mockito.ArgumentMatchers.anyString()))
                 .thenReturn(List.of(new com.yamu.be.payment.bank.BankTransaction("bank-551",java.time.LocalDate.of(2026,11,3),java.time.LocalTime.NOON,
@@ -576,7 +584,7 @@ class SimulationSeedRecommendationDatabaseTest extends MySqlTestSupport {
         cancellations.cancel(auth,created.paymentId(),cancelRequest,cancelKey);
         cancellations.cancel(auth,created.paymentId(),cancelRequest,cancelKey);
         org.mockito.Mockito.verify(transfer).deposit(org.mockito.ArgumentMatchers.eq("simulation-user"),org.mockito.ArgumentMatchers.eq("simulation-account-"+id),org.mockito.ArgumentMatchers.eq(6650L),org.mockito.ArgumentMatchers.any(),org.mockito.ArgumentMatchers.anyString());
-        assertThat(port.recommend(next).topCandidate().orElseThrow().netBenefit()).isEqualByComparingTo("550");
+        assertThat(port.recommend(next).topCandidate().orElseThrow().netBenefit()).isEqualByComparingTo(Long.toString(expected));
     }
 
     private void assertNoHeldReadConnection() throws Exception {
@@ -585,7 +593,7 @@ class SimulationSeedRecommendationDatabaseTest extends MySqlTestSupport {
     }
 
     @ParameterizedTest
-    @CsvSource({"79999,READY", "80000,DATA_INSUFFICIENT", "249999,DATA_INSUFFICIENT", "250000,DATA_INSUFFICIENT", "500000,DATA_INSUFFICIENT"})
+    @CsvSource({"79999,READY", "80000,READY", "119000,READY", "249999,READY", "250000,PARTIAL_READY", "500000,PARTIAL_READY"})
     void ibkNewCashbacksNeverBecomeFabricatedCompletedAmounts(long previous, String status) {
         long user=new OwnershipFixtures(jdbc).user();
         long id=card(user,product("IBK나라사랑카드"),previous,0);
@@ -593,11 +601,93 @@ class SimulationSeedRecommendationDatabaseTest extends MySqlTestSupport {
         var basket=com.yamu.be.payment.pos.PosBasket.validate("GS25",List.of(new com.yamu.be.payment.pos.PosBasket.Line("gs-jeyuk-dosirak",java.math.BigDecimal.ONE)),5500);
         var result=port.recommend(new RecommendationRequest(base.paymentId(),user,base.terms(),base.merchant(),base.requestedAt(),null,base.availability(),base.verifiedFacts(),basket));
         assertThat(result.status().name()).isEqualTo(status);
-        if(previous>=80000) {
-            assertThat(result.topCandidate()).isEmpty();
-            assertThat(result.issues()).extracting(RecommendationDataIssue::code).contains("IBK_STACKED_BASE_UNKNOWN");
+        var candidate = result.topCandidate().orElseThrow();
+        assertThat(candidate.netBenefit()).isEqualByComparingTo(previous >= 80000 && previous < 250000 ? "1100" : "550");
+        if(previous >= 80000 && previous < 250000) {
+            assertThat(candidate.instantDiscount()).isEqualTo(550);
+            assertThat(candidate.benefits()).filteredOn(b -> "CASHBACK".equals(b.type()) && b.amount() > 0)
+                    .singleElement().satisfies(b -> assertThat(b.amount()).isEqualTo(550));
+            assertThat(result.benefitNotice(id)).isEqualTo(RecommendationDataIssue.IBK_ORIGINAL_NOTICE);
+        }
+        if(previous>=250000) {
+            assertThat(candidate.benefits()).hasSize(1);
+            assertThat(candidate.instantDiscount()).isEqualTo(550);
+            assertThat(candidate.reason()).contains(RecommendationDataIssue.IBK_CONFIRMED_NOTICE);
+            assertThat(result.issues()).extracting(RecommendationDataIssue::code)
+                    .contains("IBK_STACKED_BASE_UNKNOWN", RecommendationDataIssue.IBK_CONFIRMED_ONLY);
+            assertThat(codec.decode(codec.encode(result)).benefitNotice(id)).isEqualTo(RecommendationDataIssue.IBK_CONFIRMED_NOTICE);
         }
         if(previous>=250000) assertThat(result.issues()).extracting(RecommendationDataIssue::code).contains("IBK_DAILY_COUNT_CONFLICT");
+    }
+
+    @Test void ibkLifeBasketRanks1760AboveMrLife880AndCharges7920() {
+        long user=new OwnershipFixtures(jdbc).user();
+        long mr=card(user,product("신한카드 Mr.Life"),390500,0);
+        long ibk=card(user,product("IBK나라사랑카드"),119000,0);
+        var base=request(user,List.of(mr,ibk),"GS25",8800,null,Map.of());
+        var basket=com.yamu.be.payment.pos.PosBasket.validate("GS25",List.of(
+                new com.yamu.be.payment.pos.PosBasket.Line("gs-jeyuk-dosirak",java.math.BigDecimal.ONE),
+                new com.yamu.be.payment.pos.PosBasket.Line("gs-kimbap",java.math.BigDecimal.ONE)),8800);
+        var result=port.recommend(new RecommendationRequest(base.paymentId(),user,base.terms(),base.merchant(),base.requestedAt(),null,base.availability(),base.verifiedFacts(),basket));
+        assertThat(result.status()).isEqualTo(RecommendationResult.Status.READY);
+        assertThat(result.uncomparedCards()).isEmpty();
+        assertThat(result.candidates()).hasSize(2);
+        var candidate=result.candidates().stream().filter(c -> c.card().userCardId()==ibk).findFirst().orElseThrow();
+        assertThat(base.terms().chargedAmount(candidate.instantDiscount())).isEqualTo(7920);
+        assertThat(candidate.netBenefit()).isEqualByComparingTo("1760");
+        assertThat(candidate.benefits()).filteredOn(b -> b.amount() > 0).hasSize(2)
+                .allSatisfy(b -> assertThat(b.amount()).isEqualTo(880));
+        assertThat(candidate.instantDiscount()).isEqualTo(880);
+        assertThat(result.topCandidate().orElseThrow().card().userCardId()).isEqualTo(ibk);
+        assertThat(result.candidates().get(1).netBenefit()).isEqualByComparingTo("880");
+    }
+
+    @ParameterizedTest
+    @CsvSource({"8800,0,1760", "8800,1,1760", "8800,2,880", "16500,0,2650"})
+    void ibkOriginalCashbackRespectsMonthlyCountAndTransactionCap(long amount,long used,long expected) {
+        long user=new OwnershipFixtures(jdbc).user();
+        long id=card(user,product("IBK나라사랑카드"),119000,0);
+        jdbc.update("UPDATE monthly_limit_usage u JOIN limit_group g USING(limit_group_id) SET u.used_value=? WHERE u.user_card_id=? AND g.group_code='NARA_CONVENIENCE_MONTH_COUNT'",used,id);
+        var base=request(user,List.of(id),"GS25",amount,null,Map.of());
+        var lines=amount==8800 ? List.of(
+                new com.yamu.be.payment.pos.PosBasket.Line("gs-jeyuk-dosirak",java.math.BigDecimal.ONE),
+                new com.yamu.be.payment.pos.PosBasket.Line("gs-kimbap",java.math.BigDecimal.ONE))
+                : List.of(new com.yamu.be.payment.pos.PosBasket.Line("gs-jeyuk-dosirak",java.math.BigDecimal.valueOf(3)));
+        var basket=com.yamu.be.payment.pos.PosBasket.validate("GS25",lines,amount);
+        var input=new RecommendationRequest(base.paymentId(),user,base.terms(),base.merchant(),base.requestedAt(),null,base.availability(),base.verifiedFacts(),basket);
+        var candidate=port.recommend(input).topCandidate().orElseThrow();
+        assertThat(candidate.netBenefit()).isEqualByComparingTo(Long.toString(expected));
+        assertThat(candidate.instantDiscount()).isEqualTo(amount/10);
+    }
+
+    @ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings={"missing-basket","unknown-item","missing-context","shared-limit","exclusive-group"})
+    void ibkConfirmedOnlyNeverBypassesMissingFactsOrDependentPolicies(String failure) {
+        long user=new OwnershipFixtures(jdbc).user();
+        long p=product("IBK나라사랑카드");
+        long id=card(user,p,250000,0);
+        var base=request(user,List.of(id),"GS25",5500,null,Map.of("PAYMENT_METHOD:NPAY",false));
+        var basket=com.yamu.be.payment.pos.PosBasket.validate("GS25",List.of(
+                new com.yamu.be.payment.pos.PosBasket.Line("gs-jeyuk-dosirak",java.math.BigDecimal.ONE)),5500);
+        if (failure.equals("missing-basket")) basket=null;
+        if (failure.equals("unknown-item")) {
+            base=request(user,List.of(id),"GS25",1250,null,Map.of("PAYMENT_METHOD:NPAY",false));
+            basket=com.yamu.be.payment.pos.PosBasket.validate("GS25",List.of(
+                    new com.yamu.be.payment.pos.PosBasket.Line("gs-cup-ramen",java.math.BigDecimal.ONE)),1250);
+        }
+        var input=new RecommendationRequest(base.paymentId(),user,base.terms(),base.merchant(),base.requestedAt(),null,base.availability(),base.verifiedFacts(),basket);
+        try {
+                if (failure.equals("missing-context")) jdbc.update("UPDATE user_card SET issuer_registered_on=NULL WHERE user_card_id=?",id);
+                if (failure.equals("exclusive-group")) jdbc.update("UPDATE benefit_application_group SET application_mode='MAX_ONE' WHERE card_product_id=?",p);
+                if (failure.equals("shared-limit")) jdbc.update("INSERT INTO benefit_limit_link(card_product_id,card_benefit_id,limit_group_id,created_at) SELECT ?,b.card_benefit_id,g.limit_group_id,UTC_TIMESTAMP(6) FROM card_benefit b JOIN limit_group g ON g.card_product_id=b.card_product_id WHERE b.card_product_id=? AND b.benefit_code='AIO_CONVENIENCE' AND g.group_code='GS25_INSTANT_DAILY'",p,p);
+                var result=port.recommend(input);
+                assertThat(result.status()).isEqualTo(RecommendationResult.Status.DATA_INSUFFICIENT);
+                assertThat(result.candidates()).isEmpty();
+                assertThat(result.benefitNotice(id)).isNull();
+        } finally {
+            if (failure.equals("exclusive-group")) jdbc.update("UPDATE benefit_application_group SET application_mode='STACK' WHERE card_product_id=?",p);
+            if (failure.equals("shared-limit")) jdbc.update("DELETE l FROM benefit_limit_link l JOIN card_benefit b USING(card_benefit_id) JOIN limit_group g USING(limit_group_id) WHERE b.card_product_id=? AND b.benefit_code='AIO_CONVENIENCE' AND g.group_code='GS25_INSTANT_DAILY'",p);
+        }
     }
 
     @Test void ibkMissingHolderContextNeverMeansZeroBenefit() {

@@ -17,6 +17,33 @@ import java.math.BigDecimal
 
 /** #12 · #1 · #3 응답 → 화면 값(서버 값 그대로 — 앱이 빼고 더하지 않음) */
 class PaymentMapperTest {
+    @Test fun `현장할인과 환급 합계를 즉시할인 전액으로 표시하지 않는다`() {
+        val card = CandidateDto(userCardId=4, nickname="IBK나라사랑카드", cardType="CHECK",
+            netBenefit=BigDecimal("1760"), chargedAmount=7920,
+            benefits=listOf(BenefitDto(name="현장할인",type="DISCOUNT",amount=880,realization="AT_APPROVAL"),
+                BenefitDto(name="후속 환급",type="CASHBACK",amount=880))).toPayCard()
+        assertTrue(card.hasMixedBenefits)
+        assertEquals("1,760원 예상 혜택",card.benefitHeadline())
+        assertEquals("7,920원 결제",card.payButtonLabel(8800))
+    }
+
+    @Test fun `부분 혜택 안내는 두 번째 후보에서도 금액과 함께 유지한다`() {
+        val json = """
+            {"status":"SCANNED","payment":{"paymentId":601,"status":"REQUESTED",
+             "merchant":{"merchantId":13,"name":"GS25"},"amount":8800,
+             "confirmDeadline":"2026-11-17T03:01:00Z","recommendation":{"status":"PARTIAL_READY","candidates":[
+             {"rank":1,"userCardId":3,"nickname":"Mr.Life","netBenefit":880},
+             {"rank":2,"userCardId":4,"nickname":"IBK나라사랑카드","cardType":"CHECK","netBenefit":880,
+              "chargedAmount":7920,"benefitNotice":"확인된 현장할인만 반영했습니다. 추가 환급은 미포함입니다."}]}}}
+        """.trimIndent()
+        val card = YamuJson.decodeFromString<BarcodeStatusResponse>(json).toStatus().request!!.cards[1]
+        assertEquals(BigDecimal("880"), card.netBenefit)
+        assertEquals(7920L, card.chargedAmount)
+        assertNotNull(card.benefitNotice)
+        assertFalse(card.benefitUnknown)
+        assertNull(card.reason)
+    }
+
     @Test fun `찍힘 — 추천 2장을 순서대로, 카드사는 issuer가 있으면 그걸`() {
         val json = """
             {"status":"SCANNED","expiresAt":"2026-10-22T14:33:00+09:00",

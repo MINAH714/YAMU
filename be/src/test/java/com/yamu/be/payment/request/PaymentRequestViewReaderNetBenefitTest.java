@@ -35,6 +35,18 @@ import org.junit.jupiter.api.Test;
  */
 class PaymentRequestViewReaderNetBenefitTest {
 
+    @Test void confirmedOnlyNoticeSurvivesSecondRankAndJson() {
+        var result = new RecommendationResult("rec_partial", LocalDateTime.of(2026,11,17,3,0),false,
+                List.of(candidate(1,3L,"880",SelectionReason.FIXED_ORDER),candidate(2,4L,"880",null)),
+                List.of(),List.of(),1,List.of(new RecommendationDataIssue(4L,1L,RecommendationDataIssue.IBK_CONFIRMED_ONLY,false)));
+        var view = PaymentRequestViewReader.recommendation(result,PaymentTerms.lumpSum(8800));
+        assertThat(view.status()).isEqualTo(RecommendationResult.Status.PARTIAL_READY);
+        assertThat(view.candidates().get(0).benefitNotice()).isNull();
+        assertThat(view.candidates().get(1).benefitNotice()).isEqualTo(RecommendationDataIssue.IBK_CONFIRMED_NOTICE);
+        assertThat(new ObjectMapper().findAndRegisterModules().valueToTree(view)
+                .path("candidates").get(1).path("benefitNotice").asText()).isEqualTo(RecommendationDataIssue.IBK_CONFIRMED_NOTICE);
+    }
+
     @Test
     void 엔진의_미비교_사유와_재시도_안내가_결제_요청_JSON까지_전달된다() throws Exception {
         var unavailable = new RecommendationSelector.CardEvaluation(10L,
