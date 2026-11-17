@@ -40,6 +40,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -95,8 +96,9 @@ data class ChartLine(val label: String, val values: List<Long?>, val color: Colo
 
 /**
  * 가상 구매(I-02) 표시(Task 8.2.72) — [purchase] 구매일은 회색 점선과 바닥 '구매', [withdrawals] 기간 안 출금일은 큰 동전과 '출금'.
- * [beyond]가 있으면 출금이 예보 기간 밖이라 오른쪽 끝에 주황 점선 · 동전을 두고 날짜 축 끝에 그 글자('12/14 출금')를 붙인다.
- * [flash]가 오를 때마다 그 표시를 두 번 깜빡인다('빠져나가는 날'의 기간 밖 줄을 눌렀을 때)
+ * [beyond]가 있으면 출금이 예보 기간 밖이라 그래프 밑 날짜 줄 끝에 그 글자('12/14 출금 →')를 붙인다.
+ * 전에는 그래프 오른쪽 끝에 주황 점선 · 동전도 두느라 오른쪽을 34dp 비워 선이 일찍 끝나서 뺐다(S15P31E103-528, QA: 그래프가 늘 끝까지).
+ * [flash]가 오를 때마다 그 글자를 두 번 깜빡인다('빠져나가는 날'의 기간 밖 줄을 눌렀을 때)
  */
 data class ChartMarks(val purchase: Int? = null, val withdrawals: Set<Int> = emptySet(), val beyond: String? = null, val flash: Int = 0)
 
@@ -152,9 +154,9 @@ fun BalanceChart(
     val interactive = onSelect != null && sel != null
     val chartKey = dates.first() to dates.last()
     val topPad = if (interactive) BUBBLE_ZONE else 12.dp
-    val plainRightPad = if (marks?.beyond != null) BEYOND_PAD else SIDE_PAD
-    // 월급 화살표가 있으면 x축 끝이 월급날(마지막 날 다음 날)이라 하루 칸 하나를 비운다([chartRightPad])
-    fun rightPad(width: Float): Float = with(density) { chartRightPad(width, SIDE_PAD.toPx(), n, incomeArrow, plainRightPad.toPx()) }
+    // 월급 화살표가 있으면 x축 끝이 월급날(마지막 날 다음 날)이라 하루 칸 하나를 비운다([chartRightPad]).
+    // 그 밖에는 양옆 같은 여백이라 마지막 날이 오른쪽 끝에 닿는다(가상 구매 기간 밖 출금도 밑 날짜 줄에만 적는다)
+    fun rightPad(width: Float): Float = with(density) { chartRightPad(width, SIDE_PAD.toPx(), n, incomeArrow, SIDE_PAD.toPx()) }
 
     // 들어오기 — 화면을 돌리거나 돌아와도 같은 기간이면 다시 하지 않는다
     var introDone by rememberSaveable(chartKey) { mutableStateOf(false) }
@@ -262,7 +264,7 @@ fun BalanceChart(
     val coin = CoinPaint(c.coinFace, c.coinSide, c.coinLine)
     val negCoin = CoinPaint(c.errorContainer, c.error, c.error)
 
-    // 가상 구매 기간 밖 출금 표시 깜빡이기 — 그 줄을 누를 때마다 두 번. 모션 줄이기면 깜빡이지 않고 잠깐 켜 둔다
+    // 가상 구매 기간 밖 출금 글자(밑 날짜 줄) 깜빡이기 — 그 줄을 누를 때마다 두 번. 모션 줄이기면 깜빡이지 않고 잠깐 켜 둔다
     val flash = remember { Animatable(0f) }
     LaunchedEffect(marks?.flash) {
         if ((marks?.flash ?: 0) <= 0 || marks?.beyond == null) return@LaunchedEffect
@@ -345,6 +347,7 @@ fun BalanceChart(
                 }
                 // 기준선 — 안전 잔액(범위 안이면 점선, 한참 아래면 바닥에 글자만) · 0원. 점선 이름은 선을 그린 뒤 얹는다
                 var safeLabel: (() -> Unit)? = null
+                var safeBox: Rect? = null   // 안전 잔액 이름이 차지한 칸 — '구매' 글자가 피한다
                 threshold?.let { t ->
                     if (range.shows(t)) {
                         drawLine(c.warning.copy(alpha = 0.8f), Offset(0f, ySafe), Offset(lineEnd, ySafe), strokeWidth = 1.dp.toPx(), pathEffect = PathEffect.dashPathEffect(floatArrayOf(3.dp.toPx(), 3.dp.toPx())))
@@ -368,6 +371,7 @@ fun BalanceChart(
                         ).filter { it.y > bandTop && it.y + h < bottom }
                         val spot = spots.firstOrNull { !crossed(it.x, it.y) }
                         val at = spot ?: spots.firstOrNull() ?: Offset(left, ySafe - h - gap)
+                        safeBox = Rect(at.x - 3.dp.toPx(), at.y - 1.dp.toPx(), at.x + w + 3.dp.toPx(), at.y + h + 1.dp.toPx())
                         safeLabel = {
                             if (spot == null) drawRoundRect(c.surface.copy(alpha = 0.9f), topLeft = Offset(at.x - 3.dp.toPx(), at.y - 1.dp.toPx()), size = Size(w + 6.dp.toPx(), h + 2.dp.toPx()), cornerRadius = CornerRadius(4.dp.toPx()))
                             drawText(label, topLeft = at)
@@ -426,9 +430,11 @@ fun BalanceChart(
                     val h = label.size.height.toFloat()
                     val gap = 2.dp.toPx()
                     val lx = if (px + 5.dp.toPx() + w <= right) px + 5.dp.toPx() else px - 5.dp.toPx() - w
-                    // 선 · 동전 · 빨간 ↓가 지나가지 않는 자리 — 바닥, 안 되면 그래프 맨 위. 둘 다 겹치면 바닥에 바탕을 깔아 읽히게
+                    // 선 · 동전 · 빨간 ↓ · 안전 잔액 이름이 지나가지 않는 자리 — 바닥, 안 되면 그래프 맨 위. 둘 다 겹치면 바닥에 바탕을 깔아 읽히게
+                    // (안전 잔액 이름이 왼쪽 위로 밀리면 구매일이 첫날일 때 바닥의 '구매'와 겹쳤다, S15P31E103-528)
                     fun crossed(ly: Float): Boolean {
                         val band = (ly - gap)..(ly + h + gap)
+                        if (safeBox?.overlaps(Rect(lx, band.start, lx + w, band.endInclusive)) == true) return true
                         var sx = lx
                         while (sx <= lx + w) {
                             val f = ((sx - left) / (right - left)).coerceIn(0f, 1f)
@@ -551,21 +557,6 @@ fun BalanceChart(
                 safeLabel?.invoke()
                 purchaseLabel?.invoke()
 
-                // 가상 구매 기간 밖 출금 — 오른쪽 끝 주황 점선과 동전. 사기 전 · 후 선이 겹치는 까닭을 보인다
-                if (marks?.beyond != null) {
-                    val a = handleAlpha()
-                    val ox = size.width - 14.dp.toPx()
-                    drawLine(
-                        c.warning, Offset(ox, top - 4.dp.toPx()), Offset(ox, bottom + 4.dp.toPx()),
-                        strokeWidth = 1.5.dp.toPx(), pathEffect = PathEffect.dashPathEffect(floatArrayOf(2.dp.toPx(), 3.dp.toPx())), alpha = a,
-                    )
-                    rideValues.lastOrNull { it != null }?.let { v ->
-                        val center = Offset(ox, y(v.toDouble()))
-                        if (flash.value > 0f) drawCircle(c.warning, radius = (8.dp + 8.dp * flash.value).toPx(), center = center, alpha = 0.35f * flash.value)
-                        drawChartCoin(center, WITHDRAW_R.toPx(), 0f, if (v < 0) negCoin else coin, alpha = a)
-                    }
-                }
-
                 if (incomeArrow) {
                     val ax = size.width - SIDE_PAD.toPx()   // 월급날 자리 — 마지막 날에서 하루 칸 오른쪽
                     drawLine(c.primary, Offset(ax, bottom), Offset(ax, top + 6.dp.toPx()), strokeWidth = 2.dp.toPx())
@@ -674,7 +665,8 @@ fun BalanceChart(
 
 /**
  * 잔고예보 · 가상 구매 그래프 밑 '오늘 … 11/25 · 월급 · 12/14 출금 →' 한 줄.
- * 월급 화살표가 있으면 오른쪽 끝이 월급날 칸이라 끝 날짜도 월급날(마지막 날 다음 날)이다
+ * 월급 화살표가 있으면 오른쪽 끝이 월급날 칸이라 끝 날짜도 월급날(마지막 날 다음 날)이다.
+ * 가상 구매 기간 밖 출금은 그래프 끝 너머라 그래프 안이 아니라 여기에만 화살표로 적는다
  */
 @Composable
 private fun AxisRow(last: LocalDate, incomeArrow: Boolean, beyond: String?, flash: () -> Float) {
@@ -761,8 +753,7 @@ internal fun hatchInk(kind: DayKind, gray: Color, warning: Color): Color = when 
 }
 
 private val BUBBLE_ZONE = 44.dp      // 말풍선 자리(손잡이가 있을 때만)
-private val SIDE_PAD = 8.dp
-private val BEYOND_PAD = 34.dp       // 가상 구매 기간 밖 출금 표시 자리 — 마지막 날 손잡이와 겹치지 않게 넓다
+private val SIDE_PAD = 8.dp          // 양옆 같은 여백 — 월급날 칸이 없으면 오른쪽을 더 비우지 않는다(QA: 그래프가 늘 끝까지)
 private val BOTTOM_PAD = 10.dp
 private val COIN_R = 5.dp
 private val WITHDRAW_R = 6.5.dp      // 가상 구매 출금일 동전
