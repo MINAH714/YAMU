@@ -72,7 +72,8 @@ public final class RecommendationSelector {
                 .filter(card -> card.status() == CardStatus.CALCULATED).toList();
         partial |= input.cards().stream().anyMatch(card -> card.policy() != null
                 && calculated.stream().anyMatch(c -> c.userCardId() == card.userCardId())
-                && card.policy().simulationRules().stream().anyMatch(rule -> RecommendationDataIssue.IBK_CONFIRMED_ONLY.equals(rule.id())));
+                && card.policy().simulationRules().stream().anyMatch(rule -> RecommendationDataIssue.IBK_CONFIRMED_ONLY.equals(rule.id())
+                    || RecommendationDataIssue.IBK_PARTIAL_ITEMS.equals(rule.id())));
         if (calculated.isEmpty()) {
             return new Result(input.paymentId(), partial ? Status.DATA_INSUFFICIENT : Status.NO_ELIGIBLE_CARD,
                     null, null, partial ? "추천에 필요한 정보를 확인하지 못했습니다."

@@ -57,7 +57,7 @@ public class DatabaseCardRecommender implements CardRecommender {
             var reason = Objects.equals(evaluated.userCardId(), result.recommendation().selectedUserCardId())
                     ? SelectionReason.valueOf(result.recommendation().selectionReason().name()) : null;
             String notice = result.issues().stream().filter(i -> Objects.equals(i.userCardId(), evaluated.userCardId())
-                    && Set.of(com.yamu.be.recommendation.RecommendationDataIssue.IBK_CONFIRMED_ONLY,
+                    && Set.of(com.yamu.be.recommendation.RecommendationDataIssue.IBK_PARTIAL_ITEMS, com.yamu.be.recommendation.RecommendationDataIssue.IBK_CONFIRMED_ONLY,
                         com.yamu.be.recommendation.RecommendationDataIssue.IBK_ORIGINAL_CASHBACK).contains(i.code()))
                     .map(com.yamu.be.recommendation.RecommendationDataIssue::message).findFirst().orElse(null);
             String explanation = reason != null ? result.recommendation().message()
@@ -75,7 +75,13 @@ public class DatabaseCardRecommender implements CardRecommender {
                         && (i.userCardId()==null || i.userCardId()==evaluated.userCardId())).findFirst();
                 var reason = evaluated.calculation() == null
                         ? UncomparedReason.PAYMENT_AVAILABILITY_UNKNOWN : UncomparedReason.BENEFIT_DATA_INSUFFICIENT;
-                uncompared.add(new UncomparedCard(card, reason, issue.map(i -> i.message()).orElse(evaluated.message())));
+                String detail = evaluated.calculation() == null ? evaluated.message() : result.issues().stream()
+                        .filter(i -> Objects.equals(i.userCardId(), evaluated.userCardId())
+                                && i.code().startsWith("IBK_ITEM_CLASSIFICATION_UNKNOWN:"))
+                        .map(com.yamu.be.recommendation.RecommendationDataIssue::message).distinct()
+                        .collect(java.util.stream.Collectors.joining(" "));
+                uncompared.add(new UncomparedCard(card, reason, issue.map(i -> i.message())
+                        .orElse(detail == null || detail.isEmpty() ? evaluated.message() : detail)));
             }
         }
         // BE3가 계산한 카드별 실적 인정 값을 그대로 옮긴다(Task 5.2.11). 결제 승인이 고른 카드의 값을 저장한다
