@@ -53,6 +53,10 @@ class RecommendationInputAssembler {
         boolean scoped=scope!=null && rows.size()==scope.benefits().size() && rows.stream().allMatch(b -> b.getPolicyVersion()==1
                 && scope.benefits().contains(b.getBenefitCode())) && rows.stream().map(CardBenefit::getBenefitCode).distinct().count()==rows.size();
         boolean ibk = product != null && "IBK".equals(product.getIssuerCode()) && "IBK나라사랑카드".equals(product.getProductName());
+        if (ibk && transaction != null && "GS25".equals(merchantBrand) && transaction.basket() != null) {
+            transaction.basket().items().stream().filter(item -> item.ibkEligible() == null)
+                    .forEach(item -> issue(issues, card, null, "IBK_ITEM_CLASSIFICATION_UNKNOWN:" + item.productCode()));
+        }
         if (ibk) scoped = transaction != null && !date.isBefore(SIM_FROM) && date.isBefore(SIM_UNTIL)
                 && rows.size() == IbkPolicyRules.CODES.size()
                 && rows.stream().allMatch(r -> r.getPolicyVersion() == 1 && IbkPolicyRules.CODES.contains(r.getBenefitCode()))

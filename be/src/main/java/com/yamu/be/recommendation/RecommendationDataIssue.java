@@ -11,6 +11,15 @@ public record RecommendationDataIssue(Long userCardId, Long policyId, String cod
     /** HTTP 연결 시에도 원본 DB 예외 대신 이 안내를 전달한다. */
     @com.fasterxml.jackson.annotation.JsonProperty("message")
     public String message() {
+        if (code.startsWith("IBK_ITEM_CLASSIFICATION_UNKNOWN:")) {
+            String name = switch (code.substring("IBK_ITEM_CLASSIFICATION_UNKNOWN:".length())) {
+                case "gs-banana-milk" -> "바나나맛우유";
+                case "gs-cup-ramen" -> "컵라면";
+                case "gs-rose-tteokbokki" -> "떡볶이";
+                default -> "구매 상품";
+            };
+            return name + "의 GS25 현장할인 대상 여부가 아직 확인되지 않아 IBK 혜택 비교에서 제외했어요. 할인 제외가 확정된 상품은 아니에요.";
+        }
         if (code.startsWith("IBK_UNSUPPORTED_")) return "이 거래에 관련된 미지원 혜택이 있어 전체 혜택을 확정할 수 없습니다: " + code.substring(16);
         return switch (code) {
             case IBK_CONFIRMED_ONLY -> IBK_CONFIRMED_NOTICE;
