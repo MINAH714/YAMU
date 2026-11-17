@@ -11,6 +11,9 @@ import java.time.YearMonth
 /** 청구서 · 환급 응답 → 화면 값. 금액은 서버 값 그대로 고르기만 하고 앱이 셈하지 않는다 */
 class BillingMapperTest {
 
+    /** 출금일(11/14 · 11/16)보다 앞 — 이 날짜를 넘기면 확정 청구서가 출금 완료로 바뀐다 */
+    private val TODAY = LocalDate.of(2026, 11, 10)
+
     private fun bill(
         status: String?,
         expected: Long? = null,
@@ -19,12 +22,69 @@ class BillingMapperTest {
         item: Long = 50_000,
         payment: String? = "2026-11-14",
         withdrawal: String? = "2026-11-14",
+        today: LocalDate = TODAY,
     ) = BillDto(
         billId = 1, userCardId = 11, nickname = "톡톡", billingMonth = "2026-11",
         usagePeriod = UsagePeriodDto("2026-10-01", "2026-10-31"), closingDate = "2026-10-31",
         paymentDate = payment, withdrawalDate = withdrawal, status = status, itemAmount = item,
         expectedAmount = expected, finalAmount = final, unpaidAmount = unpaid,
-    ).toBill()!!
+    ).toBill(today)!!
+
+    // ── 출금일이 지난 청구서(출금 배치가 꺼진 서버) ──
+
+    @Test fun `출금일이 지난 확정 청구서는 출금 완료 — 그날 출금으로`() {
+        val b = bill("CONFIRMED", final = 87_000, withdrawal = "2026-11-16", today = LocalDate.of(2026, 11, 17))
+        assertEquals(BillState.PAID, b.state)
+        assertEquals("출금 완료", b.state.label)
+        assertEquals(87_000L, b.amount)
+        assertEquals("11/16 출금", b.rowLine())
+        assertEquals("11월 16일(월)에 출금했어요", b.statusLine())
+    }
+
+    @Test fun `출금일 당일은 BE 값 그대로 — 07시 배치 전후를 가를 수 없다`() {
+        assertEquals(BillState.CONFIRMED, bill("CONFIRMED", final = 1, withdrawal = "2026-11-16", today = LocalDate.of(2026, 11, 16)).state)
+    }
+
+    @Test fun `출금일이 지난 쌓이는 중 청구서도 출금 완료 · 예상 표시는 뗀다`() {
+        val b = bill("ACCUMULATING", expected = 47_000, withdrawal = "2026-11-16", today = LocalDate.of(2026, 11, 17))
+        assertEquals(BillState.PAID, b.state)
+        assertEquals(47_000L, b.amount)
+        assertFalse(b.isEstimate)
+    }
+
+    @Test fun `미납 · 정산 끝 · 모르는 상태는 출금일이 지나도 그대로`() {
+        val after = LocalDate.of(2026, 11, 20)
+        assertEquals(BillState.UNPAID, bill("UNPAID", final = 1, unpaid = 1, withdrawal = "2026-11-16", today = after).state)
+        assertEquals(BillState.CANCELED, bill("CANCELED", final = 1, unpaid = 0, withdrawal = "2026-11-16", today = after).state)
+        assertEquals(BillState.UNKNOWN, bill("WHAT", final = 1, withdrawal = "2026-11-16", today = after).state)
+        assertEquals(BillState.CONFIRMED, bill("CONFIRMED", final = 1, withdrawal = null, today = after).state)
+    }
+
+    @Test fun `다음 출금이 지난 청구서면 목록에 남은 청구서 중 가장 빠른 것으로`() {
+        val list = BillListDto(
+            items = listOf(
+                BillDto(billId = 3, status = "ACCUMULATING", withdrawalDate = "2026-12-14", expectedAmount = 30_000),
+                BillDto(billId = 2, status = "CONFIRMED", withdrawalDate = "2026-11-16", finalAmount = 87_000),
+            ),
+            summary = BillSummaryDto(BillNextWithdrawalDto(2, "2026-11-16", 87_000)),
+        ).toBillList(LocalDate.of(2026, 11, 17))
+        assertEquals(NextBillWithdrawal(3, LocalDate.of(2026, 12, 14), 30_000), list.next)
+        assertTrue(list.nextIsEstimate)
+    }
+
+    @Test fun `다음 출금이 지났고 남은 청구서도 없으면 요약에서 뺀다 · 오늘 이후면 서버 값 그대로`() {
+        val past = BillListDto(
+            items = listOf(BillDto(billId = 2, status = "CONFIRMED", withdrawalDate = "2026-11-16", finalAmount = 87_000)),
+            summary = BillSummaryDto(BillNextWithdrawalDto(2, "2026-11-16", 87_000)),
+        )
+        assertNull(past.toBillList(LocalDate.of(2026, 11, 17)).next)
+        assertEquals(NextBillWithdrawal(2, LocalDate.of(2026, 11, 16), 87_000), past.toBillList(LocalDate.of(2026, 11, 16)).next)
+    }
+
+    @Test fun `상세도 출금일이 지난 확정 청구서는 출금 완료`() {
+        val d = BillDetailDto(billId = 2, status = "CONFIRMED", withdrawalDate = "2026-11-16").toBillDetail(2, LocalDate.of(2026, 11, 17))
+        assertEquals(BillState.PAID, d.bill.state)
+    }
 
     // ── 상태별로 크게 보여 줄 금액 ──
 

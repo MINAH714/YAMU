@@ -141,6 +141,18 @@ enum class BillState(val label: String) {
 fun billStateOf(raw: String?): BillState =
     BillState.entries.firstOrNull { it != BillState.UNKNOWN && it.name.equals(raw?.trim(), ignoreCase = true) } ?: BillState.UNKNOWN
 
+/**
+ * 화면에 보일 청구서 상태. 쌓이는 중 · 출금 예정인데 출금일이 [today]보다 앞이면 출금 완료로 본다(임시).
+ * QA · 시연 서버는 SSAFY 계좌에서 돈이 빠지지 않게 확정 · 출금 배치를 꺼 둬서(BILLING_JOBS_ENABLED=false) 출금일이 지나도 BE 상태가 그대로다.
+ * 배치가 도는 서버에서는 출금일 07:00에 PAID · UNPAID로 바뀌어 오므로, 결과를 몰라 BE가 다시 확인 중인 청구서만 하루 먼저 완료로 보인다.
+ * 출금일 당일은 07:00 전후를 가를 수 없어 BE 값을 그대로 둔다
+ */
+internal fun billStateOf(raw: String?, withdrawalDate: LocalDate?, today: LocalDate): BillState {
+    val state = billStateOf(raw)
+    val open = state == BillState.ACCUMULATING || state == BillState.CONFIRMED
+    return if (open && withdrawalDate != null && withdrawalDate.isBefore(today)) BillState.PAID else state
+}
+
 /** 청구 회차 상태(BE BillItemStatus) — 태그를 다는 것만 따로 */
 enum class UsageState(val tag: String?) {
     NORMAL(null),
@@ -260,17 +272,25 @@ data class RefundPage(val items: List<Refund>, val page: Int, val hasNext: Boole
 
 // ───────────────────────── 바꾸기 ─────────────────────────
 
-fun BillListDto.toBillList(): BillList = BillList(
-    bills = items.mapNotNull { it.toBill() },
-    next = summary?.nextWithdrawal?.let { n ->
+/** [today] = 한국 날짜. 출금일이 지난 청구서를 출금 완료로 볼 때 쓴다([billStateOf]) */
+fun BillListDto.toBillList(today: LocalDate = LocalDate.now(KST)): BillList {
+    val bills = items.mapNotNull { it.toBill(today) }
+    val server = summary?.nextWithdrawal?.let { n ->
         val date = parseDate(n.date) ?: return@let null
         NextBillWithdrawal(n.billId, date, n.expectedAmount ?: return@let null)
-    },
-    unpaidCount = summary?.unpaidCount ?: 0,
-)
+    }
+    // BE는 출금일이 지난 확정 청구서도 다음 출금으로 준다. 앱은 그 청구서를 출금 완료로 보이므로 목록에 남은 청구서 중 출금일이 가장 빠른 것으로 바꾼다.
+    // 금액은 BE와 같은 규칙(쌓이는 중은 예상 청구액, 확정은 확정 청구액)으로 서버 값을 고르기만 한다
+    val next = server?.takeUnless { it.date.isBefore(today) } ?: server?.let {
+        bills.filter { b -> (b.state == BillState.ACCUMULATING || b.state == BillState.CONFIRMED) && b.withdrawalDate != null && b.amount > 0 }
+            .minWithOrNull(compareBy<Bill>({ b -> b.withdrawalDate }, { b -> b.billId }))
+            ?.let { b -> NextBillWithdrawal(b.billId, b.withdrawalDate!!, b.amount) }
+    }
+    return BillList(bills = bills, next = next, unpaidCount = summary?.unpaidCount ?: 0)
+}
 
 /** 번호가 없는 줄은 상세로 갈 수 없어 뺀다 */
-fun BillDto.toBill(): Bill? = Bill(
+fun BillDto.toBill(today: LocalDate = LocalDate.now(KST)): Bill? = Bill(
     billId = billId ?: return null,
     userCardId = userCardId,
     cardName = cardNameOf(nickname),
@@ -280,7 +300,7 @@ fun BillDto.toBill(): Bill? = Bill(
     closingDate = parseDate(closingDate),
     paymentDate = parseDate(paymentDate),
     withdrawalDate = parseDate(withdrawalDate),
-    state = billStateOf(status),
+    state = billStateOf(status, parseDate(withdrawalDate), today),
     itemCount = itemCount,
     itemAmount = itemAmount,
     billingDiscount = billingDiscount,
@@ -292,7 +312,7 @@ fun BillDto.toBill(): Bill? = Bill(
 )
 
 /** [requestedId] = 화면이 연 번호 — 응답에 번호가 빠져 와도 같은 청구서로 본다 */
-fun BillDetailDto.toBillDetail(requestedId: Long): BillDetail {
+fun BillDetailDto.toBillDetail(requestedId: Long, today: LocalDate = LocalDate.now(KST)): BillDetail {
     val usages = items.map { it.toUsage() }
     return BillDetail(
         bill = Bill(
@@ -305,7 +325,7 @@ fun BillDetailDto.toBillDetail(requestedId: Long): BillDetail {
             closingDate = parseDate(closingDate),
             paymentDate = parseDate(paymentDate),
             withdrawalDate = parseDate(withdrawalDate),
-            state = billStateOf(status),
+            state = billStateOf(status, parseDate(withdrawalDate), today),
             itemCount = usages.size,
             itemAmount = amounts.itemAmount,
             billingDiscount = amounts.billingDiscount,

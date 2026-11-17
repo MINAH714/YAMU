@@ -512,7 +512,8 @@ fun CardDto.toLinked() = LinkedCard(
     mainBenefits = mainBenefits,
 )
 
-fun CardDetailDto.toInfo() = CardInfo(
+/** [today] = 한국 날짜. 출금일이 지난 다음 출금은 청구서 화면처럼 출금 완료로 보고 뺀다(billStateOf와 같은 임시 보정) */
+fun CardDetailDto.toInfo(today: LocalDate = LocalDate.now(KST)) = CardInfo(
     userCardId = userCardId,
     brand = brandOf(issuer.name, color = issuer.color),
     nickname = nickname?.takeIf { it != productName },
@@ -529,7 +530,8 @@ fun CardDetailDto.toInfo() = CardInfo(
     nextWithdrawal = billing?.nextWithdrawal?.let { n ->
         val amount = n.amount ?: return@let null
         val date = n.withdrawalDate?.let { runCatching { LocalDate.parse(it) }.getOrNull() } ?: return@let null
-        NextWithdrawal(amount, date)
+        NextWithdrawal(amount, date).takeUnless { date.isBefore(today) }
     },
+    // 해제 안내는 BE 값 그대로 — 출금일이 지난 청구서도 BE에는 아직 남아 있다
     hasOpenBill = billing?.nextWithdrawal != null || billing?.hasUnpaidBill == true,
 )
