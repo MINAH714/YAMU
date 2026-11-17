@@ -154,6 +154,26 @@ class ForecastMapperTest {
         assertEquals(PARTIAL_LIVING_NOTE, withLiving.note)
     }
 
+    @Test fun `계좌별 위험 — 통합이 안전해도 안전 잔액 아래로 내려가는 계좌만 이름표와 함께, 서버 계좌 순서`() {
+        val text = json
+            .replace(""""accountIds":[3,4],""", """"accountIds":[3,4,5],""")
+            .replace(""""accountForecasts":null,""", """"accountForecasts":[
+                {"accountId":3,"summary":{"status":"DANGER","minBalance":-20000}},
+                {"accountId":4,"summary":{"status":"SAFE"}},
+                {"accountId":5,"summary":{"status":"WARNING"}},
+                {"accountId":9,"summary":{"status":"DANGER"}}],""")
+        fun option(id: Long, bank: String, last4: String) = ForecastAccountOption(id, "$bank 입출금", bank, last4, null, isPrimary = false)
+        val f = parse(text).copy(accounts = listOf(option(3, "KB국민은행", "1234"), option(4, "신한은행", "5678"), option(5, "하나은행", "9012")))
+        assertEquals(mapOf(3L to RiskLevel.DANGER, 4L to RiskLevel.SAFE, 5L to RiskLevel.WARNING, 9L to RiskLevel.DANGER), f.accountStatus)
+        // 이름표를 붙일 수 없는 계좌(9)는 빼고, 안전한 계좌(4)도 뺀다
+        assertEquals(listOf(3L to RiskLevel.DANGER, 5L to RiskLevel.WARNING), f.atRiskAccounts.map { (a, level) -> a.accountId to level })
+        assertEquals("KB국민은행 ··1234", f.atRiskAccounts[0].first.shortName())
+        // 계좌 하나만 봤으면 위 태그와 같은 말이라 따로 보이지 않는다
+        assertTrue(f.copy(accountIds = listOf(3L)).atRiskAccounts.isEmpty())
+        // 계좌별 결과를 받지 않은 응답(홈 · 자산 흐름)은 비어 있다
+        assertTrue(parse().accountStatus.isEmpty())
+    }
+
     @Test fun `기간 뒤 카드값 — 출금일순으로 읽고 선 · 예정 출금 합에는 넣지 않는다(-348 !199)`() {
         val withBeyond = json.replace(
             """"accountForecasts":null,""",

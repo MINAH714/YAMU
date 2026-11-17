@@ -46,6 +46,7 @@ interface ForecastApi {
         @Query("accountIds") accountIds: List<Long>,
         @Query("until") until: String?,
         @Query("days") days: Int?,
+        @Query("includeAccountDetails") includeAccountDetails: Boolean = false,   // 계좌별 결과(accountForecasts)까지 — 잔고예보 화면만 켠다
     ): Response<ApiEnvelope<BalanceForecastDto>>
 
     /** 가상 구매 전후 비교. 계산만 하고 결제 · 청구 · 실적 · 한도는 바꾸지 않아 다시 보내도 된다 */
@@ -255,7 +256,7 @@ class ForecastRepositoryImpl @Inject constructor(
         val selection = current   // 한 번만 읽어 기간 · 계좌 · 목록 범위가 같은 선택을 쓰게 한다
         val period = selection.period
         val ids = selection.accountIdsFrom(accounts)
-        return apiCall { api.forecast(ids, period?.until, period?.days) }
+        return apiCall { api.forecast(ids, period?.until, period?.days, includeAccountDetails = true) }
             .map { it.toForecast().copy(scope = selection.scopeFrom(accounts), accounts = accounts.filter { a -> a.accountId in ids }) }
             .also { r -> if (r is ApiResult.Success) last = selection to r.data }
     }

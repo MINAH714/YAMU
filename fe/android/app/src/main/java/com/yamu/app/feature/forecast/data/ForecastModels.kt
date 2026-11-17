@@ -19,10 +19,19 @@ import kotlin.math.abs
     val riskWindows: List<RiskWindowDto> = emptyList(),
     val livingCost: ForecastLivingCostDto? = null,
     val beyondHorizon: List<BeyondHorizonItemDto> = emptyList(),
+    val accountForecasts: List<AccountForecastDto>? = null,
     val excluded: List<ExcludedItemDto> = emptyList(),
     val isEstimate: Boolean = true,
     val calculatedAt: String? = null,
 )
+
+/**
+ * 계좌 하나의 결과 — includeAccountDetails=true로 불렀을 때만 온다(BE BalanceForecast.AccountForecast).
+ * 앱은 그 계좌가 안전 잔액 아래로 내려가는지(summary.status)만 읽는다. 계좌마다 같은 안전 잔액으로 판단한다
+ */
+@Serializable data class AccountForecastDto(val accountId: Long? = null, val summary: AccountSummaryDto? = null)
+
+@Serializable data class AccountSummaryDto(val status: String? = null)
 
 /**
  * 출금일이 예보 기간 뒤인 카드 청구 · 신용카드 사용 추정(BE -348 !199). 선과 위험에는 넣지 않았고 선택 계좌에서 빠지는 것만 온다.
@@ -272,7 +281,18 @@ data class Forecast(
     val scope: AccountScope? = null,   // 계좌를 일부만 골랐을 때 — 응답에는 없고 저장소가 붙인다
     val beyondHorizon: List<ForecastEvent> = emptyList(),   // 기간 뒤에 빠질 카드값(출금일순, 0원 제외). 선에는 없다
     val accounts: List<ForecastAccountOption> = emptyList(),   // 이 예보가 본 계좌(이름표용) — 응답에는 없고 저장소가 붙인다
+    val accountStatus: Map<Long, RiskLevel> = emptyMap(),   // 계좌마다 위험 수준(서버 계좌 순서). 계좌별 결과를 받지 않았으면 비어 있다
 ) {
+    /**
+     * 안전 잔액 아래로 내려가는 계좌(WARNING · DANGER), 서버 계좌 순서. 이름표를 붙일 수 있는 계좌만 담는다.
+     * 계좌를 하나만 봤으면 위 상태 태그와 같은 말이라 비운다
+     */
+    val atRiskAccounts: List<Pair<ForecastAccountOption, RiskLevel>>
+        get() = if (accountIds.size < 2) emptyList() else accountStatus.mapNotNull { (id, level) ->
+            if (level != RiskLevel.WARNING && level != RiskLevel.DANGER) return@mapNotNull null
+            accounts.firstOrNull { it.accountId == id }?.let { it to level }
+        }
+
     /**
      * 계좌 이름표 — 하나면 'KB국민은행 ··1234', 여럿이면 '계좌 2개'([all]이면 '계좌 2개 전체').
      * 저장소가 계좌를 붙이지 못했으면(옛 캐시 · 시험) 개수만
@@ -409,6 +429,7 @@ fun BalanceForecastDto.toForecast(): Forecast {
             val date = parseDate(b.date) ?: return@mapNotNull null
             ForecastEvent(date, enumOf(b.type, FlowType.UNKNOWN), b.title?.takeIf { it.isNotBlank() } ?: "카드값", b.amount, enumOf(b.confidence, FlowConfidence.UNKNOWN))
         }.filter { it.amount != 0L }.sortedBy { it.date },
+        accountStatus = accountForecasts.orEmpty().mapNotNull { a -> a.accountId?.let { it to enumOf(a.summary?.status, RiskLevel.UNKNOWN) } }.toMap(),
     )
 }
 
