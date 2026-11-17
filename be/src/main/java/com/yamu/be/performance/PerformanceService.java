@@ -182,7 +182,12 @@ public class PerformanceService {
         return new PerformanceDetailResponse(card.getId(), month.toString(),
                 new PerformanceDetailResponse.Summary(progress.target(), progress.recognized(), progress.remaining(),
                         progress.status()),
-                tiers, nextMonthImpact(progress, tiers), null);
+                tiers, summary == null ? List.of() : summary.benefits().stream()
+                        .map(b -> new PerformanceDetailResponse.Benefit(b.name(), b.valueLabel(),
+                                b.minPerformanceAmount(), b.minPaymentAmount(), b.perTransactionLimit(),
+                                b.monthlyCount(), b.limited()))
+                        .toList(),
+                nextMonthImpact(progress, tiers), null);
     }
 
     /**

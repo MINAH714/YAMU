@@ -150,6 +150,9 @@ class PerformanceAnalysisIntegrationTest extends MySqlTestSupport {
                 .andExpect(jsonPath("$.data.guide").value("ALREADY_ACHIEVED"))
                 .andExpect(jsonPath("$.data.remainingAmount").value(0))
                 .andExpect(jsonPath("$.data.steps", hasSize(0)))
+                // 자연 소비를 세지 않으니 달별 금액도 없다(S15P31E103-615)
+                .andExpect(jsonPath("$.data.projection.historyMonths").value(0))
+                .andExpect(jsonPath("$.data.projection.history", hasSize(0)))
                 .andExpect(jsonPath("$.data.benefitsAtStake[0].name").value("생활 10% 할인"));
     }
 
@@ -174,6 +177,12 @@ class PerformanceAnalysisIntegrationTest extends MySqlTestSupport {
                 .andExpect(jsonPath("$.data.asOf").value("2026-11-10T03:00:00Z"))
                 .andExpect(jsonPath("$.data.daysLeft").value(20))
                 .andExpect(jsonPath("$.data.projection.historyMonths").value(2))
+                // 달마다 같은 기간 금액 — 오래된 달부터, 실적 행이 없는 8월은 없다(S15P31E103-615)
+                .andExpect(jsonPath("$.data.projection.history", hasSize(2)))
+                .andExpect(jsonPath("$.data.projection.history[0].yearMonth").value("2026-09"))
+                .andExpect(jsonPath("$.data.projection.history[0].amount").value(70_000))
+                .andExpect(jsonPath("$.data.projection.history[1].yearMonth").value("2026-10"))
+                .andExpect(jsonPath("$.data.projection.history[1].amount").value(50_000))
                 .andExpect(jsonPath("$.data.projection.naturalRecognizable").value(60_000))
                 .andExpect(jsonPath("$.data.projection.averageDailyRecognizable").value(3_000))
                 .andExpect(jsonPath("$.data.projection.projectedRecognizedAmount").value(260_000))

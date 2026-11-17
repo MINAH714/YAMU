@@ -96,8 +96,10 @@ public class CardBenefitSummaryReader {
                     .forEach(thresholds::add);
             List<Tier> tierList = thresholds.stream().map(threshold -> tier(threshold, rows, linkRows,
                     currentGroupRows, tierRows)).toList();
+            List<BenefitLine> lines = rows.stream().filter(b -> b.getBenefitName() != null).sorted(MAIN_ORDER)
+                    .map(b -> line(b, linkRows, currentGroupRows, tierRows)).toList();
             result.put(product, new Summary(names, List.copyOf(thresholds), tierList,
-                    baseMonthlyKrwLimit(rows, linkRows, currentGroupRows, tierRows)));
+                    baseMonthlyKrwLimit(rows, linkRows, currentGroupRows, tierRows), lines));
         });
         return result;
     }
@@ -195,9 +197,15 @@ public class CardBenefitSummaryReader {
      * @param thresholds   실적 기준(원), 작은 순. 없으면 빈 목록
      * @param tiers        기준별 구간 정보. {@code thresholds}와 같은 순서·개수
      * @param baseMonthlyKrwLimit 전월 실적 0원일 때 한 달 원화 혜택 최대치(실적 조건 없는 혜택). 그런 혜택이 없으면 0, 모르면 null
+     * @param benefits     혜택마다 내용 한 줄. 주요 혜택과 같은 차례이고 개수 제한은 없다
      */
     public record Summary(List<String> mainBenefits, List<Long> thresholds, List<Tier> tiers,
-            Long baseMonthlyKrwLimit) {
+            Long baseMonthlyKrwLimit, List<BenefitLine> benefits) {
+
+        /** 혜택 내용 없이(테스트·혜택 내용을 쓰지 않는 곳) */
+        public Summary(List<String> mainBenefits, List<Long> thresholds, List<Tier> tiers, Long baseMonthlyKrwLimit) {
+            this(mainBenefits, thresholds, tiers, baseMonthlyKrwLimit, List.of());
+        }
 
         /** 이번 달 실적보다 큰 기준 중 가장 작은 값. 다 넘었으면 가장 큰 기준, 기준이 없으면 null. */
         public Long targetFor(long recognized) {
@@ -218,5 +226,56 @@ public class CardBenefitSummaryReader {
      *                        한 번만 센다. 원화·월 한도가 없는 혜택이 있거나 한도 값을 모르면 null
      */
     public record Tier(long threshold, List<String> benefitNames, Long monthlyKrwLimit) {
+    }
+
+    /**
+     * 혜택 하나의 내용(S15P31E103-615, 2026-11-17 임시). 카드 실적 화면이 혜택마다 한 번씩 보여 준다. 실적 단계 줄에는
+     * 단계마다 새로 열리는 혜택 이름만 있어서, 한도만 커지는 단계(노리 50만·100만)와 혜택 비율·건당 한도를 보여 줄 곳이 없었다.
+     * 건당 최대·월 횟수는 그 혜택에 필요한 전월 실적에서의 한도 값이다(구간마다 달라지는 한도는 첫 값만). 한도 값 읽기는
+     * {@link #tier}와 같은 {@code limitAt}이라 기본 한도와 구간이 함께 있거나 겹치면 모르는 값(null)이다.
+     *
+     * @param valueLabel           "0.8%" · "2,500원" · "500P"
+     * @param minPerformanceAmount 받으려면 필요한 전월 실적(원). 조건 없으면 0
+     * @param minPaymentAmount     한 번에 이만큼 이상 결제해야 받는 금액(원). 조건 없으면 0
+     * @param perTransactionLimit  건당 최대(원). 건당 원화 한도가 없거나 값을 모르면 null
+     * @param monthlyCount         한 달에 받는 횟수. 횟수 한도가 없거나 모르면 null
+     * @param limited              한도 그룹에 걸려 있는지. false면 한도 없이 받는다
+     */
+    public record BenefitLine(String name, String valueLabel, long minPerformanceAmount, long minPaymentAmount,
+            Long perTransactionLimit, Integer monthlyCount, boolean limited) {
+    }
+
+    private static BenefitLine line(CardBenefit b, List<BenefitLimitLink> linkRows, Map<Long, LimitGroup> groupRows,
+            List<TierLimit> tierRows) {
+        long minPerformance = b.getMinPerformanceAmount() == null ? 0 : Math.max(0, b.getMinPerformanceAmount());
+        List<LimitGroup> linked = linkRows.stream().filter(l -> l.getCardBenefitId().equals(b.getId()))
+                .map(l -> groupRows.get(l.getLimitGroupId())).filter(Objects::nonNull).toList();
+        Long perTransaction = linked.stream()
+                .filter(g -> g.getPeriodType() == BenefitPolicy.Period.PER_TRANSACTION
+                        && g.getLimitUnit() == BenefitPolicy.Unit.KRW)
+                .map(g -> limitAt(g, tierRows, minPerformance)).filter(Objects::nonNull)
+                .min(Comparator.naturalOrder()).orElse(null);
+        Integer count = linked.stream()
+                .filter(g -> g.getPeriodType() == BenefitPolicy.Period.MONTHLY
+                        && g.getLimitUnit() == BenefitPolicy.Unit.COUNT)
+                .map(g -> limitAt(g, tierRows, minPerformance)).filter(Objects::nonNull)
+                .min(Comparator.naturalOrder()).map(Long::intValue).orElse(null);
+        boolean limited = linkRows.stream().anyMatch(l -> l.getCardBenefitId().equals(b.getId()));
+        return new BenefitLine(b.getBenefitName(), valueLabel(b), minPerformance,
+                b.getMinPaymentAmount() == null ? 0 : b.getMinPaymentAmount(), perTransaction, count, limited);
+    }
+
+    /** 혜택 값 한 마디. 비율은 백분율로, 정액은 단위를 붙여 */
+    static String valueLabel(CardBenefit benefit) {
+        if (benefit.getCalculationType() == BenefitPolicy.CalculationType.RATE) {
+            return benefit.getRate() == null ? null
+                    : benefit.getRate().movePointRight(2).stripTrailingZeros().toPlainString() + "%";
+        }
+        if (benefit.getFixedValue() == null) {
+            return null;
+        }
+        String amount = String.format("%,d", benefit.getFixedValue().longValue());
+        return benefit.getValueUnit() == BenefitPolicy.Unit.POINT ? amount + "P"
+                : benefit.getValueUnit() == BenefitPolicy.Unit.COUNT ? amount + "회" : amount + "원";
     }
 }
