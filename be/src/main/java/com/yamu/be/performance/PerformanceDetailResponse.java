@@ -9,11 +9,12 @@ import java.util.List;
  *
  * @param yearMonth       한국 기준 이번 달(YYYY-MM)
  * @param tiers           실적 구간. 기준이 작은 순. 실적 조건이 없으면 빈 목록
+ * @param benefits        혜택마다 내용 한 줄(S15P31E103-615, 2026-11-17 임시). 필요한 실적이 낮은 순, 비율이 높은 순. 없으면 빈 목록
  * @param nextMonthImpact 이번 달 실적이 다음 달 혜택에 주는 영향. 목표가 없거나 실적 행이 없으면 null
  * @param dataSyncedAt    동기화 개념이 없어 null({@link CardPerformancesResponse} 참고)
  */
 public record PerformanceDetailResponse(long userCardId, String yearMonth, Summary summary, List<Tier> tiers,
-        NextMonthImpact nextMonthImpact, LocalDateTime dataSyncedAt) {
+        List<Benefit> benefits, NextMonthImpact nextMonthImpact, LocalDateTime dataSyncedAt) {
 
     /** 목록({@link CardPerformancesResponse.Item})과 같은 값. */
     public record Summary(Long targetAmount, long recognizedAmount, long remainingAmount, PerformanceStatus status) {
@@ -32,5 +33,19 @@ public record PerformanceDetailResponse(long userCardId, String yearMonth, Summa
     }
 
     public record NextMonthImpact(String message) {
+    }
+
+    /**
+     * 혜택 하나의 내용({@link com.yamu.be.card.CardBenefitSummaryReader.BenefitLine}과 같은 값).
+     *
+     * @param valueLabel           "0.8%" · "2,500원"
+     * @param minPerformanceAmount 받으려면 필요한 전월 실적(원). 조건 없으면 0
+     * @param minPaymentAmount     한 번에 이만큼 이상 결제해야 받는 금액(원). 조건 없으면 0
+     * @param perTransactionLimit  건당 최대(원). 없거나 모르면 null
+     * @param monthlyCount         한 달에 받는 횟수. 없거나 모르면 null
+     * @param limited              한도에 걸려 있는지. false면 한도 없이 받는다
+     */
+    public record Benefit(String name, String valueLabel, long minPerformanceAmount, long minPaymentAmount,
+            Long perTransactionLimit, Integer monthlyCount, boolean limited) {
     }
 }
