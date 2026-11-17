@@ -758,6 +758,13 @@ class QaSeedServiceTest extends MySqlTestSupport {
         legacyDisplay(owner);
         var ids=db.queryForList("SELECT p.payment_transaction_id FROM payment_transaction p JOIN merchant m USING(merchant_id) WHERE p.user_id=? AND m.brand_code='YAMU_TEST_RESTAURANT' ORDER BY p.payment_transaction_id",Long.class,owner);
         for(long id:ids) com.yamu.be.notification.SeedNotificationReplay.refreshPayment(db,owner,id);
+        // An existing cancellation event must keep its own wording, timestamp and read state.
+        db.update("""
+            INSERT INTO notification(user_id,notification_type,deduplication_key,title,body,target_type,target_id,created_at,updated_at)
+            SELECT p.user_id,'PAYMENT_RESULT',CONCAT('PAYMENT_RESULT:',p.payment_transaction_id,':CANCELED'),'결제 취소',
+              CONCAT(m.merchant_name,' 12,500원 결제가 취소됐어요'),'PAYMENT_TRANSACTION',p.payment_transaction_id,UTC_TIMESTAMP(6),UTC_TIMESTAMP(6)
+            FROM payment_transaction p JOIN merchant m USING(merchant_id) WHERE p.payment_transaction_id=?
+            """,ids.get(0));
         db.update("""
             INSERT INTO payment_transaction(user_id,user_card_id,card_product_id,merchant_id,payment_channel,facility_type,
               merchant_context_snapshot,request_key,request_fingerprint,source,status,requested_amount,approved_amount,

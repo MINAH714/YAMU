@@ -4,7 +4,6 @@ import static com.yamu.be.seed.qa.QaSeedSpec.require;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.yamu.be.global.crypto.LookupHasher;
-import com.yamu.be.notification.SeedNotificationReplay;
 import java.nio.charset.StandardCharsets;
 import java.sql.Timestamp;
 import java.time.Clock;
@@ -67,12 +66,12 @@ final class QaLifeDisplayNames {
                 require(db.update("UPDATE payment_transaction SET merchant_context_snapshot=?,version=version+1,updated_at=? WHERE payment_transaction_id=? AND user_id=? AND version=?",
                     mapper.writeValueAsString(context),Timestamp.from(clock.instant()),id,user,row.get("version"))==1,"Purchase changed concurrently");
                 changed++;
-                String previous=old.isEmpty()?(String)row.get("merchant_name"):old;
-                // Keep existing cancellation notices consistent too; preserve event identity/time/read state.
-                db.update("UPDATE notification SET body=CONCAT(?,SUBSTRING(body,?)) WHERE user_id=? AND target_type='PAYMENT' AND target_id=? AND LEFT(body,?)=?",
-                    display,previous.length()+1,user,id,previous.length()+1,previous+" ");
-                SeedNotificationReplay.refreshPayment(db,user,id);refreshed++;
             }
+            // Replace only the merchant prefix, preserving event-specific text and historical card names.
+            var prefixes=new LinkedHashSet<>(List.of(old,(String)row.get("merchant_name"),"야무 테스트 식당","느티나무식당"));
+            for(String prefix:prefixes) if(!prefix.isBlank() && !prefix.equals(display))
+                refreshed+=db.update("UPDATE notification SET body=CONCAT(?,SUBSTRING(body,?)) WHERE user_id=? AND target_type='PAYMENT_TRANSACTION' AND target_id=? AND LEFT(body,?)=?",
+                    display,prefix.length()+1,user,id,prefix.length()+1,prefix+" ");
             purchases.add(new Purchase(id,((Number)row.get("user_card_id")).longValue(),((Number)row.get("merchant_id")).longValue(),purchase.amount(),(Timestamp)row.get("approved_at"),display));
         }
         require(purchases.size()==196,"Original restaurant fixture count differs");
@@ -100,6 +99,6 @@ final class QaLifeDisplayNames {
             require(db.queryForList("SELECT payment_transaction_id FROM payment_transaction WHERE merchant_id=? FOR UPDATE",Long.class,id).isEmpty(),"Cafe has existing purchases; preserve shared label");
             cafe=db.update("UPDATE merchant SET merchant_name='메가MGC커피',updated_at=? WHERE merchant_id=? AND merchant_name=?",Timestamp.from(clock.instant()),id,cafes.get(0).get("merchant_name"));
         }
-        System.out.printf("LIFE_DISPLAY user=%d changedPurchases=%d refreshedPayments=%d candidates=%d occurrences=%d unusedCafeLabels=%d%n",user,changed,refreshed,candidates,occurrences,cafe);
+        System.out.printf("LIFE_DISPLAY user=%d changedPurchases=%d refreshedNotifications=%d candidates=%d occurrences=%d unusedCafeLabels=%d%n",user,changed,refreshed,candidates,occurrences,cafe);
     }
 }
