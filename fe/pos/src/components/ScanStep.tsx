@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type FormEvent, type RefObject } from 'rea
 import { formatToken, parseManual } from '../payment/barcode'
 import { planLabel, type Terms } from '../payment/terms'
 import { CameraScanner } from './CameraScanner'
+import { submitOnEnter } from './manualCode'
 import '../styles/payment.css'
 
 type Props = {
@@ -16,6 +17,8 @@ export function ScanStep({ terms, notice, rejectedToken, onToken }: Props) {
   const [manual, setManual] = useState('')
   const [hint, setHint] = useState<string | null>(null)
   const [typing, setTyping] = useState(false)
+  // 직접 입력을 시작하면 카메라를 끈다. 포커스를 따라 껐다 켜면 키보드가 들썩일 때마다 카메라가 커졌다 작아진다
+  const [manualMode, setManualMode] = useState(false)
   const rootRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
 
@@ -41,15 +44,28 @@ export function ScanStep({ terms, notice, rejectedToken, onToken }: Props) {
   }
 
   return (
-    <div className="pay-scan" ref={rootRef} data-typing={typing}>
+    <div className="pay-scan" ref={rootRef} data-typing={typing} data-manual={manualMode}>
       <p className="pay-scan-terms">YAMU페이 · {planLabel(terms.plan, terms.installmentMonths)}</p>
       {notice && <p className="alert alert-error">{notice}</p>}
 
-      <CameraScannerWithGuard
-        rejectedToken={rejectedToken}
-        onRead={accept}
-        onUnknownQr={() => setHint('YAMU 결제 QR이 아니에요.')}
-      />
+      {manualMode ? (
+        <button
+          type="button"
+          className="text pay-camera-back"
+          onClick={() => {
+            setManualMode(false)
+            setHint(null)
+          }}
+        >
+          카메라로 스캔하기
+        </button>
+      ) : (
+        <CameraScannerWithGuard
+          rejectedToken={rejectedToken}
+          onRead={accept}
+          onUnknownQr={() => setHint('YAMU 결제 QR이 아니에요.')}
+        />
+      )}
       {hint && <p className="alert alert-info">{hint}</p>}
 
       <form className="pay-manual" onSubmit={handleManual}>
@@ -58,11 +74,16 @@ export function ScanStep({ terms, notice, rejectedToken, onToken }: Props) {
           <input
             ref={inputRef}
             inputMode="numeric"
+            enterKeyHint="go"
             autoComplete="off"
             placeholder="결제 코드 16자리"
             value={manual}
             onChange={(event) => setManual(event.target.value)}
-            onFocus={() => setTyping(true)}
+            onKeyDown={submitOnEnter}
+            onFocus={() => {
+              setTyping(true)
+              setManualMode(true)
+            }}
             onBlur={() => setTyping(false)}
           />
         </label>
@@ -89,18 +110,14 @@ function useKeyboardInset(
     if (!typing || !trayRoot || !viewport) return
 
     // resizes-content에서는 innerHeight도 같이 줄어드니 키보드가 떴는지는 포커스 때 높이와 비교한다
-    const focusHeight = viewport.height
-    let keyboardOpen = false
+    // 키보드가 내려갔다고 포커스를 빼지 않는다. 예전엔 그때 카메라를 다시 키웠는데, 키보드 높이가 잠깐 출렁이기만 해도
+    // 포커스가 빠졌다 다시 들어가 카메라가 커졌다 작아지기를 되풀이했다. 이제 직접 입력 중엔 카메라가 꺼져 있다
     const sync = () => {
       // 손가락으로 확대한 것은 키보드가 아니다
       if (viewport.scale > 1) return
       const hidden = Math.max(0, Math.round(window.innerHeight - viewport.height) - viewport.offsetTop)
       trayRoot.style.setProperty('--keyboard-inset', `${hidden}px`)
       inputRef.current?.scrollIntoView({ block: 'nearest' })
-      // 뒤로 키로 키보드만 내리면 포커스가 남아 카메라가 작은 채로 있게 된다
-      const shrunk = focusHeight - viewport.height
-      if (keyboardOpen && shrunk < 1) inputRef.current?.blur()
-      keyboardOpen = shrunk >= 1
     }
 
     sync()
